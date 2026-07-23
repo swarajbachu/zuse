@@ -13,7 +13,6 @@ import {
 import { groupTimelineTurns } from "@zuse/client-runtime/timeline";
 import type {
 	FolderId,
-	MessageId,
 	PermissionRequest,
 	SessionId,
 	UserQuestion,
@@ -31,16 +30,16 @@ import {
 	type LayoutChangeEvent,
 	type NativeScrollEvent,
 	type NativeSyntheticEvent,
-	Platform,
 	Pressable,
 	Text,
 	View,
 } from "react-native";
 import {
-	KeyboardController,
+	KeyboardGestureArea,
 	KeyboardStickyView,
 } from "react-native-keyboard-controller";
 import Animated, {
+	useAnimatedProps,
 	useAnimatedStyle,
 	useReducedMotion,
 	useSharedValue,
@@ -62,6 +61,7 @@ import { SessionActionsMenu } from "~/components/session-actions-menu";
 import { ThreadHeaderTitle } from "~/components/thread-header-title";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { WorkingIndicator } from "~/components/ui/working-indicator";
+import { useTranscriptScrollCoordinator } from "~/hooks/use-transcript-scroll-coordinator";
 import { coordinateChatBottomState } from "~/lib/chat-bottom-state";
 import { isFreshChat, summarizeComposerActivity } from "~/lib/composer-state";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
@@ -73,13 +73,6 @@ import { captureMobileError } from "~/lib/crash-reporting";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
 import { connectionSessionKey } from "~/lib/session-key";
-import {
-	LIVE_EDGE_ENTER_PX,
-	nextThreadAnchor,
-	nextThreadScrollMode,
-	shouldShowLatestAction,
-	type ThreadScrollMode,
-} from "~/lib/thread-scroll";
 import { shouldRestoreThreadPosition } from "~/lib/thread-switching";
 import {
 	readThreadViewState,
@@ -142,6 +135,12 @@ import {
 	togglePinnedChat,
 } from "~/store/pinned-chats";
 import {
+	markSessionTurnStartFailed,
+	markSessionTurnStarting,
+	resolveSessionStatus,
+	sessionTurnActivityAtom,
+} from "~/store/session-turn-activity";
+import {
 	archiveChat,
 	archiveSession,
 	connectionBundlesAtom,
@@ -185,34 +184,29 @@ function ThreadScreen() {
 	const normalizedSessionId = normalizeConnParam(sessionId) as SessionId;
 	const restoreThreadPosition = shouldRestoreThreadPosition(openAtLatest);
 	const listRef = useRef<LegendListRef>(null);
-	const scrollModeRef = useRef<ThreadScrollMode>("initial");
 	const distanceFromBottomRef = useRef(0);
 	const scrollOffsetRef = useRef(0);
-	const lastScrolledAnchorTurnIdRef = useRef<string | null>(null);
-	const activeThreadKeyRef = useRef("");
 	const hasUnseenContentRef = useRef(false);
+	const preAppendUiRef = useRef<{
+		readonly hasUnseenContent: boolean;
+		readonly jumpAccessible: boolean;
+	} | null>(null);
 	const previousMessagesRef = useRef<readonly unknown[] | null>(null);
+	const readerGestureActiveRef = useRef(false);
 	const composerOverlayRef = useRef<View>(null);
-	const [showJumpButton, setShowJumpButton] = useState(false);
+	const [jumpAccessible, setJumpAccessible] = useState(false);
 	const [hasUnseenContent, setHasUnseenContent] = useState(false);
-	const [anchoredTurnId, setAnchoredTurnId] = useState<string | null>(null);
-	const [composerExpanded, setComposerExpanded] = useState(false);
-	const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
-	const usesAutomaticContentInsets = Platform.OS === "ios";
-	const restingBottomInset = Math.max(insets.bottom, 12);
-	const overlayBottomInset = composerExpanded ? 0 : restingBottomInset;
+	const composerBottomInset = insets.bottom + 10;
 	const [bottomAccessoryHeight, setBottomAccessoryHeight] = useState(
-		restingBottomInset + 64,
+		composerBottomInset + 64,
 	);
-	const jumpOpacity = useSharedValue(0);
+	const isNearEnd = useSharedValue(true);
 	const reduceMotion = useReducedMotion();
-	const nativeInsetOvercount = usesAutomaticContentInsets ? insets.bottom : 0;
 	const { contentInsetEndAdjustment, onComposerLayout } =
 		useKeyboardChatComposerInset(
 			listRef,
 			composerOverlayRef,
-			Math.max(0, restingBottomInset + 64 - nativeInsetOvercount),
-			-nativeInsetOvercount,
+			composerBottomInset + 64,
 		);
 	const { freeze, scrollMessageToEnd } = useKeyboardScrollToEnd({ listRef });
 	const connections = useAtomValue(connectionsAtom);
@@ -222,6 +216,7 @@ function ThreadScreen() {
 		[connKey, connections],
 	);
 	const stateKey = connectionSessionKey(connKey, normalizedSessionId);
+	const turnActivity = useAtomValue(sessionTurnActivityAtom(stateKey));
 	const [restoredViewState] = useState(() =>
 		restoreThreadPosition ? readThreadViewState(stateKey) : null,
 	);
@@ -233,13 +228,26 @@ function ThreadScreen() {
 	const serverQueuePaused = useAtomValue(sessionQueuePausedAtom(stateKey));
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
-	const listMountKey = `${stateKey}:${turns.length === 0 ? "empty" : "filled"}`;
 	// Computed here (not in the composer) so keystrokes never touch it and the
 	// composer needs no subscription to the message store.
 	const composerActivity = summarizeComposerActivity(turns.at(-1));
-	useEffect(() => {
-		activeThreadKeyRef.current = stateKey;
-	}, [stateKey]);
+	const transcriptScroll = useTranscriptScrollCoordinator({
+		initiallyDetached: restoredViewState?.mode === "detached",
+		onScrollFailed: () => {
+			setJumpAccessible(true);
+		},
+		releaseFreeze: () => freeze.set(false),
+		scrollAnchoredMessageToEnd: () =>
+			scrollMessageToEnd({
+				animated: !reduceMotion,
+				closeKeyboard: false,
+			}),
+		scrollToLatest: () =>
+			listRef.current?.scrollToEnd({ animated: !reduceMotion }) ??
+			Promise.reject(new Error("Transcript list is not mounted.")),
+	});
+	const settleTranscriptTurn = transcriptScroll.onTurnSettled;
+	const readReaderDetached = transcriptScroll.isReaderDetached;
 	const detail = selectSessionChat(bundles, normalizedSessionId);
 	const chatId = detail?.session.chatId ?? null;
 	const allConnectionSessions = useMemo(
@@ -265,9 +273,13 @@ function ThreadScreen() {
 		return (status ?? thread.status) === "running";
 	}).length;
 	const title = detail?.chat?.title ?? detail?.session.title ?? "Thread";
-	const sessionStatus = statusBySession[stateKey] ?? detail?.session.status;
+	const sessionStatus = resolveSessionStatus(
+		statusBySession[stateKey] ?? detail?.session.status,
+		turnActivity,
+	);
 	const fresh = isFreshChat(messages);
 	const sessionRunning = sessionStatus === "running";
+	const sessionActive = sessionRunning || sessionStatus === "booting";
 
 	const pending = useAtomValue(pendingPermissionsAtom(stateKey));
 	const localQueued = useAtomValue(queuedMessagesAtom(stateKey));
@@ -331,12 +343,12 @@ function ThreadScreen() {
 	}, [connKey, connectionSnapshot?.generation, options, threadIds]);
 
 	useEffect(() => {
-		if (options === null || (!sessionRunning && pending.length === 0)) return;
+		if (options === null || (!sessionActive && pending.length === 0)) return;
 		const poll = () =>
 			void reconcilePermissions(connKey, options, normalizedSessionId);
 		const timer = setInterval(poll, pending.length > 0 ? 5_000 : 15_000);
 		return () => clearInterval(timer);
-	}, [connKey, normalizedSessionId, options, pending.length, sessionRunning]);
+	}, [connKey, normalizedSessionId, options, pending.length, sessionActive]);
 
 	useEffect(() => {
 		if (options === null) return;
@@ -432,7 +444,7 @@ function ThreadScreen() {
 					sessionId: normalizedSessionId,
 					providerId: detail.session.providerId,
 					permissionMode: detail.session.permissionMode,
-					isRunning: sessionRunning,
+					isRunning: sessionActive,
 				});
 	const headPermission = permissionRequests[0] ?? null;
 	const pendingQuestion = (() => {
@@ -460,7 +472,7 @@ function ThreadScreen() {
 	// The live "working" row shows the whole time the agent runs, but not while a
 	// prompt takeover (permission / question / plan) owns the bottom slot.
 	const workingActive =
-		sessionRunning &&
+		sessionActive &&
 		headPermission === null &&
 		pendingQuestion === null &&
 		pendingPlanInteraction === null;
@@ -488,28 +500,24 @@ function ThreadScreen() {
 		answeredQuestionIds,
 		questionsByItemId,
 		toolResultsByItemId,
-		sessionRunning: sessionStatus === "running",
+		sessionRunning: sessionActive,
 		onAnswerQuestion,
 	};
 
 	useEffect(() => {
 		const saved = restoredViewState;
-		scrollModeRef.current = saved?.mode ?? "initial";
 		distanceFromBottomRef.current = saved?.distanceFromBottom ?? 0;
 		scrollOffsetRef.current = saved?.offsetY ?? 0;
-		lastScrolledAnchorTurnIdRef.current = null;
 		hasUnseenContentRef.current = false;
 		previousMessagesRef.current = null;
 		return () => {
-			const mode = scrollModeRef.current;
-			if (mode === "initial") return;
 			writeThreadViewState(stateKey, {
-				mode,
+				mode: readReaderDetached() ? "detached" : "following",
 				offsetY: scrollOffsetRef.current,
 				distanceFromBottom: distanceFromBottomRef.current,
 			});
 		};
-	}, [restoredViewState, stateKey]);
+	}, [readReaderDetached, restoredViewState, stateKey]);
 
 	useEffect(() => {
 		if (previousMessagesRef.current === null) {
@@ -518,170 +526,105 @@ function ThreadScreen() {
 		}
 		if (previousMessagesRef.current === messages) return;
 		previousMessagesRef.current = messages;
-		if (scrollModeRef.current !== "detached" || hasUnseenContentRef.current) {
+		if (!transcriptScroll.readerDetached || hasUnseenContentRef.current) {
 			return;
 		}
 		hasUnseenContentRef.current = true;
 		setHasUnseenContent(true);
-		setShowJumpButton(true);
+		setJumpAccessible(true);
 		void AccessibilityInfo.announceForAccessibility(
 			"New response available below.",
 		);
-	}, [messages]);
+	}, [messages, transcriptScroll.readerDetached]);
 
-	// Fade the jump button in/out from its visibility state (assignment must
-	// live in an effect for the React Compiler's shared-value immutability rule).
-	useEffect(() => {
-		jumpOpacity.value = withTiming(showJumpButton ? 1 : 0, {
-			duration: reduceMotion ? 0 : 160,
-		});
-	}, [jumpOpacity, reduceMotion, showJumpButton]);
-
-	useEffect(() => {
-		if (
-			anchoredTurnId === null ||
-			lastScrolledAnchorTurnIdRef.current === anchoredTurnId ||
-			!turns.some((turn) => turn.id === anchoredTurnId)
-		) {
-			return;
-		}
-
-		const targetThreadKey = stateKey;
-		const frame = requestAnimationFrame(() => {
-			if (activeThreadKeyRef.current !== targetThreadKey) return;
-			lastScrolledAnchorTurnIdRef.current = anchoredTurnId;
-			void KeyboardController.dismiss()
-				.then(() => {
-					if (
-						activeThreadKeyRef.current !== targetThreadKey ||
-						lastScrolledAnchorTurnIdRef.current !== anchoredTurnId
-					) {
-						return;
-					}
-					return scrollMessageToEnd({
-						animated: !reduceMotion,
-						closeKeyboard: false,
-					});
-				})
-				.catch(() => {
-					if (
-						activeThreadKeyRef.current !== targetThreadKey ||
-						lastScrolledAnchorTurnIdRef.current !== anchoredTurnId
-					) {
-						return;
-					}
-					lastScrolledAnchorTurnIdRef.current = null;
-					freeze.set(false);
-				});
-		});
-
-		return () => cancelAnimationFrame(frame);
-	}, [
-		anchoredTurnId,
-		freeze,
-		reduceMotion,
-		scrollMessageToEnd,
-		stateKey,
-		turns,
-	]);
-
-	// Plain functions (not useCallback): the React Compiler memoizes them, and
-	// manual memoization of setState-calling callbacks trips its preservation rule.
+	// Scroll events persist reader position only. LegendList and the keyboard-aware
+	// scroll view own end detection; duplicating that geometry here caused the jump
+	// control to disagree with the actual keyboard-adjusted end.
 	const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
 		const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+		if (
+			readerGestureActiveRef.current &&
+			listRef.current?.getState().isNearEnd === false &&
+			!readReaderDetached()
+		) {
+			preAppendUiRef.current = null;
+			transcriptScroll.onReaderDetached();
+		}
 		scrollOffsetRef.current = Math.max(0, contentOffset.y);
 		const distanceFromBottom =
 			contentSize.height - (contentOffset.y + layoutMeasurement.height);
 		distanceFromBottomRef.current = Math.max(0, distanceFromBottom);
-		if (
-			scrollModeRef.current === "initial" &&
-			distanceFromBottomRef.current <= LIVE_EDGE_ENTER_PX
-		) {
-			scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
-				type: "initial-positioned",
-			});
-		}
-		if (scrollModeRef.current !== "initial") {
-			writeThreadViewState(stateKey, {
-				mode: scrollModeRef.current,
-				offsetY: scrollOffsetRef.current,
-				distanceFromBottom: distanceFromBottomRef.current,
-			});
-		}
-		setShowJumpButton(
-			shouldShowLatestAction({
-				mode: scrollModeRef.current,
-				distance: distanceFromBottomRef.current,
-				hasUnseenContent: hasUnseenContentRef.current,
-			}),
-		);
+		writeThreadViewState(stateKey, {
+			mode: readReaderDetached() ? "detached" : "following",
+			offsetY: scrollOffsetRef.current,
+			distanceFromBottom: distanceFromBottomRef.current,
+		});
 	};
 	const detachReader = () => {
-		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
-			type: "reader-interacted",
-		});
-		setAnchoredTurnId((current) =>
-			nextThreadAnchor(current, { type: "reader-interacted" }),
-		);
-		setShowJumpButton(
-			shouldShowLatestAction({
-				mode: scrollModeRef.current,
-				distance: distanceFromBottomRef.current,
-				hasUnseenContent: hasUnseenContentRef.current,
-			}),
-		);
+		preAppendUiRef.current = null;
+		transcriptScroll.onReaderDetached();
 	};
-	const resumeAtLiveEdge = () => {
-		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
-			type: "returned-to-live-edge",
-			distance: distanceFromBottomRef.current,
-		});
-		if (scrollModeRef.current !== "following") return;
-		// A deliberate return to the live edge releases sent-message anchoring.
-		if (distanceFromBottomRef.current <= LIVE_EDGE_ENTER_PX) {
-			setAnchoredTurnId(null);
+	const startReaderGesture = () => {
+		readerGestureActiveRef.current = true;
+	};
+	const finishReaderGesture = () => {
+		readerGestureActiveRef.current = false;
+		if (listRef.current?.getState().isNearEnd === true) {
+			transcriptScroll.onFollowingRequested();
+			return;
+		}
+		detachReader();
+	};
+	const onEndVisible = (visible: boolean) => {
+		if (!visible) {
+			setJumpAccessible(true);
+			return;
 		}
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
-		setShowJumpButton(false);
+		setJumpAccessible(false);
 	};
 
 	const jumpToLatest = () => {
 		if (turns.length === 0) return;
-		setAnchoredTurnId((current) =>
-			nextThreadAnchor(current, { type: "jumped-to-latest" }),
-		);
-		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
-			type: "jumped-to-latest",
-		});
-		requestAnimationFrame(() => {
-			void listRef.current?.scrollToEnd({ animated: !reduceMotion });
-		});
+		preAppendUiRef.current = null;
+		transcriptScroll.requestJump();
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
-		setShowJumpButton(false);
 	};
-	const onMessageSubmitted = () => {
-		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
-			type: "message-submitted",
-		});
+	const onMessageWillAppend = () => {
+		preAppendUiRef.current = {
+			hasUnseenContent: hasUnseenContentRef.current,
+			jumpAccessible,
+		};
+		transcriptScroll.onMessageWillAppend(turns.length);
+		markSessionTurnStarting(stateKey);
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
-		setShowJumpButton(false);
+		setJumpAccessible(false);
 	};
-	const onMessageSent = (messageId: MessageId) => {
-		lastScrolledAnchorTurnIdRef.current = null;
-		setAnchoredTurnId((current) =>
-			nextThreadAnchor(current, {
-				type: "message-anchored",
-				turnId: String(messageId),
-			}),
-		);
+	const onMessageAppendFailed = () => {
+		transcriptScroll.onMessageAppendFailed();
+		markSessionTurnStartFailed(stateKey);
+		const previous = preAppendUiRef.current;
+		preAppendUiRef.current = null;
+		if (previous === null) return;
+		hasUnseenContentRef.current = previous.hasUnseenContent;
+		setHasUnseenContent(previous.hasUnseenContent);
+		setJumpAccessible(previous.jumpAccessible);
 	};
+	useEffect(() => {
+		if (turnActivity === "idle") settleTranscriptTurn();
+	}, [settleTranscriptTurn, turnActivity]);
 	const onComposerFocusChange = (_focused: boolean) => undefined;
 
 	const jumpStyle = useAnimatedStyle(() => ({
-		opacity: jumpOpacity.value,
+		opacity: withTiming(isNearEnd.value ? 0 : 1, {
+			duration: reduceMotion ? 0 : 160,
+		}),
+	}));
+	const jumpAnimatedProps = useAnimatedProps(() => ({
+		pointerEvents: isNearEnd.value ? ("none" as const) : ("box-none" as const),
 	}));
 	const onBottomAccessoryLayout = (event: LayoutChangeEvent) => {
 		const nextHeight = event.nativeEvent.layout.height;
@@ -690,20 +633,15 @@ function ThreadScreen() {
 		);
 		onComposerLayout(event);
 	};
-	const anchoredTurnIndex =
-		anchoredTurnId === null
-			? -1
-			: turns.findIndex((turn) => turn.id === anchoredTurnId);
-	const anchorActive = anchoredTurnIndex >= 0;
-	const onListViewportLayout = (event: LayoutChangeEvent) => {
-		const { width, height } = event.nativeEvent.layout;
-		setViewportSize((current) =>
-			Math.abs(current.width - width) < 1 &&
-			Math.abs(current.height - height) < 1
-				? current
-				: { width, height },
-		);
-	};
+	const anchoredEndSpace =
+		transcriptScroll.anchorIndex === null
+			? undefined
+			: {
+					anchorIndex: transcriptScroll.anchorIndex,
+					anchorMaxSize: 72,
+					anchorOffset: headerHeight + 12,
+					onReady: transcriptScroll.onAnchorReady,
+				};
 
 	const onRename = () => {
 		if (chatId === null || options === null) return;
@@ -752,7 +690,7 @@ function ThreadScreen() {
 		options === null ? null : (
 			<LivePermissionAccessory
 				requests={requests}
-				bottomInset={overlayBottomInset}
+				bottomInset={composerBottomInset}
 				onDecide={(request, decision) =>
 					decidePermission(
 						connKey,
@@ -923,18 +861,15 @@ function ThreadScreen() {
 					</Text>
 				</View>
 			) : null}
-			<View className="flex-1" onLayout={onListViewportLayout}>
+			<KeyboardGestureArea interpolator="ios" offset={60} style={{ flex: 1 }}>
 				<KeyboardAwareLegendList
-					key={listMountKey}
 					ref={listRef}
 					style={{ flex: 1 }}
 					data={turns}
+					dataKey={stateKey}
 					keyExtractor={(turn) => turn.id}
 					getItemType={() => "turn"}
 					estimatedItemSize={180}
-					{...(viewportSize.width > 0 && viewportSize.height > 0
-						? { estimatedListSize: viewportSize }
-						: {})}
 					renderItem={({ item, index }) => (
 						<TurnRow
 							turn={item}
@@ -942,58 +877,50 @@ function ThreadScreen() {
 							live={sessionStatus === "running" && index === turns.length - 1}
 						/>
 					)}
+					alignItemsAtEnd
 					applyWorkaroundForContentInsetHitTestBug
-					contentInsetAdjustmentBehavior={
-						usesAutomaticContentInsets ? "automatic" : "never"
-					}
-					automaticallyAdjustsScrollIndicatorInsets={usesAutomaticContentInsets}
+					contentInsetAdjustmentBehavior="never"
+					automaticallyAdjustsScrollIndicatorInsets={false}
 					contentContainerStyle={{
 						gap: 4,
 						paddingHorizontal: 16,
-						paddingTop: usesAutomaticContentInsets ? 12 : headerHeight + 12,
+						paddingTop: headerHeight + 12,
 					}}
-					scrollIndicatorInsets={
-						usesAutomaticContentInsets
-							? { top: 0, right: 0, bottom: 0, left: 0 }
-							: { top: headerHeight, bottom: bottomAccessoryHeight }
-					}
-					contentInsetStartAdjustment={
-						usesAutomaticContentInsets ? headerHeight : 0
-					}
+					scrollIndicatorInsets={{
+						top: headerHeight,
+						bottom: -insets.bottom,
+					}}
 					contentInsetEndAdjustment={contentInsetEndAdjustment}
-					contentInsetEndStaticAdjustment={
-						usesAutomaticContentInsets ? insets.bottom : 0
-					}
-					adjustedInsetCompensation={
-						usesAutomaticContentInsets ? insets.bottom : 0
-					}
-					scrollToOverflowEnabled
 					freeze={freeze}
 					keyboardLiftBehavior="whenAtEnd"
-					keyboardDismissMode="none"
-					keyboardShouldPersistTaps="always"
+					keyboardDismissMode="interactive"
+					keyboardOffset={insets.bottom}
+					keyboardShouldPersistTaps="handled"
 					initialScrollAtEnd={restoredViewState?.mode !== "detached"}
 					{...(restoredViewState?.mode === "detached"
 						? { initialScrollOffset: restoredViewState.offsetY }
 						: {})}
-					{...(anchorActive
-						? {
-								anchoredEndSpace: {
-									anchorIndex: anchoredTurnIndex,
-									anchorOffset: headerHeight + 12,
-								},
-							}
-						: {})}
-					maintainScrollAtEnd={{
-						animated: true,
-						on: {
-							dataChange: true,
-							itemLayout: true,
-							layout: true,
-						},
-					}}
+					{...(anchoredEndSpace === undefined
+						? {}
+						: {
+								anchoredEndSpace,
+							})}
+					maintainScrollAtEnd={
+						transcriptScroll.readerDetached
+							? false
+							: {
+									animated: false,
+									on: {
+										dataChange: true,
+										footerLayout: true,
+										itemLayout: true,
+										layout: true,
+									},
+								}
+					}
 					maintainScrollAtEndThreshold={0.1}
-					maintainVisibleContentPosition={{ data: true, size: true }}
+					maintainVisibleContentPosition
+					sharedValues={{ isNearEnd }}
 					ListHeaderComponent={
 						error || connectionProblem ? (
 							<View className="gap-2 pb-2">
@@ -1021,80 +948,85 @@ function ThreadScreen() {
 						</View>
 					}
 					onScroll={onScroll}
-					onScrollBeginDrag={detachReader}
-					onScrollEndDrag={resumeAtLiveEdge}
-					onMomentumScrollEnd={resumeAtLiveEdge}
-					scrollEventThrottle={16}
+					onScrollBeginDrag={startReaderGesture}
+					onScrollEndDrag={finishReaderGesture}
+					onMomentumScrollBegin={startReaderGesture}
+					onMomentumScrollEnd={finishReaderGesture}
+					onEndVisible={onEndVisible}
+					scrollEventThrottle={64}
 				/>
-			</View>
+			</KeyboardGestureArea>
 			<KeyboardStickyView
 				pointerEvents="box-none"
 				style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
-				offset={{ closed: 0, opened: 0 }}
+				offset={{ closed: 0, opened: insets.bottom }}
 			>
-				{showJumpButton ? (
-					<Animated.View
-						pointerEvents="box-none"
-						style={[
-							jumpStyle,
-							{
-								position: "absolute",
-								left: 0,
-								right: 0,
-								bottom: bottomAccessoryHeight + 8,
-								alignItems: "center",
-							},
-						]}
+				<Animated.View
+					animatedProps={jumpAnimatedProps}
+					accessibilityElementsHidden={!jumpAccessible}
+					importantForAccessibility={
+						jumpAccessible ? "auto" : "no-hide-descendants"
+					}
+					style={[
+						jumpStyle,
+						{
+							position: "absolute",
+							left: 0,
+							right: 0,
+							bottom: bottomAccessoryHeight + 8,
+							alignItems: "center",
+						},
+					]}
+				>
+					<Pressable
+						accessibilityRole="button"
+						accessibilityLabel={
+							hasUnseenContent
+								? "Jump to latest, new response available"
+								: "Jump to latest"
+						}
+						accessibilityHint="Resumes following the live response"
+						accessible={jumpAccessible}
+						hitSlop={8}
+						onPress={jumpToLatest}
+						style={{ width: 46, height: 46 }}
 					>
-						<Pressable
-							accessibilityRole="button"
-							accessibilityLabel={
-								hasUnseenContent
-									? "Jump to latest, new response available"
-									: "Jump to latest"
-							}
-							accessibilityHint="Resumes following the live response"
-							hitSlop={8}
-							onPress={jumpToLatest}
-							style={{ width: 46, height: 46 }}
+						<GlassSurface
+							pointerEvents="none"
+							style={{
+								width: 46,
+								height: 46,
+								borderRadius: 23,
+								borderWidth: 1,
+								borderColor:
+									theme === "dark" ? glass.borderDark : glass.borderLight,
+								backgroundColor:
+									theme === "dark" ? glass.fillDark : glass.fillLight,
+								alignItems: "center",
+								justifyContent: "center",
+								shadowColor: "#000",
+								shadowOpacity: theme === "dark" ? 0.32 : 0.14,
+								shadowRadius: 14,
+								shadowOffset: { width: 0, height: 6 },
+							}}
 						>
-							<GlassSurface
-								pointerEvents="none"
-								style={{
-									width: 46,
-									height: 46,
-									borderRadius: 23,
-									borderWidth: 1,
-									borderColor:
-										theme === "dark" ? glass.borderDark : glass.borderLight,
-									backgroundColor:
-										theme === "dark" ? glass.fillDark : glass.fillLight,
-									alignItems: "center",
-									justifyContent: "center",
-									shadowColor: "#000",
-									shadowOpacity: theme === "dark" ? 0.32 : 0.14,
-									shadowRadius: 14,
-									shadowOffset: { width: 0, height: 6 },
-								}}
-							>
-								<ChevronDown size={20} color={colors.fg} />
-								{hasUnseenContent ? (
-									<View
-										style={{
-											position: "absolute",
-											top: 5,
-											right: 5,
-											width: 7,
-											height: 7,
-											borderRadius: 4,
-											backgroundColor: colors.accent,
-										}}
-									/>
-								) : null}
-							</GlassSurface>
-						</Pressable>
-					</Animated.View>
-				) : null}
+							<ChevronDown size={20} color={colors.fg} />
+							{hasUnseenContent ? (
+								<View
+									style={{
+										position: "absolute",
+										top: 5,
+										right: 5,
+										width: 7,
+										height: 7,
+										borderRadius: 4,
+										backgroundColor: colors.accent,
+									}}
+								/>
+							) : null}
+						</GlassSurface>
+					</Pressable>
+				</Animated.View>
 				<View
 					pointerEvents="none"
 					style={{
@@ -1121,7 +1053,7 @@ function ThreadScreen() {
 						<View
 							className="px-3 pt-2"
 							style={{
-								paddingBottom: Math.max(overlayBottomInset, 8),
+								paddingBottom: composerBottomInset,
 							}}
 						>
 							<PendingUserInputCard
@@ -1133,7 +1065,7 @@ function ThreadScreen() {
 					) : bottomState.planReview !== null ? (
 						<PlanReviewCard
 							interaction={bottomState.planReview}
-							bottomInset={overlayBottomInset}
+							bottomInset={composerBottomInset}
 							onAction={runPlanAction}
 						/>
 					) : null}
@@ -1206,7 +1138,7 @@ function ThreadScreen() {
 									updateOutboxMessage(connKey, normalizedSessionId, id, text)
 								}
 							/>
-							{detail !== null && sessionStatus !== "running" ? (
+							{detail !== null && !sessionActive ? (
 								<ReviewChangesPill
 									connection={options}
 									folderId={detail.project.id as FolderId}
@@ -1235,11 +1167,12 @@ function ThreadScreen() {
 								connectionStatus={connectionSnapshot?.status}
 								onRetryConnection={() => retryConnection(connKey, options)}
 								onFocusChange={onComposerFocusChange}
-								onMessageSubmitted={onMessageSubmitted}
-								onMessageSent={onMessageSent}
-								onExpandedChange={setComposerExpanded}
-								currentActivity={composerActivity}
-								bottomInset={overlayBottomInset}
+								onMessageAppendFailed={onMessageAppendFailed}
+								onMessageWillAppend={onMessageWillAppend}
+								currentActivity={
+									turnActivity === "running" ? composerActivity : null
+								}
+								bottomInset={composerBottomInset}
 							/>
 						</View>
 					)}

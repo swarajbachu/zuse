@@ -16,6 +16,10 @@ import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
+import {
+	resetSessionTurnActivity,
+	syncSessionTurnActivity,
+} from "./session-turn-activity";
 
 export const messagesBySessionAtom = Atom.make<
 	Record<string, readonly Message[]>
@@ -123,6 +127,7 @@ export const resetMessagesRuntime = async (): Promise<void> => {
 	evictionTimers.clear();
 	retainedTimelines.clear();
 	timelineRegistry.shutdown();
+	resetSessionTurnActivity();
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(messagesBySessionAtom, {});
 		appAtomRegistry.set(queueBySessionAtom, {});
@@ -227,6 +232,10 @@ export const hydrateMessages = async (
 							if (durableIds.has(id)) optimisticIds.delete(id);
 						}
 						batchAtomUpdates(() => {
+							syncSessionTurnActivity(
+								liveKey,
+								next.projection?.currentTurn != null,
+							);
 							appAtomRegistry.update(messagesBySessionAtom, (state) => {
 								const current = state[liveKey] ?? [];
 								const pending = current.filter(

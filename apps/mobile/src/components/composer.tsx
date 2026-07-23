@@ -99,9 +99,8 @@ export const Composer = ({
 	connectionStatus,
 	onRetryConnection,
 	onFocusChange,
-	onMessageSubmitted,
-	onMessageSent,
-	onExpandedChange,
+	onMessageAppendFailed,
+	onMessageWillAppend,
 	currentActivity = null,
 	bottomInset,
 }: {
@@ -115,9 +114,8 @@ export const Composer = ({
 	connectionStatus?: ConnectionStatus;
 	onRetryConnection?: () => void;
 	onFocusChange?: (focused: boolean) => void;
-	onMessageSubmitted?: () => void;
-	onMessageSent?: (messageId: MessageId) => void;
-	onExpandedChange?: (expanded: boolean) => void;
+	onMessageAppendFailed?: () => void;
+	onMessageWillAppend?: () => void;
 	/** Latest-turn activity summary, computed once by the thread screen. */
 	currentActivity?: ComposerActivity | null;
 	bottomInset?: number;
@@ -190,21 +188,19 @@ export const Composer = ({
 		hasAttachments: attachments.length > 0,
 		sheetOpen: modelSheetOpen,
 	});
-	useEffect(() => {
-		onExpandedChange?.(expanded);
-	}, [expanded, onExpandedChange]);
-
 	const agentCount = currentActivity?.agents ?? 0;
 	const hasPills = !online || agentCount > 0;
-	const finishSuccessfulSubmission = () => {
+	const finishSuccessfulSubmission = ({
+		dismissKeyboard,
+	}: {
+		dismissKeyboard: boolean;
+	}) => {
 		clearComposerDraft(stateKey);
 		inputRef.current?.clear();
 		setHasText(false);
 		setAttachments([]);
 		setGoalMode(false);
-		setFocused(false);
-		onFocusChange?.(false);
-		Keyboard.dismiss();
+		if (dismissKeyboard) Keyboard.dismiss();
 	};
 
 	const submit = async () => {
@@ -216,15 +212,14 @@ export const Composer = ({
 				setComposerError("Attachments require an active connection.");
 				return;
 			}
-			onMessageSubmitted?.();
 			await enqueueOutboxMessage(connKey, sessionId, value, goalMode);
-			finishSuccessfulSubmission();
+			finishSuccessfulSubmission({ dismissKeyboard: true });
 			return;
 		}
-		onMessageSubmitted?.();
 		setBusy(true);
 		setComposerError(null);
 		let optimisticMessageId: MessageId | null = null;
+		let didPrepareAppend = false;
 		try {
 			const uploaded = await Promise.all(
 				attachments.map((attachment) =>
@@ -246,10 +241,15 @@ export const Composer = ({
 					}),
 				);
 				await Effect.runPromise(flushServerQueue({ connection, sessionId }));
-				finishSuccessfulSubmission();
+				finishSuccessfulSubmission({ dismissKeyboard: true });
 				return;
 			}
 			const messageId = MessageId.make(Crypto.randomUUID());
+			// Establish the transcript anchor before publishing the optimistic
+			// row. LegendList's anchored-end contract uses the pre-append index.
+			onMessageWillAppend?.();
+			Keyboard.dismiss();
+			didPrepareAppend = true;
 			if (uploaded.length === 0) {
 				optimisticMessageId = messageId;
 				const optimisticContent: MessageContent = {
@@ -277,13 +277,13 @@ export const Composer = ({
 					clientMessageId: messageId,
 				}),
 			);
-			onMessageSent?.(messageId);
-			finishSuccessfulSubmission();
+			finishSuccessfulSubmission({ dismissKeyboard: false });
 		} catch (cause) {
 			setComposerError(messageOf(cause));
 			if (optimisticMessageId !== null) {
 				removeOptimisticMessage(stateKey, optimisticMessageId);
 			}
+			if (didPrepareAppend) onMessageAppendFailed?.();
 		} finally {
 			setBusy(false);
 		}
