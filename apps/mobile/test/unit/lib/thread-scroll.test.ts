@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
 	nextThreadScrollMode,
+	pendingThreadScrollCommand,
 	sendAnchorSpace,
 	shouldFollowTranscript,
 	shouldShowLatestAction,
@@ -102,5 +103,36 @@ describe("thread scroll policy", () => {
 		expect(shouldFollowTranscript("initial")).toBe(true);
 		expect(shouldFollowTranscript("following")).toBe(true);
 		expect(shouldFollowTranscript("detached")).toBe(false);
+	});
+
+	test("waits for footer layout before issuing programmatic scrolls", () => {
+		expect(
+			pendingThreadScrollCommand({
+				pendingJumpToEnd: true,
+				pendingSendAnchor: false,
+				anchorActive: true,
+			}),
+		).toBeNull();
+		expect(
+			pendingThreadScrollCommand({
+				pendingJumpToEnd: true,
+				pendingSendAnchor: false,
+				anchorActive: false,
+			}),
+		).toBe("jump-end");
+		expect(
+			pendingThreadScrollCommand({
+				pendingJumpToEnd: false,
+				pendingSendAnchor: true,
+				anchorActive: false,
+			}),
+		).toBeNull();
+		expect(
+			pendingThreadScrollCommand({
+				pendingJumpToEnd: false,
+				pendingSendAnchor: true,
+				anchorActive: true,
+			}),
+		).toBe("send-anchor");
 	});
 });

@@ -9,3 +9,16 @@ export const resolveProjectAvatarUrl = (
 	origin === undefined || origin === null
 		? provisionalUrl
 		: githubOwnerAvatarUrl(origin.owner);
+
+export const shouldHydrateProjectAvatar = (options: {
+	readonly connectionStatus: string | undefined;
+	readonly originResolved: boolean;
+	readonly loading: boolean;
+	readonly generation?: number;
+	readonly attemptedGeneration?: number;
+}): boolean =>
+	options.connectionStatus === "connected" &&
+	!options.originResolved &&
+	!options.loading &&
+	(options.generation === undefined ||
+		options.generation !== options.attemptedGeneration);

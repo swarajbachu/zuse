@@ -1,7 +1,10 @@
 import type { GitOriginInfo } from "@zuse/contracts";
 import { describe, expect, test } from "vitest";
 
-import { resolveProjectAvatarUrl } from "../../../src/lib/project-avatar";
+import {
+	resolveProjectAvatarUrl,
+	shouldHydrateProjectAvatar,
+} from "../../../src/lib/project-avatar";
 
 describe("project avatar resolution", () => {
 	const canonicalOrigin = {
@@ -24,5 +27,50 @@ describe("project avatar resolution", () => {
 
 	test("preserves initials fallback when neither source exists", () => {
 		expect(resolveProjectAvatarUrl(null, null)).toBeNull();
+	});
+
+	test("waits for a live connection and retries unresolved origins", () => {
+		expect(
+			shouldHydrateProjectAvatar({
+				connectionStatus: "connecting",
+				originResolved: false,
+				loading: false,
+				generation: 1,
+			}),
+		).toBe(false);
+		expect(
+			shouldHydrateProjectAvatar({
+				connectionStatus: "connected",
+				originResolved: false,
+				loading: false,
+				generation: 1,
+			}),
+		).toBe(true);
+		expect(
+			shouldHydrateProjectAvatar({
+				connectionStatus: "connected",
+				originResolved: true,
+				loading: false,
+				generation: 1,
+			}),
+		).toBe(false);
+		expect(
+			shouldHydrateProjectAvatar({
+				connectionStatus: "connected",
+				originResolved: false,
+				loading: false,
+				generation: 1,
+				attemptedGeneration: 1,
+			}),
+		).toBe(false);
+		expect(
+			shouldHydrateProjectAvatar({
+				connectionStatus: "connected",
+				originResolved: false,
+				loading: false,
+				generation: 2,
+				attemptedGeneration: 1,
+			}),
+		).toBe(true);
 	});
 });

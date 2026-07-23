@@ -75,6 +75,7 @@ import { connectionSessionKey } from "~/lib/session-key";
 import {
 	LIVE_EDGE_ENTER_PX,
 	nextThreadScrollMode,
+	pendingThreadScrollCommand,
 	sendAnchorSpace,
 	shouldFollowTranscript,
 	shouldShowLatestAction,
@@ -183,6 +184,7 @@ function ThreadScreen() {
 	const pendingRestoreOffsetRef = useRef<number | null>(null);
 	const pendingInitialEndRef = useRef(!restoreThreadPosition);
 	const pendingSendAnchorRef = useRef(false);
+	const pendingJumpToEndRef = useRef(false);
 	const sendAnchorBaselineRef = useRef<string | null>(null);
 	const hasUnseenContentRef = useRef(false);
 	const previousMessagesRef = useRef<readonly unknown[] | null>(null);
@@ -480,6 +482,7 @@ function ThreadScreen() {
 			saved?.mode === "detached" ? saved.offsetY : null;
 		pendingInitialEndRef.current = saved?.mode !== "detached";
 		pendingSendAnchorRef.current = false;
+		pendingJumpToEndRef.current = false;
 		sendAnchorBaselineRef.current = null;
 		hasUnseenContentRef.current = false;
 		previousMessagesRef.current = null;
@@ -575,24 +578,15 @@ function ThreadScreen() {
 	// the send-anchor footer spacer guarantees the offset stays valid. Waits for
 	// the turn id to move past the baseline recorded at submit so keyboard- or
 	// footer-driven content-size changes cannot anchor the previous turn.
-	const attemptSendAnchor = () => {
+	const prepareSendAnchor = () => {
 		if (!pendingSendAnchorRef.current || latestTurnId === null) return;
 		if (latestTurnId === sendAnchorBaselineRef.current) return;
 		if (!shouldFollowTranscript(scrollModeRef.current)) {
 			pendingSendAnchorRef.current = false;
 			return;
 		}
-		pendingSendAnchorRef.current = false;
+		if (anchoredTurnId === latestTurnId) return;
 		setAnchoredTurnId(latestTurnId);
-		const index = turns.length - 1;
-		requestAnimationFrame(() => {
-			listRef.current?.scrollToIndex({
-				index,
-				viewPosition: 0,
-				viewOffset: headerHeight + 12,
-				animated: true,
-			});
-		});
 	};
 	const restoreDetachedPosition = useCallback(() => {
 		const offset = pendingRestoreOffsetRef.current;
@@ -603,15 +597,6 @@ function ThreadScreen() {
 		});
 		return true;
 	}, [messages.length]);
-
-	// Primary send-anchor trigger: runs after every commit (ref-guarded, cheap)
-	// so the anchor fires as soon as the submitted turn lands in `turns`, with
-	// onContentSizeChange as the belt-and-braces secondary trigger. No dependency
-	// array on purpose: the pending ref makes the pass a no-op except right
-	// after a submit.
-	useEffect(() => {
-		attemptSendAnchor();
-	});
 
 	// Plain functions (not useCallback): the React Compiler memoizes them, and
 	// manual memoization of setState-calling callbacks trips its preservation rule.
@@ -668,16 +653,15 @@ function ThreadScreen() {
 
 	const jumpToLatest = () => {
 		if (turns.length === 0) return;
-		// Release the anchor first so the footer spacer collapses and the end of
-		// the content is the end of the messages, then scroll to the true bottom.
 		pendingSendAnchorRef.current = false;
+		pendingJumpToEndRef.current = true;
 		setAnchoredTurnId(null);
 		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
 			type: "jumped-to-latest",
 		});
-		requestAnimationFrame(() => {
-			listRef.current?.scrollToEnd({ animated: true });
-		});
+		// If no anchor spacer is active, no content-size event will follow.
+		// Otherwise the committed spacer collapse will flush this pending jump.
+		if (!anchorActive) requestAnimationFrame(flushPendingProgrammaticScroll);
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
@@ -690,6 +674,7 @@ function ThreadScreen() {
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
 		pendingInitialEndRef.current = false;
+		pendingJumpToEndRef.current = false;
 		sendAnchorBaselineRef.current = latestTurnId;
 		pendingSendAnchorRef.current = true;
 	};
@@ -730,6 +715,27 @@ function ThreadScreen() {
 					bottomInset: effectiveBottomInset,
 				})
 			: 0);
+	const flushPendingProgrammaticScroll = () => {
+		const command = pendingThreadScrollCommand({
+			pendingJumpToEnd: pendingJumpToEndRef.current,
+			pendingSendAnchor: pendingSendAnchorRef.current,
+			anchorActive,
+		});
+		if (command === "jump-end") {
+			pendingJumpToEndRef.current = false;
+			listRef.current?.scrollToEnd({ animated: true });
+			return;
+		}
+		if (command === "send-anchor" && turns.length > 0) {
+			pendingSendAnchorRef.current = false;
+			listRef.current?.scrollToIndex({
+				index: turns.length - 1,
+				viewPosition: 0,
+				viewOffset: headerHeight + 12,
+				animated: true,
+			});
+		}
+	};
 
 	const onRename = () => {
 		if (chatId === null || options === null) return;
@@ -1021,7 +1027,8 @@ function ThreadScreen() {
 				onContentSizeChange={() => {
 					if (restoreDetachedPosition()) return;
 					attemptInitialEnd();
-					attemptSendAnchor();
+					prepareSendAnchor();
+					flushPendingProgrammaticScroll();
 				}}
 				onLayout={(event) => {
 					const nextHeight = event.nativeEvent.layout.height;

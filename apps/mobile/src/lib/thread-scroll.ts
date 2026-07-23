@@ -64,3 +64,23 @@ export const sendAnchorSpace = (options: {
 			Math.max(0, options.headerOffset) -
 			Math.max(0, options.bottomInset),
 	);
+
+export type PendingThreadScrollCommand = "jump-end" | "send-anchor";
+
+/**
+ * Programmatic scrolls must wait for the footer state they depend on to be
+ * reflected in FlatList's measured content size.
+ */
+export const pendingThreadScrollCommand = (options: {
+	readonly pendingJumpToEnd: boolean;
+	readonly pendingSendAnchor: boolean;
+	readonly anchorActive: boolean;
+}): PendingThreadScrollCommand | null => {
+	if (options.pendingJumpToEnd) {
+		return options.anchorActive ? null : "jump-end";
+	}
+	if (options.pendingSendAnchor) {
+		return options.anchorActive ? "send-anchor" : null;
+	}
+	return null;
+};
