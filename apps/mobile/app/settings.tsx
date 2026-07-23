@@ -1,5 +1,7 @@
+import { useAtomValue } from "@effect/atom-react";
 import { router, Stack } from "expo-router";
 import {
+	BarChart3,
 	Bell,
 	HardDrive,
 	LogOut,
@@ -11,22 +13,51 @@ import {
 	UserRound,
 } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, Text, View } from "react-native";
+import {
+	ActivityIndicator,
+	Alert,
+	ScrollView,
+	Switch,
+	Text,
+	View,
+} from "react-native";
 
 import { ListRow, ListSection } from "~/components/ui/list";
+import { captureMobileAnalytics } from "~/lib/analytics";
 import { returnToInbox } from "~/lib/connection-navigation";
 import { visibleConnectionLabel } from "~/lib/display-names";
 import { successTap } from "~/lib/haptics";
 import { clearDownloadedMobileData } from "~/lib/mobile-data";
 import { registerCurrentDeviceForPush } from "~/notifications/push";
 import { downloadedCacheSize } from "~/offline/cache";
-import { useAuthStore } from "~/store/auth";
+import { analyticsEnabledAtom, setAnalyticsEnabled } from "~/store/analytics";
+import {
+	authAccountAtom,
+	authBusyAtom,
+	authErrorAtom,
+	authHydratedAtom,
+	deleteAccount,
+	hydrateAuth,
+	resetApp,
+	signIn,
+	signOut,
+} from "~/store/auth";
 import {
 	connectionStatusLabel,
-	useConnectionRuntimeStore,
+	snapshotsByConnectionAtom,
 } from "~/store/connection-runtime";
-import { useConnectionsStore } from "~/store/connections";
-import { useEnvironmentsStore } from "~/store/environments";
+import {
+	connectionsAtom,
+	connectionsHydratedAtom,
+	hydrateConnections,
+} from "~/store/connections";
+import {
+	connectToEnvironment,
+	environmentsAtom,
+	environmentsErrorAtom,
+	environmentsLoadingAtom,
+	refreshEnvironments,
+} from "~/store/environments";
 
 const formatBytes = (bytes: number | null): string => {
 	if (bytes === null) return "Calculating…";
@@ -36,43 +67,33 @@ const formatBytes = (bytes: number | null): string => {
 };
 
 export default function SettingsScreen() {
-	const {
-		account,
-		hydrated,
-		busy,
-		error: authError,
-		hydrate,
-		signIn,
-		signOut,
-		resetApp,
-		deleteAccount,
-	} = useAuthStore();
-	const {
-		connections,
-		hydrated: connectionsHydrated,
-		hydrate: hydrateConnections,
-	} = useConnectionsStore();
-	const { environments, loading, error, refresh, connect } =
-		useEnvironmentsStore();
-	const snapshots = useConnectionRuntimeStore(
-		(state) => state.snapshotsByConnection,
-	);
+	const analyticsEnabled = useAtomValue(analyticsEnabledAtom);
+	const account = useAtomValue(authAccountAtom);
+	const hydrated = useAtomValue(authHydratedAtom);
+	const busy = useAtomValue(authBusyAtom);
+	const authError = useAtomValue(authErrorAtom);
+	const connections = useAtomValue(connectionsAtom);
+	const connectionsHydrated = useAtomValue(connectionsHydratedAtom);
+	const environments = useAtomValue(environmentsAtom);
+	const loading = useAtomValue(environmentsLoadingAtom);
+	const error = useAtomValue(environmentsErrorAtom);
+	const snapshots = useAtomValue(snapshotsByConnectionAtom);
 	const [connecting, setConnecting] = useState<string | null>(null);
 	const [notificationsBusy, setNotificationsBusy] = useState(false);
 	const [storageBusy, setStorageBusy] = useState(false);
 	const [cacheBytes, setCacheBytes] = useState<number | null>(null);
 
 	useEffect(() => {
-		if (!hydrated) void hydrate();
-	}, [hydrate, hydrated]);
+		if (!hydrated) void hydrateAuth();
+	}, [hydrated]);
 
 	useEffect(() => {
 		if (!connectionsHydrated) void hydrateConnections();
-	}, [connectionsHydrated, hydrateConnections]);
+	}, [connectionsHydrated]);
 
 	useEffect(() => {
-		if (account !== null) void refresh();
-	}, [account, refresh]);
+		if (account !== null) void refreshEnvironments();
+	}, [account]);
 
 	useEffect(() => {
 		void downloadedCacheSize()
@@ -87,10 +108,25 @@ export default function SettingsScreen() {
 
 	const onConnect = async (environmentId: string) => {
 		setConnecting(environmentId);
+		const startedAt = Date.now();
+		captureMobileAnalytics("connection attempted", {
+			connection_kind: "remote",
+		});
 		try {
-			await connect(environmentId);
+			await connectToEnvironment(environmentId);
+			captureMobileAnalytics("connection established", {
+				connection_kind: "remote",
+				duration_ms: Date.now() - startedAt,
+			});
 			successTap();
 			returnToInbox(router);
+		} catch (cause) {
+			captureMobileAnalytics("connection failed", {
+				connection_kind: "remote",
+				duration_ms: Date.now() - startedAt,
+				error_code: "connect_failed",
+			});
+			throw cause;
 		} finally {
 			setConnecting(null);
 		}
@@ -135,12 +171,14 @@ export default function SettingsScreen() {
 					footer="Pairing works directly over your local network and does not require an account."
 				>
 					<ListRow
+						analyticsId="connections.nearby.open"
 						icon={QrCode}
 						title="Connect to a nearby Mac"
 						subtitle="Find it automatically over Wi-Fi"
 						onPress={() => router.push("/connect/nearby")}
 					/>
 					<ListRow
+						analyticsId="connections.manual.open"
 						icon={Plus}
 						iconTone="neutral"
 						title="Add manually"
@@ -278,10 +316,29 @@ export default function SettingsScreen() {
 				)}
 
 				<ListSection
+					header="Privacy"
+					footer="Shares pseudonymous feature use, model choices, active time, reliability, and standard geographic enrichment. Prompts, responses, code, paths, and account details are never included."
+				>
+					<ListRow
+						analyticsId="settings.share-usage-analytics"
+						icon={BarChart3}
+						iconTone="neutral"
+						title="Share usage analytics"
+						subtitle={analyticsEnabled ? "On" : "Off"}
+						chevron={false}
+						accessibilityRole="switch"
+						accessibilityState={{ checked: analyticsEnabled }}
+						trailing={<Switch pointerEvents="none" value={analyticsEnabled} />}
+						onPress={() => void setAnalyticsEnabled(!analyticsEnabled)}
+					/>
+				</ListSection>
+
+				<ListSection
 					header="Storage"
 					footer="Downloaded data can be fetched again. Reset app also removes connections, account state, and unsent messages from this phone."
 				>
 					<ListRow
+						analyticsId="storage.clear-downloads"
 						icon={HardDrive}
 						iconTone="neutral"
 						title="Clear downloaded data"
@@ -299,6 +356,7 @@ export default function SettingsScreen() {
 						}
 					/>
 					<ListRow
+						analyticsId="account.reset-app"
 						icon={RotateCcw}
 						iconTone="neutral"
 						title="Reset app"
@@ -328,6 +386,7 @@ export default function SettingsScreen() {
 				{account === null ? null : (
 					<ListSection header="Account">
 						<ListRow
+							analyticsId="account.delete"
 							icon={Trash2}
 							iconTone="neutral"
 							title="Delete account"

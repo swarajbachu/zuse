@@ -12,6 +12,7 @@ export type ChatTimelineRow =
 			readonly id: string;
 			readonly message: Message;
 			readonly enterUser: boolean;
+			readonly showAssistantCommands: boolean;
 	  }
 	| {
 			readonly kind: "subagent";
@@ -36,6 +37,7 @@ export type ChatTimelineRow =
 			readonly kind: "turn-summary";
 			readonly id: string;
 			readonly body: ReadonlyArray<Message>;
+			readonly showAssistantCommands: boolean;
 	  }
 	| {
 			readonly kind: "working";
@@ -75,6 +77,15 @@ export function deriveChatTimelineRows({
 	readonly awaitingPlanApproval: boolean;
 }): ChatTimelineRow[] {
 	const normalizedMessages = normalizeTimelineMessages(messages);
+	const actionableAssistantMessageId = inFlight
+		? null
+		: (normalizedMessages.findLast(
+				(message) =>
+					message.content._tag === "assistant" &&
+					message.content.text.trim().length > 0 &&
+					(!("parentItemId" in message.content) ||
+						message.content.parentItemId === undefined),
+			)?.id ?? null);
 	const turns: Array<{
 		user: Message | null;
 		body: Message[];
@@ -104,6 +115,7 @@ export function deriveChatTimelineRows({
 				id: `message:${turn.user.id}`,
 				message: turn.user,
 				enterUser: true,
+				showAssistantCommands: false,
 			});
 		}
 
@@ -153,12 +165,16 @@ export function deriveChatTimelineRows({
 					id: `message:${message.id}`,
 					message,
 					enterUser: false,
+					showAssistantCommands: message.id === actionableAssistantMessageId,
 				});
 			}
 			rows.push({
 				kind: "turn-summary",
 				id: `summary:${turn.user?.id ?? `turn-${index}`}`,
 				body: summaryBody,
+				showAssistantCommands: summaryBody.some(
+					(message) => message.id === actionableAssistantMessageId,
+				),
 			});
 			continue;
 		}
@@ -170,6 +186,8 @@ export function deriveChatTimelineRows({
 					id: `message:${group.message.id}`,
 					message: group.message,
 					enterUser: false,
+					showAssistantCommands:
+						group.message.id === actionableAssistantMessageId,
 				});
 			} else {
 				rows.push({

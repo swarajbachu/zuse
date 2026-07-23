@@ -1,7 +1,8 @@
 import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
 import { Effect } from "effect";
+import { Atom } from "effect/unstable/reactivity";
 import * as SecureStore from "expo-secure-store";
-import { create } from "zustand";
+
 import {
 	type ConnectionRecord,
 	type ConnectionSource,
@@ -17,51 +18,14 @@ import { getConnectionClient } from "~/rpc/connection";
 import { redeemPairingCode } from "~/rpc/pairing-client";
 import { connectionKey, type WsProtocolOptions } from "~/rpc/ws-protocol";
 
+import { appAtomRegistry, batchAtomUpdates } from "./registry";
+
 export type { ConnectionRecord } from "~/lib/connection-records";
 
-type ConnectionsState = {
-	connections: ConnectionRecord[];
-	hydrated: boolean;
-	hydrate: () => Promise<void>;
-	add: (input: {
-		host: string;
-		port: number;
-		token?: string | null;
-		source: Exclude<ConnectionSource, "relay">;
-		serverKeyPin?: string;
-		serverPublicKey?: string;
-		transportCertificatePin?: string;
-		nearbyServiceName?: string;
-		pathType?: LocalPathType;
-		refreshAccountGrant?: boolean;
-	}) => Promise<ConnectionRecord>;
-	/** Upsert a relay-discovered environment reached via a managed endpoint. */
-	addRelay: (input: {
-		environmentId: string;
-		label: string;
-		wsBaseUrl: string;
-		token: string;
-	}) => Promise<ConnectionRecord>;
-	/** Persist a new human label for an already-stored connection. */
-	updateLabel: (key: string, label: string) => Promise<void>;
-	/**
-	 * Re-describe an already-paired environment and adopt its human label if the
-	 * server now reports a nicer one (e.g. after the Phase 1 machine-naming
-	 * change lands on desktop). No-op when the label is unchanged.
-	 */
-	refreshLabel: (key: string, options: WsProtocolOptions) => Promise<void>;
-	/** Replace only the disposable network route for a stable paired Mac. */
-	updateDiscoveredRoute: (input: {
-		key: string;
-		host: string;
-		port: number;
-		pathType: LocalPathType;
-		nearbyServiceName?: string;
-		transportCertificatePin?: string;
-	}) => Promise<void>;
-	remove: (key: string) => Promise<void>;
-	clear: () => Promise<void>;
-};
+export const connectionsAtom = Atom.make<ConnectionRecord[]>([]).pipe(
+	Atom.keepAlive,
+);
+export const connectionsHydratedAtom = Atom.make(false).pipe(Atom.keepAlive);
 
 const parseHostPort = (wsBaseUrl: string): { host: string; port: number } => {
 	try {
@@ -92,158 +56,212 @@ const saveConnections = (connections: ConnectionRecord[]) =>
 		catch: (cause) => cause,
 	});
 
-export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
-	connections: [],
-	hydrated: false,
-	hydrate: async () => {
-		const connections = await Effect.runPromise(loadConnections);
-		set({ connections, hydrated: true });
-		await Effect.runPromise(saveConnections(connections));
-	},
-	add: async ({
-		host,
+export const currentConnections = (): ConnectionRecord[] =>
+	appAtomRegistry.get(connectionsAtom);
+
+export const hydrateConnections = async (): Promise<void> => {
+	const connections = await Effect.runPromise(loadConnections);
+	batchAtomUpdates(() => {
+		appAtomRegistry.set(connectionsAtom, connections);
+		appAtomRegistry.set(connectionsHydratedAtom, true);
+	});
+	await Effect.runPromise(saveConnections(connections));
+};
+
+export const addConnection = async ({
+	host,
+	port,
+	token,
+	source,
+	serverKeyPin,
+	serverPublicKey,
+	transportCertificatePin,
+	nearbyServiceName,
+	pathType,
+	refreshAccountGrant,
+}: {
+	host: string;
+	port: number;
+	token?: string | null;
+	source: Exclude<ConnectionSource, "relay">;
+	serverKeyPin?: string;
+	serverPublicKey?: string;
+	transportCertificatePin?: string;
+	nearbyServiceName?: string;
+	pathType?: LocalPathType;
+	refreshAccountGrant?: boolean;
+}): Promise<ConnectionRecord> => {
+	const trimmedHost = host.trim();
+	const redeemed = await redeemPairingCodeIfNeeded({
+		host: trimmedHost,
 		port,
 		token,
+	});
+	const descriptor = await describeEnvironment({
+		host: trimmedHost,
+		port,
+		token: redeemed.token,
+	});
+	if (
+		descriptor === null &&
+		(source === "manual" || (source === "paired" && redeemed.token !== null))
+	) {
+		throw new Error(
+			"Could not reach that desktop. Check the address, token, and network, then try again.",
+		);
+	}
+	const identity =
+		descriptor?.environmentId ??
+		redeemed.environmentId ??
+		connectionKey(trimmedHost, port);
+	const key =
+		currentConnections().find(
+			(connection) =>
+				connection.source === source &&
+				((descriptor !== null &&
+					connection.environmentId === descriptor.environmentId) ||
+					connection.key === connectionStorageKey(source, identity)),
+		)?.key ?? connectionStorageKey(source, identity);
+	const record: ConnectionRecord = {
+		key,
+		environmentId: descriptor?.environmentId,
+		host: trimmedHost,
+		port,
+		token: redeemed.token,
+		label: visibleConnectionLabel(descriptor?.label, identity),
+		updatedAt: Date.now(),
 		source,
-		serverKeyPin,
-		serverPublicKey,
-		transportCertificatePin,
+		serverKeyPin:
+			serverKeyPin ??
+			(redeemed.environmentPublicKey === undefined
+				? undefined
+				: serverKeyPinForPublicKey(redeemed.environmentPublicKey)),
+		serverPublicKey: serverPublicKey ?? redeemed.environmentPublicKey,
+		transportCertificatePin:
+			transportCertificatePin ?? redeemed.transportCertificatePin,
 		nearbyServiceName,
 		pathType,
 		refreshAccountGrant,
-	}) => {
-		const trimmedHost = host.trim();
-		const redeemed = await redeemPairingCodeIfNeeded({
-			host: trimmedHost,
-			port,
-			token,
-		});
-		const descriptor = await describeEnvironment({
-			host: trimmedHost,
-			port,
-			token: redeemed.token,
-		});
-		if (
-			descriptor === null &&
-			(source === "manual" || (source === "paired" && redeemed.token !== null))
-		) {
-			throw new Error(
-				"Could not reach that desktop. Check the address, token, and network, then try again.",
-			);
-		}
-		const identity =
-			descriptor?.environmentId ??
-			redeemed.environmentId ??
-			connectionKey(trimmedHost, port);
-		const key =
-			get().connections.find(
-				(connection) =>
-					connection.source === source &&
-					((descriptor !== null &&
-						connection.environmentId === descriptor.environmentId) ||
-						connection.key === connectionStorageKey(source, identity)),
-			)?.key ?? connectionStorageKey(source, identity);
-		const record: ConnectionRecord = {
-			key,
-			environmentId: descriptor?.environmentId,
-			host: trimmedHost,
-			port,
-			token: redeemed.token,
-			label: visibleConnectionLabel(descriptor?.label, identity),
-			updatedAt: Date.now(),
-			source,
-			serverKeyPin:
-				serverKeyPin ??
-				(redeemed.environmentPublicKey === undefined
-					? undefined
-					: serverKeyPinForPublicKey(redeemed.environmentPublicKey)),
-			serverPublicKey: serverPublicKey ?? redeemed.environmentPublicKey,
-			transportCertificatePin:
-				transportCertificatePin ?? redeemed.transportCertificatePin,
-			nearbyServiceName,
-			pathType,
-			refreshAccountGrant,
-			routeGeneration: 1,
-		};
-		const next = [record, ...get().connections.filter((c) => c.key !== key)];
-		set({ connections: next });
-		await Effect.runPromise(saveConnections(next));
-		return record;
-	},
-	addRelay: async ({ environmentId, label, wsBaseUrl, token }) => {
-		const { host, port } = parseHostPort(wsBaseUrl);
-		const key =
-			get().connections.find(
-				(connection) =>
-					connection.source === "relay" &&
-					connection.environmentId === environmentId,
-			)?.key ?? connectionStorageKey("relay", environmentId);
-		const record: ConnectionRecord = {
-			key,
-			environmentId,
-			host,
-			port,
-			wsBaseUrl,
-			token,
-			label: visibleConnectionLabel(label),
-			updatedAt: Date.now(),
-			source: "relay",
-		};
-		const next = [
-			record,
-			...get().connections.filter((connection) => connection.key !== key),
-		];
-		set({ connections: next });
-		await Effect.runPromise(saveConnections(next));
-		return record;
-	},
-	updateLabel: async (key, label) => {
-		const next = get().connections.map((c) =>
-			c.key === key ? { ...c, label } : c,
-		);
-		set({ connections: next });
-		await Effect.runPromise(saveConnections(next));
-	},
-	refreshLabel: async (key, options) => {
-		const descriptor = await describeEnvironment(options);
-		if (descriptor === null) return;
-		const nextLabel = visibleConnectionLabel(descriptor.label, key);
-		const current = get().connections.find((c) => c.key === key);
-		if (current === undefined || current.label === nextLabel) return;
-		await get().updateLabel(key, nextLabel);
-	},
-	updateDiscoveredRoute: async ({
+		routeGeneration: 1,
+	};
+	const next = [record, ...currentConnections().filter((c) => c.key !== key)];
+	appAtomRegistry.set(connectionsAtom, next);
+	await Effect.runPromise(saveConnections(next));
+	return record;
+};
+
+/** Upsert a relay-discovered environment reached via a managed endpoint. */
+export const addRelayConnection = async ({
+	environmentId,
+	label,
+	wsBaseUrl,
+	token,
+}: {
+	environmentId: string;
+	label: string;
+	wsBaseUrl: string;
+	token: string;
+}): Promise<ConnectionRecord> => {
+	const { host, port } = parseHostPort(wsBaseUrl);
+	const key =
+		currentConnections().find(
+			(connection) =>
+				connection.source === "relay" &&
+				connection.environmentId === environmentId,
+		)?.key ?? connectionStorageKey("relay", environmentId);
+	const record: ConnectionRecord = {
 		key,
+		environmentId,
 		host,
 		port,
-		pathType,
-		nearbyServiceName,
-		transportCertificatePin,
-	}) => {
-		const next = get().connections.map((connection) =>
-			connection.key === key
-				? replaceDiscoveredRoute(connection, {
-						host,
-						port,
-						pathType,
-						nearbyServiceName,
-						transportCertificatePin,
-					})
-				: connection,
-		);
-		set({ connections: next });
-		await Effect.runPromise(saveConnections(next));
-	},
-	remove: async (key) => {
-		const next = get().connections.filter((c) => c.key !== key);
-		set({ connections: next });
-		await Effect.runPromise(saveConnections(next));
-	},
-	clear: async () => {
-		set({ connections: [], hydrated: true });
-		await SecureStore.deleteItemAsync(STORE_KEY);
-	},
-}));
+		wsBaseUrl,
+		token,
+		label: visibleConnectionLabel(label),
+		updatedAt: Date.now(),
+		source: "relay",
+	};
+	const next = [
+		record,
+		...currentConnections().filter((connection) => connection.key !== key),
+	];
+	appAtomRegistry.set(connectionsAtom, next);
+	await Effect.runPromise(saveConnections(next));
+	return record;
+};
+
+/** Persist a new human label for an already-stored connection. */
+export const updateConnectionLabel = async (
+	key: string,
+	label: string,
+): Promise<void> => {
+	const next = currentConnections().map((c) =>
+		c.key === key ? { ...c, label } : c,
+	);
+	appAtomRegistry.set(connectionsAtom, next);
+	await Effect.runPromise(saveConnections(next));
+};
+
+/**
+ * Re-describe an already-paired environment and adopt its human label if the
+ * server now reports a nicer one (e.g. after the Phase 1 machine-naming
+ * change lands on desktop). No-op when the label is unchanged.
+ */
+export const refreshConnectionLabel = async (
+	key: string,
+	options: WsProtocolOptions,
+): Promise<void> => {
+	const descriptor = await describeEnvironment(options);
+	if (descriptor === null) return;
+	const nextLabel = visibleConnectionLabel(descriptor.label, key);
+	const current = currentConnections().find((c) => c.key === key);
+	if (current === undefined || current.label === nextLabel) return;
+	await updateConnectionLabel(key, nextLabel);
+};
+
+/** Replace only the disposable network route for a stable paired Mac. */
+export const updateDiscoveredConnectionRoute = async ({
+	key,
+	host,
+	port,
+	pathType,
+	nearbyServiceName,
+	transportCertificatePin,
+}: {
+	key: string;
+	host: string;
+	port: number;
+	pathType: LocalPathType;
+	nearbyServiceName?: string;
+	transportCertificatePin?: string;
+}): Promise<void> => {
+	const next = currentConnections().map((connection) =>
+		connection.key === key
+			? replaceDiscoveredRoute(connection, {
+					host,
+					port,
+					pathType,
+					nearbyServiceName,
+					transportCertificatePin,
+				})
+			: connection,
+	);
+	appAtomRegistry.set(connectionsAtom, next);
+	await Effect.runPromise(saveConnections(next));
+};
+
+export const removeConnection = async (key: string): Promise<void> => {
+	const next = currentConnections().filter((c) => c.key !== key);
+	appAtomRegistry.set(connectionsAtom, next);
+	await Effect.runPromise(saveConnections(next));
+};
+
+export const clearConnections = async (): Promise<void> => {
+	batchAtomUpdates(() => {
+		appAtomRegistry.set(connectionsAtom, []);
+		appAtomRegistry.set(connectionsHydratedAtom, true);
+	});
+	await SecureStore.deleteItemAsync(STORE_KEY);
+};
 
 const redeemPairingCodeIfNeeded = async ({
 	host,

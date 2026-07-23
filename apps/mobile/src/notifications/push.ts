@@ -3,6 +3,7 @@ import { Linking, Platform } from "react-native";
 
 import { relayBaseUrl } from "../auth/config.ts";
 import type { WorkosAccount } from "../auth/workos.ts";
+import { captureMobileAnalytics } from "../lib/analytics.ts";
 import {
 	clearDeviceIdentity,
 	getOrCreateDeviceId,
@@ -18,6 +19,9 @@ const getExpoPushToken = async (): Promise<string | null> => {
 		current.status === "granted"
 			? current.status
 			: (await Notifications.requestPermissionsAsync()).status;
+	captureMobileAnalytics("notification permission decided", {
+		decision: finalStatus === "granted" ? "granted" : "denied",
+	});
 	if (finalStatus !== "granted") return null;
 	return (await Notifications.getExpoPushTokenAsync()).data;
 };
@@ -49,6 +53,9 @@ export const installNotificationResponseHandler = (): (() => void) => {
 	) => {
 		const target = response?.notification.request.content.data?.target;
 		if (typeof target !== "string" || target.length === 0) return;
+		captureMobileAnalytics("notification opened", {
+			notification_kind: "attention_required",
+		});
 		void Linking.openURL(target).catch(() => {});
 		void Notifications.clearLastNotificationResponseAsync();
 	};

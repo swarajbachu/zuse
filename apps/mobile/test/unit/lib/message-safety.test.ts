@@ -29,7 +29,7 @@ describe("mobile message safety", () => {
 				},
 				createdAt: new Date(),
 			},
-		] satisfies ReadonlyArray<Message>;
+		] satisfies readonly Message[];
 
 		expect(sanitizeMessages(messages).map((message) => message.id)).toEqual([
 			"msg-1",

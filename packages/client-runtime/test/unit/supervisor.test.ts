@@ -244,6 +244,27 @@ describe("connection supervisor", () => {
 		]);
 	});
 
+	test("does not treat prepared credentials as a configured option change", async () => {
+		const configured = { key: "remote", token: "account-grant" };
+		const harness = makeHarness({
+			prepareOptions: async (options) => ({
+				...options,
+				token: "ephemeral-connect-token",
+			}),
+			shouldReconnectOnOptionsChange: (previous, next) =>
+				previous.token !== next.token,
+		});
+		const entry = harness.supervisor.get(configured);
+		await runClient(entry.getClient());
+
+		const sameEntry = harness.supervisor.get(configured);
+		await runClient(sameEntry.getClient());
+
+		expect(sameEntry.snapshot().generation).toBe(1);
+		expect(harness.created).toHaveLength(1);
+		expect(harness.disposed).toEqual([]);
+	});
+
 	test("does not replace a healthy client for an ignorable cancellation", async () => {
 		const harness = makeHarness({
 			isIgnorableFailure: (cause) =>

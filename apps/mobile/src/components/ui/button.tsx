@@ -5,6 +5,7 @@ import { cn } from "~/lib/cn";
 
 type ButtonProps = PressableProps & {
 	children: React.ReactNode;
+	analyticsId?: string;
 	variant?: "primary" | "secondary" | "ghost" | "danger";
 	size?: "sm" | "md";
 };
@@ -40,6 +41,8 @@ export const Button = forwardRef<
 			variant = "primary",
 			size = "md",
 			disabled,
+			analyticsId,
+			onPress,
 			...props
 		},
 		ref,
@@ -47,6 +50,19 @@ export const Button = forwardRef<
 		<Pressable
 			ref={ref}
 			disabled={disabled}
+			onPress={
+				onPress
+					? (event) => {
+							if (analyticsId) {
+								void import("~/lib/analytics").then(
+									({ captureMobileControl }) =>
+										captureMobileControl(analyticsId),
+								);
+							}
+							onPress(event);
+						}
+					: undefined
+			}
 			style={{ borderCurve: "continuous" }}
 			className={cn(
 				"h-11 items-center justify-center rounded-full border active:opacity-80",

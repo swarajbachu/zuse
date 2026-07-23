@@ -38,8 +38,13 @@ const configuredDevStartedAt = Number(process.env.ZUSE_DEV_STARTED_AT);
 const devStartedAt = Number.isFinite(configuredDevStartedAt)
 	? configuredDevStartedAt
 	: Date.now();
-const restartDebounceMs = 150;
-const forcedShutdownTimeoutMs = 1500;
+// One tsdown rebuild flushes several outputs (main, preload, MCP children)
+// spread over a couple of seconds — the debounce must span the whole flush so
+// a rebuild produces ONE restart, not one per file. Too-short debounce plus a
+// tight kill timeout caused the SIGTERM→SIGKILL restart churn that also hard
+// killed the embedded server (dropping every paired phone mid-session).
+const restartDebounceMs = 1_000;
+const forcedShutdownTimeoutMs = 5_000;
 
 let shuttingDown = false;
 let restartTimer = null;

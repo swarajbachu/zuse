@@ -1,8 +1,8 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Schema, Struct } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
 import {
-  AgentDefinition,
+	AgentDefinition,
   OpencodeCustomProvider,
   ProviderId,
   RuntimeMode,
@@ -80,12 +80,14 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
    */
   defaultAutonomyLevel: AutonomyLevel,
   onboardingCompleted: Schema.Boolean,
-  appearanceMode: AppearanceMode,
-  completionSoundEnabled: Schema.Boolean,
-  completionSoundPreset: CompletionSoundPreset,
-  /**
-   * Per-provider on/off toggle from the Providers settings card. Defaults
-   * to `true` for every provider; flipping it to `false` filters the
+	appearanceMode: AppearanceMode,
+	completionSoundEnabled: Schema.Boolean,
+	completionSoundPreset: CompletionSoundPreset,
+	/** Share pseudonymous product and reliability analytics. Defaults on. */
+	analyticsEnabled: Schema.Boolean,
+	/**
+	 * Per-provider on/off toggle from the Providers settings card. Defaults
+	 * to `true` for every provider; flipping it to `false` filters the
    * provider from the new-session picker without uninstalling its CLI.
    */
   providerEnabled: Schema.Record(ProviderId, Schema.Boolean),
@@ -168,26 +170,22 @@ export const SettingsPatch = Schema.Struct({
   defaultAutoCreateWorktree: Schema.optional(Schema.Boolean),
   defaultAutonomyLevel: Schema.optional(AutonomyLevel),
   onboardingCompleted: Schema.optional(Schema.Boolean),
-  appearanceMode: Schema.optional(AppearanceMode),
-  completionSoundEnabled: Schema.optional(Schema.Boolean),
-  completionSoundPreset: Schema.optional(CompletionSoundPreset),
-  providerEnabled: Schema.optional(
-    Schema.Record(ProviderId, Schema.Boolean),
-  ),
-  modelEnabledByProvider: Schema.optional(
-    Schema.Record(ProviderId, Schema.Record(Schema.String, Schema.Boolean)),
-  ),
+	appearanceMode: Schema.optional(AppearanceMode),
+	completionSoundEnabled: Schema.optional(Schema.Boolean),
+	completionSoundPreset: Schema.optional(CompletionSoundPreset),
+	analyticsEnabled: Schema.optional(Schema.Boolean),
+	providerEnabled: Schema.optional(Schema.Record(ProviderId, Schema.Boolean)),
+	modelEnabledByProvider: Schema.optional(
+		Schema.Record(ProviderId, Schema.Record(Schema.String, Schema.Boolean)),
+	),
   opencodeProviderVisible: Schema.optional(
-    Schema.Record(Schema.String, Schema.Boolean),
-  ),
-  opencodeModelVisibleByProvider: Schema.optional(
-    Schema.Record(
-      Schema.String,
-      Schema.Record(Schema.String, Schema.Boolean),
-    ),
-  ),
-  opencodeCustomProviders: Schema.optional(
-    Schema.Array(OpencodeCustomProvider),
+		Schema.Record(Schema.String, Schema.Boolean),
+	),
+	opencodeModelVisibleByProvider: Schema.optional(
+		Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Boolean)),
+	),
+	opencodeCustomProviders: Schema.optional(
+		Schema.Array(OpencodeCustomProvider),
   ),
   mcpDisabledServers: Schema.optional(Schema.Array(Schema.String)),
   subagents: Schema.optional(

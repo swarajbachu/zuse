@@ -1,9 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	GitBranchIcon,
-	GitForkIcon,
-	Loading02Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+import { Loading02Icon } from "@hugeicons-pro/core-solid-rounded";
+import { GitBranchIcon } from "@hugeicons-pro/core-stroke-rounded";
 import type { MessageId, SessionId, Worktree } from "@zuse/contracts";
 import { useState } from "react";
 
@@ -12,6 +9,47 @@ import { useWorktreesStore } from "../store/worktrees.ts";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu.tsx";
 import { toastManager } from "./ui/toast.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
+
+function ForkSplitIcon({ className }: { readonly className?: string }) {
+	return (
+		<svg
+			aria-hidden="true"
+			focusable="false"
+			viewBox="0 0 24 24"
+			fill="none"
+			className={className}
+		>
+			<path
+				d="M4 12h4c2.3 0 3.8-1 5.2-2.7L18 4"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			/>
+			<path
+				d="M13.5 4H18v4.5"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			/>
+			<path
+				d="M8 12c2.3 0 3.8 1 5.2 2.7L18 20"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			/>
+			<path
+				d="M18 15.5V20h-4.5"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			/>
+		</svg>
+	);
+}
 
 export function ForkButton({
 	sourceSessionId,
@@ -102,11 +140,15 @@ export function ForkButton({
 							aria-label="Fork from this response"
 							className="inline-grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground/70 outline-none hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97] data-[popup-open]:bg-muted/50 data-[popup-open]:text-foreground [@media(pointer:coarse)]:size-11"
 						>
-							<HugeiconsIcon
-								icon={forking ? Loading02Icon : GitForkIcon}
-								className={forking ? "size-3.5 animate-spin" : "size-3.5"}
-								aria-hidden="true"
-							/>
+							{forking ? (
+								<HugeiconsIcon
+									icon={Loading02Icon}
+									className="size-3.5 animate-spin"
+									aria-hidden="true"
+								/>
+							) : (
+								<ForkSplitIcon className="size-3.5" />
+							)}
 						</MenuTrigger>
 					}
 				/>
@@ -120,7 +162,7 @@ export function ForkButton({
 								onClick={() => void run("tab")}
 								className="gap-2.5 px-2 py-1.5"
 							>
-								<HugeiconsIcon icon={GitForkIcon} className="size-4" />
+								<ForkSplitIcon className="size-4" />
 								<span>Fork in this chat</span>
 							</MenuItem>
 						}

@@ -1,29 +1,34 @@
-import * as fsSync from "node:fs";
 import { randomBytes } from "node:crypto";
+import * as fsSync from "node:fs";
 import { homedir } from "node:os";
 import * as NodePath from "node:path";
-
-import { FileSystem, Path } from "effect";
-import { Effect, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
-
 import {
-  type AppearanceMode,
-  type BranchNamingStyle,
+	type AppearanceMode,
+	type BranchNamingStyle,
   type Command,
   type CompletionSoundPreset,
   defaultModelEnabledByProvider,
-  defaultModelFor,
-  type KeybindingRule,
-  KeybindingsFile,
-  MODELS_BY_PROVIDER,
-  MAX_KEYBINDING_RULES,
-  type ProviderId,
-  resolveModelSlug,
-  SettingsFile,
-  type MergePrefs,
-  type SettingsPatch,
-  type SubagentPresetState,
+	defaultModelFor,
+	type KeybindingRule,
+	KeybindingsFile,
+	MAX_KEYBINDING_RULES,
+	type MergePrefs,
+	MODELS_BY_PROVIDER,
+	type ProviderId,
+	resolveModelSlug,
+	SettingsFile,
+	type SubagentPresetState,
 } from "@zuse/contracts";
+import {
+	Effect,
+	FileSystem,
+	Layer,
+	Path,
+	PubSub,
+	Ref,
+	Semaphore,
+	Stream,
+} from "effect";
 
 import { AppPaths } from "../../app-paths.ts";
 import {
@@ -80,12 +85,13 @@ const freshSettings = (): SettingsFile =>
     defaultAutoCreateWorktree: true,
     defaultAutonomyLevel: "approval-gated",
     onboardingCompleted: false,
-    appearanceMode: "dark",
-    completionSoundEnabled: false,
-    completionSoundPreset: "chime",
-    providerEnabled: seedProviderEnabled(),
-    modelEnabledByProvider: seedModelEnabledByProvider(),
-    opencodeProviderVisible: {},
+		appearanceMode: "dark",
+		completionSoundEnabled: false,
+		completionSoundPreset: "chime",
+		analyticsEnabled: true,
+		providerEnabled: seedProviderEnabled(),
+		modelEnabledByProvider: seedModelEnabledByProvider(),
+		opencodeProviderVisible: {},
     opencodeModelVisibleByProvider: {},
     opencodeCustomProviders: [],
     mcpDisabledServers: [],
@@ -245,12 +251,17 @@ const coerceSettings = (raw: unknown): SettingsFile => {
   const completionSoundPreset = isCompletionSoundPreset(
     obj.completionSoundPreset,
   )
-    ? obj.completionSoundPreset
-    : base.completionSoundPreset;
+		? obj.completionSoundPreset
+		: base.completionSoundPreset;
 
-  const providerEnabled: Record<ProviderId, boolean> = {
-    ...base.providerEnabled,
-  };
+	// Deliberately default missing legacy values to enabled. The setting is
+	// still immediately reversible from both desktop and mobile clients.
+	const analyticsEnabled =
+		typeof obj.analyticsEnabled === "boolean" ? obj.analyticsEnabled : true;
+
+	const providerEnabled: Record<ProviderId, boolean> = {
+		...base.providerEnabled,
+	};
   if (typeof obj.providerEnabled === "object" && obj.providerEnabled !== null) {
     const flags = obj.providerEnabled as Record<string, unknown>;
     for (const id of PROVIDER_IDS) {
@@ -436,12 +447,13 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     defaultAutoCreateWorktree: autoWorktree,
     defaultAutonomyLevel: autonomy,
     onboardingCompleted: onboarding,
-    appearanceMode,
-    completionSoundEnabled,
-    completionSoundPreset,
-    providerEnabled,
-    modelEnabledByProvider,
-    opencodeProviderVisible,
+		appearanceMode,
+		completionSoundEnabled,
+		completionSoundPreset,
+		analyticsEnabled,
+		providerEnabled,
+		modelEnabledByProvider,
+		opencodeProviderVisible,
     opencodeModelVisibleByProvider,
     opencodeCustomProviders,
     mcpDisabledServers,
@@ -711,12 +723,13 @@ export const ConfigStoreServiceLive = Layer.effect(
             patch.onboardingCompleted ?? cur.onboardingCompleted,
           appearanceMode: patch.appearanceMode ?? cur.appearanceMode,
           completionSoundEnabled:
-            patch.completionSoundEnabled ?? cur.completionSoundEnabled,
-          completionSoundPreset:
-            patch.completionSoundPreset ?? cur.completionSoundPreset,
-          providerEnabled: patch.providerEnabled ?? cur.providerEnabled,
-          modelEnabledByProvider:
-            patch.modelEnabledByProvider ?? cur.modelEnabledByProvider,
+						patch.completionSoundEnabled ?? cur.completionSoundEnabled,
+					completionSoundPreset:
+						patch.completionSoundPreset ?? cur.completionSoundPreset,
+					analyticsEnabled: patch.analyticsEnabled ?? cur.analyticsEnabled,
+					providerEnabled: patch.providerEnabled ?? cur.providerEnabled,
+					modelEnabledByProvider:
+						patch.modelEnabledByProvider ?? cur.modelEnabledByProvider,
           opencodeProviderVisible:
             patch.opencodeProviderVisible ?? cur.opencodeProviderVisible,
           opencodeModelVisibleByProvider:
@@ -768,12 +781,13 @@ export const ConfigStoreServiceLive = Layer.effect(
             cur.defaultProviderId === baseline.defaultProviderId &&
             cur.defaultRuntimeMode === baseline.defaultRuntimeMode &&
             cur.defaultAutoCreateWorktree ===
-              baseline.defaultAutoCreateWorktree &&
-            cur.completionSoundEnabled === baseline.completionSoundEnabled &&
-            cur.completionSoundPreset === baseline.completionSoundPreset &&
-            cur.appearanceMode === baseline.appearanceMode &&
-            cur.onboardingCompleted === false &&
-            Object.keys(cur.subagents.presets).length === 0 &&
+							baseline.defaultAutoCreateWorktree &&
+						cur.completionSoundEnabled === baseline.completionSoundEnabled &&
+						cur.completionSoundPreset === baseline.completionSoundPreset &&
+						cur.analyticsEnabled === baseline.analyticsEnabled &&
+						cur.appearanceMode === baseline.appearanceMode &&
+						cur.onboardingCompleted === false &&
+						Object.keys(cur.subagents.presets).length === 0 &&
             cur.mergePrefs.method === baseline.mergePrefs.method &&
             cur.mergePrefs.deleteBranch === baseline.mergePrefs.deleteBranch &&
             cur.notchTrayEnabled === baseline.notchTrayEnabled &&
@@ -849,12 +863,13 @@ export const ConfigStoreServiceLive = Layer.effect(
             // Autonomy has no localStorage predecessor — preserve current.
             defaultAutonomyLevel: cur.defaultAutonomyLevel,
             onboardingCompleted: onboarding,
-            appearanceMode,
-            completionSoundEnabled,
-            completionSoundPreset,
-            providerEnabled,
-            modelEnabledByProvider,
-            opencodeProviderVisible: cur.opencodeProviderVisible,
+						appearanceMode,
+						completionSoundEnabled,
+						completionSoundPreset,
+						analyticsEnabled: cur.analyticsEnabled,
+						providerEnabled,
+						modelEnabledByProvider,
+						opencodeProviderVisible: cur.opencodeProviderVisible,
             opencodeModelVisibleByProvider: cur.opencodeModelVisibleByProvider,
             opencodeCustomProviders: cur.opencodeCustomProviders,
             mcpDisabledServers: cur.mcpDisabledServers,
@@ -896,12 +911,15 @@ export const ConfigStoreServiceLive = Layer.effect(
     const keybindingsChanges: ConfigStoreServiceShape["keybindingsChanges"] =
       () =>
         Stream.unwrap(
-          Effect.gen(function* () {
-            const sub = yield* PubSub.subscribe(keybindingsHub);
-            const cur = yield* Ref.get(keybindingsRef);
-            return Stream.concat(Stream.make(cur), Stream.fromSubscription(sub));
-          }),
-        );
+					Effect.gen(function* () {
+						const sub = yield* PubSub.subscribe(keybindingsHub);
+						const cur = yield* Ref.get(keybindingsRef);
+						return Stream.concat(
+							Stream.make(cur),
+							Stream.fromSubscription(sub),
+						);
+					}),
+				);
 
     return {
       getSettings,

@@ -16,6 +16,8 @@ labels:
 
 # Know your token spend
 
+> **Update — July 22, 2026:** The detailed Tokenmaxer dashboard and source logs described here remain local. Zuse Alpha separately sends default-on pseudonymous aggregate usage events, including safe model IDs and token/cost totals, with standard geographic enrichment. Prompts, responses, logs, code, paths, and entity IDs are excluded, and analytics can be disabled in Settings.
+
 Most developers running coding agents have no idea how many tokens they burned last week. The usage exists, the dollars are real, but the number is invisible. It is scattered across Claude Code, Codex, OpenCode, Amp, Grok, and whatever else is installed, each writing its own logs in its own format, in its own corner of the disk.
 
 Zuse Alpha is a tool for token maxers. The first step to maxing anything is being able to see it. So Zuse Alpha ships Tokenmaxer: a local dashboard that reads the logs your agent CLIs already write and turns them into one honest picture of what you actually run.

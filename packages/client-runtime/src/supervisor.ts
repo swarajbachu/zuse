@@ -339,7 +339,6 @@ class SupervisorEntryImpl<Options, Client>
 		const prepared = await prepare(this.options);
 		if (this.removed || epoch !== this.epoch)
 			throw new Error("connection superseded");
-		this.options = prepared;
 		const session = await this.deps.createClient(prepared);
 		if (this.removed || epoch !== this.epoch) {
 			await session.dispose().catch(() => undefined);

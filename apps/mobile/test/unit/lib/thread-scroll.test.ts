@@ -1,12 +1,10 @@
 import { describe, expect, test } from "vitest";
 
 import {
-	latestTurnAnchorSpace,
-	latestTurnTopOffset,
+	nextThreadAnchor,
 	nextThreadScrollMode,
 	shouldFollowTranscript,
 	shouldShowLatestAction,
-	transcriptBottomInset,
 } from "../../../src/lib/thread-scroll";
 
 describe("thread scroll policy", () => {
@@ -40,6 +38,19 @@ describe("thread scroll policy", () => {
 		).toBe("following");
 	});
 
+	test("releases a sent-message anchor before a detached reader jumps", () => {
+		const anchoredTurnId = nextThreadAnchor(null, {
+			type: "message-anchored",
+			turnId: "turn-2",
+		});
+		const detachedAnchor = nextThreadAnchor(anchoredTurnId, {
+			type: "reader-interacted",
+		});
+
+		expect(anchoredTurnId).toBe("turn-2");
+		expect(detachedAnchor).toBeNull();
+	});
+
 	test("shows the latest action only for detached offscreen or unseen content", () => {
 		expect(
 			shouldShowLatestAction({
@@ -62,35 +73,6 @@ describe("thread scroll policy", () => {
 				hasUnseenContent: false,
 			}),
 		).toBe(true);
-	});
-
-	test("combines composer and keyboard clearance without negative values", () => {
-		expect(transcriptBottomInset(72, 310)).toBe(394);
-		expect(transcriptBottomInset(-1, -2)).toBe(12);
-	});
-
-	test("shrinks anchor space as the latest turn fills the viewport", () => {
-		expect(
-			latestTurnAnchorSpace({
-				viewportHeight: 800,
-				bottomInset: 300,
-				latestTurnHeight: 120,
-				previousContext: 72,
-			}),
-		).toBe(308);
-		expect(
-			latestTurnAnchorSpace({
-				viewportHeight: 800,
-				bottomInset: 300,
-				latestTurnHeight: 500,
-				previousContext: 72,
-			}),
-		).toBe(0);
-	});
-
-	test("positions the latest user turn directly below the native header", () => {
-		expect(latestTurnTopOffset(900, 120, 12)).toBe(768);
-		expect(latestTurnTopOffset(80, 120, 12)).toBe(0);
 	});
 
 	test("only initial and following modes permit content-driven movement", () => {
