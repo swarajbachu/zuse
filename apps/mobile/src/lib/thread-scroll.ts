@@ -47,33 +47,20 @@ export const transcriptBottomInset = (
 	Math.max(0, keyboardOverlap) +
 	Math.max(0, spacing);
 
-export const latestTurnTopOffset = (
-	turnContentY: number,
-	headerHeight: number,
-	spacing = 12,
-): number =>
-	Math.max(
-		0,
-		Math.max(0, turnContentY) -
-			Math.max(0, headerHeight) -
-			Math.max(0, spacing),
-	);
-
 /**
- * Reserve only the unused part of the latest-turn viewport. As the response
- * grows, this space shrinks by the same amount, so the turn remains anchored
- * without manually compensating the list offset.
+ * Space reserved below the transcript while a send-anchor is active: always
+ * exactly one "anchored viewport", so the anchored turn's top can sit at
+ * headerOffset regardless of how tall the turn or the streaming reply becomes.
+ * Independent of any turn-height measurement by design.
  */
-export const latestTurnAnchorSpace = (options: {
+export const sendAnchorSpace = (options: {
 	readonly viewportHeight: number;
+	readonly headerOffset: number;
 	readonly bottomInset: number;
-	readonly latestTurnHeight: number;
-	readonly previousContext: number;
 }): number =>
 	Math.max(
 		0,
 		options.viewportHeight -
-			Math.max(0, options.bottomInset) -
-			Math.max(0, options.latestTurnHeight) -
-			Math.max(0, options.previousContext),
+			Math.max(0, options.headerOffset) -
+			Math.max(0, options.bottomInset),
 	);

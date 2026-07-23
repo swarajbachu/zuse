@@ -1,9 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import {
-	latestTurnAnchorSpace,
-	latestTurnTopOffset,
 	nextThreadScrollMode,
+	sendAnchorSpace,
 	shouldFollowTranscript,
 	shouldShowLatestAction,
 	transcriptBottomInset,
@@ -69,28 +68,34 @@ describe("thread scroll policy", () => {
 		expect(transcriptBottomInset(-1, -2)).toBe(12);
 	});
 
-	test("shrinks anchor space as the latest turn fills the viewport", () => {
+	test("reserves one anchored viewport independent of turn height", () => {
 		expect(
-			latestTurnAnchorSpace({
+			sendAnchorSpace({
 				viewportHeight: 800,
+				headerOffset: 110,
 				bottomInset: 300,
-				latestTurnHeight: 120,
-				previousContext: 72,
 			}),
-		).toBe(308);
+		).toBe(390);
+	});
+
+	test("clamps anchor space to zero when chrome exceeds the viewport", () => {
 		expect(
-			latestTurnAnchorSpace({
-				viewportHeight: 800,
-				bottomInset: 300,
-				latestTurnHeight: 500,
-				previousContext: 72,
+			sendAnchorSpace({
+				viewportHeight: 400,
+				headerOffset: 110,
+				bottomInset: 340,
 			}),
 		).toBe(0);
 	});
 
-	test("positions the latest user turn directly below the native header", () => {
-		expect(latestTurnTopOffset(900, 120, 12)).toBe(768);
-		expect(latestTurnTopOffset(80, 120, 12)).toBe(0);
+	test("ignores negative measurements while the layout settles", () => {
+		expect(
+			sendAnchorSpace({
+				viewportHeight: 800,
+				headerOffset: -20,
+				bottomInset: -40,
+			}),
+		).toBe(800);
 	});
 
 	test("only initial and following modes permit content-driven movement", () => {

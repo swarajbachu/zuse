@@ -71,9 +71,10 @@ import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
 import { connectionSessionKey } from "~/lib/session-key";
 import {
-	latestTurnAnchorSpace,
-	latestTurnTopOffset,
+	LIVE_EDGE_ENTER_PX,
 	nextThreadScrollMode,
+	sendAnchorSpace,
+	shouldFollowTranscript,
 	shouldShowLatestAction,
 	type ThreadScrollMode,
 	transcriptBottomInset,
@@ -179,16 +180,16 @@ function ThreadScreen() {
 	const distanceFromBottomRef = useRef(0);
 	const scrollOffsetRef = useRef(0);
 	const pendingRestoreOffsetRef = useRef<number | null>(null);
-	const pendingLatestTurnAnchorRef = useRef(!restoreThreadPosition);
-	const latestTurnContentYRef = useRef<number | null>(null);
+	const pendingInitialEndRef = useRef(!restoreThreadPosition);
+	const pendingSendAnchorRef = useRef(false);
+	const sendAnchorBaselineRef = useRef<string | null>(null);
 	const hasUnseenContentRef = useRef(false);
 	const previousMessagesRef = useRef<readonly unknown[] | null>(null);
 	const [showJumpButton, setShowJumpButton] = useState(false);
 	const [hasUnseenContent, setHasUnseenContent] = useState(false);
 	const [keyboardOverlap, setKeyboardOverlap] = useState(0);
 	const [listViewportHeight, setListViewportHeight] = useState(0);
-	const [latestTurnHeight, setLatestTurnHeight] = useState(0);
-	const [liveFooterHeight, setLiveFooterHeight] = useState(0);
+	const [anchoredTurnId, setAnchoredTurnId] = useState<string | null>(null);
 	const [bottomAccessoryHeight, setBottomAccessoryHeight] = useState(
 		Math.max(insets.bottom, 12) + 64,
 	);
@@ -476,13 +477,14 @@ function ThreadScreen() {
 		scrollOffsetRef.current = saved?.offsetY ?? 0;
 		pendingRestoreOffsetRef.current =
 			saved?.mode === "detached" ? saved.offsetY : null;
-		pendingLatestTurnAnchorRef.current = saved?.mode !== "detached";
-		latestTurnContentYRef.current = null;
+		pendingInitialEndRef.current = saved?.mode !== "detached";
+		pendingSendAnchorRef.current = false;
+		sendAnchorBaselineRef.current = null;
 		hasUnseenContentRef.current = false;
 		previousMessagesRef.current = null;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
-		setLatestTurnHeight(0);
+		setAnchoredTurnId(null);
 		return () => {
 			const mode = scrollModeRef.current;
 			if (mode === "initial") return;
@@ -493,11 +495,6 @@ function ThreadScreen() {
 			});
 		};
 	}, [restoreThreadPosition, stateKey]);
-
-	useEffect(() => {
-		void latestTurnId;
-		setLatestTurnHeight(0);
-	}, [latestTurnId]);
 
 	useEffect(() => {
 		const updateKeyboardOverlap = (event: KeyboardEvent) => {
@@ -555,22 +552,44 @@ function ThreadScreen() {
 		jumpOpacity.value = withTiming(showJumpButton ? 1 : 0, { duration: 160 });
 	}, [showJumpButton, jumpOpacity]);
 
-	const scrollToLatestTurn = useCallback(
-		(animated: boolean) => {
-			const turnContentY = latestTurnContentYRef.current;
-			if (messages.length === 0 || turnContentY === null) return false;
-			pendingLatestTurnAnchorRef.current = false;
-			scrollModeRef.current = nextThreadScrollMode("initial", {
+	// Open-at-latest lands at the true end of the content. Repeated non-animated
+	// calls while early content batches arrive are harmless and self-correcting;
+	// the pending flag clears one frame after the first call.
+	const attemptInitialEnd = () => {
+		if (!pendingInitialEndRef.current || turns.length === 0) return;
+		listRef.current?.scrollToEnd({ animated: false });
+		requestAnimationFrame(() => {
+			if (!pendingInitialEndRef.current) return;
+			pendingInitialEndRef.current = false;
+			scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
 				type: "initial-positioned",
 			});
-			listRef.current?.scrollToOffset({
-				offset: latestTurnTopOffset(turnContentY, headerHeight),
-				animated,
+		});
+	};
+	// After a send, pin the new turn's top just below the header (ChatGPT-style):
+	// the reply then streams into the space below without further scroll calls —
+	// the send-anchor footer spacer guarantees the offset stays valid. Waits for
+	// the turn id to move past the baseline recorded at submit so keyboard- or
+	// footer-driven content-size changes cannot anchor the previous turn.
+	const attemptSendAnchor = () => {
+		if (!pendingSendAnchorRef.current || latestTurnId === null) return;
+		if (latestTurnId === sendAnchorBaselineRef.current) return;
+		if (!shouldFollowTranscript(scrollModeRef.current)) {
+			pendingSendAnchorRef.current = false;
+			return;
+		}
+		pendingSendAnchorRef.current = false;
+		setAnchoredTurnId(latestTurnId);
+		const index = turns.length - 1;
+		requestAnimationFrame(() => {
+			listRef.current?.scrollToIndex({
+				index,
+				viewPosition: 0,
+				viewOffset: headerHeight + 12,
+				animated: true,
 			});
-			return true;
-		},
-		[headerHeight, messages.length],
-	);
+		});
+	};
 	const restoreDetachedPosition = useCallback(() => {
 		const offset = pendingRestoreOffsetRef.current;
 		if (offset === null || messages.length === 0) return false;
@@ -580,6 +599,15 @@ function ThreadScreen() {
 		});
 		return true;
 	}, [messages.length]);
+
+	// Primary send-anchor trigger: runs after every commit (ref-guarded, cheap)
+	// so the anchor fires as soon as the submitted turn lands in `turns`, with
+	// onContentSizeChange as the belt-and-braces secondary trigger. No dependency
+	// array on purpose: the pending ref makes the pass a no-op except right
+	// after a submit.
+	useEffect(() => {
+		attemptSendAnchor();
+	});
 
 	// Plain functions (not useCallback): the React Compiler memoizes them, and
 	// manual memoization of setState-calling callbacks trips its preservation rule.
@@ -622,13 +650,30 @@ function ThreadScreen() {
 			distance: distanceFromBottomRef.current,
 		});
 		if (scrollModeRef.current !== "following") return;
+		// Only a deliberate scroll to the (spacer-inflated) very bottom releases
+		// the send-anchor — collapsing the blank space is what the reader wants
+		// there. Programmatic anchor scrolls end far from the bottom, so they
+		// never trip this.
+		if (distanceFromBottomRef.current <= LIVE_EDGE_ENTER_PX) {
+			setAnchoredTurnId(null);
+		}
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
 	};
 
 	const jumpToLatest = () => {
-		if (!scrollToLatestTurn(true)) return;
+		if (turns.length === 0) return;
+		// Release the anchor first so the footer spacer collapses and the end of
+		// the content is the end of the messages, then scroll to the true bottom.
+		pendingSendAnchorRef.current = false;
+		setAnchoredTurnId(null);
+		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
+			type: "jumped-to-latest",
+		});
+		requestAnimationFrame(() => {
+			listRef.current?.scrollToEnd({ animated: true });
+		});
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
@@ -640,9 +685,9 @@ function ThreadScreen() {
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
-		setLatestTurnHeight(0);
-		latestTurnContentYRef.current = null;
-		pendingLatestTurnAnchorRef.current = true;
+		pendingInitialEndRef.current = false;
+		sendAnchorBaselineRef.current = latestTurnId;
+		pendingSendAnchorRef.current = true;
 	};
 	const onComposerFocusChange = (_focused: boolean) => undefined;
 
@@ -657,16 +702,20 @@ function ThreadScreen() {
 		bottomAccessoryHeight,
 		keyboardOverlap,
 	);
-	const anchorSpace =
-		turns.length === 0
-			? 0
-			: latestTurnAnchorSpace({
+	// While the send-anchor is active, reserve exactly one anchored viewport
+	// below the transcript so the anchored turn can hold its position at the
+	// top no matter how tall it or the streaming reply becomes. Deliberately
+	// independent of any turn-height measurement.
+	const anchorActive = anchoredTurnId !== null && anchoredTurnId === latestTurnId;
+	const transcriptFooterHeight =
+		effectiveBottomInset +
+		(anchorActive
+			? sendAnchorSpace({
 					viewportHeight: listViewportHeight,
+					headerOffset: headerHeight + 12,
 					bottomInset: effectiveBottomInset,
-					latestTurnHeight: latestTurnHeight + liveFooterHeight,
-					previousContext: headerHeight + 12,
-				});
-	const transcriptFooterHeight = effectiveBottomInset + anchorSpace;
+				})
+			: 0);
 
 	const onRename = () => {
 		if (chatId === null || options === null) return;
@@ -891,30 +940,11 @@ function ThreadScreen() {
 				data={turns}
 				keyExtractor={(turn) => turn.id}
 				renderItem={({ item, index }) => (
-					<View
-						onLayout={
-							index === turns.length - 1
-								? (event) => {
-										latestTurnContentYRef.current = event.nativeEvent.layout.y;
-										const nextHeight = event.nativeEvent.layout.height;
-										setLatestTurnHeight((current) =>
-											Math.abs(current - nextHeight) < 1 ? current : nextHeight,
-										);
-										if (pendingLatestTurnAnchorRef.current) {
-											requestAnimationFrame(
-												() => void scrollToLatestTurn(false),
-											);
-										}
-									}
-								: undefined
-						}
-					>
-						<TurnRow
-							turn={item}
-							context={ctx}
-							live={sessionStatus === "running" && index === turns.length - 1}
-						/>
-					</View>
+					<TurnRow
+						turn={item}
+						context={ctx}
+						live={sessionStatus === "running" && index === turns.length - 1}
+					/>
 				)}
 				contentInsetAdjustmentBehavior="never"
 				contentContainerClassName="gap-1 px-4"
@@ -945,15 +975,7 @@ function ThreadScreen() {
 				}
 				ListFooterComponent={
 					<View>
-						<View
-							className="pt-1"
-							onLayout={(event) => {
-								const nextHeight = event.nativeEvent.layout.height;
-								setLiveFooterHeight((current) =>
-									Math.abs(current - nextHeight) < 1 ? current : nextHeight,
-								);
-							}}
-						>
+						<View className="pt-1">
 							{workingActive ? <WorkingIndicator since={workingSince} /> : null}
 						</View>
 						<View style={{ height: transcriptFooterHeight }} />
@@ -965,26 +987,35 @@ function ThreadScreen() {
 				onMomentumScrollEnd={resumeAtLiveEdge}
 				onTouchStart={detachReader}
 				scrollEventThrottle={32}
-				maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+				onScrollToIndexFailed={(info) => {
+					// Graceful degradation when the target row is far outside the
+					// render window (e.g. sending while detached far above): land
+					// close with an estimated offset, then pin exactly next frame.
+					listRef.current?.scrollToOffset({
+						offset: info.averageItemLength * info.index,
+						animated: false,
+					});
+					requestAnimationFrame(() => {
+						listRef.current?.scrollToIndex({
+							index: info.index,
+							viewPosition: 0,
+							viewOffset: headerHeight + 12,
+							animated: false,
+						});
+					});
+				}}
 				onContentSizeChange={() => {
-					if (
-						!restoreDetachedPosition() &&
-						pendingLatestTurnAnchorRef.current
-					) {
-						requestAnimationFrame(() => void scrollToLatestTurn(false));
-					}
+					if (restoreDetachedPosition()) return;
+					attemptInitialEnd();
+					attemptSendAnchor();
 				}}
 				onLayout={(event) => {
 					const nextHeight = event.nativeEvent.layout.height;
 					setListViewportHeight((current) =>
 						Math.abs(current - nextHeight) < 1 ? current : nextHeight,
 					);
-					if (
-						!restoreDetachedPosition() &&
-						pendingLatestTurnAnchorRef.current
-					) {
-						requestAnimationFrame(() => void scrollToLatestTurn(false));
-					}
+					if (restoreDetachedPosition()) return;
+					attemptInitialEnd();
 				}}
 			/>
 			<View pointerEvents="box-none" style={{ position: "absolute", inset: 0 }}>

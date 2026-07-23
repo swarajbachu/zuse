@@ -204,11 +204,14 @@ describe("mobile UI contracts", () => {
 		expect(threads).not.toContain('className="flex-1 bg-background"');
 	});
 
-	test("anchors latest-turn navigation without bottom-scroll races", () => {
+	test("anchors sent turns at the top and jumps to the true end", () => {
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
-		expect(thread).toContain("scrollToLatestTurn");
-		expect(thread).toContain("latestTurnTopOffset");
-		expect(thread).not.toContain("scrollToEnd");
+		expect(thread).toContain("scrollToIndex");
+		expect(thread).toContain("onScrollToIndexFailed");
+		expect(thread).toContain("sendAnchorSpace(");
+		expect(thread).toContain("scrollToEnd({ animated: true })");
+		expect(thread).not.toContain("maintainVisibleContentPosition");
+		expect(thread).not.toContain("latestTurnTopOffset");
 	});
 
 	test("uses stack-based files and keeps file changes inline", () => {
