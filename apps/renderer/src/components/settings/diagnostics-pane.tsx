@@ -10,6 +10,7 @@ import {
 	AlertTriangle,
 	Archive,
 	Check,
+	ChevronDown,
 	Copy,
 	ExternalLink,
 	FolderOpen,
@@ -19,6 +20,7 @@ import {
 	Pause,
 	Play,
 	RefreshCw,
+	ScrollText,
 	Search,
 	Server,
 	ShieldCheck,
@@ -64,6 +66,7 @@ const VIEW_OPTIONS: ReadonlyArray<{
 	readonly icon: typeof ListTodo;
 }> = [
 	{ id: "issues", label: "Issues", icon: ListTodo },
+	{ id: "logs", label: "Logs", icon: ScrollText },
 	{ id: "performance", label: "Performance", icon: Gauge },
 	{ id: "processes", label: "Processes", icon: Server },
 	{ id: "storage", label: "Storage", icon: HardDrive },
@@ -89,6 +92,13 @@ const relativeTime = (value: string) => {
 	if (seconds < 86_400) return `${Math.floor(seconds / 3_600)}h ago`;
 	return `${Math.floor(seconds / 86_400)}d ago`;
 };
+const formatTimestamp = (value: string) =>
+	new Intl.DateTimeFormat(undefined, {
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+		fractionalSecondDigits: 3,
+	}).format(new Date(value));
 
 const readPreferences = (): DiagnosticsPreferences => {
 	if (typeof window === "undefined") return DEFAULT_DIAGNOSTICS_PREFERENCES;
@@ -323,6 +333,91 @@ function CopyButton({
 	);
 }
 
+function DiagnosticsFilters({
+	search,
+	onSearchChange,
+	severity,
+	onSeverityChange,
+	source,
+	onSourceChange,
+	rangeMs,
+	onRangeChange,
+	searchLabel,
+}: {
+	readonly search: string;
+	readonly onSearchChange: (value: string) => void;
+	readonly severity: DiagnosticsSeverityFilter;
+	readonly onSeverityChange: (value: DiagnosticsSeverityFilter) => void;
+	readonly source: string;
+	readonly onSourceChange: (value: string) => void;
+	readonly rangeMs: number;
+	readonly onRangeChange: (value: number) => void;
+	readonly searchLabel: string;
+}) {
+	return (
+		<div className="flex flex-wrap items-center gap-2 border-b border-border/45 p-2.5">
+			<label className="relative min-w-48 flex-1">
+				<span className="sr-only">{searchLabel}</span>
+				<Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+				<input
+					type="search"
+					value={search}
+					onChange={(event) => onSearchChange(event.target.value)}
+					className="h-8 w-full rounded-md border border-border/50 bg-background pl-8 pr-2 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:text-base"
+					placeholder="Search messages and details"
+					spellCheck={false}
+				/>
+			</label>
+			<label>
+				<span className="sr-only">Filter by severity</span>
+				<select
+					value={severity}
+					onChange={(event) =>
+						onSeverityChange(event.target.value as DiagnosticsSeverityFilter)
+					}
+					className="h-8 rounded-md border border-border/50 bg-background px-2 text-[10px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:text-base"
+				>
+					<option value="all">All levels</option>
+					<option value="fatal">Fatal</option>
+					<option value="error">Errors</option>
+					<option value="warn">Warnings</option>
+					<option value="info">Info</option>
+					<option value="debug">Debug</option>
+				</select>
+			</label>
+			<label className="min-w-36 flex-1 sm:max-w-48">
+				<span className="sr-only">Filter by source</span>
+				<input
+					value={source}
+					onChange={(event) => onSourceChange(event.target.value)}
+					className="h-8 w-full rounded-md border border-border/50 bg-background px-2 text-[10px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:text-base"
+					placeholder="All sources"
+					spellCheck={false}
+				/>
+			</label>
+			<fieldset className="flex rounded-md border border-border/50 bg-background p-0.5">
+				<legend className="sr-only">Diagnostics time range</legend>
+				{DIAGNOSTICS_RANGE_OPTIONS.map((option) => (
+					<button
+						type="button"
+						key={option.label}
+						aria-pressed={rangeMs === option.milliseconds}
+						onClick={() => onRangeChange(option.milliseconds)}
+						className={cn(
+							"h-6 min-w-8 rounded-[5px] px-1.5 font-mono text-[9px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:min-w-11",
+							rangeMs === option.milliseconds
+								? "bg-muted text-foreground shadow-xs"
+								: "text-muted-foreground hover:text-foreground",
+						)}
+					>
+						{option.label}
+					</button>
+				))}
+			</fieldset>
+		</div>
+	);
+}
+
 function IncidentDetails({
 	selected,
 	related,
@@ -460,6 +555,7 @@ export function DiagnosticsPane() {
 		null,
 	);
 	const [selected, setSelected] = useState<DiagnosticEvent | null>(null);
+	const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 	const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
 	const [view, setView] = useState<DiagnosticsView>(initialPreferences.view);
 	const [live, setLive] = useState(true);
@@ -927,64 +1023,17 @@ export function DiagnosticsPane() {
 						</p>
 					</FrameHeader>
 					<FramePanel className="overflow-hidden p-0">
-						<div className="flex flex-wrap items-center gap-2 border-b border-border/45 p-2.5">
-							<label className="relative min-w-48 flex-1">
-								<span className="sr-only">Search diagnostic issues</span>
-								<Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-								<input
-									type="search"
-									value={search}
-									onChange={(event) => setSearch(event.target.value)}
-									className="h-8 w-full rounded-md border border-border/50 bg-background pl-8 pr-2 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:text-base"
-									placeholder="Search messages and details"
-									spellCheck={false}
-								/>
-							</label>
-							<label>
-								<span className="sr-only">Filter by severity</span>
-								<select
-									value={severity}
-									onChange={(event) =>
-										setSeverity(event.target.value as DiagnosticsSeverityFilter)
-									}
-									className="h-8 rounded-md border border-border/50 bg-background px-2 text-[10px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:text-base"
-								>
-									<option value="all">All levels</option>
-									<option value="fatal">Fatal</option>
-									<option value="error">Errors</option>
-									<option value="warn">Warnings</option>
-									<option value="info">Info</option>
-								</select>
-							</label>
-							<label className="min-w-36 flex-1 sm:max-w-48">
-								<span className="sr-only">Filter by source</span>
-								<input
-									value={source}
-									onChange={(event) => setSource(event.target.value)}
-									className="h-8 w-full rounded-md border border-border/50 bg-background px-2 text-[10px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:text-base"
-									placeholder="All sources"
-									spellCheck={false}
-								/>
-							</label>
-							<div className="flex rounded-md border border-border/50 bg-background p-0.5">
-								{DIAGNOSTICS_RANGE_OPTIONS.map((option) => (
-									<button
-										type="button"
-										key={option.label}
-										aria-pressed={rangeMs === option.milliseconds}
-										onClick={() => setRangeMs(option.milliseconds)}
-										className={cn(
-											"h-6 min-w-8 rounded-[5px] px-1.5 font-mono text-[9px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:min-w-11",
-											rangeMs === option.milliseconds
-												? "bg-muted text-foreground shadow-xs"
-												: "text-muted-foreground hover:text-foreground",
-										)}
-									>
-										{option.label}
-									</button>
-								))}
-							</div>
-						</div>
+						<DiagnosticsFilters
+							search={search}
+							onSearchChange={setSearch}
+							severity={severity}
+							onSeverityChange={setSeverity}
+							source={source}
+							onSourceChange={setSource}
+							rangeMs={rangeMs}
+							onRangeChange={setRangeMs}
+							searchLabel="Search diagnostic issues"
+						/>
 
 						<div className="grid min-h-[480px] min-w-0 xl:grid-cols-[minmax(0,1fr)_340px]">
 							<div className="min-w-0 xl:border-r xl:border-border/45">
@@ -1100,6 +1149,218 @@ export function DiagnosticsPane() {
 									onCopy={copyText}
 								/>
 							</aside>
+						</div>
+					</FramePanel>
+				</Frame>
+			)}
+
+			{view === "logs" && (
+				<Frame aria-label="Live diagnostic logs">
+					<FrameHeader className="flex w-full flex-row flex-wrap items-center justify-between gap-3 px-3 py-2.5">
+						<div>
+							<FrameTitle className="flex items-center gap-2 text-[12px]">
+								Live logs
+								<span
+									className={cn(
+										"inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-normal text-[9px]",
+										live
+											? "bg-success/10 text-success"
+											: "bg-muted text-muted-foreground",
+									)}
+								>
+									<span
+										className={cn(
+											"size-1.5 rounded-full",
+											live ? "bg-success" : "bg-muted-foreground/60",
+										)}
+									/>
+									{live ? "Following" : "Paused"}
+								</span>
+							</FrameTitle>
+							<FrameDescription className="text-[9px] leading-3.5">
+								Structured local events. The newest filtered page refreshes
+								every five seconds while live.
+							</FrameDescription>
+						</div>
+						<p
+							className="font-mono text-[9px] text-muted-foreground tabular-nums"
+							aria-live="polite"
+						>
+							{formatCount.format(events.length)} loaded ·{" "}
+							{formatCount.format(eventTotal)} matching
+						</p>
+					</FrameHeader>
+					<FramePanel className="overflow-hidden p-0">
+						<DiagnosticsFilters
+							search={search}
+							onSearchChange={setSearch}
+							severity={severity}
+							onSeverityChange={setSeverity}
+							source={source}
+							onSourceChange={setSource}
+							rangeMs={rangeMs}
+							onRangeChange={setRangeMs}
+							searchLabel="Search diagnostic logs"
+						/>
+
+						<div className="overflow-x-auto">
+							<div className="min-w-[760px]">
+								<div className="grid h-8 grid-cols-[86px_72px_150px_minmax(240px,1fr)_128px_24px] items-center gap-3 border-b border-border/45 px-4 font-medium text-[9px] text-muted-foreground uppercase tracking-[0.08em]">
+									<span>Time</span>
+									<span>Level</span>
+									<span>Source</span>
+									<span>Message</span>
+									<span>Trace</span>
+									<span className="sr-only">Details</span>
+								</div>
+								<div className="max-h-[620px] divide-y divide-border/40 overflow-y-auto">
+									{events.map((item) => {
+										const expanded = expandedLogId === item.id;
+										return (
+											<div key={item.id}>
+												<button
+													type="button"
+													aria-expanded={expanded}
+													onClick={() =>
+														setExpandedLogId(expanded ? null : item.id)
+													}
+													className={cn(
+														"grid min-h-10 w-full grid-cols-[86px_72px_150px_minmax(240px,1fr)_128px_24px] items-center gap-3 px-4 text-left outline-none hover:bg-muted/20 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+														expanded && "bg-muted/30",
+													)}
+												>
+													<time
+														dateTime={item.createdAt}
+														title={new Date(item.createdAt).toLocaleString()}
+														className="font-mono text-[9px] text-muted-foreground tabular-nums"
+													>
+														{formatTimestamp(item.createdAt)}
+													</time>
+													<SeverityPill severity={item.severity} />
+													<span
+														className="truncate font-mono text-[9px] text-muted-foreground"
+														title={item.source}
+													>
+														{item.source}
+													</span>
+													<span
+														className="truncate text-[10px]"
+														title={item.message}
+													>
+														{item.message}
+													</span>
+													<span
+														className="truncate font-mono text-[9px] text-muted-foreground"
+														title={item.traceId ?? "Not correlated"}
+													>
+														{item.traceId ?? "—"}
+													</span>
+													<ChevronDown
+														className={cn(
+															"size-3.5 text-muted-foreground",
+															expanded && "rotate-180",
+														)}
+													/>
+												</button>
+												{expanded && (
+													<div className="grid gap-4 border-t border-border/30 bg-muted/15 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_260px]">
+														<div className="min-w-0">
+															<p className="font-medium text-[9px] text-muted-foreground uppercase tracking-[0.08em]">
+																Sanitized detail
+															</p>
+															{item.detail ? (
+																<pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/70 p-3 font-mono text-[9px] leading-4">
+																	{item.detail}
+																</pre>
+															) : (
+																<p className="mt-2 text-[10px] text-muted-foreground">
+																	No additional detail was captured for this
+																	event.
+																</p>
+															)}
+														</div>
+														<div className="min-w-0">
+															<dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-2 gap-y-1.5 text-[9px]">
+																<dt className="text-muted-foreground">Event</dt>
+																<dd
+																	className="truncate font-mono"
+																	title={item.id}
+																>
+																	{item.id}
+																</dd>
+																<dt className="text-muted-foreground">
+																	Category
+																</dt>
+																<dd className="truncate">{item.category}</dd>
+																<dt className="text-muted-foreground">Run</dt>
+																<dd className="truncate font-mono">
+																	{item.runId}
+																</dd>
+																<dt className="text-muted-foreground">Span</dt>
+																<dd className="truncate font-mono">
+																	{item.spanId ?? "—"}
+																</dd>
+																<dt className="text-muted-foreground">
+																	Session
+																</dt>
+																<dd className="truncate font-mono">
+																	{item.sessionId ?? item.chatId ?? "—"}
+																</dd>
+																<dt className="text-muted-foreground">
+																	Provider
+																</dt>
+																<dd className="truncate font-mono">
+																	{item.providerId ?? "—"}
+																</dd>
+															</dl>
+															<div className="mt-3">
+																<CopyButton
+																	copyKey={`log:${item.id}`}
+																	copiedKey={copiedKey}
+																	onCopy={copyText}
+																	label="Copy event"
+																	text={`${item.createdAt}\n${item.severity.toUpperCase()} ${item.source}\n${item.message}\nEvent: ${item.id}\nTrace: ${item.traceId ?? "—"}\n${item.detail ?? ""}`}
+																/>
+															</div>
+														</div>
+													</div>
+												)}
+											</div>
+										);
+									})}
+									{!loading && events.length === 0 && (
+										<EmptyState
+											icon={ScrollText}
+											title="No matching logs"
+											description="Change the filters or time range. New structured events will appear here while capture is live."
+										/>
+									)}
+									{loading && events.length === 0 && (
+										<EmptyState
+											icon={Activity}
+											title="Reading live logs"
+											description="Loading the newest structured events from local diagnostics."
+										/>
+									)}
+								</div>
+							</div>
+						</div>
+						<div className="flex min-h-11 items-center justify-between border-t border-border/45 px-4 py-2 text-[9px] text-muted-foreground">
+							<span>
+								{live
+									? "Following the newest events"
+									: "Live refresh is paused"}
+							</span>
+							{nextEventCursor && (
+								<Button
+									size="sm"
+									variant="settings"
+									className="h-7 px-2.5 !text-[10px]"
+									onClick={() => void loadMoreEvents()}
+								>
+									Load older
+								</Button>
+							)}
 						</div>
 					</FramePanel>
 				</Frame>

@@ -60,6 +60,20 @@ describe("diagnostics view model", () => {
 		});
 	});
 
+	it("restores the live logs view", () => {
+		expect(
+			parseDiagnosticsPreferences(
+				JSON.stringify({
+					view: "logs",
+					rangeMs: 86_400_000,
+					severity: "all",
+					source: "",
+					search: "",
+				}),
+			).view,
+		).toBe("logs");
+	});
+
 	it("groups repeated failures and preserves the newest representative", () => {
 		const grouped = groupDiagnosticEvents(
 			[

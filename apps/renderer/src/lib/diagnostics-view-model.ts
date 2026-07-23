@@ -5,6 +5,7 @@ export const DIAGNOSTICS_PREFERENCES_KEY =
 
 export const DIAGNOSTICS_VIEWS = [
 	"issues",
+	"logs",
 	"performance",
 	"processes",
 	"storage",
