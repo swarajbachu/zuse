@@ -20,16 +20,22 @@ const formatFullMessageTime = (date: Date): string =>
 export function AssistantMessageActions({
 	text,
 	createdAt,
+	elapsed,
 	sessionId,
 	messageId,
+	showMessageCommands = false,
 	className,
 }: {
 	readonly text: string;
 	readonly createdAt?: Date;
+	readonly elapsed?: string;
 	readonly sessionId?: SessionId;
 	readonly messageId?: MessageId;
+	readonly showMessageCommands?: boolean;
 	readonly className?: string;
 }) {
+	if (!showMessageCommands) return null;
+
 	return (
 		<div
 			className={cn(
@@ -59,6 +65,11 @@ export function AssistantMessageActions({
 					/>
 					<TooltipPopup>{formatFullMessageTime(createdAt)}</TooltipPopup>
 				</Tooltip>
+			) : null}
+			{elapsed !== undefined ? (
+				<span className="cursor-default px-1 text-[11px] tabular-nums text-muted-foreground">
+					{elapsed}
+				</span>
 			) : null}
 		</div>
 	);

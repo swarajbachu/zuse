@@ -147,10 +147,12 @@ function MessageRowImpl({
 	message,
 	sessionId,
 	readOnly = false,
+	showAssistantCommands = false,
 }: {
 	message: Message;
 	sessionId?: SessionId;
 	readOnly?: boolean;
+	showAssistantCommands?: boolean;
 }) {
 	switch (message.content._tag) {
 		case "user":
@@ -180,6 +182,7 @@ function MessageRowImpl({
 					createdAt={message.createdAt}
 					messageId={message.id}
 					sessionId={readOnly ? undefined : sessionId}
+					showMessageCommands={showAssistantCommands}
 				/>
 			);
 		case "thinking":
@@ -619,11 +622,13 @@ function AssistantBubble({
 	createdAt,
 	messageId,
 	sessionId,
+	showMessageCommands,
 }: {
 	text: string;
 	createdAt?: Date;
 	messageId: Message["id"];
 	sessionId?: SessionId;
+	showMessageCommands: boolean;
 }) {
 	return (
 		<div className="group/assistant px-4 py-2">
@@ -634,6 +639,7 @@ function AssistantBubble({
 					createdAt={createdAt}
 					messageId={messageId}
 					sessionId={sessionId}
+					showMessageCommands={showMessageCommands}
 					className="mt-1"
 				/>
 			</div>

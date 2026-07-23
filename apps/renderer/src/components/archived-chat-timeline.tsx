@@ -71,7 +71,12 @@ function ArchivedTimelineRow({
   switch (row.kind) {
     case "message":
       return (
-        <MessageRow message={row.message} sessionId={sessionId} readOnly />
+        <MessageRow
+          message={row.message}
+          sessionId={sessionId}
+          readOnly
+          showAssistantCommands={row.showAssistantCommands}
+        />
       );
     case "subagent":
       return (
@@ -88,7 +93,12 @@ function ArchivedTimelineRow({
         />
       );
     case "turn-summary":
-      return <TurnSummary body={row.body} />;
+      return (
+        <TurnSummary
+          body={row.body}
+          showAssistantCommands={row.showAssistantCommands}
+        />
+      );
     case "working":
       return null;
   }
