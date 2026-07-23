@@ -1,4 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
+import {
+	KeyboardAwareLegendList,
+	useKeyboardChatComposerInset,
+	useKeyboardScrollToEnd,
+} from "@legendapp/list/keyboard";
+import type { LegendListRef } from "@legendapp/list/react-native";
 import { orderedChatSessions } from "@zuse/client-runtime/chat-threads";
 import {
 	findPendingPlanInteraction,
@@ -16,21 +22,11 @@ import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { ChevronDown } from "lucide-react-native";
-import React, {
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
 	AccessibilityInfo,
 	Alert,
 	AppState,
-	Dimensions,
-	FlatList,
-	Keyboard,
-	type KeyboardEvent,
 	type LayoutChangeEvent,
 	type NativeScrollEvent,
 	type NativeSyntheticEvent,
@@ -38,8 +34,8 @@ import {
 	Text,
 	View,
 } from "react-native";
+import { KeyboardStickyView } from "react-native-keyboard-controller";
 import Animated, {
-	useAnimatedKeyboard,
 	useAnimatedStyle,
 	useReducedMotion,
 	useSharedValue,
@@ -75,15 +71,10 @@ import { connectionSessionKey } from "~/lib/session-key";
 import {
 	LIVE_EDGE_ENTER_PX,
 	nextThreadAnchor,
-	nextThreadEndIntent,
 	nextThreadScrollMode,
-	pendingThreadScrollCommand,
-	sendAnchorSpace,
 	shouldFollowTranscript,
 	shouldShowLatestAction,
-	type ThreadEndIntent,
 	type ThreadScrollMode,
-	transcriptBottomInset,
 } from "~/lib/thread-scroll";
 import { shouldRestoreThreadPosition } from "~/lib/thread-switching";
 import {
@@ -161,8 +152,17 @@ import {
 import { colors, glass } from "~/theme";
 
 export default function ThreadScreenRoute() {
+	const { conn, sessionId, openAtLatest } = useLocalSearchParams<{
+		conn: string;
+		sessionId: string;
+		openAtLatest?: string;
+	}>();
+	const routeKey = `${connectionSessionKey(
+		normalizeConnParam(conn),
+		normalizeConnParam(sessionId) as SessionId,
+	)}:${openAtLatest ?? ""}`;
 	return (
-		<ThreadScreenBoundary>
+		<ThreadScreenBoundary key={routeKey}>
 			<ThreadScreen />
 		</ThreadScreenBoundary>
 	);
@@ -180,32 +180,30 @@ function ThreadScreen() {
 	const connKey = normalizeConnParam(conn);
 	const normalizedSessionId = normalizeConnParam(sessionId) as SessionId;
 	const restoreThreadPosition = shouldRestoreThreadPosition(openAtLatest);
-	const listRef = useRef<FlatList>(null);
+	const listRef = useRef<LegendListRef>(null);
 	const scrollModeRef = useRef<ThreadScrollMode>("initial");
 	const distanceFromBottomRef = useRef(0);
 	const scrollOffsetRef = useRef(0);
-	const pendingRestoreOffsetRef = useRef<number | null>(null);
-	const pendingEndIntentRef = useRef<ThreadEndIntent>(
-		restoreThreadPosition ? null : "initial",
-	);
 	const pendingSendAnchorRef = useRef(false);
 	const sendAnchorBaselineRef = useRef<string | null>(null);
 	const hasUnseenContentRef = useRef(false);
 	const previousMessagesRef = useRef<readonly unknown[] | null>(null);
+	const composerOverlayRef = useRef<View>(null);
 	const [showJumpButton, setShowJumpButton] = useState(false);
 	const [hasUnseenContent, setHasUnseenContent] = useState(false);
-	const [keyboardOverlap, setKeyboardOverlap] = useState(0);
-	const [listViewportHeight, setListViewportHeight] = useState(0);
 	const [anchoredTurnId, setAnchoredTurnId] = useState<string | null>(null);
 	const [bottomAccessoryHeight, setBottomAccessoryHeight] = useState(
 		Math.max(insets.bottom, 12) + 64,
 	);
 	const jumpOpacity = useSharedValue(0);
 	const reduceMotion = useReducedMotion();
-	// UI-thread keyboard height: moves the bottom chrome in per-frame lockstep
-	// with the OS keyboard (including interactive drag-dismiss), with zero JS
-	// re-renders. The coarse keyboardOverlap state below only feeds list layout.
-	const keyboard = useAnimatedKeyboard();
+	const { contentInsetEndAdjustment, onComposerLayout } =
+		useKeyboardChatComposerInset(
+			listRef,
+			composerOverlayRef,
+			Math.max(insets.bottom, 12) + 64,
+		);
+	const { freeze, scrollMessageToEnd } = useKeyboardScrollToEnd({ listRef });
 	const connections = useAtomValue(connectionsAtom);
 	const hydrated = useAtomValue(connectionsHydratedAtom);
 	const options = useMemo(
@@ -213,6 +211,9 @@ function ThreadScreen() {
 		[connKey, connections],
 	);
 	const stateKey = connectionSessionKey(connKey, normalizedSessionId);
+	const [restoredViewState] = useState(() =>
+		restoreThreadPosition ? readThreadViewState(stateKey) : null,
+	);
 	const connectionSnapshot = useAtomValue(connectionSnapshotAtom(connKey));
 	const bundles = useAtomValue(connectionBundlesAtom(connKey));
 	const rawMessages = useAtomValue(sessionMessagesAtom(stateKey));
@@ -221,6 +222,7 @@ function ThreadScreen() {
 	const serverQueuePaused = useAtomValue(sessionQueuePausedAtom(stateKey));
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
+	const listMountKey = `${stateKey}:${turns.length === 0 ? "empty" : "filled"}`;
 	// Computed here (not in the composer) so keystrokes never touch it and the
 	// composer needs no subscription to the message store.
 	const composerActivity = summarizeComposerActivity(turns.at(-1));
@@ -477,33 +479,11 @@ function ThreadScreen() {
 		onAnswerQuestion,
 	};
 
-	// Opening and explicit jumps remain active across provisional FlatList
-	// measurements. Later content-size batches retry until the reader takes
-	// control or a submitted message switches to send-at-top anchoring.
-	const attemptPendingEndScroll = () => {
-		const intent = pendingEndIntentRef.current;
-		if (intent === null || turns.length === 0) return;
-		pendingEndIntentRef.current = nextThreadEndIntent(intent, {
-			type: "scroll-attempted",
-		});
-		if (intent === "jump" && !reduceMotion) {
-			listRef.current?.scrollToEnd({ animated: true });
-			return;
-		}
-		listRef.current?.scrollToEnd({ animated: false });
-	};
-
 	useEffect(() => {
-		const saved = restoreThreadPosition ? readThreadViewState(stateKey) : null;
+		const saved = restoredViewState;
 		scrollModeRef.current = saved?.mode ?? "initial";
 		distanceFromBottomRef.current = saved?.distanceFromBottom ?? 0;
 		scrollOffsetRef.current = saved?.offsetY ?? 0;
-		pendingRestoreOffsetRef.current =
-			saved?.mode === "detached" ? saved.offsetY : null;
-		pendingEndIntentRef.current =
-			saved?.mode === "detached"
-				? null
-				: nextThreadEndIntent(null, { type: "open-at-latest" });
 		pendingSendAnchorRef.current = false;
 		sendAnchorBaselineRef.current = null;
 		hasUnseenContentRef.current = false;
@@ -511,12 +491,6 @@ function ThreadScreen() {
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
 		setAnchoredTurnId(null);
-		// onLayout can precede this restore decision, so bootstrap one attempt
-		// after the ref is armed. Later content-size events own all retries.
-		requestAnimationFrame(() => {
-			if (pendingEndIntentRef.current === null) return;
-			listRef.current?.scrollToEnd({ animated: false });
-		});
 		return () => {
 			const mode = scrollModeRef.current;
 			if (mode === "initial") return;
@@ -526,40 +500,7 @@ function ThreadScreen() {
 				distanceFromBottom: distanceFromBottomRef.current,
 			});
 		};
-	}, [restoreThreadPosition, stateKey]);
-
-	useEffect(() => {
-		// LayoutAnimation on Fabric made the chrome lag the keyboard. The visible
-		// chrome rides the UI-thread keyboard value; this state only resizes the
-		// list layout.
-		const updateKeyboardOverlap = (event: KeyboardEvent) => {
-			const screenHeight = Dimensions.get("screen").height;
-			const keyboardBottom =
-				event.endCoordinates.screenY + event.endCoordinates.height;
-			const isDocked = keyboardBottom >= screenHeight - 2;
-			const nextOverlap = isDocked
-				? Math.max(0, screenHeight - event.endCoordinates.screenY)
-				: 0;
-			setKeyboardOverlap(nextOverlap);
-		};
-		const showEvent =
-			process.env.EXPO_OS === "ios"
-				? "keyboardWillChangeFrame"
-				: "keyboardDidShow";
-		const hideEvent =
-			process.env.EXPO_OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-		const showSubscription = Keyboard.addListener(
-			showEvent,
-			updateKeyboardOverlap,
-		);
-		const hideSubscription = Keyboard.addListener(hideEvent, () => {
-			setKeyboardOverlap(0);
-		});
-		return () => {
-			showSubscription.remove();
-			hideSubscription.remove();
-		};
-	}, []);
+	}, [restoredViewState, stateKey]);
 
 	useEffect(() => {
 		if (previousMessagesRef.current === null) {
@@ -587,11 +528,9 @@ function ThreadScreen() {
 		});
 	}, [jumpOpacity, reduceMotion, showJumpButton]);
 
-	// After a send, pin the new turn's top just below the header (ChatGPT-style):
-	// the reply then streams into the space below without further scroll calls —
-	// the send-anchor footer spacer guarantees the offset stays valid. Waits for
-	// the turn id to move past the baseline recorded at submit so keyboard- or
-	// footer-driven content-size changes cannot anchor the previous turn.
+	// After a send, hand the new turn to LegendList's anchored-end-space mode.
+	// It owns the trailing space and remeasurement corrections while the reply
+	// streams; this screen only chooses which turn is anchored.
 	const prepareSendAnchor = () => {
 		if (!pendingSendAnchorRef.current || latestTurnId === null) return;
 		if (latestTurnId === sendAnchorBaselineRef.current) return;
@@ -607,15 +546,6 @@ function ThreadScreen() {
 			}),
 		);
 	};
-	const restoreDetachedPosition = useCallback(() => {
-		const offset = pendingRestoreOffsetRef.current;
-		if (offset === null || messages.length === 0) return false;
-		pendingRestoreOffsetRef.current = null;
-		requestAnimationFrame(() => {
-			listRef.current?.scrollToOffset({ offset, animated: false });
-		});
-		return true;
-	}, [messages.length]);
 
 	// Plain functions (not useCallback): the React Compiler memoizes them, and
 	// manual memoization of setState-calling callbacks trips its preservation rule.
@@ -625,13 +555,8 @@ function ThreadScreen() {
 		const distanceFromBottom =
 			contentSize.height - (contentOffset.y + layoutMeasurement.height);
 		distanceFromBottomRef.current = Math.max(0, distanceFromBottom);
-		const endIntent = pendingEndIntentRef.current;
-		pendingEndIntentRef.current = nextThreadEndIntent(endIntent, {
-			type: "scroll-positioned",
-			distance: distanceFromBottomRef.current,
-		});
 		if (
-			endIntent === "initial" &&
+			scrollModeRef.current === "initial" &&
 			distanceFromBottomRef.current <= LIVE_EDGE_ENTER_PX
 		) {
 			scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
@@ -654,10 +579,6 @@ function ThreadScreen() {
 		);
 	};
 	const detachReader = () => {
-		pendingEndIntentRef.current = nextThreadEndIntent(
-			pendingEndIntentRef.current,
-			{ type: "reader-interacted" },
-		);
 		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
 			type: "reader-interacted",
 		});
@@ -678,10 +599,7 @@ function ThreadScreen() {
 			distance: distanceFromBottomRef.current,
 		});
 		if (scrollModeRef.current !== "following") return;
-		// Only a deliberate scroll to the (spacer-inflated) very bottom releases
-		// the send-anchor — collapsing the blank space is what the reader wants
-		// there. Programmatic anchor scrolls end far from the bottom, so they
-		// never trip this.
+		// A deliberate return to the live edge releases sent-message anchoring.
 		if (distanceFromBottomRef.current <= LIVE_EDGE_ENTER_PX) {
 			setAnchoredTurnId(null);
 		}
@@ -693,21 +611,18 @@ function ThreadScreen() {
 	const jumpToLatest = () => {
 		if (turns.length === 0) return;
 		pendingSendAnchorRef.current = false;
-		pendingEndIntentRef.current = nextThreadEndIntent(
-			pendingEndIntentRef.current,
-			{ type: "jumped-to-latest" },
-		);
 		setAnchoredTurnId((current) =>
 			nextThreadAnchor(current, { type: "jumped-to-latest" }),
 		);
 		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
 			type: "jumped-to-latest",
 		});
-		// Fire now for immediate feedback, then once more after the anchor/footer
-		// state commits. Later content-size changes keep retrying until the reader
-		// takes control or submits a new message.
-		attemptPendingEndScroll();
-		requestAnimationFrame(attemptPendingEndScroll);
+		requestAnimationFrame(() => {
+			void scrollMessageToEnd({
+				animated: !reduceMotion,
+				closeKeyboard: false,
+			});
+		});
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
@@ -719,10 +634,6 @@ function ThreadScreen() {
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
-		pendingEndIntentRef.current = nextThreadEndIntent(
-			pendingEndIntentRef.current,
-			{ type: "message-submitted" },
-		);
 		sendAnchorBaselineRef.current = latestTurnId;
 		pendingSendAnchorRef.current = true;
 	};
@@ -730,53 +641,23 @@ function ThreadScreen() {
 
 	const jumpStyle = useAnimatedStyle(() => ({
 		opacity: jumpOpacity.value,
-		transform: [{ translateY: -keyboard.height.value }],
-	}));
-	const gradientStyle = useAnimatedStyle(() => ({
-		transform: [{ translateY: -keyboard.height.value }],
-	}));
-	const accessoryStyle = useAnimatedStyle(() => ({
-		transform: [{ translateY: -keyboard.height.value }],
 	}));
 	const onBottomAccessoryLayout = (event: LayoutChangeEvent) => {
 		const nextHeight = event.nativeEvent.layout.height;
 		setBottomAccessoryHeight((current) =>
 			Math.abs(current - nextHeight) < 1 ? current : nextHeight,
 		);
+		onComposerLayout(event);
 	};
-	const effectiveBottomInset = transcriptBottomInset(
-		bottomAccessoryHeight,
-		keyboardOverlap,
-	);
-	// While the send-anchor is active, reserve exactly one anchored viewport
-	// below the transcript so the anchored turn can hold its position at the
-	// top no matter how tall it or the streaming reply becomes. Deliberately
-	// independent of any turn-height measurement.
 	const anchorActive =
 		anchoredTurnId !== null && anchoredTurnId === latestTurnId;
-	const transcriptFooterHeight =
-		effectiveBottomInset +
-		(anchorActive
-			? sendAnchorSpace({
-					viewportHeight: listViewportHeight,
-					headerOffset: headerHeight + 12,
-					bottomInset: effectiveBottomInset,
-				})
-			: 0);
-	const flushPendingProgrammaticScroll = () => {
-		const command = pendingThreadScrollCommand({
-			pendingSendAnchor: pendingSendAnchorRef.current,
-			anchorActive,
+	const onAnchorReady = (info: { anchorIndex: number | undefined }) => {
+		if (!anchorActive || info.anchorIndex === undefined) return;
+		pendingSendAnchorRef.current = false;
+		void scrollMessageToEnd({
+			animated: !reduceMotion,
+			closeKeyboard: true,
 		});
-		if (command === "send-anchor" && turns.length > 0) {
-			pendingSendAnchorRef.current = false;
-			listRef.current?.scrollToIndex({
-				index: turns.length - 1,
-				viewPosition: 0,
-				viewOffset: headerHeight + 12,
-				animated: true,
-			});
-		}
 	};
 
 	const onRename = () => {
@@ -997,10 +878,13 @@ function ThreadScreen() {
 					</Text>
 				</View>
 			) : null}
-			<FlatList
+			<KeyboardAwareLegendList
+				key={listMountKey}
 				ref={listRef}
 				data={turns}
 				keyExtractor={(turn) => turn.id}
+				getItemType={() => "turn"}
+				estimatedItemSize={180}
 				renderItem={({ item, index }) => (
 					<TurnRow
 						turn={item}
@@ -1009,14 +893,47 @@ function ThreadScreen() {
 					/>
 				)}
 				contentInsetAdjustmentBehavior="never"
-				contentContainerClassName="gap-1 px-4"
-				contentContainerStyle={{ paddingTop: headerHeight + 12 }}
+				contentContainerStyle={{
+					gap: 4,
+					paddingHorizontal: 16,
+					paddingTop: headerHeight + 12,
+				}}
 				scrollIndicatorInsets={{
 					top: headerHeight,
-					bottom: effectiveBottomInset,
+					bottom: bottomAccessoryHeight,
 				}}
-				keyboardDismissMode="interactive"
-				keyboardShouldPersistTaps="handled"
+				contentInsetEndAdjustment={contentInsetEndAdjustment}
+				freeze={freeze}
+				keyboardLiftBehavior="whenAtEnd"
+				keyboardDismissMode="none"
+				keyboardShouldPersistTaps="always"
+				initialScrollAtEnd={restoredViewState?.mode !== "detached"}
+				{...(restoredViewState?.mode === "detached"
+					? { initialScrollOffset: restoredViewState.offsetY }
+					: {})}
+				{...(anchorActive
+					? {
+							anchoredEndSpace: {
+								anchorIndex: turns.length - 1,
+								anchorOffset: headerHeight + 12,
+								onReady: onAnchorReady,
+							},
+						}
+					: {})}
+				maintainScrollAtEnd={
+					anchorActive
+						? false
+						: {
+								animated: false,
+								on: {
+									dataChange: true,
+									itemLayout: true,
+									layout: true,
+								},
+							}
+				}
+				maintainScrollAtEndThreshold={0.1}
+				maintainVisibleContentPosition={{ data: true, size: true }}
 				ListHeaderComponent={
 					error || connectionProblem ? (
 						<View className="gap-2 pb-2">
@@ -1036,52 +953,22 @@ function ThreadScreen() {
 					) : null
 				}
 				ListFooterComponent={
-					<View>
-						<View className="pt-1">
-							{workingActive ? <WorkingIndicator since={workingSince} /> : null}
-						</View>
-						<View style={{ height: transcriptFooterHeight }} />
+					<View className="pt-1">
+						{workingActive ? <WorkingIndicator since={workingSince} /> : null}
 					</View>
 				}
 				onScroll={onScroll}
 				onScrollBeginDrag={detachReader}
 				onScrollEndDrag={resumeAtLiveEdge}
 				onMomentumScrollEnd={resumeAtLiveEdge}
-				onTouchStart={detachReader}
-				scrollEventThrottle={32}
-				onScrollToIndexFailed={(info) => {
-					// Graceful degradation when the target row is far outside the
-					// render window (e.g. sending while detached far above): land
-					// close with an estimated offset, then pin exactly next frame.
-					listRef.current?.scrollToOffset({
-						offset: info.averageItemLength * info.index,
-						animated: false,
-					});
-					requestAnimationFrame(() => {
-						listRef.current?.scrollToIndex({
-							index: info.index,
-							viewPosition: 0,
-							viewOffset: headerHeight + 12,
-							animated: false,
-						});
-					});
-				}}
-				onContentSizeChange={() => {
-					if (restoreDetachedPosition()) return;
-					attemptPendingEndScroll();
-					prepareSendAnchor();
-					flushPendingProgrammaticScroll();
-				}}
-				onLayout={(event) => {
-					const nextHeight = event.nativeEvent.layout.height;
-					setListViewportHeight((current) =>
-						Math.abs(current - nextHeight) < 1 ? current : nextHeight,
-					);
-					if (restoreDetachedPosition()) return;
-					attemptPendingEndScroll();
-				}}
+				scrollEventThrottle={16}
+				onContentSizeChange={prepareSendAnchor}
 			/>
-			<View pointerEvents="box-none" style={{ position: "absolute", inset: 0 }}>
+			<KeyboardStickyView
+				pointerEvents="box-none"
+				style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
+				offset={{ closed: 0, opened: 0 }}
+			>
 				{showJumpButton ? (
 					<Animated.View
 						pointerEvents="box-none"
@@ -1145,35 +1032,24 @@ function ThreadScreen() {
 						</Pressable>
 					</Animated.View>
 				) : null}
-				<Animated.View
+				<View
 					pointerEvents="none"
-					style={[
-						gradientStyle,
-						{
-							position: "absolute",
-							left: 0,
-							right: 0,
-							bottom: 0,
-							height: bottomAccessoryHeight + 40,
-							experimental_backgroundImage:
-								theme === "dark"
-									? "linear-gradient(to bottom, rgba(15,15,15,0) 0%, rgba(15,15,15,0.72) 55%, rgb(15,15,15) 100%)"
-									: "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.72) 55%, rgb(255,255,255) 100%)",
-						},
-					]}
+					style={{
+						position: "absolute",
+						left: 0,
+						right: 0,
+						bottom: 0,
+						height: bottomAccessoryHeight + 40,
+						experimental_backgroundImage:
+							theme === "dark"
+								? "linear-gradient(to bottom, rgba(15,15,15,0) 0%, rgba(15,15,15,0.72) 55%, rgb(15,15,15) 100%)"
+								: "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.72) 55%, rgb(255,255,255) 100%)",
+					}}
 				/>
-				<Animated.View
+				<View
+					ref={composerOverlayRef}
 					onLayout={onBottomAccessoryLayout}
 					pointerEvents="box-none"
-					style={[
-						accessoryStyle,
-						{
-							position: "absolute",
-							left: 0,
-							right: 0,
-							bottom: 0,
-						},
-					]}
 				>
 					{options === null ? null : bottomState.blocking?.kind ===
 						"permission" ? (
@@ -1302,8 +1178,8 @@ function ThreadScreen() {
 							/>
 						</View>
 					)}
-				</Animated.View>
-			</View>
+				</View>
+			</KeyboardStickyView>
 		</View>
 	);
 }

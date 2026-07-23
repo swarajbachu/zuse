@@ -12,16 +12,6 @@ export type ThreadAnchorEvent =
 	| { readonly type: "reader-interacted" }
 	| { readonly type: "jumped-to-latest" };
 
-export type ThreadEndIntent = "initial" | "jump" | null;
-
-export type ThreadEndEvent =
-	| { readonly type: "open-at-latest" }
-	| { readonly type: "jumped-to-latest" }
-	| { readonly type: "scroll-attempted" }
-	| { readonly type: "scroll-positioned"; readonly distance: number }
-	| { readonly type: "reader-interacted" }
-	| { readonly type: "message-submitted" };
-
 /** Enter and leave thresholds are deliberately different to avoid edge flicker. */
 export const LIVE_EDGE_ENTER_PX = 48;
 export const LIVE_EDGE_EXIT_PX = 96;
@@ -57,25 +47,6 @@ export const nextThreadAnchor = (
 	}
 };
 
-export const nextThreadEndIntent = (
-	intent: ThreadEndIntent,
-	event: ThreadEndEvent,
-): ThreadEndIntent => {
-	switch (event.type) {
-		case "open-at-latest":
-			return "initial";
-		case "jumped-to-latest":
-			return "jump";
-		case "scroll-positioned":
-			return intent;
-		case "reader-interacted":
-		case "message-submitted":
-			return null;
-		case "scroll-attempted":
-			return intent;
-	}
-};
-
 export const shouldFollowTranscript = (mode: ThreadScrollMode): boolean =>
 	mode !== "detached";
 
@@ -86,46 +57,3 @@ export const shouldShowLatestAction = (options: {
 }): boolean =>
 	options.mode === "detached" &&
 	(options.hasUnseenContent || options.distance > LIVE_EDGE_EXIT_PX);
-
-export const transcriptBottomInset = (
-	accessoryHeight: number,
-	keyboardOverlap: number,
-	spacing = 12,
-): number =>
-	Math.max(0, accessoryHeight) +
-	Math.max(0, keyboardOverlap) +
-	Math.max(0, spacing);
-
-/**
- * Space reserved below the transcript while a send-anchor is active: always
- * exactly one "anchored viewport", so the anchored turn's top can sit at
- * headerOffset regardless of how tall the turn or the streaming reply becomes.
- * Independent of any turn-height measurement by design.
- */
-export const sendAnchorSpace = (options: {
-	readonly viewportHeight: number;
-	readonly headerOffset: number;
-	readonly bottomInset: number;
-}): number =>
-	Math.max(
-		0,
-		options.viewportHeight -
-			Math.max(0, options.headerOffset) -
-			Math.max(0, options.bottomInset),
-	);
-
-export type PendingThreadScrollCommand = "send-anchor";
-
-/**
- * A send anchor must wait for its footer space to be reflected in FlatList's
- * measured content size.
- */
-export const pendingThreadScrollCommand = (options: {
-	readonly pendingSendAnchor: boolean;
-	readonly anchorActive: boolean;
-}): PendingThreadScrollCommand | null => {
-	if (options.pendingSendAnchor) {
-		return options.anchorActive ? "send-anchor" : null;
-	}
-	return null;
-};

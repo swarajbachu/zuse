@@ -195,20 +195,23 @@ describe("mobile UI contracts", () => {
 	});
 
 	test("floats the composer over the feed and centers the jump control", () => {
+		const layout = appFile("_layout.tsx");
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		expect(layout).toContain("<KeyboardProvider");
 		expect(thread).toContain("useHeaderHeight");
 		expect(thread).toContain("paddingTop: headerHeight + 12");
-		expect(thread).toContain("height: transcriptFooterHeight");
 		expect(thread).toContain('contentInsetAdjustmentBehavior="never"');
-		expect(thread).toContain("transcriptBottomInset(");
+		expect(thread).toContain("contentInsetEndAdjustment");
 		expect(thread).toContain("onScrollBeginDrag={detachReader}");
 		expect(thread).toContain("onMessageSubmitted={onMessageSubmitted}");
-		expect(thread).toContain("useAnimatedKeyboard");
-		expect(thread).toContain("translateY: -keyboard.height.value");
+		expect(thread).not.toContain("useAnimatedKeyboard");
+		expect(thread).not.toContain("translateY: -keyboard.height.value");
 		expect(thread).toContain("bottom: bottomAccessoryHeight + 8");
 		expect(thread).not.toContain("Keyboard.scheduleLayoutAnimation");
-		expect(thread).toContain('"keyboardWillChangeFrame"');
-		expect(thread).not.toContain("<KeyboardAvoidingView");
+		expect(thread).not.toContain('"keyboardWillChangeFrame"');
+		expect(thread).toContain("<KeyboardStickyView");
+		expect(thread).toContain("useKeyboardChatComposerInset");
+		expect(thread).toContain("useKeyboardScrollToEnd");
 		expect(thread).toContain("experimental_backgroundImage");
 		expect(thread).not.toContain("BlurView");
 		expect(thread).toContain('alignItems: "center"');
@@ -242,13 +245,18 @@ describe("mobile UI contracts", () => {
 
 	test("anchors sent turns at the top and jumps to the true end", () => {
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
-		expect(thread).toContain("scrollToIndex");
-		expect(thread).toContain("onScrollToIndexFailed");
-		expect(thread).toContain("sendAnchorSpace(");
-		expect(thread).toContain("scrollToEnd({ animated: true })");
+		expect(thread).toContain("<KeyboardAwareLegendList");
+		expect(thread).toContain("initialScrollAtEnd");
+		expect(thread).toContain("maintainScrollAtEnd");
+		expect(thread).toContain("maintainScrollAtEndThreshold");
+		expect(thread).toContain("maintainVisibleContentPosition");
+		expect(thread).toContain("anchoredEndSpace");
+		expect(thread).toContain("scrollMessageToEnd");
 		expect(thread).toMatch(/<GlassSurface\s+pointerEvents="none"/);
 		expect(thread).toContain("hitSlop={8}");
-		expect(thread).not.toContain("maintainVisibleContentPosition");
+		expect(thread).not.toContain("<FlatList");
+		expect(thread).not.toContain("pendingEndIntent");
+		expect(thread).not.toContain("sendAnchorSpace(");
 		expect(thread).not.toContain("latestTurnTopOffset");
 	});
 

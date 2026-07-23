@@ -1692,6 +1692,51 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - react-native-keyboard-controller (1.21.13):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - react-native-keyboard-controller/common (= 1.21.13)
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
+  - react-native-keyboard-controller/common (1.21.13):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - react-native-quick-base64 (3.0.0):
     - hermes-engine
     - RCTRequired
@@ -2591,6 +2636,7 @@ DEPENDENCIES:
   - React-Mapbuffer (from `../../../node_modules/react-native/ReactCommon`)
   - React-microtasksnativemodule (from `../../../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - React-mutationobservernativemodule (from `../../../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver`)
+  - react-native-keyboard-controller (from `../../../node_modules/react-native-keyboard-controller`)
   - react-native-quick-base64 (from `../../../node_modules/react-native-quick-base64`)
   - react-native-quick-crypto (from `../../../node_modules/react-native-quick-crypto`)
   - react-native-safe-area-context (from `../../../node_modules/react-native-safe-area-context`)
@@ -2794,6 +2840,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/react-native/ReactCommon/react/nativemodule/microtasks"
   React-mutationobservernativemodule:
     :path: "../../../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver"
+  react-native-keyboard-controller:
+    :path: "../../../node_modules/react-native-keyboard-controller"
   react-native-quick-base64:
     :path: "../../../node_modules/react-native-quick-base64"
   react-native-quick-crypto:
@@ -2964,6 +3012,7 @@ SPEC CHECKSUMS:
   React-Mapbuffer: ce449ccdf3b80384415b925606be8a4bdcfc65d3
   React-microtasksnativemodule: 2eb3f49d0d8e77b5343455eccd057010b8d38b6b
   React-mutationobservernativemodule: f0a0d5ae9b51caf7becbeabf836d716cfedb6bf2
+  react-native-keyboard-controller: 2d179482c2eb51f9748149eefe27efe81fa79e05
   react-native-quick-base64: 53393ee5ea472a7486e6652ad3d7a640ebf6ebda
   react-native-quick-crypto: 4cda9f23b60fa731cae94007a3569a6a0443dc41
   react-native-safe-area-context: 6b4966397ada0f7dd481e4486a2ef936834861a1
