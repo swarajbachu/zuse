@@ -10,6 +10,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { deriveAgentActivityState } from "../lib/agent-activity-state.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import {
 	CHAT_LIST_ANCHOR_OFFSET,
@@ -43,8 +44,8 @@ import { ErrorBubble, MessageRow } from "./message-row.tsx";
 import { NextUnreadButton } from "./next-unread-button.tsx";
 import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
+import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
-import { Spinner } from "./ui/spinner";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 
 // Stable empty-array reference for the selector below. Returning a fresh
@@ -847,7 +848,8 @@ function WorkingRow({ messages }: { messages: ReadonlyArray<Message> }) {
 	// elapsed time beside the loader, not the session-wide total.
 	const anchorMs = useMemo(() => {
 		for (let i = messages.length - 1; i >= 0; i--) {
-			const m = messages[i]!;
+			const m = messages[i];
+			if (m === undefined) continue;
 			if (m.content._tag === "user" || m.content._tag === "user_rich")
 				return m.createdAt.getTime();
 		}
@@ -863,10 +865,11 @@ function WorkingRow({ messages }: { messages: ReadonlyArray<Message> }) {
 	}, []);
 
 	const elapsed = anchorMs === null ? 0 : Math.max(0, now - anchorMs);
+	const activityState = deriveAgentActivityState(messages);
 
 	return (
-		<div className="flex items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground">
-			<Spinner className="size-3" />
+		<div className="flex min-h-9 items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground">
+			<AgentActivityOrb state={activityState} />
 			<ShimmerText tone="lime" className="tabular-nums">
 				{formatElapsed(elapsed)}
 			</ShimmerText>
