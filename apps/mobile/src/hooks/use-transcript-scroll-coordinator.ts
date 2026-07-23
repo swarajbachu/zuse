@@ -37,6 +37,8 @@ export function useTranscriptScrollCoordinator(
 		anchorIndex: snapshot.anchorIndex,
 		isReaderDetached: coordinator.isReaderDetached,
 		onAnchorReady: coordinator.onAnchorReady,
+		onComposerBlurred: coordinator.onComposerBlurred,
+		onComposerLayout: coordinator.onComposerLayout,
 		onFollowingRequested: coordinator.onFollowingRequested,
 		onMessageAppendFailed: coordinator.onMessageAppendFailed,
 		onMessageWillAppend: coordinator.onMessageWillAppend,

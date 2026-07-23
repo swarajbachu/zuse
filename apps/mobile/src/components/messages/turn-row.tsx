@@ -1,3 +1,4 @@
+import { useAdaptiveRender } from "@legendapp/list/react-native";
 import {
 	summarizeTurnActivity,
 	type TimelineTurn,
@@ -13,7 +14,13 @@ import {
 	Wrench,
 } from "lucide-react-native";
 import { useMemo, useState } from "react";
-import { Pressable, Share, Text, View } from "react-native";
+import {
+	type LayoutChangeEvent,
+	Pressable,
+	Share,
+	Text,
+	View,
+} from "react-native";
 
 import { InlineFileDiff } from "~/components/diff/inline-file-diff";
 import { FileIcon } from "~/components/ui/file-icon";
@@ -51,9 +58,11 @@ export function TurnRow({
 	context: MessageRowContext;
 	live: boolean;
 }) {
+	const adaptiveRender = useAdaptiveRender();
 	const [activityOpen, setActivityOpen] = useState(false);
 	const [filesOpen, setFilesOpen] = useState(false);
 	const [expandedFile, setExpandedFile] = useState<string | null>(null);
+	const [measuredHeight, setMeasuredHeight] = useState(180);
 	const activity = useMemo(() => summarizeTurnActivity(turn.body), [turn.body]);
 	const narrative = turn.body.filter(isNarrative);
 	const utility = turn.body.filter(
@@ -83,10 +92,32 @@ export function TurnRow({
 	// (the live/streaming turn, a plain answer, or a turn still mid-flight)
 	// renders every row inline in order.
 	const showSummary = !live && toolCount > 0 && assistantText.length > 0;
+	const onLayout = (event: LayoutChangeEvent) => {
+		if (adaptiveRender === "light") return;
+		const nextHeight = event.nativeEvent.layout.height;
+		setMeasuredHeight((current) =>
+			Math.abs(current - nextHeight) < 1 ? current : nextHeight,
+		);
+	};
+
+	if (adaptiveRender === "light") {
+		return (
+			<View
+				accessibilityElementsHidden
+				importantForAccessibility="no-hide-descendants"
+				style={{ height: measuredHeight }}
+				className="justify-center gap-3 px-2 py-4"
+			>
+				<View className="h-3 w-4/5 rounded-full bg-muted" />
+				<View className="h-3 w-full rounded-full bg-muted" />
+				<View className="h-3 w-3/5 rounded-full bg-muted" />
+			</View>
+		);
+	}
 
 	if (!showSummary) {
 		return (
-			<View className="gap-1 py-1">
+			<View className="gap-1 py-1" onLayout={onLayout}>
 				{turn.user === null ? null : (
 					<MessageRow message={turn.user} ctx={context} />
 				)}
@@ -103,7 +134,7 @@ export function TurnRow({
 	}
 
 	return (
-		<View className="gap-1 py-1">
+		<View className="gap-1 py-1" onLayout={onLayout}>
 			{turn.user === null ? null : (
 				<MessageRow message={turn.user} ctx={context} />
 			)}

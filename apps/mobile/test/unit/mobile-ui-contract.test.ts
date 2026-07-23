@@ -280,9 +280,7 @@ describe("mobile UI contracts", () => {
 		);
 		expect(thread).toContain("onReady: transcriptScroll.onAnchorReady");
 		expect(thread).toContain("transcriptScroll.requestJump()");
-		expect(thread).toMatch(
-			/listRef\.current\s*\?\.\s*scrollToEnd\(\{ animated: !reduceMotion \}\)/,
-		);
+		expect(thread).toContain("scrollListToLatest(list");
 		expect(composer.indexOf("onMessageWillAppend?.()")).toBeLessThan(
 			composer.indexOf("addOptimisticMessage("),
 		);
@@ -299,6 +297,12 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("settleTranscriptTurn()");
 		expect(thread).toContain("markSessionTurnStarting(stateKey)");
 		expect(thread).toContain("markSessionTurnStartFailed(stateKey)");
+		expect(thread).toContain("scrollListToLatest");
+		expect(thread).toContain("transcriptScroll.onComposerBlurred()");
+		expect(thread).toContain("transcriptScroll.onComposerLayout()");
+		expect(thread).toContain("experimental_adaptiveRender");
+		expect(thread).toContain("scrollEventThrottle={16}");
+		expect(thread).not.toContain("scrollEventThrottle={64}");
 		expect(thread).toContain(
 			'const sessionActive = sessionRunning || sessionStatus === "booting"',
 		);

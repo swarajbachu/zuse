@@ -22,8 +22,11 @@ type TranscriptScrollActions = {
  */
 export class TranscriptScrollCoordinator {
 	private actions: TranscriptScrollActions;
+	private anchorReadyForRequest = 0;
 	private anchorRequestId = 0;
 	private anchorScrollStartedForRequest = 0;
+	private composerBlurredForRequest = 0;
+	private composerLayoutReadyForRequest = 0;
 	private jumpRequestId = 0;
 	private listeners = new Set<() => void>();
 	private operationTail = Promise.resolve();
@@ -58,7 +61,10 @@ export class TranscriptScrollCoordinator {
 	onMessageWillAppend = (preAppendTurnCount: number): void => {
 		this.readerDetachedBeforeAppend = this.snapshot.readerDetached;
 		this.anchorRequestId += 1;
+		this.anchorReadyForRequest = 0;
 		this.anchorScrollStartedForRequest = 0;
+		this.composerBlurredForRequest = 0;
+		this.composerLayoutReadyForRequest = 0;
 		this.updateSnapshot({
 			anchorIndex: preAppendTurnCount,
 			pendingJumpRequestId: null,
@@ -69,14 +75,39 @@ export class TranscriptScrollCoordinator {
 	onAnchorReady = async (info: TranscriptAnchorReadyInfo): Promise<void> => {
 		const { anchorIndex } = this.snapshot;
 		const requestId = this.anchorRequestId;
-		if (
-			anchorIndex === null ||
-			info.anchorIndex !== anchorIndex ||
-			this.anchorScrollStartedForRequest === requestId
-		) {
+		if (anchorIndex === null || info.anchorIndex !== anchorIndex) {
 			return;
 		}
+		this.anchorReadyForRequest = requestId;
+		return this.tryStartAnchorScroll(requestId, anchorIndex);
+	};
 
+	onComposerBlurred = (): void => {
+		if (this.snapshot.anchorIndex === null) return;
+		this.composerBlurredForRequest = this.anchorRequestId;
+	};
+
+	onComposerLayout = async (): Promise<void> => {
+		const { anchorIndex } = this.snapshot;
+		const requestId = this.anchorRequestId;
+		if (anchorIndex === null || this.composerBlurredForRequest !== requestId) {
+			return;
+		}
+		this.composerLayoutReadyForRequest = requestId;
+		return this.tryStartAnchorScroll(requestId, anchorIndex);
+	};
+
+	private tryStartAnchorScroll(
+		requestId: number,
+		anchorIndex: number,
+	): Promise<void> {
+		if (
+			this.anchorReadyForRequest !== requestId ||
+			this.composerLayoutReadyForRequest !== requestId ||
+			this.anchorScrollStartedForRequest === requestId
+		) {
+			return Promise.resolve();
+		}
 		// Mark the request before awaiting so duplicate native layout callbacks
 		// cannot dispatch a second scroll while the first is in flight.
 		this.anchorScrollStartedForRequest = requestId;
@@ -101,7 +132,7 @@ export class TranscriptScrollCoordinator {
 				}
 			}
 		});
-	};
+	}
 
 	onMessageAppendFailed = (): void => {
 		const readerDetached =
@@ -175,7 +206,10 @@ export class TranscriptScrollCoordinator {
 
 	private clearAnchor(): void {
 		this.anchorRequestId += 1;
+		this.anchorReadyForRequest = 0;
 		this.anchorScrollStartedForRequest = 0;
+		this.composerBlurredForRequest = 0;
+		this.composerLayoutReadyForRequest = 0;
 		if (this.snapshot.anchorIndex === null) return;
 		this.updateSnapshot({ ...this.snapshot, anchorIndex: null });
 	}

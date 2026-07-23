@@ -70,6 +70,10 @@ import {
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { captureMobileError } from "~/lib/crash-reporting";
+import {
+	finishNativeEndScroll,
+	scrollListToLatest,
+} from "~/lib/legend-list-scroll";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
 import { connectionSessionKey } from "~/lib/session-key";
@@ -241,10 +245,18 @@ function ThreadScreen() {
 			scrollMessageToEnd({
 				animated: !reduceMotion,
 				closeKeyboard: false,
+			}).then(() => {
+				const list = listRef.current;
+				return list === null
+					? undefined
+					: finishNativeEndScroll(list, { animated: !reduceMotion });
 			}),
-		scrollToLatest: () =>
-			listRef.current?.scrollToEnd({ animated: !reduceMotion }) ??
-			Promise.reject(new Error("Transcript list is not mounted.")),
+		scrollToLatest: () => {
+			const list = listRef.current;
+			return list === null
+				? Promise.reject(new Error("Transcript list is not mounted."))
+				: scrollListToLatest(list, { animated: !reduceMotion });
+		},
 	});
 	const settleTranscriptTurn = transcriptScroll.onTurnSettled;
 	const readReaderDetached = transcriptScroll.isReaderDetached;
@@ -616,7 +628,9 @@ function ThreadScreen() {
 	useEffect(() => {
 		if (turnActivity === "idle") settleTranscriptTurn();
 	}, [settleTranscriptTurn, turnActivity]);
-	const onComposerFocusChange = (_focused: boolean) => undefined;
+	const onComposerFocusChange = (focused: boolean) => {
+		if (!focused) transcriptScroll.onComposerBlurred();
+	};
 
 	const jumpStyle = useAnimatedStyle(() => ({
 		opacity: withTiming(isNearEnd.value ? 0 : 1, {
@@ -632,6 +646,7 @@ function ThreadScreen() {
 			Math.abs(current - nextHeight) < 1 ? current : nextHeight,
 		);
 		onComposerLayout(event);
+		void transcriptScroll.onComposerLayout();
 	};
 	const anchoredEndSpace =
 		transcriptScroll.anchorIndex === null
@@ -920,6 +935,7 @@ function ThreadScreen() {
 					}
 					maintainScrollAtEndThreshold={0.1}
 					maintainVisibleContentPosition
+					experimental_adaptiveRender={{}}
 					sharedValues={{ isNearEnd }}
 					ListHeaderComponent={
 						error || connectionProblem ? (
@@ -953,7 +969,7 @@ function ThreadScreen() {
 					onMomentumScrollBegin={startReaderGesture}
 					onMomentumScrollEnd={finishReaderGesture}
 					onEndVisible={onEndVisible}
-					scrollEventThrottle={64}
+					scrollEventThrottle={16}
 				/>
 			</KeyboardGestureArea>
 			<KeyboardStickyView
