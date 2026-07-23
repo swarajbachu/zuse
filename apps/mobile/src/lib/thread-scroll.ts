@@ -65,3 +65,22 @@ export const pendingThreadScrollCommand = (options: {
 	if (!options.pendingJumpToEnd) return "none";
 	return options.anchorActive ? "wait" : "jump-end";
 };
+
+export const pendingSendAnchorTurnId = (options: {
+	readonly pendingSendAnchor: boolean;
+	readonly composerSettled: boolean;
+	readonly latestTurnId: string | null;
+	readonly baselineTurnId: string | null;
+	readonly shouldFollow: boolean;
+}): string | null => {
+	if (
+		!options.pendingSendAnchor ||
+		!options.composerSettled ||
+		!options.shouldFollow ||
+		options.latestTurnId === null ||
+		options.latestTurnId === options.baselineTurnId
+	) {
+		return null;
+	}
+	return options.latestTurnId;
+};

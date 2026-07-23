@@ -257,6 +257,10 @@ describe("mobile UI contracts", () => {
 
 	test("anchors sent turns at the top and jumps to the true end", () => {
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		const composer = readFileSync(
+			`${process.cwd()}/src/components/composer.tsx`,
+			"utf8",
+		);
 		expect(thread).toContain("<KeyboardAwareLegendList");
 		expect(thread).toContain("initialScrollAtEnd");
 		expect(thread).toContain("maintainScrollAtEnd");
@@ -266,6 +270,10 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("scrollMessageToEnd");
 		expect(thread).toContain("pendingJumpToEndRef");
 		expect(thread).toContain("flushPendingJumpToEnd");
+		expect(thread).toContain("sendComposerSettledRef");
+		expect(thread).toContain("onMessageSubmissionFinished");
+		expect(thread).toContain("closeKeyboard: false");
+		expect(composer).toContain("KeyboardController.dismiss()");
 		expect(thread).toMatch(/<GlassSurface\s+pointerEvents="none"/);
 		expect(thread).toContain("hitSlop={8}");
 		expect(thread).not.toContain("<FlatList");

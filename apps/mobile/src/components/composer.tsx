@@ -27,6 +27,7 @@ import {
 	Text,
 	View,
 } from "react-native";
+import { KeyboardController } from "react-native-keyboard-controller";
 import {
 	type LocalComposerAttachment,
 	pickComposerFiles,
@@ -100,6 +101,7 @@ export const Composer = ({
 	onRetryConnection,
 	onFocusChange,
 	onMessageSubmitted,
+	onMessageSubmissionFinished,
 	currentActivity = null,
 	bottomInset,
 }: {
@@ -114,6 +116,7 @@ export const Composer = ({
 	onRetryConnection?: () => void;
 	onFocusChange?: (focused: boolean) => void;
 	onMessageSubmitted?: () => void;
+	onMessageSubmissionFinished?: (succeeded: boolean) => void;
 	/** Latest-turn activity summary, computed once by the thread screen. */
 	currentActivity?: ComposerActivity | null;
 	bottomInset?: number;
@@ -197,7 +200,13 @@ export const Composer = ({
 		setGoalMode(false);
 		setFocused(false);
 		onFocusChange?.(false);
-		Keyboard.dismiss();
+		void KeyboardController.dismiss()
+			.catch(() => {
+				Keyboard.dismiss();
+			})
+			.finally(() => {
+				requestAnimationFrame(() => onMessageSubmissionFinished?.(true));
+			});
 	};
 
 	const submit = async () => {
@@ -273,6 +282,7 @@ export const Composer = ({
 			finishSuccessfulSubmission();
 		} catch (cause) {
 			setComposerError(messageOf(cause));
+			onMessageSubmissionFinished?.(false);
 			if (optimisticMessageId !== null) {
 				removeOptimisticMessage(stateKey, optimisticMessageId);
 			}

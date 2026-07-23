@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
 	nextThreadAnchor,
 	nextThreadScrollMode,
+	pendingSendAnchorTurnId,
 	pendingThreadScrollCommand,
 	shouldFollowTranscript,
 	shouldShowLatestAction,
@@ -101,5 +102,27 @@ describe("thread scroll policy", () => {
 				anchorActive: false,
 			}),
 		).toBe("none");
+	});
+
+	test("does not anchor a sent turn until the composer and keyboard settle", () => {
+		const pending = {
+			pendingSendAnchor: true,
+			latestTurnId: "turn-2",
+			baselineTurnId: "turn-1",
+			shouldFollow: true,
+		} as const;
+
+		expect(
+			pendingSendAnchorTurnId({
+				...pending,
+				composerSettled: false,
+			}),
+		).toBeNull();
+		expect(
+			pendingSendAnchorTurnId({
+				...pending,
+				composerSettled: true,
+			}),
+		).toBe("turn-2");
 	});
 });

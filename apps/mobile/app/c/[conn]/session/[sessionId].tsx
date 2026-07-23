@@ -75,6 +75,7 @@ import {
 	LIVE_EDGE_ENTER_PX,
 	nextThreadAnchor,
 	nextThreadScrollMode,
+	pendingSendAnchorTurnId,
 	pendingThreadScrollCommand,
 	shouldFollowTranscript,
 	shouldShowLatestAction,
@@ -192,8 +193,10 @@ function ThreadScreen() {
 	const distanceFromBottomRef = useRef(0);
 	const scrollOffsetRef = useRef(0);
 	const pendingSendAnchorRef = useRef(false);
+	const sendComposerSettledRef = useRef(false);
 	const pendingJumpToEndRef = useRef(false);
 	const sendAnchorBaselineRef = useRef<string | null>(null);
+	const latestTurnIdRef = useRef<string | null>(null);
 	const hasUnseenContentRef = useRef(false);
 	const previousMessagesRef = useRef<readonly unknown[] | null>(null);
 	const composerOverlayRef = useRef<View>(null);
@@ -240,6 +243,9 @@ function ThreadScreen() {
 	// composer needs no subscription to the message store.
 	const composerActivity = summarizeComposerActivity(turns.at(-1));
 	const latestTurnId = turns.at(-1)?.id ?? null;
+	useEffect(() => {
+		latestTurnIdRef.current = latestTurnId;
+	}, [latestTurnId]);
 	const detail = selectSessionChat(bundles, normalizedSessionId);
 	const chatId = detail?.session.chatId ?? null;
 	const allConnectionSessions = useMemo(
@@ -498,6 +504,7 @@ function ThreadScreen() {
 		distanceFromBottomRef.current = saved?.distanceFromBottom ?? 0;
 		scrollOffsetRef.current = saved?.offsetY ?? 0;
 		pendingSendAnchorRef.current = false;
+		sendComposerSettledRef.current = false;
 		pendingJumpToEndRef.current = false;
 		sendAnchorBaselineRef.current = null;
 		hasUnseenContentRef.current = false;
@@ -546,17 +553,22 @@ function ThreadScreen() {
 	// It owns the trailing space and remeasurement corrections while the reply
 	// streams; this screen only chooses which turn is anchored.
 	const prepareSendAnchor = () => {
-		if (!pendingSendAnchorRef.current || latestTurnId === null) return;
-		if (latestTurnId === sendAnchorBaselineRef.current) return;
 		if (!shouldFollowTranscript(scrollModeRef.current)) {
 			pendingSendAnchorRef.current = false;
 			return;
 		}
-		if (anchoredTurnId === latestTurnId) return;
+		const targetTurnId = pendingSendAnchorTurnId({
+			pendingSendAnchor: pendingSendAnchorRef.current,
+			composerSettled: sendComposerSettledRef.current,
+			latestTurnId: latestTurnIdRef.current,
+			baselineTurnId: sendAnchorBaselineRef.current,
+			shouldFollow: true,
+		});
+		if (targetTurnId === null || anchoredTurnId === targetTurnId) return;
 		setAnchoredTurnId((current) =>
 			nextThreadAnchor(current, {
 				type: "message-anchored",
-				turnId: latestTurnId,
+				turnId: targetTurnId,
 			}),
 		);
 	};
@@ -645,7 +657,17 @@ function ThreadScreen() {
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
 		sendAnchorBaselineRef.current = latestTurnId;
+		sendComposerSettledRef.current = false;
 		pendingSendAnchorRef.current = true;
+	};
+	const onMessageSubmissionFinished = (succeeded: boolean) => {
+		if (!succeeded) {
+			pendingSendAnchorRef.current = false;
+			sendComposerSettledRef.current = false;
+			return;
+		}
+		sendComposerSettledRef.current = true;
+		requestAnimationFrame(prepareSendAnchor);
 	};
 	const onComposerFocusChange = (_focused: boolean) => undefined;
 
@@ -677,7 +699,7 @@ function ThreadScreen() {
 		pendingSendAnchorRef.current = false;
 		void scrollMessageToEnd({
 			animated: !reduceMotion,
-			closeKeyboard: true,
+			closeKeyboard: false,
 		});
 	};
 
@@ -1202,6 +1224,7 @@ function ThreadScreen() {
 								onRetryConnection={() => retryConnection(connKey, options)}
 								onFocusChange={onComposerFocusChange}
 								onMessageSubmitted={onMessageSubmitted}
+								onMessageSubmissionFinished={onMessageSubmissionFinished}
 								currentActivity={composerActivity}
 								bottomInset={overlayBottomInset}
 							/>
