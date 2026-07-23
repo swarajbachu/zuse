@@ -154,7 +154,7 @@ import {
 	setPermissionMode,
 	statusBySessionAtom,
 } from "~/store/sessions";
-import { colors } from "~/theme";
+import { colors, glass } from "~/theme";
 
 export default function ThreadScreenRoute() {
 	return (
@@ -1064,13 +1064,9 @@ function ThreadScreen() {
 									borderRadius: 23,
 									borderWidth: 1,
 									borderColor:
-										theme === "dark"
-											? "rgba(255,255,255,0.16)"
-											: "rgba(0,0,0,0.12)",
+										theme === "dark" ? glass.borderDark : glass.borderLight,
 									backgroundColor:
-										theme === "dark"
-											? "rgba(24,24,24,0.72)"
-											: "rgba(255,255,255,0.78)",
+										theme === "dark" ? glass.fillDark : glass.fillLight,
 									alignItems: "center",
 									justifyContent: "center",
 									shadowColor: "#000",
@@ -1109,7 +1105,7 @@ function ThreadScreen() {
 							height: bottomAccessoryHeight + 40,
 							experimental_backgroundImage:
 								theme === "dark"
-									? "linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.6) 55%, rgba(0,0,0,0.9) 100%)"
+									? "linear-gradient(to bottom, rgba(15,15,15,0) 0%, rgba(15,15,15,0.72) 55%, rgb(15,15,15) 100%)"
 									: "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.6) 55%, rgba(255,255,255,0.9) 100%)",
 						},
 					]}

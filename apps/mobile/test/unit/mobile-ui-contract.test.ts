@@ -10,7 +10,10 @@ describe("mobile UI contracts", () => {
 		expect(css).toContain("@variant light");
 		expect(css).toContain("@variant dark");
 		expect(css).toContain("--color-background: #ffffff");
-		expect(css).toContain("--color-background: hsl(72 5% 6%)");
+		expect(css).toContain("--color-background: hsl(0 0% 6%)");
+		expect(css).toContain("--color-card: hsl(0 0% 12%)");
+		expect(css).toContain("--color-foreground-faint: hsl(0 0% 43%)");
+		expect(css).toContain("--color-input: rgba(255, 255, 255, 0.2)");
 		expect(css.match(/--color-primary: #c8ff00/g)).toHaveLength(2);
 		expect(css).not.toContain("@media (prefers-color-scheme:");
 		expect(css).not.toContain("#34c759");

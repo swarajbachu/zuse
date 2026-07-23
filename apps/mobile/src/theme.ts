@@ -5,6 +5,13 @@ import { Platform } from "react-native";
 export const NEON_GREEN = "#c8ff00";
 export const PRIMARY_FOREGROUND = "#11130a";
 
+export const glass = {
+	borderDark: "rgba(255,255,255,0.16)",
+	borderLight: "rgba(0,0,0,0.12)",
+	fillDark: "rgba(24,24,24,0.72)",
+	fillLight: "rgba(255,255,255,0.78)",
+} as const;
+
 const platformColor = <T>(ios: T, android: T | undefined, fallback: T): T =>
 	Platform.select({ ios, android: android ?? fallback, default: fallback }) ??
 	fallback;
