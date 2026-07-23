@@ -797,7 +797,13 @@ function TimelineRow({
 }) {
 	switch (row.kind) {
 		case "message":
-			return <MessageRow message={row.message} sessionId={sessionId} />;
+			return (
+				<MessageRow
+					message={row.message}
+					sessionId={sessionId}
+					showAssistantCommands={row.showAssistantCommands}
+				/>
+			);
 		case "subagent":
 			return (
 				<div>
@@ -816,7 +822,11 @@ function TimelineRow({
 		case "turn-summary":
 			return (
 				<div>
-					<TurnSummary body={row.body} sessionId={sessionId} />
+					<TurnSummary
+						body={row.body}
+						sessionId={sessionId}
+						showAssistantCommands={row.showAssistantCommands}
+					/>
 				</div>
 			);
 		case "working":

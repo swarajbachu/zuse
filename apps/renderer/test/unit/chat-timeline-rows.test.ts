@@ -101,6 +101,49 @@ describe("chat timeline rows", () => {
 		expect(second.map((row) => row.id)).toEqual(first.map((row) => row.id));
 	});
 
+	it("enables assistant commands only on the final completed response", () => {
+		const rows = deriveChatTimelineRows({
+			messages: [
+				message("u1", { _tag: "user", text: "first" }),
+				message("a1", { _tag: "assistant", text: "first reply" }),
+				message("u2", { _tag: "user", text: "second" }),
+				message("a2", { _tag: "assistant", text: "second reply" }),
+			],
+			inFlight: false,
+			awaitingPlanApproval: false,
+		});
+
+		const assistantRows = rows.filter(
+			(row) =>
+				row.kind === "message" && row.message.content._tag === "assistant",
+		);
+		expect(
+			assistantRows.map((row) =>
+				row.kind === "message" ? row.showAssistantCommands : false,
+			),
+		).toEqual([false, true]);
+	});
+
+	it("keeps assistant commands hidden until the active turn completes", () => {
+		const rows = deriveChatTimelineRows({
+			messages: [
+				message("u1", { _tag: "user", text: "prompt" }),
+				message("a1", { _tag: "assistant", text: "partial reply" }),
+			],
+			inFlight: true,
+			awaitingPlanApproval: false,
+		});
+
+		expect(
+			rows.some(
+				(row) =>
+					row.kind === "message" &&
+					row.message.content._tag === "assistant" &&
+					row.showAssistantCommands,
+			),
+		).toBe(false);
+	});
+
 	it("collapses duplicate tool_use rows with the same provider item id", () => {
 		const messages = [
 			message("u1", { _tag: "user", text: "inspect" }),
@@ -143,6 +186,11 @@ describe("chat timeline rows", () => {
 		});
 		const summary = rows.find((row) => row.kind === "turn-summary");
 		expect(summary?.kind).toBe("turn-summary");
+		expect(
+			summary?.kind === "turn-summary"
+				? summary.showAssistantCommands
+				: false,
+		).toBe(true);
 		expect(
 			summary?.kind === "turn-summary"
 				? summary.body.filter((m) => m.content._tag === "tool_use")
