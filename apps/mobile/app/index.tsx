@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import {
 	Cancel01Icon,
 	PlusSignIcon,
@@ -5,7 +6,6 @@ import {
 	Settings01Icon,
 	Wifi01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
-import { useAtomValue } from "@effect/atom-react";
 import { router, Stack } from "expo-router";
 import { MessageSquare, Search } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -32,8 +32,8 @@ import { HugeIcon } from "~/components/ui/huge-icon";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { optionsForConnection } from "~/lib/connection-params";
 import { availableConnections } from "~/lib/connection-records";
-import { buildHomeFeed, type HomeFeedItem } from "~/lib/home-feed";
 import { selectionTap, successTap } from "~/lib/haptics";
+import { buildHomeFeed, type HomeFeedItem } from "~/lib/home-feed";
 import {
 	buildInboxGroups,
 	DEFAULT_INBOX_GROUP_DISPLAY,
@@ -79,8 +79,8 @@ import {
 	archiveSession,
 	bundlesByConnectionAtom,
 	errorByConnectionAtom,
-	loadingByConnectionAtom,
 	hydrateSessions,
+	loadingByConnectionAtom,
 	statusBySessionAtom,
 } from "~/store/sessions";
 import { colors } from "~/theme";
@@ -473,11 +473,7 @@ export default function HomeScreen() {
 										variant="secondary"
 										onPress={() => router.push("/connect/manual")}
 									>
-										<HugeIcon
-											icon={PlusSignIcon}
-											size={18}
-											color={colors.fg}
-										/>
+										<HugeIcon icon={PlusSignIcon} size={18} color={colors.fg} />
 										Add manually
 									</Button>
 									{account === null ? (

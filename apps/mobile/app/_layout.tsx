@@ -77,158 +77,161 @@ export default function RootLayout() {
 			>
 				<ConnectivityRuntimeBridge />
 				<ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
-				<StatusBar style="auto" />
-				<Stack
-					screenOptions={{
-						// Keep the native header transparent so UIKit can sample scrolling
-						// content for its own material at the top edge.
-						headerLargeTitle: true,
-						headerTransparent: Platform.OS === "ios",
-						headerShadowVisible: false,
-						headerLargeTitleShadowVisible: false,
-						headerStyle:
-							Platform.OS === "ios"
-								? { backgroundColor: "transparent" }
-								: { backgroundColor: colors.bg },
-						scrollEdgeEffects:
-							Platform.OS === "ios"
-								? {
-										top: "automatic",
-										bottom: "hidden",
-										left: "hidden",
-										right: "hidden",
-									}
-								: undefined,
-						headerLargeTitleStyle: { color: colors.fg },
-						headerTitleStyle: { color: colors.fg },
-						headerTintColor: colors.fg,
-						headerBackButtonDisplayMode: "minimal",
-						contentStyle: { backgroundColor: colors.bg },
-					}}
-				>
-					<Stack.Screen name="index" options={{ title: "Chats" }} />
-					<Stack.Screen
-						name="new-chat"
-						options={{
-							title: "New Chat",
-							headerLargeTitle: false,
-							presentation: "card",
-						}}
-					/>
-					<Stack.Screen
-						name="settings"
-						options={{
-							title: "Settings",
-							presentation: "formSheet",
-							headerLargeTitle: false,
-							sheetAllowedDetents: [0.7, 0.92],
-							sheetInitialDetentIndex: 0,
-							sheetGrabberVisible: true,
+					<StatusBar style="auto" />
+					<Stack
+						screenOptions={{
+							// Keep the native header transparent so UIKit can sample scrolling
+							// content for its own material at the top edge.
+							headerLargeTitle: true,
+							headerTransparent: Platform.OS === "ios",
+							headerShadowVisible: false,
+							headerLargeTitleShadowVisible: false,
+							headerStyle:
+								Platform.OS === "ios"
+									? { backgroundColor: "transparent" }
+									: { backgroundColor: colors.bg },
+							scrollEdgeEffects:
+								Platform.OS === "ios"
+									? {
+											top: "automatic",
+											bottom: "hidden",
+											left: "hidden",
+											right: "hidden",
+										}
+									: undefined,
+							headerLargeTitleStyle: { color: colors.fg },
+							headerTitleStyle: { color: colors.fg },
 							headerTintColor: colors.fg,
-							headerTransparent: true,
+							headerBackButtonDisplayMode: "minimal",
 							contentStyle: { backgroundColor: colors.bg },
 						}}
-					/>
-					<Stack.Screen
-						name="plan-viewer"
-						options={{
-							title: "Plan",
-							presentation: "modal",
-							headerLargeTitle: false,
-						}}
-					/>
-					<Stack.Screen
-						name="connect/nearby"
-						options={{
-							title: "Nearby Macs",
-							headerLargeTitle: false,
-							presentation: "card",
-						}}
-					/>
-					<Stack.Screen
-						name="connect/manual"
-						options={{
-							title: "Add connection",
-							presentation: "card",
-							headerLargeTitle: false,
-							headerTransparent: false,
-						}}
-					/>
-					<Stack.Screen
-						name="connect/scan"
-						options={{
-							title: "Scan",
-							headerLargeTitle: false,
-							headerShown: false,
-							presentation: "fullScreenModal",
-						}}
-					/>
-					<Stack.Screen
-						name="connect/pair"
-						options={{
-							title: "Pair with desktop",
-							headerLargeTitle: false,
-							presentation: "card",
-						}}
-					/>
-					<Stack.Screen name="c/[conn]/index" options={{ title: "Sessions" }} />
-					<Stack.Screen
-						name="c/[conn]/session/[sessionId]"
-						options={{ title: "Thread", headerLargeTitle: false }}
-					/>
-					<Stack.Screen
-						name="c/[conn]/chat/[chatId]/threads"
-						options={{
-							title: "Threads",
-							headerLargeTitle: false,
-							presentation: "formSheet",
-							sheetAllowedDetents: [0.42, 0.92],
-							sheetInitialDetentIndex: 0,
-							sheetGrabberVisible: true,
-							contentStyle: { backgroundColor: "transparent" },
-						}}
-					/>
-					<Stack.Screen
-						name="c/[conn]/session/[sessionId]/files"
-						options={{
-							title: "Files",
-							headerLargeTitle: false,
-							presentation: "card",
-						}}
-					/>
-					<Stack.Screen
-						name="c/[conn]/session/[sessionId]/file"
-						options={{
-							title: "File",
-							headerLargeTitle: false,
-							presentation: "card",
-						}}
-					/>
-					<Stack.Screen
-						name="c/[conn]/session/[sessionId]/review"
-						options={{
-							title: "Review changes",
-							headerLargeTitle: false,
-							presentation: "formSheet",
-							sheetAllowedDetents: [0.72, 1],
-							sheetInitialDetentIndex: 0,
-							sheetGrabberVisible: true,
-							contentStyle: { backgroundColor: "transparent" },
-						}}
-					/>
-					<Stack.Screen
-						name="c/[conn]/session/[sessionId]/tool/[itemId]"
-						options={{
-							title: "Tool details",
-							headerLargeTitle: false,
-							presentation: "modal",
-						}}
-					/>
-					<Stack.Screen
-						name="smoke"
-						options={{ title: "Smoke", headerLargeTitle: false }}
-					/>
-				</Stack>
+					>
+						<Stack.Screen name="index" options={{ title: "Chats" }} />
+						<Stack.Screen
+							name="new-chat"
+							options={{
+								title: "New Chat",
+								headerLargeTitle: false,
+								presentation: "card",
+							}}
+						/>
+						<Stack.Screen
+							name="settings"
+							options={{
+								title: "Settings",
+								presentation: "formSheet",
+								headerLargeTitle: false,
+								sheetAllowedDetents: [0.7, 0.92],
+								sheetInitialDetentIndex: 0,
+								sheetGrabberVisible: true,
+								headerTintColor: colors.fg,
+								headerTransparent: true,
+								contentStyle: { backgroundColor: colors.bg },
+							}}
+						/>
+						<Stack.Screen
+							name="plan-viewer"
+							options={{
+								title: "Plan",
+								presentation: "modal",
+								headerLargeTitle: false,
+							}}
+						/>
+						<Stack.Screen
+							name="connect/nearby"
+							options={{
+								title: "Nearby Macs",
+								headerLargeTitle: false,
+								presentation: "card",
+							}}
+						/>
+						<Stack.Screen
+							name="connect/manual"
+							options={{
+								title: "Add connection",
+								presentation: "card",
+								headerLargeTitle: false,
+								headerTransparent: false,
+							}}
+						/>
+						<Stack.Screen
+							name="connect/scan"
+							options={{
+								title: "Scan",
+								headerLargeTitle: false,
+								headerShown: false,
+								presentation: "fullScreenModal",
+							}}
+						/>
+						<Stack.Screen
+							name="connect/pair"
+							options={{
+								title: "Pair with desktop",
+								headerLargeTitle: false,
+								presentation: "card",
+							}}
+						/>
+						<Stack.Screen
+							name="c/[conn]/index"
+							options={{ title: "Sessions" }}
+						/>
+						<Stack.Screen
+							name="c/[conn]/session/[sessionId]"
+							options={{ title: "Thread", headerLargeTitle: false }}
+						/>
+						<Stack.Screen
+							name="c/[conn]/chat/[chatId]/threads"
+							options={{
+								title: "Threads",
+								headerLargeTitle: false,
+								presentation: "formSheet",
+								sheetAllowedDetents: [0.42, 0.92],
+								sheetInitialDetentIndex: 0,
+								sheetGrabberVisible: true,
+								contentStyle: { backgroundColor: "transparent" },
+							}}
+						/>
+						<Stack.Screen
+							name="c/[conn]/session/[sessionId]/files"
+							options={{
+								title: "Files",
+								headerLargeTitle: false,
+								presentation: "card",
+							}}
+						/>
+						<Stack.Screen
+							name="c/[conn]/session/[sessionId]/file"
+							options={{
+								title: "File",
+								headerLargeTitle: false,
+								presentation: "card",
+							}}
+						/>
+						<Stack.Screen
+							name="c/[conn]/session/[sessionId]/review"
+							options={{
+								title: "Review changes",
+								headerLargeTitle: false,
+								presentation: "formSheet",
+								sheetAllowedDetents: [0.72, 1],
+								sheetInitialDetentIndex: 0,
+								sheetGrabberVisible: true,
+								contentStyle: { backgroundColor: "transparent" },
+							}}
+						/>
+						<Stack.Screen
+							name="c/[conn]/session/[sessionId]/tool/[itemId]"
+							options={{
+								title: "Tool details",
+								headerLargeTitle: false,
+								presentation: "modal",
+							}}
+						/>
+						<Stack.Screen
+							name="smoke"
+							options={{ title: "Smoke", headerLargeTitle: false }}
+						/>
+					</Stack>
 					<CrashReportOverlay />
 				</ThemeProvider>
 			</GestureHandlerRootView>
