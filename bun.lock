@@ -584,6 +584,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@legendapp/list@3.3.3": "patches/@legendapp%2Flist@3.3.3.patch",
+  },
   "overrides": {
     "@effect/platform-node": "4.0.0-beta.97",
     "@effect/sql-pg": "4.0.0-beta.97",

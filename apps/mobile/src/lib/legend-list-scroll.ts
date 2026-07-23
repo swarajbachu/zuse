@@ -50,6 +50,9 @@ export const scrollListToLatest = async (
 		readonly afterVirtualLayout?: () => Promise<void>;
 	},
 ): Promise<void> => {
-	await list.scrollToEnd({ animated: options.animated });
+	// LegendList can leave its animated imperative promise pending when iOS
+	// emits no momentum-end event. Start virtualization, but never put the
+	// native keyboard-aware fallback behind that promise.
+	void list.scrollToEnd({ animated: options.animated }).catch(() => undefined);
 	await finishNativeEndScroll(list, options);
 };

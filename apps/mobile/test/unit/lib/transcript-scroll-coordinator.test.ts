@@ -26,7 +26,7 @@ function createHarness() {
 }
 
 describe("transcript scroll coordinator", () => {
-	test("captures the pre-append index and waits for matching anchor readiness", async () => {
+	test("captures the pre-append index and scrolls on matching anchor readiness", async () => {
 		const { coordinator, scrollAnchoredMessageToEnd } = createHarness();
 
 		coordinator.onMessageWillAppend(4);
@@ -37,10 +37,6 @@ describe("transcript scroll coordinator", () => {
 		expect(scrollAnchoredMessageToEnd).not.toHaveBeenCalled();
 
 		await coordinator.onAnchorReady({ anchorIndex: 4 });
-		expect(scrollAnchoredMessageToEnd).not.toHaveBeenCalled();
-
-		coordinator.onComposerBlurred();
-		await coordinator.onComposerLayout();
 		expect(scrollAnchoredMessageToEnd).toHaveBeenCalledOnce();
 	});
 
@@ -48,8 +44,6 @@ describe("transcript scroll coordinator", () => {
 		const { coordinator, scrollAnchoredMessageToEnd } = createHarness();
 
 		coordinator.onMessageWillAppend(2);
-		coordinator.onComposerBlurred();
-		coordinator.onComposerLayout();
 		await Promise.all([
 			coordinator.onAnchorReady({ anchorIndex: 2 }),
 			coordinator.onAnchorReady({ anchorIndex: 2 }),
@@ -113,13 +107,9 @@ describe("transcript scroll coordinator", () => {
 			.mockResolvedValueOnce(undefined);
 
 		coordinator.onMessageWillAppend(1);
-		coordinator.onComposerBlurred();
-		coordinator.onComposerLayout();
 		const firstReady = coordinator.onAnchorReady({ anchorIndex: 1 });
 		await Promise.resolve();
 		coordinator.onMessageWillAppend(2);
-		coordinator.onComposerBlurred();
-		coordinator.onComposerLayout();
 		const secondReady = coordinator.onAnchorReady({ anchorIndex: 2 });
 
 		expect(scrollAnchoredMessageToEnd).toHaveBeenCalledOnce();
@@ -185,8 +175,6 @@ describe("transcript scroll coordinator", () => {
 			new Error("native scroll failed"),
 		);
 		coordinator.onMessageWillAppend(3);
-		coordinator.onComposerBlurred();
-		coordinator.onComposerLayout();
 
 		await coordinator.onAnchorReady({ anchorIndex: 3 });
 

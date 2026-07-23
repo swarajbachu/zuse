@@ -70,10 +70,7 @@ import {
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { captureMobileError } from "~/lib/crash-reporting";
-import {
-	finishNativeEndScroll,
-	scrollListToLatest,
-} from "~/lib/legend-list-scroll";
+import { scrollListToLatest } from "~/lib/legend-list-scroll";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
 import { connectionSessionKey } from "~/lib/session-key";
@@ -244,12 +241,7 @@ function ThreadScreen() {
 		scrollAnchoredMessageToEnd: () =>
 			scrollMessageToEnd({
 				animated: !reduceMotion,
-				closeKeyboard: false,
-			}).then(() => {
-				const list = listRef.current;
-				return list === null
-					? undefined
-					: finishNativeEndScroll(list, { animated: !reduceMotion });
+				closeKeyboard: true,
 			}),
 		scrollToLatest: () => {
 			const list = listRef.current;
@@ -628,10 +620,6 @@ function ThreadScreen() {
 	useEffect(() => {
 		if (turnActivity === "idle") settleTranscriptTurn();
 	}, [settleTranscriptTurn, turnActivity]);
-	const onComposerFocusChange = (focused: boolean) => {
-		if (!focused) transcriptScroll.onComposerBlurred();
-	};
-
 	const jumpStyle = useAnimatedStyle(() => ({
 		opacity: withTiming(isNearEnd.value ? 0 : 1, {
 			duration: reduceMotion ? 0 : 160,
@@ -646,14 +634,12 @@ function ThreadScreen() {
 			Math.abs(current - nextHeight) < 1 ? current : nextHeight,
 		);
 		onComposerLayout(event);
-		void transcriptScroll.onComposerLayout();
 	};
 	const anchoredEndSpace =
 		transcriptScroll.anchorIndex === null
 			? undefined
 			: {
 					anchorIndex: transcriptScroll.anchorIndex,
-					anchorMaxSize: 72,
 					anchorOffset: headerHeight + 12,
 					onReady: transcriptScroll.onAnchorReady,
 				};
@@ -935,7 +921,7 @@ function ThreadScreen() {
 					}
 					maintainScrollAtEndThreshold={0.1}
 					maintainVisibleContentPosition
-					experimental_adaptiveRender={{}}
+					drawDistance={800}
 					sharedValues={{ isNearEnd }}
 					ListHeaderComponent={
 						error || connectionProblem ? (
@@ -1182,7 +1168,6 @@ function ThreadScreen() {
 								online={transportOnline}
 								connectionStatus={connectionSnapshot?.status}
 								onRetryConnection={() => retryConnection(connKey, options)}
-								onFocusChange={onComposerFocusChange}
 								onMessageAppendFailed={onMessageAppendFailed}
 								onMessageWillAppend={onMessageWillAppend}
 								currentActivity={

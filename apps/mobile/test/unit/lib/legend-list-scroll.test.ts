@@ -39,4 +39,24 @@ describe("scrollListToLatest", () => {
 			}),
 		).resolves.toBeUndefined();
 	});
+
+	test("does not block the native fallback behind an unresolved virtual scroll", async () => {
+		const nativeScrollToEnd = vi.fn();
+		const virtualScroll = new Promise<void>(() => undefined);
+		const afterVirtualLayout = vi.fn(async () => undefined);
+		const list = {
+			getNativeScrollRef: () => ({ scrollToEnd: nativeScrollToEnd }),
+			scrollToEnd: vi.fn(() => virtualScroll),
+		};
+
+		void scrollListToLatest(list, {
+			animated: true,
+			afterVirtualLayout,
+		});
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(afterVirtualLayout).toHaveBeenCalledOnce();
+		expect(nativeScrollToEnd).toHaveBeenCalledWith({ animated: true });
+	});
 });

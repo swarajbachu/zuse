@@ -248,7 +248,6 @@ export const Composer = ({
 			// Establish the transcript anchor before publishing the optimistic
 			// row. LegendList's anchored-end contract uses the pre-append index.
 			onMessageWillAppend?.();
-			Keyboard.dismiss();
 			didPrepareAppend = true;
 			if (uploaded.length === 0) {
 				optimisticMessageId = messageId;

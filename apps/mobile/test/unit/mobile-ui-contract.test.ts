@@ -279,6 +279,7 @@ describe("mobile UI contracts", () => {
 			"transcriptScroll.onMessageWillAppend(turns.length)",
 		);
 		expect(thread).toContain("onReady: transcriptScroll.onAnchorReady");
+		expect(thread).not.toContain("anchorMaxSize");
 		expect(thread).toContain("transcriptScroll.requestJump()");
 		expect(thread).toContain("scrollListToLatest(list");
 		expect(composer.indexOf("onMessageWillAppend?.()")).toBeLessThan(
@@ -291,16 +292,18 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("onMessageWillAppend");
 		expect(thread).toContain("onMessageAppendFailed");
 		expect(composer).toContain("onMessageAppendFailed?.()");
-		expect(composer).toContain(
+		expect(composer).not.toContain(
 			"onMessageWillAppend?.();\n\t\t\tKeyboard.dismiss();",
 		);
+		expect(thread).toContain("closeKeyboard: true");
 		expect(thread).toContain("settleTranscriptTurn()");
 		expect(thread).toContain("markSessionTurnStarting(stateKey)");
 		expect(thread).toContain("markSessionTurnStartFailed(stateKey)");
 		expect(thread).toContain("scrollListToLatest");
-		expect(thread).toContain("transcriptScroll.onComposerBlurred()");
-		expect(thread).toContain("transcriptScroll.onComposerLayout()");
-		expect(thread).toContain("experimental_adaptiveRender");
+		expect(thread).not.toContain("transcriptScroll.onComposerBlurred()");
+		expect(thread).not.toContain("transcriptScroll.onComposerLayout()");
+		expect(thread).not.toContain("experimental_adaptiveRender");
+		expect(thread).toContain("drawDistance={800}");
 		expect(thread).toContain("scrollEventThrottle={16}");
 		expect(thread).not.toContain("scrollEventThrottle={64}");
 		expect(thread).toContain(
@@ -315,9 +318,13 @@ describe("mobile UI contracts", () => {
 		expect(thread).not.toContain("latestTurnTopOffset");
 	});
 
-	test("uses the stock LegendList keyboard integration without a dependency patch", () => {
+	test("uses a narrow LegendList animated-scroll completion patch", () => {
 		const keyboardIntegration = readFileSync(
 			`${process.cwd()}/../../node_modules/@legendapp/list/keyboard.js`,
+			"utf8",
+		);
+		const listPatch = readFileSync(
+			`${process.cwd()}/../../patches/@legendapp%2Flist@3.3.3.patch`,
 			"utf8",
 		);
 		const mobilePackage = readFileSync(`${process.cwd()}/package.json`, "utf8");
@@ -327,7 +334,17 @@ describe("mobile UI contracts", () => {
 		);
 
 		expect(mobilePackage).toContain('"@legendapp/list": "3.3.3"');
-		expect(rootPackage).not.toContain('"patchedDependencies"');
+		expect(rootPackage).toContain(
+			'"@legendapp/list@3.3.3": "patches/@legendapp%2Flist@3.3.3.patch"',
+		);
+		expect(listPatch).toContain("diff --git a/react-native.js");
+		expect(listPatch).toContain("diff --git a/react-native.mjs");
+		expect(listPatch).toContain(
+			"const slowTimeout = !!(scrollingTo == null ? void 0 : scrollingTo.animated)",
+		);
+		expect(listPatch).toContain("checkFinishedScrollFallback(ctx);");
+		expect(listPatch).not.toContain("keyboard.js");
+		expect(listPatch).not.toContain("keyboard.mjs");
 		expect(keyboardIntegration).toContain("KeyboardChatScrollView");
 		expect(keyboardIntegration).toContain("useKeyboardChatComposerInset");
 		expect(keyboardIntegration).toContain("useKeyboardScrollToEnd");
