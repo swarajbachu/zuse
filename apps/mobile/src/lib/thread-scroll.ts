@@ -57,3 +57,11 @@ export const shouldShowLatestAction = (options: {
 }): boolean =>
 	options.mode === "detached" &&
 	(options.hasUnseenContent || options.distance > LIVE_EDGE_EXIT_PX);
+
+export const pendingThreadScrollCommand = (options: {
+	readonly pendingJumpToEnd: boolean;
+	readonly anchorActive: boolean;
+}): "jump-end" | "wait" | "none" => {
+	if (!options.pendingJumpToEnd) return "none";
+	return options.anchorActive ? "wait" : "jump-end";
+};

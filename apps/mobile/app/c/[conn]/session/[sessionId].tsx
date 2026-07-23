@@ -22,13 +22,7 @@ import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { ChevronDown } from "lucide-react-native";
-import React, {
-	useEffect,
-	useLayoutEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
 	AccessibilityInfo,
 	Alert,
@@ -81,6 +75,7 @@ import {
 	LIVE_EDGE_ENTER_PX,
 	nextThreadAnchor,
 	nextThreadScrollMode,
+	pendingThreadScrollCommand,
 	shouldFollowTranscript,
 	shouldShowLatestAction,
 	type ThreadScrollMode,
@@ -160,6 +155,9 @@ import {
 } from "~/store/sessions";
 import { colors, glass } from "~/theme";
 
+const KEYBOARD_COMPOSER_GAP = 8;
+const TRANSCRIPT_BOTTOM_GAP = 16;
+
 export default function ThreadScreenRoute() {
 	const { conn, sessionId, openAtLatest } = useLocalSearchParams<{
 		conn: string;
@@ -194,6 +192,7 @@ function ThreadScreen() {
 	const distanceFromBottomRef = useRef(0);
 	const scrollOffsetRef = useRef(0);
 	const pendingSendAnchorRef = useRef(false);
+	const pendingJumpToEndRef = useRef(false);
 	const sendAnchorBaselineRef = useRef<string | null>(null);
 	const hasUnseenContentRef = useRef(false);
 	const previousMessagesRef = useRef<readonly unknown[] | null>(null);
@@ -203,7 +202,9 @@ function ThreadScreen() {
 	const [anchoredTurnId, setAnchoredTurnId] = useState<string | null>(null);
 	const keyboardVisible = useKeyboardState((state) => state.isVisible);
 	const restingBottomInset = Math.max(insets.bottom, 12);
-	const overlayBottomInset = keyboardVisible ? 0 : restingBottomInset;
+	const overlayBottomInset = keyboardVisible
+		? KEYBOARD_COMPOSER_GAP
+		: restingBottomInset;
 	const [bottomAccessoryHeight, setBottomAccessoryHeight] = useState(
 		restingBottomInset + 64,
 	);
@@ -235,17 +236,6 @@ function ThreadScreen() {
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
 	const listMountKey = `${stateKey}:${turns.length === 0 ? "empty" : "filled"}`;
-	// The empty→filled remount resets LegendList's imperative inset override.
-	// Re-report it before initial positioning so the final row can never settle
-	// underneath the measured composer.
-	useLayoutEffect(() => {
-		// The value itself is immaterial; changing it identifies a fresh list ref.
-		void listMountKey;
-		const bottom = contentInsetEndAdjustment.value;
-		if (bottom > 0) {
-			listRef.current?.reportContentInset({ bottom });
-		}
-	}, [contentInsetEndAdjustment, listMountKey]);
 	// Computed here (not in the composer) so keystrokes never touch it and the
 	// composer needs no subscription to the message store.
 	const composerActivity = summarizeComposerActivity(turns.at(-1));
@@ -508,6 +498,7 @@ function ThreadScreen() {
 		distanceFromBottomRef.current = saved?.distanceFromBottom ?? 0;
 		scrollOffsetRef.current = saved?.offsetY ?? 0;
 		pendingSendAnchorRef.current = false;
+		pendingJumpToEndRef.current = false;
 		sendAnchorBaselineRef.current = null;
 		hasUnseenContentRef.current = false;
 		previousMessagesRef.current = null;
@@ -634,18 +625,14 @@ function ThreadScreen() {
 	const jumpToLatest = () => {
 		if (turns.length === 0) return;
 		pendingSendAnchorRef.current = false;
+		pendingJumpToEndRef.current = true;
 		setAnchoredTurnId((current) =>
 			nextThreadAnchor(current, { type: "jumped-to-latest" }),
 		);
 		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
 			type: "jumped-to-latest",
 		});
-		requestAnimationFrame(() => {
-			void scrollMessageToEnd({
-				animated: !reduceMotion,
-				closeKeyboard: false,
-			});
-		});
+		if (!anchorActive) requestAnimationFrame(flushPendingJumpToEnd);
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
@@ -674,6 +661,17 @@ function ThreadScreen() {
 	};
 	const anchorActive =
 		anchoredTurnId !== null && anchoredTurnId === latestTurnId;
+	const flushPendingJumpToEnd = () => {
+		const command = pendingThreadScrollCommand({
+			pendingJumpToEnd: pendingJumpToEndRef.current,
+			anchorActive,
+		});
+		if (command !== "jump-end") return;
+		pendingJumpToEndRef.current = false;
+		// Manual jumps should not freeze keyboard-driven insets. The list already
+		// owns the current keyboard/composer geometry and can target its real end.
+		void listRef.current?.scrollToEnd({ animated: !reduceMotion });
+	};
 	const onAnchorReady = (info: { anchorIndex: number | undefined }) => {
 		if (!anchorActive || info.anchorIndex === undefined) return;
 		pendingSendAnchorRef.current = false;
@@ -976,7 +974,12 @@ function ThreadScreen() {
 					) : null
 				}
 				ListFooterComponent={
-					<View className="pt-1">
+					<View
+						style={{
+							paddingTop: 4,
+							paddingBottom: TRANSCRIPT_BOTTOM_GAP,
+						}}
+					>
 						{workingActive ? <WorkingIndicator since={workingSince} /> : null}
 					</View>
 				}
@@ -985,7 +988,10 @@ function ThreadScreen() {
 				onScrollEndDrag={resumeAtLiveEdge}
 				onMomentumScrollEnd={resumeAtLiveEdge}
 				scrollEventThrottle={16}
-				onContentSizeChange={prepareSendAnchor}
+				onContentSizeChange={() => {
+					prepareSendAnchor();
+					flushPendingJumpToEnd();
+				}}
 			/>
 			<KeyboardStickyView
 				pointerEvents="box-none"

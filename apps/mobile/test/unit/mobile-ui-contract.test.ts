@@ -217,8 +217,12 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("useKeyboardChatComposerInset");
 		expect(thread).toContain("useKeyboardScrollToEnd");
 		expect(thread).toContain("useKeyboardState");
-		expect(thread).toContain("keyboardVisible ? 0 : restingBottomInset");
-		expect(thread).toContain("reportContentInset({ bottom })");
+		expect(thread).toMatch(
+			/keyboardVisible\s*\?\s*KEYBOARD_COMPOSER_GAP\s*:\s*restingBottomInset/,
+		);
+		expect(thread).toContain("paddingBottom: TRANSCRIPT_BOTTOM_GAP");
+		expect(thread).not.toContain("reportContentInset({ bottom })");
+		expect(thread).not.toContain("useLayoutEffect");
 		expect(composer).toContain("bottomInset ?? 12");
 		expect(thread).toContain("experimental_backgroundImage");
 		expect(thread).not.toContain("BlurView");
@@ -260,6 +264,8 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("maintainVisibleContentPosition");
 		expect(thread).toContain("anchoredEndSpace");
 		expect(thread).toContain("scrollMessageToEnd");
+		expect(thread).toContain("pendingJumpToEndRef");
+		expect(thread).toContain("flushPendingJumpToEnd");
 		expect(thread).toMatch(/<GlassSurface\s+pointerEvents="none"/);
 		expect(thread).toContain("hitSlop={8}");
 		expect(thread).not.toContain("<FlatList");

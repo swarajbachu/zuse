@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
 	nextThreadAnchor,
 	nextThreadScrollMode,
+	pendingThreadScrollCommand,
 	shouldFollowTranscript,
 	shouldShowLatestAction,
 } from "../../../src/lib/thread-scroll";
@@ -79,5 +80,26 @@ describe("thread scroll policy", () => {
 		expect(shouldFollowTranscript("initial")).toBe(true);
 		expect(shouldFollowTranscript("following")).toBe(true);
 		expect(shouldFollowTranscript("detached")).toBe(false);
+	});
+
+	test("waits for an active anchor to collapse before jumping to the end", () => {
+		expect(
+			pendingThreadScrollCommand({
+				pendingJumpToEnd: true,
+				anchorActive: true,
+			}),
+		).toBe("wait");
+		expect(
+			pendingThreadScrollCommand({
+				pendingJumpToEnd: true,
+				anchorActive: false,
+			}),
+		).toBe("jump-end");
+		expect(
+			pendingThreadScrollCommand({
+				pendingJumpToEnd: false,
+				anchorActive: false,
+			}),
+		).toBe("none");
 	});
 });
