@@ -25,6 +25,11 @@ const optionalString = (
 const routePriority = (service: NearbyService): number =>
 	service.interfaceName?.startsWith("awdl") === true ? 1 : 0;
 
+const stableRouteId = (
+	tlsCertificatePin: string,
+	interfaceName: string | undefined,
+): string => `${tlsCertificatePin}|${interfaceName ?? "default"}`;
+
 /**
  * Native browsing can report one Mac once per network route. The certificate
  * pin is the pre-pairing cryptographic device identity; names and addresses
@@ -40,7 +45,9 @@ export const normalizeNearbyServices = (
 		const trustRecordId = optionalString(raw.trustRecordId);
 		const service: NearbyService = {
 			id: raw.tlsCertificatePin,
-			routeId: raw.id,
+			// Browser generations and Bonjour "(2)" suffixes do not represent a
+			// network change. The path monitor invalidates real route changes.
+			routeId: stableRouteId(raw.tlsCertificatePin, interfaceName),
 			name: raw.name,
 			type: raw.type,
 			domain: raw.domain,

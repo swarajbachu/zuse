@@ -48,16 +48,28 @@ describe("nearby service normalization", () => {
 		expect(result).toHaveLength(2);
 	});
 
-	test("keeps Mac identity stable while exposing a republished route", () => {
+	test("keeps the route stable across browser republication generations", () => {
 		const [before] = normalizeNearbyServices([
 			service({ id: "mac|_zuse._tcp|local.|en0|1" }),
 		]);
 		const [after] = normalizeNearbyServices([
-			service({ id: "mac|_zuse._tcp|local.|en0|2" }),
+			service({
+				id: "mac|_zuse._tcp|local.|en0|2",
+				name: "MacBook-Pro-3.local (2)",
+			}),
 		]);
 
 		expect(after?.id).toBe(before?.id);
-		expect(after?.routeId).not.toBe(before?.routeId);
+		expect(after?.routeId).toBe(before?.routeId);
+	});
+
+	test("changes the route identity when the network interface changes", () => {
+		const [wifi] = normalizeNearbyServices([service({ interfaceName: "en0" })]);
+		const [peer] = normalizeNearbyServices([
+			service({ interfaceName: "awdl0" }),
+		]);
+
+		expect(peer?.routeId).not.toBe(wifi?.routeId);
 	});
 
 	test("removes native nulls before they can reach string-only functions", () => {

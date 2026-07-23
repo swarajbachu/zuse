@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import type { FolderId, FsFileContent, SessionId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { Stack, useLocalSearchParams } from "expo-router";
@@ -18,7 +19,6 @@ import {
 	normalizeConnParam,
 	optionsForConnection,
 } from "~/lib/connection-params";
-import { selectConnectionBundles } from "~/lib/session-bundles";
 import {
 	DARK_SYNTAX,
 	LIGHT_SYNTAX,
@@ -26,8 +26,8 @@ import {
 } from "~/lib/syntax-highlighting";
 import { basename } from "~/lib/workspace-path";
 import { readWorkspaceFile } from "~/rpc/actions";
-import { useConnectionsStore } from "~/store/connections";
-import { selectSessionChat, useSessionsStore } from "~/store/sessions";
+import { connectionsAtom } from "~/store/connections";
+import { connectionBundlesAtom, selectSessionChat } from "~/store/sessions";
 import { colors } from "~/theme";
 
 export default function WorkspaceFileScreen() {
@@ -42,10 +42,8 @@ export default function WorkspaceFileScreen() {
 	const path = normalizeConnParam(rawPath);
 	const connKey = normalizeConnParam(conn);
 	const normalizedSessionId = normalizeConnParam(sessionId) as SessionId;
-	const connections = useConnectionsStore((state) => state.connections);
-	const bundles = useSessionsStore((state) =>
-		selectConnectionBundles(state.bundlesByConnection, connKey),
-	);
+	const connections = useAtomValue(connectionsAtom);
+	const bundles = useAtomValue(connectionBundlesAtom(connKey));
 	const detail = selectSessionChat(bundles, normalizedSessionId);
 	const folderId = detail?.project.id as FolderId | undefined;
 	const worktreeId = detail?.session.worktreeId ?? null;

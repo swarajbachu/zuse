@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import type { DiffLine, FileChange } from "@zuse/client-runtime/timeline";
 import {
 	GitReviewFile,
@@ -22,9 +23,8 @@ import { type FileTab, FileTabs } from "~/components/files/file-tabs";
 import { FileIcon } from "~/components/ui/file-icon";
 import { prepareReviewLines } from "~/lib/review-diff-model";
 import { connectionSessionKey } from "~/lib/session-key";
-import { selectSessionMessages } from "~/lib/session-messages";
 import { buildToolPresentation, toResultText } from "~/lib/tool-presentation";
-import { useMobileMessagesStore } from "~/store/messages";
+import { sessionMessagesAtom } from "~/store/messages";
 import { colors } from "~/theme";
 
 type ToolUse = Extract<MessageContent, { _tag: "tool_use" }>;
@@ -50,9 +50,7 @@ export default function ToolDetailScreen() {
 		filePath?: string;
 	}>();
 	const key = connectionSessionKey(conn, sessionId as SessionId);
-	const messages = useMobileMessagesStore((state) =>
-		selectSessionMessages(state.messagesBySession, key),
-	);
+	const messages = useAtomValue(sessionMessagesAtom(key));
 	const tool = messages.find(
 		(message) =>
 			message.content._tag === "tool_use" && message.content.itemId === itemId,

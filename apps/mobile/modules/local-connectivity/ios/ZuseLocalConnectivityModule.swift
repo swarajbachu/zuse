@@ -189,7 +189,11 @@ private final class ByteProxy {
       connectivityQueue
     )
     let parameters = NWParameters(tls: tls, tcp: NWProtocolTCP.Options())
-    parameters.includePeerToPeer = true
+    // Peer-to-peer only when the service was actually discovered over AWDL;
+    // enabling it unconditionally keeps the AWDL radio active for every
+    // proxied connection and disrupts regular Wi-Fi.
+    parameters.includePeerToPeer =
+      service.interfaceName?.hasPrefix("awdl") == true
     let remote = NWConnection(to: endpoint, using: parameters)
     let session = ProxySession(local: local, remote: remote) { [weak self] id in
       guard let self else { return }
@@ -270,19 +274,32 @@ public final class ZuseLocalConnectivityModule: Module {
   }
 
   private func startDiscovery() {
+    startBrowser()
+    startPathMonitorIfNeeded()
+  }
+
+  private func startBrowser() {
     guard browser == nil else { return }
     browserRetryWork?.cancel()
     sendEvent("onDiscoveryStateChanged", ["state": "starting"])
+    // One generation per browser instance (not per emit): route ids stay
+    // stable while a browser lives, and change only when discovery restarts
+    // — e.g. after a path change — so routes are invalidated exactly when
+    // the network they were discovered on is gone.
+    browserGeneration += 1
+    let generation = browserGeneration
     let parameters = NWParameters.tcp
-    parameters.includePeerToPeer = true
+    // No peer-to-peer for browsing: includePeerToPeer engages AWDL, which
+    // time-slices the Wi-Fi radio and visibly degrades the phone's Wi-Fi the
+    // whole time discovery runs. Infrastructure Wi-Fi is the product's
+    // primary (and pinned) path; AWDL-only discovery is not worth breaking
+    // the network we actually use.
     let browser = NWBrowser(
       for: .bonjourWithTXTRecord(type: serviceType, domain: nil),
       using: parameters
     )
     browser.browseResultsChangedHandler = { [weak self] results, _ in
       guard let self else { return }
-      self.browserGeneration += 1
-      let generation = self.browserGeneration
       let services = results.compactMap { result -> [String: Any]? in
         guard case let .service(name, type, domain, interface) = result.endpoint else {
           return nil
@@ -328,33 +345,45 @@ public final class ZuseLocalConnectivityModule: Module {
         "serviceCount": services.count,
       ])
     }
-    browser.stateUpdateHandler = { [weak self] state in
+    browser.stateUpdateHandler = { [weak self, weak browser] state in
+      guard let self else { return }
+      // Ignore callbacks from a browser we already replaced.
+      guard let browser, self.browser === browser else { return }
       switch state {
       case .ready:
-        self?.browserRetryAttempt = 0
-        self?.sendEvent("onDiscoveryStateChanged", ["state": "ready"])
+        self.browserRetryAttempt = 0
+        self.sendEvent("onDiscoveryStateChanged", ["state": "ready"])
       case .waiting(let error):
-        self?.sendEvent("onDiscoveryStateChanged", [
+        self.sendEvent("onDiscoveryStateChanged", [
           "state": "waiting",
           "reason": String(describing: error),
         ])
+        // A Wi-Fi switch usually parks the browser in .waiting (not .failed),
+        // where it can sit forever on the dead interface. Restart with the
+        // same backoff so discovery re-arms on the new network.
+        self.browser?.cancel()
+        self.browser = nil
+        self.scheduleBrowserRestart()
       case .failed(let error):
-        self?.sendEvent("onDiscoveryStateChanged", [
+        self.sendEvent("onDiscoveryStateChanged", [
           "state": "failed",
           "reason": String(describing: error),
         ])
-        self?.browser?.cancel()
-        self?.browser = nil
-        self?.scheduleBrowserRestart()
+        self.browser?.cancel()
+        self.browser = nil
+        self.scheduleBrowserRestart()
       case .cancelled:
-        self?.sendEvent("onDiscoveryStateChanged", ["state": "stopped"])
+        self.sendEvent("onDiscoveryStateChanged", ["state": "stopped"])
       default:
         break
       }
     }
     self.browser = browser
     browser.start(queue: connectivityQueue)
+  }
 
+  private func startPathMonitorIfNeeded() {
+    guard pathMonitor == nil else { return }
     let monitor = NWPathMonitor()
     monitor.pathUpdateHandler = { [weak self] path in
       guard let self else { return }
@@ -371,9 +400,28 @@ public final class ZuseLocalConnectivityModule: Module {
         "usesCellular": path.usesInterfaceType(.cellular),
         "generation": self.pathGeneration,
       ])
+      // The network the current browser is browsing on just changed; restart
+      // discovery so services are re-resolved on the new path. Debounced so a
+      // flapping transition coalesces into one restart.
+      if path.status == .satisfied {
+        self.scheduleBrowserRestartForPathChange()
+      }
     }
     pathMonitor = monitor
     monitor.start(queue: connectivityQueue)
+  }
+
+  private func scheduleBrowserRestartForPathChange() {
+    browserRetryWork?.cancel()
+    let work = DispatchWorkItem { [weak self] in
+      guard let self else { return }
+      self.browser?.cancel()
+      self.browser = nil
+      self.browserRetryAttempt = 0
+      self.startBrowser()
+    }
+    browserRetryWork = work
+    connectivityQueue.asyncAfter(deadline: .now() + 0.5, execute: work)
   }
 
   private func stopDiscovery() {
@@ -390,7 +438,7 @@ public final class ZuseLocalConnectivityModule: Module {
   private func scheduleBrowserRestart() {
     browserRetryAttempt += 1
     let delay = min(16.0, pow(2.0, Double(max(0, browserRetryAttempt - 1))))
-    let work = DispatchWorkItem { [weak self] in self?.startDiscovery() }
+    let work = DispatchWorkItem { [weak self] in self?.startBrowser() }
     browserRetryWork = work
     connectivityQueue.asyncAfter(deadline: .now() + delay, execute: work)
   }

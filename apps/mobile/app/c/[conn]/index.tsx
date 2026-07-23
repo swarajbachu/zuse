@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import {
 	orderedChatSessions,
 	resolveActiveChatSession,
@@ -18,26 +19,35 @@ import {
 } from "~/lib/connection-params";
 import { visibleConnectionLabel } from "~/lib/display-names";
 import { connectionSessionKey } from "~/lib/session-key";
-import { useConnectionRuntimeStore } from "~/store/connection-runtime";
-import { useConnectionsStore } from "~/store/connections";
-import { isUnread, useSessionsStore } from "~/store/sessions";
+import {
+	connectionSnapshotAtom,
+	retryConnection,
+	watchConnection,
+} from "~/store/connection-runtime";
+import {
+	connectionsAtom,
+	connectionsHydratedAtom,
+	hydrateConnections,
+} from "~/store/connections";
+import {
+	bundlesByConnectionAtom,
+	connectionSessionsErrorAtom,
+	connectionSessionsLoadingAtom,
+	hydrateSessions,
+	isUnread,
+	statusBySessionAtom,
+} from "~/store/sessions";
 import { colors } from "~/theme";
 
 export default function SessionsScreen() {
 	const { conn } = useLocalSearchParams<{ conn: string }>();
 	const connKey = normalizeConnParam(conn);
-	const {
-		connections,
-		hydrated,
-		hydrate: hydrateConnections,
-	} = useConnectionsStore();
-	const {
-		bundlesByConnection,
-		statusBySession,
-		errorByConnection,
-		loadingByConnection,
-		hydrate,
-	} = useSessionsStore();
+	const connections = useAtomValue(connectionsAtom);
+	const hydrated = useAtomValue(connectionsHydratedAtom);
+	const bundlesByConnection = useAtomValue(bundlesByConnectionAtom);
+	const statusBySession = useAtomValue(statusBySessionAtom);
+	const sessionsError = useAtomValue(connectionSessionsErrorAtom(connKey));
+	const sessionsLoading = useAtomValue(connectionSessionsLoadingAtom(connKey));
 	const options = useMemo(
 		() => optionsForConnection(connKey, connections),
 		[connKey, connections],
@@ -49,28 +59,25 @@ export default function SessionsScreen() {
 			),
 		[connKey, connections],
 	);
-	const watchConnection = useConnectionRuntimeStore((state) => state.watch);
-	const retryConnection = useConnectionRuntimeStore((state) => state.retry);
-	const connectionSnapshot = useConnectionRuntimeStore(
-		(state) => state.snapshotsByConnection[connKey],
-	);
+	const connectionSnapshot = useAtomValue(connectionSnapshotAtom(connKey));
 	const bundles = useMemo(
 		() => bundlesByConnection[connKey] ?? [],
 		[bundlesByConnection, connKey],
 	);
 	useEffect(() => {
 		if (!hydrated) void hydrateConnections();
-	}, [hydrateConnections, hydrated]);
+	}, [hydrated]);
 
 	useEffect(() => {
 		if (connKey.length === 0 || options === null) return;
 		return watchConnection(connKey, options);
-	}, [connKey, options, watchConnection]);
+	}, [connKey, options]);
 
 	useEffect(() => {
 		void connectionSnapshot?.generation;
-		if (connKey.length > 0 && options !== null) void hydrate(connKey, options);
-	}, [connKey, connectionSnapshot?.generation, hydrate, options]);
+		if (connKey.length > 0 && options !== null)
+			void hydrateSessions(connKey, options);
+	}, [connKey, connectionSnapshot?.generation, options]);
 
 	const rows = useMemo(
 		() =>
@@ -126,7 +133,7 @@ export default function SessionsScreen() {
 			: connectionSnapshot === undefined ||
 					connectionSnapshot.status === "error" ||
 					connectionSnapshot.status === "blockedAuth"
-				? errorByConnection[connKey]
+				? sessionsError
 				: null;
 	return (
 		<>
@@ -141,9 +148,9 @@ export default function SessionsScreen() {
 				contentContainerClassName="gap-6 p-4 pb-16"
 				refreshControl={
 					<RefreshControl
-						refreshing={loadingByConnection[connKey] === true}
+						refreshing={sessionsLoading}
 						onRefresh={() => {
-							if (options !== null) void hydrate(connKey, options);
+							if (options !== null) void hydrateSessions(connKey, options);
 						}}
 						tintColor={colors.accent}
 					/>

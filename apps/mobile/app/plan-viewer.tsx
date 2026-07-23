@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import type { SessionId } from "@zuse/contracts";
 import { proposedPlanMarkdownFromContent } from "@zuse/utils/proposed-plan";
 import { router, Stack, useLocalSearchParams } from "expo-router";
@@ -5,8 +6,7 @@ import { ScrollView, Text, View } from "react-native";
 
 import { Markdown } from "~/components/messages/markdown";
 import { connectionSessionKey } from "~/lib/session-key";
-import { selectSessionMessages } from "~/lib/session-messages";
-import { useMobileMessagesStore } from "~/store/messages";
+import { sessionMessagesAtom } from "~/store/messages";
 
 export default function PlanViewerScreen() {
 	const { conn, sessionId, messageId, itemId } = useLocalSearchParams<{
@@ -15,11 +15,8 @@ export default function PlanViewerScreen() {
 		messageId?: string;
 		itemId?: string;
 	}>();
-	const messages = useMobileMessagesStore((state) =>
-		selectSessionMessages(
-			state.messagesBySession,
-			connectionSessionKey(conn, sessionId as SessionId),
-		),
+	const messages = useAtomValue(
+		sessionMessagesAtom(connectionSessionKey(conn, sessionId as SessionId)),
 	);
 	const target = messages.find((message) => {
 		if (messageId !== undefined && message.id !== messageId) return false;
