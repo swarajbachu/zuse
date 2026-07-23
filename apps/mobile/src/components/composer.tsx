@@ -27,7 +27,6 @@ import {
 	Text,
 	View,
 } from "react-native";
-import { KeyboardController } from "react-native-keyboard-controller";
 import {
 	type LocalComposerAttachment,
 	pickComposerFiles,
@@ -101,7 +100,8 @@ export const Composer = ({
 	onRetryConnection,
 	onFocusChange,
 	onMessageSubmitted,
-	onMessageSubmissionFinished,
+	onMessageSent,
+	onExpandedChange,
 	currentActivity = null,
 	bottomInset,
 }: {
@@ -116,7 +116,8 @@ export const Composer = ({
 	onRetryConnection?: () => void;
 	onFocusChange?: (focused: boolean) => void;
 	onMessageSubmitted?: () => void;
-	onMessageSubmissionFinished?: (succeeded: boolean) => void;
+	onMessageSent?: (messageId: MessageId) => void;
+	onExpandedChange?: (expanded: boolean) => void;
 	/** Latest-turn activity summary, computed once by the thread screen. */
 	currentActivity?: ComposerActivity | null;
 	bottomInset?: number;
@@ -189,6 +190,9 @@ export const Composer = ({
 		hasAttachments: attachments.length > 0,
 		sheetOpen: modelSheetOpen,
 	});
+	useEffect(() => {
+		onExpandedChange?.(expanded);
+	}, [expanded, onExpandedChange]);
 
 	const agentCount = currentActivity?.agents ?? 0;
 	const hasPills = !online || agentCount > 0;
@@ -200,13 +204,7 @@ export const Composer = ({
 		setGoalMode(false);
 		setFocused(false);
 		onFocusChange?.(false);
-		void KeyboardController.dismiss()
-			.catch(() => {
-				Keyboard.dismiss();
-			})
-			.finally(() => {
-				requestAnimationFrame(() => onMessageSubmissionFinished?.(true));
-			});
+		Keyboard.dismiss();
 	};
 
 	const submit = async () => {
@@ -279,10 +277,10 @@ export const Composer = ({
 					clientMessageId: messageId,
 				}),
 			);
+			onMessageSent?.(messageId);
 			finishSuccessfulSubmission();
 		} catch (cause) {
 			setComposerError(messageOf(cause));
-			onMessageSubmissionFinished?.(false);
 			if (optimisticMessageId !== null) {
 				removeOptimisticMessage(stateKey, optimisticMessageId);
 			}

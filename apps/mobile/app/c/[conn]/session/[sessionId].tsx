@@ -13,6 +13,7 @@ import {
 import { groupTimelineTurns } from "@zuse/client-runtime/timeline";
 import type {
 	FolderId,
+	MessageId,
 	PermissionRequest,
 	SessionId,
 	UserQuestion,
@@ -30,13 +31,14 @@ import {
 	type LayoutChangeEvent,
 	type NativeScrollEvent,
 	type NativeSyntheticEvent,
+	Platform,
 	Pressable,
 	Text,
 	View,
 } from "react-native";
 import {
+	KeyboardController,
 	KeyboardStickyView,
-	useKeyboardState,
 } from "react-native-keyboard-controller";
 import Animated, {
 	useAnimatedStyle,
@@ -75,9 +77,6 @@ import {
 	LIVE_EDGE_ENTER_PX,
 	nextThreadAnchor,
 	nextThreadScrollMode,
-	pendingSendAnchorTurnId,
-	pendingThreadScrollCommand,
-	shouldFollowTranscript,
 	shouldShowLatestAction,
 	type ThreadScrollMode,
 } from "~/lib/thread-scroll";
@@ -156,9 +155,6 @@ import {
 } from "~/store/sessions";
 import { colors, glass } from "~/theme";
 
-const KEYBOARD_COMPOSER_GAP = 8;
-const TRANSCRIPT_BOTTOM_GAP = 16;
-
 export default function ThreadScreenRoute() {
 	const { conn, sessionId, openAtLatest } = useLocalSearchParams<{
 		conn: string;
@@ -192,32 +188,31 @@ function ThreadScreen() {
 	const scrollModeRef = useRef<ThreadScrollMode>("initial");
 	const distanceFromBottomRef = useRef(0);
 	const scrollOffsetRef = useRef(0);
-	const pendingSendAnchorRef = useRef(false);
-	const sendComposerSettledRef = useRef(false);
-	const pendingJumpToEndRef = useRef(false);
-	const sendAnchorBaselineRef = useRef<string | null>(null);
-	const latestTurnIdRef = useRef<string | null>(null);
+	const lastScrolledAnchorTurnIdRef = useRef<string | null>(null);
+	const activeThreadKeyRef = useRef("");
 	const hasUnseenContentRef = useRef(false);
 	const previousMessagesRef = useRef<readonly unknown[] | null>(null);
 	const composerOverlayRef = useRef<View>(null);
 	const [showJumpButton, setShowJumpButton] = useState(false);
 	const [hasUnseenContent, setHasUnseenContent] = useState(false);
 	const [anchoredTurnId, setAnchoredTurnId] = useState<string | null>(null);
-	const keyboardVisible = useKeyboardState((state) => state.isVisible);
+	const [composerExpanded, setComposerExpanded] = useState(false);
+	const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+	const usesAutomaticContentInsets = Platform.OS === "ios";
 	const restingBottomInset = Math.max(insets.bottom, 12);
-	const overlayBottomInset = keyboardVisible
-		? KEYBOARD_COMPOSER_GAP
-		: restingBottomInset;
+	const overlayBottomInset = composerExpanded ? 0 : restingBottomInset;
 	const [bottomAccessoryHeight, setBottomAccessoryHeight] = useState(
 		restingBottomInset + 64,
 	);
 	const jumpOpacity = useSharedValue(0);
 	const reduceMotion = useReducedMotion();
+	const nativeInsetOvercount = usesAutomaticContentInsets ? insets.bottom : 0;
 	const { contentInsetEndAdjustment, onComposerLayout } =
 		useKeyboardChatComposerInset(
 			listRef,
 			composerOverlayRef,
-			restingBottomInset + 64,
+			Math.max(0, restingBottomInset + 64 - nativeInsetOvercount),
+			-nativeInsetOvercount,
 		);
 	const { freeze, scrollMessageToEnd } = useKeyboardScrollToEnd({ listRef });
 	const connections = useAtomValue(connectionsAtom);
@@ -242,10 +237,9 @@ function ThreadScreen() {
 	// Computed here (not in the composer) so keystrokes never touch it and the
 	// composer needs no subscription to the message store.
 	const composerActivity = summarizeComposerActivity(turns.at(-1));
-	const latestTurnId = turns.at(-1)?.id ?? null;
 	useEffect(() => {
-		latestTurnIdRef.current = latestTurnId;
-	}, [latestTurnId]);
+		activeThreadKeyRef.current = stateKey;
+	}, [stateKey]);
 	const detail = selectSessionChat(bundles, normalizedSessionId);
 	const chatId = detail?.session.chatId ?? null;
 	const allConnectionSessions = useMemo(
@@ -503,15 +497,9 @@ function ThreadScreen() {
 		scrollModeRef.current = saved?.mode ?? "initial";
 		distanceFromBottomRef.current = saved?.distanceFromBottom ?? 0;
 		scrollOffsetRef.current = saved?.offsetY ?? 0;
-		pendingSendAnchorRef.current = false;
-		sendComposerSettledRef.current = false;
-		pendingJumpToEndRef.current = false;
-		sendAnchorBaselineRef.current = null;
+		lastScrolledAnchorTurnIdRef.current = null;
 		hasUnseenContentRef.current = false;
 		previousMessagesRef.current = null;
-		setHasUnseenContent(false);
-		setShowJumpButton(false);
-		setAnchoredTurnId(null);
 		return () => {
 			const mode = scrollModeRef.current;
 			if (mode === "initial") return;
@@ -549,29 +537,53 @@ function ThreadScreen() {
 		});
 	}, [jumpOpacity, reduceMotion, showJumpButton]);
 
-	// After a send, hand the new turn to LegendList's anchored-end-space mode.
-	// It owns the trailing space and remeasurement corrections while the reply
-	// streams; this screen only chooses which turn is anchored.
-	const prepareSendAnchor = () => {
-		if (!shouldFollowTranscript(scrollModeRef.current)) {
-			pendingSendAnchorRef.current = false;
+	useEffect(() => {
+		if (
+			anchoredTurnId === null ||
+			lastScrolledAnchorTurnIdRef.current === anchoredTurnId ||
+			!turns.some((turn) => turn.id === anchoredTurnId)
+		) {
 			return;
 		}
-		const targetTurnId = pendingSendAnchorTurnId({
-			pendingSendAnchor: pendingSendAnchorRef.current,
-			composerSettled: sendComposerSettledRef.current,
-			latestTurnId: latestTurnIdRef.current,
-			baselineTurnId: sendAnchorBaselineRef.current,
-			shouldFollow: true,
+
+		const targetThreadKey = stateKey;
+		const frame = requestAnimationFrame(() => {
+			if (activeThreadKeyRef.current !== targetThreadKey) return;
+			lastScrolledAnchorTurnIdRef.current = anchoredTurnId;
+			void KeyboardController.dismiss()
+				.then(() => {
+					if (
+						activeThreadKeyRef.current !== targetThreadKey ||
+						lastScrolledAnchorTurnIdRef.current !== anchoredTurnId
+					) {
+						return;
+					}
+					return scrollMessageToEnd({
+						animated: !reduceMotion,
+						closeKeyboard: false,
+					});
+				})
+				.catch(() => {
+					if (
+						activeThreadKeyRef.current !== targetThreadKey ||
+						lastScrolledAnchorTurnIdRef.current !== anchoredTurnId
+					) {
+						return;
+					}
+					lastScrolledAnchorTurnIdRef.current = null;
+					freeze.set(false);
+				});
 		});
-		if (targetTurnId === null || anchoredTurnId === targetTurnId) return;
-		setAnchoredTurnId((current) =>
-			nextThreadAnchor(current, {
-				type: "message-anchored",
-				turnId: targetTurnId,
-			}),
-		);
-	};
+
+		return () => cancelAnimationFrame(frame);
+	}, [
+		anchoredTurnId,
+		freeze,
+		reduceMotion,
+		scrollMessageToEnd,
+		stateKey,
+		turns,
+	]);
 
 	// Plain functions (not useCallback): the React Compiler memoizes them, and
 	// manual memoization of setState-calling callbacks trips its preservation rule.
@@ -636,15 +648,15 @@ function ThreadScreen() {
 
 	const jumpToLatest = () => {
 		if (turns.length === 0) return;
-		pendingSendAnchorRef.current = false;
-		pendingJumpToEndRef.current = true;
 		setAnchoredTurnId((current) =>
 			nextThreadAnchor(current, { type: "jumped-to-latest" }),
 		);
 		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
 			type: "jumped-to-latest",
 		});
-		if (!anchorActive) requestAnimationFrame(flushPendingJumpToEnd);
+		requestAnimationFrame(() => {
+			void listRef.current?.scrollToEnd({ animated: !reduceMotion });
+		});
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
@@ -656,18 +668,15 @@ function ThreadScreen() {
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
-		sendAnchorBaselineRef.current = latestTurnId;
-		sendComposerSettledRef.current = false;
-		pendingSendAnchorRef.current = true;
 	};
-	const onMessageSubmissionFinished = (succeeded: boolean) => {
-		if (!succeeded) {
-			pendingSendAnchorRef.current = false;
-			sendComposerSettledRef.current = false;
-			return;
-		}
-		sendComposerSettledRef.current = true;
-		requestAnimationFrame(prepareSendAnchor);
+	const onMessageSent = (messageId: MessageId) => {
+		lastScrolledAnchorTurnIdRef.current = null;
+		setAnchoredTurnId((current) =>
+			nextThreadAnchor(current, {
+				type: "message-anchored",
+				turnId: String(messageId),
+			}),
+		);
 	};
 	const onComposerFocusChange = (_focused: boolean) => undefined;
 
@@ -681,26 +690,19 @@ function ThreadScreen() {
 		);
 		onComposerLayout(event);
 	};
-	const anchorActive =
-		anchoredTurnId !== null && anchoredTurnId === latestTurnId;
-	const flushPendingJumpToEnd = () => {
-		const command = pendingThreadScrollCommand({
-			pendingJumpToEnd: pendingJumpToEndRef.current,
-			anchorActive,
-		});
-		if (command !== "jump-end") return;
-		pendingJumpToEndRef.current = false;
-		// Manual jumps should not freeze keyboard-driven insets. The list already
-		// owns the current keyboard/composer geometry and can target its real end.
-		void listRef.current?.scrollToEnd({ animated: !reduceMotion });
-	};
-	const onAnchorReady = (info: { anchorIndex: number | undefined }) => {
-		if (!anchorActive || info.anchorIndex === undefined) return;
-		pendingSendAnchorRef.current = false;
-		void scrollMessageToEnd({
-			animated: !reduceMotion,
-			closeKeyboard: false,
-		});
+	const anchoredTurnIndex =
+		anchoredTurnId === null
+			? -1
+			: turns.findIndex((turn) => turn.id === anchoredTurnId);
+	const anchorActive = anchoredTurnIndex >= 0;
+	const onListViewportLayout = (event: LayoutChangeEvent) => {
+		const { width, height } = event.nativeEvent.layout;
+		setViewportSize((current) =>
+			Math.abs(current.width - width) < 1 &&
+			Math.abs(current.height - height) < 1
+				? current
+				: { width, height },
+		);
 	};
 
 	const onRename = () => {
@@ -921,100 +923,110 @@ function ThreadScreen() {
 					</Text>
 				</View>
 			) : null}
-			<KeyboardAwareLegendList
-				key={listMountKey}
-				ref={listRef}
-				data={turns}
-				keyExtractor={(turn) => turn.id}
-				getItemType={() => "turn"}
-				estimatedItemSize={180}
-				renderItem={({ item, index }) => (
-					<TurnRow
-						turn={item}
-						context={ctx}
-						live={sessionStatus === "running" && index === turns.length - 1}
-					/>
-				)}
-				contentInsetAdjustmentBehavior="never"
-				contentContainerStyle={{
-					gap: 4,
-					paddingHorizontal: 16,
-					paddingTop: headerHeight + 12,
-				}}
-				scrollIndicatorInsets={{
-					top: headerHeight,
-					bottom: bottomAccessoryHeight,
-				}}
-				contentInsetEndAdjustment={contentInsetEndAdjustment}
-				freeze={freeze}
-				keyboardLiftBehavior="whenAtEnd"
-				keyboardDismissMode="none"
-				keyboardShouldPersistTaps="always"
-				initialScrollAtEnd={restoredViewState?.mode !== "detached"}
-				{...(restoredViewState?.mode === "detached"
-					? { initialScrollOffset: restoredViewState.offsetY }
-					: {})}
-				{...(anchorActive
-					? {
-							anchoredEndSpace: {
-								anchorIndex: turns.length - 1,
-								anchorOffset: headerHeight + 12,
-								onReady: onAnchorReady,
-							},
-						}
-					: {})}
-				maintainScrollAtEnd={
-					anchorActive
-						? false
-						: {
-								animated: false,
-								on: {
-									dataChange: true,
-									itemLayout: true,
-									layout: true,
+			<View className="flex-1" onLayout={onListViewportLayout}>
+				<KeyboardAwareLegendList
+					key={listMountKey}
+					ref={listRef}
+					style={{ flex: 1 }}
+					data={turns}
+					keyExtractor={(turn) => turn.id}
+					getItemType={() => "turn"}
+					estimatedItemSize={180}
+					{...(viewportSize.width > 0 && viewportSize.height > 0
+						? { estimatedListSize: viewportSize }
+						: {})}
+					renderItem={({ item, index }) => (
+						<TurnRow
+							turn={item}
+							context={ctx}
+							live={sessionStatus === "running" && index === turns.length - 1}
+						/>
+					)}
+					applyWorkaroundForContentInsetHitTestBug
+					contentInsetAdjustmentBehavior={
+						usesAutomaticContentInsets ? "automatic" : "never"
+					}
+					automaticallyAdjustsScrollIndicatorInsets={usesAutomaticContentInsets}
+					contentContainerStyle={{
+						gap: 4,
+						paddingHorizontal: 16,
+						paddingTop: usesAutomaticContentInsets ? 12 : headerHeight + 12,
+					}}
+					scrollIndicatorInsets={
+						usesAutomaticContentInsets
+							? { top: 0, right: 0, bottom: 0, left: 0 }
+							: { top: headerHeight, bottom: bottomAccessoryHeight }
+					}
+					contentInsetStartAdjustment={
+						usesAutomaticContentInsets ? headerHeight : 0
+					}
+					contentInsetEndAdjustment={contentInsetEndAdjustment}
+					contentInsetEndStaticAdjustment={
+						usesAutomaticContentInsets ? insets.bottom : 0
+					}
+					adjustedInsetCompensation={
+						usesAutomaticContentInsets ? insets.bottom : 0
+					}
+					scrollToOverflowEnabled
+					freeze={freeze}
+					keyboardLiftBehavior="whenAtEnd"
+					keyboardDismissMode="none"
+					keyboardShouldPersistTaps="always"
+					initialScrollAtEnd={restoredViewState?.mode !== "detached"}
+					{...(restoredViewState?.mode === "detached"
+						? { initialScrollOffset: restoredViewState.offsetY }
+						: {})}
+					{...(anchorActive
+						? {
+								anchoredEndSpace: {
+									anchorIndex: anchoredTurnIndex,
+									anchorOffset: headerHeight + 12,
 								},
 							}
-				}
-				maintainScrollAtEndThreshold={0.1}
-				maintainVisibleContentPosition={{ data: true, size: true }}
-				ListHeaderComponent={
-					error || connectionProblem ? (
-						<View className="gap-2 pb-2">
-							{connectionProblem && options !== null ? (
-								<ConnectionRecoveryBanner
-									message={connectionProblem}
-									onRetry={() => retryConnection(connKey, options)}
-									onPairAgain={() => router.push("/connect/scan")}
-								/>
-							) : null}
-							{error ? (
-								<Text selectable className="font-sans text-[13px] text-danger">
-									{error}
-								</Text>
-							) : null}
+						: {})}
+					maintainScrollAtEnd={{
+						animated: true,
+						on: {
+							dataChange: true,
+							itemLayout: true,
+							layout: true,
+						},
+					}}
+					maintainScrollAtEndThreshold={0.1}
+					maintainVisibleContentPosition={{ data: true, size: true }}
+					ListHeaderComponent={
+						error || connectionProblem ? (
+							<View className="gap-2 pb-2">
+								{connectionProblem && options !== null ? (
+									<ConnectionRecoveryBanner
+										message={connectionProblem}
+										onRetry={() => retryConnection(connKey, options)}
+										onPairAgain={() => router.push("/connect/scan")}
+									/>
+								) : null}
+								{error ? (
+									<Text
+										selectable
+										className="font-sans text-[13px] text-danger"
+									>
+										{error}
+									</Text>
+								) : null}
+							</View>
+						) : null
+					}
+					ListFooterComponent={
+						<View style={{ paddingTop: 4 }}>
+							{workingActive ? <WorkingIndicator since={workingSince} /> : null}
 						</View>
-					) : null
-				}
-				ListFooterComponent={
-					<View
-						style={{
-							paddingTop: 4,
-							paddingBottom: TRANSCRIPT_BOTTOM_GAP,
-						}}
-					>
-						{workingActive ? <WorkingIndicator since={workingSince} /> : null}
-					</View>
-				}
-				onScroll={onScroll}
-				onScrollBeginDrag={detachReader}
-				onScrollEndDrag={resumeAtLiveEdge}
-				onMomentumScrollEnd={resumeAtLiveEdge}
-				scrollEventThrottle={16}
-				onContentSizeChange={() => {
-					prepareSendAnchor();
-					flushPendingJumpToEnd();
-				}}
-			/>
+					}
+					onScroll={onScroll}
+					onScrollBeginDrag={detachReader}
+					onScrollEndDrag={resumeAtLiveEdge}
+					onMomentumScrollEnd={resumeAtLiveEdge}
+					scrollEventThrottle={16}
+				/>
+			</View>
 			<KeyboardStickyView
 				pointerEvents="box-none"
 				style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
@@ -1224,7 +1236,8 @@ function ThreadScreen() {
 								onRetryConnection={() => retryConnection(connKey, options)}
 								onFocusChange={onComposerFocusChange}
 								onMessageSubmitted={onMessageSubmitted}
-								onMessageSubmissionFinished={onMessageSubmissionFinished}
+								onMessageSent={onMessageSent}
+								onExpandedChange={setComposerExpanded}
 								currentActivity={composerActivity}
 								bottomInset={overlayBottomInset}
 							/>

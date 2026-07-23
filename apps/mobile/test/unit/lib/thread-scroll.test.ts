@@ -3,8 +3,6 @@ import { describe, expect, test } from "vitest";
 import {
 	nextThreadAnchor,
 	nextThreadScrollMode,
-	pendingSendAnchorTurnId,
-	pendingThreadScrollCommand,
 	shouldFollowTranscript,
 	shouldShowLatestAction,
 } from "../../../src/lib/thread-scroll";
@@ -81,48 +79,5 @@ describe("thread scroll policy", () => {
 		expect(shouldFollowTranscript("initial")).toBe(true);
 		expect(shouldFollowTranscript("following")).toBe(true);
 		expect(shouldFollowTranscript("detached")).toBe(false);
-	});
-
-	test("waits for an active anchor to collapse before jumping to the end", () => {
-		expect(
-			pendingThreadScrollCommand({
-				pendingJumpToEnd: true,
-				anchorActive: true,
-			}),
-		).toBe("wait");
-		expect(
-			pendingThreadScrollCommand({
-				pendingJumpToEnd: true,
-				anchorActive: false,
-			}),
-		).toBe("jump-end");
-		expect(
-			pendingThreadScrollCommand({
-				pendingJumpToEnd: false,
-				anchorActive: false,
-			}),
-		).toBe("none");
-	});
-
-	test("does not anchor a sent turn until the composer and keyboard settle", () => {
-		const pending = {
-			pendingSendAnchor: true,
-			latestTurnId: "turn-2",
-			baselineTurnId: "turn-1",
-			shouldFollow: true,
-		} as const;
-
-		expect(
-			pendingSendAnchorTurnId({
-				...pending,
-				composerSettled: false,
-			}),
-		).toBeNull();
-		expect(
-			pendingSendAnchorTurnId({
-				...pending,
-				composerSettled: true,
-			}),
-		).toBe("turn-2");
 	});
 });

@@ -57,30 +57,3 @@ export const shouldShowLatestAction = (options: {
 }): boolean =>
 	options.mode === "detached" &&
 	(options.hasUnseenContent || options.distance > LIVE_EDGE_EXIT_PX);
-
-export const pendingThreadScrollCommand = (options: {
-	readonly pendingJumpToEnd: boolean;
-	readonly anchorActive: boolean;
-}): "jump-end" | "wait" | "none" => {
-	if (!options.pendingJumpToEnd) return "none";
-	return options.anchorActive ? "wait" : "jump-end";
-};
-
-export const pendingSendAnchorTurnId = (options: {
-	readonly pendingSendAnchor: boolean;
-	readonly composerSettled: boolean;
-	readonly latestTurnId: string | null;
-	readonly baselineTurnId: string | null;
-	readonly shouldFollow: boolean;
-}): string | null => {
-	if (
-		!options.pendingSendAnchor ||
-		!options.composerSettled ||
-		!options.shouldFollow ||
-		options.latestTurnId === null ||
-		options.latestTurnId === options.baselineTurnId
-	) {
-		return null;
-	}
-	return options.latestTurnId;
-};

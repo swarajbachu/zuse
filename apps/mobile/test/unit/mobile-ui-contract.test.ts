@@ -203,8 +203,12 @@ describe("mobile UI contracts", () => {
 		);
 		expect(layout).toContain("<KeyboardProvider");
 		expect(thread).toContain("useHeaderHeight");
-		expect(thread).toContain("paddingTop: headerHeight + 12");
-		expect(thread).toContain('contentInsetAdjustmentBehavior="never"');
+		expect(thread).toContain('"automatic"');
+		expect(thread).toContain("contentInsetStartAdjustment");
+		expect(thread).toContain("contentInsetEndStaticAdjustment");
+		expect(thread).toContain("adjustedInsetCompensation");
+		expect(thread).toContain("scrollToOverflowEnabled");
+		expect(thread).toContain("estimatedListSize");
 		expect(thread).toContain("contentInsetEndAdjustment");
 		expect(thread).toContain("onScrollBeginDrag={detachReader}");
 		expect(thread).toContain("onMessageSubmitted={onMessageSubmitted}");
@@ -216,11 +220,9 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("<KeyboardStickyView");
 		expect(thread).toContain("useKeyboardChatComposerInset");
 		expect(thread).toContain("useKeyboardScrollToEnd");
-		expect(thread).toContain("useKeyboardState");
-		expect(thread).toMatch(
-			/keyboardVisible\s*\?\s*KEYBOARD_COMPOSER_GAP\s*:\s*restingBottomInset/,
-		);
-		expect(thread).toContain("paddingBottom: TRANSCRIPT_BOTTOM_GAP");
+		expect(thread).not.toContain("useKeyboardState");
+		expect(thread).toContain("composerExpanded ? 0 : restingBottomInset");
+		expect(thread).not.toContain("TRANSCRIPT_BOTTOM_GAP");
 		expect(thread).not.toContain("reportContentInset({ bottom })");
 		expect(thread).not.toContain("useLayoutEffect");
 		expect(composer).toContain("bottomInset ?? 12");
@@ -268,18 +270,36 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("maintainVisibleContentPosition");
 		expect(thread).toContain("anchoredEndSpace");
 		expect(thread).toContain("scrollMessageToEnd");
-		expect(thread).toContain("pendingJumpToEndRef");
-		expect(thread).toContain("flushPendingJumpToEnd");
-		expect(thread).toContain("sendComposerSettledRef");
-		expect(thread).toContain("onMessageSubmissionFinished");
+		expect(thread).not.toContain("pendingJumpToEndRef");
+		expect(thread).not.toContain("flushPendingJumpToEnd");
+		expect(thread).not.toContain("sendComposerSettledRef");
+		expect(thread).not.toContain("onMessageSubmissionFinished");
+		expect(thread).toContain("onMessageSent");
 		expect(thread).toContain("closeKeyboard: false");
-		expect(composer).toContain("KeyboardController.dismiss()");
+		expect(composer).toContain("onExpandedChange");
 		expect(thread).toMatch(/<GlassSurface\s+pointerEvents="none"/);
 		expect(thread).toContain("hitSlop={8}");
 		expect(thread).not.toContain("<FlatList");
 		expect(thread).not.toContain("pendingEndIntent");
 		expect(thread).not.toContain("sendAnchorSpace(");
 		expect(thread).not.toContain("latestTurnTopOffset");
+	});
+
+	test("uses inset-aware list math for initial, anchored, and end scrolling", () => {
+		const keyboardIntegration = readFileSync(
+			`${process.cwd()}/../../node_modules/@legendapp/list/keyboard.js`,
+			"utf8",
+		);
+		const nativeList = readFileSync(
+			`${process.cwd()}/../../node_modules/@legendapp/list/react-native.js`,
+			"utf8",
+		);
+
+		expect(keyboardIntegration).toContain("adjustedInsetCompensation");
+		expect(keyboardIntegration).toContain("contentInsetEndStaticAdjustment");
+		expect(keyboardIntegration).toContain("heightAdjustment");
+		expect(nativeList).toContain("contentInsetStartAdjustment");
+		expect(nativeList).toContain("startInsetEndSettleWatchdog");
 	});
 
 	test("uses stack-based files and keeps file changes inline", () => {
