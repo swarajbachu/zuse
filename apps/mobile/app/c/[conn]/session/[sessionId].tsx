@@ -39,7 +39,9 @@ import {
 	View,
 } from "react-native";
 import Animated, {
+	useAnimatedKeyboard,
 	useAnimatedStyle,
+	useReducedMotion,
 	useSharedValue,
 	withTiming,
 } from "react-native-reanimated";
@@ -154,7 +156,6 @@ import {
 } from "~/store/sessions";
 import { colors } from "~/theme";
 
-
 export default function ThreadScreenRoute() {
 	return (
 		<ThreadScreenBoundary>
@@ -194,6 +195,11 @@ function ThreadScreen() {
 		Math.max(insets.bottom, 12) + 64,
 	);
 	const jumpOpacity = useSharedValue(0);
+	const reduceMotion = useReducedMotion();
+	// UI-thread keyboard height: moves the bottom chrome in per-frame lockstep
+	// with the OS keyboard (including interactive drag-dismiss), with zero JS
+	// re-renders. The coarse keyboardOverlap state below only feeds list layout.
+	const keyboard = useAnimatedKeyboard();
 	const connections = useAtomValue(connectionsAtom);
 	const hydrated = useAtomValue(connectionsHydratedAtom);
 	const options = useMemo(
@@ -295,12 +301,7 @@ function ThreadScreen() {
 			void releaseMessages(connKey, normalizedSessionId);
 			void releaseGoal(connKey, normalizedSessionId);
 		};
-	}, [
-		connKey,
-		connectionSnapshot?.generation,
-		normalizedSessionId,
-		options,
-	]);
+	}, [connKey, connectionSnapshot?.generation, normalizedSessionId, options]);
 
 	useEffect(() => {
 		void connectionSnapshot?.generation;
@@ -497,8 +498,10 @@ function ThreadScreen() {
 	}, [restoreThreadPosition, stateKey]);
 
 	useEffect(() => {
+		// LayoutAnimation on Fabric made the chrome lag the keyboard. The visible
+		// chrome rides the UI-thread keyboard value; this state only resizes the
+		// list layout.
 		const updateKeyboardOverlap = (event: KeyboardEvent) => {
-			Keyboard.scheduleLayoutAnimation(event);
 			const screenHeight = Dimensions.get("screen").height;
 			const keyboardBottom =
 				event.endCoordinates.screenY + event.endCoordinates.height;
@@ -518,8 +521,7 @@ function ThreadScreen() {
 			showEvent,
 			updateKeyboardOverlap,
 		);
-		const hideSubscription = Keyboard.addListener(hideEvent, (event) => {
-			Keyboard.scheduleLayoutAnimation(event);
+		const hideSubscription = Keyboard.addListener(hideEvent, () => {
 			setKeyboardOverlap(0);
 		});
 		return () => {
@@ -549,8 +551,10 @@ function ThreadScreen() {
 	// Fade the jump button in/out from its visibility state (assignment must
 	// live in an effect for the React Compiler's shared-value immutability rule).
 	useEffect(() => {
-		jumpOpacity.value = withTiming(showJumpButton ? 1 : 0, { duration: 160 });
-	}, [showJumpButton, jumpOpacity]);
+		jumpOpacity.value = withTiming(showJumpButton ? 1 : 0, {
+			duration: reduceMotion ? 0 : 160,
+		});
+	}, [jumpOpacity, reduceMotion, showJumpButton]);
 
 	// Open-at-latest lands at the true end of the content. Repeated non-animated
 	// calls while early content batches arrive are harmless and self-correcting;
@@ -691,7 +695,16 @@ function ThreadScreen() {
 	};
 	const onComposerFocusChange = (_focused: boolean) => undefined;
 
-	const jumpStyle = useAnimatedStyle(() => ({ opacity: jumpOpacity.value }));
+	const jumpStyle = useAnimatedStyle(() => ({
+		opacity: jumpOpacity.value,
+		transform: [{ translateY: -keyboard.height.value }],
+	}));
+	const gradientStyle = useAnimatedStyle(() => ({
+		transform: [{ translateY: -keyboard.height.value }],
+	}));
+	const accessoryStyle = useAnimatedStyle(() => ({
+		transform: [{ translateY: -keyboard.height.value }],
+	}));
 	const onBottomAccessoryLayout = (event: LayoutChangeEvent) => {
 		const nextHeight = event.nativeEvent.layout.height;
 		setBottomAccessoryHeight((current) =>
@@ -706,7 +719,8 @@ function ThreadScreen() {
 	// below the transcript so the anchored turn can hold its position at the
 	// top no matter how tall it or the streaming reply becomes. Deliberately
 	// independent of any turn-height measurement.
-	const anchorActive = anchoredTurnId !== null && anchoredTurnId === latestTurnId;
+	const anchorActive =
+		anchoredTurnId !== null && anchoredTurnId === latestTurnId;
 	const transcriptFooterHeight =
 		effectiveBottomInset +
 		(anchorActive
@@ -1028,7 +1042,7 @@ function ThreadScreen() {
 								position: "absolute",
 								left: 0,
 								right: 0,
-								bottom: keyboardOverlap + bottomAccessoryHeight + 8,
+								bottom: bottomAccessoryHeight + 8,
 								alignItems: "center",
 							},
 						]}
@@ -1083,29 +1097,35 @@ function ThreadScreen() {
 						</Pressable>
 					</Animated.View>
 				) : null}
-				<View
+				<Animated.View
 					pointerEvents="none"
-					style={{
-						position: "absolute",
-						left: 0,
-						right: 0,
-						bottom: keyboardOverlap,
-						height: bottomAccessoryHeight + 40,
-						experimental_backgroundImage:
-							theme === "dark"
-								? "linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.6) 55%, rgba(0,0,0,0.9) 100%)"
-								: "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.6) 55%, rgba(255,255,255,0.9) 100%)",
-					}}
+					style={[
+						gradientStyle,
+						{
+							position: "absolute",
+							left: 0,
+							right: 0,
+							bottom: 0,
+							height: bottomAccessoryHeight + 40,
+							experimental_backgroundImage:
+								theme === "dark"
+									? "linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.6) 55%, rgba(0,0,0,0.9) 100%)"
+									: "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.6) 55%, rgba(255,255,255,0.9) 100%)",
+						},
+					]}
 				/>
-				<View
+				<Animated.View
 					onLayout={onBottomAccessoryLayout}
 					pointerEvents="box-none"
-					style={{
-						position: "absolute",
-						left: 0,
-						right: 0,
-						bottom: keyboardOverlap,
-					}}
+					style={[
+						accessoryStyle,
+						{
+							position: "absolute",
+							left: 0,
+							right: 0,
+							bottom: 0,
+						},
+					]}
 				>
 					{options === null ? null : bottomState.blocking?.kind ===
 						"permission" ? (
@@ -1166,7 +1186,12 @@ function ThreadScreen() {
 									)
 								}
 								onSendQueue={(id) =>
-									sendQueuedMessageNow(connKey, options, normalizedSessionId, id)
+									sendQueuedMessageNow(
+										connKey,
+										options,
+										normalizedSessionId,
+										id,
+									)
 								}
 								onMoveQueue={(id, direction) => {
 									const ids = serverQueued.map((item) => item.id);
@@ -1229,7 +1254,7 @@ function ThreadScreen() {
 							/>
 						</View>
 					)}
-				</View>
+				</Animated.View>
 			</View>
 		</View>
 	);

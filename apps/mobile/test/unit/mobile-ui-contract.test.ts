@@ -167,10 +167,10 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("transcriptBottomInset(");
 		expect(thread).toContain("onScrollBeginDrag={detachReader}");
 		expect(thread).toContain("onMessageSubmitted={onMessageSubmitted}");
-		expect(thread).toContain("bottom: keyboardOverlap");
-		expect(thread).toContain(
-			"bottom: keyboardOverlap + bottomAccessoryHeight + 8",
-		);
+		expect(thread).toContain("useAnimatedKeyboard");
+		expect(thread).toContain("translateY: -keyboard.height.value");
+		expect(thread).toContain("bottom: bottomAccessoryHeight + 8");
+		expect(thread).not.toContain("Keyboard.scheduleLayoutAnimation");
 		expect(thread).toContain('"keyboardWillChangeFrame"');
 		expect(thread).not.toContain("<KeyboardAvoidingView");
 		expect(thread).toContain("experimental_backgroundImage");
