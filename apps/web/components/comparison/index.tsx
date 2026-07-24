@@ -27,7 +27,7 @@ const cardsData: InfoCardsProps[] = [
   {
     title: "No token resale",
     description:
-      "Use your own API keys or subscriptions. Zuse Alpha adds $0 markup to the model usage you run.",
+      "Use your own API keys or subscriptions. Zuse (Beta) adds $0 markup to the model usage you run.",
     icon: <DocsIcon />,
   },
   {

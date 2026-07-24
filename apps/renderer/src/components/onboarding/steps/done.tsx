@@ -26,7 +26,7 @@ export function DoneStep({ onFinish }: { onFinish: () => void }) {
 				</p>
 			</div>
 			<Button size="default" onClick={onFinish} className="rounded-lg px-6">
-				Open Zuse Alpha
+				Open Zuse (Beta)
 			</Button>
 		</div>
 	);

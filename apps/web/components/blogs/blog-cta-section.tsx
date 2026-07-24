@@ -10,13 +10,13 @@ export const BlogCtaSection = () => {
             Token max every coding agent from one Mac app.
           </span>
           <span className="-tracking-xs text-muted-foreground text-base leading-6 font-medium">
-            Zuse Alpha is for power users running Claude Code, Codex, Cursor,
+            Zuse (Beta) is for power users running Claude Code, Codex, Cursor,
             Gemini, Grok, and OpenCode across real projects. Keep the agents
             busy, isolate the work, and review the diffs before anything lands.
           </span>
           <span className="-tracking-xs text-muted-foreground text-base leading-6 font-medium">
             It is local-first by design: chats in SQLite on disk, keys in the
-            macOS Keychain. Bring your own keys and run it free during alpha.
+            macOS Keychain. Bring your own keys and run it free during beta.
           </span>
           <div>
             <Button />

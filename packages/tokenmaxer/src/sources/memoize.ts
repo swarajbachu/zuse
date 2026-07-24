@@ -31,6 +31,8 @@ export const memoizeDbPathCandidates = (): string[] => {
     return appDbPaths(
       base,
       [
+        "Zuse (Beta)",
+        "Zuse (Beta) (Dev)",
         "Zuse Alpha",
         "Zuse Alpha (Dev)",
         "memoize Alpha",
@@ -76,11 +78,11 @@ export const readMemoizeUsage = (dbPath?: string | null): UsageSourceReadResult 
     return {
       status: {
         id: "zuse",
-        label: "Zuse Alpha",
+        label: "Zuse (Beta)",
         detected: false,
         recordCount: 0,
         paths: statusPaths,
-        warning: "Zuse Alpha SQLite database was not found.",
+        warning: "Zuse (Beta) SQLite database was not found.",
       },
       records: [],
     };
@@ -116,7 +118,7 @@ export const readMemoizeUsage = (dbPath?: string | null): UsageSourceReadResult 
           records.push(
             makeUsageRecord({
               sourceId: "zuse",
-              sourceLabel: "Zuse Alpha",
+              sourceLabel: "Zuse (Beta)",
               providerId: row.provider_id ?? "zuse",
               model: resolveModel(content.model, row.session_model) ?? "unknown",
               sessionId: row.session_id,
@@ -144,7 +146,7 @@ export const readMemoizeUsage = (dbPath?: string | null): UsageSourceReadResult 
       return {
         status: {
           id: "zuse",
-          label: "Zuse Alpha",
+          label: "Zuse (Beta)",
           detected: true,
           recordCount: records.length,
           paths: candidates,
@@ -166,7 +168,7 @@ export const readMemoizeUsage = (dbPath?: string | null): UsageSourceReadResult 
   return {
     status: {
       id: "zuse",
-      label: "Zuse Alpha",
+      label: "Zuse (Beta)",
       detected: true,
       recordCount: 0,
       paths: candidates,

@@ -27,7 +27,7 @@ export const ComparisonTabel = ({ cards }: { cards: ComparisonData[] }) => {
         <div data-slot="tabel-cell">
           <LogoMark className="size-7" />
           <span className="-tracking-sm text-foreground text-lg leading-4.5 font-medium">
-            Zuse Alpha
+            Zuse (Beta)
           </span>
         </div>
         <div data-slot="tabel-cell">
@@ -82,7 +82,7 @@ export const ComparisonTabel = ({ cards }: { cards: ComparisonData[] }) => {
             <CallIcon />
           </span>
           <span className="-tracking-sm text-foreground z-10 text-lg leading-4.5 font-medium">
-            Free public Alpha
+            Free public Beta
           </span>
         </div>
         <div data-slot="tabel-cell">

@@ -1,9 +1,9 @@
 {
 	"name": "desktop",
 	"type": "module",
-	"productName": "Zuse Alpha",
+	"productName": "Zuse (Beta)",
 	"version": "0.14.0",
-	"description": "Zuse Alpha desktop app",
+	"description": "Zuse (Beta) desktop app",
 	"private": true,
 	"author": {
 		"name": "Swaraj Bachu",

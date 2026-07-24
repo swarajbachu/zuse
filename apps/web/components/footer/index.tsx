@@ -58,7 +58,7 @@ export const Footer = () => {
               "bg-[linear-gradient(90deg,#FFFFFF_0%,rgba(52,52,52,0)_100%)] bg-clip-text text-transparent",
             )}
           >
-            Zuse Alpha
+            Zuse (Beta)
           </div>
           <div className="relative z-10 grid min-h-112 grid-cols-1 gap-8 px-6 py-10 md:px-15 md:py-16 lg:grid-cols-[1fr_520px] lg:items-start">
             <div className="flex flex-col gap-8">
@@ -80,7 +80,7 @@ export const Footer = () => {
                   />
                   <div>
                     <div className="text-natural-white text-sm font-semibold">
-                      Zuse Alpha workspace
+                      Zuse (Beta) workspace
                     </div>
                     <div className="text-muted-foreground text-xs">
                       subscriptions ready
@@ -89,7 +89,7 @@ export const Footer = () => {
                 </div>
                 <Link
                   href={DOWNLOAD_URL}
-                  aria-label="Download Zuse Alpha for Mac"
+                  aria-label="Download Zuse (Beta) for Mac"
                   className="bg-primary text-primary-foreground shadow-card-md inline-flex size-12 items-center justify-center rounded-xl"
                 >
                   <ArrowRightLongerIcon className="scale-125" />
@@ -165,7 +165,7 @@ export const Footer = () => {
               <span className="flex items-center gap-1">
                 <CopyRightIcon />
                 <span className="text-muted-foreground text-xs leading-5 font-medium">
-                  2026 Zuse Alpha — All Rights Reserved
+                  2026 Zuse (Beta) — All Rights Reserved
                 </span>
               </span>
             </div>

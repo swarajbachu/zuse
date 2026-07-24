@@ -1,7 +1,7 @@
 import type { UsageSourceId } from "../types.ts";
 
 export const SOURCE_LABELS: Record<UsageSourceId, string> = {
-  zuse: "Zuse Alpha",
+  zuse: "Zuse (Beta)",
   memoize: "Memoize",
   claude: "Claude Code",
   codex: "Codex",

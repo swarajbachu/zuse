@@ -4,7 +4,7 @@ import { Container } from "@/components/container";
 import { motion, AnimatePresence } from "motion/react";
 import { AGENTS } from "@/lib/site";
 
-// The coding agents Zuse Alpha wraps. We have no logo assets, so render the
+// The coding agents Zuse (Beta) wraps. We have no logo assets, so render the
 // agent names as clean text badges in the marquee row.
 const allAgents = AGENTS.map((name, i) => ({ id: i + 1, name }));
 
@@ -40,7 +40,7 @@ export const LogoCloud = () => {
           Use the subscriptions you already pay for
         </h2>
         <p className="text-muted-foreground text-base leading-6 font-medium">
-          Zuse Alpha does not sell model credits. Bring your own keys, run the
+          Zuse (Beta) does not sell model credits. Bring your own keys, run the
           agents you already trust, and push more useful work through them.
         </p>
       </div>

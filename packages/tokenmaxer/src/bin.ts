@@ -31,7 +31,7 @@ Options:
   --json                 Print JSON
   --no-cost              Hide cost column
   --offline              Use bundled pricing; skip the network
-  --zuse-db <path>       Zuse Alpha SQLite path
+  --zuse-db <path>       Zuse (Beta) SQLite path
   --memoize-db <path>    Legacy alias for --zuse-db
 `;
 

@@ -94,7 +94,7 @@ export function CliUpgradeBanner({
 							{row.cliVersion ?? "an unknown version"}
 						</code>
 						{row.cliVersionMinRequired !== undefined &&
-							` — Zuse Alpha needs ${row.cliVersionMinRequired} or newer.`}
+							` — Zuse (Beta) needs ${row.cliVersionMinRequired} or newer.`}
 						{
 							" Sending in this session will fail until you upgrade; start a new session with a different provider to keep working in the meantime."
 						}

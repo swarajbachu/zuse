@@ -139,7 +139,7 @@ export function UpdateBanner() {
 						{isError && status.message}
 						{status.kind === "ready" &&
 							!confirming &&
-							`Zuse Alpha ${status.version} is ready. Restart to finish installing.`}
+							`Zuse (Beta) ${status.version} is ready. Restart to finish installing.`}
 						{status.kind === "ready" &&
 							confirming &&
 							`${

@@ -27,7 +27,7 @@ export const AboutSection = () => {
             Code all day. Keep the agents busy.
           </h2>
           <p className="text-muted-foreground text-base leading-6 font-medium md:text-lg md:leading-7">
-            Zuse Alpha is for people who want to become the kind of builder who can
+            Zuse (Beta) is for people who want to become the kind of builder who can
             keep multiple projects moving, max out their AI subscriptions, and
             still know exactly what changed.
           </p>

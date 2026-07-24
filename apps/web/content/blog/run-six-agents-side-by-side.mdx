@@ -3,7 +3,7 @@ title: "Run six coding agents side by side"
 description: "Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode in one window. Switch providers without losing context."
 date: "2026-06-10"
 timeToRead: "5 min read"
-authorName: "Zuse Alpha team"
+authorName: "Zuse (Beta) team"
 authorRole: "Product notes"
 authorAvatar: "/app-icon.png"
 previewImage: "/assets/blog-preview-agents-clean.svg"
@@ -18,7 +18,7 @@ labels:
 
 Every agent CLI has its own strengths. Claude Code is great at large refactors, Codex is fast on tight loops, Gemini has a huge context window. The problem is that each one lives in its own terminal with its own auth, its own flags, and its own output format.
 
-Zuse Alpha wraps all six behind one chat-first surface so you can use the right agent for each task without leaving the app.
+Zuse (Beta) wraps all six behind one chat-first surface so you can use the right agent for each task without leaving the app.
 
 ---
 
@@ -34,7 +34,7 @@ Open a chat, pick a provider, and start. The chat timeline renders tool calls, t
 
 ## No new format to learn
 
-Zuse Alpha speaks each CLI's native protocol underneath. There is no proprietary agent runtime to adopt and nothing to migrate. The agents you already trust run exactly as they do on the command line, just rendered in a timeline you can actually read.
+Zuse (Beta) speaks each CLI's native protocol underneath. There is no proprietary agent runtime to adopt and nothing to migrate. The agents you already trust run exactly as they do on the command line, just rendered in a timeline you can actually read.
 
 ---
 
@@ -50,7 +50,7 @@ The agent landscape is moving too quickly for one provider to be the best choice
 
 The problem is not provider variety. Variety is useful. The problem is that each provider often brings a separate workflow with it. You authenticate differently, invoke it differently, read its output differently, and recover from failure differently. The more agents you use, the more time you spend managing the wrappers around them instead of evaluating the work they produce.
 
-Zuse Alpha is designed around the idea that provider choice should be easy to change without making the rest of the workflow unstable. The app gives each agent a shared project-aware surface: chats, timelines, worktrees, diffs, and review. The underlying CLIs can keep their strengths, but the developer should not need to rebuild their environment every time they switch models.
+Zuse (Beta) is designed around the idea that provider choice should be easy to change without making the rest of the workflow unstable. The app gives each agent a shared project-aware surface: chats, timelines, worktrees, diffs, and review. The underlying CLIs can keep their strengths, but the developer should not need to rebuild their environment every time they switch models.
 
 ## Side by side is different from one at a time
 
@@ -64,7 +64,7 @@ Side-by-side work also helps with confidence. A developer can ask two providers 
 
 Agent output is hard to review when it is just a terminal stream. Tool calls, command output, reasoning notes, diffs, errors, and final summaries all compete for attention. Each provider formats those events differently, which means the developer has to learn multiple output languages before they can judge the work.
 
-Zuse Alpha renders sessions as a structured chat timeline. The goal is not to hide details. The goal is to make details readable. A command should look like a command. A failed command should be easy to spot. A tool call should not disappear into a wall of text. A diff should be connected to the session that produced it. When those events have a consistent shape, switching providers becomes less mentally expensive.
+Zuse (Beta) renders sessions as a structured chat timeline. The goal is not to hide details. The goal is to make details readable. A command should look like a command. A failed command should be easy to spot. A tool call should not disappear into a wall of text. A diff should be connected to the session that produced it. When those events have a consistent shape, switching providers becomes less mentally expensive.
 
 This matters most during long tasks. A useful coding session may involve several attempts, a few failed tests, a corrected assumption, and a final patch. If the timeline preserves that story, the developer can review the outcome without replaying the entire terminal in their head. The agent remains accountable because the intermediate steps are visible.
 
@@ -72,17 +72,17 @@ This matters most during long tasks. A useful coding session may involve several
 
 One common failure mode in agent work is the stuck session. The model loops, misses an obvious file, overfits to a bad assumption, or runs out of useful context. In a terminal-only workflow, switching providers often means starting over: copy the prompt, summarize the current state, point the new tool at the repository, and hope you did not omit the important failure.
 
-Zuse Alpha's shared workspace makes provider switching less disruptive. The project, chat history, files, and worktree remain part of the surrounding context. A new provider can enter the same workflow with a clearer view of what has already happened. That does not guarantee a better answer, but it lowers the cost of trying.
+Zuse (Beta)'s shared workspace makes provider switching less disruptive. The project, chat history, files, and worktree remain part of the surrounding context. A new provider can enter the same workflow with a clearer view of what has already happened. That does not guarantee a better answer, but it lowers the cost of trying.
 
 The same idea applies before a task gets stuck. You might begin with a cheaper or faster provider for exploration, then switch to a stronger model for the final implementation. Or you might use a model with a large context window to understand the repository, then hand a narrow patch to another agent. Provider choice becomes a tactical decision instead of a one-way commitment at the start of a session.
 
 ## Native CLIs still matter
 
-Zuse Alpha is not trying to replace every agent with a proprietary runtime. The existing CLIs matter because providers invest in them, developers already trust them, and their capabilities change quickly. A wrapper that ignores native behavior would either lag behind or flatten useful differences.
+Zuse (Beta) is not trying to replace every agent with a proprietary runtime. The existing CLIs matter because providers invest in them, developers already trust them, and their capabilities change quickly. A wrapper that ignores native behavior would either lag behind or flatten useful differences.
 
-Instead, Zuse Alpha wraps the workflow around those tools. It handles the project surface, the chat timeline, the worktree isolation, and the review pane while speaking to the agents underneath. That gives developers a consistent place to work without pretending that all agents are interchangeable.
+Instead, Zuse (Beta) wraps the workflow around those tools. It handles the project surface, the chat timeline, the worktree isolation, and the review pane while speaking to the agents underneath. That gives developers a consistent place to work without pretending that all agents are interchangeable.
 
-This is also better for adoption. Teams do not need to abandon the tools they already evaluated. If Claude Code is approved for one kind of work, Codex for another, and Gemini for a third, Zuse Alpha can sit above that mix as the local workspace. The provider decision remains with the team.
+This is also better for adoption. Teams do not need to abandon the tools they already evaluated. If Claude Code is approved for one kind of work, Codex for another, and Gemini for a third, Zuse (Beta) can sit above that mix as the local workspace. The provider decision remains with the team.
 
 ## What side-by-side work looks like in practice
 
@@ -94,6 +94,6 @@ This pattern changes the emotional feel of agent work. Instead of treating a sin
 
 ## The goal is leverage without chaos
 
-More agents can create more noise if the product does not impose structure. Six terminals streaming at once is not a workflow; it is a distraction. Zuse Alpha tries to make multi-agent work calm by giving each session a clear home, each branch a clear owner, and each diff a clear review path.
+More agents can create more noise if the product does not impose structure. Six terminals streaming at once is not a workflow; it is a distraction. Zuse (Beta) tries to make multi-agent work calm by giving each session a clear home, each branch a clear owner, and each diff a clear review path.
 
 That structure is what makes the provider list valuable. Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode can all be useful, but the real product is the workspace that lets you use them intentionally. Pick the right agent, compare alternatives, switch when a task changes, and keep the resulting code under the same review standards you would apply to a teammate's patch.

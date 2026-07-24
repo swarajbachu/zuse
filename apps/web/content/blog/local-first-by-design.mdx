@@ -3,7 +3,7 @@ title: "Local-first by design"
 description: "SQLite on disk, keys in the Keychain, no account required. Your work stays on your machine."
 date: "2026-05-12"
 timeToRead: "4 min read"
-authorName: "Zuse Alpha team"
+authorName: "Zuse (Beta) team"
 authorRole: "Product notes"
 authorAvatar: "/app-icon.png"
 previewImage: "/assets/blog-preview-local-clean.svg"
@@ -16,9 +16,9 @@ labels:
 
 # Local-first by design
 
-> **Update — July 22, 2026:** Zuse Alpha now sends default-on pseudonymous product and reliability analytics. It never includes prompts, responses, code, paths, commands, account details, or error stacks, and can be disabled immediately in Settings. Standard geographic enrichment applies. The local storage and provider data path described below is unchanged.
+> **Update — July 22, 2026:** Zuse (Beta) now sends default-on pseudonymous product and reliability analytics. It never includes prompts, responses, code, paths, commands, account details, or error stacks, and can be disabled immediately in Settings. Standard geographic enrichment applies. The local storage and provider data path described below is unchanged.
 
-Zuse Alpha runs on your Mac, not in our cloud. There is no account to create before you can use it, no server holding your chat history, and no telemetry pulling your code off the machine.
+Zuse (Beta) runs on your Mac, not in our cloud. There is no account to create before you can use it, no server holding your chat history, and no telemetry pulling your code off the machine.
 
 Local-first is not a feature we bolted on. It is how the app is built.
 
@@ -52,21 +52,21 @@ Local-first means we cannot inspect your work. Aggregated reliability events can
 
 It is easy for software to say "privacy first" while still depending on a remote account for the product to function. The app may store a cache locally, but the source of truth lives on a server. The server knows which projects you opened, which conversations you had, which files were attached, and which model requests passed through the system. That design can be appropriate for collaboration-heavy web products. It is not the default we wanted for a coding agent workspace.
 
-Zuse Alpha starts from the opposite assumption. The Mac app should be useful as a local tool. The project is on your disk. The git repository is on your disk. Chat history and settings are stored locally. Provider credentials are stored by the operating system. The app does not need a Zuse Alpha-hosted account before you can begin using it, and it does not need to copy your repository metadata to a backend just to render the sidebar.
+Zuse (Beta) starts from the opposite assumption. The Mac app should be useful as a local tool. The project is on your disk. The git repository is on your disk. Chat history and settings are stored locally. Provider credentials are stored by the operating system. The app does not need a Zuse (Beta)-hosted account before you can begin using it, and it does not need to copy your repository metadata to a backend just to render the sidebar.
 
 That matters because coding agents sit unusually close to sensitive material. They read source code, configuration files, logs, test fixtures, issue descriptions, and sometimes proprietary design notes. Even if a vendor promises careful handling, centralizing all of that context creates a larger target and a larger policy surface. Local-first does not remove every risk, but it removes a whole class of vendor custody from the core workflow.
 
 ## What still leaves your machine
 
-Local-first should be described precisely. If you use a hosted model provider, the prompts and context you send to that provider leave your machine. If an agent runs a command that talks to a package registry, git remote, deployment platform, or issue tracker, that command uses the network according to the tool involved. Zuse Alpha does not claim that agentic coding happens in an air gap.
+Local-first should be described precisely. If you use a hosted model provider, the prompts and context you send to that provider leave your machine. If an agent runs a command that talks to a package registry, git remote, deployment platform, or issue tracker, that command uses the network according to the tool involved. Zuse (Beta) does not claim that agentic coding happens in an air gap.
 
-The point is that Zuse Alpha itself is not an extra cloud hop for your work. Model requests go to the provider path you configured. API keys are not uploaded to a Zuse Alpha billing service. Chat history is not synced to a Zuse Alpha account. Local project data is not mirrored to us so we can power search or analytics. The app's job is to orchestrate local workflow, not to become the central store for your engineering context.
+The point is that Zuse (Beta) itself is not an extra cloud hop for your work. Model requests go to the provider path you configured. API keys are not uploaded to a Zuse (Beta) billing service. Chat history is not synced to a Zuse (Beta) account. Local project data is not mirrored to us so we can power search or analytics. The app's job is to orchestrate local workflow, not to become the central store for your engineering context.
 
-Being clear about this distinction helps teams make better decisions. If a repository cannot be sent to a particular model provider, BYOK alone does not solve that. You still need the right provider policy, local models, or stricter rules. But if your team has already approved a provider, Zuse Alpha does not add a second vendor database containing the same prompts and files.
+Being clear about this distinction helps teams make better decisions. If a repository cannot be sent to a particular model provider, BYOK alone does not solve that. You still need the right provider policy, local models, or stricter rules. But if your team has already approved a provider, Zuse (Beta) does not add a second vendor database containing the same prompts and files.
 
 ## Why SQLite is a good fit
 
-SQLite is boring in the best way. It is a local database file with strong transactional behavior, mature tooling, and no server process to manage. For a desktop app that needs to remember chats, projects, settings, message state, and workflow metadata, that is a practical foundation. It lets Zuse Alpha keep state durable without turning persistence into a hosted dependency.
+SQLite is boring in the best way. It is a local database file with strong transactional behavior, mature tooling, and no server process to manage. For a desktop app that needs to remember chats, projects, settings, message state, and workflow metadata, that is a practical foundation. It lets Zuse (Beta) keep state durable without turning persistence into a hosted dependency.
 
 A local database also makes the app easier to reason about. Your data has a concrete location. It can be backed up with the rest of your machine. It can be inspected during debugging. It does not disappear because a remote service is down. When we evolve the schema, migrations run on the local store rather than requiring a cloud account migration behind the scenes.
 
@@ -74,17 +74,17 @@ There are engineering responsibilities that come with this choice. Migrations mu
 
 ## Keys belong in the Keychain
 
-Provider keys are secrets, and macOS already has a native system for application secrets: the Keychain. Storing keys there means encryption and access control are handled by the operating system instead of by a custom file format in the app. Zuse Alpha reads the key when it needs to call the provider you selected, but it does not sync that key to a Zuse Alpha backend.
+Provider keys are secrets, and macOS already has a native system for application secrets: the Keychain. Storing keys there means encryption and access control are handled by the operating system instead of by a custom file format in the app. Zuse (Beta) reads the key when it needs to call the provider you selected, but it does not sync that key to a Zuse (Beta) backend.
 
-This is important for both individuals and teams. An individual developer can experiment without creating yet another vendor account. A team can use provider-side controls for spend, rotation, and revocation. If a key needs to be replaced, the owner can rotate it through the provider dashboard and update the local app. There is no support queue required to detach your model access from Zuse Alpha.
+This is important for both individuals and teams. An individual developer can experiment without creating yet another vendor account. A team can use provider-side controls for spend, rotation, and revocation. If a key needs to be replaced, the owner can rotate it through the provider dashboard and update the local app. There is no support queue required to detach your model access from Zuse (Beta).
 
-It also keeps incentives cleaner. A product that stores keys only to help you call your chosen provider has a different relationship to your usage than a product that resells model access. Zuse Alpha does not need to mark up tokens or obscure the underlying provider cost. It can make money, eventually, by being a good tool, not by sitting between you and every model request.
+It also keeps incentives cleaner. A product that stores keys only to help you call your chosen provider has a different relationship to your usage than a product that resells model access. Zuse (Beta) does not need to mark up tokens or obscure the underlying provider cost. It can make money, eventually, by being a good tool, not by sitting between you and every model request.
 
 ## Offline and degraded workflows matter
 
 Coding work often happens in imperfect environments: trains, flights, cafes, conference Wi-Fi, corporate networks with strict proxies, or local setups where the internet is intentionally limited. A cloud-centered app tends to fail broadly when it cannot reach its own backend. Local-first software can degrade more gracefully.
 
-If the model provider is unreachable, you obviously cannot complete a hosted model request. But the rest of the workspace should still make sense. You can inspect previous chats, review diffs, look at project state, adjust settings, and continue with local files. The app does not need to ask Zuse Alpha servers whether your sidebar is allowed to load. That sounds small until you have lost work to a web app that treats connectivity as a prerequisite for memory.
+If the model provider is unreachable, you obviously cannot complete a hosted model request. But the rest of the workspace should still make sense. You can inspect previous chats, review diffs, look at project state, adjust settings, and continue with local files. The app does not need to ask Zuse (Beta) servers whether your sidebar is allowed to load. That sounds small until you have lost work to a web app that treats connectivity as a prerequisite for memory.
 
 Local state also helps with speed. The app can render known project and chat data without round-tripping to a server. Search, navigation, and review surfaces can be designed around local access patterns. Not every feature becomes faster automatically, but the architecture gives the desktop app room to feel like a desktop app.
 
@@ -94,10 +94,10 @@ The hardest part of local-first design is collaboration. Teams often want shared
 
 That is a good constraint. Not every piece of agent history should become shared team data by default. Some conversations are scratch work. Some include sensitive logs. Some are failed explorations that should be discarded. When collaboration features are added, they should make sharing intentional: export this summary, commit this change, open this PR, copy this configuration, or attach this context to an issue.
 
-Git already gives developers a strong collaboration substrate for code. Zuse Alpha leans into that by making worktrees and diffs central. The artifact that crosses from one person to another should often be a branch, a commit, a PR, or a clear written summary, not an invisible sync of every local thought the agent produced.
+Git already gives developers a strong collaboration substrate for code. Zuse (Beta) leans into that by making worktrees and diffs central. The artifact that crosses from one person to another should often be a branch, a commit, a PR, or a clear written summary, not an invisible sync of every local thought the agent produced.
 
 ## Trust is built through restraint
 
 The easiest way to build features is often to collect more data. The local-first approach asks a harder question: can this be useful without taking custody of the user's work? Sometimes the answer is yes with a better local design. Sometimes the answer is yes if sharing is explicit. Sometimes the answer is no, and the feature needs a serious trust discussion before it belongs in the product.
 
-That restraint is part of Zuse Alpha's identity. We want the app to feel like a tool you can put next to a private repository without wondering which hidden service is watching the session. You should know where your data lives, which provider receives a request, and what changed in the working tree. Local-first is how we make those answers concrete.
+That restraint is part of Zuse (Beta)'s identity. We want the app to feel like a tool you can put next to a private repository without wondering which hidden service is watching the session. You should know where your data lives, which provider receives a request, and what changed in the working tree. Local-first is how we make those answers concrete.

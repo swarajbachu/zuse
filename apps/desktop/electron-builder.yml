@@ -2,7 +2,7 @@
 # auto-update in place through Squirrel.Mac. The visible app name and release
 # feed are Zuse, but macOS updater identity must remain stable.
 appId: app.memoize.desktop
-productName: Zuse Alpha
+productName: Zuse (Beta)
 copyright: © ${author}
 
 # Register the `zuse://` custom scheme so packaged builds receive the WorkOS
@@ -103,8 +103,8 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   icon: build/icon.png
   extendInfo:
-    NSCameraUsageDescription: Zuse Alpha does not use the camera.
-    NSMicrophoneUsageDescription: Zuse Alpha does not use the microphone.
+    NSCameraUsageDescription: Zuse (Beta) does not use the camera.
+    NSMicrophoneUsageDescription: Zuse (Beta) does not use the microphone.
 
 dmg:
   writeUpdateInfo: true

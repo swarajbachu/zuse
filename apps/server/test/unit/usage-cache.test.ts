@@ -33,7 +33,7 @@ const emptyUsage = (id: string): PricedUsage => ({
 	sources: [
 		{
 			id: "zuse",
-			label: `Zuse Alpha ${id}`,
+			label: `Zuse (Beta) ${id}`,
 			detected: true,
 			recordCount: 0,
 			paths: [],
@@ -206,7 +206,7 @@ describe("usage report cache", () => {
 		const records = Array.from({ length: 300 }, (_, index) =>
 			makeUsageRecord({
 				sourceId: "zuse",
-				sourceLabel: "Zuse Alpha",
+				sourceLabel: "Zuse (Beta)",
 				providerId: "codex",
 				model: "gpt-5.4",
 				sessionId: `session-${index}`,
@@ -234,7 +234,7 @@ describe("usage report cache", () => {
 		const records = Array.from({ length: 5_000 }, (_, index) =>
 			makeUsageRecord({
 				sourceId: "zuse",
-				sourceLabel: "Zuse Alpha",
+				sourceLabel: "Zuse (Beta)",
 				providerId: "codex",
 				model: `model-${index % 8}`,
 				sessionId: `session-${index}`,
@@ -263,7 +263,7 @@ describe("usage report cache", () => {
 			(label, index) =>
 				makeUsageRecord({
 					sourceId: "zuse",
-					sourceLabel: "Zuse Alpha",
+					sourceLabel: "Zuse (Beta)",
 					providerId: "codex",
 					model: "gpt-5.4",
 					sessionId: label,

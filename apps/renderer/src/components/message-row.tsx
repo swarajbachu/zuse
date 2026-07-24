@@ -968,7 +968,7 @@ function GeminiUpgradeCard({ onDismiss }: { onDismiss?: () => void }) {
 						</div>
 						<p className="mt-1 leading-relaxed text-muted-foreground">
 							Your installed Gemini CLI does not support ACP mode yet, so Zuse
-							Alpha cannot start Gemini sessions until the CLI is updated.
+							Zuse (Beta) cannot start Gemini sessions until the CLI is updated.
 						</p>
 						<div className="mt-3 flex flex-wrap items-center gap-2">
 							<code className="rounded-md border border-border/60 bg-background/60 px-2 py-1 font-mono text-[11px] text-foreground">

@@ -437,7 +437,7 @@ function WorktreeSection({
 			<div className="flex flex-col">
 				{sorted.length === 0 ? (
 					<p className="px-4 py-8 text-center text-xs text-muted-foreground">
-						No worktrees yet. Zuse Alpha creates one for you when you start a
+						No worktrees yet. Zuse (Beta) creates one for you when you start a
 						new chat.
 					</p>
 				) : (

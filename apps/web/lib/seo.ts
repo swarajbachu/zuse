@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
 export const siteConfig = {
-  name: "Zuse Alpha",
+  name: "Zuse (Beta)",
   description:
-    "Zuse Alpha helps power users token max Claude Code, Codex, Cursor, Gemini, Grok and OpenCode from one local Mac workspace with worktrees, diffs, and no token markup.",
+    "Zuse (Beta) helps power users token max Claude Code, Codex, Cursor, Gemini, Grok and OpenCode from one local Mac workspace with worktrees, diffs, and no token markup.",
   // Override in production via NEXT_PUBLIC_SITE_URL.
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://zuse.sh",
   ogImage: "/og.png",
