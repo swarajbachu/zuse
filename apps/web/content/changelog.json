@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.15.2",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Add Claude Opus 5 model support"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.15.1",
     "sections": [
       {
