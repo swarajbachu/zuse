@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.3]
+
+### Changed
+- Recover and cache stalled chat timelines (#392)
+
 ## [0.15.2]
 
 ### Changed

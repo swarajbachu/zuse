@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.15.3",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Recover and cache stalled chat timelines (#392)"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.15.2",
     "sections": [
       {
