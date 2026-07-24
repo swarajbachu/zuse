@@ -1,65 +1,65 @@
 {
-	"name": "desktop",
-	"type": "module",
-	"productName": "Zuse (Beta)",
-	"version": "0.14.0",
-	"description": "Zuse (Beta) desktop app",
-	"private": true,
-	"author": {
-		"name": "Swaraj Bachu",
-		"email": "swarajkumar4444@gmail.com"
-	},
-	"homepage": "https://github.com/swarajbachu/zuse",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/swarajbachu/zuse.git"
-	},
-	"main": "dist-electron/main.cjs",
-	"scripts": {
-		"predev": "node scripts/build-local-connectivity-helper.mjs",
-		"dev": "bun run --parallel dev:bundle dev:electron",
-		"dev:bundle": "vp pack --watch",
-		"dev:electron": "node scripts/dev-electron.mjs",
-		"build": "vp pack && node scripts/main-bundle-startup-smoke.mjs",
-		"check-types": "tsc --noEmit",
-		"test": "vp test run test && node scripts/sqlite-runtime-smoke.mjs && node scripts/provider-sdk-runtime-smoke.mjs",
-		"test:unit": "vp test run test/unit",
-		"test:integration": "vp test run test/integration --passWithNoTests",
-		"postinstall": "electron-rebuild -f -o node-pty,keytar",
-		"icon": "node scripts/make-icon.mjs",
-		"native:build": "node scripts/build-local-connectivity-helper.mjs",
-		"native:build:universal": "node scripts/build-local-connectivity-helper.mjs --universal",
-		"predist:mac": "bun run native:build:universal",
-		"dist:mac": "electron-builder --mac --universal",
-		"predist:mac:unsigned": "bun run native:build:universal",
-		"dist:mac:unsigned": "electron-builder --mac --universal -c.mac.identity=null --publish never"
-	},
-	"dependencies": {
-		"@cursor/sdk": "1.0.23",
-		"electron-updater": "^6.3.9",
-		"keytar": "^7.9.0",
-		"node-pty": "^1.1.0",
-		"selfsigned": "^5.5.0",
-		"tree-sitter": "^0.21.1",
-		"tree-sitter-javascript": "^0.23.1",
-		"tree-sitter-json": "^0.24.8",
-		"tree-sitter-typescript": "^0.23.2"
-	},
-	"devDependencies": {
-		"@electron/rebuild": "^4.0.4",
-		"@zuse/server": "*",
-		"@zuse/ssh": "*",
-		"@zuse/contracts": "*",
-		"@repo/typescript-config": "*",
-		"@types/node": "catalog:",
-		"effect": "catalog:",
-		"electron-builder": "^25.1.8",
-		"electron": "^42.1.0",
-		"fix-path": "^4.0.0",
-		"sharp": "^0.34.1",
-		"tsdown": "^0.21.10",
-		"typescript": "catalog:",
-		"vite-plus": "0.2.5",
-		"vitest": "catalog:"
-	}
+  "name": "desktop",
+  "type": "module",
+  "productName": "Zuse (Beta)",
+  "version": "0.15.0",
+  "description": "Zuse (Beta) desktop app",
+  "private": true,
+  "author": {
+    "name": "Swaraj Bachu",
+    "email": "swarajkumar4444@gmail.com"
+  },
+  "homepage": "https://github.com/swarajbachu/zuse",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/swarajbachu/zuse.git"
+  },
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "predev": "node scripts/build-local-connectivity-helper.mjs",
+    "dev": "bun run --parallel dev:bundle dev:electron",
+    "dev:bundle": "vp pack --watch",
+    "dev:electron": "node scripts/dev-electron.mjs",
+    "build": "vp pack && node scripts/main-bundle-startup-smoke.mjs",
+    "check-types": "tsc --noEmit",
+    "test": "vp test run test && node scripts/sqlite-runtime-smoke.mjs && node scripts/provider-sdk-runtime-smoke.mjs",
+    "test:unit": "vp test run test/unit",
+    "test:integration": "vp test run test/integration --passWithNoTests",
+    "postinstall": "electron-rebuild -f -o node-pty,keytar",
+    "icon": "node scripts/make-icon.mjs",
+    "native:build": "node scripts/build-local-connectivity-helper.mjs",
+    "native:build:universal": "node scripts/build-local-connectivity-helper.mjs --universal",
+    "predist:mac": "bun run native:build:universal",
+    "dist:mac": "electron-builder --mac --universal",
+    "predist:mac:unsigned": "bun run native:build:universal",
+    "dist:mac:unsigned": "electron-builder --mac --universal -c.mac.identity=null --publish never"
+  },
+  "dependencies": {
+    "@cursor/sdk": "1.0.23",
+    "electron-updater": "^6.3.9",
+    "keytar": "^7.9.0",
+    "node-pty": "^1.1.0",
+    "selfsigned": "^5.5.0",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-javascript": "^0.23.1",
+    "tree-sitter-json": "^0.24.8",
+    "tree-sitter-typescript": "^0.23.2"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
+    "@zuse/server": "*",
+    "@zuse/ssh": "*",
+    "@zuse/contracts": "*",
+    "@repo/typescript-config": "*",
+    "@types/node": "catalog:",
+    "effect": "catalog:",
+    "electron-builder": "^25.1.8",
+    "electron": "^42.1.0",
+    "fix-path": "^4.0.0",
+    "sharp": "^0.34.1",
+    "tsdown": "^0.21.10",
+    "typescript": "catalog:",
+    "vite-plus": "0.2.5",
+    "vitest": "catalog:"
+  }
 }

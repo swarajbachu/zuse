@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0]
+
+### Changed
+- Promote Zuse to Beta and restore release checks
+- Replace target provider CLI runtime with bundled SDK (#386)
+- Scope context handoffs to the current chat (#385)
+- Fix provider inline authentication recovery (#384)
+- Safe automatic and manual naming (#383)
+- Add semantic agent activity orbs (#382)
+- Mobile: Effect Atom state, home redesign, connectivity recovery (#377)
+- Polish latest-response forking and restore desktop startup (#381)
+- Add end-to-end product analytics (#380)
+- Rebuild realtime chat and interrupt lifecycle (#379)
+- Upgrade the in-app agent browser (#376)
+- Add authenticated browser access and isolated parallel development (#375)
+- Fix assistant message forking and chat tab behavior (#374)
+- Add quarantined-fork verification: E2B passes, no egress control on the alternate
+- Make chat archiving instant and failure-safe (#373)
+- Add ADR 0033: fork identity and event-log divergence
+- Update PR-E/PR-H and Phase 1 status after tunnel+push verification (#343)
+- Add cloud storage research notes
+- Add threaded bug tracker forum
+- Add Discord community enhancement workflow
+- Add community channel setup script
+- Add reliable nearby device pairing and recovery (#370)
+- Polish renderer UI: neutral grays, glass overlays, cleaner settings (#368)
+- Add clean mobile multi-thread chats (#367)
+- Fix mobile chat scrolling and viewport boundaries (#366)
+- feat(mobile): add workspace files and change review
+- Polish mobile connections and native chat UI (#364)
+- fix: simplify paired phone access
+- chore: update iOS dependency checksums
+- fix: unify mobile connection experience
+- fix: construct encodable pairing responses
+- feat: add secure cross-device network access
+- Make renderer creation and streaming immediately responsive (#361)
+- feat: add full changes review and inline conflict resolution (#362)
+- Add native MCP discovery and authentication (#360)
+- Fix terminal input ordering and recovery (#359)
+- Modernize native ACP session interactions (#358)
+- Publish cloud platform roadmap (#357)
+- Configure agent workflow guidance (#356)
+- Rework mobile chat composer, model sheet, and turn display (#352)
+- Surface plans and subagents in environment summary (#349)
+- Finish iPhone review experience and relay reliability (#350)
+- Fix image previews in the file viewer (#348)
+- Add Linear-powered issue sessions (#347)
+- Refresh short-lived auth tokens before expiry (#346)
+
 ## [0.14.0]
 
 ### Changed
