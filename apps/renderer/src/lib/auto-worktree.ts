@@ -16,23 +16,16 @@ import { useWorktreesStore } from "../store/worktrees.ts";
  * promised a fresh worktree.
  */
 export async function resolveAutoWorktreeId(
-	projectId: FolderId,
+  projectId: FolderId,
 ): Promise<WorktreeId | null> {
-	const settings = useSettingsStore.getState();
-	const repoSettings = await useRepositorySettingsStore
-		.getState()
-		.refresh(projectId);
-	const shouldAutoCreate =
-		repoSettings?.autoCreateWorktree === true ||
-		settings.defaultAutoCreateWorktree === true;
-	if (!shouldAutoCreate) return null;
-	const wt = await useWorktreesStore.getState().create(projectId);
-	if (wt !== null) return wt.id;
-
-	const reason = useWorktreesStore.getState().error;
-	throw new Error(
-		reason === null
-			? "Couldn't create an isolated worktree."
-			: `Couldn't create an isolated worktree: ${reason}`,
-	);
+  const settings = useSettingsStore.getState();
+  const repoSettings = await useRepositorySettingsStore
+    .getState()
+    .refresh(projectId);
+  const shouldAutoCreate =
+    repoSettings?.autoCreateWorktree === true ||
+    settings.defaultAutoCreateWorktree === true;
+  if (!shouldAutoCreate) return null;
+  const wt = await useWorktreesStore.getState().create(projectId);
+  return wt?.id ?? null;
 }

@@ -6,19 +6,6 @@ import type { AgentItemId, Message } from "@zuse/contracts";
 
 import { groupMessages } from "./group-messages.ts";
 
-export type ChatWorkingPhase = "starting" | "continuing" | "responding";
-
-export const chatWorkingPhaseLabel = (phase: ChatWorkingPhase): string => {
-	switch (phase) {
-		case "starting":
-			return "Starting response";
-		case "continuing":
-			return "Continuing conversation";
-		case "responding":
-			return "Working";
-	}
-};
-
 export type ChatTimelineRow =
 	| {
 			readonly kind: "message";
@@ -56,7 +43,6 @@ export type ChatTimelineRow =
 			readonly kind: "working";
 			readonly id: string;
 			readonly messages: ReadonlyArray<Message>;
-			readonly phase: ChatWorkingPhase;
 	  };
 
 export { isUserMessage };
@@ -222,22 +208,10 @@ export function deriveChatTimelineRows({
 	}
 
 	if (inFlight && !awaitingPlanApproval) {
-		const latestUserIndex = normalizedMessages.findLastIndex(isUserMessage);
-		const hasProviderOutput = normalizedMessages
-			.slice(latestUserIndex + 1)
-			.some((message) => !isUserMessage(message));
-		const hasEarlierProviderOutput = normalizedMessages
-			.slice(0, Math.max(0, latestUserIndex))
-			.some((message) => !isUserMessage(message));
 		rows.push({
 			kind: "working",
 			id: "working",
 			messages,
-			phase: hasProviderOutput
-				? "responding"
-				: hasEarlierProviderOutput
-					? "continuing"
-					: "starting",
 		});
 	}
 

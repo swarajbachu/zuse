@@ -2975,15 +2975,14 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				.poll(() => providerSentTexts)
 				.toEqual(["send after authentication"]);
 			await expect
-				.poll(
-					async () =>
-						(
-							await run(
-								Effect.flatMap(store, (service) =>
-									service.listQueuedMessages(created.initialSession.id),
-								),
-							)
-						).items,
+				.poll(async () =>
+					(
+						await run(
+							Effect.flatMap(store, (service) =>
+								service.listQueuedMessages(created.initialSession.id),
+							),
+						)
+					).items,
 				)
 				.toEqual([]);
 		});

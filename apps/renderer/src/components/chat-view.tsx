@@ -19,8 +19,6 @@ import {
 import { resolveChatErrorBottom } from "../lib/chat-overlay-position.ts";
 import {
 	type ChatTimelineRow,
-	type ChatWorkingPhase,
-	chatWorkingPhaseLabel,
 	deriveChatTimelineRows,
 	resolveLatestUserMessageId,
 	rowAnchorMessageId,
@@ -833,7 +831,7 @@ function TimelineRow({
 				</div>
 			);
 		case "working":
-			return <WorkingRow messages={row.messages} phase={row.phase} />;
+			return <WorkingRow messages={row.messages} />;
 	}
 }
 
@@ -845,13 +843,7 @@ const formatElapsed = (ms: number): string => {
 	return `${min}m ${sec.toFixed(1)}s`;
 };
 
-function WorkingRow({
-	messages,
-	phase,
-}: {
-	messages: ReadonlyArray<Message>;
-	phase: ChatWorkingPhase;
-}) {
+function WorkingRow({ messages }: { messages: ReadonlyArray<Message> }) {
 	// Anchor to the most recent user message — we want the live "current turn"
 	// elapsed time beside the loader, not the session-wide total.
 	const anchorMs = useMemo(() => {
@@ -876,16 +868,11 @@ function WorkingRow({
 	const activityState = deriveAgentActivityState(messages);
 
 	return (
-		<div
-			className="flex min-h-9 items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground"
-			role="status"
-			aria-live="polite"
-		>
+		<div className="flex min-h-9 items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground">
 			<AgentActivityOrb state={activityState} />
-			<ShimmerText tone="lime">{chatWorkingPhaseLabel(phase)}</ShimmerText>
-			<span aria-hidden="true" className="tabular-nums">
+			<ShimmerText tone="lime" className="tabular-nums">
 				{formatElapsed(elapsed)}
-			</span>
+			</ShimmerText>
 		</div>
 	);
 }

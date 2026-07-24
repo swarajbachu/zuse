@@ -184,17 +184,10 @@ const terminalTags = new Set<AgentEvent["_tag"]>([
 	"Interrupted",
 ]);
 
-const runFinishedTags = new Set<AgentEvent["_tag"]>([
-	"Error",
-	"Completed",
-	"Interrupted",
-]);
-
 type SmokeResult =
 	| {
 			readonly _tag: "Ran";
 			readonly events: ReadonlyArray<AgentEvent>;
-			readonly eventTimes: ReadonlyArray<number>;
 			readonly timedOut: boolean;
 	  }
 	| { readonly _tag: "Skipped"; readonly reason: string };
@@ -249,7 +242,6 @@ const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
 			: process.env[provider.apiKeyEnv]?.trim() || null;
 
 	const events: AgentEvent[] = [];
-	const eventTimes: number[] = [];
 	try {
 		const completed = await Effect.runPromise(
 			Effect.gen(function* () {
@@ -260,7 +252,6 @@ const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
 				const fiber = yield* Stream.runForEach(handle.events, (event) =>
 					Effect.sync(() => {
 						events.push(event);
-						eventTimes.push(Date.now());
 					}),
 				).pipe(Effect.forkChild);
 
@@ -271,12 +262,12 @@ const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
 				const deadline = Date.now() + (provider.timeoutMs ?? 60_000);
 				while (
 					Date.now() < deadline &&
-					!events.some((event) => runFinishedTags.has(event._tag))
+					!events.some((event) => terminalTags.has(event._tag))
 				) {
 					yield* Effect.sleep("250 millis");
 				}
 				const sawTerminal = events.some((event) =>
-					runFinishedTags.has(event._tag),
+					terminalTags.has(event._tag),
 				);
 
 				yield* handle.close().pipe(Effect.catch(() => Effect.void));
@@ -284,7 +275,7 @@ const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
 				return sawTerminal;
 			}).pipe(Effect.provide(AttachmentServiceTest)),
 		);
-		return { _tag: "Ran", events, eventTimes, timedOut: !completed };
+		return { _tag: "Ran", events, timedOut: !completed };
 	} catch (cause) {
 		const skipReason = skippableLiveFailureReason(provider, cause);
 		if (skipReason !== null) {
@@ -315,38 +306,14 @@ describe("live agent smoke tests", () => {
 					);
 					return;
 				}
-				const { events, eventTimes } = result;
+				const { events } = result;
 
 				expect(
 					result.timedOut,
-					`${provider.providerId} live smoke timed out after ${provider.timeoutMs ?? 60_000}ms without a completed/error/interrupted event; saw ${events.map((event) => event._tag).join(", ")}`,
+					`${provider.providerId} live smoke timed out after ${provider.timeoutMs ?? 60_000}ms without an assistant/result/error event; saw ${events.map((event) => event._tag).join(", ")}`,
 				).toBe(false);
 				expect(events.some((event) => event._tag === "Started")).toBe(true);
 				expect(events.some((event) => terminalTags.has(event._tag))).toBe(true);
-				if (provider.providerId === "cursor") {
-					expect(events.filter((event) => event._tag === "Error")).toEqual([]);
-					expect(
-						events
-							.filter((event) => event._tag === "AssistantMessage")
-							.map((event) => event.text)
-							.join(""),
-					).toContain("fixture-ok");
-					const firstAssistant = events.findIndex(
-						(event) => event._tag === "AssistantMessage",
-					);
-					const completed = events.findIndex(
-						(event) => event._tag === "Completed",
-					);
-					const started = events.findIndex((event) => event._tag === "Started");
-					expect(firstAssistant).toBeGreaterThanOrEqual(0);
-					expect(completed).toBeGreaterThan(firstAssistant);
-					expect(
-						(eventTimes[firstAssistant] ?? 0) - (eventTimes[started] ?? 0),
-					).toBeLessThan(30_000);
-					expect(
-						(eventTimes[completed] ?? 0) - (eventTimes[firstAssistant] ?? 0),
-					).toBeGreaterThan(250);
-				}
 				if (
 					provider.expectsCursor &&
 					!events.some((event) => event._tag === "Error")

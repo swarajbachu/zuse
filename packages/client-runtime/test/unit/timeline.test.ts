@@ -58,40 +58,6 @@ describe("timeline projection", () => {
 		expect(turns[0]?.durationMs).toBe(3000);
 	});
 
-	it("replaces cumulative text snapshots with one live timeline row", () => {
-		const turns = groupTimelineTurns([
-			message("u1", { _tag: "user", text: "go", goal: false }),
-			message("a1", {
-				_tag: "assistant",
-				itemId: "assistant-1" as never,
-				text: "Working",
-			}),
-			message("a2", {
-				_tag: "assistant",
-				itemId: "assistant-1" as never,
-				text: "Working on it",
-			}),
-			message("t1", {
-				_tag: "thinking",
-				itemId: "thinking-1" as never,
-				text: "Reading",
-				redacted: false,
-			}),
-			message("t2", {
-				_tag: "thinking",
-				itemId: "thinking-1" as never,
-				text: "Reading files",
-				redacted: false,
-			}),
-		]);
-
-		expect(turns[0]?.body).toHaveLength(2);
-		expect(turns[0]?.body.map((row) => row.content)).toMatchObject([
-			{ _tag: "assistant", text: "Working on it" },
-			{ _tag: "thinking", text: "Reading files" },
-		]);
-	});
-
 	it("parses unified hunks with line numbers", () => {
 		const lines = parseUnifiedPatch("@@ -2,2 +2,2 @@\n-old\n+new\n same");
 		expect(lines.map((line) => line.kind)).toEqual([

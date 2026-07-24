@@ -233,11 +233,7 @@ export const makeProviderReactorHandlers = (
 				// acknowledge this failed side effect and let a fresh turn retry it.
 				// Other transient failures retain the existing replay behavior.
 				if (!isAuthenticationRequired(restarted.error.reason)) {
-					return yield* Effect.die(
-						new Error(
-							"Provider turn could not be started after durable intent",
-						),
-					);
+					return yield* Effect.die(new Error(restarted.error.reason));
 				}
 			}
 			yield* reactorEffects.complete(reactorInput.commandId);

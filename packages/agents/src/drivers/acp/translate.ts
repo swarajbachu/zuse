@@ -5,13 +5,10 @@ import {
 	isRedundantShellDescription,
 } from "@zuse/contracts";
 
-import { normalizeNativeToolName } from "../../kernel/native-tool-name.ts";
-import { appendStreamText } from "../../kernel/stream-text.ts";
-
 /**
  * Shared translator for Agent Client Protocol (ACP) `session/update` frames.
- * Shared by the remaining ACP-backed drivers. The renderer expects every
- * provider's tool calls to look
+ * Lifted out of grok.ts / gemini.ts / cursor.ts which each carried a near-
+ * identical copy. The renderer expects every provider's tool calls to look
  * like Claude's (see the "Normalized Tool-Call Contract" doc-block above
  * `ToolUseEvent` in `packages/contracts/src/agent.ts`), so this translator
  * coerces ACP frames into that shape.
@@ -21,10 +18,10 @@ import { appendStreamText } from "../../kernel/stream-text.ts";
  *
  * Set `MEMOIZE_DEBUG_ACP=1` to trace every translator decision to stderr
  * (kind, status, what events were emitted). Pair with `MEMOIZE_DEBUG_<P>`
- * (GEMINI/GROK) for raw JSON-RPC frame logs in the drivers.
+ * (GEMINI/GROK/CURSOR) for raw JSON-RPC frame logs in the drivers.
  */
 
-export type AcpProviderTag = "grok" | "gemini";
+export type AcpProviderTag = "grok" | "gemini" | "cursor";
 
 const ACP_TRACE = process.env.MEMOIZE_DEBUG_ACP === "1";
 
@@ -99,6 +96,24 @@ const extractCallId = (u: Record<string, unknown>): AgentItemId => {
 	return raw !== null ? (raw as AgentItemId) : nextItemId();
 };
 
+/**
+ * Convert a snake_case or camelCase identifier into a nice TitleCase label
+ * suitable for display in the UI (e.g. "list_dir" → "List Dir",
+ * "readFile" → "Read File"). Used both for unknown tool normalization and
+ * as the fallback label in the renderer when we still don't have an exact
+ * mapping.
+ */
+const toNiceToolLabel = (raw: string): string => {
+	if (!raw) return "Tool";
+	// Split on underscores or camelCase boundaries
+	const words = raw
+		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+		.split(/[_\s-]+/)
+		.filter(Boolean)
+		.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+	return words.join(" ");
+};
+
 const GENERIC_ACP_TOOL_KINDS = new Set(["other", "tool", "mcp"]);
 
 /**
@@ -147,8 +162,65 @@ const normalizeAcpKind = (rawKind: string): string => {
 		case "browser_dialog":
 		case "browser_login":
 			return `mcp__zuse__${k}`;
+		case "read":
+		case "read_file":
+		case "readfile":
+			return "Read";
+		case "bash":
+		case "execute":
+		case "run_command":
+		case "run_terminal_cmd":
+		case "shell":
+		case "shell_command":
+		case "terminal":
+			return "Bash";
+		case "edit":
+		case "edit_file":
+		case "editfile":
+		case "search_replace":
+		case "searchreplace":
+		case "str_replace":
+		case "str_replace_editor":
+			return "Edit";
+		case "write":
+		case "write_file":
+		case "writefile":
+			return "Write";
+		case "grep":
+		case "grep_search":
+		case "grepsearch":
+		case "search":
+		case "search_files":
+		case "searchfiles":
+			return "Grep";
+		case "glob":
+		case "glob_files":
+		case "globfiles":
+			return "Glob";
+		case "websearch":
+		case "web_search":
+			return "WebSearch";
+		case "webfetch":
+		case "web_fetch":
+		case "fetch":
+		case "fetch_url":
+			return "WebFetch";
+		case "list_dir":
+		case "listdir":
+		case "list_directory":
+		case "directory":
+			return "ListDir";
+		case "multi_edit":
+		case "multiedit":
+			return "MultiEdit";
+		case "todo_write":
+		case "todowrite":
+			return "TodoWrite";
 		default:
-			return normalizeNativeToolName(rawKind);
+			// Fall back to a clean Title Case label (handles the rest of Grok's
+			// native tools gracefully even if we haven't wired a dedicated case
+			// in the renderer yet).
+			return toNiceToolLabel(rawKind);
 	}
 };
 
@@ -1059,6 +1131,18 @@ const scoreGrokTaskMatch = (task: GrokCursorTaskRun, text: string): number => {
 	return score;
 };
 
+const appendStreamText = (buffer: string, text: string): string => {
+	if (
+		buffer.length > 0 &&
+		text.length > 0 &&
+		/[A-Za-z0-9]$/.test(buffer) &&
+		/^[A-Z][a-z]/.test(text)
+	) {
+		return `${buffer} ${text}`;
+	}
+	return `${buffer}${text}`;
+};
+
 /**
  * Create a per-session translator. Stateful because:
  *   1. ACP's `agent_message_chunk` is a delta protocol — we buffer
@@ -1367,7 +1451,7 @@ export const createAcpTranslator = (
 				}
 			}
 			if (thinkingItemId === null) thinkingItemId = nextItemId();
-			thinkingBuffer = appendStreamText(thinkingBuffer, text, "sentence-start");
+			thinkingBuffer = appendStreamText(thinkingBuffer, text);
 			trace(
 				provider,
 				`buffer thinking chunk len=${text.length} totalLen=${thinkingBuffer.length}`,
@@ -1384,11 +1468,7 @@ export const createAcpTranslator = (
 					: asText(u["content"]);
 			if (text === null || text.length === 0) return flushed;
 			if (assistantItemId === null) assistantItemId = nextItemId();
-			assistantBuffer = appendStreamText(
-				assistantBuffer,
-				text,
-				"sentence-start",
-			);
+			assistantBuffer = appendStreamText(assistantBuffer, text);
 			trace(
 				provider,
 				`buffer message chunk len=${text.length} totalLen=${assistantBuffer.length}`,
@@ -1513,8 +1593,8 @@ export const createAcpTranslator = (
 					if (provider === "gemini" && rawKind === "think") return [];
 					const callId = extractCallId(u);
 					const state = getOrInitToolState(callId);
-					// Prefer the tool name captured from the original tool_call. Some
-					// update frames carry no `kind`, so re-extracting would
+					// Prefer the tool name we captured from the original tool_call —
+					// cursor's update frames carry no `kind`, so re-extracting would
 					// collapse to the generic "tool" label and break the Edit/Read/…
 					// input mapping in buildCanonicalInput.
 					const updateToolName = extractToolName(u);
@@ -1667,7 +1747,12 @@ export const createAcpTranslator = (
 				case "error":
 				case "agent_error": {
 					const detail = extractErrorDetail(u);
-					const providerLabel = provider === "grok" ? "Grok" : "Gemini";
+					const providerLabel =
+						provider === "grok"
+							? "Grok"
+							: provider === "cursor"
+								? "Cursor"
+								: "Gemini";
 					const message =
 						detail !== null
 							? detail

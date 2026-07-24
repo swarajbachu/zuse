@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { searchForWorkspaceRoot } from "vite";
+import { defineConfig, searchForWorkspaceRoot } from "vite-plus";
 
 const port = Number(process.env.PORT ?? 5733);
 const host = process.env.HOST?.trim() || "localhost";
@@ -27,7 +27,7 @@ const fontPkgPath = require.resolve("@fontsource-variable/inter/package.json");
 //                  ^^^^ walk up 5 dirs to reach `node_modules/.bun/`
 const bunStoreRoot = dirname(dirname(dirname(dirname(dirname(fontPkgPath)))));
 
-export default {
+export default defineConfig({
 	define: {
 		"import.meta.env.VITE_APP_VERSION": JSON.stringify(desktopPackage.version),
 	},
@@ -37,25 +37,21 @@ export default {
 	},
 	// Relative base so file:// loads work in the packaged Electron build.
 	base: "./",
-	plugins: [react(), tailwindcss()],
+	plugins: [
+		react({
+			babel: { plugins: [["babel-plugin-react-compiler", {}]] },
+		}),
+		tailwindcss(),
+	],
 	resolve: {
 		alias: {
 			"~": fileURLToPath(new URL("./src", import.meta.url)),
 		},
-		// React hook dispatchers are identity-sensitive. Keep every workspace and
-		// linked-package import on the same physical runtime.
-		dedupe: ["react", "react-dom"],
 	},
-	// These React adapters sit behind lazy renderer routes. Without an explicit
-	// include Vite can discover them after Electron has already loaded the app,
-	// invalidate the optimized dependency graph, and leave old/new hash
-	// generations alive together until reload (an invalid-hook-call crash).
 	optimizeDeps: {
 		include: [
 			"react",
 			"react-dom/client",
-			"@legendapp/list/react",
-			"@pierre/trees/react",
 			"effect",
 			"@pierre/diffs",
 			"codemirror",
@@ -92,4 +88,4 @@ export default {
 	test: {
 		setupFiles: ["./test/setup.ts"],
 	},
-};
+});

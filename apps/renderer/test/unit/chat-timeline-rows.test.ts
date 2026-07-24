@@ -2,7 +2,6 @@ import type { Message, SessionId } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-	chatWorkingPhaseLabel,
 	deriveChatTimelineRows,
 	normalizeTimelineMessages,
 	resolveLatestUserMessageId,
@@ -57,53 +56,6 @@ describe("chat timeline rows", () => {
 
 		expect(resolveLatestUserMessageId(rows)).toBe("u1");
 		expect(rowAnchorMessageId(rows[0]!)).toBe("u1");
-	});
-
-	it("marks a blank in-flight turn as starting before provider output arrives", () => {
-		const rows = deriveChatTimelineRows({
-			messages: [message("u1", { _tag: "user", text: "start" })],
-			inFlight: true,
-			awaitingPlanApproval: false,
-		});
-
-		expect(rows.at(-1)).toMatchObject({
-			kind: "working",
-			phase: "starting",
-		});
-	});
-
-	it("marks an in-flight turn as responding after provider output arrives", () => {
-		const rows = deriveChatTimelineRows({
-			messages: [
-				message("u1", { _tag: "user", text: "start" }),
-				message("a1", { _tag: "assistant", text: "Working" }),
-			],
-			inFlight: true,
-			awaitingPlanApproval: false,
-		});
-
-		expect(rows.at(-1)).toMatchObject({
-			kind: "working",
-			phase: "responding",
-		});
-	});
-
-	it("marks a follow-up as continuing before new provider output arrives", () => {
-		const rows = deriveChatTimelineRows({
-			messages: [
-				message("u1", { _tag: "user", text: "first" }),
-				message("a1", { _tag: "assistant", text: "first reply" }),
-				message("u2", { _tag: "user", text: "follow-up" }),
-			],
-			inFlight: true,
-			awaitingPlanApproval: false,
-		});
-
-		expect(rows.at(-1)).toMatchObject({
-			kind: "working",
-			phase: "continuing",
-		});
-		expect(chatWorkingPhaseLabel("continuing")).toBe("Continuing conversation");
 	});
 
 	it("moves the anchor when a later user message appears before assistant output", () => {

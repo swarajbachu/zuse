@@ -78,23 +78,6 @@ const toolUseKey = (message: Message): string | null =>
 		? `${message.sessionId}:${message.content.itemId}`
 		: null;
 
-const streamSnapshotKey = (message: Message): string | null => {
-	const content = message.content;
-	if (content._tag === "thinking") {
-		return `${message.sessionId}:thinking:${content.itemId}`;
-	}
-	if (content._tag === "assistant" && content.itemId !== undefined) {
-		return `${message.sessionId}:assistant:${content.itemId}`;
-	}
-	return null;
-};
-
-const latestSnapshotText = (previous: string, next: string): string => {
-	if (next.startsWith(previous)) return next;
-	if (previous.startsWith(next)) return previous;
-	return `${previous}${next}`;
-};
-
 const inputScore = (input: unknown): number => {
 	if (input === null || input === undefined) return 0;
 	let score = 1;
@@ -116,48 +99,7 @@ export const normalizeTimelineMessages = (
 ): Message[] => {
 	const normalized: Message[] = [];
 	const indexByTool = new Map<string, number>();
-	const indexByStreamSnapshot = new Map<string, number>();
 	for (const message of messages) {
-		const snapshotKey = streamSnapshotKey(message);
-		if (snapshotKey !== null) {
-			const index = indexByStreamSnapshot.get(snapshotKey);
-			if (index === undefined) {
-				indexByStreamSnapshot.set(snapshotKey, normalized.length);
-				normalized.push(message);
-				continue;
-			}
-			const current = normalized[index];
-			if (
-				current?.content._tag === "assistant" &&
-				message.content._tag === "assistant"
-			) {
-				normalized[index] = {
-					...current,
-					content: {
-						...message.content,
-						text: latestSnapshotText(
-							current.content.text,
-							message.content.text,
-						),
-					},
-				} as Message;
-			} else if (
-				current?.content._tag === "thinking" &&
-				message.content._tag === "thinking"
-			) {
-				normalized[index] = {
-					...current,
-					content: {
-						...message.content,
-						text: latestSnapshotText(
-							current.content.text,
-							message.content.text,
-						),
-					},
-				} as Message;
-			}
-			continue;
-		}
 		const key = toolUseKey(message);
 		if (key === null) {
 			normalized.push(message);

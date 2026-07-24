@@ -382,7 +382,7 @@ describe("createAcpTranslator — assistant + thinking coalescing", () => {
 
 describe("createAcpTranslator — tool_call_update dedup & re-emit", () => {
 	it("skips a tool_call_update whose input is unchanged", () => {
-		const t = createAcpTranslator("grok");
+		const t = createAcpTranslator("cursor");
 		const first = t.translate({
 			sessionUpdate: "tool_call",
 			kind: "read",
@@ -422,7 +422,7 @@ describe("createAcpTranslator — tool_call_update dedup & re-emit", () => {
 	});
 
 	it("re-emits ToolUse when a diff first appears on an Edit update", () => {
-		const t = createAcpTranslator("grok");
+		const t = createAcpTranslator("cursor");
 		t.translate({
 			sessionUpdate: "tool_call",
 			kind: "edit",
@@ -443,8 +443,8 @@ describe("createAcpTranslator — tool_call_update dedup & re-emit", () => {
 		});
 	});
 
-	it("remembers the tool name across update frames that omit kind", () => {
-		const t = createAcpTranslator("grok");
+	it("remembers the tool name across update frames that omit kind (Cursor)", () => {
+		const t = createAcpTranslator("cursor");
 		t.translate({
 			sessionUpdate: "tool_call",
 			kind: "read",
@@ -782,7 +782,7 @@ describe("createAcpTranslator — per-provider quirks & errors", () => {
 		expect(
 			translateAcpSessionUpdate(
 				{ sessionUpdate: "current_mode_update" },
-				"grok",
+				"cursor",
 			),
 		).toEqual([]);
 		expect(translateAcpSessionUpdate(null, "grok")).toEqual([]);
