@@ -71,4 +71,17 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           bun run native:build:universal
-          bunx electron-builder --mac --universal --publish always
+          for attempt in 1 2 3; do
+            if bunx electron-builder --mac --universal --publish always; then
+              exit 0
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "Packaging failed after $attempt attempts."
+              exit 1
+            fi
+
+            delay=$((attempt * 30))
+            echo "Packaging attempt $attempt failed; retrying in ${delay}s."
+            sleep "$delay"
+          done
