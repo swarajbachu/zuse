@@ -1,9 +1,9 @@
 import {
-	SessionTimelineProjection,
 	type Message,
 	type SessionId,
 	type SessionTimelineEvent,
 	type SessionTimelineFrame,
+	SessionTimelineProjection,
 } from "@zuse/contracts";
 
 export type SessionTimelinePhase =
@@ -256,12 +256,34 @@ export class SessionTimelineRegistry {
 		return this.entry(sessionId).state;
 	}
 
-	accept(sessionId: SessionId, frame: SessionTimelineFrame): void {
+	restore(
+		sessionId: SessionId,
+		projection: SessionTimelineProjection,
+		appliedVersion: number,
+	): SessionTimelineState {
+		const entry = this.entry(sessionId);
+		if (entry.state.projection !== null) return entry.state;
+		entry.state = {
+			...entry.state,
+			projection,
+			appliedVersion,
+			phase: "cached",
+			error: null,
+		};
+		for (const listener of entry.listeners) listener(entry.state);
+		return entry.state;
+	}
+
+	accept(
+		sessionId: SessionId,
+		frame: SessionTimelineFrame,
+	): SessionTimelineState {
 		const entry = this.entry(sessionId);
 		const next = reduceSessionTimelineFrame(entry.state, frame);
-		if (next === entry.state) return;
+		if (next === entry.state) return entry.state;
 		entry.state = next;
 		for (const listener of entry.listeners) listener(next);
+		return next;
 	}
 
 	subscribe(

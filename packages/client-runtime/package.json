@@ -9,6 +9,7 @@
 		"./connection": "./src/connection.ts",
 		"./plan-interactions": "./src/plan-interactions.ts",
 		"./session-timeline": "./src/session-timeline.ts",
+		"./session-timeline-cache": "./src/session-timeline-cache.ts",
 		"./timeline": "./src/timeline.ts",
 		"./supervisor": "./src/supervisor.ts",
 		"./ws-protocol": "./src/ws-protocol.ts"

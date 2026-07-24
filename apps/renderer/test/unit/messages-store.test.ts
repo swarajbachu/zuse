@@ -475,4 +475,76 @@ describe("messages store queue actions", () => {
 				}),
 			]);
 	});
+
+	it("opens a retained transcript when the first connection becomes available", async () => {
+		let observeConnection: ((snapshot: ConnectionSnapshot) => void) | undefined;
+		let acquisitionCalls = 0;
+		let streamCalls = 0;
+		subscribeRendererRpcConnection.mockImplementation((listener) => {
+			observeConnection = listener;
+			listener({
+				key: "renderer",
+				status: "connecting",
+				generation: 0,
+				attempt: 1,
+				error: null,
+			});
+			return vi.fn();
+		});
+		rpcClientFactory = () => {
+			acquisitionCalls += 1;
+			if (acquisitionCalls === 1) {
+				throw new Error("connection unavailable");
+			}
+			return {
+				"session.events": () => {
+					streamCalls += 1;
+					return Stream.never;
+				},
+			} as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+		};
+
+		await useMessagesStore.getState().hydrate(sessionId);
+		expect(acquisitionCalls).toBe(1);
+		expect(streamCalls).toBe(0);
+
+		observeConnection?.({
+			key: "renderer",
+			status: "connected",
+			generation: 1,
+			attempt: 0,
+			error: null,
+		});
+
+		await expect.poll(() => streamCalls).toBe(1);
+	});
+
+	it("opens only one transcript when connection observation is synchronously connected", async () => {
+		let streamCalls = 0;
+		subscribeRendererRpcConnection.mockImplementation((listener) => {
+			listener({
+				key: "renderer",
+				status: "connected",
+				generation: 1,
+				attempt: 0,
+				error: null,
+			});
+			return vi.fn();
+		});
+		rpcClientFactory = () =>
+			({
+				"session.events": () => {
+					streamCalls += 1;
+					return Stream.never;
+				},
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+
+		await useMessagesStore.getState().hydrate(sessionId);
+
+		await expect.poll(() => streamCalls).toBe(1);
+	});
 });

@@ -4,8 +4,8 @@ import {
 	MessageId,
 	QueueState,
 	SessionId,
-	SessionTimelineProjection,
 	type SessionTimelineFrame,
+	SessionTimelineProjection,
 } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 import {
@@ -13,6 +13,11 @@ import {
 	reduceSessionTimelineFrame,
 	SessionTimelineRegistry,
 } from "../../src/session-timeline.ts";
+import {
+	decodeSessionTimelineCacheEntry,
+	encodeSessionTimelineCacheEntry,
+	makeSessionTimelineCacheEntry,
+} from "../../src/session-timeline-cache.ts";
 
 const sessionId = SessionId.make("session-1");
 const turnId = AgentTurnId.make("turn-1");
@@ -120,7 +125,10 @@ describe("session timeline reducer", () => {
 			kind: "snapshot",
 			sessionId: sessionB,
 			throughVersion: 9,
-			projection: SessionTimelineProjection.make({ ...projection, messages: [] }),
+			projection: SessionTimelineProjection.make({
+				...projection,
+				messages: [],
+			}),
 		});
 		registry.accept(sessionA, {
 			kind: "event",
@@ -133,5 +141,63 @@ describe("session timeline reducer", () => {
 		expect(registry.state(sessionA).appliedVersion).toBe(5);
 		expect(registry.state(sessionB).appliedVersion).toBe(9);
 		registry.shutdown();
+	});
+
+	it("restores a cached projection and resumes from its durable cursor", () => {
+		const registry = new SessionTimelineRegistry(10_000);
+		registry.restore(sessionId, projection, 12);
+
+		expect(registry.state(sessionId)).toMatchObject({
+			projection,
+			appliedVersion: 12,
+			phase: "cached",
+			error: null,
+		});
+
+		const release = registry.retain(sessionId);
+		expect(registry.state(sessionId).phase).toBe("synchronizing");
+		release();
+		registry.shutdown();
+	});
+});
+
+describe("session timeline cache", () => {
+	it("round-trips the full projection with dates intact", () => {
+		const message = Message.make({
+			id: MessageId.make("cached-message"),
+			sessionId,
+			role: "assistant",
+			content: { _tag: "assistant", text: "cached" },
+			createdAt: new Date("2026-07-25T00:00:00.000Z"),
+		});
+		const entry = makeSessionTimelineCacheEntry({
+			sessionId,
+			appliedVersion: 8,
+			projection: SessionTimelineProjection.make({
+				...projection,
+				currentTurn: null,
+				messages: [message],
+			}),
+			now: 42,
+		});
+
+		const decoded = decodeSessionTimelineCacheEntry(
+			encodeSessionTimelineCacheEntry(entry),
+		);
+
+		expect(decoded.appliedVersion).toBe(8);
+		expect(decoded.projection.messages[0]?.createdAt).toEqual(
+			message.createdAt,
+		);
+		expect(decoded.savedAt).toBe(42);
+	});
+
+	it("rejects entries from an unsupported schema", () => {
+		expect(() =>
+			decodeSessionTimelineCacheEntry({
+				schemaVersion: 0,
+				sessionId,
+			}),
+		).toThrow();
 	});
 });

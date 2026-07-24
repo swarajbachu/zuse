@@ -1,4 +1,5 @@
 import { SessionTimelineRegistry } from "@zuse/client-runtime/session-timeline";
+import { makeSessionTimelineCacheEntry } from "@zuse/client-runtime/session-timeline-cache";
 import {
 	AgentTurnId,
   ComposerInput,
@@ -24,6 +25,7 @@ import {
 	reportRendererRpcStreamFailure,
 	subscribeRendererRpcConnection,
 } from "../lib/rpc-client.ts";
+import { sessionTimelineCache } from "../lib/session-timeline-cache.ts";
 import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import {
@@ -244,14 +246,23 @@ type MessagesState = {
 
 const timelineFibers = new Map<SessionId, Fiber.Fiber<unknown, unknown>>();
 const timelineTokens = new Map<SessionId, object>();
+const timelineStarts = new Set<SessionId>();
 const timelineRegistry = new SessionTimelineRegistry();
 const retainedTimelineSessions = new Set<SessionId>();
 const pendingTimelineSessionCreations = new Set<SessionId>();
-const timelineEvictionTimers = new Map<SessionId, ReturnType<typeof setTimeout>>();
+const timelineEvictionTimers = new Map<
+  SessionId,
+  ReturnType<typeof setTimeout>
+>();
 const timelineReconnectAttempts = new Map<SessionId, number>();
 const timelineReconnectTimers = new Map<
 	SessionId,
 	ReturnType<typeof setTimeout>
+>();
+const timelineCacheLoads = new Set<SessionId>();
+const timelineCacheWriteTimers = new Map<
+  SessionId,
+  ReturnType<typeof setTimeout>
 >();
 const goalFibers = new Map<SessionId, Fiber.Fiber<unknown, unknown>>();
 let liveConnectionGeneration: number | null = null;
@@ -274,6 +285,11 @@ const ensureLiveConnectionSubscription = (): void => {
 		if (snapshot.status !== "connected") return;
 		if (liveConnectionGeneration === null) {
 			liveConnectionGeneration = snapshot.generation;
+      for (const sessionId of retainedTimelineSessions) {
+        if (!timelineFibers.has(sessionId) && !timelineStarts.has(sessionId)) {
+          void useMessagesStore.getState().hydrate(sessionId);
+        }
+      }
 			return;
 		}
 		if (liveConnectionGeneration === snapshot.generation) return;
@@ -285,7 +301,8 @@ const ensureLiveConnectionSubscription = (): void => {
 			timelineTokens.delete(sessionId);
 			void Effect.runPromise(Fiber.interrupt(fiber));
 		}
-		for (const sessionId of sessions) void useMessagesStore.getState().hydrate(sessionId);
+    for (const sessionId of sessions)
+      void useMessagesStore.getState().hydrate(sessionId);
 	});
 };
 
@@ -327,7 +344,48 @@ const scheduleTimelineReconnect = (sessionId: SessionId): void => {
 	);
 };
 
-export const deferTimelineUntilSessionCreated = (sessionId: SessionId): void => {
+const scheduleTimelineCacheWrite = (sessionId: SessionId): void => {
+  const cache = sessionTimelineCache;
+  if (cache === null) return;
+  const state = timelineRegistry.state(sessionId);
+  if (
+    state.phase !== "live" ||
+    state.projection === null ||
+    state.projection.currentTurn !== null
+  ) {
+    return;
+  }
+  const previous = timelineCacheWriteTimers.get(sessionId);
+  if (previous !== undefined) clearTimeout(previous);
+  timelineCacheWriteTimers.set(
+    sessionId,
+    setTimeout(() => {
+      timelineCacheWriteTimers.delete(sessionId);
+      const settled = timelineRegistry.state(sessionId);
+      if (
+        settled.phase !== "live" ||
+        settled.projection === null ||
+        settled.projection.currentTurn !== null
+      ) {
+        return;
+      }
+      void cache
+        .save(
+          makeSessionTimelineCacheEntry({
+            sessionId,
+            appliedVersion: settled.appliedVersion,
+            projection: settled.projection,
+          }),
+        )
+        .then(() => cache.prune())
+        .catch(() => {});
+    }, 500),
+  );
+};
+
+export const deferTimelineUntilSessionCreated = (
+  sessionId: SessionId,
+): void => {
 	pendingTimelineSessionCreations.add(sessionId);
 };
 
@@ -335,7 +393,10 @@ export const acknowledgeTimelineSessionCreated = (
 	sessionId: SessionId,
 ): void => {
 	pendingTimelineSessionCreations.delete(sessionId);
-	if (retainedTimelineSessions.has(sessionId) && !timelineFibers.has(sessionId)) {
+  if (
+    retainedTimelineSessions.has(sessionId) &&
+    !timelineFibers.has(sessionId)
+  ) {
 		void useMessagesStore.getState().hydrate(sessionId);
 	}
 };
@@ -344,14 +405,19 @@ export const discardTimelineSessionCreation = (sessionId: SessionId): void => {
 	pendingTimelineSessionCreations.delete(sessionId);
 };
 
-export const teardownLiveStreams = async (sessionId?: SessionId): Promise<void> => {
+export const teardownLiveStreams = async (
+  sessionId?: SessionId,
+): Promise<void> => {
 	if (sessionId !== undefined) {
 		retainedTimelineSessions.delete(sessionId);
 		clearTimelineReconnect(sessionId);
 		const previous = timelineEvictionTimers.get(sessionId);
 		if (previous !== undefined) clearTimeout(previous);
-		if (timelineRegistry.state(sessionId).projection?.currentTurn != null) return;
-		timelineEvictionTimers.set(sessionId, setTimeout(() => {
+    if (timelineRegistry.state(sessionId).projection?.currentTurn != null)
+      return;
+    timelineEvictionTimers.set(
+      sessionId,
+      setTimeout(() => {
 			timelineEvictionTimers.delete(sessionId);
 			if (retainedTimelineSessions.has(sessionId)) return;
 			const fiber = timelineFibers.get(sessionId);
@@ -359,7 +425,8 @@ export const teardownLiveStreams = async (sessionId?: SessionId): Promise<void> 
 			timelineFibers.delete(sessionId);
 			timelineTokens.delete(sessionId);
 			timelineRegistry.delete(sessionId);
-		}, 5 * 60_000));
+      }, 5 * 60_000),
+    );
 		return;
 	}
 	stopLiveConnectionSubscription();
@@ -367,15 +434,21 @@ export const teardownLiveStreams = async (sessionId?: SessionId): Promise<void> 
 	timelineEvictionTimers.clear();
 	for (const timer of timelineReconnectTimers.values()) clearTimeout(timer);
 	timelineReconnectTimers.clear();
+  for (const timer of timelineCacheWriteTimers.values()) clearTimeout(timer);
+  timelineCacheWriteTimers.clear();
+  timelineCacheLoads.clear();
 	timelineReconnectAttempts.clear();
 	retainedTimelineSessions.clear();
 	pendingTimelineSessionCreations.clear();
 	const fibers = [...timelineFibers.values(), ...goalFibers.values()];
 	timelineFibers.clear();
-	timelineTokens.clear();
+  timelineTokens.clear();
+  timelineStarts.clear();
 	goalFibers.clear();
 	timelineRegistry.shutdown();
-	await Promise.all(fibers.map((fiber) => Effect.runPromise(Fiber.interrupt(fiber))));
+  await Promise.all(
+    fibers.map((fiber) => Effect.runPromise(Fiber.interrupt(fiber))),
+  );
 };
 
 export const useMessagesStore = create<MessagesState>((set, get) => ({
@@ -392,7 +465,8 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 		timelineEvictionTimers.delete(sessionId);
 		if (pendingTimelineSessionCreations.has(sessionId)) return;
 		ensureLiveConnectionSubscription();
-		if (timelineFibers.has(sessionId)) return;
+    if (timelineFibers.has(sessionId) || timelineStarts.has(sessionId)) return;
+    timelineStarts.add(sessionId);
     set((s) => ({
       // Preserve any pre-seeded messages (e.g. the initial user message
       // that `chats.create` stuffed in optimistically) so the chat view
@@ -406,13 +480,59 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       errorBySession: { ...s.errorBySession, [sessionId]: null },
     }));
     try {
+      if (
+        sessionTimelineCache !== null &&
+        !timelineCacheLoads.has(sessionId) &&
+        timelineRegistry.state(sessionId).projection === null
+      ) {
+        timelineCacheLoads.add(sessionId);
+        const cached = await sessionTimelineCache
+          .load(sessionId)
+          .catch(() => null);
+        if (cached !== null) {
+          timelineRegistry.restore(
+            sessionId,
+            cached.projection,
+            cached.appliedVersion,
+          );
+          set((state) => ({
+            messagesBySession: {
+              ...state.messagesBySession,
+              [sessionId]: [
+                ...cached.projection.messages,
+                ...(state.messagesBySession[sessionId] ?? []).filter(
+                  (message) =>
+                    optimisticIds.has(message.id) &&
+                    !cached.projection.messages.some(
+                      (durable) => durable.id === message.id,
+                    ),
+                ),
+              ],
+            },
+            runningBySession: {
+              ...state.runningBySession,
+              [sessionId]: cached.projection.currentTurn !== null,
+            },
+            queueBySession: {
+              ...state.queueBySession,
+              [sessionId]: cached.projection.queue.items,
+            },
+            queuePausedBySession: {
+              ...state.queuePausedBySession,
+              [sessionId]: cached.projection.queue.paused,
+            },
+          }));
+          markQueueHydrated(sessionId);
+        }
+      }
       const client = await getMessagesRpcClient();
-			if (
-				!retainedTimelineSessions.has(sessionId) ||
-				timelineFibers.has(sessionId)
-			) {
-				return;
-			}
+      if (
+        !retainedTimelineSessions.has(sessionId) ||
+        timelineFibers.has(sessionId)
+      ) {
+        timelineStarts.delete(sessionId);
+        return;
+      }
       // Resume from the recorded cursor only while the store still holds the
       // rows the cursor accounts for; otherwise (first visit, page reload)
       // stream the full history. Pre-seeded optimistic rows never record a
@@ -469,8 +589,15 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
         }),
 				(frame) =>
           Effect.sync(() => {
-						timelineRegistry.accept(sessionId, frame);
+            const timeline = timelineRegistry.accept(sessionId, frame);
+            if (timeline.phase === "stale") {
+              timelineRegistry.delete(sessionId);
+              throw new Error(
+                `Transcript continuity check failed: ${timeline.error ?? "unknown gap"}`,
+              );
+            }
 						publishTimelineState();
+            scheduleTimelineCacheWrite(sessionId);
           }),
       ).pipe(
 				Effect.andThen(
@@ -512,8 +639,9 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 			const timelineFiber = Effect.runFork(
 				Effect.yieldNow.pipe(Effect.andThen(messageProgram)),
 			);
-			timelineTokens.set(sessionId, streamToken);
-			timelineFibers.set(sessionId, timelineFiber);
+      timelineTokens.set(sessionId, streamToken);
+      timelineFibers.set(sessionId, timelineFiber);
+      timelineStarts.delete(sessionId);
       const goalProvider = lookupSessionProvider(sessionId);
       if (goalProvider === "codex" || goalProvider === "grok") {
 				goalFibers.set(
@@ -542,12 +670,14 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
         );
       }
     } catch (err) {
+      timelineStarts.delete(sessionId);
       set((s) => ({
         errorBySession: {
           ...s.errorBySession,
           [sessionId]: classifyError(err, lookupSessionProvider(sessionId)),
         },
       }));
+      scheduleTimelineReconnect(sessionId);
     }
   },
   send: async (sessionId, input, opts) => {

@@ -1,4 +1,4 @@
-import { Message, MessageEnvelope } from "@zuse/contracts";
+import { MessageEnvelope, SessionTimelineProjection } from "@zuse/contracts";
 import { Effect, Schema } from "effect";
 import * as FileSystem from "expo-file-system/legacy";
 
@@ -61,8 +61,10 @@ export type SessionsSnapshot = {
 };
 
 export type MessagesSnapshot = {
-	highestSequence: number;
-	messages: readonly Message[];
+	schemaVersion: 1;
+	appliedVersion: number;
+	projection: SessionTimelineProjection;
+	savedAt: number;
 };
 
 /** One message the user sent while offline, awaiting flush to the server. */
@@ -134,8 +136,10 @@ export const writeSessionsSnapshot = (
 	);
 
 const EncodedMessagesSnapshot = Schema.Struct({
-	highestSequence: Schema.Number,
-	messages: Schema.Array(Message),
+	schemaVersion: Schema.Literal(1),
+	appliedVersion: Schema.Number,
+	projection: SessionTimelineProjection,
+	savedAt: Schema.Number,
 });
 
 export const readMessagesSnapshot = (connKey: string, sessionId: string) =>

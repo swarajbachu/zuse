@@ -60,6 +60,8 @@ const liveFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 const timelineRegistry = new SessionTimelineRegistry();
 const retainedTimelines = new Set<string>();
 const evictionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const reconnectAttempts = new Map<string, number>();
 const refreshes = new Map<string, Promise<void>>();
 const hydrationInputs = new Map<
 	string,
@@ -125,7 +127,30 @@ const stopFiber = async (
 };
 
 const stop = async (key: string) => {
+	const reconnect = reconnectTimers.get(key);
+	if (reconnect !== undefined) clearTimeout(reconnect);
+	reconnectTimers.delete(key);
+	reconnectAttempts.delete(key);
 	await stopFiber(key, liveFibers);
+};
+
+const scheduleReconnect = (key: string): void => {
+	if (!retainedTimelines.has(key) || reconnectTimers.has(key)) return;
+	const input = hydrationInputs.get(key);
+	if (input === undefined) return;
+	const attempt = (reconnectAttempts.get(key) ?? 0) + 1;
+	reconnectAttempts.set(key, attempt);
+	reconnectTimers.set(
+		key,
+		setTimeout(
+			() => {
+				reconnectTimers.delete(key);
+				if (!retainedTimelines.has(key) || liveFibers.has(key)) return;
+				void hydrateMessages(input.connKey, input.options, input.sessionId);
+			},
+			Math.min(100 * 2 ** (attempt - 1), 5_000),
+		),
+	);
 };
 
 export const resetMessagesRuntime = async (): Promise<void> => {
@@ -135,6 +160,9 @@ export const resetMessagesRuntime = async (): Promise<void> => {
 	hydrationGeneration.clear();
 	for (const timer of evictionTimers.values()) clearTimeout(timer);
 	evictionTimers.clear();
+	for (const timer of reconnectTimers.values()) clearTimeout(timer);
+	reconnectTimers.clear();
+	reconnectAttempts.clear();
 	retainedTimelines.clear();
 	hydrationInputs.clear();
 	refreshes.clear();
@@ -200,7 +228,27 @@ export const hydrateMessages = async (
 	);
 	if (hydrationGeneration.get(liveKey) !== generation) return;
 	if (cached !== null) {
-		patchMessages(liveKey, cached.messages);
+		timelineRegistry.restore(
+			SessionId.make(liveKey),
+			cached.projection,
+			cached.appliedVersion,
+		);
+		batchAtomUpdates(() => {
+			const current = appAtomRegistry.get(messagesBySessionAtom)[liveKey] ?? [];
+			const durableIds = new Set(
+				cached.projection.messages.map((message) => message.id),
+			);
+			patchMessages(liveKey, [
+				...cached.projection.messages,
+				...current.filter(
+					(message) =>
+						optimisticIds.has(message.id) && !durableIds.has(message.id),
+				),
+			]);
+			syncSessionTurnActivity(liveKey, cached.projection.currentTurn !== null);
+			patchQueue(liveKey, cached.projection.queue.items);
+			patchQueuePaused(liveKey, cached.projection.queue.paused);
+		});
 	}
 
 	batchAtomUpdates(() => {
@@ -211,14 +259,7 @@ export const hydrateMessages = async (
 	const run = async () => {
 		try {
 			const client = await Effect.runPromise(getConnectionClient(options));
-			const listed = await Effect.runPromise(
-				client["messages.list"]({ sessionId }),
-			);
 			if (hydrationGeneration.get(liveKey) !== generation) return;
-			if (listed.length > 0) {
-				patchMessages(liveKey, listed);
-				void flushMessages(connKey, sessionId);
-			}
 			const retained = timelineRegistry.state(SessionId.make(liveKey));
 			let fiber: Fiber.Fiber<unknown, unknown>;
 			const streamProgram = Stream.runForEach(
@@ -232,6 +273,12 @@ export const hydrateMessages = async (
 						if (hydrationGeneration.get(liveKey) !== generation) return;
 						timelineRegistry.accept(SessionId.make(liveKey), frame);
 						const next = timelineRegistry.state(SessionId.make(liveKey));
+						if (next.phase === "stale") {
+							timelineRegistry.delete(SessionId.make(liveKey));
+							throw new Error(
+								`Transcript continuity check failed: ${next.error ?? "unknown gap"}`,
+							);
+						}
 						if (next.projection === null) return;
 						const durable = next.projection.messages;
 						const durableIds = new Set(durable.map((message) => message.id));
@@ -258,7 +305,9 @@ export const hydrateMessages = async (
 							patchQueue(liveKey, next.projection?.queue.items ?? []);
 							patchQueuePaused(liveKey, next.projection?.queue.paused ?? false);
 						});
-						void flushMessages(connKey, sessionId);
+						if (next.phase === "live") {
+							void flushMessages(connKey, sessionId);
+						}
 					}),
 			).pipe(
 				Effect.andThen(
@@ -285,6 +334,7 @@ export const hydrateMessages = async (
 					Effect.sync(() => {
 						if (liveFibers.get(liveKey) === fiber) {
 							liveFibers.delete(liveKey);
+							scheduleReconnect(liveKey);
 						}
 					}),
 				),
@@ -298,6 +348,7 @@ export const hydrateMessages = async (
 				patchReconnecting(liveKey, true);
 				patchError(liveKey, messageOf(cause));
 			});
+			scheduleReconnect(liveKey);
 		}
 	};
 
@@ -338,12 +389,20 @@ export const flushMessages = async (
 	sessionId: SessionId,
 ): Promise<void> => {
 	const liveKey = connectionSessionKey(connKey, sessionId);
-	const messages = appAtomRegistry.get(messagesBySessionAtom)[liveKey] ?? [];
+	const timeline = timelineRegistry.state(SessionId.make(liveKey));
+	if (
+		timeline.phase !== "live" ||
+		timeline.projection === null ||
+		timeline.projection.currentTurn !== null
+	) {
+		return;
+	}
 	await Effect.runPromise(
 		writeMessagesSnapshot(connKey, sessionId, {
-			highestSequence: timelineRegistry.state(SessionId.make(liveKey))
-				.appliedVersion,
-			messages,
+			schemaVersion: 1,
+			appliedVersion: timeline.appliedVersion,
+			projection: timeline.projection,
+			savedAt: Date.now(),
 		}),
 	).catch(() => {});
 };

@@ -94,6 +94,9 @@ export interface SqlDispatchStorageApi<
 		fromExclusive: number,
 		toInclusive: number,
 	) => Effect.Effect<readonly StoredEvent<Event>[], StorageError>;
+	readonly currentStreamVersion: (
+		streamId: string,
+	) => Effect.Effect<number, StorageError>;
 }
 
 export const makeSqlDispatchStorage = <
@@ -178,6 +181,17 @@ export const makeSqlDispatchStorage = <
 		return yield* decodeRows(rows);
 	});
 
+	const currentStreamVersion = Effect.fn(
+		"SqlDispatchStorage.currentStreamVersion",
+	)(function* (streamId: string) {
+		const rows = yield* sql<{ readonly version: number }>`
+			SELECT COALESCE(MAX(stream_version), 0) AS version
+			FROM events
+			WHERE stream_kind = ${streamKind} AND stream_id = ${streamId}
+		`;
+		return rows[0]?.version ?? 0;
+	});
+
 	const append = Effect.fn("SqlDispatchStorage.append")(function* (
 		input: AppendInput<Event>,
 	) {
@@ -241,6 +255,7 @@ export const makeSqlDispatchStorage = <
 		eventsAfterSequence,
 		allEventsAfterSequence,
 		eventsInVersionRange,
+		currentStreamVersion,
 		append,
 	};
 };

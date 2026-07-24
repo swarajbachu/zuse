@@ -168,15 +168,25 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 				// Attach live delivery before observing the durable head. Events that
 				// commit during snapshot/replay are retained by this subscription.
 				const subscription = yield* PubSub.subscribe(eventHub);
-				const captured = yield* dispatchStorage.events(streamId);
 				const throughVersion =
-					captured[captured.length - 1]?.streamVersion ?? 0;
+					yield* dispatchStorage.currentStreamVersion(streamId);
 				const retainedVersion = afterVersion ?? 0;
 				const needsSnapshot =
 					!hasProjection ||
 					afterVersion === undefined ||
 					retainedVersion > throughVersion ||
 					throughVersion - retainedVersion > snapshotGap;
+				const captured = needsSnapshot
+					? yield* dispatchStorage.eventsInVersionRange(
+							streamId,
+							0,
+							throughVersion,
+						)
+					: yield* dispatchStorage.eventsInVersionRange(
+							streamId,
+							retainedVersion,
+							throughVersion,
+						);
 				const prefix: SessionSynchronizationRecord[] = needsSnapshot
 					? [{ kind: "snapshot", throughVersion, events: captured }]
 					: captured
