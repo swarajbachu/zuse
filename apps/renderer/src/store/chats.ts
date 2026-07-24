@@ -16,6 +16,7 @@ import {
 import { Effect, Fiber, Stream } from "effect";
 import { toastManager } from "../components/ui/toast.tsx";
 import { formatError } from "../lib/format-error.ts";
+import { upsertLatestEntity } from "../lib/latest-entity.ts";
 import {
 	markRendererInteraction,
 	trackRendererRpc,
@@ -209,7 +210,7 @@ const upsertChat = (
 	chats: ReadonlyArray<Chat>,
 	chat: Chat,
 ): ReadonlyArray<Chat> =>
-	[chat, ...chats.filter((row) => row.id !== chat.id)].sort(
+	[...upsertLatestEntity(chats, chat)].sort(
 		(a, b) => chatSortTime(b) - chatSortTime(a),
 	);
 
@@ -534,10 +535,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				return {
 					sessionsByProject: {
 						...s.sessionsByProject,
-						[projectId]: [
-							initialSession,
-							...list.filter((row) => row.id !== initialSession.id),
-						],
+						[projectId]: upsertLatestEntity(list, initialSession),
 					},
 					selectedSessionId: initialSession.id,
 					selectedSessionByProject: {

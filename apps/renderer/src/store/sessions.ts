@@ -15,6 +15,7 @@ import type {
 import { Session, SessionId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { formatError } from "../lib/format-error.ts";
+import { upsertLatestEntity } from "../lib/latest-entity.ts";
 import {
 	markRendererInteraction,
 	trackRendererRpc,
@@ -318,10 +319,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				return {
 					sessionsByProject: {
 						...s.sessionsByProject,
-						[projectId]: [
-							session,
-							...existing.filter((row) => row.id !== session.id),
-						],
+						[projectId]: upsertLatestEntity(existing, session),
 					},
 					selectedSessionId: session.id,
 					selectedSessionByProject: {
@@ -677,9 +675,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				return {
 					sessionsByProject: {
 						...s.sessionsByProject,
-						[projectId]: sessions.map((existing) =>
-							existing.id === sessionId ? session : existing,
-						),
+						[projectId]: upsertLatestEntity(sessions, session),
 					},
 					selectedSessionId: session.id,
 					selectedSessionByProject: {
