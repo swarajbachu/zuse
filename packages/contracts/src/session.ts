@@ -756,8 +756,9 @@ export const SessionExportTranscriptRpc = Rpc.make("session.exportTranscript", {
 
 /**
  * The most recent `ExitPlanMode` plan text for a session, or `null` if it has
- * never proposed a plan. Backs the "Add plans" chip on a new chat — cheap
- * enough to probe candidate sources without hydrating their full message log.
+ * never proposed a plan. Backs the plan context chip between sessions in one
+ * chat — cheap enough to probe candidate sources without hydrating their full
+ * message log.
  */
 export const SessionLatestPlanRpc = Rpc.make("session.latestPlan", {
 	payload: Schema.Struct({ sessionId: SessionId }),

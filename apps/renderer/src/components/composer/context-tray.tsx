@@ -9,6 +9,7 @@ import {
 	fetchTranscriptMarkdown,
 	saveContextFile,
 } from "../../lib/context-handoff.ts";
+import { selectContextSources } from "../../lib/context-sources.ts";
 import { useMessagesStore } from "../../store/messages.ts";
 import { useSessionsStore } from "../../store/sessions.ts";
 import { ProviderIcon } from "../provider-icons.tsx";
@@ -16,11 +17,11 @@ import { toastManager } from "../ui/toast.tsx";
 
 /**
  * Compact tray above the composer on a fresh session. Offers one-click chips to
- * pull a sibling chat's transcript or proposed plan into this one — the text is
- * written to `.context/files/` and dropped in as a composer file chip. Sources
- * are scoped to the SAME worktree (or, for main-checkout chats, the same
- * project with no worktree) so unrelated branches never leak in. Hidden once
- * the session has a message, or when there's nothing to pull from.
+ * pull a sibling session's transcript or proposed plan into this one — the text
+ * is written to `.context/files/` and dropped in as a composer file chip.
+ * Sources are scoped to the same chat, so starting a separate chat never
+ * surfaces unrelated context. Hidden once the session has a message, or when
+ * there's nothing to pull from.
  */
 export function ContextTray({ sessionId }: { sessionId: SessionId }) {
 	const sessionsByProject = useSessionsStore((s) => s.sessionsByProject);
@@ -30,28 +31,10 @@ export function ContextTray({ sessionId }: { sessionId: SessionId }) {
 	const [plans, setPlans] = useState<Record<string, string>>({});
 	const [busy, setBusy] = useState<string | null>(null);
 
-	const current = useMemo(
-		() =>
-			Object.values(sessionsByProject)
-				.flat()
-				.find((row) => row.id === sessionId) ?? null,
+	const sources = useMemo(
+		() => selectContextSources(sessionsByProject, sessionId),
 		[sessionsByProject, sessionId],
 	);
-
-	const sources = useMemo<ReadonlyArray<Session>>(() => {
-		if (current === null) return [];
-		return Object.values(sessionsByProject)
-			.flat()
-			.filter(
-				(row) =>
-					row.id !== sessionId &&
-					row.archivedAt === null &&
-					row.projectId === current.projectId &&
-					// Same worktree only (both null = same main checkout).
-					row.worktreeId === current.worktreeId,
-			)
-			.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-	}, [sessionsByProject, current, sessionId]);
 
 	useEffect(() => {
 		let cancelled = false;
