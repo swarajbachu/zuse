@@ -755,9 +755,13 @@ describe("model visibility helpers", () => {
 	it("uses Sonnet 5 as the default visible Claude model", () => {
 		expect(defaultModelFor("claude")).toBe("claude-sonnet-5");
 		expect(visibleModelsForProvider("claude")[0]?.id).toBe("claude-fable-5");
+		expect(visibleModelsForProvider("claude")[1]?.id).toBe("claude-opus-5");
 		expect(isModelVisible("claude", "claude-sonnet-5")).toBe(true);
 		expect(isModelVisible("claude", "claude-fable-5")).toBe(true);
+		expect(isModelVisible("claude", "claude-opus-5")).toBe(true);
 		expect(resolveModelSlug("claude", "fable")).toBe("claude-fable-5");
+		expect(resolveModelSlug("claude", "opus")).toBe("claude-opus-5");
+		expect(resolveModelSlug("claude", "opus-5")).toBe("claude-opus-5");
 		expect(
 			MODELS_BY_PROVIDER.claude.find((m) => m.id === "claude-sonnet-5")
 				?.badgeLabel,
@@ -766,6 +770,10 @@ describe("model visibility helpers", () => {
 			MODELS_BY_PROVIDER.claude.find((m) => m.id === "claude-fable-5")
 				?.badgeLabel,
 		).toBe("Available now");
+		expect(
+			MODELS_BY_PROVIDER.claude.find((m) => m.id === "claude-opus-5")
+				?.badgeLabel,
+		).toBe("New");
 		expect(isModelVisible("claude", "claude-sonnet-4-6")).toBe(false);
 	});
 

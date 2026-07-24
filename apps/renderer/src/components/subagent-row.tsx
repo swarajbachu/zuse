@@ -19,6 +19,7 @@ import { Spinner } from "./ui/spinner";
 const MODEL_LABEL: Record<string, string> = {
 	"claude-sonnet-5": "Sonnet 5",
 	"claude-fable-5": "Fable 5",
+	"claude-opus-5": "Opus 5",
 	"claude-opus-4-7": "Opus 4.7",
 	"claude-sonnet-4-6": "Sonnet 4.6",
 	"claude-haiku-4-5": "Haiku 4.5",

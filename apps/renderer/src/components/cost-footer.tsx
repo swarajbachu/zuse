@@ -13,6 +13,7 @@ const EMPTY: ReadonlyArray<Message> = [];
 const MODEL_LABEL: Record<string, string> = {
 	"claude-sonnet-5": "Sonnet",
 	"claude-fable-5": "Fable",
+	"claude-opus-5": "Opus",
 	"claude-opus-4-7": "Opus",
 	"claude-sonnet-4-6": "Sonnet",
 	"claude-haiku-4-5": "Haiku",

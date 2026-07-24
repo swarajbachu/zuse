@@ -1006,6 +1006,27 @@ export const MODELS_BY_PROVIDER: Record<
       supportsWebSearch: "native",
     },
     {
+      id: "claude-opus-5",
+      label: "Opus 5",
+      badgeLabel: "New",
+      optionDescriptors: [
+        claudeEffortDescriptor({
+          options: [
+            { id: "low", label: "Low" },
+            { id: "medium", label: "Medium" },
+            { id: "high", label: "High" },
+            { id: "xhigh", label: "Extra High" },
+            { id: "max", label: "Max" },
+            { id: "ultracode", label: "Ultracode" },
+          ],
+          defaultId: "high",
+        }),
+        staticContextWindowDescriptor("1m", "1M"),
+      ],
+      supportsPlanMode: true,
+      supportsWebSearch: "native",
+    },
+    {
       id: "claude-sonnet-5",
       label: "Sonnet 5",
       badgeLabel: "New",
@@ -1390,10 +1411,12 @@ export const MODEL_ALIASES_BY_PROVIDER: Record<
   Record<string, string>
 > = {
   // Short / vendor-formatted slugs and pre-pricing-reset names route to the
-  // canonical 4.x slugs above, so a user typing `opus` or `sonnet-4.6`
+  // canonical slugs above, so a user typing `opus` or `sonnet-4.6`
   // resolves to the current model id.
   claude: {
-    opus: "claude-opus-4-8",
+    opus: "claude-opus-5",
+    "opus-5": "claude-opus-5",
+    "claude-opus-5": "claude-opus-5",
     "opus-4.8": "claude-opus-4-8",
     "claude-opus-4.8": "claude-opus-4-8",
     "opus-4.7": "claude-opus-4-7",
@@ -1480,6 +1503,12 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   // to $10 in / $50 out for ~2.5x throughput; we don't encode that here,
   // the renderer's cost footer applies the multiplier when the session
   // flips the boolean. 1M context window: no per-token premium.
+  "claude-opus-5": {
+    input: 5,
+    output: 25,
+    cacheRead: 0.5,
+    cacheCreate: 6.25,
+  },
   "claude-opus-4-8": {
     input: 5,
     output: 25,
