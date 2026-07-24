@@ -332,6 +332,22 @@ export const makeProviderReactorHandlers = (
 							createdAt: Date.now(),
 						},
 					})
+					.pipe(
+						Effect.catchTag("TurnAlreadyRunning", () =>
+							sessionDomain.dispatch({
+								commandId: `${reactorInput.commandId}:requeue`,
+								streamId: sessionId,
+								command: {
+									_tag: "EnqueueTurn",
+									queueId: reactorInput.command.queueId,
+									inputJson: reactorInput.command.inputJson,
+									position: 0,
+									createdAt: Date.now(),
+									ready: true,
+								},
+							}),
+						),
+					)
 					.pipe(Effect.orDie);
 				yield* reactorEffects.complete(reactorInput.commandId);
 			});

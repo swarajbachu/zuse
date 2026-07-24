@@ -329,6 +329,39 @@ describe("session decider", () => {
 		expect(running.currentTurnId).toBe("turn-2");
 	});
 
+	test("treats terminal interrupt replay for a settled turn as idempotent", () => {
+		const running = evolveAll(created(), [
+			{ _tag: "TurnStarted", turnId: "turn-1", startedAt: 2 },
+			{
+				_tag: "TurnSettled",
+				turnId: "turn-1",
+				outcome: "interrupted",
+				settledAt: 3,
+			},
+			{ _tag: "TurnStarted", turnId: "turn-2", startedAt: 4 },
+		]);
+
+		expect(
+			Result.getOrThrow(
+				decide(running, {
+					_tag: "AcknowledgeTurnInterrupt",
+					turnId: "turn-1",
+					acknowledgedAt: 5,
+				}),
+			),
+		).toEqual([]);
+		expect(
+			Result.getOrThrow(
+				decide(running, {
+					_tag: "FailTurnInterrupt",
+					turnId: "turn-1",
+					reason: "replayed after restart",
+					failedAt: 5,
+				}),
+			),
+		).toEqual([]);
+	});
+
 	test("atomically claims a queued turn, requests interrupt, and schedules its successor", () => {
 		const running = evolveAll(created(), [
 			{ _tag: "TurnStarted", turnId: "turn-1", startedAt: 2 },
