@@ -34,7 +34,10 @@ export type ScheduledSuccessorCommand = {
 	readonly inputJson: string;
 };
 
-export type AutoNameCommand = { readonly _tag: "AutoNameChat" };
+export type AutoNameCommand = {
+	readonly _tag: "AutoNameChat";
+	readonly turnId: string;
+};
 
 export type ChatArchiveCommand = {
 	readonly _tag: "ArchiveChatWorktree";
@@ -165,7 +168,10 @@ export const autoNameReactorDefinition: ReactorDefinition<
 				? [
 						{
 							streamId: record.streamId,
-							command: { _tag: "AutoNameChat" },
+							command: {
+								_tag: "AutoNameChat",
+								turnId: record.event.turnId,
+							},
 						},
 					]
 				: [],

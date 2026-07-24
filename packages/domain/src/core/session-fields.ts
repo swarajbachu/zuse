@@ -5,6 +5,7 @@ import {
 	SessionStatus,
 } from "@zuse/contracts";
 import { Effect, Schema } from "effect";
+import { TitleProvenance } from "../naming.js";
 
 export const SessionIdentityFields = {
 	sessionId: Schema.String,
@@ -15,6 +16,7 @@ export const SessionIdentityFields = {
 
 export const SessionConfigurationFields = {
 	title: Schema.String,
+	titleProvenance: Schema.optionalKey(TitleProvenance),
 	providerId: Schema.String,
 	model: Schema.String,
 	status: SessionStatus,
@@ -45,6 +47,7 @@ export const CompleteSessionCreatedEvent = Schema.TaggedStruct(
 export const SessionCreatedEventFields = {
 	...SessionIdentityFields,
 	title: Schema.optionalKey(SessionConfigurationFields.title),
+	titleProvenance: SessionConfigurationFields.titleProvenance,
 	providerId: Schema.optionalKey(SessionConfigurationFields.providerId),
 	model: Schema.optionalKey(SessionConfigurationFields.model),
 	status: Schema.optionalKey(SessionConfigurationFields.status),

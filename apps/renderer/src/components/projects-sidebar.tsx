@@ -78,6 +78,7 @@ import { useUsageLimitsStore } from "../store/usage-limits.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { BranchIcon, type BranchState } from "./branch-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
+import { RenameDialog } from "./rename-dialog.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { Spinner } from "./ui/spinner";
 
@@ -1086,12 +1087,10 @@ function ChatRow({ chat }: { chat: Chat }) {
 				: null;
 	const showDiff = stats !== null;
 
+	const [renameOpen, setRenameOpen] = useState(false);
 	const onRename = () => {
-		const next = window.prompt("Rename chat", chat.title);
-		if (next === null) return;
-		const trimmed = next.trim();
-		if (trimmed.length === 0 || trimmed === chat.title) return;
-		void renameChat(chat.id, trimmed);
+		setMenuOpen(false);
+		setRenameOpen(true);
 	};
 
 	const onDelete = () => {
@@ -1130,6 +1129,15 @@ function ChatRow({ chat }: { chat: Chat }) {
 
 	return (
 		<>
+			<RenameDialog
+				title="Rename chat"
+				description="Change the name shown in the projects sidebar."
+				label="Chat name"
+				value={chat.title}
+				open={renameOpen}
+				onOpenChange={setRenameOpen}
+				onRename={(title) => renameChat(chat.id, title)}
+			/>
 			<li>
 				{/* biome-ignore lint/a11y/useSemanticElements: this row contains a nested archive action. */}
 				<div

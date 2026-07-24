@@ -32,6 +32,7 @@ export const SessionCommand = Schema.Union([
 	}),
 	Schema.TaggedStruct("SetTitle", {
 		title: Schema.String,
+		titleProvenance: SessionCreatedFields.titleProvenance,
 		updatedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("SetModel", {

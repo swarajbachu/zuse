@@ -226,8 +226,15 @@ export default function ThreadsScreen() {
 							"Rename thread",
 							undefined,
 							(value) => {
-								if (value?.trim())
-									void renameSession(connKey, options, thread.id, value);
+								if (value?.trim()) {
+									void renameSession(connKey, options, thread.id, value).catch(
+										(cause) =>
+											Alert.alert(
+												"Could not rename session",
+												cause instanceof Error ? cause.message : String(cause),
+											),
+									);
+								}
 							},
 							"plain-text",
 							title,

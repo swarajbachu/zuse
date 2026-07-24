@@ -4,6 +4,7 @@ import type {
 	RuntimeMode,
 	SessionStatus,
 } from "@zuse/contracts";
+import { type TitleProvenance, titleProvenanceOrManual } from "../naming.js";
 import type { TurnPhase } from "./commands.js";
 import type { SessionEvent } from "./events.js";
 
@@ -33,6 +34,7 @@ export type SessionState = {
 	readonly chatId: string | null;
 	readonly projectId: string | null;
 	readonly title: string | null;
+	readonly titleProvenance: TitleProvenance;
 	readonly model: string | null;
 	readonly status: SessionStatus | null;
 	readonly queuePaused: boolean;
@@ -65,6 +67,7 @@ export const initialSessionState: SessionState = {
 	chatId: null,
 	projectId: null,
 	title: null,
+	titleProvenance: "manual",
 	model: null,
 	status: null,
 	queuePaused: false,
@@ -113,6 +116,7 @@ export const evolve = (
 				chatId: event.chatId,
 				projectId: event.projectId,
 				title: event.title ?? null,
+				titleProvenance: titleProvenanceOrManual(event.titleProvenance),
 				providerId: event.providerId ?? null,
 				model: event.model ?? null,
 				status: event.status ?? null,
@@ -125,7 +129,12 @@ export const evolve = (
 				version,
 			};
 		case "SessionTitleSet":
-			return { ...state, title: event.title, version };
+			return {
+				...state,
+				title: event.title,
+				titleProvenance: titleProvenanceOrManual(event.titleProvenance),
+				version,
+			};
 		case "SessionModelSet":
 			return { ...state, model: event.model, version };
 		case "SessionProviderSet":

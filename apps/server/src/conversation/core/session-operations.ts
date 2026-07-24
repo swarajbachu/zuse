@@ -27,7 +27,6 @@ import type {
 	ConversationOperations,
 	CreateSessionInput,
 } from "../services/conversation-services.ts";
-import { deriveProvisionalTitle } from "./conversation-input.ts";
 import { type ChatRow, sessionFromRecord } from "./conversation-records.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
 import {
@@ -147,7 +146,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 	): Effect.Effect<ChatRow, SessionStartError> =>
 		Effect.gen(function* () {
 			const rows = yield* sql<ChatRow>`
-          SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
+          SELECT id, project_id, worktree_id, title, title_provenance, active_session_id, origin_session_id,
                  archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
           FROM chats WHERE id = ${chatId} LIMIT 1
         `.pipe(Effect.orDie);
@@ -230,8 +229,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				});
 			}
 			const now = new Date();
-			const title =
-				input.title?.trim() || deriveProvisionalTitle(input.initialPrompt);
+			const title = input.title?.trim() || "New chat";
 			const agentsJson =
 				input.agents !== undefined && Object.keys(input.agents).length > 0
 					? JSON.stringify({
@@ -307,6 +305,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						chatId: input.chatId,
 						projectId,
 						title,
+						titleProvenance: input.title?.trim() ? "manual" : "pending",
 						providerId: input.providerId,
 						model: input.model,
 						status: rowStatus,
@@ -398,8 +397,10 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			yield* dispatchSessionCommand(sessionId, {
 				_tag: "SetTitle",
 				title,
+				titleProvenance: "manual",
 				updatedAt: yield* currentTimestamp,
 			});
+			return yield* lookupSession(sessionId);
 		});
 
 	/**

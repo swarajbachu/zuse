@@ -42,13 +42,13 @@ export const makeSqlSessionProjector = (
 				const createdAt = new Date(created.createdAt).toISOString();
 				yield* sql`
 					INSERT OR IGNORE INTO sessions
-						(id, project_id, title, provider_id, model, status,
+						(id, project_id, title, title_provenance, provider_id, model, status,
 						 archived_at, cursor, resume_strategy, runtime_mode,
 						 agents_json, worktree_id, chat_id, forked_from_session_id,
 						 forked_from_message_id, permission_mode, tool_search,
 						 queue_paused, created_at, updated_at)
 					VALUES
-						(${created.sessionId}, ${created.projectId}, ${created.title},
+						(${created.sessionId}, ${created.projectId}, ${created.title}, ${created.titleProvenance ?? "manual"},
 						 ${created.providerId}, ${created.model}, ${created.status}, NULL,
 						 ${created.cursor}, ${created.resumeStrategy}, ${created.runtimeMode},
 						 ${created.agentsJson}, ${created.worktreeId}, ${created.chatId},
@@ -66,7 +66,10 @@ export const makeSqlSessionProjector = (
 			case "SessionTitleSet": {
 				const updatedAt = new Date(event.updatedAt).toISOString();
 				yield* sql`
-					UPDATE sessions SET title = ${event.title}, updated_at = ${updatedAt}
+					UPDATE sessions
+					SET title = ${event.title},
+						title_provenance = ${event.titleProvenance ?? "manual"},
+						updated_at = ${updatedAt}
 					WHERE id = ${record.streamId}
 				`;
 				return;
@@ -224,13 +227,14 @@ export const makeSqlSessionProjector = (
 				const createdAt = new Date(event.createdAt).toISOString();
 				yield* sql`
 					INSERT INTO messages
-						(id, session_id, role, kind, content_json, parent_item_id,
+						(id, session_id, turn_id, role, kind, content_json, parent_item_id,
 						 created_at, sequence)
 					VALUES
-						(${event.messageId}, ${record.streamId}, ${event.role},
+						(${event.messageId}, ${record.streamId}, ${event.turnId}, ${event.role},
 						 ${event.kind}, ${event.contentJson}, ${event.parentItemId},
 						 ${createdAt}, ${record.sequence})
 					ON CONFLICT(id) DO UPDATE SET
+						turn_id = excluded.turn_id,
 						role = excluded.role,
 						kind = excluded.kind,
 						content_json = excluded.content_json,

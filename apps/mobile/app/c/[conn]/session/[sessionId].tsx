@@ -81,7 +81,9 @@ import {
 } from "~/lib/thread-view-state";
 import {
 	answerQuestion,
+	getWorktree,
 	makeTextInput,
+	renameWorktreeBranch,
 	respondToPlan,
 	sendMessage,
 } from "~/rpc/actions";
@@ -148,6 +150,7 @@ import {
 	createSession,
 	markChatRead,
 	renameChat,
+	renameSession,
 	selectSessionChat,
 	setActiveSession,
 	setPermissionMode,
@@ -649,7 +652,7 @@ function ThreadScreen() {
 						: { onReady: transcriptScroll.onAnchorReady }),
 				};
 
-	const onRename = () => {
+	const onRenameChat = () => {
 		if (chatId === null || options === null) return;
 		Alert.prompt(
 			"Rename chat",
@@ -657,11 +660,72 @@ function ThreadScreen() {
 			(value) => {
 				const next = value?.trim() ?? "";
 				if (next.length === 0) return;
-				void renameChat(connKey, options, chatId, next);
+				void renameChat(connKey, options, chatId, next).catch((cause) =>
+					Alert.alert("Could not rename chat", connectionErrorMessage(cause)),
+				);
 			},
 			"plain-text",
 			title,
 		);
+	};
+	const onRenameSession = () => {
+		if (detail === null || options === null) return;
+		Alert.prompt(
+			"Rename session",
+			undefined,
+			(value) => {
+				const next = value?.trim() ?? "";
+				if (next.length === 0) return;
+				void renameSession(connKey, options, detail.session.id, next).catch(
+					(cause) =>
+						Alert.alert(
+							"Could not rename session",
+							connectionErrorMessage(cause),
+						),
+				);
+			},
+			"plain-text",
+			detail.session.title,
+		);
+	};
+	const onRenameBranch = () => {
+		const worktreeId = detail?.session.worktreeId;
+		if (worktreeId == null || options === null) return;
+		void Effect.runPromise(getWorktree({ connection: options, worktreeId }))
+			.then((worktree) => {
+				if (worktree === null) {
+					Alert.alert(
+						"Could not rename branch",
+						"The worktree no longer exists.",
+					);
+					return;
+				}
+				Alert.prompt(
+					"Rename branch",
+					undefined,
+					(value) => {
+						const next = value?.trim() ?? "";
+						if (next.length === 0 || next === worktree.branch) return;
+						void Effect.runPromise(
+							renameWorktreeBranch({
+								connection: options,
+								worktreeId,
+								name: next,
+							}),
+						).catch((cause) =>
+							Alert.alert(
+								"Could not rename branch",
+								connectionErrorMessage(cause),
+							),
+						);
+					},
+					"plain-text",
+					worktree.branch,
+				);
+			})
+			.catch((cause) =>
+				Alert.alert("Could not rename branch", connectionErrorMessage(cause)),
+			);
 	};
 
 	const onArchive = () => {
@@ -850,7 +914,11 @@ function ThreadScreen() {
 									? undefined
 									: () => void togglePinnedChat(currentPinKey)
 							}
-							onRename={chatId === null ? undefined : onRename}
+							onRenameChat={chatId === null ? undefined : onRenameChat}
+							onRenameSession={detail === null ? undefined : onRenameSession}
+							onRenameBranch={
+								detail?.session.worktreeId == null ? undefined : onRenameBranch
+							}
 							onThreads={openThreads}
 							onChanges={openChanges}
 							onFiles={openFiles}

@@ -19,6 +19,55 @@ const created = () =>
 	]);
 
 describe("session decider", () => {
+	test("allows automatic naming only while the session title is pending", () => {
+		let state = created();
+		const automatic = Result.getOrThrow(
+			decide(state, {
+				_tag: "SetTitle",
+				title: "Generated session",
+				titleProvenance: "automatic",
+				updatedAt: 2,
+			}),
+		);
+		state = evolveAll(state, automatic);
+		expect(state.titleProvenance).toBe("automatic");
+		expect(
+			Result.getOrThrow(
+				decide(state, {
+					_tag: "SetTitle",
+					title: "Late title",
+					titleProvenance: "automatic",
+					updatedAt: 3,
+				}),
+			),
+		).toEqual([]);
+	});
+
+	test("manual session titles permanently win over automatic naming", () => {
+		let state = created();
+		state = evolveAll(
+			state,
+			Result.getOrThrow(
+				decide(state, {
+					_tag: "SetTitle",
+					title: "Manual session",
+					titleProvenance: "manual",
+					updatedAt: 2,
+				}),
+			),
+		);
+		expect(
+			Result.getOrThrow(
+				decide(state, {
+					_tag: "SetTitle",
+					title: "Generated session",
+					titleProvenance: "automatic",
+					updatedAt: 3,
+				}),
+			),
+		).toEqual([]);
+	});
+
 	test("creates a session exactly once", () => {
 		const first = decide(initialSessionState, createSessionCommand);
 		expect(Result.getOrThrow(first)).toEqual([

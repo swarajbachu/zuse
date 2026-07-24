@@ -1,5 +1,5 @@
 import { Result, Schema } from "effect";
-
+import { titleProvenanceOrManual } from "../naming.js";
 import type { SessionCommand } from "./commands.js";
 import type { SessionEvent } from "./events.js";
 import type { SessionState } from "./state.js";
@@ -64,9 +64,10 @@ export const decide = (
 	command: SessionCommand,
 ): Result.Result<readonly SessionEvent[], DomainError> => {
 	if (command._tag === "CreateSession") {
+		const titleProvenance = titleProvenanceOrManual(command.titleProvenance);
 		return state.exists
 			? Result.fail(new SessionAlreadyExists())
-			: success([{ ...command, _tag: "SessionCreated" }]);
+			: success([{ ...command, titleProvenance, _tag: "SessionCreated" }]);
 	}
 	if (command._tag === "CreateSessionWithInitialTurn") {
 		if (state.exists) return Result.fail(new SessionAlreadyExists());
@@ -99,15 +100,27 @@ export const decide = (
 	switch (command._tag) {
 		case "SetTitle": {
 			const title = command.title.trim();
+			const titleProvenance = titleProvenanceOrManual(command.titleProvenance);
 			if (title.length === 0) {
 				return Result.fail(
 					new ValidationFailed({ message: "title cannot be empty" }),
 				);
 			}
-			return state.title === title
+			if (
+				titleProvenance === "automatic" &&
+				state.titleProvenance !== "pending"
+			) {
+				return success([]);
+			}
+			return state.title === title && state.titleProvenance === titleProvenance
 				? success([])
 				: success([
-						{ _tag: "SessionTitleSet", title, updatedAt: command.updatedAt },
+						{
+							_tag: "SessionTitleSet",
+							title,
+							titleProvenance,
+							updatedAt: command.updatedAt,
+						},
 					]);
 		}
 		case "SetModel":

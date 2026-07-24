@@ -376,7 +376,7 @@ export const renameChat = (options: {
 }) => {
 	const program = Effect.gen(function* () {
 		const client = yield* getConnectionClient(options.connection);
-		yield* client["chat.rename"]({
+		return yield* client["chat.rename"]({
 			chatId: options.chatId,
 			title: options.title,
 		});
@@ -387,6 +387,36 @@ export const renameChat = (options: {
 		),
 	);
 };
+
+export const getWorktree = (options: {
+	connection: WsProtocolOptions;
+	worktreeId: WorktreeId;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["worktree.get"]({ worktreeId: options.worktreeId });
+	}).pipe(
+		Effect.tapError((cause) =>
+			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+		),
+	);
+
+export const renameWorktreeBranch = (options: {
+	connection: WsProtocolOptions;
+	worktreeId: WorktreeId;
+	name: string;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["worktree.renameBranch"]({
+			worktreeId: options.worktreeId,
+			name: options.name,
+		});
+	}).pipe(
+		Effect.tapError((cause) =>
+			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+		),
+	);
 
 export const markChatRead = (options: {
 	connection: WsProtocolOptions;

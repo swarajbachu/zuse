@@ -471,7 +471,6 @@ const ConversationRuntimeLive = Layer.effect(
 			persistMessage,
 			submitTurn,
 			ndjsonAppend,
-			lookupChat,
 			setGoal,
 			dispatchSessionCommand: appendSessionCommand,
 			dispatchSessionCommandWithId: (sessionId, commandId, command) =>
@@ -494,8 +493,6 @@ const ConversationRuntimeLive = Layer.effect(
 				}),
 			closeProvider,
 			interruptProviderFiber,
-			renameSession,
-			renameChat,
 		});
 		const { resumeSession, sendMessage, interruptSession, queueRuntime } =
 			messageOperations;

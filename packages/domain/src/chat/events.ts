@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { TitleProvenance } from "../naming.js";
 
 export const ChatEvent = Schema.Union([
 	Schema.TaggedStruct("ChatCreated", {
@@ -6,12 +7,14 @@ export const ChatEvent = Schema.Union([
 		projectId: Schema.String,
 		worktreeId: Schema.NullOr(Schema.String),
 		title: Schema.String,
+		titleProvenance: Schema.optionalKey(TitleProvenance),
 		originSessionId: Schema.NullOr(Schema.String),
 		lastReadAt: Schema.NullOr(Schema.Number),
 		createdAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("ChatRenamed", {
 		title: Schema.String,
+		titleProvenance: Schema.optionalKey(TitleProvenance),
 		updatedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("ChatRead", { readAt: Schema.Number }),

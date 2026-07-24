@@ -25,12 +25,12 @@ export const makeSqlChatProjector = (
 						: new Date(event.lastReadAt).toISOString();
 				yield* sql`
 					INSERT OR IGNORE INTO chats
-						(id, project_id, worktree_id, title, active_session_id,
+						(id, project_id, worktree_id, title, title_provenance, active_session_id,
 						 origin_session_id, archived_at, archived_worktree_json,
 						 last_message_at, last_read_at, created_at, updated_at)
 					VALUES
 						(${event.chatId}, ${event.projectId}, ${event.worktreeId},
-						 ${event.title}, NULL, ${event.originSessionId}, NULL, NULL,
+						 ${event.title}, ${event.titleProvenance ?? "manual"}, NULL, ${event.originSessionId}, NULL, NULL,
 						 NULL, ${lastReadAt}, ${createdAt}, ${createdAt})
 				`;
 				return;
@@ -38,7 +38,10 @@ export const makeSqlChatProjector = (
 			case "ChatRenamed": {
 				const updatedAt = new Date(event.updatedAt).toISOString();
 				yield* sql`
-					UPDATE chats SET title = ${event.title}, updated_at = ${updatedAt}
+					UPDATE chats
+					SET title = ${event.title},
+						title_provenance = ${event.titleProvenance ?? "manual"},
+						updated_at = ${updatedAt}
 					WHERE id = ${record.streamId}
 				`;
 				return;

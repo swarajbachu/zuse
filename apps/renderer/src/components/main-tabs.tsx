@@ -1,6 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	GitCompareIcon,
+	PencilEdit01Icon,
 	SquareLock01Icon,
 	TaskDone01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
@@ -13,7 +14,7 @@ import {
 	type SessionId,
 } from "@zuse/contracts";
 import { Plus, X } from "lucide-react";
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import {
 	type AgentActivityState,
 	deriveAgentActivityState,
@@ -32,6 +33,8 @@ import { useSettingsStore } from "../store/settings.ts";
 import { useUiStore } from "../store/ui.ts";
 import { FileIcon } from "./file-icon.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
+import { RenameDialog } from "./rename-dialog.tsx";
+import { TypewriterText } from "./typewriter-text.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { Spinner } from "./ui/spinner";
 
@@ -88,6 +91,8 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 			: EMPTY_SESSIONS,
 	);
 	const selectSession = useSessionsStore((s) => s.select);
+	const renameSession = useSessionsStore((s) => s.rename);
+	const [renamingSession, setRenamingSession] = useState<Session | null>(null);
 	// Per-session running flag — drives the provider-icon → Spinner swap on
 	// each tab so the user sees which session is streaming at a glance.
 	const runningBySession = useMessagesStore((s) => s.runningBySession);
@@ -135,89 +140,105 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 	);
 
 	return (
-		<header className="flex h-10 min-w-0 max-w-full shrink-0 items-stretch overflow-hidden border-b border-border">
-			<div className="flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto overflow-y-hidden px-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-				{changesTabOpen ? (
-					<FileTabButton
-						active={activeMainTab === "changes"}
-						name="Review"
-						path="Review every change on this branch"
-						dirty={false}
-						icon={
-							<HugeiconsIcon
-								icon={GitCompareIcon}
-								className="size-4 shrink-0"
-							/>
-						}
-						closeLabel="Close review"
-						onClick={() => setActiveMainTab("changes")}
-						onClose={closeChangesTab}
-					/>
-				) : null}
-				{openFile && (
-					<FileTabButton
-						active={activeMainTab === "file"}
-						name={openFile.name}
-						path={openFile.kind === "text" ? openFile.path : openFile.name}
-						dirty={openFile.kind === "text" ? fileDirty : false}
-						onClick={() => setActiveMainTab("file")}
-						onClose={closeFileTab}
-					/>
-				)}
-				{tabs.length === 0 && (
-					<TabButton
-						active={activeMainTab === "chat"}
-						onClick={() => setActiveMainTab("chat")}
-						label={emptyLabel}
-					/>
-				)}
-				{tabs.map((session) => {
-					const isActive =
-						activeMainTab === "chat" && selectedSessionId === session.id;
-					const modelLabel = lookupModelLabel(
-						session.providerId,
-						session.model,
-					);
-					const tooltip = modelLabel
-						? `${session.title} — ${PROVIDER_LABEL[session.providerId]} · ${modelLabel}`
-						: session.title;
-					return (
-						<ChatTabButton
-							key={session.id}
-							active={isActive}
-							label={session.title}
-							title={tooltip}
-							providerId={session.providerId}
-							booting={session.status === "booting"}
-							running={runningBySession[session.id] === true}
-							activityState={deriveAgentActivityState(
-								sidebarMessagesBySession[session.id] ?? [],
-							)}
-							awaitingPermission={awaitingPermission.has(session.id)}
-							awaitingPlanApproval={
-								awaitingPlanApproval.has(session.id) ||
-								deriveChatAttentionState(
-									sidebarMessagesBySession[session.id] ?? [],
-									false,
-								) === "planReady"
+		<>
+			{renamingSession !== null ? (
+				<RenameDialog
+					title="Rename session"
+					description="Change the name shown on this conversation tab."
+					label="Session name"
+					value={renamingSession.title}
+					open
+					onOpenChange={(open) => {
+						if (!open) setRenamingSession(null);
+					}}
+					onRename={(title) => renameSession(renamingSession.id, title)}
+				/>
+			) : null}
+			<header className="flex h-10 min-w-0 max-w-full shrink-0 items-stretch overflow-hidden border-b border-border">
+				<div className="flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto overflow-y-hidden px-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+					{changesTabOpen ? (
+						<FileTabButton
+							active={activeMainTab === "changes"}
+							name="Review"
+							path="Review every change on this branch"
+							dirty={false}
+							icon={
+								<HugeiconsIcon
+									icon={GitCompareIcon}
+									className="size-4 shrink-0"
+								/>
 							}
-							onClick={() => {
-								if (selectedSessionId !== session.id) {
-									selectSession(session.id);
-								}
-								setActiveMainTab("chat");
-							}}
-							onClose={() => {
-								void closeChatTab(session.id);
-							}}
+							closeLabel="Close review"
+							onClick={() => setActiveMainTab("changes")}
+							onClose={closeChangesTab}
 						/>
-					);
-				})}
-				{projectId !== null && activeChatId !== null && (
-					<NewChatTabButton chatId={activeChatId} />
-				)}
-			</div>
-		</header>
+					) : null}
+					{openFile && (
+						<FileTabButton
+							active={activeMainTab === "file"}
+							name={openFile.name}
+							path={openFile.kind === "text" ? openFile.path : openFile.name}
+							dirty={openFile.kind === "text" ? fileDirty : false}
+							onClick={() => setActiveMainTab("file")}
+							onClose={closeFileTab}
+						/>
+					)}
+					{tabs.length === 0 && (
+						<TabButton
+							active={activeMainTab === "chat"}
+							onClick={() => setActiveMainTab("chat")}
+							label={emptyLabel}
+						/>
+					)}
+					{tabs.map((session) => {
+						const isActive =
+							activeMainTab === "chat" && selectedSessionId === session.id;
+						const modelLabel = lookupModelLabel(
+							session.providerId,
+							session.model,
+						);
+						const tooltip = modelLabel
+							? `${session.title} — ${PROVIDER_LABEL[session.providerId]} · ${modelLabel}`
+							: session.title;
+						return (
+							<ChatTabButton
+								key={session.id}
+								active={isActive}
+								label={session.title}
+								title={tooltip}
+								providerId={session.providerId}
+								booting={session.status === "booting"}
+								running={runningBySession[session.id] === true}
+								activityState={deriveAgentActivityState(
+									sidebarMessagesBySession[session.id] ?? [],
+								)}
+								awaitingPermission={awaitingPermission.has(session.id)}
+								awaitingPlanApproval={
+									awaitingPlanApproval.has(session.id) ||
+									deriveChatAttentionState(
+										sidebarMessagesBySession[session.id] ?? [],
+										false,
+									) === "planReady"
+								}
+								onClick={() => {
+									if (selectedSessionId !== session.id) {
+										selectSession(session.id);
+									}
+									setActiveMainTab("chat");
+								}}
+								onClose={() => {
+									void closeChatTab(session.id);
+								}}
+								onRename={() => setRenamingSession(session)}
+							/>
+						);
+					})}
+					{projectId !== null && activeChatId !== null && (
+						<NewChatTabButton chatId={activeChatId} />
+					)}
+				</div>
+			</header>
+		</>
 	);
 }
 
@@ -247,6 +268,7 @@ const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 		}
 	}
 	if (projectId === null || session === null) return;
+	const currentSession = session;
 
 	const projectRows = sessions.sessionsByProject[projectId] ?? EMPTY_SESSIONS;
 	// Live siblings in the same chat (excluding the one we're closing) sorted
@@ -255,9 +277,9 @@ const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 	const siblings = projectRows
 		.filter(
 			(row) =>
-				row.chatId === session!.chatId &&
+				row.chatId === currentSession.chatId &&
 				row.archivedAt === null &&
-				row.id !== session!.id,
+				row.id !== currentSession.id,
 		)
 		.slice()
 		.sort(
@@ -269,19 +291,20 @@ const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 		// Not the last tab — archive and refocus the right neighbor (else left).
 		const idx = projectRows
 			.filter(
-				(row) => row.chatId === session!.chatId && row.archivedAt === null,
+				(row) =>
+					row.chatId === currentSession.chatId && row.archivedAt === null,
 			)
 			.sort(
 				(a, b) =>
 					new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
 			)
-			.findIndex((row) => row.id === session!.id);
+			.findIndex((row) => row.id === currentSession.id);
 		const ordered = projectRows
 			.filter(
 				(row) =>
-					row.chatId === session!.chatId &&
+					row.chatId === currentSession.chatId &&
 					row.archivedAt === null &&
-					row.id !== session!.id,
+					row.id !== currentSession.id,
 			)
 			.sort(
 				(a, b) =>
@@ -302,8 +325,8 @@ const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 	const providerId = settings.defaultProviderId;
 	const model =
 		settings.defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
-	await sessions.archive(session.id);
-	await sessions.create(session.chatId, providerId, model, {
+	await sessions.archive(currentSession.id);
+	await sessions.create(currentSession.chatId, providerId, model, {
 		runtimeMode: settings.defaultRuntimeMode,
 	});
 };
@@ -347,6 +370,7 @@ function ChatTabButton({
 	awaitingPlanApproval,
 	onClick,
 	onClose,
+	onRename,
 }: {
 	active: boolean;
 	label: string;
@@ -359,6 +383,7 @@ function ChatTabButton({
 	awaitingPlanApproval: boolean;
 	onClick: () => void;
 	onClose: () => void;
+	onRename: () => void;
 }) {
 	return (
 		<div
@@ -396,11 +421,26 @@ function ChatTabButton({
 					)}
 				</span>
 				<span
-					className="truncate leading-none"
+					className="min-w-0 truncate leading-none"
 					aria-live={booting ? "polite" : undefined}
 				>
-					{booting ? "Starting agent…" : label}
+					<TypewriterText
+						text={booting ? "Starting agent…" : label}
+						className="truncate"
+					/>
 				</span>
+			</button>
+			<button
+				type="button"
+				onClick={(event) => {
+					event.stopPropagation();
+					onRename();
+				}}
+				aria-label={`Rename ${label}`}
+				title="Rename session"
+				className="relative z-10 rounded p-1 opacity-0 transition-opacity hover:bg-foreground/10 group-hover:opacity-100 focus-visible:opacity-100"
+			>
+				<HugeiconsIcon icon={PencilEdit01Icon} className="size-3" />
 			</button>
 			<button
 				type="button"

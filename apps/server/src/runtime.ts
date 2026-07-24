@@ -340,8 +340,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	// messages tables. The chat-MVP RPC surface (session.* / messages.*) talks
 	// through this; legacy agent.* handlers stay bound to ProviderService for
 	// low-level testing.
-	// TitleGenerator names a chat from its first message by running one
-	// throwaway turn through the chat's OWN provider (via ProviderService), so
+	// TitleGenerator names pending chats, sessions, and fresh branches after
+	// their first submitted turn succeeds, using the chat's OWN provider, so
 	// it reuses whatever auth that provider has — a Grok-only user is never
 	// forced onto Claude.
 	const TitleGeneratorLayer = TitleGeneratorLive.pipe(
@@ -380,7 +380,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(RepositorySettingsLayer),
 		Layer.provide(PtyLayer),
 		// GitService + ConfigStore + TitleGenerator back the background auto-namer
-		// (rename chat + optional branch); see conversation-services `autoNameChat`.
+		// (independent chat/session/branch naming); see `autoNameChat`.
 		Layer.provide(GitLayer),
 		Layer.provide(ConfigStoreLayer),
 		Layer.provide(TitleGeneratorLayer),

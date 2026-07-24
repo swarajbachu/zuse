@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 
 import type { StoredEvent } from "../../../src/engine/dispatch.js";
 import {
+	autoNameReactorDefinition,
 	chatArchiveReactorDefinition,
 	providerStartReactorDefinition,
 } from "../../../src/reactors/conversation.js";
@@ -57,5 +58,66 @@ describe("conversation reactor definitions", () => {
 				command: { _tag: "ArchiveChatWorktree", force: false },
 			},
 		]);
+	});
+
+	test("does not request naming before provider output settles", async () => {
+		const commands = await Effect.runPromise(
+			autoNameReactorDefinition.react(
+				record({
+					_tag: "MessagePersisted",
+					messageId: "message-1",
+					turnId: "turn-1",
+					role: "user",
+					kind: "user",
+					contentJson: JSON.stringify({
+						_tag: "user",
+						text: "Fix reconnect handling",
+						goal: false,
+					}),
+					parentItemId: null,
+					createdAt: 1,
+				}),
+			),
+		);
+
+		expect(commands).toEqual([]);
+	});
+
+	test("requests naming after a completed turn", async () => {
+		const commands = await Effect.runPromise(
+			autoNameReactorDefinition.react(
+				record({
+					_tag: "TurnSettled",
+					turnId: "turn-1",
+					outcome: "completed",
+					settledAt: 2,
+				}),
+			),
+		);
+
+		expect(commands).toEqual([
+			{
+				streamId: "session-1",
+				command: {
+					_tag: "AutoNameChat",
+					turnId: "turn-1",
+				},
+			},
+		]);
+	});
+
+	test("does not request naming after an errored turn", async () => {
+		const commands = await Effect.runPromise(
+			autoNameReactorDefinition.react(
+				record({
+					_tag: "TurnSettled",
+					turnId: "turn-1",
+					outcome: "error",
+					settledAt: 2,
+				}),
+			),
+		);
+
+		expect(commands).toEqual([]);
 	});
 });

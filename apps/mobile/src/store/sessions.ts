@@ -173,14 +173,17 @@ export const renameChat = async (
 		patchChatFields(previous, chatId, { title: trimmed }),
 	);
 	try {
-		await Effect.runPromise(
+		const renamed = await Effect.runPromise(
 			renameChatRpc({ connection: options, chatId, title: trimmed }),
 		);
+		setConnectionBundles(connKey, patchChat(currentBundles(connKey), renamed));
 	} catch (cause) {
+		reportConnectionFailure(options, cause);
 		batchAtomUpdates(() => {
 			setConnectionBundles(connKey, previous);
 			setConnectionError(connKey, messageOf(cause));
 		});
+		throw cause;
 	}
 };
 
@@ -201,8 +204,12 @@ export const renameSession = async (
 	);
 	try {
 		const client = await Effect.runPromise(getConnectionClient(options));
-		await Effect.runPromise(
+		const renamed = await Effect.runPromise(
 			client["session.rename"]({ sessionId, title: trimmed }),
+		);
+		setConnectionBundles(
+			connKey,
+			patchSession(currentBundles(connKey), renamed),
 		);
 	} catch (cause) {
 		reportConnectionFailure(options, cause);
