@@ -360,7 +360,7 @@ export interface ConversationOperations {
 
 	/**
 	 * The latest `ExitPlanMode` plan text for a session, or `null` if none.
-	 * Backs the "Add plans" chip on a new chat.
+	 * Backs the plan context chip shown between sessions in the same chat.
 	 */
 	readonly latestPlan: (
 		sessionId: SessionId,
