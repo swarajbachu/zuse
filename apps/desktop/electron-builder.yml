@@ -84,6 +84,15 @@ npmRebuild: false
 
 mac:
   category: public.app-category.developer-tools
+  # Both per-architecture staging apps intentionally embed the same prebuilt
+  # universal Swift helpers. Allow the universal merger to keep that identical
+  # fat binary instead of rejecting it as an unexpected shared executable.
+  x64ArchFiles: "Contents/Resources/app/{local-connectivity,browser-credentials}/*"
+  # The bundled provider runtime has enough unpacked native files to exceed
+  # @electron/asar's minimatch pattern limit while merging architecture ASARs.
+  # Keep the architecture ASARs split; @electron/universal installs its tiny
+  # process.arch entrypoint and still produces one universal application.
+  mergeASARs: false
   # Two targets, one signed/notarized `.app`:
   #   * dmg  — what humans download from the Releases page for first install.
   #   * zip  — what `electron-updater` (Squirrel.Mac under the hood) consumes

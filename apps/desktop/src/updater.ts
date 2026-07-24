@@ -12,6 +12,12 @@ import {
   UPDATE_STATUS_CHANNEL,
   type UpdateStatus,
 } from "@zuse/contracts";
+import {
+  automaticUpdateRetryDelay,
+  isTransientUpdateCheckError,
+  updateCheckErrorMessage,
+  updateDownloadErrorMessage,
+} from "./updater-errors.ts";
 
 // electron-updater talks to the GitHub Releases feed configured in
 // apps/desktop/electron-builder.yml (`publish.provider: github`). It reads
@@ -33,6 +39,9 @@ const DOWNLOAD_STALL_MS = 60_000;
 
 let lastStatus: UpdateStatus = { kind: "idle" };
 let started = false;
+let activeUpdateCheck: "automatic" | "manual" | null = null;
+let updateCheckInFlight: Promise<void> | null = null;
+let automaticCheckRetryTimer: NodeJS.Timeout | null = null;
 
 // Set for the brief window between "the app is quitting to install an update"
 // and process exit. The `before-quit` agent guard in main.ts reads this so an
@@ -127,6 +136,68 @@ function emit(status: UpdateStatus): void {
   }
 }
 
+function clearAutomaticCheckRetry(): void {
+  if (automaticCheckRetryTimer === null) return;
+  clearTimeout(automaticCheckRetryTimer);
+  automaticCheckRetryTimer = null;
+}
+
+function scheduleAutomaticCheckRetry(
+  failedAttempt: number,
+  delayMs: number,
+): void {
+  clearAutomaticCheckRetry();
+  console.warn(
+    `[zuse:updater] automatic check failed — retrying in ${delayMs}ms`,
+  );
+  automaticCheckRetryTimer = setTimeout(() => {
+    automaticCheckRetryTimer = null;
+    void runUpdateCheck("automatic", failedAttempt + 1);
+  }, delayMs);
+  automaticCheckRetryTimer.unref();
+}
+
+/**
+ * Own every update check so transient failures from background polling can be
+ * retried without leaking electron-updater's raw HTTP response into the UI.
+ * Manual checks skip the backoff and surface a concise retryable error.
+ */
+function runUpdateCheck(
+  kind: "automatic" | "manual",
+  attempt = 0,
+): Promise<void> {
+  if (kind === "manual") clearAutomaticCheckRetry();
+  if (updateCheckInFlight !== null) return updateCheckInFlight;
+
+  activeUpdateCheck = kind;
+  const operation = Promise.resolve()
+    .then(() => autoUpdater.checkForUpdates())
+    .then(() => undefined)
+    .catch((error: unknown) => {
+      const retryDelay =
+        kind === "automatic" && isTransientUpdateCheckError(error)
+          ? automaticUpdateRetryDelay(attempt)
+          : null;
+      if (retryDelay !== null) {
+        console.warn("[zuse:updater] transient automatic check failure", error);
+        scheduleAutomaticCheckRetry(attempt, retryDelay);
+        return;
+      }
+      console.error("[zuse:updater] check failed", error);
+      emit({
+        kind: "error",
+        message: updateCheckErrorMessage(error),
+        retryable: true,
+      });
+    })
+    .finally(() => {
+      activeUpdateCheck = null;
+      updateCheckInFlight = null;
+    });
+  updateCheckInFlight = operation;
+  return operation;
+}
+
 /**
  * Snapshot of the latest update status. Menu rebuilds read this; everyone
  * else should subscribe via `onStatusChange` instead of polling.
@@ -213,13 +284,19 @@ export function startAutoUpdater(window: BrowserWindow): void {
   });
   autoUpdater.on("error", (err: Error) => {
     clearStallTimer();
-    emit({ kind: "error", message: err.message, retryable: true });
+    // checkForUpdates emits this event before rejecting its promise. The
+    // owned check path above decides whether to retry or surface the failure,
+    // avoiding duplicate/raw error toasts.
+    if (activeUpdateCheck !== null) return;
+    emit({
+      kind: "error",
+      message: updateDownloadErrorMessage(err),
+      retryable: true,
+    });
   });
 
   ipcMain.handle(UPDATE_CHECK_CHANNEL, async () => {
-    await autoUpdater.checkForUpdates().catch((err) => {
-      console.error("[zuse:updater] check failed", err);
-    });
+    await runUpdateCheck("manual");
   });
   ipcMain.handle(UPDATE_DOWNLOAD_CHANNEL, async () => {
     await autoUpdater.downloadUpdate().catch((err) => {
@@ -233,9 +310,7 @@ export function startAutoUpdater(window: BrowserWindow): void {
   });
 
   const check = () => {
-    autoUpdater.checkForUpdates().catch((err) => {
-      console.error("[zuse:updater] check failed", err);
-    });
+    void runUpdateCheck("automatic");
   };
   check();
   setInterval(check, UPDATE_POLL_MS);
@@ -247,9 +322,7 @@ export function startAutoUpdater(window: BrowserWindow): void {
  * routing through IPC would just bounce back to the same `autoUpdater` calls.
  */
 export function triggerUpdateCheck(): void {
-  autoUpdater.checkForUpdates().catch((err) => {
-    console.error("[zuse:updater] check failed", err);
-  });
+  void runUpdateCheck("manual");
 }
 
 export function triggerUpdateDownload(): void {

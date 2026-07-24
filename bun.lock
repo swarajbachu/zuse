@@ -42,7 +42,7 @@
         "@zuse/server": "*",
         "@zuse/ssh": "*",
         "effect": "catalog:",
-        "electron": "^42.1.0",
+        "electron": "42.1.0",
         "electron-builder": "^25.1.8",
         "fix-path": "^4.0.0",
         "sharp": "^0.34.1",

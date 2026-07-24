@@ -54,7 +54,7 @@
     "@types/node": "catalog:",
     "effect": "catalog:",
     "electron-builder": "^25.1.8",
-    "electron": "^42.1.0",
+    "electron": "42.1.0",
     "fix-path": "^4.0.0",
     "sharp": "^0.34.1",
     "tsdown": "^0.21.10",
