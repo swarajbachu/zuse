@@ -5,10 +5,12 @@ import type {
   AgentItemId,
   AgentSessionId,
   AgentSessionNotFoundError,
-  AgentSessionStartError,
-  AgentTurnId,
-  AttachmentRef,
-  FileRef,
+	AgentSessionStartError,
+	AgentTurnId,
+	AttachmentRef,
+	CredentialSetResult,
+	CredentialValidationError,
+	FileRef,
   PermissionMode,
 	PlanApprovalOutcome,
 	ProviderEventEnvelope,
@@ -93,10 +95,17 @@ export interface ProviderServiceShape {
 		servers: ReadonlyArray<unknown>,
 	) => Effect.Effect<void, AgentSessionNotFoundError>;
 
-  readonly setCredential: (
-    providerId: ProviderId,
-    apiKey: string,
-  ) => Effect.Effect<void, CredentialsError>;
+	readonly setCredential: (
+		providerId: ProviderId,
+		apiKey: string,
+	) => Effect.Effect<
+		CredentialSetResult,
+		CredentialsError | CredentialValidationError
+	>;
+
+	readonly removeCredential: (
+		providerId: ProviderId,
+	) => Effect.Effect<void, CredentialsError>;
 
   /**
    * Switch the SDK lifecycle mode on a live session. Claude only — Codex

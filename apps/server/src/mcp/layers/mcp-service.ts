@@ -63,7 +63,8 @@ const toDescriptor = (
 	source: server.source,
 	kind: "configured",
 	parentKey: null,
-	availableProviders: [server.source === "codex" ? "codex" : "claude"],
+	availableProviders:
+		server.source === "codex" ? ["codex", "cursor"] : ["claude", "cursor"],
 	transport: server.transport,
 	command: server.command,
 	args: server.args,
@@ -194,8 +195,15 @@ const resolveServer = (
 		};
 	}
 	const headers = expandRecord(server.headers, server.env);
-	if (accessToken !== null && headers.Authorization === undefined) {
-		headers.Authorization = `Bearer ${accessToken}`;
+	const bearerToken =
+		accessToken ??
+		(server.bearerTokenEnvVar === null
+			? null
+			: (server.env[server.bearerTokenEnvVar] ??
+				process.env[server.bearerTokenEnvVar] ??
+				null));
+	if (bearerToken !== null && headers.Authorization === undefined) {
+		headers.Authorization = `Bearer ${bearerToken}`;
 	}
 	return {
 		name: server.name,
@@ -787,53 +795,70 @@ export const McpServiceLive = Layer.effect(
 				}),
 			);
 
-		const resolveForClaudeSession: McpService["Service"]["resolveForClaudeSession"] =
-			(cwd) =>
-				Effect.gen(function* () {
-					const settings = yield* configStore.getSettings();
-					const native = readNativeServers({
-						cwd,
-						excludeCodexNames: RESERVED_CODEX_NAMES,
-					}).filter(
-						(server) =>
-							server.source !== "codex" &&
-							server.enabledInConfig &&
-							!settings.mcpDisabledServers.includes(keyFor(server)),
-					);
-					// Per-repository disables also apply when the cwd maps to a known
-					// project (worktrees resolve to the project's repo settings file
-					// living in the checkout itself — read via the repo service when
-					// a projectId is known; sessions pass cwd only, so match by path).
-					const rows = yield* sql<{ readonly id: string }>`
+		const resolveNativeServers = (
+			cwd: string,
+			include: (server: NativeMcpServer) => boolean,
+		): Effect.Effect<ReadonlyArray<ResolvedMcpServer>> =>
+			Effect.gen(function* () {
+				const settings = yield* configStore.getSettings();
+				const native = readNativeServers({
+					cwd,
+					excludeCodexNames: RESERVED_CODEX_NAMES,
+				}).filter(
+					(server) =>
+						include(server) &&
+						server.enabledInConfig &&
+						!settings.mcpDisabledServers.includes(keyFor(server)),
+				);
+				// Per-repository disables also apply when the cwd maps to a known
+				// project (worktrees resolve to the project's repo settings file
+				// living in the checkout itself — read via the repo service when
+				// a projectId is known; sessions pass cwd only, so match by path).
+				const rows = yield* sql<{ readonly id: string }>`
 						SELECT id FROM projects WHERE path = ${cwd} LIMIT 1
 					`.pipe(Effect.catch(() => Effect.succeed([])));
-					const projectId = rows[0]?.id as FolderId | undefined;
-					const repoDisabled =
-						projectId === undefined
-							? new Set<string>()
-							: new Set(
-									(yield* repositorySettings
-										.get(projectId)
-										.pipe(
-											Effect.catch(() =>
-												Effect.succeed({ mcpDisabledServers: [] }),
-											),
-										)).mcpDisabledServers,
-								);
-					const resolved: ResolvedMcpServer[] = [];
-					for (const server of native) {
-						if (repoDisabled.has(keyFor(server))) continue;
-						const token =
-							server.transport === "stdio" || server.url === null
-								? null
-								: yield* getValidMcpAccessToken({
-										serverUrl: expandEnvRefs(server.url, server.env),
-										store: oauthStore(keyFor(server)),
-									});
-						resolved.push(resolveServer(server, token));
-					}
-					return resolved;
-				}).pipe(Effect.catch(() => Effect.succeed([])));
+				const projectId = rows[0]?.id as FolderId | undefined;
+				const repoDisabled =
+					projectId === undefined
+						? new Set<string>()
+						: new Set(
+								(yield* repositorySettings
+									.get(projectId)
+									.pipe(
+										Effect.catch(() =>
+											Effect.succeed({ mcpDisabledServers: [] }),
+										),
+									)).mcpDisabledServers,
+							);
+				const nameCounts = new Map<string, number>();
+				for (const server of native) {
+					nameCounts.set(server.name, (nameCounts.get(server.name) ?? 0) + 1);
+				}
+				const resolved: ResolvedMcpServer[] = [];
+				for (const server of native) {
+					if (repoDisabled.has(keyFor(server))) continue;
+					const token =
+						server.transport === "stdio" || server.url === null
+							? null
+							: yield* getValidMcpAccessToken({
+									serverUrl: expandEnvRefs(server.url, server.env),
+									store: oauthStore(keyFor(server)),
+								});
+					const value = resolveServer(server, token);
+					resolved.push(
+						(nameCounts.get(server.name) ?? 0) > 1
+							? { ...value, name: `${server.source}:${server.name}` }
+							: value,
+					);
+				}
+				return resolved;
+			}).pipe(Effect.catch(() => Effect.succeed([])));
+
+		const resolveForClaudeSession: McpService["Service"]["resolveForClaudeSession"] =
+			(cwd) => resolveNativeServers(cwd, (server) => server.source !== "codex");
+
+		const resolveForCursorSession: McpService["Service"]["resolveForCursorSession"] =
+			(cwd) => resolveNativeServers(cwd, () => true);
 
 		return {
 			list,
@@ -841,6 +866,7 @@ export const McpServiceLive = Layer.effect(
 			setEnabled,
 			authenticate,
 			resolveForClaudeSession,
+			resolveForCursorSession,
 		} as const;
 	}),
 );

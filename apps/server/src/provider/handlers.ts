@@ -67,12 +67,27 @@ const SetCredential = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const RemoveCredential = MemoizeRpcs.toLayerHandler(
+	"provider.removeCredential",
+	({ providerId }) =>
+		Effect.flatMap(ProviderService, (svc) =>
+			svc.removeCredential(providerId).pipe(
+				Effect.catchTag("CredentialsError", (err) =>
+					Effect.fail(
+						new CredentialStoreError({
+							providerId: err.providerId as ProviderId,
+							reason: err.reason,
+						}),
+					),
+				),
+			),
+		),
+);
+
 // Renderer subscribes to this when the user clicks the "Sign in" button on a
-// provider card or in an auth error bubble. `cursor`, `claude`, and `grok`
-// have real handlers — they spawn the provider's `login` subcommand, extract
-// the OAuth URL, and stream progress back. When the renderer unsubscribes
-// (cancel, navigate away, IPC drop), the stream's scope closes and the child
-// process is SIGTERM'd by the service's finalizer.
+// provider card or in an auth error bubble. Supported handlers spawn the
+// provider's login subcommand, extract its OAuth URL, and stream progress
+// back. When the renderer unsubscribes, the service finalizer stops the child.
 const StartLogin = MemoizeRpcs.toLayerHandler(
 	"provider.startLogin",
 	({ providerId }) => startProviderLogin(providerId),
@@ -906,6 +921,7 @@ const BrowserFillForOrigin = MemoizeRpcs.toLayerHandler(
 export const ProviderHandlersLayer = Layer.mergeAll(
 	Availability,
 	SetCredential,
+	RemoveCredential,
 	StartLogin,
 	UpdateProvider,
 	OpencodeInventory,

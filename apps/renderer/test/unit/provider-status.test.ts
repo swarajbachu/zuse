@@ -133,3 +133,64 @@ describe("provider availability loading", () => {
 		expect(summary.headline).toBe("Checking…");
 	});
 });
+
+describe("API-key-only provider summary", () => {
+	it("requires an app-managed key even when the CLI is installed", () => {
+		const summary = getProviderSummary(
+			{
+				providerId: "cursor",
+				displayName: "Provider",
+				cliInstalled: true,
+				cliLoggedIn: false,
+				hasApiKey: false,
+				authStatus: "unauthenticated",
+			},
+			true,
+			false,
+		);
+
+		expect(summary.headline).toBe("API key required");
+	});
+
+	it("reports a verified app-managed key without login copy", () => {
+		const summary = getProviderSummary(
+			{
+				providerId: "cursor",
+				displayName: "Provider",
+				cliInstalled: true,
+				cliLoggedIn: false,
+				hasApiKey: true,
+				apiKeyStatus: "verified",
+				authStatus: "authenticated",
+				authType: "apiKey",
+			},
+			true,
+			false,
+		);
+
+		expect(summary).toMatchObject({
+			statusKey: "ready",
+			headline: "API key verified",
+		});
+	});
+
+	it("surfaces a revoked saved key as an error", () => {
+		const summary = getProviderSummary(
+			{
+				providerId: "cursor",
+				displayName: "Provider",
+				cliInstalled: true,
+				cliLoggedIn: false,
+				hasApiKey: true,
+				apiKeyStatus: "invalid",
+				authStatus: "unauthenticated",
+				statusMessage: "The API key was rejected.",
+			},
+			true,
+			false,
+		);
+
+		expect(summary.statusKey).toBe("error");
+		expect(summary.detail).toBe("The API key was rejected.");
+	});
+});

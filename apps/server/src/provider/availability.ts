@@ -21,7 +21,7 @@ import {
 import { decodeJwtPayload } from "./jwt.ts";
 
 interface ProviderProbe {
-  readonly providerId: ProviderId;
+  readonly providerId: Exclude<ProviderId, "cursor">;
   readonly displayName: string;
   readonly cliBinary: string;
   /**
@@ -116,22 +116,6 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
     upgradeCommand: "npm i -g @google/gemini-cli",
     npmPackage: "@google/gemini-cli",
     homebrewFormula: "gemini-cli",
-    nativeUpdate: null,
-  },
-  {
-    providerId: "cursor",
-    displayName: "Cursor",
-    cliBinary: "cursor-agent",
-    // No version floor yet. ACP support landed in a recent `cursor-agent`
-    // release; older builds will surface a handshake timeout when the user
-    // tries to start a session. Revisit once we pin the exact
-    // ACP-introducing version.
-    minVersion: null,
-    upgradeCommand: "curl https://cursor.com/install -fsS | bash",
-    // cursor-agent ships via a curl installer, not npm. Its install script
-    // reinstalls the latest build, so it doubles as the updater.
-    npmPackage: null,
-    homebrewFormula: null,
     nativeUpdate: null,
   },
   {
@@ -510,7 +494,7 @@ export const buildUpdateCommand = (
     return npmGlobalUpdate(probe.npmPackage);
   }
 
-  // Non-npm providers (Grok, Cursor): reinstall via the official one-liner.
+  // Non-npm providers reinstall via their official one-liner.
   return probe.upgradeCommand;
 };
 
@@ -967,82 +951,6 @@ const probeGeminiAccount: Effect.Effect<
     : ({ authStatus: "unauthenticated" } satisfies AccountInfo);
 });
 
-// Strip ANSI escape sequences (cursor-positioning, colors, etc). The
-// cursor-agent CLI emits a TUI-style status frame before its final answer,
-// e.g. ` Starting login process...\n[2K[1A[2K[G\n Not logged in`. We only
-// want to read the final human-readable line.
-const ANSI_PATTERN = new RegExp(
-  `${String.fromCharCode(27)}(?:[@-Z\\-_]|\\[[0-?]*[ -/]*[@-~])`,
-  "g",
-);
-const stripAnsi = (raw: string): string => raw.replace(ANSI_PATTERN, "");
-
-// `cursor-agent status` is the CLI's own auth signal. It prints either
-// "Not logged in" or a positive line — `Logged in as <email>` on newer
-// builds, `Login successful!` on older ones. The directory at
-// `~/.local/share/cursor-agent/` is created on install regardless of
-// login state, so we never trust it.
-//
-// We don't set the "Requires Cursor Pro" gating label, even though the
-// ACP runtime does need a paid plan: cursor-agent has no `whoami`/`me`
-// subcommand, so once a user is signed in we have no way to tell Pro
-// from non-Pro. Falsely labelling every signed-in user as gated nags
-// people who already pay. The ACP server enforces the real check at
-// session start and surfaces a clear error there if the plan is missing.
-const CURSOR_EMAIL_PATTERN = /[\w.+-]+@[\w.-]+\.\w+/;
-
-const parseCursorStatusOutput = (raw: string): AccountInfo => {
-  const cleanedRaw = stripAnsi(raw);
-  const cleaned = cleanedRaw.toLowerCase();
-  if (cleaned.includes("not logged in") || cleaned.includes("not signed in")) {
-    return { authStatus: "unauthenticated" };
-  }
-  const emailMatch = cleanedRaw.match(CURSOR_EMAIL_PATTERN);
-  if (
-    cleaned.includes("logged in as") ||
-    cleaned.includes("signed in as") ||
-    cleaned.includes("login successful") ||
-    cleaned.includes("authenticated") ||
-    emailMatch !== null
-  ) {
-    return {
-      authStatus: "authenticated",
-      authType: "cli",
-      ...(emailMatch !== null ? { authEmail: emailMatch[0] } : {}),
-    } satisfies AccountInfo;
-  }
-  return { authStatus: "unknown" };
-};
-
-const probeCursorAccount: Effect.Effect<
-  AccountInfo,
-  never,
-  CommandExecutor.ChildProcessSpawner
-> = Effect.gen(function* () {
-  const executor = yield* CommandExecutor.ChildProcessSpawner;
-  const result = yield* Effect.gen(function* () {
-    const proc = yield* executor.spawn(
-      Command.make("cursor-agent", ["status"]),
-    );
-    const stdout = yield* collectText(proc.stdout);
-    const stderr = yield* collectText(proc.stderr);
-    const exitCode = yield* proc.exitCode;
-    return { stdout, stderr, exitCode };
-  }).pipe(
-    Effect.scoped,
-    Effect.timeoutOption(PROBE_TIMEOUT),
-    Effect.catch(() => Effect.succeedNone),
-  );
-  if (result._tag !== "Some") {
-    return { authStatus: "unknown" } satisfies AccountInfo;
-  }
-  // Exit code is not a reliable signal — the CLI returns 0 even when not
-  // logged in. Parse the text instead.
-  return parseCursorStatusOutput(
-    `${result.value.stdout}\n${result.value.stderr}`,
-  );
-});
-
 // OpenCode stores per-provider credentials in `~/.local/share/opencode/auth.json`
 // after `opencode auth login <provider>`. Each top-level key is a provider id
 // (anthropic, openai, …) and the value carries the access token or API key.
@@ -1100,7 +1008,7 @@ const probeOpencodeAccount: Effect.Effect<
 });
 
 const probeAccount = (
-  providerId: ProviderId,
+  providerId: Exclude<ProviderId, "cursor">,
   cliPath: string,
 ): Effect.Effect<
   AccountInfo,
@@ -1116,8 +1024,6 @@ const probeAccount = (
       return probeGrokAccount;
     case "gemini":
       return probeGeminiAccount;
-    case "cursor":
-      return probeCursorAccount;
     case "opencode":
       return probeOpencodeAccount;
   }

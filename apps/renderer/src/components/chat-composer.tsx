@@ -656,6 +656,15 @@ export function ChatComposer({
 				if (parsed.args) void setModel(sessionId, parsed.args);
 				break;
 			case "mode":
+				if (session.providerId === "cursor") {
+					toastManager.add({
+						type: "info",
+						title: "Sandboxed with auto-review",
+						description:
+							"This provider uses a fixed local sandbox and does not support interactive permission modes.",
+					});
+					break;
+				}
 				if (
 					parsed.args === "approval-required" ||
 					parsed.args === "auto-accept-edits" ||

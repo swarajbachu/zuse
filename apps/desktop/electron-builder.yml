@@ -71,6 +71,12 @@ asarUnpack:
   - "dist-electron/orchestration-mcp-child.cjs"
   - "node_modules/node-pty/**"
   - "node_modules/keytar/**"
+  # The bundled local runtime resolves executable helpers relative to its
+  # package. Keep the SDK and both macOS architecture packages on disk so the
+  # universal app works without a globally installed command.
+  - "node_modules/@cursor/sdk/**"
+  - "node_modules/@cursor/sdk-darwin-arm64/**"
+  - "node_modules/@cursor/sdk-darwin-x64/**"
 
 # We rebuild the remaining native modules via the postinstall hook.
 # electron-builder's npmRebuild step doesn't understand bun workspaces.

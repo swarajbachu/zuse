@@ -13,9 +13,14 @@ export function isModelPickerProviderVisible({
 }): boolean {
   if (providerEnabled[providerId] === false) return false;
   if (availability === undefined) return !availabilityLoaded;
-  if (!availability.cliInstalled) return false;
+  if (!(availability.runtimeAvailable ?? availability.cliInstalled)) {
+    return false;
+  }
   if (availability.status === "error" || availability.status === "disabled") {
     return false;
+  }
+  if (providerId === "cursor") {
+    return availability.hasApiKey && availability.apiKeyStatus !== "invalid";
   }
   if (availability.hasApiKey) return true;
   if (availability.authStatus === "authenticated") return true;

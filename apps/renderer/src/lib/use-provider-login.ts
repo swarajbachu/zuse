@@ -12,7 +12,7 @@ export type ProviderLoginState =
   | { readonly kind: "failed"; readonly reason: string };
 
 const PROVIDERS_WITH_INLINE_LOGIN: ReadonlySet<ProviderId> =
-  new Set<ProviderId>(["cursor", "claude", "grok"]);
+  new Set<ProviderId>(["claude", "grok"]);
 
 export const supportsProviderLogin = (providerId: ProviderId): boolean =>
   PROVIDERS_WITH_INLINE_LOGIN.has(providerId);

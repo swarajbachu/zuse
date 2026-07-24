@@ -5,9 +5,9 @@ import { supportsProviderLogin } from "../../src/lib/use-provider-login.ts";
 import { classifyMessage } from "../../src/store/messages.ts";
 
 describe("provider inline login", () => {
-	it("supports every provider with a server-side login handler", () => {
+	it("supports only providers with a server-side login handler", () => {
 		expect(supportsProviderLogin("claude")).toBe(true);
-		expect(supportsProviderLogin("cursor")).toBe(true);
+		expect(supportsProviderLogin("cursor")).toBe(false);
 		expect(supportsProviderLogin("grok")).toBe(true);
 		expect(supportsProviderLogin("codex")).toBe(false);
 		expect(supportsProviderLogin("gemini")).toBe(false);

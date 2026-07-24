@@ -22,7 +22,7 @@
 		"dev:electron": "node scripts/dev-electron.mjs",
 		"build": "vp pack && node scripts/main-bundle-startup-smoke.mjs",
 		"check-types": "tsc --noEmit",
-		"test": "vp test run test && node scripts/sqlite-runtime-smoke.mjs",
+		"test": "vp test run test && node scripts/sqlite-runtime-smoke.mjs && node scripts/provider-sdk-runtime-smoke.mjs",
 		"test:unit": "vp test run test/unit",
 		"test:integration": "vp test run test/integration --passWithNoTests",
 		"postinstall": "electron-rebuild -f -o node-pty,keytar",
@@ -35,6 +35,7 @@
 		"dist:mac:unsigned": "electron-builder --mac --universal -c.mac.identity=null --publish never"
 	},
 	"dependencies": {
+		"@cursor/sdk": "1.0.23",
 		"electron-updater": "^6.3.9",
 		"keytar": "^7.9.0",
 		"node-pty": "^1.1.0",

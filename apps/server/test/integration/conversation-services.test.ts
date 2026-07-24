@@ -222,7 +222,8 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 				})),
 			),
 		),
-	setCredential: () => Effect.void,
+	setCredential: () => Effect.succeed({ verification: "notChecked" }),
+	removeCredential: () => Effect.void,
 	setPermissionMode: () => Effect.void,
 	answerQuestion: () => Effect.void,
 	respondToPlan: (sessionId) =>

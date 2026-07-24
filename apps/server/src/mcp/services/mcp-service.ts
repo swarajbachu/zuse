@@ -57,6 +57,14 @@ export interface McpServiceShape {
 	readonly resolveForClaudeSession: (
 		cwd: string,
 	) => Effect.Effect<ReadonlyArray<ResolvedMcpServer>>;
+	/**
+	 * Enabled native servers for a bundled local SDK session. Both supported
+	 * native config sources are accepted because this runtime has no CLI-owned
+	 * config of its own.
+	 */
+	readonly resolveForCursorSession: (
+		cwd: string,
+	) => Effect.Effect<ReadonlyArray<ResolvedMcpServer>>;
 }
 
 export class McpService extends Context.Service<McpService, McpServiceShape>()(

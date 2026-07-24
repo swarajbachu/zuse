@@ -59,21 +59,19 @@ const PROVIDER_LABEL: Record<ProviderId, string> = {
 	opencode: "OpenCode",
 };
 
-const INSTALL_HINT: Record<ProviderId, string> = {
+const INSTALL_HINT: Partial<Record<ProviderId, string>> = {
 	claude: "npm i -g @anthropic-ai/claude-code",
 	codex: "npm i -g @openai/codex",
 	grok: "curl -fsSL https://x.ai/cli/install.sh | bash",
 	gemini: "npm i -g @google/gemini-cli",
-	cursor: "curl https://cursor.com/install -fsS | bash",
 	opencode: "curl -fsSL https://opencode.ai/install | bash",
 };
 
-const LOGIN_HINT: Record<ProviderId, string> = {
+const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
 	claude: "claude /login",
 	codex: "codex login",
 	grok: "grok login",
 	gemini: "gemini /auth",
-	cursor: "cursor-agent login",
 	opencode: "opencode auth login",
 };
 
@@ -88,7 +86,6 @@ const SUBSCRIPTION_INFO: Partial<
 	Record<ProviderId, { readonly plan: string; readonly url: string }>
 > = {
 	grok: { plan: "SuperGrok or X Premium+", url: "https://x.ai/cli" },
-	cursor: { plan: "Cursor Pro", url: "https://cursor.com/pricing" },
 	claude: {
 		plan: "Claude Pro",
 		url: "https://www.anthropic.com/pricing#claude-code",
@@ -151,6 +148,7 @@ export function ProviderCard({
 	//     are updatable even though we can't read a registry version
 	const showUpdate =
 		enabled &&
+		providerId !== "cursor" &&
 		!showUpgrade &&
 		availability?.cliInstalled === true &&
 		availability.updateCommand !== undefined &&
@@ -231,20 +229,26 @@ export function ProviderCard({
 					<CodeRow
 						label="Update CLI"
 						command={
-							availability?.cliUpgradeCommand ?? INSTALL_HINT[providerId]
+							availability?.cliUpgradeCommand ?? INSTALL_HINT[providerId] ?? ""
 						}
 					/>
 				)}
-				{availability !== undefined && !availability.cliInstalled && (
-					<CodeRow label="Install" command={INSTALL_HINT[providerId]} />
-				)}
+				{providerId !== "cursor" &&
+					availability !== undefined &&
+					!availability.cliInstalled && (
+						<CodeRow label="Install" command={INSTALL_HINT[providerId] ?? ""} />
+					)}
 				{availability?.cliInstalled &&
 					availability.authStatus === "unauthenticated" &&
-					(supportsProviderLogin(providerId) ? (
+					supportsProviderLogin(providerId) && (
 						<ProviderSignInRow providerId={providerId} />
-					) : (
-						<CodeRow label="Sign in" command={LOGIN_HINT[providerId]} />
-					))}
+					)}
+				{availability?.cliInstalled &&
+					availability.authStatus === "unauthenticated" &&
+					!supportsProviderLogin(providerId) &&
+					providerId !== "cursor" && (
+						<CodeRow label="Sign in" command={LOGIN_HINT[providerId] ?? ""} />
+					)}
 				<SubscriptionRow providerId={providerId} availability={availability} />
 
 				{providerId === "opencode" ? (
@@ -258,11 +262,29 @@ export function ProviderCard({
 						<ModelDefault providerId={providerId} />
 						<ModelVisibilitySettings providerId={providerId} />
 
+						{providerId === "cursor" && (
+							<div className="rounded-md border border-border/50 bg-background/45 px-3 py-2.5">
+								<span className="text-[11px] font-medium text-foreground">
+									Sandboxed with auto-review
+								</span>
+								<p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+									Local edits and commands run through the bundled SDK sandbox.
+									Calls rejected by auto-review are blocked instead of
+									prompting.
+								</p>
+							</div>
+						)}
+
 						<div className="flex flex-col gap-1.5">
-							<span className="text-[11px] font-medium text-muted-foreground">
-								API key (optional)
-							</span>
-							<ApiKeyRow providerId={providerId} />
+							{providerId !== "cursor" && (
+								<span className="text-[11px] font-medium text-muted-foreground">
+									API key (optional)
+								</span>
+							)}
+							<ApiKeyRow
+								providerId={providerId}
+								required={providerId === "cursor"}
+							/>
 						</div>
 					</>
 				)}
@@ -430,8 +452,8 @@ function SubscriptionRow({
 }
 
 /**
- * One-click sign-in row for providers with a real in-app login handler
- * (`cursor`, `claude`, `grok`). Click → subscribe to `provider.startLogin`,
+ * One-click sign-in row for providers with a real in-app login handler.
+ * Click → subscribe to `provider.startLogin`,
  * which spawns the provider's `login` subcommand server-side and streams
  * progress. The terminal `done` event triggers an availability refresh and
  * (on success) collapses the row. Cancel interrupts the stream, which closes
@@ -447,7 +469,7 @@ function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
 		},
 	});
 	const label = PROVIDER_LABEL[providerId];
-	const manualCommand = LOGIN_HINT[providerId];
+	const manualCommand = LOGIN_HINT[providerId] ?? "";
 
 	if (state.kind === "success") {
 		return (

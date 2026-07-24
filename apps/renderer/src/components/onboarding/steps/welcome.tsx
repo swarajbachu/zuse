@@ -16,8 +16,8 @@ export function WelcomeStep() {
       </div>
 
       <ul className="flex flex-col gap-0.5 text-sm">
-        <Row title="No new logins">
-          Reuses the CLI auth already on your Mac.
+        <Row title="Credentials stay local">
+          Reuses supported CLI auth or API keys stored in your OS keychain.
         </Row>
         <Row title="A worktree per chat">
           Each agent runs on its own branch.
@@ -30,7 +30,13 @@ export function WelcomeStep() {
   );
 }
 
-function Row({ title, children }: { title: string; children: React.ReactNode }) {
+function Row({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <li className="flex items-baseline gap-3 py-2">
       <span className="flex size-1 shrink-0 translate-y-[-3px] rounded-full bg-foreground/40" />

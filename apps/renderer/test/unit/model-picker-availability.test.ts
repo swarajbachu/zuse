@@ -102,13 +102,34 @@ describe("model picker provider visibility", () => {
 		).toBe(false);
 	});
 
-	it("allows legacy usable login signals when auth is inconclusive", () => {
+	it("ignores local login signals for the API-key-only provider", () => {
 		expect(
 			isModelPickerProviderVisible({
 				providerId: "cursor",
 				availability: availabilityFor("cursor", {
+					runtimeKind: "bundledSdk",
+					runtimeAvailable: true,
+					cliInstalled: false,
+					hasApiKey: false,
 					authStatus: "unknown",
 					cliLoggedIn: true,
+				}),
+				providerEnabled: { cursor: true },
+			}),
+		).toBe(false);
+	});
+
+	it("shows the bundled provider with a managed key and no CLI", () => {
+		expect(
+			isModelPickerProviderVisible({
+				providerId: "cursor",
+				availability: availabilityFor("cursor", {
+					runtimeKind: "bundledSdk",
+					runtimeAvailable: true,
+					cliInstalled: false,
+					cliLoggedIn: false,
+					hasApiKey: true,
+					apiKeyStatus: "verified",
 				}),
 				providerEnabled: { cursor: true },
 			}),

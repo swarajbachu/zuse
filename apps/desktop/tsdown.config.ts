@@ -75,6 +75,7 @@ const shared = {
 			"bindings",
 			"keytar",
 			"electron-updater",
+			"@cursor/sdk",
 			"tree-sitter",
 			"tree-sitter-typescript",
 			"tree-sitter-javascript",

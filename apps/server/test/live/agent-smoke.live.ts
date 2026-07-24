@@ -62,7 +62,7 @@ const providers: ReadonlyArray<LiveProvider> = [
 	},
 	{
 		providerId: "cursor",
-		binary: "cursor-agent",
+		binary: "bundled SDK",
 		envToggle: "ZUSE_LIVE_CURSOR",
 		apiKeyEnv: "CURSOR_API_KEY",
 		expectsCursor: true,
@@ -163,18 +163,13 @@ const startProvider = async (
 				which("bun") ?? "bun",
 			);
 		case "cursor": {
+			if (apiKey === null) {
+				throw new Error("API key required for this live provider smoke test");
+			}
 			const { startCursorSession } = await import(
 				"@zuse/agents/drivers/cursor"
 			);
-			return startCursorSession(
-				input,
-				cwd,
-				apiKey,
-				binaryPath,
-				sessionId,
-				requestPermission,
-				() => DEFAULT_RUNTIME_MODE,
-			);
+			return startCursorSession(input, cwd, apiKey, sessionId);
 		}
 		case "opencode":
 			return startOpencodeSession(input, cwd, [], binaryPath, sessionId);
@@ -232,7 +227,8 @@ const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
 		cwdOverride: dir,
 		permissionMode: "default",
 	};
-	const binaryPath = which(provider.binary);
+	const binaryPath =
+		provider.providerId === "cursor" ? "" : which(provider.binary);
 	if (binaryPath === null) {
 		rmSync(dir, { recursive: true, force: true });
 		return {

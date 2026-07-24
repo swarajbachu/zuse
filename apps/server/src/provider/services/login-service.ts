@@ -22,10 +22,6 @@ type LoginUrlPolicy = (url: URL) => boolean;
 const hasDomain = (hostname: string, domain: string): boolean =>
   hostname === domain || hostname.endsWith(`.${domain}`);
 
-const CURSOR_URL_POLICY: LoginUrlPolicy = ({ hostname }) =>
-  ["cursor.com", "cursor.sh", "cursor.so"].some((domain) =>
-    hasDomain(hostname, domain),
-  );
 // `claude auth login` runs an OAuth 2.0 + PKCE flow against claude.ai with a
 // localhost callback server, so it auto-completes once the browser approves —
 // no code paste-back. The authorize URL lives on claude.ai / anthropic.com.
@@ -51,13 +47,7 @@ interface LoginSpawnSpec {
 }
 
 const LOGIN_SPECS: Partial<Record<ProviderId, LoginSpawnSpec>> = {
-  cursor: {
-    providerId: "cursor",
-    command: "cursor-agent",
-    args: ["login"],
-    urlPolicy: CURSOR_URL_POLICY,
-  },
-  claude: {
+	claude: {
     providerId: "claude",
     command: "claude",
     // `--claudeai` selects the Claude subscription OAuth (vs `--console` API
@@ -186,7 +176,7 @@ export const extractProviderLoginUrl = (
 
 /**
  * Spawn a provider's interactive login subcommand and stream progress back
- * to the renderer. Today `cursor`, `claude`, and `grok` have real handlers;
+ * to the renderer. Configured providers have real handlers;
  * other providers resolve to an immediate `done(ok=false)`.
  *
  * Cancellation: the stream is wrapped in `Stream.unwrap`, so when the

@@ -890,11 +890,10 @@ function ProjectContextMenu({
 
 // One-line login hint per provider — the user runs this in their terminal
 // and memoize picks up the credentials automatically on next refresh.
-const LOGIN_HINT: Record<ProviderId, string> = {
+const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
 	claude: "Run `claude /login` in your terminal",
 	codex: "Run `codex login` in your terminal",
 	grok: "Run `grok` in your terminal to sign in",
-	cursor: "Run `cursor-agent login` in your terminal",
 	gemini: "Run `gemini` in your terminal to sign in",
 	opencode: "Run `opencode auth login` in your terminal to connect a provider",
 };
