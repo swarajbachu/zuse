@@ -64,7 +64,7 @@ export type ChatError =
   | { readonly kind: "generic"; readonly message: string };
 
 const AUTH_PATTERN =
-  /\b401\b|\bunauthorized\b|expired token|invalid_grant|signed?\s?out|sign\s?in required|please log in|please run \/login|not logged in|invalid authentication credentials|invalid api key|authorizationrequired|auth\(authorizationrequired\)|authentication failed/i;
+  /\b401\b|\bunauthorized\b|expired token|invalid_grant|signed?\s?out|sign\s?in required|please log in|please run \/login|not logged in|invalid authentication credentials|invalid api key|authorizationrequired|auth\(authorizationrequired\)|authentication (?:failed|required)/i;
 const NETWORK_PATTERN =
   /\b(network|fetch|econn|enotfound|etimedout|timeout|getaddrinfo)\b/i;
 
@@ -239,7 +239,7 @@ type MessagesState = {
    * after the user fixed the underlying issue (re-auth, network back up).
    * No-op when there's no prior user message on the session.
    */
-  readonly retry: (sessionId: SessionId) => Promise<void>;
+  readonly retry: (sessionId: SessionId) => Promise<boolean>;
 };
 
 const timelineFibers = new Map<SessionId, Fiber.Fiber<unknown, unknown>>();
@@ -248,6 +248,11 @@ const timelineRegistry = new SessionTimelineRegistry();
 const retainedTimelineSessions = new Set<SessionId>();
 const pendingTimelineSessionCreations = new Set<SessionId>();
 const timelineEvictionTimers = new Map<SessionId, ReturnType<typeof setTimeout>>();
+const timelineReconnectAttempts = new Map<SessionId, number>();
+const timelineReconnectTimers = new Map<
+	SessionId,
+	ReturnType<typeof setTimeout>
+>();
 const goalFibers = new Map<SessionId, Fiber.Fiber<unknown, unknown>>();
 let liveConnectionGeneration: number | null = null;
 let unsubscribeLiveConnection: (() => void) | null = null;
@@ -275,6 +280,7 @@ const ensureLiveConnectionSubscription = (): void => {
 		liveConnectionGeneration = snapshot.generation;
 		const sessions = [...retainedTimelineSessions];
 		for (const [sessionId, fiber] of timelineFibers) {
+			clearTimelineReconnect(sessionId);
 			timelineFibers.delete(sessionId);
 			timelineTokens.delete(sessionId);
 			void Effect.runPromise(Fiber.interrupt(fiber));
@@ -287,6 +293,38 @@ const reportActiveStreamFailure = (cause: unknown): void => {
 	const generation = liveConnectionGeneration;
 	if (generation === null) return;
 	reportRendererRpcStreamFailure(generation, cause);
+};
+
+const clearTimelineReconnect = (sessionId: SessionId): void => {
+	const timer = timelineReconnectTimers.get(sessionId);
+	if (timer !== undefined) clearTimeout(timer);
+	timelineReconnectTimers.delete(sessionId);
+	timelineReconnectAttempts.delete(sessionId);
+};
+
+const scheduleTimelineReconnect = (sessionId: SessionId): void => {
+	if (
+		!retainedTimelineSessions.has(sessionId) ||
+		pendingTimelineSessionCreations.has(sessionId) ||
+		timelineReconnectTimers.has(sessionId)
+	) {
+		return;
+	}
+	const attempt = (timelineReconnectAttempts.get(sessionId) ?? 0) + 1;
+	timelineReconnectAttempts.set(sessionId, attempt);
+	const delayMs = Math.min(100 * 2 ** (attempt - 1), 5_000);
+	timelineReconnectTimers.set(
+		sessionId,
+		setTimeout(() => {
+			timelineReconnectTimers.delete(sessionId);
+			if (
+				retainedTimelineSessions.has(sessionId) &&
+				!timelineFibers.has(sessionId)
+			) {
+				void useMessagesStore.getState().hydrate(sessionId);
+			}
+		}, delayMs),
+	);
 };
 
 export const deferTimelineUntilSessionCreated = (sessionId: SessionId): void => {
@@ -309,6 +347,7 @@ export const discardTimelineSessionCreation = (sessionId: SessionId): void => {
 export const teardownLiveStreams = async (sessionId?: SessionId): Promise<void> => {
 	if (sessionId !== undefined) {
 		retainedTimelineSessions.delete(sessionId);
+		clearTimelineReconnect(sessionId);
 		const previous = timelineEvictionTimers.get(sessionId);
 		if (previous !== undefined) clearTimeout(previous);
 		if (timelineRegistry.state(sessionId).projection?.currentTurn != null) return;
@@ -326,6 +365,9 @@ export const teardownLiveStreams = async (sessionId?: SessionId): Promise<void> 
 	stopLiveConnectionSubscription();
 	for (const timer of timelineEvictionTimers.values()) clearTimeout(timer);
 	timelineEvictionTimers.clear();
+	for (const timer of timelineReconnectTimers.values()) clearTimeout(timer);
+	timelineReconnectTimers.clear();
+	timelineReconnectAttempts.clear();
 	retainedTimelineSessions.clear();
 	pendingTimelineSessionCreations.clear();
 	const fibers = [...timelineFibers.values(), ...goalFibers.values()];
@@ -458,11 +500,18 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 						if (timelineTokens.get(sessionId) === streamToken) {
 							timelineTokens.delete(sessionId);
 							timelineFibers.delete(sessionId);
+							scheduleTimelineReconnect(sessionId);
 							}
             }),
         ),
       );
-			const timelineFiber = Effect.runFork(messageProgram);
+			// Defer execution by one scheduler turn so the ownership token and
+			// fiber are registered before a synchronously failing RPC stream can
+			// run its finalizer. Without this boundary, an immediate termination
+			// leaves a dead fiber in the registry and suppresses reconnection.
+			const timelineFiber = Effect.runFork(
+				Effect.yieldNow.pipe(Effect.andThen(messageProgram)),
+			);
 			timelineTokens.set(sessionId, streamToken);
 			timelineFibers.set(sessionId, timelineFiber);
       const goalProvider = lookupSessionProvider(sessionId);
@@ -976,13 +1025,14 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
             annotations: c.annotations,
           }),
         );
-        return;
+        return true;
       }
       if (c._tag === "user") {
         await get().send(sessionId, c.text);
-        return;
+        return true;
       }
     }
+    return false;
   },
 }));
 

@@ -132,21 +132,20 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		) =>
 			Effect.gen(function* () {
 				const session = yield* lookupSession(sessionId);
-				if (session.resumeStrategy === "none" || session.cursor === null) {
-					return yield* Effect.fail(
-						new SessionStartError({
-							providerId: session.providerId,
-							reason: "resume_unsupported",
-						}),
-					);
-				}
 				// Best-effort cleanup of any stale in-memory session before opening
 				// a fresh handle attached to the same DB row. Renderer subscriptions
-				// stay connected across the
-				// resume — only the event-pump fiber needs to restart.
+				// stay connected across the reopen — only the event-pump fiber needs
+				// to restart. A null cursor starts a fresh provider process for the
+				// same durable Zuse session; a persisted cursor resumes provider
+				// context when the driver supports it.
 				yield* closeProvider(sessionId);
 				yield* interruptProviderFiber(sessionId);
-				yield* openProviderSession(session, { postBootStatus: "running" });
+				yield* openProviderSession(session, {
+					// Keep a failed session held until the caller decides whether to
+					// retry its persisted turn or release its startup queue. This
+					// prevents queued follow-ups from overtaking the blocked turn.
+					postBootStatus: session.status === "error" ? undefined : "idle",
+				});
 				return yield* lookupSession(sessionId);
 			});
 

@@ -33,6 +33,8 @@ const decodeProviderModelOptions = Schema.decodeUnknownEffect(
 const decodeProviderTurnInput = Schema.decodeUnknownEffect(
 	Schema.fromJsonString(ComposerInput),
 );
+const isAuthenticationRequired = (reason: string): boolean =>
+	/\bauthentication required\b/i.test(reason);
 
 export interface ProviderReactorHandlersOptions {
 	readonly reactorEffects: ReturnType<typeof makeReactorEffectJournal>;
@@ -141,18 +143,11 @@ export const makeProviderReactorHandlers = (
 								request.initialTurnId !== null &&
 								request.initialTurnId !== undefined
 							) {
-								yield* sessionDomain
-									.dispatch({
-										commandId: `${reactorInput.commandId}:initial-turn-failed`,
-										streamId: sessionId,
-										command: {
-											_tag: "SettleTurn",
-											turnId: request.initialTurnId,
-											outcome: "error",
-											settledAt: Date.now(),
-										},
-									})
-									.pipe(Effect.orDie);
+								yield* settleTurnFromReactor(
+									sessionId,
+									request.initialTurnId,
+									"error",
+								);
 							} else {
 								yield* setStatus(sessionId, "error");
 							}
@@ -214,26 +209,32 @@ export const makeProviderReactorHandlers = (
 						fileRefs: input.fileRefs,
 						skillRefs: input.skillRefs,
 					},
-				}).pipe(Effect.exit);
-				if (restarted._tag === "Success") {
+				}).pipe(
+					Effect.match({
+						onFailure: (error) => ({ ok: false as const, error }),
+						onSuccess: () => ({ ok: true as const }),
+					}),
+				);
+				if (restarted.ok) {
 					yield* reactorEffects.complete(reactorInput.commandId);
 					return;
 				}
-				yield* sessionDomain
-					.dispatch({
-						commandId: `${reactorInput.commandId}:failed`,
-						streamId: sessionId,
-						command: {
-							_tag: "SettleTurn",
-							turnId: reactorInput.command.turnId,
-							outcome: "error",
-							settledAt: Date.now(),
-						},
-					})
-					.pipe(Effect.orDie);
-				return yield* Effect.die(
-					new Error("Provider turn could not be started after durable intent"),
+				const persistedError = yield* persistMessage(sessionId, {
+					_tag: "error",
+					message: restarted.error.reason,
+				});
+				yield* ndjsonAppend(sessionId, persistedError);
+				yield* settleTurnFromReactor(
+					sessionId,
+					AgentTurnId.make(reactorInput.command.turnId),
+					"error",
 				);
+				// Authentication is recoverable through the inline login flow, so
+				// acknowledge this failed side effect and let a fresh turn retry it.
+				// Other transient failures retain the existing replay behavior.
+				if (!isAuthenticationRequired(restarted.error.reason)) {
+					return yield* Effect.die(new Error(restarted.error.reason));
+				}
 			}
 			yield* reactorEffects.complete(reactorInput.commandId);
 		});

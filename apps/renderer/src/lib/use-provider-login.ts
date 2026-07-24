@@ -1,7 +1,7 @@
 import { Effect, Fiber, Stream } from "effect";
 import { useEffect, useRef, useState } from "react";
 
-import { type LoginEvent, type ProviderId } from "@zuse/contracts";
+import type { LoginEvent, ProviderId } from "@zuse/contracts";
 
 import { getRpcClient } from "./rpc-client";
 
@@ -10,6 +10,12 @@ export type ProviderLoginState =
   | { readonly kind: "waiting"; readonly url: string | null }
   | { readonly kind: "success" }
   | { readonly kind: "failed"; readonly reason: string };
+
+const PROVIDERS_WITH_INLINE_LOGIN: ReadonlySet<ProviderId> =
+  new Set<ProviderId>(["cursor", "claude", "grok"]);
+
+export const supportsProviderLogin = (providerId: ProviderId): boolean =>
+  PROVIDERS_WITH_INLINE_LOGIN.has(providerId);
 
 /**
  * Open a URL in the user's OS browser via the preload bridge (Electron's
@@ -28,9 +34,10 @@ export const openExternal = (url: string): void => {
 
 /**
  * Shared one-click provider sign-in state machine. Subscribes to
- * `agent.startLogin`, which spawns the provider's `login` subcommand
+ * `provider.startLogin`, which spawns the provider's `login` subcommand
  * server-side and streams progress. The first `url` event opens the OAuth page
- * in the OS browser; the terminal `done` event resolves to success/failure.
+ * when the provider CLI does not own browser launch; the terminal `done` event
+ * resolves to success/failure.
  * Cancel (or unmount) interrupts the stream, which closes the server-side
  * scope and SIGTERMs the child process.
  *
@@ -76,7 +83,9 @@ export function useProviderLogin(
         (event: LoginEvent) =>
           Effect.sync(() => {
             if (event._tag === "url") {
-              openExternal(event.url);
+              // Grok's official login command opens its own browser. Keep the
+              // URL for explicit recovery without opening a duplicate tab.
+              if (providerId !== "grok") openExternal(event.url);
               setState({ kind: "waiting", url: event.url });
             } else if (event._tag === "done") {
               fiberRef.current = null;

@@ -388,7 +388,14 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			sessionId,
 		) =>
 			Effect.gen(function* () {
-				yield* lookupSession(sessionId);
+				const session = yield* lookupSession(sessionId);
+				if (session.status === "error") {
+					yield* dispatchSessionCommand(sessionId, {
+						_tag: "SetStatus",
+						status: "idle",
+						updatedAt: Date.now(),
+					});
+				}
 				yield* setPaused(sessionId, false);
 				yield* flushQueuedMessages(sessionId);
 			});

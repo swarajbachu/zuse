@@ -9,8 +9,10 @@ import {
 	decodeGrokNotification,
 	decodeGrokWireMethod,
 	decodePlanApprovalRequest,
+	grokSessionFailureAction,
 	isSupportedGrokVersion,
 	mapGrokMode,
+	selectGrokHandshakeAuth,
 	translateGrokExtensionMethod,
 	translateGrokExtensionUpdate,
 } from "../../../src/drivers/grok/protocol.ts";
@@ -77,6 +79,41 @@ describe("Grok native ACP protocol", () => {
 		expect(result.agentVersion).toBe("0.2.101");
 		expect(result.authMethods).toEqual(["cached_token"]);
 		expect(result.mcp).toEqual({ http: true, sse: true });
+	});
+
+	it("selects non-interactive auth with the existing priority", () => {
+		expect(
+			selectGrokHandshakeAuth(
+				["xai.api_key", "cached_token", "grok.com"],
+				true,
+			),
+		).toEqual({ kind: "method", methodId: "xai.api_key" });
+		expect(
+			selectGrokHandshakeAuth(["xai.api_key", "cached_token"], false),
+		).toEqual({ kind: "method", methodId: "cached_token" });
+	});
+
+	it("distinguishes browser auth from an unavailable configuration", () => {
+		expect(selectGrokHandshakeAuth(["grok.com"], false)).toEqual({
+			kind: "interactive",
+			methodId: "grok.com",
+		});
+		expect(selectGrokHandshakeAuth(["oidc"], false)).toEqual({
+			kind: "interactive",
+			methodId: "oidc",
+		});
+		expect(selectGrokHandshakeAuth([], false)).toEqual({
+			kind: "unavailable",
+		});
+		expect(selectGrokHandshakeAuth(["future-method"], false)).toEqual({
+			kind: "unavailable",
+		});
+	});
+
+	it("keeps authentication failures recoverable for existing sessions", () => {
+		expect(grokSessionFailureAction("auth")).toBe("restart");
+		expect(grokSessionFailureAction("billing")).toBe("terminal");
+		expect(grokSessionFailureAction("provider")).toBe("continue");
 	});
 
 	it("rejects unknown and outdated native ACP releases", () => {

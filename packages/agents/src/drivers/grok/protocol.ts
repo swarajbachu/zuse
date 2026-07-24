@@ -56,6 +56,45 @@ export const decodeGrokInitializeResult = (
 	};
 };
 
+export type GrokHandshakeAuthSelection =
+	| {
+			readonly kind: "method";
+			readonly methodId: "xai.api_key" | "cached_token";
+	  }
+	| {
+			readonly kind: "interactive";
+			readonly methodId: "grok.com" | "oidc";
+	  }
+	| { readonly kind: "unavailable" };
+
+/**
+ * Select an auth path from the methods advertised during ACP initialize.
+ *
+ * Interactive methods cannot be completed inside the session-start RPC
+ * because the renderer must show the browser flow first. Preserve the
+ * existing non-interactive priority, but distinguish an offered browser
+ * method from a genuinely unusable configuration so the UI can recover.
+ */
+export const selectGrokHandshakeAuth = (
+	authMethods: ReadonlyArray<string>,
+	hasApiKey: boolean,
+): GrokHandshakeAuthSelection => {
+	const ids = new Set(authMethods);
+	if (hasApiKey && ids.has("xai.api_key")) {
+		return { kind: "method", methodId: "xai.api_key" };
+	}
+	if (ids.has("cached_token")) {
+		return { kind: "method", methodId: "cached_token" };
+	}
+	if (ids.has("oidc")) {
+		return { kind: "interactive", methodId: "oidc" };
+	}
+	if (ids.has("grok.com")) {
+		return { kind: "interactive", methodId: "grok.com" };
+	}
+	return { kind: "unavailable" };
+};
+
 const NotificationMeta = Schema.Struct({
 	eventId: Schema.optional(Schema.String),
 	promptId: Schema.optional(Schema.String),
@@ -264,6 +303,22 @@ export type GrokRpcErrorKind =
 	| "transport"
 	| "unsupported-method"
 	| "provider";
+
+export type GrokSessionFailureAction = "restart" | "terminal" | "continue";
+
+/**
+ * Authentication failures are recoverable because the official login command
+ * updates credentials outside the running ACP process. Existing conversations
+ * must restart that child on their next send instead of permanently closing
+ * the in-memory session. Billing failures remain terminal.
+ */
+export const grokSessionFailureAction = (
+	kind: GrokRpcErrorKind,
+): GrokSessionFailureAction => {
+	if (kind === "auth") return "restart";
+	if (kind === "billing") return "terminal";
+	return "continue";
+};
 
 export const classifyGrokRpcError = (error: unknown): GrokRpcErrorKind => {
 	if (error === null || typeof error !== "object") return "provider";

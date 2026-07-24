@@ -38,7 +38,11 @@ import {
 	PROVIDER_STATUS_STYLES,
 } from "~/lib/provider-status";
 import { getRpcClient } from "~/lib/rpc-client";
-import { openExternal, useProviderLogin } from "~/lib/use-provider-login";
+import {
+	openExternal,
+	supportsProviderLogin,
+	useProviderLogin,
+} from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
 import {
 	IDLE_PROVIDER_UPDATE_STATE,
@@ -67,7 +71,7 @@ const INSTALL_HINT: Record<ProviderId, string> = {
 const LOGIN_HINT: Record<ProviderId, string> = {
 	claude: "claude /login",
 	codex: "codex login",
-	grok: "grok",
+	grok: "grok login",
 	gemini: "gemini /auth",
 	cursor: "cursor-agent login",
 	opencode: "opencode auth login",
@@ -236,7 +240,7 @@ export function ProviderCard({
 				)}
 				{availability?.cliInstalled &&
 					availability.authStatus === "unauthenticated" &&
-					(providerId === "cursor" || providerId === "claude" ? (
+					(supportsProviderLogin(providerId) ? (
 						<ProviderSignInRow providerId={providerId} />
 					) : (
 						<CodeRow label="Sign in" command={LOGIN_HINT[providerId]} />
@@ -427,13 +431,13 @@ function SubscriptionRow({
 
 /**
  * One-click sign-in row for providers with a real in-app login handler
- * (`cursor`, `claude`). Click → subscribe to `agent.startLogin`, which spawns
- * the provider's `login` subcommand server-side and streams progress. The
- * first `url` event opens the OAuth page in the OS browser; the terminal
- * `done` event triggers an availability refresh and (on success) collapses the
- * row. Cancel interrupts the stream, which closes the server-side scope and
- * SIGTERMs the child process. The whole state machine lives in
- * `useProviderLogin` so the inline auth ErrorBubble can reuse it verbatim.
+ * (`cursor`, `claude`, `grok`). Click → subscribe to `provider.startLogin`,
+ * which spawns the provider's `login` subcommand server-side and streams
+ * progress. The terminal `done` event triggers an availability refresh and
+ * (on success) collapses the row. Cancel interrupts the stream, which closes
+ * the server-side scope and SIGTERMs the child process. The whole state
+ * machine lives in `useProviderLogin` so the inline auth ErrorBubble can reuse
+ * it verbatim.
  */
 function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
 	const refresh = useProvidersStore((s) => s.refresh);
@@ -459,7 +463,7 @@ function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
 				<div className="flex items-center gap-2 text-muted-foreground">
 					<HugeiconsIcon
 						icon={Loading02Icon}
-						className="size-3.5 animate-spin"
+						className="size-3.5 animate-spin motion-reduce:animate-none"
 						aria-hidden
 					/>
 					<ShimmerText as="span">
@@ -476,7 +480,7 @@ function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
 							variant="outline"
 							onClick={(e) => {
 								e.stopPropagation();
-								openExternal(state.url!);
+								if (state.url !== null) openExternal(state.url);
 							}}
 							className="h-6 px-2 text-[11px]"
 						>

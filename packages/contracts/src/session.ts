@@ -1229,10 +1229,9 @@ export const MessagesSteerRpc = Rpc.make("messages.steer", {
 });
 
 /**
- * Re-open a stopped session against the provider. For Claude this passes
- * the persisted `cursor` to the SDK's `resume`; for Codex it currently
- * fails with `SessionStartError({ reason: "resume_unsupported" })` and the
- * renderer offers "Start new session" instead.
+ * Re-open a stopped or failed session against the provider. A persisted
+ * cursor resumes provider context when supported; without one, the provider
+ * starts a fresh process attached to the same durable application session.
  */
 export const SessionResumeRpc = Rpc.make("session.resume", {
 	payload: Schema.Struct({ sessionId: SessionId }),
