@@ -13,6 +13,7 @@ import { ProviderService } from "./services/provider-service.ts";
 
 /** Hard ceiling on the one-shot turn; on timeout we fall back to truncation. */
 const TITLE_TIMEOUT_MS = 25_000;
+export const MAX_GENERATED_TITLE_LENGTH = 60;
 
 const PROMPT_PREFIX = [
 	"Summarize the following conversation as a SHORT title of 3 to 5 words in Title Case.",
@@ -31,41 +32,6 @@ const BRANCH_PROMPT_PREFIX = [
 	"Task:",
 	"",
 ].join("\n");
-
-/** Greetings / filler the auto-namer should ignore until more context arrives. */
-const TRIVIAL_USER_MESSAGE_RE =
-	/^(hi|hey|yo|hello|sup|hiya|howdy|gm|gn|thanks|thx|ok|okay|yes|no|sure|cool|nice|lol|haha|test)[\s!.?]*$/i;
-
-/**
- * True when a lone user message is too short or conversational to name from.
- * Used to defer auto-naming until the user sends a real task or the assistant
- * replies.
- */
-export const isTrivialUserMessage = (text: string): boolean => {
-	const trimmed = text.trim();
-	if (trimmed.length === 0) return true;
-	if (trimmed.length <= 3) return true;
-	return TRIVIAL_USER_MESSAGE_RE.test(trimmed);
-};
-
-/**
- * Hold off on LLM auto-naming while the thread is only trivial user ping(s)
- * and the assistant hasn't replied yet.
- */
-export const shouldDeferAutoName = (
-	userTexts: readonly string[],
-	assistantTexts: readonly string[],
-): boolean => {
-	if (userTexts.length === 0) return true;
-	const combinedUser = userTexts
-		.map((t) => t.trim())
-		.filter((t) => t.length > 0)
-		.join(" ");
-	if (combinedUser.length === 0) return true;
-	if (assistantTexts.length > 0) return false;
-	if (userTexts.every(isTrivialUserMessage)) return true;
-	return false;
-};
 
 /** Render user/assistant turns into the throwaway title prompt body. */
 export const buildConversationText = (
@@ -95,19 +61,19 @@ export const buildConversationText = (
  */
 export const fallbackTitle = (firstMessage: string): string => {
 	const firstLine = firstMessage.trim().split("\n")[0] ?? "";
-	const truncated = firstLine.slice(0, 60).trim();
+	const truncated = firstLine.slice(0, MAX_GENERATED_TITLE_LENGTH).trim();
 	return truncated.length > 0 ? truncated : "New chat";
 };
 
 /** Strip the model's stray quoting / punctuation and clamp to one tidy line. */
-const cleanTitle = (raw: string): string => {
+export const cleanTitle = (raw: string): string => {
 	const firstLine = raw.trim().split("\n")[0] ?? "";
 	return firstLine
 		.replace(/^["'`]+|["'`]+$/g, "")
 		.replace(/[.!,;:]+$/g, "")
 		.replace(/\s+/g, " ")
 		.trim()
-		.slice(0, 60)
+		.slice(0, MAX_GENERATED_TITLE_LENGTH)
 		.trim();
 };
 

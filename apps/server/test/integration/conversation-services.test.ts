@@ -320,7 +320,7 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 		}),
 });
 
-// The successful-turn auto-namer may fire for chats with a worktree. Tests here
+// The first-turn auto-namer may fire for chats with a worktree. Tests here
 // do not exercise branch naming, so these stubs only satisfy the layer graph.
 const StubGitLive = Layer.succeed(GitService, {
 	log: () => Effect.die("not used"),
@@ -3407,28 +3407,43 @@ describe("ConversationServices — chat & session lifecycle", () => {
 });
 
 describe("ConversationServices — provider event persistence", () => {
-	it("names a successful initial turn once and later sessions independently", async () => {
+	it("names each session from its first turn and names the chat only once", async () => {
 		generatedTitle = "Reconnect Reliability";
 		scriptedEvents = [
 			{
-				_tag: "AssistantMessage",
-				itemId: "i_name_initial" as never,
-				text: "Reconnect handling is implemented and verified.",
+				_tag: "Error",
+				message: "The provider failed after the first turn was submitted.",
 			},
-			{ _tag: "Completed", reason: "ended" },
+			{ _tag: "Completed", reason: "error" },
 		];
 		try {
 			await withRuntime(async (run) => {
-				const created = await run(
-					Effect.flatMap(store, (service) =>
-						service.createChat({
+				const { created, liveRename } = await run(
+					Effect.gen(function* () {
+						const service = yield* store;
+						const liveRenameFiber = yield* service
+							.streamChatChanges(PROJECT_ID)
+							.pipe(
+								Stream.filter((chat) => chat.titleProvenance === "automatic"),
+								Stream.take(1),
+								Stream.runCollect,
+								Effect.timeout(2_000),
+								Effect.forkChild,
+							);
+						yield* Effect.sleep("10 millis");
+						const created = yield* service.createChat({
 							projectId: PROJECT_ID,
 							providerId: "claude",
 							model: "claude-opus-4-8",
 							initialPrompt: "Make reconnect handling reliable",
-						}),
-					),
+						});
+						const liveRename = yield* Fiber.join(liveRenameFiber);
+						return { created, liveRename };
+					}),
 				);
+				expect(liveRename.map((chat) => chat.title)).toEqual([
+					"Reconnect Reliability",
+				]);
 				const initial = await run(
 					Effect.gen(function* () {
 						const service = yield* store;
@@ -3452,17 +3467,15 @@ describe("ConversationServices — provider event persistence", () => {
 				expect(initial.chat.title).toBe("Reconnect Reliability");
 				expect(initial.session.title).toBe("Reconnect Reliability");
 
-				const manualChat = await run(
-					Effect.flatMap(store, (service) =>
-						service.renameChat(created.chat.id, "My workspace"),
-					),
-				);
-				expect(manualChat).toMatchObject({
-					title: "My workspace",
-					titleProvenance: "manual",
-				});
-
 				generatedTitle = "Telemetry Session";
+				scriptedEvents = [
+					{
+						_tag: "AssistantMessage",
+						itemId: "i_name_later" as never,
+						text: "Reconnect telemetry is ready.",
+					},
+					{ _tag: "Completed", reason: "ended" },
+				];
 				const later = await run(
 					Effect.flatMap(store, (service) =>
 						service.createSession({
@@ -3492,7 +3505,10 @@ describe("ConversationServices — provider event persistence", () => {
 				expect(namedLater.title).toBe("Telemetry Session");
 				expect(
 					await run(Effect.flatMap(store, (s) => s.getChat(created.chat.id))),
-				).toMatchObject({ title: "My workspace", titleProvenance: "manual" });
+				).toMatchObject({
+					title: "Reconnect Reliability",
+					titleProvenance: "automatic",
+				});
 				expect(
 					await run(
 						Effect.flatMap(store, (s) =>
@@ -3500,6 +3516,16 @@ describe("ConversationServices — provider event persistence", () => {
 						),
 					),
 				).toMatchObject({ title: "Reconnect Reliability" });
+
+				const manualChat = await run(
+					Effect.flatMap(store, (service) =>
+						service.renameChat(created.chat.id, "My workspace"),
+					),
+				);
+				expect(manualChat).toMatchObject({
+					title: "My workspace",
+					titleProvenance: "manual",
+				});
 			});
 		} finally {
 			scriptedEvents = [];

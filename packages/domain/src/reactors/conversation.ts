@@ -37,6 +37,7 @@ export type ScheduledSuccessorCommand = {
 export type AutoNameCommand = {
 	readonly _tag: "AutoNameChat";
 	readonly turnId: string;
+	readonly contentJson: string;
 };
 
 export type ChatArchiveCommand = {
@@ -163,14 +164,16 @@ export const autoNameReactorDefinition: ReactorDefinition<
 	name: "auto-name-chat",
 	react: (record) =>
 		Effect.succeed(
-			record.event._tag === "TurnSettled" &&
-				record.event.outcome === "completed"
+			record.event._tag === "MessagePersisted" &&
+				record.event.role === "user" &&
+				record.event.turnId !== null
 				? [
 						{
 							streamId: record.streamId,
 							command: {
 								_tag: "AutoNameChat",
 								turnId: record.event.turnId,
+								contentJson: record.event.contentJson,
 							},
 						},
 					]

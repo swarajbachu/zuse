@@ -1,34 +1,10 @@
 import { describe, expect, it } from "vitest";
-
 import {
 	buildConversationText,
-	isTrivialUserMessage,
-	shouldDeferAutoName,
+	cleanTitle,
+	fallbackTitle,
+	MAX_GENERATED_TITLE_LENGTH,
 } from "../../src/provider/title-generator.ts";
-
-describe("isTrivialUserMessage", () => {
-	it("treats greetings and filler as trivial", () => {
-		expect(isTrivialUserMessage("hi")).toBe(true);
-		expect(isTrivialUserMessage("yo!")).toBe(true);
-		expect(isTrivialUserMessage("hello there")).toBe(false);
-		expect(isTrivialUserMessage("fix the login bug")).toBe(false);
-	});
-});
-
-describe("shouldDeferAutoName", () => {
-	it("waits when only trivial user pings and no assistant reply", () => {
-		expect(shouldDeferAutoName(["hi"], [])).toBe(true);
-		expect(shouldDeferAutoName(["yo", "sup"], [])).toBe(true);
-	});
-
-	it("names once the assistant has replied", () => {
-		expect(shouldDeferAutoName(["hi"], ["Hello! How can I help?"])).toBe(false);
-	});
-
-	it("names immediately for substantive user tasks", () => {
-		expect(shouldDeferAutoName(["fix the auth redirect"], [])).toBe(false);
-	});
-});
 
 describe("buildConversationText", () => {
 	it("formats ordered turns for the title prompt", () => {
@@ -39,5 +15,16 @@ describe("buildConversationText", () => {
 				{ role: "user", text: "fix login" },
 			]),
 		).toBe("User: hi\n\nAssistant: Hey!\n\nUser: fix login");
+	});
+});
+
+describe("generated title length", () => {
+	it.each([
+		["model title", (text: string) => cleanTitle(text)],
+		["fallback title", (text: string) => fallbackTitle(text)],
+	])("caps a %s at 60 characters", (_label, makeTitle) => {
+		const title = makeTitle("A".repeat(100));
+		expect(title).toHaveLength(MAX_GENERATED_TITLE_LENGTH);
+		expect(title).toBe("A".repeat(60));
 	});
 });

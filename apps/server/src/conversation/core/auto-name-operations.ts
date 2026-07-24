@@ -17,74 +17,46 @@ import { textFromMessageContent } from "./conversation-input.ts";
 
 export interface QualifiedNamingTurn {
 	readonly userText: string;
-	readonly assistantText: string;
 	readonly conversationText: string;
 }
 
-export interface NamingMessageRow {
-	readonly role: string;
-	readonly kind: string;
-	readonly content_json: string;
-}
-
-export const qualifyNamingMessages = (
-	status: string | undefined,
-	rows: ReadonlyArray<NamingMessageRow>,
+export const qualifyNamingMessage = (
+	contentJson: string,
 ): QualifiedNamingTurn | null => {
-	if (status !== "idle") return null;
-	if (rows.some((row) => row.kind === "error" || row.kind === "interrupted")) {
-		return null;
-	}
-
-	const userTexts: string[] = [];
-	const assistantTexts: string[] = [];
-	for (const row of rows) {
-		try {
-			const content = JSON.parse(row.content_json) as MessageContent;
-			const text = textFromMessageContent(content)?.trim() ?? "";
-			if (text.length === 0) continue;
-			if (row.role === "user") userTexts.push(text);
-			if (
-				row.role === "assistant" &&
-				content._tag === "assistant" &&
-				content.isPlan !== true
-			) {
-				assistantTexts.push(text);
-			}
-		} catch {
+	try {
+		const content = JSON.parse(contentJson) as MessageContent;
+		const userText = textFromMessageContent(content)?.trim() ?? "";
+		if (
+			userText.length === 0 ||
+			(content._tag !== "user" && content._tag !== "user_rich")
+		) {
 			return null;
 		}
+		return {
+			userText,
+			conversationText: buildConversationText([
+				{ role: "user", text: userText },
+			]),
+		};
+	} catch {
+		return null;
 	}
-	if (userTexts.length === 0 || assistantTexts.length === 0) return null;
-	return {
-		userText: userTexts.join("\n\n"),
-		assistantText: assistantTexts.join("\n\n"),
-		conversationText: buildConversationText([
-			{ role: "user", text: userTexts.join("\n\n") },
-			{ role: "assistant", text: assistantTexts.join("\n\n") },
-		]),
-	};
 };
 
-/** Only completed turns with substantive, non-plan assistant output may name. */
-export const qualifyTurnForNaming = Effect.fn("qualifyTurnForNaming")(
-	function* (
-		sql: SqlClient.SqlClient,
-		sessionId: SessionId,
-		turnId: string,
-	): Effect.fn.Return<QualifiedNamingTurn | null> {
-		const sessions = yield* sql<{ readonly status: string }>`
-			SELECT status FROM sessions WHERE id = ${sessionId} LIMIT 1
-		`.pipe(Effect.orDie);
-		const rows = yield* sql<NamingMessageRow>`
-			SELECT role, kind, content_json
-			FROM messages
-			WHERE session_id = ${sessionId} AND turn_id = ${turnId}
-			ORDER BY created_at ASC
-		`.pipe(Effect.orDie);
-		return qualifyNamingMessages(sessions[0]?.status, rows);
-	},
-);
+/**
+ * Naming is requested by the persisted user message, so it starts immediately
+ * and does not depend on the provider turn's eventual outcome.
+ */
+export const qualifyTurnForNaming = (
+	contentJson: string,
+): QualifiedNamingTurn | null => {
+	const qualified = qualifyNamingMessage(contentJson);
+	if (qualified === null) return null;
+	return {
+		userText: qualified.userText,
+		conversationText: qualified.conversationText,
+	};
+};
 
 export interface AutoNameOperationsOptions {
 	readonly sql: SqlClient.SqlClient;
@@ -161,12 +133,13 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 	const autoNameChat = (
 		chatId: ChatId,
 		sessionId: SessionId,
-		turnId: string,
+		_turnId: string,
+		contentJson: string,
 		commandId: string,
 	): Effect.Effect<void> =>
 		Effect.gen(function* () {
 			if (yield* reactorEffects.isCompleted(commandId)) return;
-			const qualified = yield* qualifyTurnForNaming(sql, sessionId, turnId);
+			const qualified = qualifyTurnForNaming(contentJson);
 			if (qualified === null) {
 				yield* reactorEffects.complete(commandId);
 				return;
@@ -198,10 +171,6 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 					fallbackText: qualified.userText,
 				});
 				if (title.length > 0 && title !== "New chat") {
-					if ((yield* qualifyTurnForNaming(sql, sessionId, turnId)) === null) {
-						yield* reactorEffects.complete(commandId);
-						return;
-					}
 					session = yield* lookupSession(sessionId);
 					if (session.titleProvenance === "pending") {
 						yield* sessionDomain.dispatch({
@@ -216,11 +185,7 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 						});
 					}
 					chat = yield* lookupChat(chatId);
-					if (
-						isInitialSession &&
-						chat.titleProvenance === "pending" &&
-						(yield* qualifyTurnForNaming(sql, sessionId, turnId)) !== null
-					) {
+					if (isInitialSession && chat.titleProvenance === "pending") {
 						yield* renameChatWithCommandId(
 							chatId,
 							title,
@@ -253,10 +218,6 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 				model: session.model,
 				userText: qualified.userText,
 			});
-			if ((yield* qualifyTurnForNaming(sql, sessionId, turnId)) === null) {
-				yield* markComplete;
-				return;
-			}
 			const branch = formatBranchName(
 				branchFragment,
 				username,

@@ -34,6 +34,7 @@ import { useUiStore } from "../store/ui.ts";
 import { FileIcon } from "./file-icon.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { RenameDialog } from "./rename-dialog.tsx";
+import { TypewriterText } from "./typewriter-text.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { Spinner } from "./ui/spinner";
 
@@ -267,6 +268,7 @@ const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 		}
 	}
 	if (projectId === null || session === null) return;
+	const currentSession = session;
 
 	const projectRows = sessions.sessionsByProject[projectId] ?? EMPTY_SESSIONS;
 	// Live siblings in the same chat (excluding the one we're closing) sorted
@@ -275,9 +277,9 @@ const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 	const siblings = projectRows
 		.filter(
 			(row) =>
-				row.chatId === session!.chatId &&
+				row.chatId === currentSession.chatId &&
 				row.archivedAt === null &&
-				row.id !== session!.id,
+				row.id !== currentSession.id,
 		)
 		.slice()
 		.sort(
@@ -289,19 +291,20 @@ const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 		// Not the last tab — archive and refocus the right neighbor (else left).
 		const idx = projectRows
 			.filter(
-				(row) => row.chatId === session!.chatId && row.archivedAt === null,
+				(row) =>
+					row.chatId === currentSession.chatId && row.archivedAt === null,
 			)
 			.sort(
 				(a, b) =>
 					new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
 			)
-			.findIndex((row) => row.id === session!.id);
+			.findIndex((row) => row.id === currentSession.id);
 		const ordered = projectRows
 			.filter(
 				(row) =>
-					row.chatId === session!.chatId &&
+					row.chatId === currentSession.chatId &&
 					row.archivedAt === null &&
-					row.id !== session!.id,
+					row.id !== currentSession.id,
 			)
 			.sort(
 				(a, b) =>
@@ -322,8 +325,8 @@ const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 	const providerId = settings.defaultProviderId;
 	const model =
 		settings.defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
-	await sessions.archive(session.id);
-	await sessions.create(session.chatId, providerId, model, {
+	await sessions.archive(currentSession.id);
+	await sessions.create(currentSession.chatId, providerId, model, {
 		runtimeMode: settings.defaultRuntimeMode,
 	});
 };
@@ -418,10 +421,13 @@ function ChatTabButton({
 					)}
 				</span>
 				<span
-					className="truncate leading-none"
+					className="min-w-0 truncate leading-none"
 					aria-live={booting ? "polite" : undefined}
 				>
-					{booting ? "Starting agent…" : label}
+					<TypewriterText
+						text={booting ? "Starting agent…" : label}
+						className="truncate"
+					/>
 				</span>
 			</button>
 			<button

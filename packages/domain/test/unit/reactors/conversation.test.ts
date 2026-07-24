@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 
 import type { StoredEvent } from "../../../src/engine/dispatch.js";
 import {
+	autoNameReactorDefinition,
 	chatArchiveReactorDefinition,
 	providerStartReactorDefinition,
 } from "../../../src/reactors/conversation.js";
@@ -57,5 +58,56 @@ describe("conversation reactor definitions", () => {
 				command: { _tag: "ArchiveChatWorktree", force: false },
 			},
 		]);
+	});
+
+	test("requests naming from the first persisted user turn, before provider output", async () => {
+		const commands = await Effect.runPromise(
+			autoNameReactorDefinition.react(
+				record({
+					_tag: "MessagePersisted",
+					messageId: "message-1",
+					turnId: "turn-1",
+					role: "user",
+					kind: "user",
+					contentJson: JSON.stringify({
+						_tag: "user",
+						text: "Fix reconnect handling",
+						goal: false,
+					}),
+					parentItemId: null,
+					createdAt: 1,
+				}),
+			),
+		);
+
+		expect(commands).toEqual([
+			{
+				streamId: "session-1",
+				command: {
+					_tag: "AutoNameChat",
+					turnId: "turn-1",
+					contentJson: JSON.stringify({
+						_tag: "user",
+						text: "Fix reconnect handling",
+						goal: false,
+					}),
+				},
+			},
+		]);
+	});
+
+	test("does not wait for a completed turn to request naming", async () => {
+		const commands = await Effect.runPromise(
+			autoNameReactorDefinition.react(
+				record({
+					_tag: "TurnSettled",
+					turnId: "turn-1",
+					outcome: "completed",
+					settledAt: 2,
+				}),
+			),
+		);
+
+		expect(commands).toEqual([]);
 	});
 });

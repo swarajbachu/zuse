@@ -1446,7 +1446,7 @@ function GeneralPane() {
 			>
 				<SettingsRow
 					title="Branch naming"
-					description="After the first successful agent turn, unnamed chats and sessions receive a title. Fresh unpublished worktree branches receive a separate semantic name in this shape."
+					description="From the first submitted turn, each unnamed session receives one title, the chat receives one title from its initial session, and a fresh unpublished worktree branch receives a separate semantic name in this shape."
 					action={
 						<Select
 							value={branchNamingStyle}

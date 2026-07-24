@@ -19,7 +19,7 @@ export type WorktreeSetupStatus = typeof WorktreeSetupStatus.Type;
  * `~/.zuse/<repo-name>-<projectId-short>/<name>/` so it stays out of the
  * source repo (no `.git/info/exclude` rewriting, no stray entries in `git
  * status`, no `.zuse/` paths leaking into file pickers). Fresh branches may
- * receive a one-time semantic name after their first successful agent turn.
+ * receive a one-time semantic name from their first submitted agent turn.
  */
 export class Worktree extends Schema.Class<Worktree>("Worktree")({
 	id: WorktreeId,

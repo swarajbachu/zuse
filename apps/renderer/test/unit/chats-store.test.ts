@@ -393,6 +393,53 @@ describe("chats store live changes", () => {
 		expect(listSessions).toHaveBeenCalledTimes(1);
 	});
 
+	it("applies an automatic title change without reloading the sidebar", async () => {
+		let publishChat: ((chat: Chat) => void) | undefined;
+		subscribeRendererRpcConnection.mockImplementation((listener) => {
+			listener({
+				key: "renderer",
+				status: "connected",
+				generation: 1,
+				attempt: 0,
+				error: null,
+			});
+			return vi.fn();
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.list": () => Effect.succeed([reconnectChat]),
+			"chat.streamChanges": () =>
+				Stream.callback<Chat>((queue) =>
+					Effect.sync(() => {
+						publishChat = (chat) => Queue.offerUnsafe(queue, chat);
+					}),
+				),
+			"session.list": () => Effect.succeed([reconnectSession]),
+		});
+		useChatsStore.setState({
+			chatsByProject: {},
+			loadingByProject: {},
+			error: null,
+		});
+		useSessionsStore.setState({ sessionsByProject: {} });
+
+		await useChatsStore.getState().hydrate(reconnectProjectId);
+		await vi.waitFor(() => expect(publishChat).toBeDefined());
+		publishChat?.({
+			...reconnectChat,
+			title: "Reconnect Reliability",
+			titleProvenance: "automatic",
+		});
+
+		await vi.waitFor(() =>
+			expect(
+				useChatsStore.getState().chatsByProject[reconnectProjectId]?.[0],
+			).toMatchObject({
+				title: "Reconnect Reliability",
+				titleProvenance: "automatic",
+			}),
+		);
+	});
+
 	it("does not restore chat state or its stream when hydration settles after workspace removal", async () => {
 		const listResult = deferred<ReadonlyArray<Chat>>();
 		const listChats = vi.fn(() => Effect.promise(() => listResult.promise));
