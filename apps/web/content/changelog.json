@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.15.1",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Fix macOS launch entitlement rejection"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.15.0",
     "sections": [
       {

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1]
+
+### Changed
+- Fix macOS launch entitlement rejection
+
 ## [0.15.0]
 
 ### Changed
