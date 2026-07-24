@@ -64,7 +64,6 @@ export interface ProviderReactorHandlersOptions {
 		chatId: Parameters<ConversationOperations["renameChat"]>[0],
 		sessionId: SessionId,
 		turnId: string,
-		contentJson: string,
 		commandId: string,
 	) => Effect.Effect<void>;
 }
@@ -344,7 +343,6 @@ export const makeProviderReactorHandlers = (
 				session.chatId,
 				sessionId,
 				input.command.turnId,
-				input.command.contentJson,
 				input.commandId,
 			);
 		});

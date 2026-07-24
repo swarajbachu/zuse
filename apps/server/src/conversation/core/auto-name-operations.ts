@@ -43,20 +43,33 @@ export const qualifyNamingMessage = (
 	}
 };
 
-/**
- * Naming is requested by the persisted user message, so it starts immediately
- * and does not depend on the provider turn's eventual outcome.
- */
-export const qualifyTurnForNaming = (
-	contentJson: string,
-): QualifiedNamingTurn | null => {
-	const qualified = qualifyNamingMessage(contentJson);
-	if (qualified === null) return null;
-	return {
-		userText: qualified.userText,
-		conversationText: qualified.conversationText,
-	};
-};
+interface FirstNamingMessageRow {
+	readonly turn_id: string;
+	readonly content_json: string;
+}
+
+/** Only the session's first user turn is eligible for automatic naming. */
+export const qualifyTurnForNaming = Effect.fn("qualifyTurnForNaming")(
+	function* (
+		sql: SqlClient.SqlClient,
+		sessionId: SessionId,
+		turnId: string,
+	): Effect.fn.Return<QualifiedNamingTurn | null> {
+		const rows = yield* sql<FirstNamingMessageRow>`
+			SELECT turn_id, content_json
+			FROM messages
+			WHERE session_id = ${sessionId}
+				AND role = 'user'
+				AND turn_id IS NOT NULL
+			ORDER BY sequence ASC
+			LIMIT 1
+		`.pipe(Effect.orDie);
+		const first = rows[0];
+		return first?.turn_id === turnId
+			? qualifyNamingMessage(first.content_json)
+			: null;
+	},
+);
 
 export interface AutoNameOperationsOptions {
 	readonly sql: SqlClient.SqlClient;
@@ -133,13 +146,12 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 	const autoNameChat = (
 		chatId: ChatId,
 		sessionId: SessionId,
-		_turnId: string,
-		contentJson: string,
+		turnId: string,
 		commandId: string,
 	): Effect.Effect<void> =>
 		Effect.gen(function* () {
 			if (yield* reactorEffects.isCompleted(commandId)) return;
-			const qualified = qualifyTurnForNaming(contentJson);
+			const qualified = yield* qualifyTurnForNaming(sql, sessionId, turnId);
 			if (qualified === null) {
 				yield* reactorEffects.complete(commandId);
 				return;

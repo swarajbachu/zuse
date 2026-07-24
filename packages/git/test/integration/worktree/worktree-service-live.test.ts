@@ -180,6 +180,30 @@ describe("WorktreeServiceLive", () => {
 		expect(unchanged.branch).toBe("safe-name");
 	});
 
+	test("renames a fresh branch that tracks its remote base", async () => {
+		const created = await run((service) => service.create(projectId));
+		git(repositoryRoot, "remote", "add", "origin", repositoryRoot);
+		git(repositoryRoot, "fetch", "origin", "main");
+		git(
+			created.path,
+			"branch",
+			"--set-upstream-to=origin/main",
+			created.branch,
+		);
+
+		const renamed = await run((service) =>
+			service.renameBranch(created.id, "semantic-task-name", "automatic"),
+		);
+
+		expect(renamed).toMatchObject({
+			branch: "semantic-task-name",
+			branchProvenance: "automatic",
+		});
+		expect(git(created.path, "branch", "--show-current")).toBe(
+			"semantic-task-name",
+		);
+	});
+
 	test("suffixes automatic collisions but reports manual collisions", async () => {
 		const automatic = await run((service) => service.create(projectId));
 		git(repositoryRoot, "branch", "occupied");

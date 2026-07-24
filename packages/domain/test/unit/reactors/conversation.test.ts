@@ -60,7 +60,7 @@ describe("conversation reactor definitions", () => {
 		]);
 	});
 
-	test("requests naming from the first persisted user turn, before provider output", async () => {
+	test("does not request naming before provider output settles", async () => {
 		const commands = await Effect.runPromise(
 			autoNameReactorDefinition.react(
 				record({
@@ -80,29 +80,39 @@ describe("conversation reactor definitions", () => {
 			),
 		);
 
-		expect(commands).toEqual([
-			{
-				streamId: "session-1",
-				command: {
-					_tag: "AutoNameChat",
-					turnId: "turn-1",
-					contentJson: JSON.stringify({
-						_tag: "user",
-						text: "Fix reconnect handling",
-						goal: false,
-					}),
-				},
-			},
-		]);
+		expect(commands).toEqual([]);
 	});
 
-	test("does not wait for a completed turn to request naming", async () => {
+	test("requests naming after a completed turn", async () => {
 		const commands = await Effect.runPromise(
 			autoNameReactorDefinition.react(
 				record({
 					_tag: "TurnSettled",
 					turnId: "turn-1",
 					outcome: "completed",
+					settledAt: 2,
+				}),
+			),
+		);
+
+		expect(commands).toEqual([
+			{
+				streamId: "session-1",
+				command: {
+					_tag: "AutoNameChat",
+					turnId: "turn-1",
+				},
+			},
+		]);
+	});
+
+	test("does not request naming after an errored turn", async () => {
+		const commands = await Effect.runPromise(
+			autoNameReactorDefinition.react(
+				record({
+					_tag: "TurnSettled",
+					turnId: "turn-1",
+					outcome: "error",
 					settledAt: 2,
 				}),
 			),

@@ -154,6 +154,11 @@ let archiveWorktreeBarrier: Promise<void> | null = null;
 let archiveWorktreeStarts = 0;
 let archiveWorktreeFailure: "git-missing" | null = null;
 let generatedTitle: string | null = null;
+let generatedBranch: string | null = null;
+let renamedBranches: Array<{
+	readonly worktreeId: WorktreeId;
+	readonly branch: string;
+}> = [];
 
 const deferred = <A>() => {
 	let resolve!: (value: A) => void;
@@ -231,6 +236,7 @@ let testWorktree = Worktree.make({
 	path: TEST_WORKTREE_PATH,
 	name: "pikachu",
 	branch: "pikachu",
+	branchProvenance: "pending",
 	baseBranch: "origin/main",
 	createdAt: new Date("2026-01-01T00:00:00.000Z"),
 	setupStatus: "succeeded",
@@ -273,7 +279,23 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 					? testWorktree
 					: (createdWorktrees.get(worktreeId as string) ?? null),
 		),
-	renameBranch: () => Effect.die("not used"),
+	renameBranch: (worktreeId, branch, provenance) =>
+		Effect.sync(() => {
+			renamedBranches.push({ worktreeId, branch });
+			const current =
+				worktreeId === TEST_WORKTREE_ID
+					? testWorktree
+					: createdWorktrees.get(worktreeId as string);
+			if (current === undefined) throw new Error("missing test worktree");
+			const renamed = Worktree.make({
+				...current,
+				branch,
+				branchProvenance: provenance,
+			});
+			if (worktreeId === TEST_WORKTREE_ID) testWorktree = renamed;
+			else createdWorktrees.set(worktreeId as string, renamed);
+			return renamed;
+		}),
 	archive: (worktreeId, recordCheckpoint, allowRemoval) =>
 		Effect.gen(function* () {
 			archiveWorktreeStarts += 1;
@@ -361,7 +383,10 @@ const StubTitleGeneratorLive = Layer.succeed(TitleGenerator, {
 		generatedTitle === null
 			? Effect.die("not used")
 			: Effect.succeed(generatedTitle),
-	generateBranch: () => Effect.die("not used"),
+	generateBranch: () =>
+		generatedBranch === null
+			? Effect.die("not used")
+			: Effect.succeed(generatedBranch),
 });
 
 const StubConfigStoreLive = Layer.succeed(ConfigStoreService, {
@@ -376,6 +401,8 @@ const StubConfigStoreLive = Layer.succeed(ConfigStoreService, {
 				gemini: defaultModelFor("gemini"),
 				opencode: defaultModelFor("opencode"),
 			},
+			branchNamingStyle: "slug",
+			branchNamingPrefix: "",
 		} as never),
 	updateSettings: () => Effect.die("not used"),
 	settingsChanges: () => Stream.die("not used"),
@@ -568,14 +595,14 @@ const withRuntime = async <A>(
         `;
 				yield* sql`
           INSERT INTO worktrees
-            (id, project_id, path, name, branch, base_branch, created_at)
+            (id, project_id, path, name, branch, branch_provenance, base_branch, created_at)
           VALUES
             (${TEST_WORKTREE_ID}, ${PROJECT_ID}, ${testWorktree.path},
              ${testWorktree.name}, ${testWorktree.branch},
-             ${testWorktree.baseBranch}, ${now}),
+             ${"pending"}, ${testWorktree.baseBranch}, ${now}),
 			(${"wt-created-1"}, ${PROJECT_ID},
 			 ${join(dirname(testWorktree.path), "created-1")}, ${"created-1"},
-             ${"created-1"}, ${"origin/main"}, ${now})
+             ${"created-1"}, ${"pending"}, ${"origin/main"}, ${now})
         `;
 			}),
 		);
@@ -607,6 +634,14 @@ beforeEach(() => {
 	archiveWorktreeStarts = 0;
 	archiveWorktreeFailure = null;
 	generatedTitle = null;
+	generatedBranch = null;
+	renamedBranches = [];
+	testWorktree = Worktree.make({
+		...testWorktree,
+		path: TEST_WORKTREE_PATH,
+		branch: "pikachu",
+		branchProvenance: "pending",
+	});
 });
 
 describe("ConversationServices migrations", () => {
@@ -3407,14 +3442,73 @@ describe("ConversationServices — chat & session lifecycle", () => {
 });
 
 describe("ConversationServices — provider event persistence", () => {
-	it("names each session from its first turn and names the chat only once", async () => {
-		generatedTitle = "Reconnect Reliability";
+	it("keeps pending New chat titles when the first turn errors", async () => {
+		generatedTitle = "Your Organization Has Disabled Access";
 		scriptedEvents = [
 			{
 				_tag: "Error",
-				message: "The provider failed after the first turn was submitted.",
+				message: "Your organization has disabled provider access.",
 			},
 			{ _tag: "Completed", reason: "error" },
+		];
+		try {
+			await withRuntime(async (run) => {
+				const created = await run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							initialPrompt: "Review the project",
+						}),
+					),
+				);
+				const failed = await run(
+					Effect.gen(function* () {
+						const service = yield* store;
+						const session = yield* service.getSession(
+							created.initialSession.id,
+						);
+						return session.status === "error"
+							? {
+									chat: yield* service.getChat(created.chat.id),
+									session,
+								}
+							: yield* Effect.fail("first turn has not failed yet" as const);
+					}).pipe(
+						Effect.retry(
+							Schedule.max([
+								Schedule.spaced("10 millis"),
+								Schedule.recurs(100),
+							]),
+						),
+					),
+				);
+
+				expect(failed.chat).toMatchObject({
+					title: "New chat",
+					titleProvenance: "pending",
+				});
+				expect(failed.session).toMatchObject({
+					title: "New chat",
+					titleProvenance: "pending",
+				});
+			});
+		} finally {
+			scriptedEvents = [];
+		}
+	});
+
+	it("names each session from its first turn and names the chat only once", async () => {
+		generatedTitle = "Reconnect Reliability";
+		generatedBranch = "reconnect-reliability";
+		scriptedEvents = [
+			{
+				_tag: "AssistantMessage",
+				itemId: "i_name_initial" as never,
+				text: "Reconnect handling is implemented and verified.",
+			},
+			{ _tag: "Completed", reason: "ended" },
 		];
 		try {
 			await withRuntime(async (run) => {
@@ -3436,6 +3530,7 @@ describe("ConversationServices — provider event persistence", () => {
 							providerId: "claude",
 							model: "claude-opus-4-8",
 							initialPrompt: "Make reconnect handling reliable",
+							worktreeId: TEST_WORKTREE_ID,
 						});
 						const liveRename = yield* Fiber.join(liveRenameFiber);
 						return { created, liveRename };
@@ -3466,6 +3561,12 @@ describe("ConversationServices — provider event persistence", () => {
 				);
 				expect(initial.chat.title).toBe("Reconnect Reliability");
 				expect(initial.session.title).toBe("Reconnect Reliability");
+				expect(renamedBranches).toEqual([
+					{
+						worktreeId: TEST_WORKTREE_ID,
+						branch: "reconnect-reliability",
+					},
+				]);
 
 				generatedTitle = "Telemetry Session";
 				scriptedEvents = [

@@ -523,7 +523,19 @@ export const WorktreeServiceLive = Layer.effect(
 				Effect.map(() => true),
 				Effect.catch(() => Effect.succeed(false)),
 			);
-			if (upstream.length > 0 || remoteBranches.length > 0 || hasPullRequest) {
+			// A fresh worktree branch is created from origin/<base> and Git may
+			// automatically retain that base as its upstream. That does not mean
+			// the temporary branch itself was published. Only another upstream,
+			// a same-named remote ref, or a pull request makes renaming unsafe.
+			const baseName = row.base_branch
+				.replace(/^refs\/remotes\//, "")
+				.replace(/^origin\//, "");
+			const tracksRemoteBase = upstream === `origin/${baseName}`;
+			if (
+				(upstream.length > 0 && !tracksRemoteBase) ||
+				remoteBranches.length > 0 ||
+				hasPullRequest
+			) {
 				return yield* fail(
 					"published",
 					"Published branches cannot be renamed. The remote branch and pull request were left unchanged.",
