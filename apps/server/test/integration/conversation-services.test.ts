@@ -49,6 +49,7 @@ import {
 import { SqlClient } from "effect/unstable/sql";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
+import { loadSettledProviderTurnKeys } from "../../src/conversation/core/conversation-reactors.ts";
 import { ConversationState } from "../../src/conversation/core/conversation-state.ts";
 import { ConversationServicesLive } from "../../src/conversation/layers/conversation-services.ts";
 import {
@@ -2151,6 +2152,72 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				_tag: "user",
 				text: "hello there",
 			});
+		});
+	});
+
+	it("settles a durable turn when provider recovery cannot start", async () => {
+		await withRuntime(async (run) => {
+			const { chat, initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await expect
+				.poll(() =>
+					run(Effect.flatMap(store, (s) => s.getSession(initialSession.id))),
+				)
+				.toMatchObject({ status: "idle" });
+
+			failProviderSend = true;
+			failProviderStart = true;
+
+			await expect(
+				run(
+					Effect.flatMap(store, (s) =>
+						s.sendMessage(initialSession.id, "trigger provider recovery"),
+					),
+				),
+			).rejects.toThrow(
+				"Provider turn could not be started after durable intent",
+			);
+
+			const evidence = await run(
+				Effect.gen(function* () {
+					const service = yield* store;
+					const sql = yield* SqlClient.SqlClient;
+					const session = yield* service.getSession(initialSession.id);
+					const messages = yield* service.listMessages(initialSession.id);
+					const currentChat = yield* service.getChat(chat.id);
+					const receipts = yield* sql<{ readonly effect_id: string }>`
+						SELECT effect_id FROM reactor_effect_receipts
+						WHERE effect_id LIKE 'reactor:provider-turn:%'
+					`;
+					return { session, messages, currentChat, receipts };
+				}),
+			);
+
+			expect(evidence.session.status).toBe("error");
+			expect(
+				evidence.messages.some((message) => message.content._tag === "user"),
+			).toBe(true);
+			expect(evidence.currentChat.title).toBe("New chat");
+			expect(evidence.receipts).toHaveLength(0);
+
+			const settledTurnKeys = await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					return yield* loadSettledProviderTurnKeys(sql);
+				}),
+			);
+			expect(
+				[...settledTurnKeys].some((key) =>
+					key.startsWith(`${initialSession.id}\u0000turn_`),
+				),
+			).toBe(true);
 		});
 	});
 
