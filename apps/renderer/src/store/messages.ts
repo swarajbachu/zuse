@@ -15,6 +15,7 @@ import {
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { formatError } from "../lib/format-error.ts";
+import { recordDiagnosticEvent } from "../lib/diagnostics-recorder.ts";
 import {
 	markRendererInteraction,
 	trackRendererRpc,
@@ -163,6 +164,8 @@ export const lookupSessionProvider = (
  */
 type MessagesState = {
   readonly messagesBySession: Record<string, ReadonlyArray<Message>>;
+  readonly timelineVersionBySession: Record<string, number>;
+  readonly renderRecoveryBySession: Record<string, number>;
   readonly errorBySession: Record<string, ChatError | null>;
   /**
    * Mirror of `Session.status === "running"`, fed by the `session.events`
@@ -264,6 +267,16 @@ const timelineCacheWriteTimers = new Map<
   SessionId,
   ReturnType<typeof setTimeout>
 >();
+const timelineWatchdogTimers = new Map<
+  SessionId,
+  ReturnType<typeof setTimeout>
+>();
+const timelineRenderedVersions = new Map<SessionId, number>();
+const timelineLagObservations = new Map<
+  SessionId,
+  { readonly appliedVersion: number; readonly throughVersion: number }
+>();
+const timelineProbeFailures = new Map<SessionId, number>();
 const goalFibers = new Map<SessionId, Fiber.Fiber<unknown, unknown>>();
 let liveConnectionGeneration: number | null = null;
 let unsubscribeLiveConnection: (() => void) | null = null;
@@ -344,6 +357,152 @@ const scheduleTimelineReconnect = (sessionId: SessionId): void => {
 	);
 };
 
+const clearTimelineWatchdog = (sessionId: SessionId): void => {
+  const timer = timelineWatchdogTimers.get(sessionId);
+  if (timer !== undefined) clearTimeout(timer);
+  timelineWatchdogTimers.delete(sessionId);
+};
+
+const restartTimeline = async (sessionId: SessionId): Promise<void> => {
+  const wasRetained = retainedTimelineSessions.has(sessionId);
+  clearTimelineWatchdog(sessionId);
+  clearTimelineReconnect(sessionId);
+  const fiber = timelineFibers.get(sessionId);
+  timelineFibers.delete(sessionId);
+  timelineTokens.delete(sessionId);
+  if (fiber !== undefined) {
+    await Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {});
+  }
+  if (
+    retainedTimelineSessions.has(sessionId) ||
+    timelineRegistry.state(sessionId).projection?.currentTurn != null
+  ) {
+    await useMessagesStore.getState().hydrate(sessionId);
+    if (!wasRetained) retainedTimelineSessions.delete(sessionId);
+  }
+};
+
+export const acknowledgeTimelineRendered = (
+  sessionId: SessionId,
+  appliedVersion: number,
+): void => {
+  timelineRenderedVersions.set(
+    sessionId,
+    Math.max(timelineRenderedVersions.get(sessionId) ?? 0, appliedVersion),
+  );
+};
+
+export const checkTimelineLiveness = async (
+  sessionId: SessionId,
+): Promise<boolean> => {
+  const token = timelineTokens.get(sessionId);
+  const generation = liveConnectionGeneration;
+  if (
+    token === undefined ||
+    (!retainedTimelineSessions.has(sessionId) &&
+      timelineRegistry.state(sessionId).projection?.currentTurn == null)
+  ) {
+    return false;
+  }
+  try {
+    const client = await getMessagesRpcClient();
+    const { throughVersion } = await Effect.runPromise(
+      client["session.events.head"]({ sessionId }).pipe(Effect.timeout(3_000)),
+    );
+    if (
+      timelineTokens.get(sessionId) !== token ||
+      liveConnectionGeneration !== generation
+    ) {
+      return false;
+    }
+    const appliedVersion = timelineRegistry.state(sessionId).appliedVersion;
+    const renderedVersion = timelineRenderedVersions.get(sessionId);
+    timelineProbeFailures.delete(sessionId);
+    if (throughVersion > appliedVersion) {
+      const previous = timelineLagObservations.get(sessionId);
+      timelineLagObservations.set(sessionId, { appliedVersion, throughVersion });
+      if (
+        previous === undefined ||
+        previous.appliedVersion !== appliedVersion ||
+        previous.throughVersion > throughVersion
+      ) {
+        return false;
+      }
+    } else {
+      timelineLagObservations.delete(sessionId);
+    }
+    if (
+      throughVersion <= appliedVersion &&
+      (renderedVersion === undefined || renderedVersion >= appliedVersion)
+    ) {
+      return false;
+    }
+    recordDiagnosticEvent({
+      level: "warn",
+      source: "timeline.watchdog",
+      message:
+        throughVersion > appliedVersion
+          ? "Replacing a stalled session event stream"
+          : "Refreshing a stalled timeline render",
+      detail: JSON.stringify({
+        sessionId,
+        appliedVersion,
+        renderedVersion,
+        throughVersion,
+        connectionGeneration: liveConnectionGeneration,
+      }),
+    });
+    if (throughVersion <= appliedVersion) {
+      useMessagesStore.setState((state) => ({
+        renderRecoveryBySession: {
+          ...state.renderRecoveryBySession,
+          [sessionId]: (state.renderRecoveryBySession[sessionId] ?? 0) + 1,
+        },
+      }));
+      return true;
+    }
+    await restartTimeline(sessionId);
+    return true;
+  } catch {
+    if (
+      timelineTokens.get(sessionId) !== token ||
+      liveConnectionGeneration !== generation
+    ) {
+      return false;
+    }
+    const failures = (timelineProbeFailures.get(sessionId) ?? 0) + 1;
+    timelineProbeFailures.set(sessionId, failures);
+    if (failures < 2) return false;
+    timelineProbeFailures.delete(sessionId);
+    await restartTimeline(sessionId);
+    return true;
+  }
+};
+
+const scheduleTimelineWatchdog = (sessionId: SessionId): void => {
+  if (timelineWatchdogTimers.has(sessionId)) return;
+  if (
+    !retainedTimelineSessions.has(sessionId) &&
+    timelineRegistry.state(sessionId).projection?.currentTurn == null
+  ) {
+    return;
+  }
+  const running =
+    timelineRegistry.state(sessionId).projection?.currentTurn !== null;
+  timelineWatchdogTimers.set(
+    sessionId,
+    setTimeout(
+      () => {
+        timelineWatchdogTimers.delete(sessionId);
+        void checkTimelineLiveness(sessionId).finally(() => {
+          if (timelineFibers.has(sessionId)) scheduleTimelineWatchdog(sessionId);
+        });
+      },
+      running ? 5_000 : 20_000,
+    ),
+  );
+};
+
 const scheduleTimelineCacheWrite = (sessionId: SessionId): void => {
   const cache = sessionTimelineCache;
   if (cache === null) return;
@@ -410,11 +569,14 @@ export const teardownLiveStreams = async (
 ): Promise<void> => {
 	if (sessionId !== undefined) {
 		retainedTimelineSessions.delete(sessionId);
-		clearTimelineReconnect(sessionId);
+    clearTimelineReconnect(sessionId);
 		const previous = timelineEvictionTimers.get(sessionId);
 		if (previous !== undefined) clearTimeout(previous);
-    if (timelineRegistry.state(sessionId).projection?.currentTurn != null)
+    if (timelineRegistry.state(sessionId).projection?.currentTurn != null) {
+      scheduleTimelineWatchdog(sessionId);
       return;
+    }
+    clearTimelineWatchdog(sessionId);
     timelineEvictionTimers.set(
       sessionId,
       setTimeout(() => {
@@ -436,7 +598,12 @@ export const teardownLiveStreams = async (
 	timelineReconnectTimers.clear();
   for (const timer of timelineCacheWriteTimers.values()) clearTimeout(timer);
   timelineCacheWriteTimers.clear();
+  for (const timer of timelineWatchdogTimers.values()) clearTimeout(timer);
+  timelineWatchdogTimers.clear();
   timelineCacheLoads.clear();
+  timelineRenderedVersions.clear();
+  timelineLagObservations.clear();
+  timelineProbeFailures.clear();
 	timelineReconnectAttempts.clear();
 	retainedTimelineSessions.clear();
 	pendingTimelineSessionCreations.clear();
@@ -453,6 +620,8 @@ export const teardownLiveStreams = async (
 
 export const useMessagesStore = create<MessagesState>((set, get) => ({
   messagesBySession: {},
+  timelineVersionBySession: {},
+  renderRecoveryBySession: {},
   errorBySession: {},
   runningBySession: {},
   queueBySession: {},
@@ -465,7 +634,11 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 		timelineEvictionTimers.delete(sessionId);
 		if (pendingTimelineSessionCreations.has(sessionId)) return;
 		ensureLiveConnectionSubscription();
-    if (timelineFibers.has(sessionId) || timelineStarts.has(sessionId)) return;
+    if (timelineFibers.has(sessionId)) {
+      scheduleTimelineWatchdog(sessionId);
+      return;
+    }
+    if (timelineStarts.has(sessionId)) return;
     timelineStarts.add(sessionId);
     set((s) => ({
       // Preserve any pre-seeded messages (e.g. the initial user message
@@ -520,6 +693,10 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
             queuePausedBySession: {
               ...state.queuePausedBySession,
               [sessionId]: cached.projection.queue.paused,
+            },
+            timelineVersionBySession: {
+              ...state.timelineVersionBySession,
+              [sessionId]: cached.appliedVersion,
             },
           }));
           markQueueHydrated(sessionId);
@@ -576,6 +753,10 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 						...state.queuePausedBySession,
 						[sessionId]: projection.queue.paused,
 					},
+          timelineVersionBySession: {
+            ...state.timelineVersionBySession,
+            [sessionId]: timeline.appliedVersion,
+          },
 				}));
 				markQueueHydrated(sessionId);
 				get().observeSessionStatus(sessionId, projection.status);
@@ -596,8 +777,15 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
                 `Transcript continuity check failed: ${timeline.error ?? "unknown gap"}`,
               );
             }
-						publishTimelineState();
+            publishTimelineState();
             scheduleTimelineCacheWrite(sessionId);
+            scheduleTimelineWatchdog(sessionId);
+            if (
+              !retainedTimelineSessions.has(sessionId) &&
+              timeline.projection?.currentTurn == null
+            ) {
+              void teardownLiveStreams(sessionId);
+            }
           }),
       ).pipe(
 				Effect.andThen(
@@ -641,6 +829,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 			);
       timelineTokens.set(sessionId, streamToken);
       timelineFibers.set(sessionId, timelineFiber);
+      scheduleTimelineWatchdog(sessionId);
       timelineStarts.delete(sessionId);
       const goalProvider = lookupSessionProvider(sessionId);
       if (goalProvider === "codex" || goalProvider === "grok") {

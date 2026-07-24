@@ -1325,6 +1325,13 @@ export const SessionEventsRpc = Rpc.make("session.events", {
 	stream: true,
 });
 
+/** Lightweight durable cursor used to detect an open-but-stalled event stream. */
+export const SessionEventsHeadRpc = Rpc.make("session.events.head", {
+	payload: Schema.Struct({ sessionId: SessionId }),
+	success: Schema.Struct({ throughVersion: Schema.Number }),
+	error: SessionNotFoundError,
+});
+
 export const SessionGoalGetRpc = Rpc.make("session.goal.get", {
 	payload: Schema.Struct({ sessionId: SessionId }),
 	success: Schema.NullOr(ThreadGoal),

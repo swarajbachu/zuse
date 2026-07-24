@@ -675,6 +675,21 @@ const SessionEvents = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const SessionEventsHead = MemoizeRpcs.toLayerHandler(
+	"session.events.head",
+	({ sessionId }) =>
+		Effect.gen(function* () {
+			const sessions = yield* SessionService;
+			yield* sessions.getSession(sessionId);
+			const domain = yield* SessionDomain;
+			return {
+				throughVersion: yield* domain
+					.currentStreamVersion(sessionId)
+					.pipe(Effect.orDie),
+			};
+		}),
+);
+
 const SessionGoalGet = MemoizeRpcs.toLayerHandler(
 	"session.goal.get",
 	({ sessionId }) =>
@@ -965,6 +980,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	SessionMcpUpdate,
 	SessionSetWorktree,
 	SessionEvents,
+	SessionEventsHead,
 	SessionGoalGet,
 	SessionGoalSet,
 	SessionGoalClear,

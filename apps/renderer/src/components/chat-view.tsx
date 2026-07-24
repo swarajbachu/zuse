@@ -31,7 +31,11 @@ import {
 	shouldRestoreAnchorScrollOffset,
 	type TimelineScrollMode,
 } from "../lib/timeline-scroll-anchoring.ts";
-import { teardownLiveStreams, useMessagesStore } from "../store/messages.ts";
+import {
+	acknowledgeTimelineRendered,
+	teardownLiveStreams,
+	useMessagesStore,
+} from "../store/messages.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
 import { getSessionById, useSessionsStore } from "../store/sessions.ts";
@@ -91,6 +95,12 @@ export function ChatView({
 	}, [sessionId]);
 	const messages = useMessagesStore(
 		(s) => s.messagesBySession[sessionId] ?? EMPTY_MESSAGES,
+	);
+	const timelineVersion = useMessagesStore(
+		(s) => s.timelineVersionBySession[sessionId] ?? 0,
+	);
+	const renderRecovery = useMessagesStore(
+		(s) => s.renderRecoveryBySession[sessionId] ?? 0,
 	);
 	const inFlight = useMessagesStore(
 		(s) => s.runningBySession[sessionId] === true,
@@ -504,6 +514,20 @@ export function ChatView({
 	useEffect(() => () => clearShowPillTimer(), [clearShowPillTimer]);
 
 	useLayoutEffect(() => {
+		const frame = requestAnimationFrame(() => {
+			const renderedData = listRef.current?.getState()?.data;
+			if (
+				renderedData !== undefined &&
+				renderedData.length === rows.length &&
+				renderedData.at(-1) === rows.at(-1)
+			) {
+				acknowledgeTimelineRendered(sessionId, timelineVersion);
+			}
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [renderRecovery, rows, sessionId, timelineVersion]);
+
+	useLayoutEffect(() => {
 		const node = listRef.current?.getScrollableNode() ?? null;
 		if (node instanceof HTMLDivElement) {
 			node.dataset.pane = "chat";
@@ -710,7 +734,7 @@ export function ChatView({
 					) : (
 						<ChatLookupsProvider value={chatLookups}>
 							<LegendList<ChatTimelineRow>
-								key={sessionId}
+								key={`${sessionId}:${renderRecovery}`}
 								ref={listRef}
 								data={rows}
 								keyExtractor={(row) => row.id}

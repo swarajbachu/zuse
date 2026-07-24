@@ -67,6 +67,9 @@ export interface SessionDomainApi {
 		readonly afterSequence?: number;
 	}) => Stream.Stream<StoredEvent, SessionDomainError>;
 	readonly currentSequence: Effect.Effect<number, SessionDomainError>;
+	readonly currentStreamVersion: (
+		streamId: string,
+	) => Effect.Effect<number, SessionDomainError>;
 }
 
 export class SessionDomain extends Context.Service<
@@ -224,6 +227,8 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 			SELECT COALESCE(MAX(sequence), 0) AS sequence
 			FROM events WHERE stream_kind = 'session'
 		`.pipe(Effect.map((rows) => rows[0]?.sequence ?? 0)),
+		currentStreamVersion: (streamId) =>
+			dispatchStorage.currentStreamVersion(streamId),
 		dispatch: Effect.fn("SessionDomain.dispatch")(function* (
 			input: DispatchInput,
 		) {

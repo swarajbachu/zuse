@@ -31,6 +31,8 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 
 const {
 	acknowledgeTimelineSessionCreated,
+	acknowledgeTimelineRendered,
+	checkTimelineLiveness,
 	deferTimelineUntilSessionCreated,
 	setMessagesRpcClientForTest,
 	setMessagesRpcCommandDispatcherForTest,
@@ -168,6 +170,8 @@ describe("messages store queue actions", () => {
 		rpcClientFactory = makeQueueClient;
 		useMessagesStore.setState({
 			messagesBySession: {},
+			timelineVersionBySession: {},
+			renderRecoveryBySession: {},
 			errorBySession: {},
 			runningBySession: {},
 			queueBySession: { [sessionId]: [queued] },
@@ -546,5 +550,83 @@ describe("messages store queue actions", () => {
 		await useMessagesStore.getState().hydrate(sessionId);
 
 		await expect.poll(() => streamCalls).toBe(1);
+	});
+
+	it("replaces an open stream when the durable cursor advances without frames", async () => {
+		let streamCalls = 0;
+		let observedAfterVersion: number | undefined;
+		let publishEvent: ((event: SessionTimelineFrame) => void) | undefined;
+		rpcClientFactory = () =>
+			({
+				"session.events": (input: { afterVersion?: number }) => {
+					streamCalls += 1;
+					observedAfterVersion = input.afterVersion;
+					return Stream.callback<SessionTimelineFrame>((queue) =>
+						Effect.sync(() => {
+							publishEvent = (event) => Queue.offerUnsafe(queue, event);
+						}),
+					);
+				},
+				"session.events.head": () => Effect.succeed({ throughVersion: 3 }),
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+
+		await useMessagesStore.getState().hydrate(sessionId);
+		await expect.poll(() => publishEvent).toBeDefined();
+		publishEvent?.(timelineSnapshot(1));
+		publishEvent?.(externalMessageEvent(2, "message-before-stall", "visible"));
+		publishEvent?.({
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 2,
+		});
+		await expect
+			.poll(() => useMessagesStore.getState().messagesBySession[sessionId])
+			.toEqual([expect.objectContaining({ id: "message-before-stall" })]);
+
+		await expect(checkTimelineLiveness(sessionId)).resolves.toBe(false);
+		await expect(checkTimelineLiveness(sessionId)).resolves.toBe(true);
+
+		await expect.poll(() => streamCalls).toBe(2);
+		expect(observedAfterVersion).toBe(2);
+	});
+
+	it("remounts the virtualized timeline when rendering falls behind applied state", async () => {
+		let publishEvent: ((event: SessionTimelineFrame) => void) | undefined;
+		rpcClientFactory = () =>
+			({
+				"session.events": () =>
+					Stream.callback<SessionTimelineFrame>((queue) =>
+						Effect.sync(() => {
+							publishEvent = (event) => Queue.offerUnsafe(queue, event);
+						}),
+					),
+				"session.events.head": () => Effect.succeed({ throughVersion: 2 }),
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+
+		await useMessagesStore.getState().hydrate(sessionId);
+		await expect.poll(() => publishEvent).toBeDefined();
+		publishEvent?.(timelineSnapshot(1));
+		publishEvent?.(externalMessageEvent(2, "message-render-stall", "visible"));
+		publishEvent?.({
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 2,
+		});
+		await expect
+			.poll(
+				() => useMessagesStore.getState().timelineVersionBySession[sessionId],
+			)
+			.toBe(2);
+		acknowledgeTimelineRendered(sessionId, 1);
+
+		await expect(checkTimelineLiveness(sessionId)).resolves.toBe(true);
+
+		expect(useMessagesStore.getState().renderRecoveryBySession[sessionId]).toBe(
+			1,
+		);
 	});
 });
