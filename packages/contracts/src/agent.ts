@@ -1762,7 +1762,7 @@ export const ProviderOpencodeRemoveCustomRpc = Rpc.make(
 // One-click sign-in flow. The renderer subscribes to `provider.startLogin`,
 // which spawns the provider's `login` subcommand server-side, extracts the
 // OAuth URL the CLI prints, and reports progress back as a stream of
-// `LoginEvent`s. Today only `cursor` has a real handler; other providers
+// `LoginEvent`s. Supported providers have a real handler; other providers
 // resolve to an immediate `done(ok=false)`.
 // ---------------------------------------------------------------------------
 

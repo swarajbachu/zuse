@@ -1,5 +1,6 @@
 import type { ConnectionSnapshot } from "@zuse/client-runtime/supervisor";
 import {
+	AgentTurnId,
 	ComposerInput,
 	Message,
 	MessageId,
@@ -318,6 +319,91 @@ describe("messages store queue actions", () => {
 					},
 				}),
 			]);
+	});
+
+	it("reconnects a terminated active transcript and receives auth settlement without reload", async () => {
+		let streamCalls = 0;
+		let publishEvent: ((event: SessionTimelineFrame) => void) | undefined;
+		rpcClientFactory = () =>
+			({
+				"session.events": () => {
+					streamCalls += 1;
+					if (streamCalls === 1) {
+						return Stream.die(new Error("session event transport terminated"));
+					}
+					return Stream.callback<SessionTimelineFrame>((queue) =>
+						Effect.sync(() => {
+							publishEvent = (event) => Queue.offerUnsafe(queue, event);
+						}),
+					);
+				},
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+
+		await useMessagesStore.getState().hydrate(sessionId);
+		await expect.poll(() => streamCalls).toBe(2);
+		await expect.poll(() => publishEvent).toBeDefined();
+
+		const turnId = AgentTurnId.make("turn-auth");
+		publishEvent?.({
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 1,
+			projection: SessionTimelineProjection.make({
+				messages: [],
+				status: "running",
+				currentTurn: { turnId, phase: "running" },
+				queue: QueueState.make({ items: [], paused: false }),
+				permissionMode: "default",
+				runtimeMode: "approval-required",
+			}),
+		});
+		publishEvent?.({
+			kind: "event",
+			eventId: "event-auth-error",
+			sessionId,
+			streamVersion: 2,
+			event: {
+				_tag: "MessagePersisted",
+				message: Message.make({
+					id: MessageId.make("message-auth-error"),
+					sessionId,
+					role: "assistant",
+					content: {
+						_tag: "error",
+						message: "Authentication required. Sign in to Grok to continue.",
+					},
+					createdAt: new Date("2026-06-21T00:00:02.000Z"),
+				}),
+			},
+		});
+		publishEvent?.({
+			kind: "event",
+			eventId: "event-auth-settled",
+			sessionId,
+			streamVersion: 3,
+			event: { _tag: "TurnSettled", turnId, outcome: "error" },
+		});
+		publishEvent?.({
+			kind: "event",
+			eventId: "event-auth-status",
+			sessionId,
+			streamVersion: 4,
+			event: { _tag: "StatusSet", status: "error" },
+		});
+
+		await expect
+			.poll(() => useMessagesStore.getState().messagesBySession[sessionId])
+			.toEqual([
+				expect.objectContaining({
+					id: "message-auth-error",
+					content: expect.objectContaining({ _tag: "error" }),
+				}),
+			]);
+		await expect
+			.poll(() => useMessagesStore.getState().runningBySession[sessionId])
+			.toBe(false);
 	});
 
 	it("resubscribes the active transcript after its connection generation changes", async () => {

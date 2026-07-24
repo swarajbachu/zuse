@@ -143,6 +143,7 @@ let providerStartOrchestrationTools: Array<
 > = [];
 let failProviderStart = false;
 let failProviderSend = false;
+let providerStartFailureReason = "scripted start failure";
 let providerStartBarrier: Promise<void> | null = null;
 let testAutonomyLevel: AutonomyLevel = "approval-gated";
 let createdWorktreeCount = 0;
@@ -180,7 +181,7 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 			if (failProviderStart) {
 				return yield* new AgentSessionStartError({
 					providerId: input.providerId,
-					reason: "scripted start failure",
+					reason: providerStartFailureReason,
 				});
 			}
 			return {
@@ -590,6 +591,7 @@ beforeEach(() => {
 	providerStartOrchestrationTools = [];
 	failProviderStart = false;
 	failProviderSend = false;
+	providerStartFailureReason = "scripted start failure";
 	providerStartBarrier = null;
 	testAutonomyLevel = "approval-gated";
 	createdWorktreeCount = 0;
@@ -2801,6 +2803,149 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				"q_after_boot_failure",
 			]);
 			expect(providerSentTexts).toEqual([]);
+		});
+	});
+
+	it("reopens a failed startup and flushes the queued first message", async () => {
+		await withRuntime(async (run) => {
+			failProviderStart = true;
+			providerStartFailureReason =
+				"Authentication required. Sign in to Grok to continue.";
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "grok",
+						model: "grok-code-fast-1",
+						background: true,
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.addQueuedMessage(
+						created.initialSession.id,
+						new ComposerInput({
+							text: "send after authentication",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+						"q_auth_startup",
+					),
+				),
+			);
+			await expect
+				.poll(
+					async () =>
+						(
+							await run(
+								Effect.flatMap(store, (service) =>
+									service.getSession(created.initialSession.id),
+								),
+							)
+						).status,
+				)
+				.toBe("error");
+
+			failProviderStart = false;
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.resumeSession(created.initialSession.id),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.resumeQueuedMessages(created.initialSession.id),
+				),
+			);
+
+			await expect
+				.poll(() => providerSentTexts)
+				.toEqual(["send after authentication"]);
+			await expect
+				.poll(async () =>
+					(
+						await run(
+							Effect.flatMap(store, (service) =>
+								service.listQueuedMessages(created.initialSession.id),
+							),
+						)
+					).items,
+				)
+				.toEqual([]);
+		});
+	});
+
+	it("reopens an existing session after a turn restart fails", async () => {
+		await withRuntime(async (run) => {
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "grok",
+						model: "grok-code-fast-1",
+						background: true,
+					}),
+				),
+			);
+			await expect
+				.poll(
+					async () =>
+						(
+							await run(
+								Effect.flatMap(store, (service) =>
+									service.getSession(created.initialSession.id),
+								),
+							)
+						).status,
+				)
+				.toBe("idle");
+
+			failProviderSend = true;
+			failProviderStart = true;
+			providerStartFailureReason =
+				"Authentication required. Sign in to Grok to continue.";
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.sendMessage(
+						created.initialSession.id,
+						"blocked by authentication",
+					),
+				),
+			);
+			await expect
+				.poll(
+					async () =>
+						(
+							await run(
+								Effect.flatMap(store, (service) =>
+									service.getSession(created.initialSession.id),
+								),
+							)
+						).status,
+				)
+				.toBe("error");
+
+			failProviderSend = false;
+			failProviderStart = false;
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.resumeSession(created.initialSession.id),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.sendMessage(
+						created.initialSession.id,
+						"blocked by authentication",
+					),
+				),
+			);
+
+			await expect
+				.poll(() => providerSentTexts)
+				.toEqual(["blocked by authentication"]);
 		});
 	});
 
