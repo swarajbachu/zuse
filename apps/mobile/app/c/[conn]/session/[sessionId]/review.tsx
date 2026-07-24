@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { groupTimelineTurns } from "@zuse/client-runtime/timeline";
 import type { FolderId, GitReviewScope, SessionId } from "@zuse/contracts";
 import { router, Stack, useLocalSearchParams } from "expo-router";
@@ -17,12 +18,10 @@ import {
 	REVIEW_SCOPES,
 	reviewScopeLabel,
 } from "~/lib/review-scope";
-import { selectConnectionBundles } from "~/lib/session-bundles";
 import { connectionSessionKey } from "~/lib/session-key";
-import { selectSessionMessages } from "~/lib/session-messages";
-import { useConnectionsStore } from "~/store/connections";
-import { useMobileMessagesStore } from "~/store/messages";
-import { selectSessionChat, useSessionsStore } from "~/store/sessions";
+import { connectionsAtom } from "~/store/connections";
+import { sessionMessagesAtom } from "~/store/messages";
+import { connectionBundlesAtom, selectSessionChat } from "~/store/sessions";
 import { colors } from "~/theme";
 
 export default function WorkspaceReviewScreen() {
@@ -36,22 +35,15 @@ export default function WorkspaceReviewScreen() {
 	const [scope, setScope] = useState<MobileReviewScope>("branch");
 	const [accordionKey, setAccordionKey] = useState(0);
 	const [allFilesExpanded, setAllFilesExpanded] = useState(true);
-	const connections = useConnectionsStore((state) => state.connections);
-	const bundles = useSessionsStore((state) =>
-		selectConnectionBundles(state.bundlesByConnection, connKey),
-	);
+	const connections = useAtomValue(connectionsAtom);
+	const bundles = useAtomValue(connectionBundlesAtom(connKey));
 	const detail = selectSessionChat(bundles, normalizedSessionId);
 	const folderId = detail?.project.id as FolderId | undefined;
 	const worktreeId = detail?.session.worktreeId ?? null;
-	const connection = useMemo(
-		() => optionsForConnection(connKey, connections),
-		[connKey, connections],
-	);
-	const messages = useMobileMessagesStore((state) =>
-		selectSessionMessages(
-			state.messagesBySession,
-			connectionSessionKey(connKey, normalizedSessionId),
-		),
+	// Plain derivation — see the React Compiler note in threads.tsx.
+	const connection = optionsForConnection(connKey, connections);
+	const messages = useAtomValue(
+		sessionMessagesAtom(connectionSessionKey(connKey, normalizedSessionId)),
 	);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
 	const lastTurnReview = useMemo(

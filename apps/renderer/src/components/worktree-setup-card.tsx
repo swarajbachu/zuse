@@ -5,10 +5,12 @@ import {
 	Tick01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
+import { shouldShowSetupCard } from "../lib/setup-card-visibility.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
+import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { Button } from "./ui/button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner";
@@ -83,14 +85,15 @@ export function WorktreeSetupCard() {
 	const providerBooting = session?.status === "booting";
 	const providerErrored = session?.status === "error";
 
-	// Visible while there's worktree/setup work left, OR while the provider CLI
-	// is still booting (covers a worktree-less "new tab in this chat" too).
-	// Once the provider errors we stop occupying the screen with a fake
-	// "Starting…" spinner — the ErrorBubble below carries the failure + the
-	// inline "Sign in" CTA — so a worktree-less errored session hides the card.
-	const visible =
-		!externalResume &&
-		((hasWorktree && !setupDone) || providerBooting === true);
+	// This card belongs to chat/worktree creation. A provider still boots for
+	// every additional session, but that must not replay chat setup UI after the
+	// shared worktree is ready.
+	const visible = shouldShowSetupCard({
+		externalResume,
+		hasWorktree,
+		setupDone,
+		providerBooting: providerBooting === true,
+	});
 	if (!visible) return null;
 
 	const providerLabel: string =
@@ -157,6 +160,10 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 		providerState === "active" ||
 		setupStatus === "running" ||
 		setupStatus === "pending";
+	const activityState =
+		worktreePending || setupStatus === "running" || setupStatus === "pending"
+			? "shaping"
+			: "working";
 
 	const name = worktreeName ?? "your workspace";
 
@@ -177,14 +184,23 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 							"Creating a worktree and running setup"
 						)}
 					</span>
-					{busy ? (
-						<Spinner className="size-3.5 text-muted-foreground" />
-					) : failed ? (
-						<HugeiconsIcon
-							icon={Alert01Icon}
-							className="size-4 text-[var(--accent-red)]"
-						/>
-					) : null}
+					<span className="inline-grid size-5 shrink-0 place-items-center">
+						{busy ? (
+							<AgentActivityOrb
+								state={activityState}
+								label={
+									activityState === "shaping"
+										? "Preparing workspace"
+										: `Starting ${providerLabel}`
+								}
+							/>
+						) : failed ? (
+							<HugeiconsIcon
+								icon={Alert01Icon}
+								className="size-4 text-[var(--accent-red)]"
+							/>
+						) : null}
+					</span>
 				</header>
 				<div className="flex flex-col gap-1.5 px-3.5 py-2.5 text-[12px]">
 					{hasWorktree ? (

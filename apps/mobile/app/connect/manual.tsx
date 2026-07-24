@@ -12,13 +12,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "~/components/ui/button";
 import { returnToInbox } from "~/lib/connection-navigation";
-import { useConnectionsStore } from "~/store/connections";
+import { addConnection } from "~/store/connections";
 import { colors } from "~/theme";
 
 /** Manual connection setup in the same root navigation stack as the inbox. */
 export default function ManualConnectScreen() {
 	const insets = useSafeAreaInsets();
-	const add = useConnectionsStore((state) => state.add);
 	const [host, setHost] = useState("127.0.0.1");
 	const [port, setPort] = useState(String(DEFAULT_LOCAL_DESKTOP_PORT));
 	const [token, setToken] = useState("");
@@ -35,7 +34,7 @@ export default function ManualConnectScreen() {
 		setBusy(true);
 		setError(null);
 		try {
-			await add({ host, port: Number(port), token, source: "manual" });
+			await addConnection({ host, port: Number(port), token, source: "manual" });
 			returnToInbox(router);
 		} catch (cause) {
 			setError(

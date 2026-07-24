@@ -1,7 +1,8 @@
-import { FolderId, SessionId } from "@zuse/contracts";
+import { FolderId, SessionId, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { hasProductionDatabase } from "@zuse/testkit";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
+import WebSocket from "ws";
 import { verifyBackfillDatabase } from "../../../../apps/server/src/persistence/backfill-verifier.ts";
 import { initializeSystemRepository } from "../../src/conversation-fixture.ts";
 import {
@@ -15,11 +16,9 @@ describe("headless server production composition", () => {
 		await withSystemTest("zuse-system-startup-", async (scope) => {
 			const server = await scope.server();
 			const response = await fetch(`http://127.0.0.1:${server.port}/`);
-			expect(response.status).toBe(426);
-			expect(await response.json()).toEqual({
-				error: "wire_protocol_mismatch",
-				expectedVersion: expect.any(Number),
-			});
+			expect(response.status).toBe(200);
+			expect(response.headers.get("content-type")).toContain("text/html");
+			expect(await response.text()).toContain('<div id="root"></div>');
 			expect(hasProductionDatabase(server)).toBe(true);
 		});
 	}, 30_000);
@@ -27,11 +26,21 @@ describe("headless server production composition", () => {
 	it("rejects unauthenticated WebSocket upgrades in protected mode", async () => {
 		await withSystemTest("zuse-system-auth-", async (scope) => {
 			const server = await scope.server({ host: "0.0.0.0" });
-			const response = await fetch(
-				`http://127.0.0.1:${server.port}/?wireVersion=1`,
-			);
-			expect(response.status).toBe(401);
-			expect(await response.json()).toEqual({ error: "unauthorized" });
+			const status = await new Promise<number>((resolve, reject) => {
+				const socket = new WebSocket(
+					`ws://127.0.0.1:${server.port}/rpc?wireVersion=${WIRE_PROTOCOL_VERSION}`,
+				);
+				socket.once("unexpected-response", (_request, response) => {
+					resolve(response.statusCode ?? 0);
+					socket.close();
+				});
+				socket.once("open", () => {
+					socket.close();
+					reject(new Error("Unauthenticated protected socket opened."));
+				});
+				socket.once("error", reject);
+			});
+			expect(status).toBe(401);
 		});
 	}, 30_000);
 

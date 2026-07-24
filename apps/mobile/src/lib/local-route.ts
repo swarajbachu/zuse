@@ -21,7 +21,7 @@ export const openVerifiedLocalRoute = async <Service, Proxy>(input: {
 
 export const hasCurrentLocalRoute = (
 	currentRouteId: string | undefined,
-	candidates: ReadonlyArray<{ readonly routeId: string }>,
+	candidates: readonly { readonly routeId: string }[],
 ): boolean =>
 	currentRouteId !== undefined &&
 	candidates.some((candidate) => candidate.routeId === currentRouteId);

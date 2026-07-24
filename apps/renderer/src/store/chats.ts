@@ -16,6 +16,7 @@ import {
 import { Effect, Fiber, Stream } from "effect";
 import { toastManager } from "../components/ui/toast.tsx";
 import { formatError } from "../lib/format-error.ts";
+import { upsertLatestEntity } from "../lib/latest-entity.ts";
 import {
 	markRendererInteraction,
 	trackRendererRpc,
@@ -29,7 +30,12 @@ import { createAtomStore as create } from "../state/atom-store.ts";
 import { batchAtomUpdates } from "../state/registry.tsx";
 import { useArchivePreviewStore } from "./archive-preview.ts";
 import { registerChatCommands } from "./chat-commands.ts";
-import { useMessagesStore } from "./messages.ts";
+import {
+	acknowledgeTimelineSessionCreated,
+	deferTimelineUntilSessionCreated,
+	discardTimelineSessionCreation,
+	useMessagesStore,
+} from "./messages.ts";
 import { useSessionsStore } from "./sessions.ts";
 import { useTerminalsStore } from "./terminals.ts";
 import { useUiStore } from "./ui.ts";
@@ -204,7 +210,7 @@ const upsertChat = (
 	chats: ReadonlyArray<Chat>,
 	chat: Chat,
 ): ReadonlyArray<Chat> =>
-	[chat, ...chats.filter((row) => row.id !== chat.id)].sort(
+	[...upsertLatestEntity(chats, chat)].sort(
 		(a, b) => chatSortTime(b) - chatSortTime(a),
 	);
 
@@ -251,20 +257,6 @@ const applyChatChange = (
 	if (inserted || activeSessionMissing) {
 		void useSessionsStore.getState().hydrate(projectId);
 	}
-	// Mirror the server-side auto-namer onto member session tabs.
-	useSessionsStore.setState((s) => {
-		const sessions = s.sessionsByProject[projectId];
-		if (sessions === undefined) return s;
-		if (!sessions.some((row) => row.chatId === chat.id)) return s;
-		return {
-			sessionsByProject: {
-				...s.sessionsByProject,
-				[projectId]: sessions.map((row) =>
-					row.chatId === chat.id ? { ...row, title: chat.title } : row,
-				),
-			},
-		};
-	});
 };
 
 const runChatChangeStream = Effect.fn("ChatsStore.runChatChangeStream")(
@@ -398,6 +390,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		const previousChatId = get().selectedChatByProject[projectId] ?? null;
 		const previousSessionId =
 			useSessionsStore.getState().selectedSessionByProject[projectId] ?? null;
+		deferTimelineUntilSessionCreated(initialSessionId);
 		markRendererInteraction(initialSessionId, "click");
 		const now = new Date();
 		const title = opts?.title?.trim() || "New chat";
@@ -408,6 +401,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			projectId,
 			worktreeId: optimisticWorktreeId,
 			title,
+			titleProvenance: opts?.title?.trim() ? "manual" : "pending",
 			activeSessionId: initialSessionId,
 			originSessionId: null,
 			archivedAt: null,
@@ -420,6 +414,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			id: initialSessionId,
 			projectId,
 			title,
+			titleProvenance: opts?.title?.trim() ? "manual" : "pending",
 			providerId,
 			model,
 			status: "booting",
@@ -540,10 +535,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				return {
 					sessionsByProject: {
 						...s.sessionsByProject,
-						[projectId]: [
-							initialSession,
-							...list.filter((row) => row.id !== initialSession.id),
-						],
+						[projectId]: upsertLatestEntity(list, initialSession),
 					},
 					selectedSessionId: initialSession.id,
 					selectedSessionByProject: {
@@ -552,12 +544,14 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					},
 				};
 			});
+			acknowledgeTimelineSessionCreated(initialSession.id);
 			return {
 				chatId: chat.id,
 				initialSessionId: initialSession.id,
 				startupQueueId,
 			};
 		} catch (err) {
+			discardTimelineSessionCreation(initialSessionId);
 			batchAtomUpdates(() => {
 				if (startupQueueId !== null) {
 					useMessagesStore
@@ -604,7 +598,9 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		set({ error: null });
 		try {
 			const client = await getRpcClient();
-			await Effect.runPromise(client["chat.rename"]({ chatId, title }));
+			const renamed = await Effect.runPromise(
+				client["chat.rename"]({ chatId, title }),
+			);
 			set((s) => {
 				const projectId = findChatProject(s.chatsByProject, chatId);
 				if (projectId === null) return {};
@@ -612,18 +608,13 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				return {
 					chatsByProject: {
 						...s.chatsByProject,
-						[projectId]: chats.map((c) =>
-							c.id === chatId
-								? Object.assign(Object.create(Object.getPrototypeOf(c)), c, {
-										title,
-									})
-								: c,
-						),
+						[projectId]: chats.map((c) => (c.id === chatId ? renamed : c)),
 					},
 				};
 			});
 		} catch (err) {
 			set({ error: formatError(err) });
+			throw err;
 		}
 	},
 	setWorktree: async (chatId, worktreeId) => {

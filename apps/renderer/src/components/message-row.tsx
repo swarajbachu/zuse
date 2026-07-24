@@ -5,6 +5,7 @@ import {
 	ArrowRight01Icon,
 	Copy01Icon,
 	DashboardSpeedIcon,
+	LinkSquare01Icon,
 	Loading02Icon,
 	PlayIcon,
 	Settings01Icon,
@@ -30,8 +31,14 @@ import {
 	orchestrationToolName,
 	parseOrchestrationResult,
 } from "~/lib/orchestration-tools";
+import { attachmentUrl } from "~/lib/platform-capabilities";
+import { resumeAfterProviderLogin } from "~/lib/provider-auth-recovery";
 import { normalizeToolCallEnvelope } from "~/lib/tool-call-envelope";
-import { useProviderLogin } from "~/lib/use-provider-login";
+import {
+	openExternal,
+	supportsProviderLogin,
+	useProviderLogin,
+} from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
 import {
@@ -41,8 +48,10 @@ import {
 	useMessagesStore,
 } from "~/store/messages";
 import { useProvidersStore } from "~/store/providers";
+import { useSessionsStore } from "~/store/sessions";
 import { useUiStore } from "~/store/ui";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
+import { AssistantMessageActions } from "./assistant-message-actions.tsx";
 import { useChatLookups } from "./chat-lookups.tsx";
 import { CopyButton } from "./copy-button.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
@@ -145,10 +154,12 @@ function MessageRowImpl({
 	message,
 	sessionId,
 	readOnly = false,
+	showAssistantCommands = false,
 }: {
 	message: Message;
 	sessionId?: SessionId;
 	readOnly?: boolean;
+	showAssistantCommands?: boolean;
 }) {
 	switch (message.content._tag) {
 		case "user":
@@ -176,6 +187,9 @@ function MessageRowImpl({
 				<AssistantBubble
 					text={message.content.text}
 					createdAt={message.createdAt}
+					messageId={message.id}
+					sessionId={readOnly ? undefined : sessionId}
+					showMessageCommands={showAssistantCommands}
 				/>
 			);
 		case "thinking":
@@ -419,12 +433,6 @@ const stripChipTokens = (
 	return out.replace(/[ \t]{2,}/g, " ").trim();
 };
 
-const formatMessageTime = (date: Date): string =>
-	date.toLocaleTimeString([], {
-		hour: "numeric",
-		minute: "2-digit",
-	});
-
 function UserBubble({
 	text,
 	attachments,
@@ -531,7 +539,7 @@ function UserBubble({
 					<div className="mb-1.5 flex flex-wrap items-center gap-1.5">
 						{(attachments ?? []).map((a) => {
 							const isImage = a.mimeType.startsWith("image/");
-							const src = `zuse://attachments/${a.id}`;
+							const src = attachmentUrl(a.id);
 							const className =
 								"inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]";
 							const inner = (
@@ -619,24 +627,28 @@ function UserBubble({
 function AssistantBubble({
 	text,
 	createdAt,
+	messageId,
+	sessionId,
+	showMessageCommands,
 }: {
 	text: string;
 	createdAt?: Date;
+	messageId: Message["id"];
+	sessionId?: SessionId;
+	showMessageCommands: boolean;
 }) {
 	return (
-		<div className="px-4 py-2">
+		<div className="group/assistant px-4 py-2">
 			<div className="max-w-full">
 				<MarkdownBody>{text}</MarkdownBody>
-				<div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-					{createdAt !== undefined ? (
-						<span className="tabular-nums">{formatMessageTime(createdAt)}</span>
-					) : null}
-					<CopyButton
-						text={text}
-						label="Copy message"
-						className="size-5 rounded opacity-70 hover:opacity-100"
-					/>
-				</div>
+				<AssistantMessageActions
+					text={text}
+					createdAt={createdAt}
+					messageId={messageId}
+					sessionId={sessionId}
+					showMessageCommands={showMessageCommands}
+					className="mt-1"
+				/>
 			</div>
 		</div>
 	);
@@ -742,16 +754,9 @@ const PROVIDER_LABEL_FOR_ERROR: Record<ProviderId, string> = {
 	opencode: "OpenCode",
 };
 
-// Providers with a real in-app `agent.startLogin` handler — for these we offer
-// the inline one-click sign-in directly in the auth error bubble instead of
-// only pointing the user at Settings.
-const PROVIDERS_WITH_LOGIN: ReadonlySet<ProviderId> = new Set<ProviderId>([
-	"claude",
-]);
-
 /**
- * "Authentication required" card shown when a login-capable provider (Claude,
- * Cursor) reports an auth failure. Reuses the shared `useProviderLogin` flow
+ * "Authentication required" card shown when a login-capable provider reports
+ * an auth failure. Reuses the shared `useProviderLogin` flow
  * (open browser → wait for the OAuth callback → done): on success it re-probes
  * availability and clears the bottom error.
  *
@@ -778,18 +783,23 @@ function ProviderAuthCard({
 	);
 	const clearError = useMessagesStore((s) => s.clearError);
 	const retry = useMessagesStore((s) => s.retry);
+	const resumeQueue = useMessagesStore((s) => s.resumeQueue);
+	const reopenSession = useSessionsStore((s) => s.resume);
 	const { state, start, cancel } = useProviderLogin(providerId, {
 		onSuccess: () => {
 			// Re-probe first so the keychain write has landed and this card
-			// resolves (hides) before we resume — then re-send the pending message
-			// so the turn the user was blocked on actually runs. The server
-			// restarts the stale (unauthenticated) provider process on send, so it
-			// picks up the fresh credentials.
+			// resolves (hides) before recovery. Reopen the provider with the fresh
+			// credentials, then retry an existing turn or release a fresh chat's
+			// queued first message.
 			void (async () => {
 				await refreshProviders();
 				if (sessionId !== undefined) {
-					clearError(sessionId);
-					void retry(sessionId);
+					const resumed = await resumeAfterProviderLogin({
+						reopen: () => reopenSession(sessionId),
+						retry: () => retry(sessionId),
+						resumeQueue: () => resumeQueue(sessionId),
+					});
+					if (resumed) clearError(sessionId);
 				}
 			})();
 		},
@@ -824,32 +834,62 @@ function ProviderAuthCard({
 				</div>
 
 				{state.kind === "waiting" ? (
-					<div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-						<HugeiconsIcon
-							icon={Loading02Icon}
-							className="size-3.5 animate-spin"
-							aria-hidden
-						/>
-						<ShimmerText as="span">Waiting for browser sign-in…</ShimmerText>
-						<button
-							type="button"
-							onClick={cancel}
-							className="rounded px-1 py-0.5 text-muted-foreground hover:text-foreground"
+					<div className="mt-2 flex min-h-[3.75rem] flex-col gap-2">
+						<div
+							className="flex items-center gap-2 text-[11px] text-muted-foreground"
+							role="status"
+							aria-live="polite"
 						>
-							Cancel
-						</button>
+							<HugeiconsIcon
+								icon={Loading02Icon}
+								className="size-3.5 animate-spin motion-reduce:animate-none"
+								aria-hidden
+							/>
+							<ShimmerText as="span">
+								{state.url === null
+									? `Starting ${label} sign-in…`
+									: "Waiting for browser sign-in…"}
+							</ShimmerText>
+						</div>
+						<div className="flex flex-wrap items-center gap-1.5">
+							{state.url !== null && (
+								<Button
+									type="button"
+									size="xs"
+									variant="outline"
+									onClick={() => {
+										if (state.url !== null) openExternal(state.url);
+									}}
+									className="gap-1.5"
+								>
+									<HugeiconsIcon
+										icon={LinkSquare01Icon}
+										className="size-3"
+										aria-hidden
+									/>
+									Open browser again
+								</Button>
+							)}
+							<Button type="button" size="xs" variant="ghost" onClick={cancel}>
+								Cancel
+							</Button>
+						</div>
 					</div>
 				) : state.kind === "success" ? (
-					<div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+					<div
+						className="mt-2 flex min-h-[3.75rem] items-start gap-2 text-[11px] text-muted-foreground"
+						role="status"
+						aria-live="polite"
+					>
 						<HugeiconsIcon
 							icon={Loading02Icon}
-							className="size-3.5 animate-spin"
+							className="size-3.5 animate-spin motion-reduce:animate-none"
 							aria-hidden
 						/>
 						<ShimmerText as="span">Signed in. Finishing…</ShimmerText>
 					</div>
 				) : (
-					<>
+					<div className="min-h-[3.75rem]">
 						<p className="mt-1 leading-relaxed text-muted-foreground">
 							To resolve, sign in to {label}. We&apos;ll validate the login
 							automatically.
@@ -887,7 +927,7 @@ function ProviderAuthCard({
 								Settings
 							</Button>
 						</div>
-					</>
+					</div>
 				)}
 			</div>
 		</div>
@@ -1053,7 +1093,7 @@ export function ErrorBubble({
 	if (
 		error.kind === "auth" &&
 		error.providerId !== undefined &&
-		PROVIDERS_WITH_LOGIN.has(error.providerId)
+		supportsProviderLogin(error.providerId)
 	) {
 		return (
 			<ProviderAuthCard
@@ -1067,13 +1107,11 @@ export function ErrorBubble({
 
 	const headline =
 		error.kind === "auth"
-			? error.providerId === "cursor"
-				? "API key required"
-				: `Sign in to ${
-						error.providerId
-							? PROVIDER_LABEL_FOR_ERROR[error.providerId]
-							: "your provider"
-					}`
+			? `Sign in to ${
+					error.providerId
+						? PROVIDER_LABEL_FOR_ERROR[error.providerId]
+						: "your provider"
+				}`
 			: error.kind === "network"
 				? "Connection lost"
 				: null;

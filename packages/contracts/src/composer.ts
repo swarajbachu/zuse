@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 
 import { ProviderId } from "./agent.ts";
+import { BrowserOverlayShape, BrowserViewportMode } from "./browser-shared.ts";
 
 /**
  * Reference to an uploaded attachment. The renderer carries this on
@@ -11,9 +12,9 @@ import { ProviderId } from "./agent.ts";
  * `id` shape: `<sessionSegment>-<uuid>` (sanitised session id + v4 UUID).
  */
 export const AttachmentRef = Schema.Struct({
-  id: Schema.String,
-  mimeType: Schema.String,
-  originalName: Schema.String,
+	id: Schema.String,
+	mimeType: Schema.String,
+	originalName: Schema.String,
 });
 export type AttachmentRef = typeof AttachmentRef.Type;
 
@@ -23,9 +24,9 @@ export type AttachmentRef = typeof AttachmentRef.Type;
  * send time so the provider sees the files inline.
  */
 export const FileRef = Schema.Struct({
-  relPath: Schema.String,
-  absPath: Schema.String,
-  kind: Schema.Literals(["file", "directory"]),
+	relPath: Schema.String,
+	absPath: Schema.String,
+	kind: Schema.Literals(["file", "directory"]),
 });
 export type FileRef = typeof FileRef.Type;
 
@@ -35,10 +36,10 @@ export type FileRef = typeof FileRef.Type;
  * provider-side so semantics match the underlying CLI.
  */
 export const SkillRef = Schema.Struct({
-  name: Schema.String,
-  scope: Schema.Literals(["global", "project"]),
-  args: Schema.String,
-  providerId: ProviderId,
+	name: Schema.String,
+	scope: Schema.Literals(["global", "project"]),
+	args: Schema.String,
+	providerId: ProviderId,
 });
 export type SkillRef = typeof SkillRef.Type;
 
@@ -51,64 +52,64 @@ export type SkillRef = typeof SkillRef.Type;
  * serialises these into a numbered list appended to the prompt text.
  */
 export const CodeAnnotation = Schema.Struct({
-  /** Client-generated v4 UUID — list keys + removal. */
-  id: Schema.String,
-  /**
-   * Workspace-rooted path, for display + the model (the agent's cwd is the
-   * workspace root, so a relative path resolves). For files outside any
-   * project folder this holds the absolute path instead.
-   */
-  relPath: Schema.String,
-  /** Absolute path used by renderer affordances that can reopen the target. */
-  absPath: Schema.String,
-  /** 1-based, inclusive. `startLine === endLine` for a single line. */
-  startLine: Schema.Number,
-  endLine: Schema.Number,
-  comment: Schema.String,
-  /** Diff side for branch-review annotations. Omitted for plain file notes. */
-  diffSide: Schema.optional(Schema.Literals(["additions", "deletions"])),
-  /** Exact diff line that owns the annotation slot after range normalization. */
-  diffAnchorLine: Schema.optional(Schema.Number),
-  /** Previous path when the selected line belongs to a renamed file. */
-  oldPath: Schema.optional(Schema.String),
-  /** Comparison ref shown when the annotation was created. */
-  baseRef: Schema.optional(Schema.String),
+	/** Client-generated v4 UUID — list keys + removal. */
+	id: Schema.String,
+	/**
+	 * Workspace-rooted path, for display + the model (the agent's cwd is the
+	 * workspace root, so a relative path resolves). For files outside any
+	 * project folder this holds the absolute path instead.
+	 */
+	relPath: Schema.String,
+	/** Absolute path used by renderer affordances that can reopen the target. */
+	absPath: Schema.String,
+	/** 1-based, inclusive. `startLine === endLine` for a single line. */
+	startLine: Schema.Number,
+	endLine: Schema.Number,
+	comment: Schema.String,
+	/** Diff side for branch-review annotations. Omitted for plain file notes. */
+	diffSide: Schema.optional(Schema.Literals(["additions", "deletions"])),
+	/** Exact diff line that owns the annotation slot after range normalization. */
+	diffAnchorLine: Schema.optional(Schema.Number),
+	/** Previous path when the selected line belongs to a renamed file. */
+	oldPath: Schema.optional(Schema.String),
+	/** Comparison ref shown when the annotation was created. */
+	baseRef: Schema.optional(Schema.String),
 });
 export type CodeAnnotation = typeof CodeAnnotation.Type;
 
 export const BrowserAnnotationRect = Schema.Struct({
-  x: Schema.Number,
-  y: Schema.Number,
-  width: Schema.Number,
-  height: Schema.Number,
+	x: Schema.Number,
+	y: Schema.Number,
+	width: Schema.Number,
+	height: Schema.Number,
 });
 export type BrowserAnnotationRect = typeof BrowserAnnotationRect.Type;
 
 export const BrowserAnnotationPoint = Schema.Struct({
-  x: Schema.Number,
-  y: Schema.Number,
+	x: Schema.Number,
+	y: Schema.Number,
 });
 export type BrowserAnnotationPoint = typeof BrowserAnnotationPoint.Type;
 
 export const BrowserAnnotationElement = Schema.Struct({
-  tagName: Schema.String,
-  selector: Schema.NullOr(Schema.String),
-  label: Schema.String,
-  rect: BrowserAnnotationRect,
-  textPreview: Schema.String,
+	tagName: Schema.String,
+	selector: Schema.NullOr(Schema.String),
+	label: Schema.String,
+	rect: BrowserAnnotationRect,
+	textPreview: Schema.String,
 });
 export type BrowserAnnotationElement = typeof BrowserAnnotationElement.Type;
 
 export const BrowserAnnotationRegion = Schema.Struct({
-  id: Schema.String,
-  rect: BrowserAnnotationRect,
+	id: Schema.String,
+	rect: BrowserAnnotationRect,
 });
 export type BrowserAnnotationRegion = typeof BrowserAnnotationRegion.Type;
 
 export const BrowserAnnotationStroke = Schema.Struct({
-  id: Schema.String,
-  points: Schema.Array(BrowserAnnotationPoint),
-  bounds: BrowserAnnotationRect,
+	id: Schema.String,
+	points: Schema.Array(BrowserAnnotationPoint),
+	bounds: BrowserAnnotationRect,
 });
 export type BrowserAnnotationStroke = typeof BrowserAnnotationStroke.Type;
 
@@ -118,22 +119,33 @@ export type BrowserAnnotationStroke = typeof BrowserAnnotationStroke.Type;
  * annotation never carries raw image bytes or full page text.
  */
 export const BrowserAnnotation = Schema.Struct({
-  _tag: Schema.Literal("browser"),
-  id: Schema.String,
-  comment: Schema.String,
-  createdAt: Schema.String,
-  pageUrl: Schema.String,
-  pageTitle: Schema.NullOr(Schema.String),
-  elements: Schema.Array(BrowserAnnotationElement),
-  regions: Schema.Array(BrowserAnnotationRegion),
-  strokes: Schema.Array(BrowserAnnotationStroke),
-  screenshotAttachment: Schema.NullOr(AttachmentRef),
+	_tag: Schema.Literal("browser"),
+	id: Schema.String,
+	comment: Schema.String,
+	createdAt: Schema.String,
+	pageUrl: Schema.String,
+	pageTitle: Schema.NullOr(Schema.String),
+	elements: Schema.Array(BrowserAnnotationElement),
+	regions: Schema.Array(BrowserAnnotationRegion),
+	strokes: Schema.Array(BrowserAnnotationStroke),
+	overlays: Schema.optional(Schema.Array(BrowserOverlayShape)),
+	viewport: Schema.optional(
+		Schema.Struct({
+			mode: BrowserViewportMode,
+			width: Schema.Number,
+			height: Schema.Number,
+			scrollX: Schema.Number,
+			scrollY: Schema.Number,
+			deviceScaleFactor: Schema.Number,
+		}),
+	),
+	screenshotAttachment: Schema.NullOr(AttachmentRef),
 });
 export type BrowserAnnotation = typeof BrowserAnnotation.Type;
 
 export const ComposerAnnotation = Schema.Union([
-  CodeAnnotation,
-  BrowserAnnotation,
+	CodeAnnotation,
+	BrowserAnnotation,
 ]);
 export type ComposerAnnotation = typeof ComposerAnnotation.Type;
 
@@ -143,16 +155,16 @@ export type ComposerAnnotation = typeof ComposerAnnotation.Type;
  * give the server enough metadata to expand each segment without re-parsing.
  */
 export class ComposerInput extends Schema.Class<ComposerInput>("ComposerInput")(
-  {
-    text: Schema.String,
-    attachments: Schema.Array(AttachmentRef),
-    fileRefs: Schema.Array(FileRef),
-    skillRefs: Schema.Array(SkillRef),
-    annotations: Schema.Array(ComposerAnnotation).pipe(
-      Schema.withConstructorDefault(Effect.succeed([])),
-      Schema.withDecodingDefaultType(Effect.succeed([])),
-    ),
+	{
+		text: Schema.String,
+		attachments: Schema.Array(AttachmentRef),
+		fileRefs: Schema.Array(FileRef),
+		skillRefs: Schema.Array(SkillRef),
+		annotations: Schema.Array(ComposerAnnotation).pipe(
+			Schema.withConstructorDefault(Effect.succeed([])),
+			Schema.withDecodingDefaultType(Effect.succeed([])),
+		),
 		/** Preserve the submission mode while this input waits in the durable queue. */
 		asGoal: Schema.optional(Schema.Boolean),
-  },
+	},
 ) {}

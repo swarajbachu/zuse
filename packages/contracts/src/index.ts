@@ -1,4 +1,5 @@
 export * from "./agent.ts";
+export * from "./analytics.ts";
 export * from "./attachment.ts";
 export * from "./auth.ts";
 export * from "./autonomy.ts";
@@ -17,6 +18,7 @@ export * from "./keybindings.ts";
 export * from "./keybindings-parse.ts";
 export * from "./linear.ts";
 export * from "./mcp.ts";
+export * from "./naming.ts";
 export * from "./network-access.ts";
 export * from "./pairing.ts";
 export * from "./permission.ts";

@@ -30,11 +30,11 @@ import type { ToolCategory } from "../kernel/permission-policy.ts";
 import { getBashPolicy, getFsPolicy, getToolPolicy } from "../kernel/policy.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
-import { buildAcpPromptContent } from "./acp-image-content.ts";
 import { handleFsRequest } from "./acp/fs.ts";
 import { replyToAcpRequest } from "./acp/request-reply.ts";
 import { handleTerminalRequest } from "./acp/terminal.ts";
 import { createAcpTranslator } from "./acp/translate.ts";
+import { buildAcpPromptContent } from "./acp-image-content.ts";
 import type { BrowserSend } from "./browser-tools.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
 import {
@@ -55,8 +55,10 @@ import {
 	GROK_MINIMUM_VERSION,
 	GROK_UPDATE_COMMAND,
 	type GrokAskUserQuestionRequest,
+	grokSessionFailureAction,
 	isSupportedGrokVersion,
 	mapGrokMode,
+	selectGrokHandshakeAuth,
 	translateGrokExtensionMethod,
 	translateGrokExtensionUpdate,
 } from "./grok/protocol.ts";
@@ -1168,20 +1170,24 @@ export const startGrokSession = (
 				);
 			}
 
-			const authIds = new Set(init.authMethods);
-			grokDiag("handshake initialize returned authMethods", [...authIds]);
+			grokDiag("handshake initialize returned authMethods", init.authMethods);
 
-			const methodId =
-				apiKey !== null && authIds.has("xai.api_key")
-					? "xai.api_key"
-					: authIds.has("cached_token")
-						? "cached_token"
-						: null;
-			if (methodId === null) {
-				throw new Error(
-					"Grok ACP offered no usable auth method. Run `grok login`, or set GROK_CODE_XAI_API_KEY.",
+			const authSelection = selectGrokHandshakeAuth(
+				init.authMethods,
+				apiKey !== null,
+			);
+			if (authSelection.kind === "interactive") {
+				throw new GrokProtocolError(
+					"auth",
+					"Authentication required. Sign in to Grok to continue.",
 				);
 			}
+			if (authSelection.kind === "unavailable") {
+				throw new Error(
+					"Grok authentication is unavailable with the current configuration. Configure the required login method or set GROK_CODE_XAI_API_KEY.",
+				);
+			}
+			const { methodId } = authSelection;
 			authMethodUsed = methodId;
 			grokDiag("choosing auth method", {
 				methodId,
@@ -1312,9 +1318,13 @@ export const startGrokSession = (
 							grokDiag("respawn failed", { reason });
 							const reconnectKind =
 								cause instanceof GrokProtocolError ? cause.kind : "transport";
-							if (reconnectKind === "auth" || reconnectKind === "billing") {
-								terminalFailure = true;
-								lifecycle.transition("error");
+							const failureAction =
+								grokSessionFailureAction(reconnectKind);
+							if (failureAction !== "continue") {
+								if (failureAction === "terminal") {
+									terminalFailure = true;
+									lifecycle.transition("error");
+								}
 								Queue.offerUnsafe(events, {
 									_tag: "Error",
 									message: reason,
@@ -1404,19 +1414,39 @@ export const startGrokSession = (
 						const errorKind =
 							cause instanceof GrokProtocolError ? cause.kind : "provider";
 						const isCancellation = errorKind === "cancellation";
-						const isTerminal = errorKind === "auth" || errorKind === "billing";
-						if (isTerminal) terminalFailure = true;
+						const failureAction = grokSessionFailureAction(errorKind);
+						const requiresUserAction = failureAction !== "continue";
+						if (failureAction === "restart") {
+							// The login command updates credentials out of process. Kill
+							// this authenticated child so the next send re-handshakes and
+							// reloads the same durable ACP conversation.
+							dead = true;
+							try {
+								child.kill("SIGTERM");
+							} catch {
+								// Child may already be closing after the auth failure.
+							}
+						}
+						if (failureAction === "terminal") terminalFailure = true;
 						if (
 							!isCancellation &&
-							!isTerminal &&
+							!requiresUserAction &&
 							dead &&
 							reconnectAttempt < 2
 						) {
 							enqueuePrompt(text, attachmentRefs, reconnectAttempt + 1);
 							return;
 						}
-						if (dead && reconnectAttempt >= 2) terminalFailure = true;
-						if (terminalFailure && lifecycle.current() !== "error")
+						if (
+							failureAction === "continue" &&
+							dead &&
+							reconnectAttempt >= 2
+						)
+							terminalFailure = true;
+						if (
+							failureAction === "terminal" &&
+							lifecycle.current() !== "error"
+						)
 							lifecycle.transition("error");
 						if (!closed && !isCancellation) {
 							Queue.offerUnsafe(events, {

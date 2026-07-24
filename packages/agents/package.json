@@ -12,6 +12,7 @@
 		"./user-mcp/*": "./src/user-mcp/*.ts",
 		"./kernel/attachment-service": "./src/kernel/attachment-service.ts",
 		"./kernel/driver": "./src/kernel/driver.ts",
+		"./kernel/turn-protocol": "./src/kernel/turn-protocol.ts",
 		"./kernel/permission-policy": "./src/kernel/permission-policy.ts",
 		"./kernel/policy": "./src/kernel/policy.ts",
 		"./kernel/tool-classify": "./src/kernel/tool-classify.ts",

@@ -10,7 +10,15 @@ describe("mobile UI contracts", () => {
 		expect(css).toContain("@variant light");
 		expect(css).toContain("@variant dark");
 		expect(css).toContain("--color-background: #ffffff");
-		expect(css).toContain("--color-background: hsl(72 5% 6%)");
+		expect(css).toContain("--color-foreground: #262626");
+		expect(css).toContain("--color-card: #ffffff");
+		expect(css).toContain("--color-card-elevated: rgba(0, 0, 0, 0.04)");
+		expect(css).toContain("--color-border: rgba(0, 0, 0, 0.08)");
+		expect(css).toContain("--color-input: rgba(0, 0, 0, 0.1)");
+		expect(css).toContain("--color-background: hsl(0 0% 6%)");
+		expect(css).toContain("--color-card: hsl(0 0% 12%)");
+		expect(css).toContain("--color-foreground-faint: hsl(0 0% 43%)");
+		expect(css).toContain("--color-input: rgba(255, 255, 255, 0.2)");
 		expect(css.match(/--color-primary: #c8ff00/g)).toHaveLength(2);
 		expect(css).not.toContain("@media (prefers-color-scheme:");
 		expect(css).not.toContain("#34c759");
@@ -121,6 +129,34 @@ describe("mobile UI contracts", () => {
 		expect(threadComposer.match(/<ComposerModeChip/g)).toHaveLength(4);
 	});
 
+	test("hydrates canonical project avatars and renders them through expo image", () => {
+		const row = readFileSync(
+			`${process.cwd()}/src/components/home/home-chat-row.tsx`,
+			"utf8",
+		);
+		const header = readFileSync(
+			`${process.cwd()}/src/components/home/home-project-header.tsx`,
+			"utf8",
+		);
+		const avatar = readFileSync(
+			`${process.cwd()}/src/components/home/use-project-avatar.ts`,
+			"utf8",
+		);
+		const logo = readFileSync(
+			`${process.cwd()}/src/components/home/project-logo.tsx`,
+			"utf8",
+		);
+		for (const source of [row, header]) {
+			expect(source).toContain("useProjectAvatarUrl");
+		}
+		expect(avatar).toContain("hydrateProjectOrigin");
+		expect(logo).toContain('from "expo-image"');
+		expect(logo).toContain('cachePolicy="memory-disk"');
+		expect(logo).toContain('contentFit="cover"');
+		expect(logo).toContain("recyclingKey={source}");
+		expect(logo).toContain("setFailedUrl(source)");
+	});
+
 	test("keeps the camera preview active and explicitly full screen", () => {
 		const scanner = appFile("connect/scan.tsx");
 		expect(scanner).toContain("<CameraView");
@@ -159,20 +195,40 @@ describe("mobile UI contracts", () => {
 	});
 
 	test("floats the composer over the feed and centers the jump control", () => {
+		const layout = appFile("_layout.tsx");
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
-		expect(thread).toContain("useHeaderHeight");
-		expect(thread).toContain("paddingTop: headerHeight + 12");
-		expect(thread).toContain("height: transcriptFooterHeight");
-		expect(thread).toContain('contentInsetAdjustmentBehavior="never"');
-		expect(thread).toContain("transcriptBottomInset(");
-		expect(thread).toContain("onScrollBeginDrag={detachReader}");
-		expect(thread).toContain("onMessageSubmitted={onMessageSubmitted}");
-		expect(thread).toContain("bottom: keyboardOverlap");
-		expect(thread).toContain(
-			"bottom: keyboardOverlap + bottomAccessoryHeight + 8",
+		const composer = readFileSync(
+			`${process.cwd()}/src/components/composer.tsx`,
+			"utf8",
 		);
-		expect(thread).toContain('"keyboardWillChangeFrame"');
-		expect(thread).not.toContain("<KeyboardAvoidingView");
+		expect(layout).toContain("<KeyboardProvider");
+		expect(thread).toContain("useHeaderHeight");
+		expect(thread).toContain("<KeyboardGestureArea");
+		expect(thread).toContain('contentInsetAdjustmentBehavior="never"');
+		expect(thread).toContain("alignItemsAtEnd");
+		expect(thread).toContain("contentInsetEndAdjustment");
+		expect(thread).toContain("onEndVisible={onEndVisible}");
+		expect(thread).toContain("onScrollBeginDrag={startReaderGesture}");
+		expect(thread).toContain("onMomentumScrollEnd={finishReaderGesture}");
+		expect(thread).not.toContain("onMessageSubmitted");
+		expect(thread).not.toContain("useAnimatedKeyboard");
+		expect(thread).not.toContain("translateY: -keyboard.height.value");
+		expect(thread).toContain("bottom: bottomAccessoryHeight + 8");
+		expect(thread).not.toContain("Keyboard.scheduleLayoutAnimation");
+		expect(thread).not.toContain('"keyboardWillChangeFrame"');
+		expect(thread).toContain("<KeyboardStickyView");
+		expect(thread).toContain("useKeyboardChatComposerInset");
+		expect(thread).toContain("useKeyboardScrollToEnd");
+		expect(thread).not.toContain("useKeyboardState");
+		expect(thread).toContain("const composerBottomInset = insets.bottom + 10");
+		expect(thread).toContain("bottom: -insets.bottom");
+		expect(thread).toContain("sharedValues={{ isNearEnd }}");
+		expect(thread).toContain("useAnimatedProps");
+		expect(thread).not.toContain("composerExpanded");
+		expect(thread).not.toContain("TRANSCRIPT_BOTTOM_GAP");
+		expect(thread).not.toContain("reportContentInset({ bottom })");
+		expect(thread).not.toContain("useLayoutEffect");
+		expect(composer).toContain("bottomInset ?? 12");
 		expect(thread).toContain("experimental_backgroundImage");
 		expect(thread).not.toContain("BlurView");
 		expect(thread).toContain('alignItems: "center"');
@@ -204,11 +260,114 @@ describe("mobile UI contracts", () => {
 		expect(threads).not.toContain('className="flex-1 bg-background"');
 	});
 
-	test("anchors latest-turn navigation without bottom-scroll races", () => {
+	test("anchors sent turns at the top and jumps to the true end", () => {
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
-		expect(thread).toContain("scrollToLatestTurn");
-		expect(thread).toContain("latestTurnTopOffset");
-		expect(thread).not.toContain("scrollToEnd");
+		const composer = readFileSync(
+			`${process.cwd()}/src/components/composer.tsx`,
+			"utf8",
+		);
+		expect(thread).toContain("<KeyboardAwareLegendList");
+		expect(thread).toContain("initialScrollAtEnd");
+		expect(thread).toContain("maintainScrollAtEnd");
+		expect(thread).toContain("maintainScrollAtEndThreshold");
+		expect(thread).toContain("maintainVisibleContentPosition");
+		expect(thread).toContain("anchoredEndSpace");
+		expect(thread).toContain(
+			"anchorIndex: activeAnchorIndex ?? turns.length - 1",
+		);
+		expect(thread).not.toContain("settledRunwayHeight");
+		expect(thread).toContain("footerLayout: false");
+		expect(thread).toContain("scrollMessageToEnd");
+		expect(thread).toContain("keyboardOffset={insets.bottom}");
+		expect(thread).toContain('keyboardLiftBehavior="always"');
+		expect(thread).toContain("offset={{ closed: 0, opened: insets.bottom }}");
+		expect(thread).toContain(
+			"transcriptScroll.onMessageWillAppend(turns.length)",
+		);
+		expect(thread).toContain("onReady: transcriptScroll.onAnchorReady");
+		expect(thread).not.toContain("anchorMaxSize");
+		expect(thread).toContain("transcriptScroll.requestJump()");
+		expect(thread).toContain("scrollListToLatest(list");
+		expect(composer.indexOf("onMessageWillAppend?.()")).toBeLessThan(
+			composer.indexOf("addOptimisticMessage("),
+		);
+		expect(thread).not.toContain("pendingJumpToEndRef");
+		expect(thread).not.toContain("flushPendingJumpToEnd");
+		expect(thread).not.toContain("sendComposerSettledRef");
+		expect(thread).not.toContain("onMessageSubmissionFinished");
+		expect(thread).toContain("onMessageWillAppend");
+		expect(thread).toContain("onMessageAppendFailed");
+		expect(composer).toContain("onMessageAppendFailed?.()");
+		expect(composer).not.toContain(
+			"onMessageWillAppend?.();\n\t\t\tKeyboard.dismiss();",
+		);
+		expect(thread).toContain("closeKeyboard: true");
+		expect(thread).toContain("settleTranscriptTurn()");
+		expect(thread).toContain("markSessionTurnStarting(stateKey)");
+		expect(thread).toContain("markSessionTurnStartFailed(stateKey)");
+		expect(thread).toContain("scrollListToLatest");
+		expect(thread).not.toContain("transcriptScroll.onComposerBlurred()");
+		expect(thread).not.toContain("transcriptScroll.onComposerLayout()");
+		expect(thread).not.toContain("experimental_adaptiveRender");
+		expect(thread).toContain("drawDistance={800}");
+		expect(thread).toContain("scrollEventThrottle={16}");
+		expect(thread).not.toContain("scrollEventThrottle={64}");
+		expect(thread).toContain(
+			'const sessionActive = sessionRunning || sessionStatus === "booting"',
+		);
+		expect(composer).not.toContain("onExpandedChange");
+		expect(thread).toMatch(/<GlassSurface\s+pointerEvents="none"/);
+		expect(thread).toContain("hitSlop={8}");
+		expect(thread).not.toContain("<FlatList");
+		expect(thread).not.toContain("pendingEndIntent");
+		expect(thread).not.toContain("sendAnchorSpace(");
+		expect(thread).not.toContain("latestTurnTopOffset");
+	});
+
+	test("keeps permission decisions pending with visible acknowledgement feedback", () => {
+		const accessory = readFileSync(
+			`${process.cwd()}/src/components/messages/live-permission-accessory.tsx`,
+			"utf8",
+		);
+		expect(accessory).toContain("<ActivityIndicator");
+		expect(accessory).toContain("Allowing…");
+		expect(accessory).toContain("Denying…");
+		expect(accessory).toContain(
+			"accessibilityState={{ busy: loading, disabled: busy }}",
+		);
+	});
+
+	test("uses a narrow LegendList animated-scroll completion patch", () => {
+		const keyboardIntegration = readFileSync(
+			`${process.cwd()}/../../node_modules/@legendapp/list/keyboard.js`,
+			"utf8",
+		);
+		const listPatch = readFileSync(
+			`${process.cwd()}/../../patches/@legendapp%2Flist@3.3.3.patch`,
+			"utf8",
+		);
+		const mobilePackage = readFileSync(`${process.cwd()}/package.json`, "utf8");
+		const rootPackage = readFileSync(
+			`${process.cwd()}/../../package.json`,
+			"utf8",
+		);
+
+		expect(mobilePackage).toContain('"@legendapp/list": "3.3.3"');
+		expect(rootPackage).toContain(
+			'"@legendapp/list@3.3.3": "patches/@legendapp%2Flist@3.3.3.patch"',
+		);
+		expect(listPatch).toContain("diff --git a/react-native.js");
+		expect(listPatch).toContain("diff --git a/react-native.mjs");
+		expect(listPatch).toContain(
+			"const slowTimeout = !!(scrollingTo == null ? void 0 : scrollingTo.animated)",
+		);
+		expect(listPatch).toContain("checkFinishedScrollFallback(ctx);");
+		expect(listPatch).not.toContain("keyboard.js");
+		expect(listPatch).not.toContain("keyboard.mjs");
+		expect(keyboardIntegration).toContain("KeyboardChatScrollView");
+		expect(keyboardIntegration).toContain("useKeyboardChatComposerInset");
+		expect(keyboardIntegration).toContain("useKeyboardScrollToEnd");
+		expect(keyboardIntegration).not.toContain("adjustedInsetCompensation");
 	});
 
 	test("uses stack-based files and keeps file changes inline", () => {
@@ -280,7 +439,7 @@ describe("mobile UI contracts", () => {
 		expect(review).toContain('"arrow.up.left.and.arrow.down.right"');
 		expect(review).not.toContain("translucentNativeHeaderOptions");
 		expect(review).toContain("collapsable={false}");
-		expect(review).toContain("selectConnectionBundles");
+		expect(review).toContain("connectionBundlesAtom");
 		expect(review).not.toContain("bundlesByConnection[connKey] ?? []");
 		expect(tool).toContain("<ReviewDiffList");
 		expect(tool).toContain("<Stack.Screen.Title>");

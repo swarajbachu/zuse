@@ -25,6 +25,7 @@ interface ConversationRow {
 	readonly id: string;
 	readonly project_id: string;
 	readonly title: string;
+	readonly title_provenance?: "pending" | "automatic" | "manual";
 	readonly worktree_id: string | null;
 	readonly archived_at: string | null;
 	readonly created_at: string;
@@ -137,6 +138,7 @@ export const sessionFromRow = (row: SessionRow): Session =>
 		id: SessionId.make(row.id),
 		projectId: row.project_id as FolderId,
 		title: row.title,
+		titleProvenance: row.title_provenance ?? "manual",
 		providerId: row.provider_id as Session["providerId"],
 		model: row.model,
 		status: row.status as Session["status"],
@@ -167,6 +169,7 @@ export const sessionFromRecord = (record: SqlSessionReadRecord): Session =>
 		id: SessionId.make(record.sessionId),
 		projectId: record.projectId as FolderId,
 		title: record.title,
+		titleProvenance: record.titleProvenance ?? "manual",
 		providerId: record.providerId as Session["providerId"],
 		model: record.model,
 		status: record.status,
@@ -199,6 +202,7 @@ export const chatFromRow = (row: ChatRow): Chat =>
 		worktreeId:
 			row.worktree_id === null ? null : (row.worktree_id as WorktreeId),
 		title: row.title,
+		titleProvenance: row.title_provenance ?? "manual",
 		activeSessionId:
 			row.active_session_id === null
 				? null

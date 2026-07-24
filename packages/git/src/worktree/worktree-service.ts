@@ -1,6 +1,7 @@
 import type {
 	FolderId,
 	Worktree,
+	WorktreeBranchRenameError,
 	WorktreeCheckpointError,
 	WorktreeCreateError,
 	WorktreeCreateSource,
@@ -43,17 +44,14 @@ export interface WorktreeServiceShape {
 		projectId: FolderId,
 	) => Effect.Effect<ReadonlyArray<Worktree>>;
 	readonly get: (worktreeId: WorktreeId) => Effect.Effect<Worktree | null>;
-	/**
-	 * Update the stored `branch` for a worktree row so it tracks a `git branch
-	 * -m` performed elsewhere (the auto-namer renames the branch via
-	 * `GitService`, then calls this to keep the DB in lockstep). The on-disk
-	 * directory and `name` are left untouched — only the branch label moves.
-	 * No-op when the worktree row is absent.
-	 */
-	readonly updateBranch: (
+	readonly renameBranch: (
 		worktreeId: WorktreeId,
-		branch: string,
-	) => Effect.Effect<void>;
+		name: string,
+		provenance: "automatic" | "manual",
+	) => Effect.Effect<
+		Worktree,
+		WorktreeNotFoundError | WorktreeBranchRenameError
+	>;
 	readonly archive: (
 		worktreeId: WorktreeId,
 		recordCheckpoint?: (

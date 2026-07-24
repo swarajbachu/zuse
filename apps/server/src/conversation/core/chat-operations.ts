@@ -11,7 +11,6 @@ import type {
 	ConversationOperations,
 	CreateChatInput,
 } from "../services/conversation-services.ts";
-import { deriveProvisionalTitle } from "./conversation-input.ts";
 import {
 	type ChatRow,
 	chatFromRow,
@@ -46,7 +45,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 	const lookupChat = (chatId: ChatId): Effect.Effect<Chat, ChatNotFoundError> =>
 		Effect.gen(function* () {
 			const rows = yield* sql<ChatRow>`
-          SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
+          SELECT id, project_id, worktree_id, title, title_provenance, active_session_id, origin_session_id,
                  archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
           FROM chats WHERE id = ${chatId} LIMIT 1
         `.pipe(Effect.orDie);
@@ -64,13 +63,13 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 		Effect.gen(function* () {
 			const rows = includeArchived
 				? yield* sql<ChatRow>`
-              SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
+              SELECT id, project_id, worktree_id, title, title_provenance, active_session_id, origin_session_id,
                      archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
               FROM chats WHERE project_id = ${projectId}
               ORDER BY updated_at DESC
             `.pipe(Effect.orDie)
 				: yield* sql<ChatRow>`
-              SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
+              SELECT id, project_id, worktree_id, title, title_provenance, active_session_id, origin_session_id,
                      archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
               FROM chats
               WHERE project_id = ${projectId} AND archived_at IS NULL
@@ -89,7 +88,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 				return yield* new ChatNotArchivedError({ chatId });
 			}
 			const rows = yield* sql<SessionRow>`
-        SELECT id, project_id, title, provider_id, model, status,
+        SELECT id, project_id, title, title_provenance, provider_id, model, status,
                archived_at, cursor, resume_strategy, runtime_mode,
                agents_json, worktree_id, chat_id, forked_from_session_id,
                forked_from_message_id, permission_mode, tool_search,
@@ -130,8 +129,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 		Effect.gen(function* () {
 			const createdAt = yield* currentTimestamp;
 			const chatId = input.chatId ?? (crypto.randomUUID() as unknown as ChatId);
-			const title =
-				input.title?.trim() || deriveProvisionalTitle(input.initialPrompt);
+			const title = input.title?.trim() || "New chat";
 			const worktreeId = input.worktreeId ?? null;
 			const originSessionId = input.originSessionId ?? null;
 			yield* dispatchChatCommand(chatId, {
@@ -140,6 +138,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 				projectId: input.projectId,
 				worktreeId,
 				title,
+				titleProvenance: input.title?.trim() ? "manual" : "pending",
 				originSessionId,
 				lastReadAt: createdAt,
 				createdAt,

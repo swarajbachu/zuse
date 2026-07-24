@@ -1226,7 +1226,7 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 						yield* repairRetainedArchiveContext(pendingJob);
 					}
 					const chatRows = yield* sql<ChatRow>`
-          SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
+          SELECT id, project_id, worktree_id, title, title_provenance, active_session_id, origin_session_id,
                  archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
           FROM chats WHERE id = ${chatId} LIMIT 1
         `.pipe(Effect.orDie);
@@ -1333,7 +1333,7 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 						}
 					}
 					const sessions = yield* sql<SessionRow>`
-          SELECT id, project_id, title, provider_id, model, status,
+          SELECT id, project_id, title, title_provenance, provider_id, model, status,
                  archived_at, cursor, resume_strategy, runtime_mode,
                  agents_json, worktree_id, chat_id, forked_from_session_id,
                  forked_from_message_id, permission_mode, tool_search,

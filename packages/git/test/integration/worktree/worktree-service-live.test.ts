@@ -73,6 +73,7 @@ describe("WorktreeServiceLive", () => {
 						path TEXT NOT NULL,
 						name TEXT NOT NULL,
 						branch TEXT NOT NULL,
+						branch_provenance TEXT NOT NULL DEFAULT 'manual',
 						base_branch TEXT NOT NULL,
 						created_at TEXT NOT NULL,
 						setup_status TEXT NOT NULL DEFAULT 'pending',
@@ -159,6 +160,137 @@ describe("WorktreeServiceLive", () => {
 	const runSql = <A, E>(
 		operation: (sql: SqlClient.SqlClient) => Effect.Effect<A, E>,
 	) => runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, operation));
+
+	test("renames a pending branch automatically exactly once", async () => {
+		const created = await run((service) => service.create(projectId));
+		expect(created.branchProvenance).toBe("pending");
+
+		const renamed = await run((service) =>
+			service.renameBranch(created.id, "safe-name", "automatic"),
+		);
+		expect(renamed).toMatchObject({
+			branch: "safe-name",
+			branchProvenance: "automatic",
+		});
+		expect(git(created.path, "branch", "--show-current")).toBe("safe-name");
+
+		const unchanged = await run((service) =>
+			service.renameBranch(created.id, "second-name", "automatic"),
+		);
+		expect(unchanged.branch).toBe("safe-name");
+	});
+
+	test("renames a fresh branch that tracks its remote base", async () => {
+		const created = await run((service) => service.create(projectId));
+		git(repositoryRoot, "remote", "add", "origin", repositoryRoot);
+		git(repositoryRoot, "fetch", "origin", "main");
+		git(
+			created.path,
+			"branch",
+			"--set-upstream-to=origin/main",
+			created.branch,
+		);
+
+		const renamed = await run((service) =>
+			service.renameBranch(created.id, "semantic-task-name", "automatic"),
+		);
+
+		expect(renamed).toMatchObject({
+			branch: "semantic-task-name",
+			branchProvenance: "automatic",
+		});
+		expect(git(created.path, "branch", "--show-current")).toBe(
+			"semantic-task-name",
+		);
+	});
+
+	test("suffixes automatic collisions but reports manual collisions", async () => {
+		const automatic = await run((service) => service.create(projectId));
+		git(repositoryRoot, "branch", "occupied");
+		const suffixed = await run((service) =>
+			service.renameBranch(automatic.id, "occupied", "automatic"),
+		);
+		expect(suffixed.branch).toBe("occupied-2");
+
+		await run((service) => service.remove(automatic.id));
+		const manual = await run((service) => service.create(projectId));
+		await expect(
+			run((service) => service.renameBranch(manual.id, "occupied", "manual")),
+		).rejects.toMatchObject({
+			_tag: "WorktreeBranchRenameError",
+			reason: "conflict",
+		});
+		expect(git(manual.path, "branch", "--show-current")).toBe(manual.branch);
+	});
+
+	test("reconciles an externally changed branch as manual", async () => {
+		const created = await run((service) => service.create(projectId));
+		git(created.path, "branch", "-m", "external-change");
+
+		await expect(
+			run((service) =>
+				service.renameBranch(created.id, "generated-name", "automatic"),
+			),
+		).rejects.toMatchObject({
+			_tag: "WorktreeBranchRenameError",
+			reason: "mismatch",
+		});
+		expect(await run((service) => service.get(created.id))).toMatchObject({
+			branch: "external-change",
+			branchProvenance: "manual",
+		});
+	});
+
+	test("returns typed failures for missing, invalid, and detached branches", async () => {
+		const missing = WorktreeId.make("missing-rename-worktree");
+		await expect(
+			run((service) => service.renameBranch(missing, "valid-name", "manual")),
+		).rejects.toMatchObject({ _tag: "WorktreeNotFoundError" });
+
+		const created = await run((service) => service.create(projectId));
+		await expect(
+			run((service) =>
+				service.renameBranch(created.id, "invalid branch name", "manual"),
+			),
+		).rejects.toMatchObject({ reason: "invalid" });
+
+		git(created.path, "checkout", "--detach");
+		await expect(
+			run((service) =>
+				service.renameBranch(created.id, "detached-name", "manual"),
+			),
+		).rejects.toMatchObject({ reason: "detached" });
+	});
+
+	test("blocks published branches and rolls git back after persistence failure", async () => {
+		const published = await run((service) => service.create(projectId));
+		git(published.path, "branch", `--set-upstream-to=main`, published.branch);
+		await expect(
+			run((service) =>
+				service.renameBranch(published.id, "published-new", "manual"),
+			),
+		).rejects.toMatchObject({ reason: "published" });
+
+		git(published.path, "branch", "--unset-upstream", published.branch);
+		await runSql(
+			(sql) => sql`
+			CREATE TRIGGER reject_branch_persistence
+			BEFORE UPDATE OF branch ON worktrees
+			WHEN NEW.branch = 'rollback-target'
+			BEGIN
+				SELECT RAISE(FAIL, 'forced persistence failure');
+			END
+		`,
+		);
+		await expect(
+			run((service) =>
+				service.renameBranch(published.id, "rollback-target", "manual"),
+			),
+		).rejects.toMatchObject({ reason: "git-failed" });
+		expect(git(published.path, "branch", "--show-current")).toBe(
+			published.branch,
+		);
+	});
 
 	test("creates, lists, streams setup completion, removes, and restores a worktree", async () => {
 		const created = await run((service) => service.create(projectId));

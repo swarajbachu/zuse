@@ -84,6 +84,7 @@ export interface LanAuthServiceShape {
 			readonly code: string;
 			readonly expiresAt: Date;
 			readonly pairingUrl: string;
+			readonly browserUrl: string;
 			readonly qrText: string;
 		},
 		LanAuthError

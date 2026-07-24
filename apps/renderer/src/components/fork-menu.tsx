@@ -1,59 +1,112 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { GitBranchIcon, GitForkIcon } from "@hugeicons-pro/core-solid-rounded";
-import type { MessageId, SessionId } from "@zuse/contracts";
-import { useCallback, useState } from "react";
+import { Loading02Icon } from "@hugeicons-pro/core-solid-rounded";
+import { GitBranchIcon } from "@hugeicons-pro/core-stroke-rounded";
+import type { MessageId, SessionId, Worktree } from "@zuse/contracts";
+import { useState } from "react";
 
-import { useSessionsStore } from "../store/sessions.ts";
-import { Menu, MenuItem, MenuPopup } from "./ui/menu.tsx";
+import { getSessionById, useSessionsStore } from "../store/sessions.ts";
+import { useWorktreesStore } from "../store/worktrees.ts";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu.tsx";
 import { toastManager } from "./ui/toast.tsx";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
-type ForkTarget = {
-	anchor: { getBoundingClientRect: () => DOMRect };
-	sourceSessionId: SessionId;
-	fromMessageId: MessageId;
-};
+function ForkSplitIcon({ className }: { readonly className?: string }) {
+	return (
+		<svg
+			aria-hidden="true"
+			focusable="false"
+			viewBox="0 0 24 24"
+			fill="none"
+			className={className}
+		>
+			<path
+				d="M4 12h4c2.3 0 3.8-1 5.2-2.7L18 4"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			/>
+			<path
+				d="M13.5 4H18v4.5"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			/>
+			<path
+				d="M8 12c2.3 0 3.8 1 5.2 2.7L18 20"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			/>
+			<path
+				d="M18 15.5V20h-4.5"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			/>
+		</svg>
+	);
+}
 
-/**
- * Right-click "Fork from here" menu. Manages its own anchored popover; the
- * caller wires `openAt` to an `onContextMenu` handler on the message row and
- * renders `menu` once. Both destinations (new tab / new sidebar chat) are
- * offered directly so the user picks in one click.
- */
-export function useForkMenu(): {
-	openAt: (
-		e: React.MouseEvent,
-		sourceSessionId: SessionId,
-		fromMessageId: MessageId,
-	) => void;
-	menu: React.ReactNode;
-} {
-	const [target, setTarget] = useState<ForkTarget | null>(null);
-	const fork = useSessionsStore((s) => s.fork);
+export function ForkButton({
+	sourceSessionId,
+	fromMessageId,
+}: {
+	readonly sourceSessionId: SessionId;
+	readonly fromMessageId: MessageId;
+}) {
+	const [forking, setForking] = useState(false);
+	const fork = useSessionsStore((state) => state.fork);
 
-	const openAt = useCallback<
-		(e: React.MouseEvent, s: SessionId, m: MessageId) => void
-	>((e, sourceSessionId, fromMessageId) => {
-		e.preventDefault();
-		e.stopPropagation();
-		const rect = new DOMRect(e.clientX, e.clientY, 0, 0);
-		setTarget({
-			anchor: { getBoundingClientRect: () => rect },
-			sourceSessionId,
-			fromMessageId,
-		});
-	}, []);
+	const run = async (destination: "tab" | "chat") => {
+		if (forking) return;
+		setForking(true);
 
-	const run = useCallback(
-		async (destination: "tab" | "chat") => {
-			if (target === null) return;
-			const { sourceSessionId, fromMessageId } = target;
-			setTarget(null);
+		let createdWorktree: Worktree | null = null;
+		try {
+			if (destination === "chat") {
+				const source = getSessionById(sourceSessionId);
+				if (source === null) {
+					toastManager.add({
+						title: "Fork failed",
+						description: "The source session is no longer available.",
+						type: "error",
+					});
+					return;
+				}
+				createdWorktree = await useWorktreesStore
+					.getState()
+					.create(source.projectId);
+				if (createdWorktree === null) {
+					toastManager.add({
+						title: "Worktree creation failed",
+						description:
+							useWorktreesStore.getState().error ??
+							"Could not create an isolated worktree for this fork.",
+						type: "error",
+					});
+					return;
+				}
+			}
+
 			const result = await fork({
 				sourceSessionId,
 				fromMessageId,
 				destination,
+				worktreeId: createdWorktree?.id,
 			});
 			if (result === null) {
+				if (createdWorktree !== null) {
+					const source = getSessionById(sourceSessionId);
+					if (source !== null) {
+						await useWorktreesStore
+							.getState()
+							.remove(source.projectId, createdWorktree.id);
+					}
+				}
 				toastManager.add({
 					title: "Fork failed",
 					description: "Could not branch this conversation.",
@@ -63,43 +116,80 @@ export function useForkMenu(): {
 			}
 			toastManager.add({
 				title:
-					destination === "tab" ? "Forked to new tab" : "Forked to new chat",
+					destination === "tab"
+						? "Forked in this chat"
+						: "Forked into a new worktree",
 				description:
 					result.forkMode === "resume"
-						? "The branch continues with full agent memory."
-						: "The branch was seeded with the conversation so far.",
+						? "The new branch continues with full agent memory."
+						: "The conversation through this response was copied into the new branch.",
 				type: "success",
 			});
-		},
-		[fork, target],
+		} finally {
+			setForking(false);
+		}
+	};
+
+	return (
+		<Menu>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<MenuTrigger
+							disabled={forking}
+							aria-label="Fork from this response"
+							className="inline-grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground/70 outline-none hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97] data-[popup-open]:bg-muted/50 data-[popup-open]:text-foreground [@media(pointer:coarse)]:size-11"
+						>
+							{forking ? (
+								<HugeiconsIcon
+									icon={Loading02Icon}
+									className="size-3.5 animate-spin"
+									aria-hidden="true"
+								/>
+							) : (
+								<ForkSplitIcon className="size-3.5" />
+							)}
+						</MenuTrigger>
+					}
+				/>
+				<TooltipPopup>Fork from this response</TooltipPopup>
+			</Tooltip>
+			<MenuPopup align="start" className="min-w-52 bg-glass border-glass">
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<MenuItem
+								onClick={() => void run("tab")}
+								className="gap-2.5 px-2 py-1.5"
+							>
+								<ForkSplitIcon className="size-4" />
+								<span>Fork in this chat</span>
+							</MenuItem>
+						}
+					/>
+					<TooltipPopup side="right" align="start" className="max-w-64">
+						Open a new session tab that shares this chat and its current
+						worktree.
+					</TooltipPopup>
+				</Tooltip>
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<MenuItem
+								onClick={() => void run("chat")}
+								className="gap-2.5 px-2 py-1.5"
+							>
+								<HugeiconsIcon icon={GitBranchIcon} className="size-4" />
+								<span>Fork into a new worktree</span>
+							</MenuItem>
+						}
+					/>
+					<TooltipPopup side="right" align="start" className="max-w-64">
+						Create a separate chat in an isolated Git worktree for parallel
+						work.
+					</TooltipPopup>
+				</Tooltip>
+			</MenuPopup>
+		</Menu>
 	);
-
-	const menu =
-		target === null ? null : (
-			<Menu open onOpenChange={(open) => !open && setTarget(null)}>
-				<MenuPopup
-					anchor={target.anchor}
-					align="start"
-					side="bottom"
-					className="min-w-[184px]"
-				>
-					<MenuItem
-						onClick={() => void run("tab")}
-						className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent"
-					>
-						<HugeiconsIcon icon={GitBranchIcon} className="size-3.5" />
-						Fork to new tab
-					</MenuItem>
-					<MenuItem
-						onClick={() => void run("chat")}
-						className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent"
-					>
-						<HugeiconsIcon icon={GitForkIcon} className="size-3.5" />
-						Fork to new chat
-					</MenuItem>
-				</MenuPopup>
-			</Menu>
-		);
-
-	return { openAt, menu };
 }

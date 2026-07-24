@@ -10,7 +10,10 @@ import {
 	TextInput,
 	View,
 } from "react-native";
-import { create } from "zustand";
+import { useAtomValue } from "@effect/atom-react";
+import { Atom } from "effect/unstable/reactivity";
+
+import { appAtomRegistry } from "~/store/registry";
 
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { colors } from "~/theme";
@@ -31,10 +34,7 @@ export function PlanReviewCard({
 		(interaction.kind === "permission"
 			? interaction.request.id
 			: "pending-plan");
-	const feedback = usePlanReviewDrafts(
-		(state) => state.byInteraction[draftKey] ?? "",
-	);
-	const setFeedback = usePlanReviewDrafts((state) => state.set);
+	const feedback = useAtomValue(planReviewDraftAtom(draftKey));
 	const [busy, setBusy] = useState<PlanAction | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [success, setSuccess] = useState<string | null>(null);
@@ -232,13 +232,15 @@ const CompactAction = ({
 	</Pressable>
 );
 
-const usePlanReviewDrafts = create<{
-	byInteraction: Record<string, string>;
-	set: (key: string, value: string) => void;
-}>((set) => ({
-	byInteraction: {},
-	set: (key, value) =>
-		set((state) => ({
-			byInteraction: { ...state.byInteraction, [key]: value },
-		})),
-}));
+const planReviewDraftsAtom = Atom.make<Record<string, string>>({}).pipe(
+	Atom.keepAlive,
+);
+const planReviewDraftAtom = Atom.family((key: string) =>
+	Atom.make((get) => get(planReviewDraftsAtom)[key] ?? ""),
+);
+const setFeedback = (key: string, value: string): void => {
+	appAtomRegistry.update(planReviewDraftsAtom, (state) => ({
+		...state,
+		[key]: value,
+	}));
+};

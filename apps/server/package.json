@@ -1,8 +1,14 @@
 {
 	"name": "@zuse/server",
 	"version": "0.0.0",
-	"private": true,
+	"private": false,
 	"type": "module",
+	"bin": {
+		"zuse": "./dist/bin.mjs"
+	},
+	"files": [
+		"dist"
+	],
 	"main": "./src/index.ts",
 	"types": "./src/index.ts",
 	"exports": {
@@ -19,11 +25,12 @@
 	},
 	"scripts": {
 		"serve": "tsx src/bin.ts",
+		"build": "bun run --filter renderer build && vp pack && tsc -p tsconfig.build.json && node scripts/copy-client.mjs",
 		"check-types": "tsc --noEmit",
-		"test": "vitest run test/unit test/integration",
-		"test:unit": "vitest run test/unit",
-		"test:integration": "vitest run test/integration",
-		"test:live-agents": "vitest run ./test/live/agent-smoke.live.test.ts"
+		"test": "vp test run test/unit test/integration",
+		"test:unit": "vp test run test/unit",
+		"test:integration": "vp test run test/integration",
+		"test:live-agents": "vp test run ./test/live/agent-smoke.live.test.ts"
 	},
 	"dependencies": {
 		"@anthropic-ai/claude-agent-sdk": "^0.2.126",
@@ -32,6 +39,7 @@
 		"@modelcontextprotocol/sdk": "^1.0.0",
 		"@zuse/agents": "*",
 		"@zuse/contracts": "*",
+		"@zuse/analytics": "*",
 		"@zuse/domain": "*",
 		"@zuse/git": "*",
 		"@zuse/index": "*",
@@ -44,6 +52,10 @@
 		"keytar": "^7.9.0",
 		"node-pty": "^1.1.0",
 		"smol-toml": "^1.3.1",
+		"tree-sitter": "^0.21.1",
+		"tree-sitter-javascript": "^0.23.0",
+		"tree-sitter-json": "^0.24.0",
+		"tree-sitter-typescript": "^0.23.0",
 		"tokenmaxer": "*",
 		"zod": "^4.0.0"
 	},
@@ -53,6 +65,8 @@
 		"@types/node": "catalog:",
 		"typescript": "catalog:",
 		"tsx": "4.23.0",
+		"tsdown": "0.21.10",
+		"vite-plus": "0.2.5",
 		"vitest": "catalog:"
 	}
 }

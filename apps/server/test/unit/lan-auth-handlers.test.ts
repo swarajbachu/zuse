@@ -10,6 +10,7 @@ describe("LAN auth handlers", () => {
 			code: "zp_example",
 			expiresAt: new Date("2026-07-18T07:49:09.778Z"),
 			pairingUrl: "ws://192.168.0.103:47837",
+			browserUrl: "http://192.168.0.103:47837/#pair=zp_example",
 			qrText:
 				"zuse://?pairingUrl=ws%3A%2F%2F192.168.0.103%3A47837#token=zp_example",
 		});

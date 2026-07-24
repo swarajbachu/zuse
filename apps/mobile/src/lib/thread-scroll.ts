@@ -7,6 +7,11 @@ export type ThreadScrollEvent =
 	| { readonly type: "message-submitted" }
 	| { readonly type: "jumped-to-latest" };
 
+export type ThreadAnchorEvent =
+	| { readonly type: "message-anchored"; readonly turnId: string }
+	| { readonly type: "reader-interacted" }
+	| { readonly type: "jumped-to-latest" };
+
 /** Enter and leave thresholds are deliberately different to avoid edge flicker. */
 export const LIVE_EDGE_ENTER_PX = 48;
 export const LIVE_EDGE_EXIT_PX = 96;
@@ -27,6 +32,21 @@ export const nextThreadScrollMode = (
 	}
 };
 
+export const nextThreadAnchor = (
+	anchor: string | null,
+	event: ThreadAnchorEvent,
+): string | null => {
+	switch (event.type) {
+		case "message-anchored":
+			return event.turnId;
+		case "reader-interacted":
+		case "jumped-to-latest":
+			return null;
+		default:
+			return anchor;
+	}
+};
+
 export const shouldFollowTranscript = (mode: ThreadScrollMode): boolean =>
 	mode !== "detached";
 
@@ -37,43 +57,3 @@ export const shouldShowLatestAction = (options: {
 }): boolean =>
 	options.mode === "detached" &&
 	(options.hasUnseenContent || options.distance > LIVE_EDGE_EXIT_PX);
-
-export const transcriptBottomInset = (
-	accessoryHeight: number,
-	keyboardOverlap: number,
-	spacing = 12,
-): number =>
-	Math.max(0, accessoryHeight) +
-	Math.max(0, keyboardOverlap) +
-	Math.max(0, spacing);
-
-export const latestTurnTopOffset = (
-	turnContentY: number,
-	headerHeight: number,
-	spacing = 12,
-): number =>
-	Math.max(
-		0,
-		Math.max(0, turnContentY) -
-			Math.max(0, headerHeight) -
-			Math.max(0, spacing),
-	);
-
-/**
- * Reserve only the unused part of the latest-turn viewport. As the response
- * grows, this space shrinks by the same amount, so the turn remains anchored
- * without manually compensating the list offset.
- */
-export const latestTurnAnchorSpace = (options: {
-	readonly viewportHeight: number;
-	readonly bottomInset: number;
-	readonly latestTurnHeight: number;
-	readonly previousContext: number;
-}): number =>
-	Math.max(
-		0,
-		options.viewportHeight -
-			Math.max(0, options.bottomInset) -
-			Math.max(0, options.latestTurnHeight) -
-			Math.max(0, options.previousContext),
-	);

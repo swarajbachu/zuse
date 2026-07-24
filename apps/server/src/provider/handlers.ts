@@ -3,19 +3,25 @@ import {
 	removeOpencodeProviderAuth,
 	setOpencodeProviderAuth,
 } from "@zuse/agents/drivers/opencode";
+import { safeModelId } from "@zuse/analytics";
 import {
 	AgentSessionStartError,
 	CredentialStoreError,
 	MemoizeRpcs,
 	type ProviderId,
-	SessionDomainEventEnvelope,
 	type SessionId,
 	type SessionSummaryChange,
+	type SessionTimelineFrame,
 } from "@zuse/contracts";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { Effect, Layer, Result, Stream } from "effect";
 import type { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
+import { AnalyticsService } from "../analytics/services/analytics-service.ts";
 import { ConfigStoreService } from "../config-store/services/config-store-service.ts";
+import {
+	timelineEventFromDomain,
+	timelineSnapshotFromEvents,
+} from "../conversation/core/conversation-timeline-projection.ts";
 import {
 	ChatService,
 	MessageService,
@@ -62,28 +68,26 @@ const SetCredential = MemoizeRpcs.toLayerHandler(
 );
 
 const RemoveCredential = MemoizeRpcs.toLayerHandler(
-  "provider.removeCredential",
-  ({ providerId }) =>
-    Effect.flatMap(ProviderService, (svc) =>
-      svc.removeCredential(providerId).pipe(
-        Effect.catchTag("CredentialsError", (err) =>
-          Effect.fail(
-            new CredentialStoreError({
-              providerId: err.providerId as ProviderId,
-              reason: err.reason,
-            }),
-          ),
-        ),
-      ),
-    ),
+	"provider.removeCredential",
+	({ providerId }) =>
+		Effect.flatMap(ProviderService, (svc) =>
+			svc.removeCredential(providerId).pipe(
+				Effect.catchTag("CredentialsError", (err) =>
+					Effect.fail(
+						new CredentialStoreError({
+							providerId: err.providerId as ProviderId,
+							reason: err.reason,
+						}),
+					),
+				),
+			),
+		),
 );
 
 // Renderer subscribes to this when the user clicks the "Sign in" button on a
 // provider card or in an auth error bubble. Supported handlers spawn the
-// provider's login subcommand, extract the OAuth
-// URL, and stream progress back. When the renderer unsubscribes (cancel,
-// navigate away, IPC drop), the stream's scope closes and the child process is
-// SIGTERM'd by the service's finalizer.
+// provider's login subcommand, extract its OAuth URL, and stream progress
+// back. When the renderer unsubscribes, the service finalizer stops the child.
 const StartLogin = MemoizeRpcs.toLayerHandler(
 	"provider.startLogin",
 	({ providerId }) => startProviderLogin(providerId),
@@ -304,8 +308,10 @@ const SessionStreamChanges = MemoizeRpcs.toLayerHandler(
 );
 
 const SessionCreate = MemoizeRpcs.toLayerHandler("session.create", (input) =>
-	Effect.flatMap(SessionService, (svc) =>
-		svc.createSession({
+	Effect.gen(function* () {
+		const svc = yield* SessionService;
+		const analytics = yield* AnalyticsService;
+		const result = yield* svc.createSession({
 			sessionId: input.sessionId,
 			chatId: input.chatId,
 			providerId: input.providerId,
@@ -323,8 +329,15 @@ const SessionCreate = MemoizeRpcs.toLayerHandler("session.create", (input) =>
 			// finishes (or fails). Chat-create stays synchronous to preserve
 			// its existing staged loading panel timing.
 			background: true,
-		}),
-	),
+		});
+		yield* analytics.capture("session created", {
+			provider: input.providerId,
+			model: safeModelId(input.providerId, input.model),
+			runtime_mode: input.runtimeMode ?? "unknown",
+			permission_mode: input.permissionMode ?? "default",
+		});
+		return result;
+	}),
 );
 
 const ChatList = MemoizeRpcs.toLayerHandler(
@@ -346,8 +359,10 @@ const ChatArchivePreview = MemoizeRpcs.toLayerHandler(
 );
 
 const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
-	Effect.flatMap(ChatService, (svc) =>
-		svc.createChat({
+	Effect.gen(function* () {
+		const svc = yield* ChatService;
+		const analytics = yield* AnalyticsService;
+		const result = yield* svc.createChat({
 			chatId: input.chatId,
 			initialSessionId: input.initialSessionId,
 			projectId: input.projectId,
@@ -364,8 +379,14 @@ const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
 			toolSearch: input.toolSearch,
 			originSessionId: input.originSessionId ?? null,
 			background: input.background,
-		}),
-	),
+		});
+		yield* analytics.capture("chat created", {
+			provider: input.providerId,
+			model: safeModelId(input.providerId, input.model),
+			runtime_mode: input.runtimeMode ?? "unknown",
+		});
+		return result;
+	}),
 );
 
 const ChatRename = MemoizeRpcs.toLayerHandler(
@@ -405,9 +426,13 @@ const ChatSetActiveSession = MemoizeRpcs.toLayerHandler(
 const ChatArchive = MemoizeRpcs.toLayerHandler(
 	"chat.archive",
 	({ chatId, force }) =>
-		Effect.flatMap(ChatService, (svc) =>
-			svc.archiveChat(chatId, force ?? false),
-		),
+		Effect.gen(function* () {
+			const svc = yield* ChatService;
+			const analytics = yield* AnalyticsService;
+			const result = yield* svc.archiveChat(chatId, force ?? false);
+			yield* analytics.capture("chat archived", { outcome: "completed" });
+			return result;
+		}),
 );
 
 const ChatArchiveStatus = MemoizeRpcs.toLayerHandler(
@@ -431,7 +456,13 @@ const ChatDirectoryStatus = MemoizeRpcs.toLayerHandler(
 const ChatUnarchive = MemoizeRpcs.toLayerHandler(
 	"chat.unarchive",
 	({ chatId }) =>
-		Effect.flatMap(ChatService, (svc) => svc.unarchiveChat(chatId)),
+		Effect.gen(function* () {
+			const svc = yield* ChatService;
+			const analytics = yield* AnalyticsService;
+			const result = yield* svc.unarchiveChat(chatId);
+			yield* analytics.capture("chat restored", { outcome: "completed" });
+			return result;
+		}),
 );
 
 const ChatDelete = MemoizeRpcs.toLayerHandler("chat.delete", ({ chatId }) =>
@@ -449,7 +480,17 @@ const SessionRename = MemoizeRpcs.toLayerHandler(
 const SessionSetModel = MemoizeRpcs.toLayerHandler(
 	"session.setModel",
 	({ sessionId, model }) =>
-		Effect.flatMap(SessionService, (svc) => svc.setModel(sessionId, model)),
+		Effect.gen(function* () {
+			const svc = yield* SessionService;
+			const analytics = yield* AnalyticsService;
+			const session = yield* svc.getSession(sessionId);
+			const result = yield* svc.setModel(sessionId, model);
+			yield* analytics.capture("model changed", {
+				provider: session.providerId,
+				model: safeModelId(session.providerId, model),
+			});
+			return result;
+		}),
 );
 
 const SessionSetProvider = MemoizeRpcs.toLayerHandler(
@@ -485,8 +526,10 @@ const SessionResume = MemoizeRpcs.toLayerHandler(
 );
 
 const SessionFork = MemoizeRpcs.toLayerHandler("session.fork", (input) =>
-	Effect.flatMap(TranscriptService, (svc) =>
-		svc.forkSession({
+	Effect.gen(function* () {
+		const svc = yield* TranscriptService;
+		const analytics = yield* AnalyticsService;
+		const result = yield* svc.forkSession({
 			sourceSessionId: input.sourceSessionId,
 			fromMessageId: input.fromMessageId,
 			destination: input.destination,
@@ -494,8 +537,17 @@ const SessionFork = MemoizeRpcs.toLayerHandler("session.fork", (input) =>
 			model: input.model,
 			worktreeId: input.worktreeId,
 			title: input.title,
-		}),
-	),
+		});
+		yield* analytics.capture("session forked", {
+			provider: input.providerId ?? "unknown",
+			model:
+				input.providerId && input.model
+					? safeModelId(input.providerId, input.model)
+					: "custom",
+			fork_mode: input.destination,
+		});
+		return result;
+	}),
 );
 
 const SessionExportTranscript = MemoizeRpcs.toLayerHandler(
@@ -545,24 +597,24 @@ const SessionAnswerQuestion = MemoizeRpcs.toLayerHandler(
 );
 
 const SessionPlanRespond = MemoizeRpcs.toLayerHandler(
-  "session.plan.respond",
-  ({ sessionId, toolCallId, outcome, feedback }) =>
-    Effect.flatMap(SessionService, (svc) =>
-      svc.respondToPlan(
-        sessionId,
-        toolCallId as import("@zuse/contracts").AgentItemId,
-        outcome,
-        feedback,
-      ),
-    ),
+	"session.plan.respond",
+	({ sessionId, toolCallId, outcome, feedback }) =>
+		Effect.flatMap(SessionService, (svc) =>
+			svc.respondToPlan(
+				sessionId,
+				toolCallId as import("@zuse/contracts").AgentItemId,
+				outcome,
+				feedback,
+			),
+		),
 );
 
 const SessionMcpUpdate = MemoizeRpcs.toLayerHandler(
-  "session.mcp.update",
-  ({ sessionId, servers }) =>
-    Effect.flatMap(SessionService, (svc) =>
-      svc.updateMcpServers(sessionId, servers),
-    ),
+	"session.mcp.update",
+	({ sessionId, servers }) =>
+		Effect.flatMap(SessionService, (svc) =>
+			svc.updateMcpServers(sessionId, servers),
+		),
 );
 
 const SessionSetWorktree = MemoizeRpcs.toLayerHandler(
@@ -581,27 +633,44 @@ const MessagesList = MemoizeRpcs.toLayerHandler(
 
 const SessionEvents = MemoizeRpcs.toLayerHandler(
 	"session.events",
-	({ sessionId, afterSequence }) =>
+	({ sessionId, afterVersion, hasProjection }) =>
 		Stream.unwrap(
 			Effect.gen(function* () {
 				const sessions = yield* SessionService;
 				yield* sessions.getSession(sessionId);
 				const domain = yield* SessionDomain;
-				return domain.events({ streamId: sessionId, afterSequence }).pipe(
-					Stream.map((record) =>
-						SessionDomainEventEnvelope.make({
-							sequence: record.sequence,
-							eventId: record.eventId,
-							correlationId: record.correlationId,
-							causationEventId: record.causationEventId,
-							sessionId,
-							streamVersion: record.streamVersion,
-							type: record.event._tag,
-							payloadJson: JSON.stringify(record.event),
+				return domain
+					.synchronizedEvents({
+						streamId: sessionId,
+						afterVersion,
+						hasProjection,
+					})
+					.pipe(
+						Stream.map((frame): SessionTimelineFrame => {
+							if (frame.kind === "snapshot") {
+								return {
+									kind: "snapshot",
+									sessionId,
+									throughVersion: frame.throughVersion,
+									projection: timelineSnapshotFromEvents(
+										sessionId,
+										frame.events,
+									),
+								};
+							}
+							if (frame.kind === "synchronized") {
+								return { ...frame, sessionId };
+							}
+							return {
+								kind: "event",
+								sessionId,
+								streamVersion: frame.record.streamVersion,
+								eventId: frame.record.eventId,
+								event: timelineEventFromDomain(sessionId, frame.record.event),
+							};
 						}),
-					),
-					Stream.orDie,
-				);
+						Stream.orDie,
+					);
 			}),
 		),
 );
@@ -664,8 +733,10 @@ const MessagesSend = MemoizeRpcs.toLayerHandler(
 
 const MessagesInterrupt = MemoizeRpcs.toLayerHandler(
 	"messages.interrupt",
-	({ sessionId }) =>
-		Effect.flatMap(MessageService, (svc) => svc.interruptSession(sessionId)),
+	({ sessionId, turnId }) =>
+		Effect.flatMap(MessageService, (svc) =>
+			svc.interruptSession(sessionId, turnId),
+		),
 );
 
 const MessagesQueueList = MemoizeRpcs.toLayerHandler(
@@ -674,20 +745,21 @@ const MessagesQueueList = MemoizeRpcs.toLayerHandler(
 		Effect.flatMap(QueueService, (svc) => svc.listQueuedMessages(sessionId)),
 );
 
-const MessagesQueueStream = MemoizeRpcs.toLayerHandler(
-	"messages.queue.stream",
-	({ sessionId }) =>
-		Stream.unwrap(
-			Effect.map(QueueService, (svc) => svc.streamQueuedMessages(sessionId)),
-		),
-);
-
 const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
 	"messages.queue.add",
 	({ sessionId, queueId, input, ready }) =>
-		Effect.flatMap(QueueService, (svc) =>
-			svc.addQueuedMessage(sessionId, input, queueId, ready),
-		),
+		Effect.gen(function* () {
+			const svc = yield* QueueService;
+			const analytics = yield* AnalyticsService;
+			const result = yield* svc.addQueuedMessage(
+				sessionId,
+				input,
+				queueId,
+				ready,
+			);
+			yield* analytics.capture("queue action performed", { action: "add" });
+			return result;
+		}),
 );
 
 const MessagesQueueUpdate = MemoizeRpcs.toLayerHandler(
@@ -711,6 +783,20 @@ const MessagesQueueSendNow = MemoizeRpcs.toLayerHandler(
 	({ sessionId, queueId }) =>
 		Effect.flatMap(QueueService, (svc) =>
 			svc.sendQueuedMessageNow(sessionId, queueId),
+		),
+);
+
+const MessagesSteer = MemoizeRpcs.toLayerHandler(
+	"messages.steer",
+	({ sessionId, expectedTurnId, queueId, successorTurnId, commandId }) =>
+		Effect.flatMap(QueueService, (svc) =>
+			svc.steerQueuedTurn(
+				sessionId,
+				expectedTurnId,
+				queueId,
+				successorTurnId,
+				commandId,
+			),
 		),
 );
 
@@ -748,7 +834,16 @@ const PermissionRequests = MemoizeRpcs.toLayerHandler(
 const PermissionDecide = MemoizeRpcs.toLayerHandler(
 	"permission.decide",
 	({ requestId, decision }) =>
-		Effect.flatMap(PermissionService, (svc) => svc.decide(requestId, decision)),
+		Effect.gen(function* () {
+			const svc = yield* PermissionService;
+			const analytics = yield* AnalyticsService;
+			const result = yield* svc.decide(requestId, decision);
+			yield* analytics.capture("permission decided", {
+				decision: decision._tag,
+				tool_category: "other",
+			});
+			return result;
+		}),
 );
 
 const PermissionListPending = MemoizeRpcs.toLayerHandler(
@@ -878,11 +973,11 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	MessagesSend,
 	MessagesInterrupt,
 	MessagesQueueList,
-	MessagesQueueStream,
 	MessagesQueueAdd,
 	MessagesQueueUpdate,
 	MessagesQueueDelete,
 	MessagesQueueSendNow,
+	MessagesSteer,
 	MessagesQueueReorder,
 	MessagesQueueFlush,
 	MessagesQueueResume,

@@ -1,6 +1,8 @@
 import {
+	AgentTurnId,
 	type AttachmentRef,
 	type ComposerAnnotation,
+	ComposerInput,
 	DirectoryUnavailableError,
 	type FileRef,
 	type MessageContent,
@@ -8,23 +10,17 @@ import {
 	type MessageOrigin,
 	type Session,
 	SessionId,
-	SessionNotFoundError,
+	type SessionNotFoundError,
 	SessionStartError,
 	type SkillRef,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
 import { Effect, type FileSystem, type Scope } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
-import type { ProviderServiceShape } from "../../provider/services/provider-service.ts";
 import type { ConversationOperations } from "../services/conversation-services.ts";
 import { isGoalCapableProvider } from "./conversation-goal-operations.ts";
 import type { ConversationGoalState } from "./conversation-goal-state.ts";
-import {
-	deriveProvisionalTitle,
-	formatProviderFailure,
-	looksLikeAuthFailure,
-	serializeAnnotations,
-} from "./conversation-input.ts";
+import { serializeAnnotations } from "./conversation-input.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
 import type { QueueServiceRuntime } from "./queue-service-runtime.ts";
 import { makeQueueServiceRuntime } from "./queue-service-runtime.ts";
@@ -32,7 +28,6 @@ import { makeQueueServiceRuntime } from "./queue-service-runtime.ts";
 export interface MessageOperationsOptions {
 	readonly sql: SqlClient.SqlClient;
 	readonly fs: FileSystem.FileSystem;
-	readonly provider: ProviderServiceShape;
 	readonly goalState: ConversationGoalState;
 	readonly lookupSession: ConversationOperations["getSession"];
 	readonly openProviderSession: (
@@ -41,8 +36,11 @@ export interface MessageOperationsOptions {
 			readonly initialPrompt?: string;
 			readonly postBootStatus?: Session["status"];
 			readonly sendAfterOpen?: {
+				readonly turnId: AgentTurnId;
 				readonly text: string;
 				readonly attachments: ReadonlyArray<AttachmentRef>;
+				readonly fileRefs?: ReadonlyArray<FileRef>;
+				readonly skillRefs?: ReadonlyArray<SkillRef>;
 			};
 		},
 	) => Effect.Effect<void, SessionStartError>;
@@ -54,22 +52,40 @@ export interface MessageOperationsOptions {
 		sessionId: SessionId,
 		content: MessageContent,
 		idOverride?: MessageId,
+		turnIdOverride?: AgentTurnId,
+	) => Effect.Effect<PersistedMessage>;
+	readonly submitTurn: (
+		sessionId: SessionId,
+		turnId: AgentTurnId,
+		content: MessageContent,
+		providerInputJson: string,
+		idOverride?: MessageId,
 	) => Effect.Effect<PersistedMessage>;
 	readonly ndjsonAppend: (
 		sessionId: SessionId,
 		persisted: PersistedMessage,
 	) => Effect.Effect<void>;
-	readonly lookupChat: ConversationOperations["getChat"];
 	readonly setGoal: ConversationOperations["setGoal"];
 	readonly dispatchSessionCommand: (
 		sessionId: SessionId,
 		command: SessionCommand,
 	) => Effect.Effect<void>;
-	readonly beginTurn: (sessionId: SessionId) => Effect.Effect<string>;
-	readonly settleActiveTurn: (
+	readonly dispatchSessionCommandWithId: (
 		sessionId: SessionId,
+		commandId: string,
+		command: SessionCommand,
+	) => Effect.Effect<void>;
+	readonly beginTurn: (
+		sessionId: SessionId,
+		turnIdOverride?: AgentTurnId,
+	) => Effect.Effect<AgentTurnId>;
+	readonly settleTurn: (
+		sessionId: SessionId,
+		turnId: AgentTurnId,
 		reason: "completed" | "interrupted" | "error",
 	) => Effect.Effect<void>;
+	readonly activeTurn: (sessionId: SessionId) => AgentTurnId | undefined;
+	readonly runSessionReactors: Effect.Effect<void>;
 	readonly serviceScope: Scope.Scope;
 	readonly recoverStatus: (
 		sessionId: SessionId,
@@ -79,8 +95,6 @@ export interface MessageOperationsOptions {
 	readonly interruptProviderFiber: (
 		sessionId: SessionId,
 	) => Effect.Effect<void>;
-	readonly renameSession: ConversationOperations["renameSession"];
-	readonly renameChat: ConversationOperations["renameChat"];
 }
 
 export interface MessageOperations {
@@ -95,52 +109,43 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		const {
 			sql,
 			fs,
-			provider,
 			goalState,
 			lookupSession,
 			openProviderSession,
 			setStatus,
 			persistMessage,
+			submitTurn,
 			ndjsonAppend,
-			lookupChat,
 			setGoal,
 			dispatchSessionCommand,
 			beginTurn,
-			settleActiveTurn,
+			settleTurn,
+			activeTurn,
+			runSessionReactors,
 			serviceScope,
 			recoverStatus,
 			closeProvider,
 			interruptProviderFiber,
-			renameSession,
-			renameChat,
 		} = options;
-		const restartProviderSession = (
-			session: Session,
-			text: string,
-			attachments: ReadonlyArray<AttachmentRef>,
-		): Effect.Effect<void, SessionStartError> =>
-			openProviderSession(session, { sendAfterOpen: { text, attachments } });
-
 		const resumeSession: ConversationOperations["resumeSession"] = (
 			sessionId,
 		) =>
 			Effect.gen(function* () {
 				const session = yield* lookupSession(sessionId);
-				if (session.resumeStrategy === "none" || session.cursor === null) {
-					return yield* Effect.fail(
-						new SessionStartError({
-							providerId: session.providerId,
-							reason: "resume_unsupported",
-						}),
-					);
-				}
 				// Best-effort cleanup of any stale in-memory session before opening
 				// a fresh handle attached to the same DB row. Renderer subscriptions
-				// stay connected across the
-				// resume — only the event-pump fiber needs to restart.
+				// stay connected across the reopen — only the event-pump fiber needs
+				// to restart. A null cursor starts a fresh provider process for the
+				// same durable Zuse session; a persisted cursor resumes provider
+				// context when the driver supports it.
 				yield* closeProvider(sessionId);
 				yield* interruptProviderFiber(sessionId);
-				yield* openProviderSession(session, { postBootStatus: "running" });
+				yield* openProviderSession(session, {
+					// Keep a failed session held until the caller decides whether to
+					// retry its persisted turn or release its startup queue. This
+					// prevents queued follow-ups from overtaking the blocked turn.
+					postBootStatus: session.status === "error" ? undefined : "idle",
+				});
 				return yield* lookupSession(sessionId);
 			});
 
@@ -213,7 +218,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 						return true;
 					}
 				}
-				yield* beginTurn(sessionId);
+				const turnId = AgentTurnId.make(`turn_${crypto.randomUUID()}`);
 				// Drop "pending-*" placeholder ids — those are renderer-side temp
 				// tokens for attachments whose upload didn't finish before submit.
 				// The bytes don't exist server-side, so forwarding them would just
@@ -259,11 +264,27 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					.filter((part): part is string => part !== null && part.length > 0)
 					.join("\n\n")
 					.trim();
-				const persisted = yield* persistMessage(
-					sessionId,
-					content,
-					clientMessageId,
-				);
+				const providerInput = new ComposerInput({
+					text: sendText,
+					attachments: cleanAttachments,
+					fileRefs: fileRefs ?? [],
+					skillRefs: skillRefs ?? [],
+					annotations: annotationList,
+				});
+				const persisted =
+					asGoal === true
+						? yield* beginTurn(sessionId, turnId).pipe(
+								Effect.andThen(
+									persistMessage(sessionId, content, clientMessageId, turnId),
+								),
+							)
+						: yield* submitTurn(
+								sessionId,
+								turnId,
+								content,
+								JSON.stringify(providerInput),
+								clientMessageId,
+							);
 				// Pin the attachments so the GC sweep treats them as referenced —
 				// a separate row per (message, attachment) keeps the existing
 				// GC join intact.
@@ -272,22 +293,6 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
             INSERT OR IGNORE INTO message_attachments (message_id, attachment_id)
             VALUES (${persisted.message.id}, ${a.id})
           `.pipe(Effect.ignore);
-				}
-				const chat = yield* lookupChat(session.chatId).pipe(
-					Effect.mapError(() => new SessionNotFoundError({ sessionId })),
-				);
-				// Provisional title: update chat + session immediately for real tasks
-				// so the sidebar/tab never sit on "New chat" while the LLM pass runs.
-				const provisional = deriveProvisionalTitle(text);
-				if (provisional !== "New chat") {
-					if (session.title === "New chat") {
-						yield* renameSession(sessionId, provisional);
-					}
-					if (chat.title === "New chat") {
-						yield* renameChat(session.chatId, provisional).pipe(
-							Effect.mapError(() => new SessionNotFoundError({ sessionId })),
-						);
-					}
 				}
 				if (asGoal === true) {
 					const objective = text.trim();
@@ -331,102 +336,6 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					}
 					return true;
 				}
-				// First attempt: push into the existing provider session. If that
-				// session is gone (provider dropped it across an app restart) start
-				// a fresh one under the same id, then push.
-				console.log(
-					`[conversation-services.sendMessage] sessionId=${sessionId} cleanAttachments=${cleanAttachments.length} (orig=${
-						(attachments ?? []).length
-					})`,
-				);
-				// If the session previously errored — typically an auth failure the
-				// user has since fixed by signing in — the in-memory provider process
-				// is stale: for Claude it was spawned without valid credentials and
-				// won't re-read the keychain on its own. Drop it (mirrors setModel's
-				// teardown) so the send below lazy-restarts a fresh process that picks
-				// up the new login, instead of silently re-pushing into the dead one.
-				const latestForSend = yield* lookupSession(sessionId).pipe(
-					Effect.orDie,
-				);
-				if (latestForSend.status === "error") {
-					yield* provider
-						.close(sessionId)
-						.pipe(Effect.catch(() => Effect.void));
-					yield* interruptProviderFiber(sessionId);
-				}
-				const sendResult = yield* provider
-					.send(sessionId, sendText, cleanAttachments, fileRefs, skillRefs)
-					.pipe(
-						Effect.matchEffect({
-							onFailure: (err) =>
-								Effect.succeed({
-									_tag: "retry" as const,
-									reason: formatProviderFailure(err),
-								}),
-							onSuccess: () => Effect.succeed("ok" as const),
-						}),
-					);
-				if (sendResult !== "ok") {
-					const isGrok = session.providerId === "grok";
-					const looksLikeGrokAuthWorkerDeath =
-						isGrok &&
-						/Grok's agent worker rejected the session.*AuthorizationRequired/i.test(
-							sendResult.reason,
-						);
-
-					if (looksLikeGrokAuthWorkerDeath) {
-						yield* setStatus(sessionId, "running");
-						return true;
-					}
-
-					// Auth failures aren't recoverable by restarting — re-spawning hits
-					// the same 401, which is the infinite-retry / stuck-loading bug.
-					// Persist the error so the renderer shows the "Sign in" CTA and stop.
-					if (looksLikeAuthFailure(sendResult.reason)) {
-						console.log(
-							`[conversation-services.sendMessage] provider.send failed with auth error for ${sessionId}; skipping restart`,
-						);
-						const persistedError = yield* persistMessage(sessionId, {
-							_tag: "error",
-							message: sendResult.reason,
-						});
-						yield* ndjsonAppend(sessionId, persistedError);
-						yield* setStatus(sessionId, "error");
-						return false;
-					}
-
-					console.log(
-						`[conversation-services.sendMessage] provider.send failed; restarting provider session for ${sessionId}`,
-					);
-					const restartResult = yield* restartProviderSession(
-						session,
-						sendText,
-						cleanAttachments,
-					).pipe(
-						Effect.matchEffect({
-							onFailure: (err) =>
-								Effect.succeed({
-									_tag: "failed" as const,
-									reason: formatProviderFailure(err),
-								}),
-							onSuccess: () => Effect.succeed({ _tag: "ok" as const }),
-						}),
-					);
-					if (restartResult._tag === "failed") {
-						const message =
-							`Provider restart failed after send could not find an active session.\n\n` +
-							`Initial send failure:\n${sendResult.reason}\n\n` +
-							`Restart failure:\n${restartResult.reason}`;
-						const persistedError = yield* persistMessage(sessionId, {
-							_tag: "error",
-							message,
-						});
-						yield* ndjsonAppend(sessionId, persistedError);
-						yield* setStatus(sessionId, "idle");
-						return false;
-					}
-				}
-				yield* setStatus(sessionId, "running");
 				return true;
 			});
 
@@ -453,7 +362,11 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					clientMessageId,
 					origin,
 				);
-				if (!accepted) yield* settleActiveTurn(sessionId, "error");
+				if (!accepted) {
+					const turnId = activeTurn(sessionId);
+					if (turnId !== undefined)
+						yield* settleTurn(sessionId, turnId, "error");
+				}
 			});
 
 		const queueRuntime = yield* makeQueueServiceRuntime({
@@ -471,13 +384,16 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					input.asGoal,
 					clientMessageId,
 				),
-			settleActiveTurn,
 			setQueuePaused: (sessionId, paused) =>
 				dispatchSessionCommand(sessionId, {
 					_tag: "SetQueuePaused",
 					paused,
 					updatedAt: Date.now(),
 				}),
+			dispatchSessionCommand,
+			dispatchSessionCommandWithId: (sessionId, commandId, command) =>
+				options.dispatchSessionCommandWithId(sessionId, commandId, command),
+			runSessionReactors,
 		});
 		// Boot recovery runs only after the real queue runtime exists. Demoting a
 		// stale session to idle invokes setStatus → flushAfterIdle, so installing
@@ -492,31 +408,47 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		for (const stale of staleSessions) {
 			const sessionId = SessionId.make(stale.id);
 			if (stale.status === "running") {
-				yield* settleActiveTurn(sessionId, "error");
-			}
-			yield* recoverStatus(
-				sessionId,
-				stale.status === "running" ? "idle" : "error",
-			);
-			if (stale.status === "running") {
-				yield* Effect.forkIn(
-					queueRuntime.flushAfterIdle(sessionId),
-					serviceScope,
-				);
+				const turnId = activeTurn(sessionId);
+				if (turnId !== undefined) {
+					const lifecycle = yield* sql<{ readonly type: string }>`
+						SELECT type FROM events
+						WHERE stream_kind = 'session' AND stream_id = ${sessionId}
+							AND type IN (
+								'TurnInterruptRequested',
+								'TurnInterruptAcknowledged',
+								'TurnSettled'
+							)
+						ORDER BY stream_version DESC
+						LIMIT 1
+					`.pipe(Effect.orDie);
+					const interrupted =
+						lifecycle[0]?.type.startsWith("TurnInterrupt") === true;
+					yield* settleTurn(
+						sessionId,
+						turnId,
+						interrupted ? "interrupted" : "error",
+					);
+				} else {
+					yield* recoverStatus(sessionId, "error");
+				}
+			} else {
+				yield* recoverStatus(sessionId, "error");
 			}
 		}
 
 		const interruptSession: ConversationOperations["interruptSession"] = (
 			sessionId,
+			turnId,
 		) =>
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
-				yield* provider
-					.interrupt(sessionId)
-					.pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+				yield* dispatchSessionCommand(sessionId, {
+					_tag: "RequestTurnInterrupt",
+					turnId,
+					requestedAt: Date.now(),
+				});
 				yield* queueRuntime.pauseAfterInterrupt(sessionId);
-				yield* settleActiveTurn(sessionId, "interrupted");
-				yield* setStatus(sessionId, "idle");
+				yield* runSessionReactors;
 			});
 
 		return { resumeSession, sendMessage, interruptSession, queueRuntime };

@@ -1,9 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Message01Icon } from "@hugeicons-pro/core-solid-rounded";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import type { Message, MessageId, SessionId } from "@zuse/contracts";
+import type { Message, SessionId } from "@zuse/contracts";
 import {
-	type MouseEvent,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -11,11 +10,13 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { deriveAgentActivityState } from "../lib/agent-activity-state.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import {
 	CHAT_LIST_ANCHOR_OFFSET,
 	resolveChatListAnchoredEndSpace,
 } from "../lib/chat-list-anchor.ts";
+import { resolveChatErrorBottom } from "../lib/chat-overlay-position.ts";
 import {
 	type ChatTimelineRow,
 	type ChatWorkingPhase,
@@ -40,14 +41,13 @@ import { useSkillsStore } from "../store/skills.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
 import { FileChipProvider } from "./file-chip.tsx";
-import { useForkMenu } from "./fork-menu.tsx";
 import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
 import { ErrorBubble, MessageRow } from "./message-row.tsx";
 import { NextUnreadButton } from "./next-unread-button.tsx";
 import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
+import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
-import { Spinner } from "./ui/spinner";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 
 // Stable empty-array reference for the selector below. Returning a fresh
@@ -91,7 +91,6 @@ export function ChatView({
 	useLayoutEffect(() => {
 		markRendererInteraction(sessionId, "first-react-commit");
 	}, [sessionId]);
-	const forkMenu = useForkMenu();
 	const messages = useMessagesStore(
 		(s) => s.messagesBySession[sessionId] ?? EMPTY_MESSAGES,
 	);
@@ -123,9 +122,9 @@ export function ChatView({
 		return getSessionById(sessionId);
 	});
 
-	// While this session's worktree is still being set up — or the provider
-	// CLI is still booting — the inline setup card carries the "what's
-	// happening" message, so suppress the empty "New chat" placeholder under it.
+	// Suppress the empty placeholder only while chat-level worktree setup is
+	// active. Additional sessions boot their own provider in the background but
+	// must not replay the chat setup surface.
 	const worktreeId = session?.worktreeId ?? null;
 	const worktreeSetupActive = useWorktreesStore((s) => {
 		if (worktreeId === null) return false;
@@ -141,9 +140,7 @@ export function ChatView({
 		}
 		return false;
 	});
-	const externalResume = session !== null && session.resumeStrategy !== "none";
-	const setupActive =
-		worktreeSetupActive || (!externalResume && session?.status === "booting");
+	const setupActive = worktreeSetupActive;
 	const rows = useMemo(
 		() =>
 			deriveChatTimelineRows({
@@ -502,7 +499,7 @@ export function ChatView({
 		// epoch so any in-flight hydrate bails. The next hydrate re-subscribes;
 		// `messagesBySession` is preserved, so there's no empty-state flash.
 		return () => {
-			void teardownLiveStreams();
+			void teardownLiveStreams(sessionId);
 		};
 	}, [sessionId, hydrate, hydrateSkills]);
 
@@ -677,9 +674,9 @@ export function ChatView({
 
 	const renderTimelineRow = useCallback(
 		({ item }: { item: ChatTimelineRow }) => (
-			<TimelineRow row={item} sessionId={sessionId} onFork={forkMenu.openAt} />
+			<TimelineRow row={item} sessionId={sessionId} />
 		),
-		[forkMenu.openAt, sessionId],
+		[sessionId],
 	);
 
 	return (
@@ -760,11 +757,18 @@ export function ChatView({
 						</ChatLookupsProvider>
 					)}
 					{error !== null ? (
-						<ErrorBubble
-							error={error}
-							sessionId={sessionId}
-							onDismiss={() => clearError(sessionId)}
-						/>
+						<div
+							className="pointer-events-none absolute inset-x-0 z-20"
+							style={{ bottom: resolveChatErrorBottom(endInset) }}
+						>
+							<div className="pointer-events-auto">
+								<ErrorBubble
+									error={error}
+									sessionId={sessionId}
+									onDismiss={() => clearError(sessionId)}
+								/>
+							</div>
+						</div>
 					) : null}
 					{/* One row hugging the composer top: jump-to-latest on the
 					    left, next-unread on the right. */}
@@ -783,7 +787,6 @@ export function ChatView({
 					</div>
 				</div>
 			</div>
-			{forkMenu.menu}
 		</FileChipProvider>
 	);
 }
@@ -791,31 +794,18 @@ export function ChatView({
 function TimelineRow({
 	row,
 	sessionId,
-	onFork,
 }: {
 	row: ChatTimelineRow;
 	sessionId: SessionId;
-	onFork: (
-		event: MouseEvent,
-		sourceSessionId: SessionId,
-		fromMessageId: MessageId,
-	) => void;
 }) {
 	switch (row.kind) {
 		case "message":
 			return (
-				// biome-ignore lint/a11y/noStaticElementInteractions: context menu is an optional secondary action.
-				<div
-					onContextMenu={
-						row.message.content._tag === "user" ||
-						row.message.content._tag === "user_rich" ||
-						row.message.content._tag === "assistant"
-							? (event) => onFork(event, sessionId, row.message.id)
-							: undefined
-					}
-				>
-					<MessageRow message={row.message} sessionId={sessionId} />
-				</div>
+				<MessageRow
+					message={row.message}
+					sessionId={sessionId}
+					showAssistantCommands={row.showAssistantCommands}
+				/>
 			);
 		case "subagent":
 			return (
@@ -835,7 +825,11 @@ function TimelineRow({
 		case "turn-summary":
 			return (
 				<div>
-					<TurnSummary body={row.body} />
+					<TurnSummary
+						body={row.body}
+						sessionId={sessionId}
+						showAssistantCommands={row.showAssistantCommands}
+					/>
 				</div>
 			);
 		case "working":
@@ -862,7 +856,8 @@ function WorkingRow({
 	// elapsed time beside the loader, not the session-wide total.
 	const anchorMs = useMemo(() => {
 		for (let i = messages.length - 1; i >= 0; i--) {
-			const m = messages[i]!;
+			const m = messages[i];
+			if (m === undefined) continue;
 			if (m.content._tag === "user" || m.content._tag === "user_rich")
 				return m.createdAt.getTime();
 		}
@@ -878,14 +873,15 @@ function WorkingRow({
 	}, []);
 
 	const elapsed = anchorMs === null ? 0 : Math.max(0, now - anchorMs);
+	const activityState = deriveAgentActivityState(messages);
 
 	return (
 		<div
-			className="flex items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground"
+			className="flex min-h-9 items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground"
 			role="status"
 			aria-live="polite"
 		>
-			<Spinner className="size-3" />
+			<AgentActivityOrb state={activityState} />
 			<ShimmerText tone="lime">{chatWorkingPhaseLabel(phase)}</ShimmerText>
 			<span aria-hidden="true" className="tabular-nums">
 				{formatElapsed(elapsed)}

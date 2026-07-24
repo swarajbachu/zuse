@@ -246,7 +246,8 @@ const ConversationRuntimeLive = Layer.effect(
 			});
 		const {
 			beginTurn,
-			settleActiveTurn,
+			settleTurn,
+			settleTurnFromReactor,
 			ndjsonAppend,
 			goalState,
 			chatChangesHub,
@@ -254,6 +255,7 @@ const ConversationRuntimeLive = Layer.effect(
 			lookupSession,
 			agentsFor,
 			persistMessage,
+			submitTurn,
 			setStatus,
 			startSubscription,
 			interruptProviderFiber,
@@ -284,10 +286,9 @@ const ConversationRuntimeLive = Layer.effect(
 			setStatus,
 			startSubscription,
 			broadcastChat,
-			beginTurn,
 			persistMessage,
 			runProviderStart: Effect.suspend(() => reactorRuntime.runProviderStart),
-			dispatchSessionCommand,
+			dispatchSessionCommand: appendSessionCommand,
 			ndjsonAppend,
 			closeProvider,
 			interruptProviderFiber,
@@ -363,18 +364,25 @@ const ConversationRuntimeLive = Layer.effect(
 			configStore,
 		});
 		const { renameChat, markChatRead, autoNameChat } = autoNameOperations;
-		const { handleProviderStart, handleProviderStop, handleAutoName } =
-			makeProviderReactorHandlers({
-				reactorEffects,
-				getSession: lookupSession,
-				openProviderSession,
-				persistMessage,
-				ndjsonAppend,
-				setStatus,
-				provider,
-				sessionDomain,
-				autoNameChat,
-			});
+		const {
+			handleProviderStart,
+			handleProviderStop,
+			handleProviderTurn,
+			handleProviderInterrupt,
+			handleScheduledSuccessor,
+			handleAutoName,
+		} = makeProviderReactorHandlers({
+			reactorEffects,
+			getSession: lookupSession,
+			openProviderSession,
+			persistMessage,
+			ndjsonAppend,
+			setStatus,
+			settleTurnFromReactor,
+			provider,
+			sessionDomain,
+			autoNameChat,
+		});
 
 		/**
 		 * Worktrees are immutable past the first user message in any of the
@@ -415,6 +423,9 @@ const ConversationRuntimeLive = Layer.effect(
 			yield* makeConversationReactorRuntime({
 				providerStart: handleProviderStart,
 				providerStop: handleProviderStop,
+				providerTurn: handleProviderTurn,
+				providerInterrupt: handleProviderInterrupt,
+				scheduledSuccessor: handleScheduledSuccessor,
 				autoName: handleAutoName,
 				chatArchive: handleChatArchive,
 				chatDelete: handleChatDelete,
@@ -453,18 +464,26 @@ const ConversationRuntimeLive = Layer.effect(
 		const messageOperations: MessageOperations = yield* makeMessageOperations({
 			sql,
 			fs,
-			provider,
 			goalState,
 			lookupSession,
 			openProviderSession,
 			setStatus,
 			persistMessage,
+			submitTurn,
 			ndjsonAppend,
-			lookupChat,
 			setGoal,
-			dispatchSessionCommand,
+			dispatchSessionCommand: appendSessionCommand,
+			dispatchSessionCommandWithId: (sessionId, commandId, command) =>
+				sessionDomain
+					.dispatch({ commandId, streamId: sessionId, command })
+					.pipe(Effect.asVoid, Effect.orDie),
 			beginTurn,
-			settleActiveTurn,
+			settleTurn,
+			activeTurn: (sessionId) =>
+				state.activeTurn(sessionId) as
+					| import("@zuse/contracts").AgentTurnId
+					| undefined,
+			runSessionReactors: Effect.suspend(() => reactorRuntime.runSession),
 			serviceScope,
 			recoverStatus: (sessionId, status) =>
 				dispatchSessionCommand(sessionId, {
@@ -474,8 +493,6 @@ const ConversationRuntimeLive = Layer.effect(
 				}),
 			closeProvider,
 			interruptProviderFiber,
-			renameSession,
-			renameChat,
 		});
 		const { resumeSession, sendMessage, interruptSession, queueRuntime } =
 			messageOperations;

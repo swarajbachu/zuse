@@ -71,6 +71,7 @@ const chat: Chat = {
 	projectId,
 	worktreeId: null,
 	title: "Lag fix",
+	titleProvenance: "manual",
 	activeSessionId: sessionId,
 	originSessionId: null,
 	archivedAt: null,
@@ -84,6 +85,7 @@ const session: Session = {
 	id: sessionId,
 	projectId,
 	title: "Main",
+	titleProvenance: "manual",
 	providerId: "codex",
 	model: "gpt-5.4",
 	status: "idle",
@@ -274,6 +276,98 @@ describe("chats store selection", () => {
 		expect(payload?.initialSessionId).toBe(optimisticSessionId);
 		expect(payload?.background).toBe(true);
 	});
+
+	it("does not let a stale create receipt overwrite a live rename and idle status", async () => {
+		const acknowledgement = deferred<{
+			readonly chat: Chat;
+			readonly initialSession: Session;
+			readonly initialMessage: null;
+		}>();
+		rpcClientFactory.mockReturnValue({
+			"chat.create": () => Effect.promise(() => acknowledgement.promise),
+		});
+
+		const pending = useChatsStore
+			.getState()
+			.create(projectId, session.providerId, session.model);
+		const createdChat = useChatsStore.getState().chatsByProject[projectId]?.[0];
+		const createdSession =
+			useSessionsStore.getState().sessionsByProject[projectId]?.[0];
+		expect(createdChat).toBeDefined();
+		expect(createdSession).toBeDefined();
+		if (createdChat === undefined || createdSession === undefined) return;
+
+		const liveAt = new Date(createdChat.updatedAt.getTime() + 2_000);
+		const liveChat: Chat = {
+			...createdChat,
+			title: "Simple Hello Check In",
+			titleProvenance: "automatic",
+			updatedAt: liveAt,
+		};
+		const liveSession: Session = {
+			...createdSession,
+			title: "Simple Hello Check In",
+			titleProvenance: "automatic",
+			status: "idle",
+			updatedAt: liveAt,
+		};
+		useChatsStore.setState((state) => ({
+			chatsByProject: {
+				...state.chatsByProject,
+				[projectId]: [
+					liveChat,
+					...(state.chatsByProject[projectId] ?? []).filter(
+						(row) => row.id !== liveChat.id,
+					),
+				],
+			},
+		}));
+		useSessionsStore.setState((state) => ({
+			sessionsByProject: {
+				...state.sessionsByProject,
+				[projectId]: [
+					liveSession,
+					...(state.sessionsByProject[projectId] ?? []).filter(
+						(row) => row.id !== liveSession.id,
+					),
+				],
+			},
+		}));
+
+		acknowledgement.resolve({
+			chat: {
+				...createdChat,
+				title: "New chat",
+				titleProvenance: "pending",
+			},
+			initialSession: {
+				...createdSession,
+				title: "New chat",
+				titleProvenance: "pending",
+				status: "booting",
+			},
+			initialMessage: null,
+		});
+		await pending;
+
+		expect(
+			useChatsStore
+				.getState()
+				.chatsByProject[projectId]?.find((row) => row.id === liveChat.id),
+		).toMatchObject({
+			title: "Simple Hello Check In",
+			titleProvenance: "automatic",
+		});
+		expect(
+			useSessionsStore
+				.getState()
+				.sessionsByProject[projectId]?.find((row) => row.id === liveSession.id),
+		).toMatchObject({
+			title: "Simple Hello Check In",
+			titleProvenance: "automatic",
+			status: "idle",
+		});
+	});
 });
 
 describe("chats store live changes", () => {
@@ -389,6 +483,53 @@ describe("chats store live changes", () => {
 		);
 		expect(listChats).toHaveBeenCalledTimes(1);
 		expect(listSessions).toHaveBeenCalledTimes(1);
+	});
+
+	it("applies an automatic title change without reloading the sidebar", async () => {
+		let publishChat: ((chat: Chat) => void) | undefined;
+		subscribeRendererRpcConnection.mockImplementation((listener) => {
+			listener({
+				key: "renderer",
+				status: "connected",
+				generation: 1,
+				attempt: 0,
+				error: null,
+			});
+			return vi.fn();
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.list": () => Effect.succeed([reconnectChat]),
+			"chat.streamChanges": () =>
+				Stream.callback<Chat>((queue) =>
+					Effect.sync(() => {
+						publishChat = (chat) => Queue.offerUnsafe(queue, chat);
+					}),
+				),
+			"session.list": () => Effect.succeed([reconnectSession]),
+		});
+		useChatsStore.setState({
+			chatsByProject: {},
+			loadingByProject: {},
+			error: null,
+		});
+		useSessionsStore.setState({ sessionsByProject: {} });
+
+		await useChatsStore.getState().hydrate(reconnectProjectId);
+		await vi.waitFor(() => expect(publishChat).toBeDefined());
+		publishChat?.({
+			...reconnectChat,
+			title: "Reconnect Reliability",
+			titleProvenance: "automatic",
+		});
+
+		await vi.waitFor(() =>
+			expect(
+				useChatsStore.getState().chatsByProject[reconnectProjectId]?.[0],
+			).toMatchObject({
+				title: "Reconnect Reliability",
+				titleProvenance: "automatic",
+			}),
+		);
 	});
 
 	it("does not restore chat state or its stream when hydration settles after workspace removal", async () => {

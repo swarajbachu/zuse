@@ -15,6 +15,7 @@ export type SessionReadRecord = {
 	readonly chatId: string;
 	readonly projectId: string;
 	readonly title: string | null;
+	readonly titleProvenance: "pending" | "automatic" | "manual";
 	readonly status: SessionStatus;
 	readonly providerId: string | null;
 	readonly model: string | null;
@@ -125,6 +126,7 @@ export class InMemorySessionReadModel
 						chatId: event.chatId,
 						projectId: event.projectId,
 						title: event.title ?? null,
+						titleProvenance: event.titleProvenance ?? "manual",
 						status: event.status ?? "idle",
 						providerId: event.providerId ?? null,
 						model: event.model ?? null,
@@ -158,7 +160,11 @@ export class InMemorySessionReadModel
 
 			switch (event._tag) {
 				case "SessionTitleSet":
-					next = { ...next, title: event.title };
+					next = {
+						...next,
+						title: event.title,
+						titleProvenance: event.titleProvenance ?? "manual",
+					};
 					break;
 				case "SessionModelSet":
 					next = { ...next, model: event.model };

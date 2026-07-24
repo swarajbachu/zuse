@@ -31,13 +31,13 @@ import {
 import { Effect } from "effect";
 import {
 	type CSSProperties,
-	type FormEvent,
 	type ReactNode,
 	useEffect,
 	useMemo,
 	useState,
 } from "react";
 import type { OpenTarget } from "../lib/bridge.ts";
+import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { openTerminalCommand } from "../lib/run-terminal.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
@@ -63,19 +63,8 @@ import {
 } from "./glass-action.tsx";
 import { OpenTargetIcon } from "./open-target-icon.tsx";
 import { TooltipShortcut } from "./projects-sidebar.tsx";
-import { Button } from "./ui/button.tsx";
-import {
-	Dialog,
-	DialogClose,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogPanel,
-	DialogPopup,
-	DialogTitle,
-} from "./ui/dialog.tsx";
+import { RenameDialog } from "./rename-dialog.tsx";
 import { ErrorBoundary } from "./ui/error-boundary.tsx";
-import { Input } from "./ui/input.tsx";
 import {
 	Menu,
 	MenuItem,
@@ -165,6 +154,7 @@ export function TopBarMain() {
 		folderId ? (s.byKey[gitStatusKey(folderId, worktreeId)] ?? null) : null,
 	);
 	const refresh = useGitStatusStore((s) => s.refresh);
+	const refreshWorktrees = useWorktreesStore((s) => s.refresh);
 	const refreshPr = usePrStateStore((s) => s.refresh);
 	const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
 	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
@@ -336,6 +326,7 @@ export function TopBarMain() {
 								<BranchMenuButton
 									branchLabel={branchLabel}
 									branches={branches}
+									canRename={worktreeId !== null}
 									dirtyFiles={status?.dirtyFiles ?? 0}
 									error={branchError}
 									loading={branchesLoading}
@@ -348,14 +339,14 @@ export function TopBarMain() {
 					</div>
 				) : null}
 			</div>
-			{folderId !== null && branchLabel !== null ? (
+			{folderId !== null && worktreeId !== null && branchLabel !== null ? (
 				<RenameBranchDialog
 					branchLabel={branchLabel}
-					folderId={folderId}
 					open={renameOpen}
 					onOpenChange={setRenameOpen}
 					onRenamed={async () => {
 						refreshAfterAction(folderId, worktreeId);
+						await refreshWorktrees(folderId);
 						await refreshBranches();
 					}}
 					worktreeId={worktreeId}
@@ -422,6 +413,7 @@ export function TopBarMain() {
 function BranchMenuButton({
 	branchLabel,
 	branches,
+	canRename,
 	dirtyFiles,
 	error,
 	loading,
@@ -431,6 +423,7 @@ function BranchMenuButton({
 }: {
 	branchLabel: string;
 	branches: ReadonlyArray<GitBranchInfo>;
+	canRename: boolean;
 	dirtyFiles: number;
 	error: string | null;
 	loading: boolean;
@@ -476,14 +469,18 @@ function BranchMenuButton({
 						{error}
 					</div>
 				) : null}
-				<MenuItem
-					onClick={onRename}
-					className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
-				>
-					<HugeiconsIcon icon={PencilEdit01Icon} className="size-3.5" />
-					Rename current branch…
-				</MenuItem>
-				<MenuSeparator />
+				{canRename ? (
+					<>
+						<MenuItem
+							onClick={onRename}
+							className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+						>
+							<HugeiconsIcon icon={PencilEdit01Icon} className="size-3.5" />
+							Rename current branch…
+						</MenuItem>
+						<MenuSeparator />
+					</>
+				) : null}
 				<MenuSectionLabel>Local branches</MenuSectionLabel>
 				{localBranches.length > 0 ? (
 					localBranches.map((branch) => (
@@ -547,94 +544,40 @@ function MenuSectionLabel({ children }: { children: ReactNode }) {
 
 function RenameBranchDialog({
 	branchLabel,
-	folderId,
 	open,
 	onOpenChange,
 	onRenamed,
 	worktreeId,
 }: {
 	branchLabel: string;
-	folderId: FolderId;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	onRenamed: () => Promise<void>;
-	worktreeId: WorktreeId | null;
+	worktreeId: WorktreeId;
 }) {
-	const [value, setValue] = useState(branchLabel);
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-
-	useEffect(() => {
-		if (!open) return;
-		setValue(branchLabel);
-		setError(null);
-	}, [branchLabel, open]);
-
-	const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-		event.preventDefault();
-		const next = value.trim();
-		if (next.length === 0) {
-			setError("Branch name cannot be empty.");
-			return;
-		}
-		if (/\s/.test(next)) {
-			setError("Branch name cannot contain spaces.");
-			return;
-		}
-		setLoading(true);
-		setError(null);
-		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["git.renameBranch"]({ folderId, worktreeId, name: next }),
-			);
-			await onRenamed();
-			onOpenChange(false);
-		} catch (err) {
-			setError(errorMessage(err));
-		} finally {
-			setLoading(false);
-		}
+	const rename = async (next: string) => {
+		const client = await getRpcClient();
+		await Effect.runPromise(
+			client["worktree.renameBranch"]({ worktreeId, name: next }),
+		);
+		await onRenamed();
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogPopup className="max-w-sm">
-				<DialogHeader>
-					<DialogTitle>Rename branch</DialogTitle>
-					<DialogDescription>
-						Rename the current local branch in this workspace.
-					</DialogDescription>
-				</DialogHeader>
-				<form className="contents" onSubmit={(event) => void submit(event)}>
-					<DialogPanel className="flex flex-col gap-3">
-						<Input
-							autoFocus
-							value={value}
-							onChange={(event) => setValue(event.currentTarget.value)}
-							aria-label="Branch name"
-						/>
-						{error !== null ? (
-							<p className="text-[11px] leading-snug text-[var(--accent-red)]">
-								{error}
-							</p>
-						) : null}
-					</DialogPanel>
-					<DialogFooter>
-						<DialogClose type="button" disabled={loading}>
-							Cancel
-						</DialogClose>
-						<Button type="submit" disabled={loading} loading={loading}>
-							Rename
-						</Button>
-					</DialogFooter>
-				</form>
-			</DialogPopup>
-		</Dialog>
+		<RenameDialog
+			title="Rename branch"
+			description="Rename the unpublished branch for this chat workspace."
+			label="Branch name"
+			value={branchLabel}
+			open={open}
+			onOpenChange={onOpenChange}
+			onRename={rename}
+		/>
 	);
 }
 
 function OpenInMenu({ rootPath }: { rootPath: string | null }) {
+	const capabilities = rendererPlatformCapabilities();
 	const [targets, setTargets] = useState<ReadonlyArray<OpenTarget>>([]);
 	const [loading, setLoading] = useState(false);
 	const availableTargets = useMemo(
@@ -674,6 +617,10 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 		if (rootPath === null) return;
 		await window.zuse?.app?.copyPath?.(rootPath);
 	};
+
+	if (!capabilities.openInEditor && !capabilities.revealInFileManager) {
+		return null;
+	}
 
 	return (
 		<Menu>

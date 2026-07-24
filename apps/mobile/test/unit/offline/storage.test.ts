@@ -1,6 +1,11 @@
 import { Effect } from "effect";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
+import {
+	clearDownloadedCache,
+	downloadedCacheSize,
+} from "../../../src/offline/cache";
+
 const { deleteAsync, readDirectoryAsync, getInfoAsync } = vi.hoisted(() => ({
 	deleteAsync: vi.fn(async (_path: string, _options?: unknown) => {}),
 	readDirectoryAsync: vi.fn(async (path: string) => {
@@ -31,11 +36,6 @@ vi.mock("expo-file-system/legacy", () => ({
 	readAsStringAsync: vi.fn(),
 	writeAsStringAsync: vi.fn(),
 }));
-
-import {
-	clearDownloadedCache,
-	downloadedCacheSize,
-} from "../../../src/offline/cache";
 
 describe("mobile downloaded storage", () => {
 	beforeEach(() => {

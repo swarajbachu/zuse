@@ -1,5 +1,5 @@
 import { Layer } from "effect";
-
+import { AnalyticsHandlersLayer } from "./analytics/handlers.ts";
 import { AttachmentHandlersLayer } from "./attachment/handlers.ts";
 import { AuthHandlersLayer } from "./auth/handlers.ts";
 import { ConfigStoreHandlersLayer } from "./config-store/handlers.ts";
@@ -28,24 +28,25 @@ import { WorktreeHandlersLayer } from "./worktree/handlers.ts";
  * sneaking into the handler boundary.
  */
 export const HandlersLayer = Layer.mergeAll(
-  PingHandlersLayer,
-  LanAuthHandlersLayer,
-  RelayHandlersLayer,
-  AuthHandlersLayer,
-  LinearHandlersLayer,
-  WorkspaceHandlersLayer,
-  PtyHandlersLayer,
-  GitHandlersLayer,
-  WorktreeHandlersLayer,
-  RepositorySettingsHandlersLayer,
-  ConfigStoreHandlersLayer,
-  ProviderHandlersLayer,
-  McpHandlersLayer,
-  FsHandlersLayer,
-  AttachmentHandlersLayer,
-  SkillHandlersLayer,
-  PokemonHandlersLayer,
-  UsageHandlersLayer,
-  DiagnosticsHandlersLayer,
-  ExternalThreadHandlersLayer,
+	PingHandlersLayer,
+	AnalyticsHandlersLayer,
+	LanAuthHandlersLayer,
+	RelayHandlersLayer,
+	AuthHandlersLayer,
+	LinearHandlersLayer,
+	WorkspaceHandlersLayer,
+	PtyHandlersLayer,
+	GitHandlersLayer,
+	WorktreeHandlersLayer,
+	RepositorySettingsHandlersLayer,
+	ConfigStoreHandlersLayer,
+	ProviderHandlersLayer,
+	McpHandlersLayer,
+	FsHandlersLayer,
+	AttachmentHandlersLayer,
+	SkillHandlersLayer,
+	PokemonHandlersLayer,
+	UsageHandlersLayer,
+	DiagnosticsHandlersLayer,
+	ExternalThreadHandlersLayer,
 );

@@ -12,6 +12,10 @@ import {
 	ProviderStartLoginRpc,
 	ProviderUpdateRpc,
 } from "./agent.ts";
+import {
+	AnalyticsContextChangesRpc,
+	AnalyticsGetContextRpc,
+} from "./analytics.ts";
 import { AttachmentUploadRpc } from "./attachment.ts";
 import {
 	AuthGetSessionRpc,
@@ -74,7 +78,6 @@ import {
 	GitPrDetailsRpc,
 	GitPrStateRpc,
 	GitPushRpc,
-	GitRenameBranchRpc,
 	GitResolveConflictRpc,
 	GitRestoreFileToBaseRpc,
 	GitRevertAllRpc,
@@ -158,9 +161,9 @@ import {
 	MessagesQueueReorderRpc,
 	MessagesQueueResumeRpc,
 	MessagesQueueSendNowRpc,
-	MessagesQueueStreamRpc,
 	MessagesQueueUpdateRpc,
 	MessagesSendRpc,
+	MessagesSteerRpc,
 	SessionAnswerQuestionRpc,
 	SessionArchiveRpc,
 	SessionCreateRpc,
@@ -218,6 +221,7 @@ import {
 	WorktreeGetRpc,
 	WorktreeListRpc,
 	WorktreeRemoveRpc,
+	WorktreeRenameBranchRpc,
 	WorktreeRerunSetupRpc,
 	WorktreeSetupStreamRpc,
 	WorktreeStartRunRpc,
@@ -231,6 +235,8 @@ import {
  */
 export const MemoizeRpcs = RpcGroup.make(
 	PingRpc,
+	AnalyticsGetContextRpc,
+	AnalyticsContextChangesRpc,
 	AuthGetSessionRpc,
 	AuthSignInRpc,
 	AuthSignOutRpc,
@@ -274,7 +280,6 @@ export const MemoizeRpcs = RpcGroup.make(
 	GitStatusRpc,
 	GitBranchesRpc,
 	GitSwitchBranchRpc,
-	GitRenameBranchRpc,
 	GitUserNameRpc,
 	GitHeadChangedRpc,
 	GitOriginRpc,
@@ -370,11 +375,11 @@ export const MemoizeRpcs = RpcGroup.make(
 	MessagesSendRpc,
 	MessagesInterruptRpc,
 	MessagesQueueListRpc,
-	MessagesQueueStreamRpc,
 	MessagesQueueAddRpc,
 	MessagesQueueUpdateRpc,
 	MessagesQueueDeleteRpc,
 	MessagesQueueSendNowRpc,
+	MessagesSteerRpc,
 	MessagesQueueReorderRpc,
 	MessagesQueueFlushRpc,
 	MessagesQueueResumeRpc,
@@ -399,6 +404,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	WorktreeCreateRpc,
 	WorktreeListRpc,
 	WorktreeGetRpc,
+	WorktreeRenameBranchRpc,
 	WorktreeRerunSetupRpc,
 	WorktreeSetupStreamRpc,
 	WorktreeStartRunRpc,

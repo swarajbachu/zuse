@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	Alert01Icon,
 	ArrowLeft01Icon,
+	BrowserIcon,
 	ConnectIcon,
 	Delete02Icon,
 	DocumentAttachmentIcon,
@@ -25,7 +26,6 @@ import {
 	type CompletionSoundPreset,
 	type Folder,
 	type FolderId,
-	MODELS_BY_PROVIDER,
 	type ProviderId,
 	type RuntimeMode,
 	visibleModelsForProvider,
@@ -42,6 +42,7 @@ import {
 } from "~/lib/use-relative-time.ts";
 import { cn } from "~/lib/utils";
 import { useAuth } from "../hooks/use-auth.ts";
+import type { BrowserCookieImportStatus } from "../lib/bridge.ts";
 import {
 	COMPLETION_SOUND_PRESETS,
 	playCompletionSound,
@@ -49,6 +50,10 @@ import {
 } from "../lib/completion-sounds.ts";
 import { collectDiagnosticsClientContext } from "../lib/diagnostics-client-context.ts";
 import { recordUiAction } from "../lib/diagnostics-recorder.ts";
+import {
+	openExternal as openExternalUrl,
+	rendererPlatformCapabilities,
+} from "../lib/platform-capabilities.ts";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useProvidersStore } from "../store/providers.ts";
@@ -56,6 +61,7 @@ import { useSettingsStore } from "../store/settings.ts";
 import { type SettingsSection, useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { BlurredEmail } from "./blurred-email.tsx";
+import { BrowserProfileSelect } from "./browser-profile-select.tsx";
 import { ProviderCard } from "./provider-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
@@ -66,6 +72,15 @@ import { LinearIntegrationsPane } from "./settings/linear-integrations-pane.tsx"
 import { McpServersPane } from "./settings/mcp-servers-pane.tsx";
 import { PokedexPane } from "./settings/pokedex-pane.tsx";
 import { RepositorySettings } from "./settings-repository.tsx";
+import {
+	AlertDialog,
+	AlertDialogClose,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogPopup,
+	AlertDialogTitle,
+} from "./ui/alert-dialog.tsx";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar.tsx";
 import { Button } from "./ui/button.tsx";
 import { Card } from "./ui/card.tsx";
@@ -117,6 +132,12 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
 		label: "Devices",
 		Icon: SmartPhone01Icon,
 		section: { kind: "devices" },
+	},
+	{
+		id: "browser",
+		label: "Browser",
+		Icon: BrowserIcon,
+		section: { kind: "browser" },
 	},
 	{
 		id: "pokedex",
@@ -334,6 +355,12 @@ function SectionTitle({
 					"Link this Mac to your account so you can drive it from your phone.",
 			};
 		}
+		if (section.kind === "browser") {
+			return {
+				title: "Browser",
+				subtitle: "Sessions, password filling, privacy, and agent access.",
+			};
+		}
 		if (section.kind === "pokedex") {
 			return {
 				title: "Pokedex",
@@ -406,6 +433,7 @@ function Pane({ section }: { section: SettingsSection }) {
 	if (section.kind === "integrations") return <LinearIntegrationsPane />;
 	if (section.kind === "mcp") return <McpServersPane />;
 	if (section.kind === "devices") return <DevicesPane />;
+	if (section.kind === "browser") return <BrowserSettingsPagePane />;
 	if (section.kind === "pokedex") return <PokedexPane />;
 	if (section.kind === "advanced") return <AdvancedPane />;
 	if (section.kind === "shortcuts") return <KeybindingsPane />;
@@ -417,12 +445,7 @@ const DIAGNOSTICS_ISSUE_URL =
 	"https://github.com/swarajbachu/zuse/issues/new?template=bug_report.yml";
 
 function openExternal(url: string): void {
-	const bridge = window.zuse ?? window.memoize;
-	if (bridge?.app?.openExternal) {
-		bridge.app.openExternal(url);
-		return;
-	}
-	window.open(url, "_blank", "noopener,noreferrer");
+	void openExternalUrl(url);
 }
 
 function revealPath(path: string): void {
@@ -436,6 +459,7 @@ async function copyDiagnosticsJson(path: string): Promise<boolean> {
 }
 
 function DiagnosticsPane() {
+	const capabilities = rendererPlatformCapabilities();
 	const [isExporting, setIsExporting] = useState(false);
 	const [lastExport, setLastExport] = useState<{
 		diagnosticId: string;
@@ -505,11 +529,19 @@ function DiagnosticsPane() {
 		<div className="flex flex-col gap-4">
 			<SettingsGroup
 				title="Bug report diagnostics"
-				description="Creates a redacted diagnostics JSON file for a GitHub bug report. Raw prompts and full transcripts are not included by default."
+				description={
+					capabilities.revealInFileManager
+						? "Creates a redacted diagnostics JSON file for a GitHub bug report. Raw prompts and full transcripts are not included by default."
+						: "Creates a redacted diagnostics JSON file on the server. Use the desktop app to reveal that server-side file."
+				}
 			>
 				<SettingsRow
 					title="Export diagnostics JSON"
-					description="Copies the JSON to your clipboard and reveals the file so you can attach it to the GitHub issue."
+					description={
+						capabilities.revealInFileManager
+							? "Copies the JSON to your clipboard and reveals the file so you can attach it to the GitHub issue."
+							: "Exports a redacted JSON file on the connected server."
+					}
 					action={
 						<Button
 							size="sm"
@@ -541,20 +573,24 @@ function DiagnosticsPane() {
 							>
 								Open GitHub issue
 							</Button>
-							<Button
-								variant="settings"
-								size="sm"
-								onClick={() => void copyJson(lastExport.bundlePath)}
-							>
-								{copied === "json" ? "Copied" : "Copy diagnostics JSON"}
-							</Button>
-							<Button
-								variant="settings"
-								size="sm"
-								onClick={() => revealPath(lastExport.bundlePath)}
-							>
-								Reveal diagnostics file
-							</Button>
+							{capabilities.copyServerFile && (
+								<Button
+									variant="settings"
+									size="sm"
+									onClick={() => void copyJson(lastExport.bundlePath)}
+								>
+									{copied === "json" ? "Copied" : "Copy diagnostics JSON"}
+								</Button>
+							)}
+							{capabilities.revealInFileManager && (
+								<Button
+									variant="settings"
+									size="sm"
+									onClick={() => revealPath(lastExport.bundlePath)}
+								>
+									Reveal diagnostics file
+								</Button>
+							)}
 							<Button
 								variant="settings"
 								size="sm"
@@ -600,6 +636,211 @@ function DiagnosticsPane() {
 	);
 }
 
+const EMPTY_BROWSER_IMPORT_STATUS: BrowserCookieImportStatus = {
+	supported: false,
+	availableProfiles: [],
+	importedDomainCount: 0,
+	importedCookieCount: 0,
+	importedDomains: [],
+	message: "Checking local browser profiles…",
+};
+
+function BrowserSettingsPagePane() {
+	const [status, setStatus] = useState<BrowserCookieImportStatus>(
+		EMPTY_BROWSER_IMPORT_STATUS,
+	);
+	const [selectedProfileId, setSelectedProfileId] = useState<
+		string | undefined
+	>();
+	const [credentialCapability, setCredentialCapability] = useState<{
+		supported: boolean;
+		reason?: string;
+	} | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const [clearOpen, setClearOpen] = useState(false);
+
+	useEffect(() => {
+		let cancelled = false;
+		const browser = window.zuse?.browser;
+		void Promise.all([
+			browser?.getCookieImportStatus?.(),
+			browser?.getNativeCredentialCapability?.(),
+		]).then(([nextStatus, capability]) => {
+			if (cancelled) return;
+			if (nextStatus !== undefined) setStatus(nextStatus);
+			if (capability !== undefined) setCredentialCapability(capability);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	useEffect(() => {
+		setSelectedProfileId((current) =>
+			status.availableProfiles.some((profile) => profile.id === current)
+				? current
+				: (status.selectedProfileId ?? status.availableProfiles[0]?.id),
+		);
+	}, [status]);
+
+	const run = async (
+		operation: () => Promise<BrowserCookieImportStatus> | undefined,
+	): Promise<boolean> => {
+		setBusy(true);
+		setError(null);
+		try {
+			const request = operation();
+			const next = request === undefined ? undefined : await request;
+			if (next === undefined)
+				throw new Error(
+					"Browser session controls are unavailable in this build.",
+				);
+			setStatus(next);
+			return true;
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : String(cause));
+			return false;
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const selectedProfile = status.availableProfiles.find(
+		(profile) => profile.id === selectedProfileId,
+	);
+	const sessionDescription =
+		status.importedCookieCount === 0
+			? "No browser sessions have been imported."
+			: `${status.importedCookieCount} cookies across ${status.importedDomainCount} domains${status.lastImportTime ? ` · Imported ${new Date(status.lastImportTime).toLocaleString()}` : ""}`;
+
+	return (
+		<div className="flex flex-col gap-4">
+			<SettingsGroup
+				title="Browser sessions"
+				description="Copy valid cookies from a local browser profile into the built-in browser. Cookie values never enter renderer state, logs, or chat."
+			>
+				<SettingsRow
+					title="Import source"
+					description={
+						selectedProfile === undefined
+							? (status.message ?? "No supported browser profile found.")
+							: `Close ${selectedProfile.source} before importing. macOS may request Safe Storage access.`
+					}
+				>
+					<div className="flex flex-wrap items-center gap-2">
+						<BrowserProfileSelect
+							profiles={status.availableProfiles}
+							value={selectedProfileId}
+							onValueChange={setSelectedProfileId}
+							className="w-full max-w-72 bg-background shadow-none"
+						/>
+						<Button
+							size="sm"
+							loading={busy}
+							disabled={!status.supported || selectedProfileId === undefined}
+							onClick={() =>
+								void run(() =>
+									window.zuse?.browser?.importCookies?.(selectedProfileId),
+								)
+							}
+						>
+							Import
+						</Button>
+					</div>
+				</SettingsRow>
+				<SettingsRow
+					title="Imported data"
+					description={sessionDescription}
+					action={
+						<Button
+							size="sm"
+							variant="settings"
+							disabled={busy || status.importedCookieCount === 0}
+							onClick={() =>
+								void run(() => window.zuse?.browser?.clearImportedCookies?.())
+							}
+						>
+							Clear imported
+						</Button>
+					}
+				/>
+			</SettingsGroup>
+
+			<SettingsGroup
+				title="Passwords and autofill"
+				description="Passwords are requested individually for the active website and never bulk imported."
+			>
+				<SettingsRow
+					title="System Passwords"
+					description={
+						credentialCapability?.supported
+							? "Available. Filling uses the macOS system confirmation flow for the active origin."
+							: (credentialCapability?.reason ??
+								"Checking native password capability…")
+					}
+				/>
+			</SettingsGroup>
+
+			<SettingsGroup
+				title="Privacy"
+				description="Built-in browser data stays in its dedicated persistent desktop partition."
+			>
+				<SettingsRow
+					title="Browsing data"
+					description="Remove cookies, site storage, and cache from the built-in browser without changing other browsers."
+					action={
+						<Button
+							size="sm"
+							variant="destructive-outline"
+							onClick={() => setClearOpen(true)}
+						>
+							Clear all…
+						</Button>
+					}
+				/>
+			</SettingsGroup>
+
+			{error ? (
+				<p className="text-xs text-destructive-foreground">{error}</p>
+			) : null}
+
+			<BrowserTestLoginsPane />
+
+			<AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
+				<AlertDialogPopup className="max-w-sm rounded-xl">
+					<AlertDialogHeader className="gap-1 px-4 pb-3 pt-4">
+						<AlertDialogTitle>Clear browsing data?</AlertDialogTitle>
+						<AlertDialogDescription className="text-xs">
+							This removes cookies, site storage, and cache from the built-in
+							browser. Other browsers are unchanged.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter className="px-4 py-2">
+						<AlertDialogClose render={<Button size="xs" variant="ghost" />}>
+							Cancel
+						</AlertDialogClose>
+						<Button
+							size="xs"
+							variant="destructive"
+							loading={busy}
+							onClick={() =>
+								void run(() =>
+									window.zuse?.browser?.clearBrowsingData?.(),
+								).then((ok) => {
+									if (ok) setClearOpen(false);
+								})
+							}
+						>
+							Clear data
+						</Button>
+					</AlertDialogFooter>
+				</AlertDialogPopup>
+			</AlertDialog>
+		</div>
+	);
+}
+
 interface BrowserCredRow {
 	readonly origin: string;
 	readonly username: string;
@@ -611,7 +852,7 @@ interface BrowserCredRow {
  * from here; the list RPC never returns them). The warning banner is
  * load-bearing: real credentials must never live here.
  */
-function BrowserSettingsPane() {
+function BrowserTestLoginsPane() {
 	const [creds, setCreds] = useState<ReadonlyArray<BrowserCredRow>>([]);
 	const [origin, setOrigin] = useState("");
 	const [username, setUsername] = useState("");
@@ -891,6 +1132,8 @@ function GeneralPane() {
 	const setCompletionSoundPreset = useSettingsStore(
 		(s) => s.setCompletionSoundPreset,
 	);
+	const analyticsEnabled = useSettingsStore((s) => s.analyticsEnabled);
+	const setAnalyticsEnabled = useSettingsStore((s) => s.setAnalyticsEnabled);
 	const branchNamingStyle = useSettingsStore((s) => s.branchNamingStyle);
 	const setBranchNamingStyle = useSettingsStore((s) => s.setBranchNamingStyle);
 	const branchNamingPrefix = useSettingsStore((s) => s.branchNamingPrefix);
@@ -1156,12 +1399,54 @@ function GeneralPane() {
 			</SettingsGroup>
 
 			<SettingsGroup
+				title="Privacy"
+				description="Control pseudonymous product and reliability analytics."
+			>
+				<button
+					type="button"
+					role="switch"
+					aria-checked={analyticsEnabled}
+					data-analytics-id="settings.share-usage-analytics"
+					onClick={() => setAnalyticsEnabled(!analyticsEnabled)}
+					className="flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
+				>
+					<div className="min-w-0 flex-1">
+						<div className="text-sm font-medium text-foreground">
+							Share usage analytics
+						</div>
+						<div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+							Share pseudonymous feature use, model choices, active time, and
+							reliability data. Prompts, responses, code, paths, and account
+							details are never included. Standard geographic enrichment is
+							applied by our analytics processor.
+						</div>
+					</div>
+					<span
+						aria-hidden
+						className={cn(
+							"relative h-5 w-8 shrink-0 rounded-full p-0.5 ring-1 transition-colors",
+							analyticsEnabled
+								? "bg-primary ring-primary/60"
+								: "bg-[#1f2123] ring-white/10",
+						)}
+					>
+						<span
+							className={cn(
+								"block size-3.5 rounded-full bg-white ring-1 ring-black/10 transition-transform dark:bg-[#484a4d]",
+								analyticsEnabled && "translate-x-[14px]",
+							)}
+						/>
+					</span>
+				</button>
+			</SettingsGroup>
+
+			<SettingsGroup
 				title="Workspace naming"
 				description="Controls how Zuse Alpha names new worktree-backed branches."
 			>
 				<SettingsRow
 					title="Branch naming"
-					description="When a new chat gets its first real message, Zuse Alpha summarizes the conversation and renames the chat. Worktree-backed chats also rename their git branch in this shape."
+					description="After the first submitted turn completes successfully, each unnamed session receives one title, the chat receives one title from its initial session, and a fresh unpublished worktree branch receives a separate semantic name in this shape."
 					action={
 						<Select
 							value={branchNamingStyle}
@@ -1250,13 +1535,11 @@ function GeneralPane() {
 }
 
 /**
- * Rarely-needed settings that used to be standalone rail sections (browser
- * test logins + diagnostics). One pane keeps the rail short.
+ * Rarely-needed diagnostic settings kept out of the primary rail flow.
  */
 function AdvancedPane() {
 	return (
 		<div className="flex flex-col gap-4">
-			<BrowserSettingsPane />
 			<DiagnosticsPane />
 		</div>
 	);
@@ -2017,15 +2300,12 @@ export function ensureValidDefaultsForRuntime(
 	ready: ReadonlyArray<ProviderId>,
 ): { providerId: ProviderId; model: string; runtimeMode: RuntimeMode } | null {
 	const settings = useSettingsStore.getState();
-	if (ready.length === 0) return null;
+	const fallbackProvider = ready[0];
+	if (fallbackProvider === undefined) return null;
 	const provider = ready.includes(settings.defaultProviderId)
 		? settings.defaultProviderId
-		: ready[0]!;
-	const model =
-		settings.defaultModelByProvider[provider] ??
-		visibleModelsForProvider(provider, settings.modelEnabledByProvider)[0]
-			?.id ??
-		MODELS_BY_PROVIDER[provider][0]!.id;
+		: fallbackProvider;
+	const model = settings.defaultModelByProvider[provider];
 	return {
 		providerId: provider,
 		model,

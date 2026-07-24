@@ -4,11 +4,28 @@ import type {
 	RuntimeMode,
 	SessionStatus,
 } from "@zuse/contracts";
+import { type TitleProvenance, titleProvenanceOrManual } from "../naming.js";
+import type { TurnPhase } from "./commands.js";
 import type { SessionEvent } from "./events.js";
 
 export type OpenSegment = {
 	readonly turnId: string;
 	readonly kind: "assistant" | "reasoning" | "tool";
+};
+
+export type QueuedTurn = {
+	readonly queueId: string;
+	readonly inputJson: string;
+	readonly position: number;
+	readonly createdAt: number;
+	readonly ready: boolean;
+};
+
+export type ScheduledSuccessor = {
+	readonly predecessorTurnId: string;
+	readonly turnId: string;
+	readonly queueId: string;
+	readonly inputJson: string;
 };
 
 export type SessionState = {
@@ -17,6 +34,7 @@ export type SessionState = {
 	readonly chatId: string | null;
 	readonly projectId: string | null;
 	readonly title: string | null;
+	readonly titleProvenance: TitleProvenance;
 	readonly model: string | null;
 	readonly status: SessionStatus | null;
 	readonly queuePaused: boolean;
@@ -28,6 +46,13 @@ export type SessionState = {
 	readonly archived: boolean;
 	readonly deleted: boolean;
 	readonly currentTurnId: string | null;
+	readonly currentTurnPhase: TurnPhase | null;
+	readonly lastSettledTurnId: string | null;
+	readonly lastSettlementOutcome: "completed" | "interrupted" | "error" | null;
+	readonly settledTurnIds: ReadonlySet<string>;
+	readonly queuedTurns: ReadonlyMap<string, QueuedTurn>;
+	readonly queueOrder: ReadonlyArray<string>;
+	readonly scheduledSuccessor: ScheduledSuccessor | null;
 	readonly openSegments: ReadonlyMap<string, OpenSegment>;
 	readonly messageIds: ReadonlySet<string>;
 	readonly pendingPermissionIds: ReadonlySet<string>;
@@ -42,6 +67,7 @@ export const initialSessionState: SessionState = {
 	chatId: null,
 	projectId: null,
 	title: null,
+	titleProvenance: "manual",
 	model: null,
 	status: null,
 	queuePaused: false,
@@ -53,6 +79,13 @@ export const initialSessionState: SessionState = {
 	archived: false,
 	deleted: false,
 	currentTurnId: null,
+	currentTurnPhase: null,
+	lastSettledTurnId: null,
+	lastSettlementOutcome: null,
+	settledTurnIds: new Set(),
+	queuedTurns: new Map(),
+	queueOrder: [],
+	scheduledSuccessor: null,
 	openSegments: new Map(),
 	messageIds: new Set(),
 	pendingPermissionIds: new Set(),
@@ -83,6 +116,7 @@ export const evolve = (
 				chatId: event.chatId,
 				projectId: event.projectId,
 				title: event.title ?? null,
+				titleProvenance: titleProvenanceOrManual(event.titleProvenance),
 				providerId: event.providerId ?? null,
 				model: event.model ?? null,
 				status: event.status ?? null,
@@ -95,7 +129,12 @@ export const evolve = (
 				version,
 			};
 		case "SessionTitleSet":
-			return { ...state, title: event.title, version };
+			return {
+				...state,
+				title: event.title,
+				titleProvenance: titleProvenanceOrManual(event.titleProvenance),
+				version,
+			};
 		case "SessionModelSet":
 			return { ...state, model: event.model, version };
 		case "SessionProviderSet":
@@ -137,9 +176,77 @@ export const evolve = (
 		case "SessionDeleted":
 			return { ...state, deleted: true, version };
 		case "TurnStarted":
-			return { ...state, currentTurnId: event.turnId, version };
+			return {
+				...state,
+				currentTurnId: event.turnId,
+				currentTurnPhase: "running",
+				version,
+			};
+		case "ProviderTurnRequested":
+			return { ...state, version };
+		case "TurnInterruptRequested":
+			return { ...state, currentTurnPhase: "interrupt-requested", version };
+		case "TurnInterruptAcknowledged":
+			return { ...state, currentTurnPhase: "interrupt-acknowledged", version };
+		case "TurnInterruptFailed":
+			return { ...state, version };
 		case "TurnSettled":
-			return { ...state, currentTurnId: null, version };
+			return {
+				...state,
+				currentTurnId: null,
+				currentTurnPhase: null,
+				lastSettledTurnId: event.turnId,
+				lastSettlementOutcome: event.outcome,
+				settledTurnIds: added(state.settledTurnIds, event.turnId),
+				version,
+			};
+		case "QueuedTurnEnqueued": {
+			const queuedTurns = new Map(state.queuedTurns);
+			queuedTurns.set(event.queueId, event);
+			return {
+				...state,
+				queuedTurns,
+				queueOrder: [...state.queueOrder, event.queueId],
+				version,
+			};
+		}
+		case "QueuedTurnUpdated": {
+			const current = state.queuedTurns.get(event.queueId);
+			if (current === undefined) return { ...state, version };
+			const queuedTurns = new Map(state.queuedTurns);
+			queuedTurns.set(event.queueId, {
+				...current,
+				inputJson: event.inputJson,
+				ready: event.ready,
+			});
+			return { ...state, queuedTurns, version };
+		}
+		case "QueuedTurnRemoved":
+		case "QueuedTurnClaimed": {
+			const queuedTurns = new Map(state.queuedTurns);
+			queuedTurns.delete(event.queueId);
+			return {
+				...state,
+				queuedTurns,
+				queueOrder: state.queueOrder.filter((id) => id !== event.queueId),
+				version,
+			};
+		}
+		case "QueuedTurnsReordered":
+			return { ...state, queueOrder: event.queueIds, version };
+		case "SuccessorTurnScheduled":
+			return {
+				...state,
+				scheduledSuccessor: {
+					predecessorTurnId: event.predecessorTurnId,
+					turnId: event.turnId,
+					queueId: event.queueId,
+					inputJson: event.inputJson,
+				},
+				version,
+			};
+		case "ScheduledSuccessorReady":
+			return { ...state, scheduledSuccessor: null, version };
 		case "MessagePersisted":
 			return {
 				...state,

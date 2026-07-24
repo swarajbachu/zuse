@@ -23,6 +23,7 @@ describe("lifecycle backfill", () => {
 				project_id TEXT NOT NULL,
 				worktree_id TEXT,
 				title TEXT NOT NULL,
+				title_provenance TEXT NOT NULL DEFAULT 'manual',
 				active_session_id TEXT,
 				origin_session_id TEXT,
 				archived_at TEXT,
@@ -37,6 +38,7 @@ describe("lifecycle backfill", () => {
 				project_id TEXT NOT NULL,
 				chat_id TEXT NOT NULL,
 				title TEXT NOT NULL,
+				title_provenance TEXT NOT NULL DEFAULT 'manual',
 				provider_id TEXT NOT NULL DEFAULT 'provider-1',
 				model TEXT NOT NULL DEFAULT 'model-1',
 				status TEXT NOT NULL DEFAULT 'idle',
@@ -57,6 +59,7 @@ describe("lifecycle backfill", () => {
 			CREATE TABLE messages (
 				id TEXT PRIMARY KEY,
 				session_id TEXT NOT NULL,
+				turn_id TEXT,
 				role TEXT NOT NULL,
 				kind TEXT NOT NULL,
 				content_json TEXT NOT NULL,
@@ -91,7 +94,7 @@ describe("lifecycle backfill", () => {
 				'2026-01-03T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
 			);
 			INSERT INTO messages VALUES (
-				'message-1', 'session-1', 'user', 'text',
+				'message-1', 'session-1', NULL, 'user', 'text',
 				'{"spacing":  "preserved"}', NULL, '2026-01-02T00:00:00.000Z', 1
 			);
 			INSERT INTO events

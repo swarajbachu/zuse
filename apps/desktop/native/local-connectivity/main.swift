@@ -167,7 +167,9 @@ private final class NearbyListener {
     listener?.cancel()
     listener = nil
     let parameters = NWParameters.tcp
-    parameters.includePeerToPeer = true
+    // No peer-to-peer: advertising over AWDL keeps the Mac's Wi-Fi radio
+    // time-slicing and degrades the network for everything else. The phone
+    // browses infrastructure Wi-Fi only, so the AWDL publication was unused.
     parameters.allowLocalEndpointReuse = true
     do {
       let listener = try NWListener(using: parameters, on: .any)

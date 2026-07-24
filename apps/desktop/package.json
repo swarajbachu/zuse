@@ -18,13 +18,13 @@
 	"scripts": {
 		"predev": "node scripts/build-local-connectivity-helper.mjs",
 		"dev": "bun run --parallel dev:bundle dev:electron",
-		"dev:bundle": "tsdown --watch",
+		"dev:bundle": "vp pack --watch",
 		"dev:electron": "node scripts/dev-electron.mjs",
-		"build": "tsdown",
+		"build": "vp pack && node scripts/main-bundle-startup-smoke.mjs",
 		"check-types": "tsc --noEmit",
-		"test": "vitest run test && node scripts/sqlite-runtime-smoke.mjs && node scripts/provider-sdk-runtime-smoke.mjs",
-		"test:unit": "vitest run test/unit",
-		"test:integration": "vitest run test/integration --passWithNoTests",
+		"test": "vp test run test && node scripts/sqlite-runtime-smoke.mjs && node scripts/provider-sdk-runtime-smoke.mjs",
+		"test:unit": "vp test run test/unit",
+		"test:integration": "vp test run test/integration --passWithNoTests",
 		"postinstall": "electron-rebuild -f -o node-pty,keytar",
 		"icon": "node scripts/make-icon.mjs",
 		"native:build": "node scripts/build-local-connectivity-helper.mjs",
@@ -59,6 +59,7 @@
 		"sharp": "^0.34.1",
 		"tsdown": "^0.21.10",
 		"typescript": "catalog:",
+		"vite-plus": "0.2.5",
 		"vitest": "catalog:"
 	}
 }

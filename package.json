@@ -7,6 +7,7 @@
 		"dev": "node scripts/dev.mjs",
 		"dev:turbo": "turbo run dev --filter=renderer --filter=desktop",
 		"dev:desktop": "node scripts/dev.mjs",
+		"test:dev-runner": "node --test scripts/dev-instance.test.mjs",
 		"kill-port": "node scripts/kill-port.mjs",
 		"lint": "biome check .",
 		"format": "biome format --write .",
@@ -21,6 +22,10 @@
 		"schemas:generate": "node scripts/generate-settings-schemas.mjs",
 		"verify:backfill": "tsx scripts/verify-backfill.ts",
 		"diagnostics:inspect": "node scripts/diagnostics-inspect.mjs",
+		"analytics:provision": "node scripts/provision-analytics.mjs",
+		"analytics:provision:dry-run": "node scripts/provision-analytics.mjs --dry-run",
+		"benchmark:toolchain": "node scripts/benchmark-toolchain.mjs",
+		"check:fast": "vp check",
 		"discord:setup": "node --env-file=.env scripts/setup-discord-community.mjs",
 		"discord:setup:dry-run": "node --env-file=.env scripts/setup-discord-community.mjs --dry-run",
 		"discord:enhance": "node --env-file=.env scripts/enhance-discord-community.mjs",
@@ -36,7 +41,8 @@
 		"tsx": "4.23.0",
 		"turbo": "catalog:",
 		"typescript": "catalog:",
-		"vitest": "4.1.10"
+		"vitest": "4.1.10",
+		"vite-plus": "0.2.5"
 	},
 	"engines": {
 		"node": ">=22.13"
@@ -80,5 +86,8 @@
 		"@hugeicons-pro/core-bulk-rounded": "^4.2.1",
 		"@hugeicons-pro/core-solid-rounded": "^4.2.1",
 		"@openai/codex": "^0.144.5"
+	},
+	"patchedDependencies": {
+		"@legendapp/list@3.3.3": "patches/@legendapp%2Flist@3.3.3.patch"
 	}
 }

@@ -1,9 +1,55 @@
+import {
+  summarizeTurnActivity,
+  type TimelineTurn,
+  type TurnActivitySummary,
+} from "@zuse/client-runtime/timeline";
 import type {
   PermissionMode,
   ProviderId,
   RuntimeMode,
   SessionStatus,
 } from "@zuse/contracts";
+
+/**
+ * Only editor activity expands the composer; a running agent stays
+ * interruptible from the compact control. `hasText` flips solely on the
+ * empty↔non-empty boundary, so typing never causes layout thrash.
+ */
+export const composerExpanded = (options: {
+  readonly focused: boolean;
+  readonly hasText: boolean;
+  readonly hasAttachments: boolean;
+  readonly sheetOpen: boolean;
+}): boolean =>
+  options.focused ||
+  options.hasText ||
+  options.hasAttachments ||
+  options.sheetOpen;
+
+export type ComposerActivity = TurnActivitySummary & {
+  agentItemId: string | null;
+};
+
+/** Activity summary for the composer pills, derived from the latest turn. */
+export const summarizeComposerActivity = (
+  turn: TimelineTurn | undefined,
+): ComposerActivity | null => {
+  if (turn === undefined) return null;
+  const summary = summarizeTurnActivity(turn.body);
+  const firstAgentTool = turn.body.find((message) => {
+    const content = message.content;
+    return (
+      content._tag === "tool_use" && /task|agent|spawn/i.test(content.tool)
+    );
+  });
+  return {
+    ...summary,
+    agentItemId:
+      firstAgentTool?.content._tag === "tool_use"
+        ? firstAgentTool.content.itemId
+        : null,
+  };
+};
 
 export const isInterruptVisible = (status: SessionStatus | undefined): boolean =>
   status === "running" || status === "booting";

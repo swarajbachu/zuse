@@ -15,6 +15,7 @@ const created: ChatCommand = {
 	projectId: "project-1",
 	worktreeId: null,
 	title: " Chat title ",
+	titleProvenance: "pending",
 	originSessionId: null,
 	lastReadAt: 10,
 	createdAt: 10,
@@ -35,6 +36,65 @@ describe("chat decider", () => {
 			lastReadAt: 10,
 			version: 1,
 		});
+	});
+
+	test("allows automatic naming only while the title is pending", () => {
+		const first = decideChat(initialChatState, created);
+		if (Result.isFailure(first)) throw first.failure;
+		let state = evolveChats(initialChatState, first.success);
+
+		const automatic = Result.getOrThrow(
+			decideChat(state, {
+				_tag: "RenameChat",
+				title: "Generated title",
+				titleProvenance: "automatic",
+				updatedAt: 20,
+			}),
+		);
+		state = evolveChats(state, automatic);
+		expect(state).toMatchObject({
+			title: "Generated title",
+			titleProvenance: "automatic",
+		});
+
+		expect(
+			Result.getOrThrow(
+				decideChat(state, {
+					_tag: "RenameChat",
+					title: "Late generated title",
+					titleProvenance: "automatic",
+					updatedAt: 30,
+				}),
+			),
+		).toEqual([]);
+	});
+
+	test("manual chat titles permanently win over automatic naming", () => {
+		const first = decideChat(initialChatState, created);
+		if (Result.isFailure(first)) throw first.failure;
+		let state = evolveChats(initialChatState, first.success);
+		state = evolveChats(
+			state,
+			Result.getOrThrow(
+				decideChat(state, {
+					_tag: "RenameChat",
+					title: "My title",
+					titleProvenance: "manual",
+					updatedAt: 20,
+				}),
+			),
+		);
+
+		expect(
+			Result.getOrThrow(
+				decideChat(state, {
+					_tag: "RenameChat",
+					title: "Generated title",
+					titleProvenance: "automatic",
+					updatedAt: 30,
+				}),
+			),
+		).toEqual([]);
 	});
 
 	test("rejects duplicate creation and blank titles", () => {

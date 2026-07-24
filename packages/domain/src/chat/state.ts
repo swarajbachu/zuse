@@ -1,3 +1,4 @@
+import { type TitleProvenance, titleProvenanceOrManual } from "../naming.js";
 import type { ChatEvent } from "./events.js";
 
 export type ChatState = {
@@ -10,6 +11,7 @@ export type ChatState = {
 	readonly projectId: string | null;
 	readonly worktreeId: string | null;
 	readonly title: string | null;
+	readonly titleProvenance: TitleProvenance;
 	readonly activeSessionId: string | null;
 	readonly originSessionId: string | null;
 	readonly lastReadAt: number | null;
@@ -28,6 +30,7 @@ export const initialChatState: ChatState = {
 	projectId: null,
 	worktreeId: null,
 	title: null,
+	titleProvenance: "manual",
 	activeSessionId: null,
 	originSessionId: null,
 	lastReadAt: null,
@@ -47,12 +50,18 @@ export const evolveChat = (state: ChatState, event: ChatEvent): ChatState => {
 				projectId: event.projectId,
 				worktreeId: event.worktreeId,
 				title: event.title,
+				titleProvenance: titleProvenanceOrManual(event.titleProvenance),
 				originSessionId: event.originSessionId,
 				lastReadAt: event.lastReadAt,
 				version,
 			};
 		case "ChatRenamed":
-			return { ...state, title: event.title, version };
+			return {
+				...state,
+				title: event.title,
+				titleProvenance: titleProvenanceOrManual(event.titleProvenance),
+				version,
+			};
 		case "ChatRead":
 			return { ...state, lastReadAt: event.readAt, version };
 		case "ChatWorktreeSet":

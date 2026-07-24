@@ -1,5 +1,6 @@
 import {
 	type AgentAvailability,
+	type AgentTurnId,
 	type AttachmentRef,
 	type Chat,
 	ComposerInput,
@@ -151,10 +152,14 @@ export const flushServerQueue = (options: {
 export const interruptSession = (options: {
 	connection: WsProtocolOptions;
 	sessionId: SessionId;
+	turnId: AgentTurnId;
 }) => {
 	const program = Effect.gen(function* () {
 		const client = yield* getConnectionClient(options.connection);
-		yield* client["messages.interrupt"]({ sessionId: options.sessionId });
+		yield* client["messages.interrupt"]({
+			sessionId: options.sessionId,
+			turnId: options.turnId,
+		});
 	});
 	return program.pipe(
 		Effect.tapError((cause) =>
@@ -371,7 +376,7 @@ export const renameChat = (options: {
 }) => {
 	const program = Effect.gen(function* () {
 		const client = yield* getConnectionClient(options.connection);
-		yield* client["chat.rename"]({
+		return yield* client["chat.rename"]({
 			chatId: options.chatId,
 			title: options.title,
 		});
@@ -382,6 +387,36 @@ export const renameChat = (options: {
 		),
 	);
 };
+
+export const getWorktree = (options: {
+	connection: WsProtocolOptions;
+	worktreeId: WorktreeId;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["worktree.get"]({ worktreeId: options.worktreeId });
+	}).pipe(
+		Effect.tapError((cause) =>
+			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+		),
+	);
+
+export const renameWorktreeBranch = (options: {
+	connection: WsProtocolOptions;
+	worktreeId: WorktreeId;
+	name: string;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["worktree.renameBranch"]({
+			worktreeId: options.worktreeId,
+			name: options.name,
+		});
+	}).pipe(
+		Effect.tapError((cause) =>
+			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+		),
+	);
 
 export const markChatRead = (options: {
 	connection: WsProtocolOptions;

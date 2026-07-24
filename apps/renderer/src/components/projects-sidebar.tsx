@@ -77,6 +77,8 @@ import { useUsageLimitsStore } from "../store/usage-limits.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { BranchIcon, type BranchState } from "./branch-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
+import { RenameDialog } from "./rename-dialog.tsx";
+import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { Spinner } from "./ui/spinner";
 
 const sidebarErrorToastCache = {
@@ -1073,12 +1075,10 @@ function ChatRow({ chat }: { chat: Chat }) {
 				: null;
 	const showDiff = stats !== null;
 
+	const [renameOpen, setRenameOpen] = useState(false);
 	const onRename = () => {
-		const next = window.prompt("Rename chat", chat.title);
-		if (next === null) return;
-		const trimmed = next.trim();
-		if (trimmed.length === 0 || trimmed === chat.title) return;
-		void renameChat(chat.id, trimmed);
+		setMenuOpen(false);
+		setRenameOpen(true);
 	};
 
 	const onDelete = () => {
@@ -1117,6 +1117,15 @@ function ChatRow({ chat }: { chat: Chat }) {
 
 	return (
 		<>
+			<RenameDialog
+				title="Rename chat"
+				description="Change the name shown in the projects sidebar."
+				label="Chat name"
+				value={chat.title}
+				open={renameOpen}
+				onOpenChange={setRenameOpen}
+				onRename={(title) => renameChat(chat.id, title)}
+			/>
 			<li>
 				{/* biome-ignore lint/a11y/useSemanticElements: this row contains a nested archive action. */}
 				<div
@@ -1148,19 +1157,13 @@ function ChatRow({ chat }: { chat: Chat }) {
 					)}
 					title={chat.title}
 				>
-					{attentionState !== "idle" ? (
-						<ChatAttentionIcon
-							state={attentionState}
-							selected={isSelected}
-							className="ml-3"
-						/>
-					) : (
-						<BranchIcon
-							state={branchState}
-							selected={isSelected}
-							className="ml-3"
-						/>
-					)}
+					<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
+						{attentionState !== "idle" ? (
+							<ChatAttentionIcon state={attentionState} selected={isSelected} />
+						) : (
+							<BranchIcon state={branchState} selected={isSelected} />
+						)}
+					</span>
 					<TypewriterText
 						text={chat.title}
 						className="min-w-0 flex-1 truncate"
@@ -1295,26 +1298,40 @@ function ChatAttentionIcon({
 					: context === "project"
 						? "Agent is working in a session"
 						: "Agent is working";
+	const classes = cn(
+		"inline-grid size-5 shrink-0 place-items-center",
+		color,
+		className,
+	);
+
+	if (state === "running") {
+		return (
+			<span className={classes} title={label}>
+				<AgentActivityOrb state="working" label={label} />
+			</span>
+		);
+	}
 
 	return (
-		<span
-			role="img"
-			className={cn(
-				"inline-flex size-3.5 shrink-0 items-center justify-center",
-				color,
-				className,
-			)}
-			aria-label={label}
-			title={label}
-		>
-			{state === "running" ? (
-				<Spinner className="size-4" />
-			) : state === "question" ? (
-				<HugeiconsIcon icon={HelpCircleIcon} className="size-3.5" />
+		<span className={classes} role="img" aria-label={label} title={label}>
+			{state === "question" ? (
+				<HugeiconsIcon
+					icon={HelpCircleIcon}
+					className="size-3.5"
+					aria-hidden="true"
+				/>
 			) : state === "permission" ? (
-				<HugeiconsIcon icon={SquareLock01Icon} className="size-3.5" />
+				<HugeiconsIcon
+					icon={SquareLock01Icon}
+					className="size-3.5"
+					aria-hidden="true"
+				/>
 			) : (
-				<HugeiconsIcon icon={TaskDone01Icon} className="size-3.5" />
+				<HugeiconsIcon
+					icon={TaskDone01Icon}
+					className="size-3.5"
+					aria-hidden="true"
+				/>
 			)}
 		</span>
 	);

@@ -248,9 +248,8 @@ class UserInputChannel implements AsyncIterable<SDKUserMessage> {
 	}
 }
 
-const userMessageOf = (
+export const makeClaudeUserMessage = (
 	text: string,
-	sessionId: string,
 	attachmentBlocks: ReadonlyArray<UserContentBlock> = [],
 ): SDKUserMessage => ({
 	type: "user",
@@ -259,7 +258,6 @@ const userMessageOf = (
 		content: [...attachmentBlocks, { type: "text", text }],
 	},
 	parent_tool_use_id: null,
-	session_id: sessionId,
 });
 
 let itemCounter = 0;
@@ -1158,6 +1156,10 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 	`mcp__${ZUSE_MCP_NAME}__browser_console`,
 	`mcp__${ZUSE_MCP_NAME}__browser_network`,
 	`mcp__${ZUSE_MCP_NAME}__browser_history`,
+	`mcp__${ZUSE_MCP_NAME}__browser_status`,
+	`mcp__${ZUSE_MCP_NAME}__browser_resize`,
+	`mcp__${ZUSE_MCP_NAME}__browser_wait_for`,
+	`mcp__${ZUSE_MCP_NAME}__browser_inspect`,
 	// Control-plane (orchestration) reads. Inspecting threads/models is
 	// non-mutating and visible to the user, so auto-allow like the browser
 	// reads. The MUTATING control-plane tools — create_thread, create_session,
@@ -1240,7 +1242,10 @@ const policyFor = (
 	// 0b. Agent browser login submits saved (dummy) credentials into a page.
 	//     Always prompt, even in full-access mode — a login attempt should
 	//     never fire silently. Treated like a sensitive path.
-	if (toolName.endsWith("__browser_login")) {
+	if (
+		toolName.endsWith("__browser_login") ||
+		toolName.endsWith("__browser_evaluate")
+	) {
 		return { kind: "prompt", forcePrompt: true };
 	}
 	const path =
@@ -1525,7 +1530,7 @@ export const startClaudeSession = (
 			);
 
 		if (input.initialPrompt !== undefined && input.initialPrompt.length > 0) {
-			inputChannel.push(userMessageOf(input.initialPrompt, sessionId));
+			inputChannel.push(makeClaudeUserMessage(input.initialPrompt));
 		}
 
 		// Pass `process.env` through, but scrub any "we are inside another
@@ -1983,7 +1988,7 @@ export const startClaudeSession = (
 						)}`,
 					);
 					inputChannel.push(
-						userMessageOf(promptText, sessionId, attachmentBlocks),
+						makeClaudeUserMessage(promptText, attachmentBlocks),
 					);
 				}),
 			interrupt: () =>

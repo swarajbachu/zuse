@@ -4,7 +4,9 @@ export function SessionActionsMenu(_props: {
 	isPinned: boolean;
 	onNewChat: () => void;
 	onPin?: () => void;
-	onRename?: () => void;
+	onRenameChat?: () => void;
+	onRenameSession?: () => void;
+	onRenameBranch?: () => void;
 	onThreads: () => void;
 	onChanges: () => void;
 	onFiles: () => void;

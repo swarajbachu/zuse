@@ -1,4 +1,5 @@
 import { NodeServices } from "@effect/platform-node";
+import type { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import { MemoizeRpcs } from "@zuse/contracts";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
@@ -7,7 +8,7 @@ import { GitServiceLive } from "@zuse/git/git-service-live";
 import { WorktreeServiceLive } from "@zuse/git/worktree-service-live";
 import { Effect, Layer } from "effect";
 import { RpcServer } from "effect/unstable/rpc";
-
+import { AnalyticsServiceLive } from "./analytics/layers/analytics-service.ts";
 import { AppPaths } from "./app-paths.ts";
 import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
 import { AuthServiceLive } from "./auth/layers/auth-service.ts";
@@ -87,10 +88,10 @@ export interface MainLayerDeps {
 	readonly serverProtocol: Layer.Layer<
 		RpcServer.Protocol,
 		never,
-		LanAuthService
+		LanAuthService | AttachmentService
 	>;
 	readonly additionalServerProtocols?: ReadonlyArray<
-		Layer.Layer<RpcServer.Protocol, never, LanAuthService>
+		Layer.Layer<RpcServer.Protocol, never, LanAuthService | AttachmentService>
 	>;
 	readonly authShell: typeof AuthShell.Service;
 	readonly lanAuth?: {
@@ -216,6 +217,22 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(NodeServices.layer),
 	);
 
+	// Auth owns the account transition that analytics uses to move between a
+	// random installation identity and a namespaced account hash.
+	const AuthLayer = AuthServiceLive.pipe(
+		Layer.provide(CredentialsServiceLive),
+		Layer.provide(SessionStoreLive),
+		Layer.provide(AuthShellLayer),
+	);
+
+	const AnalyticsLayer = AnalyticsServiceLive.pipe(
+		Layer.provide(MigratedSqlite),
+		Layer.provide(AppPathsLayer),
+		Layer.provide(ConfigStoreLayer),
+		Layer.provide(AuthLayer),
+		Layer.provide(NodeServices.layer),
+	);
+
 	// FsService walks the project tree one directory at a time. WorkspaceService
 	// resolves folderId → path; WorktreeService swaps the root to a worktree's
 	// path when the renderer passes `worktreeId`; FileSystem reads dirs/stats.
@@ -310,6 +327,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		// start resolves the user's native MCP servers through McpService.
 		Layer.provide(ConfigStoreLayer),
 		Layer.provide(McpLayer),
+		Layer.provide(AnalyticsLayer),
 		Layer.provide(NodeServices.layer),
 	);
 
@@ -322,8 +340,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	// messages tables. The chat-MVP RPC surface (session.* / messages.*) talks
 	// through this; legacy agent.* handlers stay bound to ProviderService for
 	// low-level testing.
-	// TitleGenerator names a chat from its first message by running one
-	// throwaway turn through the chat's OWN provider (via ProviderService), so
+	// TitleGenerator names pending chats, sessions, and fresh branches after
+	// their first submitted turn succeeds, using the chat's OWN provider, so
 	// it reuses whatever auth that provider has — a Grok-only user is never
 	// forced onto Claude.
 	const TitleGeneratorLayer = TitleGeneratorLive.pipe(
@@ -362,7 +380,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(RepositorySettingsLayer),
 		Layer.provide(PtyLayer),
 		// GitService + ConfigStore + TitleGenerator back the background auto-namer
-		// (rename chat + optional branch); see conversation-services `autoNameChat`.
+		// (independent chat/session/branch naming); see `autoNameChat`.
 		Layer.provide(GitLayer),
 		Layer.provide(ConfigStoreLayer),
 		Layer.provide(TitleGeneratorLayer),
@@ -402,15 +420,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(ConversationServicesLayer),
 		Layer.provide(WorkspaceLayer),
 	);
-	// AuthService owns the WorkOS PKCE flow + shared file-backed session bundle.
-	// It still depends on CredentialsService for one-time migration from older
-	// keychain storage. The host supplies AuthShell (browser + callback), and
-	// the callback sink is registered at build time, so Handlers forces boot.
-	const AuthLayer = AuthServiceLive.pipe(
-		Layer.provide(CredentialsServiceLive),
-		Layer.provide(SessionStoreLive),
-		Layer.provide(AuthShellLayer),
-	);
 	// RelayLinkService orchestrates the desktop's self-registration with the
 	// account relay (challenge → Ed25519 proof → link → persist → heartbeat). It
 	// reuses the environment identity (LanAuthService) and the WorkOS token
@@ -448,6 +457,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		RepositorySettingsLayer,
 		PokemonLayer,
 		ConfigStoreLayer,
+		AnalyticsLayer,
 		FsLayer,
 		FileSearchLayer,
 		ProjectScaffoldLayer,
@@ -483,11 +493,19 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		...(deps.additionalServerProtocols ?? []),
 	] as const;
 	const makeServerLayer = (
-		serverProtocol: Layer.Layer<RpcServer.Protocol, never, LanAuthService>,
+		serverProtocol: Layer.Layer<
+			RpcServer.Protocol,
+			never,
+			LanAuthService | AttachmentService
+		>,
 	) =>
 		RpcServer.layer(MemoizeRpcs).pipe(
 			Layer.provide(Handlers),
-			Layer.provide(serverProtocol.pipe(Layer.provide(LanAuthLayer))),
+			Layer.provide(
+				serverProtocol.pipe(
+					Layer.provide(Layer.merge(LanAuthLayer, AttachmentLayer)),
+				),
+			),
 		);
 
 	const ServerLayer = Layer.mergeAll(

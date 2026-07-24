@@ -21,11 +21,13 @@ import { DirectoryUnavailableError } from "./fs.ts";
 import {
 	AgentItemId,
 	AgentSessionId,
+	AgentTurnId,
 	ChatId,
 	FolderId,
 	MessageId,
 	WorktreeId,
 } from "./ids.ts";
+import { NameProvenanceField } from "./naming.ts";
 import { Worktree } from "./worktree.ts";
 
 export {
@@ -98,6 +100,7 @@ export class Session extends Schema.Class<Session>("Session")({
 	id: SessionId,
 	projectId: FolderId,
 	title: Schema.String,
+	titleProvenance: NameProvenanceField,
 	providerId: ProviderId,
 	model: Schema.String,
 	status: SessionStatus,
@@ -200,7 +203,6 @@ const UserRichContent = Schema.TaggedStruct("user_rich", {
 });
 
 const AssistantContent = Schema.TaggedStruct("assistant", {
-	/** Stable provider item identity used to replace cumulative stream snapshots. */
 	itemId: Schema.optional(AgentItemId),
 	text: Schema.String,
 	/** Preserves a provider's dedicated final-plan item through persistence. */
@@ -432,6 +434,87 @@ export class QueueState extends Schema.Class<QueueState>("QueueState")({
 	paused: Schema.Boolean,
 }) {}
 
+export const SessionTimelineTurnPhase = Schema.Literals([
+	"requested",
+	"starting",
+	"running",
+	"interrupt-requested",
+	"interrupt-acknowledged",
+]);
+export type SessionTimelineTurnPhase = typeof SessionTimelineTurnPhase.Type;
+
+export const SessionTimelineTurn = Schema.Struct({
+	turnId: AgentTurnId,
+	phase: SessionTimelineTurnPhase,
+});
+export type SessionTimelineTurn = typeof SessionTimelineTurn.Type;
+
+export class SessionTimelineProjection extends Schema.Class<SessionTimelineProjection>(
+	"SessionTimelineProjection",
+)({
+	messages: Schema.Array(Message),
+	status: SessionStatus,
+	currentTurn: Schema.NullOr(SessionTimelineTurn),
+	queue: QueueState,
+	permissionMode: PermissionMode,
+	runtimeMode: RuntimeMode,
+}) {}
+
+export const SessionTimelineEvent = Schema.Union([
+	Schema.TaggedStruct("Noop", {}),
+	Schema.TaggedStruct("MessagePersisted", { message: Message }),
+	Schema.TaggedStruct("StatusSet", { status: SessionStatus }),
+	Schema.TaggedStruct("TurnStarted", {
+		turnId: AgentTurnId,
+		phase: SessionTimelineTurnPhase,
+	}),
+	Schema.TaggedStruct("TurnPhaseSet", {
+		turnId: AgentTurnId,
+		phase: SessionTimelineTurnPhase,
+	}),
+	Schema.TaggedStruct("TurnSettled", {
+		turnId: AgentTurnId,
+		outcome: Schema.Literals(["completed", "interrupted", "error"]),
+	}),
+	Schema.TaggedStruct("PermissionModeSet", { permissionMode: PermissionMode }),
+	Schema.TaggedStruct("RuntimeModeSet", { runtimeMode: RuntimeMode }),
+	Schema.TaggedStruct("QueuePausedSet", { paused: Schema.Boolean }),
+	Schema.TaggedStruct("QueueEnqueued", { item: QueuedMessage }),
+	Schema.TaggedStruct("QueueUpdated", {
+		queueId: Schema.String,
+		input: ComposerInput,
+		updatedAt: Schema.DateFromString,
+		ready: Schema.Boolean,
+	}),
+	Schema.TaggedStruct("QueueRemoved", { queueId: Schema.String }),
+	Schema.TaggedStruct("QueueReordered", {
+		queueIds: Schema.Array(Schema.String),
+	}),
+]);
+export type SessionTimelineEvent = typeof SessionTimelineEvent.Type;
+
+export const SessionTimelineFrame = Schema.Union([
+	Schema.Struct({
+		kind: Schema.Literal("snapshot"),
+		sessionId: SessionId,
+		throughVersion: Schema.Number,
+		projection: SessionTimelineProjection,
+	}),
+	Schema.Struct({
+		kind: Schema.Literal("event"),
+		sessionId: SessionId,
+		streamVersion: Schema.Number,
+		eventId: Schema.String,
+		event: SessionTimelineEvent,
+	}),
+	Schema.Struct({
+		kind: Schema.Literal("synchronized"),
+		sessionId: SessionId,
+		throughVersion: Schema.Number,
+	}),
+]);
+export type SessionTimelineFrame = typeof SessionTimelineFrame.Type;
+
 export class SessionNotFoundError extends Schema.TaggedErrorClass<SessionNotFoundError>()(
 	"SessionNotFoundError",
 	{ sessionId: SessionId },
@@ -595,7 +678,7 @@ export const SessionSetWorktreeRpc = Rpc.make("session.setWorktree", {
 
 export const SessionRenameRpc = Rpc.make("session.rename", {
 	payload: Schema.Struct({ sessionId: SessionId, title: Schema.String }),
-	success: Schema.Void,
+	success: Session,
 	error: SessionNotFoundError,
 });
 
@@ -673,8 +756,9 @@ export const SessionExportTranscriptRpc = Rpc.make("session.exportTranscript", {
 
 /**
  * The most recent `ExitPlanMode` plan text for a session, or `null` if it has
- * never proposed a plan. Backs the "Add plans" chip on a new chat — cheap
- * enough to probe candidate sources without hydrating their full message log.
+ * never proposed a plan. Backs the plan context chip between sessions in one
+ * chat — cheap enough to probe candidate sources without hydrating their full
+ * message log.
  */
 export const SessionLatestPlanRpc = Rpc.make("session.latestPlan", {
 	payload: Schema.Struct({ sessionId: SessionId }),
@@ -700,6 +784,7 @@ export class Chat extends Schema.Class<Chat>("Chat")({
 	projectId: FolderId,
 	worktreeId: Schema.NullOr(WorktreeId),
 	title: Schema.String,
+	titleProvenance: NameProvenanceField,
 	activeSessionId: Schema.NullOr(SessionId),
 	/**
 	 * Lineage. When an agent spawns this chat via the orchestration
@@ -901,7 +986,7 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
 
 export const ChatRenameRpc = Rpc.make("chat.rename", {
 	payload: Schema.Struct({ chatId: ChatId, title: Schema.String }),
-	success: Schema.Void,
+	success: Chat,
 	error: ChatNotFoundError,
 });
 
@@ -1054,7 +1139,7 @@ export const MessagesSendRpc = Rpc.make("messages.send", {
 });
 
 export const MessagesInterruptRpc = Rpc.make("messages.interrupt", {
-	payload: Schema.Struct({ sessionId: SessionId }),
+	payload: Schema.Struct({ sessionId: SessionId, turnId: AgentTurnId }),
 	success: Schema.Void,
 	error: SessionNotFoundError,
 });
@@ -1063,13 +1148,6 @@ export const MessagesQueueListRpc = Rpc.make("messages.queue.list", {
 	payload: Schema.Struct({ sessionId: SessionId }),
 	success: QueueState,
 	error: SessionNotFoundError,
-});
-
-export const MessagesQueueStreamRpc = Rpc.make("messages.queue.stream", {
-	payload: Schema.Struct({ sessionId: SessionId }),
-	success: QueueState,
-	error: SessionNotFoundError,
-	stream: true,
 });
 
 export const MessagesQueueAddRpc = Rpc.make("messages.queue.add", {
@@ -1142,17 +1220,19 @@ export const MessagesQueueResumeRpc = Rpc.make("messages.queue.resume", {
 export const MessagesSteerRpc = Rpc.make("messages.steer", {
 	payload: Schema.Struct({
 		sessionId: SessionId,
-		input: ComposerInput,
+		expectedTurnId: AgentTurnId,
+		queueId: Schema.String,
+		successorTurnId: AgentTurnId,
+		commandId: Schema.String,
 	}),
 	success: Schema.Void,
 	error: Schema.Union([SessionNotFoundError, SteerUnsupportedError]),
 });
 
 /**
- * Re-open a stopped session against the provider. For Claude this passes
- * the persisted `cursor` to the SDK's `resume`; for Codex it currently
- * fails with `SessionStartError({ reason: "resume_unsupported" })` and the
- * renderer offers "Start new session" instead.
+ * Re-open a stopped or failed session against the provider. A persisted
+ * cursor resumes provider context when supported; without one, the provider
+ * starts a fresh process attached to the same durable application session.
  */
 export const SessionResumeRpc = Rpc.make("session.resume", {
 	payload: Schema.Struct({ sessionId: SessionId }),
@@ -1233,26 +1313,14 @@ export const SessionMcpUpdateRpc = Rpc.make("session.mcp.update", {
 	error: SessionNotFoundError,
 });
 
-export class SessionDomainEventEnvelope extends Schema.Class<SessionDomainEventEnvelope>(
-	"SessionDomainEventEnvelope",
-)({
-	sequence: Schema.Number,
-	eventId: Schema.String,
-	correlationId: Schema.String,
-	causationEventId: Schema.NullOr(Schema.String),
-	sessionId: SessionId,
-	streamVersion: Schema.Number,
-	type: Schema.String,
-	payloadJson: Schema.String,
-}) {}
-
 /** Ordered durable session-domain feed with cursor-based replay. */
 export const SessionEventsRpc = Rpc.make("session.events", {
 	payload: Schema.Struct({
 		sessionId: SessionId,
-		afterSequence: Schema.optional(Schema.Number),
+		afterVersion: Schema.optional(Schema.Number),
+		hasProjection: Schema.optional(Schema.Boolean),
 	}),
-	success: SessionDomainEventEnvelope,
+	success: SessionTimelineFrame,
 	error: SessionNotFoundError,
 	stream: true,
 });

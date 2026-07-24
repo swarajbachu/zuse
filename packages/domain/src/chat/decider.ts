@@ -1,5 +1,5 @@
 import { Result, Schema } from "effect";
-
+import { titleProvenanceOrManual } from "../naming.js";
 import type { ChatCommand } from "./commands.js";
 import type { ChatEvent } from "./events.js";
 import type { ChatState } from "./state.js";
@@ -35,6 +35,7 @@ export const decideChat = (
 ): Result.Result<readonly ChatEvent[], ChatDomainError> => {
 	if (command._tag === "CreateChat") {
 		const title = command.title.trim();
+		const titleProvenance = titleProvenanceOrManual(command.titleProvenance);
 		if (title.length === 0) {
 			return Result.fail(
 				new ChatValidationFailed({ message: "title cannot be empty" }),
@@ -42,7 +43,7 @@ export const decideChat = (
 		}
 		return state.exists
 			? Result.fail(new ChatAlreadyExists())
-			: success([{ ...command, title, _tag: "ChatCreated" }]);
+			: success([{ ...command, title, titleProvenance, _tag: "ChatCreated" }]);
 	}
 	if (!state.exists) return Result.fail(new ChatNotFound());
 	if (state.deleted) return Result.fail(new ChatDeletedConflict());
@@ -50,14 +51,28 @@ export const decideChat = (
 	switch (command._tag) {
 		case "RenameChat": {
 			const title = command.title.trim();
+			const titleProvenance = titleProvenanceOrManual(command.titleProvenance);
 			if (title.length === 0) {
 				return Result.fail(
 					new ChatValidationFailed({ message: "title cannot be empty" }),
 				);
 			}
-			return state.title === title
+			if (
+				titleProvenance === "automatic" &&
+				state.titleProvenance !== "pending"
+			) {
+				return success([]);
+			}
+			return state.title === title && state.titleProvenance === titleProvenance
 				? success([])
-				: success([{ ...command, title, _tag: "ChatRenamed" }]);
+				: success([
+						{
+							...command,
+							title,
+							titleProvenance,
+							_tag: "ChatRenamed",
+						},
+					]);
 		}
 		case "MarkChatRead":
 			return state.lastReadAt === command.readAt
