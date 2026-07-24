@@ -284,6 +284,8 @@ const bridge = {
 					readonly detail?: string;
 				}>
 			>,
+		revealDiagnosticsLogs: () =>
+			ipcRenderer.invoke("app:revealDiagnosticsLogs") as Promise<void>,
 	},
 	network: {
 		getAccessState: () =>

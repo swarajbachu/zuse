@@ -364,6 +364,14 @@ if (!gotSingleInstanceLock) {
 	app.quit();
 }
 
+const runMarkerPath = Path.join(
+	app.getPath("userData"),
+	"diagnostics",
+	"active-run.json",
+);
+const previousRunUnclean = fsSync.existsSync(runMarkerPath);
+const desktopRunId = `desktop_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
+
 // macOS: deep links arrive here (also on cold launch, before whenReady).
 app.on("open-url", (event, url) => {
 	event.preventDefault();
@@ -1163,6 +1171,11 @@ async function createMainWindow() {
 	});
 
 	ipcMain.handle("app:getMainDiagnostics", () => mainDiagnosticLogs.slice());
+	ipcMain.handle("app:revealDiagnosticsLogs", async () => {
+		const logPath = Path.join(app.getPath("userData"), "logs");
+		await fs.mkdir(logPath, { recursive: true });
+		await shell.openPath(logPath);
+	});
 
 	ipcMain.handle("network:getAccessState", () => ({
 		mode: networkAccess.mode,
@@ -2566,6 +2579,50 @@ void app.whenReady().then(async () => {
 	// Non-primary instance is on its way out (lost the single-instance lock) —
 	// don't build a window or boot the runtime.
 	if (!gotSingleInstanceLock) return;
+	try {
+		fsSync.mkdirSync(Path.dirname(runMarkerPath), { recursive: true });
+		fsSync.writeFileSync(
+			runMarkerPath,
+			JSON.stringify({
+				pid: process.pid,
+				startedAt: new Date().toISOString(),
+				runId: desktopRunId,
+			}),
+			"utf8",
+		);
+		if (previousRunUnclean) {
+			const createdAt = new Date().toISOString();
+			const source = "main.previousRunUnclean";
+			const message = "The previous app run did not shut down cleanly.";
+			const eventsPath = Path.join(
+				app.getPath("userData"),
+				"logs",
+				"diagnostics.events.ndjson",
+			);
+			fsSync.mkdirSync(Path.dirname(eventsPath), { recursive: true });
+			fsSync.appendFileSync(
+				eventsPath,
+				`${JSON.stringify({
+					id: `incident_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
+					createdAt,
+					severity: "error",
+					source,
+					category: "lifecycle",
+					message,
+					fingerprint: createHash("sha256")
+						.update(`${source}\0lifecycle\0${message}`)
+						.digest("hex")
+						.slice(0, 20),
+					runId: desktopRunId,
+					recoveryStatus: "unresolved",
+				})}\n`,
+				"utf8",
+			);
+			recordMainDiagnostic("error", "main.previousRunUnclean", [message]);
+		}
+	} catch {
+		// A run marker is diagnostic-only and must never block app startup.
+	}
 
 	// Localhost loopback that catches the WorkOS OAuth callback (dev + packaged).
 	// It's the redirect_uri for both, so the browser finishes on a real HTML
@@ -2699,6 +2756,13 @@ app.on("before-quit", (event) => {
 // fires after an un-prevented `before-quit`, so a cancelled quit leaves the
 // tray untouched.
 app.on("will-quit", () => {
+	if (gotSingleInstanceLock) {
+		try {
+			fsSync.unlinkSync(runMarkerPath);
+		} catch {
+			// Missing or unwritable markers are safe to leave for the next run.
+		}
+	}
 	localConnectivityStopping = true;
 	if (localConnectivityRestartTimer !== null) {
 		clearTimeout(localConnectivityRestartTimer);

@@ -4,7 +4,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { watch } from "node:fs";
-import { access } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createConnection } from "node:net";
 import { dirname, join, resolve } from "node:path";
@@ -34,6 +34,10 @@ const requiredFiles = [
 	join(desktopOutDir, "main.cjs"),
 	join(desktopOutDir, "preload.cjs"),
 ];
+const configuredDevStartedAt = Number(process.env.ZUSE_DEV_STARTED_AT);
+const devStartedAt = Number.isFinite(configuredDevStartedAt)
+	? configuredDevStartedAt
+	: Date.now();
 // One tsdown rebuild flushes several outputs (main, preload, MCP children)
 // spread over a couple of seconds — the debounce must span the whole flush so
 // a rebuild produces ONE restart, not one per file. Too-short debounce plus a
@@ -48,10 +52,9 @@ let currentApp = null;
 let restartQueue = Promise.resolve();
 const expectedExits = new WeakSet();
 
-async function fileExists(p) {
+async function fileIsCurrent(p) {
 	try {
-		await access(p);
-		return true;
+		return (await stat(p)).mtimeMs >= devStartedAt;
 	} catch {
 		return false;
 	}
@@ -80,12 +83,12 @@ async function waitForResources({
 	intervalMs = 100,
 } = {}) {
 	console.log(
-		`[desktop:electron] waiting for ${devServerUrl} and ${requiredFiles.join(", ")}`,
+		`[desktop:electron] waiting for ${devServerUrl} and current-run artifacts ${requiredFiles.join(", ")}`,
 	);
 	const startedAt = Date.now();
 	while (true) {
 		const filesReady = await Promise.all(
-			requiredFiles.map((path) => fileExists(path)),
+			requiredFiles.map((path) => fileIsCurrent(path)),
 		).then((results) => results.every(Boolean));
 		const portReady = await tcpReady(
 			devServer.hostname || "127.0.0.1",

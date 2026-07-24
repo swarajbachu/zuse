@@ -18,6 +18,7 @@
 	"scripts": {
 		"predev": "node scripts/build-local-connectivity-helper.mjs",
 		"dev": "bun run --parallel dev:bundle dev:electron",
+		"predev:bundle": "bun run --filter @zuse/server build:bundle",
 		"dev:bundle": "vp pack --watch",
 		"dev:electron": "node scripts/dev-electron.mjs",
 		"build": "vp pack && node scripts/main-bundle-startup-smoke.mjs",

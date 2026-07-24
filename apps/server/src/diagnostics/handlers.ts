@@ -20,4 +20,37 @@ const ExportBundle = MemoizeRpcs.toLayerHandler(
 		}),
 );
 
-export const DiagnosticsHandlersLayer = Layer.mergeAll(ExportBundle);
+const Overview = MemoizeRpcs.toLayerHandler("diagnostics.overview", (payload) =>
+	Effect.flatMap(DiagnosticsService, (service) => service.overview(payload)),
+);
+
+const Events = MemoizeRpcs.toLayerHandler("diagnostics.events", (payload) =>
+	Effect.flatMap(DiagnosticsService, (service) => service.events(payload)),
+);
+
+const Processes = MemoizeRpcs.toLayerHandler("diagnostics.processes", () =>
+	Effect.flatMap(DiagnosticsService, (service) => service.processes),
+);
+
+const SignalProcess = MemoizeRpcs.toLayerHandler(
+	"diagnostics.signalProcess",
+	(payload) =>
+		Effect.flatMap(DiagnosticsService, (service) =>
+			service.signalProcess(payload),
+		),
+);
+
+const Ingest = MemoizeRpcs.toLayerHandler("diagnostics.ingest", (payload) =>
+	Effect.flatMap(DiagnosticsService, (service) =>
+		service.ingest(payload.events),
+	),
+);
+
+export const DiagnosticsHandlersLayer = Layer.mergeAll(
+	ExportBundle,
+	Overview,
+	Events,
+	Processes,
+	SignalProcess,
+	Ingest,
+);

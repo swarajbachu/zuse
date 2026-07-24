@@ -41,6 +41,7 @@ export interface AppBridge {
 	readonly getMainDiagnostics?: () => Promise<
 		ReadonlyArray<DiagnosticLogEntry>
 	>;
+	readonly revealDiagnosticsLogs?: () => Promise<void>;
 }
 
 export interface NetworkBridge {

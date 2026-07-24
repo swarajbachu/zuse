@@ -34,7 +34,7 @@ export type SettingsSection =
 	| { readonly kind: "devices" }
 	| { readonly kind: "browser" }
 	| { readonly kind: "pokedex" }
-	| { readonly kind: "advanced" }
+	| { readonly kind: "diagnostics" }
 	| { readonly kind: "shortcuts" }
 	| { readonly kind: "developer" }
 	| { readonly kind: "repository"; readonly projectId: FolderId };

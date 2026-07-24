@@ -248,6 +248,7 @@ export const decide = (
 				: success([{ ...command, _tag: "TurnInterruptRequested" }]);
 		case "AcknowledgeTurnInterrupt":
 			if (state.currentTurnId !== command.turnId) {
+				if (state.settledTurnIds.has(command.turnId)) return success([]);
 				return Result.fail(
 					new TurnConflict({
 						expectedTurnId: command.turnId,
@@ -259,14 +260,16 @@ export const decide = (
 				? success([])
 				: success([{ ...command, _tag: "TurnInterruptAcknowledged" }]);
 		case "FailTurnInterrupt":
-			return state.currentTurnId === command.turnId
-				? success([{ ...command, _tag: "TurnInterruptFailed" }])
-				: Result.fail(
-						new TurnConflict({
-							expectedTurnId: command.turnId,
-							actualTurnId: state.currentTurnId,
-						}),
-					);
+			if (state.currentTurnId !== command.turnId) {
+				if (state.settledTurnIds.has(command.turnId)) return success([]);
+				return Result.fail(
+					new TurnConflict({
+						expectedTurnId: command.turnId,
+						actualTurnId: state.currentTurnId,
+					}),
+				);
+			}
+			return success([{ ...command, _tag: "TurnInterruptFailed" }]);
 		case "EnqueueTurn":
 			return state.queuedTurns.has(command.queueId)
 				? success([])
