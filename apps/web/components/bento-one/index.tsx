@@ -16,7 +16,7 @@ const features = [
   },
   {
     title: "Stay local and keep the margin",
-    body: "Bring your own keys. Chats stay in SQLite, keys stay in Keychain, and Zuse Alpha adds no token markup.",
+    body: "Bring your own keys. Chats stay in SQLite, keys stay in Keychain, and Zuse (Beta) adds no token markup.",
   },
 ];
 

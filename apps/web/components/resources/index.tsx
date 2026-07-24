@@ -15,7 +15,7 @@ const data: CardData[] = [
   {
     title: "Bring your own keys",
     description:
-      "Your API keys stay in the macOS Keychain. Zuse Alpha is not a reseller and never marks up your model usage.",
+      "Your API keys stay in the macOS Keychain. Zuse (Beta) is not a reseller and never marks up your model usage.",
     time: "4 min read",
     image: "/assets/blog-preview-keys-clean.svg",
     href: "/blog/bring-your-own-keys",

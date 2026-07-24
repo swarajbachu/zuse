@@ -1,5 +1,4 @@
 import type { ClientSession } from "@zuse/client-runtime/connection";
-import { projectSessionEvent } from "@zuse/client-runtime/session-events";
 import { MessageId } from "@zuse/contracts";
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
@@ -8,7 +7,12 @@ import {
 	initializeSystemRepository,
 } from "../../src/conversation-fixture.ts";
 import type { SystemRpcClient } from "../../src/rpc-client.ts";
-import { waitForSessionMessages } from "../../src/session-observer.ts";
+import {
+	sessionFrameMessages,
+	sessionFrameVersion,
+	waitForActiveTurn,
+	waitForSessionMessages,
+} from "../../src/session-observer.ts";
 import { withSystemTest } from "../../src/system-scope.ts";
 
 describe("conversation process reliability", () => {
@@ -40,13 +44,13 @@ describe("conversation process reliability", () => {
 					session.client["session.events"]({
 						sessionId: conversation.initialSession.id,
 					}).pipe(
-						Stream.takeUntil(
-							(envelope) => projectSessionEvent(envelope)._tag === "message",
-						),
+						Stream.takeUntil((frame) => sessionFrameMessages(frame).length > 0),
 					),
 				),
 			);
-			const cursor = beforeDrop.at(-1)?.sequence;
+			const lastFrame = beforeDrop.at(-1);
+			const cursor =
+				lastFrame === undefined ? undefined : sessionFrameVersion(lastFrame);
 			if (cursor === undefined)
 				throw new Error("No replay cursor before disconnect.");
 
@@ -58,29 +62,25 @@ describe("conversation process reliability", () => {
 				Stream.runCollect(
 					session.client["session.events"]({
 						sessionId: conversation.initialSession.id,
-						afterSequence: cursor,
+						afterVersion: cursor,
+						hasProjection: true,
 					}).pipe(
-						Stream.takeUntil((envelope) => {
-							const projected = projectSessionEvent(envelope);
-							return (
-								projected._tag === "message" &&
-								projected.message.content._tag === "assistant"
-							);
-						}),
+						Stream.takeUntil((frame) =>
+							sessionFrameMessages(frame).some(
+								(message) => message.content._tag === "assistant",
+							),
+						),
 					),
 				),
 			);
-			expect(resumed.every((envelope) => envelope.sequence > cursor)).toBe(
+			const resumedEvents = resumed.filter((frame) => frame.kind === "event");
+			expect(resumedEvents.every((frame) => frame.streamVersion > cursor)).toBe(
 				true,
 			);
-			expect(new Set(resumed.map((envelope) => envelope.sequence)).size).toBe(
-				resumed.length,
-			);
 			expect(
-				resumed.filter(
-					(envelope) => projectSessionEvent(envelope)._tag === "message",
-				),
-			).toHaveLength(1);
+				new Set(resumedEvents.map((frame) => frame.streamVersion)).size,
+			).toBe(resumedEvents.length);
+			expect(resumed.flatMap(sessionFrameMessages)).toHaveLength(1);
 
 			await waitForSessionMessages(
 				session.client,
@@ -124,9 +124,14 @@ describe("conversation process reliability", () => {
 				}),
 			);
 			await controller.waitFor("prompt.held");
+			const turnId = await waitForActiveTurn(
+				session.client,
+				conversation.initialSession.id,
+			);
 			await Effect.runPromise(
 				session.client["messages.interrupt"]({
 					sessionId: conversation.initialSession.id,
+					turnId,
 				}),
 			);
 			await controller.waitFor("prompt.cancelled");
@@ -282,9 +287,14 @@ describe("conversation process reliability", () => {
 				}),
 			);
 			await controller.waitFor("prompt.received");
+			const turnId = await waitForActiveTurn(
+				session.client,
+				conversation.initialSession.id,
+			);
 			await Effect.runPromise(
 				session.client["messages.interrupt"]({
 					sessionId: conversation.initialSession.id,
+					turnId,
 				}),
 			);
 			await controller.waitFor("prompt.cancelled", undefined, 2_000);

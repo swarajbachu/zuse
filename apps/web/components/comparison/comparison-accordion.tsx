@@ -35,7 +35,7 @@ export const ComparisonAccordion = ({ cards }: { cards: ComparisonData[] }) => {
                 <div className="flex items-center gap-3">
                   <LogoMark className="size-7" />
                   <span className="-tracking-sm text-foreground text-lg leading-4.5 font-medium">
-                    Zuse Alpha
+                    Zuse (Beta)
                   </span>
                 </div>
                 <div className="flex items-center gap-3">

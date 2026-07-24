@@ -214,7 +214,7 @@ const AUTH_LOOPBACK_PORTS = [8976, 8977, 8978, 8979] as const;
 // RFC 8252 native-app pattern and gives a strictly better sign-in finish:
 //   - the browser lands on a real HTML page ("Signed in, you can close this
 //     tab") instead of a dead `zuse://` URL that leaves the tab hanging, and
-//   - no OS "Open in Zuse Alpha?" prompt — the browser hits localhost and the
+//   - no OS "Open in Zuse (Beta)?" prompt — the browser hits localhost and the
 //     already-running app answers directly, no deep-link handoff needed.
 // The `zuse://auth/callback` scheme handler stays registered below as a
 // fallback (and the future mobile path), but is no longer the primary flow.
@@ -309,10 +309,10 @@ const startAuthLoopback = async (): Promise<void> => {
 		handleAuthCallback(parsed.toString());
 		res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
 		res.end(
-			`<!doctype html><meta charset="utf-8"><title>Zuse Alpha</title>` +
+			`<!doctype html><meta charset="utf-8"><title>Zuse (Beta)</title>` +
 				`<body style="font-family:-apple-system,system-ui,sans-serif;background:#0b0b0c;color:#e5e5e5;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">` +
 				`<div style="text-align:center"><h2 style="font-weight:600">Signed in</h2>` +
-				`<p style="color:#a3a3a3">You can close this tab and return to Zuse Alpha.</p></div>`,
+				`<p style="color:#a3a3a3">You can close this tab and return to Zuse (Beta).</p></div>`,
 		);
 		focusMainWindow();
 	});
@@ -332,7 +332,8 @@ const startAuthLoopback = async (): Promise<void> => {
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL?.trim() || "";
 const isDevelopment = Boolean(DEV_SERVER_URL);
 
-const APP_NAME = isDevelopment ? "Zuse Alpha (Dev)" : "Zuse Alpha";
+const APP_NAME = isDevelopment ? "Zuse (Beta) (Dev)" : "Zuse (Beta)";
+const STABLE_USER_DATA_NAME = isDevelopment ? "Zuse Alpha (Dev)" : "Zuse Alpha";
 const DESKTOP_SOURCE_DIR =
 	process.env.ZUSE_DESKTOP_DIR?.trim() || Path.resolve(__dirname, "..");
 const DEV_ICON_PATH = Path.resolve(DESKTOP_SOURCE_DIR, "build", "icon.png");
@@ -348,11 +349,10 @@ if (
 
 const ZUSE_USER_DATA_DIR =
 	process.env.ZUSE_USER_DATA_DIR?.trim() ||
-	process.env.MEMOIZE_USER_DATA_DIR?.trim();
-if (ZUSE_USER_DATA_DIR) {
-	fsSync.mkdirSync(ZUSE_USER_DATA_DIR, { recursive: true });
-	app.setPath("userData", ZUSE_USER_DATA_DIR);
-}
+	process.env.MEMOIZE_USER_DATA_DIR?.trim() ||
+	Path.join(app.getPath("appData"), STABLE_USER_DATA_NAME);
+fsSync.mkdirSync(ZUSE_USER_DATA_DIR, { recursive: true });
+app.setPath("userData", ZUSE_USER_DATA_DIR);
 
 // Single-instance lock: required so a deep link launched while the app is
 // already running routes through `second-instance` (Win/Linux) rather than
@@ -2589,7 +2589,7 @@ void app.whenReady().then(async () => {
 	// the app name. macOS reads these once at panel-open time, so it's safe
 	// to call once on startup.
 	app.setAboutPanelOptions({
-		applicationName: "Zuse Alpha",
+		applicationName: "Zuse (Beta)",
 		applicationVersion: app.getVersion(),
 		version: app.getVersion(),
 		copyright: "© Swaraj Bachu",
@@ -2673,7 +2673,7 @@ app.on("before-quit", (event) => {
 		buttons: ["Cancel", "Quit anyway", "Quit when idle"],
 		defaultId: 0,
 		cancelId: 0,
-		title: "Quit Zuse Alpha?",
+		title: "Quit Zuse (Beta)?",
 		message: `${pluralAgents(runningAgentCount)} currently.`,
 		detail:
 			"Quitting now will stop them mid-turn. You can quit anyway, or have Zuse quit automatically once they finish.",

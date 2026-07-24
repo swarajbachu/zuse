@@ -84,10 +84,10 @@ export const Hero = () => {
             >
               <div className="flex items-center gap-1 sm:gap-2">
                 <div className="bg-primary text-primary-foreground rounded-full px-2 py-1 text-[10px] font-medium sm:text-xs">
-                  Alpha
+                  Beta
                 </div>
                 <div className="text-natural-white rounded-full pr-2 text-[10px] sm:text-xs">
-                  Public alpha — built for token maxing
+                  Public beta — built for token maxing
                 </div>
               </div>
             </Link>

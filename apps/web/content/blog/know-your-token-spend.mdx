@@ -3,7 +3,7 @@ title: "Know your token spend"
 description: "Tokenmaxer reads your agent CLI logs and unifies token counts and dollar cost by day, source, model, and session. All of it stays on your Mac."
 date: "2026-06-21"
 timeToRead: "6 min read"
-authorName: "Zuse Alpha team"
+authorName: "Zuse (Beta) team"
 authorRole: "Product notes"
 authorAvatar: "/app-icon.png"
 previewImage: "/assets/blog-preview-local-clean.svg"
@@ -16,11 +16,11 @@ labels:
 
 # Know your token spend
 
-> **Update — July 22, 2026:** The detailed Tokenmaxer dashboard and source logs described here remain local. Zuse Alpha separately sends default-on pseudonymous aggregate usage events, including safe model IDs and token/cost totals, with standard geographic enrichment. Prompts, responses, logs, code, paths, and entity IDs are excluded, and analytics can be disabled in Settings.
+> **Update — July 22, 2026:** The detailed Tokenmaxer dashboard and source logs described here remain local. Zuse (Beta) separately sends default-on pseudonymous aggregate usage events, including safe model IDs and token/cost totals, with standard geographic enrichment. Prompts, responses, logs, code, paths, and entity IDs are excluded, and analytics can be disabled in Settings.
 
 Most developers running coding agents have no idea how many tokens they burned last week. The usage exists, the dollars are real, but the number is invisible. It is scattered across Claude Code, Codex, OpenCode, Amp, Grok, and whatever else is installed, each writing its own logs in its own format, in its own corner of the disk.
 
-Zuse Alpha is a tool for token maxers. The first step to maxing anything is being able to see it. So Zuse Alpha ships Tokenmaxer: a local dashboard that reads the logs your agent CLIs already write and turns them into one honest picture of what you actually run.
+Zuse (Beta) is a tool for token maxers. The first step to maxing anything is being able to see it. So Zuse (Beta) ships Tokenmaxer: a local dashboard that reads the logs your agent CLIs already write and turns them into one honest picture of what you actually run.
 
 ---
 
@@ -44,7 +44,7 @@ Tokenmaxer scans the local logs of your installed agent CLIs and aggregates them
 - OpenCode
 - Amp
 - Grok
-- and Zuse Alpha's own sessions
+- and Zuse (Beta)'s own sessions
 
 It parses the session records each tool leaves behind, pulls out the token counts, and rolls them up by day, week, and month. Then it slices the same totals by source, by model, and by session, so the same spend can be read from whichever angle answers your question.
 
@@ -87,7 +87,7 @@ The same totals are useful in different shapes depending on what you are trying 
 
 ## Local by default
 
-Tokenmaxer is built on the same principle as the rest of Zuse Alpha: it runs on your Mac, and your data stays there.
+Tokenmaxer is built on the same principle as the rest of Zuse (Beta): it runs on your Mac, and your data stays there.
 
 Reading token usage could easily have been a cloud feature. Upload the logs, crunch them on a server, render a dashboard. That is the normal shape for analytics, and it is exactly the shape we did not want for a tool that reads your coding history.
 

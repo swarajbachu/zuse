@@ -15,22 +15,22 @@ const data = [
 	{
     question: "What do you mean by token maxing?",
     answer:
-      "Token maxing means using the model access you already pay for on more real work: parallel feature attempts, bug fixes, refactors, and reviews. Zuse Alpha makes that sane by keeping each run visible, isolated, and reviewable.",
+      "Token maxing means using the model access you already pay for on more real work: parallel feature attempts, bug fixes, refactors, and reviews. Zuse (Beta) makes that sane by keeping each run visible, isolated, and reviewable.",
   },
   {
-    question: "Who is Zuse Alpha for?",
+    question: "Who is Zuse (Beta) for?",
     answer:
-      "Zuse Alpha is for developers who want to become power users: people trying to code all day, keep multiple projects moving, max out their AI subscriptions, and still review exactly what ships.",
+      "Zuse (Beta) is for developers who want to become power users: people trying to code all day, keep multiple projects moving, max out their AI subscriptions, and still review exactly what ships.",
   },
   {
     question: "Which agents are supported?",
     answer:
-      "Zuse Alpha wraps six coding agent CLIs in one workspace: Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode. You can run them side by side and switch providers without leaving the app.",
+      "Zuse (Beta) wraps six coding agent CLIs in one workspace: Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode. You can run them side by side and switch providers without leaving the app.",
   },
   {
     question: "Do I need my own API keys or subscriptions?",
     answer:
-      "Yes. Zuse Alpha is bring your own keys. You plug in your own provider keys or subscriptions, and Zuse Alpha talks to them directly. It never resells tokens and adds $0 markup, so you only pay the agent providers.",
+      "Yes. Zuse (Beta) is bring your own keys. You plug in your own provider keys or subscriptions, and Zuse (Beta) talks to them directly. It never resells tokens and adds $0 markup, so you only pay the agent providers.",
   },
 	{
 		question: "Is my code or data sent anywhere?",
@@ -40,12 +40,12 @@ const data = [
 	{
 		question: "Is it macOS only?",
     answer:
-      "For now, yes. Zuse Alpha is a native macOS desktop app and ships as a universal build for both Apple Silicon and Intel. Other platforms may come later.",
+      "For now, yes. Zuse (Beta) is a native macOS desktop app and ships as a universal build for both Apple Silicon and Intel. Other platforms may come later.",
   },
   {
     question: "How much does it cost?",
     answer:
-      "Zuse Alpha is free while it is in public alpha. You only pay for the agent usage on your own keys. Paid Pro and Team plans are planned for later, but the alpha is free.",
+      "Zuse (Beta) is free while it is in public beta. You only pay for the agent usage on your own keys. Paid Pro and Team plans are planned for later, but the beta is free.",
   },
   {
     question: "Can I run multiple agents at once?",

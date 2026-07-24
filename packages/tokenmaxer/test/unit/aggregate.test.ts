@@ -21,7 +21,7 @@ describe("tokenmaxer aggregation", () => {
 			[
 				makeUsageRecord({
 					sourceId: "zuse",
-					sourceLabel: "Zuse Alpha",
+					sourceLabel: "Zuse (Beta)",
 					providerId: "claude",
 					model: "claude-sonnet-4-6",
 					sessionId: "s1",
@@ -105,7 +105,7 @@ describe("tokenmaxer aggregation", () => {
 		const records = ["claude", "codex"].map((providerId) =>
 			makeUsageRecord({
 				sourceId: "zuse",
-				sourceLabel: "Zuse Alpha",
+				sourceLabel: "Zuse (Beta)",
 				providerId,
 				model: `${providerId}-model`,
 				sessionId: `${providerId}-session`,
@@ -131,7 +131,7 @@ describe("tokenmaxer aggregation", () => {
 	it("marks duplicate-looking rows and excludes them by default", () => {
 		const base = makeUsageRecord({
 			sourceId: "zuse",
-			sourceLabel: "Zuse Alpha",
+			sourceLabel: "Zuse (Beta)",
 			providerId: "claude",
 			model: "claude-sonnet-4-6",
 			sessionId: "same",

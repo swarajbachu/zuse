@@ -1252,7 +1252,7 @@ function GeneralPane() {
 				) : (
 					<SettingsRow
 						title="Not signed in"
-						description="You're using Zuse Alpha locally without an account. Sign in to sync and unlock remote agents."
+						description="You're using Zuse (Beta) locally without an account. Sign in to sync and unlock remote agents."
 						action={
 							<Button
 								variant="settings"
@@ -1442,7 +1442,7 @@ function GeneralPane() {
 
 			<SettingsGroup
 				title="Workspace naming"
-				description="Controls how Zuse Alpha names new worktree-backed branches."
+				description="Controls how Zuse (Beta) names new worktree-backed branches."
 			>
 				<SettingsRow
 					title="Branch naming"
@@ -1674,7 +1674,7 @@ function ProvidersPane() {
 				</div>
 				<FrameFooter className="px-2 py-1 w-full">
 					<p className="text-xs leading-relaxed text-muted-foreground">
-						Zuse Alpha uses your existing CLI credentials — Claude Code, Codex,
+						Zuse (Beta) uses your existing CLI credentials — Claude Code, Codex,
 						Grok, Gemini, Cursor, and OpenCode all sign in through their own
 						login flows.
 					</p>
