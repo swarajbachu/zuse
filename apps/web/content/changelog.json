@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.15.4",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Fix stale reactor replay crash"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.15.3",
     "sections": [
       {
