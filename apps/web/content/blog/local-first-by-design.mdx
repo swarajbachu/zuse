@@ -16,6 +16,8 @@ labels:
 
 # Local-first by design
 
+> **Update — July 22, 2026:** Zuse Alpha now sends default-on pseudonymous product and reliability analytics. It never includes prompts, responses, code, paths, commands, account details, or error stacks, and can be disabled immediately in Settings. Standard geographic enrichment applies. The local storage and provider data path described below is unchanged.
+
 Zuse Alpha runs on your Mac, not in our cloud. There is no account to create before you can use it, no server holding your chat history, and no telemetry pulling your code off the machine.
 
 Local-first is not a feature we bolted on. It is how the app is built.
@@ -28,7 +30,7 @@ Local-first is not a feature we bolted on. It is how the app is built.
 - API keys live in the macOS Keychain, encrypted by the OS.
 - Model requests go directly from your machine to the provider you configured.
 
-That is the whole data path. Nothing routes through a Zuse Alpha backend.
+That is the data path for your work. Separate pseudonymous usage events are sent to our analytics processor under the privacy boundary above.
 
 ---
 
@@ -42,7 +44,7 @@ That is the whole data path. Nothing routes through a Zuse Alpha backend.
 
 ## The tradeoff
 
-Local-first means we cannot see your data, which means we lean on clear, detailed bug reports from you. We think that is the right trade. Your code is yours, and it should stay on the machine you trust.
+Local-first means we cannot inspect your work. Aggregated reliability events can show that a class of operation failed, but detailed investigation still relies on an explicit diagnostic export or bug report from you. Your code is yours, and it should stay on the machine you trust.
 
 ---
 

@@ -11,7 +11,13 @@
 			// survive into the build task (CI supplies them; empty locally is fine).
 			// Listing them under `env` also makes them part of the cache key, so
 			// changing either id busts stale build output.
-			"env": ["WORKOS_CLIENT_ID", "LINEAR_CLIENT_ID"],
+			"env": [
+				"WORKOS_CLIENT_ID",
+				"LINEAR_CLIENT_ID",
+				"ZUSE_POSTHOG_KEY",
+				"VITE_POSTHOG_KEY",
+				"EXPO_PUBLIC_POSTHOG_KEY"
+			],
 			"outputs": [".next/**", "!.next/cache/**", "dist/**", "dist-electron/**"]
 		},
 		"lint": {

@@ -1,24 +1,22 @@
-import { Effect, Fiber, Stream } from "effect";
-import { createAtomStore as create } from "../state/atom-store.ts";
-
 import {
-  type AppearanceMode,
-  type AutonomyLevel,
-  type BranchNamingStyle,
-  defaultModelEnabledByProvider,
-  defaultModelFor,
-  type CompletionSoundPreset,
-  type GitMergeMethod,
-  type ModelEnabledByProvider,
-  type OpencodeCustomProvider,
-  type ProviderId,
-  resolveModelSlug,
-  type RuntimeMode,
-  type SettingsFile,
+	type AppearanceMode,
+	type AutonomyLevel,
+	type BranchNamingStyle,
+	type CompletionSoundPreset,
+	defaultModelEnabledByProvider,
+	defaultModelFor,
+	type GitMergeMethod,
+	type ModelEnabledByProvider,
+	type OpencodeCustomProvider,
+	type ProviderId,
+	type RuntimeMode,
+	resolveModelSlug,
+	type SettingsFile,
 } from "@zuse/contracts";
-
+import { Effect, Fiber, Stream } from "effect";
 import { getRpcClient } from "../lib/rpc-client";
 import { readStorageWithLegacy, removeStorageKeys } from "../lib/storage-keys";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 /**
  * Renderer view of `settings.json`. Lives in the main process — this store
@@ -86,12 +84,13 @@ const fallbackSnapshot = (): SettingsSlice => ({
   defaultModelByProvider: seedModels(),
   defaultRuntimeMode: DEFAULT_RUNTIME_MODE,
   defaultAutoCreateWorktree: true,
-  defaultAutonomyLevel: DEFAULT_AUTONOMY_LEVEL,
-  completionSoundEnabled: false,
-  completionSoundPreset: "chime",
-  appearanceMode: "dark",
-  onboardingCompleted: false,
-  providerEnabled: seedProviderEnabled(),
+	defaultAutonomyLevel: DEFAULT_AUTONOMY_LEVEL,
+	completionSoundEnabled: false,
+	completionSoundPreset: "chime",
+	analyticsEnabled: true,
+	appearanceMode: "dark",
+	onboardingCompleted: false,
+	providerEnabled: seedProviderEnabled(),
   modelEnabledByProvider: seedModelEnabledByProvider(),
   opencodeProviderVisible: {},
   opencodeModelVisibleByProvider: {},
@@ -118,12 +117,13 @@ const sliceFromFile = (file: SettingsFile): SettingsSlice => {
     defaultModelByProvider: models,
     defaultRuntimeMode: file.defaultRuntimeMode,
     defaultAutoCreateWorktree: file.defaultAutoCreateWorktree,
-    defaultAutonomyLevel: file.defaultAutonomyLevel,
-    completionSoundEnabled: file.completionSoundEnabled,
-    completionSoundPreset: file.completionSoundPreset,
-    appearanceMode: file.appearanceMode,
-    onboardingCompleted: file.onboardingCompleted,
-    providerEnabled: {
+		defaultAutonomyLevel: file.defaultAutonomyLevel,
+		completionSoundEnabled: file.completionSoundEnabled,
+		completionSoundPreset: file.completionSoundPreset,
+		analyticsEnabled: file.analyticsEnabled,
+		appearanceMode: file.appearanceMode,
+		onboardingCompleted: file.onboardingCompleted,
+		providerEnabled: {
       ...seedProviderEnabled(),
       ...file.providerEnabled,
     },
@@ -152,12 +152,13 @@ interface SettingsSlice {
   readonly defaultModelByProvider: Record<ProviderId, string>;
   readonly defaultRuntimeMode: RuntimeMode;
   readonly defaultAutoCreateWorktree: boolean;
-  readonly defaultAutonomyLevel: AutonomyLevel;
-  readonly completionSoundEnabled: boolean;
-  readonly completionSoundPreset: CompletionSoundPreset;
-  readonly appearanceMode: AppearanceMode;
-  readonly onboardingCompleted: boolean;
-  readonly providerEnabled: Record<ProviderId, boolean>;
+	readonly defaultAutonomyLevel: AutonomyLevel;
+	readonly completionSoundEnabled: boolean;
+	readonly completionSoundPreset: CompletionSoundPreset;
+	readonly analyticsEnabled: boolean;
+	readonly appearanceMode: AppearanceMode;
+	readonly onboardingCompleted: boolean;
+	readonly providerEnabled: Record<ProviderId, boolean>;
   readonly modelEnabledByProvider: ModelEnabledByProvider;
   /** OpenCode sub-provider visibility in the model picker (id → shown). */
   readonly opencodeProviderVisible: Record<string, boolean>;
@@ -192,12 +193,13 @@ type SettingsState = SettingsSlice & {
   ) => void;
   readonly setDefaultRuntimeMode: (mode: RuntimeMode) => void;
   readonly setDefaultAutoCreateWorktree: (value: boolean) => void;
-  readonly setDefaultAutonomyLevel: (level: AutonomyLevel) => void;
-  readonly setCompletionSoundEnabled: (value: boolean) => void;
-  readonly setCompletionSoundPreset: (preset: CompletionSoundPreset) => void;
-  readonly setAppearanceMode: (mode: AppearanceMode) => void;
-  readonly setOnboardingCompleted: (value: boolean) => void;
-  readonly setProviderEnabled: (providerId: ProviderId, value: boolean) => void;
+	readonly setDefaultAutonomyLevel: (level: AutonomyLevel) => void;
+	readonly setCompletionSoundEnabled: (value: boolean) => void;
+	readonly setCompletionSoundPreset: (preset: CompletionSoundPreset) => void;
+	readonly setAnalyticsEnabled: (value: boolean) => void;
+	readonly setAppearanceMode: (mode: AppearanceMode) => void;
+	readonly setOnboardingCompleted: (value: boolean) => void;
+	readonly setProviderEnabled: (providerId: ProviderId, value: boolean) => void;
   readonly setModelEnabled: (
     providerId: ProviderId,
     modelId: string,
@@ -409,12 +411,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const client = await getRpcClient();
       await Effect.runPromise(
         client["settings.update"]({ patch: { completionSoundPreset: preset } }),
-      );
-    })();
-  },
-  setAppearanceMode: (mode) => {
-    set({ appearanceMode: mode });
-    void (async () => {
+			);
+		})();
+	},
+	setAnalyticsEnabled: (value) => {
+		set({ analyticsEnabled: value });
+		void getRpcClient().then((client) =>
+			Effect.runPromise(
+				client["settings.update"]({ patch: { analyticsEnabled: value } }),
+			),
+		);
+	},
+	setAppearanceMode: (mode) => {
+		set({ appearanceMode: mode });
+		void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
         client["settings.update"]({ patch: { appearanceMode: mode } }),

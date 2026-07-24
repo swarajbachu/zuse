@@ -170,6 +170,16 @@ export const retryConnectionNow = (options: WsProtocolOptions): void => {
 	connectionEntry(options).retryNow();
 };
 
+/**
+ * Push updated options into the supervisor without waiting for a screen to
+ * re-subscribe. When the route changed (host/port/routeGeneration), the
+ * supervisor reconnects immediately — this is how the connectivity runtime
+ * wakes an exhausted entry the moment a fresh local route lands.
+ */
+export const applyConnectionOptions = (options: WsProtocolOptions): void => {
+	connectionEntry(options);
+};
+
 export const subscribeConnection = (
 	options: WsProtocolOptions,
 	listener: (snapshot: ConnectionSnapshot) => void,

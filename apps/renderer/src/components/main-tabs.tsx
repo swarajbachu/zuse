@@ -15,6 +15,10 @@ import {
 } from "@zuse/contracts";
 import { Plus, X } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
+import {
+	type AgentActivityState,
+	deriveAgentActivityState,
+} from "../lib/agent-activity-state.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import {
 	activeChatId as deriveActiveChatId,
@@ -30,6 +34,7 @@ import { useUiStore } from "../store/ui.ts";
 import { FileIcon } from "./file-icon.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { RenameDialog } from "./rename-dialog.tsx";
+import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { Spinner } from "./ui/spinner";
 
 type Props = {
@@ -201,7 +206,11 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 								label={session.title}
 								title={tooltip}
 								providerId={session.providerId}
+								booting={session.status === "booting"}
 								running={runningBySession[session.id] === true}
+								activityState={deriveAgentActivityState(
+									sidebarMessagesBySession[session.id] ?? [],
+								)}
 								awaitingPermission={awaitingPermission.has(session.id)}
 								awaitingPlanApproval={
 									awaitingPlanApproval.has(session.id) ||
@@ -351,7 +360,9 @@ function ChatTabButton({
 	label,
 	title,
 	providerId,
+	booting,
 	running,
+	activityState,
 	awaitingPermission,
 	awaitingPlanApproval,
 	onClick,
@@ -362,7 +373,9 @@ function ChatTabButton({
 	label: string;
 	title?: string;
 	providerId: ProviderId;
+	booting: boolean;
 	running: boolean;
+	activityState: AgentActivityState;
 	awaitingPermission: boolean;
 	awaitingPlanApproval: boolean;
 	onClick: () => void;
@@ -383,31 +396,33 @@ function ChatTabButton({
 				title={title ?? label}
 				className="flex h-full min-w-0 flex-1 items-center gap-1.5 py-0 leading-none"
 			>
-				{awaitingPlanApproval ? (
-					<span
-						className="inline-flex size-3.5 shrink-0 items-center justify-center text-emerald-300"
-						title="Plan ready to approve"
-					>
-						<HugeiconsIcon icon={TaskDone01Icon} className="size-3.5" />
-					</span>
-				) : awaitingPermission ? (
-					<span
-						className="inline-flex size-3.5 shrink-0 items-center justify-center text-amber-300"
-						title="Waiting for permission"
-					>
-						<HugeiconsIcon icon={SquareLock01Icon} className="size-3.5" />
-					</span>
-				) : running ? (
-					<span className="inline-flex size-3.5 shrink-0 items-center justify-center text-foreground">
-						<Spinner className="size-3.5" />
-					</span>
-				) : (
-					<ProviderIcon
-						providerId={providerId}
-						className="size-3.5 shrink-0 text-foreground"
-					/>
-				)}
-				<span className="truncate leading-none">{label}</span>
+				<span className="inline-grid size-5 shrink-0 place-items-center">
+					{awaitingPlanApproval ? (
+						<span className="text-emerald-300" title="Plan ready to approve">
+							<HugeiconsIcon icon={TaskDone01Icon} className="size-3.5" />
+						</span>
+					) : awaitingPermission ? (
+						<span className="text-amber-300" title="Waiting for permission">
+							<HugeiconsIcon icon={SquareLock01Icon} className="size-3.5" />
+						</span>
+					) : booting || running ? (
+						<AgentActivityOrb
+							state={booting ? "working" : activityState}
+							label={booting ? "Starting agent" : `Agent is ${activityState}`}
+						/>
+					) : (
+						<ProviderIcon
+							providerId={providerId}
+							className="size-3.5 text-foreground"
+						/>
+					)}
+				</span>
+				<span
+					className="truncate leading-none"
+					aria-live={booting ? "polite" : undefined}
+				>
+					{booting ? "Starting agent…" : label}
+				</span>
 			</button>
 			<button
 				type="button"

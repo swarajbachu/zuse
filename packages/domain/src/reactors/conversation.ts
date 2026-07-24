@@ -15,6 +15,25 @@ export type ProviderStopCommand = {
 	readonly requestedAt: number;
 };
 
+export type ProviderTurnCommand = {
+	readonly _tag: "SendProviderTurn";
+	readonly turnId: string;
+	readonly providerInputJson: string;
+};
+
+export type ProviderInterruptCommand = {
+	readonly _tag: "InterruptProviderTurn";
+	readonly turnId: string;
+	readonly requestedAt: number;
+};
+
+export type ScheduledSuccessorCommand = {
+	readonly _tag: "StartScheduledSuccessor";
+	readonly turnId: string;
+	readonly queueId: string;
+	readonly inputJson: string;
+};
+
 export type AutoNameCommand = {
 	readonly _tag: "AutoNameChat";
 	readonly turnId: string;
@@ -63,6 +82,73 @@ export const providerStopReactorDefinition: ReactorDefinition<
 							command: {
 								_tag: "StopProvider",
 								requestedAt: record.event.requestedAt,
+							},
+						},
+					]
+				: [],
+		),
+};
+
+export const providerTurnReactorDefinition: ReactorDefinition<
+	StoredEvent<SessionEvent>,
+	ProviderTurnCommand
+> = {
+	name: "provider-turn",
+	react: (record) =>
+		Effect.succeed(
+			record.event._tag === "ProviderTurnRequested"
+				? [
+						{
+							streamId: record.streamId,
+							command: {
+								_tag: "SendProviderTurn",
+								turnId: record.event.turnId,
+								providerInputJson: record.event.providerInputJson,
+							},
+						},
+					]
+				: [],
+		),
+};
+
+export const providerInterruptReactorDefinition: ReactorDefinition<
+	StoredEvent<SessionEvent>,
+	ProviderInterruptCommand
+> = {
+	name: "provider-interrupt",
+	react: (record) =>
+		Effect.succeed(
+			record.event._tag === "TurnInterruptRequested"
+				? [
+						{
+							streamId: record.streamId,
+							command: {
+								_tag: "InterruptProviderTurn",
+								turnId: record.event.turnId,
+								requestedAt: record.event.requestedAt,
+							},
+						},
+					]
+				: [],
+		),
+};
+
+export const scheduledSuccessorReactorDefinition: ReactorDefinition<
+	StoredEvent<SessionEvent>,
+	ScheduledSuccessorCommand
+> = {
+	name: "scheduled-successor",
+	react: (record) =>
+		Effect.succeed(
+			record.event._tag === "ScheduledSuccessorReady"
+				? [
+						{
+							streamId: record.streamId,
+							command: {
+								_tag: "StartScheduledSuccessor",
+								turnId: record.event.turnId,
+								queueId: record.event.queueId,
+								inputJson: record.event.inputJson,
 							},
 						},
 					]

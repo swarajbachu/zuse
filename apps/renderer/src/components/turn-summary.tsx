@@ -83,15 +83,18 @@ const MAX_FILE_CHIPS = 4;
 /**
  * Inline summary of a completed turn. The header (chevron + counts + tool
  * icon preview) toggles the detail rows. The final assistant text always
- * shows below; the footer carries elapsed time and file edit stats. No
- * outer card — sections sit flat in the timeline like every other row.
+ * shows below; its action row carries elapsed time, while the optional footer
+ * carries file edit stats. No outer card — sections sit flat in the timeline
+ * like every other row.
  */
 function TurnSummaryImpl({
 	body,
 	sessionId,
+	showAssistantCommands = false,
 }: {
 	body: ReadonlyArray<Message>;
 	sessionId?: SessionId;
+	showAssistantCommands?: boolean;
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const [filesExpanded, setFilesExpanded] = useState(false);
@@ -249,6 +252,8 @@ function TurnSummaryImpl({
 							createdAt={finalAssistant.createdAt}
 							messageId={finalAssistant.id}
 							sessionId={sessionId}
+							showMessageCommands={showAssistantCommands}
+							elapsed={formatElapsed(duration)}
 							className="mt-1"
 						/>
 					</div>
@@ -258,10 +263,10 @@ function TurnSummaryImpl({
 			<div
 				className={cn(
 					"flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-1.5 text-[11px]",
+					visibleFileStats.length === 0 && "hidden",
 					mutedWhenOpen,
 				)}
 			>
-				<span className="tabular-nums">{formatElapsed(duration)}</span>
 				{visibleFileStats.map((f) => (
 					<FileBadge
 						key={f.path}

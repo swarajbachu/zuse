@@ -1,74 +1,117 @@
+import { SessionTimelineRegistry } from "@zuse/client-runtime/session-timeline";
 import {
-	projectSessionEvent,
-	sessionEventCursors,
-} from "@zuse/client-runtime/session-events";
-import type {
-	ComposerInput,
-	Message,
-	MessageId,
-	QueuedMessage,
+	type ComposerInput,
+	type Message,
+	type MessageId,
+	type QueuedMessage,
 	SessionId,
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
+import { Atom } from "effect/unstable/reactivity";
 import { AppState } from "react-native";
-import { create } from "zustand";
+
 import { connectionSessionKey } from "~/lib/session-key";
 import { readMessagesSnapshot, writeMessagesSnapshot } from "~/offline/cache";
 import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
+import { ConnectionFailed } from "~/rpc/errors";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
-type MessagesState = {
-	messagesBySession: Record<string, readonly Message[]>;
-	queueBySession: Record<string, readonly QueuedMessage[]>;
-	queuePausedBySession: Record<string, boolean>;
-	reconnectingBySession: Record<string, boolean>;
-	errorBySession: Record<string, string | null>;
-	hydrate: (
-		connKey: string,
-		options: WsProtocolOptions,
-		sessionId: SessionId,
-	) => Promise<void>;
-	release: (connKey: string, sessionId: SessionId) => Promise<void>;
-	flush: (connKey: string, sessionId: SessionId) => Promise<void>;
-	deleteQueued: (
-		connKey: string,
-		options: WsProtocolOptions,
-		sessionId: SessionId,
-		queueId: string,
-	) => Promise<void>;
-	updateQueued: (
-		connKey: string,
-		options: WsProtocolOptions,
-		sessionId: SessionId,
-		queueId: string,
-		input: ComposerInput,
-	) => Promise<void>;
-	reorderQueued: (
-		connKey: string,
-		options: WsProtocolOptions,
-		sessionId: SessionId,
-		queueIds: readonly string[],
-	) => Promise<void>;
-	sendQueuedNow: (
-		connKey: string,
-		options: WsProtocolOptions,
-		sessionId: SessionId,
-		queueId: string,
-	) => Promise<void>;
-	resumeQueue: (
-		connKey: string,
-		options: WsProtocolOptions,
-		sessionId: SessionId,
-	) => Promise<void>;
-};
+import { appAtomRegistry, batchAtomUpdates } from "./registry";
+import {
+	resetSessionTurnActivity,
+	syncSessionTurnActivity,
+} from "./session-turn-activity";
+
+export const messagesBySessionAtom = Atom.make<
+	Record<string, readonly Message[]>
+>({}).pipe(Atom.keepAlive);
+export const queueBySessionAtom = Atom.make<
+	Record<string, readonly QueuedMessage[]>
+>({}).pipe(Atom.keepAlive);
+export const queuePausedBySessionAtom = Atom.make<Record<string, boolean>>(
+	{},
+).pipe(Atom.keepAlive);
+export const reconnectingBySessionAtom = Atom.make<Record<string, boolean>>(
+	{},
+).pipe(Atom.keepAlive);
+export const messagesErrorBySessionAtom = Atom.make<
+	Record<string, string | null>
+>({}).pipe(Atom.keepAlive);
+
+const EMPTY_MESSAGES: readonly Message[] = [];
+const EMPTY_QUEUE: readonly QueuedMessage[] = [];
+
+/** Per-session transcript; notifies only when this session's messages change. */
+export const sessionMessagesAtom = Atom.family((key: string) =>
+	Atom.make((get) => get(messagesBySessionAtom)[key] ?? EMPTY_MESSAGES),
+);
+/** Per-session server queue; notifies only for this session. */
+export const sessionQueueAtom = Atom.family((key: string) =>
+	Atom.make((get) => get(queueBySessionAtom)[key] ?? EMPTY_QUEUE),
+);
+export const sessionQueuePausedAtom = Atom.family((key: string) =>
+	Atom.make((get) => get(queuePausedBySessionAtom)[key] === true),
+);
+export const sessionMessagesErrorAtom = Atom.family((key: string) =>
+	Atom.make((get) => get(messagesErrorBySessionAtom)[key] ?? null),
+);
 
 const liveFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
-const queueFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
-const eventCursorKey = (liveKey: string): string =>
-	`mobile:messages:${liveKey}`;
+const timelineRegistry = new SessionTimelineRegistry();
+const retainedTimelines = new Set<string>();
+const evictionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const refreshes = new Map<string, Promise<void>>();
+const hydrationInputs = new Map<
+	string,
+	{
+		connKey: string;
+		options: WsProtocolOptions;
+		sessionId: SessionId;
+	}
+>();
+
+export const currentSessionTurnId = (connKey: string, sessionId: SessionId) =>
+	timelineRegistry.state(
+		SessionId.make(connectionSessionKey(connKey, sessionId)),
+	).projection?.currentTurn?.turnId;
 const optimisticIds = new Set<MessageId>();
 const hydrationGeneration = new Map<string, number>();
 let appStateInstalled = false;
+
+const patchMessages = (key: string, messages: readonly Message[]): void => {
+	appAtomRegistry.update(messagesBySessionAtom, (state) => ({
+		...state,
+		[key]: messages,
+	}));
+};
+
+const patchQueue = (key: string, items: readonly QueuedMessage[]): void => {
+	appAtomRegistry.update(queueBySessionAtom, (state) => ({
+		...state,
+		[key]: items,
+	}));
+};
+
+const patchQueuePaused = (key: string, paused: boolean): void => {
+	appAtomRegistry.update(queuePausedBySessionAtom, (state) => ({
+		...state,
+		[key]: paused,
+	}));
+};
+
+const patchReconnecting = (key: string, reconnecting: boolean): void => {
+	appAtomRegistry.update(reconnectingBySessionAtom, (state) => ({
+		...state,
+		[key]: reconnecting,
+	}));
+};
+
+const patchError = (key: string, error: string | null): void => {
+	appAtomRegistry.update(messagesErrorBySessionAtom, (state) => ({
+		...state,
+		[key]: error,
+	}));
+};
 
 const stopFiber = async (
 	key: string,
@@ -82,345 +125,358 @@ const stopFiber = async (
 };
 
 const stop = async (key: string) => {
-	await Promise.all([stopFiber(key, liveFibers), stopFiber(key, queueFibers)]);
+	await stopFiber(key, liveFibers);
 };
 
 export const resetMessagesRuntime = async (): Promise<void> => {
-	const keys = new Set([...liveFibers.keys(), ...queueFibers.keys()]);
+	const keys = new Set(liveFibers.keys());
 	await Promise.all(Array.from(keys, stop));
 	optimisticIds.clear();
 	hydrationGeneration.clear();
-	sessionEventCursors.clearPrefix("mobile:messages:");
-	useMobileMessagesStore.setState({
-		messagesBySession: {},
-		queueBySession: {},
-		queuePausedBySession: {},
-		reconnectingBySession: {},
-		errorBySession: {},
+	for (const timer of evictionTimers.values()) clearTimeout(timer);
+	evictionTimers.clear();
+	retainedTimelines.clear();
+	hydrationInputs.clear();
+	refreshes.clear();
+	timelineRegistry.shutdown();
+	resetSessionTurnActivity();
+	batchAtomUpdates(() => {
+		appAtomRegistry.set(messagesBySessionAtom, {});
+		appAtomRegistry.set(queueBySessionAtom, {});
+		appAtomRegistry.set(queuePausedBySessionAtom, {});
+		appAtomRegistry.set(reconnectingBySessionAtom, {});
+		appAtomRegistry.set(messagesErrorBySessionAtom, {});
 	});
 };
 
-export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
-	messagesBySession: {},
-	queueBySession: {},
-	queuePausedBySession: {},
-	reconnectingBySession: {},
-	errorBySession: {},
-	release: async (connKey, sessionId) => {
-		const key = connectionSessionKey(connKey, sessionId);
-		hydrationGeneration.set(key, (hydrationGeneration.get(key) ?? 0) + 1);
-		await stop(key);
-	},
-	hydrate: async (connKey, options, sessionId) => {
-		installAppStateFlush(get);
-		const liveKey = connectionSessionKey(connKey, sessionId);
-		const generation = (hydrationGeneration.get(liveKey) ?? 0) + 1;
-		hydrationGeneration.set(liveKey, generation);
-		await stop(liveKey);
+/**
+ * Releases a screen's interest in a session timeline. The live stream and
+ * projection stay warm for five minutes (and for as long as a turn is still
+ * running) so returning to the thread resumes instantly instead of replaying.
+ */
+export const releaseMessages = async (
+	connKey: string,
+	sessionId: SessionId,
+): Promise<void> => {
+	const key = connectionSessionKey(connKey, sessionId);
+	retainedTimelines.delete(key);
+	if (
+		timelineRegistry.state(SessionId.make(key)).projection?.currentTurn != null
+	) {
+		return;
+	}
+	const previous = evictionTimers.get(key);
+	if (previous !== undefined) clearTimeout(previous);
+	evictionTimers.set(
+		key,
+		setTimeout(() => {
+			evictionTimers.delete(key);
+			if (retainedTimelines.has(key)) return;
+			void stop(key);
+			hydrationInputs.delete(key);
+			timelineRegistry.delete(SessionId.make(key));
+		}, 5 * 60_000),
+	);
+};
 
-		const cached = await Effect.runPromise(
-			readMessagesSnapshot(connKey, sessionId),
-		);
-		if (hydrationGeneration.get(liveKey) !== generation) return;
-		if (cached !== null) {
-			sessionEventCursors.set(eventCursorKey(liveKey), cached.highestSequence);
-			set((state) => ({
-				messagesBySession: {
-					...state.messagesBySession,
-					[liveKey]: cached.messages,
-				},
-			}));
-		}
+export const hydrateMessages = async (
+	connKey: string,
+	options: WsProtocolOptions,
+	sessionId: SessionId,
+): Promise<void> => {
+	installAppStateFlush();
+	const liveKey = connectionSessionKey(connKey, sessionId);
+	retainedTimelines.add(liveKey);
+	hydrationInputs.set(liveKey, { connKey, options, sessionId });
+	const eviction = evictionTimers.get(liveKey);
+	if (eviction !== undefined) clearTimeout(eviction);
+	evictionTimers.delete(liveKey);
+	if (liveFibers.has(liveKey)) return;
+	const generation = (hydrationGeneration.get(liveKey) ?? 0) + 1;
+	hydrationGeneration.set(liveKey, generation);
 
-		set((state) => ({
-			reconnectingBySession: {
-				...state.reconnectingBySession,
-				[liveKey]: false,
-			},
-			errorBySession: { ...state.errorBySession, [liveKey]: null },
-		}));
+	const cached = await Effect.runPromise(
+		readMessagesSnapshot(connKey, sessionId),
+	);
+	if (hydrationGeneration.get(liveKey) !== generation) return;
+	if (cached !== null) {
+		patchMessages(liveKey, cached.messages);
+	}
 
-		const run = async () => {
-			try {
-				const client = await Effect.runPromise(getConnectionClient(options));
-				const [listed, listedQueue] = await Promise.all([
-					Effect.runPromise(client["messages.list"]({ sessionId })),
-					Effect.runPromise(client["messages.queue.list"]({ sessionId })),
-				]);
-				if (hydrationGeneration.get(liveKey) !== generation) return;
-				set((state) => ({
-					queueBySession: {
-						...state.queueBySession,
-						[liveKey]: listedQueue.items,
-					},
-					queuePausedBySession: {
-						...state.queuePausedBySession,
-						[liveKey]: listedQueue.paused,
-					},
-				}));
-				if (listed.length > 0) {
-					set((state) => ({
-						messagesBySession: {
-							...state.messagesBySession,
-							[liveKey]: listed,
-						},
-					}));
-					void get().flush(connKey, sessionId);
-				}
-				console.info("[mobile] session.events", { sessionId });
-				const afterSequence =
-					sessionEventCursors.get(eventCursorKey(liveKey)) ?? 0;
-				const program = Stream.runForEach(
-					client["session.events"]({ sessionId, afterSequence }),
-					(envelope) =>
-						Effect.sync(() => {
-							if (hydrationGeneration.get(liveKey) !== generation) return;
-							sessionEventCursors.set(
-								eventCursorKey(liveKey),
-								envelope.sequence,
+	batchAtomUpdates(() => {
+		patchReconnecting(liveKey, false);
+		patchError(liveKey, null);
+	});
+
+	const run = async () => {
+		try {
+			const client = await Effect.runPromise(getConnectionClient(options));
+			const listed = await Effect.runPromise(
+				client["messages.list"]({ sessionId }),
+			);
+			if (hydrationGeneration.get(liveKey) !== generation) return;
+			if (listed.length > 0) {
+				patchMessages(liveKey, listed);
+				void flushMessages(connKey, sessionId);
+			}
+			const retained = timelineRegistry.state(SessionId.make(liveKey));
+			let fiber: Fiber.Fiber<unknown, unknown>;
+			const streamProgram = Stream.runForEach(
+				client["session.events"]({
+					sessionId,
+					afterVersion: retained.appliedVersion,
+					hasProjection: retained.projection !== null,
+				}),
+				(frame) =>
+					Effect.sync(() => {
+						if (hydrationGeneration.get(liveKey) !== generation) return;
+						timelineRegistry.accept(SessionId.make(liveKey), frame);
+						const next = timelineRegistry.state(SessionId.make(liveKey));
+						if (next.projection === null) return;
+						const durable = next.projection.messages;
+						const durableIds = new Set(durable.map((message) => message.id));
+						for (const id of optimisticIds) {
+							if (durableIds.has(id)) optimisticIds.delete(id);
+						}
+						batchAtomUpdates(() => {
+							syncSessionTurnActivity(
+								liveKey,
+								next.projection?.currentTurn != null,
 							);
-							console.info("[mobile] session.events envelope", {
-								sessionId,
-								sequence: envelope.sequence,
-							});
-							const projected = projectSessionEvent(envelope);
-							if (projected._tag !== "message") return;
-							const { message } = projected;
-							set((state) => {
-								const current = state.messagesBySession[liveKey] ?? [];
-								if (optimisticIds.has(message.id)) {
-									optimisticIds.delete(message.id);
-									return {
-										messagesBySession: {
-											...state.messagesBySession,
-											[liveKey]: current.map((currentMessage) =>
-												currentMessage.id === message.id
-													? message
-													: currentMessage,
-											),
-										},
-									};
-								}
-								const existingIndex = current.findIndex(
-									(currentMessage) => currentMessage.id === message.id,
+							appAtomRegistry.update(messagesBySessionAtom, (state) => {
+								const current = state[liveKey] ?? [];
+								const pending = current.filter(
+									(message) =>
+										optimisticIds.has(message.id) &&
+										!durableIds.has(message.id),
 								);
-								if (existingIndex !== -1) {
-									return {
-										messagesBySession: {
-											...state.messagesBySession,
-											[liveKey]: current.map((currentMessage, index) =>
-												index === existingIndex ? message : currentMessage,
-											),
-										},
-									};
-								}
-								const next = [...current, message].slice(-500);
 								return {
-									messagesBySession: {
-										...state.messagesBySession,
-										[liveKey]: next,
-									},
+									...state,
+									[liveKey]: [...durable, ...pending].slice(-500),
 								};
 							});
-							void get().flush(connKey, sessionId);
-						}),
-				).pipe(
-					Effect.catch((cause) =>
-						Effect.sync(() => {
-							if (hydrationGeneration.get(liveKey) !== generation) return;
-							set((state) => ({
-								reconnectingBySession: {
-									...state.reconnectingBySession,
-									[liveKey]: true,
-								},
-								errorBySession: {
-									...state.errorBySession,
-									[liveKey]:
-										cause instanceof Error ? cause.message : String(cause),
-								},
-							}));
+							patchQueue(liveKey, next.projection?.queue.items ?? []);
+							patchQueuePaused(liveKey, next.projection?.queue.paused ?? false);
+						});
+						void flushMessages(connKey, sessionId);
+					}),
+			).pipe(
+				Effect.andThen(
+					Effect.fail(
+						new ConnectionFailed({
+							message: "Active transcript stream completed unexpectedly.",
 						}),
 					),
-				);
-				liveFibers.set(liveKey, Effect.runFork(program));
-				const queueProgram = Stream.runForEach(
-					client["messages.queue.stream"]({ sessionId }),
-					(queue) =>
-						Effect.sync(() => {
-							if (hydrationGeneration.get(liveKey) !== generation) return;
-							set((state) => ({
-								queueBySession: {
-									...state.queueBySession,
-									[liveKey]: queue.items,
-								},
-								queuePausedBySession: {
-									...state.queuePausedBySession,
-									[liveKey]: queue.paused,
-								},
-							}));
-						}),
-				).pipe(
-					Effect.catch((cause) =>
-						Effect.sync(() => {
-							console.warn("[mobile] queue stream errored", {
-								sessionId,
-								reason: cause instanceof Error ? cause.message : String(cause),
-							});
-						}),
-					),
-				);
-				queueFibers.set(liveKey, Effect.runFork(queueProgram));
-			} catch (cause) {
-				if (hydrationGeneration.get(liveKey) !== generation) return;
-				reportConnectionFailure(options, cause);
-				set((state) => ({
-					reconnectingBySession: {
-						...state.reconnectingBySession,
-						[liveKey]: true,
-					},
-					errorBySession: {
-						...state.errorBySession,
-						[liveKey]: cause instanceof Error ? cause.message : String(cause),
-					},
-				}));
-			}
-		};
+				),
+				Effect.catch((cause) =>
+					Effect.sync(() => {
+						if (hydrationGeneration.get(liveKey) !== generation) return;
+						reportConnectionFailure(options, cause);
+						batchAtomUpdates(() => {
+							patchReconnecting(liveKey, true);
+							patchError(liveKey, messageOf(cause));
+						});
+					}),
+				),
+			);
+			const program = Effect.yieldNow.pipe(
+				Effect.andThen(streamProgram),
+				Effect.ensuring(
+					Effect.sync(() => {
+						if (liveFibers.get(liveKey) === fiber) {
+							liveFibers.delete(liveKey);
+						}
+					}),
+				),
+			);
+			fiber = Effect.runFork(program);
+			liveFibers.set(liveKey, fiber);
+		} catch (cause) {
+			if (hydrationGeneration.get(liveKey) !== generation) return;
+			reportConnectionFailure(options, cause);
+			batchAtomUpdates(() => {
+				patchReconnecting(liveKey, true);
+				patchError(liveKey, messageOf(cause));
+			});
+		}
+	};
 
-		await run();
-	},
-	flush: async (connKey, sessionId) => {
-		const liveKey = connectionSessionKey(connKey, sessionId);
-		const messages = get().messagesBySession[liveKey] ?? [];
+	await run();
+};
+
+/**
+ * Reopens a retained transcript from an authoritative server snapshot.
+ *
+ * A mounted RPC stream can appear healthy after its underlying socket has been
+ * replaced. Reusing that fiber also reuses its stale current-turn projection,
+ * so a screen refresh must replace both rather than treating warm state as
+ * proof of liveness.
+ */
+export const refreshMessages = (
+	connKey: string,
+	options: WsProtocolOptions,
+	sessionId: SessionId,
+): Promise<void> => {
+	const key = connectionSessionKey(connKey, sessionId);
+	retainedTimelines.add(key);
+	hydrationInputs.set(key, { connKey, options, sessionId });
+	const existing = refreshes.get(key);
+	if (existing !== undefined) return existing;
+	const refresh = (async () => {
+		await stop(key);
+		timelineRegistry.delete(SessionId.make(key));
+		await hydrateMessages(connKey, options, sessionId);
+	})().finally(() => {
+		if (refreshes.get(key) === refresh) refreshes.delete(key);
+	});
+	refreshes.set(key, refresh);
+	return refresh;
+};
+
+export const flushMessages = async (
+	connKey: string,
+	sessionId: SessionId,
+): Promise<void> => {
+	const liveKey = connectionSessionKey(connKey, sessionId);
+	const messages = appAtomRegistry.get(messagesBySessionAtom)[liveKey] ?? [];
+	await Effect.runPromise(
+		writeMessagesSnapshot(connKey, sessionId, {
+			highestSequence: timelineRegistry.state(SessionId.make(liveKey))
+				.appliedVersion,
+			messages,
+		}),
+	).catch(() => {});
+};
+
+export const deleteQueuedMessage = async (
+	connKey: string,
+	options: WsProtocolOptions,
+	sessionId: SessionId,
+	queueId: string,
+): Promise<void> => {
+	const liveKey = connectionSessionKey(connKey, sessionId);
+	const previous = appAtomRegistry.get(queueBySessionAtom)[liveKey] ?? [];
+	patchQueue(
+		liveKey,
+		previous.filter((item) => item.id !== queueId),
+	);
+	try {
+		const client = await Effect.runPromise(getConnectionClient(options));
 		await Effect.runPromise(
-			writeMessagesSnapshot(connKey, sessionId, {
-				highestSequence: sessionEventCursors.get(eventCursorKey(liveKey)) ?? 0,
-				messages,
+			client["messages.queue.delete"]({ sessionId, queueId }),
+		);
+	} catch (cause) {
+		reportConnectionFailure(options, cause);
+		patchQueue(liveKey, previous);
+	}
+};
+
+export const updateQueuedMessage = async (
+	connKey: string,
+	options: WsProtocolOptions,
+	sessionId: SessionId,
+	queueId: string,
+	input: ComposerInput,
+): Promise<void> => {
+	const key = connectionSessionKey(connKey, sessionId);
+	const previous = appAtomRegistry.get(queueBySessionAtom)[key] ?? [];
+	try {
+		const client = await Effect.runPromise(getConnectionClient(options));
+		const updated = await Effect.runPromise(
+			client["messages.queue.update"]({ sessionId, queueId, input }),
+		);
+		appAtomRegistry.update(queueBySessionAtom, (state) => ({
+			...state,
+			[key]: (state[key] ?? []).map((item) =>
+				item.id === queueId ? updated : item,
+			),
+		}));
+	} catch (cause) {
+		reportConnectionFailure(options, cause);
+		batchAtomUpdates(() => {
+			patchQueue(key, previous);
+			patchError(key, messageOf(cause));
+		});
+		throw cause;
+	}
+};
+
+export const reorderQueuedMessages = async (
+	connKey: string,
+	options: WsProtocolOptions,
+	sessionId: SessionId,
+	queueIds: readonly string[],
+): Promise<void> => {
+	const key = connectionSessionKey(connKey, sessionId);
+	const previous = appAtomRegistry.get(queueBySessionAtom)[key] ?? [];
+	const byId = new Map(previous.map((item) => [item.id, item]));
+	const optimistic = queueIds.flatMap((id) => byId.get(id) ?? []);
+	patchQueue(key, optimistic);
+	try {
+		const client = await Effect.runPromise(getConnectionClient(options));
+		const next = await Effect.runPromise(
+			client["messages.queue.reorder"]({
+				sessionId,
+				queueIds: [...queueIds],
 			}),
-		).catch(() => {});
-	},
-	deleteQueued: async (connKey, options, sessionId, queueId) => {
-		const liveKey = connectionSessionKey(connKey, sessionId);
-		const previous = get().queueBySession[liveKey] ?? [];
-		set((state) => ({
-			queueBySession: {
-				...state.queueBySession,
-				[liveKey]: previous.filter((item) => item.id !== queueId),
-			},
-		}));
-		try {
-			const client = await Effect.runPromise(getConnectionClient(options));
-			await Effect.runPromise(
-				client["messages.queue.delete"]({ sessionId, queueId }),
-			);
-		} catch (cause) {
-			reportConnectionFailure(options, cause);
-			set((state) => ({
-				queueBySession: { ...state.queueBySession, [liveKey]: previous },
-			}));
-		}
-	},
-	updateQueued: async (connKey, options, sessionId, queueId, input) => {
-		const key = connectionSessionKey(connKey, sessionId);
-		const previous = get().queueBySession[key] ?? [];
-		try {
-			const client = await Effect.runPromise(getConnectionClient(options));
-			const updated = await Effect.runPromise(
-				client["messages.queue.update"]({ sessionId, queueId, input }),
-			);
-			set((state) => ({
-				queueBySession: {
-					...state.queueBySession,
-					[key]: (state.queueBySession[key] ?? []).map((item) =>
-						item.id === queueId ? updated : item,
-					),
-				},
-			}));
-		} catch (cause) {
-			reportConnectionFailure(options, cause);
-			set((state) => ({
-				queueBySession: { ...state.queueBySession, [key]: previous },
-				errorBySession: { ...state.errorBySession, [key]: messageOf(cause) },
-			}));
-			throw cause;
-		}
-	},
-	reorderQueued: async (connKey, options, sessionId, queueIds) => {
-		const key = connectionSessionKey(connKey, sessionId);
-		const previous = get().queueBySession[key] ?? [];
-		const byId = new Map(previous.map((item) => [item.id, item]));
-		const optimistic = queueIds.flatMap((id) => byId.get(id) ?? []);
-		set((state) => ({
-			queueBySession: { ...state.queueBySession, [key]: optimistic },
-		}));
-		try {
-			const client = await Effect.runPromise(getConnectionClient(options));
-			const next = await Effect.runPromise(
-				client["messages.queue.reorder"]({
-					sessionId,
-					queueIds: [...queueIds],
-				}),
-			);
-			set((state) => ({
-				queueBySession: { ...state.queueBySession, [key]: next },
-			}));
-		} catch (cause) {
-			reportConnectionFailure(options, cause);
-			set((state) => ({
-				queueBySession: { ...state.queueBySession, [key]: previous },
-			}));
-			throw cause;
-		}
-	},
-	sendQueuedNow: async (connKey, options, sessionId, queueId) => {
-		const key = connectionSessionKey(connKey, sessionId);
-		const previous = get().queueBySession[key] ?? [];
-		set((state) => ({
-			queueBySession: {
-				...state.queueBySession,
-				[key]: previous.filter((item) => item.id !== queueId),
-			},
-		}));
-		try {
-			const client = await Effect.runPromise(getConnectionClient(options));
-			await Effect.runPromise(
-				client["messages.queue.sendNow"]({ sessionId, queueId }),
-			);
-		} catch (cause) {
-			reportConnectionFailure(options, cause);
-			set((state) => ({
-				queueBySession: { ...state.queueBySession, [key]: previous },
-			}));
-			throw cause;
-		}
-	},
-	resumeQueue: async (connKey, options, sessionId) => {
-		const key = connectionSessionKey(connKey, sessionId);
-		set((state) => ({
-			queuePausedBySession: { ...state.queuePausedBySession, [key]: false },
-		}));
-		try {
-			const client = await Effect.runPromise(getConnectionClient(options));
-			await Effect.runPromise(client["messages.queue.resume"]({ sessionId }));
-		} catch (cause) {
-			reportConnectionFailure(options, cause);
-			set((state) => ({
-				queuePausedBySession: { ...state.queuePausedBySession, [key]: true },
-			}));
-			throw cause;
-		}
-	},
-}));
+		);
+		patchQueue(key, next);
+	} catch (cause) {
+		reportConnectionFailure(options, cause);
+		patchQueue(key, previous);
+		throw cause;
+	}
+};
+
+export const sendQueuedMessageNow = async (
+	connKey: string,
+	options: WsProtocolOptions,
+	sessionId: SessionId,
+	queueId: string,
+): Promise<void> => {
+	const key = connectionSessionKey(connKey, sessionId);
+	const previous = appAtomRegistry.get(queueBySessionAtom)[key] ?? [];
+	patchQueue(
+		key,
+		previous.filter((item) => item.id !== queueId),
+	);
+	try {
+		const client = await Effect.runPromise(getConnectionClient(options));
+		await Effect.runPromise(
+			client["messages.queue.sendNow"]({ sessionId, queueId }),
+		);
+	} catch (cause) {
+		reportConnectionFailure(options, cause);
+		patchQueue(key, previous);
+		throw cause;
+	}
+};
+
+export const resumeQueue = async (
+	connKey: string,
+	options: WsProtocolOptions,
+	sessionId: SessionId,
+): Promise<void> => {
+	const key = connectionSessionKey(connKey, sessionId);
+	patchQueuePaused(key, false);
+	try {
+		const client = await Effect.runPromise(getConnectionClient(options));
+		await Effect.runPromise(client["messages.queue.resume"]({ sessionId }));
+	} catch (cause) {
+		reportConnectionFailure(options, cause);
+		patchQueuePaused(key, true);
+		throw cause;
+	}
+};
 
 const messageOf = (cause: unknown): string =>
 	cause instanceof Error ? cause.message : String(cause);
 
 export const addOptimisticMessage = (key: string, message: Message): void => {
 	optimisticIds.add(message.id);
-	useMobileMessagesStore.setState((state) => ({
-		messagesBySession: {
-			...state.messagesBySession,
-			[key]: [...(state.messagesBySession[key] ?? []), message].slice(-500),
-		},
+	appAtomRegistry.update(messagesBySessionAtom, (state) => ({
+		...state,
+		[key]: [...(state[key] ?? []), message].slice(-500),
 	}));
 };
 
@@ -429,27 +485,31 @@ export const removeOptimisticMessage = (
 	messageId: MessageId,
 ): void => {
 	optimisticIds.delete(messageId);
-	useMobileMessagesStore.setState((state) => ({
-		messagesBySession: {
-			...state.messagesBySession,
-			[key]: (state.messagesBySession[key] ?? []).filter(
-				(message) => message.id !== messageId,
-			),
-		},
+	appAtomRegistry.update(messagesBySessionAtom, (state) => ({
+		...state,
+		[key]: (state[key] ?? []).filter((message) => message.id !== messageId),
 	}));
 };
 
-const installAppStateFlush = (get: () => MessagesState) => {
+const installAppStateFlush = () => {
 	if (appStateInstalled) return;
 	appStateInstalled = true;
 	AppState.addEventListener("change", (next) => {
-		if (next !== "background") return;
-		for (const key of liveFibers.keys()) {
-			const [connKey, sessionId] = parseLiveKey(key);
-			if (connKey !== undefined && sessionId !== undefined) {
-				void get().flush(connKey, sessionId as SessionId);
+		if (next === "background") {
+			for (const key of liveFibers.keys()) {
+				const [connKey, sessionId] = parseLiveKey(key);
+				if (connKey !== undefined && sessionId !== undefined) {
+					void flushMessages(connKey, sessionId as SessionId);
+				}
+				void stop(key);
 			}
-			void stop(key);
+			return;
+		}
+		if (next !== "active") return;
+		for (const key of retainedTimelines) {
+			const input = hydrationInputs.get(key);
+			if (input === undefined) continue;
+			void refreshMessages(input.connKey, input.options, input.sessionId);
 		}
 	});
 };

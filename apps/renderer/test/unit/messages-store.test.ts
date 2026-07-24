@@ -1,9 +1,13 @@
 import type { ConnectionSnapshot } from "@zuse/client-runtime/supervisor";
 import {
 	ComposerInput,
+	Message,
+	MessageId,
 	QueuedMessage,
-	SessionDomainEventEnvelope,
+	QueueState,
 	type SessionId,
+	type SessionTimelineFrame,
+	SessionTimelineProjection,
 } from "@zuse/contracts";
 import { Effect, Queue, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,6 +29,8 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 });
 
 const {
+	acknowledgeTimelineSessionCreated,
+	deferTimelineUntilSessionCreated,
 	setMessagesRpcClientForTest,
 	setMessagesRpcCommandDispatcherForTest,
 	teardownLiveStreams,
@@ -52,23 +58,38 @@ const externalMessageEvent = (
 	sequence: number,
 	messageId: string,
 	text: string,
-): SessionDomainEventEnvelope =>
-	new SessionDomainEventEnvelope({
-		sequence,
-		eventId: `event-${messageId}`,
-		correlationId: `correlation-${messageId}`,
-		causationEventId: null,
-		sessionId,
-		streamVersion: sequence,
-		type: "MessagePersisted",
-		payloadJson: JSON.stringify({
-			_tag: "MessagePersisted",
-			messageId,
+): SessionTimelineFrame => ({
+	kind: "event",
+	eventId: `event-${messageId}`,
+	sessionId,
+	streamVersion: sequence,
+	event: {
+		_tag: "MessagePersisted",
+		message: Message.make({
+			id: MessageId.make(messageId),
+			sessionId,
 			role: "assistant",
-			contentJson: JSON.stringify({ _tag: "assistant", text }),
-			createdAt: new Date("2026-06-21T00:00:01.000Z").getTime() + sequence,
+			content: { _tag: "assistant", text },
+			createdAt: new Date(
+				new Date("2026-06-21T00:00:01.000Z").getTime() + sequence,
+			),
 		}),
-	});
+	},
+});
+
+const timelineSnapshot = (throughVersion = 0): SessionTimelineFrame => ({
+	kind: "snapshot",
+	sessionId,
+	throughVersion,
+	projection: SessionTimelineProjection.make({
+		messages: [],
+		status: "running",
+		currentTurn: null,
+		queue: QueueState.make({ items: [], paused: false }),
+		permissionMode: "default",
+		runtimeMode: "approval-required",
+	}),
+});
 
 let interruptCalls = 0;
 let sendNowCalls: Array<{
@@ -225,7 +246,7 @@ describe("messages store queue actions", () => {
 		expect(new Set(dispatchedCommandIds).size).toBe(2);
 	});
 
-	it("reconnects the active transcript when it is still empty", async () => {
+	it("retains a healthy empty transcript subscription across remounts", async () => {
 		let streamCalls = 0;
 		rpcClientFactory = () =>
 			({
@@ -241,15 +262,35 @@ describe("messages store queue actions", () => {
 		await useMessagesStore.getState().hydrate(sessionId);
 		await useMessagesStore.getState().hydrate(sessionId);
 
-		expect(streamCalls).toBe(2);
+		expect(streamCalls).toBe(1);
+	});
+
+	it("waits for durable session creation before opening the transcript", async () => {
+		let streamCalls = 0;
+		rpcClientFactory = () =>
+			({
+				"session.events": () => {
+					streamCalls += 1;
+					return Stream.never;
+				},
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+
+		deferTimelineUntilSessionCreated(sessionId);
+		await useMessagesStore.getState().hydrate(sessionId);
+		expect(streamCalls).toBe(0);
+
+		acknowledgeTimelineSessionCreated(sessionId);
+		await expect.poll(() => streamCalls).toBe(1);
 	});
 
 	it("applies an externally persisted message to the active transcript", async () => {
-		let publishEvent: ((event: SessionDomainEventEnvelope) => void) | undefined;
+		let publishEvent: ((event: SessionTimelineFrame) => void) | undefined;
 		rpcClientFactory = () =>
 			({
 				"session.events": () =>
-					Stream.callback<SessionDomainEventEnvelope>((queue) =>
+					Stream.callback<SessionTimelineFrame>((queue) =>
 						Effect.sync(() => {
 							publishEvent = (event) => Queue.offerUnsafe(queue, event);
 						}),
@@ -261,6 +302,7 @@ describe("messages store queue actions", () => {
 
 		await useMessagesStore.getState().hydrate(sessionId);
 		await expect.poll(() => publishEvent).toBeDefined();
+		publishEvent?.(timelineSnapshot());
 		publishEvent?.(
 			externalMessageEvent(1, "message-external", "arrived without reload"),
 		);
@@ -281,7 +323,7 @@ describe("messages store queue actions", () => {
 	it("resubscribes the active transcript after its connection generation changes", async () => {
 		let observeConnection: ((snapshot: ConnectionSnapshot) => void) | undefined;
 		let streamCalls = 0;
-		let publishEvent: ((event: SessionDomainEventEnvelope) => void) | undefined;
+		let publishEvent: ((event: SessionTimelineFrame) => void) | undefined;
 		subscribeRendererRpcConnection.mockImplementation((listener) => {
 			observeConnection = listener;
 			listener({
@@ -300,7 +342,7 @@ describe("messages store queue actions", () => {
 					if (streamCalls === 1) {
 						return Stream.fail(new Error("active transcript stream dropped"));
 					}
-					return Stream.callback<SessionDomainEventEnvelope>((queue) =>
+					return Stream.callback<SessionTimelineFrame>((queue) =>
 						Effect.sync(() => {
 							publishEvent = (event) => Queue.offerUnsafe(queue, event);
 						}),
@@ -330,6 +372,7 @@ describe("messages store queue actions", () => {
 		await expect.poll(() => streamCalls).toBe(2);
 		await expect.poll(() => publishEvent).toBeDefined();
 
+		publishEvent?.(timelineSnapshot(1));
 		publishEvent?.(
 			externalMessageEvent(
 				2,

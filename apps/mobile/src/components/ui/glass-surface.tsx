@@ -2,7 +2,7 @@ import { GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
 import { Platform, StyleSheet, View, type ViewProps } from "react-native";
 import { useUniwind } from "uniwind";
 
-import { colors, radii } from "~/theme";
+import { glass, radii } from "~/theme";
 
 const styles = StyleSheet.create({
 	base: { borderRadius: radii.lg, borderCurve: "continuous" },
@@ -40,7 +40,12 @@ export function GlassSurface({ style, children, ...rest }: ViewProps) {
 			style={[
 				styles.base,
 				styles.fallback,
-				{ backgroundColor: colors.card, borderColor: colors.border },
+				{
+					backgroundColor:
+						theme === "dark" ? glass.surfaceDark : glass.surfaceLight,
+					borderColor:
+						theme === "dark" ? glass.hairlineDark : glass.hairlineLight,
+				},
 				style,
 			]}
 			{...rest}

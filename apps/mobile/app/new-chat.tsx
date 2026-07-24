@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { ArrowUpIcon, CloudOffIcon } from "@hugeicons-pro/core-solid-rounded";
 import {
 	orderedChatSessions,
@@ -69,10 +70,25 @@ import {
 	makeTextInput,
 	sendMessage,
 } from "~/rpc/actions";
-import { useAuthStore } from "~/store/auth";
-import { useAvailabilityStore } from "~/store/availability";
-import { useConnectionsStore } from "~/store/connections";
-import { useSessionsStore } from "~/store/sessions";
+import { authAccountAtom } from "~/store/auth";
+import {
+	connectionAvailabilityAtom,
+	hydrateAvailability,
+} from "~/store/availability";
+import {
+	connectionsAtom,
+	connectionsHydratedAtom,
+	hydrateConnections,
+	refreshConnectionLabel,
+} from "~/store/connections";
+import {
+	bundlesByConnectionAtom,
+	createChat,
+	createSession,
+	hydrateSessions,
+	loadingByConnectionAtom,
+	statusBySessionAtom,
+} from "~/store/sessions";
 import { colors } from "~/theme";
 
 export default function NewChatScreen() {
@@ -115,29 +131,20 @@ export default function NewChatScreen() {
 	const [branches, setBranches] = useState<readonly GitBranchInfo[]>([]);
 	const [prs, setPrs] = useState<readonly GitPrSummary[]>([]);
 
-	const {
-		connections: allConnections,
-		hydrated,
-		hydrate: hydrateConnections,
-		refreshLabel,
-	} = useConnectionsStore();
-	const account = useAuthStore((state) => state.account);
+	const allConnections = useAtomValue(connectionsAtom);
+	const hydrated = useAtomValue(connectionsHydratedAtom);
+	const account = useAtomValue(authAccountAtom);
 	const connections = useMemo(
 		() => availableConnections(allConnections, account !== null),
 		[account, allConnections],
 	);
-	const {
-		bundlesByConnection,
-		loadingByConnection,
-		hydrate: hydrateSessions,
-		createChat,
-		createSession,
-		statusBySession,
-	} = useSessionsStore();
+	const bundlesByConnection = useAtomValue(bundlesByConnectionAtom);
+	const loadingByConnection = useAtomValue(loadingByConnectionAtom);
+	const statusBySession = useAtomValue(statusBySessionAtom);
 
 	useEffect(() => {
 		if (!hydrated) void hydrateConnections();
-	}, [hydrateConnections, hydrated]);
+	}, [hydrated]);
 
 	useEffect(() => {
 		for (const connection of connections) {
@@ -146,9 +153,9 @@ export default function NewChatScreen() {
 			void hydrateSessions(connection.key, options);
 			// Adopt the machine's computed name here too, so the machine row shows
 			// the nice label even if the inbox hasn't refreshed it yet.
-			void refreshLabel(connection.key, options);
+			void refreshConnectionLabel(connection.key, options);
 		}
-	}, [connections, hydrateSessions, refreshLabel]);
+	}, [connections]);
 
 	const effectiveConnectionKey =
 		selectedConnectionKey ??
@@ -199,16 +206,13 @@ export default function NewChatScreen() {
 		[connections, effectiveConnectionKey],
 	);
 
-	const hydrateAvailability = useAvailabilityStore((state) => state.hydrate);
-	const availability = useAvailabilityStore((state) =>
-		effectiveConnectionKey === null
-			? undefined
-			: state.availabilityByConnection[effectiveConnectionKey],
+	const availability = useAtomValue(
+		connectionAvailabilityAtom(effectiveConnectionKey ?? ""),
 	);
 	useEffect(() => {
 		if (effectiveConnectionKey === null || selectedOptions === null) return;
 		void hydrateAvailability(effectiveConnectionKey, selectedOptions);
-	}, [effectiveConnectionKey, selectedOptions, hydrateAvailability]);
+	}, [effectiveConnectionKey, selectedOptions]);
 	const availableProviders = useMemo(
 		() => availableProviderIds(availability),
 		[availability],
@@ -490,8 +494,6 @@ export default function NewChatScreen() {
 			setSubmitting(false);
 		}
 	}, [
-		createChat,
-		createSession,
 		attachments,
 		goalMode,
 		effectiveModelMode,

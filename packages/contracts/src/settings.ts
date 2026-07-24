@@ -36,8 +36,8 @@ export const AppearanceMode = Schema.Literals(["system", "light", "dark"]);
 export type AppearanceMode = typeof AppearanceMode.Type;
 
 /**
- * How the auto-namer shapes a fresh worktree's branch after the first
- * successful agent turn.
+ * How the auto-namer (PR: "auto-name chat + branch after first message")
+ * shapes a worktree's git branch once it has an LLM-derived title slug.
  *   - `username-slug` → `<git-user>/<slug>` (e.g. `swarajbachu/dark-mode`)
  *   - `slug`          → `<slug>`            (e.g. `dark-mode`)
  *   - `feat-slug`     → `feat/<slug>`       (e.g. `feat/dark-mode`)
@@ -83,6 +83,8 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 	appearanceMode: AppearanceMode,
 	completionSoundEnabled: Schema.Boolean,
 	completionSoundPreset: CompletionSoundPreset,
+	/** Share pseudonymous product and reliability analytics. Defaults on. */
+	analyticsEnabled: Schema.Boolean,
 	/**
 	 * Per-provider on/off toggle from the Providers settings card. Defaults
 	 * to `true` for every provider; flipping it to `false` filters the
@@ -132,8 +134,8 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 		presets: Schema.Record(Schema.String, SubagentPresetState),
 	}),
 	/**
-	 * Branch-name shape used for the semantic branch fragment generated after
-	 * the first successful agent turn. See {@link BranchNamingStyle}.
+	 * Branch-name shape the auto-namer uses when it renames a new chat's
+	 * worktree branch from the first message. See {@link BranchNamingStyle}.
 	 */
 	branchNamingStyle: BranchNamingStyle,
 	/**
@@ -171,6 +173,7 @@ export const SettingsPatch = Schema.Struct({
 	appearanceMode: Schema.optional(AppearanceMode),
 	completionSoundEnabled: Schema.optional(Schema.Boolean),
 	completionSoundPreset: Schema.optional(CompletionSoundPreset),
+	analyticsEnabled: Schema.optional(Schema.Boolean),
 	providerEnabled: Schema.optional(Schema.Record(ProviderId, Schema.Boolean)),
 	modelEnabledByProvider: Schema.optional(
 		Schema.Record(ProviderId, Schema.Record(Schema.String, Schema.Boolean)),

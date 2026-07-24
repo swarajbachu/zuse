@@ -4,6 +4,8 @@ import {
 	Effect,
 	Layer,
 	PubSub,
+	Result,
+	Schedule,
 	Semaphore,
 	Stream,
 } from "effect";
@@ -37,6 +39,15 @@ export type SessionDomainError =
 	| SqlSessionProjectorError
 	| PlatformError;
 
+export type SessionSynchronizationRecord =
+	| {
+			readonly kind: "snapshot";
+			readonly throughVersion: number;
+			readonly events: readonly StoredEvent[];
+	  }
+	| { readonly kind: "event"; readonly record: StoredEvent }
+	| { readonly kind: "synchronized"; readonly throughVersion: number };
+
 export interface SessionDomainApi {
 	readonly dispatch: (
 		input: DispatchInput,
@@ -46,6 +57,12 @@ export interface SessionDomainApi {
 		readonly streamId: string;
 		readonly afterSequence?: number;
 	}) => Stream.Stream<StoredEvent, SessionDomainError>;
+	readonly synchronizedEvents: (input: {
+		readonly streamId: string;
+		readonly afterVersion?: number;
+		readonly hasProjection?: boolean;
+		readonly snapshotGap?: number;
+	}) => Stream.Stream<SessionSynchronizationRecord, SessionDomainError>;
 	readonly allEvents: (input: {
 		readonly afterSequence?: number;
 	}) => Stream.Stream<StoredEvent, SessionDomainError>;
@@ -80,8 +97,17 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 		makeSqlConsumerStorage(sql),
 		makeSqlSessionProjector(sql),
 	);
+	const transactionalProjector = makeSqlSessionProjector(sql);
 	const projectorLock = yield* Semaphore.make(1);
 	const catchUp = Semaphore.withPermits(projectorLock, 1, projector.catchUp());
+	const commandLocks = new Map<string, Semaphore.Semaphore>();
+	const commandLock = (streamId: string): Semaphore.Semaphore => {
+		const existing = commandLocks.get(streamId);
+		if (existing !== undefined) return existing;
+		const created = Semaphore.makeUnsafe(1);
+		commandLocks.set(streamId, created);
+		return created;
+	};
 	const eventHub = yield* PubSub.unbounded<StoredEvent>();
 
 	const events: SessionDomainApi["events"] = ({
@@ -131,10 +157,59 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 			}),
 		);
 
+	const synchronizedEvents: SessionDomainApi["synchronizedEvents"] = ({
+		streamId,
+		afterVersion,
+		hasProjection = false,
+		snapshotGap = 1_000,
+	}) =>
+		Stream.unwrap(
+			Effect.gen(function* () {
+				// Attach live delivery before observing the durable head. Events that
+				// commit during snapshot/replay are retained by this subscription.
+				const subscription = yield* PubSub.subscribe(eventHub);
+				const captured = yield* dispatchStorage.events(streamId);
+				const throughVersion =
+					captured[captured.length - 1]?.streamVersion ?? 0;
+				const retainedVersion = afterVersion ?? 0;
+				const needsSnapshot =
+					!hasProjection ||
+					afterVersion === undefined ||
+					retainedVersion > throughVersion ||
+					throughVersion - retainedVersion > snapshotGap;
+				const prefix: SessionSynchronizationRecord[] = needsSnapshot
+					? [{ kind: "snapshot", throughVersion, events: captured }]
+					: captured
+							.filter((record) => record.streamVersion > retainedVersion)
+							.map((record) => ({ kind: "event" as const, record }));
+				prefix.push({ kind: "synchronized", throughVersion });
+				let liveVersion = throughVersion;
+				return Stream.concat(
+					Stream.fromIterable(prefix),
+					Stream.fromSubscription(subscription).pipe(
+						Stream.filterMap((record) => {
+							if (
+								record.streamId !== streamId ||
+								record.streamVersion <= liveVersion
+							) {
+								return Result.fail(undefined);
+							}
+							liveVersion = record.streamVersion;
+							return Result.succeed({
+								kind: "event" as const,
+								record,
+							});
+						}),
+					),
+				);
+			}),
+		);
+
 	return SessionDomain.of({
 		catchUp,
 		events,
 		allEvents,
+		synchronizedEvents,
 		currentSequence: sql<{ readonly sequence: number }>`
 			SELECT COALESCE(MAX(sequence), 0) AS sequence
 			FROM events WHERE stream_kind = 'session'
@@ -142,19 +217,50 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 		dispatch: Effect.fn("SessionDomain.dispatch")(function* (
 			input: DispatchInput,
 		) {
-			const receipt = yield* dispatch.dispatch(input);
-			// Live consumers frequently resolve the full session read model after
-			// receiving an event (for example, the project session-summary stream).
-			// Make that read causally consistent: publishing before catch-up allowed
-			// the consumer fiber to observe the new event while SQL still contained
-			// the previous status, permanently emitting `idle` for a running turn.
-			yield* catchUp;
-			if (receipt.eventIds.length > 0) {
-				const appended = yield* dispatchStorage.eventsInVersionRange(
-					input.streamId,
-					receipt.streamVersion - receipt.eventIds.length,
-					receipt.streamVersion,
-				);
+			const { receipt, appended } = yield* Semaphore.withPermits(
+				commandLock(input.streamId),
+				1,
+				sql.withTransaction(
+					Effect.gen(function* () {
+						const receipt = yield* dispatch.dispatch(input).pipe(
+							Effect.retry({
+								while: (error) => error._tag === "ConcurrencyConflict",
+								schedule: Schedule.recurs(8),
+							}),
+						);
+						const appended =
+							receipt.eventIds.length === 0
+								? []
+								: yield* dispatchStorage.eventsInVersionRange(
+										input.streamId,
+										receipt.streamVersion - receipt.eventIds.length,
+										receipt.streamVersion,
+									);
+						const cursorRows = yield* sql<{ readonly last_sequence: number }>`
+							SELECT last_sequence FROM projector_cursors
+							WHERE projector_name = ${transactionalProjector.name}
+							LIMIT 1
+						`;
+						let cursor = cursorRows[0]?.last_sequence ?? 0;
+						for (const record of appended) {
+							if (record.sequence <= cursor) continue;
+							yield* transactionalProjector.apply(record);
+							cursor = record.sequence;
+							yield* sql`
+								INSERT INTO projector_cursors
+									(projector_name, last_sequence, updated_at)
+								VALUES
+									(${transactionalProjector.name}, ${cursor}, ${new Date().toISOString()})
+								ON CONFLICT(projector_name) DO UPDATE SET
+									last_sequence = MAX(projector_cursors.last_sequence, excluded.last_sequence),
+									updated_at = excluded.updated_at
+							`;
+						}
+						return { receipt, appended };
+					}),
+				),
+			);
+			if (appended.length > 0) {
 				yield* Effect.forEach(
 					appended,
 					(record) => PubSub.publish(eventHub, record),

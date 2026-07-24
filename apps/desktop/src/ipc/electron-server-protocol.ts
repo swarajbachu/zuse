@@ -107,6 +107,16 @@ export const makeElectronServerProtocol = (webContents: WebContents) =>
             const encoded = parser.encode(response);
             if (encoded === undefined) return;
             if (webContents.isDestroyed()) return;
+            // During reload/teardown the webContents can outlive its main
+            // frame; sending then makes Electron log "Render frame was
+            // disposed before WebFrameMain could be accessed".
+            const frame = webContents.mainFrame as {
+              isDestroyed?: () => boolean;
+              detached?: boolean;
+            } | null;
+            if (frame?.isDestroyed?.() === true || frame?.detached === true) {
+              return;
+            }
             webContents.send(IPC_CHANNEL, encoded);
           }),
         end: (_clientId) => Effect.void,

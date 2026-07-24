@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
 /** Protect existing names while new provisional names opt in explicitly. */
-export const Migration0042NameProvenance = Effect.gen(function* () {
+export const Migration0043NameProvenance = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	yield* sql`
 		ALTER TABLE chats

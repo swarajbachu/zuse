@@ -81,6 +81,22 @@ describe("session decider", () => {
 		);
 	});
 
+	test("creates a session and its initial turn as one decision", () => {
+		const result = decide(initialSessionState, {
+			...createSessionCommand,
+			_tag: "CreateSessionWithInitialTurn",
+			providerStartJson: '{"initialPrompt":"hello"}',
+			turnId: "turn-initial",
+			messageId: "message-initial",
+			messageContentJson: '{"_tag":"user","text":"hello"}',
+		});
+		expect(Result.getOrThrow(result).map((event) => event._tag)).toEqual([
+			"SessionCreated",
+			"MessagePersisted",
+			"TurnStarted",
+		]);
+	});
+
 	test("prevents mutation before creation and after deletion", () => {
 		expect(
 			failure(
@@ -156,6 +172,11 @@ describe("session decider", () => {
 				outcome: "interrupted",
 				settledAt: 6,
 			},
+			{
+				_tag: "SessionStatusSet",
+				status: "idle",
+				updatedAt: 6,
+			},
 		]);
 	});
 
@@ -228,5 +249,202 @@ describe("session decider", () => {
 			{ _tag: "SessionQueuePausedSet", paused: true, updatedAt: 2 },
 		]);
 		expect(Result.getOrThrow(decide(paused, command))).toEqual([]);
+	});
+
+	test("persists exact-turn interrupt intent without settling the turn", () => {
+		const running = evolveAll(created(), [
+			{ _tag: "TurnStarted", turnId: "turn-1", startedAt: 2 },
+		]);
+		expect(
+			Result.getOrThrow(
+				decide(running, {
+					_tag: "RequestTurnInterrupt",
+					turnId: "turn-1",
+					requestedAt: 3,
+				}),
+			),
+		).toEqual([
+			{ _tag: "TurnInterruptRequested", turnId: "turn-1", requestedAt: 3 },
+		]);
+		const requested = evolveAll(running, [
+			{ _tag: "TurnInterruptRequested", turnId: "turn-1", requestedAt: 3 },
+		]);
+		expect(requested.currentTurnId).toBe("turn-1");
+		expect(requested.currentTurnPhase).toBe("interrupt-requested");
+		expect(
+			Result.getOrThrow(
+				decide(requested, {
+					_tag: "RequestTurnInterrupt",
+					turnId: "turn-1",
+					requestedAt: 4,
+				}),
+			),
+		).toEqual([]);
+	});
+
+	test("treats an interrupt repeated after exact-turn settlement as a no-op", () => {
+		const settled = evolveAll(created(), [
+			{ _tag: "TurnStarted", turnId: "turn-1", startedAt: 2 },
+			{
+				_tag: "TurnSettled",
+				turnId: "turn-1",
+				outcome: "interrupted",
+				settledAt: 3,
+			},
+		]);
+		expect(
+			Result.getOrThrow(
+				decide(settled, {
+					_tag: "RequestTurnInterrupt",
+					turnId: "turn-1",
+					requestedAt: 4,
+				}),
+			),
+		).toEqual([]);
+	});
+
+	test("rejects stale interrupt and terminal commands", () => {
+		const running = evolveAll(created(), [
+			{ _tag: "TurnStarted", turnId: "turn-2", startedAt: 2 },
+		]);
+		expect(
+			failure(
+				decide(running, {
+					_tag: "RequestTurnInterrupt",
+					turnId: "turn-1",
+					requestedAt: 3,
+				}),
+			)?._tag,
+		).toBe("TurnConflict");
+		expect(
+			failure(
+				decide(running, {
+					_tag: "SettleTurn",
+					turnId: "turn-1",
+					outcome: "completed",
+					settledAt: 4,
+				}),
+			)?._tag,
+		).toBe("TurnConflict");
+		expect(running.currentTurnId).toBe("turn-2");
+	});
+
+	test("atomically claims a queued turn, requests interrupt, and schedules its successor", () => {
+		const running = evolveAll(created(), [
+			{ _tag: "TurnStarted", turnId: "turn-1", startedAt: 2 },
+			{
+				_tag: "QueuedTurnEnqueued",
+				queueId: "queue-1",
+				inputJson: '{"text":"follow up"}',
+				position: 0,
+				createdAt: 3,
+				ready: true,
+			},
+		]);
+		expect(
+			Result.getOrThrow(
+				decide(running, {
+					_tag: "SteerQueuedTurn",
+					expectedTurnId: "turn-1",
+					queueId: "queue-1",
+					successorTurnId: "turn-2",
+					requestedAt: 4,
+				}),
+			),
+		).toEqual([
+			{ _tag: "QueuedTurnClaimed", queueId: "queue-1", claimedAt: 4 },
+			{ _tag: "TurnInterruptRequested", turnId: "turn-1", requestedAt: 4 },
+			{
+				_tag: "SuccessorTurnScheduled",
+				predecessorTurnId: "turn-1",
+				turnId: "turn-2",
+				queueId: "queue-1",
+				inputJson: '{"text":"follow up"}',
+				scheduledAt: 4,
+			},
+		]);
+	});
+
+	test("admits a scheduled successor only after its exact predecessor settles", () => {
+		const scheduled = evolveAll(created(), [
+			{ _tag: "TurnStarted", turnId: "turn-1", startedAt: 2 },
+			{
+				_tag: "SuccessorTurnScheduled",
+				predecessorTurnId: "turn-1",
+				turnId: "turn-2",
+				queueId: "queue-1",
+				inputJson: '{"text":"follow up"}',
+				scheduledAt: 3,
+			},
+		]);
+
+		const events = Result.getOrThrow(
+			decide(scheduled, {
+				_tag: "SettleTurn",
+				turnId: "turn-1",
+				outcome: "interrupted",
+				settledAt: 4,
+			}),
+		);
+		expect(events.map((event) => event._tag)).toEqual([
+			"TurnSettled",
+			"SessionStatusSet",
+			"ScheduledSuccessorReady",
+		]);
+		expect(events[1]).toMatchObject({ status: "running" });
+	});
+
+	test("starts a steer successor when the expected terminal won the race", () => {
+		const settled = evolveAll(created(), [
+			{ _tag: "TurnStarted", turnId: "turn-1", startedAt: 2 },
+			{
+				_tag: "TurnSettled",
+				turnId: "turn-1",
+				outcome: "completed",
+				settledAt: 3,
+			},
+			{
+				_tag: "QueuedTurnEnqueued",
+				queueId: "queue-1",
+				inputJson: '{"text":"follow up"}',
+				position: 0,
+				createdAt: 4,
+				ready: true,
+			},
+		]);
+		const events = Result.getOrThrow(
+			decide(settled, {
+				_tag: "SteerQueuedTurn",
+				expectedTurnId: "turn-1",
+				queueId: "queue-1",
+				successorTurnId: "turn-2",
+				requestedAt: 5,
+			}),
+		);
+		expect(events.map((event) => event._tag)).toEqual([
+			"QueuedTurnClaimed",
+			"SuccessorTurnScheduled",
+			"ScheduledSuccessorReady",
+		]);
+	});
+
+	test("commits user message, exact turn, and provider intent together", () => {
+		const result = decide(created(), {
+			_tag: "SubmitTurn",
+			turnId: "turn-1",
+			messageId: "message-1",
+			role: "user",
+			kind: "user",
+			contentJson: '{"_tag":"user","text":"hello"}',
+			parentItemId: null,
+			providerInputJson: '{"text":"hello"}',
+			createdAt: 2,
+		});
+		expect(Result.getOrThrow(result).map((event) => event._tag)).toEqual([
+			"MessagePersisted",
+			"TurnStarted",
+			"SessionStatusSet",
+			"ProviderTurnRequested",
+		]);
 	});
 });

@@ -1,0 +1,42 @@
+diff --git a/react-native.js b/react-native.js
+index 229f09a8230ab24079d471f65d28d36908f0f2ea..787fbf544b8fb893089d6ea68ba32eaeeefbcd60 100644
+--- a/react-native.js
++++ b/react-native.js
+@@ -1420,7 +1420,7 @@ function checkFinishedScrollFallback(ctx) {
+   const shouldFinishInitialZeroTarget = shouldFinishInitialZeroTargetScroll(ctx);
+   const silentInitialDispatch = isSilentInitialDispatch(state, scrollingTo);
+   const canFinishInitialWithoutNativeProgress = scrollingTo !== void 0 ? shouldFinishInitialScrollWithoutNativeProgress(state, scrollingTo) : false;
+-  const slowTimeout = (scrollingTo == null ? void 0 : scrollingTo.isInitialScroll) && !shouldFinishInitialZeroTarget && !canFinishInitialWithoutNativeProgress || !state.didContainersLayout;
++  const slowTimeout = !!(scrollingTo == null ? void 0 : scrollingTo.animated) || (scrollingTo == null ? void 0 : scrollingTo.isInitialScroll) && !shouldFinishInitialZeroTarget && !canFinishInitialWithoutNativeProgress || !state.didContainersLayout;
+   const initialDelay = shouldFinishInitialZeroTarget || canFinishInitialWithoutNativeProgress ? 0 : silentInitialDispatch ? SILENT_INITIAL_SCROLL_RETRY_DELAY_MS : slowTimeout ? 500 : 100;
+   state.timeoutCheckFinishedScrollFallback = setTimeout(() => {
+     let numChecks = 0;
+@@ -1496,6 +1496,6 @@ function doScrollTo(ctx, params) {
+   }
+   if (!isAnimated) {
+     state.scroll = offset;
+-    checkFinishedScrollFallback(ctx);
+   }
++  checkFinishedScrollFallback(ctx);
+ }
+diff --git a/react-native.mjs b/react-native.mjs
+index c2e0f3823f524e31e2105a5fbda76be78c926226..86d4dbe16cac55e7250c90e7b055da58bdd2ee88 100644
+--- a/react-native.mjs
++++ b/react-native.mjs
+@@ -1399,7 +1399,7 @@ function checkFinishedScrollFallback(ctx) {
+   const shouldFinishInitialZeroTarget = shouldFinishInitialZeroTargetScroll(ctx);
+   const silentInitialDispatch = isSilentInitialDispatch(state, scrollingTo);
+   const canFinishInitialWithoutNativeProgress = scrollingTo !== void 0 ? shouldFinishInitialScrollWithoutNativeProgress(state, scrollingTo) : false;
+-  const slowTimeout = (scrollingTo == null ? void 0 : scrollingTo.isInitialScroll) && !shouldFinishInitialZeroTarget && !canFinishInitialWithoutNativeProgress || !state.didContainersLayout;
++  const slowTimeout = !!(scrollingTo == null ? void 0 : scrollingTo.animated) || (scrollingTo == null ? void 0 : scrollingTo.isInitialScroll) && !shouldFinishInitialZeroTarget && !canFinishInitialWithoutNativeProgress || !state.didContainersLayout;
+   const initialDelay = shouldFinishInitialZeroTarget || canFinishInitialWithoutNativeProgress ? 0 : silentInitialDispatch ? SILENT_INITIAL_SCROLL_RETRY_DELAY_MS : slowTimeout ? 500 : 100;
+   state.timeoutCheckFinishedScrollFallback = setTimeout(() => {
+     let numChecks = 0;
+@@ -1475,6 +1475,6 @@ function doScrollTo(ctx, params) {
+   }
+   if (!isAnimated) {
+     state.scroll = offset;
+-    checkFinishedScrollFallback(ctx);
+   }
++  checkFinishedScrollFallback(ctx);
+ }

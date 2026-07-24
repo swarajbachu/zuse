@@ -11,6 +11,10 @@ import {
 	ProviderStartLoginRpc,
 	ProviderUpdateRpc,
 } from "./agent.ts";
+import {
+	AnalyticsContextChangesRpc,
+	AnalyticsGetContextRpc,
+} from "./analytics.ts";
 import { AttachmentUploadRpc } from "./attachment.ts";
 import {
 	AuthGetSessionRpc,
@@ -156,9 +160,9 @@ import {
 	MessagesQueueReorderRpc,
 	MessagesQueueResumeRpc,
 	MessagesQueueSendNowRpc,
-	MessagesQueueStreamRpc,
 	MessagesQueueUpdateRpc,
 	MessagesSendRpc,
+	MessagesSteerRpc,
 	SessionAnswerQuestionRpc,
 	SessionArchiveRpc,
 	SessionCreateRpc,
@@ -230,6 +234,8 @@ import {
  */
 export const MemoizeRpcs = RpcGroup.make(
 	PingRpc,
+	AnalyticsGetContextRpc,
+	AnalyticsContextChangesRpc,
 	AuthGetSessionRpc,
 	AuthSignInRpc,
 	AuthSignOutRpc,
@@ -367,11 +373,11 @@ export const MemoizeRpcs = RpcGroup.make(
 	MessagesSendRpc,
 	MessagesInterruptRpc,
 	MessagesQueueListRpc,
-	MessagesQueueStreamRpc,
 	MessagesQueueAddRpc,
 	MessagesQueueUpdateRpc,
 	MessagesQueueDeleteRpc,
 	MessagesQueueSendNowRpc,
+	MessagesSteerRpc,
 	MessagesQueueReorderRpc,
 	MessagesQueueFlushRpc,
 	MessagesQueueResumeRpc,

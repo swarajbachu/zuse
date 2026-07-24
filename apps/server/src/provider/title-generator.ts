@@ -1,6 +1,7 @@
 import * as os from "node:os";
 import {
 	AgentSessionId,
+	AgentTurnId,
 	type BranchNamingStyle,
 	type FolderId,
 	type ProviderId,
@@ -238,7 +239,7 @@ export const TitleGeneratorLive = Layer.effect(
 		) =>
 			Effect.gen(function* () {
 				const sid = AgentSessionId.make(`title-${crypto.randomUUID()}`);
-
+				const turnId = AgentTurnId.make(`title-turn-${crypto.randomUUID()}`);
 				const text = yield* Effect.gen(function* () {
 					yield* provider.start(
 						{
@@ -247,6 +248,7 @@ export const TitleGeneratorLive = Layer.effect(
 							mode: "sdk",
 							sessionId: sid,
 							initialPrompt: prompt,
+							initialTurnId: turnId,
 							model: input.model,
 							cwdOverride: scratchCwd,
 							permissionMode: "default",
@@ -254,12 +256,13 @@ export const TitleGeneratorLive = Layer.effect(
 						null,
 						() => runtimeMode,
 					);
-					// First non-empty assistant chunk is the title; we don't need the
-					// rest of the turn.
 					const head = yield* provider.events(sid).pipe(
-						Stream.filterMap((event) =>
-							event._tag === "AssistantMessage" && event.text.trim().length > 0
-								? Result.succeed(event.text)
+						Stream.filterMap((envelope) =>
+							envelope.scope === "turn" &&
+							envelope.turnId === turnId &&
+							envelope.event._tag === "AssistantMessage" &&
+							envelope.event.text.trim().length > 0
+								? Result.succeed(envelope.event.text)
 								: Result.fail(undefined),
 						),
 						Stream.take(1),
@@ -267,8 +270,6 @@ export const TitleGeneratorLive = Layer.effect(
 					);
 					return Option.getOrElse(head, () => "");
 				}).pipe(
-					// Always tear the throwaway session down — on success, timeout, or
-					// failure — so we never leak a CLI/SDK process.
 					Effect.ensuring(
 						provider.close(sid).pipe(Effect.catch(() => Effect.void)),
 					),
@@ -276,7 +277,6 @@ export const TitleGeneratorLive = Layer.effect(
 					Effect.map((maybe) => Option.getOrElse(maybe, () => "")),
 					Effect.catch(() => Effect.succeed("")),
 				);
-
 				return cleanTitle(text);
 			});
 

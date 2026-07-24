@@ -26,7 +26,6 @@ import {
 	type CompletionSoundPreset,
 	type Folder,
 	type FolderId,
-	MODELS_BY_PROVIDER,
 	type ProviderId,
 	type RuntimeMode,
 	visibleModelsForProvider,
@@ -1133,6 +1132,8 @@ function GeneralPane() {
 	const setCompletionSoundPreset = useSettingsStore(
 		(s) => s.setCompletionSoundPreset,
 	);
+	const analyticsEnabled = useSettingsStore((s) => s.analyticsEnabled);
+	const setAnalyticsEnabled = useSettingsStore((s) => s.setAnalyticsEnabled);
 	const branchNamingStyle = useSettingsStore((s) => s.branchNamingStyle);
 	const setBranchNamingStyle = useSettingsStore((s) => s.setBranchNamingStyle);
 	const branchNamingPrefix = useSettingsStore((s) => s.branchNamingPrefix);
@@ -1395,6 +1396,48 @@ function GeneralPane() {
 						</Button>
 					</div>
 				</SettingsRow>
+			</SettingsGroup>
+
+			<SettingsGroup
+				title="Privacy"
+				description="Control pseudonymous product and reliability analytics."
+			>
+				<button
+					type="button"
+					role="switch"
+					aria-checked={analyticsEnabled}
+					data-analytics-id="settings.share-usage-analytics"
+					onClick={() => setAnalyticsEnabled(!analyticsEnabled)}
+					className="flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/70"
+				>
+					<div className="min-w-0 flex-1">
+						<div className="text-sm font-medium text-foreground">
+							Share usage analytics
+						</div>
+						<div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+							Share pseudonymous feature use, model choices, active time, and
+							reliability data. Prompts, responses, code, paths, and account
+							details are never included. Standard geographic enrichment is
+							applied by our analytics processor.
+						</div>
+					</div>
+					<span
+						aria-hidden
+						className={cn(
+							"relative h-5 w-8 shrink-0 rounded-full p-0.5 ring-1 transition-colors",
+							analyticsEnabled
+								? "bg-primary ring-primary/60"
+								: "bg-[#1f2123] ring-white/10",
+						)}
+					>
+						<span
+							className={cn(
+								"block size-3.5 rounded-full bg-white ring-1 ring-black/10 transition-transform dark:bg-[#484a4d]",
+								analyticsEnabled && "translate-x-[14px]",
+							)}
+						/>
+					</span>
+				</button>
 			</SettingsGroup>
 
 			<SettingsGroup
@@ -2260,15 +2303,12 @@ export function ensureValidDefaultsForRuntime(
 	ready: ReadonlyArray<ProviderId>,
 ): { providerId: ProviderId; model: string; runtimeMode: RuntimeMode } | null {
 	const settings = useSettingsStore.getState();
-	if (ready.length === 0) return null;
+	const fallbackProvider = ready[0];
+	if (fallbackProvider === undefined) return null;
 	const provider = ready.includes(settings.defaultProviderId)
 		? settings.defaultProviderId
-		: ready[0]!;
-	const model =
-		settings.defaultModelByProvider[provider] ??
-		visibleModelsForProvider(provider, settings.modelEnabledByProvider)[0]
-			?.id ??
-		MODELS_BY_PROVIDER[provider][0]!.id;
+		: fallbackProvider;
+	const model = settings.defaultModelByProvider[provider];
 	return {
 		providerId: provider,
 		model,

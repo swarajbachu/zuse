@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { orderedChatSessions } from "@zuse/client-runtime/chat-threads";
 import type {
 	ChatId,
@@ -26,7 +27,6 @@ import {
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { lightTap } from "~/lib/haptics";
-import { selectConnectionBundles } from "~/lib/session-bundles";
 import { connectionSessionKey } from "~/lib/session-key";
 import {
 	nearestSurvivingThread,
@@ -34,9 +34,17 @@ import {
 	threadStatusLabel,
 } from "~/lib/thread-presentation";
 import { activeThreadSelection, switchToThread } from "~/lib/thread-switching";
-import { useConnectionsStore } from "~/store/connections";
-import { usePermissionsStore } from "~/store/permissions";
-import { useSessionsStore } from "~/store/sessions";
+import { connectionsAtom } from "~/store/connections";
+import { pendingBySessionAtom } from "~/store/permissions";
+import {
+	archiveChat,
+	archiveSession,
+	connectionBundlesAtom,
+	hydrateSessions,
+	renameSession,
+	setActiveSession,
+	statusBySessionAtom,
+} from "~/store/sessions";
 import { colors } from "~/theme";
 
 const LARGE_THREAD_COUNT = 8;
@@ -53,23 +61,14 @@ export default function ThreadsScreen() {
 	const [query, setQuery] = useState("");
 	const [switchingSessionId, setSwitchingSessionId] =
 		useState<SessionId | null>(null);
-	const connections = useConnectionsStore((state) => state.connections);
-	const bundles = useSessionsStore((state) =>
-		selectConnectionBundles(state.bundlesByConnection, connKey),
-	);
-	const statuses = useSessionsStore((state) => state.statusBySession);
-	const pendingBySession = usePermissionsStore(
-		(state) => state.pendingBySession,
-	);
-	const hydrate = useSessionsStore((state) => state.hydrate);
-	const setActiveSession = useSessionsStore((state) => state.setActiveSession);
-	const renameSession = useSessionsStore((state) => state.renameSession);
-	const archiveSession = useSessionsStore((state) => state.archiveSession);
-	const archiveChat = useSessionsStore((state) => state.archiveChat);
-	const options = useMemo(
-		() => optionsForConnection(connKey, connections),
-		[connKey, connections],
-	);
+	const connections = useAtomValue(connectionsAtom);
+	const bundles = useAtomValue(connectionBundlesAtom(connKey));
+	const statuses = useAtomValue(statusBySessionAtom);
+	const pendingBySession = useAtomValue(pendingBySessionAtom);
+	// Plain derivation: connKey flows into module-level atom actions, which the
+	// React Compiler treats as possibly mutating — manual memoization on it
+	// cannot be preserved, so let the compiler memoize.
+	const options = optionsForConnection(connKey, connections);
 	const chat = useMemo(
 		() =>
 			bundles
@@ -112,9 +111,9 @@ export default function ThreadsScreen() {
 
 	useEffect(() => {
 		if (options !== null && chat === null && threads.length === 0) {
-			void hydrate(connKey, options);
+			void hydrateSessions(connKey, options);
 		}
-	}, [chat, connKey, hydrate, options, threads.length]);
+	}, [chat, connKey, options, threads.length]);
 
 	const navigateToThread = useCallback(
 		(thread: Session) => {
@@ -155,7 +154,6 @@ export default function ThreadsScreen() {
 			connKey,
 			normalizedChatId,
 			options,
-			setActiveSession,
 			switchingSessionId,
 		],
 	);
@@ -208,8 +206,6 @@ export default function ThreadsScreen() {
 			]);
 		},
 		[
-			archiveChat,
-			archiveSession,
 			connKey,
 			currentSessionId,
 			navigateToThread,
@@ -252,7 +248,7 @@ export default function ThreadsScreen() {
 				{ text: "Cancel", style: "cancel" },
 			]);
 		},
-		[archiveThread, connKey, options, renameSession, threads.length],
+		[archiveThread, connKey, options, threads.length],
 	);
 
 	return (

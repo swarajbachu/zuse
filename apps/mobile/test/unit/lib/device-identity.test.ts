@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
+import {
+	clearDeviceIdentity,
+	deviceLabel,
+	getOrCreateDeviceId,
+} from "../../../src/lib/device-identity";
+
 const secureStore = vi.hoisted(() => {
 	let stored: string | null = null;
 	return {
@@ -18,12 +24,6 @@ const secureStore = vi.hoisted(() => {
 
 vi.mock("expo-secure-store", () => secureStore);
 vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
-
-import {
-	clearDeviceIdentity,
-	deviceLabel,
-	getOrCreateDeviceId,
-} from "../../../src/lib/device-identity";
 
 describe("mobile device identity", () => {
 	beforeEach(() => {

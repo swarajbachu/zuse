@@ -1,10 +1,12 @@
 import { describe, expect, test } from "vitest";
 
 import {
+	composerExpanded,
 	isFreshChat,
 	isInterruptVisible,
 	type ModelModeSelection,
 	nextModelChangeActions,
+	summarizeComposerActivity,
 } from "../../../src/lib/composer-state";
 
 const base: ModelModeSelection = {
@@ -72,5 +74,54 @@ describe("nextModelChangeActions", () => {
 	test("returns nothing when the selection is unchanged", () => {
 		expect(nextModelChangeActions(base, { ...base }, true)).toEqual([]);
 		expect(nextModelChangeActions(base, { ...base }, false)).toEqual([]);
+	});
+});
+
+describe("composerExpanded", () => {
+	const collapsed = {
+		focused: false,
+		hasText: false,
+		hasAttachments: false,
+		sheetOpen: false,
+	};
+
+	test("stays collapsed with no editor activity", () => {
+		expect(composerExpanded(collapsed)).toBe(false);
+	});
+
+	test.each([
+		["focused", { ...collapsed, focused: true }],
+		["hasText", { ...collapsed, hasText: true }],
+		["hasAttachments", { ...collapsed, hasAttachments: true }],
+		["sheetOpen", { ...collapsed, sheetOpen: true }],
+	] as const)("expands on %s", (_label, options) => {
+		expect(composerExpanded(options)).toBe(true);
+	});
+});
+
+describe("summarizeComposerActivity", () => {
+	test("returns null with no turn", () => {
+		expect(summarizeComposerActivity(undefined)).toBeNull();
+	});
+
+	test("finds the first agent tool item id", () => {
+		const now = new Date();
+		const message = (tool: string, itemId: string) =>
+			({
+				id: itemId,
+				sessionId: "s",
+				role: "assistant",
+				content: { _tag: "tool_use", tool, itemId, input: "" },
+				createdAt: now,
+			}) as never;
+		const turn = {
+			id: "turn",
+			user: null,
+			body: [message("Read", "i1"), message("Task", "i2")],
+			startedAt: now,
+			endedAt: now,
+			durationMs: 0,
+		} as never;
+		expect(summarizeComposerActivity(turn)?.agentItemId).toBe("i2");
 	});
 });

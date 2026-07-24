@@ -1,5 +1,5 @@
-import { SessionId } from "@zuse/contracts";
-import { Deferred, Effect, Stream } from "effect";
+import { type AgentTurnId, SessionId } from "@zuse/contracts";
+import { Effect, Ref, Stream } from "effect";
 import { describe, expect, test } from "vitest";
 import { makeConversationEventRuntime } from "../../src/conversation/core/conversation-event-runtime.ts";
 
@@ -9,6 +9,7 @@ describe("ConversationEventRuntime", () => {
 		events: () => Stream.Stream<never>,
 		settleTurn: (
 			sessionId: SessionId,
+			turnId: AgentTurnId,
 			outcome: "completed" | "interrupted" | "error",
 		) => Effect.Effect<void> = () => Effect.void,
 	) => ({
@@ -26,29 +27,27 @@ describe("ConversationEventRuntime", () => {
 		persist: () => Effect.void,
 	});
 
-	test("settles a durable turn when the provider stream ends cleanly", async () => {
-		const outcome = await Effect.runPromise(
+	test("does not guess a terminal when an uncorrelated stream ends", async () => {
+		const settlements = await Effect.runPromise(
 			Effect.scoped(
 				Effect.gen(function* () {
 					const scope = yield* Effect.scope;
-					const settled = yield* Deferred.make<
-						"completed" | "interrupted" | "error"
-					>();
+					const settled = yield* Ref.make(0);
 					const runtime = yield* makeConversationEventRuntime(
 						options(
 							scope,
 							() => Stream.empty,
-							(_sessionId, value) =>
-								Deferred.succeed(settled, value).pipe(Effect.asVoid),
+							() => Ref.update(settled, (count) => count + 1),
 						),
 					);
 					yield* runtime.start(SessionId.make("session-1"));
-					return yield* Deferred.await(settled).pipe(Effect.timeout(100));
+					yield* Effect.sleep(10);
+					return yield* Ref.get(settled);
 				}),
 			),
 		);
 
-		expect(outcome).toBe("error");
+		expect(settlements).toBe(0);
 	});
 
 	test("replaces the previous subscription and releases it", async () => {

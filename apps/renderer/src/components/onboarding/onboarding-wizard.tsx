@@ -6,6 +6,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "~/components/ui/button";
+import { captureAnalytics } from "~/lib/analytics";
 import { cn } from "~/lib/utils";
 import { useProvidersStore } from "../../store/providers.ts";
 import { useSettingsStore } from "../../store/settings.ts";
@@ -69,13 +70,19 @@ export function OnboardingWizard() {
 		return true;
 	}, [stepId, folders.length]);
 
+	useEffect(() => {
+		captureAnalytics("onboarding step viewed", { step: stepId });
+	}, [stepId]);
+
 	const goNext = useCallback(() => {
+		captureAnalytics("onboarding step completed", { step: stepId });
 		setStepIndex((i) => Math.min(i + 1, STEPS.length - 1));
-	}, []);
+	}, [stepId]);
 	const goBack = useCallback(() => {
 		setStepIndex((i) => Math.max(i - 1, 0));
 	}, []);
 	const finish = useCallback(() => {
+		captureAnalytics("onboarding completed");
 		setOnboardingCompleted(true);
 	}, [setOnboardingCompleted]);
 
@@ -128,6 +135,7 @@ export function OnboardingWizard() {
 					{!isLast && (
 						<div className="flex items-center justify-between">
 							<Button
+								data-analytics-id="onboarding.back"
 								variant="ghost"
 								size="sm"
 								onClick={goBack}
@@ -143,6 +151,7 @@ export function OnboardingWizard() {
 							<div className="flex items-center gap-1">
 								{skippable && (
 									<Button
+										data-analytics-id="onboarding.skip"
 										variant="ghost"
 										size="sm"
 										onClick={goNext}
@@ -152,6 +161,7 @@ export function OnboardingWizard() {
 									</Button>
 								)}
 								<Button
+									data-analytics-id="onboarding.continue"
 									size="default"
 									onClick={goNext}
 									disabled={!canAdvance}

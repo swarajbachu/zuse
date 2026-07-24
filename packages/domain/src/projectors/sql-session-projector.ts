@@ -137,6 +137,46 @@ export const makeSqlSessionProjector = (
 				`;
 				return;
 			}
+			case "QueuedTurnEnqueued": {
+				const createdAt = new Date(event.createdAt).toISOString();
+				yield* sql`
+					INSERT INTO queued_messages
+						(id, session_id, queue_order, input_json, created_at, updated_at, ready)
+					VALUES
+						(${event.queueId}, ${record.streamId}, ${event.position},
+						 ${event.inputJson}, ${createdAt}, ${createdAt}, ${event.ready ? 1 : 0})
+					ON CONFLICT(id) DO NOTHING
+				`;
+				return;
+			}
+			case "QueuedTurnUpdated": {
+				const updatedAt = new Date(event.updatedAt).toISOString();
+				yield* sql`
+					UPDATE queued_messages
+					SET input_json = ${event.inputJson}, updated_at = ${updatedAt},
+						ready = ${event.ready ? 1 : 0}
+					WHERE id = ${event.queueId} AND session_id = ${record.streamId}
+				`;
+				return;
+			}
+			case "QueuedTurnRemoved":
+			case "QueuedTurnClaimed":
+				yield* sql`
+					DELETE FROM queued_messages
+					WHERE id = ${event.queueId} AND session_id = ${record.streamId}
+				`;
+				return;
+			case "QueuedTurnsReordered": {
+				const updatedAt = new Date(event.reorderedAt).toISOString();
+				for (const [position, queueId] of event.queueIds.entries()) {
+					yield* sql`
+						UPDATE queued_messages
+						SET queue_order = ${position}, updated_at = ${updatedAt}
+						WHERE id = ${queueId} AND session_id = ${record.streamId}
+					`;
+				}
+				return;
+			}
 			case "SessionResumeSet": {
 				const updatedAt = new Date(event.updatedAt).toISOString();
 				yield* sql`
@@ -186,13 +226,19 @@ export const makeSqlSessionProjector = (
 			case "MessagePersisted": {
 				const createdAt = new Date(event.createdAt).toISOString();
 				yield* sql`
-					INSERT OR IGNORE INTO messages
+					INSERT INTO messages
 						(id, session_id, turn_id, role, kind, content_json, parent_item_id,
 						 created_at, sequence)
 					VALUES
 						(${event.messageId}, ${record.streamId}, ${event.turnId}, ${event.role},
 						 ${event.kind}, ${event.contentJson}, ${event.parentItemId},
 						 ${createdAt}, ${record.sequence})
+					ON CONFLICT(id) DO UPDATE SET
+						turn_id = excluded.turn_id,
+						role = excluded.role,
+						kind = excluded.kind,
+						content_json = excluded.content_json,
+						parent_item_id = excluded.parent_item_id
 				`;
 				yield* sql`
 					UPDATE sessions SET updated_at = ${createdAt}

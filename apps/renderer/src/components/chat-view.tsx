@@ -10,11 +10,13 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { deriveAgentActivityState } from "../lib/agent-activity-state.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import {
 	CHAT_LIST_ANCHOR_OFFSET,
 	resolveChatListAnchoredEndSpace,
 } from "../lib/chat-list-anchor.ts";
+import { resolveChatErrorBottom } from "../lib/chat-overlay-position.ts";
 import {
 	type ChatTimelineRow,
 	deriveChatTimelineRows,
@@ -42,8 +44,8 @@ import { ErrorBubble, MessageRow } from "./message-row.tsx";
 import { NextUnreadButton } from "./next-unread-button.tsx";
 import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
+import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
-import { Spinner } from "./ui/spinner";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 
 // Stable empty-array reference for the selector below. Returning a fresh
@@ -495,7 +497,7 @@ export function ChatView({
 		// epoch so any in-flight hydrate bails. The next hydrate re-subscribes;
 		// `messagesBySession` is preserved, so there's no empty-state flash.
 		return () => {
-			void teardownLiveStreams();
+			void teardownLiveStreams(sessionId);
 		};
 	}, [sessionId, hydrate, hydrateSkills]);
 
@@ -753,11 +755,18 @@ export function ChatView({
 						</ChatLookupsProvider>
 					)}
 					{error !== null ? (
-						<ErrorBubble
-							error={error}
-							sessionId={sessionId}
-							onDismiss={() => clearError(sessionId)}
-						/>
+						<div
+							className="pointer-events-none absolute inset-x-0 z-20"
+							style={{ bottom: resolveChatErrorBottom(endInset) }}
+						>
+							<div className="pointer-events-auto">
+								<ErrorBubble
+									error={error}
+									sessionId={sessionId}
+									onDismiss={() => clearError(sessionId)}
+								/>
+							</div>
+						</div>
 					) : null}
 					{/* One row hugging the composer top: jump-to-latest on the
 					    left, next-unread on the right. */}
@@ -789,7 +798,13 @@ function TimelineRow({
 }) {
 	switch (row.kind) {
 		case "message":
-			return <MessageRow message={row.message} sessionId={sessionId} />;
+			return (
+				<MessageRow
+					message={row.message}
+					sessionId={sessionId}
+					showAssistantCommands={row.showAssistantCommands}
+				/>
+			);
 		case "subagent":
 			return (
 				<div>
@@ -808,7 +823,11 @@ function TimelineRow({
 		case "turn-summary":
 			return (
 				<div>
-					<TurnSummary body={row.body} sessionId={sessionId} />
+					<TurnSummary
+						body={row.body}
+						sessionId={sessionId}
+						showAssistantCommands={row.showAssistantCommands}
+					/>
 				</div>
 			);
 		case "working":
@@ -829,7 +848,8 @@ function WorkingRow({ messages }: { messages: ReadonlyArray<Message> }) {
 	// elapsed time beside the loader, not the session-wide total.
 	const anchorMs = useMemo(() => {
 		for (let i = messages.length - 1; i >= 0; i--) {
-			const m = messages[i]!;
+			const m = messages[i];
+			if (m === undefined) continue;
 			if (m.content._tag === "user" || m.content._tag === "user_rich")
 				return m.createdAt.getTime();
 		}
@@ -845,10 +865,11 @@ function WorkingRow({ messages }: { messages: ReadonlyArray<Message> }) {
 	}, []);
 
 	const elapsed = anchorMs === null ? 0 : Math.max(0, now - anchorMs);
+	const activityState = deriveAgentActivityState(messages);
 
 	return (
-		<div className="flex items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground">
-			<Spinner className="size-3" />
+		<div className="flex min-h-9 items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground">
+			<AgentActivityOrb state={activityState} />
 			<ShimmerText tone="lime" className="tabular-nums">
 				{formatElapsed(elapsed)}
 			</ShimmerText>

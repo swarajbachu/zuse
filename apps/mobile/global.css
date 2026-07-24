@@ -8,38 +8,44 @@
 	:root {
 		@variant light {
 			--color-background: #ffffff;
-			--color-foreground: #11130a;
-			--color-card: #f4f4f6;
-			--color-card-elevated: #ffffff;
-			--color-muted: #e9e9ec;
-			--color-muted-foreground: #626268;
-			--color-border: rgba(17, 19, 10, 0.14);
+			--color-foreground: #262626;
+			--color-card: #ffffff;
+			--color-card-elevated: rgba(0, 0, 0, 0.04);
+			--color-muted: rgba(0, 0, 0, 0.04);
+			--color-muted-foreground: #686868;
+			--color-foreground-faint: #8f8f8f;
+			--color-border: rgba(0, 0, 0, 0.08);
+			--color-input: rgba(0, 0, 0, 0.1);
+			--color-overlay: rgba(0, 0, 0, 0.06);
 			--color-primary: #c8ff00;
 			--color-primary-foreground: #11130a;
-			--color-danger: #d93f4c;
-			--color-warning: #a85d00;
-			--color-presence-online: #78a600;
-			--color-presence-offline: #626268;
-			--color-presence-checking: #a85d00;
-			--color-presence-error: #d93f4c;
+			--color-danger: #dc2626;
+			--color-warning: #d97706;
+			--color-presence-online: #65a30d;
+			--color-presence-offline: #686868;
+			--color-presence-checking: #d97706;
+			--color-presence-error: #dc2626;
 		}
 
 		@variant dark {
-			--color-background: hsl(72 5% 6%);
-			--color-foreground: hsl(72 4% 92%);
-			--color-card: hsl(72 4% 13%);
-			--color-card-elevated: hsl(72 4% 16%);
-			--color-muted: hsl(72 4% 20%);
-			--color-muted-foreground: hsl(72 2% 64%);
+			--color-background: hsl(0 0% 6%);
+			--color-foreground: hsl(0 0% 93%);
+			--color-card: hsl(0 0% 12%);
+			--color-card-elevated: hsl(0 0% 13%);
+			--color-muted: hsl(0 0% 20%);
+			--color-muted-foreground: hsl(0 0% 68%);
+			--color-foreground-faint: hsl(0 0% 43%);
 			--color-border: rgba(255, 255, 255, 0.1);
+			--color-input: rgba(255, 255, 255, 0.2);
+			--color-overlay: hsl(0 0% 22%);
 			--color-primary: #c8ff00;
 			--color-primary-foreground: #11130a;
-			--color-danger: hsl(2 86% 64%);
-			--color-warning: hsl(42 93% 56%);
+			--color-danger: hsl(0 84% 60%);
+			--color-warning: hsl(18 96% 62%);
 			--color-presence-online: #c8ff00;
-			--color-presence-offline: hsl(72 2% 64%);
-			--color-presence-checking: hsl(42 93% 56%);
-			--color-presence-error: hsl(2 86% 64%);
+			--color-presence-offline: hsl(0 0% 68%);
+			--color-presence-checking: hsl(18 96% 62%);
+			--color-presence-error: hsl(0 84% 60%);
 		}
 	}
 }

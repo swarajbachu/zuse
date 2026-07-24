@@ -1,4 +1,5 @@
 import {
+	AgentTurnId,
 	type AttachmentRef,
 	type Chat,
 	type ChatId,
@@ -6,6 +7,7 @@ import {
 	DEFAULT_RUNTIME_MODE,
 	type FolderId,
 	type MessageContent,
+	MessageId,
 	type MessageOrigin,
 	type ProviderId,
 	type ResumeStrategy,
@@ -43,10 +45,11 @@ export interface SessionOperationsOptions
 	readonly sessionDomain: SessionDomainApi;
 	readonly currentTimestamp: Effect.Effect<number>;
 	readonly broadcastChat: (chat: Chat) => Effect.Effect<void>;
-	readonly beginTurn: (sessionId: SessionId) => Effect.Effect<string>;
 	readonly persistMessage: (
 		sessionId: SessionId,
 		content: MessageContent,
+		idOverride?: import("@zuse/contracts").MessageId,
+		turnIdOverride?: AgentTurnId,
 	) => Effect.Effect<PersistedMessage>;
 	readonly runProviderStart: Effect.Effect<void, SessionStartError>;
 	readonly dispatchSessionCommand: (
@@ -71,13 +74,17 @@ export interface OpenProviderSessionOptions {
 	readonly forkFromResume?: boolean;
 	readonly postBootStatus?: Session["status"];
 	readonly sendAfterOpen?: {
+		readonly turnId: AgentTurnId;
 		readonly text: string;
 		readonly attachments: ReadonlyArray<AttachmentRef>;
+		readonly fileRefs?: ReadonlyArray<import("@zuse/contracts").FileRef>;
+		readonly skillRefs?: ReadonlyArray<import("@zuse/contracts").SkillRef>;
 	};
 }
 
 const ProviderStartRequest = Schema.Struct({
 	initialPrompt: Schema.NullOr(Schema.String),
+	initialTurnId: Schema.optional(Schema.NullOr(AgentTurnId)),
 	modelOptionsJson: Schema.NullOr(Schema.String),
 	enableSubagents: Schema.Boolean,
 	forkFromResume: Schema.Boolean,
@@ -111,7 +118,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		startSubscription,
 		linearTools,
 		broadcastChat,
-		beginTurn,
 		persistMessage,
 		runProviderStart,
 		dispatchSessionCommand,
@@ -258,7 +264,12 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				}
 			}
 			const promptForProvider = input.initialPrompt;
-			const background = input.background === true;
+			const initialTurnId = hasInitial
+				? AgentTurnId.make(`turn_${crypto.randomUUID()}`)
+				: null;
+			const initialMessageId = hasInitial
+				? MessageId.make(crypto.randomUUID())
+				: null;
 			const resumeCursor = input.resumeCursor ?? null;
 			const resumeStrategy: ResumeStrategy =
 				resumeCursor === null ? "none" : (input.resumeStrategy ?? "none");
@@ -270,28 +281,26 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			const postBootStatus: Session["status"] = hasInitial ? "running" : "idle";
 			const providerStart: ProviderStartRequest = {
 				initialPrompt: promptForProvider ?? null,
+				initialTurnId,
 				modelOptionsJson:
 					input.modelOptions === undefined
 						? null
 						: JSON.stringify(input.modelOptions),
 				enableSubagents: effectiveEnableSubagents,
 				forkFromResume,
-				background,
+				background: true,
 				postBootStatus,
 			};
-			// Synchronous mode (chat.create) inserts with the final post-boot
-			// status because it waits for `provider.start` below — the row is
-			// never visible to the renderer in `booting`. Background mode
-			// (session.create) inserts as `booting`; the daemon flips it.
-			const rowStatus: Session["status"] = background
-				? "booting"
-				: postBootStatus;
+			// Creation acknowledges the durable session/turn/provider intent,
+			// never the provider side effect. The reactor owns the transition
+			// from booting to the requested post-boot status.
+			const rowStatus: Session["status"] = "booting";
 			const createSessionRecord = sessionDomain
 				.dispatch({
 					commandId: `session:create:${sessionId}`,
 					streamId: sessionId,
 					command: {
-						_tag: "CreateSession",
+						_tag: hasInitial ? "CreateSessionWithInitialTurn" : "CreateSession",
 						sessionId,
 						chatId: input.chatId,
 						projectId,
@@ -311,8 +320,22 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						toolSearch: initialToolSearch,
 						queuePaused: false,
 						providerStartJson: JSON.stringify(providerStart),
+						...(hasInitial &&
+						initialTurnId !== null &&
+						initialMessageId !== null
+							? {
+									turnId: initialTurnId,
+									messageId: initialMessageId,
+									messageContentJson: JSON.stringify({
+										_tag: "user",
+										text: input.initialPrompt ?? "",
+										goal: false,
+										...(origin !== undefined ? { origin } : {}),
+									}),
+								}
+							: {}),
 						createdAt: now.getTime(),
-					},
+					} as SessionCommand,
 				})
 				.pipe(Effect.orDie);
 			yield* createSessionRecord;
@@ -320,69 +343,29 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				Effect.flatMap(broadcastChat),
 				Effect.catch(() => Effect.void),
 			);
-			if (
-				input.initialPrompt !== undefined &&
-				input.initialPrompt.trim().length > 0
-			) {
-				const initialPrompt = input.initialPrompt;
-				yield* beginTurn(sessionId);
-				yield* persistMessage(sessionId, {
-					_tag: "user",
-					text: initialPrompt,
-					goal: false,
-					...(origin !== undefined ? { origin } : {}),
-				});
+			if (initialTurnId !== null) {
+				state.rememberActiveTurn(sessionId, initialTurnId);
 			}
-			if (background) {
-				// Detach the boot so the RPC reply happens immediately. The status
-				// durable event feed carries the eventual transition to clients;
-				// on failure we mark `error` and log so
-				// the user sees a closable failed tab instead of a stuck spinner.
-				yield* Effect.forkIn(
-					runProviderStart.pipe(
-						Effect.catchCause((cause) =>
-							Effect.logWarning(
-								`[ConversationServices] provider start reactor failed: ${String(cause)}`,
-							),
+			// Provider startup is service-owned. Request/RPC cancellation cannot
+			// cancel it or turn normal scope cleanup into a failed chat receipt.
+			yield* Effect.forkIn(
+				runProviderStart.pipe(
+					Effect.catchCause((cause) =>
+						Effect.logWarning(
+							`[ConversationServices] provider start reactor failed: ${String(cause)}`,
 						),
 					),
-					serviceScope,
-					{ startImmediately: true },
-				);
-				return Session.make({
-					id: sessionId,
-					projectId,
-					title,
-					providerId: input.providerId,
-					model: input.model,
-					status: "booting",
-					archivedAt: null,
-					cursor: resumeCursor,
-					resumeStrategy,
-					runtimeMode: initialRuntimeMode,
-					worktreeId,
-					chatId: input.chatId,
-					forkedFromSessionId,
-					forkedFromMessageId,
-					permissionMode: initialPermissionMode,
-					toolSearch: initialToolSearch,
-					createdAt: now,
-					updatedAt: now,
-				});
-			}
-			// Synchronous boot — used by `chat.create` so its existing staged
-			// loading panel (which animates over the full ~60s wait) stays in
-			// lockstep with the actual provider handshake. Boot failures bubble
-			// back as `SessionStartError`; the caller (`createChat`) rolls back
-			// the chat row in that case.
-			yield* runProviderStart;
+				),
+				serviceScope,
+				{ startImmediately: true },
+			);
 			return Session.make({
 				id: sessionId,
 				projectId,
 				title,
 				providerId: input.providerId,
 				model: input.model,
-				status: postBootStatus,
+				status: "booting",
 				archivedAt: null,
 				cursor: resumeCursor,
 				resumeStrategy,

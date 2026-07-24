@@ -5,6 +5,17 @@ import { Platform } from "react-native";
 export const NEON_GREEN = "#c8ff00";
 export const PRIMARY_FOREGROUND = "#11130a";
 
+export const glass = {
+	borderDark: "rgba(255,255,255,0.16)",
+	borderLight: "rgba(0,0,0,0.12)",
+	fillDark: "rgba(24,24,24,0.72)",
+	fillLight: "rgba(255,255,255,0.78)",
+	surfaceDark: "hsl(0 0% 12%)",
+	surfaceLight: "#ffffff",
+	hairlineDark: "rgba(255,255,255,0.1)",
+	hairlineLight: "rgba(0,0,0,0.08)",
+} as const;
+
 const platformColor = <T>(ios: T, android: T | undefined, fallback: T): T =>
 	Platform.select({ ios, android: android ?? fallback, default: fallback }) ??
 	fallback;
@@ -19,49 +30,49 @@ export const colors = {
 	fg: platformColor(
 		Color.ios.label,
 		Color.android.dynamic.onSurface,
-		"#111111",
+		"#262626",
 	),
 	secondaryFg: platformColor(
 		Color.ios.secondaryLabel,
 		Color.android.dynamic.onSurfaceVariant,
-		"#6b6b70",
+		"#686868",
 	),
 	tertiaryFg: platformColor(
 		Color.ios.tertiaryLabel,
 		Color.android.dynamic.onSurfaceVariant,
-		"#8e8e93",
+		"#8f8f8f",
 	),
 	mutedFg: platformColor(
 		Color.ios.secondaryLabel,
 		Color.android.dynamic.onSurfaceVariant,
-		"#6b6b70",
+		"#686868",
 	),
 	card: platformColor(
 		Color.ios.secondarySystemBackground,
 		Color.android.dynamic.surfaceContainer,
-		"#f2f2f7",
+		"#ffffff",
 	),
 	cardElevated: platformColor(
 		Color.ios.tertiarySystemBackground,
 		Color.android.dynamic.surfaceContainerHigh,
-		"#ffffff",
+		"rgba(0,0,0,0.04)",
 	),
 	border: platformColor(
 		Color.ios.separator,
 		Color.android.dynamic.outlineVariant,
-		"rgba(60,60,67,0.22)",
+		"rgba(0,0,0,0.08)",
 	),
 	accent: platformColor(NEON_GREEN, NEON_GREEN, NEON_GREEN),
 	primaryForeground: PRIMARY_FOREGROUND,
 	danger: platformColor(
 		Color.ios.systemRed,
 		Color.android.dynamic.error,
-		"#ff3b30",
+		"#dc2626",
 	),
 	warning: platformColor(
 		Color.ios.systemOrange,
 		Color.android.material.yellow600,
-		"#ff9500",
+		"#d97706",
 	),
 	success: platformColor(NEON_GREEN, NEON_GREEN, NEON_GREEN),
 	diffAdded: "#269a3b",

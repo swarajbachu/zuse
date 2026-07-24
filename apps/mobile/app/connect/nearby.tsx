@@ -30,8 +30,9 @@ import {
 	pairingDevicePublicKey,
 } from "~/lib/pairing-device-key";
 import { connectEnvironment } from "~/rpc/relay-client";
-import { useAuthStore } from "~/store/auth";
-import { useConnectionsStore } from "~/store/connections";
+import { authAccountAtom } from "~/store/auth";
+import { appAtomRegistry } from "~/store/registry";
+import { addConnection } from "~/store/connections";
 import { colors } from "~/theme";
 
 import {
@@ -76,7 +77,6 @@ export default function NearbyConnectScreen() {
 	const headerHeight = useHeaderHeight();
 	const insets = useSafeAreaInsets();
 	const { height: windowHeight } = useWindowDimensions();
-	const add = useConnectionsStore((state) => state.add);
 	const [services, setServices] = useState<readonly NearbyService[]>([]);
 	const [pending, setPending] = useState<PendingApproval | null>(null);
 	const [starting, setStarting] = useState<string | null>(null);
@@ -148,7 +148,7 @@ export default function NearbyConnectScreen() {
 					throw new Error("The nearby Mac's encrypted identity did not match.");
 				}
 				let accountAssertion: string | undefined;
-				if (useAuthStore.getState().account !== null) {
+				if (appAtomRegistry.get(authAccountAtom) !== null) {
 					try {
 						accountAssertion = (
 							await connectEnvironment(challenge.environmentId, {
@@ -274,7 +274,7 @@ export default function NearbyConnectScreen() {
 					activeProxy = null;
 					return;
 				}
-				await add({
+				await addConnection({
 					host: activeProxy.host,
 					port: activeProxy.port,
 					token: credential.token,
@@ -314,7 +314,7 @@ export default function NearbyConnectScreen() {
 		return () => {
 			cancelled = true;
 		};
-	}, [add, pending]);
+	}, [pending]);
 
 	return (
 		<>
