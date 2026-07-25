@@ -15,7 +15,6 @@ const service = (
 	type: "_zuse._tcp",
 	domain: "local.",
 	interfaceName: "en0",
-	trustRecordId: null,
 	tlsCertificatePin: "certificate-a",
 	...overrides,
 });
@@ -74,11 +73,10 @@ describe("nearby service normalization", () => {
 
 	test("removes native nulls before they can reach string-only functions", () => {
 		const [result] = normalizeNearbyServices([
-			service({ interfaceName: null, trustRecordId: null }),
+			service({ interfaceName: null }),
 		]);
 
 		expect(result).not.toHaveProperty("interfaceName");
-		expect(result).not.toHaveProperty("trustRecordId");
 	});
 
 	test("formats Bonjour host names for people", () => {

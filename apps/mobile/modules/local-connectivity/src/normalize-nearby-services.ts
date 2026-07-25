@@ -5,16 +5,11 @@ export type NearbyService = {
 	readonly type: string;
 	readonly domain: string;
 	readonly interfaceName?: string;
-	readonly trustRecordId?: string;
 	readonly tlsCertificatePin: string;
 };
 
-type NativeNearbyService = Omit<
-	NearbyService,
-	"routeId" | "interfaceName" | "trustRecordId"
-> & {
+type NativeNearbyService = Omit<NearbyService, "routeId" | "interfaceName"> & {
 	readonly interfaceName?: string | null;
-	readonly trustRecordId?: string | null;
 };
 
 const optionalString = (
@@ -42,7 +37,6 @@ export const normalizeNearbyServices = (
 	for (const raw of services) {
 		if (raw.tlsCertificatePin.length === 0) continue;
 		const interfaceName = optionalString(raw.interfaceName);
-		const trustRecordId = optionalString(raw.trustRecordId);
 		const service: NearbyService = {
 			id: raw.tlsCertificatePin,
 			// Browser generations and Bonjour "(2)" suffixes do not represent a
@@ -53,7 +47,6 @@ export const normalizeNearbyServices = (
 			domain: raw.domain,
 			tlsCertificatePin: raw.tlsCertificatePin,
 			...(interfaceName === undefined ? {} : { interfaceName }),
-			...(trustRecordId === undefined ? {} : { trustRecordId }),
 		};
 		const current = byCertificate.get(service.tlsCertificatePin);
 		if (

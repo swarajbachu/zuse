@@ -77,6 +77,7 @@ describe("Linear wire contracts", () => {
 			viewerName: "Ada",
 			viewerEmail: "ada@example.com",
 			connectedAt: new Date("2026-01-01T00:00:00.000Z"),
+			status: "connected",
 		});
 		const encoded = Schema.encodeSync(LinearConnection)(connection);
 		expect(JSON.stringify(encoded)).not.toMatch(/access|refresh|token/i);

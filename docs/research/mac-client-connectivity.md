@@ -12,8 +12,7 @@ research remains deferred until nearby connections are reliable.
 
 ### User experience
 
-- A phone that proves the same Zuse account or possession of the Mac's
-  synchronized iCloud Keychain trust record is approved automatically.
+- A phone that proves the same Zuse account is approved automatically.
 - An unverified phone triggers a Mac approval sheet automatically. The sheet
   shows the phone label, a stable short device identifier, and a safety phrase
   that is also visible on the phone. The user compares the phrase and clicks
@@ -65,12 +64,10 @@ phone public key, nonce, and TLS certificate pin. The Mac verifies the relay
 signature and all bindings before approving automatically. The assertion is
 only a trust bootstrap; subsequent RPC traffic stays on the direct nearby path.
 
-Apple does not expose a general API that lets an app read and compare the two
-devices' Apple Accounts. The Apple-specific automatic path instead stores a
-per-Mac 256-bit trust record in a shared Keychain Access Group with
-`kSecAttrSynchronizable`; proof of possession is used without transmitting the
-secret. If the record is unavailable or delayed, the app falls back silently to
-the one-click Mac approval flow.
+The earlier synchronized-Keychain trust path was removed because it caused
+unexpected permission prompts and depended on ambient cross-device secret
+state. When account trust is unavailable, the app uses the explicit one-click
+Mac approval flow.
 
 ### Implemented local flow
 
@@ -79,10 +76,9 @@ the one-click Mac approval flow.
 2. The iOS native module browses Bonjour, monitors network paths, opens a local
    loopback proxy, and validates the advertised certificate pin in its TLS
    verification callback.
-3. A single discovered Mac is requested automatically. Account or synchronized
-   Keychain proof produces zero-touch approval. Otherwise the Mac shows the
-   phone label, cryptographic device identifier, and matching phrase with one
-   **Allow** action.
+3. A single discovered Mac is requested automatically. Account proof produces
+   zero-touch approval. Otherwise the Mac shows the phone label, cryptographic
+   device identifier, and matching phrase with one **Allow** action.
 4. The issued bearer credential is encrypted to the phone's persistent X25519
    key. The saved record contains stable Mac identity and certificate pins, not
    an IP address.

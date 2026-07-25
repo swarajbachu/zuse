@@ -30,6 +30,7 @@ import {
 import { Button } from "~/components/ui/button.tsx";
 import { overlaySurface } from "~/components/ui/overlay-surface";
 import { PopoverPrimitive } from "~/components/ui/popover";
+import { errorMessage } from "~/lib/error-message.ts";
 import { getRpcClient } from "~/lib/rpc-client.ts";
 import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui.ts";
@@ -199,9 +200,7 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
 						if (!cancelled) {
 							setLinearIssues([]);
 							setLinearError(
-								cause instanceof Error
-									? cause.message
-									: "Could not search Linear issues.",
+								errorMessage(cause, "Could not search Linear issues."),
 							);
 						}
 					}

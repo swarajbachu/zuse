@@ -13,6 +13,7 @@ export class LinearConnection extends Schema.Class<LinearConnection>(
 	viewerName: Schema.String,
 	viewerEmail: Schema.String,
 	connectedAt: Schema.DateFromString,
+	status: Schema.Literals(["connected", "reauthRequired"]),
 }) {}
 
 export class LinearIssueRef extends Schema.Class<LinearIssueRef>(

@@ -1,16 +1,28 @@
 import { execFile } from "node:child_process";
-import { createDecipheriv, createHash, pbkdf2Sync } from "node:crypto";
+import {
+	createCipheriv,
+	createDecipheriv,
+	createHash,
+	pbkdf2Sync,
+	randomBytes,
+} from "node:crypto";
 import * as fs from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import * as Path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { promisify } from "node:util";
-import type { Session } from "electron";
+import { secureStorageMasterKey } from "@zuse/server/secure-storage-master-key";
+import type { Cookie, Session } from "electron";
 import keytar from "keytar";
 
 const execFileAsync = promisify(execFile);
-const PARTITION = "persist:zuse-browser";
+// Keep Chromium's own cookie store in memory. Persistent Chromium partitions
+// initialize OS cryptography and can create a second macOS Keychain access
+// path. Imported cookies are restored only through the explicit import flow.
+const PARTITION = "zuse-browser";
 const COOKIE_EPOCH_OFFSET_SECONDS = 11_644_473_600;
+const COOKIE_VAULT_AAD = Buffer.from("zuse-browser-cookies:v1", "utf8");
+const COOKIE_VAULT_FILENAME = "browser-cookies.enc";
 
 type ImportedCookieIdentity = {
 	domain: string;
@@ -27,6 +39,7 @@ type ImportState = {
 	lastImportTime?: string;
 	source?: string;
 	profile?: string;
+	trackedDomains: string[];
 	identities: ImportedCookieIdentity[];
 };
 
@@ -71,12 +84,22 @@ const readState = async (userData: string): Promise<ImportState> => {
 			...(typeof parsed.profile === "string"
 				? { profile: parsed.profile }
 				: {}),
+			trackedDomains: Array.isArray(parsed.trackedDomains)
+				? parsed.trackedDomains.filter(
+						(domain): domain is string => typeof domain === "string",
+					)
+				: [],
 			identities: Array.isArray(parsed.identities)
 				? parsed.identities.filter(isIdentity)
 				: [],
 		};
 	} catch {
-		return { version: 1, migratedExistingSession: false, identities: [] };
+		return {
+			version: 1,
+			migratedExistingSession: false,
+			trackedDomains: [],
+			identities: [],
+		};
 	}
 };
 
@@ -99,6 +122,145 @@ const writeState = async (
 	await fs.writeFile(statePath(userData), JSON.stringify(state, null, 2), {
 		mode: 0o600,
 	});
+};
+
+interface PersistedCookie {
+	readonly url: string;
+	readonly name: string;
+	readonly value: string;
+	readonly domain: string;
+	readonly path: string;
+	readonly secure: boolean;
+	readonly httpOnly: boolean;
+	readonly expirationDate?: number;
+	readonly sameSite?: "unspecified" | "no_restriction" | "lax" | "strict";
+}
+
+const cookieVaultPath = (userData: string) =>
+	Path.join(userData, COOKIE_VAULT_FILENAME);
+
+const persistCookies = async (
+	userData: string,
+	cookies: ReadonlyArray<PersistedCookie>,
+): Promise<void> => {
+	const key = await secureStorageMasterKey();
+	const iv = randomBytes(12);
+	const cipher = createCipheriv("aes-256-gcm", key, iv);
+	cipher.setAAD(COOKIE_VAULT_AAD);
+	const ciphertext = Buffer.concat([
+		cipher.update(JSON.stringify(cookies), "utf8"),
+		cipher.final(),
+	]);
+	const envelope = JSON.stringify({
+		version: 1,
+		iv: iv.toString("base64url"),
+		ciphertext: ciphertext.toString("base64url"),
+		tag: cipher.getAuthTag().toString("base64url"),
+	});
+	await fs.mkdir(userData, { recursive: true, mode: 0o700 });
+	const target = cookieVaultPath(userData);
+	const temporary = `${target}.tmp.${process.pid}.${Date.now()}`;
+	try {
+		await fs.writeFile(temporary, envelope, { mode: 0o600 });
+		await fs.rename(temporary, target);
+		await fs.chmod(target, 0o600);
+	} finally {
+		await fs.rm(temporary, { force: true }).catch(() => {});
+	}
+};
+
+const readPersistedCookies = async (
+	userData: string,
+): Promise<ReadonlyArray<PersistedCookie>> => {
+	let raw: string;
+	try {
+		raw = await fs.readFile(cookieVaultPath(userData), "utf8");
+	} catch (cause) {
+		if (
+			typeof cause === "object" &&
+			cause !== null &&
+			(cause as { code?: unknown }).code === "ENOENT"
+		)
+			return [];
+		throw cause;
+	}
+	const envelope = JSON.parse(raw) as {
+		version?: unknown;
+		iv?: unknown;
+		ciphertext?: unknown;
+		tag?: unknown;
+	};
+	if (
+		envelope.version !== 1 ||
+		typeof envelope.iv !== "string" ||
+		typeof envelope.ciphertext !== "string" ||
+		typeof envelope.tag !== "string"
+	)
+		throw new Error("Saved browser cookies are corrupt.");
+	const key = await secureStorageMasterKey(false);
+	const decipher = createDecipheriv(
+		"aes-256-gcm",
+		key,
+		Buffer.from(envelope.iv, "base64url"),
+	);
+	decipher.setAAD(COOKIE_VAULT_AAD);
+	decipher.setAuthTag(Buffer.from(envelope.tag, "base64url"));
+	const decoded = JSON.parse(
+		Buffer.concat([
+			decipher.update(Buffer.from(envelope.ciphertext, "base64url")),
+			decipher.final(),
+		]).toString("utf8"),
+	) as unknown;
+	if (!Array.isArray(decoded))
+		throw new Error("Saved browser cookies are corrupt.");
+	return decoded as ReadonlyArray<PersistedCookie>;
+};
+
+const toPersistedCookie = (cookie: Cookie): PersistedCookie | null => {
+	if (cookie.domain === undefined) return null;
+	const path = cookie.path ?? "/";
+	return {
+		url: `${cookie.secure ? "https" : "http"}://${cookie.domain.replace(/^\./, "")}${path}`,
+		name: cookie.name,
+		value: cookie.value,
+		domain: cookie.domain,
+		path,
+		secure: cookie.secure === true,
+		httpOnly: cookie.httpOnly === true,
+		...(cookie.expirationDate === undefined
+			? {}
+			: { expirationDate: cookie.expirationDate }),
+		...(cookie.sameSite === "unspecified" ? {} : { sameSite: cookie.sameSite }),
+	};
+};
+
+const syncPersistedBrowserCookies = async (
+	userData: string,
+	target: Session,
+): Promise<void> => {
+	const state = await readState(userData);
+	if (state.trackedDomains.length === 0) return;
+	const tracked = new Set(
+		state.trackedDomains.map((domain) => domain.replace(/^\./, "")),
+	);
+	const cookies = (await target.cookies.get({})).filter((cookie) => {
+		const domain = (cookie.domain ?? "").replace(/^\./, "");
+		return [...tracked].some(
+			(root) => domain === root || domain.endsWith(`.${root}`),
+		);
+	});
+	const persisted = cookies
+		.map(toPersistedCookie)
+		.filter((cookie): cookie is PersistedCookie => cookie !== null);
+	const identities = persisted.map((cookie) => ({
+		domain: cookie.domain,
+		path: cookie.path,
+		name: cookie.name,
+		secure: cookie.secure,
+		valueHash: createHash("sha256").update(cookie.value).digest("hex"),
+	}));
+	await persistCookies(userData, persisted);
+	await writeState(userData, { ...state, identities });
 };
 
 export const migrateExistingBrowserCookies = async (
@@ -615,6 +777,7 @@ export const importDefaultBrowserCookies = async (
 		);
 		const now = Date.now() / 1000;
 		const identities: ImportedCookieIdentity[] = [];
+		const persistedCookies: PersistedCookie[] = [];
 		for (const row of rows) {
 			const domain = String(row.host_key ?? "");
 			const name = String(row.name ?? "");
@@ -661,10 +824,31 @@ export const importDefaultBrowserCookies = async (
 					secure,
 					valueHash: createHash("sha256").update(value).digest("hex"),
 				});
+				persistedCookies.push({
+					url: `${secure ? "https" : "http"}://${domain.replace(/^\./, "")}${path}`,
+					name,
+					value,
+					domain,
+					path,
+					secure,
+					httpOnly: Number(row.is_httponly) === 1,
+					...(expirationDate === undefined ? {} : { expirationDate }),
+					...(sameSite < 0
+						? {}
+						: {
+								sameSite:
+									sameSite === 2
+										? "strict"
+										: sameSite === 1
+											? "lax"
+											: "no_restriction",
+							}),
+				});
 			} catch {
 				// Skip invalid individual records while preserving the rest of the import.
 			}
 		}
+		await persistCookies(userData, persistedCookies);
 		const state = await readState(userData);
 		await writeState(userData, {
 			...state,
@@ -672,6 +856,9 @@ export const importDefaultBrowserCookies = async (
 			lastImportTime: new Date().toISOString(),
 			source: detected.source,
 			profile: detected.profile,
+			trackedDomains: [
+				...new Set(identities.map((identity) => identity.domain)),
+			],
 			identities,
 		});
 		return getBrowserCookieImportStatus(userData);
@@ -688,15 +875,49 @@ export const clearImportedBrowserCookies = async (
 	for (const item of state.identities) {
 		await removeImportedIdentity(target, item);
 	}
+	await fs.rm(cookieVaultPath(userData), { force: true });
 	await writeState(userData, {
 		version: 1,
 		migratedExistingSession: state.migratedExistingSession,
 		...(state.selectedProfileId === undefined
 			? {}
 			: { selectedProfileId: state.selectedProfileId }),
+		trackedDomains: [],
 		identities: [],
 	});
 	return getBrowserCookieImportStatus(userData);
+};
+
+export const restoreImportedBrowserCookies = async (
+	userData: string,
+	target: Session,
+): Promise<void> => {
+	for (const cookie of await readPersistedCookies(userData)) {
+		try {
+			await target.cookies.set(cookie);
+		} catch {
+			// A single stale cookie must not prevent the browser from starting.
+		}
+	}
+};
+
+export const watchImportedBrowserCookies = (
+	userData: string,
+	target: Session,
+): (() => void) => {
+	let timer: NodeJS.Timeout | null = null;
+	const onChanged = () => {
+		if (timer !== null) clearTimeout(timer);
+		timer = setTimeout(() => {
+			timer = null;
+			void syncPersistedBrowserCookies(userData, target).catch(() => {});
+		}, 250);
+	};
+	target.cookies.on("changed", onChanged);
+	return () => {
+		if (timer !== null) clearTimeout(timer);
+		target.cookies.off("changed", onChanged);
+	};
 };
 
 export const BROWSER_PARTITION = PARTITION;

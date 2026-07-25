@@ -2,11 +2,9 @@ import CryptoKit
 import ExpoModulesCore
 import Foundation
 import Network
-import Security
 
 private let serviceType = "_zuse._tcp"
 private let connectivityQueue = DispatchQueue(label: "com.zuse.local-connectivity")
-private let sharedKeychainGroup = "HMCST4VV42.com.zuse.shared-connectivity"
 
 struct NearbyServiceRecord: Record {
   @Field var id: String = ""
@@ -14,7 +12,6 @@ struct NearbyServiceRecord: Record {
   @Field var type: String = serviceType
   @Field var domain: String = "local."
   @Field var interfaceName: String?
-  @Field var trustRecordId: String?
   @Field var tlsCertificatePin: String = ""
 }
 
@@ -243,23 +240,6 @@ public final class ZuseLocalConnectivityModule: Module {
       self.proxies.removeValue(forKey: id)?.cancel()
     }
 
-    AsyncFunction("proofForTrustRecord") { (recordId: String, challenge: String) -> String? in
-      guard let secret = self.readTrustRecord(recordId: recordId) else { return nil }
-      let key = SymmetricKey(data: secret)
-      let proof = HMAC<SHA256>.authenticationCode(
-        for: Data(challenge.utf8),
-        using: key
-      )
-      return Data(proof).base64EncodedString()
-        .replacingOccurrences(of: "+", with: "-")
-        .replacingOccurrences(of: "/", with: "_")
-        .replacingOccurrences(of: "=", with: "")
-    }
-
-    AsyncFunction("hasTrustRecord") { (recordId: String) -> Bool in
-      self.readTrustRecord(recordId: recordId) != nil
-    }
-
     OnAppEntersForeground {
       self.startDiscovery()
     }
@@ -304,16 +284,8 @@ public final class ZuseLocalConnectivityModule: Module {
         guard case let .service(name, type, domain, interface) = result.endpoint else {
           return nil
         }
-        var trustRecordId: String?
         var tlsCertificatePin: String?
         if case let .bonjour(txtRecord) = result.metadata {
-          if let entry = txtRecord.getEntry(for: "trust") {
-            switch entry {
-            case .string(let value): trustRecordId = value
-            case .data(let data): trustRecordId = String(data: data, encoding: .utf8)
-            default: break
-            }
-          }
           if let entry = txtRecord.getEntry(for: "tls") {
             switch entry {
             case .string(let value): tlsCertificatePin = value
@@ -332,9 +304,6 @@ public final class ZuseLocalConnectivityModule: Module {
         ]
         if let interfaceName = interface?.name {
           service["interfaceName"] = interfaceName
-        }
-        if let trustRecordId {
-          service["trustRecordId"] = trustRecordId
         }
         return service
       }
@@ -443,21 +412,4 @@ public final class ZuseLocalConnectivityModule: Module {
     connectivityQueue.asyncAfter(deadline: .now() + delay, execute: work)
   }
 
-  private func readTrustRecord(recordId: String) -> Data? {
-    let query: [CFString: Any] = [
-      kSecClass: kSecClassGenericPassword,
-      kSecAttrService: "com.zuse.local-trust",
-      kSecAttrAccount: recordId,
-      kSecAttrAccessGroup: sharedKeychainGroup,
-      kSecAttrSynchronizable: kCFBooleanTrue as Any,
-      kSecUseDataProtectionKeychain: kCFBooleanTrue as Any,
-      kSecReturnData: kCFBooleanTrue as Any,
-      kSecMatchLimit: kSecMatchLimitOne,
-    ]
-    var result: CFTypeRef?
-    guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else {
-      return nil
-    }
-    return result as? Data
-  }
 }

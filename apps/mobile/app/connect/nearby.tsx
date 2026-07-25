@@ -1,7 +1,7 @@
 import * as ExpoCrypto from "expo-crypto";
 import { router, Stack } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import { Cloud, Monitor, Radio, ShieldCheck } from "lucide-react-native";
+import { Monitor, Radio, ShieldCheck } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	ActivityIndicator,
@@ -31,13 +31,12 @@ import {
 } from "~/lib/pairing-device-key";
 import { connectEnvironment } from "~/rpc/relay-client";
 import { authAccountAtom } from "~/store/auth";
-import { appAtomRegistry } from "~/store/registry";
 import { addConnection } from "~/store/connections";
+import { appAtomRegistry } from "~/store/registry";
 import { colors } from "~/theme";
 
 import {
 	closeLocalProxy,
-	hasICloudTrustRecord,
 	type LocalDiscoveryState,
 	type LocalProxy,
 	localConnectivityAvailable,
@@ -46,7 +45,6 @@ import {
 	onLocalDiscoveryStateChanged,
 	onNearbyServicesChanged,
 	openLocalProxy,
-	proofForICloudTrustRecord,
 	startLocalDiscovery,
 } from "../../modules/local-connectivity";
 
@@ -57,12 +55,6 @@ type PendingApproval = {
 	readonly environmentPublicKey: string;
 	readonly service: NearbyService;
 	readonly proxy: LocalProxy;
-};
-
-const iCloudTrustLabel = (available: boolean | undefined): string => {
-	if (available === true) return "iCloud trust available";
-	if (available === false) return "Mac approval required";
-	return "Checking iCloud trust…";
 };
 
 const safetyPhraseLabel = (phrase: string): string =>
@@ -82,9 +74,6 @@ export default function NearbyConnectScreen() {
 	const [starting, setStarting] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [showQrFallback, setShowQrFallback] = useState(false);
-	const [icloudTrust, setIcloudTrust] = useState<
-		Readonly<Record<string, boolean>>
-	>({});
 	const [discoveryState, setDiscoveryState] = useState<LocalDiscoveryState>({
 		state: "starting",
 	});
@@ -112,24 +101,6 @@ export default function NearbyConnectScreen() {
 		const timer = setTimeout(() => setShowQrFallback(true), 8_000);
 		return () => clearTimeout(timer);
 	}, [services.length]);
-
-	useEffect(() => {
-		let cancelled = false;
-		void Promise.all(
-			services.map(
-				async (service) =>
-					[
-						service.id,
-						await hasICloudTrustRecord(service.trustRecordId),
-					] as const,
-			),
-		).then((entries) => {
-			if (!cancelled) setIcloudTrust(Object.fromEntries(entries));
-		});
-		return () => {
-			cancelled = true;
-		};
-	}, [services]);
 
 	const requestAccess = useCallback(
 		async (service: NearbyService) => {
@@ -161,27 +132,6 @@ export default function NearbyConnectScreen() {
 						// Account trust is opportunistic; explicit local approval remains.
 					}
 				}
-				const trustRecordId =
-					typeof service.trustRecordId === "string"
-						? service.trustRecordId
-						: undefined;
-				const icloudChallenge =
-					trustRecordId === undefined
-						? undefined
-						: [
-								"zuse-icloud-v1",
-								trustRecordId,
-								deviceId,
-								publicKey,
-								clientNonce,
-								challenge.serverNonce,
-								challenge.environmentPublicKey,
-								service.tlsCertificatePin,
-							].join("|");
-				const icloudTrustProof =
-					trustRecordId === undefined || icloudChallenge === undefined
-						? null
-						: await proofForICloudTrustRecord(trustRecordId, icloudChallenge);
 				const pairing = await startNearbyPairing({
 					host: proxy.host,
 					port: proxy.port,
@@ -192,8 +142,6 @@ export default function NearbyConnectScreen() {
 					ephemeralPublicKey,
 					clientNonce,
 					serverNonce: challenge.serverNonce,
-					icloudTrustRecordId: trustRecordId,
-					icloudTrustProof: icloudTrustProof ?? undefined,
 					accountAssertion,
 					transportCertificatePin: service.tlsCertificatePin,
 				});
@@ -415,7 +363,7 @@ export default function NearbyConnectScreen() {
 									<Pressable
 										key={service.id}
 										accessibilityRole="button"
-										accessibilityLabel={`${nearbyMacDisplayName(service.name)}, ${iCloudTrustLabel(icloudTrust[service.id])}`}
+										accessibilityLabel={`${nearbyMacDisplayName(service.name)}, Mac approval required`}
 										disabled={starting !== null}
 										onPress={() => void requestAccess(service)}
 										className="min-h-44 w-40 items-center justify-start gap-3 rounded-3xl px-3 py-4 active:bg-muted/60"
@@ -431,9 +379,8 @@ export default function NearbyConnectScreen() {
 												{nearbyMacDisplayName(service.name)}
 											</Text>
 											<View className="min-h-5 flex-row items-center gap-1.5">
-												<Cloud color={colors.secondaryFg} size={13} />
 												<Text className="font-sans text-xs text-muted-foreground">
-													{iCloudTrustLabel(icloudTrust[service.id])}
+													Mac approval required
 												</Text>
 											</View>
 										</View>

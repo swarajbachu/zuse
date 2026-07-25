@@ -21,6 +21,11 @@
 			"types": "./src/runtime.ts",
 			"import": "./src/runtime.ts",
 			"require": "./src/runtime.ts"
+		},
+		"./secure-storage-master-key": {
+			"types": "./src/secure-storage-master-key.ts",
+			"import": "./src/secure-storage-master-key.ts",
+			"require": "./src/secure-storage-master-key.ts"
 		}
 	},
 	"scripts": {

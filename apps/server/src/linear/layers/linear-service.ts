@@ -46,6 +46,7 @@ const TokenBundleSchema = Schema.Struct({
 	viewerName: Schema.String,
 	viewerEmail: Schema.String,
 	connectedAt: Schema.String,
+	reauthRequired: Schema.optional(Schema.Boolean),
 });
 type TokenBundle = typeof TokenBundleSchema.Type;
 
@@ -157,7 +158,18 @@ const toConnection = (bundle: TokenBundle): LinearConnection =>
 		viewerName: bundle.viewerName,
 		viewerEmail: bundle.viewerEmail,
 		connectedAt: new Date(bundle.connectedAt),
+		status: bundle.reauthRequired === true ? "reauthRequired" : "connected",
 	});
+
+class LinearOAuthTokenError extends Error {
+	readonly status: number;
+
+	constructor(message: string, status: number) {
+		super(message);
+		this.name = "LinearOAuthTokenError";
+		this.status = status;
+	}
+}
 
 const base64url = (bytes: Uint8Array): string =>
 	Buffer.from(bytes).toString("base64url");
@@ -191,7 +203,6 @@ const authorizeUrl = (
 
 interface PendingConnect {
 	readonly state: string;
-	readonly verifier: string;
 	readonly resolve: (url: string) => void;
 	readonly reject: (cause: Error) => void;
 }
@@ -206,8 +217,21 @@ const exchangeToken = async (
 		body: new URLSearchParams(params),
 	});
 	const value: unknown = await response.json().catch(() => null);
-	if (!response.ok)
-		throw new Error(`Linear OAuth failed (${response.status}).`);
+	if (!response.ok) {
+		const description =
+			value !== null &&
+			typeof value === "object" &&
+			typeof (value as { error_description?: unknown }).error_description ===
+				"string"
+				? (value as { error_description: string }).error_description
+				: null;
+		throw new LinearOAuthTokenError(
+			description === null
+				? `Linear OAuth failed (${response.status}).`
+				: `Linear OAuth failed: ${description}`,
+			response.status,
+		);
+	}
 	return Schema.decodeUnknownSync(TokenResponseSchema)(value);
 };
 
@@ -373,6 +397,10 @@ export const LinearServiceLive = Layer.effect(
 			workspaceId: string,
 		) {
 			const seed = yield* readBundle(workspaceId);
+			if (seed.reauthRequired === true)
+				return yield* Effect.fail(
+					fail("Linear authorization expired. Reconnect this workspace."),
+				);
 			if (seed.expiresAt - Date.now() > REFRESH_SKEW_MS) return seed;
 			let lock = refreshLocks.get(workspaceId);
 			if (lock === undefined) {
@@ -382,21 +410,40 @@ export const LinearServiceLive = Layer.effect(
 			return yield* lock.withPermits(1)(
 				Effect.gen(function* () {
 					const current = yield* readBundle(workspaceId);
+					if (current.reauthRequired === true)
+						return yield* Effect.fail(
+							fail("Linear authorization expired. Reconnect this workspace."),
+						);
 					if (current.expiresAt - Date.now() > REFRESH_SKEW_MS) return current;
-					const token = yield* Effect.tryPromise({
+					const tokenResult = yield* Effect.tryPromise({
 						try: () =>
 							exchangeToken(fetcher, {
 								grant_type: "refresh_token",
 								refresh_token: current.refreshToken,
 								client_id: CLIENT_ID,
 							}),
-						catch: (cause) => fail(errorMessage(cause)),
-					});
+						catch: (cause) => cause,
+					}).pipe(Effect.result);
+					if (tokenResult._tag === "Failure") {
+						if (
+							tokenResult.failure instanceof LinearOAuthTokenError &&
+							(tokenResult.failure.status === 400 ||
+								tokenResult.failure.status === 401)
+						) {
+							yield* persistBundle({ ...current, reauthRequired: true });
+							return yield* Effect.fail(
+								fail("Linear authorization expired. Reconnect this workspace."),
+							);
+						}
+						return yield* Effect.fail(fail(errorMessage(tokenResult.failure)));
+					}
+					const token = tokenResult.success;
 					return yield* persistBundle({
 						...current,
 						accessToken: token.access_token,
 						refreshToken: token.refresh_token,
 						expiresAt: Date.now() + token.expires_in * 1_000,
+						reauthRequired: false,
 					});
 				}),
 			);
@@ -438,6 +485,14 @@ export const LinearServiceLive = Layer.effect(
 					const parsed = new URL(url);
 					if (parsed.searchParams.get("state") !== current.state) {
 						current.reject(new Error("Linear OAuth state did not match."));
+					} else if (parsed.searchParams.has("error")) {
+						current.reject(
+							new Error(
+								parsed.searchParams.get("error_description") ??
+									parsed.searchParams.get("error") ??
+									"Linear connection was cancelled.",
+							),
+						);
 					} else {
 						current.resolve(url);
 					}
@@ -490,7 +545,6 @@ export const LinearServiceLive = Layer.effect(
 			const callback = new Promise<string>((resolve, reject) => {
 				pending = {
 					state: pkce.state,
-					verifier: pkce.verifier,
 					resolve,
 					reject,
 				};
@@ -500,13 +554,18 @@ export const LinearServiceLive = Layer.effect(
 				.pipe(Effect.mapError((cause) => fail(cause.reason)));
 			const callbackUrl = yield* Effect.tryPromise({
 				try: async () => {
-					const timeout = new Promise<never>((_, reject) =>
-						setTimeout(
-							() => reject(new Error("Linear connection timed out.")),
-							90_000,
-						),
-					);
-					return await Promise.race([callback, timeout]);
+					let timeoutId: ReturnType<typeof setTimeout> | undefined;
+					try {
+						const timeout = new Promise<never>((_, reject) => {
+							timeoutId = setTimeout(
+								() => reject(new Error("Linear connection timed out.")),
+								90_000,
+							);
+						});
+						return await Promise.race([callback, timeout]);
+					} finally {
+						if (timeoutId !== undefined) clearTimeout(timeoutId);
+					}
 				},
 				catch: (cause) => fail(errorMessage(cause)),
 			}).pipe(
@@ -556,6 +615,7 @@ export const LinearServiceLive = Layer.effect(
 				viewerName: viewer.viewer.name,
 				viewerEmail: viewer.viewer.email,
 				connectedAt: now,
+				reauthRequired: false,
 			};
 			yield* persistBundle(bundle);
 			return toConnection(bundle);

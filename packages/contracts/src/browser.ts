@@ -186,9 +186,8 @@ export const BrowserCommand = Schema.Union([
 	/**
 	 * Autofill + submit the saved (DUMMY/TEST) credentials for this origin.
 	 * SECURITY: the command carries ONLY the origin — never the password. The
-	 * renderer pulls the secret out-of-band via `browser.fillForOrigin` and
-	 * injects it into the page, so the password never enters the agent's tool
-	 * args/results or the LLM context.
+	 * desktop main process injects the secret directly into the isolated page,
+	 * so it never enters renderer state, agent args/results, or LLM context.
 	 */
 	Schema.TaggedStruct("Login", { origin: Schema.String }),
 	Schema.TaggedStruct("Inspect", { target: BrowserTarget }),
@@ -216,18 +215,6 @@ export class BrowserCredentialSummary extends Schema.Class<BrowserCredentialSumm
 )({
 	origin: Schema.String,
 	username: Schema.String,
-}) {}
-
-/**
- * The actual secret, returned ONLY to the trusted renderer executor when it
- * handles a `Login` command. Never flows through the agent event stream, a
- * tool result, or the command broadcast.
- */
-export class BrowserCredentialSecret extends Schema.Class<BrowserCredentialSecret>(
-	"BrowserCredentialSecret",
-)({
-	username: Schema.String,
-	password: Schema.String,
 }) {}
 
 /**
@@ -309,9 +296,8 @@ export const BrowserRespondRpc = Rpc.make("browser.respond", {
 
 // ---------------------------------------------------------------------------
 // Browser credentials (DUMMY / TEST passwords only — see settings UI warning).
-// Stored in the OS keychain, namespaced by origin. Write-only from the UI's
-// perspective; the password is never returned to the settings UI, only to the
-// renderer's Login executor via `browser.fillForOrigin`.
+// Stored in the encrypted app vault. Write-only from the UI's perspective; the
+// password is injected into the isolated page by the desktop main process.
 // ---------------------------------------------------------------------------
 
 /** Save (or overwrite) the dummy credential for an origin. */
@@ -333,14 +319,4 @@ export const BrowserListCredentialsRpc = Rpc.make("browser.listCredentials", {
 export const BrowserRemoveCredentialRpc = Rpc.make("browser.removeCredential", {
 	payload: Schema.Struct({ origin: Schema.String }),
 	success: Schema.Void,
-});
-
-/**
- * Renderer-only: fetch the secret for an origin to inject into the page during
- * a Login command. Returns null when nothing is saved. NEVER call this from any
- * agent-facing path — the result is the cleartext dummy password.
- */
-export const BrowserFillForOriginRpc = Rpc.make("browser.fillForOrigin", {
-	payload: Schema.Struct({ origin: Schema.String }),
-	success: Schema.NullOr(BrowserCredentialSecret),
 });

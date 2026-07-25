@@ -216,11 +216,14 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(AppPathsLayer),
 		Layer.provide(NodeServices.layer),
 	);
+	const CredentialsLayer = CredentialsServiceLive.pipe(
+		Layer.provide(AppPathsLayer),
+	);
 
 	// Auth owns the account transition that analytics uses to move between a
 	// random installation identity and a namespaced account hash.
 	const AuthLayer = AuthServiceLive.pipe(
-		Layer.provide(CredentialsServiceLive),
+		Layer.provide(CredentialsLayer),
 		Layer.provide(SessionStoreLive),
 		Layer.provide(AuthShellLayer),
 	);
@@ -307,7 +310,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const McpLayer = McpServiceLive.pipe(
 		Layer.provide(ConfigStoreLayer),
 		Layer.provide(RepositorySettingsLayer),
-		Layer.provide(CredentialsServiceLive),
+		Layer.provide(CredentialsLayer),
 		Layer.provide(BrowserBridgeLayer),
 		Layer.provide(MigratedSqlite),
 		Layer.provide(NodeServices.layer),
@@ -318,7 +321,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	// WorkspaceService, and forwards the SDK's tool-permission callback to
 	// PermissionService.
 	const ProviderLayer = ProviderServiceLive.pipe(
-		Layer.provide(CredentialsServiceLive),
+		Layer.provide(CredentialsLayer),
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(PermissionLayer),
 		Layer.provide(AttachmentLayer),
@@ -367,7 +370,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(LanAuthLayer),
 	);
 	const LinearLayer = LinearServiceLive.pipe(
-		Layer.provide(CredentialsServiceLive),
+		Layer.provide(CredentialsLayer),
 		Layer.provide(AuthShellLayer),
 		Layer.provide(AttachmentLayer),
 		Layer.provide(MigratedSqlite),
@@ -469,8 +472,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		PermissionLayer,
 		AttachmentLayer,
 		BrowserBridgeLayer,
-		// browser.* credential RPCs read/write the keychain directly.
-		CredentialsServiceLive,
+		// browser.* credential RPCs share the encrypted local vault.
+		CredentialsLayer,
 		SkillBridgeLayer,
 		DiagnosticsLayer,
 		LanAuthLayer,

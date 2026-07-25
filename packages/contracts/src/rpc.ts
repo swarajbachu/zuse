@@ -25,7 +25,6 @@ import {
 } from "./auth.ts";
 import {
 	BrowserCommandsRpc,
-	BrowserFillForOriginRpc,
 	BrowserListCredentialsRpc,
 	BrowserRemoveCredentialRpc,
 	BrowserRespondRpc,
@@ -400,7 +399,6 @@ export const MemoizeRpcs = RpcGroup.make(
 	BrowserSetCredentialRpc,
 	BrowserListCredentialsRpc,
 	BrowserRemoveCredentialRpc,
-	BrowserFillForOriginRpc,
 	WorktreeCreateRpc,
 	WorktreeListRpc,
 	WorktreeGetRpc,

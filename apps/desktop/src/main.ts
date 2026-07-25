@@ -13,7 +13,11 @@ import * as Path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { AGENTS_RUNNING_COUNT_CHANNEL, AuthFlowError } from "@zuse/contracts";
-import { makeMainLayer, wsServerProtocolLayer } from "@zuse/server";
+import {
+	makeMainLayer,
+	readBrowserCredentialFromVault,
+	wsServerProtocolLayer,
+} from "@zuse/server";
 import { Cause, Effect, Fiber, Layer } from "effect";
 import { RpcSerialization } from "effect/unstable/rpc";
 import {
@@ -63,6 +67,8 @@ import {
 	getBrowserCookieImportStatus,
 	importDefaultBrowserCookies,
 	migrateExistingBrowserCookies,
+	restoreImportedBrowserCookies,
+	watchImportedBrowserCookies,
 } from "./browser-session-service.ts";
 import { electronServerProtocolLayer } from "./ipc/electron-server-protocol.ts";
 import { isLinearContextImagePath } from "./linear-context-image.ts";
@@ -451,116 +457,9 @@ const localConnectivityHelperPath = (): string =>
 				"zuse-local-connectivity",
 			);
 
-const browserCredentialHelperPath = (): string =>
-	app.isPackaged
-		? Path.join(
-				process.resourcesPath,
-				"app",
-				"browser-credentials",
-				"zuse-browser-credentials",
-			)
-		: Path.join(
-				app.getAppPath(),
-				"native",
-				"browser-credentials",
-				"bin",
-				"zuse-browser-credentials",
-			);
-
-const probeNativeCredentialHelper = async (): Promise<{
-	readonly supported: boolean;
-	readonly reason?: string;
-}> => {
-	if (process.platform !== "darwin") {
-		return {
-			supported: false,
-			reason: "Native password filling is currently available only on macOS.",
-		};
-	}
-	const executable = browserCredentialHelperPath();
-	if (!fsSync.existsSync(executable)) {
-		return {
-			supported: false,
-			reason: "The native password helper is not installed in this build.",
-		};
-	}
-	try {
-		const { stdout } = await execFileAsync(executable, ["--probe"], {
-			timeout: 5_000,
-			maxBuffer: 16 * 1024,
-		});
-		const result = JSON.parse(stdout) as { supported?: unknown };
-		return result.supported === true
-			? { supported: true }
-			: {
-					supported: false,
-					reason: "The native password helper failed its capability probe.",
-				};
-	} catch {
-		return {
-			supported: false,
-			reason: "The native password helper failed its capability probe.",
-		};
-	}
-};
-
-type LocalTrustRecord = {
-	readonly recordId: string;
-	readonly secret: string;
-};
-
-const ensureLocalTrustRecord = async (
-	userData: string,
-): Promise<LocalTrustRecord | null> => {
-	if (process.platform !== "darwin") return null;
-	const executable = localConnectivityHelperPath();
-	if (!fsSync.existsSync(executable)) return null;
-	const metadataPath = Path.join(userData, "local-connectivity-trust.json");
-	let recordId: string;
-	try {
-		const metadata = JSON.parse(await fs.readFile(metadataPath, "utf8")) as {
-			recordId?: unknown;
-		};
-		recordId =
-			typeof metadata.recordId === "string" && metadata.recordId.length <= 128
-				? metadata.recordId
-				: randomUUID();
-	} catch {
-		recordId = randomUUID();
-	}
-	try {
-		await fs.mkdir(Path.dirname(metadataPath), { recursive: true });
-		await fs.writeFile(metadataPath, JSON.stringify({ recordId }), {
-			mode: 0o600,
-		});
-		const { stdout } = await execFileAsync(executable, [
-			"--ensure-trust",
-			recordId,
-		]);
-		const result = JSON.parse(stdout) as {
-			recordId?: unknown;
-			secret?: unknown;
-		};
-		if (
-			result.recordId !== recordId ||
-			typeof result.secret !== "string" ||
-			!/^[A-Za-z0-9_-]{43}$/.test(result.secret)
-		) {
-			return null;
-		}
-		return { recordId, secret: result.secret };
-	} catch (cause) {
-		appendRemoteConnectionLog("local.trust.unavailable", {
-			reason: cause instanceof Error ? cause.message : String(cause),
-		});
-		return null;
-	}
-};
-
 const startLocalConnectivityHelper = (
 	targetPort: number,
 	serviceName: string,
-	trustRecordId?: string,
 	tlsCertificatePin?: string,
 ): void => {
 	if (process.platform !== "darwin" || localConnectivityHelper !== null) return;
@@ -574,7 +473,6 @@ const startLocalConnectivityHelper = (
 		[
 			String(targetPort),
 			serviceName,
-			trustRecordId ?? "-",
 			...(tlsCertificatePin === undefined ? [] : [tlsCertificatePin]),
 		],
 		{
@@ -607,12 +505,7 @@ const startLocalConnectivityHelper = (
 		);
 		localConnectivityRestartTimer = setTimeout(() => {
 			localConnectivityRestartTimer = null;
-			startLocalConnectivityHelper(
-				targetPort,
-				serviceName,
-				trustRecordId,
-				tlsCertificatePin,
-			);
+			startLocalConnectivityHelper(targetPort, serviceName, tlsCertificatePin);
 		}, delayMs);
 	});
 	child.once("error", (cause) => {
@@ -1021,10 +914,6 @@ async function createMainWindow() {
 		});
 	}
 	const isMac = process.platform === "darwin";
-	const localTrust =
-		networkAccess.mode === "network-accessible"
-			? await ensureLocalTrustRecord(userData)
-			: null;
 	const nearbyTls =
 		networkAccess.mode === "network-accessible" && process.platform === "darwin"
 			? await ensureNearbyTlsIdentity(userData)
@@ -1651,21 +1540,24 @@ async function createMainWindow() {
 	});
 
 	ipcMain.handle("browser:getCookieImportStatus", async () => {
-		const persistent = session.fromPartition(BROWSER_PARTITION);
-		await migrateExistingBrowserCookies(
-			app.getPath("userData"),
-			session.defaultSession,
-			persistent,
-		);
 		return getBrowserCookieImportStatus(app.getPath("userData"));
 	});
 
-	ipcMain.handle("browser:importCookies", async (_event, profileId: unknown) =>
-		importDefaultBrowserCookies(
-			app.getPath("userData"),
-			session.fromPartition(BROWSER_PARTITION),
-			typeof profileId === "string" ? profileId : undefined,
-		),
+	ipcMain.handle(
+		"browser:importCookies",
+		async (_event, profileId: unknown) => {
+			const target = session.fromPartition(BROWSER_PARTITION);
+			await migrateExistingBrowserCookies(
+				app.getPath("userData"),
+				session.defaultSession,
+				target,
+			);
+			return importDefaultBrowserCookies(
+				app.getPath("userData"),
+				target,
+				typeof profileId === "string" ? profileId : undefined,
+			);
+		},
 	);
 
 	ipcMain.handle("browser:clearImportedCookies", async () =>
@@ -1684,9 +1576,9 @@ async function createMainWindow() {
 		return getBrowserCookieImportStatus(userData);
 	});
 
-	ipcMain.handle("browser:getNativeCredentialCapability", async () =>
-		probeNativeCredentialHelper(),
-	);
+	ipcMain.handle("browser:getNativeCredentialCapability", async () => ({
+		supported: true,
+	}));
 
 	ipcMain.handle(
 		"browser:fillNativeCredential",
@@ -1709,41 +1601,15 @@ async function createMainWindow() {
 					ok: false,
 					error: "Credential origin does not match the active page.",
 				};
-			const capability = await probeNativeCredentialHelper();
-			if (!capability.supported) {
-				return {
-					ok: false,
-					error:
-						capability.reason ??
-						"Native Passwords access is unavailable in this build.",
-				};
-			}
 			try {
-				const { stdout } = await execFileAsync(
-					browserCredentialHelperPath(),
-					[requestedOrigin],
-					{
-						timeout: 120_000,
-						maxBuffer: 64 * 1024,
-					},
+				const selected = await readBrowserCredentialFromVault(
+					app.getPath("userData"),
+					requestedOrigin,
 				);
-				const selected = JSON.parse(stdout) as {
-					ok?: unknown;
-					username?: unknown;
-					password?: unknown;
-					error?: unknown;
-				};
-				if (
-					selected.ok !== true ||
-					typeof selected.username !== "string" ||
-					typeof selected.password !== "string"
-				) {
+				if (selected === null) {
 					return {
 						ok: false,
-						error:
-							typeof selected.error === "string"
-								? selected.error
-								: "No password was selected.",
+						error: `No saved test credential exists for ${requestedOrigin}.`,
 					};
 				}
 				if (
@@ -1772,9 +1638,9 @@ async function createMainWindow() {
 				return {
 					ok: false,
 					error:
-						error instanceof Error && error.message.includes("timed out")
-							? "Password selection timed out."
-							: "Password selection was cancelled or unavailable.",
+						error instanceof Error
+							? error.message
+							: "The saved credential could not be read.",
 				};
 			}
 		},
@@ -2045,12 +1911,7 @@ async function createMainWindow() {
 					tls: { key: nearbyTls.key, cert: nearbyTls.cert },
 					onDiagnostic: appendRemoteConnectionLog,
 					onListening: ({ port }) =>
-						startLocalConnectivityHelper(
-							port,
-							systemHostname,
-							localTrust?.recordId,
-							nearbyTls.pin,
-						),
+						startLocalConnectivityHelper(port, systemHostname, nearbyTls.pin),
 				});
 	appendRemoteConnectionLog("desktop.runtime.start", {
 		relayWsPort,
@@ -2079,8 +1940,6 @@ async function createMainWindow() {
 					advertisedHost: networkAccess.advertisedHost,
 					port: relayWsPort,
 					pairingBootstrap: false,
-					icloudTrustRecordId: localTrust?.recordId,
-					icloudTrustSecret: localTrust?.secret,
 					transportCertificatePin: nearbyTls?.pin,
 					onNearbyPairingRequest: (request) => {
 						const requestFields = {
@@ -2606,6 +2465,16 @@ void app.whenReady().then(async () => {
 	});
 
 	installAppMenu(() => mainWindow, lastAccelerators, getLastStatus());
+	await restoreImportedBrowserCookies(
+		app.getPath("userData"),
+		session.fromPartition(BROWSER_PARTITION),
+	).catch((cause) => {
+		recordMainDiagnostic("warn", "browser.cookies.restore_failed", [cause]);
+	});
+	watchImportedBrowserCookies(
+		app.getPath("userData"),
+		session.fromPartition(BROWSER_PARTITION),
+	);
 	await createMainWindow();
 	if (mainWindow !== null) {
 		if (isDevelopment) {

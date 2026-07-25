@@ -652,10 +652,6 @@ function BrowserSettingsPagePane() {
 	const [selectedProfileId, setSelectedProfileId] = useState<
 		string | undefined
 	>();
-	const [credentialCapability, setCredentialCapability] = useState<{
-		supported: boolean;
-		reason?: string;
-	} | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [clearOpen, setClearOpen] = useState(false);
@@ -663,13 +659,9 @@ function BrowserSettingsPagePane() {
 	useEffect(() => {
 		let cancelled = false;
 		const browser = window.zuse?.browser;
-		void Promise.all([
-			browser?.getCookieImportStatus?.(),
-			browser?.getNativeCredentialCapability?.(),
-		]).then(([nextStatus, capability]) => {
+		void browser?.getCookieImportStatus?.().then((nextStatus) => {
 			if (cancelled) return;
 			if (nextStatus !== undefined) setStatus(nextStatus);
-			if (capability !== undefined) setCredentialCapability(capability);
 		});
 		return () => {
 			cancelled = true;
@@ -768,27 +760,12 @@ function BrowserSettingsPagePane() {
 			</SettingsGroup>
 
 			<SettingsGroup
-				title="Passwords and autofill"
-				description="Passwords are requested individually for the active website and never bulk imported."
-			>
-				<SettingsRow
-					title="System Passwords"
-					description={
-						credentialCapability?.supported
-							? "Available. Filling uses the macOS system confirmation flow for the active origin."
-							: (credentialCapability?.reason ??
-								"Checking native password capability…")
-					}
-				/>
-			</SettingsGroup>
-
-			<SettingsGroup
 				title="Privacy"
-				description="Built-in browser data stays in its dedicated persistent desktop partition."
+				description="Built-in browser data stays in an isolated in-memory partition. Explicitly imported cookies are encrypted with the app vault and restored on restart."
 			>
 				<SettingsRow
 					title="Browsing data"
-					description="Remove cookies, site storage, and cache from the built-in browser without changing other browsers."
+					description="Remove cookies, site storage, and cache from the current built-in browser session without changing other browsers."
 					action={
 						<Button
 							size="sm"
@@ -848,7 +825,7 @@ interface BrowserCredRow {
 
 /**
  * Browser settings — manage the DUMMY/TEST logins the agent browser autofills
- * via `browser_login`. Passwords go straight to the OS keychain (write-only
+ * via `browser_login`. Passwords go into the encrypted local vault (write-only
  * from here; the list RPC never returns them). The warning banner is
  * load-bearing: real credentials must never live here.
  */

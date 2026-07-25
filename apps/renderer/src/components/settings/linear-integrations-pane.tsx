@@ -1,7 +1,7 @@
 import type { LinearConnection } from "@zuse/contracts";
 import { Effect } from "effect";
 import { useCallback, useEffect, useState } from "react";
-
+import { errorMessage } from "~/lib/error-message.ts";
 import { getRpcClient } from "~/lib/rpc-client.ts";
 import { Button } from "../ui/button.tsx";
 import { Card } from "../ui/card.tsx";
@@ -29,7 +29,7 @@ export function LinearIntegrationsPane() {
 			setError(null);
 		} catch (cause) {
 			setConnections([]);
-			setError(cause instanceof Error ? cause.message : String(cause));
+			setError(errorMessage(cause, "Could not load connected workspaces."));
 		}
 	}, []);
 
@@ -46,7 +46,7 @@ export function LinearIntegrationsPane() {
 			await Effect.runPromise(client["linear.connect"]({}));
 			await load();
 		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : String(cause));
+			setError(errorMessage(cause, "Could not connect the workspace."));
 		} finally {
 			setBusy(null);
 		}
@@ -68,7 +68,7 @@ export function LinearIntegrationsPane() {
 			);
 			await load();
 		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : String(cause));
+			setError(errorMessage(cause, "Could not disconnect the workspace."));
 		} finally {
 			setBusy(null);
 		}
@@ -127,16 +127,33 @@ export function LinearIntegrationsPane() {
 									<p className="truncate text-xs text-muted-foreground">
 										{connection.viewerName} · {connection.viewerEmail}
 									</p>
+									{connection.status === "reauthRequired" && (
+										<p className="mt-1 text-xs text-destructive">
+											Authorization expired. Reconnect this workspace.
+										</p>
+									)}
 								</div>
-								<Button
-									type="button"
-									variant="outline"
-									disabled={busy !== null}
-									loading={busy === connection.workspaceId}
-									onClick={() => void disconnect(connection)}
-								>
-									Disconnect
-								</Button>
+								<div className="flex items-center gap-2">
+									{connection.status === "reauthRequired" && (
+										<Button
+											type="button"
+											disabled={busy !== null}
+											loading={busy === "connect"}
+											onClick={() => void connect()}
+										>
+											Reconnect
+										</Button>
+									)}
+									<Button
+										type="button"
+										variant="outline"
+										disabled={busy !== null}
+										loading={busy === connection.workspaceId}
+										onClick={() => void disconnect(connection)}
+									>
+										Disconnect
+									</Button>
+								</div>
 							</div>
 						))}
 					</div>

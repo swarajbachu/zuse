@@ -1,51 +1,8 @@
 import AppKit
 import Foundation
 import Network
-import Security
 
 private let queue = DispatchQueue(label: "com.zuse.local-connectivity.helper")
-private let sharedKeychainGroup = "HMCST4VV42.com.zuse.shared-connectivity"
-
-private func base64URL(_ data: Data) -> String {
-  data.base64EncodedString()
-    .replacingOccurrences(of: "+", with: "-")
-    .replacingOccurrences(of: "/", with: "_")
-    .replacingOccurrences(of: "=", with: "")
-}
-
-private func ensureTrustRecord(_ recordId: String) throws -> Data {
-  let baseQuery: [CFString: Any] = [
-    kSecClass: kSecClassGenericPassword,
-    kSecAttrService: "com.zuse.local-trust",
-    kSecAttrAccount: recordId,
-    kSecAttrAccessGroup: sharedKeychainGroup,
-    kSecAttrSynchronizable: kCFBooleanTrue as Any,
-    kSecUseDataProtectionKeychain: kCFBooleanTrue as Any,
-  ]
-  var readQuery = baseQuery
-  readQuery[kSecReturnData] = kCFBooleanTrue
-  readQuery[kSecMatchLimit] = kSecMatchLimitOne
-  var existing: CFTypeRef?
-  let readStatus = SecItemCopyMatching(readQuery as CFDictionary, &existing)
-  if readStatus == errSecSuccess, let secret = existing as? Data { return secret }
-  guard readStatus == errSecItemNotFound else {
-    throw NSError(domain: NSOSStatusErrorDomain, code: Int(readStatus))
-  }
-
-  var bytes = [UInt8](repeating: 0, count: 32)
-  guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-    throw NSError(domain: "ZuseLocalConnectivity", code: 2)
-  }
-  let secret = Data(bytes)
-  var addQuery = baseQuery
-  addQuery[kSecValueData] = secret
-  addQuery[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlock
-  let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-  guard addStatus == errSecSuccess else {
-    throw NSError(domain: NSOSStatusErrorDomain, code: Int(addStatus))
-  }
-  return secret
-}
 
 private func emit(_ event: String, _ fields: [String: Any] = [:]) {
   var payload = fields
@@ -147,18 +104,15 @@ private final class NearbyListener {
   private var retryWork: DispatchWorkItem?
   private var retryAttempt = 0
 
-  private let trustRecordId: String?
   private let tlsCertificatePin: String
 
   init(
     targetPort: NWEndpoint.Port,
     serviceName: String,
-    trustRecordId: String?,
     tlsCertificatePin: String
   ) {
     self.targetPort = targetPort
     self.serviceName = serviceName
-    self.trustRecordId = trustRecordId
     self.tlsCertificatePin = tlsCertificatePin
   }
 
@@ -173,9 +127,9 @@ private final class NearbyListener {
     parameters.allowLocalEndpointReuse = true
     do {
       let listener = try NWListener(using: parameters, on: .any)
-      var txtEntries = ["tls": Data(tlsCertificatePin.utf8)]
-      if let trustRecordId { txtEntries["trust"] = Data(trustRecordId.utf8) }
-      let txtRecord = NetService.data(fromTXTRecord: txtEntries)
+      let txtRecord = NetService.data(
+        fromTXTRecord: ["tls": Data(tlsCertificatePin.utf8)]
+      )
       listener.service = NWListener.Service(
         name: serviceName,
         type: "_zuse._tcp",
@@ -239,20 +193,6 @@ private final class NearbyListener {
   }
 }
 
-if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--ensure-trust" {
-  do {
-    let recordId = String(CommandLine.arguments[2].prefix(128))
-    let secret = try ensureTrustRecord(recordId)
-    let output = ["recordId": recordId, "secret": base64URL(secret)]
-    let data = try JSONSerialization.data(withJSONObject: output)
-    FileHandle.standardOutput.write(data)
-    exit(0)
-  } catch {
-    FileHandle.standardError.write(Data("trust record unavailable: \(error.localizedDescription)\n".utf8))
-    exit(1)
-  }
-}
-
 guard
   CommandLine.arguments.count >= 2,
   let portValue = UInt16(CommandLine.arguments[1]),
@@ -265,11 +205,8 @@ else {
 private let serviceName = CommandLine.arguments.count >= 3
   ? String(CommandLine.arguments[2].prefix(48))
   : "Zuse Mac"
-private let trustRecordId = CommandLine.arguments.count >= 4
-  ? (CommandLine.arguments[3] == "-" ? nil : String(CommandLine.arguments[3].prefix(128)))
-  : nil
-private let tlsCertificatePin = CommandLine.arguments.count >= 5
-  ? String(CommandLine.arguments[4].prefix(128))
+private let tlsCertificatePin = CommandLine.arguments.count >= 4
+  ? String(CommandLine.arguments[3].prefix(128))
   : ""
 guard tlsCertificatePin.count == 43 else {
   FileHandle.standardError.write(Data("missing TLS certificate pin\n".utf8))
@@ -278,7 +215,6 @@ guard tlsCertificatePin.count == 43 else {
 private let nearby = NearbyListener(
   targetPort: targetPort,
   serviceName: serviceName,
-  trustRecordId: trustRecordId,
   tlsCertificatePin: tlsCertificatePin
 )
 private let monitor = NWPathMonitor()

@@ -1,333 +1,354 @@
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import {
+	chmod,
+	mkdir,
+	readFile,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
+import { join } from "node:path";
+
 import type { ProviderId } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
-import keytar from "keytar";
 
+import { AppPaths } from "../../app-paths.ts";
+import { secureStorageMasterKey } from "../../secure-storage-master-key.ts";
 import { CredentialsError } from "../errors.ts";
 import { CredentialsService } from "../services/credentials-service.ts";
 
-const SERVICE_NAME = "zuse";
-const LEGACY_SERVICE_NAME = "memoize";
+const VAULT_FILENAME = "secure-vault.json";
+const VAULT_AAD = Buffer.from("zuse-secure-vault:v1", "utf8");
 
-/**
- * Keychain entries are namespaced as `apiKey:<providerId>` under the
- * `zuse` service. Discovery queries these exact accounts instead of enumerating
- * the service: `findCredentials` decrypts every matching item, which can make
- * macOS prompt for unrelated browser, integration, auth, or MCP credentials.
- */
-const accountFor = (providerId: ProviderId): string => `apiKey:${providerId}`;
+interface BrowserCredential {
+	readonly username: string;
+	readonly password: string;
+}
 
-/**
- * Browser credentials share the `zuse` keychain service but use a separate
- * `browserCred:` prefix so they never collide with `apiKey:` entries. The
- * origin is normalized (scheme + host[:port]) so `https://x.com/login` and
- * `https://x.com/` resolve to the same saved credential.
- */
-const BROWSER_PREFIX = "browserCred:";
-const browserAccountFor = (origin: string): string =>
-	`${BROWSER_PREFIX}${normalizeOrigin(origin)}`;
+interface VaultContents {
+	readonly version: 1;
+	readonly providers: Partial<Record<ProviderId, string>>;
+	readonly browserCredentials: Record<string, BrowserCredential>;
+	readonly integrations: Record<string, Record<string, string>>;
+	readonly mcpOauth: Record<string, string>;
+}
 
-/**
- * Single keychain account holding the WorkOS session bundle (JSON). One per
- * installation — signing in overwrites it, signing out deletes it.
- */
-const WORKOS_SESSION_ACCOUNT = "workos:session";
-const integrationPrefix = (integration: string): string =>
-	`integration:${integration}:`;
-const integrationAccountFor = (
-	integration: string,
-	accountId: string,
-): string => `${integrationPrefix(integration)}${accountId}`;
+interface VaultEnvelope {
+	readonly version: 1;
+	readonly iv: string;
+	readonly ciphertext: string;
+	readonly tag: string;
+}
 
-/**
- * OAuth bundles for user MCP servers, one account per server descriptor
- * key (`mcpOAuth:claude:<name>`). No legacy-service promotion — the prefix
- * is new with this feature.
- */
-const MCP_OAUTH_PREFIX = "mcpOAuth:";
-const mcpOauthAccountFor = (serverKey: string): string =>
-	`${MCP_OAUTH_PREFIX}${serverKey}`;
+const emptyVault = (): VaultContents => ({
+	version: 1,
+	providers: {},
+	browserCredentials: {},
+	integrations: {},
+	mcpOauth: {},
+});
 
 const normalizeOrigin = (input: string): string => {
 	try {
 		return new URL(input).origin;
 	} catch {
-		// Not a full URL — best effort: strip any path/query and lowercase host.
-		return input.trim().replace(/\/.*$/, "").toLowerCase();
+		return input.trim().replace(/\/.*$/u, "").toLowerCase();
 	}
 };
 
-interface BrowserCred {
-	readonly username: string;
-	readonly password: string;
-}
+const isStringRecord = (value: unknown): value is Record<string, string> =>
+	value !== null &&
+	typeof value === "object" &&
+	Object.values(value).every((item) => typeof item === "string");
 
-const parseBrowserCred = (raw: string | null): BrowserCred | null => {
-	if (raw === null) return null;
+const isBrowserCredentialRecord = (
+	value: unknown,
+): value is Record<string, BrowserCredential> =>
+	value !== null &&
+	typeof value === "object" &&
+	Object.values(value).every(
+		(item) =>
+			item !== null &&
+			typeof item === "object" &&
+			typeof (item as Partial<BrowserCredential>).username === "string" &&
+			typeof (item as Partial<BrowserCredential>).password === "string",
+	);
+
+const isIntegrationRecord = (
+	value: unknown,
+): value is Record<string, Record<string, string>> =>
+	value !== null &&
+	typeof value === "object" &&
+	Object.values(value).every(isStringRecord);
+
+const parseVaultContents = (value: unknown): VaultContents => {
+	if (value === null || typeof value !== "object")
+		throw new Error("Secure storage is corrupt.");
+	const raw = value as Partial<VaultContents>;
+	if (
+		raw.version !== 1 ||
+		!isStringRecord(raw.providers) ||
+		!isBrowserCredentialRecord(raw.browserCredentials) ||
+		!isIntegrationRecord(raw.integrations) ||
+		!isStringRecord(raw.mcpOauth)
+	) {
+		throw new Error("Secure storage uses an unsupported format.");
+	}
+	return {
+		version: 1,
+		providers: { ...raw.providers },
+		browserCredentials: { ...raw.browserCredentials },
+		integrations: Object.fromEntries(
+			Object.entries(raw.integrations).map(([name, accounts]) => [
+				name,
+				{ ...accounts },
+			]),
+		),
+		mcpOauth: { ...raw.mcpOauth },
+	};
+};
+
+const decodeEnvelope = (raw: string): VaultEnvelope => {
+	const value = JSON.parse(raw) as Partial<VaultEnvelope>;
+	if (
+		value.version !== 1 ||
+		typeof value.iv !== "string" ||
+		typeof value.ciphertext !== "string" ||
+		typeof value.tag !== "string"
+	) {
+		throw new Error("Secure storage is corrupt.");
+	}
+	return value as VaultEnvelope;
+};
+
+const encryptVault = (contents: VaultContents, key: Buffer): VaultEnvelope => {
+	const iv = randomBytes(12);
+	const cipher = createCipheriv("aes-256-gcm", key, iv);
+	cipher.setAAD(VAULT_AAD);
+	const ciphertext = Buffer.concat([
+		cipher.update(JSON.stringify(contents), "utf8"),
+		cipher.final(),
+	]);
+	return {
+		version: 1,
+		iv: iv.toString("base64url"),
+		ciphertext: ciphertext.toString("base64url"),
+		tag: cipher.getAuthTag().toString("base64url"),
+	};
+};
+
+const decryptVault = (envelope: VaultEnvelope, key: Buffer): VaultContents => {
+	const decipher = createDecipheriv(
+		"aes-256-gcm",
+		key,
+		Buffer.from(envelope.iv, "base64url"),
+	);
+	decipher.setAAD(VAULT_AAD);
+	decipher.setAuthTag(Buffer.from(envelope.tag, "base64url"));
+	const plaintext = Buffer.concat([
+		decipher.update(Buffer.from(envelope.ciphertext, "base64url")),
+		decipher.final(),
+	]).toString("utf8");
+	return parseVaultContents(JSON.parse(plaintext) as unknown);
+};
+
+export const readBrowserCredentialFromVault = async (
+	userData: string,
+	origin: string,
+): Promise<BrowserCredential | null> => {
+	let raw: string;
 	try {
-		const obj = JSON.parse(raw) as Partial<BrowserCred>;
-		if (typeof obj.username === "string" && typeof obj.password === "string") {
-			return { username: obj.username, password: obj.password };
-		}
-	} catch {
-		// Corrupt entry — treat as absent.
+		raw = await readFile(join(userData, VAULT_FILENAME), "utf8");
+	} catch (cause) {
+		if (
+			typeof cause === "object" &&
+			cause !== null &&
+			(cause as { code?: unknown }).code === "ENOENT"
+		)
+			return null;
+		throw cause;
 	}
-	return null;
+	const contents = decryptVault(
+		decodeEnvelope(raw),
+		await secureStorageMasterKey(false),
+	);
+	return contents.browserCredentials[normalizeOrigin(origin)] ?? null;
 };
 
-const KNOWN_PROVIDERS: ReadonlyArray<ProviderId> = [
-	"claude",
-	"codex",
-	"grok",
-	"gemini",
-	"cursor",
-];
-
-const providerCache = new Map<ProviderId, string | null>();
-const browserCache = new Map<string, BrowserCred | null>();
-let configuredCache: ReadonlyArray<ProviderId> | null = null;
-let browserListCache: ReadonlyArray<{
-	origin: string;
-	username: string;
-}> | null = null;
-
-const invalidateProviderList = (): void => {
-	configuredCache = null;
-};
-
-const invalidateBrowserList = (): void => {
-	browserListCache = null;
-};
-
-const collectBrowser = (
-	entries: ReadonlyArray<{ account: string; password: string }>,
-): Array<{ origin: string; username: string }> => {
-	const out: Array<{ origin: string; username: string }> = [];
-	for (const { account, password } of entries) {
-		if (!account.startsWith(BROWSER_PREFIX)) continue;
-		const origin = account.slice(BROWSER_PREFIX.length);
-		const cred = parseBrowserCred(password);
-		out.push({ origin, username: cred?.username ?? "" });
-	}
-	return out;
-};
-
-const tryKeychain = <A>(
-	providerId: ProviderId | "*",
-	thunk: () => Promise<A>,
-): Effect.Effect<A, CredentialsError> =>
-	Effect.tryPromise({
-		try: thunk,
-		catch: (cause) =>
-			new CredentialsError({
-				providerId: providerId === "*" ? "" : providerId,
-				reason: cause instanceof Error ? cause.message : String(cause),
-				cause,
-			}),
+const toCredentialsError = (cause: unknown): CredentialsError =>
+	new CredentialsError({
+		providerId: "",
+		reason: cause instanceof Error ? cause.message : String(cause),
+		cause,
 	});
 
-const getPasswordWithLegacyPromotion = async (
-	account: string,
-): Promise<string | null> => {
-	const current = await keytar.getPassword(SERVICE_NAME, account);
-	if (current !== null) return current;
-
-	const legacy = await keytar.getPassword(LEGACY_SERVICE_NAME, account);
-	if (legacy !== null) {
-		await keytar.setPassword(SERVICE_NAME, account, legacy);
-	}
-	return legacy;
-};
-
-const findConfiguredProviders = async (): Promise<ProviderId[]> => {
-	const entries = await Promise.all(
-		KNOWN_PROVIDERS.map(async (providerId) => ({
-			providerId,
-			password: await getPasswordWithLegacyPromotion(accountFor(providerId)),
-		})),
-	);
-	return entries
-		.filter(({ password }) => password !== null)
-		.map(({ providerId }) => providerId);
-};
-
-export const CredentialsServiceLive = Layer.succeed(
+export const CredentialsServiceLive = Layer.effect(
 	CredentialsService,
-	CredentialsService.of({
-		get: (providerId) =>
-			providerCache.has(providerId)
-				? Effect.succeed(providerCache.get(providerId) ?? null)
-				: tryKeychain(providerId, () =>
-						getPasswordWithLegacyPromotion(accountFor(providerId)),
-					).pipe(
-						Effect.tap((value) =>
-							Effect.sync(() => {
-								providerCache.set(providerId, value);
-							}),
-						),
-					),
-		set: (providerId, apiKey) =>
-			tryKeychain(providerId, () =>
-				keytar.setPassword(SERVICE_NAME, accountFor(providerId), apiKey),
-			).pipe(
-				Effect.tap(() =>
-					Effect.sync(() => {
-						providerCache.set(providerId, apiKey);
-						invalidateProviderList();
-					}),
+	Effect.gen(function* () {
+		const { userData } = yield* AppPaths;
+		const vaultPath = join(userData, VAULT_FILENAME);
+		let cachedVault: VaultContents | null = null;
+		let writeTail = Promise.resolve();
+
+		const load = async (): Promise<VaultContents> => {
+			if (cachedVault !== null) return cachedVault;
+			let raw: string;
+			try {
+				raw = await readFile(vaultPath, "utf8");
+			} catch (cause) {
+				if (
+					typeof cause === "object" &&
+					cause !== null &&
+					(cause as { code?: unknown }).code === "ENOENT"
+				) {
+					cachedVault = emptyVault();
+					return cachedVault;
+				}
+				throw cause;
+			}
+			const key = await secureStorageMasterKey(false);
+			cachedVault = decryptVault(decodeEnvelope(raw), key);
+			return cachedVault;
+		};
+
+		const persist = async (contents: VaultContents): Promise<void> => {
+			const key = await secureStorageMasterKey();
+			await mkdir(userData, { recursive: true, mode: 0o700 });
+			const tmp = `${vaultPath}.tmp.${process.pid}.${Date.now()}`;
+			try {
+				await writeFile(tmp, JSON.stringify(encryptVault(contents, key)), {
+					mode: 0o600,
+				});
+				await chmod(tmp, 0o600);
+				await rename(tmp, vaultPath);
+				await chmod(vaultPath, 0o600);
+				cachedVault = contents;
+			} finally {
+				await rm(tmp, { force: true }).catch(() => {});
+			}
+		};
+
+		const read = <A>(
+			select: (contents: VaultContents) => A,
+		): Effect.Effect<A, CredentialsError> =>
+			Effect.tryPromise({
+				try: async () => select(await load()),
+				catch: toCredentialsError,
+			});
+
+		const mutate = (
+			update: (contents: VaultContents) => VaultContents,
+		): Effect.Effect<void, CredentialsError> =>
+			Effect.tryPromise({
+				try: async () => {
+					const operation = writeTail.then(async () => {
+						const current = await load();
+						await persist(update(current));
+					});
+					writeTail = operation.catch(() => {});
+					await operation;
+				},
+				catch: toCredentialsError,
+			});
+
+		return CredentialsService.of({
+			get: (providerId) =>
+				read((contents) => contents.providers[providerId] ?? null),
+			set: (providerId, apiKey) =>
+				mutate((contents) => ({
+					...contents,
+					providers: { ...contents.providers, [providerId]: apiKey },
+				})),
+			remove: (providerId) =>
+				mutate((contents) => {
+					const providers = { ...contents.providers };
+					delete providers[providerId];
+					return { ...contents, providers };
+				}),
+			listConfigured: () =>
+				read(
+					(contents) =>
+						Object.keys(contents.providers).filter(
+							(providerId): providerId is ProviderId =>
+								typeof contents.providers[providerId as ProviderId] ===
+								"string",
+						) as ReadonlyArray<ProviderId>,
 				),
-			),
-		remove: (providerId) =>
-			tryKeychain(
-				providerId,
-				async () =>
-					(await keytar.deletePassword(SERVICE_NAME, accountFor(providerId))) ||
-					(await keytar.deletePassword(
-						LEGACY_SERVICE_NAME,
-						accountFor(providerId),
-					)),
-			).pipe(
-				Effect.tap(() =>
-					Effect.sync(() => {
-						providerCache.delete(providerId);
-						invalidateProviderList();
-					}),
+			setBrowser: (origin, username, password) =>
+				mutate((contents) => ({
+					...contents,
+					browserCredentials: {
+						...contents.browserCredentials,
+						[normalizeOrigin(origin)]: { username, password },
+					},
+				})),
+			getBrowser: (origin) =>
+				read(
+					(contents) =>
+						contents.browserCredentials[normalizeOrigin(origin)] ?? null,
 				),
-				Effect.asVoid,
-			),
-		listConfigured: () =>
-			configuredCache !== null
-				? Effect.succeed(configuredCache)
-				: tryKeychain("*", findConfiguredProviders).pipe(
-						Effect.tap((value) =>
-							Effect.sync(() => {
-								configuredCache = value;
-							}),
-						),
-					),
-		setBrowser: (origin, username, password) =>
-			tryKeychain("*", () =>
-				keytar.setPassword(
-					SERVICE_NAME,
-					browserAccountFor(origin),
-					JSON.stringify({ username, password }),
+			removeBrowser: (origin) =>
+				mutate((contents) => {
+					const browserCredentials = { ...contents.browserCredentials };
+					delete browserCredentials[normalizeOrigin(origin)];
+					return { ...contents, browserCredentials };
+				}),
+			listBrowser: () =>
+				read((contents) =>
+					Object.entries(contents.browserCredentials)
+						.map(([origin, credential]) => ({
+							origin,
+							username: credential.username,
+						}))
+						.sort((a, b) => a.origin.localeCompare(b.origin)),
 				),
-			).pipe(
-				Effect.tap(() =>
-					Effect.sync(() => {
-						browserCache.set(normalizeOrigin(origin), { username, password });
-						invalidateBrowserList();
-					}),
+			// WorkOS sessions already use SessionStore. Deliberately do not touch
+			// legacy Keychain entries during startup migration.
+			getWorkosSession: () => Effect.succeed(null),
+			setWorkosSession: () => Effect.void,
+			removeWorkosSession: () => Effect.void,
+			getIntegration: (integration, accountId) =>
+				read(
+					(contents) => contents.integrations[integration]?.[accountId] ?? null,
 				),
-			),
-		getBrowser: (origin) =>
-			browserCache.has(normalizeOrigin(origin))
-				? Effect.succeed(browserCache.get(normalizeOrigin(origin)) ?? null)
-				: tryKeychain("*", () =>
-						getPasswordWithLegacyPromotion(browserAccountFor(origin)),
-					).pipe(
-						Effect.map(parseBrowserCred),
-						Effect.tap((value) =>
-							Effect.sync(() => {
-								browserCache.set(normalizeOrigin(origin), value);
-							}),
-						),
-					),
-		removeBrowser: (origin) =>
-			tryKeychain(
-				"*",
-				async () =>
-					(await keytar.deletePassword(
-						SERVICE_NAME,
-						browserAccountFor(origin),
-					)) ||
-					(await keytar.deletePassword(
-						LEGACY_SERVICE_NAME,
-						browserAccountFor(origin),
-					)),
-			).pipe(
-				Effect.tap(() =>
-					Effect.sync(() => {
-						browserCache.delete(normalizeOrigin(origin));
-						invalidateBrowserList();
-					}),
+			setIntegration: (integration, accountId, value) =>
+				mutate((contents) => ({
+					...contents,
+					integrations: {
+						...contents.integrations,
+						[integration]: {
+							...contents.integrations[integration],
+							[accountId]: value,
+						},
+					},
+				})),
+			removeIntegration: (integration, accountId) =>
+				mutate((contents) => {
+					const accounts = { ...contents.integrations[integration] };
+					delete accounts[accountId];
+					const integrations = { ...contents.integrations };
+					if (Object.keys(accounts).length === 0)
+						delete integrations[integration];
+					else integrations[integration] = accounts;
+					return { ...contents, integrations };
+				}),
+			listIntegrationAccounts: (integration) =>
+				read((contents) =>
+					Object.keys(contents.integrations[integration] ?? {}).sort(),
 				),
-				Effect.asVoid,
-			),
-		listBrowser: () =>
-			browserListCache !== null
-				? Effect.succeed(browserListCache)
-				: tryKeychain("*", async () => {
-						const current = collectBrowser(
-							await keytar.findCredentials(SERVICE_NAME),
-						);
-						if (current.length > 0) return current;
-						return collectBrowser(
-							await keytar.findCredentials(LEGACY_SERVICE_NAME),
-						);
-					}).pipe(
-						Effect.tap((value) =>
-							Effect.sync(() => {
-								browserListCache = value;
-							}),
-						),
-					),
-		getWorkosSession: () =>
-			tryKeychain("*", () =>
-				keytar.getPassword(SERVICE_NAME, WORKOS_SESSION_ACCOUNT),
-			),
-		setWorkosSession: (bundleJson) =>
-			tryKeychain("*", () =>
-				keytar.setPassword(SERVICE_NAME, WORKOS_SESSION_ACCOUNT, bundleJson),
-			),
-		removeWorkosSession: () =>
-			tryKeychain("*", () =>
-				keytar.deletePassword(SERVICE_NAME, WORKOS_SESSION_ACCOUNT),
-			).pipe(Effect.asVoid),
-		getIntegration: (integration, accountId) =>
-			tryKeychain("*", () =>
-				keytar.getPassword(
-					SERVICE_NAME,
-					integrationAccountFor(integration, accountId),
-				),
-			),
-		setIntegration: (integration, accountId, value) =>
-			tryKeychain("*", () =>
-				keytar.setPassword(
-					SERVICE_NAME,
-					integrationAccountFor(integration, accountId),
-					value,
-				),
-			),
-		removeIntegration: (integration, accountId) =>
-			tryKeychain("*", () =>
-				keytar.deletePassword(
-					SERVICE_NAME,
-					integrationAccountFor(integration, accountId),
-				),
-			).pipe(Effect.asVoid),
-		listIntegrationAccounts: (integration) =>
-			tryKeychain("*", async () => {
-				const prefix = integrationPrefix(integration);
-				return (await keytar.findCredentials(SERVICE_NAME))
-					.map(({ account }) => account)
-					.filter((account) => account.startsWith(prefix))
-					.map((account) => account.slice(prefix.length));
-			}),
-		getMcpOauth: (serverKey) =>
-			tryKeychain("*", () =>
-				keytar.getPassword(SERVICE_NAME, mcpOauthAccountFor(serverKey)),
-			),
-		setMcpOauth: (serverKey, bundleJson) =>
-			tryKeychain("*", () =>
-				keytar.setPassword(
-					SERVICE_NAME,
-					mcpOauthAccountFor(serverKey),
-					bundleJson,
-				),
-			),
-		removeMcpOauth: (serverKey) =>
-			tryKeychain("*", () =>
-				keytar.deletePassword(SERVICE_NAME, mcpOauthAccountFor(serverKey)),
-			).pipe(Effect.asVoid),
+			getMcpOauth: (serverKey) =>
+				read((contents) => contents.mcpOauth[serverKey] ?? null),
+			setMcpOauth: (serverKey, bundleJson) =>
+				mutate((contents) => ({
+					...contents,
+					mcpOauth: { ...contents.mcpOauth, [serverKey]: bundleJson },
+				})),
+			removeMcpOauth: (serverKey) =>
+				mutate((contents) => {
+					const mcpOauth = { ...contents.mcpOauth };
+					delete mcpOauth[serverKey];
+					return { ...contents, mcpOauth };
+				}),
+		});
 	}),
 );

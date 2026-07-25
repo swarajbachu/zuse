@@ -883,7 +883,7 @@ const BrowserRespond = MemoizeRpcs.toLayerHandler(
 		Effect.flatMap(BrowserBridgeService, (svc) => svc.respond(result)),
 );
 
-// Browser credentials — DUMMY/TEST logins kept in the keychain. A keychain
+// Browser credentials — DUMMY/TEST logins kept in the encrypted vault. A vault
 // failure is swallowed to a safe value (void / [] / null) rather than
 // surfacing a defect: a missing credential just means autofill no-ops.
 const BrowserSetCredential = MemoizeRpcs.toLayerHandler(
@@ -907,14 +907,6 @@ const BrowserRemoveCredential = MemoizeRpcs.toLayerHandler(
 	({ origin }) =>
 		Effect.flatMap(CredentialsService, (svc) => svc.removeBrowser(origin)).pipe(
 			Effect.catch(() => Effect.void),
-		),
-);
-
-const BrowserFillForOrigin = MemoizeRpcs.toLayerHandler(
-	"browser.fillForOrigin",
-	({ origin }) =>
-		Effect.flatMap(CredentialsService, (svc) => svc.getBrowser(origin)).pipe(
-			Effect.catch(() => Effect.succeed(null)),
 		),
 );
 
@@ -991,5 +983,4 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	BrowserSetCredential,
 	BrowserListCredentials,
 	BrowserRemoveCredential,
-	BrowserFillForOrigin,
 );

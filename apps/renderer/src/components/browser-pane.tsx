@@ -1581,7 +1581,7 @@ export function BrowserPane() {
 						<p className="truncate text-muted-foreground">
 							{nativeCredentialError ??
 								nativeCredentialCapability?.reason ??
-								`Use the system password picker for ${passwordFieldOrigin}.`}
+								`Use the saved test login for ${passwordFieldOrigin}.`}
 						</p>
 					</div>
 					<button
@@ -1593,9 +1593,7 @@ export function BrowserPane() {
 						className="h-8 rounded-md bg-primary px-2.5 font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
 						onClick={() => void fillNativeCredential()}
 					>
-						{nativeCredentialBusy
-							? "Opening Passwords…"
-							: "Fill from Passwords"}
+						{nativeCredentialBusy ? "Filling…" : "Fill saved login"}
 					</button>
 				</section>
 			) : null}
@@ -1683,7 +1681,7 @@ export function BrowserPane() {
 							src="about:blank"
 							{...({
 								allowpopups: "true",
-								partition: "persist:zuse-browser",
+								partition: "zuse-browser",
 							} as Record<string, string>)}
 							style={{
 								display: !hasLoadedPage ? "none" : "flex",
@@ -2745,11 +2743,8 @@ async function runBrowserCommand(
 					);
 				}
 				const nativeBridge = window.zuse?.browser;
-				const nativeCapability =
-					await nativeBridge?.getNativeCredentialCapability?.();
 				const nativeWebContentsId = hooks.getWebContentsId();
 				if (
-					nativeCapability?.supported === true &&
 					nativeWebContentsId !== null &&
 					nativeBridge?.fillNativeCredential !== undefined
 				) {
@@ -2762,31 +2757,14 @@ async function runBrowserCommand(
 						return BrowserCommandResult.make({
 							id: req.id,
 							ok: true,
-							detail: `Filled the system credential for ${activeOrigin} and submitted the login form.`,
+							detail: `Filled the saved test credential for ${activeOrigin} and submitted the login form.`,
 						});
 					}
 					return fail(
-						nativeResult.error ??
-							"The system password picker was cancelled or unavailable.",
+						nativeResult.error ?? "The saved test credential is unavailable.",
 					);
 				}
-				// Pull the dummy secret out-of-band (renderer-only RPC) and inject it
-				// straight into the page. The password never returns to the agent —
-				// only the ok/detail below, which omit it.
-				const client = await getRpcClient();
-				const secret = await Effect.runPromise(
-					client["browser.fillForOrigin"]({ origin: command.origin }),
-				);
-				if (secret === null) {
-					return fail(
-						`No system or saved test credential is available for ${command.origin}. Sign in manually or add a test login in Settings → Browser.`,
-					);
-				}
-				const res = await runJsObject(
-					wv,
-					`(() => { const U = ${JSON.stringify(secret.username)}; const P = ${JSON.stringify(secret.password)}; const pw = document.querySelector('input[type="password"]'); if (!pw) return JSON.stringify({ ok:false, error:'No password field on this page — navigate to the login form first.' }); let user = document.querySelector('input[autocomplete="username"], input[type="email"], input[name*="user" i], input[name*="email" i], input[id*="user" i], input[id*="email" i]'); if (!user) { user = Array.from(document.querySelectorAll('input')).find((i) => /^(text|email|)$/.test(i.type)) || null; } const setVal = (el, v) => { const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype; const d = Object.getOwnPropertyDescriptor(proto, 'value'); if (d && d.set) d.set.call(el, v); else el.value = v; el.dispatchEvent(new Event('input', { bubbles:true })); el.dispatchEvent(new Event('change', { bubbles:true })); }; if (user) setVal(user, U); setVal(pw, P); const form = pw.form; if (form && typeof form.requestSubmit === 'function') { try { form.requestSubmit(); return JSON.stringify({ ok:true, detail:'Filled and submitted the login form.' }); } catch (e) {} } pw.dispatchEvent(new KeyboardEvent('keydown', { key:'Enter', keyCode:13, which:13, bubbles:true })); return JSON.stringify({ ok:true, detail:'Filled the saved credentials and pressed Enter.' }); })()`,
-				);
-				return resultFromJs(req.id, res, "Submitted the saved login.");
+				return fail("The browser surface is unavailable.");
 			}
 			case "Inspect": {
 				const target = await resolveBrowserTarget(

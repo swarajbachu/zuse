@@ -97,25 +97,6 @@ Native?.addListener("onDiscoveryStateChanged", (event) => {
 		listener(latestDiscoveryState);
 });
 
-export const proofForICloudTrustRecord = async (
-	recordId: string,
-	challenge: string,
-): Promise<string | null> =>
-	(await Native?.proofForTrustRecord(recordId, challenge)) ?? null;
-
-export const hasICloudTrustRecord = async (
-	recordId: string | null | undefined,
-): Promise<boolean> => {
-	if (
-		Native === null ||
-		typeof recordId !== "string" ||
-		recordId.length === 0
-	) {
-		return false;
-	}
-	return Native.hasTrustRecord(recordId);
-};
-
 export const onNearbyServicesChanged = (
 	listener: (services: readonly NearbyService[]) => void,
 ): (() => void) => {

@@ -222,8 +222,6 @@ export const startNearbyPairing = async (input: {
 	readonly ephemeralPublicKey: string;
 	readonly clientNonce: string;
 	readonly serverNonce: string;
-	readonly icloudTrustRecordId?: string;
-	readonly icloudTrustProof?: string;
 	readonly accountAssertion?: string;
 	readonly transportCertificatePin: string;
 }): Promise<NearbyPairingStart> => {
@@ -240,8 +238,6 @@ export const startNearbyPairing = async (input: {
 				ephemeralPublicKey: input.ephemeralPublicKey,
 				clientNonce: input.clientNonce,
 				serverNonce: input.serverNonce,
-				icloudTrustRecordId: input.icloudTrustRecordId,
-				icloudTrustProof: input.icloudTrustProof,
 				accountAssertion: input.accountAssertion,
 			}),
 		},

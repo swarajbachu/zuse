@@ -1,8 +1,6 @@
-import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import type { ProviderUsageLimits, UsageLimitWindow } from "@zuse/contracts";
 
 import { normalizePercent, normalizeReset, unavailable } from "./shared.ts";
@@ -140,17 +138,10 @@ export const readClaudeAccessToken =
 				await readFile(join(homedir(), ".claude", ".credentials.json"), "utf8"),
 			);
 		} catch {
-			if (process.platform !== "darwin") return { reason: "no-credentials" };
-			try {
-				const { stdout } = await promisify(execFile)(
-					"/usr/bin/security",
-					["find-generic-password", "-s", "Claude Code-credentials", "-w"],
-					{ timeout: 3_000, maxBuffer: 1_000_000 },
-				);
-				return credentialFromBlob(stdout.trim());
-			} catch {
-				return { reason: "no-credentials" };
-			}
+			// Never fall back to macOS Keychain. Usage polling is passive and must
+			// not create a permission prompt simply because the CLI stores its
+			// credential somewhere other than its normal credentials file.
+			return { reason: "no-credentials" };
 		}
 	};
 
