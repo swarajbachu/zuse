@@ -118,18 +118,18 @@ describe("MCP gateway", () => {
 		});
 
 		expect(
-			await fetch(issued.endpoints.browser, { method: "POST" }).then(
+			await fetch(issued.endpoint, { method: "POST" }).then(
 				(res) => res.status,
 			),
 		).toBe(401);
 		expect(
-			await fetch(issued.endpoints.browser, {
+			await fetch(issued.endpoint, {
 				method: "POST",
 				headers: { authorization: "bearer nope" },
 			}).then((res) => res.status),
 		).toBe(401);
 		expect(
-			await fetch(issued.endpoints.browser, {
+			await fetch(issued.endpoint, {
 				method: "POST",
 				headers: { authorization: "Bearer invalid" },
 			}).then((res) => res.status),
@@ -137,14 +137,14 @@ describe("MCP gateway", () => {
 
 		await issued.close();
 		expect(
-			await fetch(issued.endpoints.browser, {
+			await fetch(issued.endpoint, {
 				method: "POST",
 				headers: { authorization: `Bearer ${issued.token}` },
 			}).then((res) => res.status),
 		).toBe(401);
 	});
 
-	test("returns 404 for unknown paths and unscoped toolkits", async () => {
+	test("returns 404 for unknown paths", async () => {
 		const issued = await issueMcpGatewaySession({
 			sessionId: "scope-test",
 			scopes: { browser: true, orchestration: false },
@@ -159,23 +159,16 @@ describe("MCP gateway", () => {
 		});
 
 		expect(
-			await fetch(
-				issued.endpoints.browser.replace("/mcp/zuse", "/mcp/missing"),
-				{ headers: { authorization: `Bearer ${issued.token}` } },
-			).then((res) => res.status),
-		).toBe(404);
-		expect(
-			await fetch(issued.endpoints.orchestration, {
-				method: "POST",
+			await fetch(issued.endpoint.replace("/mcp", "/missing"), {
 				headers: { authorization: `Bearer ${issued.token}` },
 			}).then((res) => res.status),
-		).toBe(401);
+		).toBe(404);
 	});
 
-	test("lists only the scoped browser toolkit", async () => {
+	test("lists enabled toolkits through one provider-neutral server config", async () => {
 		const issued = await issueMcpGatewaySession({
 			sessionId: "browser-list-test",
-			scopes: { browser: true, orchestration: false },
+			scopes: { browser: true, orchestration: false, images: true },
 			ctx: {
 				browser: {
 					send: async () => ({ id: "test", ok: true, snapshot: "[]" }),
@@ -183,16 +176,29 @@ describe("MCP gateway", () => {
 					getRuntimeMode: () => "full-access",
 					getPermissionMode: () => "default",
 				},
+				images: { cwd: "/tmp" },
 			},
 		});
 
-		const listed = await listTools(issued.endpoints.browser, issued.token);
+		const listed = await listTools(issued.endpoint, issued.token);
 		expect(listed.status).toBe(200);
 		const tools = (
 			listed.body?.result as { tools?: Array<{ name: string }> } | undefined
 		)?.tools;
 		expect(tools?.some((tool) => tool.name === "browser_navigate")).toBe(true);
+		expect(tools?.some((tool) => tool.name === "view_image")).toBe(true);
 		expect(tools?.some((tool) => tool.name === "create_thread")).toBe(false);
+		expect(issued.serverConfig).toEqual({
+			type: "http",
+			name: "zuse",
+			url: issued.endpoint,
+			headers: [{ name: "Authorization", value: `Bearer ${issued.token}` }],
+		});
+		expect(issued.codexServerConfig).toEqual({
+			url: issued.endpoint,
+			bearer_token_env_var: "ZUSE_MCP_TOKEN",
+			enabled: true,
+		});
 	});
 
 	test("serves the workspace-scoped view_image tool as multimodal content", async () => {
@@ -206,12 +212,12 @@ describe("MCP gateway", () => {
 		});
 
 		try {
-			const listed = await listTools(issued.endpoints.images, issued.token);
+			const listed = await listTools(issued.endpoint, issued.token);
 			expect(listed.body?.result).toMatchObject({
 				tools: [{ name: "view_image" }],
 			});
 			const viewed = await callTool(
-				issued.endpoints.images,
+				issued.endpoint,
 				issued.token,
 				"view_image",
 				{ path: imagePath },
@@ -265,18 +271,8 @@ describe("MCP gateway", () => {
 			},
 		});
 
-		await callTool(
-			second.endpoints.browser,
-			second.token,
-			"browser_snapshot",
-			{},
-		);
-		await callTool(
-			first.endpoints.browser,
-			first.token,
-			"browser_snapshot",
-			{},
-		);
+		await callTool(second.endpoint, second.token, "browser_snapshot", {});
+		await callTool(first.endpoint, first.token, "browser_snapshot", {});
 		expect(calls).toEqual(["b:Snapshot", "a:Snapshot"]);
 	});
 
@@ -295,7 +291,7 @@ describe("MCP gateway", () => {
 		});
 
 		const result = await callTool(
-			issued.endpoints.orchestration,
+			issued.endpoint,
 			issued.token,
 			"create_thread",
 			{ task: "do work" },

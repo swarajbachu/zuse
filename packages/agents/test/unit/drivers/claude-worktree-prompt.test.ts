@@ -1,24 +1,23 @@
-import {
-	applyClaudeWorktreeEnv,
-	claudeWorktreePrompt,
-} from "@zuse/agents/drivers/claude-worktree-prompt";
+import { applyClaudeWorktreeEnv } from "@zuse/agents/drivers/claude-worktree-prompt";
+import { zuseWorkspaceInstructions } from "@zuse/agents/kernel/workspace-instructions";
 import { describe, expect, it } from "vitest";
 
-describe("claudeWorktreePrompt", () => {
-	it("pins Claude's location answers to the effective session cwd", () => {
+describe("workspace instructions", () => {
+	it("provides only the minimal shared app context", () => {
 		const cwd = "/Users/whizzy/.zuse/monkit-ea6cdfdd/cherubi";
-		const prompt = claudeWorktreePrompt(cwd);
-		const forbiddenAppName = ["Con", "ductor"].join("");
+		const prompt = zuseWorkspaceInstructions({
+			projectPath: "/Users/whizzy/Developer/startups/monkit",
+			cwd,
+		});
 
 		expect(prompt).toContain(cwd);
-		expect(prompt).toContain("authoritative location");
-		expect(prompt).toContain("If the user asks where you are located");
-		expect(prompt).toContain(
-			"Do not answer with the repository's main checkout path",
-		);
-		expect(prompt).toContain("Zuse worktree context");
-		expect(prompt).not.toContain(forbiddenAppName);
-		expect(prompt).not.toContain(["work", "space"].join(""));
+		expect(prompt).toContain("Treat the working directory as authoritative");
+		expect(prompt).toContain('Use the "zuse" MCP server');
+		expect(prompt).not.toContain("Target base ref");
+		expect(prompt).not.toContain("scratch notes");
+		expect(prompt).not.toContain("final response");
+		expect(prompt).not.toContain("unrelated tasks");
+		expect(prompt.split("\n")).toHaveLength(8);
 	});
 
 	it("pins Claude's launch environment to the effective session cwd", () => {

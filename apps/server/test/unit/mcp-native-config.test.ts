@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	expandEnvRefs,
+	legacyAppOwnedCodexServerNames,
 	parseClaudeServers,
 	parseCodexServers,
 } from "../../src/mcp/native-config.ts";
@@ -136,6 +137,47 @@ bearer_token_env_var = "ZUSE_MCP_TOKEN"
 
 	it("returns [] for malformed toml", () => {
 		expect(parseCodexServers("not = [valid", [])).toEqual([]);
+	});
+});
+
+describe("legacyAppOwnedCodexServerNames", () => {
+	it("selects only exact app-written loopback entries", () => {
+		const servers = parseCodexServers(
+			`
+[mcp_servers.zuse]
+url = "http://127.0.0.1:55302/mcp/zuse"
+bearer_token_env_var = "ZUSE_MCP_TOKEN"
+
+[mcp_servers.zuse-connectors]
+url = "http://localhost:55302/mcp/zuse-connectors"
+bearer_token_env_var = "ZUSE_MCP_TOKEN"
+
+[mcp_servers.user_owned_same_name]
+url = "https://example.com/mcp"
+bearer_token_env_var = "ZUSE_MCP_TOKEN"
+`,
+			[],
+		);
+		expect(legacyAppOwnedCodexServerNames(servers)).toEqual([
+			"zuse",
+			"zuse-connectors",
+		]);
+	});
+
+	it("preserves same-name entries without the complete app signature", () => {
+		const servers = parseCodexServers(
+			`
+[mcp_servers.zuse]
+url = "https://example.com/mcp/zuse"
+bearer_token_env_var = "ZUSE_MCP_TOKEN"
+
+[mcp_servers.zuse-images]
+url = "http://127.0.0.1:55302/mcp/zuse-images"
+bearer_token_env_var = "USER_TOKEN"
+`,
+			[],
+		);
+		expect(legacyAppOwnedCodexServerNames(servers)).toEqual([]);
 	});
 });
 

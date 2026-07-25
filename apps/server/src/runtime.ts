@@ -308,6 +308,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(ConfigStoreLayer),
 		Layer.provide(RepositorySettingsLayer),
 		Layer.provide(CredentialsServiceLive),
+		Layer.provide(BrowserBridgeLayer),
 		Layer.provide(MigratedSqlite),
 		Layer.provide(NodeServices.layer),
 	);

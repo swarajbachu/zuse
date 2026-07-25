@@ -36,13 +36,7 @@ import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { GoalCapableSessionHandle } from "../kernel/driver.ts";
 import { getBashPolicy, getFsPolicy } from "../kernel/policy.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
-import { startBrowserMcpBridge } from "./acp/browser-mcp-bridge.ts";
-import { startLinearMcpBridge } from "./acp/linear-mcp-bridge.ts";
-import { startOrchestrationMcpBridge } from "./acp/orchestration-mcp-bridge.ts";
-import {
-	BROWSER_MCP_SERVER_NAME,
-	browserMcpPromptHint,
-} from "./browser-mcp-tools.ts";
+import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import type { BrowserSend } from "./browser-tools.ts";
 import { CodexAppServerClient } from "./codex-app-server-client.ts";
 import {
@@ -52,12 +46,7 @@ import {
 	startCompactEvent,
 	startCompactSnapshot,
 } from "./compact.ts";
-import { LINEAR_MCP_SERVER_NAME } from "./linear-tools.ts";
-import {
-	ORCHESTRATION_MCP_SERVER_NAME,
-	type OrchestrationSessionTools,
-	orchestrationMcpPromptHint,
-} from "./orchestration-tools.ts";
+import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
 import { applyPlanModePrefix } from "./planMode.ts";
 
 const SUPPORTED_CODEX_IMAGE_MIME = new Set([
@@ -67,11 +56,7 @@ const SUPPORTED_CODEX_IMAGE_MIME = new Set([
 	"image/webp",
 ]);
 
-const MANAGED_MCP_SERVER_NAMES = new Set([
-	BROWSER_MCP_SERVER_NAME,
-	ORCHESTRATION_MCP_SERVER_NAME,
-	LINEAR_MCP_SERVER_NAME,
-]);
+const MANAGED_MCP_SERVER_NAMES = new Set(["zuse"]);
 
 export type RequestPermission = (
 	sessionId: AgentSessionId,
@@ -420,9 +405,7 @@ const normalizeMcpServerName = (server: string): string =>
 	server === "memoize" ? "zuse" : server;
 
 const toMcpToolName = (server: string, tool: string): string =>
-	server === ORCHESTRATION_MCP_SERVER_NAME
-		? `mcp__${ORCHESTRATION_MCP_SERVER_NAME}__${toolIdentifierPart(tool)}`
-		: `mcp__${toolIdentifierPart(normalizeMcpServerName(server))}__${toolIdentifierPart(tool)}`;
+	`mcp__${normalizeMcpServerName(server)}__${toolIdentifierPart(tool)}`;
 
 const dynamicToolName = (namespace: string | null, tool: string): string =>
 	namespace !== null ? `${namespace}.${tool}` : tool;
@@ -1080,12 +1063,12 @@ export const codexDetachedAgentFromRawSpawn = (
 				? output
 				: Array.isArray(output)
 					? output
-						.map((item) => {
-							if (item === null || typeof item !== "object") return "";
-							const record = item as Record<string, unknown>;
-							return typeof record.text === "string" ? record.text : "";
-						})
-						.join("")
+							.map((item) => {
+								if (item === null || typeof item !== "object") return "";
+								const record = item as Record<string, unknown>;
+								return typeof record.text === "string" ? record.text : "";
+							})
+							.join("")
 					: "";
 		const result = JSON.parse(outputText) as Record<string, unknown>;
 		if (typeof result.agent_id !== "string") return null;
@@ -1230,9 +1213,8 @@ export const startCodexSession = (
 	requestPermission: RequestPermission,
 	getRuntimeMode: () => RuntimeMode,
 	browserSend: BrowserSend,
-	browserMcpCommand: string,
+	mcpProxyCommand: string,
 	orchestrationTools: OrchestrationSessionTools | null = null,
-	orchestrationMcpCommand: string | null = null,
 	resumeCursor: string | null = null,
 ): Effect.Effect<
 	CodexSessionHandle,
@@ -1252,8 +1234,6 @@ export const startCodexSession = (
 		let latestDiff = "";
 		let closed = false;
 		let pending: Promise<void> = Promise.resolve();
-		let browserHintPending = true;
-		let orchestrationHintPending = orchestrationTools !== null;
 		// Runtime fast-tier gate for the model this session resolved to, from the
 		// live `model/list` `serviceTiers`. `null` = unknown (probe not done /
 		// failed) → trust the FE gate; `true`/`false` = the model definitively
@@ -1293,6 +1273,10 @@ export const startCodexSession = (
 			readonly resolve: (answers: ReadonlyArray<UserQuestionAnswer>) => void;
 		};
 		const questionWaiters = new Map<string, QuestionWaiter>();
+		const gatewayQuestionWaiters = new Map<
+			string,
+			(answers: ReadonlyArray<UserQuestionAnswer> | null) => void
+		>();
 
 		const emit = (event: AgentEvent): void => {
 			if (!closed) Queue.offerUnsafe(events, event);
@@ -1315,13 +1299,37 @@ export const startCodexSession = (
 			getRuntimeMode,
 			getPermissionMode: () => currentMode,
 			orchestrationTools,
+			interaction: {
+				askUserQuestion: (questions) => {
+					const itemId = nextItemId();
+					emit({
+						_tag: "UserQuestion",
+						itemId,
+						questions,
+					});
+					return new Promise((resolve) => {
+						gatewayQuestionWaiters.set(itemId, resolve);
+					});
+				},
+			},
+		});
+		const stdioMcpFallback = makeStdioMcpFallback({
+			command: mcpProxyCommand,
+			endpoint: mcpGatewaySession.endpoint,
+			token: mcpGatewaySession.token,
 		});
 
-		const app = yield* Effect.tryPromise({
+		let app = yield* Effect.tryPromise({
 			try: () =>
 				CodexAppServerClient.start({
 					codexPath,
 					env: { ...process.env, ZUSE_MCP_TOKEN: mcpGatewaySession.token },
+					mcp: {
+						transport: "http",
+						url: mcpGatewaySession.codexServerConfig.url,
+						bearerTokenEnvVar:
+							mcpGatewaySession.codexServerConfig.bearer_token_env_var,
+					},
 					onNotification: (notification) => {
 						rawProtocolLog.append("server_notification", notification);
 						for (const event of translateNotification(notification))
@@ -1341,7 +1349,14 @@ export const startCodexSession = (
 					providerId: "codex",
 					reason: cause instanceof Error ? cause.message : String(cause),
 				}),
-		});
+		}).pipe(
+			Effect.tapError(() =>
+				Effect.promise(async () => {
+					await stdioMcpFallback.close();
+					await mcpGatewaySession.close();
+				}),
+			),
+		);
 
 		if (apiKey !== null && apiKey.length > 0) {
 			// app-server uses the same CLI auth stack as the TUI. The key is still
@@ -1356,166 +1371,97 @@ export const startCodexSession = (
 			probeNativePlanMode(app),
 		);
 
-		let browserMcpBridge: Awaited<
-			ReturnType<typeof startBrowserMcpBridge>
-		> | null = null;
-		let orchestrationMcpBridge: Awaited<
-			ReturnType<typeof startOrchestrationMcpBridge>
-		> | null = null;
-		let linearMcpBridge: Awaited<
-			ReturnType<typeof startLinearMcpBridge>
-		> | null = null;
-
-		const expectCodexMcpServers = async (
-			names: ReadonlyArray<string>,
+		const expectCodexMcpServer = async (
+			candidate: CodexAppServerClient,
 		): Promise<void> => {
-			const status = await app.request<{
-				data?: ReadonlyArray<{ name: string }>;
+			await candidate.request("config/mcpServer/reload", undefined);
+			const status = await candidate.request<{
+				data?: ReadonlyArray<{
+					name: string;
+					tools?: Readonly<Record<string, unknown>>;
+					authStatus?: string;
+				}>;
 			}>("mcpServerStatus/list", { detail: "toolsAndAuthOnly" });
-			const found = new Set(
-				Array.isArray(status.data)
-					? status.data.map((server) => server.name)
-					: [],
-			);
-			const missing = names.filter((name) => !found.has(name));
-			if (missing.length > 0) {
+			const found = Array.isArray(status.data)
+				? status.data.find((server) => server.name === "zuse")
+				: undefined;
+			const toolNames = Object.keys(found?.tools ?? {});
+			const missing = [
+				"ask_user_question",
+				"browser_status",
+				"view_image",
+			].filter((name) => !toolNames.includes(name));
+			if (found === undefined || missing.length > 0) {
 				throw new Error(
-					`Codex did not report MCP server(s) after reload: ${missing.join(", ")}.`,
+					`Codex did not load the expected process-scoped zuse MCP inventory${
+						missing.length === 0 ? "" : ` (missing: ${missing.join(", ")})`
+					}.`,
 				);
-			}
-		};
-
-		const installCodexHttpMcp = async (): Promise<void> => {
-			await app.request("config/value/write", {
-				keyPath: `mcp_servers.${JSON.stringify(BROWSER_MCP_SERVER_NAME)}`,
-				value: mcpGatewaySession.codexServerConfigs.browser,
-				mergeStrategy: "replace",
-			});
-			if (orchestrationTools !== null) {
-				await app.request("config/value/write", {
-					keyPath: `mcp_servers.${JSON.stringify(ORCHESTRATION_MCP_SERVER_NAME)}`,
-					value: mcpGatewaySession.codexServerConfigs.orchestration,
-					mergeStrategy: "replace",
-				});
-			}
-			if (orchestrationTools?.linearTools !== undefined) {
-				await app.request("config/value/write", {
-					keyPath: `mcp_servers.${JSON.stringify(LINEAR_MCP_SERVER_NAME)}`,
-					value: mcpGatewaySession.codexServerConfigs.linear,
-					mergeStrategy: "replace",
-				});
-			}
-			await app.request("config/mcpServer/reload", undefined);
-			await expectCodexMcpServers([
-				BROWSER_MCP_SERVER_NAME,
-				...(orchestrationTools === null ? [] : [ORCHESTRATION_MCP_SERVER_NAME]),
-				...(orchestrationTools?.linearTools === undefined
-					? []
-					: [LINEAR_MCP_SERVER_NAME]),
-			]);
-			console.info(`[mcp-gateway] session ${sessionId} connected via http`);
-		};
-
-		const installCodexStdioFallbackMcp = async (): Promise<void> => {
-			browserMcpBridge = await startBrowserMcpBridge({
-				send: browserSend,
-				command: browserMcpCommand,
-				requestPermission: (kind, options) =>
-					requestPermission(sessionId, kind, options),
-				getRuntimeMode,
-				getPermissionMode: () => currentMode,
-			});
-			const writeStdioServer = async (
-				name: string,
-				serverConfig: {
-					readonly command: string;
-					readonly args: ReadonlyArray<string>;
-					readonly env: ReadonlyArray<{
-						readonly name: string;
-						readonly value: string;
-					}>;
-				},
-			) => {
-				const env = Object.fromEntries(
-					serverConfig.env.map((entry) => [entry.name, entry.value]),
-				);
-				await app.request("config/value/write", {
-					keyPath: `mcp_servers.${JSON.stringify(name)}`,
-					value: {
-						command: serverConfig.command,
-						args: serverConfig.args,
-						env,
-						enabled: true,
-					},
-					mergeStrategy: "replace",
-				});
-			};
-			await writeStdioServer(
-				BROWSER_MCP_SERVER_NAME,
-				browserMcpBridge.serverConfig,
-			);
-			if (orchestrationTools !== null) {
-				orchestrationMcpBridge = await startOrchestrationMcpBridge({
-					deps: orchestrationTools.deps,
-					command: orchestrationMcpCommand ?? browserMcpCommand,
-					requestPermission: (kind, options) =>
-						requestPermission(sessionId, kind, options),
-					getRuntimeMode,
-					getPermissionMode: () => currentMode,
-				});
-				await writeStdioServer(
-					ORCHESTRATION_MCP_SERVER_NAME,
-					orchestrationMcpBridge.serverConfig,
-				);
-			}
-			if (orchestrationTools?.linearTools !== undefined) {
-				linearMcpBridge = await startLinearMcpBridge({
-					deps: orchestrationTools.linearTools.deps,
-					command: orchestrationMcpCommand ?? browserMcpCommand,
-					requestPermission: (kind, options) =>
-						requestPermission(sessionId, kind, options),
-					getRuntimeMode,
-					getPermissionMode: () => currentMode,
-				});
-				await writeStdioServer(
-					LINEAR_MCP_SERVER_NAME,
-					linearMcpBridge.serverConfig,
-				);
-			}
-			await app.request("config/mcpServer/reload", undefined);
-			await expectCodexMcpServers([
-				BROWSER_MCP_SERVER_NAME,
-				...(orchestrationTools === null ? [] : [ORCHESTRATION_MCP_SERVER_NAME]),
-				...(orchestrationTools?.linearTools === undefined
-					? []
-					: [LINEAR_MCP_SERVER_NAME]),
-			]);
-			console.info(
-				`[mcp-gateway] session ${sessionId} connected via stdio-fallback`,
-			);
-		};
-
-		const installCodexMcp = async (): Promise<void> => {
-			try {
-				await installCodexHttpMcp();
-			} catch (cause) {
-				console.warn(
-					`[mcp-gateway] session ${sessionId} http setup failed; using stdio-fallback: ${
-						cause instanceof Error ? cause.message : String(cause)
-					}`,
-				);
-				await installCodexStdioFallbackMcp();
 			}
 		};
 
 		yield* Effect.tryPromise({
-			try: installCodexMcp,
+			try: async () => {
+				try {
+					await expectCodexMcpServer(app);
+					console.info(`[mcp-gateway] session ${sessionId} connected via http`);
+				} catch (httpCause) {
+					console.warn(
+						`[mcp-gateway] session ${sessionId} HTTP setup failed; retrying with stdio compatibility transport`,
+						httpCause,
+					);
+					app.close();
+					const fallback = (await stdioMcpFallback.ensure())[0];
+					if (fallback === undefined) {
+						throw new Error("MCP stdio fallback produced no server config.");
+					}
+					app = await CodexAppServerClient.start({
+						codexPath,
+						env: process.env,
+						mcp: {
+							transport: "stdio",
+							command: fallback.command,
+							args: fallback.args,
+							env: Object.fromEntries(
+								fallback.env.map(({ name, value }) => [name, value]),
+							),
+						},
+						onNotification: (notification) => {
+							rawProtocolLog.append("server_notification", notification);
+							for (const event of translateNotification(notification))
+								emit(event);
+						},
+						onServerRequest: (request, respond) => {
+							void handleServerRequest(request)
+								.then(respond)
+								.catch((cause) => {
+									console.warn("[codex-app-server] request failed", cause);
+									respond(defaultServerRequestResponse(request));
+								});
+						},
+					});
+					await expectCodexMcpServer(app);
+					console.info(
+						`[mcp-gateway] session ${sessionId} connected via stdio-fallback`,
+					);
+				}
+			},
 			catch: (cause) =>
 				new AgentSessionStartError({
 					providerId: "codex",
-					reason: cause instanceof Error ? cause.message : String(cause),
+					reason: `Could not attach the app MCP server without changing Codex user configuration: ${
+						cause instanceof Error ? cause.message : String(cause)
+					}`,
 				}),
-		});
+		}).pipe(
+			Effect.tapError(() =>
+				Effect.promise(async () => {
+					app.close();
+					await stdioMcpFallback.close();
+					await mcpGatewaySession.close();
+				}),
+			),
+		);
 
 		const commonThreadParams = {
 			model: input.model ?? null,
@@ -1686,18 +1632,7 @@ export const startCodexSession = (
 				model: activeModel,
 				effort,
 			});
-			const promptHints = [
-				...(browserHintPending ? [browserMcpPromptHint()] : []),
-				...(orchestrationHintPending && orchestrationTools !== null
-					? [orchestrationMcpPromptHint()]
-					: []),
-			];
-			const promptText =
-				promptHints.length > 0
-					? `${promptHints.join("\n\n")}\n\n${turnMode.promptText}`
-					: turnMode.promptText;
-			browserHintPending = false;
-			orchestrationHintPending = false;
+			const promptText = turnMode.promptText;
 			// Fast mode: the `fastMode` per-model boolean knob maps onto Codex's
 			// `serviceTier: "fast"` (the 1.5× speed tier). The FE only shows the
 			// toggle when the CLI version + static model catalog allow it; the live
@@ -2304,7 +2239,7 @@ export const startCodexSession = (
 					const questionIds =
 						waiter?.questionIds ?? p.questions.map((q) => q.id);
 					const out: Record<string, { answers: string[] }> = {};
-					for (const answer of answers) {
+					for (const answer of answers ?? []) {
 						const question = p.questions[answer.questionIndex];
 						const id = questionIds[answer.questionIndex];
 						if (question === undefined || id === undefined) continue;
@@ -2402,16 +2337,10 @@ export const startCodexSession = (
 				Effect.sync(() => {
 					emit({ _tag: "Completed", reason: "ended" });
 					closed = true;
-					if (orchestrationMcpBridge !== null) {
-						void orchestrationMcpBridge.close();
-					}
-					if (linearMcpBridge !== null) {
-						void linearMcpBridge.close();
-					}
-					if (browserMcpBridge !== null) {
-						void browserMcpBridge.close();
-					}
+					for (const resolve of gatewayQuestionWaiters.values()) resolve(null);
+					gatewayQuestionWaiters.clear();
 					void mcpGatewaySession.close();
+					void stdioMcpFallback.close();
 					app.close();
 					Queue.endUnsafe(events);
 				}),
@@ -2422,6 +2351,12 @@ export const startCodexSession = (
 				}),
 			answerQuestion: (itemId, answers) =>
 				Effect.sync(() => {
+					const gatewayResolve = gatewayQuestionWaiters.get(itemId);
+					if (gatewayResolve !== undefined) {
+						gatewayQuestionWaiters.delete(itemId);
+						gatewayResolve(answers);
+						return;
+					}
 					const waiter = questionWaiters.get(itemId);
 					if (waiter === undefined) return;
 					questionWaiters.delete(itemId);

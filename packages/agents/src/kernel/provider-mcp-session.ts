@@ -13,6 +13,7 @@ import { Effect } from "effect";
 import type { BrowserSend } from "../drivers/browser-tools.ts";
 import type { OrchestrationSessionTools } from "../drivers/orchestration-tools.ts";
 import {
+	type AppMcpInteractionOptions,
 	issueMcpGatewaySession,
 	type McpGatewaySession,
 } from "../mcp-gateway/index.ts";
@@ -29,6 +30,7 @@ export interface ProviderMcpSessionOptions {
 	readonly getRuntimeMode: () => RuntimeMode;
 	readonly getPermissionMode: () => PermissionMode;
 	readonly orchestrationTools: OrchestrationSessionTools | null;
+	readonly interaction?: AppMcpInteractionOptions;
 }
 
 export const issueProviderMcpSession = Effect.fn("ProviderMcpSession.issue")(
@@ -44,6 +46,7 @@ export const issueProviderMcpSession = Effect.fn("ProviderMcpSession.issue")(
 						orchestration: options.orchestrationTools !== null,
 						linear: options.orchestrationTools?.linearTools !== undefined,
 						images: true,
+						interaction: options.interaction !== undefined,
 					},
 					ctx: {
 						images: { cwd: options.cwd },
@@ -73,6 +76,9 @@ export const issueProviderMcpSession = Effect.fn("ProviderMcpSession.issue")(
 										getPermissionMode: options.getPermissionMode,
 									},
 								}),
+						...(options.interaction === undefined
+							? {}
+							: { interaction: options.interaction }),
 					},
 				}),
 			catch: (cause) =>

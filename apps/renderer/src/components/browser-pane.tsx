@@ -13,7 +13,7 @@ import {
 	type BrowserViewportMode,
 	type SessionId,
 } from "@zuse/contracts";
-import { Effect, Fiber, Stream } from "effect";
+import { Effect, Fiber, Schedule, Stream } from "effect";
 import {
 	Camera,
 	ChevronLeft,
@@ -768,6 +768,9 @@ export function BrowserPane() {
 				);
 			}
 		};
+		const onRenderProcessGone = () => {
+			webContentsIdRef.current = null;
+		};
 		const onDomReady = () => {
 			syncNav();
 			registerForCdp();
@@ -779,6 +782,7 @@ export function BrowserPane() {
 		el.addEventListener("dom-ready", onDomReady);
 		el.addEventListener("console-message", onConsole);
 		el.addEventListener("did-fail-load", onFailLoad);
+		el.addEventListener("render-process-gone", onRenderProcessGone);
 		return () => {
 			el.removeEventListener("did-navigate", onDidNavigate);
 			el.removeEventListener("did-navigate-in-page", onDidNavigate);
@@ -787,6 +791,7 @@ export function BrowserPane() {
 			el.removeEventListener("dom-ready", onDomReady);
 			el.removeEventListener("console-message", onConsole);
 			el.removeEventListener("did-fail-load", onFailLoad);
+			el.removeEventListener("render-process-gone", onRenderProcessGone);
 		};
 	}, []);
 
@@ -799,15 +804,16 @@ export function BrowserPane() {
 	useEffect(() => {
 		let fiber: Fiber.Fiber<unknown, unknown> | null = null;
 		let cancelled = false;
-		void (async () => {
-			const client = await getRpcClient();
-			if (cancelled) return;
-			fiber = Effect.runFork(
-				Stream.runForEach(client["browser.commands"]({}), (req) =>
-					Effect.promise(() => executeBrowserCommand(req)),
+		const subscribe = Effect.suspend(() =>
+			Effect.promise(getRpcClient).pipe(
+				Effect.flatMap((client) =>
+					Stream.runForEach(client["browser.commands"]({}), (req) =>
+						Effect.promise(() => executeBrowserCommand(req)),
+					),
 				),
-			);
-		})();
+			),
+		).pipe(Effect.retry(Schedule.spaced("500 millis")));
+		if (!cancelled) fiber = Effect.runFork(subscribe);
 
 		const executeBrowserCommand = async (
 			req: BrowserCommandRequest,
@@ -816,6 +822,9 @@ export function BrowserPane() {
 			// panel visible+active. This also un-hides the webview so `capturePage`
 			// works (it returns an empty image for a `display:none` element).
 			useUiStore.getState().revealPanel("browser");
+			await new Promise<void>((resolve) => {
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+			});
 			const wv = webviewRef.current as WebviewElement | null;
 			const accessAllowed = await requestAgentDomainAccess(req, wv);
 			if (!accessAllowed) {

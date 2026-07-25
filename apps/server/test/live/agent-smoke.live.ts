@@ -125,6 +125,8 @@ const startProvider = async (
 				sessionId,
 				requestPermission,
 				() => DEFAULT_RUNTIME_MODE,
+				null,
+				browserSend,
 			);
 		case "codex":
 			return startCodexSession(
@@ -148,6 +150,7 @@ const startProvider = async (
 				requestPermission,
 				() => DEFAULT_RUNTIME_MODE,
 				browserSend,
+				which("bun") ?? "bun",
 				null,
 			);
 		case "gemini":

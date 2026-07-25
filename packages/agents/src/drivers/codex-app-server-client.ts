@@ -26,6 +26,48 @@ type CodexGoalRequestMethod =
 
 type CodexExperimentalRequestMethod = "collaborationMode/list";
 
+export type CodexAppMcpLaunchConfig =
+	| {
+			readonly transport: "http";
+			readonly url: string;
+			readonly bearerTokenEnvVar: string;
+	  }
+	| {
+			readonly transport: "stdio";
+			readonly command: string;
+			readonly args: ReadonlyArray<string>;
+			readonly env: Readonly<Record<string, string>>;
+	  };
+
+export const codexAppServerLaunchArgs = (
+	mcp?: CodexAppMcpLaunchConfig,
+): ReadonlyArray<string> => [
+	"app-server",
+	"--listen",
+	"stdio://",
+	...(mcp === undefined
+		? []
+		: mcp.transport === "http"
+			? [
+					"-c",
+					`mcp_servers.zuse.url=${JSON.stringify(mcp.url)}`,
+					"-c",
+					`mcp_servers.zuse.bearer_token_env_var=${JSON.stringify(
+						mcp.bearerTokenEnvVar,
+					)}`,
+				]
+			: [
+					"-c",
+					`mcp_servers.zuse.command=${JSON.stringify(mcp.command)}`,
+					"-c",
+					`mcp_servers.zuse.args=${JSON.stringify(mcp.args)}`,
+					...Object.entries(mcp.env).flatMap(([name, value]) => [
+						"-c",
+						`mcp_servers.zuse.env.${name}=${JSON.stringify(value)}`,
+					]),
+				]),
+];
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null;
 
@@ -59,13 +101,14 @@ export class CodexAppServerClient {
 	static async start(options: {
 		readonly codexPath: string | null;
 		readonly env?: NodeJS.ProcessEnv;
+		readonly mcp?: CodexAppMcpLaunchConfig;
 		readonly startupTimeoutMs?: number;
 		readonly onNotification: NotificationHandler;
 		readonly onServerRequest: ServerRequestHandler;
 	}): Promise<CodexAppServerClient> {
 		const child = spawn(
 			options.codexPath ?? "codex",
-			["app-server", "--listen", "stdio://"],
+			[...codexAppServerLaunchArgs(options.mcp)],
 			options.env === undefined ? undefined : { env: options.env },
 		);
 		child.stdout.setEncoding("utf8");

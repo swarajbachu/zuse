@@ -36,6 +36,37 @@ export interface NativeMcpServer {
 	readonly startupTimeoutMs: number | null;
 }
 
+const LEGACY_APP_SERVER_NAMES = new Set([
+	"zuse",
+	"zuse-orchestration",
+	"zuse-connectors",
+	"zuse-images",
+]);
+
+export const legacyAppOwnedCodexServerNames = (
+	servers: ReadonlyArray<NativeMcpServer>,
+): ReadonlyArray<string> =>
+	servers.flatMap((server) => {
+		if (
+			server.source !== "codex" ||
+			!LEGACY_APP_SERVER_NAMES.has(server.name) ||
+			server.bearerTokenEnvVar !== "ZUSE_MCP_TOKEN" ||
+			server.url === null
+		) {
+			return [];
+		}
+		try {
+			const url = new URL(server.url);
+			const loopback =
+				url.hostname === "127.0.0.1" || url.hostname === "localhost";
+			return loopback && url.pathname === `/mcp/${server.name}`
+				? [server.name]
+				: [];
+		} catch {
+			return [];
+		}
+	});
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 

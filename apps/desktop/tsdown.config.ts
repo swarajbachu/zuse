@@ -96,6 +96,20 @@ export default defineConfig([
 	},
 	{
 		...shared,
+		entry: {
+			"app-mcp-proxy-child":
+				"../../packages/agents/src/drivers/acp/app-mcp-proxy-child.ts",
+		},
+		deps: {
+			alwaysBundle: [
+				"@zuse/contracts",
+				"@zuse/agents",
+				"@modelcontextprotocol/sdk",
+			],
+		},
+	},
+	{
+		...shared,
 		// The zuse-browser MCP child that ACP providers (Grok) spawn via bun to
 		// reach the in-app browser. It runs OUTSIDE Electron — and, packaged,
 		// outside the asar — so it can't resolve node_modules at runtime: bundle

@@ -221,13 +221,9 @@ export const startGeminiSession = (
 		});
 
 		const stdioMcpFallback = makeStdioMcpFallback({
-			browserSend,
 			command: browserMcpCommand,
-			requestPermission: (kind, options) =>
-				requestPermission(sessionId, kind, options),
-			getRuntimeMode,
-			getPermissionMode: () => currentMode,
-			orchestrationTools,
+			endpoint: mcpGatewaySession.endpoint,
+			token: mcpGatewaySession.token,
 		});
 
 		let acpSessionId: string | null = null;
@@ -537,15 +533,7 @@ export const startGeminiSession = (
 							: { headless: true },
 				});
 
-				const httpMcpServers = [
-					mcpGatewaySession.httpServerConfigs.browser,
-					...(orchestrationTools === null
-						? []
-						: [mcpGatewaySession.httpServerConfigs.orchestration]),
-					...(orchestrationTools?.linearTools === undefined
-						? []
-						: [mcpGatewaySession.httpServerConfigs.linear]),
-				];
+				const httpMcpServers = [mcpGatewaySession.serverConfig];
 				return createAcpSession({
 					request,
 					cwd,

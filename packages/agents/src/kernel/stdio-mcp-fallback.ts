@@ -1,106 +1,57 @@
-import type {
-	PermissionDecision,
-	PermissionKind,
-	PermissionMode,
-	RuntimeMode,
-} from "@zuse/contracts";
-
-import {
-	type BrowserMcpBridge,
-	startBrowserMcpBridge,
-} from "../drivers/acp/browser-mcp-bridge.ts";
-import {
-	type LinearMcpBridge,
-	startLinearMcpBridge,
-} from "../drivers/acp/linear-mcp-bridge.ts";
-import {
-	type OrchestrationMcpBridge,
-	startOrchestrationMcpBridge,
-} from "../drivers/acp/orchestration-mcp-bridge.ts";
-import type { BrowserSend } from "../drivers/browser-tools.ts";
-import type { OrchestrationSessionTools } from "../drivers/orchestration-tools.ts";
-
-type RequestPermission = (
-	kind: PermissionKind,
-	options: { readonly forcePrompt: boolean },
-) => Promise<PermissionDecision>;
+import { existsSync } from "node:fs";
+import { basename, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface StdioMcpFallbackOptions {
-	readonly browserSend: BrowserSend;
 	readonly command: string;
-	readonly requestPermission: RequestPermission;
-	readonly getRuntimeMode: () => RuntimeMode;
-	readonly getPermissionMode: () => PermissionMode;
-	readonly orchestrationTools: OrchestrationSessionTools | null;
+	readonly endpoint: string;
+	readonly token: string;
 }
 
-export interface StdioMcpFallback {
-	readonly ensure: () => Promise<
-		ReadonlyArray<BrowserMcpBridge["serverConfig"]>
-	>;
-	readonly projectConfigToml: () => ReadonlyArray<string>;
-	readonly close: () => Promise<void>;
+export interface StdioMcpServerConfig {
+	readonly name: "zuse";
+	readonly command: string;
+	readonly args: ReadonlyArray<string>;
+	readonly env: ReadonlyArray<{
+		readonly name: string;
+		readonly value: string;
+	}>;
 }
+
+const childPath = (): string => {
+	const bundled = fileURLToPath(
+		new URL("../drivers/acp/app-mcp-proxy-child.cjs", import.meta.url),
+	);
+	const unpacked = bundled.replace(
+		`${sep}app.asar${sep}`,
+		`${sep}app.asar.unpacked${sep}`,
+	);
+	if (existsSync(unpacked)) return unpacked;
+	if (existsSync(bundled)) return bundled;
+	return fileURLToPath(
+		new URL("../drivers/acp/app-mcp-proxy-child.ts", import.meta.url),
+	);
+};
 
 export const makeStdioMcpFallback = (
 	options: StdioMcpFallbackOptions,
-): StdioMcpFallback => {
-	let browser: BrowserMcpBridge | null = null;
-	let orchestration: OrchestrationMcpBridge | null = null;
-	let linear: LinearMcpBridge | null = null;
-
-	const ensure = async () => {
-		browser ??= await startBrowserMcpBridge({
-			send: options.browserSend,
-			command: options.command,
-			requestPermission: options.requestPermission,
-			getRuntimeMode: options.getRuntimeMode,
-			getPermissionMode: options.getPermissionMode,
-		});
-		if (options.orchestrationTools !== null && orchestration === null) {
-			orchestration = await startOrchestrationMcpBridge({
-				deps: options.orchestrationTools.deps,
-				command: options.command,
-				requestPermission: options.requestPermission,
-				getRuntimeMode: options.getRuntimeMode,
-				getPermissionMode: options.getPermissionMode,
-			});
-		}
-		if (
-			options.orchestrationTools?.linearTools !== undefined &&
-			linear === null
-		) {
-			linear = await startLinearMcpBridge({
-				deps: options.orchestrationTools.linearTools.deps,
-				command: options.command,
-				requestPermission: options.requestPermission,
-				getRuntimeMode: options.getRuntimeMode,
-				getPermissionMode: options.getPermissionMode,
-			});
-		}
-		return [
-			browser.serverConfig,
-			...(orchestration === null ? [] : [orchestration.serverConfig]),
-			...(linear === null ? [] : [linear.serverConfig]),
-		];
-	};
-
-	return {
-		ensure,
-		projectConfigToml: () => [
-			...(browser === null ? [] : [browser.projectConfigToml]),
-			...(orchestration === null ? [] : [orchestration.projectConfigToml]),
-			...(linear === null ? [] : [linear.projectConfigToml]),
+): {
+	readonly ensure: () => Promise<ReadonlyArray<StdioMcpServerConfig>>;
+	readonly close: () => Promise<void>;
+} => {
+	const config: StdioMcpServerConfig = {
+		name: "zuse",
+		command: basename(options.command).includes("bun")
+			? options.command
+			: process.execPath,
+		args: [childPath()],
+		env: [
+			{ name: "ZUSE_APP_MCP_URL", value: options.endpoint },
+			{ name: "ZUSE_APP_MCP_TOKEN", value: options.token },
 		],
-		close: async () => {
-			await Promise.all([
-				...(browser === null ? [] : [browser.close()]),
-				...(orchestration === null ? [] : [orchestration.close()]),
-				...(linear === null ? [] : [linear.close()]),
-			]);
-			browser = null;
-			orchestration = null;
-			linear = null;
-		},
+	};
+	return {
+		ensure: async () => [config],
+		close: async () => undefined,
 	};
 };

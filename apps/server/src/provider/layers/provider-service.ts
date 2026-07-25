@@ -1,4 +1,4 @@
-import { buildBrowserTools } from "@zuse/agents/drivers/browser-tools";
+import { execFileSync } from "node:child_process";
 import { startClaudeSession } from "@zuse/agents/drivers/claude";
 import { startCodexSession } from "@zuse/agents/drivers/codex";
 import { startCursorSession } from "@zuse/agents/drivers/cursor";
@@ -34,6 +34,10 @@ import { Cache, Effect, FileSystem, Layer, Ref, Stream } from "effect";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { AnalyticsService } from "../../analytics/services/analytics-service.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
+import {
+	legacyAppOwnedCodexServerNames,
+	readNativeServers,
+} from "../../mcp/native-config.ts";
 import { McpService } from "../../mcp/services/mcp-service.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { validateApiKey } from "../api-key-validation.ts";
@@ -346,6 +350,21 @@ export const ProviderServiceLive = Layer.effect(
 								}),
 							);
 						}
+						const mcpProxyCommand = yield* resolveCliPath("bun").pipe(
+							Effect.provideService(
+								CommandExecutor.ChildProcessSpawner,
+								executor,
+							),
+						);
+						if (mcpProxyCommand === null) {
+							return yield* Effect.fail(
+								new AgentSessionStartError({
+									providerId: "grok",
+									reason:
+										"Bun was not found on PATH. It is required for the MCP compatibility transport.",
+								}),
+							);
+						}
 						providerHandle = yield* startGrokSession(
 							driverInput,
 							cwd,
@@ -358,6 +377,7 @@ export const ProviderServiceLive = Layer.effect(
 								Effect.runPromiseWith(runtime)(
 									browserBridge.send(sessionId, command),
 								),
+							mcpProxyCommand,
 							orchestrationTools,
 							resumeCursor,
 							providerEventCursor,
@@ -436,15 +456,6 @@ export const ProviderServiceLive = Layer.effect(
 								}),
 							);
 						}
-						// Browser tools drive the renderer's shared `<webview>` through
-						// the bridge. Bind `send` to this session id + the live runtime so
-						// the SDK's async tool handlers stay free of Effect wiring.
-						const browserTools = buildBrowserTools((command) =>
-							Effect.runPromiseWith(runtime)(
-								browserBridge.send(sessionId, command),
-							),
-						);
-
 						const userMcpServers = yield* mcp.resolveForClaudeSession(cwd);
 
 						providerHandle = yield* startClaudeSession(
@@ -456,11 +467,11 @@ export const ProviderServiceLive = Layer.effect(
 							buildRequestPermission(input.folderId),
 							runtimeModeGetter,
 							resumeCursor,
-							browserTools,
-							// Control-plane orchestration tools (when autonomy != off) use
-							// their own provider-neutral `zuse-orchestration` MCP server.
-							orchestrationTools?.claudeTools ?? [],
-							orchestrationTools?.linearTools?.claudeTools ?? [],
+							(command) =>
+								Effect.runPromiseWith(runtime)(
+									browserBridge.send(sessionId, command),
+								),
+							orchestrationTools,
 							userMcpServers,
 						).pipe(Effect.provideService(AttachmentService, attachmentService));
 					} else {
@@ -483,20 +494,38 @@ export const ProviderServiceLive = Layer.effect(
 								}),
 							);
 						}
-						const codexMcpCommand = yield* resolveCliPath("bun").pipe(
+						const mcpProxyCommand = yield* resolveCliPath("bun").pipe(
 							Effect.provideService(
 								CommandExecutor.ChildProcessSpawner,
 								executor,
 							),
 						);
-						if (codexMcpCommand === null) {
+						if (mcpProxyCommand === null) {
 							return yield* Effect.fail(
 								new AgentSessionStartError({
 									providerId: "codex",
 									reason:
-										"Bun was not found on PATH. It is required for the Codex MCP stdio fallback.",
+										"Bun was not found on PATH. It is required for the MCP compatibility transport.",
 								}),
 							);
+						}
+						for (const name of legacyAppOwnedCodexServerNames(
+							readNativeServers({
+								cwd,
+								excludeCodexNames: [],
+							}),
+						)) {
+							try {
+								execFileSync(codexPath, ["mcp", "remove", name], {
+									stdio: "ignore",
+									timeout: 5_000,
+								});
+							} catch (cause) {
+								console.warn(
+									`[mcp-migration] could not remove legacy app-owned entry ${name}`,
+									cause,
+								);
+							}
 						}
 						// We used to also fail-fast here when `codex --version` was below
 						// the SDK pin. Pulled because `session.create` calls
@@ -521,9 +550,8 @@ export const ProviderServiceLive = Layer.effect(
 								Effect.runPromiseWith(runtime)(
 									browserBridge.send(sessionId, command),
 								),
-							codexMcpCommand,
+							mcpProxyCommand,
 							orchestrationTools,
-							codexMcpCommand,
 							resumeCursor,
 						).pipe(Effect.provideService(AttachmentService, attachmentService));
 					}

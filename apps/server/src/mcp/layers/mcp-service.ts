@@ -1,8 +1,8 @@
 import { BROWSER_MCP_TOOLS } from "@zuse/agents/drivers/browser-mcp-tools";
-import {
-	ORCHESTRATION_MCP_SERVER_NAME,
-	ORCHESTRATION_MCP_TOOLS,
-} from "@zuse/agents/drivers/orchestration-tools";
+import { IMAGE_MCP_TOOLS } from "@zuse/agents/drivers/image-mcp-tools";
+import { LINEAR_MCP_TOOLS } from "@zuse/agents/drivers/linear-tools";
+import { ORCHESTRATION_MCP_TOOLS } from "@zuse/agents/drivers/orchestration-tools";
+import { mcpGatewayDiagnostics } from "@zuse/agents/mcp-gateway";
 import { probeMcpServer } from "@zuse/agents/user-mcp/probe";
 import type { ResolvedMcpServer } from "@zuse/agents/user-mcp/types";
 import {
@@ -20,6 +20,7 @@ import { SqlClient } from "effect/unstable/sql";
 
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { resolveCliPath } from "../../provider/availability.ts";
+import { BrowserBridgeService } from "../../provider/services/browser-bridge-service.ts";
 import { CredentialsService } from "../../provider/services/credentials-service.ts";
 import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
 import {
@@ -49,7 +50,12 @@ import { type McpScope, McpService } from "../services/mcp-service.ts";
 
 const BUILTIN_ZUSE = "zuse";
 /** Codex config.toml entries the Codex driver writes for Zuse's gateway. */
-const RESERVED_CODEX_NAMES = [BUILTIN_ZUSE, ORCHESTRATION_MCP_SERVER_NAME];
+const RESERVED_CODEX_NAMES = [
+	BUILTIN_ZUSE,
+	"zuse-orchestration",
+	"zuse-connectors",
+	"zuse-images",
+];
 
 const keyFor = (server: NativeMcpServer): string =>
 	server.source === "codex" ? `codex:${server.name}` : `claude:${server.name}`;
@@ -106,11 +112,12 @@ const builtinDescriptor = (name: string): McpServerDescriptor => ({
 const builtinStatus = (
 	name: string,
 	toolNames: ReadonlyArray<string>,
+	state: "connected" | "connecting",
 ): McpServerStatus => ({
 	key: `builtin:${name}`,
 	name,
 	source: "builtin",
-	state: "connected",
+	state,
 	toolCount: toolNames.length,
 	toolNames,
 	error: null,
@@ -121,18 +128,14 @@ const builtinStatus = (
 
 const BUILTIN_DESCRIPTORS: ReadonlyArray<McpServerDescriptor> = [
 	builtinDescriptor(BUILTIN_ZUSE),
-	builtinDescriptor(ORCHESTRATION_MCP_SERVER_NAME),
 ];
 
-const BUILTIN_STATUSES: ReadonlyArray<McpServerStatus> = [
-	builtinStatus(BUILTIN_ZUSE, [
-		"ask_user_question",
-		...BROWSER_MCP_TOOLS.map((tool) => tool.name),
-	]),
-	builtinStatus(
-		ORCHESTRATION_MCP_SERVER_NAME,
-		ORCHESTRATION_MCP_TOOLS.map((tool) => tool.name),
-	),
+const BUILTIN_TOOL_NAMES = [
+	"ask_user_question",
+	...BROWSER_MCP_TOOLS.map((tool) => tool.name),
+	...IMAGE_MCP_TOOLS.map((tool) => tool.name),
+	...ORCHESTRATION_MCP_TOOLS.map((tool) => tool.name),
+	...LINEAR_MCP_TOOLS.map((tool) => tool.name),
 ];
 
 const placeholderStatus = (
@@ -219,6 +222,7 @@ export const McpServiceLive = Layer.effect(
 		const configStore = yield* ConfigStoreService;
 		const repositorySettings = yield* RepositorySettingsService;
 		const credentials = yield* CredentialsService;
+		const browserBridge = yield* BrowserBridgeService;
 		const sql = yield* SqlClient.SqlClient;
 		const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
@@ -527,12 +531,19 @@ export const McpServiceLive = Layer.effect(
 				return deduplicated;
 			});
 
-		const statusesFromCache = (inventory: Inventory): McpServerStatus[] =>
+		const statusesFromCache = (
+			inventory: Inventory,
+			connectedRendererCount: number,
+		): McpServerStatus[] =>
 			inventory.descriptors.map((descriptor) => {
 				if (descriptor.source === "builtin") {
-					return (
-						BUILTIN_STATUSES.find((status) => status.key === descriptor.key) ??
-						placeholderStatus(descriptor, "connecting")
+					return builtinStatus(
+						BUILTIN_ZUSE,
+						BUILTIN_TOOL_NAMES,
+						mcpGatewayDiagnostics().activeSessionCount > 0 &&
+							connectedRendererCount > 0
+							? "connected"
+							: "connecting",
 					);
 				}
 				if (descriptor.disabledByZuse || !descriptor.enabledInConfig) {
@@ -559,9 +570,13 @@ export const McpServiceLive = Layer.effect(
 					yield* refreshStatuses(inventory);
 					inventory = yield* inventoryFor(scope);
 				}
+				const browserDiagnostics = yield* browserBridge.diagnostics;
 				return {
 					servers: inventory.descriptors,
-					statuses: statusesFromCache(inventory),
+					statuses: statusesFromCache(
+						inventory,
+						browserDiagnostics.connectedRendererCount,
+					),
 				};
 			});
 
@@ -570,9 +585,13 @@ export const McpServiceLive = Layer.effect(
 				const inventory = yield* inventoryFor(scope);
 				yield* refreshStatuses(inventory);
 				const latest = yield* inventoryFor(scope);
+				const browserDiagnostics = yield* browserBridge.diagnostics;
 				return {
 					servers: latest.descriptors,
-					statuses: statusesFromCache(latest),
+					statuses: statusesFromCache(
+						latest,
+						browserDiagnostics.connectedRendererCount,
+					),
 				};
 			});
 

@@ -14,14 +14,12 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import {
-	BROWSER_MCP_SERVER_NAME,
 	BROWSER_MCP_TOOLS,
 	type BrowserMcpToolOptions,
 	handleBrowserTool,
 } from "../drivers/browser-mcp-tools.ts";
 import {
 	handleImageTool,
-	IMAGE_MCP_SERVER_NAME,
 	IMAGE_MCP_TOOLS,
 	type ImageMcpToolOptions,
 } from "../drivers/image-mcp-tools.ts";
@@ -29,7 +27,6 @@ import {
 	callLinearTool,
 	ensureLinearToolPermission,
 	isLinearToolName,
-	LINEAR_MCP_SERVER_NAME,
 	LINEAR_MCP_TOOLS,
 	type LinearPermissionOptions,
 	type LinearToolDeps,
@@ -38,7 +35,6 @@ import {
 	callOrchestrationTool,
 	ensureOrchestrationPermission,
 	isOrchestrationToolName,
-	ORCHESTRATION_MCP_SERVER_NAME,
 	ORCHESTRATION_MCP_TOOLS,
 	type OrchestrationPermissionOptions,
 	type OrchestrationToolDeps,
@@ -49,10 +45,26 @@ type JsonObject = Record<string, unknown>;
 const IDLE_TIMEOUT_MS = 30 * 60 * 1_000;
 const MAX_LIFETIME_MS = 8 * 60 * 60 * 1_000;
 
-const BROWSER_PATH = `/mcp/${BROWSER_MCP_SERVER_NAME}`;
-const ORCHESTRATION_PATH = `/mcp/${ORCHESTRATION_MCP_SERVER_NAME}`;
-const LINEAR_PATH = `/mcp/${LINEAR_MCP_SERVER_NAME}`;
-const IMAGES_PATH = `/mcp/${IMAGE_MCP_SERVER_NAME}`;
+export const APP_MCP_SERVER_NAME = "zuse";
+const APP_MCP_PATH = "/mcp";
+
+export interface AppMcpQuestion {
+	readonly question: string;
+	readonly options: ReadonlyArray<string>;
+	readonly multiSelect?: boolean;
+}
+
+export interface AppMcpQuestionAnswer {
+	readonly questionIndex: number;
+	readonly selected: ReadonlyArray<number>;
+	readonly other?: string;
+}
+
+export interface AppMcpInteractionOptions {
+	readonly askUserQuestion: (
+		questions: ReadonlyArray<AppMcpQuestion>,
+	) => Promise<ReadonlyArray<AppMcpQuestionAnswer> | null>;
+}
 
 export interface McpGatewaySessionContext {
 	readonly browser?: BrowserMcpToolOptions;
@@ -61,6 +73,7 @@ export interface McpGatewaySessionContext {
 	};
 	readonly linear?: LinearPermissionOptions & { readonly deps: LinearToolDeps };
 	readonly images?: ImageMcpToolOptions;
+	readonly interaction?: AppMcpInteractionOptions;
 }
 
 export interface McpGatewayIssueInput {
@@ -70,30 +83,16 @@ export interface McpGatewayIssueInput {
 		readonly orchestration: boolean;
 		readonly linear?: boolean;
 		readonly images?: boolean;
+		readonly interaction?: boolean;
 	};
 	readonly ctx: McpGatewaySessionContext;
 }
 
 export interface McpGatewaySession {
 	readonly token: string;
-	readonly endpoints: {
-		readonly browser: string;
-		readonly orchestration: string;
-		readonly linear: string;
-		readonly images: string;
-	};
-	readonly httpServerConfigs: {
-		readonly browser: AcpHttpMcpServerConfig;
-		readonly orchestration: AcpHttpMcpServerConfig;
-		readonly linear: AcpHttpMcpServerConfig;
-		readonly images: AcpHttpMcpServerConfig;
-	};
-	readonly codexServerConfigs: {
-		readonly browser: CodexHttpMcpServerConfig;
-		readonly orchestration: CodexHttpMcpServerConfig;
-		readonly linear: CodexHttpMcpServerConfig;
-		readonly images: CodexHttpMcpServerConfig;
-	};
+	readonly endpoint: string;
+	readonly serverConfig: AcpHttpMcpServerConfig;
+	readonly codexServerConfig: CodexHttpMcpServerConfig;
 	readonly close: () => Promise<void>;
 }
 
@@ -123,6 +122,7 @@ interface RegistryRecord {
 		readonly orchestration: boolean;
 		readonly linear?: boolean;
 		readonly images?: boolean;
+		readonly interaction?: boolean;
 	};
 	readonly ctx: McpGatewaySessionContext;
 	readonly lastUsedAt: number;
@@ -161,17 +161,13 @@ const pruneExpired = (now = Date.now()): void => {
 	}
 };
 
-const resolveRecord = (
-	rawToken: string,
-	scope: "browser" | "orchestration" | "linear" | "images",
-): RegistryRecord | null => {
+const resolveRecord = (rawToken: string): RegistryRecord | null => {
 	pruneExpired();
 	const hash = tokenHash(rawToken);
 	const record = recordsByHash.get(hash);
 	if (record === undefined || !constantTimeEqual(hash, record.tokenHash)) {
 		return null;
 	}
-	if (!record.scopes[scope]) return null;
 	const refreshed = { ...record, lastUsedAt: Date.now() };
 	recordsBySession.set(refreshed.sessionId, refreshed);
 	recordsByHash.set(refreshed.tokenHash, refreshed);
@@ -212,83 +208,136 @@ const toolResultFromError = (toolName: string, cause: unknown) => ({
 	isError: true as const,
 });
 
-const buildBrowserServer = (ctx: BrowserMcpToolOptions): Server => {
-	const server = new Server(
-		{ name: BROWSER_MCP_SERVER_NAME, version: "0.0.1" },
-		{ capabilities: { tools: {} } },
-	);
-	server.setRequestHandler(ListToolsRequestSchema, async () => ({
-		tools: BROWSER_MCP_TOOLS.map((tool) => ({
-			name: tool.name,
-			description: tool.description,
-			inputSchema: tool.inputSchema,
-		})),
-	}));
-	server.setRequestHandler(CallToolRequestSchema, async (req) => {
-		const name = req.params.name;
-		if (!BROWSER_MCP_TOOLS.some((tool) => tool.name === name)) {
-			return {
-				content: [{ type: "text" as const, text: `Unknown tool: ${name}` }],
-				isError: true,
-			};
-		}
-		try {
-			return await handleBrowserTool(
-				name,
-				asJsonObject(req.params.arguments ?? {}),
-				ctx,
-			);
-		} catch (cause) {
-			return toolResultFromError(name, cause);
-		}
-	});
-	return server;
-};
-
-const buildOrchestrationServer = (
-	ctx: OrchestrationPermissionOptions & {
-		readonly deps: OrchestrationToolDeps;
+const ASK_USER_QUESTION_TOOL = {
+	name: "ask_user_question",
+	description:
+		"Ask the user one or more structured questions when a decision cannot be inferred from context. Do not include an Other option; the app provides it.",
+	inputSchema: {
+		type: "object" as const,
+		properties: {
+			questions: {
+				type: "array" as const,
+				minItems: 1,
+				items: {
+					type: "object" as const,
+					properties: {
+						question: { type: "string" as const },
+						options: {
+							type: "array" as const,
+							items: { type: "string" as const },
+						},
+						multiSelect: { type: "boolean" as const },
+					},
+					required: ["question", "options"],
+					additionalProperties: false,
+				},
+			},
+		},
+		required: ["questions"],
+		additionalProperties: false,
 	},
-): Server => {
-	const server = new Server(
-		{ name: ORCHESTRATION_MCP_SERVER_NAME, version: "0.0.1" },
-		{ capabilities: { tools: {} } },
-	);
-	server.setRequestHandler(ListToolsRequestSchema, async () => ({
-		tools: ORCHESTRATION_MCP_TOOLS.map((tool) => ({
-			name: tool.name,
-			description: tool.description,
-			inputSchema: tool.inputSchema,
-		})),
-	}));
-	server.setRequestHandler(CallToolRequestSchema, async (req) => {
-		const name = req.params.name;
-		if (!isOrchestrationToolName(name)) {
-			return {
-				content: [{ type: "text" as const, text: `Unknown tool: ${name}` }],
-				isError: true,
-			};
-		}
-		const args = asJsonObject(req.params.arguments ?? {});
-		try {
-			await ensureOrchestrationPermission(name, args, ctx);
-			return await callOrchestrationTool(ctx.deps, name, args);
-		} catch (cause) {
-			return toolResultFromError(name, cause);
-		}
-	});
-	return server;
 };
 
-const buildLinearServer = (
-	ctx: LinearPermissionOptions & { readonly deps: LinearToolDeps },
-): Server => {
+const parseQuestions = (args: JsonObject): ReadonlyArray<AppMcpQuestion> => {
+	if (!Array.isArray(args.questions) || args.questions.length === 0) {
+		throw new Error("questions must contain at least one question");
+	}
+	return args.questions.map((value) => {
+		if (value === null || typeof value !== "object" || Array.isArray(value)) {
+			throw new Error("question must be an object");
+		}
+		const record = value as Record<string, unknown>;
+		if (
+			typeof record.question !== "string" ||
+			!Array.isArray(record.options) ||
+			!record.options.every((option) => typeof option === "string")
+		) {
+			throw new Error("question and string options are required");
+		}
+		return {
+			question: record.question,
+			options: record.options,
+			...(typeof record.multiSelect === "boolean"
+				? { multiSelect: record.multiSelect }
+				: {}),
+		};
+	});
+};
+
+const questionResult = (
+	questions: ReadonlyArray<AppMcpQuestion>,
+	answers: ReadonlyArray<AppMcpQuestionAnswer> | null,
+) => {
+	if (answers === null) {
+		return {
+			content: [
+				{ type: "text" as const, text: "User cancelled the question." },
+			],
+			isError: true as const,
+		};
+	}
+	const lines: string[] = [];
+	for (const answer of answers) {
+		const question = questions[answer.questionIndex];
+		if (question === undefined) continue;
+		const selected = answer.selected.map(
+			(index) => question.options[index] ?? `#${index}`,
+		);
+		lines.push(
+			`Q: ${question.question}\nA: ${
+				selected.length > 0 ? selected.join(", ") : "(no preset)"
+			}`,
+		);
+		if (answer.other !== undefined && answer.other.length > 0) {
+			lines.push(`  (other: ${answer.other})`);
+		}
+	}
+	return {
+		content: [
+			{ type: "text" as const, text: lines.join("\n\n") },
+			{ type: "text" as const, text: JSON.stringify({ answers }) },
+		],
+	};
+};
+
+type AppToolDefinition = {
+	readonly name: string;
+	readonly description: string;
+	readonly inputSchema: Record<string, unknown>;
+};
+
+const buildAppServer = (record: RegistryRecord): Server => {
+	const definitions: AppToolDefinition[] = [
+		...(record.scopes.browser && record.ctx.browser !== undefined
+			? BROWSER_MCP_TOOLS
+			: []),
+		...(record.scopes.orchestration && record.ctx.orchestration !== undefined
+			? ORCHESTRATION_MCP_TOOLS
+			: []),
+		...(record.scopes.linear && record.ctx.linear !== undefined
+			? LINEAR_MCP_TOOLS
+			: []),
+		...(record.scopes.images && record.ctx.images !== undefined
+			? IMAGE_MCP_TOOLS
+			: []),
+		...(record.scopes.interaction && record.ctx.interaction !== undefined
+			? [ASK_USER_QUESTION_TOOL]
+			: []),
+	];
+	const names = new Set<string>();
+	for (const definition of definitions) {
+		if (names.has(definition.name)) {
+			throw new Error(`Duplicate app MCP tool: ${definition.name}`);
+		}
+		names.add(definition.name);
+	}
+
 	const server = new Server(
-		{ name: LINEAR_MCP_SERVER_NAME, version: "0.0.1" },
+		{ name: APP_MCP_SERVER_NAME, version: "0.0.1" },
 		{ capabilities: { tools: {} } },
 	);
 	server.setRequestHandler(ListToolsRequestSchema, async () => ({
-		tools: LINEAR_MCP_TOOLS.map((definition) => ({
+		tools: definitions.map((definition) => ({
 			name: definition.name,
 			description: definition.description,
 			inputSchema: definition.inputSchema,
@@ -296,49 +345,56 @@ const buildLinearServer = (
 	}));
 	server.setRequestHandler(CallToolRequestSchema, async (request) => {
 		const name = request.params.name;
-		if (!isLinearToolName(name)) {
-			return {
-				content: [{ type: "text" as const, text: `Unknown tool: ${name}` }],
-				isError: true,
-			};
-		}
 		const args = asJsonObject(request.params.arguments ?? {});
-		try {
-			await ensureLinearToolPermission(name, args, ctx);
-			return await callLinearTool(ctx.deps, name, args);
-		} catch (cause) {
-			return toolResultFromError(name, cause);
-		}
-	});
-	return server;
-};
-
-const buildImageServer = (ctx: ImageMcpToolOptions): Server => {
-	const server = new Server(
-		{ name: IMAGE_MCP_SERVER_NAME, version: "0.0.1" },
-		{ capabilities: { tools: {} } },
-	);
-	server.setRequestHandler(ListToolsRequestSchema, async () => ({
-		tools: IMAGE_MCP_TOOLS.map((tool) => ({
-			name: tool.name,
-			description: tool.description,
-			inputSchema: tool.inputSchema,
-		})),
-	}));
-	server.setRequestHandler(CallToolRequestSchema, async (request) => {
-		const name = request.params.name;
-		if (!IMAGE_MCP_TOOLS.some((tool) => tool.name === name)) {
+		if (!names.has(name)) {
 			return {
 				content: [{ type: "text" as const, text: `Unknown tool: ${name}` }],
 				isError: true,
 			};
 		}
 		try {
-			return await handleImageTool(
-				name,
-				asJsonObject(request.params.arguments ?? {}),
-				ctx,
-			);
+			if (BROWSER_MCP_TOOLS.some((tool) => tool.name === name)) {
+				if (record.ctx.browser === undefined)
+					throw new Error("Browser unavailable");
+				return await handleBrowserTool(name, args, record.ctx.browser);
+			}
+			if (isOrchestrationToolName(name)) {
+				if (record.ctx.orchestration === undefined) {
+					throw new Error("Orchestration unavailable");
+				}
+				await ensureOrchestrationPermission(
+					name,
+					args,
+					record.ctx.orchestration,
+				);
+				return await callOrchestrationTool(
+					record.ctx.orchestration.deps,
+					name,
+					args,
+				);
+			}
+			if (isLinearToolName(name)) {
+				if (record.ctx.linear === undefined)
+					throw new Error("Connector unavailable");
+				await ensureLinearToolPermission(name, args, record.ctx.linear);
+				return await callLinearTool(record.ctx.linear.deps, name, args);
+			}
+			if (IMAGE_MCP_TOOLS.some((tool) => tool.name === name)) {
+				if (record.ctx.images === undefined)
+					throw new Error("Images unavailable");
+				return await handleImageTool(name, args, record.ctx.images);
+			}
+			if (name === ASK_USER_QUESTION_TOOL.name) {
+				if (record.ctx.interaction === undefined) {
+					throw new Error("User interaction unavailable");
+				}
+				const questions = parseQuestions(args);
+				return questionResult(
+					questions,
+					await record.ctx.interaction.askUserQuestion(questions),
+				);
+			}
+			throw new Error(`Unknown tool: ${name}`);
 		} catch (cause) {
 			return toolResultFromError(name, cause);
 		}
@@ -349,29 +405,9 @@ const buildImageServer = (ctx: ImageMcpToolOptions): Server => {
 const handleMcpRequest = async (
 	req: IncomingMessage,
 	res: ServerResponse,
-	scope: "browser" | "orchestration" | "linear" | "images",
 	record: RegistryRecord,
 ): Promise<void> => {
-	const mcpServer =
-		scope === "browser"
-			? record.ctx.browser === undefined
-				? null
-				: buildBrowserServer(record.ctx.browser)
-			: scope === "orchestration"
-				? record.ctx.orchestration === undefined
-					? null
-					: buildOrchestrationServer(record.ctx.orchestration)
-				: scope === "linear"
-					? record.ctx.linear === undefined
-						? null
-						: buildLinearServer(record.ctx.linear)
-					: record.ctx.images === undefined
-						? null
-						: buildImageServer(record.ctx.images);
-	if (mcpServer === null) {
-		writeText(res, 404, "not found");
-		return;
-	}
+	const mcpServer = buildAppServer(record);
 	const transport = new StreamableHTTPServerTransport({
 		sessionIdGenerator: undefined,
 	});
@@ -386,17 +422,7 @@ const handleMcpRequest = async (
 const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
 	void (async () => {
 		const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-		const scope =
-			path === BROWSER_PATH
-				? "browser"
-				: path === ORCHESTRATION_PATH
-					? "orchestration"
-					: path === LINEAR_PATH
-						? "linear"
-						: path === IMAGES_PATH
-							? "images"
-							: null;
-		if (scope === null) {
+		if (path !== APP_MCP_PATH) {
 			writeText(res, 404, "not found");
 			return;
 		}
@@ -405,13 +431,13 @@ const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
 			unauthorized(res);
 			return;
 		}
-		const record = resolveRecord(token, scope);
+		const record = resolveRecord(token);
 		if (record === null) {
 			unauthorized(res);
 			return;
 		}
 		try {
-			await handleMcpRequest(req, res, scope, record);
+			await handleMcpRequest(req, res, record);
 		} catch (cause) {
 			if (!res.headersSent) {
 				res.writeHead(500, { "content-type": "application/json" });
@@ -471,61 +497,21 @@ export const issueMcpGatewaySession = async (
 	};
 	recordsBySession.set(input.sessionId, record);
 	recordsByHash.set(hash, record);
-	const browser = `http://127.0.0.1:${port}${BROWSER_PATH}`;
-	const orchestration = `http://127.0.0.1:${port}${ORCHESTRATION_PATH}`;
-	const linear = `http://127.0.0.1:${port}${LINEAR_PATH}`;
-	const images = `http://127.0.0.1:${port}${IMAGES_PATH}`;
+	const endpoint = `http://127.0.0.1:${port}${APP_MCP_PATH}`;
 	const authorizationHeader = `Bearer ${token}`;
 	return {
 		token,
-		endpoints: { browser, orchestration, linear, images },
-		httpServerConfigs: {
-			browser: {
-				type: "http",
-				name: BROWSER_MCP_SERVER_NAME,
-				url: browser,
-				headers: [{ name: "Authorization", value: authorizationHeader }],
-			},
-			orchestration: {
-				type: "http",
-				name: ORCHESTRATION_MCP_SERVER_NAME,
-				url: orchestration,
-				headers: [{ name: "Authorization", value: authorizationHeader }],
-			},
-			linear: {
-				type: "http",
-				name: LINEAR_MCP_SERVER_NAME,
-				url: linear,
-				headers: [{ name: "Authorization", value: authorizationHeader }],
-			},
-			images: {
-				type: "http",
-				name: IMAGE_MCP_SERVER_NAME,
-				url: images,
-				headers: [{ name: "Authorization", value: authorizationHeader }],
-			},
+		endpoint,
+		serverConfig: {
+			type: "http",
+			name: APP_MCP_SERVER_NAME,
+			url: endpoint,
+			headers: [{ name: "Authorization", value: authorizationHeader }],
 		},
-		codexServerConfigs: {
-			browser: {
-				url: browser,
-				bearer_token_env_var: "ZUSE_MCP_TOKEN",
-				enabled: true,
-			},
-			orchestration: {
-				url: orchestration,
-				bearer_token_env_var: "ZUSE_MCP_TOKEN",
-				enabled: true,
-			},
-			linear: {
-				url: linear,
-				bearer_token_env_var: "ZUSE_MCP_TOKEN",
-				enabled: true,
-			},
-			images: {
-				url: images,
-				bearer_token_env_var: "ZUSE_MCP_TOKEN",
-				enabled: true,
-			},
+		codexServerConfig: {
+			url: endpoint,
+			bearer_token_env_var: "ZUSE_MCP_TOKEN",
+			enabled: true,
 		},
 		close: () => revokeMcpGatewaySession(input.sessionId),
 	};
@@ -543,6 +529,13 @@ export const revokeMcpGatewaySession = async (
 export const revokeAllMcpGatewaySessions = async (): Promise<void> => {
 	recordsBySession.clear();
 	recordsByHash.clear();
+};
+
+export const mcpGatewayDiagnostics = (): {
+	readonly activeSessionCount: number;
+} => {
+	pruneExpired();
+	return { activeSessionCount: recordsBySession.size };
 };
 
 export const __testing = {

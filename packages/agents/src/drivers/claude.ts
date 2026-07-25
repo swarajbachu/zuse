@@ -1,5 +1,4 @@
 import {
-	createSdkMcpServer,
 	type McpServerConfig,
 	type Options,
 	type Query,
@@ -7,7 +6,6 @@ import {
 	type SDKMessage,
 	type SDKUserMessage,
 	type PermissionMode as SdkPermissionMode,
-	tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
 	decidePermission,
@@ -28,17 +26,14 @@ import {
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
 import { type Cause, Effect, Queue, Stream } from "effect";
-import { z } from "zod";
 
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
+import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import type { ResolvedMcpServer } from "../user-mcp/types.ts";
-import type { buildBrowserTools } from "./browser-tools.ts";
+import type { BrowserSend } from "./browser-tools.ts";
 import { scrubInheritedClaudeMarkers } from "./claude-env.ts";
-import {
-	applyClaudeWorktreeEnv,
-	claudeWorktreePrompt,
-} from "./claude-worktree-prompt.ts";
+import { applyClaudeWorktreeEnv } from "./claude-worktree-prompt.ts";
 import {
 	type CompactSnapshot,
 	finishCompactEvent,
@@ -46,16 +41,7 @@ import {
 	startCompactEvent,
 	startCompactSnapshot,
 } from "./compact.ts";
-import {
-	type buildLinearTools,
-	LINEAR_MCP_SERVER_NAME,
-	LINEAR_MCP_TOOLS,
-} from "./linear-tools.ts";
-import {
-	type buildOrchestrationTools,
-	ORCHESTRATION_MCP_SERVER_NAME,
-	ORCHESTRATION_MCP_TOOLS,
-} from "./orchestration-tools.ts";
+import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
 
 /**
  * User MCP servers → SDK external-server config entries. Tools surface as
@@ -155,9 +141,6 @@ const runtimeModeToSdkPermissionMode = (
 const ZUSE_MCP_NAME = "zuse";
 const ASK_USER_QUESTION_TOOL = "ask_user_question";
 const ASK_USER_QUESTION_FQN = `mcp__${ZUSE_MCP_NAME}__${ASK_USER_QUESTION_TOOL}`;
-const ORCHESTRATION_TOOL_FQNS = ORCHESTRATION_MCP_TOOLS.map(
-	(toolDef) => `mcp__${ORCHESTRATION_MCP_SERVER_NAME}__${toolDef.name}`,
-);
 
 /**
  * Anthropic accepts these media types as image content blocks. Anything else
@@ -1166,10 +1149,10 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 	// send_to_thread — are deliberately absent: they spawn real work and must
 	// fall through to the permission prompt, which is the approval gate for the
 	// `approval-gated` autonomy level.
-	`mcp__${ORCHESTRATION_MCP_SERVER_NAME}__read_thread`,
-	`mcp__${ORCHESTRATION_MCP_SERVER_NAME}__list_threads`,
-	`mcp__${ORCHESTRATION_MCP_SERVER_NAME}__list_models`,
-	`mcp__${ORCHESTRATION_MCP_SERVER_NAME}__whoami`,
+	`mcp__${ZUSE_MCP_NAME}__read_thread`,
+	`mcp__${ZUSE_MCP_NAME}__list_threads`,
+	`mcp__${ZUSE_MCP_NAME}__list_models`,
+	`mcp__${ZUSE_MCP_NAME}__whoami`,
 ]);
 
 type ToolPolicy =
@@ -1430,10 +1413,6 @@ export const applyUltrathinkPrefix = (
  */
 export type GetRuntimeMode = () => RuntimeMode;
 
-type BrowserSdkTool = ReturnType<typeof buildBrowserTools>[number];
-type OrchestrationSdkTool = ReturnType<typeof buildOrchestrationTools>[number];
-type LinearSdkTool = ReturnType<typeof buildLinearTools>[number];
-
 export const startClaudeSession = (
 	input: StartSessionInput,
 	cwd: string,
@@ -1443,14 +1422,8 @@ export const startClaudeSession = (
 	requestPermission: RequestPermission,
 	getRuntimeMode: GetRuntimeMode,
 	resumeCursor: string | null = null,
-	// Extra MCP tools arrive already bound to their session-specific backing
-	// service, so the driver itself stays path-agnostic.
-	extraTools: ReadonlyArray<BrowserSdkTool> = [],
-	// Provider-neutral orchestration tools are intentionally registered under a
-	// separate server name (`zuse-orchestration`) so Claude, Codex, and Grok see
-	// the same MCP surface and smoke-test instructions.
-	orchestrationTools: ReadonlyArray<OrchestrationSdkTool> = [],
-	linearTools: ReadonlyArray<LinearSdkTool> = [],
+	browserSend: BrowserSend,
+	orchestrationTools: OrchestrationSessionTools | null = null,
 	// The user's native MCP servers (from ~/.claude.json / .mcp.json), already
 	// resolved server-side: env refs expanded, held OAuth tokens injected as
 	// Authorization headers. Spread into `Options.mcpServers` after the
@@ -1570,110 +1543,49 @@ export const startClaudeSession = (
 			answers: ReadonlyArray<UserQuestionAnswer> | null,
 		) => void;
 		const pendingQuestions = new Map<string, QuestionResolver>();
+		let currentPermissionMode = input.permissionMode ?? "default";
 
-		/**
-		 * Map from question `itemId` → its `tool_use.id` if known. The MCP
-		 * SDK doesn't pass the tool_use_id into our handler, so we mint our
-		 * own id and surface it on the `UserQuestion` event. The handle's
-		 * `answerQuestion` then looks the id up here. (The SDK's translator
-		 * sees the underlying `tool_use.id` separately and uses *that* to
-		 * suppress the matching tool_result row — see
-		 * `state.askUserQuestionIds`.)
-		 */
-		const askUserQuestionToolDefinition = tool(
-			ASK_USER_QUESTION_TOOL,
-			"Ask the user a structured multiple-choice question, with optional 'Other' free-text. Use when implementation requires a decision the agent cannot infer from context (preferred direction, taste call, scope cut). Each question carries `options[]` the user picks from; the renderer always offers an additional 'Other' free-text field — never include 'Other' in `options`.",
-			{
-				questions: z
-					.array(
-						z.object({
-							question: z.string(),
-							options: z.array(z.string()),
-							multiSelect: z.boolean().optional(),
+		const mcpGatewaySession = yield* issueProviderMcpSession({
+			providerId: "claude",
+			sessionId,
+			cwd,
+			browserSend,
+			requestPermission: (kind, options) =>
+				requestPermission(sessionId, kind, options),
+			getRuntimeMode,
+			getPermissionMode: () => currentPermissionMode,
+			orchestrationTools,
+			interaction: {
+				askUserQuestion: async (questions) => {
+					const itemId = nextItemId();
+					const userQuestions: ReadonlyArray<UserQuestion> = questions.map(
+						(q) => ({
+							question: q.question,
+							options: q.options,
+							...(q.multiSelect !== undefined
+								? { multiSelect: q.multiSelect }
+								: {}),
 						}),
-					)
-					.min(1),
-			},
-			async (args) => {
-				const itemId = nextItemId();
-				const userQuestions: ReadonlyArray<UserQuestion> = args.questions.map(
-					(q) => ({
-						question: q.question,
-						options: q.options,
-						...(q.multiSelect !== undefined
-							? { multiSelect: q.multiSelect }
-							: {}),
-					}),
-				);
-				Queue.offerUnsafe(events, {
-					_tag: "UserQuestion",
-					itemId,
-					questions: userQuestions,
-					parentItemId: translateState.latestParentItemId,
-				});
-				const answers =
-					await new Promise<ReadonlyArray<UserQuestionAnswer> | null>(
-						(resolve) => {
-							pendingQuestions.set(itemId, resolve);
-						},
 					);
-				if (answers === null) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: "User cancelled the question.",
+					Queue.offerUnsafe(events, {
+						_tag: "UserQuestion",
+						itemId,
+						questions: userQuestions,
+						parentItemId: translateState.latestParentItemId,
+					});
+					const answers =
+						await new Promise<ReadonlyArray<UserQuestionAnswer> | null>(
+							(resolve) => {
+								pendingQuestions.set(itemId, resolve);
 							},
-						],
-						isError: true,
-					};
-				}
-				// Render the answers compactly for the model. Per question:
-				//   - "Q: <text> → <selected option labels>" if any options picked
-				//   - "  (other: <free text>)" appended if free-text given
-				// The structured JSON is included too for unambiguous parsing.
-				const lines: string[] = [];
-				for (const a of answers) {
-					const q = userQuestions[a.questionIndex];
-					if (q === undefined) continue;
-					const picks = a.selected.map((i) => q.options[i] ?? `#${i}`);
-					const head = picks.length > 0 ? picks.join(", ") : "(no preset)";
-					lines.push(`Q: ${q.question}\nA: ${head}`);
-					if (typeof a.other === "string" && a.other.length > 0) {
-						lines.push(`  (other: ${a.other})`);
+						);
+					if (answers === null) {
+						return null;
 					}
-				}
-				return {
-					content: [
-						{ type: "text", text: lines.join("\n\n") },
-						{ type: "text", text: JSON.stringify({ answers }) },
-					],
-				};
+					return answers;
+				},
 			},
-			{ alwaysLoad: true },
-		);
-
-		const memoizeMcpServer = createSdkMcpServer({
-			name: ZUSE_MCP_NAME,
-			tools: [askUserQuestionToolDefinition, ...extraTools],
-			alwaysLoad: !(input.toolSearch ?? false),
 		});
-		const orchestrationMcpServer =
-			orchestrationTools.length === 0
-				? null
-				: createSdkMcpServer({
-						name: ORCHESTRATION_MCP_SERVER_NAME,
-						tools: [...orchestrationTools],
-						alwaysLoad: !(input.toolSearch ?? false),
-					});
-		const linearMcpServer =
-			linearTools.length === 0
-				? null
-				: createSdkMcpServer({
-						name: LINEAR_MCP_SERVER_NAME,
-						tools: [...linearTools],
-						alwaysLoad: !(input.toolSearch ?? false),
-					});
 
 		const env = applyClaudeWorktreeEnv(
 			scrubInheritedClaudeMarkers(process.env),
@@ -1699,11 +1611,7 @@ export const startClaudeSession = (
 					agents: agentsMap,
 					allowedTools: [
 						"Agent",
-						ASK_USER_QUESTION_FQN,
-						...ORCHESTRATION_TOOL_FQNS,
-						...LINEAR_MCP_TOOLS.map(
-							(tool) => `mcp__${LINEAR_MCP_SERVER_NAME}__${tool.name}`,
-						),
+						`mcp__${ZUSE_MCP_NAME}`,
 						...userMcpServers.map((server) => `mcp__${server.name}`),
 					],
 				} as Pick<Options, "agents" | "allowedTools">)
@@ -1717,7 +1625,6 @@ export const startClaudeSession = (
 		const disallowedTools: ReadonlyArray<string> = [
 			SDK_BUILTIN_ASK_USER_QUESTION,
 		];
-		let currentPermissionMode = input.permissionMode ?? "default";
 		const initialSdkPermissionMode = runtimeModeToSdkPermissionMode(
 			getRuntimeMode(),
 			currentPermissionMode,
@@ -1727,9 +1634,7 @@ export const startClaudeSession = (
 			systemPrompt: {
 				type: "preset",
 				preset: "claude_code",
-				append: [input.workspaceInstructions, claudeWorktreePrompt(cwd)]
-					.filter((part): part is string => part !== undefined)
-					.join("\n\n"),
+				append: input.workspaceInstructions,
 			},
 			abortController: abort,
 			...(claudeExecutablePath !== null
@@ -1746,28 +1651,19 @@ export const startClaudeSession = (
 			],
 			mcpServers: {
 				...userMcpConfigEntries(userMcpServers, input.toolSearch ?? false),
-				[ZUSE_MCP_NAME]: memoizeMcpServer,
-				...(orchestrationMcpServer === null
-					? {}
-					: { [ORCHESTRATION_MCP_SERVER_NAME]: orchestrationMcpServer }),
-				...(linearMcpServer === null
-					? {}
-					: { [LINEAR_MCP_SERVER_NAME]: linearMcpServer }),
+				[ZUSE_MCP_NAME]: {
+					type: "http",
+					url: mcpGatewaySession.endpoint,
+					headers: {
+						Authorization: `Bearer ${mcpGatewaySession.token}`,
+					},
+					alwaysLoad: !(input.toolSearch ?? false),
+				},
 			},
 			permissionMode: initialSdkPermissionMode,
 			...(initialSdkPermissionMode === "bypassPermissions"
 				? { allowDangerouslySkipPermissions: true }
 				: {}),
-			// Trim the SDK's stock plan-mode body to nudge the agent toward
-			// memoize's two structured-interaction tools. The SDK still wraps
-			// this with its read-only enforcement preamble + ExitPlanMode
-			// protocol footer.
-			planModeInstructions: [
-				"Phase 1 — Explore. Use only read-only tools (Read, Glob, Grep).",
-				"Phase 2 — Track. Maintain a TodoWrite list as you discover work; keep it crisp.",
-				`Phase 3 — Ask. When a real fork in the road exists (which library, which scope, which approach), call ${ASK_USER_QUESTION_FQN} with the choices instead of guessing.`,
-				"Phase 4 — Propose. Call ExitPlanMode with a concise plan: what changes, where, and how to verify.",
-			].join("\n"),
 			// Reasoning effort: mapped from FE picker via `input.modelOptions
 			// .effort` (or legacy `reasoning`). The per-model descriptor in
 			// `MODELS_BY_PROVIDER[claude]` declares which tiers each model
@@ -1877,6 +1773,7 @@ export const startClaudeSession = (
 		try {
 			q = query({ prompt: inputChannel, options });
 		} catch (cause) {
+			void mcpGatewaySession.close();
 			yield* Queue.end(events);
 			return yield* Effect.fail(
 				new AgentSessionStartError({
@@ -2015,6 +1912,7 @@ export const startClaudeSession = (
 					pendingQuestions.clear();
 					inputChannel.close();
 					abort.abort();
+					void mcpGatewaySession.close();
 				}),
 			setPermissionMode: (mode) =>
 				Effect.tryPromise({

@@ -29,6 +29,7 @@ import type { GoalCapableSessionHandle } from "../kernel/driver.ts";
 import type { ToolCategory } from "../kernel/permission-policy.ts";
 import { getBashPolicy, getFsPolicy, getToolPolicy } from "../kernel/policy.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
 import { handleFsRequest } from "./acp/fs.ts";
 import { replyToAcpRequest } from "./acp/request-reply.ts";
@@ -490,6 +491,7 @@ export const startGrokSession = (
 	requestPermission: RequestPermission,
 	getRuntimeMode: GetRuntimeMode,
 	browserSend: BrowserSend,
+	mcpProxyCommand: string,
 	orchestrationTools: OrchestrationSessionTools | null = null,
 	resumeCursor: string | null = null,
 	providerEventCursor: string | null = null,
@@ -517,6 +519,11 @@ export const startGrokSession = (
 			getRuntimeMode,
 			getPermissionMode: () => currentMode,
 		});
+		let gatewayQuestionCounter = 0;
+		const gatewayQuestionResponses = new Map<
+			string,
+			(answers: ReadonlyArray<UserQuestionAnswer> | null) => void
+		>();
 
 		const mcpGatewaySession = yield* issueProviderMcpSession({
 			providerId: "grok",
@@ -528,17 +535,27 @@ export const startGrokSession = (
 			getRuntimeMode,
 			getPermissionMode: () => currentMode,
 			orchestrationTools,
+			interaction: {
+				askUserQuestion: (questions) => {
+					const itemId =
+						`grok_mcp_question_${Date.now()}_${++gatewayQuestionCounter}` as AgentItemId;
+					Queue.offerUnsafe(events, {
+						_tag: "UserQuestion",
+						itemId,
+						questions,
+					});
+					return new Promise((resolve) => {
+						gatewayQuestionResponses.set(itemId, resolve);
+					});
+				},
+			},
 		});
-		const grokMcpServers = [
-			mcpGatewaySession.httpServerConfigs.images,
-			mcpGatewaySession.httpServerConfigs.browser,
-			...(orchestrationTools === null
-				? []
-				: [mcpGatewaySession.httpServerConfigs.orchestration]),
-			...(orchestrationTools?.linearTools === undefined
-				? []
-				: [mcpGatewaySession.httpServerConfigs.linear]),
-		];
+		const grokMcpServers = [mcpGatewaySession.serverConfig];
+		const stdioMcpFallback = makeStdioMcpFallback({
+			command: mcpProxyCommand,
+			endpoint: mcpGatewaySession.endpoint,
+			token: mcpGatewaySession.token,
+		});
 		let acpSessionId: string | null = null;
 		const configuredHome = process.env.GROK_HOME?.trim();
 		const providerHome =
@@ -1135,6 +1152,9 @@ export const startGrokSession = (
 					}
 					pendingPlanResponses.clear();
 					pendingQuestionResponses.clear();
+					for (const resolve of gatewayQuestionResponses.values())
+						resolve(null);
+					gatewayQuestionResponses.clear();
 					// Keep the mailbox alive — the next send() will transparently respawn
 					// the child + redo the handshake (see [[enqueuePrompt]]). Do not stop
 					// the visible turn for the known Grok AuthorizationRequired noise.
@@ -1208,7 +1228,10 @@ export const startGrokSession = (
 				cwd,
 				sessionId,
 				providerLabel: "Grok",
-				httpServers: grokMcpServers,
+				httpServers: init.mcp.http
+					? grokMcpServers
+					: await stdioMcpFallback.ensure(),
+				...(init.mcp.http ? { fallbackServers: stdioMcpFallback.ensure } : {}),
 				resumeCursor: cursor,
 				providerEventCursor: eventCursor.value(),
 				shouldReplaceMissingSession: (cause) =>
@@ -1249,6 +1272,7 @@ export const startGrokSession = (
 						// ignore — child may not be alive
 					}
 					void mcpGatewaySession.close();
+					void stdioMcpFallback.close();
 				}),
 			),
 		);
@@ -1318,8 +1342,7 @@ export const startGrokSession = (
 							grokDiag("respawn failed", { reason });
 							const reconnectKind =
 								cause instanceof GrokProtocolError ? cause.kind : "transport";
-							const failureAction =
-								grokSessionFailureAction(reconnectKind);
+							const failureAction = grokSessionFailureAction(reconnectKind);
 							if (failureAction !== "continue") {
 								if (failureAction === "terminal") {
 									terminalFailure = true;
@@ -1437,16 +1460,9 @@ export const startGrokSession = (
 							enqueuePrompt(text, attachmentRefs, reconnectAttempt + 1);
 							return;
 						}
-						if (
-							failureAction === "continue" &&
-							dead &&
-							reconnectAttempt >= 2
-						)
+						if (failureAction === "continue" && dead && reconnectAttempt >= 2)
 							terminalFailure = true;
-						if (
-							failureAction === "terminal" &&
-							lifecycle.current() !== "error"
-						)
+						if (failureAction === "terminal" && lifecycle.current() !== "error")
 							lifecycle.transition("error");
 						if (!closed && !isCancellation) {
 							Queue.offerUnsafe(events, {
@@ -1547,6 +1563,7 @@ export const startGrokSession = (
 					child.kill("SIGTERM");
 					rl.close();
 					yield* Effect.promise(() => mcpGatewaySession.close());
+					yield* Effect.promise(() => stdioMcpFallback.close());
 					yield* Queue.end(events);
 				}),
 			setPermissionMode: (mode) =>
@@ -1560,6 +1577,12 @@ export const startGrokSession = (
 				}),
 			answerQuestion: (itemId, answers) =>
 				Effect.sync(() => {
+					const gatewayResolve = gatewayQuestionResponses.get(itemId);
+					if (gatewayResolve !== undefined) {
+						gatewayQuestionResponses.delete(itemId);
+						gatewayResolve(answers);
+						return;
+					}
 					const pending = pendingQuestionResponses.get(itemId);
 					if (pending === undefined)
 						throw new Error(`No pending Grok question ${itemId}.`);
