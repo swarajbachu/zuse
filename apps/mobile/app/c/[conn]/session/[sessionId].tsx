@@ -110,7 +110,7 @@ import {
 	releaseMessages,
 	reorderQueuedMessages,
 	resumeQueue,
-	sendQueuedMessageNow,
+	runQueuedMessageNext,
 	sessionMessagesAtom,
 	sessionMessagesErrorAtom,
 	sessionQueueAtom,
@@ -1183,7 +1183,7 @@ function ThreadScreen() {
 									)
 								}
 								onSendQueue={(id) =>
-									sendQueuedMessageNow(
+									runQueuedMessageNext(
 										connKey,
 										options,
 										normalizedSessionId,

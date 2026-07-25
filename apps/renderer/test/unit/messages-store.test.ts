@@ -95,12 +95,16 @@ const timelineSnapshot = (throughVersion = 0): SessionTimelineFrame => ({
 });
 
 let interruptCalls = 0;
-let sendNowCalls: Array<{
+let runNextCalls: Array<{
 	readonly sessionId: SessionId;
 	readonly queueId: string;
 }> = [];
 let resumeCalls: Array<{ readonly sessionId: SessionId }> = [];
 let flushCalls: Array<{ readonly sessionId: SessionId }> = [];
+let deleteCalls: Array<{
+	readonly sessionId: SessionId;
+	readonly queueId: string;
+}> = [];
 let addCalls: Array<{
 	readonly sessionId: SessionId;
 	readonly queueId?: string;
@@ -118,12 +122,12 @@ const makeQueueClient = () =>
 			Effect.sync(() => {
 				interruptCalls += 1;
 			}),
-		"messages.queue.sendNow": (payload: {
+		"messages.queue.runNext": (payload: {
 			readonly sessionId: SessionId;
 			readonly queueId: string;
 		}) =>
 			Effect.sync(() => {
-				sendNowCalls.push(payload);
+				runNextCalls.push(payload);
 			}),
 		"messages.queue.resume": (payload: { readonly sessionId: SessionId }) =>
 			Effect.sync(() => {
@@ -132,6 +136,13 @@ const makeQueueClient = () =>
 		"messages.queue.flush": (payload: { readonly sessionId: SessionId }) =>
 			Effect.sync(() => {
 				flushCalls.push(payload);
+			}),
+		"messages.queue.delete": (payload: {
+			readonly sessionId: SessionId;
+			readonly queueId: string;
+		}) =>
+			Effect.sync(() => {
+				deleteCalls.push(payload);
 			}),
 		"messages.queue.add": (payload: {
 			readonly sessionId: SessionId;
@@ -160,9 +171,10 @@ describe("messages store queue actions", () => {
 
 	beforeEach(() => {
 		interruptCalls = 0;
-		sendNowCalls = [];
+		runNextCalls = [];
 		resumeCalls = [];
 		flushCalls = [];
+		deleteCalls = [];
 		addCalls = [];
 		dispatchedCommandIds = [];
 		reportRendererRpcStreamFailure.mockReset();
@@ -180,11 +192,90 @@ describe("messages store queue actions", () => {
 		});
 	});
 
-	it("sends an idle queued item without interrupting", async () => {
-		await useMessagesStore.getState().steerFromQueue(sessionId, queued.id);
+	it("delegates an idle queued item to the server-owned run-next command", async () => {
+		await useMessagesStore
+			.getState()
+			.runQueuedMessageNext(sessionId, queued.id);
 
 		expect(interruptCalls).toBe(0);
-		expect(sendNowCalls).toEqual([{ sessionId, queueId: queued.id }]);
+		expect(runNextCalls).toEqual([{ sessionId, queueId: queued.id }]);
+	});
+
+	it("delegates a running session before its active turn reaches the timeline", async () => {
+		useMessagesStore.setState({
+			runningBySession: { [sessionId]: true },
+		});
+
+		await useMessagesStore
+			.getState()
+			.runQueuedMessageNext(sessionId, queued.id);
+
+		expect(runNextCalls).toEqual([{ sessionId, queueId: queued.id }]);
+	});
+
+	it("interrupts a running session even before its active turn reaches the timeline", async () => {
+		useMessagesStore.setState({
+			runningBySession: { [sessionId]: true },
+		});
+
+		await useMessagesStore.getState().interrupt(sessionId);
+
+		expect(interruptCalls).toBe(1);
+	});
+
+	it("restores a queued item when run-next fails", async () => {
+		useMessagesStore.setState({
+			runningBySession: { [sessionId]: true },
+		});
+		rpcClientFactory = () =>
+			({
+				...makeQueueClient(),
+				"messages.queue.runNext": () =>
+					Effect.fail(new Error("run next failed")),
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+
+		await useMessagesStore
+			.getState()
+			.runQueuedMessageNext(sessionId, queued.id);
+
+		expect(useMessagesStore.getState().queueBySession[sessionId]).toEqual([
+			queued,
+		]);
+		expect(useMessagesStore.getState().errorBySession[sessionId]).toEqual({
+			kind: "generic",
+			message: "Couldn’t run that message next. It is still in your queue.",
+		});
+	});
+
+	it("removes and returns a queued item for editing in the regular composer", async () => {
+		const taken = await useMessagesStore
+			.getState()
+			.takeQueuedForEdit(sessionId, queued.id);
+
+		expect(taken).toEqual(queued);
+		expect(deleteCalls).toEqual([{ sessionId, queueId: queued.id }]);
+		expect(useMessagesStore.getState().queueBySession[sessionId]).toEqual([]);
+	});
+
+	it("restores a queued item when opening it for editing fails", async () => {
+		rpcClientFactory = () =>
+			({
+				...makeQueueClient(),
+				"messages.queue.delete": () => Effect.fail(new Error("delete failed")),
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+
+		const taken = await useMessagesStore
+			.getState()
+			.takeQueuedForEdit(sessionId, queued.id);
+
+		expect(taken).toBeNull();
+		expect(useMessagesStore.getState().queueBySession[sessionId]).toEqual([
+			queued,
+		]);
 	});
 
 	it("resumes a paused queue through the resume RPC", async () => {

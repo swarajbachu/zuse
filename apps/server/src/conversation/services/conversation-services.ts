@@ -1,7 +1,6 @@
 import type {
 	AgentDefinition,
 	AgentItemId,
-	AgentTurnId,
 	AttachmentRef,
 	Chat,
 	ChatAlreadyStartedError,
@@ -488,7 +487,6 @@ export interface ConversationOperations {
 
 	readonly interruptSession: (
 		sessionId: SessionId,
-		turnId: AgentTurnId,
 	) => Effect.Effect<void, SessionNotFoundError>;
 
 	readonly listQueuedMessages: (
@@ -500,6 +498,7 @@ export interface ConversationOperations {
 		input: ComposerInput,
 		queueId?: string,
 		ready?: boolean,
+		flush?: boolean,
 	) => Effect.Effect<QueuedMessage, SessionNotFoundError>;
 
 	readonly updateQueuedMessage: (
@@ -516,16 +515,9 @@ export interface ConversationOperations {
 		queueId: string,
 	) => Effect.Effect<void, SessionNotFoundError>;
 
-	readonly sendQueuedMessageNow: (
+	readonly runQueuedMessageNext: (
 		sessionId: SessionId,
 		queueId: string,
-	) => Effect.Effect<void, SessionNotFoundError>;
-	readonly steerQueuedTurn: (
-		sessionId: SessionId,
-		expectedTurnId: import("@zuse/contracts").AgentTurnId,
-		queueId: string,
-		successorTurnId: import("@zuse/contracts").AgentTurnId,
-		commandId: string,
 	) => Effect.Effect<void, SessionNotFoundError>;
 
 	readonly reorderQueuedMessages: (
@@ -605,8 +597,7 @@ export type QueueServiceShape = Pick<
 	| "addQueuedMessage"
 	| "updateQueuedMessage"
 	| "deleteQueuedMessage"
-	| "sendQueuedMessageNow"
-	| "steerQueuedTurn"
+	| "runQueuedMessageNext"
 	| "reorderQueuedMessages"
 	| "flushQueuedMessages"
 	| "resumeQueuedMessages"

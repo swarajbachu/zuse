@@ -60,6 +60,10 @@ export interface ProviderReactorHandlersOptions {
 		turnId: AgentTurnId,
 		outcome: "completed" | "interrupted" | "error",
 	) => Effect.Effect<void>;
+	readonly rememberActiveTurn: (
+		sessionId: SessionId,
+		turnId: AgentTurnId,
+	) => void;
 	readonly provider: ProviderServiceShape;
 	readonly sessionDomain: SessionDomainApi;
 	readonly autoNameChat: (
@@ -81,6 +85,7 @@ export const makeProviderReactorHandlers = (
 		ndjsonAppend,
 		setStatus,
 		settleTurnFromReactor,
+		rememberActiveTurn,
 		provider,
 		sessionDomain,
 		autoNameChat,
@@ -316,7 +321,7 @@ export const makeProviderReactorHandlers = (
 							goal: false,
 						}
 					: { _tag: "user" as const, text: input.text, goal: false };
-				yield* sessionDomain
+				const admitted = yield* sessionDomain
 					.dispatch({
 						commandId: `${reactorInput.commandId}:submit`,
 						streamId: sessionId,
@@ -333,22 +338,31 @@ export const makeProviderReactorHandlers = (
 						},
 					})
 					.pipe(
+						Effect.as(true),
 						Effect.catchTag("TurnAlreadyRunning", () =>
-							sessionDomain.dispatch({
-								commandId: `${reactorInput.commandId}:requeue`,
-								streamId: sessionId,
-								command: {
-									_tag: "EnqueueTurn",
-									queueId: reactorInput.command.queueId,
-									inputJson: reactorInput.command.inputJson,
-									position: 0,
-									createdAt: Date.now(),
-									ready: true,
-								},
-							}),
+							sessionDomain
+								.dispatch({
+									commandId: `${reactorInput.commandId}:requeue`,
+									streamId: sessionId,
+									command: {
+										_tag: "EnqueueTurn",
+										queueId: reactorInput.command.queueId,
+										inputJson: reactorInput.command.inputJson,
+										position: 0,
+										createdAt: Date.now(),
+										ready: true,
+									},
+								})
+								.pipe(Effect.as(false)),
 						),
 					)
 					.pipe(Effect.orDie);
+				if (admitted) {
+					rememberActiveTurn(
+						sessionId,
+						AgentTurnId.make(reactorInput.command.turnId),
+					);
+				}
 				yield* reactorEffects.complete(reactorInput.commandId);
 			});
 

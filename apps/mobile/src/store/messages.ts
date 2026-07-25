@@ -487,7 +487,7 @@ export const reorderQueuedMessages = async (
 	}
 };
 
-export const sendQueuedMessageNow = async (
+export const runQueuedMessageNext = async (
 	connKey: string,
 	options: WsProtocolOptions,
 	sessionId: SessionId,
@@ -502,7 +502,7 @@ export const sendQueuedMessageNow = async (
 	try {
 		const client = await Effect.runPromise(getConnectionClient(options));
 		await Effect.runPromise(
-			client["messages.queue.sendNow"]({ sessionId, queueId }),
+			client["messages.queue.runNext"]({ sessionId, queueId }),
 		);
 	} catch (cause) {
 		reportConnectionFailure(options, cause);

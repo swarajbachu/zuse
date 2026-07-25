@@ -559,16 +559,6 @@ export const ThreadGoalSetInput = Schema.Struct({
 export type ThreadGoalSetInput = typeof ThreadGoalSetInput.Type;
 
 /**
- * Reported by `messages.steer` if the active provider cannot interrupt the
- * running turn. Both 0.03 drivers (Claude, Codex) support steer; the error
- * is reserved for future providers.
- */
-export class SteerUnsupportedError extends Schema.TaggedErrorClass<SteerUnsupportedError>()(
-	"SteerUnsupportedError",
-	{ providerId: ProviderId },
-) {}
-
-/**
  * Raised by `session.setWorktree` when the session already has at least one
  * recorded user message. cwd cannot be changed mid-conversation — the
  * renderer collapses the picker to a read-only chip in this case.
@@ -1139,7 +1129,7 @@ export const MessagesSendRpc = Rpc.make("messages.send", {
 });
 
 export const MessagesInterruptRpc = Rpc.make("messages.interrupt", {
-	payload: Schema.Struct({ sessionId: SessionId, turnId: AgentTurnId }),
+	payload: Schema.Struct({ sessionId: SessionId }),
 	success: Schema.Void,
 	error: SessionNotFoundError,
 });
@@ -1158,6 +1148,8 @@ export const MessagesQueueAddRpc = Rpc.make("messages.queue.add", {
 		input: ComposerInput,
 		/** Persist visibly now, but do not claim until an update finalizes it. */
 		ready: Schema.optional(Schema.Boolean),
+		/** Skip the idle auto-flush when restoring a cancelled composer edit. */
+		flush: Schema.optional(Schema.Boolean),
 	}),
 	success: QueuedMessage,
 	error: SessionNotFoundError,
@@ -1182,7 +1174,11 @@ export const MessagesQueueDeleteRpc = Rpc.make("messages.queue.delete", {
 	error: SessionNotFoundError,
 });
 
-export const MessagesQueueSendNowRpc = Rpc.make("messages.queue.sendNow", {
+/**
+ * Run one durable queued item next. The server owns the idle-vs-running
+ * decision, active-turn resolution, interruption, and successor identity.
+ */
+export const MessagesQueueRunNextRpc = Rpc.make("messages.queue.runNext", {
 	payload: Schema.Struct({
 		sessionId: SessionId,
 		queueId: Schema.String,
@@ -1210,23 +1206,6 @@ export const MessagesQueueResumeRpc = Rpc.make("messages.queue.resume", {
 	payload: Schema.Struct({ sessionId: SessionId }),
 	success: Schema.Void,
 	error: SessionNotFoundError,
-});
-
-/**
- * Interrupt the running turn (if any) and immediately send `input` as the
- * next user turn. The driver drains the post-interrupt cleanup messages
- * before issuing the new query so the message stream stays linear.
- */
-export const MessagesSteerRpc = Rpc.make("messages.steer", {
-	payload: Schema.Struct({
-		sessionId: SessionId,
-		expectedTurnId: AgentTurnId,
-		queueId: Schema.String,
-		successorTurnId: AgentTurnId,
-		commandId: Schema.String,
-	}),
-	success: Schema.Void,
-	error: Schema.Union([SessionNotFoundError, SteerUnsupportedError]),
 });
 
 /**

@@ -1,7 +1,6 @@
 import { SessionTimelineRegistry } from "@zuse/client-runtime/session-timeline";
 import { makeSessionTimelineCacheEntry } from "@zuse/client-runtime/session-timeline-cache";
 import {
-	AgentTurnId,
   ComposerInput,
   Message,
   type MessageContent,
@@ -134,6 +133,17 @@ export const classifyMessage = (
 const classifyError = (err: unknown, providerId?: ProviderId): ChatError =>
   classifyMessage(formatError(err), providerId);
 
+const classifyActionError = (
+	err: unknown,
+	fallback: string,
+	providerId?: ProviderId,
+): ChatError => {
+	const classified = classifyError(err, providerId);
+	return classified.kind === "generic"
+		? { kind: "generic", message: fallback }
+		: classified;
+};
+
 export const lookupSessionProvider = (
   sessionId: SessionId,
 ): ProviderId | undefined => {
@@ -160,7 +170,7 @@ export const lookupSessionProvider = (
 /**
  * One queued mid-turn message. The user pressed Enter while a turn was in
  * flight; we hold the input here until the turn ends (auto-flush) or the
- * user clicks the Steer arrow on the chip.
+ * user asks the server to run it next.
  */
 type MessagesState = {
   readonly messagesBySession: Record<string, ReadonlyArray<Message>>;
@@ -202,13 +212,14 @@ type MessagesState = {
 			readonly queueId?: string;
 			readonly persist?: boolean;
 			readonly ready?: boolean;
+			readonly flush?: boolean;
 		},
 	) => string;
 	readonly persistQueued: (
 		sessionId: SessionId,
 		queueId: string,
 		input: ComposerInput,
-		options?: { readonly ready?: boolean },
+		options?: { readonly ready?: boolean; readonly flush?: boolean },
 	) => Promise<void>;
   readonly updateQueued: (
     sessionId: SessionId,
@@ -221,13 +232,18 @@ type MessagesState = {
   ) => void;
   readonly flushQueue: (sessionId: SessionId) => void;
   readonly resumeQueue: (sessionId: SessionId) => Promise<void>;
-  /** Interrupt the running turn, then send `queueId` as the next user turn. */
-  readonly steerFromQueue: (
+  /** Ask the server to run `queueId` next, regardless of current turn state. */
+  readonly runQueuedMessageNext: (
     sessionId: SessionId,
     queueId: string,
   ) => Promise<void>;
-  /** Silently drop a queue chip — no RPC call. */
+  /** Remove a queued item locally and durably. */
   readonly dropFromQueue: (sessionId: SessionId, queueId: string) => void;
+  /** Remove and return one durable queued item so the composer can edit it. */
+  readonly takeQueuedForEdit: (
+    sessionId: SessionId,
+    queueId: string,
+  ) => Promise<QueuedMessage | null>;
   readonly clearError: (sessionId: SessionId) => void;
   readonly observeSessionStatus: (
     sessionId: SessionId,
@@ -1020,18 +1036,19 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   },
   interrupt: async (sessionId) => {
     try {
-			const turnId =
-				timelineRegistry.state(sessionId).projection?.currentTurn?.turnId;
-			if (turnId === undefined) return;
       const client = await getMessagesRpcClient();
 			await Effect.runPromise(
-				client["messages.interrupt"]({ sessionId, turnId }),
+				client["messages.interrupt"]({ sessionId }),
 			);
     } catch (err) {
       set((s) => ({
         errorBySession: {
           ...s.errorBySession,
-          [sessionId]: classifyError(err, lookupSessionProvider(sessionId)),
+          [sessionId]: classifyActionError(
+						err,
+						"Couldn’t stop the current turn. Try again.",
+						lookupSessionProvider(sessionId),
+					),
         },
       }));
     }
@@ -1064,6 +1081,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 		if (options?.persist !== false) {
 			void get().persistQueued(sessionId, queueId, input, {
 				ready: options?.ready,
+				flush: options?.flush,
 			});
 		}
 		return queueId;
@@ -1082,6 +1100,9 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 								input,
 								...(options?.ready !== undefined
 									? { ready: options.ready }
+									: {}),
+								...(options?.flush !== undefined
+									? { flush: options.flush }
 									: {}),
 							}),
 						);
@@ -1267,7 +1288,50 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       }
     })();
   },
-  steerFromQueue: async (sessionId, queueId) => {
+  takeQueuedForEdit: async (sessionId, queueId) => {
+    const item = (get().queueBySession[sessionId] ?? []).find(
+      (queued) => queued.id === queueId,
+    );
+    if (item === undefined) return null;
+    set((s) => ({
+      queueBySession: {
+        ...s.queueBySession,
+        [sessionId]: (s.queueBySession[sessionId] ?? []).filter(
+          (queued) => queued.id !== queueId,
+        ),
+      },
+    }));
+    try {
+      const client = await getMessagesRpcClient();
+      await Effect.runPromise(
+        client["messages.queue.delete"]({ sessionId, queueId }),
+      );
+      return item;
+    } catch (err) {
+      set((s) => ({
+        queueBySession: {
+          ...s.queueBySession,
+          [sessionId]: (s.queueBySession[sessionId] ?? []).some(
+            (queued) => queued.id === queueId,
+          )
+            ? s.queueBySession[sessionId] ?? []
+            : [...(s.queueBySession[sessionId] ?? []), item].sort(
+                (left, right) => left.position - right.position,
+              ),
+        },
+        errorBySession: {
+          ...s.errorBySession,
+          [sessionId]: classifyActionError(
+            err,
+            "Couldn’t open that queued message for editing. Try again.",
+            lookupSessionProvider(sessionId),
+          ),
+        },
+      }));
+      return null;
+    }
+  },
+  runQueuedMessageNext: async (sessionId, queueId) => {
     const queue = get().queueBySession[sessionId] ?? [];
     const item = queue.find((q) => q.id === queueId);
     if (!item) return;
@@ -1283,28 +1347,28 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     }));
     try {
       const client = await getMessagesRpcClient();
-			const currentTurn =
-				timelineRegistry.state(sessionId).projection?.currentTurn;
-			if (currentTurn === null || currentTurn === undefined) {
-      await Effect.runPromise(
-        client["messages.queue.sendNow"]({ sessionId, queueId }),
-      );
-			} else {
-				await Effect.runPromise(
-					client["messages.steer"]({
-						sessionId,
-						expectedTurnId: currentTurn.turnId,
-						queueId,
-						successorTurnId: AgentTurnId.make(`turn_${crypto.randomUUID()}`),
-						commandId: `steer:${sessionId}:${queueId}:${crypto.randomUUID()}`,
-					}),
-				);
-			}
+			await Effect.runPromise(
+				client["messages.queue.runNext"]({ sessionId, queueId }),
+			);
     } catch (err) {
       set((s) => ({
+				queueBySession: {
+					...s.queueBySession,
+					[sessionId]: (s.queueBySession[sessionId] ?? []).some(
+						(queued) => queued.id === queueId,
+					)
+						? s.queueBySession[sessionId] ?? []
+						: [...(s.queueBySession[sessionId] ?? []), item].sort(
+								(a, b) => a.position - b.position,
+							),
+				},
         errorBySession: {
           ...s.errorBySession,
-          [sessionId]: classifyError(err, lookupSessionProvider(sessionId)),
+          [sessionId]: classifyActionError(
+						err,
+						"Couldn’t run that message next. It is still in your queue.",
+						lookupSessionProvider(sessionId),
+					),
         },
       }));
     }
