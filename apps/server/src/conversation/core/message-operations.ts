@@ -11,7 +11,7 @@ import {
 	type Session,
 	SessionId,
 	type SessionNotFoundError,
-	SessionStartError,
+	type SessionStartError,
 	type SkillRef,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
@@ -24,6 +24,7 @@ import { serializeAnnotations } from "./conversation-input.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
 import type { QueueServiceRuntime } from "./queue-service-runtime.ts";
 import { makeQueueServiceRuntime } from "./queue-service-runtime.ts";
+import { handoffToServiceScope } from "./service-scope.ts";
 
 export interface MessageOperationsOptions {
 	readonly sql: SqlClient.SqlClient;
@@ -442,13 +443,17 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		) =>
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
-				yield* dispatchSessionCommand(sessionId, {
-					_tag: "RequestTurnInterrupt",
-					turnId,
-					requestedAt: Date.now(),
-				});
-				yield* queueRuntime.pauseAfterInterrupt(sessionId);
-				yield* runSessionReactors;
+				yield* handoffToServiceScope(
+					dispatchSessionCommand(sessionId, {
+						_tag: "RequestTurnInterrupt",
+						turnId,
+						requestedAt: Date.now(),
+					}).pipe(
+						Effect.andThen(queueRuntime.pauseAfterInterrupt(sessionId)),
+					),
+					runSessionReactors,
+					serviceScope,
+				);
 			});
 
 		return { resumeSession, sendMessage, interruptSession, queueRuntime };

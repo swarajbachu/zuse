@@ -187,6 +187,22 @@ describe("messages store queue actions", () => {
 		expect(sendNowCalls).toEqual([{ sessionId, queueId: queued.id }]);
 	});
 
+	it("keeps a queued item visible when steering fails", async () => {
+		rpcClientFactory = () =>
+			({
+				...makeQueueClient(),
+				"messages.queue.sendNow": () => Effect.fail(new Error("conflict")),
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+
+		await useMessagesStore.getState().steerFromQueue(sessionId, queued.id);
+
+		expect(useMessagesStore.getState().queueBySession[sessionId]).toEqual([
+			queued,
+		]);
+	});
+
 	it("resumes a paused queue through the resume RPC", async () => {
 		useMessagesStore.setState({
 			queuePausedBySession: { [sessionId]: true },

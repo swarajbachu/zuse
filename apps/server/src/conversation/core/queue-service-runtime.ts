@@ -13,6 +13,7 @@ import type { SessionCommand } from "@zuse/domain/core/commands";
 import { Effect, type Scope, Semaphore } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { QueueServiceShape } from "../services/conversation-services.ts";
+import { handoffToServiceScope } from "./service-scope.ts";
 
 interface QueuedMessageRow {
 	readonly id: string;
@@ -357,14 +358,17 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 		) =>
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
-				yield* dispatchSessionCommandWithId(sessionId, commandId, {
-					_tag: "SteerQueuedTurn",
-					expectedTurnId,
-					queueId,
-					successorTurnId,
-					requestedAt: Date.now(),
-				});
-				yield* runSessionReactors;
+				yield* handoffToServiceScope(
+					dispatchSessionCommandWithId(sessionId, commandId, {
+						_tag: "SteerQueuedTurn",
+						expectedTurnId,
+						queueId,
+						successorTurnId,
+						requestedAt: Date.now(),
+					}),
+					runSessionReactors,
+					serviceScope,
+				);
 			});
 
 		const flushQueuedMessages: QueueServiceShape["flushQueuedMessages"] = (
