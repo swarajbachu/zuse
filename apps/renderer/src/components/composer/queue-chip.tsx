@@ -7,21 +7,15 @@ import {
 	Delete02Icon,
 	DragDropVerticalIcon,
 	MoreHorizontalIcon,
-	PencilIcon,
-	SentIcon,
-	Tick01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
-import {
-	ComposerInput,
-	type QueuedMessage,
-	type SessionId,
-} from "@zuse/contracts";
-import { X } from "lucide-react";
+import type { QueuedMessage, SessionId } from "@zuse/contracts";
+import { Pencil } from "lucide-react";
 import { useState } from "react";
 
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
+import { useComposerBridge } from "../../store/composer-bridge.ts";
 import { useMessagesStore } from "../../store/messages.ts";
 import { TrayPill, trayPillActionClass } from "./tray-pill.tsx";
 
@@ -50,6 +44,7 @@ export function QueueChip({
 	item,
 	index,
 	count,
+	running,
 	dragging,
 	onMove,
 	onDragStart,
@@ -60,88 +55,33 @@ export function QueueChip({
 	item: QueuedMessage;
 	index: number;
 	count: number;
+	running: boolean;
 	dragging: boolean;
 	onMove: (from: number, to: number) => void;
 	onDragStart: () => void;
 	onDragOver: () => void;
 	onDrop: () => void;
 }) {
-	const steer = useMessagesStore((s) => s.steerFromQueue);
+	const runQueuedMessageNext = useMessagesStore((s) => s.runQueuedMessageNext);
 	const drop = useMessagesStore((s) => s.dropFromQueue);
-	const update = useMessagesStore((s) => s.updateQueued);
-	const [editing, setEditing] = useState(false);
-	const [draft, setDraft] = useState(item.input.text);
+	const [runningNow, setRunningNow] = useState(false);
 	const text = previewText(item);
 	const subtitle = item.ready ? refSubtitle(item) : "Preparing attachments…";
 
-	const save = () => {
-		void update(
-			sessionId,
-			item.id,
-			ComposerInput.make({ ...item.input, text: draft }),
-		);
-		setEditing(false);
+	const runNext = async () => {
+		if (runningNow || !item.ready) return;
+		setRunningNow(true);
+		await runQueuedMessageNext(sessionId, item.id);
+		setRunningNow(false);
+	};
+
+	const edit = () => {
+		useComposerBridge.getState().editQueuedMessage?.(item);
 	};
 
 	const icon = (
 		<HugeiconsIcon icon={Chat01Icon} className="size-3.5" aria-hidden="true" />
 	);
-
-	if (editing) {
-		return (
-			<TrayPill
-				flush
-				icon={icon}
-				title={
-					<textarea
-						value={draft}
-						onChange={(event) => setDraft(event.target.value)}
-						onKeyDown={(event) => {
-							if (event.key === "Escape") {
-								setDraft(item.input.text);
-								setEditing(false);
-							}
-							if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-								save();
-							}
-						}}
-						autoFocus
-						className="max-h-28 min-h-7 w-full resize-y rounded-sm border border-border/40 bg-background px-2 py-1 text-[13px] leading-snug text-foreground outline-none focus:border-ring/50"
-					/>
-				}
-				actions={
-					<>
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<button
-										type="button"
-										onClick={save}
-										className={trayPillActionClass}
-										aria-label="Save"
-									>
-										<HugeiconsIcon icon={Tick01Icon} className="size-3.5" />
-									</button>
-								}
-							/>
-							<TooltipPopup>Save</TooltipPopup>
-						</Tooltip>
-						<button
-							type="button"
-							onClick={() => {
-								setDraft(item.input.text);
-								setEditing(false);
-							}}
-							className={trayPillActionClass}
-							aria-label="Cancel"
-						>
-							<X className="size-3.5" strokeWidth={1.8} />
-						</button>
-					</>
-				}
-			/>
-		);
-	}
 
 	return (
 		<TrayPill
@@ -179,38 +119,52 @@ export function QueueChip({
 							render={
 								<button
 									type="button"
-									onClick={() => void steer(sessionId, item.id)}
-									disabled={!item.ready}
+									onClick={() => void runNext()}
+									disabled={!item.ready || runningNow}
 									className={cn(
 										trayPillActionClass,
-										"w-auto gap-1 px-1.5 hover:text-foreground",
+										"h-7 w-auto gap-1.5 px-2 text-foreground hover:text-foreground",
 									)}
-									aria-label="Steer (send now, interrupting current turn)"
+									aria-label={
+										running
+											? "Run queued message next"
+											: "Send queued message now"
+									}
 								>
 									<HugeiconsIcon
 										icon={CornerDownRightIcon}
 										className="size-3.5"
 									/>
-									<span className="text-[11px]">Steer</span>
+									<span className="text-[11px]">
+										{runningNow
+											? "Starting…"
+											: running
+												? "Run next"
+												: "Send now"}
+									</span>
 								</button>
 							}
 						/>
-						<TooltipPopup>Steer (interrupt and run now)</TooltipPopup>
+						<TooltipPopup>
+							{running
+								? "Stop the current turn and run this next"
+								: "Send this message now"}
+						</TooltipPopup>
 					</Tooltip>
 					<Tooltip>
 						<TooltipTrigger
 							render={
 								<button
 									type="button"
-									onClick={() => drop(sessionId, item.id)}
+									onClick={edit}
 									className={trayPillActionClass}
-									aria-label="Delete queued message"
+									aria-label="Edit queued message"
 								>
-									<HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
+									<Pencil className="size-3.5" strokeWidth={1.8} />
 								</button>
 							}
 						/>
-						<TooltipPopup>Delete</TooltipPopup>
+						<TooltipPopup>Edit</TooltipPopup>
 					</Tooltip>
 					<Menu>
 						<MenuTrigger
@@ -228,13 +182,9 @@ export function QueueChip({
 							}
 						/>
 						<MenuPopup align="end" sideOffset={4}>
-							<MenuItem onClick={() => setEditing(true)} disabled={editing}>
-								<HugeiconsIcon icon={PencilIcon} />
-								Edit
-							</MenuItem>
-							<MenuItem onClick={() => void steer(sessionId, item.id)}>
-								<HugeiconsIcon icon={SentIcon} />
-								Send now
+							<MenuItem onClick={() => void runNext()} disabled={runningNow}>
+								<HugeiconsIcon icon={CornerDownRightIcon} />
+								{running ? "Run next" : "Send now"}
 							</MenuItem>
 							<MenuItem
 								onClick={() => onMove(index, index - 1)}
@@ -249,6 +199,10 @@ export function QueueChip({
 							>
 								<HugeiconsIcon icon={ArrowDown01Icon} />
 								Move down
+							</MenuItem>
+							<MenuItem onClick={() => drop(sessionId, item.id)}>
+								<HugeiconsIcon icon={Delete02Icon} />
+								Remove from queue
 							</MenuItem>
 						</MenuPopup>
 					</Menu>

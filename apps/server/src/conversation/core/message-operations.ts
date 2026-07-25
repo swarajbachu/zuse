@@ -11,7 +11,7 @@ import {
 	type Session,
 	SessionId,
 	type SessionNotFoundError,
-	SessionStartError,
+	type SessionStartError,
 	type SkillRef,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
@@ -394,6 +394,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			dispatchSessionCommandWithId: (sessionId, commandId, command) =>
 				options.dispatchSessionCommandWithId(sessionId, commandId, command),
 			runSessionReactors,
+			activeTurn,
 		});
 		// Boot recovery runs only after the real queue runtime exists. Demoting a
 		// stale session to idle invokes setStatus → flushAfterIdle, so installing
@@ -438,13 +439,14 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 
 		const interruptSession: ConversationOperations["interruptSession"] = (
 			sessionId,
-			turnId,
 		) =>
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
+				const resolvedTurnId = activeTurn(sessionId);
+				if (resolvedTurnId === undefined) return;
 				yield* dispatchSessionCommand(sessionId, {
 					_tag: "RequestTurnInterrupt",
-					turnId,
+					turnId: resolvedTurnId,
 					requestedAt: Date.now(),
 				});
 				yield* queueRuntime.pauseAfterInterrupt(sessionId);

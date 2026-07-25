@@ -379,6 +379,8 @@ const ConversationRuntimeLive = Layer.effect(
 			ndjsonAppend,
 			setStatus,
 			settleTurnFromReactor,
+			rememberActiveTurn: (sessionId, turnId) =>
+				state.rememberActiveTurn(sessionId, turnId),
 			provider,
 			sessionDomain,
 			autoNameChat,

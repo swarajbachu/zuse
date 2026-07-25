@@ -25,6 +25,7 @@ import {
 	type PermissionMode,
 	type PermissionRequest,
 	type ProviderId,
+	type QueuedMessage,
 	type RuntimeMode,
 	type SelectOptionDescriptor,
 	type Session,
@@ -106,6 +107,7 @@ import type {
 	PendingDraftAttachment,
 	PendingDraftContextFile,
 } from "../composer/draft-attachments.ts";
+import { composerSnapshotFromInput } from "../composer/input-snapshot.ts";
 import { parseComposerInput } from "../composer/segment-parser.ts";
 import { useActiveWorkspaceRoot } from "../store/active-workspace.ts";
 import {
@@ -395,6 +397,11 @@ export function ChatComposer({
 	const hasTextRef = useRef(false);
 	const [uploadingAttachmentCount, setUploadingAttachmentCount] = useState(0);
 	const [goalSendMode, setGoalSendMode] = useState(false);
+	const [interrupting, setInterrupting] = useState(false);
+	const [editingQueuedItem, setEditingQueuedItem] =
+		useState<QueuedMessage | null>(null);
+	const editingQueuedItemRef = useRef<QueuedMessage | null>(null);
+	const pickingQueuedItemRef = useRef(false);
 	// Provider features the installed CLI supports (from the availability
 	// probe). Drives whether goal/fast controls render at all. Codex resolves
 	// these from its CLI version; Grok advertises `goalMode` unconditionally.
@@ -588,6 +595,74 @@ export function ChatComposer({
 		bridge.setFocus(() => {
 			editorViewRef.current?.focus();
 		});
+		bridge.setEditQueuedMessage((item) => {
+			const v = editorViewRef.current;
+			if (v === null || pickingQueuedItemRef.current) return;
+			const hasComposerDraft =
+				v.state.doc.toString().trim().length > 0 ||
+				allChips(v.state).length > 0 ||
+				annotationsForSession(sessionId).length > 0;
+			if (hasComposerDraft || editingQueuedItemRef.current !== null) {
+				toastManager.add({
+					type: "info",
+					title: "Composer already has a draft",
+					description:
+						"Send or clear the current draft before editing a queued message.",
+				});
+				v.focus();
+				return;
+			}
+			pickingQueuedItemRef.current = true;
+			void (async () => {
+				try {
+					const taken = await useMessagesStore
+						.getState()
+						.takeQueuedForEdit(sessionId, item.id);
+					if (taken === null) return;
+					const activeView = editorViewRef.current;
+					if (activeView === null) {
+						useMessagesStore.getState().queue(sessionId, taken.input, {
+							queueId: taken.id,
+							flush: false,
+						});
+						return;
+					}
+					const becameBusy =
+						activeView.state.doc.toString().trim().length > 0 ||
+						allChips(activeView.state).length > 0 ||
+						annotationsForSession(sessionId).length > 0;
+					if (becameBusy) {
+						useMessagesStore.getState().queue(sessionId, taken.input, {
+							queueId: taken.id,
+							flush: false,
+						});
+						toastManager.add({
+							type: "info",
+							title: "Composer draft changed",
+							description:
+								"The queued message was restored so your current draft stays untouched.",
+						});
+						return;
+					}
+					const snapshot = composerSnapshotFromInput(taken.input);
+					activeView.dispatch({ effects: clearChipsEffect.of() });
+					setComposerDoc(activeView, snapshot.doc);
+					restoreComposerChips(activeView, snapshot.chips);
+					const nextHasText = snapshot.doc.trim().length > 0;
+					hasTextRef.current = nextHasText;
+					setHasText(nextHasText);
+					useAnnotationsStore
+						.getState()
+						.replace(sessionId, taken.input.annotations ?? []);
+					setGoalSendMode(taken.input.asGoal === true);
+					editingQueuedItemRef.current = taken;
+					setEditingQueuedItem(taken);
+					activeView.focus();
+				} finally {
+					pickingQueuedItemRef.current = false;
+				}
+			})();
+		});
 		// Join the pane Tab-walk (F6 / Ctrl+`) so focus can hop into the composer.
 		usePaneFocus.getState().register("composer", () => {
 			editorViewRef.current?.focus();
@@ -600,6 +675,7 @@ export function ChatComposer({
 			b.setAttachFile(null);
 			b.setInsertText(null);
 			b.setFocus(null);
+			b.setEditQueuedMessage(null);
 			usePaneFocus.getState().unregister("composer");
 			for (const pending of pendingDraftAttachmentsRef.current) {
 				if (pending.previewUrl) URL.revokeObjectURL(pending.previewUrl);
@@ -642,6 +718,22 @@ export function ChatComposer({
 			pendingDraftAttachmentsRef.current = [];
 			pendingDraftContextFilesRef.current = [];
 		}
+	};
+
+	const cancelQueuedEdit = (): void => {
+		const item = editingQueuedItemRef.current;
+		const view = editorViewRef.current;
+		if (item === null || view === null) return;
+		clearComposer(view);
+		clearComposerDraft(draftKey);
+		useAnnotationsStore.getState().clear(sessionId);
+		setGoalSendMode(false);
+		useMessagesStore
+			.getState()
+			.queue(sessionId, item.input, { queueId: item.id, flush: false });
+		editingQueuedItemRef.current = null;
+		setEditingQueuedItem(null);
+		view.focus();
 	};
 
 	const dispatchBuiltin = (parsed: {
@@ -992,6 +1084,8 @@ export function ChatComposer({
 		// Drain the tray: the annotations now live on `input` (carried into the
 		// queue too, so a mid-turn submit flushes them intact).
 		useAnnotationsStore.getState().clear(sessionId);
+		editingQueuedItemRef.current = null;
+		setEditingQueuedItem(null);
 		// Draft mode (new-chat landing): hand the input back to the landing, which
 		// creates the worktree + chat and queues this as the first message.
 		if (onDraftSubmit !== undefined) {
@@ -1084,6 +1178,15 @@ export function ChatComposer({
 		void setPermissionMode(sessionId, "default");
 	};
 	const inUltracodeMode = reasoningLevel === "ultracode";
+	const requestInterrupt = async () => {
+		if (interrupting) return;
+		setInterrupting(true);
+		try {
+			await interrupt(sessionId);
+		} finally {
+			setInterrupting(false);
+		}
+	};
 	// Keep the editor mounted at all times. Permissions / questions render as
 	// a sibling above it, and we hide the editor block with `display: none`
 	// while a card is up. Unmounting the editor branch detaches the CodeMirror
@@ -1167,6 +1270,18 @@ export function ChatComposer({
 									<ProjectPlanTray key={sessionId} sessionId={sessionId} />
 								) : null}
 								<QueueTray sessionId={sessionId} />
+							</div>
+						) : null}
+						{editingQueuedItem !== null ? (
+							<div className="mb-1 flex h-7 items-center justify-between rounded-md bg-muted/35 px-2.5 text-xs text-muted-foreground">
+								<span>Editing queued message</span>
+								<button
+									type="button"
+									onClick={cancelQueuedEdit}
+									className="rounded px-1.5 py-0.5 text-foreground hover:bg-muted/70"
+								>
+									Cancel
+								</button>
 							</div>
 						) : null}
 						<Card
@@ -1335,24 +1450,46 @@ export function ChatComposer({
 										Request changes
 									</Button>
 								) : inFlight ? (
-									<Tooltip>
-										<TooltipTrigger
-											render={
-												<Button
-													variant="outline"
-													size="icon-sm"
-													onClick={() => void interrupt(sessionId)}
-													aria-label="Interrupt"
-												>
-													<HugeiconsIcon
-														icon={SquareIcon}
-														className="size-3.5"
-													/>
-												</Button>
-											}
-										/>
-										<TooltipPopup>Interrupt the running turn</TooltipPopup>
-									</Tooltip>
+									<div className="flex items-center gap-1.5">
+										{canSend ? (
+											<Button
+												variant="default"
+												size="sm"
+												onClick={() => void submit()}
+												disabled={!canSend}
+												loading={uploadingAttachmentCount > 0}
+												aria-label="Add message to queue"
+											>
+												Queue
+											</Button>
+										) : null}
+										<Tooltip>
+											<TooltipTrigger
+												render={
+													<Button
+														variant="outline"
+														size="icon-sm"
+														onClick={() => void requestInterrupt()}
+														disabled={interrupting}
+														loading={interrupting}
+														aria-label={
+															interrupting
+																? "Stopping current turn"
+																: "Stop current turn"
+														}
+													>
+														<HugeiconsIcon
+															icon={SquareIcon}
+															className="size-3.5"
+														/>
+													</Button>
+												}
+											/>
+											<TooltipPopup>
+												{interrupting ? "Stopping…" : "Stop current turn"}
+											</TooltipPopup>
+										</Tooltip>
+									</div>
 								) : (
 									<Tooltip>
 										<TooltipTrigger

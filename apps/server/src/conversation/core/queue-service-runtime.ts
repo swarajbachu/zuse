@@ -1,4 +1,5 @@
 import {
+	AgentTurnId,
 	ComposerInput,
 	type DirectoryUnavailableError,
 	MessageId,
@@ -49,6 +50,7 @@ export interface QueueServiceRuntimeDeps {
 		command: SessionCommand,
 	) => Effect.Effect<void>;
 	readonly runSessionReactors: Effect.Effect<void>;
+	readonly activeTurn: (sessionId: SessionId) => AgentTurnId | undefined;
 }
 
 export interface QueueServiceRuntime {
@@ -80,6 +82,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			dispatchSessionCommand,
 			dispatchSessionCommandWithId,
 			runSessionReactors,
+			activeTurn,
 		} = deps;
 		const flushLocks = new Map<SessionId, Semaphore.Semaphore>();
 		const flushLock = (sessionId: SessionId): Semaphore.Semaphore => {
@@ -151,6 +154,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			input,
 			queueId,
 			ready = true,
+			flush = true,
 		) =>
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
@@ -163,7 +167,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
       `.pipe(Effect.orDie);
 					if (existing[0] !== undefined) {
 						const item = queuedMessageFromRow(existing[0]);
-						if (item.ready) {
+						if (item.ready && flush) {
 							yield* Effect.forkIn(requestFlush(sessionId), serviceScope);
 						}
 						return item;
@@ -197,7 +201,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 					);
 				}
 				const item = queuedMessageFromRow(row);
-				if (item.ready) {
+				if (item.ready && flush) {
 					yield* Effect.forkIn(requestFlush(sessionId), serviceScope);
 				}
 				return item;
@@ -337,10 +341,10 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 				),
 			);
 
-		const sendQueuedMessageNow: QueueServiceShape["sendQueuedMessageNow"] = (
-			sessionId,
-			queueId,
-		) =>
+		const runQueuedMessageWhileIdle = (
+			sessionId: SessionId,
+			queueId: string,
+		): Effect.Effect<void, SessionNotFoundError> =>
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
 				yield* setPaused(sessionId, false);
@@ -348,24 +352,32 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 				if (item !== null) yield* sendClaimed(item);
 			});
 
-		const steerQueuedTurn: QueueServiceShape["steerQueuedTurn"] = (
+		const runQueuedMessageNext: QueueServiceShape["runQueuedMessageNext"] = (
 			sessionId,
-			expectedTurnId,
 			queueId,
-			successorTurnId,
-			commandId,
 		) =>
-			Effect.gen(function* () {
-				yield* lookupSession(sessionId);
-				yield* dispatchSessionCommandWithId(sessionId, commandId, {
-					_tag: "SteerQueuedTurn",
-					expectedTurnId,
-					queueId,
-					successorTurnId,
-					requestedAt: Date.now(),
-				});
-				yield* runSessionReactors;
-			});
+			flushLock(sessionId).withPermits(1)(
+				Effect.gen(function* () {
+					yield* lookupSession(sessionId);
+					const resolvedTurnId = activeTurn(sessionId);
+					if (resolvedTurnId === undefined) {
+						yield* runQueuedMessageWhileIdle(sessionId, queueId);
+						return;
+					}
+					yield* dispatchSessionCommandWithId(
+						sessionId,
+						`queue-run-next:${queueId}`,
+						{
+							_tag: "SteerQueuedTurn",
+							expectedTurnId: resolvedTurnId,
+							queueId,
+							successorTurnId: AgentTurnId.make(`turn_queued_${queueId}`),
+							requestedAt: Date.now(),
+						},
+					);
+					yield* runSessionReactors;
+				}),
+			);
 
 		const flushQueuedMessages: QueueServiceShape["flushQueuedMessages"] = (
 			sessionId,
@@ -448,11 +460,10 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			addQueuedMessage,
 			updateQueuedMessage,
 			deleteQueuedMessage,
-			sendQueuedMessageNow,
+			runQueuedMessageNext,
 			reorderQueuedMessages,
 			flushQueuedMessages,
 			resumeQueuedMessages,
-			steerQueuedTurn,
 		} satisfies QueueServiceShape;
 
 		return {

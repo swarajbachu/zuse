@@ -1,6 +1,5 @@
 import {
 	type AgentAvailability,
-	type AgentTurnId,
 	type AttachmentRef,
 	type Chat,
 	ComposerInput,
@@ -152,13 +151,11 @@ export const flushServerQueue = (options: {
 export const interruptSession = (options: {
 	connection: WsProtocolOptions;
 	sessionId: SessionId;
-	turnId: AgentTurnId;
 }) => {
 	const program = Effect.gen(function* () {
 		const client = yield* getConnectionClient(options.connection);
 		yield* client["messages.interrupt"]({
 			sessionId: options.sessionId,
-			turnId: options.turnId,
 		});
 	});
 	return program.pipe(

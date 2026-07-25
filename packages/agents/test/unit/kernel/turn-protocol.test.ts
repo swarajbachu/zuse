@@ -4,7 +4,7 @@ import type {
 	AgentTurnId,
 	ProviderEventEnvelope,
 } from "@zuse/contracts";
-import { Effect, Stream } from "effect";
+import { Effect, Fiber, Queue, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { ProviderSessionHandle } from "../../../src/kernel/driver.ts";
 import { makeTurnScopedSessionHandle } from "../../../src/kernel/turn-protocol.ts";
@@ -53,16 +53,60 @@ describe("turn-scoped provider protocol", () => {
 	});
 
 	it("targets interrupt at the exact current turn", async () => {
-		const interrupt = vi.fn(() => Effect.void);
-		const base = { ...handleWithEvents([]), interrupt };
-		const scoped = await Effect.runPromise(makeTurnScopedSessionHandle(base));
+		const events = await Effect.runPromise(Queue.unbounded<AgentEvent>());
+		const interrupt = vi.fn(() =>
+			Queue.offer(events, { _tag: "Interrupted" }).pipe(Effect.asVoid),
+		);
+		const scoped = await Effect.runPromise(
+			makeTurnScopedSessionHandle({
+				...handleWithEvents([]),
+				events: Stream.fromQueue(events),
+				interrupt,
+			}),
+		);
+		const eventFiber = Effect.runFork(Stream.runDrain(scoped.events));
 		await Effect.runPromise(scoped.send(turnId, "hi"));
-
-		await Effect.runPromise(scoped.interrupt(turnId));
-		expect(interrupt).toHaveBeenCalledOnce();
 		await expect(
 			Effect.runPromise(scoped.interrupt("turn-2" as AgentTurnId)),
 		).rejects.toThrow(/turn-2.*turn-1/);
+		await Effect.runPromise(scoped.interrupt(turnId));
+		expect(interrupt).toHaveBeenCalledOnce();
+		await Effect.runPromise(Fiber.interrupt(eventFiber));
+	});
+
+	it("waits for the interrupted provider turn to drain before admitting its successor", async () => {
+		const sends: string[] = [];
+		const successorTurnId = "turn-2" as AgentTurnId;
+
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const events = yield* Queue.unbounded<AgentEvent>();
+				const scoped = yield* makeTurnScopedSessionHandle({
+					...handleWithEvents([]),
+					events: Stream.fromQueue(events),
+					send: (text) =>
+						Effect.sync(() => {
+							sends.push(text);
+						}),
+					interrupt: () =>
+						Queue.offer(events, { _tag: "Interrupted" }).pipe(
+							Effect.delay("20 millis"),
+							Effect.forkDetach,
+							Effect.asVoid,
+						),
+				});
+				const eventFiber = yield* Stream.runDrain(scoped.events).pipe(
+					Effect.forkDetach,
+				);
+
+				yield* scoped.send(turnId, "first");
+				yield* scoped.interrupt(turnId);
+				yield* scoped.send(successorTurnId, "second");
+				yield* Fiber.interrupt(eventFiber);
+			}),
+		);
+
+		expect(sends).toEqual(["first", "second"]);
 	});
 
 	it("deduplicates a replayed send for the same exact turn", async () => {

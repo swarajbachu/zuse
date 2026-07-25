@@ -748,10 +748,8 @@ const MessagesSend = MemoizeRpcs.toLayerHandler(
 
 const MessagesInterrupt = MemoizeRpcs.toLayerHandler(
 	"messages.interrupt",
-	({ sessionId, turnId }) =>
-		Effect.flatMap(MessageService, (svc) =>
-			svc.interruptSession(sessionId, turnId),
-		),
+	({ sessionId }) =>
+		Effect.flatMap(MessageService, (svc) => svc.interruptSession(sessionId)),
 );
 
 const MessagesQueueList = MemoizeRpcs.toLayerHandler(
@@ -762,7 +760,7 @@ const MessagesQueueList = MemoizeRpcs.toLayerHandler(
 
 const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
 	"messages.queue.add",
-	({ sessionId, queueId, input, ready }) =>
+	({ sessionId, queueId, input, ready, flush }) =>
 		Effect.gen(function* () {
 			const svc = yield* QueueService;
 			const analytics = yield* AnalyticsService;
@@ -771,6 +769,7 @@ const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
 				input,
 				queueId,
 				ready,
+				flush,
 			);
 			yield* analytics.capture("queue action performed", { action: "add" });
 			return result;
@@ -793,25 +792,11 @@ const MessagesQueueDelete = MemoizeRpcs.toLayerHandler(
 		),
 );
 
-const MessagesQueueSendNow = MemoizeRpcs.toLayerHandler(
-	"messages.queue.sendNow",
+const MessagesQueueRunNext = MemoizeRpcs.toLayerHandler(
+	"messages.queue.runNext",
 	({ sessionId, queueId }) =>
 		Effect.flatMap(QueueService, (svc) =>
-			svc.sendQueuedMessageNow(sessionId, queueId),
-		),
-);
-
-const MessagesSteer = MemoizeRpcs.toLayerHandler(
-	"messages.steer",
-	({ sessionId, expectedTurnId, queueId, successorTurnId, commandId }) =>
-		Effect.flatMap(QueueService, (svc) =>
-			svc.steerQueuedTurn(
-				sessionId,
-				expectedTurnId,
-				queueId,
-				successorTurnId,
-				commandId,
-			),
+			svc.runQueuedMessageNext(sessionId, queueId),
 		),
 );
 
@@ -992,8 +977,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	MessagesQueueAdd,
 	MessagesQueueUpdate,
 	MessagesQueueDelete,
-	MessagesQueueSendNow,
-	MessagesSteer,
+	MessagesQueueRunNext,
 	MessagesQueueReorder,
 	MessagesQueueFlush,
 	MessagesQueueResume,

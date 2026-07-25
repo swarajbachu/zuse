@@ -2975,14 +2975,15 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				.poll(() => providerSentTexts)
 				.toEqual(["send after authentication"]);
 			await expect
-				.poll(async () =>
-					(
-						await run(
-							Effect.flatMap(store, (service) =>
-								service.listQueuedMessages(created.initialSession.id),
-							),
-						)
-					).items,
+				.poll(
+					async () =>
+						(
+							await run(
+								Effect.flatMap(store, (service) =>
+									service.listQueuedMessages(created.initialSession.id),
+								),
+							)
+						).items,
 				)
 				.toEqual([]);
 		});
@@ -3153,7 +3154,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			await run(
 				Effect.flatMap(store, (s) =>
-					s.sendQueuedMessageNow(initialSession.id, queued.id),
+					s.runQueuedMessageNext(initialSession.id, queued.id),
 				),
 			);
 
@@ -3220,7 +3221,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			await run(
 				Effect.flatMap(store, (s) =>
-					s.sendQueuedMessageNow(initialSession.id, queued.id),
+					s.runQueuedMessageNext(initialSession.id, queued.id),
 				),
 			);
 
@@ -3283,6 +3284,46 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				_tag: "user",
 				text: "queued one",
 			});
+		});
+	});
+
+	it("restores a cancelled queue edit without auto-flushing it", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.addQueuedMessage(
+						initialSession.id,
+						new ComposerInput({
+							text: "keep editing later",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+						"queue-edit-cancelled",
+						true,
+						false,
+					),
+				),
+			);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+
+			expect(providerSentTexts).toEqual([]);
+			const queue = await run(
+				Effect.flatMap(store, (s) => s.listQueuedMessages(initialSession.id)),
+			);
+			expect(queue.items.map((item) => item.input.text)).toEqual([
+				"keep editing later",
+			]);
 		});
 	});
 
@@ -3458,18 +3499,13 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				),
 			);
 
-			const interruptedTurnId = requireProviderTurnId(initialSession.id);
 			await run(
-				Effect.flatMap(store, (s) =>
-					s.interruptSession(initialSession.id, interruptedTurnId),
-				),
+				Effect.flatMap(store, (s) => s.interruptSession(initialSession.id)),
 			);
 			// A rapid second click can arrive after the first request has already
 			// settled the exact turn. It must remain an idempotent success.
 			await run(
-				Effect.flatMap(store, (s) =>
-					s.interruptSession(initialSession.id, interruptedTurnId),
-				),
+				Effect.flatMap(store, (s) => s.interruptSession(initialSession.id)),
 			);
 			await run(
 				Effect.flatMap(store, (s) => s.flushQueuedMessages(initialSession.id)),
@@ -3504,6 +3540,123 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.flatMap(store, (s) => s.getSession(initialSession.id)),
 			);
 			expect(interruptedSession.status).toBe("idle");
+		});
+	});
+
+	it("runs a queued message next before the client timeline knows the active turn", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "already running",
+					}),
+				),
+			);
+			const queued = await run(
+				Effect.flatMap(store, (s) =>
+					s.addQueuedMessage(
+						initialSession.id,
+						new ComposerInput({
+							text: "run this next",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+					),
+				),
+			);
+
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.runQueuedMessageNext(initialSession.id, queued.id),
+				),
+			);
+			// A transport retry reuses the durable queue identity and must not
+			// schedule or persist a second successor turn.
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.runQueuedMessageNext(initialSession.id, queued.id),
+				),
+			);
+
+			const queue = await run(
+				Effect.flatMap(store, (s) => s.listQueuedMessages(initialSession.id)),
+			);
+			expect(queue.items).toHaveLength(0);
+			const messages = await run(
+				Effect.flatMap(store, (s) => s.listMessages(initialSession.id)),
+			);
+			expect(messages.at(-1)?.content).toMatchObject({
+				_tag: "user",
+				text: "run this next",
+			});
+		});
+	});
+
+	it("serializes rapid run-next requests for multiple queued messages", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "already running",
+					}),
+				),
+			);
+			const [first, second] = await run(
+				Effect.flatMap(store, (s) =>
+					Effect.all([
+						s.addQueuedMessage(
+							initialSession.id,
+							new ComposerInput({
+								text: "first redirect",
+								attachments: [],
+								fileRefs: [],
+								skillRefs: [],
+							}),
+						),
+						s.addQueuedMessage(
+							initialSession.id,
+							new ComposerInput({
+								text: "second redirect",
+								attachments: [],
+								fileRefs: [],
+								skillRefs: [],
+							}),
+						),
+					]),
+				),
+			);
+
+			await run(
+				Effect.flatMap(store, (s) =>
+					Effect.all(
+						[
+							s.runQueuedMessageNext(initialSession.id, first.id),
+							s.runQueuedMessageNext(initialSession.id, second.id),
+						],
+						{ concurrency: "unbounded" },
+					),
+				),
+			);
+
+			const queue = await run(
+				Effect.flatMap(store, (s) => s.listQueuedMessages(initialSession.id)),
+			);
+			expect(queue.items).toHaveLength(0);
+			const messages = await run(
+				Effect.flatMap(store, (s) => s.listMessages(initialSession.id)),
+			);
+			expect(
+				messages.flatMap((message) =>
+					message.content._tag === "user" ? [message.content.text] : [],
+				),
+			).toEqual(["already running", "first redirect", "second redirect"]);
 		});
 	});
 
@@ -3544,12 +3697,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				),
 			);
 			await run(
-				Effect.flatMap(store, (s) =>
-					s.interruptSession(
-						initialSession.id,
-						requireProviderTurnId(initialSession.id),
-					),
-				),
+				Effect.flatMap(store, (s) => s.interruptSession(initialSession.id)),
 			);
 
 			await run(
@@ -3572,7 +3720,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
-	it("sendQueuedMessageNow and flush do not duplicate the same queued row", async () => {
+	it("runQueuedMessageNext and flush do not duplicate the same queued row", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
 				Effect.flatMap(store, (s) =>
@@ -3601,7 +3749,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.flatMap(store, (s) =>
 					Effect.all(
 						[
-							s.sendQueuedMessageNow(initialSession.id, item.id),
+							s.runQueuedMessageNext(initialSession.id, item.id),
 							s.flushQueuedMessages(initialSession.id),
 						],
 						{ concurrency: "unbounded" },

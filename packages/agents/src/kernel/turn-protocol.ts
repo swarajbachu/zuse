@@ -3,11 +3,17 @@ import type {
 	AgentTurnId,
 	ProviderEventEnvelope,
 } from "@zuse/contracts";
-import { Effect, Ref, Stream } from "effect";
+import { Deferred, Effect, Ref, Stream } from "effect";
 import type { ProviderSessionHandle } from "./driver.ts";
 
 type ActiveTurn = {
 	readonly turnId: AgentTurnId;
+	readonly released: Deferred.Deferred<void>;
+};
+
+type NormalizedBatch = {
+	readonly events: ReadonlyArray<ProviderEventEnvelope>;
+	readonly released?: Deferred.Deferred<void>;
 };
 
 export interface TurnScopedProviderSessionHandle
@@ -54,117 +60,141 @@ export const makeTurnScopedSessionHandle = (
 	initialTurnId?: AgentTurnId,
 ): Effect.Effect<TurnScopedProviderSessionHandle> =>
 	Effect.gen(function* () {
+		const initialReleased = yield* Deferred.make<void>();
 		const activeTurn = yield* Ref.make<ActiveTurn | null>(
-			initialTurnId === undefined ? null : { turnId: initialTurnId },
+			initialTurnId === undefined
+				? null
+				: { turnId: initialTurnId, released: initialReleased },
 		);
+		const releaseBatch = (
+			batch: NormalizedBatch,
+		): Effect.Effect<ReadonlyArray<ProviderEventEnvelope>> =>
+			(batch.released === undefined
+				? Effect.void
+				: Deferred.succeed(batch.released, undefined)
+			).pipe(Effect.as(batch.events));
 
 		const normalize = (
 			event: AgentEvent,
 		): Effect.Effect<ReadonlyArray<ProviderEventEnvelope>> =>
 			Ref.modify(
 				activeTurn,
-				(
-					active,
-				): readonly [
-					ReadonlyArray<ProviderEventEnvelope>,
-					ActiveTurn | null,
-				] => {
-				if (sessionEventTags.has(event._tag)) {
-					return [[sessionEnvelope(event)], active] as const;
-				}
+				(active): readonly [NormalizedBatch, ActiveTurn | null] => {
+					if (sessionEventTags.has(event._tag)) {
+						return [{ events: [sessionEnvelope(event)] }, active] as const;
+					}
 
-				if (event._tag === "Status") {
-					if (active !== null && event.status === "idle") {
+					if (event._tag === "Status") {
+						if (active !== null && event.status === "idle") {
+							return [
+								{
+									events: [
+										turnEnvelope(active.turnId, {
+											_tag: "Completed",
+											reason: "ended",
+										}),
+										sessionEnvelope(event),
+									],
+									released: active.released,
+								},
+								null,
+							] as const;
+						}
+						if (
+							active !== null &&
+							(event.status === "closed" || event.status === "error")
+						) {
+							return [
+								{
+									events: [
+										turnEnvelope(active.turnId, {
+											_tag: "Error",
+											message: `Provider entered ${event.status} state`,
+										}),
+										turnEnvelope(active.turnId, {
+											_tag: "Completed",
+											reason: "error",
+										}),
+										sessionEnvelope(event),
+									],
+									released: active.released,
+								},
+								null,
+							] as const;
+						}
+						return [{ events: [sessionEnvelope(event)] }, active] as const;
+					}
+
+					if (active === null) return [{ events: [] }, null] as const;
+
+					if (event._tag === "Completed") {
 						return [
-							[
-								turnEnvelope(active.turnId, {
-									_tag: "Completed",
-									reason: "ended",
-								}),
-								sessionEnvelope(event),
-							],
+							{
+								events: [turnEnvelope(active.turnId, event)],
+								released: active.released,
+							},
 							null,
 						] as const;
 					}
-					if (
-						active !== null &&
-						(event.status === "closed" || event.status === "error")
-					) {
+					if (event._tag === "Interrupted") {
 						return [
-							[
-								turnEnvelope(active.turnId, {
-									_tag: "Error",
-									message: `Provider entered ${event.status} state`,
-								}),
-								turnEnvelope(active.turnId, {
-									_tag: "Completed",
-									reason: "error",
-								}),
-								sessionEnvelope(event),
-							],
+							{
+								events: [
+									turnEnvelope(active.turnId, event),
+									turnEnvelope(active.turnId, {
+										_tag: "Completed",
+										reason: "interrupted",
+									}),
+								],
+								released: active.released,
+							},
 							null,
 						] as const;
 					}
-					return [[sessionEnvelope(event)], active] as const;
-				}
-
-				if (active === null) return [[], null] as const;
-
-				if (event._tag === "Completed") {
-					return [[turnEnvelope(active.turnId, event)], null] as const;
-				}
-				if (event._tag === "Interrupted") {
+					if (event._tag === "Error") {
+						return [
+							{
+								events: [
+									turnEnvelope(active.turnId, event),
+									turnEnvelope(active.turnId, {
+										_tag: "Completed",
+										reason: "error",
+									}),
+								],
+								released: active.released,
+							},
+							null,
+						] as const;
+					}
 					return [
-						[
-							turnEnvelope(active.turnId, event),
-							turnEnvelope(active.turnId, {
-								_tag: "Completed",
-								reason: "interrupted",
-							}),
-						],
-						null,
+						{ events: [turnEnvelope(active.turnId, event)] },
+						active,
 					] as const;
-				}
-				if (event._tag === "Error") {
-					return [
-						[
-							turnEnvelope(active.turnId, event),
+				},
+			).pipe(Effect.flatMap(releaseBatch));
+
+		const finalizeUnexpectedExit = Ref.modify(
+			activeTurn,
+			(active): readonly [NormalizedBatch, ActiveTurn | null] => {
+				if (active === null) return [{ events: [] }, null] as const;
+				return [
+					{
+						events: [
+							turnEnvelope(active.turnId, {
+								_tag: "Error",
+								message: "Provider event stream ended before the turn settled",
+							}),
 							turnEnvelope(active.turnId, {
 								_tag: "Completed",
 								reason: "error",
 							}),
 						],
-						null,
-					] as const;
-				}
-				return [[turnEnvelope(active.turnId, event)], active] as const;
-				},
-			);
-
-		const finalizeUnexpectedExit = Ref.modify(
-			activeTurn,
-			(
-				active,
-			): readonly [
-				ReadonlyArray<ProviderEventEnvelope>,
-				ActiveTurn | null,
-			] => {
-			if (active === null) return [[], null] as const;
-			return [
-				[
-					turnEnvelope(active.turnId, {
-						_tag: "Error",
-						message: "Provider event stream ended before the turn settled",
-					}),
-					turnEnvelope(active.turnId, {
-						_tag: "Completed",
-						reason: "error",
-					}),
-				],
-				null,
-			] as const;
+						released: active.released,
+					},
+					null,
+				] as const;
 			},
-		);
+		).pipe(Effect.flatMap(releaseBatch));
 
 		const sourceEvents = handle.events.pipe(
 			Stream.catchCause((cause) =>
@@ -189,39 +219,53 @@ export const makeTurnScopedSessionHandle = (
 			...handle,
 			events: normalizedEvents,
 			send: (turnId, ...args) =>
-				Ref.modify(activeTurn, (active) => {
-					if (active !== null) {
-						if (active.turnId === turnId) {
-							return [Effect.void, active] as const;
-						}
-						return [
-							Effect.die(
-								new Error(
-									`Cannot start turn ${turnId}; turn ${active.turnId} is still active`,
+				Effect.gen(function* () {
+					const released = yield* Deferred.make<void>();
+					const send = yield* Ref.modify(activeTurn, (active) => {
+						if (active !== null) {
+							if (active.turnId === turnId) {
+								return [Effect.void, active] as const;
+							}
+							return [
+								Effect.die(
+									new Error(
+										`Cannot start turn ${turnId}; turn ${active.turnId} is still active`,
+									),
 								),
+								active,
+							] as const;
+						}
+						return [handle.send(...args), { turnId, released }] as const;
+					});
+					yield* send.pipe(
+						Effect.catchCause((cause) =>
+							Ref.modify(activeTurn, (active) =>
+								active?.turnId === turnId
+									? [active.released, null]
+									: [undefined, active],
+							).pipe(
+								Effect.flatMap((currentReleased) =>
+									currentReleased === undefined
+										? Effect.void
+										: Deferred.succeed(currentReleased, undefined),
+								),
+								Effect.andThen(Effect.failCause(cause)),
 							),
-							active,
-						] as const;
-					}
-					return [handle.send(...args), { turnId }] as const;
-				}).pipe(
-					Effect.flatten,
-					Effect.catchCause((cause) =>
-						Ref.update(activeTurn, (active) =>
-							active?.turnId === turnId ? null : active,
-						).pipe(Effect.andThen(Effect.failCause(cause))),
-					),
-				),
+						),
+					);
+				}),
 			interrupt: (turnId) =>
-				Effect.flatMap(Ref.get(activeTurn), (active) => {
+				Effect.gen(function* () {
+					const active = yield* Ref.get(activeTurn);
 					if (active?.turnId !== turnId) {
-						return Effect.die(
+						return yield* Effect.die(
 							new Error(
 								`Cannot interrupt turn ${turnId}; current turn is ${active?.turnId ?? "none"}`,
 							),
 						);
 					}
-					return handle.interrupt();
+					yield* handle.interrupt();
+					yield* Deferred.await(active.released);
 				}),
 		};
 	});

@@ -1,5 +1,3 @@
-import { createAtomStore as create } from "../state/atom-store.ts";
-
 import type {
   BrowserAnnotation,
   CodeAnnotation,
@@ -8,6 +6,7 @@ import type {
 } from "@zuse/contracts";
 
 import { readStorageWithLegacy } from "../lib/storage-keys.ts";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 /**
  * Draft code annotations, keyed by chat session. The user selects code in the
@@ -74,6 +73,10 @@ type AnnotationsState = {
     id: string,
     comment: string,
   ) => void;
+  readonly replace: (
+    sessionId: SessionId,
+    annotations: ReadonlyArray<ComposerAnnotation>,
+  ) => void;
   readonly clear: (sessionId: SessionId) => void;
 };
 
@@ -120,6 +123,13 @@ export const useAnnotationsStore = create<AnnotationsState>((set, get) => ({
       a.id === id ? { ...a, comment: trimmed } : a,
     );
     const bySession = { ...get().bySession, [sessionId]: next };
+    set({ bySession });
+    persist(bySession);
+  },
+  replace: (sessionId, annotations) => {
+    const bySession = { ...get().bySession };
+    if (annotations.length === 0) delete bySession[sessionId];
+    else bySession[sessionId] = [...annotations];
     set({ bySession });
     persist(bySession);
   },

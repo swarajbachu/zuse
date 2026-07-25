@@ -62,7 +62,6 @@ import {
 } from "~/store/composer-drafts";
 import {
 	addOptimisticMessage,
-	currentSessionTurnId,
 	removeOptimisticMessage,
 } from "~/store/messages";
 import { enqueueOutboxMessage } from "~/store/outbox";
@@ -293,16 +292,7 @@ export const Composer = ({
 		setBusy(true);
 		setComposerError(null);
 		try {
-			const turnId = currentSessionTurnId(connKey, sessionId);
-			if (turnId === undefined) {
-				onRetryConnection?.();
-				throw new Error(
-					"Live response is reconnecting. Try stopping again in a moment.",
-				);
-			}
-			await Effect.runPromise(
-				interruptSession({ connection, sessionId, turnId }),
-			);
+			await Effect.runPromise(interruptSession({ connection, sessionId }));
 		} catch (cause) {
 			setComposerError(messageOf(cause));
 		} finally {

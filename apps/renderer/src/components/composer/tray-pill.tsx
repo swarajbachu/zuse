@@ -69,14 +69,14 @@ export function TrayPill({
 }: TrayPillProps) {
   const iconNode =
     icon !== undefined ? (
-      <span
+      <div
         className={cn(
           "flex size-4 shrink-0 items-center justify-center",
           TONE_ICON[tone],
         )}
       >
         {icon}
-      </span>
+      </div>
     ) : null;
 
   const titleNode = (

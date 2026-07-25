@@ -50,6 +50,7 @@ describe("provider reactor handlers", () => {
 			ndjsonAppend: () => Effect.void,
 			setStatus: () => Effect.void,
 			settleTurnFromReactor: () => Effect.void,
+			rememberActiveTurn: () => undefined,
 			provider: {} as ProviderReactorHandlersOptions["provider"],
 			sessionDomain,
 			autoNameChat: () => Effect.void,

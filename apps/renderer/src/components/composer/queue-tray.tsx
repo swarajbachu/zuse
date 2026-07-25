@@ -65,6 +65,7 @@ export function QueueTray({ sessionId }: { sessionId: SessionId }) {
           item={item}
           index={index}
           count={items.length}
+          running={running}
           dragging={dragIndex === index}
           onMove={move}
           onDragStart={() => setDragIndex(index)}
