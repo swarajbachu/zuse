@@ -10,9 +10,9 @@ const LEGACY_SERVICE_NAME = "memoize";
 
 /**
  * Keychain entries are namespaced as `apiKey:<providerId>` under the
- * `zuse` service. Listing uses `findCredentials(SERVICE_NAME)` and filters
- * to the `apiKey:` prefix — keeps room for future credential kinds (refresh
- * tokens, OAuth state) without colliding with API keys.
+ * `zuse` service. Discovery queries these exact accounts instead of enumerating
+ * the service: `findCredentials` decrypts every matching item, which can make
+ * macOS prompt for unrelated browser, integration, auth, or MCP credentials.
  */
 const accountFor = (providerId: ProviderId): string => `apiKey:${providerId}`;
 
@@ -82,9 +82,6 @@ const KNOWN_PROVIDERS: ReadonlyArray<ProviderId> = [
 	"cursor",
 ];
 
-const isKnownProvider = (id: string): id is ProviderId =>
-	(KNOWN_PROVIDERS as ReadonlyArray<string>).includes(id);
-
 const providerCache = new Map<ProviderId, string | null>();
 const browserCache = new Map<string, BrowserCred | null>();
 let configuredCache: ReadonlyArray<ProviderId> | null = null;
@@ -99,19 +96,6 @@ const invalidateProviderList = (): void => {
 
 const invalidateBrowserList = (): void => {
 	browserListCache = null;
-};
-
-const collectConfigured = (
-	entries: ReadonlyArray<{ account: string }>,
-): ProviderId[] => {
-	const out: ProviderId[] = [];
-	for (const { account } of entries) {
-		const idx = account.indexOf(":");
-		if (idx === -1 || account.slice(0, idx) !== "apiKey") continue;
-		const id = account.slice(idx + 1);
-		if (isKnownProvider(id) && !out.includes(id)) out.push(id);
-	}
-	return out;
 };
 
 const collectBrowser = (
@@ -152,6 +136,18 @@ const getPasswordWithLegacyPromotion = async (
 		await keytar.setPassword(SERVICE_NAME, account, legacy);
 	}
 	return legacy;
+};
+
+const findConfiguredProviders = async (): Promise<ProviderId[]> => {
+	const entries = await Promise.all(
+		KNOWN_PROVIDERS.map(async (providerId) => ({
+			providerId,
+			password: await getPasswordWithLegacyPromotion(accountFor(providerId)),
+		})),
+	);
+	return entries
+		.filter(({ password }) => password !== null)
+		.map(({ providerId }) => providerId);
 };
 
 export const CredentialsServiceLive = Layer.succeed(
@@ -201,9 +197,7 @@ export const CredentialsServiceLive = Layer.succeed(
 		listConfigured: () =>
 			configuredCache !== null
 				? Effect.succeed(configuredCache)
-				: tryKeychain("*", () =>
-						keytar.findCredentials(SERVICE_NAME).then(collectConfigured),
-					).pipe(
+				: tryKeychain("*", findConfiguredProviders).pipe(
 						Effect.tap((value) =>
 							Effect.sync(() => {
 								configuredCache = value;
