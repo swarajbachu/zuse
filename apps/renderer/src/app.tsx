@@ -35,6 +35,7 @@ import {
 } from "./lib/analytics.ts";
 import { AppearanceController } from "./lib/appearance.tsx";
 import { getRpcClient } from "./lib/rpc-client.ts";
+import { shouldMountRightPane } from "./shell/right-pane-lifecycle.ts";
 import { useAuthStore } from "./store/auth.ts";
 import { useKeybindingsStore } from "./store/keybindings.ts";
 import { usePermissionsStore } from "./store/permissions.ts";
@@ -609,7 +610,7 @@ function MainShell() {
 					<div className="flex h-full min-h-0 flex-col bg-background">
 						<TopBarRight />
 						<div className="flex min-h-0 flex-1 flex-col">
-							{rightSidebarOpen ? (
+							{shouldMountRightPane(rightSidebarOpen) ? (
 								<Suspense fallback={<SurfaceFallback />}>
 									<RightPane directoryUnavailable={directoryUnavailable} />
 								</Suspense>

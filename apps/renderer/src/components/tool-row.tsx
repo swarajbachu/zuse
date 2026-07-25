@@ -277,18 +277,17 @@ function MutedFilePath({
 	const canOpen = openTarget !== null;
 	const shownPath = displayPath(path, [worktreePath, folderPath]);
 
-	const onClick = (e: React.MouseEvent<HTMLSpanElement>) => {
+	const onClick = (e: React.MouseEvent<HTMLButtonElement>) => {
 		if (openTarget === null) return;
 		e.preventDefault();
 		e.stopPropagation();
 		openFileInTab(openTarget);
 	};
-	const onKeyDown = (e: React.KeyboardEvent<HTMLSpanElement>) => {
-		if (!canOpen) return;
-		if (e.key === "Enter" || e.key === " ") {
+	const onKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+		if (openTarget !== null && (e.key === "Enter" || e.key === " ")) {
 			e.preventDefault();
 			e.stopPropagation();
-			openFileInTab(openTarget!);
+			openFileInTab(openTarget);
 		}
 	};
 
@@ -296,12 +295,14 @@ function MutedFilePath({
 		<Tooltip>
 			<TooltipTrigger
 				render={
-					<span
-						role={canOpen ? "button" : undefined}
-						tabIndex={canOpen ? 0 : undefined}
+					<button
+						type="button"
+						tabIndex={canOpen ? 0 : -1}
+						aria-disabled={!canOpen}
 						onClick={canOpen ? onClick : undefined}
 						onKeyDown={canOpen ? onKeyDown : undefined}
 						className={cn(
+							"border-0 bg-transparent p-0 text-left",
 							"inline-flex min-w-0 max-w-full items-center gap-1.5 text-[11px] text-muted-foreground",
 							canOpen
 								? "cursor-pointer hover:text-foreground/80"
@@ -324,7 +325,7 @@ function MutedFilePath({
 								)}
 							</span>
 						) : null}
-					</span>
+					</button>
 				}
 			/>
 			<TooltipPopup>{canOpen ? `Open ${shownPath}` : shownPath}</TooltipPopup>
@@ -376,6 +377,25 @@ function ErrorPill() {
 		<span className="mr-2 rounded bg-destructive/12 px-1.5 py-0.5 font-medium text-[10px] text-destructive">
 			Error
 		</span>
+	);
+}
+
+function ToolImagePreview({
+	image,
+	alt,
+}: {
+	image: NonNullable<ReturnType<typeof toolImageResult>>;
+	alt: string;
+}) {
+	return (
+		<figure className="h-64 w-full overflow-hidden rounded-md bg-muted/40 shadow-[inset_0_0_0_1px_var(--border)]">
+			<img
+				src={toolImageDataUrl(image)}
+				alt={alt}
+				className="h-full w-full object-contain"
+				draggable={false}
+			/>
+		</figure>
 	);
 }
 
@@ -748,18 +768,12 @@ const buildToolView = (
 						);
 					}
 					return (
-						<figure className="h-64 w-full overflow-hidden rounded-md bg-muted/40 shadow-[inset_0_0_0_1px_var(--border)]">
-							<img
-								src={toolImageDataUrl(image)}
-								alt={
-									path === null
-										? "Viewed image"
-										: `Preview of ${basename(path)}`
-								}
-								className="h-full w-full object-contain"
-								draggable={false}
-							/>
-						</figure>
+						<ToolImagePreview
+							image={image}
+							alt={
+								path === null ? "Viewed image" : `Preview of ${basename(path)}`
+							}
+						/>
 					);
 				},
 			};
@@ -1206,14 +1220,19 @@ const buildToolView = (
 			return {
 				icon: Camera01Icon,
 				label: "Screenshot",
-				resultPanel: (result) =>
-					result.isError ? (
-						<PreBlock text={toResultText(result.output)} isError />
-					) : (
+				resultPanel: (result) => {
+					if (result.isError) {
+						return <PreBlock text={toResultText(result.output)} isError />;
+					}
+					const image = toolImageResult(result.output);
+					return image === null ? (
 						<span className="text-[11px] text-muted-foreground">
 							Captured the visible page.
 						</span>
-					),
+					) : (
+						<ToolImagePreview image={image} alt="Browser screenshot" />
+					);
+				},
 			};
 		}
 

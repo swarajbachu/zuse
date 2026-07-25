@@ -5,6 +5,19 @@ import {
 } from "../../src/lib/tool-image-result.ts";
 
 describe("tool image results", () => {
+	it("extracts the browser MCP screenshot response", () => {
+		expect(
+			toolImageResult({
+				content: [
+					{ type: "image", data: "c2NyZWVuc2hvdA==", mimeType: "image/png" },
+				],
+			}),
+		).toEqual({
+			data: "c2NyZWVuc2hvdA==",
+			mimeType: "image/png",
+		});
+	});
+
 	it("extracts ACP image content through tool content wrappers", () => {
 		const image = toolImageResult([
 			{
