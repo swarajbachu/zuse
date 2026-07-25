@@ -3,7 +3,6 @@ import { join } from "node:path";
 import type { PlanType } from "@zuse/agents/codex-generated/PlanType";
 import type { Account } from "@zuse/agents/codex-generated/v2/Account";
 import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
-import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
 import {
   AgentAvailability,
   type CliVersionStatus,
@@ -18,6 +17,7 @@ import {
   ChildProcess as Command,
   ChildProcessSpawner as CommandExecutor,
 } from "effect/unstable/process";
+import { withCodexAuxiliaryAppServer } from "../codex/auxiliary-app-server.ts";
 import { decodeJwtPayload } from "./jwt.ts";
 
 interface ProviderProbe {
@@ -58,10 +58,10 @@ interface ProviderProbe {
 
 /** Minimum release with the typed native ACP extensions used by our driver. */
 export const MIN_GROK_CLI_VERSION: CliVersion = {
-	major: 0,
-	minor: 2,
-	patch: 101,
-	raw: "0.2.101",
+  major: 0,
+  minor: 2,
+  patch: 101,
+  raw: "0.2.101",
 };
 
 const PROBES: ReadonlyArray<ProviderProbe> = [
@@ -97,7 +97,7 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
     providerId: "grok",
     displayName: "Grok",
     cliBinary: "grok",
-		minVersion: MIN_GROK_CLI_VERSION,
+    minVersion: MIN_GROK_CLI_VERSION,
     upgradeCommand: "curl -fsSL https://x.ai/cli/install.sh | bash",
     // xAI ships Grok via a curl installer, not npm — no registry to poll.
     // The installer reinstalls the latest build, so it doubles as the updater.
@@ -585,17 +585,13 @@ const ACCOUNT_PROBE_TIMEOUT_MS = 5_000;
  */
 const probeCodexAccount = (codexPath: string): Effect.Effect<AccountInfo> =>
   Effect.promise(async () => {
-    let client: CodexAppServerClient | null = null;
     try {
-      client = await CodexAppServerClient.start({
-        codexPath,
-        startupTimeoutMs: ACCOUNT_PROBE_TIMEOUT_MS,
-        onNotification: () => {},
-        onServerRequest: (_req, respond) => respond(null),
-      });
-      const response = await client.request<GetAccountResponse>(
-        "account/read",
-        {},
+      const response = await withCodexAuxiliaryAppServer(
+        {
+          codexPath,
+          startupTimeoutMs: ACCOUNT_PROBE_TIMEOUT_MS,
+        },
+        (client) => client.request<GetAccountResponse>("account/read", {}),
       );
       if (response.account === null) {
         return {
@@ -621,10 +617,6 @@ const probeCodexAccount = (codexPath: string): Effect.Effect<AccountInfo> =>
         statusMessage:
           err instanceof Error ? err.message : "Could not verify Codex auth",
       } satisfies AccountInfo;
-    } finally {
-      // Kill the child process — without this the `codex app-server`
-      // subprocess leaks for several minutes per probe.
-      client?.close();
     }
   });
 

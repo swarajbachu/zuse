@@ -6,8 +6,11 @@ import type { McpServerStatus as CodexMcpServerStatus } from "@zuse/agents/codex
 import type { PluginDetail } from "@zuse/agents/codex-generated/v2/PluginDetail";
 import type { PluginListResponse } from "@zuse/agents/codex-generated/v2/PluginListResponse";
 import type { PluginReadResponse } from "@zuse/agents/codex-generated/v2/PluginReadResponse";
-import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
 import { Effect } from "effect";
+import {
+	type CodexAuxiliaryConnection,
+	withCodexAuxiliaryAppServer,
+} from "../codex/auxiliary-app-server.ts";
 
 export interface CodexConnectorSnapshot {
 	readonly id: string;
@@ -37,7 +40,7 @@ export interface CodexLiveMcpSnapshot {
  */
 const withCodexApp = <A>(
 	codexPath: string | null,
-	run: (app: CodexAppServerClient) => Promise<A>,
+	run: (app: CodexAuxiliaryConnection) => Promise<A>,
 	options?: {
 		readonly onNotification?: (notification: {
 			method: string;
@@ -46,30 +49,24 @@ const withCodexApp = <A>(
 	},
 ): Effect.Effect<A, Error> =>
 	Effect.tryPromise({
-		try: async () => {
-			const app = await CodexAppServerClient.start({
-				codexPath,
-				startupTimeoutMs: 20_000,
-				onNotification: (notification) =>
-					options?.onNotification?.(
-						notification as { method: string; params?: unknown },
-					),
-				// Nothing interactive runs in these one-shot calls; deny-by-noop
-				// keeps a stray server request from wedging the child.
-				onServerRequest: (_request, respond) => respond({}),
-			});
-			try {
-				return await run(app);
-			} finally {
-				app.close();
-			}
-		},
+		try: () =>
+			withCodexAuxiliaryAppServer(
+				{
+					codexPath,
+					startupTimeoutMs: 20_000,
+					onNotification: (notification) =>
+						options?.onNotification?.(
+							notification as { method: string; params?: unknown },
+						),
+				},
+				run,
+			),
 		catch: (cause) =>
 			cause instanceof Error ? cause : new Error(String(cause)),
 	});
 
 const listMcpStatuses = async (
-	app: CodexAppServerClient,
+	app: CodexAuxiliaryConnection,
 ): Promise<ReadonlyArray<CodexMcpServerStatus>> => {
 	const out: CodexMcpServerStatus[] = [];
 	let cursor: string | null = null;
@@ -86,7 +83,7 @@ const listMcpStatuses = async (
 };
 
 const readInstalledPluginDetails = async (
-	app: CodexAppServerClient,
+	app: CodexAuxiliaryConnection,
 	cwd: string | null,
 ): Promise<ReadonlyArray<PluginDetail>> => {
 	let response: PluginListResponse;

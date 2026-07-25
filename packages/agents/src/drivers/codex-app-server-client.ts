@@ -19,6 +19,26 @@ type ServerRequestHandler = (
 
 type NotificationHandler = (notification: ServerNotification) => void;
 
+interface CodexAppServerStartOptions {
+	readonly codexPath: string | null;
+	readonly env?: NodeJS.ProcessEnv;
+	readonly startupTimeoutMs?: number;
+	readonly onNotification: NotificationHandler;
+	readonly onServerRequest: ServerRequestHandler;
+}
+
+let initializationTail = Promise.resolve();
+
+const reserveInitialization = async (): Promise<() => void> => {
+	const previous = initializationTail;
+	let release = (): void => {};
+	initializationTail = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await previous;
+	return release;
+};
+
 type CodexGoalRequestMethod =
 	| "thread/goal/get"
 	| "thread/goal/set"
@@ -44,6 +64,10 @@ export class CodexAppServerClient {
 
 	initializeResponse: InitializeResponse;
 
+	get isClosed(): boolean {
+		return this.closed;
+	}
+
 	private constructor(
 		child: ChildProcessWithoutNullStreams,
 		rl: readline.Interface,
@@ -56,13 +80,20 @@ export class CodexAppServerClient {
 		this.initializeResponse = initializeResponse;
 	}
 
-	static async start(options: {
-		readonly codexPath: string | null;
-		readonly env?: NodeJS.ProcessEnv;
-		readonly startupTimeoutMs?: number;
-		readonly onNotification: NotificationHandler;
-		readonly onServerRequest: ServerRequestHandler;
-	}): Promise<CodexAppServerClient> {
+	static async start(
+		options: CodexAppServerStartOptions,
+	): Promise<CodexAppServerClient> {
+		const release = await reserveInitialization();
+		try {
+			return await CodexAppServerClient.startUncoordinated(options);
+		} finally {
+			release();
+		}
+	}
+
+	private static async startUncoordinated(
+		options: CodexAppServerStartOptions,
+	): Promise<CodexAppServerClient> {
 		const child = spawn(
 			options.codexPath ?? "codex",
 			["app-server", "--listen", "stdio://"],

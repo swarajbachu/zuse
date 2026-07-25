@@ -1,8 +1,8 @@
 import * as os from "node:os";
 import * as path from "node:path";
-import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
 import { type ProviderId, Skill } from "@zuse/contracts";
 import { Effect, FileSystem, Layer } from "effect";
+import { withCodexAuxiliaryAppServer } from "../../codex/auxiliary-app-server.ts";
 import { ensureBundledZuseSkillInstalled } from "../bundled-zuse-skill.ts";
 import { SkillDiscoveryService } from "../services/skill-discovery.ts";
 
@@ -255,13 +255,8 @@ export const SkillDiscoveryServiceLive = Layer.effect(
       Effect.gen(function* () {
         ensureBundledZuseSkillInstalled("codex", home);
         const viaAppServer = yield* Effect.tryPromise({
-          try: async (): Promise<ReadonlyArray<Skill>> => {
-            const client = await CodexAppServerClient.start({
-              codexPath: null,
-              onNotification: () => undefined,
-              onServerRequest: (_request, respond) => respond({}),
-            });
-            try {
+          try: (): Promise<ReadonlyArray<Skill>> =>
+            withCodexAuxiliaryAppServer({ codexPath: null }, async (client) => {
               const response = await client.request<{
                 data: ReadonlyArray<{
                   cwd: string;
@@ -290,10 +285,7 @@ export const SkillDiscoveryServiceLive = Layer.effect(
                     }),
                   ),
               );
-            } finally {
-              client.close();
-            }
-          },
+            }),
           catch: (cause) => cause,
         }).pipe(Effect.catch(() => Effect.succeed(null)));
         if (viaAppServer !== null) return dedupeProjectFirst(viaAppServer);

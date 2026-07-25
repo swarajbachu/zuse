@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import * as fsSync from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -107,14 +108,34 @@ export const ensureBundledZuseSkillInstalled = (
   const target = bundledZuseSkillPath(providerId, home);
   if (target === null) return null;
   const content = readBundledZuseSkill();
+  let temporary: string | null = null;
   try {
     fsSync.mkdirSync(path.dirname(target), { recursive: true });
     const existing = fsSync.existsSync(target)
       ? fsSync.readFileSync(target, "utf8")
       : null;
-    if (existing !== content) fsSync.writeFileSync(target, content, "utf8");
+    if (existing !== content) {
+      temporary = path.join(
+        path.dirname(target),
+        `.${path.basename(target)}.${process.pid}.${randomUUID()}.tmp`,
+      );
+      fsSync.writeFileSync(temporary, content, {
+        encoding: "utf8",
+        flag: "wx",
+      });
+      fsSync.renameSync(temporary, target);
+      temporary = null;
+    }
   } catch {
     return null;
+  } finally {
+    if (temporary !== null) {
+      try {
+        fsSync.rmSync(temporary, { force: true });
+      } catch {
+        // Best-effort cleanup after a failed atomic replace.
+      }
+    }
   }
   return target;
 };
