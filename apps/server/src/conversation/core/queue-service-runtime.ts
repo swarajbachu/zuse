@@ -50,7 +50,9 @@ export interface QueueServiceRuntimeDeps {
 		command: SessionCommand,
 	) => Effect.Effect<void>;
 	readonly runSessionReactors: Effect.Effect<void>;
-	readonly activeTurn: (sessionId: SessionId) => AgentTurnId | undefined;
+	readonly resolveActiveTurn: (
+		sessionId: SessionId,
+	) => Effect.Effect<AgentTurnId | undefined>;
 }
 
 export interface QueueServiceRuntime {
@@ -82,7 +84,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			dispatchSessionCommand,
 			dispatchSessionCommandWithId,
 			runSessionReactors,
-			activeTurn,
+			resolveActiveTurn,
 		} = deps;
 		const flushLocks = new Map<SessionId, Semaphore.Semaphore>();
 		const flushLock = (sessionId: SessionId): Semaphore.Semaphore => {
@@ -359,7 +361,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			flushLock(sessionId).withPermits(1)(
 				Effect.gen(function* () {
 					yield* lookupSession(sessionId);
-					const resolvedTurnId = activeTurn(sessionId);
+					const resolvedTurnId = yield* resolveActiveTurn(sessionId);
 					if (resolvedTurnId === undefined) {
 						yield* runQueuedMessageWhileIdle(sessionId, queueId);
 						return;

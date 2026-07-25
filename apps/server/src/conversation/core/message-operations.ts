@@ -84,7 +84,9 @@ export interface MessageOperationsOptions {
 		turnId: AgentTurnId,
 		reason: "completed" | "interrupted" | "error",
 	) => Effect.Effect<void>;
-	readonly activeTurn: (sessionId: SessionId) => AgentTurnId | undefined;
+	readonly resolveActiveTurn: (
+		sessionId: SessionId,
+	) => Effect.Effect<AgentTurnId | undefined>;
 	readonly runSessionReactors: Effect.Effect<void>;
 	readonly serviceScope: Scope.Scope;
 	readonly recoverStatus: (
@@ -120,7 +122,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			dispatchSessionCommand,
 			beginTurn,
 			settleTurn,
-			activeTurn,
+			resolveActiveTurn,
 			runSessionReactors,
 			serviceScope,
 			recoverStatus,
@@ -363,7 +365,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					origin,
 				);
 				if (!accepted) {
-					const turnId = activeTurn(sessionId);
+					const turnId = yield* resolveActiveTurn(sessionId);
 					if (turnId !== undefined)
 						yield* settleTurn(sessionId, turnId, "error");
 				}
@@ -394,7 +396,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			dispatchSessionCommandWithId: (sessionId, commandId, command) =>
 				options.dispatchSessionCommandWithId(sessionId, commandId, command),
 			runSessionReactors,
-			activeTurn,
+			resolveActiveTurn,
 		});
 		// Boot recovery runs only after the real queue runtime exists. Demoting a
 		// stale session to idle invokes setStatus → flushAfterIdle, so installing
@@ -409,7 +411,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		for (const stale of staleSessions) {
 			const sessionId = SessionId.make(stale.id);
 			if (stale.status === "running") {
-				const turnId = activeTurn(sessionId);
+				const turnId = yield* resolveActiveTurn(sessionId);
 				if (turnId !== undefined) {
 					const lifecycle = yield* sql<{ readonly type: string }>`
 						SELECT type FROM events
@@ -442,7 +444,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		) =>
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
-				const resolvedTurnId = activeTurn(sessionId);
+				const resolvedTurnId = yield* resolveActiveTurn(sessionId);
 				if (resolvedTurnId === undefined) return;
 				yield* dispatchSessionCommand(sessionId, {
 					_tag: "RequestTurnInterrupt",

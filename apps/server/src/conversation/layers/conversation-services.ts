@@ -246,6 +246,7 @@ const ConversationRuntimeLive = Layer.effect(
 			});
 		const {
 			beginTurn,
+			resolveActiveTurn,
 			settleTurn,
 			settleTurnFromReactor,
 			ndjsonAppend,
@@ -481,10 +482,7 @@ const ConversationRuntimeLive = Layer.effect(
 					.pipe(Effect.asVoid, Effect.orDie),
 			beginTurn,
 			settleTurn,
-			activeTurn: (sessionId) =>
-				state.activeTurn(sessionId) as
-					| import("@zuse/contracts").AgentTurnId
-					| undefined,
+			resolveActiveTurn,
 			runSessionReactors: Effect.suspend(() => reactorRuntime.runSession),
 			serviceScope,
 			recoverStatus: (sessionId, status) =>

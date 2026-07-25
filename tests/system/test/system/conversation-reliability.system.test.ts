@@ -124,14 +124,10 @@ describe("conversation process reliability", () => {
 				}),
 			);
 			await controller.waitFor("prompt.held");
-			const turnId = await waitForActiveTurn(
-				session.client,
-				conversation.initialSession.id,
-			);
+			await waitForActiveTurn(session.client, conversation.initialSession.id);
 			await Effect.runPromise(
 				session.client["messages.interrupt"]({
 					sessionId: conversation.initialSession.id,
-					turnId,
 				}),
 			);
 			await controller.waitFor("prompt.cancelled");
@@ -287,14 +283,10 @@ describe("conversation process reliability", () => {
 				}),
 			);
 			await controller.waitFor("prompt.received");
-			const turnId = await waitForActiveTurn(
-				session.client,
-				conversation.initialSession.id,
-			);
+			await waitForActiveTurn(session.client, conversation.initialSession.id);
 			await Effect.runPromise(
 				session.client["messages.interrupt"]({
 					sessionId: conversation.initialSession.id,
-					turnId,
 				}),
 			);
 			await controller.waitFor("prompt.cancelled", undefined, 2_000);

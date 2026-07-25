@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.5]
+
+### Changed
+- Avoid decrypting unrelated keychain credentials (#397)
+- Unify app MCP integration and harden browser control (#399)
+- Fix queued message control flow and editing (#396)
+- Restore session-scoped interruption when the active-turn cache is cold
+
 ## [0.15.4]
 
 ### Changed

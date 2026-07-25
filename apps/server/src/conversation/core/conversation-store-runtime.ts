@@ -1,7 +1,7 @@
 import { canonicalizeToolInput } from "@zuse/agents/kernel/tool-input";
 import {
 	type AgentDefinition,
-	type AgentTurnId,
+	AgentTurnId,
 	type Chat,
 	type FolderId,
 	Message,
@@ -56,6 +56,9 @@ export interface ConversationStoreRuntime {
 		sessionId: SessionId,
 		turnIdOverride?: AgentTurnId,
 	) => Effect.Effect<AgentTurnId>;
+	readonly resolveActiveTurn: (
+		sessionId: SessionId,
+	) => Effect.Effect<AgentTurnId | undefined>;
 	readonly settleTurn: (
 		sessionId: SessionId,
 		turnId: AgentTurnId,
@@ -118,6 +121,31 @@ export const makeConversationStoreRuntime = Effect.fn(
 		flushQueueAfterIdle,
 		shutdownQueueSession,
 	} = options;
+	const resolveActiveTurn = Effect.fn(
+		"ConversationStoreRuntime.resolveActiveTurn",
+	)(function* (sessionId: SessionId) {
+		const cached = state.activeTurn(sessionId);
+		if (cached !== undefined) return AgentTurnId.make(cached);
+		const rows = yield* sql<{
+			readonly type: string;
+			readonly turn_id: string | null;
+		}>`
+			SELECT type, json_extract(payload_json, '$.turnId') AS turn_id
+			FROM events
+			WHERE stream_kind = 'session'
+				AND stream_id = ${sessionId}
+				AND type IN ('TurnStarted', 'TurnSettled')
+			ORDER BY stream_version DESC
+			LIMIT 1
+		`.pipe(Effect.orDie);
+		const latest = rows[0];
+		if (latest?.type !== "TurnStarted" || latest.turn_id === null) {
+			return undefined;
+		}
+		const turnId = AgentTurnId.make(latest.turn_id);
+		state.rememberActiveTurn(sessionId, turnId);
+		return turnId;
+	});
 	const beginTurn = (
 		sessionId: SessionId,
 		turnIdOverride?: AgentTurnId,
@@ -548,6 +576,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 
 	return {
 		beginTurn,
+		resolveActiveTurn,
 		settleTurn,
 		settleTurnFromReactor,
 		ndjsonAppend,
