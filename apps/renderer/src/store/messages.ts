@@ -39,6 +39,8 @@ let getMessagesRpcClient: typeof getRpcClient = getRpcClient;
 let dispatchMessagesRpcCommand: typeof dispatchRetryableRpcCommand =
   dispatchRetryableRpcCommand;
 const queueFlushTails = new Map<SessionId, Promise<void>>();
+const pendingInterrupts = new Set<SessionId>();
+const pendingSteers = new Set<string>();
 
 export const setMessagesRpcClientForTest = (fn: typeof getRpcClient): void => {
   getMessagesRpcClient = fn;
@@ -1019,6 +1021,8 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     }
   },
   interrupt: async (sessionId) => {
+    if (pendingInterrupts.has(sessionId)) return;
+    pendingInterrupts.add(sessionId);
     try {
 			const turnId =
 				timelineRegistry.state(sessionId).projection?.currentTurn?.turnId;
@@ -1034,6 +1038,8 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
           [sessionId]: classifyError(err, lookupSessionProvider(sessionId)),
         },
       }));
+    } finally {
+      pendingInterrupts.delete(sessionId);
     }
   },
 	queue: (sessionId, input, options) => {
@@ -1268,19 +1274,12 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     })();
   },
   steerFromQueue: async (sessionId, queueId) => {
+    const pendingKey = `${sessionId}:${queueId}`;
+    if (pendingSteers.has(pendingKey)) return;
     const queue = get().queueBySession[sessionId] ?? [];
     const item = queue.find((q) => q.id === queueId);
     if (!item) return;
-    // Optimistic — drop the chip from the queue before issuing the RPCs so
-    // a re-click can't fire twice.
-    set((s) => ({
-      queueBySession: {
-        ...s.queueBySession,
-        [sessionId]: (s.queueBySession[sessionId] ?? []).filter(
-          (q) => q.id !== queueId,
-        ),
-      },
-    }));
+    pendingSteers.add(pendingKey);
     try {
       const client = await getMessagesRpcClient();
 			const currentTurn =
@@ -1295,11 +1294,19 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 						sessionId,
 						expectedTurnId: currentTurn.turnId,
 						queueId,
-						successorTurnId: AgentTurnId.make(`turn_${crypto.randomUUID()}`),
-						commandId: `steer:${sessionId}:${queueId}:${crypto.randomUUID()}`,
+						successorTurnId: AgentTurnId.make(`turn_${queueId}`),
+						commandId: `steer:${sessionId}:${queueId}`,
 					}),
 				);
 			}
+      set((s) => ({
+        queueBySession: {
+          ...s.queueBySession,
+          [sessionId]: (s.queueBySession[sessionId] ?? []).filter(
+            (q) => q.id !== queueId,
+          ),
+        },
+      }));
     } catch (err) {
       set((s) => ({
         errorBySession: {
@@ -1307,6 +1314,8 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
           [sessionId]: classifyError(err, lookupSessionProvider(sessionId)),
         },
       }));
+    } finally {
+      pendingSteers.delete(pendingKey);
     }
   },
   observeSessionStatus: (sessionId, status) => {

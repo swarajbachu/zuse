@@ -147,6 +147,7 @@ let failProviderStart = false;
 let failProviderSend = false;
 let providerStartFailureReason = "scripted start failure";
 let providerStartBarrier: Promise<void> | null = null;
+let providerInterruptBarrier: Promise<void> | null = null;
 let testAutonomyLevel: AutonomyLevel = "approval-gated";
 let createdWorktreeCount = 0;
 let createdWorktrees = new Map<string, Worktree>();
@@ -209,7 +210,10 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 						}),
 			),
 		),
-	interrupt: () => Effect.void,
+	interrupt: () =>
+		providerInterruptBarrier === null
+			? Effect.void
+			: Effect.promise(() => providerInterruptBarrier as Promise<void>),
 	close: () => Effect.void,
 	events: (sessionId) =>
 		Stream.suspend(() =>
@@ -629,6 +633,7 @@ beforeEach(() => {
 	failProviderSend = false;
 	providerStartFailureReason = "scripted start failure";
 	providerStartBarrier = null;
+	providerInterruptBarrier = null;
 	testAutonomyLevel = "approval-gated";
 	createdWorktreeCount = 0;
 	createdWorktrees = new Map();
@@ -3504,6 +3509,70 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.flatMap(store, (s) => s.getSession(initialSession.id)),
 			);
 			expect(interruptedSession.status).toBe("idle");
+		});
+	});
+
+	it("settles an interrupt after the requesting client disconnects", async () => {
+		await withRuntime(async (run) => {
+			const interruptBarrier = deferred<void>();
+			providerInterruptBarrier = interruptBarrier.promise;
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "already running",
+					}),
+				),
+			);
+			const interruptedTurnId = requireProviderTurnId(initialSession.id);
+
+			await run(
+				Effect.gen(function* () {
+					const service = yield* store;
+					const sql = yield* SqlClient.SqlClient;
+					const requestFiber = yield* Effect.forkChild(
+						service.interruptSession(initialSession.id, interruptedTurnId),
+					);
+					yield* Effect.gen(function* () {
+						const rows = yield* sql<{ readonly count: number }>`
+							SELECT COUNT(*) AS count FROM events
+							WHERE stream_id = ${initialSession.id}
+								AND type = 'TurnInterruptRequested'
+						`;
+						if ((rows[0]?.count ?? 0) === 0) {
+							return yield* Effect.fail("interrupt not requested");
+						}
+					}).pipe(
+						Effect.retry(
+							Schedule.max([
+								Schedule.spaced("10 millis"),
+								Schedule.recurs(100),
+							]),
+						),
+					);
+					yield* Fiber.interrupt(requestFiber);
+					yield* Effect.sync(() => interruptBarrier.resolve());
+					yield* Effect.gen(function* () {
+						const rows = yield* sql<{ readonly count: number }>`
+							SELECT COUNT(*) AS count FROM events
+							WHERE stream_id = ${initialSession.id}
+								AND type = 'TurnSettled'
+						`;
+						if ((rows[0]?.count ?? 0) === 0) {
+							return yield* Effect.fail("interrupt not settled");
+						}
+					}).pipe(
+						Effect.retry(
+							Schedule.max([
+								Schedule.spaced("10 millis"),
+								Schedule.recurs(100),
+							]),
+						),
+					);
+				}),
+			);
 		});
 	});
 
