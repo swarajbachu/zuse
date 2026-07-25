@@ -158,7 +158,12 @@ export function TopBarMain() {
 	const refreshPr = usePrStateStore((s) => s.refresh);
 	const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
 	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
-	const rightSidebarOpen = useUiStore((s) => s.rightSidebarOpen);
+	const selectedChatId = useChatsStore((s) => s.selectedChatId);
+	const rightSidebarOpen = useUiStore((s) =>
+		selectedChatId === null
+			? false
+			: (s.rightPaneLayoutByChat[selectedChatId]?.open ?? false),
+	);
 	const setRightSidebarOpen = useUiStore((s) => s.setRightSidebarOpen);
 	const isFullScreen = useUiStore((s) => s.isFullScreen);
 	const environmentSummaryOpen = useUiStore((s) => s.environmentSummaryOpen);

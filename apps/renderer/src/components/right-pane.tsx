@@ -54,9 +54,9 @@ import {
 } from "./ui/menu.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
-const BrowserPane = lazy(() =>
+const BrowserPaneHost = lazy(() =>
 	import("./browser-pane.tsx").then((module) => ({
-		default: module.BrowserPane,
+		default: module.BrowserPaneHost,
 	})),
 );
 
@@ -365,22 +365,23 @@ export function RightPane({
 							/>
 						</div>
 					))}
-				{/* Browser is always mounted (display:none when not the active tab)
-            so the agent `browser.commands` stream stays alive even with no
-            browser tab open or the sidebar collapsed — a command then calls
-            revealPanel("browser") to surface it. Mounting it only on add
-            would drop commands issued while it's closed. */}
-				<div
-					hidden={!browserActive}
-					className="flex min-h-0 min-w-0 flex-1 flex-col"
-				>
-					{browserAvailable ? (
-						<Suspense
-							fallback={<div className="min-h-0 flex-1" aria-busy="true" />}
-						>
-							<BrowserPane />
-						</Suspense>
-					) : (
+				{/* One host owns the command stream and keeps a webview mounted for
+            every chat with a Browser panel. Only the selected chat is visible;
+            background chats retain history and receive only their commands. */}
+				{browserAvailable ? (
+					<Suspense
+						fallback={<div className="min-h-0 flex-1" aria-busy="true" />}
+					>
+						<BrowserPaneHost
+							activeChatId={chatId}
+							browserActive={browserActive}
+						/>
+					</Suspense>
+				) : (
+					<div
+						hidden={!browserActive}
+						className="flex min-h-0 min-w-0 flex-1 flex-col"
+					>
 						<div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
 							<div className="max-w-sm">
 								<h2 className="font-medium text-sm">
@@ -392,8 +393,8 @@ export function RightPane({
 								</p>
 							</div>
 						</div>
-					)}
-				</div>
+					</div>
+				)}
 			</div>
 		</aside>
 	);

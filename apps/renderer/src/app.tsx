@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useState } from "react";
 import {
 	Group,
 	Panel,
@@ -37,13 +37,14 @@ import { AppearanceController } from "./lib/appearance.tsx";
 import { getRpcClient } from "./lib/rpc-client.ts";
 import { shouldMountRightPane } from "./shell/right-pane-lifecycle.ts";
 import { useAuthStore } from "./store/auth.ts";
+import { useChatsStore } from "./store/chats.ts";
 import { useKeybindingsStore } from "./store/keybindings.ts";
 import { usePermissionsStore } from "./store/permissions.ts";
 import { useQueueHydrationStore } from "./store/queue-hydration.ts";
 import { getSessionById, useSessionsStore } from "./store/sessions.ts";
 import { useSettingsStore } from "./store/settings.ts";
 import { useTerminalsStore } from "./store/terminals.ts";
-import { useUiStore } from "./store/ui.ts";
+import { DEFAULT_RIGHT_PANE_WIDTH_PERCENT, useUiStore } from "./store/ui.ts";
 import { useWorkspaceStore } from "./store/workspace.ts";
 import { useWorktreesStore } from "./store/worktrees.ts";
 
@@ -265,6 +266,7 @@ function MainShell() {
 	const folders = useWorkspaceStore((s) => s.folders);
 	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
+	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 	const selectedSession = useSessionsStore((s) => {
 		if (s.selectedSessionId === null) return null;
 		return getSessionById(s.selectedSessionId);
@@ -294,8 +296,23 @@ function MainShell() {
 	const closeChangesTab = useUiStore((s) => s.closeChangesTab);
 	const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
 	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
-	const rightSidebarOpen = useUiStore((s) => s.rightSidebarOpen);
-	const setRightSidebarOpen = useUiStore((s) => s.setRightSidebarOpen);
+	const rightSidebarOpen = useUiStore((s) =>
+		selectedChatId === null
+			? false
+			: (s.rightPaneLayoutByChat[selectedChatId]?.open ?? false),
+	);
+	const rightSidebarWidth = useUiStore((s) =>
+		selectedChatId === null
+			? DEFAULT_RIGHT_PANE_WIDTH_PERCENT
+			: (s.rightPaneLayoutByChat[selectedChatId]?.widthPercent ??
+				DEFAULT_RIGHT_PANE_WIDTH_PERCENT),
+	);
+	const setRightSidebarOpenForChat = useUiStore(
+		(s) => s.setRightSidebarOpenForChat,
+	);
+	const setRightSidebarWidthForChat = useUiStore(
+		(s) => s.setRightSidebarWidthForChat,
+	);
 	const environmentSummaryOpen = useUiStore((s) => s.environmentSummaryOpen);
 	const environmentSummaryFits = useMediaQuery({ min: 1180 });
 	const environmentSummaryAvailable =
@@ -398,7 +415,16 @@ function MainShell() {
 		return () => ro.disconnect();
 	}, [composerNode]);
 	usePanelCollapse(leftPanelRef, leftSidebarOpen);
-	usePanelCollapse(rightPanelRef, rightSidebarOpen);
+	useLayoutEffect(() => {
+		const panel = rightPanelRef.current;
+		if (panel === null) return;
+		if (!rightSidebarOpen) {
+			if (!panel.isCollapsed()) panel.collapse();
+			return;
+		}
+		if (panel.isCollapsed()) panel.expand();
+		panel.resize(`${rightSidebarWidth}%`);
+	}, [rightPanelRef, rightSidebarOpen, rightSidebarWidth]);
 
 	return (
 		<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden text-foreground">
@@ -603,8 +629,14 @@ function MainShell() {
 						// persisted/default panel width would otherwise fire here and
 						// flip the sidebar open before the collapse effect runs.
 						if (prev === undefined) return;
+						if (selectedChatId === null) return;
 						const open = size.asPercentage > 0;
-						if (open !== rightSidebarOpen) setRightSidebarOpen(open);
+						if (open !== rightSidebarOpen) {
+							setRightSidebarOpenForChat(selectedChatId, open);
+						}
+						if (open && size.asPercentage !== rightSidebarWidth) {
+							setRightSidebarWidthForChat(selectedChatId, size.asPercentage);
+						}
 					}}
 				>
 					<div className="flex h-full min-h-0 flex-col bg-background">

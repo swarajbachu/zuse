@@ -11,6 +11,7 @@ import {
 	type BrowserOverlayShape,
 	type BrowserTarget,
 	type BrowserViewportMode,
+	type ChatId,
 	type SessionId,
 } from "@zuse/contracts";
 import { Effect, Fiber, Schedule, Stream } from "effect";
@@ -45,12 +46,18 @@ import type {
 	NetworkQueryResult,
 } from "../lib/bridge.ts";
 import {
+	browserChatIdForSession,
+	registerBrowserController,
+	waitForBrowserController,
+} from "../lib/browser-controller-registry.ts";
+import {
 	type BrowserRecordingArtifact,
 	BrowserRecordingController,
 } from "../lib/browser-recording.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { useAttachmentsStore } from "../store/attachments.ts";
+import { useChatsStore } from "../store/chats.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { AgentCursor, type AgentCursorIntent } from "./agent-cursor.tsx";
@@ -314,7 +321,123 @@ const compositeBrowserImage = async (
  * Reloading the renderer resets the URL to blank — persistence is out of
  * scope for v1.
  */
-export function BrowserPane() {
+const respondBrowserUnavailable = async (
+	request: BrowserCommandRequest,
+	error: string,
+): Promise<void> => {
+	try {
+		const client = await getRpcClient();
+		await Effect.runPromise(
+			client["browser.respond"]({
+				result: BrowserCommandResult.make({
+					id: request.id,
+					ok: false,
+					error,
+				}),
+			}),
+		);
+	} catch {}
+};
+
+/**
+ * Owns the single browser command subscription and the lazily-created
+ * browser controller for every chat that has a Browser panel. Hidden
+ * controllers stay mounted so switching chats preserves webview history and
+ * background agents continue against their owning chat.
+ */
+export function BrowserPaneHost({
+	activeChatId,
+	browserActive,
+}: {
+	readonly activeChatId: ChatId | null;
+	readonly browserActive: boolean;
+}) {
+	const panelsByChat = useUiStore((state) => state.rightPanelsByChat);
+	const chatsByProject = useChatsStore((state) => state.chatsByProject);
+	const selectedSessionId = useSessionsStore(
+		(state) => state.selectedSessionId,
+	);
+	const browserChatIds = Object.entries(panelsByChat)
+		.filter(([, panels]) => panels.some((panel) => panel.kind === "browser"))
+		.map(([chatId]) => chatId as ChatId);
+
+	useEffect(() => {
+		let fiber: Fiber.Fiber<unknown, unknown> | null = null;
+		let cancelled = false;
+		const subscribe = Effect.suspend(() =>
+			Effect.promise(getRpcClient).pipe(
+				Effect.flatMap((client) =>
+					Stream.runForEach(client["browser.commands"]({}), (request) =>
+						Effect.promise(async () => {
+							const chatId = browserChatIdForSession(
+								useSessionsStore.getState().sessionsByProject,
+								request.sessionId,
+							);
+							if (chatId === null) {
+								await respondBrowserUnavailable(
+									request,
+									"The browser command belongs to a session that is not available in this renderer.",
+								);
+								return;
+							}
+							useUiStore.getState().revealPanelForChat(chatId, "browser");
+							const controller = await waitForBrowserController(chatId);
+							if (controller === null) {
+								await respondBrowserUnavailable(
+									request,
+									"The browser for this chat could not be started.",
+								);
+								return;
+							}
+							await controller(request);
+						}),
+					),
+				),
+			),
+		).pipe(Effect.retry(Schedule.spaced("500 millis")));
+		if (!cancelled) fiber = Effect.runFork(subscribe);
+		return () => {
+			cancelled = true;
+			if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
+		};
+	}, []);
+
+	return browserChatIds.map((chatId) => {
+		const chat =
+			Object.values(chatsByProject)
+				.flat()
+				.find((candidate) => candidate.id === chatId) ?? null;
+		const visible = chatId === activeChatId && browserActive;
+		const sessionId =
+			chatId === activeChatId
+				? selectedSessionId
+				: (chat?.activeSessionId ?? null);
+		return (
+			<div
+				key={chatId}
+				aria-hidden={!visible}
+				inert={!visible}
+				className={
+					visible
+						? "flex min-h-0 min-w-0 flex-1 flex-col"
+						: "pointer-events-none fixed -left-[10000px] top-0 flex h-[900px] w-[1440px] flex-col opacity-0"
+				}
+			>
+				<BrowserPane chatId={chatId} sessionId={sessionId} visible={visible} />
+			</div>
+		);
+	});
+}
+
+export function BrowserPane({
+	chatId,
+	sessionId: selectedSessionId,
+	visible,
+}: {
+	readonly chatId: ChatId;
+	readonly sessionId: SessionId | null;
+	readonly visible: boolean;
+}) {
 	const webviewRef = useRef<HTMLElement | null>(null);
 	// Ring buffer of console messages + page errors, captured per page load so
 	// `browser_console` can report them to the agent. Cleared on navigation.
@@ -397,7 +520,7 @@ export function BrowserPane() {
 	);
 	const cursorNonceRef = useRef(0);
 	const cursorIntentRef = useRef<AgentCursorIntent | null>(null);
-	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
+	const visibleRef = useRef(visible);
 	const addBrowserAnnotation = useAnnotationsStore((s) => s.addBrowser);
 	const uploadAttachment = useAttachmentsStore((s) => s.uploadOne);
 	const [annotating, setAnnotating] = useState(false);
@@ -516,6 +639,9 @@ export function BrowserPane() {
 	useEffect(() => {
 		cursorIntentRef.current = cursorIntent;
 	}, [cursorIntent]);
+	useEffect(() => {
+		visibleRef.current = visible;
+	}, [visible]);
 
 	useEffect(
 		() => () => {
@@ -654,6 +780,7 @@ export function BrowserPane() {
 		if (importedDomain === undefined) return true;
 		const key = `${req.sessionId}:${importedDomain}`;
 		if (domainGrantsRef.current.has(key)) return true;
+		if (!visibleRef.current) return false;
 		return new Promise<boolean>((resolve) =>
 			setDomainAccessRequest({
 				domain: importedDomain,
@@ -795,36 +922,13 @@ export function BrowserPane() {
 		};
 	}, []);
 
-	// Agent browser executor. Subscribe once to the server's `browser.commands`
-	// broadcast and drive the webview for each command, replying on
-	// `browser.respond`. Commands run serially (runForEach awaits each) so the
-	// agent's navigate→screenshot sequence can't race. The component stays
-	// mounted while a project is open, so this subscription lives as long as the
-	// pane does.
+	// Register this chat's browser with the single BrowserPaneHost dispatcher.
+	// The host routes command.sessionId → chatId, so background agents never
+	// drive whichever chat merely happens to be selected.
 	useEffect(() => {
-		let fiber: Fiber.Fiber<unknown, unknown> | null = null;
-		let cancelled = false;
-		const subscribe = Effect.suspend(() =>
-			Effect.promise(getRpcClient).pipe(
-				Effect.flatMap((client) =>
-					Stream.runForEach(client["browser.commands"]({}), (req) =>
-						Effect.promise(() => executeBrowserCommand(req)),
-					),
-				),
-			),
-		).pipe(Effect.retry(Schedule.spaced("500 millis")));
-		if (!cancelled) fiber = Effect.runFork(subscribe);
-
 		const executeBrowserCommand = async (
 			req: BrowserCommandRequest,
 		): Promise<void> => {
-			// Always surface the action: open the sidebar and force the Browser
-			// panel visible+active. This also un-hides the webview so `capturePage`
-			// works (it returns an empty image for a `display:none` element).
-			useUiStore.getState().revealPanel("browser");
-			await new Promise<void>((resolve) => {
-				requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-			});
 			const wv = webviewRef.current as WebviewElement | null;
 			const accessAllowed = await requestAgentDomainAccess(req, wv);
 			if (!accessAllowed) {
@@ -832,7 +936,7 @@ export function BrowserPane() {
 					id: req.id,
 					ok: false,
 					error:
-						"Access to this imported authenticated domain was denied for the current task.",
+						"Access to this imported authenticated domain was not approved. Open this chat's Browser panel and retry.",
 				});
 				try {
 					const client = await getRpcClient();
@@ -961,11 +1065,8 @@ export function BrowserPane() {
 			}
 		};
 
-		return () => {
-			cancelled = true;
-			if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
-		};
-	}, []);
+		return registerBrowserController(chatId, executeBrowserCommand);
+	}, [chatId]);
 
 	const navigate = (next: string) => {
 		const resolved = resolveUrl(next);

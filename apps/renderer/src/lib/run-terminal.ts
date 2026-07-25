@@ -1,9 +1,9 @@
 import type { ChatId } from "@zuse/contracts";
 
 import {
-  type TerminalInstance,
-  terminalsKey,
-  useTerminalsStore,
+	type TerminalInstance,
+	terminalsKey,
+	useTerminalsStore,
 } from "../store/terminals.ts";
 import { useUiStore } from "../store/ui.ts";
 
@@ -20,16 +20,16 @@ import { useUiStore } from "../store/ui.ts";
  * guarantees the new tab shows the command output instead of a blank shell.
  */
 export function openTerminalCommand(args: {
-  readonly chatId: ChatId;
-  readonly cwd: string;
-  readonly title: string;
-  readonly command: NonNullable<TerminalInstance["command"]>;
+	readonly chatId: ChatId;
+	readonly cwd: string;
+	readonly title: string;
+	readonly command: NonNullable<TerminalInstance["command"]>;
 }): void {
-  const key = terminalsKey(args.chatId);
-  const index = useTerminalsStore
-    .getState()
-    .addCommand(key, args.cwd, args.title, args.command);
-  const ui = useUiStore.getState();
-  ui.addTerminalPanelForSlot(args.chatId, index);
-  ui.setRightSidebarOpen(true);
+	const key = terminalsKey(args.chatId);
+	const index = useTerminalsStore
+		.getState()
+		.addCommand(key, args.cwd, args.title, args.command);
+	const ui = useUiStore.getState();
+	ui.addTerminalPanelForSlot(args.chatId, index);
+	ui.setRightSidebarOpenForChat(args.chatId, true);
 }

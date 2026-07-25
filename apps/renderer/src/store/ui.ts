@@ -189,7 +189,8 @@ type UiState = {
 	 * (macOS Dock-style auto-reveal). Resets on reload — never persisted.
 	 */
 	readonly leftSidebarPeek: boolean;
-	readonly rightSidebarOpen: boolean;
+	/** Right-dock visibility and width, scoped per sidebar chat. */
+	readonly rightPaneLayoutByChat: Record<string, RightPaneLayout>;
 	/** Whether the cross-project chat quick-switcher (Cmd+K) overlay is open. */
 	readonly chatSwitcherOpen: boolean;
 	readonly isFullScreen: boolean;
@@ -225,7 +226,13 @@ type UiState = {
 	readonly setFileDirty: (dirty: boolean) => void;
 	readonly setLeftSidebarOpen: (open: boolean) => void;
 	readonly setLeftSidebarPeek: (peek: boolean) => void;
+	/** Set visibility for the selected chat. */
 	readonly setRightSidebarOpen: (open: boolean) => void;
+	readonly setRightSidebarOpenForChat: (chatId: ChatId, open: boolean) => void;
+	readonly setRightSidebarWidthForChat: (
+		chatId: ChatId,
+		widthPercent: number,
+	) => void;
 	readonly setChatSwitcherOpen: (open: boolean) => void;
 	readonly toggleChatSwitcher: () => void;
 	readonly setFullScreen: (full: boolean) => void;
@@ -252,6 +259,7 @@ type UiState = {
 	 * Replaces the old `setRightSidebarOpen(true) + setActiveRightTab(kind)`
 	 * pairs. For terminals, focuses an existing one or adds a new slot. */
 	readonly revealPanel: (kind: PanelKind) => void;
+	readonly revealPanelForChat: (chatId: ChatId, kind: PanelKind) => void;
 	readonly revealSubagent: (childSessionId: string) => void;
 	readonly selectSubagent: (childSessionId: string | null) => void;
 	readonly revealAnnotation: (annotation: CodeAnnotation) => void;
@@ -264,6 +272,25 @@ const newPanelId = (): string =>
 
 export const ENVIRONMENT_SUMMARY_STORAGE_KEY =
 	"zuse.environmentSummary.open.v1";
+export const RIGHT_PANE_WIDTHS_STORAGE_KEY = "zuse.rightPane.widths.v1";
+export const DEFAULT_RIGHT_PANE_WIDTH_PERCENT = 22;
+
+export type RightPaneLayout = {
+	readonly open: boolean;
+	readonly widthPercent: number;
+};
+
+export const closedRightPaneLayout = (
+	widthPercent = DEFAULT_RIGHT_PANE_WIDTH_PERCENT,
+): RightPaneLayout => ({ open: false, widthPercent });
+
+export const rightPaneLayoutForChat = (
+	state: Pick<UiState, "rightPaneLayoutByChat">,
+	chatId: ChatId | null,
+): RightPaneLayout =>
+	chatId === null
+		? closedRightPaneLayout()
+		: (state.rightPaneLayoutByChat[chatId] ?? closedRightPaneLayout());
 
 const initialEnvironmentSummaryOpen = (): boolean => {
 	if (typeof window === "undefined") return true;
@@ -281,6 +308,54 @@ const persistEnvironmentSummaryOpen = (open: boolean): void => {
 		window.localStorage.setItem(ENVIRONMENT_SUMMARY_STORAGE_KEY, String(open));
 	} catch {
 		// The preference remains usable for this session when storage is blocked.
+	}
+};
+
+const initialRightPaneWidths = (): Record<string, number> => {
+	if (typeof window === "undefined") return {};
+	try {
+		const parsed = JSON.parse(
+			window.localStorage.getItem(RIGHT_PANE_WIDTHS_STORAGE_KEY) ?? "{}",
+		) as Record<string, unknown>;
+		return Object.fromEntries(
+			Object.entries(parsed).filter(
+				(entry): entry is [string, number] =>
+					typeof entry[1] === "number" &&
+					Number.isFinite(entry[1]) &&
+					entry[1] > 0 &&
+					entry[1] <= 100,
+			),
+		);
+	} catch {
+		return {};
+	}
+};
+
+const initialRightPaneLayout = (): Record<string, RightPaneLayout> =>
+	Object.fromEntries(
+		Object.entries(initialRightPaneWidths()).map(([chatId, widthPercent]) => [
+			chatId,
+			closedRightPaneLayout(widthPercent),
+		]),
+	);
+
+const persistRightPaneWidths = (
+	layoutByChat: Record<string, RightPaneLayout>,
+): void => {
+	try {
+		window.localStorage.setItem(
+			RIGHT_PANE_WIDTHS_STORAGE_KEY,
+			JSON.stringify(
+				Object.fromEntries(
+					Object.entries(layoutByChat).map(([chatId, layout]) => [
+						chatId,
+						layout.widthPercent,
+					]),
+				),
+			),
+		);
+	} catch {
+		// Pane sizing remains available for this renderer session.
 	}
 };
 
@@ -332,7 +407,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 	autosave: false,
 	leftSidebarOpen: true,
 	leftSidebarPeek: false,
-	rightSidebarOpen: false,
+	rightPaneLayoutByChat: initialRightPaneLayout(),
 	chatSwitcherOpen: false,
 	isFullScreen: false,
 	environmentSummaryOpen: initialEnvironmentSummaryOpen(),
@@ -412,7 +487,34 @@ export const useUiStore = create<UiState>((set, get) => ({
 	setLeftSidebarOpen: (open) =>
 		set({ leftSidebarOpen: open, leftSidebarPeek: false }),
 	setLeftSidebarPeek: (peek) => set({ leftSidebarPeek: peek }),
-	setRightSidebarOpen: (open) => set({ rightSidebarOpen: open }),
+	setRightSidebarOpen: (open) => {
+		const chatId = activeChatId();
+		if (chatId === null) return;
+		get().setRightSidebarOpenForChat(chatId as ChatId, open);
+	},
+	setRightSidebarOpenForChat: (chatId, open) =>
+		set((s) => ({
+			rightPaneLayoutByChat: {
+				...s.rightPaneLayoutByChat,
+				[chatId]: {
+					...(s.rightPaneLayoutByChat[chatId] ?? closedRightPaneLayout()),
+					open,
+				},
+			},
+		})),
+	setRightSidebarWidthForChat: (chatId, widthPercent) =>
+		set((s) => {
+			if (!Number.isFinite(widthPercent) || widthPercent <= 0) return s;
+			const rightPaneLayoutByChat = {
+				...s.rightPaneLayoutByChat,
+				[chatId]: {
+					...(s.rightPaneLayoutByChat[chatId] ?? closedRightPaneLayout()),
+					widthPercent,
+				},
+			};
+			persistRightPaneWidths(rightPaneLayoutByChat);
+			return { rightPaneLayoutByChat };
+		}),
 	setChatSwitcherOpen: (open) => set({ chatSwitcherOpen: open }),
 	toggleChatSwitcher: () =>
 		set((s) => ({ chatSwitcherOpen: !s.chatSwitcherOpen })),
@@ -486,17 +588,24 @@ export const useUiStore = create<UiState>((set, get) => ({
 				s.activeRightPanelByChat;
 			const { [chatId]: _droppedSubagent, ...selectedSubagentByChat } =
 				s.selectedSubagentByChat;
+			const { [chatId]: _droppedLayout, ...rightPaneLayoutByChat } =
+				s.rightPaneLayoutByChat;
+			persistRightPaneWidths(rightPaneLayoutByChat);
 			return {
 				rightPanelsByChat,
 				activeRightPanelByChat,
 				selectedSubagentByChat,
+				rightPaneLayoutByChat,
 			};
 		}),
 	revealPanel: (kind) => {
-		const s = get();
-		if (!s.rightSidebarOpen) set({ rightSidebarOpen: true });
 		const chatId = activeChatId();
 		if (chatId === null) return;
+		get().revealPanelForChat(chatId as ChatId, kind);
+	},
+	revealPanelForChat: (chatId, kind) => {
+		get().setRightSidebarOpenForChat(chatId, true);
+		const s = get();
 		const panels = s.rightPanelsByChat[chatId] ?? EMPTY_PANELS;
 		const existing = panels.find((p) => p.kind === kind);
 		if (existing !== undefined) {
@@ -508,14 +617,24 @@ export const useUiStore = create<UiState>((set, get) => ({
 			}));
 			return;
 		}
-		// No panel of this kind yet — add one (terminals add a fresh slot).
-		s.addPanel(kind);
+		const slot = panels.filter((p) => p.kind === "terminal").length;
+		const panel =
+			kind === "terminal"
+				? ({ id: newPanelId(), kind, slot } satisfies PanelInstance)
+				: ({ id: newPanelId(), kind } as PanelInstance);
+		set((st) => writePanels(st, chatId, [...panels, panel], panel.id));
 	},
 	revealSubagent: (childSessionId) => {
 		const chatId = activeChatId();
 		if (chatId === null) return;
 		set((s) => ({
-			rightSidebarOpen: true,
+			rightPaneLayoutByChat: {
+				...s.rightPaneLayoutByChat,
+				[chatId]: {
+					...(s.rightPaneLayoutByChat[chatId] ?? closedRightPaneLayout()),
+					open: true,
+				},
+			},
 			selectedSubagentByChat: {
 				...s.selectedSubagentByChat,
 				[chatId]: childSessionId,
