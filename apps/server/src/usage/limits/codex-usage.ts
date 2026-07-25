@@ -1,6 +1,6 @@
-import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
 import type { ProviderUsageLimits, UsageLimitWindow } from "@zuse/contracts";
 
+import { withCodexAuxiliaryAppServer } from "../../codex/auxiliary-app-server.ts";
 import { normalizePercent, normalizeReset, unavailable } from "./shared.ts";
 
 type RateWindow = {
@@ -74,27 +74,24 @@ export const mapCodexRateLimits = (
 };
 
 export const fetchCodexUsage = async (): Promise<ProviderUsageLimits> => {
-	let client: CodexAppServerClient | null = null;
 	let timeout: ReturnType<typeof setTimeout> | undefined;
 	try {
-		client = await CodexAppServerClient.start({
-			codexPath: "codex",
-			startupTimeoutMs: 5_000,
-			onNotification: () => {},
-			onServerRequest: (_request, respond) => respond(null),
-		});
-		const timeoutPromise = new Promise<never>((_, reject) => {
-			timeout = setTimeout(() => reject(new Error("timeout")), 5_000);
-		});
-		const result = await Promise.race([
-			client.request<unknown>("account/rateLimits/read", {}),
-			timeoutPromise,
-		]);
+		const result = await withCodexAuxiliaryAppServer(
+			{ codexPath: "codex", startupTimeoutMs: 5_000 },
+			async (client) => {
+				const timeoutPromise = new Promise<never>((_, reject) => {
+					timeout = setTimeout(() => reject(new Error("timeout")), 5_000);
+				});
+				return Promise.race([
+					client.request<unknown>("account/rateLimits/read", {}),
+					timeoutPromise,
+				]);
+			},
+		);
 		return mapCodexRateLimits(result);
 	} catch {
 		return unavailable("codex", "error");
 	} finally {
 		if (timeout !== undefined) clearTimeout(timeout);
-		client?.close();
 	}
 };

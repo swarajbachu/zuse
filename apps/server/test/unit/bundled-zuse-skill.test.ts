@@ -1,6 +1,7 @@
 import {
 	existsSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
@@ -45,6 +46,9 @@ describe("bundled Zuse skill installer", () => {
 			expect(installedClaudeSkill).not.toContain("create_worktree");
 			expect(installedCodexSkill).toContain("zuse-orchestration");
 			expect(installedCodexSkill).toContain("Do not substitute");
+			expect(readdirSync(join(home, ".codex", "skills", "zuse"))).toEqual([
+				"SKILL.md",
+			]);
 		} finally {
 			rmSync(home, { recursive: true, force: true });
 		}

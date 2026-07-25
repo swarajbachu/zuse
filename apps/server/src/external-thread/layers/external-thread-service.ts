@@ -8,7 +8,6 @@ import type { ThreadReadResponse } from "@zuse/agents/codex-generated/v2/ThreadR
 import type { UserInput } from "@zuse/agents/codex-generated/v2/UserInput";
 import { translateClaudeSdkMessages } from "@zuse/agents/drivers/claude";
 import { translateCodexItem } from "@zuse/agents/drivers/codex";
-import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
 import {
   ContinueExternalThreadResult,
   defaultModelFor,
@@ -24,6 +23,7 @@ import { WorktreeService } from "@zuse/git/worktree-service";
 import { Effect, Layer } from "effect";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { SqlClient } from "effect/unstable/sql";
+import { withCodexAuxiliaryAppServer } from "../../codex/auxiliary-app-server.ts";
 import { eventToContent } from "../../conversation/core/conversation-message-mapping.ts";
 import { TranscriptService } from "../../conversation/services/conversation-services.ts";
 import { resolveCliPath } from "../../provider/availability.ts";
@@ -225,25 +225,17 @@ const discoverCodexViaAppServer = (limit: number) =>
   Effect.gen(function* () {
     const codexPath = yield* resolveCliPath("codex");
     if (codexPath === null) return [] as ReadonlyArray<DiscoveredThread>;
-    const app = yield* Effect.tryPromise({
-      try: () =>
-        CodexAppServerClient.start({
-          codexPath,
-          onNotification: () => {},
-          onServerRequest: (_request, respond) => respond(null),
-        }),
-      catch: () => null,
-    });
-    if (app === null) return [] as ReadonlyArray<DiscoveredThread>;
-    try {
+    {
       const response = yield* Effect.tryPromise({
         try: () =>
-          app.request<ThreadListResponse>("thread/list", {
-            limit,
-            sortKey: "updated_at",
-            sortDirection: "desc",
-            archived: false,
-          }),
+          withCodexAuxiliaryAppServer({ codexPath }, (app) =>
+            app.request<ThreadListResponse>("thread/list", {
+              limit,
+              sortKey: "updated_at",
+              sortDirection: "desc",
+              archived: false,
+            }),
+          ),
         catch: () => null,
       });
       if (response === null) return [] as ReadonlyArray<DiscoveredThread>;
@@ -268,8 +260,6 @@ const discoverCodexViaAppServer = (limit: number) =>
             resumeStrategy: "codex-thread-id",
           }),
         );
-    } finally {
-      app.close();
     }
   });
 
@@ -368,23 +358,15 @@ const codexTranscriptMessages = (cursor: string) =>
   Effect.gen(function* () {
     const codexPath = yield* resolveCliPath("codex");
     if (codexPath === null) return [];
-    const app = yield* Effect.tryPromise({
-      try: () =>
-        CodexAppServerClient.start({
-          codexPath,
-          onNotification: () => {},
-          onServerRequest: (_request, respond) => respond(null),
-        }),
-      catch: () => null,
-    });
-    if (app === null) return [];
-    try {
+    {
       const response = yield* Effect.tryPromise({
         try: () =>
-          app.request<ThreadReadResponse>("thread/read", {
-            threadId: cursor,
-            includeTurns: true,
-          }),
+          withCodexAuxiliaryAppServer({ codexPath }, (app) =>
+            app.request<ThreadReadResponse>("thread/read", {
+              threadId: cursor,
+              includeTurns: true,
+            }),
+          ),
         catch: () => null,
       });
       if (response === null) return [];
@@ -414,10 +396,12 @@ const codexTranscriptMessages = (cursor: string) =>
               item.id as import("@zuse/contracts").AgentItemId;
             const childResponse = yield* Effect.tryPromise({
               try: () =>
-                app.request<ThreadReadResponse>("thread/read", {
-                  threadId: childSessionId,
-                  includeTurns: true,
-                }),
+                withCodexAuxiliaryAppServer({ codexPath }, (app) =>
+                  app.request<ThreadReadResponse>("thread/read", {
+                    threadId: childSessionId,
+                    includeTurns: true,
+                  }),
+                ),
               catch: () => null,
             });
             const childThread = childResponse?.thread ?? null;
@@ -495,8 +479,6 @@ const codexTranscriptMessages = (cursor: string) =>
         }
       }
       return out;
-    } finally {
-      app.close();
     }
   }).pipe(Effect.catch(() => Effect.succeed([])));
 
