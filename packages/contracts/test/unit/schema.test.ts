@@ -8,6 +8,7 @@ import {
 	ComposerInput,
 	defaultModelEnabledByProvider,
 	defaultModelFor,
+	EnvironmentDescriptor,
 	FsFileContent,
 	GitBranchInfo,
 	GitReviewSummary,
@@ -39,6 +40,40 @@ const roundTrip = <A, I>(schema: Schema.Codec<A, I>, encoded: I): void => {
 	const reEncoded = Schema.encodeSync(schema)(decoded);
 	expect(reEncoded).toEqual(encoded);
 };
+
+describe("Environment capabilities", () => {
+	it("decodes an older environment descriptor with no capabilities", () => {
+		roundTrip(EnvironmentDescriptor, {
+			environmentId: "environment-1",
+			providerKind: "desktop" as const,
+			endpoint: {
+				httpBaseUrl: "http://127.0.0.1:47837",
+				wsBaseUrl: "ws://127.0.0.1:47837",
+			},
+		});
+	});
+
+	it("round-trips additive mobile capabilities", () => {
+		roundTrip(EnvironmentDescriptor, {
+			environmentId: "environment-1",
+			providerKind: "desktop" as const,
+			endpoint: {
+				httpBaseUrl: "http://127.0.0.1:47837",
+				wsBaseUrl: "ws://127.0.0.1:47837",
+			},
+			capabilities: {
+				version: 1,
+				features: [
+					"mobile-terminal-v1",
+					"attachment-read-v1",
+					"voice-account-transcription-v1",
+					"git-remote-actions-v1",
+					"desktop-handoff-v1",
+				] as const,
+			},
+		});
+	});
+});
 
 describe("FsFileContent round-trip", () => {
 	it("preserves binary bytes over the wire", () => {

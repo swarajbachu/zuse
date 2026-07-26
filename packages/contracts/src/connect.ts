@@ -117,6 +117,11 @@ export const CapabilityFeature = Schema.Literals([
 	"previews",
 	"notifications",
 	"runtime-update",
+	"mobile-terminal-v1",
+	"attachment-read-v1",
+	"voice-account-transcription-v1",
+	"git-remote-actions-v1",
+	"desktop-handoff-v1",
 ]);
 export type CapabilityFeature = typeof CapabilityFeature.Type;
 

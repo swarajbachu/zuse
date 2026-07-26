@@ -110,6 +110,17 @@ const makeRuntime = (opts: {
 						}
 					: null,
 			),
+		readForSession: (_sessionId, id) =>
+			Effect.succeed(
+				id === opts.attachment?.id
+					? {
+							bytes: opts.attachment.bytes,
+							mimeType: opts.attachment.mimeType,
+							originalName: "fixture.png",
+							sizeBytes: opts.attachment.bytes.byteLength,
+						}
+					: null,
+			),
 		readPath: () => Effect.succeed(null),
 	});
 	const ProtocolLayer = wsServerProtocolLayer({

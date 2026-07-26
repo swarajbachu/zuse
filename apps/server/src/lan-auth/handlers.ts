@@ -121,6 +121,18 @@ const ConnectDescribe = MemoizeRpcs.toLayerHandler("connect.describe", () =>
 			environmentId: yield* auth.environmentId(),
 			providerKind: "desktop",
 			endpoint,
+			capabilities: {
+				version: 1,
+				features: [
+					"mobile-terminal-v1",
+					"attachment-read-v1",
+					"voice-account-transcription-v1",
+					"git-remote-actions-v1",
+					...(config.openHostSession === undefined
+						? []
+						: (["desktop-handoff-v1"] as const)),
+				],
+			},
 			label: yield* defaultEnvironmentLabel(),
 			advertisedEndpoints,
 		});
