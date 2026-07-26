@@ -164,6 +164,58 @@ const Push = MemoizeRpcs.toLayerHandler(
 		Effect.flatMap(GitService, (svc) => svc.push(folderId, worktreeId ?? null)),
 );
 
+const Pull = MemoizeRpcs.toLayerHandler(
+	"git.pull",
+	({ folderId, worktreeId }) =>
+		Effect.flatMap(GitService, (svc) => svc.pull(folderId, worktreeId ?? null)),
+);
+
+const Stash = MemoizeRpcs.toLayerHandler(
+	"git.stash",
+	({ folderId, worktreeId, message }) =>
+		Effect.flatMap(GitService, (svc) =>
+			svc.stash(folderId, message, worktreeId ?? null),
+		),
+);
+
+const StashPop = MemoizeRpcs.toLayerHandler(
+	"git.stashPop",
+	({ folderId, worktreeId }) =>
+		Effect.flatMap(GitService, (svc) =>
+			svc.stashPop(folderId, worktreeId ?? null),
+		),
+);
+
+const ResetRemotePreview = MemoizeRpcs.toLayerHandler(
+	"git.resetRemotePreview",
+	({ folderId, worktreeId }) =>
+		Effect.flatMap(GitService, (svc) =>
+			svc.resetRemotePreview(folderId, worktreeId ?? null),
+		),
+);
+
+const ResetRemoteApply = MemoizeRpcs.toLayerHandler(
+	"git.resetRemoteApply",
+	({
+		folderId,
+		worktreeId,
+		expectedHead,
+		expectedRemoteHead,
+		expectedWorktreeFingerprint,
+		confirmationBranch,
+	}) =>
+		Effect.flatMap(GitService, (svc) =>
+			svc.resetRemoteApply(
+				folderId,
+				expectedHead,
+				expectedRemoteHead,
+				expectedWorktreeFingerprint,
+				confirmationBranch,
+				worktreeId ?? null,
+			),
+		),
+);
+
 const ResolveConflict = MemoizeRpcs.toLayerHandler(
 	"git.resolveConflict",
 	({ folderId, worktreeId, path, contents }) =>
@@ -259,6 +311,11 @@ export const GitHandlersLayer = Layer.mergeAll(
 	Diff,
 	Commit,
 	Push,
+	Pull,
+	Stash,
+	StashPop,
+	ResetRemotePreview,
+	ResetRemoteApply,
 	ResolveConflict,
 	MergePr,
 	MarkReady,

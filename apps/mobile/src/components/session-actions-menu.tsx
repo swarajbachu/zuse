@@ -10,6 +10,8 @@ export function SessionActionsMenu(_props: {
 	onThreads: () => void;
 	onChanges: () => void;
 	onFiles: () => void;
+	onTerminal?: () => void;
+	onOpenOnDesktop?: () => void;
 	onArchive: () => void;
 }) {
 	return null;

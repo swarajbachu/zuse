@@ -17,6 +17,10 @@ export interface LanAuthConfigShape {
 	readonly icloudTrustSecret?: string;
 	readonly transportCertificatePin?: string;
 	readonly onNearbyPairingRequest?: (request: NearbyPairingRequest) => void;
+	readonly openHostSession?: (
+		sessionId: string,
+		chatId: string,
+	) => void | Promise<void>;
 }
 
 export class LanAuthConfig extends Context.Service<

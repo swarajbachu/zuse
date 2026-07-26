@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { router, Stack } from "expo-router";
 import {
+	Archive,
 	BarChart3,
 	Bell,
 	HardDrive,
@@ -9,6 +10,7 @@ import {
 	Plus,
 	QrCode,
 	RotateCcw,
+	TerminalSquare,
 	Trash2,
 	UserRound,
 } from "lucide-react-native";
@@ -27,6 +29,7 @@ import { captureMobileAnalytics } from "~/lib/analytics";
 import { returnToInbox } from "~/lib/connection-navigation";
 import { visibleConnectionLabel } from "~/lib/display-names";
 import { successTap } from "~/lib/haptics";
+import { clearMediaCache, mediaCacheSize } from "~/lib/media-cache";
 import { clearDownloadedMobileData } from "~/lib/mobile-data";
 import { registerCurrentDeviceForPush } from "~/notifications/push";
 import { downloadedCacheSize } from "~/offline/cache";
@@ -96,8 +99,8 @@ export default function SettingsScreen() {
 	}, [account]);
 
 	useEffect(() => {
-		void downloadedCacheSize()
-			.then(setCacheBytes)
+		void Promise.all([downloadedCacheSize(), mediaCacheSize()])
+			.then(([downloaded, media]) => setCacheBytes(downloaded + media))
 			.catch(() => setCacheBytes(0));
 	}, []);
 
@@ -135,7 +138,7 @@ export default function SettingsScreen() {
 	const clearDownloaded = async () => {
 		setStorageBusy(true);
 		try {
-			await clearDownloadedMobileData();
+			await Promise.all([clearDownloadedMobileData(), clearMediaCache()]);
 			setCacheBytes(0);
 			successTap();
 			returnToInbox(router);
@@ -314,6 +317,30 @@ export default function SettingsScreen() {
 						/>
 					</ListSection>
 				)}
+
+				<ListSection
+					header="Developer workflow"
+					footer="These tools use the already paired computer and its authenticated environment."
+				>
+					<ListRow
+						icon={TerminalSquare}
+						title="Terminals and voice"
+						subtitle="Live sessions and account readiness"
+						onPress={() => router.push("/developer-tools")}
+					/>
+					<ListRow
+						icon={Archive}
+						title="Archived chats"
+						subtitle="Preview, restore, or permanently delete"
+						onPress={() => router.push("/archives")}
+					/>
+					<ListRow
+						icon={BarChart3}
+						title="Usage"
+						subtitle="Tokens, cost, and provider limits"
+						onPress={() => router.push("/usage")}
+					/>
+				</ListSection>
 
 				<ListSection
 					header="Privacy"

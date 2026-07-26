@@ -6,6 +6,8 @@
 	"exports": {
 		"./chat-threads": "./src/chat-threads.ts",
 		"./command-dispatch": "./src/command-dispatch.ts",
+		"./composer-commands": "./src/composer-commands.ts",
+		"./composer-trigger": "./src/composer-trigger.ts",
 		"./connection": "./src/connection.ts",
 		"./environment-scope": "./src/environment-scope.ts",
 		"./plan-interactions": "./src/plan-interactions.ts",
@@ -13,6 +15,9 @@
 		"./session-timeline-cache": "./src/session-timeline-cache.ts",
 		"./timeline": "./src/timeline.ts",
 		"./supervisor": "./src/supervisor.ts",
+		"./media": "./src/media.ts",
+		"./terminal-input-pump": "./src/terminal-input-pump.ts",
+		"./tool-image-result": "./src/tool-image-result.ts",
 		"./ws-protocol": "./src/ws-protocol.ts"
 	},
 	"scripts": {

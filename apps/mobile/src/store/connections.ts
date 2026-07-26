@@ -13,6 +13,7 @@ import {
 } from "~/lib/connection-records";
 import { deviceLabel, getOrCreateDeviceId } from "~/lib/device-identity";
 import { visibleConnectionLabel } from "~/lib/display-names";
+import { clearMediaCache } from "~/lib/media-cache";
 import { serverKeyPin as serverKeyPinForPublicKey } from "~/lib/nearby-pairing";
 import { getConnectionClient } from "~/rpc/connection";
 import { redeemPairingCode } from "~/rpc/pairing-client";
@@ -142,6 +143,7 @@ export const addConnection = async ({
 		nearbyServiceName,
 		pathType,
 		refreshAccountGrant,
+		capabilities: descriptor?.capabilities,
 		routeGeneration: 1,
 	};
 	const next = [record, ...currentConnections().filter((c) => c.key !== key)];
@@ -214,8 +216,19 @@ export const refreshConnectionLabel = async (
 	if (descriptor === null) return;
 	const nextLabel = visibleConnectionLabel(descriptor.label, key);
 	const current = currentConnections().find((c) => c.key === key);
-	if (current === undefined || current.label === nextLabel) return;
-	await updateConnectionLabel(key, nextLabel);
+	if (current === undefined) return;
+	const next = currentConnections().map((connection) =>
+		connection.key === key
+			? {
+					...connection,
+					label: nextLabel,
+					capabilities: descriptor.capabilities,
+					updatedAt: Date.now(),
+				}
+			: connection,
+	);
+	appAtomRegistry.set(connectionsAtom, next);
+	await Effect.runPromise(saveConnections(next));
 };
 
 /** Replace only the disposable network route for a stable paired Mac. */
@@ -253,6 +266,7 @@ export const removeConnection = async (key: string): Promise<void> => {
 	const next = currentConnections().filter((c) => c.key !== key);
 	appAtomRegistry.set(connectionsAtom, next);
 	await Effect.runPromise(saveConnections(next));
+	await clearMediaCache(key);
 };
 
 export const clearConnections = async (): Promise<void> => {
@@ -261,6 +275,7 @@ export const clearConnections = async (): Promise<void> => {
 		appAtomRegistry.set(connectionsHydratedAtom, true);
 	});
 	await SecureStore.deleteItemAsync(STORE_KEY);
+	await clearMediaCache();
 };
 
 const redeemPairingCodeIfNeeded = async ({

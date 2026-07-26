@@ -1,4 +1,8 @@
 import {
+	type ComposerTrigger,
+	detectComposerTrigger,
+} from "@zuse/client-runtime/composer-trigger";
+import {
 	type MutableRefObject,
 	type Ref,
 	useEffect,
@@ -6,13 +10,20 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { TextInput } from "react-native";
+import {
+	type NativeSyntheticEvent,
+	TextInput,
+	type TextInputSelectionChangeEventData,
+} from "react-native";
 
 import { colors } from "~/theme";
 
 export type ComposerTextInputHandle = {
 	getText: () => string;
 	clear: () => void;
+	replaceRange: (from: number, to: number, replacement: string) => void;
+	insertAtCursor: (text: string) => void;
+	replaceAll: (text: string) => void;
 };
 
 /**
@@ -30,6 +41,8 @@ export function ComposerTextInput({
 	onFocus,
 	onBlur,
 	onPersist,
+	onTextChange,
+	onTriggerChange,
 }: {
 	ref: Ref<ComposerTextInputHandle>;
 	initialText: string;
@@ -41,11 +54,17 @@ export function ComposerTextInput({
 	onBlur: () => void;
 	/** Called with the current text on blur and unmount (draft persistence). */
 	onPersist: (text: string) => void;
+	onTextChange?: (text: string) => void;
+	onTriggerChange?: (trigger: ComposerTrigger | null) => void;
 }) {
 	const [text, setText] = useState(initialText);
 	const textRef = useRef(initialText);
 	const hadTextRef = useRef(initialText.trim().length > 0);
 	const onPersistRef = useRef(onPersist);
+	const selectionRef = useRef({
+		start: initialText.length,
+		end: initialText.length,
+	});
 	useEffect(() => {
 		onPersistRef.current = onPersist;
 	});
@@ -63,17 +82,76 @@ export function ComposerTextInput({
 			textRef.current = "";
 			hadTextRef.current = false;
 			setText("");
+			onTextChange?.("");
+			onTriggerChange?.(null);
+		},
+		replaceRange: (from, to, replacement) => {
+			const next = `${textRef.current.slice(0, from)}${replacement}${textRef.current.slice(to)}`;
+			textRef.current = next;
+			selectionRef.current = {
+				start: from + replacement.length,
+				end: from + replacement.length,
+			};
+			setText(next);
+			onTextChange?.(next);
+			onTriggerChange?.(null);
+		},
+		insertAtCursor: (inserted) => {
+			const { start, end } = selectionRef.current;
+			const needsSpace =
+				start > 0 &&
+				textRef.current[start - 1] !== " " &&
+				textRef.current[start - 1] !== "\n";
+			const replacement = `${needsSpace ? " " : ""}${inserted}`;
+			const next = `${textRef.current.slice(0, start)}${replacement}${textRef.current.slice(end)}`;
+			const cursor = start + replacement.length;
+			textRef.current = next;
+			selectionRef.current = { start: cursor, end: cursor };
+			setText(next);
+			onTextChange?.(next);
+			onTriggerChange?.(null);
+			const hasText = next.trim().length > 0;
+			if (hasText !== hadTextRef.current) {
+				hadTextRef.current = hasText;
+				onHasTextChange(hasText);
+			}
+		},
+		replaceAll: (next) => {
+			textRef.current = next;
+			selectionRef.current = { start: next.length, end: next.length };
+			setText(next);
+			onTextChange?.(next);
+			onTriggerChange?.(null);
+			const hasText = next.trim().length > 0;
+			hadTextRef.current = hasText;
+			onHasTextChange(hasText);
 		},
 	}));
 
 	const handleChange = (next: string) => {
 		textRef.current = next;
 		setText(next);
+		onTextChange?.(next);
+		onTriggerChange?.(
+			detectComposerTrigger(
+				next,
+				Math.min(selectionRef.current.start, next.length),
+			),
+		);
 		const hasText = next.trim().length > 0;
 		if (hasText !== hadTextRef.current) {
 			hadTextRef.current = hasText;
 			onHasTextChange(hasText);
 		}
+	};
+
+	const handleSelection = (
+		event: NativeSyntheticEvent<TextInputSelectionChangeEventData>,
+	) => {
+		selectionRef.current = event.nativeEvent.selection;
+		onTriggerChange?.(
+			detectComposerTrigger(textRef.current, event.nativeEvent.selection.start),
+		);
 	};
 
 	return (
@@ -92,6 +170,8 @@ export function ComposerTextInput({
 			placeholderTextColor={colors.tertiaryFg}
 			value={text}
 			onChangeText={handleChange}
+			selection={selectionRef.current}
+			onSelectionChange={handleSelection}
 			onFocus={onFocus}
 			onBlur={() => {
 				onPersist(textRef.current);

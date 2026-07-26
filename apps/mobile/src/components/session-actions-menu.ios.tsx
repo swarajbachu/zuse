@@ -19,6 +19,8 @@ export function SessionActionsMenu({
 	onThreads,
 	onChanges,
 	onFiles,
+	onTerminal,
+	onOpenOnDesktop,
 	onArchive,
 }: {
 	isPinned: boolean;
@@ -30,6 +32,8 @@ export function SessionActionsMenu({
 	onThreads: () => void;
 	onChanges: () => void;
 	onFiles: () => void;
+	onTerminal?: () => void;
+	onOpenOnDesktop?: () => void;
 	onArchive: () => void;
 }) {
 	return (
@@ -107,6 +111,20 @@ export function SessionActionsMenu({
 						systemImage={sf("folder")}
 						onPress={onFiles}
 					/>
+					{onTerminal !== undefined ? (
+						<NativeButton
+							label="Terminal"
+							systemImage={sf("terminal")}
+							onPress={onTerminal}
+						/>
+					) : null}
+					{onOpenOnDesktop !== undefined ? (
+						<NativeButton
+							label="Open on desktop"
+							systemImage={sf("macbook")}
+							onPress={onOpenOnDesktop}
+						/>
+					) : null}
 					{/* biome-ignore lint/a11y/useValidAriaRole: SwiftUI maps this to UIMenu destructive styling. */}
 					<NativeButton
 						label="Archive"

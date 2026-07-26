@@ -5,6 +5,7 @@ import type {
 	GitChangeKind,
 	GitCommandError,
 	GitCommit,
+	GitConfirmationError,
 	GitDiffResult,
 	GitFailingChecksArtifact,
 	GitFolderNotFoundError,
@@ -16,10 +17,12 @@ import type {
 	GitPrDetails,
 	GitPrInfo,
 	GitPrSummary,
+	GitResetRemotePreview,
 	GitReviewFileContents,
 	GitReviewPatch,
 	GitReviewScope,
 	GitReviewSummary,
+	GitStalePreviewError,
 	GitStatusSummary,
 	WorktreeId,
 } from "@zuse/contracts";
@@ -30,6 +33,8 @@ type GitFailure =
 	| GitNotInstalledError
 	| GitCommandError
 	| GitFolderNotFoundError;
+
+type GitResetFailure = GitFailure | GitStalePreviewError | GitConfirmationError;
 
 export interface GitServiceShape {
 	readonly log: (
@@ -150,6 +155,34 @@ export interface GitServiceShape {
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<{ readonly output: string }, GitFailure>;
+	readonly pull: (
+		folderId: FolderId,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<{ readonly output: string }, GitFailure>;
+	readonly stash: (
+		folderId: FolderId,
+		message?: string,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<
+		{ readonly created: boolean; readonly output: string },
+		GitFailure
+	>;
+	readonly stashPop: (
+		folderId: FolderId,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<{ readonly output: string }, GitFailure>;
+	readonly resetRemotePreview: (
+		folderId: FolderId,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<GitResetRemotePreview, GitResetFailure>;
+	readonly resetRemoteApply: (
+		folderId: FolderId,
+		expectedHead: string,
+		expectedRemoteHead: string,
+		expectedWorktreeFingerprint: string,
+		confirmationBranch: string,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<{ readonly head: string }, GitResetFailure>;
 	readonly resolveConflict: (
 		folderId: FolderId,
 		path: string,

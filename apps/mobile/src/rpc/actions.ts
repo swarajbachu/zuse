@@ -2,23 +2,33 @@ import {
 	type AgentAvailability,
 	type AttachmentRef,
 	type Chat,
+	type ChatId,
 	ComposerInput,
 	type ComposerInput as ComposerInputType,
+	type FileRef,
 	type Folder,
 	type FolderId,
 	type FsFileContent,
 	type GitBranchInfo,
+	type GitChange,
+	type GitPrInfo,
 	type GitPrSummary,
+	type GitResetRemotePreview,
+	type GitReviewFileContents,
 	type GitReviewPatch,
 	type GitReviewScope,
 	type GitReviewSummary,
+	type GitStatusSummary,
 	type MessageId,
 	type PermissionDecision,
 	type PermissionMode,
 	type PlanApprovalOutcome,
 	type ProviderId,
+	type PtyId,
 	type RuntimeMode,
 	type SessionId,
+	type Skill,
+	type SkillRef,
 	type Worktree,
 	type WorktreeCreateSource,
 	type WorktreeId,
@@ -37,12 +47,14 @@ export const makeTextInput = (
 	text: string,
 	attachments: readonly AttachmentRef[] = [],
 	asGoal?: boolean,
+	fileRefs: readonly FileRef[] = [],
+	skillRefs: readonly SkillRef[] = [],
 ): ComposerInputType =>
 	ComposerInput.make({
 		text,
 		attachments: [...attachments],
-		fileRefs: [],
-		skillRefs: [],
+		fileRefs: [...fileRefs],
+		skillRefs: [...skillRefs],
 		annotations: [],
 		...(asGoal === undefined ? {} : { asGoal }),
 	});
@@ -72,6 +84,269 @@ export const uploadAttachment = (options: {
 			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
 		),
 	);
+
+export const searchWorkspaceFiles = (options: {
+	connection: WsProtocolOptions;
+	projectId: FolderId;
+	query: string;
+	worktreeId?: WorktreeId | null;
+	limit?: number;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["workspace.searchFiles"]({
+			projectId: options.projectId,
+			query: options.query,
+			worktreeId: options.worktreeId,
+			limit: options.limit ?? 20,
+		});
+	});
+
+export const listSessionSkills = (options: {
+	connection: WsProtocolOptions;
+	sessionId: SessionId;
+}): Effect.Effect<readonly Skill[], unknown> =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["skill.list"]({ sessionId: options.sessionId });
+	});
+
+export const readAttachment = (options: {
+	connection: WsProtocolOptions;
+	sessionId: SessionId;
+	id: string;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["attachments.read"]({
+			sessionId: options.sessionId,
+			id: options.id,
+		});
+	}).pipe(
+		Effect.tapError((cause) =>
+			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+		),
+	);
+
+export const listArchivedChats = (options: {
+	connection: WsProtocolOptions;
+	projectId: FolderId;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		const chats = yield* client["chat.list"]({
+			projectId: options.projectId,
+			includeArchived: true,
+		});
+		return chats.filter((chat) => chat.archivedAt !== null);
+	});
+
+export const previewArchivedChat = (options: {
+	connection: WsProtocolOptions;
+	chatId: ChatId;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["chat.archivePreview"]({ chatId: options.chatId });
+	});
+
+export const unarchiveChat = (options: {
+	connection: WsProtocolOptions;
+	chatId: ChatId;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["chat.unarchive"]({ chatId: options.chatId });
+	});
+
+export const deleteArchivedChat = (options: {
+	connection: WsProtocolOptions;
+	chatId: ChatId;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		yield* client["chat.delete"]({ chatId: options.chatId });
+	});
+
+export const forkSessionFromMessage = (options: {
+	connection: WsProtocolOptions;
+	sourceSessionId: SessionId;
+	fromMessageId: MessageId;
+	destination: "tab" | "chat";
+	worktreeId?: WorktreeId | null;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["session.fork"]({
+			sourceSessionId: options.sourceSessionId,
+			fromMessageId: options.fromMessageId,
+			destination: options.destination,
+			worktreeId: options.worktreeId,
+		});
+	});
+
+export const loadUsageOverview = (options: {
+	connection: WsProtocolOptions;
+	forceRefresh?: boolean;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["usage.overview"]({
+			forceRefresh: options.forceRefresh,
+		});
+	});
+
+export const loadUsageLimits = (options: {
+	connection: WsProtocolOptions;
+	forceRefresh?: boolean;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["usage.limits"]({
+			forceRefresh: options.forceRefresh,
+		});
+	});
+
+export const openSessionOnHost = (options: {
+	connection: WsProtocolOptions;
+	sessionId: SessionId;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		yield* client["host.openSession"]({ sessionId: options.sessionId });
+	});
+
+export const listOwnedTerminals = (options: {
+	connection: WsProtocolOptions;
+	ownerId: string;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["pty.list"]({ ownerId: options.ownerId });
+	});
+
+export const openMobileTerminal = (options: {
+	connection: WsProtocolOptions;
+	ownerId: string;
+	cwd: string;
+	label: string;
+	cols: number;
+	rows: number;
+	sessionScoped?: boolean;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["pty.open"]({
+			cwd: options.cwd,
+			cols: options.cols,
+			rows: options.rows,
+			mobileOwnership: {
+				ownerId: options.ownerId,
+				label: options.label,
+				scope: options.sessionScoped === false ? "environment" : "session",
+			},
+		});
+	});
+
+export const writeTerminal = (options: {
+	connection: WsProtocolOptions;
+	ptyId: PtyId;
+	ownerId: string;
+	data: string;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		yield* client["pty.write"]({
+			ptyId: options.ptyId,
+			data: options.data,
+			ownerId: options.ownerId,
+		});
+	});
+
+export const resizeTerminal = (options: {
+	connection: WsProtocolOptions;
+	ptyId: PtyId;
+	ownerId: string;
+	cols: number;
+	rows: number;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		yield* client["pty.resize"]({
+			ptyId: options.ptyId,
+			cols: Math.max(1, options.cols),
+			rows: Math.max(1, options.rows),
+			ownerId: options.ownerId,
+		});
+	});
+
+export const closeTerminal = (options: {
+	connection: WsProtocolOptions;
+	ptyId: PtyId;
+	ownerId: string;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		yield* client["pty.close"]({
+			ptyId: options.ptyId,
+			ownerId: options.ownerId,
+		});
+	});
+
+export const streamTerminalOutput = (options: {
+	connection: WsProtocolOptions;
+	ptyId: PtyId;
+	ownerId: string;
+	afterSequence: number;
+}) =>
+	Stream.unwrap(
+		Effect.map(getConnectionClient(options.connection), (client) =>
+			client["pty.output"]({
+				ptyId: options.ptyId,
+				afterSequence: options.afterSequence,
+				ownerId: options.ownerId,
+			}),
+		),
+	);
+
+export const prewarmVoice = (options: { connection: WsProtocolOptions }) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["voice.prewarm"]({});
+	});
+
+export const getVoiceCapabilities = (options: {
+	connection: WsProtocolOptions;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["voice.capabilities"]({});
+	});
+
+export const transcribeVoice = (options: {
+	connection: WsProtocolOptions;
+	bytes: Uint8Array;
+	mimeType: string;
+	durationMs: number;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["voice.transcribe"]({
+			bytes: options.bytes,
+			mimeType: options.mimeType,
+			durationMs: options.durationMs,
+		});
+	});
+
+/** Keep this secret-bearing result in a single-use in-memory scope. */
+export const resolveVoiceAuth = (options: {
+	connection: WsProtocolOptions;
+	ticket: string;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["voice.resolveAuth"]({ ticket: options.ticket });
+	});
 
 export const sendMessage = (options: {
 	connection: WsProtocolOptions;
@@ -478,6 +753,210 @@ export const listBranches = (options: {
 		});
 	return program.pipe(Effect.catch(() => Effect.succeed([])));
 };
+
+type GitTarget = {
+	connection: WsProtocolOptions;
+	folderId: FolderId;
+	worktreeId?: WorktreeId | null;
+};
+
+export const loadGitStatus = (
+	options: GitTarget,
+): Effect.Effect<GitStatusSummary, unknown> =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.status"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+		});
+	});
+
+export const loadGitBranches = (options: GitTarget) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.branches"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+		});
+	});
+
+export const loadGitPrState = (
+	options: GitTarget,
+): Effect.Effect<GitPrInfo, unknown> =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.prState"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+		});
+	});
+
+export const markGitPrReady = (options: GitTarget) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.markReady"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+		});
+	});
+
+export const mergeGitPr = (
+	options: GitTarget & {
+		action: "merge" | "enable-auto" | "disable-auto";
+		method?: "merge" | "squash" | "rebase";
+	},
+) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.mergePr"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+			action: options.action,
+			method: options.method ?? "squash",
+			deleteBranch: false,
+		});
+	});
+
+export const switchGitBranch = (
+	options: GitTarget & { branch: string; remote?: string | null },
+) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.switchBranch"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+			branch: options.branch,
+			remote: options.remote ?? null,
+		});
+	});
+
+export const commitGitChanges = (
+	options: GitTarget & { message: string; paths?: readonly string[] },
+) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.commit"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+			message: options.message,
+			paths: options.paths === undefined ? undefined : [...options.paths],
+		});
+	});
+
+export const pushGitChanges = (options: GitTarget) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.push"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+		});
+	});
+
+export const pullGitChanges = (options: GitTarget) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.pull"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+		});
+	});
+
+export const stashGitChanges = (options: GitTarget & { message?: string }) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.stash"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+			message: options.message,
+		});
+	});
+
+export const popGitStash = (options: GitTarget) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.stashPop"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+		});
+	});
+
+export const previewGitResetRemote = (
+	options: GitTarget,
+): Effect.Effect<GitResetRemotePreview, unknown> =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.resetRemotePreview"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+		});
+	});
+
+export const applyGitResetRemote = (
+	options: GitTarget & {
+		preview: GitResetRemotePreview;
+		confirmationBranch: string;
+	},
+) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.resetRemoteApply"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+			expectedHead: options.preview.currentHead,
+			expectedRemoteHead: options.preview.remoteHead,
+			expectedWorktreeFingerprint: options.preview.worktreeFingerprint,
+			confirmationBranch: options.confirmationBranch,
+		});
+	});
+
+export const revertGitFile = (
+	options: GitTarget & {
+		change: Pick<GitChange, "path" | "oldPath" | "kind">;
+	},
+) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.revertFile"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+			...options.change,
+		});
+	});
+
+export const revertAllGitChanges = (options: GitTarget) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.revertAll"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+		});
+	});
+
+export const readGitReviewFileContents = (
+	options: GitTarget & { path: string; oldPath?: string | null },
+): Effect.Effect<GitReviewFileContents, unknown> =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.reviewFileContents"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+			path: options.path,
+			oldPath: options.oldPath ?? null,
+		});
+	});
+
+export const resolveGitConflict = (
+	options: GitTarget & { path: string; contents: string },
+) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.resolveConflict"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+			path: options.path,
+			contents: options.contents,
+		});
+	});
 
 export const listPullRequests = (options: {
 	connection: WsProtocolOptions;

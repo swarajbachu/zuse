@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
 	type FolderId,
 	GitBranchInfo,
@@ -5,6 +6,7 @@ import {
 	type GitChangeKind,
 	GitCommandError,
 	GitCommit,
+	GitConfirmationError,
 	type GitDiffMode,
 	GitDiffResult,
 	GitFailingChecksArtifact,
@@ -23,11 +25,13 @@ import {
 	GitPrReview,
 	type GitPrReviewState,
 	GitPrSummary,
+	GitResetRemotePreview,
 	GitReviewFile,
 	GitReviewFileContents,
 	GitReviewPatch,
 	type GitReviewScope,
 	GitReviewSummary,
+	GitStalePreviewError,
 	GitStatusSummary,
 } from "@zuse/contracts";
 import {
@@ -51,6 +55,7 @@ import {
 	Queue,
 	Ref,
 	Schedule,
+	Semaphore,
 	Stream,
 } from "effect";
 import {
@@ -519,6 +524,14 @@ export const GitServiceLive = Layer.effect(
 		const executor = yield* CommandExecutor.ChildProcessSpawner;
 		const fs = yield* FileSystem.FileSystem;
 		const path = yield* Path.Path;
+		const commandLocks = new Map<string, Semaphore.Semaphore>();
+		const commandLock = (cwd: string): Semaphore.Semaphore => {
+			const existing = commandLocks.get(cwd);
+			if (existing !== undefined) return existing;
+			const created = Semaphore.makeUnsafe(1);
+			commandLocks.set(cwd, created);
+			return created;
+		};
 
 		const resolvePath = repositories.root;
 
@@ -548,7 +561,7 @@ export const GitServiceLive = Layer.effect(
 				),
 			);
 
-		const run = (
+		const runUnlocked = (
 			folderId: FolderId,
 			cwd: string,
 			args: ReadonlyArray<string>,
@@ -584,6 +597,12 @@ export const GitServiceLive = Layer.effect(
 					),
 				),
 			);
+
+		const run = (
+			folderId: FolderId,
+			cwd: string,
+			args: ReadonlyArray<string>,
+		) => commandLock(cwd).withPermits(1)(runUnlocked(folderId, cwd, args));
 
 		const log: GitService["Service"]["log"] = (folderId, limit) =>
 			Effect.flatMap(resolvePath(folderId), (cwd) =>
@@ -1972,6 +1991,200 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
+		const pull: GitService["Service"]["pull"] = (folderId, worktreeId) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const output = yield* run(folderId, cwd, ["pull", "--ff-only"]);
+					return { output };
+				}),
+			);
+
+		const stash: GitService["Service"]["stash"] = (
+			folderId,
+			message,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const label = message?.trim() || "Zuse mobile stash";
+					const output = yield* run(folderId, cwd, [
+						"stash",
+						"push",
+						"--include-untracked",
+						"-m",
+						label,
+					]);
+					return {
+						created: !output.toLowerCase().includes("no local changes"),
+						output,
+					};
+				}),
+			);
+
+		const stashPop: GitService["Service"]["stashPop"] = (
+			folderId,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const output = yield* run(folderId, cwd, ["stash", "pop"]);
+					return { output };
+				}),
+			);
+
+		const resetRemotePreview: GitService["Service"]["resetRemotePreview"] = (
+			folderId,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const branch = (yield* run(folderId, cwd, [
+						"branch",
+						"--show-current",
+					])).trim();
+					if (branch.length === 0) {
+						return yield* new GitCommandError({
+							folderId,
+							reason: "Cannot reset a detached HEAD.",
+						});
+					}
+
+					yield* run(folderId, cwd, ["fetch", "--prune", "origin"]);
+					const upstream = yield* run(folderId, cwd, [
+						"rev-parse",
+						"--abbrev-ref",
+						"--symbolic-full-name",
+						"@{upstream}",
+					]).pipe(
+						Effect.map((value) => value.trim()),
+						Effect.catchTag("GitCommandError", () =>
+							Effect.succeed(`origin/${branch}`),
+						),
+					);
+					const currentHead = (yield* run(folderId, cwd, [
+						"rev-parse",
+						"HEAD",
+					])).trim();
+					const remoteHead = (yield* run(folderId, cwd, [
+						"rev-parse",
+						upstream,
+					])).trim();
+					const worktreeState = yield* run(folderId, cwd, [
+						"status",
+						"--porcelain=v1",
+						"-z",
+						"--untracked-files=all",
+					]);
+					const changedPaths = [
+						...new Set(
+							worktreeState
+								.split("\0")
+								.filter((entry) => entry.length >= 4)
+								.map((entry) => entry.slice(3)),
+						),
+					];
+					const commitsToDiscard = (yield* run(folderId, cwd, [
+						"log",
+						"--format=%H%x00%s",
+						`${remoteHead}..${currentHead}`,
+					]))
+						.split("\n")
+						.filter((line) => line.length > 0)
+						.map((line) => {
+							const [sha = "", subject = ""] = line.split("\0", 2);
+							return { sha, subject };
+						});
+					const worktreeFingerprint = createHash("sha256")
+						.update(worktreeState)
+						.digest("hex");
+
+					return GitResetRemotePreview.make({
+						branch,
+						remoteRef: upstream,
+						currentHead,
+						remoteHead,
+						worktreeFingerprint,
+						changedPaths,
+						commitsToDiscard,
+					});
+				}),
+			);
+
+		const resetRemoteApply: GitService["Service"]["resetRemoteApply"] = (
+			folderId,
+			expectedHead,
+			expectedRemoteHead,
+			expectedWorktreeFingerprint,
+			confirmationBranch,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const preview = yield* resetRemotePreview(folderId, worktreeId);
+					if (confirmationBranch !== preview.branch) {
+						return yield* new GitConfirmationError({
+							folderId,
+							expectedBranch: preview.branch,
+						});
+					}
+					if (
+						expectedHead !== preview.currentHead ||
+						expectedRemoteHead !== preview.remoteHead ||
+						expectedWorktreeFingerprint !== preview.worktreeFingerprint
+					) {
+						return yield* new GitStalePreviewError({
+							folderId,
+							reason:
+								"HEAD, the remote branch, or the worktree changed after preview.",
+						});
+					}
+
+					return yield* commandLock(cwd).withPermits(1)(
+						Effect.gen(function* () {
+							const currentHead = (yield* runUnlocked(folderId, cwd, [
+								"rev-parse",
+								"HEAD",
+							])).trim();
+							const remoteHead = (yield* runUnlocked(folderId, cwd, [
+								"rev-parse",
+								preview.remoteRef,
+							])).trim();
+							const worktreeState = yield* runUnlocked(folderId, cwd, [
+								"status",
+								"--porcelain=v1",
+								"-z",
+								"--untracked-files=all",
+							]);
+							const fingerprint = createHash("sha256")
+								.update(worktreeState)
+								.digest("hex");
+							if (
+								currentHead !== preview.currentHead ||
+								remoteHead !== preview.remoteHead ||
+								fingerprint !== preview.worktreeFingerprint
+							) {
+								return yield* new GitStalePreviewError({
+									folderId,
+									reason:
+										"HEAD, the remote branch, or the worktree changed immediately before reset.",
+								});
+							}
+							yield* runUnlocked(folderId, cwd, [
+								"reset",
+								"--hard",
+								preview.remoteRef,
+							]);
+							yield* runUnlocked(folderId, cwd, ["clean", "-fd"]);
+							const head = (yield* runUnlocked(folderId, cwd, [
+								"rev-parse",
+								"HEAD",
+							])).trim();
+							return { head };
+						}),
+					);
+				}),
+			);
+
 		/**
 		 * Persist a resolved merge-conflict file: write the marker-free contents
 		 * the renderer's `UnresolvedFile` produced, then `git add` the path so it
@@ -2416,6 +2629,11 @@ export const GitServiceLive = Layer.effect(
 			reviewFileContents,
 			commit,
 			push,
+			pull,
+			stash,
+			stashPop,
+			resetRemotePreview,
+			resetRemoteApply,
 			resolveConflict,
 			mergePr,
 			markReady,

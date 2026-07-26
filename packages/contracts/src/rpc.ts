@@ -16,7 +16,7 @@ import {
 	AnalyticsContextChangesRpc,
 	AnalyticsGetContextRpc,
 } from "./analytics.ts";
-import { AttachmentUploadRpc } from "./attachment.ts";
+import { AttachmentReadRpc, AttachmentUploadRpc } from "./attachment.ts";
 import {
 	AuthGetSessionRpc,
 	AuthSessionChangesRpc,
@@ -84,7 +84,10 @@ import {
 	GitOriginRpc,
 	GitPrDetailsRpc,
 	GitPrStateRpc,
+	GitPullRpc,
 	GitPushRpc,
+	GitResetRemoteApplyRpc,
+	GitResetRemotePreviewRpc,
 	GitResolveConflictRpc,
 	GitRestoreFileToBaseRpc,
 	GitRevertAllRpc,
@@ -93,11 +96,14 @@ import {
 	GitReviewIdentityRpc,
 	GitReviewPatchesRpc,
 	GitReviewSummaryRpc,
+	GitStashPopRpc,
+	GitStashRpc,
 	GitStatusRpc,
 	GitSwitchBranchRpc,
 	GitUserNameRpc,
 } from "./git.ts";
 import { ConnectHandshakeRpc } from "./handshake.ts";
+import { HostOpenSessionRpc } from "./host.ts";
 import {
 	KeybindingsGetRpc,
 	KeybindingsReplaceRpc,
@@ -134,6 +140,7 @@ import { PingRpc } from "./ping.ts";
 import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
 import {
 	PtyCloseRpc,
+	PtyListRpc,
 	PtyOpenRpc,
 	PtyOutputRpc,
 	PtyResizeRpc,
@@ -219,6 +226,12 @@ import {
 import { UsageOverviewRpc, UsageReportRpc, UsageSessionsRpc } from "./usage.ts";
 import { UsageLimitsHistoryRpc, UsageLimitsRpc } from "./usage-limits.ts";
 import {
+	VoiceCapabilitiesRpc,
+	VoicePrewarmRpc,
+	VoiceResolveAuthRpc,
+	VoiceTranscribeRpc,
+} from "./voice.ts";
+import {
 	WorkspaceAddRpc,
 	WorkspaceCloneRepoRpc,
 	WorkspaceCreateProjectRpc,
@@ -290,6 +303,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	ExternalThreadsListRpc,
 	ExternalThreadsContinueRpc,
 	PtyOpenRpc,
+	PtyListRpc,
 	PtyWriteRpc,
 	PtyResizeRpc,
 	PtyCloseRpc,
@@ -315,6 +329,11 @@ export const MemoizeRpcs = RpcGroup.make(
 	GitCommitRpc,
 	GitCreateReviewCommentRpc,
 	GitPushRpc,
+	GitPullRpc,
+	GitStashRpc,
+	GitStashPopRpc,
+	GitResetRemotePreviewRpc,
+	GitResetRemoteApplyRpc,
 	GitResolveConflictRpc,
 	GitMergePrRpc,
 	GitMarkReadyRpc,
@@ -405,6 +424,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	MessagesQueueFlushRpc,
 	MessagesQueueResumeRpc,
 	AttachmentUploadRpc,
+	AttachmentReadRpc,
 	ContextSaveTextRpc,
 	SkillListRpc,
 	SkillListForProjectRpc,
@@ -440,6 +460,11 @@ export const MemoizeRpcs = RpcGroup.make(
 	UsageSessionsRpc,
 	UsageLimitsRpc,
 	UsageLimitsHistoryRpc,
+	VoiceCapabilitiesRpc,
+	VoicePrewarmRpc,
+	VoiceTranscribeRpc,
+	VoiceResolveAuthRpc,
+	HostOpenSessionRpc,
 	DiagnosticsExportRpc,
 	DiagnosticsOverviewRpc,
 	DiagnosticsEventsRpc,

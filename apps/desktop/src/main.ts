@@ -2722,6 +2722,13 @@ async function createMainWindow() {
 					...(nearbyWsProtocol === null ? [] : [nearbyWsProtocol]),
 				],
 				authShell,
+				openHostSession: (sessionId, chatId) => {
+					focusMainWindow();
+					mainWindow?.webContents.send("notch:openChat", {
+						chatId,
+						sessionId,
+					});
+				},
 				lanAuth: {
 					policy: "protected",
 					advertisedHost: networkAccess.advertisedHost,

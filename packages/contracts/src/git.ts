@@ -1,113 +1,138 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Effect, Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
 import { FolderId, WorktreeId } from "./ids.ts";
 
 export class GitCommit extends Schema.Class<GitCommit>("GitCommit")({
-  sha: Schema.String,
-  shortSha: Schema.String,
-  subject: Schema.String,
-  authorName: Schema.String,
-  authoredAt: Schema.DateFromString,
-  parents: Schema.Array(Schema.String),
+	sha: Schema.String,
+	shortSha: Schema.String,
+	subject: Schema.String,
+	authorName: Schema.String,
+	authoredAt: Schema.DateFromString,
+	parents: Schema.Array(Schema.String),
 }) {}
 
 export class GitStatusSummary extends Schema.Class<GitStatusSummary>(
-  "GitStatusSummary",
+	"GitStatusSummary",
 )({
-  branch: Schema.NullOr(Schema.String),
-  ahead: Schema.Number,
-  behind: Schema.Number,
-  dirtyFiles: Schema.Number,
+	branch: Schema.NullOr(Schema.String),
+	ahead: Schema.Number,
+	behind: Schema.Number,
+	dirtyFiles: Schema.Number,
 }) {}
 
 export const GitBranchKind = Schema.Literals(["local", "remote"]);
 export type GitBranchKind = typeof GitBranchKind.Type;
 
 export class GitBranchInfo extends Schema.Class<GitBranchInfo>("GitBranchInfo")(
-  {
-    name: Schema.String,
-    current: Schema.Boolean,
-    remote: Schema.NullOr(Schema.String),
-    upstream: Schema.NullOr(Schema.String),
-    kind: GitBranchKind,
-  },
+	{
+		name: Schema.String,
+		current: Schema.Boolean,
+		remote: Schema.NullOr(Schema.String),
+		upstream: Schema.NullOr(Schema.String),
+		kind: GitBranchKind,
+	},
 ) {}
 
 export class GitNotARepoError extends Schema.TaggedErrorClass<GitNotARepoError>()(
-  "GitNotARepoError",
-  { folderId: FolderId },
+	"GitNotARepoError",
+	{ folderId: FolderId },
 ) {}
 
 export class GitNotInstalledError extends Schema.TaggedErrorClass<GitNotInstalledError>()(
-  "GitNotInstalledError",
-  {},
+	"GitNotInstalledError",
+	{},
 ) {}
 
 export class GitCommandError extends Schema.TaggedErrorClass<GitCommandError>()(
-  "GitCommandError",
-  { folderId: FolderId, reason: Schema.String },
+	"GitCommandError",
+	{ folderId: FolderId, reason: Schema.String },
 ) {}
 
 export class GitFolderNotFoundError extends Schema.TaggedErrorClass<GitFolderNotFoundError>()(
-  "GitFolderNotFoundError",
-  { folderId: FolderId },
+	"GitFolderNotFoundError",
+	{ folderId: FolderId },
+) {}
+
+export class GitStalePreviewError extends Schema.TaggedErrorClass<GitStalePreviewError>()(
+	"GitStalePreviewError",
+	{
+		folderId: FolderId,
+		reason: Schema.String,
+	},
+) {}
+
+export class GitConfirmationError extends Schema.TaggedErrorClass<GitConfirmationError>()(
+	"GitConfirmationError",
+	{
+		folderId: FolderId,
+		expectedBranch: Schema.String,
+	},
 ) {}
 
 const GitErrors = Schema.Union([
-  GitNotARepoError,
-  GitNotInstalledError,
-  GitCommandError,
-  GitFolderNotFoundError,
+	GitNotARepoError,
+	GitNotInstalledError,
+	GitCommandError,
+	GitFolderNotFoundError,
+]);
+
+const GitResetErrors = Schema.Union([
+	GitNotARepoError,
+	GitNotInstalledError,
+	GitCommandError,
+	GitFolderNotFoundError,
+	GitStalePreviewError,
+	GitConfirmationError,
 ]);
 
 export const GitLogRpc = Rpc.make("git.log", {
-  payload: Schema.Struct({ folderId: FolderId, limit: Schema.Number }),
-  success: Schema.Array(GitCommit),
-  error: GitErrors,
+	payload: Schema.Struct({ folderId: FolderId, limit: Schema.Number }),
+	success: Schema.Array(GitCommit),
+	error: GitErrors,
 });
 
 export const GitStatusRpc = Rpc.make("git.status", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    /**
-     * When set, run `git status` inside the worktree path so the branch +
-     * dirty/ahead counts reflect the worktree, not the main checkout.
-     */
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: GitStatusSummary,
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		/**
+		 * When set, run `git status` inside the worktree path so the branch +
+		 * dirty/ahead counts reflect the worktree, not the main checkout.
+		 */
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: GitStatusSummary,
+	error: GitErrors,
 });
 
 export const GitBranchesRpc = Rpc.make("git.branches", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Array(GitBranchInfo),
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Array(GitBranchInfo),
+	error: GitErrors,
 });
 
 export const GitSwitchBranchRpc = Rpc.make("git.switchBranch", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    branch: Schema.String,
-    remote: Schema.optional(Schema.NullOr(Schema.String)),
-  }),
-  success: GitStatusSummary,
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		branch: Schema.String,
+		remote: Schema.optional(Schema.NullOr(Schema.String)),
+	}),
+	success: GitStatusSummary,
+	error: GitErrors,
 });
 
 export const GitRenameBranchRpc = Rpc.make("git.renameBranch", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    name: Schema.String,
-  }),
-  success: GitStatusSummary,
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		name: Schema.String,
+	}),
+	success: GitStatusSummary,
+	error: GitErrors,
 });
 
 /**
@@ -116,30 +141,30 @@ export const GitRenameBranchRpc = Rpc.make("git.renameBranch", {
  * (the name is slugified before use).
  */
 export const GitUserNameRpc = Rpc.make("git.userName", {
-  payload: Schema.Struct({ folderId: FolderId }),
-  success: Schema.Struct({ userName: Schema.String }),
-  error: GitErrors,
+	payload: Schema.Struct({ folderId: FolderId }),
+	success: Schema.Struct({ userName: Schema.String }),
+	error: GitErrors,
 });
 
 export const GitHeadChangedRpc = Rpc.make("git.headChanged", {
-  payload: Schema.Struct({ folderId: FolderId }),
-  success: Schema.Struct({ sha: Schema.String }),
-  error: GitErrors,
-  stream: true,
+	payload: Schema.Struct({ folderId: FolderId }),
+	success: Schema.Struct({ sha: Schema.String }),
+	error: GitErrors,
+	stream: true,
 });
 
 export class GitOriginInfo extends Schema.Class<GitOriginInfo>("GitOriginInfo")(
-  {
-    host: Schema.String,
-    owner: Schema.String,
-    repo: Schema.String,
-  },
+	{
+		host: Schema.String,
+		owner: Schema.String,
+		repo: Schema.String,
+	},
 ) {}
 
 export const GitOriginRpc = Rpc.make("git.origin", {
-  payload: Schema.Struct({ folderId: FolderId }),
-  success: Schema.NullOr(GitOriginInfo),
-  error: GitErrors,
+	payload: Schema.Struct({ folderId: FolderId }),
+	success: Schema.NullOr(GitOriginInfo),
+	error: GitErrors,
 });
 
 /**
@@ -159,10 +184,10 @@ export type GitPrState = typeof GitPrState.Type;
  *   failure — at least one check failed (cancelled / errored counts as fail).
  */
 export const GitPrChecks = Schema.Literals([
-  "none",
-  "pending",
-  "success",
-  "failure",
+	"none",
+	"pending",
+	"success",
+	"failure",
 ]);
 export type GitPrChecks = typeof GitPrChecks.Type;
 
@@ -172,115 +197,119 @@ export type GitPrChecks = typeof GitPrChecks.Type;
  *   conflicting — at least one path in the branch conflicts with the base.
  *   unknown     — GitHub hasn't computed it yet, no PR exists, or `gh` couldn't read it.
  */
-export const GitPrMergeable = Schema.Literals(["clean", "conflicting", "unknown"]);
+export const GitPrMergeable = Schema.Literals([
+	"clean",
+	"conflicting",
+	"unknown",
+]);
 export type GitPrMergeable = typeof GitPrMergeable.Type;
 
 export class GitPrInfo extends Schema.Class<GitPrInfo>("GitPrInfo")({
-  state: GitPrState,
-  branch: Schema.NullOr(Schema.String),
-  baseBranch: Schema.NullOr(Schema.String),
-  additions: Schema.Number,
-  deletions: Schema.Number,
-  number: Schema.NullOr(Schema.Number),
-  url: Schema.NullOr(Schema.String),
-  isDraft: Schema.Boolean,
-  checks: GitPrChecks,
-  mergeable: GitPrMergeable,
-  /**
-   * Per-check counts derived from the same `statusCheckRollup` that feeds
-   * `checks`. Lets the top bar render "N checks running" without the heavier
-   * `prDetails` round-trip. `checksTotal === 0` means the PR has no checks.
-   */
-  checksTotal: Schema.Number,
-  checksRunning: Schema.Number,
-  checksPassing: Schema.Number,
-  checksFailing: Schema.Number,
-  /**
-   * True when GitHub has a pending auto-merge request on this PR (`gh pr view
-   * --json autoMergeRequest` is non-null). Reflects the "Auto-merge on success"
-   * toggle's real, server-side state.
-   */
-  autoMergeEnabled: Schema.Boolean,
+	state: GitPrState,
+	branch: Schema.NullOr(Schema.String),
+	baseBranch: Schema.NullOr(Schema.String),
+	additions: Schema.Number,
+	deletions: Schema.Number,
+	number: Schema.NullOr(Schema.Number),
+	url: Schema.NullOr(Schema.String),
+	isDraft: Schema.Boolean,
+	checks: GitPrChecks,
+	mergeable: GitPrMergeable,
+	/**
+	 * Per-check counts derived from the same `statusCheckRollup` that feeds
+	 * `checks`. Lets the top bar render "N checks running" without the heavier
+	 * `prDetails` round-trip. `checksTotal === 0` means the PR has no checks.
+	 */
+	checksTotal: Schema.Number,
+	checksRunning: Schema.Number,
+	checksPassing: Schema.Number,
+	checksFailing: Schema.Number,
+	/**
+	 * True when GitHub has a pending auto-merge request on this PR (`gh pr view
+	 * --json autoMergeRequest` is non-null). Reflects the "Auto-merge on success"
+	 * toggle's real, server-side state.
+	 */
+	autoMergeEnabled: Schema.Boolean,
 }) {}
 
 export const GitPrStateRpc = Rpc.make("git.prState", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    /**
-     * When set, runs `gh pr view` inside the worktree's path so the result
-     * reflects the worktree's branch — each worktree has its own branch,
-     * each branch has its own PR (or none).
-     */
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: GitPrInfo,
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		/**
+		 * When set, runs `gh pr view` inside the worktree's path so the result
+		 * reflects the worktree's branch — each worktree has its own branch,
+		 * each branch has its own PR (or none).
+		 */
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: GitPrInfo,
+	error: GitErrors,
 });
 
 export class GitPrComment extends Schema.Class<GitPrComment>("GitPrComment")({
-  author: Schema.String,
-  authorAvatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
-  body: Schema.String,
-  createdAt: Schema.DateFromString,
+	author: Schema.String,
+	authorAvatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
+	body: Schema.String,
+	createdAt: Schema.DateFromString,
 }) {}
 
 export const GitPrReviewState = Schema.Literals([
-  "approved",
-  "changes_requested",
-  "commented",
-  "dismissed",
-  "pending",
+	"approved",
+	"changes_requested",
+	"commented",
+	"dismissed",
+	"pending",
 ]);
 export type GitPrReviewState = typeof GitPrReviewState.Type;
 
 export class GitPrReview extends Schema.Class<GitPrReview>("GitPrReview")({
-  author: Schema.String,
-  authorAvatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
-  state: GitPrReviewState,
-  body: Schema.String,
-  submittedAt: Schema.NullOr(Schema.DateFromString),
+	author: Schema.String,
+	authorAvatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
+	state: GitPrReviewState,
+	body: Schema.String,
+	submittedAt: Schema.NullOr(Schema.DateFromString),
 }) {}
 
 export class GitPrFile extends Schema.Class<GitPrFile>("GitPrFile")({
-  path: Schema.String,
-  additions: Schema.Number,
-  deletions: Schema.Number,
+	path: Schema.String,
+	additions: Schema.Number,
+	deletions: Schema.Number,
 }) {}
 
 export const GitPrCheckRunStatus = Schema.Literals([
-  "queued",
-  "in_progress",
-  "completed",
-  "pending",
+	"queued",
+	"in_progress",
+	"completed",
+	"pending",
 ]);
 export type GitPrCheckRunStatus = typeof GitPrCheckRunStatus.Type;
 
 export const GitPrCheckRunConclusion = Schema.Literals([
-  "success",
-  "failure",
-  "cancelled",
-  "skipped",
-  "neutral",
-  "timed_out",
-  "action_required",
+	"success",
+	"failure",
+	"cancelled",
+	"skipped",
+	"neutral",
+	"timed_out",
+	"action_required",
 ]);
 export type GitPrCheckRunConclusion = typeof GitPrCheckRunConclusion.Type;
 
 export class GitPrCheckRun extends Schema.Class<GitPrCheckRun>("GitPrCheckRun")(
-  {
-    name: Schema.String,
-    status: GitPrCheckRunStatus,
-    conclusion: Schema.NullOr(GitPrCheckRunConclusion),
-    url: Schema.NullOr(Schema.String),
-    workflowName: Schema.optional(Schema.NullOr(Schema.String)),
-    runId: Schema.optional(Schema.NullOr(Schema.String)),
-    jobId: Schema.optional(Schema.NullOr(Schema.String)),
-    runnerName: Schema.optional(Schema.NullOr(Schema.String)),
-    runnerGroupName: Schema.optional(Schema.NullOr(Schema.String)),
-    startedAt: Schema.optional(Schema.NullOr(Schema.DateFromString)),
-    completedAt: Schema.optional(Schema.NullOr(Schema.DateFromString)),
-    runUrl: Schema.optional(Schema.NullOr(Schema.String)),
-  },
+	{
+		name: Schema.String,
+		status: GitPrCheckRunStatus,
+		conclusion: Schema.NullOr(GitPrCheckRunConclusion),
+		url: Schema.NullOr(Schema.String),
+		workflowName: Schema.optional(Schema.NullOr(Schema.String)),
+		runId: Schema.optional(Schema.NullOr(Schema.String)),
+		jobId: Schema.optional(Schema.NullOr(Schema.String)),
+		runnerName: Schema.optional(Schema.NullOr(Schema.String)),
+		runnerGroupName: Schema.optional(Schema.NullOr(Schema.String)),
+		startedAt: Schema.optional(Schema.NullOr(Schema.DateFromString)),
+		completedAt: Schema.optional(Schema.NullOr(Schema.DateFromString)),
+		runUrl: Schema.optional(Schema.NullOr(Schema.String)),
+	},
 ) {}
 
 /**
@@ -289,61 +318,61 @@ export class GitPrCheckRun extends Schema.Class<GitPrCheckRun>("GitPrCheckRun")(
  * pane is open — `git.prState` keeps its lightweight contract for the sidebar.
  */
 export class GitPrDetails extends Schema.Class<GitPrDetails>("GitPrDetails")({
-  state: GitPrState,
-  number: Schema.NullOr(Schema.Number),
-  url: Schema.NullOr(Schema.String),
-  isDraft: Schema.Boolean,
-  checks: GitPrChecks,
-  mergeable: GitPrMergeable,
-  additions: Schema.Number,
-  deletions: Schema.Number,
-  title: Schema.String,
-  body: Schema.String,
-  author: Schema.String,
-  baseBranch: Schema.NullOr(Schema.String),
-  headBranch: Schema.NullOr(Schema.String),
-  comments: Schema.Array(GitPrComment),
-  reviews: Schema.Array(GitPrReview),
-  files: Schema.Array(GitPrFile),
-  checkRuns: Schema.Array(GitPrCheckRun),
+	state: GitPrState,
+	number: Schema.NullOr(Schema.Number),
+	url: Schema.NullOr(Schema.String),
+	isDraft: Schema.Boolean,
+	checks: GitPrChecks,
+	mergeable: GitPrMergeable,
+	additions: Schema.Number,
+	deletions: Schema.Number,
+	title: Schema.String,
+	body: Schema.String,
+	author: Schema.String,
+	baseBranch: Schema.NullOr(Schema.String),
+	headBranch: Schema.NullOr(Schema.String),
+	comments: Schema.Array(GitPrComment),
+	reviews: Schema.Array(GitPrReview),
+	files: Schema.Array(GitPrFile),
+	checkRuns: Schema.Array(GitPrCheckRun),
 }) {}
 
 export const GitPrDetailsRpc = Rpc.make("git.prDetails", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: GitPrDetails,
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: GitPrDetails,
+	error: GitErrors,
 });
 
 /** Post one inline review comment to the pull request for the current branch. */
 export const GitCreateReviewCommentRpc = Rpc.make("git.createReviewComment", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    path: Schema.String,
-    line: Schema.Number,
-    side: Schema.Literals(["additions", "deletions"]),
-    body: Schema.String,
-  }),
-  success: Schema.Struct({ url: Schema.NullOr(Schema.String) }),
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		path: Schema.String,
+		line: Schema.Number,
+		side: Schema.Literals(["additions", "deletions"]),
+		body: Schema.String,
+	}),
+	success: Schema.Struct({ url: Schema.NullOr(Schema.String) }),
+	error: GitErrors,
 });
 
 /** Identity used to author review comments from the current GitHub account. */
 export const GitReviewIdentityRpc = Rpc.make("git.reviewIdentity", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.NullOr(
-    Schema.Struct({
-      name: Schema.String,
-      avatarUrl: Schema.NullOr(Schema.String),
-    }),
-  ),
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.NullOr(
+		Schema.Struct({
+			name: Schema.String,
+			avatarUrl: Schema.NullOr(Schema.String),
+		}),
+	),
+	error: GitErrors,
 });
 
 /**
@@ -353,13 +382,13 @@ export const GitReviewIdentityRpc = Rpc.make("git.reviewIdentity", {
  * recently touched first" ordering the picker shows.
  */
 export class GitPrSummary extends Schema.Class<GitPrSummary>("GitPrSummary")({
-  number: Schema.Number,
-  title: Schema.String,
-  author: Schema.String,
-  headRefName: Schema.String,
-  isDraft: Schema.Boolean,
-  state: Schema.String,
-  updatedAt: Schema.DateFromString,
+	number: Schema.Number,
+	title: Schema.String,
+	author: Schema.String,
+	headRefName: Schema.String,
+	isDraft: Schema.Boolean,
+	state: Schema.String,
+	updatedAt: Schema.DateFromString,
 }) {}
 
 /**
@@ -368,14 +397,14 @@ export class GitPrSummary extends Schema.Class<GitPrSummary>("GitPrSummary")({
  * have no branch so they never check out a worktree.
  */
 export class GitIssueSummary extends Schema.Class<GitIssueSummary>(
-  "GitIssueSummary",
+	"GitIssueSummary",
 )({
-  number: Schema.Number,
-  title: Schema.String,
-  author: Schema.String,
-  state: Schema.String,
-  labels: Schema.Array(Schema.String),
-  updatedAt: Schema.DateFromString,
+	number: Schema.Number,
+	title: Schema.String,
+	author: Schema.String,
+	state: Schema.String,
+	labels: Schema.Array(Schema.String),
+	updatedAt: Schema.DateFromString,
 }) {}
 
 /**
@@ -384,16 +413,16 @@ export class GitIssueSummary extends Schema.Class<GitIssueSummary>(
  * shows an empty PRs tab rather than surfacing an error.
  */
 export const GitListPrsRpc = Rpc.make("git.listPrs", {
-  payload: Schema.Struct({ folderId: FolderId }),
-  success: Schema.Array(GitPrSummary),
-  error: GitErrors,
+	payload: Schema.Struct({ folderId: FolderId }),
+	success: Schema.Array(GitPrSummary),
+	error: GitErrors,
 });
 
 /** List open issues via `gh issue list`. Same graceful degradation as listPrs. */
 export const GitListIssuesRpc = Rpc.make("git.listIssues", {
-  payload: Schema.Struct({ folderId: FolderId }),
-  success: Schema.Array(GitIssueSummary),
-  error: GitErrors,
+	payload: Schema.Struct({ folderId: FolderId }),
+	success: Schema.Array(GitIssueSummary),
+	error: GitErrors,
 });
 
 /**
@@ -402,14 +431,14 @@ export const GitListIssuesRpc = Rpc.make("git.listIssues", {
  * the JSON→Markdown formatting so both drivers get identical text.
  */
 export const GitIssueMarkdownRpc = Rpc.make("git.issueMarkdown", {
-  payload: Schema.Struct({ folderId: FolderId, number: Schema.Number }),
-  success: Schema.Struct({
-    number: Schema.Number,
-    title: Schema.String,
-    url: Schema.String,
-    markdown: Schema.String,
-  }),
-  error: GitErrors,
+	payload: Schema.Struct({ folderId: FolderId, number: Schema.Number }),
+	success: Schema.Struct({
+		number: Schema.Number,
+		title: Schema.String,
+		url: Schema.String,
+		markdown: Schema.String,
+	}),
+	error: GitErrors,
 });
 
 /**
@@ -420,20 +449,20 @@ export const GitIssueMarkdownRpc = Rpc.make("git.issueMarkdown", {
  * read it as `@<relPath>`.
  */
 export class GitFailingChecksArtifact extends Schema.Class<GitFailingChecksArtifact>(
-  "GitFailingChecksArtifact",
+	"GitFailingChecksArtifact",
 )({
-  relPath: Schema.String,
-  absPath: Schema.String,
-  failingCount: Schema.Number,
+	relPath: Schema.String,
+	absPath: Schema.String,
+	failingCount: Schema.Number,
 }) {}
 
 export const GitFixFailingChecksRpc = Rpc.make("git.fixFailingChecks", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: GitFailingChecksArtifact,
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: GitFailingChecksArtifact,
+	error: GitErrors,
 });
 
 /**
@@ -443,87 +472,85 @@ export const GitFixFailingChecksRpc = Rpc.make("git.fixFailingChecks", {
  * Diff tab can wire a click to "open this file in the editor."
  */
 export const GitChangeKind = Schema.Literals([
-  "modified",
-  "added",
-  "deleted",
-  "renamed",
-  "copied",
-  "untracked",
-  "ignored",
-  "unmerged",
-  "type_changed",
+	"modified",
+	"added",
+	"deleted",
+	"renamed",
+	"copied",
+	"untracked",
+	"ignored",
+	"unmerged",
+	"type_changed",
 ]);
 export type GitChangeKind = typeof GitChangeKind.Type;
 
 export class GitChange extends Schema.Class<GitChange>("GitChange")({
-  path: Schema.String,
-  /**
-   * Original path for renamed / copied files (the location HEAD knew the
-   * file under). `null` for every other kind. Lets the renderer surface
-   * "old → new" so a move doesn't silently look like an unrelated edit.
-   */
-  oldPath: Schema.NullOr(Schema.String),
-  staged: Schema.Boolean,
-  kind: GitChangeKind,
+	path: Schema.String,
+	/**
+	 * Original path for renamed / copied files (the location HEAD knew the
+	 * file under). `null` for every other kind. Lets the renderer surface
+	 * "old → new" so a move doesn't silently look like an unrelated edit.
+	 */
+	oldPath: Schema.NullOr(Schema.String),
+	staged: Schema.Boolean,
+	kind: GitChangeKind,
 }) {}
 
 export const GitChangesRpc = Rpc.make("git.changes", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Array(GitChange),
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Array(GitChange),
+	error: GitErrors,
 });
 
 /** One file in the branch review range (merge-base through the worktree). */
-export class GitReviewFile extends Schema.Class<GitReviewFile>("GitReviewFile")({
-  path: Schema.String,
-  oldPath: Schema.NullOr(Schema.String),
-  kind: GitChangeKind,
-  additions: Schema.Number,
-  deletions: Schema.Number,
-  binary: Schema.Boolean,
-  conflict: Schema.Boolean,
-  hasUncommittedChanges: Schema.Boolean,
-}) {}
+export class GitReviewFile extends Schema.Class<GitReviewFile>("GitReviewFile")(
+	{
+		path: Schema.String,
+		oldPath: Schema.NullOr(Schema.String),
+		kind: GitChangeKind,
+		additions: Schema.Number,
+		deletions: Schema.Number,
+		binary: Schema.Boolean,
+		conflict: Schema.Boolean,
+		hasUncommittedChanges: Schema.Boolean,
+	},
+) {}
 
 /** Comparison range used by the multi-file reviewer. */
-export const GitReviewScope = Schema.Literals([
-  "unstaged",
-  "staged",
-  "branch",
-]);
+export const GitReviewScope = Schema.Literals(["unstaged", "staged", "branch"]);
 export type GitReviewScope = typeof GitReviewScope.Type;
 
 /** Stable comparison metadata used by the dock and the multi-file reviewer. */
 export class GitReviewSummary extends Schema.Class<GitReviewSummary>(
-  "GitReviewSummary",
+	"GitReviewSummary",
 )({
-  baseRef: Schema.NullOr(Schema.String),
-  headRef: Schema.NullOr(Schema.String).pipe(
-    Schema.withConstructorDefault(Effect.succeed(null)),
-    Schema.withDecodingDefaultType(Effect.succeed(null)),
-  ),
-  scope: GitReviewScope.pipe(
-    Schema.withConstructorDefault(Effect.succeed("branch" as const)),
-    Schema.withDecodingDefaultType(Effect.succeed("branch" as const)),
-  ),
-  baseSha: Schema.String,
-  headSha: Schema.String,
-  files: Schema.Array(GitReviewFile),
-  additions: Schema.Number,
-  deletions: Schema.Number,
+	baseRef: Schema.NullOr(Schema.String),
+	headRef: Schema.NullOr(Schema.String).pipe(
+		Schema.withConstructorDefault(Effect.succeed(null)),
+		Schema.withDecodingDefaultType(Effect.succeed(null)),
+	),
+	scope: GitReviewScope.pipe(
+		Schema.withConstructorDefault(Effect.succeed("branch" as const)),
+		Schema.withDecodingDefaultType(Effect.succeed("branch" as const)),
+	),
+	baseSha: Schema.String,
+	headSha: Schema.String,
+	files: Schema.Array(GitReviewFile),
+	additions: Schema.Number,
+	deletions: Schema.Number,
 }) {}
 
 export const GitReviewSummaryRpc = Rpc.make("git.reviewSummary", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    scope: Schema.optional(GitReviewScope),
-  }),
-  success: GitReviewSummary,
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		scope: Schema.optional(GitReviewScope),
+	}),
+	success: GitReviewSummary,
+	error: GitErrors,
 });
 
 /**
@@ -533,98 +560,168 @@ export const GitReviewSummaryRpc = Rpc.make("git.reviewSummary", {
  * tree but still in HEAD; `binary` and `unchanged` carry no patch text.
  */
 export const GitDiffMode = Schema.Literals([
-  "worktree",
-  "untracked",
-  "deleted",
-  "binary",
-  "unchanged",
+	"worktree",
+	"untracked",
+	"deleted",
+	"binary",
+	"unchanged",
 ]);
 export type GitDiffMode = typeof GitDiffMode.Type;
 
 export class GitDiffResult extends Schema.Class<GitDiffResult>("GitDiffResult")(
-  {
-    mode: GitDiffMode,
-    patch: Schema.String,
-    truncated: Schema.Boolean,
-    bytes: Schema.Number,
-  },
+	{
+		mode: GitDiffMode,
+		patch: Schema.String,
+		truncated: Schema.Boolean,
+		bytes: Schema.Number,
+	},
 ) {}
 
 export const GitDiffRpc = Rpc.make("git.diff", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    path: Schema.String,
-  }),
-  success: GitDiffResult,
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		path: Schema.String,
+	}),
+	success: GitDiffResult,
+	error: GitErrors,
 });
 
 export class GitReviewPatch extends Schema.Class<GitReviewPatch>(
-  "GitReviewPatch",
+	"GitReviewPatch",
 )({
-  path: Schema.String,
-  result: GitDiffResult,
-  error: Schema.NullOr(Schema.String),
+	path: Schema.String,
+	result: GitDiffResult,
+	error: Schema.NullOr(Schema.String),
 }) {}
 
 /** Streams complete per-file patches in review order for incremental rendering. */
 export const GitReviewPatchesRpc = Rpc.make("git.reviewPatches", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    scope: Schema.optional(GitReviewScope),
-  }),
-  success: GitReviewPatch,
-  error: GitErrors,
-  stream: true,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		scope: Schema.optional(GitReviewScope),
+	}),
+	success: GitReviewPatch,
+	error: GitErrors,
+	stream: true,
 });
 
 export class GitReviewFileContents extends Schema.Class<GitReviewFileContents>(
-  "GitReviewFileContents",
+	"GitReviewFileContents",
 )({
-  oldContent: Schema.NullOr(Schema.String),
-  newContent: Schema.NullOr(Schema.String),
-  mtime: Schema.NullOr(Schema.String),
+	oldContent: Schema.NullOr(Schema.String),
+	newContent: Schema.NullOr(Schema.String),
+	mtime: Schema.NullOr(Schema.String),
 }) {}
 
 /** Full text is fetched only when hunk expansion or inline editing needs it. */
 export const GitReviewFileContentsRpc = Rpc.make("git.reviewFileContents", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    path: Schema.String,
-    oldPath: Schema.optional(Schema.NullOr(Schema.String)),
-  }),
-  success: GitReviewFileContents,
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		path: Schema.String,
+		oldPath: Schema.optional(Schema.NullOr(Schema.String)),
+	}),
+	success: GitReviewFileContents,
+	error: GitErrors,
 });
 
 export const GitCommitRpc = Rpc.make("git.commit", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    message: Schema.String,
-    /**
-     * Explicit set of paths to commit. When provided (and non-empty), only
-     * these paths are staged + committed (`git add -- <paths>` then
-     * `git commit -m … -- <paths>`), so the Changes tab can let the user pick
-     * which files go into the commit. Omitted/empty falls back to the legacy
-     * "commit everything" behaviour (`git add -A`).
-     */
-    paths: Schema.optional(Schema.Array(Schema.String)),
-  }),
-  success: Schema.Struct({ sha: Schema.String }),
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		message: Schema.String,
+		/**
+		 * Explicit set of paths to commit. When provided (and non-empty), only
+		 * these paths are staged + committed (`git add -- <paths>` then
+		 * `git commit -m … -- <paths>`), so the Changes tab can let the user pick
+		 * which files go into the commit. Omitted/empty falls back to the legacy
+		 * "commit everything" behaviour (`git add -A`).
+		 */
+		paths: Schema.optional(Schema.Array(Schema.String)),
+	}),
+	success: Schema.Struct({ sha: Schema.String }),
+	error: GitErrors,
 });
 
 export const GitPushRpc = Rpc.make("git.push", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Struct({ output: Schema.String }),
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({ output: Schema.String }),
+	error: GitErrors,
+});
+
+export const GitPullRpc = Rpc.make("git.pull", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({ output: Schema.String }),
+	error: GitErrors,
+});
+
+export const GitStashRpc = Rpc.make("git.stash", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		message: Schema.optional(Schema.String),
+	}),
+	success: Schema.Struct({
+		created: Schema.Boolean,
+		output: Schema.String,
+	}),
+	error: GitErrors,
+});
+
+export const GitStashPopRpc = Rpc.make("git.stashPop", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({ output: Schema.String }),
+	error: GitErrors,
+});
+
+export class GitResetRemotePreview extends Schema.Class<GitResetRemotePreview>(
+	"GitResetRemotePreview",
+)({
+	branch: Schema.String,
+	remoteRef: Schema.String,
+	currentHead: Schema.String,
+	remoteHead: Schema.String,
+	worktreeFingerprint: Schema.String,
+	changedPaths: Schema.Array(Schema.String),
+	commitsToDiscard: Schema.Array(
+		Schema.Struct({
+			sha: Schema.String,
+			subject: Schema.String,
+		}),
+	),
+}) {}
+
+export const GitResetRemotePreviewRpc = Rpc.make("git.resetRemotePreview", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: GitResetRemotePreview,
+	error: GitResetErrors,
+});
+
+export const GitResetRemoteApplyRpc = Rpc.make("git.resetRemoteApply", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		expectedHead: Schema.String,
+		expectedRemoteHead: Schema.String,
+		expectedWorktreeFingerprint: Schema.String,
+		confirmationBranch: Schema.String,
+	}),
+	success: Schema.Struct({ head: Schema.String }),
+	error: GitResetErrors,
 });
 
 /**
@@ -633,14 +730,14 @@ export const GitPushRpc = Rpc.make("git.push", {
  * Backs the Changes tab's inline `@pierre/diffs` `UnresolvedFile` resolver.
  */
 export const GitResolveConflictRpc = Rpc.make("git.resolveConflict", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    path: Schema.String,
-    contents: Schema.String,
-  }),
-  success: Schema.Struct({}),
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		path: Schema.String,
+		contents: Schema.String,
+	}),
+	success: Schema.Struct({}),
+	error: GitErrors,
 });
 
 /**
@@ -661,27 +758,27 @@ export type GitMergeMethod = typeof GitMergeMethod.Type;
  * show e.g. "auto-merge is not allowed for this repository".
  */
 export const GitMergePrRpc = Rpc.make("git.mergePr", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    action: Schema.Literals(["merge", "enable-auto", "disable-auto"]),
-    method: GitMergeMethod,
-    deleteBranch: Schema.Boolean,
-  }),
-  success: Schema.Struct({ output: Schema.String }),
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		action: Schema.Literals(["merge", "enable-auto", "disable-auto"]),
+		method: GitMergeMethod,
+		deleteBranch: Schema.Boolean,
+	}),
+	success: Schema.Struct({ output: Schema.String }),
+	error: GitErrors,
 });
 
 /**
  * Mark a draft PR ready for review via `gh pr ready`. No agent involved.
  */
 export const GitMarkReadyRpc = Rpc.make("git.markReady", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Struct({ output: Schema.String }),
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({ output: Schema.String }),
+	error: GitErrors,
 });
 
 // Initialize a git repository in a project folder that doesn't have one yet.
@@ -689,11 +786,11 @@ export const GitMarkReadyRpc = Rpc.make("git.markReady", {
 // runs against the folder root (a worktree can't exist without a repo), so no
 // `worktreeId` here.
 export const GitInitRpc = Rpc.make("git.init", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-  }),
-  success: Schema.Struct({ branch: Schema.String }),
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+	}),
+	success: Schema.Struct({ branch: Schema.String }),
+	error: GitErrors,
 });
 
 /**
@@ -705,27 +802,27 @@ export const GitInitRpc = Rpc.make("git.init", {
  * without re-running `status`.
  */
 export const GitRevertFileRpc = Rpc.make("git.revertFile", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    path: Schema.String,
-    oldPath: Schema.optional(Schema.NullOr(Schema.String)),
-    kind: GitChangeKind,
-  }),
-  success: Schema.Struct({ reverted: Schema.Boolean }),
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		path: Schema.String,
+		oldPath: Schema.optional(Schema.NullOr(Schema.String)),
+		kind: GitChangeKind,
+	}),
+	success: Schema.Struct({ reverted: Schema.Boolean }),
+	error: GitErrors,
 });
 
 /** Restore one review entry to its merge-base state as a new worktree edit. */
 export const GitRestoreFileToBaseRpc = Rpc.make("git.restoreFileToBase", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    path: Schema.String,
-    oldPath: Schema.optional(Schema.NullOr(Schema.String)),
-  }),
-  success: Schema.Struct({ restored: Schema.Boolean }),
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		path: Schema.String,
+		oldPath: Schema.optional(Schema.NullOr(Schema.String)),
+	}),
+	success: Schema.Struct({ restored: Schema.Boolean }),
+	error: GitErrors,
 });
 
 /**
@@ -735,12 +832,12 @@ export const GitRestoreFileToBaseRpc = Rpc.make("git.restoreFileToBase", {
  * confirm dialog ("Revert all").
  */
 export const GitRevertAllRpc = Rpc.make("git.revertAll", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Struct({ reverted: Schema.Boolean }),
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({ reverted: Schema.Boolean }),
+	error: GitErrors,
 });
 
 /**
@@ -753,13 +850,13 @@ export const GitRevertAllRpc = Rpc.make("git.revertAll", {
  * no base, no commits, or no diff.
  */
 export const GitDiffStatRpc = Rpc.make("git.diffStat", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Struct({
-    additions: Schema.Number,
-    deletions: Schema.Number,
-  }),
-  error: GitErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({
+		additions: Schema.Number,
+		deletions: Schema.Number,
+	}),
+	error: GitErrors,
 });
