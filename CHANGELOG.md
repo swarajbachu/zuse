@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.6]
+
+### Changed
+- Fix integration auth and consolidate secure storage (#402)
+- Fix chat-scoped right pane state (#401)
+
 ## [0.15.5]
 
 ### Changed

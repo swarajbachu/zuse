@@ -1,5 +1,17 @@
 [
   {
+    "version": "0.15.6",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Fix integration auth and consolidate secure storage (#402)",
+          "Fix chat-scoped right pane state (#401)"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.15.5",
     "sections": [
       {
