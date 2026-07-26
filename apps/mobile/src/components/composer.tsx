@@ -7,7 +7,6 @@ import {
 import type { ComposerTrigger } from "@zuse/client-runtime/composer-trigger";
 import { containsComposerToken } from "@zuse/client-runtime/composer-trigger";
 import { chooseComposerSubmitRoute } from "@zuse/client-runtime/plan-interactions";
-import type { ConnectionStatus } from "@zuse/client-runtime/supervisor";
 import {
 	type FileRef,
 	Message,
@@ -44,6 +43,7 @@ import {
 	isInterruptVisible,
 	nextModelChangeActions,
 } from "~/lib/composer-state";
+import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { availableProviderIds } from "~/lib/model-options";
 import { connectionSessionKey } from "~/lib/session-key";
 import {
@@ -107,8 +107,6 @@ export const Composer = ({
 	status,
 	fresh,
 	online,
-	connectionStatus,
-	onRetryConnection,
 	onFocusChange,
 	onMessageAppendFailed,
 	onMessageWillAppend,
@@ -124,8 +122,6 @@ export const Composer = ({
 	status?: SessionStatus;
 	fresh: boolean;
 	online: boolean;
-	connectionStatus?: ConnectionStatus;
-	onRetryConnection?: () => void;
 	onFocusChange?: (focused: boolean) => void;
 	onMessageAppendFailed?: () => void;
 	onMessageWillAppend?: () => void;
@@ -252,7 +248,7 @@ export const Composer = ({
 		sheetOpen: modelSheetOpen,
 	});
 	const agentCount = currentActivity?.agents ?? 0;
-	const hasPills = !online || agentCount > 0 || contextUsagePercent !== null;
+	const hasPills = agentCount > 0 || contextUsagePercent !== null;
 	const finishSuccessfulSubmission = ({
 		dismissKeyboard,
 	}: {
@@ -492,25 +488,6 @@ export const Composer = ({
 		<View className="px-3 pt-2" style={{ paddingBottom: bottomInset ?? 12 }}>
 			{hasPills ? (
 				<View className="mb-2 flex-row flex-wrap items-center justify-center gap-2">
-					{!online ? (
-						<StatusPill
-							label={
-								connectionStatus === "error"
-									? "Connection unavailable · Retry"
-									: connectionStatus === "blockedAuth"
-										? "Sign in required"
-										: connectionStatus === "offline"
-											? "Offline"
-											: connectionStatus === "connecting"
-												? "Connecting"
-												: "Reconnecting"
-							}
-							tone={connectionStatus === "error" ? "danger" : "warning"}
-							onPress={
-								connectionStatus === "error" ? onRetryConnection : undefined
-							}
-						/>
-					) : null}
 					{agentCount > 0 ? (
 						<StatusPill
 							label={`${agentCount} ${agentCount === 1 ? "agent" : "agents"}`}
@@ -796,8 +773,7 @@ export const Composer = ({
 	);
 };
 
-const messageOf = (cause: unknown): string =>
-	cause instanceof Error ? cause.message : String(cause);
+const messageOf = (cause: unknown): string => connectionErrorMessage(cause);
 
 const SendButton = ({
 	showInterrupt,

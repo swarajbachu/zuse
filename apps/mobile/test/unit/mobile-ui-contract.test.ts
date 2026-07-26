@@ -515,9 +515,12 @@ describe("mobile UI contracts", () => {
 		for (const source of [home, sessions, thread]) {
 			expect(source).toContain("<ConnectionRecoveryBanner");
 		}
-		expect(recoveryBanner).toContain('className="h-9');
-		expect(recoveryBanner).toContain("hitSlop={4}");
-		expect(recoveryBanner).not.toContain("min-h-11");
+		expect(recoveryBanner).toContain('className="h-11');
+		expect(recoveryBanner).not.toContain("text-danger");
+		expect(thread.lastIndexOf("<ConnectionRecoveryBanner")).toBeGreaterThan(
+			thread.indexOf("<KeyboardStickyView"),
+		);
+		expect(thread).not.toContain("Connection unavailable · Retry");
 		const scanner = appFile("connect/scan.tsx");
 		expect(scanner).toContain("Try again");
 	});

@@ -24,4 +24,14 @@ describe("connection error message", () => {
 			"Relay is temporarily unavailable. Try again in a moment.",
 		);
 	});
+
+	test("does not expose native fetch implementation details", () => {
+		expect(
+			connectionErrorMessage(
+				new Error(
+					"fetch failed: UnexpectedException: Could not connect to the server. (at ExpoModulesCore/Promise.swift:56)",
+				),
+			),
+		).toBe("Your computer is unreachable. Messages will stay queued.");
+	});
 });
