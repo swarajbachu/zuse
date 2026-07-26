@@ -227,7 +227,10 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("const composerBottomInset = insets.bottom + 10");
 		expect(thread).toContain("bottom: -insets.bottom");
 		expect(thread).toContain("sharedValues={{ isNearEnd }}");
-		expect(thread).toContain("useAnimatedProps");
+		expect(thread).toContain(
+			'pointerEvents={jumpAccessible ? "box-none" : "none"}',
+		);
+		expect(thread).not.toContain("jumpAnimatedProps");
 		expect(thread).not.toContain("composerExpanded");
 		expect(thread).not.toContain("TRANSCRIPT_BOTTOM_GAP");
 		expect(thread).not.toContain("reportContentInset({ bottom })");
@@ -264,7 +267,7 @@ describe("mobile UI contracts", () => {
 		expect(threads).not.toContain('className="flex-1 bg-background"');
 	});
 
-	test("uses temporary send anchoring and a direct jump to the true end", () => {
+	test("uses temporary send anchoring and a committed jump to the true end", () => {
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
 		const composer = readFileSync(
 			`${process.cwd()}/src/components/composer.tsx`,
@@ -289,9 +292,13 @@ describe("mobile UI contracts", () => {
 		);
 		expect(thread).toContain("onReady: transcriptScroll.onAnchorReady");
 		expect(thread).not.toContain("anchorMaxSize");
-		expect(thread).not.toContain("transcriptScroll.requestJump()");
-		expect(thread).toContain("transcriptScroll.onFollowingRequested()");
-		expect(thread).toContain("scrollListToLatest(list");
+		expect(thread).toContain("transcriptScroll.requestJump()");
+		const jumpHandler = thread.slice(
+			thread.indexOf("const jumpToLatest = () => {"),
+			thread.indexOf("const onMessageWillAppend = () => {"),
+		);
+		expect(jumpHandler).not.toContain("setJumpAccessible(false)");
+		expect(jumpHandler).not.toContain("scrollListToLatest(list");
 		expect(composer.indexOf("onMessageWillAppend?.()")).toBeLessThan(
 			composer.indexOf("addOptimisticMessage("),
 		);
