@@ -260,7 +260,7 @@ describe("mobile UI contracts", () => {
 		expect(threads).not.toContain('className="flex-1 bg-background"');
 	});
 
-	test("anchors sent turns at the top and jumps to the true end", () => {
+	test("uses temporary send anchoring and a direct jump to the true end", () => {
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
 		const composer = readFileSync(
 			`${process.cwd()}/src/components/composer.tsx`,
@@ -272,9 +272,8 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("maintainScrollAtEndThreshold");
 		expect(thread).toContain("maintainVisibleContentPosition");
 		expect(thread).toContain("anchoredEndSpace");
-		expect(thread).toContain(
-			"anchorIndex: activeAnchorIndex ?? turns.length - 1",
-		);
+		expect(thread).toContain("transcriptScroll.anchorIndex === null");
+		expect(thread).toContain("anchorIndex: transcriptScroll.anchorIndex");
 		expect(thread).not.toContain("settledRunwayHeight");
 		expect(thread).toContain("footerLayout: false");
 		expect(thread).toContain("scrollMessageToEnd");
@@ -286,7 +285,8 @@ describe("mobile UI contracts", () => {
 		);
 		expect(thread).toContain("onReady: transcriptScroll.onAnchorReady");
 		expect(thread).not.toContain("anchorMaxSize");
-		expect(thread).toContain("transcriptScroll.requestJump()");
+		expect(thread).not.toContain("transcriptScroll.requestJump()");
+		expect(thread).toContain("transcriptScroll.onFollowingRequested()");
 		expect(thread).toContain("scrollListToLatest(list");
 		expect(composer.indexOf("onMessageWillAppend?.()")).toBeLessThan(
 			composer.indexOf("addOptimisticMessage("),

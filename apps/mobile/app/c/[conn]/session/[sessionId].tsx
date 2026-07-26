@@ -111,6 +111,7 @@ import {
 } from "~/store/goals";
 import {
 	deleteQueuedMessage,
+	hydrateMessages,
 	refreshMessages,
 	releaseMessages,
 	reorderQueuedMessages,
@@ -239,23 +240,6 @@ function ThreadScreen() {
 	const serverQueued = useAtomValue(sessionQueueAtom(stateKey));
 	const serverQueuePaused = useAtomValue(sessionQueuePausedAtom(stateKey));
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
-	const contextUsagePercent = useMemo(() => {
-		for (let index = messages.length - 1; index >= 0; index -= 1) {
-			const content = messages[index]?.content;
-			if (
-				content?._tag === "context_usage" &&
-				content.usedTokens !== null &&
-				content.windowTokens !== null &&
-				content.windowTokens > 0
-			) {
-				return Math.max(
-					0,
-					Math.min(100, (content.usedTokens / content.windowTokens) * 100),
-				);
-			}
-		}
-		return null;
-	}, [messages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
 	// Computed here (not in the composer) so keystrokes never touch it and the
 	// composer needs no subscription to the message store.
@@ -355,9 +339,11 @@ function ThreadScreen() {
 	]);
 
 	useEffect(() => {
-		void connectionSnapshot?.generation;
 		if (normalizedSessionId.length > 0 && options !== null) {
-			void refreshMessages(connKey, options, normalizedSessionId);
+			// Paint the retained in-memory projection or disk snapshot first.
+			// Replacing the stream on every screen mount makes thread switching
+			// blank and needlessly replays the entire transcript.
+			void hydrateMessages(connKey, options, normalizedSessionId);
 			void hydrateGoal(connKey, options, normalizedSessionId);
 			void hydrateOutbox(connKey, normalizedSessionId);
 		}
@@ -366,6 +352,25 @@ function ThreadScreen() {
 			void releaseMessages(connKey, normalizedSessionId);
 			void releaseGoal(connKey, normalizedSessionId);
 		};
+	}, [connKey, normalizedSessionId, options]);
+
+	const observedConnectionGenerationRef = useRef<number | null>(null);
+	useEffect(() => {
+		const generation = connectionSnapshot?.generation;
+		if (generation === undefined) return;
+		const previous = observedConnectionGenerationRef.current;
+		observedConnectionGenerationRef.current = generation;
+		if (
+			previous === null ||
+			previous === generation ||
+			normalizedSessionId.length === 0 ||
+			options === null
+		) {
+			return;
+		}
+		// A real transport replacement invalidates the old stream. This is the
+		// only screen lifecycle event that should force an authoritative replay.
+		void refreshMessages(connKey, options, normalizedSessionId);
 	}, [connKey, connectionSnapshot?.generation, normalizedSessionId, options]);
 
 	useEffect(() => {
@@ -702,9 +707,18 @@ function ThreadScreen() {
 	const jumpToLatest = () => {
 		if (turns.length === 0) return;
 		preAppendUiRef.current = null;
-		transcriptScroll.requestJump();
+		transcriptScroll.onFollowingRequested();
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
+		setJumpAccessible(false);
+		const list = listRef.current;
+		if (list === null) {
+			setJumpAccessible(true);
+			return;
+		}
+		void scrollListToLatest(list, { animated: !reduceMotion }).catch(() => {
+			setJumpAccessible(true);
+		});
 	};
 	const onMessageWillAppend = () => {
 		preAppendUiRef.current = {
@@ -745,18 +759,13 @@ function ThreadScreen() {
 		);
 		onComposerLayout(event);
 	};
-	const activeAnchorIndex = transcriptScroll.anchorIndex;
 	const anchoredEndSpace =
-		turns.length === 0
+		transcriptScroll.anchorIndex === null
 			? undefined
 			: {
-					// Retain LegendList's measured runway after settlement. It
-					// accounts for the turn's real height and stops below the header.
-					anchorIndex: activeAnchorIndex ?? turns.length - 1,
+					anchorIndex: transcriptScroll.anchorIndex,
 					anchorOffset: headerHeight + 12,
-					...(activeAnchorIndex === null
-						? {}
-						: { onReady: transcriptScroll.onAnchorReady }),
+					onReady: transcriptScroll.onAnchorReady,
 				};
 
 	const onRenameChat = () => {
@@ -1163,7 +1172,7 @@ function ThreadScreen() {
 						) : null
 					}
 					ListFooterComponent={
-						<View style={{ paddingTop: 4 }}>
+						<View style={{ paddingTop: 4, paddingBottom: 12 }}>
 							{workingActive ? <WorkingIndicator since={workingSince} /> : null}
 						</View>
 					}
@@ -1395,6 +1404,23 @@ function ThreadScreen() {
 								online={transportOnline}
 								onMessageAppendFailed={onMessageAppendFailed}
 								onMessageWillAppend={onMessageWillAppend}
+								onFocusChange={(focused) => {
+									if (
+										!focused ||
+										transcriptScroll.readerDetached ||
+										listRef.current === null
+									) {
+										return;
+									}
+									requestAnimationFrame(() => {
+										const list = listRef.current;
+										if (list !== null) {
+											void scrollListToLatest(list, {
+												animated: !reduceMotion,
+											});
+										}
+									});
+								}}
 								currentActivity={
 									turnActivity === "running" ? composerActivity : null
 								}
@@ -1403,7 +1429,6 @@ function ThreadScreen() {
 									connectionRecord,
 									"voice-account-transcription-v1",
 								)}
-								contextUsagePercent={contextUsagePercent}
 							/>
 						</View>
 					)}

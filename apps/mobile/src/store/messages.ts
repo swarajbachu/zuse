@@ -5,6 +5,7 @@ import {
 	type MessageId,
 	type QueuedMessage,
 	SessionId,
+	SessionTimelineProjection,
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { Atom } from "effect/unstable/reactivity";
@@ -260,7 +261,35 @@ export const hydrateMessages = async (
 		try {
 			const client = await Effect.runPromise(getConnectionClient(options));
 			if (hydrationGeneration.get(liveKey) !== generation) return;
-			const retained = timelineRegistry.state(SessionId.make(liveKey));
+			// Reconcile the cached event projection with the authoritative message
+			// table before resuming by stream version. This repairs older snapshots
+			// that advanced their cursor while missing persisted rows.
+			const listed = await Effect.runPromise(
+				client["messages.list"]({ sessionId }),
+			);
+			if (hydrationGeneration.get(liveKey) !== generation) return;
+			let retained = timelineRegistry.state(SessionId.make(liveKey));
+			if (retained.projection !== null) {
+				const projection = SessionTimelineProjection.make({
+					...retained.projection,
+					messages: listed,
+				});
+				timelineRegistry.delete(SessionId.make(liveKey));
+				timelineRegistry.restore(
+					SessionId.make(liveKey),
+					projection,
+					retained.appliedVersion,
+				);
+				retained = timelineRegistry.state(SessionId.make(liveKey));
+			}
+			const listedIds = new Set(listed.map((message) => message.id));
+			patchMessages(liveKey, [
+				...listed,
+				...(appAtomRegistry.get(messagesBySessionAtom)[liveKey] ?? []).filter(
+					(message) =>
+						optimisticIds.has(message.id) && !listedIds.has(message.id),
+				),
+			]);
 			let fiber: Fiber.Fiber<unknown, unknown>;
 			const streamProgram = Stream.runForEach(
 				client["session.events"]({

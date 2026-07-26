@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	hydrateMessages,
 	refreshMessages,
+	releaseMessages,
 	resetMessagesRuntime,
 } from "../../../src/store/messages";
 
@@ -11,6 +12,7 @@ const runtime = vi.hoisted(() => ({
 		| ((state: "active" | "background" | "inactive") => void)
 		| undefined,
 	clientRequests: 0,
+	listRequests: 0,
 	streamFails: false,
 	streamCompletes: false,
 	reportedFailures: 0,
@@ -40,7 +42,10 @@ vi.mock("~/rpc/connection", () => ({
 		Effect.sync(() => {
 			runtime.clientRequests += 1;
 			return {
-				"messages.list": () => Effect.succeed([]),
+				"messages.list": () => {
+					runtime.listRequests += 1;
+					return Effect.succeed([]);
+				},
 				"session.events": () =>
 					runtime.streamFails
 						? Stream.fail(new Error("stream disconnected"))
@@ -61,6 +66,7 @@ describe("message stream lifecycle", () => {
 	beforeEach(async () => {
 		await resetMessagesRuntime();
 		runtime.clientRequests = 0;
+		runtime.listRequests = 0;
 		runtime.streamFails = false;
 		runtime.streamCompletes = false;
 		runtime.reportedFailures = 0;
@@ -108,5 +114,22 @@ describe("message stream lifecycle", () => {
 
 		expect(runtime.clientRequests).toBe(2);
 		expect(runtime.reportedFailures).toBe(0);
+	});
+
+	test("returning to a recently opened transcript reuses its warm stream", async () => {
+		await hydrateMessages("conn", options, sessionId);
+		expect(runtime.clientRequests).toBe(1);
+
+		await releaseMessages("conn", sessionId);
+		await hydrateMessages("conn", options, sessionId);
+
+		expect(runtime.clientRequests).toBe(1);
+		expect(runtime.reportedFailures).toBe(0);
+	});
+
+	test("cold hydration reconciles persisted messages before streaming", async () => {
+		await hydrateMessages("conn", options, sessionId);
+
+		expect(runtime.listRequests).toBe(1);
 	});
 });
