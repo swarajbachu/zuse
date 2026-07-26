@@ -3,7 +3,7 @@ import Photos
 import QuickLook
 import UIKit
 
-public final class ZuseMobilePlatformModule: Module {
+public final class ZuseMobilePlatformModule: Module, @unchecked Sendable {
   private var quickLookCoordinator: ZuseQuickLookCoordinator?
   private var backgroundTasks: [Int: UIBackgroundTaskIdentifier] = [:]
   private var nextBackgroundTaskId = 1
@@ -15,14 +15,17 @@ public final class ZuseMobilePlatformModule: Module {
       await MainActor.run {
         let id = self.nextBackgroundTaskId
         self.nextBackgroundTaskId += 1
-        var task = UIBackgroundTaskIdentifier.invalid
-        task = UIApplication.shared.beginBackgroundTask(
+        let task = UIApplication.shared.beginBackgroundTask(
           withName: "Voice transcription"
-        ) {
-          if task != .invalid {
+        ) { [weak self] in
+          DispatchQueue.main.async { [weak self] in
+            guard
+              let task = self?.backgroundTasks.removeValue(forKey: id)
+            else {
+              return
+            }
             UIApplication.shared.endBackgroundTask(task)
           }
-          self.backgroundTasks.removeValue(forKey: id)
         }
         if task != .invalid {
           self.backgroundTasks[id] = task

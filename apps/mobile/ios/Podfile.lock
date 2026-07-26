@@ -1,5 +1,5 @@
 PODS:
-  - EXApplication (57.0.1):
+  - EXApplication (57.0.2):
     - ExpoModulesCore
   - EXConstants (57.0.5):
     - ExpoModulesCore
@@ -182,6 +182,8 @@ PODS:
     - Yoga
   - ExpoAsset (57.0.5):
     - ExpoModulesCore
+  - ExpoAudio (57.0.3):
+    - ExpoModulesCore
   - ExpoCamera (57.0.2):
     - ExpoModulesCore
   - ExpoCameraBarcodeScanning (57.0.2):
@@ -209,6 +211,8 @@ PODS:
   - ExpoKeepAwake (57.0.1):
     - ExpoModulesCore
   - ExpoLinking (57.0.3):
+    - ExpoModulesCore
+  - ExpoLocalization (57.0.1):
     - ExpoModulesCore
   - ExpoLogBox (57.0.1):
     - React-Core
@@ -252,6 +256,29 @@ PODS:
   - ExpoRouter (57.0.6):
     - ExpoModulesCore
     - RNScreens
+  - ExpoScreenOrientation (57.0.1):
+    - ExpoModulesCore
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - ExpoSecureStore (57.0.1):
     - ExpoModulesCore
   - ExpoSymbols (57.0.1):
@@ -1852,6 +1879,28 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - react-native-webview (13.16.1):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - React-NativeModulesApple (0.86.0):
     - hermes-engine
     - React-callinvoker
@@ -2558,6 +2607,10 @@ PODS:
   - Yoga (0.0.0)
   - ZuseLocalConnectivity (1.0.0):
     - ExpoModulesCore
+  - ZuseMobilePlatform (1.0.0):
+    - ExpoModulesCore
+  - ZuseMobileTerminal (1.0.0):
+    - ExpoModulesCore
 
 DEPENDENCIES:
   - EXApplication (from `../../../node_modules/expo-application/ios`)
@@ -2570,6 +2623,7 @@ DEPENDENCIES:
   - expo-dev-menu (from `../../../node_modules/expo-dev-menu`)
   - expo-dev-menu-interface (from `../../../node_modules/expo-dev-menu-interface/ios`)
   - ExpoAsset (from `../../../node_modules/expo-asset/ios`)
+  - ExpoAudio (from `../../../node_modules/expo-audio/ios`)
   - ExpoCamera (from `../../../node_modules/expo-camera/ios/ExpoCamera.podspec`)
   - ExpoCameraBarcodeScanning (from `../../../node_modules/expo-camera/ios/ExpoCameraBarcodeScanning.podspec`)
   - ExpoClipboard (from `../../../node_modules/expo-clipboard/ios`)
@@ -2584,6 +2638,7 @@ DEPENDENCIES:
   - ExpoImagePicker (from `../../../node_modules/expo-image-picker/ios`)
   - ExpoKeepAwake (from `../../../node_modules/expo-keep-awake/ios`)
   - ExpoLinking (from `../../../node_modules/expo-linking/ios`)
+  - ExpoLocalization (from `../../../node_modules/expo-localization/ios`)
   - "ExpoLogBox (from `../../../node_modules/@expo/log-box`)"
   - ExpoModulesCore (from `../../../node_modules/expo-modules-core/ExpoModulesCore.podspec`)
   - ExpoModulesJSI (from `../../../node_modules/expo-modules-jsi/apple`)
@@ -2591,6 +2646,7 @@ DEPENDENCIES:
   - ExpoModulesWorkletsAdapter (from `../../../node_modules/expo-modules-core`)
   - ExpoNotifications (from `../../../node_modules/expo-notifications/ios`)
   - ExpoRouter (from `../../../node_modules/expo-router/ios`)
+  - ExpoScreenOrientation (from `../../../node_modules/expo-screen-orientation/ios`)
   - ExpoSecureStore (from `../../../node_modules/expo-secure-store/ios`)
   - ExpoSymbols (from `../../../node_modules/expo-symbols/ios`)
   - "ExpoUI (from `../../../node_modules/@expo/ui/ios`)"
@@ -2640,6 +2696,7 @@ DEPENDENCIES:
   - react-native-quick-base64 (from `../../../node_modules/react-native-quick-base64`)
   - react-native-quick-crypto (from `../../../node_modules/react-native-quick-crypto`)
   - react-native-safe-area-context (from `../../../node_modules/react-native-safe-area-context`)
+  - react-native-webview (from `../../../node_modules/react-native-webview`)
   - React-NativeModulesApple (from `../../../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
   - React-networking (from `../../../node_modules/react-native/ReactCommon/react/networking`)
   - React-oscompat (from `../../../node_modules/react-native/ReactCommon/oscompat`)
@@ -2683,6 +2740,8 @@ DEPENDENCIES:
   - RNWorklets (from `../../../node_modules/react-native-worklets`)
   - Yoga (from `../../../node_modules/react-native/ReactCommon/yoga`)
   - ZuseLocalConnectivity (from `../modules/local-connectivity/ios`)
+  - ZuseMobilePlatform (from `../modules/mobile-platform/ios`)
+  - ZuseMobileTerminal (from `../modules/mobile-terminal/ios`)
 
 SPEC REPOS:
   trunk:
@@ -2709,6 +2768,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/expo-dev-menu-interface/ios"
   ExpoAsset:
     :path: "../../../node_modules/expo-asset/ios"
+  ExpoAudio:
+    :path: "../../../node_modules/expo-audio/ios"
   ExpoCamera:
     :podspec: "../../../node_modules/expo-camera/ios/ExpoCamera.podspec"
   ExpoCameraBarcodeScanning:
@@ -2737,6 +2798,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/expo-keep-awake/ios"
   ExpoLinking:
     :path: "../../../node_modules/expo-linking/ios"
+  ExpoLocalization:
+    :path: "../../../node_modules/expo-localization/ios"
   ExpoLogBox:
     :path: "../../../node_modules/@expo/log-box"
   ExpoModulesCore:
@@ -2751,6 +2814,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/expo-notifications/ios"
   ExpoRouter:
     :path: "../../../node_modules/expo-router/ios"
+  ExpoScreenOrientation:
+    :path: "../../../node_modules/expo-screen-orientation/ios"
   ExpoSecureStore:
     :path: "../../../node_modules/expo-secure-store/ios"
   ExpoSymbols:
@@ -2848,6 +2913,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/react-native-quick-crypto"
   react-native-safe-area-context:
     :path: "../../../node_modules/react-native-safe-area-context"
+  react-native-webview:
+    :path: "../../../node_modules/react-native-webview"
   React-NativeModulesApple:
     :path: "../../../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios"
   React-networking:
@@ -2934,9 +3001,13 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/react-native/ReactCommon/yoga"
   ZuseLocalConnectivity:
     :path: "../modules/local-connectivity/ios"
+  ZuseMobilePlatform:
+    :path: "../modules/mobile-platform/ios"
+  ZuseMobileTerminal:
+    :path: "../modules/mobile-terminal/ios"
 
 SPEC CHECKSUMS:
-  EXApplication: 7c453f04a11df858ebe42e05aa858da4e7a32f77
+  EXApplication: bbd517d50878ca1d121fb3843392beb210181e28
   EXConstants: 12c2e6c69e21f3469f78f102072320fef2af46e3
   EXJSONUtils: 7a1683cfa2cbe6d11fca97097d51a496755b0287
   EXManifests: f9888c0bf5aaa6ddb7e3d4b224d6d54ac4ca84a4
@@ -2946,6 +3017,7 @@ SPEC CHECKSUMS:
   expo-dev-menu: f76b2f016892b2659c85ad84bc6ed573e809d381
   expo-dev-menu-interface: 7a59e803916fbfd1b96c75ff91ea8dddac7e722f
   ExpoAsset: 05797403b7ab18f56ea9ab1026ef8475f8457ed4
+  ExpoAudio: b69f36525132edba8d87a715b3a20c678ef78b30
   ExpoCamera: 53ac7eb0a13e6b8eb0f65d48ac0568457ffda8e4
   ExpoCameraBarcodeScanning: 1e39ba647f7360870fa6cec2cc5863acd362f74a
   ExpoClipboard: 95055b11758f339b61d4d8064dd799df1cf03b7f
@@ -2960,20 +3032,22 @@ SPEC CHECKSUMS:
   ExpoImagePicker: 09d89edec1232a30c36014069c92391ee863f8c7
   ExpoKeepAwake: c26f14275017370cc8a4b7b43a0e23361f2053a5
   ExpoLinking: b823a14b4ec436e3a6d947b72da6d4020e790515
+  ExpoLocalization: 659243b03b3a3e9589793cee2f728a899e181329
   ExpoLogBox: 8a3cfa2897e088083cd49fc1ff7fdb2de4385547
-  ExpoModulesCore: 6dccf97dc06cf4771abba5615840ac8b905e9be6
+  ExpoModulesCore: 65f3290078bd35580fc923288e65674a416dedf9
   ExpoModulesJSI: 4b5d68bf019c251c2c8b7246aa36306dc381fe7f
   ExpoModulesWorklets: 18419b65da3b14a8df484baccec7dd6dad15387a
   ExpoModulesWorkletsAdapter: f01c9ff0ac77071ae2a89a5f5778cbf7c1115221
   ExpoNotifications: d83dd6ab7300ee20d4012bef2b840f246c602328
   ExpoRouter: 4f2ffaa0520703446edf643ee35b1ac1c11c65f9
+  ExpoScreenOrientation: 17fd81b2bdb7615b4b540335673aaf98a358281f
   ExpoSecureStore: 94793113049a2d7478dfe1a13aa15081e9f61755
   ExpoSymbols: 7c7c7bd3c52f0b6dcbba6e8af4088b0dc1ea7d29
   ExpoUI: d8760712c07860ee5cdf93c78279c857668a40bc
   ExpoWebBrowser: 2a3445af48b78130a1d570616c83692e9a3d0275
   EXUpdatesInterface: 92d2aa5194b6fb93ca8ab749db75665cb28b2e60
   FBLazyVector: b3e7ad108f0d882e30445c5527d774e3fd432f3d
-  hermes-engine: 7a0b96d3e4e0fd04bc81b7b6e5753b38ff803b83
+  hermes-engine: d762d5d219069c21396bf0381f27d991ce0086d6
   OpenSSL-Universal: ecee7b138fa75a74ecf00d7ffd248fb584739b9e
   RCTDeprecation: 2a74a2c57675e64419bd89078efde81f7c1de90b
   RCTRequired: 30451112e6fef4e6f31b4e7eee0845156e35e4b0
@@ -3016,6 +3090,7 @@ SPEC CHECKSUMS:
   react-native-quick-base64: 53393ee5ea472a7486e6652ad3d7a640ebf6ebda
   react-native-quick-crypto: 4cda9f23b60fa731cae94007a3569a6a0443dc41
   react-native-safe-area-context: 6b4966397ada0f7dd481e4486a2ef936834861a1
+  react-native-webview: 2da09bdea1aeb6c46e27dd94632e21059cade6c1
   React-NativeModulesApple: a092d89b58f635ebfab88048b0eda9fb516819fd
   React-networking: 968bbbe73590149feb1e72b2af4f6a68e4796ece
   React-oscompat: 0b72a7e926954a0415ccd83e0748b6561fe45367
@@ -3059,6 +3134,8 @@ SPEC CHECKSUMS:
   RNWorklets: e539c59f0fe8cee9a77989b7fb20d0cd7fb0e7d8
   Yoga: fe50ab299e578f397fef753cf309c6703a4db29b
   ZuseLocalConnectivity: fef64e7a2c5177941f3c1d6175a5c3314aa9f58e
+  ZuseMobilePlatform: 712129d46746082e4a10db1eb40babb16f70e3a0
+  ZuseMobileTerminal: 729d32d0f681e8a76c25c53a3ae766ee3aed7975
 
 PODFILE CHECKSUM: 500ef5fd3ab9c8c1dd690e55ce780036d6114379
 
