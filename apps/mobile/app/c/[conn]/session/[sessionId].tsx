@@ -42,11 +42,8 @@ import {
 	KeyboardStickyView,
 } from "react-native-keyboard-controller";
 import Animated, {
-	useAnimatedProps,
-	useAnimatedStyle,
 	useReducedMotion,
 	useSharedValue,
-	withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUniwind } from "uniwind";
@@ -734,18 +731,9 @@ function ThreadScreen() {
 	const jumpToLatest = () => {
 		if (turns.length === 0) return;
 		preAppendUiRef.current = null;
-		transcriptScroll.onFollowingRequested();
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
-		setJumpAccessible(false);
-		const list = listRef.current;
-		if (list === null) {
-			setJumpAccessible(true);
-			return;
-		}
-		void scrollListToLatest(list, { animated: !reduceMotion }).catch(() => {
-			setJumpAccessible(true);
-		});
+		transcriptScroll.requestJump();
 	};
 	const onMessageWillAppend = () => {
 		preAppendUiRef.current = {
@@ -771,14 +759,6 @@ function ThreadScreen() {
 	useEffect(() => {
 		if (turnActivity === "idle") settleTranscriptTurn();
 	}, [settleTranscriptTurn, turnActivity]);
-	const jumpStyle = useAnimatedStyle(() => ({
-		opacity: withTiming(isNearEnd.value ? 0 : 1, {
-			duration: reduceMotion ? 0 : 160,
-		}),
-	}));
-	const jumpAnimatedProps = useAnimatedProps(() => ({
-		pointerEvents: isNearEnd.value ? ("none" as const) : ("box-none" as const),
-	}));
 	const onBottomAccessoryLayout = (event: LayoutChangeEvent) => {
 		const nextHeight = event.nativeEvent.layout.height;
 		setBottomAccessoryHeight((current) =>
@@ -1245,19 +1225,19 @@ function ThreadScreen() {
 				offset={{ closed: 0, opened: insets.bottom }}
 			>
 				<Animated.View
-					animatedProps={jumpAnimatedProps}
+					pointerEvents={jumpAccessible ? "box-none" : "none"}
 					accessibilityElementsHidden={!jumpAccessible}
 					importantForAccessibility={
 						jumpAccessible ? "auto" : "no-hide-descendants"
 					}
 					style={[
-						jumpStyle,
 						{
 							position: "absolute",
 							left: 0,
 							right: 0,
 							bottom: bottomAccessoryHeight + 8,
 							alignItems: "center",
+							opacity: jumpAccessible ? 1 : 0,
 						},
 					]}
 				>
