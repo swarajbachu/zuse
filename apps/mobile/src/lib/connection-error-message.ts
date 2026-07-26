@@ -40,6 +40,12 @@ export const connectionErrorMessage = (cause: unknown): string => {
 		return "Could not connect to that computer.";
 	}
 	if (
+		text.includes("fetch failed") ||
+		text.includes("Could not connect to the server")
+	) {
+		return "Your computer is unreachable. Messages will stay queued.";
+	}
+	if (
 		text.includes("SocketOpenError") ||
 		text.includes('timeout waiting for "open"')
 	) {
