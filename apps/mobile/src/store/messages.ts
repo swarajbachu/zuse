@@ -445,10 +445,14 @@ const messageOf = (cause: unknown): string =>
 
 export const addOptimisticMessage = (key: string, message: Message): void => {
 	optimisticIds.add(message.id);
-	appAtomRegistry.update(messagesBySessionAtom, (state) => ({
-		...state,
-		[key]: [...(state[key] ?? []), message].slice(-500),
-	}));
+	appAtomRegistry.update(messagesBySessionAtom, (state) => {
+		const current = state[key] ?? [];
+		if (current.some((item) => item.id === message.id)) return state;
+		return {
+			...state,
+			[key]: [...current, message].slice(-500),
+		};
+	});
 };
 
 export const removeOptimisticMessage = (

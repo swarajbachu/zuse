@@ -43,6 +43,7 @@ import {
 	isInterruptVisible,
 	nextModelChangeActions,
 } from "~/lib/composer-state";
+import { createComposerSubmitGate } from "~/lib/composer-submit-gate";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { availableProviderIds } from "~/lib/model-options";
 import { connectionSessionKey } from "~/lib/session-key";
@@ -134,6 +135,7 @@ export const Composer = ({
 	// Compiler's rules; the initializer runs once per mount (keyed by stateKey).
 	const [initialDraft] = useState(() => composerDraft(stateKey));
 	const inputRef = useRef<ComposerTextInputHandle>(null);
+	const submitGateRef = useRef(createComposerSubmitGate());
 	const [hydratedText, setHydratedText] = useState(initialDraft.text);
 	const [draftHydrated, setDraftHydrated] = useState(false);
 	const [hasText, setHasText] = useState(initialDraft.text.trim().length > 0);
@@ -263,7 +265,7 @@ export const Composer = ({
 		if (dismissKeyboard) Keyboard.dismiss();
 	};
 
-	const submit = async () => {
+	const performSubmit = async () => {
 		if (!canSend) return;
 		const value = (inputRef.current?.getText() ?? "").trim();
 		if (value.length === 0 && attachments.length === 0) return;
@@ -361,6 +363,9 @@ export const Composer = ({
 		} finally {
 			setBusy(false);
 		}
+	};
+	const submit = () => {
+		void submitGateRef.current.tryRun(performSubmit);
 	};
 
 	const removeToken = (token: string) => {
