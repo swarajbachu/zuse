@@ -136,16 +136,20 @@ export const AttachmentServiceLive = Layer.effect(
 			});
 
 		interface AttachmentMetaRow {
+			readonly session_id: string;
 			readonly mime_type: string;
 			readonly original_name: string;
+			readonly size_bytes: number;
 			readonly abs_path: string | null;
 		}
 
-		const resolveAttachmentPath = (id: string) =>
+		const resolveAttachmentPath = (id: string, sessionId?: string) =>
 			Effect.gen(function* () {
 				const rows = yield* sql<AttachmentMetaRow>`
-          SELECT mime_type, original_name, abs_path
-          FROM attachments WHERE id = ${id}
+          SELECT session_id, mime_type, original_name, size_bytes, abs_path
+          FROM attachments
+          WHERE id = ${id}
+            AND (${sessionId ?? null} IS NULL OR session_id = ${sessionId ?? null})
         `.pipe(
 					Effect.orElseSucceed(() => [] as ReadonlyArray<AttachmentMetaRow>),
 				);
@@ -159,19 +163,39 @@ export const AttachmentServiceLive = Layer.effect(
 						legacyDir,
 						blobFilename(id, extForUpload(row.mime_type, row.original_name)),
 					);
-				return { absPath, mimeType: row.mime_type };
+				return {
+					absPath,
+					mimeType: row.mime_type,
+					originalName: row.original_name,
+					sizeBytes: row.size_bytes,
+				};
 			});
 
-		const read: AttachmentServiceShape["read"] = (id) =>
+		const readResolved = (id: string, sessionId?: string) =>
 			Effect.gen(function* () {
-				const resolved = yield* resolveAttachmentPath(id);
+				const resolved = yield* resolveAttachmentPath(id, sessionId);
 				if (resolved === null) return null;
 				const bytes = yield* fs
 					.readFile(resolved.absPath)
 					.pipe(Effect.orElseSucceed(() => null));
 				if (bytes === null) return null;
-				return { bytes, mimeType: resolved.mimeType };
+				return {
+					bytes,
+					mimeType: resolved.mimeType,
+					originalName: resolved.originalName,
+					sizeBytes: resolved.sizeBytes,
+				};
 			});
+
+		const read: AttachmentServiceShape["read"] = (id) =>
+			Effect.map(readResolved(id), (resolved) =>
+				resolved === null
+					? null
+					: { bytes: resolved.bytes, mimeType: resolved.mimeType },
+			);
+
+		const readForSession = (sessionId: string, id: string) =>
+			readResolved(id, sessionId);
 
 		const readPath: AttachmentServiceShape["readPath"] = (id) =>
 			Effect.gen(function* () {
@@ -188,6 +212,7 @@ export const AttachmentServiceLive = Layer.effect(
 			upload,
 			saveText,
 			read,
+			readForSession,
 			readPath,
 		} satisfies AttachmentServiceShape;
 	}),

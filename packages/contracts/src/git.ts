@@ -54,11 +54,36 @@ export class GitFolderNotFoundError extends Schema.TaggedErrorClass<GitFolderNot
 	{ folderId: FolderId },
 ) {}
 
+export class GitStalePreviewError extends Schema.TaggedErrorClass<GitStalePreviewError>()(
+	"GitStalePreviewError",
+	{
+		folderId: FolderId,
+		reason: Schema.String,
+	},
+) {}
+
+export class GitConfirmationError extends Schema.TaggedErrorClass<GitConfirmationError>()(
+	"GitConfirmationError",
+	{
+		folderId: FolderId,
+		expectedBranch: Schema.String,
+	},
+) {}
+
 const GitErrors = Schema.Union([
 	GitNotARepoError,
 	GitNotInstalledError,
 	GitCommandError,
 	GitFolderNotFoundError,
+]);
+
+const GitResetErrors = Schema.Union([
+	GitNotARepoError,
+	GitNotInstalledError,
+	GitCommandError,
+	GitFolderNotFoundError,
+	GitStalePreviewError,
+	GitConfirmationError,
 ]);
 
 export const GitLogRpc = Rpc.make("git.log", {
@@ -681,6 +706,76 @@ export const GitPushRpc = Rpc.make("git.push", {
 	}),
 	success: Schema.Struct({ output: Schema.String }),
 	error: GitErrors,
+});
+
+export const GitPullRpc = Rpc.make("git.pull", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({ output: Schema.String }),
+	error: GitErrors,
+});
+
+export const GitStashRpc = Rpc.make("git.stash", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		message: Schema.optional(Schema.String),
+	}),
+	success: Schema.Struct({
+		created: Schema.Boolean,
+		output: Schema.String,
+	}),
+	error: GitErrors,
+});
+
+export const GitStashPopRpc = Rpc.make("git.stashPop", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({ output: Schema.String }),
+	error: GitErrors,
+});
+
+export class GitResetRemotePreview extends Schema.Class<GitResetRemotePreview>(
+	"GitResetRemotePreview",
+)({
+	branch: Schema.String,
+	remoteRef: Schema.String,
+	currentHead: Schema.String,
+	remoteHead: Schema.String,
+	worktreeFingerprint: Schema.String,
+	changedPaths: Schema.Array(Schema.String),
+	commitsToDiscard: Schema.Array(
+		Schema.Struct({
+			sha: Schema.String,
+			subject: Schema.String,
+		}),
+	),
+}) {}
+
+export const GitResetRemotePreviewRpc = Rpc.make("git.resetRemotePreview", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: GitResetRemotePreview,
+	error: GitResetErrors,
+});
+
+export const GitResetRemoteApplyRpc = Rpc.make("git.resetRemoteApply", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		expectedHead: Schema.String,
+		expectedRemoteHead: Schema.String,
+		expectedWorktreeFingerprint: Schema.String,
+		confirmationBranch: Schema.String,
+	}),
+	success: Schema.Struct({ head: Schema.String }),
+	error: GitResetErrors,
 });
 
 /**

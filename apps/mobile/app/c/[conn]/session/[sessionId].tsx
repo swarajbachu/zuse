@@ -13,6 +13,7 @@ import {
 import { groupTimelineTurns } from "@zuse/client-runtime/timeline";
 import type {
 	FolderId,
+	MessageId,
 	PermissionRequest,
 	SessionId,
 	UserQuestion,
@@ -68,6 +69,7 @@ import {
 	normalizeConnParam,
 	optionsForConnection,
 } from "~/lib/connection-params";
+import { connectionSupports } from "~/lib/connection-records";
 import { captureMobileError } from "~/lib/crash-reporting";
 import { scrollListToLatest } from "~/lib/legend-list-scroll";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
@@ -80,8 +82,11 @@ import {
 } from "~/lib/thread-view-state";
 import {
 	answerQuestion,
+	createWorktree,
+	forkSessionFromMessage,
 	getWorktree,
 	makeTextInput,
+	openSessionOnHost,
 	renameWorktreeBranch,
 	respondToPlan,
 	sendMessage,
@@ -217,6 +222,9 @@ function ThreadScreen() {
 		() => optionsForConnection(connKey, connections),
 		[connKey, connections],
 	);
+	const connectionRecord = connections.find(
+		(connection) => connection.key === connKey,
+	);
 	const stateKey = connectionSessionKey(connKey, normalizedSessionId);
 	const turnActivity = useAtomValue(sessionTurnActivityAtom(stateKey));
 	const [restoredViewState] = useState(() =>
@@ -229,6 +237,23 @@ function ThreadScreen() {
 	const serverQueued = useAtomValue(sessionQueueAtom(stateKey));
 	const serverQueuePaused = useAtomValue(sessionQueuePausedAtom(stateKey));
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
+	const contextUsagePercent = useMemo(() => {
+		for (let index = messages.length - 1; index >= 0; index -= 1) {
+			const content = messages[index]?.content;
+			if (
+				content?._tag === "context_usage" &&
+				content.usedTokens !== null &&
+				content.windowTokens !== null &&
+				content.windowTokens > 0
+			) {
+				return Math.max(
+					0,
+					Math.min(100, (content.usedTokens / content.windowTokens) * 100),
+				);
+			}
+		}
+		return null;
+	}, [messages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
 	// Computed here (not in the composer) so keystrokes never touch it and the
 	// composer needs no subscription to the message store.
@@ -463,8 +488,89 @@ function ThreadScreen() {
 					}),
 				);
 
+	const runFork = async (
+		fromMessageId: MessageId,
+		destination: "tab" | "chat",
+		isolated: boolean,
+	) => {
+		if (detail === null || options === null) return;
+		try {
+			const worktreeId =
+				destination === "chat" && isolated
+					? (
+							await Effect.runPromise(
+								createWorktree({
+									connection: options,
+									projectId: detail.project.id,
+								}),
+							)
+						).id
+					: detail.session.worktreeId;
+			const result = await Effect.runPromise(
+				forkSessionFromMessage({
+					connection: options,
+					sourceSessionId: normalizedSessionId,
+					fromMessageId,
+					destination,
+					worktreeId,
+				}),
+			);
+			Alert.alert(
+				"Fork created",
+				result.forkMode === "resume"
+					? "The provider resumed the conversation with its native context."
+					: "The visible transcript was copied into the new session.",
+				[
+					{
+						text: "Open",
+						onPress: () =>
+							router.push({
+								pathname: "/c/[conn]/session/[sessionId]",
+								params: {
+									conn: connKey,
+									sessionId: result.session.id,
+								},
+							}),
+					},
+				],
+			);
+		} catch (cause) {
+			Alert.alert("Could not create fork", connectionErrorMessage(cause));
+		}
+	};
+
+	const onForkFromMessage = (fromMessageId: MessageId) => {
+		Alert.alert("Fork from here", "Where should the new session live?", [
+			{ text: "Cancel", style: "cancel" },
+			{
+				text: "This chat",
+				onPress: () => void runFork(fromMessageId, "tab", false),
+			},
+			{
+				text: "New chat",
+				onPress: () =>
+					Alert.alert(
+						"New chat workspace",
+						"Use the current worktree or create an isolated one?",
+						[
+							{ text: "Cancel", style: "cancel" },
+							{
+								text: "Current",
+								onPress: () => void runFork(fromMessageId, "chat", false),
+							},
+							{
+								text: "Isolated",
+								onPress: () => void runFork(fromMessageId, "chat", true),
+							},
+						],
+					),
+			},
+		]);
+	};
+
 	const ctx: MessageRowContext = {
 		connectionKey: connKey,
+		...(options === null ? {} : { connection: options }),
 		sessionId: normalizedSessionId,
 		workspaceRoot: detail?.project.path,
 		answeredQuestionIds,
@@ -472,6 +578,7 @@ function ThreadScreen() {
 		toolResultsByItemId,
 		sessionRunning: sessionActive,
 		onAnswerQuestion,
+		onForkFromMessage,
 	};
 
 	useEffect(() => {
@@ -695,11 +802,47 @@ function ThreadScreen() {
 		if (chatId === null || options === null) return;
 		void archiveChat(connKey, options, chatId).then(() => router.back());
 	};
+	const onOpenTerminal = async () => {
+		if (detail === null || options === null) return;
+		let cwd = detail.project.path;
+		const worktreeId = detail.session.worktreeId;
+		if (worktreeId !== null) {
+			try {
+				const worktree = await Effect.runPromise(
+					getWorktree({ connection: options, worktreeId }),
+				);
+				if (worktree !== null) cwd = worktree.path;
+			} catch (cause) {
+				Alert.alert("Could not open terminal", connectionErrorMessage(cause));
+				return;
+			}
+		}
+		router.push({
+			pathname: "/c/[conn]/session/[sessionId]/terminal",
+			params: {
+				conn: connKey,
+				sessionId: normalizedSessionId,
+				cwd,
+				label: title,
+			},
+		});
+	};
 	const openChanges = () => {
 		router.push({
 			pathname: "/c/[conn]/session/[sessionId]/review",
 			params: { conn: connKey, sessionId: normalizedSessionId },
 		});
+	};
+	const openOnDesktop = () => {
+		if (options === null) return;
+		void Effect.runPromise(
+			openSessionOnHost({
+				connection: options,
+				sessionId: normalizedSessionId,
+			}),
+		).catch((cause) =>
+			Alert.alert("Could not open on desktop", connectionErrorMessage(cause)),
+		);
 	};
 	const openFiles = () => {
 		router.push({
@@ -885,6 +1028,16 @@ function ThreadScreen() {
 							onThreads={openThreads}
 							onChanges={openChanges}
 							onFiles={openFiles}
+							onTerminal={
+								connectionSupports(connectionRecord, "mobile-terminal-v1")
+									? () => void onOpenTerminal()
+									: undefined
+							}
+							onOpenOnDesktop={
+								connectionSupports(connectionRecord, "desktop-handoff-v1")
+									? openOnDesktop
+									: undefined
+							}
 							onArchive={onArchive}
 						/>
 					),
@@ -1213,6 +1366,11 @@ function ThreadScreen() {
 									turnActivity === "running" ? composerActivity : null
 								}
 								bottomInset={composerBottomInset}
+								voiceEnabled={connectionSupports(
+									connectionRecord,
+									"voice-account-transcription-v1",
+								)}
+								contextUsagePercent={contextUsagePercent}
 							/>
 						</View>
 					)}

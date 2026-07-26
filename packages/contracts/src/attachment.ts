@@ -20,6 +20,14 @@ export class AttachmentBadMimeError extends Schema.TaggedErrorClass<AttachmentBa
 	},
 ) {}
 
+export class AttachmentNotFoundError extends Schema.TaggedErrorClass<AttachmentNotFoundError>()(
+	"AttachmentNotFoundError",
+	{
+		sessionId: SessionId,
+		id: Schema.String,
+	},
+) {}
+
 /**
  * Upload an image attachment for a session. Bytes land in the workspace's
  * gitignored `.context/files/` directory; the returned id is what the
@@ -51,4 +59,23 @@ export const AttachmentUploadRpc = Rpc.make("attachments.upload", {
 		AttachmentBadMimeError,
 		SessionNotFoundError,
 	]),
+});
+
+/**
+ * Read an attachment over the authenticated RPC channel. The session id is
+ * checked alongside the opaque attachment id so a stale reference cannot
+ * accidentally resolve media belonging to another session.
+ */
+export const AttachmentReadRpc = Rpc.make("attachments.read", {
+	payload: Schema.Struct({
+		sessionId: SessionId,
+		id: Schema.String,
+	}),
+	success: Schema.Struct({
+		bytes: Schema.Uint8ArrayFromBase64,
+		mimeType: Schema.String,
+		originalName: Schema.String,
+		sizeBytes: Schema.Number,
+	}),
+	error: AttachmentNotFoundError,
 });
