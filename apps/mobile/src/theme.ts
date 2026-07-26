@@ -1,5 +1,5 @@
 import { Color } from "expo-router";
-import { Platform } from "react-native";
+import { DynamicColorIOS, Platform } from "react-native";
 
 /** The single product accent used across native controls and utility styles. */
 export const NEON_GREEN = "#c8ff00";
@@ -23,12 +23,12 @@ const platformColor = <T>(ios: T, android: T | undefined, fallback: T): T =>
 /** Native semantic colors. UIKit/Material re-resolve these for light/dark mode. */
 export const colors = {
 	bg: platformColor(
-		Color.ios.systemBackground,
+		DynamicColorIOS({ light: "#f7f7f5", dark: "hsl(0 0% 6%)" }),
 		Color.android.dynamic.surface,
 		"#ffffff",
 	),
 	fg: platformColor(
-		Color.ios.label,
+		DynamicColorIOS({ light: "#171716", dark: "hsl(0 0% 93%)" }),
 		Color.android.dynamic.onSurface,
 		"#262626",
 	),
@@ -48,12 +48,12 @@ export const colors = {
 		"#686868",
 	),
 	card: platformColor(
-		Color.ios.secondarySystemBackground,
+		DynamicColorIOS({ light: "#ffffff", dark: "hsl(0 0% 12%)" }),
 		Color.android.dynamic.surfaceContainer,
 		"#ffffff",
 	),
 	cardElevated: platformColor(
-		Color.ios.tertiarySystemBackground,
+		DynamicColorIOS({ light: "#f0f0ed", dark: "hsl(0 0% 13%)" }),
 		Color.android.dynamic.surfaceContainerHigh,
 		"rgba(0,0,0,0.04)",
 	),

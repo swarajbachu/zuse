@@ -9,12 +9,12 @@ describe("mobile UI contracts", () => {
 		const css = readFileSync(`${process.cwd()}/global.css`, "utf8");
 		expect(css).toContain("@variant light");
 		expect(css).toContain("@variant dark");
-		expect(css).toContain("--color-background: #ffffff");
-		expect(css).toContain("--color-foreground: #262626");
+		expect(css).toContain("--color-background: #f7f7f5");
+		expect(css).toContain("--color-foreground: #171716");
 		expect(css).toContain("--color-card: #ffffff");
-		expect(css).toContain("--color-card-elevated: rgba(0, 0, 0, 0.04)");
-		expect(css).toContain("--color-border: rgba(0, 0, 0, 0.08)");
-		expect(css).toContain("--color-input: rgba(0, 0, 0, 0.1)");
+		expect(css).toContain("--color-card-elevated: #f0f0ed");
+		expect(css).toContain("--color-border: rgba(23, 23, 22, 0.1)");
+		expect(css).toContain("--color-input: rgba(23, 23, 22, 0.12)");
 		expect(css).toContain("--color-background: hsl(0 0% 6%)");
 		expect(css).toContain("--color-card: hsl(0 0% 12%)");
 		expect(css).toContain("--color-foreground-faint: hsl(0 0% 43%)");
@@ -36,8 +36,12 @@ describe("mobile UI contracts", () => {
 			"utf8",
 		);
 		expect(appConfig.expo.userInterfaceStyle).toBe("automatic");
-		expect(nativeTheme).toContain("Color.ios.systemBackground");
-		expect(nativeTheme).toContain("Color.ios.label");
+		expect(nativeTheme).toContain(
+			'DynamicColorIOS({ light: "#f7f7f5", dark: "hsl(0 0% 6%)" })',
+		);
+		expect(nativeTheme).toContain(
+			'DynamicColorIOS({ light: "#171716", dark: "hsl(0 0% 93%)" })',
+		);
 		for (const source of [layout, thread, glass]) {
 			expect(source).toContain("useUniwind");
 			expect(source).not.toContain("useColorScheme");
@@ -275,7 +279,7 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("transcriptScroll.anchorIndex === null");
 		expect(thread).toContain("anchorIndex: transcriptScroll.anchorIndex");
 		expect(thread).not.toContain("settledRunwayHeight");
-		expect(thread).toContain("footerLayout: false");
+		expect(thread).toContain("footerLayout: true");
 		expect(thread).toContain("scrollMessageToEnd");
 		expect(thread).toContain("keyboardOffset={insets.bottom}");
 		expect(thread).toContain('keyboardLiftBehavior="always"');
@@ -322,6 +326,23 @@ describe("mobile UI contracts", () => {
 		expect(thread).not.toContain("pendingEndIntent");
 		expect(thread).not.toContain("sendAnchorSpace(");
 		expect(thread).not.toContain("latestTurnTopOffset");
+	});
+
+	test("shows intentional transcript loading and reserves a measured end runway", () => {
+		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		expect(thread).toContain("<TranscriptLoadingState");
+		expect(thread).toContain("initialTranscriptLoading");
+		expect(thread).toContain("transcriptEndRunwayHeight");
+		expect(thread).toContain("onLayout={onTranscriptLayout}");
+	});
+
+	test("uses a synchronous composer submission gate", () => {
+		const composer = readFileSync(
+			`${process.cwd()}/src/components/composer.tsx`,
+			"utf8",
+		);
+		expect(composer).toContain("createComposerSubmitGate");
+		expect(composer).toContain("submitGateRef.current.tryRun");
 	});
 
 	test("keeps permission decisions pending with visible acknowledgement feedback", () => {

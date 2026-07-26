@@ -7,16 +7,16 @@
 @layer theme {
 	:root {
 		@variant light {
-			--color-background: #ffffff;
-			--color-foreground: #262626;
+			--color-background: #f7f7f5;
+			--color-foreground: #171716;
 			--color-card: #ffffff;
-			--color-card-elevated: rgba(0, 0, 0, 0.04);
-			--color-muted: rgba(0, 0, 0, 0.04);
-			--color-muted-foreground: #686868;
-			--color-foreground-faint: #8f8f8f;
-			--color-border: rgba(0, 0, 0, 0.08);
-			--color-input: rgba(0, 0, 0, 0.1);
-			--color-overlay: rgba(0, 0, 0, 0.06);
+			--color-card-elevated: #f0f0ed;
+			--color-muted: #ececea;
+			--color-muted-foreground: #6f6f6b;
+			--color-foreground-faint: #999994;
+			--color-border: rgba(23, 23, 22, 0.1);
+			--color-input: rgba(23, 23, 22, 0.12);
+			--color-overlay: rgba(23, 23, 22, 0.06);
 			--color-primary: #c8ff00;
 			--color-primary-foreground: #11130a;
 			--color-danger: #dc2626;

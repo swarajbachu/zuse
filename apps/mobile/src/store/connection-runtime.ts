@@ -1,6 +1,7 @@
 import { Atom } from "effect/unstable/reactivity";
 import { AppState } from "react-native";
 
+import { setConnectionSnapshot } from "~/lib/connection-snapshot-state";
 import {
 	type ConnectionSnapshot,
 	getConnectionSnapshot,
@@ -37,10 +38,9 @@ const installAppStateOnlineBridge = () => {
 };
 
 const patchSnapshot = (connKey: string, snapshot: ConnectionSnapshot): void => {
-	appAtomRegistry.update(snapshotsByConnectionAtom, (state) => ({
-		...state,
-		[connKey]: snapshot,
-	}));
+	appAtomRegistry.update(snapshotsByConnectionAtom, (state) =>
+		setConnectionSnapshot(state, connKey, snapshot),
+	);
 };
 
 export const watchConnection = (
