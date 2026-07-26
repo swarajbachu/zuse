@@ -13,6 +13,7 @@ import { Mic, Square, X } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { Alert, AppState, Modal, Pressable, Text, View } from "react-native";
 
+import { stopRecorderOnUnmount } from "~/lib/audio-recorder-lifecycle";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { prewarmVoice, resolveVoiceAuth, transcribeVoice } from "~/rpc/actions";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
@@ -213,7 +214,7 @@ export function ComposerVoiceButton({
 
 	useEffect(
 		() => () => {
-			if (recorder.isRecording) void recorder.stop();
+			void stopRecorderOnUnmount(recorder);
 			void resetAudioMode();
 		},
 		[recorder],

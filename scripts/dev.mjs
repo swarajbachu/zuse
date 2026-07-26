@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +13,23 @@ import {
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
+const desktopDir = resolve(repoRoot, "apps", "desktop");
 const rendererHost = process.env.HOST?.trim() || "localhost";
+
+const localConnectivityHelper = resolve(
+	desktopDir,
+	"native",
+	"local-connectivity",
+	"bin",
+	"zuse-local-connectivity",
+);
+if (process.platform === "darwin" && !existsSync(localConnectivityHelper)) {
+	const build = spawnSync("bun", ["run", "native:build"], {
+		cwd: desktopDir,
+		stdio: "inherit",
+	});
+	if (build.status !== 0) process.exit(build.status ?? 1);
+}
 
 const portAvailable = (port, kind) =>
 	new Promise((resolveAvailable) => {
@@ -87,7 +104,7 @@ const sharedEnv = {
 	ZUSE_DESKTOP_WS_PORT: String(instance.websocketPort),
 	...(instance.userDataDir ? { ZUSE_USER_DATA_DIR: instance.userDataDir } : {}),
 	ZUSE_DESKTOP_OUT_DIR: instance.packDir,
-	ZUSE_DESKTOP_DIR: resolve(repoRoot, "apps", "desktop"),
+	ZUSE_DESKTOP_DIR: desktopDir,
 	ZUSE_RENDERER_DIST_DIR: resolve(repoRoot, "apps", "renderer", "dist"),
 };
 run("renderer", "bun", ["run", "--filter", "renderer", "dev"], {
