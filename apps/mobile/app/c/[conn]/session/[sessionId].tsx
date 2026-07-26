@@ -1153,24 +1153,13 @@ function ThreadScreen() {
 					drawDistance={800}
 					sharedValues={{ isNearEnd }}
 					ListHeaderComponent={
-						error || connectionProblem ? (
-							<View className="gap-2 pb-2">
-								{connectionProblem && options !== null ? (
-									<ConnectionRecoveryBanner
-										message={connectionProblem}
-										onRetry={() => retryConnection(connKey, options)}
-										onPairAgain={() => router.push("/connect/scan")}
-									/>
-								) : null}
-								{error ? (
-									<Text
-										selectable
-										className="font-sans text-[13px] text-danger"
-									>
-										{error}
-									</Text>
-								) : null}
-							</View>
+						error && connectionProblem === null ? (
+							<Text
+								selectable
+								className="pb-2 font-sans text-[13px] text-danger"
+							>
+								{error}
+							</Text>
 						) : null
 					}
 					ListFooterComponent={
@@ -1309,6 +1298,15 @@ function ThreadScreen() {
 									: undefined
 							}
 						>
+							{connectionProblem === null ? null : (
+								<View className="px-3 pt-2">
+									<ConnectionRecoveryBanner
+										message={connectionProblem}
+										onRetry={() => retryConnection(connKey, options)}
+										onPairAgain={() => router.push("/connect/scan")}
+									/>
+								</View>
+							)}
 							<ChatManagementBars
 								runningThreads={runningThreadCount}
 								goal={goal}
@@ -1395,8 +1393,6 @@ function ThreadScreen() {
 								status={sessionStatus}
 								fresh={fresh}
 								online={transportOnline}
-								connectionStatus={connectionSnapshot?.status}
-								onRetryConnection={() => retryConnection(connKey, options)}
 								onMessageAppendFailed={onMessageAppendFailed}
 								onMessageWillAppend={onMessageWillAppend}
 								currentActivity={
