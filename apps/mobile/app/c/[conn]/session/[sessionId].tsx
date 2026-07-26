@@ -26,8 +26,10 @@ import { ChevronDown } from "lucide-react-native";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
 	AccessibilityInfo,
+	ActivityIndicator,
 	Alert,
 	AppState,
+	Dimensions,
 	type LayoutChangeEvent,
 	type NativeScrollEvent,
 	type NativeSyntheticEvent,
@@ -76,6 +78,7 @@ import { scrollListToLatest } from "~/lib/legend-list-scroll";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
 import { connectionSessionKey } from "~/lib/session-key";
+import { transcriptEndRunwayHeight } from "~/lib/thread-runway";
 import { shouldRestoreThreadPosition } from "~/lib/thread-switching";
 import {
 	readThreadViewState,
@@ -210,6 +213,9 @@ function ThreadScreen() {
 	const [bottomAccessoryHeight, setBottomAccessoryHeight] = useState(
 		composerBottomInset + 64,
 	);
+	const [transcriptViewportHeight, setTranscriptViewportHeight] = useState(
+		() => Dimensions.get("window").height,
+	);
 	const isNearEnd = useSharedValue(true);
 	const reduceMotion = useReducedMotion();
 	const { contentInsetEndAdjustment, onComposerLayout } =
@@ -236,6 +242,9 @@ function ThreadScreen() {
 	const connectionSnapshot = useAtomValue(connectionSnapshotAtom(connKey));
 	const bundles = useAtomValue(connectionBundlesAtom(connKey));
 	const rawMessages = useAtomValue(sessionMessagesAtom(stateKey));
+	const [initialTranscriptLoading, setInitialTranscriptLoading] = useState(
+		() => rawMessages.length === 0,
+	);
 	const messagesError = useAtomValue(sessionMessagesErrorAtom(stateKey));
 	const serverQueued = useAtomValue(sessionQueueAtom(stateKey));
 	const serverQueuePaused = useAtomValue(sessionQueuePausedAtom(stateKey));
@@ -339,20 +348,32 @@ function ThreadScreen() {
 	]);
 
 	useEffect(() => {
+		let active = true;
 		if (normalizedSessionId.length > 0 && options !== null) {
 			// Paint the retained in-memory projection or disk snapshot first.
 			// Replacing the stream on every screen mount makes thread switching
 			// blank and needlessly replays the entire transcript.
-			void hydrateMessages(connKey, options, normalizedSessionId);
+			void hydrateMessages(connKey, options, normalizedSessionId).finally(
+				() => {
+					if (active) setInitialTranscriptLoading(false);
+				},
+			);
 			void hydrateGoal(connKey, options, normalizedSessionId);
 			void hydrateOutbox(connKey, normalizedSessionId);
+		} else {
+			setInitialTranscriptLoading(false);
 		}
 		return () => {
+			active = false;
 			if (normalizedSessionId.length === 0) return;
 			void releaseMessages(connKey, normalizedSessionId);
 			void releaseGoal(connKey, normalizedSessionId);
 		};
 	}, [connKey, normalizedSessionId, options]);
+
+	useEffect(() => {
+		if (rawMessages.length > 0) setInitialTranscriptLoading(false);
+	}, [rawMessages.length]);
 
 	const observedConnectionGenerationRef = useRef<number | null>(null);
 	useEffect(() => {
@@ -425,6 +446,12 @@ function ThreadScreen() {
 				? connectionErrorMessage(connectionSnapshot.error)
 				: "Connection unavailable. Retry from the status above."
 			: null;
+	const connectionRecovering =
+		connectionSnapshot?.status === "connecting" ||
+		connectionSnapshot?.status === "reconnecting";
+	const connectionNotice =
+		connectionProblem ??
+		(connectionRecovering ? "Trying to reach your computer…" : null);
 
 	// Drain the outbox in order while the transport is online. This runs both
 	// when the connection wakes and when an item gets queued after a failed send.
@@ -759,6 +786,20 @@ function ThreadScreen() {
 		);
 		onComposerLayout(event);
 	};
+	const onTranscriptLayout = (event: LayoutChangeEvent) => {
+		const nextHeight = event.nativeEvent.layout.height;
+		setTranscriptViewportHeight((current) =>
+			Math.abs(current - nextHeight) < 1 ? current : nextHeight,
+		);
+	};
+	const endRunwayHeight =
+		turns.length === 0
+			? 16
+			: transcriptEndRunwayHeight({
+					viewportHeight: transcriptViewportHeight,
+					headerHeight,
+					composerHeight: bottomAccessoryHeight,
+				});
 	const anchoredEndSpace =
 		transcriptScroll.anchorIndex === null
 			? undefined
@@ -1148,10 +1189,7 @@ function ThreadScreen() {
 									animated: false,
 									on: {
 										dataChange: true,
-										// The settled runway replaces temporary anchor space.
-										// Following footer geometry would pull the transcript down
-										// again exactly when a response finishes.
-										footerLayout: false,
+										footerLayout: true,
 										itemLayout: true,
 										layout: true,
 									},
@@ -1172,10 +1210,11 @@ function ThreadScreen() {
 						) : null
 					}
 					ListFooterComponent={
-						<View style={{ paddingTop: 4, paddingBottom: 12 }}>
+						<View style={{ minHeight: endRunwayHeight, paddingTop: 4 }}>
 							{workingActive ? <WorkingIndicator since={workingSince} /> : null}
 						</View>
 					}
+					onLayout={onTranscriptLayout}
 					onScroll={onScroll}
 					onScrollBeginDrag={startReaderGesture}
 					onScrollEndDrag={finishReaderGesture}
@@ -1185,6 +1224,21 @@ function ThreadScreen() {
 					scrollEventThrottle={16}
 				/>
 			</KeyboardGestureArea>
+			{initialTranscriptLoading && turns.length === 0 ? (
+				<View
+					pointerEvents="none"
+					style={{
+						position: "absolute",
+						top: headerHeight,
+						left: 16,
+						right: 16,
+						bottom: bottomAccessoryHeight,
+						justifyContent: "center",
+					}}
+				>
+					<TranscriptLoadingState />
+				</View>
+			) : null}
 			<KeyboardStickyView
 				pointerEvents="box-none"
 				style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
@@ -1307,12 +1361,13 @@ function ThreadScreen() {
 									: undefined
 							}
 						>
-							{connectionProblem === null ? null : (
+							{connectionNotice === null ? null : (
 								<View className="px-3 pt-2">
 									<ConnectionRecoveryBanner
-										message={connectionProblem}
+										message={connectionNotice}
 										onRetry={() => retryConnection(connKey, options)}
 										onPairAgain={() => router.push("/connect/scan")}
+										recovering={connectionRecovering}
 									/>
 								</View>
 							)}
@@ -1434,6 +1489,31 @@ function ThreadScreen() {
 					)}
 				</View>
 			</KeyboardStickyView>
+		</View>
+	);
+}
+
+function TranscriptLoadingState() {
+	return (
+		<View
+			accessibilityRole="progressbar"
+			accessibilityLabel="Loading conversation"
+			className="gap-5 px-1 pt-10"
+		>
+			<View className="items-center gap-3 pb-3">
+				<ActivityIndicator size="small" color={colors.accent} />
+				<Text className="font-sans-medium text-[13px] text-muted-foreground">
+					Loading conversation…
+				</Text>
+			</View>
+			<View className="items-end">
+				<View className="h-14 w-2/3 rounded-3xl bg-muted" />
+			</View>
+			<View className="gap-3">
+				<View className="h-4 w-11/12 rounded-full bg-muted" />
+				<View className="h-4 w-4/5 rounded-full bg-muted" />
+				<View className="h-4 w-3/5 rounded-full bg-muted" />
+			</View>
 		</View>
 	);
 }

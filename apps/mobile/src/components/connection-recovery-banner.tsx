@@ -1,5 +1,5 @@
 import { CloudOff, QrCode, RefreshCw } from "lucide-react-native";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
 import { colors } from "~/theme";
 
@@ -7,10 +7,12 @@ export function ConnectionRecoveryBanner({
 	message,
 	onRetry,
 	onPairAgain,
+	recovering = false,
 }: {
 	message: string;
 	onRetry: () => void;
 	onPairAgain?: () => void;
+	recovering?: boolean;
 }) {
 	return (
 		<View
@@ -19,12 +21,22 @@ export function ConnectionRecoveryBanner({
 			style={{ borderCurve: "continuous" }}
 		>
 			<View className="flex-row items-center gap-2">
-				<View className="h-8 w-8 items-center justify-center rounded-full bg-warning/15">
-					<CloudOff size={16} color={colors.warning} />
+				<View
+					className={
+						recovering
+							? "h-8 w-8 items-center justify-center rounded-full bg-primary/10"
+							: "h-8 w-8 items-center justify-center rounded-full bg-warning/15"
+					}
+				>
+					{recovering ? (
+						<ActivityIndicator size="small" color={colors.accent} />
+					) : (
+						<CloudOff size={16} color={colors.warning} />
+					)}
 				</View>
 				<View className="min-w-0 flex-1">
 					<Text className="font-sans-medium text-[13px] text-foreground">
-						Connection paused
+						{recovering ? "Reconnecting" : "Connection paused"}
 					</Text>
 					<Text
 						numberOfLines={2}
@@ -33,7 +45,7 @@ export function ConnectionRecoveryBanner({
 						{message}
 					</Text>
 				</View>
-				{onPairAgain === undefined ? null : (
+				{recovering || onPairAgain === undefined ? null : (
 					<Pressable
 						accessibilityRole="button"
 						accessibilityLabel="Scan a new pairing code"
@@ -53,7 +65,7 @@ export function ConnectionRecoveryBanner({
 				>
 					<RefreshCw size={14} color={colors.fg} />
 					<Text className="font-sans-medium text-[13px] text-foreground">
-						Retry
+						{recovering ? "Retry now" : "Retry"}
 					</Text>
 				</Pressable>
 			</View>
