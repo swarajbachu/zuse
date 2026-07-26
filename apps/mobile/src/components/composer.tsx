@@ -113,7 +113,6 @@ export const Composer = ({
 	currentActivity = null,
 	bottomInset,
 	voiceEnabled = false,
-	contextUsagePercent = null,
 }: {
 	connKey: string;
 	connection: WsProtocolOptions;
@@ -129,7 +128,6 @@ export const Composer = ({
 	currentActivity?: ComposerActivity | null;
 	bottomInset?: number;
 	voiceEnabled?: boolean;
-	contextUsagePercent?: number | null;
 }) => {
 	const stateKey = connectionSessionKey(connKey, sessionId);
 	// Lazy state (not a ref): reading a ref during render violates the React
@@ -248,7 +246,7 @@ export const Composer = ({
 		sheetOpen: modelSheetOpen,
 	});
 	const agentCount = currentActivity?.agents ?? 0;
-	const hasPills = agentCount > 0 || contextUsagePercent !== null;
+	const hasPills = agentCount > 0;
 	const finishSuccessfulSubmission = ({
 		dismissKeyboard,
 	}: {
@@ -507,12 +505,6 @@ export const Composer = ({
 							}
 						/>
 					) : null}
-					{contextUsagePercent === null ? null : (
-						<StatusPill
-							label={`Context ${Math.round(contextUsagePercent)}%`}
-							tone={contextUsagePercent >= 85 ? "warning" : "neutral"}
-						/>
-					)}
 				</View>
 			) : null}
 
