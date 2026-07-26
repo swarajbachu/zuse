@@ -41,6 +41,23 @@ describe("scrollListToLatest", () => {
 		).resolves.toBeUndefined();
 	});
 
+	test("does not report success when neither end-scroll path can run", async () => {
+		const failure = new Error("virtual destination unavailable");
+		const list = {
+			getNativeScrollRef: () => null,
+			scrollToEnd: vi.fn(async () => {
+				throw failure;
+			}),
+		};
+
+		await expect(
+			scrollListToLatest(list, {
+				animated: false,
+				afterVirtualLayout: async () => undefined,
+			}),
+		).rejects.toBe(failure);
+	});
+
 	test("does not block the native fallback behind an unresolved virtual scroll", async () => {
 		const nativeScrollToEnd = vi.fn();
 		const virtualScroll = new Promise<void>(() => undefined);
