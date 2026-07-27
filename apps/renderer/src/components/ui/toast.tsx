@@ -5,6 +5,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	Alert02Icon,
 	AlertCircleIcon,
+	Cancel01Icon,
 	CheckmarkCircle02Icon,
 	InformationCircleIcon,
 	Loading03Icon,
@@ -165,6 +166,16 @@ function Toasts({
 										{toast.actionProps.children}
 									</Toast.Action>
 								)}
+								<Toast.Close
+									aria-label="Dismiss notification"
+									className="-my-2 -mr-2 flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-offset-2 transition-colors duration-150 ease-out hover:text-foreground focus-visible:outline-2 focus-visible:outline-foreground/60"
+									data-slot="toast-close"
+								>
+									<HugeiconsIcon
+										icon={Cancel01Icon}
+										className="pointer-events-none size-4"
+									/>
+								</Toast.Close>
 							</Toast.Content>
 						</Toast.Root>
 					);

@@ -6,13 +6,22 @@ const rpc = vi.hoisted(() => ({
 	availability: vi.fn(),
 }));
 
+const toast = vi.hoisted(() => ({
+	add: vi.fn(),
+}));
+
 vi.mock("../../src/lib/rpc-client.ts", () => ({
 	getRpcClient: async () => ({
 		"provider.availability": rpc.availability,
 	}),
 }));
 
+vi.mock("../../src/components/ui/toast.tsx", () => ({
+	toastManager: toast,
+}));
+
 import {
+	getProviderStatusNotice,
 	getProviderSummary,
 	isInitialProviderAvailabilityLoading,
 } from "../../src/lib/provider-status.ts";
@@ -75,6 +84,7 @@ describe("provider update state", () => {
 describe("provider availability loading", () => {
 	beforeEach(() => {
 		rpc.availability.mockReset();
+		toast.add.mockReset();
 		useProvidersStore.setState({
 			availability: [],
 			loading: false,
@@ -104,6 +114,33 @@ describe("provider availability loading", () => {
 		expect(rpc.availability).toHaveBeenCalledWith({ refresh: true });
 	});
 
+	it("notifies when the Codex app-server status probe times out", async () => {
+		rpc.availability.mockReturnValue(
+			Effect.succeed([
+				{
+					...availabilityFor("codex", "Codex"),
+					cliLoggedIn: false,
+					authStatus: "unknown",
+					status: "warning",
+					statusMessage: "timeout waiting for child process to exit",
+				},
+			]),
+		);
+
+		await useProvidersStore.getState().refresh();
+		await useProvidersStore.getState().refresh();
+
+		expect(toast.add).toHaveBeenCalledWith({
+			id: "codex-provider-status",
+			type: "error",
+			priority: "high",
+			timeout: 8_000,
+			title: "Codex provider status",
+			description: "Timed out while checking Codex app-server provider status.",
+		});
+		expect(toast.add).toHaveBeenCalledTimes(1);
+	});
+
 	it("only treats global loading as card loading before availability has loaded", () => {
 		expect(isInitialProviderAvailabilityLoading(true, false)).toBe(true);
 		expect(isInitialProviderAvailabilityLoading(true, true)).toBe(false);
@@ -131,6 +168,52 @@ describe("provider availability loading", () => {
 
 		expect(summary.statusKey).toBe("loading");
 		expect(summary.headline).toBe("Checking…");
+	});
+});
+
+describe("provider status notice", () => {
+	it("does not report a healthy Codex provider", () => {
+		expect(
+			getProviderStatusNotice([availabilityFor("codex", "Codex")]),
+		).toBeNull();
+	});
+
+	it("preserves a non-timeout Codex probe failure", () => {
+		expect(
+			getProviderStatusNotice([
+				{
+					...availabilityFor("codex", "Codex"),
+					cliLoggedIn: false,
+					authStatus: "unknown",
+					status: "warning",
+					statusMessage: "Codex app-server exited before replying.",
+				},
+			]),
+		).toEqual({
+			key: "codex-provider-status",
+			title: "Codex provider status",
+			description: "Codex app-server exited before replying.",
+		});
+	});
+
+	it("explains a local Codex state initialization failure", () => {
+		expect(
+			getProviderStatusNotice([
+				{
+					...availabilityFor("codex", "Codex"),
+					cliLoggedIn: false,
+					authStatus: "unknown",
+					status: "warning",
+					statusMessage:
+						"failed to initialize sqlite state runtime under /Users/example/.codex",
+				},
+			]),
+		).toEqual({
+			key: "codex-provider-status",
+			title: "Codex provider status",
+			description:
+				"Codex app-server couldn't initialize local session state. Try again in a moment.",
+		});
 	});
 });
 
