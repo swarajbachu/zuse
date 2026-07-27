@@ -14,9 +14,16 @@
 			"env": [
 				"WORKOS_CLIENT_ID",
 				"LINEAR_CLIENT_ID",
+				"NODE_ENV",
 				"ZUSE_POSTHOG_KEY",
+				"ZUSE_POSTHOG_HOST",
+				"ZUSE_POSTHOG_ENABLE_DEV",
 				"VITE_POSTHOG_KEY",
-				"EXPO_PUBLIC_POSTHOG_KEY"
+				"VITE_POSTHOG_HOST",
+				"VITE_POSTHOG_ENABLE_DEV",
+				"EXPO_PUBLIC_POSTHOG_KEY",
+				"EXPO_PUBLIC_POSTHOG_HOST",
+				"EXPO_PUBLIC_POSTHOG_ENABLE_DEV"
 			],
 			"outputs": [".next/**", "!.next/cache/**", "dist/**", "dist-electron/**"]
 		},

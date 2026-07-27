@@ -28,6 +28,7 @@ const fontPkgPath = require.resolve("@fontsource-variable/inter/package.json");
 const bunStoreRoot = dirname(dirname(dirname(dirname(dirname(fontPkgPath)))));
 
 export default defineConfig({
+	envDir: resolve(__dirname, "../.."),
 	define: {
 		"import.meta.env.VITE_APP_VERSION": JSON.stringify(desktopPackage.version),
 	},

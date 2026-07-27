@@ -4,6 +4,21 @@ import { gzipSync } from "node:zlib";
 
 const dist = resolve(import.meta.dirname, "../apps/renderer/dist");
 const html = readFileSync(resolve(dist, "index.html"), "utf8");
+const expectedAnalyticsKey = process.env.VITE_POSTHOG_KEY?.trim();
+if (expectedAnalyticsKey) {
+	const hasAnalyticsKey = readdirSync(resolve(dist, "assets"))
+		.filter((asset) => asset.endsWith(".js"))
+		.some((asset) =>
+			readFileSync(resolve(dist, "assets", asset), "utf8").includes(
+				expectedAnalyticsKey,
+			),
+		);
+	if (!hasAnalyticsKey) {
+		throw new Error(
+			"Renderer bundle is missing the configured analytics ingest key",
+		);
+	}
+}
 const assets = [...html.matchAll(/(?:src|href)="\.\/([^"?]+\.(?:js|css))"/g)]
 	.map((match) => match[1])
 	.filter((asset, index, all) => all.indexOf(asset) === index);

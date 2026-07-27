@@ -55,8 +55,11 @@ jobs:
           # Analytics keys are injected at build time and never committed.
           ZUSE_POSTHOG_KEY: ${{ secrets.ZUSE_POSTHOG_KEY }}
           VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
+          NODE_ENV: production
         run: |
           test -n "$LINEAR_CLIENT_ID"
+          test -n "$ZUSE_POSTHOG_KEY"
+          test -n "$VITE_POSTHOG_KEY"
           bun run build
 
       - name: Package + sign + notarize + publish

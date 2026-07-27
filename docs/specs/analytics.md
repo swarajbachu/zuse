@@ -4,6 +4,18 @@ Zuse Alpha collects default-on, pseudonymous product and reliability analytics f
 
 The implementation uses one production project and platform-specific public ingest keys. Development and tests are disabled unless an explicit test project is configured. Operations credentials are restricted to `scripts/provision-analytics.mjs` and must never be included in an app bundle.
 
+## Development
+
+Copy `.env.analytics.example` to the ignored root `.env`, add the public ingest
+keys, and set the matching `*_POSTHOG_ENABLE_DEV` values to `1`. Desktop
+development uses `ZUSE_POSTHOG_*` for backend events and `VITE_POSTHOG_*` for
+renderer events. For local Expo development, copy the same values into the
+ignored `apps/mobile/.env`; mobile uses `EXPO_PUBLIC_POSTHOG_*`.
+
+Leave the development flags at `0` when a developer should not send local
+activity. Production builds enable delivery from their build mode and do not
+depend on these flags.
+
 ## Privacy boundary
 
 Allowed events and properties are versioned in `packages/analytics`. Unknown events and properties are discarded. Known catalog models may use their normalized ID; custom models are recorded as `custom`. Tools are limited to `browser`, `shell`, `files`, `git`, `mcp`, `subagent`, and `other`.
