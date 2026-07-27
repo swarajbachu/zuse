@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.15.7",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Fix analytics configuration across build modes"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.15.6",
     "sections": [
       {
