@@ -65,24 +65,37 @@ const upsertNamed = async (resource, name, body) => {
 			});
 };
 
-const event = (id) => ({ id, name: id, type: "events", order: 0 });
+const property = (key, value) => ({
+	key,
+	value: Array.isArray(value) ? value : [value],
+	operator: "exact",
+	type: "event",
+});
+const event = (id, properties = []) => ({
+	id,
+	name: id,
+	type: "events",
+	order: 0,
+	properties: [property("analytics_schema_version", 2), ...properties],
+});
 const trend = (events, extra = {}) => ({
 	insight: "TRENDS",
 	display: "ActionsLineGraph",
-	events: events.map(event),
+	events: events.map((item) => (typeof item === "string" ? event(item) : item)),
 	...extra,
 });
 const retention = (start, returning, period, intervals) => ({
 	insight: "RETENTION",
-	target_entity: event(start),
-	returning_entity: event(returning),
+	target_entity: typeof start === "string" ? event(start) : start,
+	returning_entity:
+		typeof returning === "string" ? event(returning) : returning,
 	retention_type: "retention_first_time",
 	period,
 	total_intervals: intervals,
 });
 const funnel = (events) => ({
 	insight: "FUNNELS",
-	events: events.map(event),
+	events: events.map((item) => (typeof item === "string" ? event(item) : item)),
 	funnel_window_interval: 14,
 	funnel_window_interval_unit: "day",
 });
@@ -190,31 +203,15 @@ const dashboards = {
 		],
 		[
 			"Settings use",
-			trend(["control activated"], {
-				properties: [
-					{
-						key: "screen",
-						value: ["settings"],
-						operator: "exact",
-						type: "event",
-					},
-				],
-			}),
+			trend([event("control activated", [property("screen", "settings")])]),
 		],
 	],
 	"Mobile and connectivity": [
 		[
 			"Mobile active users",
-			trend(["app active interval"], {
-				properties: [
-					{
-						key: "surface",
-						value: ["ios", "android"],
-						operator: "exact",
-						type: "event",
-					},
-				],
-			}),
+			trend([
+				event("app active interval", [property("surface", ["ios", "android"])]),
+			]),
 		],
 		["Pairing funnel", funnel(["pairing attempted", "pairing completed"])],
 		[
@@ -244,17 +241,52 @@ const dashboards = {
 			"Interrupted turns",
 			trend(["turn interrupted"], { breakdown: "provider" }),
 		],
-		["Tool outcomes", trend(["tool used"], { breakdown: "tool_category" })],
+		[
+			"Tools per turn",
+			trend(["turn completed", "turn failed", "turn interrupted"], {
+				math: "sum",
+				math_property: "tool_count",
+			}),
+		],
+		[
+			"Tool failures",
+			trend(["turn completed", "turn failed", "turn interrupted"], {
+				math: "sum",
+				math_property: "tool_failure_count",
+			}),
+		],
 		[
 			"Release regressions",
-			trend(["turn failed", "app error"], { breakdown: "app_version" }),
+			trend(["turn failed", "app error"], {
+				breakdown: "app_version",
+			}),
 		],
 	],
 };
 
 for (const [name, body] of [
-	["Successful turn", { steps: [{ event: "turn completed" }] }],
-	["Active use", { steps: [{ event: "app active interval" }] }],
+	[
+		"Successful turn",
+		{
+			steps: [
+				{
+					event: "turn completed",
+					properties: [property("analytics_schema_version", 2)],
+				},
+			],
+		},
+	],
+	[
+		"Active use",
+		{
+			steps: [
+				{
+					event: "app active interval",
+					properties: [property("analytics_schema_version", 2)],
+				},
+			],
+		},
+	],
 	[
 		"Mobile use",
 		{
@@ -262,6 +294,7 @@ for (const [name, body] of [
 				{
 					event: "app active interval",
 					properties: [
+						property("analytics_schema_version", 2),
 						{
 							key: "surface",
 							value: ["ios", "android"],
@@ -283,6 +316,12 @@ await upsertNamed("cohorts", "Desktop active", {
 				type: "AND",
 				values: [
 					{
+						key: "analytics_schema_version",
+						type: "event",
+						value: 2,
+						operator: "exact",
+					},
+					{
 						key: "surface",
 						type: "event",
 						value: "desktop",
@@ -299,6 +338,12 @@ await upsertNamed("cohorts", "Mobile active", {
 			properties: {
 				type: "AND",
 				values: [
+					{
+						key: "analytics_schema_version",
+						type: "event",
+						value: 2,
+						operator: "exact",
+					},
 					{
 						key: "surface",
 						type: "event",

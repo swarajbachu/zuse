@@ -18,13 +18,27 @@ depend on these flags.
 
 ## Privacy boundary
 
-Allowed events and properties are versioned in `packages/analytics`. Unknown events and properties are discarded. Known catalog models may use their normalized ID; custom models are recorded as `custom`. Tools are limited to `browser`, `shell`, `files`, `git`, `mcp`, `subagent`, and `other`.
+Allowed events and properties are versioned in `packages/analytics`. Unknown events and properties are discarded. Known catalog models may use their normalized ID; custom models are recorded as `custom`.
+
+Tool results never produce individual analytics events. Their category totals
+and failures are accumulated in memory and attached to `turn completed`, `turn
+failed`, or `turn interrupted`. A turn with one tool call and a turn with one
+thousand tool calls therefore have the same tool-analytics event volume. Other
+product analytics—including screens, controls, onboarding, lifecycle,
+connectivity, subagent, and compaction events—remain enabled.
 
 The following must never be captured: prompts, responses, reasoning, tool input or output, commands, source code, file or repository names, paths, URLs, branches, entity IDs, titles, arbitrary integration names, diagnostic contents, names, email addresses, organization IDs, credentials, tokens, or error stacks. Errors use stable codes and fingerprints only.
 
 Signed-out installs use a random local identity. Signed-in clients use a namespaced SHA-256 account hash so desktop and mobile activity can be measured together without sending the account identifier. Signing out, resetting the app, or deleting an account rotates to a fresh anonymous identity. Previously collected pseudonymous aggregate history is retained. Standard geographic enrichment is applied by the analytics processor.
 
-Autocapture, automatic screen and lifecycle events, session replay, remote feature flags/configuration, and exception/source capture are disabled. Active time counts only while the app is foregrounded and the user has interacted within 60 seconds, and is emitted in aggregate intervals.
+Autocapture, session replay, remote feature flags/configuration, and
+exception/source capture are disabled. Active time counts only while the app is
+foregrounded and the user has interacted within 60 seconds, and is emitted in
+aggregate intervals.
+
+Managed dashboards and actions filter on
+`analytics_schema_version = 2`. Existing schema-v1 raw history remains intact
+for audit and comparison, but is excluded from current product reporting.
 
 ## Release gate
 

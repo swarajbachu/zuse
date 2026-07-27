@@ -8,7 +8,8 @@
 		"./active-time": "./src/active-time.ts",
 		"./client": "./src/client.ts",
 		"./events": "./src/events.ts",
-		"./identity": "./src/identity.ts"
+		"./identity": "./src/identity.ts",
+		"./turn-analytics": "./src/turn-analytics.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",
