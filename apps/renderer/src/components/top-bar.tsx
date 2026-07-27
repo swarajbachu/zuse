@@ -36,6 +36,11 @@ import {
 	useMemo,
 	useState,
 } from "react";
+import {
+	canCreatePrFromSyncedBranch,
+	deriveBranchWorkflow,
+	type OpenPrWorkflow,
+} from "../lib/branch-workflow.ts";
 import type { OpenTarget } from "../lib/bridge.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
@@ -684,93 +689,6 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 	);
 }
 
-type OpenPrWorkflow = {
-	kind: "open-pr";
-	number: number | null;
-	url: string | null;
-	isDraft: boolean;
-	checks: "none" | "pending" | "success" | "failure";
-	mergeable: "clean" | "conflicting" | "unknown";
-	checksTotal: number;
-	checksRunning: number;
-	checksPassing: number;
-	checksFailing: number;
-	autoMergeEnabled: boolean;
-};
-
-type Workflow =
-	| { kind: "idle" }
-	| { kind: "dirty"; count: number }
-	| { kind: "ahead"; count: number }
-	| { kind: "merged-pr" }
-	| { kind: "ready-for-pr" }
-	| OpenPrWorkflow;
-
-/**
- * Priority is the user's next sensible action, in order of urgency:
- *   1. dirty   — uncommitted files in the working tree
- *   2. ahead   — local commits not yet pushed; push before creating or
- *                updating a PR
- *   3. open-pr — a PR exists and the working tree + upstream are in sync
- *   4. merged-pr — this branch's PR is already merged
- *   5. ready-for-pr — clean pushed branch with no open/merged PR
- *   6. idle    — nothing to do
- *
- * Each kind carries only the fields its button needs, so the renderer
- * doesn't have to re-narrow PR shape downstream.
- */
-const deriveWorkflow = (
-	status: { branch: string | null; dirtyFiles: number; ahead: number } | null,
-	pr: {
-		state: string;
-		number: number | null;
-		url: string | null;
-		isDraft?: boolean;
-		checks?: "none" | "pending" | "success" | "failure";
-		mergeable?: "clean" | "conflicting" | "unknown";
-		checksTotal?: number;
-		checksRunning?: number;
-		checksPassing?: number;
-		checksFailing?: number;
-		autoMergeEnabled?: boolean;
-	} | null,
-	canCreatePrWhenSynced: boolean,
-): Workflow => {
-	const prOpen = pr !== null && pr.state === "open";
-	const prKnownNotOpen = pr !== null && !prOpen;
-	if (status === null) return { kind: "idle" };
-	if (status.dirtyFiles > 0) return { kind: "dirty", count: status.dirtyFiles };
-	if (status.ahead > 0) return { kind: "ahead", count: status.ahead };
-	if (pr && prOpen) {
-		return {
-			kind: "open-pr",
-			number: pr.number,
-			url: pr.url,
-			isDraft: pr.isDraft === true,
-			checks: pr.checks ?? "none",
-			mergeable: pr.mergeable ?? "unknown",
-			checksTotal: pr.checksTotal ?? 0,
-			checksRunning: pr.checksRunning ?? 0,
-			checksPassing: pr.checksPassing ?? 0,
-			checksFailing: pr.checksFailing ?? 0,
-			autoMergeEnabled: pr.autoMergeEnabled === true,
-		};
-	}
-	if (pr?.state === "merged") return { kind: "merged-pr" };
-	if (canCreatePrWhenSynced && prKnownNotOpen) return { kind: "ready-for-pr" };
-	return { kind: "idle" };
-};
-
-const canCreatePrFromSyncedBranch = (
-	status: { branch: string | null } | null,
-	ctx: ReturnType<typeof useActiveContext>,
-): boolean => {
-	if (ctx.status !== "ready" || ctx.worktreePending) return false;
-	if (ctx.rootKind === "worktree") return true;
-	const branch = status?.branch ?? null;
-	return branch !== null && branch !== "main" && branch !== "master";
-};
-
 /**
  * Refresh both git status and PR state after a direct git/gh action so the
  * top-bar workflow re-derives immediately rather than waiting for the next
@@ -894,7 +812,7 @@ export function TopBarRightContent({
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 
 	const canCreatePrWhenSynced = canCreatePrFromSyncedBranch(status, ctx);
-	const workflow = deriveWorkflow(status, pr, canCreatePrWhenSynced);
+	const workflow = deriveBranchWorkflow(status, pr, canCreatePrWhenSynced);
 	const agentReady = selectedSessionId !== null;
 
 	const Root = compact ? "div" : "header";
@@ -938,13 +856,92 @@ export function TopBarRightContent({
  * Archive chat, Resolve conflicts, Fix CI, Mark ready, Merge) — shared by
  * the top bar and the environment summary so both surfaces stay in sync.
  */
+type WorkflowActionPresentation = "glass" | "inline";
+
+function WorkflowActionButton({
+	presentation,
+	tone,
+	icon,
+	label,
+	onClick,
+	disabled,
+}: {
+	presentation: WorkflowActionPresentation;
+	tone: GlassTone;
+	icon: ReactNode;
+	label: string;
+	onClick: () => void;
+	disabled?: boolean;
+}) {
+	if (presentation === "glass") {
+		return (
+			<GlassActionButton
+				tone={tone}
+				icon={icon}
+				label={label}
+				onClick={onClick}
+				disabled={disabled}
+			/>
+		);
+	}
+
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			disabled={disabled}
+			className="flex min-h-9 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-3.5"
+		>
+			{icon}
+			{label}
+		</button>
+	);
+}
+
+export function ResolveConflictsButton({
+	presentation = "glass",
+}: {
+	presentation?: WorkflowActionPresentation;
+}) {
+	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
+	const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
+
+	return (
+		<WorkflowActionButton
+			presentation={presentation}
+			tone="red"
+			icon={
+				<HugeiconsIcon
+					icon={presentation === "inline" ? Wrench01Icon : Alert01Icon}
+				/>
+			}
+			label={presentation === "inline" ? "Fix" : "Resolve conflicts"}
+			disabled={selectedSessionId === null}
+			onClick={() => {
+				if (selectedSessionId === null) return;
+				setActiveMainTab("chat");
+				void useMessagesStore
+					.getState()
+					.send(
+						selectedSessionId,
+						"this pull request has merge conflicts — help me resolve them",
+					);
+			}}
+		/>
+	);
+}
+
 export function WorkflowActions({
 	compact = false,
 	includeRun = true,
+	includeHealthActions = true,
+	presentation = "glass",
 	className = "",
 }: {
 	compact?: boolean;
 	includeRun?: boolean;
+	includeHealthActions?: boolean;
+	presentation?: WorkflowActionPresentation;
 	className?: string;
 }) {
 	const ctx = useActiveContext();
@@ -972,7 +969,7 @@ export function WorkflowActions({
 	};
 
 	const canCreatePrWhenSynced = canCreatePrFromSyncedBranch(status, ctx);
-	const workflow = deriveWorkflow(status, pr, canCreatePrWhenSynced);
+	const workflow = deriveBranchWorkflow(status, pr, canCreatePrWhenSynced);
 	const agentReady = selectedSessionId !== null;
 
 	return (
@@ -983,7 +980,8 @@ export function WorkflowActions({
 		>
 			{includeRun ? <RunButton /> : null}
 			{workflow.kind === "dirty" ? (
-				<GlassActionButton
+				<WorkflowActionButton
+					presentation={presentation}
 					tone="amber"
 					icon={<HugeiconsIcon icon={Upload01Icon} />}
 					label="Commit & push"
@@ -994,9 +992,10 @@ export function WorkflowActions({
 			{workflow.kind === "ahead" && folderId !== null ? (
 				// Pushing committed changes needs no agent — do it directly.
 				<DirectActionButton
+					presentation={presentation}
 					tone="pink"
 					icon={<HugeiconsIcon icon={Upload01Icon} />}
-					label="Push commits"
+					label={presentation === "inline" ? "Push" : "Push commits"}
 					loadingLabel="Pushing…"
 					run={async () => {
 						const client = await getRpcClient();
@@ -1008,7 +1007,8 @@ export function WorkflowActions({
 				/>
 			) : null}
 			{workflow.kind === "ready-for-pr" ? (
-				<GlassActionButton
+				<WorkflowActionButton
+					presentation={presentation}
 					tone="pink"
 					icon={<HugeiconsIcon icon={GitPullRequestIcon} />}
 					label="Create PR"
@@ -1018,11 +1018,14 @@ export function WorkflowActions({
 			) : null}
 			{workflow.kind === "merged-pr" && selectedChatId !== null ? (
 				<DirectActionButton
+					presentation={presentation}
 					tone="zinc"
 					icon={<HugeiconsIcon icon={ArchiveArrowDownIcon} />}
 					label={
 						archiveProgress === null
-							? "Archive chat"
+							? presentation === "inline"
+								? "Archive"
+								: "Archive chat"
 							: chatArchiveProgressLabel(archiveProgress)
 					}
 					loadingLabel={
@@ -1034,24 +1037,18 @@ export function WorkflowActions({
 					run={() => archiveChatWithConfirm(selectedChatId)}
 				/>
 			) : null}
-			{workflow.kind === "open-pr" && workflow.mergeable === "conflicting" ? (
-				<GlassActionButton
-					tone="red"
-					icon={<HugeiconsIcon icon={Alert01Icon} />}
-					label="Resolve conflicts"
-					disabled={!agentReady}
-					onClick={() =>
-						sendToAgent(
-							"this pull request has merge conflicts — help me resolve them",
-						)
-					}
-				/>
+			{includeHealthActions &&
+			workflow.kind === "open-pr" &&
+			workflow.mergeable === "conflicting" ? (
+				<ResolveConflictsButton presentation={presentation} />
 			) : null}
-			{workflow.kind === "open-pr" &&
+			{includeHealthActions &&
+			workflow.kind === "open-pr" &&
 			workflow.mergeable !== "conflicting" &&
 			workflow.checks === "failure" &&
 			folderId !== null ? (
 				<FixActionsButton
+					presentation={presentation}
 					folderId={folderId}
 					worktreeId={worktreeId}
 					disabled={!agentReady}
@@ -1063,6 +1060,7 @@ export function WorkflowActions({
 			workflow.isDraft &&
 			folderId !== null ? (
 				<DirectActionButton
+					presentation={presentation}
 					tone="zinc"
 					icon={<HugeiconsIcon icon={GitMergeIcon} />}
 					label="Mark ready"
@@ -1083,12 +1081,17 @@ export function WorkflowActions({
 			folderId !== null ? (
 				workflow.checks === "pending" ? (
 					<AutoMergeToggle
+						presentation={presentation}
 						folderId={folderId}
 						worktreeId={worktreeId}
 						enabled={workflow.autoMergeEnabled}
 					/>
 				) : (
-					<MergeButton folderId={folderId} worktreeId={worktreeId} />
+					<MergeButton
+						presentation={presentation}
+						folderId={folderId}
+						worktreeId={worktreeId}
+					/>
 				)
 			) : null}
 		</div>
@@ -1175,6 +1178,7 @@ function CiStatus({ workflow }: { workflow: OpenPrWorkflow }) {
  * toast surface. The user can retry once loading clears.
  */
 function DirectActionButton({
+	presentation = "glass",
 	tone,
 	icon,
 	label,
@@ -1183,6 +1187,7 @@ function DirectActionButton({
 	run,
 	onSuccess,
 }: {
+	presentation?: WorkflowActionPresentation;
 	tone: GlassTone;
 	icon: ReactNode;
 	label: string;
@@ -1211,7 +1216,8 @@ function DirectActionButton({
 	};
 
 	return (
-		<GlassActionButton
+		<WorkflowActionButton
+			presentation={presentation}
 			tone={tone}
 			icon={
 				loading ? (
@@ -1240,9 +1246,11 @@ const MERGE_METHOD_LABEL: Record<GitMergeMethod, string> = {
  * are still pending.
  */
 function MergeButton({
+	presentation = "glass",
 	folderId,
 	worktreeId,
 }: {
+	presentation?: WorkflowActionPresentation;
 	folderId: FolderId;
 	worktreeId: WorktreeId | null;
 }) {
@@ -1253,6 +1261,7 @@ function MergeButton({
 	return (
 		<div className="flex items-center gap-1">
 			<DirectActionButton
+				presentation={presentation}
 				tone="green"
 				icon={<HugeiconsIcon icon={GitMergeIcon} />}
 				label="Merge"
@@ -1313,10 +1322,12 @@ function MergeButton({
  * surfaces in the warning tooltip.
  */
 function AutoMergeToggle({
+	presentation = "glass",
 	folderId,
 	worktreeId,
 	enabled,
 }: {
+	presentation?: WorkflowActionPresentation;
 	folderId: FolderId;
 	worktreeId: WorktreeId | null;
 	enabled: boolean;
@@ -1354,6 +1365,35 @@ function AutoMergeToggle({
 	const tip = enabled
 		? "Auto-merge is on. GitHub will merge this PR automatically once all required checks pass. Click to turn off."
 		: `Auto-merge on success — GitHub merges this PR automatically once all required checks pass, using your selected merge method (${method}). Requires the repository to allow auto-merge.`;
+
+	if (presentation === "inline") {
+		return (
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<WorkflowActionButton
+							presentation="inline"
+							tone="blue"
+							icon={
+								loading ? (
+									<HugeiconsIcon
+										icon={Loading02Icon}
+										className="animate-spin"
+									/>
+								) : (
+									<HugeiconsIcon icon={MagicWand01Icon} />
+								)
+							}
+							label={enabled ? "Auto-merge on" : "Auto-merge"}
+							disabled={loading}
+							onClick={() => void toggle()}
+						/>
+					}
+				/>
+				<TooltipPopup className="max-w-xs">{tip}</TooltipPopup>
+			</Tooltip>
+		);
+	}
 
 	return (
 		<div className="flex items-center gap-1">
@@ -1406,11 +1446,13 @@ const errorMessage = (err: unknown): string => {
  * --log-failed` once per failing run; on a chunky pipeline this can take a
  * couple seconds.
  */
-function FixActionsButton({
+export function FixActionsButton({
+	presentation = "glass",
 	folderId,
 	worktreeId,
 	disabled,
 }: {
+	presentation?: WorkflowActionPresentation;
 	folderId: FolderId;
 	worktreeId: WorktreeId | null;
 	disabled: boolean;
@@ -1450,7 +1492,8 @@ function FixActionsButton({
 	};
 
 	return (
-		<GlassActionButton
+		<WorkflowActionButton
+			presentation={presentation}
 			tone="red"
 			icon={
 				loading ? (
@@ -1459,7 +1502,13 @@ function FixActionsButton({
 					<HugeiconsIcon icon={Wrench01Icon} />
 				)
 			}
-			label={loading ? "Capturing…" : "Fix CI errors"}
+			label={
+				loading
+					? "Capturing…"
+					: presentation === "inline"
+						? "Fix"
+						: "Fix CI errors"
+			}
 			disabled={disabled || loading}
 			onClick={onClick}
 		/>
