@@ -295,14 +295,16 @@ const SessionStreamChanges = MemoizeRpcs.toLayerHandler(
 						},
 					),
 				);
-				return Stream.concat(
-					Stream.succeed({
-						_tag: "snapshot" as const,
-						cursor: snapshotCursor,
-						sessions: snapshot,
-					}),
-					live,
-				);
+				return sinceSequence === undefined
+					? Stream.concat(
+							Stream.succeed({
+								_tag: "snapshot" as const,
+								cursor: snapshotCursor,
+								sessions: snapshot,
+							}),
+							live,
+						)
+					: live;
 			}),
 		).pipe(Stream.orDie),
 );

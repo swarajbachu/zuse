@@ -26,6 +26,7 @@ import fuzzysort from "fuzzysort";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { OpenTarget } from "../lib/bridge.ts";
+import { reconcileFileTreePaths } from "../lib/file-tree-reconciliation.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { cn } from "../lib/utils.ts";
 import {
@@ -420,49 +421,85 @@ function TreeView({
 		model.setGitStatus(toGitStatusEntries(changes ?? []));
 	}, [model, changes]);
 
-	// Live disk changes: on each debounced `fs.watchTree` batch, refetch the full
-	// path list and apply the delta through `model.batch` so expansion and
-	// selection are preserved (vs a full resetPaths).
+	// Live disk changes reconcile only touched directories. `model.batch`
+	// preserves expansion and selection without rescanning the whole project.
 	useEffect(() => {
 		let fiber: Fiber.Fiber<unknown, unknown> | null = null;
 		let cancelled = false;
-		let scheduled = false;
+		let reconciling = false;
+		let retryTimer: ReturnType<typeof setTimeout> | null = null;
+		let retryDelayMs = 500;
+		const pendingPaths = new Set<string>();
 
-		const reconcile = async () => {
-			scheduled = false;
+		const reconcile = async (): Promise<void> => {
+			if (reconciling || pendingPaths.size === 0) return;
+			reconciling = true;
+			const changedPaths = [...pendingPaths];
+			pendingPaths.clear();
 			try {
 				const client = await getRpcClient();
-				const result = await Effect.runPromise(
-					client["fs.listPaths"]({ folderId, worktreeId }),
-				);
+				const result = await reconcileFileTreePaths({
+					changedPaths,
+					knownPaths: knownPathsRef.current,
+					listDirectory: (path) =>
+						Effect.runPromise(
+							client["fs.tree"]({ folderId, worktreeId, path }),
+						),
+				});
 				if (cancelled) return;
-				const next = result.paths;
-				const nextSet = new Set(next);
-				const known = knownPathsRef.current;
-				const ops: Array<
-					{ type: "add"; path: string } | { type: "remove"; path: string }
-				> = [];
-				// Adds in presorted order so parents land before children.
-				for (const path of next) {
-					if (!known.has(path)) ops.push({ type: "add", path });
+				if (result.requiresFullReconciliation) {
+					const full = await Effect.runPromise(
+						client["fs.listPaths"]({ folderId, worktreeId }),
+					);
+					if (cancelled) return;
+					const next = new Set(full.paths);
+					const operations = [
+						...full.paths
+							.filter((path) => !knownPathsRef.current.has(path))
+							.map((path) => ({ type: "add" as const, path })),
+						...[...knownPathsRef.current]
+							.filter((path) => !next.has(path))
+							.map((path) => ({ type: "remove" as const, path })),
+					];
+					if (operations.length > 0) model.batch(operations);
+					knownPathsRef.current = next;
+				} else {
+					if (result.operations.length > 0) model.batch(result.operations);
+					knownPathsRef.current = new Set(result.paths);
 				}
-				for (const path of known) {
-					if (!nextSet.has(path)) ops.push({ type: "remove", path });
-				}
-				if (ops.length > 0) model.batch(ops);
-				knownPathsRef.current = nextSet;
 				dirPathsRef.current = new Set(
-					next.filter((p) => p.endsWith("/")).map((p) => stripSlash(p)),
+					[...knownPathsRef.current]
+						.filter((path) => path.endsWith("/"))
+						.map((path) => stripSlash(path)),
 				);
+				retryDelayMs = 500;
 			} catch {
-				// Ignore transient listing failures; the next batch retries.
+				for (const path of changedPaths) pendingPaths.add(path);
+				if (!cancelled && retryTimer === null) {
+					retryTimer = setTimeout(() => {
+						retryTimer = null;
+						void reconcile();
+					}, retryDelayMs);
+					retryDelayMs = Math.min(retryDelayMs * 2, 5_000);
+				}
+			} finally {
+				reconciling = false;
+				if (!cancelled && pendingPaths.size > 0 && retryTimer === null) {
+					void reconcile();
+				}
 			}
 		};
 
-		const schedule = () => {
-			if (scheduled) return;
-			scheduled = true;
-			setTimeout(() => void reconcile(), 150);
+		const schedule = (paths: ReadonlyArray<string>) => {
+			for (const path of paths) pendingPaths.add(path);
+			retryDelayMs = 500;
+			if (!reconciling) {
+				if (retryTimer !== null) {
+					clearTimeout(retryTimer);
+					retryTimer = null;
+				}
+				void reconcile();
+			}
 		};
 
 		void (async () => {
@@ -473,12 +510,13 @@ function TreeView({
 					client["fs.watchTree"]({ folderId, worktreeId }).pipe(
 						Stream.catch(() => Stream.empty),
 					),
-					() => Effect.sync(schedule),
+					(event) => Effect.sync(() => schedule(event.paths)),
 				),
 			);
 		})();
 		return () => {
 			cancelled = true;
+			if (retryTimer !== null) clearTimeout(retryTimer);
 			if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
 		};
 	}, [folderId, worktreeId, model]);

@@ -1012,9 +1012,21 @@ export const SessionForkRpc = Rpc.make("session.fork", {
  * server subscribes before reading the snapshot, so reconnecting clients cannot
  * miss a chat/session mutation in the handoff between backfill and live events.
  */
+export const ChatSummaryChange = Schema.Union([
+	Schema.Struct({
+		_tag: Schema.Literal("snapshot"),
+		chats: Schema.Array(Chat),
+	}),
+	Schema.Struct({
+		_tag: Schema.Literal("change"),
+		chat: Chat,
+	}),
+]);
+export type ChatSummaryChange = typeof ChatSummaryChange.Type;
+
 export const ChatStreamChangesRpc = Rpc.make("chat.streamChanges", {
 	payload: Schema.Struct({ projectId: FolderId }),
-	success: Chat,
+	success: ChatSummaryChange,
 	stream: true,
 });
 

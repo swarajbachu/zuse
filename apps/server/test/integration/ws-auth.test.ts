@@ -49,6 +49,7 @@ const makeRuntime = (opts: {
 	readonly policy: LanAuthPolicy;
 	readonly port: number;
 	readonly pairingBootstrap?: boolean;
+	readonly compression?: boolean;
 	readonly staticDir?: string;
 	readonly trustProxy?: boolean;
 	readonly attachment?: {
@@ -101,6 +102,7 @@ const makeRuntime = (opts: {
 		onListening: opts.onListening,
 		staticDir: opts.staticDir,
 		trustProxy: opts.trustProxy,
+		compression: opts.compression,
 	}).pipe(Layer.provide(Layer.merge(LanAuthLayer, AttachmentLayer)));
 	const ServerLayer = RpcServer.layer(TestRpcs).pipe(
 		Layer.provide(PingHandler),
@@ -118,11 +120,14 @@ const disposeRuntime = async (
 	]);
 };
 
-const upgradeStatus = (
+const upgradeResponse = (
 	port: number,
 	path: string,
 	headers: Readonly<Record<string, string>> = {},
-): Promise<number> =>
+): Promise<{
+	readonly status: number;
+	readonly headers: Readonly<Record<string, string>>;
+}> =>
 	new Promise((resolve, reject) => {
 		const socket = new Socket();
 		const timeout = setTimeout(() => {
@@ -139,8 +144,23 @@ const upgradeStatus = (
 			if (!data.includes("\r\n\r\n")) return;
 			clearTimeout(timeout);
 			socket.destroy();
-			const status = Number(data.split(" ")[1]);
-			resolve(status);
+			const [head = ""] = data.split("\r\n\r\n");
+			const lines = head.split("\r\n");
+			const status = Number(lines[0]?.split(" ")[1]);
+			const responseHeaders = Object.fromEntries(
+				lines.slice(1).flatMap((line) => {
+					const separator = line.indexOf(":");
+					return separator === -1
+						? []
+						: [
+								[
+									line.slice(0, separator).toLowerCase(),
+									line.slice(separator + 1).trim(),
+								],
+							];
+				}),
+			);
+			resolve({ status, headers: responseHeaders });
 		});
 		socket.connect(port, "127.0.0.1", () => {
 			const requestHeaders = [
@@ -158,7 +178,56 @@ const upgradeStatus = (
 		});
 	});
 
+const upgradeStatus = (
+	port: number,
+	path: string,
+	headers: Readonly<Record<string, string>> = {},
+): Promise<number> =>
+	upgradeResponse(port, path, headers).then((response) => response.status);
+
 describe("WS LAN auth", () => {
+	it("negotiates bounded per-message compression when clients offer it", async () => {
+		const port = await freePort();
+		const runtime = makeRuntime({ policy: "local", port });
+		try {
+			await runtime.runPromise(Effect.void);
+			const response = await upgradeResponse(
+				port,
+				`/?wireVersion=${WIRE_PROTOCOL_VERSION}`,
+				{ "Sec-WebSocket-Extensions": "permessage-deflate" },
+			);
+			expect(response.status).toBe(101);
+			expect(response.headers["sec-websocket-extensions"]).toContain(
+				"permessage-deflate",
+			);
+			expect(response.headers["sec-websocket-extensions"]).toContain(
+				"server_no_context_takeover",
+			);
+			expect(response.headers["sec-websocket-extensions"]).toContain(
+				"client_no_context_takeover",
+			);
+		} finally {
+			await disposeRuntime(runtime);
+		}
+	});
+
+	it("can disable WebSocket compression for compatibility", async () => {
+		const port = await freePort();
+		const runtime = makeRuntime({ policy: "local", port, compression: false });
+		try {
+			await runtime.runPromise(Effect.void);
+			const response = await upgradeResponse(
+				port,
+				`/?wireVersion=${WIRE_PROTOCOL_VERSION}`,
+				{ "Sec-WebSocket-Extensions": "permessage-deflate" },
+			);
+			expect(response.status).toBe(101);
+			expect(response.headers["sec-websocket-extensions"]).toBeUndefined();
+		} finally {
+			await disposeRuntime(runtime);
+		}
+	});
+
 	it("serves the browser SPA with secure cache policy and traversal protection", async () => {
 		const port = await freePort();
 		const staticDir = await mkdtemp(join(tmpdir(), "zuse-client-"));

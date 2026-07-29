@@ -331,7 +331,6 @@ export function ProjectsSidebar() {
 	const select = useWorkspaceStore((s) => s.select);
 
 	const sessionsByProject = useSessionsStore((s) => s.sessionsByProject);
-	const hydrateSessions = useSessionsStore((s) => s.hydrate);
 
 	const chatsByProject = useChatsStore((s) => s.chatsByProject);
 	const hydrateChats = useChatsStore((s) => s.hydrate);
@@ -354,23 +353,14 @@ export function ProjectsSidebar() {
 		);
 	}, [selectedFolderId]);
 
-	// Lazy-hydrate chats AND sessions for any expanded project that hasn't
-	// been loaded. Sidebar reads chats; tab strip reads sessions; both stores
-	// are populated up-front so switching projects doesn't show empty tabs.
+	// Chat streams hydrate expanded projects. Session summary streams below own
+	// their snapshot and live continuation, so a second list request is unnecessary.
 	useEffect(() => {
 		for (const folder of folders) {
 			if (!expanded[folder.id]) continue;
 			if (!(folder.id in chatsByProject)) void hydrateChats(folder.id);
-			if (!(folder.id in sessionsByProject)) void hydrateSessions(folder.id);
 		}
-	}, [
-		expanded,
-		folders,
-		chatsByProject,
-		sessionsByProject,
-		hydrateChats,
-		hydrateSessions,
-	]);
+	}, [expanded, folders, chatsByProject, hydrateChats]);
 
 	// Eagerly hydrate the (lightweight) chat list for EVERY project, regardless
 	// of expansion. This is what lets read/unread — and the cross-project "Next

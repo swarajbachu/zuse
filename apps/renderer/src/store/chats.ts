@@ -3,6 +3,7 @@ import {
 	type ChatArchiveJob,
 	type ChatArchiveResult,
 	ChatId,
+	type ChatSummaryChange,
 	type ChatUnarchiveResult,
 	type ComposerInput,
 	type FolderId,
@@ -231,15 +232,30 @@ const currentChangeLifecycle = (projectId: FolderId): number =>
 const applyChatChange = (
 	projectId: FolderId,
 	lifecycle: number,
-	chat: Chat,
+	change: ChatSummaryChange,
 ): void => {
 	if (currentChangeLifecycle(projectId) !== lifecycle) return;
-	let inserted = false;
+	if (change._tag === "snapshot") {
+		useChatsStore.setState((state) => ({
+			chatsByProject: {
+				...state.chatsByProject,
+				[projectId]: [...change.chats].sort(
+					(left, right) => chatSortTime(right) - chatSortTime(left),
+				),
+			},
+			loadingByProject: {
+				...state.loadingByProject,
+				[projectId]: false,
+			},
+			error: null,
+		}));
+		return;
+	}
+	const chat = change.chat;
 	useChatsStore.setState((s) => {
 		if (currentChangeLifecycle(projectId) !== lifecycle) return s;
 		const chats = s.chatsByProject[projectId];
 		if (chats === undefined) return s;
-		inserted = !chats.some((c) => c.id === chat.id);
 		return {
 			chatsByProject: {
 				...s.chatsByProject,
@@ -247,16 +263,6 @@ const applyChatChange = (
 			},
 		};
 	});
-	const activeSessionId = chat.activeSessionId;
-	const knownSessions =
-		useSessionsStore.getState().sessionsByProject[projectId];
-	const activeSessionMissing =
-		activeSessionId !== null &&
-		knownSessions !== undefined &&
-		!knownSessions.some((row) => row.id === activeSessionId);
-	if (inserted || activeSessionMissing) {
-		void useSessionsStore.getState().hydrate(projectId);
-	}
 };
 
 const runChatChangeStream = Effect.fn("ChatsStore.runChatChangeStream")(
@@ -275,6 +281,13 @@ const runChatChangeStream = Effect.fn("ChatsStore.runChatChangeStream")(
 			return;
 		if (clientResult._tag === "Failure") {
 			reportRendererRpcStreamFailure(generation, clientResult.failure);
+			useChatsStore.setState((state) => ({
+				loadingByProject: {
+					...state.loadingByProject,
+					[projectId]: false,
+				},
+				error: formatError(clientResult.failure),
+			}));
 			return;
 		}
 		const streamResult = yield* Stream.runForEach(
@@ -292,6 +305,12 @@ const runChatChangeStream = Effect.fn("ChatsStore.runChatChangeStream")(
 				? streamResult.failure
 				: new Error("chat change stream completed unexpectedly"),
 		);
+		useChatsStore.setState((state) => ({
+			loadingByProject: {
+				...state.loadingByProject,
+				[projectId]: false,
+			},
+		}));
 	},
 );
 
@@ -329,6 +348,26 @@ export const stopChatChangeStream = async (
 	if (fiber !== undefined) {
 		await Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {});
 	}
+	useChatsStore.setState((state) => {
+		const chatsByProject = { ...state.chatsByProject };
+		const loadingByProject = { ...state.loadingByProject };
+		const selectedChatByProject = { ...state.selectedChatByProject };
+		const removedChats = chatsByProject[projectId] ?? [];
+		delete chatsByProject[projectId];
+		delete loadingByProject[projectId];
+		delete selectedChatByProject[projectId];
+		const selectedChatId = removedChats.some(
+			(chat) => chat.id === state.selectedChatId,
+		)
+			? null
+			: state.selectedChatId;
+		return {
+			chatsByProject,
+			loadingByProject,
+			selectedChatByProject,
+			selectedChatId,
+		};
+	});
 };
 
 export const useChatsStore = create<ChatsState>((set, get) => ({
@@ -342,9 +381,14 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 	hydrate: async (projectId) => {
 		const lifecycle = currentChangeLifecycle(projectId);
 		set((s) => ({
+			chatsByProject:
+				s.chatsByProject[projectId] === undefined
+					? { ...s.chatsByProject, [projectId]: [] }
+					: s.chatsByProject,
 			loadingByProject: { ...s.loadingByProject, [projectId]: true },
 			error: null,
 		}));
+		ensureChangeStream(projectId, lifecycle);
 		try {
 			const client = await getRpcClient();
 			const archiveJobsRpc = (
@@ -352,36 +396,17 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					readonly "chat.archiveJobs"?: (typeof client)["chat.archiveJobs"];
 				}
 			)["chat.archiveJobs"];
-			const [chats, archiveJobs] = await Promise.all([
-				Effect.runPromise(client["chat.list"]({ projectId })),
+			const archiveJobs =
 				archiveJobsRpc === undefined
-					? Promise.resolve([])
-					: Effect.runPromise(archiveJobsRpc({ projectId })),
-			]);
+					? []
+					: await Effect.runPromise(archiveJobsRpc({ projectId }));
 			for (const job of archiveJobs) {
 				if (job.status === "failed") notifyArchiveFailure(job);
 				else monitorArchiveJob(job.chatId);
 			}
-			if (currentChangeLifecycle(projectId) !== lifecycle) return;
-			set((s) => ({
-				chatsByProject: { ...s.chatsByProject, [projectId]: chats },
-				loadingByProject: { ...s.loadingByProject, [projectId]: false },
-			}));
 		} catch (err) {
 			if (currentChangeLifecycle(projectId) !== lifecycle) return;
-			set((s) => ({
-				chatsByProject:
-					s.chatsByProject[projectId] === undefined
-						? { ...s.chatsByProject, [projectId]: [] }
-						: s.chatsByProject,
-				error: formatError(err),
-				loadingByProject: { ...s.loadingByProject, [projectId]: false },
-			}));
-		} finally {
-			// The stream has its own subscribe-before-snapshot backfill, so start it
-			// even when the initial list RPC fails. The shared connection supervisor
-			// controls retry/backoff and announces the next usable generation.
-			ensureChangeStream(projectId, lifecycle);
+			set({ error: formatError(err) });
 		}
 	},
 	create: async (projectId, providerId, model, opts) => {

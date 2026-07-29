@@ -14,6 +14,7 @@ import type {
 	ChatId,
 	ChatNotArchivedError,
 	ChatNotFoundError,
+	ChatSummaryChange,
 	ChatUnarchiveResult,
 	ComposerAnnotation,
 	ComposerInput,
@@ -384,7 +385,9 @@ export interface ConversationOperations {
 	 * snapshot and applies updates (e.g. the background auto-namer rewriting a
 	 * title) on top. Never fails.
 	 */
-	readonly streamChatChanges: (projectId: FolderId) => Stream.Stream<Chat>;
+	readonly streamChatChanges: (
+		projectId: FolderId,
+	) => Stream.Stream<ChatSummaryChange>;
 
 	/**
 	 * Update the chat's worktree. Allowed only when no session in the chat

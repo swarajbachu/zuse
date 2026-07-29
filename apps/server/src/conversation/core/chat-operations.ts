@@ -113,7 +113,13 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 				const live = Stream.fromSubscription(sub).pipe(
 					Stream.filter((chat) => chat.projectId === projectId),
 				);
-				return Stream.concat(Stream.fromIterable(snapshot), live);
+				return Stream.concat(
+					Stream.succeed({
+						_tag: "snapshot" as const,
+						chats: snapshot,
+					}),
+					live.pipe(Stream.map((chat) => ({ _tag: "change" as const, chat }))),
+				);
 			}),
 		);
 

@@ -52,12 +52,6 @@ const MAX_TREE_PATHS = 50_000;
 const toForwardSlash = (p: string): string =>
 	path.sep === "/" ? p : p.split(path.sep).join("/");
 
-const parentPathOf = (p: string): string => {
-	const normalized = p.replace(/\/+$/g, "");
-	const idx = normalized.lastIndexOf("/");
-	return idx === -1 ? "" : normalized.slice(0, idx);
-};
-
 const isSkippedWatchPath = (relPath: string): boolean => {
 	const first = toForwardSlash(relPath).split("/")[0] ?? "";
 	return WATCH_SKIP_DIRS.has(first);
@@ -227,7 +221,6 @@ export const FsServiceLive = Layer.effect(
 							const rel = toForwardSlash(filename.toString());
 							if (rel === "" || isSkippedWatchPath(rel)) return;
 							pending.add(rel);
-							pending.add(parentPathOf(rel));
 							schedule();
 						});
 						handle.on("error", (err) => {

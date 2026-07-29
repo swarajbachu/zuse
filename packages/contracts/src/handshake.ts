@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
-export const WIRE_PROTOCOL_VERSION = 2 as const;
+export const WIRE_PROTOCOL_VERSION = 3 as const;
 
 export class WireHello extends Schema.Class<WireHello>("WireHello")({
   protocolVersion: Schema.Number,

@@ -19,7 +19,6 @@ import {
 	wsServerProtocolLayer,
 } from "@zuse/server";
 import { Cause, Effect, Fiber, Layer } from "effect";
-import { RpcSerialization } from "effect/unstable/rpc";
 import {
 	app,
 	BrowserWindow,
@@ -409,15 +408,23 @@ app.on("second-instance", (_event, argv) => {
 });
 const USER_APPLICATIONS_DIR = Path.join(homedir(), "Applications");
 const execFileAsync = promisify(execFile);
+const appLogWrites = new Map<string, Promise<void>>();
 
 const appendAppLog = (fileName: string, line: string): void => {
-	try {
-		const filePath = Path.join(app.getPath("userData"), "logs", fileName);
-		fsSync.mkdirSync(Path.dirname(filePath), { recursive: true });
-		fsSync.appendFileSync(filePath, `${line}\n`, "utf8");
-	} catch {
-		// Logging must never affect app behavior.
-	}
+	const filePath = Path.join(app.getPath("userData"), "logs", fileName);
+	const previous = appLogWrites.get(filePath) ?? Promise.resolve();
+	const write = previous.then(async () => {
+		try {
+			await fs.mkdir(Path.dirname(filePath), { recursive: true });
+			await fs.appendFile(filePath, `${line}\n`, "utf8");
+		} catch {
+			// Logging must never affect app behavior.
+		}
+	});
+	appLogWrites.set(filePath, write);
+	void write.finally(() => {
+		if (appLogWrites.get(filePath) === write) appLogWrites.delete(filePath);
+	});
 };
 
 const appendRemoteConnectionLog = (
@@ -1893,7 +1900,8 @@ async function createMainWindow() {
 	// a fresh runtime — the only Effect.runFork in the main process.
 	const serverProtocol = electronServerProtocolLayer(
 		mainWindow.webContents,
-	).pipe(Layer.provide(RpcSerialization.layerJson));
+		appendRemoteConnectionLog,
+	);
 	const relayWsPort = relayPort.port;
 	const relayWsProtocol = wsServerProtocolLayer({
 		port: relayWsPort,

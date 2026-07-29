@@ -1713,6 +1713,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const replayed = await run(
 				Effect.flatMap(store, (s) =>
 					s.streamChatChanges(PROJECT_ID).pipe(
+						Stream.flatMap((change) =>
+							change._tag === "snapshot"
+								? Stream.fromIterable(change.chats)
+								: Stream.succeed(change.chat),
+						),
 						Stream.filter((chat) => chat.id === parent.chat.id),
 						Stream.take(1),
 						Stream.runCollect,
@@ -1785,6 +1790,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const replayed = await run(
 				Effect.flatMap(store, (s) =>
 					s.streamChatChanges(PROJECT_ID).pipe(
+						Stream.flatMap((change) =>
+							change._tag === "snapshot"
+								? Stream.fromIterable(change.chats)
+								: Stream.succeed(change.chat),
+						),
 						Stream.filter((chat) => (chat.id as string) === created.chatId),
 						Stream.take(1),
 						Stream.runCollect,
@@ -1803,9 +1813,16 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const result = await run(
 				Effect.gen(function* () {
 					const s = yield* store;
-					const streamFiber = yield* s
-						.streamChatChanges(PROJECT_ID)
-						.pipe(Stream.take(1), Stream.runCollect, Effect.forkChild);
+					const streamFiber = yield* s.streamChatChanges(PROJECT_ID).pipe(
+						Stream.flatMap((change) =>
+							change._tag === "snapshot"
+								? Stream.fromIterable(change.chats)
+								: Stream.succeed(change.chat),
+						),
+						Stream.take(1),
+						Stream.runCollect,
+						Effect.forkChild,
+					);
 					yield* Effect.sleep("10 millis");
 					const created = yield* s.createChat({
 						projectId: PROJECT_ID,
@@ -1835,6 +1852,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						model: "claude-opus-4-8",
 					});
 					const streamFiber = yield* s.streamChatChanges(PROJECT_ID).pipe(
+						Stream.flatMap((change) =>
+							change._tag === "snapshot"
+								? Stream.fromIterable(change.chats)
+								: Stream.succeed(change.chat),
+						),
 						Stream.filter(
 							(chat) =>
 								chat.id === created.chat.id &&
@@ -3879,6 +3901,11 @@ describe("ConversationServices — provider event persistence", () => {
 						const liveRenameFiber = yield* service
 							.streamChatChanges(PROJECT_ID)
 							.pipe(
+								Stream.flatMap((change) =>
+									change._tag === "snapshot"
+										? Stream.fromIterable(change.chats)
+										: Stream.succeed(change.chat),
+								),
 								Stream.filter((chat) => chat.titleProvenance === "automatic"),
 								Stream.take(1),
 								Stream.runCollect,

@@ -1,0 +1,98 @@
+diff --git a/dist/NodeHttpServer.d.ts b/dist/NodeHttpServer.d.ts
+index eed098e862470ab15a66a77fa5f0676016076374..e763f8d4185e685d5166e84124ee6d03a0a4e8fa 100644
+--- a/dist/NodeHttpServer.d.ts
++++ b/dist/NodeHttpServer.d.ts
+@@ -30,6 +30,7 @@ import { NodeWS } from "./NodeSocket.ts";
+ export declare const make: (evaluate: LazyArg<Http.Server<typeof Http.IncomingMessage, typeof Http.ServerResponse>>, options: Net.ListenOptions & {
+     readonly disablePreemptiveShutdown?: boolean | undefined;
+     readonly gracefulShutdownTimeout?: Duration.Input | undefined;
++    readonly webSocketServerOptions?: Omit<NodeWS.ServerOptions, "noServer" | "port" | "server"> | undefined;
+ }) => Effect.Effect<{
+     readonly serve: {
+         <E, R>(effect: Effect.Effect<HttpServerResponse, E, R>): Effect.Effect<void, never, Exclude<R, HttpServerRequest> | Scope.Scope>;
+@@ -71,6 +72,7 @@ export declare const makeUpgradeHandler: <R, E, App extends Effect.Effect<HttpSe
+ export declare const layerServer: (evaluate: LazyArg<Http.Server<typeof Http.IncomingMessage, typeof Http.ServerResponse>>, options: Net.ListenOptions & {
+     readonly disablePreemptiveShutdown?: boolean | undefined;
+     readonly gracefulShutdownTimeout?: Duration.Input | undefined;
++    readonly webSocketServerOptions?: Omit<NodeWS.ServerOptions, "noServer" | "port" | "server"> | undefined;
+ }) => Layer.Layer<HttpServer.HttpServer, ServeError>;
+ /**
+  * Provides the Node HTTP support services used by `NodeHttpServer`, including
+@@ -90,6 +92,7 @@ export declare const layerHttpServices: Layer.Layer<NodeServices.NodeServices |
+ export declare const layer: (evaluate: LazyArg<Http.Server>, options: Net.ListenOptions & {
+     readonly disablePreemptiveShutdown?: boolean | undefined;
+     readonly gracefulShutdownTimeout?: Duration.Input | undefined;
++    readonly webSocketServerOptions?: Omit<NodeWS.ServerOptions, "noServer" | "port" | "server"> | undefined;
+ }) => Layer.Layer<HttpServer.HttpServer | NodeServices.NodeServices | HttpPlatform.HttpPlatform | Etag.Generator, ServeError>;
+ /**
+  * Provides a Node `HttpServer` together with the Node HTTP platform, ETag,
+@@ -102,6 +105,7 @@ export declare const layer: (evaluate: LazyArg<Http.Server>, options: Net.Listen
+ export declare const layerConfig: (evaluate: LazyArg<Http.Server>, options: Config.Wrap<Net.ListenOptions & {
+     readonly disablePreemptiveShutdown?: boolean | undefined;
+     readonly gracefulShutdownTimeout?: Duration.Input | undefined;
++    readonly webSocketServerOptions?: Omit<NodeWS.ServerOptions, "noServer" | "port" | "server"> | undefined;
+ }>) => Layer.Layer<HttpServer.HttpServer | NodeServices.NodeServices | HttpPlatform.HttpPlatform | Etag.Generator, ServeError | Config.ConfigError>;
+ /**
+  * Provides a test HTTP server listening on an ephemeral port together with a
+diff --git a/dist/NodeHttpServer.js b/dist/NodeHttpServer.js
+index 6640c20c775091beff1ed2e879e506dc691b9529..72416cab527fc8d5f59b5e511e4eb38e52840537 100644
+--- a/dist/NodeHttpServer.js
++++ b/dist/NodeHttpServer.js
+@@ -83,6 +83,7 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (evaluate, options)
+   });
+   const address = server.address();
+   const wss = yield* Effect.acquireRelease(Effect.sync(() => new NodeWS.WebSocketServer({
++    ...options.webSocketServerOptions,
+     noServer: true
+   })), wss => Effect.callback(resume => {
+     wss.close(() => resume(Effect.void));
+diff --git a/src/NodeHttpServer.ts b/src/NodeHttpServer.ts
+index d9f8f59e6358a4333814f82313814cb5c1e7a23e..54d8fdcf50e435cb06ffe455706b87383263a4c6 100644
+--- a/src/NodeHttpServer.ts
++++ b/src/NodeHttpServer.ts
+@@ -75,6 +75,7 @@ export const make = Effect.fnUntraced(function*(
+   options: Net.ListenOptions & {
+     readonly disablePreemptiveShutdown?: boolean | undefined
+     readonly gracefulShutdownTimeout?: Duration.Input | undefined
++    readonly webSocketServerOptions?: Omit<NodeWS.ServerOptions, "noServer" | "port" | "server"> | undefined
+   }
+ ) {
+   const scope = yield* Effect.scope
+@@ -116,7 +117,12 @@ export const make = Effect.fnUntraced(function*(
+   const address = server.address()!
+ 
+   const wss = yield* Effect.acquireRelease(
+-    Effect.sync(() => new NodeWS.WebSocketServer({ noServer: true })),
++    Effect.sync(() =>
++      new NodeWS.WebSocketServer({
++        ...options.webSocketServerOptions,
++        noServer: true
++      })
++    ),
+     (wss) =>
+       Effect.callback<void>((resume) => {
+         wss.close(() => resume(Effect.void))
+@@ -400,6 +406,7 @@ export const layerServer: (
+   options: Net.ListenOptions & {
+     readonly disablePreemptiveShutdown?: boolean | undefined
+     readonly gracefulShutdownTimeout?: Duration.Input | undefined
++    readonly webSocketServerOptions?: Omit<NodeWS.ServerOptions, "noServer" | "port" | "server"> | undefined
+   }
+ ) => Layer.Layer<HttpServer.HttpServer, ServeError> = flow(make, Layer.effect(HttpServer.HttpServer))
+ 
+@@ -430,6 +437,7 @@ export const layer = (
+   options: Net.ListenOptions & {
+     readonly disablePreemptiveShutdown?: boolean | undefined
+     readonly gracefulShutdownTimeout?: Duration.Input | undefined
++    readonly webSocketServerOptions?: Omit<NodeWS.ServerOptions, "noServer" | "port" | "server"> | undefined
+   }
+ ): Layer.Layer<
+   HttpServer.HttpServer | NodeServices.NodeServices | HttpPlatform.HttpPlatform | Etag.Generator,
+@@ -454,6 +462,7 @@ export const layerConfig = (
+     Net.ListenOptions & {
+       readonly disablePreemptiveShutdown?: boolean | undefined
+       readonly gracefulShutdownTimeout?: Duration.Input | undefined
++      readonly webSocketServerOptions?: Omit<NodeWS.ServerOptions, "noServer" | "port" | "server"> | undefined
+     }
+   >
+ ): Layer.Layer<

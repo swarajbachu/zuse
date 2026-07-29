@@ -20,7 +20,11 @@ import {
 	setSessionPermissionMode as setSessionPermissionModeRpc,
 	setSessionRuntimeMode as setSessionRuntimeModeRpc,
 } from "~/rpc/actions";
-import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
+import {
+	getConnectionClient,
+	reportConnectionFailure,
+	retryConnectionNow,
+} from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
 import { messagesBySessionAtom } from "./messages";
@@ -491,19 +495,20 @@ export const hydrateSessions = async (
 	try {
 		const client = await Effect.runPromise(getConnectionClient(options));
 		const projects = await Effect.runPromise(client["workspace.list"]({}));
-		const bundles = await Promise.all(
-			projects.map(async (project) => {
-				const [chats, sessions] = await Promise.all([
-					Effect.runPromise(client["chat.list"]({ projectId: project.id })),
-					Effect.runPromise(client["session.list"]({ projectId: project.id })),
-				]);
-				return { project, chats, sessions };
-			}),
+		const cachedByProject = new Map(
+			currentBundles(connKey).map((bundle) => [bundle.project.id, bundle]),
 		);
+		const bundles = projects.map((project) => {
+			const cachedBundle = cachedByProject.get(project.id);
+			return {
+				project,
+				chats: cachedBundle?.chats ?? [],
+				sessions: cachedBundle?.sessions ?? [],
+			};
+		});
 
 		batchAtomUpdates(() => {
 			setConnectionBundles(connKey, bundles);
-			setConnectionLoading(connKey, false);
 			appAtomRegistry.update(statusBySessionAtom, (state) =>
 				patchConnectionStatuses(
 					state,
@@ -513,28 +518,92 @@ export const hydrateSessions = async (
 			);
 		});
 
-		await Effect.runPromise(
-			writeSessionsSnapshot(connKey, {
-				projects,
-				chats: bundles.flatMap((b) => b.chats),
-				sessions: bundles.flatMap((b) => b.sessions),
-				savedAt: Date.now(),
-			}),
-		);
-
+		const snapshotsReady: Promise<
+			{ readonly ok: true } | { readonly ok: false; readonly cause: unknown }
+		>[] = [];
 		for (const bundle of bundles) {
+			let chatReady = false;
+			let sessionsReady = false;
+			let readySettled = false;
+			let resolveReady: (() => void) | undefined;
+			let rejectReady: ((cause: unknown) => void) | undefined;
+			const ready = new Promise<void>((resolve, reject) => {
+				resolveReady = resolve;
+				rejectReady = reject;
+			});
+			snapshotsReady.push(
+				ready.then(
+					() => ({ ok: true as const }),
+					(cause) => ({ ok: false as const, cause }),
+				),
+			);
+			const markReady = () => {
+				if (!readySettled && chatReady && sessionsReady) {
+					readySettled = true;
+					resolveReady?.();
+				}
+			};
+			const failReady = (cause: unknown) => {
+				if (readySettled) return;
+				readySettled = true;
+				rejectReady?.(cause);
+			};
+
 			await stopFiber(`${connKey}:chat:${bundle.project.id}`, chatFibers);
 			const chatProgram = Stream.runForEach(
 				client["chat.streamChanges"]({ projectId: bundle.project.id }),
-				(chat) =>
+				(change) =>
 					Effect.sync(() => {
-						setConnectionBundles(
-							connKey,
-							patchChat(currentBundles(connKey), chat),
-						);
+						if (change._tag === "snapshot") {
+							setConnectionBundles(
+								connKey,
+								replaceProjectChats(
+									currentBundles(connKey),
+									bundle.project.id,
+									change.chats,
+								),
+							);
+							chatReady = true;
+							markReady();
+						} else {
+							setConnectionBundles(
+								connKey,
+								patchChat(currentBundles(connKey), change.chat),
+							);
+						}
 						void persistConnectionBundles(connKey);
 					}),
-			).pipe(Effect.catch(() => Effect.void));
+			).pipe(
+				Effect.tap(() =>
+					Effect.sync(() => {
+						if (!chatReady) return;
+						const cause = new Error(
+							"Chat summary stream completed unexpectedly",
+						);
+						retryConnectionNow(options);
+						setConnectionError(connKey, cause.message);
+					}),
+				),
+				Effect.catch((cause) =>
+					Effect.sync(() => {
+						if (!chatReady) {
+							failReady(cause);
+							return;
+						}
+						reportConnectionFailure(options, cause);
+						setConnectionError(connKey, messageOf(cause));
+					}),
+				),
+				Effect.ensuring(
+					Effect.sync(() => {
+						if (!chatReady) {
+							failReady(
+								new Error("Chat summary stream ended before its snapshot"),
+							);
+						}
+					}),
+				),
+			);
 			chatFibers.set(
 				`${connKey}:chat:${bundle.project.id}`,
 				Effect.runFork(chatProgram),
@@ -560,6 +629,8 @@ export const hydrateSessions = async (
 									patchConnectionStatuses(state, connKey, change.sessions),
 								);
 							});
+							sessionsReady = true;
+							markReady();
 							void persistConnectionBundles(connKey);
 							return;
 						}
@@ -584,9 +655,55 @@ export const hydrateSessions = async (
 						);
 						void persistConnectionBundles(connKey);
 					}),
-			).pipe(Effect.catch(() => Effect.void));
+			).pipe(
+				Effect.tap(() =>
+					Effect.sync(() => {
+						if (!sessionsReady) return;
+						const cause = new Error(
+							"Session summary stream completed unexpectedly",
+						);
+						retryConnectionNow(options);
+						setConnectionError(connKey, cause.message);
+					}),
+				),
+				Effect.catch((cause) =>
+					Effect.sync(() => {
+						if (!sessionsReady) {
+							failReady(cause);
+							return;
+						}
+						reportConnectionFailure(options, cause);
+						setConnectionError(connKey, messageOf(cause));
+					}),
+				),
+				Effect.ensuring(
+					Effect.sync(() => {
+						if (!sessionsReady) {
+							failReady(
+								new Error("Session summary stream ended before its snapshot"),
+							);
+						}
+					}),
+				),
+			);
 			sessionSummaryFibers.set(summaryKey, Effect.runFork(summaryProgram));
 		}
+		const readiness = await Promise.all(snapshotsReady);
+		const failed = readiness.find((result) => !result.ok);
+		if (failed !== undefined && !failed.ok) throw failed.cause;
+		const hydrated = currentBundles(connKey);
+		batchAtomUpdates(() => {
+			setConnectionLoading(connKey, false);
+			setConnectionError(connKey, null);
+		});
+		await Effect.runPromise(
+			writeSessionsSnapshot(connKey, {
+				projects,
+				chats: hydrated.flatMap((bundle) => bundle.chats),
+				sessions: hydrated.flatMap((bundle) => bundle.sessions),
+				savedAt: Date.now(),
+			}),
+		);
 	} catch (cause) {
 		reportConnectionFailure(options, cause);
 		batchAtomUpdates(() => {
@@ -622,6 +739,15 @@ const replaceProjectSessions = (
 ): ProjectBundle[] =>
 	bundles.map((bundle) =>
 		bundle.project.id === projectId ? { ...bundle, sessions } : bundle,
+	);
+
+const replaceProjectChats = (
+	bundles: readonly ProjectBundle[],
+	projectId: Folder["id"],
+	chats: readonly Chat[],
+): ProjectBundle[] =>
+	bundles.map((bundle) =>
+		bundle.project.id === projectId ? { ...bundle, chats } : bundle,
 	);
 
 const rebuildBundles = (

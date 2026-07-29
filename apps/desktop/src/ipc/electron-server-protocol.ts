@@ -1,4 +1,8 @@
 import { IPC_CHANNEL } from "@zuse/contracts";
+import {
+  makeMeasuredJsonRpcSerialization,
+  makeRpcPayloadReporter,
+} from "@zuse/utils/rpc-payload-metrics";
 import { type Cause, Effect, Layer, Queue, Stream } from "effect";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import type { FromClientEncoded } from "effect/unstable/rpc/RpcMessage";
@@ -131,7 +135,28 @@ export const makeElectronServerProtocol = (webContents: WebContents) =>
 
 /**
  * Build a Layer providing `RpcServer.Protocol` bound to a specific webContents.
- * Compose with `RpcSerialization.layerJson` and the RpcServer + handlers.
  */
-export const electronServerProtocolLayer = (webContents: WebContents) =>
-  Layer.effect(RpcServer.Protocol, makeElectronServerProtocol(webContents));
+export const electronServerProtocolLayer = (
+  webContents: WebContents,
+  onDiagnostic?: (event: string, fields?: Record<string, unknown>) => void,
+) => {
+  const reporter = makeRpcPayloadReporter({
+    transport: "electron-ipc",
+    onReport: (report) => onDiagnostic?.("rpc.payload.summary", { ...report }),
+  });
+  return Layer.effect(
+    RpcServer.Protocol,
+    makeElectronServerProtocol(webContents),
+  ).pipe(
+    Layer.provide(
+      Layer.succeed(
+        RpcSerialization.RpcSerialization,
+        makeMeasuredJsonRpcSerialization({
+          encodeDirection: "outbound",
+          decodeDirection: "inbound",
+          record: reporter.record,
+        }),
+      ),
+    ),
+  );
+};

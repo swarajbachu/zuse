@@ -50,6 +50,7 @@
     "@zuse/server": "*",
     "@zuse/ssh": "*",
     "@zuse/contracts": "*",
+    "@zuse/utils": "*",
     "@repo/typescript-config": "*",
     "@types/node": "catalog:",
     "effect": "catalog:",

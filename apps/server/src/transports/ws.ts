@@ -4,6 +4,10 @@ import * as https from "node:https";
 import { NodeHttpServer } from "@effect/platform-node";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
+import {
+	makeMeasuredJsonRpcSerialization,
+	makeRpcPayloadReporter,
+} from "@zuse/utils/rpc-payload-metrics";
 import { Effect, Layer, Schema } from "effect";
 import {
 	HttpRouter,
@@ -68,6 +72,8 @@ export type WsServerListeningAddress = {
 export type WsServerProtocolOptions = {
 	readonly port: number;
 	readonly host?: string;
+	/** Enables negotiated per-message compression. Defaults to true. */
+	readonly compression?: boolean;
 	readonly onDiagnostic?: WsDiagnostic;
 	readonly onListening?: (address: WsServerListeningAddress) => void;
 	readonly onPairing?: (pairing: {
@@ -499,6 +505,11 @@ export const wsServerProtocolLayer = (
 						url: request.url,
 						protected: auth.policy === "protected",
 						hasToken: token !== null,
+						compressionConfigured: opts.compression !== false,
+						compressionOffered:
+							request.headers["sec-websocket-extensions"]?.includes(
+								"permessage-deflate",
+							) ?? false,
 					}),
 				);
 				if (
@@ -696,9 +707,37 @@ export const wsServerProtocolLayer = (
 				{
 					port: opts.port,
 					host: opts.host ?? "127.0.0.1",
+					webSocketServerOptions:
+						opts.compression === false
+							? undefined
+							: {
+									perMessageDeflate: {
+										clientNoContextTakeover: true,
+										concurrencyLimit: 4,
+										serverNoContextTakeover: true,
+										threshold: 2_048,
+										zlibDeflateOptions: { level: 3 },
+									},
+								},
 				},
 			),
 		),
-		Layer.provide(RpcSerialization.layerJson),
+		Layer.provide(
+			Layer.succeed(
+				RpcSerialization.RpcSerialization,
+				makeMeasuredJsonRpcSerialization({
+					encodeDirection: "outbound",
+					decodeDirection: "inbound",
+					record: makeRpcPayloadReporter({
+						transport: "websocket",
+						onReport: (report) =>
+							opts.onDiagnostic?.("rpc.payload.summary", {
+								...report,
+								compressionConfigured: opts.compression !== false,
+							}),
+					}).record,
+				}),
+			),
+		),
 		Layer.orDie,
 	);

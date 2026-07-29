@@ -9,6 +9,7 @@
 		"./proposed-plan": "./src/proposed-plan.ts",
 		"./push-bus": "./src/push-bus.ts",
 		"./readiness": "./src/readiness.ts",
+		"./rpc-payload-metrics": "./src/rpc-payload-metrics.ts",
 		"./reaper": "./src/reaper.ts"
 	},
 	"scripts": {

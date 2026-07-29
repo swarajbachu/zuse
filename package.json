@@ -88,6 +88,7 @@
 		"@openai/codex": "^0.144.5"
 	},
 	"patchedDependencies": {
-		"@legendapp/list@3.3.3": "patches/@legendapp%2Flist@3.3.3.patch"
+		"@legendapp/list@3.3.3": "patches/@legendapp%2Flist@3.3.3.patch",
+		"@effect/platform-node@4.0.0-beta.97": "patches/@effect%2Fplatform-node@4.0.0-beta.97.patch"
 	}
 }
