@@ -30,6 +30,8 @@ import {
 } from "./lan-auth/services/lan-auth-service.ts";
 import { LinearServiceLive } from "./linear/layers/linear-service.ts";
 import { McpServiceLive } from "./mcp/layers/mcp-service.ts";
+import { TelemetryObservabilityLive } from "./observability/telemetry-layer.ts";
+import { TelemetryStoreLive } from "./observability/telemetry-store.ts";
 import { runLifecycleBackfill } from "./persistence/backfill.ts";
 import { importWorkspacesJson } from "./persistence/import-workspaces.ts";
 import { MigrationsLive } from "./persistence/migrations.ts";
@@ -122,6 +124,12 @@ export interface MainLayerDeps {
  */
 export const makeMainLayer = (deps: MainLayerDeps) => {
 	const AppPathsLayer = Layer.succeed(AppPaths, { userData: deps.userData });
+	const TelemetryStoreLayer = TelemetryStoreLive.pipe(
+		Layer.provide(AppPathsLayer),
+	);
+	const TelemetryLayer = TelemetryObservabilityLive.pipe(
+		Layer.provide(TelemetryStoreLayer),
+	);
 	const FolderPickerLayer = Layer.succeed(FolderPicker, deps.folderPicker);
 	const AuthShellLayer = Layer.succeed(AuthShell, deps.authShell);
 	const LanAuthConfigLayer = Layer.succeed(LanAuthConfig, {
@@ -409,6 +417,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(AppPathsLayer),
 		Layer.provide(ProviderLayer),
+		Layer.provide(TelemetryStoreLayer),
 	);
 
 	const ExternalThreadLayer = ExternalThreadServiceLive.pipe(
@@ -546,5 +555,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		NodeServices.layer,
 		UsagePoller,
 		AutoRelayLinkLayer,
+	).pipe(
+		Layer.provide(TelemetryLayer),
 	);
 };

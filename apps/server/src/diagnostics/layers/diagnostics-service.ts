@@ -7,16 +7,14 @@ import {
 	readdirSync,
 	readFileSync,
 	statSync,
-	unlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { appendFile, mkdir, rename, stat } from "node:fs/promises";
 import { arch, platform, release } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import {
 	type AgentAvailability,
-	DiagnosticEvent,
+	type DiagnosticEvent,
 	DiagnosticsEventsResult,
 	DiagnosticsExportError,
 	DiagnosticsExportResult,
@@ -24,16 +22,17 @@ import {
 	DiagnosticsProcessesResult,
 	DiagnosticsSignalResult,
 } from "@zuse/contracts";
-import { Effect, Layer, Ref, Schema } from "effect";
+import { Effect, Layer } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
 import packageJson from "../../../package.json" with { type: "json" };
 import { AppPaths } from "../../app-paths.ts";
+import { TelemetryStore } from "../../observability/telemetry-store.ts";
 import { ProviderService } from "../../provider/services/provider-service.ts";
 import {
 	aggregateDiagnostics,
-	diagnosticFingerprint,
 	filterDiagnosticEvents,
+	paginateDiagnosticEvents,
 	sanitizeDiagnosticText,
 	sanitizeDiagnosticValue,
 } from "../diagnostics-model.ts";
@@ -44,10 +43,6 @@ const MAX_RECENT_ERRORS = 20;
 const MAX_SESSION_EVENTS = 8;
 const MAX_REDACTED_EVENTS_PER_FILE = 200;
 const MAX_TEXT_PREVIEW = 240;
-const MAX_DIAGNOSTIC_EVENTS = 100_000;
-const MAX_DIAGNOSTIC_FILE_BYTES = 20 * 1024 * 1024;
-const DIAGNOSTIC_FILE_COUNT = 5;
-const DIAGNOSTIC_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const execFileAsync = promisify(execFile);
 
 const diagnosticsError = (cause: unknown) =>
@@ -55,84 +50,6 @@ const diagnosticsError = (cause: unknown) =>
 		reason:
 			cause instanceof Error ? cause.message : "Diagnostics operation failed.",
 	});
-
-function loadPersistedEvents(path: string): {
-	events: DiagnosticEvent[];
-	parseErrors: number;
-} {
-	let parseErrors = 0;
-	const retainedFiles = Array.from(
-		{ length: DIAGNOSTIC_FILE_COUNT },
-		(_, index) =>
-			index === DIAGNOSTIC_FILE_COUNT - 1
-				? path
-				: `${path}.${DIAGNOSTIC_FILE_COUNT - 1 - index}`,
-	).filter((file) => {
-		if (!existsSync(file)) return false;
-		if (Date.now() - statSync(file).mtimeMs <= DIAGNOSTIC_RETENTION_MS)
-			return true;
-		try {
-			unlinkSync(file);
-		} catch {
-			// Retention is best-effort and must never block diagnostics startup.
-		}
-		return false;
-	});
-	const lines = retainedFiles.flatMap((file) =>
-		readFileSync(file, "utf8").split(/\r?\n/),
-	);
-	const events = lines
-		.filter(Boolean)
-		.slice(-MAX_DIAGNOSTIC_EVENTS)
-		.flatMap((line) => {
-			try {
-				return [Schema.decodeUnknownSync(DiagnosticEvent)(JSON.parse(line))];
-			} catch {
-				parseErrors += 1;
-				return [];
-			}
-		});
-	return { events, parseErrors };
-}
-
-function sanitizeEvent(event: DiagnosticEvent): DiagnosticEvent {
-	const message = sanitizeDiagnosticText(event.message);
-	const detail = event.detail
-		? sanitizeDiagnosticText(event.detail)
-		: undefined;
-	return {
-		...event,
-		message,
-		detail,
-		fingerprint: diagnosticFingerprint({
-			source: event.source,
-			category: event.category,
-			message,
-		}),
-	};
-}
-
-async function rotateAndAppend(
-	path: string,
-	events: ReadonlyArray<DiagnosticEvent>,
-): Promise<void> {
-	await mkdir(dirname(path), { recursive: true });
-	const chunk = events.map((event) => `${JSON.stringify(event)}\n`).join("");
-	const currentSize = await stat(path)
-		.then((value) => value.size)
-		.catch(() => 0);
-	if (
-		currentSize > 0 &&
-		currentSize + Buffer.byteLength(chunk) > MAX_DIAGNOSTIC_FILE_BYTES
-	) {
-		for (let index = DIAGNOSTIC_FILE_COUNT - 1; index >= 1; index -= 1) {
-			const source = index === 1 ? path : `${path}.${index - 1}`;
-			const target = `${path}.${index}`;
-			await rename(source, target).catch(() => undefined);
-		}
-	}
-	await appendFile(path, chunk, "utf8");
-}
 
 function parseElapsedSeconds(value: string): number {
 	const [dayPart, timePart] = value.includes("-")
@@ -442,73 +359,56 @@ export const DiagnosticsServiceLive = Layer.effect(
 		const sql = yield* SqlClient.SqlClient;
 		const paths = yield* AppPaths;
 		const providerService = yield* ProviderService;
-		const runId = `run_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
-		const eventsPath = join(
-			paths.userData,
-			"logs",
-			"diagnostics.events.ndjson",
-		);
-		const loaded = yield* Effect.try(() =>
-			loadPersistedEvents(eventsPath),
-		).pipe(
-			Effect.orElseSucceed(() => ({
-				events: [] as DiagnosticEvent[],
-				parseErrors: 0,
-			})),
-		);
-		const eventRef = yield* Ref.make<ReadonlyArray<DiagnosticEvent>>(
-			loaded.events,
-		);
-		let persistChain: Promise<void> = Promise.resolve();
-		const persistEvents = (events: ReadonlyArray<DiagnosticEvent>) => {
-			persistChain = persistChain
-				.catch(() => undefined)
-				.then(() => rotateAndAppend(eventsPath, events));
-			return persistChain;
-		};
-
-		const ingest = (incoming: ReadonlyArray<DiagnosticEvent>) => {
-			const sanitized = incoming.map(sanitizeEvent);
-			return Effect.gen(function* () {
-				yield* Ref.update(eventRef, (current) =>
-					[...current, ...sanitized].slice(-MAX_DIAGNOSTIC_EVENTS),
-				);
-				yield* Effect.tryPromise(() => persistEvents(sanitized));
-			}).pipe(Effect.mapError(diagnosticsError));
-		};
+		const telemetry = yield* TelemetryStore;
+		const runId = telemetry.runId;
+		let overviewCache:
+			| {
+					readonly since: string | undefined;
+					readonly version: number;
+					readonly value: DiagnosticsOverviewResult;
+			  }
+			| undefined;
+		const eventQueryCache = new Map<
+			string,
+			{ readonly version: number; readonly value: DiagnosticsEventsResult }
+		>();
+		const ingest = (incoming: ReadonlyArray<DiagnosticEvent>) =>
+			Effect.sync(() => telemetry.recordMany(incoming));
 
 		const overview = (payload: { readonly since?: string }) =>
 			Effect.gen(function* () {
-				const all = yield* Ref.get(eventRef);
+				const version = telemetry.version();
+				if (
+					overviewCache?.version === version &&
+					overviewCache.since === payload.since
+				) {
+					return overviewCache.value;
+				}
+				const all = telemetry.snapshot();
 				const events = filterDiagnosticEvents(all, { since: payload.since });
 				const aggregate = aggregateDiagnostics(events);
-				const storageBytes = yield* Effect.try(() =>
-					Array.from({ length: DIAGNOSTIC_FILE_COUNT }, (_, index) =>
-						index === 0 ? eventsPath : `${eventsPath}.${index}`,
-					)
-						.filter(existsSync)
-						.reduce((total, file) => total + statSync(file).size, 0),
-				).pipe(Effect.orElseSucceed(() => 0));
+				const storageBytes = yield* telemetry.storageBytes;
 				const status =
 					aggregate.fatalCount > 0 || aggregate.errorCount > 3
 						? ("failing" as const)
 						: aggregate.errorCount > 0 || aggregate.warningCount > 0
 							? ("degraded" as const)
 							: ("healthy" as const);
-				return DiagnosticsOverviewResult.make({
+				const value = DiagnosticsOverviewResult.make({
 					status,
 					runId,
 					readAt: new Date().toISOString(),
 					...aggregate,
-					parseErrorCount: loaded.parseErrors,
+					parseErrorCount: telemetry.parseErrorCount,
 					unseenCount: aggregate.errorCount + aggregate.fatalCount,
 					storageBytes,
 					capturePaused: false,
 					previousRunUnclean: events.some(
 						(event) => event.source === "main.previousRunUnclean",
 					),
-					topOperations: [],
 				});
+				overviewCache = { since: payload.since, version, value };
+				return value;
 			}).pipe(Effect.mapError(diagnosticsError));
 
 		const events = (payload: {
@@ -521,20 +421,29 @@ export const DiagnosticsServiceLive = Layer.effect(
 			readonly search?: string;
 			readonly since?: string;
 		}) =>
-			Effect.gen(function* () {
-				const all = yield* Ref.get(eventRef);
-				const filtered = [...filterDiagnosticEvents(all, payload)].sort(
-					(a, b) => b.createdAt.localeCompare(a.createdAt),
-				);
-				const offset = Math.max(0, Number(payload.cursor ?? "0") || 0);
+			Effect.sync(() => {
+				const version = telemetry.version();
+				const cacheKey = JSON.stringify(payload);
+				const cached = eventQueryCache.get(cacheKey);
+				if (cached?.version === version) return cached.value;
+				const all = telemetry.snapshot();
+				const filtered = filterDiagnosticEvents(all, payload);
 				const limit = Math.min(200, Math.max(1, payload.limit ?? 100));
-				return DiagnosticsEventsResult.make({
-					events: filtered.slice(offset, offset + limit),
-					nextCursor:
-						offset + limit < filtered.length ? String(offset + limit) : null,
+				const page = paginateDiagnosticEvents(filtered, {
+					cursor: payload.cursor,
+					limit,
+				});
+				const value = DiagnosticsEventsResult.make({
+					events: page.events,
+					nextCursor: page.nextCursor,
 					total: filtered.length,
 				});
-			}).pipe(Effect.mapError(diagnosticsError));
+				if (eventQueryCache.size >= 12) {
+					eventQueryCache.delete(eventQueryCache.keys().next().value ?? "");
+				}
+				eventQueryCache.set(cacheKey, { version, value });
+				return value;
+			});
 
 		const processes = Effect.tryPromise(readProcessTree).pipe(
 			Effect.mapError(diagnosticsError),
@@ -624,12 +533,19 @@ export const DiagnosticsServiceLive = Layer.effect(
 					});
 				}
 
+				const diagnosticEvents = filterDiagnosticEvents(telemetry.snapshot(), {
+					since: payload.since,
+				});
+				const diagnosticAggregate = aggregateDiagnostics(diagnosticEvents);
 				const traceSummary = {
 					latestFailures,
-					slowestSpans: [],
-					commonFailures: [...commonFailureMap.values()].sort(
-						(left, right) => right.count - left.count,
-					),
+					slowestSpans: diagnosticAggregate.slowestOperations,
+					commonFailures:
+						diagnosticAggregate.commonFailures.length > 0
+							? diagnosticAggregate.commonFailures
+							: [...commonFailureMap.values()].sort(
+									(left, right) => right.count - left.count,
+								),
 				};
 				const recentErrors = {
 					errors: latestFailures,
@@ -654,10 +570,6 @@ export const DiagnosticsServiceLive = Layer.effect(
 								),
 							}))
 						: { files: [] };
-				const diagnosticEvents = filterDiagnosticEvents(
-					yield* Ref.get(eventRef),
-					{ since: payload.since },
-				);
 				const processSnapshot = yield* processes.pipe(
 					Effect.orElseSucceed(() =>
 						DiagnosticsProcessesResult.make({

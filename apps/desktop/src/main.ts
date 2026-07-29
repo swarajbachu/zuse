@@ -115,14 +115,11 @@ interface DiagnosticLogEntry {
 const MAIN_DIAGNOSTIC_LOG_LIMIT = 200;
 const mainDiagnosticLogs: DiagnosticLogEntry[] = [];
 
-function stringifyDiagnosticPart(value: unknown): string {
-	if (typeof value === "string") return value;
-	if (value instanceof Error) return `${value.name}: ${value.message}`;
-	try {
-		return JSON.stringify(value);
-	} catch {
-		return String(value);
-	}
+function diagnosticValueKind(value: unknown): string {
+	if (value instanceof Error) return value.name || "Error";
+	if (value === null) return "null";
+	if (Array.isArray(value)) return "array";
+	return typeof value;
 }
 
 function recordMainDiagnostic(
@@ -134,8 +131,81 @@ function recordMainDiagnostic(
 		createdAt: new Date().toISOString(),
 		level,
 		source,
-		message: parts.map(stringifyDiagnosticPart).join(" ").slice(0, 2000),
+		message: `${source} ${level}`,
+		detail: `argumentTypes=${parts.map(diagnosticValueKind).join(",") || "none"} count=${parts.length}`,
 	});
+	if (mainDiagnosticLogs.length > MAIN_DIAGNOSTIC_LOG_LIMIT) {
+		mainDiagnosticLogs.splice(
+			0,
+			mainDiagnosticLogs.length - MAIN_DIAGNOSTIC_LOG_LIMIT,
+		);
+	}
+}
+
+function persistOfflineDiagnostic(
+	source: string,
+	message: string,
+	detail?: string,
+): void {
+	try {
+		const category = "desktop";
+		const offlinePath = Path.join(
+			app.getPath("userData"),
+			"logs",
+			"diagnostics.offline.ndjson",
+		);
+		fsSync.mkdirSync(Path.dirname(offlinePath), { recursive: true });
+		fsSync.appendFileSync(
+			offlinePath,
+			`${JSON.stringify({
+				id: `offline_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
+				createdAt: new Date().toISOString(),
+				severity: "error",
+				source,
+				category,
+				message,
+				...(detail === undefined ? {} : { detail }),
+				fingerprint: createHash("sha256")
+					.update(`${source}\0${category}\0${message}`)
+					.digest("hex")
+					.slice(0, 20),
+				runId: "desktop-offline",
+				recoveryStatus: "unresolved",
+			})}\n`,
+			"utf8",
+		);
+	} catch {
+		// Fatal diagnostics must never mask the original exception.
+	}
+}
+
+function recordMainFailure(
+	source: string,
+	reason: unknown,
+	persistOffline = false,
+): void {
+	const error = reason instanceof Error ? reason : null;
+	const frames = error?.stack?.split(/\r?\n/).slice(1, 21) ?? [];
+	const firstFrameName = /^\s*at\s+([^\s(]+)/.exec(frames[0] ?? "")?.[1];
+	const message = `${error?.name || "UnknownError"} at ${firstFrameName ?? "unknown"}`;
+	const detail = frames
+		.map((frame) => frame.replaceAll(homedir(), "[USER_HOME]"))
+		.join("\n");
+	const createdAt = new Date().toISOString();
+	mainDiagnosticLogs.push({
+		createdAt,
+		level: "error",
+		source,
+		message,
+		...(detail.length === 0 ? {} : { detail }),
+	});
+	if (persistOffline) {
+		persistOfflineDiagnostic(
+			source,
+			message,
+			detail.length === 0 ? undefined : detail,
+		);
+	}
 	if (mainDiagnosticLogs.length > MAIN_DIAGNOSTIC_LOG_LIMIT) {
 		mainDiagnosticLogs.splice(
 			0,
@@ -155,10 +225,10 @@ console.error = (...args: unknown[]) => {
 	originalConsoleError(...args);
 };
 process.on("uncaughtException", (error) => {
-	recordMainDiagnostic("error", "main.uncaughtException", [error]);
+	recordMainFailure("main.uncaughtException", error, true);
 });
 process.on("unhandledRejection", (reason) => {
-	recordMainDiagnostic("error", "main.unhandledRejection", [reason]);
+	recordMainFailure("main.unhandledRejection", reason);
 });
 
 /**
@@ -1060,6 +1130,40 @@ async function createMainWindow() {
 	});
 
 	ipcMain.handle("app:getMainDiagnostics", () => mainDiagnosticLogs.slice());
+	ipcMain.on("app:recordFatalDiagnostic", (event, payload: unknown) => {
+		event.returnValue = false;
+		if (typeof payload !== "object" || payload === null) return;
+		const candidate = payload as Record<string, unknown>;
+		const allowedSources = new Set([
+			"renderer.window.error",
+			"renderer.unhandledrejection",
+			"renderer.react.root",
+		]);
+		if (
+			typeof candidate.source !== "string" ||
+			!allowedSources.has(candidate.source) ||
+			typeof candidate.errorName !== "string" ||
+			!/^[A-Za-z][A-Za-z0-9]*$/.test(candidate.errorName)
+		) {
+			return;
+		}
+		const frameNames = Array.isArray(candidate.frameNames)
+			? candidate.frameNames
+					.filter(
+						(value): value is string =>
+							typeof value === "string" &&
+							/^[A-Za-z0-9_.$<>-]{1,120}$/.test(value),
+					)
+					.slice(0, 20)
+			: [];
+		const firstFrame = frameNames[0] ?? "unknown";
+		persistOfflineDiagnostic(
+			candidate.source,
+			`${candidate.errorName} at ${firstFrame}`,
+			frameNames.length === 0 ? undefined : `frames=${frameNames.join(",")}`,
+		);
+		event.returnValue = true;
+	});
 	ipcMain.handle("app:revealDiagnosticsLogs", async () => {
 		const logPath = Path.join(app.getPath("userData"), "logs");
 		await fs.mkdir(logPath, { recursive: true });
@@ -2450,33 +2554,9 @@ void app.whenReady().then(async () => {
 			"utf8",
 		);
 		if (previousRunUnclean) {
-			const createdAt = new Date().toISOString();
 			const source = "main.previousRunUnclean";
 			const message = "The previous app run did not shut down cleanly.";
-			const eventsPath = Path.join(
-				app.getPath("userData"),
-				"logs",
-				"diagnostics.events.ndjson",
-			);
-			fsSync.mkdirSync(Path.dirname(eventsPath), { recursive: true });
-			fsSync.appendFileSync(
-				eventsPath,
-				`${JSON.stringify({
-					id: `incident_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
-					createdAt,
-					severity: "error",
-					source,
-					category: "lifecycle",
-					message,
-					fingerprint: createHash("sha256")
-						.update(`${source}\0lifecycle\0${message}`)
-						.digest("hex")
-						.slice(0, 20),
-					runId: desktopRunId,
-					recoveryStatus: "unresolved",
-				})}\n`,
-				"utf8",
-			);
+			persistOfflineDiagnostic(source, message);
 			recordMainDiagnostic("error", "main.previousRunUnclean", [message]);
 		}
 	} catch {

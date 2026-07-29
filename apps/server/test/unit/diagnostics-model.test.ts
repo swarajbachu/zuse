@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
 	aggregateDiagnostics,
 	filterDiagnosticEvents,
+	paginateDiagnosticEvents,
 	sanitizeDiagnosticText,
 	sanitizeDiagnosticValue,
 } from "../../src/diagnostics/diagnostics-model.ts";
@@ -32,6 +33,13 @@ describe("diagnostics model", () => {
 		);
 		expect(sanitizeDiagnosticText("OPENAI_API_KEY=super-secret-value")).toBe(
 			"OPENAI_API_KEY=[REDACTED]",
+		);
+		expect(
+			sanitizeDiagnosticText(
+				"at /Users/alice/private-project/src/main.ts and C:\\Users\\alice\\secret\\main.ts",
+			),
+		).toBe(
+			"at /Users/[USER]/private-project/src/main.ts and [DRIVE]:\\Users\\[USER]\\secret\\main.ts",
 		);
 	});
 
@@ -90,5 +98,64 @@ describe("diagnostics model", () => {
 				search: "retry",
 			}),
 		).toEqual([events[1]]);
+	});
+
+	it("paginates with a stable cursor when newer events arrive", () => {
+		const retained = [
+			event({ id: "event-3", createdAt: "2026-07-22T10:03:00.000Z" }),
+			event({ id: "event-2", createdAt: "2026-07-22T10:02:00.000Z" }),
+			event({ id: "event-1", createdAt: "2026-07-22T10:01:00.000Z" }),
+		];
+		const first = paginateDiagnosticEvents(retained, { limit: 2 });
+		expect(first.events.map((item) => item.id)).toEqual(["event-3", "event-2"]);
+
+		const second = paginateDiagnosticEvents(
+			[
+				event({ id: "event-4", createdAt: "2026-07-22T10:04:00.000Z" }),
+				...retained,
+			],
+			{ cursor: first.nextCursor ?? undefined, limit: 2 },
+		);
+		expect(second.events.map((item) => item.id)).toEqual(["event-1"]);
+	});
+
+	it("summarizes operation volume, failures, and latency percentiles", () => {
+		const result = aggregateDiagnostics([
+			event({
+				id: "span_1",
+				severity: "info",
+				source: "server.rpc",
+				category: "rpc",
+				message: "RpcServer.git.status",
+				durationMs: 10,
+				recoveryStatus: "not-needed",
+			}),
+			event({
+				id: "span_2",
+				severity: "error",
+				source: "server.rpc",
+				category: "rpc",
+				message: "RpcServer.git.status",
+				durationMs: 50,
+			}),
+			event({
+				id: "span_3",
+				severity: "info",
+				source: "server.provider",
+				category: "provider",
+				message: "provider.send",
+				durationMs: 200,
+				recoveryStatus: "not-needed",
+			}),
+		]);
+
+		expect(result.topOperations[0]).toEqual({
+			name: "RpcServer.git.status",
+			count: 2,
+			failureCount: 1,
+			averageDurationMs: 30,
+			p95DurationMs: 50,
+			maxDurationMs: 50,
+		});
 	});
 });

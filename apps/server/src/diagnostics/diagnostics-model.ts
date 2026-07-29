@@ -9,6 +9,9 @@ import type {
 const SECRET_PATTERNS: ReadonlyArray<[RegExp, string]> = [
 	[/\b(Bearer\s+)[^\s]+/gi, "$1[REDACTED]"],
 	[/([?&])[^=\s]+=[^&\s]+/g, "$1[REDACTED]"],
+	[/\/Users\/[^/\s]+/g, "/Users/[USER]"],
+	[/\/home\/[^/\s]+/g, "/home/[USER]"],
+	[/\b[A-Za-z]:\\Users\\[^\\\s]+/g, "[DRIVE]:\\Users\\[USER]"],
 	[
 		/\b(?:sk|ghp|github_pat|xox[abprs])[-_][A-Za-z0-9._-]{8,}\b/gi,
 		"[REDACTED]",
@@ -90,11 +93,97 @@ export function filterDiagnosticEvents(
 	});
 }
 
+const compareEventsNewestFirst = (
+	left: DiagnosticEvent,
+	right: DiagnosticEvent,
+): number =>
+	right.createdAt.localeCompare(left.createdAt) ||
+	right.id.localeCompare(left.id);
+
+const encodeEventCursor = (event: DiagnosticEvent): string =>
+	Buffer.from(
+		JSON.stringify({ createdAt: event.createdAt, id: event.id }),
+	).toString("base64url");
+
+const decodeEventCursor = (
+	cursor: string,
+): { readonly createdAt: string; readonly id: string } | null => {
+	try {
+		const parsed: unknown = JSON.parse(
+			Buffer.from(cursor, "base64url").toString("utf8"),
+		);
+		if (
+			typeof parsed === "object" &&
+			parsed !== null &&
+			"createdAt" in parsed &&
+			typeof parsed.createdAt === "string" &&
+			"id" in parsed &&
+			typeof parsed.id === "string"
+		) {
+			return { createdAt: parsed.createdAt, id: parsed.id };
+		}
+	} catch {
+		// Legacy numeric cursors are handled by the caller.
+	}
+	return null;
+};
+
+export function paginateDiagnosticEvents(
+	events: ReadonlyArray<DiagnosticEvent>,
+	input: { readonly cursor?: string; readonly limit: number },
+): {
+	readonly events: ReadonlyArray<DiagnosticEvent>;
+	readonly nextCursor: string | null;
+} {
+	const sorted = [...events].sort(compareEventsNewestFirst);
+	const legacyOffset = /^\d+$/.test(input.cursor ?? "")
+		? Number(input.cursor)
+		: null;
+	const decoded = input.cursor ? decodeEventCursor(input.cursor) : null;
+	const eligible =
+		legacyOffset !== null
+			? sorted.slice(legacyOffset)
+			: decoded === null
+				? sorted
+				: sorted.filter(
+						(event) =>
+							event.createdAt < decoded.createdAt ||
+							(event.createdAt === decoded.createdAt && event.id < decoded.id),
+					);
+	const page = eligible.slice(0, input.limit);
+	const last = page.at(-1);
+	return {
+		events: page,
+		nextCursor:
+			last !== undefined &&
+			page.length === input.limit &&
+			eligible.length > input.limit
+				? encodeEventCursor(last)
+				: null,
+	};
+}
+
 export function aggregateDiagnostics(events: ReadonlyArray<DiagnosticEvent>) {
 	const sorted = [...events].sort((a, b) =>
 		b.createdAt.localeCompare(a.createdAt),
 	);
 	const groups = new Map<string, DiagnosticFailureGroup>();
+	const operations = new Map<
+		string,
+		{ durations: number[]; failureCount: number }
+	>();
+	for (const event of sorted) {
+		if (event.durationMs === undefined) continue;
+		const current = operations.get(event.message) ?? {
+			durations: [],
+			failureCount: 0,
+		};
+		current.durations.push(event.durationMs);
+		if (event.severity === "error" || event.severity === "fatal") {
+			current.failureCount += 1;
+		}
+		operations.set(event.message, current);
+	}
 	for (const event of sorted.filter(
 		(item) => item.severity !== "debug" && item.severity !== "info",
 	)) {
@@ -136,5 +225,30 @@ export function aggregateDiagnostics(events: ReadonlyArray<DiagnosticEvent>) {
 			.filter((event) => event.durationMs !== undefined)
 			.sort((a, b) => (b.durationMs ?? 0) - (a.durationMs ?? 0))
 			.slice(0, 10),
+		topOperations: [...operations.entries()]
+			.map(([name, operation]) => {
+				const durations = [...operation.durations].sort(
+					(left, right) => left - right,
+				);
+				const total = durations.reduce((sum, duration) => sum + duration, 0);
+				const percentileIndex = Math.max(
+					0,
+					Math.ceil(durations.length * 0.95) - 1,
+				);
+				return {
+					name,
+					count: durations.length,
+					failureCount: operation.failureCount,
+					averageDurationMs: total / durations.length,
+					p95DurationMs: durations[percentileIndex] ?? 0,
+					maxDurationMs: durations.at(-1) ?? 0,
+				};
+			})
+			.sort(
+				(left, right) =>
+					right.count - left.count ||
+					right.averageDurationMs - left.averageDurationMs,
+			)
+			.slice(0, 20),
 	};
 }

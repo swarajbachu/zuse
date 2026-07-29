@@ -37,6 +37,21 @@ export const DEFAULT_DIAGNOSTICS_PREFERENCES: DiagnosticsPreferences = {
 	search: "",
 };
 
+export function diagnosticsSeveritySelection(
+	view: DiagnosticsView,
+	severity: DiagnosticsSeverityFilter,
+): ReadonlyArray<DiagnosticSeverity> | undefined {
+	if (severity !== "all") return [severity];
+	return view === "issues" ? ["warn", "error", "fatal"] : undefined;
+}
+
+export function diagnosticsSince(rangeMs: number, now = Date.now()): string {
+	const bucketMs = 60_000;
+	return new Date(
+		Math.floor((now - rangeMs) / bucketMs) * bucketMs,
+	).toISOString();
+}
+
 const SEVERITIES: ReadonlySet<string> = new Set([
 	"all",
 	"debug",

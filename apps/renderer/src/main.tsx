@@ -10,7 +10,9 @@ import { ErrorBoundary } from "./components/ui/error-boundary.tsx";
 import { ToastProvider } from "./components/ui/toast.tsx";
 import {
 	installRendererDiagnostics,
+	persistFatalRendererDiagnostic,
 	recordDiagnosticEvent,
+	summarizeDiagnosticError,
 } from "./lib/diagnostics-recorder.ts";
 import { AppAtomProvider } from "./state/registry.tsx";
 
@@ -32,6 +34,9 @@ function formatCrashDetails(error: Error, componentStack?: string): string {
 		.filter(Boolean)
 		.join("\n\n");
 }
+
+const sanitizedComponentDiagnostics = (componentStack?: string): string =>
+	componentStack ? `React component stack:\n${componentStack}` : "";
 
 function RootCrashFallback({ error }: { readonly error: Error }) {
 	const details = formatCrashDetails(error);
@@ -86,11 +91,18 @@ ReactDOM.createRoot(root).render(
 		<ErrorBoundary
 			fallback={(error) => <RootCrashFallback error={error} />}
 			onError={(error, info) => {
+				persistFatalRendererDiagnostic("renderer.react.root", error);
+				const summary = summarizeDiagnosticError(error, "ReactError");
 				recordDiagnosticEvent({
 					level: "error",
 					source: "renderer.react.root",
-					message: `${error.name}: ${error.message}`,
-					detail: formatCrashDetails(error, info.componentStack),
+					message: summary.message,
+					detail: [
+						summary.detail,
+						sanitizedComponentDiagnostics(info.componentStack),
+					]
+						.filter(Boolean)
+						.join("\n\n"),
 				});
 			}}
 		>

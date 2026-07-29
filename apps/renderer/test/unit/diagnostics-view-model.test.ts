@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import {
 	DEFAULT_DIAGNOSTICS_PREFERENCES,
+	diagnosticsSeveritySelection,
+	diagnosticsSince,
 	groupDiagnosticEvents,
 	parseDiagnosticsPreferences,
 	relatedDiagnosticEvents,
@@ -72,6 +74,29 @@ describe("diagnostics view model", () => {
 				}),
 			).view,
 		).toBe("logs");
+	});
+
+	it("keeps successful operations out of the default issue inbox", () => {
+		expect(diagnosticsSeveritySelection("issues", "all")).toEqual([
+			"warn",
+			"error",
+			"fatal",
+		]);
+		expect(diagnosticsSeveritySelection("logs", "all")).toBeUndefined();
+		expect(diagnosticsSeveritySelection("issues", "error")).toEqual(["error"]);
+	});
+
+	it("uses stable minute buckets for live time-range queries", () => {
+		const first = diagnosticsSince(
+			3_600_000,
+			Date.parse("2026-07-29T12:00:05Z"),
+		);
+		const second = diagnosticsSince(
+			3_600_000,
+			Date.parse("2026-07-29T12:00:55Z"),
+		);
+		expect(first).toBe("2026-07-29T11:00:00.000Z");
+		expect(second).toBe(first);
 	});
 
 	it("groups repeated failures and preserves the newest representative", () => {

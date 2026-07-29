@@ -588,6 +588,14 @@ export const ProviderServiceLive = Layer.effect(
 							error_code: "startup_failed",
 						}),
 					),
+					Effect.withSpan("provider.start", {
+						attributes: {
+							"provider.id": input.providerId,
+							"provider.model": input.model
+								? safeModelId(input.providerId, input.model)
+								: "custom",
+						},
+					}),
 				);
 			},
 			send: (sessionId, turnId, text, attachments, fileRefs, skillRefs) =>
@@ -612,7 +620,15 @@ export const ProviderServiceLive = Layer.effect(
 							fileRefs,
 							skillRefs,
 						);
-					}),
+					}).pipe(
+						Effect.withSpan("provider.send", {
+							attributes: {
+								"provider.id": entry.providerId,
+								"provider.model": entry.model,
+								"session.id": sessionId,
+							},
+						}),
+					),
 				),
 			interrupt: (sessionId, turnId) =>
 				Effect.flatMap(lookup(sessionId), (entry) =>
@@ -633,10 +649,17 @@ export const ProviderServiceLive = Layer.effect(
 								entry.turnStartedAt = null;
 							}),
 						),
+						Effect.withSpan("provider.interrupt", {
+							attributes: {
+								"provider.id": entry.providerId,
+								"provider.model": entry.model,
+								"session.id": sessionId,
+							},
+						}),
 					),
 				),
 			close: (sessionId) =>
-				Effect.flatMap(lookup(sessionId), ({ handle }) =>
+				Effect.flatMap(lookup(sessionId), ({ handle, providerId, model }) =>
 					handle.close().pipe(
 						Effect.andThen(
 							Ref.update(sessions, (map) => {
@@ -645,6 +668,13 @@ export const ProviderServiceLive = Layer.effect(
 								return next;
 							}),
 						),
+						Effect.withSpan("provider.close", {
+							attributes: {
+								"provider.id": providerId,
+								"provider.model": model,
+								"session.id": sessionId,
+							},
+						}),
 					),
 				),
 			events: (sessionId) =>

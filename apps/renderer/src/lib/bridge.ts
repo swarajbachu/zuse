@@ -41,6 +41,11 @@ export interface AppBridge {
 	readonly getMainDiagnostics?: () => Promise<
 		ReadonlyArray<DiagnosticLogEntry>
 	>;
+	readonly recordFatalDiagnostic?: (input: {
+		readonly source: string;
+		readonly errorName: string;
+		readonly frameNames: ReadonlyArray<string>;
+	}) => boolean;
 	readonly revealDiagnosticsLogs?: () => Promise<void>;
 }
 

@@ -284,6 +284,11 @@ const bridge = {
 					readonly detail?: string;
 				}>
 			>,
+		recordFatalDiagnostic: (input: {
+			readonly source: string;
+			readonly errorName: string;
+			readonly frameNames: ReadonlyArray<string>;
+		}) => ipcRenderer.sendSync("app:recordFatalDiagnostic", input) === true,
 		revealDiagnosticsLogs: () =>
 			ipcRenderer.invoke("app:revealDiagnosticsLogs") as Promise<void>,
 	},

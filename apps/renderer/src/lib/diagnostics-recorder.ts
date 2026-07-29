@@ -30,15 +30,58 @@ function pushBounded<T>(items: T[], item: T, limit: number): void {
 	if (items.length > limit) items.splice(0, items.length - limit);
 }
 
-function stringifyDiagnosticPart(value: unknown): string {
-	if (typeof value === "string") return value;
-	if (value instanceof Error) return `${value.name}: ${value.message}`;
+const diagnosticValueKind = (value: unknown): string => {
+	if (value instanceof Error) return value.name || "Error";
+	if (value === null) return "null";
+	if (Array.isArray(value)) return "array";
+	return typeof value;
+};
+
+const sanitizedStackFrames = (error: Error): string | undefined => {
+	const frames = error.stack?.split(/\r?\n/).slice(1, 21).join("\n").trim();
+	return frames || undefined;
+};
+
+export const summarizeDiagnosticError = (
+	error: Error,
+	fallback: string,
+): { readonly message: string; readonly detail?: string } => {
+	const detail = sanitizedStackFrames(error);
+	const firstFrameName = /^\s*at\s+([^\s(]+)/.exec(detail ?? "")?.[1];
+	return {
+		message: `${error.name || fallback} at ${firstFrameName ?? "unknown"}`,
+		...(detail === undefined ? {} : { detail }),
+	};
+};
+
+export function persistFatalRendererDiagnostic(
+	source:
+		| "renderer.window.error"
+		| "renderer.unhandledrejection"
+		| "renderer.react.root",
+	error: Error,
+): void {
 	try {
-		return JSON.stringify(value);
+		const frameNames = (error.stack?.split(/\r?\n/).slice(1, 21) ?? []).flatMap(
+			(frame) => {
+				const name = /^\s*at\s+([^\s(]+)/.exec(frame)?.[1];
+				return name === undefined ? [] : [name];
+			},
+		);
+		window.zuse?.app?.recordFatalDiagnostic?.({
+			source,
+			errorName: error.name || "Error",
+			frameNames,
+		});
 	} catch {
-		return String(value);
+		// The synchronous crash path is best effort and cannot mask the failure.
 	}
 }
+
+export const summarizeDiagnosticArguments = (
+	args: ReadonlyArray<unknown>,
+): string =>
+	`argumentTypes=${args.map(diagnosticValueKind).join(",") || "none"} count=${args.length}`;
 
 export function recordDiagnosticEvent(input: {
 	readonly level: DiagnosticLogLevel;
@@ -131,7 +174,8 @@ export function installRendererDiagnostics(): void {
 		recordDiagnosticEvent({
 			level: "warn",
 			source: "renderer.console",
-			message: args.map(stringifyDiagnosticPart).join(" "),
+			message: "Renderer console warning",
+			detail: summarizeDiagnosticArguments(args),
 		});
 		originalWarn(...args);
 	};
@@ -139,24 +183,44 @@ export function installRendererDiagnostics(): void {
 		recordDiagnosticEvent({
 			level: "error",
 			source: "renderer.console",
-			message: args.map(stringifyDiagnosticPart).join(" "),
+			message: "Renderer console error",
+			detail: summarizeDiagnosticArguments(args),
 		});
 		originalError(...args);
 	};
 
 	window.addEventListener("error", (event) => {
+		if (event.error instanceof Error) {
+			persistFatalRendererDiagnostic("renderer.window.error", event.error);
+		}
+		const summary =
+			event.error instanceof Error
+				? summarizeDiagnosticError(event.error, "RendererError")
+				: { message: "RendererError at unknown" };
 		recordDiagnosticEvent({
 			level: "error",
 			source: "renderer.window.error",
-			message: event.message,
-			detail: event.error instanceof Error ? event.error.stack : undefined,
+			...summary,
 		});
 	});
 	window.addEventListener("unhandledrejection", (event) => {
+		if (event.reason instanceof Error) {
+			persistFatalRendererDiagnostic(
+				"renderer.unhandledrejection",
+				event.reason,
+			);
+		}
+		const summary =
+			event.reason instanceof Error
+				? summarizeDiagnosticError(event.reason, "UnhandledRejection")
+				: {
+						message: "UnhandledRejection at unknown",
+						detail: `reasonType=${diagnosticValueKind(event.reason)}`,
+					};
 		recordDiagnosticEvent({
 			level: "error",
 			source: "renderer.unhandledrejection",
-			message: stringifyDiagnosticPart(event.reason),
+			...summary,
 		});
 	});
 }

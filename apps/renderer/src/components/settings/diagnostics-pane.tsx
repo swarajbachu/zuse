@@ -37,6 +37,8 @@ import {
 	type DiagnosticsPreferences,
 	type DiagnosticsSeverityFilter,
 	type DiagnosticsView,
+	diagnosticsSeveritySelection,
+	diagnosticsSince,
 	groupDiagnosticEvents,
 	parseDiagnosticsPreferences,
 	relatedDiagnosticEvents,
@@ -647,7 +649,8 @@ export function DiagnosticsPane() {
 				}
 			}
 
-			const since = new Date(Date.now() - rangeMs).toISOString();
+			const since = diagnosticsSince(rangeMs);
+			const selectedSeverities = diagnosticsSeveritySelection(view, severity);
 			const [overviewResult, eventsResult, processesResult] =
 				await Promise.allSettled([
 					Effect.runPromise(client["diagnostics.overview"]({ since })),
@@ -655,7 +658,9 @@ export function DiagnosticsPane() {
 						client["diagnostics.events"]({
 							limit: 200,
 							since,
-							...(severity === "all" ? {} : { severities: [severity] }),
+							...(selectedSeverities === undefined
+								? {}
+								: { severities: selectedSeverities }),
 							...(querySource ? { source: querySource } : {}),
 							...(querySearch ? { search: querySearch } : {}),
 						}),
@@ -711,7 +716,7 @@ export function DiagnosticsPane() {
 			setLoading(false);
 			setRefreshing(false);
 		}
-	}, [querySearch, querySource, rangeMs, severity]);
+	}, [querySearch, querySource, rangeMs, severity, view]);
 
 	useEffect(() => {
 		void refresh();
@@ -737,12 +742,15 @@ export function DiagnosticsPane() {
 		if (!nextEventCursor) return;
 		try {
 			const client = await getRpcClient();
+			const selectedSeverities = diagnosticsSeveritySelection(view, severity);
 			const page = await Effect.runPromise(
 				client["diagnostics.events"]({
 					cursor: nextEventCursor,
 					limit: 200,
-					since: new Date(Date.now() - rangeMs).toISOString(),
-					...(severity === "all" ? {} : { severities: [severity] }),
+					since: diagnosticsSince(rangeMs),
+					...(selectedSeverities === undefined
+						? {}
+						: { severities: selectedSeverities }),
 					...(querySource ? { source: querySource } : {}),
 					...(querySearch ? { search: querySearch } : {}),
 				}),
@@ -768,7 +776,7 @@ export function DiagnosticsPane() {
 			const result = await Effect.runPromise(
 				client["diagnostics.export"]({
 					clientContext,
-					since: new Date(Date.now() - rangeMs).toISOString(),
+					since: diagnosticsSince(rangeMs),
 					includeSessionEvents: false,
 				}),
 			);
@@ -1648,7 +1656,7 @@ export function DiagnosticsPane() {
 								<p className="font-medium text-[10px]">Retention</p>
 								<p className="mt-1 font-mono text-sm tabular-nums">7 days</p>
 								<p className="mt-1 text-[9px] text-muted-foreground">
-									250 MB maximum across rotating diagnostic files.
+									100 MB maximum for rotating event telemetry.
 								</p>
 							</div>
 							<div className="p-4">
@@ -1657,7 +1665,7 @@ export function DiagnosticsPane() {
 									{formatBytes(overview?.storageBytes ?? 0)}
 								</p>
 								<p className="mt-1 text-[9px] text-muted-foreground">
-									Old files are pruned by age and storage budget.
+									Event files are pruned by age and their rotation limit.
 								</p>
 							</div>
 							<div className="p-4">
