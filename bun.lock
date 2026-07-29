@@ -471,6 +471,23 @@
         "typescript": "catalog:",
       },
     },
+    "packages/serve": {
+      "name": "@zusehq/serve",
+      "version": "0.0.0",
+      "bin": {
+        "zuse": "./dist/bin.mjs",
+      },
+      "dependencies": {
+        "@zuse/server": "*",
+      },
+      "devDependencies": {
+        "@repo/typescript-config": "*",
+        "@types/node": "catalog:",
+        "tsdown": "0.21.10",
+        "typescript": "catalog:",
+        "vite-plus": "0.2.5",
+      },
+    },
     "packages/sqlite": {
       "name": "@zuse/sqlite",
       "version": "0.0.0",
@@ -2137,6 +2154,8 @@
     "@zuse/testkit": ["@zuse/testkit@workspace:tests/testkit"],
 
     "@zuse/utils": ["@zuse/utils@workspace:packages/utils"],
+
+    "@zusehq/serve": ["@zusehq/serve@workspace:packages/serve"],
 
     "abbrev": ["abbrev@4.0.0", "http://registry.npmjs.org/abbrev/-/abbrev-4.0.0.tgz", {}, "sha512-a1wflyaL0tHtJSmLSOVybYhy22vRih4eduhhrkcjgrWGnRfrZtovJ2FRjxuTtkkj47O/baf0R86QU5OuYpz8fA=="],
 

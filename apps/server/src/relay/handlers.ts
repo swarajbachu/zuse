@@ -1,6 +1,10 @@
+import {
+  ConnectAuthError,
+  MemoizeRpcs,
+  RelayControlError,
+  RelayLinkStatus,
+} from "@zuse/contracts";
 import { Effect, Layer } from "effect";
-
-import { ConnectAuthError, MemoizeRpcs, RelayLinkStatus } from "@zuse/contracts";
 
 import {
   RelayLinkService,
@@ -41,8 +45,37 @@ const RelayUnlink = MemoizeRpcs.toLayerHandler("relay.unlink", () =>
   }).pipe(Effect.mapError((error) => toConnectError(error.reason))),
 );
 
+const toRelayControlError = (reason: string): RelayControlError =>
+  new RelayControlError({ reason });
+
+const RelayEnvironments = MemoizeRpcs.toLayerHandler("relay.environments", () =>
+  Effect.gen(function* () {
+    const service = yield* RelayLinkService;
+    return yield* service.listEnvironments();
+  }).pipe(Effect.mapError((error) => toRelayControlError(error.reason))),
+);
+
+const RelayClients = MemoizeRpcs.toLayerHandler("relay.clients", () =>
+  Effect.gen(function* () {
+    const service = yield* RelayLinkService;
+    return yield* service.listClients();
+  }).pipe(Effect.mapError((error) => toRelayControlError(error.reason))),
+);
+
+const RelayRevokeClient = MemoizeRpcs.toLayerHandler(
+  "relay.revokeClient",
+  ({ clientId }) =>
+    Effect.gen(function* () {
+      const service = yield* RelayLinkService;
+      yield* service.revokeClient(clientId);
+    }).pipe(Effect.mapError((error) => toRelayControlError(error.reason))),
+);
+
 export const RelayHandlersLayer = Layer.mergeAll(
   RelayLink,
   RelayStatus,
   RelayUnlink,
+  RelayEnvironments,
+  RelayClients,
+  RelayRevokeClient,
 );

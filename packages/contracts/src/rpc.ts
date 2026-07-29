@@ -132,6 +132,11 @@ import {
 	PtyWriteRpc,
 } from "./pty.ts";
 import {
+	RelayClientsRpc,
+	RelayEnvironmentsRpc,
+	RelayRevokeClientRpc,
+} from "./relay.ts";
+import {
 	RepositorySettingsGetRpc,
 	RepositorySettingsUpdateRpc,
 } from "./repository-settings.ts";
@@ -257,6 +262,9 @@ export const MemoizeRpcs = RpcGroup.make(
 	RelayLinkRpc,
 	RelayStatusRpc,
 	RelayUnlinkRpc,
+	RelayEnvironmentsRpc,
+	RelayClientsRpc,
+	RelayRevokeClientRpc,
 	WorkspaceAddRpc,
 	WorkspaceListRpc,
 	WorkspaceRemoveRpc,

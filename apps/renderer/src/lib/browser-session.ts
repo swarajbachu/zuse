@@ -114,6 +114,14 @@ export const logoutBrowserSession = (): Promise<BrowserSessionStatus> =>
 	jsonRequest<BrowserSessionStatus>("/auth/logout", { method: "POST" });
 
 export const requestBrowserWebSocketUrl = async (): Promise<string> => {
+	const { hostedRpcEndpoint, isHostedProduct } = await import(
+		"./hosted-connect.ts"
+	);
+	if (isHostedProduct()) {
+		const endpoint = hostedRpcEndpoint();
+		if (endpoint === null) throw new Error("hosted_environment_not_selected");
+		return endpoint;
+	}
 	const result = await jsonRequest<{
 		readonly ticket: string;
 	}>("/auth/websocket-ticket", { method: "POST" });

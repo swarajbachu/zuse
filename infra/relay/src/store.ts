@@ -2,7 +2,13 @@ import { Context, Effect, Layer, Ref } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
 export type ProviderKind = "desktop" | "ssh" | "cloud";
-export type DevicePlatform = "ios" | "android" | "web";
+export type DevicePlatform = "ios" | "android" | "web" | "desktop";
+export type ServiceState =
+	| "starting"
+	| "healthy"
+	| "degraded"
+	| "stopped"
+	| "updating";
 export type ActivityKind =
 	| "approval-needed"
 	| "question-needed"
@@ -33,6 +39,10 @@ export interface EnvironmentRecord {
 	readonly tunnelStatus?: "reserved" | "ready";
 	readonly linkedAtMs: number;
 	readonly lastSeenAtMs?: number;
+	readonly runtimeVersion?: string;
+	readonly wireProtocolVersion?: number;
+	readonly capabilities?: unknown;
+	readonly serviceState?: ServiceState;
 }
 
 export interface TunnelAllocation {
@@ -57,6 +67,7 @@ export interface DeviceRecord {
 	readonly platform: DevicePlatform;
 	readonly pushToken?: string;
 	readonly dpopJwk?: unknown;
+	readonly dpopThumbprint: string;
 	readonly updatedAtMs: number;
 }
 
@@ -78,9 +89,10 @@ export interface RelayStoreApi {
 		challengeId: string,
 		accountId: string,
 	) => Effect.Effect<LinkChallengeRecord | null>;
-	readonly upsertEnvironment: (
+	readonly registerEnvironment: (
 		environment: EnvironmentRecord,
-	) => Effect.Effect<void>;
+		maxEnvironmentsPerAccount: number | null,
+	) => Effect.Effect<boolean>;
 	readonly listEnvironments: (
 		accountId: string,
 	) => Effect.Effect<ReadonlyArray<EnvironmentRecord>>;
@@ -90,6 +102,12 @@ export interface RelayStoreApi {
 	readonly touchEnvironment: (
 		environmentId: string,
 		lastSeenAtMs: number,
+		metadata?: {
+			readonly runtimeVersion?: string;
+			readonly wireProtocolVersion?: number;
+			readonly capabilities?: unknown;
+			readonly serviceState?: ServiceState;
+		},
 	) => Effect.Effect<void>;
 	/** Persist the managed-tunnel allocation for an environment. */
 	readonly setTunnelAllocation: (
@@ -111,10 +129,17 @@ export interface RelayStoreApi {
 	readonly findActiveCredentialByHash: (
 		credentialHash: string,
 	) => Effect.Effect<CredentialRecord | null>;
-	readonly upsertDevice: (device: DeviceRecord) => Effect.Effect<void>;
+	readonly upsertDevice: (device: DeviceRecord) => Effect.Effect<boolean>;
 	readonly listDevices: (
 		accountId: string,
 	) => Effect.Effect<ReadonlyArray<DeviceRecord>>;
+	readonly revokeDevice: (
+		deviceId: string,
+		accountId: string,
+	) => Effect.Effect<boolean>;
+	readonly isDpopThumbprintRevoked: (
+		thumbprint: string,
+	) => Effect.Effect<boolean>;
 	/** Returns true if the (thumbprint, jti) was fresh; false if it was a replay. */
 	readonly consumeDpopProof: (input: {
 		readonly thumbprint: string;
@@ -142,6 +167,7 @@ export const RelayStoreMemory: Layer.Layer<RelayStore> = Layer.effect(
 		const environments = yield* Ref.make(new Map<string, EnvironmentRecord>());
 		const credentials = yield* Ref.make(new Map<string, CredentialRecord>());
 		const devices = yield* Ref.make(new Map<string, DeviceRecord>());
+		const revokedDpopThumbprints = yield* Ref.make(new Set<string>());
 		const dpop = yield* Ref.make(new Set<string>());
 		const activities = yield* Ref.make<ActivityRecord[]>([]);
 
@@ -159,10 +185,33 @@ export const RelayStoreMemory: Layer.Layer<RelayStore> = Layer.effect(
 					next.delete(challengeId);
 					return [found, next];
 				}),
-			upsertEnvironment: (environment) =>
-				Ref.update(environments, (map) =>
-					new Map(map).set(environment.environmentId, environment),
-				),
+			registerEnvironment: (environment, maxEnvironmentsPerAccount) =>
+				Ref.modify(environments, (map) => {
+					const current = map.get(environment.environmentId);
+					if (
+						current !== undefined &&
+						current.accountId !== environment.accountId
+					) {
+						return [false, map];
+					}
+					const accountCount = [...map.values()].filter(
+						(candidate) => candidate.accountId === environment.accountId,
+					).length;
+					if (
+						current === undefined &&
+						maxEnvironmentsPerAccount !== null &&
+						accountCount >= maxEnvironmentsPerAccount
+					) {
+						return [false, map];
+					}
+					return [
+						true,
+						new Map(map).set(environment.environmentId, {
+							...current,
+							...environment,
+						}),
+					];
+				}),
 			listEnvironments: (accountId) =>
 				Ref.get(environments).pipe(
 					Effect.map((map) =>
@@ -173,11 +222,15 @@ export const RelayStoreMemory: Layer.Layer<RelayStore> = Layer.effect(
 				Ref.get(environments).pipe(
 					Effect.map((map) => map.get(environmentId) ?? null),
 				),
-			touchEnvironment: (environmentId, lastSeenAtMs) =>
+			touchEnvironment: (environmentId, lastSeenAtMs, metadata) =>
 				Ref.update(environments, (map) => {
 					const found = map.get(environmentId);
 					if (found === undefined) return map;
-					return new Map(map).set(environmentId, { ...found, lastSeenAtMs });
+					return new Map(map).set(environmentId, {
+						...found,
+						...metadata,
+						lastSeenAtMs,
+					});
 				}),
 			setTunnelAllocation: (environmentId, allocation) =>
 				Ref.update(environments, (map) => {
@@ -237,7 +290,13 @@ export const RelayStoreMemory: Layer.Layer<RelayStore> = Layer.effect(
 					),
 				),
 			upsertDevice: (device) =>
-				Ref.update(devices, (map) => new Map(map).set(device.deviceId, device)),
+				Ref.modify(devices, (map) => {
+					const current = map.get(device.deviceId);
+					if (current !== undefined && current.accountId !== device.accountId) {
+						return [false, map];
+					}
+					return [true, new Map(map).set(device.deviceId, device)];
+				}),
 			listDevices: (accountId) =>
 				Ref.get(devices).pipe(
 					Effect.map((map) =>
@@ -245,6 +304,28 @@ export const RelayStoreMemory: Layer.Layer<RelayStore> = Layer.effect(
 							(device) => device.accountId === accountId,
 						),
 					),
+				),
+			revokeDevice: (deviceId, accountId) =>
+				Ref.modify(devices, (map) => {
+					const found = map.get(deviceId);
+					if (found === undefined || found.accountId !== accountId) {
+						return [null, map] as const;
+					}
+					const next = new Map(map);
+					next.delete(deviceId);
+					return [found.dpopThumbprint, next] as const;
+				}).pipe(
+					Effect.flatMap((thumbprint) =>
+						thumbprint === null
+							? Effect.succeed(false)
+							: Ref.update(revokedDpopThumbprints, (set) =>
+									new Set(set).add(thumbprint),
+								).pipe(Effect.as(true)),
+					),
+				),
+			isDpopThumbprintRevoked: (thumbprint) =>
+				Ref.get(revokedDpopThumbprints).pipe(
+					Effect.map((set) => set.has(thumbprint)),
 				),
 			consumeDpopProof: (input) =>
 				Ref.modify(dpop, (set) => {
@@ -316,6 +397,10 @@ interface EnvironmentRow {
 	readonly tunnel_status: "reserved" | "ready" | null;
 	readonly linked_at: number;
 	readonly last_seen_at: number | null;
+	readonly runtime_version: string | null;
+	readonly wire_protocol_version: number | null;
+	readonly capabilities: unknown;
+	readonly service_state: ServiceState | null;
 }
 
 const toEnvironment = (row: EnvironmentRow): EnvironmentRecord => ({
@@ -334,6 +419,13 @@ const toEnvironment = (row: EnvironmentRow): EnvironmentRecord => ({
 	linkedAtMs: Number(row.linked_at),
 	lastSeenAtMs:
 		row.last_seen_at === null ? undefined : Number(row.last_seen_at),
+	runtimeVersion: row.runtime_version ?? undefined,
+	wireProtocolVersion:
+		row.wire_protocol_version === null
+			? undefined
+			: Number(row.wire_protocol_version),
+	capabilities: row.capabilities ?? undefined,
+	serviceState: row.service_state ?? undefined,
 });
 
 export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
@@ -382,29 +474,69 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
 							}),
 						),
 					),
-				upsertEnvironment: (env) =>
+				registerEnvironment: (env, maxEnvironmentsPerAccount) =>
 					orDie(
-						sql`
-            INSERT INTO relay_environments
-              (environment_id, account_id, org_id, provider_kind, label,
-               environment_public_key, http_base_url, ws_base_url, tunnel_hostname,
-               linked_at, last_seen_at)
-            VALUES (
-              ${env.environmentId}, ${env.accountId}, ${env.orgId ?? null},
-              ${env.providerKind}, ${env.label ?? null}, ${env.environmentPublicKey},
-              ${env.httpBaseUrl}, ${env.wsBaseUrl}, ${env.tunnelHostname ?? null},
-              ${env.linkedAtMs}, ${env.lastSeenAtMs ?? null}
+						sql<{ readonly registered: boolean }>`
+            WITH account_lock AS (
+              SELECT pg_advisory_xact_lock(
+                hashtextextended(${env.accountId}, 0)
+              )
+            ), allowed AS (
+              SELECT 1
+              FROM account_lock
+              WHERE (
+                EXISTS (
+                  SELECT 1 FROM relay_environments
+                  WHERE environment_id = ${env.environmentId}
+                    AND account_id = ${env.accountId}
+                )
+                OR (
+                  NOT EXISTS (
+                    SELECT 1 FROM relay_environments
+                    WHERE environment_id = ${env.environmentId}
+                  )
+                  AND (
+                    ${maxEnvironmentsPerAccount}::bigint IS NULL
+                    OR (
+                      SELECT COUNT(*) FROM relay_environments
+                      WHERE account_id = ${env.accountId}
+                    ) < ${maxEnvironmentsPerAccount}::bigint
+                  )
+                )
+              )
+            ), registered AS (
+              INSERT INTO relay_environments
+                (environment_id, account_id, org_id, provider_kind, label,
+                 environment_public_key, http_base_url, ws_base_url,
+                 tunnel_hostname, linked_at, last_seen_at, runtime_version,
+                 wire_protocol_version, capabilities, service_state)
+              SELECT
+                ${env.environmentId}, ${env.accountId}, ${env.orgId ?? null},
+                ${env.providerKind}, ${env.label ?? null},
+                ${env.environmentPublicKey}, ${env.httpBaseUrl},
+                ${env.wsBaseUrl}, ${env.tunnelHostname ?? null},
+                ${env.linkedAtMs}, ${env.lastSeenAtMs ?? null},
+                ${env.runtimeVersion ?? null}, ${env.wireProtocolVersion ?? null},
+                ${env.capabilities === undefined ? null : JSON.stringify(env.capabilities)},
+                ${env.serviceState ?? null}
+              FROM allowed
+              ON CONFLICT (environment_id) DO UPDATE SET
+                org_id = EXCLUDED.org_id,
+                provider_kind = EXCLUDED.provider_kind,
+                label = EXCLUDED.label,
+                environment_public_key = EXCLUDED.environment_public_key,
+                http_base_url = EXCLUDED.http_base_url,
+                ws_base_url = EXCLUDED.ws_base_url,
+                linked_at = EXCLUDED.linked_at,
+                runtime_version = EXCLUDED.runtime_version,
+                wire_protocol_version = EXCLUDED.wire_protocol_version,
+                capabilities = EXCLUDED.capabilities,
+                service_state = EXCLUDED.service_state
+              WHERE relay_environments.account_id = EXCLUDED.account_id
+              RETURNING environment_id
             )
-            ON CONFLICT (environment_id) DO UPDATE SET
-              account_id = EXCLUDED.account_id,
-              org_id = EXCLUDED.org_id,
-              provider_kind = EXCLUDED.provider_kind,
-              label = EXCLUDED.label,
-              environment_public_key = EXCLUDED.environment_public_key,
-              http_base_url = EXCLUDED.http_base_url,
-              ws_base_url = EXCLUDED.ws_base_url,
-              linked_at = EXCLUDED.linked_at
-          `.pipe(Effect.asVoid),
+            SELECT EXISTS(SELECT 1 FROM registered) AS registered
+          `.pipe(Effect.map((rows) => rows[0]?.registered === true)),
 					),
 				listEnvironments: (accountId) =>
 					orDie(
@@ -422,10 +554,19 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
 							Effect.map((rows) => (rows[0] ? toEnvironment(rows[0]) : null)),
 						),
 					),
-				touchEnvironment: (environmentId, lastSeenAtMs) =>
+				touchEnvironment: (environmentId, lastSeenAtMs, metadata) =>
 					orDie(
 						sql`
-            UPDATE relay_environments SET last_seen_at = ${lastSeenAtMs}
+            UPDATE relay_environments SET
+              last_seen_at = ${lastSeenAtMs},
+              runtime_version = COALESCE(${metadata?.runtimeVersion ?? null}, runtime_version),
+              wire_protocol_version = COALESCE(${metadata?.wireProtocolVersion ?? null}, wire_protocol_version),
+              capabilities = COALESCE(${
+								metadata?.capabilities === undefined
+									? null
+									: JSON.stringify(metadata.capabilities)
+							}, capabilities),
+              service_state = COALESCE(${metadata?.serviceState ?? null}, service_state)
             WHERE environment_id = ${environmentId}
           `.pipe(Effect.asVoid),
 					),
@@ -501,22 +642,26 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
 					),
 				upsertDevice: (device) =>
 					orDie(
-						sql`
+						sql<{ readonly device_id: string }>`
             INSERT INTO relay_devices
-              (device_id, account_id, platform, push_token, dpop_jwk, updated_at)
+              (device_id, account_id, platform, push_token, dpop_jwk,
+               dpop_thumbprint, updated_at)
             VALUES (
               ${device.deviceId}, ${device.accountId}, ${device.platform},
               ${device.pushToken ?? null},
               ${device.dpopJwk === undefined ? null : JSON.stringify(device.dpopJwk)},
+              ${device.dpopThumbprint},
               ${device.updatedAtMs}
             )
             ON CONFLICT (device_id) DO UPDATE SET
-              account_id = EXCLUDED.account_id,
               platform = EXCLUDED.platform,
               push_token = EXCLUDED.push_token,
               dpop_jwk = EXCLUDED.dpop_jwk,
+              dpop_thumbprint = EXCLUDED.dpop_thumbprint,
               updated_at = EXCLUDED.updated_at
-          `.pipe(Effect.asVoid),
+            WHERE relay_devices.account_id = EXCLUDED.account_id
+            RETURNING device_id
+          `.pipe(Effect.map((rows) => rows.length > 0)),
 					),
 				listDevices: (accountId) =>
 					orDie(
@@ -526,6 +671,7 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
 							readonly platform: DevicePlatform;
 							readonly push_token: string | null;
 							readonly dpop_jwk: unknown;
+							readonly dpop_thumbprint: string;
 							readonly updated_at: number;
 						}>`
               SELECT * FROM relay_devices WHERE account_id = ${accountId}
@@ -537,10 +683,36 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
 									platform: row.platform,
 									pushToken: row.push_token ?? undefined,
 									dpopJwk: row.dpop_jwk ?? undefined,
+									dpopThumbprint: row.dpop_thumbprint,
 									updatedAtMs: Number(row.updated_at),
 								})),
 							),
 						),
+					),
+				revokeDevice: (deviceId, accountId) =>
+					orDie(
+						sql<{ readonly dpop_thumbprint: string }>`
+              WITH revoked AS (
+                DELETE FROM relay_devices
+                WHERE device_id = ${deviceId} AND account_id = ${accountId}
+                RETURNING dpop_thumbprint
+              ), blocked AS (
+                INSERT INTO relay_revoked_dpop_keys (thumbprint, revoked_at)
+                SELECT dpop_thumbprint, ${Date.now()} FROM revoked
+                ON CONFLICT (thumbprint) DO NOTHING
+                RETURNING thumbprint
+              )
+              SELECT dpop_thumbprint FROM revoked
+            `.pipe(Effect.map((rows) => rows.length > 0)),
+					),
+				isDpopThumbprintRevoked: (thumbprint) =>
+					orDie(
+						sql<{ readonly revoked: boolean }>`
+              SELECT EXISTS(
+                SELECT 1 FROM relay_revoked_dpop_keys
+                WHERE thumbprint = ${thumbprint}
+              ) AS revoked
+            `.pipe(Effect.map((rows) => rows[0]?.revoked === true)),
 					),
 				consumeDpopProof: (input) =>
 					orDie(

@@ -51,6 +51,7 @@ import {
 	mergeChatAttentionStates,
 } from "~/lib/chat-attention-state";
 import { displayPath } from "~/lib/display-path";
+import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import { dispatchCommand } from "../lib/commands.ts";
 import { noteSessionStatusForCompletionSound } from "../lib/completion-sounds.ts";
@@ -77,6 +78,7 @@ import { useUiStore } from "../store/ui.ts";
 import { useUsageLimitsStore } from "../store/usage-limits.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { BranchIcon, type BranchState } from "./branch-icon.tsx";
+import { ComputerSwitcher } from "./computer-switcher.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
 import { RenameDialog } from "./rename-dialog.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
@@ -91,7 +93,9 @@ const sidebarErrorToastCache = {
 const initialsOf = (name: string): string => {
 	const parts = name.split(/[-_.\s]+/).filter(Boolean);
 	const letters =
-		parts.length >= 2 ? parts[0]![0]! + parts[1]![0]! : name.slice(0, 2);
+		parts.length >= 2
+			? `${parts[0]?.charAt(0) ?? ""}${parts[1]?.charAt(0) ?? ""}`
+			: name.slice(0, 2);
 	return letters.toUpperCase();
 };
 
@@ -426,6 +430,7 @@ export function ProjectsSidebar() {
 			tabIndex={-1}
 			className="flex h-full min-h-0 w-full flex-col bg-sidebar text-sidebar-foreground outline-none"
 		>
+			<ComputerSwitcher />
 			<SidebarActions />
 			<div className="flex items-center justify-between px-3 py-2 text-xs text-muted-foreground">
 				<span>Projects</span>
@@ -535,6 +540,34 @@ function SidebarAccount() {
 	// is fine and far better than showing nothing.
 	const initial = (name || user?.email || "?").charAt(0).toUpperCase();
 	const nameIsEmail = Boolean(user?.email && name === user.email);
+	if (isHostedProduct()) {
+		return (
+			<Menu>
+				<MenuTrigger
+					render={
+						<button
+							type="button"
+							className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-[11px] text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+						>
+							<HugeiconsIcon icon={UserCircleIcon} className="size-4" />
+							<span className="min-w-0 flex-1 truncate text-left">
+								Zuse account
+							</span>
+						</button>
+					}
+				/>
+				<MenuPopup side="top" align="start" className="w-56">
+					<MenuItem
+						variant="destructive"
+						onClick={() => void signOutHostedProduct()}
+					>
+						<HugeiconsIcon icon={Logout01Icon} />
+						Sign out of this browser
+					</MenuItem>
+				</MenuPopup>
+			</Menu>
+		);
+	}
 
 	return (
 		<Menu>

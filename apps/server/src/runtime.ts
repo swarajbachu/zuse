@@ -44,7 +44,10 @@ import { TitleGeneratorLive } from "./provider/title-generator.ts";
 import { PtyServiceLive } from "./pty/layers/pty-service.ts";
 import { RelayActivityPublisherLive } from "./relay/activity-publisher.ts";
 import { ManagedTunnelRuntimeLive } from "./relay/managed-tunnel-runtime.ts";
-import { RelayLinkServiceLive } from "./relay/relay-link-service.ts";
+import {
+	RelayLinkService,
+	RelayLinkServiceLive,
+} from "./relay/relay-link-service.ts";
 import { RepositorySettingsServiceLive } from "./repository-settings/layers/repository-settings-service.ts";
 import { SkillBridgeLive } from "./skill/layers/skill-bridge.ts";
 import { SkillDiscoveryServiceLive } from "./skill/layers/skill-discovery.ts";
@@ -105,6 +108,10 @@ export interface MainLayerDeps {
 		readonly onNearbyPairingRequest?: (
 			request: import("./lan-auth/services/lan-auth-service.ts").NearbyPairingRequest,
 		) => void;
+	};
+	readonly autoRelayLink?: {
+		readonly relayUrl: string;
+		readonly label?: string;
 	};
 }
 
@@ -441,6 +448,19 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		),
 		Layer.provide(AppPathsLayer),
 	);
+	const autoRelayLink = deps.autoRelayLink;
+	const AutoRelayLinkLayer =
+		autoRelayLink === undefined
+			? Layer.empty
+			: Layer.effectDiscard(
+					Effect.gen(function* () {
+						const relay = yield* RelayLinkService;
+						const status = yield* relay.status();
+						if (!status.linked) {
+							yield* relay.link(autoRelayLink);
+						}
+					}),
+				).pipe(Layer.provide(RelayLinkLayer));
 
 	const HandlerSupportLayer = Layer.mergeAll(
 		AppPathsLayer,
@@ -521,5 +541,10 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(AppPathsLayer),
 	);
-	return Layer.mergeAll(ServerLayer, NodeServices.layer, UsagePoller);
+	return Layer.mergeAll(
+		ServerLayer,
+		NodeServices.layer,
+		UsagePoller,
+		AutoRelayLinkLayer,
+	);
 };

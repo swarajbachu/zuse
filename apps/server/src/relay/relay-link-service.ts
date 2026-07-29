@@ -1,7 +1,10 @@
 import {
   DEFAULT_LOCAL_DESKTOP_PORT,
   type EnvironmentId,
+  type RelayAuthorizedClientList,
+  type RelayEnvironmentList,
   RelayPaths,
+  WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
 import { Clock, Context, Data, Effect, Fiber, Layer, Ref } from "effect";
 
@@ -19,6 +22,24 @@ import { ManagedTunnelRuntime } from "./managed-tunnel-runtime.ts";
 import { appendRelayDiagnostic } from "./relay-diagnostics.ts";
 
 const HEARTBEAT_INTERVAL = "30 seconds";
+const RUNTIME_METADATA = {
+  runtimeVersion: process.env.ZUSE_RUNTIME_VERSION?.trim() || "0.0.0",
+  wireProtocolVersion: WIRE_PROTOCOL_VERSION,
+  capabilities: {
+    version: 1,
+    features: [
+      "agents",
+      "chats",
+      "files",
+      "diffs",
+      "terminals",
+      "approvals",
+      "questions",
+      "notifications",
+    ],
+  },
+  serviceState: "healthy",
+} as const;
 
 export class RelayLinkError extends Data.TaggedError("RelayLinkError")<{
   readonly reason: string;
@@ -49,6 +70,17 @@ export class RelayLinkService extends Context.Service<
     }) => Effect.Effect<RelayLinkStatusValue, RelayLinkError>;
     readonly status: () => Effect.Effect<RelayLinkStatusValue, RelayLinkError>;
     readonly unlink: () => Effect.Effect<void, RelayLinkError>;
+    readonly listEnvironments: () => Effect.Effect<
+      RelayEnvironmentList,
+      RelayLinkError
+    >;
+    readonly listClients: () => Effect.Effect<
+      RelayAuthorizedClientList,
+      RelayLinkError
+    >;
+    readonly revokeClient: (
+      clientId: string,
+    ) => Effect.Effect<void, RelayLinkError>;
   }
 >()("zuse/RelayLinkService") {}
 
@@ -87,6 +119,25 @@ const postJson = <A>(
             : { "content-type": "application/json" }),
         },
         body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+      });
+      if (!response.ok) {
+        throw new Error(await relayHttpErrorReason(response));
+      }
+      return (await response.json()) as A;
+    },
+    catch: (cause) =>
+      failRelay(cause instanceof Error ? cause.message : String(cause)),
+  });
+
+const accountJson = <A>(
+  url: string,
+  opts: { readonly bearer: string; readonly method?: "GET" | "DELETE" },
+): Effect.Effect<A, RelayLinkError> =>
+  Effect.tryPromise({
+    try: async () => {
+      const response = await fetch(url, {
+        method: opts.method ?? "GET",
+        headers: { authorization: `Bearer ${opts.bearer}` },
       });
       if (!response.ok) {
         throw new Error(await relayHttpErrorReason(response));
@@ -140,7 +191,7 @@ export const RelayLinkServiceLive: Layer.Layer<
     }) =>
       postJson(
         `${input.relayUrl}${RelayPaths.heartbeat(input.environmentId)}`,
-        { bearer: input.credential },
+        { bearer: input.credential, body: RUNTIME_METADATA },
       ).pipe(
         Effect.ignore,
         Effect.andThen(Effect.sleep(HEARTBEAT_INTERVAL)),
@@ -174,7 +225,7 @@ export const RelayLinkServiceLive: Layer.Layer<
         `${input.relayUrl}${RelayPaths.heartbeat(input.environmentId)}`,
         {
           bearer: input.credential,
-          body: { origin: computeOrigin(config) },
+          body: { origin: computeOrigin(config), ...RUNTIME_METADATA },
         },
       );
 
@@ -316,6 +367,7 @@ export const RelayLinkServiceLive: Layer.Layer<
               providerKind: "desktop",
               endpoint: computeEndpoint(config),
               label,
+              ...RUNTIME_METADATA,
               // Ask the relay to provision a managed Cloudflare tunnel so the
               // phone can reach this Mac from anywhere. If the relay has tunnels
               // disabled it simply returns no connector token and we stay on LAN.
@@ -443,6 +495,48 @@ export const RelayLinkServiceLive: Layer.Layer<
               },
             }),
           } satisfies RelayLinkStatusValue;
+        }),
+      listEnvironments: () =>
+        Effect.gen(function* () {
+          const cfg = yield* auth
+            .getRelayConfig()
+            .pipe(Effect.mapError((error) => failRelay(error.reason)));
+          if (cfg === null) return yield* Effect.fail(failRelay("not_linked"));
+          const token = yield* authService
+            .getAccessToken()
+            .pipe(Effect.mapError(() => failRelay("not_signed_in")));
+          return yield* accountJson<RelayEnvironmentList>(
+            `${cfg.relayUrl}${RelayPaths.environments}`,
+            { bearer: token },
+          );
+        }),
+      listClients: () =>
+        Effect.gen(function* () {
+          const cfg = yield* auth
+            .getRelayConfig()
+            .pipe(Effect.mapError((error) => failRelay(error.reason)));
+          if (cfg === null) return yield* Effect.fail(failRelay("not_linked"));
+          const token = yield* authService
+            .getAccessToken()
+            .pipe(Effect.mapError(() => failRelay("not_signed_in")));
+          return yield* accountJson<RelayAuthorizedClientList>(
+            `${cfg.relayUrl}${RelayPaths.clients}`,
+            { bearer: token },
+          );
+        }),
+      revokeClient: (clientId) =>
+        Effect.gen(function* () {
+          const cfg = yield* auth
+            .getRelayConfig()
+            .pipe(Effect.mapError((error) => failRelay(error.reason)));
+          if (cfg === null) return yield* Effect.fail(failRelay("not_linked"));
+          const token = yield* authService
+            .getAccessToken()
+            .pipe(Effect.mapError(() => failRelay("not_signed_in")));
+          yield* accountJson<{ readonly ok: boolean }>(
+            `${cfg.relayUrl}${RelayPaths.client(clientId)}`,
+            { bearer: token, method: "DELETE" },
+          );
         }),
       unlink: () =>
         Effect.gen(function* () {

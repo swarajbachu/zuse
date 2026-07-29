@@ -1,0 +1,27 @@
+{
+	"name": "@zusehq/serve",
+	"version": "0.0.0",
+	"description": "One-command remote access for Zuse workspaces",
+	"license": "MIT",
+	"type": "module",
+	"bin": {
+		"zuse": "./dist/bin.mjs"
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "vp pack src/bin.ts",
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@zuse/server": "0.0.0"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
+		"tsdown": "0.21.10",
+		"typescript": "catalog:",
+		"vite-plus": "0.2.5"
+	}
+}

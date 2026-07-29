@@ -1,4 +1,9 @@
+import {
+	environmentRoute,
+	parseEnvironmentRoute,
+} from "@zuse/client-runtime/environment-scope";
 import type { ConnectionSnapshot } from "@zuse/client-runtime/supervisor";
+import type { RelayEnvironmentRecord } from "@zuse/contracts";
 import {
 	type ReactNode,
 	useCallback,
@@ -11,6 +16,15 @@ import {
 	BrowserSessionError,
 	createBrowserSessionConnection,
 } from "../lib/browser-session.ts";
+import {
+	beginHostedSignIn,
+	completeHostedSignIn,
+	connectHostedEnvironment,
+	hostedSignedIn,
+	isHostedProduct,
+	listHostedEnvironments,
+	registerHostedClient,
+} from "../lib/hosted-connect.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import {
 	retryRendererRpcConnection,
@@ -26,6 +40,16 @@ type AccessState =
 			readonly description: string;
 			readonly retryable: boolean;
 	  };
+
+type HostedAccessState =
+	| { readonly status: "loading" }
+	| { readonly status: "signedOut" }
+	| {
+			readonly status: "select";
+			readonly environments: ReadonlyArray<RelayEnvironmentRecord>;
+	  }
+	| { readonly status: "ready" }
+	| { readonly status: "error"; readonly description: string };
 
 const errorCopy = (
 	cause: unknown,
@@ -142,7 +166,174 @@ function ConnectionBanner() {
 	);
 }
 
-export function BrowserAccessGate({
+function HostedAccessCard({
+	state,
+	retry,
+}: {
+	readonly state: Exclude<HostedAccessState, { readonly status: "ready" }>;
+	readonly retry: () => void;
+}) {
+	const title =
+		state.status === "loading"
+			? "Opening Zuse…"
+			: state.status === "signedOut"
+				? "Your computers, anywhere"
+				: state.status === "select"
+					? "Choose a computer"
+					: "Could not open this computer";
+	return (
+		<div className="flex min-h-dvh w-full items-center justify-center bg-background px-4 py-8 text-foreground">
+			<main
+				aria-busy={state.status === "loading"}
+				aria-live="polite"
+				className="w-full max-w-lg rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6"
+			>
+				<p className="text-sm font-medium text-muted-foreground">Zuse</p>
+				<h1 className="mt-2 text-xl font-semibold">{title}</h1>
+				{state.status === "loading" ? (
+					<p className="mt-2 text-sm leading-6 text-muted-foreground">
+						Signing in and finding your served computers.
+					</p>
+				) : null}
+				{state.status === "signedOut" ? (
+					<>
+						<p className="mt-2 text-sm leading-6 text-muted-foreground">
+							Sign in to see and securely control the computers linked to your
+							account.
+						</p>
+						<button
+							className="mt-5 min-h-11 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							onClick={() => void beginHostedSignIn()}
+							type="button"
+						>
+							Sign in
+						</button>
+					</>
+				) : null}
+				{state.status === "select" ? (
+					<div className="mt-4 flex flex-col gap-2">
+						{state.environments.map((environment) => {
+							const online =
+								environment.lastHeartbeat !== undefined &&
+								Date.now() - environment.lastHeartbeat <= 90_000;
+							return (
+								<button
+									className="flex min-h-11 items-center gap-3 rounded-xl border border-border/70 px-3 py-2 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+									key={environment.environmentId}
+									onClick={() =>
+										window.location.assign(
+											environmentRoute(environment.environmentId),
+										)
+									}
+									type="button"
+								>
+									<span
+										aria-hidden="true"
+										className={`size-2.5 shrink-0 rounded-full ${
+											online ? "bg-emerald-500" : "bg-muted-foreground/35"
+										}`}
+									/>
+									<span className="min-w-0 flex-1">
+										<span className="block truncate text-sm font-medium">
+											{environment.label ?? "Unnamed computer"}
+										</span>
+										<span className="block truncate text-xs text-muted-foreground">
+											{online ? "Online" : "Offline"}
+											{environment.runtimeVersion
+												? ` · v${environment.runtimeVersion}`
+												: ""}
+										</span>
+									</span>
+								</button>
+							);
+						})}
+						{state.environments.length === 0 ? (
+							<p className="rounded-xl bg-muted px-3 py-4 text-sm text-muted-foreground">
+								No computers are served yet. Run <code>npx @zusehq/serve</code>{" "}
+								on a computer first.
+							</p>
+						) : null}
+					</div>
+				) : null}
+				{state.status === "error" ? (
+					<>
+						<p className="mt-2 text-sm leading-6 text-muted-foreground">
+							{state.description}
+						</p>
+						<button
+							className="mt-5 min-h-11 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							onClick={retry}
+							type="button"
+						>
+							Try again
+						</button>
+					</>
+				) : null}
+			</main>
+		</div>
+	);
+}
+
+function HostedAccessGate({ children }: { readonly children: ReactNode }) {
+	const [state, setState] = useState<HostedAccessState>({
+		status: "loading",
+	});
+	const connect = useCallback(async () => {
+		setState({ status: "loading" });
+		try {
+			await completeHostedSignIn();
+			if (!(await hostedSignedIn())) {
+				setState({ status: "signedOut" });
+				return;
+			}
+			const catalog = await listHostedEnvironments();
+			const route = parseEnvironmentRoute(window.location.pathname);
+			if (route === null) {
+				setState({ status: "select", environments: catalog.environments });
+				return;
+			}
+			const target = catalog.environments.find(
+				(environment) => environment.environmentId === route.environmentId,
+			);
+			if (target === undefined) {
+				setState({
+					status: "error",
+					description:
+						"This computer is not linked to your account. It may have been removed.",
+				});
+				return;
+			}
+			await registerHostedClient();
+			await connectHostedEnvironment(route.environmentId);
+			setState({ status: "ready" });
+		} catch (cause) {
+			const reason = cause instanceof Error ? cause.message : String(cause);
+			setState({
+				status: "error",
+				description:
+					reason === "computer_limit_reached"
+						? "This account has reached its served-computer limit."
+						: reason === "version_incompatible"
+							? "This computer needs a Zuse Serve update before it can connect."
+							: "Check that the computer is online, then try again.",
+			});
+		}
+	}, []);
+	useEffect(() => {
+		void connect();
+	}, [connect]);
+	if (state.status !== "ready") {
+		return <HostedAccessCard retry={() => void connect()} state={state} />;
+	}
+	return (
+		<>
+			{children}
+			<ConnectionBanner />
+		</>
+	);
+}
+
+function DirectBrowserAccessGate({
 	children,
 }: {
 	readonly children: ReactNode;
@@ -186,5 +377,17 @@ export function BrowserAccessGate({
 			{children}
 			{!rendererPlatformCapabilities().desktop && <ConnectionBanner />}
 		</>
+	);
+}
+
+export function BrowserAccessGate({
+	children,
+}: {
+	readonly children: ReactNode;
+}) {
+	return isHostedProduct() ? (
+		<HostedAccessGate>{children}</HostedAccessGate>
+	) : (
+		<DirectBrowserAccessGate>{children}</DirectBrowserAccessGate>
 	);
 }

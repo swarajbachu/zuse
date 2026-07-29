@@ -8,9 +8,9 @@ import {
   verifyAccessToken,
   verifyDpopProof,
 } from "./crypto.ts";
-import { forbidden, unauthorized, type RelayError } from "./errors.ts";
+import { forbidden, type RelayError, unauthorized } from "./errors.ts";
 import { RelayStore } from "./store.ts";
-import { WorkosVerifier, type WorkosPrincipal } from "./workos.ts";
+import { type WorkosPrincipal, WorkosVerifier } from "./workos.ts";
 
 export const RELAY_SCOPES = {
   status: "environment:status",
@@ -23,19 +23,19 @@ export type RelayScope = (typeof RELAY_SCOPES)[keyof typeof RELAY_SCOPES];
 /** Require a valid WorkOS access token (Authorization: Bearer …). */
 export const requireWorkos = (
   request: Request,
-): Effect.Effect<
-  WorkosPrincipal,
-  RelayError,
-  WorkosVerifier
-> =>
+): Effect.Effect<WorkosPrincipal, RelayError, WorkosVerifier> =>
   Effect.gen(function* () {
     const header = request.headers.get("authorization") ?? "";
     const match = /^Bearer (.+)$/i.exec(header);
     if (match === null) {
       return yield* Effect.fail(unauthorized("missing_bearer"));
     }
+    const token = match[1];
+    if (token === undefined) {
+      return yield* Effect.fail(unauthorized("missing_bearer"));
+    }
     const verifier = yield* WorkosVerifier;
-    return yield* verifier.verify(match[1]!);
+    return yield* verifier.verify(token);
   });
 
 /**
@@ -58,7 +58,11 @@ export const requireEnvironmentCredential = (
     if (match === null) {
       return yield* Effect.fail(unauthorized("missing_environment_credential"));
     }
-    const hash = yield* sha256Hex(match[1]!);
+    const secret = match[1];
+    if (secret === undefined) {
+      return yield* Effect.fail(unauthorized("missing_environment_credential"));
+    }
+    const hash = yield* sha256Hex(secret);
     const credential = yield* store.findActiveCredentialByHash(hash);
     if (credential === null) {
       return yield* Effect.fail(unauthorized("invalid_environment_credential"));
@@ -100,10 +104,14 @@ export const requireDpop = (
     if (tokenMatch === null || proof === null) {
       return yield* Effect.fail(unauthorized("missing_dpop"));
     }
+    const token = tokenMatch[1];
+    if (token === undefined) {
+      return yield* Effect.fail(unauthorized("missing_dpop"));
+    }
 
     const mintPublicJwk = yield* parseJwk(config.mintPublicKey);
     const claims = yield* verifyAccessToken({
-      token: tokenMatch[1]!,
+      token,
       mintPublicJwk,
       issuer: config.relayIssuer,
     });
@@ -119,6 +127,9 @@ export const requireDpop = (
     });
     if (dpop.thumbprint !== claims.thumbprint) {
       return yield* Effect.fail(unauthorized("dpop_key_mismatch"));
+    }
+    if (yield* store.isDpopThumbprintRevoked(dpop.thumbprint)) {
+      return yield* Effect.fail(unauthorized("client_revoked"));
     }
 
     const fresh = yield* store.consumeDpopProof({
@@ -166,6 +177,9 @@ export const mintAccessToken = (
       url: request.url,
       nowMs,
     });
+    if (yield* store.isDpopThumbprintRevoked(dpop.thumbprint)) {
+      return yield* Effect.fail(unauthorized("client_revoked"));
+    }
     const fresh = yield* store.consumeDpopProof({
       thumbprint: dpop.thumbprint,
       jti: dpop.jti,
@@ -176,7 +190,9 @@ export const mintAccessToken = (
       return yield* Effect.fail(unauthorized("dpop_replayed"));
     }
 
-    const mintPrivateJwk = yield* parseJwk(Redacted.value(config.mintPrivateKey));
+    const mintPrivateJwk = yield* parseJwk(
+      Redacted.value(config.mintPrivateKey),
+    );
     const accessToken = yield* signAccessToken({
       mintPrivateJwk,
       issuer: config.relayIssuer,

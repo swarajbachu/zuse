@@ -2,6 +2,7 @@ import {
 	makeRpcClientSession,
 	withWireProtocolVersion,
 } from "@zuse/client-runtime/connection";
+import { parseEnvironmentRoute } from "@zuse/client-runtime/environment-scope";
 import {
 	type ConnectionSnapshot,
 	type ConnectionSupervisorEntry,
@@ -28,15 +29,21 @@ type MemoizeClient = RpcClient.RpcClient<
 
 type RendererConnectionOptions =
 	| {
-			readonly key: "renderer";
+			readonly key: string;
 			readonly kind: "electron";
 			readonly bridge: RpcBridge;
 	  }
 	| {
-			readonly key: "renderer";
+			readonly key: string;
 			readonly kind: "websocket";
 			readonly wsUrl: string;
 	  };
+
+const rendererConnectionKey = (): string => {
+	if (typeof location === "undefined") return "environment:local";
+	const route = parseEnvironmentRoute(location.pathname);
+	return `environment:${route?.environmentId ?? "local"}`;
+};
 
 function resolveWebSocketUrl(): string {
 	const env = (
@@ -59,8 +66,12 @@ export function resolveRendererRpcTransportForTest(): {
 const connectionOptions = (): RendererConnectionOptions => {
 	const bridge = globalThis.window?.zuse ?? globalThis.window?.memoize;
 	return bridge
-		? { key: "renderer", kind: "electron", bridge: bridge.rpc }
-		: { key: "renderer", kind: "websocket", wsUrl: resolveWebSocketUrl() };
+		? { key: rendererConnectionKey(), kind: "electron", bridge: bridge.rpc }
+		: {
+				key: rendererConnectionKey(),
+				kind: "websocket",
+				wsUrl: resolveWebSocketUrl(),
+			};
 };
 
 let online = globalThis.navigator?.onLine ?? true;

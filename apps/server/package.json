@@ -22,6 +22,11 @@
 			"import": "./src/runtime.ts",
 			"require": "./src/runtime.ts"
 		},
+		"./serve-cli": {
+			"types": "./src/serve/package-cli.ts",
+			"import": "./dist/serve-cli.mjs",
+			"require": "./dist/serve-cli.mjs"
+		},
 		"./secure-storage-master-key": {
 			"types": "./src/secure-storage-master-key.ts",
 			"import": "./src/secure-storage-master-key.ts",

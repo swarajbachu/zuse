@@ -1,5 +1,5 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
 import { EnvironmentId } from "./ids.ts";
 
@@ -92,6 +92,48 @@ export class AdvertisedEndpoint extends Schema.Class<AdvertisedEndpoint>(
   isDefault: Schema.Boolean,
 }) {}
 
+export const CapabilityFeature = Schema.Literals([
+  "agents",
+  "chats",
+  "files",
+  "diffs",
+  "terminals",
+  "approvals",
+  "questions",
+  "previews",
+  "notifications",
+  "runtime-update",
+]);
+export type CapabilityFeature = typeof CapabilityFeature.Type;
+
+export class CapabilityManifest extends Schema.Class<CapabilityManifest>(
+  "CapabilityManifest",
+)({
+  version: Schema.Literal(1),
+  features: Schema.Array(CapabilityFeature),
+}) {}
+
+export const EnvironmentServiceState = Schema.Literals([
+  "starting",
+  "healthy",
+  "degraded",
+  "stopped",
+  "updating",
+]);
+export type EnvironmentServiceState = typeof EnvironmentServiceState.Type;
+
+export class EnvironmentEndpointHealth extends Schema.Class<EnvironmentEndpointHealth>(
+  "EnvironmentEndpointHealth",
+)({
+  lan: Schema.optional(
+    Schema.Literals(["available", "unavailable", "unknown"]),
+  ),
+  managed: Schema.optional(
+    Schema.Literals(["available", "unavailable", "unknown"]),
+  ),
+  checkedAt: Schema.Number,
+}) {}
+
 /**
  * Everything a client needs to identify and reach an environment. Keyed by
  * `environmentId` (never by "this laptop"), so the relay and clients treat
@@ -105,6 +147,12 @@ export class EnvironmentDescriptor extends Schema.Class<EnvironmentDescriptor>(
   endpoint: EnvironmentEndpoint,
   advertisedEndpoints: Schema.optional(Schema.Array(AdvertisedEndpoint)),
   label: Schema.optional(Schema.String),
+  runtimeVersion: Schema.optional(Schema.String),
+  wireProtocolVersion: Schema.optional(Schema.Number),
+  capabilities: Schema.optional(CapabilityManifest),
+  serviceState: Schema.optional(EnvironmentServiceState),
+  endpointHealth: Schema.optional(EnvironmentEndpointHealth),
+  lastHeartbeat: Schema.optional(Schema.Number),
 }) {}
 
 // ---------------------------------------------------------------------------

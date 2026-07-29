@@ -211,6 +211,11 @@ const toBundle = (res: WorkosAuthenticateResponse): SessionBundle => ({
   },
 });
 
+/** Normalize the shared WorkOS token response used by browser and CLI auth. */
+export const sessionBundleFromAuthenticateResponse = (
+	value: unknown,
+): SessionBundle => toBundle(parseAuthenticateResponse(value));
+
 const authenticate = (
   body: Record<string, string>,
 ): Effect.Effect<SessionBundle, AuthTokenError> =>

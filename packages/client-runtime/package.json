@@ -7,6 +7,7 @@
 		"./chat-threads": "./src/chat-threads.ts",
 		"./command-dispatch": "./src/command-dispatch.ts",
 		"./connection": "./src/connection.ts",
+		"./environment-scope": "./src/environment-scope.ts",
 		"./plan-interactions": "./src/plan-interactions.ts",
 		"./session-timeline": "./src/session-timeline.ts",
 		"./session-timeline-cache": "./src/session-timeline-cache.ts",

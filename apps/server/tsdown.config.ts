@@ -52,7 +52,11 @@ export default defineConfig([
 	},
 	{
 		...shared,
-		entry: { index: "src/index.ts", runtime: "src/runtime.ts" },
+		entry: {
+			index: "src/index.ts",
+			runtime: "src/runtime.ts",
+			"serve-cli": "src/serve/package-cli.ts",
+		},
 		dts: false,
 	},
 ]);
