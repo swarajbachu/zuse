@@ -13,6 +13,7 @@ export interface ServeCommand {
 	readonly json: boolean;
 	readonly foreground: boolean;
 	readonly force: boolean;
+	readonly dataDir?: string;
 }
 
 const MANAGEMENT_ACTIONS = new Set<ServeAction>(ServeAction);
@@ -24,14 +25,34 @@ export const parseServeCommand = (
 		throw new Error("Usage: zuse serve [status|stop|update|logout|uninstall]");
 	}
 
-	const rest = argv.slice(1);
-	const candidate = rest.find((part) => !part.startsWith("-"));
-	const action = candidate ?? "start";
-	if (!MANAGEMENT_ACTIONS.has(action as ServeAction)) {
-		throw new Error(`Unknown zuse serve command "${action}".`);
+	const flags = new Set<string>();
+	let action: ServeAction = "start";
+	let actionProvided = false;
+	let dataDir: string | undefined;
+	for (let index = 1; index < argv.length; index += 1) {
+		const part = argv[index];
+		if (part === undefined) break;
+		if (part === "--data-dir") {
+			const value = argv[index + 1];
+			if (value === undefined || value.startsWith("-")) {
+				throw new Error("--data-dir requires a value.");
+			}
+			dataDir = value;
+			index += 1;
+			continue;
+		}
+		if (part.startsWith("-")) {
+			flags.add(part);
+			continue;
+		}
+		if (!actionProvided && MANAGEMENT_ACTIONS.has(part as ServeAction)) {
+			action = part as ServeAction;
+			actionProvided = true;
+			continue;
+		}
+		throw new Error(`Unknown zuse serve command "${part}".`);
 	}
 
-	const flags = new Set(rest.filter((part) => part.startsWith("-")));
 	for (const flag of flags) {
 		if (!["--json", "--foreground", "--force"].includes(flag)) {
 			throw new Error(`Unknown zuse serve option "${flag}".`);
@@ -52,5 +73,6 @@ export const parseServeCommand = (
 		json: flags.has("--json"),
 		foreground: flags.has("--foreground"),
 		force: flags.has("--force"),
+		dataDir,
 	};
 };

@@ -97,6 +97,13 @@ const supervisor = createConnectionSupervisor<
 							await requestBrowserWebSocketUrl(),
 							WIRE_PROTOCOL_VERSION,
 						),
+						{
+							onClose: (event) => {
+								rendererEntry?.reportFailure(
+									new Error(`WebSocket closed (${event.code}).`),
+								);
+							},
+						},
 					);
 		return makeRpcClientSession(protocolLayer, MemoizeRpcs, {
 			protocolVersion: WIRE_PROTOCOL_VERSION,

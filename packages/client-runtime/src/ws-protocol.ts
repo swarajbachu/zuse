@@ -27,7 +27,23 @@ export type WsProtocolLayerOptions = {
 		url: string,
 		protocols?: string | Array<string>,
 	) => globalThis.WebSocket;
+	readonly onClose?: (event: CloseEvent) => void;
 };
+
+type WebSocketConstructor = NonNullable<
+	WsProtocolLayerOptions["makeWebSocket"]
+>;
+
+export const observeWebSocketConstructor =
+	(
+		makeWebSocket: WebSocketConstructor,
+		onClose: (event: CloseEvent) => void,
+	): WebSocketConstructor =>
+	(url, protocols) => {
+		const socket = makeWebSocket(url, protocols);
+		socket.addEventListener("close", onClose, { once: true });
+		return socket;
+	};
 
 export const connectionKey = (host: string, port: number): string =>
 	`${host.trim()}:${port}`;
@@ -47,8 +63,16 @@ export const authenticatedWsUrl = (options: WsProtocolOptions): string => {
 export const wsClientProtocolLayer = (
 	endpoint: string | WsProtocolOptions,
 	options?: WsProtocolLayerOptions,
-): Layer.Layer<RpcClient.Protocol> =>
-	RpcClient.layerProtocolSocket().pipe(
+): Layer.Layer<RpcClient.Protocol> => {
+	const makeWebSocket =
+		options?.onClose === undefined
+			? options?.makeWebSocket
+			: observeWebSocketConstructor(
+					options.makeWebSocket ??
+						((url, protocols) => new globalThis.WebSocket(url, protocols)),
+					options.onClose,
+				);
+	return RpcClient.layerProtocolSocket().pipe(
 		Layer.provide(
 			Socket.layerWebSocket(
 				typeof endpoint === "string" ? endpoint : authenticatedWsUrl(endpoint),
@@ -56,9 +80,10 @@ export const wsClientProtocolLayer = (
 			),
 		),
 		Layer.provide(
-			options?.makeWebSocket === undefined
+			makeWebSocket === undefined
 				? Socket.layerWebSocketConstructorGlobal
-				: Layer.succeed(Socket.WebSocketConstructor, options.makeWebSocket),
+				: Layer.succeed(Socket.WebSocketConstructor, makeWebSocket),
 		),
 		Layer.provide(RpcSerialization.layerJson),
 	);
+};

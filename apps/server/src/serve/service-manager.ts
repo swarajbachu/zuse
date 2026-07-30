@@ -50,6 +50,42 @@ const run = async (
 	return { stdout: result.stdout, stderr: result.stderr };
 };
 
+export type ServeServiceCommandRunner = typeof run;
+
+const isMissingLaunchctlService = (cause: unknown): boolean => {
+	if (typeof cause !== "object" || cause === null) return false;
+	const error = cause as { readonly code?: unknown; readonly stderr?: unknown };
+	return (
+		error.code === 113 &&
+		typeof error.stderr === "string" &&
+		error.stderr.includes("Could not find service")
+	);
+};
+
+const bootoutLaunchAgent = async (input: {
+	readonly target: string;
+	readonly definitionPath: string;
+	readonly runCommand: ServeServiceCommandRunner;
+}): Promise<void> => {
+	try {
+		await input.runCommand("launchctl", [
+			"bootout",
+			input.target,
+			input.definitionPath,
+		]);
+	} catch (cause) {
+		try {
+			await input.runCommand("launchctl", [
+				"print",
+				`${input.target}/sh.zuse.serve`,
+			]);
+		} catch (probeCause) {
+			if (isMissingLaunchctlService(probeCause)) return;
+		}
+		throw cause;
+	}
+};
+
 export const resolveServeServicePaths = (input: {
 	readonly platform?: NodeJS.Platform;
 	readonly homeDir?: string;
@@ -111,6 +147,7 @@ const isSystemdUserAvailable = async (): Promise<boolean> => {
 export const installServeService = async (input: {
 	readonly executable: string;
 	readonly paths: ServeServicePaths;
+	readonly relayUrl?: string;
 }): Promise<ServeServiceStatus> => {
 	await mkdir(dirname(input.paths.definitionPath), { recursive: true });
 	await mkdir(input.paths.logDir, { recursive: true, mode: 0o700 });
@@ -122,16 +159,17 @@ export const installServeService = async (input: {
 			executable: input.executable,
 			dataDir: input.paths.dataDir,
 			logDir: input.paths.logDir,
+			relayUrl: input.relayUrl,
 		});
 		await writeFile(input.paths.definitionPath, definition.contents, {
 			mode: 0o600,
 		});
 		const target = launchctlTarget();
-		await run("launchctl", [
-			"bootout",
+		await bootoutLaunchAgent({
 			target,
-			input.paths.definitionPath,
-		]).catch(() => undefined);
+			definitionPath: input.paths.definitionPath,
+			runCommand: run,
+		});
 		await run("launchctl", ["bootstrap", target, input.paths.definitionPath]);
 		await run("launchctl", ["enable", `${target}/${definition.label}`]);
 		await run("launchctl", [
@@ -152,6 +190,7 @@ export const installServeService = async (input: {
 		executable: input.executable,
 		dataDir: input.paths.dataDir,
 		logDir: input.paths.logDir,
+		relayUrl: input.relayUrl,
 	});
 	await writeFile(input.paths.definitionPath, definition.contents, {
 		mode: 0o600,
@@ -163,30 +202,57 @@ export const installServeService = async (input: {
 
 export const startServeService = async (
 	paths: ServeServicePaths,
+	runCommand: ServeServiceCommandRunner = run,
 ): Promise<void> => {
 	if (paths.platform === "darwin") {
 		const target = launchctlTarget();
-		await run("launchctl", ["enable", `${target}/sh.zuse.serve`]);
-		await run("launchctl", ["kickstart", "-k", `${target}/sh.zuse.serve`]);
+		await runCommand("launchctl", ["enable", `${target}/sh.zuse.serve`]);
+		await runCommand("launchctl", [
+			"bootstrap",
+			target,
+			paths.definitionPath,
+		]).catch(async (cause) => {
+			try {
+				await runCommand("launchctl", ["print", `${target}/sh.zuse.serve`]);
+			} catch {
+				throw cause;
+			}
+		});
+		await runCommand("launchctl", [
+			"kickstart",
+			"-k",
+			`${target}/sh.zuse.serve`,
+		]);
 		return;
 	}
-	await run("systemctl", ["--user", "enable", "--now", "zuse-serve.service"]);
+	await runCommand("systemctl", [
+		"--user",
+		"enable",
+		"--now",
+		"zuse-serve.service",
+	]);
 };
 
 export const stopServeService = async (
 	paths: ServeServicePaths,
+	runCommand: ServeServiceCommandRunner = run,
 ): Promise<void> => {
 	if (paths.platform === "darwin") {
 		const target = launchctlTarget();
-		await run("launchctl", ["disable", `${target}/sh.zuse.serve`]);
-		await run("launchctl", [
-			"kill",
-			"SIGTERM",
-			`${target}/sh.zuse.serve`,
-		]).catch(() => undefined);
+		await runCommand("launchctl", ["disable", `${target}/sh.zuse.serve`]);
+		await bootoutLaunchAgent({
+			target,
+			definitionPath: paths.definitionPath,
+			runCommand,
+		});
 		return;
 	}
-	await run("systemctl", ["--user", "disable", "--now", "zuse-serve.service"]);
+	await runCommand("systemctl", [
+		"--user",
+		"disable",
+		"--now",
+		"zuse-serve.service",
+	]);
 };
 
 export const getServeServiceStatus = async (
