@@ -5,7 +5,7 @@
 	"license": "MIT",
 	"type": "module",
 	"bin": {
-		"zusehq": "./dist/bin.mjs"
+		"zusehq": "dist/bin.mjs"
 	},
 	"engines": {
 		"node": ">=22.5.0"

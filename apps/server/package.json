@@ -1,10 +1,10 @@
 {
-	"name": "@zuse/server",
+	"name": "@zusehq/server",
 	"version": "0.1.0",
 	"private": false,
 	"type": "module",
 	"bin": {
-		"zuse": "./dist/bin.mjs"
+		"zuse": "dist/bin.mjs"
 	},
 	"engines": {
 		"node": ">=22.5.0"

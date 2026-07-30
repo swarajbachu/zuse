@@ -5,7 +5,7 @@
 	"license": "MIT",
 	"type": "module",
 	"bin": {
-		"zuse": "./dist/bin.mjs"
+		"zuse": "dist/bin.mjs"
 	},
 	"engines": {
 		"node": ">=22.5.0"
@@ -28,7 +28,7 @@
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@zuse/server": "0.1.0"
+		"@zusehq/server": "0.1.0"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",

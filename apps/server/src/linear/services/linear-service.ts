@@ -74,4 +74,4 @@ export interface LinearServiceShape {
 export class LinearService extends Context.Service<
 	LinearService,
 	LinearServiceShape
->()("@zuse/server/linear/LinearService") {}
+>()("@zusehq/server/linear/LinearService") {}

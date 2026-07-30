@@ -4,7 +4,7 @@ Status: In progress
 Started: 2026-06-30
 
 Make Zuse drivable by the desktop, a **mobile app**, a **browser**, and **remote /
-cloud dev-boxes** — all against the *same* `@zuse/server` over WebSocket, reachable from
+cloud dev-boxes** — all against the *same* `@zusehq/server` over WebSocket, reachable from
 anywhere, with clean reconnect and offline support.
 
 This folder is the source of truth for the initiative. Companion docs:
@@ -15,7 +15,7 @@ This folder is the source of truth for the initiative. Companion docs:
 
 ## 1. Guiding principle: additive, not a rewrite
 
-`@zuse/server` is already an Effect app (`@effect/rpc`, `@effect/sql`,
+`@zusehq/server` is already an Effect app (`@effect/rpc`, `@effect/sql`,
 `@effect/platform-node`). [ADR 0007](../0.01-MVP/decisions/0007-server-as-code-only-app.md)
 already mandates **zero `electron` imports in `apps/server`**, a pure `makeMainLayer(deps)`
 factory, and a **pluggable transport** (`electron-server-protocol.ts` implements
@@ -73,7 +73,7 @@ unchanged** — `messages` effectively *becomes a projection*.
   `@effect/sql-sqlite-node`→node:sqlite shim if one fits).
 
 ### D3 — Environment abstraction (`providerKind`)
-An **environment** is "a host running `@zuse/server`," a first-class entity with
+An **environment** is "a host running `@zusehq/server`," a first-class entity with
 `providerKind: "desktop" | "ssh" | "cloud"` and an endpoint `{ httpBaseUrl, wsBaseUrl }`.
 Everything above the transport — persistence, projector, providers, **git worktree
 management** — is host-agnostic (ADR 0007; worktrees are on-disk checkouts under the
@@ -133,7 +133,7 @@ One server, multiple process shapes, multiple client surfaces, one control plane
    Browser ───────┤  WebSocket (RpcClient), direct to the environment
    Desktop ───────┤
                   ▼
-         ┌──────── @zuse/server — "an environment" ────────┐
+         ┌──────── @zusehq/server — "an environment" ────────┐
          │  events → projector → messages/sessions/chats    │   the SAME binary, by providerKind:
          │  (node:sqlite)                                   │     · desktop → laptop (IPC, or WS+tunnel)
          │  RpcServer.Protocol: Electron IPC | WebSocket    │     · ssh     → remote dev-box, tunneled

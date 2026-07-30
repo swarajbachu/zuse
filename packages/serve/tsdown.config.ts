@@ -8,7 +8,7 @@ export default defineConfig({
 	sourcemap: true,
 	dts: false,
 	deps: {
-		alwaysBundle: [/.*/u, "@zuse/server", "@zuse/server/**"],
+		alwaysBundle: [/.*/u, "@zusehq/server", "@zusehq/server/**"],
 		neverBundle: [
 			"bindings",
 			"keytar",

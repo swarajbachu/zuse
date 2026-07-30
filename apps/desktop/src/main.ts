@@ -17,7 +17,7 @@ import {
 	makeMainLayer,
 	readBrowserCredentialFromVault,
 	wsServerProtocolLayer,
-} from "@zuse/server";
+} from "@zusehq/server";
 import { Cause, Effect, Fiber, Layer } from "effect";
 import { RpcSerialization } from "effect/unstable/rpc";
 import {

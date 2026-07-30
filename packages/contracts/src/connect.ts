@@ -10,7 +10,7 @@ export const DEFAULT_LOCAL_DESKTOP_PORT = 47837;
 // Environment abstraction
 // ---------------------------------------------------------------------------
 //
-// An *environment* is a host running `@zuse/server`. The same headless server
+// An *environment* is a host running `@zusehq/server`. The same headless server
 // binary runs on the laptop, on an SSH dev-box, or on a cloud container — only
 // `providerKind` and the endpoint differ. Clients (desktop renderer, mobile,
 // browser) pick an environment without caring where it physically runs, which
