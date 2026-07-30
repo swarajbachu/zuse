@@ -1,11 +1,14 @@
 {
 	"name": "zusehq",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Run and manage Zuse remote workspaces",
 	"license": "MIT",
 	"type": "module",
 	"bin": {
 		"zusehq": "./dist/bin.mjs"
+	},
+	"engines": {
+		"node": ">=22.5.0"
 	},
 	"files": [
 		"dist"
@@ -21,7 +24,7 @@
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@zusehq/serve": "0.0.0"
+		"@zusehq/serve": "0.1.0"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",

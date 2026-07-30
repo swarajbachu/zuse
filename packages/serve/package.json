@@ -1,11 +1,17 @@
 {
 	"name": "@zusehq/serve",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "One-command remote access for Zuse workspaces",
 	"license": "MIT",
 	"type": "module",
 	"bin": {
 		"zuse": "./dist/bin.mjs"
+	},
+	"engines": {
+		"node": ">=22.5.0"
+	},
+	"publishConfig": {
+		"access": "public"
 	},
 	"exports": {
 		"./cli": {
@@ -22,7 +28,7 @@
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@zuse/server": "0.0.0"
+		"@zuse/server": "0.1.0"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",
