@@ -220,6 +220,75 @@ beforeEach(async () => {
 });
 
 describe("@zuse/relay", () => {
+	test("brokers browser PKCE token exchanges without exposing a general proxy", async () => {
+		const response = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/auth/token`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					origin: "https://app.zuse.sh",
+				},
+				body: JSON.stringify({
+					grantType: "authorization_code",
+					code: "test-code",
+					codeVerifier: "v".repeat(43),
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("access-control-allow-origin")).toBe(
+			"https://app.zuse.sh",
+		);
+		expect(await response.json()).toEqual({
+			access_token: "test-access-token",
+			refresh_token: "test-refresh-token",
+		});
+
+		const refreshResponse = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/auth/token`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					origin: "https://app.zuse.sh",
+				},
+				body: JSON.stringify({
+					grantType: "refresh_token",
+					refreshToken: "test-refresh-token",
+				}),
+			}),
+		);
+
+		expect(refreshResponse.status).toBe(200);
+		expect(await refreshResponse.json()).toEqual({
+			access_token: "test-access-token",
+			refresh_token: "test-refresh-token-rotated",
+		});
+	});
+
+	test("verifies DPoP against the public relay URL behind a rewritten worker URL", async () => {
+		const device = (await ec()) as KeyPair;
+		const jwk = await exportJWK(device.publicKey);
+		const publicUrl = `${RELAY_ISSUER}/v1/client/dpop-token`;
+		const response = await relay.fetch(
+			new Request("http://worker.internal/v1/client/dpop-token", {
+				method: "POST",
+				headers: {
+					authorization: "Bearer test-token:user_proxy",
+					dpop: await dpopProof(device, jwk, {
+						method: "POST",
+						url: publicUrl,
+					}),
+				},
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			accessToken: expect.any(String),
+		});
+	});
+
 	test("allows the hosted product origin without opening relay CORS broadly", async () => {
 		const allowed = await relay.fetch(
 			new Request(`${RELAY_ISSUER}/v1/environments`, {

@@ -1,4 +1,5 @@
-import { Clock, Effect, Redacted } from "effect";
+import { RelayAuthTokenGrant } from "@zuse/contracts";
+import { Clock, Effect, Redacted, Schema } from "effect";
 
 import { AccountIdentity } from "./account-identity.ts";
 
@@ -22,8 +23,8 @@ import {
 	conflict,
 	gone,
 	notFound,
-	serviceUnavailable,
 	type RelayError,
+	serviceUnavailable,
 } from "./errors.ts";
 import { ManagedTunnelProvider } from "./managed-tunnel.ts";
 import { PushDelivery } from "./push.ts";
@@ -34,7 +35,7 @@ import {
 	type ProviderKind,
 	RelayStore,
 } from "./store.ts";
-import type { WorkosVerifier } from "./workos.ts";
+import { WorkosVerifier } from "./workos.ts";
 
 export type RelayContext =
 	| AccountIdentity
@@ -194,7 +195,47 @@ const route = (
 		const store = yield* RelayStore;
 		const push = yield* PushDelivery;
 		const accountIdentity = yield* AccountIdentity;
+		const workos = yield* WorkosVerifier;
 		const nowMs = yield* Clock.currentTimeMillis;
+
+		if (method === "POST" && path === "/v1/auth/token") {
+			const untrustedBody = yield* readJson<unknown>(request);
+			const body = yield* Effect.try({
+				try: () => Schema.decodeUnknownSync(RelayAuthTokenGrant)(untrustedBody),
+				catch: () => badRequest("invalid_auth_grant"),
+			});
+			if (
+				body.grantType === "authorization_code" &&
+				typeof body.code === "string" &&
+				body.code.length > 0 &&
+				body.code.length <= 2_048 &&
+				typeof body.codeVerifier === "string" &&
+				body.codeVerifier.length >= 43 &&
+				body.codeVerifier.length <= 128
+			) {
+				return json(
+					yield* workos.exchangeToken({
+						grantType: body.grantType,
+						code: body.code,
+						codeVerifier: body.codeVerifier,
+					}),
+				);
+			}
+			if (
+				body.grantType === "refresh_token" &&
+				typeof body.refreshToken === "string" &&
+				body.refreshToken.length > 0 &&
+				body.refreshToken.length <= 8_192
+			) {
+				return json(
+					yield* workos.exchangeToken({
+						grantType: body.grantType,
+						refreshToken: body.refreshToken,
+					}),
+				);
+			}
+			return yield* Effect.fail(badRequest("invalid_auth_grant"));
+		}
 
 		// 1. Issue a link challenge (desktop, WorkOS-authenticated).
 		if (

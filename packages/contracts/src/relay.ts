@@ -27,6 +27,7 @@ import { EnvironmentId } from "./ids.ts";
 
 /** Paths, centralised so client + relay never drift. */
 export const RelayPaths = {
+	authToken: "/v1/auth/token",
 	linkChallenges: "/v1/client/environment-link-challenges",
 	links: "/v1/client/environment-links",
 	/** Unlink (WorkOS bearer): deprovisions the managed tunnel + removes the env. */
@@ -46,6 +47,25 @@ export const RelayPaths = {
 	agentActivity: (environmentId: string) =>
 		`/v1/environments/${encodeURIComponent(environmentId)}/agent-activity`,
 } as const;
+
+export const RelayAuthTokenGrant = Schema.Union([
+	Schema.Struct({
+		grantType: Schema.Literal("authorization_code"),
+		code: Schema.String,
+		codeVerifier: Schema.String,
+	}),
+	Schema.Struct({
+		grantType: Schema.Literal("refresh_token"),
+		refreshToken: Schema.String,
+	}),
+]);
+export type RelayAuthTokenGrant = typeof RelayAuthTokenGrant.Type;
+
+export const RelayAuthTokenResponse = Schema.Struct({
+	access_token: Schema.String,
+	refresh_token: Schema.String,
+});
+export type RelayAuthTokenResponse = typeof RelayAuthTokenResponse.Type;
 
 /** DPoP access-token scopes the relay recognises. */
 export const RelayScope = Schema.Literals([

@@ -6,6 +6,8 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, searchForWorkspaceRoot } from "vite-plus";
 
+import { rendererProxy } from "./vite-proxy.ts";
+
 const port = Number(process.env.PORT ?? 5733);
 const host = process.env.HOST?.trim() || "localhost";
 const rpcPort = Number(process.env.ZUSE_DESKTOP_WS_PORT ?? 8788);
@@ -65,11 +67,7 @@ export default defineConfig({
 		host,
 		port,
 		strictPort: true,
-		proxy: {
-			"/auth": { target: rpcTarget },
-			"/assets/attachments": { target: rpcTarget },
-			"/rpc": { target: rpcTarget, ws: true },
-		},
+		proxy: rendererProxy(hostedBuild, rpcTarget),
 		fs: {
 			allow: [searchForWorkspaceRoot(process.cwd()), bunStoreRoot],
 		},

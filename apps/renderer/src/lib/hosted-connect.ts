@@ -1,4 +1,5 @@
 import {
+	type RelayAuthTokenGrant,
 	type RelayConnectGrant,
 	type RelayEnvironmentList,
 	RelayPaths,
@@ -100,13 +101,16 @@ const writeSession = (session: HostedSession): HostedSession => {
 	return session;
 };
 
+export const hostedAuthTokenEndpoint = (baseUrl = relayUrl()): string =>
+	`${baseUrl.replace(/\/$/u, "")}${RelayPaths.authToken}`;
+
 const authenticate = async (
-	body: Record<string, string>,
+	grant: RelayAuthTokenGrant,
 ): Promise<HostedSession> => {
-	const response = await fetch(`${WORKOS_API}/user_management/authenticate`, {
+	const response = await fetch(hostedAuthTokenEndpoint(), {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify(body),
+		body: JSON.stringify(grant),
 		signal: AbortSignal.timeout(15_000),
 	});
 	const value = (await response.json().catch(() => ({}))) as {
@@ -176,10 +180,9 @@ export const completeHostedSignIn = async (): Promise<boolean> => {
 		throw new Error("hosted_auth_state_mismatch");
 	}
 	await authenticate({
-		client_id: clientId(),
-		grant_type: "authorization_code",
+		grantType: "authorization_code",
 		code,
-		code_verifier: pending.verifier,
+		codeVerifier: pending.verifier,
 	});
 	sessionStorage.removeItem(PKCE_KEY);
 	const returnPath =
@@ -199,9 +202,8 @@ const accessToken = async (): Promise<string | null> => {
 	try {
 		return (
 			await authenticate({
-				client_id: clientId(),
-				grant_type: "refresh_token",
-				refresh_token: session.refreshToken,
+				grantType: "refresh_token",
+				refreshToken: session.refreshToken,
 			})
 		).accessToken;
 	} catch {
