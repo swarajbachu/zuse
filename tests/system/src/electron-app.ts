@@ -31,6 +31,7 @@ export const launchElectronApp = async (options: {
 	readonly root: string;
 	readonly userData: string;
 	readonly providerBinDirectory: string;
+	readonly providerEnvironment?: Readonly<Record<string, string>>;
 }): Promise<ElectronHarness> => {
 	const errors: Array<string> = [];
 	const stdout = makeBoundedTextBuffer(64 * 1024);
@@ -53,10 +54,12 @@ export const launchElectronApp = async (options: {
 		env: makeHermeticEnvironment({
 			HOME: join(options.root, "home"),
 			PATH: options.providerBinDirectory,
+			...options.providerEnvironment,
 			VITE_DEV_SERVER_URL: "",
 			ZUSE_DESKTOP_WS_PORT: "0",
 			NODE_OPTIONS: `--require=${keytarShimRequirePath}`,
 			ZUSE_PRESERVE_PATH: "1",
+			ZUSE_DISABLE_DEEP_ENERGY_PROFILE: "1",
 			ZUSE_USER_DATA_DIR: options.userData,
 		}),
 	});

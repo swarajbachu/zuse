@@ -3,6 +3,9 @@ import type {
 	DiagnosticSeverity,
 	DiagnosticsOverviewResult,
 	DiagnosticsProcessesResult,
+	PerformanceHistory,
+	PowerMonitorState,
+	PowerRecordingDurationMinutes,
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import {
@@ -29,7 +32,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMediaQuery } from "../../hooks/use-media-query.ts";
 import { collectDiagnosticsClientContext } from "../../lib/diagnostics-client-context.ts";
-import { flushRendererDiagnostics } from "../../lib/diagnostics-recorder.ts";
+import {
+	flushRendererDiagnostics,
+	getPowerInteractionMeasurements,
+} from "../../lib/diagnostics-recorder.ts";
 import {
 	DEFAULT_DIAGNOSTICS_PREFERENCES,
 	DIAGNOSTICS_PREFERENCES_KEY,
@@ -556,6 +562,14 @@ export function DiagnosticsPane() {
 	const [processes, setProcesses] = useState<DiagnosticsProcessesResult | null>(
 		null,
 	);
+	const [performanceHistory, setPerformanceHistory] =
+		useState<PerformanceHistory | null>(null);
+	const [powerState, setPowerState] = useState<PowerMonitorState | null>(null);
+	const [recordingDuration, setRecordingDuration] =
+		useState<PowerRecordingDurationMinutes>(5);
+	const [recordingBusy, setRecordingBusy] = useState<
+		"starting" | "stopping" | "exporting" | null
+	>(null);
 	const [selected, setSelected] = useState<DiagnosticEvent | null>(null);
 	const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 	const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
@@ -611,6 +625,16 @@ export function DiagnosticsPane() {
 		[],
 	);
 
+	useEffect(() => {
+		const power = (window.zuse ?? window.memoize)?.power;
+		if (!power) return;
+		void power
+			.getState()
+			.then(setPowerState)
+			.catch(() => undefined);
+		return power.onState(setPowerState);
+	}, []);
+
 	const refresh = useCallback(async () => {
 		setRefreshing(true);
 		try {
@@ -651,7 +675,8 @@ export function DiagnosticsPane() {
 
 			const since = diagnosticsSince(rangeMs);
 			const selectedSeverities = diagnosticsSeveritySelection(view, severity);
-			const [overviewResult, eventsResult, processesResult] =
+			const power = (window.zuse ?? window.memoize)?.power;
+			const [overviewResult, eventsResult, processesResult, performanceResult] =
 				await Promise.allSettled([
 					Effect.runPromise(client["diagnostics.overview"]({ since })),
 					Effect.runPromise(
@@ -666,6 +691,8 @@ export function DiagnosticsPane() {
 						}),
 					),
 					Effect.runPromise(client["diagnostics.processes"]()),
+					power?.getHistory(Date.now() - rangeMs) ??
+						Promise.reject(new Error("Native performance bridge unavailable.")),
 				]);
 
 			const failures: string[] = [];
@@ -700,6 +727,11 @@ export function DiagnosticsPane() {
 				);
 			} else {
 				failures.push("process sample");
+			}
+			if (performanceResult.status === "fulfilled") {
+				setPerformanceHistory(performanceResult.value);
+			} else {
+				failures.push("performance history");
 			}
 			setError(
 				failures.length > 0
@@ -822,6 +854,89 @@ export function DiagnosticsPane() {
 		}
 	};
 
+	const startPerformanceRecording = async () => {
+		const power = (window.zuse ?? window.memoize)?.power;
+		if (!power) {
+			setError("Native performance recording is unavailable.");
+			return;
+		}
+		setRecordingBusy("starting");
+		try {
+			setPowerState(await power.startRecording(recordingDuration));
+			setError(null);
+		} catch (cause) {
+			setError(
+				cause instanceof Error
+					? cause.message
+					: "Performance recording could not start.",
+			);
+		} finally {
+			setRecordingBusy(null);
+		}
+	};
+
+	const stopPerformanceRecording = async () => {
+		const power = (window.zuse ?? window.memoize)?.power;
+		if (!power) return;
+		setRecordingBusy("stopping");
+		try {
+			setPowerState(await power.stopRecording());
+			await refresh();
+			setError(null);
+		} catch (cause) {
+			setError(
+				cause instanceof Error
+					? cause.message
+					: "Performance recording could not stop.",
+			);
+		} finally {
+			setRecordingBusy(null);
+		}
+	};
+
+	const exportPerformanceRecording = async () => {
+		const power = (window.zuse ?? window.memoize)?.power;
+		const recording = powerState?.latestRecording;
+		if (!power || !recording) return;
+		setRecordingBusy("exporting");
+		try {
+			await power.exportLatestRecording(
+				getPowerInteractionMeasurements(recording.startedAt),
+			);
+			setError(null);
+		} catch (cause) {
+			setError(
+				cause instanceof Error
+					? cause.message
+					: "Performance recording could not be exported.",
+			);
+		} finally {
+			setRecordingBusy(null);
+		}
+	};
+
+	const clearPerformanceHistory = async () => {
+		if (
+			!window.confirm(
+				"Clear local performance and lag history? Diagnostic errors and exported recordings are not removed.",
+			)
+		) {
+			return;
+		}
+		try {
+			await (window.zuse ?? window.memoize)?.power?.clearHistory();
+			setPerformanceHistory(null);
+			await refresh();
+			setError(null);
+		} catch (cause) {
+			setError(
+				cause instanceof Error
+					? cause.message
+					: "Performance history could not be cleared.",
+			);
+		}
+	};
+
 	const copyText = (key: string, text: string) => {
 		void navigator.clipboard
 			.writeText(text)
@@ -857,8 +972,24 @@ export function DiagnosticsPane() {
 			selected ? relatedDiagnosticEvents(events, selected.fingerprint) : [],
 		[events, selected],
 	);
-	const maxCpu = Math.max(1, ...samples.map((sample) => sample.cpu));
-	const maxMemory = Math.max(1, ...samples.map((sample) => sample.memory));
+	const resourceSamples = performanceHistory?.samples.slice(-240) ?? [];
+	const lagSamples = performanceHistory?.lagSamples.slice(-240) ?? [];
+	const performanceOverview = performanceHistory?.overview;
+	const latestPowerSnapshot =
+		powerState?.latestSnapshot ?? resourceSamples.at(-1) ?? null;
+	const resourceMaxCpu = Math.max(
+		1,
+		...resourceSamples.map((sample) => sample.totalCpuPercent),
+	);
+	const resourceMaxMemory = Math.max(
+		1,
+		...resourceSamples.map((sample) => sample.totalMemoryBytes),
+	);
+	const maxWakeups = Math.max(
+		1,
+		...resourceSamples.map((sample) => sample.totalIdleWakeupsPerSecond),
+	);
+	const maxLag = Math.max(1, ...lagSamples.map((sample) => sample.durationMs));
 	const failureCount =
 		(overview?.errorCount ?? 0) + (overview?.fatalCount ?? 0);
 	const statusTone =
@@ -1378,83 +1509,246 @@ export function DiagnosticsPane() {
 				<Frame aria-label="Performance diagnostics">
 					<FrameHeader className="flex w-full flex-row flex-wrap items-center justify-between gap-3 px-3 py-2.5">
 						<div>
-							<FrameTitle className="text-[12px]">Performance</FrameTitle>
+							<FrameTitle className="text-[12px]">
+								Performance and energy
+							</FrameTitle>
 							<FrameDescription className="text-[9px] leading-3.5">
-								Live resource pressure and the operations most likely to slow
-								the app down.
+								Local resource, responsiveness, battery, and thermal telemetry
+								with confidence-labelled attribution.
 							</FrameDescription>
 						</div>
-						<div className="flex rounded-md border border-border/45 bg-background/40 p-0.5">
-							{DIAGNOSTICS_RANGE_OPTIONS.map((option) => (
-								<button
-									type="button"
-									key={option.label}
-									aria-pressed={rangeMs === option.milliseconds}
-									onClick={() => setRangeMs(option.milliseconds)}
-									className={cn(
-										"h-6 min-w-8 rounded-[5px] px-1.5 font-mono text-[9px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:min-w-11",
-										rangeMs === option.milliseconds
-											? "bg-muted text-foreground shadow-xs"
-											: "text-muted-foreground hover:text-foreground",
-									)}
-								>
-									{option.label}
-								</button>
-							))}
+						<div className="flex flex-wrap items-center gap-2">
+							<div className="flex rounded-md border border-border/45 bg-background/40 p-0.5">
+								{DIAGNOSTICS_RANGE_OPTIONS.map((option) => (
+									<button
+										type="button"
+										key={option.label}
+										aria-pressed={rangeMs === option.milliseconds}
+										onClick={() => setRangeMs(option.milliseconds)}
+										className={cn(
+											"h-6 min-w-8 rounded-[5px] px-1.5 font-mono text-[9px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:min-w-11",
+											rangeMs === option.milliseconds
+												? "bg-muted text-foreground shadow-xs"
+												: "text-muted-foreground hover:text-foreground",
+										)}
+									>
+										{option.label}
+									</button>
+								))}
+							</div>
+							<span className="font-mono text-[9px] text-muted-foreground tabular-nums">
+								{performanceHistory
+									? `${performanceHistory.samples.length} samples`
+									: "Loading local history"}
+							</span>
 						</div>
 					</FrameHeader>
 					<FramePanel className="overflow-hidden p-0">
-						<div className="grid grid-cols-2 divide-x divide-y divide-border/45 lg:grid-cols-4 lg:divide-y-0">
+						<div className="grid grid-cols-2 divide-x divide-y divide-border/45 lg:grid-cols-5 lg:divide-y-0">
 							<PulseMetric
-								label="Captured events"
-								value={formatCount.format(overview?.eventCount ?? 0)}
-							/>
-							<PulseMetric
-								label="Slow spans"
-								value={formatCount.format(overview?.slowOperationCount ?? 0)}
-							/>
-							<PulseMetric
-								label="Parse errors"
-								value={formatCount.format(overview?.parseErrorCount ?? 0)}
+								label="Responsiveness"
+								value={performanceOverview?.responsiveness ?? "—"}
 								tone={
-									(overview?.parseErrorCount ?? 0) > 0 ? "warning" : "default"
+									performanceOverview?.responsiveness === "poor"
+										? "danger"
+										: performanceOverview?.responsiveness === "degraded"
+											? "warning"
+											: "default"
 								}
 							/>
 							<PulseMetric
-								label="Trace state"
+								label="CPU"
 								value={
-									(overview?.parseErrorCount ?? 0) > 0 ? "Partial" : "Ready"
+									latestPowerSnapshot
+										? `${latestPowerSnapshot.totalCpuPercent.toFixed(1)}%`
+										: "—"
+								}
+								values={resourceSamples.map((sample) => sample.totalCpuPercent)}
+							/>
+							<PulseMetric
+								label="Memory"
+								value={
+									latestPowerSnapshot
+										? formatBytes(latestPowerSnapshot.totalMemoryBytes)
+										: "—"
+								}
+								values={resourceSamples.map(
+									(sample) => sample.totalMemoryBytes,
+								)}
+							/>
+							<PulseMetric
+								label="Battery impact"
+								value={
+									performanceOverview?.batteryDrainPercentPerHour !== null &&
+									performanceOverview?.batteryDrainPercentPerHour !== undefined
+										? `${performanceOverview.batteryDrainPercentPerHour.toFixed(1)}%/h`
+										: "Measuring"
+								}
+								tone={
+									(performanceOverview?.batteryDrainPercentPerHour ?? 0) >= 25
+										? "warning"
+										: "default"
+								}
+							/>
+							<PulseMetric
+								label="Thermal pressure"
+								value={latestPowerSnapshot?.thermalState ?? "Unavailable"}
+								tone={
+									latestPowerSnapshot?.thermalState === "critical" ||
+									latestPowerSnapshot?.thermalState === "serious"
+										? "danger"
+										: latestPowerSnapshot?.thermalState === "fair"
+											? "warning"
+											: "default"
 								}
 							/>
 						</div>
 						<div className="grid divide-y divide-border/45 border-t border-border/45 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
 							<ResourceChart
 								label="CPU usage"
-								value={processes?.totalCpuPercent ?? 0}
-								peak={maxCpu}
-								values={samples.map((sample) => sample.cpu)}
+								value={latestPowerSnapshot?.totalCpuPercent ?? 0}
+								peak={resourceMaxCpu}
+								values={resourceSamples.map((sample) => sample.totalCpuPercent)}
 								formatValue={(value) => `${value.toFixed(1)}%`}
 								className="stroke-foreground"
 							/>
 							<ResourceChart
 								label="Memory usage"
-								value={processes?.totalRssBytes ?? 0}
-								peak={maxMemory}
-								values={samples.map((sample) => sample.memory)}
+								value={latestPowerSnapshot?.totalMemoryBytes ?? 0}
+								peak={resourceMaxMemory}
+								values={resourceSamples.map(
+									(sample) => sample.totalMemoryBytes,
+								)}
 								formatValue={formatBytes}
 								className="stroke-warning"
+							/>
+						</div>
+						<div className="grid border-t border-border/45 lg:grid-cols-2 lg:divide-x lg:divide-border/45">
+							<ResourceChart
+								label="Idle wakeups"
+								value={latestPowerSnapshot?.totalIdleWakeupsPerSecond ?? 0}
+								peak={maxWakeups}
+								values={resourceSamples.map(
+									(sample) => sample.totalIdleWakeupsPerSecond,
+								)}
+								formatValue={(value) => `${value.toFixed(1)}/s`}
+								className="stroke-success"
+							/>
+							<ResourceChart
+								label="Interface stalls"
+								value={lagSamples.at(-1)?.durationMs ?? 0}
+								peak={maxLag}
+								values={lagSamples.map((sample) => sample.durationMs)}
+								formatValue={formatDuration}
+								className="stroke-destructive"
 							/>
 						</div>
 						<div className="grid border-t border-border/45 lg:grid-cols-2 lg:divide-x lg:divide-border/45">
 							<section className="min-w-0">
 								<div className="border-b border-border/45 px-4 py-2.5">
 									<h3 className="font-medium text-[10px]">
-										Slowest operations
+										What made Zuse heavy?
+									</h3>
+								</div>
+								{performanceOverview?.incidents.length ? (
+									<div className="divide-y divide-border/40">
+										{performanceOverview.incidents.slice(0, 8).map((item) => (
+											<div
+												key={item.id}
+												className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-3"
+											>
+												<div className="min-w-0">
+													<p
+														className={cn(
+															"truncate font-medium text-[10px]",
+															item.severity === "error" && "text-destructive",
+															item.severity === "warn" && "text-warning",
+														)}
+													>
+														{item.message}
+													</p>
+													<p className="mt-1 truncate text-[9px] text-muted-foreground">
+														{item.likelyContributor
+															? `Likely contributor: ${item.likelyContributor}`
+															: "No single workload could be attributed"}
+													</p>
+												</div>
+												<div className="text-right">
+													<p className="font-mono text-[10px] tabular-nums">
+														{item.unit === "bytes"
+															? formatBytes(item.value)
+															: `${item.value.toFixed(1)} ${item.unit}`}
+													</p>
+													<p className="mt-1 text-[8px] text-muted-foreground uppercase tracking-wider">
+														{item.confidence} confidence
+													</p>
+												</div>
+											</div>
+										))}
+									</div>
+								) : (
+									<EmptyState
+										title="No sustained pressure"
+										description="Short spikes are retained in charts. Sustained CPU, memory, battery, thermal, and lag incidents appear here."
+									/>
+								)}
+							</section>
+							<section className="min-w-0 border-t border-border/45 lg:border-t-0">
+								<div className="border-b border-border/45 px-4 py-2.5">
+									<h3 className="font-medium text-[10px]">Process hotspots</h3>
+								</div>
+								{performanceOverview?.hotspots.length ? (
+									<div className="divide-y divide-border/40">
+										{performanceOverview.hotspots.slice(0, 8).map((item) => (
+											<div
+												key={`${item.processType}:${item.pid}`}
+												className="grid grid-cols-[minmax(0,1fr)_repeat(3,64px)] gap-2 px-4 py-3 text-[9px]"
+											>
+												<span className="truncate font-medium text-[10px]">
+													{item.name ?? item.processType}
+													<span className="ml-1 font-mono text-[8px] text-muted-foreground">
+														{item.pid}
+													</span>
+												</span>
+												<span
+													className="text-right font-mono tabular-nums"
+													title="Average CPU"
+												>
+													{item.averageCpuPercent.toFixed(1)}%
+												</span>
+												<span
+													className="text-right font-mono tabular-nums"
+													title="Peak memory"
+												>
+													{formatBytes(item.peakMemoryBytes)}
+												</span>
+												<span
+													className="text-right font-mono tabular-nums"
+													title="Idle wakeups per second"
+												>
+													{item.averageIdleWakeupsPerSecond.toFixed(1)}/s
+												</span>
+											</div>
+										))}
+									</div>
+								) : (
+									<EmptyState
+										title="No process history"
+										description="Process CPU, memory, and wakeups appear after the first native sample."
+									/>
+								)}
+							</section>
+						</div>
+						<div className="grid border-t border-border/45 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.75fr)] lg:divide-x lg:divide-border/45">
+							<section className="min-w-0">
+								<div className="border-b border-border/45 px-4 py-2.5">
+									<h3 className="font-medium text-[10px]">
+										Slow operations and trace health
 									</h3>
 								</div>
 								{overview?.slowestOperations.length ? (
 									<div className="divide-y divide-border/40">
-										{overview.slowestOperations.slice(0, 8).map((item) => (
+										{overview.slowestOperations.slice(0, 6).map((item) => (
 											<div
 												key={item.id}
 												className="flex items-center justify-between gap-4 px-4 py-3"
@@ -1467,7 +1761,7 @@ export function DiagnosticsPane() {
 														{item.traceId ?? item.id}
 													</p>
 												</div>
-												<span className="shrink-0 font-mono text-[10px] tabular-nums">
+												<span className="font-mono text-[10px] tabular-nums">
 													{formatDuration(item.durationMs ?? 0)}
 												</span>
 											</div>
@@ -1476,63 +1770,121 @@ export function DiagnosticsPane() {
 								) : (
 									<EmptyState
 										title="No slow operations"
-										description="Operations taking at least one second will appear here."
+										description="Instrumented operations taking at least one second will appear here."
 									/>
 								)}
 							</section>
-							<section className="min-w-0 border-t border-border/45 lg:border-t-0">
-								<div className="border-b border-border/45 px-4 py-2.5">
-									<h3 className="font-medium text-[10px]">Top operations</h3>
-								</div>
-								{overview?.topOperations.length ? (
-									<div className="divide-y divide-border/40">
-										{overview.topOperations.slice(0, 8).map((item) => (
-											<div
-												key={item.name}
-												className="grid grid-cols-[minmax(0,1fr)_repeat(5,48px)] gap-2 px-4 py-3 text-[9px]"
-											>
-												<span className="truncate font-medium text-[10px]">
-													{item.name}
-												</span>
-												<span
-													className="text-right font-mono tabular-nums"
-													title="Count"
-												>
-													{item.count}×
-												</span>
-												<span
-													className="text-right font-mono tabular-nums"
-													title="Failures"
-												>
-													{item.failureCount} fail
-												</span>
-												<span
-													className="text-right font-mono tabular-nums"
-													title="Average"
-												>
-													{formatDuration(item.averageDurationMs)}
-												</span>
-												<span
-													className="text-right font-mono tabular-nums"
-													title="95th percentile"
-												>
-													{formatDuration(item.p95DurationMs)}
-												</span>
-												<span
-													className="text-right font-mono tabular-nums"
-													title="Maximum"
-												>
-													{formatDuration(item.maxDurationMs)}
-												</span>
+							<section className="min-w-0 border-t border-border/45 p-4 lg:border-t-0">
+								<h3 className="font-medium text-[10px]">
+									Performance recording
+								</h3>
+								<p className="mt-1 text-[9px] leading-4 text-muted-foreground">
+									Captures five-second process samples locally. Energy readings
+									are estimates; exact temperature is shown only when the system
+									exposes a reliable sensor. On macOS, starting a recording may
+									request administrator authorization for the fixed system
+									energy profiler.
+								</p>
+								{powerState?.activeRecording ? (
+									<div className="mt-3 rounded-md border border-border/45 bg-muted/25 p-3">
+										<div className="flex items-center justify-between gap-3">
+											<div>
+												<p className="font-medium text-[10px]">
+													Recording in progress
+												</p>
+												<p className="mt-1 font-mono text-[9px] text-muted-foreground tabular-nums">
+													{powerState.activeRecording.sampleCount} samples ·
+													ends{" "}
+													{formatTimestamp(powerState.activeRecording.endsAt)}
+													{powerState.activeRecording.deepProfileStatus
+														? ` · energy ${powerState.activeRecording.deepProfileStatus}`
+														: ""}
+												</p>
 											</div>
-										))}
+											<Button
+												size="sm"
+												variant="settings"
+												className="h-7 min-w-24 !text-[10px]"
+												loading={recordingBusy === "stopping"}
+												onClick={() => void stopPerformanceRecording()}
+											>
+												Stop recording
+											</Button>
+										</div>
 									</div>
 								) : (
-									<EmptyState
-										title="No operation summaries"
-										description="Instrumented traces will build an operation profile here."
-									/>
+									<div className="mt-3 flex flex-wrap items-center gap-2">
+										<label
+											htmlFor="performance-recording-duration"
+											className="sr-only"
+										>
+											Recording duration
+										</label>
+										<select
+											id="performance-recording-duration"
+											value={recordingDuration}
+											onChange={(event) =>
+												setRecordingDuration(
+													Number(
+														event.currentTarget.value,
+													) as PowerRecordingDurationMinutes,
+												)
+											}
+											className="h-7 rounded-md border border-border/55 bg-background px-2 text-[10px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11"
+										>
+											<option value={5}>5 minutes</option>
+											<option value={15}>15 minutes</option>
+											<option value={30}>30 minutes</option>
+										</select>
+										<Button
+											size="sm"
+											className="h-7 min-w-24 !text-[10px]"
+											loading={recordingBusy === "starting"}
+											onClick={() => void startPerformanceRecording()}
+										>
+											Start recording
+										</Button>
+										<Button
+											size="sm"
+											variant="settings"
+											className="h-7 min-w-24 !text-[10px]"
+											disabled={!powerState?.latestRecording}
+											loading={recordingBusy === "exporting"}
+											onClick={() => void exportPerformanceRecording()}
+										>
+											Export latest
+										</Button>
+									</div>
 								)}
+								<div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[9px] text-muted-foreground">
+									<span>Battery source</span>
+									<span className="text-right font-mono">
+										{latestPowerSnapshot?.powerSource ?? "unknown"}
+									</span>
+									<span>Temperature sensor</span>
+									<span className="text-right">
+										{performanceHistory?.capabilities.exactTemperature.state ===
+										"supported"
+											? "Available"
+											: "Unavailable"}
+									</span>
+									<span>Local resource storage</span>
+									<span className="text-right font-mono">
+										{formatBytes(performanceHistory?.storageBytes ?? 0)}
+									</span>
+									{powerState?.latestRecording?.deepEnergy?.status ===
+										"complete" && (
+										<>
+											<span>Latest combined package power</span>
+											<span className="text-right font-mono">
+												{powerState.latestRecording.deepEnergy
+													.combinedPowerMw === null
+													? "Unavailable"
+													: `${powerState.latestRecording.deepEnergy.combinedPowerMw.toFixed(0)} mW`}
+											</span>
+										</>
+									)}
+								</div>
 							</section>
 						</div>
 					</FramePanel>
@@ -1656,16 +2008,19 @@ export function DiagnosticsPane() {
 								<p className="font-medium text-[10px]">Retention</p>
 								<p className="mt-1 font-mono text-sm tabular-nums">7 days</p>
 								<p className="mt-1 text-[9px] text-muted-foreground">
-									100 MB maximum for rotating event telemetry.
+									Events and one-minute resource rollups are pruned by age.
 								</p>
 							</div>
 							<div className="p-4">
 								<p className="font-medium text-[10px]">Local usage</p>
 								<p className="mt-1 font-mono text-sm tabular-nums">
-									{formatBytes(overview?.storageBytes ?? 0)}
+									{formatBytes(
+										(overview?.storageBytes ?? 0) +
+											(performanceHistory?.storageBytes ?? 0),
+									)}
 								</p>
 								<p className="mt-1 text-[9px] text-muted-foreground">
-									Event files are pruned by age and their rotation limit.
+									Includes events and performance history on this device.
 								</p>
 							</div>
 							<div className="p-4">
@@ -1709,6 +2064,14 @@ export function DiagnosticsPane() {
 								>
 									<ExternalLink />
 									Open diagnostics folder
+								</Button>
+								<Button
+									size="sm"
+									variant="settings"
+									className="h-7 gap-1.5 px-2.5 !text-[10px]"
+									onClick={() => void clearPerformanceHistory()}
+								>
+									Clear performance history
 								</Button>
 							</div>
 						</div>

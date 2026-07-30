@@ -5,6 +5,7 @@ import type { PtyId } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import type { TerminalInstance } from "../store/terminals.ts";
 import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
+import { setPowerActiveTerminalCount } from "./power-runtime-activity.ts";
 import {
   getRpcClient,
   reportRendererRpcFailure,
@@ -57,6 +58,14 @@ const registry = new Map<string, LiveTerminal>();
 const statusListeners = new Set<() => void>();
 let statusSnapshot: Readonly<Record<string, TerminalRuntimeStatus>> = {};
 
+const publishPowerTerminalCount = (): void => {
+  setPowerActiveTerminalCount(
+    Object.values(statusSnapshot).filter(
+      (status) => status !== "exited" && status !== "failed",
+    ).length,
+  );
+};
+
 export const subscribeStatuses = (listener: () => void): (() => void) => {
   statusListeners.add(listener);
   return () => statusListeners.delete(listener);
@@ -75,6 +84,7 @@ function publishStatus(
   live.status = status;
   live.host.dataset.terminalStatus = status;
   statusSnapshot = { ...statusSnapshot, [live.instanceId]: status };
+  publishPowerTerminalCount();
   recordDiagnosticEvent({
     level: status === "failed" ? "error" : "debug",
     source: "terminal.runtime",
@@ -88,6 +98,7 @@ function removeStatus(instanceId: string): void {
   if (!(instanceId in statusSnapshot)) return;
   const { [instanceId]: _removed, ...next } = statusSnapshot;
   statusSnapshot = next;
+  publishPowerTerminalCount();
   for (const listener of statusListeners) listener();
 }
 
@@ -562,6 +573,7 @@ function makeLive(
   };
 
   statusSnapshot = { ...statusSnapshot, [instanceId]: "connecting" };
+  publishPowerTerminalCount();
   for (const listener of statusListeners) listener();
   live.observer.observe(host);
   window.addEventListener("zuse:appearance-change", live.refreshTheme);

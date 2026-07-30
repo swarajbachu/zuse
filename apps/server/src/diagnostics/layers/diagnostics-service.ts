@@ -9,6 +9,7 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
+import { appendFile, mkdir, rename, stat, unlink } from "node:fs/promises";
 import { arch, platform, release } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -44,6 +45,8 @@ const MAX_SESSION_EVENTS = 8;
 const MAX_REDACTED_EVENTS_PER_FILE = 200;
 const MAX_TEXT_PREVIEW = 240;
 const execFileAsync = promisify(execFile);
+const RUNTIME_RESOURCE_FILE_BYTES = 10 * 1024 * 1024;
+const RUNTIME_RESOURCE_FILE_COUNT = 3;
 
 const diagnosticsError = (cause: unknown) =>
 	new DiagnosticsExportError({
@@ -160,6 +163,46 @@ async function readProcessTree(): Promise<DiagnosticsProcessesResult> {
 	}
 }
 
+const appendRuntimeResourceSnapshot = async (
+	userData: string,
+	snapshot: DiagnosticsProcessesResult,
+): Promise<void> => {
+	const path = join(userData, "logs", "diagnostics.runtime-resources.ndjson");
+	await mkdir(join(userData, "logs"), { recursive: true });
+	const line = `${JSON.stringify({
+		kind: "runtime-processes",
+		capturedAt: snapshot.readAt,
+		supported: snapshot.supported,
+		serverPid: snapshot.serverPid,
+		totalCpuPercent: snapshot.totalCpuPercent,
+		totalRssBytes: snapshot.totalRssBytes,
+		processes: snapshot.processes.map((process) => ({
+			pid: process.pid,
+			parentPid: process.parentPid,
+			depth: process.depth,
+			name: process.name,
+			cpuPercent: process.cpuPercent,
+			rssBytes: process.rssBytes,
+			uptimeSeconds: process.uptimeSeconds,
+		})),
+	})}\n`;
+	const currentSize = await stat(path)
+		.then((value) => value.size)
+		.catch(() => 0);
+	if (
+		currentSize > 0 &&
+		currentSize + Buffer.byteLength(line) > RUNTIME_RESOURCE_FILE_BYTES
+	) {
+		for (let index = RUNTIME_RESOURCE_FILE_COUNT - 1; index >= 1; index -= 1) {
+			const source = index === 1 ? path : `${path}.${index - 1}`;
+			const target = `${path}.${index}`;
+			await unlink(target).catch(() => undefined);
+			await rename(source, target).catch(() => undefined);
+		}
+	}
+	await appendFile(path, line, "utf8");
+};
+
 interface RecentErrorRow {
 	readonly message_id: string;
 	readonly session_id: string;
@@ -194,9 +237,94 @@ type BundleArtifactName =
 type ExtendedBundleArtifactName =
 	| BundleArtifactName
 	| "diagnostic-events"
+	| "performance-history"
+	| "performance-recording"
 	| "process-snapshot"
 	| "redaction-report"
 	| "report";
+
+const readPerformanceHistory = (
+	userData: string,
+	since?: string,
+): {
+	readonly entries: ReadonlyArray<unknown>;
+	readonly parseErrors: number;
+	readonly truncated: boolean;
+} => {
+	const bases = [
+		join(userData, "logs", "diagnostics.host-resources.ndjson"),
+		join(userData, "logs", "diagnostics.runtime-resources.ndjson"),
+	];
+	const lines = bases
+		.flatMap((base) => [`${base}.2`, `${base}.1`, base])
+		.flatMap((path) => {
+			try {
+				return readFileSync(path, "utf8").split(/\r?\n/).filter(Boolean);
+			} catch {
+				return [];
+			}
+		});
+	let parseErrors = 0;
+	const parsed = lines.flatMap((line) => {
+		try {
+			const entry = JSON.parse(line) as {
+				readonly kind?: unknown;
+				readonly sample?: { readonly capturedAt?: unknown };
+			};
+			const capturedAt =
+				typeof entry.sample?.capturedAt === "string"
+					? entry.sample.capturedAt
+					: typeof (entry as { readonly capturedAt?: unknown }).capturedAt ===
+							"string"
+						? (entry as { readonly capturedAt: string }).capturedAt
+						: null;
+			if (
+				(entry.kind !== "sample" &&
+					entry.kind !== "lag" &&
+					entry.kind !== "runtime-processes") ||
+				capturedAt === null ||
+				(since !== undefined && capturedAt < since)
+			) {
+				return [];
+			}
+			return [sanitizeDiagnosticValue(entry)];
+		} catch {
+			parseErrors += 1;
+			return [];
+		}
+	});
+	const entries = parsed.slice(-5_000);
+	return {
+		entries,
+		parseErrors,
+		truncated: parsed.length > entries.length,
+	};
+};
+
+const readLatestPerformanceRecording = (userData: string): unknown | null => {
+	const directory = join(userData, "logs", "performance-recordings");
+	try {
+		const latest = readdirSync(directory)
+			.filter((file) => file.endsWith(".json"))
+			.map((file) => {
+				const path = join(directory, file);
+				return {
+					path,
+					mtimeMs: statSync(path).mtimeMs,
+					size: statSync(path).size,
+				};
+			})
+			.filter((file) => file.size <= 5 * 1024 * 1024)
+			.sort((left, right) => right.mtimeMs - left.mtimeMs)
+			.at(0);
+		if (latest === undefined) return null;
+		return sanitizeDiagnosticValue(
+			JSON.parse(readFileSync(latest.path, "utf8")),
+		);
+	} catch {
+		return null;
+	}
+};
 
 function safeIsoForFile(date: Date): string {
 	return date.toISOString().replace(/[:.]/g, "-");
@@ -360,6 +488,17 @@ export const DiagnosticsServiceLive = Layer.effect(
 		const paths = yield* AppPaths;
 		const providerService = yield* ProviderService;
 		const telemetry = yield* TelemetryStore;
+		const runtimeResourceTimer = setInterval(() => {
+			void readProcessTree()
+				.then((snapshot) =>
+					appendRuntimeResourceSnapshot(paths.userData, snapshot),
+				)
+				.catch(() => undefined);
+		}, 60_000);
+		runtimeResourceTimer.unref?.();
+		yield* Effect.addFinalizer(() =>
+			Effect.sync(() => clearInterval(runtimeResourceTimer)),
+		);
 		const runId = telemetry.runId;
 		let overviewCache:
 			| {
@@ -591,6 +730,13 @@ export const DiagnosticsServiceLive = Layer.effect(
 					strategy:
 						"allowlisted structural fields and secret-pattern scrubbing",
 				};
+				const performanceHistory = readPerformanceHistory(
+					paths.userData,
+					payload.since,
+				);
+				const performanceRecording = readLatestPerformanceRecording(
+					paths.userData,
+				);
 				const artifacts: Record<string, unknown> = {
 					"trace-summary": traceSummary,
 					"recent-errors": recentErrors,
@@ -598,9 +744,13 @@ export const DiagnosticsServiceLive = Layer.effect(
 					"provider-status": providerStatus,
 					"redacted-session-events": sessionEvents,
 					"diagnostic-events": { events: diagnosticEvents },
+					"performance-history": performanceHistory,
 					"process-snapshot": processSnapshot,
 					"redaction-report": redactionReport,
 				};
+				if (performanceRecording !== null) {
+					artifacts["performance-recording"] = performanceRecording;
+				}
 				if (payload.clientContext !== undefined) {
 					artifacts["client-context"] = sanitizeDiagnosticValue(
 						payload.clientContext,
@@ -644,6 +794,10 @@ export const DiagnosticsServiceLive = Layer.effect(
 						: []),
 					"redacted-session-events",
 					"diagnostic-events",
+					"performance-history",
+					...(performanceRecording !== null
+						? (["performance-recording"] as const)
+						: []),
 					"process-snapshot",
 					"redaction-report",
 					"report",

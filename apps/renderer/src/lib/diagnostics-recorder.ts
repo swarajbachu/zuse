@@ -1,3 +1,5 @@
+import type { PowerInteractionMeasurement } from "@zuse/contracts";
+
 export type DiagnosticLogLevel = "debug" | "info" | "warn" | "error";
 
 export interface DiagnosticLogEntry {
@@ -20,6 +22,7 @@ const rendererLogs: DiagnosticLogEntry[] = [];
 const pendingRendererLogs: DiagnosticLogEntry[] = [];
 const uiActions: DiagnosticUiAction[] = [];
 const rendererRunId = `renderer_${crypto.randomUUID?.() ?? Date.now().toString(36)}`;
+const powerInteractions: PowerInteractionMeasurement[] = [];
 
 let installed = false;
 let flushTimer: number | null = null;
@@ -164,9 +167,47 @@ export function getDiagnosticUiActions(): ReadonlyArray<DiagnosticUiAction> {
 	return uiActions.slice();
 }
 
+export function recordPowerInteraction(name: string, durationMs: number): void {
+	if (!/^chat\.[a-z0-9._-]{1,100}$/i.test(name)) return;
+	if (!Number.isFinite(durationMs) || durationMs < 0) return;
+	pushBounded(
+		powerInteractions,
+		{
+			recordedAt: new Date().toISOString(),
+			name,
+			durationMs,
+		},
+		ACTION_LIMIT,
+	);
+}
+
+export function getPowerInteractionMeasurements(
+	since: string | null = null,
+): ReadonlyArray<PowerInteractionMeasurement> {
+	const sinceMs = since === null ? Number.NEGATIVE_INFINITY : Date.parse(since);
+	return powerInteractions.filter(
+		(item) => Date.parse(item.recordedAt) >= sinceMs,
+	);
+}
+
 export function installRendererDiagnostics(): void {
 	if (installed || typeof window === "undefined") return;
 	installed = true;
+	void import("./renderer-lag-monitor.ts")
+		.then(({ installRendererLagMonitor }) => {
+			installRendererLagMonitor((samples) => {
+				window.zuse?.power?.reportLagSamples?.(samples);
+				for (const sample of samples.filter((item) => item.durationMs >= 500)) {
+					recordDiagnosticEvent({
+						level: "warn",
+						source: "renderer.lag",
+						message: sample.name ?? `renderer.${sample.kind}`,
+						detail: `durationMs=${sample.durationMs.toFixed(1)}`,
+					});
+				}
+			});
+		})
+		.catch(() => undefined);
 
 	const originalWarn = console.warn.bind(console);
 	const originalError = console.error.bind(console);

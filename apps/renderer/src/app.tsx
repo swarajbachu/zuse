@@ -28,7 +28,7 @@ import { useChatDirectoryStatus } from "./hooks/use-chat-directory-status.ts";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 import { useMediaQuery } from "./hooks/use-media-query.ts";
 import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
-import { useReportRunningAgents } from "./hooks/use-report-running-agents.ts";
+import { useReportRuntimeActivity } from "./hooks/use-report-runtime-activity.ts";
 import {
 	startDesktopAnalytics,
 	trackAnalyticsScreen,
@@ -161,9 +161,9 @@ export function App() {
 	// ignores them.
 	useKeybindingDispatch();
 
-	// Mirror the running-agent count to main so the before-quit guard and the
-	// "quit/restart when idle" deferrals have a live value.
-	useReportRunningAgents();
+	// Mirror privacy-safe agent, terminal, browser, recording, and indexing
+	// counts to desktop services. The agent count also powers quit deferrals.
+	useReportRuntimeActivity();
 
 	// Hydrate settings + keybindings from the on-disk config store. Each call is
 	// idempotent; subsequent emits flow through the RPC streams maintained by the

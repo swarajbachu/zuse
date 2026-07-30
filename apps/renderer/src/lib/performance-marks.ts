@@ -1,5 +1,6 @@
 import {
 	recordDiagnosticEvent,
+	recordPowerInteraction,
 	recordUiAction,
 } from "./diagnostics-recorder.ts";
 
@@ -33,6 +34,7 @@ export function markRendererInteraction(
 			? `session=${sessionId}`
 			: `session=${sessionId} elapsedMs=${elapsed.toFixed(1)}`,
 	);
+	if (elapsed !== undefined) recordPowerInteraction(`chat.${stage}`, elapsed);
 }
 
 export async function trackRendererRpc<A>(

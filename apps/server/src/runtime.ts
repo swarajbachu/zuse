@@ -30,6 +30,7 @@ import {
 } from "./lan-auth/services/lan-auth-service.ts";
 import { LinearServiceLive } from "./linear/layers/linear-service.ts";
 import { McpServiceLive } from "./mcp/layers/mcp-service.ts";
+import { RuntimePerformanceMonitorLive } from "./observability/runtime-performance-monitor.ts";
 import { TelemetryObservabilityLive } from "./observability/telemetry-layer.ts";
 import { TelemetryStoreLive } from "./observability/telemetry-store.ts";
 import { runLifecycleBackfill } from "./persistence/backfill.ts";
@@ -128,6 +129,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(AppPathsLayer),
 	);
 	const TelemetryLayer = TelemetryObservabilityLive.pipe(
+		Layer.provide(TelemetryStoreLayer),
+	);
+	const RuntimePerformanceLayer = RuntimePerformanceMonitorLive.pipe(
 		Layer.provide(TelemetryStoreLayer),
 	);
 	const FolderPickerLayer = Layer.succeed(FolderPicker, deps.folderPicker);
@@ -556,5 +560,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		NodeServices.layer,
 		UsagePoller,
 		AutoRelayLinkLayer,
+		RuntimePerformanceLayer,
 	).pipe(Layer.provide(TelemetryLayer));
 };

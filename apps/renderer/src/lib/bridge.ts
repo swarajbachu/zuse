@@ -1,6 +1,13 @@
 import type {
+	LagSample,
 	NearbyPairingRequest,
 	NetworkAccessState,
+	PerformanceHistory,
+	PowerExportResult,
+	PowerInteractionMeasurement,
+	PowerMonitorState,
+	PowerRecordingDurationMinutes,
+	PowerWorkloadState,
 	UpdateStatus,
 } from "@zuse/contracts";
 
@@ -82,6 +89,22 @@ export interface UpdatesBridge {
 	readonly reportRunningCount: (count: number) => void;
 	/** Dev-only: round-trips a synthetic status through the real IPC channel. */
 	readonly __demoSet?: (status: UpdateStatus) => Promise<void>;
+}
+
+export interface PowerBridge {
+	readonly getState: () => Promise<PowerMonitorState>;
+	readonly onState: (handler: (state: PowerMonitorState) => void) => () => void;
+	readonly startRecording: (
+		durationMinutes: PowerRecordingDurationMinutes,
+	) => Promise<PowerMonitorState>;
+	readonly stopRecording: () => Promise<PowerMonitorState>;
+	readonly exportLatestRecording: (
+		interactions: ReadonlyArray<PowerInteractionMeasurement>,
+	) => Promise<PowerExportResult | null>;
+	readonly getHistory: (sinceMs: number) => Promise<PerformanceHistory>;
+	readonly clearHistory: () => Promise<void>;
+	readonly reportLagSamples: (samples: ReadonlyArray<LagSample>) => void;
+	readonly reportWorkload: (workload: PowerWorkloadState) => void;
 }
 
 /**
@@ -337,6 +360,7 @@ export interface ZuseBridge {
 	readonly app?: AppBridge;
 	readonly network?: NetworkBridge;
 	readonly updates?: UpdatesBridge;
+	readonly power?: PowerBridge;
 	readonly browser?: BrowserBridge;
 	readonly notch?: NotchBridge;
 	readonly ssh?: SshBridge;

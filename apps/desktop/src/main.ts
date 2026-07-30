@@ -8,17 +8,53 @@ import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import * as http from "node:http";
 import { createRequire } from "node:module";
-import { homedir, hostname, networkInterfaces } from "node:os";
+import {
+	cpus,
+	homedir,
+	hostname,
+	networkInterfaces,
+	arch as osArch,
+	release as osRelease,
+	totalmem,
+} from "node:os";
 import * as Path from "node:path";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { AGENTS_RUNNING_COUNT_CHANNEL, AuthFlowError } from "@zuse/contracts";
+import {
+	AGENTS_RUNNING_COUNT_CHANNEL,
+	AuthFlowError,
+	type DeepEnergySummary,
+	LagSample as LagSampleSchema,
+	type PerformanceCapabilities,
+	type PerformanceHistory,
+	POWER_CLEAR_HISTORY_CHANNEL,
+	POWER_EXPORT_RECORDING_CHANNEL,
+	POWER_GET_HISTORY_CHANNEL,
+	POWER_GET_STATE_CHANNEL,
+	POWER_REPORT_LAG_CHANNEL,
+	POWER_REPORT_WORKLOAD_CHANNEL,
+	POWER_START_RECORDING_CHANNEL,
+	POWER_STATE_CHANNEL,
+	POWER_STOP_RECORDING_CHANNEL,
+	POWER_SUBSCRIBE_CHANNEL,
+	POWER_UNSUBSCRIBE_CHANNEL,
+	type PowerInteractionMeasurement,
+	type PowerMemoryKind,
+	type PowerMonitorState,
+	type PowerProcessMetric,
+	type PowerProcessType,
+	PowerRecordingDurationMinutes,
+	type PowerSnapshot,
+	type PowerThermalState,
+	PowerWorkloadState,
+} from "@zuse/contracts";
 import {
 	makeMainLayer,
 	readBrowserCredentialFromVault,
 	wsServerProtocolLayer,
 } from "@zusehq/server";
-import { Cause, Effect, Fiber, Layer } from "effect";
+import { Cause, Effect, Fiber, Layer, Schema } from "effect";
 import { RpcSerialization } from "effect/unstable/rpc";
 import {
 	app,
@@ -27,6 +63,7 @@ import {
 	dialog,
 	ipcMain,
 	Notification,
+	powerMonitor as nativePowerMonitor,
 	nativeTheme,
 	net,
 	protocol,
@@ -61,6 +98,7 @@ if (
 	fixPath();
 }
 
+import { type BatteryStatus, readBatteryStatus } from "./battery-status.ts";
 import {
 	BROWSER_PARTITION,
 	clearImportedBrowserCookies,
@@ -70,6 +108,10 @@ import {
 	restoreImportedBrowserCookies,
 	watchImportedBrowserCookies,
 } from "./browser-session-service.ts";
+import {
+	type DeepEnergyProfileHandle,
+	startDeepEnergyProfile,
+} from "./deep-energy-profiler.ts";
 import { electronServerProtocolLayer } from "./ipc/electron-server-protocol.ts";
 import { isLinearContextImagePath } from "./linear-context-image.ts";
 import {
@@ -88,6 +130,15 @@ import {
 	NotchTrayController,
 	type NotchTrayItem,
 } from "./notch-tray-controller.ts";
+import { analyzePerformanceHistory } from "./performance-analysis.ts";
+import { PerformanceHistoryStore } from "./performance-history-store.ts";
+import { PerformanceRecordingStore } from "./performance-recording-store.ts";
+import {
+	buildPowerRecordingReport,
+	PowerMeasurementMonitor,
+	powerRecordingReportMarkdown,
+} from "./power-monitor.ts";
+import { installPowerMonitorEventSampling } from "./power-monitor-events.ts";
 import { resolveDesktopRelayPort } from "./relay-port.ts";
 import {
 	ensureSshEnvironment,
@@ -470,6 +521,567 @@ let localConnectivityHelper: ChildProcessWithoutNullStreams | null = null;
 let localConnectivityRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let localConnectivityRestartAttempt = 0;
 let localConnectivityStopping = false;
+
+const EMPTY_POWER_WORKLOAD: PowerWorkloadState = {
+	activeAgents: 0,
+	activeTerminals: 0,
+	browserSessions: 0,
+	activeBrowserSessions: 0,
+	browserRecordings: 0,
+	indexing: false,
+};
+let powerWorkload: PowerWorkloadState = EMPTY_POWER_WORKLOAD;
+let powerMeasurementMonitor: PowerMeasurementMonitor | null = null;
+let disposePowerMonitorEvents: (() => void) | null = null;
+const powerStateSubscribers = new Set<number>();
+let batteryStatus: BatteryStatus = { percent: null, isCharging: null };
+let batteryStatusTimer: ReturnType<typeof setInterval> | null = null;
+let deepEnergyHandle: DeepEnergyProfileHandle | null = null;
+let deepEnergyStatus:
+	| "authorizing"
+	| "collecting"
+	| "complete"
+	| "unavailable"
+	| null = null;
+let latestDeepEnergy: DeepEnergySummary | null = null;
+let deepEnergyRecordingId: string | null = null;
+const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
+eventLoopDelay.enable();
+const performanceHistoryStore = new PerformanceHistoryStore({
+	path: Path.join(
+		app.getPath("userData"),
+		"logs",
+		"diagnostics.host-resources.ndjson",
+	),
+});
+const performanceHistoryReady = performanceHistoryStore.initialize();
+const performanceRecordingStore = new PerformanceRecordingStore({
+	directory: Path.join(
+		app.getPath("userData"),
+		"logs",
+		"performance-recordings",
+	),
+});
+let persistedRecordingSignature = "";
+
+const performanceCapabilities = (): PerformanceCapabilities => ({
+	processMetrics: { state: "supported" },
+	idleWakeups:
+		process.platform === "darwin"
+			? { state: "supported" }
+			: {
+					state: "unavailable",
+					reason: "Idle wakeups are unavailable on this platform.",
+				},
+	batteryLevel:
+		process.platform === "darwin" ||
+		process.platform === "win32" ||
+		process.platform === "linux"
+			? { state: "supported" }
+			: {
+					state: "unavailable",
+					reason: "Battery level is unavailable on this platform.",
+				},
+	batteryDrain: {
+		state: "estimated",
+		reason: "Estimated after at least ten continuous minutes on battery.",
+	},
+	thermalPressure:
+		process.platform === "darwin"
+			? { state: "supported" }
+			: {
+					state: "unavailable",
+					reason: "Thermal pressure is unavailable on this platform.",
+				},
+	exactTemperature: {
+		state: "unavailable",
+		reason:
+			"The operating system does not expose a reliable temperature sensor.",
+	},
+	deepEnergy:
+		process.platform === "darwin"
+			? {
+					state: "estimated",
+					reason: "System energy estimates require an explicit recording.",
+				}
+			: {
+					state: "unavailable",
+					reason: "Deep energy profiling is currently available on macOS only.",
+				},
+});
+
+const emptyPowerMonitorState = (): PowerMonitorState => ({
+	latestSnapshot: null,
+	fiveMinuteSummary: null,
+	activeRecording: null,
+	latestRecording: null,
+});
+
+const decoratePowerMonitorState = (
+	state: PowerMonitorState,
+): PowerMonitorState => ({
+	...state,
+	activeRecording:
+		state.activeRecording === null
+			? null
+			: {
+					...state.activeRecording,
+					...(deepEnergyStatus === null
+						? {}
+						: { deepProfileStatus: deepEnergyStatus }),
+				},
+	latestRecording:
+		state.latestRecording === null
+			? null
+			: {
+					...state.latestRecording,
+					...(deepEnergyRecordingId === state.latestRecording.id &&
+					latestDeepEnergy !== null
+						? { deepEnergy: latestDeepEnergy }
+						: {}),
+				},
+});
+
+const powerProcessType = (type: string): PowerProcessType => {
+	if (type === "Browser") return "main";
+	if (type === "Tab") return "renderer";
+	if (type === "GPU") return "gpu";
+	if (type === "Utility") return "utility";
+	return "other";
+};
+
+const powerThermalState = (): PowerThermalState => {
+	if (process.platform !== "darwin") return "unknown";
+	return nativePowerMonitor.getCurrentThermalState();
+};
+
+const readEventLoopP99Ms = (): number => {
+	const value =
+		Math.round((eventLoopDelay.percentile(99) / 1_000_000) * 10) / 10;
+	eventLoopDelay.reset();
+	return Number.isFinite(value) ? value : 0;
+};
+
+const sampleElectronPower = (): PowerSnapshot => {
+	const processes: PowerProcessMetric[] = app.getAppMetrics().map((metric) => {
+		const privateBytes = metric.memory.privateBytes;
+		const memoryKind: PowerMemoryKind =
+			privateBytes === undefined ? "working-set" : "private";
+		return {
+			processType: powerProcessType(metric.type),
+			pid: metric.pid,
+			creationTimeMs: metric.creationTime,
+			...(metric.name === undefined ? {} : { name: metric.name }),
+			cpuPercent: metric.cpu.percentCPUUsage,
+			cumulativeCpuSeconds: metric.cpu.cumulativeCPUUsage ?? null,
+			idleWakeupsPerSecond: metric.cpu.idleWakeupsPerSecond,
+			memoryBytes: (privateBytes ?? metric.memory.workingSetSize) * 1024,
+			memoryKind,
+		};
+	});
+	const memoryKind: PowerMemoryKind = processes.every(
+		(metric) => metric.memoryKind === "private",
+	)
+		? "private"
+		: "working-set";
+	return {
+		capturedAt: new Date().toISOString(),
+		powerSource:
+			process.platform === "darwin" || process.platform === "win32"
+				? nativePowerMonitor.isOnBatteryPower()
+					? "battery"
+					: "ac"
+				: "unknown",
+		thermalState: powerThermalState(),
+		windowVisible:
+			mainWindow?.isVisible() === true && mainWindow.isMinimized() === false,
+		processes,
+		workload: powerWorkload,
+		totalCpuPercent: processes.reduce(
+			(total, metric) => total + metric.cpuPercent,
+			0,
+		),
+		totalIdleWakeupsPerSecond: processes.reduce(
+			(total, metric) => total + metric.idleWakeupsPerSecond,
+			0,
+		),
+		totalMemoryBytes: processes.reduce(
+			(total, metric) => total + metric.memoryBytes,
+			0,
+		),
+		memoryKind,
+		logicalCpuCount: cpus().length,
+		eventLoopP99Ms: readEventLoopP99Ms(),
+		batteryPercent: batteryStatus.percent,
+		isCharging: batteryStatus.isCharging,
+	};
+};
+
+const broadcastPowerState = (state: PowerMonitorState): void => {
+	const decorated = decoratePowerMonitorState(state);
+	for (const webContentsId of [...powerStateSubscribers]) {
+		const target = webContentsModule.fromId(webContentsId);
+		if (target === undefined || target.isDestroyed()) {
+			powerStateSubscribers.delete(webContentsId);
+			continue;
+		}
+		target.send(POWER_STATE_CHANNEL, decorated);
+	}
+};
+
+const installPowerMeasurementMonitor = (): void => {
+	if (powerMeasurementMonitor !== null) return;
+	const monitor = new PowerMeasurementMonitor({
+		now: () => Date.now(),
+		sample: sampleElectronPower,
+		setInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
+		clearInterval: (timer) =>
+			clearInterval(timer as ReturnType<typeof setInterval>),
+		setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+		clearTimeout: (timer) =>
+			clearTimeout(timer as ReturnType<typeof setTimeout>),
+		id: () => `power_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
+	});
+	monitor.subscribe((state) => {
+		broadcastPowerState(state);
+		const latest = state.latestSnapshot;
+		if (latest !== null) performanceHistoryStore.recordSnapshot(latest);
+		const completed = state.latestRecording;
+		const recording = monitor.getLatestRecording();
+		if (completed !== null && recording !== null) {
+			const signature = `${completed.id}:${latestDeepEnergy?.status ?? "pending"}`;
+			if (signature !== persistedRecordingSignature) {
+				persistedRecordingSignature = signature;
+				const report = buildPowerRecordingReport({
+					id: recording.id,
+					durationMinutes: recording.durationMinutes,
+					snapshots: recording.snapshots,
+					interactions: [],
+					...(deepEnergyRecordingId === recording.id &&
+					latestDeepEnergy !== null
+						? { deepEnergy: latestDeepEnergy }
+						: {}),
+					environment: powerEnvironment(),
+				});
+				void performanceRecordingStore
+					.save(recording.id, report)
+					.catch(() => undefined);
+			}
+		}
+	});
+	powerMeasurementMonitor = monitor;
+	const refreshBattery = () => {
+		void readBatteryStatus().then((next) => {
+			batteryStatus = next;
+		});
+	};
+	refreshBattery();
+	batteryStatusTimer = setInterval(refreshBattery, 60_000);
+	batteryStatusTimer.unref?.();
+
+	const sampleTransition = () => {
+		powerMeasurementMonitor?.sampleNow();
+	};
+	disposePowerMonitorEvents = installPowerMonitorEventSampling({
+		source: nativePowerMonitor,
+		sample: sampleTransition,
+		includeThermalState: process.platform === "darwin",
+	});
+	monitor.start();
+};
+
+const sanitizePowerCount = (value: unknown): number =>
+	typeof value === "number" && Number.isFinite(value)
+		? Math.min(10_000, Math.max(0, Math.floor(value)))
+		: 0;
+
+const sanitizePowerWorkload = (value: unknown): PowerWorkloadState => {
+	let input: PowerWorkloadState;
+	try {
+		input = Schema.decodeUnknownSync(PowerWorkloadState)(value);
+	} catch {
+		return EMPTY_POWER_WORKLOAD;
+	}
+	return {
+		activeAgents: sanitizePowerCount(input.activeAgents),
+		activeTerminals: sanitizePowerCount(input.activeTerminals),
+		browserSessions: sanitizePowerCount(input.browserSessions),
+		activeBrowserSessions: sanitizePowerCount(input.activeBrowserSessions),
+		browserRecordings: sanitizePowerCount(input.browserRecordings),
+		indexing: input.indexing === true,
+	};
+};
+
+const sanitizePowerInteractions = (
+	value: unknown,
+): ReadonlyArray<PowerInteractionMeasurement> => {
+	if (!Array.isArray(value)) return [];
+	const interactions: PowerInteractionMeasurement[] = [];
+	for (const item of value.slice(-200)) {
+		if (typeof item !== "object" || item === null) continue;
+		const input = item as Record<string, unknown>;
+		if (
+			typeof input.recordedAt !== "string" ||
+			!Number.isFinite(Date.parse(input.recordedAt)) ||
+			typeof input.name !== "string" ||
+			!/^chat\.[a-z0-9._-]{1,100}$/i.test(input.name) ||
+			typeof input.durationMs !== "number" ||
+			!Number.isFinite(input.durationMs)
+		) {
+			continue;
+		}
+		interactions.push({
+			recordedAt: input.recordedAt,
+			name: input.name,
+			durationMs: Math.min(60 * 60 * 1_000, Math.max(0, input.durationMs)),
+		});
+	}
+	return interactions;
+};
+
+const powerEnvironment = () => ({
+	appVersion: app.getVersion(),
+	platform: process.platform,
+	arch: osArch(),
+	osRelease: osRelease(),
+	logicalCpuCount: cpus().length,
+	totalMemoryGb: Math.max(1, Math.round(totalmem() / 1024 ** 3)),
+	processorModel: cpus()[0]?.model.trim() || "unknown",
+});
+
+ipcMain.handle(
+	POWER_GET_STATE_CHANNEL,
+	(): PowerMonitorState =>
+		decoratePowerMonitorState(
+			powerMeasurementMonitor?.getState() ?? emptyPowerMonitorState(),
+		),
+);
+
+ipcMain.on(POWER_SUBSCRIBE_CHANNEL, (event) => {
+	powerStateSubscribers.add(event.sender.id);
+	event.sender.once("destroyed", () => {
+		powerStateSubscribers.delete(event.sender.id);
+	});
+	event.sender.send(
+		POWER_STATE_CHANNEL,
+		decoratePowerMonitorState(
+			powerMeasurementMonitor?.getState() ?? emptyPowerMonitorState(),
+		),
+	);
+});
+
+ipcMain.on(POWER_UNSUBSCRIBE_CHANNEL, (event) => {
+	powerStateSubscribers.delete(event.sender.id);
+});
+
+ipcMain.on(POWER_REPORT_WORKLOAD_CHANNEL, (_event, payload: unknown) => {
+	powerWorkload = sanitizePowerWorkload(payload);
+	if (powerMeasurementMonitor?.getState().activeRecording !== null) {
+		powerMeasurementMonitor?.sampleNow();
+	}
+});
+
+ipcMain.on(POWER_REPORT_LAG_CHANNEL, (_event, payload: unknown) => {
+	if (!Array.isArray(payload)) return;
+	for (const item of payload.slice(-100)) {
+		try {
+			performanceHistoryStore.recordLag(
+				Schema.decodeUnknownSync(LagSampleSchema)(item),
+			);
+		} catch {
+			// Invalid renderer telemetry is dropped without affecting the app.
+		}
+	}
+});
+
+ipcMain.handle(
+	POWER_GET_HISTORY_CHANNEL,
+	async (_event, rawSince: unknown): Promise<PerformanceHistory> => {
+		await performanceHistoryReady.catch(() => undefined);
+		const since =
+			typeof rawSince === "number" && Number.isFinite(rawSince)
+				? Math.max(0, rawSince)
+				: Date.now() - 60 * 60 * 1_000;
+		const history = performanceHistoryStore.getHistory(since);
+		const capabilities = performanceCapabilities();
+		const warnings = Object.entries(capabilities).flatMap(
+			([name, capability]) =>
+				capability.state === "unavailable" && capability.reason !== undefined
+					? [`${name}: ${capability.reason}`]
+					: [],
+		);
+		return {
+			readAt: new Date().toISOString(),
+			since: new Date(since).toISOString(),
+			capabilities,
+			samples: history.samples,
+			lagSamples: history.lagSamples,
+			overview: analyzePerformanceHistory(history.samples, history.lagSamples),
+			storageBytes: await performanceHistoryStore.storageBytes(),
+			partial: warnings.length > 0,
+			warnings,
+		};
+	},
+);
+
+ipcMain.handle(POWER_CLEAR_HISTORY_CHANNEL, async (): Promise<void> => {
+	await performanceHistoryStore.clear();
+});
+
+ipcMain.handle(
+	POWER_START_RECORDING_CHANNEL,
+	async (_event, rawDuration: unknown): Promise<PowerMonitorState> => {
+		let duration: PowerRecordingDurationMinutes;
+		try {
+			duration = Schema.decodeUnknownSync(PowerRecordingDurationMinutes)(
+				rawDuration,
+			);
+		} catch {
+			throw new TypeError(
+				"Performance recordings must be 5, 15, or 30 minutes.",
+			);
+		}
+		powerMeasurementMonitor?.startRecording(duration);
+		const state =
+			powerMeasurementMonitor?.getState() ?? emptyPowerMonitorState();
+		deepEnergyRecordingId = state.activeRecording?.id ?? null;
+		latestDeepEnergy = null;
+		const deepEnergyEnabled =
+			process.platform === "darwin" &&
+			process.env.ZUSE_DISABLE_DEEP_ENERGY_PROFILE !== "1";
+		deepEnergyStatus = deepEnergyEnabled ? "authorizing" : "unavailable";
+		broadcastPowerState(state);
+		if (!deepEnergyEnabled) return decoratePowerMonitorState(state);
+		const recordingId = deepEnergyRecordingId;
+		try {
+			const handle = await startDeepEnergyProfile(
+				duration,
+				app.getPath("temp"),
+			);
+			if (recordingId === null || deepEnergyRecordingId !== recordingId) {
+				handle.cancel();
+				return decoratePowerMonitorState(
+					powerMeasurementMonitor?.getState() ?? emptyPowerMonitorState(),
+				);
+			}
+			deepEnergyHandle = handle;
+			deepEnergyStatus =
+				process.platform === "darwin" ? "collecting" : "unavailable";
+			broadcastPowerState(
+				powerMeasurementMonitor?.getState() ?? emptyPowerMonitorState(),
+			);
+			void handle.completion.then((summary) => {
+				if (
+					deepEnergyHandle === handle &&
+					deepEnergyRecordingId === recordingId
+				) {
+					latestDeepEnergy = summary;
+					deepEnergyStatus =
+						summary.status === "complete" ? "complete" : "unavailable";
+					deepEnergyHandle = null;
+					broadcastPowerState(
+						powerMeasurementMonitor?.getState() ?? emptyPowerMonitorState(),
+					);
+				}
+				const recording = powerMeasurementMonitor?.getLatestRecording();
+				if (
+					recording !== null &&
+					recording !== undefined &&
+					recording.id === recordingId
+				) {
+					persistedRecordingSignature = `${recording.id}:${summary.status}`;
+					const report = buildPowerRecordingReport({
+						id: recording.id,
+						durationMinutes: recording.durationMinutes,
+						snapshots: recording.snapshots,
+						interactions: [],
+						deepEnergy: summary,
+						environment: powerEnvironment(),
+					});
+					void performanceRecordingStore
+						.save(recording.id, report)
+						.catch(() => undefined);
+				}
+			});
+		} catch (cause) {
+			if (deepEnergyRecordingId !== recordingId) {
+				return decoratePowerMonitorState(
+					powerMeasurementMonitor?.getState() ?? emptyPowerMonitorState(),
+				);
+			}
+			latestDeepEnergy = {
+				status: "unavailable",
+				cpuPowerMw: null,
+				gpuPowerMw: null,
+				anePowerMw: null,
+				combinedPowerMw: null,
+				reason:
+					cause instanceof Error
+						? cause.message
+						: "Deep energy profiling could not start.",
+			};
+			deepEnergyStatus = "unavailable";
+		}
+		return decoratePowerMonitorState(state);
+	},
+);
+
+ipcMain.handle(POWER_STOP_RECORDING_CHANNEL, (): PowerMonitorState => {
+	deepEnergyHandle?.cancel();
+	deepEnergyHandle = null;
+	powerMeasurementMonitor?.stopRecording();
+	return decoratePowerMonitorState(
+		powerMeasurementMonitor?.getState() ?? emptyPowerMonitorState(),
+	);
+});
+
+ipcMain.handle(
+	POWER_EXPORT_RECORDING_CHANNEL,
+	async (_event, payload: unknown) => {
+		const recording = powerMeasurementMonitor?.getLatestRecording();
+		if (recording === null || recording === undefined) {
+			throw new Error("No completed performance recording is available.");
+		}
+		const input =
+			typeof payload === "object" && payload !== null
+				? (payload as Record<string, unknown>)
+				: {};
+		const report = buildPowerRecordingReport({
+			id: recording.id,
+			durationMinutes: recording.durationMinutes,
+			snapshots: recording.snapshots,
+			interactions: sanitizePowerInteractions(input.interactions),
+			...(deepEnergyRecordingId === recording.id && latestDeepEnergy !== null
+				? { deepEnergy: latestDeepEnergy }
+				: {}),
+			environment: powerEnvironment(),
+		});
+		const options = {
+			title: "Export Zuse performance recording",
+			buttonLabel: "Export",
+			properties: ["openDirectory", "createDirectory"] as Array<
+				"openDirectory" | "createDirectory"
+			>,
+		};
+		const selection =
+			mainWindow === null
+				? await dialog.showOpenDialog(options)
+				: await dialog.showOpenDialog(mainWindow, options);
+		const directory = selection.filePaths[0];
+		if (selection.canceled || directory === undefined) return null;
+		const timestamp = report.summary.startedAt
+			.replaceAll(":", "-")
+			.replaceAll(".", "-");
+		const baseName = `zuse-performance-${timestamp}-${recording.id}`;
+		const jsonPath = Path.join(directory, `${baseName}.json`);
+		const markdownPath = Path.join(directory, `${baseName}.md`);
+		await Promise.all([
+			fs.writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8"),
+			fs.writeFile(markdownPath, powerRecordingReportMarkdown(report), "utf8"),
+		]);
+		return { jsonPath, markdownPath };
+	},
+);
 
 const rendererDistDir = (): string =>
 	app.isPackaged
@@ -1028,6 +1640,16 @@ async function createMainWindow() {
 			webviewTag: true,
 		},
 	});
+	installPowerMeasurementMonitor();
+	const sampleWindowTransition = () => {
+		if (powerMeasurementMonitor?.getState().activeRecording !== null) {
+			powerMeasurementMonitor?.sampleNow();
+		}
+	};
+	mainWindow.on("show", sampleWindowTransition);
+	mainWindow.on("hide", sampleWindowTransition);
+	mainWindow.on("minimize", sampleWindowTransition);
+	mainWindow.on("restore", sampleWindowTransition);
 
 	// Avoid the white flash that transparent windows show before first paint.
 	mainWindow.once("ready-to-show", () => mainWindow?.show());
@@ -2712,6 +3334,19 @@ app.on("will-quit", () => {
 			// Missing or unwritable markers are safe to leave for the next run.
 		}
 	}
+	disposePowerMonitorEvents?.();
+	disposePowerMonitorEvents = null;
+	powerMeasurementMonitor?.stop();
+	powerMeasurementMonitor = null;
+	powerStateSubscribers.clear();
+	deepEnergyHandle?.cancel();
+	deepEnergyHandle = null;
+	if (batteryStatusTimer !== null) {
+		clearInterval(batteryStatusTimer);
+		batteryStatusTimer = null;
+	}
+	eventLoopDelay.disable();
+	void performanceHistoryStore.flush();
 	localConnectivityStopping = true;
 	if (localConnectivityRestartTimer !== null) {
 		clearTimeout(localConnectivityRestartTimer);
