@@ -1,28 +1,27 @@
 {
-	"name": "@zusehq/serve",
+	"name": "zusehq",
 	"version": "0.0.0",
-	"description": "One-command remote access for Zuse workspaces",
+	"description": "Run and manage Zuse remote workspaces",
 	"license": "MIT",
 	"type": "module",
 	"bin": {
-		"zuse": "./dist/bin.mjs"
-	},
-	"exports": {
-		"./cli": {
-			"types": "./src/cli-types.ts",
-			"import": "./dist/cli.mjs"
-		}
+		"zusehq": "./dist/bin.mjs"
 	},
 	"files": [
-		"dist",
-		"src/cli-types.ts"
+		"dist"
+	],
+	"keywords": [
+		"zuse",
+		"coding-agent",
+		"remote-development",
+		"developer-tools"
 	],
 	"scripts": {
-		"build": "vp pack src/bin.ts src/cli.ts",
+		"build": "vp pack src/bin.ts",
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@zuse/server": "0.0.0"
+		"@zusehq/serve": "0.0.0"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",

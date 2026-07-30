@@ -1,0 +1,9 @@
+{
+	"extends": "@repo/typescript-config/base.json",
+	"compilerOptions": {
+		"rootDir": ".",
+		"types": ["node"],
+		"noEmit": true
+	},
+	"include": ["src/**/*.ts", "tsdown.config.ts"]
+}
