@@ -1,5 +1,5 @@
 {
-	"buildCommand": "cd ../.. && bun run --filter renderer build",
+	"buildCommand": "cd ../.. && VITE_ZUSE_HOSTED=1 bun run --filter renderer build",
 	"outputDirectory": "dist",
 	"framework": "vite",
 	"rewrites": [

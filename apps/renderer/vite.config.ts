@@ -11,6 +11,7 @@ const host = process.env.HOST?.trim() || "localhost";
 const rpcPort = Number(process.env.ZUSE_DESKTOP_WS_PORT ?? 8788);
 const rpcTarget = `http://127.0.0.1:${rpcPort}`;
 const sourceMaps = process.env.ZUSE_SOURCEMAPS === "1" ? "hidden" : false;
+const hostedBuild = process.env.VITE_ZUSE_HOSTED === "1";
 
 // In Memoize worktrees, the renderer's node_modules links out to a Bun
 // central store at a sibling path (e.g. `~/Developer/<main checkout>/
@@ -36,8 +37,9 @@ export default defineConfig({
 	experimental: {
 		bundledDev: process.env.ZUSE_BUNDLED_DEV === "1",
 	},
-	// Relative base so file:// loads work in the packaged Electron build.
-	base: "./",
+	// Hosted routes need root-relative assets, while packaged Electron builds
+	// need relative assets so they continue to load through file://.
+	base: hostedBuild ? "/" : "./",
 	plugins: [
 		react({
 			babel: { plugins: [["babel-plugin-react-compiler", {}]] },
