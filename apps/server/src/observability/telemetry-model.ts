@@ -70,6 +70,7 @@ export const telemetryCategoryForSpan = (name: string): string => {
 			return "network";
 		}
 		if (method.startsWith("diagnostics.")) return "diagnostics";
+		if (method.startsWith("auth.")) return "auth";
 		if (method.startsWith("permission.")) return "permission";
 		if (method.startsWith("attachment.")) return "attachment";
 		if (method.startsWith("mcp.")) return "mcp";

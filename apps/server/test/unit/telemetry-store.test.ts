@@ -18,6 +18,7 @@ import {
 	TelemetryStore,
 	TelemetryStoreLive,
 } from "../../src/observability/telemetry-store.ts";
+import { appendRelayDiagnostic } from "../../src/relay/relay-diagnostics.ts";
 
 const event = (id: string): DiagnosticEvent => ({
 	id,
@@ -114,6 +115,45 @@ describe("telemetry store", () => {
 				severity: "info",
 			});
 			expect(events[0]?.detail).not.toContain("private");
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("routes relay diagnostics through the bounded store without sensitive fields", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-relay-telemetry-"));
+		const layer = TelemetryStoreLive.pipe(
+			Layer.provide(Layer.succeed(AppPaths, { userData: directory })),
+		);
+
+		try {
+			const events = await Effect.runPromise(
+				Effect.scoped(
+					Effect.gen(function* () {
+						const store = yield* TelemetryStore;
+						yield* appendRelayDiagnostic(store, "link.environment.fail", {
+							environmentId: "environment-1",
+							reason: "Authorization: Bearer secret-value",
+							relayUrl: "https://relay.example.test?token=private",
+							candidate: "/Users/private/bin",
+						});
+						yield* store.flush;
+						return store.snapshot();
+					}).pipe(Effect.provide(layer)),
+				),
+			);
+
+			expect(events).toHaveLength(1);
+			expect(events[0]).toMatchObject({
+				severity: "error",
+				source: "server.relay",
+				category: "network",
+				message: "relay.link.environment.fail",
+			});
+			expect(events[0]?.detail).toContain("environment-1");
+			expect(events[0]?.detail).not.toContain("secret-value");
+			expect(events[0]?.detail).not.toContain("relay.example.test");
+			expect(events[0]?.detail).not.toContain("/Users/private");
 		} finally {
 			rmSync(directory, { recursive: true, force: true });
 		}

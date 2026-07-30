@@ -453,9 +453,10 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 			ManagedTunnelRuntimeLive.pipe(
 				Layer.provide(NodeServices.layer),
 				Layer.provide(AppPathsLayer),
+				Layer.provide(TelemetryStoreLayer),
 			),
 		),
-		Layer.provide(AppPathsLayer),
+		Layer.provide(TelemetryStoreLayer),
 	);
 	const autoRelayLink = deps.autoRelayLink;
 	const AutoRelayLinkLayer =
@@ -555,7 +556,5 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		NodeServices.layer,
 		UsagePoller,
 		AutoRelayLinkLayer,
-	).pipe(
-		Layer.provide(TelemetryLayer),
-	);
+	).pipe(Layer.provide(TelemetryLayer));
 };

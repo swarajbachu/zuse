@@ -6,6 +6,7 @@ import {
 } from "effect/unstable/process";
 
 import { AppPaths } from "../app-paths.ts";
+import { TelemetryStore } from "../observability/telemetry-store.ts";
 import { ensurePinnedCloudflared } from "./cloudflared-install.ts";
 import { appendRelayDiagnostic } from "./relay-diagnostics.ts";
 
@@ -43,16 +44,17 @@ const CLOUDFLARED_CANDIDATES = [
 export const ManagedTunnelRuntimeLive: Layer.Layer<
   ManagedTunnelRuntime,
   never,
-  CommandExecutor.ChildProcessSpawner | AppPaths
+  CommandExecutor.ChildProcessSpawner | AppPaths | TelemetryStore
 > = Layer.effect(
   ManagedTunnelRuntime,
   Effect.gen(function* () {
     const executor = yield* CommandExecutor.ChildProcessSpawner;
     const paths = yield* AppPaths;
+    const telemetry = yield* TelemetryStore;
     const fiberRef = yield* Ref.make<Fiber.Fiber<void> | null>(null);
     const binaryRef = yield* Ref.make<string | null>(null);
     const log = (event: string, fields?: Record<string, unknown>) =>
-      appendRelayDiagnostic(paths, event, fields);
+      appendRelayDiagnostic(telemetry, event, fields);
 
     const isExecutable = (path: string): boolean => {
       try {

@@ -42,6 +42,7 @@ describe("telemetry model", () => {
 			["RpcServer.git.status", "git"],
 			["RpcServer.pty.open", "terminal"],
 			["RpcServer.relay.connect", "network"],
+			["RpcServer.auth.signIn", "auth"],
 			["RpcServer.attachment.add", "attachment"],
 			["RpcServer.mcp.list", "mcp"],
 		] as const;

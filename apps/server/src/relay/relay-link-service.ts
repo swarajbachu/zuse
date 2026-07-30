@@ -8,7 +8,6 @@ import {
 } from "@zuse/contracts";
 import { Clock, Context, Data, Effect, Fiber, Layer, Ref } from "effect";
 
-import { AppPaths } from "../app-paths.ts";
 import { AuthService } from "../auth/services/auth-service.ts";
 import { buildAdvertisedEndpoints } from "../lan-auth/advertised-endpoints.ts";
 import { defaultEnvironmentLabel } from "../lan-auth/environment-label.ts";
@@ -17,6 +16,7 @@ import {
   type LanAuthConfigShape,
   LanAuthService,
 } from "../lan-auth/services/lan-auth-service.ts";
+import { TelemetryStore } from "../observability/telemetry-store.ts";
 import { signEnvironmentLinkProof } from "./link-proof.ts";
 import { ManagedTunnelRuntime } from "./managed-tunnel-runtime.ts";
 import { appendRelayDiagnostic } from "./relay-diagnostics.ts";
@@ -165,7 +165,11 @@ const computeOrigin = (config: LanAuthConfigShape) => ({
 export const RelayLinkServiceLive: Layer.Layer<
   RelayLinkService,
   never,
-  LanAuthService | LanAuthConfig | AuthService | ManagedTunnelRuntime | AppPaths
+  | LanAuthService
+  | LanAuthConfig
+  | AuthService
+  | ManagedTunnelRuntime
+  | TelemetryStore
 > = Layer.effect(
   RelayLinkService,
   Effect.gen(function* () {
@@ -173,10 +177,10 @@ export const RelayLinkServiceLive: Layer.Layer<
     const config = yield* LanAuthConfig;
     const authService = yield* AuthService;
     const tunnel = yield* ManagedTunnelRuntime;
-    const paths = yield* AppPaths;
+    const telemetry = yield* TelemetryStore;
     const heartbeatRef = yield* Ref.make<Fiber.Fiber<void> | null>(null);
     const log = (event: string, fields?: Record<string, unknown>) =>
-      appendRelayDiagnostic(paths, event, fields);
+      appendRelayDiagnostic(telemetry, event, fields);
 
     yield* log("service.boot", {
       lanPolicy: config.policy,
