@@ -253,6 +253,7 @@ const ConversationRuntimeLive = Layer.effect(
 			goalState,
 			chatChangesHub,
 			broadcastChat,
+			currentChatRevision,
 			lookupSession,
 			agentsFor,
 			persistMessage,
@@ -324,6 +325,7 @@ const ConversationRuntimeLive = Layer.effect(
 			createSession,
 			broadcastChat,
 			chatChangesHub,
+			currentChatRevision,
 			dispatchChatCommand,
 		});
 		const {
@@ -332,8 +334,10 @@ const ConversationRuntimeLive = Layer.effect(
 			getChat,
 			getArchivePreview,
 			streamChatChanges,
+			runChatReconciliation,
 			createChat,
 		} = chatOperations;
+		yield* Effect.forkIn(runChatReconciliation(), serviceScope);
 
 		const transcriptOperations = makeTranscriptOperations({
 			sql,

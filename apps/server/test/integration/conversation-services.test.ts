@@ -569,6 +569,7 @@ const withRuntime = async <A>(
 				| ConversationState
 			>,
 		) => Promise<X>,
+		dbPath: string,
 	) => Promise<A>,
 ): Promise<A> => {
 	const dir = mkdtempSync(join(tmpdir(), "mz-msgstore-"));
@@ -609,7 +610,7 @@ const withRuntime = async <A>(
         `;
 			}),
 		);
-		return await fn(run);
+		return await fn(run, dbPath);
 	} finally {
 		await runtime.dispose();
 		rmSync(dir, { recursive: true, force: true });
@@ -1838,6 +1839,103 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(result.emitted.map((chat) => chat.id)).toEqual([
 				result.created.chat.id,
 			]);
+		});
+	});
+
+	it("reconciles chats persisted outside the in-memory change hub", async () => {
+		await withRuntime(async (run, dbPath) => {
+			const externalChatId = ChatId.make("chat-external-runtime");
+			const observed = await run(
+				Effect.gen(function* () {
+					const s = yield* store;
+					yield* s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					});
+					const streamFiber = yield* s.streamChatChanges(PROJECT_ID).pipe(
+						Stream.filter(
+							(change) =>
+								change._tag === "snapshot" &&
+								change.chats.some((chat) => chat.id === externalChatId),
+						),
+						Stream.take(1),
+						Stream.runCollect,
+						Effect.timeout(1_500),
+						Effect.forkChild,
+					);
+					yield* Effect.sleep("10 millis");
+					const timestamp = new Date().toISOString();
+					const externalRuntime = ManagedRuntime.make(
+						sqliteLayer({ filename: dbPath }),
+					);
+					yield* Effect.tryPromise({
+						try: () =>
+							externalRuntime.runPromise(
+								Effect.gen(function* () {
+									const sql = yield* SqlClient.SqlClient;
+									yield* sql`
+										INSERT INTO chats (
+											id, project_id, title, title_provenance, created_at, updated_at
+										) VALUES (
+											${externalChatId},
+											${PROJECT_ID},
+											${"External runtime chat"},
+											${"manual"},
+											${timestamp},
+											${timestamp}
+										)
+									`;
+								}),
+							),
+						catch: (cause) => cause,
+					}).pipe(
+						Effect.ensuring(
+							Effect.promise(() => externalRuntime.dispose()).pipe(
+								Effect.ignore,
+							),
+						),
+					);
+					return yield* Fiber.join(streamFiber);
+				}),
+			);
+
+			expect(observed).toHaveLength(1);
+		});
+	});
+
+	it("reconciles local chat commands without a precise live patch", async () => {
+		await withRuntime(async (run) => {
+			const observed = await run(
+				Effect.gen(function* () {
+					const s = yield* store;
+					const created = yield* s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					});
+					const streamFiber = yield* s.streamChatChanges(PROJECT_ID).pipe(
+						Stream.filter(
+							(change) =>
+								change._tag === "snapshot" &&
+								change.chats.some(
+									(chat) =>
+										chat.id === created.chat.id &&
+										chat.worktreeId === TEST_WORKTREE_ID,
+								),
+						),
+						Stream.take(1),
+						Stream.runCollect,
+						Effect.timeout(1_500),
+						Effect.forkChild,
+					);
+					yield* Effect.sleep("10 millis");
+					yield* s.setChatWorktree(created.chat.id, TEST_WORKTREE_ID);
+					return yield* Fiber.join(streamFiber);
+				}),
+			);
+
+			expect(observed).toHaveLength(1);
 		});
 	});
 

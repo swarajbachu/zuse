@@ -61,6 +61,10 @@ const makeRuntime = (opts: {
 		readonly host: string;
 		readonly port: number;
 	}) => void;
+	readonly onDiagnostic?: (
+		event: string,
+		fields?: Record<string, unknown>,
+	) => void;
 }) => {
 	const SqlLive = sqliteLayer({ filename: ":memory:" });
 	const Migrated = Layer.effectDiscard(
@@ -103,6 +107,7 @@ const makeRuntime = (opts: {
 		staticDir: opts.staticDir,
 		trustProxy: opts.trustProxy,
 		compression: opts.compression,
+		onDiagnostic: opts.onDiagnostic,
 	}).pipe(Layer.provide(Layer.merge(LanAuthLayer, AttachmentLayer)));
 	const ServerLayer = RpcServer.layer(TestRpcs).pipe(
 		Layer.provide(PingHandler),
@@ -436,10 +441,17 @@ describe("WS LAN auth", () => {
 
 	it("redeems pairing codes and accepts query-token WebSockets", async () => {
 		const port = await freePort();
+		const diagnostics: Array<{
+			readonly event: string;
+			readonly fields: Record<string, unknown>;
+		}> = [];
 		const runtime = makeRuntime({
 			policy: "protected",
 			port,
 			pairingBootstrap: true,
+			onDiagnostic: (event, fields = {}) => {
+				diagnostics.push({ event, fields });
+			},
 		});
 		try {
 			const pairing = await runtime.runPromise(
@@ -501,6 +513,22 @@ describe("WS LAN auth", () => {
 					`/rpc?token=${encodeURIComponent(body.token)}&wireVersion=${WIRE_PROTOCOL_VERSION}`,
 				),
 			).resolves.toBe(101);
+			const authDiagnostics = diagnostics.filter(
+				(entry) =>
+					entry.event === "ws.request" || entry.event.startsWith("ws.auth."),
+			);
+			expect(authDiagnostics.length).toBeGreaterThan(0);
+			expect(JSON.stringify(authDiagnostics)).not.toContain(body.token);
+			expect(authDiagnostics).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						fields: expect.objectContaining({
+							path: expect.stringMatching(/^\/(?:rpc)?$/),
+							hasToken: true,
+						}),
+					}),
+				]),
+			);
 		} finally {
 			await disposeRuntime(runtime);
 		}

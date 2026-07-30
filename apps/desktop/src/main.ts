@@ -89,6 +89,10 @@ import {
 } from "./notch-tray-controller.ts";
 import { resolveDesktopRelayPort } from "./relay-port.ts";
 import {
+	sanitizeRemoteConnectionLog,
+	sanitizeRemoteDiagnosticValue,
+} from "./remote-diagnostic-sanitizer.ts";
+import {
 	ensureSshEnvironment,
 	listSshHosts,
 	type SshEnvironmentHandle,
@@ -409,6 +413,7 @@ app.on("second-instance", (_event, argv) => {
 const USER_APPLICATIONS_DIR = Path.join(homedir(), "Applications");
 const execFileAsync = promisify(execFile);
 const appLogWrites = new Map<string, Promise<void>>();
+let remoteConnectionLogScrubScheduled = false;
 
 const appendAppLog = (fileName: string, line: string): void => {
 	const filePath = Path.join(app.getPath("userData"), "logs", fileName);
@@ -431,19 +436,46 @@ const appendRemoteConnectionLog = (
 	event: string,
 	fields: Record<string, unknown> = {},
 ): void => {
+	const logFilePath = Path.join(
+		app.getPath("userData"),
+		"logs",
+		"remote-connection.log",
+	);
+	if (!remoteConnectionLogScrubScheduled) {
+		remoteConnectionLogScrubScheduled = true;
+		const scrub = (async () => {
+			try {
+				const contents = await fs.readFile(logFilePath, "utf8");
+				const sanitized = sanitizeRemoteConnectionLog(contents);
+				if (sanitized === contents) return;
+				const temporaryPath = `${logFilePath}.${process.pid}.tmp`;
+				await fs.writeFile(temporaryPath, sanitized, {
+					encoding: "utf8",
+					mode: 0o600,
+				});
+				await fs.rename(temporaryPath, logFilePath);
+			} catch {
+				// A missing or unreadable old log is safe to ignore. Diagnostics
+				// cleanup must never affect app behavior.
+			}
+		})();
+		appLogWrites.set(logFilePath, scrub);
+	}
 	appendAppLog(
 		"remote-connection.log",
 		JSON.stringify({
 			ts: new Date().toISOString(),
 			event,
-			...Object.fromEntries(
-				Object.entries(fields).map(([key, value]) => [
-					key,
-					value instanceof Error
-						? { name: value.name, message: value.message }
-						: value,
-				]),
-			),
+			...(sanitizeRemoteDiagnosticValue(
+				Object.fromEntries(
+					Object.entries(fields).map(([key, value]) => [
+						key,
+						value instanceof Error
+							? { name: value.name, message: value.message }
+							: value,
+					]),
+				),
+			) as Record<string, unknown>),
 		}),
 	);
 };

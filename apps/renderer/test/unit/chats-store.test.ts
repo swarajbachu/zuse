@@ -376,6 +376,139 @@ describe("chats store live changes", () => {
 		await stopChatChangeStream(reconnectProjectId);
 	});
 
+	it("hydrates from chat.list without waiting for the live stream snapshot", async () => {
+		subscribeRendererRpcConnection.mockImplementation((listener) => {
+			listener({
+				key: "renderer",
+				status: "connected",
+				generation: 1,
+				attempt: 0,
+				error: null,
+			});
+			return vi.fn();
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.list": () => Effect.succeed([reconnectChat]),
+			"chat.streamChanges": () => Stream.never,
+		});
+		useChatsStore.setState({
+			chatsByProject: {},
+			loadingByProject: {},
+			error: null,
+		});
+
+		await useChatsStore.getState().hydrate(reconnectProjectId);
+
+		await vi.waitFor(
+			() =>
+				expect(
+					useChatsStore.getState().chatsByProject[reconnectProjectId],
+				).toEqual([reconnectChat]),
+			{ timeout: 1_500 },
+		);
+		expect(useChatsStore.getState().loadingByProject[reconnectProjectId]).toBe(
+			false,
+		);
+	});
+
+	it("does not let a stale fallback replace a newer stream snapshot", async () => {
+		let publishSnapshot: ((chats: ReadonlyArray<Chat>) => void) | undefined;
+		const fallback = deferred<ReadonlyArray<Chat>>();
+		const listChats = vi.fn(() => Effect.promise(() => fallback.promise));
+		subscribeRendererRpcConnection.mockImplementation((listener) => {
+			listener({
+				key: "renderer",
+				status: "connected",
+				generation: 1,
+				attempt: 0,
+				error: null,
+			});
+			return vi.fn();
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.list": listChats,
+			"chat.streamChanges": () =>
+				Stream.callback<ChatSummaryChange>((queue) =>
+					Effect.sync(() => {
+						publishSnapshot = (chats) =>
+							Queue.offerUnsafe(queue, { _tag: "snapshot", chats });
+					}),
+				),
+		});
+		useChatsStore.setState({
+			chatsByProject: {},
+			loadingByProject: {},
+			error: null,
+		});
+
+		await useChatsStore.getState().hydrate(reconnectProjectId);
+		await vi.waitFor(() => expect(listChats).toHaveBeenCalledTimes(1), {
+			timeout: 1_500,
+		});
+		publishSnapshot?.([reconnectChat]);
+		await vi.waitFor(() =>
+			expect(
+				useChatsStore.getState().chatsByProject[reconnectProjectId],
+			).toEqual([reconnectChat]),
+		);
+
+		fallback.resolve([]);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(useChatsStore.getState().chatsByProject[reconnectProjectId]).toEqual(
+			[reconnectChat],
+		);
+	});
+
+	it("ignores a fallback error after a newer stream snapshot", async () => {
+		let publishSnapshot: ((chats: ReadonlyArray<Chat>) => void) | undefined;
+		const fallback = deferred<ReadonlyArray<Chat>>();
+		const listChats = vi.fn(() => Effect.promise(() => fallback.promise));
+		subscribeRendererRpcConnection.mockImplementation((listener) => {
+			listener({
+				key: "renderer",
+				status: "connected",
+				generation: 1,
+				attempt: 0,
+				error: null,
+			});
+			return vi.fn();
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.list": listChats,
+			"chat.streamChanges": () =>
+				Stream.callback<ChatSummaryChange>((queue) =>
+					Effect.sync(() => {
+						publishSnapshot = (chats) =>
+							Queue.offerUnsafe(queue, { _tag: "snapshot", chats });
+					}),
+				),
+		});
+		useChatsStore.setState({
+			chatsByProject: {},
+			loadingByProject: {},
+			error: null,
+		});
+
+		await useChatsStore.getState().hydrate(reconnectProjectId);
+		await vi.waitFor(() => expect(listChats).toHaveBeenCalledTimes(1), {
+			timeout: 1_500,
+		});
+		publishSnapshot?.([reconnectChat]);
+		await vi.waitFor(() =>
+			expect(
+				useChatsStore.getState().chatsByProject[reconnectProjectId],
+			).toEqual([reconnectChat]),
+		);
+
+		fallback.reject(new Error("stale fallback failed"));
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(useChatsStore.getState().error).toBeNull();
+	});
+
 	it("reconnects a completed change stream and reconciles its snapshot", async () => {
 		let streamAttempts = 0;
 		let observeConnection: ((snapshot: ConnectionSnapshot) => void) | undefined;

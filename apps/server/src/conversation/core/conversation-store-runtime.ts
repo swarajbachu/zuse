@@ -3,6 +3,7 @@ import {
 	type AgentDefinition,
 	AgentTurnId,
 	type Chat,
+	type ChatSummaryChange,
 	type FolderId,
 	Message,
 	type MessageContent,
@@ -75,8 +76,12 @@ export interface ConversationStoreRuntime {
 		persisted: PersistedMessage,
 	) => Effect.Effect<void>;
 	readonly goalState: ConversationGoalState;
-	readonly chatChangesHub: PubSub.PubSub<Chat>;
+	readonly chatChangesHub: PubSub.PubSub<{
+		readonly projectId: FolderId;
+		readonly change: ChatSummaryChange;
+	}>;
 	readonly broadcastChat: (chat: Chat) => Effect.Effect<void>;
+	readonly currentChatRevision: () => number;
 	readonly lookupSession: ConversationOperations["getSession"];
 	readonly agentsFor: ConversationStateApi["agents"];
 	readonly persistMessage: (
@@ -256,9 +261,20 @@ export const makeConversationStoreRuntime = Effect.fn(
 	// Chats are few and updates rare, so one project-filtered hub keeps it
 	// simple. `streamChatChanges` subscribes to this hub before reading its SQL
 	// snapshot, closing the backfill-to-live gap for orchestrated creates.
-	const chatChangesHub = yield* PubSub.unbounded<Chat>();
+	const chatChangesHub = yield* PubSub.unbounded<{
+		readonly projectId: FolderId;
+		readonly change: ChatSummaryChange;
+	}>();
+	let chatRevision = 0;
+	const currentChatRevision = (): number => chatRevision;
 	const broadcastChat = (chat: Chat): Effect.Effect<void> =>
-		PubSub.publish(chatChangesHub, chat).pipe(Effect.asVoid);
+		Effect.sync(() => {
+			chatRevision += 1;
+			PubSub.publishUnsafe(chatChangesHub, {
+				projectId: chat.projectId,
+				change: { _tag: "change", chat },
+			});
+		});
 
 	// Chats whose LLM auto-name is in flight — cleared when the fiber ends.
 	// Chats that already received a successful LLM title this process lifetime.
@@ -583,6 +599,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 		goalState,
 		chatChangesHub,
 		broadcastChat,
+		currentChatRevision,
 		lookupSession,
 		agentsFor,
 		persistMessage,

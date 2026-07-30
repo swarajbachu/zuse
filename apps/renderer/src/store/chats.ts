@@ -225,6 +225,8 @@ const changeFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 const changeGenerations = new Map<string, number>();
 const changeConnectionSubscriptions = new Map<string, () => void>();
 const changeLifecycles = new Map<string, number>();
+const snapshotFallbackTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const catalogSnapshotRevisions = new Map<string, number>();
 
 const currentChangeLifecycle = (projectId: FolderId): number =>
 	changeLifecycles.get(projectId) ?? 0;
@@ -236,6 +238,15 @@ const applyChatChange = (
 ): void => {
 	if (currentChangeLifecycle(projectId) !== lifecycle) return;
 	if (change._tag === "snapshot") {
+		catalogSnapshotRevisions.set(
+			projectId,
+			(catalogSnapshotRevisions.get(projectId) ?? 0) + 1,
+		);
+		const fallbackTimer = snapshotFallbackTimers.get(projectId);
+		if (fallbackTimer !== undefined) {
+			clearTimeout(fallbackTimer);
+			snapshotFallbackTimers.delete(projectId);
+		}
 		useChatsStore.setState((state) => ({
 			chatsByProject: {
 				...state.chatsByProject,
@@ -263,6 +274,50 @@ const applyChatChange = (
 			},
 		};
 	});
+};
+
+const scheduleSnapshotFallback = (
+	projectId: FolderId,
+	lifecycle: number,
+): void => {
+	const previous = snapshotFallbackTimers.get(projectId);
+	if (previous !== undefined) clearTimeout(previous);
+	const timer = setTimeout(() => {
+		snapshotFallbackTimers.delete(projectId);
+		if (currentChangeLifecycle(projectId) !== lifecycle) return;
+		void (async () => {
+			const snapshotRevision = catalogSnapshotRevisions.get(projectId) ?? 0;
+			try {
+				const client = await getRpcClient();
+				const chats = await Effect.runPromise(
+					client["chat.list"]({ projectId }),
+				);
+				if (
+					currentChangeLifecycle(projectId) !== lifecycle ||
+					(catalogSnapshotRevisions.get(projectId) ?? 0) !== snapshotRevision
+				)
+					return;
+				applyChatChange(projectId, lifecycle, {
+					_tag: "snapshot",
+					chats,
+				});
+			} catch (error) {
+				if (
+					currentChangeLifecycle(projectId) !== lifecycle ||
+					(catalogSnapshotRevisions.get(projectId) ?? 0) !== snapshotRevision
+				)
+					return;
+				useChatsStore.setState((state) => ({
+					loadingByProject: {
+						...state.loadingByProject,
+						[projectId]: false,
+					},
+					error: formatError(error),
+				}));
+			}
+		})();
+	}, 750);
+	snapshotFallbackTimers.set(projectId, timer);
 };
 
 const runChatChangeStream = Effect.fn("ChatsStore.runChatChangeStream")(
@@ -343,6 +398,10 @@ export const stopChatChangeStream = async (
 	changeConnectionSubscriptions.get(projectId)?.();
 	changeConnectionSubscriptions.delete(projectId);
 	changeGenerations.delete(projectId);
+	const fallbackTimer = snapshotFallbackTimers.get(projectId);
+	if (fallbackTimer !== undefined) clearTimeout(fallbackTimer);
+	snapshotFallbackTimers.delete(projectId);
+	catalogSnapshotRevisions.delete(projectId);
 	const fiber = changeFibers.get(projectId);
 	changeFibers.delete(projectId);
 	if (fiber !== undefined) {
@@ -389,6 +448,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			error: null,
 		}));
 		ensureChangeStream(projectId, lifecycle);
+		scheduleSnapshotFallback(projectId, lifecycle);
 		try {
 			const client = await getRpcClient();
 			const archiveJobsRpc = (

@@ -493,6 +493,12 @@ export const wsServerProtocolLayer = (
 					return yield* browserClientApp(request, opts);
 				}
 				const requestUrl = new URL(request.url, "http://localhost");
+				const receivedVersion = Number(
+					requestUrl.searchParams.get("wireVersion"),
+				);
+				const diagnosticWireVersion = Number.isFinite(receivedVersion)
+					? receivedVersion
+					: null;
 				const ticket = requestUrl.searchParams.get("ticket");
 				const ticketCredential =
 					ticket === null ? null : tickets.consume(ticket);
@@ -502,7 +508,8 @@ export const wsServerProtocolLayer = (
 						: (ticketCredential ?? bearerFromRequest(request));
 				yield* Effect.sync(() =>
 					log("ws.request", {
-						url: request.url,
+						path: requestUrl.pathname,
+						wireVersion: diagnosticWireVersion,
 						protected: auth.policy === "protected",
 						hasToken: token !== null,
 						compressionConfigured: opts.compression !== false,
@@ -526,15 +533,13 @@ export const wsServerProtocolLayer = (
 							.pipe(Effect.orElseSucceed(() => false)));
 					yield* Effect.sync(() =>
 						log(ok ? "ws.auth.ok" : "ws.auth.fail", {
-							url: request.url,
+							path: requestUrl.pathname,
+							wireVersion: diagnosticWireVersion,
 							hasToken: token !== null,
 						}),
 					);
 					if (!ok) return yield* json({ error: "unauthorized" }, 401);
 				}
-				const receivedVersion = Number(
-					requestUrl.searchParams.get("wireVersion"),
-				);
 				if (receivedVersion !== WIRE_PROTOCOL_VERSION) {
 					log("ws.protocol.reject", {
 						expectedVersion: WIRE_PROTOCOL_VERSION,
