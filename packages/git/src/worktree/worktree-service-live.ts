@@ -27,11 +27,13 @@ import {
 import {
 	type Cause,
 	DateTime,
+	Deferred,
 	Effect,
 	FileSystem,
 	Layer,
 	Queue,
 	Schedule,
+	Semaphore,
 	Stream,
 } from "effect";
 import {
@@ -616,7 +618,11 @@ export const WorktreeServiceLive = Layer.effect(
 			return renamed;
 		});
 
-		const create: WorktreeService["Service"]["create"] = (projectId, source) =>
+		const create: WorktreeService["Service"]["create"] = (
+			projectId,
+			source,
+			requestedId,
+		) =>
 			Effect.gen(function* () {
 				const folder = yield* projects.find(projectId);
 				if (folder === null) {
@@ -628,6 +634,46 @@ export const WorktreeServiceLive = Layer.effect(
 					);
 				}
 				const repoPath = folder.path;
+				if (requestedId !== undefined) {
+					const interrupted = yield* get(requestedId);
+					if (interrupted !== null) {
+						const validCheckout = yield* runGit(interrupted.path, [
+							"rev-parse",
+							"--is-inside-work-tree",
+						]).pipe(
+							Effect.map((value) => value.trim() === "true"),
+							Effect.catch(() => Effect.succeed(false)),
+						);
+						if (validCheckout) {
+							if (interrupted.setupStatus === "pending") {
+								yield* Effect.forkDetach(runSetupSafely(requestedId));
+							}
+							return interrupted;
+						}
+						yield* runGit(repoPath, [
+							"worktree",
+							"remove",
+							"--force",
+							interrupted.path,
+						]).pipe(Effect.result);
+						yield* Effect.promise(() =>
+							removePath(interrupted.path, {
+								recursive: true,
+								force: true,
+							}),
+						).pipe(Effect.result);
+						if (interrupted.branchProvenance === "pending") {
+							yield* runGit(repoPath, [
+								"branch",
+								"-D",
+								interrupted.branch,
+							]).pipe(Effect.result);
+						}
+						yield* sql`
+							DELETE FROM worktrees WHERE id = ${requestedId}
+						`.pipe(Effect.orDie);
+					}
+				}
 				const createSettings = yield* repositorySettings.get(projectId);
 				// Layout: ~/.zuse/<repo-name>-<projectId-short>/<branch>/. Living
 				// in the user's home dir (next to Downloads, Developer, etc.) keeps
@@ -687,89 +733,16 @@ export const WorktreeServiceLive = Layer.effect(
 					baseBranch = headRefRaw.trim() || "HEAD";
 					baseRef = "HEAD";
 				} else {
-					// Resolve the remote's default branch authoritatively from the
-					// remote's own HEAD (`ls-remote --symref`), which also confirms the
-					// remote is reachable. Fall back to probing common remote-tracking
-					// refs if the symref can't be read/parsed.
-					const symrefRaw = yield* runGit(repoPath, [
-						"ls-remote",
-						"--symref",
-						"origin",
-						"HEAD",
-					]).pipe(Effect.result);
-
-					let defaultBranch: string | null = null;
-					if (symrefRaw._tag === "Success") {
-						const match = /^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m.exec(
-							symrefRaw.success,
-						);
-						defaultBranch = match?.[1] ?? null;
-					}
-
-					if (defaultBranch === null) {
-						// ls-remote failed or returned no symref — probe local
-						// remote-tracking refs in the conventional order.
-						for (const candidate of ["main", "master"]) {
-							const exists = yield* runGit(repoPath, [
-								"rev-parse",
-								"--verify",
-								"--quiet",
-								`refs/remotes/origin/${candidate}`,
-							]).pipe(
-								Effect.map(() => true),
-								Effect.catch(() => Effect.succeed(false)),
-							);
-							if (exists) {
-								defaultBranch = candidate;
-								break;
-							}
-						}
-					}
-
-					if (defaultBranch === null) {
-						return yield* Effect.fail(
-							fail("could not determine origin default branch"),
-						);
-					}
-
-					// Update the remote-tracking ref. Fail loudly on timeout/failure
-					// rather than basing the worktree off a stale local ref.
-					const fetched = yield* runGit(repoPath, [
-						"fetch",
-						"origin",
-						defaultBranch,
-					]).pipe(Effect.timeout(FETCH_TIMEOUT), Effect.result);
-					if (fetched._tag === "Failure") {
-						// runGit fails with a string; Effect.timeout adds a
-						// TimeoutException — anything non-string is the timeout.
-						const reason =
-							typeof fetched.failure === "string"
-								? fetched.failure
-								: `timed out after ${FETCH_TIMEOUT}`;
-						return yield* Effect.fail(
-							fail(`failed to fetch origin/${defaultBranch}: ${reason}`),
-						);
-					}
-
-					const remoteRefExists = yield* runGit(repoPath, [
-						"rev-parse",
-						"--verify",
-						"--quiet",
-						`refs/remotes/origin/${defaultBranch}`,
-					]).pipe(
-						Effect.map(() => true),
-						Effect.catch(() => Effect.succeed(false)),
+					// Concurrent creates for one repository share this authoritative
+					// remote discovery + fetch. Each checkout still branches only after
+					// that fresh fetch has completed.
+					const remoteStartedAt = Date.now();
+					const remoteBase = yield* refreshRemoteBase(projectId, repoPath);
+					yield* Effect.logInfo(
+						`[chat-creation-timing] project=${projectId} remote_fetch_ms=${Date.now() - remoteStartedAt}`,
 					);
-					if (!remoteRefExists) {
-						return yield* Effect.fail(
-							fail(
-								`origin/${defaultBranch} not found after fetch — cannot create worktree`,
-							),
-						);
-					}
-
-					baseBranch = defaultBranch;
-					baseRef = `origin/${defaultBranch}`;
+					baseBranch = remoteBase.baseBranch;
+					baseRef = remoteBase.baseRef;
 				}
 
 				const unavailableNames = new Set<string>();
@@ -856,6 +829,22 @@ export const WorktreeServiceLive = Layer.effect(
 					// branch `<pokemon>` off baseRef. With a source: check out the
 					// EXISTING branch / PR the "Create from…" picker chose.
 					let checkedOutBranch = branch;
+					const id = requestedId ?? WorktreeId.make(crypto.randomUUID());
+					const now = yield* DateTime.nowAsDate;
+					const nowIso = now.toISOString();
+					const journalBeforeCheckout =
+						requestedId !== undefined && source === undefined;
+					if (journalBeforeCheckout) {
+						yield* sql`
+							INSERT INTO worktrees
+								(id, project_id, path, name, branch, branch_provenance, base_branch, created_at,
+								 setup_status, setup_output, pokemon_number)
+							VALUES
+								(${id}, ${projectId}, ${target}, ${name}, ${branch}, 'pending', ${baseBranch}, ${nowIso},
+								 'pending', '', ${pokemonNumber})
+						`.pipe(Effect.orDie);
+					}
+					const checkoutStartedAt = Date.now();
 					const addResult = yield* Effect.gen(function* () {
 						if (source === undefined) {
 							// git worktree add -b <branch> <target> <baseRef>
@@ -921,6 +910,9 @@ export const WorktreeServiceLive = Layer.effect(
 						yield* runGh(target, ["pr", "checkout", String(source.number)]);
 						return "";
 					}).pipe(Effect.result);
+					yield* Effect.logInfo(
+						`[chat-creation-timing] project=${projectId} checkout_create_ms=${Date.now() - checkoutStartedAt}`,
+					);
 					if (addResult._tag === "Failure") {
 						// Clean up a half-created worktree dir so the name can be retried.
 						yield* runGit(repoPath, [
@@ -929,6 +921,11 @@ export const WorktreeServiceLive = Layer.effect(
 							"--force",
 							target,
 						]).pipe(Effect.result);
+						if (journalBeforeCheckout) {
+							yield* sql`
+								DELETE FROM worktrees WHERE id = ${id}
+							`.pipe(Effect.orDie);
+						}
 						return yield* Effect.fail(
 							new WorktreeCreateError({
 								projectId,
@@ -937,17 +934,16 @@ export const WorktreeServiceLive = Layer.effect(
 						);
 					}
 
-					const id = WorktreeId.make(crypto.randomUUID());
-					const now = yield* DateTime.nowAsDate;
-					const nowIso = now.toISOString();
-					yield* sql`
-            INSERT INTO worktrees
-              (id, project_id, path, name, branch, branch_provenance, base_branch, created_at,
-               setup_status, setup_output, pokemon_number)
-            VALUES
-              (${id}, ${projectId}, ${target}, ${name}, ${checkedOutBranch}, ${source === undefined ? "pending" : "manual"}, ${baseBranch}, ${nowIso},
-               'pending', '', ${pokemonNumber})
-          `.pipe(Effect.orDie);
+					if (!journalBeforeCheckout) {
+						yield* sql`
+							INSERT INTO worktrees
+								(id, project_id, path, name, branch, branch_provenance, base_branch, created_at,
+								 setup_status, setup_output, pokemon_number)
+							VALUES
+								(${id}, ${projectId}, ${target}, ${name}, ${checkedOutBranch}, ${source === undefined ? "pending" : "manual"}, ${baseBranch}, ${nowIso},
+								 'pending', '', ${pokemonNumber})
+						`.pipe(Effect.orDie);
+					}
 					yield* pokemonAssignment.record(pokemonNumber, id);
 					// Setup runs detached so `create` returns as soon as the worktree +
 					// branch exist. The renderer subscribes to `setupStream` to follow
@@ -969,6 +965,123 @@ export const WorktreeServiceLive = Layer.effect(
 						reason: "could not pick a unique Pokémon worktree name",
 					}),
 				);
+			});
+
+		type RemoteBase = {
+			readonly baseBranch: string;
+			readonly baseRef: string;
+		};
+		const remoteRefreshes = new Map<
+			string,
+			Deferred.Deferred<RemoteBase, WorktreeCreateError>
+		>();
+		const remoteRefreshLock = yield* Semaphore.make(1);
+		const refreshRemoteBase = (
+			projectId: FolderId,
+			repoPath: string,
+		): Effect.Effect<RemoteBase, WorktreeCreateError> =>
+			Effect.gen(function* () {
+				const acquired = yield* remoteRefreshLock.withPermits(1)(
+					Effect.gen(function* () {
+						const existing = remoteRefreshes.get(repoPath);
+						if (existing !== undefined) {
+							return { deferred: existing, owner: false } as const;
+						}
+						const deferred = yield* Deferred.make<
+							RemoteBase,
+							WorktreeCreateError
+						>();
+						remoteRefreshes.set(repoPath, deferred);
+						return { deferred, owner: true } as const;
+					}),
+				);
+				if (acquired.owner) {
+					const fail = (reason: string) =>
+						new WorktreeCreateError({ projectId, reason });
+					const refresh: Effect.Effect<RemoteBase, WorktreeCreateError> =
+						Effect.gen(function* () {
+							const symrefRaw = yield* runGit(repoPath, [
+								"ls-remote",
+								"--symref",
+								"origin",
+								"HEAD",
+							]).pipe(Effect.result);
+							let defaultBranch: string | null = null;
+							if (symrefRaw._tag === "Success") {
+								const match = /^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m.exec(
+									symrefRaw.success,
+								);
+								defaultBranch = match?.[1] ?? null;
+							}
+							if (defaultBranch === null) {
+								for (const candidate of ["main", "master"]) {
+									const exists = yield* runGit(repoPath, [
+										"rev-parse",
+										"--verify",
+										"--quiet",
+										`refs/remotes/origin/${candidate}`,
+									]).pipe(
+										Effect.map(() => true),
+										Effect.catch(() => Effect.succeed(false)),
+									);
+									if (exists) {
+										defaultBranch = candidate;
+										break;
+									}
+								}
+							}
+							if (defaultBranch === null) {
+								return yield* Effect.fail(
+									fail("could not determine origin default branch"),
+								);
+							}
+							const fetched = yield* runGit(repoPath, [
+								"fetch",
+								"origin",
+								defaultBranch,
+							]).pipe(Effect.timeout(FETCH_TIMEOUT), Effect.result);
+							if (fetched._tag === "Failure") {
+								const reason =
+									typeof fetched.failure === "string"
+										? fetched.failure
+										: `timed out after ${FETCH_TIMEOUT}`;
+								return yield* Effect.fail(
+									fail(`failed to fetch origin/${defaultBranch}: ${reason}`),
+								);
+							}
+							const remoteRefExists = yield* runGit(repoPath, [
+								"rev-parse",
+								"--verify",
+								"--quiet",
+								`refs/remotes/origin/${defaultBranch}`,
+							]).pipe(
+								Effect.map(() => true),
+								Effect.catch(() => Effect.succeed(false)),
+							);
+							if (!remoteRefExists) {
+								return yield* Effect.fail(
+									fail(
+										`origin/${defaultBranch} not found after fetch — cannot create worktree`,
+									),
+								);
+							}
+							return {
+								baseBranch: defaultBranch,
+								baseRef: `origin/${defaultBranch}`,
+							};
+						});
+					yield* refresh.pipe(
+						Effect.matchEffect({
+							onFailure: (error) => Deferred.fail(acquired.deferred, error),
+							onSuccess: (value) => Deferred.succeed(acquired.deferred, value),
+						}),
+						Effect.ensuring(
+							Effect.sync(() => remoteRefreshes.delete(repoPath)),
+						),
+						Effect.forkDetach,
+					);
+				}
+				return yield* Deferred.await(acquired.deferred);
 			});
 
 		const checkpointCommitArgs = (worktreeId: WorktreeId) => [

@@ -922,6 +922,32 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it("returns the durable result when the same chat bootstrap is retried", async () => {
+		await withRuntime(async (run) => {
+			const retryChatId = ChatId.make("chat-retry-after-lost-ack");
+			const retrySessionId = SessionId.make("session-retry-after-lost-ack");
+			const input = {
+				chatId: retryChatId,
+				initialSessionId: retrySessionId,
+				projectId: PROJECT_ID,
+				providerId: "claude" as const,
+				model: "claude-opus-4-8",
+				background: true,
+			};
+
+			const first = await run(
+				Effect.flatMap(store, (service) => service.createChat(input)),
+			);
+			const retried = await run(
+				Effect.flatMap(store, (service) => service.createChat(input)),
+			);
+
+			expect(retried.chat.id).toBe(first.chat.id);
+			expect(retried.initialSession.id).toBe(first.initialSession.id);
+			await expect.poll(() => providerStartInputs.length).toBe(1);
+		});
+	});
+
 	it("stops providers through the durable provider-stop reactor", async () => {
 		await withRuntime(async (run) => {
 			const created = await run(

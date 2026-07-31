@@ -5,7 +5,11 @@ import {
 	getPowerRuntimeActivity,
 	subscribePowerRuntimeActivity,
 } from "../lib/power-runtime-activity.ts";
-import { useMessagesStore } from "../store/messages.ts";
+import {
+	effectiveSessionRuntimeState,
+	isSessionRuntimeBusy,
+} from "../lib/session-runtime-state.ts";
+import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 
 /** Mirror privacy-safe active workload counts to desktop-owned services. */
 export function useReportRuntimeActivity(): void {
@@ -13,18 +17,20 @@ export function useReportRuntimeActivity(): void {
 		let lastWorkload = "";
 		let lastRunningCount = -1;
 
-		const countRunning = (state: {
-			runningBySession: Record<string, boolean>;
-		}): number => {
+		const countRunning = (
+			state: ReturnType<typeof useSessionRuntimeStore.getState>,
+		): number => {
 			let count = 0;
-			for (const running of Object.values(state.runningBySession)) {
-				if (running) count += 1;
+			for (const runtime of Object.values(state.bySession)) {
+				if (isSessionRuntimeBusy(effectiveSessionRuntimeState(runtime))) {
+					count += 1;
+				}
 			}
 			return count;
 		};
 
 		const report = () => {
-			const count = countRunning(useMessagesStore.getState());
+			const count = countRunning(useSessionRuntimeStore.getState());
 			if (count !== lastRunningCount) {
 				lastRunningCount = count;
 				window.zuse?.updates?.reportRunningCount(count);
@@ -46,7 +52,7 @@ export function useReportRuntimeActivity(): void {
 
 		report();
 		const unsubscribers = [
-			useMessagesStore.subscribe(report),
+			useSessionRuntimeStore.subscribe(report),
 			subscribePowerRuntimeActivity(report),
 		];
 

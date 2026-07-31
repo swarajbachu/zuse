@@ -6,12 +6,13 @@ import type {
 	Session,
 } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
-
 import {
 	buildNotchItems,
+	deriveRunningSessions,
 	NOTCH_COMPLETION_TTL_MS,
 	noteCompletedSessions,
 } from "../../src/lib/notch-items.ts";
+import type { SessionRuntimeState } from "../../src/lib/session-runtime-state.ts";
 
 const now = 1_000_000;
 
@@ -73,12 +74,15 @@ const permission = {
 	forcePrompt: false,
 } as PermissionRequest;
 
+const runtimeProjection = (state: SessionRuntimeState): SessionRuntimeState =>
+	state;
+
 const baseInput = {
 	folders: [folder],
 	chatsByProject: { "project-1": [chat] },
 	sessionsByProject: { "project-1": [session()] },
 	messagesBySession: {},
-	runningBySession: {},
+	runtimeBySession: { "session-1": runtimeProjection("idle") },
 	permissionRequests: [],
 	recentCompletions: {},
 	now,
@@ -89,9 +93,36 @@ describe("buildNotchItems", () => {
 		const items = buildNotchItems({
 			...baseInput,
 			sessionsByProject: { "project-1": [session("running")] },
+			runtimeBySession: { "session-1": runtimeProjection("running") },
 		});
 
 		expect(items).toHaveLength(1);
+		expect(items[0]?.state).toBe("running");
+	});
+
+	it("uses the shared runtime projection for completion", () => {
+		const items = buildNotchItems({
+			...baseInput,
+			runtimeBySession: {
+				"session-1": runtimeProjection("idle"),
+			},
+		});
+
+		expect(items).toHaveLength(0);
+		expect(
+			deriveRunningSessions(baseInput.sessionsByProject, {
+				"session-1": runtimeProjection("idle"),
+			}),
+		).toEqual({ "session-1": false });
+	});
+
+	it("surfaces provider startup through the same runtime selector", () => {
+		const items = buildNotchItems({
+			...baseInput,
+			sessionsByProject: { "project-1": [session("booting")] },
+			runtimeBySession: { "session-1": runtimeProjection("starting") },
+		});
+
 		expect(items[0]?.state).toBe("running");
 	});
 
@@ -99,7 +130,9 @@ describe("buildNotchItems", () => {
 		const items = buildNotchItems({
 			...baseInput,
 			messagesBySession: { "session-1": [exitPlan, userQuestion] },
-			runningBySession: { "session-1": true },
+			runtimeBySession: {
+				"session-1": runtimeProjection("running"),
+			},
 			permissionRequests: [permission],
 		});
 
@@ -137,6 +170,10 @@ describe("buildNotchItems", () => {
 		const items = buildNotchItems({
 			...baseInput,
 			sessionsByProject: { "project-1": [completed, failed] },
+			runtimeBySession: {
+				"completed-session": runtimeProjection("idle"),
+				"failed-session": runtimeProjection("failed"),
+			},
 			recentCompletions: {
 				"completed-session": { completedAt: now },
 			},

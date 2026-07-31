@@ -5,8 +5,14 @@ import {
 	Tick01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
+import {
+	providerStartupLabel,
+	useProviderStartupDelay,
+} from "../lib/provider-startup-delay.ts";
+import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
 import { shouldShowSetupCard } from "../lib/setup-card-visibility.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
+import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
@@ -45,6 +51,7 @@ export type SetupCardData = {
 	readonly setupOutput: string;
 	readonly providerLabel: string;
 	readonly providerState: StepState;
+	readonly providerDelayed: boolean;
 	/** Rerun handler, present only when setup has failed and a row exists. */
 	readonly onRerun: (() => void) | null;
 };
@@ -66,6 +73,16 @@ export function WorktreeSetupCard() {
 		}
 		return null;
 	});
+	const initialSession = useSessionsStore((s) => {
+		if (session === null) return false;
+		const chatSessions = s.sessionsByProject[session.projectId] ?? [];
+		const oldest = chatSessions
+			.filter((candidate) => candidate.chatId === session.chatId)
+			.toSorted(
+				(left, right) => left.createdAt.getTime() - right.createdAt.getTime(),
+			)[0];
+		return oldest?.id === session.id;
+	});
 	const repoName = useWorkspaceStore((s) => {
 		if (ctx.status !== "ready") return null;
 		return s.folders.find((f) => f.id === ctx.folderId)?.name ?? null;
@@ -76,20 +93,30 @@ export function WorktreeSetupCard() {
 		return list.find((w) => w.id === ctx.worktreeId) ?? null;
 	});
 	const rerunSetup = useWorktreesStore((s) => s.rerunSetup);
+	const providerRuntime = useSessionRuntimeStore((s) =>
+		session === null
+			? "idle"
+			: effectiveSessionRuntimeState(s.bySession[session.id]),
+	);
 
 	const hasWorktree = ctx.status === "ready" && ctx.worktreeId !== null;
 	const worktreePending = ctx.status === "ready" && ctx.worktreePending;
 	const setupStatus = worktree?.setupStatus ?? null;
 	const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
 	const externalResume = session !== null && session.resumeStrategy !== "none";
-	const providerBooting = session?.status === "booting";
-	const providerErrored = session?.status === "error";
+	const providerBooting = providerRuntime === "starting";
+	const providerErrored = providerRuntime === "failed";
+	const providerDelayed = useProviderStartupDelay(
+		providerBooting === true,
+		session?.id ?? "no-session",
+	);
 
 	// This card belongs to chat/worktree creation. A provider still boots for
 	// every additional session, but that must not replay chat setup UI after the
 	// shared worktree is ready.
 	const visible = shouldShowSetupCard({
 		externalResume,
+		initialSession,
 		hasWorktree,
 		setupDone,
 		providerBooting: providerBooting === true,
@@ -122,6 +149,7 @@ export function WorktreeSetupCard() {
 				setupOutput: worktree?.setupOutput ?? "",
 				providerLabel,
 				providerState,
+				providerDelayed,
 				onRerun:
 					worktree !== null && setupStatus === "failed"
 						? () => void rerunSetup(worktree.projectId, worktree.id)
@@ -147,6 +175,7 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 		setupOutput,
 		providerLabel,
 		providerState,
+		providerDelayed,
 		onRerun,
 	} = data;
 
@@ -245,11 +274,12 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 					) : null}
 					<StepRow
 						state={providerState}
-						label={
-							providerState === "failed"
-								? `${providerLabel} failed to start`
-								: `Starting ${providerLabel}`
-						}
+						tone={providerDelayed ? "warning" : "default"}
+						label={providerStartupLabel({
+							providerLabel,
+							failed: providerState === "failed",
+							delayed: providerDelayed,
+						})}
 					/>
 				</div>
 				{setupOutput.trim().length > 0 ? (
@@ -269,7 +299,15 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	);
 }
 
-function StepRow({ state, label }: { state: StepState; label: string }) {
+function StepRow({
+	state,
+	label,
+	tone = "default",
+}: {
+	state: StepState;
+	label: string;
+	tone?: "default" | "warning";
+}) {
 	return (
 		<div className="flex items-center gap-2">
 			{state === "active" ? (
@@ -293,9 +331,11 @@ function StepRow({ state, label }: { state: StepState; label: string }) {
 				className={
 					state === "failed"
 						? "text-[var(--accent-red)]"
-						: state === "pending"
-							? "text-muted-foreground/50"
-							: "text-foreground/80"
+						: tone === "warning"
+							? "text-warning"
+							: state === "pending"
+								? "text-muted-foreground/50"
+								: "text-foreground/80"
 				}
 			>
 				{state === "active" ? (

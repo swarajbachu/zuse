@@ -61,9 +61,12 @@ export const usePrDetailsStore = create<PrDetailsState>((set, get) => ({
     }));
   },
   refresh: async (folderId, worktreeId) => {
-    const info = await fetchPrDetails(folderId, worktreeId);
-    if (info === null) return;
     const key = prDetailsKey(folderId, worktreeId);
-    set((s) => ({ byKey: { ...s.byKey, [key]: info } }));
+    set((s) => ({ loadingByKey: { ...s.loadingByKey, [key]: true } }));
+    const info = await fetchPrDetails(folderId, worktreeId);
+    set((s) => ({
+      loadingByKey: { ...s.loadingByKey, [key]: false },
+      byKey: info === null ? s.byKey : { ...s.byKey, [key]: info },
+    }));
   },
 }));

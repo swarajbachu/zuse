@@ -6,16 +6,25 @@ import {
 import { safeModelId } from "@zuse/analytics";
 import {
 	AgentSessionStartError,
+	type ChatCreationOperation,
+	ChatId,
+	ComposerInput,
 	CredentialStoreError,
+	FolderId,
 	MemoizeRpcs,
 	type ProviderId,
-	type SessionId,
+	SessionId,
+	SessionStartError,
 	type SessionSummaryChange,
 	type SessionTimelineFrame,
+	WorktreeId,
 } from "@zuse/contracts";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
-import { Effect, Layer, Result, Stream } from "effect";
+import { WorktreeService } from "@zuse/git/worktree-service";
+import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
+import { Effect, Layer, Result, Schedule, Stream } from "effect";
 import type { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
+import { SqlClient } from "effect/unstable/sql";
 import { AnalyticsService } from "../analytics/services/analytics-service.ts";
 import { ConfigStoreService } from "../config-store/services/config-store-service.ts";
 import {
@@ -358,35 +367,303 @@ const ChatArchivePreview = MemoizeRpcs.toLayerHandler(
 		Effect.flatMap(ChatService, (svc) => svc.getArchivePreview(chatId)),
 );
 
+const chatCreationWorker = new KeyedEffectSerialWorker<string>();
+
+type ChatCreationOperationRow = {
+	readonly operation_id: string;
+	readonly chat_id: string;
+	readonly initial_session_id: string;
+	readonly project_id: string;
+	readonly provider_id: string;
+	readonly model: string;
+	readonly title: string | null;
+	readonly runtime_mode: string;
+	readonly permission_mode: string;
+	readonly tool_search: number;
+	readonly prompt: string | null;
+	readonly startup_input_json: string | null;
+	readonly startup_queue_id: string | null;
+	readonly workspace_policy: ChatCreationOperation["workspacePolicy"]["_tag"];
+	readonly worktree_id: string | null;
+	readonly status: ChatCreationOperation["status"];
+	readonly error: string | null;
+	readonly created_at: string;
+	readonly updated_at: string;
+};
+
+const chatCreationOperationFromRow = (
+	row: ChatCreationOperationRow,
+): ChatCreationOperation => ({
+	operationId: row.operation_id,
+	chatId: ChatId.make(row.chat_id),
+	initialSessionId: SessionId.make(row.initial_session_id),
+	projectId: FolderId.make(row.project_id),
+	providerId: row.provider_id as ProviderId,
+	model: row.model,
+	title: row.title,
+	runtimeMode: row.runtime_mode as ChatCreationOperation["runtimeMode"],
+	permissionMode:
+		row.permission_mode as ChatCreationOperation["permissionMode"],
+	toolSearch: row.tool_search === 1,
+	prompt: row.prompt,
+	startupInput:
+		row.startup_input_json === null
+			? null
+			: ComposerInput.make(JSON.parse(row.startup_input_json)),
+	startupQueueId: row.startup_queue_id,
+	workspacePolicy:
+		row.workspace_policy === "fresh"
+			? { _tag: "fresh" }
+			: row.workspace_policy === "existing" && row.worktree_id !== null
+				? { _tag: "existing", worktreeId: WorktreeId.make(row.worktree_id) }
+				: { _tag: "main" },
+	worktreeId:
+		row.worktree_id === null ? null : WorktreeId.make(row.worktree_id),
+	status: row.status,
+	error: row.error,
+	createdAt: new Date(row.created_at),
+	updatedAt: new Date(row.updated_at),
+});
+
+const listChatCreationOperations = (projectId: string) =>
+	Effect.flatMap(SqlClient.SqlClient, (sql) =>
+		sql<ChatCreationOperationRow>`
+			SELECT operation_id, chat_id, initial_session_id, project_id,
+			       provider_id, model, title, runtime_mode, permission_mode,
+			       tool_search, prompt, startup_input_json, startup_queue_id,
+			       workspace_policy, worktree_id,
+			       status, error, created_at, updated_at
+			FROM chat_creation_operations
+			WHERE project_id = ${projectId}
+			  AND (
+			    status <> 'succeeded'
+			    OR updated_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes')
+			  )
+			ORDER BY created_at ASC
+		`.pipe(
+			Effect.orDie,
+			Effect.map((rows) => rows.map(chatCreationOperationFromRow)),
+		),
+	);
+
 const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
-	Effect.gen(function* () {
-		const svc = yield* ChatService;
-		const analytics = yield* AnalyticsService;
-		const result = yield* svc.createChat({
-			chatId: input.chatId,
-			initialSessionId: input.initialSessionId,
-			projectId: input.projectId,
-			providerId: input.providerId,
-			model: input.model,
-			title: input.title,
-			initialPrompt: input.initialPrompt,
-			runtimeMode: input.runtimeMode,
-			worktreeId: input.worktreeId ?? null,
-			agents: input.agents,
-			enableSubagents: input.enableSubagents,
-			permissionMode: input.permissionMode,
-			modelOptions: input.modelOptions,
-			toolSearch: input.toolSearch,
-			originSessionId: input.originSessionId ?? null,
-			background: input.background,
-		});
-		yield* analytics.capture("chat created", {
-			provider: input.providerId,
-			model: safeModelId(input.providerId, input.model),
-			runtime_mode: input.runtimeMode ?? "unknown",
-		});
-		return result;
-	}),
+	chatCreationWorker.run(
+		input.operationId ?? input.chatId ?? crypto.randomUUID(),
+		Effect.gen(function* () {
+			const creationStartedAt = Date.now();
+			const svc = yield* ChatService;
+			const analytics = yield* AnalyticsService;
+			const sql = yield* SqlClient.SqlClient;
+			const policy =
+				input.workspacePolicy?._tag ??
+				(input.worktreeId === null || input.worktreeId === undefined
+					? "main"
+					: "existing");
+			if (
+				input.operationId !== undefined &&
+				input.chatId !== undefined &&
+				input.initialSessionId !== undefined
+			) {
+				const now = new Date().toISOString();
+				yield* sql`
+				INSERT INTO chat_creation_operations (
+					operation_id, chat_id, initial_session_id, project_id,
+					provider_id, model, title, runtime_mode, permission_mode,
+					tool_search, prompt, startup_input_json, startup_queue_id,
+					workspace_policy, worktree_id,
+					status, error, created_at, updated_at
+				) VALUES (
+					${input.operationId}, ${input.chatId}, ${input.initialSessionId},
+					${input.projectId}, ${input.providerId}, ${input.model},
+					${input.title ?? null}, ${input.runtimeMode ?? "approval-required"},
+					${input.permissionMode ?? "default"}, ${input.toolSearch === true ? 1 : 0},
+					${input.startupInput?.text ?? null},
+					${input.startupInput === undefined ? null : JSON.stringify(input.startupInput)},
+					${input.startupQueueId ?? null},
+					${policy}, NULL,
+					'pending', NULL, ${now}, ${now}
+				)
+				ON CONFLICT(operation_id) DO NOTHING
+			`.pipe(Effect.orDie);
+			}
+			const operationRows =
+				input.operationId === undefined
+					? []
+					: yield* sql<{
+							readonly worktree_id: string | null;
+							readonly status: string;
+						}>`
+						SELECT worktree_id, status
+						FROM chat_creation_operations
+						WHERE operation_id = ${input.operationId}
+						LIMIT 1
+					`.pipe(Effect.orDie);
+			const durableWorktreeId = operationRows[0]?.worktree_id ?? null;
+			const worktreeId =
+				input.workspacePolicy?._tag === "fresh"
+					? yield* Effect.gen(function* () {
+							const requestedId =
+								durableWorktreeId === null
+									? WorktreeId.make(crypto.randomUUID())
+									: WorktreeId.make(durableWorktreeId);
+							if (input.operationId !== undefined) {
+								yield* sql`
+									UPDATE chat_creation_operations
+									SET worktree_id = ${requestedId},
+									    status = 'creating_workspace', error = NULL,
+									    updated_at = ${new Date().toISOString()}
+									WHERE operation_id = ${input.operationId}
+								`.pipe(Effect.orDie);
+							}
+							const created = yield* Effect.flatMap(
+								WorktreeService,
+								(worktrees) =>
+									worktrees.create(input.projectId, undefined, requestedId),
+							).pipe(
+								Effect.mapError(
+									(error) =>
+										new SessionStartError({
+											providerId: input.providerId,
+											reason:
+												"reason" in error
+													? String(error.reason)
+													: "The fresh worktree could not be created.",
+										}),
+								),
+								Effect.tapError((error) =>
+									input.operationId === undefined
+										? Effect.void
+										: sql`
+												UPDATE chat_creation_operations
+												SET status = 'failed', error = ${error.reason},
+												    updated_at = ${new Date().toISOString()}
+												WHERE operation_id = ${input.operationId}
+											`.pipe(Effect.orDie),
+								),
+							);
+							if (input.operationId !== undefined) {
+								yield* sql`
+									UPDATE chat_creation_operations
+									SET worktree_id = ${created.id}, status = 'creating_chat',
+									    updated_at = ${new Date().toISOString()}
+									WHERE operation_id = ${input.operationId}
+								`.pipe(Effect.orDie);
+							}
+							return created.id;
+						})
+					: input.workspacePolicy?._tag === "existing"
+						? input.workspacePolicy.worktreeId
+						: input.workspacePolicy?._tag === "main"
+							? null
+							: (input.worktreeId ?? null);
+			if (input.operationId !== undefined && policy !== "fresh") {
+				yield* sql`
+				UPDATE chat_creation_operations
+				SET worktree_id = ${worktreeId}, status = 'creating_chat',
+				    updated_at = ${new Date().toISOString()}
+				WHERE operation_id = ${input.operationId}
+			`.pipe(Effect.orDie);
+			}
+			const result = yield* svc
+				.createChat({
+					chatId: input.chatId,
+					initialSessionId: input.initialSessionId,
+					projectId: input.projectId,
+					providerId: input.providerId,
+					model: input.model,
+					title: input.title,
+					initialPrompt: input.initialPrompt,
+					runtimeMode: input.runtimeMode,
+					worktreeId,
+					agents: input.agents,
+					enableSubagents: input.enableSubagents,
+					permissionMode: input.permissionMode,
+					modelOptions: input.modelOptions,
+					toolSearch: input.toolSearch,
+					originSessionId: input.originSessionId ?? null,
+					background: input.background,
+				})
+				.pipe(
+					Effect.tapError((error) =>
+						input.operationId === undefined
+							? Effect.void
+							: sql`
+								UPDATE chat_creation_operations
+								SET status = 'failed', error = ${error.reason},
+								    updated_at = ${new Date().toISOString()}
+								WHERE operation_id = ${input.operationId}
+							`.pipe(Effect.orDie),
+					),
+					Effect.tap(() =>
+						input.operationId === undefined
+							? Effect.void
+							: sql`
+									UPDATE chat_creation_operations
+									SET status = 'succeeded', error = NULL,
+									    updated_at = ${new Date().toISOString()}
+									WHERE operation_id = ${input.operationId}
+								`.pipe(Effect.orDie),
+					),
+				);
+			yield* analytics.capture("chat created", {
+				provider: input.providerId,
+				model: safeModelId(input.providerId, input.model),
+				runtime_mode: input.runtimeMode ?? "unknown",
+			});
+			yield* Effect.logInfo(
+				`[chat-creation-timing] operation=${input.operationId ?? "legacy"} durable_chat_ack_ms=${Date.now() - creationStartedAt}`,
+			);
+			return result;
+		}),
+	),
+);
+
+const ChatCreationList = MemoizeRpcs.toLayerHandler(
+	"chat.creation.list",
+	({ projectId }) => listChatCreationOperations(projectId),
+);
+
+const ChatCreationStream = MemoizeRpcs.toLayerHandler(
+	"chat.creation.stream",
+	({ projectId }) =>
+		Stream.fromEffect(listChatCreationOperations(projectId)).pipe(
+			Stream.repeat(Schedule.spaced("1 second")),
+			Stream.changesWith(
+				(previous, next) =>
+					previous.length === next.length &&
+					previous.every((operation, index) => {
+						const candidate = next[index];
+						return (
+							candidate !== undefined &&
+							operation.operationId === candidate.operationId &&
+							operation.status === candidate.status &&
+							operation.worktreeId === candidate.worktreeId &&
+							operation.error === candidate.error &&
+							operation.updatedAt.getTime() === candidate.updatedAt.getTime()
+						);
+					}),
+			),
+			Stream.flatMap((operations) => Stream.fromIterable(operations)),
+		),
+);
+
+const ChatCreationDiscard = MemoizeRpcs.toLayerHandler(
+	"chat.creation.discard",
+	({ operationId }) =>
+		Effect.gen(function* () {
+			const sql = yield* SqlClient.SqlClient;
+			const rows = yield* sql<{ readonly operation_id: string }>`
+				SELECT operation_id FROM chat_creation_operations
+				WHERE operation_id = ${operationId} AND status <> 'succeeded'
+				LIMIT 1
+			`.pipe(Effect.orDie);
+			if (rows.length === 0) return { discarded: false };
+			yield* sql`
+				DELETE FROM chat_creation_operations
+				WHERE operation_id = ${operationId} AND status <> 'succeeded'
+			`.pipe(Effect.orDie);
+			return { discarded: true };
+		}),
 );
 
 const ChatRename = MemoizeRpcs.toLayerHandler(
@@ -935,6 +1212,9 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	ChatGet,
 	ChatArchivePreview,
 	ChatCreate,
+	ChatCreationList,
+	ChatCreationStream,
+	ChatCreationDiscard,
 	ChatRename,
 	ChatMarkRead,
 	ChatStreamChanges,

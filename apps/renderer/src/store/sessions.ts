@@ -27,6 +27,7 @@ import {
 	markQueueHydrated,
 	notifySessionAcknowledged,
 } from "./queue-hydration.ts";
+import { useSessionRuntimeStore } from "./session-runtime.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 
 /**
@@ -766,6 +767,12 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 
 useSessionsStore.subscribe((state, previous) => {
 	if (state.sessionsByProject === previous.sessionsByProject) return;
+	const previousIds = new Set<SessionId>();
+	const currentIds = new Set<SessionId>();
+	const summaries: Array<{
+		readonly sessionId: SessionId;
+		readonly status: Session["status"];
+	}> = [];
 	const projectIds = new Set([
 		...Object.keys(previous.sessionsByProject),
 		...Object.keys(state.sessionsByProject),
@@ -774,14 +781,28 @@ useSessionsStore.subscribe((state, previous) => {
 		const before = previous.sessionsByProject[projectId];
 		const after = state.sessionsByProject[projectId];
 		if (before === after) continue;
+		const previousStatus = new Map(
+			(before ?? []).map((session) => [session.id, session.status]),
+		);
 		for (const session of before ?? []) {
+			previousIds.add(session.id);
 			if (sessionProjectIndex.get(session.id) !== projectId) continue;
 			sessionProjectIndex.delete(session.id);
 			sessionEntityIndex.delete(session.id);
 		}
 		for (const session of after ?? []) {
+			currentIds.add(session.id);
 			sessionProjectIndex.set(session.id, projectId as FolderId);
 			sessionEntityIndex.set(session.id, session);
+			if (previousStatus.get(session.id) !== session.status) {
+				summaries.push({ sessionId: session.id, status: session.status });
+			}
+		}
+	}
+	useSessionRuntimeStore.getState().observeSummaries(summaries);
+	for (const sessionId of previousIds) {
+		if (!currentIds.has(sessionId) && !sessionEntityIndex.has(sessionId)) {
+			useSessionRuntimeStore.getState().remove(sessionId);
 		}
 	}
 });

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { installFakeAcpProvider, waitForFile } from "@zuse/testkit";
@@ -15,6 +16,11 @@ describe("built Electron application", () => {
 		await withSystemTest("zuse-electron-system-", async (scope) => {
 			const repository = scope.path("repository");
 			initializeSystemRepository(repository);
+			const origin = scope.path("origin.git");
+			execFileSync("git", ["clone", "--bare", repository, origin]);
+			execFileSync("git", ["remote", "add", "origin", origin], {
+				cwd: repository,
+			});
 			const server = await scope.server();
 			const rpc = await scope.rpc(server.endpoint);
 			const provider = installFakeAcpProvider({ root: scope.root });
@@ -63,6 +69,17 @@ describe("built Electron application", () => {
 				await electron.page
 					.getByText("Hello from deterministic provider.", { exact: true })
 					.waitFor({ state: "visible", timeout: 20_000 });
+				await expect
+					.poll(
+						() =>
+							electron.page
+								.locator(
+									'[aria-label="Starting agent"], [aria-label^="Agent is "]',
+								)
+								.count(),
+						{ timeout: 10_000 },
+					)
+					.toBe(0);
 			} catch (cause) {
 				const artifact = await electron.captureFailure("electron-chat-send");
 				throw new Error(
@@ -137,4 +154,96 @@ describe("built Electron application", () => {
 			}
 		});
 	}, 45_000);
+
+	it("keeps chat creation in the background and reconciles stop state", async () => {
+		await withSystemTest("zuse-electron-create-", async (scope) => {
+			const repository = scope.path("repository");
+			initializeSystemRepository(repository);
+			const server = await scope.server();
+			const rpc = await scope.rpc(server.endpoint);
+			await Effect.runPromise(
+				rpc.client["settings.update"]({
+					patch: {
+						onboardingCompleted: true,
+						defaultProviderId: "gemini",
+						defaultAutoCreateWorktree: true,
+					},
+				}),
+			);
+			const { folder, conversation } = await createSystemConversation(
+				rpc.client,
+				repository,
+			);
+			await Effect.runPromise(
+				rpc.client["workspace.setSelected"]({ folderId: folder.id }),
+			);
+			await rpc.dispose();
+			await server.stop();
+
+			const controller = await scope.controller();
+			const provider = installFakeAcpProvider({
+				root: scope.root,
+				scenario: "hold",
+				controlPort: controller.port,
+			});
+			const electron = await scope.acquire(
+				() =>
+					launchElectronApp({
+						root: scope.root,
+						userData: server.userData,
+						providerBinDirectory: provider.binDirectory,
+						providerEnvironment: provider.environment,
+					}),
+				(value) => value.close(),
+			);
+			try {
+				const existingTitle = electron.page
+					.getByText(conversation.chat.title, { exact: true })
+					.first();
+				await existingTitle.waitFor({ state: "visible", timeout: 20_000 });
+				await electron.page
+					.getByRole("button", { name: "New chat" })
+					.first()
+					.click();
+				const composer = electron.page
+					.locator(".cm-content[contenteditable='true']")
+					.last();
+				await composer.fill("Keep this creation in the background");
+				await electron.page.getByRole("button", { name: "Send" }).click();
+				await electron.page
+					.getByText("Creating a worktree and running setup", { exact: true })
+					.waitFor({ state: "visible", timeout: 10_000 });
+
+				await existingTitle.click();
+				const existingRow = existingTitle.locator(
+					"xpath=ancestor::*[@role='button'][1]",
+				);
+				await electron.page.waitForTimeout(1_000);
+				expect(await existingRow.getAttribute("class")).toContain(
+					"bg-sidebar-accent",
+				);
+
+				await electron.page
+					.locator('[data-pane="sidebar"] [role="button"][title="New chat"]')
+					.first()
+					.click();
+				await controller.waitFor("prompt.held", undefined, 20_000);
+				const stop = electron.page.getByRole("button", {
+					name: "Stop current turn",
+				});
+				await stop.waitFor({ state: "visible", timeout: 10_000 });
+				await stop.click({ timeout: 10_000 });
+				await controller.waitFor("prompt.cancelled", undefined, 10_000);
+				await stop.waitFor({ state: "hidden", timeout: 10_000 });
+				expect(electron.errors).toEqual([]);
+			} catch (cause) {
+				const artifact = await electron.captureFailure(
+					"electron-chat-create-lifecycle",
+				);
+				throw new Error(
+					`${cause instanceof Error ? cause.message : String(cause)}\nartifact: ${artifact}\npage text:\n${await electron.page.locator("body").innerText()}\n${electron.diagnostics()}`,
+				);
+			}
+		});
+	}, 75_000);
 });

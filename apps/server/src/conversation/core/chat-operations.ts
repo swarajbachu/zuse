@@ -100,6 +100,21 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 			return { chat, sessions: rows.map(sessionFromRow) };
 		});
 
+	const lookupInitialMessage = (sessionId: string) =>
+		sql<MessageRow>`
+			SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
+			FROM messages
+			WHERE session_id = ${sessionId} AND role = 'user'
+			ORDER BY created_at ASC
+			LIMIT 1
+		`.pipe(
+			Effect.orDie,
+			Effect.map((rows) => {
+				const [row] = rows;
+				return row === undefined ? null : messageFromRow(row);
+			}),
+		);
+
 	const streamChatChanges: ConversationOperations["streamChatChanges"] = (
 		projectId,
 	) =>
@@ -129,6 +144,32 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 		Effect.gen(function* () {
 			const createdAt = yield* currentTimestamp;
 			const chatId = input.chatId ?? (crypto.randomUUID() as unknown as ChatId);
+			if (input.chatId !== undefined && input.initialSessionId !== undefined) {
+				const existingSessions = yield* sql<SessionRow>`
+					SELECT id, project_id, title, title_provenance, provider_id, model, status,
+					       archived_at, cursor, resume_strategy, runtime_mode,
+					       agents_json, worktree_id, chat_id, forked_from_session_id,
+					       forked_from_message_id, permission_mode, tool_search,
+					       created_at, updated_at
+					FROM sessions
+					WHERE id = ${input.initialSessionId} AND chat_id = ${input.chatId}
+					LIMIT 1
+				`.pipe(Effect.orDie);
+				const [existingSessionRow] = existingSessions;
+				if (existingSessionRow !== undefined) {
+					const existingChat = yield* lookupChat(input.chatId).pipe(
+						Effect.orDie,
+					);
+					const initialMessage = yield* lookupInitialMessage(
+						input.initialSessionId,
+					);
+					return {
+						chat: existingChat,
+						initialSession: sessionFromRow(existingSessionRow),
+						initialMessage,
+					};
+				}
+			}
 			const title = input.title?.trim() || "New chat";
 			const worktreeId = input.worktreeId ?? null;
 			const originSessionId = input.originSessionId ?? null;
@@ -184,19 +225,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 				input.initialPrompt !== undefined &&
 				input.initialPrompt.trim().length > 0;
 			const initialMessage = hasInitial
-				? yield* sql<MessageRow>`
-              SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
-              FROM messages
-              WHERE session_id = ${initialSession.id} AND role = 'user'
-              ORDER BY created_at ASC
-              LIMIT 1
-            `.pipe(
-						Effect.orDie,
-						Effect.map((rows) => {
-							const [row] = rows;
-							return row === undefined ? null : messageFromRow(row);
-						}),
-					)
+				? yield* lookupInitialMessage(initialSession.id)
 				: null;
 			yield* broadcastChat(chat);
 			return { chat, initialSession, initialMessage };

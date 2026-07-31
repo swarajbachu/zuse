@@ -7,6 +7,7 @@ describe("shouldShowSetupCard", () => {
 		expect(
 			shouldShowSetupCard({
 				externalResume: false,
+				initialSession: false,
 				hasWorktree: true,
 				setupDone: true,
 				providerBooting: true,
@@ -18,9 +19,34 @@ describe("shouldShowSetupCard", () => {
 		expect(
 			shouldShowSetupCard({
 				externalResume: false,
+				initialSession: true,
 				hasWorktree: true,
 				setupDone: false,
 				providerBooting: false,
+			}),
+		).toBe(true);
+	});
+
+	it("shows startup immediately while the workspace choice is still resolving", () => {
+		expect(
+			shouldShowSetupCard({
+				externalResume: false,
+				initialSession: true,
+				hasWorktree: false,
+				setupDone: false,
+				providerBooting: true,
+			}),
+		).toBe(true);
+	});
+
+	it("keeps the card visible when setup finishes before a slow provider", () => {
+		expect(
+			shouldShowSetupCard({
+				externalResume: false,
+				initialSession: true,
+				hasWorktree: true,
+				setupDone: true,
+				providerBooting: true,
 			}),
 		).toBe(true);
 	});

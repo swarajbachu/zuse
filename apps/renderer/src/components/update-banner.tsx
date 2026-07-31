@@ -10,8 +10,12 @@ import { createPortal } from "react-dom";
 
 import { Button } from "~/components/ui/button";
 import { overlaySurface } from "~/components/ui/overlay-surface";
+import {
+	effectiveSessionRuntimeState,
+	isSessionRuntimeBusy,
+} from "~/lib/session-runtime-state.ts";
 import { cn } from "~/lib/utils";
-import { useMessagesStore } from "~/store/messages.ts";
+import { useSessionRuntimeStore } from "~/store/session-runtime.ts";
 
 /**
  * Bottom-right toast for the electron-updater lifecycle. Subscribes to the
@@ -42,10 +46,12 @@ export function UpdateBanner() {
 
 	// Global count of sessions with an in-flight turn. Primitive selector, so
 	// this only re-renders when the number actually changes.
-	const runningCount = useMessagesStore((s) => {
+	const runningCount = useSessionRuntimeStore((s) => {
 		let count = 0;
-		for (const running of Object.values(s.runningBySession)) {
-			if (running) count += 1;
+		for (const runtime of Object.values(s.bySession)) {
+			if (isSessionRuntimeBusy(effectiveSessionRuntimeState(runtime))) {
+				count += 1;
+			}
 		}
 		return count;
 	});

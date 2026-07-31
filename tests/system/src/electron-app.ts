@@ -27,6 +27,36 @@ export type ElectronHarness = {
 	readonly close: () => Promise<void>;
 };
 
+const closeElectronApplication = async (
+	app: ElectronApplication,
+): Promise<void> => {
+	const child = app.process();
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	const graceful = app
+		.close()
+		.then(() => true)
+		.catch(() => true);
+	const closed = await Promise.race([
+		graceful,
+		new Promise<false>((resolve) => {
+			timeout = setTimeout(() => resolve(false), 3_000);
+		}),
+	]);
+	if (timeout !== undefined) clearTimeout(timeout);
+	if (closed || child.exitCode !== null || child.signalCode !== null) return;
+
+	// Playwright can hang while closing a wedged renderer. Terminate only the
+	// child launched by this harness so a failed desktop test cannot leave its
+	// isolated app and provider processes behind.
+	child.kill("SIGTERM");
+	await Promise.race([
+		new Promise<void>((resolve) => child.once("exit", () => resolve())),
+		new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+	]);
+	if (child.exitCode === null && child.signalCode === null)
+		child.kill("SIGKILL");
+};
+
 export const launchElectronApp = async (options: {
 	readonly root: string;
 	readonly userData: string;
@@ -61,6 +91,7 @@ export const launchElectronApp = async (options: {
 			ZUSE_PRESERVE_PATH: "1",
 			ZUSE_DISABLE_DEEP_ENERGY_PROFILE: "1",
 			ZUSE_USER_DATA_DIR: options.userData,
+			...options.providerEnvironment,
 		}),
 	});
 	app.process().stdout?.on("data", (chunk) => {
@@ -85,7 +116,7 @@ export const launchElectronApp = async (options: {
 		observePage(page);
 		await page.waitForLoadState("domcontentloaded");
 	} catch (cause) {
-		await app.close().catch(() => undefined);
+		await closeElectronApplication(app);
 		throw cause;
 	}
 	let closed = false;
@@ -110,7 +141,7 @@ export const launchElectronApp = async (options: {
 		close: async () => {
 			if (closed) return;
 			closed = true;
-			await app.close();
+			await closeElectronApplication(app);
 		},
 	};
 };

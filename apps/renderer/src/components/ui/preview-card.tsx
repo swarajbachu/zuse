@@ -19,12 +19,14 @@ export function PreviewCardPopup({
   className,
   children,
   align = "center",
+  side = "bottom",
   sideOffset = 4,
   anchor,
   portalProps,
   ...props
 }: PreviewCardPrimitive.Popup.Props & {
   align?: PreviewCardPrimitive.Positioner.Props["align"];
+  side?: PreviewCardPrimitive.Positioner.Props["side"];
   sideOffset?: PreviewCardPrimitive.Positioner.Props["sideOffset"];
   anchor?: PreviewCardPrimitive.Positioner.Props["anchor"];
   portalProps?: PreviewCardPrimitive.Portal.Props;
@@ -33,6 +35,7 @@ export function PreviewCardPopup({
     <PreviewCardPrimitive.Portal {...portalProps}>
       <PreviewCardPrimitive.Positioner
         align={align}
+        side={side}
         anchor={anchor}
         className="z-50"
         data-slot="preview-card-positioner"

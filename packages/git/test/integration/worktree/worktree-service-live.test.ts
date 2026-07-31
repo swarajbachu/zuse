@@ -161,6 +161,29 @@ describe("WorktreeServiceLive", () => {
 		operation: (sql: SqlClient.SqlClient) => Effect.Effect<A, E>,
 	) => runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, operation));
 
+	test("reuses a journaled worktree id after a duplicate bootstrap", async () => {
+		const requestedId = WorktreeId.make("worktree-create-operation");
+		const first = await run((service) =>
+			service.create(projectId, undefined, requestedId),
+		);
+		const replayed = await run((service) =>
+			service.create(projectId, undefined, requestedId),
+		);
+
+		expect(first.id).toBe(requestedId);
+		expect(replayed).toEqual(first);
+		expect(git(repositoryRoot, "worktree", "list", "--porcelain")).toContain(
+			first.path,
+		);
+		const rows = await runSql(
+			(sql) =>
+				sql<{ readonly count: number }>`
+				SELECT COUNT(*) AS count FROM worktrees WHERE id = ${requestedId}
+			`,
+		);
+		expect(rows[0]?.count).toBe(1);
+	});
+
 	test("renames a pending branch automatically exactly once", async () => {
 		const created = await run((service) => service.create(projectId));
 		expect(created.branchProvenance).toBe("pending");

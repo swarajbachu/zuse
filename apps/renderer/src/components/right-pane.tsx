@@ -14,6 +14,10 @@ import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Plus, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useRef, useSyncExternalStore } from "react";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
+import {
+	effectiveSessionRuntimeState,
+	isSessionTurnActive,
+} from "../lib/session-runtime-state.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import * as terminalRegistry from "../lib/terminal-registry.ts";
 import { useAutoAnimate } from "../lib/use-auto-animate.ts";
@@ -24,6 +28,7 @@ import { useMessagesStore } from "../store/messages.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
+import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import {
 	EMPTY_TERMINALS,
@@ -177,8 +182,12 @@ export function RightPane({
 			? EMPTY_MESSAGES
 			: (s.messagesBySession[sessionId] ?? EMPTY_MESSAGES),
 	);
-	const isRunning = useMessagesStore((s) =>
-		sessionId === null ? false : s.runningBySession[sessionId] === true,
+	const isRunning = useSessionRuntimeStore((s) =>
+		session === null
+			? false
+			: isSessionTurnActive(
+					effectiveSessionRuntimeState(s.bySession[session.id]),
+				),
 	);
 	const planMarkdown = useMemo(
 		() =>

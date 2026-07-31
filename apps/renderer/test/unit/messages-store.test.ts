@@ -10,8 +10,9 @@ import {
 	type SessionTimelineFrame,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
-import { Effect, Queue, Stream } from "effect";
+import { Deferred, Effect, Queue, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { effectiveSessionRuntimeState } from "../../src/lib/session-runtime-state.ts";
 
 const { reportRendererRpcStreamFailure, subscribeRendererRpcConnection } =
 	vi.hoisted(() => ({
@@ -39,8 +40,15 @@ const {
 	teardownLiveStreams,
 	useMessagesStore,
 } = await import("../../src/store/messages.ts");
+const { resetSessionRuntimeForTest, useSessionRuntimeStore } = await import(
+	"../../src/store/session-runtime.ts"
+);
 
 const sessionId = "session-queue" as SessionId;
+const runtimeStateForTest = () =>
+	effectiveSessionRuntimeState(
+		useSessionRuntimeStore.getState().bySession[sessionId],
+	);
 const input = new ComposerInput({
 	text: "queued",
 	attachments: [],
@@ -185,11 +193,11 @@ describe("messages store queue actions", () => {
 			timelineVersionBySession: {},
 			renderRecoveryBySession: {},
 			errorBySession: {},
-			runningBySession: {},
 			queueBySession: { [sessionId]: [queued] },
 			queuePausedBySession: {},
 			goalBySession: {},
 		});
+		resetSessionRuntimeForTest();
 	});
 
 	it("delegates an idle queued item to the server-owned run-next command", async () => {
@@ -202,9 +210,7 @@ describe("messages store queue actions", () => {
 	});
 
 	it("delegates a running session before its active turn reaches the timeline", async () => {
-		useMessagesStore.setState({
-			runningBySession: { [sessionId]: true },
-		});
+		useSessionRuntimeStore.getState().beginOptimisticTurn(sessionId);
 
 		await useMessagesStore
 			.getState()
@@ -214,19 +220,54 @@ describe("messages store queue actions", () => {
 	});
 
 	it("interrupts a running session even before its active turn reaches the timeline", async () => {
-		useMessagesStore.setState({
-			runningBySession: { [sessionId]: true },
-		});
+		useSessionRuntimeStore.getState().beginOptimisticTurn(sessionId);
 
 		await useMessagesStore.getState().interrupt(sessionId);
 
 		expect(interruptCalls).toBe(1);
 	});
 
+	it("clears the running indicator when interrupt acknowledgement succeeds", async () => {
+		useSessionRuntimeStore.getState().beginOptimisticTurn(sessionId);
+
+		await useMessagesStore.getState().interrupt(sessionId);
+
+		expect(
+			effectiveSessionRuntimeState(
+				useSessionRuntimeStore.getState().bySession[sessionId],
+			),
+		).toBe("idle");
+	});
+
+	it("projects stopping immediately and settles only after interrupt acknowledgement", async () => {
+		const acknowledgement = await Effect.runPromise(Deferred.make<void>());
+		rpcClientFactory = () =>
+			({
+				...makeQueueClient(),
+				"messages.interrupt": () => Deferred.await(acknowledgement),
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+		useSessionRuntimeStore.getState().beginOptimisticTurn(sessionId);
+
+		const interrupt = useMessagesStore.getState().interrupt(sessionId);
+		expect(
+			effectiveSessionRuntimeState(
+				useSessionRuntimeStore.getState().bySession[sessionId],
+			),
+		).toBe("stopping");
+
+		Effect.runSync(Deferred.succeed(acknowledgement, undefined));
+		await interrupt;
+		expect(
+			effectiveSessionRuntimeState(
+				useSessionRuntimeStore.getState().bySession[sessionId],
+			),
+		).toBe("idle");
+	});
+
 	it("restores a queued item when run-next fails", async () => {
-		useMessagesStore.setState({
-			runningBySession: { [sessionId]: true },
-		});
+		useSessionRuntimeStore.getState().beginOptimisticTurn(sessionId);
 		rpcClientFactory = () =>
 			({
 				...makeQueueClient(),
@@ -293,14 +334,15 @@ describe("messages store queue actions", () => {
 
 	it("does not force running while auto-flushing a paused queue", async () => {
 		useMessagesStore.setState({
-			runningBySession: { [sessionId]: false },
 			queuePausedBySession: { [sessionId]: true },
 		});
 
 		useMessagesStore.getState().flushQueue(sessionId);
 		await expect.poll(() => flushCalls).toEqual([{ sessionId }]);
 
-		expect(useMessagesStore.getState().runningBySession[sessionId]).toBe(false);
+		expect(
+			useSessionRuntimeStore.getState().bySession[sessionId],
+		).toBeUndefined();
 	});
 
 	it("flushes again after a queued row is durable", async () => {
@@ -497,8 +539,12 @@ describe("messages store queue actions", () => {
 				}),
 			]);
 		await expect
-			.poll(() => useMessagesStore.getState().runningBySession[sessionId])
-			.toBe(false);
+			.poll(() =>
+				effectiveSessionRuntimeState(
+					useSessionRuntimeStore.getState().bySession[sessionId],
+				),
+			)
+			.toBe("failed");
 	});
 
 	it("resubscribes the active transcript after its connection generation changes", async () => {
@@ -569,6 +615,41 @@ describe("messages store queue actions", () => {
 					id: "message-after-reconnect",
 				}),
 			]);
+	});
+
+	it("releases an optimistic overlay when its timeline stream terminates", async () => {
+		const frames = Effect.runSync(
+			Queue.unbounded<SessionTimelineFrame, Error>(),
+		);
+		rpcClientFactory = () =>
+			({
+				"session.events": () => Stream.fromQueue(frames),
+				"messages.queue.stream": () => Stream.empty,
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+
+		await useMessagesStore.getState().hydrate(sessionId);
+		Queue.offerUnsafe(frames, {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 1,
+			projection: SessionTimelineProjection.make({
+				messages: [],
+				status: "idle",
+				currentTurn: null,
+				queue: QueueState.make({ items: [], paused: false }),
+				permissionMode: "default",
+				runtimeMode: "approval-required",
+			}),
+		});
+		await expect.poll(runtimeStateForTest).toBe("idle");
+
+		useSessionRuntimeStore.getState().beginOptimisticTurn(sessionId);
+		expect(runtimeStateForTest()).toBe("running");
+		await Effect.runPromise(Queue.shutdown(frames));
+
+		await expect.poll(runtimeStateForTest).toBe("idle");
 	});
 
 	it("opens a retained transcript when the first connection becomes available", async () => {

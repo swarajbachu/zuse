@@ -2,6 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	Alert01Icon,
 	CheckListIcon,
+	Clock01Icon,
 	ComputerTerminal01Icon,
 	GitBranchIcon,
 	GitCompareIcon,
@@ -10,21 +11,37 @@ import {
 	Loading02Icon,
 	Tick02Icon,
 } from "@hugeicons-pro/core-solid-rounded";
-import type { Message } from "@zuse/contracts";
+import type { GitPrCheckRun, Message } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
+import { deriveEnvironmentPrRows } from "../lib/branch-workflow.ts";
 import { displayPath } from "../lib/display-path.ts";
 import { detachedSubagentGroups } from "../lib/group-messages.ts";
+import {
+	effectiveSessionRuntimeState,
+	isSessionTurnActive,
+} from "../lib/session-runtime-state.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { useMessagesStore } from "../store/messages.ts";
+import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
+import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { SubagentAvatar } from "./subagent-identity.tsx";
-import { WorkflowActions } from "./top-bar.tsx";
+import {
+	FixActionsButton,
+	ResolveConflictsButton,
+	WorkflowActions,
+} from "./top-bar.tsx";
+import {
+	PreviewCard,
+	PreviewCardPopup,
+	PreviewCardTrigger,
+} from "./ui/preview-card.tsx";
 
 const rowClass =
 	"group flex min-h-9 w-full min-w-0 items-center gap-2 rounded-lg px-2.5 text-left text-[13px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
@@ -52,6 +69,19 @@ export function EnvironmentSummary() {
 	const pr = usePrStateStore((s) =>
 		folderId ? (s.byKey[prStateKey(folderId, worktreeId)] ?? null) : null,
 	);
+	const prDetails = usePrDetailsStore((s) =>
+		folderId ? (s.byKey[prDetailsKey(folderId, worktreeId)] ?? null) : null,
+	);
+	const prDetailsLoading = usePrDetailsStore((s) =>
+		folderId
+			? s.loadingByKey[prDetailsKey(folderId, worktreeId)] === true
+			: false,
+	);
+	const hydratePrDetails = usePrDetailsStore((s) => s.hydrate);
+	const refreshPrDetails = usePrDetailsStore((s) => s.refresh);
+	const [checksRequestedKey, setChecksRequestedKey] = useState<string | null>(
+		null,
+	);
 	const revealPanel = useUiStore((s) => s.revealPanel);
 	const selectSubagent = useUiStore((s) => s.selectSubagent);
 	const sessionId = useSessionsStore((s) => s.selectedSessionId);
@@ -68,8 +98,12 @@ export function EnvironmentSummary() {
 			? EMPTY_MESSAGES
 			: (s.messagesBySession[sessionId] ?? EMPTY_MESSAGES),
 	);
-	const isRunning = useMessagesStore((s) =>
-		sessionId === null ? false : s.runningBySession[sessionId] === true,
+	const isRunning = useSessionRuntimeStore((s) =>
+		session === null
+			? false
+			: isSessionTurnActive(
+					effectiveSessionRuntimeState(s.bySession[session.id]),
+				),
 	);
 	const planAvailable = useMemo(
 		() =>
@@ -112,14 +146,7 @@ export function EnvironmentSummary() {
 			: pr.state === "none"
 				? "Pull request"
 				: `PR #${pr.number ?? "?"} · ${pr.state}`;
-	const checksLabel =
-		pr?.state === "open" && pr.checksTotal > 0
-			? pr.checksRunning > 0
-				? `${pr.checksRunning} checks running`
-				: pr.checksFailing > 0
-					? `${pr.checksFailing} checks failing`
-					: "Checks passed"
-			: null;
+	const prRows = deriveEnvironmentPrRows(pr);
 	const prStatus = (() => {
 		if (pr === null) {
 			return {
@@ -140,23 +167,6 @@ export function EnvironmentSummary() {
 				icon: Alert01Icon,
 				label: "Pull request closed",
 				className: "text-muted-foreground",
-			};
-		}
-		if (
-			pr.state === "open" &&
-			(pr.checksFailing > 0 || pr.mergeable === "conflicting")
-		) {
-			return {
-				icon: Alert01Icon,
-				label: "Pull request needs attention",
-				className: "text-[var(--accent-red)]",
-			};
-		}
-		if (pr.state === "open" && pr.checksRunning > 0) {
-			return {
-				icon: Loading02Icon,
-				label: "Pull request checks running",
-				className: "animate-spin text-[var(--accent-amber)]",
 			};
 		}
 		if (pr.state === "open") {
@@ -180,6 +190,13 @@ export function EnvironmentSummary() {
 			return;
 		}
 		revealPanel("pr");
+	};
+	const hydrateChecks = (open: boolean) => {
+		if (!open || folderId === null) return;
+		const key = prDetailsKey(folderId, worktreeId);
+		setChecksRequestedKey(key);
+		const load = prDetails === null ? hydratePrDetails : refreshPrDetails;
+		void load(folderId, worktreeId);
 	};
 
 	return (
@@ -220,13 +237,10 @@ export function EnvironmentSummary() {
 					</span>
 				) : null}
 			</div>
-			{/* One row: PR status on the left, the same workflow buttons as the
-			    dock top bar (Create PR / Commit & push / Archive / …) inline on
-			    the right — status and action for the same thing share a line. */}
 			<div className={`${rowClass} justify-between`}>
 				<button
 					type="button"
-					className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+					className="flex min-h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
 					onClick={openPullRequest}
 				>
 					<HugeiconsIcon
@@ -234,21 +248,74 @@ export function EnvironmentSummary() {
 						className={`size-4 shrink-0 ${prStatus.className}`}
 						aria-label={prStatus.label}
 					/>
-					<span className="min-w-0 flex-1 truncate">
-						<span className="block truncate">{prLabel}</span>
-						{checksLabel !== null ? (
-							<span className="block truncate text-[11px] text-muted-foreground">
-								{checksLabel}
-							</span>
-						) : null}
-					</span>
+					<span className="min-w-0 flex-1 truncate">{prLabel}</span>
 				</button>
 				<WorkflowActions
 					compact
 					includeRun={false}
-					className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
+					includeHealthActions={false}
+					presentation="inline"
 				/>
 			</div>
+			{prRows.checks !== null ? (
+				<div className={`${rowClass} justify-between`}>
+					<PreviewCard onOpenChange={hydrateChecks}>
+						<PreviewCardTrigger
+							render={
+								<button
+									type="button"
+									className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+									onClick={() => revealPanel("pr")}
+								>
+									<ChecksStatusIcon kind={prRows.checks.kind} />
+									<span className="min-w-0 flex-1 truncate">
+										{prRows.checks.label}
+									</span>
+								</button>
+							}
+						/>
+						<PreviewCardPopup
+							side="left"
+							align="center"
+							sideOffset={12}
+							className="w-80 p-1.5"
+						>
+							<ChecksPreview
+								checks={prDetails?.checkRuns ?? null}
+								loading={
+									prDetailsLoading ||
+									checksRequestedKey !==
+										prDetailsKey(ctx.folderId, ctx.worktreeId)
+								}
+							/>
+						</PreviewCardPopup>
+					</PreviewCard>
+					{prRows.checks.canFix && folderId !== null ? (
+						<FixActionsButton
+							presentation="inline"
+							folderId={folderId}
+							worktreeId={worktreeId}
+							disabled={sessionId === null}
+						/>
+					) : null}
+				</div>
+			) : null}
+			{prRows.conflicts ? (
+				<div className={`${rowClass} justify-between`}>
+					<button
+						type="button"
+						className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+						onClick={() => revealPanel("pr")}
+					>
+						<HugeiconsIcon
+							icon={Alert01Icon}
+							className="size-4 shrink-0 text-[var(--accent-red)]"
+						/>
+						<span className="min-w-0 flex-1 truncate">Merge conflicts</span>
+					</button>
+					<ResolveConflictsButton presentation="inline" />
+				</div>
+			) : null}
 			{planAvailable ? (
 				<button
 					type="button"
@@ -293,5 +360,139 @@ export function EnvironmentSummary() {
 				</section>
 			) : null}
 		</aside>
+	);
+}
+
+type CheckKind = "failure" | "pending" | "success" | "neutral";
+
+const checkKind = (check: GitPrCheckRun): CheckKind => {
+	if (check.status !== "completed") return "pending";
+	switch (check.conclusion) {
+		case "success":
+			return "success";
+		case "failure":
+		case "cancelled":
+		case "timed_out":
+		case "action_required":
+			return "failure";
+		default:
+			return "neutral";
+	}
+};
+
+const checkStatusLabel = (check: GitPrCheckRun): string => {
+	const kind = checkKind(check);
+	if (kind === "pending") return "Running";
+	if (kind === "success") return "Succeeded";
+	if (kind === "failure") return "Failed";
+	return check.conclusion === "skipped" ? "Skipped" : "Completed";
+};
+
+function ChecksStatusIcon({
+	kind,
+}: {
+	kind: "pending" | "failure" | "success";
+}) {
+	if (kind === "pending") {
+		return (
+			<HugeiconsIcon
+				icon={Loading02Icon}
+				className="size-4 shrink-0 animate-spin text-[var(--accent-amber)]"
+			/>
+		);
+	}
+	if (kind === "failure") {
+		return (
+			<HugeiconsIcon
+				icon={Alert01Icon}
+				className="size-4 shrink-0 text-[var(--accent-red)]"
+			/>
+		);
+	}
+	return (
+		<HugeiconsIcon
+			icon={Tick02Icon}
+			className="size-4 shrink-0 text-[var(--accent-green)]"
+		/>
+	);
+}
+
+function ChecksPreview({
+	checks,
+	loading,
+}: {
+	checks: ReadonlyArray<GitPrCheckRun> | null;
+	loading: boolean;
+}) {
+	if (loading) {
+		return (
+			<div className="flex min-h-24 items-center justify-center gap-2 text-xs text-muted-foreground">
+				<HugeiconsIcon icon={Loading02Icon} className="size-4 animate-spin" />
+				Loading checks…
+			</div>
+		);
+	}
+	if (checks === null || checks.length === 0) {
+		return (
+			<div className="flex min-h-24 items-center justify-center text-xs text-muted-foreground">
+				{checks === null
+					? "Check details unavailable."
+					: "No check details available."}
+			</div>
+		);
+	}
+
+	const rank: Record<CheckKind, number> = {
+		failure: 0,
+		pending: 1,
+		success: 2,
+		neutral: 3,
+	};
+	const ordered = [...checks].sort(
+		(left, right) => rank[checkKind(left)] - rank[checkKind(right)],
+	);
+
+	return (
+		<ul className="flex min-h-24 w-full flex-col">
+			{ordered.map((check, index) => {
+				const kind = checkKind(check);
+				return (
+					<li
+						key={`${check.name}-${index}`}
+						className="flex min-h-9 items-center gap-2 rounded-lg px-2.5 text-[12px] text-foreground"
+					>
+						<span className="grid size-4 shrink-0 place-items-center">
+							{kind === "pending" ? (
+								<HugeiconsIcon
+									icon={Clock01Icon}
+									className="size-3.5 text-[var(--accent-amber)]"
+								/>
+							) : kind === "neutral" ? (
+								<HugeiconsIcon
+									icon={CheckListIcon}
+									className="size-3.5 text-muted-foreground"
+								/>
+							) : (
+								<ChecksStatusIcon
+									kind={kind === "failure" ? "failure" : "success"}
+								/>
+							)}
+						</span>
+						<span className="min-w-0 flex-1 truncate">{check.name}</span>
+						<span
+							className={`shrink-0 text-muted-foreground ${
+								kind === "failure"
+									? "text-[var(--accent-red)]"
+									: kind === "success"
+										? "text-[var(--accent-green)]"
+										: ""
+							}`}
+						>
+							{checkStatusLabel(check)}
+						</span>
+					</li>
+				);
+			})}
+		</ul>
 	);
 }

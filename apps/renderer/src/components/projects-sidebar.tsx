@@ -26,10 +26,11 @@ import type {
 	ProviderId,
 	Session,
 	SessionId,
+	SessionStatus,
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { BlurredEmail } from "~/components/blurred-email";
+import { BlurredEmail } from "~/components/blurred-email.tsx";
 import { TypewriterText } from "~/components/typewriter-text.tsx";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import {
@@ -54,12 +55,16 @@ import { displayPath } from "~/lib/display-path";
 import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import { dispatchCommand } from "../lib/commands.ts";
-import { noteSessionStatusForCompletionSound } from "../lib/completion-sounds.ts";
+import { noteSessionRuntimeCompletion } from "../lib/completion-sounds.ts";
 import {
 	getRpcClient,
 	reportRendererRpcStreamFailure,
 	subscribeRendererRpcConnection,
 } from "../lib/rpc-client.ts";
+import {
+	effectiveSessionRuntimeState,
+	isSessionRuntimeBusy,
+} from "../lib/session-runtime-state.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { useArchivePreviewStore } from "../store/archive-preview.ts";
 import {
@@ -73,7 +78,11 @@ import { useMessagesStore } from "../store/messages.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
-import { useSessionsStore } from "../store/sessions.ts";
+import {
+	subscribeSessionTerminals,
+	useSessionRuntimeStore,
+} from "../store/session-runtime.ts";
+import { getSessionById, useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useUsageLimitsStore } from "../store/usage-limits.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
@@ -176,30 +185,8 @@ function applySessionSummary(
 				readonly sessionId: SessionId;
 		  },
 ): void {
-	const sessions =
-		change._tag === "snapshot"
-			? change.sessions
-			: change._tag === "change"
-				? [change.session]
-				: [];
-	const previousRunning = useMessagesStore.getState().runningBySession;
-	useMessagesStore.getState().observeSessionStatuses(
-		sessions.map((session) => ({
-			sessionId: session.id,
-			status: session.status,
-		})),
-	);
-	for (const session of sessions) {
-		const wasRunning = previousRunning[session.id] === true;
-		noteSessionStatusForCompletionSound(session.id, session.status);
-		if (wasRunning && session.status !== "running") {
-			const chats = useChatsStore.getState();
-			if (chats.selectedChatId === session.chatId) {
-				void chats.markRead(session.chatId);
-			} else {
-				chats.noteChatActivity(session.chatId);
-			}
-		}
+	if (change._tag === "remove") {
+		useSessionRuntimeStore.getState().remove(change.sessionId);
 	}
 	useSessionsStore.setState((state) => {
 		const current = state.sessionsByProject[projectId] ?? [];
@@ -324,7 +311,26 @@ function useProjectSessionSummarySubscriptions(
 	);
 }
 
+function useSessionRuntimeEffects(): void {
+	useEffect(
+		() =>
+			subscribeSessionTerminals((sessionId) => {
+				noteSessionRuntimeCompletion();
+				const session = getSessionById(sessionId);
+				if (session === null) return;
+				const chats = useChatsStore.getState();
+				if (chats.selectedChatId === session.chatId) {
+					void chats.markRead(session.chatId);
+				} else {
+					chats.noteChatActivity(session.chatId);
+				}
+			}),
+		[],
+	);
+}
+
 export function ProjectsSidebar() {
+	useSessionRuntimeEffects();
 	const paneRef = useRef<HTMLElement>(null);
 	useRegisterPane("sidebar", paneRef);
 	const folders = useWorkspaceStore((s) => s.folders);
@@ -662,6 +668,7 @@ function ProjectGroup({
 		readonly id: SessionId;
 		readonly chatId: ChatId;
 		readonly archivedAt: Date | null;
+		readonly status: SessionStatus;
 	}>;
 	onSelect: () => void;
 	onToggleExpanded: () => void;
@@ -711,14 +718,22 @@ function ProjectGroup({
 
 	// Surface the highest-priority attention hint on the collapsed project
 	// header when any session inside this project needs attention.
-	const liveSessionIds = useMemo(
-		() => projectSessions.filter((s) => s.archivedAt === null).map((s) => s.id),
+	const liveSessions = useMemo(
+		() => projectSessions.filter((session) => session.archivedAt === null),
 		[projectSessions],
 	);
-	const headerRunning = useMessagesStore((s) =>
+	const liveSessionIds = useMemo(
+		() => liveSessions.map((session) => session.id),
+		[liveSessions],
+	);
+	const headerRunning = useSessionRuntimeStore((s) =>
 		mergeChatAttentionStates(
-			liveSessionIds.map((id) =>
-				s.runningBySession[id] === true ? "running" : "idle",
+			liveSessions.map((session) =>
+				isSessionRuntimeBusy(
+					effectiveSessionRuntimeState(s.bySession[session.id]),
+				)
+					? "running"
+					: "idle",
 			),
 		),
 	);
@@ -1019,6 +1034,9 @@ function ChatRow({ chat }: { chat: Chat }) {
 	const archiveProgress = useChatsStore(
 		(s) => s.archiveProgressByChat[chat.id] ?? null,
 	);
+	const creationPending = useChatsStore(
+		(s) => s.pendingCreationByChat[chat.id] !== undefined,
+	);
 
 	// PR state is keyed by (project, worktree). A chat owns its worktree,
 	// so all its sessions share the same PR row — hydrate once per chat.
@@ -1027,8 +1045,9 @@ function ChatRow({ chat }: { chat: Chat }) {
 	);
 	const hydratePrState = usePrStateStore((s) => s.hydrate);
 	useEffect(() => {
+		if (creationPending) return;
 		void hydratePrState(chat.projectId, chat.worktreeId);
-	}, [hydratePrState, chat.projectId, chat.worktreeId]);
+	}, [creationPending, hydratePrState, chat.projectId, chat.worktreeId]);
 
 	// Per-branch diff stats (additions/deletions vs base), shown even when no
 	// PR exists yet — so a working branch surfaces its size in the sidebar.
@@ -1037,24 +1056,33 @@ function ChatRow({ chat }: { chat: Chat }) {
 	);
 	const hydrateDiffStat = useGitDiffStatStore((s) => s.hydrate);
 	useEffect(() => {
+		if (creationPending) return;
 		void hydrateDiffStat(chat.projectId, chat.worktreeId);
-	}, [hydrateDiffStat, chat.projectId, chat.worktreeId]);
+	}, [creationPending, hydrateDiffStat, chat.projectId, chat.worktreeId]);
 
 	// Ids of this chat's non-archived sessions — so the sidebar busy
 	// indicator reflects ANY tab being active, not just the currently
 	// selected one.
-	const sessionIds = useMemo(
+	const chatSessions = useMemo(
 		() =>
-			(sessionsByProject[chat.projectId] ?? [])
-				.filter((row) => row.chatId === chat.id && row.archivedAt === null)
-				.map((row) => row.id),
+			(sessionsByProject[chat.projectId] ?? []).filter(
+				(row) => row.chatId === chat.id && row.archivedAt === null,
+			),
 		[sessionsByProject, chat.projectId, chat.id],
 	);
+	const sessionIds = useMemo(
+		() => chatSessions.map((session) => session.id),
+		[chatSessions],
+	);
 
-	const runningAttention = useMessagesStore((s) =>
+	const runningAttention = useSessionRuntimeStore((s) =>
 		mergeChatAttentionStates(
-			sessionIds.map((id) =>
-				s.runningBySession[id] === true ? "running" : "idle",
+			chatSessions.map((session) =>
+				isSessionRuntimeBusy(
+					effectiveSessionRuntimeState(s.bySession[session.id]),
+				)
+					? "running"
+					: "idle",
 			),
 		),
 	);

@@ -39,6 +39,7 @@ export interface WorktreeServiceShape {
 	readonly create: (
 		projectId: FolderId,
 		source?: WorktreeCreateSource,
+		requestedId?: WorktreeId,
 	) => Effect.Effect<Worktree, WorktreeCreateError>;
 	readonly list: (
 		projectId: FolderId,

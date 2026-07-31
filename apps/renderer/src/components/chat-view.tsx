@@ -25,6 +25,10 @@ import {
 } from "../lib/chat-timeline-rows.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
 import {
+	effectiveSessionRuntimeState,
+	isSessionTurnActive,
+} from "../lib/session-runtime-state.ts";
+import {
 	getAnchoredTurnMetrics,
 	resolveScrollableNodeIsAtEnd,
 	shouldDeferAutomaticEndScroll,
@@ -38,6 +42,7 @@ import {
 } from "../store/messages.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
+import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { getSessionById, useSessionsStore } from "../store/sessions.ts";
 import { useSkillsStore } from "../store/skills.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
@@ -102,8 +107,8 @@ export function ChatView({
 	const renderRecovery = useMessagesStore(
 		(s) => s.renderRecoveryBySession[sessionId] ?? 0,
 	);
-	const inFlight = useMessagesStore(
-		(s) => s.runningBySession[sessionId] === true,
+	const inFlight = useSessionRuntimeStore((s) =>
+		isSessionTurnActive(effectiveSessionRuntimeState(s.bySession[sessionId])),
 	);
 	// While a plan sits awaiting approval the turn is technically still "running",
 	// but the agent is blocked on the user — show no spinner, since we're the ones

@@ -154,7 +154,9 @@ export const makeConversationReactorRuntime = Effect.fn(
 		SqlConsumerStorageError,
 		never,
 		SessionStartError
-	>(sessionStorage, handlers.providerStart, providerStartReactorDefinition);
+	>(sessionStorage, handlers.providerStart, providerStartReactorDefinition, {
+		dispatchConcurrency: 4,
+	});
 	const providerStop = new ReactorRunner<
 		StoredEvent,
 		ProviderStopCommand,
