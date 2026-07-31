@@ -35,32 +35,21 @@ type EncodedRpcMessage = {
 	readonly tag?: string;
 };
 
-const stringUtf8ByteLength = (value: string): number => {
-	let bytes = 0;
-	for (let index = 0; index < value.length; index += 1) {
-		const code = value.charCodeAt(index);
-		if (code < 0x80) {
-			bytes += 1;
-		} else if (code < 0x800) {
-			bytes += 2;
-		} else if (
-			code >= 0xd800 &&
-			code <= 0xdbff &&
-			index + 1 < value.length &&
-			value.charCodeAt(index + 1) >= 0xdc00 &&
-			value.charCodeAt(index + 1) <= 0xdfff
-		) {
-			bytes += 4;
-			index += 1;
-		} else {
-			bytes += 3;
-		}
-	}
-	return bytes;
+type NativeBuffer = {
+	readonly byteLength: (value: string, encoding: "utf8") => number;
 };
 
+const nativeBuffer = (
+	globalThis as typeof globalThis & { readonly Buffer?: NativeBuffer }
+).Buffer;
+const utf8Encoder = new TextEncoder();
+
 const byteLength = (value: string | Uint8Array): number =>
-	typeof value === "string" ? stringUtf8ByteLength(value) : value.byteLength;
+	typeof value === "string"
+		? nativeBuffer === undefined
+			? utf8Encoder.encode(value).byteLength
+			: nativeBuffer.byteLength(value, "utf8")
+		: value.byteLength;
 
 const encodedMessages = (value: unknown): ReadonlyArray<EncodedRpcMessage> =>
 	Array.isArray(value)

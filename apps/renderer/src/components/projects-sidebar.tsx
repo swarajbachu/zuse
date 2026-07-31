@@ -274,7 +274,6 @@ function useProjectSessionSummarySubscriptions(
 							Stream.runForEach(
 								client["session.streamChanges"]({
 									projectId,
-									sinceSequence: cursorsRef.current.get(projectId),
 								}),
 								(change) =>
 									Effect.sync(() => {
@@ -282,6 +281,17 @@ function useProjectSessionSummarySubscriptions(
 											change._tag === "snapshot"
 												? change.cursor
 												: change.sequence;
+										if (change._tag === "snapshot") {
+											cursorsRef.current.set(
+												projectId,
+												Math.max(
+													cursorsRef.current.get(projectId) ?? -1,
+													sequence,
+												),
+											);
+											applySessionSummary(projectId, change);
+											return;
+										}
 										if ((cursorsRef.current.get(projectId) ?? -1) >= sequence) {
 											return;
 										}

@@ -40,6 +40,7 @@ const createSchema = Effect.gen(function* () {
 	yield* sql`
 		CREATE TABLE chats (
 			id TEXT PRIMARY KEY, project_id TEXT, worktree_id TEXT, title TEXT,
+			title_provenance TEXT NOT NULL DEFAULT 'manual',
 			active_session_id TEXT, origin_session_id TEXT, archived_at TEXT,
 			archived_worktree_json TEXT, last_message_at TEXT, last_read_at TEXT,
 			created_at TEXT, updated_at TEXT
@@ -48,6 +49,7 @@ const createSchema = Effect.gen(function* () {
 	yield* sql`
 		CREATE TABLE sessions (
 			id TEXT PRIMARY KEY, project_id TEXT NOT NULL, title TEXT NOT NULL,
+			title_provenance TEXT NOT NULL DEFAULT 'manual',
 			provider_id TEXT NOT NULL, model TEXT NOT NULL, status TEXT NOT NULL,
 			archived_at TEXT, cursor TEXT, resume_strategy TEXT NOT NULL,
 			runtime_mode TEXT NOT NULL, agents_json TEXT, worktree_id TEXT,
@@ -61,7 +63,7 @@ const createSchema = Effect.gen(function* () {
 		CREATE TABLE messages (
 			id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL,
 			kind TEXT NOT NULL, content_json TEXT NOT NULL, parent_item_id TEXT,
-			created_at TEXT NOT NULL, sequence INTEGER NOT NULL
+			turn_id TEXT, created_at TEXT NOT NULL, sequence INTEGER NOT NULL
 		)
 	`;
 	yield* sql`

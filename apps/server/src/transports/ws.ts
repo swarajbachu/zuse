@@ -74,6 +74,8 @@ export type WsServerProtocolOptions = {
 	readonly host?: string;
 	/** Enables negotiated per-message compression. Defaults to true. */
 	readonly compression?: boolean;
+	/** Maximum inflated WebSocket message size. Defaults to 64 MiB. */
+	readonly maxPayloadBytes?: number;
 	readonly onDiagnostic?: WsDiagnostic;
 	readonly onListening?: (address: WsServerListeningAddress) => void;
 	readonly onPairing?: (pairing: {
@@ -712,9 +714,10 @@ export const wsServerProtocolLayer = (
 				{
 					port: opts.port,
 					host: opts.host ?? "127.0.0.1",
-					webSocketServerOptions:
-						opts.compression === false
-							? undefined
+					webSocketServerOptions: {
+						maxPayload: opts.maxPayloadBytes ?? 64 * 1024 * 1024,
+						...(opts.compression === false
+							? {}
 							: {
 									perMessageDeflate: {
 										clientNoContextTakeover: true,
@@ -723,7 +726,8 @@ export const wsServerProtocolLayer = (
 										threshold: 2_048,
 										zlibDeflateOptions: { level: 3 },
 									},
-								},
+								}),
+					},
 				},
 			),
 		),

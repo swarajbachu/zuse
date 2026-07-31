@@ -4,10 +4,12 @@ import { createServer, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
+import { makeRpcClientSession } from "@zuse/client-runtime/connection";
+import { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
 import { PingResult, PingRpc, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { layer as sqliteLayer } from "@zuse/sqlite";
-import { Effect, Layer, ManagedRuntime } from "effect";
-import { RpcGroup, RpcServer } from "effect/unstable/rpc";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Rpc, RpcGroup, RpcServer } from "effect/unstable/rpc";
 import { describe, expect, it } from "vitest";
 
 import { LanAuthServiceLive } from "../../src/lan-auth/layers/lan-auth-service.ts";
@@ -24,10 +26,18 @@ import { Migration0039AuthTokenDevices } from "../../src/persistence/migrations/
 import { Migration0040BlockedNearbyDevices } from "../../src/persistence/migrations/0040_blocked_nearby_devices.ts";
 import { wsServerProtocolLayer } from "../../src/transports/ws.ts";
 
-const TestRpcs = RpcGroup.make(PingRpc);
+const LargePayloadRpc = Rpc.make("test.largePayload", {
+	payload: Schema.Struct({}),
+	success: Schema.String,
+});
+const TestRpcs = RpcGroup.make(PingRpc, LargePayloadRpc);
+const LARGE_PAYLOAD = "large-session-payload\n".repeat(256 * 1024);
 
 const PingHandler = TestRpcs.toLayerHandler("ping.ping", () =>
 	Effect.succeed(PingResult.make({ message: "pong", receivedAt: new Date() })),
+);
+const LargePayloadHandler = TestRpcs.toLayerHandler("test.largePayload", () =>
+	Effect.succeed(LARGE_PAYLOAD),
 );
 
 const freePort = async (): Promise<number> =>
@@ -50,6 +60,7 @@ const makeRuntime = (opts: {
 	readonly port: number;
 	readonly pairingBootstrap?: boolean;
 	readonly compression?: boolean;
+	readonly maxPayloadBytes?: number;
 	readonly staticDir?: string;
 	readonly trustProxy?: boolean;
 	readonly attachment?: {
@@ -107,10 +118,11 @@ const makeRuntime = (opts: {
 		staticDir: opts.staticDir,
 		trustProxy: opts.trustProxy,
 		compression: opts.compression,
+		maxPayloadBytes: opts.maxPayloadBytes,
 		onDiagnostic: opts.onDiagnostic,
 	}).pipe(Layer.provide(Layer.merge(LanAuthLayer, AttachmentLayer)));
 	const ServerLayer = RpcServer.layer(TestRpcs).pipe(
-		Layer.provide(PingHandler),
+		Layer.provide(Layer.merge(PingHandler, LargePayloadHandler)),
 		Layer.provide(ProtocolLayer),
 	);
 	return ManagedRuntime.make(Layer.mergeAll(LanAuthLayer, ServerLayer));
@@ -228,6 +240,41 @@ describe("WS LAN auth", () => {
 			);
 			expect(response.status).toBe(101);
 			expect(response.headers["sec-websocket-extensions"]).toBeUndefined();
+		} finally {
+			await disposeRuntime(runtime);
+		}
+	});
+
+	it("enforces the inbound payload limit when compression is disabled", async () => {
+		const port = await freePort();
+		const runtime = makeRuntime({
+			policy: "local",
+			port,
+			compression: false,
+			maxPayloadBytes: 1_024,
+		});
+		try {
+			await runtime.runPromise(Effect.void);
+			const socket = new WebSocket(
+				`ws://127.0.0.1:${port}/?wireVersion=${WIRE_PROTOCOL_VERSION}`,
+			);
+			await new Promise<void>((resolve, reject) => {
+				socket.addEventListener("open", () => resolve(), { once: true });
+				socket.addEventListener(
+					"error",
+					() => reject(new Error("open failed")),
+					{
+						once: true,
+					},
+				);
+			});
+			const closeCode = new Promise<number>((resolve) => {
+				socket.addEventListener("close", (event) => resolve(event.code), {
+					once: true,
+				});
+			});
+			socket.send("x".repeat(2_048));
+			expect(await closeCode).toBe(1_009);
 		} finally {
 			await disposeRuntime(runtime);
 		}
@@ -417,6 +464,34 @@ describe("WS LAN auth", () => {
 					`/?wireVersion=${WIRE_PROTOCOL_VERSION}`,
 				),
 			).resolves.toBe(101);
+		} finally {
+			await disposeRuntime(runtime);
+		}
+	});
+
+	it("round-trips a multi-megabyte compressed outbound RPC response", async () => {
+		const port = await freePort();
+		const runtime = makeRuntime({
+			policy: "local",
+			port,
+		});
+		try {
+			await runtime.runPromise(Effect.void);
+			const clientSession = await makeRpcClientSession(
+				wsClientProtocolLayer({
+					host: "127.0.0.1",
+					port,
+				}),
+				TestRpcs,
+			);
+			try {
+				const received = await Effect.runPromise(
+					clientSession.client["test.largePayload"]({}),
+				);
+				expect(received).toBe(LARGE_PAYLOAD);
+			} finally {
+				await clientSession.dispose();
+			}
 		} finally {
 			await disposeRuntime(runtime);
 		}

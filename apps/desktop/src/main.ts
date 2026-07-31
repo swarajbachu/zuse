@@ -55,7 +55,6 @@ import {
 	wsServerProtocolLayer,
 } from "@zusehq/server";
 import { Cause, Effect, Fiber, Layer, Schema } from "effect";
-import { RpcSerialization } from "effect/unstable/rpc";
 import {
 	app,
 	BrowserWindow,
@@ -98,6 +97,7 @@ if (
 	fixPath();
 }
 
+import { makeBatchedLogWriter } from "./batched-log-writer.ts";
 import { type BatteryStatus, readBatteryStatus } from "./battery-status.ts";
 import {
 	BROWSER_PARTITION,
@@ -1103,24 +1103,30 @@ app.on("second-instance", (_event, argv) => {
 });
 const USER_APPLICATIONS_DIR = Path.join(homedir(), "Applications");
 const execFileAsync = promisify(execFile);
-const appLogWrites = new Map<string, Promise<void>>();
+const appLogPreflights = new Map<string, Promise<void>>();
 let remoteConnectionLogScrubScheduled = false;
 
-const appendAppLog = (fileName: string, line: string): void => {
-	const filePath = Path.join(app.getPath("userData"), "logs", fileName);
-	const previous = appLogWrites.get(filePath) ?? Promise.resolve();
-	const write = previous.then(async () => {
+const appLogWriter = makeBatchedLogWriter({
+	writeBatch: async (filePath, lines) => {
 		try {
+			const preflight = appLogPreflights.get(filePath);
+			if (preflight !== undefined) {
+				await preflight;
+				if (appLogPreflights.get(filePath) === preflight) {
+					appLogPreflights.delete(filePath);
+				}
+			}
 			await fs.mkdir(Path.dirname(filePath), { recursive: true });
-			await fs.appendFile(filePath, `${line}\n`, "utf8");
+			await fs.appendFile(filePath, `${lines.join("\n")}\n`, "utf8");
 		} catch {
 			// Logging must never affect app behavior.
 		}
-	});
-	appLogWrites.set(filePath, write);
-	void write.finally(() => {
-		if (appLogWrites.get(filePath) === write) appLogWrites.delete(filePath);
-	});
+	},
+});
+
+const appendAppLog = (fileName: string, line: string): void => {
+	const filePath = Path.join(app.getPath("userData"), "logs", fileName);
+	appLogWriter.append(filePath, line);
 };
 
 const appendRemoteConnectionLog = (
@@ -1150,7 +1156,7 @@ const appendRemoteConnectionLog = (
 				// cleanup must never affect app behavior.
 			}
 		})();
-		appLogWrites.set(logFilePath, scrub);
+		appLogPreflights.set(logFilePath, scrub);
 	}
 	appendAppLog(
 		"remote-connection.log",
@@ -2813,13 +2819,19 @@ async function createMainWindow() {
 			}),
 		).pipe(
 			Effect.catchCause((cause) =>
-				Effect.sync(() => {
+				Effect.gen(function* () {
 					// Boot-time layer failures (sqlite open, migrator, config) are
 					// unrecoverable — surface the cause and bail. Quiet
 					// success-after-restart is preferable to a half-running app.
 					const detail = Cause.pretty(cause);
 					appendRemoteConnectionLog("desktop.runtime.fatal", { cause: detail });
 					console.error("[zuse] fatal boot error\n", detail);
+					yield* Effect.promise(() =>
+						Promise.race([
+							appLogWriter.flush(),
+							new Promise<void>((resolve) => setTimeout(resolve, 500)),
+						]),
+					);
 					app.exit(1);
 				}),
 			),

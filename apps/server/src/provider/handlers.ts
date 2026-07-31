@@ -228,13 +228,12 @@ const SessionGet = MemoizeRpcs.toLayerHandler("session.get", ({ sessionId }) =>
 
 const SessionStreamChanges = MemoizeRpcs.toLayerHandler(
 	"session.streamChanges",
-	({ projectId, sinceSequence }) =>
+	({ projectId }) =>
 		Stream.unwrap(
 			Effect.gen(function* () {
 				const sessions = yield* SessionService;
 				const domain = yield* SessionDomain;
 				const snapshotCursor = yield* domain.currentSequence.pipe(Effect.orDie);
-				const liveCursor = sinceSequence ?? snapshotCursor;
 				const allSessions = yield* sessions.listSessions(projectId, true);
 				const snapshot = allSessions.filter(
 					(session) => session.archivedAt === null,
@@ -254,7 +253,7 @@ const SessionStreamChanges = MemoizeRpcs.toLayerHandler(
 					"SessionArchived",
 					"SessionUnarchived",
 				]);
-				const live = domain.allEvents({ afterSequence: liveCursor }).pipe(
+				const live = domain.allEvents({ afterSequence: snapshotCursor }).pipe(
 					Stream.filter((record) => {
 						if (
 							record.event._tag === "SessionCreated" &&
@@ -295,16 +294,14 @@ const SessionStreamChanges = MemoizeRpcs.toLayerHandler(
 						},
 					),
 				);
-				return sinceSequence === undefined
-					? Stream.concat(
-							Stream.succeed({
-								_tag: "snapshot" as const,
-								cursor: snapshotCursor,
-								sessions: snapshot,
-							}),
-							live,
-						)
-					: live;
+				return Stream.concat(
+					Stream.succeed({
+						_tag: "snapshot" as const,
+						cursor: snapshotCursor,
+						sessions: snapshot,
+					}),
+					live,
+				);
 			}),
 		).pipe(Stream.orDie),
 );

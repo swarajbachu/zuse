@@ -137,18 +137,12 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 		return rows.map(chatFromRow);
 	});
 
-	const readDatabaseRevision = Effect.fn("ChatOperations.readDatabaseRevision")(
+	const readCatalogRevision = Effect.fn("ChatOperations.readCatalogRevision")(
 		function* () {
-			const dataVersionRows = yield* sql<{ readonly data_version: number }>`
-				PRAGMA data_version
+			const rows = yield* sql<{ readonly revision: number }>`
+				SELECT revision FROM chat_catalog_revision WHERE id = 1
 			`;
-			const totalChangesRows = yield* sql<{ readonly total_changes: number }>`
-				SELECT total_changes() AS total_changes
-			`;
-			return {
-				dataVersion: dataVersionRows[0]?.data_version ?? 0,
-				totalChanges: totalChangesRows[0]?.total_changes ?? 0,
-			};
+			return rows[0]?.revision ?? 0;
 		},
 	);
 
@@ -203,29 +197,21 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 		"ChatOperations.runChatReconciliation",
 	)(function* () {
 		let previous: ReadonlyMap<FolderId, ReadonlyArray<Chat>> = new Map();
-		let previousDatabaseRevision: {
-			readonly dataVersion: number;
-			readonly totalChanges: number;
-		} | null = null;
+		let previousCatalogRevision: number | null = null;
 		yield* Effect.forever(
 			Effect.gen(function* () {
-				const databaseRevisionResult = yield* readDatabaseRevision().pipe(
+				const catalogRevisionResult = yield* readCatalogRevision().pipe(
 					Effect.result,
 				);
-				if (databaseRevisionResult._tag === "Failure") {
+				if (catalogRevisionResult._tag === "Failure") {
 					yield* Effect.logWarning(
 						"Chat reconciliation revision query failed; retrying",
-					).pipe(Effect.annotateLogs("error", databaseRevisionResult.failure));
+					).pipe(Effect.annotateLogs("error", catalogRevisionResult.failure));
 					yield* Effect.sleep("1 second");
 					return;
 				}
-				const databaseRevision = databaseRevisionResult.success;
-				if (
-					previousDatabaseRevision?.dataVersion ===
-						databaseRevision.dataVersion &&
-					previousDatabaseRevision.totalChanges ===
-						databaseRevision.totalChanges
-				) {
+				const catalogRevision = catalogRevisionResult.success;
+				if (previousCatalogRevision === catalogRevision) {
 					yield* Effect.sleep("1 second");
 					return;
 				}
@@ -255,7 +241,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 						});
 					}
 					previous = current;
-					previousDatabaseRevision = databaseRevision;
+					previousCatalogRevision = catalogRevision;
 				});
 				yield* Effect.sleep("1 second");
 			}),

@@ -69,6 +69,7 @@ import { Migration0038QueuedMessageReady } from "../../src/persistence/migration
 import { Migration0039AuthTokenDevices } from "../../src/persistence/migrations/0039_auth_token_devices.ts";
 import { Migration0041ChatArchiveJobs } from "../../src/persistence/migrations/0041_chat_archive_jobs.ts";
 import { Migration0043NameProvenance } from "../../src/persistence/migrations/0043_name_provenance.ts";
+import { Migration0044ChatCatalogRevision } from "../../src/persistence/migrations/0044_chat_catalog_revision.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -145,6 +146,7 @@ const runAllMigrations = Effect.all(
 		Migration0039AuthTokenDevices,
 		Migration0041ChatArchiveJobs,
 		Migration0043NameProvenance,
+		Migration0044ChatCatalogRevision,
 	],
 	{ discard: true },
 );

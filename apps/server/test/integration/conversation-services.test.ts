@@ -91,6 +91,7 @@ import { Migration0037ProviderEventCursor } from "../../src/persistence/migratio
 import { Migration0038QueuedMessageReady } from "../../src/persistence/migrations/0038_queued_message_ready.ts";
 import { Migration0041ChatArchiveJobs } from "../../src/persistence/migrations/0041_chat_archive_jobs.ts";
 import { Migration0043NameProvenance } from "../../src/persistence/migrations/0043_name_provenance.ts";
+import { Migration0044ChatCatalogRevision } from "../../src/persistence/migrations/0044_chat_catalog_revision.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -511,6 +512,7 @@ const runAllMigrations = Effect.all(
 		Migration0038QueuedMessageReady,
 		Migration0041ChatArchiveJobs,
 		Migration0043NameProvenance,
+		Migration0044ChatCatalogRevision,
 	],
 	{ discard: true },
 );
@@ -1939,6 +1941,51 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it("advances the chat catalog cursor only for effective chat changes", async () => {
+		await withRuntime(async (run) => {
+			const revisions = await run(
+				Effect.gen(function* () {
+					const s = yield* store;
+					const sql = yield* SqlClient.SqlClient;
+					const created = yield* s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					});
+					const readRevision = Effect.map(
+						sql<{ readonly revision: number }>`
+							SELECT revision FROM chat_catalog_revision WHERE id = 1
+						`,
+						(rows) => rows[0]?.revision ?? -1,
+					);
+					const afterCreate = yield* readRevision;
+					yield* sql`
+						UPDATE projects SET name = ${"Unrelated"} WHERE id = ${PROJECT_ID}
+					`;
+					const afterUnrelatedWrite = yield* readRevision;
+					yield* sql`
+						UPDATE chats SET title = title WHERE id = ${created.chat.id}
+					`;
+					const afterNoopChatWrite = yield* readRevision;
+					yield* sql`
+						UPDATE chats SET title = ${"Changed"} WHERE id = ${created.chat.id}
+					`;
+					const afterChatWrite = yield* readRevision;
+					return {
+						afterCreate,
+						afterUnrelatedWrite,
+						afterNoopChatWrite,
+						afterChatWrite,
+					};
+				}),
+			);
+
+			expect(revisions.afterUnrelatedWrite).toBe(revisions.afterCreate);
+			expect(revisions.afterNoopChatWrite).toBe(revisions.afterCreate);
+			expect(revisions.afterChatWrite).toBe(revisions.afterCreate + 1);
+		});
+	});
+
 	it("createSession publishes the updated active session to live chat streams", async () => {
 		await withRuntime(async (run) => {
 			const result = await run(
@@ -2304,9 +2351,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						s.sendMessage(initialSession.id, "trigger provider recovery"),
 					),
 				),
-			).rejects.toThrow(
-				"Provider turn could not be started after durable intent",
-			);
+			).rejects.toThrow("scripted start failure");
 
 			const evidence = await run(
 				Effect.gen(function* () {

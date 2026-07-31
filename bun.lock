@@ -243,6 +243,7 @@
         "@types/node": "catalog:",
         "@zuse/agents": "*",
         "@zuse/analytics": "*",
+        "@zuse/client-runtime": "*",
         "@zuse/contracts": "*",
         "@zuse/domain": "*",
         "@zuse/git": "*",
