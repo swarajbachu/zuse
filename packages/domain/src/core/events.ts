@@ -60,6 +60,8 @@ export const SessionEvent = Schema.Union([
 	Schema.TaggedStruct("ProviderTurnRequested", {
 		turnId: Schema.String,
 		providerInputJson: Schema.String,
+		/** Optional provider startup configuration for an atomic initial turn. */
+		providerStartJson: Schema.optional(Schema.String),
 		requestedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("TurnSettled", {

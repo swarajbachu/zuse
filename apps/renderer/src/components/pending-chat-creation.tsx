@@ -1,6 +1,4 @@
 import { useState } from "react";
-import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
-import { useProviderStartupDelay } from "../lib/provider-startup-delay.ts";
 import { type PendingChatCreation, useChatsStore } from "../store/chats.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
@@ -31,46 +29,33 @@ export function PendingChatCreationSurface({
 					(candidate) => candidate.id === creation.worktreeId,
 				) ?? null),
 	);
-	const providerActive = creation.phase === "creating-chat";
-	const providerDelayed = useProviderStartupDelay(
-		providerActive,
-		creation.operationId,
-	);
-
 	return (
 		<div className="flex min-h-0 flex-1 flex-col px-3">
 			<div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
 				<div className="min-h-0 flex-1 overflow-y-auto">
-					<SetupCardView
-						data={{
-							repoName: folder?.name ?? "this repo",
-							hasWorktree:
-								creation.workspaceRequested || creation.worktreeId !== null,
-							worktreePending:
-								(creation.phase === "creating-workspace" ||
-									(creation.worktreeId !== null && worktree === null)) &&
-								creation.phase !== "failed",
-							worktreeName: worktree?.name ?? null,
-							branch: worktree?.branch ?? null,
-							baseBranch: worktree?.baseBranch ?? null,
-							setupStatus:
-								worktree?.setupStatus ??
-								(creation.phase === "failed" && creation.workspaceRequested
-									? "failed"
-									: null),
-							setupOutput: worktree?.setupOutput ?? "",
-							providerLabel:
-								PROVIDER_LABEL[creation.providerId] ?? creation.providerId,
-							providerState:
-								creation.phase === "failed"
-									? "failed"
-									: providerActive
-										? "active"
-										: "pending",
-							providerDelayed,
-							onRerun: null,
-						}}
-					/>
+					{creation.workspaceRequested || creation.worktreeId !== null ? (
+						<SetupCardView
+							data={{
+								repoName: folder?.name ?? "this repo",
+								hasWorktree:
+									creation.workspaceRequested || creation.worktreeId !== null,
+								worktreePending:
+									(creation.phase === "creating-workspace" ||
+										(creation.worktreeId !== null && worktree === null)) &&
+									creation.phase !== "failed",
+								worktreeName: worktree?.name ?? null,
+								branch: worktree?.branch ?? null,
+								baseBranch: worktree?.baseBranch ?? null,
+								setupStatus:
+									worktree?.setupStatus ??
+									(creation.phase === "failed" && creation.workspaceRequested
+										? "failed"
+										: null),
+								setupOutput: worktree?.setupOutput ?? "",
+								onRerun: null,
+							}}
+						/>
+					) : null}
 					{creation.phase === "failed" ? (
 						<div className="mx-auto mt-3 flex max-w-xl items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
 							<p className="min-w-0 flex-1 text-xs text-destructive">

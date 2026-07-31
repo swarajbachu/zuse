@@ -237,7 +237,7 @@ const ConversationRuntimeLive = Layer.effect(
 				ndjson,
 				relayActivity,
 				provider,
-				dispatchSessionCommand,
+				dispatchSessionCommand: appendSessionCommand,
 				runSessionReactors: Effect.suspend(() => reactorRuntime.runSession),
 				flushQueueAfterIdle: (sessionId): Effect.Effect<void> =>
 					Effect.suspend(() => queueRuntime.flushAfterIdle(sessionId)),
@@ -288,7 +288,7 @@ const ConversationRuntimeLive = Layer.effect(
 			startSubscription,
 			broadcastChat,
 			persistMessage,
-			runProviderStart: Effect.suspend(() => reactorRuntime.runProviderStart),
+			runSessionReactors: Effect.suspend(() => reactorRuntime.runSession),
 			dispatchSessionCommand: appendSessionCommand,
 			ndjsonAppend,
 			closeProvider,
@@ -298,7 +298,7 @@ const ConversationRuntimeLive = Layer.effect(
 		});
 		const {
 			listSessions,
-			openProviderSession,
+			ensureForTurn,
 			createSession,
 			renameSession,
 			setRuntimeMode,
@@ -375,10 +375,24 @@ const ConversationRuntimeLive = Layer.effect(
 		} = makeProviderReactorHandlers({
 			reactorEffects,
 			getSession: lookupSession,
-			openProviderSession,
+			ensureForTurn,
 			persistMessage,
 			ndjsonAppend,
 			setStatus,
+			resolveActiveTurn,
+			getProviderStartJson: (sessionId) =>
+				sql<{ readonly provider_start_json: string | null }>`
+					SELECT json_extract(payload_json, '$.providerStartJson') AS provider_start_json
+					FROM events
+					WHERE stream_kind = 'session'
+						AND stream_id = ${sessionId}
+						AND type = 'SessionCreated'
+					ORDER BY stream_version ASC
+					LIMIT 1
+				`.pipe(
+					Effect.map((rows) => rows[0]?.provider_start_json ?? null),
+					Effect.orDie,
+				),
 			settleTurnFromReactor,
 			rememberActiveTurn: (sessionId, turnId) =>
 				state.rememberActiveTurn(sessionId, turnId),
@@ -460,7 +474,7 @@ const ConversationRuntimeLive = Layer.effect(
 			provider,
 			state: goalState,
 			lookupSession,
-			openProviderSession,
+			ensureForTurn,
 		});
 		const { getGoal, setGoal, clearGoal, streamGoal } = goalOperations;
 
@@ -469,7 +483,7 @@ const ConversationRuntimeLive = Layer.effect(
 			fs,
 			goalState,
 			lookupSession,
-			openProviderSession,
+			ensureForTurn,
 			setStatus,
 			persistMessage,
 			submitTurn,
@@ -492,6 +506,7 @@ const ConversationRuntimeLive = Layer.effect(
 					updatedAt: Date.now(),
 				}),
 			closeProvider,
+			hasProvider: (sessionId) => provider.hasSession(sessionId),
 			interruptProviderFiber,
 		});
 		const { resumeSession, sendMessage, interruptSession, queueRuntime } =

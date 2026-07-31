@@ -89,11 +89,15 @@ describe("session decider", () => {
 			turnId: "turn-initial",
 			messageId: "message-initial",
 			messageContentJson: '{"_tag":"user","text":"hello"}',
+			providerInputJson:
+				'{"text":"hello","attachments":[],"fileRefs":[],"skillRefs":[]}',
 		});
 		expect(Result.getOrThrow(result).map((event) => event._tag)).toEqual([
 			"SessionCreated",
 			"MessagePersisted",
 			"TurnStarted",
+			"SessionStatusSet",
+			"ProviderTurnRequested",
 		]);
 	});
 

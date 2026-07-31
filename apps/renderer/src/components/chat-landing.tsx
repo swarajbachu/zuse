@@ -68,7 +68,6 @@ import { useSettingsStore } from "~/store/settings";
 import { useWorkspaceStore } from "~/store/workspace";
 import { EMPTY_WORKTREES, useWorktreesStore } from "~/store/worktrees";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
-import { useProviderStartupDelay } from "../lib/provider-startup-delay.ts";
 import {
 	CreateFromMenu,
 	type CreateFromSelection,
@@ -194,13 +193,6 @@ export function ChatLanding() {
 	// The provider chosen in the composer for this submit (may differ from the
 	// default — e.g. the user switched to Grok). Drives the bridge card's
 	// "Starting <provider>" label so it matches what's actually booting.
-	const [pendingProviderId, setPendingProviderId] = useState<ProviderId | null>(
-		null,
-	);
-	const providerDelayed = useProviderStartupDelay(
-		submitting && pendingPrompt !== null,
-		pendingProviderId ?? defaultProviderId,
-	);
 
 	// The PR / branch / issue the user chose via "Create from…", if any. For a
 	// PR/branch we eagerly check out a worktree (or reuse an "In use" one) and
@@ -411,7 +403,6 @@ export function ChatLanding() {
 		const startupInput = ComposerInput.make({ ...input, asGoal: opts.asGoal });
 		setSubmitError(null);
 		setSubmitting(true);
-		setPendingProviderId(draft.providerId);
 		setPendingPrompt(
 			input.text.trim().length > 0 ? input.text.trim() : "New chat",
 		);
@@ -573,7 +564,6 @@ export function ChatLanding() {
 			setSubmitError(reason);
 			setPendingPrompt(null);
 			setPendingWorktreeId(null);
-			setPendingProviderId(null);
 			setSubmitting(false);
 			return;
 		}
@@ -645,7 +635,6 @@ export function ChatLanding() {
 				setSubmitError("Couldn't attach pasted text. Please try again.");
 				setPendingPrompt(null);
 				setPendingWorktreeId(null);
-				setPendingProviderId(null);
 				setSubmitting(false);
 				return;
 			}
@@ -663,7 +652,6 @@ export function ChatLanding() {
 				setSubmitError("Couldn't attach one of those files. Please try again.");
 				setPendingPrompt(null);
 				setPendingWorktreeId(null);
-				setPendingProviderId(null);
 				setSubmitting(false);
 				return;
 			} finally {
@@ -690,26 +678,24 @@ export function ChatLanding() {
 		return (
 			<div className="flex min-h-0 flex-1 flex-col">
 				<div className="min-h-0 flex-1 overflow-y-auto">
-					<SetupCardView
-						data={{
-							repoName: selectedFolder?.name ?? "this repo",
-							hasWorktree:
-								pendingWorktreeId !== null || defaultAutoCreateWorktree,
-							worktreePending: pendingWorktree === null,
-							worktreeName: pendingWorktree?.name ?? null,
-							branch: pendingWorktree?.branch ?? null,
-							baseBranch: pendingWorktree?.baseBranch ?? null,
-							setupStatus: pendingWorktree?.setupStatus ?? null,
-							setupOutput: pendingWorktree?.setupOutput ?? "",
-							providerLabel: (() => {
-								const pid = pendingProviderId ?? defaultProviderId;
-								return PROVIDER_LABEL[pid] ?? pid;
-							})(),
-							providerState: "active",
-							providerDelayed,
-							onRerun: null,
-						}}
-					/>
+					{pendingWorktreeId !== null ||
+					defaultAutoCreateWorktree ||
+					repositoryAutoCreateWorktree ? (
+						<SetupCardView
+							data={{
+								repoName: selectedFolder?.name ?? "this repo",
+								hasWorktree:
+									pendingWorktreeId !== null || defaultAutoCreateWorktree,
+								worktreePending: pendingWorktree === null,
+								worktreeName: pendingWorktree?.name ?? null,
+								branch: pendingWorktree?.branch ?? null,
+								baseBranch: pendingWorktree?.baseBranch ?? null,
+								setupStatus: pendingWorktree?.setupStatus ?? null,
+								setupOutput: pendingWorktree?.setupOutput ?? "",
+								onRerun: null,
+							}}
+						/>
+					) : null}
 				</div>
 				<div className="px-4 pb-4">
 					<QueuedComposerPill prompt={pendingPrompt} count={1} />

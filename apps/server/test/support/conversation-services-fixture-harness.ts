@@ -171,6 +171,9 @@ const makeRuntime = (
 ) => {
 	const StubProviderLive = Layer.succeed(ProviderService, {
 		availability: () => Effect.succeed([]),
+		hasSession: () => Effect.succeed(true),
+		guardCurrent: (_sessionId, _generation, effect) =>
+			effect.pipe(Effect.as(true)),
 		start: (input: StartSessionInput) =>
 			Effect.succeed({
 				sessionId: input.sessionId ?? ("fixture-session" as AgentSessionId),

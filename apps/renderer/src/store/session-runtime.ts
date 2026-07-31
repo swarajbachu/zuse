@@ -16,7 +16,7 @@ type CommandProjection =
 	| {
 			readonly kind: "send";
 			readonly phase: "pending";
-			readonly state: "running";
+			readonly state: "starting";
 			readonly observedVersion: number;
 	  }
 	| {
@@ -222,7 +222,7 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>(
 			commandBySession.set(sessionId, {
 				kind: "send",
 				phase: "pending",
-				state: "running",
+				state: "starting",
 				observedVersion: currentTimelineVersion(sessionId),
 			});
 			publishChanged(new Set([sessionId]), set, get);

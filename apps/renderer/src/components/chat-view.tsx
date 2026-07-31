@@ -24,10 +24,12 @@ import {
 	rowAnchorMessageId,
 } from "../lib/chat-timeline-rows.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
+import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import {
-	effectiveSessionRuntimeState,
-	isSessionTurnActive,
-} from "../lib/session-runtime-state.ts";
+	providerStartupLabel,
+	useProviderStartupDelay,
+} from "../lib/provider-startup-delay.ts";
+import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
 import {
 	getAnchoredTurnMetrics,
 	resolveScrollableNodeIsAtEnd,
@@ -107,9 +109,13 @@ export function ChatView({
 	const renderRecovery = useMessagesStore(
 		(s) => s.renderRecoveryBySession[sessionId] ?? 0,
 	);
-	const inFlight = useSessionRuntimeStore((s) =>
-		isSessionTurnActive(effectiveSessionRuntimeState(s.bySession[sessionId])),
+	const runtimeState = useSessionRuntimeStore((s) =>
+		effectiveSessionRuntimeState(s.bySession[sessionId]),
 	);
+	const inFlight =
+		runtimeState === "starting" ||
+		runtimeState === "running" ||
+		runtimeState === "stopping";
 	// While a plan sits awaiting approval the turn is technically still "running",
 	// but the agent is blocked on the user — show no spinner, since we're the ones
 	// waiting. The Approve/Cancel decision lives in the pinned PlanApprovalTray.
@@ -860,7 +866,7 @@ function TimelineRow({
 				</div>
 			);
 		case "working":
-			return <WorkingRow messages={row.messages} />;
+			return <WorkingRow messages={row.messages} sessionId={sessionId} />;
 	}
 }
 
@@ -872,7 +878,28 @@ const formatElapsed = (ms: number): string => {
 	return `${min}m ${sec.toFixed(1)}s`;
 };
 
-function WorkingRow({ messages }: { messages: ReadonlyArray<Message> }) {
+function WorkingRow({
+	messages,
+	sessionId,
+}: {
+	messages: ReadonlyArray<Message>;
+	sessionId: SessionId;
+}) {
+	const runtimeState = useSessionRuntimeStore((s) =>
+		effectiveSessionRuntimeState(s.bySession[sessionId]),
+	);
+	const session = useSessionsStore((s) => {
+		void s.sessionsByProject;
+		return getSessionById(sessionId);
+	});
+	const providerLabel =
+		session === null || session === undefined
+			? "Agent"
+			: (PROVIDER_LABEL[session.providerId] ?? session.providerId);
+	const delayed = useProviderStartupDelay(
+		runtimeState === "starting",
+		`${sessionId}:${session?.providerId ?? "unknown"}:${session?.model ?? "unknown"}`,
+	);
 	// Anchor to the most recent user message — we want the live "current turn"
 	// elapsed time beside the loader, not the session-wide total.
 	const anchorMs = useMemo(() => {
@@ -899,9 +926,19 @@ function WorkingRow({ messages }: { messages: ReadonlyArray<Message> }) {
 	return (
 		<div className="flex min-h-9 items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground">
 			<AgentActivityOrb state={activityState} />
-			<ShimmerText tone="lime" className="tabular-nums">
-				{formatElapsed(elapsed)}
-			</ShimmerText>
+			{runtimeState === "starting" ? (
+				<span className={delayed ? "text-warning" : "text-muted-foreground"}>
+					{providerStartupLabel({
+						providerLabel,
+						failed: false,
+						delayed,
+					})}
+				</span>
+			) : (
+				<ShimmerText tone="lime" className="tabular-nums">
+					{formatElapsed(elapsed)}
+				</ShimmerText>
+			)}
 		</div>
 	);
 }

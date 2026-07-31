@@ -4,15 +4,8 @@ import {
 	GitBranchIcon,
 	Tick01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
-import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
-import {
-	providerStartupLabel,
-	useProviderStartupDelay,
-} from "../lib/provider-startup-delay.ts";
-import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
 import { shouldShowSetupCard } from "../lib/setup-card-visibility.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
-import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
@@ -49,9 +42,6 @@ export type SetupCardData = {
 		| "skipped"
 		| null;
 	readonly setupOutput: string;
-	readonly providerLabel: string;
-	readonly providerState: StepState;
-	readonly providerDelayed: boolean;
 	/** Rerun handler, present only when setup has failed and a row exists. */
 	readonly onRerun: (() => void) | null;
 };
@@ -93,23 +83,11 @@ export function WorktreeSetupCard() {
 		return list.find((w) => w.id === ctx.worktreeId) ?? null;
 	});
 	const rerunSetup = useWorktreesStore((s) => s.rerunSetup);
-	const providerRuntime = useSessionRuntimeStore((s) =>
-		session === null
-			? "idle"
-			: effectiveSessionRuntimeState(s.bySession[session.id]),
-	);
-
 	const hasWorktree = ctx.status === "ready" && ctx.worktreeId !== null;
 	const worktreePending = ctx.status === "ready" && ctx.worktreePending;
 	const setupStatus = worktree?.setupStatus ?? null;
 	const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
 	const externalResume = session !== null && session.resumeStrategy !== "none";
-	const providerBooting = providerRuntime === "starting";
-	const providerErrored = providerRuntime === "failed";
-	const providerDelayed = useProviderStartupDelay(
-		providerBooting === true,
-		session?.id ?? "no-session",
-	);
 
 	// This card belongs to chat/worktree creation. A provider still boots for
 	// every additional session, but that must not replay chat setup UI after the
@@ -119,22 +97,8 @@ export function WorktreeSetupCard() {
 		initialSession,
 		hasWorktree,
 		setupDone,
-		providerBooting: providerBooting === true,
 	});
 	if (!visible) return null;
-
-	const providerLabel: string =
-		session !== null
-			? (PROVIDER_LABEL[session.providerId] ?? session.providerId)
-			: "agent";
-	const providerState: StepState =
-		session === null
-			? "pending"
-			: providerBooting
-				? "active"
-				: providerErrored
-					? "failed"
-					: "done";
 
 	return (
 		<SetupCardView
@@ -147,9 +111,6 @@ export function WorktreeSetupCard() {
 				baseBranch: worktree?.baseBranch ?? null,
 				setupStatus,
 				setupOutput: worktree?.setupOutput ?? "",
-				providerLabel,
-				providerState,
-				providerDelayed,
 				onRerun:
 					worktree !== null && setupStatus === "failed"
 						? () => void rerunSetup(worktree.projectId, worktree.id)
@@ -173,9 +134,6 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 		baseBranch,
 		setupStatus,
 		setupOutput,
-		providerLabel,
-		providerState,
-		providerDelayed,
 		onRerun,
 	} = data;
 
@@ -185,10 +143,7 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	const wtReady = hasWorktree && !worktreePending;
 	const setupStarted = setupStatus !== null && setupStatus !== "pending";
 	const busy =
-		worktreePending ||
-		providerState === "active" ||
-		setupStatus === "running" ||
-		setupStatus === "pending";
+		worktreePending || setupStatus === "running" || setupStatus === "pending";
 	const activityState =
 		worktreePending || setupStatus === "running" || setupStatus === "pending"
 			? "shaping"
@@ -220,7 +175,7 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 								label={
 									activityState === "shaping"
 										? "Preparing workspace"
-										: `Starting ${providerLabel}`
+										: "Preparing workspace"
 								}
 							/>
 						) : failed ? (
@@ -272,15 +227,6 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 							/>
 						</>
 					) : null}
-					<StepRow
-						state={providerState}
-						tone={providerDelayed ? "warning" : "default"}
-						label={providerStartupLabel({
-							providerLabel,
-							failed: providerState === "failed",
-							delayed: providerDelayed,
-						})}
-					/>
 				</div>
 				{setupOutput.trim().length > 0 ? (
 					<pre className="max-h-48 overflow-auto border-t border-border/40 bg-background/40 px-3.5 py-2.5 font-mono text-[11px] leading-5 whitespace-pre-wrap text-foreground/80">

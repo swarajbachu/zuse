@@ -51,7 +51,7 @@ export interface SessionOperationsOptions
 		idOverride?: import("@zuse/contracts").MessageId,
 		turnIdOverride?: AgentTurnId,
 	) => Effect.Effect<PersistedMessage>;
-	readonly runProviderStart: Effect.Effect<void, SessionStartError>;
+	readonly runSessionReactors: Effect.Effect<void>;
 	readonly dispatchSessionCommand: (
 		sessionId: SessionId,
 		command: SessionCommand,
@@ -119,7 +119,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		linearTools,
 		broadcastChat,
 		persistMessage,
-		runProviderStart,
+		runSessionReactors,
 		dispatchSessionCommand,
 		ndjsonAppend,
 		closeProvider,
@@ -170,7 +170,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			return row;
 		});
 
-	const { openProviderSession } = makeProviderSessionRuntime({
+	const { ensureForTurn } = makeProviderSessionRuntime({
 		state,
 		agentsFor,
 		cwdForWorktree,
@@ -263,7 +263,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 					};
 				}
 			}
-			const promptForProvider = input.initialPrompt;
 			const initialTurnId = hasInitial
 				? AgentTurnId.make(`turn_${crypto.randomUUID()}`)
 				: null;
@@ -280,8 +279,8 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				input.forkFromResume === true && resumeCursor !== null;
 			const postBootStatus: Session["status"] = hasInitial ? "running" : "idle";
 			const providerStart: ProviderStartRequest = {
-				initialPrompt: promptForProvider ?? null,
-				initialTurnId,
+				initialPrompt: null,
+				initialTurnId: null,
 				modelOptionsJson:
 					input.modelOptions === undefined
 						? null
@@ -294,7 +293,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			// Creation acknowledges the durable session/turn/provider intent,
 			// never the provider side effect. The reactor owns the transition
 			// from booting to the requested post-boot status.
-			const rowStatus: Session["status"] = "booting";
+			const rowStatus: Session["status"] = hasInitial ? "booting" : "idle";
 			const createSessionRecord = sessionDomain
 				.dispatch({
 					commandId: `session:create:${sessionId}`,
@@ -332,6 +331,13 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 										goal: false,
 										...(origin !== undefined ? { origin } : {}),
 									}),
+									providerInputJson: JSON.stringify({
+										text: input.initialPrompt ?? "",
+										attachments: [],
+										fileRefs: [],
+										skillRefs: [],
+										annotations: [],
+									}),
 								}
 							: {}),
 						createdAt: now.getTime(),
@@ -345,27 +351,25 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			);
 			if (initialTurnId !== null) {
 				state.rememberActiveTurn(sessionId, initialTurnId);
-			}
-			// Provider startup is service-owned. Request/RPC cancellation cannot
-			// cancel it or turn normal scope cleanup into a failed chat receipt.
-			yield* Effect.forkIn(
-				runProviderStart.pipe(
-					Effect.catchCause((cause) =>
-						Effect.logWarning(
-							`[ConversationServices] provider start reactor failed: ${String(cause)}`,
+				yield* Effect.forkIn(
+					runSessionReactors.pipe(
+						Effect.catchCause((cause) =>
+							Effect.logWarning(
+								`[ConversationServices] initial turn reactor failed: ${String(cause)}`,
+							),
 						),
 					),
-				),
-				serviceScope,
-				{ startImmediately: true },
-			);
+					serviceScope,
+					{ startImmediately: true },
+				);
+			}
 			return Session.make({
 				id: sessionId,
 				projectId,
 				title,
 				providerId: input.providerId,
 				model: input.model,
-				status: "booting",
+				status: rowStatus,
 				archivedAt: null,
 				cursor: resumeCursor,
 				resumeStrategy,
@@ -583,17 +587,15 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 	const setModel: ConversationOperations["setModel"] = (sessionId, model) =>
 		Effect.gen(function* () {
 			yield* lookupSession(sessionId);
+			// Invalidate any warm or in-flight provider before the new metadata is
+			// visible. A startup that finishes later cannot attach under this model.
+			yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
+			yield* interruptProviderFiber(sessionId);
 			yield* dispatchSessionCommand(sessionId, {
 				_tag: "SetModel",
 				model,
 				updatedAt: yield* currentTimestamp,
 			});
-			// Drop the provider's in-memory session and interrupt the event pump
-			// fiber; durable session-event subscriptions remain connected.
-			// sendMessage's "send fails → restart"
-			// path reads sessions.model so the next turn picks up the new model.
-			yield* closeProvider(sessionId);
-			yield* interruptProviderFiber(sessionId);
 			yield* setStatus(sessionId, "idle");
 		});
 
@@ -612,15 +614,14 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		Effect.gen(function* () {
 			yield* lookupSession(sessionId);
 			yield* ensureSessionNotStarted(sessionId);
+			yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
+			yield* interruptProviderFiber(sessionId);
 			yield* dispatchSessionCommand(sessionId, {
 				_tag: "SetProvider",
 				providerId,
 				model,
 				updatedAt: yield* currentTimestamp,
 			});
-			// See setModel: the durable stream stays connected across the swap.
-			yield* closeProvider(sessionId);
-			yield* interruptProviderFiber(sessionId);
 			yield* setStatus(sessionId, "idle");
 		});
 
@@ -662,7 +663,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 
 	return {
 		listSessions,
-		openProviderSession,
+		ensureForTurn,
 		createSession,
 		renameSession,
 		setRuntimeMode,

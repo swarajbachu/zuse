@@ -13,7 +13,9 @@ import {
 	FolderId,
 	MemoizeRpcs,
 	type ProviderId,
+	SessionAlreadyStartedError,
 	SessionId,
+	SessionNotFoundError,
 	SessionStartError,
 	type SessionSummaryChange,
 	type SessionTimelineFrame,
@@ -897,9 +899,20 @@ const SessionMcpUpdate = MemoizeRpcs.toLayerHandler(
 const SessionSetWorktree = MemoizeRpcs.toLayerHandler(
 	"session.setWorktree",
 	({ sessionId, worktreeId }) =>
-		Effect.flatMap(SessionService, (svc) =>
-			svc.setWorktree(sessionId, worktreeId),
-		),
+		Effect.gen(function* () {
+			const sessions = yield* SessionService;
+			const chats = yield* ChatService;
+			const session = yield* sessions.getSession(sessionId);
+			yield* chats
+				.setChatWorktree(session.chatId, worktreeId)
+				.pipe(
+					Effect.mapError((error) =>
+						error._tag === "ChatAlreadyStartedError"
+							? new SessionAlreadyStartedError({ sessionId })
+							: new SessionNotFoundError({ sessionId }),
+					),
+				);
+		}),
 );
 
 const MessagesList = MemoizeRpcs.toLayerHandler(

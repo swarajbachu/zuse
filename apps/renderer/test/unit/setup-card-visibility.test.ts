@@ -10,7 +10,6 @@ describe("shouldShowSetupCard", () => {
 				initialSession: false,
 				hasWorktree: true,
 				setupDone: true,
-				providerBooting: true,
 			}),
 		).toBe(false);
 	});
@@ -22,32 +21,29 @@ describe("shouldShowSetupCard", () => {
 				initialSession: true,
 				hasWorktree: true,
 				setupDone: false,
-				providerBooting: false,
 			}),
 		).toBe(true);
 	});
 
-	it("shows startup immediately while the workspace choice is still resolving", () => {
+	it("does not use the chat setup card for provider startup", () => {
 		expect(
 			shouldShowSetupCard({
 				externalResume: false,
 				initialSession: true,
 				hasWorktree: false,
 				setupDone: false,
-				providerBooting: true,
 			}),
-		).toBe(true);
+		).toBe(false);
 	});
 
-	it("keeps the card visible when setup finishes before a slow provider", () => {
+	it("hides the card as soon as chat workspace setup finishes", () => {
 		expect(
 			shouldShowSetupCard({
 				externalResume: false,
 				initialSession: true,
 				hasWorktree: true,
 				setupDone: true,
-				providerBooting: true,
 			}),
-		).toBe(true);
+		).toBe(false);
 	});
 });

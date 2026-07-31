@@ -1,22 +1,19 @@
 export interface ProviderAuthRecoveryActions {
 	readonly reopen: () => Promise<boolean>;
-	readonly retry: () => Promise<boolean>;
 	readonly resumeQueue: () => Promise<void>;
 }
 
 /**
  * Reconnect the provider before releasing any durable user intent.
  *
- * Existing chats already have a persisted user turn to retry. Fresh chats
- * instead hold their first prompt in the startup queue, so a retry correctly
- * reports false and recovery releases that queue item.
+ * Reopen replays an active durable turn itself. Releasing the queue afterward
+ * is safe: active sessions remain held, while a fresh dormant session can send
+ * its first queued prompt. A second renderer-side retry would duplicate turns.
  */
 export const resumeAfterProviderLogin = async (
 	actions: ProviderAuthRecoveryActions,
 ): Promise<boolean> => {
 	if (!(await actions.reopen())) return false;
-	if (!(await actions.retry())) {
-		await actions.resumeQueue();
-	}
+	await actions.resumeQueue();
 	return true;
 };

@@ -1100,6 +1100,7 @@ function ChatRow({ chat }: { chat: Chat }) {
 		derivePermissionAttention(Object.values(s.requestsById), sessionIdSet),
 	);
 	const attentionState = mergeChatAttentionStates([
+		creationPending ? "running" : "idle",
 		runningAttention,
 		messageAttention,
 		permissionAttention,

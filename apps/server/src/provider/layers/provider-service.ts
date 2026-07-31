@@ -35,7 +35,8 @@ import {
 	type ProviderId,
 	type ThreadGoalSetInput,
 } from "@zuse/contracts";
-import { Cache, Effect, FileSystem, Layer, Ref, Stream } from "effect";
+import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
+import { Cache, Effect, FileSystem, Layer, Semaphore, Stream } from "effect";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { AnalyticsService } from "../../analytics/services/analytics-service.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
@@ -47,19 +48,16 @@ import { McpService } from "../../mcp/services/mcp-service.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { validateApiKey } from "../api-key-validation.ts";
 import { probeAllProviders, resolveCliPath } from "../availability.ts";
+import { makeProviderSessionRegistry } from "../provider-session-registry.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
 import { CredentialsService } from "../services/credentials-service.ts";
 import { PermissionService } from "../services/permission-service.ts";
 import { ProviderService } from "../services/provider-service.ts";
 
 /**
- * Live `ProviderService`. PR 5 wires the Claude SDK driver behind the session
- * RPCs. Codex (PR 6) lands as a second adapter and the session map will
- * generalize over `providerId` then. For now `start` only knows Claude.
- *
- * Sessions live in a `Ref<Map>` keyed by branded `AgentSessionId`; handles
- * own their own scope so `close()` is the canonical teardown — there is no
- * autocleanup tied to the renderer subscription.
+ * Live provider runtime. Handles own their scopes and are published through a
+ * generation-checked registry, so an older asynchronous startup cannot replace
+ * the provider selected by a newer session command.
  */
 type SessionHandle = TurnScopedProviderSessionHandle;
 
@@ -95,9 +93,16 @@ export const ProviderServiceLive = Layer.effect(
 		const mcp = yield* McpService;
 		const analytics = yield* AnalyticsService;
 		const runtime = yield* Effect.context<never>();
-		const sessions = yield* Ref.make<Map<AgentSessionId, SessionEntry>>(
-			new Map(),
-		);
+		const registry = makeProviderSessionRegistry<
+			AgentSessionId,
+			SessionEntry
+		>();
+		// Identical startup requests serialize and reuse the published handle;
+		// different provider/model generations may start concurrently so a slow,
+		// stale process can never head-of-line block the user's latest selection.
+		const startupWorker = new KeyedEffectSerialWorker<string>();
+		const lifecycleWorker = new KeyedEffectSerialWorker<AgentSessionId>();
+		const startupPermits = yield* Semaphore.make(4);
 
 		// The Claude SDK's `canUseTool` callback returns a Promise; here we
 		// shim PermissionService.request into that signature using the live
@@ -217,15 +222,29 @@ export const ProviderServiceLive = Layer.effect(
 		const lookup = (
 			sessionId: AgentSessionId,
 		): Effect.Effect<SessionEntry, AgentSessionNotFoundError> =>
-			Effect.flatMap(Ref.get(sessions), (map) => {
-				const entry = map.get(sessionId);
+			Effect.suspend(() => {
+				const entry = registry.lookup(sessionId);
 				return entry === undefined
 					? Effect.fail(new AgentSessionNotFoundError({ sessionId }))
 					: Effect.succeed(entry);
 			});
 
+		const invalidate = (sessionId: AgentSessionId) =>
+			Effect.sync(() => registry.invalidate(sessionId));
+
 		return {
 			availability,
+			hasSession: (sessionId) =>
+				Effect.sync(() => registry.lookup(sessionId) !== undefined),
+			guardCurrent: (sessionId, generation, effect) =>
+				lifecycleWorker.run(
+					sessionId,
+					Effect.suspend(() =>
+						registry.isCurrent(sessionId, generation)
+							? effect.pipe(Effect.as(true))
+							: Effect.succeed(false),
+					),
+				),
 			start: (
 				input,
 				resumeCursor = null,
@@ -234,24 +253,45 @@ export const ProviderServiceLive = Layer.effect(
 				providerEventCursor = null,
 			) => {
 				const startupStartedAt = Date.now();
-				return Effect.gen(function* () {
-					if (input.sessionId !== undefined) {
-						const requestedSessionId = input.sessionId;
-						const existing = (yield* Ref.get(sessions)).get(requestedSessionId);
-						if (existing?.providerId === input.providerId) {
-							return { sessionId: requestedSessionId };
-						}
-						if (existing !== undefined) {
-							yield* existing.handle
-								.close()
-								.pipe(Effect.catch(() => Effect.void));
-							yield* Ref.update(sessions, (current) => {
-								const next = new Map(current);
-								next.delete(requestedSessionId);
-								return next;
-							});
-						}
+				const sessionId = input.sessionId ?? nextSessionId();
+				const requestedModel = input.model
+					? safeModelId(input.providerId, input.model)
+					: "custom";
+				const startupKey = `${sessionId}\u0000${input.providerId}\u0000${requestedModel}`;
+				const start = Effect.gen(function* () {
+					const reservation = yield* lifecycleWorker.run(
+						sessionId,
+						Effect.sync(() => {
+							const existing = registry.lookup(sessionId);
+							if (
+								existing?.providerId === input.providerId &&
+								existing.model === requestedModel
+							) {
+								return {
+									_tag: "reuse" as const,
+									generation: registry.currentGeneration(sessionId),
+								};
+							}
+							const removed = registry.invalidate(sessionId);
+							return {
+								_tag: "start" as const,
+								generation: registry.begin(sessionId),
+								removed,
+							};
+						}),
+					);
+					if (reservation._tag === "reuse") {
+						return {
+							sessionId,
+							generation: reservation.generation,
+						};
 					}
+					if (reservation.removed !== undefined) {
+						yield* reservation.removed.handle
+							.close()
+							.pipe(Effect.catch(() => Effect.void));
+					}
+					const generation = reservation.generation;
 					const runtimeModeGetter =
 						getRuntimeMode ?? (() => DEFAULT_RUNTIME_MODE);
 					const folder = yield* workspace.findById(input.folderId);
@@ -274,7 +314,6 @@ export const ProviderServiceLive = Layer.effect(
 					const apiKey = yield* credentials
 						.get(input.providerId)
 						.pipe(Effect.catch(() => Effect.succeed<string | null>(null)));
-					const sessionId = input.sessionId ?? nextSessionId();
 					let providerHandle: ProviderSessionHandle;
 					if (input.providerId === "gemini") {
 						// Same story as Grok: hand the driver the user's installed
@@ -555,19 +594,21 @@ export const ProviderServiceLive = Layer.effect(
 						providerHandle,
 						input.initialTurnId,
 					);
-					yield* Ref.update(sessions, (map) => {
-						const next = new Map(map);
-						next.set(sessionId, {
-							providerId: input.providerId,
-							model: input.model
-								? safeModelId(input.providerId, input.model)
-								: "custom",
-							handle,
-							turnStartedAt: null,
-							turnAnalytics: new TurnAnalyticsAccumulator(),
-						});
-						return next;
-					});
+					const entry: SessionEntry = {
+						providerId: input.providerId,
+						model: requestedModel,
+						handle,
+						turnStartedAt: null,
+						turnAnalytics: new TurnAnalyticsAccumulator(),
+					};
+					const accepted = yield* lifecycleWorker.run(
+						sessionId,
+						Effect.sync(() => registry.publish(sessionId, generation, entry)),
+					);
+					if (!accepted) {
+						yield* handle.close().pipe(Effect.catch(() => Effect.void));
+						return { sessionId, superseded: true };
+					}
 					yield* analytics.capture("provider startup completed", {
 						provider: input.providerId,
 						model: input.model
@@ -576,27 +617,30 @@ export const ProviderServiceLive = Layer.effect(
 						duration_ms: Date.now() - startupStartedAt,
 						resumed: resumeCursor !== null,
 					});
-					return { sessionId };
-				}).pipe(
-					Effect.tapError(() =>
-						analytics.capture("provider startup failed", {
-							provider: input.providerId,
-							model: input.model
-								? safeModelId(input.providerId, input.model)
-								: "custom",
-							duration_ms: Date.now() - startupStartedAt,
-							error_code: "startup_failed",
+					return { sessionId, generation };
+				});
+				return startupWorker
+					.run(startupKey, startupPermits.withPermits(1)(start))
+					.pipe(
+						Effect.tapError(() =>
+							analytics.capture("provider startup failed", {
+								provider: input.providerId,
+								model: input.model
+									? safeModelId(input.providerId, input.model)
+									: "custom",
+								duration_ms: Date.now() - startupStartedAt,
+								error_code: "startup_failed",
+							}),
+						),
+						Effect.withSpan("provider.start", {
+							attributes: {
+								"provider.id": input.providerId,
+								"provider.model": input.model
+									? safeModelId(input.providerId, input.model)
+									: "custom",
+							},
 						}),
-					),
-					Effect.withSpan("provider.start", {
-						attributes: {
-							"provider.id": input.providerId,
-							"provider.model": input.model
-								? safeModelId(input.providerId, input.model)
-								: "custom",
-						},
-					}),
-				);
+					);
 			},
 			send: (sessionId, turnId, text, attachments, fileRefs, skillRefs) =>
 				Effect.flatMap(lookup(sessionId), (entry) =>
@@ -659,22 +703,20 @@ export const ProviderServiceLive = Layer.effect(
 					),
 				),
 			close: (sessionId) =>
-				Effect.flatMap(lookup(sessionId), ({ handle, providerId, model }) =>
-					handle.close().pipe(
-						Effect.andThen(
-							Ref.update(sessions, (map) => {
-								const next = new Map(map);
-								next.delete(sessionId);
-								return next;
-							}),
-						),
-						Effect.withSpan("provider.close", {
-							attributes: {
-								"provider.id": providerId,
-								"provider.model": model,
-								"session.id": sessionId,
-							},
-						}),
+				lifecycleWorker.run(
+					sessionId,
+					Effect.flatMap(invalidate(sessionId), (entry) =>
+						entry === undefined
+							? Effect.fail(new AgentSessionNotFoundError({ sessionId }))
+							: entry.handle.close().pipe(
+									Effect.withSpan("provider.close", {
+										attributes: {
+											"provider.id": entry.providerId,
+											"provider.model": entry.model,
+											"session.id": sessionId,
+										},
+									}),
+								),
 					),
 				),
 			events: (sessionId) =>

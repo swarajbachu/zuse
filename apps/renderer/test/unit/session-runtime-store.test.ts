@@ -140,7 +140,7 @@ describe("session runtime projector", () => {
 		runtime.beginOptimisticTurn(sessionId);
 		runtime.observeSummary(sessionId, "error");
 
-		expect(runtimeState()).toBe("running");
+		expect(runtimeState()).toBe("starting");
 	});
 
 	it("accepts summaries again after the live timeline releases ownership", () => {
@@ -155,7 +155,7 @@ describe("session runtime projector", () => {
 	it("settles optimistic activity when a send fails before durable events", () => {
 		const runtime = useSessionRuntimeStore.getState();
 		runtime.beginOptimisticTurn(sessionId);
-		expect(runtimeState()).toBe("running");
+		expect(runtimeState()).toBe("starting");
 
 		runtime.settleOptimisticTurn(sessionId, "failed");
 		expect(runtimeState()).toBe("failed");
@@ -234,7 +234,7 @@ describe("session runtime projector", () => {
 		runtime.observeSummary(sessionId, "idle");
 		runtime.observeTimeline(sessionId, projection("running", "running"), 8);
 		runtime.beginOptimisticTurn(sessionId);
-		expect(runtimeState()).toBe("running");
+		expect(runtimeState()).toBe("starting");
 
 		runtime.releaseTimeline(sessionId);
 		runtime.observeSummary(sessionId, "idle");

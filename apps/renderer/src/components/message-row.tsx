@@ -794,7 +794,6 @@ function ProviderAuthCard({
 		(s) => s.availability.find((a) => a.providerId === providerId)?.authStatus,
 	);
 	const clearError = useMessagesStore((s) => s.clearError);
-	const retry = useMessagesStore((s) => s.retry);
 	const resumeQueue = useMessagesStore((s) => s.resumeQueue);
 	const reopenSession = useSessionsStore((s) => s.resume);
 	const { state, start, cancel } = useProviderLogin(providerId, {
@@ -808,7 +807,6 @@ function ProviderAuthCard({
 				if (sessionId !== undefined) {
 					const resumed = await resumeAfterProviderLogin({
 						reopen: () => reopenSession(sessionId),
-						retry: () => retry(sessionId),
 						resumeQueue: () => resumeQueue(sessionId),
 					});
 					if (resumed) clearError(sessionId);

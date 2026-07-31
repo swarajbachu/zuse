@@ -96,6 +96,7 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 	const renameSession = useSessionsStore((s) => s.rename);
 	const [renamingSession, setRenamingSession] = useState<Session | null>(null);
 	const runtimeBySession = useSessionRuntimeStore((s) => s.bySession);
+	const pendingCreationByChat = useChatsStore((s) => s.pendingCreationByChat);
 	const sidebarMessagesBySession = useMessagesStore((s) => s.messagesBySession);
 	// Sessions with a pending permission prompt. Surfaced on the tab as a lock
 	// so a supervised-mode request is visible without opening the session.
@@ -194,6 +195,8 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 						const runtimeState = effectiveSessionRuntimeState(
 							runtimeBySession[session.id],
 						);
+						const creationPending =
+							pendingCreationByChat[session.chatId] !== undefined;
 						const isActive =
 							activeMainTab === "chat" && selectedSessionId === session.id;
 						const modelLabel = lookupModelLabel(
@@ -210,7 +213,7 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 								label={session.title}
 								title={tooltip}
 								providerId={session.providerId}
-								booting={runtimeState === "starting"}
+								booting={creationPending || runtimeState === "starting"}
 								running={
 									runtimeState === "running" || runtimeState === "stopping"
 								}
