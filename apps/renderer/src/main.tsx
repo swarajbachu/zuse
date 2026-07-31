@@ -12,6 +12,7 @@ import {
 	installRendererDiagnostics,
 	persistFatalRendererDiagnostic,
 	recordDiagnosticEvent,
+	recordReactCommit,
 	summarizeDiagnosticError,
 } from "./lib/diagnostics-recorder.ts";
 import { AppAtomProvider } from "./state/registry.tsx";
@@ -86,6 +87,18 @@ function RootCrashFallback({ error }: { readonly error: Error }) {
 	);
 }
 
+function ApplicationProviders() {
+	return (
+		<AppAtomProvider>
+			<ToastProvider>
+				<BrowserAccessGate>
+					<App />
+				</BrowserAccessGate>
+			</ToastProvider>
+		</AppAtomProvider>
+	);
+}
+
 ReactDOM.createRoot(root).render(
 	<React.StrictMode>
 		<ErrorBoundary
@@ -106,13 +119,18 @@ ReactDOM.createRoot(root).render(
 				});
 			}}
 		>
-			<AppAtomProvider>
-				<ToastProvider>
-					<BrowserAccessGate>
-						<App />
-					</BrowserAccessGate>
-				</ToastProvider>
-			</AppAtomProvider>
+			{import.meta.env.DEV ? (
+				<React.Profiler
+					id="app.root"
+					onRender={(id, phase, actualDuration, baseDuration) => {
+						recordReactCommit(id, phase, actualDuration, baseDuration);
+					}}
+				>
+					<ApplicationProviders />
+				</React.Profiler>
+			) : (
+				<ApplicationProviders />
+			)}
 		</ErrorBoundary>
 	</React.StrictMode>,
 );

@@ -3,6 +3,7 @@ import { useEffect } from "react";
 
 import {
 	getPowerRuntimeActivity,
+	setPowerActiveAgentCount,
 	subscribePowerRuntimeActivity,
 } from "../lib/power-runtime-activity.ts";
 import { useMessagesStore } from "../store/messages.ts";
@@ -27,6 +28,7 @@ export function useReportRuntimeActivity(): void {
 			const count = countRunning(useMessagesStore.getState());
 			if (count !== lastRunningCount) {
 				lastRunningCount = count;
+				setPowerActiveAgentCount(count);
 				window.zuse?.updates?.reportRunningCount(count);
 			}
 			const runtimeActivity = getPowerRuntimeActivity();

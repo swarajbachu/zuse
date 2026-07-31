@@ -43,4 +43,31 @@ describe("renderer lag classification", () => {
 			name: "renderer.input-latency",
 		});
 	});
+
+	test("retains safe context when detailed browser timing is unavailable", () => {
+		expect(
+			createRendererLagSample(
+				{
+					kind: "long-task",
+					durationMs: 250,
+					visible: true,
+					now: () => "2026-07-31T00:00:00.000Z",
+					id: () => "lag-4",
+				},
+				{
+					recentActions: ["keyboard.navigate"],
+					activeWorkloads: ["agent"],
+					relatedOperations: ["rpc:workspace.list"],
+				},
+			),
+		).toMatchObject({
+			attribution: {
+				cause: "unknown",
+				confidence: "low",
+				recentActions: ["keyboard.navigate"],
+				activeWorkloads: ["agent"],
+				relatedOperations: ["rpc:workspace.list"],
+			},
+		});
+	});
 });

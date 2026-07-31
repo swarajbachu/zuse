@@ -1,4 +1,10 @@
 import type { PowerInteractionMeasurement } from "@zuse/contracts";
+import { getPowerRuntimeActivity } from "./power-runtime-activity.ts";
+import { setRendererRpcLagReporter } from "./rpc-stall-instrumentation.ts";
+import {
+	getActiveStallOperations,
+	type StallContext,
+} from "./stall-context.ts";
 
 export type DiagnosticLogLevel = "debug" | "info" | "warn" | "error";
 
@@ -27,6 +33,16 @@ const powerInteractions: PowerInteractionMeasurement[] = [];
 let installed = false;
 let flushTimer: number | null = null;
 let flushing = false;
+let reportReactCommit:
+	| ((input: {
+			readonly id: string;
+			readonly phase: "mount" | "update" | "nested-update";
+			readonly actualDurationMs: number;
+			readonly baseDurationMs: number;
+	  }) => void)
+	| null = null;
+let reportOperationLag: ((name: string, durationMs: number) => void) | null =
+	null;
 
 function pushBounded<T>(items: T[], item: T, limit: number): void {
 	items.push(item);
@@ -167,6 +183,35 @@ export function getDiagnosticUiActions(): ReadonlyArray<DiagnosticUiAction> {
 	return uiActions.slice();
 }
 
+export function getRendererStallContext(): StallContext {
+	const cutoff = Date.now() - 5_000;
+	const activity = getPowerRuntimeActivity();
+	const activeWorkloads = [
+		...(activity.activeAgents > 0 ? ["agent"] : []),
+		...(activity.activeTerminals > 0 ? ["terminal"] : []),
+		...(activity.activeBrowserSessions > 0 ? ["browser"] : []),
+		...(activity.browserRecordings > 0 ? ["browser-recording"] : []),
+		...(activity.indexing ? ["indexing"] : []),
+	];
+	return {
+		recentActions: uiActions
+			.filter((item) => Date.parse(item.createdAt) >= cutoff)
+			.slice(-8)
+			.map((item) => item.action),
+		activeWorkloads,
+		relatedOperations: [...getActiveStallOperations()],
+	};
+}
+
+export function recordReactCommit(
+	id: string,
+	phase: "mount" | "update" | "nested-update",
+	actualDurationMs: number,
+	baseDurationMs: number,
+): void {
+	reportReactCommit?.({ id, phase, actualDurationMs, baseDurationMs });
+}
+
 export function recordPowerInteraction(name: string, durationMs: number): void {
 	if (!/^chat\.[a-z0-9._-]{1,100}$/i.test(name)) return;
 	if (!Number.isFinite(durationMs) || durationMs < 0) return;
@@ -193,19 +238,63 @@ export function getPowerInteractionMeasurements(
 export function installRendererDiagnostics(): void {
 	if (installed || typeof window === "undefined") return;
 	installed = true;
+	document.addEventListener(
+		"pointerdown",
+		(event) => {
+			const element = event.target instanceof Element ? event.target : null;
+			const role = element?.closest("[role]")?.getAttribute("role");
+			const tag = element
+				?.closest("button,a,input,textarea,[role]")
+				?.tagName.toLowerCase();
+			recordUiAction(`pointer.${role ?? tag ?? "surface"}`);
+		},
+		{ capture: true, passive: true },
+	);
+	document.addEventListener(
+		"keydown",
+		(event) => {
+			const action =
+				event.key === "Enter"
+					? "keyboard.submit"
+					: event.key === "Escape"
+						? "keyboard.dismiss"
+						: event.key.startsWith("Arrow")
+							? "keyboard.navigate"
+							: event.metaKey || event.ctrlKey
+								? "keyboard.shortcut"
+								: null;
+			if (action !== null) recordUiAction(action);
+		},
+		{ capture: true },
+	);
 	void import("./renderer-lag-monitor.ts")
-		.then(({ installRendererLagMonitor }) => {
-			installRendererLagMonitor((samples) => {
+		.then(async ({ installRendererLagMonitor }) => {
+			const { createOperationLagSample, createReactCommitLagSample } =
+				await import("./stall-attribution.ts");
+			const reportSamples = (
+				samples: ReadonlyArray<import("@zuse/contracts").LagSample>,
+			) => {
 				window.zuse?.power?.reportLagSamples?.(samples);
-				for (const sample of samples.filter((item) => item.durationMs >= 500)) {
-					recordDiagnosticEvent({
-						level: "warn",
-						source: "renderer.lag",
-						message: sample.name ?? `renderer.${sample.kind}`,
-						detail: `durationMs=${sample.durationMs.toFixed(1)}`,
-					});
-				}
+			};
+			reportReactCommit = (input) => {
+				const sample = createReactCommitLagSample({
+					...input,
+					context: getRendererStallContext(),
+				});
+				if (sample !== null) reportSamples([sample]);
+			};
+			reportOperationLag = (name, durationMs) => {
+				const sample = createOperationLagSample({
+					name,
+					durationMs,
+					context: getRendererStallContext(),
+				});
+				if (sample !== null) reportSamples([sample]);
+			};
+			setRendererRpcLagReporter((name, durationMs) => {
+				reportOperationLag?.(name, durationMs);
 			});
+			installRendererLagMonitor(reportSamples, getRendererStallContext);
 		})
 		.catch(() => undefined);
 

@@ -20,6 +20,7 @@ import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import type { RpcBridge } from "./bridge.ts";
 import { requestBrowserWebSocketUrl } from "./browser-session.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
+import { instrumentRendererRpcClient } from "./rpc-stall-instrumentation.ts";
 import { wsClientProtocolLayer } from "./ws-client-protocol.ts";
 
 type MemoizeClient = RpcClient.RpcClient<
@@ -98,10 +99,12 @@ const supervisor = createConnectionSupervisor<
 							WIRE_PROTOCOL_VERSION,
 						),
 					);
-		return makeRpcClientSession(protocolLayer, MemoizeRpcs, {
-			protocolVersion: WIRE_PROTOCOL_VERSION,
-			perform: (client, hello) => client["connect.handshake"](hello),
-		});
+		return instrumentRendererRpcClient(
+			await makeRpcClientSession(protocolLayer, MemoizeRpcs, {
+				protocolVersion: WIRE_PROTOCOL_VERSION,
+				perform: (client, hello) => client["connect.handshake"](hello),
+			}),
+		);
 	},
 	isRetryableCommandError: isRpcClientError,
 });

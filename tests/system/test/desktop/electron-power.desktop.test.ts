@@ -119,6 +119,12 @@ describe("Electron performance measurement bridge", () => {
 							stopRecording: () => Promise<
 								import("@zuse/contracts").PowerMonitorState
 							>;
+							reportLagSamples: (
+								samples: ReadonlyArray<import("@zuse/contracts").LagSample>,
+							) => void;
+							getHistory: (
+								since: number,
+							) => Promise<import("@zuse/contracts").PerformanceHistory>;
 							exportLatestRecording: (
 								interactions: ReadonlyArray<
 									import("@zuse/contracts").PowerInteractionMeasurement
@@ -130,6 +136,65 @@ describe("Electron performance measurement bridge", () => {
 				const power = target.zuse?.power;
 				if (power === undefined) throw new Error("power bridge missing");
 				const initial = await power.getState();
+				const supportsLongAnimationFrames =
+					PerformanceObserver.supportedEntryTypes.includes(
+						"long-animation-frame",
+					);
+				await new Promise<void>((resolve) => {
+					requestAnimationFrame(() => {
+						const startedAt = performance.now();
+						while (performance.now() - startedAt < 180) {
+							// Deliberately block one frame to exercise the real observer.
+						}
+						resolve();
+					});
+				});
+				let observedLongAnimationFrame = false;
+				const observedFrameDeadline = Date.now() + 5_000;
+				while (
+					!observedLongAnimationFrame &&
+					Date.now() < observedFrameDeadline
+				) {
+					const history = await power.getHistory(Date.now() - 60_000);
+					observedLongAnimationFrame = history.lagSamples.some(
+						(sample) => sample.kind === "long-animation-frame",
+					);
+					if (!observedLongAnimationFrame) {
+						await new Promise((resolve) => setTimeout(resolve, 25));
+					}
+				}
+				power.reportLagSamples([
+					{
+						id: "lag-attributed-system",
+						capturedAt: new Date().toISOString(),
+						kind: "long-animation-frame",
+						durationMs: 640,
+						source: "renderer",
+						name: "renderer.long-animation-frame",
+						attribution: {
+							cause: "script",
+							label: "handleSend",
+							confidence: "high",
+							blockingDurationMs: 520,
+							scriptFunction: "handleSend",
+							scriptSource: "chat-view.js",
+							recentActions: ["pointer.button"],
+							activeWorkloads: ["agent"],
+							relatedOperations: ["rpc:messages.queue.add"],
+						},
+					},
+				]);
+				let attributedLag: import("@zuse/contracts").LagSample | undefined;
+				const lagDeadline = Date.now() + 5_000;
+				while (attributedLag === undefined && Date.now() < lagDeadline) {
+					const history = await power.getHistory(Date.now() - 60_000);
+					attributedLag = history.lagSamples.find(
+						(sample) => sample.id === "lag-attributed-system",
+					);
+					if (attributedLag === undefined) {
+						await new Promise((resolve) => setTimeout(resolve, 25));
+					}
+				}
 				let firstEvents = 0;
 				let secondEvents = 0;
 				const unsubscribeFirst = power.onState(() => {
@@ -151,9 +216,13 @@ describe("Electron performance measurement bridge", () => {
 				await new Promise((resolve) => setTimeout(resolve, 25));
 				return {
 					hasInitialSnapshot: initial.latestSnapshot !== null,
+					supportsLongAnimationFrames,
+					observedLongAnimationFrame,
 					active: active.activeRecording !== null,
 					completed: completed.latestRecording !== null,
 					sampleCount: completed.latestRecording?.summary.sampleCount ?? 0,
+					attributedCause: attributedLag?.attribution?.cause ?? null,
+					attributedSource: attributedLag?.attribution?.scriptSource ?? null,
 					firstEventsAfterUnsubscribe: firstEvents - firstEventsAtUnsubscribe,
 					secondEventsAfterFirstUnsubscribe,
 					secondEventsAfterUnsubscribe:
@@ -163,13 +232,35 @@ describe("Electron performance measurement bridge", () => {
 
 			expect(result).toMatchObject({
 				hasInitialSnapshot: true,
+				supportsLongAnimationFrames: true,
+				observedLongAnimationFrame: true,
 				active: true,
 				completed: true,
 				sampleCount: 1,
+				attributedCause: "script",
+				attributedSource: "chat-view.js",
 				firstEventsAfterUnsubscribe: 0,
 				secondEventsAfterUnsubscribe: 0,
 			});
 			expect(result.secondEventsAfterFirstUnsubscribe).toBeGreaterThan(0);
+
+			await electron.page.keyboard.press("Meta+,");
+			await electron.page
+				.getByRole("button", { name: "Diagnostics", exact: true })
+				.click();
+			await electron.page
+				.getByRole("button", { name: "Performance", exact: true })
+				.click();
+			await electron.page
+				.getByText("Stall cause timeline", { exact: true })
+				.waitFor({ state: "visible" });
+			await electron.page
+				.getByRole("button", { name: /handleSend/ })
+				.first()
+				.click();
+			await electron.page
+				.getByText("chat-view.js", { exact: true })
+				.waitFor({ state: "visible" });
 
 			const recordingDeadline = Date.now() + 5_000;
 			while (
