@@ -260,9 +260,9 @@ export const makeProviderReactorHandlers = (
 				// Keep the durable turn active. Explicit Retry and boot recovery can
 				// replay this exact provider request without reconstructing user input.
 				yield* setStatus(sessionId, "error");
-				// Authentication is recoverable through the inline login flow, so
-				// acknowledge this failed side effect and let a fresh turn retry it.
-				// Other transient failures retain the existing replay behavior.
+				// Authentication is recoverable through explicit resume, which replays
+				// this same durable turn. Completing the receipt prevents catch-up from
+				// racing that user-driven retry; other transient failures stay replayable.
 				if (!isAuthenticationRequired(restarted.error.reason)) {
 					return yield* Effect.die(
 						new Error(

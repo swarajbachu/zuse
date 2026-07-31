@@ -219,6 +219,8 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>(
 			observeDurableCompletionState(sessionId, timeline.state);
 		},
 		beginOptimisticTurn: (sessionId) => {
+			// User intent is visible before a provider handle exists; `starting` is
+			// the truthful optimistic state until durable timeline acknowledgement.
 			commandBySession.set(sessionId, {
 				kind: "send",
 				phase: "pending",

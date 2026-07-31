@@ -614,6 +614,8 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		Effect.gen(function* () {
 			yield* lookupSession(sessionId);
 			yield* ensureSessionNotStarted(sessionId);
+			// Invalidate before persisting the selection so an explicit warm-up
+			// cannot attach the previous provider after the metadata switch.
 			yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
 			yield* interruptProviderFiber(sessionId);
 			yield* dispatchSessionCommand(sessionId, {

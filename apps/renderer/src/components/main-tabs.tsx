@@ -96,6 +96,8 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 	const renameSession = useSessionsStore((s) => s.rename);
 	const [renamingSession, setRenamingSession] = useState<Session | null>(null);
 	const runtimeBySession = useSessionRuntimeStore((s) => s.bySession);
+	// Creation progress is chat-owned and can predate a durable session status.
+	// Keep it separate from provider `starting` so an empty chat stays dormant.
 	const pendingCreationByChat = useChatsStore((s) => s.pendingCreationByChat);
 	const sidebarMessagesBySession = useMessagesStore((s) => s.messagesBySession);
 	// Sessions with a pending permission prompt. Surfaced on the tab as a lock

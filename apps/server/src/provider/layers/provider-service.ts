@@ -259,6 +259,8 @@ export const ProviderServiceLive = Layer.effect(
 					: "custom";
 				const startupKey = `${sessionId}\u0000${input.providerId}\u0000${requestedModel}`;
 				const start = Effect.gen(function* () {
+					// Reserve ownership before awaiting process teardown. If `begin` moved
+					// below `handle.close()`, an older startup could outrank a later switch.
 					const reservation = yield* lifecycleWorker.run(
 						sessionId,
 						Effect.sync(() => {
@@ -287,6 +289,8 @@ export const ProviderServiceLive = Layer.effect(
 						};
 					}
 					if (reservation.removed !== undefined) {
+						// Closing may be slow, so keep it outside the ownership lock. The
+						// removed handle is detached and cannot affect the reserved generation.
 						yield* reservation.removed.handle
 							.close()
 							.pipe(Effect.catch(() => Effect.void));

@@ -129,6 +129,8 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		} = options;
 		const pendingProviderTurn = (sessionId: SessionId, turnId: AgentTurnId) =>
 			Effect.gen(function* () {
+				// Startup options live on SessionCreated for dormant sessions and on
+				// the turn for atomic initial prompts. COALESCE supports both histories.
 				const rows = yield* sql<{
 					readonly provider_input_json: string;
 					readonly provider_start_json: string | null;
@@ -192,6 +194,8 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					turnId === undefined
 						? null
 						: yield* pendingProviderTurn(sessionId, turnId);
+				// When a durable turn is active, reopen replays that exact request. The
+				// renderer must not submit the last user message again after success.
 				yield* ensureForTurn(session.id, {
 					initialPrompt: request?.startup?.initialPrompt ?? undefined,
 					initialTurnId: request?.startup?.initialTurnId ?? undefined,

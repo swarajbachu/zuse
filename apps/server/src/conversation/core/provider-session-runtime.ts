@@ -214,6 +214,8 @@ export const makeProviderSessionRuntime = (
 				started.generation === undefined
 					? effect.pipe(Effect.as(true))
 					: provider.guardCurrent(session.id, started.generation, effect);
+			// Keep every externally visible handoff behind the lease. Guarding only
+			// `start()` still lets a stopped generation attach or publish `running`.
 			if (!(yield* publish(attachProvider(session.id, session.providerId))))
 				return false;
 			if (!(yield* publish(startSubscription(session.id)))) return false;
