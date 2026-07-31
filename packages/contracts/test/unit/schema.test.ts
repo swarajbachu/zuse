@@ -15,6 +15,7 @@ import {
 	Message,
 	MODELS_BY_PROVIDER,
 	PokemonPokedexEntry,
+	RelayAuthTokenGrant,
 	RelayEnvironmentList,
 	RelayLinkStatus,
 	RepositorySettingsFile,
@@ -220,6 +221,29 @@ describe("RelayLinkStatus advertised endpoint compatibility", () => {
 				},
 			],
 		});
+	});
+});
+
+describe("RelayAuthTokenGrant", () => {
+	it("accepts authorization-code and refresh-token grants", () => {
+		roundTrip(RelayAuthTokenGrant, {
+			grantType: "authorization_code",
+			code: "code",
+			codeVerifier: "verifier",
+		});
+		roundTrip(RelayAuthTokenGrant, {
+			grantType: "refresh_token",
+			refreshToken: "refresh-token",
+		});
+	});
+
+	it("rejects incomplete grants", () => {
+		expect(() =>
+			Schema.decodeUnknownSync(RelayAuthTokenGrant)({
+				grantType: "authorization_code",
+				code: "code",
+			}),
+		).toThrow();
 	});
 });
 

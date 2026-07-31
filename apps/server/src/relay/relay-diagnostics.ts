@@ -1,41 +1,93 @@
-import { Effect } from "effect";
-import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
 
-import type { AppPaths } from "../app-paths.ts";
+import { Effect } from "effect";
+
+import {
+	diagnosticFingerprint,
+	sanitizeDiagnosticText,
+} from "../diagnostics/diagnostics-model.ts";
+import type { TelemetryStore } from "../observability/telemetry-store.ts";
 
 type DiagnosticFields = Record<string, unknown>;
 
-const logPathFor = (paths: typeof AppPaths.Service): string =>
-  process.env.ZUSE_RELAY_LINK_LOG?.trim() ||
-  join(paths.userData, "logs", "relay-link.log");
+const SAFE_FIELD_KEYS = new Set([
+	"environmentId",
+	"exitCode",
+	"hasConnectorToken",
+	"hasLabel",
+	"heartbeatActive",
+	"lanPolicy",
+	"lanPort",
+	"managedTunnel",
+]);
 
-const safeFields = (fields: DiagnosticFields): DiagnosticFields =>
-  Object.fromEntries(
-    Object.entries(fields).map(([key, value]) => [
-      key,
-      value instanceof Error
-        ? { name: value.name, message: value.message }
-        : value,
-    ]),
-  );
+const structuralReason = (value: unknown): string => {
+	const candidate =
+		value instanceof Error
+			? value.name
+			: typeof value === "object" &&
+					value !== null &&
+					"_tag" in value &&
+					typeof value._tag === "string"
+				? value._tag
+				: typeof value === "string"
+					? (value.split(/[\s:]/u, 1)[0] ?? "")
+					: typeof value;
+	return /^[A-Za-z][A-Za-z0-9_.-]{0,80}$/u.test(candidate)
+		? candidate
+		: "UnknownError";
+};
+
+const safeFields = (fields: DiagnosticFields): DiagnosticFields => {
+	const safe = Object.fromEntries(
+		Object.entries(fields).filter(
+			([key, value]) =>
+				SAFE_FIELD_KEYS.has(key) &&
+				(typeof value === "string" ||
+					typeof value === "number" ||
+					typeof value === "boolean" ||
+					value === null),
+		),
+	);
+	if ("reason" in fields || "error" in fields) {
+		safe.reasonType = structuralReason(fields.reason ?? fields.error);
+	}
+	return safe;
+};
 
 export const appendRelayDiagnostic = (
-  paths: typeof AppPaths.Service,
-  event: string,
-  fields: DiagnosticFields = {},
+	store: TelemetryStore["Service"],
+	event: string,
+	fields: DiagnosticFields = {},
 ): Effect.Effect<void> =>
-  Effect.sync(() => {
-    const logPath = logPathFor(paths);
-    const line = JSON.stringify({
-      ts: new Date().toISOString(),
-      event,
-      ...safeFields(fields),
-    });
-    try {
-      mkdirSync(dirname(logPath), { recursive: true });
-      appendFileSync(logPath, `${line}\n`, "utf8");
-    } catch {
-      // Diagnostics are best-effort and must never break app behavior.
-    }
-  });
+	Effect.sync(() => {
+		const message = sanitizeDiagnosticText(`relay.${event}`);
+		const source = event.startsWith("cloudflared.")
+			? "server.managed-tunnel"
+			: "server.relay";
+		const exitCode =
+			typeof fields.exitCode === "number" ? fields.exitCode : undefined;
+		const failed =
+			event.endsWith(".fail") ||
+			event.endsWith(".error") ||
+			(event.endsWith(".exited") && exitCode !== undefined && exitCode !== 0);
+		const detailFields = safeFields(fields);
+		store.record({
+			id: `relay_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
+			createdAt: new Date().toISOString(),
+			severity: failed ? "error" : "info",
+			source,
+			category: "network",
+			message,
+			...(Object.keys(detailFields).length === 0
+				? {}
+				: { detail: JSON.stringify(detailFields) }),
+			fingerprint: diagnosticFingerprint({
+				source,
+				category: "network",
+				message,
+			}),
+			runId: store.runId,
+			recoveryStatus: failed ? "unresolved" : "not-needed",
+		});
+	});

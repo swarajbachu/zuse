@@ -1,6 +1,9 @@
 import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
+/** Public AuthKit client identifier shared by all Zuse clients. */
+export const WORKOS_PUBLIC_CLIENT_ID = "client_01KWGQ818571ARFATQ3G9AR2Y2";
+
 /**
  * WorkOS AuthKit identity — the first user-account primitive in Zuse.
  *

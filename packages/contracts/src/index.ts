@@ -24,6 +24,7 @@ export * from "./pairing.ts";
 export * from "./permission.ts";
 export * from "./ping.ts";
 export * from "./pokemon.ts";
+export * from "./power.ts";
 export * from "./pty.ts";
 export * from "./relay.ts";
 export * from "./repository-settings.ts";

@@ -21,6 +21,8 @@
     "WORKOS_JWKS_URL": "https://api.workos.com/sso/jwks/client_01KWGQ818571ARFATQ3G9AR2Y2",
     // Public key only — the matching private key is a secret (RELAY_MINT_PRIVATE_JWK).
     "RELAY_MINT_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"A2Ig1XwHKDznhyTbPD9IVTlJpaN4YImgQadx-Gl81Bs\",\"kty\":\"OKP\"}",
+    "MAX_ENVIRONMENTS_PER_ACCOUNT": "5",
+    "ALLOWED_BROWSER_ORIGINS": "https://app.zuse.sh",
 
     // Managed Cloudflare tunnel provisioning. Set all four to enable per-Mac
     // tunnels; leave any unset to disable (the relay then advertises the LAN

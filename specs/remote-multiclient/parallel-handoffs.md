@@ -14,7 +14,7 @@ first — every track assumes it.
 ## Shared preamble (every agent must read)
 
 ```
-You are working in the Zuse monorepo (Electron coding-agent app; package @zuse/server).
+You are working in the Zuse monorepo (Electron coding-agent app; package @zusehq/server).
 Repo: Bun workspaces + Turbo. apps/* and packages/* and infra/*. Effect.ts everywhere.
 
 NON-NEGOTIABLE conventions:
@@ -27,7 +27,7 @@ NON-NEGOTIABLE conventions:
 - Branch names + PR titles describe the FEATURE only. Do NOT name any external/reference
   repository anywhere — not in code, comments, commits, branch names, or PR text.
 - Gate your work on: bunx turbo build lint check-types test (scoped to your package).
-  Use the real package names: @zuse/server, @zuse/contracts, renderer, desktop.
+  Use the real package names: @zusehq/server, @zuse/contracts, renderer, desktop.
 
 ALREADY LANDED (do not redo; build on these):
 - packages/contracts: MessageEnvelope { sequence, message }; optional `sinceSequence` on
@@ -125,7 +125,7 @@ messages.stream success type; B only reads wire. Land the wire flip in your bran
 
 ```
 Branch: remote-multiclient-ws-client
-Goal: let the renderer talk to @zuse/server over WebSocket (browser mode) while keeping
+Goal: let the renderer talk to @zusehq/server over WebSocket (browser mode) while keeping
 the Electron IPC path for the desktop. Server WS transport is already done.
 
 Read first: specs/remote-multiclient/README.md Appendix A.3.

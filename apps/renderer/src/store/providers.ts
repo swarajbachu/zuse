@@ -4,10 +4,11 @@ import type {
   ProviderId,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { createAtomStore as create } from "../state/atom-store.ts";
-
+import { toastManager } from "../components/ui/toast.tsx";
 import { formatError } from "../lib/format-error.ts";
+import { getProviderStatusNotice } from "../lib/provider-status.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 // Stable reference for the "no capabilities" case so the `capabilitiesFor`
 // selector doesn't return a fresh array each call (which would churn the
@@ -25,6 +26,29 @@ export const IDLE_PROVIDER_UPDATE_STATE: ProviderUpdateState = {
 };
 
 let pendingAvailabilityLoad: Promise<void> | null = null;
+let activeProviderStatusNotice: string | null = null;
+
+const notifyProviderStatus = (
+  availability: ReadonlyArray<AgentAvailability>,
+): void => {
+  const notice = getProviderStatusNotice(availability);
+  if (notice === null) {
+    activeProviderStatusNotice = null;
+    return;
+  }
+
+  const fingerprint = `${notice.key}:${notice.description}`;
+  if (activeProviderStatusNotice === fingerprint) return;
+  activeProviderStatusNotice = fingerprint;
+  toastManager.add({
+    id: notice.key,
+    type: "error",
+    priority: "high",
+    timeout: 8_000,
+    title: notice.title,
+    description: notice.description,
+  });
+};
 
 /**
  * Renderer-side cache of provider availability + the credentials sheet
@@ -90,6 +114,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
         client["provider.availability"]({ refresh: force }),
       );
       set({ availability: list, loading: false, availabilityLoaded: true });
+      notifyProviderStatus(list);
     } catch (err) {
       set({ error: formatError(err), loading: false });
     }

@@ -11,7 +11,7 @@ import { homedir, tmpdir } from "node:os";
 import * as Path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { promisify } from "node:util";
-import { secureStorageMasterKey } from "@zuse/server/secure-storage-master-key";
+import { secureStorageMasterKey } from "@zusehq/server/secure-storage-master-key";
 import type { Cookie, Session } from "electron";
 import keytar from "keytar";
 

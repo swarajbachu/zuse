@@ -106,7 +106,7 @@ apps/server/src/                          # NEW — main-process service impleme
   app-paths.ts, runtime.ts, handlers.ts, bin.ts
 
 apps/desktop/src/                          # thin Electron shim
-  main.ts                                  # imports makeMainLayer from @zuse/server
+  main.ts                                  # imports makeMainLayer from @zusehq/server
   preload.ts
   ipc/electron-server-protocol.ts          # transport stays in apps/desktop
 

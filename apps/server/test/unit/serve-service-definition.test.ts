@@ -1,0 +1,42 @@
+import { describe, expect, it } from "vitest";
+
+import {
+	launchAgentDefinition,
+	systemdUserDefinition,
+} from "../../src/serve/service-definition.ts";
+
+describe("Zuse Serve service definitions", () => {
+	it("creates a restartable macOS LaunchAgent without embedding credentials", () => {
+		const definition = launchAgentDefinition({
+			nodeExecutable: "/opt/node/bin/node",
+			executable: "/opt/zuse/bin/zuse",
+			dataDir: "/Users/dev/.local/share/zuse",
+			logDir: "/Users/dev/Library/Logs/Zuse",
+		});
+
+		expect(definition.label).toBe("sh.zuse.serve");
+		expect(definition.contents).toContain("<string>serve</string>");
+		expect(definition.contents).toContain("<string>--foreground</string>");
+		expect(definition.contents).toContain(
+			"<string>/Users/dev/.local/share/zuse</string>",
+		);
+		expect(definition.contents).toContain("<key>KeepAlive</key>");
+		expect(definition.contents).not.toMatch(/token|credential|authorization/iu);
+	});
+
+	it("creates a hardened Linux systemd user service", () => {
+		const definition = systemdUserDefinition({
+			nodeExecutable: "/opt/node/bin/node",
+			executable: "/home/dev/.local/bin/zuse",
+			dataDir: "/home/dev/.local/share/zuse",
+		});
+
+		expect(definition.unitName).toBe("zuse-serve.service");
+		expect(definition.contents).toContain(
+			'ExecStart="/opt/node/bin/node" "/home/dev/.local/bin/zuse" serve --foreground --data-dir "/home/dev/.local/share/zuse"',
+		);
+		expect(definition.contents).toContain("Restart=on-failure");
+		expect(definition.contents).toContain("NoNewPrivileges=true");
+		expect(definition.contents).not.toMatch(/token|credential|authorization/iu);
+	});
+});

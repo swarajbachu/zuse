@@ -1,3 +1,8 @@
+import {
+	reportPowerBrowserRecordingStarted,
+	reportPowerBrowserRecordingStopped,
+} from "./power-runtime-activity.ts";
+
 export type BrowserRecordingState =
 	| "idle"
 	| "starting"
@@ -66,6 +71,7 @@ export class BrowserRecordingController {
 	private unsubscribeFrames: (() => void | Promise<void>) | null = null;
 	private drawing = false;
 	private stopPromise: Promise<BrowserRecordingArtifact> | null = null;
+	private activityReported = false;
 
 	async start(source: BrowserRecordingSource): Promise<void> {
 		if (this.state !== "idle")
@@ -120,6 +126,8 @@ export class BrowserRecordingController {
 			this.recorder.start(1000);
 			this.startedAt = Date.now();
 			this.state = "recording";
+			this.activityReported = true;
+			reportPowerBrowserRecordingStarted();
 			const drawFrame = (dataUrl: string) => {
 				if (this.drawing || this.state !== "recording") return;
 				this.drawing = true;
@@ -172,16 +180,17 @@ export class BrowserRecordingController {
 		if (this.recorder === null || this.startedAt === null)
 			throw new Error("No browser recording is active.");
 		this.state = "stopping";
-		if (this.timer !== null) clearInterval(this.timer);
-		if (this.capTimer !== null) clearTimeout(this.capTimer);
-		if (this.unsubscribeFrames !== null) await this.unsubscribeFrames();
 		const recorder = this.recorder;
-		await new Promise<void>((resolve) => {
-			recorder.addEventListener("stop", () => resolve(), { once: true });
-			recorder.stop();
-		});
+		const startedAt = this.startedAt;
 		try {
-			const durationMs = Date.now() - this.startedAt;
+			if (this.timer !== null) clearInterval(this.timer);
+			if (this.capTimer !== null) clearTimeout(this.capTimer);
+			if (this.unsubscribeFrames !== null) await this.unsubscribeFrames();
+			await new Promise<void>((resolve) => {
+				recorder.addEventListener("stop", () => resolve(), { once: true });
+				recorder.stop();
+			});
+			const durationMs = Date.now() - startedAt;
 			const blob = new Blob(this.chunks, {
 				type: recorder.mimeType || "video/webm",
 			});
@@ -205,6 +214,10 @@ export class BrowserRecordingController {
 			this.capTimer = null;
 			this.unsubscribeFrames = null;
 			this.stopPromise = null;
+			if (this.activityReported) {
+				this.activityReported = false;
+				reportPowerBrowserRecordingStopped();
+			}
 		}
 	}
 }

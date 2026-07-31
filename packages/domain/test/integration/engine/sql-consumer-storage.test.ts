@@ -344,4 +344,30 @@ describe("SqlConsumerStorage", () => {
 			recordId: "bad-event",
 		});
 	});
+
+	test("replays durable provider-turn lifecycle events written by newer app runs", async () => {
+		const events = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* insertEvent("provider-turn-requested", "session-1", 1, {
+					_tag: "ProviderTurnRequested",
+					turnId: "turn-1",
+					providerInputJson: '{"text":"hello"}',
+					requestedAt: 1,
+				});
+				return yield* makeSqlConsumerStorage(sql).eventsAfter(0);
+			}),
+		);
+
+		expect(events).toMatchObject([
+			{
+				eventId: "provider-turn-requested",
+				event: {
+					_tag: "ProviderTurnRequested",
+					turnId: "turn-1",
+				},
+			},
+		]);
+	});
 });

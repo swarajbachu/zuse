@@ -1,0 +1,36 @@
+{
+	"name": "zusehq",
+	"version": "0.1.0",
+	"description": "Run and manage Zuse remote workspaces",
+	"license": "MIT",
+	"type": "module",
+	"bin": {
+		"zusehq": "dist/bin.mjs"
+	},
+	"engines": {
+		"node": ">=22.5.0"
+	},
+	"files": [
+		"dist"
+	],
+	"keywords": [
+		"zuse",
+		"coding-agent",
+		"remote-development",
+		"developer-tools"
+	],
+	"scripts": {
+		"build": "vp pack src/bin.ts",
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@zusehq/serve": "0.1.0"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
+		"tsdown": "0.21.10",
+		"typescript": "catalog:",
+		"vite-plus": "0.2.5"
+	}
+}

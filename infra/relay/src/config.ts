@@ -40,6 +40,8 @@ export interface RelayConfig {
 	readonly connectTokenTtlMs: number;
 	readonly accessTokenTtlMs: number;
 	readonly presenceStaleMs: number;
+	readonly maxEnvironmentsPerAccount: number | null;
+	readonly allowedBrowserOrigins: ReadonlyArray<string>;
 	readonly managedTunnel?: ManagedTunnelConfig;
 }
 
@@ -53,6 +55,8 @@ const DEFAULTS = {
 	connectTokenTtlMs: 60 * 1000,
 	accessTokenTtlMs: 30 * 60 * 1000,
 	presenceStaleMs: 90 * 1000,
+	maxEnvironmentsPerAccount: 5 as number | null,
+	allowedBrowserOrigins: ["https://app.zuse.sh"] as ReadonlyArray<string>,
 } as const;
 
 export const layer = (

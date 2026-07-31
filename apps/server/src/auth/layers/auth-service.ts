@@ -4,6 +4,7 @@ import {
   AuthSession,
   type AuthState,
   AuthUser,
+  WORKOS_PUBLIC_CLIENT_ID,
 } from "@zuse/contracts";
 import {
   Deferred,
@@ -44,11 +45,11 @@ const SIGNED_OUT: AuthState = { _tag: "SignedOut" };
 
 /**
  * The build-time WorkOS client id. Public (safe to embed) — inlined by tsdown
- * `define` from `process.env.WORKOS_CLIENT_ID`. Empty when unconfigured, in
- * which case `signIn` fails with a clear message and the rest of the app keeps
- * working (auth is additive).
+ * `define` from `process.env.WORKOS_CLIENT_ID`, with the shared public AuthKit
+ * identifier as the source-mode and Serve fallback.
  */
-const CLIENT_ID = (process.env.WORKOS_CLIENT_ID ?? "").trim();
+const CLIENT_ID =
+  (process.env.WORKOS_CLIENT_ID ?? "").trim() || WORKOS_PUBLIC_CLIENT_ID;
 
 interface PendingSignIn {
   readonly deferred: Deferred.Deferred<SessionBundle, AuthFlowError>;

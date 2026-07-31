@@ -7,7 +7,7 @@
 export const WORKOS_API = "https://api.workos.com";
 
 export const workosClientId = (): string =>
-  process.env.EXPO_PUBLIC_WORKOS_CLIENT_ID ?? "";
+  process.env.EXPO_PUBLIC_WORKOS_CLIENT_ID ?? WORKOS_PUBLIC_CLIENT_ID;
 
 export const relayBaseUrl = (): string =>
   (process.env.EXPO_PUBLIC_ZUSE_RELAY_URL ?? "https://relay.stuff.md").replace(
@@ -17,3 +17,4 @@ export const relayBaseUrl = (): string =>
 
 /** App deep-link scheme (matches app.json `scheme`). */
 export const APP_SCHEME = "zuse";
+import { WORKOS_PUBLIC_CLIENT_ID } from "@zuse/contracts";

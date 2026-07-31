@@ -30,6 +30,9 @@ import {
 } from "./lan-auth/services/lan-auth-service.ts";
 import { LinearServiceLive } from "./linear/layers/linear-service.ts";
 import { McpServiceLive } from "./mcp/layers/mcp-service.ts";
+import { RuntimePerformanceMonitorLive } from "./observability/runtime-performance-monitor.ts";
+import { TelemetryObservabilityLive } from "./observability/telemetry-layer.ts";
+import { TelemetryStoreLive } from "./observability/telemetry-store.ts";
 import { runLifecycleBackfill } from "./persistence/backfill.ts";
 import { importWorkspacesJson } from "./persistence/import-workspaces.ts";
 import { MigrationsLive } from "./persistence/migrations.ts";
@@ -44,7 +47,10 @@ import { TitleGeneratorLive } from "./provider/title-generator.ts";
 import { PtyServiceLive } from "./pty/layers/pty-service.ts";
 import { RelayActivityPublisherLive } from "./relay/activity-publisher.ts";
 import { ManagedTunnelRuntimeLive } from "./relay/managed-tunnel-runtime.ts";
-import { RelayLinkServiceLive } from "./relay/relay-link-service.ts";
+import {
+	RelayLinkService,
+	RelayLinkServiceLive,
+} from "./relay/relay-link-service.ts";
 import { RepositorySettingsServiceLive } from "./repository-settings/layers/repository-settings-service.ts";
 import { SkillBridgeLive } from "./skill/layers/skill-bridge.ts";
 import { SkillDiscoveryServiceLive } from "./skill/layers/skill-discovery.ts";
@@ -106,6 +112,10 @@ export interface MainLayerDeps {
 			request: import("./lan-auth/services/lan-auth-service.ts").NearbyPairingRequest,
 		) => void;
 	};
+	readonly autoRelayLink?: {
+		readonly relayUrl: string;
+		readonly label?: string;
+	};
 }
 
 /**
@@ -115,6 +125,15 @@ export interface MainLayerDeps {
  */
 export const makeMainLayer = (deps: MainLayerDeps) => {
 	const AppPathsLayer = Layer.succeed(AppPaths, { userData: deps.userData });
+	const TelemetryStoreLayer = TelemetryStoreLive.pipe(
+		Layer.provide(AppPathsLayer),
+	);
+	const TelemetryLayer = TelemetryObservabilityLive.pipe(
+		Layer.provide(TelemetryStoreLayer),
+	);
+	const RuntimePerformanceLayer = RuntimePerformanceMonitorLive.pipe(
+		Layer.provide(TelemetryStoreLayer),
+	);
 	const FolderPickerLayer = Layer.succeed(FolderPicker, deps.folderPicker);
 	const AuthShellLayer = Layer.succeed(AuthShell, deps.authShell);
 	const LanAuthConfigLayer = Layer.succeed(LanAuthConfig, {
@@ -402,6 +421,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(AppPathsLayer),
 		Layer.provide(ProviderLayer),
+		Layer.provide(TelemetryStoreLayer),
 	);
 
 	const ExternalThreadLayer = ExternalThreadServiceLive.pipe(
@@ -437,10 +457,24 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 			ManagedTunnelRuntimeLive.pipe(
 				Layer.provide(NodeServices.layer),
 				Layer.provide(AppPathsLayer),
+				Layer.provide(TelemetryStoreLayer),
 			),
 		),
-		Layer.provide(AppPathsLayer),
+		Layer.provide(TelemetryStoreLayer),
 	);
+	const autoRelayLink = deps.autoRelayLink;
+	const AutoRelayLinkLayer =
+		autoRelayLink === undefined
+			? Layer.empty
+			: Layer.effectDiscard(
+					Effect.gen(function* () {
+						const relay = yield* RelayLinkService;
+						const status = yield* relay.status();
+						if (!status.linked) {
+							yield* relay.link(autoRelayLink);
+						}
+					}),
+				).pipe(Layer.provide(RelayLinkLayer));
 
 	const HandlerSupportLayer = Layer.mergeAll(
 		AppPathsLayer,
@@ -521,5 +555,11 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(AppPathsLayer),
 	);
-	return Layer.mergeAll(ServerLayer, NodeServices.layer, UsagePoller);
+	return Layer.mergeAll(
+		ServerLayer,
+		NodeServices.layer,
+		UsagePoller,
+		AutoRelayLinkLayer,
+		RuntimePerformanceLayer,
+	).pipe(Layer.provide(TelemetryLayer));
 };

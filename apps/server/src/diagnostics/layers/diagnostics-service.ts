@@ -1,236 +1,631 @@
-import { SqlClient } from "effect/unstable/sql";
-import { Effect, Layer } from "effect";
+import { execFile } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+	writeFileSync,
 } from "node:fs";
+import { appendFile, mkdir, rename, stat, unlink } from "node:fs/promises";
 import { arch, platform, release } from "node:os";
-import { basename, dirname, join } from "node:path";
-import { randomUUID } from "node:crypto";
-
+import { basename, join } from "node:path";
+import { promisify } from "node:util";
 import {
-  DiagnosticsExportError,
-  DiagnosticsExportResult,
-  type AgentAvailability,
+	type AgentAvailability,
+	type DiagnosticEvent,
+	DiagnosticsEventsResult,
+	DiagnosticsExportError,
+	DiagnosticsExportResult,
+	DiagnosticsOverviewResult,
+	DiagnosticsProcessesResult,
+	DiagnosticsSignalResult,
 } from "@zuse/contracts";
+import { Effect, Layer } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 import packageJson from "../../../package.json" with { type: "json" };
 import { AppPaths } from "../../app-paths.ts";
+import { TelemetryStore } from "../../observability/telemetry-store.ts";
 import { ProviderService } from "../../provider/services/provider-service.ts";
+import {
+	aggregateDiagnostics,
+	filterDiagnosticEvents,
+	paginateDiagnosticEvents,
+	sanitizeDiagnosticText,
+	sanitizeDiagnosticValue,
+} from "../diagnostics-model.ts";
 import { DiagnosticsService } from "../services/diagnostics-service.ts";
+import { createStoredZip } from "../zip-bundle.ts";
 
 const MAX_RECENT_ERRORS = 20;
 const MAX_SESSION_EVENTS = 8;
 const MAX_REDACTED_EVENTS_PER_FILE = 200;
 const MAX_TEXT_PREVIEW = 240;
+const execFileAsync = promisify(execFile);
+const RUNTIME_RESOURCE_FILE_BYTES = 10 * 1024 * 1024;
+const RUNTIME_RESOURCE_FILE_COUNT = 3;
+
+const diagnosticsError = (cause: unknown) =>
+	new DiagnosticsExportError({
+		reason:
+			cause instanceof Error ? cause.message : "Diagnostics operation failed.",
+	});
+
+function parseElapsedSeconds(value: string): number {
+	const [dayPart, timePart] = value.includes("-")
+		? value.split("-", 2)
+		: ["0", value];
+	const parts = (timePart ?? "0")
+		.split(":")
+		.map((part) => Number(part))
+		.reverse();
+	return (
+		(Number(dayPart) || 0) * 86_400 +
+		(parts[0] ?? 0) +
+		(parts[1] ?? 0) * 60 +
+		(parts[2] ?? 0) * 3_600
+	);
+}
+
+async function readProcessTree(): Promise<DiagnosticsProcessesResult> {
+	const readAt = new Date().toISOString();
+	if (process.platform === "win32") {
+		return DiagnosticsProcessesResult.make({
+			supported: false,
+			readAt,
+			serverPid: process.pid,
+			processes: [],
+			totalCpuPercent: 0,
+			totalRssBytes: 0,
+			error: "Process inspection is not available on this Windows build.",
+		});
+	}
+	try {
+		const { stdout } = await execFileAsync("ps", [
+			"-axo",
+			"pid=,ppid=,%cpu=,rss=,etime=,comm=,args=",
+		]);
+		const rows = stdout.split(/\r?\n/).flatMap((line) => {
+			const match = line
+				.trim()
+				.match(/^(\d+)\s+(\d+)\s+([\d.]+)\s+(\d+)\s+(\S+)\s+(\S+)\s*(.*)$/);
+			if (!match) return [];
+			return [
+				{
+					pid: Number(match[1]),
+					parentPid: Number(match[2]),
+					cpuPercent: Number(match[3]),
+					rssBytes: Number(match[4]) * 1024,
+					elapsed: match[5] ?? "0",
+					name: basename(match[6] ?? "process"),
+					command: basename(match[6] ?? "process"),
+				},
+			];
+		});
+		const byParent = new Map<number, number[]>();
+		for (const row of rows)
+			byParent.set(row.parentPid, [
+				...(byParent.get(row.parentPid) ?? []),
+				row.pid,
+			]);
+		const descendants: Array<(typeof rows)[number] & { depth: number }> = [];
+		const visit = (pid: number, depth: number) => {
+			for (const childPid of byParent.get(pid) ?? []) {
+				const child = rows.find((row) => row.pid === childPid);
+				if (child) {
+					descendants.push({ ...child, depth });
+					visit(child.pid, depth + 1);
+				}
+			}
+		};
+		visit(process.pid, 1);
+		const server = rows.find((row) => row.pid === process.pid);
+		const ownedRows = [
+			...(server ? [{ ...server, depth: 0 }] : []),
+			...descendants,
+		];
+		const processes = ownedRows.map((row) => ({
+			pid: row.pid,
+			parentPid: row.parentPid,
+			depth: row.depth,
+			name: row.name,
+			command: row.command,
+			cpuPercent: row.cpuPercent,
+			rssBytes: row.rssBytes,
+			uptimeSeconds: parseElapsedSeconds(row.elapsed),
+			childPids: byParent.get(row.pid) ?? [],
+		}));
+		return DiagnosticsProcessesResult.make({
+			supported: true,
+			readAt,
+			serverPid: process.pid,
+			processes,
+			totalCpuPercent: processes.reduce(
+				(sum, item) => sum + item.cpuPercent,
+				0,
+			),
+			totalRssBytes: processes.reduce((sum, item) => sum + item.rssBytes, 0),
+		});
+	} catch (cause) {
+		return DiagnosticsProcessesResult.make({
+			supported: false,
+			readAt,
+			serverPid: process.pid,
+			processes: [],
+			totalCpuPercent: 0,
+			totalRssBytes: 0,
+			error:
+				cause instanceof Error ? cause.message : "Process inspection failed.",
+		});
+	}
+}
+
+const appendRuntimeResourceSnapshot = async (
+	userData: string,
+	snapshot: DiagnosticsProcessesResult,
+): Promise<void> => {
+	const path = join(userData, "logs", "diagnostics.runtime-resources.ndjson");
+	await mkdir(join(userData, "logs"), { recursive: true });
+	const line = `${JSON.stringify({
+		kind: "runtime-processes",
+		capturedAt: snapshot.readAt,
+		supported: snapshot.supported,
+		serverPid: snapshot.serverPid,
+		totalCpuPercent: snapshot.totalCpuPercent,
+		totalRssBytes: snapshot.totalRssBytes,
+		processes: snapshot.processes.map((process) => ({
+			pid: process.pid,
+			parentPid: process.parentPid,
+			depth: process.depth,
+			name: process.name,
+			cpuPercent: process.cpuPercent,
+			rssBytes: process.rssBytes,
+			uptimeSeconds: process.uptimeSeconds,
+		})),
+	})}\n`;
+	const currentSize = await stat(path)
+		.then((value) => value.size)
+		.catch(() => 0);
+	if (
+		currentSize > 0 &&
+		currentSize + Buffer.byteLength(line) > RUNTIME_RESOURCE_FILE_BYTES
+	) {
+		for (let index = RUNTIME_RESOURCE_FILE_COUNT - 1; index >= 1; index -= 1) {
+			const source = index === 1 ? path : `${path}.${index - 1}`;
+			const target = `${path}.${index}`;
+			await unlink(target).catch(() => undefined);
+			await rename(source, target).catch(() => undefined);
+		}
+	}
+	await appendFile(path, line, "utf8");
+};
 
 interface RecentErrorRow {
-  readonly message_id: string;
-  readonly session_id: string;
-  readonly chat_id: string | null;
-  readonly project_id: string;
-  readonly provider_id: string;
-  readonly model: string;
-  readonly kind: string;
-  readonly content_json: string;
-  readonly created_at: string;
+	readonly message_id: string;
+	readonly session_id: string;
+	readonly chat_id: string | null;
+	readonly project_id: string;
+	readonly provider_id: string;
+	readonly model: string;
+	readonly kind: string;
+	readonly content_json: string;
+	readonly created_at: string;
 }
 
 interface SessionEventFile {
-  readonly sessionId: string;
-  readonly projectId: string;
-  readonly sourcePath: string;
-  readonly eventCount: number;
-  readonly truncated: boolean;
-  readonly events: ReadonlyArray<unknown>;
+	readonly sessionId: string;
+	readonly projectId: string;
+	readonly sourcePath: string;
+	readonly eventCount: number;
+	readonly truncated: boolean;
+	readonly events: ReadonlyArray<unknown>;
 }
 
 type BundleArtifactName =
-  | "manifest"
-  | "bundle-summary"
-  | "trace-summary"
-  | "recent-errors"
-  | "environment"
-  | "provider-status"
-  | "client-context"
-  | "redacted-session-events";
+	| "manifest"
+	| "bundle-summary"
+	| "trace-summary"
+	| "recent-errors"
+	| "environment"
+	| "provider-status"
+	| "client-context"
+	| "redacted-session-events";
+
+type ExtendedBundleArtifactName =
+	| BundleArtifactName
+	| "diagnostic-events"
+	| "performance-history"
+	| "performance-recording"
+	| "process-snapshot"
+	| "redaction-report"
+	| "report";
+
+const readPerformanceHistory = (
+	userData: string,
+	since?: string,
+): {
+	readonly entries: ReadonlyArray<unknown>;
+	readonly parseErrors: number;
+	readonly truncated: boolean;
+} => {
+	const bases = [
+		join(userData, "logs", "diagnostics.host-resources.ndjson"),
+		join(userData, "logs", "diagnostics.runtime-resources.ndjson"),
+	];
+	const lines = bases
+		.flatMap((base) => [`${base}.2`, `${base}.1`, base])
+		.flatMap((path) => {
+			try {
+				return readFileSync(path, "utf8").split(/\r?\n/).filter(Boolean);
+			} catch {
+				return [];
+			}
+		});
+	let parseErrors = 0;
+	const parsed = lines.flatMap((line) => {
+		try {
+			const entry = JSON.parse(line) as {
+				readonly kind?: unknown;
+				readonly sample?: { readonly capturedAt?: unknown };
+			};
+			const capturedAt =
+				typeof entry.sample?.capturedAt === "string"
+					? entry.sample.capturedAt
+					: typeof (entry as { readonly capturedAt?: unknown }).capturedAt ===
+							"string"
+						? (entry as { readonly capturedAt: string }).capturedAt
+						: null;
+			if (
+				(entry.kind !== "sample" &&
+					entry.kind !== "lag" &&
+					entry.kind !== "runtime-processes") ||
+				capturedAt === null ||
+				(since !== undefined && capturedAt < since)
+			) {
+				return [];
+			}
+			return [sanitizeDiagnosticValue(entry)];
+		} catch {
+			parseErrors += 1;
+			return [];
+		}
+	});
+	const entries = parsed.slice(-5_000);
+	return {
+		entries,
+		parseErrors,
+		truncated: parsed.length > entries.length,
+	};
+};
+
+const readLatestPerformanceRecording = (userData: string): unknown | null => {
+	const directory = join(userData, "logs", "performance-recordings");
+	try {
+		const latest = readdirSync(directory)
+			.filter((file) => file.endsWith(".json"))
+			.map((file) => {
+				const path = join(directory, file);
+				return {
+					path,
+					mtimeMs: statSync(path).mtimeMs,
+					size: statSync(path).size,
+				};
+			})
+			.filter((file) => file.size <= 5 * 1024 * 1024)
+			.sort((left, right) => right.mtimeMs - left.mtimeMs)
+			.at(0);
+		if (latest === undefined) return null;
+		return sanitizeDiagnosticValue(
+			JSON.parse(readFileSync(latest.path, "utf8")),
+		);
+	} catch {
+		return null;
+	}
+};
 
 function safeIsoForFile(date: Date): string {
-  return date.toISOString().replace(/[:.]/g, "-");
+	return date.toISOString().replace(/[:.]/g, "-");
 }
 
 function truncate(value: string): string {
-  return value.length <= MAX_TEXT_PREVIEW
-    ? value
-    : `${value.slice(0, MAX_TEXT_PREVIEW)}...`;
+	return value.length <= MAX_TEXT_PREVIEW
+		? value
+		: `${value.slice(0, MAX_TEXT_PREVIEW)}...`;
 }
 
 function summarizeUnknown(value: unknown): unknown {
-  if (typeof value === "string") {
-    return {
-      redacted: true,
-      length: value.length,
-      preview: truncate(value),
-    };
-  }
-  if (Array.isArray(value)) {
-    return value.slice(0, 20).map(summarizeUnknown);
-  }
-  if (typeof value === "object" && value !== null) {
-    const entries = Object.entries(value as Record<string, unknown>).map(
-      ([key, entry]) => {
-        if (
-          key.toLowerCase().includes("text") ||
-          key.toLowerCase().includes("prompt") ||
-          key.toLowerCase().includes("output") ||
-          key.toLowerCase().includes("summary")
-        ) {
-          return [key, summarizeUnknown(entry)] as const;
-        }
-        return [key, summarizeUnknown(entry)] as const;
-      },
-    );
-    return Object.fromEntries(entries);
-  }
-  return value;
+	if (typeof value === "string") {
+		return {
+			redacted: true,
+			length: value.length,
+		};
+	}
+	if (Array.isArray(value)) {
+		return value.slice(0, 20).map(summarizeUnknown);
+	}
+	if (typeof value === "object" && value !== null) {
+		const entries = Object.entries(value as Record<string, unknown>).map(
+			([key, entry]) => {
+				if (
+					key.toLowerCase().includes("text") ||
+					key.toLowerCase().includes("prompt") ||
+					key.toLowerCase().includes("output") ||
+					key.toLowerCase().includes("summary")
+				) {
+					return [key, summarizeUnknown(entry)] as const;
+				}
+				return [key, summarizeUnknown(entry)] as const;
+			},
+		);
+		return Object.fromEntries(entries);
+	}
+	return value;
 }
 
 function readErrorMessage(contentJson: string): string {
-  try {
-    const parsed = JSON.parse(contentJson) as unknown;
-    if (typeof parsed === "object" && parsed !== null && "message" in parsed) {
-      const message = (parsed as { readonly message?: unknown }).message;
-      return typeof message === "string"
-        ? truncate(message)
-        : "Error message unavailable";
-    }
-    return truncate(JSON.stringify(summarizeUnknown(parsed)));
-  } catch {
-    return "Could not parse persisted error content.";
-  }
+	try {
+		const parsed = JSON.parse(contentJson) as unknown;
+		if (typeof parsed === "object" && parsed !== null && "message" in parsed) {
+			const message = (parsed as { readonly message?: unknown }).message;
+			return typeof message === "string"
+				? sanitizeDiagnosticText(truncate(message))
+				: "Error message unavailable";
+		}
+		return truncate(JSON.stringify(summarizeUnknown(parsed)));
+	} catch {
+		return "Could not parse persisted error content.";
+	}
 }
 
 function listSessionEventFiles(
-  userData: string,
+	userData: string,
 ): ReadonlyArray<{ projectId: string; path: string }> {
-  const root = join(userData, "sessions");
-  if (!existsSync(root)) return [];
-  const files: Array<{ projectId: string; path: string; mtimeMs: number }> = [];
-  for (const projectId of readdirSync(root)) {
-    const projectDir = join(root, projectId);
-    if (!statSync(projectDir).isDirectory()) continue;
-    for (const entry of readdirSync(projectDir)) {
-      if (!entry.endsWith(".events.ndjson")) continue;
-      const path = join(projectDir, entry);
-      const stat = statSync(path);
-      files.push({ projectId, path, mtimeMs: stat.mtimeMs });
-    }
-  }
-  return [...files]
-    .sort((left, right) => right.mtimeMs - left.mtimeMs)
-    .slice(0, MAX_SESSION_EVENTS)
-    .map(({ projectId, path }) => ({ projectId, path }));
+	const root = join(userData, "sessions");
+	if (!existsSync(root)) return [];
+	const files: Array<{ projectId: string; path: string; mtimeMs: number }> = [];
+	for (const projectId of readdirSync(root)) {
+		const projectDir = join(root, projectId);
+		if (!statSync(projectDir).isDirectory()) continue;
+		for (const entry of readdirSync(projectDir)) {
+			if (!entry.endsWith(".events.ndjson")) continue;
+			const path = join(projectDir, entry);
+			const stat = statSync(path);
+			files.push({ projectId, path, mtimeMs: stat.mtimeMs });
+		}
+	}
+	return [...files]
+		.sort((left, right) => right.mtimeMs - left.mtimeMs)
+		.slice(0, MAX_SESSION_EVENTS)
+		.map(({ projectId, path }) => ({ projectId, path }));
 }
 
 function redactSessionEventFile(input: {
-  readonly projectId: string;
-  readonly path: string;
+	readonly projectId: string;
+	readonly path: string;
 }): SessionEventFile {
-  const text = readFileSync(input.path, "utf8");
-  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  const events = lines.slice(-MAX_REDACTED_EVENTS_PER_FILE).flatMap((line) => {
-    try {
-      return [summarizeUnknown(JSON.parse(line) as unknown)];
-    } catch {
-      return [{ parseError: true, bytes: Buffer.byteLength(line) }];
-    }
-  });
-  const fileName = basename(input.path);
-  const sessionId = fileName.replace(/\.events\.ndjson$/, "");
-  return {
-    projectId: input.projectId,
-    sessionId,
-    sourcePath: input.path,
-    eventCount: lines.length,
-    truncated: lines.length > MAX_REDACTED_EVENTS_PER_FILE,
-    events,
-  };
+	const text = readFileSync(input.path, "utf8");
+	const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+	const events = lines.slice(-MAX_REDACTED_EVENTS_PER_FILE).flatMap((line) => {
+		try {
+			return [summarizeUnknown(JSON.parse(line) as unknown)];
+		} catch {
+			return [{ parseError: true, bytes: Buffer.byteLength(line) }];
+		}
+	});
+	const fileName = basename(input.path);
+	const sessionId = fileName.replace(/\.events\.ndjson$/, "");
+	return {
+		projectId: input.projectId,
+		sessionId,
+		sourcePath: basename(input.path),
+		eventCount: lines.length,
+		truncated: lines.length > MAX_REDACTED_EVENTS_PER_FILE,
+		events,
+	};
 }
 
 function summarizeProvider(provider: AgentAvailability) {
-  return {
-    providerId: provider.providerId,
-    displayName: provider.displayName,
-    cliInstalled: provider.cliInstalled,
-    cliVersion: provider.cliVersion,
-    cliLoggedIn: provider.cliLoggedIn,
-    hasApiKey: provider.hasApiKey,
-    cliVersionStatus: provider.cliVersionStatus,
-    latestVersionStatus: provider.latestVersionStatus,
-    authStatus: provider.authStatus,
-    authType: provider.authType,
-    status: provider.status,
-    statusMessage: provider.statusMessage,
-    lastCheckedAt: provider.lastCheckedAt,
-  };
+	return {
+		providerId: provider.providerId,
+		displayName: provider.displayName,
+		cliInstalled: provider.cliInstalled,
+		cliVersion: provider.cliVersion,
+		cliLoggedIn: provider.cliLoggedIn,
+		hasApiKey: provider.hasApiKey,
+		cliVersionStatus: provider.cliVersionStatus,
+		latestVersionStatus: provider.latestVersionStatus,
+		authStatus: provider.authStatus,
+		authType: provider.authType,
+		status: provider.status,
+		statusMessage: provider.statusMessage,
+		lastCheckedAt: provider.lastCheckedAt,
+	};
 }
 
 function prettyJson(value: unknown): string {
-  return `${JSON.stringify(value, null, 2)}\n`;
+	return `${JSON.stringify(value, null, 2)}\n`;
 }
 
 function jsonByteLength(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value));
+	return Buffer.byteLength(JSON.stringify(value));
 }
 
 function writeJson(path: string, value: unknown): void {
-  writeFileSync(path, prettyJson(value), "utf8");
+	writeFileSync(path, prettyJson(value), "utf8");
 }
 
 function buildSummary(input: {
-  readonly diagnosticId: string;
-  readonly bundlePath: string;
-  readonly version: string;
-  readonly platform: string;
-  readonly arch: string;
-  readonly osRelease: string;
-  readonly latestFailures: ReadonlyArray<{
-    readonly span: string;
-    readonly message: string;
-  }>;
-  readonly providerCount: number;
+	readonly diagnosticId: string;
+	readonly bundlePath: string;
+	readonly version: string;
+	readonly platform: string;
+	readonly arch: string;
+	readonly osRelease: string;
+	readonly latestFailures: ReadonlyArray<{
+		readonly span: string;
+		readonly message: string;
+	}>;
+	readonly providerCount: number;
 }): string {
-  const topFailure = input.latestFailures[0];
-  return [
-    `Diagnostic ID: ${input.diagnosticId}`,
-    `Bundle: ${input.bundlePath}`,
-    `App: Zuse ${input.version}`,
-    `Platform: ${input.platform}-${input.arch} ${input.osRelease}`,
-    `Latest failure: ${topFailure ? `${topFailure.span} - ${topFailure.message}` : "none found"}`,
-    `Providers captured: ${input.providerCount}`,
-  ].join("\n");
+	const topFailure = input.latestFailures[0];
+	return [
+		`Diagnostic ID: ${input.diagnosticId}`,
+		`Bundle: ${input.bundlePath}`,
+		`App: Zuse ${input.version}`,
+		`Platform: ${input.platform}-${input.arch} ${input.osRelease}`,
+		`Latest failure: ${topFailure ? `${topFailure.span} - ${topFailure.message}` : "none found"}`,
+		`Providers captured: ${input.providerCount}`,
+	].join("\n");
 }
 
 export const DiagnosticsServiceLive = Layer.effect(
-  DiagnosticsService,
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const paths = yield* AppPaths;
-    const providerService = yield* ProviderService;
+	DiagnosticsService,
+	Effect.gen(function* () {
+		const sql = yield* SqlClient.SqlClient;
+		const paths = yield* AppPaths;
+		const providerService = yield* ProviderService;
+		const telemetry = yield* TelemetryStore;
+		const runtimeResourceTimer = setInterval(() => {
+			void readProcessTree()
+				.then((snapshot) =>
+					appendRuntimeResourceSnapshot(paths.userData, snapshot),
+				)
+				.catch(() => undefined);
+		}, 60_000);
+		runtimeResourceTimer.unref?.();
+		yield* Effect.addFinalizer(() =>
+			Effect.sync(() => clearInterval(runtimeResourceTimer)),
+		);
+		const runId = telemetry.runId;
+		let overviewCache:
+			| {
+					readonly since: string | undefined;
+					readonly version: number;
+					readonly value: DiagnosticsOverviewResult;
+			  }
+			| undefined;
+		const eventQueryCache = new Map<
+			string,
+			{ readonly version: number; readonly value: DiagnosticsEventsResult }
+		>();
+		const ingest = (incoming: ReadonlyArray<DiagnosticEvent>) =>
+			Effect.sync(() => telemetry.recordMany(incoming));
 
-    const exportBundle = (payload: { readonly clientContext?: unknown }) =>
-      Effect.gen(function* () {
-        const createdAt = new Date();
-        const diagnosticId = `diag_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
-        const bundleDir = join(paths.userData, "diagnostics", diagnosticId);
-        yield* Effect.try(() => mkdirSync(bundleDir, { recursive: true }));
+		const overview = (payload: { readonly since?: string }) =>
+			Effect.gen(function* () {
+				const version = telemetry.version();
+				if (
+					overviewCache?.version === version &&
+					overviewCache.since === payload.since
+				) {
+					return overviewCache.value;
+				}
+				const all = telemetry.snapshot();
+				const events = filterDiagnosticEvents(all, { since: payload.since });
+				const aggregate = aggregateDiagnostics(events);
+				const storageBytes = yield* telemetry.storageBytes;
+				const status =
+					aggregate.fatalCount > 0 || aggregate.errorCount > 3
+						? ("failing" as const)
+						: aggregate.errorCount > 0 || aggregate.warningCount > 0
+							? ("degraded" as const)
+							: ("healthy" as const);
+				const value = DiagnosticsOverviewResult.make({
+					status,
+					runId,
+					readAt: new Date().toISOString(),
+					...aggregate,
+					parseErrorCount: telemetry.parseErrorCount,
+					unseenCount: aggregate.errorCount + aggregate.fatalCount,
+					storageBytes,
+					capturePaused: false,
+					previousRunUnclean: events.some(
+						(event) => event.source === "main.previousRunUnclean",
+					),
+				});
+				overviewCache = { since: payload.since, version, value };
+				return value;
+			}).pipe(Effect.mapError(diagnosticsError));
 
-        const recentErrorRows = yield* sql<RecentErrorRow>`
+		const events = (payload: {
+			readonly cursor?: string;
+			readonly limit?: number;
+			readonly severities?: ReadonlyArray<
+				import("@zuse/contracts").DiagnosticSeverity
+			>;
+			readonly source?: string;
+			readonly search?: string;
+			readonly since?: string;
+		}) =>
+			Effect.sync(() => {
+				const version = telemetry.version();
+				const cacheKey = JSON.stringify(payload);
+				const cached = eventQueryCache.get(cacheKey);
+				if (cached?.version === version) return cached.value;
+				const all = telemetry.snapshot();
+				const filtered = filterDiagnosticEvents(all, payload);
+				const limit = Math.min(200, Math.max(1, payload.limit ?? 100));
+				const page = paginateDiagnosticEvents(filtered, {
+					cursor: payload.cursor,
+					limit,
+				});
+				const value = DiagnosticsEventsResult.make({
+					events: page.events,
+					nextCursor: page.nextCursor,
+					total: filtered.length,
+				});
+				if (eventQueryCache.size >= 12) {
+					eventQueryCache.delete(eventQueryCache.keys().next().value ?? "");
+				}
+				eventQueryCache.set(cacheKey, { version, value });
+				return value;
+			});
+
+		const processes = Effect.tryPromise(readProcessTree).pipe(
+			Effect.mapError(diagnosticsError),
+		);
+		const signalProcess = (payload: {
+			readonly pid: number;
+			readonly signal: "interrupt" | "terminate" | "kill";
+		}) =>
+			Effect.gen(function* () {
+				const snapshot = yield* processes;
+				if (
+					payload.pid === snapshot.serverPid ||
+					!snapshot.processes.some((item) => item.pid === payload.pid)
+				) {
+					return DiagnosticsSignalResult.make({
+						signaled: false,
+						message: "The process is not a live descendant of the server.",
+					});
+				}
+				const signal =
+					payload.signal === "interrupt"
+						? "SIGINT"
+						: payload.signal === "terminate"
+							? "SIGTERM"
+							: "SIGKILL";
+				return yield* Effect.try(() => {
+					process.kill(payload.pid, signal);
+					return DiagnosticsSignalResult.make({ signaled: true });
+				}).pipe(Effect.mapError(diagnosticsError));
+			});
+
+		const exportBundle = (payload: {
+			readonly clientContext?: unknown;
+			readonly since?: string;
+			readonly includeSessionEvents?: boolean;
+		}) =>
+			Effect.gen(function* () {
+				const createdAt = new Date();
+				const diagnosticId = `diag_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
+				const bundleDir = join(paths.userData, "diagnostics", diagnosticId);
+				yield* Effect.try(() => mkdirSync(bundleDir, { recursive: true }));
+
+				const recentErrorRows = yield* sql<RecentErrorRow>`
             SELECT
               m.id AS message_id,
               m.session_id,
@@ -248,184 +643,273 @@ export const DiagnosticsServiceLive = Layer.effect(
             LIMIT ${MAX_RECENT_ERRORS}
           `;
 
-        const providers = yield* providerService
-          .availability()
-          .pipe(Effect.orElseSucceed(() => []));
+				const providers = yield* providerService
+					.availability()
+					.pipe(Effect.orElseSucceed(() => []));
 
-        const latestFailures = recentErrorRows.map((row) => ({
-          traceId: null,
-          span: `message.${row.kind}`,
-          message: readErrorMessage(row.content_json),
-          chatId: row.chat_id,
-          sessionId: row.session_id,
-          providerId: row.provider_id,
-          model: row.model,
-          occurredAt: row.created_at,
-        }));
+				const latestFailures = recentErrorRows.map((row) => ({
+					traceId: null,
+					span: `message.${row.kind}`,
+					message: readErrorMessage(row.content_json),
+					chatId: row.chat_id,
+					sessionId: row.session_id,
+					providerId: row.provider_id,
+					model: row.model,
+					occurredAt: row.created_at,
+				}));
 
-        const commonFailureMap = new Map<
-          string,
-          { span: string; count: number; errorTag: string }
-        >();
-        for (const failure of latestFailures) {
-          const key = `${failure.span}:${failure.message}`;
-          const existing = commonFailureMap.get(key);
-          commonFailureMap.set(key, {
-            span: failure.span,
-            count: (existing?.count ?? 0) + 1,
-            errorTag: failure.message,
-          });
-        }
+				const commonFailureMap = new Map<
+					string,
+					{ span: string; count: number; errorTag: string }
+				>();
+				for (const failure of latestFailures) {
+					const key = `${failure.span}:${failure.message}`;
+					const existing = commonFailureMap.get(key);
+					commonFailureMap.set(key, {
+						span: failure.span,
+						count: (existing?.count ?? 0) + 1,
+						errorTag: failure.message,
+					});
+				}
 
-        const traceSummary = {
-          latestFailures,
-          slowestSpans: [],
-          commonFailures: [...commonFailureMap.values()].sort(
-            (left, right) => right.count - left.count,
-          ),
-        };
-        const recentErrors = {
-          errors: latestFailures,
-        };
-        const environment = {
-          app: "zuse",
-          version: packageJson.version,
-          createdAt: createdAt.toISOString(),
-          platform: platform(),
-          arch: arch(),
-          osRelease: release(),
-          node: process.version,
-        };
-        const providerStatus = {
-          providers: providers.map(summarizeProvider),
-        };
-        const sessionEvents = yield* Effect.try(() => ({
-          files: listSessionEventFiles(paths.userData).map(
-            redactSessionEventFile,
-          ),
-        }));
-        const artifacts: Record<string, unknown> = {
-          "trace-summary": traceSummary,
-          "recent-errors": recentErrors,
-          environment,
-          "provider-status": providerStatus,
-          "redacted-session-events": sessionEvents,
-        };
-        if (payload.clientContext !== undefined) {
-          artifacts["client-context"] = payload.clientContext;
-        }
+				const diagnosticEvents = filterDiagnosticEvents(telemetry.snapshot(), {
+					since: payload.since,
+				});
+				const diagnosticAggregate = aggregateDiagnostics(diagnosticEvents);
+				const traceSummary = {
+					latestFailures,
+					slowestSpans: diagnosticAggregate.slowestOperations,
+					commonFailures:
+						diagnosticAggregate.commonFailures.length > 0
+							? diagnosticAggregate.commonFailures
+							: [...commonFailureMap.values()].sort(
+									(left, right) => right.count - left.count,
+								),
+				};
+				const recentErrors = {
+					errors: latestFailures,
+				};
+				const environment = {
+					app: "zuse",
+					version: packageJson.version,
+					createdAt: createdAt.toISOString(),
+					platform: platform(),
+					arch: arch(),
+					osRelease: release(),
+					node: process.version,
+				};
+				const providerStatus = {
+					providers: providers.map(summarizeProvider),
+				};
+				const sessionEvents =
+					payload.includeSessionEvents === true
+						? yield* Effect.try(() => ({
+								files: listSessionEventFiles(paths.userData).map(
+									redactSessionEventFile,
+								),
+							}))
+						: { files: [] };
+				const processSnapshot = yield* processes.pipe(
+					Effect.orElseSucceed(() =>
+						DiagnosticsProcessesResult.make({
+							supported: false,
+							readAt: new Date().toISOString(),
+							serverPid: process.pid,
+							processes: [],
+							totalCpuPercent: 0,
+							totalRssBytes: 0,
+							error: "Process snapshot unavailable during export.",
+						}),
+					),
+				);
+				const redactionReport = {
+					rawPromptsIncluded: false,
+					rawTranscriptsIncluded: false,
+					terminalOutputIncluded: false,
+					environmentValuesIncluded: false,
+					strategy:
+						"allowlisted structural fields and secret-pattern scrubbing",
+				};
+				const performanceHistory = readPerformanceHistory(
+					paths.userData,
+					payload.since,
+				);
+				const performanceRecording = readLatestPerformanceRecording(
+					paths.userData,
+				);
+				const artifacts: Record<string, unknown> = {
+					"trace-summary": traceSummary,
+					"recent-errors": recentErrors,
+					environment,
+					"provider-status": providerStatus,
+					"redacted-session-events": sessionEvents,
+					"diagnostic-events": { events: diagnosticEvents },
+					"performance-history": performanceHistory,
+					"process-snapshot": processSnapshot,
+					"redaction-report": redactionReport,
+				};
+				if (performanceRecording !== null) {
+					artifacts["performance-recording"] = performanceRecording;
+				}
+				if (payload.clientContext !== undefined) {
+					artifacts["client-context"] = sanitizeDiagnosticValue(
+						payload.clientContext,
+					);
+				}
 
-        const artifactSizes = Object.fromEntries(
-          Object.entries(artifacts).map(([name, artifact]) => [
-            name,
-            jsonByteLength(artifact),
-          ]),
-        );
-        const diagnosticWarnings = [
-          latestFailures.length === 0
-            ? "No persisted message errors were captured."
-            : null,
-          payload.clientContext === undefined
-            ? "No renderer client context was provided."
-            : null,
-        ].filter((warning): warning is string => warning !== null);
-        const bundleSummary = {
-          diagnosticId,
-          generatedFor: "github-bug-report",
-          attachFileToIssue: true,
-          pasteJsonOnlyIfAttachmentFails: true,
-          artifactSizes,
-          diagnosticWarnings,
-        };
-        artifacts["bundle-summary"] = bundleSummary;
-        artifactSizes["bundle-summary"] = jsonByteLength(bundleSummary);
+				const artifactSizes = Object.fromEntries(
+					Object.entries(artifacts).map(([name, artifact]) => [
+						name,
+						jsonByteLength(artifact),
+					]),
+				);
+				const diagnosticWarnings = [
+					latestFailures.length === 0
+						? "No persisted message errors were captured."
+						: null,
+					payload.clientContext === undefined
+						? "No renderer client context was provided."
+						: null,
+				].filter((warning): warning is string => warning !== null);
+				const bundleSummary = {
+					diagnosticId,
+					generatedFor: "github-bug-report",
+					attachFileToIssue: true,
+					pasteJsonOnlyIfAttachmentFails: true,
+					artifactSizes,
+					diagnosticWarnings,
+				};
+				artifacts["bundle-summary"] = bundleSummary;
+				artifactSizes["bundle-summary"] = jsonByteLength(bundleSummary);
 
-        const included: BundleArtifactName[] = [
-          "manifest",
-          "bundle-summary",
-          "trace-summary",
-          "recent-errors",
-          "environment",
-          "provider-status",
-          ...(payload.clientContext !== undefined
-            ? (["client-context"] as const)
-            : []),
-          "redacted-session-events",
-        ];
-        const manifest = {
-          app: "zuse",
-          version: packageJson.version,
-          createdAt: createdAt.toISOString(),
-          platform: `${platform()}-${arch()}`,
-          diagnosticId,
-          included,
-          redaction: {
-            default:
-              "text fields are summarized with length and short previews",
-            rawPromptsIncluded: false,
-            rawTranscriptsIncluded: false,
-          },
-        };
+				const included: ExtendedBundleArtifactName[] = [
+					"manifest",
+					"bundle-summary",
+					"trace-summary",
+					"recent-errors",
+					"environment",
+					"provider-status",
+					...(payload.clientContext !== undefined
+						? (["client-context"] as const)
+						: []),
+					"redacted-session-events",
+					"diagnostic-events",
+					"performance-history",
+					...(performanceRecording !== null
+						? (["performance-recording"] as const)
+						: []),
+					"process-snapshot",
+					"redaction-report",
+					"report",
+				];
+				const bundlePath = join(
+					paths.userData,
+					"diagnostics",
+					`zuse-diagnostics-${safeIsoForFile(createdAt)}-${diagnosticId}.zip`,
+				);
+				const summary = buildSummary({
+					diagnosticId,
+					bundlePath,
+					version: packageJson.version,
+					platform: platform(),
+					arch: arch(),
+					osRelease: release(),
+					latestFailures,
+					providerCount: providers.length,
+				});
+				const report = Buffer.from(
+					`# Diagnostic report\n\n\`\`\`\n${summary}\n\`\`\`\n`,
+				);
+				const artifactEntries = Object.entries(artifacts).map(
+					([name, artifact]) => ({
+						name: `${name}.json`,
+						data: Buffer.from(prettyJson(artifact)),
+					}),
+				);
+				const checksums = Object.fromEntries(
+					[{ name: "REPORT.md", data: report }, ...artifactEntries].map(
+						(entry) => [
+							entry.name,
+							createHash("sha256").update(entry.data).digest("hex"),
+						],
+					),
+				);
+				const manifest = {
+					app: "zuse",
+					version: packageJson.version,
+					createdAt: createdAt.toISOString(),
+					platform: `${platform()}-${arch()}`,
+					diagnosticId,
+					included,
+					redaction: {
+						default:
+							"content fields are excluded or summarized without previews",
+						rawPromptsIncluded: false,
+						rawTranscriptsIncluded: false,
+					},
+					checksums,
+				};
 
-        yield* Effect.try(() => {
-          writeJson(join(bundleDir, "manifest.json"), manifest);
-          writeJson(join(bundleDir, "bundle-summary.json"), bundleSummary);
-          writeJson(join(bundleDir, "trace-summary.json"), traceSummary);
-          writeJson(join(bundleDir, "recent-errors.json"), recentErrors);
-          writeJson(join(bundleDir, "environment.json"), environment);
-          writeJson(join(bundleDir, "provider-status.json"), providerStatus);
-          if (payload.clientContext !== undefined) {
-            writeJson(join(bundleDir, "client-context.json"), payload.clientContext);
-          }
-          writeJson(
-            join(bundleDir, "session-events-redacted.json"),
-            sessionEvents,
-          );
-        });
+				yield* Effect.try(() => {
+					writeJson(join(bundleDir, "manifest.json"), manifest);
+					writeJson(join(bundleDir, "bundle-summary.json"), bundleSummary);
+					writeJson(join(bundleDir, "trace-summary.json"), traceSummary);
+					writeJson(join(bundleDir, "recent-errors.json"), recentErrors);
+					writeJson(join(bundleDir, "environment.json"), environment);
+					writeJson(join(bundleDir, "provider-status.json"), providerStatus);
+					if (payload.clientContext !== undefined) {
+						writeJson(
+							join(bundleDir, "client-context.json"),
+							artifacts["client-context"],
+						);
+					}
+					writeJson(
+						join(bundleDir, "session-events-redacted.json"),
+						sessionEvents,
+					);
+				});
 
-        const bundlePath = join(
-          paths.userData,
-          "diagnostics",
-          `zuse-diagnostics-${safeIsoForFile(createdAt)}-${diagnosticId}.json`,
-        );
-        const bundle = {
-          manifest,
-          artifacts,
-        };
-        yield* Effect.try(() => {
-          writeJson(bundlePath, bundle);
-          copyFileSync(bundlePath, join(bundleDir, basename(bundlePath)));
-        });
+				yield* Effect.try(() => {
+					const entries = [
+						{
+							name: "manifest.json",
+							data: Buffer.from(prettyJson(manifest)),
+						},
+						{
+							name: "REPORT.md",
+							data: report,
+						},
+						...artifactEntries,
+					];
+					writeFileSync(bundlePath, createStoredZip(entries));
+					copyFileSync(bundlePath, join(bundleDir, basename(bundlePath)));
+				});
+				return DiagnosticsExportResult.make({
+					diagnosticId,
+					createdAt,
+					bundlePath,
+					summary,
+					included,
+				});
+			}).pipe(
+				Effect.mapError(
+					(cause) =>
+						new DiagnosticsExportError({
+							reason:
+								cause instanceof Error
+									? cause.message
+									: "Failed to export diagnostics.",
+						}),
+				),
+			);
 
-        const summary = buildSummary({
-          diagnosticId,
-          bundlePath,
-          version: packageJson.version,
-          platform: platform(),
-          arch: arch(),
-          osRelease: release(),
-          latestFailures,
-          providerCount: providers.length,
-        });
-        return DiagnosticsExportResult.make({
-          diagnosticId,
-          createdAt,
-          bundlePath,
-          summary,
-          included,
-        });
-      }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new DiagnosticsExportError({
-              reason:
-                cause instanceof Error
-                  ? cause.message
-                  : "Failed to export diagnostics.",
-            }),
-        ),
-      );
-
-    return { exportBundle } as const;
-  }),
+		return {
+			overview,
+			events,
+			ingest,
+			processes,
+			signalProcess,
+			exportBundle,
+		} as const;
+	}),
 );

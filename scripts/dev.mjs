@@ -50,6 +50,8 @@ const diagnostics = devInstanceDiagnostics(instance, rendererHost);
 console.log(`[dev] ${JSON.stringify(diagnostics, null, 2)}`);
 if (instance.dryRun) process.exit(0);
 
+const devStartedAt = Date.now();
+
 const children = [];
 let shuttingDown = false;
 
@@ -81,6 +83,7 @@ async function shutdown(code) {
 
 const sharedEnv = {
 	ZUSE_DEV_INSTANCE: instance.instance,
+	ZUSE_DEV_STARTED_AT: String(devStartedAt),
 	ZUSE_DESKTOP_WS_PORT: String(instance.websocketPort),
 	...(instance.userDataDir ? { ZUSE_USER_DATA_DIR: instance.userDataDir } : {}),
 	ZUSE_DESKTOP_OUT_DIR: instance.packDir,

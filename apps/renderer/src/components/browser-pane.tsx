@@ -54,6 +54,7 @@ import {
 	type BrowserRecordingArtifact,
 	BrowserRecordingController,
 } from "../lib/browser-recording.ts";
+import { reportPowerBrowserSession } from "../lib/power-runtime-activity.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { useAttachmentsStore } from "../store/attachments.ts";
@@ -438,6 +439,14 @@ export function BrowserPane({
 	readonly sessionId: SessionId | null;
 	readonly visible: boolean;
 }) {
+	useEffect(() => {
+		reportPowerBrowserSession(chatId, false);
+		return () => reportPowerBrowserSession(chatId, null);
+	}, [chatId]);
+	useEffect(() => {
+		reportPowerBrowserSession(chatId, visible);
+	}, [chatId, visible]);
+
 	const webviewRef = useRef<HTMLElement | null>(null);
 	// Ring buffer of console messages + page errors, captured per page load so
 	// `browser_console` can report them to the agent. Cleared on navigation.

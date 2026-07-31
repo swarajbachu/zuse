@@ -4,7 +4,7 @@
  * deps without Electron: file-backed AppPaths resolved from env/XDG, a no-op
  * FolderPicker, and the WebSocket transport. This same binary is what runs on
  * an SSH dev-box and (later) on a cloud container — there is no laptop
- * assumption anywhere in `@zuse/server` (ADR 0007).
+ * assumption anywhere in `@zusehq/server` (ADR 0007).
  *
  * Per ADR 0007, transport modules live under `transports/` — never inside a
  * service domain. The factory (`makeMainLayer`) is re-exported so the Electron
@@ -195,6 +195,13 @@ export const runHeadlessServer = (
 			onCallbackUrl: () => Effect.void,
 		},
 		lanAuth: { policy, advertisedHost, port, pairingBootstrap },
+		autoRelayLink:
+			process.env.ZUSE_SERVE_AUTO_LINK === "1"
+				? {
+						relayUrl: process.env.ZUSE_RELAY_URL ?? "https://relay.stuff.md",
+						label: process.env.ZUSE_COMPUTER_NAME,
+					}
+				: undefined,
 	});
 
 	NodeRuntime.runMain(

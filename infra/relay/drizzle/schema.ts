@@ -43,6 +43,10 @@ export const relayEnvironments = pgTable(
     tunnelStatus: text("tunnel_status"),
     linkedAt: bigint("linked_at", { mode: "number" }).notNull(),
     lastSeenAt: bigint("last_seen_at", { mode: "number" }),
+    runtimeVersion: text("runtime_version"),
+    wireProtocolVersion: bigint("wire_protocol_version", { mode: "number" }),
+    capabilities: jsonb("capabilities"),
+    serviceState: text("service_state"),
   },
   (table) => [
     index("relay_environments_account_idx").on(table.accountId),
@@ -54,6 +58,10 @@ export const relayEnvironments = pgTable(
       "relay_environments_tunnel_status_check",
       sql`${table.tunnelStatus} IS NULL OR ${table.tunnelStatus} IN ('reserved', 'ready')`,
     ),
+    check(
+      "relay_environments_service_state_check",
+      sql`${table.serviceState} IS NULL OR ${table.serviceState} IN ('starting', 'healthy', 'degraded', 'stopped', 'updating')`,
+    ),
   ],
 );
 
@@ -63,7 +71,9 @@ export const relayEnvironmentCredentials = pgTable(
     credentialId: text("credential_id").primaryKey(),
     environmentId: text("environment_id")
       .notNull()
-      .references(() => relayEnvironments.environmentId, { onDelete: "cascade" }),
+      .references(() => relayEnvironments.environmentId, {
+        onDelete: "cascade",
+      }),
     accountId: text("account_id").notNull(),
     credentialHash: text("credential_hash").notNull(),
     createdAt: bigint("created_at", { mode: "number" }).notNull(),
@@ -82,16 +92,22 @@ export const relayDevices = pgTable(
     platform: text("platform").notNull(),
     pushToken: text("push_token"),
     dpopJwk: jsonb("dpop_jwk"),
+    dpopThumbprint: text("dpop_thumbprint").notNull(),
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
     index("relay_devices_account_idx").on(table.accountId),
     check(
       "relay_devices_platform_check",
-      sql`${table.platform} IN ('ios', 'android', 'web')`,
+      sql`${table.platform} IN ('ios', 'android', 'web', 'desktop')`,
     ),
   ],
 );
+
+export const relayRevokedDpopKeys = pgTable("relay_revoked_dpop_keys", {
+  thumbprint: text("thumbprint").primaryKey(),
+  revokedAt: bigint("revoked_at", { mode: "number" }).notNull(),
+});
 
 export const relayDpopProofs = pgTable(
   "relay_dpop_proofs",
@@ -119,7 +135,10 @@ export const relayAgentActivity = pgTable(
     occurredAt: bigint("occurred_at", { mode: "number" }).notNull(),
   },
   (table) => [
-    index("relay_agent_activity_env_idx").on(table.environmentId, table.occurredAt),
+    index("relay_agent_activity_env_idx").on(
+      table.environmentId,
+      table.occurredAt,
+    ),
     check(
       "relay_agent_activity_kind_check",
       sql`${table.kind} IN ('approval-needed', 'question-needed', 'completed', 'error', 'running')`,

@@ -15,6 +15,13 @@
       "when": 1783337014409,
       "tag": "0001_next_catseye",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785356077643,
+      "tag": "0002_absurd_leader",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,19 @@ import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null;
 
+const diagnosticErrorType = (value: unknown): string => {
+	if (isRecord(value)) {
+		const tag = value._tag;
+		if (typeof tag === "string" && /^[A-Za-z][A-Za-z0-9]*$/.test(tag)) {
+			return tag;
+		}
+	}
+	if (value instanceof Error && /^[A-Za-z][A-Za-z0-9]*$/.test(value.name)) {
+		return value.name;
+	}
+	return "RendererError";
+};
+
 // Tagged errors that carry only ids (no `reason`/`message`) would otherwise
 // fall through to a raw JSON dump like `{ "folderId": "…" }`. Map them to
 // human copy here so any surface that formats them stays readable.
@@ -38,7 +51,7 @@ export const formatError = (err: unknown): string => {
 	recordDiagnosticEvent({
 		level: "error",
 		source: "renderer.formatError",
-		message: formatted,
+		message: diagnosticErrorType(err),
 	});
 	return formatted;
 };

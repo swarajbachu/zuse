@@ -113,7 +113,7 @@
 
 <main>
   <h1>Remote &amp; Multi-Client</h1>
-  <p class="lead">One <code>@zuse/server</code> driven by the desktop, a mobile app, a browser, and remote / cloud dev-boxes — over WebSocket, reachable from anywhere, with gap-free reconnect and offline support.</p>
+  <p class="lead">One <code>@zusehq/server</code> driven by the desktop, a mobile app, a browser, and remote / cloud dev-boxes — over WebSocket, reachable from anywhere, with gap-free reconnect and offline support.</p>
   <div class="meta">
     <span>Status: <b>In progress</b></span>
     <span>Started: 2026-06-30</span>
@@ -123,10 +123,10 @@
 
   <!-- ============================ SUMMARY ============================ -->
   <h2 id="summary">Executive summary</h2>
-  <p>Zuse today is a single Electron process: the renderer talks to <code>@zuse/server</code> over Electron IPC, chats live in SQLite as mutable CRUD rows, and live updates come from an in-memory pub/sub. We want the same server to be driven by <b>many clients</b> (desktop, mobile, browser) running on <b>many hosts</b> (laptop, SSH dev-box, cloud container) — all over one WebSocket contract.</p>
+  <p>Zuse today is a single Electron process: the renderer talks to <code>@zusehq/server</code> over Electron IPC, chats live in SQLite as mutable CRUD rows, and live updates come from an in-memory pub/sub. We want the same server to be driven by <b>many clients</b> (desktop, mobile, browser) running on <b>many hosts</b> (laptop, SSH dev-box, cloud container) — all over one WebSocket contract.</p>
   <div class="box key">
     <div class="t">The central insight</div>
-    <p style="margin:0">This is <b>additive, not a rewrite.</b> <code>@zuse/server</code> is already an Effect app on <code>@effect/rpc</code> / <code>@effect/sql</code> / <code>@effect/platform-node</code>. <a href="../0.01-MVP/decisions/0007-server-as-code-only-app.md">ADR 0007</a> already forbids <code>electron</code> imports in <code>apps/server</code>, mandates a pure <code>makeMainLayer(deps)</code> factory, and makes the transport pluggable. The base server stays. We add a WebSocket transport, an event-sourced sync core, a cloud relay, an Expo client, and SSH launch — each an independent track.</p>
+    <p style="margin:0">This is <b>additive, not a rewrite.</b> <code>@zusehq/server</code> is already an Effect app on <code>@effect/rpc</code> / <code>@effect/sql</code> / <code>@effect/platform-node</code>. <a href="../0.01-MVP/decisions/0007-server-as-code-only-app.md">ADR 0007</a> already forbids <code>electron</code> imports in <code>apps/server</code>, mandates a pure <code>makeMainLayer(deps)</code> factory, and makes the transport pluggable. The base server stays. We add a WebSocket transport, an event-sourced sync core, a cloud relay, an Expo client, and SSH launch — each an independent track.</p>
   </div>
   <p>The single genuine architectural gap is <b>persistence</b>: mutable CRUD + in-memory pub/sub cannot give a mobile client gap-free reconnect, offline snapshots, or multi-writer ordering. We close it with <b>event sourcing</b> (an append-only log with a global <code>sequence</code>, projected into the existing tables) and, in the same pass, swap the SQLite driver to Node's built-in <b><code>node:sqlite</code></b> so one persistence layer runs identically under Electron and headless Node.</p>
 
@@ -138,7 +138,7 @@
   <table>
     <tr><th>Package</th><th>Role</th></tr>
     <tr><td><code>apps/desktop</code></td><td>Electron main + preload; builds with tsdown → <code>dist-electron/*.cjs</code>; owns the Electron-specific glue (windows, menus, the IPC transport).</td></tr>
-    <tr><td><code>apps/server</code> (<code>@zuse/server</code>)</td><td>All backend logic as a transport-agnostic Effect library: persistence, providers/drivers, git, pty, worktrees, permissions, credentials, code-index bridge, RPC handlers.</td></tr>
+    <tr><td><code>apps/server</code> (<code>@zusehq/server</code>)</td><td>All backend logic as a transport-agnostic Effect library: persistence, providers/drivers, git, pty, worktrees, permissions, credentials, code-index bridge, RPC handlers.</td></tr>
     <tr><td><code>apps/renderer</code></td><td>React UI; consumes the RPC client; no durable local state.</td></tr>
     <tr><td><code>packages/contracts</code> (<code>@zuse/contracts</code>)</td><td>The entire RPC surface (~100 methods) as <code>@effect/rpc</code> + Schema definitions. Transport-agnostic.</td></tr>
     <tr><td><code>apps/web</code>, <code>apps/mcp-server</code>, <code>packages/index</code>, …</td><td>Marketing site, MCP transport for the index engine, code-index service, etc.</td></tr>
@@ -190,7 +190,7 @@ Electron main
   <h2 id="future">2 · Where we're going</h2>
 
   <h3 id="future-env">The environment model</h3>
-  <p>The organizing idea of the end-state is the <b>environment</b>: "a host running <code>@zuse/server</code>." It is a first-class entity with a <code>providerKind</code> and an endpoint. The exact same server binary backs all three kinds:</p>
+  <p>The organizing idea of the end-state is the <b>environment</b>: "a host running <code>@zusehq/server</code>." It is a first-class entity with a <code>providerKind</code> and an endpoint. The exact same server binary backs all three kinds:</p>
   <table>
     <tr><th><code>providerKind</code></th><th>Where the server runs</th><th>How clients reach it</th></tr>
     <tr><td><code>"desktop"</code></td><td>The user's laptop</td><td>Electron IPC in-process; or WS + managed tunnel for remote reach</td></tr>
@@ -210,7 +210,7 @@ Electron main
   Browser ────┤   WebSocket (RpcClient) — DIRECT to the environment
   Desktop ────┤
               ▼
-     ┌──────────── @zuse/server — "an environment" ────────────┐
+     ┌──────────── @zusehq/server — "an environment" ────────────┐
      │  events ─► projector ─► messages / sessions / chats      │   one binary, by providerKind
      │  (node:sqlite)                                           │     · desktop → laptop
      │  RpcServer.Protocol:  Electron IPC | WebSocket           │     · ssh     → remote dev-box
@@ -506,7 +506,7 @@ export const wsClientProtocolLayer = (url) =&gt;
   <!-- ============================ GLOSSARY ============================ -->
   <h2 id="glossary">Glossary</h2>
   <table>
-    <tr><td><b>Environment</b></td><td>A host running <code>@zuse/server</code>; has a <code>providerKind</code> + endpoint.</td></tr>
+    <tr><td><b>Environment</b></td><td>A host running <code>@zusehq/server</code>; has a <code>providerKind</code> + endpoint.</td></tr>
     <tr><td><b>Projection</b></td><td>A read-optimized table derived deterministically from the event log.</td></tr>
     <tr><td><b><code>sequence</code></b></td><td>Global monotonic cursor (events PK); the unit of resume.</td></tr>
     <tr><td><b><code>stream_version</code></b></td><td>Per-stream counter; the optimistic-concurrency guard for multi-writer ordering.</td></tr>

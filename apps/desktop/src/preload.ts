@@ -1,6 +1,24 @@
 import {
 	AGENTS_RUNNING_COUNT_CHANNEL,
 	IPC_CHANNEL,
+	type LagSample,
+	type PerformanceHistory,
+	POWER_CLEAR_HISTORY_CHANNEL,
+	POWER_EXPORT_RECORDING_CHANNEL,
+	POWER_GET_HISTORY_CHANNEL,
+	POWER_GET_STATE_CHANNEL,
+	POWER_REPORT_LAG_CHANNEL,
+	POWER_REPORT_WORKLOAD_CHANNEL,
+	POWER_START_RECORDING_CHANNEL,
+	POWER_STATE_CHANNEL,
+	POWER_STOP_RECORDING_CHANNEL,
+	POWER_SUBSCRIBE_CHANNEL,
+	POWER_UNSUBSCRIBE_CHANNEL,
+	type PowerExportResult,
+	type PowerInteractionMeasurement,
+	type PowerMonitorState,
+	type PowerRecordingDurationMinutes,
+	type PowerWorkloadState,
 	UPDATE_CHECK_CHANNEL,
 	UPDATE_DOWNLOAD_CHANNEL,
 	UPDATE_INSTALL_CHANNEL,
@@ -8,6 +26,8 @@ import {
 	type UpdateStatus,
 } from "@zuse/contracts";
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron";
+
+let powerStateSubscriberCount = 0;
 
 /**
  * Preload bridge — the only seam between the renderer and the main process.
@@ -284,6 +304,13 @@ const bridge = {
 					readonly detail?: string;
 				}>
 			>,
+		recordFatalDiagnostic: (input: {
+			readonly source: string;
+			readonly errorName: string;
+			readonly frameNames: ReadonlyArray<string>;
+		}) => ipcRenderer.sendSync("app:recordFatalDiagnostic", input) === true,
+		revealDiagnosticsLogs: () =>
+			ipcRenderer.invoke("app:revealDiagnosticsLogs") as Promise<void>,
 	},
 	network: {
 		getAccessState: () =>
@@ -327,6 +354,57 @@ const bridge = {
 		// `registerUpdaterDemo`). Calling in a packaged build rejects harmlessly.
 		__demoSet: (status: UpdateStatus) =>
 			ipcRenderer.invoke("zuse:update-demo-set", status) as Promise<void>,
+	},
+	power: {
+		getState: () =>
+			ipcRenderer.invoke(POWER_GET_STATE_CHANNEL) as Promise<PowerMonitorState>,
+		onState: (handler: (state: PowerMonitorState) => void) => {
+			const wrapped = (_event: IpcRendererEvent, state: PowerMonitorState) =>
+				handler(state);
+			ipcRenderer.on(POWER_STATE_CHANNEL, wrapped);
+			powerStateSubscriberCount += 1;
+			if (powerStateSubscriberCount === 1) {
+				ipcRenderer.send(POWER_SUBSCRIBE_CHANNEL);
+			}
+			let subscribed = true;
+			return () => {
+				if (!subscribed) return;
+				subscribed = false;
+				ipcRenderer.off(POWER_STATE_CHANNEL, wrapped);
+				powerStateSubscriberCount = Math.max(0, powerStateSubscriberCount - 1);
+				if (powerStateSubscriberCount === 0) {
+					ipcRenderer.send(POWER_UNSUBSCRIBE_CHANNEL);
+				}
+			};
+		},
+		startRecording: (durationMinutes: PowerRecordingDurationMinutes) =>
+			ipcRenderer.invoke(
+				POWER_START_RECORDING_CHANNEL,
+				durationMinutes,
+			) as Promise<PowerMonitorState>,
+		stopRecording: () =>
+			ipcRenderer.invoke(
+				POWER_STOP_RECORDING_CHANNEL,
+			) as Promise<PowerMonitorState>,
+		exportLatestRecording: (
+			interactions: ReadonlyArray<PowerInteractionMeasurement>,
+		) =>
+			ipcRenderer.invoke(POWER_EXPORT_RECORDING_CHANNEL, {
+				interactions,
+			}) as Promise<PowerExportResult | null>,
+		getHistory: (sinceMs: number) =>
+			ipcRenderer.invoke(
+				POWER_GET_HISTORY_CHANNEL,
+				sinceMs,
+			) as Promise<PerformanceHistory>,
+		clearHistory: () =>
+			ipcRenderer.invoke(POWER_CLEAR_HISTORY_CHANNEL) as Promise<void>,
+		reportLagSamples: (samples: ReadonlyArray<LagSample>) => {
+			ipcRenderer.send(POWER_REPORT_LAG_CHANNEL, samples);
+		},
+		reportWorkload: (workload: PowerWorkloadState) => {
+			ipcRenderer.send(POWER_REPORT_WORKLOAD_CHANNEL, workload);
+		},
 	},
 	menu: {
 		onAction: (handler: (action: string) => void) => {

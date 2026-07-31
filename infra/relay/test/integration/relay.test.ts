@@ -76,6 +76,7 @@ let identityDeletes: string[];
 
 const makeLayer = async (
 	managedTunnel?: Config.ManagedTunnelConfig,
+	maxEnvironmentsPerAccount?: number,
 ): Promise<Layer.Layer<RelayContext>> => {
 	mintKey = (await eddsa()) as KeyPair;
 	const configLayer = Config.layer({
@@ -87,6 +88,7 @@ const makeLayer = async (
 		),
 		mintPublicKey: JSON.stringify(await exportJWK(mintKey.publicKey)),
 		managedTunnel,
+		maxEnvironmentsPerAccount,
 	});
 	const pushLayer = Layer.succeed(
 		PushDelivery,
@@ -116,10 +118,12 @@ const makeLayer = async (
 	);
 };
 
-const linkEnvironment = async (input: {
+const requestEnvironmentLink = async (input: {
 	account: string;
 	environmentId: string;
-}): Promise<{ envKey: KeyPair; credential: string }> => {
+	runtimeVersion?: string;
+	wireProtocolVersion?: number;
+}): Promise<{ envKey: KeyPair; response: Response }> => {
 	const bearer = `test-token:${input.account}`;
 	const challengeRes = await relay.fetch(
 		new Request(`${RELAY_ISSUER}/v1/client/environment-link-challenges`, {
@@ -156,9 +160,26 @@ const linkEnvironment = async (input: {
 					wsBaseUrl: "ws://127.0.0.1:8787/rpc",
 				},
 				label: "Test Mac",
+				runtimeVersion: input.runtimeVersion,
+				wireProtocolVersion: input.wireProtocolVersion,
+				capabilities: {
+					version: 1,
+					features: ["agents", "files", "terminals"],
+				},
+				serviceState: "healthy",
 			}),
 		}),
 	);
+	return { envKey, response: linkRes };
+};
+
+const linkEnvironment = async (input: {
+	account: string;
+	environmentId: string;
+	runtimeVersion?: string;
+	wireProtocolVersion?: number;
+}): Promise<{ envKey: KeyPair; credential: string }> => {
+	const { envKey, response: linkRes } = await requestEnvironmentLink(input);
 	expect(linkRes.status).toBe(200);
 	const linked = (await linkRes.json()) as { environmentCredential: string };
 	return { envKey, credential: linked.environmentCredential };
@@ -199,6 +220,210 @@ beforeEach(async () => {
 });
 
 describe("@zuse/relay", () => {
+	test("brokers browser PKCE token exchanges without exposing a general proxy", async () => {
+		const response = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/auth/token`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					origin: "https://app.zuse.sh",
+				},
+				body: JSON.stringify({
+					grantType: "authorization_code",
+					code: "test-code",
+					codeVerifier: "v".repeat(43),
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("access-control-allow-origin")).toBe(
+			"https://app.zuse.sh",
+		);
+		expect(await response.json()).toEqual({
+			access_token: "test-access-token",
+			refresh_token: "test-refresh-token",
+		});
+
+		const refreshResponse = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/auth/token`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					origin: "https://app.zuse.sh",
+				},
+				body: JSON.stringify({
+					grantType: "refresh_token",
+					refreshToken: "test-refresh-token",
+				}),
+			}),
+		);
+
+		expect(refreshResponse.status).toBe(200);
+		expect(await refreshResponse.json()).toEqual({
+			access_token: "test-access-token",
+			refresh_token: "test-refresh-token-rotated",
+		});
+	});
+
+	test("verifies DPoP against the public relay URL behind a rewritten worker URL", async () => {
+		const device = (await ec()) as KeyPair;
+		const jwk = await exportJWK(device.publicKey);
+		const publicUrl = `${RELAY_ISSUER}/v1/client/dpop-token`;
+		const response = await relay.fetch(
+			new Request("http://worker.internal/v1/client/dpop-token", {
+				method: "POST",
+				headers: {
+					authorization: "Bearer test-token:user_proxy",
+					dpop: await dpopProof(device, jwk, {
+						method: "POST",
+						url: publicUrl,
+					}),
+				},
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			accessToken: expect.any(String),
+		});
+	});
+
+	test("allows the hosted product origin without opening relay CORS broadly", async () => {
+		const allowed = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/environments`, {
+				method: "OPTIONS",
+				headers: { origin: "https://app.zuse.sh" },
+			}),
+		);
+		expect(allowed.status).toBe(204);
+		expect(allowed.headers.get("access-control-allow-origin")).toBe(
+			"https://app.zuse.sh",
+		);
+
+		const denied = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/environments`, {
+				method: "OPTIONS",
+				headers: { origin: "https://untrusted.test" },
+			}),
+		);
+		expect(denied.headers.get("access-control-allow-origin")).toBeNull();
+	});
+
+	test("enforces the account computer limit without blocking an existing computer", async () => {
+		relay = makeRelay(await makeLayer(undefined, 1));
+		await linkEnvironment({
+			account: "user_limit",
+			environmentId: "env_first",
+		});
+
+		const second = await requestEnvironmentLink({
+			account: "user_limit",
+			environmentId: "env_second",
+		});
+		expect(second.response.status).toBe(409);
+		expect(await second.response.json()).toEqual({
+			error: "computer_limit_reached",
+		});
+
+		const same = await requestEnvironmentLink({
+			account: "user_limit",
+			environmentId: "env_first",
+		});
+		expect(same.response.status).toBe(200);
+	});
+
+	test("lists runtime and capability metadata without workspace content", async () => {
+		await linkEnvironment({
+			account: "user_metadata",
+			environmentId: "env_metadata",
+			runtimeVersion: "1.4.0",
+		});
+		const response = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/environments`, {
+				headers: { authorization: "Bearer test-token:user_metadata" },
+			}),
+		);
+		const body = (await response.json()) as {
+			environments: ReadonlyArray<Record<string, unknown>>;
+		};
+		expect(body.environments).toHaveLength(1);
+		expect(body.environments[0]).toMatchObject({
+			environmentId: "env_metadata",
+			runtimeVersion: "1.4.0",
+			serviceState: "healthy",
+			capabilities: {
+				version: 1,
+				features: ["agents", "files", "terminals"],
+			},
+		});
+		expect(JSON.stringify(body)).not.toContain("transcript");
+		expect(JSON.stringify(body)).not.toContain("toolOutput");
+	});
+
+	test("lists and revokes one browser without affecting the account", async () => {
+		await linkEnvironment({
+			account: "user_clients",
+			environmentId: "env_clients",
+		});
+		const device = (await ec()) as KeyPair;
+		const jwk = await exportJWK(device.publicKey);
+		const accessToken = await mintAccess("user_clients", device, jwk);
+		const devicesUrl = `${RELAY_ISSUER}/v1/mobile/devices`;
+		const registered = await relay.fetch(
+			new Request(devicesUrl, {
+				method: "POST",
+				headers: {
+					authorization: `DPoP ${accessToken}`,
+					dpop: await dpopProof(device, jwk, {
+						method: "POST",
+						url: devicesUrl,
+					}),
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
+					deviceId: "browser_one",
+					platform: "web",
+					dpopJwk: jwk,
+				}),
+			}),
+		);
+		expect(registered.status).toBe(200);
+
+		const listed = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/clients`, {
+				headers: { authorization: "Bearer test-token:user_clients" },
+			}),
+		);
+		expect(await listed.json()).toMatchObject({
+			clients: [{ clientId: "browser_one", platform: "web" }],
+		});
+
+		const revoked = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/clients/browser_one`, {
+				method: "DELETE",
+				headers: { authorization: "Bearer test-token:user_clients" },
+			}),
+		);
+		expect(revoked.status).toBe(200);
+
+		const statusUrl = `${RELAY_ISSUER}/v1/environments/env_clients/status`;
+		const afterRevocation = await relay.fetch(
+			new Request(statusUrl, {
+				method: "POST",
+				headers: {
+					authorization: `DPoP ${accessToken}`,
+					dpop: await dpopProof(device, jwk, {
+						method: "POST",
+						url: statusUrl,
+					}),
+				},
+			}),
+		);
+		expect(afterRevocation.status).toBe(401);
+		expect(await afterRevocation.json()).toEqual({ error: "client_revoked" });
+	});
+
 	test("links an environment, reports presence, and mints a connect token", async () => {
 		const { environmentId } = { environmentId: "env_1" };
 		const { credential } = await linkEnvironment({
@@ -275,6 +500,58 @@ describe("@zuse/relay", () => {
 			serverNonce: "discovery-nonce",
 			devicePublicKey: "D".repeat(43),
 			transportCertificatePin: "T".repeat(43),
+		});
+	});
+
+	test("returns stable route and wire compatibility errors", async () => {
+		const environmentId = "env_compatibility";
+		await linkEnvironment({
+			account: "user_compatibility",
+			environmentId,
+			wireProtocolVersion: 2,
+		});
+		const device = (await ec()) as KeyPair;
+		const jwk = await exportJWK(device.publicKey);
+		const accessToken = await mintAccess("user_compatibility", device, jwk);
+		const connectUrl = `${RELAY_ISSUER}/v1/environments/${environmentId}/connect`;
+
+		const incompatibleRequest = new Request(connectUrl, {
+			method: "POST",
+			headers: {
+				authorization: `DPoP ${accessToken}`,
+				dpop: await dpopProof(device, jwk, {
+					method: "POST",
+					url: connectUrl,
+				}),
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ wireProtocolVersion: 1 }),
+		});
+		const incompatible = await relay.fetch(incompatibleRequest);
+		expect(incompatible.status).toBe(409);
+		expect(await incompatible.json()).toEqual({
+			error: "version_incompatible",
+		});
+
+		const managedRequest = new Request(connectUrl, {
+			method: "POST",
+			headers: {
+				authorization: `DPoP ${accessToken}`,
+				dpop: await dpopProof(device, jwk, {
+					method: "POST",
+					url: connectUrl,
+				}),
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				wireProtocolVersion: 2,
+				requireManaged: true,
+			}),
+		});
+		const unavailable = await relay.fetch(managedRequest);
+		expect(unavailable.status).toBe(503);
+		expect(await unavailable.json()).toEqual({
+			error: "tunnel_unavailable",
 		});
 	});
 

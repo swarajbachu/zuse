@@ -15,7 +15,12 @@ import {
 	type TurnScopedProviderSessionHandle,
 } from "@zuse/agents/kernel/turn-protocol";
 import { zuseWorkspaceInstructions } from "@zuse/agents/kernel/workspace-instructions";
-import { classifyTool, inputLengthBucket, safeModelId } from "@zuse/analytics";
+import {
+	classifyTool,
+	inputLengthBucket,
+	safeModelId,
+	TurnAnalyticsAccumulator,
+} from "@zuse/analytics";
 import {
 	AgentAvailability,
 	type AgentSessionId,
@@ -69,16 +74,7 @@ type SessionEntry = {
 	readonly model: string;
 	readonly handle: SessionHandle;
 	turnStartedAt: number | null;
-	usage: {
-		inputTokens: number;
-		outputTokens: number;
-		cacheReadTokens: number;
-		cacheCreationTokens: number;
-	};
-	readonly tools: Map<
-		string,
-		{ category: ReturnType<typeof classifyTool>; startedAt: number }
-	>;
+	turnAnalytics: TurnAnalyticsAccumulator;
 };
 
 let sessionCounter = 0;
@@ -568,13 +564,7 @@ export const ProviderServiceLive = Layer.effect(
 								: "custom",
 							handle,
 							turnStartedAt: null,
-							usage: {
-								inputTokens: 0,
-								outputTokens: 0,
-								cacheReadTokens: 0,
-								cacheCreationTokens: 0,
-							},
-							tools: new Map(),
+							turnAnalytics: new TurnAnalyticsAccumulator(),
 						});
 						return next;
 					});
@@ -598,18 +588,21 @@ export const ProviderServiceLive = Layer.effect(
 							error_code: "startup_failed",
 						}),
 					),
+					Effect.withSpan("provider.start", {
+						attributes: {
+							"provider.id": input.providerId,
+							"provider.model": input.model
+								? safeModelId(input.providerId, input.model)
+								: "custom",
+						},
+					}),
 				);
 			},
 			send: (sessionId, turnId, text, attachments, fileRefs, skillRefs) =>
 				Effect.flatMap(lookup(sessionId), (entry) =>
 					Effect.gen(function* () {
 						entry.turnStartedAt = Date.now();
-						entry.usage = {
-							inputTokens: 0,
-							outputTokens: 0,
-							cacheReadTokens: 0,
-							cacheCreationTokens: 0,
-						};
+						entry.turnAnalytics = new TurnAnalyticsAccumulator();
 						yield* analytics.capture("message submitted", {
 							provider: entry.providerId,
 							model: entry.model,
@@ -627,7 +620,15 @@ export const ProviderServiceLive = Layer.effect(
 							fileRefs,
 							skillRefs,
 						);
-					}),
+					}).pipe(
+						Effect.withSpan("provider.send", {
+							attributes: {
+								"provider.id": entry.providerId,
+								"provider.model": entry.model,
+								"session.id": sessionId,
+							},
+						}),
+					),
 				),
 			interrupt: (sessionId, turnId) =>
 				Effect.flatMap(lookup(sessionId), (entry) =>
@@ -640,6 +641,7 @@ export const ProviderServiceLive = Layer.effect(
 									entry.turnStartedAt === null
 										? 0
 										: Date.now() - entry.turnStartedAt,
+								...entry.turnAnalytics.snapshot(),
 							}),
 						),
 						Effect.tap(() =>
@@ -647,10 +649,17 @@ export const ProviderServiceLive = Layer.effect(
 								entry.turnStartedAt = null;
 							}),
 						),
+						Effect.withSpan("provider.interrupt", {
+							attributes: {
+								"provider.id": entry.providerId,
+								"provider.model": entry.model,
+								"session.id": sessionId,
+							},
+						}),
 					),
 				),
 			close: (sessionId) =>
-				Effect.flatMap(lookup(sessionId), ({ handle }) =>
+				Effect.flatMap(lookup(sessionId), ({ handle, providerId, model }) =>
 					handle.close().pipe(
 						Effect.andThen(
 							Ref.update(sessions, (map) => {
@@ -659,6 +668,13 @@ export const ProviderServiceLive = Layer.effect(
 								return next;
 							}),
 						),
+						Effect.withSpan("provider.close", {
+							attributes: {
+								"provider.id": providerId,
+								"provider.model": model,
+								"session.id": sessionId,
+							},
+						}),
 					),
 				),
 			events: (sessionId) =>
@@ -669,53 +685,61 @@ export const ProviderServiceLive = Layer.effect(
 								const event = envelope.event;
 								if (event._tag === "UsageDelta") {
 									return Effect.sync(() => {
-										entry.usage.inputTokens += event.inputTokens;
-										entry.usage.outputTokens += event.outputTokens;
-										entry.usage.cacheReadTokens += event.cacheReadTokens;
-										entry.usage.cacheCreationTokens +=
-											event.cacheCreationTokens;
+										entry.turnAnalytics.recordUsage(event);
 									});
 								}
 								if (event._tag === "ToolUse") {
 									const category = classifyTool(event.tool);
-									entry.tools.set(event.itemId, {
-										category,
-										startedAt: Date.now(),
+									const record = Effect.sync(() => {
+										entry.turnAnalytics.recordToolUse(event.itemId, category);
 									});
 									return category === "subagent"
-										? analytics.capture("subagent started", {
-												provider: entry.providerId,
-												model: entry.model,
-											})
-										: Effect.void;
+										? record.pipe(
+												Effect.andThen(
+													analytics.capture("subagent started", {
+														provider: entry.providerId,
+														model: entry.model,
+													}),
+												),
+											)
+										: record;
 								}
 								if (event._tag === "ToolResult") {
-									const tool = entry.tools.get(event.itemId);
-									entry.tools.delete(event.itemId);
-									return analytics.capture("tool used", {
-										provider: entry.providerId,
-										model: entry.model,
-										tool_category: tool?.category ?? "other",
-										outcome: event.isError ? "failed" : "completed",
-										duration_ms: tool ? Date.now() - tool.startedAt : 0,
+									return Effect.sync(() => {
+										entry.turnAnalytics.recordToolResult(
+											event.itemId,
+											event.isError,
+										);
 									});
 								}
 								if (event._tag === "SubagentSummary") {
-									return analytics.capture("subagent completed", {
-										provider: entry.providerId,
-										model: entry.model,
-										outcome: event.isError ? "failed" : "completed",
-									});
+									return Effect.sync(() => {
+										entry.turnAnalytics.recordSubagentResult(event.isError);
+									}).pipe(
+										Effect.andThen(
+											analytics.capture("subagent completed", {
+												provider: entry.providerId,
+												model: entry.model,
+												outcome: event.isError ? "failed" : "completed",
+											}),
+										),
+									);
 								}
 								if (
 									event._tag === "ContextCompaction" &&
 									event.status === "completed"
 								) {
-									return analytics.capture("context compacted", {
-										provider: entry.providerId,
-										model: entry.model,
-										tokens: event.afterTokens ?? 0,
-									});
+									return Effect.sync(() => {
+										entry.turnAnalytics.recordCompaction();
+									}).pipe(
+										Effect.andThen(
+											analytics.capture("context compacted", {
+												provider: entry.providerId,
+												model: entry.model,
+												tokens: event.afterTokens ?? 0,
+											}),
+										),
+									);
 								}
 								if (event._tag === "UsageLimit") {
 									return analytics.capture("usage limit reached", {
@@ -735,25 +759,15 @@ export const ProviderServiceLive = Layer.effect(
 											: event.reason === "interrupted"
 												? "turn interrupted"
 												: "turn failed",
-										event.reason === "ended"
-											? {
-													provider: entry.providerId,
-													model: entry.model,
-													duration_ms: duration,
-													input_tokens: entry.usage.inputTokens,
-													output_tokens: entry.usage.outputTokens,
-													cache_read_tokens: entry.usage.cacheReadTokens,
-													cache_creation_tokens:
-														entry.usage.cacheCreationTokens,
-												}
-											: {
-													provider: entry.providerId,
-													model: entry.model,
-													duration_ms: duration,
-													...(event.reason === "error"
-														? { error_code: "provider_error" }
-														: {}),
-												},
+										{
+											provider: entry.providerId,
+											model: entry.model,
+											duration_ms: duration,
+											...entry.turnAnalytics.snapshot(),
+											...(event.reason === "error"
+												? { error_code: "provider_error" }
+												: {}),
+										},
 									);
 								}
 								return Effect.void;

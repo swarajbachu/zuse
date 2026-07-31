@@ -1,6 +1,13 @@
 import { Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
-import { EnvironmentEndpoint, ProviderKind } from "./connect.ts";
+import {
+	CapabilityManifest,
+	EnvironmentEndpoint,
+	EnvironmentEndpointHealth,
+	EnvironmentServiceState,
+	ProviderKind,
+} from "./connect.ts";
 import { EnvironmentId } from "./ids.ts";
 
 // ---------------------------------------------------------------------------
@@ -20,6 +27,7 @@ import { EnvironmentId } from "./ids.ts";
 
 /** Paths, centralised so client + relay never drift. */
 export const RelayPaths = {
+	authToken: "/v1/auth/token",
 	linkChallenges: "/v1/client/environment-link-challenges",
 	links: "/v1/client/environment-links",
 	/** Unlink (WorkOS bearer): deprovisions the managed tunnel + removes the env. */
@@ -27,6 +35,8 @@ export const RelayPaths = {
 	environments: "/v1/environments",
 	dpopToken: "/v1/client/dpop-token",
 	devices: "/v1/mobile/devices",
+	clients: "/v1/clients",
+	client: (clientId: string) => `/v1/clients/${encodeURIComponent(clientId)}`,
 	account: "/v1/account",
 	status: (environmentId: string) =>
 		`/v1/environments/${encodeURIComponent(environmentId)}/status`,
@@ -37,6 +47,25 @@ export const RelayPaths = {
 	agentActivity: (environmentId: string) =>
 		`/v1/environments/${encodeURIComponent(environmentId)}/agent-activity`,
 } as const;
+
+export const RelayAuthTokenGrant = Schema.Union([
+	Schema.Struct({
+		grantType: Schema.Literal("authorization_code"),
+		code: Schema.String,
+		codeVerifier: Schema.String,
+	}),
+	Schema.Struct({
+		grantType: Schema.Literal("refresh_token"),
+		refreshToken: Schema.String,
+	}),
+]);
+export type RelayAuthTokenGrant = typeof RelayAuthTokenGrant.Type;
+
+export const RelayAuthTokenResponse = Schema.Struct({
+	access_token: Schema.String,
+	refresh_token: Schema.String,
+});
+export type RelayAuthTokenResponse = typeof RelayAuthTokenResponse.Type;
 
 /** DPoP access-token scopes the relay recognises. */
 export const RelayScope = Schema.Literals([
@@ -74,6 +103,10 @@ export class RelayLinkRequest extends Schema.Class<RelayLinkRequest>(
 	providerKind: ProviderKind,
 	endpoint: EnvironmentEndpoint,
 	label: Schema.optional(Schema.String),
+	runtimeVersion: Schema.optional(Schema.String),
+	wireProtocolVersion: Schema.optional(Schema.Number),
+	capabilities: Schema.optional(CapabilityManifest),
+	serviceState: Schema.optional(EnvironmentServiceState),
 }) {}
 
 export class RelayLinkResponse extends Schema.Class<RelayLinkResponse>(
@@ -98,6 +131,12 @@ export class RelayEnvironmentRecord extends Schema.Class<RelayEnvironmentRecord>
 	providerKind: ProviderKind,
 	endpoint: Schema.optional(EnvironmentEndpoint),
 	linkedAt: Schema.Number,
+	runtimeVersion: Schema.optional(Schema.String),
+	wireProtocolVersion: Schema.optional(Schema.Number),
+	capabilities: Schema.optional(CapabilityManifest),
+	serviceState: Schema.optional(EnvironmentServiceState),
+	endpointHealth: Schema.optional(EnvironmentEndpointHealth),
+	lastHeartbeat: Schema.optional(Schema.Number),
 }) {}
 
 export class RelayEnvironmentList extends Schema.Class<RelayEnvironmentList>(
@@ -152,7 +191,45 @@ export class RelayDeviceRegistration extends Schema.Class<RelayDeviceRegistratio
 	"RelayDeviceRegistration",
 )({
 	deviceId: Schema.String,
-	platform: Schema.Literals(["ios", "android", "web"]),
+	platform: Schema.Literals(["ios", "android", "web", "desktop"]),
 	pushToken: Schema.optional(Schema.String),
 	dpopJwk: Schema.optional(Schema.Unknown),
 }) {}
+
+export class RelayAuthorizedClient extends Schema.Class<RelayAuthorizedClient>(
+	"RelayAuthorizedClient",
+)({
+	clientId: Schema.String,
+	platform: Schema.Literals(["ios", "android", "web", "desktop"]),
+	label: Schema.optional(Schema.String),
+	lastSeenAt: Schema.Number,
+}) {}
+
+export class RelayAuthorizedClientList extends Schema.Class<RelayAuthorizedClientList>(
+	"RelayAuthorizedClientList",
+)({
+	clients: Schema.Array(RelayAuthorizedClient),
+}) {}
+
+export class RelayControlError extends Schema.TaggedErrorClass<RelayControlError>()(
+	"RelayControlError",
+	{ reason: Schema.String },
+) {}
+
+export const RelayEnvironmentsRpc = Rpc.make("relay.environments", {
+	payload: Schema.Void,
+	success: RelayEnvironmentList,
+	error: RelayControlError,
+});
+
+export const RelayClientsRpc = Rpc.make("relay.clients", {
+	payload: Schema.Void,
+	success: RelayAuthorizedClientList,
+	error: RelayControlError,
+});
+
+export const RelayRevokeClientRpc = Rpc.make("relay.revokeClient", {
+	payload: Schema.Struct({ clientId: Schema.String }),
+	success: Schema.Void,
+	error: RelayControlError,
+});

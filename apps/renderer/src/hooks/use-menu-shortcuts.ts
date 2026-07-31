@@ -24,7 +24,7 @@ export function useMenuShortcuts(): void {
 			recordUiAction("menu.action", action);
 			if (action === "export-diagnostics") {
 				const ui = useUiStore.getState();
-				ui.setSettingsSection({ kind: "advanced" });
+				ui.setSettingsSection({ kind: "diagnostics" });
 				ui.setView("settings");
 				return;
 			}

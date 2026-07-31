@@ -22,6 +22,8 @@ interface Env {
 	readonly WORKOS_API_KEY?: string;
 	readonly RELAY_MINT_PRIVATE_JWK: string;
 	readonly RELAY_MINT_PUBLIC_JWK: string;
+	readonly MAX_ENVIRONMENTS_PER_ACCOUNT?: string;
+	readonly ALLOWED_BROWSER_ORIGINS?: string;
 	// Managed Cloudflare tunnel (optional — absent disables provisioning).
 	readonly CF_API_TOKEN?: string;
 	readonly CF_ACCOUNT_ID?: string;
@@ -63,6 +65,7 @@ export const hyperdrivePoolConfig = (connectionString: string): PoolConfig => ({
 });
 
 const build = (env: Env): ReturnType<typeof makeRelay> => {
+	const configuredLimit = Number(env.MAX_ENVIRONMENTS_PER_ACCOUNT ?? "5");
 	const configLayer = Config.layer({
 		relayIssuer: env.RELAY_ISSUER,
 		workosJwksUrl: env.WORKOS_JWKS_URL,
@@ -72,6 +75,16 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 			: undefined,
 		mintPrivateKey: Redacted.make(env.RELAY_MINT_PRIVATE_JWK),
 		mintPublicKey: env.RELAY_MINT_PUBLIC_JWK,
+		maxEnvironmentsPerAccount:
+			Number.isInteger(configuredLimit) && configuredLimit > 0
+				? configuredLimit
+				: null,
+		allowedBrowserOrigins: (
+			env.ALLOWED_BROWSER_ORIGINS ?? "https://app.zuse.sh"
+		)
+			.split(",")
+			.map((value) => value.trim())
+			.filter((value) => value.length > 0),
 		managedTunnel: managedTunnelConfig(env),
 	});
 	const dbLayer = PgClient.layerFrom(

@@ -1,11 +1,13 @@
+import fs from "node:fs";
+import { Context, Data, Effect, Fiber, Layer, Ref, Schedule } from "effect";
 import {
   ChildProcess as Command,
   ChildProcessSpawner as CommandExecutor,
 } from "effect/unstable/process";
-import { Context, Data, Effect, Fiber, Layer, Ref, Schedule } from "effect";
-import fs from "node:fs";
 
 import { AppPaths } from "../app-paths.ts";
+import { TelemetryStore } from "../observability/telemetry-store.ts";
+import { ensurePinnedCloudflared } from "./cloudflared-install.ts";
 import { appendRelayDiagnostic } from "./relay-diagnostics.ts";
 
 /**
@@ -30,9 +32,7 @@ export class ManagedTunnelRuntime extends Context.Service<
     /** Stop the connector if running. */
     readonly stop: () => Effect.Effect<void>;
   }
->()(
-  "zuse/ManagedTunnelRuntime",
-) {}
+>()("zuse/ManagedTunnelRuntime") {}
 
 const CLOUDFLARED = "cloudflared";
 const CLOUDFLARED_CANDIDATES = [
@@ -44,16 +44,17 @@ const CLOUDFLARED_CANDIDATES = [
 export const ManagedTunnelRuntimeLive: Layer.Layer<
   ManagedTunnelRuntime,
   never,
-  CommandExecutor.ChildProcessSpawner | AppPaths
+  CommandExecutor.ChildProcessSpawner | AppPaths | TelemetryStore
 > = Layer.effect(
   ManagedTunnelRuntime,
   Effect.gen(function* () {
     const executor = yield* CommandExecutor.ChildProcessSpawner;
     const paths = yield* AppPaths;
+    const telemetry = yield* TelemetryStore;
     const fiberRef = yield* Ref.make<Fiber.Fiber<void> | null>(null);
     const binaryRef = yield* Ref.make<string | null>(null);
     const log = (event: string, fields?: Record<string, unknown>) =>
-      appendRelayDiagnostic(paths, event, fields);
+      appendRelayDiagnostic(telemetry, event, fields);
 
     const isExecutable = (path: string): boolean => {
       try {
@@ -95,13 +96,20 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
         yield* log("cloudflared.resolve.fail", { candidate });
       }
 
-      yield* log("cloudflared.resolve.not_found");
-      return yield* Effect.fail(
-        new ManagedTunnelError({
-          reason:
-            "cloudflared_not_found: install cloudflared and ensure it is on PATH",
-        }),
-      );
+      yield* log("cloudflared.resolve.download_pinned");
+      const installed = yield* Effect.tryPromise({
+        try: () => ensurePinnedCloudflared({ userData: paths.userData }),
+        catch: (cause) =>
+          new ManagedTunnelError({
+            reason:
+              cause instanceof Error
+                ? `cloudflared_install_failed: ${cause.message}`
+                : `cloudflared_install_failed: ${String(cause)}`,
+          }),
+      });
+      yield* Ref.set(binaryRef, installed);
+      yield* log("cloudflared.resolve.download_ok", { installed });
+      return installed;
     });
 
     // Preflight: fail fast with a clear message if the binary is missing, so the

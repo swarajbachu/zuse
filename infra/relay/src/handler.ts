@@ -1,4 +1,5 @@
-import { Clock, Effect, Redacted } from "effect";
+import { RelayAuthTokenGrant } from "@zuse/contracts";
+import { Clock, Effect, Redacted, Schema } from "effect";
 
 import { AccountIdentity } from "./account-identity.ts";
 
@@ -17,7 +18,14 @@ import {
 	signConnectToken,
 	verifyEnvironmentLinkProof,
 } from "./crypto.ts";
-import { badRequest, gone, notFound, type RelayError } from "./errors.ts";
+import {
+	badRequest,
+	conflict,
+	gone,
+	notFound,
+	type RelayError,
+	serviceUnavailable,
+} from "./errors.ts";
 import { ManagedTunnelProvider } from "./managed-tunnel.ts";
 import { PushDelivery } from "./push.ts";
 import {
@@ -27,7 +35,7 @@ import {
 	type ProviderKind,
 	RelayStore,
 } from "./store.ts";
-import type { WorkosVerifier } from "./workos.ts";
+import { WorkosVerifier } from "./workos.ts";
 
 export type RelayContext =
 	| AccountIdentity
@@ -43,6 +51,29 @@ const json = (body: unknown, status = 200): Response =>
 		headers: { "content-type": "application/json" },
 	});
 
+const withBrowserCors = (
+	response: Response,
+	request: Request,
+	allowedOrigins: ReadonlyArray<string>,
+): Response => {
+	const origin = request.headers.get("origin");
+	if (origin === null || !allowedOrigins.includes(origin)) return response;
+	const headers = new Headers(response.headers);
+	headers.set("access-control-allow-origin", origin);
+	headers.set("access-control-allow-credentials", "true");
+	headers.set("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
+	headers.set(
+		"access-control-allow-headers",
+		"authorization, content-type, dpop",
+	);
+	headers.set("vary", "Origin");
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
+	});
+};
+
 const readJson = <A>(request: Request): Effect.Effect<A, RelayError> =>
 	Effect.tryPromise({
 		try: () => request.json() as Promise<A>,
@@ -53,7 +84,42 @@ const isProviderKind = (value: unknown): value is ProviderKind =>
 	value === "desktop" || value === "ssh" || value === "cloud";
 
 const isPlatform = (value: unknown): value is DevicePlatform =>
-	value === "ios" || value === "android" || value === "web";
+	value === "ios" ||
+	value === "android" ||
+	value === "web" ||
+	value === "desktop";
+
+const isServiceState = (
+	value: unknown,
+): value is EnvironmentRecord["serviceState"] =>
+	value === "starting" ||
+	value === "healthy" ||
+	value === "degraded" ||
+	value === "stopped" ||
+	value === "updating";
+
+const isCapabilityManifest = (
+	value: unknown,
+): value is {
+	readonly version: 1;
+	readonly features: ReadonlyArray<string>;
+} => {
+	if (value === null || typeof value !== "object") return false;
+	const candidate = value as {
+		readonly version?: unknown;
+		readonly features?: unknown;
+	};
+	return (
+		candidate.version === 1 &&
+		Array.isArray(candidate.features) &&
+		candidate.features.every(
+			(feature) =>
+				typeof feature === "string" &&
+				feature.length > 0 &&
+				feature.length <= 64,
+		)
+	);
+};
 
 const isActivityKind = (value: unknown): value is ActivityKind =>
 	value === "approval-needed" ||
@@ -129,7 +195,47 @@ const route = (
 		const store = yield* RelayStore;
 		const push = yield* PushDelivery;
 		const accountIdentity = yield* AccountIdentity;
+		const workos = yield* WorkosVerifier;
 		const nowMs = yield* Clock.currentTimeMillis;
+
+		if (method === "POST" && path === "/v1/auth/token") {
+			const untrustedBody = yield* readJson<unknown>(request);
+			const body = yield* Effect.try({
+				try: () => Schema.decodeUnknownSync(RelayAuthTokenGrant)(untrustedBody),
+				catch: () => badRequest("invalid_auth_grant"),
+			});
+			if (
+				body.grantType === "authorization_code" &&
+				typeof body.code === "string" &&
+				body.code.length > 0 &&
+				body.code.length <= 2_048 &&
+				typeof body.codeVerifier === "string" &&
+				body.codeVerifier.length >= 43 &&
+				body.codeVerifier.length <= 128
+			) {
+				return json(
+					yield* workos.exchangeToken({
+						grantType: body.grantType,
+						code: body.code,
+						codeVerifier: body.codeVerifier,
+					}),
+				);
+			}
+			if (
+				body.grantType === "refresh_token" &&
+				typeof body.refreshToken === "string" &&
+				body.refreshToken.length > 0 &&
+				body.refreshToken.length <= 8_192
+			) {
+				return json(
+					yield* workos.exchangeToken({
+						grantType: body.grantType,
+						refreshToken: body.refreshToken,
+					}),
+				);
+			}
+			return yield* Effect.fail(badRequest("invalid_auth_grant"));
+		}
 
 		// 1. Issue a link challenge (desktop, WorkOS-authenticated).
 		if (
@@ -169,6 +275,10 @@ const route = (
 					readonly wsBaseUrl?: string;
 				};
 				readonly label?: string;
+				readonly runtimeVersion?: string;
+				readonly wireProtocolVersion?: number;
+				readonly capabilities?: unknown;
+				readonly serviceState?: string;
 				readonly managedTunnel?: boolean;
 				readonly origin?: {
 					readonly localHttpHost?: string;
@@ -186,6 +296,19 @@ const route = (
 				typeof body.endpoint?.wsBaseUrl !== "string"
 			) {
 				return yield* Effect.fail(badRequest("invalid_environment"));
+			}
+			if (
+				(body.runtimeVersion !== undefined &&
+					(typeof body.runtimeVersion !== "string" ||
+						body.runtimeVersion.length > 64)) ||
+				(body.wireProtocolVersion !== undefined &&
+					(!Number.isInteger(body.wireProtocolVersion) ||
+						body.wireProtocolVersion < 1)) ||
+				(body.capabilities !== undefined &&
+					!isCapabilityManifest(body.capabilities)) ||
+				(body.serviceState !== undefined && !isServiceState(body.serviceState))
+			) {
+				return yield* Effect.fail(badRequest("invalid_environment_metadata"));
 			}
 
 			const challenge = yield* store.consumeChallenge(
@@ -208,17 +331,27 @@ const route = (
 				relayIssuer: config.relayIssuer,
 			});
 
-			yield* store.upsertEnvironment({
-				environmentId: body.environmentId,
-				accountId: principal.accountId,
-				orgId: principal.orgId,
-				providerKind: body.providerKind,
-				label: body.label,
-				environmentPublicKey: body.environmentPublicKey,
-				httpBaseUrl: body.endpoint.httpBaseUrl,
-				wsBaseUrl: body.endpoint.wsBaseUrl,
-				linkedAtMs: nowMs,
-			});
+			const registered = yield* store.registerEnvironment(
+				{
+					environmentId: body.environmentId,
+					accountId: principal.accountId,
+					orgId: principal.orgId,
+					providerKind: body.providerKind,
+					label: body.label,
+					environmentPublicKey: body.environmentPublicKey,
+					httpBaseUrl: body.endpoint.httpBaseUrl,
+					wsBaseUrl: body.endpoint.wsBaseUrl,
+					linkedAtMs: nowMs,
+					runtimeVersion: body.runtimeVersion,
+					wireProtocolVersion: body.wireProtocolVersion,
+					capabilities: body.capabilities,
+					serviceState: body.serviceState,
+				},
+				config.maxEnvironmentsPerAccount,
+			);
+			if (!registered) {
+				return yield* Effect.fail(conflict("computer_limit_reached"));
+			}
 
 			const credentialSecret = yield* randomToken("zenv");
 			const credentialId = yield* randomToken("cred", 8);
@@ -326,6 +459,19 @@ const route = (
 					providerKind: environment.providerKind,
 					endpoint: publicEndpoint(environment),
 					linkedAt: environment.linkedAtMs,
+					runtimeVersion: environment.runtimeVersion,
+					wireProtocolVersion: environment.wireProtocolVersion,
+					capabilities: environment.capabilities,
+					serviceState: environment.serviceState,
+					endpointHealth: {
+						lan: "unknown",
+						managed:
+							environment.tunnelStatus === "ready"
+								? "available"
+								: "unavailable",
+						checkedAt: nowMs,
+					},
+					lastHeartbeat: environment.lastSeenAtMs,
 				})),
 			});
 		}
@@ -355,14 +501,39 @@ const route = (
 			if (typeof body.deviceId !== "string" || !isPlatform(body.platform)) {
 				return yield* Effect.fail(badRequest("invalid_device"));
 			}
-			yield* store.upsertDevice({
+			const registered = yield* store.upsertDevice({
 				deviceId: body.deviceId,
 				accountId: principal.accountId,
 				platform: body.platform,
 				pushToken: body.pushToken,
 				dpopJwk: body.dpopJwk,
+				dpopThumbprint: principal.thumbprint,
 				updatedAtMs: nowMs,
 			});
+			if (!registered) {
+				return yield* Effect.fail(conflict("client_id_conflict"));
+			}
+			return json({ ok: true });
+		}
+
+		if (method === "GET" && path === "/v1/clients") {
+			const principal = yield* requireWorkos(request);
+			const devices = yield* store.listDevices(principal.accountId);
+			return json({
+				clients: devices.map((device) => ({
+					clientId: device.deviceId,
+					platform: device.platform,
+					lastSeenAt: device.updatedAtMs,
+				})),
+			});
+		}
+
+		const clientMatch = /^\/v1\/clients\/([^/]+)$/.exec(path);
+		if (method === "DELETE" && clientMatch !== null) {
+			const principal = yield* requireWorkos(request);
+			const clientId = decodeURIComponent(clientMatch[1] ?? "");
+			const revoked = yield* store.revokeDevice(clientId, principal.accountId);
+			if (!revoked) return yield* Effect.fail(notFound());
 			return json({ ok: true });
 		}
 
@@ -422,6 +593,8 @@ const route = (
 			) {
 				return yield* Effect.fail(notFound());
 			}
+			let requestedWireVersion: number | undefined;
+			let requireManaged = false;
 			let localPairing:
 				| {
 						readonly serverNonce: string;
@@ -431,12 +604,29 @@ const route = (
 				| undefined;
 			if (request.headers.get("content-type")?.includes("application/json")) {
 				const body = yield* readJson<{
+					readonly wireProtocolVersion?: unknown;
+					readonly requireManaged?: unknown;
 					readonly localPairing?: {
 						readonly serverNonce?: unknown;
 						readonly devicePublicKey?: unknown;
 						readonly transportCertificatePin?: unknown;
 					};
 				}>(request);
+				if (
+					(body.wireProtocolVersion !== undefined &&
+						(typeof body.wireProtocolVersion !== "number" ||
+							!Number.isInteger(body.wireProtocolVersion) ||
+							body.wireProtocolVersion < 1)) ||
+					(body.requireManaged !== undefined &&
+						typeof body.requireManaged !== "boolean")
+				) {
+					return yield* Effect.fail(badRequest("invalid_connect_request"));
+				}
+				requestedWireVersion =
+					typeof body.wireProtocolVersion === "number"
+						? body.wireProtocolVersion
+						: undefined;
+				requireManaged = body.requireManaged === true;
 				if (body.localPairing !== undefined) {
 					const { serverNonce, devicePublicKey, transportCertificatePin } =
 						body.localPairing;
@@ -461,6 +651,22 @@ const route = (
 						transportCertificatePin,
 					};
 				}
+			}
+			if (
+				requestedWireVersion !== undefined &&
+				environment.wireProtocolVersion !== undefined &&
+				requestedWireVersion !== environment.wireProtocolVersion
+			) {
+				return yield* Effect.fail(conflict("version_incompatible"));
+			}
+			if (
+				environment.serviceState === "degraded" ||
+				environment.serviceState === "stopped"
+			) {
+				return yield* Effect.fail(serviceUnavailable("service_unhealthy"));
+			}
+			if (requireManaged && environment.tunnelHostname === undefined) {
+				return yield* Effect.fail(serviceUnavailable("tunnel_unavailable"));
 			}
 			const connectToken = yield* signConnectToken({
 				mintPrivateJwk: yield* parseJwk(Redacted.value(config.mintPrivateKey)),
@@ -494,9 +700,29 @@ const route = (
 				?.toLowerCase()
 				.includes("application/json");
 			if (hasJsonBody === true) {
-				const body = yield* readJson<{ readonly origin?: unknown }>(request);
-				if (!isLoopbackOrigin(body.origin)) {
+				const body = yield* readJson<{
+					readonly origin?: unknown;
+					readonly runtimeVersion?: unknown;
+					readonly wireProtocolVersion?: unknown;
+					readonly capabilities?: unknown;
+					readonly serviceState?: unknown;
+				}>(request);
+				if (body.origin !== undefined && !isLoopbackOrigin(body.origin)) {
 					return yield* Effect.fail(badRequest("invalid_tunnel_origin"));
+				}
+				if (
+					(body.runtimeVersion !== undefined &&
+						(typeof body.runtimeVersion !== "string" ||
+							body.runtimeVersion.length > 64)) ||
+					(body.wireProtocolVersion !== undefined &&
+						(typeof body.wireProtocolVersion !== "number" ||
+							!Number.isInteger(body.wireProtocolVersion))) ||
+					(body.capabilities !== undefined &&
+						!isCapabilityManifest(body.capabilities)) ||
+					(body.serviceState !== undefined &&
+						!isServiceState(body.serviceState))
+				) {
+					return yield* Effect.fail(badRequest("invalid_environment_metadata"));
 				}
 				const environment = yield* store.getEnvironment(environmentId);
 				if (
@@ -505,21 +731,38 @@ const route = (
 				) {
 					return yield* Effect.fail(notFound());
 				}
-				const tunnel = yield* ManagedTunnelProvider;
-				if (!tunnel.enabled) {
-					return yield* Effect.fail(badRequest("managed_tunnel_disabled"));
+				if (body.origin !== undefined) {
+					const tunnel = yield* ManagedTunnelProvider;
+					if (!tunnel.enabled) {
+						return yield* Effect.fail(badRequest("managed_tunnel_disabled"));
+					}
+					const provisioned = yield* tunnel.provision({
+						accountId: principal.accountId,
+						environmentId,
+						origin: body.origin,
+					});
+					yield* store.setTunnelAllocation(environmentId, {
+						tunnelHostname: provisioned.tunnelHostname,
+						tunnelId: provisioned.tunnelId,
+						dnsRecordId: provisioned.dnsRecordId,
+						tunnelStatus: "ready",
+					});
 				}
-				const provisioned = yield* tunnel.provision({
-					accountId: principal.accountId,
-					environmentId,
-					origin: body.origin,
+				yield* store.touchEnvironment(environmentId, nowMs, {
+					runtimeVersion:
+						typeof body.runtimeVersion === "string"
+							? body.runtimeVersion
+							: undefined,
+					wireProtocolVersion:
+						typeof body.wireProtocolVersion === "number"
+							? body.wireProtocolVersion
+							: undefined,
+					capabilities: body.capabilities,
+					serviceState: isServiceState(body.serviceState)
+						? body.serviceState
+						: undefined,
 				});
-				yield* store.setTunnelAllocation(environmentId, {
-					tunnelHostname: provisioned.tunnelHostname,
-					tunnelId: provisioned.tunnelId,
-					dnsRecordId: provisioned.dnsRecordId,
-					tunnelStatus: "ready",
-				});
+				return json({ ok: true });
 			}
 			yield* store.touchEnvironment(environmentId, nowMs);
 			return json({ ok: true });
@@ -583,16 +826,32 @@ const route = (
 export const handleRequest = (
 	request: Request,
 ): Effect.Effect<Response, never, RelayContext> =>
-	route(request).pipe(
+	Effect.gen(function* () {
+		const config = yield* RelayConfiguration;
+		if (request.method.toUpperCase() === "OPTIONS") {
+			return withBrowserCors(
+				new Response(null, { status: 204 }),
+				request,
+				config.allowedBrowserOrigins,
+			);
+		}
+		const response = yield* route(request);
+		return withBrowserCors(response, request, config.allowedBrowserOrigins);
+	}).pipe(
 		Effect.catch((error: RelayError) =>
-			Effect.succeed(
-				json(
-					error.detail === undefined
-						? { error: error.code }
-						: { error: error.code, detail: error.detail },
-					error.status,
-				),
-			),
+			Effect.gen(function* () {
+				const config = yield* RelayConfiguration;
+				return withBrowserCors(
+					json(
+						error.detail === undefined
+							? { error: error.code }
+							: { error: error.code, detail: error.detail },
+						error.status,
+					),
+					request,
+					config.allowedBrowserOrigins,
+				);
+			}),
 		),
 		Effect.catchDefect((defect) =>
 			Effect.sync(() => {
