@@ -17,6 +17,8 @@ import type {
 	CodeAnnotation,
 	ComposerAnnotation,
 	FileRef,
+	FolderId,
+	ForkDestination,
 	Message,
 	MessageOrigin,
 	ProviderId,
@@ -56,9 +58,11 @@ import { useSessionRuntimeStore } from "~/store/session-runtime";
 import { useSessionsStore } from "~/store/sessions";
 import { useUiStore } from "~/store/ui";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
-import { AssistantMessageActions } from "./assistant-message-actions.tsx";
+import {
+	AssistantMessageActions,
+	MessageActions,
+} from "./assistant-message-actions.tsx";
 import { useChatLookups } from "./chat-lookups.tsx";
-import { CopyButton } from "./copy-button.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 
@@ -160,11 +164,15 @@ function MessageRowImpl({
 	sessionId,
 	readOnly = false,
 	showAssistantCommands = false,
+	forkDestination,
+	sourceProjectId,
 }: {
 	message: Message;
 	sessionId?: SessionId;
 	readOnly?: boolean;
 	showAssistantCommands?: boolean;
+	forkDestination?: ForkDestination;
+	sourceProjectId?: FolderId;
 }) {
 	switch (message.content._tag) {
 		case "user":
@@ -173,6 +181,10 @@ function MessageRowImpl({
 					text={message.content.text}
 					origin={message.content.origin}
 					goal={message.content.goal}
+					messageId={message.id}
+					sessionId={sessionId}
+					forkDestination={forkDestination}
+					sourceProjectId={sourceProjectId}
 				/>
 			);
 		case "user_rich":
@@ -185,6 +197,10 @@ function MessageRowImpl({
 					annotations={message.content.annotations}
 					origin={message.content.origin}
 					goal={message.content.goal}
+					messageId={message.id}
+					sessionId={sessionId}
+					forkDestination={forkDestination}
+					sourceProjectId={sourceProjectId}
 				/>
 			);
 		case "assistant":
@@ -193,7 +209,9 @@ function MessageRowImpl({
 					text={message.content.text}
 					createdAt={message.createdAt}
 					messageId={message.id}
-					sessionId={readOnly ? undefined : sessionId}
+					sessionId={sessionId}
+					forkDestination={forkDestination}
+					sourceProjectId={sourceProjectId}
 					showMessageCommands={showAssistantCommands}
 				/>
 			);
@@ -453,6 +471,10 @@ function UserBubble({
 	annotations,
 	origin,
 	goal = false,
+	messageId,
+	sessionId,
+	forkDestination,
+	sourceProjectId,
 }: {
 	text: string;
 	attachments?: ReadonlyArray<AttachmentRef>;
@@ -461,6 +483,10 @@ function UserBubble({
 	annotations?: ReadonlyArray<ComposerAnnotation>;
 	origin?: MessageOrigin;
 	goal?: boolean;
+	messageId: Message["id"];
+	sessionId?: SessionId;
+	forkDestination?: ForkDestination;
+	sourceProjectId?: FolderId;
 }) {
 	const hasAnnotations = annotations !== undefined && annotations.length > 0;
 	const revealAnnotation = useRevealAnnotation();
@@ -482,155 +508,161 @@ function UserBubble({
 		name.length > 28 ? `${name.slice(0, 25)}...` : name;
 	return (
 		<div className="group/message flex justify-end px-4 py-2">
-			<div
-				data-chat-user-bubble
-				className="relative max-w-[80%] rounded-2xl rounded-tr-sm bg-user-bubble px-3 py-2 pr-9 text-sm text-user-bubble-foreground"
-			>
-				<CopyButton
-					text={display || text}
-					label="Copy message"
-					className="absolute right-2 top-1.5 size-5 text-user-bubble-foreground/50 opacity-60 hover:bg-background/10 hover:text-user-bubble-foreground hover:opacity-100 focus-visible:opacity-100"
-				/>
-				{origin !== undefined ? (
-					<button
-						type="button"
-						disabled={!originChatLoaded}
-						onClick={() => useChatsStore.getState().select(origin.chatId)}
-						className="mb-1.5 flex items-center gap-1.5 text-[11px] text-user-bubble-foreground/65 hover:text-user-bubble-foreground disabled:cursor-default"
-						title={
-							originChatLoaded
-								? "Open the sender's chat"
-								: "Sender chat not loaded"
-						}
-					>
-						<ProviderIcon providerId={origin.providerId} className="size-3" />
-						<span>
-							Sent by {PROVIDER_LABEL_FOR_ERROR[origin.providerId]} from another
-							chat
-						</span>
-					</button>
-				) : null}
-				{hasAnnotations ? (
-					<ol className="mb-2 space-y-1">
-						{(annotations ?? []).map((a, i) => (
-							<li key={a.id}>
-								<button
-									type="button"
-									onClick={() => {
-										if (!isBrowserAnnotation(a)) revealAnnotation(a);
-									}}
-									disabled={isBrowserAnnotation(a)}
-									className="flex w-full min-w-0 items-start gap-2 rounded-lg border border-user-bubble-foreground/12 bg-background/10 px-2 py-1.5 text-left text-xs hover:bg-background/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-user-bubble-foreground/30"
-									title={
-										isBrowserAnnotation(a)
-											? "Browser annotation"
-											: "Open annotation"
-									}
-								>
-									<span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-background/20 text-[10px] font-semibold tabular-nums">
-										{i + 1}
-									</span>
-									<span className="grid min-w-0 flex-1 gap-1">
-										{isBrowserAnnotation(a) ? (
-											<span className="min-w-0 truncate font-medium">
-												{browserAnnotationMeta(a)}
-											</span>
-										) : (
-											<AnnotationFileChip annotation={a as CodeAnnotation} />
-										)}
-										<span className="min-w-0 break-words leading-snug">
-											{a.comment}
-										</span>
-									</span>
-								</button>
-							</li>
-						))}
-					</ol>
-				) : null}
-				{hasChips ? (
-					<div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-						{(attachments ?? []).map((a) => {
-							const isImage = a.mimeType.startsWith("image/");
-							const src = attachmentUrl(a.id);
-							const className =
-								"inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]";
-							const inner = (
-								<>
-									{isImage ? (
-										<img
-											src={src}
-											alt=""
-											className="size-4 rounded object-cover"
-										/>
-									) : (
-										<FileIcon
-											name={a.originalName}
-											kind="file"
-											className="inline-flex size-4 shrink-0 items-center justify-center"
-										/>
-									)}
-									<span className="truncate">{truncate(a.originalName)}</span>
-								</>
-							);
-							if (isImage) {
-								return (
+			<div className="flex max-w-[80%] flex-col items-end">
+				<div
+					data-chat-user-bubble
+					className="rounded-2xl rounded-tr-sm bg-user-bubble px-3 py-2 text-sm text-user-bubble-foreground"
+				>
+					{origin !== undefined ? (
+						<button
+							type="button"
+							disabled={!originChatLoaded}
+							onClick={() => useChatsStore.getState().select(origin.chatId)}
+							className="mb-1.5 flex items-center gap-1.5 text-[11px] text-user-bubble-foreground/65 hover:text-user-bubble-foreground disabled:cursor-default"
+							title={
+								originChatLoaded
+									? "Open the sender's chat"
+									: "Sender chat not loaded"
+							}
+						>
+							<ProviderIcon providerId={origin.providerId} className="size-3" />
+							<span>
+								Sent by {PROVIDER_LABEL_FOR_ERROR[origin.providerId]} from
+								another chat
+							</span>
+						</button>
+					) : null}
+					{hasAnnotations ? (
+						<ol className="mb-2 space-y-1">
+							{(annotations ?? []).map((a, i) => (
+								<li key={a.id}>
 									<button
-										key={a.id}
 										type="button"
-										title={a.originalName}
-										className={className}
-										onClick={() =>
-											useUiStore.getState().openFileInTab({
-												kind: "image",
-												src,
-												name: a.originalName,
-											})
+										onClick={() => {
+											if (!isBrowserAnnotation(a)) revealAnnotation(a);
+										}}
+										disabled={isBrowserAnnotation(a)}
+										className="flex w-full min-w-0 items-start gap-2 rounded-lg border border-user-bubble-foreground/12 bg-background/10 px-2 py-1.5 text-left text-xs hover:bg-background/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-user-bubble-foreground/30"
+										title={
+											isBrowserAnnotation(a)
+												? "Browser annotation"
+												: "Open annotation"
 										}
 									>
-										{inner}
+										<span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-background/20 text-[10px] font-semibold tabular-nums">
+											{i + 1}
+										</span>
+										<span className="grid min-w-0 flex-1 gap-1">
+											{isBrowserAnnotation(a) ? (
+												<span className="min-w-0 truncate font-medium">
+													{browserAnnotationMeta(a)}
+												</span>
+											) : (
+												<AnnotationFileChip annotation={a as CodeAnnotation} />
+											)}
+											<span className="min-w-0 break-words leading-snug">
+												{a.comment}
+											</span>
+										</span>
 									</button>
+								</li>
+							))}
+						</ol>
+					) : null}
+					{hasChips ? (
+						<div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+							{(attachments ?? []).map((a) => {
+								const isImage = a.mimeType.startsWith("image/");
+								const src = attachmentUrl(a.id);
+								const className =
+									"inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]";
+								const inner = (
+									<>
+										{isImage ? (
+											<img
+												src={src}
+												alt=""
+												className="size-4 rounded object-cover"
+											/>
+										) : (
+											<FileIcon
+												name={a.originalName}
+												kind="file"
+												className="inline-flex size-4 shrink-0 items-center justify-center"
+											/>
+										)}
+										<span className="truncate">{truncate(a.originalName)}</span>
+									</>
 								);
-							}
-							return (
-								<a
-									key={a.id}
-									href={src}
-									target="_blank"
-									rel="noreferrer"
-									title={a.originalName}
-									className={className}
+								if (isImage) {
+									return (
+										<button
+											key={a.id}
+											type="button"
+											title={a.originalName}
+											className={className}
+											onClick={() =>
+												useUiStore.getState().openFileInTab({
+													kind: "image",
+													src,
+													name: a.originalName,
+												})
+											}
+										>
+											{inner}
+										</button>
+									);
+								}
+								return (
+									<a
+										key={a.id}
+										href={src}
+										target="_blank"
+										rel="noreferrer"
+										title={a.originalName}
+										className={className}
+									>
+										{inner}
+									</a>
+								);
+							})}
+							{(fileRefs ?? []).map((f) => (
+								<FileChip
+									key={f.relPath}
+									relPath={f.relPath}
+									absPath={f.absPath}
+									kind={f.kind}
+								/>
+							))}
+							{(skillRefs ?? []).map((s) => (
+								<span
+									key={s.name}
+									className="inline-flex items-center rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]"
 								>
-									{inner}
-								</a>
-							);
-						})}
-						{(fileRefs ?? []).map((f) => (
-							<FileChip
-								key={f.relPath}
-								relPath={f.relPath}
-								absPath={f.absPath}
-								kind={f.kind}
-							/>
-						))}
-						{(skillRefs ?? []).map((s) => (
-							<span
-								key={s.name}
-								className="inline-flex items-center rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]"
-							>
-								/{s.name}
-							</span>
-						))}
-					</div>
-				) : null}
-				{display.length > 0 ? (
-					<div className="whitespace-pre-wrap break-words">{display}</div>
-				) : null}
-				{goal ? (
-					<div className="mt-2 flex items-center gap-1.5 text-xs text-user-bubble-foreground/65">
-						<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />
-						<span>Sent as goal</span>
-					</div>
-				) : null}
+									/{s.name}
+								</span>
+							))}
+						</div>
+					) : null}
+					{display.length > 0 ? (
+						<div className="whitespace-pre-wrap break-words">{display}</div>
+					) : null}
+					{goal ? (
+						<div className="mt-2 flex items-center gap-1.5 text-xs text-user-bubble-foreground/65">
+							<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />
+							<span>Sent as goal</span>
+						</div>
+					) : null}
+				</div>
+				<MessageActions
+					text={display || text}
+					sessionId={sessionId}
+					messageId={messageId}
+					forkLabel="message"
+					forkDestination={forkDestination}
+					sourceProjectId={sourceProjectId}
+					className="mt-1 opacity-0 transition-opacity duration-150 ease-out group-hover/message:opacity-100 group-focus-within/message:opacity-100 motion-reduce:transition-none [@media(hover:none)]:opacity-100"
+				/>
 			</div>
 		</div>
 	);
@@ -641,12 +673,16 @@ function AssistantBubble({
 	createdAt,
 	messageId,
 	sessionId,
+	forkDestination,
+	sourceProjectId,
 	showMessageCommands,
 }: {
 	text: string;
 	createdAt?: Date;
 	messageId: Message["id"];
 	sessionId?: SessionId;
+	forkDestination?: ForkDestination;
+	sourceProjectId?: FolderId;
 	showMessageCommands: boolean;
 }) {
 	return (
@@ -658,6 +694,8 @@ function AssistantBubble({
 					createdAt={createdAt}
 					messageId={messageId}
 					sessionId={sessionId}
+					forkDestination={forkDestination}
+					sourceProjectId={sourceProjectId}
 					showMessageCommands={showMessageCommands}
 					className="mt-1"
 				/>

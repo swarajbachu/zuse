@@ -1,4 +1,9 @@
-import type { MessageId, SessionId } from "@zuse/contracts";
+import type {
+	FolderId,
+	ForkDestination,
+	MessageId,
+	SessionId,
+} from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 import { CopyButton } from "./copy-button.tsx";
@@ -24,6 +29,8 @@ export function AssistantMessageActions({
 	sessionId,
 	messageId,
 	showMessageCommands = false,
+	forkDestination,
+	sourceProjectId,
 	className,
 }: {
 	readonly text: string;
@@ -32,24 +39,65 @@ export function AssistantMessageActions({
 	readonly sessionId?: SessionId;
 	readonly messageId?: MessageId;
 	readonly showMessageCommands?: boolean;
+	readonly forkDestination?: ForkDestination;
+	readonly sourceProjectId?: FolderId;
 	readonly className?: string;
 }) {
 	if (!showMessageCommands) return null;
 
 	return (
-		<div
+		<MessageActions
+			text={text}
+			createdAt={createdAt}
+			elapsed={elapsed}
+			sessionId={sessionId}
+			messageId={messageId}
+			forkDestination={forkDestination}
+			sourceProjectId={sourceProjectId}
 			className={cn(
-				"flex items-center gap-1 opacity-0 transition-opacity duration-150 ease-out group-hover/assistant:opacity-100 group-focus-within/assistant:opacity-100 motion-reduce:transition-none [@media(hover:none)]:opacity-100",
+				"opacity-0 transition-opacity duration-150 ease-out group-hover/assistant:opacity-100 group-focus-within/assistant:opacity-100 motion-reduce:transition-none [@media(hover:none)]:opacity-100",
 				className,
 			)}
-		>
+		/>
+	);
+}
+
+export function MessageActions({
+	text,
+	createdAt,
+	elapsed,
+	sessionId,
+	messageId,
+	forkLabel = "response",
+	forkDestination,
+	sourceProjectId,
+	className,
+}: {
+	readonly text: string;
+	readonly createdAt?: Date;
+	readonly elapsed?: string;
+	readonly sessionId?: SessionId;
+	readonly messageId?: MessageId;
+	readonly forkLabel?: "message" | "response";
+	readonly forkDestination?: ForkDestination;
+	readonly sourceProjectId?: FolderId;
+	readonly className?: string;
+}) {
+	return (
+		<div className={cn("flex items-center gap-1", className)}>
 			<CopyButton
 				text={text}
 				label="Copy message"
 				className="active:scale-[0.97] [@media(pointer:coarse)]:size-11"
 			/>
 			{sessionId !== undefined && messageId !== undefined ? (
-				<ForkButton sourceSessionId={sessionId} fromMessageId={messageId} />
+				<ForkButton
+					sourceSessionId={sessionId}
+					fromMessageId={messageId}
+					label={forkLabel}
+					fixedDestination={forkDestination}
+					sourceProjectId={sourceProjectId}
+				/>
 			) : null}
 			{createdAt !== undefined ? (
 				<Tooltip>

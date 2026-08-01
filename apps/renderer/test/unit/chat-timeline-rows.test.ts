@@ -55,7 +55,11 @@ describe("chat timeline rows", () => {
 		});
 
 		expect(resolveLatestUserMessageId(rows)).toBe("u1");
-		expect(rowAnchorMessageId(rows[0]!)).toBe("u1");
+		const firstRow = rows[0];
+		expect(firstRow).toBeDefined();
+		expect(firstRow === undefined ? null : rowAnchorMessageId(firstRow)).toBe(
+			"u1",
+		);
 	});
 
 	it("moves the anchor when a later user message appears before assistant output", () => {
@@ -101,7 +105,7 @@ describe("chat timeline rows", () => {
 		expect(second.map((row) => row.id)).toEqual(first.map((row) => row.id));
 	});
 
-	it("enables assistant commands only on the final completed response", () => {
+	it("enables assistant commands on every completed response", () => {
 		const rows = deriveChatTimelineRows({
 			messages: [
 				message("u1", { _tag: "user", text: "first" }),
@@ -121,27 +125,58 @@ describe("chat timeline rows", () => {
 			assistantRows.map((row) =>
 				row.kind === "message" ? row.showAssistantCommands : false,
 			),
-		).toEqual([false, true]);
+		).toEqual([true, true]);
 	});
 
-	it("keeps assistant commands hidden until the active turn completes", () => {
+	it("keeps only the active response commands hidden until its turn completes", () => {
 		const rows = deriveChatTimelineRows({
 			messages: [
-				message("u1", { _tag: "user", text: "prompt" }),
-				message("a1", { _tag: "assistant", text: "partial reply" }),
+				message("u1", { _tag: "user", text: "first prompt" }),
+				message("a1", { _tag: "assistant", text: "completed reply" }),
+				message("u2", { _tag: "user", text: "active prompt" }),
+				message("a2", { _tag: "assistant", text: "partial reply" }),
 			],
 			inFlight: true,
 			awaitingPlanApproval: false,
 		});
 
+		const assistantRows = rows.filter(
+			(row) =>
+				row.kind === "message" && row.message.content._tag === "assistant",
+		);
 		expect(
-			rows.some(
-				(row) =>
-					row.kind === "message" &&
-					row.message.content._tag === "assistant" &&
-					row.showAssistantCommands,
+			assistantRows.map((row) =>
+				row.kind === "message" ? row.showAssistantCommands : false,
 			),
-		).toBe(false);
+		).toEqual([true, false]);
+	});
+
+	it("keeps earlier assistant messages actionable during a live turn", () => {
+		const rows = deriveChatTimelineRows({
+			messages: [
+				message("u1", { _tag: "user", text: "active prompt" }),
+				message("a1", { _tag: "assistant", text: "intermediate update" }),
+				message("t1", {
+					_tag: "tool_use",
+					itemId: "call-1" as never,
+					tool: "Read",
+					input: { file_path: "/repo/a.ts" },
+				}),
+				message("a2", { _tag: "assistant", text: "partial reply" }),
+			],
+			inFlight: true,
+			awaitingPlanApproval: false,
+		});
+
+		const assistantRows = rows.filter(
+			(row) =>
+				row.kind === "message" && row.message.content._tag === "assistant",
+		);
+		expect(
+			assistantRows.map((row) =>
+				row.kind === "message" ? row.showAssistantCommands : false,
+			),
+		).toEqual([true, false]);
 	});
 
 	it("collapses duplicate tool_use rows with the same provider item id", () => {
@@ -187,9 +222,7 @@ describe("chat timeline rows", () => {
 		const summary = rows.find((row) => row.kind === "turn-summary");
 		expect(summary?.kind).toBe("turn-summary");
 		expect(
-			summary?.kind === "turn-summary"
-				? summary.showAssistantCommands
-				: false,
+			summary?.kind === "turn-summary" ? summary.showAssistantCommands : false,
 		).toBe(true);
 		expect(
 			summary?.kind === "turn-summary"

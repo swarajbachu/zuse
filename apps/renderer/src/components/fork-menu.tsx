@@ -1,7 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Loading02Icon } from "@hugeicons-pro/core-solid-rounded";
 import { GitBranchIcon } from "@hugeicons-pro/core-stroke-rounded";
-import type { MessageId, SessionId, Worktree } from "@zuse/contracts";
+import type {
+	FolderId,
+	ForkDestination,
+	MessageId,
+	SessionId,
+	Worktree,
+} from "@zuse/contracts";
 import { useState } from "react";
 
 import { getSessionById, useSessionsStore } from "../store/sessions.ts";
@@ -54,22 +60,32 @@ function ForkSplitIcon({ className }: { readonly className?: string }) {
 export function ForkButton({
 	sourceSessionId,
 	fromMessageId,
+	label = "response",
+	fixedDestination,
+	sourceProjectId,
 }: {
 	readonly sourceSessionId: SessionId;
 	readonly fromMessageId: MessageId;
+	readonly label?: "message" | "response";
+	readonly fixedDestination?: ForkDestination;
+	readonly sourceProjectId?: FolderId;
 }) {
 	const [forking, setForking] = useState(false);
 	const fork = useSessionsStore((state) => state.fork);
 
-	const run = async (destination: "tab" | "chat") => {
+	const run = async (destination: ForkDestination) => {
 		if (forking) return;
 		setForking(true);
 
 		let createdWorktree: Worktree | null = null;
+		let projectId = sourceProjectId ?? null;
 		try {
 			if (destination === "chat") {
-				const source = getSessionById(sourceSessionId);
-				if (source === null) {
+				if (projectId === null) {
+					const source = getSessionById(sourceSessionId);
+					projectId = source?.projectId ?? null;
+				}
+				if (projectId === null) {
 					toastManager.add({
 						title: "Fork failed",
 						description: "The source session is no longer available.",
@@ -77,9 +93,7 @@ export function ForkButton({
 					});
 					return;
 				}
-				createdWorktree = await useWorktreesStore
-					.getState()
-					.create(source.projectId);
+				createdWorktree = await useWorktreesStore.getState().create(projectId);
 				if (createdWorktree === null) {
 					toastManager.add({
 						title: "Worktree creation failed",
@@ -99,13 +113,10 @@ export function ForkButton({
 				worktreeId: createdWorktree?.id,
 			});
 			if (result === null) {
-				if (createdWorktree !== null) {
-					const source = getSessionById(sourceSessionId);
-					if (source !== null) {
-						await useWorktreesStore
-							.getState()
-							.remove(source.projectId, createdWorktree.id);
-					}
+				if (createdWorktree !== null && projectId !== null) {
+					await useWorktreesStore
+						.getState()
+						.remove(projectId, createdWorktree.id);
 				}
 				toastManager.add({
 					title: "Fork failed",
@@ -122,7 +133,7 @@ export function ForkButton({
 				description:
 					result.forkMode === "resume"
 						? "The new branch continues with full agent memory."
-						: "The conversation through this response was copied into the new branch.",
+						: `The conversation through this ${label} was copied into the new branch.`,
 				type: "success",
 			});
 		} finally {
@@ -137,7 +148,7 @@ export function ForkButton({
 					render={
 						<MenuTrigger
 							disabled={forking}
-							aria-label="Fork from this response"
+							aria-label={`Fork from this ${label}`}
 							className="inline-grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground/70 outline-none hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97] data-[popup-open]:bg-muted/50 data-[popup-open]:text-foreground [@media(pointer:coarse)]:size-11"
 						>
 							{forking ? (
@@ -152,43 +163,47 @@ export function ForkButton({
 						</MenuTrigger>
 					}
 				/>
-				<TooltipPopup>Fork from this response</TooltipPopup>
+				<TooltipPopup>Fork from this {label}</TooltipPopup>
 			</Tooltip>
 			<MenuPopup align="start" className="min-w-52 bg-glass border-glass">
-				<Tooltip>
-					<TooltipTrigger
-						render={
-							<MenuItem
-								onClick={() => void run("tab")}
-								className="gap-2.5 px-2 py-1.5"
-							>
-								<ForkSplitIcon className="size-4" />
-								<span>Fork in this chat</span>
-							</MenuItem>
-						}
-					/>
-					<TooltipPopup side="right" align="start" className="max-w-64">
-						Open a new session tab that shares this chat and its current
-						worktree.
-					</TooltipPopup>
-				</Tooltip>
-				<Tooltip>
-					<TooltipTrigger
-						render={
-							<MenuItem
-								onClick={() => void run("chat")}
-								className="gap-2.5 px-2 py-1.5"
-							>
-								<HugeiconsIcon icon={GitBranchIcon} className="size-4" />
-								<span>Fork into a new worktree</span>
-							</MenuItem>
-						}
-					/>
-					<TooltipPopup side="right" align="start" className="max-w-64">
-						Create a separate chat in an isolated Git worktree for parallel
-						work.
-					</TooltipPopup>
-				</Tooltip>
+				{fixedDestination !== "chat" ? (
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<MenuItem
+									onClick={() => void run("tab")}
+									className="gap-2.5 px-2 py-1.5"
+								>
+									<ForkSplitIcon className="size-4" />
+									<span>Fork in this chat</span>
+								</MenuItem>
+							}
+						/>
+						<TooltipPopup side="right" align="start" className="max-w-64">
+							Open a new session tab that shares this chat and its current
+							worktree.
+						</TooltipPopup>
+					</Tooltip>
+				) : null}
+				{fixedDestination !== "tab" ? (
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<MenuItem
+									onClick={() => void run("chat")}
+									className="gap-2.5 px-2 py-1.5"
+								>
+									<HugeiconsIcon icon={GitBranchIcon} className="size-4" />
+									<span>Fork into a new worktree</span>
+								</MenuItem>
+							}
+						/>
+						<TooltipPopup side="right" align="start" className="max-w-64">
+							Create a separate chat in an isolated Git worktree for parallel
+							work.
+						</TooltipPopup>
+					</Tooltip>
+				) : null}
 			</MenuPopup>
 		</Menu>
 	);

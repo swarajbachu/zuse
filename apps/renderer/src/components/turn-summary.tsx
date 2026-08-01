@@ -5,9 +5,15 @@ import {
 	BubbleChatIcon,
 	Wrench01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
-import type { Message, SessionId } from "@zuse/contracts";
+import type {
+	FolderId,
+	ForkDestination,
+	Message,
+	SessionId,
+} from "@zuse/contracts";
 import { memo, useMemo, useState } from "react";
 import { cn } from "~/lib/utils";
+import { isForkableAssistantMessage } from "../lib/chat-timeline-rows.ts";
 import { groupMessages } from "../lib/group-messages.ts";
 
 import { AssistantMessageActions } from "./assistant-message-actions.tsx";
@@ -71,8 +77,9 @@ const aggregateFileStats = (body: ReadonlyArray<Message>): FileStat[] => {
 
 const findFinalAssistant = (body: ReadonlyArray<Message>): Message | null => {
 	for (let i = body.length - 1; i >= 0; i--) {
-		const m = body[i]!;
-		if (m.content._tag === "assistant") return m;
+		const m = body[i];
+		if (m === undefined) continue;
+		if (isForkableAssistantMessage(m)) return m;
 	}
 	return null;
 };
@@ -91,10 +98,14 @@ function TurnSummaryImpl({
 	body,
 	sessionId,
 	showAssistantCommands = false,
+	forkDestination,
+	sourceProjectId,
 }: {
 	body: ReadonlyArray<Message>;
 	sessionId?: SessionId;
 	showAssistantCommands?: boolean;
+	forkDestination?: ForkDestination;
+	sourceProjectId?: FolderId;
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const [filesExpanded, setFilesExpanded] = useState(false);
@@ -115,9 +126,11 @@ function TurnSummaryImpl({
 	const fileStats = useMemo(() => aggregateFileStats(body), [body]);
 
 	const duration = useMemo(() => {
-		if (body.length === 0) return 0;
-		const start = body[0]!.createdAt.getTime();
-		const end = body[body.length - 1]!.createdAt.getTime();
+		const first = body[0];
+		const last = body.at(-1);
+		if (first === undefined || last === undefined) return 0;
+		const start = first.createdAt.getTime();
+		const end = last.createdAt.getTime();
 		return Math.max(0, end - start);
 	}, [body]);
 
@@ -224,7 +237,17 @@ function TurnSummaryImpl({
 				<div className="py-1">
 					{detailGroups.map((group) =>
 						group.kind === "single" ? (
-							<MessageRow key={group.message.id} message={group.message} />
+							<MessageRow
+								key={group.message.id}
+								message={group.message}
+								sessionId={sessionId}
+								forkDestination={forkDestination}
+								sourceProjectId={sourceProjectId}
+								showAssistantCommands={
+									showAssistantCommands &&
+									isForkableAssistantMessage(group.message)
+								}
+							/>
 						) : (
 							<SubagentRow
 								key={group.parent.id}
@@ -252,6 +275,8 @@ function TurnSummaryImpl({
 							createdAt={finalAssistant.createdAt}
 							messageId={finalAssistant.id}
 							sessionId={sessionId}
+							forkDestination={forkDestination}
+							sourceProjectId={sourceProjectId}
 							showMessageCommands={showAssistantCommands}
 							elapsed={formatElapsed(duration)}
 							className="mt-1"

@@ -67,6 +67,12 @@ export function rowAnchorMessageId(row: ChatTimelineRow): string | null {
 
 export { normalizeTimelineMessages };
 
+export const isForkableAssistantMessage = (message: Message): boolean =>
+	message.content._tag === "assistant" &&
+	message.content.text.trim().length > 0 &&
+	(!("parentItemId" in message.content) ||
+		message.content.parentItemId === undefined);
+
 export function deriveChatTimelineRows({
 	messages,
 	inFlight,
@@ -77,15 +83,13 @@ export function deriveChatTimelineRows({
 	readonly awaitingPlanApproval: boolean;
 }): ChatTimelineRow[] {
 	const normalizedMessages = normalizeTimelineMessages(messages);
-	const actionableAssistantMessageId = inFlight
-		? null
-		: (normalizedMessages.findLast(
-				(message) =>
-					message.content._tag === "assistant" &&
-					message.content.text.trim().length > 0 &&
-					(!("parentItemId" in message.content) ||
-						message.content.parentItemId === undefined),
-			)?.id ?? null);
+	const lastMessage = normalizedMessages.at(-1);
+	const streamingAssistantMessageId =
+		inFlight &&
+		lastMessage !== undefined &&
+		isForkableAssistantMessage(lastMessage)
+			? lastMessage.id
+			: null;
 	const turns: Array<{
 		user: Message | null;
 		body: Message[];
@@ -108,6 +112,9 @@ export function deriveChatTimelineRows({
 	for (const [index, turn] of turns.entries()) {
 		const isLastTurn = index === turns.length - 1;
 		const isLive = inFlight && isLastTurn;
+		const showAssistantCommands = (message: Message): boolean =>
+			isForkableAssistantMessage(message) &&
+			message.id !== streamingAssistantMessageId;
 
 		if (turn.user !== null) {
 			rows.push({
@@ -165,16 +172,14 @@ export function deriveChatTimelineRows({
 					id: `message:${message.id}`,
 					message,
 					enterUser: false,
-					showAssistantCommands: message.id === actionableAssistantMessageId,
+					showAssistantCommands: showAssistantCommands(message),
 				});
 			}
 			rows.push({
 				kind: "turn-summary",
 				id: `summary:${turn.user?.id ?? `turn-${index}`}`,
 				body: summaryBody,
-				showAssistantCommands: summaryBody.some(
-					(message) => message.id === actionableAssistantMessageId,
-				),
+				showAssistantCommands: summaryBody.some(showAssistantCommands),
 			});
 			continue;
 		}
@@ -186,8 +191,7 @@ export function deriveChatTimelineRows({
 					id: `message:${group.message.id}`,
 					message: group.message,
 					enterUser: false,
-					showAssistantCommands:
-						group.message.id === actionableAssistantMessageId,
+					showAssistantCommands: showAssistantCommands(group.message),
 				});
 			} else {
 				rows.push({
