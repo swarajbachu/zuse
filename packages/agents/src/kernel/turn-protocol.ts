@@ -9,6 +9,7 @@ import type { ProviderSessionHandle } from "./driver.ts";
 type ActiveTurn = {
 	readonly turnId: AgentTurnId;
 	readonly released: Deferred.Deferred<void>;
+	readonly sent: boolean;
 };
 
 type NormalizedBatch = {
@@ -64,7 +65,7 @@ export const makeTurnScopedSessionHandle = (
 		const activeTurn = yield* Ref.make<ActiveTurn | null>(
 			initialTurnId === undefined
 				? null
-				: { turnId: initialTurnId, released: initialReleased },
+				: { turnId: initialTurnId, released: initialReleased, sent: false },
 		);
 		const releaseBatch = (
 			batch: NormalizedBatch,
@@ -224,7 +225,12 @@ export const makeTurnScopedSessionHandle = (
 					const send = yield* Ref.modify(activeTurn, (active) => {
 						if (active !== null) {
 							if (active.turnId === turnId) {
-								return [Effect.void, active] as const;
+								return active.sent
+									? ([Effect.void, active] as const)
+									: ([
+											handle.send(...args),
+											{ ...active, sent: true },
+										] as const);
 							}
 							return [
 								Effect.die(
@@ -235,7 +241,10 @@ export const makeTurnScopedSessionHandle = (
 								active,
 							] as const;
 						}
-						return [handle.send(...args), { turnId, released }] as const;
+						return [
+							handle.send(...args),
+							{ turnId, released, sent: true },
+						] as const;
 					});
 					yield* send.pipe(
 						Effect.catchCause((cause) =>
