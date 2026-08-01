@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Make session streams durable across runtimes
+- Reduce desktop startup weight and defer non-critical runtime work
+- Upgrade the Effect runtime to 4.0.0-beta.102
 - Harden provider process lifecycle (#420)
 - Allow Forks from Any Message (#419)
 - Improve live synchronization and payload transport (#418)
