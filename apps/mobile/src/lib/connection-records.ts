@@ -1,4 +1,4 @@
-import { CapabilityFeature, CapabilityManifest } from "@zuse/contracts";
+import { type CapabilityFeature, CapabilityManifest } from "@zuse/contracts";
 import { Schema } from "effect";
 
 export const ConnectionSource = Schema.Literals(["paired", "relay", "manual"]);
