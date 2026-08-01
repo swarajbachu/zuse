@@ -11,6 +11,7 @@ import {
 	parseCliVersion,
 	resolveCodexCapabilities,
 	selectCliPathCandidate,
+	selectNewestCliPathCandidate,
 } from "../../src/provider/availability.ts";
 
 const { parseGrokAuthJson, extractTier, decodeJwtPayload } =
@@ -325,6 +326,32 @@ describe("selectCliPathCandidate", () => {
 				"/Users/me/.local/bin/claude",
 			]),
 		).toBe("/opt/homebrew/bin/claude");
+	});
+});
+
+describe("selectNewestCliPathCandidate", () => {
+	it("selects the newest installed Codex binary instead of the first PATH match", () => {
+		expect(
+			selectNewestCliPathCandidate([
+				{
+					path: "/Users/me/.nvm/bin/codex",
+					version: parseCliVersion("codex-cli 0.145.0"),
+				},
+				{
+					path: "/Applications/ChatGPT.app/Contents/Resources/codex",
+					version: parseCliVersion("codex-cli 0.146.0-alpha.9.2"),
+				},
+			]),
+		).toBe("/Applications/ChatGPT.app/Contents/Resources/codex");
+	});
+
+	it("keeps PATH order when versions cannot be determined", () => {
+		expect(
+			selectNewestCliPathCandidate([
+				{ path: "/first/codex", version: null },
+				{ path: "/second/codex", version: null },
+			]),
+		).toBe("/first/codex");
 	});
 });
 

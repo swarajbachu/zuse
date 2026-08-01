@@ -7,6 +7,7 @@ import type { PluginDetail } from "@zuse/agents/codex-generated/v2/PluginDetail"
 import type { PluginListResponse } from "@zuse/agents/codex-generated/v2/PluginListResponse";
 import type { PluginReadResponse } from "@zuse/agents/codex-generated/v2/PluginReadResponse";
 import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
+import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-client";
 import { Effect } from "effect";
 
 export interface CodexConnectorSnapshot {
@@ -64,6 +65,16 @@ const withCodexApp = <A>(
 				app.close();
 			}
 		},
+		catch: (cause) =>
+			cause instanceof Error ? cause : new Error(String(cause)),
+	});
+
+const withCodexControl = <A>(
+	codexPath: string | null,
+	run: (app: CodexAppServerClient) => Promise<A>,
+): Effect.Effect<A, Error> =>
+	Effect.tryPromise({
+		try: () => withCodexControlClient(codexPath, run),
 		catch: (cause) =>
 			cause instanceof Error ? cause : new Error(String(cause)),
 	});
@@ -170,7 +181,7 @@ export const readCodexLiveMcpSnapshot = (
 	codexPath: string | null,
 	cwd: string | null,
 ): Effect.Effect<CodexLiveMcpSnapshot, Error> =>
-	withCodexApp(codexPath, async (app) => {
+	withCodexControl(codexPath, async (app) => {
 		const [statuses, apps, plugins] = await Promise.all([
 			listMcpStatuses(app),
 			app

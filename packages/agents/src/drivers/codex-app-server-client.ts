@@ -4,6 +4,7 @@ import type { ClientRequest } from "@zuse/agents/codex-generated/ClientRequest";
 import type { InitializeResponse } from "@zuse/agents/codex-generated/InitializeResponse";
 import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
 import type { ServerRequest } from "@zuse/agents/codex-generated/ServerRequest";
+import { reportCodexStderr } from "./codex-stderr-reporter.ts";
 
 type RequestId = number;
 
@@ -116,6 +117,7 @@ export class CodexAppServerClient {
 		readonly env?: NodeJS.ProcessEnv;
 		readonly mcp?: CodexAppMcpLaunchConfig;
 		readonly startupTimeoutMs?: number;
+		readonly onStderr?: (text: string) => void;
 		readonly onNotification: NotificationHandler;
 		readonly onServerRequest: ServerRequestHandler;
 	}): Promise<CodexAppServerClient> {
@@ -147,7 +149,9 @@ export class CodexAppServerClient {
 		rl.on("line", (line) => bootstrap.handleLine(line));
 		child.stderr.on("data", (chunk) => {
 			const text = String(chunk).trim();
-			if (text.length > 0) console.warn(`[codex-app-server] ${text}`);
+			if (text.length === 0) return;
+			if (options.onStderr !== undefined) options.onStderr(text);
+			else reportCodexStderr(text);
 		});
 		// Without this listener, a spawn-time failure (ENOENT when codex isn't on
 		// PATH, EACCES on a non-executable file) becomes an uncaught exception
@@ -243,7 +247,7 @@ export class CodexAppServerClient {
 		try {
 			parsed = JSON.parse(line);
 		} catch {
-			console.warn(`[codex-app-server] non-json stdout: ${line}`);
+			reportCodexStderr(`non-json stdout: ${line}`);
 			return;
 		}
 		if (!isRecord(parsed)) return;

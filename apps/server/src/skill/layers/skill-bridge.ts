@@ -6,6 +6,7 @@ import { Effect, Layer, PubSub, Stream } from "effect";
 
 import { SessionService } from "../../conversation/services/conversation-services.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
+import { shouldRefreshSkillsForWatch } from "../skill-watch-filter.ts";
 import { SkillBridge } from "../services/skill-bridge.ts";
 import { SkillDiscoveryService } from "../services/skill-discovery.ts";
 
@@ -45,7 +46,8 @@ const watchRoots = (
 
   const watchers: fsSync.FSWatcher[] = [];
   let timer: NodeJS.Timeout | null = null;
-  const fire = (): void => {
+  const fire = (_event: string, filename: string | Buffer | null): void => {
+    if (!shouldRefreshSkillsForWatch(providerId, filename)) return;
     if (timer !== null) clearTimeout(timer);
     // Debounce: editors save by writing twice or rotating files; coalesce
     // a flurry into a single discovery pass.

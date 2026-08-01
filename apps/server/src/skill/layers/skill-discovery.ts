@@ -1,9 +1,10 @@
 import * as os from "node:os";
 import * as path from "node:path";
-import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
+import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-client";
 import { type ProviderId, Skill } from "@zuse/contracts";
 import { Effect, FileSystem, Layer } from "effect";
 import { ensureBundledZuseSkillInstalled } from "../bundled-zuse-skill.ts";
+import { createCodexSkillBatcher } from "../codex-skill-batcher.ts";
 import { SkillDiscoveryService } from "../services/skill-discovery.ts";
 
 interface RawSkill {
@@ -11,6 +12,15 @@ interface RawSkill {
   readonly description: string;
   readonly argumentHint: string;
   readonly filePath: string;
+}
+
+interface CodexSkillMetadata {
+  readonly name: string;
+  readonly description: string;
+  readonly shortDescription?: string;
+  readonly path: string;
+  readonly scope: "user" | "repo" | "system" | "admin";
+  readonly enabled: boolean;
 }
 
 /**
@@ -118,6 +128,20 @@ export const SkillDiscoveryServiceLive = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const home = os.homedir();
+    const codexSkills = createCodexSkillBatcher<CodexSkillMetadata>(
+      (cwds) =>
+        withCodexControlClient(null, (client) =>
+          client
+            .request<{
+              data: ReadonlyArray<{
+                cwd: string;
+                skills: ReadonlyArray<CodexSkillMetadata>;
+              }>;
+            }>("skills/list", { cwds, forceReload: false })
+            .then((response) => response.data),
+        ),
+      25,
+    );
 
     /**
      * Walk a Claude skills root. Skills can be either:
@@ -256,43 +280,20 @@ export const SkillDiscoveryServiceLive = Layer.effect(
         ensureBundledZuseSkillInstalled("codex", home);
         const viaAppServer = yield* Effect.tryPromise({
           try: async (): Promise<ReadonlyArray<Skill>> => {
-            const client = await CodexAppServerClient.start({
-              codexPath: null,
-              onNotification: () => undefined,
-              onServerRequest: (_request, respond) => respond({}),
-            });
-            try {
-              const response = await client.request<{
-                data: ReadonlyArray<{
-                  cwd: string;
-                  skills: ReadonlyArray<{
-                    name: string;
-                    description: string;
-                    shortDescription?: string;
-                    path: string;
-                    scope: "user" | "repo" | "system" | "admin";
-                    enabled: boolean;
-                  }>;
-                }>;
-              }>("skills/list", { cwds: [projectCwd], forceReload: false });
-              return response.data.flatMap((entry) =>
-                entry.skills
-                  .filter((skill) => skill.enabled)
-                  .map((skill) =>
-                    Skill.make({
-                      name: skill.name,
-                      scope: skill.scope === "repo" ? "project" : "global",
-                      description:
-                        skill.shortDescription ?? skill.description ?? "",
-                      arguments: [],
-                      filePath: skill.path,
-                      providerId: "codex",
-                    }),
-                  ),
+            const skills = await codexSkills.load(projectCwd);
+            return skills
+              .filter((skill) => skill.enabled)
+              .map((skill) =>
+                Skill.make({
+                  name: skill.name,
+                  scope: skill.scope === "repo" ? "project" : "global",
+                  description:
+                    skill.shortDescription ?? skill.description ?? "",
+                  arguments: [],
+                  filePath: skill.path,
+                  providerId: "codex",
+                }),
               );
-            } finally {
-              client.close();
-            }
           },
           catch: (cause) => cause,
         }).pipe(Effect.catch(() => Effect.succeed(null)));

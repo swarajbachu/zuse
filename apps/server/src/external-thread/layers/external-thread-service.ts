@@ -8,7 +8,8 @@ import type { ThreadReadResponse } from "@zuse/agents/codex-generated/v2/ThreadR
 import type { UserInput } from "@zuse/agents/codex-generated/v2/UserInput";
 import { translateClaudeSdkMessages } from "@zuse/agents/drivers/claude";
 import { translateCodexItem } from "@zuse/agents/drivers/codex";
-import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
+import type { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
+import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-client";
 import {
   ContinueExternalThreadResult,
   defaultModelFor,
@@ -225,52 +226,40 @@ const discoverCodexViaAppServer = (limit: number) =>
   Effect.gen(function* () {
     const codexPath = yield* resolveCliPath("codex");
     if (codexPath === null) return [] as ReadonlyArray<DiscoveredThread>;
-    const app = yield* Effect.tryPromise({
+    const response = yield* Effect.tryPromise({
       try: () =>
-        CodexAppServerClient.start({
-          codexPath,
-          onNotification: () => {},
-          onServerRequest: (_request, respond) => respond(null),
-        }),
-      catch: () => null,
-    });
-    if (app === null) return [] as ReadonlyArray<DiscoveredThread>;
-    try {
-      const response = yield* Effect.tryPromise({
-        try: () =>
+        withCodexControlClient(codexPath, (app) =>
           app.request<ThreadListResponse>("thread/list", {
             limit,
             sortKey: "updated_at",
             sortDirection: "desc",
             archived: false,
           }),
-        catch: () => null,
-      });
-      if (response === null) return [] as ReadonlyArray<DiscoveredThread>;
-      return response.data
-        .filter((thread) => thread.cwd.length > 0)
-        .map(
-          (thread): DiscoveredThread => ({
-            id: `codex:${thread.id}`,
-            providerId: "codex",
-            title: clamp(
-              thread.name ?? thread.preview ?? "Codex conversation",
-              96,
-            ),
-            preview: clamp(
-              thread.preview ?? thread.name ?? "Codex conversation",
-              140,
-            ),
-            projectPath: thread.cwd,
-            updatedAt: new Date(thread.updatedAt * 1000),
-            sourcePath: thread.path,
-            cursor: thread.id,
-            resumeStrategy: "codex-thread-id",
-          }),
-        );
-    } finally {
-      app.close();
-    }
+        ),
+      catch: () => null,
+    });
+    if (response === null) return [] as ReadonlyArray<DiscoveredThread>;
+    return response.data
+      .filter((thread) => thread.cwd.length > 0)
+      .map(
+        (thread): DiscoveredThread => ({
+          id: `codex:${thread.id}`,
+          providerId: "codex",
+          title: clamp(
+            thread.name ?? thread.preview ?? "Codex conversation",
+            96,
+          ),
+          preview: clamp(
+            thread.preview ?? thread.name ?? "Codex conversation",
+            140,
+          ),
+          projectPath: thread.cwd,
+          updatedAt: new Date(thread.updatedAt * 1000),
+          sourcePath: thread.path,
+          cursor: thread.id,
+          resumeStrategy: "codex-thread-id",
+        }),
+      );
   });
 
 const discoverCodexFromIndex = (): ReadonlyArray<DiscoveredThread> => {
@@ -364,140 +353,125 @@ const codexUserInputText = (input: UserInput): string | null => {
   }
 };
 
+const readCodexTranscriptMessages = async (
+  app: CodexAppServerClient,
+  cursor: string,
+): Promise<ReadonlyArray<MessageContent>> => {
+  const response = await app
+    .request<ThreadReadResponse>("thread/read", {
+      threadId: cursor,
+      includeTurns: true,
+    })
+    .catch(() => null);
+  if (response === null) return [];
+
+  const out: MessageContent[] = [];
+  for (const turn of response.thread.turns) {
+    for (const item of turn.items) {
+      if (item.type === "userMessage") {
+        const text = item.content
+          .flatMap((input) => {
+            const fragment = codexUserInputText(input);
+            return fragment === null ? [] : [fragment];
+          })
+          .join("\n")
+          .trim();
+        if (text.length > 0) out.push({ _tag: "user", text, goal: false });
+        continue;
+      }
+      if (item.type === "collabAgentToolCall" && item.tool === "spawnAgent") {
+        const childSessionId = item.receiverThreadIds[0];
+        if (childSessionId === undefined) continue;
+        const parentItemId = item.id as import("@zuse/contracts").AgentItemId;
+        const childResponse = await app
+          .request<ThreadReadResponse>("thread/read", {
+            threadId: childSessionId,
+            includeTurns: true,
+          })
+          .catch(() => null);
+        const childThread = childResponse?.thread ?? null;
+        const agentName =
+          childThread?.name ??
+          childThread?.agentNickname ??
+          item.prompt?.split("\n", 1)[0]?.slice(0, 80) ??
+          "Subagent";
+        out.push({
+          _tag: "tool_use",
+          itemId: parentItemId,
+          tool: "Agent",
+          input: {
+            prompt: item.prompt ?? "",
+            description: agentName,
+            model: item.model ?? "inherit",
+          },
+          subagent: { childSessionId, presentation: "detached" },
+        });
+        let summary = "";
+        let durationMs = 0;
+        let turns = 0;
+        let isError = false;
+        for (const childTurn of childThread?.turns ?? []) {
+          turns += 1;
+          durationMs += childTurn.durationMs ?? 0;
+          isError ||= childTurn.status === "failed";
+          for (const childItem of childTurn.items) {
+            if (childItem.type === "userMessage") continue;
+            for (const phase of ["started", "completed"] as const) {
+              for (const event of translateCodexItem(childItem, phase)) {
+                const nested =
+                  event._tag === "AssistantMessage" ||
+                  event._tag === "Thinking" ||
+                  event._tag === "ToolUse" ||
+                  event._tag === "ToolResult"
+                    ? { ...event, parentItemId }
+                    : null;
+                if (nested === null) continue;
+                if (nested._tag === "AssistantMessage") summary = nested.text;
+                const content = eventToContent(nested);
+                if (content !== null) out.push(content);
+              }
+            }
+          }
+        }
+        out.push({
+          _tag: "subagent_summary",
+          itemId: parentItemId,
+          agentName,
+          model: item.model ?? "inherit",
+          turns,
+          durationMs,
+          summary,
+          isError,
+          childSessionId,
+          presentation: "detached",
+        });
+        continue;
+      }
+      for (const phase of ["started", "completed"] as const) {
+        for (const event of translateCodexItem(item, phase)) {
+          const content = eventToContent(event);
+          if (content !== null) out.push(content);
+        }
+      }
+    }
+    if (turn.status === "failed" && turn.error !== null) {
+      out.push({ _tag: "error", message: turn.error.message });
+    }
+  }
+  return out;
+};
+
 const codexTranscriptMessages = (cursor: string) =>
   Effect.gen(function* () {
     const codexPath = yield* resolveCliPath("codex");
     if (codexPath === null) return [];
-    const app = yield* Effect.tryPromise({
+    return yield* Effect.tryPromise({
       try: () =>
-        CodexAppServerClient.start({
-          codexPath,
-          onNotification: () => {},
-          onServerRequest: (_request, respond) => respond(null),
-        }),
-      catch: () => null,
+        withCodexControlClient(codexPath, (app) =>
+          readCodexTranscriptMessages(app, cursor),
+        ),
+      catch: () => [],
     });
-    if (app === null) return [];
-    try {
-      const response = yield* Effect.tryPromise({
-        try: () =>
-          app.request<ThreadReadResponse>("thread/read", {
-            threadId: cursor,
-            includeTurns: true,
-          }),
-        catch: () => null,
-      });
-      if (response === null) return [];
-      const out: MessageContent[] = [];
-      for (const turn of response.thread.turns) {
-        for (const item of turn.items) {
-          if (item.type === "userMessage") {
-            const text = item.content
-              .flatMap((input) => {
-                const fragment = codexUserInputText(input);
-                return fragment === null ? [] : [fragment];
-              })
-              .join("\n")
-              .trim();
-            if (text.length > 0) {
-              out.push({ _tag: "user", text, goal: false });
-            }
-            continue;
-          }
-          if (
-            item.type === "collabAgentToolCall" &&
-            item.tool === "spawnAgent"
-          ) {
-            const childSessionId = item.receiverThreadIds[0];
-            if (childSessionId === undefined) continue;
-            const parentItemId =
-              item.id as import("@zuse/contracts").AgentItemId;
-            const childResponse = yield* Effect.tryPromise({
-              try: () =>
-                app.request<ThreadReadResponse>("thread/read", {
-                  threadId: childSessionId,
-                  includeTurns: true,
-                }),
-              catch: () => null,
-            });
-            const childThread = childResponse?.thread ?? null;
-            const agentName =
-              childThread?.name ??
-              childThread?.agentNickname ??
-              item.prompt?.split("\n", 1)[0]?.slice(0, 80) ??
-              "Subagent";
-            out.push({
-              _tag: "tool_use",
-              itemId: parentItemId,
-              tool: "Agent",
-              input: {
-                prompt: item.prompt ?? "",
-                description: agentName,
-                model: item.model ?? "inherit",
-              },
-              subagent: { childSessionId, presentation: "detached" },
-            });
-            let summary = "";
-            let durationMs = 0;
-            let turns = 0;
-            let isError = false;
-            for (const childTurn of childThread?.turns ?? []) {
-              turns += 1;
-              durationMs += childTurn.durationMs ?? 0;
-              isError ||= childTurn.status === "failed";
-              for (const childItem of childTurn.items) {
-                if (childItem.type === "userMessage") continue;
-                for (const phase of ["started", "completed"] as const) {
-                  for (const event of translateCodexItem(childItem, phase)) {
-                    const nested =
-                      event._tag === "AssistantMessage" ||
-                      event._tag === "Thinking" ||
-                      event._tag === "ToolUse" ||
-                      event._tag === "ToolResult"
-                        ? { ...event, parentItemId }
-                        : null;
-                    if (nested === null) continue;
-                    if (nested._tag === "AssistantMessage") {
-                      summary = nested.text;
-                    }
-                    const content = eventToContent(nested);
-                    if (content !== null) out.push(content);
-                  }
-                }
-              }
-            }
-            out.push({
-              _tag: "subagent_summary",
-              itemId: parentItemId,
-              agentName,
-              model: item.model ?? "inherit",
-              turns,
-              durationMs,
-              summary,
-              isError,
-              childSessionId,
-              presentation: "detached",
-            });
-            continue;
-          }
-          for (const phase of ["started", "completed"] as const) {
-            for (const event of translateCodexItem(item, phase)) {
-              const content = eventToContent(event);
-              if (content !== null) out.push(content);
-            }
-          }
-        }
-        if (turn.status === "failed" && turn.error !== null) {
-          out.push({
-            _tag: "error",
-            message: turn.error.message,
-          });
-        }
-      }
-      return out;
-    } finally {
-      app.close();
-    }
   }).pipe(Effect.catch(() => Effect.succeed([])));
 
 const toExternalThread = (thread: DiscoveredThread): ExternalThread =>

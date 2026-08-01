@@ -368,7 +368,7 @@ function TabButton({
 	);
 }
 
-function ChatTabButton({
+export function ChatTabButton({
 	active,
 	label,
 	title,
@@ -430,14 +430,8 @@ function ChatTabButton({
 						/>
 					)}
 				</span>
-				<span
-					className="min-w-0 truncate leading-none"
-					aria-live={booting ? "polite" : undefined}
-				>
-					<TypewriterText
-						text={booting ? "Starting agent…" : label}
-						className="truncate"
-					/>
+				<span className="min-w-0 truncate leading-none">
+					<TypewriterText text={label} className="truncate" />
 				</span>
 			</button>
 			<button

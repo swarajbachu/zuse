@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { PlanType } from "@zuse/agents/codex-generated/PlanType";
 import type { Account } from "@zuse/agents/codex-generated/v2/Account";
 import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
-import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
+import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-client";
 import {
   AgentAvailability,
   type CliVersionStatus,
@@ -184,6 +184,29 @@ export const selectCliPathCandidate = (
   );
 };
 
+export const selectNewestCliPathCandidate = (
+  candidates: ReadonlyArray<{
+    readonly path: string;
+    readonly version: CliVersion | null;
+  }>,
+): string | null => {
+  const first = candidates[0];
+  if (first === undefined) return null;
+  const versioned = candidates.filter(
+    (candidate): candidate is { readonly path: string; readonly version: CliVersion } =>
+      candidate.version !== null,
+  );
+  const firstVersioned = versioned[0];
+  if (firstVersioned === undefined) return first.path;
+  let newest = firstVersioned;
+  for (const candidate of versioned.slice(1)) {
+    if (compareCliVersion(candidate.version, newest.version) > 0) {
+      newest = candidate;
+    }
+  }
+  return newest.path;
+};
+
 /**
  * Resolve the absolute path to a provider's CLI binary on PATH, or `null` if
  * not found. Used by `ProviderService.start` to feed the SDK's
@@ -201,10 +224,22 @@ export const resolveCliPath = (
       Effect.catch(() => Effect.succeedNone),
     );
     if (result._tag !== "Some" || result.value.exitCode !== 0) return null;
-    return selectCliPathCandidate(
-      cliBinary,
-      splitCommandPaths(result.value.stdout),
+    const candidates = splitCommandPaths(result.value.stdout);
+    if (cliBinary !== "codex") {
+      return selectCliPathCandidate(cliBinary, candidates);
+    }
+    const eligible = [...new Set(candidates)].filter(
+      (candidate) => !isManagedCodexShimPath(normalizeCommandPath(candidate)),
     );
+    const versioned = yield* Effect.forEach(
+      eligible,
+      (path) =>
+        probeCliVersion(path).pipe(
+          Effect.map((version) => ({ path, version })),
+        ),
+      { concurrency: "unbounded" },
+    );
+    return selectNewestCliPathCandidate(versioned);
   });
 
 export interface CliVersion {
@@ -573,11 +608,9 @@ const codexAccountLabel = (account: Account): string | undefined => {
   }
 };
 
-const ACCOUNT_PROBE_TIMEOUT_MS = 5_000;
-
 /**
- * Spawn a short-lived `codex app-server`, call `account/read`, and pull
- * email + plan label off the response. Always resolves to an `AccountInfo`
+ * Read `account/read` through the shared control client and pull email + plan
+ * label off the response. Always resolves to an `AccountInfo`
  * — spawn failures, timeouts, and protocol errors all flow through to a
  * tagged "unknown" result with the error message in `statusMessage` so the
  * UI can show "Needs attention" without crashing the whole availability
@@ -585,17 +618,10 @@ const ACCOUNT_PROBE_TIMEOUT_MS = 5_000;
  */
 const probeCodexAccount = (codexPath: string): Effect.Effect<AccountInfo> =>
   Effect.promise(async () => {
-    let client: CodexAppServerClient | null = null;
     try {
-      client = await CodexAppServerClient.start({
+      const response = await withCodexControlClient(
         codexPath,
-        startupTimeoutMs: ACCOUNT_PROBE_TIMEOUT_MS,
-        onNotification: () => {},
-        onServerRequest: (_req, respond) => respond(null),
-      });
-      const response = await client.request<GetAccountResponse>(
-        "account/read",
-        {},
+        (client) => client.request<GetAccountResponse>("account/read", {}),
       );
       if (response.account === null) {
         return {
@@ -621,10 +647,6 @@ const probeCodexAccount = (codexPath: string): Effect.Effect<AccountInfo> =>
         statusMessage:
           err instanceof Error ? err.message : "Could not verify Codex auth",
       } satisfies AccountInfo;
-    } finally {
-      // Kill the child process — without this the `codex app-server`
-      // subprocess leaks for several minutes per probe.
-      client?.close();
     }
   });
 

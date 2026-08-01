@@ -42,6 +42,7 @@ import {
 	CodexAppServerClient,
 	CodexAppServerRequestError,
 } from "./codex-app-server-client.ts";
+import { reportCodexStderr } from "./codex-stderr-reporter.ts";
 import {
 	type CompactSnapshot,
 	finishCompactEvent,
@@ -1397,7 +1398,9 @@ export const startCodexSession = (
 						void handleServerRequest(request)
 							.then(respond)
 							.catch((cause) => {
-								console.warn("[codex-app-server] request failed", cause);
+								reportCodexStderr(
+									`request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+								);
 								respond(defaultServerRequestResponse(request));
 							});
 					},
@@ -1493,7 +1496,9 @@ export const startCodexSession = (
 							void handleServerRequest(request)
 								.then(respond)
 								.catch((cause) => {
-									console.warn("[codex-app-server] request failed", cause);
+									reportCodexStderr(
+										`request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+									);
 									respond(defaultServerRequestResponse(request));
 								});
 						},
