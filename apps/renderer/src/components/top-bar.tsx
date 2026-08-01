@@ -31,7 +31,9 @@ import {
 import { Effect } from "effect";
 import {
 	type CSSProperties,
+	lazy,
 	type ReactNode,
+	Suspense,
 	useEffect,
 	useMemo,
 	useState,
@@ -68,7 +70,6 @@ import {
 } from "./glass-action.tsx";
 import { OpenTargetIcon } from "./open-target-icon.tsx";
 import { TooltipShortcut } from "./projects-sidebar.tsx";
-import { RenameDialog } from "./rename-dialog.tsx";
 import { ErrorBoundary } from "./ui/error-boundary.tsx";
 import {
 	Menu,
@@ -80,6 +81,11 @@ import {
 } from "./ui/menu.tsx";
 import { toastManager } from "./ui/toast.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
+
+const loadRenameDialog = () => import("./rename-dialog.tsx");
+const RenameDialog = lazy(() =>
+	loadRenameDialog().then((module) => ({ default: module.RenameDialog })),
+);
 
 /**
  * Open a URL in the user's real browser via the desktop bridge, falling back
@@ -341,7 +347,10 @@ export function TopBarMain() {
 									error={branchError}
 									loading={branchesLoading}
 									onOpen={() => void refreshBranches()}
-									onRename={() => setRenameOpen(true)}
+									onRename={() => {
+										void loadRenameDialog();
+										setRenameOpen(true);
+									}}
 									onSwitch={(branch) => void switchToBranch(branch)}
 								/>
 							</>
@@ -349,18 +358,23 @@ export function TopBarMain() {
 					</div>
 				) : null}
 			</div>
-			{folderId !== null && worktreeId !== null && branchLabel !== null ? (
-				<RenameBranchDialog
-					branchLabel={branchLabel}
-					open={renameOpen}
-					onOpenChange={setRenameOpen}
-					onRenamed={async () => {
-						refreshAfterAction(folderId, worktreeId);
-						await refreshWorktrees(folderId);
-						await refreshBranches();
-					}}
-					worktreeId={worktreeId}
-				/>
+			{renameOpen &&
+			folderId !== null &&
+			worktreeId !== null &&
+			branchLabel !== null ? (
+				<Suspense fallback={null}>
+					<RenameBranchDialog
+						branchLabel={branchLabel}
+						open
+						onOpenChange={setRenameOpen}
+						onRenamed={async () => {
+							refreshAfterAction(folderId, worktreeId);
+							await refreshWorktrees(folderId);
+							await refreshBranches();
+						}}
+						worktreeId={worktreeId}
+					/>
+				</Suspense>
 			) : null}
 			{hasSession ? (
 				<OpenInMenu rootPath={ctx.status === "ready" ? ctx.rootPath : null} />

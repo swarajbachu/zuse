@@ -9,6 +9,7 @@ import {
 } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import {
+	OtlpExporter,
 	OtlpMetrics,
 	OtlpSerialization,
 	OtlpTracer,
@@ -201,6 +202,7 @@ export const TelemetryObservabilityLive = Layer.unwrap(
 		return Layer.merge(tracerLayer, metricsLayer);
 	}),
 ).pipe(
+	Layer.provideMerge(OtlpExporter.layerFlusher),
 	Layer.provideMerge(OtlpSerialization.layerJson),
 	Layer.provideMerge(FetchHttpClient.layer),
 );

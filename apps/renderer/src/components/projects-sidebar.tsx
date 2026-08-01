@@ -29,7 +29,15 @@ import type {
 	SessionStatus,
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+	Fragment,
+	lazy,
+	Suspense,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { BlurredEmail } from "~/components/blurred-email.tsx";
 import { TypewriterText } from "~/components/typewriter-text.tsx";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
@@ -89,9 +97,13 @@ import { useWorkspaceStore } from "../store/workspace.ts";
 import { BranchIcon, type BranchState } from "./branch-icon.tsx";
 import { ComputerSwitcher } from "./computer-switcher.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
-import { RenameDialog } from "./rename-dialog.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { Spinner } from "./ui/spinner";
+
+const loadRenameDialog = () => import("./rename-dialog.tsx");
+const RenameDialog = lazy(() =>
+	loadRenameDialog().then((module) => ({ default: module.RenameDialog })),
+);
 
 const sidebarErrorToastCache = {
 	chats: null as string | null,
@@ -1151,6 +1163,7 @@ function ChatRow({ chat }: { chat: Chat }) {
 	const [renameOpen, setRenameOpen] = useState(false);
 	const onRename = () => {
 		setMenuOpen(false);
+		void loadRenameDialog();
 		setRenameOpen(true);
 	};
 
@@ -1190,15 +1203,19 @@ function ChatRow({ chat }: { chat: Chat }) {
 
 	return (
 		<>
-			<RenameDialog
-				title="Rename chat"
-				description="Change the name shown in the projects sidebar."
-				label="Chat name"
-				value={chat.title}
-				open={renameOpen}
-				onOpenChange={setRenameOpen}
-				onRename={(title) => renameChat(chat.id, title)}
-			/>
+			{renameOpen ? (
+				<Suspense fallback={null}>
+					<RenameDialog
+						title="Rename chat"
+						description="Change the name shown in the projects sidebar."
+						label="Chat name"
+						value={chat.title}
+						open
+						onOpenChange={setRenameOpen}
+						onRename={(title) => renameChat(chat.id, title)}
+					/>
+				</Suspense>
+			) : null}
 			<li>
 				{/* biome-ignore lint/a11y/useSemanticElements: this row contains a nested archive action. */}
 				<div

@@ -27,7 +27,7 @@
 		"@codemirror/language": "^6.11.4",
 		"@codemirror/state": "^6.5.2",
 		"@codemirror/view": "^6.39.0",
-		"@effect/atom-react": "4.0.0-beta.97",
+		"@effect/atom-react": "4.0.0-beta.102",
 		"@fontsource-variable/geist-mono": "^5.2.7",
 		"@fontsource-variable/inter": "^5.2.8",
 		"@formkit/auto-animate": "^0.9.0",

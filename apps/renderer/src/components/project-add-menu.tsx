@@ -5,15 +5,26 @@ import {
 	GlobeIcon,
 } from "@hugeicons-pro/core-solid-rounded";
 import { Plus } from "lucide-react";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
-import { CloneRepoDialog } from "./clone-repo-dialog.tsx";
-import { CreateProjectDialog } from "./create-project-dialog.tsx";
 import { TooltipShortcut } from "./projects-sidebar.tsx";
+
+const loadCloneRepoDialog = () => import("./clone-repo-dialog.tsx");
+const CloneRepoDialog = lazy(() =>
+	loadCloneRepoDialog().then((module) => ({
+		default: module.CloneRepoDialog,
+	})),
+);
+const loadCreateProjectDialog = () => import("./create-project-dialog.tsx");
+const CreateProjectDialog = lazy(() =>
+	loadCreateProjectDialog().then((module) => ({
+		default: module.CreateProjectDialog,
+	})),
+);
 
 /**
  * Replaces the bare `+` button in the projects sidebar with a three-way
@@ -64,6 +75,8 @@ export function ProjectAddMenu() {
 						Open project
 					</MenuItem>
 					<MenuItem
+						onFocus={() => void loadCloneRepoDialog()}
+						onPointerEnter={() => void loadCloneRepoDialog()}
 						onClick={() => setCloneOpen(true)}
 						className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
 					>
@@ -74,6 +87,8 @@ export function ProjectAddMenu() {
 						Open GitHub project
 					</MenuItem>
 					<MenuItem
+						onFocus={() => void loadCreateProjectDialog()}
+						onPointerEnter={() => void loadCreateProjectDialog()}
 						onClick={() => setCreateOpen(true)}
 						className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
 					>
@@ -86,8 +101,16 @@ export function ProjectAddMenu() {
 				</MenuPopup>
 			</Menu>
 
-			<CloneRepoDialog open={cloneOpen} onOpenChange={setCloneOpen} />
-			<CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
+			{cloneOpen ? (
+				<Suspense fallback={null}>
+					<CloneRepoDialog open onOpenChange={setCloneOpen} />
+				</Suspense>
+			) : null}
+			{createOpen ? (
+				<Suspense fallback={null}>
+					<CreateProjectDialog open onOpenChange={setCreateOpen} />
+				</Suspense>
+			) : null}
 		</>
 	);
 }

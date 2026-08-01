@@ -30,7 +30,7 @@
 	"dependencies": {
 		"@expo-google-fonts/geist-mono": "^0.4.1",
 		"@expo-google-fonts/inter": "^0.4.2",
-		"@effect/atom-react": "4.0.0-beta.97",
+		"@effect/atom-react": "4.0.0-beta.102",
 		"@expo/ui": "~57.0.6",
 		"@hugeicons-pro/core-solid-rounded": "^4.2.1",
 		"@hugeicons/react-native": "^1.0.15",

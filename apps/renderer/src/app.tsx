@@ -7,24 +7,8 @@ import {
 	useDefaultLayout,
 	usePanelRef,
 } from "react-resizable-panels";
-import { ChatLanding } from "./components/chat-landing.tsx";
-import { ChatSwitcher } from "./components/chat-switcher.tsx";
-import { CliUpgradeBanner } from "./components/cli-upgrade-banner.tsx";
-import { DirectoryUnavailableBanner } from "./components/directory-unavailable-banner.tsx";
-import { EnvironmentSummary } from "./components/environment-summary.tsx";
-import { closeActiveChatTab, MainTabs } from "./components/main-tabs.tsx";
-import { NearbyPairingApproval } from "./components/nearby-pairing-approval.tsx";
-import { NotchTrayBridge } from "./components/notch-tray-bridge.tsx";
 import { PendingChatCreationSurface } from "./components/pending-chat-creation.tsx";
-import { ProjectsSidebar } from "./components/projects-sidebar";
-import { ProviderUpdatesToast } from "./components/provider-updates-toast.tsx";
-import {
-	SidebarPeekOverlay,
-	SidebarPeekTrigger,
-} from "./components/sidebar-peek.tsx";
-import { TopBarLeft, TopBarMain, TopBarRight } from "./components/top-bar.tsx";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
-import { UpdateBanner } from "./components/update-banner.tsx";
 import { useChatDirectoryStatus } from "./hooks/use-chat-directory-status.ts";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 import { useMediaQuery } from "./hooks/use-media-query.ts";
@@ -35,6 +19,7 @@ import {
 	trackAnalyticsScreen,
 } from "./lib/analytics.ts";
 import { AppearanceController } from "./lib/appearance.tsx";
+import { closeActiveChatTab } from "./lib/close-chat-tab.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
 import { shouldMountRightPane } from "./shell/right-pane-lifecycle.ts";
 import { useAuthStore } from "./store/auth.ts";
@@ -52,6 +37,86 @@ import { useWorktreesStore } from "./store/worktrees.ts";
 const PANEL_GROUP_ID = "zuse.shell.v3";
 const PANEL_IDS = ["projects", "main", "files"];
 
+const MainTabs = lazy(() =>
+	import("./components/main-tabs.tsx").then((module) => ({
+		default: module.MainTabs,
+	})),
+);
+const ChatLanding = lazy(() =>
+	import("./components/chat-landing.tsx").then((module) => ({
+		default: module.ChatLanding,
+	})),
+);
+const ProjectsSidebar = lazy(() =>
+	import("./components/projects-sidebar.tsx").then((module) => ({
+		default: module.ProjectsSidebar,
+	})),
+);
+const TopBarLeft = lazy(() =>
+	import("./components/top-bar.tsx").then((module) => ({
+		default: module.TopBarLeft,
+	})),
+);
+const TopBarMain = lazy(() =>
+	import("./components/top-bar.tsx").then((module) => ({
+		default: module.TopBarMain,
+	})),
+);
+const TopBarRight = lazy(() =>
+	import("./components/top-bar.tsx").then((module) => ({
+		default: module.TopBarRight,
+	})),
+);
+const ChatSwitcher = lazy(() =>
+	import("./components/chat-switcher.tsx").then((module) => ({
+		default: module.ChatSwitcher,
+	})),
+);
+const CliUpgradeBanner = lazy(() =>
+	import("./components/cli-upgrade-banner.tsx").then((module) => ({
+		default: module.CliUpgradeBanner,
+	})),
+);
+const DirectoryUnavailableBanner = lazy(() =>
+	import("./components/directory-unavailable-banner.tsx").then((module) => ({
+		default: module.DirectoryUnavailableBanner,
+	})),
+);
+const EnvironmentSummary = lazy(() =>
+	import("./components/environment-summary.tsx").then((module) => ({
+		default: module.EnvironmentSummary,
+	})),
+);
+const NearbyPairingApproval = lazy(() =>
+	import("./components/nearby-pairing-approval.tsx").then((module) => ({
+		default: module.NearbyPairingApproval,
+	})),
+);
+const NotchTrayBridge = lazy(() =>
+	import("./components/notch-tray-bridge.tsx").then((module) => ({
+		default: module.NotchTrayBridge,
+	})),
+);
+const ProviderUpdatesToast = lazy(() =>
+	import("./components/provider-updates-toast.tsx").then((module) => ({
+		default: module.ProviderUpdatesToast,
+	})),
+);
+const SidebarPeekOverlay = lazy(() =>
+	import("./components/sidebar-peek.tsx").then((module) => ({
+		default: module.SidebarPeekOverlay,
+	})),
+);
+const SidebarPeekTrigger = lazy(() =>
+	import("./components/sidebar-peek.tsx").then((module) => ({
+		default: module.SidebarPeekTrigger,
+	})),
+);
+const UpdateBanner = lazy(() =>
+	import("./components/update-banner.tsx").then((module) => ({
+		default: module.UpdateBanner,
+	})),
+);
 const ArchivedChatsPage = lazy(() =>
 	import("./components/archived-chats-page.tsx").then((module) => ({
 		default: module.ArchivedChatsPage,
@@ -120,6 +185,23 @@ function SurfaceFallback() {
 
 function ComposerFallback() {
 	return <div className="h-24 shrink-0" aria-busy="true" />;
+}
+
+function TopBarFallback() {
+	return <div className="h-9 shrink-0 border-b border-border" aria-hidden />;
+}
+
+function TabsFallback() {
+	return <div className="h-10 shrink-0 border-b border-border" aria-hidden />;
+}
+
+function AmbientSurfaces() {
+	return (
+		<Suspense fallback={null}>
+			<NotchTrayBridge />
+			<NearbyPairingApproval />
+		</Suspense>
+	);
 }
 /**
  * Root component. Owns only the cross-cutting concerns that need to run in
@@ -220,8 +302,7 @@ export function App() {
 	if (!onboardingCompleted) {
 		return (
 			<TooltipProvider>
-				<NotchTrayBridge />
-				<NearbyPairingApproval />
+				<AmbientSurfaces />
 				<AppearanceController />
 				<div className="relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
 					<Suspense fallback={<SurfaceFallback />}>
@@ -235,8 +316,7 @@ export function App() {
 	if (view === "settings") {
 		return (
 			<TooltipProvider>
-				<NotchTrayBridge />
-				<NearbyPairingApproval />
+				<AmbientSurfaces />
 				<AppearanceController />
 				<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
 					<Suspense fallback={<SurfaceFallback />}>
@@ -249,8 +329,7 @@ export function App() {
 
 	return (
 		<TooltipProvider>
-			<NotchTrayBridge />
-			<NearbyPairingApproval />
+			<AmbientSurfaces />
 			<AppearanceController />
 			<MainShell />
 		</TooltipProvider>
@@ -458,23 +537,35 @@ function MainShell() {
 					}}
 				>
 					<div className="flex h-full min-h-0 flex-col bg-background/70">
-						<TopBarLeft />
+						<Suspense fallback={<TopBarFallback />}>
+							<TopBarLeft />
+						</Suspense>
 						<div className="flex min-h-0 flex-1 flex-col">
-							<ProjectsSidebar />
+							<Suspense fallback={<SurfaceFallback />}>
+								<ProjectsSidebar />
+							</Suspense>
 						</div>
 					</div>
 				</Panel>
 				<Separator className="w-px bg-border transition-colors hover:bg-foreground/20 active:bg-foreground/30" />
 				<Panel id="main" minSize="30%">
 					<main className="flex h-full min-h-0 min-w-0 flex-col bg-background">
-						{showMainChrome ? <TopBarMain /> : null}
-						<UpdateBanner />
-						<ProviderUpdatesToast />
+						{showMainChrome ? (
+							<Suspense fallback={<TopBarFallback />}>
+								<TopBarMain />
+							</Suspense>
+						) : null}
+						<Suspense fallback={null}>
+							<UpdateBanner />
+							<ProviderUpdatesToast />
+						</Suspense>
 						{showMainTabs ? (
-							<MainTabs
-								projectId={selectedFolderId}
-								emptyLabel={emptyTabLabel}
-							/>
+							<Suspense fallback={<TabsFallback />}>
+								<MainTabs
+									projectId={selectedFolderId}
+									emptyLabel={emptyTabLabel}
+								/>
+							</Suspense>
 						) : null}
 						<div
 							hidden={activeMainTab !== "chat"}
@@ -507,12 +598,16 @@ function MainShell() {
 												aria-hidden
 												className="pointer-events-none absolute inset-x-0 -top-10 bottom-0 -z-10 backdrop-blur-md [mask-image:linear-gradient(to_bottom,transparent,black_45%)]"
 											/>
-											<CliUpgradeBanner
-												providerId={selectedSession.providerId}
-												constrain={false}
-											/>
+											<Suspense fallback={null}>
+												<CliUpgradeBanner
+													providerId={selectedSession.providerId}
+													constrain={false}
+												/>
+											</Suspense>
 											{directoryUnavailable ? (
-												<DirectoryUnavailableBanner />
+												<Suspense fallback={null}>
+													<DirectoryUnavailableBanner />
+												</Suspense>
 											) : null}
 											{selectedQueueHydrated ? (
 												<Suspense fallback={<ComposerFallback />}>
@@ -545,13 +640,17 @@ function MainShell() {
 														: "translate-x-3"
 												}`}
 											>
-												<EnvironmentSummary />
+												<Suspense fallback={null}>
+													<EnvironmentSummary />
+												</Suspense>
 											</div>
 										</div>
 									) : null}
 								</div>
 							) : (
-								<ChatLanding />
+								<Suspense fallback={<SurfaceFallback />}>
+									<ChatLanding />
+								</Suspense>
 							)}
 						</div>
 						<div
@@ -648,7 +747,9 @@ function MainShell() {
 					}}
 				>
 					<div className="flex h-full min-h-0 flex-col bg-background">
-						<TopBarRight />
+						<Suspense fallback={<TopBarFallback />}>
+							<TopBarRight />
+						</Suspense>
 						<div className="flex min-h-0 flex-1 flex-col">
 							{shouldMountRightPane(rightSidebarOpen) ? (
 								<Suspense fallback={<SurfaceFallback />}>
@@ -659,9 +760,11 @@ function MainShell() {
 					</div>
 				</Panel>
 			</Group>
-			<SidebarPeekTrigger />
-			<SidebarPeekOverlay />
-			<ChatSwitcher />
+			<Suspense fallback={null}>
+				<SidebarPeekTrigger />
+				<SidebarPeekOverlay />
+				<ChatSwitcher />
+			</Suspense>
 		</div>
 	);
 }
