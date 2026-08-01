@@ -12,6 +12,7 @@ describe("Zuse Serve service definitions", () => {
 			executable: "/opt/zuse/bin/zuse",
 			dataDir: "/Users/dev/.local/share/zuse",
 			logDir: "/Users/dev/Library/Logs/Zuse",
+			relayUrl: "http://127.0.0.1:8790",
 		});
 
 		expect(definition.label).toBe("sh.zuse.serve");
@@ -21,6 +22,9 @@ describe("Zuse Serve service definitions", () => {
 			"<string>/Users/dev/.local/share/zuse</string>",
 		);
 		expect(definition.contents).toContain("<key>KeepAlive</key>");
+		expect(definition.contents).toContain(
+			"<string>http://127.0.0.1:8790</string>",
+		);
 		expect(definition.contents).not.toMatch(/token|credential|authorization/iu);
 	});
 

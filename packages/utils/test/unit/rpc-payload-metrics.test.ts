@@ -20,6 +20,7 @@ describe("RPC payload metrics", () => {
 		const parser = makeMeasuredJsonRpcSerialization({
 			encodeDirection: "outbound",
 			decodeDirection: "inbound",
+			allowedRpcLabels: new Set(["session.events"]),
 			record: reporter.record,
 		}).makeUnsafe();
 
@@ -59,6 +60,37 @@ describe("RPC payload metrics", () => {
 		);
 		expect(JSON.stringify(reports)).not.toContain("session-secret");
 		expect(JSON.stringify(reports)).not.toContain("not retained");
+	});
+
+	it("replaces unregistered wire tags instead of logging attacker text", () => {
+		const reports: RpcPayloadReport[] = [];
+		const reporter = makeRpcPayloadReporter({
+			transport: "test",
+			flushEveryFrames: 1,
+			onReport: (report) => reports.push(report),
+		});
+		const parser = makeMeasuredJsonRpcSerialization({
+			encodeDirection: "outbound",
+			decodeDirection: "inbound",
+			allowedRpcLabels: new Set(["session.events"]),
+			record: reporter.record,
+		}).makeUnsafe();
+
+		parser.decode(
+			JSON.stringify({
+				_tag: "Request",
+				id: 9,
+				tag: "secret prompt or /private/token/path",
+				payload: {},
+				headers: [],
+			}),
+		);
+		parser.decode(JSON.stringify({ _tag: "/private/token/path" }));
+
+		expect(reports[0]?.metrics[0]?.rpc).toBe("@unknown");
+		expect(reports[1]?.metrics[0]?.rpc).toBe("@unknown");
+		expect(JSON.stringify(reports)).not.toContain("secret prompt");
+		expect(JSON.stringify(reports)).not.toContain("private/token");
 	});
 
 	it("flushes a large frame immediately", () => {
@@ -113,6 +145,7 @@ describe("RPC payload metrics", () => {
 		const parser = makeMeasuredJsonRpcSerialization({
 			encodeDirection: "outbound",
 			decodeDirection: "inbound",
+			allowedRpcLabels: new Set<string>(),
 			record: reporter.record,
 		}).makeUnsafe();
 		const message = { _tag: "Pong", value: "🙂" };

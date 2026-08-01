@@ -34,7 +34,8 @@ const APP_URL = "https://app.zuse.sh";
 const workosClientId = (env: NodeJS.ProcessEnv): string =>
 	(env.WORKOS_CLIENT_ID ?? "").trim() || WORKOS_PUBLIC_CLIENT_ID;
 
-const resolveDataDir = (env: NodeJS.ProcessEnv): string => {
+const resolveDataDir = (env: NodeJS.ProcessEnv, override?: string): string => {
+	if (override !== undefined) return override;
 	if (env.ZUSE_USER_DATA) return env.ZUSE_USER_DATA;
 	const xdg = env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
 	return join(xdg, "zuse");
@@ -271,12 +272,19 @@ export const runServePackageCli = async (
 	const normalized = argv[0] === "serve" ? argv : ["serve", ...argv];
 	const command = parseServeCommand(normalized);
 	env.ZUSE_RUNTIME_VERSION = options.packageVersion ?? "0.0.0";
-	const dataDir = resolveDataDir(env);
+	env.ZUSE_RELAY_URL = env.ZUSE_RELAY_URL ?? DEFAULT_RELAY_URL;
+	const dataDir = resolveDataDir(env, command.dataDir);
+	env.ZUSE_USER_DATA = dataDir;
 	const servicePaths = resolveServeServicePaths({ dataDir });
+	const installService = (executable: string) =>
+		installServeService({
+			executable,
+			paths: servicePaths,
+			relayUrl: env.ZUSE_RELAY_URL,
+		});
 
 	if (command.action === "start" && command.foreground) {
 		env.ZUSE_SERVE_AUTO_LINK = "1";
-		env.ZUSE_RELAY_URL = env.ZUSE_RELAY_URL ?? DEFAULT_RELAY_URL;
 		runHeadlessServer({
 			host: "127.0.0.1",
 			port: Number(env.ZUSE_PORT ?? 4859),
@@ -331,22 +339,16 @@ export const runServePackageCli = async (
 		const executable = await installDurableServeRuntime({ dataDir, version });
 		const previous = await readActiveServeRuntime(dataDir);
 		try {
-			await installServeService({ executable, paths: servicePaths });
+			await installService(executable);
 		} catch (cause) {
 			if (previous !== null) {
-				await installServeService({
-					executable: previous.executable,
-					paths: servicePaths,
-				}).catch(() => undefined);
+				await installService(previous.executable).catch(() => undefined);
 			}
 			throw cause;
 		}
 		if (!(await waitForReachability(env))) {
 			if (previous !== null) {
-				await installServeService({
-					executable: previous.executable,
-					paths: servicePaths,
-				});
+				await installService(previous.executable);
 				await waitForReachability(env, 20_000);
 				throw new Error(
 					"The updated runtime failed its readiness check and Zuse restored the previous runtime.",
@@ -400,15 +402,11 @@ export const runServePackageCli = async (
 						dataDir,
 						version: packageVersion,
 					});
-		await installServeService({
-			executable: installedExecutable,
-			paths: servicePaths,
-		});
+		await installService(installedExecutable);
 	} catch (cause) {
 		if (cause instanceof UnsupportedServiceManagerError) {
 			console.warn(`${cause.message} Starting in the foreground instead.`);
 			env.ZUSE_SERVE_AUTO_LINK = "1";
-			env.ZUSE_RELAY_URL = env.ZUSE_RELAY_URL ?? DEFAULT_RELAY_URL;
 			runHeadlessServer({
 				host: "127.0.0.1",
 				port: Number(env.ZUSE_PORT ?? 4859),

@@ -1,4 +1,10 @@
 import type { LagKind, LagSample } from "@zuse/contracts";
+import {
+	createFallbackStallAttribution,
+	createLongAnimationFrameSample,
+	type LongAnimationFrameEntry,
+} from "./stall-attribution.ts";
+import type { StallContext } from "./stall-context.ts";
 
 export interface RendererLagInput {
 	readonly kind: LagKind;
@@ -11,6 +17,7 @@ export interface RendererLagInput {
 
 export function createRendererLagSample(
 	input: RendererLagInput,
+	context?: StallContext,
 ): LagSample | null {
 	if (!input.visible || !Number.isFinite(input.durationMs)) return null;
 	if (input.durationMs < 100) return null;
@@ -27,11 +34,21 @@ export function createRendererLagSample(
 		durationMs,
 		source: "renderer",
 		name: `renderer.${input.kind}`,
+		...(context === undefined
+			? {}
+			: {
+					attribution: createFallbackStallAttribution(
+						input.kind,
+						input.name,
+						context,
+					),
+				}),
 	};
 }
 
 export function installRendererLagMonitor(
 	report: (samples: ReadonlyArray<LagSample>) => void,
+	readContext: () => StallContext,
 ): () => void {
 	const observers: PerformanceObserver[] = [];
 	const queued: LagSample[] = [];
@@ -61,15 +78,35 @@ export function installRendererLagMonitor(
 
 	if (typeof PerformanceObserver !== "undefined") {
 		const supported = PerformanceObserver.supportedEntryTypes ?? [];
-		if (supported.includes("longtask")) {
+		const supportsLongAnimationFrame = supported.includes(
+			"long-animation-frame",
+		);
+		if (supportsLongAnimationFrame) {
 			const observer = new PerformanceObserver((list) => {
 				for (const entry of list.getEntries()) {
 					enqueue(
-						createRendererLagSample({
-							kind: "long-task",
-							durationMs: entry.duration,
-							visible: visible(),
-						}),
+						createLongAnimationFrameSample(
+							entry as unknown as LongAnimationFrameEntry,
+							readContext(),
+						),
+					);
+				}
+			});
+			observer.observe({ type: "long-animation-frame", buffered: true });
+			observers.push(observer);
+		}
+		if (!supportsLongAnimationFrame && supported.includes("longtask")) {
+			const observer = new PerformanceObserver((list) => {
+				for (const entry of list.getEntries()) {
+					enqueue(
+						createRendererLagSample(
+							{
+								kind: "long-task",
+								durationMs: entry.duration,
+								visible: visible(),
+							},
+							readContext(),
+						),
 					);
 				}
 			});
@@ -80,11 +117,14 @@ export function installRendererLagMonitor(
 			const observer = new PerformanceObserver((list) => {
 				for (const entry of list.getEntries()) {
 					enqueue(
-						createRendererLagSample({
-							kind: "input-latency",
-							durationMs: entry.duration,
-							visible: visible(),
-						}),
+						createRendererLagSample(
+							{
+								kind: "input-latency",
+								durationMs: entry.duration,
+								visible: visible(),
+							},
+							readContext(),
+						),
 					);
 				}
 			});
@@ -93,6 +133,12 @@ export function installRendererLagMonitor(
 		}
 	}
 
+	const supportsLongAnimationFrame =
+		typeof PerformanceObserver !== "undefined" &&
+		(PerformanceObserver.supportedEntryTypes?.includes(
+			"long-animation-frame",
+		) ??
+			false);
 	let animationFrame: number | null = null;
 	let animationProbeTimer: number | null = null;
 	const scheduleAnimationProbe = () => {
@@ -108,17 +154,21 @@ export function installRendererLagMonitor(
 			animationFrame = requestAnimationFrame((timestamp) => {
 				animationFrame = null;
 				enqueue(
-					createRendererLagSample({
-						kind: "animation-stall",
-						durationMs: timestamp - requestedAt,
-						visible: visible() && requestedGeneration === visibilityGeneration,
-					}),
+					createRendererLagSample(
+						{
+							kind: "animation-stall",
+							durationMs: timestamp - requestedAt,
+							visible:
+								visible() && requestedGeneration === visibilityGeneration,
+						},
+						readContext(),
+					),
 				);
 				scheduleAnimationProbe();
 			});
 		}, 1_000);
 	};
-	scheduleAnimationProbe();
+	if (!supportsLongAnimationFrame) scheduleAnimationProbe();
 
 	return () => {
 		disposed = true;

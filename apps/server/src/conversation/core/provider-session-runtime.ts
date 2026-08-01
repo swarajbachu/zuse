@@ -102,8 +102,19 @@ export const makeProviderSessionRuntime = (
 	const openProviderSession = (
 		session: Session,
 		options: OpenProviderSessionOptions = {},
-	): Effect.Effect<void, SessionStartError> =>
+	): Effect.Effect<boolean, SessionStartError> =>
 		Effect.gen(function* () {
+			// Resolve configuration again at the execution edge. Reactor handlers may
+			// have captured this row before a provider/model switch committed.
+			const configured = yield* lookupSession(session.id).pipe(
+				Effect.map(
+					(current) =>
+						current.providerId === session.providerId &&
+						current.model === session.model,
+				),
+				Effect.catch(() => Effect.succeed(false)),
+			);
+			if (!configured) return false;
 			state.setRuntimeMode(session.id, session.runtimeMode);
 			const subagents = agentsFor(session.id);
 			const cwdOverride = yield* cwdForWorktree(session.worktreeId);
@@ -143,7 +154,7 @@ export const makeProviderSessionRuntime = (
 					model: session.model,
 				},
 			);
-			yield* provider
+			const started = yield* provider
 				.start(
 					{
 						folderId: session.projectId,
@@ -185,33 +196,78 @@ export const makeProviderSessionRuntime = (
 									}),
 					),
 				);
-			yield* attachProvider(session.id, session.providerId);
-			if (options.postBootStatus !== undefined) {
-				yield* setStatus(session.id, options.postBootStatus);
+			if (started.superseded === true) return false;
+			const publishable = yield* lookupSession(session.id).pipe(
+				Effect.map(
+					(current) =>
+						current.providerId === session.providerId &&
+						current.model === session.model,
+				),
+				Effect.catch(() => Effect.succeed(false)),
+			);
+			if (!publishable) {
+				// The durable provider switch owns teardown. Closing by session id here
+				// could race with a newer startup and accidentally close its handle.
+				return false;
 			}
-			yield* startSubscription(session.id);
-			if (options.sendAfterOpen !== undefined) {
-				yield* provider
-					.send(
-						session.id,
-						options.sendAfterOpen.turnId,
-						options.sendAfterOpen.text,
-						options.sendAfterOpen.attachments,
-						options.sendAfterOpen.fileRefs,
-						options.sendAfterOpen.skillRefs,
-					)
-					.pipe(
-						Effect.catchTag("AgentSessionNotFoundError", () =>
-							Effect.fail(
-								new SessionStartError({
-									providerId: session.providerId,
-									reason: "Provider session disappeared after start.",
-								}),
+			const publish = (effect: Effect.Effect<void, SessionStartError>) =>
+				started.generation === undefined
+					? effect.pipe(Effect.as(true))
+					: provider.guardCurrent(session.id, started.generation, effect);
+			// Keep every externally visible handoff behind the lease. Guarding only
+			// `start()` still lets a stopped generation attach or publish `running`.
+			if (!(yield* publish(attachProvider(session.id, session.providerId))))
+				return false;
+			if (!(yield* publish(startSubscription(session.id)))) return false;
+			if (
+				options.sendAfterOpen !== undefined &&
+				!(yield* publish(
+					provider
+						.send(
+							session.id,
+							options.sendAfterOpen.turnId,
+							options.sendAfterOpen.text,
+							options.sendAfterOpen.attachments,
+							options.sendAfterOpen.fileRefs,
+							options.sendAfterOpen.skillRefs,
+						)
+						.pipe(
+							Effect.catchTag("AgentSessionNotFoundError", () =>
+								Effect.fail(
+									new SessionStartError({
+										providerId: session.providerId,
+										reason: "Provider session disappeared after start.",
+									}),
+								),
 							),
 						),
-					);
-			}
+				))
+			)
+				return false;
+			if (
+				options.postBootStatus !== undefined &&
+				!(yield* publish(setStatus(session.id, options.postBootStatus)))
+			)
+				return false;
+			return true;
 		});
 
-	return { openProviderSession };
+	/** The only external startup seam: callers identify durable work, while this
+	 * module resolves the latest provider configuration and owns the handoff. */
+	const ensureForTurn = (
+		sessionId: SessionId,
+		options: OpenProviderSessionOptions = {},
+	): Effect.Effect<boolean, SessionStartError> =>
+		lookupSession(sessionId).pipe(
+			Effect.mapError(
+				() =>
+					new SessionStartError({
+						providerId: "codex",
+						reason: "Session disappeared before provider startup.",
+					}),
+			),
+			Effect.flatMap((session) => openProviderSession(session, options)),
+		);
+
+	return { ensureForTurn };
 };

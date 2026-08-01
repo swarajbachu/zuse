@@ -36,7 +36,7 @@ describe("provider inline login", () => {
 		});
 	});
 
-	it("reopens before retrying a blocked existing-chat turn", async () => {
+	it("reopens the durable turn before releasing queued work", async () => {
 		const calls: string[] = [];
 		await expect(
 			resumeAfterProviderLogin({
@@ -44,16 +44,12 @@ describe("provider inline login", () => {
 					calls.push("reopen");
 					return true;
 				},
-				retry: async () => {
-					calls.push("retry");
-					return true;
-				},
 				resumeQueue: async () => {
 					calls.push("queue");
 				},
 			}),
 		).resolves.toBe(true);
-		expect(calls).toEqual(["reopen", "retry"]);
+		expect(calls).toEqual(["reopen", "queue"]);
 	});
 
 	it("flushes a fresh chat's startup queue when there is no sent turn", async () => {
@@ -64,15 +60,11 @@ describe("provider inline login", () => {
 					calls.push("reopen");
 					return true;
 				},
-				retry: async () => {
-					calls.push("retry");
-					return false;
-				},
 				resumeQueue: async () => {
 					calls.push("queue");
 				},
 			}),
 		).resolves.toBe(true);
-		expect(calls).toEqual(["reopen", "retry", "queue"]);
+		expect(calls).toEqual(["reopen", "queue"]);
 	});
 });

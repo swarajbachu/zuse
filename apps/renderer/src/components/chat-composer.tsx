@@ -12,7 +12,6 @@ import {
 	PlayIcon,
 	SentIcon,
 	SquareIcon,
-	Tick01Icon,
 	Upload01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
 import {
@@ -26,7 +25,6 @@ import {
 	type PermissionRequest,
 	type ProviderId,
 	type QueuedMessage,
-	type RuntimeMode,
 	type SelectOptionDescriptor,
 	type Session,
 	type SessionId,
@@ -52,11 +50,9 @@ import {
 	Menu,
 	MenuGroup,
 	MenuGroupLabel,
-	MenuItem,
 	MenuPopup,
 	MenuRadioGroup,
 	MenuRadioItem,
-	MenuSeparator,
 	MenuTrigger,
 } from "~/components/ui/menu";
 import { Textarea } from "~/components/ui/textarea";
@@ -95,8 +91,8 @@ import {
 	providerUsesEmulatedPlanMode,
 	shouldSendPlanFeedbackNow,
 } from "~/lib/plan-feedback-routing";
-import { getRpcClient } from "~/lib/rpc-client";
 import { attachmentUrl } from "~/lib/platform-capabilities";
+import { getRpcClient } from "~/lib/rpc-client";
 import { readStorageWithLegacy } from "~/lib/storage-keys";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import {
@@ -109,6 +105,7 @@ import type {
 } from "../composer/draft-attachments.ts";
 import { composerSnapshotFromInput } from "../composer/input-snapshot.ts";
 import { parseComposerInput } from "../composer/segment-parser.ts";
+import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
 import { useActiveWorkspaceRoot } from "../store/active-workspace.ts";
 import {
 	annotationsForSession,
@@ -126,7 +123,7 @@ import { useOpencodeInventory } from "../store/opencode-inventory.ts";
 import { usePaneFocus } from "../store/pane-focus.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
 import { useProvidersStore } from "../store/providers.ts";
-import { useSettingsStore } from "../store/settings.ts";
+import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { useSkillsStore } from "../store/skills.ts";
 import { AnnotationTray } from "./composer/annotation-tray.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
@@ -168,7 +165,6 @@ const attachmentsWithBrowserAnnotations = (
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { PermissionCard } from "./permission-card.tsx";
-import { ProviderIcon } from "./provider-icons.tsx";
 import { QuestionCard } from "./question-card.tsx";
 
 const MIN_HEIGHT = 56;
@@ -216,16 +212,18 @@ export function ChatComposer({
 	const draftKey = composerDraftKey ?? composerDraftKeyForSession(sessionId);
 	const isDraft = onDraftSubmit !== undefined;
 	const [reasoningLevel, setReasoningLevel] = useState<string | null>(null);
-	const inFlight = useMessagesStore(
-		(s) => s.runningBySession[sessionId] === true,
+	const runtimeState = useSessionRuntimeStore((s) =>
+		effectiveSessionRuntimeState(s.bySession[sessionId]),
 	);
+	const interrupting = runtimeState === "stopping";
+	const inFlight = runtimeState === "running" || runtimeState === "stopping";
 	// Hold messages only while the provider is unavailable or an earlier message
 	// is already queued. Worktree setup is independent background work and must
 	// not delay an agent that has finished booting.
 	const hasQueued = useMessagesStore(
 		(s) => (s.queueBySession[sessionId]?.length ?? 0) > 0,
 	);
-	const holdForAgent = hasQueued || session.status === "booting";
+	const holdForAgent = hasQueued || runtimeState === "starting";
 	const goal = useMessagesStore((s) => s.goalBySession[sessionId] ?? null);
 	const send = useMessagesStore((s) => s.send);
 	const respondToPlan = useSessionsStore((s) => s.respondToPlan);
@@ -397,7 +395,6 @@ export function ChatComposer({
 	const hasTextRef = useRef(false);
 	const [uploadingAttachmentCount, setUploadingAttachmentCount] = useState(0);
 	const [goalSendMode, setGoalSendMode] = useState(false);
-	const [interrupting, setInterrupting] = useState(false);
 	const [editingQueuedItem, setEditingQueuedItem] =
 		useState<QueuedMessage | null>(null);
 	const editingQueuedItemRef = useRef<QueuedMessage | null>(null);
@@ -1180,12 +1177,7 @@ export function ChatComposer({
 	const inUltracodeMode = reasoningLevel === "ultracode";
 	const requestInterrupt = async () => {
 		if (interrupting) return;
-		setInterrupting(true);
-		try {
-			await interrupt(sessionId);
-		} finally {
-			setInterrupting(false);
-		}
+		await interrupt(sessionId);
 	};
 	// Keep the editor mounted at all times. Permissions / questions render as
 	// a sibling above it, and we hide the editor block with `display: none`
@@ -1340,6 +1332,7 @@ export function ChatComposer({
 										/>
 									)
 								) : null}
+								{/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: CodeMirror owns keyboard semantics; clicking host padding forwards focus to its editor. */}
 								<div
 									ref={editorHostRef}
 									className="flex-1 overflow-y-auto bg-transparent text-sm leading-relaxed outline-none"
@@ -2118,7 +2111,12 @@ function ContextRing({ percent }: { percent: number | null }) {
 	const circumference = 2 * Math.PI * r;
 	const clamped = Math.min(Math.max(percent ?? 0, 0), 100);
 	return (
-		<svg viewBox="0 0 16 16" fill="none" className="size-3.5 -rotate-90">
+		<svg
+			viewBox="0 0 16 16"
+			fill="none"
+			className="size-3.5 -rotate-90"
+			aria-hidden="true"
+		>
 			<circle
 				cx="8"
 				cy="8"

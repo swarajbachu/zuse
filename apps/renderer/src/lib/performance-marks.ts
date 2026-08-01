@@ -1,5 +1,4 @@
 import {
-	recordDiagnosticEvent,
 	recordPowerInteraction,
 	recordUiAction,
 } from "./diagnostics-recorder.ts";
@@ -37,22 +36,13 @@ export function markRendererInteraction(
 	if (elapsed !== undefined) recordPowerInteraction(`chat.${stage}`, elapsed);
 }
 
+/**
+ * Compatibility shim for the three interaction-marking call sites that used
+ * to own RPC timing. The shared client boundary now measures every unary RPC.
+ */
 export async function trackRendererRpc<A>(
-	name: string,
+	_name: string,
 	operation: () => Promise<A>,
 ): Promise<A> {
-	const startedAt = performance.now();
-	try {
-		return await operation();
-	} finally {
-		const durationMs = performance.now() - startedAt;
-		if (durationMs >= 250) {
-			recordDiagnosticEvent({
-				level: durationMs >= 1_000 ? "warn" : "info",
-				source: "renderer.rpc.slow",
-				message: name,
-				detail: `durationMs=${durationMs.toFixed(1)}`,
-			});
-		}
-	}
+	return operation();
 }

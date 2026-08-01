@@ -3,7 +3,7 @@ import * as http from "node:http";
 import * as https from "node:https";
 import { NodeHttpServer } from "@effect/platform-node";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
-import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
+import { MemoizeRpcs, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import {
 	makeMeasuredJsonRpcSerialization,
 	makeRpcPayloadReporter,
@@ -737,6 +737,7 @@ export const wsServerProtocolLayer = (
 				makeMeasuredJsonRpcSerialization({
 					encodeDirection: "outbound",
 					decodeDirection: "inbound",
+					allowedRpcLabels: MemoizeRpcs.requests,
 					record: makeRpcPayloadReporter({
 						transport: "websocket",
 						onReport: (report) =>

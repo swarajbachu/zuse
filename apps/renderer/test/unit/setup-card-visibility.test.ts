@@ -7,9 +7,9 @@ describe("shouldShowSetupCard", () => {
 		expect(
 			shouldShowSetupCard({
 				externalResume: false,
+				initialSession: false,
 				hasWorktree: true,
 				setupDone: true,
-				providerBooting: true,
 			}),
 		).toBe(false);
 	});
@@ -18,10 +18,32 @@ describe("shouldShowSetupCard", () => {
 		expect(
 			shouldShowSetupCard({
 				externalResume: false,
+				initialSession: true,
 				hasWorktree: true,
 				setupDone: false,
-				providerBooting: false,
 			}),
 		).toBe(true);
+	});
+
+	it("does not use the chat setup card for provider startup", () => {
+		expect(
+			shouldShowSetupCard({
+				externalResume: false,
+				initialSession: true,
+				hasWorktree: false,
+				setupDone: false,
+			}),
+		).toBe(false);
+	});
+
+	it("hides the card as soon as chat workspace setup finishes", () => {
+		expect(
+			shouldShowSetupCard({
+				externalResume: false,
+				initialSession: true,
+				hasWorktree: true,
+				setupDone: true,
+			}),
+		).toBe(false);
 	});
 });

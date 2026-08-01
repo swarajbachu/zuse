@@ -66,6 +66,17 @@ describe("PerformanceHistoryStore", () => {
 			kind: "long-task",
 			durationMs: 250,
 			source: "renderer",
+			attribution: {
+				cause: "script",
+				label: "handleSend",
+				confidence: "high",
+				blockingDurationMs: 180,
+				scriptFunction: "handleSend",
+				scriptSource: "chat-view.js",
+				recentActions: ["pointer.button"],
+				activeWorkloads: ["agent"],
+				relatedOperations: ["rpc:messages.queue.add"],
+			},
 		};
 		store.recordLag(lag);
 		await store.flush();

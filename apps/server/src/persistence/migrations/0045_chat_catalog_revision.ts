@@ -8,7 +8,7 @@ import { SqlClient } from "effect/unstable/sql";
  * an in-memory signal or connection-local SQLite counter cannot cover every
  * mutation without also waking on unrelated persistence.
  */
-export const Migration0044ChatCatalogRevision = Effect.gen(function* () {
+export const Migration0045ChatCatalogRevision = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	yield* sql`
 		CREATE TABLE chat_catalog_revision (

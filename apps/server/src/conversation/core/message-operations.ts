@@ -22,6 +22,12 @@ import { isGoalCapableProvider } from "./conversation-goal-operations.ts";
 import type { ConversationGoalState } from "./conversation-goal-state.ts";
 import { serializeAnnotations } from "./conversation-input.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
+import type { OpenProviderSessionOptions } from "./provider-session-runtime.ts";
+import {
+	decodeProviderModelOptions,
+	decodeProviderStartRequest,
+	decodeProviderTurnInput,
+} from "./provider-turn-request.ts";
 import type { QueueServiceRuntime } from "./queue-service-runtime.ts";
 import { makeQueueServiceRuntime } from "./queue-service-runtime.ts";
 
@@ -30,20 +36,10 @@ export interface MessageOperationsOptions {
 	readonly fs: FileSystem.FileSystem;
 	readonly goalState: ConversationGoalState;
 	readonly lookupSession: ConversationOperations["getSession"];
-	readonly openProviderSession: (
-		session: Session,
-		options?: {
-			readonly initialPrompt?: string;
-			readonly postBootStatus?: Session["status"];
-			readonly sendAfterOpen?: {
-				readonly turnId: AgentTurnId;
-				readonly text: string;
-				readonly attachments: ReadonlyArray<AttachmentRef>;
-				readonly fileRefs?: ReadonlyArray<FileRef>;
-				readonly skillRefs?: ReadonlyArray<SkillRef>;
-			};
-		},
-	) => Effect.Effect<void, SessionStartError>;
+	readonly ensureForTurn: (
+		sessionId: SessionId,
+		options?: OpenProviderSessionOptions,
+	) => Effect.Effect<boolean, SessionStartError>;
 	readonly setStatus: (
 		sessionId: SessionId,
 		status: Session["status"],
@@ -94,6 +90,7 @@ export interface MessageOperationsOptions {
 		status: Session["status"],
 	) => Effect.Effect<void>;
 	readonly closeProvider: (sessionId: SessionId) => Effect.Effect<void>;
+	readonly hasProvider: (sessionId: SessionId) => Effect.Effect<boolean>;
 	readonly interruptProviderFiber: (
 		sessionId: SessionId,
 	) => Effect.Effect<void>;
@@ -113,7 +110,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			fs,
 			goalState,
 			lookupSession,
-			openProviderSession,
+			ensureForTurn,
 			setStatus,
 			persistMessage,
 			submitTurn,
@@ -127,8 +124,58 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			serviceScope,
 			recoverStatus,
 			closeProvider,
+			hasProvider,
 			interruptProviderFiber,
 		} = options;
+		const pendingProviderTurn = (sessionId: SessionId, turnId: AgentTurnId) =>
+			Effect.gen(function* () {
+				// Startup options live on SessionCreated for dormant sessions and on
+				// the turn for atomic initial prompts. COALESCE supports both histories.
+				const rows = yield* sql<{
+					readonly provider_input_json: string;
+					readonly provider_start_json: string | null;
+				}>`
+					SELECT
+						json_extract(payload_json, '$.providerInputJson') AS provider_input_json,
+						COALESCE(
+							json_extract(payload_json, '$.providerStartJson'),
+							(
+								SELECT json_extract(created.payload_json, '$.providerStartJson')
+								FROM events created
+								WHERE created.stream_kind = 'session'
+									AND created.stream_id = ${sessionId}
+									AND created.type = 'SessionCreated'
+								ORDER BY created.stream_version ASC
+								LIMIT 1
+							)
+						) AS provider_start_json
+					FROM events
+					WHERE stream_kind = 'session'
+						AND stream_id = ${sessionId}
+						AND type = 'ProviderTurnRequested'
+						AND json_extract(payload_json, '$.turnId') = ${turnId}
+					ORDER BY stream_version DESC
+					LIMIT 1
+				`.pipe(Effect.orDie);
+				const row = rows[0];
+				if (row === undefined) return null;
+				const input = yield* decodeProviderTurnInput(
+					row.provider_input_json,
+				).pipe(Effect.orDie);
+				const startup =
+					row.provider_start_json === null
+						? null
+						: yield* decodeProviderStartRequest(row.provider_start_json).pipe(
+								Effect.orDie,
+							);
+				const modelOptions =
+					startup?.modelOptionsJson == null
+						? undefined
+						: yield* decodeProviderModelOptions(startup.modelOptionsJson).pipe(
+								Effect.orDie,
+							);
+				return { input, startup, modelOptions };
+			});
 		const resumeSession: ConversationOperations["resumeSession"] = (
 			sessionId,
 		) =>
@@ -142,11 +189,31 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 				// context when the driver supports it.
 				yield* closeProvider(sessionId);
 				yield* interruptProviderFiber(sessionId);
-				yield* openProviderSession(session, {
-					// Keep a failed session held until the caller decides whether to
-					// retry its persisted turn or release its startup queue. This
-					// prevents queued follow-ups from overtaking the blocked turn.
-					postBootStatus: session.status === "error" ? undefined : "idle",
+				const turnId = yield* resolveActiveTurn(sessionId);
+				const request =
+					turnId === undefined
+						? null
+						: yield* pendingProviderTurn(sessionId, turnId);
+				// When a durable turn is active, reopen replays that exact request. The
+				// renderer must not submit the last user message again after success.
+				yield* ensureForTurn(session.id, {
+					initialPrompt: request?.startup?.initialPrompt ?? undefined,
+					initialTurnId: request?.startup?.initialTurnId ?? undefined,
+					modelOptions: request?.modelOptions,
+					enableSubagents: request?.startup?.enableSubagents,
+					forkFromResume: request?.startup?.forkFromResume,
+					postBootStatus: request === null ? "idle" : "running",
+					...(request === null || turnId === undefined
+						? {}
+						: {
+								sendAfterOpen: {
+									turnId,
+									text: request.input.text,
+									attachments: request.input.attachments,
+									fileRefs: request.input.fileRefs,
+									skillRefs: request.input.skillRefs,
+								},
+							}),
 				});
 				return yield* lookupSession(sessionId);
 			});
@@ -413,6 +480,9 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			if (stale.status === "running") {
 				const turnId = yield* resolveActiveTurn(sessionId);
 				if (turnId !== undefined) {
+					// Catch-up may have just recreated this provider and replayed the
+					// unfinished turn. Only settle rows whose in-memory owner is gone.
+					if (yield* hasProvider(sessionId)) continue;
 					const lifecycle = yield* sql<{ readonly type: string }>`
 						SELECT type FROM events
 						WHERE stream_kind = 'session' AND stream_id = ${sessionId}
@@ -435,7 +505,9 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					yield* recoverStatus(sessionId, "error");
 				}
 			} else {
-				yield* recoverStatus(sessionId, "error");
+				yield* resumeSession(sessionId).pipe(
+					Effect.catch(() => recoverStatus(sessionId, "error")),
+				);
 			}
 		}
 

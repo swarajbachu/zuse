@@ -1,4 +1,5 @@
 export interface PowerRuntimeActivity {
+	readonly activeAgents: number;
 	readonly activeTerminals: number;
 	readonly browserSessions: number;
 	readonly activeBrowserSessions: number;
@@ -7,6 +8,7 @@ export interface PowerRuntimeActivity {
 }
 
 let activity: PowerRuntimeActivity = {
+	activeAgents: 0,
 	activeTerminals: 0,
 	browserSessions: 0,
 	activeBrowserSessions: 0,
@@ -27,6 +29,7 @@ export const subscribePowerRuntimeActivity = (
 
 const publish = (next: PowerRuntimeActivity): void => {
 	if (
+		next.activeAgents === activity.activeAgents &&
 		next.activeTerminals === activity.activeTerminals &&
 		next.browserSessions === activity.browserSessions &&
 		next.activeBrowserSessions === activity.activeBrowserSessions &&
@@ -37,6 +40,10 @@ const publish = (next: PowerRuntimeActivity): void => {
 	}
 	activity = next;
 	for (const listener of listeners) listener();
+};
+
+export const setPowerActiveAgentCount = (count: number): void => {
+	publish({ ...activity, activeAgents: Math.max(0, count) });
 };
 
 export const setPowerActiveTerminalCount = (count: number): void => {

@@ -3,7 +3,6 @@ import {
 	type AgentDefinition,
 	AgentTurnId,
 	type Chat,
-	type ChatSummaryChange,
 	type FolderId,
 	Message,
 	type MessageContent,
@@ -22,6 +21,7 @@ import type { NdjsonLoggerShape } from "../../persistence/ndjson-logger.ts";
 import type { ProviderServiceShape } from "../../provider/services/provider-service.ts";
 import type { RelayActivityPublisherApi } from "../../relay/activity-publisher.ts";
 import type { ConversationOperations } from "../services/conversation-services.ts";
+import type { ChatChangeEvent } from "./chat-change-event.ts";
 import { makeConversationEventRuntime } from "./conversation-event-runtime.ts";
 import type { ConversationGoalState } from "./conversation-goal-state.ts";
 import { makeConversationGoalState } from "./conversation-goal-state.ts";
@@ -76,10 +76,7 @@ export interface ConversationStoreRuntime {
 		persisted: PersistedMessage,
 	) => Effect.Effect<void>;
 	readonly goalState: ConversationGoalState;
-	readonly chatChangesHub: PubSub.PubSub<{
-		readonly projectId: FolderId;
-		readonly change: ChatSummaryChange;
-	}>;
+	readonly chatChangesHub: PubSub.PubSub<ChatChangeEvent>;
 	readonly broadcastChat: (chat: Chat) => Effect.Effect<void>;
 	readonly currentChatRevision: () => number;
 	readonly lookupSession: ConversationOperations["getSession"];
@@ -261,10 +258,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 	// Chats are few and updates rare, so one project-filtered hub keeps it
 	// simple. `streamChatChanges` subscribes to this hub before reading its SQL
 	// snapshot, closing the backfill-to-live gap for orchestrated creates.
-	const chatChangesHub = yield* PubSub.unbounded<{
-		readonly projectId: FolderId;
-		readonly change: ChatSummaryChange;
-	}>();
+	const chatChangesHub = yield* PubSub.unbounded<ChatChangeEvent>();
 	let chatRevision = 0;
 	const currentChatRevision = (): number => chatRevision;
 	const broadcastChat = (chat: Chat): Effect.Effect<void> =>

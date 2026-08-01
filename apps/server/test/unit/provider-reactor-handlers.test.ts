@@ -39,16 +39,18 @@ describe("provider reactor handlers", () => {
 			reactorEffects,
 			getSession: (() =>
 				Effect.die("unused")) as ProviderReactorHandlersOptions["getSession"],
-			openProviderSession: (() =>
+			ensureForTurn: (() =>
 				Effect.die(
 					"unused",
-				)) as ProviderReactorHandlersOptions["openProviderSession"],
+				)) as ProviderReactorHandlersOptions["ensureForTurn"],
 			persistMessage: (() =>
 				Effect.die(
 					"unused",
 				)) as ProviderReactorHandlersOptions["persistMessage"],
 			ndjsonAppend: () => Effect.void,
 			setStatus: () => Effect.void,
+			resolveActiveTurn: () => Effect.succeed(undefined),
+			getProviderStartJson: () => Effect.succeed(null),
 			settleTurnFromReactor: () => Effect.void,
 			rememberActiveTurn: () => undefined,
 			provider: {} as ProviderReactorHandlersOptions["provider"],

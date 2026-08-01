@@ -91,7 +91,7 @@ import { Migration0037ProviderEventCursor } from "../../src/persistence/migratio
 import { Migration0038QueuedMessageReady } from "../../src/persistence/migrations/0038_queued_message_ready.ts";
 import { Migration0041ChatArchiveJobs } from "../../src/persistence/migrations/0041_chat_archive_jobs.ts";
 import { Migration0043NameProvenance } from "../../src/persistence/migrations/0043_name_provenance.ts";
-import { Migration0044ChatCatalogRevision } from "../../src/persistence/migrations/0044_chat_catalog_revision.ts";
+import { Migration0045ChatCatalogRevision } from "../../src/persistence/migrations/0045_chat_catalog_revision.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -131,6 +131,7 @@ let providerStartInputs: StartSessionInput[] = [];
 let providerStartCursors: Array<string | null> = [];
 let providerSentTexts: string[] = [];
 let providerSendAttempts = 0;
+let activeProviderSessions = new Set<AgentSessionId>();
 const providerTurnIds = new Map<
 	AgentSessionId,
 	ReturnType<typeof AgentTurnId.make>
@@ -176,6 +177,10 @@ const deferred = <A>() => {
 /** A no-op ProviderService: starts/sends succeed; events replay the script. */
 const StubProviderLive = Layer.succeed(ProviderService, {
 	availability: () => Effect.succeed([]),
+	hasSession: (sessionId) =>
+		Effect.sync(() => activeProviderSessions.has(sessionId)),
+	guardCurrent: (_sessionId, _generation, effect) =>
+		effect.pipe(Effect.as(true)),
 	start: (input, resumeCursor, _runtimeMode, orchestrationTools) =>
 		Effect.gen(function* () {
 			providerStartInputs.push(input);
@@ -193,6 +198,7 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 					reason: providerStartFailureReason,
 				});
 			}
+			activeProviderSessions.add(input.sessionId ?? ("stub" as AgentSessionId));
 			return {
 				sessionId: input.sessionId ?? ("stub" as AgentSessionId),
 			};
@@ -203,7 +209,7 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 			providerTurnIds.set(sessionId, turnId);
 		}).pipe(
 			Effect.andThen(
-				failProviderSend
+				failProviderSend || !activeProviderSessions.has(sessionId)
 					? Effect.fail(new AgentSessionNotFoundError({ sessionId }))
 					: Effect.sync(() => {
 							providerSentTexts.push(text);
@@ -211,7 +217,10 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 			),
 		),
 	interrupt: () => Effect.void,
-	close: () => Effect.void,
+	close: (sessionId) =>
+		Effect.sync(() => {
+			activeProviderSessions.delete(sessionId);
+		}),
 	events: (sessionId) =>
 		Stream.suspend(() =>
 			Stream.fromIterable(
@@ -512,7 +521,7 @@ const runAllMigrations = Effect.all(
 		Migration0038QueuedMessageReady,
 		Migration0041ChatArchiveJobs,
 		Migration0043NameProvenance,
-		Migration0044ChatCatalogRevision,
+		Migration0045ChatCatalogRevision,
 	],
 	{ discard: true },
 );
@@ -627,6 +636,7 @@ beforeEach(() => {
 	providerSentTexts = [];
 	providerTurnIds.clear();
 	providerSendAttempts = 0;
+	activeProviderSessions = new Set();
 	providerStartOrchestrationTools = [];
 	failProviderStart = false;
 	failProviderSend = false;
@@ -771,7 +781,7 @@ describe("ConversationServices migrations", () => {
 });
 
 describe("ConversationServices — chat & session lifecycle", () => {
-	it("acknowledges creation before provider startup failure becomes durable", async () => {
+	it("keeps an empty session dormant even when provider startup would fail", async () => {
 		await withRuntime(async (run) => {
 			failProviderStart = true;
 			const created = await run(
@@ -783,16 +793,8 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
-			expect(created.initialSession.status).toBe("booting");
-			await expect
-				.poll(() =>
-					run(
-						Effect.flatMap(store, (service) =>
-							service.getSession(created.initialSession.id),
-						),
-					),
-				)
-				.toMatchObject({ status: "error" });
+			expect(created.initialSession.status).toBe("idle");
+			expect(providerStartInputs).toEqual([]);
 		});
 	});
 
@@ -864,7 +866,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
-	it("starts providers through the durable provider-start reactor", async () => {
+	it("starts providers through the durable provider-turn reactor", async () => {
 		await withRuntime(async (run) => {
 			const created = await run(
 				Effect.flatMap(store, (service) =>
@@ -872,6 +874,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						projectId: PROJECT_ID,
 						providerId: "claude",
 						model: "claude-opus-4-8",
+						initialPrompt: "start lazily",
 					}),
 				),
 			);
@@ -883,7 +886,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 							const sql = yield* SqlClient.SqlClient;
 							return yield* sql<{ readonly effect_id: string }>`
 								SELECT effect_id FROM reactor_effect_receipts
-								WHERE effect_id LIKE 'reactor:provider-start:%'
+								WHERE effect_id LIKE 'reactor:provider-turn:%'
 							`;
 						}),
 					),
@@ -902,11 +905,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
           `;
 					const cursor = yield* sql<{ readonly last_sequence: number }>`
             SELECT last_sequence FROM projector_cursors
-            WHERE projector_name = 'reactor:provider-start'
+							WHERE projector_name = 'reactor:provider-turn'
           `;
 					const receipts = yield* sql<{ readonly effect_id: string }>`
             SELECT effect_id FROM reactor_effect_receipts
-            WHERE effect_id LIKE 'reactor:provider-start:%'
+							WHERE effect_id LIKE 'reactor:provider-turn:%'
           `;
 					return { events, cursor, receipts };
 				}),
@@ -916,16 +919,39 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(evidence.events).toHaveLength(1);
 			expect(
 				JSON.parse(evidence.events[0]?.payload_json ?? "null"),
-			).toMatchObject({
-				_tag: "SessionCreated",
-				providerStartJson: expect.any(String),
-			});
+			).toMatchObject({ _tag: "SessionCreated" });
 			expect(evidence.cursor[0]?.last_sequence).toBeGreaterThan(0);
 			expect(evidence.receipts).toHaveLength(1);
 		});
 	});
 
-	it("stops providers through the durable provider-stop reactor", async () => {
+	it("returns the durable result when the same chat bootstrap is retried", async () => {
+		await withRuntime(async (run) => {
+			const retryChatId = ChatId.make("chat-retry-after-lost-ack");
+			const retrySessionId = SessionId.make("session-retry-after-lost-ack");
+			const input = {
+				chatId: retryChatId,
+				initialSessionId: retrySessionId,
+				projectId: PROJECT_ID,
+				providerId: "claude" as const,
+				model: "claude-opus-4-8",
+				background: true,
+			};
+
+			const first = await run(
+				Effect.flatMap(store, (service) => service.createChat(input)),
+			);
+			const retried = await run(
+				Effect.flatMap(store, (service) => service.createChat(input)),
+			);
+
+			expect(retried.chat.id).toBe(first.chat.id);
+			expect(retried.initialSession.id).toBe(first.initialSession.id);
+			expect(providerStartInputs).toHaveLength(0);
+		});
+	});
+
+	it("switches model metadata without stopping a dormant provider", async () => {
 		await withRuntime(async (run) => {
 			const created = await run(
 				Effect.flatMap(store, (service) =>
@@ -958,11 +984,8 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				}),
 			);
 
-			expect(evidence.events.map(({ type }) => type)).toEqual([
-				"ProviderStopRequested",
-				"ProviderDetached",
-			]);
-			expect(evidence.receipts).toHaveLength(1);
+			expect(evidence.events).toEqual([]);
+			expect(evidence.receipts).toEqual([]);
 		});
 	});
 
@@ -1630,7 +1653,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			expect(result.chat.id).toBe(chatId);
 			expect(result.initialSession.id).toBe(sessionId);
-			expect(result.initialSession.status).toBe("booting");
+			expect(result.initialSession.status).toBe("idle");
 			expect(result.initialMessage).toBeNull();
 			const messages = await run(
 				Effect.flatMap(store, (service) => service.listMessages(sessionId)),
@@ -1670,13 +1693,13 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				},
 			});
 			await expect
-				.poll(
-					() =>
-						providerStartInputs.find(
-							(input) => input.sessionId === result.child.initialSession.id,
-						)?.initialPrompt,
+				.poll(() =>
+					providerStartInputs.find(
+						(input) => input.sessionId === result.child.initialSession.id,
+					),
 				)
-				.toBe("do the spawned task");
+				.toBeDefined();
+			expect(providerSentTexts).toContain("do the spawned task");
 		});
 	});
 
@@ -1689,6 +1712,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						providerId: "claude",
 						model: "claude-opus-4-8",
 						worktreeId: TEST_WORKTREE_ID,
+						initialPrompt: "open orchestration tools",
 					}),
 				),
 			);
@@ -1743,6 +1767,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						providerId: "claude",
 						model: "claude-opus-4-8",
 						worktreeId: TEST_WORKTREE_ID,
+						initialPrompt: "open orchestration tools",
 					}),
 				),
 			);
@@ -2048,6 +2073,13 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			expect(result.chat.worktreeId).toBe(TEST_WORKTREE_ID);
 			expect(result.initialSession.worktreeId).toBe(TEST_WORKTREE_ID);
+			expect(providerStartInputs).toEqual([]);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.sendMessage(result.initialSession.id, "start in the worktree"),
+				),
+			);
+			await expect.poll(() => providerStartInputs.length).toBe(1);
 			expect(providerStartInputs.at(-1)?.cwdOverride).toBe(testWorktree.path);
 		});
 	});
@@ -2070,6 +2102,10 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(result.chat.title).toBe("Existing Claude thread");
 			expect(result.initialSession.cursor).toBe("claude-session-123");
 			expect(result.initialSession.resumeStrategy).toBe("claude-session-id");
+			expect(providerStartCursors).toEqual([]);
+			await run(
+				Effect.flatMap(store, (s) => s.resumeSession(result.initialSession.id)),
+			);
 			expect(providerStartCursors.at(-1)).toBe("claude-session-123");
 
 			const messages = await run(
@@ -2091,8 +2127,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
-			await expect.poll(() => providerStartInputs.length).toBe(1);
-			providerStartInputs = [];
+			expect(providerStartInputs).toEqual([]);
 
 			const nextSession = await run(
 				Effect.flatMap(store, (s) =>
@@ -2105,6 +2140,12 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 
 			expect(nextSession.worktreeId).toBe(TEST_WORKTREE_ID);
+			expect(providerStartInputs).toEqual([]);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.sendMessage(nextSession.id, "start the second tab"),
+				),
+			);
 			await expect.poll(() => providerStartInputs.length).toBe(1);
 			expect(providerStartInputs[0]?.cwdOverride).toBe(testWorktree.path);
 		});
@@ -2325,7 +2366,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
-	it("settles a durable turn when provider recovery cannot start", async () => {
+	it("keeps a durable turn retryable when provider recovery cannot start", async () => {
 		await withRuntime(async (run) => {
 			const { chat, initialSession } = await run(
 				Effect.flatMap(store, (s) =>
@@ -2385,7 +2426,14 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				[...settledTurnKeys].some((key) =>
 					key.startsWith(`${initialSession.id}\u0000turn_`),
 				),
-			).toBe(true);
+			).toBe(false);
+
+			failProviderSend = false;
+			failProviderStart = false;
+			await run(
+				Effect.flatMap(store, (s) => s.resumeSession(initialSession.id)),
+			);
+			expect(providerSentTexts).toContain("trigger provider recovery");
 		});
 	});
 
@@ -3211,14 +3259,6 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					service.resumeSession(created.initialSession.id),
 				),
 			);
-			await run(
-				Effect.flatMap(store, (service) =>
-					service.sendMessage(
-						created.initialSession.id,
-						"blocked by authentication",
-					),
-				),
-			);
 
 			await expect
 				.poll(() => providerSentTexts)
@@ -3564,19 +3604,16 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					),
 				)
 				.toMatchObject({ status: "idle" });
-			await expect
-				.poll(() =>
-					runFirst(
-						Effect.gen(function* () {
-							const sql = yield* SqlClient.SqlClient;
-							return yield* sql<{ readonly effect_id: string }>`
-								SELECT effect_id FROM reactor_effect_receipts
-								WHERE effect_id LIKE 'reactor:provider-start:%'
-							`;
-						}),
-					),
-				)
-				.toHaveLength(1);
+			const emptySessionStarts = await runFirst(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					return yield* sql<{ readonly effect_id: string }>`
+						SELECT effect_id FROM reactor_effect_receipts
+						WHERE effect_id LIKE 'reactor:provider-start:%'
+					`;
+				}),
+			);
+			expect(emptySessionStarts).toEqual([]);
 			await runFirst(
 				Effect.flatMap(SessionDomain, (domain) =>
 					domain.dispatch({
@@ -3629,6 +3666,91 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					),
 				);
 				expect(recovered.status).toBe("error");
+			} finally {
+				await restarted.dispose();
+			}
+		} finally {
+			await first.dispose();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("replays an unreceipted startup turn once without settling it on restart", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-turn-restart-"));
+		const dbPath = join(directory, "test.sqlite");
+		const first = makeRuntime(dbPath);
+		const runFirst = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
+			first.runPromise(effect as Effect.Effect<A, unknown, never>);
+		try {
+			await runFirst(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const now = new Date().toISOString();
+					yield* sql`
+						INSERT INTO projects (id, path, name, created_at, updated_at)
+						VALUES (${PROJECT_ID}, ${directory}, ${"Test"}, ${now}, ${now})
+					`;
+				}),
+			);
+			const { initialSession } = await runFirst(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			const turnId = AgentTurnId.make("turn_restart_pending");
+			await runFirst(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.dispatch({
+						commandId: "test:restart-pending-turn",
+						streamId: initialSession.id,
+						command: {
+							_tag: "SubmitTurn",
+							turnId,
+							messageId: MessageId.make("message_restart_pending"),
+							role: "user",
+							kind: "user",
+							contentJson: JSON.stringify({
+								_tag: "user",
+								text: "resume exactly once",
+							}),
+							parentItemId: null,
+							providerInputJson: JSON.stringify(
+								new ComposerInput({
+									text: "resume exactly once",
+									attachments: [],
+									fileRefs: [],
+									skillRefs: [],
+								}),
+							),
+							createdAt: Date.now(),
+						},
+					}),
+				),
+			);
+			await first.dispose();
+
+			const restarted = makeRuntime(dbPath, false);
+			const runRestarted = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
+				restarted.runPromise(effect as Effect.Effect<A, unknown, never>);
+			try {
+				const recovered = await runRestarted(
+					Effect.flatMap(store, (service) =>
+						service.getSession(initialSession.id),
+					),
+				);
+				expect(recovered.status).toBe("running");
+				expect(providerSentTexts).toEqual(["resume exactly once"]);
+				const settled = await runRestarted(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						return yield* loadSettledProviderTurnKeys(sql);
+					}),
+				);
+				expect(settled.has(`${initialSession.id}\u0000${turnId}`)).toBe(false);
 			} finally {
 				await restarted.dispose();
 			}
@@ -4753,6 +4875,7 @@ describe("ConversationServices — fork & transcript export", () => {
 				Effect.flatMap(store, (s) => s.listMessages(sourceId)),
 			);
 			const tailId = messages.at(-1)!.id;
+			const startsBeforeFork = providerStartInputs.length;
 
 			const result = await run(
 				Effect.flatMap(store, (s) =>
@@ -4767,7 +4890,17 @@ describe("ConversationServices — fork & transcript export", () => {
 			expect(result.forkMode).toBe("resume");
 			expect(result.session.cursor).toBe("claude-session-xyz");
 			expect(result.session.resumeStrategy).toBe("claude-session-id");
-			// The driver was told to fork the resumed transcript.
+			// Forking is metadata-only until the new session receives real work.
+			expect(providerStartInputs).toHaveLength(startsBeforeFork);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.sendMessage(result.session.id, "continue from this point"),
+				),
+			);
+			await expect
+				.poll(() => providerStartInputs.length)
+				.toBe(startsBeforeFork + 1);
+			// The first turn starts the driver with the durable resume metadata.
 			expect(providerStartInputs.at(-1)?.forkFromResume).toBe(true);
 			expect(providerStartCursors.at(-1)).toBe("claude-session-xyz");
 		});

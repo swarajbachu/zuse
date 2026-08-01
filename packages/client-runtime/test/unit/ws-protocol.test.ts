@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { authenticatedWsUrl } from "../../src/ws-protocol.ts";
+import { describe, expect, it, vi } from "vitest";
+import {
+	authenticatedWsUrl,
+	observeWebSocketConstructor,
+} from "../../src/ws-protocol.ts";
 
 describe("WebSocket client protocol", () => {
 	it("builds one authenticated wire-versioned endpoint for every client", () => {
@@ -9,7 +12,7 @@ describe("WebSocket client protocol", () => {
 				port: 8787,
 				token: " token-value ",
 			}),
-		).toBe("ws://127.0.0.1:8787/?token=token-value&wireVersion=3");
+		).toBe("ws://127.0.0.1:8787/?token=token-value&wireVersion=4");
 	});
 
 	it("prefers a managed base URL", () => {
@@ -19,6 +22,23 @@ describe("WebSocket client protocol", () => {
 				port: 1,
 				wsBaseUrl: "wss://environment.example/rpc",
 			}),
-		).toBe("wss://environment.example/rpc?wireVersion=3");
+		).toBe("wss://environment.example/rpc?wireVersion=4");
+	});
+
+	it("reports an established socket closing to the connection owner", () => {
+		const socket = new EventTarget();
+		const onClose = vi.fn();
+		const make = observeWebSocketConstructor(
+			() => socket as unknown as WebSocket,
+			onClose,
+		);
+
+		expect(make("wss://environment.example/rpc")).toBe(socket);
+		socket.dispatchEvent(new CloseEvent("close", { code: 1006 }));
+
+		expect(onClose).toHaveBeenCalledOnce();
+		expect(onClose).toHaveBeenCalledWith(
+			expect.objectContaining({ code: 1006 }),
+		);
 	});
 });

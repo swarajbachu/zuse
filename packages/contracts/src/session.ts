@@ -605,12 +605,9 @@ export const SessionSummaryChange = Schema.Union([
 ]);
 export type SessionSummaryChange = typeof SessionSummaryChange.Type;
 
-/** One bounded snapshot followed by cursor-ordered session summary changes. */
+/** One authoritative snapshot followed by cursor-ordered session summary changes. */
 export const SessionStreamChangesRpc = Rpc.make("session.streamChanges", {
-	payload: Schema.Struct({
-		projectId: FolderId,
-		sinceSequence: Schema.optional(Schema.Number),
-	}),
+	payload: Schema.Struct({ projectId: FolderId }),
 	success: SessionSummaryChange,
 	stream: true,
 });
@@ -941,9 +938,66 @@ export const ChatArchivePreviewRpc = Rpc.make("chat.archivePreview", {
  * message — the renderer seeds it into its messages store so the chat view
  * never flashes the empty state while the live stream is connecting.
  */
+export const ChatWorkspacePolicy = Schema.Union([
+	Schema.TaggedStruct("fresh", {}),
+	Schema.TaggedStruct("existing", { worktreeId: WorktreeId }),
+	Schema.TaggedStruct("main", {}),
+]);
+export type ChatWorkspacePolicy = typeof ChatWorkspacePolicy.Type;
+
+export const ChatCreationOperationStatus = Schema.Literals([
+	"pending",
+	"creating_workspace",
+	"creating_chat",
+	"succeeded",
+	"failed",
+]);
+export type ChatCreationOperationStatus =
+	typeof ChatCreationOperationStatus.Type;
+
+export const ChatCreationOperation = Schema.Struct({
+	operationId: Schema.String,
+	chatId: ChatId,
+	initialSessionId: SessionId,
+	projectId: FolderId,
+	providerId: ProviderId,
+	model: Schema.String,
+	title: Schema.NullOr(Schema.String),
+	runtimeMode: RuntimeMode,
+	permissionMode: PermissionMode,
+	toolSearch: Schema.Boolean,
+	prompt: Schema.NullOr(Schema.String),
+	startupInput: Schema.NullOr(ComposerInput),
+	startupQueueId: Schema.NullOr(Schema.String),
+	workspacePolicy: ChatWorkspacePolicy,
+	worktreeId: Schema.NullOr(WorktreeId),
+	status: ChatCreationOperationStatus,
+	error: Schema.NullOr(Schema.String),
+	createdAt: Schema.DateFromString,
+	updatedAt: Schema.DateFromString,
+});
+export type ChatCreationOperation = typeof ChatCreationOperation.Type;
+
+export const ChatCreationListRpc = Rpc.make("chat.creation.list", {
+	payload: Schema.Struct({ projectId: FolderId }),
+	success: Schema.Array(ChatCreationOperation),
+});
+
+export const ChatCreationStreamRpc = Rpc.make("chat.creation.stream", {
+	payload: Schema.Struct({ projectId: FolderId }),
+	success: ChatCreationOperation,
+	stream: true,
+});
+
+export const ChatCreationDiscardRpc = Rpc.make("chat.creation.discard", {
+	payload: Schema.Struct({ operationId: Schema.String }),
+	success: Schema.Struct({ discarded: Schema.Boolean }),
+});
+
 export const ChatCreateRpc = Rpc.make("chat.create", {
 	payload: Schema.Struct({
 		/** Stable identities minted before optimistic entities are inserted. */
+		operationId: Schema.optional(Schema.String),
 		chatId: Schema.optional(ChatId),
 		initialSessionId: Schema.optional(SessionId),
 		projectId: FolderId,
@@ -953,6 +1007,10 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
 		initialPrompt: Schema.optional(Schema.String),
 		runtimeMode: Schema.optional(RuntimeMode),
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		/** Server-owned workspace bootstrap. Supersedes `worktreeId` when set. */
+		workspacePolicy: Schema.optional(ChatWorkspacePolicy),
+		startupInput: Schema.optional(ComposerInput),
+		startupQueueId: Schema.optional(Schema.String),
 		agents: Schema.optional(Schema.Record(Schema.String, AgentDefinition)),
 		enableSubagents: Schema.optional(Schema.Boolean),
 		permissionMode: Schema.optional(PermissionMode),

@@ -18,11 +18,16 @@ import { useMemo, useState } from "react";
 import { deriveEnvironmentPrRows } from "../lib/branch-workflow.ts";
 import { displayPath } from "../lib/display-path.ts";
 import { detachedSubagentGroups } from "../lib/group-messages.ts";
+import {
+	effectiveSessionRuntimeState,
+	isSessionTurnActive,
+} from "../lib/session-runtime-state.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { useMessagesStore } from "../store/messages.ts";
 import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
+import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
@@ -93,8 +98,12 @@ export function EnvironmentSummary() {
 			? EMPTY_MESSAGES
 			: (s.messagesBySession[sessionId] ?? EMPTY_MESSAGES),
 	);
-	const isRunning = useMessagesStore((s) =>
-		sessionId === null ? false : s.runningBySession[sessionId] === true,
+	const isRunning = useSessionRuntimeStore((s) =>
+		session === null
+			? false
+			: isSessionTurnActive(
+					effectiveSessionRuntimeState(s.bySession[session.id]),
+				),
 	);
 	const planAvailable = useMemo(
 		() =>

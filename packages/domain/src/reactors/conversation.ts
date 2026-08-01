@@ -19,6 +19,7 @@ export type ProviderTurnCommand = {
 	readonly _tag: "SendProviderTurn";
 	readonly turnId: string;
 	readonly providerInputJson: string;
+	readonly providerStartJson?: string;
 };
 
 export type ProviderInterruptCommand = {
@@ -104,6 +105,9 @@ export const providerTurnReactorDefinition: ReactorDefinition<
 								_tag: "SendProviderTurn",
 								turnId: record.event.turnId,
 								providerInputJson: record.event.providerInputJson,
+								...(record.event.providerStartJson === undefined
+									? {}
+									: { providerStartJson: record.event.providerStartJson }),
 							},
 						},
 					]

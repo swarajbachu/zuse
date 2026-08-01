@@ -20,6 +20,7 @@ import {
 	deriveAgentActivityState,
 } from "../lib/agent-activity-state.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
+import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
 import {
 	activeChatId as deriveActiveChatId,
 	orderedChatTabs,
@@ -28,6 +29,7 @@ import { useChatsStore } from "../store/chats.ts";
 import { useMessagesStore } from "../store/messages.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
 import { useProvidersStore } from "../store/providers.ts";
+import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useSettingsStore } from "../store/settings.ts";
 import { useUiStore } from "../store/ui.ts";
@@ -93,9 +95,10 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 	const selectSession = useSessionsStore((s) => s.select);
 	const renameSession = useSessionsStore((s) => s.rename);
 	const [renamingSession, setRenamingSession] = useState<Session | null>(null);
-	// Per-session running flag — drives the provider-icon → Spinner swap on
-	// each tab so the user sees which session is streaming at a glance.
-	const runningBySession = useMessagesStore((s) => s.runningBySession);
+	const runtimeBySession = useSessionRuntimeStore((s) => s.bySession);
+	// Creation progress is chat-owned and can predate a durable session status.
+	// Keep it separate from provider `starting` so an empty chat stays dormant.
+	const pendingCreationByChat = useChatsStore((s) => s.pendingCreationByChat);
 	const sidebarMessagesBySession = useMessagesStore((s) => s.messagesBySession);
 	// Sessions with a pending permission prompt. Surfaced on the tab as a lock
 	// so a supervised-mode request is visible without opening the session.
@@ -191,6 +194,11 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 						/>
 					)}
 					{tabs.map((session) => {
+						const runtimeState = effectiveSessionRuntimeState(
+							runtimeBySession[session.id],
+						);
+						const creationPending =
+							pendingCreationByChat[session.chatId] !== undefined;
 						const isActive =
 							activeMainTab === "chat" && selectedSessionId === session.id;
 						const modelLabel = lookupModelLabel(
@@ -207,8 +215,10 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 								label={session.title}
 								title={tooltip}
 								providerId={session.providerId}
-								booting={session.status === "booting"}
-								running={runningBySession[session.id] === true}
+								booting={creationPending || runtimeState === "starting"}
+								running={
+									runtimeState === "running" || runtimeState === "stopping"
+								}
 								activityState={deriveAgentActivityState(
 									sidebarMessagesBySession[session.id] ?? [],
 								)}

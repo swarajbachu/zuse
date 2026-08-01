@@ -15,6 +15,7 @@ import { EnvironmentSummary } from "./components/environment-summary.tsx";
 import { closeActiveChatTab, MainTabs } from "./components/main-tabs.tsx";
 import { NearbyPairingApproval } from "./components/nearby-pairing-approval.tsx";
 import { NotchTrayBridge } from "./components/notch-tray-bridge.tsx";
+import { PendingChatCreationSurface } from "./components/pending-chat-creation.tsx";
 import { ProjectsSidebar } from "./components/projects-sidebar";
 import { ProviderUpdatesToast } from "./components/provider-updates-toast.tsx";
 import {
@@ -267,6 +268,11 @@ function MainShell() {
 	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
+	const pendingCreation = useChatsStore((s) =>
+		selectedChatId === null
+			? null
+			: (s.pendingCreationByChat[selectedChatId] ?? null),
+	);
 	const selectedSession = useSessionsStore((s) => {
 		if (s.selectedSessionId === null) return null;
 		return getSessionById(s.selectedSessionId);
@@ -277,7 +283,7 @@ function MainShell() {
 			: state.hydratedBySession[selectedSessionId] === true,
 	);
 	const directoryStatus = useChatDirectoryStatus(
-		selectedSession?.chatId ?? null,
+		pendingCreation === null ? (selectedSession?.chatId ?? null) : null,
 	);
 	const directoryUnavailable = directoryStatus?._tag === "unavailable";
 	useEffect(() => {
@@ -474,7 +480,9 @@ function MainShell() {
 							hidden={activeMainTab !== "chat"}
 							className="flex min-h-0 flex-1 flex-col"
 						>
-							{selectedSessionId !== null && selectedSession !== null ? (
+							{pendingCreation !== null ? (
+								<PendingChatCreationSurface creation={pendingCreation} />
+							) : selectedSessionId !== null && selectedSession !== null ? (
 								// Render the chat as soon as the session exists — even while
 								// its worktree is still branching or the provider is booting.
 								// All that progress is surfaced inline by `WorktreeSetupCard`

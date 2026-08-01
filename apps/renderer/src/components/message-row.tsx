@@ -33,6 +33,10 @@ import {
 } from "~/lib/orchestration-tools";
 import { attachmentUrl } from "~/lib/platform-capabilities";
 import { resumeAfterProviderLogin } from "~/lib/provider-auth-recovery";
+import {
+	effectiveSessionRuntimeState,
+	isSessionTurnActive,
+} from "~/lib/session-runtime-state";
 import { normalizeToolCallEnvelope } from "~/lib/tool-call-envelope";
 import {
 	openExternal,
@@ -48,6 +52,7 @@ import {
 	useMessagesStore,
 } from "~/store/messages";
 import { useProvidersStore } from "~/store/providers";
+import { useSessionRuntimeStore } from "~/store/session-runtime";
 import { useSessionsStore } from "~/store/sessions";
 import { useUiStore } from "~/store/ui";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
@@ -270,9 +275,16 @@ function ThinkingMessageRow({
 	redacted: boolean;
 }) {
 	// Shimmer while this thinking block is the live tip of a running turn.
+	const turnActive = useSessionRuntimeStore((s) =>
+		sessionId === undefined
+			? false
+			: isSessionTurnActive(
+					effectiveSessionRuntimeState(s.bySession[sessionId]),
+				),
+	);
 	const pending = useMessagesStore((s) => {
 		if (sessionId === undefined) return false;
-		if (s.runningBySession[sessionId] !== true) return false;
+		if (!turnActive) return false;
 		const msgs = s.messagesBySession[sessionId] ?? [];
 		const last = msgs[msgs.length - 1];
 		return last?.id === messageId;
@@ -782,7 +794,6 @@ function ProviderAuthCard({
 		(s) => s.availability.find((a) => a.providerId === providerId)?.authStatus,
 	);
 	const clearError = useMessagesStore((s) => s.clearError);
-	const retry = useMessagesStore((s) => s.retry);
 	const resumeQueue = useMessagesStore((s) => s.resumeQueue);
 	const reopenSession = useSessionsStore((s) => s.resume);
 	const { state, start, cancel } = useProviderLogin(providerId, {
@@ -796,7 +807,6 @@ function ProviderAuthCard({
 				if (sessionId !== undefined) {
 					const resumed = await resumeAfterProviderLogin({
 						reopen: () => reopenSession(sessionId),
-						retry: () => retry(sessionId),
 						resumeQueue: () => resumeQueue(sessionId),
 					});
 					if (resumed) clearError(sessionId);

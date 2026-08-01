@@ -9,6 +9,7 @@ describe("zuse serve management commands", () => {
 			json: false,
 			foreground: false,
 			force: false,
+			dataDir: undefined,
 		});
 	});
 
@@ -18,6 +19,7 @@ describe("zuse serve management commands", () => {
 			json: true,
 			foreground: false,
 			force: false,
+			dataDir: undefined,
 		});
 	});
 
@@ -27,12 +29,31 @@ describe("zuse serve management commands", () => {
 			json: false,
 			foreground: true,
 			force: false,
+			dataDir: undefined,
 		});
 		expect(parseServeCommand(["serve", "update", "--force"])).toEqual({
 			action: "update",
 			json: false,
 			foreground: false,
 			force: true,
+			dataDir: undefined,
+		});
+	});
+
+	it("parses the data directory used by durable service definitions", () => {
+		expect(
+			parseServeCommand([
+				"serve",
+				"--foreground",
+				"--data-dir",
+				"/tmp/zuse-serve",
+			]),
+		).toEqual({
+			action: "start",
+			json: false,
+			foreground: true,
+			force: false,
+			dataDir: "/tmp/zuse-serve",
 		});
 	});
 
@@ -42,6 +63,9 @@ describe("zuse serve management commands", () => {
 		);
 		expect(() => parseServeCommand(["serve", "status", "--force"])).toThrow(
 			/--force is only valid with update/u,
+		);
+		expect(() => parseServeCommand(["serve", "--data-dir"])).toThrow(
+			/--data-dir requires a value/u,
 		);
 	});
 });

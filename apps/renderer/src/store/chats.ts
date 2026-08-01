@@ -2,10 +2,12 @@ import {
 	Chat,
 	type ChatArchiveJob,
 	type ChatArchiveResult,
+	type ChatCreationOperation,
 	ChatId,
 	type ChatSummaryChange,
 	type ChatUnarchiveResult,
-	type ComposerInput,
+	type ChatWorkspacePolicy,
+	ComposerInput,
 	type FolderId,
 	type PermissionMode,
 	type ProviderId,
@@ -119,6 +121,17 @@ type ChatsState = {
 	/** Per-project in-flight flag for `create()`. Drives the sidebar
 	 * "New chat" button's icon swap (SquarePen → Spinner). */
 	readonly creatingByProject: Record<string, boolean>;
+	/**
+	 * Optimistic creation shells keyed by their stable chat id. These exist
+	 * before `chat.create` acknowledges, allowing every surface to render the
+	 * same truthful lifecycle without issuing session-scoped RPCs prematurely.
+	 */
+	readonly pendingCreationByChat: Record<string, PendingChatCreation>;
+	readonly retryCreation: (
+		chatId: ChatId,
+		preserveFocus?: boolean,
+	) => Promise<boolean>;
+	readonly discardCreation: (chatId: ChatId) => void;
 	readonly archiveProgressByChat: Record<string, ChatArchiveProgressPhase>;
 	readonly error: string | null;
 	readonly hydrate: (projectId: FolderId) => Promise<void>;
@@ -130,13 +143,25 @@ type ChatsState = {
 			readonly title?: string;
 			readonly runtimeMode?: RuntimeMode;
 			readonly worktreeId?: WorktreeId | null | Promise<WorktreeId | null>;
+			readonly workspacePolicy?:
+				| ChatWorkspacePolicy
+				| Promise<ChatWorkspacePolicy>;
 			readonly permissionMode?: PermissionMode;
 			readonly toolSearch?: boolean;
 			readonly startupInput?: ComposerInput;
+			readonly workspaceRequested?: boolean;
+			/** Stable retry fields used only by the creation lifecycle. */
+			readonly operationId?: string;
+			readonly chatId?: ChatId;
+			readonly initialSessionId?: SessionId;
+			readonly startupQueueId?: string;
+			readonly reusePending?: boolean;
+			readonly preserveFocus?: boolean;
 		},
 	) => Promise<{
 		readonly chatId: ChatId;
 		readonly initialSessionId: SessionId;
+		readonly worktreeId: WorktreeId | null;
 		readonly startupQueueId: string | null;
 	} | null>;
 	readonly rename: (chatId: ChatId, title: string) => Promise<void>;
@@ -175,6 +200,30 @@ type ChatsState = {
 	readonly noteChatActivity: (chatId: ChatId) => void;
 };
 
+export type PendingChatCreation = {
+	readonly operationId: string;
+	readonly chatId: ChatId;
+	readonly sessionId: SessionId;
+	readonly projectId: FolderId;
+	readonly providerId: ProviderId;
+	readonly model: string;
+	readonly title: string | undefined;
+	readonly runtimeMode: RuntimeMode | undefined;
+	readonly permissionMode: PermissionMode | undefined;
+	readonly toolSearch: boolean | undefined;
+	readonly startupInput: ComposerInput | undefined;
+	readonly prompt: string | null;
+	readonly workspaceRequested: boolean;
+	readonly worktreeId: WorktreeId | null;
+	readonly workspacePolicy: ChatWorkspacePolicy | null;
+	readonly phase: "creating-workspace" | "creating-chat" | "failed";
+	readonly error: string | null;
+	readonly previousChatId: ChatId | null;
+	readonly previousSessionId: SessionId | null;
+	readonly startupQueueId: string | null;
+	readonly startedAt: number;
+};
+
 /**
  * A chat is unread when it has message activity the user hasn't seen since
  * last viewing it. The currently-selected chat is always treated as read.
@@ -191,6 +240,7 @@ export const isChatUnread = (
 };
 
 const chatProjectIndex = new Map<ChatId, FolderId>();
+const creationRetryPromises = new Map<string, Promise<boolean>>();
 
 const findChatProject = (
 	chatsByProject: ChatsState["chatsByProject"],
@@ -222,6 +272,7 @@ const upsertChat = (
  * reconciled without a manual refetch.
  */
 const changeFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
+const creationFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 const changeGenerations = new Map<string, number>();
 const changeConnectionSubscriptions = new Map<string, () => void>();
 const changeLifecycles = new Map<string, number>();
@@ -247,19 +298,28 @@ const applyChatChange = (
 			clearTimeout(fallbackTimer);
 			snapshotFallbackTimers.delete(projectId);
 		}
-		useChatsStore.setState((state) => ({
-			chatsByProject: {
-				...state.chatsByProject,
-				[projectId]: [...change.chats].sort(
-					(left, right) => chatSortTime(right) - chatSortTime(left),
-				),
-			},
-			loadingByProject: {
-				...state.loadingByProject,
-				[projectId]: false,
-			},
-			error: null,
-		}));
+		useChatsStore.setState((state) => {
+			const pendingChatIds = new Set(
+				Object.values(state.pendingCreationByChat)
+					.filter((creation) => creation.projectId === projectId)
+					.map((creation) => creation.chatId),
+			);
+			let chats: ReadonlyArray<Chat> = change.chats;
+			for (const chat of state.chatsByProject[projectId] ?? []) {
+				if (pendingChatIds.has(chat.id)) chats = upsertChat(chats, chat);
+			}
+			return {
+				chatsByProject: {
+					...state.chatsByProject,
+					[projectId]: chats,
+				},
+				loadingByProject: {
+					...state.loadingByProject,
+					[projectId]: false,
+				},
+				error: null,
+			};
+		});
 		return;
 	}
 	const chat = change.chat;
@@ -336,13 +396,7 @@ const runChatChangeStream = Effect.fn("ChatsStore.runChatChangeStream")(
 			return;
 		if (clientResult._tag === "Failure") {
 			reportRendererRpcStreamFailure(generation, clientResult.failure);
-			useChatsStore.setState((state) => ({
-				loadingByProject: {
-					...state.loadingByProject,
-					[projectId]: false,
-				},
-				error: formatError(clientResult.failure),
-			}));
+			useChatsStore.setState({ error: formatError(clientResult.failure) });
 			return;
 		}
 		const streamResult = yield* Stream.runForEach(
@@ -360,12 +414,128 @@ const runChatChangeStream = Effect.fn("ChatsStore.runChatChangeStream")(
 				? streamResult.failure
 				: new Error("chat change stream completed unexpectedly"),
 		);
+	},
+);
+
+const applyCreationChange = (
+	projectId: FolderId,
+	lifecycle: number,
+	operation: ChatCreationOperation,
+): void => {
+	if (currentChangeLifecycle(projectId) !== lifecycle) return;
+	const current =
+		useChatsStore.getState().pendingCreationByChat[operation.chatId];
+	if (current === undefined) return;
+	if (operation.status === "succeeded") {
+		acknowledgeTimelineSessionCreated(operation.initialSessionId);
 		useChatsStore.setState((state) => ({
-			loadingByProject: {
-				...state.loadingByProject,
+			pendingCreationByChat: Object.fromEntries(
+				Object.entries(state.pendingCreationByChat).filter(
+					([chatId]) => chatId !== operation.chatId,
+				),
+			),
+			creatingByProject: {
+				...state.creatingByProject,
 				[projectId]: false,
 			},
 		}));
+		void useSessionsStore.getState().hydrate(projectId);
+		return;
+	}
+
+	const phase =
+		operation.status === "failed"
+			? "failed"
+			: operation.status === "creating_chat"
+				? "creating-chat"
+				: "creating-workspace";
+	useChatsStore.setState((state) => {
+		if (currentChangeLifecycle(projectId) !== lifecycle) return state;
+		const pending = state.pendingCreationByChat[operation.chatId];
+		if (pending === undefined) return state;
+		return {
+			pendingCreationByChat: {
+				...state.pendingCreationByChat,
+				[operation.chatId]: {
+					...pending,
+					worktreeId: operation.worktreeId,
+					phase,
+					error: operation.error,
+				},
+			},
+			creatingByProject:
+				phase === "failed"
+					? { ...state.creatingByProject, [projectId]: false }
+					: state.creatingByProject,
+			chatsByProject: {
+				...state.chatsByProject,
+				[projectId]: (state.chatsByProject[projectId] ?? []).map((chat) =>
+					chat.id === operation.chatId
+						? Chat.make({ ...chat, worktreeId: operation.worktreeId })
+						: chat,
+				),
+			},
+		};
+	});
+	useSessionsStore.setState((state) => ({
+		sessionsByProject: {
+			...state.sessionsByProject,
+			[projectId]: (state.sessionsByProject[projectId] ?? []).map((session) =>
+				session.id === operation.initialSessionId
+					? Session.make({
+							...session,
+							worktreeId: operation.worktreeId,
+							status: phase === "failed" ? "error" : session.status,
+						})
+					: session,
+			),
+		},
+	}));
+	if (operation.worktreeId !== null) {
+		void useWorktreesStore.getState().refresh(projectId);
+	}
+};
+
+const runCreationChangeStream = Effect.fn("ChatsStore.runCreationChangeStream")(
+	function* (
+		projectId: FolderId,
+		generation: number,
+		lifecycle: number,
+	): Effect.fn.Return<void> {
+		const clientResult = yield* Effect.tryPromise(() => getRpcClient()).pipe(
+			Effect.result,
+		);
+		if (
+			changeGenerations.get(projectId) !== generation ||
+			currentChangeLifecycle(projectId) !== lifecycle
+		)
+			return;
+		if (clientResult._tag === "Failure") {
+			reportRendererRpcStreamFailure(generation, clientResult.failure);
+			return;
+		}
+		const creationStream = (
+			clientResult.success as typeof clientResult.success & {
+				readonly "chat.creation.stream"?: (typeof clientResult.success)["chat.creation.stream"];
+			}
+		)["chat.creation.stream"];
+		if (creationStream === undefined) return;
+		const streamResult = yield* Stream.runForEach(
+			creationStream({ projectId }),
+			(operation) =>
+				Effect.sync(() => applyCreationChange(projectId, lifecycle, operation)),
+		).pipe(Effect.result);
+		if (
+			changeGenerations.get(projectId) !== generation ||
+			currentChangeLifecycle(projectId) !== lifecycle
+		)
+			return;
+		reportRendererRpcStreamFailure(
+			generation,
+			streamResult._tag === "Failure"
+				? streamResult.failure
+				: new Error("chat creation stream completed unexpectedly"),
+		);
 	},
 );
 
@@ -381,10 +551,20 @@ const ensureChangeStream = (projectId: FolderId, lifecycle: number): void => {
 		if (previous !== undefined) {
 			void Effect.runPromise(Fiber.interrupt(previous)).catch(() => {});
 		}
+		const previousCreation = creationFibers.get(projectId);
+		if (previousCreation !== undefined) {
+			void Effect.runPromise(Fiber.interrupt(previousCreation)).catch(() => {});
+		}
 		changeFibers.set(
 			projectId,
 			Effect.runFork(
 				runChatChangeStream(projectId, snapshot.generation, lifecycle),
+			),
+		);
+		creationFibers.set(
+			projectId,
+			Effect.runFork(
+				runCreationChangeStream(projectId, snapshot.generation, lifecycle),
 			),
 		);
 	});
@@ -406,6 +586,11 @@ export const stopChatChangeStream = async (
 	changeFibers.delete(projectId);
 	if (fiber !== undefined) {
 		await Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {});
+	}
+	const creationFiber = creationFibers.get(projectId);
+	creationFibers.delete(projectId);
+	if (creationFiber !== undefined) {
+		await Effect.runPromise(Fiber.interrupt(creationFiber)).catch(() => {});
 	}
 	useChatsStore.setState((state) => {
 		const chatsByProject = { ...state.chatsByProject };
@@ -429,12 +614,100 @@ export const stopChatChangeStream = async (
 	});
 };
 
+const restorePendingCreation = (
+	operation: ChatCreationOperation,
+): {
+	readonly chat: Chat;
+	readonly session: Session;
+	readonly creation: PendingChatCreation;
+} => {
+	const now = operation.updatedAt;
+	const title = operation.title?.trim() || "New chat";
+	const startupInput =
+		operation.startupInput ??
+		(operation.prompt === null
+			? undefined
+			: ComposerInput.make({
+					text: operation.prompt,
+					attachments: [],
+					fileRefs: [],
+					skillRefs: [],
+				}));
+	return {
+		chat: Chat.make({
+			id: operation.chatId,
+			projectId: operation.projectId,
+			worktreeId: operation.worktreeId,
+			title,
+			titleProvenance: operation.title === null ? "pending" : "manual",
+			activeSessionId: operation.initialSessionId,
+			originSessionId: null,
+			archivedAt: null,
+			lastMessageAt: null,
+			lastReadAt: now,
+			createdAt: operation.createdAt,
+			updatedAt: now,
+		}),
+		session: Session.make({
+			id: operation.initialSessionId,
+			projectId: operation.projectId,
+			title,
+			titleProvenance: operation.title === null ? "pending" : "manual",
+			providerId: operation.providerId,
+			model: operation.model,
+			status: operation.status === "failed" ? "error" : "idle",
+			archivedAt: null,
+			cursor: null,
+			resumeStrategy: "none",
+			runtimeMode: operation.runtimeMode,
+			worktreeId: operation.worktreeId,
+			chatId: operation.chatId,
+			forkedFromSessionId: null,
+			forkedFromMessageId: null,
+			permissionMode: operation.permissionMode,
+			toolSearch: operation.toolSearch,
+			createdAt: operation.createdAt,
+			updatedAt: now,
+		}),
+		creation: {
+			operationId: operation.operationId,
+			chatId: operation.chatId,
+			sessionId: operation.initialSessionId,
+			projectId: operation.projectId,
+			providerId: operation.providerId,
+			model: operation.model,
+			title: operation.title ?? undefined,
+			runtimeMode: operation.runtimeMode,
+			permissionMode: operation.permissionMode,
+			toolSearch: operation.toolSearch,
+			startupInput,
+			prompt: operation.prompt,
+			workspaceRequested: operation.workspacePolicy._tag !== "main",
+			worktreeId: operation.worktreeId,
+			workspacePolicy: operation.workspacePolicy,
+			phase:
+				operation.status === "failed"
+					? "failed"
+					: operation.status === "creating_workspace" ||
+							operation.status === "pending"
+						? "creating-workspace"
+						: "creating-chat",
+			error: operation.error,
+			previousChatId: null,
+			previousSessionId: null,
+			startupQueueId: operation.startupQueueId,
+			startedAt: performance.now(),
+		},
+	};
+};
+
 export const useChatsStore = create<ChatsState>((set, get) => ({
 	chatsByProject: {},
 	selectedChatId: null,
 	selectedChatByProject: {},
 	loadingByProject: {},
 	creatingByProject: {},
+	pendingCreationByChat: {},
 	archiveProgressByChat: {},
 	error: null,
 	hydrate: async (projectId) => {
@@ -456,13 +729,69 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					readonly "chat.archiveJobs"?: (typeof client)["chat.archiveJobs"];
 				}
 			)["chat.archiveJobs"];
-			const archiveJobs =
+			const creationListRpc = (
+				client as typeof client & {
+					readonly "chat.creation.list"?: (typeof client)["chat.creation.list"];
+				}
+			)["chat.creation.list"];
+			const [archiveJobs, creationOperations] = await Promise.all([
 				archiveJobsRpc === undefined
-					? []
-					: await Effect.runPromise(archiveJobsRpc({ projectId }));
+					? Promise.resolve([])
+					: Effect.runPromise(archiveJobsRpc({ projectId })),
+				creationListRpc === undefined
+					? Promise.resolve([])
+					: Effect.runPromise(creationListRpc({ projectId })),
+			]);
 			for (const job of archiveJobs) {
 				if (job.status === "failed") notifyArchiveFailure(job);
 				else monitorArchiveJob(job.chatId);
+			}
+			if (currentChangeLifecycle(projectId) !== lifecycle) return;
+			const chats = get().chatsByProject[projectId] ?? [];
+			const restored = creationOperations
+				.filter((operation) => operation.status !== "succeeded")
+				.map(restorePendingCreation);
+			const durableChatIds = new Set(chats.map((chat) => chat.id));
+			const succeededOperationIds = new Set(
+				creationOperations
+					.filter((operation) => operation.status === "succeeded")
+					.map((operation) => operation.operationId),
+			);
+			set((s) => ({
+				chatsByProject: {
+					...s.chatsByProject,
+					[projectId]: restored.reduce(
+						(list, pending) => upsertChat(list, pending.chat),
+						chats,
+					),
+				},
+				pendingCreationByChat: {
+					...Object.fromEntries(
+						Object.entries(s.pendingCreationByChat).filter(
+							([, creation]) =>
+								creation.projectId !== projectId ||
+								(!durableChatIds.has(creation.chatId) &&
+									!succeededOperationIds.has(creation.operationId)),
+						),
+					),
+					...Object.fromEntries(
+						restored.map((pending) => [pending.chat.id, pending.creation]),
+					),
+				},
+			}));
+			useSessionsStore.setState((s) => ({
+				sessionsByProject: {
+					...s.sessionsByProject,
+					[projectId]: restored.reduce(
+						(list, pending) => upsertLatestEntity(list, pending.session),
+						s.sessionsByProject[projectId] ?? [],
+					),
+				},
+			}));
+			for (const pending of restored) {
+				if (pending.creation.phase !== "failed") {
+					void get().retryCreation(pending.chat.id, true);
+				}
 			}
 		} catch (err) {
 			if (currentChangeLifecycle(projectId) !== lifecycle) return;
@@ -470,8 +799,9 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		}
 	},
 	create: async (projectId, providerId, model, opts) => {
-		const chatId = ChatId.make(`chat_${crypto.randomUUID()}`);
-		const initialSessionId = SessionId.make(`s_${crypto.randomUUID()}`);
+		const chatId = opts?.chatId ?? ChatId.make(`chat_${crypto.randomUUID()}`);
+		const initialSessionId =
+			opts?.initialSessionId ?? SessionId.make(`s_${crypto.randomUUID()}`);
 		const previousChatId = get().selectedChatByProject[projectId] ?? null;
 		const previousSessionId =
 			useSessionsStore.getState().selectedSessionByProject[projectId] ?? null;
@@ -516,11 +846,61 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			createdAt: now,
 			updatedAt: now,
 		});
-		let startupQueueId: string | null = null;
+		const operationId = opts?.operationId ?? `create_${crypto.randomUUID()}`;
+		const previousPending =
+			opts?.reusePending === true
+				? get().pendingCreationByChat[chatId]
+				: undefined;
+		const nextPending: PendingChatCreation = {
+			operationId,
+			chatId,
+			sessionId: initialSessionId,
+			projectId,
+			providerId,
+			model,
+			title: opts?.title,
+			runtimeMode: opts?.runtimeMode,
+			permissionMode: opts?.permissionMode,
+			toolSearch: opts?.toolSearch,
+			startupInput: opts?.startupInput,
+			prompt: opts?.startupInput?.text.trim() || null,
+			workspaceRequested: opts?.workspaceRequested === true,
+			worktreeId: optimisticWorktreeId,
+			workspacePolicy:
+				opts?.workspacePolicy instanceof Promise
+					? null
+					: (opts?.workspacePolicy ?? null),
+			phase:
+				opts?.worktreeId instanceof Promise ||
+				opts?.workspacePolicy instanceof Promise
+					? "creating-workspace"
+					: "creating-chat",
+			error: null,
+			previousChatId,
+			previousSessionId,
+			startupQueueId: opts?.startupQueueId ?? null,
+			startedAt: performance.now(),
+		};
+		const pendingCreation: PendingChatCreation =
+			previousPending === undefined
+				? nextPending
+				: {
+						...previousPending,
+						workspacePolicy: nextPending.workspacePolicy,
+						phase: nextPending.phase,
+						error: null,
+						startedAt: nextPending.startedAt,
+					};
+		let startupQueueId =
+			opts?.startupQueueId ?? previousPending?.startupQueueId ?? null;
 		batchAtomUpdates(() => {
 			set((s) => ({
 				error: null,
 				creatingByProject: { ...s.creatingByProject, [projectId]: true },
+				pendingCreationByChat: {
+					...s.pendingCreationByChat,
+					[chatId]: pendingCreation,
+				},
 				chatsByProject: {
 					...s.chatsByProject,
 					[projectId]: upsertChat(
@@ -528,39 +908,101 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 						optimisticChat,
 					),
 				},
-				selectedChatId: chatId,
-				selectedChatByProject: {
-					...s.selectedChatByProject,
-					[projectId]: chatId,
-				},
+				selectedChatId:
+					opts?.preserveFocus === true ? s.selectedChatId : chatId,
+				selectedChatByProject:
+					opts?.preserveFocus === true
+						? s.selectedChatByProject
+						: {
+								...s.selectedChatByProject,
+								[projectId]: chatId,
+							},
 			}));
 			useSessionsStore.setState((s) => ({
 				sessionsByProject: {
 					...s.sessionsByProject,
-					[projectId]: [
+					[projectId]: upsertLatestEntity(
+						s.sessionsByProject[projectId] ?? [],
 						optimisticSession,
-						...(s.sessionsByProject[projectId] ?? []),
-					],
+					),
 				},
-				selectedSessionId: initialSessionId,
-				selectedSessionByProject: {
-					...s.selectedSessionByProject,
-					[projectId]: initialSessionId,
-				},
+				selectedSessionId:
+					opts?.preserveFocus === true ? s.selectedSessionId : initialSessionId,
+				selectedSessionByProject:
+					opts?.preserveFocus === true
+						? s.selectedSessionByProject
+						: {
+								...s.selectedSessionByProject,
+								[projectId]: initialSessionId,
+							},
 			}));
-			if (opts?.startupInput !== undefined) {
+			if (opts?.startupInput !== undefined && opts.reusePending !== true) {
 				startupQueueId = useMessagesStore
 					.getState()
 					.queue(initialSessionId, opts.startupInput, { persist: false });
 			}
 		});
+		if (startupQueueId !== null) {
+			set((s) => ({
+				pendingCreationByChat: {
+					...s.pendingCreationByChat,
+					[chatId]: {
+						...(s.pendingCreationByChat[chatId] ?? pendingCreation),
+						startupQueueId,
+					},
+				},
+			}));
+		}
 		markRendererInteraction(initialSessionId, "first-atom-commit");
 		try {
+			const workspacePolicy = await opts?.workspacePolicy;
 			const worktreeId = await (opts?.worktreeId ?? null);
+			const knownWorktreeId =
+				workspacePolicy?._tag === "existing"
+					? workspacePolicy.worktreeId
+					: worktreeId;
+			set((s) => ({
+				pendingCreationByChat: {
+					...s.pendingCreationByChat,
+					[chatId]: {
+						...(s.pendingCreationByChat[chatId] ?? pendingCreation),
+						worktreeId: knownWorktreeId,
+						workspacePolicy: workspacePolicy ?? null,
+						workspaceRequested:
+							workspacePolicy === undefined
+								? (s.pendingCreationByChat[chatId] ?? pendingCreation)
+										.workspaceRequested
+								: workspacePolicy._tag !== "main",
+						phase:
+							workspacePolicy?._tag === "fresh"
+								? "creating-workspace"
+								: "creating-chat",
+					},
+				},
+				chatsByProject: {
+					...s.chatsByProject,
+					[projectId]: (s.chatsByProject[projectId] ?? []).map((row) =>
+						row.id === chatId
+							? Chat.make({ ...row, worktreeId: knownWorktreeId })
+							: row,
+					),
+				},
+			}));
+			useSessionsStore.setState((s) => ({
+				sessionsByProject: {
+					...s.sessionsByProject,
+					[projectId]: (s.sessionsByProject[projectId] ?? []).map((row) =>
+						row.id === initialSessionId
+							? Session.make({ ...row, worktreeId: knownWorktreeId })
+							: row,
+					),
+				},
+			}));
 			const client = await getRpcClient();
 			const result = await trackRendererRpc("chat.create", () =>
 				Effect.runPromise(
 					client["chat.create"]({
+						operationId,
 						chatId,
 						initialSessionId,
 						projectId,
@@ -569,6 +1011,9 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 						title: opts?.title,
 						runtimeMode: opts?.runtimeMode,
 						worktreeId,
+						workspacePolicy,
+						startupInput: opts?.startupInput,
+						startupQueueId: startupQueueId ?? undefined,
 						permissionMode: opts?.permissionMode,
 						toolSearch: opts?.toolSearch,
 						background: true,
@@ -594,20 +1039,27 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			// mark it active so the renderer immediately swaps to it.
 			set((s) => {
 				const existing = s.chatsByProject[projectId] ?? [];
+				const stillOwnsSelection =
+					s.selectedChatId === chatId &&
+					s.selectedChatByProject[projectId] === chatId;
 				return {
 					chatsByProject: {
 						...s.chatsByProject,
 						[projectId]: upsertChat(existing, chat),
 					},
-					selectedChatId: chat.id,
-					selectedChatByProject: {
-						...s.selectedChatByProject,
-						[projectId]: chat.id,
-					},
+					selectedChatId: stillOwnsSelection ? chat.id : s.selectedChatId,
+					selectedChatByProject: stillOwnsSelection
+						? { ...s.selectedChatByProject, [projectId]: chat.id }
+						: s.selectedChatByProject,
 					creatingByProject: {
 						...s.creatingByProject,
 						[projectId]: false,
 					},
+					pendingCreationByChat: Object.fromEntries(
+						Object.entries(s.pendingCreationByChat).filter(
+							([id]) => id !== chatId,
+						),
+					),
 				};
 			});
 			// Mirror the initial session into the sessions store and select it
@@ -615,6 +1067,9 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			// on the very next render.
 			useSessionsStore.setState((s) => {
 				const list = s.sessionsByProject[projectId] ?? [];
+				const stillOwnsSelection =
+					s.selectedSessionId === initialSessionId &&
+					s.selectedSessionByProject[projectId] === initialSessionId;
 				// The live chat stream can hydrate this row before create() resolves.
 				// Deduplicate the row without dropping the selection transition.
 				return {
@@ -622,62 +1077,184 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 						...s.sessionsByProject,
 						[projectId]: upsertLatestEntity(list, initialSession),
 					},
-					selectedSessionId: initialSession.id,
-					selectedSessionByProject: {
-						...s.selectedSessionByProject,
-						[projectId]: initialSession.id,
-					},
+					selectedSessionId: stillOwnsSelection
+						? initialSession.id
+						: s.selectedSessionId,
+					selectedSessionByProject: stillOwnsSelection
+						? {
+								...s.selectedSessionByProject,
+								[projectId]: initialSession.id,
+							}
+						: s.selectedSessionByProject,
 				};
 			});
 			acknowledgeTimelineSessionCreated(initialSession.id);
+			if (chat.worktreeId !== null) {
+				void useWorktreesStore.getState().refresh(projectId);
+			}
 			return {
 				chatId: chat.id,
 				initialSessionId: initialSession.id,
+				worktreeId: chat.worktreeId,
 				startupQueueId,
 			};
 		} catch (err) {
-			discardTimelineSessionCreation(initialSessionId);
+			const reason = formatError(err);
 			batchAtomUpdates(() => {
-				if (startupQueueId !== null) {
-					useMessagesStore
-						.getState()
-						.dropFromQueue(initialSessionId, startupQueueId);
-				}
 				useSessionsStore.setState((s) => ({
 					sessionsByProject: {
 						...s.sessionsByProject,
-						[projectId]: (s.sessionsByProject[projectId] ?? []).filter(
-							(row) => row.id !== initialSessionId,
+						[projectId]: (s.sessionsByProject[projectId] ?? []).map((row) =>
+							row.id === initialSessionId
+								? Session.make({ ...row, status: "error" })
+								: row,
 						),
-					},
-					selectedSessionId:
-						s.selectedSessionId === initialSessionId
-							? previousSessionId
-							: s.selectedSessionId,
-					selectedSessionByProject: {
-						...s.selectedSessionByProject,
-						[projectId]: previousSessionId,
 					},
 				}));
 				set((s) => ({
-					error: formatError(err),
-					chatsByProject: {
-						...s.chatsByProject,
-						[projectId]: (s.chatsByProject[projectId] ?? []).filter(
-							(row) => row.id !== chatId,
-						),
-					},
-					selectedChatId:
-						s.selectedChatId === chatId ? previousChatId : s.selectedChatId,
-					selectedChatByProject: {
-						...s.selectedChatByProject,
-						[projectId]: previousChatId,
+					error: reason,
+					pendingCreationByChat: {
+						...s.pendingCreationByChat,
+						[chatId]: {
+							...(s.pendingCreationByChat[chatId] ?? pendingCreation),
+							phase: "failed",
+							error: reason,
+							startupQueueId:
+								s.pendingCreationByChat[chatId]?.startupQueueId ??
+								startupQueueId,
+						},
 					},
 					creatingByProject: { ...s.creatingByProject, [projectId]: false },
 				}));
 			});
 			return null;
 		}
+	},
+	retryCreation: async (chatId, preserveFocus = false) => {
+		const creation = get().pendingCreationByChat[chatId];
+		if (
+			creation === undefined ||
+			(creation.phase !== "failed" && preserveFocus !== true)
+		)
+			return false;
+		const existing = creationRetryPromises.get(creation.operationId);
+		if (existing !== undefined) return existing;
+		const retry = (async () => {
+			const result = await get().create(
+				creation.projectId,
+				creation.providerId,
+				creation.model,
+				{
+					operationId: creation.operationId,
+					chatId: creation.chatId,
+					initialSessionId: creation.sessionId,
+					reusePending: true,
+					preserveFocus,
+					title: creation.title,
+					runtimeMode: creation.runtimeMode,
+					permissionMode: creation.permissionMode,
+					toolSearch: creation.toolSearch,
+					startupInput: creation.startupInput,
+					startupQueueId: creation.startupQueueId ?? undefined,
+					workspaceRequested: creation.workspaceRequested,
+					workspacePolicy:
+						creation.workspacePolicy ??
+						(creation.workspaceRequested
+							? { _tag: "fresh" }
+							: { _tag: "main" }),
+				},
+			);
+			if (result !== null && creation.startupInput !== undefined) {
+				const queueId =
+					creation.startupQueueId ??
+					useMessagesStore
+						.getState()
+						.queue(result.initialSessionId, creation.startupInput, {
+							persist: false,
+						});
+				await useMessagesStore
+					.getState()
+					.persistQueued(
+						result.initialSessionId,
+						queueId,
+						creation.startupInput,
+						{ ready: true },
+					);
+			}
+			return result !== null;
+		})();
+		creationRetryPromises.set(creation.operationId, retry);
+		try {
+			return await retry;
+		} finally {
+			if (creationRetryPromises.get(creation.operationId) === retry) {
+				creationRetryPromises.delete(creation.operationId);
+			}
+		}
+	},
+	discardCreation: (chatId) => {
+		const creation = get().pendingCreationByChat[chatId];
+		if (creation === undefined) return;
+		void (async () => {
+			try {
+				const client = await getRpcClient();
+				await Effect.runPromise(
+					client["chat.creation.discard"]({
+						operationId: creation.operationId,
+					}),
+				);
+			} catch {
+				// Local discard remains responsive; a reconnect list can reconcile
+				// the durable operation if the server did not receive this request.
+			}
+		})();
+		discardTimelineSessionCreation(creation.sessionId);
+		if (creation.startupQueueId !== null) {
+			useMessagesStore
+				.getState()
+				.dropFromQueue(creation.sessionId, creation.startupQueueId);
+		}
+		useSessionsStore.setState((s) => ({
+			sessionsByProject: {
+				...s.sessionsByProject,
+				[creation.projectId]: (
+					s.sessionsByProject[creation.projectId] ?? []
+				).filter((session) => session.id !== creation.sessionId),
+			},
+			selectedSessionId:
+				s.selectedSessionId === creation.sessionId
+					? creation.previousSessionId
+					: s.selectedSessionId,
+			selectedSessionByProject: {
+				...s.selectedSessionByProject,
+				[creation.projectId]:
+					s.selectedSessionByProject[creation.projectId] === creation.sessionId
+						? creation.previousSessionId
+						: (s.selectedSessionByProject[creation.projectId] ?? null),
+			},
+		}));
+		set((s) => ({
+			chatsByProject: {
+				...s.chatsByProject,
+				[creation.projectId]: (
+					s.chatsByProject[creation.projectId] ?? []
+				).filter((chat) => chat.id !== creation.chatId),
+			},
+			pendingCreationByChat: Object.fromEntries(
+				Object.entries(s.pendingCreationByChat).filter(([id]) => id !== chatId),
+			),
+			selectedChatId:
+				s.selectedChatId === creation.chatId
+					? creation.previousChatId
+					: s.selectedChatId,
+			selectedChatByProject: {
+				...s.selectedChatByProject,
+				[creation.projectId]:
+					s.selectedChatByProject[creation.projectId] === creation.chatId
+						? creation.previousChatId
+						: (s.selectedChatByProject[creation.projectId] ?? null),
+			},
+		}));
 	},
 	rename: async (chatId, title) => {
 		set({ error: null });

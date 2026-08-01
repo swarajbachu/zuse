@@ -1,7 +1,7 @@
-import { IPC_CHANNEL } from "@zuse/contracts";
+import { IPC_CHANNEL, MemoizeRpcs } from "@zuse/contracts";
 import {
-  makeMeasuredJsonRpcSerialization,
-  makeRpcPayloadReporter,
+	makeMeasuredJsonRpcSerialization,
+	makeRpcPayloadReporter,
 } from "@zuse/utils/rpc-payload-metrics";
 import { type Cause, Effect, Layer, Queue, Stream } from "effect";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
@@ -21,142 +21,143 @@ import { ipcMain, type WebContents } from "electron";
 const SINGLE_WINDOW_CLIENT_ID = 0;
 
 export const makeElectronServerProtocol = (webContents: WebContents) =>
-  RpcServer.Protocol.make(
-    Effect.fnUntraced(function* (writeRequest) {
-      const serialization = yield* RpcSerialization.RpcSerialization;
-      const parser = serialization.makeUnsafe();
-      const disconnects = yield* Queue.make<number>();
+	RpcServer.Protocol.make(
+		Effect.fnUntraced(function* (writeRequest) {
+			const serialization = yield* RpcSerialization.RpcSerialization;
+			const parser = serialization.makeUnsafe();
+			const disconnects = yield* Queue.make<number>();
 
-      // ---- inbound: ipcMain → writeRequest --------------------------------
-      // The renderer pushes encoded RPC frames on IPC_CHANNEL. We can't run
-      // Effects from a synchronous ipc handler, so we shovel into a Queue
-      // and consume that as a Stream.
-      const inbound = yield* Queue.make<unknown, Cause.Done>();
-      const handler = (event: Electron.IpcMainEvent, frame: unknown) => {
-        if (event.sender.id !== webContents.id) return;
-        Queue.offerUnsafe(inbound, frame);
-      };
-      yield* Effect.acquireRelease(
-        Effect.sync(() => ipcMain.on(IPC_CHANNEL, handler)),
-        () => Effect.sync(() => ipcMain.off(IPC_CHANNEL, handler)),
-      );
+			// ---- inbound: ipcMain → writeRequest --------------------------------
+			// The renderer pushes encoded RPC frames on IPC_CHANNEL. We can't run
+			// Effects from a synchronous ipc handler, so we shovel into a Queue
+			// and consume that as a Stream.
+			const inbound = yield* Queue.make<unknown, Cause.Done>();
+			const handler = (event: Electron.IpcMainEvent, frame: unknown) => {
+				if (event.sender.id !== webContents.id) return;
+				Queue.offerUnsafe(inbound, frame);
+			};
+			yield* Effect.acquireRelease(
+				Effect.sync(() => ipcMain.on(IPC_CHANNEL, handler)),
+				() => Effect.sync(() => ipcMain.off(IPC_CHANNEL, handler)),
+			);
 
-      yield* Stream.fromQueue(inbound).pipe(
-        Stream.runForEach((frame) =>
-          Effect.suspend(() => {
-            const decoded = parser.decode(frame as Uint8Array | string);
-            if (decoded.length === 0) return Effect.void;
-            let i = 0;
-            return Effect.whileLoop({
-              while: () => i < decoded.length,
-              body: () =>
-                writeRequest(
-                  SINGLE_WINDOW_CLIENT_ID,
-                  decoded[i++] as FromClientEncoded,
-                ),
-              step: () => undefined,
-            });
-          }),
-        ),
-        Effect.forkScoped,
-        Effect.interruptible,
-      );
+			yield* Stream.fromQueue(inbound).pipe(
+				Stream.runForEach((frame) =>
+					Effect.suspend(() => {
+						const decoded = parser.decode(frame as Uint8Array | string);
+						if (decoded.length === 0) return Effect.void;
+						let i = 0;
+						return Effect.whileLoop({
+							while: () => i < decoded.length,
+							body: () =>
+								writeRequest(
+									SINGLE_WINDOW_CLIENT_ID,
+									decoded[i++] as FromClientEncoded,
+								),
+							step: () => undefined,
+						});
+					}),
+				),
+				Effect.forkScoped,
+				Effect.interruptible,
+			);
 
-      // ---- disconnects: webContents destroyed OR top-level reload ---------
-      // The renderer's `RpcClient` request-id counter is module-level, so a
-      // Cmd+R reload restarts it at 0. Any stream RPC from the previous page
-      // (session.events, queue streams, ...) is still alive in this
-      // server's per-client fiber map because `webContents.destroyed` never
-      // fired. When the new page's request IDs collide with those stale
-      // streams, `RpcServer.handleRequest` blocks on `Fiber.await(oldFiber)`
-      // and the new request hangs forever — sessions, file tree, etc. get
-      // stuck in loading state after every reload.
-      //
-      // Offering `SINGLE_WINDOW_CLIENT_ID` to `disconnects` makes the
-      // RpcServer interrupt every fiber for client 0 and drop the client
-      // entry; the reloaded renderer's next request creates a fresh client.
-      // `did-start-loading` fires for top-level loads (reload,
-      // `location.href = ...`) but NOT for devtools, subframes, or
-      // pushState/replaceState — exactly the "the renderer is throwing
-      // away its world" signal we want. On the very first load there is
-      // no client 0 yet, so the disconnect is a no-op.
-      const offerDisconnect = () => {
-        Queue.offerUnsafe(disconnects, SINGLE_WINDOW_CLIENT_ID);
-      };
-      const onDestroyed = () => {
-        offerDisconnect();
-        Queue.endUnsafe(inbound);
-      };
-      const onStartLoading = () => {
-        offerDisconnect();
-      };
-      yield* Effect.acquireRelease(
-        Effect.sync(() => {
-          webContents.once("destroyed", onDestroyed);
-          webContents.on("did-start-loading", onStartLoading);
-        }),
-        () =>
-          Effect.sync(() => {
-            if (!webContents.isDestroyed()) {
-              webContents.off("destroyed", onDestroyed);
-              webContents.off("did-start-loading", onStartLoading);
-            }
-          }),
-      );
+			// ---- disconnects: webContents destroyed OR top-level reload ---------
+			// The renderer's `RpcClient` request-id counter is module-level, so a
+			// Cmd+R reload restarts it at 0. Any stream RPC from the previous page
+			// (session.events, queue streams, ...) is still alive in this
+			// server's per-client fiber map because `webContents.destroyed` never
+			// fired. When the new page's request IDs collide with those stale
+			// streams, `RpcServer.handleRequest` blocks on `Fiber.await(oldFiber)`
+			// and the new request hangs forever — sessions, file tree, etc. get
+			// stuck in loading state after every reload.
+			//
+			// Offering `SINGLE_WINDOW_CLIENT_ID` to `disconnects` makes the
+			// RpcServer interrupt every fiber for client 0 and drop the client
+			// entry; the reloaded renderer's next request creates a fresh client.
+			// `did-start-loading` fires for top-level loads (reload,
+			// `location.href = ...`) but NOT for devtools, subframes, or
+			// pushState/replaceState — exactly the "the renderer is throwing
+			// away its world" signal we want. On the very first load there is
+			// no client 0 yet, so the disconnect is a no-op.
+			const offerDisconnect = () => {
+				Queue.offerUnsafe(disconnects, SINGLE_WINDOW_CLIENT_ID);
+			};
+			const onDestroyed = () => {
+				offerDisconnect();
+				Queue.endUnsafe(inbound);
+			};
+			const onStartLoading = () => {
+				offerDisconnect();
+			};
+			yield* Effect.acquireRelease(
+				Effect.sync(() => {
+					webContents.once("destroyed", onDestroyed);
+					webContents.on("did-start-loading", onStartLoading);
+				}),
+				() =>
+					Effect.sync(() => {
+						if (!webContents.isDestroyed()) {
+							webContents.off("destroyed", onDestroyed);
+							webContents.off("did-start-loading", onStartLoading);
+						}
+					}),
+			);
 
-      return {
-        disconnects,
-        send: (_clientId, response) =>
-          Effect.sync(() => {
-            const encoded = parser.encode(response);
-            if (encoded === undefined) return;
-            if (webContents.isDestroyed()) return;
-            // During reload/teardown the webContents can outlive its main
-            // frame; sending then makes Electron log "Render frame was
-            // disposed before WebFrameMain could be accessed".
-            const frame = webContents.mainFrame as {
-              isDestroyed?: () => boolean;
-              detached?: boolean;
-            } | null;
-            if (frame?.isDestroyed?.() === true || frame?.detached === true) {
-              return;
-            }
-            webContents.send(IPC_CHANNEL, encoded);
-          }),
-        end: (_clientId) => Effect.void,
-        clientIds: Effect.succeed(new Set([SINGLE_WINDOW_CLIENT_ID])),
-        initialMessage: Effect.succeedNone,
-        supportsAck: true,
-        supportsTransferables: false,
-        supportsSpanPropagation: false,
-      };
-    }),
-  );
+			return {
+				disconnects,
+				send: (_clientId, response) =>
+					Effect.sync(() => {
+						const encoded = parser.encode(response);
+						if (encoded === undefined) return;
+						if (webContents.isDestroyed()) return;
+						// During reload/teardown the webContents can outlive its main
+						// frame; sending then makes Electron log "Render frame was
+						// disposed before WebFrameMain could be accessed".
+						const frame = webContents.mainFrame as {
+							isDestroyed?: () => boolean;
+							detached?: boolean;
+						} | null;
+						if (frame?.isDestroyed?.() === true || frame?.detached === true) {
+							return;
+						}
+						webContents.send(IPC_CHANNEL, encoded);
+					}),
+				end: (_clientId) => Effect.void,
+				clientIds: Effect.succeed(new Set([SINGLE_WINDOW_CLIENT_ID])),
+				initialMessage: Effect.succeedNone,
+				supportsAck: true,
+				supportsTransferables: false,
+				supportsSpanPropagation: false,
+			};
+		}),
+	);
 
 /**
  * Build a Layer providing `RpcServer.Protocol` bound to a specific webContents.
  */
 export const electronServerProtocolLayer = (
-  webContents: WebContents,
-  onDiagnostic?: (event: string, fields?: Record<string, unknown>) => void,
+	webContents: WebContents,
+	onDiagnostic?: (event: string, fields?: Record<string, unknown>) => void,
 ) => {
-  const reporter = makeRpcPayloadReporter({
-    transport: "electron-ipc",
-    onReport: (report) => onDiagnostic?.("rpc.payload.summary", { ...report }),
-  });
-  return Layer.effect(
-    RpcServer.Protocol,
-    makeElectronServerProtocol(webContents),
-  ).pipe(
-    Layer.provide(
-      Layer.succeed(
-        RpcSerialization.RpcSerialization,
-        makeMeasuredJsonRpcSerialization({
-          encodeDirection: "outbound",
-          decodeDirection: "inbound",
-          record: reporter.record,
-        }),
-      ),
-    ),
-  );
+	const reporter = makeRpcPayloadReporter({
+		transport: "electron-ipc",
+		onReport: (report) => onDiagnostic?.("rpc.payload.summary", { ...report }),
+	});
+	return Layer.effect(
+		RpcServer.Protocol,
+		makeElectronServerProtocol(webContents),
+	).pipe(
+		Layer.provide(
+			Layer.succeed(
+				RpcSerialization.RpcSerialization,
+				makeMeasuredJsonRpcSerialization({
+					encodeDirection: "outbound",
+					decodeDirection: "inbound",
+					allowedRpcLabels: MemoizeRpcs.requests,
+					record: reporter.record,
+				}),
+			),
+		),
+	);
 };

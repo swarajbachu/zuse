@@ -71,4 +71,94 @@ describe("ReactorRunner", () => {
 		await expect(Effect.runPromise(runner.catchUp())).resolves.toBe(1);
 		expect(applied).toHaveLength(2);
 	});
+
+	test("dispatches independent events concurrently up to the configured bound", async () => {
+		const storage = new InMemoryReactorStorage<Event>(
+			Array.from({ length: 6 }, (_, index) => ({
+				eventId: `event-${index + 1}`,
+				correlationId: `request-${index + 1}`,
+				sequence: index + 1,
+				value: `${index + 1}`,
+			})),
+		);
+		let active = 0;
+		let maximumActive = 0;
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const dispatch = () =>
+			Effect.promise(async () => {
+				active += 1;
+				maximumActive = Math.max(maximumActive, active);
+				await gate;
+				active -= 1;
+			});
+		const runner = new ReactorRunner(
+			storage,
+			dispatch,
+			{
+				name: "bounded",
+				react: (event) =>
+					Effect.succeed([{ streamId: event.value, command: event.value }]),
+			},
+			{ dispatchConcurrency: 4 },
+		);
+
+		const run = Effect.runPromise(runner.catchUp());
+		for (let attempt = 0; attempt < 100 && maximumActive < 4; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 1));
+		}
+		expect(maximumActive).toBe(4);
+		release();
+		await expect(run).resolves.toBe(6);
+		expect(maximumActive).toBe(4);
+		expect(storage.cursorValue("reactor:bounded")).toBe(6);
+	});
+
+	test("preserves ordering for commands targeting the same stream", async () => {
+		const storage = new InMemoryReactorStorage<Event>([
+			{
+				eventId: "event-1",
+				correlationId: "request-1",
+				sequence: 1,
+				value: "first",
+			},
+			{
+				eventId: "event-2",
+				correlationId: "request-2",
+				sequence: 2,
+				value: "second",
+			},
+		]);
+		const observed: string[] = [];
+		let activeForStream = 0;
+		let maximumActiveForStream = 0;
+		const dispatch = (input: ReactorDispatchInput<string>) =>
+			Effect.promise(async () => {
+				activeForStream += 1;
+				maximumActiveForStream = Math.max(
+					maximumActiveForStream,
+					activeForStream,
+				);
+				await new Promise((resolve) => setTimeout(resolve, 5));
+				observed.push(input.command);
+				activeForStream -= 1;
+			});
+		const runner = new ReactorRunner(
+			storage,
+			dispatch,
+			{
+				name: "per-stream-order",
+				react: (event) =>
+					Effect.succeed([{ streamId: "same-session", command: event.value }]),
+			},
+			{ dispatchConcurrency: 4 },
+		);
+
+		await Effect.runPromise(runner.catchUp());
+
+		expect(maximumActiveForStream).toBe(1);
+		expect(observed).toEqual(["first", "second"]);
+	});
 });

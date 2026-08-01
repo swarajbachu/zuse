@@ -203,6 +203,7 @@ describe("chats store selection", () => {
 		expect(result).toEqual({
 			chatId,
 			initialSessionId: sessionId,
+			worktreeId: null,
 			startupQueueId: null,
 		});
 		expect(useChatsStore.getState().selectedChatId).toBe(chatId);
@@ -270,12 +271,288 @@ describe("chats store selection", () => {
 		expect(
 			useMessagesStore.getState().messagesBySession[optimisticSessionId ?? ""],
 		).toBeUndefined();
+		expect(
+			useChatsStore.getState().pendingCreationByChat[optimisticChatId ?? ""],
+		).toMatchObject({
+			chatId: optimisticChatId,
+			sessionId: optimisticSessionId,
+			phase: "creating-chat",
+		});
 
 		acknowledgement.resolve();
 		await pending;
 		expect(payload?.chatId).toBe(optimisticChatId);
 		expect(payload?.initialSessionId).toBe(optimisticSessionId);
 		expect(payload?.background).toBe(true);
+		expect(
+			useChatsStore.getState().pendingCreationByChat[optimisticChatId ?? ""],
+		).toBeUndefined();
+	});
+
+	it("does not steal focus when creation acknowledges after the user navigates away", async () => {
+		const acknowledgement = deferred<{
+			readonly chat: Chat;
+			readonly initialSession: Session;
+			readonly initialMessage: null;
+		}>();
+		rpcClientFactory.mockReturnValue({
+			"chat.create": () => Effect.promise(() => acknowledgement.promise),
+		});
+		useChatsStore.setState({
+			chatsByProject: { [projectId]: [nextChat] },
+			selectedChatId: nextChatId,
+			selectedChatByProject: { [projectId]: nextChatId },
+		});
+		useSessionsStore.setState({
+			sessionsByProject: { [projectId]: [nextSession] },
+			selectedSessionId: nextSessionId,
+			selectedSessionByProject: { [projectId]: nextSessionId },
+		});
+
+		const pending = useChatsStore
+			.getState()
+			.create(projectId, session.providerId, session.model);
+		const optimisticChatId = useChatsStore.getState().selectedChatId;
+		const optimisticSessionId = useSessionsStore.getState().selectedSessionId;
+		expect(optimisticChatId).not.toBe(nextChatId);
+		expect(optimisticSessionId).not.toBe(nextSessionId);
+
+		useChatsStore.getState().select(nextChatId);
+
+		acknowledgement.resolve({
+			chat: {
+				...chat,
+				id: optimisticChatId as ChatId,
+				activeSessionId: optimisticSessionId,
+			},
+			initialSession: {
+				...session,
+				id: optimisticSessionId as SessionId,
+				chatId: optimisticChatId as ChatId,
+				status: "booting",
+			},
+			initialMessage: null,
+		});
+		await pending;
+
+		expect(useChatsStore.getState().selectedChatId).toBe(nextChatId);
+		expect(useSessionsStore.getState().selectedSessionId).toBe(nextSessionId);
+	});
+
+	it("keeps a failed provisional chat retryable with the same stable ids", async () => {
+		const payloads: Array<{
+			readonly operationId?: string;
+			readonly chatId?: ChatId;
+			readonly initialSessionId?: SessionId;
+		}> = [];
+		let attempt = 0;
+		rpcClientFactory.mockReturnValue({
+			"chat.create": (payload: {
+				readonly operationId?: string;
+				readonly chatId?: ChatId;
+				readonly initialSessionId?: SessionId;
+			}) => {
+				payloads.push(payload);
+				attempt += 1;
+				return attempt === 1
+					? Effect.fail(new Error("remote unavailable"))
+					: Effect.succeed({
+							chat: {
+								...chat,
+								id: payload.chatId ?? chatId,
+								activeSessionId: payload.initialSessionId ?? sessionId,
+							},
+							initialSession: {
+								...session,
+								id: payload.initialSessionId ?? sessionId,
+								chatId: payload.chatId ?? chatId,
+							},
+							initialMessage: null,
+						});
+			},
+		});
+
+		await expect(
+			useChatsStore
+				.getState()
+				.create(projectId, session.providerId, session.model, {
+					workspacePolicy: { _tag: "fresh" },
+					workspaceRequested: true,
+				}),
+		).resolves.toBeNull();
+		const failedChatId = useChatsStore.getState().selectedChatId;
+		expect(failedChatId).not.toBeNull();
+		expect(
+			useChatsStore.getState().pendingCreationByChat[failedChatId ?? ""],
+		).toMatchObject({ phase: "failed", error: "remote unavailable" });
+
+		await expect(
+			useChatsStore.getState().retryCreation(failedChatId as ChatId),
+		).resolves.toBe(true);
+		expect(payloads[1]).toMatchObject(payloads[0] ?? {});
+		expect(
+			useChatsStore.getState().pendingCreationByChat[failedChatId ?? ""],
+		).toBeUndefined();
+	});
+
+	it("restores a durable failed creation without changing navigation", async () => {
+		useChatsStore.setState({
+			chatsByProject: { [projectId]: [nextChat] },
+			selectedChatId: nextChatId,
+			selectedChatByProject: { [projectId]: nextChatId },
+		});
+		useSessionsStore.setState({
+			sessionsByProject: { [projectId]: [nextSession] },
+			selectedSessionId: nextSessionId,
+			selectedSessionByProject: { [projectId]: nextSessionId },
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.list": () => Effect.succeed([nextChat]),
+			"chat.archiveJobs": () => Effect.succeed([]),
+			"chat.creation.list": () =>
+				Effect.succeed([
+					{
+						operationId: "create-restored",
+						chatId,
+						initialSessionId: sessionId,
+						projectId,
+						providerId: session.providerId,
+						model: session.model,
+						title: null,
+						runtimeMode: session.runtimeMode,
+						permissionMode: session.permissionMode,
+						toolSearch: false,
+						prompt: "keep working",
+						startupInput: null,
+						startupQueueId: null,
+						workspacePolicy: { _tag: "fresh" as const },
+						worktreeId: null,
+						status: "failed" as const,
+						error: "fetch failed",
+						createdAt: now,
+						updatedAt: now,
+					},
+				]),
+		});
+
+		await useChatsStore.getState().hydrate(projectId);
+
+		expect(useChatsStore.getState().selectedChatId).toBe(nextChatId);
+		expect(useSessionsStore.getState().selectedSessionId).toBe(nextSessionId);
+		expect(
+			useChatsStore.getState().pendingCreationByChat[chatId],
+		).toMatchObject({
+			phase: "failed",
+			error: "fetch failed",
+			prompt: "keep working",
+		});
+
+		rpcClientFactory.mockReturnValue({
+			"chat.list": () => Effect.succeed([nextChat, chat]),
+			"chat.archiveJobs": () => Effect.succeed([]),
+			"chat.creation.list": () => Effect.succeed([]),
+		});
+		await useChatsStore.getState().hydrate(projectId);
+
+		expect(
+			useChatsStore.getState().pendingCreationByChat[chatId],
+		).toBeUndefined();
+		expect(useChatsStore.getState().selectedChatId).toBe(nextChatId);
+	});
+
+	it("resumes an interrupted durable creation with the same prompt and ids", async () => {
+		const startupInput = new ComposerInput({
+			text: "continue after restart",
+			attachments: [],
+			fileRefs: [],
+			skillRefs: [],
+		});
+		const createPayloads: Array<{
+			readonly operationId?: string;
+			readonly chatId?: ChatId;
+			readonly initialSessionId?: SessionId;
+			readonly startupQueueId?: string;
+		}> = [];
+		const persisted: Array<{
+			readonly sessionId: SessionId;
+			readonly queueId: string;
+			readonly input: ComposerInput;
+		}> = [];
+		const originalPersistQueued = useMessagesStore.getState().persistQueued;
+		useMessagesStore.setState({
+			persistQueued: async (persistSessionId, queueId, input) => {
+				persisted.push({ sessionId: persistSessionId, queueId, input });
+			},
+		});
+		useChatsStore.setState({
+			chatsByProject: { [projectId]: [nextChat] },
+			selectedChatId: nextChatId,
+			selectedChatByProject: { [projectId]: nextChatId },
+		});
+		useSessionsStore.setState({
+			sessionsByProject: { [projectId]: [nextSession] },
+			selectedSessionId: nextSessionId,
+			selectedSessionByProject: { [projectId]: nextSessionId },
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.list": () => Effect.succeed([nextChat]),
+			"chat.archiveJobs": () => Effect.succeed([]),
+			"chat.creation.list": () =>
+				Effect.succeed([
+					{
+						operationId: "create-interrupted",
+						chatId,
+						initialSessionId: sessionId,
+						projectId,
+						providerId: session.providerId,
+						model: session.model,
+						title: null,
+						runtimeMode: session.runtimeMode,
+						permissionMode: session.permissionMode,
+						toolSearch: false,
+						prompt: startupInput.text,
+						startupInput,
+						startupQueueId: "queue-stable",
+						workspacePolicy: { _tag: "fresh" as const },
+						worktreeId: null,
+						status: "creating_workspace" as const,
+						error: null,
+						createdAt: now,
+						updatedAt: now,
+					},
+				]),
+			"chat.create": (payload: (typeof createPayloads)[number]) =>
+				Effect.sync(() => {
+					createPayloads.push(payload);
+					return {
+						chat,
+						initialSession: session,
+						initialMessage: null,
+					};
+				}),
+		});
+
+		try {
+			await useChatsStore.getState().hydrate(projectId);
+			await vi.waitFor(() => expect(createPayloads).toHaveLength(1));
+			await vi.waitFor(() => expect(persisted).toHaveLength(1));
+		} finally {
+			useMessagesStore.setState({ persistQueued: originalPersistQueued });
+		}
+
+		expect(createPayloads[0]).toMatchObject({
+			operationId: "create-interrupted",
+			chatId,
+			initialSessionId: sessionId,
+			startupQueueId: "queue-stable",
+		});
+		expect(persisted[0]).toMatchObject({
+			sessionId,
+			queueId: "queue-stable",
+			input: startupInput,
+		});
+		expect(useChatsStore.getState().selectedChatId).toBe(nextChatId);
+		expect(useSessionsStore.getState().selectedSessionId).toBe(nextSessionId);
 	});
 
 	it("does not let a stale create receipt overwrite a live rename and idle status", async () => {

@@ -125,6 +125,47 @@ const setConnectionLoading = (connKey: string, loading: boolean): void => {
 const messageOf = (cause: unknown): string =>
 	cause instanceof Error ? cause.message : String(cause);
 
+type SnapshotStreamSupervisorOptions = {
+	readonly connectionKey: string;
+	readonly connectionOptions: WsProtocolOptions;
+	readonly isReady: () => boolean;
+	readonly failReady: (cause: unknown) => void;
+	readonly completedMessage: string;
+	readonly missingSnapshotMessage: string;
+};
+
+const superviseSnapshotStream = <E, R>(
+	program: Effect.Effect<void, E, R>,
+	options: SnapshotStreamSupervisorOptions,
+): Effect.Effect<void, never, R> =>
+	program.pipe(
+		Effect.tap(() =>
+			Effect.sync(() => {
+				if (!options.isReady()) return;
+				const cause = new Error(options.completedMessage);
+				retryConnectionNow(options.connectionOptions);
+				setConnectionError(options.connectionKey, cause.message);
+			}),
+		),
+		Effect.catch((cause) =>
+			Effect.sync(() => {
+				if (!options.isReady()) {
+					options.failReady(cause);
+					return;
+				}
+				reportConnectionFailure(options.connectionOptions, cause);
+				setConnectionError(options.connectionKey, messageOf(cause));
+			}),
+		),
+		Effect.ensuring(
+			Effect.sync(() => {
+				if (!options.isReady()) {
+					options.failReady(new Error(options.missingSnapshotMessage));
+				}
+			}),
+		),
+	);
+
 export const archiveChat = async (
 	connKey: string,
 	options: WsProtocolOptions,
@@ -550,59 +591,40 @@ export const hydrateSessions = async (
 			};
 
 			await stopFiber(`${connKey}:chat:${bundle.project.id}`, chatFibers);
-			const chatProgram = Stream.runForEach(
-				client["chat.streamChanges"]({ projectId: bundle.project.id }),
-				(change) =>
-					Effect.sync(() => {
-						if (change._tag === "snapshot") {
-							setConnectionBundles(
-								connKey,
-								replaceProjectChats(
-									currentBundles(connKey),
-									bundle.project.id,
-									change.chats,
-								),
-							);
-							chatReady = true;
-							markReady();
-						} else {
-							setConnectionBundles(
-								connKey,
-								patchChat(currentBundles(connKey), change.chat),
-							);
-						}
-						void persistConnectionBundles(connKey);
-					}),
-			).pipe(
-				Effect.tap(() =>
-					Effect.sync(() => {
-						if (!chatReady) return;
-						const cause = new Error(
-							"Chat summary stream completed unexpectedly",
-						);
-						retryConnectionNow(options);
-						setConnectionError(connKey, cause.message);
-					}),
+			const chatProgram = superviseSnapshotStream(
+				Stream.runForEach(
+					client["chat.streamChanges"]({ projectId: bundle.project.id }),
+					(change) =>
+						Effect.sync(() => {
+							if (change._tag === "snapshot") {
+								setConnectionBundles(
+									connKey,
+									replaceProjectChats(
+										currentBundles(connKey),
+										bundle.project.id,
+										change.chats,
+									),
+								);
+								chatReady = true;
+								markReady();
+							} else {
+								setConnectionBundles(
+									connKey,
+									patchChat(currentBundles(connKey), change.chat),
+								);
+							}
+							void persistConnectionBundles(connKey);
+						}),
 				),
-				Effect.catch((cause) =>
-					Effect.sync(() => {
-						if (!chatReady) {
-							failReady(cause);
-							return;
-						}
-						reportConnectionFailure(options, cause);
-						setConnectionError(connKey, messageOf(cause));
-					}),
-				),
-				Effect.ensuring(
-					Effect.sync(() => {
-						if (!chatReady) {
-							failReady(
-								new Error("Chat summary stream ended before its snapshot"),
-							);
-						}
-					}),
-				),
+				{
+					connectionKey: connKey,
+					connectionOptions: options,
+					isReady: () => chatReady,
+					failReady,
+					completedMessage: "Chat summary stream completed unexpectedly",
+					missingSnapshotMessage:
+						"Chat summary stream ended before its snapshot",
+				},
 			);
 			chatFibers.set(
 				`${connKey}:chat:${bundle.project.id}`,
@@ -611,80 +633,61 @@ export const hydrateSessions = async (
 
 			const summaryKey = `${connKey}:sessions:${bundle.project.id}`;
 			await stopFiber(summaryKey, sessionSummaryFibers);
-			const summaryProgram = Stream.runForEach(
-				client["session.streamChanges"]({ projectId: bundle.project.id }),
-				(change) =>
-					Effect.sync(() => {
-						if (change._tag === "snapshot") {
-							batchAtomUpdates(() => {
-								setConnectionBundles(
-									connKey,
-									replaceProjectSessions(
-										currentBundles(connKey),
-										bundle.project.id,
-										change.sessions,
-									),
-								);
-								appAtomRegistry.update(statusBySessionAtom, (state) =>
-									patchConnectionStatuses(state, connKey, change.sessions),
-								);
-							});
-							sessionsReady = true;
-							markReady();
-							void persistConnectionBundles(connKey);
-							return;
-						}
-						if (change._tag === "change") {
-							batchAtomUpdates(() => {
-								setConnectionBundles(
-									connKey,
-									patchSession(currentBundles(connKey), change.session),
-								);
-								appAtomRegistry.update(statusBySessionAtom, (state) => ({
-									...state,
-									[connectionSessionKey(connKey, change.session.id)]:
-										change.session.status,
-								}));
-							});
-							void persistConnectionBundles(connKey);
-							return;
-						}
-						setConnectionBundles(
-							connKey,
-							removeSession(currentBundles(connKey), change.sessionId),
-						);
-						void persistConnectionBundles(connKey);
-					}),
-			).pipe(
-				Effect.tap(() =>
-					Effect.sync(() => {
-						if (!sessionsReady) return;
-						const cause = new Error(
-							"Session summary stream completed unexpectedly",
-						);
-						retryConnectionNow(options);
-						setConnectionError(connKey, cause.message);
-					}),
-				),
-				Effect.catch((cause) =>
-					Effect.sync(() => {
-						if (!sessionsReady) {
-							failReady(cause);
-							return;
-						}
-						reportConnectionFailure(options, cause);
-						setConnectionError(connKey, messageOf(cause));
-					}),
-				),
-				Effect.ensuring(
-					Effect.sync(() => {
-						if (!sessionsReady) {
-							failReady(
-								new Error("Session summary stream ended before its snapshot"),
+			const summaryProgram = superviseSnapshotStream(
+				Stream.runForEach(
+					client["session.streamChanges"]({ projectId: bundle.project.id }),
+					(change) =>
+						Effect.sync(() => {
+							if (change._tag === "snapshot") {
+								batchAtomUpdates(() => {
+									setConnectionBundles(
+										connKey,
+										replaceProjectSessions(
+											currentBundles(connKey),
+											bundle.project.id,
+											change.sessions,
+										),
+									);
+									appAtomRegistry.update(statusBySessionAtom, (state) =>
+										patchConnectionStatuses(state, connKey, change.sessions),
+									);
+								});
+								sessionsReady = true;
+								markReady();
+								void persistConnectionBundles(connKey);
+								return;
+							}
+							if (change._tag === "change") {
+								batchAtomUpdates(() => {
+									setConnectionBundles(
+										connKey,
+										patchSession(currentBundles(connKey), change.session),
+									);
+									appAtomRegistry.update(statusBySessionAtom, (state) => ({
+										...state,
+										[connectionSessionKey(connKey, change.session.id)]:
+											change.session.status,
+									}));
+								});
+								void persistConnectionBundles(connKey);
+								return;
+							}
+							setConnectionBundles(
+								connKey,
+								removeSession(currentBundles(connKey), change.sessionId),
 							);
-						}
-					}),
+							void persistConnectionBundles(connKey);
+						}),
 				),
+				{
+					connectionKey: connKey,
+					connectionOptions: options,
+					isReady: () => sessionsReady,
+					failReady,
+					completedMessage: "Session summary stream completed unexpectedly",
+					missingSnapshotMessage:
+						"Session summary stream ended before its snapshot",
+				},
 			);
 			sessionSummaryFibers.set(summaryKey, Effect.runFork(summaryProgram));
 		}

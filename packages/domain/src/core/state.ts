@@ -136,7 +136,12 @@ export const evolve = (
 				version,
 			};
 		case "SessionModelSet":
-			return { ...state, model: event.model, version };
+			return {
+				...state,
+				model: event.model,
+				attachedProviderId: null,
+				version,
+			};
 		case "SessionProviderSet":
 			return {
 				...state,
@@ -144,6 +149,7 @@ export const evolve = (
 				model: event.model,
 				cursor: null,
 				resumeStrategy: "none",
+				attachedProviderId: null,
 				version,
 			};
 		case "SessionRuntimeModeSet":

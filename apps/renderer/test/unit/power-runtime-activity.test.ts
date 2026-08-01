@@ -5,6 +5,7 @@ import {
 	reportPowerBrowserRecordingStarted,
 	reportPowerBrowserRecordingStopped,
 	reportPowerBrowserSession,
+	setPowerActiveAgentCount,
 	setPowerActiveTerminalCount,
 	setPowerIndexing,
 	subscribePowerRuntimeActivity,
@@ -15,6 +16,7 @@ describe("power runtime activity", () => {
 		const listener = vi.fn();
 		const unsubscribe = subscribePowerRuntimeActivity(listener);
 
+		setPowerActiveAgentCount(3);
 		setPowerActiveTerminalCount(2);
 		reportPowerBrowserSession("one", true);
 		reportPowerBrowserSession("two", false);
@@ -22,13 +24,14 @@ describe("power runtime activity", () => {
 		setPowerIndexing(true);
 
 		expect(getPowerRuntimeActivity()).toEqual({
+			activeAgents: 3,
 			activeTerminals: 2,
 			browserSessions: 2,
 			activeBrowserSessions: 1,
 			browserRecordings: 1,
 			indexing: true,
 		});
-		expect(listener).toHaveBeenCalledTimes(5);
+		expect(listener).toHaveBeenCalledTimes(6);
 
 		unsubscribe();
 		reportPowerBrowserSession("one", null);
@@ -36,8 +39,9 @@ describe("power runtime activity", () => {
 		reportPowerBrowserRecordingStopped();
 		setPowerIndexing(false);
 		setPowerActiveTerminalCount(0);
+		setPowerActiveAgentCount(0);
 
-		expect(listener).toHaveBeenCalledTimes(5);
+		expect(listener).toHaveBeenCalledTimes(6);
 	});
 
 	it("never reports negative counts", () => {
@@ -45,6 +49,7 @@ describe("power runtime activity", () => {
 		setPowerActiveTerminalCount(-1);
 
 		expect(getPowerRuntimeActivity()).toEqual({
+			activeAgents: 0,
 			activeTerminals: 0,
 			browserSessions: 0,
 			activeBrowserSessions: 0,

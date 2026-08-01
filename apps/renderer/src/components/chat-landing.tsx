@@ -7,6 +7,7 @@ import {
 } from "@hugeicons-pro/core-solid-rounded";
 import {
 	type ChatId,
+	type ChatWorkspacePolicy,
 	ComposerInput,
 	defaultModelFor,
 	type FolderId,
@@ -51,7 +52,7 @@ import {
 	type PendingDraftContextFile,
 } from "~/composer/draft-attachments";
 import { applyPreparedLinearContext } from "~/composer/linear-context-input";
-import { resolveAutoWorktreeId } from "~/lib/auto-worktree";
+import { resolveChatWorkspacePolicy } from "~/lib/auto-worktree";
 import { saveContextFile } from "~/lib/context-handoff";
 import { getRpcClient } from "~/lib/rpc-client";
 import { cn } from "~/lib/utils";
@@ -61,6 +62,7 @@ import { useComposerBridge } from "~/store/composer-bridge";
 import { composerDraftKeyForLanding } from "~/store/composer-drafts";
 import { useExternalThreadsStore } from "~/store/external-threads";
 import { useMessagesStore } from "~/store/messages";
+import { useRepositorySettingsStore } from "~/store/repository-settings.ts";
 import { DRAFT_SESSION_ID, useSessionsStore } from "~/store/sessions";
 import { useSettingsStore } from "~/store/settings";
 import { useWorkspaceStore } from "~/store/workspace";
@@ -157,6 +159,11 @@ export function ChatLanding() {
 	const defaultAutoCreateWorktree = useSettingsStore(
 		(s) => s.defaultAutoCreateWorktree,
 	);
+	const repositoryAutoCreateWorktree = useRepositorySettingsStore((s) =>
+		selectedFolderId === null
+			? false
+			: s.byProject[selectedFolderId]?.autoCreateWorktree === true,
+	);
 
 	const create = useChatsStore((s) => s.create);
 	const persistQueued = useMessagesStore((s) => s.persistQueued);
@@ -186,9 +193,6 @@ export function ChatLanding() {
 	// The provider chosen in the composer for this submit (may differ from the
 	// default — e.g. the user switched to Grok). Drives the bridge card's
 	// "Starting <provider>" label so it matches what's actually booting.
-	const [pendingProviderId, setPendingProviderId] = useState<ProviderId | null>(
-		null,
-	);
 
 	// The PR / branch / issue the user chose via "Create from…", if any. For a
 	// PR/branch we eagerly check out a worktree (or reuse an "In use" one) and
@@ -399,7 +403,6 @@ export function ChatLanding() {
 		const startupInput = ComposerInput.make({ ...input, asGoal: opts.asGoal });
 		setSubmitError(null);
 		setSubmitting(true);
-		setPendingProviderId(draft.providerId);
 		setPendingPrompt(
 			input.text.trim().length > 0 ? input.text.trim() : "New chat",
 		);
@@ -415,7 +418,6 @@ export function ChatLanding() {
 			const failures: string[] = [];
 			let cursor = 0;
 			const launchOne = async (issue: LinearIssueSummary) => {
-				const worktreeId = await resolveAutoWorktreeId(selectedFolderId);
 				const result = await create(
 					selectedFolderId,
 					draft.providerId,
@@ -424,7 +426,9 @@ export function ChatLanding() {
 						title: `${issue.identifier} ${issue.title}`,
 						runtimeMode: draft.runtimeMode,
 						permissionMode: draft.permissionMode,
-						worktreeId,
+						workspacePolicy: resolveChatWorkspacePolicy(selectedFolderId),
+						workspaceRequested:
+							defaultAutoCreateWorktree || repositoryAutoCreateWorktree,
 						startupInput,
 					},
 				);
@@ -447,6 +451,7 @@ export function ChatLanding() {
 					sessionId: result.initialSessionId,
 				});
 				try {
+					const worktreeId = result.worktreeId;
 					let ticketInput = await prepareLinearInput(
 						result.initialSessionId,
 						[issue],
@@ -533,24 +538,25 @@ export function ChatLanding() {
 		}
 		// A "Create from…" PR/branch already checked out (or reused) a worktree —
 		// pin the chat to it. Otherwise fall back to the normal auto-worktree.
-		const worktreePromise =
+		const workspacePolicy: ChatWorkspacePolicy | Promise<ChatWorkspacePolicy> =
 			createSource !== null && createSource.worktreeId !== null
-				? Promise.resolve(createSource.worktreeId)
-				: resolveAutoWorktreeId(selectedFolderId);
-		const createPromise = create(
+				? { _tag: "existing", worktreeId: createSource.worktreeId }
+				: resolveChatWorkspacePolicy(selectedFolderId);
+		const result = await create(
 			selectedFolderId,
 			draft.providerId,
 			draft.model,
 			{
 				runtimeMode: draft.runtimeMode,
 				permissionMode: draft.permissionMode,
-				worktreeId: worktreePromise,
+				workspacePolicy,
+				workspaceRequested:
+					(createSource !== null && createSource.worktreeId !== null) ||
+					defaultAutoCreateWorktree ||
+					repositoryAutoCreateWorktree,
 				startupInput,
 			},
 		);
-		const worktreeId = await worktreePromise;
-		setPendingWorktreeId(worktreeId);
-		const result = await createPromise;
 		if (result === null) {
 			const reason =
 				useChatsStore.getState().error ??
@@ -558,10 +564,11 @@ export function ChatLanding() {
 			setSubmitError(reason);
 			setPendingPrompt(null);
 			setPendingWorktreeId(null);
-			setPendingProviderId(null);
 			setSubmitting(false);
 			return;
 		}
+		const worktreeId = result.worktreeId;
+		setPendingWorktreeId(worktreeId);
 		const sessionId = result.initialSessionId;
 		const startupQueueId = result.startupQueueId;
 		migrateModelOptions(DRAFT_SESSION_ID, sessionId);
@@ -628,7 +635,6 @@ export function ChatLanding() {
 				setSubmitError("Couldn't attach pasted text. Please try again.");
 				setPendingPrompt(null);
 				setPendingWorktreeId(null);
-				setPendingProviderId(null);
 				setSubmitting(false);
 				return;
 			}
@@ -646,7 +652,6 @@ export function ChatLanding() {
 				setSubmitError("Couldn't attach one of those files. Please try again.");
 				setPendingPrompt(null);
 				setPendingWorktreeId(null);
-				setPendingProviderId(null);
 				setSubmitting(false);
 				return;
 			} finally {
@@ -673,25 +678,24 @@ export function ChatLanding() {
 		return (
 			<div className="flex min-h-0 flex-1 flex-col">
 				<div className="min-h-0 flex-1 overflow-y-auto">
-					<SetupCardView
-						data={{
-							repoName: selectedFolder?.name ?? "this repo",
-							hasWorktree:
-								pendingWorktreeId !== null || defaultAutoCreateWorktree,
-							worktreePending: pendingWorktree === null,
-							worktreeName: pendingWorktree?.name ?? null,
-							branch: pendingWorktree?.branch ?? null,
-							baseBranch: pendingWorktree?.baseBranch ?? null,
-							setupStatus: pendingWorktree?.setupStatus ?? null,
-							setupOutput: pendingWorktree?.setupOutput ?? "",
-							providerLabel: (() => {
-								const pid = pendingProviderId ?? defaultProviderId;
-								return PROVIDER_LABEL[pid] ?? pid;
-							})(),
-							providerState: "active",
-							onRerun: null,
-						}}
-					/>
+					{pendingWorktreeId !== null ||
+					defaultAutoCreateWorktree ||
+					repositoryAutoCreateWorktree ? (
+						<SetupCardView
+							data={{
+								repoName: selectedFolder?.name ?? "this repo",
+								hasWorktree:
+									pendingWorktreeId !== null || defaultAutoCreateWorktree,
+								worktreePending: pendingWorktree === null,
+								worktreeName: pendingWorktree?.name ?? null,
+								branch: pendingWorktree?.branch ?? null,
+								baseBranch: pendingWorktree?.baseBranch ?? null,
+								setupStatus: pendingWorktree?.setupStatus ?? null,
+								setupOutput: pendingWorktree?.setupOutput ?? "",
+								onRerun: null,
+							}}
+						/>
+					) : null}
 				</div>
 				<div className="px-4 pb-4">
 					<QueuedComposerPill prompt={pendingPrompt} count={1} />

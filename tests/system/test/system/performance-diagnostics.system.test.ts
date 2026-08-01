@@ -11,14 +11,36 @@ describe("performance diagnostics artifacts", () => {
 			mkdirSync(logs, { recursive: true });
 			writeFileSync(
 				scope.path("user-data", "logs", "diagnostics.host-resources.ndjson"),
-				`${JSON.stringify({
-					kind: "sample",
-					sample: {
-						capturedAt: "2026-07-31T00:00:00.000Z",
-						totalCpuPercent: 12.5,
-						totalMemoryBytes: 1024,
-					},
-				})}\n`,
+				[
+					JSON.stringify({
+						kind: "sample",
+						sample: {
+							capturedAt: "2026-07-31T00:00:00.000Z",
+							totalCpuPercent: 12.5,
+							totalMemoryBytes: 1024,
+						},
+					}),
+					JSON.stringify({
+						kind: "lag",
+						sample: {
+							id: "lag-export",
+							capturedAt: "2026-07-31T00:01:00.000Z",
+							kind: "long-animation-frame",
+							durationMs: 420,
+							source: "renderer",
+							attribution: {
+								cause: "script",
+								label: "handleSend",
+								confidence: "high",
+								scriptSource: "chat-view.js",
+								recentActions: ["pointer.button"],
+								activeWorkloads: ["agent"],
+								relatedOperations: [],
+							},
+						},
+					}),
+					"",
+				].join("\n"),
 			);
 			const server = await scope.server();
 			const rpc = await scope.rpc(server.endpoint);
@@ -32,6 +54,10 @@ describe("performance diagnostics artifacts", () => {
 			expect(exported.included).toContain("performance-history");
 			expect(zip.includes(Buffer.from("performance-history.json"))).toBe(true);
 			expect(zip.includes(Buffer.from('"totalCpuPercent": 12.5'))).toBe(true);
+			expect(zip.includes(Buffer.from('"cause": "script"'))).toBe(true);
+			expect(zip.includes(Buffer.from('"scriptSource": "chat-view.js"'))).toBe(
+				true,
+			);
 			await rpc.dispose();
 		});
 	}, 30_000);

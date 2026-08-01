@@ -3,6 +3,7 @@ import type {
 	DiagnosticSeverity,
 	DiagnosticsOverviewResult,
 	DiagnosticsProcessesResult,
+	LagSample,
 	PerformanceHistory,
 	PowerMonitorState,
 	PowerRecordingDurationMinutes,
@@ -547,6 +548,210 @@ function IncidentDetails({
 	);
 }
 
+function ContextList({
+	label,
+	values,
+}: {
+	readonly label: string;
+	readonly values: ReadonlyArray<string>;
+}) {
+	return (
+		<div className="min-w-0 rounded-md border border-border/45 bg-muted/20 p-2.5">
+			<p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+				{label}
+			</p>
+			<p className="mt-1.5 break-words font-mono text-[10px] leading-4">
+				{values.length > 0 ? values.join(" · ") : "None captured"}
+			</p>
+		</div>
+	);
+}
+
+function StallWorkspace({
+	samples,
+	selectedId,
+	onSelect,
+	copiedKey,
+	onCopy,
+}: {
+	readonly samples: ReadonlyArray<LagSample>;
+	readonly selectedId: string | null;
+	readonly onSelect: (id: string) => void;
+	readonly copiedKey: string | null;
+	readonly onCopy: (key: string, text: string) => void;
+}) {
+	const ordered = [...samples]
+		.sort((left, right) => right.capturedAt.localeCompare(left.capturedAt))
+		.slice(0, 24);
+	const selected =
+		ordered.find((sample) => sample.id === selectedId) ?? ordered[0] ?? null;
+	const attribution = selected?.attribution;
+	const details =
+		selected === null
+			? ""
+			: [
+					`Stall: ${selected.id}`,
+					`Captured: ${selected.capturedAt}`,
+					`Duration: ${selected.durationMs.toFixed(1)} ms`,
+					`Type: ${selected.kind}`,
+					`Cause: ${attribution?.label ?? "Unattributed"}`,
+					`Confidence: ${attribution?.confidence ?? "low"}`,
+					attribution?.blockingDurationMs === undefined
+						? null
+						: `Blocking: ${attribution.blockingDurationMs.toFixed(1)} ms`,
+					attribution?.styleLayoutDurationMs === undefined
+						? null
+						: `Style/layout: ${attribution.styleLayoutDurationMs.toFixed(1)} ms`,
+					attribution?.scriptFunction
+						? `Function: ${attribution.scriptFunction}`
+						: null,
+					attribution?.scriptSource
+						? `Source: ${attribution.scriptSource}${attribution.scriptPosition === undefined ? "" : `:${attribution.scriptPosition}`}`
+						: null,
+					attribution?.recentActions.length
+						? `Recent actions: ${attribution.recentActions.join(", ")}`
+						: null,
+					attribution?.activeWorkloads.length
+						? `Active workloads: ${attribution.activeWorkloads.join(", ")}`
+						: null,
+					attribution?.relatedOperations.length
+						? `Related operations: ${attribution.relatedOperations.join(", ")}`
+						: null,
+				]
+					.filter(Boolean)
+					.join("\n");
+
+	return (
+		<section className="min-w-0 border-t border-border/45">
+			<div className="flex min-h-10 items-center justify-between gap-3 border-b border-border/45 px-4 py-2.5">
+				<div>
+					<h3 className="font-medium text-[11px]">Stall cause timeline</h3>
+					<p className="mt-0.5 text-[10px] text-muted-foreground">
+						Sanitized script, layout, action, and workload attribution. React
+						commit timing is added in development builds.
+					</p>
+				</div>
+				<span className="font-mono text-[10px] text-muted-foreground tabular-nums">
+					{ordered.length} retained
+				</span>
+			</div>
+			{selected === null ? (
+				<div className="min-h-[280px]">
+					<EmptyState
+						title="No interface stalls"
+						description="Stalls of at least 100 ms will appear with the strongest locally available cause."
+					/>
+				</div>
+			) : (
+				<div className="grid min-h-[280px] lg:grid-cols-[minmax(260px,0.85fr)_minmax(0,1.35fr)] lg:divide-x lg:divide-border/45">
+					<fieldset className="max-h-[360px] divide-y divide-border/40 overflow-auto">
+						<legend className="sr-only">Interface stalls</legend>
+						{ordered.map((sample) => {
+							const active = sample.id === selected.id;
+							return (
+								<button
+									key={sample.id}
+									type="button"
+									aria-pressed={active}
+									onClick={() => onSelect(sample.id)}
+									className={cn(
+										"grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring pointer-coarse:min-h-11",
+										active ? "bg-muted/70" : "hover:bg-muted/35",
+									)}
+								>
+									<span className="min-w-0">
+										<span className="block truncate font-medium text-[11px]">
+											{sample.attribution?.label ?? sample.name ?? sample.kind}
+										</span>
+										<span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+											{sample.attribution?.cause ?? sample.kind} ·{" "}
+											{sample.attribution?.confidence ?? "low"} confidence
+										</span>
+									</span>
+									<span className="text-right">
+										<span className="block font-mono text-[11px] tabular-nums">
+											{formatDuration(sample.durationMs)}
+										</span>
+										<span className="mt-0.5 block font-mono text-[10px] text-muted-foreground tabular-nums">
+											{relativeTime(sample.capturedAt)}
+										</span>
+									</span>
+								</button>
+							);
+						})}
+					</fieldset>
+					<div className="border-t border-border/45 p-4 lg:border-t-0">
+						<div className="flex items-start justify-between gap-3">
+							<div className="min-w-0">
+								<p className="truncate font-medium text-xs">
+									{attribution?.label ?? "Cause unavailable"}
+								</p>
+								<p className="mt-1 text-[10px] text-muted-foreground">
+									{attribution?.confidence ?? "low"} confidence ·{" "}
+									{selected.kind}
+								</p>
+							</div>
+							<CopyButton
+								copyKey={`stall:${selected.id}`}
+								copiedKey={copiedKey}
+								onCopy={onCopy}
+								label="Copy"
+								text={details}
+							/>
+						</div>
+						<div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-2 text-[10px]">
+							<span className="text-muted-foreground">Total duration</span>
+							<span className="text-right font-mono tabular-nums">
+								{formatDuration(selected.durationMs)}
+							</span>
+							<span className="text-muted-foreground">
+								Main-thread blocking
+							</span>
+							<span className="text-right font-mono tabular-nums">
+								{attribution?.blockingDurationMs === undefined
+									? "Unavailable"
+									: formatDuration(attribution.blockingDurationMs)}
+							</span>
+							<span className="text-muted-foreground">Style and layout</span>
+							<span className="text-right font-mono tabular-nums">
+								{attribution?.styleLayoutDurationMs === undefined
+									? "Unavailable"
+									: formatDuration(attribution.styleLayoutDurationMs)}
+							</span>
+							<span className="text-muted-foreground">Script</span>
+							<span className="truncate text-right font-mono">
+								{attribution?.scriptSource === undefined
+									? "Unavailable"
+									: `${attribution.scriptSource}${attribution.scriptPosition === undefined ? "" : `:${attribution.scriptPosition}`}`}
+							</span>
+							<span className="text-muted-foreground">Function</span>
+							<span className="truncate text-right font-mono">
+								{attribution?.scriptFunction ??
+									attribution?.scriptInvoker ??
+									"Unavailable"}
+							</span>
+						</div>
+						<div className="mt-4 grid gap-3 sm:grid-cols-3">
+							<ContextList
+								label="Recent actions"
+								values={attribution?.recentActions ?? []}
+							/>
+							<ContextList
+								label="Active workloads"
+								values={attribution?.activeWorkloads ?? []}
+							/>
+							<ContextList
+								label="Related operations"
+								values={attribution?.relatedOperations ?? []}
+							/>
+						</div>
+					</div>
+				</div>
+			)}
+		</section>
+	);
+}
+
 export function DiagnosticsPane() {
 	const initialPreferences = useRef(readPreferences()).current;
 	const mainLogsIngestedRef = useRef(false);
@@ -571,6 +776,7 @@ export function DiagnosticsPane() {
 		"starting" | "stopping" | "exporting" | null
 	>(null);
 	const [selected, setSelected] = useState<DiagnosticEvent | null>(null);
+	const [selectedLagId, setSelectedLagId] = useState<string | null>(null);
 	const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 	const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
 	const [view, setView] = useState<DiagnosticsView>(initialPreferences.view);
@@ -1643,6 +1849,13 @@ export function DiagnosticsPane() {
 								className="stroke-destructive"
 							/>
 						</div>
+						<StallWorkspace
+							samples={lagSamples}
+							selectedId={selectedLagId}
+							onSelect={setSelectedLagId}
+							copiedKey={copiedKey}
+							onCopy={copyText}
+						/>
 						<div className="grid border-t border-border/45 lg:grid-cols-2 lg:divide-x lg:divide-border/45">
 							<section className="min-w-0">
 								<div className="border-b border-border/45 px-4 py-2.5">

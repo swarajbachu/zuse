@@ -114,6 +114,7 @@ export class PowerSnapshot extends Schema.Class<PowerSnapshot>("PowerSnapshot")(
 
 export const LagKind = Schema.Literals([
 	"long-task",
+	"long-animation-frame",
 	"animation-stall",
 	"input-latency",
 	"react-commit",
@@ -123,6 +124,49 @@ export const LagKind = Schema.Literals([
 ]);
 export type LagKind = typeof LagKind.Type;
 
+export const StallCause = Schema.Literals([
+	"script",
+	"style-layout",
+	"react-render",
+	"input-handler",
+	"rpc",
+	"event-loop",
+	"gc",
+	"workload",
+	"unknown",
+]);
+export type StallCause = typeof StallCause.Type;
+
+const SanitizedStallText = Schema.String.check(
+	Schema.isMaxLength(120),
+	Schema.isPattern(/^[a-zA-Z0-9_.$: -]*$/),
+);
+const SanitizedStallContext = Schema.Array(SanitizedStallText).check(
+	Schema.isMaxLength(8),
+);
+
+export class StallAttribution extends Schema.Class<StallAttribution>(
+	"StallAttribution",
+)({
+	cause: StallCause,
+	label: SanitizedStallText,
+	confidence: PerformanceConfidence,
+	blockingDurationMs: Schema.optional(Schema.Number),
+	renderDurationMs: Schema.optional(Schema.Number),
+	styleLayoutDurationMs: Schema.optional(Schema.Number),
+	scriptInvoker: Schema.optional(SanitizedStallText),
+	scriptFunction: Schema.optional(SanitizedStallText),
+	scriptSource: Schema.optional(SanitizedStallText),
+	scriptPosition: Schema.optional(Schema.Number),
+	reactPhase: Schema.optional(
+		Schema.Literals(["mount", "update", "nested-update"]),
+	),
+	reactBaseDurationMs: Schema.optional(Schema.Number),
+	recentActions: SanitizedStallContext,
+	activeWorkloads: SanitizedStallContext,
+	relatedOperations: SanitizedStallContext,
+}) {}
+
 export class LagSample extends Schema.Class<LagSample>("LagSample")({
 	id: Schema.String,
 	capturedAt: Schema.String,
@@ -131,6 +175,7 @@ export class LagSample extends Schema.Class<LagSample>("LagSample")({
 	source: Schema.Literals(["renderer", "main", "server"]),
 	name: Schema.optional(Schema.String),
 	sessionId: Schema.optional(Schema.NullOr(Schema.String)),
+	attribution: Schema.optional(StallAttribution),
 }) {}
 
 export class WorkloadInterval extends Schema.Class<WorkloadInterval>(

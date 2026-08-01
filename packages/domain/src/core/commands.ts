@@ -25,10 +25,12 @@ export const SessionCommand = Schema.Union([
 	}),
 	Schema.TaggedStruct("CreateSessionWithInitialTurn", {
 		...SessionCreatedFields,
-		providerStartJson: Schema.String,
+		/** Legacy startup options retained on the turn, never an eager-start signal. */
+		providerStartJson: Schema.optional(Schema.String),
 		turnId: Schema.String,
 		messageId: Schema.String,
 		messageContentJson: Schema.String,
+		providerInputJson: Schema.String,
 	}),
 	Schema.TaggedStruct("SetTitle", {
 		title: Schema.String,

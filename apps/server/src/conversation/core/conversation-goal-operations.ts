@@ -32,8 +32,8 @@ export interface ConversationGoalOperationsOptions {
 	readonly lookupSession: (
 		sessionId: SessionId,
 	) => Effect.Effect<Session, SessionNotFoundError>;
-	readonly openProviderSession: (
-		session: Session,
+	readonly ensureForTurn: (
+		sessionId: SessionId,
 	) => Effect.Effect<void, SessionStartError>;
 }
 
@@ -91,7 +91,7 @@ export const makeConversationGoalOperations = (
 		return awaitBoot(240).pipe(
 			Effect.catchTag("AgentSessionNotFoundError", () =>
 				options
-					.openProviderSession(session)
+					.ensureForTurn(session.id)
 					.pipe(
 						Effect.andThen(options.provider.setGoal(session.id, goal)),
 						Effect.catchTag(

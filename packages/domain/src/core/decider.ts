@@ -71,10 +71,18 @@ export const decide = (
 	}
 	if (command._tag === "CreateSessionWithInitialTurn") {
 		if (state.exists) return Result.fail(new SessionAlreadyExists());
-		const { turnId, messageId, messageContentJson, ...created } = command;
+		const {
+			turnId,
+			messageId,
+			messageContentJson,
+			providerInputJson,
+			providerStartJson,
+			...created
+		} = command;
 		return success([
 			{
 				...created,
+				...(providerStartJson === undefined ? {} : { providerStartJson }),
 				_tag: "SessionCreated",
 			},
 			{
@@ -91,6 +99,18 @@ export const decide = (
 				_tag: "TurnStarted",
 				turnId: command.turnId,
 				startedAt: command.createdAt,
+			},
+			{
+				_tag: "SessionStatusSet",
+				status: "booting",
+				updatedAt: command.createdAt,
+			},
+			{
+				_tag: "ProviderTurnRequested",
+				turnId: command.turnId,
+				providerInputJson,
+				...(providerStartJson === undefined ? {} : { providerStartJson }),
+				requestedAt: command.createdAt,
 			},
 		]);
 	}
@@ -330,7 +350,7 @@ export const decide = (
 				},
 				{
 					_tag: "SessionStatusSet",
-					status: "running",
+					status: "booting",
 					updatedAt: command.createdAt,
 				},
 				{

@@ -1,48 +1,33 @@
 import {
 	AgentTurnId,
-	ComposerInput,
 	type MessageContent,
-	type Session,
 	SessionId,
 	SessionStartError,
 } from "@zuse/contracts";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import type { makeReactorEffectJournal } from "../../provider/reactor-effect-journal.ts";
 import type { ProviderServiceShape } from "../../provider/services/provider-service.ts";
 import type { ConversationOperations } from "../services/conversation-services.ts";
 import type { ConversationReactorHandlers } from "./conversation-reactors.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
 import type { OpenProviderSessionOptions } from "./provider-session-runtime.ts";
+import {
+	decodeProviderModelOptions,
+	decodeProviderStartRequest,
+	decodeProviderTurnInput,
+} from "./provider-turn-request.ts";
 
-const ProviderStartRequest = Schema.Struct({
-	initialPrompt: Schema.NullOr(Schema.String),
-	initialTurnId: Schema.optional(Schema.NullOr(AgentTurnId)),
-	modelOptionsJson: Schema.NullOr(Schema.String),
-	enableSubagents: Schema.Boolean,
-	forkFromResume: Schema.Boolean,
-	background: Schema.Boolean,
-	postBootStatus: Schema.Literals(["idle", "running"]),
-});
-const decodeProviderStartRequest = Schema.decodeUnknownEffect(
-	Schema.fromJsonString(ProviderStartRequest),
-);
-const decodeProviderModelOptions = Schema.decodeUnknownEffect(
-	Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)),
-);
-const decodeProviderTurnInput = Schema.decodeUnknownEffect(
-	Schema.fromJsonString(ComposerInput),
-);
 const isAuthenticationRequired = (reason: string): boolean =>
 	/\bauthentication required\b/i.test(reason);
 
 export interface ProviderReactorHandlersOptions {
 	readonly reactorEffects: ReturnType<typeof makeReactorEffectJournal>;
 	readonly getSession: ConversationOperations["getSession"];
-	readonly openProviderSession: (
-		session: Session,
+	readonly ensureForTurn: (
+		sessionId: SessionId,
 		options?: OpenProviderSessionOptions,
-	) => Effect.Effect<void, SessionStartError>;
+	) => Effect.Effect<boolean, SessionStartError>;
 	readonly persistMessage: (
 		sessionId: SessionId,
 		content: MessageContent,
@@ -53,8 +38,14 @@ export interface ProviderReactorHandlersOptions {
 	) => Effect.Effect<void>;
 	readonly setStatus: (
 		sessionId: SessionId,
-		status: "error",
+		status: "idle" | "running" | "error",
 	) => Effect.Effect<void>;
+	readonly resolveActiveTurn: (
+		sessionId: SessionId,
+	) => Effect.Effect<AgentTurnId | undefined>;
+	readonly getProviderStartJson: (
+		sessionId: SessionId,
+	) => Effect.Effect<string | null>;
 	readonly settleTurnFromReactor: (
 		sessionId: SessionId,
 		turnId: AgentTurnId,
@@ -80,10 +71,12 @@ export const makeProviderReactorHandlers = (
 	const {
 		reactorEffects,
 		getSession: lookupSession,
-		openProviderSession,
+		ensureForTurn,
 		persistMessage,
 		ndjsonAppend,
 		setStatus,
+		resolveActiveTurn,
+		getProviderStartJson,
 		settleTurnFromReactor,
 		rememberActiveTurn,
 		provider,
@@ -101,6 +94,14 @@ export const makeProviderReactorHandlers = (
 				Effect.catch(() => Effect.succeed(null)),
 			);
 			if (session === null) return;
+			// Compatibility guard for durable eager-start effects written by older
+			// builds. Empty sessions are dormant: acknowledge the legacy effect and
+			// repair their old booting projection without spawning a provider.
+			if ((yield* resolveActiveTurn(sessionId)) === undefined) {
+				if (session.status === "booting") yield* setStatus(sessionId, "idle");
+				yield* reactorEffects.complete(reactorInput.commandId);
+				return;
+			}
 			const request = yield* decodeProviderStartRequest(
 				reactorInput.command.providerStartJson,
 			).pipe(
@@ -124,7 +125,7 @@ export const makeProviderReactorHandlers = (
 									}),
 							),
 						);
-			const start = openProviderSession(session, {
+			const start = ensureForTurn(sessionId, {
 				initialPrompt: request.initialPrompt ?? undefined,
 				initialTurnId: request.initialTurnId ?? undefined,
 				modelOptions,
@@ -194,6 +195,21 @@ export const makeProviderReactorHandlers = (
 			const input = yield* decodeProviderTurnInput(
 				reactorInput.command.providerInputJson,
 			).pipe(Effect.orDie);
+			const providerStartJson =
+				reactorInput.command.providerStartJson ??
+				(yield* getProviderStartJson(sessionId));
+			const startupRequest =
+				providerStartJson === null
+					? null
+					: yield* decodeProviderStartRequest(providerStartJson).pipe(
+							Effect.orDie,
+						);
+			const startupModelOptions =
+				startupRequest?.modelOptionsJson == null
+					? undefined
+					: yield* decodeProviderModelOptions(
+							startupRequest.modelOptionsJson,
+						).pipe(Effect.orDie);
 			const sent = yield* provider
 				.send(
 					sessionId,
@@ -204,9 +220,15 @@ export const makeProviderReactorHandlers = (
 					input.skillRefs,
 				)
 				.pipe(Effect.exit);
+			if (sent._tag === "Success") {
+				yield* setStatus(sessionId, "running");
+			}
 			if (sent._tag === "Failure") {
-				const session = yield* lookupSession(sessionId).pipe(Effect.orDie);
-				const restarted = yield* openProviderSession(session, {
+				const restarted = yield* ensureForTurn(sessionId, {
+					modelOptions: startupModelOptions,
+					enableSubagents: startupRequest?.enableSubagents,
+					forkFromResume: startupRequest?.forkFromResume,
+					postBootStatus: "running",
 					sendAfterOpen: {
 						turnId: AgentTurnId.make(reactorInput.command.turnId),
 						text: input.text,
@@ -217,10 +239,16 @@ export const makeProviderReactorHandlers = (
 				}).pipe(
 					Effect.match({
 						onFailure: (error) => ({ ok: false as const, error }),
-						onSuccess: () => ({ ok: true as const }),
+						onSuccess: (started) => ({ ok: started, error: null }),
 					}),
 				);
 				if (restarted.ok) {
+					yield* reactorEffects.complete(reactorInput.commandId);
+					return;
+				}
+				if (restarted.error === null) {
+					// A close/switch invalidated this startup while it was awaiting the
+					// provider. The newer lifecycle owner is responsible for settlement.
 					yield* reactorEffects.complete(reactorInput.commandId);
 					return;
 				}
@@ -229,16 +257,18 @@ export const makeProviderReactorHandlers = (
 					message: restarted.error.reason,
 				});
 				yield* ndjsonAppend(sessionId, persistedError);
-				yield* settleTurnFromReactor(
-					sessionId,
-					AgentTurnId.make(reactorInput.command.turnId),
-					"error",
-				);
-				// Authentication is recoverable through the inline login flow, so
-				// acknowledge this failed side effect and let a fresh turn retry it.
-				// Other transient failures retain the existing replay behavior.
+				// Keep the durable turn active. Explicit Retry and boot recovery can
+				// replay this exact provider request without reconstructing user input.
+				yield* setStatus(sessionId, "error");
+				// Authentication is recoverable through explicit resume, which replays
+				// this same durable turn. Completing the receipt prevents catch-up from
+				// racing that user-driven retry; other transient failures stay replayable.
 				if (!isAuthenticationRequired(restarted.error.reason)) {
-					return yield* Effect.die(new Error(restarted.error.reason));
+					return yield* Effect.die(
+						new Error(
+							`Provider turn could not be started after durable intent: ${restarted.error.reason}`,
+						),
+					);
 				}
 			}
 			yield* reactorEffects.complete(reactorInput.commandId);

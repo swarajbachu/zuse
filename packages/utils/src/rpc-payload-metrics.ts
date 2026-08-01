@@ -61,9 +61,27 @@ const encodedMessages = (value: unknown): ReadonlyArray<EncodedRpcMessage> =>
 			? [value as EncodedRpcMessage]
 			: [];
 
+const protocolMessageTags = new Set([
+	"Request",
+	"Ack",
+	"Interrupt",
+	"Eof",
+	"Ping",
+	"Chunk",
+	"Exit",
+	"ClientProtocolError",
+	"Defect",
+	"ClientEnd",
+	"Pong",
+]);
+
+const protocolLabel = (tag: string | undefined): string =>
+	tag !== undefined && protocolMessageTags.has(tag) ? `@${tag}` : "@unknown";
+
 const rpcLabel = (
 	messages: ReadonlyArray<EncodedRpcMessage>,
 	requestTags: Map<string | number, string>,
+	allowedRpcLabels: { readonly has: (label: string) => boolean },
 ): string => {
 	const labels = new Set<string>();
 	for (const message of messages) {
@@ -72,21 +90,22 @@ const rpcLabel = (
 			message.id !== undefined &&
 			typeof message.tag === "string"
 		) {
-			requestTags.set(message.id, message.tag);
-			labels.add(message.tag);
+			const label = allowedRpcLabels.has(message.tag)
+				? message.tag
+				: "@unknown";
+			requestTags.set(message.id, label);
+			labels.add(label);
 			continue;
 		}
 		const requestId = message.requestId;
 		if (requestId !== undefined) {
-			labels.add(
-				requestTags.get(requestId) ?? `@${message._tag ?? "response"}`,
-			);
+			labels.add(requestTags.get(requestId) ?? protocolLabel(message._tag));
 			if (message._tag === "Exit" || message._tag === "Interrupt") {
 				requestTags.delete(requestId);
 			}
 			continue;
 		}
-		labels.add(`@${message._tag ?? "unknown"}`);
+		labels.add(protocolLabel(message._tag));
 	}
 	return labels.size === 1
 		? (labels.values().next().value ?? "@unknown")
@@ -96,6 +115,7 @@ const rpcLabel = (
 export const makeMeasuredJsonRpcSerialization = (options: {
 	readonly encodeDirection: RpcPayloadDirection;
 	readonly decodeDirection: RpcPayloadDirection;
+	readonly allowedRpcLabels: { readonly has: (label: string) => boolean };
 	readonly record: (sample: RpcPayloadSample) => void;
 }): RpcSerialization.RpcSerialization["Service"] =>
 	RpcSerialization.RpcSerialization.of({
@@ -110,7 +130,11 @@ export const makeMeasuredJsonRpcSerialization = (options: {
 					const decoded = parser.decode(input);
 					options.record({
 						direction: options.decodeDirection,
-						rpc: rpcLabel(encodedMessages(decoded), requestTags),
+						rpc: rpcLabel(
+							encodedMessages(decoded),
+							requestTags,
+							options.allowedRpcLabels,
+						),
 						bytes: byteLength(input),
 						durationMs: performance.now() - startedAt,
 						frames: decoded.length,
@@ -124,7 +148,11 @@ export const makeMeasuredJsonRpcSerialization = (options: {
 						const bytes = byteLength(encoded);
 						options.record({
 							direction: options.encodeDirection,
-							rpc: rpcLabel(encodedMessages(message), requestTags),
+							rpc: rpcLabel(
+								encodedMessages(message),
+								requestTags,
+								options.allowedRpcLabels,
+							),
 							bytes,
 							durationMs: performance.now() - startedAt,
 							frames: Array.isArray(message) ? message.length : 1,

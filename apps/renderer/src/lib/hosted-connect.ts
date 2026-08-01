@@ -26,9 +26,43 @@ type StoredDpopKey = {
 	readonly publicJwk: JsonWebKey;
 };
 
-let rpcEndpoint: string | null = null;
 let relayAccess: { readonly token: string; readonly expiresAt: number } | null =
 	null;
+
+export type HostedEndpointLease = {
+	readonly set: (environmentId: string, endpoint: string) => void;
+	readonly next: (
+		refresh: (environmentId: string) => Promise<void>,
+	) => Promise<string>;
+	readonly clear: () => void;
+};
+
+export const createHostedEndpointLease = (): HostedEndpointLease => {
+	let environmentId: string | null = null;
+	let endpoint: string | null = null;
+	return {
+		set: (nextEnvironmentId, nextEndpoint) => {
+			environmentId = nextEnvironmentId;
+			endpoint = nextEndpoint;
+		},
+		next: async (refresh) => {
+			if (environmentId === null) {
+				throw new Error("hosted_environment_not_selected");
+			}
+			if (endpoint === null) await refresh(environmentId);
+			if (endpoint === null) throw new Error("hosted_connect_grant_missing");
+			const leased = endpoint;
+			endpoint = null;
+			return leased;
+		},
+		clear: () => {
+			environmentId = null;
+			endpoint = null;
+		},
+	};
+};
+
+const rpcEndpointLease = createHostedEndpointLease();
 
 const environment = (): Record<string, string | undefined> =>
 	(import.meta as { readonly env?: Record<string, string | undefined> }).env ??
@@ -426,11 +460,14 @@ export const connectHostedEnvironment = async (
 	const url = new URL(body.endpoint.wsBaseUrl);
 	url.searchParams.set("token", body.connectToken);
 	url.searchParams.set("wireVersion", String(WIRE_PROTOCOL_VERSION));
-	rpcEndpoint = url.toString();
+	rpcEndpointLease.set(environmentId, url.toString());
 	return body;
 };
 
-export const hostedRpcEndpoint = (): string | null => rpcEndpoint;
+export const nextHostedRpcEndpoint = (): Promise<string> =>
+	rpcEndpointLease.next(async (environmentId) => {
+		await connectHostedEnvironment(environmentId);
+	});
 
 export const signOutHostedProduct = async (): Promise<void> => {
 	const token = await accessToken();
@@ -445,7 +482,7 @@ export const signOutHostedProduct = async (): Promise<void> => {
 	sessionStorage.removeItem(PKCE_KEY);
 	localStorage.removeItem(DEVICE_ID_KEY);
 	relayAccess = null;
-	rpcEndpoint = null;
+	rpcEndpointLease.clear();
 	await new Promise<void>((resolve) => {
 		const request = indexedDB.deleteDatabase(DPOP_DATABASE);
 		request.onsuccess = () => resolve();

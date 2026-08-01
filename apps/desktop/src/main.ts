@@ -2826,12 +2826,7 @@ async function createMainWindow() {
 					const detail = Cause.pretty(cause);
 					appendRemoteConnectionLog("desktop.runtime.fatal", { cause: detail });
 					console.error("[zuse] fatal boot error\n", detail);
-					yield* Effect.promise(() =>
-						Promise.race([
-							appLogWriter.flush(),
-							new Promise<void>((resolve) => setTimeout(resolve, 500)),
-						]),
-					);
+					yield* Effect.promise(() => appLogWriter.flush());
 					app.exit(1);
 				}),
 			),
