@@ -1,15 +1,48 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { layer as sqliteLayer } from "@zuse/sqlite";
-import { Effect, Fiber, Stream } from "effect";
+import {
+	Deferred,
+	Effect,
+	Fiber,
+	Layer,
+	ManagedRuntime,
+	type Scope,
+	Stream,
+} from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, test } from "vitest";
-import { makeSessionDomain } from "../../../src/engine/session-domain.js";
+import {
+	makeSessionDomain,
+	SessionDomain,
+} from "../../../src/engine/session-domain.js";
 import { createSessionCommand } from "../../../src/test/session.js";
 import { createDomainTestSchema } from "../../../src/test/sql-schema.js";
 
-const run = <A, E>(program: Effect.Effect<A, E, SqlClient.SqlClient>) =>
+const run = <A, E>(
+	program: Effect.Effect<A, E, SqlClient.SqlClient | Scope.Scope>,
+) =>
 	Effect.runPromise(
-		program.pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
+		Effect.scoped(
+			program.pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
+		),
 	);
+
+const makeDomainRuntime = (filename: string, eventPrefix: string) => {
+	const sqlite = sqliteLayer({ filename });
+	let nextEventId = 0;
+	const domain = Layer.effect(
+		SessionDomain,
+		Effect.gen(function* () {
+			const sql = yield* SqlClient.SqlClient;
+			return yield* makeSessionDomain(sql, () =>
+				Effect.succeed(`${eventPrefix}-${++nextEventId}`),
+			);
+		}),
+	).pipe(Layer.provideMerge(sqlite));
+	return ManagedRuntime.make(domain);
+};
 
 describe("SessionDomain", () => {
 	test("rolls back events and receipts when projection fails", async () => {
@@ -280,6 +313,103 @@ describe("SessionDomain", () => {
 			kind: "event",
 			record: { streamVersion: 2 },
 		});
+	});
+
+	test("tails durable session events dispatched by another runtime", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-session-domain-sync-"));
+		const filename = join(directory, "shared.sqlite");
+		const schemaRuntime = ManagedRuntime.make(sqliteLayer({ filename }));
+		await schemaRuntime.runPromise(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`
+					INSERT INTO chats (id, updated_at)
+					VALUES ('chat-1', '1970-01-01T00:00:00.000Z')
+				`;
+			}),
+		);
+		await schemaRuntime.dispose();
+		const firstRuntime = makeDomainRuntime(filename, "first-event");
+		const secondRuntime = makeDomainRuntime(filename, "second-event");
+		try {
+			await firstRuntime.runPromise(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.dispatch({
+						commandId: "command-create",
+						streamId: "session-1",
+						command: createSessionCommand,
+					}),
+				),
+			);
+			const synchronized = Deferred.makeUnsafe<void>();
+			const collecting = secondRuntime.runFork(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain
+						.synchronizedEvents({
+							streamId: "session-1",
+							afterVersion: 1,
+							hasProjection: true,
+						})
+						.pipe(
+							Stream.filter(
+								(frame) =>
+									frame.kind === "synchronized" ||
+									(frame.kind === "event" &&
+										frame.record.event._tag === "MessagePersisted"),
+							),
+							Stream.tap((frame) =>
+								frame.kind === "synchronized"
+									? Deferred.succeed(synchronized, undefined)
+									: Effect.void,
+							),
+							Stream.take(2),
+							Stream.runCollect,
+						),
+				),
+			);
+			await Effect.runPromise(Deferred.await(synchronized));
+			await firstRuntime.runPromise(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.dispatch({
+						commandId: "command-submit-turn",
+						streamId: "session-1",
+						command: {
+							_tag: "SubmitTurn",
+							turnId: "turn-remote",
+							messageId: "message-remote",
+							role: "user",
+							kind: "user",
+							contentJson: '{"_tag":"user","text":"hello from web"}',
+							parentItemId: null,
+							providerInputJson: '{"text":"hello from web"}',
+							createdAt: 2,
+						},
+					}),
+				),
+			);
+			const frames = await Effect.runPromise(
+				Fiber.join(collecting).pipe(Effect.timeout(1_000)),
+			);
+
+			expect([...frames]).toMatchObject([
+				{ kind: "synchronized", throughVersion: 1 },
+				{
+					kind: "event",
+					record: {
+						streamVersion: 2,
+						event: {
+							_tag: "MessagePersisted",
+							messageId: "message-remote",
+							contentJson: '{"_tag":"user","text":"hello from web"}',
+						},
+					},
+				},
+			]);
+		} finally {
+			await Promise.all([firstRuntime.dispose(), secondRuntime.dispose()]);
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	test("replays only the retained session version prefix", async () => {

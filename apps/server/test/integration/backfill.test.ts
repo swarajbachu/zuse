@@ -176,34 +176,36 @@ describe("lifecycle backfill", () => {
 			expect(result).toEqual({ status: "completed", eventCount: 5 });
 
 			const snapshot = await runtime.runPromise(
-				Effect.gen(function* () {
-					const sql = yield* SqlClient.SqlClient;
-					const domain = yield* makeSessionDomain(sql, () =>
-						Effect.succeed("unused-event-id"),
-					);
-					yield* domain.catchUp;
-					const queriedMessages =
-						yield* makeSqlSessionQueries(sql).messages("session-1");
-					const events = yield* sql<{
-						readonly type: string;
-						readonly stream_kind: string;
-						readonly stream_version: number;
-						readonly payload_json: string;
-					}>`SELECT type, stream_kind, stream_version, payload_json FROM events ORDER BY sequence`;
-					const cursors = yield* sql<{
-						readonly projector_name: string;
-						readonly last_sequence: number;
-					}>`SELECT projector_name, last_sequence FROM projector_cursors ORDER BY projector_name`;
-					const receipts = yield* sql<{
-						readonly stream_version: number;
-						readonly result_json: string;
-					}>`
+				Effect.scoped(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						const domain = yield* makeSessionDomain(sql, () =>
+							Effect.succeed("unused-event-id"),
+						);
+						yield* domain.catchUp;
+						const queriedMessages =
+							yield* makeSqlSessionQueries(sql).messages("session-1");
+						const events = yield* sql<{
+							readonly type: string;
+							readonly stream_kind: string;
+							readonly stream_version: number;
+							readonly payload_json: string;
+						}>`SELECT type, stream_kind, stream_version, payload_json FROM events ORDER BY sequence`;
+						const cursors = yield* sql<{
+							readonly projector_name: string;
+							readonly last_sequence: number;
+						}>`SELECT projector_name, last_sequence FROM projector_cursors ORDER BY projector_name`;
+						const receipts = yield* sql<{
+							readonly stream_version: number;
+							readonly result_json: string;
+						}>`
 						SELECT stream_version, result_json FROM command_receipts
 						WHERE command_id = 'durable-command'
 					`;
-					const rerun = yield* runLifecycleBackfill;
-					return { events, cursors, queriedMessages, receipts, rerun };
-				}),
+						const rerun = yield* runLifecycleBackfill;
+						return { events, cursors, queriedMessages, receipts, rerun };
+					}),
+				),
 			);
 
 			expect(
