@@ -93,50 +93,50 @@ export class AdvertisedEndpoint extends Schema.Class<AdvertisedEndpoint>(
 }) {}
 
 export const CapabilityFeature = Schema.Literals([
-  "agents",
-  "chats",
-  "files",
-  "diffs",
-  "terminals",
-  "approvals",
-  "questions",
-  "previews",
-  "notifications",
-  "runtime-update",
-  "mobile-terminal-v1",
-  "attachment-read-v1",
-  "voice-account-transcription-v1",
-  "git-remote-actions-v1",
-  "desktop-handoff-v1",
+	"agents",
+	"chats",
+	"files",
+	"diffs",
+	"terminals",
+	"approvals",
+	"questions",
+	"previews",
+	"notifications",
+	"runtime-update",
+	"mobile-terminal-v1",
+	"attachment-read-v1",
+	"voice-account-transcription-v1",
+	"git-remote-actions-v1",
+	"desktop-handoff-v1",
 ]);
 export type CapabilityFeature = typeof CapabilityFeature.Type;
 
 export class CapabilityManifest extends Schema.Class<CapabilityManifest>(
-  "CapabilityManifest",
+	"CapabilityManifest",
 )({
-  version: Schema.Literal(1),
-  features: Schema.Array(CapabilityFeature),
+	version: Schema.Literal(1),
+	features: Schema.Array(CapabilityFeature),
 }) {}
 
 export const EnvironmentServiceState = Schema.Literals([
-  "starting",
-  "healthy",
-  "degraded",
-  "stopped",
-  "updating",
+	"starting",
+	"healthy",
+	"degraded",
+	"stopped",
+	"updating",
 ]);
 export type EnvironmentServiceState = typeof EnvironmentServiceState.Type;
 
 export class EnvironmentEndpointHealth extends Schema.Class<EnvironmentEndpointHealth>(
-  "EnvironmentEndpointHealth",
+	"EnvironmentEndpointHealth",
 )({
-  lan: Schema.optional(
-    Schema.Literals(["available", "unavailable", "unknown"]),
-  ),
-  managed: Schema.optional(
-    Schema.Literals(["available", "unavailable", "unknown"]),
-  ),
-  checkedAt: Schema.Number,
+	lan: Schema.optional(
+		Schema.Literals(["available", "unavailable", "unknown"]),
+	),
+	managed: Schema.optional(
+		Schema.Literals(["available", "unavailable", "unknown"]),
+	),
+	checkedAt: Schema.Number,
 }) {}
 
 /**
@@ -147,17 +147,17 @@ export class EnvironmentEndpointHealth extends Schema.Class<EnvironmentEndpointH
 export class EnvironmentDescriptor extends Schema.Class<EnvironmentDescriptor>(
 	"EnvironmentDescriptor",
 )({
-  environmentId: EnvironmentId,
-  providerKind: ProviderKind,
-  endpoint: EnvironmentEndpoint,
-  advertisedEndpoints: Schema.optional(Schema.Array(AdvertisedEndpoint)),
-  label: Schema.optional(Schema.String),
-  runtimeVersion: Schema.optional(Schema.String),
-  wireProtocolVersion: Schema.optional(Schema.Number),
-  capabilities: Schema.optional(CapabilityManifest),
-  serviceState: Schema.optional(EnvironmentServiceState),
-  endpointHealth: Schema.optional(EnvironmentEndpointHealth),
-  lastHeartbeat: Schema.optional(Schema.Number),
+	environmentId: EnvironmentId,
+	providerKind: ProviderKind,
+	endpoint: EnvironmentEndpoint,
+	advertisedEndpoints: Schema.optional(Schema.Array(AdvertisedEndpoint)),
+	label: Schema.optional(Schema.String),
+	runtimeVersion: Schema.optional(Schema.String),
+	wireProtocolVersion: Schema.optional(Schema.Number),
+	capabilities: Schema.optional(CapabilityManifest),
+	serviceState: Schema.optional(EnvironmentServiceState),
+	endpointHealth: Schema.optional(EnvironmentEndpointHealth),
+	lastHeartbeat: Schema.optional(Schema.Number),
 }) {}
 
 // ---------------------------------------------------------------------------

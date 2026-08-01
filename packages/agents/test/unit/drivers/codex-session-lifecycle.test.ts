@@ -23,6 +23,7 @@ const AttachmentsTest = Layer.succeed(AttachmentService, {
 	upload: () => Effect.die("not used"),
 	saveText: () => Effect.die("not used"),
 	read: () => Effect.succeed(null),
+	readForSession: () => Effect.succeed(null),
 	readPath: () => Effect.succeed(null),
 });
 
