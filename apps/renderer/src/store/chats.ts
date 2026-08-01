@@ -323,10 +323,12 @@ const applyChatChange = (
 		return;
 	}
 	const chat = change.chat;
+	let inserted = false;
 	useChatsStore.setState((s) => {
 		if (currentChangeLifecycle(projectId) !== lifecycle) return s;
 		const chats = s.chatsByProject[projectId];
 		if (chats === undefined) return s;
+		inserted = !chats.some((candidate) => candidate.id === chat.id);
 		return {
 			chatsByProject: {
 				...s.chatsByProject,
@@ -334,6 +336,16 @@ const applyChatChange = (
 			},
 		};
 	});
+	const activeSessionId = chat.activeSessionId;
+	const knownSessions =
+		useSessionsStore.getState().sessionsByProject[projectId];
+	const activeSessionMissing =
+		activeSessionId !== null &&
+		knownSessions !== undefined &&
+		!knownSessions.some((session) => session.id === activeSessionId);
+	if (inserted || activeSessionMissing) {
+		void useSessionsStore.getState().hydrate(projectId);
+	}
 };
 
 const scheduleSnapshotFallback = (

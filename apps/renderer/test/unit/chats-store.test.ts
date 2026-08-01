@@ -878,6 +878,7 @@ describe("chats store live changes", () => {
 						}),
 					),
 				),
+			"session.list": listSessions,
 		});
 		useChatsStore.setState({
 			chatsByProject: {},
@@ -896,7 +897,10 @@ describe("chats store live changes", () => {
 			).toEqual([reconnectChat]),
 		);
 		expect(listChats).not.toHaveBeenCalled();
-		expect(listSessions).not.toHaveBeenCalled();
+		await vi.waitFor(() => expect(listSessions).toHaveBeenCalledTimes(1));
+		expect(
+			useSessionsStore.getState().sessionsByProject[reconnectProjectId],
+		).toEqual([reconnectSession]);
 	});
 
 	it("applies an automatic title change without reloading the sidebar", async () => {
