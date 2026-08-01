@@ -89,8 +89,8 @@ const decodeChatEvent = Schema.decodeUnknownEffect(
 const providerTurnKey = (sessionId: string, turnId: string) =>
 	`${sessionId}\u0000${turnId}`;
 
-export const loadSettledProviderTurnKeys = Effect.fn(
-	"ConversationReactors.loadSettledProviderTurnKeys",
+export const loadTerminalProviderTurnKeys = Effect.fn(
+	"ConversationReactors.loadTerminalProviderTurnKeys",
 )(function* (sql: SqlClient.SqlClient) {
 	const rows = yield* sql<{
 		readonly stream_id: string;
@@ -110,15 +110,25 @@ export const loadSettledProviderTurnKeys = Effect.fn(
 				),
 				0
 			)
-			AND EXISTS (
-				SELECT 1
-				FROM events AS settled
-				WHERE settled.stream_kind = 'session'
-					AND settled.stream_id = requested.stream_id
-					AND settled.type = 'TurnSettled'
-					AND settled.sequence > requested.sequence
-					AND json_extract(settled.payload_json, '$.turnId')
-						= json_extract(requested.payload_json, '$.turnId')
+			AND (
+				EXISTS (
+					SELECT 1
+					FROM events AS settled
+					WHERE settled.stream_kind = 'session'
+						AND settled.stream_id = requested.stream_id
+						AND settled.type = 'TurnSettled'
+						AND settled.sequence > requested.sequence
+						AND json_extract(settled.payload_json, '$.turnId')
+							= json_extract(requested.payload_json, '$.turnId')
+				)
+				OR EXISTS (
+					SELECT 1
+					FROM events AS archived
+					WHERE archived.stream_kind = 'session'
+						AND archived.stream_id = requested.stream_id
+						AND archived.type = 'SessionArchived'
+						AND archived.sequence > requested.sequence
+				)
 			)
 	`.pipe(Effect.orDie);
 	return new Set(
@@ -162,7 +172,7 @@ export const makeConversationReactorRuntime = Effect.fn(
 		ProviderStopCommand,
 		SqlConsumerStorageError
 	>(sessionStorage, handlers.providerStop, providerStopReactorDefinition);
-	const settledProviderTurnsAtStartup = new Set<string>();
+	const terminalProviderTurnsAtStartup = new Set<string>();
 	const providerTurn = new ReactorRunner<
 		StoredEvent,
 		ProviderTurnCommand,
@@ -171,7 +181,7 @@ export const makeConversationReactorRuntime = Effect.fn(
 		sessionStorage,
 		(input) => {
 			const key = providerTurnKey(input.streamId, input.command.turnId);
-			if (settledProviderTurnsAtStartup.delete(key)) return Effect.void;
+			if (terminalProviderTurnsAtStartup.delete(key)) return Effect.void;
 			return handlers.providerTurn(input);
 		},
 		providerTurnReactorDefinition,
@@ -268,8 +278,8 @@ export const makeConversationReactorRuntime = Effect.fn(
 		runChatArchive,
 		runChatDelete,
 		catchUpAll: Effect.gen(function* () {
-			const settledKeys = yield* loadSettledProviderTurnKeys(sql);
-			for (const key of settledKeys) settledProviderTurnsAtStartup.add(key);
+			const terminalKeys = yield* loadTerminalProviderTurnKeys(sql);
+			for (const key of terminalKeys) terminalProviderTurnsAtStartup.add(key);
 			yield* runProviderStart;
 			yield* runProviderStop;
 			yield* runSession;

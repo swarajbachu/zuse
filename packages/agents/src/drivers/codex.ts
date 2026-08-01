@@ -38,7 +38,10 @@ import { getBashPolicy, getFsPolicy } from "../kernel/policy.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import type { BrowserSend } from "./browser-tools.ts";
-import { CodexAppServerClient } from "./codex-app-server-client.ts";
+import {
+	CodexAppServerClient,
+	CodexAppServerRequestError,
+} from "./codex-app-server-client.ts";
 import {
 	type CompactSnapshot,
 	finishCompactEvent,
@@ -1204,6 +1207,60 @@ export const translateCodexStatusNotification = (
 	}
 };
 
+const codexSessionCursorEvent = (threadId: string): AgentEvent => ({
+	_tag: "SessionCursor",
+	cursor: threadId,
+	strategy: "codex-thread-id",
+});
+
+const CODEX_INVALID_REQUEST_ERROR = -32600;
+
+const isMissingCodexRollout = (cause: unknown): boolean =>
+	cause instanceof CodexAppServerRequestError &&
+	cause.code === CODEX_INVALID_REQUEST_ERROR &&
+	/^no rollout found for thread id\b/i.test(cause.message);
+
+/**
+ * Codex allocates a thread id at `thread/start`, but does not create its
+ * resumable rollout until the first turn starts. Keep that provisional id out
+ * of persistence so an app/provider restart cannot try to resume a rollout
+ * that does not exist yet.
+ */
+class CodexCursorLifecycle {
+	private persistedThreadId: string | null;
+	private awaitingFirstTurn: boolean;
+
+	constructor(resumeCursor: string | null) {
+		this.persistedThreadId = resumeCursor;
+		this.awaitingFirstTurn = resumeCursor === null;
+	}
+
+	private publish(threadId: string): ReadonlyArray<AgentEvent> {
+		if (this.persistedThreadId === threadId) return [];
+		this.persistedThreadId = threadId;
+		return [codexSessionCursorEvent(threadId)];
+	}
+
+	threadStarted(threadId: string): ReadonlyArray<AgentEvent> {
+		return this.awaitingFirstTurn ? [] : this.publish(threadId);
+	}
+
+	turnStarted(threadId: string): ReadonlyArray<AgentEvent> {
+		if (!this.awaitingFirstTurn) return [];
+		this.awaitingFirstTurn = false;
+		return this.publish(threadId);
+	}
+
+	durableThread(threadId: string): ReadonlyArray<AgentEvent> {
+		this.awaitingFirstTurn = false;
+		return this.publish(threadId);
+	}
+
+	startFreshThread(): void {
+		this.awaitingFirstTurn = true;
+	}
+}
+
 export const startCodexSession = (
 	input: StartSessionInput,
 	cwd: string,
@@ -1230,6 +1287,7 @@ export const startCodexSession = (
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 		let activeModel = input.model ?? defaultModelFor("codex");
 		let activeThreadId = resumeCursor;
+		const cursorLifecycle = new CodexCursorLifecycle(resumeCursor);
 		let currentTurnId: string | null = null;
 		let latestDiff = "";
 		let closed = false;
@@ -1473,43 +1531,63 @@ export const startCodexSession = (
 			experimentalRawEvents: true,
 		};
 
+		type ThreadResponse = {
+			readonly thread: { readonly id: string };
+			readonly model?: string;
+		};
+
+		const adoptDurableThread = (response: ThreadResponse): void => {
+			activeThreadId = response.thread.id;
+			for (const event of cursorLifecycle.durableThread(activeThreadId))
+				emit(event);
+			if (response.model !== undefined) activeModel = response.model;
+		};
+
+		const startFreshThread = async (): Promise<void> => {
+			cursorLifecycle.startFreshThread();
+			const started = await app.request<ThreadResponse>(
+				"thread/start",
+				commonThreadParams,
+			);
+			activeThreadId = started.thread.id;
+			if (started.model !== undefined) activeModel = started.model;
+		};
+
 		const startOrResume = async (): Promise<void> => {
 			if (activeThreadId !== null && input.forkFromResume === true) {
 				// "Fork chat": branch the source thread into a NEW thread so the
 				// original transcript stays intact. The forked thread id becomes this
-				// session's cursor via the SessionCursor emit below.
-				const forked = await app.request<{
-					thread: { id: string };
-					model?: string;
-				}>("thread/fork", {
-					threadId: activeThreadId,
-					...commonThreadParams,
-				});
-				activeThreadId = forked.thread.id;
-				if (forked.model !== undefined) activeModel = forked.model;
+				// session's durable cursor.
+				try {
+					const forked = await app.request<ThreadResponse>("thread/fork", {
+						threadId: activeThreadId,
+						...commonThreadParams,
+					});
+					adoptDurableThread(forked);
+				} catch (cause) {
+					if (!isMissingCodexRollout(cause)) throw cause;
+					console.warn(
+						"[codex] source rollout is unavailable; starting a replacement thread",
+					);
+					await startFreshThread();
+				}
 			} else if (activeThreadId !== null) {
-				const resumed = await app.request<{
-					thread: { id: string };
-					model?: string;
-				}>("thread/resume", {
-					threadId: activeThreadId,
-					...commonThreadParams,
-				});
-				activeThreadId = resumed.thread.id;
-				if (resumed.model !== undefined) activeModel = resumed.model;
+				try {
+					const resumed = await app.request<ThreadResponse>("thread/resume", {
+						threadId: activeThreadId,
+						...commonThreadParams,
+					});
+					adoptDurableThread(resumed);
+				} catch (cause) {
+					if (!isMissingCodexRollout(cause)) throw cause;
+					console.warn(
+						"[codex] rollout is unavailable; starting a replacement thread",
+					);
+					await startFreshThread();
+				}
 			} else {
-				const started = await app.request<{
-					thread: { id: string };
-					model?: string;
-				}>("thread/start", commonThreadParams);
-				activeThreadId = started.thread.id;
-				if (started.model !== undefined) activeModel = started.model;
+				await startFreshThread();
 			}
-			emit({
-				_tag: "SessionCursor",
-				cursor: activeThreadId,
-				strategy: "codex-thread-id",
-			});
 			try {
 				const currentGoal = await app.request<unknown>("thread/goal/get", {
 					threadId: activeThreadId,
@@ -1715,20 +1793,18 @@ export const startCodexSession = (
 					}
 					return true;
 				case "fork": {
-					const forked = await app.request<{ thread: { id: string } }>(
-						"thread/fork",
-						{
+					try {
+						const forked = await app.request<ThreadResponse>("thread/fork", {
 							threadId: activeThreadId,
 							...commonThreadParams,
-						},
-					);
-					activeThreadId = forked.thread.id;
-					emit({
-						_tag: "SessionCursor",
-						cursor: activeThreadId,
-						strategy: "codex-thread-id",
-					});
-					say(`Forked Codex thread ${activeThreadId}.`);
+						});
+						adoptDurableThread(forked);
+						say(`Forked Codex thread ${activeThreadId}.`);
+					} catch (cause) {
+						if (!isMissingCodexRollout(cause)) throw cause;
+						await startFreshThread();
+						say("Started a fresh Codex thread.");
+					}
 					return true;
 				}
 				case "undo":
@@ -1922,13 +1998,7 @@ export const startCodexSession = (
 						}
 					}
 					activeThreadId = notification.params.thread.id;
-					return [
-						{
-							_tag: "SessionCursor",
-							cursor: activeThreadId,
-							strategy: "codex-thread-id",
-						},
-					];
+					return cursorLifecycle.threadStarted(activeThreadId);
 				case "turn/started":
 					{
 						const child = detachedAgentsByThread.get(
@@ -1941,7 +2011,10 @@ export const startCodexSession = (
 					}
 					if (notification.params.threadId !== activeThreadId) return [];
 					currentTurnId = notification.params.turn.id;
-					return [{ _tag: "Status", status: "running" }];
+					return [
+						...cursorLifecycle.turnStarted(notification.params.threadId),
+						{ _tag: "Status", status: "running" },
+					];
 				case "turn/completed":
 					{
 						const child = detachedAgentsByThread.get(

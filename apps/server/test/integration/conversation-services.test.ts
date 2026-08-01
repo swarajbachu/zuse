@@ -49,7 +49,7 @@ import {
 import { SqlClient } from "effect/unstable/sql";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
-import { loadSettledProviderTurnKeys } from "../../src/conversation/core/conversation-reactors.ts";
+import { loadTerminalProviderTurnKeys } from "../../src/conversation/core/conversation-reactors.ts";
 import { ConversationState } from "../../src/conversation/core/conversation-state.ts";
 import { ConversationServicesLive } from "../../src/conversation/layers/conversation-services.ts";
 import {
@@ -2419,7 +2419,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const settledTurnKeys = await run(
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
-					return yield* loadSettledProviderTurnKeys(sql);
+					return yield* loadTerminalProviderTurnKeys(sql);
 				}),
 			);
 			expect(
@@ -2434,6 +2434,64 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.flatMap(store, (s) => s.resumeSession(initialSession.id)),
 			);
 			expect(providerSentTexts).toContain("trigger provider recovery");
+		});
+	});
+
+	it("does not replay a durable provider turn after its session is archived", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await expect
+				.poll(() =>
+					run(
+						Effect.flatMap(store, (service) =>
+							service.getSession(initialSession.id),
+						),
+					),
+				)
+				.toMatchObject({ status: "idle" });
+
+			failProviderSend = true;
+			failProviderStart = true;
+			await expect(
+				run(
+					Effect.flatMap(store, (service) =>
+						service.sendMessage(initialSession.id, "archive failed turn"),
+					),
+				),
+			).rejects.toThrow("scripted start failure");
+
+			await run(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.dispatch({
+						commandId: "test:archive-failed-turn",
+						streamId: initialSession.id,
+						command: {
+							_tag: "ArchiveSession",
+							archivedAt: Date.now(),
+						},
+					}),
+				),
+			);
+
+			const terminalTurnKeys = await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					return yield* loadTerminalProviderTurnKeys(sql);
+				}),
+			);
+			expect(
+				[...terminalTurnKeys].some((key) =>
+					key.startsWith(`${initialSession.id}\u0000turn_`),
+				),
+			).toBe(true);
 		});
 	});
 
@@ -3747,7 +3805,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				const settled = await runRestarted(
 					Effect.gen(function* () {
 						const sql = yield* SqlClient.SqlClient;
-						return yield* loadSettledProviderTurnKeys(sql);
+						return yield* loadTerminalProviderTurnKeys(sql);
 					}),
 				);
 				expect(settled.has(`${initialSession.id}\u0000${turnId}`)).toBe(false);

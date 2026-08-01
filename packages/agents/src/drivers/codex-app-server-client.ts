@@ -77,6 +77,19 @@ const errorMessage = (error: unknown): string => {
 	return JSON.stringify(error);
 };
 
+export class CodexAppServerRequestError extends Error {
+	readonly code: number | null;
+	readonly data: unknown;
+
+	constructor(error: unknown) {
+		super(errorMessage(error));
+		this.name = "CodexAppServerRequestError";
+		this.code =
+			isRecord(error) && typeof error.code === "number" ? error.code : null;
+		this.data = isRecord(error) ? error.data : undefined;
+	}
+}
+
 export class CodexAppServerClient {
 	private nextId: RequestId = 1;
 	private readonly pending = new Map<RequestId, Pending>();
@@ -249,7 +262,7 @@ export class CodexAppServerClient {
 			this.pending.delete(id);
 			if ("error" in parsed) {
 				pending.reject(
-					new Error(errorMessage((parsed as { error: unknown }).error)),
+					new CodexAppServerRequestError((parsed as { error: unknown }).error),
 				);
 			} else {
 				pending.resolve((parsed as { result: unknown }).result);
