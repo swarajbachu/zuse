@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.1]
+
+### Changed
+- Restore analytics event delivery (#422)
+
 ## [0.16.0]
 
 ### Changed
