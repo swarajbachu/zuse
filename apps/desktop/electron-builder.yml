@@ -53,10 +53,6 @@ extraResources:
   - from: resources/skills
     to: app/skills
     filter: ["**/*"]
-  - from: native/local-connectivity/bin/zuse-local-connectivity
-    to: app/local-connectivity/zuse-local-connectivity
-  - from: native/browser-credentials/bin/zuse-browser-credentials
-    to: app/browser-credentials/zuse-browser-credentials
 
 # Native bindings can't load from inside an asar; they need to live as
 # real files on disk. electron-builder writes these to app.asar.unpacked/
@@ -77,6 +73,8 @@ asarUnpack:
   - "node_modules/@cursor/sdk/**"
   - "node_modules/@cursor/sdk-darwin-arm64/**"
   - "node_modules/@cursor/sdk-darwin-x64/**"
+  - "node_modules/@cursor/sdk-linux-arm64/**"
+  - "node_modules/@cursor/sdk-linux-x64/**"
 
 # We rebuild the remaining native modules via the postinstall hook.
 # electron-builder's npmRebuild step doesn't understand bun workspaces.
@@ -85,6 +83,11 @@ npmRebuild: false
 mac:
   category: public.app-category.developer-tools
   # Both per-architecture staging apps intentionally embed the same prebuilt
+  extraResources:
+    - from: native/local-connectivity/bin/zuse-local-connectivity
+      to: app/local-connectivity/zuse-local-connectivity
+    - from: native/browser-credentials/bin/zuse-browser-credentials
+      to: app/browser-credentials/zuse-browser-credentials
   # universal Swift helpers. Allow the universal merger to keep that identical
   # fat binary instead of rejecting it as an unexpected shared executable.
   x64ArchFiles: "Contents/Resources/app/{local-connectivity,browser-credentials}/*"
@@ -114,6 +117,30 @@ mac:
   extendInfo:
     NSCameraUsageDescription: Zuse (Beta) does not use the camera.
     NSMicrophoneUsageDescription: Zuse (Beta) does not use the microphone.
+
+linux:
+  target:
+    - target: AppImage
+      arch: x64
+    - target: deb
+      arch: x64
+  category: Development
+  executableName: zuse
+  icon: build/icon.png
+  artifactName: Zuse-${version}-linux-${arch}.${ext}
+  desktop:
+    entry:
+      Name: Zuse (Beta)
+      Comment: Desktop client for AI coding agents
+      Categories: Development;
+      Keywords: AI;Development;Coding;Agents;
+      StartupWMClass: zuse
+      Terminal: false
+
+deb:
+  depends:
+    - libsecret-1-0
+    - avahi-utils
 
 dmg:
   writeUpdateInfo: true

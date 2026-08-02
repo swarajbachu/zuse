@@ -117,9 +117,14 @@ function startApp() {
 
 	const electronPath = require("electron");
 	console.log(`[desktop:electron] launching ${electronPath}`);
+	// The Electron npm archive cannot install chrome-sandbox as root-owned
+	// setuid from an ordinary dependency install. Packaged Linux artifacts fix
+	// those permissions during packaging; development must disable Chromium's
+	// SUID sandbox or Electron aborts before main.cjs is evaluated.
+	const platformArgs = process.platform === "linux" ? ["--no-sandbox"] : [];
 	const app = spawn(
 		electronPath,
-		[join(desktopOutDir, "main.cjs"), "--memoize-dev"],
+		[...platformArgs, join(desktopOutDir, "main.cjs"), "--memoize-dev"],
 		{
 			cwd: desktopDir,
 			// Pass the resolved dev URL through explicitly so main.ts sees it even

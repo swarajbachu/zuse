@@ -26,6 +26,7 @@ import {
 	type UpdateStatus,
 } from "@zuse/contracts";
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron";
+import { createHostDescriptor } from "./host/descriptor.ts";
 
 let powerStateSubscriberCount = 0;
 
@@ -37,6 +38,12 @@ let powerStateSubscriberCount = 0;
  * listener for response frames from main and returns an unsubscribe handle.
  */
 const bridge = {
+	host: createHostDescriptor({
+		platform: process.platform,
+		arch: process.arch,
+		packaged: process.env.NODE_ENV === "production",
+		env: process.env,
+	}),
 	rpc: {
 		send: (frame: string | Uint8Array) => {
 			ipcRenderer.send(IPC_CHANNEL, frame);

@@ -18,6 +18,21 @@ import {
 import { AppAtomProvider } from "./state/registry.tsx";
 
 if (import.meta.env.DEV) {
+	const preloadReloadKey = "zuse.dev.preload-reload-at";
+	window.addEventListener("vite:preloadError", (event) => {
+		const now = Date.now();
+		const previousReload = Number(
+			sessionStorage.getItem(preloadReloadKey) ?? 0,
+		);
+		if (now - previousReload < 10_000) return;
+
+		// Dependency optimization briefly invalidates lazy-module URLs. Vite's
+		// supported recovery path is a page reload; rate-limit it so a persistent
+		// module error still reaches the root error boundary for diagnosis.
+		event.preventDefault();
+		sessionStorage.setItem(preloadReloadKey, String(now));
+		window.location.reload();
+	});
 	void import("./lib/update-demo.ts").then((m) => m.installUpdateDemo());
 }
 

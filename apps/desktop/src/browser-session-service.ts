@@ -3,7 +3,6 @@ import {
 	createCipheriv,
 	createDecipheriv,
 	createHash,
-	pbkdf2Sync,
 	randomBytes,
 } from "node:crypto";
 import * as fs from "node:fs/promises";
@@ -15,8 +14,15 @@ import { secureStorageMasterKey } from "@zusehq/server/secure-storage-master-key
 import type { Cookie, Session } from "electron";
 import keytar from "keytar";
 
+import { createBrowserCookieHostAdapter } from "./host/browser-cookie.ts";
+
 const execFileAsync = promisify(execFile);
 // Keep Chromium's own cookie store in memory. Persistent Chromium partitions
+const browserCookieHost = createBrowserCookieHostAdapter({
+	platform: process.platform,
+	home: homedir(),
+	env: process.env,
+});
 // initialize OS cryptography and can create a second macOS Keychain access
 // path. Imported cookies are restored only through the explicit import flow.
 const PARTITION = "zuse-browser";
@@ -324,14 +330,19 @@ const parseDefaultHandlerBundle = (stdout: string): string | null => {
 };
 
 const defaultHandlerBundle = async (): Promise<string | null> => {
-	if (process.platform !== "darwin") return null;
+	const command = browserCookieHost.defaultBrowserCommand;
+	if (command === null) return null;
 	try {
-		const { stdout } = await execFileAsync("defaults", [
-			"read",
-			"com.apple.LaunchServices/com.apple.launchservices.secure",
-			"LSHandlers",
-		]);
-		return parseDefaultHandlerBundle(stdout);
+		const { stdout } = await execFileAsync(
+			command.executable,
+			[...command.args],
+			{
+				timeout: 2_000,
+			},
+		);
+		return command.executable === "defaults"
+			? parseDefaultHandlerBundle(stdout)
+			: browserCookieHost.normalizeDefaultBrowserId(stdout);
 	} catch {
 		return null;
 	}
@@ -352,7 +363,6 @@ const normalized = (value: string) =>
 	value.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 const findProfileRoots = async (): Promise<ReadonlyArray<string>> => {
-	const support = Path.join(homedir(), "Library", "Application Support");
 	const found: string[] = [];
 	const walk = async (directory: string, depth: number): Promise<void> => {
 		if (depth > 2) return;
@@ -378,7 +388,9 @@ const findProfileRoots = async (): Promise<ReadonlyArray<string>> => {
 				.map((entry) => walk(Path.join(directory, entry.name), depth + 1)),
 		);
 	};
-	await walk(support, 0);
+	await Promise.all(
+		browserCookieHost.profileSearchRoots.map((root) => walk(root, 0)),
+	);
 	return found.sort();
 };
 
@@ -417,6 +429,7 @@ const sourceNameForRoot = (root: string): string => {
 const installedBrowserSources = async (
 	sources: ReadonlySet<string>,
 ): Promise<ReadonlySet<string>> => {
+	if (!browserCookieHost.validateInstalledApplications) return sources;
 	const applications: Array<{ name: string; path: string }> = [];
 	for (const directory of [
 		"/Applications",
@@ -560,7 +573,9 @@ const detectDefaultProfile = async (): Promise<DetectedProfile | null> => {
 	if (bundleId === null) return null;
 	const application = await findApplication(bundleId);
 	const sourceHint =
-		application === null ? bundleId : Path.basename(application, ".app");
+		application === null
+			? browserCookieHost.normalizeDefaultBrowserId(bundleId)
+			: Path.basename(application, ".app");
 	const root = await findProfileRoot(sourceHint);
 	if (root === null) return null;
 	const source = application === null ? sourceNameForRoot(root) : sourceHint;
@@ -742,10 +757,7 @@ export const importDefaultBrowserCookies = async (
 			"The default browser cookie profile is unavailable or unsupported.",
 		);
 	const password = await readSafeStoragePassword(detected.source);
-	const key =
-		password === null
-			? null
-			: pbkdf2Sync(password, "saltysalt", 1003, 16, "sha1");
+	const keys = browserCookieHost.decryptionKeys(password);
 	const temporary = await fs.mkdtemp(
 		Path.join(tmpdir(), "zuse-browser-import-"),
 	);
@@ -791,8 +803,12 @@ export const importDefaultBrowserCookies = async (
 			if (expirationDate !== undefined && expirationDate <= now) continue;
 			let value = String(row.value ?? "");
 			const encrypted = row.encrypted_value;
-			if (value.length === 0 && encrypted instanceof Uint8Array && key !== null)
-				value = decryptCookie(encrypted, key, domain) ?? "";
+			if (value.length === 0 && encrypted instanceof Uint8Array) {
+				value =
+					keys
+						.map((key) => decryptCookie(encrypted, key, domain))
+						.find(Boolean) ?? "";
+			}
 			if (value.length === 0) continue;
 			try {
 				const secure = Number(row.is_secure) === 1;

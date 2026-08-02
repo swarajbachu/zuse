@@ -1,19 +1,16 @@
+import {
+	type Command,
+	evaluateWhen,
+	matchesShortcut,
+	normalizeEventKey,
+} from "@zuse/contracts";
 import { useEffect } from "react";
 
-import {
-  type Command,
-  evaluateWhen,
-  matchesShortcut,
-  normalizeEventKey,
-} from "@zuse/contracts";
-
 import { APPLICATION_COMMANDS, dispatchCommand } from "../lib/commands";
+import { isMacHost } from "../lib/host-platform";
 import { useKeybindingsStore } from "../store/keybindings";
 
-const IS_MAC =
-  typeof navigator !== "undefined" &&
-  /Mac|iPhone|iPod|iPad/.test(navigator.userAgent);
-
+const IS_MAC = isMacHost();
 /**
  * Document-level keybinding dispatcher. Walks the live keybindings store
  * last-first on every keydown and fires the matched application command.
@@ -28,36 +25,41 @@ const IS_MAC =
  * just fires unconditionally.
  */
 export function useKeybindingDispatch(): void {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const base = normalizeEventKey(event.key);
-      if (base === "shift" || base === "ctrl" || base === "meta" || base === "alt") {
-        return;
-      }
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			const base = normalizeEventKey(event.key);
+			if (
+				base === "shift" ||
+				base === "ctrl" ||
+				base === "meta" ||
+				base === "alt"
+			) {
+				return;
+			}
 
-      const rules = useKeybindingsStore.getState().resolvedRules;
+			const rules = useKeybindingsStore.getState().resolvedRules;
 
-      for (let i = rules.length - 1; i >= 0; i--) {
-        const r = rules[i];
-        if (r === undefined) continue;
-        const command: Command = r.rule.command;
-        if (!APPLICATION_COMMANDS.has(command)) continue;
-        if (!matchesShortcut(event, r.shortcut, IS_MAC)) continue;
-        // Hand-edited when-clauses evaluate against an empty context — any
-        // identifier resolves to false, so a rule like `when: composerFocus`
-        // simply won't fire from here. (composer/editor commands are
-        // excluded above and handled inside their CodeMirror keymap, where
-        // focus is implicit.)
-        if (r.whenAst !== null && !evaluateWhen(r.whenAst, {})) continue;
+			for (let i = rules.length - 1; i >= 0; i--) {
+				const r = rules[i];
+				if (r === undefined) continue;
+				const command: Command = r.rule.command;
+				if (!APPLICATION_COMMANDS.has(command)) continue;
+				if (!matchesShortcut(event, r.shortcut, IS_MAC)) continue;
+				// Hand-edited when-clauses evaluate against an empty context — any
+				// identifier resolves to false, so a rule like `when: composerFocus`
+				// simply won't fire from here. (composer/editor commands are
+				// excluded above and handled inside their CodeMirror keymap, where
+				// focus is implicit.)
+				if (r.whenAst !== null && !evaluateWhen(r.whenAst, {})) continue;
 
-        event.preventDefault();
-        event.stopPropagation();
-        dispatchCommand(command);
-        return;
-      }
-    };
+				event.preventDefault();
+				event.stopPropagation();
+				dispatchCommand(command);
+				return;
+			}
+		};
 
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, []);
+		document.addEventListener("keydown", onKeyDown);
+		return () => document.removeEventListener("keydown", onKeyDown);
+	}, []);
 }

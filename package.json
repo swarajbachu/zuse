@@ -32,7 +32,9 @@
 		"discord:enhance:dry-run": "node --env-file=.env scripts/enhance-discord-community.mjs --dry-run",
 		"rebuild:pty": "cd apps/desktop && electron-rebuild -f -w node-pty",
 		"dist:mac": "NODE_ENV=production bun run build:desktop && cd apps/desktop && bun run dist:mac",
-		"dist:mac:unsigned": "NODE_ENV=production bun run build:desktop && cd apps/desktop && bun run dist:mac:unsigned"
+		"dist:mac:unsigned": "NODE_ENV=production bun run build:desktop && cd apps/desktop && bun run dist:mac:unsigned",
+		"dist:linux": "NODE_ENV=production bun run build:desktop && cd apps/desktop && bun run dist:linux",
+		"dist:linux:unsigned": "NODE_ENV=production bun run build:desktop && cd apps/desktop && bun run dist:linux:unsigned"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.3",

@@ -3,6 +3,11 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+if (process.platform !== "darwin") {
+	console.log("Native Swift helpers are macOS-only; skipping.");
+	process.exit(0);
+}
+
 const desktopRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const run = (command, args, moduleCache) => {
 	const result = spawnSync(command, args, {

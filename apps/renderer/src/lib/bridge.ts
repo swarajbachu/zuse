@@ -1,4 +1,5 @@
 import type {
+	HostDescriptor,
 	LagSample,
 	NearbyPairingRequest,
 	NetworkAccessState,
@@ -353,6 +354,7 @@ export interface NotchBridge {
 }
 
 export interface ZuseBridge {
+	readonly host?: HostDescriptor;
 	readonly rpc: RpcBridge;
 	readonly window?: WindowBridge;
 	readonly pairing?: PairingBridge;

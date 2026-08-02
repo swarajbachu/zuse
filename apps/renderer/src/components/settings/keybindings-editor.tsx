@@ -20,6 +20,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { isMacHost } from "~/lib/host-platform";
 
 import { cn } from "~/lib/utils";
 import {
@@ -42,10 +43,7 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { KeybindingPill } from "./keybinding-pill";
 
-const IS_MAC =
-	typeof navigator !== "undefined" &&
-	/Mac|iPhone|iPod|iPad/.test(navigator.userAgent);
-
+const IS_MAC = isMacHost();
 /* ────────────────────── Row model — derived from store ───────────────────── */
 
 type RuleSource = "Default" | "Custom";

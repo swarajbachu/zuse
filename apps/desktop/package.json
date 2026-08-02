@@ -32,7 +32,9 @@
 		"predist:mac": "bun run native:build:universal",
 		"dist:mac": "electron-builder --mac --universal",
 		"predist:mac:unsigned": "bun run native:build:universal",
-		"dist:mac:unsigned": "electron-builder --mac --universal -c.mac.identity=null --publish never"
+		"dist:mac:unsigned": "electron-builder --mac --universal -c.mac.identity=null --publish never",
+		"dist:linux": "electron-builder --linux AppImage deb --x64",
+		"dist:linux:unsigned": "electron-builder --linux AppImage deb --x64 --publish never"
 	},
 	"dependencies": {
 		"@cursor/sdk": "1.0.23",

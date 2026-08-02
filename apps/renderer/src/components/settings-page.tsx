@@ -34,6 +34,7 @@ import { Effect } from "effect";
 import { Plus, RefreshCw as RefreshIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { displayPath } from "~/lib/display-path";
+import { hasHostCapability } from "~/lib/host-platform";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 
 import {
@@ -767,12 +768,14 @@ function NotchSettingsPane() {
 	const pinned = useSettingsStore((s) => s.notchTrayPinned);
 	const setEnabled = useSettingsStore((s) => s.setNotchTrayEnabled);
 	const setPinned = useSettingsStore((s) => s.setNotchTrayPinned);
+	const hostSupportsNotch = hasHostCapability("notchTray");
 	const [support, setSupport] = useState<{
 		supported: boolean;
 		reason: "supported" | "not-macos" | "no-notched-display";
 	} | null>(null);
 
 	useEffect(() => {
+		if (!hostSupportsNotch) return;
 		const notch = window.zuse?.notch ?? window.memoize?.notch;
 		let cancelled = false;
 		void notch?.getDisplaySupport?.().then((next) => {
@@ -785,8 +788,9 @@ function NotchSettingsPane() {
 			cancelled = true;
 			unsubscribe?.();
 		};
-	}, []);
+	}, [hostSupportsNotch]);
 
+	if (!hostSupportsNotch) return null;
 	const supported = support?.supported === true;
 	const unsupportedText =
 		support?.reason === "not-macos"

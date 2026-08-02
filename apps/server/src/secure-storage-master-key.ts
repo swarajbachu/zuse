@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-import keytar from "keytar";
+import { nativeSecretStore } from "./host/secret-store.ts";
 
 const KEYCHAIN_SERVICE = "zuse-secure-storage";
 const KEYCHAIN_ACCOUNT = "vault-master-key-v1";
@@ -12,7 +12,7 @@ export const secureStorageMasterKey = (
 ): Promise<Buffer> => {
 	if (keyPromise !== null) return keyPromise;
 	keyPromise = (async () => {
-		const existing = await keytar.getPassword(
+		const existing = await nativeSecretStore.get(
 			KEYCHAIN_SERVICE,
 			KEYCHAIN_ACCOUNT,
 		);
@@ -27,7 +27,7 @@ export const secureStorageMasterKey = (
 				"Secure storage cannot be opened because its master key is missing.",
 			);
 		const created = randomBytes(32);
-		await keytar.setPassword(
+		await nativeSecretStore.set(
 			KEYCHAIN_SERVICE,
 			KEYCHAIN_ACCOUNT,
 			created.toString("base64url"),

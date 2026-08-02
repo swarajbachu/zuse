@@ -25,6 +25,7 @@ import {
 	AGENTS_RUNNING_COUNT_CHANNEL,
 	AuthFlowError,
 	type DeepEnergySummary,
+	type HostPlatform,
 	LagSample as LagSampleSchema,
 	type PerformanceCapabilities,
 	type PerformanceHistory,
@@ -90,7 +91,7 @@ if (process.env.ZUSE_MAIN_BUNDLE_SMOKE === "1") {
 // in the server runs. Dev (`bun run dev`) inherits the terminal's PATH
 // already, so we only do this when packaged. No-op on Windows.
 if (
-	process.platform === "darwin" &&
+	process.platform !== "win32" &&
 	app.isPackaged &&
 	process.env.ZUSE_PRESERVE_PATH !== "1"
 ) {
@@ -112,6 +113,11 @@ import {
 	type DeepEnergyProfileHandle,
 	startDeepEnergyProfile,
 } from "./deep-energy-profiler.ts";
+import { listLocalServers } from "./host/local-port-inspector.ts";
+import {
+	listPortableOpenTargets,
+	openPathWithPortableTarget,
+} from "./host/open-targets.ts";
 import { electronServerProtocolLayer } from "./ipc/electron-server-protocol.ts";
 import { isLinearContextImagePath } from "./linear-context-image.ts";
 import {
@@ -1198,24 +1204,48 @@ const startLocalConnectivityHelper = (
 	serviceName: string,
 	tlsCertificatePin?: string,
 ): void => {
-	if (process.platform !== "darwin" || localConnectivityHelper !== null) return;
-	const executable = localConnectivityHelperPath();
-	if (!fsSync.existsSync(executable)) {
+	if (
+		(process.platform !== "darwin" && process.platform !== "linux") ||
+		localConnectivityHelper !== null
+	)
+		return;
+	const executable =
+		process.platform === "linux"
+			? "avahi-publish-service"
+			: localConnectivityHelperPath();
+	if (process.platform === "darwin" && !fsSync.existsSync(executable)) {
 		appendRemoteConnectionLog("local.helper.unavailable", { executable });
 		return;
 	}
-	const child = spawn(
-		executable,
-		[
-			String(targetPort),
-			serviceName,
-			...(tlsCertificatePin === undefined ? [] : [tlsCertificatePin]),
-		],
-		{
-			stdio: ["pipe", "pipe", "pipe"],
-		},
-	);
+	const args =
+		process.platform === "linux"
+			? [
+					serviceName,
+					"_zuse._tcp",
+					String(targetPort),
+					...(tlsCertificatePin === undefined
+						? []
+						: [`tls=${tlsCertificatePin}`]),
+				]
+			: [
+					String(targetPort),
+					serviceName,
+					...(tlsCertificatePin === undefined ? [] : [tlsCertificatePin]),
+				];
+	const child = spawn(executable, args, {
+		stdio: ["pipe", "pipe", "pipe"],
+	});
 	localConnectivityHelper = child;
+	child.once("spawn", () => {
+		localConnectivityRestartAttempt = 0;
+	});
+	child.once("error", (cause) => {
+		if (localConnectivityHelper === child) localConnectivityHelper = null;
+		appendRemoteConnectionLog("local.helper.unavailable", {
+			executable,
+			cause,
+		});
+	});
 	child.stdout.setEncoding("utf8");
 	child.stderr.setEncoding("utf8");
 	child.stdout.on("data", (chunk: string) => {
@@ -1651,7 +1681,7 @@ async function createMainWindow() {
 	}
 	const isMac = process.platform === "darwin";
 	const nearbyTls =
-		networkAccess.mode === "network-accessible" && process.platform === "darwin"
+		networkAccess.mode === "network-accessible" && process.platform !== "win32"
 			? await ensureNearbyTlsIdentity(userData)
 			: null;
 	mainWindow = new BrowserWindow({
@@ -1663,7 +1693,11 @@ async function createMainWindow() {
 		// `transparent: true` Electron paints an opaque background and the
 		// vibrancy never shows through. `backgroundColor: "#00000000"` (alpha 0)
 		// pairs with it so there's no flash of solid color before render.
-		show: false,
+		// Linux window managers can leave a hidden BrowserWindow invisible when
+		// Chromium never emits `ready-to-show` (for example after a renderer
+		// startup error). Show opaque native windows immediately; macOS keeps the
+		// deferred show to avoid flashing its transparent vibrancy surface.
+		show: !isMac,
 		...(isMac
 			? {
 					vibrancy: "sidebar" as const,
@@ -1741,6 +1775,9 @@ async function createMainWindow() {
 		if (typeof rawPath !== "string" || rawPath.length === 0) return [];
 		const existingPath = await pathExists(rawPath);
 		if (!existingPath) return [];
+		if (process.platform !== "darwin") {
+			return listPortableOpenTargets(process.platform as HostPlatform);
+		}
 
 		return Promise.all(
 			OPEN_TARGETS.map(async (target) => {
@@ -1764,6 +1801,15 @@ async function createMainWindow() {
 		async (_event, rawPath: unknown, rawAppId: unknown) => {
 			if (typeof rawPath !== "string" || typeof rawAppId !== "string") return;
 			if (!(await pathExists(rawPath))) return;
+			if (process.platform !== "darwin") {
+				const result = await openPathWithPortableTarget(
+					process.platform as HostPlatform,
+					rawAppId,
+					rawPath,
+				);
+				if (result === "reveal") shell.showItemInFolder(rawPath);
+				return;
+			}
 			const target = openTargetById.get(rawAppId);
 			if (target === undefined) return;
 			if (target.id === "finder") {
@@ -2433,42 +2479,7 @@ async function createMainWindow() {
 
 	ipcMain.handle("browser:listLocalServers", async () => {
 		try {
-			const byPort = new Map<number, string>();
-			if (process.platform === "darwin") {
-				const { stdout } = await execFileAsync("lsof", [
-					"-nP",
-					"-iTCP",
-					"-sTCP:LISTEN",
-				]);
-				for (const line of stdout.split("\n").slice(1)) {
-					const trimmed = line.trim();
-					if (trimmed.length === 0) continue;
-					const parts = trimmed.split(/\s+/);
-					const command = parts[0] ?? "server";
-					const endpoint = parts.find((part) => /:(\d+)$/.test(part));
-					const match = endpoint?.match(/:(\d+)$/);
-					if (match === undefined || match === null) continue;
-					const port = Number(match[1]);
-					if (!Number.isInteger(port) || port <= 0 || port > 65535) continue;
-					if (!byPort.has(port)) byPort.set(port, command.slice(0, 48));
-				}
-			} else {
-				const { stdout } = await execFileAsync("netstat", ["-an"]);
-				for (const line of stdout.split("\n")) {
-					if (!/\bLISTEN(?:ING)?\b/i.test(line)) continue;
-					const match = line.match(
-						/(?:127\.0\.0\.1|0\.0\.0\.0|\[?::1\]?|\*)[.:](\d+)/,
-					);
-					if (match === null) continue;
-					const port = Number(match[1]);
-					if (!Number.isInteger(port) || port <= 0 || port > 65535) continue;
-					if (!byPort.has(port)) byPort.set(port, "localhost");
-				}
-			}
-			return [...byPort.entries()]
-				.sort(([left], [right]) => left - right)
-				.slice(0, 50)
-				.map(([port, name]) => ({ name, port }));
+			return (await listLocalServers()).slice(0, 50);
 		} catch {
 			return [];
 		}
@@ -2693,7 +2704,8 @@ async function createMainWindow() {
 			? null
 			: wsServerProtocolLayer({
 					port: 0,
-					host: "127.0.0.1",
+					host:
+						process.platform === "linux" ? networkAccess.bindHost : "127.0.0.1",
 					tls: { key: nearbyTls.key, cert: nearbyTls.cert },
 					onDiagnostic: appendRemoteConnectionLog,
 					onListening: ({ port }) =>

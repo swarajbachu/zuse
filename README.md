@@ -2,7 +2,7 @@
 
 A chat-first desktop app for developers who work with AI coding agents. Wraps Claude Code, Codex, Grok, Gemini, Cursor, and OpenCode in a persistent, project-aware interface — structured chat history, rich composer, file viewer, integrated terminal, git worktrees, and session management, all stored locally.
 
-> macOS only. Requires at least one supported agent CLI installed.
+> Supports macOS and x64 Linux. Requires at least one supported agent CLI installed.
 
 ---
 
@@ -73,6 +73,7 @@ A chat-first desktop app for developers who work with AI coding agents. Wraps Cl
 - SQLite stores projects, sessions, messages, tool calls across restarts
 - Keychain-backed API keys (no plaintext storage)
 - Signed + notarized macOS universal `.dmg` (Apple Silicon + Intel)
+- Linux x64 `.AppImage` and Debian/Ubuntu `.deb`
 - In-app auto-update via GitHub Releases
 
 ---
@@ -131,9 +132,19 @@ bun run dist:mac
 
 # Package macOS DMG (unsigned, local testing)
 bun run dist:mac:unsigned
+
+# Package Linux AppImage and deb
+bun run dist:linux
+
+# Package Linux without publishing
+bun run dist:linux:unsigned
 ```
 
-Requires: Bun 1.3.10+, Node.js ≥ 18, macOS.
+Requires: Bun 1.3.10+, Node.js ≥ 22.13, and macOS or x64 Linux.
+
+The Linux `.deb` declares the Secret Service and Avahi runtime dependencies.
+For AppImage installs, provide a Secret Service implementation (such as
+GNOME Keyring or KWallet) and `avahi-publish-service` for nearby discovery.
 
 ---
 

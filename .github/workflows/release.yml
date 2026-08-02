@@ -93,3 +93,64 @@ jobs:
             echo "Packaging attempt $attempt failed; retrying in ${delay}s."
             sleep "$delay"
           done
+
+  linux:
+    name: Linux AppImage + deb
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
+
+      - name: Cache electron-builder
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-builder-${{ hashFiles('**/bun.lock') }}
+
+      - name: Install
+        env:
+          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+          LINEAR_CLIENT_ID: ${{ secrets.LINEAR_CLIENT_ID }}
+          ZUSE_POSTHOG_KEY: ${{ secrets.ZUSE_POSTHOG_KEY }}
+          VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
+          NODE_ENV: production
+        run: |
+          test -n "$LINEAR_CLIENT_ID"
+          test -n "$ZUSE_POSTHOG_KEY"
+          test -n "$VITE_POSTHOG_KEY"
+          bun run build
+
+      - name: Package + publish
+        working-directory: apps/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for attempt in 1 2 3; do
+            if bunx electron-builder --linux AppImage deb --x64 --publish always; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Packaging failed after $attempt attempts."
+              exit 1
+            fi
+            delay=$((attempt * 30))
+            echo "Packaging attempt $attempt failed; retrying in ${delay}s."
+            sleep "$delay"
+          done
