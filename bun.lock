@@ -221,7 +221,7 @@
     },
     "apps/server": {
       "name": "@zusehq/server",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "bin": {
         "zuse": "dist/bin.mjs",
       },
@@ -475,7 +475,7 @@
     },
     "packages/serve": {
       "name": "@zusehq/serve",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "bin": {
         "zuse": "dist/bin.mjs",
       },
@@ -567,7 +567,7 @@
     },
     "packages/zusehq": {
       "name": "zusehq",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "bin": {
         "zusehq": "dist/bin.mjs",
       },

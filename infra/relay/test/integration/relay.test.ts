@@ -226,7 +226,7 @@ describe("@zuse/relay", () => {
 				method: "POST",
 				headers: {
 					"content-type": "application/json",
-					origin: "https://app.zuse.sh",
+					origin: "https://code.zuse.sh",
 				},
 				body: JSON.stringify({
 					grantType: "authorization_code",
@@ -238,7 +238,7 @@ describe("@zuse/relay", () => {
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get("access-control-allow-origin")).toBe(
-			"https://app.zuse.sh",
+			"https://code.zuse.sh",
 		);
 		expect(await response.json()).toEqual({
 			access_token: "test-access-token",
@@ -250,7 +250,7 @@ describe("@zuse/relay", () => {
 				method: "POST",
 				headers: {
 					"content-type": "application/json",
-					origin: "https://app.zuse.sh",
+					origin: "https://code.zuse.sh",
 				},
 				body: JSON.stringify({
 					grantType: "refresh_token",
@@ -293,12 +293,12 @@ describe("@zuse/relay", () => {
 		const allowed = await relay.fetch(
 			new Request(`${RELAY_ISSUER}/v1/environments`, {
 				method: "OPTIONS",
-				headers: { origin: "https://app.zuse.sh" },
+				headers: { origin: "https://code.zuse.sh" },
 			}),
 		);
 		expect(allowed.status).toBe(204);
 		expect(allowed.headers.get("access-control-allow-origin")).toBe(
-			"https://app.zuse.sh",
+			"https://code.zuse.sh",
 		);
 
 		const denied = await relay.fetch(
@@ -308,6 +308,14 @@ describe("@zuse/relay", () => {
 			}),
 		);
 		expect(denied.headers.get("access-control-allow-origin")).toBeNull();
+
+		const legacy = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/environments`, {
+				method: "OPTIONS",
+				headers: { origin: "https://app.zuse.sh" },
+			}),
+		);
+		expect(legacy.headers.get("access-control-allow-origin")).toBeNull();
 	});
 
 	test("enforces the account computer limit without blocking an existing computer", async () => {

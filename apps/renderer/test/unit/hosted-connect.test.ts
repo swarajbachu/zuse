@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	createHostedEndpointLease,
 	hostedAuthTokenEndpoint,
+	isHostedProduct,
 } from "../../src/lib/hosted-connect.ts";
 
 describe("hosted authentication", () => {
@@ -10,6 +11,11 @@ describe("hosted authentication", () => {
 		expect(hostedAuthTokenEndpoint("http://127.0.0.1:8790/")).toBe(
 			"http://127.0.0.1:8790/v1/auth/token",
 		);
+	});
+
+	it("recognizes the canonical hosted product domain", () => {
+		expect(isHostedProduct("https://code.zuse.sh")).toBe(true);
+		expect(isHostedProduct("https://app.zuse.sh")).toBe(false);
 	});
 
 	it("uses each connect grant once and refreshes it for reconnects", async () => {

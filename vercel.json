@@ -2,6 +2,19 @@
 	"buildCommand": "VITE_ZUSE_HOSTED=1 bun run --filter renderer build",
 	"outputDirectory": "apps/renderer/dist",
 	"framework": "vite",
+	"redirects": [
+		{
+			"source": "/:path*",
+			"has": [
+				{
+					"type": "host",
+					"value": "app.zuse.sh"
+				}
+			],
+			"destination": "https://code.zuse.sh/:path*",
+			"permanent": true
+		}
+	],
 	"rewrites": [
 		{
 			"source": "/(.*)",

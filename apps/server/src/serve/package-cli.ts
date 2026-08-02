@@ -4,7 +4,7 @@ import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { WORKOS_PUBLIC_CLIENT_ID } from "@zuse/contracts";
+import { HOSTED_APP_URL, WORKOS_PUBLIC_CLIENT_ID } from "@zuse/contracts";
 import { Effect } from "effect";
 
 import { SessionStoreLive } from "../auth/layers/session-store.ts";
@@ -30,7 +30,6 @@ import {
 } from "./service-manager.ts";
 
 const DEFAULT_RELAY_URL = "https://relay.stuff.md";
-const APP_URL = "https://app.zuse.sh";
 const workosClientId = (env: NodeJS.ProcessEnv): string =>
 	(env.WORKOS_CLIENT_ID ?? "").trim() || WORKOS_PUBLIC_CLIENT_ID;
 
@@ -181,7 +180,7 @@ const printStatus = async (
 		environmentId: relay?.environmentId ?? null,
 		durable: status.durable,
 		dataDir: options.dataDir,
-		appUrl: APP_URL,
+		appUrl: HOSTED_APP_URL,
 	};
 	if (options.json) {
 		console.log(JSON.stringify(value));
@@ -439,7 +438,7 @@ export const runServePackageCli = async (
 	console.log(`Account    ${session.email}`);
 	const agents = await installedAgents();
 	console.log(`Agents     ${agents.join(", ") || "None detected"}`);
-	console.log(`Open       ${APP_URL}`);
+	console.log(`Open       ${HOSTED_APP_URL}`);
 };
 
 export { foregroundArgs };
