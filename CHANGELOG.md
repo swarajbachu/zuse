@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move the hosted app to `code.zuse.sh` and restore browser relay CORS
 - Publish Serve runtime `0.1.1` with background data-directory support
 
+## [0.16.1]
+
+### Changed
+- Restore analytics event delivery (#422)
+
 ## [0.16.0]
 
 ### Changed

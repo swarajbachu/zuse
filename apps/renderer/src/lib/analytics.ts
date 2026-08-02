@@ -2,13 +2,13 @@ import {
 	ActiveTimeTracker,
 	type AnalyticsEventName,
 	type AnalyticsProperties,
-	isAnalyticsEventName,
 	sanitizeAnalyticsProperties,
 } from "@zuse/analytics";
 import type { AnalyticsContext } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 
 import { createDeferredRuntime } from "./deferred-runtime.ts";
+import { sanitizePostHogEvent } from "./posthog-event.ts";
 import { getRpcClient } from "./rpc-client.ts";
 
 type AnalyticsSdk = typeof import("posthog-js/dist/module.slim")["default"];
@@ -77,27 +77,7 @@ const applyContext = (context: AnalyticsContext) => {
 				opt_out_capturing_by_default: !context.enabled,
 				bootstrap: { distinctID: context.distinctId },
 				persistence: "localStorage",
-				before_send: (event) => {
-					if (!event || typeof event.event !== "string") return null;
-					if (event.event.startsWith("$")) {
-						if (event.event !== "$identify") return null;
-						const properties = event.properties ?? {};
-						event.properties = {
-							distinct_id: properties.distinct_id,
-							$anon_distinct_id: properties.$anon_distinct_id,
-						};
-						return event;
-					}
-					if (!isAnalyticsEventName(event.event)) return null;
-					const distinctId = event.properties?.distinct_id;
-					event.properties = sanitizeAnalyticsProperties(
-						event.event,
-						event.properties ?? {},
-					);
-					if (typeof distinctId === "string")
-						event.properties.distinct_id = distinctId;
-					return event;
-				},
+				before_send: sanitizePostHogEvent,
 			}),
 		);
 		initialized = true;

@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.16.1",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Restore analytics event delivery (#422)"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.16.0",
     "sections": [
       {
