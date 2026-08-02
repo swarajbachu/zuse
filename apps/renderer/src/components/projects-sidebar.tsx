@@ -574,10 +574,16 @@ function SidebarAccount() {
 						</button>
 					}
 				/>
-				<MenuPopup side="top" align="start" className="w-56">
+				<MenuPopup
+					side="top"
+					align="start"
+					sideOffset={6}
+					className="w-(--anchor-width) rounded-xl"
+				>
 					<MenuItem
 						variant="destructive"
 						onClick={() => void signOutHostedProduct()}
+						className="min-h-9 rounded-lg px-2.5 text-xs"
 					>
 						<HugeiconsIcon icon={Logout01Icon} />
 						Sign out of this browser
