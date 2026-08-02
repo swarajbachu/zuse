@@ -1,0 +1,57 @@
+---
+title: "Chats and agent control"
+description: "Create chats, choose a workspace and provider, follow live output, and answer agent requests on iPhone."
+section: "Mobile"
+order: 3
+platforms: [mobile]
+providers: []
+prerequisites: [/mobile/connect]
+related: [/mobile/review, /mobile/offline-notifications, /remote/recovery]
+next: /mobile/review
+lastVerified: latest
+---
+
+
+The inbox combines chats from every reachable connection, grouped by project and computer. Search filters the feed; pin keeps an important chat visible; archive removes completed work from the active list without deleting its environment state.
+
+## Create a chat
+
+Choose **New chat**, then make four decisions:
+
+1. **Machine** — the computer that will execute the work.
+2. **Project** — the repository or folder on that computer.
+3. **Work mode** — the main checkout, an existing worktree, a branch, or a pull-request context offered by the environment.
+4. **Provider and model** — one of the agents installed on the selected computer.
+
+Write the first message, optionally attach images or files, and send. Zuse creates the chat and session on the environment. When a provider supports goal mode, the composer can start goal-oriented work as well.
+
+## Continue a running session
+
+Open a chat to see its structured timeline. New agent events stream into the view. The status in the inbox and thread list shows whether work is running; a chat may contain multiple threads, including more than one running thread.
+
+Use the session actions to open **Files**, review changes, or start a related chat. Model and permission controls are attached to the current session so a new thread can inherit the active session's configuration.
+
+## Permission requests, questions, and plans
+
+Requests that need you appear in the conversation's action area rather than disappearing into terminal output.
+
+- Read the requested tool or command before deciding.
+- Approve only the action you intend to allow.
+- Answer agent questions directly in the provided prompt.
+- Review a proposed plan before allowing execution to continue.
+
+When notifications are enabled, Zuse can alert you about approvals and questions. Opening the notification routes you back to the relevant environment and session.
+
+## Attachments
+
+The plus menu can pick images and files from the phone. Zuse uploads them to the selected environment before including them in the message. If upload fails, the composer keeps the error visible so you can retry instead of silently sending an incomplete prompt.
+
+## When the connection drops
+
+Known messages remain visible from the local cache. A message composed while the session is offline enters its outbox. Zuse submits outbox items to the server in order after the transport reconnects.
+
+<Callout title="Provider choices belong to the machine">
+The mobile picker shows providers reported by the connected environment. Install and authenticate a provider CLI on that computer before expecting it to appear on iPhone.
+</Callout>
+
+<NextStep href="/mobile/review/" label="Review files and changes" />

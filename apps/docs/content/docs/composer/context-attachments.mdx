@@ -1,0 +1,35 @@
+---
+title: Context and attachments
+description: Mention files, attach visual references, and queue precise follow-ups.
+section: composer
+order: 52
+platforms: [desktop, browser, mobile]
+providers: [claude, codex, grok, gemini, cursor, opencode]
+prerequisites: [/composer]
+related: [/workspace/files-editor, /composer/modes-permissions, /projects/worktrees]
+next: /composer/subagents
+lastVerified: latest
+---
+
+
+Good context is specific, current, and scoped to the active environment.
+
+## Mention a file
+
+Type `@` and search for a project file. Selecting it inserts a file chip whose path is rooted in the active checkout. In a worktree chat, search and resolution use that worktree rather than the main checkout.
+
+Mention the smallest set of files that establishes the problem. The agent can discover related code using its tools; attaching an entire repository as prose usually makes the request less precise.
+
+## Images and PDFs
+
+Add supported images or PDF documents by drag-and-drop, paste, or the attachment control. Attachments are copied into Zuse-managed storage for the message and displayed in the timeline. Provider support for consuming a particular attachment type can vary by model.
+
+For a visual bug, include the screenshot and describe the expected state. For a specification, identify the exact pages or requirements that govern the task.
+
+## Browser and editor annotations
+
+When annotation tools are available, selected page or editor context can be inserted into the composer as structured references. Review the generated chip or text before sending so the target is unambiguous.
+
+## Queue a follow-up
+
+If a turn is already running, the next message can wait in the per-session queue. Queued messages preserve their submission mode. Use the queue for a genuine next instruction; interrupt the current turn when the new information invalidates work already underway.

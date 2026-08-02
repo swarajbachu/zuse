@@ -1,0 +1,58 @@
+---
+import "../styles/global.css";
+import geistMonoUrl from "@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2?url";
+import interUrl from "@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url";
+import { SITE } from "../lib/site";
+
+interface Props {
+	title?: string;
+	description?: string;
+	canonicalPath?: string;
+	image?: string;
+}
+
+const {
+	title,
+	description = SITE.description,
+	canonicalPath = Astro.url.pathname,
+	image = "/og/index.png",
+} = Astro.props;
+const pageTitle = title ? `${title} — ${SITE.name}` : SITE.name;
+const canonical = new URL(canonicalPath, SITE.url);
+const socialImage = new URL(image, SITE.url);
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="description" content={description} />
+		<meta name="theme-color" content="#111312" />
+		<meta property="og:type" content="website" />
+		<meta property="og:title" content={pageTitle} />
+		<meta property="og:description" content={description} />
+		<meta property="og:image" content={socialImage} />
+		<meta name="twitter:card" content="summary_large_image" />
+		<link rel="canonical" href={canonical} />
+		<link rel="preload" href={interUrl} as="font" type="font/woff2" crossorigin />
+		<link rel="preload" href={geistMonoUrl} as="font" type="font/woff2" crossorigin />
+		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+		<title>{pageTitle}</title>
+		<script is:inline>
+			(() => {
+				const saved = localStorage.getItem("zuse-docs-theme");
+				const theme = saved === "light" || saved === "dark"
+					? saved
+					: window.matchMedia("(prefers-color-scheme: light)").matches
+						? "light"
+						: "dark";
+				document.documentElement.dataset.theme = theme;
+			})();
+		</script>
+	</head>
+	<body>
+		<a class="skip-link" href="#main-content">Skip to content</a>
+		<slot />
+	</body>
+</html>

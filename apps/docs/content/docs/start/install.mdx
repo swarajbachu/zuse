@@ -1,0 +1,49 @@
+---
+title: Install and connect Zuse
+description: Install the macOS app and make a supported coding-agent CLI available.
+section: start
+order: 2
+platforms: [desktop]
+providers: [claude, codex, grok, gemini, cursor, opencode]
+prerequisites: []
+related: [/start/first-chat, /providers, /reference/diagnostics]
+next: /start/first-chat
+lastVerified: latest
+---
+
+
+Zuse currently ships for macOS. It uses coding-agent installations already available on your computer, so the first launch checks which supported CLIs are installed and authenticated.
+
+## Install the app
+
+1. Download the current macOS build from [zuse.dev/download](https://zuse.dev/download).
+2. Open the downloaded disk image and move Zuse to **Applications**.
+3. Launch Zuse. The onboarding flow opens automatically on a fresh installation.
+
+Zuse ships as a signed, notarized universal app for Apple silicon and Intel Macs. Updates are offered in the app when a newer release is available.
+
+## Connect a provider
+
+Zuse supports Claude Code, Codex, Grok, Gemini, Cursor, and OpenCode. You need at least one provider's CLI installed and signed in.
+
+During onboarding, Zuse shows the providers it detects. A provider may be:
+
+- **Ready** — installed, authenticated, and compatible.
+- **Needs attention** — usable, but an update or authentication check needs review.
+- **Unavailable** — missing, signed out, or below a required CLI version.
+
+Open **Settings → Providers** at any time to install, sign in, update, enable, or disable providers. Authentication is performed through each provider's supported flow. App-managed API keys are stored in the macOS Keychain, not in Zuse's settings JSON.
+
+## Open a repository
+
+Choose **Open project…** and select a folder. Git repositories get the full worktree, Changes, branch, and pull-request workflow. A plain folder can still be used for agent sessions, files, and terminal work, and Zuse can offer to initialize Git when you need version control.
+
+## If a provider is not ready
+
+1. Open **Settings → Providers** and inspect its status.
+2. Confirm its CLI runs from your normal shell.
+3. Complete the provider's sign-in flow.
+4. Apply an offered update if Zuse reports an incompatible version.
+5. Return to the project and create a new session.
+
+Provider authentication and model availability can change outside Zuse. Refresh provider status after changing an installation or account.

@@ -1,0 +1,35 @@
+---
+title: Worktrees
+description: Run chats on isolated Git branches and understand their lifecycle.
+section: projects
+order: 41
+platforms: [desktop, browser, mobile]
+providers: []
+prerequisites: [/projects]
+related: [/projects/file-includes, /projects/scripts, /workspace/changes-pull-requests]
+next: /projects/repository-settings
+lastVerified: latest
+---
+
+
+A Zuse worktree is an isolated checkout attached to a Git branch. Use one when an agent will edit files, run build tools, or create a pull request while other work continues in the main checkout.
+
+## Create one with a chat
+
+In the new-chat environment control, choose a new worktree and its base. Zuse creates the checkout under `~/.zuse/<repository>/<worktree>/`, creates or selects the branch, links configured local files, and runs the repository setup script when present.
+
+The worktree belongs to the chat. Every session tab in that chat uses the same checkout and branch. `@` file search, the file tree, terminal, Changes, and Git actions are scoped to it.
+
+## Base selection
+
+Base a new worktree on the branch or revision that should supply its starting files. Zuse does not silently merge later changes from the base; normal Git operations still govern how a task is rebased or merged.
+
+## Setup state
+
+The chat shows setup progress when a repository script is configured. A failed setup does not erase the worktree. Read its output, fix the underlying command or environment, and rerun setup.
+
+If `auto_run_after_setup` is enabled, Zuse opens the configured run command in the chat terminal after setup succeeds.
+
+## Finish the task
+
+Commit and push the branch, complete its pull request, then archive the chat. Repository settings can define an archive script for local cleanup. Removing a checkout does not replace source-control review: confirm the branch contains anything you intend to keep.

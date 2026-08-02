@@ -1,0 +1,31 @@
+---
+title: Terminal and browser
+description: Run project commands and inspect browser sessions beside the conversation.
+section: workspace
+order: 62
+platforms: [desktop]
+providers: []
+prerequisites: [/workspace]
+related: [/projects/scripts, /reference/settings, /reference/diagnostics]
+next: /workspace/changes-pull-requests
+lastVerified: latest
+---
+
+
+## Terminal
+
+The integrated terminal opens in the active chat's checkout. Terminal sessions are scoped to the chat, so switching between tasks does not silently move one shell into another worktree.
+
+Use the terminal to run development servers, focused tests, builds, migrations, and repository tools. The configured repository **run** script can be started from the workflow surface, and `auto_run_after_setup` can launch it after a new worktree is prepared.
+
+Closing a terminal ends that shell process. Long-running commands should be stopped cleanly before archiving a chat.
+
+## Browser
+
+The integrated browser is a desktop capability used to inspect pages produced by the active project. Browser session controls, profile selection, explicit cookie import, and test login management live under **Settings → Browser** when available in the build.
+
+Cookie import is always explicit. Zuse does not read browser credentials simply because the app starts.
+
+Use browser annotations to send precise page context back to an agent when the control is available. Verify the captured target before submitting it, especially when several local development servers are running.
+
+Browser and terminal availability can differ on remote clients; the desktop computer remains responsible for the underlying processes.

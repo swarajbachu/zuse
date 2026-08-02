@@ -1,0 +1,50 @@
+---
+title: OpenCode
+description: Connect OpenCode providers and models and run them through Zuse's local integration.
+section: providers
+order: 37
+platforms: [desktop, browser, mobile]
+providers: [opencode]
+prerequisites: [/start/install, /providers/setup]
+related: [/reference/settings, /composer/modes-permissions, /reference/diagnostics]
+next: /composer
+lastVerified: latest
+---
+
+OpenCode is a local multi-provider harness. Zuse launches `opencode serve`, reads its provider and model inventory, and drives sessions through the bundled OpenCode SDK.
+
+## Install and connect a provider
+
+```bash
+curl -fsSL https://opencode.ai/install | bash
+opencode auth login
+```
+
+Zuse requires OpenCode `1.3.15` or newer because older releases do not expose the HTTP routes used by the integration.
+
+Open **Settings → Providers → OpenCode** to manage connected providers and visible models. Zuse writes provider credentials through OpenCode's supported authentication store so the same connection remains available to the OpenCode CLI. Zuse settings contain visibility and custom-provider metadata, not those secret keys.
+
+Custom OpenAI-compatible providers can be added through the OpenCode management surface. Zuse injects their non-secret configuration when it starts the local server and keeps their key in OpenCode's auth store.
+
+## Workflows in Zuse
+
+- Choose from the live provider and model inventory reported by OpenCode.
+- Hide providers or individual models from Zuse's model picker without deleting their OpenCode authentication.
+- Run sessions in the current checkout or a per-chat worktree.
+- Render responses, tool calls, edits, usage, and errors in the durable Zuse timeline.
+- Apply normal Zuse runtime permissions and Plan mode to supported tool activity.
+- Preserve file, terminal, Changes, and pull-request workflows independently of the selected OpenCode model.
+
+Zuse does not currently discover OpenCode-native skills into its shared skills picker. Tool availability and model quality vary by the provider selected behind OpenCode.
+
+## Session lifecycle and recovery
+
+OpenCode sessions currently start a fresh provider conversation when their local server process is recreated; a stored OpenCode cursor is not resumed. The existing Zuse timeline remains available, but a new provider process may not inherit that conversational context automatically. Start a new session tab or summarize the required context when continuity matters.
+
+If inventory or startup fails:
+
+1. Run `opencode --version` and update to at least `1.3.15`.
+2. Run `opencode auth login` and verify the intended provider is connected.
+3. Refresh the OpenCode inventory in **Settings → Providers**.
+4. Re-enable any provider or model hidden by Zuse settings.
+5. Create a fresh session after changing configuration.

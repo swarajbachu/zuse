@@ -19,6 +19,9 @@ import {
   ChildProcessSpawner as CommandExecutor,
 } from "effect/unstable/process";
 import { decodeJwtPayload } from "./jwt.ts";
+import { PROVIDER_CLI_REGISTRY } from "./provider-cli-registry.ts";
+
+export { SUPPORTED_PROVIDER_CLIS } from "./provider-cli-registry.ts";
 
 interface ProviderProbe {
   readonly providerId: Exclude<ProviderId, "cursor">;
@@ -66,9 +69,7 @@ export const MIN_GROK_CLI_VERSION: CliVersion = {
 
 const PROBES: ReadonlyArray<ProviderProbe> = [
   {
-    providerId: "claude",
-    displayName: "Claude Code",
-    cliBinary: "claude",
+    ...PROVIDER_CLI_REGISTRY.claude,
     // Claude Agent SDK 0.2 doesn't break on older CLIs the way codex-sdk
     // 0.128 does — leave the floor open until we see a concrete failure
     // mode we can pin to a version.
@@ -84,9 +85,7 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
     },
   },
   {
-    providerId: "codex",
-    displayName: "Codex",
-    cliBinary: "codex",
+    ...PROVIDER_CLI_REGISTRY.codex,
     minVersion: { major: 0, minor: 128, patch: 0, raw: "0.128.0" },
     upgradeCommand: "npm i -g @openai/codex@latest",
     npmPackage: "@openai/codex",
@@ -94,10 +93,8 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
     nativeUpdate: null,
   },
   {
-    providerId: "grok",
-    displayName: "Grok",
-    cliBinary: "grok",
-		minVersion: MIN_GROK_CLI_VERSION,
+    ...PROVIDER_CLI_REGISTRY.grok,
+    minVersion: MIN_GROK_CLI_VERSION,
     upgradeCommand: "curl -fsSL https://x.ai/cli/install.sh | bash",
     // xAI ships Grok via a curl installer, not npm — no registry to poll.
     // The installer reinstalls the latest build, so it doubles as the updater.
@@ -106,9 +103,7 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
     nativeUpdate: null,
   },
   {
-    providerId: "gemini",
-    displayName: "Gemini",
-    cliBinary: "gemini",
+    ...PROVIDER_CLI_REGISTRY.gemini,
     // We speak ACP directly via `gemini --experimental-acp`, so there's no
     // SDK pin to keep in lock-step with. Revisit if Google renames the
     // flag or breaks the handshake.
@@ -119,9 +114,7 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
     nativeUpdate: null,
   },
   {
-    providerId: "opencode",
-    displayName: "OpenCode",
-    cliBinary: "opencode",
+    ...PROVIDER_CLI_REGISTRY.opencode,
     // The SDK we bundle (`@opencode-ai/sdk`) targets the v2 HTTP shape that
     // landed in `opencode` 1.3.15. Older binaries respond to
     // `client.session.prompt` with a 404 (route renamed) — pin the floor

@@ -1,0 +1,52 @@
+---
+title: "Zuse Serve"
+description: "Turn a Mac or Linux computer into a durable, account-linked Zuse environment with one command."
+section: "Serve CLI"
+order: 1
+platforms: [serve, web, mobile]
+providers: [claude, codex, grok, gemini, opencode]
+prerequisites: []
+related: [/serve/operations, /serve/command-reference, /serve/status-json, /remote/hosted-access]
+next: /serve/operations
+lastVerified: latest
+---
+
+
+Zuse Serve turns a Mac or Linux computer into an environment you can open from the hosted web app or Zuse for iPhone. The computer owns its repositories, provider CLIs, credentials, terminals, and session state. Your account supplies identity and environment discovery.
+
+## Requirements
+
+- macOS, or Linux with a systemd user session for durable background operation.
+- Node.js 22.5.0 or newer and npm.
+- At least one supported agent CLI installed and authenticated.
+- A browser on any device to complete account authorization.
+
+## Quickstart
+
+Run the installless command on the computer that will host the work:
+
+<Command>npx @zusehq/serve</Command>
+
+Zuse prints an authorization code and opens the verification page when possible. Complete sign-in, then wait for **Zuse Serve is ready**. The final summary includes the computer name, online state, account, detected agents, and hosted app URL.
+
+Open the hosted app with the same account and select the computer. On iPhone, sign in under **Settings → Remote access**; online Serve environments appear alongside other linked computers.
+
+## Installed command
+
+The package publishes the `zuse` executable. If you install it globally, the canonical command is:
+
+<Command>zuse serve</Command>
+
+Running `zuse serve` with no action is equivalent to `zuse serve start`.
+
+## Durable background service
+
+On macOS, Serve installs a user LaunchAgent. On Linux, it installs a systemd user service. The service starts the protected server on loopback, links it to hosted access, and keeps its runtime and logs under the Zuse data directory.
+
+If the current platform does not provide a supported service manager, Serve explains why and runs in the foreground instead. Keep that terminal open for the environment to remain available.
+
+## What Serve does not do
+
+Serve does not install provider CLIs, clone repositories, or provision a cloud computer. Prepare the machine and its workspaces first. Direct SSH launching and automatic machine provisioning are not part of this public workflow.
+
+<NextStep href="/serve/operations/" label="Operate the Serve service" />

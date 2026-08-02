@@ -1,0 +1,36 @@
+---
+title: Subagents
+description: Delegate bounded tasks and review their work within the parent conversation.
+section: composer
+order: 53
+platforms: [desktop, browser, mobile]
+providers: [claude, codex, grok]
+prerequisites: [/composer/modes-permissions]
+related: [/concepts/project-chat-session, /workspace/changes-pull-requests, /reference/settings]
+next: /workspace
+lastVerified: latest
+---
+
+
+Subagents let a primary agent delegate bounded work while keeping the result connected to the parent conversation. Zuse renders delegated activity as collapsible task rows instead of flattening every child event into the main timeline.
+
+## When to delegate
+
+Delegation works best for independent, well-scoped tasks such as:
+
+- inspecting a specific subsystem;
+- writing tests in an isolated area;
+- reviewing a change from another angle;
+- researching several unrelated questions in parallel.
+
+Avoid parallel edits to the same files unless the parent explicitly coordinates ownership. All agents working in one chat environment see the same checkout.
+
+## Controls and accounting
+
+Provider support determines which subagent controls are available. Zuse can display child task status and token usage when the provider reports it. Global subagent settings let you enable the feature for new sessions and configure supported presets.
+
+Runtime permissions still apply. Delegation is not a way to bypass Plan mode, sensitive-path protection, or an approval requirement.
+
+## Review the result
+
+Treat a completed child task as input to the parent, not automatic acceptance. Ask the primary agent to integrate findings, run cross-cutting checks, and summarize unresolved conflicts. Review the final combined diff in **Changes**.

@@ -1,0 +1,47 @@
+---
+title: "Remote access"
+description: "Use the same Zuse environment from a browser or iPhone, nearby or away from your network."
+section: "Remote access"
+order: 1
+platforms: [desktop, web, mobile, serve]
+providers: []
+prerequisites: []
+related: [/remote/local-browser, /remote/nearby-pairing, /remote/hosted-access, /remote/security]
+next: /remote/local-browser
+lastVerified: latest
+---
+
+
+Remote access gives another Zuse client a secure view into an environment that is already running. The environment owns the repositories, agents, credentials, terminals, and durable session state. A browser or phone sends commands to that environment and renders its results; it does not move the workspace onto the client device.
+
+| What you need | Best path | Account required? |
+| --- | --- | --- |
+| A browser on the same network | [Local browser access](/remote/local-browser/) | No |
+| An iPhone near your Mac | [Nearby pairing](/remote/nearby-pairing/) | No |
+| A browser or iPhone away from the computer | [Hosted remote access](/remote/hosted-access/) | Yes |
+| A headless Mac or Linux computer | [Zuse Serve](/serve/) | Yes |
+
+## What follows you
+
+Once connected, supported clients read the environment's projects, chats, sessions, agent output, and repository state. Actions still execute on the environment. Closing a browser tab or putting the phone to sleep does not relocate or duplicate a running agent.
+
+The desktop app and Zuse Serve advertise an environment as online while it can be reached. Hosted clients show an environment as offline when its heartbeat stops; bring the computer and Zuse back online to reconnect.
+
+## Choose the narrowest access you need
+
+Use nearby access when both devices are together. It works directly over the local network and does not require signing in. Use hosted access only when you need to reach the computer away from that network. You can revoke every paired browser or phone independently from **Settings → Devices**.
+
+<SecurityNote title="Execution stays on the environment">
+Remote access does not install agent providers on the client. Provider CLIs and their authentication must exist on the computer that runs the environment.
+</SecurityNote>
+
+## Not part of the public workflow
+
+Zuse does not currently document direct SSH launching or automatic cloud-machine provisioning as shipped product workflows. For a headless computer, use the supported [Zuse Serve quickstart](/serve/) and connect through the account-linked hosted path.
+
+## Continue
+
+- [Open Zuse in a local browser](/remote/local-browser/)
+- [Pair a nearby iPhone](/remote/nearby-pairing/)
+- [Reach an account-linked computer from anywhere](/remote/hosted-access/)
+- [Understand the security boundaries](/remote/security/)

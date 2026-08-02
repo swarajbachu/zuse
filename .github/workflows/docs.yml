@@ -1,0 +1,47 @@
+name: documentation
+
+on:
+  pull_request:
+    paths:
+      - "apps/docs/**"
+      - "apps/web/next.config.mjs"
+      - "apps/server/src/serve/**"
+      - "packages/contracts/src/serve.ts"
+      - "packages/serve/**"
+      - "bun.lock"
+  push:
+    branches: [main]
+    paths:
+      - "apps/docs/**"
+      - "apps/web/next.config.mjs"
+      - "apps/server/src/serve/**"
+      - "packages/contracts/src/serve.ts"
+      - "packages/serve/**"
+      - "bun.lock"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - name: Install dependencies
+        env:
+          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
+        run: bun install --frozen-lockfile
+      - name: Validate content links
+        run: bun --filter docs test
+      - name: Check formatting and static analysis
+        run: bunx biome check apps/docs/src/components/SearchDialog.tsx apps/docs/src/data apps/docs/src/lib apps/docs/src/pages/og apps/docs/scripts apps/docs/test apps/docs/playwright.config.ts apps/docs/src/content.config.ts apps/web/next.config.mjs
+      - name: Build static documentation
+        run: bun --filter docs build
+      - name: Install browser
+        run: bunx playwright install --with-deps chromium
+      - name: Run browser and accessibility tests
+        run: bun --filter docs test:e2e

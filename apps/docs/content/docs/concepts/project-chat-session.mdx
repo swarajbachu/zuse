@@ -1,0 +1,35 @@
+---
+title: Projects, chats, and sessions
+description: Learn the ownership and lifecycle rules behind Zuse conversations.
+section: concepts
+order: 11
+platforms: [desktop, browser, mobile]
+providers: [claude, codex, grok, gemini, cursor, opencode]
+prerequisites: [/concepts]
+related: [/projects/worktrees, /composer/subagents, /desktop/navigation]
+next: /projects/worktrees
+lastVerified: latest
+---
+
+
+## Project
+
+A project is a folder you explicitly opened in Zuse. Its path is the anchor for file browsing, terminals, repository settings, Git operations, and all chats beneath it. Removing a project from Zuse removes it from the app's workspace; it does not delete the repository.
+
+## Chat
+
+A chat is one durable unit of work. It owns the environment used by all of its session tabs. If the chat uses a worktree, every session in that chat works against that same worktree.
+
+Choose a chat boundary that matches a branch-sized outcome: one fix, one feature, one investigation, or one review. This keeps its messages, changes, and pull-request state coherent.
+
+The environment becomes fixed after work begins. Choose the main checkout, a new worktree, an existing branch, or an applicable pull-request environment before the first message.
+
+## Session tab
+
+A session tab is a conversation with one provider and model. A chat can contain multiple tabs, letting you ask another agent for a review or continue with a different approach while keeping the same files and branch.
+
+Provider and model selection is flexible before the session has conversation history. After work begins, create another tab when you want a different provider context rather than silently rewriting the identity of the existing session.
+
+## Archive and delete
+
+Archive a finished chat to remove it from the active workspace while keeping its record. Worktree cleanup follows repository and archive controls and can run a configured archive script. Read confirmation text carefully before discarding uncommitted files or removing a checkout.

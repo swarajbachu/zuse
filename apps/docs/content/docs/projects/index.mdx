@@ -1,0 +1,19 @@
+---
+title: Projects and worktrees
+description: Keep repository tasks organized and isolated without cloning repeatedly.
+section: projects
+order: 40
+platforms: [desktop, browser, mobile]
+providers: []
+prerequisites: [/start/first-chat]
+related: [/projects/worktrees, /projects/repository-settings, /projects/file-includes, /projects/scripts]
+next: /projects/worktrees
+lastVerified: latest
+---
+
+
+A project points to a folder already on the Zuse computer. For a Git repository, each chat can run in the main checkout or an isolated worktree.
+
+Worktrees are the default tool for parallel agent work: every worktree has its own checked-out files and branch while sharing the repository's object database. This avoids repeated full clones and keeps unrelated changes out of the same working directory.
+
+Repository settings in `.zuse/settings.toml` let a team share worktree defaults, setup commands, run commands, local-file links, and environment variables. Continue with [Worktrees](/projects/worktrees), then [Repository settings](/projects/repository-settings).

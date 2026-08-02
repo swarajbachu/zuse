@@ -10,6 +10,7 @@ import {
 	MIN_GROK_CLI_VERSION,
 	parseCliVersion,
 	resolveCodexCapabilities,
+	SUPPORTED_PROVIDER_CLIS,
 	selectCliPathCandidate,
 	selectNewestCliPathCandidate,
 } from "../../src/provider/availability.ts";
@@ -17,6 +18,23 @@ import {
 const { parseGrokAuthJson, extractTier, decodeJwtPayload } =
 	grokAuthTestHelpers;
 const { parseClaudeCredentials } = claudeAuthTestHelpers;
+
+describe("supported provider CLIs", () => {
+	it("exposes Serve detection from the provider availability registry", () => {
+		expect(
+			SUPPORTED_PROVIDER_CLIS.map(({ providerId, cliBinary }) => [
+				providerId,
+				cliBinary,
+			]),
+		).toEqual([
+			["claude", "claude"],
+			["codex", "codex"],
+			["grok", "grok"],
+			["gemini", "gemini"],
+			["opencode", "opencode"],
+		]);
+	});
+});
 
 describe("parseCliVersion", () => {
 	it("pulls the first dotted triple out of labelled output", () => {

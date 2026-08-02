@@ -1,0 +1,52 @@
+---
+title: User settings
+description: Configure global Zuse defaults and understand persisted preferences.
+section: reference
+order: 91
+platforms: [desktop]
+providers: [claude, codex, grok, gemini, cursor, opencode]
+prerequisites: []
+related: [/projects/repository-settings, /reference/keybindings, /reference/schemas]
+next: /reference/keybindings
+lastVerified: latest
+---
+
+
+Zuse stores global preferences in:
+
+```text
+~/.zuse/settings.json
+```
+
+The settings UI is the safest way to edit this file. Changes are validated and synchronized through the running desktop service.
+
+## Main preference groups
+
+| Group | Persisted behavior |
+| --- | --- |
+| Defaults | Provider, model by provider, runtime permission mode, worktree creation |
+| Appearance | System, light, or dark mode |
+| Completion | Sound enabled state and sound preset |
+| Providers | Enabled providers and visible models |
+| OpenCode | Connected provider visibility, model visibility, and custom provider metadata |
+| MCP | Globally disabled provider-native servers |
+| Subagents | Default enablement and preset overrides |
+| Git | Branch naming style/prefix and merge preferences |
+| Privacy | Usage analytics preference |
+| Desktop | Notch tray enablement and pinning |
+
+Repository values such as provider, model, runtime mode, and worktree default can override global choices for one project. Put shared project behavior in `.zuse/settings.toml`, not this user file.
+
+## Direct editing
+
+If you edit JSON manually, close Zuse first and keep `schemaVersion` at `1`. Unknown properties are rejected. Use:
+
+```text
+https://zuse.dev/schemas/settings.schema.json
+```
+
+The file does not contain provider API keys. App-managed secret material belongs in the macOS Keychain.
+
+## Settings surfaces
+
+The app separates global settings into **General**, **Providers**, **MCP Servers**, **Integrations**, **Devices**, **Browser**, **Pokedex**, **Keyboard shortcuts**, and **Diagnostics**. Projects listed below those global entries open their committed repository settings. Some sections appear only when their platform capability or integration is available.

@@ -1,0 +1,34 @@
+---
+title: Core concepts
+description: Understand how Zuse organizes repositories, chats, sessions, and isolated environments.
+section: concepts
+order: 10
+platforms: [desktop, browser, mobile]
+providers: []
+prerequisites: [/start/first-chat]
+related: [/concepts/project-chat-session, /concepts/local-first, /projects/worktrees]
+next: /concepts/project-chat-session
+lastVerified: latest
+---
+
+
+Zuse separates the durable unit of work from the agent process doing the work. That distinction makes it possible to change agents, keep parallel tasks isolated, and reconnect without losing the useful history.
+
+## The model
+
+```text
+Computer
+└── Project (repository or folder)
+    └── Chat (one durable task and one environment)
+        ├── Session tab (provider conversation)
+        ├── Session tab
+        └── Files, terminal, changes, and PR state
+```
+
+- A **computer** runs the Zuse service and owns its local projects and data.
+- A **project** points to a repository or directory.
+- A **chat** is the durable task shown in the sidebar.
+- A **session** is one provider conversation inside a chat.
+- An **environment** is the main checkout or the chat's Git worktree.
+
+See [Projects, chats, and sessions](/concepts/project-chat-session) for lifecycle details and [Local-first data](/concepts/local-first) for persistence and security boundaries.

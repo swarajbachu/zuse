@@ -1,0 +1,42 @@
+---
+title: Repository scripts
+description: Configure setup, run, and archive commands for isolated checkouts.
+section: projects
+order: 44
+platforms: [desktop]
+providers: []
+prerequisites: [/projects/repository-settings]
+related: [/projects/worktrees, /projects/file-includes, /workspace/terminal-browser]
+next: /composer
+lastVerified: latest
+---
+
+
+Repository scripts turn a newly created worktree into a runnable development environment without encoding setup instructions in every prompt.
+
+```toml
+[scripts]
+setup = "bun install"
+run = "bun run dev"
+archive = "rm -rf node_modules .cache"
+auto_run_after_setup = false
+```
+
+## Lifecycle
+
+- **setup** runs from the new worktree after configured local files are linked.
+- **run** is the standard development command exposed for that project.
+- **archive** runs during the archive/cleanup workflow when configured.
+- **auto_run_after_setup** starts the run command in the chat terminal after a successful setup.
+
+Zuse passes these values to scripts:
+
+```text
+ZUSE_ROOT_PATH
+ZUSE_WORKTREE_PATH
+ZUSE_WORKTREE_ID
+```
+
+It also passes string values from `[environment_variables]`.
+
+Scripts run with your user permissions. Keep destructive cleanup narrow, make setup safe to rerun, and avoid commands that depend on a particular interactive shell profile. A non-zero setup result remains visible and can be rerun after you fix the cause.

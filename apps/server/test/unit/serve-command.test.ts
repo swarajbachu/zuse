@@ -13,6 +13,21 @@ describe("zuse serve management commands", () => {
 		});
 	});
 
+	it("supports explicit start, help, and version commands", () => {
+		expect(parseServeCommand(["serve", "start"])).toMatchObject({
+			action: "start",
+		});
+		expect(parseServeCommand(["serve", "help"])).toMatchObject({
+			action: "help",
+		});
+		expect(parseServeCommand(["serve", "--help"])).toMatchObject({
+			action: "help",
+		});
+		expect(parseServeCommand(["serve", "--version"])).toMatchObject({
+			action: "version",
+		});
+	});
+
 	it("parses status JSON output", () => {
 		expect(parseServeCommand(["serve", "status", "--json"])).toEqual({
 			action: "status",
@@ -66,6 +81,9 @@ describe("zuse serve management commands", () => {
 		);
 		expect(() => parseServeCommand(["serve", "--data-dir"])).toThrow(
 			/--data-dir requires a value/u,
+		);
+		expect(() => parseServeCommand(["serve", "help", "--json"])).toThrow(
+			/--json is only valid with status/u,
 		);
 	});
 });

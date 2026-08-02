@@ -1,0 +1,61 @@
+---
+title: "Connect your iPhone"
+description: "Pair locally, sign in for remote access, switch computers, and remove saved connections."
+section: "Mobile"
+order: 2
+platforms: [mobile, desktop, serve]
+providers: []
+prerequisites: [/mobile]
+related: [/remote/nearby-pairing, /remote/hosted-access, /remote/recovery, /mobile/offline-notifications]
+next: /mobile/chats
+lastVerified: latest
+---
+
+
+The mobile app can keep more than one environment connection. Each one has a stable identity and label even when its local network address changes.
+
+## Nearby Mac
+
+1. Open **Settings → Connect to a nearby Mac**.
+2. Select the discovered Mac, or wait while Zuse selects it when only one is nearby.
+3. Compare the safety phrase on the phone and Mac.
+4. Choose **Allow** on the Mac.
+
+The phone stores a device credential and automatically follows new local routes for that same paired Mac. See [Pair a nearby iPhone](/remote/nearby-pairing/) for QR fallback and approval details.
+
+## Hosted computer
+
+1. Open **Settings → Remote access**.
+2. Choose **Sign in for remote access**.
+3. Sign in with the account used to link the computer.
+4. Choose an online computer.
+
+Account-linked environments appear as **Online**, **Offline**, or **Checking…**. The app automatically connects online environments and includes their chats in the inbox. Local connections continue to work after you sign out.
+
+## Manual connection
+
+Choose **Settings → Add manually** when discovery cannot be used and you know the environment's host and port. Manual setup is intended for a network route you administer; it does not create hosted reachability on its own.
+
+## Connection states
+
+| State | Meaning |
+| --- | --- |
+| **Connected** | The live WebSocket is ready. |
+| **Connecting** | Zuse is establishing or restoring the transport. |
+| **Offline** | The app or network is unavailable; cached content remains visible. |
+| **Connection error** | A retryable transport or authorization failure occurred. |
+
+Use the recovery banner's **Retry** action first. Choose **Pair again** only when the credential is missing, expired, or revoked.
+
+## Remove local data or access
+
+- **Clear downloaded data** removes cached projects, chats, and messages. Connections and unsent messages remain.
+- **Reset app** removes account state, saved connections, device keys, cache, and unsent messages from the phone.
+- Revoking the phone in the Mac's **Settings → Devices** ends its access at the environment.
+- **Delete account** permanently removes the account, linked computers, device registrations, and cached chats. It cannot be undone.
+
+<Warning title="Reset removes the outbox">
+If you wrote messages while offline, let them send before resetting the app unless you want to discard them.
+</Warning>
+
+<NextStep href="/mobile/chats/" label="Work with chats on mobile" />

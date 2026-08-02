@@ -1,0 +1,48 @@
+---
+title: Keybindings
+description: Customize application, navigation, pane, composer, and editor commands.
+section: reference
+order: 92
+platforms: [desktop]
+providers: []
+prerequisites: []
+related: [/desktop/navigation, /reference/settings, /reference/schemas]
+next: /reference/schemas
+lastVerified: latest
+---
+
+
+Open **Settings → Keyboard shortcuts** to change shortcuts. Overrides are stored in:
+
+```text
+~/.zuse/keybindings.json
+```
+
+The command set covers:
+
+- application actions such as new chat, open project, settings, and close tab;
+- sidebar, files panel, and terminal toggles;
+- next, previous, and numbered tab selection;
+- chat and panel navigation;
+- composer focus, submit, newline, force submit, and Plan mode;
+- editor save and annotation.
+
+## File format
+
+```json
+{
+  "schemaVersion": 1,
+  "rules": [
+    { "key": "mod+shift+p", "command": "open-chat-switcher" },
+    { "key": "mod+enter", "command": "composer.submit", "when": "composerFocus" }
+  ]
+}
+```
+
+`mod` maps to Command on macOS. Optional `when` expressions make a shortcut context-specific. Keep the list below 256 rules and use only command identifiers accepted by the public schema.
+
+For validation and completion, configure your editor with:
+
+```text
+https://zuse.dev/schemas/keybindings.schema.json
+```

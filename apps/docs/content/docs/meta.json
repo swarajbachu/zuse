@@ -1,0 +1,16 @@
+{
+  "title": "Zuse documentation",
+  "pages": [
+    "start",
+    "concepts",
+    "desktop",
+    "providers",
+    "projects",
+    "composer",
+    "workspace",
+    "remote",
+    "mobile",
+    "serve",
+    "reference"
+  ]
+}

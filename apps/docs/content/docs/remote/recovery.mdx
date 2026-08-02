@@ -1,0 +1,64 @@
+---
+title: "Connection recovery"
+description: "Diagnose expired pairing links, offline environments, blocked authorization, and version mismatches."
+section: "Remote access"
+order: 6
+platforms: [desktop, web, mobile, serve]
+providers: []
+prerequisites: [/remote]
+related: [/remote/local-browser, /remote/nearby-pairing, /remote/hosted-access, /serve/troubleshooting]
+next: /serve/troubleshooting
+lastVerified: latest
+---
+
+
+Start with the state shown by the client. Zuse distinguishes **Connecting**, **Offline**, **Connection error**, expired authorization, and incompatible versions because each needs a different recovery step.
+
+## Quick recovery order
+
+1. Keep the environment computer awake and connected to the network.
+2. Confirm the desktop app or Zuse Serve is running.
+3. Use **Retry** in the browser or mobile recovery banner.
+4. For Serve, inspect `zuse serve status --json`.
+5. Update both sides when Zuse reports a version mismatch.
+6. Pair again only when authorization has expired or been revoked.
+
+## Browser errors
+
+| Message | What to do |
+| --- | --- |
+| **This pairing link expired** | Create a new link in **Settings → Devices**. |
+| **Pair this browser** | The browser has no valid credential. Create and open a new one-time web link. |
+| **Zuse versions do not match** | Update the environment, then reload the browser. |
+| **Could not reach Zuse Serve** | Start the environment, verify the network path, then choose **Try again**. |
+| **Browser authorization expired** | Revoke the stale browser entry if present, then pair again. |
+
+## Nearby pairing errors
+
+- **Local Network access is unavailable:** allow it for Zuse in iPhone Settings, return to Zuse, and retry discovery.
+- **The Mac did not allow this phone:** begin another attempt and choose **Allow** on the Mac after checking the phrase.
+- **The connection request expired:** make a new request. Do not reuse the old QR or phrase.
+- **Encrypted identity did not match:** stop. Do not approve the connection; retry on a trusted network and verify you selected the intended Mac.
+- **No Mac appears:** keep Zuse open, enable local access, check Wi-Fi, then use **Scan QR instead**.
+
+## Hosted access errors
+
+- **Computer is offline:** wake it and start the desktop app or Serve service.
+- **Computer is not linked to your account:** check that both sides use the same account; link it again if it was removed.
+- **Computer limit reached:** unlink an unused environment before adding another.
+- **Computer needs an update:** update Zuse Serve or the desktop app on that computer.
+
+## Mobile reconnect behavior
+
+Mobile keeps cached projects, chats, sessions, and messages available while the connection recovers. Messages composed while a session is offline enter a per-session outbox and are handed to the server in order when the transport is online again. Do not reset the app while it contains unsent work unless you intend to discard it.
+
+If a saved connection cannot be found, return to the inbox and pair the computer again. If retries continue to fail, remove the stale connection and create a new one.
+
+## Serve diagnostics
+
+```sh
+zuse serve status
+zuse serve status --json
+```
+
+The status report separates service installation, runtime reachability, tunnel configuration, detected agents, environment identity, and the data directory. Use [Serve troubleshooting](/serve/troubleshooting/) for field-by-field diagnosis.

@@ -1,0 +1,37 @@
+---
+title: Worktree file includes
+description: Link ignored local configuration into every new Zuse worktree.
+section: projects
+order: 43
+platforms: [desktop]
+providers: []
+prerequisites: [/projects/worktrees, /projects/repository-settings]
+related: [/projects/scripts, /concepts/local-first, /reference/schemas]
+next: /projects/scripts
+lastVerified: latest
+---
+
+
+Dependencies and secrets are often intentionally absent from Git. `file_include_globs` links matching files from the main checkout into each new Zuse worktree at the same relative path.
+
+```toml
+file_include_globs = [
+  ".env",
+  ".env.local",
+  "apps/web/.env.local",
+]
+```
+
+## Behavior
+
+- Patterns are resolved from the project's main checkout.
+- Matching files appear at the same relative path in a newly created worktree.
+- Existing destination files are left untouched.
+- Links continue to refer to the source file, so edits affect the shared local configuration.
+- Missing optional patterns do not need placeholder files.
+
+Use narrow patterns. Linking `.env*` can unintentionally make production or unrelated environment files available to every worktree and agent.
+
+## Legacy projects
+
+A root `.worktreeinclude` file may still be read for compatibility. New configuration belongs in `.zuse/settings.toml`, where it can be validated alongside the rest of the repository settings.

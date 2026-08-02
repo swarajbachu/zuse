@@ -1,0 +1,31 @@
+---
+title: Public schemas
+description: Stable JSON Schema URLs for user and repository configuration.
+section: reference
+order: 93
+platforms: [desktop]
+providers: []
+prerequisites: []
+related: [/reference/settings, /reference/keybindings, /projects/repository-settings]
+next: /reference/diagnostics
+lastVerified: latest
+---
+
+
+Zuse publishes schemas at stable `zuse.dev` URLs so editors and agents can validate configuration without depending on the docs deployment host.
+
+```text
+https://zuse.dev/schemas/settings.schema.json
+https://zuse.dev/schemas/repository-settings.schema.json
+https://zuse.dev/schemas/keybindings.schema.json
+```
+
+| Schema | Local file |
+| --- | --- |
+| `settings.schema.json` | `~/.zuse/settings.json` |
+| `repository-settings.schema.json` | `<repository>/.zuse/settings.toml` after TOML-to-object interpretation |
+| `keybindings.schema.json` | `~/.zuse/keybindings.json` |
+
+The schemas use JSON Schema 2020-12 and reject unknown properties. A constant `schemaVersion` makes incompatible future formats explicit.
+
+Public schema routes remain on `zuse.dev` even though guides are served from `docs.zuse.sh`.

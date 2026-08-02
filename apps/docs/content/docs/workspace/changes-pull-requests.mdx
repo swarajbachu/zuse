@@ -1,0 +1,50 @@
+---
+title: Changes and pull requests
+description: Review diffs, commit selected files, push, and complete the pull-request workflow.
+section: workspace
+order: 63
+platforms: [desktop, browser, mobile]
+providers: []
+prerequisites: [/start/first-chat]
+related: [/projects/worktrees, /workspace/files-editor, /composer/subagents]
+next: /reference
+lastVerified: latest
+---
+
+
+Use **Changes** as the acceptance boundary between an agent saying the task is done and you deciding the branch is ready.
+
+## Review the diff
+
+Changed, added, deleted, and renamed files appear in the active checkout's diff. Open each file, inspect the actual patch, and check generated or dependency files as carefully as source code.
+
+The file selection controls what the built-in commit action stages. This lets you leave unrelated edits out of a commit without hiding them from review.
+
+Discard actions are destructive. Zuse confirms before discarding uncommitted edits or removing untracked files; there is no application-level undo after Git performs the cleanup.
+
+## Commit and push
+
+Enter a commit message, select the intended files, and commit. The branch status shows commits ahead of upstream and offers **Push** when appropriate.
+
+The top workflow action follows repository state:
+
+1. **Commit & push** while the tree is dirty.
+2. **Push commits** when local commits are ahead.
+3. **Create PR** when the branch is published and has no open pull request.
+4. Pull-request health actions after a PR exists.
+
+Some actions send a clear task to the active agent, while mechanical operations such as pushing an already committed branch run directly.
+
+## Pull-request lifecycle
+
+The pull-request surface shows its description, commits, changed files, review feedback, and CI state when available from the repository host tooling. Zuse can expose actions to:
+
+- open the pull request on GitHub;
+- resolve merge conflicts with the active agent;
+- fix failing checks with captured CI context;
+- mark a draft ready;
+- enable auto-merge while checks are pending;
+- merge with the configured merge method;
+- archive the chat after merge.
+
+Repository access and host authentication are still required. If an action fails, verify `git` remotes and your `gh` authentication in the integrated terminal.

@@ -17,22 +17,29 @@
 		"./cli": {
 			"types": "./src/cli-types.ts",
 			"import": "./dist/cli.mjs"
+		},
+		"./status": {
+			"types": "./src/status-types.ts",
+			"import": "./dist/status.mjs"
 		}
 	},
 	"files": [
 		"dist",
-		"src/cli-types.ts"
+		"src/cli-types.ts",
+		"src/status-types.ts"
 	],
 	"scripts": {
-		"build": "vp pack src/bin.ts src/cli.ts",
+		"build": "vp pack src/bin.ts src/cli.ts src/status.ts",
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@zusehq/server": "0.1.1"
+		"@zusehq/server": "0.1.1",
+		"effect": "catalog:"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",
 		"@types/node": "catalog:",
+		"@zuse/contracts": "*",
 		"tsdown": "0.21.10",
 		"typescript": "catalog:",
 		"vite-plus": "0.2.5"

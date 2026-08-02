@@ -1,0 +1,53 @@
+---
+title: "Secure a Serve host"
+description: "Operate Zuse Serve with protected local binding, least privilege, controlled account access, and safe updates."
+section: "Serve CLI"
+order: 5
+platforms: [serve]
+providers: []
+prerequisites: [/serve]
+related: [/remote/security, /serve/operations, /serve/status-json, /serve/troubleshooting]
+next: /serve/troubleshooting
+lastVerified: latest
+---
+
+
+Serve is a remote control plane for a real developer environment. Anyone who can operate it through an authorized client may be able to ask agents to read files, run commands, or use credentials available to that operating-system account.
+
+## Use a dedicated user account
+
+Run Serve as an unprivileged user with access only to the repositories and tools it needs. Do not run it as root. Keep production secrets and unrelated personal data out of that account's readable paths.
+
+The durable service is user-scoped: a LaunchAgent on macOS or a systemd user service on Linux. Its definition and managed files are created with restricted permissions where supported.
+
+## Keep the server protected
+
+Serve binds the application server to loopback and starts it with protected authentication. Hosted connectivity is established through Zuse's account-linked access path. Do not expose the local port directly to the public internet or replace the supported path with an unauthenticated reverse proxy.
+
+## Protect the data directory
+
+The data directory contains the environment database, logs, managed runtime metadata, and account-link state. Back it up according to your recovery policy, restrict access to the Serve user, and do not publish diagnostic files without reviewing them for workspace information.
+
+Default locations are documented in the [command reference](/serve/command-reference/#data-directory).
+
+## Control account and device access
+
+- Use an account you control to authorize the computer.
+- Give the environment a recognizable hostname or label.
+- Review linked computers and paired clients regularly.
+- Run `zuse serve logout` before transferring or retiring the computer.
+- Revoke unknown mobile or browser clients from the environment's device controls.
+
+## Treat providers separately
+
+Serve detects supported CLIs; it does not secure or rotate their credentials. Follow each provider's authentication and organization policy. Permission modes remain important on a remote environment—do not grant broader command access merely because the client is your phone.
+
+## Update deliberately
+
+Run `zuse serve update --force` only after active agents and terminals are safe to interrupt. Serve performs a readiness check and restores a previous runtime when possible, but rollback cannot recover uncommitted work lost by an interrupted external process.
+
+<SecurityNote title="Hosted access is not a backup">
+The account link makes a computer discoverable and reachable. It does not copy repositories or environment state into durable cloud storage.
+</SecurityNote>
+
+<NextStep href="/serve/troubleshooting/" label="Troubleshoot Serve" />

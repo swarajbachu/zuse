@@ -29,6 +29,7 @@ export * from "./pty.ts";
 export * from "./relay.ts";
 export * from "./repository-settings.ts";
 export * from "./rpc.ts";
+export * from "./serve.ts";
 export * from "./session.ts";
 export * from "./settings.ts";
 export * from "./shell-display.ts";

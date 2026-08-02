@@ -1,0 +1,175 @@
+---
+import type { TOCItemType } from "fumadocs-core/toc";
+import { getCollection } from "astro:content";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { getAdjacentPages, getNavigation } from "../lib/navigation";
+import { SECTION_LABELS, SITE } from "../lib/site";
+import { SearchDialog, type SearchItem } from "./SearchDialog";
+import ThemeToggle from "./ThemeToggle.astro";
+
+interface Props {
+	title: string;
+	description: string;
+	pathname: string;
+	section: string;
+	platforms?: ReadonlyArray<string>;
+	providers?: ReadonlyArray<string>;
+	lastVerified: string;
+	toc: ReadonlyArray<TOCItemType>;
+}
+
+const {
+	title,
+	description,
+	pathname,
+	section,
+	platforms = [],
+	providers = [],
+	lastVerified,
+	toc,
+} = Astro.props;
+const navigation = getNavigation();
+const adjacent = getAdjacentPages(pathname);
+const content = await getCollection("docs");
+const searchItems: SearchItem[] = content.map((entry) => ({
+	title: entry.data.title,
+	description: entry.data.description,
+	url: `/${entry.id.replace(/\.(md|mdx)$/u, "").replace(/\/index$/u, "")}`,
+	section: SECTION_LABELS[entry.data.section] ?? entry.data.section,
+}));
+---
+
+<BaseLayout title={title} description={description} canonicalPath={pathname} image={`/og${pathname === "/" ? "/index" : pathname}.png`}>
+	<header class="topbar">
+		<a class="brand" href="/" aria-label="Zuse Docs home">
+			<span class="brand-mark" aria-hidden="true">Z</span>
+			<span class="brand-name">Zuse</span>
+			<span class="brand-divider"></span>
+			<span class="brand-docs">Docs</span>
+		</a>
+		<nav class="topbar-links" aria-label="Product navigation">
+			<a href={SITE.productUrl}>Product</a>
+			<a href={`${SITE.productUrl}/changelog`}>Changelog</a>
+		</nav>
+		<div class="topbar-actions">
+			<SearchDialog items={searchItems} client:load />
+			<ThemeToggle />
+			<a class="topbar-cta" href={SITE.downloadUrl}>Download</a>
+			<button class="mobile-nav-trigger icon-button" type="button" aria-label="Open documentation navigation" aria-controls="mobile-navigation">
+				<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h14"></path></svg>
+			</button>
+		</div>
+	</header>
+
+	<div class="docs-grid">
+		<aside class="sidebar" aria-label="Documentation navigation">
+			<div class="sidebar-scroll">
+				<p class="sidebar-kicker">Documentation</p>
+				{navigation.map((group) => (
+					<section class="nav-group">
+						<h2>{group.title}</h2>
+						<ul>
+							{group.items.map((item) => (
+								<li><a href={item.url} aria-current={item.url === pathname ? "page" : undefined}>{item.title}</a></li>
+							))}
+						</ul>
+					</section>
+				))}
+			</div>
+		</aside>
+
+		<main id="main-content" class="article-frame">
+			<nav class="breadcrumbs" aria-label="Breadcrumb">
+				<a href="/">Docs</a><span aria-hidden="true">/</span><span>{SECTION_LABELS[section] ?? section}</span>
+			</nav>
+			<header class="article-header">
+				<p class="article-eyebrow">{SECTION_LABELS[section] ?? section}</p>
+				<h1>{title}</h1>
+				<p class="article-description">{description}</p>
+				<div class="article-meta">
+					{platforms.map((platform) => <span class="meta-chip">{platform}</span>)}
+					{providers.map((provider) => <span class="meta-chip meta-chip-provider">{provider}</span>)}
+				</div>
+			</header>
+			{toc.length > 1 ? (
+				<details class="mobile-outline">
+					<summary>On this page</summary>
+					<ul>{toc.map((item) => <li data-depth={item.depth}><a href={item.url}>{item.title}</a></li>)}</ul>
+				</details>
+			) : null}
+			<article class="docs-prose"><slot /></article>
+			<footer class="article-footer">
+				<div class="verified">Verified against <strong>{lastVerified}</strong></div>
+				<nav class="pagination" aria-label="Adjacent documentation">
+					{adjacent.previous ? <a class="pagination-link pagination-previous" href={adjacent.previous.url}><span>Previous</span><strong>{adjacent.previous.title}</strong></a> : <span />}
+					{adjacent.next ? <a class="pagination-link pagination-next" href={adjacent.next.url}><span>Continue</span><strong>{adjacent.next.title}</strong></a> : null}
+				</nav>
+			</footer>
+		</main>
+
+		<aside class="context-rail" aria-label="Page context">
+			<div class="context-rail-sticky">
+				{toc.length > 1 ? (
+					<nav class="page-outline" aria-label="On this page">
+						<h2>On this page</h2>
+						<ul>{toc.map((item) => <li data-depth={item.depth}><a href={item.url}>{item.title}</a></li>)}</ul>
+					</nav>
+				) : null}
+				<div class="page-actions">
+					<button type="button" data-copy-page={`${pathname.replace(/\/$/u, "")}.md`}>Copy as Markdown</button>
+					<a href={`${pathname.replace(/\/$/u, "")}.md`}>Open raw Markdown</a>
+					<a href={`${SITE.githubUrl}/issues/new`}>Report a problem</a>
+				</div>
+			</div>
+		</aside>
+	</div>
+
+	<dialog id="mobile-navigation" class="mobile-navigation">
+		<div class="mobile-navigation-head"><strong>Documentation</strong><button class="icon-button mobile-nav-close" type="button" aria-label="Close documentation navigation">×</button></div>
+		<button class="mobile-navigation-search" type="button" data-mobile-search>
+			<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m16 16 4 4"></path></svg>
+			<span>Search documentation</span><kbd>⌘K</kbd>
+		</button>
+		<nav aria-label="Mobile documentation navigation">
+			{navigation.map((group) => (
+				<section class="nav-group"><h2>{group.title}</h2><ul>{group.items.map((item) => <li><a href={item.url} aria-current={item.url === pathname ? "page" : undefined}>{item.title}</a></li>)}</ul></section>
+			))}
+		</nav>
+	</dialog>
+
+	<script>
+		const dialog = document.querySelector<HTMLDialogElement>("#mobile-navigation");
+		document.querySelector(".mobile-nav-trigger")?.addEventListener("click", () => dialog?.showModal());
+		document.querySelector(".mobile-nav-close")?.addEventListener("click", () => dialog?.close());
+		dialog?.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+		document.querySelector("[data-mobile-search]")?.addEventListener("click", () => {
+			dialog?.close();
+			document.querySelector<HTMLButtonElement>(".topbar .search-trigger")?.click();
+		});
+
+		const copyText = async (value: string, button: HTMLButtonElement) => {
+			await navigator.clipboard.writeText(value);
+			const original = button.textContent;
+			button.textContent = "Copied";
+			window.setTimeout(() => { button.textContent = original; }, 1500);
+		};
+		document.querySelectorAll<HTMLElement>("pre").forEach((block) => {
+			if (block.querySelector("[data-code-copy]")) return;
+			const button = document.createElement("button");
+			button.type = "button";
+			button.className = "code-copy";
+			button.dataset.codeCopy = "true";
+			button.textContent = "Copy";
+			button.setAttribute("aria-label", "Copy code");
+			button.addEventListener("click", () => copyText(block.textContent ?? "", button));
+			block.append(button);
+		});
+		document.querySelectorAll<HTMLButtonElement>("[data-copy-page]").forEach((button) => {
+			button.addEventListener("click", async () => {
+				const response = await fetch(button.dataset.copyPage ?? "");
+				if (!response.ok) return;
+				await copyText(await response.text(), button);
+			});
+		});
+	</script>
+</BaseLayout>

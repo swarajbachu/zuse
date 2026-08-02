@@ -1,0 +1,45 @@
+---
+import { render, type CollectionEntry } from "astro:content";
+import type { TOCItemType } from "fumadocs-core/toc";
+import DocsShell from "../components/DocsShell.astro";
+import { mdxComponents } from "../components/mdx-components";
+import { getBacklinks } from "../lib/navigation";
+import { source } from "../lib/source";
+
+interface Props { page: CollectionEntry<"docs"> }
+
+export function getStaticPaths() {
+	return source.getPages().map((page) => ({
+		params: { slug: page.slugs.length > 0 ? page.slugs.join("/") : undefined },
+		props: { page: page.data._raw },
+	}));
+}
+
+const { page } = Astro.props;
+const { Content, headings } = await render(page);
+const slugs = typeof Astro.params.slug === "string" ? Astro.params.slug.split("/") : [];
+const docsPage = source.getPage(slugs);
+const toc: TOCItemType[] = headings.map((heading) => ({
+	depth: heading.depth,
+	title: heading.text,
+	url: `#${heading.slug}`,
+}));
+const pathname = docsPage?.url ?? `/${page.id.replace(/\.(md|mdx)$/u, "").replace(/\/index$/u, "")}`;
+const relatedLinks = Array.from(new Set([...page.data.related, ...getBacklinks(pathname).map((item) => item.url)]));
+---
+
+<DocsShell
+	title={page.data.title}
+	description={page.data.description}
+	pathname={pathname}
+	section={page.data.section}
+	platforms={page.data.platforms}
+	providers={page.data.providers}
+	lastVerified={page.data.lastVerified}
+	toc={toc}
+>
+	<Content components={mdxComponents} />
+	{page.data.prerequisites.length > 0 && <mdxComponents.Prerequisites links={page.data.prerequisites} />}
+	{relatedLinks.length > 0 && <mdxComponents.RelatedPages links={relatedLinks} />}
+	{page.data.next && <mdxComponents.NextStep href={page.data.next} label="Continue reading" />}
+</DocsShell>
