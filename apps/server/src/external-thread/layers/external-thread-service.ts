@@ -279,9 +279,14 @@ const rolloutFilesByThreadId = async (
   roots: ReadonlyArray<string>,
   targetIds: ReadonlySet<string>,
 ): Promise<ReadonlyMap<string, string>> => {
+  if (targetIds.size === 0) return new Map();
+  const now = Date.now();
+  for (const [key, entry] of rolloutFilesCache) {
+    if (entry.expiresAt <= now) rolloutFilesCache.delete(key);
+  }
   const cacheKey = `${roots.join("\0")}\0${[...targetIds].sort().join("\0")}`;
   const cached = rolloutFilesCache.get(cacheKey);
-  if (cached !== undefined && cached.expiresAt > Date.now()) {
+  if (cached !== undefined) {
     return cached.files;
   }
   const files = new Map<string, string>();
@@ -317,9 +322,14 @@ const rolloutFilesByThreadId = async (
     }
   }
   rolloutFilesCache.set(cacheKey, {
-    expiresAt: Date.now() + 30_000,
+    expiresAt: now + 30_000,
     files,
   });
+  while (rolloutFilesCache.size > 32) {
+    const oldestKey = rolloutFilesCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    rolloutFilesCache.delete(oldestKey);
+  }
   return files;
 };
 

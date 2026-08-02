@@ -157,6 +157,25 @@ describe("external thread discovery", () => {
 		}
 	});
 
+	it("returns immediately when the discovery limit is zero", async () => {
+		const root = mkdtempSync(path.join(tmpdir(), "zuse-codex-threads-"));
+		try {
+			const indexFile = path.join(root, "session_index.jsonl");
+			writeFileSync(
+				indexFile,
+				JSON.stringify({
+					id: "thread-a",
+					thread_name: "Thread A",
+					updated_at: "2026-08-03",
+				}),
+			);
+
+			expect(await discoverCodexFromIndex(indexFile, [root], 0)).toEqual([]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	it("imports user and assistant messages from a Codex rollout fallback", async () => {
 		const root = mkdtempSync(path.join(tmpdir(), "zuse-codex-rollout-"));
 		try {
