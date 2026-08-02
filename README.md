@@ -186,6 +186,29 @@ instructions are in [Install on Linux](#install-on-linux).
 
 ---
 
+## Zuse Serve
+
+Run coding agents on this computer and connect to it from
+[code.zuse.sh](https://code.zuse.sh):
+
+```bash
+npx zusehq serve
+```
+
+The command opens a device-authorization flow, installs a durable background
+service, and waits for the remote tunnel to register before reporting the
+computer as online. Check it at any time with:
+
+```bash
+npx zusehq serve status --json
+```
+
+Use the public `zusehq` package for setup and management. The
+`@zusehq/server` workspace is an internal runtime package and its development
+entrypoint only starts a loopback server.
+
+---
+
 ## License and acknowledgements
 
 Except where third-party terms apply, Zuse's source code is licensed under the
