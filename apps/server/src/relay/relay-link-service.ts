@@ -22,24 +22,25 @@ import { ManagedTunnelRuntime } from "./managed-tunnel-runtime.ts";
 import { appendRelayDiagnostic } from "./relay-diagnostics.ts";
 
 const HEARTBEAT_INTERVAL = "30 seconds";
-const RUNTIME_METADATA = {
-  runtimeVersion: process.env.ZUSE_RUNTIME_VERSION?.trim() || "0.0.0",
-  wireProtocolVersion: WIRE_PROTOCOL_VERSION,
-  capabilities: {
-    version: 1,
-    features: [
-      "agents",
-      "chats",
-      "files",
-      "diffs",
-      "terminals",
-      "approvals",
-      "questions",
-      "notifications",
-    ],
-  },
-  serviceState: "healthy",
-} as const;
+export const relayRuntimeMetadata = () =>
+  ({
+    runtimeVersion: process.env.ZUSE_RUNTIME_VERSION?.trim() || "0.0.0",
+    wireProtocolVersion: WIRE_PROTOCOL_VERSION,
+    capabilities: {
+      version: 1,
+      features: [
+        "agents",
+        "chats",
+        "files",
+        "diffs",
+        "terminals",
+        "approvals",
+        "questions",
+        "notifications",
+      ],
+    },
+    serviceState: "healthy",
+  }) as const;
 
 export class RelayLinkError extends Data.TaggedError("RelayLinkError")<{
   readonly reason: string;
@@ -195,7 +196,7 @@ export const RelayLinkServiceLive: Layer.Layer<
     }) =>
       postJson(
         `${input.relayUrl}${RelayPaths.heartbeat(input.environmentId)}`,
-        { bearer: input.credential, body: RUNTIME_METADATA },
+        { bearer: input.credential, body: relayRuntimeMetadata() },
       ).pipe(
         Effect.ignore,
         Effect.andThen(Effect.sleep(HEARTBEAT_INTERVAL)),
@@ -229,7 +230,7 @@ export const RelayLinkServiceLive: Layer.Layer<
         `${input.relayUrl}${RelayPaths.heartbeat(input.environmentId)}`,
         {
           bearer: input.credential,
-          body: { origin: computeOrigin(config), ...RUNTIME_METADATA },
+          body: { origin: computeOrigin(config), ...relayRuntimeMetadata() },
         },
       );
 
@@ -371,7 +372,7 @@ export const RelayLinkServiceLive: Layer.Layer<
               providerKind: "desktop",
               endpoint: computeEndpoint(config),
               label,
-              ...RUNTIME_METADATA,
+              ...relayRuntimeMetadata(),
               // Ask the relay to provision a managed Cloudflare tunnel so the
               // phone can reach this Mac from anywhere. If the relay has tunnels
               // disabled it simply returns no connector token and we stay on LAN.
