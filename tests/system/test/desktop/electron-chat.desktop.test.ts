@@ -103,25 +103,62 @@ describe("built Electron application", () => {
 				{ length: 9 },
 				(_, index) => `Electron overflow turn ${index + 3}`,
 			);
-			for (const [index, prompt] of overflowPrompts.entries()) {
+			for (const prompt of overflowPrompts) {
 				await composer.fill(prompt);
 				await electron.page.getByRole("button", { name: "Send" }).click();
-				await expect
-					.poll(
-						() =>
-							electron.page
-								.getByText("Hello from deterministic provider.", {
-									exact: true,
-								})
-								.count(),
-						{ timeout: 20_000 },
-					)
-					.toBe(index + 3);
+				const promptBubble = electron.page
+					.locator("[data-chat-user-bubble]")
+					.filter({ hasText: prompt })
+					.last();
+				await promptBubble.waitFor({ state: "visible", timeout: 20_000 });
+				await promptBubble
+					.locator("xpath=following::*[@data-chat-assistant-bubble][1]")
+					.getByText("Hello from deterministic provider.", { exact: true })
+					.waitFor({ state: "visible", timeout: 20_000 });
 			}
 
 			const turnNavigator = electron.page.getByRole("button", {
 				name: "Navigate conversation",
 			});
+			const paneEdges = await electron.page.evaluate(() => {
+				const viewport = document.querySelector<HTMLElement>(
+					"[data-chat-viewport]",
+				);
+				const transcript =
+					viewport?.querySelector<HTMLElement>('[data-pane="chat"]');
+				const navigator = viewport?.querySelector<HTMLElement>(
+					"[data-chat-turn-navigator]",
+				);
+				const composerFade = document.querySelector<HTMLElement>(
+					"[data-chat-composer-fade]",
+				);
+				if (!viewport || !transcript || !navigator || !composerFade) {
+					return null;
+				}
+				return {
+					viewportLeft: viewport.getBoundingClientRect().left,
+					viewportRight: viewport.getBoundingClientRect().right,
+					transcriptRight: transcript.getBoundingClientRect().right,
+					navigatorRight: navigator.getBoundingClientRect().right,
+					composerFadeLeft: composerFade.getBoundingClientRect().left,
+					composerFadeRight: composerFade.getBoundingClientRect().right,
+				};
+			});
+			expect(paneEdges).not.toBeNull();
+			if (paneEdges === null)
+				throw new Error("Chat pane edges were unavailable");
+			expect(
+				Math.abs(paneEdges.transcriptRight - paneEdges.viewportRight),
+			).toBeLessThanOrEqual(1);
+			expect(
+				Math.abs(paneEdges.navigatorRight - paneEdges.viewportRight),
+			).toBeLessThanOrEqual(1);
+			expect(
+				Math.abs(paneEdges.composerFadeLeft - paneEdges.viewportLeft),
+			).toBeLessThanOrEqual(1);
+			expect(
+				Math.abs(paneEdges.composerFadeRight - paneEdges.viewportRight),
+			).toBeLessThanOrEqual(1);
 			await turnNavigator.hover();
 			const turnList = electron.page.getByRole("listbox", {
 				name: "Conversation turns",

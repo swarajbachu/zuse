@@ -211,6 +211,7 @@ export function ChatTurnNavigator({
 	return (
 		<div
 			ref={wrapperRef}
+			data-chat-turn-navigator
 			aria-hidden={hasSpace ? undefined : true}
 			className={cn(
 				"pointer-events-none absolute right-0 top-0 z-20",

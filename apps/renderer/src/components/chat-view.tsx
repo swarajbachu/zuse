@@ -3,6 +3,7 @@ import { Message01Icon } from "@hugeicons-pro/core-solid-rounded";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import type { Message, SessionId } from "@zuse/contracts";
 import {
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -66,7 +67,9 @@ import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
 const TIMELINE_HEADER = (
 	<>
-		<WorktreeSetupCard />
+		<div className="px-[var(--chat-row-gutter,0.75rem)]">
+			<WorktreeSetupCard />
+		</div>
 		<div className="h-2" />
 	</>
 );
@@ -596,16 +599,21 @@ export function ChatView({
 			folderId={session?.projectId ?? null}
 			worktreeId={session?.worktreeId ?? null}
 		>
-			<div className="relative flex min-h-0 flex-1">
+			<div
+				data-chat-viewport
+				className="relative flex min-h-0 min-w-0 flex-1 [container-type:inline-size]"
+			>
 				<div className="relative flex h-full min-h-0 flex-1 flex-col">
 					{messages.length === 0 ? (
 						<div
 							data-pane="chat"
 							tabIndex={-1}
 							ref={scrollElementRef}
-							className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto outline-none"
+							className="flex h-full min-h-0 w-full flex-1 flex-col overflow-y-auto outline-none"
 						>
-							<WorktreeSetupCard />
+							<div className="px-[var(--chat-row-gutter,0.75rem)]">
+								<WorktreeSetupCard />
+							</div>
 							{setupActive ? null : (
 								<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
 									<HugeiconsIcon
@@ -626,7 +634,7 @@ export function ChatView({
 							data-pane="chat"
 							tabIndex={-1}
 							ref={scrollElementRef}
-							className="h-full min-h-0 flex-1 outline-none"
+							className="h-full min-h-0 w-full flex-1 outline-none"
 						/>
 					) : (
 						<ChatLookupsProvider value={chatLookups}>
@@ -667,7 +675,7 @@ export function ChatView({
 								maintainVisibleContentPosition={{ data: true, size: true }}
 								contentInsetEndAdjustment={endInset}
 								onScroll={handleScroll}
-								className="h-full min-h-0 flex-1 overflow-x-hidden outline-none [overflow-anchor:none]"
+								className="h-full min-h-0 w-full flex-1 overflow-x-hidden outline-none [overflow-anchor:none]"
 								data-pane="chat"
 								tabIndex={-1}
 								ListHeaderComponent={TIMELINE_HEADER}
@@ -692,10 +700,10 @@ export function ChatView({
 					/>
 					{error === null ? null : (
 						<div
-							className="pointer-events-none absolute inset-x-0 z-20"
+							className="pointer-events-none absolute inset-x-0 z-20 px-[var(--chat-row-gutter,0.75rem)]"
 							style={{ bottom: resolveChatErrorBottom(endInset) }}
 						>
-							<div className="pointer-events-auto">
+							<div className="pointer-events-auto mx-auto w-full max-w-[var(--chat-reading-column,56rem)]">
 								<ErrorBubble
 									error={error}
 									sessionId={sessionId}
@@ -705,21 +713,23 @@ export function ChatView({
 						</div>
 					)}
 					<div
-						className="pointer-events-none absolute inset-x-0 z-30 flex items-center justify-between gap-2"
+						className="pointer-events-none absolute inset-x-0 z-30 px-[var(--chat-row-gutter,0.75rem)]"
 						style={{ bottom: Math.max(0, endInset - 8) }}
 					>
-						<JumpToLatestPill
-							visible={showPill}
-							streaming={inFlight && hasOutOfViewUpdates}
-							onClick={() => {
-								setHasOutOfViewUpdates(false);
-								coordinator.jumpToLatest({
-									animated: !prefersReducedMotion,
-								});
-							}}
-						/>
-						<div className="ml-auto">
-							<NextUnreadButton />
+						<div className="mx-auto flex w-full max-w-[var(--chat-reading-column,56rem)] items-center justify-between gap-2">
+							<JumpToLatestPill
+								visible={showPill}
+								streaming={inFlight && hasOutOfViewUpdates}
+								onClick={() => {
+									setHasOutOfViewUpdates(false);
+									coordinator.jumpToLatest({
+										animated: !prefersReducedMotion,
+									});
+								}}
+							/>
+							<div className="ml-auto">
+								<NextUnreadButton />
+							</div>
 						</div>
 					</div>
 					<p className="sr-only" aria-live="polite" aria-atomic="true">
@@ -740,17 +750,19 @@ function TimelineRow({
 	readonly row: ChatTimelineRow;
 	readonly sessionId: SessionId;
 }) {
+	let content: ReactNode;
 	switch (row.kind) {
 		case "message":
-			return (
+			content = (
 				<MessageRow
 					message={row.message}
 					sessionId={sessionId}
 					showAssistantCommands={row.showAssistantCommands}
 				/>
 			);
+			break;
 		case "subagent":
-			return (
+			content = (
 				<div>
 					<SubagentRow
 						agentToolUseId={row.parentItemId}
@@ -764,8 +776,9 @@ function TimelineRow({
 					/>
 				</div>
 			);
+			break;
 		case "turn-summary":
-			return (
+			content = (
 				<div>
 					<TurnSummary
 						body={row.body}
@@ -774,7 +787,17 @@ function TimelineRow({
 					/>
 				</div>
 			);
+			break;
 		case "working":
-			return <ChatWorkingRow messages={row.messages} sessionId={sessionId} />;
+			content = (
+				<ChatWorkingRow messages={row.messages} sessionId={sessionId} />
+			);
 	}
+	return (
+		<div className="px-[var(--chat-row-gutter,0.75rem)]">
+			<div className="mx-auto w-full max-w-[var(--chat-reading-column,56rem)]">
+				{content}
+			</div>
+		</div>
+	);
 }
