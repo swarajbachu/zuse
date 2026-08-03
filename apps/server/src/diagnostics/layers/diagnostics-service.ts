@@ -1,21 +1,33 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
-	copyFileSync,
+	closeSync,
+	createReadStream,
 	existsSync,
 	mkdirSync,
+	openSync,
 	readdirSync,
 	readFileSync,
+	readSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { appendFile, mkdir, rename, stat, unlink } from "node:fs/promises";
+import {
+	appendFile,
+	mkdir,
+	open,
+	rename,
+	stat,
+	unlink,
+} from "node:fs/promises";
 import { arch, platform, release } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import {
 	type AgentAvailability,
 	type DiagnosticEvent,
+	type DiagnosticsCapturePayload,
+	DiagnosticsCaptureResult,
 	DiagnosticsEventsResult,
 	DiagnosticsExportError,
 	DiagnosticsExportResult,
@@ -38,7 +50,7 @@ import {
 	sanitizeDiagnosticValue,
 } from "../diagnostics-model.ts";
 import { DiagnosticsService } from "../services/diagnostics-service.ts";
-import { createStoredZip } from "../zip-bundle.ts";
+import { writeStoredZip } from "../zip-bundle.ts";
 
 const MAX_RECENT_ERRORS = 20;
 const MAX_SESSION_EVENTS = 8;
@@ -47,6 +59,41 @@ const MAX_TEXT_PREVIEW = 240;
 const execFileAsync = promisify(execFile);
 const RUNTIME_RESOURCE_FILE_BYTES = 10 * 1024 * 1024;
 const RUNTIME_RESOURCE_FILE_COUNT = 3;
+const SUPPORT_READ_CHUNK_BYTES = 256 * 1024;
+
+function readNewestLinesSync(
+	path: string,
+	maxLines: number,
+	maxBytes: number,
+): { readonly lines: ReadonlyArray<string>; readonly truncated: boolean } {
+	const descriptor = openSync(path, "r");
+	try {
+		const fileSize = statSync(path).size;
+		let position = fileSize;
+		let bytesRead = 0;
+		let text = "";
+		while (position > 0 && bytesRead < maxBytes) {
+			const size = Math.min(
+				SUPPORT_READ_CHUNK_BYTES,
+				position,
+				maxBytes - bytesRead,
+			);
+			position -= size;
+			const buffer = Buffer.allocUnsafe(size);
+			const count = readSync(descriptor, buffer, 0, size, position);
+			text = buffer.subarray(0, count).toString("utf8") + text;
+			bytesRead += count;
+			if (text.split(/\r?\n/).length > maxLines + 1) break;
+		}
+		const allLines = text.split(/\r?\n/).filter(Boolean);
+		return {
+			lines: allLines.slice(-maxLines),
+			truncated: position > 0 || allLines.length > maxLines,
+		};
+	} finally {
+		closeSync(descriptor);
+	}
+}
 
 const diagnosticsError = (cause: unknown) =>
 	new DiagnosticsExportError({
@@ -165,9 +212,14 @@ async function readProcessTree(): Promise<DiagnosticsProcessesResult> {
 
 const appendRuntimeResourceSnapshot = async (
 	userData: string,
+	fileIdentity: string,
 	snapshot: DiagnosticsProcessesResult,
 ): Promise<void> => {
-	const path = join(userData, "logs", "diagnostics.runtime-resources.ndjson");
+	const path = join(
+		userData,
+		"logs",
+		`diagnostics.runtime-resources.${fileIdentity}.ndjson`,
+	);
 	await mkdir(join(userData, "logs"), { recursive: true });
 	const line = `${JSON.stringify({
 		kind: "runtime-processes",
@@ -251,53 +303,67 @@ const readPerformanceHistory = (
 	readonly parseErrors: number;
 	readonly truncated: boolean;
 } => {
-	const bases = [
-		join(userData, "logs", "diagnostics.host-resources.ndjson"),
-		join(userData, "logs", "diagnostics.runtime-resources.ndjson"),
-	];
-	const lines = bases
-		.flatMap((base) => [`${base}.2`, `${base}.1`, base])
-		.flatMap((path) => {
-			try {
-				return readFileSync(path, "utf8").split(/\r?\n/).filter(Boolean);
-			} catch {
-				return [];
-			}
-		});
-	let parseErrors = 0;
-	const parsed = lines.flatMap((line) => {
+	const bases = [join(userData, "logs", "diagnostics.host-resources.ndjson")];
+	const runtimePaths = (() => {
 		try {
-			const entry = JSON.parse(line) as {
-				readonly kind?: unknown;
-				readonly sample?: { readonly capturedAt?: unknown };
-			};
-			const capturedAt =
-				typeof entry.sample?.capturedAt === "string"
-					? entry.sample.capturedAt
-					: typeof (entry as { readonly capturedAt?: unknown }).capturedAt ===
-							"string"
-						? (entry as { readonly capturedAt: string }).capturedAt
-						: null;
-			if (
-				(entry.kind !== "sample" &&
-					entry.kind !== "lag" &&
-					entry.kind !== "runtime-processes") ||
-				capturedAt === null ||
-				(since !== undefined && capturedAt < since)
-			) {
-				return [];
-			}
-			return [sanitizeDiagnosticValue(entry)];
+			return readdirSync(join(userData, "logs"))
+				.filter((name) => name.startsWith("diagnostics.runtime-resources"))
+				.map((name) => join(userData, "logs", name));
 		} catch {
-			parseErrors += 1;
 			return [];
 		}
-	});
-	const entries = parsed.slice(-5_000);
+	})();
+	const candidates = [
+		...bases.flatMap((base) => [`${base}.2`, `${base}.1`, base]),
+		...runtimePaths,
+	];
+	let parseErrors = 0;
+	let truncated = false;
+	const entries: unknown[] = [];
+	for (const path of candidates) {
+		try {
+			const newest = readNewestLinesSync(
+				path,
+				5_000,
+				RUNTIME_RESOURCE_FILE_BYTES,
+			);
+			truncated ||= newest.truncated;
+			for (const line of newest.lines) {
+				try {
+					const entry = JSON.parse(line) as {
+						readonly kind?: unknown;
+						readonly sample?: { readonly capturedAt?: unknown };
+					};
+					const capturedAt =
+						typeof entry.sample?.capturedAt === "string"
+							? entry.sample.capturedAt
+							: typeof (entry as { readonly capturedAt?: unknown })
+										.capturedAt === "string"
+								? (entry as { readonly capturedAt: string }).capturedAt
+								: null;
+					if (
+						(entry.kind !== "sample" &&
+							entry.kind !== "lag" &&
+							entry.kind !== "runtime-processes") ||
+						capturedAt === null ||
+						(since !== undefined && capturedAt < since)
+					) {
+						continue;
+					}
+					entries.push(sanitizeDiagnosticValue(entry));
+					if (entries.length > 5_000) entries.splice(0, entries.length - 5_000);
+				} catch {
+					parseErrors += 1;
+				}
+			}
+		} catch {
+			// Missing resource history is normal.
+		}
+	}
 	return {
 		entries,
 		parseErrors,
-		truncated: parsed.length > entries.length,
+		truncated,
 	};
 };
 
@@ -406,9 +472,12 @@ function redactSessionEventFile(input: {
 	readonly projectId: string;
 	readonly path: string;
 }): SessionEventFile {
-	const text = readFileSync(input.path, "utf8");
-	const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
-	const events = lines.slice(-MAX_REDACTED_EVENTS_PER_FILE).flatMap((line) => {
+	const newest = readNewestLinesSync(
+		input.path,
+		MAX_REDACTED_EVENTS_PER_FILE,
+		5 * 1024 * 1024,
+	);
+	const events = newest.lines.flatMap((line) => {
 		try {
 			return [summarizeUnknown(JSON.parse(line) as unknown)];
 		} catch {
@@ -421,8 +490,8 @@ function redactSessionEventFile(input: {
 		projectId: input.projectId,
 		sessionId,
 		sourcePath: basename(input.path),
-		eventCount: lines.length,
-		truncated: lines.length > MAX_REDACTED_EVENTS_PER_FILE,
+		eventCount: newest.lines.length,
+		truncated: newest.truncated,
 		events,
 	};
 }
@@ -449,12 +518,45 @@ function prettyJson(value: unknown): string {
 	return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-function jsonByteLength(value: unknown): number {
-	return Buffer.byteLength(JSON.stringify(value));
-}
-
 function writeJson(path: string, value: unknown): void {
 	writeFileSync(path, prettyJson(value), "utf8");
+}
+
+async function writeDiagnosticEventsJson(
+	path: string,
+	input: {
+		readonly events: ReadonlyArray<DiagnosticEvent>;
+		readonly limit: number;
+		readonly truncated: boolean;
+		readonly truncatedEventCount: number;
+	},
+): Promise<void> {
+	const output = await open(path, "w");
+	try {
+		await output.write(
+			`{\n  "limit": ${input.limit},\n  "truncated": ${input.truncated},\n  "truncatedEventCount": ${input.truncatedEventCount},\n  "events": [`,
+		);
+		for (let index = 0; index < input.events.length; index += 100) {
+			const chunk = input.events
+				.slice(index, index + 100)
+				.map((event) => JSON.stringify(event))
+				.join(",\n    ");
+			await output.write(`${index === 0 ? "\n    " : ",\n    "}${chunk}`);
+		}
+		await output.write(`${input.events.length === 0 ? "" : "\n  "}]\n}\n`);
+	} finally {
+		await output.close();
+	}
+}
+
+async function sha256File(path: string): Promise<string> {
+	const hash = createHash("sha256");
+	for await (const chunk of createReadStream(path, {
+		highWaterMark: 64 * 1024,
+	})) {
+		hash.update(chunk as Buffer);
+	}
+	return hash.digest("hex");
 }
 
 function buildSummary(input: {
@@ -491,7 +593,11 @@ export const DiagnosticsServiceLive = Layer.effect(
 		const runtimeResourceTimer = setInterval(() => {
 			void readProcessTree()
 				.then((snapshot) =>
-					appendRuntimeResourceSnapshot(paths.userData, snapshot),
+					appendRuntimeResourceSnapshot(
+						paths.userData,
+						telemetry.fileIdentity,
+						snapshot,
+					),
 				)
 				.catch(() => undefined);
 		}, 60_000);
@@ -516,7 +622,8 @@ export const DiagnosticsServiceLive = Layer.effect(
 
 		const overview = (payload: { readonly since?: string }) =>
 			Effect.gen(function* () {
-				const version = telemetry.version();
+				const captureState = telemetry.captureState();
+				const version = telemetry.overviewVersion();
 				if (
 					overviewCache?.version === version &&
 					overviewCache.since === payload.since
@@ -525,7 +632,10 @@ export const DiagnosticsServiceLive = Layer.effect(
 				}
 				const all = telemetry.snapshot();
 				const events = filterDiagnosticEvents(all, { since: payload.since });
-				const aggregate = aggregateDiagnostics(events);
+				const aggregate = {
+					...aggregateDiagnostics(events),
+					topOperations: telemetry.operationSummaries(payload.since),
+				};
 				const storageBytes = yield* telemetry.storageBytes;
 				const status =
 					aggregate.fatalCount > 0 || aggregate.errorCount > 3
@@ -542,6 +652,9 @@ export const DiagnosticsServiceLive = Layer.effect(
 					unseenCount: aggregate.errorCount + aggregate.fatalCount,
 					storageBytes,
 					capturePaused: false,
+					...captureState,
+					droppedEventCount: telemetry.droppedEventCount(),
+					truncatedEventCount: telemetry.truncatedEventCount(),
 					previousRunUnclean: events.some(
 						(event) => event.source === "main.previousRunUnclean",
 					),
@@ -549,6 +662,14 @@ export const DiagnosticsServiceLive = Layer.effect(
 				overviewCache = { since: payload.since, version, value };
 				return value;
 			}).pipe(Effect.mapError(diagnosticsError));
+
+		const capture = (payload: DiagnosticsCapturePayload) =>
+			telemetry.setCapture(payload).pipe(
+				Effect.map(() =>
+					DiagnosticsCaptureResult.make(telemetry.captureState()),
+				),
+				Effect.mapError(diagnosticsError),
+			);
 
 		const events = (payload: {
 			readonly cursor?: string;
@@ -672,10 +793,16 @@ export const DiagnosticsServiceLive = Layer.effect(
 					});
 				}
 
-				const diagnosticEvents = filterDiagnosticEvents(telemetry.snapshot(), {
+				const exportedEvents = yield* telemetry.exportEvents({
 					since: payload.since,
 				});
-				const diagnosticAggregate = aggregateDiagnostics(diagnosticEvents);
+				const exportedOperationSummaries =
+					yield* telemetry.exportOperationSummaries(payload.since);
+				const diagnosticEvents = exportedEvents.events;
+				const diagnosticAggregate = {
+					...aggregateDiagnostics(diagnosticEvents),
+					topOperations: exportedOperationSummaries,
+				};
 				const traceSummary = {
 					latestFailures,
 					slowestSpans: diagnosticAggregate.slowestOperations,
@@ -685,6 +812,7 @@ export const DiagnosticsServiceLive = Layer.effect(
 							: [...commonFailureMap.values()].sort(
 									(left, right) => right.count - left.count,
 								),
+					operationSummaries: diagnosticAggregate.topOperations,
 				};
 				const recentErrors = {
 					errors: latestFailures,
@@ -737,13 +865,18 @@ export const DiagnosticsServiceLive = Layer.effect(
 				const performanceRecording = readLatestPerformanceRecording(
 					paths.userData,
 				);
+				const diagnosticEventsArtifact = {
+					events: diagnosticEvents,
+					limit: 25_000,
+					truncated: exportedEvents.truncated > 0,
+					truncatedEventCount: exportedEvents.truncated,
+				};
 				const artifacts: Record<string, unknown> = {
 					"trace-summary": traceSummary,
 					"recent-errors": recentErrors,
 					environment,
 					"provider-status": providerStatus,
 					"redacted-session-events": sessionEvents,
-					"diagnostic-events": { events: diagnosticEvents },
 					"performance-history": performanceHistory,
 					"process-snapshot": processSnapshot,
 					"redaction-report": redactionReport,
@@ -757,12 +890,6 @@ export const DiagnosticsServiceLive = Layer.effect(
 					);
 				}
 
-				const artifactSizes = Object.fromEntries(
-					Object.entries(artifacts).map(([name, artifact]) => [
-						name,
-						jsonByteLength(artifact),
-					]),
-				);
 				const diagnosticWarnings = [
 					latestFailures.length === 0
 						? "No persisted message errors were captured."
@@ -770,18 +897,10 @@ export const DiagnosticsServiceLive = Layer.effect(
 					payload.clientContext === undefined
 						? "No renderer client context was provided."
 						: null,
+					exportedEvents.truncated > 0
+						? `${exportedEvents.truncated} older diagnostic events were omitted.`
+						: null,
 				].filter((warning): warning is string => warning !== null);
-				const bundleSummary = {
-					diagnosticId,
-					generatedFor: "github-bug-report",
-					attachFileToIssue: true,
-					pasteJsonOnlyIfAttachmentFails: true,
-					artifactSizes,
-					diagnosticWarnings,
-				};
-				artifacts["bundle-summary"] = bundleSummary;
-				artifactSizes["bundle-summary"] = jsonByteLength(bundleSummary);
-
 				const included: ExtendedBundleArtifactName[] = [
 					"manifest",
 					"bundle-summary",
@@ -817,72 +936,84 @@ export const DiagnosticsServiceLive = Layer.effect(
 					latestFailures,
 					providerCount: providers.length,
 				});
-				const report = Buffer.from(
-					`# Diagnostic report\n\n\`\`\`\n${summary}\n\`\`\`\n`,
-				);
-				const artifactEntries = Object.entries(artifacts).map(
-					([name, artifact]) => ({
-						name: `${name}.json`,
-						data: Buffer.from(prettyJson(artifact)),
-					}),
-				);
-				const checksums = Object.fromEntries(
-					[{ name: "REPORT.md", data: report }, ...artifactEntries].map(
-						(entry) => [
-							entry.name,
-							createHash("sha256").update(entry.data).digest("hex"),
-						],
-					),
-				);
-				const manifest = {
-					app: "zuse",
-					version: packageJson.version,
-					createdAt: createdAt.toISOString(),
-					platform: `${platform()}-${arch()}`,
-					diagnosticId,
-					included,
-					redaction: {
-						default:
-							"content fields are excluded or summarized without previews",
-						rawPromptsIncluded: false,
-						rawTranscriptsIncluded: false,
-					},
-					checksums,
-				};
-
-				yield* Effect.try(() => {
-					writeJson(join(bundleDir, "manifest.json"), manifest);
-					writeJson(join(bundleDir, "bundle-summary.json"), bundleSummary);
-					writeJson(join(bundleDir, "trace-summary.json"), traceSummary);
-					writeJson(join(bundleDir, "recent-errors.json"), recentErrors);
-					writeJson(join(bundleDir, "environment.json"), environment);
-					writeJson(join(bundleDir, "provider-status.json"), providerStatus);
-					if (payload.clientContext !== undefined) {
-						writeJson(
-							join(bundleDir, "client-context.json"),
-							artifacts["client-context"],
-						);
+				yield* Effect.tryPromise(async () => {
+					const artifactFiles: Array<{ name: string; path: string }> = [];
+					for (const [name, artifact] of Object.entries(artifacts)) {
+						const artifactPath = join(bundleDir, `${name}.json`);
+						writeJson(artifactPath, artifact);
+						artifactFiles.push({ name: `${name}.json`, path: artifactPath });
 					}
-					writeJson(
-						join(bundleDir, "session-events-redacted.json"),
-						sessionEvents,
+					const diagnosticEventsPath = join(
+						bundleDir,
+						"diagnostic-events.json",
 					);
-				});
+					await writeDiagnosticEventsJson(
+						diagnosticEventsPath,
+						diagnosticEventsArtifact,
+					);
+					artifactFiles.push({
+						name: "diagnostic-events.json",
+						path: diagnosticEventsPath,
+					});
+					const reportPath = join(bundleDir, "REPORT.md");
+					writeFileSync(
+						reportPath,
+						`# Diagnostic report\n\n\`\`\`\n${summary}\n\`\`\`\n`,
+						"utf8",
+					);
+					artifactFiles.push({ name: "REPORT.md", path: reportPath });
 
-				yield* Effect.try(() => {
-					const entries = [
-						{
-							name: "manifest.json",
-							data: Buffer.from(prettyJson(manifest)),
+					const artifactSizes = Object.fromEntries(
+						await Promise.all(
+							artifactFiles.map(
+								async (entry) =>
+									[entry.name, (await stat(entry.path)).size] as const,
+							),
+						),
+					);
+					const bundleSummary = {
+						diagnosticId,
+						generatedFor: "github-bug-report",
+						attachFileToIssue: true,
+						pasteJsonOnlyIfAttachmentFails: true,
+						artifactSizes,
+						diagnosticWarnings,
+					};
+					const bundleSummaryPath = join(bundleDir, "bundle-summary.json");
+					writeJson(bundleSummaryPath, bundleSummary);
+					artifactFiles.push({
+						name: "bundle-summary.json",
+						path: bundleSummaryPath,
+					});
+					const checksums = Object.fromEntries(
+						await Promise.all(
+							artifactFiles.map(
+								async (entry) =>
+									[entry.name, await sha256File(entry.path)] as const,
+							),
+						),
+					);
+					const manifest = {
+						app: "zuse",
+						version: packageJson.version,
+						createdAt: createdAt.toISOString(),
+						platform: `${platform()}-${arch()}`,
+						diagnosticId,
+						included,
+						redaction: {
+							default:
+								"content fields are excluded or summarized without previews",
+							rawPromptsIncluded: false,
+							rawTranscriptsIncluded: false,
 						},
-						{
-							name: "REPORT.md",
-							data: report,
-						},
-						...artifactEntries,
-					];
-					writeFileSync(bundlePath, createStoredZip(entries));
-					copyFileSync(bundlePath, join(bundleDir, basename(bundlePath)));
+						checksums,
+					};
+					const manifestPath = join(bundleDir, "manifest.json");
+					writeJson(manifestPath, manifest);
+					await writeStoredZip(bundlePath, [
+						{ name: "manifest.json", path: manifestPath },
+						...artifactFiles,
+					]);
 				});
 				return DiagnosticsExportResult.make({
 					diagnosticId,
@@ -907,6 +1038,7 @@ export const DiagnosticsServiceLive = Layer.effect(
 			overview,
 			events,
 			ingest,
+			capture,
 			processes,
 			signalProcess,
 			exportBundle,

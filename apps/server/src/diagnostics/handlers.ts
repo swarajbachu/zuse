@@ -37,6 +37,9 @@ const SignalProcess = MemoizeRpcs.toLayerHandler(
 const Ingest = MemoizeRpcs.toLayerHandler("diagnostics.ingest", (payload) =>
 	Effect.flatMap(DiagnosticsService, (svc) => svc.ingest(payload.events)),
 );
+const Capture = MemoizeRpcs.toLayerHandler("diagnostics.capture", (payload) =>
+	Effect.flatMap(DiagnosticsService, (svc) => svc.capture(payload)),
+);
 
 export const DiagnosticsHandlersLayer = Layer.mergeAll(
 	ExportBundle,
@@ -45,4 +48,5 @@ export const DiagnosticsHandlersLayer = Layer.mergeAll(
 	Processes,
 	SignalProcess,
 	Ingest,
+	Capture,
 );

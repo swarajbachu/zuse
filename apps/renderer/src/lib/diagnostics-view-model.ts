@@ -1,4 +1,8 @@
-import type { DiagnosticEvent, DiagnosticSeverity } from "@zuse/contracts";
+import type {
+	DiagnosticEvent,
+	DiagnosticSeverity,
+	DiagnosticsCapturePayload,
+} from "@zuse/contracts";
 
 export const DIAGNOSTICS_PREFERENCES_KEY =
 	"zuse.diagnostics.workspace-preferences.v1";
@@ -13,6 +17,35 @@ export const DIAGNOSTICS_VIEWS = [
 
 export type DiagnosticsView = (typeof DIAGNOSTICS_VIEWS)[number];
 export type DiagnosticsSeverityFilter = DiagnosticSeverity | "all";
+export type DiagnosticsCaptureDuration = Extract<
+	DiagnosticsCapturePayload,
+	{ readonly mode: "full" }
+>["durationMinutes"];
+
+export function diagnosticsCapturePayload(
+	mode: "incident" | "full",
+	durationMinutes: DiagnosticsCaptureDuration,
+): DiagnosticsCapturePayload {
+	return mode === "full"
+		? { mode: "incident" }
+		: { mode: "full", durationMinutes };
+}
+
+export function formatCaptureCountdown(endsAt: string, now: number): string {
+	const remainingSeconds = Math.max(
+		0,
+		Math.ceil((new Date(endsAt).getTime() - now) / 1_000),
+	);
+	const minutes = Math.floor(remainingSeconds / 60);
+	const seconds = remainingSeconds % 60;
+	return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+export function diagnosticsCaptureErrorMessage(cause: unknown): string {
+	return cause instanceof Error
+		? cause.message
+		: "Diagnostic capture could not be changed.";
+}
 
 export type DiagnosticsPreferences = {
 	readonly view: DiagnosticsView;

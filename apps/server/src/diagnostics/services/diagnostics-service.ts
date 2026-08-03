@@ -1,6 +1,8 @@
 import type {
 	DiagnosticEvent,
 	DiagnosticSeverity,
+	DiagnosticsCapturePayload,
+	DiagnosticsCaptureResult,
 	DiagnosticsEventsResult,
 	DiagnosticsExportError,
 	DiagnosticsExportResult,
@@ -25,6 +27,9 @@ export interface DiagnosticsServiceShape {
 	readonly ingest: (
 		events: ReadonlyArray<DiagnosticEvent>,
 	) => Effect.Effect<void, DiagnosticsExportError>;
+	readonly capture: (
+		payload: DiagnosticsCapturePayload,
+	) => Effect.Effect<DiagnosticsCaptureResult, DiagnosticsExportError>;
 	readonly processes: Effect.Effect<
 		DiagnosticsProcessesResult,
 		DiagnosticsExportError

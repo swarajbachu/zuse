@@ -1,12 +1,4 @@
-import {
-	Cause,
-	Duration,
-	Effect,
-	Exit,
-	Layer,
-	type Option,
-	Tracer,
-} from "effect";
+import { Cause, Duration, Effect, Exit, Layer, Option, Tracer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import {
 	OtlpExporter,
@@ -69,17 +61,27 @@ class TelemetrySpan implements Tracer.Span {
 	}
 
 	end(endTime: bigint, exit: Exit.Exit<unknown, unknown>): void {
+		const failure = Exit.isFailure(exit)
+			? Cause.findErrorOption(exit.cause)
+			: undefined;
+		const normalStreamCompletion =
+			failure !== undefined &&
+			Option.isSome(failure) &&
+			Cause.isDone(failure.value);
+		const diagnosticExit = normalStreamCompletion
+			? Exit.succeed(undefined)
+			: exit;
 		this.status = {
 			_tag: "Ended",
 			startTime: this.options.startTime,
 			endTime,
-			exit,
+			exit: diagnosticExit,
 		};
 		this.delegate.end(
 			endTime,
-			Exit.isSuccess(exit)
-				? exit
-				: Exit.fail(telemetryCauseSummary(exit.cause).type),
+			Exit.isSuccess(diagnosticExit)
+				? diagnosticExit
+				: Exit.fail(telemetryCauseSummary(diagnosticExit.cause).type),
 		);
 		const durationMs =
 			Number(
@@ -87,19 +89,24 @@ class TelemetrySpan implements Tracer.Span {
 					? endTime - this.options.startTime
 					: 0n,
 			) / 1_000_000;
-		const outcome = Exit.isSuccess(exit)
-			? "success"
-			: Cause.hasInterruptsOnly(exit.cause)
-				? "interrupted"
-				: "failure";
+		const outcome = normalStreamCompletion
+			? "done"
+			: Exit.isSuccess(exit)
+				? "success"
+				: Cause.hasInterruptsOnly(exit.cause)
+					? "interrupted"
+					: "failure";
 		recordOperationMetrics({
 			operation: this.name,
 			category: telemetryCategoryForSpan(this.name),
-			outcome,
+			outcome: outcome === "done" ? "success" : outcome,
 			durationMs,
 			context: this.annotations,
 		});
+		const operation = { name: this.name, outcome, durationMs } as const;
+		this.store.recordOperation(operation);
 		if (!this.sampled || !shouldRecordLocally(this.name)) return;
+		if (!this.store.shouldRecordOperation(operation)) return;
 		this.store.record(
 			telemetryEventFromSpan({
 				name: this.name,
@@ -107,7 +114,7 @@ class TelemetrySpan implements Tracer.Span {
 				spanId: this.spanId,
 				startTime: this.options.startTime,
 				endTime,
-				exit,
+				exit: diagnosticExit,
 				attributes: this.attributes,
 				runId: this.store.runId,
 			}),

@@ -1,5 +1,10 @@
 import { Context } from "effect";
 
+export interface TelemetryIdentity {
+	readonly kind: "desktop" | "serve";
+	readonly instance: string;
+}
+
 /**
  * OS-resolved paths the server needs at runtime. The Electron shim provides
  * the live values from `app.getPath("userData")`; a future headless server
@@ -7,8 +12,9 @@ import { Context } from "effect";
  * instead of importing electron themselves — that's the rule from ADR 0007.
  */
 export class AppPaths extends Context.Service<
-  AppPaths,
-  {
-    readonly userData: string;
-  }
+	AppPaths,
+	{
+		readonly userData: string;
+		readonly telemetryIdentity?: TelemetryIdentity;
+	}
 >()("memoize/AppPaths") {}

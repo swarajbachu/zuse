@@ -19,6 +19,12 @@ export const DiagnosticRecoveryStatus = Schema.Literals([
 ]);
 export type DiagnosticRecoveryStatus = typeof DiagnosticRecoveryStatus.Type;
 
+export const DiagnosticRuntimeKind = Schema.Literals(["desktop", "serve"]);
+export type DiagnosticRuntimeKind = typeof DiagnosticRuntimeKind.Type;
+
+export const DiagnosticCaptureMode = Schema.Literals(["incident", "full"]);
+export type DiagnosticCaptureMode = typeof DiagnosticCaptureMode.Type;
+
 export const DiagnosticEvent = Schema.Struct({
 	id: Schema.String,
 	createdAt: Schema.String,
@@ -37,6 +43,8 @@ export const DiagnosticEvent = Schema.Struct({
 	sessionId: Schema.optional(Schema.NullOr(Schema.String)),
 	providerId: Schema.optional(Schema.NullOr(Schema.String)),
 	durationMs: Schema.optional(Schema.Number),
+	runtimeKind: Schema.optional(DiagnosticRuntimeKind),
+	captureMode: Schema.optional(DiagnosticCaptureMode),
 });
 export type DiagnosticEvent = typeof DiagnosticEvent.Type;
 
@@ -67,6 +75,10 @@ export class DiagnosticsOverviewResult extends Schema.Class<DiagnosticsOverviewR
 	unseenCount: Schema.Number,
 	storageBytes: Schema.Number,
 	capturePaused: Schema.Boolean,
+	captureMode: DiagnosticCaptureMode,
+	fullCaptureEndsAt: Schema.NullOr(Schema.String),
+	droppedEventCount: Schema.Number,
+	truncatedEventCount: Schema.Number,
 	previousRunUnclean: Schema.Boolean,
 	latestIncidents: Schema.Array(DiagnosticEvent),
 	commonFailures: Schema.Array(DiagnosticFailureGroup),
@@ -119,6 +131,22 @@ export class DiagnosticsProcessesResult extends Schema.Class<DiagnosticsProcesse
 export class DiagnosticsSignalResult extends Schema.Class<DiagnosticsSignalResult>(
 	"DiagnosticsSignalResult",
 )({ signaled: Schema.Boolean, message: Schema.optional(Schema.String) }) {}
+
+export class DiagnosticsCaptureResult extends Schema.Class<DiagnosticsCaptureResult>(
+	"DiagnosticsCaptureResult",
+)({
+	captureMode: DiagnosticCaptureMode,
+	fullCaptureEndsAt: Schema.NullOr(Schema.String),
+}) {}
+
+export const DiagnosticsCapturePayload = Schema.Union([
+	Schema.Struct({ mode: Schema.Literal("incident") }),
+	Schema.Struct({
+		mode: Schema.Literal("full"),
+		durationMinutes: Schema.Literals([5, 15, 30]),
+	}),
+]);
+export type DiagnosticsCapturePayload = typeof DiagnosticsCapturePayload.Type;
 
 const DiagnosticArtifactName = Schema.String;
 const DiagnosticsLogEntry = Schema.Struct({
@@ -201,6 +229,12 @@ export const DiagnosticsSignalRpc = Rpc.make("diagnostics.signalProcess", {
 export const DiagnosticsIngestRpc = Rpc.make("diagnostics.ingest", {
 	payload: Schema.Struct({ events: Schema.Array(DiagnosticEvent) }),
 	success: Schema.Void,
+	error: DiagnosticsError,
+});
+
+export const DiagnosticsCaptureRpc = Rpc.make("diagnostics.capture", {
+	payload: DiagnosticsCapturePayload,
+	success: DiagnosticsCaptureResult,
 	error: DiagnosticsError,
 });
 

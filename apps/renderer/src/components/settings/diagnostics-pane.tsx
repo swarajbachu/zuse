@@ -41,11 +41,15 @@ import {
 	DEFAULT_DIAGNOSTICS_PREFERENCES,
 	DIAGNOSTICS_PREFERENCES_KEY,
 	DIAGNOSTICS_RANGE_OPTIONS,
+	type DiagnosticsCaptureDuration,
 	type DiagnosticsPreferences,
 	type DiagnosticsSeverityFilter,
 	type DiagnosticsView,
+	diagnosticsCaptureErrorMessage,
+	diagnosticsCapturePayload,
 	diagnosticsSeveritySelection,
 	diagnosticsSince,
+	formatCaptureCountdown,
 	groupDiagnosticEvents,
 	parseDiagnosticsPreferences,
 	relatedDiagnosticEvents,
@@ -68,6 +72,13 @@ import {
 	FramePanel,
 	FrameTitle,
 } from "../ui/frame.tsx";
+import {
+	Select,
+	SelectItem,
+	SelectPopup,
+	SelectTrigger,
+	SelectValue,
+} from "../ui/select.tsx";
 
 const VIEW_OPTIONS: ReadonlyArray<{
 	readonly id: DiagnosticsView;
@@ -775,6 +786,10 @@ export function DiagnosticsPane() {
 	const [recordingBusy, setRecordingBusy] = useState<
 		"starting" | "stopping" | "exporting" | null
 	>(null);
+	const [captureDuration, setCaptureDuration] =
+		useState<DiagnosticsCaptureDuration>(5);
+	const [captureBusy, setCaptureBusy] = useState(false);
+	const [captureNow, setCaptureNow] = useState(Date.now());
 	const [selected, setSelected] = useState<DiagnosticEvent | null>(null);
 	const [selectedLagId, setSelectedLagId] = useState<string | null>(null);
 	const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
@@ -840,6 +855,12 @@ export function DiagnosticsPane() {
 			.catch(() => undefined);
 		return power.onState(setPowerState);
 	}, []);
+
+	useEffect(() => {
+		if (overview?.captureMode !== "full") return;
+		const timer = window.setInterval(() => setCaptureNow(Date.now()), 1_000);
+		return () => window.clearInterval(timer);
+	}, [overview?.captureMode]);
 
 	const refresh = useCallback(async () => {
 		setRefreshing(true);
@@ -1030,6 +1051,30 @@ export function DiagnosticsPane() {
 			);
 		} finally {
 			setExporting(false);
+		}
+	};
+
+	const updateCapture = async () => {
+		setCaptureBusy(true);
+		try {
+			const client = await getRpcClient();
+			const result = await Effect.runPromise(
+				client["diagnostics.capture"](
+					diagnosticsCapturePayload(
+						overview?.captureMode ?? "incident",
+						captureDuration,
+					),
+				),
+			);
+			setCaptureNow(Date.now());
+			setOverview((current) =>
+				current === null ? current : { ...current, ...result },
+			);
+			setError(null);
+		} catch (cause) {
+			setError(diagnosticsCaptureErrorMessage(cause));
+		} finally {
+			setCaptureBusy(false);
 		}
 	};
 
@@ -2221,7 +2266,7 @@ export function DiagnosticsPane() {
 								<p className="font-medium text-[10px]">Retention</p>
 								<p className="mt-1 font-mono text-sm tabular-nums">7 days</p>
 								<p className="mt-1 text-[9px] text-muted-foreground">
-									Events and one-minute resource rollups are pruned by age.
+									Incidents and five-minute operation rollups are pruned by age.
 								</p>
 							</div>
 							<div className="p-4">
@@ -2236,13 +2281,71 @@ export function DiagnosticsPane() {
 									Includes events and performance history on this device.
 								</p>
 							</div>
-							<div className="p-4">
-								<p className="font-medium text-[10px]">Capture</p>
-								<p className="mt-1 text-sm">
-									{overview?.capturePaused ? "Paused" : "Standard"}
-								</p>
-								<p className="mt-1 text-[9px] text-muted-foreground">
-									Secrets and conversation content are excluded by default.
+							<div className="min-h-[128px] p-4">
+								<div className="flex items-start justify-between gap-3">
+									<div>
+										<p className="font-medium text-[10px]">Incident capture</p>
+										<p className="mt-1 text-sm" aria-live="polite">
+											{overview?.captureMode === "full"
+												? "Full trace active"
+												: "On"}
+										</p>
+									</div>
+									{overview?.captureMode === "full" &&
+										overview.fullCaptureEndsAt && (
+											<span
+												className="font-mono text-[10px] text-warning tabular-nums"
+												role="timer"
+												aria-label="Full trace time remaining"
+											>
+												{formatCaptureCountdown(
+													overview.fullCaptureEndsAt,
+													captureNow,
+												)}
+											</span>
+										)}
+								</div>
+								<div className="mt-3 flex items-center gap-2">
+									<Select
+										value={String(captureDuration)}
+										disabled={captureBusy || overview?.captureMode === "full"}
+										onValueChange={(value) =>
+											setCaptureDuration(
+												Number(value) as DiagnosticsCaptureDuration,
+											)
+										}
+									>
+										<SelectTrigger
+											size="sm"
+											className="w-[78px] min-w-0"
+											aria-label="Full trace duration"
+										>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectPopup>
+											<SelectItem value="5">5 min</SelectItem>
+											<SelectItem value="15">15 min</SelectItem>
+											<SelectItem value="30">30 min</SelectItem>
+										</SelectPopup>
+									</Select>
+									<Button
+										size="sm"
+										variant={
+											overview?.captureMode === "full" ? "settings" : "default"
+										}
+										className="h-7 min-w-[104px] px-2.5 !text-[10px]"
+										loading={captureBusy}
+										disabled={overview === null || captureBusy}
+										onClick={() => void updateCapture()}
+									>
+										{overview?.captureMode === "full"
+											? "Stop full trace"
+											: "Start full trace"}
+									</Button>
+								</div>
+								<p className="mt-2 text-[9px] text-muted-foreground">
+									{formatCount.format(overview?.droppedEventCount ?? 0)} dropped
+									· Secrets and conversation content excluded.
 								</p>
 							</div>
 						</div>

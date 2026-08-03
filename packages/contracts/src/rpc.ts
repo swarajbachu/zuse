@@ -40,6 +40,7 @@ import {
 } from "./connect.ts";
 import { ContextSaveTextRpc } from "./context.ts";
 import {
+	DiagnosticsCaptureRpc,
 	DiagnosticsEventsRpc,
 	DiagnosticsExportRpc,
 	DiagnosticsIngestRpc,
@@ -445,6 +446,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	DiagnosticsProcessesRpc,
 	DiagnosticsSignalRpc,
 	DiagnosticsIngestRpc,
+	DiagnosticsCaptureRpc,
 	KeybindingsGetRpc,
 	KeybindingsReplaceRpc,
 	KeybindingsStreamRpc,
