@@ -17,7 +17,10 @@ import {
 	useRef,
 	useState,
 } from "react";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import ReactMarkdown, {
+	type Components,
+	defaultUrlTransform,
+} from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { resolveMarkdownPreviewUrl } from "~/lib/file-preview";
@@ -152,6 +155,35 @@ const codeChildFromPre = (node: ReactNode): ReactNode => {
 		return node.find((child) => isValidElement(child) && child.type === "code");
 	}
 	return undefined;
+};
+
+const MarkdownPre: NonNullable<Components["pre"]> = ({ children }) => {
+	const codeChild = codeChildFromPre(children);
+	if (!isValidElement(codeChild)) return <pre>{children}</pre>;
+
+	const codeProps = codeChild.props as {
+		className?: string;
+		children?: ReactNode;
+	};
+	const language = languageFromClassName(codeProps.className);
+	const text = textFromReactNode(codeProps.children).replace(/\n$/, "");
+	if (language?.toLowerCase() === "mermaid") {
+		return <MermaidDiagram source={text} />;
+	}
+
+	const filename =
+		language === undefined ? "snippet.txt" : `snippet.${language}`;
+	return (
+		<div className="markdown-code-block">
+			<CodeBlock
+				filename={filename}
+				language={language}
+				text={text}
+				maxHeight={360}
+				variant="plain"
+			/>
+		</div>
+	);
 };
 
 type MermaidApi = typeof import("mermaid").default;
@@ -512,6 +544,46 @@ export function MarkdownBody({
 		const list = s.byProject[folderId] ?? [];
 		return list.find((w) => w.id === worktreeId)?.path ?? null;
 	});
+	const components = useMemo<Components>(
+		() => ({
+			a: ({ href, children: linkChildren, ...rest }) => (
+				<MarkdownLink
+					{...rest}
+					href={href}
+					onNavigate={(event) => {
+						if (typeof href !== "string") return;
+						if (/^https?:\/\//i.test(href)) {
+							event.preventDefault();
+							void openExternal(href);
+							return;
+						}
+						const localPath = localFilePathFromHref(href);
+						if (localPath === null) return;
+						const target = resolveFileOpenTarget({
+							relPath: localPath,
+							absPath: localPath,
+							folderId,
+							worktreeId,
+							folderPath,
+							worktreePath,
+						});
+						if (target === null) return;
+						event.preventDefault();
+						openFileInTab(target);
+					}}
+					title={
+						typeof href === "string"
+							? (localFilePathFromHref(href) ?? undefined)
+							: undefined
+					}
+				>
+					{linkChildren}
+				</MarkdownLink>
+			),
+			pre: MarkdownPre,
+		}),
+		[folderId, folderPath, openFileInTab, worktreeId, worktreePath],
+	);
 
 	return (
 		<div className={cn("fz-prose", className)}>
@@ -521,76 +593,7 @@ export function MarkdownBody({
 					resolveMarkdownPreviewUrl(value, property, node.tagName, baseHref) ??
 					defaultUrlTransform(value)
 				}
-				components={{
-					a: ({ href, children, ...rest }) => (
-						<MarkdownLink
-							{...rest}
-							href={href}
-							onNavigate={(e) => {
-								if (typeof href !== "string") return;
-								if (/^https?:\/\//i.test(href)) {
-									e.preventDefault();
-									void openExternal(href);
-									return;
-								}
-								const localPath = localFilePathFromHref(href);
-								if (localPath === null) return;
-								const target = resolveFileOpenTarget({
-									relPath: localPath,
-									absPath: localPath,
-									folderId,
-									worktreeId,
-									folderPath,
-									worktreePath,
-								});
-								if (target === null) return;
-								e.preventDefault();
-								openFileInTab(target);
-							}}
-							title={
-								typeof href === "string"
-									? (localFilePathFromHref(href) ?? undefined)
-									: undefined
-							}
-						>
-							{children}
-						</MarkdownLink>
-					),
-					pre: ({ children }) => {
-						const codeChild = codeChildFromPre(children);
-						if (!isValidElement(codeChild)) {
-							return <pre>{children}</pre>;
-						}
-
-						const codeProps = codeChild.props as {
-							className?: string;
-							children?: ReactNode;
-						};
-						const language = languageFromClassName(codeProps.className);
-						const text = textFromReactNode(codeProps.children).replace(
-							/\n$/,
-							"",
-						);
-						if (language?.toLowerCase() === "mermaid") {
-							return <MermaidDiagram source={text} />;
-						}
-
-						const filename =
-							language === undefined ? "snippet.txt" : `snippet.${language}`;
-
-						return (
-							<div className="markdown-code-block">
-								<CodeBlock
-									filename={filename}
-									language={language}
-									text={text}
-									maxHeight={360}
-									variant="plain"
-								/>
-							</div>
-						);
-					},
-				}}
+				components={components}
 			>
 				{children}
 			</ReactMarkdown>

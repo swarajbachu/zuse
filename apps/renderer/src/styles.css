@@ -1261,6 +1261,7 @@ body,
   }
   .code-block-shiki .line {
     display: block;
+    min-height: 1.3em;
     padding: 0 10px;
   }
   /* Scrollbar polish — match xterm-viewport style. */

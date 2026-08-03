@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BundledLanguage } from "shiki";
 import {
 	type CodeHighlightResult,
@@ -176,6 +176,8 @@ export function CodeBlock({
 	);
 	const [highlightResult, setHighlightResult] =
 		useState<CodeHighlightResult | null>(null);
+	const scrollRef = useRef<HTMLDivElement | null>(null);
+	const preservedScrollRef = useRef({ top: 0, left: 0 });
 	const cachedHtml =
 		highlightInput === null ? null : readCachedHighlightedCode(highlightInput);
 	const html =
@@ -205,6 +207,15 @@ export function CodeBlock({
 			window.clearTimeout(timer);
 		};
 	}, [highlightInput, highlightKey]);
+
+	useLayoutEffect(() => {
+		const scroll = scrollRef.current;
+		if (scroll === null) return;
+		const preserved = preservedScrollRef.current;
+		if (scroll.scrollTop !== preserved.top) scroll.scrollTop = preserved.top;
+		if (scroll.scrollLeft !== preserved.left)
+			scroll.scrollLeft = preserved.left;
+	}, [html, safeText]);
 
 	const name = title ?? basename(filename);
 
@@ -239,12 +250,22 @@ export function CodeBlock({
 					className="absolute end-1.5 top-1.5 z-10 size-6 rounded-md bg-message-pre-bg/80 text-muted-foreground opacity-0 backdrop-blur-sm transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/code:opacity-100"
 				/>
 			)}
-			<div
+			<section
+				ref={scrollRef}
 				className={cn(
-					"code-block-scroll overflow-auto bg-message-pre-bg text-[12px] leading-[1.3]",
+					"code-block-scroll overflow-auto overscroll-x-contain bg-message-pre-bg text-[12px] leading-[1.3] [overflow-anchor:none]",
 					isError ? "bg-alert-error-bg/40" : undefined,
 				)}
+				aria-label={`${name} code`}
+				// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable code region needs one stable keyboard focus target
+				tabIndex={0}
 				style={{ maxHeight }}
+				onScroll={(event) => {
+					preservedScrollRef.current = {
+						top: event.currentTarget.scrollTop,
+						left: event.currentTarget.scrollLeft,
+					};
+				}}
 			>
 				<div
 					className="code-block-shiki"
@@ -260,7 +281,7 @@ export function CodeBlock({
 						</pre>
 					) : undefined}
 				</div>
-			</div>
+			</section>
 		</div>
 	);
 }

@@ -26,5 +26,10 @@ export function selectCurrentHighlight(
  * whitespace turns those separators into anonymous blank rows in Chromium.
  */
 export function normalizeHighlightedCodeHtml(html: string): string {
-	return html.replace(/\n(?=<span class="line">)/g, "");
+	return html
+		.replace(/\n(?=<span class="line"(?:\s|>))/g, "")
+		.replace(
+			/^<pre\b([^>]*)\s+tabindex=(?:"[^"]*"|'[^']*')([^>]*)>/i,
+			"<pre$1$2>",
+		);
 }
