@@ -223,8 +223,14 @@ button:has(> svg.lucide-chevrons-up-down) {
 }
 
 :is(#nd-sidebar, #nd-sidebar-mobile) a[data-active="true"]::before {
+	inset-block: auto;
+	top: 50%;
+	inset-inline-start: 0;
+	width: 2px;
+	height: 0.75rem;
 	border-radius: 999px;
-	background: color-mix(in srgb, var(--color-fd-foreground) 58%, transparent);
+	background: color-mix(in srgb, var(--color-fd-foreground) 42%, transparent);
+	transform: translateY(-50%);
 }
 
 [data-toc-popover-trigger] {

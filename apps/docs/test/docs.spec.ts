@@ -86,10 +86,19 @@ test("navigation uses disclosure headings and native active states", async ({
 		(element) => getComputedStyle(element).backgroundColor,
 	);
 	expect(activeBackground).not.toBe("rgba(0, 0, 0, 0)");
-	const activeIndicator = await activeLink.evaluate((element) =>
-		getComputedStyle(element, "::before").getPropertyValue("width"),
-	);
-	expect(activeIndicator).toBe("1px");
+	const activeIndicator = await activeLink.evaluate((element) => {
+		const style = getComputedStyle(element, "::before");
+		return {
+			height: style.getPropertyValue("height"),
+			inlineStart: style.getPropertyValue("inset-inline-start"),
+			width: style.getPropertyValue("width"),
+		};
+	});
+	expect(activeIndicator).toEqual({
+		height: "12px",
+		inlineStart: "0px",
+		width: "2px",
+	});
 	const folderGuide = sidebar.locator(
 		'div[data-state="open"][class*="before:inset-y-1"]:has(a[data-active="true"])',
 	);
