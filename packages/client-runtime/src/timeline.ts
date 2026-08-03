@@ -70,8 +70,14 @@ export type TurnActivitySummary = {
 	readonly removed: number;
 };
 
-export const isUserMessage = (message: Message): boolean =>
-	message.content._tag === "user" || message.content._tag === "user_rich";
+export const isUserMessage = (
+	message: Message,
+): message is Message & {
+	readonly content: Extract<
+		Message["content"],
+		{ readonly _tag: "user" | "user_rich" }
+	>;
+} => message.content._tag === "user" || message.content._tag === "user_rich";
 
 const toolUseKey = (message: Message): string | null =>
 	message.content._tag === "tool_use"

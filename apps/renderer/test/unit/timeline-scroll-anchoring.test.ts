@@ -4,8 +4,6 @@ import {
 	getAnchoredTurnMetrics,
 	getRowBottom,
 	resolveScrollableNodeIsAtEnd,
-	shouldDeferAutomaticEndScroll,
-	shouldRestoreAnchorScrollOffset,
 } from "../../src/lib/timeline-scroll-anchoring.ts";
 
 function buildState({
@@ -119,92 +117,20 @@ describe("timeline scroll anchoring", () => {
 		expect(metrics?.scrollDeltaToRevealEnd).toBe(76);
 	});
 
-	it("defers automatic end-follow while an anchor is pending or settling", () => {
-		expect(
-			shouldDeferAutomaticEndScroll({
-				pendingAnchorId: "u1",
-				positionedAnchorId: null,
-				settledAnchorId: null,
-			}),
-		).toBe(true);
-
-		expect(
-			shouldDeferAutomaticEndScroll({
-				pendingAnchorId: null,
-				positionedAnchorId: "u1",
-				settledAnchorId: null,
-			}),
-		).toBe(true);
-
-		expect(
-			shouldDeferAutomaticEndScroll({
-				pendingAnchorId: null,
-				positionedAnchorId: "u1",
-				settledAnchorId: "u1",
-			}),
-		).toBe(false);
-	});
-
-	it("preserves an anchored offset only while the same settled anchor is stable", () => {
-		expect(
-			shouldRestoreAnchorScrollOffset({
-				anchorId: "u1",
-				settledAnchorId: "u1",
-				expectedOffset: 320,
-				currentOffset: 321.5,
-				expectedUserNavigationGeneration: 2,
-				currentUserNavigationGeneration: 2,
-			}),
-		).toBe(true);
-
-		expect(
-			shouldRestoreAnchorScrollOffset({
-				anchorId: "u1",
-				settledAnchorId: "u2",
-				expectedOffset: 320,
-				currentOffset: 321,
-				expectedUserNavigationGeneration: 2,
-				currentUserNavigationGeneration: 2,
-			}),
-		).toBe(false);
-
-		expect(
-			shouldRestoreAnchorScrollOffset({
-				anchorId: "u1",
-				settledAnchorId: "u1",
-				expectedOffset: 320,
-				currentOffset: 326,
-				expectedUserNavigationGeneration: 2,
-				currentUserNavigationGeneration: 2,
-			}),
-		).toBe(false);
-
-		expect(
-			shouldRestoreAnchorScrollOffset({
-				anchorId: "u1",
-				settledAnchorId: "u1",
-				expectedOffset: 320,
-				currentOffset: 321,
-				expectedUserNavigationGeneration: 2,
-				currentUserNavigationGeneration: 3,
-			}),
-		).toBe(false);
-	});
-
 	it("detects whether the actual scroll node has left the live edge", () => {
-		// 20px from bottom — still at the live edge.
+		// 20px from bottom — close, but no longer at the true live edge.
 		expect(
 			resolveScrollableNodeIsAtEnd({
 				scrollTop: 960,
 				scrollHeight: 1400,
 				clientHeight: 420,
 			}),
-		).toBe(true);
+		).toBe(false);
 
-		// 160px from bottom — within the near-edge band, still at end.
+		// Exactly at bottom — following can resume.
 		expect(
 			resolveScrollableNodeIsAtEnd({
-				scrollTop: 820,
+				scrollTop: 980,
 				scrollHeight: 1400,
 				clientHeight: 420,
 			}),

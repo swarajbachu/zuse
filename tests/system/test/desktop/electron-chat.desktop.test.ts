@@ -68,6 +68,7 @@ describe("built Electron application", () => {
 			try {
 				await electron.page
 					.getByText("Hello from deterministic provider.", { exact: true })
+					.first()
 					.waitFor({ state: "visible", timeout: 20_000 });
 				await expect
 					.poll(
@@ -86,6 +87,53 @@ describe("built Electron application", () => {
 					`${cause instanceof Error ? cause.message : String(cause)}\nartifact: ${artifact}\npage text:\n${await electron.page.locator("body").innerText()}\n${electron.diagnostics()}`,
 				);
 			}
+
+			await composer.fill("Second Electron system message");
+			await electron.page.getByRole("button", { name: "Send" }).click();
+			await expect
+				.poll(
+					() =>
+						electron.page
+							.getByText("Hello from deterministic provider.", { exact: true })
+							.count(),
+					{ timeout: 20_000 },
+				)
+				.toBe(2);
+
+			const turnNavigator = electron.page.getByRole("button", {
+				name: "Navigate conversation, 2 turns",
+			});
+			await turnNavigator.hover();
+			const turnList = electron.page.getByRole("listbox", {
+				name: "Conversation turns",
+			});
+			await turnList.waitFor({ state: "visible" });
+			await expect
+				.poll(() => turnList.getByRole("option").allTextContents())
+				.toEqual([
+					expect.stringContaining("Electron system message"),
+					expect.stringContaining("Second Electron system message"),
+				]);
+			const turnSearch = electron.page.getByRole("combobox", {
+				name: "Find a turn",
+			});
+			await turnSearch.fill("Second Electron");
+			await expect.poll(() => turnList.getByRole("option").count()).toBe(1);
+			await turnSearch.press("Enter");
+			await turnList.waitFor({ state: "hidden" });
+			const timelineStores = await electron.page.evaluate(
+				() =>
+					new Promise<Array<string>>((resolve, reject) => {
+						const request = indexedDB.open("zuse-session-timelines");
+						request.onsuccess = () => {
+							const database = request.result;
+							resolve(Array.from(database.objectStoreNames));
+							database.close();
+						};
+						request.onerror = () => reject(request.error);
+					}),
+			);
+			expect(timelineStores).toContain("reading-positions");
 			expect(electron.errors).toEqual([]);
 
 			await electron.close();
@@ -109,6 +157,7 @@ describe("built Electron application", () => {
 			try {
 				await electron.page
 					.getByText("Hello from deterministic provider.", { exact: true })
+					.first()
 					.waitFor({ state: "visible", timeout: 20_000 });
 			} catch (cause) {
 				const artifact = await electron.captureFailure("electron-chat-restart");

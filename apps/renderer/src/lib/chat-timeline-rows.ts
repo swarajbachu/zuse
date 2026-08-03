@@ -47,6 +47,42 @@ export type ChatTimelineRow =
 
 export { isUserMessage };
 
+export interface ChatTurnNavigationEntry {
+	readonly messageId: string;
+	readonly rowIndex: number;
+	readonly turnNumber: number;
+	readonly text: string;
+}
+
+export function deriveChatTurnNavigationEntries(
+	rows: ReadonlyArray<ChatTimelineRow>,
+): ChatTurnNavigationEntry[] {
+	const entries: ChatTurnNavigationEntry[] = [];
+	for (const [rowIndex, row] of rows.entries()) {
+		if (row.kind !== "message") continue;
+		if (!isUserMessage(row.message)) continue;
+		entries.push({
+			messageId: row.message.id,
+			rowIndex,
+			turnNumber: entries.length + 1,
+			text: row.message.content.text.trim() || "Untitled turn",
+		});
+	}
+	return entries;
+}
+
+export function deriveChatTurnRailEntries(
+	turns: ReadonlyArray<ChatTurnNavigationEntry>,
+	maxTicks = 18,
+): ChatTurnNavigationEntry[] {
+	if (turns.length <= maxTicks) return [...turns];
+	const lastIndex = turns.length - 1;
+	return Array.from({ length: maxTicks }, (_, tickIndex) => {
+		const turnIndex = Math.round((tickIndex * lastIndex) / (maxTicks - 1));
+		return turns[turnIndex];
+	}).filter((turn): turn is ChatTurnNavigationEntry => turn !== undefined);
+}
+
 export function resolveLatestUserMessageId(
 	rows: ReadonlyArray<ChatTimelineRow>,
 ): string | null {
