@@ -27,16 +27,18 @@ Create a dedicated Vercel project for the docs site with these settings:
 | --- | --- |
 | Root Directory | `apps/docs` |
 | Framework Preset | Next.js |
-| Install Command | `bun install --frozen-lockfile` |
+| Include source files outside Root Directory | Off |
+| Install Command | `bun install` |
 | Build Command | `bun run build` |
 | Output Directory | Leave at the framework default |
 | Production Domain | `docs.zuse.sh` |
 
-Vercel detects Bun from the root `bun.lock` and the `packageManager` field in
-the root `package.json`. The install command runs from Vercel's prepared project
-checkout, so it must not include `cd ../..` or any other parent-directory
-traversal. Do not set the output directory to `.next`; the Next.js preset
-manages the deployment output.
+Keep the deployment scoped to `apps/docs`. If files outside the Root Directory
+are included, Bun discovers the repository workspace and attempts to install
+unrelated application packages, including private dependencies that the docs do
+not use. The install command must not include `cd ../..` or any other
+parent-directory traversal. Do not set the output directory to `.next`; the
+Next.js preset manages the deployment output.
 
 The Vercel project's Root Directory is a dashboard setting and cannot be set
 inside `vercel.json`. After changing it, redeploy the latest commit so the new
