@@ -1,3 +1,10 @@
+import { Callout as FumadocsCallout } from "fumadocs-ui/components/callout";
+import { DynamicCodeBlock } from "fumadocs-ui/components/dynamic-codeblock";
+import {
+	Step as FumadocsStep,
+	Steps as FumadocsSteps,
+} from "fumadocs-ui/components/steps";
+import Image from "next/image";
 import type { ReactNode } from "react";
 import { FEATURES, SURFACES, type Surface } from "../data/features";
 
@@ -16,12 +23,7 @@ export function Callout({
 	title?: string;
 	children: ReactNode;
 }) {
-	return (
-		<aside className="mdx-callout">
-			<strong>{title}</strong>
-			<div>{children}</div>
-		</aside>
-	);
+	return <FumadocsCallout title={title}>{children}</FumadocsCallout>;
 }
 
 export function Warning({
@@ -32,10 +34,9 @@ export function Warning({
 	children: ReactNode;
 }) {
 	return (
-		<aside className="mdx-callout mdx-callout-warning">
-			<strong>{title}</strong>
-			<div>{children}</div>
-		</aside>
+		<FumadocsCallout type="warn" title={title}>
+			{children}
+		</FumadocsCallout>
 	);
 }
 
@@ -47,10 +48,9 @@ export function SecurityNote({
 	children: ReactNode;
 }) {
 	return (
-		<aside className="mdx-callout mdx-callout-security">
-			<strong>{title}</strong>
-			<div>{children}</div>
-		</aside>
+		<FumadocsCallout type="idea" title={title}>
+			{children}
+		</FumadocsCallout>
 	);
 }
 
@@ -62,25 +62,19 @@ export function Troubleshooting({
 	children: ReactNode;
 }) {
 	return (
-		<aside className="mdx-troubleshooting">
-			<div className="mdx-troubleshooting-label">Troubleshooting</div>
-			<h3>{title}</h3>
-			<div>{children}</div>
-		</aside>
+		<FumadocsCallout type="warning" title={title}>
+			{children}
+		</FumadocsCallout>
 	);
 }
 
 export function Command({ children }: { children: ReactNode }) {
 	return (
-		<div className="mdx-command">
-			<div>
-				<span aria-hidden="true">$ </span>
-				<code>{children}</code>
-			</div>
-			<button type="button" data-command-copy aria-label="Copy command">
-				Copy
-			</button>
-		</div>
+		<DynamicCodeBlock
+			lang="bash"
+			code={String(children)}
+			codeblock={{ title: "Terminal" }}
+		/>
 	);
 }
 
@@ -100,7 +94,7 @@ export function GuideHero({
 }
 
 export function Workflow({ children }: { children: ReactNode }) {
-	return <ol className="workflow">{children}</ol>;
+	return <FumadocsSteps>{children}</FumadocsSteps>;
 }
 
 export function Step({
@@ -111,13 +105,10 @@ export function Step({
 	children: ReactNode;
 }) {
 	return (
-		<li className="workflow-step">
-			<div className="workflow-marker" aria-hidden="true"></div>
-			<div>
-				<h3>{title}</h3>
-				{children}
-			</div>
-		</li>
+		<FumadocsStep>
+			<h3>{title}</h3>
+			{children}
+		</FumadocsStep>
 	);
 }
 
@@ -150,7 +141,7 @@ export function Screenshot({
 }) {
 	return (
 		<figure className="docs-screenshot">
-			<img src={src} alt={alt} loading="lazy" />
+			<Image src={src} alt={alt} width={1600} height={1000} />
 			{caption ? <figcaption>{caption}</figcaption> : null}
 		</figure>
 	);

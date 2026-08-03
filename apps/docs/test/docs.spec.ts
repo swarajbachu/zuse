@@ -12,13 +12,13 @@ test("full-text search supports the keyboard", async ({ page, isMobile }) => {
 	test.skip(isMobile, "Mobile uses the navigation-sheet search trigger");
 	await page.goto("/start/first-chat");
 	await page.keyboard.press("Control+k");
-	const search = page.getByRole("textbox", { name: "Search documentation" });
+	const search = page.getByRole("textbox", { name: "Search" });
 	await search.fill("status json");
 	await expect(
-		page.getByRole("link", { name: /Serve status JSON/ }).first(),
+		page.getByRole("button", { name: /Serve status JSON/ }).first(),
 	).toBeVisible();
 	await page
-		.getByRole("link", { name: /Serve status JSON/ })
+		.getByRole("button", { name: /Serve status JSON/ })
 		.first()
 		.click();
 	await expect(page).toHaveURL(/\/serve\/status-json/u);
@@ -26,13 +26,30 @@ test("full-text search supports the keyboard", async ({ page, isMobile }) => {
 
 test("theme choice persists", async ({ page }) => {
 	await page.goto("/remote");
-	await page.getByRole("button", { name: "Change color theme" }).click();
-	const theme = await page.locator("html").getAttribute("data-theme");
+	if (await page.getByRole("button", { name: "Open Sidebar" }).isVisible()) {
+		await page.getByRole("button", { name: "Open Sidebar" }).click();
+	}
+	await page.getByRole("button", { name: "Toggle Theme" }).click();
+	const theme = await page.locator("html").getAttribute("class");
 	await page.reload();
-	await expect(page.locator("html")).toHaveAttribute(
-		"data-theme",
-		theme ?? "light",
-	);
+	await expect(page.locator("html")).toHaveAttribute("class", theme ?? "light");
+});
+
+test("page actions expose Markdown and AI readers", async ({ page }) => {
+	await page.goto("/serve/command-reference");
+	await expect(
+		page.getByRole("button", { name: "Copy Markdown" }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Open", exact: true }).click();
+	await expect(
+		page.getByRole("link", { name: /View as Markdown/ }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("link", { name: /Open in ChatGPT/ }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("link", { name: /Open in Claude/ }),
+	).toBeVisible();
 });
 
 test("Markdown responses and missing routes are explicit", async ({
@@ -57,17 +74,9 @@ test("representative article has no automatic accessibility violations", async (
 test("mobile navigation contains search", async ({ page, isMobile }) => {
 	test.skip(!isMobile, "Mobile-only navigation behavior");
 	await page.goto("/remote");
-	await page
-		.getByRole("button", { name: "Open documentation navigation" })
-		.click();
-	await expect(
-		page.getByRole("navigation", { name: "Mobile documentation navigation" }),
-	).toBeVisible();
-	await page
-		.getByRole("button", { name: "Search documentation" })
-		.last()
-		.click();
-	await expect(
-		page.getByRole("textbox", { name: "Search documentation" }),
-	).toBeVisible();
+	await page.getByRole("button", { name: "Open Sidebar" }).click();
+	await expect(page.getByRole("link", { name: "Reference" })).toBeVisible();
+	await page.getByRole("button", { name: "Open Sidebar" }).last().click();
+	await page.getByRole("button", { name: "Open Search" }).click();
+	await expect(page.getByRole("textbox", { name: "Search" })).toBeVisible();
 });

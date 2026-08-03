@@ -1,14 +1,5 @@
 {
-	"framework": "astro",
+	"framework": "nextjs",
 	"buildCommand": "bun run build",
-	"outputDirectory": "dist",
-	"installCommand": "bun install",
-	"routes": [
-		{
-			"src": "^/$",
-			"headers": { "Location": "/start" },
-			"status": 308
-		},
-		{ "handle": "filesystem" }
-	]
+	"installCommand": "bun install"
 }

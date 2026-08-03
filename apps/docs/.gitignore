@@ -1,4 +1,7 @@
 .astro/
+.source/
+.next/
+*.tsbuildinfo
 dist/
 playwright-report/
 test-results/
