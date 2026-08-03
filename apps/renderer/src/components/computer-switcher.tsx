@@ -7,14 +7,13 @@ import {
 	environmentRoute,
 	parseEnvironmentRoute,
 } from "@zuse/client-runtime/environment-scope";
-import type { RelayEnvironmentRecord } from "@zuse/contracts";
+import { HOSTED_APP_URL, type RelayEnvironmentRecord } from "@zuse/contracts";
 import { Effect } from "effect";
 import { useEffect, useMemo, useState } from "react";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu.tsx";
 
-const APP_URL = "https://app.zuse.sh";
 const ONLINE_WINDOW_MS = 90_000;
 
 const routeEnvironmentId = (): string | null => {
@@ -33,8 +32,8 @@ const relativeTime = (timestamp: number | undefined): string => {
 };
 
 const openEnvironment = (environmentId: string): void => {
-	const url = `${APP_URL}${environmentRoute(environmentId)}`;
-	if (window.location.origin === APP_URL) {
+	const url = `${HOSTED_APP_URL}${environmentRoute(environmentId)}`;
+	if (window.location.origin === HOSTED_APP_URL) {
 		window.location.assign(url);
 		return;
 	}

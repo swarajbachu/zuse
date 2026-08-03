@@ -1,4 +1,5 @@
 import { PgClient } from "@effect/sql-pg";
+import { HOSTED_APP_URL } from "@zuse/contracts";
 import { Effect, Layer, Redacted } from "effect";
 import { Pool, type PoolConfig } from "pg";
 import { AccountIdentityLive } from "./account-identity.ts";
@@ -79,9 +80,7 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 			Number.isInteger(configuredLimit) && configuredLimit > 0
 				? configuredLimit
 				: null,
-		allowedBrowserOrigins: (
-			env.ALLOWED_BROWSER_ORIGINS ?? "https://app.zuse.sh"
-		)
+		allowedBrowserOrigins: (env.ALLOWED_BROWSER_ORIGINS ?? HOSTED_APP_URL)
 			.split(",")
 			.map((value) => value.trim())
 			.filter((value) => value.length > 0),

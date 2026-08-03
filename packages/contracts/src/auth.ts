@@ -1,8 +1,11 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
 /** Public AuthKit client identifier shared by all Zuse clients. */
 export const WORKOS_PUBLIC_CLIENT_ID = "client_01KWGQ818571ARFATQ3G9AR2Y2";
+
+/** Canonical hosted product origin shared by Serve and browser clients. */
+export const HOSTED_APP_URL = "https://code.zuse.sh";
 
 /**
  * WorkOS AuthKit identity — the first user-account primitive in Zuse.
@@ -20,11 +23,11 @@ export const WORKOS_PUBLIC_CLIENT_ID = "client_01KWGQ818571ARFATQ3G9AR2Y2";
 
 /** Non-secret identity surfaced to the renderer for display. */
 export class AuthUser extends Schema.Class<AuthUser>("AuthUser")({
-  id: Schema.String,
-  email: Schema.String,
-  firstName: Schema.NullOr(Schema.String),
-  lastName: Schema.NullOr(Schema.String),
-  profilePictureUrl: Schema.NullOr(Schema.String),
+	id: Schema.String,
+	email: Schema.String,
+	firstName: Schema.NullOr(Schema.String),
+	lastName: Schema.NullOr(Schema.String),
+	profilePictureUrl: Schema.NullOr(Schema.String),
 }) {}
 
 /**
@@ -34,9 +37,9 @@ export class AuthUser extends Schema.Class<AuthUser>("AuthUser")({
  * (non-org) sign-ins.
  */
 export class AuthSession extends Schema.Class<AuthSession>("AuthSession")({
-  user: AuthUser,
-  organizationId: Schema.NullOr(Schema.String),
-  expiresAt: Schema.Number,
+	user: AuthUser,
+	organizationId: Schema.NullOr(Schema.String),
+	expiresAt: Schema.Number,
 }) {}
 
 /**
@@ -46,21 +49,21 @@ export class AuthSession extends Schema.Class<AuthSession>("AuthSession")({
  * sign-in / sign-out / refresh.
  */
 export const AuthState = Schema.Union([
-  Schema.TaggedStruct("SignedOut", {}),
-  Schema.TaggedStruct("SignedIn", { session: AuthSession }),
+	Schema.TaggedStruct("SignedOut", {}),
+	Schema.TaggedStruct("SignedIn", { session: AuthSession }),
 ]);
 export type AuthState = typeof AuthState.Type;
 
 /** The OAuth flow failed (config missing, network, token exchange, bad callback). */
 export class AuthFlowError extends Schema.TaggedErrorClass<AuthFlowError>()(
-  "AuthFlowError",
-  { reason: Schema.String },
+	"AuthFlowError",
+	{ reason: Schema.String },
 ) {}
 
 /** The user closed the browser / never completed sign-in before the timeout. */
 export class AuthCancelledError extends Schema.TaggedErrorClass<AuthCancelledError>()(
-  "AuthCancelledError",
-  {},
+	"AuthCancelledError",
+	{},
 ) {}
 
 // ---------------------------------------------------------------------------
@@ -73,8 +76,8 @@ export class AuthCancelledError extends Schema.TaggedErrorClass<AuthCancelledErr
  * `SignedOut` so the renderer can always render a definite state.
  */
 export const AuthGetSessionRpc = Rpc.make("auth.getSession", {
-  payload: Schema.Struct({}),
-  success: AuthState,
+	payload: Schema.Struct({}),
+	success: AuthState,
 });
 
 /**
@@ -84,15 +87,15 @@ export const AuthGetSessionRpc = Rpc.make("auth.getSession", {
  * `SignedIn` state.
  */
 export const AuthSignInRpc = Rpc.make("auth.signIn", {
-  payload: Schema.Struct({}),
-  success: AuthState,
-  error: Schema.Union([AuthFlowError, AuthCancelledError]),
+	payload: Schema.Struct({}),
+	success: AuthState,
+	error: Schema.Union([AuthFlowError, AuthCancelledError]),
 });
 
 /** Clear the stored session and broadcast `SignedOut`. */
 export const AuthSignOutRpc = Rpc.make("auth.signOut", {
-  payload: Schema.Struct({}),
-  success: Schema.Void,
+	payload: Schema.Struct({}),
+	success: Schema.Void,
 });
 
 /**
@@ -101,7 +104,7 @@ export const AuthSignOutRpc = Rpc.make("auth.signOut", {
  * call, a sign-out, or a background refresh all propagate to every view.
  */
 export const AuthSessionChangesRpc = Rpc.make("auth.sessionChanges", {
-  payload: Schema.Struct({}),
-  success: AuthState,
-  stream: true,
+	payload: Schema.Struct({}),
+	success: AuthState,
+	stream: true,
 });

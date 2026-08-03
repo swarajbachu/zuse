@@ -2,15 +2,21 @@ import {
 	ActiveTimeTracker,
 	type AnalyticsEventName,
 	type AnalyticsProperties,
-	isAnalyticsEventName,
 	sanitizeAnalyticsProperties,
 } from "@zuse/analytics";
 import type { AnalyticsContext } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
-import posthog from "posthog-js/dist/module.slim";
 
 import { hostDescriptor } from "./host-platform.ts";
+import { createDeferredRuntime } from "./deferred-runtime.ts";
+import { sanitizePostHogEvent } from "./posthog-event.ts";
 import { getRpcClient } from "./rpc-client.ts";
+
+type AnalyticsSdk = typeof import("posthog-js/dist/module.slim")["default"];
+
+const analyticsSdk = createDeferredRuntime<AnalyticsSdk>(() =>
+	import("posthog-js/dist/module.slim").then((module) => module.default),
+);
 
 const PROJECT_KEY =
 	(import.meta.env.VITE_POSTHOG_KEY as string | undefined)?.trim() ?? "";
@@ -56,60 +62,44 @@ const applyContext = (context: AnalyticsContext) => {
 	if (!context.enabled && !initialized) return;
 
 	if (!initialized) {
-		posthog.init(PROJECT_KEY, {
-			api_host: HOST,
-			autocapture: false,
-			capture_pageview: false,
-			capture_pageleave: false,
-			disable_session_recording: true,
-			advanced_disable_feature_flags: true,
-			advanced_disable_feature_flags_on_first_load: true,
-			disable_surveys: true,
-			disable_web_experiments: true,
-			disable_external_dependency_loading: true,
-			opt_out_capturing_by_default: !context.enabled,
-			bootstrap: { distinctID: context.distinctId },
-			persistence: "localStorage",
-			before_send: (event) => {
-				if (!event || typeof event.event !== "string") return null;
-				if (event.event.startsWith("$")) {
-					if (event.event !== "$identify") return null;
-					const properties = event.properties ?? {};
-					event.properties = {
-						distinct_id: properties.distinct_id,
-						$anon_distinct_id: properties.$anon_distinct_id,
-					};
-					return event;
-				}
-				if (!isAnalyticsEventName(event.event)) return null;
-				const distinctId = event.properties?.distinct_id;
-				event.properties = sanitizeAnalyticsProperties(
-					event.event,
-					event.properties ?? {},
-				);
-				if (typeof distinctId === "string")
-					event.properties.distinct_id = distinctId;
-				return event;
-			},
-		});
+		analyticsSdk.dispatch((posthog) =>
+			posthog.init(PROJECT_KEY, {
+				api_host: HOST,
+				autocapture: false,
+				capture_pageview: false,
+				capture_pageleave: false,
+				disable_session_recording: true,
+				advanced_disable_feature_flags: true,
+				advanced_disable_feature_flags_on_first_load: true,
+				disable_surveys: true,
+				disable_web_experiments: true,
+				disable_external_dependency_loading: true,
+				opt_out_capturing_by_default: !context.enabled,
+				bootstrap: { distinctID: context.distinctId },
+				persistence: "localStorage",
+				before_send: sanitizePostHogEvent,
+			}),
+		);
 		initialized = true;
 	}
 
 	if (!context.enabled) {
-		posthog.opt_out_capturing();
+		analyticsSdk.dispatch((posthog) => posthog.opt_out_capturing());
 		return;
 	}
-	posthog.opt_in_capturing();
+	analyticsSdk.dispatch((posthog) => posthog.opt_in_capturing());
 	if (
 		previousContext?.identityKind === "account" &&
 		context.identityKind === "anonymous"
 	) {
 		// Do not alias post-deletion/sign-out activity back to the old account.
-		posthog.reset(true);
+		analyticsSdk.dispatch((posthog) => posthog.reset(true));
 	}
-	if (posthog.get_distinct_id() !== context.distinctId) {
-		posthog.identify(context.distinctId);
-	}
+	analyticsSdk.dispatch((posthog) => {
+		if (posthog.get_distinct_id() !== context.distinctId) {
+			posthog.identify(context.distinctId);
+		}
+	});
 };
 
 export const captureAnalytics = (
@@ -118,12 +108,14 @@ export const captureAnalytics = (
 ): void => {
 	const context = currentContext;
 	if (!initialized || !context?.enabled) return;
-	posthog.capture(
-		event,
-		sanitizeAnalyticsProperties(event, {
-			...common(context),
-			...properties,
-		}),
+	analyticsSdk.dispatch((posthog) =>
+		posthog.capture(
+			event,
+			sanitizeAnalyticsProperties(event, {
+				...common(context),
+				...properties,
+			}),
+		),
 	);
 };
 
@@ -203,7 +195,11 @@ export const startDesktopAnalytics = async (): Promise<() => void> => {
 		cleanupRuntime = null;
 		if (contextFiber) void Effect.runPromise(Fiber.interrupt(contextFiber));
 		contextFiber = null;
-		if (initialized) void posthog.shutdown();
+		if (initialized) {
+			analyticsSdk.dispatch((posthog) => {
+				void posthog.shutdown();
+			});
+		}
 	};
 };
 

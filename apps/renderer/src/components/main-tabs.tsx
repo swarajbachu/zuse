@@ -20,6 +20,7 @@ import {
 	deriveAgentActivityState,
 } from "../lib/agent-activity-state.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
+import { closeChatTab } from "../lib/close-chat-tab.ts";
 import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
 import {
 	activeChatId as deriveActiveChatId,
@@ -251,95 +252,6 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 		</>
 	);
 }
-
-/**
- * Close the active chat tab. Shared between the X click and the Cmd+W menu
- * accelerator (subscribed in `app.tsx`). Logic lives outside the component
- * so the keyboard handler doesn't depend on which tab the user is hovering.
- */
-export const closeActiveChatTab = async (): Promise<void> => {
-	const sessions = useSessionsStore.getState();
-	const sessionId = sessions.selectedSessionId;
-	if (sessionId === null) return;
-	await closeChatTab(sessionId);
-};
-
-const closeChatTab = async (sessionId: SessionId): Promise<void> => {
-	const sessions = useSessionsStore.getState();
-	// Locate the session row + its project group.
-	let projectId: FolderId | null = null;
-	let session: Session | null = null;
-	for (const [pid, list] of Object.entries(sessions.sessionsByProject)) {
-		const match = list.find((row) => row.id === sessionId);
-		if (match !== undefined) {
-			projectId = pid as FolderId;
-			session = match;
-			break;
-		}
-	}
-	if (projectId === null || session === null) return;
-	const currentSession = session;
-
-	const projectRows = sessions.sessionsByProject[projectId] ?? EMPTY_SESSIONS;
-	// Live siblings in the same chat (excluding the one we're closing) sorted
-	// by creation time — used to pick the next active tab and to detect the
-	// "last tab" case.
-	const siblings = projectRows
-		.filter(
-			(row) =>
-				row.chatId === currentSession.chatId &&
-				row.archivedAt === null &&
-				row.id !== currentSession.id,
-		)
-		.slice()
-		.sort(
-			(a, b) =>
-				new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-		);
-
-	if (siblings.length > 0) {
-		// Not the last tab — archive and refocus the right neighbor (else left).
-		const idx = projectRows
-			.filter(
-				(row) =>
-					row.chatId === currentSession.chatId && row.archivedAt === null,
-			)
-			.sort(
-				(a, b) =>
-					new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-			)
-			.findIndex((row) => row.id === currentSession.id);
-		const ordered = projectRows
-			.filter(
-				(row) =>
-					row.chatId === currentSession.chatId &&
-					row.archivedAt === null &&
-					row.id !== currentSession.id,
-			)
-			.sort(
-				(a, b) =>
-					new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-			);
-		const next = ordered[idx] ?? ordered[idx - 1] ?? ordered[0] ?? null;
-		await sessions.archive(sessionId);
-		sessions.select(next?.id ?? null);
-		return;
-	}
-
-	// Last tab in the chat — archive AND spawn a fresh empty session in the
-	// same chat so the strip never goes empty. Provider/model defaults come
-	// from the user's settings.
-	const settings = useSettingsStore.getState();
-	const providersRefresh = useProvidersStore.getState().refresh;
-	await providersRefresh();
-	const providerId = settings.defaultProviderId;
-	const model =
-		settings.defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
-	await sessions.archive(currentSession.id);
-	await sessions.create(currentSession.chatId, providerId, model, {
-		runtimeMode: settings.defaultRuntimeMode,
-	});
-};
 
 function TabButton({
 	active,

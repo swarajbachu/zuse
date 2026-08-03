@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Move the hosted app to `code.zuse.sh` and restore browser relay CORS
+- Publish Serve runtime `0.1.1` with background data-directory support
+
+## [0.16.1]
+
+### Changed
+- Restore analytics event delivery (#422)
+
+## [0.16.0]
+
+### Changed
+- Make session streams durable across runtimes
+- Reduce desktop startup weight and defer non-critical runtime work
+- Upgrade the Effect runtime to 4.0.0-beta.102
+- Harden provider process lifecycle (#420)
+- Allow Forks from Any Message (#419)
+- Improve live synchronization and payload transport (#418)
+- Fix serve recovery lifecycle (#414)
+- Attribute renderer stall causes (#416)
+- Make chat creation lifecycle reliable (#417)
+- Add local performance and energy telemetry (#415)
+- Add end-to-end diagnostics and runtime telemetry (#378)
+- Fix hosted browser authentication flow (#413)
+- Apply hosted SPA routing in production (#412)
+- Fix hosted callback asset paths (#411)
+- Publish Serve runtime under Zuse scope (#410)
+- Prepare Serve packages for npm (#409)
+- Add one-command remote workspaces (#408)
+- Aggregate tool analytics without dropping product events (#406)
+- Surface Codex provider status failures (#405)
+
 ## [0.15.7]
 
 ### Changed

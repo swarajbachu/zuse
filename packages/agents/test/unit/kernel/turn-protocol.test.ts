@@ -24,6 +24,51 @@ const handleWithEvents = (
 });
 
 describe("turn-scoped provider protocol", () => {
+	it("scopes provider events buffered during resume to the durable turn", async () => {
+		const scoped = await Effect.runPromise(
+			makeTurnScopedSessionHandle(
+				handleWithEvents([
+					{ _tag: "AssistantMessage", itemId, text: "recovered" },
+					{ _tag: "Status", status: "idle" },
+				]),
+				turnId,
+			),
+		);
+		const events = Array.from(
+			await Effect.runPromise(Stream.runCollect(scoped.events)),
+		);
+
+		expect(events).toEqual([
+			{
+				scope: "turn",
+				turnId,
+				event: { _tag: "AssistantMessage", itemId, text: "recovered" },
+			},
+			{
+				scope: "turn",
+				turnId,
+				event: { _tag: "Completed", reason: "ended" },
+			},
+			{
+				scope: "session",
+				event: { _tag: "Status", status: "idle" },
+			},
+		]);
+	});
+
+	it("forwards one replay for an initially active durable turn", async () => {
+		const send = vi.fn(() => Effect.void);
+		const scoped = await Effect.runPromise(
+			makeTurnScopedSessionHandle({ ...handleWithEvents([]), send }, turnId),
+		);
+
+		await Effect.runPromise(scoped.send(turnId, "recovered"));
+		await Effect.runPromise(scoped.send(turnId, "duplicate"));
+
+		expect(send).toHaveBeenCalledOnce();
+		expect(send).toHaveBeenCalledWith("recovered");
+	});
+
 	it("preserves the supplied application turn id and emits one terminal", async () => {
 		const scoped = await Effect.runPromise(
 			makeTurnScopedSessionHandle(

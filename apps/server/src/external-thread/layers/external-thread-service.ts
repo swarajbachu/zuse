@@ -1,7 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  closeSync,
+  createReadStream,
+  type Dirent,
+  existsSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  statSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { createInterface } from "node:readline";
+import { readdir as readDirectory } from "node:fs/promises";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ThreadListResponse } from "@zuse/agents/codex-generated/v2/ThreadListResponse";
 import type { ThreadReadResponse } from "@zuse/agents/codex-generated/v2/ThreadReadResponse";
@@ -109,6 +121,7 @@ const rowText = (row: Record<string, unknown>): string | null => {
 const isSystemLikeText = (text: string): boolean =>
   text.includes("<system_instruction>") ||
   text.includes("<task-notification>") ||
+  text.startsWith("<app-context>") ||
   text.startsWith("You are working inside ");
 
 const isMeaningfulConversationText = (
@@ -262,34 +275,156 @@ const discoverCodexViaAppServer = (limit: number) =>
       );
   });
 
-const discoverCodexFromIndex = (): ReadonlyArray<DiscoveredThread> => {
-  const file = path.join(homedir(), ".codex", "session_index.jsonl");
+const rolloutFilesByThreadId = async (
+  roots: ReadonlyArray<string>,
+  targetIds: ReadonlySet<string>,
+): Promise<ReadonlyMap<string, string>> => {
+  if (targetIds.size === 0) return new Map();
+  const now = Date.now();
+  for (const [key, entry] of rolloutFilesCache) {
+    if (entry.expiresAt <= now) rolloutFilesCache.delete(key);
+  }
+  const cacheKey = `${roots.join("\0")}\0${[...targetIds].sort().join("\0")}`;
+  const cached = rolloutFilesCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached.files;
+  }
+  const files = new Map<string, string>();
+  const pending = roots.filter(existsSync).reverse();
+  const remaining = new Set(targetIds);
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    if (directory === undefined) break;
+    let entries: Dirent<string>[];
+    try {
+      entries = await readDirectory(directory, {
+        withFileTypes: true,
+        encoding: "utf8",
+      });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(entryPath);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+      const match = entry.name.match(
+        /([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\.jsonl$/u,
+      );
+      const id = match?.[1];
+      if (id === undefined || !remaining.has(id)) continue;
+      files.set(id, entryPath);
+      remaining.delete(id);
+      if (remaining.size === 0) pending.length = 0;
+    }
+  }
+  rolloutFilesCache.set(cacheKey, {
+    expiresAt: now + 30_000,
+    files,
+  });
+  while (rolloutFilesCache.size > 32) {
+    const oldestKey = rolloutFilesCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    rolloutFilesCache.delete(oldestKey);
+  }
+  return files;
+};
+
+const rolloutFilesCache = new Map<
+  string,
+  { readonly expiresAt: number; readonly files: ReadonlyMap<string, string> }
+>();
+
+const rolloutCwd = (file: string | undefined): string => {
+  if (file === undefined) return "";
+  let handle: number | null = null;
+  try {
+    handle = openSync(file, "r");
+    const chunks: Buffer[] = [];
+    let total = 0;
+    while (total < 1024 * 1024) {
+      const buffer = Buffer.allocUnsafe(16 * 1024);
+      const length = readSync(handle, buffer, 0, buffer.length, total);
+      if (length === 0) break;
+      const newline = buffer.subarray(0, length).indexOf(10);
+      const chunk =
+        newline === -1
+          ? buffer.subarray(0, length)
+          : buffer.subarray(0, newline);
+      chunks.push(chunk);
+      total += length;
+      if (newline !== -1) break;
+    }
+    const firstRow = asRecord(
+      JSON.parse(Buffer.concat(chunks).toString("utf8")),
+    );
+    if (firstString(firstRow?.["type"]) !== "session_meta") return "";
+    return firstString(asRecord(firstRow?.["payload"])?.["cwd"]) ?? "";
+  } catch {
+    return "";
+  } finally {
+    if (handle !== null) closeSync(handle);
+  }
+};
+
+export const discoverCodexFromIndex = async (
+  file = path.join(homedir(), ".codex", "session_index.jsonl"),
+  rolloutRoots: ReadonlyArray<string> = [
+    path.join(homedir(), ".codex", "sessions"),
+    path.join(homedir(), ".codex", "archived_sessions"),
+  ],
+  limit = 100,
+): Promise<ReadonlyArray<DiscoveredThread>> => {
   if (!existsSync(file)) return [];
-  return parseJsonLines(file).flatMap(
-    (row): ReadonlyArray<DiscoveredThread> => {
-      const id = firstString(row["id"]);
-      if (id === null) return [];
-      const title = firstString(row["thread_name"]) ?? "Codex conversation";
-      const updated = firstString(row["updated_at"]);
-      const updatedAt =
-        updated === null || Number.isNaN(new Date(updated).getTime())
-          ? new Date(0)
-          : new Date(updated);
-      return [
-        {
-          id: `codex:${id}`,
-          providerId: "codex",
-          title: clamp(title, 96),
-          preview: clamp(title, 140),
-          projectPath: "",
-          updatedAt,
-          sourcePath: file,
-          cursor: id,
-          resumeStrategy: "codex-thread-id",
-        },
-      ];
-    },
+  const rowTime = (row: Record<string, unknown>): number => {
+    const value = firstString(row["updated_at"]);
+    if (value === null) return 0;
+    const time = new Date(value).getTime();
+    return Number.isNaN(time) ? 0 : time;
+  };
+  const newestRowById = new Map<string, Record<string, unknown>>();
+  for (const row of parseJsonLines(file)) {
+    const id = firstString(row["id"]);
+    if (id === null) continue;
+    const current = newestRowById.get(id);
+    if (current === undefined || rowTime(row) > rowTime(current)) {
+      newestRowById.set(id, row);
+    }
+  }
+  const rows = [...newestRowById.values()]
+    .sort((left, right) => rowTime(right) - rowTime(left))
+    .slice(0, limit);
+  const rolloutFiles = await rolloutFilesByThreadId(
+    rolloutRoots,
+    new Set(rows.flatMap((row) => firstString(row["id"]) ?? [])),
   );
+  return rows.flatMap((row): ReadonlyArray<DiscoveredThread> => {
+    const id = firstString(row["id"]);
+    if (id === null) return [];
+    const rolloutFile = rolloutFiles.get(id);
+    const title = firstString(row["thread_name"]) ?? "Codex conversation";
+    const updated = firstString(row["updated_at"]);
+    const updatedAt =
+      updated === null || Number.isNaN(new Date(updated).getTime())
+        ? new Date(0)
+        : new Date(updated);
+    return [
+      {
+        id: `codex:${id}`,
+        providerId: "codex",
+        title: clamp(title, 96),
+        preview: clamp(title, 140),
+        projectPath: rolloutCwd(rolloutFile),
+        updatedAt,
+        sourcePath: rolloutFile ?? file,
+        cursor: id,
+        resumeStrategy: "codex-thread-id",
+      },
+    ];
+  });
 };
 
 export const claudeTranscriptMessages = (
@@ -474,6 +609,73 @@ const codexTranscriptMessages = (cursor: string) =>
     });
   }).pipe(Effect.catch(() => Effect.succeed([])));
 
+const isCodexInjectedContextText = (text: string): boolean =>
+  isSystemLikeText(text) ||
+  text.startsWith("<recommended_plugins>") ||
+  text.startsWith("# AGENTS.md instructions") ||
+  text.startsWith("<environment_context>");
+
+const codexRolloutMessage = (
+  row: Record<string, unknown>,
+): MessageContent | null => {
+  if (firstString(row["type"]) !== "response_item") return null;
+  const payload = asRecord(row["payload"]);
+  if (payload === null || firstString(payload["type"]) !== "message") {
+    return null;
+  }
+  const role = firstString(payload["role"]);
+  if (role !== "user" && role !== "assistant") return null;
+  const content = payload["content"];
+  if (!Array.isArray(content)) return null;
+  const text = content
+    .flatMap((block) => {
+      const record = asRecord(block);
+      if (record === null) return [];
+      const type = firstString(record["type"]);
+      if (type !== "input_text" && type !== "output_text" && type !== "text") {
+        return [];
+      }
+      const value = firstString(record["text"]);
+      if (
+        value === null ||
+        (role === "user" && isCodexInjectedContextText(value))
+      ) {
+        return [];
+      }
+      return [value];
+    })
+    .join("\n")
+    .trim();
+  if (text.length === 0) return null;
+  return role === "user"
+    ? { _tag: "user", text, goal: false }
+    : { _tag: "assistant", text };
+};
+
+export const codexRolloutTranscriptMessages = async (
+  sourcePath: string | null | undefined,
+): Promise<ReadonlyArray<MessageContent>> => {
+  if (sourcePath === null || sourcePath === undefined) return [];
+  const messages: MessageContent[] = [];
+  const lines = createInterface({
+    input: createReadStream(sourcePath, { encoding: "utf8" }),
+    crlfDelay: Number.POSITIVE_INFINITY,
+  });
+  for await (const line of lines) {
+    try {
+      const row = asRecord(JSON.parse(line));
+      if (row === null) continue;
+      const message = codexRolloutMessage(row);
+      if (message === null) continue;
+      messages.push(message);
+      if (messages.length > 2_000) messages.shift();
+    } catch {
+      // Ignore partial or non-JSON rows without discarding the rest of the rollout.
+    }
+  }
+  return messages;
+};
+
 const toExternalThread = (thread: DiscoveredThread): ExternalThread =>
   ExternalThread.make({
     ...thread,
@@ -634,11 +836,16 @@ export const ExternalThreadServiceLive = Layer.effect(
 
     const list: ExternalThreadService["Service"]["list"] = (limit) =>
       Effect.gen(function* () {
+        const discoverCodexFallback = () =>
+          Effect.promise(() =>
+            discoverCodexFromIndex(undefined, undefined, limit),
+          );
         const codex = yield* discoverCodexViaAppServer(limit).pipe(
           Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
-          Effect.catch(() => Effect.succeed(discoverCodexFromIndex())),
+          Effect.catch(discoverCodexFallback),
         );
-        const codexRows = codex.length > 0 ? codex : discoverCodexFromIndex();
+        const codexRows =
+          codex.length > 0 ? codex : yield* discoverCodexFallback();
         const rows = dedupeExternalThreads(
           [...discoverClaudeThreads(), ...codexRows].map(toExternalThread),
         );
@@ -681,12 +888,22 @@ export const ExternalThreadServiceLive = Layer.effect(
               .pipe(Effect.orDie);
           }
         } else if (providerId === "codex") {
-          const imported = yield* codexTranscriptMessages(input.cursor).pipe(
+          const fromAppServer = yield* codexTranscriptMessages(
+            input.cursor,
+          ).pipe(
             Effect.provideService(
               CommandExecutor.ChildProcessSpawner,
               executor,
             ),
           );
+          const imported =
+            fromAppServer.length > 0
+              ? fromAppServer
+              : yield* Effect.promise(() =>
+                  codexRolloutTranscriptMessages(input.sourcePath).catch(
+                    () => [] as ReadonlyArray<MessageContent>,
+                  ),
+                );
           if (imported.length > 0) {
             importedMessages = yield* messages
               .importExternalMessages(result.initialSession.id, imported)

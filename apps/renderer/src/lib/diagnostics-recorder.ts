@@ -1,6 +1,5 @@
 import type { PowerInteractionMeasurement } from "@zuse/contracts";
 import { getPowerRuntimeActivity } from "./power-runtime-activity.ts";
-import { setRendererRpcLagReporter } from "./rpc-stall-instrumentation.ts";
 import {
 	getActiveStallOperations,
 	type StallContext,
@@ -269,8 +268,13 @@ export function installRendererDiagnostics(): void {
 	);
 	void import("./renderer-lag-monitor.ts")
 		.then(async ({ installRendererLagMonitor }) => {
-			const { createOperationLagSample, createReactCommitLagSample } =
-				await import("./stall-attribution.ts");
+			const [
+				{ createOperationLagSample, createReactCommitLagSample },
+				{ setRendererRpcLagReporter },
+			] = await Promise.all([
+				import("./stall-attribution.ts"),
+				import("./rpc-stall-instrumentation.ts"),
+			]);
 			const reportSamples = (
 				samples: ReadonlyArray<import("@zuse/contracts").LagSample>,
 			) => {

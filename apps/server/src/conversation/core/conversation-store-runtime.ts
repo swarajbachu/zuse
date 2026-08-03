@@ -437,7 +437,17 @@ export const makeConversationStoreRuntime = Effect.fn(
 					},
 				})
 				.pipe(Effect.orDie);
-			state.rememberActiveTurn(sessionId, turnId);
+			// An idempotent retry can return the original SubmitTurn result for the
+			// same client message id. Rehydrate the durable turn instead of caching
+			// this attempt's fresh placeholder id, which has no event to back it.
+			state.clearActiveTurn(sessionId);
+			const activeTurnId = yield* resolveActiveTurn(sessionId);
+			if (activeTurnId === undefined) {
+				return yield* Effect.die(
+					new Error(`active turn missing after submit: ${id}`),
+				);
+			}
+			state.rememberActiveTurn(sessionId, activeTurnId);
 			yield* runSessionReactors;
 			const projected = yield* sql<{ readonly sequence: number }>`
 				SELECT sequence FROM messages WHERE id = ${id} LIMIT 1

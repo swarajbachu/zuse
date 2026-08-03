@@ -4,10 +4,8 @@ import ReactDOM from "react-dom/client";
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 
-import { App } from "./app";
-import { BrowserAccessGate } from "./components/browser-access-gate.tsx";
+import { ApplicationBootstrap } from "./application-bootstrap.tsx";
 import { ErrorBoundary } from "./components/ui/error-boundary.tsx";
-import { ToastProvider } from "./components/ui/toast.tsx";
 import {
 	installRendererDiagnostics,
 	persistFatalRendererDiagnostic,
@@ -15,7 +13,6 @@ import {
 	recordReactCommit,
 	summarizeDiagnosticError,
 } from "./lib/diagnostics-recorder.ts";
-import { AppAtomProvider } from "./state/registry.tsx";
 
 if (import.meta.env.DEV) {
 	const preloadReloadKey = "zuse.dev.preload-reload-at";
@@ -102,18 +99,6 @@ function RootCrashFallback({ error }: { readonly error: Error }) {
 	);
 }
 
-function ApplicationProviders() {
-	return (
-		<AppAtomProvider>
-			<ToastProvider>
-				<BrowserAccessGate>
-					<App />
-				</BrowserAccessGate>
-			</ToastProvider>
-		</AppAtomProvider>
-	);
-}
-
 ReactDOM.createRoot(root).render(
 	<React.StrictMode>
 		<ErrorBoundary
@@ -141,10 +126,10 @@ ReactDOM.createRoot(root).render(
 						recordReactCommit(id, phase, actualDuration, baseDuration);
 					}}
 				>
-					<ApplicationProviders />
+					<ApplicationBootstrap />
 				</React.Profiler>
 			) : (
-				<ApplicationProviders />
+				<ApplicationBootstrap />
 			)}
 		</ErrorBoundary>
 	</React.StrictMode>,

@@ -222,16 +222,14 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 			activeProviderSessions.delete(sessionId);
 		}),
 	events: (sessionId) =>
-		Stream.suspend(() =>
-			Stream.fromIterable(
-				scriptedEvents.map((event) => ({
-					scope: "turn" as const,
-					turnId:
-						providerTurnIds.get(sessionId) ?? AgentTurnId.make("test-turn"),
-					event,
-				})),
-			),
-		),
+		Stream.suspend(() => {
+			const events = scriptedEvents.map((event) => ({
+				scope: "turn" as const,
+				turnId: providerTurnIds.get(sessionId) ?? AgentTurnId.make("test-turn"),
+				event,
+			}));
+			return events.length === 0 ? Stream.never : Stream.fromIterable(events);
+		}),
 	setCredential: () => Effect.succeed({ verification: "notChecked" }),
 	removeCredential: () => Effect.void,
 	setPermissionMode: () => Effect.void,

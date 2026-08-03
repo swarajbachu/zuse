@@ -1,3 +1,4 @@
+import { HOSTED_APP_URL } from "@zuse/contracts";
 import { Context, Layer, type Redacted } from "effect";
 
 /**
@@ -56,7 +57,7 @@ const DEFAULTS = {
 	accessTokenTtlMs: 30 * 60 * 1000,
 	presenceStaleMs: 90 * 1000,
 	maxEnvironmentsPerAccount: 5 as number | null,
-	allowedBrowserOrigins: ["https://app.zuse.sh"] as ReadonlyArray<string>,
+	allowedBrowserOrigins: [HOSTED_APP_URL] as ReadonlyArray<string>,
 } as const;
 
 export const layer = (

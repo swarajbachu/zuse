@@ -1,6 +1,6 @@
 {
 	"name": "@zusehq/serve",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "One-command remote access for Zuse workspaces",
 	"license": "MIT",
 	"type": "module",
@@ -28,7 +28,7 @@
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@zusehq/server": "0.1.0"
+		"@zusehq/server": "0.1.1"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",

@@ -4,7 +4,7 @@ import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { WORKOS_PUBLIC_CLIENT_ID } from "@zuse/contracts";
+import { HOSTED_APP_URL, WORKOS_PUBLIC_CLIENT_ID } from "@zuse/contracts";
 import { Effect } from "effect";
 
 import { SessionStoreLive } from "../auth/layers/session-store.ts";
@@ -23,21 +23,33 @@ import {
 	getServeServiceStatus,
 	installServeService,
 	resolveServeServicePaths,
-	startServeService,
 	stopServeService,
 	UnsupportedServiceManagerError,
 	uninstallServeService,
 } from "./service-manager.ts";
 
 const DEFAULT_RELAY_URL = "https://relay.stuff.md";
-const APP_URL = "https://app.zuse.sh";
 const workosClientId = (env: NodeJS.ProcessEnv): string =>
 	(env.WORKOS_CLIENT_ID ?? "").trim() || WORKOS_PUBLIC_CLIENT_ID;
 
-const resolveDataDir = (env: NodeJS.ProcessEnv, override?: string): string => {
+export const resolveServeDataDir = (
+	env: NodeJS.ProcessEnv,
+	override?: string,
+	runtime: {
+		readonly platform?: NodeJS.Platform;
+		readonly homeDir?: string;
+	} = {},
+): string => {
 	if (override !== undefined) return override;
 	if (env.ZUSE_USER_DATA) return env.ZUSE_USER_DATA;
-	const xdg = env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
+	if (env.ZUSE_USER_DATA_DIR) return env.ZUSE_USER_DATA_DIR;
+	if (env.MEMOIZE_USER_DATA_DIR) return env.MEMOIZE_USER_DATA_DIR;
+	const platform = runtime.platform ?? process.platform;
+	const homeDir = runtime.homeDir ?? homedir();
+	if (platform === "darwin") {
+		return join(homeDir, "Library", "Application Support", "Zuse Alpha");
+	}
+	const xdg = env.XDG_DATA_HOME ?? join(homeDir, ".local", "share");
 	return join(xdg, "zuse");
 };
 
@@ -181,7 +193,7 @@ const printStatus = async (
 		environmentId: relay?.environmentId ?? null,
 		durable: status.durable,
 		dataDir: options.dataDir,
-		appUrl: APP_URL,
+		appUrl: HOSTED_APP_URL,
 	};
 	if (options.json) {
 		console.log(JSON.stringify(value));
@@ -273,7 +285,7 @@ export const runServePackageCli = async (
 	const command = parseServeCommand(normalized);
 	env.ZUSE_RUNTIME_VERSION = options.packageVersion ?? "0.0.0";
 	env.ZUSE_RELAY_URL = env.ZUSE_RELAY_URL ?? DEFAULT_RELAY_URL;
-	const dataDir = resolveDataDir(env, command.dataDir);
+	const dataDir = resolveServeDataDir(env, command.dataDir);
 	env.ZUSE_USER_DATA = dataDir;
 	const servicePaths = resolveServeServicePaths({ dataDir });
 	const installService = (executable: string) =>
@@ -376,22 +388,6 @@ export const runServePackageCli = async (
 			},
 		}),
 	);
-	const current = await getServeServiceStatus(servicePaths);
-	if (current.installed && !current.running) {
-		await startServeService(servicePaths);
-		if (!(await waitForReachability(env))) {
-			throw new Error(
-				"Zuse Serve started, but its local readiness check failed. Run `zuse serve status --json` for diagnostics.",
-			);
-		}
-		await printStatus(await getServeServiceStatus(servicePaths), {
-			json: false,
-			dataDir,
-			env,
-		});
-		return;
-	}
-
 	let installedExecutable: string;
 	try {
 		const packageVersion = options.packageVersion ?? "0.0.0";
@@ -439,7 +435,7 @@ export const runServePackageCli = async (
 	console.log(`Account    ${session.email}`);
 	const agents = await installedAgents();
 	console.log(`Agents     ${agents.join(", ") || "None detected"}`);
-	console.log(`Open       ${APP_URL}`);
+	console.log(`Open       ${HOSTED_APP_URL}`);
 };
 
 export { foregroundArgs };

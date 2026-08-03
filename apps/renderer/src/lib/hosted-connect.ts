@@ -1,4 +1,5 @@
 import {
+	HOSTED_APP_URL,
 	type RelayAuthTokenGrant,
 	type RelayConnectGrant,
 	type RelayEnvironmentList,
@@ -68,9 +69,10 @@ const environment = (): Record<string, string | undefined> =>
 	(import.meta as { readonly env?: Record<string, string | undefined> }).env ??
 	{};
 
-export const isHostedProduct = (): boolean =>
-	environment().VITE_ZUSE_HOSTED === "1" ||
-	window.location.hostname === "app.zuse.sh";
+export const isHostedProduct = (
+	locationOrigin = window.location.origin,
+): boolean =>
+	environment().VITE_ZUSE_HOSTED === "1" || locationOrigin === HOSTED_APP_URL;
 
 const clientId = (): string =>
 	environment().VITE_WORKOS_CLIENT_ID?.trim() || WORKOS_PUBLIC_CLIENT_ID;

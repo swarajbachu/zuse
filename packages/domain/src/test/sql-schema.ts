@@ -10,6 +10,7 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 			project_id TEXT,
 			worktree_id TEXT,
 			title TEXT,
+			title_provenance TEXT NOT NULL DEFAULT 'manual',
 			active_session_id TEXT,
 			origin_session_id TEXT,
 			archived_at TEXT,
@@ -25,6 +26,7 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 			id TEXT PRIMARY KEY,
 			project_id TEXT NOT NULL,
 			title TEXT NOT NULL,
+			title_provenance TEXT NOT NULL DEFAULT 'manual',
 			provider_id TEXT NOT NULL,
 			model TEXT NOT NULL,
 			status TEXT NOT NULL,
@@ -48,6 +50,7 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 		CREATE TABLE messages (
 			id TEXT PRIMARY KEY,
 			session_id TEXT NOT NULL,
+			turn_id TEXT,
 			role TEXT NOT NULL,
 			kind TEXT NOT NULL,
 			content_json TEXT NOT NULL,

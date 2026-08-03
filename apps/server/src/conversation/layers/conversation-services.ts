@@ -462,8 +462,6 @@ const ConversationRuntimeLive = Layer.effect(
 			);
 		const deleteChat: ConversationOperations["deleteChat"] = (chatId) =>
 			deleteChatWithReactor(chatId, reactorRuntime.runChatDelete);
-		yield* reactorRuntime.catchUpAll;
-
 		const listMessages: ConversationOperations["listMessages"] = (sessionId) =>
 			sessionQueries.messages(sessionId).pipe(
 				Effect.map((records) => records.map(messageFromRecord)),
@@ -513,16 +511,22 @@ const ConversationRuntimeLive = Layer.effect(
 			hasProvider: (sessionId) => provider.hasSession(sessionId),
 			interruptProviderFiber,
 		});
-		const { resumeSession, sendMessage, interruptSession, queueRuntime } =
-			messageOperations;
+		const {
+			resumeSession,
+			sendMessage,
+			interruptSession,
+			queueRuntime,
+			runStartupRecovery,
+			withStartupRecovery,
+		} = messageOperations;
 
 		const getSession: ConversationOperations["getSession"] = (sessionId) =>
-			lookupSession(sessionId);
+			withStartupRecovery(lookupSession(sessionId));
 
 		const sessionService = {
 			listSessions,
 			getSession,
-			createSession,
+			createSession: (input) => withStartupRecovery(createSession(input)),
 			renameSession,
 			setModel,
 			setProvider,
@@ -545,7 +549,7 @@ const ConversationRuntimeLive = Layer.effect(
 			listChats,
 			getChat,
 			getArchivePreview,
-			createChat,
+			createChat: (input) => withStartupRecovery(createChat(input)),
 			renameChat,
 			markChatRead,
 			streamChatChanges,
@@ -567,10 +571,17 @@ const ConversationRuntimeLive = Layer.effect(
 		} satisfies TranscriptServiceShape;
 		const messageService = {
 			listMessages,
-			sendMessage,
+			sendMessage: (...args) => withStartupRecovery(sendMessage(...args)),
 			interruptSession,
 		} satisfies MessageServiceShape;
 		const queueService = queueRuntime.service;
+		// Provider replay may wait for user input. Run all durable catch-up only
+		// after every service dependency exists, and keep it scoped to this layer
+		// without delaying RPC availability.
+		yield* Effect.forkIn(
+			runStartupRecovery(reactorRuntime.catchUpAll),
+			serviceScope,
+		);
 		return ConversationRuntime.of({
 			session: sessionService,
 			chat: chatService,

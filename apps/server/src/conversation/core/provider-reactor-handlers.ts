@@ -97,7 +97,8 @@ export const makeProviderReactorHandlers = (
 			// Compatibility guard for durable eager-start effects written by older
 			// builds. Empty sessions are dormant: acknowledge the legacy effect and
 			// repair their old booting projection without spawning a provider.
-			if ((yield* resolveActiveTurn(sessionId)) === undefined) {
+			const activeTurnId = yield* resolveActiveTurn(sessionId);
+			if (activeTurnId === undefined) {
 				if (session.status === "booting") yield* setStatus(sessionId, "idle");
 				yield* reactorEffects.complete(reactorInput.commandId);
 				return;
@@ -127,7 +128,7 @@ export const makeProviderReactorHandlers = (
 						);
 			const start = ensureForTurn(sessionId, {
 				initialPrompt: request.initialPrompt ?? undefined,
-				initialTurnId: request.initialTurnId ?? undefined,
+				initialTurnId: request.initialTurnId ?? activeTurnId,
 				modelOptions,
 				enableSubagents: request.enableSubagents,
 				forkFromResume: request.forkFromResume,
@@ -192,6 +193,11 @@ export const makeProviderReactorHandlers = (
 		Effect.gen(function* () {
 			if (yield* reactorEffects.isCompleted(reactorInput.commandId)) return;
 			const sessionId = SessionId.make(reactorInput.streamId);
+			const resolvedTurnId = yield* resolveActiveTurn(sessionId);
+			if (resolvedTurnId !== AgentTurnId.make(reactorInput.command.turnId)) {
+				yield* reactorEffects.complete(reactorInput.commandId);
+				return;
+			}
 			const input = yield* decodeProviderTurnInput(
 				reactorInput.command.providerInputJson,
 			).pipe(Effect.orDie);

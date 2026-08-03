@@ -111,7 +111,71 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 		commandLocks.set(streamId, created);
 		return created;
 	};
-	const eventHub = yield* PubSub.unbounded<StoredEvent>();
+	const reconciliationWakeHub = yield* PubSub.sliding<void>(1);
+	const reconciliationWakeSubscription = yield* PubSub.subscribe(
+		reconciliationWakeHub,
+	);
+	const durableEventHub =
+		yield* PubSub.unbounded<Result.Result<StoredEvent, SessionDomainError>>();
+	let durableSubscriberCount = 0;
+	const registerDurableSubscriber = Effect.acquireRelease(
+		Effect.sync(() => {
+			durableSubscriberCount += 1;
+			PubSub.publishUnsafe(reconciliationWakeHub, undefined);
+		}),
+		() =>
+			Effect.sync(() => {
+				durableSubscriberCount = Math.max(0, durableSubscriberCount - 1);
+			}),
+	);
+	const decodeDurableNotifications = (
+		notifications: Stream.Stream<
+			Result.Result<StoredEvent, SessionDomainError>
+		>,
+	): Stream.Stream<StoredEvent, SessionDomainError> =>
+		notifications.pipe(
+			Stream.mapEffect((notification) =>
+				notification._tag === "Failure"
+					? Effect.fail(notification.failure)
+					: Effect.succeed(notification.success),
+			),
+		);
+	const readCurrentSequence = sql<{ readonly sequence: number }>`
+		SELECT COALESCE(MAX(sequence), 0) AS sequence
+		FROM events WHERE stream_kind = 'session'
+	`.pipe(Effect.map((rows) => rows[0]?.sequence ?? 0));
+	let durableCursor = yield* readCurrentSequence.pipe(Effect.orDie);
+	const reconcileDurableEvents = Effect.fn(
+		"SessionDomain.reconcileDurableEvents",
+	)(function* () {
+		if (durableSubscriberCount === 0) return;
+		const result = yield* dispatchStorage
+			.allEventsAfterSequence(durableCursor)
+			.pipe(Effect.result);
+		if (result._tag === "Failure") {
+			if (result.failure._tag === "DispatchPersistenceDecodeError") {
+				yield* PubSub.publish(durableEventHub, Result.fail(result.failure));
+				yield* Effect.sleep("1 second");
+				return;
+			}
+			yield* Effect.logWarning(
+				"Durable session event reconciliation failed; retrying",
+			).pipe(Effect.annotateLogs("error", result.failure));
+			yield* Effect.sleep("1 second");
+			return;
+		}
+		for (const record of result.success) {
+			yield* PubSub.publish(durableEventHub, Result.succeed(record));
+			durableCursor = record.sequence;
+		}
+	});
+	yield* Stream.merge(
+		Stream.fromSubscription(reconciliationWakeSubscription),
+		Stream.fromEffectSchedule(Effect.void, Schedule.spaced("100 millis")),
+	).pipe(
+		Stream.runForEach(() => reconcileDurableEvents()),
+		Effect.forkScoped({ startImmediately: true }),
+	);
 
 	const events: SessionDomainApi["events"] = ({
 		streamId,
@@ -119,16 +183,17 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 	}) =>
 		Stream.unwrap(
 			Effect.gen(function* () {
-				const subscription = yield* PubSub.subscribe(eventHub);
+				yield* registerDurableSubscriber;
+				const durableSubscription = yield* PubSub.subscribe(durableEventHub);
 				const replay = yield* dispatchStorage.eventsAfterSequence(
 					streamId,
 					afterSequence,
 				);
 				let cursor = afterSequence;
-				return Stream.concat(
-					Stream.fromIterable(replay),
-					Stream.fromSubscription(subscription),
-				).pipe(
+				const tail = decodeDurableNotifications(
+					Stream.fromSubscription(durableSubscription),
+				);
+				return Stream.concat(Stream.fromIterable(replay), tail).pipe(
 					Stream.filter((record) => {
 						if (record.streamId !== streamId || record.sequence <= cursor) {
 							return false;
@@ -143,14 +208,15 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 	const allEvents: SessionDomainApi["allEvents"] = ({ afterSequence = 0 }) =>
 		Stream.unwrap(
 			Effect.gen(function* () {
-				const subscription = yield* PubSub.subscribe(eventHub);
+				yield* registerDurableSubscriber;
+				const durableSubscription = yield* PubSub.subscribe(durableEventHub);
 				const replay =
 					yield* dispatchStorage.allEventsAfterSequence(afterSequence);
 				let cursor = afterSequence;
-				return Stream.concat(
-					Stream.fromIterable(replay),
-					Stream.fromSubscription(subscription),
-				).pipe(
+				const tail = decodeDurableNotifications(
+					Stream.fromSubscription(durableSubscription),
+				);
+				return Stream.concat(Stream.fromIterable(replay), tail).pipe(
 					Stream.filter((record) => {
 						if (record.sequence <= cursor) return false;
 						cursor = record.sequence;
@@ -170,7 +236,8 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 			Effect.gen(function* () {
 				// Attach live delivery before observing the durable head. Events that
 				// commit during snapshot/replay are retained by this subscription.
-				const subscription = yield* PubSub.subscribe(eventHub);
+				yield* registerDurableSubscriber;
+				const durableSubscription = yield* PubSub.subscribe(durableEventHub);
 				const throughVersion =
 					yield* dispatchStorage.currentStreamVersion(streamId);
 				const retainedVersion = afterVersion ?? 0;
@@ -197,24 +264,22 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 							.map((record) => ({ kind: "event" as const, record }));
 				prefix.push({ kind: "synchronized", throughVersion });
 				let liveVersion = throughVersion;
-				return Stream.concat(
-					Stream.fromIterable(prefix),
-					Stream.fromSubscription(subscription).pipe(
-						Stream.filterMap((record) => {
-							if (
-								record.streamId !== streamId ||
-								record.streamVersion <= liveVersion
-							) {
-								return Result.fail(undefined);
-							}
-							liveVersion = record.streamVersion;
-							return Result.succeed({
-								kind: "event" as const,
-								record,
-							});
-						}),
-					),
+				const tail = decodeDurableNotifications(
+					Stream.fromSubscription(durableSubscription),
+				).pipe(
+					Stream.filter((record) => {
+						if (
+							record.streamId !== streamId ||
+							record.streamVersion <= liveVersion
+						) {
+							return false;
+						}
+						liveVersion = record.streamVersion;
+						return true;
+					}),
+					Stream.map((record) => ({ kind: "event" as const, record })),
 				);
+				return Stream.concat(Stream.fromIterable(prefix), tail);
 			}),
 		);
 
@@ -223,10 +288,7 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 		events,
 		allEvents,
 		synchronizedEvents,
-		currentSequence: sql<{ readonly sequence: number }>`
-			SELECT COALESCE(MAX(sequence), 0) AS sequence
-			FROM events WHERE stream_kind = 'session'
-		`.pipe(Effect.map((rows) => rows[0]?.sequence ?? 0)),
+		currentSequence: readCurrentSequence,
 		currentStreamVersion: (streamId) =>
 			dispatchStorage.currentStreamVersion(streamId),
 		dispatch: Effect.fn("SessionDomain.dispatch")(function* (
@@ -276,11 +338,7 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 				),
 			);
 			if (appended.length > 0) {
-				yield* Effect.forEach(
-					appended,
-					(record) => PubSub.publish(eventHub, record),
-					{ discard: true },
-				);
+				yield* PubSub.publish(reconciliationWakeHub, undefined);
 			}
 			return receipt;
 		}),

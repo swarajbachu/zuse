@@ -25,6 +25,10 @@ const require = createRequire(import.meta.url);
 const desktopPackage = require("../desktop/package.json") as {
 	version: string;
 };
+const effectSchemaPath = require.resolve("effect/Schema");
+const fastCheckProductionStub = fileURLToPath(
+	new URL("./src/lib/fast-check-production-stub.ts", import.meta.url),
+);
 const fontPkgPath = require.resolve("@fontsource-variable/inter/package.json");
 // .../node_modules/.bun/@fontsource-variable+inter@X.Y.Z/node_modules/@fontsource-variable/inter/package.json
 //                  ^^^^ walk up 5 dirs to reach `node_modules/.bun/`
@@ -43,6 +47,19 @@ export default defineConfig({
 	// need relative assets so they continue to load through file://.
 	base: hostedBuild ? "/" : "./",
 	plugins: [
+		{
+			name: "omit-renderer-schema-test-data",
+			apply: "build",
+			enforce: "pre",
+			resolveId(source, importer) {
+				if (
+					source === "./testing/FastCheck.js" &&
+					importer?.split("?", 1)[0] === effectSchemaPath
+				) {
+					return fastCheckProductionStub;
+				}
+			},
+		},
 		react({
 			babel: { plugins: [["babel-plugin-react-compiler", {}]] },
 		}),
@@ -78,6 +95,7 @@ export default defineConfig({
 	build: {
 		outDir: "dist",
 		emptyOutDir: true,
+		manifest: true,
 		sourcemap: sourceMaps,
 		rollupOptions: {
 			input: {

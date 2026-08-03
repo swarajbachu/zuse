@@ -2,8 +2,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 
+import {
+	collectEntryAssets,
+	collectRouteAssets,
+} from "./renderer-bundle-budget.mjs";
+
 const dist = resolve(import.meta.dirname, "../apps/renderer/dist");
-const html = readFileSync(resolve(dist, "index.html"), "utf8");
 const expectedAnalyticsKey = process.env.VITE_POSTHOG_KEY?.trim();
 if (expectedAnalyticsKey) {
 	const hasAnalyticsKey = readdirSync(resolve(dist, "assets"))
@@ -19,23 +23,40 @@ if (expectedAnalyticsKey) {
 		);
 	}
 }
-const assets = [...html.matchAll(/(?:src|href)="\.\/([^"?]+\.(?:js|css))"/g)]
-	.map((match) => match[1])
-	.filter((asset, index, all) => all.indexOf(asset) === index);
+const manifest = JSON.parse(
+	readFileSync(resolve(dist, ".vite/manifest.json"), "utf8"),
+);
+const assets = collectEntryAssets(manifest, "index.html");
+const defaultRouteAssets = collectRouteAssets(
+	manifest,
+	"index.html",
+	"src/application.tsx",
+);
 
-const totals = { js: 0, css: 0 };
-for (const asset of assets) {
-	const kind = asset.endsWith(".css") ? "css" : "js";
-	totals[kind] += gzipSync(readFileSync(resolve(dist, asset))).byteLength;
-}
+const measure = (measuredAssets) => {
+	const totals = { js: 0, css: 0 };
+	for (const asset of measuredAssets) {
+		const kind = asset.endsWith(".css") ? "css" : "js";
+		totals[kind] += gzipSync(readFileSync(resolve(dist, asset))).byteLength;
+	}
+	return totals;
+};
 
-const budgets = { js: 500 * 1024, css: 100 * 1024 };
+const totals = measure(assets);
+const defaultRouteTotals = measure(defaultRouteAssets);
+const budgets = { js: 200 * 1024, css: 100 * 1024 };
 for (const kind of ["js", "css"]) {
 	const kib = (totals[kind] / 1024).toFixed(1);
 	const limit = budgets[kind] / 1024;
 	console.log(`initial ${kind}: ${kib} KiB gzip (budget ${limit} KiB)`);
 	if (totals[kind] > budgets[kind]) process.exitCode = 1;
 }
+
+const defaultRouteBudget = 500 * 1024;
+console.log(
+	`default route js: ${(defaultRouteTotals.js / 1024).toFixed(1)} KiB gzip (budget ${defaultRouteBudget / 1024} KiB)`,
+);
+if (defaultRouteTotals.js > defaultRouteBudget) process.exitCode = 1;
 
 const lazyChunkBudget = 250 * 1024;
 const lazyChunks = readdirSync(resolve(dist, "assets"))
