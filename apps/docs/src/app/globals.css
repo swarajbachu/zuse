@@ -126,6 +126,50 @@ kbd,
 	outline-offset: 2px;
 }
 
+button:has(> svg.lucide-chevrons-up-down) {
+	min-height: 2.75rem;
+	border-color: color-mix(in srgb, var(--color-fd-border) 84%, transparent);
+	background: color-mix(in srgb, var(--color-fd-card) 72%, transparent);
+	box-shadow: inset 0 1px 0 color-mix(in srgb, white 24%, transparent);
+	transition:
+		border-color 150ms ease,
+		background-color 150ms ease;
+}
+
+.dark button:has(> svg.lucide-chevrons-up-down) {
+	box-shadow: inset 0 1px 0 color-mix(in srgb, white 4%, transparent);
+}
+
+[role="dialog"]:has(> a[href="/how-to"]) {
+	padding: 0.35rem;
+	border-color: color-mix(in srgb, var(--color-fd-border) 92%, transparent);
+	background: color-mix(in srgb, var(--color-fd-popover) 98%, transparent);
+	box-shadow:
+		0 0 0 1px color-mix(in srgb, var(--color-fd-foreground) 3%, transparent),
+		0 14px 36px color-mix(in srgb, black 18%, transparent);
+	backdrop-filter: blur(18px);
+}
+
+[role="dialog"]:has(> a[href="/how-to"]) > a {
+	min-height: 3rem;
+	border-radius: 0.55rem;
+	padding: 0.55rem 0.625rem;
+	transition:
+		background-color 120ms ease,
+		color 120ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	button:has(> svg.lucide-chevrons-up-down):hover {
+		border-color: var(--color-fd-border);
+		background: color-mix(in srgb, var(--color-fd-accent) 48%, transparent);
+	}
+
+	[role="dialog"]:has(> a[href="/how-to"]) > a:hover {
+		background: color-mix(in srgb, var(--color-fd-foreground) 5%, transparent);
+	}
+}
+
 [role="dialog"]:has(input[placeholder="Search"]) {
 	top: max(1rem, 10vh);
 	max-width: 35rem;

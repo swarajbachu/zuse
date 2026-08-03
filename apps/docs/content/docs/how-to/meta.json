@@ -1,4 +1,6 @@
 {
+	"title": "How to",
+	"description": "Complete a specific task in Zuse",
 	"icon": "ListChecks",
 	"pages": [
 		"index",

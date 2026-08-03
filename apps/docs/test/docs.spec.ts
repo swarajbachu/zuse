@@ -8,6 +8,30 @@ test("how-to guide deep links render", async ({ page }) => {
 	).toBeVisible();
 });
 
+test("reference and how-to guides use separate navigation modes", async ({
+	page,
+	isMobile,
+}) => {
+	test.skip(isMobile, "Desktop sidebar mode selector");
+	await page.goto("/start/first-chat");
+
+	const sidebar = page.locator("#nd-sidebar");
+	await expect(
+		sidebar.getByRole("button", { name: /Reference/ }),
+	).toBeVisible();
+	await expect(sidebar.getByText("Start here", { exact: true })).toBeVisible();
+	await expect(sidebar.getByText("How to", { exact: true })).toHaveCount(0);
+
+	await sidebar.getByRole("button", { name: /Reference/ }).click();
+	await page.getByRole("link", { name: /How to/ }).click();
+	await expect(page).toHaveURL(/\/how-to$/u);
+	await expect(sidebar.getByRole("button", { name: /How to/ })).toBeVisible();
+	await expect(
+		sidebar.getByText("Run tasks in parallel with worktrees", { exact: true }),
+	).toBeVisible();
+	await expect(sidebar.getByText("Start here", { exact: true })).toHaveCount(0);
+});
+
 test("full-text search supports the keyboard", async ({ page, isMobile }) => {
 	test.skip(isMobile, "Mobile uses the navigation-sheet search trigger");
 	await page.goto("/start/first-chat");

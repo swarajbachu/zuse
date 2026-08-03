@@ -3,7 +3,7 @@ import { SearchTrigger } from "fumadocs-ui/layouts/shared/slots/search-trigger";
 import type { ReactNode } from "react";
 import { CleanSearchTrigger } from "@/components/clean-search-trigger";
 import { baseOptions } from "@/lib/layout.shared";
-import { source } from "@/lib/source";
+import { documentationTree } from "@/lib/source";
 
 export default function DocumentationLayout({
 	children,
@@ -12,8 +12,10 @@ export default function DocumentationLayout({
 }) {
 	return (
 		<DocsLayout
-			tree={source.pageTree}
+			tree={documentationTree}
 			{...baseOptions()}
+			tabMode="auto"
+			tabs={{ transform: (option) => ({ ...option, icon: undefined }) }}
 			sidebar={{ collapsible: true }}
 			slots={{
 				searchTrigger: {
