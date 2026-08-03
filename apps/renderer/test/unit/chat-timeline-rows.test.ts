@@ -90,6 +90,21 @@ describe("chat timeline rows", () => {
 		]);
 	});
 
+	it("keeps the active turn visible in a sampled compact rail", () => {
+		const turns = Array.from({ length: 100 }, (_, index) => ({
+			messageId: `u${index + 1}`,
+			rowIndex: index * 2,
+			turnNumber: index + 1,
+			text: `turn ${index + 1}`,
+		}));
+		const rail = deriveChatTurnRailEntries(turns, 10, "u51");
+
+		expect(rail).toHaveLength(10);
+		expect(rail.map((turn) => turn.messageId)).toContain("u51");
+		expect(rail[0]?.messageId).toBe("u1");
+		expect(rail.at(-1)?.messageId).toBe("u100");
+	});
+
 	it("resolves the first optimistic user message as the new-chat anchor", () => {
 		const rows = deriveChatTimelineRows({
 			messages: [message("u1", { _tag: "user", text: "first prompt" })],

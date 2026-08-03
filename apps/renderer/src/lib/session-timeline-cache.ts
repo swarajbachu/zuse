@@ -19,6 +19,41 @@ const METADATA_STORE_NAME = "timeline-metadata";
 const READING_POSITION_STORE_NAME = "reading-positions";
 const DEFAULT_MAX_ENTRIES = 128;
 const DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
+const DEFAULT_MAX_READING_POSITIONS = 256;
+
+export function resolveReadingPositionKeysToPrune(
+	values: ReadonlyArray<unknown>,
+	maxEntries = DEFAULT_MAX_READING_POSITIONS,
+): SessionId[] {
+	const valid: TimelineReadingPosition[] = [];
+	const invalidKeys: SessionId[] = [];
+	for (const value of values) {
+		const decoded = decodeTimelineReadingPosition(value);
+		if (decoded !== null) {
+			valid.push(decoded);
+			continue;
+		}
+		if (
+			typeof value === "object" &&
+			value !== null &&
+			"sessionId" in value &&
+			typeof value.sessionId === "string"
+		) {
+			invalidKeys.push(value.sessionId as SessionId);
+		}
+	}
+	valid.sort(
+		(left, right) =>
+			right.updatedAt - left.updatedAt ||
+			left.sessionId.localeCompare(right.sessionId),
+	);
+	return [
+		...invalidKeys,
+		...valid
+			.slice(Math.max(0, maxEntries))
+			.map((position) => position.sessionId),
+	];
+}
 
 const requestResult = <T>(request: IDBRequest<T>): Promise<T> =>
 	new Promise((resolve, reject) => {
@@ -190,9 +225,12 @@ class IndexedDbTimelineReadingPositionStore
 			READING_POSITION_STORE_NAME,
 			"readwrite",
 		);
-		transaction
-			.objectStore(READING_POSITION_STORE_NAME)
-			.put(encodeTimelineReadingPosition(position));
+		const store = transaction.objectStore(READING_POSITION_STORE_NAME);
+		store.put(encodeTimelineReadingPosition(position));
+		const values = await requestResult(store.getAll());
+		for (const sessionId of resolveReadingPositionKeysToPrune(values)) {
+			store.delete(sessionId);
+		}
 		await transactionComplete(transaction);
 	}
 

@@ -99,27 +99,53 @@ describe("built Electron application", () => {
 					{ timeout: 20_000 },
 				)
 				.toBe(2);
+			const overflowPrompts = Array.from(
+				{ length: 9 },
+				(_, index) => `Electron overflow turn ${index + 3}`,
+			);
+			for (const [index, prompt] of overflowPrompts.entries()) {
+				await composer.fill(prompt);
+				await electron.page.getByRole("button", { name: "Send" }).click();
+				await expect
+					.poll(
+						() =>
+							electron.page
+								.getByText("Hello from deterministic provider.", {
+									exact: true,
+								})
+								.count(),
+						{ timeout: 20_000 },
+					)
+					.toBe(index + 3);
+			}
 
 			const turnNavigator = electron.page.getByRole("button", {
-				name: "Navigate conversation, 2 turns",
+				name: "Navigate conversation",
 			});
 			await turnNavigator.hover();
 			const turnList = electron.page.getByRole("listbox", {
 				name: "Conversation turns",
 			});
 			await turnList.waitFor({ state: "visible" });
-			await expect
-				.poll(() => turnList.getByRole("option").allTextContents())
-				.toEqual([
-					expect.stringContaining("Electron system message"),
-					expect.stringContaining("Second Electron system message"),
-				]);
-			const turnSearch = electron.page.getByRole("combobox", {
-				name: "Find a turn",
+			await turnList.hover();
+			await electron.page.mouse.wheel(0, 1_000);
+			const lastOverflowPrompt = overflowPrompts.at(-1);
+			if (lastOverflowPrompt === undefined) {
+				throw new Error("Overflow turn fixture was not created");
+			}
+			const lastTurn = turnList.getByRole("option", {
+				name: lastOverflowPrompt,
+				exact: true,
 			});
-			await turnSearch.fill("Second Electron");
-			await expect.poll(() => turnList.getByRole("option").count()).toBe(1);
-			await turnSearch.press("Enter");
+			await lastTurn.waitFor({ state: "visible" });
+			expect(await turnList.isVisible()).toBe(true);
+			expect(
+				await electron.page
+					.getByRole("combobox", { name: "Find a turn" })
+					.count(),
+			).toBe(0);
+			expect(await electron.page.getByText("Conversation map").count()).toBe(0);
+			await lastTurn.click();
 			await turnList.waitFor({ state: "hidden" });
 			const timelineStores = await electron.page.evaluate(
 				() =>

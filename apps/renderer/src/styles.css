@@ -1243,6 +1243,7 @@ body,
     border: 0;
     border-radius: 0;
     background: transparent !important;
+    color: var(--message-text);
     font-family: var(
       --font-mono,
       ui-monospace,

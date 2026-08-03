@@ -1,40 +1,46 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-import { MapsIcon, Search01Icon } from "@hugeicons-pro/core-solid-rounded";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import {
 	type KeyboardEvent,
 	useCallback,
 	useEffect,
 	useId,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
 
+import { useMediaQuery } from "../hooks/use-media-query.ts";
 import {
 	type ChatTurnNavigationEntry,
 	deriveChatTurnRailEntries,
 } from "../lib/chat-timeline-rows.ts";
+import {
+	canShowChatTurnNavigator,
+	resolveChatTurnListHeight,
+} from "../lib/chat-turn-navigator-layout.ts";
 import { cn } from "../lib/utils.ts";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover.tsx";
+
+const CLOSE_DELAY_MS = 140;
+const MAX_LIST_HEIGHT = 320;
+const HIGHLIGHT_SETTLE_ATTEMPTS = 4;
 
 export function ChatTurnNavigator({
 	turns,
 	activeMessageId,
-	inFlight,
 	hasOutOfViewUpdates,
 	onReaderIntent,
 	onNavigate,
 }: {
 	readonly turns: ReadonlyArray<ChatTurnNavigationEntry>;
 	readonly activeMessageId: string | null;
-	readonly inFlight: boolean;
 	readonly hasOutOfViewUpdates: boolean;
 	readonly onReaderIntent: () => void;
 	readonly onNavigate: (entry: ChatTurnNavigationEntry) => void;
 }) {
 	const [open, setOpen] = useState(false);
-	const [query, setQuery] = useState("");
+	const [hasSpace, setHasSpace] = useState(false);
 	const [highlightedIndex, setHighlightedIndex] = useState(0);
 	const [activeDescendantIndex, setActiveDescendantIndex] = useState<
 		number | null
@@ -43,49 +49,72 @@ export function ChatTurnNavigator({
 	const highlightGenerationRef = useRef(0);
 	const turnListRef = useRef<LegendListRef | null>(null);
 	const triggerRef = useRef<HTMLButtonElement | null>(null);
+	const wrapperRef = useRef<HTMLDivElement | null>(null);
 	const suppressFocusOpenRef = useRef(false);
+	const focusPopupOnOpenRef = useRef(false);
 	const listboxId = useId();
-
-	const filteredTurns = useMemo(() => {
-		const needle = query.trim().toLocaleLowerCase();
-		if (needle.length === 0) return turns;
-		return turns.filter((turn) =>
-			turn.text.toLocaleLowerCase().includes(needle),
-		);
-	}, [query, turns]);
-	const railTurns = useMemo(() => deriveChatTurnRailEntries(turns), [turns]);
-	const activeTurnIndex = turns.findIndex(
-		(turn) => turn.messageId === activeMessageId,
+	const coarsePointer = useMediaQuery({ pointer: "coarse" });
+	const rowHeight = coarsePointer ? 44 : 32;
+	const canNavigate = turns.length >= 2;
+	const railTurns = useMemo(
+		() => deriveChatTurnRailEntries(turns, 18, activeMessageId),
+		[activeMessageId, turns],
 	);
 	const highlightedOptionId =
-		activeDescendantIndex === null ||
-		filteredTurns[activeDescendantIndex] === undefined
+		activeDescendantIndex === null || turns[activeDescendantIndex] === undefined
 			? undefined
 			: `${listboxId}-option-${activeDescendantIndex}`;
+
+	useLayoutEffect(() => {
+		if (!canNavigate) {
+			setHasSpace(false);
+			return;
+		}
+		const transcript = wrapperRef.current?.parentElement;
+		if (transcript === null || transcript === undefined) return;
+
+		const update = () => {
+			const next = canShowChatTurnNavigator({
+				width: transcript.clientWidth,
+				height: transcript.clientHeight,
+			});
+			setHasSpace(next);
+			if (!next) setOpen(false);
+		};
+		update();
+		const observer = new ResizeObserver(update);
+		observer.observe(transcript);
+		return () => observer.disconnect();
+	}, [canNavigate]);
 
 	const positionHighlight = useCallback((index: number) => {
 		const generation = highlightGenerationRef.current + 1;
 		highlightGenerationRef.current = generation;
 		setHighlightedIndex(index);
 		setActiveDescendantIndex(null);
-		requestAnimationFrame(() => {
-			const list = turnListRef.current;
-			if (list === null) return;
-			void list
-				.scrollToIndex({
-					index,
-					viewPosition: 0.5,
-					animated: false,
-				})
-				.then(() => {
-					if (highlightGenerationRef.current === generation) {
-						setActiveDescendantIndex(index);
-					}
-				})
-				.catch(() => {
-					// Leave aria-activedescendant unset if the virtual row did not mount.
-				});
-		});
+		const settle = (attempts: number) => {
+			requestAnimationFrame(() => {
+				if (highlightGenerationRef.current !== generation) return;
+				const list = turnListRef.current;
+				if (list === null) {
+					if (attempts > 0) settle(attempts - 1);
+					return;
+				}
+				void list
+					.scrollToIndex({ index, viewPosition: 0.5, animated: false })
+					.then(() => {
+						if (highlightGenerationRef.current === generation) {
+							setActiveDescendantIndex(index);
+						}
+					})
+					.catch(() => {
+						if (highlightGenerationRef.current === generation && attempts > 0) {
+							settle(attempts - 1);
+						}
+					});
+			});
+		};
+		settle(HIGHLIGHT_SETTLE_ATTEMPTS);
 	}, []);
 
 	useEffect(() => {
@@ -94,11 +123,11 @@ export function ChatTurnNavigator({
 			setActiveDescendantIndex(null);
 			return;
 		}
-		const activeIndex = filteredTurns.findIndex(
+		const activeIndex = turns.findIndex(
 			(turn) => turn.messageId === activeMessageId,
 		);
 		positionHighlight(Math.max(0, activeIndex));
-	}, [activeMessageId, filteredTurns, open, positionHighlight]);
+	}, [activeMessageId, open, positionHighlight, turns]);
 
 	useEffect(
 		() => () => {
@@ -120,17 +149,28 @@ export function ChatTurnNavigator({
 		closeTimerRef.current = window.setTimeout(() => {
 			closeTimerRef.current = null;
 			setOpen(false);
-		}, 140);
+		}, CLOSE_DELAY_MS);
 	}, [cancelClose]);
+
+	const openFromReaderIntent = useCallback(
+		(focusPopup: boolean) => {
+			if (!hasSpace) return;
+			focusPopupOnOpenRef.current = focusPopup;
+			cancelClose();
+			onReaderIntent();
+			setOpen(true);
+		},
+		[cancelClose, hasSpace, onReaderIntent],
+	);
 
 	const moveHighlight = useCallback(
 		(next: number) => {
-			if (filteredTurns.length === 0) return;
-			const bounded = Math.max(0, Math.min(next, filteredTurns.length - 1));
+			const bounded = Math.max(0, Math.min(next, turns.length - 1));
 			positionHighlight(bounded);
 		},
-		[filteredTurns.length, positionHighlight],
+		[positionHighlight, turns.length],
 	);
+
 	const restoreTriggerFocus = useCallback(() => {
 		suppressFocusOpenRef.current = true;
 		triggerRef.current?.focus();
@@ -138,6 +178,14 @@ export function ChatTurnNavigator({
 			suppressFocusOpenRef.current = false;
 		});
 	}, []);
+
+	const selectTurn = useCallback(
+		(turn: ChatTurnNavigationEntry) => {
+			onNavigate(turn);
+			setOpen(false);
+		},
+		[onNavigate],
+	);
 
 	const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
 		if (event.key === "ArrowDown") {
@@ -147,11 +195,10 @@ export function ChatTurnNavigator({
 			event.preventDefault();
 			moveHighlight(highlightedIndex - 1);
 		} else if (event.key === "Enter") {
-			const selected = filteredTurns[highlightedIndex];
+			const selected = turns[highlightedIndex];
 			if (selected === undefined) return;
 			event.preventDefault();
-			onNavigate(selected);
-			setOpen(false);
+			selectTurn(selected);
 			restoreTriggerFocus();
 		} else if (event.key === "Escape") {
 			setOpen(false);
@@ -159,32 +206,38 @@ export function ChatTurnNavigator({
 		}
 	};
 
-	if (turns.length < 2) return null;
+	if (!canNavigate) return null;
 
 	return (
 		<div
-			className="pointer-events-none absolute inset-y-0 left-2 z-20 flex items-center"
-			onPointerEnter={(event) => {
-				if (event.pointerType === "mouse") {
-					cancelClose();
-					onReaderIntent();
-					setOpen(true);
-				}
-			}}
-			onPointerLeave={(event) => {
-				if (event.pointerType === "mouse") scheduleClose();
-			}}
+			ref={wrapperRef}
+			aria-hidden={hasSpace ? undefined : true}
+			className={cn(
+				"pointer-events-none absolute right-0 top-0 z-20",
+				!hasSpace && "invisible",
+			)}
 		>
 			<Popover
-				open={open}
+				open={hasSpace && open}
 				onOpenChange={(nextOpen) => {
-					setOpen(nextOpen);
-					if (nextOpen) onReaderIntent();
+					setOpen(nextOpen && hasSpace);
+					if (nextOpen && hasSpace) onReaderIntent();
 				}}
 			>
 				<PopoverTrigger
 					ref={triggerRef}
-					aria-label={`Navigate conversation, ${turns.length} turns`}
+					aria-label="Navigate conversation"
+					disabled={!hasSpace}
+					tabIndex={hasSpace ? 0 : -1}
+					onPointerEnter={(event) => {
+						if (event.pointerType === "mouse") openFromReaderIntent(false);
+					}}
+					onPointerDown={() => {
+						focusPopupOnOpenRef.current = false;
+					}}
+					onPointerLeave={(event) => {
+						if (event.pointerType === "mouse") scheduleClose();
+					}}
 					onFocus={(event) => {
 						if (
 							suppressFocusOpenRef.current ||
@@ -192,142 +245,99 @@ export function ChatTurnNavigator({
 						) {
 							return;
 						}
-						onReaderIntent();
-						setOpen(true);
+						openFromReaderIntent(true);
 					}}
 					className={cn(
-						"pointer-events-auto relative flex size-11 items-center justify-center rounded-md",
-						"text-muted-foreground/55 outline-none transition-colors duration-150",
-						"hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+						"pointer-events-auto relative flex items-center justify-end bg-transparent",
+						coarsePointer ? "size-11" : "size-8",
+						"text-muted-foreground/50 outline-none transition-colors duration-150",
+						"hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
 					)}
 				>
 					<div
-						className="relative flex h-8 w-3 flex-col justify-around"
+						className="relative flex h-6 w-5 flex-col items-end justify-around"
 						aria-hidden
 					>
 						{railTurns.map((turn) => (
 							<span
 								key={turn.messageId}
 								className={cn(
-									"h-px rounded-full bg-current",
-									turn.messageId === activeMessageId ? "w-3" : "w-1.5",
-									turn.messageId === activeMessageId && "text-foreground",
+									"h-px rounded-full bg-current transition-[width,opacity] duration-150",
+									turn.messageId === activeMessageId
+										? "w-5 opacity-100"
+										: "w-3.5 opacity-65",
 								)}
 							/>
 						))}
-						{activeTurnIndex >= 0 ? (
-							<span
-								className="absolute left-0 h-0.5 w-3 -translate-y-1/2 rounded-full bg-foreground"
-								style={{
-									top: `${(activeTurnIndex / Math.max(1, turns.length - 1)) * 100}%`,
-								}}
-							/>
-						) : null}
 					</div>
 					{hasOutOfViewUpdates ? (
-						<span className="absolute right-0.5 top-1.5 size-1.5 rounded-full bg-lime-500" />
+						<span className="absolute right-0 top-0 size-1.5 rounded-full bg-lime-500" />
 					) : null}
 				</PopoverTrigger>
 				<PopoverPopup
-					side="right"
-					align="center"
-					sideOffset={6}
-					className="w-80 max-w-[calc(100vw-4rem)] rounded-xl border border-border/70 bg-popover p-0 shadow-overlay-lg motion-reduce:transition-none"
+					side="bottom"
+					align="end"
+					sideOffset={4}
+					className="w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-border/70 bg-popover p-0 shadow-overlay-lg motion-reduce:transition-none [&_[data-slot=popover-viewport]]:rounded-lg [&_[data-slot=popover-viewport]]:p-0"
+					initialFocus={() => focusPopupOnOpenRef.current}
+					finalFocus={false}
 					onPointerEnter={cancelClose}
 					onPointerLeave={scheduleClose}
 					onKeyDown={handleKeyDown}
 				>
-					<div>
-						<div className="flex h-10 items-center gap-2 border-b border-border/60 px-3">
-							<HugeiconsIcon
-								icon={Search01Icon}
-								className="size-3.5 shrink-0 text-muted-foreground"
-							/>
-							<input
-								value={query}
-								onChange={(event) => setQuery(event.target.value)}
-								onFocus={onReaderIntent}
-								placeholder="Find a turn"
-								aria-label="Find a turn"
-								role="combobox"
-								aria-expanded={open}
-								aria-controls={listboxId}
-								aria-activedescendant={highlightedOptionId}
-								className="h-full min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm"
-							/>
-							<span className="text-[10px] tabular-nums text-muted-foreground">
-								{filteredTurns.length}/{turns.length}
-							</span>
-						</div>
-						{filteredTurns.length === 0 ? (
-							<p className="px-3 py-8 text-center text-xs text-muted-foreground">
-								No matching turns
-							</p>
-						) : (
-							<LegendList<ChatTurnNavigationEntry>
-								ref={turnListRef}
-								data={filteredTurns}
-								keyExtractor={(turn) => turn.messageId}
-								estimatedItemSize={44}
-								getFixedItemSize={() => 44}
-								role="listbox"
-								id={listboxId}
-								aria-label="Conversation turns"
-								className="max-h-[min(65vh,32rem)] overflow-y-auto overscroll-contain px-1.5"
-								style={{
-									height: Math.min(
-										512,
-										Math.max(44, filteredTurns.length * 44),
-									),
-								}}
-								renderItem={({ item: turn, index }) => {
-									const active = turn.messageId === activeMessageId;
-									const highlighted = index === highlightedIndex;
-									return (
-										<button
-											key={turn.messageId}
-											id={`${listboxId}-option-${index}`}
-											type="button"
-											role="option"
-											aria-selected={highlighted}
-											aria-current={active ? "location" : undefined}
-											onPointerMove={() => {
-												highlightGenerationRef.current += 1;
-												setHighlightedIndex(index);
-												setActiveDescendantIndex(index);
-											}}
-											onClick={() => {
-												onNavigate(turn);
-												setOpen(false);
-											}}
-											className={cn(
-												"flex h-11 w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-sm outline-none",
-												highlighted && "bg-muted",
-												active && "text-foreground",
-											)}
-										>
-											<span className="mt-0.5 w-5 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">
-												{turn.turnNumber}
-											</span>
-											<span className="line-clamp-2 min-w-0 flex-1 leading-5">
-												{turn.text}
-											</span>
-											{active ? (
-												<span className="mt-2 size-1.5 shrink-0 rounded-full bg-foreground" />
-											) : null}
-										</button>
-									);
-								}}
-							/>
-						)}
-						<div className="flex h-9 items-center justify-between border-t border-border/60 px-3 text-[10px] text-muted-foreground">
-							<span className="inline-flex items-center gap-1.5">
-								<HugeiconsIcon icon={MapsIcon} className="size-3" />
-								Conversation map
-							</span>
-							{inFlight ? <span>Reply streaming</span> : null}
-						</div>
-					</div>
+					<LegendList<ChatTurnNavigationEntry>
+						ref={turnListRef}
+						data={turns}
+						keyExtractor={(turn) => turn.messageId}
+						estimatedItemSize={rowHeight}
+						getFixedItemSize={() => rowHeight}
+						role="listbox"
+						id={listboxId}
+						aria-label="Conversation turns"
+						aria-activedescendant={highlightedOptionId}
+						tabIndex={0}
+						className="overflow-y-auto overscroll-contain py-1 pl-1 [scrollbar-color:transparent_transparent] [scrollbar-width:thin] hover:[scrollbar-color:var(--border)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-border"
+						style={{
+							height: resolveChatTurnListHeight({
+								turnCount: turns.length,
+								rowHeight,
+								maxHeight: MAX_LIST_HEIGHT,
+							}),
+						}}
+						renderItem={({ item: turn, index }) => {
+							const active = turn.messageId === activeMessageId;
+							const highlighted = index === highlightedIndex;
+							return (
+								<button
+									key={turn.messageId}
+									id={`${listboxId}-option-${index}`}
+									type="button"
+									role="option"
+									tabIndex={-1}
+									aria-selected={active}
+									aria-current={active ? "location" : undefined}
+									onPointerMove={() => {
+										highlightGenerationRef.current += 1;
+										setHighlightedIndex(index);
+										setActiveDescendantIndex(index);
+									}}
+									onClick={() => selectTurn(turn)}
+									className={cn(
+										"flex w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none",
+										"transition-[background-color,color,transform] duration-150 ease-out hover:translate-x-0.5 hover:bg-muted/70",
+										highlighted && "bg-muted/70",
+										active && "bg-muted/45 text-foreground",
+									)}
+									style={{ height: rowHeight }}
+								>
+									<span className="min-w-0 flex-1 truncate">{turn.text}</span>
+									{active ? (
+										<span className="size-1.5 shrink-0 rounded-full bg-foreground" />
+									) : null}
+								</button>
+							);
+						}}
+					/>
 				</PopoverPopup>
 			</Popover>
 		</div>

@@ -44,9 +44,6 @@ function makeAdapter(
 		scrollToIndex: ({ index, viewOffset, animated }) => {
 			commands.push(`index:${index}:${viewOffset}:${animated}`);
 		},
-		scrollToOffset: ({ offset, animated }) => {
-			commands.push(`offset:${offset}:${animated}`);
-		},
 	};
 	return { adapter, commands };
 }
@@ -97,9 +94,20 @@ describe("transcript scroll coordinator", () => {
 		expect(commands).toEqual([]);
 	});
 
-	it("anchors a new turn, then reveals only the newly overflowing tail", () => {
+	it("anchors a new turn and leaves it fixed while the response grows", async () => {
 		const frames = makeFrameScheduler();
-		const { adapter, commands } = makeAdapter();
+		const harness = makeAdapter();
+		const { commands } = harness;
+		const adapter: TranscriptScrollAdapter = {
+			...harness.adapter,
+			getMeasurementState: () => ({
+				data: [0, 1, 2],
+				scroll: 284,
+				scrollLength: 600,
+				positionAtIndex: (index) => [0, 300, 560][index],
+				sizeAtIndex: (index) => [240, 200, 600][index],
+			}),
+		};
 		const coordinator = new TranscriptScrollCoordinator({
 			scheduleFrame: frames.schedule,
 			cancelFrame: frames.cancel,
@@ -109,15 +117,49 @@ describe("transcript scroll coordinator", () => {
 		coordinator.prepareNewTurn(1, 16);
 		coordinator.positionAnchoredTurn({ animated: true });
 		frames.flush();
+		await Promise.resolve();
 		coordinator.contentChanged();
 		frames.flush();
 
 		expect(coordinator.getSnapshot().mode).toBe("anchoring-turn");
-		expect(commands).toEqual([
-			"index:1:16:true",
-			// Last row ends at 1160; the 584px usable viewport needs offset 576.
-			"offset:576:false",
-		]);
+		expect(commands).toEqual(["index:1:16:true"]);
+	});
+
+	it("retries new-turn positioning until the prompt reaches its anchor", async () => {
+		const frames = makeFrameScheduler();
+		const commands: string[] = [];
+		let scroll = 300;
+		let attempts = 0;
+		const adapter: TranscriptScrollAdapter = {
+			getMeasurementState: () => ({
+				data: [0, 1],
+				scroll,
+				scrollLength: 600,
+				positionAtIndex: (index) => [0, 300][index],
+				sizeAtIndex: (index) => [240, 120][index],
+			}),
+			isAtLiveEdge: () => false,
+			scrollToEnd: () => {},
+			scrollToIndex: ({ index, viewOffset, animated }) => {
+				attempts += 1;
+				commands.push(`index:${index}:${viewOffset}:${animated}`);
+				if (attempts === 2) scroll = 284;
+			},
+		};
+		const coordinator = new TranscriptScrollCoordinator({
+			scheduleFrame: frames.schedule,
+			cancelFrame: frames.cancel,
+		});
+		coordinator.attach(adapter);
+		coordinator.prepareNewTurn(1, 16);
+		coordinator.positionAnchoredTurn({ animated: false });
+
+		frames.flush();
+		await Promise.resolve();
+		frames.flush();
+		await Promise.resolve();
+
+		expect(commands).toEqual(["index:1:16:false", "index:1:16:false"]);
 	});
 
 	it("keeps turn jumps detached and follows only after the latest jump settles", async () => {

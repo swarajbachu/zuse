@@ -74,13 +74,44 @@ export function deriveChatTurnNavigationEntries(
 export function deriveChatTurnRailEntries(
 	turns: ReadonlyArray<ChatTurnNavigationEntry>,
 	maxTicks = 18,
+	activeMessageId?: string | null,
 ): ChatTurnNavigationEntry[] {
+	if (maxTicks <= 0 || turns.length === 0) return [];
 	if (turns.length <= maxTicks) return [...turns];
+	const activeIndex =
+		activeMessageId === null || activeMessageId === undefined
+			? -1
+			: turns.findIndex((turn) => turn.messageId === activeMessageId);
+	if (maxTicks === 1) {
+		return [turns[Math.max(0, activeIndex)]].filter(
+			(turn): turn is ChatTurnNavigationEntry => turn !== undefined,
+		);
+	}
 	const lastIndex = turns.length - 1;
-	return Array.from({ length: maxTicks }, (_, tickIndex) => {
-		const turnIndex = Math.round((tickIndex * lastIndex) / (maxTicks - 1));
-		return turns[turnIndex];
-	}).filter((turn): turn is ChatTurnNavigationEntry => turn !== undefined);
+	const sampledIndices = Array.from({ length: maxTicks }, (_, tickIndex) =>
+		Math.round((tickIndex * lastIndex) / (maxTicks - 1)),
+	);
+	if (
+		sampledIndices.length > 2 &&
+		activeIndex > 0 &&
+		activeIndex < lastIndex &&
+		!sampledIndices.includes(activeIndex)
+	) {
+		let replacement = 1;
+		for (let index = 2; index < sampledIndices.length - 1; index += 1) {
+			if (
+				Math.abs((sampledIndices[index] ?? 0) - activeIndex) <
+				Math.abs((sampledIndices[replacement] ?? 0) - activeIndex)
+			) {
+				replacement = index;
+			}
+		}
+		sampledIndices[replacement] = activeIndex;
+		sampledIndices.sort((left, right) => left - right);
+	}
+	return sampledIndices
+		.map((index) => turns[index])
+		.filter((turn): turn is ChatTurnNavigationEntry => turn !== undefined);
 }
 
 export function resolveLatestUserMessageId(

@@ -33,7 +33,10 @@ import {
 	resolveTimelineReadingPosition,
 	type TimelineReadingPosition,
 } from "../lib/timeline-reading-position.ts";
-import { resolveScrollableNodeIsAtEnd } from "../lib/timeline-scroll-anchoring.ts";
+import {
+	resolveScrollableNodeIsAtEnd,
+	resolveTimelineHasContentBelowViewport,
+} from "../lib/timeline-scroll-anchoring.ts";
 import {
 	TranscriptScrollCoordinator,
 	type TranscriptScrollSnapshot,
@@ -184,7 +187,7 @@ export function ChatView({
 	const sessionOpenedEmptyRef = useRef(messages.length === 0);
 	const initializedSessionRef = useRef<SessionId | null>(null);
 	const lastContentVersionRef = useRef(timelineVersion);
-	const lastAnchorReadyKeyRef = useRef<string | null>(null);
+	const anchorRequestKeyRef = useRef<string | null>(null);
 	const currentReadingPositionRef = useRef<TimelineReadingPosition | null>(
 		null,
 	);
@@ -265,6 +268,17 @@ export function ChatView({
 			scheduleReadingPositionSave();
 		});
 	}, [coordinator, scheduleReadingPositionSave]);
+	const markAnchoredContentOutOfView = useCallback(() => {
+		if (scrollSnapshotRef.current.mode !== "anchoring-turn") return;
+		if (
+			resolveTimelineHasContentBelowViewport(
+				listRef.current?.getState(),
+				endInset,
+			)
+		) {
+			setHasOutOfViewUpdates(true);
+		}
+	}, [endInset]);
 
 	useEffect(() => {
 		void hydrate(sessionId);
@@ -311,12 +325,6 @@ export function ChatView({
 							...options,
 							viewPosition: 0,
 						});
-			},
-			scrollToOffset: (options) => {
-				const list = listRef.current;
-				return list === null
-					? Promise.reject(new Error("Transcript list is not mounted"))
-					: list.scrollToOffset(options);
 			},
 		});
 		return () => coordinator.detach();
@@ -400,7 +408,9 @@ export function ChatView({
 				resolveScrollableNodeIsAtEnd(listRef.current?.getScrollableNode()) ??
 				undefined,
 		});
-		setTimelineAnchorMessageId(null);
+		setTimelineAnchorMessageId(
+			target?.messageId ?? latestUserMessageIdRef.current,
+		);
 		setActiveTurnMessageId(target?.messageId ?? latestUserMessageIdRef.current);
 		setHasOutOfViewUpdates(false);
 	}, [
@@ -433,7 +443,6 @@ export function ChatView({
 			}
 			const takeControl = (intent: "interaction" | "scroll") => {
 				coordinator.readerTookControl(intent);
-				setTimelineAnchorMessageId(null);
 				if (intent === "scroll") requestAnimationFrame(handleScroll);
 			};
 			const onKeyDown = (event: KeyboardEvent) => {
@@ -523,16 +532,36 @@ export function ChatView({
 		coordinator.prepareNewTurn(turn.rowIndex, CHAT_LIST_ANCHOR_OFFSET);
 	}, [coordinator, inFlight, latestUserMessageId, turns]);
 
+	useLayoutEffect(() => {
+		if (anchoredEndSpace === undefined || timelineAnchorMessageId === null) {
+			return;
+		}
+		const requestKey = `${timelineAnchorMessageId}:${renderRecovery}`;
+		if (anchorRequestKeyRef.current === requestKey) return;
+		anchorRequestKeyRef.current = requestKey;
+		const frame = requestAnimationFrame(() => {
+			coordinator.positionAnchoredTurn({ animated: false });
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [anchoredEndSpace, coordinator, renderRecovery, timelineAnchorMessageId]);
+
 	useEffect(() => {
-		if (
-			coordinator.getSnapshot().mode === "detached" &&
-			lastContentVersionRef.current !== timelineVersion
-		) {
+		let frame: number | null = null;
+		const contentChanged = lastContentVersionRef.current !== timelineVersion;
+		if (coordinator.getSnapshot().mode === "detached" && contentChanged) {
 			setHasOutOfViewUpdates(true);
+		} else if (
+			coordinator.getSnapshot().mode === "anchoring-turn" &&
+			contentChanged
+		) {
+			frame = requestAnimationFrame(markAnchoredContentOutOfView);
 		}
 		lastContentVersionRef.current = timelineVersion;
 		coordinator.contentChanged();
-	}, [coordinator, rows, timelineVersion]);
+		return () => {
+			if (frame !== null) cancelAnimationFrame(frame);
+		};
+	}, [coordinator, markAnchoredContentOutOfView, rows, timelineVersion]);
 
 	useEffect(() => {
 		if (scrollSnapshot.mode === "following") setHasOutOfViewUpdates(false);
@@ -558,7 +587,8 @@ export function ChatView({
 	});
 	const showPill =
 		(scrollSnapshot.mode === "detached" ||
-			scrollSnapshot.mode === "navigating") &&
+			scrollSnapshot.mode === "navigating" ||
+			(scrollSnapshot.mode === "anchoring-turn" && hasOutOfViewUpdates)) &&
 		(!scrollSnapshot.isAtEnd || hasOutOfViewUpdates);
 
 	return (
@@ -625,20 +655,12 @@ export function ChatView({
 											anchoredEndSpace: {
 												...anchoredEndSpace,
 												onReady: () => {
-													const anchorReadyKey = `${timelineAnchorMessageId}:${renderRecovery}`;
-													if (
-														lastAnchorReadyKeyRef.current === anchorReadyKey
-													) {
-														return;
-													}
-													lastAnchorReadyKeyRef.current = anchorReadyKey;
 													coordinator.positionAnchoredTurn({
-														animated: !prefersReducedMotion,
+														animated: false,
 														force: true,
 													});
-													coordinator.contentChanged();
 												},
-												onSizeChanged: () => coordinator.contentChanged(),
+												onSizeChanged: markAnchoredContentOutOfView,
 											},
 										})}
 								maintainScrollAtEnd={false}
@@ -656,11 +678,9 @@ export function ChatView({
 					<ChatTurnNavigator
 						turns={turns}
 						activeMessageId={activeTurnMessageId}
-						inFlight={inFlight}
 						hasOutOfViewUpdates={hasOutOfViewUpdates}
 						onReaderIntent={() => {
 							coordinator.readerTookControl();
-							setTimelineAnchorMessageId(null);
 						}}
 						onNavigate={(turn) => {
 							setTimelineAnchorMessageId(null);
@@ -692,7 +712,6 @@ export function ChatView({
 							visible={showPill}
 							streaming={inFlight && hasOutOfViewUpdates}
 							onClick={() => {
-								setTimelineAnchorMessageId(null);
 								setHasOutOfViewUpdates(false);
 								coordinator.jumpToLatest({
 									animated: !prefersReducedMotion,

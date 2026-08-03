@@ -1,8 +1,5 @@
 import { CHAT_LIST_ANCHOR_OFFSET } from "./chat-list-anchor.ts";
-import {
-	getAnchoredTurnMetrics,
-	type TimelineListMeasurementState,
-} from "./timeline-scroll-anchoring.ts";
+import type { TimelineListMeasurementState } from "./timeline-scroll-anchoring.ts";
 
 export type TranscriptScrollMode =
 	| "restoring"
@@ -27,10 +24,6 @@ export interface TranscriptScrollAdapter {
 		readonly viewOffset: number;
 		readonly animated: boolean;
 	}) => void | Promise<void>;
-	readonly scrollToOffset: (options: {
-		readonly offset: number;
-		readonly animated: boolean;
-	}) => void | Promise<void>;
 }
 
 type PendingCommand =
@@ -49,12 +42,6 @@ type PendingCommand =
 			readonly priority: 3;
 			readonly completionGeneration?: number;
 			readonly settleAttempts?: number;
-	  }
-	| {
-			readonly kind: "reveal-turn-end";
-			readonly index: number;
-			readonly anchorOffset: number;
-			readonly priority: 1;
 	  };
 
 export interface TranscriptScrollCoordinatorOptions {
@@ -145,6 +132,7 @@ export class TranscriptScrollCoordinator {
 			viewOffset: this.anchorOffset,
 			animated: options.animated,
 			priority: 3,
+			settleAttempts: 4,
 		});
 	}
 
@@ -153,18 +141,9 @@ export class TranscriptScrollCoordinator {
 			this.enqueue({ kind: "end", animated: false, priority: 1 });
 			return;
 		}
-		if (
-			this.snapshot.mode === "anchoring-turn" &&
-			this.anchorIndex !== null &&
-			this.anchorPositioned
-		) {
-			this.enqueue({
-				kind: "reveal-turn-end",
-				index: this.anchorIndex,
-				anchorOffset: this.anchorOffset,
-				priority: 1,
-			});
-		}
+		// While a new turn is anchored, new response content is allowed to grow
+		// below the viewport. Moving to reveal its end would move the prompt away
+		// from the reading position the user explicitly established.
 	}
 
 	readerTookControl(intent: "interaction" | "scroll" = "interaction"): void {
@@ -295,8 +274,11 @@ export class TranscriptScrollCoordinator {
 					}),
 				)
 					.then(() => {
+						if (command.completionGeneration === undefined) {
+							this.retryUnsettledAnchor(command, adapter);
+							return;
+						}
 						if (
-							command.completionGeneration === undefined ||
 							command.completionGeneration !== this.navigationGeneration ||
 							this.snapshot.mode !== "navigating"
 						) {
@@ -310,8 +292,11 @@ export class TranscriptScrollCoordinator {
 						});
 					})
 					.catch(() => {
+						if (command.completionGeneration === undefined) {
+							this.retryUnsettledAnchor(command, adapter, true);
+							return;
+						}
 						if (
-							command.completionGeneration === undefined ||
 							command.completionGeneration !== this.navigationGeneration ||
 							this.snapshot.mode !== "navigating" ||
 							(command.settleAttempts ?? 0) <= 0
@@ -325,26 +310,36 @@ export class TranscriptScrollCoordinator {
 						});
 					});
 				return;
-			case "reveal-turn-end": {
-				const state = adapter.getMeasurementState();
-				if (state === null) return;
-				const metrics = getAnchoredTurnMetrics({
-					state,
-					anchorIndex: command.index,
-					composerOverlayHeight: 0,
-					anchorOffset: command.anchorOffset,
-				});
-				if (metrics === null || metrics.scrollDeltaToRevealEnd <= 1) return;
-				void Promise.resolve(
-					adapter.scrollToOffset({
-						offset: state.scroll + metrics.scrollDeltaToRevealEnd,
-						animated: false,
-					}),
-				).catch(() => {
-					// A later measurement update will schedule another reveal if needed.
-				});
-			}
 		}
+	}
+
+	private retryUnsettledAnchor(
+		command: Extract<PendingCommand, { readonly kind: "turn" }>,
+		adapter: TranscriptScrollAdapter,
+		failed = false,
+	): void {
+		if (
+			this.snapshot.mode !== "anchoring-turn" ||
+			this.anchorIndex !== command.index
+		) {
+			return;
+		}
+
+		const state = adapter.getMeasurementState();
+		const itemTop = state?.positionAtIndex(command.index);
+		const settled =
+			!failed &&
+			state !== null &&
+			typeof itemTop === "number" &&
+			Number.isFinite(itemTop) &&
+			Math.abs(itemTop - state.scroll - command.viewOffset) <= 2;
+		if (settled || (command.settleAttempts ?? 0) <= 0) return;
+
+		this.enqueue({
+			...command,
+			animated: false,
+			settleAttempts: (command.settleAttempts ?? 0) - 1,
+		});
 	}
 
 	private cancelPending(): void {
