@@ -2,7 +2,7 @@
 	"name": "@zusehq/serve",
 	"version": "0.1.1",
 	"description": "One-command remote access for Zuse workspaces",
-	"license": "MIT",
+	"license": "AGPL-3.0-only",
 	"type": "module",
 	"bin": {
 		"zuse": "dist/bin.mjs"

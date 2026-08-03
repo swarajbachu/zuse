@@ -1,6 +1,7 @@
 {
 	"name": "zuse",
 	"private": true,
+	"license": "AGPL-3.0-only",
 	"scripts": {
 		"build": "turbo run build",
 		"build:desktop": "turbo run build --filter=renderer --filter=desktop",

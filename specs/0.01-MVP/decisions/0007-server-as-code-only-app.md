@@ -63,7 +63,13 @@ These rules turn "future WS extraction" from a refactor into a wiring change:
 
 ### Why "app" not "package"
 
-Naming-wise, `apps/server` matches the reference repo's layout, so transplanting code from there is mechanical (paths line up). The `apps/` vs `packages/` distinction in monorepo conventions is soft — `apps/` typically means "runnable thing." Today our `apps/server` is not separately runnable (`bin.ts` is a stub); it ships with `apps/desktop`. When `bin.ts` becomes a real WS server boot, the naming retroactively fits the convention without a rename.
+Naming-wise, `apps/server` follows an established public layout, which keeps
+architectural comparisons straightforward while keeping the implementation
+local and independently maintained. The `apps/` vs `packages/` distinction in
+monorepo conventions is soft — `apps/` typically means "runnable thing." Today our
+`apps/server` is not separately runnable (`bin.ts` is a stub); it ships with
+`apps/desktop`. When `bin.ts` becomes a real WS server boot, the naming
+retroactively fits the convention without a rename.
 
 ### What this lets us defer
 
@@ -82,7 +88,8 @@ When any of these become priority, we add the relevant bits without restructurin
 
 - Phase 2 can ship on schedule (no transport refactor blocking it).
 - Every Phase 2 service is built once and works in both modes (in-process today, WS tomorrow) without modification.
-- The layout matches the reference repo, so lifting code (especially `provider/`) is mechanical.
+- The layout stays comparable with public reference architectures while each
+  service remains implemented and maintained in this repository.
 - One actual cost: `apps/desktop/main.ts` always pays a small wiring tax — it has to bridge electron paths into `apps/server`'s typed context tags. Worth it.
 
 ## What we deliberately rejected
