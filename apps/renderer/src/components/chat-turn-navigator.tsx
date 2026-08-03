@@ -249,24 +249,24 @@ export function ChatTurnNavigator({
 						openFromReaderIntent(true);
 					}}
 					className={cn(
-						"pointer-events-auto relative flex items-center justify-end bg-transparent",
-						coarsePointer ? "size-11" : "size-8",
+						"group/nav pointer-events-auto relative flex items-center justify-end bg-transparent",
+						coarsePointer ? "size-11" : "h-12 w-11",
 						"text-muted-foreground/50 outline-none transition-colors duration-150",
 						"hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
 					)}
 				>
 					<div
-						className="relative flex h-6 w-5 flex-col items-end justify-around"
+						className="relative flex h-9 w-7 origin-right flex-col items-end justify-around transition-transform duration-150 ease-out group-hover/nav:scale-x-[1.08] group-focus-visible/nav:scale-x-[1.08] motion-reduce:transition-none"
 						aria-hidden
 					>
 						{railTurns.map((turn) => (
 							<span
 								key={turn.messageId}
 								className={cn(
-									"h-px rounded-full bg-current transition-[width,opacity] duration-150",
+									"h-[1.5px] w-7 origin-right rounded-full bg-current transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none",
 									turn.messageId === activeMessageId
-										? "w-5 opacity-100"
-										: "w-3.5 opacity-65",
+										? "scale-x-100 scale-y-[1.35] opacity-100"
+										: "scale-x-[0.72] scale-y-100 opacity-60",
 								)}
 							/>
 						))}
