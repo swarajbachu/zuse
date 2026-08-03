@@ -24,10 +24,9 @@ const files = (await walk(root.pathname)).filter((path) =>
 	[".md", ".mdx"].includes(extname(path)),
 );
 const routes = new Map(files.map((path) => [routeFor(path), path]));
-routes.set("/", new URL("../src/pages/index.astro", import.meta.url).pathname);
 const failures = [];
 
-if (routes.size !== files.length + 1)
+if (routes.size !== files.length)
 	failures.push("Duplicate documentation routes detected");
 
 for (const path of files) {
@@ -47,16 +46,6 @@ for (const path of files) {
 
 	if (/^# /mu.test(body))
 		failures.push(`${routeFor(path)} repeats its page title as a body H1`);
-}
-
-const homeSource = await readFile(
-	new URL("../src/pages/index.astro", import.meta.url),
-	"utf8",
-);
-for (const match of homeSource.matchAll(/href=["'](\/[^"'#]+)["']/gu)) {
-	const target = match[1].replace(/\/$/u, "") || "/";
-	if (!routes.has(target))
-		failures.push(`Homepage links to missing route ${target}`);
 }
 
 if (failures.length > 0) {

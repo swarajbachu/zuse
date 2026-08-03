@@ -1,13 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-test("home and guide deep links render", async ({ page }) => {
-	await page.goto("/");
-	await expect(
-		page.getByRole("heading", {
-			name: "Build locally. Stay in control everywhere.",
-		}),
-	).toBeVisible();
+test("guide deep links render", async ({ page }) => {
 	await page.goto("/start/first-chat");
 	await expect(
 		page.getByRole("heading", { name: "Create your first chat" }),

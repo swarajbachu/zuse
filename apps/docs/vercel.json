@@ -2,5 +2,13 @@
 	"framework": "astro",
 	"buildCommand": "bun run build",
 	"outputDirectory": "dist",
-	"installCommand": "bun install"
+	"installCommand": "bun install",
+	"routes": [
+		{
+			"src": "^/$",
+			"headers": { "Location": "/start" },
+			"status": 308
+		},
+		{ "handle": "filesystem" }
+	]
 }

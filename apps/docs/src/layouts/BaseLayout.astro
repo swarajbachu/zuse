@@ -1,5 +1,6 @@
 ---
 import "../styles/global.css";
+import { ClientRouter } from "astro:transitions";
 import geistMonoUrl from "@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2?url";
 import interUrl from "@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url";
 import { SITE } from "../lib/site";
@@ -28,7 +29,7 @@ const socialImage = new URL(image, SITE.url);
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="description" content={description} />
-		<meta name="theme-color" content="#111312" />
+		<meta name="theme-color" content="#0f0f0f" />
 		<meta property="og:type" content="website" />
 		<meta property="og:title" content={pageTitle} />
 		<meta property="og:description" content={description} />
@@ -50,6 +51,7 @@ const socialImage = new URL(image, SITE.url);
 				document.documentElement.dataset.theme = theme;
 			})();
 		</script>
+		<ClientRouter />
 	</head>
 	<body>
 		<a class="skip-link" href="#main-content">Skip to content</a>
