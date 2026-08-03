@@ -28,14 +28,14 @@ export function baseOptions(): BaseLayoutProps {
 			{
 				type: "main",
 				text: "Product",
-				url: "https://zuse.dev",
+				url: "https://zuse.sh",
 				external: true,
 				icon: <ArrowUpRight />,
 			},
 			{
 				type: "button",
 				text: "Download",
-				url: "https://zuse.dev/download",
+				url: "https://zuse.sh/download",
 				external: true,
 				icon: <Download />,
 			},

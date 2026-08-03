@@ -8,6 +8,24 @@ test("how-to guide deep links render", async ({ page }) => {
 	).toBeVisible();
 });
 
+test("product links use the canonical website domain", async ({
+	page,
+	isMobile,
+}) => {
+	test.skip(isMobile, "Desktop sidebar links");
+	await page.goto("/start/install");
+
+	const sidebar = page.locator("#nd-sidebar");
+	await expect(sidebar.getByRole("link", { name: "Product" })).toHaveAttribute(
+		"href",
+		"https://zuse.sh",
+	);
+	await expect(sidebar.getByRole("link", { name: "Download" })).toHaveAttribute(
+		"href",
+		"https://zuse.sh/download",
+	);
+});
+
 test("reference and how-to guides use separate navigation modes", async ({
 	page,
 	isMobile,
