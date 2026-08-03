@@ -217,6 +217,16 @@ button:has(> svg.lucide-chevrons-up-down) {
 	color: var(--color-fd-foreground);
 }
 
+:is(#nd-sidebar, #nd-sidebar-mobile)
+	div[data-state][id^="radix-"][class*="before:inset-y-1"]::before {
+	content: none;
+}
+
+:is(#nd-sidebar, #nd-sidebar-mobile) a[data-active="true"]::before {
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--color-fd-foreground) 58%, transparent);
+}
+
 [data-toc-popover-trigger] {
 	color: hsl(0 0% 28%);
 }

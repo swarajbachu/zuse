@@ -72,6 +72,13 @@ test("navigation uses disclosure headings and native active states", async ({
 		getComputedStyle(element, "::before").getPropertyValue("width"),
 	);
 	expect(activeIndicator).toBe("1px");
+	const folderGuide = sidebar.locator(
+		'div[data-state="open"][class*="before:inset-y-1"]:has(a[data-active="true"])',
+	);
+	const folderGuideContent = await folderGuide.evaluate((element) =>
+		getComputedStyle(element, "::before").getPropertyValue("content"),
+	);
+	expect(folderGuideContent).toBe("none");
 
 	await page.keyboard.press("Control+k");
 	await page.getByRole("textbox", { name: "Search" }).fill("worktree");
