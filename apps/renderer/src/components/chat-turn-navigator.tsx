@@ -214,7 +214,7 @@ export function ChatTurnNavigator({
 			data-chat-turn-navigator
 			aria-hidden={hasSpace ? undefined : true}
 			className={cn(
-				"pointer-events-none absolute right-0 top-0 z-20",
+				"pointer-events-none absolute right-2 top-0 z-20",
 				!hasSpace && "invisible",
 			)}
 		>
@@ -256,14 +256,14 @@ export function ChatTurnNavigator({
 					)}
 				>
 					<div
-						className="relative flex h-10 w-7 origin-right flex-col items-end justify-start gap-[0.5px] transition-transform duration-150 ease-out group-hover/nav:scale-x-[1.08] group-focus-visible/nav:scale-x-[1.08] motion-reduce:transition-none"
+						className="relative flex h-5 w-7 origin-right flex-col items-end justify-start gap-1 transition-transform duration-150 ease-out group-hover/nav:scale-x-[1.08] group-focus-visible/nav:scale-x-[1.08] motion-reduce:transition-none"
 						aria-hidden
 					>
 						{railTurns.map((turn) => (
 							<span
 								key={turn.messageId}
 								className={cn(
-									"min-h-[1.5px] max-h-1 w-7 flex-1 origin-right rounded-full bg-current transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none",
+									"min-h-[1.25px] max-h-[3.5px] w-7 flex-1 origin-right rounded-full bg-current transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none",
 									turn.messageId === activeMessageId
 										? "scale-x-100 scale-y-[1.2] opacity-100"
 										: "scale-x-[0.72] scale-y-100 opacity-60",
