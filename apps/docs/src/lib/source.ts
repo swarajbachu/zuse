@@ -24,6 +24,22 @@ function findSection(tree: Root, id: string): Folder {
 const howToSection = findSection(source.pageTree, "how-to");
 const startSection = findSection(source.pageTree, "start");
 
+function makeDisclosureFolder(folder: Folder): Folder {
+	const children = folder.children.map((node) =>
+		node.type === "folder" ? makeDisclosureFolder(node) : node,
+	);
+
+	if (folder.index) {
+		children.unshift({ ...folder.index, name: "Overview" });
+	}
+
+	return {
+		...folder,
+		index: undefined,
+		children,
+	};
+}
+
 /**
  * Split task recipes from product reference without changing public URLs.
  * Root folders are Fumadocs' native boundary for both layout tabs and the
@@ -39,9 +55,11 @@ export const documentationTree: Root = {
 			description: "Features, concepts, and exact behavior",
 			root: true,
 			index: startSection.index,
-			children: source.pageTree.children.filter(
-				(node) => node !== howToSection,
-			),
+			children: source.pageTree.children
+				.filter((node) => node !== howToSection)
+				.map((node) =>
+					node.type === "folder" ? makeDisclosureFolder(node) : node,
+				),
 		},
 		{
 			...howToSection,

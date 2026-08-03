@@ -16,16 +16,15 @@ test("reference and how-to guides use separate navigation modes", async ({
 	await page.goto("/start/first-chat");
 
 	const sidebar = page.locator("#nd-sidebar");
-	await expect(
-		sidebar.getByRole("button", { name: /Reference/ }),
-	).toBeVisible();
+	const modeSelector = sidebar.locator('button[aria-haspopup="dialog"]');
+	await expect(modeSelector).toContainText("Reference");
 	await expect(sidebar.getByText("Start here", { exact: true })).toBeVisible();
 	await expect(sidebar.getByText("How to", { exact: true })).toHaveCount(0);
 
-	await sidebar.getByRole("button", { name: /Reference/ }).click();
+	await modeSelector.click();
 	await page.getByRole("link", { name: /How to/ }).click();
 	await expect(page).toHaveURL(/\/how-to$/u);
-	await expect(sidebar.getByRole("button", { name: /How to/ })).toBeVisible();
+	await expect(modeSelector).toContainText("How to");
 	await expect(
 		sidebar.getByText("Run tasks in parallel with worktrees", { exact: true }),
 	).toBeVisible();
@@ -48,15 +47,27 @@ test("full-text search supports the keyboard", async ({ page, isMobile }) => {
 	await expect(page).toHaveURL(/\/serve\/status-json/u);
 });
 
-test("navigation and search use quiet single-selection states", async ({
+test("navigation uses disclosure headings and native active states", async ({
 	page,
 	isMobile,
 }) => {
 	test.skip(isMobile, "Desktop sidebar state");
 	await page.goto("/concepts/local-first");
 
+	const sidebar = page.locator("#nd-sidebar");
+	await expect(
+		sidebar.getByRole("button", { name: "Core concepts" }),
+	).toBeVisible();
+	await expect(
+		sidebar.getByRole("link", { name: "Core concepts" }),
+	).toHaveCount(0);
+	await expect(sidebar.getByRole("link", { name: "Overview" })).toBeVisible();
+
 	const activeLink = page.locator("#nd-sidebar a[data-active='true']");
-	await expect(activeLink).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+	const activeBackground = await activeLink.evaluate(
+		(element) => getComputedStyle(element).backgroundColor,
+	);
+	expect(activeBackground).not.toBe("rgba(0, 0, 0, 0)");
 	const activeIndicator = await activeLink.evaluate((element) =>
 		getComputedStyle(element, "::before").getPropertyValue("width"),
 	);
@@ -168,7 +179,9 @@ test("mobile navigation contains search", async ({ page, isMobile }) => {
 	test.skip(!isMobile, "Mobile-only navigation behavior");
 	await page.goto("/remote");
 	await page.getByRole("button", { name: "Open Sidebar" }).click();
-	await expect(page.getByRole("link", { name: "Reference" })).toBeVisible();
+	await expect(
+		page.locator("button:has(> svg.lucide-chevrons-up-down)"),
+	).toContainText("Reference");
 	await page.getByRole("button", { name: "Open Sidebar" }).last().click();
 	await page.getByRole("button", { name: "Open Search" }).click();
 	await expect(page.getByRole("textbox", { name: "Search" })).toBeVisible();

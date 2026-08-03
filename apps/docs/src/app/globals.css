@@ -217,22 +217,6 @@ button:has(> svg.lucide-chevrons-up-down) {
 	color: var(--color-fd-foreground);
 }
 
-#nd-sidebar a[data-active="true"],
-#nd-sidebar-mobile a[data-active="true"] {
-	background: transparent;
-	color: var(--color-fd-muted-foreground);
-}
-
-#nd-sidebar a[data-active="true"]::before,
-#nd-sidebar-mobile a[data-active="true"]::before {
-	content: "";
-	position: absolute;
-	inset-block: 0.625rem;
-	inset-inline-start: 0.625rem;
-	width: 1px;
-	background: var(--color-fd-primary);
-}
-
 [data-toc-popover-trigger] {
 	color: hsl(0 0% 28%);
 }
