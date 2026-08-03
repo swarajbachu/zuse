@@ -29,7 +29,7 @@ Use this workflow in the **desktop app** with a Git repository. Worktree creatio
 
 1. Start a new chat in the project.
 2. In the workspace picker, choose a fresh worktree and the branch or revision it should start from. If automatic worktrees are enabled, a fresh worktree is already selected; choose **Current checkout** only when isolation is unnecessary.
-3. Send the first task. Zuse creates a checkout under `~/.zuse/<repository>/<worktree>/`, creates its branch, copies configured files, and runs repository setup.
+3. Send the first task. Zuse creates a checkout under `~/.zuse/<project-name>-<project-id>/<worktree-name>/`, creates its branch, links configured local files, and runs repository setup.
 4. Watch **Creating a worktree and running setup**. Wait for **Environment setup complete** before relying on dependencies or generated files.
 5. Start another chat for the second task and repeat the process. Each chat should show a different worktree and branch.
 6. To explore an alternative from an existing conversation, open its fork menu and choose **Fork into a new worktree**. The new chat gets an isolated checkout instead of sharing the current files.
