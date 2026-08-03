@@ -256,7 +256,7 @@ export function ChatTurnNavigator({
 					)}
 				>
 					<div
-						className="relative flex h-10 w-7 origin-right flex-col items-end justify-center gap-[0.5px] transition-transform duration-150 ease-out group-hover/nav:scale-x-[1.08] group-focus-visible/nav:scale-x-[1.08] motion-reduce:transition-none"
+						className="relative flex h-10 w-7 origin-right flex-col items-end justify-start gap-[0.5px] transition-transform duration-150 ease-out group-hover/nav:scale-x-[1.08] group-focus-visible/nav:scale-x-[1.08] motion-reduce:transition-none"
 						aria-hidden
 					>
 						{railTurns.map((turn) => (
