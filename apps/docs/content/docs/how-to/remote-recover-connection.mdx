@@ -1,0 +1,88 @@
+---
+title: "Recover a remote connection"
+description: "Use connection state, authorization, version, and Serve status to restore a browser or iPhone session."
+section: how-to
+order: 50
+platforms: [desktop, browser, mobile, serve]
+providers: []
+prerequisites: [/remote/recovery]
+related: [/serve/troubleshooting, /how-to/remote-connect-device, /how-to/remote-local-browser, /how-to/serve-operate-host]
+next: /remote/recovery
+lastVerified: latest
+---
+
+Restore access without discarding cached history, queued mobile messages, or valid device credentials unnecessarily.
+
+## Applicability
+
+Use this guide for local browser, nearby iPhone, hosted browser, hosted mobile, and Serve connections. It does not apply to provider authentication inside an otherwise healthy environment.
+
+## Prerequisites
+
+- Access to the environment computer or someone who can operate it.
+- The client error message or connection state.
+- For Serve, the data directory used when the environment was installed.
+
+## Steps
+
+1. Read the client state before changing anything.
+
+   - **Connecting** or **Reconnecting** means the client is already retrying.
+   - **Offline** means the app or network path is unavailable.
+   - **Connection error** means a retryable transport or authorization failure occurred.
+   - **Pair this browser** or **Browser authorization expired** means retry alone cannot repair the credential.
+
+2. Confirm the environment computer is awake, online, and running the desktop app or Serve.
+
+3. Choose **Retry** in the browser or mobile recovery banner.
+
+4. If the environment uses Serve, inspect it with the same data directory used at installation:
+
+   ```sh
+   npx @zusehq/serve status --json
+   ```
+
+5. Follow the first failing status layer:
+
+   - `service: "missing"`: run `npx @zusehq/serve start` with the correct data directory.
+   - `service: "stopped"`: start the service.
+   - `service: "running"` and `reachable: false`: inspect logs, wait through startup, then restart during a safe window.
+   - `environmentId: null` or `tunnel: "unavailable"`: link the environment to hosted access again.
+
+6. Reauthorize only when the client reports missing, expired, revoked, or incompatible authorization.
+
+   - Browser: create a fresh web link under **Settings → Devices**.
+   - Nearby iPhone: pair again and approve the matching safety phrase.
+   - Hosted client: confirm both sides use the same account, then relink the environment if it was removed.
+
+7. If Zuse reports a version mismatch, update the environment before retrying the client.
+
+## Verification
+
+The client should change to **Connected** and refresh current environment data. Open an existing chat and confirm its latest timeline state loads.
+
+For Serve, verify `reachable` is `true`. For a hosted connection, also verify `environmentId` is not `null` and `tunnel` is `configured`.
+
+## Preserve mobile work during recovery
+
+The mobile app keeps downloaded projects, chats, sessions, and messages while disconnected. Messages written offline remain in a per-session outbox and are sent in order when the transport returns.
+
+Do not choose **Reset app** during recovery unless you intend to remove saved connections, device keys, cached data, and unsent messages. **Clear downloaded data** is narrower: it removes downloaded snapshots while preserving connections and the outbox.
+
+## Troubleshooting and recovery
+
+### The browser link expired
+
+Generate another link. Pairing links cannot be extended or reused.
+
+### The phone cannot discover the Mac
+
+Allow Local Network access in iPhone Settings, keep Zuse open on the Mac, and use **Scan QR instead** if discovery remains blocked.
+
+### The hosted computer stays offline
+
+Check local reachability first. If Serve is healthy, confirm the account link and tunnel state. A hosted heartbeat cannot recover while the environment itself is stopped.
+
+### Retry loops without progress
+
+Stop repeating retry. Capture the visible client error and Serve status, inspect environment logs, then repair the first failed layer. Pairing again does not fix a stopped service, and restarting a service does not repair a revoked credential.

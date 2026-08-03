@@ -1,0 +1,111 @@
+---
+title: Configure MCP servers locally
+description: Add provider-native MCP servers, reconcile them in Zuse, authenticate them, and verify their tools in a fresh session.
+section: how-to
+order: 7
+platforms: [desktop]
+providers: [claude, codex]
+prerequisites: [/start/install, /providers/setup]
+related: [/composer/skills-mcp, /providers/claude-code, /providers/codex, /projects/repository-settings, /reference/diagnostics]
+next: /composer/skills-mcp
+lastVerified: latest
+---
+
+## Goal
+
+Make a provider-native MCP server available to the intended Zuse sessions, then verify its authentication, discovered tools, and project scope.
+
+## Applicability
+
+Use this guide in the **desktop app** with Claude Code or Codex. Zuse reconciles each provider's native configuration; it does not maintain a second registry of user-defined MCP servers.
+
+The settings pane can show built-in servers, configured servers, installed plugins, and provider-managed apps. Some entries can be toggled or connected from Zuse. Provider-managed entries that do not expose those controls appear as **read-only**.
+
+## Prerequisites
+
+- Install and sign in to the provider under **Settings → Providers**.
+- Know whether the server should apply globally or only to one repository.
+- Install the server command or obtain its HTTP or SSE URL.
+- Prepare required environment variables without placing secrets in committed repository settings.
+- Read the server's tool list and trust boundary before enabling it.
+
+## 1. Add the server to its provider
+
+Use the provider's native configuration so the same definition remains authoritative inside and outside Zuse.
+
+### Claude Code
+
+Use Claude Code's MCP command for the scope you intend. Check the syntax supported by your installed version with:
+
+```sh
+claude mcp add --help
+```
+
+Claude sources can include:
+
+- user configuration in `~/.claude.json`;
+- project configuration in `.mcp.json`;
+- local and project entries managed in `~/.claude.json`;
+- installed plugins and connected apps managed by Claude Code.
+
+For configured servers with the same name, the effective precedence is local, then project, then user. Open the intended repository in Zuse before checking project or local entries.
+
+### Codex
+
+Add the server under an `[mcp_servers.<name>]` block in:
+
+```text
+~/.codex/config.toml
+```
+
+Codex can also report provider-managed apps or connectors. Manage those through the controls the provider exposes rather than duplicating their definitions in another file.
+
+Both providers can report `stdio`, HTTP, and SSE transports. A `stdio` server receives authentication through its command environment or configuration. HTTP and SSE servers can require an OAuth connection.
+
+## 2. Reconcile the inventory in Zuse
+
+1. Open **Settings → MCP Servers**.
+2. Select **Refresh all**. This re-reads provider-native configuration and probes current server status.
+3. Find the server under **Claude Code** or **Codex** and confirm that its source and transport match the definition you added.
+4. Resolve any requirement shown in the row, such as **command not found: _command_** or **_VARIABLE_ is not set**.
+5. If the row shows **auth required**, choose **Connect**, complete the provider's browser or native login flow, and return to Zuse. The inventory refreshes when authentication finishes.
+6. Enable the server when its toggle is available. An **off** row is not available to new matching sessions.
+
+The **Built-in** group contains Zuse's own tool servers. They are injected into every applicable session and are always on.
+
+## 3. Choose global or repository availability
+
+Claude server enablement uses Zuse overrides while keeping the native definition unchanged. Without repository context, the override is global. For a repository-specific restriction, select the repository under **Settings → Repositories** and manage its MCP availability there.
+
+Repository overrides are stored in `.zuse/settings.toml`:
+
+```toml
+mcp_disabled_servers = ["example-server"]
+```
+
+Codex-configured server toggles write the native `enabled` value. That change affects Codex everywhere it reads the same configuration, including Codex sessions outside Zuse. Provider-managed Codex apps use the provider API when the integration supports toggling.
+
+## Verify the server
+
+1. In **Settings → MCP Servers**, choose **Refresh all**.
+2. Confirm that the server appears in the expected provider group and scope.
+3. Confirm that its state shows a tool count instead of **auth required**, an error, or **off**.
+4. Start a new chat in the matching repository with the matching provider. If the provider process was already running when configuration changed, restart or recreate that session.
+5. Open the composer's **MCP servers** control. Confirm that the server is present and that the connected count is correct.
+6. Ask the agent to use one known, harmless read-only tool from that server. Approve the call if the active permission mode requires it, then confirm that the result comes from the intended server.
+
+Refreshing updates Zuse's inventory and status probes. It does not guarantee that an already-running provider process has reloaded its tool configuration. A fresh session is the reliable acceptance check.
+
+## Troubleshooting and recovery
+
+- **The server does not appear:** verify the native configuration path and scope, open the intended project for project-local definitions, then choose **Refresh all**.
+- **The row says command not found:** install the command where the Zuse desktop service can discover it. If it only became available after a shell-path change, fully restart Zuse and refresh again.
+- **The row says an environment variable is not set:** provide the variable to the environment that launches the provider or server. Do not commit credentials in `.zuse/settings.toml`.
+- **The row says auth required:** choose **Connect**, finish the provider's native or browser flow, return to Zuse, and wait for the status refresh.
+- **The row is read-only:** the provider owns that plugin, app, or connector. Use the provider's app or connector controls to change it, then refresh Zuse.
+- **The server is healthy but a running chat cannot use it:** start a new chat or restart/recreate its provider session. The old process may still have the previous tool set.
+- **A repository should not use a global server:** disable it for that repository so its name is written to `mcp_disabled_servers`, then create a fresh session in the project.
+- **Codex stopped exposing the server outside Zuse:** re-enable the configured server in **Settings → MCP Servers** or restore its native `enabled` value in `~/.codex/config.toml`.
+- **A tool request is denied:** MCP availability does not bypass [runtime modes and permissions](/composer/modes-permissions/). Change the permission posture only when the server and requested action are trusted.
+
+For the full discovery and safety model, see [Skills, commands, and MCP servers](/composer/skills-mcp/). If status and provider behavior disagree, inspect **Settings → Diagnostics** and start with the provider boundary.

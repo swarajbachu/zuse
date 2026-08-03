@@ -1,0 +1,18 @@
+{
+	"icon": "ListChecks",
+	"pages": [
+		"index",
+		"local-parallel-worktrees",
+		"local-add-context",
+		"local-review-changes",
+		"local-complete-pull-request",
+		"local-recover-task",
+		"local-configure-settings",
+		"local-configure-mcp",
+		"remote-connect-device",
+		"remote-local-browser",
+		"remote-hosted-access",
+		"serve-operate-host",
+		"remote-recover-connection"
+	]
+}

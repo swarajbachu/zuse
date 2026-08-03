@@ -1,0 +1,134 @@
+---
+title: "Operate a Zuse Serve host"
+description: "Install, verify, update, stop, sign out, and uninstall a durable Serve environment safely."
+section: how-to
+order: 40
+platforms: [serve, browser, mobile]
+providers: [claude, codex, grok, gemini, opencode]
+prerequisites: [/serve]
+related: [/serve/operations, /serve/status-json, /serve/security, /how-to/remote-hosted-access]
+next: /serve/operations
+lastVerified: latest
+---
+
+Set up and operate a Mac or Linux computer as a durable Zuse environment while preserving its workspaces through lifecycle changes.
+
+## Applicability
+
+Use this guide on macOS or Linux. Durable Linux operation requires a systemd user session. Other service-manager environments fall back to a foreground process that ends when its terminal closes.
+
+## Prerequisites
+
+- Node.js 22.5.0 or newer and npm.
+- A browser for account authorization.
+- At least one supported provider CLI installed and authenticated for the same operating-system user.
+- Repositories already present and readable by that user.
+
+## Steps
+
+### Install and start
+
+1. Run the installless entry point:
+
+   ```sh
+   npx @zusehq/serve
+   ```
+
+2. Open the printed authorization URL and enter the device code if requested.
+
+3. Wait for **Zuse Serve is ready**.
+
+   On macOS, Serve installs a user LaunchAgent. On Linux with a systemd user session, it installs a user service. If neither service path is available, it explains the limitation and runs in the foreground.
+
+4. Install the operator command if you want to use the shorter `zuse serve` form in later steps:
+
+   ```sh
+   npm install --global @zusehq/serve
+   ```
+
+   You can stay installless instead by replacing each `zuse serve` command below with `npx @zusehq/serve`.
+
+5. Open [code.zuse.sh](https://code.zuse.sh) with the same account and choose the computer.
+
+## Verification
+
+Run:
+
+```sh
+zuse serve status
+zuse serve status --json
+```
+
+A ready hosted environment reports:
+
+- `service: "running"`;
+- `reachable: true`;
+- `tunnel: "configured"`; and
+- a non-null `environmentId`.
+
+The `agents` array lists supported CLIs that completed a short `--version` probe. An empty array does not mean Serve itself is down.
+
+## Stop and start
+
+Stop the service without revoking its account link:
+
+```sh
+zuse serve stop
+```
+
+Start it again:
+
+```sh
+zuse serve start
+```
+
+Use `zuse serve start --foreground` only when you intentionally want the environment tied to the current terminal.
+
+## Update safely
+
+1. Finish or stop active agents and terminals.
+2. Run:
+
+   ```sh
+   zuse serve update --force
+   ```
+
+3. Run `zuse serve status --json` and verify `reachable` is `true`.
+
+Serve installs the new runtime, switches the service, and checks readiness. If readiness fails and a previous runtime exists, it restores that runtime and reports the rollback. The `--force` flag confirms you selected a safe interruption window; it is not an automatic active-work check.
+
+## Sign out or uninstall
+
+Use logout to revoke the computer and clear its Serve account session:
+
+```sh
+zuse serve logout
+```
+
+Use uninstall to remove the user service definition and managed runtime:
+
+```sh
+zuse serve uninstall
+```
+
+Uninstall preserves repositories and workspaces. Run logout before uninstall when you also need to revoke the hosted registration.
+
+## Troubleshooting and recovery
+
+### The service is running but not reachable
+
+Wait briefly, check status again, then inspect the `logs` directory under the effective data directory. Confirm no other process occupies the local port.
+
+### No agents are detected
+
+Run each provider's `--version` command as the Serve user. Ensure the CLI is on the background service's path, not only configured in an interactive shell profile.
+
+### Linux runs only in the foreground
+
+Confirm `systemctl --user show-environment` succeeds for the Serve user. Without a systemd user session, durable background installation is unavailable.
+
+### A custom data directory appears empty
+
+Pass the same `--data-dir <path>` to every lifecycle command. A status check against the default directory cannot inspect a service installed elsewhere.
+
+See the [Serve command reference](/serve/command-reference/) for valid flag combinations and [Serve troubleshooting](/serve/troubleshooting/) for field-level diagnosis.

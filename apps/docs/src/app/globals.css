@@ -168,8 +168,33 @@ kbd,
 }
 
 [role="dialog"]:has(input[placeholder="Search"]) button[aria-selected="true"] {
-	background: color-mix(in srgb, var(--color-fd-primary) 7%, transparent);
-	box-shadow: inset 2px 0 0 var(--color-fd-primary);
+	background: color-mix(in srgb, var(--color-fd-foreground) 5%, transparent);
+	box-shadow: none;
+	color: var(--color-fd-foreground);
+}
+
+#nd-sidebar a[data-active="true"],
+#nd-sidebar-mobile a[data-active="true"] {
+	background: transparent;
+	color: var(--color-fd-muted-foreground);
+}
+
+#nd-sidebar a[data-active="true"]::before,
+#nd-sidebar-mobile a[data-active="true"]::before {
+	content: "";
+	position: absolute;
+	inset-block: 0.625rem;
+	inset-inline-start: 0.625rem;
+	width: 1px;
+	background: var(--color-fd-primary);
+}
+
+[data-toc-popover-trigger] {
+	color: hsl(0 0% 28%);
+}
+
+.dark [data-toc-popover-trigger] {
+	color: hsl(0 0% 72%);
 }
 
 .page-badges {

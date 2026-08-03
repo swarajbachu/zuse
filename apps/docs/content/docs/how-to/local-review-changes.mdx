@@ -1,0 +1,66 @@
+---
+title: Review and commit local changes
+description: Inspect a task's diff, run checks, select the intended files, and create a clean commit.
+section: how-to
+order: 3
+platforms: [desktop]
+providers: []
+prerequisites: [/workspace/changes-pull-requests]
+related: [/workspace/files-editor, /workspace/terminal-browser, /how-to/local-complete-pull-request]
+next: /how-to/local-complete-pull-request
+lastVerified: latest
+---
+
+## Goal
+
+Turn an agent's working tree into a reviewed, tested commit without including unrelated files.
+
+## Applicability
+
+Use this workflow in the **desktop app** for a Git-backed project in either the main checkout or a worktree. The checks you run depend on the repository.
+
+## Prerequisites
+
+- Let the current agent turn finish, or interrupt it intentionally before reviewing an intermediate state.
+- Know the repository's required formatter, type checks, and tests.
+- Confirm the workspace indicator points to the branch you intend to commit.
+
+## Steps
+
+1. Open **Changes** for the current chat.
+2. Review every changed and untracked file. Select a file to inspect its diff rather than relying on the filename alone.
+3. Check generated files, lockfiles, migrations, and configuration changes especially carefully. Remove accidental edits before committing.
+4. Open the terminal in the same chat and run the repository's focused checks. Start with the smallest command that exercises the changed behavior, then run the required broader checks.
+5. Return to **Changes** and select only the files that belong in this commit.
+6. Enter a commit message that describes the user-visible result, then commit the selected files.
+7. If the branch should be available remotely, choose **Push** in **Changes**. If committed work has not been pushed, the branch workflow may instead show **Push commits**.
+
+For a broad or risky change, ask the agent to explain unexpected diff sections before you accept them. The diff remains the source of truth.
+
+## Verify the commit
+
+Run these commands in the chat terminal:
+
+```sh
+git status --short
+git log -1 --oneline
+```
+
+Confirm that:
+
+- the commit subject is correct;
+- the intended files are in the commit;
+- unrelated changes remain uncommitted or were removed;
+- required checks passed in this worktree;
+- the branch has an upstream after pushing.
+
+## Troubleshooting and recovery
+
+- **A check fails:** keep the failure output in the chat and ask the agent for a focused repair, or fix it manually. Rerun the failing command before committing.
+- **An unrelated file is selected:** deselect it before committing. Do not use a broad commit to hide an unclear diff.
+- **A file should be discarded:** use the discard action only after reviewing its diff and confirming the change is recoverable. Discarding removes local work.
+- **Push fails:** verify network access, repository permissions, remote configuration, and branch protection. The local commit remains intact; retry after correcting the cause.
+- **Changes appear in the wrong chat:** check whether both chats share **Main checkout**. Move parallel work into separate worktrees before continuing.
+- **The working tree is clean but the top action says Push commits:** the changes are already committed locally and only need to be pushed.
+
+When the branch is ready for collaboration, [create and complete its pull request](/how-to/local-complete-pull-request/). See [Changes and pull requests](/workspace/changes-pull-requests/) for the full surface reference.

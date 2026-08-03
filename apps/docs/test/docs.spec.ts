@@ -1,10 +1,10 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-test("guide deep links render", async ({ page }) => {
-	await page.goto("/start/first-chat");
+test("how-to guide deep links render", async ({ page }) => {
+	await page.goto("/how-to/local-parallel-worktrees");
 	await expect(
-		page.getByRole("heading", { name: "Create your first chat" }),
+		page.getByRole("heading", { name: "Run tasks in parallel with worktrees" }),
 	).toBeVisible();
 });
 
@@ -22,6 +22,29 @@ test("full-text search supports the keyboard", async ({ page, isMobile }) => {
 		.first()
 		.click();
 	await expect(page).toHaveURL(/\/serve\/status-json/u);
+});
+
+test("navigation and search use quiet single-selection states", async ({
+	page,
+	isMobile,
+}) => {
+	test.skip(isMobile, "Desktop sidebar state");
+	await page.goto("/concepts/local-first");
+
+	const activeLink = page.locator("#nd-sidebar a[data-active='true']");
+	await expect(activeLink).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+	const activeIndicator = await activeLink.evaluate((element) =>
+		getComputedStyle(element, "::before").getPropertyValue("width"),
+	);
+	expect(activeIndicator).toBe("1px");
+
+	await page.keyboard.press("Control+k");
+	await page.getByRole("textbox", { name: "Search" }).fill("worktree");
+	const selectedResult = page.locator(
+		"[role='dialog'] button[aria-selected='true']",
+	);
+	await expect(selectedResult).toBeVisible();
+	await expect(selectedResult).toHaveCSS("box-shadow", "none");
 });
 
 test("theme choice persists", async ({ page }) => {
@@ -61,6 +84,52 @@ test("Markdown responses and missing routes are explicit", async ({
 	expect(await markdown.text()).toContain("zuse serve status [--json]");
 	const missing = await request.get("/not-a-public-route");
 	expect(missing.status()).toBe(404);
+});
+
+test("LLM requests receive Markdown without changing the page URL", async ({
+	request,
+}) => {
+	const negotiated = await request.get("/remote", {
+		headers: { Accept: "text/markdown" },
+	});
+	expect(negotiated.ok()).toBeTruthy();
+	expect(negotiated.headers()["content-type"]).toContain("text/markdown");
+	expect(negotiated.headers().vary).toContain("Accept");
+	expect(await negotiated.text()).toContain("# Remote access");
+
+	const root = await request.get("/", {
+		headers: { Accept: "text/markdown" },
+	});
+	expect(root.ok()).toBeTruthy();
+	expect(root.headers()["content-type"]).toContain("text/markdown");
+	expect(await root.text()).toContain("# Start here");
+
+	const crawler = await request.get("/serve", {
+		headers: { "User-Agent": "GPTBot/1.0" },
+	});
+	expect(crawler.headers()["content-type"]).toContain("text/markdown");
+	expect(await crawler.text()).toContain("# Zuse Serve");
+
+	const index = await request.get("/llms.txt");
+	expect(index.ok()).toBeTruthy();
+	expect(index.headers()["content-type"]).toContain("text/markdown");
+	const indexText = await index.text();
+	expect(indexText).toContain("Serve command reference");
+	expect(indexText).toContain(
+		"https://docs.zuse.sh/serve/command-reference.md",
+	);
+
+	const indexedPage = await request.get("/serve/command-reference.md");
+	expect(indexedPage.headers()["content-type"]).toContain("text/markdown");
+
+	const fullIndex = await request.get("/llms-full.txt");
+	expect(fullIndex.ok()).toBeTruthy();
+	expect(await fullIndex.text()).toContain("# Configure MCP servers locally");
+
+	const browser = await request.get("/remote", {
+		headers: { Accept: "text/html" },
+	});
+	expect(browser.headers()["content-type"]).toContain("text/html");
 });
 
 test("representative article has no automatic accessibility violations", async ({
