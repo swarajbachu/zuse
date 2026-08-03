@@ -8,6 +8,25 @@ test("how-to guide deep links render", async ({ page }) => {
 	).toBeVisible();
 });
 
+test("browser and orchestration guides render as linked documentation", async ({
+	page,
+}) => {
+	await page.goto("/workspace/browser");
+	await expect(
+		page.getByRole("heading", { name: "In-app browser" }),
+	).toBeVisible();
+	await page.getByRole("link", { name: "Browser debugging" }).first().click();
+	await expect(page).toHaveURL(/\/workspace\/browser-debugging/u);
+
+	await page.goto("/composer/orchestration");
+	await expect(
+		page.getByRole("heading", { name: "Agent orchestration" }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("link", { name: "Run agents in parallel" }).first(),
+	).toBeVisible();
+});
+
 test("product links use the canonical website domain", async ({
 	page,
 	isMobile,

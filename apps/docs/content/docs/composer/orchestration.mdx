@@ -1,0 +1,65 @@
+---
+title: Agent orchestration
+description: Let an agent divide work into visible tasks, coordinate sessions, and bring results back for review.
+section: composer
+order: 54
+platforms: [desktop, browser, mobile]
+providers: [claude, codex, grok, gemini]
+prerequisites: [/concepts/project-chat-session, /composer/modes-permissions]
+related: [/composer/subagents, /composer/modes-permissions, /composer/parallel-agents, /composer/monitor-delegated-work]
+next: /composer/parallel-agents
+lastVerified: latest
+---
+
+
+Agent orchestration lets the active agent organize work across Zuse without turning the parent conversation into an unreadable stream. Delegated work remains visible as normal chats or session tabs, so you can open it, inspect its environment, and intervene.
+
+## Choose the right boundary
+
+The most important choice is whether the work needs a separate checkout.
+
+| Boundary | What Zuse creates | Best for |
+| --- | --- | --- |
+| **Separate task** | A sidebar chat, worktree, branch, and initial session | Independent implementation, risky experiments, or work that may ship separately |
+| **Session tab** | Another provider conversation inside an existing chat | Review, handoff, or a second approach that must see the same files |
+| **Subagent** | A nested or detached delegated run connected to the current conversation | Short bounded research or provider-supported specialist work |
+
+A separate task is the safe default for parallel editing. A session tab is intentionally collaborative: every tab in that chat sees the same working directory and uncommitted changes.
+
+## Provider and model choice
+
+The coordinating agent can use its current provider and model or select another available combination for the delegated work. If you care about the choice, state it in outcome terms: use a stronger reasoning model for architecture review, or a faster model for a mechanical scan.
+
+Availability follows your installed and enabled providers and model settings. If a requested combination is unavailable, ask the agent to show the available choice or let Zuse use that provider's configured default. Changing the provider does not change the task's checkout boundary.
+
+## A reliable orchestration request
+
+Tell the coordinating agent:
+
+1. what can run independently;
+2. which tasks may edit and which are read-only;
+3. who owns each file or subsystem;
+4. what evidence each task must return;
+5. who integrates and runs final checks.
+
+For example:
+
+> Split this into an isolated implementation task and a same-checkout review tab. The implementation owns the parser and focused tests. The reviewer is read-only until the implementation reports back. Bring both results here, resolve disagreements, and show me the final verification before any pull request action.
+
+Zuse surfaces creation in the parent timeline. Use **Open chat** to inspect the delegated conversation directly. The coordinating agent can also read recent progress and deliver attributed follow-up instructions without copying the entire transcript by hand.
+
+## Keep one integrator
+
+One agent should remain responsible for the final state. It decides which findings to accept, checks for conflicts between tasks, reviews the complete diff, and runs tests that cross ownership boundaries. Delegated agents should report what they changed and what remains uncertain instead of silently declaring the whole project finished.
+
+## Permissions and autonomy
+
+Orchestration uses the active session's normal permission posture. Checking available choices or reading recent progress is observational. Creating a task or session and sending it a follow-up changes application state, so Zuse may pause for approval.
+
+Plan mode remains read-only: the agent can propose how to divide the work, but it cannot create or steer delegated work until the plan is approved or the session returns to normal execution. A permissive runtime setting does not override Plan mode.
+
+Before approving a delegated action, verify the task boundary, whether it should share a checkout, the provider and model choice, and the expected evidence. Deny an unclear request and ask the agent to restate it. Permission to create a task is not permission to accept its changes, merge it, deploy it, or perform another external action.
+
+Provider subagents may have narrower instructions or tool access than the parent. Use that boundary for read-only reviewers and focused test work. Selecting a different model changes who performs the task; it does not grant broader access to files, commands, networks, or sensitive paths.
+
+Continue with [Run agents in parallel](/composer/parallel-agents/), then learn how to [monitor and review delegated work](/composer/monitor-delegated-work/).

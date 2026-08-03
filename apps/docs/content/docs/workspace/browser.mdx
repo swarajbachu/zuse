@@ -1,0 +1,61 @@
+---
+title: In-app browser
+description: Preview a local app, share control with an agent, and keep browser work attached to the correct task.
+section: workspace
+order: 64
+platforms: [desktop]
+providers: []
+prerequisites: [/workspace/terminal-browser]
+related: [/workspace/browser-debugging, /workspace/browser-evidence, /workspace/browser-sessions-privacy, /workspace/browser-troubleshooting]
+next: /workspace/browser-debugging
+lastVerified: latest
+---
+
+
+The in-app browser is a visible desktop workspace where you and an agent can inspect the same running page. Use it for local development servers, ordinary web pages, responsive checks, authenticated test flows, and visual review without moving the work out of its task.
+
+This is not the same as the **browser client**. The in-app browser previews and operates a page beside a task. The browser client opens the Zuse interface from another device; see [Local browser access](/remote/local-browser).
+
+You can always operate the desktop Browser panel yourself. Built-in agent control is currently available to Claude Code, Codex, Grok, and Gemini sessions. Cursor and OpenCode sessions can still work with files and prompts, but they do not currently receive the integrated browser controls.
+
+## Open a page
+
+1. Add **Browser** from the workspace panel menu.
+2. Choose a detected local server, or enter a URL in the address field.
+3. Use the toolbar to move back or forward, stop a loading page, or reload it.
+
+Localhost addresses open over HTTP by default. Other addresses without a scheme open over HTTPS. When several servers are running, confirm the port before reviewing or annotating the page.
+
+You can also ask the agent in plain language, for example:
+
+> Open the app on port 3000, wait for the dashboard, and check the empty state.
+
+The Browser panel becomes visible when the agent needs it. Its cursor shows where the agent is interacting, and page changes happen in the same surface you can inspect.
+
+## Work with an agent
+
+A reliable browser task usually follows this rhythm:
+
+1. Open the intended URL and wait for the page to settle.
+2. Read the current page before interacting with it.
+3. Click, type, select, scroll, hover, or use the keyboard as needed.
+4. Re-read the page after navigation or a large interface update.
+5. Check visual output, console messages, or network activity to verify the result.
+
+The agent targets the current page rather than relying only on screen coordinates. Those targets expire when the page navigates or rerenders substantially. If an action lands on an outdated page state, ask the agent to inspect the page again before retrying.
+
+## Task ownership
+
+Each task keeps its own Browser panel, current URL, and history while you switch between tasks or collapse the workspace pane. An agent action is routed back to the task that requested it, so background work does not take over the page you are currently viewing.
+
+Closing a Browser panel removes that task's browser surface. Sign-in data has a separate lifecycle; read [Browser sessions and privacy](/workspace/browser-sessions-privacy) before using an authenticated account.
+
+## Permissions and control
+
+Reading the page and collecting diagnostics are non-destructive. Interactions that submit input or modify page state follow the task's active permission mode. Plan mode allows observation and navigation but blocks those modifying interactions. Running custom page code and submitting a saved test login always require explicit approval.
+
+Imported signed-in sessions have another safeguard. Before an agent uses an imported session for a domain, Zuse asks you to allow that domain for the current task. The grant stays in memory and does not silently carry to another task.
+
+Use [Browser debugging](/workspace/browser-debugging) to inspect failures, or [Troubleshoot the in-app browser](/workspace/browser-troubleshooting) when the page or agent control is unavailable.
+
+For a complete development loop, follow [Test a local app in the browser](/how-to/local-test-in-browser/).

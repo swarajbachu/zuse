@@ -5,7 +5,9 @@
 	"pages": [
 		"index",
 		"local-parallel-worktrees",
+		"local-delegate-agents",
 		"local-add-context",
+		"local-test-in-browser",
 		"local-review-changes",
 		"local-complete-pull-request",
 		"local-recover-task",

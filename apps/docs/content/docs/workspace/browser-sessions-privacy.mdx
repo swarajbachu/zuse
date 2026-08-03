@@ -1,0 +1,60 @@
+---
+title: Browser sessions and privacy
+description: Control cookies, imported sign-in sessions, test passwords, local storage, and agent access to authenticated pages.
+section: workspace
+order: 67
+platforms: [desktop]
+providers: []
+prerequisites: [/workspace/browser]
+related: [/concepts/local-first, /composer/modes-permissions, /workspace/browser-troubleshooting]
+next: /workspace/browser-troubleshooting
+lastVerified: latest
+---
+
+
+The in-app browser is isolated from your everyday browser. Opening Zuse does not automatically copy browser sessions or read saved passwords. Authentication enters the built-in browser only through an action you take.
+
+## Understand what persists
+
+The built-in browser keeps ordinary cookies, site storage, and cache in an isolated session while the desktop app is running. Cookies for explicitly imported domains are different: Zuse encrypts them in its local app vault and restores them after restart so an imported test session can remain useful.
+
+Browser page and history state belong to the task that opened the Browser panel. Cookie and site data belong to the built-in browser session, so do not assume that switching tasks creates a separate account sandbox.
+
+## Import a signed-in session
+
+On supported macOS browser profiles:
+
+1. Open the browser menu and choose **Import browser sessions…**, or open **Settings → Browser**.
+2. Select the exact source profile.
+3. Close the source browser completely so its cookie database is stable.
+4. Choose **Import sessions** and approve the macOS Safe Storage request if encrypted cookies need to be unlocked.
+5. Reload the destination page and verify the account before asking an agent to act.
+
+The import copies valid cookies from the selected profile. It does not import browsing history, bookmarks, autofill data, or saved passwords. Cookie values do not appear in chat or the browser settings interface.
+
+When an agent reaches a domain that uses imported cookies, Zuse asks whether that task may use the signed-in session for that domain. **Allow for task** is scoped to the current task and domain and lasts only in memory. If the task is in the background, bring its Browser panel into view and retry so you can make the decision.
+
+Use a dedicated development or staging account whenever possible. A copied session can carry the same authority it had in the source browser.
+
+## Save a test login
+
+**Settings → Browser → Saved logins** is only for dummy or test accounts on development and staging sites. Never store a production password there.
+
+Save the exact site origin, username, and password. Settings later show only the origin and username. When you focus a password field on the active page, you can choose **Fill saved login**. An agent can submit that saved login only after you explicitly approve it.
+
+The password is read from the encrypted local vault and inserted directly into a page whose origin matches the saved origin. It is not returned to the agent or displayed again in settings. If the page navigates before filling, the operation stops rather than sending the credential to the new page.
+
+## Clear browser data
+
+Use the narrowest reset that solves the problem:
+
+- **Clear imported** removes the copied cookies and their encrypted local copy.
+- **Clear browsing data** removes cookies, site storage, and cache from the built-in browser and clears imported data.
+
+Neither action changes the source browser. Clearing data signs the built-in browser out of affected sites and can remove local drafts or preferences stored by those sites. Saved test logins are managed separately; remove them individually from **Saved logins** when they are no longer needed.
+
+## Capture authenticated pages carefully
+
+Console messages, network details, screenshots, recordings, and annotations can expose application data even when cookie values themselves are protected. Keep evidence scoped to the bug, review it before sending, and avoid capturing production accounts when a seeded test account can reproduce the issue.
+
+See [Troubleshoot the in-app browser](/workspace/browser-troubleshooting) for import, autofill, and sign-in recovery.

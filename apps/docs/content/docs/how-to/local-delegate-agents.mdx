@@ -1,0 +1,70 @@
+---
+title: Delegate work across agents safely
+description: Split work into isolated tasks or shared review sessions without losing ownership of the final result.
+section: how-to
+order: 8
+platforms: [desktop, browser, mobile]
+providers: [claude, codex, grok, gemini]
+prerequisites: [/composer/orchestration, /projects/worktrees]
+related: [/composer/parallel-agents, /composer/monitor-delegated-work, /workspace/changes-pull-requests]
+next: /how-to/local-test-in-browser
+lastVerified: latest
+---
+
+Use delegation when two or more pieces can progress independently. Keep one coordinating agent responsible for integration, final checks, and the combined diff.
+
+## Split the work before creating tasks
+
+Write down the independent outcomes first. For each one, decide:
+
+- whether it may edit or must remain read-only;
+- which files or subsystem it exclusively owns;
+- whether it needs a separate branch;
+- which provider or model is appropriate;
+- what evidence it must return.
+
+Do not parallelize a change that still depends on an unresolved shared design decision. Settle the boundary first, then delegate execution.
+
+## Choose isolation or a shared session
+
+Ask the coordinating agent for a **separate task** when another agent will implement independently. Zuse creates a visible sidebar chat with its own worktree and branch.
+
+Ask for another **session tab** when the new agent should review or continue the exact same checkout. Session tabs share files and uncommitted changes, even when they use different providers or models.
+
+For example:
+
+> Create one isolated task for the settings implementation and one read-only session in this chat for review. The implementation owns the settings form and focused tests. The reviewer must not edit. Bring both results back here and run the combined checks before proposing a commit.
+
+Review the requested boundary before approving task creation. Creating delegated work does not authorize merging, deployment, publication, or another external action.
+
+## Monitor at meaningful boundaries
+
+Use **Open chat** to inspect a delegated task directly. Read its latest conclusion, **Changes**, and terminal output instead of treating an idle or completed label as proof.
+
+Send follow-up instructions when there is new evidence, a failed check, or a changed boundary. Avoid repeated status prompts while an agent is actively working.
+
+Require each task to report:
+
+1. files changed or surfaces inspected;
+2. checks run and their results;
+3. assumptions and unresolved risks;
+4. branch or commit state when applicable;
+5. the next action required from the integrator.
+
+## Integrate deliberately
+
+Compare every result with the original goal. Bring accepted changes onto the destination branch, inspect the complete diff, and run cross-cutting checks after integration. Passing tests in separate worktrees does not prove the combined state works.
+
+When sessions share a checkout, use sequential ownership: one writer finishes and becomes idle before the next reads the current diff and edits. Never run broad formatters, dependency upgrades, generated-code commands, or migrations concurrently in the same checkout.
+
+## Recover partial work
+
+If a delegated response fails, open its chat before replacing it. The worktree may still contain useful files, commits, setup output, or a diagnosis. Continue the existing task when its environment is correct; add another session tab when a different provider should take over the same files; create a new isolated task only when the ownership or checkout boundary is wrong.
+
+Preserve useful changes before archiving or abandoning the task. A written summary does not transfer files.
+
+## Success check
+
+Each delegated task had an explicit boundary, only one agent owned final integration, the combined diff was reviewed in the destination task, broad checks passed after integration, and unresolved risks are visible.
+
+See [Monitor, follow up, and recover](/composer/monitor-delegated-work/) for detailed recovery paths.

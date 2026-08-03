@@ -1,0 +1,63 @@
+---
+title: Browser debugging
+description: Diagnose a page with console messages, network activity, page inspection, and responsive viewports.
+section: workspace
+order: 65
+platforms: [desktop]
+providers: [claude, codex, grok, gemini]
+prerequisites: [/workspace/browser]
+related: [/workspace/browser-evidence, /workspace/browser-troubleshooting, /reference/diagnostics]
+next: /workspace/browser-evidence
+lastVerified: latest
+---
+
+
+The in-app browser can give an agent evidence from the rendered page, recent console output, and requests made since the current page load. Use these signals together: a screenshot may show the symptom, while the console or a failed request explains it.
+
+## Inspect the rendered page
+
+Ask the agent to read the page before it interacts. It can identify visible controls and text, inspect one unambiguous element, and report accessibility state, layout, and selected styles without dumping the entire page.
+
+After navigation or a major rerender, ask it to inspect again. Page references are intentionally refreshed so an old target does not become a click on a different element.
+
+Useful requests include:
+
+> Check whether the submit button is disabled and explain the visible reason.
+
+> Inspect the card that overflows on mobile and report its size and positioning.
+
+## Read console failures
+
+Ask the agent to check the browser console after reproducing the problem. The result can include recent messages, uncaught page errors, load failures, and an open JavaScript dialog. Console history is bounded and resets for a new page load, so reproduce the issue on the page you want diagnosed.
+
+If a dialog is blocking the page, tell the agent whether to accept or dismiss it. A prompt can be answered only after you approve the corresponding page-changing action.
+
+## Inspect network activity
+
+Network inspection shows requests captured since the latest page load, including the method, URL, response status, content type, and failures when available. Ask for a filtered summary first, then inspect one failed request for headers or a limited response preview.
+
+For example:
+
+> Reload the page, reproduce the save failure, and inspect only requests containing `/api/`.
+
+Some responses cannot be read after streaming, eviction, or use of a non-buffered response type. A missing body does not mean the request did not happen; use its status, headers, and console output as the remaining evidence.
+
+Network and console output can contain account details or application data. Review the result before copying it into an issue, message, or public report.
+
+## Test responsive layouts
+
+Choose **Fill**, **Phone**, **Tablet**, **Laptop**, **Desktop**, or **Custom** from the browser toolbar. Non-fill viewports can be rotated. A custom viewport supports direct width and height entry, aspect-ratio locking, and drag resizing within the supported range.
+
+The preview may scale down to fit the workspace while preserving the selected page dimensions. The size shown in the toolbar is the viewport being tested, not necessarily its physical size on screen.
+
+For a useful responsive pass:
+
+1. Start with **Phone** in portrait orientation.
+2. Check navigation, forms, fixed controls, and horizontal overflow.
+3. Rotate to landscape and repeat the critical path.
+4. Check **Tablet**, then a wide viewport.
+5. Use a custom size at the exact breakpoint where the layout changes.
+
+Viewport choice is remembered locally. Screenshots and browser annotations record the active viewport so later feedback has the right visual context.
+
+See [Browser evidence and annotations](/workspace/browser-evidence) to capture the result, and [Troubleshoot the in-app browser](/workspace/browser-troubleshooting) when diagnostics are empty or unavailable.

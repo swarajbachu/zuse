@@ -18,14 +18,16 @@ Use these guides when you know the outcome you want. Each one stays focused on a
 | Goal | Start here |
 | --- | --- |
 | Keep concurrent tasks isolated | [Run tasks in parallel with worktrees](/how-to/local-parallel-worktrees/) |
+| Delegate independent work to agents | [Delegate work across agents safely](/how-to/local-delegate-agents/) |
 | Give an agent the right evidence | [Add files and context to a task](/how-to/local-add-context/) |
+| Verify a running app with an agent | [Test a local app in the browser](/how-to/local-test-in-browser/) |
 | Inspect and commit completed work | [Review and commit local changes](/how-to/local-review-changes/) |
 | Push, open a pull request, and merge | [Create and complete a pull request](/how-to/local-complete-pull-request/) |
 | Resume after a setup, provider, or turn failure | [Recover or continue a local task](/how-to/local-recover-task/) |
 | Set personal and repository behavior | [Configure Zuse settings](/how-to/local-configure-settings/) |
 | Connect provider-native tools | [Configure MCP servers](/how-to/local-configure-mcp/) |
 
-For a normal feature task, follow the first four guides in order. Use a separate chat and worktree for work that needs its own branch; use another session or a subagent only when the work should share the same checkout.
+For a normal feature task, create an isolated checkout, give the agent the required context, verify the running result when applicable, then review and ship the diff. Delegate only when the work has clean ownership boundaries.
 
 ## Connect and operate another device
 

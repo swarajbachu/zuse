@@ -6,7 +6,7 @@ order: 60
 platforms: [desktop]
 providers: []
 prerequisites: [/start/first-chat]
-related: [/workspace/files-editor, /workspace/terminal-browser, /workspace/changes-pull-requests]
+related: [/workspace/files-editor, /workspace/terminal-browser, /workspace/browser, /workspace/changes-pull-requests]
 next: /workspace/files-editor
 lastVerified: latest
 ---
@@ -15,5 +15,6 @@ lastVerified: latest
 Every workspace surface follows the active chat environment. If the chat owns a worktree, its file tree, editor, terminal, changes, and pull-request state all point to that checkout.
 
 - [Files and editor](/workspace/files-editor) — browse, preview, edit, and save.
-- [Terminal and browser](/workspace/terminal-browser) — run the app and inspect it.
+- [Terminal](/workspace/terminal-browser) — run project commands in the active checkout.
+- [In-app browser](/workspace/browser) — inspect, debug, annotate, and verify the running app with an agent.
 - [Changes and pull requests](/workspace/changes-pull-requests) — review and ship the branch.

@@ -6,7 +6,7 @@ order: 50
 platforms: [desktop, browser, mobile]
 providers: [claude, codex, grok, gemini, cursor, opencode]
 prerequisites: [/start/first-chat]
-related: [/composer/modes-permissions, /composer/context-attachments, /composer/subagents, /composer/skills-mcp]
+related: [/composer/modes-permissions, /composer/context-attachments, /composer/subagents, /composer/orchestration]
 next: /composer/modes-permissions
 lastVerified: latest
 ---
@@ -25,4 +25,6 @@ Use it to:
 - queue a message while the current turn runs;
 - invoke built-in and provider-specific slash commands.
 
-Start with [Modes and permissions](/composer/modes-permissions), then learn [Context and attachments](/composer/context-attachments) and [Skills, commands, and MCP servers](/composer/skills-mcp).
+Start with [Modes and permissions](/composer/modes-permissions), then learn [Context and attachments](/composer/context-attachments), [Skills, commands, and MCP servers](/composer/skills-mcp), and [Agent orchestration](/composer/orchestration/).
+
+When work can proceed independently, use [Subagents and delegated tasks](/composer/subagents/) to choose the right boundary, then [Run agents in parallel](/composer/parallel-agents/) without creating overlapping write scopes.

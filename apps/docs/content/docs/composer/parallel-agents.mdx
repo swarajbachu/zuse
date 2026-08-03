@@ -1,0 +1,78 @@
+---
+title: Run agents in parallel
+description: Split independent work across agents while preserving isolation and a clear integration path.
+section: composer
+order: 55
+platforms: [desktop, browser, mobile]
+providers: [claude, codex, grok, gemini]
+prerequisites: [/composer/orchestration]
+related: [/projects/worktrees, /how-to/local-parallel-worktrees, /workspace/changes-pull-requests]
+next: /composer/monitor-delegated-work
+lastVerified: latest
+---
+
+
+Parallel agents help when the work can be divided into pieces that do not need constant coordination. Isolation matters more than agent count: two independent tasks in separate worktrees are safer than several agents editing the same checkout.
+
+## Good parallel work
+
+Parallelize work that has a clear return contract:
+
+- independent subsystem investigations;
+- implementation and read-only review;
+- tests for a stable interface while another task changes an unrelated module;
+- documentation, accessibility, or performance passes with exclusive file ownership;
+- competing approaches that should remain on separate branches.
+
+Keep one agent responsible when the work changes a shared data model, repeatedly touches the same central files, or depends on a sequence of unresolved decisions. Coordination overhead can exceed the time saved.
+
+## Start with isolation
+
+For concurrent editing, ask for a separate delegated task. Zuse creates a new chat on its own worktree and branch, leaving the parent and other tasks untouched. Use another session tab only when sharing the current diff is the point of the exercise.
+
+Before work begins, confirm:
+
+- each editing task has a distinct worktree and branch;
+- each assignment has a non-overlapping ownership boundary;
+- read-only reviewers are told not to modify files;
+- every task knows which checks to run and what to report;
+- one parent or integration task owns the combined result.
+
+## Assign outcomes, not vague roles
+
+Give each task a small deliverable. “Help with the backend” invites overlap. “Own the retry policy module and its focused tests; do not edit the transport layer” creates a checkable boundary.
+
+Ask every delegated task to return:
+
+- changed files or inspected surfaces;
+- checks run and their results;
+- assumptions and unresolved risks;
+- commits or branch state, when applicable;
+- anything the integrator must do next.
+
+## Integrate deliberately
+
+Do not treat parallel completion as an automatic merge. First compare results against the original goal. Then decide whether to keep tasks separate, bring a commit onto the integration branch, or reproduce a small finding manually.
+
+After integration, run the broad checks once against the combined state. Focused tests from separate branches do not prove that the pieces work together. Inspect **Changes** and pull-request state in the integration chat, not only in the delegated task that produced a patch.
+
+## When agents share a checkout
+
+Every session tab inside one chat shares that chat's checkout. Provider subagents also work inside the parent environment unless the provider explicitly supplies another boundary. Separate conversation histories do not mean separate files.
+
+If sharing is necessary, name one integrator, give each agent exclusive files or modules, and state whether commits are allowed. Ask every agent to re-read the current diff before editing because another session may have changed it since the previous turn.
+
+Use a sequential handoff inside the shared checkout:
+
+1. Writer A finishes a bounded change and reports the files touched.
+2. Writer A becomes idle before Writer B edits.
+3. Writer B reads the current diff, changes only its assigned area, and reports overlap.
+4. The integrator reviews the complete diff and runs combined checks.
+
+Do not run formatters, dependency upgrades, migrations, generated-code commands, or broad automated fixes concurrently in one checkout. Their write scope is larger than the source file that triggered them.
+
+Pause shared work if a file changes while another agent is reasoning about it, staged changes appear without clear ownership, or a reported clean diff no longer matches **Changes**. Preserve the checkout and inspect the diff and recent commits. Do not erase uncertain work with a reset.
+
+Worktrees prevent file collisions, but they do not resolve logical conflicts. The integration owner still needs to compare assumptions, bring accepted changes onto the destination branch, and rerun broader checks.
+
+For status checks, feedback, and partial-work recovery, continue with [Monitor, follow up, and recover](/composer/monitor-delegated-work/).
