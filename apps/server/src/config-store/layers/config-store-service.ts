@@ -9,6 +9,7 @@ import {
   type CompletionSoundPreset,
   defaultModelEnabledByProvider,
 	defaultModelFor,
+	isRuntimeMode,
 	type KeybindingRule,
 	KeybindingsFile,
 	MAX_KEYBINDING_RULES,
@@ -16,6 +17,7 @@ import {
 	MODELS_BY_PROVIDER,
 	type ProviderId,
 	resolveModelSlug,
+	runtimeModeForProvider,
 	SettingsFile,
 	type SubagentPresetState,
 } from "@zuse/contracts";
@@ -119,12 +121,6 @@ const isProviderId = (v: unknown): v is ProviderId =>
   v === "gemini" ||
   v === "opencode";
 
-const isRuntimeMode = (v: unknown): v is SettingsFile["defaultRuntimeMode"] =>
-  v === "approval-required" ||
-  v === "auto-accept-edits" ||
-  v === "auto-accept-edits-and-bash" ||
-  v === "full-access";
-
 const isAutonomyLevel = (
   v: unknown,
 ): v is SettingsFile["defaultAutonomyLevel"] =>
@@ -221,9 +217,12 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     }
   }
 
-  const runtime = isRuntimeMode(obj.defaultRuntimeMode)
-    ? obj.defaultRuntimeMode
-    : base.defaultRuntimeMode;
+  const runtime = runtimeModeForProvider(
+    isRuntimeMode(obj.defaultRuntimeMode)
+      ? obj.defaultRuntimeMode
+      : base.defaultRuntimeMode,
+    provider,
+  );
 
   const autoWorktree =
     typeof obj.defaultAutoCreateWorktree === "boolean"
@@ -708,13 +707,17 @@ export const ConfigStoreServiceLive = Layer.effect(
     const updateSettings: ConfigStoreServiceShape["updateSettings"] = (patch) =>
       Effect.gen(function* () {
         const cur = yield* Ref.get(settingsRef);
+        const defaultProviderId =
+          patch.defaultProviderId ?? cur.defaultProviderId;
         const next: SettingsFile = SettingsFile.make({
           schemaVersion: 1,
-          defaultProviderId: patch.defaultProviderId ?? cur.defaultProviderId,
+          defaultProviderId,
           defaultModelByProvider:
             patch.defaultModelByProvider ?? cur.defaultModelByProvider,
-          defaultRuntimeMode:
+          defaultRuntimeMode: runtimeModeForProvider(
             patch.defaultRuntimeMode ?? cur.defaultRuntimeMode,
+            defaultProviderId,
+          ),
           defaultAutoCreateWorktree:
             patch.defaultAutoCreateWorktree ?? cur.defaultAutoCreateWorktree,
           defaultAutonomyLevel:

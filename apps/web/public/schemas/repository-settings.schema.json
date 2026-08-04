@@ -43,6 +43,7 @@
             "approval-required",
             "auto-accept-edits",
             "auto-accept-edits-and-bash",
+            "auto",
             "full-access"
           ]
         },

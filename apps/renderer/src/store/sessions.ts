@@ -12,7 +12,7 @@ import type {
 	UserQuestionAnswer,
 	WorktreeId,
 } from "@zuse/contracts";
-import { Session, SessionId } from "@zuse/contracts";
+import { runtimeModeForProvider, Session, SessionId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { formatError } from "../lib/format-error.ts";
 import { upsertLatestEntity } from "../lib/latest-entity.ts";
@@ -462,22 +462,40 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	setRuntimeMode: async (sessionId, runtimeMode) => {
 		const draft = get().draftSession;
 		if (draft !== null && draft.id === sessionId) {
-			set({ draftSession: Session.make({ ...draft, runtimeMode }) });
+			set({
+				draftSession: Session.make({
+					...draft,
+					runtimeMode: runtimeModeForProvider(runtimeMode, draft.providerId),
+				}),
+			});
 			return;
 		}
+		const projectId = findSessionProject(get().sessionsByProject, sessionId);
+		const session =
+			projectId === null
+				? undefined
+				: get().sessionsByProject[projectId]?.find(
+						(candidate) => candidate.id === sessionId,
+					);
+		const nextRuntimeMode =
+			session === undefined
+				? runtimeMode
+				: runtimeModeForProvider(runtimeMode, session.providerId);
 		// Optimistic — patch the local row before the RPC settles so the toggle
 		// feels instant. Server-side update is also fast (single SQL UPDATE +
 		// in-memory cache poke), so the round-trip is invisible in practice.
 		set((s) => {
-			const projectId = findSessionProject(s.sessionsByProject, sessionId);
-			if (projectId === null) return { error: null };
-			const sessions = s.sessionsByProject[projectId] ?? [];
+			const nextProjectId = findSessionProject(s.sessionsByProject, sessionId);
+			if (nextProjectId === null) return { error: null };
+			const sessions = s.sessionsByProject[nextProjectId] ?? [];
 			return {
 				error: null,
 				sessionsByProject: {
 					...s.sessionsByProject,
-					[projectId]: sessions.map((session) =>
-						session.id === sessionId ? { ...session, runtimeMode } : session,
+					[nextProjectId]: sessions.map((session) =>
+						session.id === sessionId
+							? { ...session, runtimeMode: nextRuntimeMode }
+							: session,
 					),
 				},
 			};
@@ -485,7 +503,10 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		try {
 			const client = await getRpcClient();
 			await Effect.runPromise(
-				client["session.setRuntimeMode"]({ sessionId, runtimeMode }),
+				client["session.setRuntimeMode"]({
+					sessionId,
+					runtimeMode: nextRuntimeMode,
+				}),
 			);
 		} catch (err) {
 			set({ error: formatError(err) });
@@ -564,7 +585,14 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	setProvider: async (sessionId, providerId, model) => {
 		const draft = get().draftSession;
 		if (draft !== null && draft.id === sessionId) {
-			set({ draftSession: Session.make({ ...draft, providerId, model }) });
+			set({
+				draftSession: Session.make({
+					...draft,
+					providerId,
+					model,
+					runtimeMode: runtimeModeForProvider(draft.runtimeMode, providerId),
+				}),
+			});
 			return { ok: true } as const;
 		}
 		set({ error: null });
@@ -582,7 +610,15 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 						...s.sessionsByProject,
 						[projectId]: sessions.map((session) =>
 							session.id === sessionId
-								? { ...session, providerId, model }
+								? {
+										...session,
+										providerId,
+										model,
+										runtimeMode: runtimeModeForProvider(
+											session.runtimeMode,
+											providerId,
+										),
+									}
 								: session,
 						),
 					},

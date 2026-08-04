@@ -11,6 +11,7 @@ import {
 	type ProviderId,
 	type RuntimeMode,
 	resolveModelSlug,
+	runtimeModeForProvider,
 	type SettingsFile,
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
@@ -332,11 +333,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   setDefaultProvider: (providerId) => {
-    set({ defaultProviderId: providerId });
+    const defaultRuntimeMode = runtimeModeForProvider(
+      get().defaultRuntimeMode,
+      providerId,
+    );
+    set({ defaultProviderId: providerId, defaultRuntimeMode });
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client["settings.update"]({ patch: { defaultProviderId: providerId } }),
+        client["settings.update"]({
+          patch: { defaultProviderId: providerId, defaultRuntimeMode },
+        }),
       );
     })();
   },
@@ -352,7 +359,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
   setDefaultProviderAndModel: (providerId, model) => {
     const next = { ...get().defaultModelByProvider, [providerId]: model };
-    set({ defaultProviderId: providerId, defaultModelByProvider: next });
+    const defaultRuntimeMode = runtimeModeForProvider(
+      get().defaultRuntimeMode,
+      providerId,
+    );
+    set({
+      defaultProviderId: providerId,
+      defaultModelByProvider: next,
+      defaultRuntimeMode,
+    });
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
@@ -360,17 +375,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           patch: {
             defaultProviderId: providerId,
             defaultModelByProvider: next,
+            defaultRuntimeMode,
           },
         }),
       );
     })();
   },
   setDefaultRuntimeMode: (mode) => {
-    set({ defaultRuntimeMode: mode });
+    const defaultRuntimeMode = runtimeModeForProvider(
+      mode,
+      get().defaultProviderId,
+    );
+    set({ defaultRuntimeMode });
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client["settings.update"]({ patch: { defaultRuntimeMode: mode } }),
+        client["settings.update"]({ patch: { defaultRuntimeMode } }),
       );
     })();
   },

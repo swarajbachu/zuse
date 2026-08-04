@@ -3,8 +3,10 @@ import { describe, expect, test } from "vitest";
 
 import {
 	availableProviderIds,
+	RUNTIME_OPTIONS,
 	reasoningValueForModel,
 	runtimeOptionFor,
+	runtimeOptionsForProvider,
 } from "../../../src/lib/model-options";
 
 const entry = (
@@ -63,7 +65,7 @@ describe("runtimeOptionFor", () => {
 		const options = [
 			runtimeOptionFor("approval-required"),
 			runtimeOptionFor("auto-accept-edits"),
-			runtimeOptionFor("auto-accept-edits-and-bash"),
+			runtimeOptionFor("auto"),
 			runtimeOptionFor("full-access"),
 		];
 
@@ -71,5 +73,25 @@ describe("runtimeOptionFor", () => {
 		expect(new Set(options.map((option) => option.tint)).size).toBe(4);
 		expect(runtimeOptionFor("auto-accept-edits").tint).toBe("#0A84FF");
 		expect(runtimeOptionFor("full-access").tint).toBe("#FF453A");
+	});
+
+	test("shows approve for me only for Codex while retaining every existing mode", () => {
+		expect(runtimeOptionFor("auto").label).toBe("Approve for me");
+		expect(RUNTIME_OPTIONS.map((option) => option.value)).toEqual([
+			"approval-required",
+			"auto-accept-edits",
+			"auto-accept-edits-and-bash",
+			"full-access",
+		]);
+		expect(
+			runtimeOptionsForProvider("codex").map((option) => option.value),
+		).toEqual([
+			"approval-required",
+			"auto-accept-edits",
+			"auto-accept-edits-and-bash",
+			"auto",
+			"full-access",
+		]);
+		expect(runtimeOptionsForProvider("claude")).toEqual(RUNTIME_OPTIONS);
 	});
 });
