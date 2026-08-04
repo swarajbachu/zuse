@@ -45,11 +45,23 @@ const STORE_KEY = "zuse.mobile.connections.v1";
 const loadConnections = Effect.tryPromise({
 	try: async () => {
 		const raw = await SecureStore.getItemAsync(STORE_KEY);
-		if (raw === null) return [] as ConnectionRecord[];
-		return decodeConnectionRecords(JSON.parse(raw));
+		return {
+			connections:
+				raw === null
+					? ([] as ConnectionRecord[])
+					: decodeConnectionRecords(JSON.parse(raw)),
+			storageReadable: true,
+		};
 	},
-	catch: () => [] as ConnectionRecord[],
-});
+	catch: (cause) => cause,
+}).pipe(
+	Effect.catch(() =>
+		Effect.succeed({
+			connections: [] as ConnectionRecord[],
+			storageReadable: false,
+		}),
+	),
+);
 
 const saveConnections = (connections: ConnectionRecord[]) =>
 	Effect.tryPromise({
@@ -61,12 +73,17 @@ export const currentConnections = (): ConnectionRecord[] =>
 	appAtomRegistry.get(connectionsAtom);
 
 export const hydrateConnections = async (): Promise<void> => {
-	const connections = await Effect.runPromise(loadConnections);
+	const { connections, storageReadable } =
+		await Effect.runPromise(loadConnections);
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(connectionsAtom, connections);
 		appAtomRegistry.set(connectionsHydratedAtom, true);
 	});
-	await Effect.runPromise(saveConnections(connections));
+	if (storageReadable) {
+		await Effect.runPromise(saveConnections(connections)).catch(
+			() => undefined,
+		);
+	}
 };
 
 export const addConnection = async ({

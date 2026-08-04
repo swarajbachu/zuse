@@ -56,6 +56,17 @@ describe("pinned chats", () => {
 		expect(appAtomRegistry.get(pinnedChatKeysAtom)).toEqual([]);
 	});
 
+	it("hydrates to empty when secure storage is unavailable", async () => {
+		secureStore.getItemAsync.mockRejectedValueOnce(
+			new Error("keychain unavailable"),
+		);
+
+		await expect(hydratePinnedChats()).resolves.toBeUndefined();
+
+		expect(appAtomRegistry.get(pinnedChatsHydratedAtom)).toBe(true);
+		expect(appAtomRegistry.get(pinnedChatKeysAtom)).toEqual([]);
+	});
+
 	it("toggles optimistically and persists", async () => {
 		const key = pinnedChatKey("env-1", "chat-1");
 		await togglePinnedChat(key);

@@ -1,5 +1,5 @@
-import * as SecureStore from "expo-secure-store";
 import { Atom } from "effect/unstable/reactivity";
+import * as SecureStore from "expo-secure-store";
 
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
 
@@ -22,7 +22,13 @@ const persist = (keys: readonly string[]) =>
 	SecureStore.setItemAsync(STORE_KEY, JSON.stringify(keys));
 
 export const hydratePinnedChats = async (): Promise<void> => {
-	const raw = await SecureStore.getItemAsync(STORE_KEY);
+	let raw: string | null = null;
+	try {
+		raw = await SecureStore.getItemAsync(STORE_KEY);
+	} catch {
+		// Pinned chats are optional startup state. A temporarily unavailable
+		// keychain should not leave the inbox in its loading placeholder.
+	}
 	let keys: string[] = [];
 	try {
 		const parsed: unknown = raw === null ? [] : JSON.parse(raw);
