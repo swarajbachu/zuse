@@ -103,7 +103,7 @@ export const Hero = () => {
                 </h2>
                 <Button containerClassName="mt-6 md:mt-8" />
                 <p className="text-natural-white/50 mt-3 text-xs">
-                  macOS app · BYOK · no token markup
+                  macOS + Linux · BYOK · no token markup
                 </p>
               </div>
             </div>

@@ -33,7 +33,7 @@ const cardsData: InfoCardsProps[] = [
   {
     title: "Local-first control",
     description:
-      "Chats and worktrees persist in local SQLite. Your keys live in the macOS Keychain, not our servers.",
+      "Chats and worktrees persist in local SQLite. Your keys live in your operating system's credential store, not our servers.",
     icon: <HandsIcon />,
   },
 ];

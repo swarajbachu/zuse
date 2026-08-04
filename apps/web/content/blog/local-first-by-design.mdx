@@ -1,6 +1,6 @@
 ---
 title: "Local-first by design"
-description: "SQLite on disk, keys in the Keychain, no account required. Your work stays on your machine."
+description: "SQLite on disk, keys in the operating system credential store, no account required. Your work stays on your machine."
 date: "2026-05-12"
 timeToRead: "4 min read"
 authorName: "Zuse (Beta) team"
@@ -18,7 +18,7 @@ labels:
 
 > **Update — July 22, 2026:** Zuse (Beta) now sends default-on pseudonymous product and reliability analytics. It never includes prompts, responses, code, paths, commands, account details, or error stacks, and can be disabled immediately in Settings. Standard geographic enrichment applies. The local storage and provider data path described below is unchanged.
 
-Zuse (Beta) runs on your Mac, not in our cloud. There is no account to create before you can use it, no server holding your chat history, and no telemetry pulling your code off the machine.
+Zuse (Beta) runs on your computer, not in our cloud. There is no account to create before you can use it, no server holding your chat history, and no telemetry pulling your code off the machine.
 
 Local-first is not a feature we bolted on. It is how the app is built.
 
@@ -27,7 +27,7 @@ Local-first is not a feature we bolted on. It is how the app is built.
 ## What lives where
 
 - Chats, projects, and settings are stored in a local SQLite database on disk.
-- API keys live in the macOS Keychain, encrypted by the OS.
+- API keys live in the operating system credential store — Keychain on macOS or Secret Service on Linux.
 - Model requests go directly from your machine to the provider you configured.
 
 That is the data path for your work. Separate pseudonymous usage events are sent to our analytics processor under the privacy boundary above.
@@ -52,7 +52,7 @@ Local-first means we cannot inspect your work. Aggregated reliability events can
 
 It is easy for software to say "privacy first" while still depending on a remote account for the product to function. The app may store a cache locally, but the source of truth lives on a server. The server knows which projects you opened, which conversations you had, which files were attached, and which model requests passed through the system. That design can be appropriate for collaboration-heavy web products. It is not the default we wanted for a coding agent workspace.
 
-Zuse (Beta) starts from the opposite assumption. The Mac app should be useful as a local tool. The project is on your disk. The git repository is on your disk. Chat history and settings are stored locally. Provider credentials are stored by the operating system. The app does not need a Zuse (Beta)-hosted account before you can begin using it, and it does not need to copy your repository metadata to a backend just to render the sidebar.
+Zuse (Beta) starts from the opposite assumption. The desktop app should be useful as a local tool. The project is on your disk. The git repository is on your disk. Chat history and settings are stored locally. Provider credentials are stored by the operating system. The app does not need a Zuse (Beta)-hosted account before you can begin using it, and it does not need to copy your repository metadata to a backend just to render the sidebar.
 
 That matters because coding agents sit unusually close to sensitive material. They read source code, configuration files, logs, test fixtures, issue descriptions, and sometimes proprietary design notes. Even if a vendor promises careful handling, centralizing all of that context creates a larger target and a larger policy surface. Local-first does not remove every risk, but it removes a whole class of vendor custody from the core workflow.
 
@@ -72,9 +72,9 @@ A local database also makes the app easier to reason about. Your data has a conc
 
 There are engineering responsibilities that come with this choice. Migrations must be careful. Schema changes must account for partially updated developer machines. Queries must work with the production SQLite driver, not just a convenient test client. We treat that as part of building a serious local app. A local-first product still needs disciplined persistence; it just applies that discipline close to the user.
 
-## Keys belong in the Keychain
+## Keys belong in the operating system credential store
 
-Provider keys are secrets, and macOS already has a native system for application secrets: the Keychain. Storing keys there means encryption and access control are handled by the operating system instead of by a custom file format in the app. Zuse (Beta) reads the key when it needs to call the provider you selected, but it does not sync that key to a Zuse (Beta) backend.
+Provider keys are secrets, and desktop operating systems already provide secure stores for application secrets. Zuse (Beta) uses Keychain on macOS and Secret Service on Linux, so access is handled by the operating system instead of by a custom file format in the app. Zuse (Beta) reads the key when it needs to call the provider you selected, but it does not sync that key to a Zuse (Beta) backend.
 
 This is important for both individuals and teams. An individual developer can experiment without creating yet another vendor account. A team can use provider-side controls for spend, rotation, and revocation. If a key needs to be replaced, the owner can rotate it through the provider dashboard and update the local app. There is no support queue required to detach your model access from Zuse (Beta).
 

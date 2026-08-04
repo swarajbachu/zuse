@@ -38,9 +38,9 @@ const data = [
 			"Your chats, project data, and keys stay local, and model requests go only to the providers you configure. Default-on pseudonymous usage analytics measure features, model choices, active time, and reliability with standard geographic enrichment; they never include prompts, responses, code, paths, commands, account details, or error stacks. You can turn analytics off immediately in desktop or mobile Settings.",
 	},
 	{
-		question: "Is it macOS only?",
+		question: "Which operating systems are supported?",
     answer:
-      "For now, yes. Zuse (Beta) is a native macOS desktop app and ships as a universal build for both Apple Silicon and Intel. Other platforms may come later.",
+      "Zuse (Beta) ships for macOS and x64 Linux. The Download button selects the macOS disk image or Linux AppImage automatically, and Debian and Ubuntu users can also get the .deb package from GitHub Releases.",
   },
   {
     question: "How much does it cost?",

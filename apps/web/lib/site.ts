@@ -6,11 +6,11 @@ export const SITE_NAME = "Zuse (Beta)";
 export const GITHUB_URL = "https://github.com/swarajbachu/zuse";
 export const RELEASES_URL = "https://github.com/swarajbachu/zuse/releases";
 
-// Stable site route that redirects to the latest signed `.dmg`.
+// Stable site route that redirects to the latest installer for the visitor's OS.
 export const DOWNLOAD_URL = "/download";
 
 export const TAGLINE =
-  "Token max every coding agent from one local Mac workspace.";
+  "Token max every coding agent from one local desktop workspace.";
 
 // The coding agents Zuse (Beta) wraps. Used by the logo cloud / brands marquee.
 export const AGENTS = [

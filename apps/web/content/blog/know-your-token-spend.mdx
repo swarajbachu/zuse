@@ -1,6 +1,6 @@
 ---
 title: "Know your token spend"
-description: "Tokenmaxer reads your agent CLI logs and unifies token counts and dollar cost by day, source, model, and session. All of it stays on your Mac."
+description: "Tokenmaxer reads your agent CLI logs and unifies token counts and dollar cost by day, source, model, and session. All of it stays on your machine."
 date: "2026-06-21"
 timeToRead: "6 min read"
 authorName: "Zuse (Beta) team"
@@ -87,11 +87,11 @@ The same totals are useful in different shapes depending on what you are trying 
 
 ## Local by default
 
-Tokenmaxer is built on the same principle as the rest of Zuse (Beta): it runs on your Mac, and your data stays there.
+Tokenmaxer is built on the same principle as the rest of Zuse (Beta): it runs on your machine, and your data stays there.
 
 Reading token usage could easily have been a cloud feature. Upload the logs, crunch them on a server, render a dashboard. That is the normal shape for analytics, and it is exactly the shape we did not want for a tool that reads your coding history.
 
-So Tokenmaxer reads the CLI logs on disk and aggregates them on your machine. Nothing is uploaded. Your prompts are not sent anywhere to be counted. The session contents — which are full of your code, your file paths, your internal context — never leave the Mac just so a number can be totaled. The logs were already there; Tokenmaxer simply reads them where they sit.
+So Tokenmaxer reads the CLI logs on disk and aggregates them on your machine. Nothing is uploaded. Your prompts are not sent anywhere to be counted. The session contents — which are full of your code, your file paths, your internal context — never leave your computer just so a number can be totaled. The logs were already there; Tokenmaxer simply reads them where they sit.
 
 This matters more than it might for a usage dashboard, because agent logs are unusually sensitive. They contain fragments of source, command output, file names, and the shape of what you are building. A token counter has no business shipping that off the machine. Local-first is not a slogan we apply selectively; it applies to the analytics too.
 

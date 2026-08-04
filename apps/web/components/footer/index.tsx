@@ -63,9 +63,9 @@ export const Footer = () => {
           <div className="relative z-10 grid min-h-112 grid-cols-1 gap-8 px-6 py-10 md:px-15 md:py-16 lg:grid-cols-[1fr_520px] lg:items-start">
             <div className="flex flex-col gap-8">
               <div className="text-natural-white -tracking-lg w-full max-w-135 justify-center text-[32px] font-medium md:text-5xl md:leading-14 lg:text-[56px] lg:leading-16">
-                Token max every coding agent from one Mac app
+                Token max every coding agent from one desktop app
               </div>
-              <Button text="Download for Mac" />
+              <Button />
             </div>
             <div className="relative hidden min-h-76 overflow-hidden rounded-3xl bg-[#101113] p-5 shadow-card-xl lg:block">
               <div className="absolute inset-0 bg-[linear-gradient(to_right,#24272A_1px,transparent_1px),linear-gradient(to_bottom,#24272A_1px,transparent_1px)] bg-size-[44px_44px] opacity-40" />
@@ -89,7 +89,7 @@ export const Footer = () => {
                 </div>
                 <Link
                   href={DOWNLOAD_URL}
-                  aria-label="Download Zuse (Beta) for Mac"
+                  aria-label="Download Zuse (Beta) for your operating system"
                   className="bg-primary text-primary-foreground shadow-card-md inline-flex size-12 items-center justify-center rounded-xl"
                 >
                   <ArrowRightLongerIcon className="scale-125" />
@@ -132,10 +132,10 @@ export const Footer = () => {
             <div className="flex flex-col gap-4">
               <Logo className="size-8" />
               <span className="text-muted-foreground text-sm leading-5">
-                Token max every coding agent from one local Mac workspace.
+                Token max every coding agent from one local desktop workspace.
               </span>
               <div>
-                <Button text="Download for Mac" />
+                <Button />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-10 md:grid-cols-4 md:gap-0">

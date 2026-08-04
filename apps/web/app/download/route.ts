@@ -1,54 +1,54 @@
 import { NextResponse } from "next/server";
 
+import { resolveDownloadTarget, selectReleaseAsset } from "@/lib/download";
 import { RELEASES_URL } from "@/lib/site";
 
 const RELEASE_API_URL =
-  "https://api.github.com/repos/swarajbachu/zuse/releases/latest";
-
-type GitHubReleaseAsset = {
-  name?: unknown;
-  browser_download_url?: unknown;
-};
+	"https://api.github.com/repos/swarajbachu/zuse/releases/latest";
 
 type GitHubRelease = {
-  assets?: unknown;
+	assets?: unknown;
 };
 
 const FALLBACK_URL = RELEASES_URL;
 
-export async function GET() {
-  try {
-    const response = await fetch(RELEASE_API_URL, {
-      headers: {
-        Accept: "application/vnd.github+json",
-      },
-      next: { revalidate: 300 },
-    });
+const redirect = (url: string) =>
+	NextResponse.redirect(url, {
+		headers: { Vary: "User-Agent" },
+	});
 
-    if (!response.ok) {
-      return NextResponse.redirect(FALLBACK_URL);
-    }
+export async function GET(request: Request) {
+	const url = new URL(request.url);
+	const target = resolveDownloadTarget({
+		platform: url.searchParams.get("platform"),
+		format: url.searchParams.get("format"),
+		userAgent: request.headers.get("user-agent"),
+	});
 
-    const release = (await response.json()) as GitHubRelease;
-    const assets = Array.isArray(release.assets) ? release.assets : [];
-    const dmg = assets.find((asset): asset is GitHubReleaseAsset => {
-      if (asset === null || typeof asset !== "object") return false;
+	if (target === null) return redirect(FALLBACK_URL);
 
-      const { name, browser_download_url } = asset as GitHubReleaseAsset;
-      return (
-        typeof name === "string" &&
-        typeof browser_download_url === "string" &&
-        name.endsWith(".dmg") &&
-        !name.endsWith(".dmg.blockmap")
-      );
-    });
+	try {
+		const response = await fetch(RELEASE_API_URL, {
+			headers: {
+				Accept: "application/vnd.github+json",
+			},
+			next: { revalidate: 300 },
+		});
 
-    if (typeof dmg?.browser_download_url === "string") {
-      return NextResponse.redirect(dmg.browser_download_url);
-    }
-  } catch {
-    // Fall through to the public releases page.
-  }
+		if (!response.ok) {
+			return redirect(FALLBACK_URL);
+		}
 
-  return NextResponse.redirect(FALLBACK_URL);
+		const release = (await response.json()) as GitHubRelease;
+		const assets = Array.isArray(release.assets) ? release.assets : [];
+		const installer = selectReleaseAsset(assets, target);
+
+		if (installer !== null) {
+			return redirect(installer.browser_download_url);
+		}
+	} catch {
+		// Fall through to the public releases page.
+	}
+
+	return redirect(FALLBACK_URL);
 }

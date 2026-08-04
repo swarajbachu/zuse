@@ -15,7 +15,7 @@ const data: CardData[] = [
   {
     title: "Bring your own keys",
     description:
-      "Your API keys stay in the macOS Keychain. Zuse (Beta) is not a reseller and never marks up your model usage.",
+      "Your API keys stay in your operating system's credential store. Zuse (Beta) is not a reseller and never marks up your model usage.",
     time: "4 min read",
     image: "/assets/blog-preview-keys-clean.svg",
     href: "/blog/bring-your-own-keys",
@@ -39,7 +39,7 @@ const data: CardData[] = [
   {
     title: "Local-first by design",
     description:
-      "SQLite on disk, keys in the Keychain, no account required. Your work stays on your machine.",
+      "SQLite on disk, keys in the operating system credential store, no account required. Your work stays on your machine.",
     time: "4 min read",
     image: "/assets/blog-preview-local-clean.svg",
     href: "/blog/local-first-by-design",
@@ -47,7 +47,7 @@ const data: CardData[] = [
   {
     title: "Zuse Alpha is now in public alpha",
     description:
-      "A chat-first macOS app that wraps every coding agent CLI in one project-aware workspace. Free during alpha.",
+      "How Zuse launched its original public alpha as one project-aware workspace for coding agent CLIs.",
     time: "4 min read",
     image: "/assets/blog-preview-alpha-clean.svg",
     href: "/blog/memoize-public-alpha",
@@ -68,8 +68,8 @@ export const Resources = () => {
             <FilterBadge>BYOK</FilterBadge>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {data.map((card, index) => (
-              <BlogCard key={index} card={card} />
+            {data.map((card) => (
+              <BlogCard key={card.href} card={card} />
             ))}
           </div>
         </div>

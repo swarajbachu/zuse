@@ -7,7 +7,7 @@ import { BlogCard } from "@/components/resources/blog-card";
 export const metadata = getSEO({
   title: "Blog",
   description:
-    "Release notes, changelog, and deep dives on Zuse (Beta) — the chat-first macOS workspace for AI coding agents.",
+    "Release notes, changelog, and deep dives on Zuse (Beta) — the chat-first desktop workspace for AI coding agents on macOS and Linux.",
   path: "/blog",
 });
 
