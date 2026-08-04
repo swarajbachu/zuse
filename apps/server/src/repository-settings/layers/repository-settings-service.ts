@@ -3,11 +3,12 @@ import * as fsSync from "node:fs";
 import * as Path from "node:path";
 import {
 	type FolderId,
+	isRuntimeMode,
 	type ProviderId,
 	RepositorySettings,
 	type RepositorySettingsFile,
 	type RepositorySettingsPatch,
-	type RuntimeMode,
+	runtimeModeForProvider,
 } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -43,12 +44,6 @@ const isProviderId = (v: unknown): v is ProviderId =>
 	v === "cursor" ||
 	v === "gemini" ||
 	v === "opencode";
-
-const isRuntimeMode = (v: unknown): v is RuntimeMode =>
-	v === "approval-required" ||
-	v === "auto-accept-edits" ||
-	v === "auto-accept-edits-and-bash" ||
-	v === "full-access";
 
 const cleanScript = (value: string | null | undefined): string | null => {
 	const trimmed = value?.trim() ?? "";
@@ -511,21 +506,28 @@ const applyPatch = (
 	projectId: FolderId,
 	current: RepositorySettings,
 	patch: RepositorySettingsPatch,
-): RepositorySettings =>
-	RepositorySettings.make({
+): RepositorySettings => {
+	const defaultProviderId =
+		"defaultProviderId" in patch
+			? (patch.defaultProviderId ?? null)
+			: current.defaultProviderId;
+	const requestedRuntimeMode =
+		"defaultRuntimeMode" in patch
+			? (patch.defaultRuntimeMode ?? null)
+			: current.defaultRuntimeMode;
+	const defaultRuntimeMode =
+		requestedRuntimeMode === null || defaultProviderId === null
+			? requestedRuntimeMode
+			: runtimeModeForProvider(requestedRuntimeMode, defaultProviderId);
+
+	return RepositorySettings.make({
 		projectId,
-		defaultProviderId:
-			"defaultProviderId" in patch
-				? (patch.defaultProviderId ?? null)
-				: current.defaultProviderId,
+		defaultProviderId,
 		defaultModel:
 			"defaultModel" in patch
 				? (patch.defaultModel ?? null)
 				: current.defaultModel,
-		defaultRuntimeMode:
-			"defaultRuntimeMode" in patch
-				? (patch.defaultRuntimeMode ?? null)
-				: current.defaultRuntimeMode,
+		defaultRuntimeMode,
 		autoCreateWorktree: patch.autoCreateWorktree ?? current.autoCreateWorktree,
 		worktreeBaseDir:
 			"worktreeBaseDir" in patch
@@ -549,6 +551,7 @@ const applyPatch = (
 		fileIncludeGlobs: patch.fileIncludeGlobs ?? current.fileIncludeGlobs,
 		mcpDisabledServers: patch.mcpDisabledServers ?? current.mcpDisabledServers,
 	});
+};
 
 export const RepositorySettingsServiceLive = Layer.effect(
 	RepositorySettingsService,

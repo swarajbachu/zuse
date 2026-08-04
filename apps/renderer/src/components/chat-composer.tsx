@@ -8,6 +8,7 @@ import {
 	ComposerInput,
 	type EnvironmentId,
 	findModelDescriptor,
+	isRuntimeMode,
 	type Message,
 	type PermissionMode,
 	type PermissionRequest,
@@ -204,7 +205,7 @@ import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { PermissionCard } from "./permission-card.tsx";
 import { QuestionCard } from "./question-card.tsx";
-import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
+import { MODE_META, runtimeModesForProvider } from "./runtime-mode-meta.ts";
 
 const MIN_HEIGHT = 44;
 const MAX_HEIGHT = 240;
@@ -824,11 +825,16 @@ export function ChatComposer({
 					});
 					break;
 				}
-				if (
-					parsed.args === "approval-required" ||
-					parsed.args === "auto-accept-edits" ||
-					parsed.args === "full-access"
-				) {
+				if (parsed.args === "auto" && session.providerId !== "codex") {
+					toastManager.add({
+						type: "info",
+						title: "Approve for me requires Codex",
+						description:
+							"This provider does not expose a compatible safety reviewer.",
+					});
+					break;
+				}
+				if (isRuntimeMode(parsed.args)) {
 					void setRuntimeMode(sessionId, parsed.args, qualifiedEnvironmentId);
 				}
 				break;
@@ -1688,6 +1694,7 @@ function RuntimeAccessPicker({
 }) {
 	const setRuntimeMode = useSessionsStore((state) => state.setRuntimeMode);
 	const meta = MODE_META[current];
+	const runtimeModes = runtimeModesForProvider(providerId);
 	const fixedSandbox = providerId === "cursor";
 	const highlighted = confirmed && current === "full-access";
 
@@ -1730,7 +1737,7 @@ function RuntimeAccessPicker({
 						void setRuntimeMode(sessionId, value as RuntimeMode, environmentId)
 					}
 				>
-					{MODES_ORDER.map((mode) => {
+					{runtimeModes.map((mode) => {
 						const option = MODE_META[mode];
 						return (
 							<MenuRadioItem

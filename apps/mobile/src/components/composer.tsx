@@ -663,6 +663,7 @@ export const Composer = ({
 										<ComposerActionSlot>
 											<ComposerApprovalMenu
 												runtimeMode={modelValue.runtimeMode}
+												providerId={modelValue.providerId}
 												onChange={setRuntimeMode}
 											/>
 										</ComposerActionSlot>

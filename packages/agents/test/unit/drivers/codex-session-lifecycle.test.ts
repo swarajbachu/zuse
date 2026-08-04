@@ -16,6 +16,7 @@ import type {
 	AgentSessionId,
 	AgentTurnId,
 	FolderId,
+	RuntimeMode,
 	StartSessionInput,
 } from "@zuse/contracts";
 import { Effect, Fiber, Layer, Stream } from "effect";
@@ -40,11 +41,17 @@ const input = (
 	...overrides,
 });
 
+type AppServerRequest = {
+	readonly method: string;
+	readonly params: Record<string, unknown>;
+};
+
 const installAppServer = (
 	missingResume: boolean,
 	initialMissingMcpInventories = 0,
 	terminateOnMcpInventory = false,
 ) => {
+	const requests: AppServerRequest[] = [];
 	let mcpInventoryReads = 0;
 	let startupTerminated = false;
 	let terminate: ((error: Error) => void) | undefined;
@@ -54,6 +61,7 @@ const installAppServer = (
 			return {
 				request: vi.fn(async (method: string, params?: unknown) => {
 					const record = (params ?? {}) as Record<string, unknown>;
+					requests.push({ method, params: record });
 					switch (method) {
 						case "config/mcpServer/reload":
 							return {};
@@ -136,6 +144,7 @@ const installAppServer = (
 		},
 	);
 	return {
+		requests,
 		terminate: (error: Error) => {
 			if (terminate === undefined) throw new Error("App server is not running");
 			terminate(error);
@@ -151,6 +160,7 @@ const withSession = async <A>(
 		readonly initialMissingMcpInventories?: number;
 		readonly terminateOnMcpInventory?: boolean;
 		readonly onUnexpectedTermination?: (error: Error) => void;
+		readonly runtimeMode?: RuntimeMode | (() => RuntimeMode);
 	},
 	use: (
 		handle: CodexSessionHandle,
@@ -172,7 +182,10 @@ const withSession = async <A>(
 				"fake-codex",
 				"session-1" as AgentSessionId,
 				async () => ({ _tag: "AllowOnce" }),
-				() => "full-access",
+				() =>
+					typeof options.runtimeMode === "function"
+						? options.runtimeMode()
+						: (options.runtimeMode ?? "full-access"),
 				async () => ({ id: "browser-test", ok: true }),
 				"bun",
 				null,
@@ -292,6 +305,78 @@ describe("Codex session cursor persistence", () => {
 			const events = await takeEvents(handle.events, 1);
 			expect(events).toMatchObject([{ _tag: "Started" }]);
 		});
+	});
+
+	it.each([
+		["thread/start", {}],
+		["thread/resume", { resumeCursor: "resumed-thread" }],
+		["thread/fork", { resumeCursor: "resumed-thread", forkFromResume: true }],
+	] as const)("sends auto-review on %s and every turn", async (threadMethod, options) => {
+		await withSession(
+			{ ...options, runtimeMode: "auto" },
+			async (handle, appServer) => {
+				const { requests } = appServer;
+				await Effect.runPromise(handle.send("continue"));
+				await vi.waitFor(() => {
+					expect(
+						requests.some((request) => request.method === "turn/start"),
+					).toBe(true);
+				});
+
+				const threadParams = requests.find(
+					(request) => request.method === threadMethod,
+				)?.params;
+				expect(threadParams).toMatchObject({
+					approvalPolicy: "on-request",
+					approvalsReviewer: "auto_review",
+					sandbox: "workspace-write",
+				});
+
+				const turnParams = requests.find(
+					(request) => request.method === "turn/start",
+				)?.params;
+				expect(turnParams).toMatchObject({
+					approvalPolicy: "on-request",
+					approvalsReviewer: "auto_review",
+					sandboxPolicy: { type: "workspaceWrite" },
+				});
+			},
+		);
+	});
+
+	it("resets the sticky reviewer on the next turn after leaving auto mode", async () => {
+		let runtimeMode: RuntimeMode = "auto";
+		await withSession(
+			{ runtimeMode: () => runtimeMode },
+			async (handle, appServer) => {
+				const { requests } = appServer;
+				await Effect.runPromise(handle.send("first"));
+				await vi.waitFor(() => {
+					expect(
+						requests.filter((request) => request.method === "turn/start"),
+					).toHaveLength(1);
+				});
+				runtimeMode = "approval-required";
+				await Effect.runPromise(handle.send("second"));
+				await vi.waitFor(() => {
+					expect(
+						requests.filter((request) => request.method === "turn/start"),
+					).toHaveLength(2);
+				});
+
+				const turns = requests.filter(
+					(request) => request.method === "turn/start",
+				);
+				expect(turns[0]?.params).toMatchObject({
+					approvalsReviewer: "auto_review",
+				});
+				expect(turns[1]?.params).toMatchObject({
+					approvalPolicy: "untrusted",
+					approvalsReviewer: "user",
+					sandboxPolicy: { type: "readOnly" },
+				});
+			},
+		);
 	});
 
 	it("does not publish a provisional cursor before the first turn", async () => {

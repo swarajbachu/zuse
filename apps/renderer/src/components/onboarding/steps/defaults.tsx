@@ -1,6 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Tick01Icon } from "@zuse/icons/solid-rounded";
-import { MODE_META, MODES_ORDER } from "~/components/runtime-mode-meta";
+import {
+	MODE_META,
+	runtimeModesForProvider,
+} from "~/components/runtime-mode-meta";
 import { ModelSelect } from "~/components/settings-page";
 import { Switch } from "~/components/ui/switch";
 import { cn } from "~/lib/utils";
@@ -23,6 +26,7 @@ export function DefaultsStep() {
 	const setDefaultAutoCreateWorktree = useSettingsStore(
 		(s) => s.setDefaultAutoCreateWorktree,
 	);
+	const runtimeModes = runtimeModesForProvider(defaultProviderId);
 
 	return (
 		<div className="flex flex-col gap-7">
@@ -45,7 +49,7 @@ export function DefaultsStep() {
 						Permission mode
 					</span>
 					<div className="flex flex-col gap-1.5">
-						{MODES_ORDER.map((mode) => {
+						{runtimeModes.map((mode) => {
 							const m = MODE_META[mode];
 							const active = mode === defaultRuntimeMode;
 							return (

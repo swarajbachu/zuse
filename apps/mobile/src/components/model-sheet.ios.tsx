@@ -9,15 +9,19 @@ import {
 	Text,
 } from "@expo/ui/swift-ui";
 import { padding, pickerStyle, tag, tint } from "@expo/ui/swift-ui/modifiers";
-import type { ProviderId, RuntimeMode } from "@zuse/contracts";
+import {
+	type ProviderId,
+	type RuntimeMode,
+	runtimeModeForProvider,
+} from "@zuse/contracts";
 
 import {
 	defaultModelOptions,
 	modelOptionsForProvider,
 	providerOptions,
-	RUNTIME_OPTIONS,
 	reasoningValueForModel,
 	runtimeOptionFor,
+	runtimeOptionsForProvider,
 } from "~/lib/model-options";
 import { PROVIDER_NATIVE_ASSET_NAMES } from "~/lib/provider-logos";
 import { activeModelCatalog } from "~/store/model-catalog";
@@ -52,6 +56,7 @@ export function ModelSheet({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	const runtimeOption = runtimeOptionFor(value.runtimeMode);
+	const runtimeOptions = runtimeOptionsForProvider(value.providerId);
 	const reasoning = reasoningValueForModel(
 		activeModelCatalog(),
 		value.providerId,
@@ -97,6 +102,7 @@ export function ModelSheet({
 										...value,
 										providerId: id,
 										model: nextModel,
+										runtimeMode: runtimeModeForProvider(value.runtimeMode, id),
 										modelOptions: defaultModelOptions(
 											activeModelCatalog(),
 											id,
@@ -198,7 +204,7 @@ export function ModelSheet({
 							}
 							modifiers={[pickerStyle("menu"), tint(runtimeOption.tint)]}
 						>
-							{RUNTIME_OPTIONS.map((option) => (
+							{runtimeOptions.map((option) => (
 								<Text key={option.value} modifiers={[tag(option.value)]}>
 									{option.label}
 								</Text>
