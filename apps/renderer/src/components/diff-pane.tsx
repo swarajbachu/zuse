@@ -6,11 +6,6 @@ import {
 	Tick02Icon,
 	Upload01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
-import type { GitStatus, GitStatusEntry } from "@pierre/trees";
-import {
-	FileTree as StructuredFileTree,
-	useFileTree,
-} from "@pierre/trees/react";
 import type {
 	CodeAnnotation,
 	FolderId,
@@ -23,19 +18,13 @@ import type {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import {
-	CircleAlert,
+	FileWarning,
 	MessageSquareText,
 	Pencil,
 	Sparkles,
 	Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import {
-	Group,
-	Panel,
-	Separator,
-	useDefaultLayout,
-} from "react-resizable-panels";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { gitChangesKey, useGitChangesStore } from "../store/git-changes.ts";
@@ -49,6 +38,7 @@ import {
 	REVIEW_VIEWED_STORAGE_KEY,
 	reviewFingerprint,
 } from "./changes-review.tsx";
+import { FileIcon } from "./file-icon.tsx";
 import { GitInitCta } from "./git-init-cta.tsx";
 import {
 	AlertDialog,
@@ -67,9 +57,6 @@ const basename = (path: string): string => {
 };
 
 const EMPTY_REVIEW_PATCHES: Readonly<Record<string, GitReviewPatch>> = {};
-const NAVIGATOR_PANEL_IDS = ["conflicts", "changes"];
-const NAVIGATOR_PANEL_GROUP_ID = "zuse.review.navigator.v1";
-
 type RevertRequest =
 	| { readonly type: "all" }
 	| {
@@ -150,15 +137,6 @@ export function DiffPane({
 		"files",
 	);
 	const [viewedRevision, setViewedRevision] = useState(0);
-	const {
-		defaultLayout: navigatorDefaultLayout,
-		onLayoutChanged: onNavigatorLayoutChanged,
-	} = useDefaultLayout({
-		id: NAVIGATOR_PANEL_GROUP_ID,
-		panelIds: NAVIGATOR_PANEL_IDS,
-		storage: typeof window === "undefined" ? undefined : window.localStorage,
-	});
-
 	useEffect(() => {
 		const refreshViewed = () => setViewedRevision((value) => value + 1);
 		window.addEventListener("zuse-review-viewed", refreshViewed);
@@ -180,7 +158,12 @@ export function DiffPane({
 	}, [folderId, worktreeId, hydratePrDetails, refreshChanges, refreshReview]);
 
 	if (folderId === null) {
-		return <Empty>Select a project to see its changes.</Empty>;
+		return (
+			<Indicator
+				title="No project selected"
+				body="Select a project to view its changed files."
+			/>
+		);
 	}
 
 	const refreshAll = async () => {
@@ -348,50 +331,36 @@ export function DiffPane({
 									<GitInitCta folderId={folderId} worktreeId={worktreeId} />
 								</div>
 							) : reviewLoading && review === null ? (
-								<Indicator title="Loading branch changes…" />
+								<Indicator title="Loading changes" loading />
 							) : reviewFiles.length === 0 ? (
-								<Indicator title="No branch changes" />
+								<Indicator
+									title="No changes"
+									body="Your branch is up to date with its base."
+								/>
 							) : conflictFiles.length > 0 ? (
-								<Group
-									id={NAVIGATOR_PANEL_GROUP_ID}
-									orientation="vertical"
-									defaultLayout={navigatorDefaultLayout}
-									onLayoutChanged={onNavigatorLayoutChanged}
-									resizeTargetMinimumSize={{ fine: 12, coarse: 28 }}
-									className="min-h-0 flex-1"
-								>
-									<Panel id="conflicts" defaultSize="35%" minSize="88px">
-										<NavigatorSection
-											title="Conflicts"
-											count={conflictFiles.length}
-											files={conflictFiles}
-											onSelect={openChanges}
-											conflict
-											className="h-full"
-										/>
-									</Panel>
-									<Separator
-										aria-label="Resize Conflicts and Changes"
-										title="Drag to resize Conflicts and Changes"
-										className="group relative h-1 cursor-row-resize bg-transparent outline-none after:absolute after:inset-x-0 after:top-1/2 after:h-px after:-translate-y-1/2 after:bg-border/60 after:transition-colors hover:after:bg-foreground/25 active:after:bg-foreground/40 focus-visible:after:bg-foreground/40"
+								<div className="min-h-0 flex-1 overflow-y-auto py-1">
+									<NavigatorSection
+										title="Merge changes"
+										count={conflictFiles.length}
+										files={conflictFiles}
+										onSelect={openChanges}
+										conflict
 									/>
-									<Panel id="changes" defaultSize="65%" minSize="88px">
-										<NavigatorSection
-											title="Changes"
-											count={changedFiles.length}
-											files={changedFiles}
-											onSelect={openChanges}
-											className="h-full"
-										/>
-									</Panel>
-								</Group>
+									<div className="my-1 h-px bg-border/50" />
+									<NavigatorSection
+										title="Changes"
+										count={changedFiles.length}
+										files={changedFiles}
+										onSelect={openChanges}
+									/>
+								</div>
 							) : (
 								<NavigatorSection
 									title="Changes"
 									count={changedFiles.length}
 									files={changedFiles}
 									onSelect={openChanges}
-									className="min-h-0 flex-1"
+									className="min-h-0 flex-1 overflow-y-auto py-1"
 								/>
 							)}
 						</div>
@@ -610,21 +579,23 @@ function RevertChangesDialog({
 	);
 }
 
-const treeStatusFor = (kind: GitChangeKind): GitStatus => {
+const fileStatusFor = (
+	kind: GitChangeKind,
+): { readonly label: string; readonly className: string } => {
 	switch (kind) {
 		case "added":
 		case "copied":
-			return "added";
-		case "deleted":
-			return "deleted";
-		case "renamed":
-			return "renamed";
 		case "untracked":
-			return "untracked";
-		case "ignored":
-			return "ignored";
+			return {
+				label: "A",
+				className: "bg-emerald-500/10 text-emerald-500",
+			};
+		case "deleted":
+			return { label: "D", className: "bg-rose-500/10 text-rose-500" };
+		case "renamed":
+			return { label: "R", className: "bg-sky-500/10 text-sky-500" };
 		default:
-			return "modified";
+			return { label: "M", className: "bg-amber-500/10 text-amber-500" };
 	}
 };
 
@@ -664,30 +635,21 @@ function NavigatorSection({
 	if (files.length === 0) {
 		return (
 			<section className={`flex min-h-0 flex-col ${className}`}>
-				<div className="flex h-7 shrink-0 items-center gap-1.5 px-3 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+				<div className="flex h-8 shrink-0 items-center gap-1.5 px-3 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
 					<span>{title}</span>
 					<span className="tabular-nums">{count}</span>
-				</div>
-				<div className="px-3 py-2 text-[11px] text-muted-foreground">
-					No other changed files
 				</div>
 			</section>
 		);
 	}
 	return (
 		<section className={`flex min-h-0 flex-col ${className}`}>
-			<div className="flex h-7 shrink-0 items-center gap-1.5 px-3 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-				{conflict ? <CircleAlert className="size-3 text-amber-400" /> : null}
-				<span className={conflict ? "text-amber-300" : ""}>{title}</span>
-				<span className="ml-auto tabular-nums">{count}</span>
+			<div className="flex h-8 shrink-0 items-center gap-1.5 px-3 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+				{conflict ? <FileWarning className="size-3 text-rose-400" /> : null}
+				<span className={conflict ? "text-foreground" : ""}>{title}</span>
+				<span className="tabular-nums">{count}</span>
 			</div>
-			<div className="min-h-0 flex-1 overflow-hidden">
-				<ChangesNavigatorTree
-					key={files.map((file) => `${file.path}:${file.kind}`).join("\0")}
-					files={files}
-					onSelect={onSelect}
-				/>
-			</div>
+			<ChangedFilesList files={files} onSelect={onSelect} conflict={conflict} />
 		</section>
 	);
 }
@@ -732,40 +694,64 @@ function ExternalFeedbackCard({
 	);
 }
 
-function ChangesNavigatorTree({
+function ChangedFilesList({
 	files,
 	onSelect,
+	conflict,
 }: {
 	readonly files: readonly GitReviewFile[];
 	readonly onSelect: (path: string) => void;
+	readonly conflict: boolean;
 }) {
-	const paths = useMemo(() => files.map((file) => file.path), [files]);
-	const gitStatus = useMemo<GitStatusEntry[]>(
-		() =>
-			files.map((file) => ({
-				path: file.path,
-				status: treeStatusFor(file.kind),
-			})),
-		[files],
-	);
-	const { model } = useFileTree({
-		paths,
-		gitStatus,
-		density: "compact",
-		icons: "complete",
-		initialExpansion: 3,
-		initialVisibleRowCount: 50,
-		onSelectionChange: (selectedPaths) => {
-			const path = selectedPaths[0];
-			if (selectedPaths.length === 1 && path !== undefined) onSelect(path);
-		},
-	});
 	return (
-		<StructuredFileTree
-			model={model}
-			aria-label="Changed files"
-			className="h-full min-h-0"
-		/>
+		<ul aria-label={conflict ? "Files with merge conflicts" : "Changed files"}>
+			{files.map((file) => {
+				const name = basename(file.path);
+				const directory = file.path.slice(
+					0,
+					Math.max(0, file.path.length - name.length - 1),
+				);
+				const status = fileStatusFor(file.kind);
+				return (
+					<li key={file.path}>
+						<button
+							type="button"
+							onClick={() => onSelect(file.path)}
+							aria-label={
+								conflict
+									? `Resolve merge conflict in ${file.path}`
+									: `Open changes for ${file.path}`
+							}
+							className="group flex h-8 w-full items-center gap-2 px-3 text-left outline-none hover:bg-foreground/[0.045] focus-visible:bg-foreground/[0.06] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+						>
+							<span
+								className={`grid size-5 shrink-0 place-items-center rounded text-[10px] font-semibold ${
+									conflict ? "bg-rose-500/10 text-rose-400" : status.className
+								}`}
+								aria-hidden="true"
+							>
+								{conflict ? "!" : status.label}
+							</span>
+							<FileIcon name={name} kind="file" className="size-4 shrink-0" />
+							<span className="min-w-0 truncate text-xs text-foreground">
+								{name}
+							</span>
+							{directory.length > 0 ? (
+								<span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground/70">
+									{directory}
+								</span>
+							) : (
+								<span className="flex-1" />
+							)}
+							<span className="shrink-0 font-mono text-[10px] tabular-nums">
+								<span className="text-emerald-500">+{file.additions}</span>{" "}
+								<span className="text-rose-500">−{file.deletions}</span>
+							</span>
+						</button>
+					</li>
+				);
+			})}
+		</ul>
 	);
 }
 
@@ -982,21 +968,32 @@ const formatErr = (err: unknown): string => {
 	return String(err);
 };
 
-function Indicator({ title, body }: { title: string; body?: string }) {
+function Indicator({
+	title,
+	body,
+	loading = false,
+}: {
+	title: string;
+	body?: string;
+	loading?: boolean;
+}) {
 	return (
-		<div className="flex flex-col gap-0.5">
-			<span className="font-medium text-foreground">{title}</span>
-			{body !== undefined ? (
-				<span className="text-muted-foreground">{body}</span>
-			) : null}
+		<div className="grid min-h-32 flex-1 place-items-center px-6 py-10 text-center">
+			<div className="flex max-w-64 flex-col items-center gap-1.5">
+				{loading ? (
+					<HugeiconsIcon
+						icon={Loading02Icon}
+						className="mb-1 size-4 animate-spin text-muted-foreground"
+						aria-hidden="true"
+					/>
+				) : null}
+				<span className="text-xs font-medium text-foreground">{title}</span>
+				{body !== undefined ? (
+					<span className="text-[11px] leading-4 text-muted-foreground">
+						{body}
+					</span>
+				) : null}
+			</div>
 		</div>
-	);
-}
-
-function Empty({ children }: { children: React.ReactNode }) {
-	return (
-		<p className="px-3 py-6 text-center text-xs text-muted-foreground">
-			{children}
-		</p>
 	);
 }
