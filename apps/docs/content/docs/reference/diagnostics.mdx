@@ -1,0 +1,53 @@
+---
+title: Diagnostics and troubleshooting
+description: Inspect provider, runtime, transport, and performance health without guessing.
+section: reference
+order: 94
+platforms: [desktop]
+providers: [claude, codex, grok, gemini, cursor, opencode]
+prerequisites: []
+related: [/providers/setup, /concepts/local-first, /workspace/terminal-browser]
+next: /reference/bundled-skill
+lastVerified: latest
+---
+
+
+Open **Settings → Diagnostics** when a session, transport, or interface feels slow or stops behaving predictably. The pane reports bounded runtime health and recent technical events without requiring you to search raw application files first.
+
+## Start with the boundary
+
+Identify which layer is failing:
+
+1. **Provider** — installation, authentication, version, rate limit, or provider process.
+2. **Project** — deleted path, Git state, setup command, or permissions.
+3. **Session** — start, resume, stream, approval, or interruption.
+4. **Workspace tool** — terminal, browser, editor, Git, or GitHub authentication.
+5. **Connection** — desktop IPC, browser pairing, hosted tunnel, or mobile reconnect.
+
+The visible error and the diagnostics timeline should agree on the failing boundary. Do not reinstall the app to solve a repository command failure.
+
+## Common recoveries
+
+### Provider will not start
+
+Open **Settings → Providers**, refresh status, verify the CLI from Terminal, complete sign-in, and apply a required update. Start a new session after changing the provider process.
+
+### Project is unavailable
+
+Confirm the folder or worktree still exists and is readable. If it was moved, reopen the project at its new path. A deleted worktree cannot provide files, Changes, or terminal context.
+
+### Setup failed
+
+Read the worktree setup output, run the same command in its terminal, fix dependencies or environment variables, then rerun setup. The checkout remains available after failure.
+
+### Git or pull-request action failed
+
+Inspect the remote and branch with `git status` and verify `gh auth status`. Resolve dirty files or conflicts before retrying a state-dependent workflow action.
+
+### Remote client stopped updating
+
+Confirm the desktop computer and Zuse service are awake and connected. Reopen the client, then repair or revoke the device from **Settings → Devices** if its authorization is stale.
+
+## Sharing a report
+
+Reproduce the issue once, note the approximate time and active provider, then export the smallest useful diagnostic window. Read the export before sharing it. For repository-specific failures, include the failing command and sanitized output separately.

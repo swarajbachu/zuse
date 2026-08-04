@@ -1,0 +1,56 @@
+---
+title: Repository settings
+description: Configure shared worktree behavior in .zuse/settings.toml.
+section: projects
+order: 42
+platforms: [desktop]
+providers: [claude, codex, grok, gemini, cursor, opencode]
+prerequisites: [/projects]
+related: [/projects/file-includes, /projects/scripts, /reference/schemas]
+next: /projects/file-includes
+lastVerified: latest
+---
+
+
+Commit `.zuse/settings.toml` when everyone working in a repository should get the same Zuse setup. User preferences remain in `~/.zuse/settings.json` and can be overridden by applicable repository values.
+
+```toml
+schemaVersion = 1
+autoCreateWorktree = false
+
+file_include_globs = [
+  ".env",
+  ".env.local",
+  ".env.*.local",
+]
+
+mcp_disabled_servers = []
+
+[scripts]
+setup = "bun install"
+run = "bun run dev"
+archive = ""
+auto_run_after_setup = false
+
+[environment_variables]
+NODE_ENV = "development"
+```
+
+## Top-level fields
+
+| Field | Purpose |
+| --- | --- |
+| `schemaVersion` | Settings format; currently `1` |
+| `defaultProviderId` | Optional provider default for this repository |
+| `defaultModel` | Optional model default |
+| `defaultRuntimeMode` | Optional runtime permission default |
+| `autoCreateWorktree` | Whether new chats default to isolated worktrees |
+| `worktreeBaseDir` | Optional custom directory for worktree creation |
+| `file_include_globs` | Local files linked into new worktrees |
+| `mcp_disabled_servers` | Provider MCP servers disabled for this repository |
+| `scripts` | Setup, run, archive, and auto-run behavior |
+| `environment_variables` | String values passed to repository scripts |
+
+Use the public schema at `https://zuse.dev/schemas/repository-settings.schema.json` for editor validation. Zuse also exposes these fields in the selected project's settings UI.
+
+Do not commit secrets in `[environment_variables]`. Use ignored local files and [worktree file includes](/projects/file-includes) for machine-specific secrets.

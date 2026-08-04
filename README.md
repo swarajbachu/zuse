@@ -148,9 +148,14 @@ GNOME Keyring or KWallet) and `avahi-publish-service` for nearby discovery.
 
 ---
 
-## Acknowledgements
+## License and acknowledgements
 
-Zuse Alpha is inspired by T3 code's work and built in our own opinionated way.
-Special thanks to [Julius Marminge](https://github.com/juliusmarminge), a main
-contributor to T3 code, whose work was a primary inspiration for our use of the
-Effect library.
+Except where third-party terms apply, Zuse's source code is licensed under the
+[GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`).
+Small areas with close correspondence to MIT-licensed upstream software retain
+the applicable copyright and permission notice. Reference-driven pull requests,
+library foundations, and the code-level inventory are documented in
+[Attribution and provenance](THIRD_PARTY_NOTICES.md).
+
+Zuse also builds on ideas and foundations from the wider open-source community.
+We are grateful to the contributors whose work made this project possible.

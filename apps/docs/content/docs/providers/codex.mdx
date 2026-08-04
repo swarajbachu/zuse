@@ -1,0 +1,52 @@
+---
+title: Codex
+description: Connect Codex and use native threads, goals, skills, apps, and review workflows.
+section: providers
+order: 33
+platforms: [desktop, browser, mobile]
+providers: [codex]
+prerequisites: [/start/install, /providers/setup]
+related: [/composer/modes-permissions, /composer/skills-mcp, /composer/subagents, /workspace/changes-pull-requests]
+next: /providers/grok
+lastVerified: latest
+---
+
+Codex is a CLI-backed provider driven through its app-server protocol. Zuse preserves the thread identifier for resume and renders its structured turns, tools, approvals, reviews, apps, and collaboration events in the shared interface.
+
+## Install and sign in
+
+```bash
+npm i -g @openai/codex
+codex login
+```
+
+Zuse requires Codex CLI `0.128.0` or newer for the protocol used by the bundled integration. **Settings → Providers** reports an incompatible installation before a session starts and can offer the matching npm update.
+
+Authentication stays in Codex's own account store. Zuse asks the app server to verify the current account and can show its plan label and email when reported.
+
+## Workflows in Zuse
+
+- Start and resume native Codex threads inside any project or worktree.
+- Stream reasoning, responses, commands, file changes, approvals, questions, and usage into the durable timeline.
+- Use Plan mode independently from Zuse's runtime permission posture.
+- Discover Codex skills and prompts from global and project scopes.
+- Inspect configured MCP servers, provider apps, connectors, and plugins when reported by Codex.
+- Render Codex collaboration tasks as subagents in the timeline and Subagents panel.
+- Run provider review and thread commands from the slash-command picker.
+
+Goal mode and fast mode are version-gated. Zuse only shows these controls when the installed CLI reports support; fast mode can also depend on the selected model's available service tiers.
+
+## Thread history and recovery
+
+Zuse's persisted timeline is the record of earlier messages. On provider resume, Codex does not need to replay old items for the UI to retain that history.
+
+If a thread cannot resume, keep the existing chat for its durable context and start a new session tab. If controls are missing, update Codex, refresh provider status, and create a fresh session so capabilities are negotiated again.
+
+For authentication or startup failures:
+
+```bash
+codex --version
+codex login
+```
+
+Then return to **Settings → Providers**, refresh, and restart the session. Use `/status` or `/debug-config` when the provider itself starts but its account, sandbox, or configuration is unexpected.

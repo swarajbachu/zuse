@@ -1,0 +1,65 @@
+---
+title: Test a local app in the browser
+description: Start a local server, let an agent inspect the visible app, and verify the result with useful evidence.
+section: how-to
+order: 9
+platforms: [desktop]
+providers: [claude, codex, grok, gemini]
+prerequisites: [/workspace/browser, /workspace/terminal-browser]
+related: [/workspace/browser-debugging, /workspace/browser-evidence, /workspace/browser-troubleshooting]
+next: /how-to/local-review-changes
+lastVerified: latest
+---
+
+Use this workflow after an implementation changes a page or user flow. The goal is to verify the running product in the same task that owns the code, not merely confirm that a build command exited successfully.
+
+## Start the correct environment
+
+1. Open **Terminal** in the task that contains the change.
+2. Start the repository's configured run command or its normal development command.
+3. Wait for the server to print its actual address and port.
+4. Add **Browser** from the workspace panel menu.
+5. Choose the matching entry under **Local servers**, or enter the complete local URL.
+
+Confirm the branch and port when several tasks are running. A healthy page on the wrong worktree is not evidence for the change you intend to review.
+
+## Give the agent a bounded browser task
+
+Describe the path, state, viewport, and expected result. For example:
+
+> Open the settings page from this task's local server. Test the empty state at the phone viewport, then the normal desktop viewport. Do not submit or delete anything. Report visual problems and relevant console or network failures.
+
+Zuse keeps the browser visible while the agent reads and operates it. Page-changing actions follow the active permission mode. Review the target and consequence before approving a form submission, account action, or other mutation.
+
+## Verify behavior and layout
+
+1. Reproduce the primary path once at **Fill** or **Desktop**.
+2. Repeat the critical interaction at **Phone** and **Tablet** when the page is responsive.
+3. Ask the agent to read the updated page after navigation or a large rerender.
+4. Check console messages when the visible behavior is incorrect.
+5. Inspect the relevant request when the problem depends on loading or saving data.
+
+Use a seeded development or staging account for authenticated paths. Importing a browser session is explicit, and the agent still needs task-scoped permission before it can use that signed-in domain.
+
+## Capture only useful evidence
+
+For a stable visual state, capture a screenshot after fonts, images, and loading indicators settle. For animation, focus, or a multi-step interaction, use a short recording. To request a precise visual change yourself, choose **Annotate page**, mark the element or region, write the intended outcome, and attach it to the composer.
+
+Evidence can contain user data, console values, or request details. Review it before sending or sharing it.
+
+## Success check
+
+The browser is showing the intended task's server, the critical path behaves correctly at the required viewports, relevant console and network checks are understood, and the evidence refers to the final page state.
+
+Return to [Review and commit local changes](/how-to/local-review-changes/) only after the browser result and code diff agree.
+
+## Recovery
+
+- **The local server is missing:** read the terminal output and enter its address directly.
+- **The page is blank or stale:** wait for the server, verify the URL and port, then reload.
+- **The agent cannot find a control:** ask it to read the current page again after the rerender.
+- **Diagnostics are empty:** reload, reproduce once, then inspect the current page's console or requests.
+- **A recording will not start:** keep the Browser panel visible and wait for the first rendered frame.
+- **The agent is blocked by a signed-in page:** bring the owning task's Browser panel forward and decide whether to choose **Allow for task**.
+
+See [Troubleshoot the in-app browser](/workspace/browser-troubleshooting/) for the complete recovery guide.

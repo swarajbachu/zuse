@@ -1,0 +1,56 @@
+---
+title: "Hosted remote access"
+description: "Link a computer to your account and securely reach it from a browser or iPhone away from your local network."
+section: "Remote access"
+order: 4
+platforms: [desktop, web, mobile, serve]
+providers: []
+prerequisites: [/remote]
+related: [/serve, /mobile/connect, /remote/security, /remote/recovery]
+next: /remote/security
+lastVerified: latest
+---
+
+
+Hosted remote access adds identity, computer discovery, and a secure connection path to an environment you already run. The remote client signs in to the same account, selects an online computer, and connects to it. The environment remains the authority for code, credentials, agent processes, and session state.
+
+## Link the desktop app
+
+1. Open **Settings → Devices** in the desktop app.
+2. Under **Remote access**, optionally enter a clear computer name.
+3. Choose **Set up remote access** and finish sign-in.
+4. Wait until the card shows that the computer is ready.
+
+The computer now appears in account-linked browser and mobile clients. If the environment disconnects, it remains listed as offline and remote access resumes when the computer reconnects.
+
+## Open it from a browser
+
+Open the hosted Zuse web app and sign in. The computer picker lists linked computers with their online state and runtime version. Choose an online computer to open it.
+
+If there are no linked computers, run [Zuse Serve](/serve/) on a headless machine or enable remote access in the desktop app. If a computer is missing after you linked it, confirm both clients use the same account.
+
+## Open it from iPhone
+
+In the mobile app, open **Settings → Remote access** and choose **Sign in for remote access**. Linked computers appear with **Online**, **Offline**, or **Checking…** state. Choose a computer to connect; connected environments are also folded into the main inbox.
+
+Local pairing remains available when signed out. Signing in is only required for account-linked access away from the local network.
+
+## Switch computers
+
+In the web or desktop client, use the computer switcher to move between linked environments. A green indicator means the recent heartbeat is online. In mobile, choose the environment from **Settings** or select it while creating a chat.
+
+## Turn remote access off
+
+In the desktop app, choose **Turn off remote access**. For a Serve environment, run:
+
+```sh
+zuse serve logout
+```
+
+Logging out revokes that environment's account registration, stops its service, and clears its saved Serve session. It does not delete repositories or workspaces.
+
+<Warning title="Remote access is not workspace storage">
+Do not use hosted access as a substitute for repository backups. It is a control path to a computer, not cloud storage for the workspace.
+</Warning>
+
+<NextStep href="/remote/security/" label="Review the security model" />

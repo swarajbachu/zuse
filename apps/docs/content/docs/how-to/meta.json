@@ -1,0 +1,22 @@
+{
+	"title": "How to",
+	"description": "Complete a specific task in Zuse",
+	"icon": "ListChecks",
+	"pages": [
+		"index",
+		"local-parallel-worktrees",
+		"local-delegate-agents",
+		"local-add-context",
+		"local-test-in-browser",
+		"local-review-changes",
+		"local-complete-pull-request",
+		"local-recover-task",
+		"local-configure-settings",
+		"local-configure-mcp",
+		"remote-connect-device",
+		"remote-local-browser",
+		"remote-hosted-access",
+		"serve-operate-host",
+		"remote-recover-connection"
+	]
+}

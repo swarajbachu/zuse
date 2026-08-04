@@ -4,16 +4,22 @@ import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { HOSTED_APP_URL, WORKOS_PUBLIC_CLIENT_ID } from "@zuse/contracts";
+import {
+	HOSTED_APP_URL,
+	type ServeStatusV1,
+	WORKOS_PUBLIC_CLIENT_ID,
+} from "@zuse/contracts";
 import { Effect } from "effect";
 
 import { SessionStoreLive } from "../auth/layers/session-store.ts";
 import { refreshSession, type SessionBundle } from "../auth/layers/workos.ts";
 import { SessionStore } from "../auth/services/session-store.ts";
 import { runHeadlessServer } from "../bin.ts";
+import { SUPPORTED_PROVIDER_CLIS } from "../provider/provider-cli-registry.ts";
 import { parseServeCommand } from "./command.ts";
 import { ensureServeSession } from "./device-login.ts";
 import {
+	type ActiveServeRuntime,
 	installDurableServeRuntime,
 	latestServeRuntimeVersion,
 	readActiveServeRuntime,
@@ -28,7 +34,40 @@ import {
 	uninstallServeService,
 } from "./service-manager.ts";
 
+export {
+	ServeServiceState,
+	ServeStatusV1,
+	ServeTunnelState,
+} from "@zuse/contracts";
+
 const DEFAULT_RELAY_URL = "https://relay.stuff.md";
+export const SERVE_HELP = `Zuse Serve
+
+Run and manage Zuse on this computer.
+
+Usage:
+  zuse serve [start] [--foreground] [--data-dir <path>]
+  zuse serve status [--json] [--data-dir <path>]
+  zuse serve stop [--data-dir <path>]
+  zuse serve update --force [--data-dir <path>]
+  zuse serve logout [--data-dir <path>]
+  zuse serve uninstall [--data-dir <path>]
+
+Commands:
+  start       Start Zuse Serve (default)
+  status      Show service, tunnel, agent, and reachability status
+  stop        Stop the background service
+  update      Install the latest runtime after an explicit readiness override
+  logout      Revoke this computer and stop the service
+  uninstall   Remove the service and runtime, preserving workspaces
+
+Options:
+  --foreground       Run in the current terminal
+  --json             Emit versioned JSON from status
+  --force            Confirm a safe update window
+  --data-dir <path>  Override the Zuse data directory
+  -h, --help         Show this help
+  -V, --version      Show the package version`;
 const workosClientId = (env: NodeJS.ProcessEnv): string =>
 	(env.WORKOS_CLIENT_ID ?? "").trim() || WORKOS_PUBLIC_CLIENT_ID;
 
@@ -117,16 +156,10 @@ const readLocalRelayConfig = (dataDir: string): LocalRelayConfig | null => {
 };
 
 const installedAgents = async (): Promise<ReadonlyArray<string>> => {
-	const candidates = [
-		["Codex", "codex"],
-		["Claude", "claude"],
-		["OpenCode", "opencode"],
-		["Grok", "grok"],
-	] as const;
 	const results = await Promise.all(
-		candidates.map(async ([label, executable]) => {
+		SUPPORTED_PROVIDER_CLIS.map(async ({ displayName, cliBinary }) => {
 			try {
-				const child = spawn(executable, ["--version"], {
+				const child = spawn(cliBinary, ["--version"], {
 					stdio: "ignore",
 				});
 				const code = await new Promise<number | null>((resolve) => {
@@ -144,7 +177,7 @@ const installedAgents = async (): Promise<ReadonlyArray<string>> => {
 					child.once("error", () => finish(null));
 					child.once("exit", finish);
 				});
-				return code === 0 ? label : null;
+				return code === 0 ? displayName : null;
 			} catch {
 				return null;
 			}
@@ -178,7 +211,7 @@ const printStatus = async (
 		installedAgents(),
 		serverReachable(options.env),
 	]);
-	const value = {
+	const value: ServeStatusV1 = {
 		schemaVersion: 1,
 		computer: hostname(),
 		service: status.running
@@ -218,6 +251,46 @@ const waitForReachability = async (
 	}
 	return false;
 };
+
+export const activateServeRuntimeUpdate = async (input: {
+	readonly dataDir: string;
+	readonly version: string;
+	readonly executable: string;
+	readonly previous: ActiveServeRuntime | null;
+	readonly installService: (executable: string) => Promise<unknown>;
+	readonly waitUntilReachable: (timeoutMs?: number) => Promise<boolean>;
+	readonly persist?: typeof writeActiveServeRuntime;
+}): Promise<void> => {
+	try {
+		await input.installService(input.executable);
+	} catch (cause) {
+		if (input.previous !== null) {
+			await input
+				.installService(input.previous.executable)
+				.catch(() => undefined);
+		}
+		throw cause;
+	}
+	if (!(await input.waitUntilReachable())) {
+		if (input.previous !== null) {
+			await input.installService(input.previous.executable);
+			await input.waitUntilReachable(20_000);
+			throw new Error(
+				"The updated runtime failed its readiness check and Zuse restored the previous runtime.",
+			);
+		}
+		throw new Error(
+			"The updated runtime failed its readiness check. No previous runtime was available to restore.",
+		);
+	}
+	await (input.persist ?? writeActiveServeRuntime)(input.dataDir, {
+		version: input.version,
+		executable: input.executable,
+	});
+};
+
+export const removeServeRuntime = (dataDir: string): Promise<void> =>
+	rm(join(dataDir, "runtime"), { recursive: true, force: true });
 
 const clearServeSession = (): Promise<void> =>
 	Effect.runPromise(
@@ -283,6 +356,14 @@ export const runServePackageCli = async (
 ): Promise<void> => {
 	const normalized = argv[0] === "serve" ? argv : ["serve", ...argv];
 	const command = parseServeCommand(normalized);
+	if (command.action === "help") {
+		console.log(SERVE_HELP);
+		return;
+	}
+	if (command.action === "version") {
+		console.log(options.packageVersion ?? "0.0.0");
+		return;
+	}
 	env.ZUSE_RUNTIME_VERSION = options.packageVersion ?? "0.0.0";
 	env.ZUSE_RELAY_URL = env.ZUSE_RELAY_URL ?? DEFAULT_RELAY_URL;
 	const dataDir = resolveServeDataDir(env, command.dataDir);
@@ -334,7 +415,7 @@ export const runServePackageCli = async (
 
 	if (command.action === "uninstall") {
 		await uninstallServeService(servicePaths);
-		await rm(join(dataDir, "runtime"), { recursive: true, force: true });
+		await removeServeRuntime(dataDir);
 		console.log(
 			"Zuse Serve was uninstalled. Your workspaces were not deleted.",
 		);
@@ -350,27 +431,14 @@ export const runServePackageCli = async (
 		const version = await latestServeRuntimeVersion();
 		const executable = await installDurableServeRuntime({ dataDir, version });
 		const previous = await readActiveServeRuntime(dataDir);
-		try {
-			await installService(executable);
-		} catch (cause) {
-			if (previous !== null) {
-				await installService(previous.executable).catch(() => undefined);
-			}
-			throw cause;
-		}
-		if (!(await waitForReachability(env))) {
-			if (previous !== null) {
-				await installService(previous.executable);
-				await waitForReachability(env, 20_000);
-				throw new Error(
-					"The updated runtime failed its readiness check and Zuse restored the previous runtime.",
-				);
-			}
-			throw new Error(
-				"The updated runtime failed its readiness check. No previous runtime was available to restore.",
-			);
-		}
-		await writeActiveServeRuntime(dataDir, { version, executable });
+		await activateServeRuntimeUpdate({
+			dataDir,
+			version,
+			executable,
+			previous,
+			installService,
+			waitUntilReachable: (timeoutMs) => waitForReachability(env, timeoutMs),
+		});
 		console.log(`Zuse Serve was updated to ${version}.`);
 		return;
 	}

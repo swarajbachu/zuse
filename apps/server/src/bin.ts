@@ -154,6 +154,7 @@ export const runHeadlessServer = (
 
 	const layer = makeMainLayer({
 		userData,
+		telemetryIdentity: { kind: "serve", instance: `${host}:${port}` },
 		// Headless has no native dialog; surfacing the prompt to a connected client
 		// is a later refinement. Returning null is the documented contract.
 		folderPicker: { pick: () => Effect.succeed(null) },

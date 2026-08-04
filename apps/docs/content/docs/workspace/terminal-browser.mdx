@@ -1,0 +1,25 @@
+---
+title: Terminal
+description: Run project commands in the active checkout and manage long-running development processes.
+section: workspace
+order: 62
+platforms: [desktop]
+providers: []
+prerequisites: [/workspace]
+related: [/projects/scripts, /workspace/browser, /reference/diagnostics]
+next: /workspace/browser
+lastVerified: latest
+---
+
+
+The integrated terminal opens in the active chat's checkout. Terminal sessions are scoped to the chat, so switching between tasks does not silently move one shell into another worktree.
+
+Use the terminal to run development servers, focused tests, builds, migrations, and repository tools. The configured repository **run** script can be started from the workflow surface, and `auto_run_after_setup` can launch it after a new worktree is prepared.
+
+Closing a terminal ends that shell process. Long-running commands should be stopped cleanly before archiving a chat.
+
+## Continue in the browser
+
+The browser now has a dedicated guide. Start with [In-app browser](/workspace/browser), then use the focused pages for [debugging](/workspace/browser-debugging), [visual evidence](/workspace/browser-evidence), [sessions and privacy](/workspace/browser-sessions-privacy), and [recovery](/workspace/browser-troubleshooting).
+
+The in-app browser is a desktop workspace surface. It is different from opening the Zuse interface itself in a normal browser through [remote access](/remote/local-browser).

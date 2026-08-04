@@ -1,0 +1,73 @@
+---
+title: Monitor, follow up, and recover
+description: Check delegated progress, steer work without thrashing it, and preserve partial results after failure.
+section: composer
+order: 56
+platforms: [desktop, browser, mobile]
+providers: [claude, codex, grok, gemini]
+prerequisites: [/composer/orchestration]
+related: [/how-to/local-recover-task, /workspace/changes-pull-requests, /reference/diagnostics]
+next: /workspace/changes-pull-requests
+lastVerified: latest
+---
+
+
+Delegated work stays useful when you can see its state and change direction without replacing its context. Zuse keeps each delegated task or session navigable, and the parent can request recent progress or send an attributed follow-up.
+
+## Read the right signal
+
+Use the parent timeline's **Open chat** action to inspect a created task or session tab. In the target, check the current messages, environment indicator, **Changes**, and terminal output. For provider subagents, open the agent row or **Subagents** panel to see active and completed work when those details are available.
+
+Status alone is not proof. A task can be idle after a successful result, after a question, or after stopping at an error. Read its most recent conclusion and verify the repository state it refers to.
+
+## Follow up without restarting
+
+Send a focused correction to the existing delegated session when its context is still useful. Good follow-ups identify the new evidence and the next boundary:
+
+> The parser tests pass, but the integration check fails on empty input. Fix only that case, rerun both checks, and report the final diff.
+
+Avoid frequent “status?” messages. They add noise and can interrupt the agent's working context. Ask for progress at meaningful boundaries: after discovery, after a patch, when a check fails, or before integration.
+
+If the task has drifted, restate the invariant rather than pasting a new broad prompt. If its environment or ownership boundary is wrong, stop and replace the task instead of steering it deeper into the wrong checkout.
+
+## Review the handoff
+
+Require a handoff that answers four questions:
+
+1. What changed or was learned?
+2. What evidence supports it?
+3. What remains uncertain or failing?
+4. What should the integrator do next?
+
+Open the delegated chat and inspect its **Changes** view before accepting an editing task. For a read-only review, compare findings with the actual diff and ask the implementing agent to address only actionable items.
+
+The coordinating agent should reconcile conflicting recommendations, explain which one it chose, and run the final cross-cutting checks in the destination branch. A delegated summary does not transfer commits or prove integration by itself.
+
+## Recover failed or abandoned work
+
+A failed response does not mean the delegated checkout is empty. Files, commits, terminal output, or a useful diagnosis may exist even when the provider ends with an error. Open the delegated chat and inspect its worktree, branch, timeline, **Changes**, and terminal before rerunning anything.
+
+Preserve the task while you classify the stop:
+
+- Answer in the existing task if it is waiting for approval or input.
+- Retry or continue the existing chat after a provider or connection failure.
+- Fix and rerun environment setup if the worktree exists but setup failed.
+- Use a focused follow-up when implementation or a test failed.
+- Add a new session tab when another provider should take over the same files.
+- Move remaining work to an isolated task when the checkout or ownership is wrong.
+
+Give a replacement session a state-aware handoff:
+
+> Read the current diff, recent commits, and last test output. Summarize completed work, then continue only from the first unresolved check.
+
+Do not ask it to reproduce completed work from memory. If useful work must move to another branch, preserve or commit the patch first; a summary does not transfer files.
+
+Task creation can sometimes stop after an isolated checkout has been prepared. If you see a worktree without the expected completed chat, preserve its branch and directory and inspect or reuse it before creating a duplicate from the same base.
+
+After recovery, confirm the intended checkout, ensure only one agent is editing the recovered scope, inspect **Changes** and recent commits, rerun the last focused check, then run integration checks in the destination branch.
+
+## Know when it is done
+
+Work is ready to close when the requested outcome exists, the stated checks pass, the final diff is reviewed, and any unresolved risk is explicit. Archive the delegated chat only after its useful work is integrated, intentionally discarded, or recoverable from a known commit or remote branch.
+
+If the worktree directory itself was deleted, Zuse cannot reconstruct uncommitted files from it. For broader recovery, see [Recover or continue a local task](/how-to/local-recover-task/).

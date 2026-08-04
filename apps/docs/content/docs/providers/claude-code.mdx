@@ -1,0 +1,51 @@
+---
+title: Claude Code
+description: Install, authenticate, and run Claude Code sessions through Zuse.
+section: providers
+order: 32
+platforms: [desktop, browser, mobile]
+providers: [claude]
+prerequisites: [/start/install, /providers/setup]
+related: [/composer/modes-permissions, /composer/skills-mcp, /composer/subagents, /reference/diagnostics]
+next: /providers/codex
+lastVerified: latest
+---
+
+Claude Code is a CLI-backed provider with structured session events, native resume support, discovered skills, provider commands, and subagent presentation in Zuse.
+
+## Install and sign in
+
+Install the CLI if Zuse does not detect it:
+
+```bash
+npm i -g @anthropic-ai/claude-code
+```
+
+Open **Settings → Providers → Claude Code** and choose **Sign in**, or authenticate from a terminal with `claude /login`. Zuse's sign-in action launches Claude's subscription OAuth flow in your normal browser. A Claude plan with agent access is required.
+
+Zuse reads the provider's local authentication state; it does not copy Claude OAuth tokens into `settings.json`.
+
+## Workflows in Zuse
+
+- Stream assistant text, thinking, tool activity, file edits, questions, and errors into the durable timeline.
+- Resume the provider session after its live process stops when its stored session identifier remains valid.
+- Use Plan mode and Zuse's four runtime permission postures.
+- Discover global and project skills and surface applicable Claude slash commands.
+- Reconcile configured, plugin, and connected-app MCP servers in **Settings → MCP Servers**.
+- Present delegated agent work as nested subagent activity with reported usage.
+- Use model-specific controls such as reasoning or fast mode only when the selected model advertises them.
+
+Provider commands including `/compact`, `/init`, `/cost`, `/agents`, `/mcp`, `/review`, and `/doctor` are forwarded to Claude Code. Their exact behavior follows the installed CLI.
+
+## Limits and recovery
+
+Model availability, context size, rate limits, tool behavior, and subscription entitlement come from Claude Code. Zuse reports provider errors but cannot override those account limits.
+
+If the provider is unavailable:
+
+1. Refresh **Settings → Providers** and confirm the `claude` command is detected.
+2. Run `claude --version` and `claude /login` in Terminal.
+3. If the installation came from Claude's native installer, use `claude update`; otherwise update it with the package manager that installed it.
+4. Create or restart the Zuse session after changing the CLI or authentication.
+
+If resume is rejected, the durable Zuse timeline remains available and the next send can start a fresh provider process in the same chat.

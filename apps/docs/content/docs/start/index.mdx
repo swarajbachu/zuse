@@ -1,0 +1,46 @@
+---
+title: Start here
+description: Install Zuse, connect a coding agent, and finish your first project task.
+section: start
+order: 1
+platforms: [desktop]
+providers: [claude, codex, grok, gemini, cursor, opencode]
+prerequisites: []
+related: [/start/install, /start/first-chat, /concepts/project-chat-session]
+next: /start/install
+lastVerified: latest
+---
+
+
+Zuse is a macOS app for running coding agents against real repositories. It keeps conversations, tool calls, files, terminals, changes, and pull-request state together, so you can understand what an agent did without reconstructing its work from a terminal transcript.
+
+## The shortest path
+
+1. [Install Zuse](/start/install) and open it.
+2. Connect at least one supported provider.
+3. Open a Git repository as a project.
+4. Start a chat, choose its environment and permission mode, then describe the outcome you want.
+5. Review the agent's edits in **Changes**, run the project, and commit or open a pull request when the work is ready.
+
+## What Zuse keeps together
+
+| Surface | What it is for |
+| --- | --- |
+| Projects | Repositories and folders you have opened |
+| Chats | Durable units of work in a project |
+| Session tabs | Separate agent conversations inside one chat |
+| Worktrees | Isolated Git checkouts for parallel work |
+| Files | Browse, inspect, and edit the active checkout |
+| Terminal | Run commands in the active checkout |
+| Changes | Review diffs, select files, commit, and push |
+| Pull request | Follow checks and complete the branch workflow |
+
+Zuse persists the project, chat, message, and tool timeline locally. Closing the window does not turn a finished conversation into disposable terminal output.
+
+## Choose your next guide
+
+- New to Zuse: [Create your first chat](/start/first-chat)
+- Running several tasks at once: [Worktrees](/projects/worktrees)
+- Choosing a safety posture: [Modes and permissions](/composer/modes-permissions)
+- Comparing agents: [Providers](/providers)
+- Reviewing agent work: [Changes and pull requests](/workspace/changes-pull-requests)

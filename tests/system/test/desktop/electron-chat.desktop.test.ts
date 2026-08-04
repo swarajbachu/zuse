@@ -68,6 +68,7 @@ describe("built Electron application", () => {
 			try {
 				await electron.page
 					.getByText("Hello from deterministic provider.", { exact: true })
+					.first()
 					.waitFor({ state: "visible", timeout: 20_000 });
 				await expect
 					.poll(
@@ -86,6 +87,116 @@ describe("built Electron application", () => {
 					`${cause instanceof Error ? cause.message : String(cause)}\nartifact: ${artifact}\npage text:\n${await electron.page.locator("body").innerText()}\n${electron.diagnostics()}`,
 				);
 			}
+
+			await composer.fill("Second Electron system message");
+			await electron.page.getByRole("button", { name: "Send" }).click();
+			await expect
+				.poll(
+					() =>
+						electron.page
+							.getByText("Hello from deterministic provider.", { exact: true })
+							.count(),
+					{ timeout: 20_000 },
+				)
+				.toBe(2);
+			const overflowPrompts = Array.from(
+				{ length: 9 },
+				(_, index) => `Electron overflow turn ${index + 3}`,
+			);
+			for (const prompt of overflowPrompts) {
+				await composer.fill(prompt);
+				await electron.page.getByRole("button", { name: "Send" }).click();
+				const promptBubble = electron.page
+					.locator("[data-chat-user-bubble]")
+					.filter({ hasText: prompt })
+					.last();
+				await promptBubble.waitFor({ state: "visible", timeout: 20_000 });
+				await promptBubble
+					.locator("xpath=following::*[@data-chat-assistant-bubble][1]")
+					.getByText("Hello from deterministic provider.", { exact: true })
+					.waitFor({ state: "visible", timeout: 20_000 });
+			}
+
+			const turnNavigator = electron.page.getByRole("button", {
+				name: "Navigate conversation",
+			});
+			const paneEdges = await electron.page.evaluate(() => {
+				const viewport = document.querySelector<HTMLElement>(
+					"[data-chat-viewport]",
+				);
+				const transcript =
+					viewport?.querySelector<HTMLElement>('[data-pane="chat"]');
+				const navigator = viewport?.querySelector<HTMLElement>(
+					"[data-chat-turn-navigator]",
+				);
+				const composerFade = document.querySelector<HTMLElement>(
+					"[data-chat-composer-fade]",
+				);
+				if (!viewport || !transcript || !navigator || !composerFade) {
+					return null;
+				}
+				return {
+					viewportLeft: viewport.getBoundingClientRect().left,
+					viewportRight: viewport.getBoundingClientRect().right,
+					transcriptRight: transcript.getBoundingClientRect().right,
+					navigatorRight: navigator.getBoundingClientRect().right,
+					composerFadeLeft: composerFade.getBoundingClientRect().left,
+					composerFadeRight: composerFade.getBoundingClientRect().right,
+				};
+			});
+			expect(paneEdges).not.toBeNull();
+			if (paneEdges === null)
+				throw new Error("Chat pane edges were unavailable");
+			expect(
+				Math.abs(paneEdges.transcriptRight - paneEdges.viewportRight),
+			).toBeLessThanOrEqual(1);
+			expect(
+				Math.abs(paneEdges.navigatorRight - paneEdges.viewportRight),
+			).toBeLessThanOrEqual(1);
+			expect(
+				Math.abs(paneEdges.composerFadeLeft - paneEdges.viewportLeft),
+			).toBeLessThanOrEqual(1);
+			expect(
+				Math.abs(paneEdges.composerFadeRight - paneEdges.viewportRight),
+			).toBeLessThanOrEqual(1);
+			await turnNavigator.hover();
+			const turnList = electron.page.getByRole("listbox", {
+				name: "Conversation turns",
+			});
+			await turnList.waitFor({ state: "visible" });
+			await turnList.hover();
+			await electron.page.mouse.wheel(0, 1_000);
+			const lastOverflowPrompt = overflowPrompts.at(-1);
+			if (lastOverflowPrompt === undefined) {
+				throw new Error("Overflow turn fixture was not created");
+			}
+			const lastTurn = turnList.getByRole("option", {
+				name: lastOverflowPrompt,
+				exact: true,
+			});
+			await lastTurn.waitFor({ state: "visible" });
+			expect(await turnList.isVisible()).toBe(true);
+			expect(
+				await electron.page
+					.getByRole("combobox", { name: "Find a turn" })
+					.count(),
+			).toBe(0);
+			expect(await electron.page.getByText("Conversation map").count()).toBe(0);
+			await lastTurn.click();
+			await turnList.waitFor({ state: "hidden" });
+			const timelineStores = await electron.page.evaluate(
+				() =>
+					new Promise<Array<string>>((resolve, reject) => {
+						const request = indexedDB.open("zuse-session-timelines");
+						request.onsuccess = () => {
+							const database = request.result;
+							resolve(Array.from(database.objectStoreNames));
+							database.close();
+						};
+						request.onerror = () => reject(request.error);
+					}),
+			);
+			expect(timelineStores).toContain("reading-positions");
 			expect(electron.errors).toEqual([]);
 
 			await electron.close();
@@ -109,6 +220,7 @@ describe("built Electron application", () => {
 			try {
 				await electron.page
 					.getByText("Hello from deterministic provider.", { exact: true })
+					.first()
 					.waitFor({ state: "visible", timeout: 20_000 });
 			} catch (cause) {
 				const artifact = await electron.captureFailure("electron-chat-restart");

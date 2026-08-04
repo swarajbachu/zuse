@@ -12,14 +12,22 @@ are separate:
 
 ## Local capture
 
-The server installs one Effect tracer around the complete RPC runtime. RPC
-operations and explicitly instrumented provider boundaries are recorded as
-structured diagnostic events. Events are kept in memory for live queries and
-written asynchronously to rotating NDJSON files under the app data directory.
+The server installs one Effect tracer around the complete RPC runtime. Every
+operation updates a bounded five-minute aggregate with counts and duration
+histograms. Individual events are retained only for warnings, failures, genuine
+interruptions, and operations lasting at least one second.
 
-The store retains at most 100,000 events, rotates at 20 MB, keeps five files,
-and removes files older than seven days. Capture, serialization, rotation, and
-cleanup failures are isolated from normal application behavior.
+Incident capture retains at most 5,000 events. A user can temporarily enable a
+separate full trace for 5, 15, or 30 minutes; it retains at most 20,000 events
+and 10 MB, overwrites the previous debug capture, and automatically returns to
+incident capture. Seven days of five-minute operation rollups preserve counts,
+p95 timings, and maximum timings without retaining routine successful spans.
+
+Desktop and Serve processes write independent files whose names contain a
+hashed runtime identity. Startup uses bounded tail reads, while legacy shared
+logs are streamed through an incident-first migration in the background.
+Capture, serialization, migration, rotation, and cleanup failures are isolated
+from normal application behavior.
 
 Diagnostic polling RPCs are excluded from local span capture so opening the
 Diagnostics page cannot create a feedback loop.
@@ -31,7 +39,9 @@ message content, files, terminal output, environment values, credentials, URL
 query values, and raw command arguments are excluded. Failure causes and
 allowed string attributes are scrubbed again before persistence and export.
 
-Support bundles apply the existing second redaction pass.
+Support bundles apply the existing second redaction pass, merge runtime files,
+retain at most the newest 25,000 relevant events, report truncation, and stream
+artifacts into the ZIP.
 
 ## Optional OTLP export
 

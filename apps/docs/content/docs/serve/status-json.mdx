@@ -1,0 +1,72 @@
+---
+title: "Serve status JSON"
+description: "Parse the stable ServeStatusV1 output for diagnostics, scripts, and readiness checks."
+section: "Serve CLI"
+order: 4
+platforms: [serve]
+providers: []
+prerequisites: [/serve]
+related: [/serve/command-reference, /serve/troubleshooting, /serve/operations]
+next: /serve/security
+lastVerified: latest
+---
+
+
+Use `status --json` when a script needs a stable, machine-readable report:
+
+<Command>zuse serve status --json</Command>
+
+The command writes one `ServeStatusV1` object to standard output.
+
+```json
+{
+  "schemaVersion": 1,
+  "computer": "build-host",
+  "service": "running",
+  "tunnel": "configured",
+  "runtimeVersion": "0.1.1",
+  "agents": ["Codex", "Claude"],
+  "reachable": true,
+  "environmentId": "env_123",
+  "durable": true,
+  "dataDir": "/home/alex/.local/share/zuse",
+  "appUrl": "https://code.zuse.sh"
+}
+```
+
+Values above are illustrative; do not copy the identifiers or paths into configuration.
+
+## Fields
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `schemaVersion` | `1` | Version of this JSON contract. |
+| `computer` | string | Current operating-system hostname. |
+| `service` | `running \| stopped \| missing` | Background service installation and process state. |
+| `tunnel` | `configured \| unavailable` | Whether hosted tunnel configuration exists locally. |
+| `runtimeVersion` | string | Runtime version reported by this invocation. |
+| `agents` | string[] | Supported agent executables that responded to a short version probe. |
+| `reachable` | boolean | Whether the local protected server answered its health probe. |
+| `environmentId` | string or null | Account-linked environment identity, when configured. |
+| `durable` | boolean | Whether the service-manager path is durable. |
+| `dataDir` | string | Effective data directory inspected by the command. |
+| `appUrl` | string | Hosted app entry point. |
+
+## Read combinations, not one field
+
+- `service: "running"` with `reachable: false` means the manager sees a process, but the local server did not answer. Inspect logs and retry after a short startup window.
+- `service: "missing"` means no service definition exists for the selected data directory.
+- `tunnel: "unavailable"` and `environmentId: null` means hosted registration has not been persisted there.
+- An empty `agents` array means no supported CLI completed its version probe; it does not mean the service itself is unhealthy.
+- `reachable: true` is the strongest local readiness signal. Hosted reachability also requires account link and tunnel state.
+
+## Compatibility
+
+Branch on `schemaVersion` before consuming fields. Additive fields may appear within version 1; consumers should ignore properties they do not understand. A future incompatible wire shape will use another schema version.
+
+```sh
+status="$(zuse serve status --json)" || exit 1
+node -e 'const s=JSON.parse(process.argv[1]); process.exit(s.schemaVersion===1 && s.reachable ? 0 : 1)' "$status"
+```
+
+<NextStep href="/serve/security/" label="Secure a Serve host" />

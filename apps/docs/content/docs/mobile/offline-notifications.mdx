@@ -1,0 +1,56 @@
+---
+title: "Offline behavior and notifications"
+description: "Understand cached history, queued messages, reconnect behavior, and attention alerts on iPhone."
+section: "Mobile"
+order: 5
+platforms: [mobile]
+providers: []
+prerequisites: [/mobile/connect]
+related: [/mobile/chats, /remote/recovery, /remote/security]
+next: /remote/recovery
+lastVerified: latest
+---
+
+
+Zuse treats a mobile network interruption as recoverable state. The app retains its last downloaded projects, chats, sessions, and messages, then reconciles them with the environment when the connection returns.
+
+## What remains available
+
+- The most recent downloaded inbox and session list.
+- Cached conversation messages and timeline state.
+- Messages already placed in the per-session outbox.
+- Connection records needed to retry the environment.
+
+Live agent output, new project reads, file browsing, approvals, and execution require an online environment.
+
+## Sending while offline
+
+When a session is offline, the composer can place a message in its outbox. The queue is durable on the phone and preserves order. After reconnection, Zuse submits each queued item to the server; it removes an item only after the server accepts it.
+
+If sending fails again, the message stays visible with an error so you can retry. Avoid duplicating it manually unless you have confirmed the server did not accept the original.
+
+## App backgrounding
+
+When iOS backgrounds Zuse, the active transport is treated as offline. Cached screens remain available, and the connection supervisor reconnects when the app becomes active again. A brief **Connecting** or **Reconnecting** state after returning is expected.
+
+## Notifications
+
+Hosted remote access can notify the phone when an agent needs an approval or answer:
+
+1. Sign in under **Settings → Remote access**.
+2. Open **Settings → Notifications**.
+3. Choose **Enable notifications** and allow the iOS permission.
+
+If notifications are off, open iPhone Settings and allow notifications for Zuse. Notifications are an attention aid, not the source of truth; pending prompts also appear inside the relevant session.
+
+## Storage controls
+
+**Clear downloaded data** removes cached projects, chats, and messages, then fetches them again as needed. It deliberately keeps connections and unsent messages.
+
+**Reset app** removes everything stored by Zuse on that phone, including the outbox. Your remote account and environment data remain unless you separately choose **Delete account**.
+
+<SecurityNote title="Lock-screen privacy">
+Use iOS notification-preview controls if approval or question text should not appear on the lock screen. Treat a remotely connected phone as an authenticated workspace client.
+</SecurityNote>
+
+<NextStep href="/remote/recovery/" label="Recover a failed connection" />

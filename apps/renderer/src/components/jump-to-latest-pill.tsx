@@ -33,9 +33,9 @@ export function JumpToLatestPill({
 				onClick={onClick}
 				aria-label="Jump to latest"
 				className={cn(
-					"pointer-events-auto inline-flex items-center gap-1.5 rounded-lg",
+					"pointer-events-auto relative inline-flex min-h-8 items-center gap-1.5 rounded-lg before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-['']",
 					"border border-border/60 bg-card px-3 py-1 text-xs text-muted-foreground shadow-overlay-sm",
-					"transition-colors hover:border-border hover:bg-card hover:text-foreground",
+					"transition-[background-color,border-color,color] duration-150 hover:border-border hover:bg-card hover:text-foreground motion-reduce:transition-none",
 					"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 				)}
 			>

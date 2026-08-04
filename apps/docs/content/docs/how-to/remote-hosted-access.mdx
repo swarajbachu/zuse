@@ -1,0 +1,91 @@
+---
+title: "Reach a computer away from its network"
+description: "Link a Zuse environment to your account and open it from a hosted browser or iPhone."
+section: how-to
+order: 30
+platforms: [desktop, browser, mobile, serve]
+providers: []
+prerequisites: [/remote/hosted-access]
+related: [/serve, /remote/security, /how-to/serve-operate-host, /how-to/remote-recover-connection]
+next: /remote/hosted-access
+lastVerified: latest
+---
+
+Link an existing environment to your Zuse account so an authenticated browser or iPhone can find and control it away from the local network.
+
+## Applicability
+
+Use this guide for the desktop app or an already-running Serve environment. Hosted access discovers and connects to a computer; it does not provision one, copy its repository, or install provider CLIs.
+
+## Prerequisites
+
+- The environment computer is online and can reach Zuse's identity and relay services.
+- The desktop app or Zuse Serve is running on that computer.
+- You can sign in to the same Zuse account on the environment and remote client.
+
+## Steps
+
+### Link a desktop environment
+
+1. On the environment Mac, open **Settings → Devices**.
+
+2. Under **Remote access**, enter an optional, recognizable computer name.
+
+3. Choose **Set up remote access** and finish sign-in.
+
+4. Wait until the card reports that the computer is ready.
+
+For a headless Mac or Linux computer, run `npx @zusehq/serve` and complete the printed device authorization instead. See [operate a Serve host](/how-to/serve-operate-host/).
+
+### Connect from a browser
+
+1. Open [code.zuse.sh](https://code.zuse.sh).
+2. Sign in with the same account.
+3. Choose the linked computer from the computer picker.
+
+An online computer has a recent heartbeat. An offline computer remains listed but cannot execute work until its environment reconnects.
+
+### Connect from iPhone
+
+1. Open **Settings → Remote access**.
+2. Choose **Sign in for remote access**.
+3. Sign in with the same account.
+4. Choose an online computer.
+
+The connected environment's chats then appear in the mobile inbox. Local pairing still works when you sign out of hosted access.
+
+## Verification
+
+From the remote client, confirm that:
+
+- the intended computer is marked **Online**;
+- its projects and chats load; and
+- opening an existing chat shows its current environment state.
+
+On a Serve host, also run the installless status command:
+
+```sh
+npx @zusehq/serve status --json
+```
+
+Verify `reachable` is `true`, `environmentId` is not `null`, and `tunnel` is `configured`.
+
+## Troubleshooting and recovery
+
+### No computers are listed
+
+Confirm the environment finished linking and both clients use the same account. For Serve, check that you used the same data directory that was linked originally.
+
+### The computer is offline
+
+Wake the computer and start the desktop app or Serve service. Hosted access resumes when the environment's heartbeat returns.
+
+### The account reached its computer limit
+
+Unlink an unused environment, then retry.
+
+### The client reports an incompatible version
+
+Update the desktop app or Serve runtime on the environment before reconnecting.
+
+To remove hosted access from a desktop environment, choose **Turn off remote access**. On Serve, run `zuse serve logout`; it revokes the registration, stops the service, and preserves workspaces.

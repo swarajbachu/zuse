@@ -2726,6 +2726,7 @@ async function createMainWindow() {
 		Layer.launch(
 			makeMainLayer({
 				userData,
+				telemetryIdentity: { kind: "desktop", instance: "local" },
 				folderPicker,
 				serverProtocol,
 				additionalServerProtocols: [

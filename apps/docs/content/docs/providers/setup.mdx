@@ -1,0 +1,42 @@
+---
+title: Install, sign in, and update providers
+description: Make provider CLIs available and resolve common readiness problems.
+section: providers
+order: 31
+platforms: [desktop]
+providers: [claude, codex, grok, gemini, cursor, opencode]
+prerequisites: [/providers]
+related: [/start/install, /reference/settings, /reference/diagnostics]
+next: /composer
+lastVerified: latest
+---
+
+
+Open **Settings → Providers** for the authoritative status of each integration on this computer.
+
+## Read the status
+
+- **Ready** means the provider is installed, authenticated, and passes required compatibility checks.
+- A warning can mean an update is available or an account check could not be completed.
+- An error identifies a confirmed blocker such as missing authentication or an incompatible CLI.
+- Disabled providers remain installed but are hidden from normal selection.
+
+For CLI-backed providers, Zuse detects commands through the desktop service environment and known installation locations. If a command works in an interactive shell but Zuse cannot find it, fully restart the app after changing your shell path or installation. Cursor uses Zuse's bundled SDK and does not require a separate Cursor CLI.
+
+## Sign in
+
+Use the sign-in action shown for the provider. Depending on the integration, Zuse opens an inline flow, launches the provider's official login command, or accepts an API key. Complete browser authorization before returning to the app. Cursor authentication is API-key only; Zuse stores that key in the macOS Keychain.
+
+Provider login is separate from signing in to Zuse for hosted remote access.
+
+## Update
+
+When Zuse knows the installed and current versions, settings can offer an update. Required minimum versions block new sessions because their protocol is incompatible; ordinary newer-version notices do not.
+
+After updating a provider, create or restart its session so the process uses the new installation. Existing live sessions do not replace their running process in place.
+
+## Models and provider settings
+
+The model picker reflects descriptors reported for the selected provider. Some models expose additional controls such as reasoning effort. Settings lets you choose defaults and hide models you do not want in the picker.
+
+OpenCode additionally exposes its configured providers and models through its management surface. Availability still depends on the corresponding local configuration and credentials.

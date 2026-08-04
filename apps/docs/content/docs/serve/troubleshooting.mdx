@@ -1,0 +1,80 @@
+---
+title: "Serve troubleshooting"
+description: "Recover failed installation, authorization, service startup, tunnel, provider detection, and update rollback."
+section: "Serve CLI"
+order: 6
+platforms: [serve, web, mobile]
+providers: []
+prerequisites: [/serve]
+related: [/serve/status-json, /serve/operations, /remote/recovery, /serve/security]
+next: /remote/recovery
+lastVerified: latest
+---
+
+
+Start with a fresh status report against the same data directory used at installation:
+
+```sh
+zuse serve status
+zuse serve status --json
+```
+
+The JSON form is useful when asking for help because it separates service state from local reachability and account-link state. Review paths and environment identifiers before sharing it publicly.
+
+## The service is missing
+
+`service: "missing"` means no service definition was found for the selected data directory. Run:
+
+```sh
+zuse serve start
+```
+
+If you originally used `--data-dir`, include the exact same path. A status check against the default directory cannot see a service installed for a custom one.
+
+## The service is stopped
+
+Run `zuse serve start` to refresh and start the durable service. On Linux, confirm the user has a working systemd user session. Without one, Serve falls back to foreground operation; keep that terminal open.
+
+## Running but not reachable
+
+When `service` is `running` and `reachable` is false:
+
+1. Wait briefly and run status again after startup.
+2. Inspect the Serve logs under the data directory's `logs` folder.
+3. Check whether another process is using the configured local port.
+4. Stop and start the service during a safe work window.
+5. Confirm the runtime uses Node.js 22.5.0 or newer.
+
+Serve normally probes `127.0.0.1:4859`. If you intentionally set a different `ZUSE_PORT`, use the same environment when checking status.
+
+## Authorization does not finish
+
+- Open the printed verification URL manually if no browser launched.
+- Enter the displayed device code before it expires.
+- Confirm the computer can reach the identity and relay services.
+- Run the start command again to request a fresh grant.
+
+Set `ZUSE_NO_OPEN=1` only when you intentionally do not want Serve to launch a browser; the URL and code are still printed.
+
+## The computer is not in the hosted app
+
+Check `environmentId`, `tunnel`, and `reachable` together. The environment should have a non-null ID, a configured tunnel, and local reachability. Then confirm the hosted browser or phone uses the same account. If the registration was removed, run `zuse serve logout` to clear stale local state, then start and authorize again.
+
+## No agents detected
+
+Serve probes supported executables using their `--version` command with a short timeout. An empty list means none completed successfully in the service user's environment.
+
+- Install the provider CLI for the same operating-system user that runs Serve.
+- Authenticate it as that user.
+- Ensure its executable directory is available to the background service, not only an interactive shell profile.
+- Run the provider's `--version` command as that user, then check Serve status again.
+
+## An update failed
+
+If the new runtime fails readiness and a previous runtime exists, Serve restores the previous runtime and reports that rollback. Run status to confirm reachability. If no previous runtime was available, run `zuse serve start` with a known working package version or reinstall the package before retrying.
+
+Do not repeatedly force updates while agents are active. Preserve logs from the failed attempt before another install changes them.
+
+## Uninstall did not delete a workspace
+
+That is intentional. `zuse serve uninstall` removes the service definition and managed runtime, not repositories or workspaces. Delete project data only through your normal repository and backup workflow after you have verified the exact target.

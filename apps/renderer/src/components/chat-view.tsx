@@ -3,6 +3,7 @@ import { Message01Icon } from "@hugeicons-pro/core-solid-rounded";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import type { Message, SessionId } from "@zuse/contracts";
 import {
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -10,7 +11,8 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { deriveAgentActivityState } from "../lib/agent-activity-state.ts";
+
+import { usePrefersReducedMotion } from "../hooks/use-media-query.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import {
 	CHAT_LIST_ANCHOR_OFFSET,
@@ -20,23 +22,26 @@ import { resolveChatErrorBottom } from "../lib/chat-overlay-position.ts";
 import {
 	type ChatTimelineRow,
 	deriveChatTimelineRows,
+	deriveChatTurnNavigationEntries,
 	resolveLatestUserMessageId,
 	rowAnchorMessageId,
 } from "../lib/chat-timeline-rows.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
-import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
-import {
-	providerStartupLabel,
-	useProviderStartupDelay,
-} from "../lib/provider-startup-delay.ts";
 import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
+import { timelineReadingPositionStore } from "../lib/session-timeline-cache.ts";
 import {
-	getAnchoredTurnMetrics,
+	resolveInitialTimelineTarget,
+	resolveTimelineReadingPosition,
+	type TimelineReadingPosition,
+} from "../lib/timeline-reading-position.ts";
+import {
 	resolveScrollableNodeIsAtEnd,
-	shouldDeferAutomaticEndScroll,
-	shouldRestoreAnchorScrollOffset,
-	type TimelineScrollMode,
+	resolveTimelineHasContentBelowViewport,
 } from "../lib/timeline-scroll-anchoring.ts";
+import {
+	TranscriptScrollCoordinator,
+	type TranscriptScrollSnapshot,
+} from "../lib/transcript-scroll-coordinator.ts";
 import {
 	acknowledgeTimelineRendered,
 	teardownLiveStreams,
@@ -49,23 +54,22 @@ import { getSessionById, useSessionsStore } from "../store/sessions.ts";
 import { useSkillsStore } from "../store/skills.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
+import { ChatTurnNavigator } from "./chat-turn-navigator.tsx";
+import { ChatWorkingRow } from "./chat-working-row.tsx";
 import { FileChipProvider } from "./file-chip.tsx";
 import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
 import { ErrorBubble, MessageRow } from "./message-row.tsx";
 import { NextUnreadButton } from "./next-unread-button.tsx";
 import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
-import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
-import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 
-// Stable empty-array reference for the selector below. Returning a fresh
-// `[]` from an atom selector each call breaks `useSyncExternalStore`'s
-// snapshot-equality check and triggers an infinite re-render loop.
 const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
 const TIMELINE_HEADER = (
 	<>
-		<WorktreeSetupCard />
+		<div className="px-[var(--chat-row-gutter,0.75rem)]">
+			<WorktreeSetupCard />
+		</div>
 		<div className="h-2" />
 	</>
 );
@@ -83,83 +87,76 @@ function resolveTimelineIsAtEnd(
 }
 
 /**
- * Read-only timeline of one session. Subscribes to `messages.stream` via the
- * messages store on mount / session-change; the store owns the live fiber.
- * LegendList owns virtualization and measurement. This component owns the
- * chat-specific follow mode: initial land at the live edge, then anchor new
- * turns near the top until the user manually navigates away.
+ * Virtualized transcript for one session. LegendList owns measurement and
+ * visible-content compensation; TranscriptScrollCoordinator exclusively owns
+ * semantic movement such as live follow, new-turn anchoring, and navigation.
  */
 export function ChatView({
 	sessionId,
 	endInset = 0,
 }: {
-	sessionId: SessionId;
+	readonly sessionId: SessionId;
 	/** Height of the floating composer overlay; padded into the scroll range. */
-	endInset?: number;
+	readonly endInset?: number;
 }) {
 	useLayoutEffect(() => {
 		markRendererInteraction(sessionId, "first-react-commit");
 	}, [sessionId]);
+	const prefersReducedMotion = usePrefersReducedMotion();
 	const messages = useMessagesStore(
-		(s) => s.messagesBySession[sessionId] ?? EMPTY_MESSAGES,
+		(state) => state.messagesBySession[sessionId] ?? EMPTY_MESSAGES,
 	);
 	const timelineVersion = useMessagesStore(
-		(s) => s.timelineVersionBySession[sessionId] ?? 0,
+		(state) => state.timelineVersionBySession[sessionId] ?? 0,
 	);
 	const renderRecovery = useMessagesStore(
-		(s) => s.renderRecoveryBySession[sessionId] ?? 0,
+		(state) => state.renderRecoveryBySession[sessionId] ?? 0,
 	);
-	const runtimeState = useSessionRuntimeStore((s) =>
-		effectiveSessionRuntimeState(s.bySession[sessionId]),
+	const runtimeState = useSessionRuntimeStore((state) =>
+		effectiveSessionRuntimeState(state.bySession[sessionId]),
 	);
 	const inFlight =
 		runtimeState === "starting" ||
 		runtimeState === "running" ||
 		runtimeState === "stopping";
-	// While a plan sits awaiting approval the turn is technically still "running",
-	// but the agent is blocked on the user — show no spinner, since we're the ones
-	// waiting. The Approve/Cancel decision lives in the pinned PlanApprovalTray.
-	const awaitingPermissionPlanApproval = usePermissionsStore((s) => {
-		for (const req of Object.values(s.requestsById)) {
-			if (req.sessionId !== sessionId) continue;
-			if (req.kind._tag !== "Other") continue;
-			if (req.kind.tool !== "ExitPlanMode") continue;
-			return true;
+	const awaitingPermissionPlanApproval = usePermissionsStore((state) => {
+		for (const request of Object.values(state.requestsById)) {
+			if (request.sessionId !== sessionId) continue;
+			if (request.kind._tag !== "Other") continue;
+			if (request.kind.tool === "ExitPlanMode") return true;
 		}
 		return false;
 	});
 	const awaitingPlanApproval =
 		awaitingPermissionPlanApproval ||
 		deriveChatAttentionState(messages, inFlight) === "planReady";
-	const error = useMessagesStore((s) => s.errorBySession[sessionId] ?? null);
-	const clearError = useMessagesStore((s) => s.clearError);
-	const hydrate = useMessagesStore((s) => s.hydrate);
-	const hydrateSkills = useSkillsStore((s) => s.hydrate);
-
-	const session = useSessionsStore((s) => {
-		void s.sessionsByProject;
+	const error = useMessagesStore(
+		(state) => state.errorBySession[sessionId] ?? null,
+	);
+	const clearError = useMessagesStore((state) => state.clearError);
+	const hydrate = useMessagesStore((state) => state.hydrate);
+	const hydrateSkills = useSkillsStore((state) => state.hydrate);
+	const session = useSessionsStore((state) => {
+		void state.sessionsByProject;
 		return getSessionById(sessionId);
 	});
 
-	// Suppress the empty placeholder only while chat-level worktree setup is
-	// active. Additional sessions boot their own provider in the background but
-	// must not replay the chat setup surface.
 	const worktreeId = session?.worktreeId ?? null;
-	const worktreeSetupActive = useWorktreesStore((s) => {
+	const setupActive = useWorktreesStore((state) => {
 		if (worktreeId === null) return false;
-		for (const list of Object.values(s.byProject)) {
-			const wt = (list ?? EMPTY_WORKTREES).find((w) => w.id === worktreeId);
-			if (wt !== undefined) {
-				return (
-					wt.setupStatus === "running" ||
-					wt.setupStatus === "pending" ||
-					wt.setupStatus === "failed"
-				);
-			}
+		for (const list of Object.values(state.byProject)) {
+			const worktree = (list ?? EMPTY_WORKTREES).find(
+				(candidate) => candidate.id === worktreeId,
+			);
+			if (worktree === undefined) continue;
+			return (
+				worktree.setupStatus === "running" ||
+				worktree.setupStatus === "pending" ||
+				worktree.setupStatus === "failed"
+			);
 		}
 		return false;
 	});
-	const setupActive = worktreeSetupActive;
 	const rows = useMemo(
 		() =>
 			deriveChatTimelineRows({
@@ -169,16 +166,15 @@ export function ChatView({
 			}),
 		[awaitingPlanApproval, inFlight, messages],
 	);
-
+	const turns = useMemo(() => deriveChatTurnNavigationEntries(rows), [rows]);
 	const latestUserMessageId = useMemo(
 		() => resolveLatestUserMessageId(rows),
 		[rows],
 	);
+
 	const [timelineAnchorMessageId, setTimelineAnchorMessageId] = useState<
 		string | null
 	>(null);
-	const timelineAnchorMessageIdRef = useRef<string | null>(null);
-	timelineAnchorMessageIdRef.current = timelineAnchorMessageId;
 	const anchoredEndSpace = useMemo(
 		() =>
 			resolveChatListAnchoredEndSpace(rows, timelineAnchorMessageId, (row) =>
@@ -186,343 +182,184 @@ export function ChatView({
 			),
 		[rows, timelineAnchorMessageId],
 	);
-
 	const listRef = useRef<LegendListRef | null>(null);
 	const scrollElementRef = useRef<HTMLDivElement | null>(null);
-	const timelineScrollModeRef = useRef<TimelineScrollMode>("following-end");
-	const activeTimelineAnchorIndexRef = useRef<number | null>(null);
-	const lastAnchoredUserMessageIdRef = useRef<string | null>(null);
-	const latestUserMessageIdRef = useRef<string | null>(latestUserMessageId);
+	const latestUserMessageIdRef = useRef(latestUserMessageId);
 	latestUserMessageIdRef.current = latestUserMessageId;
-	const pendingTimelineAnchorRef = useRef<string | null>(null);
-	const positionedTimelineAnchorRef = useRef<string | null>(null);
-	const settledTimelineAnchorRef = useRef<string | null>(null);
-	const pendingAnchorScrollRestoreRef = useRef<{
-		readonly messageId: string;
-		readonly offset: number;
-		readonly userNavigationGeneration: number;
+	const lastObservedUserMessageIdRef = useRef<string | null>(null);
+	const sessionOpenedEmptyRef = useRef(messages.length === 0);
+	const initializedSessionRef = useRef<SessionId | null>(null);
+	const lastContentVersionRef = useRef(timelineVersion);
+	const anchorRequestKeyRef = useRef<string | null>(null);
+	const currentReadingPositionRef = useRef<TimelineReadingPosition | null>(
+		null,
+	);
+	const saveTimerRef = useRef<number | null>(null);
+	const scrollFrameRef = useRef<number | null>(null);
+	const [activeTurnMessageId, setActiveTurnMessageId] = useState<string | null>(
+		latestUserMessageId,
+	);
+	const [hasOutOfViewUpdates, setHasOutOfViewUpdates] = useState(false);
+	const [readingState, setReadingState] = useState<{
+		readonly sessionId: SessionId;
+		readonly position: TimelineReadingPosition | null;
 	} | null>(null);
-	const anchorScrollRestoreFrameRef = useRef<number | null>(null);
-	const userNavigationGenerationRef = useRef(0);
-	const liveFollowGenerationRef = useRef<number | null>(0);
-	const showPillTimerRef = useRef<number | null>(null);
-	const isAtEndRef = useRef(true);
-	const [showPill, setShowPill] = useState(false);
+	const [scrollSnapshot, setScrollSnapshot] =
+		useState<TranscriptScrollSnapshot>({
+			mode: "restoring",
+			isAtEnd: true,
+		});
+	const scrollSnapshotRef = useRef(scrollSnapshot);
+	const coordinator = useMemo(
+		() =>
+			new TranscriptScrollCoordinator({
+				onChange: (snapshot) => {
+					scrollSnapshotRef.current = snapshot;
+					setScrollSnapshot(snapshot);
+				},
+			}),
+		[sessionId],
+	);
 	useRegisterPane("chat", scrollElementRef);
 
-	const clearShowPillTimer = useCallback(() => {
-		if (showPillTimerRef.current !== null) {
-			window.clearTimeout(showPillTimerRef.current);
-			showPillTimerRef.current = null;
-		}
-	}, []);
-
-	const hideJumpPill = useCallback(() => {
-		clearShowPillTimer();
-		setShowPill(false);
-	}, [clearShowPillTimer]);
-
-	const showJumpPillSoon = useCallback(() => {
-		if (showPillTimerRef.current !== null) return;
-		showPillTimerRef.current = window.setTimeout(() => {
-			showPillTimerRef.current = null;
-			setShowPill(true);
-		}, 150);
-	}, []);
-
-	const showJumpPillIfScrollNodeLeftEnd = useCallback(() => {
-		const list = listRef.current;
-		const stateAtEnd = resolveTimelineIsAtEnd(list?.getState());
-		const nodeAtEnd = resolveScrollableNodeIsAtEnd(list?.getScrollableNode());
-		// Prefer the DOM reading: the list's internal state can be a frame stale
-		// while maintainVisibleContentPosition size-compensation is applying,
-		// which flickers "at end" mid-scroll and re-arms live follow (hiding the
-		// jump pill permanently). scrollTop/scrollHeight are always consistent.
-		const isAtEnd = nodeAtEnd ?? stateAtEnd;
-		if (isAtEnd === false) {
-			isAtEndRef.current = false;
-			showJumpPillSoon();
-		} else if (isAtEnd === true) {
-			isAtEndRef.current = true;
-			liveFollowGenerationRef.current = userNavigationGenerationRef.current;
-			hideJumpPill();
-		}
-	}, [hideJumpPill, showJumpPillSoon]);
-
-	// Cancel live follow on intentional navigation, then only show the jump
-	// pill once the scroll node is meaningfully away from the live edge.
-	// Never force-show on wheel/touch alone — tiny trackpad ticks used to
-	// flash the pill even while still near the bottom.
-	const cancelTimelineLiveFollowForUserNavigation = useCallback(() => {
-		userNavigationGenerationRef.current += 1;
-		timelineScrollModeRef.current = "free-scrolling";
-		liveFollowGenerationRef.current = null;
-		pendingTimelineAnchorRef.current = null;
-		positionedTimelineAnchorRef.current = null;
-		settledTimelineAnchorRef.current = null;
-		activeTimelineAnchorIndexRef.current = null;
-		pendingAnchorScrollRestoreRef.current = null;
-		if (anchorScrollRestoreFrameRef.current !== null) {
-			cancelAnimationFrame(anchorScrollRestoreFrameRef.current);
-			anchorScrollRestoreFrameRef.current = null;
-		}
-
-		requestAnimationFrame(showJumpPillIfScrollNodeLeftEnd);
-	}, [showJumpPillIfScrollNodeLeftEnd]);
-
-	const scrollToEnd = useCallback(
-		(animated = false) => {
-			isAtEndRef.current = true;
-			timelineScrollModeRef.current = "following-end";
-			liveFollowGenerationRef.current = userNavigationGenerationRef.current;
-			pendingTimelineAnchorRef.current = null;
-			activeTimelineAnchorIndexRef.current = null;
-			pendingAnchorScrollRestoreRef.current = null;
-			if (anchorScrollRestoreFrameRef.current !== null) {
-				cancelAnimationFrame(anchorScrollRestoreFrameRef.current);
-				anchorScrollRestoreFrameRef.current = null;
-			}
-			lastAnchoredUserMessageIdRef.current = latestUserMessageIdRef.current;
-			hideJumpPill();
-			const scrollUntilSettled = (remainingAttempts: number) => {
-				const list = listRef.current;
-				if (!list) return;
-
-				void list.scrollToEnd({
-					animated: remainingAttempts === 8 && animated,
-				});
-
-				if (remainingAttempts <= 0) return;
-				requestAnimationFrame(() => {
-					scrollUntilSettled(remainingAttempts - 1);
-				});
-			};
-			scrollUntilSettled(8);
-		},
-		[hideJumpPill],
-	);
-
-	const getActiveTimelineTurnMetrics = useCallback(
-		(list?: LegendListRef | null) => {
-			const resolvedList = list ?? listRef.current;
-			const anchorIndex = activeTimelineAnchorIndexRef.current;
-			const state = resolvedList?.getState();
-			if (!resolvedList || !state || anchorIndex === null) {
-				return null;
-			}
-
-			return getAnchoredTurnMetrics({
-				state,
-				anchorIndex,
-				composerOverlayHeight: 0,
-				anchorOffset: CHAT_LIST_ANCHOR_OFFSET,
-			});
-		},
-		[],
-	);
-
-	const timelineRealContentOverflowsViewport = useCallback(
-		(list?: LegendListRef | null) => {
-			const resolvedList = list ?? listRef.current;
-			const state = resolvedList?.getState();
-			if (!resolvedList || !state || state.data.length === 0) {
-				return false;
-			}
-
-			const lastRowIndex = state.data.length - 1;
-			const lastRowTop = state.positionAtIndex(lastRowIndex);
-			const lastRowHeight = state.sizeAtIndex(lastRowIndex);
-			if (
-				typeof lastRowTop !== "number" ||
-				typeof lastRowHeight !== "number" ||
-				!Number.isFinite(lastRowTop) ||
-				!Number.isFinite(lastRowHeight)
-			) {
-				return false;
-			}
-
-			const realContentBottom = lastRowTop + Math.max(1, lastRowHeight);
-			const visibleScrollLength = Math.max(
-				0,
-				(state.scrollLength ?? 0) - CHAT_LIST_ANCHOR_OFFSET,
-			);
-			return realContentBottom > visibleScrollLength;
-		},
-		[],
-	);
-
-	const handleAnchorReady = useCallback(
-		(info: { anchorIndex: number | undefined }) => {
-			if (info.anchorIndex === undefined) return;
-			if (timelineAnchorMessageId !== null) {
-				pendingTimelineAnchorRef.current =
-					pendingTimelineAnchorRef.current === timelineAnchorMessageId
-						? null
-						: pendingTimelineAnchorRef.current;
-			}
-			activeTimelineAnchorIndexRef.current = info.anchorIndex;
-			if (
-				timelineAnchorMessageId === null ||
-				positionedTimelineAnchorRef.current === timelineAnchorMessageId
-			) {
-				return;
-			}
-			if (timelineScrollModeRef.current === "free-scrolling") {
-				positionedTimelineAnchorRef.current = timelineAnchorMessageId;
-				settledTimelineAnchorRef.current = timelineAnchorMessageId;
-				return;
-			}
-
-			positionedTimelineAnchorRef.current = timelineAnchorMessageId;
-			settledTimelineAnchorRef.current = null;
-			const messageId = timelineAnchorMessageId;
-			const positioningGeneration = userNavigationGenerationRef.current;
-			const positionAnchor = (remainingAttempts: number) => {
-				requestAnimationFrame(() => {
-					if (positionedTimelineAnchorRef.current !== messageId) return;
-					if (timelineScrollModeRef.current === "free-scrolling") return;
-					if (userNavigationGenerationRef.current !== positioningGeneration) {
-						return;
-					}
-
-					const list = listRef.current;
-					if (!list) {
-						if (remainingAttempts > 0) positionAnchor(remainingAttempts - 1);
-						return;
-					}
-
-					const scrollNode = list.getScrollableNode();
-					let finished = false;
-					let fallbackTimer = 0;
-					const finishAnimatedPositioning = () => {
-						if (finished) return;
-						finished = true;
-						window.clearTimeout(fallbackTimer);
-						scrollNode?.removeEventListener(
-							"scrollend",
-							finishAnimatedPositioning,
-						);
-						if (positionedTimelineAnchorRef.current !== messageId) return;
-						if (timelineScrollModeRef.current === "free-scrolling") return;
-						if (userNavigationGenerationRef.current !== positioningGeneration) {
-							return;
-						}
-
-						const scrollOffset = list.getState().scroll;
-						void list.scrollToOffset({ offset: scrollOffset, animated: false });
-						settledTimelineAnchorRef.current = messageId;
-					};
-
-					fallbackTimer = window.setTimeout(finishAnimatedPositioning, 750);
-					scrollNode?.addEventListener("scrollend", finishAnimatedPositioning, {
-						once: true,
-					});
-					void list.scrollToIndex({
-						index: info.anchorIndex!,
-						animated: true,
-						viewPosition: 0,
-						viewOffset: CHAT_LIST_ANCHOR_OFFSET,
-					});
-				});
-			};
-			requestAnimationFrame(() => positionAnchor(12));
-		},
-		[timelineAnchorMessageId],
-	);
-
-	const handleAnchorSizeChanged = useCallback(() => {
-		const messageId = timelineAnchorMessageId;
-		if (
-			messageId === null ||
-			settledTimelineAnchorRef.current !== messageId ||
-			liveFollowGenerationRef.current === userNavigationGenerationRef.current
-		) {
-			return;
-		}
-
-		const scrollOffset = listRef.current?.getState().scroll;
-		if (scrollOffset === undefined) return;
-
-		if (pendingAnchorScrollRestoreRef.current === null) {
-			pendingAnchorScrollRestoreRef.current = {
-				messageId,
-				offset: scrollOffset,
-				userNavigationGeneration: userNavigationGenerationRef.current,
-			};
-		}
-		if (anchorScrollRestoreFrameRef.current !== null) return;
-
-		anchorScrollRestoreFrameRef.current = requestAnimationFrame(() => {
-			anchorScrollRestoreFrameRef.current = null;
-			const pending = pendingAnchorScrollRestoreRef.current;
-			pendingAnchorScrollRestoreRef.current = null;
-			const list = listRef.current;
-			const currentOffset = list?.getState().scroll;
-			if (
-				list === null ||
-				pending === null ||
-				typeof currentOffset !== "number" ||
-				!shouldRestoreAnchorScrollOffset({
-					anchorId: pending.messageId,
-					settledAnchorId: settledTimelineAnchorRef.current,
-					expectedOffset: pending.offset,
-					currentOffset,
-					expectedUserNavigationGeneration: pending.userNavigationGeneration,
-					currentUserNavigationGeneration: userNavigationGenerationRef.current,
-				})
-			) {
-				return;
-			}
-
-			void list.scrollToOffset({ offset: pending.offset, animated: false });
+	const captureReadingPosition = useCallback(() => {
+		const measurement = listRef.current?.getState();
+		if (measurement === undefined) return null;
+		const position = resolveTimelineReadingPosition({
+			sessionId,
+			rows,
+			mode: scrollSnapshotRef.current.mode,
+			measurement,
 		});
-	}, [timelineAnchorMessageId]);
+		currentReadingPositionRef.current = position;
+		return position;
+	}, [rows, sessionId]);
+	const captureReadingPositionRef = useRef(captureReadingPosition);
+	captureReadingPositionRef.current = captureReadingPosition;
+
+	const persistReadingPosition = useCallback(() => {
+		const position = captureReadingPosition();
+		if (position !== null) {
+			void timelineReadingPositionStore?.save(position).catch(() => {});
+		}
+	}, [captureReadingPosition]);
+	const persistReadingPositionRef = useRef(persistReadingPosition);
+	persistReadingPositionRef.current = persistReadingPosition;
+
+	const scheduleReadingPositionSave = useCallback(() => {
+		if (saveTimerRef.current !== null)
+			window.clearTimeout(saveTimerRef.current);
+		saveTimerRef.current = window.setTimeout(() => {
+			saveTimerRef.current = null;
+			persistReadingPositionRef.current();
+		}, 300);
+	}, []);
 
 	const handleScroll = useCallback(() => {
 		const list = listRef.current;
 		const stateAtEnd = resolveTimelineIsAtEnd(list?.getState());
 		const nodeAtEnd = resolveScrollableNodeIsAtEnd(list?.getScrollableNode());
-		// DOM first — see showJumpPillIfScrollNodeLeftEnd for why.
 		const isAtEnd = nodeAtEnd ?? stateAtEnd;
-		if (isAtEnd === undefined) return;
-
+		if (isAtEnd !== undefined) coordinator.scrolled({ isAtEnd });
+		if (scrollFrameRef.current !== null) return;
+		scrollFrameRef.current = requestAnimationFrame(() => {
+			scrollFrameRef.current = null;
+			const position = captureReadingPositionRef.current();
+			if (position !== null) {
+				setActiveTurnMessageId(position.userTurnMessageId);
+			}
+			scheduleReadingPositionSave();
+		});
+	}, [coordinator, scheduleReadingPositionSave]);
+	const markAnchoredContentOutOfView = useCallback(() => {
+		if (scrollSnapshotRef.current.mode !== "anchoring-turn") return;
 		if (
-			!isAtEnd &&
-			liveFollowGenerationRef.current === userNavigationGenerationRef.current
+			resolveTimelineHasContentBelowViewport(
+				listRef.current?.getState(),
+				endInset,
+			)
 		) {
-			hideJumpPill();
-			return;
+			setHasOutOfViewUpdates(true);
 		}
-
-		if (isAtEndRef.current === isAtEnd) return;
-		isAtEndRef.current = isAtEnd;
-
-		if (isAtEnd) {
-			timelineScrollModeRef.current = "following-end";
-			liveFollowGenerationRef.current = userNavigationGenerationRef.current;
-			hideJumpPill();
-		} else {
-			timelineScrollModeRef.current = "free-scrolling";
-			liveFollowGenerationRef.current = null;
-			showJumpPillSoon();
-		}
-	}, [hideJumpPill, showJumpPillSoon]);
+	}, [endInset]);
 
 	useEffect(() => {
 		void hydrate(sessionId);
 		void hydrateSkills(sessionId);
-		// Tear down the live message fibers on unmount / session change. Without
-		// this, the previous session's stream lingered until the next hydrate
-		// tore it down, and a hydrate caught mid-await could install orphaned
-		// fibers after the view was gone. `teardownLiveStreams` bumps the hydrate
-		// epoch so any in-flight hydrate bails. The next hydrate re-subscribes;
-		// `messagesBySession` is preserved, so there's no empty-state flash.
 		return () => {
 			void teardownLiveStreams(sessionId);
 		};
-	}, [sessionId, hydrate, hydrateSkills]);
+	}, [hydrate, hydrateSkills, sessionId]);
 
-	useEffect(() => () => clearShowPillTimer(), [clearShowPillTimer]);
+	useEffect(() => {
+		let cancelled = false;
+		initializedSessionRef.current = null;
+		sessionOpenedEmptyRef.current = messages.length === 0;
+		setReadingState(null);
+		currentReadingPositionRef.current = null;
+		void (async () => {
+			const position =
+				(await timelineReadingPositionStore
+					?.load(sessionId)
+					.catch(() => null)) ?? null;
+			if (!cancelled) setReadingState({ sessionId, position });
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [sessionId]);
+
+	useEffect(() => {
+		coordinator.attach({
+			getMeasurementState: () => listRef.current?.getState() ?? null,
+			isAtLiveEdge: () =>
+				resolveScrollableNodeIsAtEnd(listRef.current?.getScrollableNode()),
+			scrollToEnd: (options) => {
+				const list = listRef.current;
+				return list === null
+					? Promise.reject(new Error("Transcript list is not mounted"))
+					: list.scrollToEnd(options);
+			},
+			scrollToIndex: (options) => {
+				const list = listRef.current;
+				return list === null
+					? Promise.reject(new Error("Transcript list is not mounted"))
+					: list.scrollToIndex({
+							...options,
+							viewPosition: 0,
+						});
+			},
+		});
+		return () => coordinator.detach();
+	}, [coordinator]);
+
+	useEffect(
+		() => () => {
+			if (saveTimerRef.current !== null) {
+				window.clearTimeout(saveTimerRef.current);
+			}
+			if (scrollFrameRef.current !== null) {
+				cancelAnimationFrame(scrollFrameRef.current);
+			}
+			const position = currentReadingPositionRef.current;
+			if (position?.sessionId === sessionId) {
+				void timelineReadingPositionStore?.save(position).catch(() => {});
+			}
+			coordinator.dispose();
+		},
+		[coordinator, sessionId],
+	);
+
+	useEffect(() => {
+		const onVisibilityChange = () => {
+			if (document.visibilityState === "hidden") {
+				persistReadingPositionRef.current();
+			}
+		};
+		document.addEventListener("visibilitychange", onVisibilityChange);
+		return () =>
+			document.removeEventListener("visibilitychange", onVisibilityChange);
+	}, []);
 
 	useLayoutEffect(() => {
 		const frame = requestAnimationFrame(() => {
@@ -547,48 +384,54 @@ export function ChatView({
 		} else {
 			scrollElementRef.current = null;
 		}
-	}, [sessionId, rows.length]);
+	}, [renderRecovery, rows.length, sessionId]);
 
-	// Session switch: always land at the live edge. The list remounts with
-	// initialScrollAtEnd; the extra frame handles hydration/layout races.
 	useEffect(() => {
-		timelineScrollModeRef.current = "following-end";
-		activeTimelineAnchorIndexRef.current = null;
-		pendingTimelineAnchorRef.current = null;
-		positionedTimelineAnchorRef.current = null;
-		settledTimelineAnchorRef.current = null;
-		pendingAnchorScrollRestoreRef.current = null;
-		if (anchorScrollRestoreFrameRef.current !== null) {
-			cancelAnimationFrame(anchorScrollRestoreFrameRef.current);
-			anchorScrollRestoreFrameRef.current = null;
+		if (
+			readingState?.sessionId !== sessionId ||
+			messages.length === 0 ||
+			initializedSessionRef.current === sessionId
+		) {
+			return;
 		}
-		setTimelineAnchorMessageId(null);
-		lastAnchoredUserMessageIdRef.current = latestUserMessageIdRef.current;
-		userNavigationGenerationRef.current = 0;
-		liveFollowGenerationRef.current = 0;
-		isAtEndRef.current = true;
-		hideJumpPill();
-
-		// key={sessionId} remounts the list with initialScrollAtEnd; also force
-		// scrollToEnd after layout so hydration races still land at the live edge.
-		let secondFrame: number | null = null;
-		const frame = requestAnimationFrame(() => {
-			secondFrame = requestAnimationFrame(() => {
-				void listRef.current?.scrollToEnd({ animated: false });
-			});
+		const target = resolveInitialTimelineTarget({
+			rows,
+			position: readingState.position,
+			recoverAtLiveEdge: false,
 		});
-		return () => {
-			cancelAnimationFrame(frame);
-			if (secondFrame !== null) cancelAnimationFrame(secondFrame);
-		};
-	}, [hideJumpPill, sessionId]);
+		initializedSessionRef.current = sessionId;
+		lastObservedUserMessageIdRef.current =
+			sessionOpenedEmptyRef.current && inFlight
+				? null
+				: latestUserMessageIdRef.current;
+		lastContentVersionRef.current = timelineVersion;
+		coordinator.initialize({
+			atReadingPosition: target !== null,
+			isAtEnd:
+				resolveScrollableNodeIsAtEnd(listRef.current?.getScrollableNode()) ??
+				undefined,
+		});
+		setTimelineAnchorMessageId(
+			target?.messageId ?? latestUserMessageIdRef.current,
+		);
+		setActiveTurnMessageId(target?.messageId ?? latestUserMessageIdRef.current);
+		setHasOutOfViewUpdates(false);
+	}, [
+		coordinator,
+		inFlight,
+		messages.length,
+		readingState,
+		rows,
+		sessionId,
+		timelineVersion,
+	]);
 
 	useEffect(() => {
 		let removeListeners: (() => void) | null = null;
 		let frame: number | null = null;
 		const attachListeners = (remainingAttempts: number) => {
 			const scrollNode = listRef.current?.getScrollableNode();
-			if (!scrollNode) {
+			if (scrollNode === undefined) {
 				if (remainingAttempts > 0) {
 					frame = requestAnimationFrame(() =>
 						attachListeners(remainingAttempts - 1),
@@ -600,133 +443,177 @@ export function ChatView({
 				scrollNode.dataset.pane = "chat";
 				scrollNode.tabIndex = -1;
 				scrollElementRef.current = scrollNode;
-			} else {
-				scrollElementRef.current = null;
 			}
-			const handleManualNavigation = () => {
-				cancelTimelineLiveFollowForUserNavigation();
+			const takeControl = (intent: "interaction" | "scroll") => {
+				coordinator.readerTookControl(intent);
+				if (intent === "scroll") requestAnimationFrame(handleScroll);
 			};
-			scrollNode.addEventListener("wheel", handleManualNavigation, {
+			const onKeyDown = (event: KeyboardEvent) => {
+				if (
+					[
+						"ArrowUp",
+						"ArrowDown",
+						"PageUp",
+						"PageDown",
+						"Home",
+						"End",
+						" ",
+					].includes(event.key)
+				) {
+					takeControl("scroll");
+				}
+			};
+			const onFocusIn = (event: FocusEvent) => {
+				const target = event.target;
+				if (
+					target instanceof HTMLElement &&
+					target.matches("a, button, input, textarea, [role='button']")
+				) {
+					takeControl("interaction");
+				}
+			};
+			const onSelectionChange = () => {
+				const selection = document.getSelection();
+				if (selection?.isCollapsed !== false) return;
+				const anchorNode = selection.anchorNode;
+				if (anchorNode !== null && scrollNode.contains(anchorNode))
+					takeControl("interaction");
+			};
+			const onScrollIntent = () => takeControl("scroll");
+			const onPointerDown = (event: PointerEvent) => {
+				const bounds = scrollNode.getBoundingClientRect();
+				const scrollbarHitWidth = Math.max(
+					12,
+					scrollNode.offsetWidth - scrollNode.clientWidth,
+				);
+				const scrollbarIsLeft =
+					window.getComputedStyle(scrollNode).direction === "rtl";
+				const isScrollbarIntent =
+					event.target === scrollNode &&
+					(scrollbarIsLeft
+						? event.clientX <= bounds.left + scrollbarHitWidth
+						: event.clientX >= bounds.right - scrollbarHitWidth);
+				takeControl(isScrollbarIntent ? "scroll" : "interaction");
+			};
+			scrollNode.addEventListener("wheel", onScrollIntent, { passive: true });
+			scrollNode.addEventListener("touchmove", onScrollIntent, {
 				passive: true,
 			});
-			scrollNode.addEventListener("touchmove", handleManualNavigation, {
+			scrollNode.addEventListener("pointerdown", onPointerDown, {
 				passive: true,
 			});
-			scrollNode.addEventListener("pointerdown", handleManualNavigation, {
-				passive: true,
-			});
+			scrollNode.addEventListener("keydown", onKeyDown);
+			scrollNode.addEventListener("focusin", onFocusIn);
+			document.addEventListener("selectionchange", onSelectionChange);
 			removeListeners = () => {
-				scrollNode.removeEventListener("wheel", handleManualNavigation);
-				scrollNode.removeEventListener("touchmove", handleManualNavigation);
-				scrollNode.removeEventListener("pointerdown", handleManualNavigation);
+				scrollNode.removeEventListener("wheel", onScrollIntent);
+				scrollNode.removeEventListener("touchmove", onScrollIntent);
+				scrollNode.removeEventListener("pointerdown", onPointerDown);
+				scrollNode.removeEventListener("keydown", onKeyDown);
+				scrollNode.removeEventListener("focusin", onFocusIn);
+				document.removeEventListener("selectionchange", onSelectionChange);
 			};
 		};
 		frame = requestAnimationFrame(() => attachListeners(30));
-
 		return () => {
 			if (frame !== null) cancelAnimationFrame(frame);
 			removeListeners?.();
 		};
-	}, [cancelTimelineLiveFollowForUserNavigation, sessionId]);
+	}, [coordinator, handleScroll, renderRecovery, sessionId]);
 
 	useEffect(() => {
 		if (latestUserMessageId === null) return;
-		const previousLatestUserMessageId = lastAnchoredUserMessageIdRef.current;
-		if (previousLatestUserMessageId === latestUserMessageId) return;
-
-		lastAnchoredUserMessageIdRef.current = latestUserMessageId;
-		if (previousLatestUserMessageId === null && !inFlight) return;
-
-		timelineScrollModeRef.current = "anchoring-new-turn";
-		liveFollowGenerationRef.current = userNavigationGenerationRef.current;
-		pendingTimelineAnchorRef.current = latestUserMessageId;
-		activeTimelineAnchorIndexRef.current = null;
-		positionedTimelineAnchorRef.current = null;
-		settledTimelineAnchorRef.current = null;
-		pendingAnchorScrollRestoreRef.current = null;
+		const previous = lastObservedUserMessageIdRef.current;
+		if (previous === latestUserMessageId) return;
+		lastObservedUserMessageIdRef.current = latestUserMessageId;
+		if (previous === null && !inFlight) return;
+		const turn = turns.find((entry) => entry.messageId === latestUserMessageId);
+		if (turn === undefined) return;
 		setTimelineAnchorMessageId(latestUserMessageId);
-		hideJumpPill();
-	}, [hideJumpPill, inFlight, latestUserMessageId]);
+		setActiveTurnMessageId(latestUserMessageId);
+		setHasOutOfViewUpdates(false);
+		coordinator.prepareNewTurn(turn.rowIndex, CHAT_LIST_ANCHOR_OFFSET);
+	}, [coordinator, inFlight, latestUserMessageId, turns]);
 
-	useEffect(() => {
-		if (
-			liveFollowGenerationRef.current !== userNavigationGenerationRef.current
-		) {
+	useLayoutEffect(() => {
+		if (anchoredEndSpace === undefined || timelineAnchorMessageId === null) {
 			return;
 		}
-
-		let secondFrame: number | null = null;
+		const requestKey = `${timelineAnchorMessageId}:${renderRecovery}`;
+		if (anchorRequestKeyRef.current === requestKey) return;
+		anchorRequestKeyRef.current = requestKey;
 		const frame = requestAnimationFrame(() => {
-			secondFrame = requestAnimationFrame(() => {
-				if (
-					liveFollowGenerationRef.current !==
-					userNavigationGenerationRef.current
-				) {
-					return;
-				}
-
-				const list = listRef.current;
-				if (!list) return;
-				if (
-					shouldDeferAutomaticEndScroll({
-						pendingAnchorId: pendingTimelineAnchorRef.current,
-						positionedAnchorId: positionedTimelineAnchorRef.current,
-						settledAnchorId: settledTimelineAnchorRef.current,
-					})
-				) {
-					return;
-				}
-
-				if (timelineScrollModeRef.current === "anchoring-new-turn") {
-					const metrics = getActiveTimelineTurnMetrics(list);
-					if (!metrics || metrics.scrollDeltaToRevealEnd <= 1) return;
-
-					const nextOffset =
-						list.getState().scroll + metrics.scrollDeltaToRevealEnd;
-					void list.scrollToOffset({ offset: nextOffset, animated: false });
-					return;
-				}
-
-				if (timelineScrollModeRef.current !== "following-end") return;
-				if (!timelineRealContentOverflowsViewport(list)) return;
-				void list.scrollToEnd({ animated: false });
-			});
+			coordinator.positionAnchoredTurn({ animated: false });
 		});
+		return () => cancelAnimationFrame(frame);
+	}, [anchoredEndSpace, coordinator, renderRecovery, timelineAnchorMessageId]);
 
+	useEffect(() => {
+		let frame: number | null = null;
+		const contentChanged = lastContentVersionRef.current !== timelineVersion;
+		if (coordinator.getSnapshot().mode === "detached" && contentChanged) {
+			setHasOutOfViewUpdates(true);
+		} else if (
+			coordinator.getSnapshot().mode === "anchoring-turn" &&
+			contentChanged
+		) {
+			frame = requestAnimationFrame(markAnchoredContentOutOfView);
+		}
+		lastContentVersionRef.current = timelineVersion;
+		coordinator.contentChanged();
 		return () => {
-			cancelAnimationFrame(frame);
-			if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+			if (frame !== null) cancelAnimationFrame(frame);
 		};
-	}, [
-		getActiveTimelineTurnMetrics,
-		rows,
-		timelineRealContentOverflowsViewport,
-	]);
+	}, [coordinator, markAnchoredContentOutOfView, rows, timelineVersion]);
+
+	useEffect(() => {
+		if (scrollSnapshot.mode === "following") setHasOutOfViewUpdates(false);
+	}, [scrollSnapshot.mode]);
 
 	const chatLookups = useMemo(() => deriveChatLookups(messages), [messages]);
-
 	const renderTimelineRow = useCallback(
 		({ item }: { item: ChatTimelineRow }) => (
 			<TimelineRow row={item} sessionId={sessionId} />
 		),
 		[sessionId],
 	);
+	const readingReady = readingState?.sessionId === sessionId;
+	const effectiveReadingPosition =
+		currentReadingPositionRef.current?.sessionId === sessionId
+			? currentReadingPositionRef.current
+			: readingState?.position;
+	const initialTarget = resolveInitialTimelineTarget({
+		rows,
+		position: effectiveReadingPosition,
+		recoverAtLiveEdge:
+			renderRecovery > 0 && scrollSnapshot.mode === "following",
+	});
+	const showPill =
+		(scrollSnapshot.mode === "detached" ||
+			scrollSnapshot.mode === "navigating" ||
+			(scrollSnapshot.mode === "anchoring-turn" && hasOutOfViewUpdates)) &&
+		(!scrollSnapshot.isAtEnd || hasOutOfViewUpdates);
 
 	return (
 		<FileChipProvider
 			folderId={session?.projectId ?? null}
 			worktreeId={session?.worktreeId ?? null}
 		>
-			<div className="relative flex min-h-0 flex-1">
+			<div
+				data-chat-viewport
+				className="relative flex min-h-0 min-w-0 flex-1 [container-type:inline-size]"
+			>
 				<div className="relative flex h-full min-h-0 flex-1 flex-col">
 					{messages.length === 0 ? (
 						<div
 							data-pane="chat"
 							tabIndex={-1}
 							ref={scrollElementRef}
-							className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto outline-none"
+							className="flex h-full min-h-0 w-full flex-1 flex-col overflow-y-auto outline-none"
 						>
-							<WorktreeSetupCard />
+							<div className="px-[var(--chat-row-gutter,0.75rem)]">
+								<WorktreeSetupCard />
+							</div>
 							{setupActive ? null : (
 								<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
 									<HugeiconsIcon
@@ -742,46 +629,53 @@ export function ChatView({
 								</div>
 							)}
 						</div>
+					) : !readingReady ? (
+						<div
+							data-pane="chat"
+							tabIndex={-1}
+							ref={scrollElementRef}
+							className="h-full min-h-0 w-full flex-1 outline-none"
+						/>
 					) : (
 						<ChatLookupsProvider value={chatLookups}>
 							<LegendList<ChatTimelineRow>
 								key={`${sessionId}:${renderRecovery}`}
 								ref={listRef}
 								data={rows}
+								dataVersion={timelineVersion}
 								keyExtractor={(row) => row.id}
 								getItemType={(row) => row.kind}
 								renderItem={renderTimelineRow}
 								estimatedItemSize={96}
-								initialScrollAtEnd
-								{...(anchoredEndSpace
-									? {
+								initialScrollAtEnd={initialTarget === null}
+								{...(initialTarget === null
+									? {}
+									: {
+											initialScrollIndex: {
+												index: initialTarget.index,
+												viewPosition: 0,
+												viewOffset: initialTarget.viewportOffset,
+											},
+										})}
+								{...(anchoredEndSpace === undefined
+									? {}
+									: {
 											anchoredEndSpace: {
 												...anchoredEndSpace,
-												onReady: handleAnchorReady,
-												onSizeChanged: handleAnchorSizeChanged,
-											},
-										}
-									: {})}
-								maintainScrollAtEnd={
-									anchoredEndSpace
-										? false
-										: {
-												animated: false,
-												on: {
-													dataChange: true,
-													itemLayout: true,
-													layout: true,
+												onReady: () => {
+													coordinator.positionAnchoredTurn({
+														animated: false,
+														force: true,
+													});
 												},
-											}
-								}
-								// `size: true` compensates the scroll offset when items above
-								// the viewport re-measure (estimated 96px -> real height, or
-								// async shiki/mermaid swaps). Without it, upward scrolling
-								// jitters every time an unmeasured row above settles.
+												onSizeChanged: markAnchoredContentOutOfView,
+											},
+										})}
+								maintainScrollAtEnd={false}
 								maintainVisibleContentPosition={{ data: true, size: true }}
 								contentInsetEndAdjustment={endInset}
 								onScroll={handleScroll}
-								className="h-full min-h-0 flex-1 overflow-x-hidden outline-none [overflow-anchor:none]"
+								className="h-full min-h-0 w-full flex-1 overflow-x-hidden outline-none [overflow-anchor:none]"
 								data-pane="chat"
 								tabIndex={-1}
 								ListHeaderComponent={TIMELINE_HEADER}
@@ -789,12 +683,27 @@ export function ChatView({
 							/>
 						</ChatLookupsProvider>
 					)}
-					{error !== null ? (
+					<ChatTurnNavigator
+						turns={turns}
+						activeMessageId={activeTurnMessageId}
+						hasOutOfViewUpdates={hasOutOfViewUpdates}
+						onReaderIntent={() => {
+							coordinator.readerTookControl();
+						}}
+						onNavigate={(turn) => {
+							setTimelineAnchorMessageId(null);
+							coordinator.jumpToTurn(turn.rowIndex, {
+								viewportOffset: CHAT_LIST_ANCHOR_OFFSET,
+								animated: !prefersReducedMotion,
+							});
+						}}
+					/>
+					{error === null ? null : (
 						<div
-							className="pointer-events-none absolute inset-x-0 z-20"
+							className="pointer-events-none absolute inset-x-0 z-20 px-[var(--chat-row-gutter,0.75rem)]"
 							style={{ bottom: resolveChatErrorBottom(endInset) }}
 						>
-							<div className="pointer-events-auto">
+							<div className="pointer-events-auto mx-auto w-full max-w-[var(--chat-reading-column,56rem)]">
 								<ErrorBubble
 									error={error}
 									sessionId={sessionId}
@@ -802,22 +711,32 @@ export function ChatView({
 								/>
 							</div>
 						</div>
-					) : null}
-					{/* One row hugging the composer top: jump-to-latest on the
-					    left, next-unread on the right. */}
+					)}
 					<div
-						className="pointer-events-none absolute inset-x-0 z-30 flex items-center justify-between gap-2"
+						className="pointer-events-none absolute inset-x-0 z-30 px-[var(--chat-row-gutter,0.75rem)]"
 						style={{ bottom: Math.max(0, endInset - 8) }}
 					>
-						<JumpToLatestPill
-							visible={showPill}
-							streaming={inFlight && showPill}
-							onClick={() => scrollToEnd(true)}
-						/>
-						<div className="ml-auto">
-							<NextUnreadButton />
+						<div className="mx-auto flex w-full max-w-[var(--chat-reading-column,56rem)] items-center justify-between gap-2">
+							<JumpToLatestPill
+								visible={showPill}
+								streaming={inFlight && hasOutOfViewUpdates}
+								onClick={() => {
+									setHasOutOfViewUpdates(false);
+									coordinator.jumpToLatest({
+										animated: !prefersReducedMotion,
+									});
+								}}
+							/>
+							<div className="ml-auto">
+								<NextUnreadButton />
+							</div>
 						</div>
 					</div>
+					<p className="sr-only" aria-live="polite" aria-atomic="true">
+						{showPill && inFlight && hasOutOfViewUpdates
+							? "Response is streaming out of view."
+							: ""}
+					</p>
 				</div>
 			</div>
 		</FileChipProvider>
@@ -828,20 +747,22 @@ function TimelineRow({
 	row,
 	sessionId,
 }: {
-	row: ChatTimelineRow;
-	sessionId: SessionId;
+	readonly row: ChatTimelineRow;
+	readonly sessionId: SessionId;
 }) {
+	let content: ReactNode;
 	switch (row.kind) {
 		case "message":
-			return (
+			content = (
 				<MessageRow
 					message={row.message}
 					sessionId={sessionId}
 					showAssistantCommands={row.showAssistantCommands}
 				/>
 			);
+			break;
 		case "subagent":
-			return (
+			content = (
 				<div>
 					<SubagentRow
 						agentToolUseId={row.parentItemId}
@@ -855,8 +776,9 @@ function TimelineRow({
 					/>
 				</div>
 			);
+			break;
 		case "turn-summary":
-			return (
+			content = (
 				<div>
 					<TurnSummary
 						body={row.body}
@@ -865,80 +787,17 @@ function TimelineRow({
 					/>
 				</div>
 			);
+			break;
 		case "working":
-			return <WorkingRow messages={row.messages} sessionId={sessionId} />;
+			content = (
+				<ChatWorkingRow messages={row.messages} sessionId={sessionId} />
+			);
 	}
-}
-
-const formatElapsed = (ms: number): string => {
-	const totalSec = ms / 1000;
-	if (totalSec < 60) return `${totalSec.toFixed(1)}s`;
-	const min = Math.floor(totalSec / 60);
-	const sec = totalSec - min * 60;
-	return `${min}m ${sec.toFixed(1)}s`;
-};
-
-function WorkingRow({
-	messages,
-	sessionId,
-}: {
-	messages: ReadonlyArray<Message>;
-	sessionId: SessionId;
-}) {
-	const runtimeState = useSessionRuntimeStore((s) =>
-		effectiveSessionRuntimeState(s.bySession[sessionId]),
-	);
-	const session = useSessionsStore((s) => {
-		void s.sessionsByProject;
-		return getSessionById(sessionId);
-	});
-	const providerLabel =
-		session === null || session === undefined
-			? "Agent"
-			: (PROVIDER_LABEL[session.providerId] ?? session.providerId);
-	const delayed = useProviderStartupDelay(
-		runtimeState === "starting",
-		`${sessionId}:${session?.providerId ?? "unknown"}:${session?.model ?? "unknown"}`,
-	);
-	// Anchor to the most recent user message — we want the live "current turn"
-	// elapsed time beside the loader, not the session-wide total.
-	const anchorMs = useMemo(() => {
-		for (let i = messages.length - 1; i >= 0; i--) {
-			const m = messages[i];
-			if (m === undefined) continue;
-			if (m.content._tag === "user" || m.content._tag === "user_rich")
-				return m.createdAt.getTime();
-		}
-		return null;
-	}, [messages]);
-
-	const [now, setNow] = useState(() => Date.now());
-	useEffect(() => {
-		const tickId = window.setInterval(() => setNow(Date.now()), 100);
-		return () => {
-			window.clearInterval(tickId);
-		};
-	}, []);
-
-	const elapsed = anchorMs === null ? 0 : Math.max(0, now - anchorMs);
-	const activityState = deriveAgentActivityState(messages);
-
 	return (
-		<div className="flex min-h-9 items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground">
-			<AgentActivityOrb state={activityState} />
-			{runtimeState === "starting" ? (
-				<span className={delayed ? "text-warning" : "text-muted-foreground"}>
-					{providerStartupLabel({
-						providerLabel,
-						failed: false,
-						delayed,
-					})}
-				</span>
-			) : (
-				<ShimmerText tone="lime" className="tabular-nums">
-					{formatElapsed(elapsed)}
-				</ShimmerText>
-			)}
+		<div className="px-[var(--chat-row-gutter,0.75rem)]">
+			<div className="mx-auto w-full max-w-[var(--chat-reading-column,56rem)]">
+				{content}
+			</div>
 		</div>
 	);
 }

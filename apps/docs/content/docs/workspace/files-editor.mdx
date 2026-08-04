@@ -1,0 +1,29 @@
+---
+title: Files and editor
+description: Browse, preview, edit, and save files in the active checkout.
+section: workspace
+order: 61
+platforms: [desktop]
+providers: []
+prerequisites: [/workspace]
+related: [/composer/context-attachments, /workspace/changes-pull-requests, /reference/keybindings]
+next: /workspace/terminal-browser
+lastVerified: latest
+---
+
+
+The files panel shows the active environment's directory tree. Select a file to open it in the main area without losing the conversation tab.
+
+## Supported views
+
+The editor provides syntax-aware editing for common web and systems languages, including TypeScript, JavaScript, JSON, Markdown, HTML, CSS, Python, Rust, and Go. PNG, JPEG, GIF, WebP, and AVIF files open as image previews.
+
+Use a file's context menu to copy its path or open it in an external editor when available. The tree also marks Git changes so repository state stays visible while browsing.
+
+## Save safely
+
+Press `⌘S` or use the save command. Zuse checks the file's modification time to avoid silently overwriting a newer external edit. When the file changed on disk, reload or reconcile it instead of forcing an outdated buffer over the new content.
+
+## Add context to a prompt
+
+Use `@` in the composer to find a file without navigating the tree. Mention resolution is scoped to the same active checkout, so worktree chats do not accidentally attach the main checkout's version.

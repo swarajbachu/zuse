@@ -1,0 +1,14 @@
+{
+	"icon": "PanelsTopLeft",
+	"pages": [
+		"index",
+		"files-editor",
+		"terminal-browser",
+		"browser",
+		"browser-debugging",
+		"browser-evidence",
+		"browser-sessions-privacy",
+		"browser-troubleshooting",
+		"changes-pull-requests"
+	]
+}

@@ -1,0 +1,123 @@
+---
+title: Repository scripts
+description: Configure repeatable setup, run, and archive commands for worktrees.
+section: projects
+order: 44
+platforms: [desktop]
+providers: []
+prerequisites: [/projects/repository-settings]
+related: [/projects/worktrees, /projects/file-includes, /workspace/terminal-browser]
+next: /composer
+lastVerified: latest
+---
+
+Repository scripts turn a new or restored worktree into a runnable development environment without repeating setup instructions in every prompt.
+
+Configure them in the committed `.zuse/settings.toml` file:
+
+```toml
+[scripts]
+setup = "bun install"
+run = "bun run dev"
+archive = "rm -rf .next .cache"
+auto_run_after_setup = false
+```
+
+## Lifecycle
+
+| Setting | When it runs | Current directory | Intended use |
+| --- | --- | --- | --- |
+| `setup` | After worktree creation and restore, after file linking | Worktree | Install dependencies, generate code, or prepare local tools |
+| `run` | When started from Zuse | Worktree | Start the standard development process |
+| `archive` | Before Zuse checkpoints and removes an unused worktree | Worktree | Remove reproducible caches and generated output |
+| `auto_run_after_setup` | After setup exits successfully | Worktree | Start `run` automatically |
+
+An empty setup command is valid. Zuse still prepares linked files and then marks setup as skipped.
+
+## Write a reliable setup command
+
+Setup may run more than once: after creation, after restore, or when you explicitly retry a failure. Treat it as an idempotent project bootstrap rather than a one-time migration.
+
+Good setup commands:
+
+- use the checked-in lockfile
+- exit non-zero when a required tool or generation step fails
+- preserve developer-owned local files
+- avoid prompts that require an interactive terminal
+- finish within ten minutes
+
+Common setup values are `bun install --frozen-lockfile`, `pnpm install --frozen-lockfile`, and `npm ci`. For preparation with several steps, point the setting at a repository-owned bootstrap:
+
+```toml
+[scripts]
+setup = "./scripts/setup-worktree.sh"
+```
+
+Prefer a repository-owned script when preparation needs several commands or platform checks. It can be tested outside Zuse, reviewed with the rest of the codebase, and kept readable without complex TOML quoting.
+
+## Setup environment
+
+Setup and run receive repository-defined `[environment_variables]` plus these Zuse values:
+
+| Variable | Value |
+| --- | --- |
+| `ZUSE_ROOT_PATH` | Registered main checkout path |
+| `ZUSE_WORKTREE_PATH` | Active worktree path |
+| `ZUSE_WORKTREE_ID` | Stable worktree identifier |
+| `ZUSE_PORT` | Available Zuse or process port value when set |
+
+Use the paths instead of assuming a fixed `~/.zuse` layout, especially when `worktreeBaseDir` is configured.
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$ZUSE_WORKTREE_PATH"
+bun install --frozen-lockfile
+bun run generate
+```
+
+Do not commit secrets in `[environment_variables]`. Link ignored environment files from the main checkout with [`file_include_globs`](/projects/file-includes/).
+
+## Run command
+
+`run` should represent the one command a developer normally uses to start the project. Zuse starts it from the worktree, so relative paths resolve against the isolated checkout.
+
+Leave `auto_run_after_setup` disabled when the process is expensive, binds a scarce port, or should start only after an agent changes configuration. Enable it when every new worktree should become runnable immediately.
+
+## Archive cleanup
+
+The archive command runs before Zuse records a dirty-state checkpoint. Delete only output that can be regenerated, because files removed by the cleanup command are intentionally absent from that checkpoint.
+
+Reasonable cleanup targets include framework caches, compiled output, coverage, and worktree-local dependency directories. Avoid broad parent-directory operations or commands that follow unresolved paths.
+
+Archive cleanup receives:
+
+| Variable | Value |
+| --- | --- |
+| `ZUSE_ROOT_PATH` | Registered main checkout path |
+| `ZUSE_WORKSPACE_PATH` | Worktree being archived |
+| `ZUSE_WORKTREE_ID` | Worktree identifier |
+| `ZUSE_CHAT_ID` | Chat that initiated archive |
+
+For a more complex cleanup, keep the safety checks in a versioned script:
+
+```toml
+[scripts]
+archive = "./scripts/archive-worktree.sh"
+```
+
+The script should operate only inside `ZUSE_WORKSPACE_PATH` and should be safe to retry. Zuse may retain a checkout when another live chat still uses it, so archive cleanup is not a signal that the directory has already been removed.
+
+## Diagnose failures
+
+Setup output is streamed into Zuse and retained with its final status. When setup fails:
+
+1. Open a terminal in the affected worktree.
+2. Run the configured command directly.
+3. Fix missing tools, permissions, network access, or repository state.
+4. Rerun setup from Zuse.
+
+A failed setup does not delete the worktree. Do not recreate the chat unless the checkout itself is unwanted.
+
+See [Worktrees](/projects/worktrees/) for the full create, archive, and restore lifecycle.

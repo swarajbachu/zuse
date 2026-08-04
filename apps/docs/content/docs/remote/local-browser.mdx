@@ -1,0 +1,63 @@
+---
+title: "Local browser access"
+description: "Authorize a browser on your network with a one-time link and manage its access from the desktop app."
+section: "Remote access"
+order: 2
+platforms: [desktop, web]
+providers: []
+prerequisites: [/remote]
+related: [/remote/nearby-pairing, /remote/security, /remote/recovery]
+next: /remote/nearby-pairing
+lastVerified: latest
+---
+
+
+Local browser access is for a browser that can reach your Mac over the current network. The desktop app creates a one-time authorization link; opening it turns that browser into a revocable client.
+
+Before you begin:
+
+- Zuse is open on the Mac that owns the environment.
+- The browser can reach the Mac over the local network.
+- You can restart running agents if local access is currently off.
+
+<Workflow>
+  <Step title="Enable local access">
+    In the desktop app, open **Settings → Devices**. Under **Local access**, choose **Enable browser and device access**, then confirm **Restart and turn on**. The app restarts, and running agents stop during that restart.
+  </Step>
+  <Step title="Create a one-time link">
+    Choose **Create web link**. Zuse displays a QR code, a link, and a short pairing code. The link expires after five minutes.
+  </Step>
+  <Step title="Authorize the browser">
+    Choose **Open web app**, copy the link into the target browser, or scan the browser QR. The browser redeems the link once and stores its own access credential.
+  </Step>
+</Workflow>
+
+The one-time link expiring does not sign out a browser that already redeemed it. Its access remains until you revoke that browser or turn off local access.
+
+## Revoke a browser
+
+Return to **Settings → Devices**. Under the connected-device list, find the browser by its label and last-connected time, then choose **Revoke**. Reloading that browser now shows **Pair this browser** and asks you to create a new link.
+
+Older access credentials created by earlier Zuse versions are grouped as **Older device access**. Use **Revoke all** to invalidate that legacy group.
+
+## Turn local access off
+
+Choose **Turn off local access**, then confirm **Restart and turn off**. The desktop app restarts, and connected local browsers and mobile devices disconnect. Account-linked hosted access is managed separately.
+
+<Troubleshooting>
+
+### “This pairing link expired”
+
+Create a fresh link in **Settings → Devices**. Links are intentionally valid for only five minutes.
+
+### “Zuse versions do not match”
+
+Update the environment, then reload the page. The client will not connect across an incompatible protocol version.
+
+### The browser cannot reach Zuse
+
+Confirm the Mac is awake, Zuse is open, local access shows **On**, and both devices are on a network that allows device-to-device traffic. Guest and corporate Wi-Fi networks commonly block it.
+
+</Troubleshooting>
+
+<NextStep href="/remote/nearby-pairing/" label="Pair an iPhone nearby" />

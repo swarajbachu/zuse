@@ -579,48 +579,50 @@ function MainShell() {
 								// All that progress is surfaced inline by `WorktreeSetupCard`
 								// at the top of the timeline, with the composer pinned at the
 								// bottom (no full-screen takeover).
-								<div className="flex min-h-0 min-w-0 flex-1 px-3">
-									<div className="relative mx-auto flex min-h-0 min-w-0 w-full max-w-4xl flex-1 flex-col">
+								<div className="chat-session-layout flex min-h-0 min-w-0 flex-1">
+									<div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
 										<Suspense fallback={<SurfaceFallback />}>
 											<ChatView
 												sessionId={selectedSessionId}
 												endInset={composerInset}
 											/>
 										</Suspense>
-										<div
-											ref={setComposerNode}
-											className="absolute inset-x-0 bottom-0 z-30"
-										>
-											{/* Fade the timeline out beneath and just above the
-											    composer so scrolled-past text melts away instead
-											    of ending in a hard edge. */}
+										<div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-[var(--chat-row-gutter)]">
+											{/* Keep the fade on the full transcript plane. Code blocks
+											    can extend beyond the centered composer column. */}
 											<div
+												data-chat-composer-fade
 												aria-hidden
 												className="pointer-events-none absolute inset-x-0 -top-10 bottom-0 -z-10 backdrop-blur-md [mask-image:linear-gradient(to_bottom,transparent,black_45%)]"
 											/>
-											<Suspense fallback={null}>
-												<CliUpgradeBanner
-													providerId={selectedSession.providerId}
-													constrain={false}
-												/>
-											</Suspense>
-											{directoryUnavailable ? (
+											<div
+												ref={setComposerNode}
+												className="pointer-events-auto mx-auto w-full max-w-[var(--chat-reading-column)]"
+											>
 												<Suspense fallback={null}>
-													<DirectoryUnavailableBanner />
-												</Suspense>
-											) : null}
-											{selectedQueueHydrated ? (
-												<Suspense fallback={<ComposerFallback />}>
-													<ChatComposer
-														key={selectedSession.id}
-														session={selectedSession}
+													<CliUpgradeBanner
+														providerId={selectedSession.providerId}
 														constrain={false}
-														directoryUnavailable={directoryUnavailable}
 													/>
 												</Suspense>
-											) : (
-												<ComposerFallback />
-											)}
+												{directoryUnavailable ? (
+													<Suspense fallback={null}>
+														<DirectoryUnavailableBanner />
+													</Suspense>
+												) : null}
+												{selectedQueueHydrated ? (
+													<Suspense fallback={<ComposerFallback />}>
+														<ChatComposer
+															key={selectedSession.id}
+															session={selectedSession}
+															constrain={false}
+															directoryUnavailable={directoryUnavailable}
+														/>
+													</Suspense>
+												) : (
+													<ComposerFallback />
+												)}
+											</div>
 										</div>
 									</div>
 									{environmentSummaryAvailable ? (

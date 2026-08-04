@@ -494,6 +494,12 @@ body,
    teal-leaning add / rose-leaning delete colors. The custom properties
    cascade into the shadow DOM Pierre renders into. */
 @layer components {
+  .chat-session-layout {
+    --chat-reading-column: 56rem;
+    --chat-row-gutter: 0.75rem;
+    --chat-assistant-gutter: 1rem;
+  }
+
   .fz-diff {
     /* Surfaces — drop the diff onto the same neutral the pane uses so it
        reads as part of the app, not a bolted-on widget. Pierre computes
@@ -744,6 +750,19 @@ body,
   }
   .fz-prose .markdown-code-block {
     margin: 0.9em 0;
+  }
+  /* Assistant code stays aligned with the reading column on the left, but
+     reaches the transcript edge on the right. The scroll thumb therefore
+     lives at the pane edge instead of floating beside the centered column. */
+  .chat-assistant-markdown > .markdown-code-block {
+    width: calc(
+      100cqw -
+      max(
+        var(--chat-row-gutter),
+        (100cqw - var(--chat-reading-column)) / 2
+      ) -
+      var(--chat-assistant-gutter)
+    );
   }
   .fz-prose .markdown-mermaid-block {
     position: relative;
@@ -1243,6 +1262,7 @@ body,
     border: 0;
     border-radius: 0;
     background: transparent !important;
+    color: var(--message-text);
     font-family: var(
       --font-mono,
       ui-monospace,
@@ -1260,15 +1280,24 @@ body,
   }
   .code-block-shiki .line {
     display: block;
+    min-height: 1.3em;
     padding: 0 10px;
   }
   /* Scrollbar polish — match xterm-viewport style. */
   .code-block-scroll::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
   .code-block-scroll::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
+  }
+  .code-block-scroll:hover::-webkit-scrollbar-thumb,
+  .code-block-scroll:focus::-webkit-scrollbar-thumb {
     background: var(--bg-overlay);
-    border-radius: 4px;
+  }
+  .code-block-scroll::-webkit-scrollbar-track,
+  .code-block-scroll::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }

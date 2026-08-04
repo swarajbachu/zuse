@@ -1,0 +1,50 @@
+---
+title: Gemini CLI
+description: Connect Gemini CLI and use its ACP-backed coding workflow in Zuse.
+section: providers
+order: 35
+platforms: [desktop, browser, mobile]
+providers: [gemini]
+prerequisites: [/start/install, /providers/setup]
+related: [/composer/modes-permissions, /composer/context-attachments, /reference/diagnostics]
+next: /providers/cursor
+lastVerified: latest
+---
+
+Gemini runs through the locally installed Gemini CLI in experimental ACP mode. Zuse supplies the active checkout and translates ACP updates into the shared conversation, tool, file-edit, permission, and usage surfaces.
+
+## Install and authenticate
+
+```bash
+npm i -g @google/gemini-cli
+gemini /auth
+```
+
+Complete Gemini's interactive authentication before starting a Zuse session. Zuse currently detects the CLI's local authentication directory rather than calling a verified account endpoint, so the provider card may show authenticated even when a token later needs renewal. The runtime error is authoritative.
+
+## Workflows in Zuse
+
+- Run Gemini against the main checkout or an isolated worktree.
+- Stream assistant text, thinking, tool calls, file edits, and failures into the durable timeline.
+- Gate filesystem, shell, web, and other ACP actions with Zuse's runtime permission mode.
+- Use Plan mode for read-only exploration before implementation.
+- Attach project files, images, PDFs, and other composer context supported by the selected model.
+- Resume the provider session when Gemini still recognizes the stored ACP session identifier.
+
+Zuse does not currently discover Gemini-native skills into its shared slash-command picker. Gemini's model catalog and provider-specific behavior remain controlled by the installed CLI.
+
+## Requirements and recovery
+
+Both `gemini` and `bun` must be available to the desktop service. Bun runs the MCP stdio fallback used to expose Zuse tools to Gemini.
+
+If a session fails to start:
+
+```bash
+gemini --version
+bun --version
+gemini /auth
+```
+
+Restart Zuse after changing PATH, then refresh **Settings → Providers**. If a stored Gemini session can no longer resume, Zuse starts a replacement provider session and keeps the durable chat timeline for reference.
+
+Because ACP mode is selected by Zuse when launching the CLI, do not add the experimental transport flag to prompts or repository scripts.

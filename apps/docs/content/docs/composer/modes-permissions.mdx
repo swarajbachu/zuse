@@ -1,0 +1,42 @@
+---
+title: Modes and permissions
+description: Control whether an agent plans, edits, runs commands, or asks first.
+section: composer
+order: 51
+platforms: [desktop, browser, mobile]
+providers: [claude, codex, grok, gemini, cursor, opencode]
+prerequisites: [/composer]
+related: [/composer/subagents, /reference/settings, /concepts/local-first]
+next: /composer/context-attachments
+lastVerified: latest
+---
+
+
+Zuse has two related controls: **Plan mode** decides whether the agent may implement, while the **runtime permission mode** decides which actions can proceed without asking.
+
+## Plan mode
+
+Plan mode is read-only. The agent can inspect and reason about the project, then proposes a plan. Mutating tools remain blocked even if the runtime permission mode is **Full access**. Approving or leaving the plan returns the session to normal execution.
+
+Use Plan mode when the implementation shape, scope, or tradeoff is not yet settled. Use normal execution when the desired result is already decision-complete.
+
+## Runtime permission modes
+
+| Mode | Automatically allowed | Still asks |
+| --- | --- | --- |
+| **Supervised** | Read-only tools | Bash, edits, web requests, MCP and other tools |
+| **Auto-accept edits** | Read-only tools and file edits | Bash, web requests, MCP and other tools |
+| **Auto-accept edits + Bash** | Reads, edits, and Bash | Web requests, MCP and other tools |
+| **Full access** | Ordinary tools | Plan-mode exits and sensitive paths |
+
+Sensitive paths such as environment files, SSH material, credentials, and keys remain protected under Full access.
+
+## Permission prompts
+
+When an action needs approval, Zuse places the request at the composer with its operation and context. Approve only after the target and consequence are clear. Denying a request returns control to the agent so it can explain, adjust, or choose another approach.
+
+The permission inspector records decisions and exposes applicable controls. Session overrides affect the active session; default permission mode is configured globally or by repository.
+
+## Slash commands
+
+Use `/plan` to enter Plan mode and `/run` to return to normal execution. `/mode &lt;name&gt;` changes the runtime posture. The command picker also includes provider-specific commands only when they apply to the selected provider.

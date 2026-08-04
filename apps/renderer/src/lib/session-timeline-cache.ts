@@ -5,13 +5,55 @@ import {
 	type SessionTimelineCacheEntry,
 } from "@zuse/client-runtime/session-timeline-cache";
 import type { SessionId } from "@zuse/contracts";
+import {
+	decodeTimelineReadingPosition,
+	encodeTimelineReadingPosition,
+	type TimelineReadingPosition,
+	type TimelineReadingPositionStore,
+} from "./timeline-reading-position.ts";
 
 const DATABASE_NAME = "zuse-session-timelines";
-const DATABASE_VERSION = 2;
+const DATABASE_VERSION = 3;
 const STORE_NAME = "timelines";
 const METADATA_STORE_NAME = "timeline-metadata";
+const READING_POSITION_STORE_NAME = "reading-positions";
 const DEFAULT_MAX_ENTRIES = 128;
 const DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
+const DEFAULT_MAX_READING_POSITIONS = 256;
+
+export function resolveReadingPositionKeysToPrune(
+	values: ReadonlyArray<unknown>,
+	maxEntries = DEFAULT_MAX_READING_POSITIONS,
+): SessionId[] {
+	const valid: TimelineReadingPosition[] = [];
+	const invalidKeys: SessionId[] = [];
+	for (const value of values) {
+		const decoded = decodeTimelineReadingPosition(value);
+		if (decoded !== null) {
+			valid.push(decoded);
+			continue;
+		}
+		if (
+			typeof value === "object" &&
+			value !== null &&
+			"sessionId" in value &&
+			typeof value.sessionId === "string"
+		) {
+			invalidKeys.push(value.sessionId as SessionId);
+		}
+	}
+	valid.sort(
+		(left, right) =>
+			right.updatedAt - left.updatedAt ||
+			left.sessionId.localeCompare(right.sessionId),
+	);
+	return [
+		...invalidKeys,
+		...valid
+			.slice(Math.max(0, maxEntries))
+			.map((position) => position.sessionId),
+	];
+}
 
 const requestResult = <T>(request: IDBRequest<T>): Promise<T> =>
 	new Promise((resolve, reject) => {
@@ -39,6 +81,11 @@ const openDatabase = (): Promise<IDBDatabase> =>
 			}
 			if (!database.objectStoreNames.contains(METADATA_STORE_NAME)) {
 				database.createObjectStore(METADATA_STORE_NAME, {
+					keyPath: "sessionId",
+				});
+			}
+			if (!database.objectStoreNames.contains(READING_POSITION_STORE_NAME)) {
+				database.createObjectStore(READING_POSITION_STORE_NAME, {
 					keyPath: "sessionId",
 				});
 			}
@@ -148,5 +195,60 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 	}
 }
 
+class IndexedDbTimelineReadingPositionStore
+	implements TimelineReadingPositionStore
+{
+	private database: Promise<IDBDatabase> | null = null;
+
+	private db(): Promise<IDBDatabase> {
+		this.database ??= openDatabase();
+		return this.database;
+	}
+
+	async load(sessionId: SessionId): Promise<TimelineReadingPosition | null> {
+		const database = await this.db();
+		const transaction = database.transaction(
+			READING_POSITION_STORE_NAME,
+			"readwrite",
+		);
+		const store = transaction.objectStore(READING_POSITION_STORE_NAME);
+		const raw = await requestResult(store.get(sessionId));
+		const decoded = decodeTimelineReadingPosition(raw);
+		if (raw !== undefined && decoded === null) store.delete(sessionId);
+		await transactionComplete(transaction);
+		return decoded;
+	}
+
+	async save(position: TimelineReadingPosition): Promise<void> {
+		const database = await this.db();
+		const transaction = database.transaction(
+			READING_POSITION_STORE_NAME,
+			"readwrite",
+		);
+		const store = transaction.objectStore(READING_POSITION_STORE_NAME);
+		store.put(encodeTimelineReadingPosition(position));
+		const values = await requestResult(store.getAll());
+		for (const sessionId of resolveReadingPositionKeysToPrune(values)) {
+			store.delete(sessionId);
+		}
+		await transactionComplete(transaction);
+	}
+
+	async remove(sessionId: SessionId): Promise<void> {
+		const database = await this.db();
+		const transaction = database.transaction(
+			READING_POSITION_STORE_NAME,
+			"readwrite",
+		);
+		transaction.objectStore(READING_POSITION_STORE_NAME).delete(sessionId);
+		await transactionComplete(transaction);
+	}
+}
+
 export const sessionTimelineCache: SessionTimelineCache | null =
 	typeof indexedDB === "undefined" ? null : new IndexedDbSessionTimelineCache();
+
+export const timelineReadingPositionStore: TimelineReadingPositionStore | null =
+	typeof indexedDB === "undefined"
+		? null
+		: new IndexedDbTimelineReadingPositionStore();

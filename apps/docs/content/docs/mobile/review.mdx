@@ -1,0 +1,48 @@
+---
+title: "Files and change review"
+description: "Browse project files and inspect workspace or last-turn diffs from a mobile session."
+section: "Mobile"
+order: 4
+platforms: [mobile]
+providers: []
+prerequisites: [/mobile/chats]
+related: [/mobile/offline-notifications, /remote/recovery]
+next: /mobile/offline-notifications
+lastVerified: latest
+---
+
+
+An agent's final message is a summary. The mobile review surfaces let you inspect the actual repository changes on the environment before deciding what to do next.
+
+## Open files
+
+From a session, open the actions menu and choose **Files**. The file view shows the selected project's tree. Choose a file to open its preview. Text files render with source-oriented formatting; unsupported or oversized content shows a clear preview-unavailable state instead of guessing.
+
+File browsing reads from the connected environment. Previously fetched session and message data may be cached offline, but arbitrary project files are not a complete offline checkout.
+
+## Review changes
+
+Choose the changes indicator or open the review screen. You can switch review scope between the workspace and the last turn when the connected environment supports both.
+
+- **Workspace** covers the current repository changes visible to the session.
+- **Last turn** narrows the view to changes associated with the latest agent turn.
+
+The summary shows changed files, additions, and deletions. Expand files to inspect prepared diff rows. Large previews can be limited, and binary or unsupported changes are identified rather than rendered as misleading text.
+
+## Review tool results
+
+When a tool call contains file changes, open its detail screen to inspect the associated patches. This ties a change to the action that produced it and helps distinguish current work from older workspace edits.
+
+## A practical review loop
+
+1. Read the agent's latest explanation.
+2. Open **Review changes** and check the intended scope.
+3. Expand every changed file that affects behavior or security.
+4. Return to the chat with a specific correction or approval.
+5. Run or request appropriate checks on the environment before shipping.
+
+<Warning title="A clean explanation is not verification">
+Mobile renders repository evidence supplied by the environment. It does not prove a build, test, deployment, or device run happened unless that evidence exists in the session.
+</Warning>
+
+<NextStep href="/mobile/offline-notifications/" label="Understand offline work and notifications" />

@@ -1,0 +1,69 @@
+---
+title: "Serve command reference"
+description: "Complete public command and option reference for zuse serve."
+section: "Serve CLI"
+order: 3
+platforms: [serve]
+providers: []
+prerequisites: [/serve]
+related: [/serve/operations, /serve/status-json, /serve/troubleshooting]
+next: /serve/status-json
+lastVerified: latest
+---
+
+
+```text
+zuse serve [start] [--foreground] [--data-dir <path>]
+zuse serve status [--json] [--data-dir <path>]
+zuse serve stop [--data-dir <path>]
+zuse serve update --force [--data-dir <path>]
+zuse serve logout [--data-dir <path>]
+zuse serve uninstall [--data-dir <path>]
+```
+
+## Commands
+
+| Command | Behavior |
+| --- | --- |
+| `start` | Start Serve; this is the default when no command is supplied. |
+| `status` | Report service, tunnel, agent, and reachability state. |
+| `stop` | Stop and disable the background service. |
+| `update` | Install the latest managed runtime; requires `--force`. |
+| `logout` | Revoke the computer, stop Serve, and clear its account session. |
+| `uninstall` | Remove the service and managed runtime while preserving workspaces. |
+| `help` | Print command usage. Equivalent to `-h` or `--help`. |
+| `version` | Print the package version. Equivalent to `-V` or `--version`. |
+
+## Options
+
+| Option | Valid with | Meaning |
+| --- | --- | --- |
+| `--foreground` | `start` | Run in the current terminal instead of installing the background service. |
+| `--json` | `status` | Emit a single `ServeStatusV1` JSON object. |
+| `--force` | `update` | Confirm that no agent or terminal work is active. |
+| `--data-dir <path>` | Management commands | Use a specific Zuse data directory. |
+| `-h`, `--help` | Top level | Print help and exit. |
+| `-V`, `--version` | Top level | Print the package version and exit. |
+
+Invalid command and option combinations fail instead of being ignored. For example, `status --force`, `stop --json`, and `update` without `--force` do not perform the requested lifecycle action.
+
+## Data directory
+
+By default, Serve uses:
+
+- macOS: `~/Library/Application Support/Zuse Alpha`
+- Linux: `$XDG_DATA_HOME/zuse`, or `~/.local/share/zuse` when `XDG_DATA_HOME` is unset
+
+`--data-dir` selects a different environment store for that invocation and the service definition it creates. Use the same value on later `status`, `stop`, `update`, `logout`, and `uninstall` calls for that environment.
+
+The `ZUSE_USER_DATA` and `ZUSE_USER_DATA_DIR` environment variables can also select the directory. Prefer `--data-dir` in operator commands because it is explicit and visible in shell history.
+
+## Exit and output behavior
+
+Successful lifecycle commands print a short human-readable confirmation. `status --json` reserves standard output for one JSON value so automation can parse it. Errors are non-successful command outcomes and include actionable text.
+
+<Callout title="Public surface">
+Only the commands and options on this page are supported for operators. Internal server transport flags are not a second public Serve CLI.
+</Callout>
+
+<NextStep href="/serve/status-json/" label="Automate status checks" />

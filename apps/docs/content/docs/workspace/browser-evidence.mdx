@@ -1,0 +1,53 @@
+---
+title: Browser evidence and annotations
+description: Capture screenshots and recordings, mark visual problems, and attach precise page feedback to a task.
+section: workspace
+order: 66
+platforms: [desktop]
+providers: [claude, codex, grok, gemini]
+prerequisites: [/workspace/browser]
+related: [/workspace/browser-debugging, /composer/context-attachments, /workspace/browser-troubleshooting]
+next: /workspace/browser-sessions-privacy
+lastVerified: latest
+---
+
+
+Use browser evidence when a visual result matters: a responsive regression, an animation problem, a multi-step flow, or a UI detail that is hard to describe in prose.
+
+## Screenshots
+
+Ask the agent to capture the visible viewport after the page has settled. For a long page, ask for a full-page capture; when the browser cannot capture beyond the visible viewport, it falls back to the visible area instead of failing the whole task.
+
+A brief shutter effect tells you when the agent captures the page. The screenshot appears with the agent's browser result, where you can inspect it before using it as acceptance evidence.
+
+For reproducible evidence, include the URL, selected viewport, expected state, and the interaction that produced it:
+
+> At the phone viewport, open the account menu, capture the visible page, and explain any overlap.
+
+Wait for fonts, images, and loading states before capturing. A screenshot taken during navigation can be empty or show an intermediate frame.
+
+## Record a browser flow
+
+Ask the agent to start recording, perform the flow, and stop recording when the result is visible. The recording includes the visible browser surface and can include the agent cursor and non-destructive marks, which makes timing and interaction order easier to review.
+
+Keep the Browser panel available while recording. A recording stops when the browser surface disappears, capture is interrupted, or its safety limit is reached. Saved recordings remain local application artifacts; the chat receives compact information about the saved capture rather than the raw video.
+
+Use a recording for behavior over time. Use a screenshot for a single stable state. For failures that do not need motion, a screenshot plus console and network evidence is usually easier to review.
+
+## Annotate a page yourself
+
+1. Open the page and choose **Annotate page** in the browser toolbar.
+2. Use **Select** for an element, **Region** for an area, or **Draw** for a freehand mark.
+3. Use **Erase** to remove a selected target from the draft.
+4. Add a specific comment describing the desired outcome.
+5. Attach the annotation to the active task.
+
+Attaching creates a screenshot with the visible marks and preserves the page URL, title, viewport, and selected visual targets. The annotation appears with the task's composer context, where it can be reviewed before sending. A comment and at least one visual target are required.
+
+Prefer outcome-focused comments such as “Keep this button visible above the keyboard” over vague notes such as “fix this.” If the wrong local server is open, cancel the draft and navigate to the correct port before attaching it.
+
+## Agent marks
+
+An agent can add temporary rectangles, highlights, arrows, labels, and freehand marks while explaining a page. These marks do not modify the website. They can be undone, redone, removed, or cleared, and they appear in screenshots or recordings while active.
+
+Treat all captured pages as potentially sensitive. Review [Browser sessions and privacy](/workspace/browser-sessions-privacy) before capturing authenticated pages, and remove private evidence from a prompt when it is not needed.

@@ -3,9 +3,6 @@
 	"version": "0.1.1",
 	"private": false,
 	"type": "module",
-	"bin": {
-		"zuse": "dist/bin.mjs"
-	},
 	"engines": {
 		"node": ">=22.5.0"
 	},

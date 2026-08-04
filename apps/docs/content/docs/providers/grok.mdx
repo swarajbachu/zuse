@@ -1,0 +1,48 @@
+---
+title: Grok CLI
+description: Install Grok, complete device authentication, and use ACP sessions and goals in Zuse.
+section: providers
+order: 34
+platforms: [desktop, browser, mobile]
+providers: [grok]
+prerequisites: [/start/install, /providers/setup]
+related: [/composer/modes-permissions, /composer/subagents, /reference/diagnostics]
+next: /providers/gemini
+lastVerified: latest
+---
+
+Grok runs through its local CLI and ACP transport. Zuse translates the provider's session updates into the same durable messages, tools, edits, questions, permissions, and subagent activity used by the rest of the app.
+
+## Install and sign in
+
+```bash
+curl -fsSL https://x.ai/cli/install.sh | bash
+grok login
+```
+
+Zuse requires Grok CLI `0.2.101` or newer. The provider card can launch Grok's device-auth flow; the CLI opens its supported browser authorization and Zuse waits for completion.
+
+Agent access requires an eligible Grok subscription. Zuse reads the local login state and performs a best-effort entitlement check, while the CLI remains authoritative if the account format or plan changes.
+
+## Workflows in Zuse
+
+- Start and resume ACP-backed sessions in the active checkout.
+- Render streaming responses, thinking, filesystem and shell tools, diffs, approvals, and errors.
+- Apply Zuse's runtime permission policy to ACP file, shell, network, and delegated actions.
+- Use Plan mode and switch back to normal execution without changing the runtime permission preset.
+- Send and manage goals through the composer.
+- Display Grok collaboration and child-agent activity in the parent timeline.
+- Use Zuse's browser and orchestration tools when the session exposes the applicable MCP transport.
+
+## Requirements and recovery
+
+Grok sessions require both the `grok` CLI and Bun on the desktop service path. Bun hosts the MCP compatibility transport used by the integration.
+
+If startup fails:
+
+1. Run `grok --version` and confirm it meets the required minimum.
+2. Run `grok login` again if the account or plan changed.
+3. Confirm `bun --version` succeeds from the same user environment.
+4. Refresh **Settings → Providers** and create a new session.
+
+Zuse attempts to resume a stored Grok session. If that provider cursor is no longer available, the driver adopts a replacement session while retaining the existing Zuse timeline. Provider-specific slash commands beyond Zuse's goal control are not added to the shared command catalog.

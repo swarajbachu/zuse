@@ -2,7 +2,7 @@
 	"name": "zusehq",
 	"version": "0.1.1",
 	"description": "Run and manage Zuse remote workspaces",
-	"license": "MIT",
+	"license": "AGPL-3.0-only",
 	"type": "module",
 	"bin": {
 		"zusehq": "dist/bin.mjs"

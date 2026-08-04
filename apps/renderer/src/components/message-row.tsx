@@ -686,9 +686,12 @@ function AssistantBubble({
 	showMessageCommands: boolean;
 }) {
 	return (
-		<div className="group/assistant px-4 py-2">
+		<div
+			data-chat-assistant-bubble
+			className="group/assistant px-[var(--chat-assistant-gutter,1rem)] py-2"
+		>
 			<div className="max-w-full">
-				<MarkdownBody>{text}</MarkdownBody>
+				<MarkdownBody className="chat-assistant-markdown">{text}</MarkdownBody>
 				<AssistantMessageActions
 					text={text}
 					createdAt={createdAt}

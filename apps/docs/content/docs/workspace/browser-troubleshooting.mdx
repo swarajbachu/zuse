@@ -1,0 +1,79 @@
+---
+title: Troubleshoot the in-app browser
+description: Recover missing local servers, failed page loads, stale agent targets, unavailable diagnostics, recordings, and sign-in sessions.
+section: workspace
+order: 68
+platforms: [desktop]
+providers: [claude, codex, grok, gemini]
+prerequisites: [/workspace/browser]
+related: [/workspace/browser-debugging, /workspace/browser-evidence, /workspace/browser-sessions-privacy, /reference/diagnostics]
+next: /workspace/changes-pull-requests
+lastVerified: latest
+---
+
+
+Start by confirming that you are in the desktop app, on the intended task, with that task's **Browser** panel open. The in-app browser is not available in the browser client or mobile app.
+
+## A local server is missing or will not load
+
+1. Open the task's terminal and confirm that the development server is still running.
+2. Read the port from the server output. Do not assume the framework's usual port was available.
+3. Enter `localhost:<port>` directly in the browser address field.
+4. Reload after the server reports that it is ready.
+
+The local-server list is a convenience, not a health guarantee. A listed process may not be an HTTP app, and an unlisted server can still be opened by URL. If the page uses HTTPS locally, include the full scheme instead of relying on the localhost default.
+
+## The page is blank, loading forever, or shows an old state
+
+- Stop the current load, then reload once the server is ready.
+- Confirm the full URL, path, scheme, and port.
+- Ask the agent to wait for visible page content rather than using a fixed delay.
+- Check console load failures and failed network requests.
+- If the page renderer crashed, close and reopen the Browser panel or restart the desktop app.
+
+A full-page screenshot may fall back to the visible viewport. An empty screenshot usually means the page had not produced a frame yet; wait for the page and capture again.
+
+## The agent cannot find or operate an element
+
+Navigation and large rerenders invalidate earlier page targets. Ask the agent to inspect the current page again, then retry using the control's visible label or role. Confirm that the control is visible and enabled, and dismiss any dialog covering the page.
+
+If the agent says the browser belongs to another or unavailable task, switch to the intended task and reopen its Browser panel. Closing the panel removes the controller for that task.
+
+## Console or network evidence is unavailable
+
+Reload the page and reproduce the issue so the current-page buffers contain the failing action. Close any developer tools attached to the embedded page, then reload; only one debugger can control that page at a time. If network inspection remains unavailable, restart the Browser panel or desktop app and use console output plus visible behavior as fallback evidence.
+
+Some response bodies are not retained. Inspect the request status, headers, and page error instead of repeatedly rerunning a destructive action just to obtain a body.
+
+## Recording stops or will not start
+
+- Keep the Browser panel visible until the first frame is captured.
+- Wait for the page to finish loading before starting.
+- Do not close the panel or hide a custom viewport while recording.
+- If capture was interrupted, stop the stale attempt and begin a shorter recording.
+
+Recordings stop automatically when the browser surface disappears or a safety limit is reached. Split a long verification into focused clips rather than recording an entire work session.
+
+## An annotation will not attach
+
+Confirm that the task has an active agent session, the page has loaded, at least one element, region, or drawing is selected, and the comment is not empty. If the page navigated while you were annotating, cancel the draft and recreate it on the current page.
+
+## Session import is unavailable or incomplete
+
+1. Open **Settings → Browser** and confirm that the intended profile appears.
+2. Close the source browser completely.
+3. Retry the import and approve the macOS Safe Storage prompt when required.
+4. Check the imported cookie and domain counts, then reload the site.
+
+An unsupported profile or cookie store cannot be imported. Sign in manually inside the built-in browser or use a supported development profile instead. Expired and invalid cookies are skipped, so an import can succeed while the site still asks you to sign in.
+
+## A saved test login will not fill
+
+- Confirm that the saved origin exactly matches the active page origin, including scheme and port.
+- Focus a visible password field, then choose **Fill saved login**.
+- Verify that the login still exists under **Settings → Browser**.
+- If the page navigated, return to the sign-in page and retry.
+
+Never work around an origin mismatch by storing the same production password for several sites. Create a dedicated test credential for the exact development or staging origin.
+
+If the Browser controls themselves are missing from a desktop build, collect the app version and diagnostics from [Diagnostics and troubleshooting](/reference/diagnostics) before reporting the issue.

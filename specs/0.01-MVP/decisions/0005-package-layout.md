@@ -86,7 +86,9 @@ Single-impl domains (Phase 1's `pty`, `git`, `workspace`) still use the same spl
 
 **Why uniform split now (overriding "flat-until-scale"):**
 
-1. The reference architecture uses this split. Code we lift from there transplants 1:1 if our paths match.
+1. The reference architecture uses this split. Matching domain boundaries keeps
+   public implementations easy to compare while Zuse's code is written and
+   maintained in this repository.
 2. Phase 2 introduces the agent domain, which already justifies the split (multiple drivers + adapters + a registry + a service).
 3. Inconsistency between domains has higher onboarding cost than uniform "small-but-split" structure.
 4. Renaming Phase 1's three single-file services into the split is a one-time mechanical refactor (PR-6).
@@ -129,6 +131,6 @@ apps/renderer/src/
 
 - Splitting `wire` into per-domain packages — forces package coordination per RPC.
 - Central `WS_METHODS`-style enum of method names — doubles the change footprint.
-- ~~Per-domain `Layers/` + `Services/` subdirs — premature partitioning.~~ **Reversed by [ADR 0007](0007-server-as-code-only-app.md):** the per-domain split is now adopted uniformly so we match the reference repo's layout and Phase 2 code transplants line up 1:1.
+- ~~Per-domain `Layers/` + `Services/` subdirs — premature partitioning.~~ **Reversed by [ADR 0007](0007-server-as-code-only-app.md):** the per-domain split is now adopted uniformly so the architecture stays easy to compare with established public implementations while Zuse's code remains independently maintained.
 - Inconsistent service suffixes (`*Engine`, `*FileSystem`, bare verbs) — readers shouldn't have to learn a per-domain vocabulary.
 - A `packages/shared/` junk drawer — when we have a real cross-cutting utility, we'll create a focused package for it.

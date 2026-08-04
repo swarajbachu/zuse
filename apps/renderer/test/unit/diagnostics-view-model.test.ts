@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import {
 	DEFAULT_DIAGNOSTICS_PREFERENCES,
+	diagnosticsCaptureErrorMessage,
+	diagnosticsCapturePayload,
 	diagnosticsSeveritySelection,
 	diagnosticsSince,
+	formatCaptureCountdown,
 	groupDiagnosticEvents,
 	parseDiagnosticsPreferences,
 	relatedDiagnosticEvents,
@@ -97,6 +100,37 @@ describe("diagnostics view model", () => {
 		);
 		expect(first).toBe("2026-07-29T11:00:00.000Z");
 		expect(second).toBe(first);
+	});
+
+	it("builds capture start and stop payloads and a stable expiry display", () => {
+		expect(diagnosticsCapturePayload("incident", 5)).toEqual({
+			mode: "full",
+			durationMinutes: 5,
+		});
+		expect(diagnosticsCapturePayload("full", 30)).toEqual({
+			mode: "incident",
+		});
+		expect(
+			formatCaptureCountdown(
+				"2026-08-03T12:05:00.000Z",
+				Date.parse("2026-08-03T12:00:01.000Z"),
+			),
+		).toBe("4:59");
+		expect(
+			formatCaptureCountdown(
+				"2026-08-03T12:00:00.000Z",
+				Date.parse("2026-08-03T12:00:01.000Z"),
+			),
+		).toBe("0:00");
+	});
+
+	it("keeps capture request errors actionable without exposing unknown values", () => {
+		expect(
+			diagnosticsCaptureErrorMessage(new Error("Capture unavailable")),
+		).toBe("Capture unavailable");
+		expect(diagnosticsCaptureErrorMessage({ secret: "hidden" })).toBe(
+			"Diagnostic capture could not be changed.",
+		);
 	});
 
 	it("groups repeated failures and preserves the newest representative", () => {

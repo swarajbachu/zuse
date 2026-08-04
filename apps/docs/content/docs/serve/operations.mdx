@@ -1,0 +1,81 @@
+---
+title: "Operate Zuse Serve"
+description: "Start, inspect, stop, update, sign out, and uninstall a Serve environment without losing workspaces."
+section: "Serve CLI"
+order: 2
+platforms: [serve]
+providers: []
+prerequisites: [/serve]
+related: [/serve/command-reference, /serve/status-json, /serve/troubleshooting, /serve/security]
+next: /serve/command-reference
+lastVerified: latest
+---
+
+
+Serve separates service lifecycle, account registration, runtime installation, and workspace data. Choose the narrowest command for the outcome you want.
+
+## Check health
+
+```sh
+zuse serve status
+```
+
+The readable report shows the computer name, service state, tunnel configuration, detected agents, reachability, and hosted app URL. For scripts and diagnostics, use the [versioned JSON form](/serve/status-json/).
+
+## Start or reinstall
+
+```sh
+zuse serve start
+```
+
+`start` is also the default action. It creates the private data directory, obtains account authorization when needed, installs the current runtime into the managed runtime directory, and installs or refreshes the user service. It waits for local reachability before reporting success.
+
+For a temporary foreground process:
+
+```sh
+zuse serve start --foreground
+```
+
+Foreground mode runs in the current terminal. Closing that terminal stops the environment.
+
+## Stop
+
+```sh
+zuse serve stop
+```
+
+This stops and disables the background service. It does not revoke the account link or delete the runtime, database, logs, or workspaces.
+
+## Update
+
+Serve requires an explicit safe-work confirmation:
+
+```sh
+zuse serve update --force
+```
+
+Before running it, stop or finish active agents and terminals. Serve resolves the latest package, installs it into a versioned runtime directory, updates the service, and performs a reachability check. If the new runtime cannot become ready and a previous runtime exists, Serve restores the previous service definition and reports the rollback.
+
+There is intentionally no unattended update command in this release; `--force` acknowledges that active-work readiness checks are still your responsibility.
+
+## Sign out this computer
+
+```sh
+zuse serve logout
+```
+
+Logout revokes the environment registration, stops the service, and clears the saved Serve account session. Repositories and workspaces remain on disk. Run `zuse serve start` and authorize again to relink the computer.
+
+## Uninstall the managed runtime
+
+```sh
+zuse serve uninstall
+```
+
+Uninstall removes the user service definition and the managed `runtime` directory. It preserves workspaces and the rest of the Zuse data directory. If you also need to revoke the hosted registration, run `logout` before uninstalling.
+
+<Warning title="Update during a quiet window">
+`update --force` can restart the service. Do not run it while an agent or terminal has important active work.
+</Warning>
+
+<NextStep href="/serve/command-reference/" label="See every command and option" />

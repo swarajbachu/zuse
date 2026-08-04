@@ -1,0 +1,58 @@
+---
+title: Cursor
+description: Configure the bundled Cursor SDK with an API key and run sandboxed local-agent sessions.
+section: providers
+order: 36
+platforms: [desktop, browser, mobile]
+providers: [cursor]
+prerequisites: [/start/install, /providers/setup]
+related: [/composer/modes-permissions, /composer/context-attachments, /concepts/local-first, /reference/diagnostics]
+next: /providers/opencode
+lastVerified: latest
+---
+
+Cursor runs through the SDK bundled with Zuse. It does not require a separate Cursor CLI or use a local Cursor login. Each session runs against the active checkout with the SDK sandbox and auto-review enabled.
+
+## Add an API key
+
+Open **Settings → Providers → Cursor**, enter a Cursor API key, and save it. The key is required and is stored in the macOS Keychain rather than `settings.json`.
+
+Zuse performs a bounded readiness check against the SDK. Provider status distinguishes:
+
+- **Ready** — the key was verified and the SDK returned a usable model.
+- **Needs attention** — the key was saved but could not be verified, commonly because the service was unreachable.
+- **Error** — the provider explicitly rejected the key.
+
+An unverified key is not treated as invalid. You can recheck after connectivity recovers; the live session remains authoritative.
+
+## Workflows in Zuse
+
+- Start Cursor sessions in the main checkout or a per-chat Git worktree.
+- Stream assistant text, thinking, tool calls, edits, usage, and errors into Zuse's durable timeline.
+- Resume the local SDK agent from its stored agent identifier when the SDK still recognizes it.
+- Use Plan mode for read-only exploration and switch back to agent mode for implementation.
+- Interrupt an active run and continue in the same durable chat.
+- Attach images supported by the selected model and reference files from the active checkout.
+- Pass compatible user MCP servers from the project's native configuration into the SDK session.
+- Use the normal files, terminal, Changes, commit, and pull-request surfaces around the session.
+
+Model choices come from Zuse's Cursor model catalog and are resolved by the bundled SDK. A saved default does not guarantee that an account can use that model; provider errors remain authoritative.
+
+## Sandbox and approvals
+
+Cursor sessions use the SDK's local sandbox with auto-review enabled. This differs from CLI-backed providers: an action rejected by Cursor auto-review is blocked instead of becoming a Zuse approval prompt. Plan mode still selects the SDK's read-only planning posture.
+
+Review the resulting diff even when a run completes successfully. The sandbox and auto-review reduce risk but do not establish that an edit is correct or belongs in the final commit.
+
+## Limits and recovery
+
+Zuse does not discover Cursor-native skills into the shared skills picker. Non-image attachments are retained in the Zuse message timeline but are not forwarded as Cursor SDK image inputs. Provider account limits, model access, and network availability are controlled by Cursor.
+
+If a session fails:
+
+1. Open **Settings → Providers → Cursor** and recheck the saved key.
+2. Replace the key if Zuse reports an explicit authentication failure.
+3. Verify the network connection if the key remains unverified.
+4. Create or restart the session after changing the key or model.
+
+If the stored local agent is stale or missing, Zuse creates a replacement agent and preserves the existing Zuse timeline. Send a concise context summary when the replacement process needs earlier conversational details.

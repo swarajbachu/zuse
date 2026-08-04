@@ -1,0 +1,59 @@
+---
+title: "Pair a nearby iPhone"
+description: "Connect the mobile app directly to a nearby Mac with device discovery, identity checks, and explicit approval."
+section: "Remote access"
+order: 3
+platforms: [desktop, mobile]
+providers: []
+prerequisites: [/remote]
+related: [/mobile/connect, /remote/local-browser, /remote/security, /remote/recovery]
+next: /mobile
+lastVerified: latest
+---
+
+
+Zuse for iPhone discovers nearby Macs over Wi-Fi or Apple's peer-to-peer path. Pairing is local and does not require a Zuse account. The Mac must explicitly approve the phone before Zuse stores a revocable device credential.
+
+<Workflow>
+  <Step title="Make the Mac discoverable">
+    On the Mac, open **Settings → Devices**. If **Local access** is off, choose **Enable browser and device access** and confirm the restart.
+  </Step>
+  <Step title="Choose the Mac on iPhone">
+    In the mobile app, open **Settings → Connect to a nearby Mac**. Nearby Macs appear automatically. If exactly one is found, Zuse begins securing the connection for you.
+  </Step>
+  <Step title="Match the safety phrase">
+    The phone shows a short phrase and waits for approval. The Mac opens **Is this you trying to connect?** with the phone label, device identifier, and the same phrase. Confirm the words match exactly.
+  </Step>
+  <Step title="Allow the phone">
+    Choose **Allow** on the Mac. The phone stores the approved connection and opens the inbox.
+  </Step>
+</Workflow>
+
+Choose **Not now** to deny only this request. Choose **Block device** when you do not recognize the phone; blocked devices cannot silently repeat the same pairing attempt.
+
+## Pair with a QR code
+
+QR pairing is the fallback when discovery is unavailable:
+
+1. On the Mac, open **Settings → Devices** and choose **Show mobile QR**.
+2. On iPhone, open the scanner from the inbox or **Settings**.
+3. Allow camera access and scan the QR code.
+
+Pairing codes are one-time credentials and expire after five minutes. Generate a new code instead of sharing an expired screenshot.
+
+## When discovery finds nothing
+
+- Keep Zuse open on the Mac and make sure Wi-Fi is enabled on both devices.
+- In iPhone Settings, allow **Local Network** access for Zuse.
+- Wait for the **Scan QR instead** action, or open the scanner directly.
+- On networks that isolate clients, use peer-to-peer discovery when available or move both devices to a trusted network.
+
+<SecurityNote title="Match both screens">
+The phone checks the nearby service's encrypted transport identity before requesting access. The matching safety phrase gives you a human-verifiable check on both screens. Do not approve when the phrase or device identity differs.
+</SecurityNote>
+
+## Revoke the phone
+
+On the Mac, open **Settings → Devices**, find the mobile device, and choose **Revoke**. To remove only the phone's local copy, use the connection controls in the mobile app or reset the app. Revoking on the Mac is the authoritative way to end access.
+
+<NextStep href="/mobile/" label="Use Zuse on iPhone" />

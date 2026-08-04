@@ -1,0 +1,75 @@
+---
+title: "Connect an iPhone to a nearby Mac"
+description: "Pair Zuse for iPhone directly with a Mac, verify its identity, and confirm the connection."
+section: how-to
+order: 10
+platforms: [desktop, mobile]
+providers: []
+prerequisites: [/remote/nearby-pairing]
+related: [/mobile/connect, /remote/security, /how-to/remote-recover-connection]
+next: /mobile/chats
+lastVerified: latest
+---
+
+Connect an iPhone directly to the Mac that owns your projects. This path works on the local network and does not require a Zuse account.
+
+## Applicability
+
+Use this guide when the iPhone and Mac are nearby. For access away from the Mac's network, use [hosted remote access](/how-to/remote-hosted-access/). The Mac remains the execution environment in both cases.
+
+## Prerequisites
+
+- Zuse is open on the Mac.
+- Zuse for iPhone is installed.
+- Wi-Fi is enabled on both devices.
+- You can approve a connection request on the Mac.
+
+## Steps
+
+1. On the Mac, open **Settings → Devices**.
+
+2. If **Browser and device access** is off, choose **Enable browser and device access**, then confirm **Restart and turn on**.
+
+   Zuse restarts. Running agents stop during this restart, so finish or pause important work first.
+
+3. On iPhone, open **Settings → Connect to a nearby Mac**.
+
+4. Choose the Mac when it appears.
+
+   If Zuse finds exactly one Mac, it may start the connection automatically. The phone then shows **Approve on your Mac** and a short safety phrase.
+
+5. On the Mac, wait for **Is this you trying to connect?**.
+
+6. Compare the safety phrase and device identifier on both screens. Choose **Allow** only when they match.
+
+   Choose **Not now** to deny this attempt. Choose **Block device** when you do not recognize the phone.
+
+## Verification
+
+The phone returns to the inbox after approval. Confirm that:
+
+- the Mac's projects and chats appear;
+- the connection state changes to **Connected**; and
+- the phone appears under **Settings → Devices → Connected devices** on the Mac.
+
+Open an existing chat to verify its latest messages load. You do not need to start an agent just to test the connection.
+
+## Troubleshooting and recovery
+
+### The Mac does not appear
+
+Keep Zuse open, confirm local access is on, and allow **Local Network** access for Zuse in iPhone Settings. If discovery still fails, choose **Scan QR instead** on iPhone, then choose **Show mobile QR** on the Mac.
+
+### The request expires
+
+Start a new attempt. Pairing codes and requests are intentionally short-lived; an expired code cannot be reused.
+
+### The safety phrase or encrypted identity does not match
+
+Do not approve the request. Cancel it, move both devices to a trusted network, and start again.
+
+### The phone was previously revoked
+
+Create a new pairing request and approve it on the Mac. A revoked credential cannot reconnect by retrying alone.
+
+See [connection recovery](/how-to/remote-recover-connection/) for post-pairing disconnects and [nearby pairing security](/remote/nearby-pairing/) for the identity checks behind this flow.

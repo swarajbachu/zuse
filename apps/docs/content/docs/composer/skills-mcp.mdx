@@ -1,0 +1,43 @@
+---
+title: Skills, commands, and MCP servers
+description: Discover provider-native skills and control the external tools available to sessions.
+section: composer
+order: 54
+platforms: [desktop, browser, mobile]
+providers: [claude, codex]
+prerequisites: [/composer]
+related: [/reference/bundled-skill, /composer/modes-permissions, /projects/repository-settings]
+next: /workspace
+lastVerified: latest
+---
+
+
+Zuse keeps provider-native extensions visible without inventing a second configuration format.
+
+## Skills
+
+For Claude Code and Codex, the composer discovers global and project skills from the provider's native skill directories. Type `/` to search built-in commands and discovered skills. The list refreshes when relevant skill files change.
+
+A selected skill is passed to the active provider with its name and arguments. Read a third-party skill before running it: skill instructions can ask the agent to use tools, access services, or modify files, and the session's permission posture still governs those actions.
+
+Zuse also installs its own [bundled skill](/reference/bundled-skill) for configuration and troubleshooting help.
+
+## Built-in commands
+
+Commands such as `/new`, `/model`, `/mode`, `/plan`, `/run`, and `/help` are handled by Zuse. The same picker can surface provider commands. Those commands are sent to the provider as written, so their exact behavior follows the installed provider version.
+
+Only commands applicable to the active provider appear. Goal mode is exposed for supported Codex and Grok versions.
+
+## MCP servers and connected apps
+
+Open **Settings → MCP Servers** to see a reconciled inventory of:
+
+- Zuse's built-in tool server;
+- Claude user, project, local, plugin, and connected-app servers;
+- Codex-configured servers and provider-reported apps.
+
+Zuse reads the providers' native configuration as the source of truth. It does not keep a duplicate MCP registry. Add definitions with the provider's own tooling or configuration files, then refresh the inventory in Zuse.
+
+The settings pane shows connection state, tool count, missing requirements, and authentication needs. Supported entries can be connected, enabled, or disabled from Zuse. Global disabled-server overrides live in user settings; repository overrides live in `.zuse/settings.toml` as `mcp_disabled_servers`.
+
+Disabling a server changes new session availability. Restart or recreate an existing provider session when its process has already loaded an older tool configuration.

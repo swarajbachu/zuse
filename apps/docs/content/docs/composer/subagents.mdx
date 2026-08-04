@@ -1,0 +1,50 @@
+---
+title: Subagents and delegated tasks
+description: Split bounded work across agents without losing ownership, visibility, or review.
+section: composer
+order: 53
+platforms: [desktop, browser, mobile]
+providers: [claude, codex, grok, gemini]
+prerequisites: [/composer/modes-permissions]
+related: [/composer/orchestration, /composer/parallel-agents, /composer/monitor-delegated-work]
+next: /composer/orchestration
+lastVerified: latest
+---
+
+
+Zuse supports two related ways to divide work. They solve different problems and have different isolation boundaries.
+
+## In-conversation subagents
+
+A provider can delegate a bounded investigation or implementation step inside the current conversation. Zuse groups that activity into an agent row and, when the provider supplies it, shows the delegated prompt, progress, summary, model, duration, and turn count. Detached work also appears in the **Subagents** panel as **Active** or **Done**.
+
+These subagents use the parent session's environment. They are useful for focused research, test analysis, or a second opinion, but they are not a substitute for a separate worktree when several agents will edit concurrently.
+
+Provider support determines which controls and progress details are available. Global presets can enable supported subagents for new sessions and give them narrower instructions or tool access.
+
+## Delegated tasks and session tabs
+
+An agent can also coordinate visible Zuse tasks:
+
+- A **separate delegated task** appears as another sidebar chat and receives its own worktree and branch. Use this for independent implementation, a branch-sized experiment, or work that may become its own pull request.
+- An **additional session tab** stays inside an existing chat and shares that chat's checkout. Use this for review, continuation with another provider or model, or a second perspective on the same diff.
+
+When Zuse creates either one, the parent timeline shows a card with **Open chat**. The target keeps its own conversation history, status, and provider identity, while its connection to the parent makes follow-up and review easier.
+
+## Give bounded assignments
+
+A useful delegation prompt names an outcome, a boundary, and the evidence expected back. For example:
+
+> Inspect the session recovery path. Do not edit files. Return the likely failure points, the tests that cover them, and any unanswered question.
+
+For editing work, add exclusive ownership:
+
+> Own the settings form and its tests only. Do not edit the shared navigation components. Run the focused checks and report every changed file.
+
+Do not assign overlapping write scopes unless one agent is explicitly responsible for integration. See [Run agents in parallel](/composer/parallel-agents/) for isolation and shared-checkout guidance.
+
+## Review before accepting
+
+A completed delegated task is evidence, not automatic acceptance. Open its chat or subagent transcript, inspect the files and commands it reports, then ask the coordinating agent to reconcile conflicts and run the cross-cutting checks. Review the combined diff in **Changes** before committing or opening a pull request.
+
+Delegation cannot bypass Plan mode, runtime permissions, or sensitive-path protection. Read [Agent orchestration](/composer/orchestration/) before allowing an agent to create or steer more work.

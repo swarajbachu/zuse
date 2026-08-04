@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import {
 	deriveChatTimelineRows,
+	deriveChatTurnNavigationEntries,
+	deriveChatTurnRailEntries,
 	normalizeTimelineMessages,
 	resolveLatestUserMessageId,
 	rowAnchorMessageId,
@@ -45,6 +47,62 @@ describe("chat timeline rows", () => {
 
 		expect(resolveLatestUserMessageId(rows)).toBe("u2");
 		expect(rows.map((row) => rowAnchorMessageId(row))).toContain("u2");
+	});
+
+	it("derives one navigable entry for each user turn", () => {
+		const rows = deriveChatTimelineRows({
+			messages: [
+				message("u1", { _tag: "user", text: "first prompt" }),
+				message("a1", { _tag: "assistant", text: "reply" }),
+				message("u2", {
+					_tag: "user_rich",
+					text: "second prompt",
+					attachments: [],
+					fileRefs: [],
+					skillRefs: [],
+					annotations: [],
+				}),
+			],
+			inFlight: false,
+			awaitingPlanApproval: false,
+		});
+
+		expect(deriveChatTurnNavigationEntries(rows)).toEqual([
+			{ messageId: "u1", rowIndex: 0, turnNumber: 1, text: "first prompt" },
+			{ messageId: "u2", rowIndex: 2, turnNumber: 2, text: "second prompt" },
+		]);
+	});
+
+	it("samples the whole conversation proportionally for the compact rail", () => {
+		const turns = Array.from({ length: 100 }, (_, index) => ({
+			messageId: `u${index + 1}`,
+			rowIndex: index * 2,
+			turnNumber: index + 1,
+			text: `turn ${index + 1}`,
+		}));
+		const rail = deriveChatTurnRailEntries(turns, 10);
+
+		expect(rail).toHaveLength(10);
+		expect(rail[0]?.turnNumber).toBe(1);
+		expect(rail.at(-1)?.turnNumber).toBe(100);
+		expect(rail.map((turn) => turn.turnNumber)).toEqual([
+			1, 12, 23, 34, 45, 56, 67, 78, 89, 100,
+		]);
+	});
+
+	it("keeps the active turn visible in a sampled compact rail", () => {
+		const turns = Array.from({ length: 100 }, (_, index) => ({
+			messageId: `u${index + 1}`,
+			rowIndex: index * 2,
+			turnNumber: index + 1,
+			text: `turn ${index + 1}`,
+		}));
+		const rail = deriveChatTurnRailEntries(turns, 10, "u51");
+
+		expect(rail).toHaveLength(10);
+		expect(rail.map((turn) => turn.messageId)).toContain("u51");
+		expect(rail[0]?.messageId).toBe("u1");
+		expect(rail.at(-1)?.messageId).toBe("u100");
 	});
 
 	it("resolves the first optimistic user message as the new-chat anchor", () => {
@@ -229,5 +287,40 @@ describe("chat timeline rows", () => {
 				? summary.body.filter((m) => m.content._tag === "tool_use")
 				: [],
 		).toHaveLength(1);
+	});
+
+	it("keeps large tool-heavy turns in a stable summary row", () => {
+		const toolMessages = Array.from({ length: 5 }, (_, index) => {
+			const itemId = `large-call-${index}` as never;
+			return [
+				message(`tool-${index}`, {
+					_tag: "tool_use",
+					itemId,
+					tool: "Read",
+					input: { file_path: `/repo/large-${index}.txt` },
+				}),
+				message(`result-${index}`, {
+					_tag: "tool_result",
+					itemId,
+					output: "x".repeat(40_000),
+					isError: false,
+				}),
+			];
+		}).flat();
+		const rows = deriveChatTimelineRows({
+			messages: [
+				message("u-large", { _tag: "user", text: "inspect the repository" }),
+				...toolMessages,
+				message("a-large", {
+					_tag: "assistant",
+					text: "A tall final answer\n\n".repeat(300),
+				}),
+			],
+			inFlight: false,
+			awaitingPlanApproval: false,
+		});
+
+		expect(rows.map((row) => row.kind)).toEqual(["message", "turn-summary"]);
+		expect(rows.at(-1)?.id).toBe("summary:u-large");
 	});
 });

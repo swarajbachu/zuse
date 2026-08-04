@@ -9,7 +9,7 @@ import { WorktreeServiceLive } from "@zuse/git/worktree-service-live";
 import { Effect, Layer } from "effect";
 import { RpcServer } from "effect/unstable/rpc";
 import { AnalyticsServiceLive } from "./analytics/layers/analytics-service.ts";
-import { AppPaths } from "./app-paths.ts";
+import { AppPaths, type TelemetryIdentity } from "./app-paths.ts";
 import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
 import { AuthServiceLive } from "./auth/layers/auth-service.ts";
 import { SessionStoreLive } from "./auth/layers/session-store.ts";
@@ -90,6 +90,7 @@ import {
  */
 export interface MainLayerDeps {
 	readonly userData: string;
+	readonly telemetryIdentity?: TelemetryIdentity;
 	readonly folderPicker: typeof FolderPicker.Service;
 	readonly serverProtocol: Layer.Layer<
 		RpcServer.Protocol,
@@ -124,7 +125,10 @@ export interface MainLayerDeps {
  * wiring inside this module.
  */
 export const makeMainLayer = (deps: MainLayerDeps) => {
-	const AppPathsLayer = Layer.succeed(AppPaths, { userData: deps.userData });
+	const AppPathsLayer = Layer.succeed(AppPaths, {
+		userData: deps.userData,
+		telemetryIdentity: deps.telemetryIdentity,
+	});
 	const TelemetryStoreLayer = TelemetryStoreLive.pipe(
 		Layer.provide(AppPathsLayer),
 	);

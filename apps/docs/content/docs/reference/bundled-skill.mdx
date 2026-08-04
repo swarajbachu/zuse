@@ -1,0 +1,26 @@
+---
+title: Bundled Zuse skill
+description: Use the first-party skill for project setup and Zuse configuration help.
+section: reference
+order: 95
+platforms: [desktop]
+providers: [claude, codex]
+prerequisites: [/start/install]
+related: [/projects/repository-settings, /projects/scripts, /reference/schemas]
+next: /start
+lastVerified: latest
+---
+
+
+Zuse ships a first-party skill that teaches supported agents how to help with project setup, repository settings, worktrees, scripts, schemas, and troubleshooting.
+
+For providers with native skill discovery currently wired in Zuse, it is installed at:
+
+```text
+~/.claude/skills/zuse/SKILL.md
+~/.codex/skills/zuse/SKILL.md
+```
+
+The skill is guidance for the agent, not an additional executable or background service. Its instructions point back to Zuse's public configuration contracts so generated settings remain valid.
+
+Other providers do not receive injected fallback skill text. Their normal project instruction and provider-native extension mechanisms continue to work independently.

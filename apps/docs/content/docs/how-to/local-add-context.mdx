@@ -1,0 +1,55 @@
+---
+title: Add files and context to a task
+description: Point an agent at the right repository files, attachments, issue, or large pasted text.
+section: how-to
+order: 2
+platforms: [desktop]
+providers: []
+prerequisites: [/start/first-chat, /composer/context-attachments]
+related: [/projects/file-includes, /how-to/local-parallel-worktrees, /workspace/files-editor]
+next: /how-to/local-review-changes
+lastVerified: latest
+---
+
+## Goal
+
+Give a local task enough precise context to begin useful work without pasting an entire repository into the conversation.
+
+## Applicability
+
+Use this workflow in the **desktop app**. File references are scoped to the active project or worktree. A provider's ability to interpret a particular attachment type can vary, so prefer repository files or plain text for critical instructions.
+
+## Prerequisites
+
+- Select the chat and worktree where the task should run.
+- Confirm that the files you want are inside that checkout or are available on your computer.
+- Keep secrets out of prompts and attachments unless the selected provider is permitted to receive them.
+
+## Steps
+
+1. Check the chat's workspace indicator before adding context. A file from **Main checkout** can differ from the same path in a worktree.
+2. Type `@` in the composer and search for a repository file or folder. Select the result to add a file chip.
+3. Add external files by using the attachment control, dragging them into the composer, or pasting them. Images receive a preview; other formats appear as file chips.
+4. Paste long logs, specifications, or notes normally. Text longer than 10 lines or 2,000 characters is stored in the workspace under `.context/files/` and added as a file chip, keeping the composer readable.
+5. If the task starts from tracked work, use **Create from…** before the first message and choose an issue. Zuse attaches the issue context to the new chat.
+6. In the message, explain why each item matters and name the expected outcome. For example: “Use `@src/auth/session.ts` as the implementation source, compare the attached failure log, then add a regression test.”
+7. Send the message only after pending attachment chips have finished uploading.
+
+You can attach up to 20 files in one turn. Split larger evidence sets across focused messages or place the material in a repository folder and reference only its entry points.
+
+## Verify the context
+
+1. Before sending, confirm every intended file appears as a chip and no upload error was shown.
+2. After sending, inspect the user message in the timeline and confirm the file references are present.
+3. Ask the agent to identify the files it will use when ambiguity would be expensive.
+4. Check the file tree or terminal to ensure referenced repository paths belong to the active worktree.
+
+## Troubleshooting and recovery
+
+- **The `@` search cannot find a path:** confirm the active project and worktree. Search is intentionally scoped to that checkout. Also check [file include rules](/projects/file-includes/) when a project limits indexed files.
+- **An attachment disappears with Image upload failed:** attach it again. The failed chip is removed so an unresolved attachment is not sent accidentally.
+- **A large paste does not become a chip:** Zuse falls back to inline text when saving the context file fails in an active session. Review the composer before sending so no information is lost or duplicated.
+- **The wrong version of a file was attached:** remove it, switch to the intended worktree, and add it again. File chips should not be treated as branch-independent.
+- **The provider cannot use a binary format:** export the relevant content as text, Markdown, or an image and attach that instead.
+
+Next, [review the files changed by the task](/how-to/local-review-changes/). For the complete attachment model, see [Context and attachments](/composer/context-attachments/).

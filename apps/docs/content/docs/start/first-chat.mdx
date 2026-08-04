@@ -1,0 +1,63 @@
+---
+title: Create your first chat
+description: Open a repository, choose an isolated environment, and take an agent task through review.
+section: start
+order: 3
+platforms: [desktop]
+providers: [claude, codex, grok, gemini, cursor, opencode]
+prerequisites: [/start/install]
+related: [/concepts/project-chat-session, /projects/worktrees, /composer/modes-permissions, /workspace/changes-pull-requests]
+next: /workspace/changes-pull-requests
+lastVerified: latest
+---
+
+
+A good first task is small enough to review but meaningful enough to touch the real project: fix a focused bug, add one test, or explain and improve one workflow.
+
+## 1. Open the project
+
+Choose **Open project…** and select the repository. Zuse adds it to the projects panel and reads its current Git state. Opening a project does not copy or move the repository.
+
+## 2. Start the chat
+
+Choose **New chat**. Before sending, select:
+
+- **Provider and model** — the coding agent that will handle the first session.
+- **Environment** — the main checkout or a new isolated Git worktree.
+- **Permission mode** — how often Zuse pauses for approval.
+
+For an implementation task, use a new worktree. It keeps the task on its own branch and leaves your main checkout available for other work. For a read-only explanation, the main checkout is usually enough.
+
+## 3. Give the agent a verifiable outcome
+
+Include the problem, the expected result, and how you want it checked.
+
+```text
+The empty state in the activity panel does not update after the first item is added.
+Find the cause, fix it without changing the surrounding layout, and run the focused tests.
+Tell me which behavior you verified and call out any checks you could not run.
+```
+
+Use `@` to attach a relevant file. You can also add images or PDFs when the task depends on visual or document context.
+
+## 4. Follow the work without micromanaging it
+
+The timeline separates reasoning, tool calls, edits, questions, and errors. You can:
+
+- answer a question inline;
+- approve or deny a requested action;
+- queue a follow-up while the current turn is running;
+- stop a turn that is heading in the wrong direction;
+- open a changed file or terminal without leaving the chat.
+
+Switch to **Plan** before sending when you want exploration and a proposed implementation before any edits.
+
+## 5. Review the result
+
+Open **Changes** and read the diff. Select only the files that belong in the commit, run the relevant checks in **Terminal**, and send corrections in the same chat if needed.
+
+When the branch is ready, use the workflow actions to commit and push, create a pull request, follow checks, resolve failures, mark a draft ready, or merge. The available action changes with the actual Git and pull-request state.
+
+## What persists
+
+The project, chat, session timeline, tool results, and worktree association remain available after an app restart. A provider process may have to resume or restart, but Zuse keeps the durable local history as the record of what happened.

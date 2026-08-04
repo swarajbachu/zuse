@@ -1,0 +1,39 @@
+{
+	"name": "docs",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "next dev --port 3002",
+		"build": "next build --webpack",
+		"preview": "next start --port 3002",
+		"content:generate": "fumadocs-mdx",
+		"check-types": "bun run content:generate && tsc --noEmit",
+		"check-links": "node scripts/check-links.mjs",
+		"test": "bun run check-links",
+		"test:e2e": "playwright test"
+	},
+	"dependencies": {
+		"@fontsource-variable/geist-mono": "^5.3.0",
+		"@fontsource-variable/inter": "^5.3.0",
+		"fumadocs-core": "^16.10.4",
+		"fumadocs-mdx": "^15.0.12",
+		"fumadocs-ui": "^16.10.4",
+		"lucide-react": "^1.20.0",
+		"next": "16.0.10",
+		"react": "19.2.3",
+		"react-dom": "19.2.3",
+		"zod": "^4.4.3"
+	},
+	"devDependencies": {
+		"@axe-core/playwright": "^4.12.1",
+		"@playwright/test": "^1.62.1",
+		"@tailwindcss/postcss": "^4.1.18",
+		"@types/mdx": "^2.0.13",
+		"@types/node": "^24.0.0",
+		"@types/react": "^19.0.0",
+		"@types/react-dom": "^19.0.0",
+		"tailwindcss": "^4.1.18",
+		"typescript": "^5.9.0"
+	}
+}
