@@ -318,7 +318,7 @@ export const Composer = ({
 			// row. LegendList's anchored-end contract uses the pre-append index.
 			onMessageWillAppend?.();
 			didPrepareAppend = true;
-				optimisticMessageId = messageId;
+			optimisticMessageId = messageId;
 			const optimisticContent: MessageContent =
 				uploaded.length > 0 || fileRefs.length > 0 || skillRefs.length > 0
 					? {
@@ -331,20 +331,20 @@ export const Composer = ({
 							goal: goalMode,
 						}
 					: {
-					_tag: "user",
-					text: value,
-					goal: goalMode,
-				};
-				addOptimisticMessage(
-					stateKey,
-					Message.make({
-						id: messageId,
-						sessionId,
-						role: "user",
-						content: optimisticContent,
-						createdAt: new Date(),
-					}),
-				);
+							_tag: "user",
+							text: value,
+							goal: goalMode,
+						};
+			addOptimisticMessage(
+				stateKey,
+				Message.make({
+					id: messageId,
+					sessionId,
+					role: "user",
+					content: optimisticContent,
+					createdAt: new Date(),
+				}),
+			);
 			await Effect.runPromise(
 				sendMessage({
 					connection,
@@ -637,6 +637,7 @@ export const Composer = ({
 										<ComposerActionSlot>
 											<ComposerApprovalMenu
 												runtimeMode={modelValue.runtimeMode}
+												providerId={modelValue.providerId}
 												onChange={setRuntimeMode}
 											/>
 										</ComposerActionSlot>

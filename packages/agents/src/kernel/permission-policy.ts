@@ -1,8 +1,4 @@
-export type RuntimeMode =
-	| "approval-required"
-	| "auto-accept-edits"
-	| "auto-accept-edits-and-bash"
-	| "full-access";
+import type { RuntimeMode } from "@zuse/contracts";
 
 export type PermissionMode = "default" | "plan" | "acceptEdits";
 
@@ -69,6 +65,8 @@ export const decidePermission = (input: PermissionInput): PermissionVerdict => {
 			return input.category === "edit" || input.category === "execute"
 				? "allow"
 				: promptOrDeny(input.canPrompt);
+		case "auto":
+			return promptOrDeny(input.canPrompt);
 		case "full-access":
 			return "allow";
 	}

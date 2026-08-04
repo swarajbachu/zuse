@@ -127,6 +127,7 @@ const runtimeModeToSdkPermissionMode = (
 		case "auto-accept-edits":
 		case "auto-accept-edits-and-bash":
 			return "acceptEdits" as SdkPermissionMode;
+		case "auto":
 		case "approval-required":
 			return toSdkPermissionMode(permissionMode);
 	}

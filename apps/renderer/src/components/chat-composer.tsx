@@ -8,6 +8,7 @@ import {
 	ComposerInput,
 	type EnvironmentId,
 	findModelDescriptor,
+	isRuntimeMode,
 	type Message,
 	type PermissionMode,
 	type PermissionRequest,
@@ -190,6 +191,7 @@ const attachmentsWithBrowserAnnotations = (
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { PermissionCard } from "./permission-card.tsx";
+import { PermissionPresetMenu } from "./permission-preset-menu.tsx";
 import { QuestionCard } from "./question-card.tsx";
 
 const MIN_HEIGHT = 56;
@@ -777,11 +779,16 @@ export function ChatComposer({
 					});
 					break;
 				}
-				if (
-					parsed.args === "approval-required" ||
-					parsed.args === "auto-accept-edits" ||
-					parsed.args === "full-access"
-				) {
+				if (parsed.args === "auto" && session.providerId !== "codex") {
+					toastManager.add({
+						type: "info",
+						title: "Approve for me requires Codex",
+						description:
+							"This provider does not expose a compatible safety reviewer.",
+					});
+					break;
+				}
+				if (isRuntimeMode(parsed.args)) {
 					void setRuntimeMode(sessionId, parsed.args);
 				}
 				break;
@@ -1476,6 +1483,12 @@ export function ChatComposer({
 										current={session.permissionMode}
 									/>
 								)}
+								{session.providerId === "codex" ? (
+									<PermissionPresetMenu
+										sessionId={sessionId}
+										current={session.runtimeMode}
+									/>
+								) : null}
 								<McpPopover
 									projectId={session.projectId}
 									providerId={session.providerId}

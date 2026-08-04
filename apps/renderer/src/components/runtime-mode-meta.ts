@@ -1,12 +1,14 @@
 import type { IconSvgElement } from "@hugeicons/react";
+import { type RuntimeMode, runtimeModesForProvider } from "@zuse/contracts";
 import {
+	ArtificialIntelligence08Icon,
 	LockIcon,
 	PencilEdit01Icon,
 	SquareUnlock01Icon,
 	TerminalIcon,
 } from "@zuse/icons/solid-rounded";
 
-import type { RuntimeMode } from "@zuse/contracts";
+export { runtimeModesForProvider } from "@zuse/contracts";
 
 /**
  * Shared label/description/icon for each runtime mode. Used by the composer's
@@ -42,6 +44,12 @@ export const MODE_META: Record<RuntimeMode, ModeMeta> = {
 			"Auto-allows edits and Bash commands. Still asks for WebFetch/WebSearch and other tools.",
 		Icon: TerminalIcon,
 	},
+	auto: {
+		label: "Approve for me",
+		description:
+			"Codex reviews native actions and only asks about potentially unsafe ones. Zuse-owned tools still ask before acting.",
+		Icon: ArtificialIntelligence08Icon,
+	},
 	"full-access": {
 		label: "Full access",
 		description:
@@ -50,9 +58,4 @@ export const MODE_META: Record<RuntimeMode, ModeMeta> = {
 	},
 };
 
-export const MODES_ORDER: ReadonlyArray<RuntimeMode> = [
-	"approval-required",
-	"auto-accept-edits",
-	"auto-accept-edits-and-bash",
-	"full-access",
-];
+export const MODES_ORDER = runtimeModesForProvider("claude");

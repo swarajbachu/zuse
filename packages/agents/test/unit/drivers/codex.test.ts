@@ -4,6 +4,7 @@ import {
 	buildCodexTurnMode,
 	CodexTextCheckpointAccumulator,
 	codexApprovalPolicy,
+	codexApprovalsReviewer,
 	codexDetachedAgentFromRawSpawn,
 	codexDetachedAgentFromSubAgentActivity,
 	codexDetachedAgentToolUse,
@@ -800,5 +801,16 @@ describe("Codex plan mode", () => {
 			type: "readOnly",
 			networkAccess: false,
 		});
+	});
+
+	it("routes auto approvals through the Codex reviewer and resets it explicitly", () => {
+		expect(codexApprovalPolicy("auto", "default")).toBe("on-request");
+		expect(codexSandboxPolicy("auto", "default", "/repo").type).toBe(
+			"workspaceWrite",
+		);
+		expect(codexApprovalsReviewer("auto", "default")).toBe("auto_review");
+		expect(codexApprovalsReviewer("approval-required", "default")).toBe("user");
+		expect(codexApprovalsReviewer("full-access", "default")).toBe("user");
+		expect(codexApprovalsReviewer("auto", "plan")).toBe("user");
 	});
 });

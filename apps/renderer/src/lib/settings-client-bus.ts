@@ -18,6 +18,7 @@ import {
 	type ProviderId,
 	type RuntimeMode,
 	resolveModelSlug,
+	runtimeModeForProvider,
 	type SettingsFile,
 	type SettingsPatch,
 } from "@zuse/contracts";
@@ -419,7 +420,13 @@ const update = (patchFor: (current: SettingsSlice) => SettingsPatch): void => {
 
 const ACTIONS = {
 	setDefaultProvider: (defaultProviderId: ProviderId) =>
-		update(() => ({ defaultProviderId })),
+		update((state) => ({
+			defaultProviderId,
+			defaultRuntimeMode: runtimeModeForProvider(
+				state.defaultRuntimeMode,
+				defaultProviderId,
+			),
+		})),
 	setDefaultModel: (providerId: ProviderId, model: string) =>
 		update((state) => ({
 			defaultModelByProvider: {
@@ -430,13 +437,22 @@ const ACTIONS = {
 	setDefaultProviderAndModel: (providerId: ProviderId, model: string) =>
 		update((state) => ({
 			defaultProviderId: providerId,
+			defaultRuntimeMode: runtimeModeForProvider(
+				state.defaultRuntimeMode,
+				providerId,
+			),
 			defaultModelByProvider: {
 				...state.defaultModelByProvider,
 				[providerId]: model,
 			},
 		})),
 	setDefaultRuntimeMode: (defaultRuntimeMode: RuntimeMode) =>
-		update(() => ({ defaultRuntimeMode })),
+		update((state) => ({
+			defaultRuntimeMode: runtimeModeForProvider(
+				defaultRuntimeMode,
+				state.defaultProviderId,
+			),
+		})),
 	setDefaultAutoCreateWorktree: (defaultAutoCreateWorktree: boolean) =>
 		update(() => ({ defaultAutoCreateWorktree })),
 	setDefaultAutonomyLevel: (defaultAutonomyLevel: AutonomyLevel) =>

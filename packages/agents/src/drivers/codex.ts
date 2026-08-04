@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
 import type { ServerRequest } from "@zuse/agents/codex-generated/ServerRequest";
+import type { ApprovalsReviewer } from "@zuse/agents/codex-generated/v2/ApprovalsReviewer";
 import type { AskForApproval } from "@zuse/agents/codex-generated/v2/AskForApproval";
 import type { Model } from "@zuse/agents/codex-generated/v2/Model";
 import type { ModelListResponse } from "@zuse/agents/codex-generated/v2/ModelListResponse";
@@ -166,11 +167,23 @@ export const codexApprovalPolicy = (
 			return "untrusted";
 		case "auto-accept-edits":
 		case "auto-accept-edits-and-bash":
+		case "auto":
 			return "on-request";
 		case "full-access":
 			return "never";
 	}
 };
+
+/**
+ * Keep the reviewer explicit on every thread/turn request. Codex persists this
+ * setting, so omitting `user` after leaving auto mode would leave auto-review
+ * enabled for a session whose UI says otherwise.
+ */
+export const codexApprovalsReviewer = (
+	runtimeMode: RuntimeMode,
+	permissionMode: PermissionMode,
+): ApprovalsReviewer =>
+	permissionMode !== "plan" && runtimeMode === "auto" ? "auto_review" : "user";
 
 const toSandboxMode = (
 	runtimeMode: RuntimeMode,
@@ -182,6 +195,7 @@ const toSandboxMode = (
 			return "read-only";
 		case "auto-accept-edits":
 		case "auto-accept-edits-and-bash":
+		case "auto":
 			return "workspace-write";
 		case "full-access":
 			return "danger-full-access";
@@ -244,6 +258,7 @@ export const codexSandboxPolicy = (
 			return { type: "readOnly", networkAccess: false };
 		case "auto-accept-edits":
 		case "auto-accept-edits-and-bash":
+		case "auto":
 			return {
 				type: "workspaceWrite",
 				writableRoots: [...codexWritableRootsForCwd(cwd)],
@@ -1657,15 +1672,16 @@ export const startCodexSession = (
 			),
 		);
 
-		const commonThreadParams = {
+		const commonThreadParams = () => ({
 			model: input.model ?? null,
 			cwd,
 			approvalPolicy: codexApprovalPolicy(getRuntimeMode(), currentMode),
+			approvalsReviewer: codexApprovalsReviewer(getRuntimeMode(), currentMode),
 			sandbox: toSandboxMode(getRuntimeMode(), currentMode),
 			serviceName: "zuse",
 			developerInstructions: input.workspaceInstructions ?? null,
 			experimentalRawEvents: true,
-		};
+		});
 
 		type ThreadResponse = {
 			readonly thread: { readonly id: string };
@@ -1683,7 +1699,7 @@ export const startCodexSession = (
 			cursorLifecycle.startFreshThread();
 			const started = await app.request<ThreadResponse>(
 				"thread/start",
-				commonThreadParams,
+				commonThreadParams(),
 			);
 			activeThreadId = started.thread.id;
 			if (started.model !== undefined) activeModel = started.model;
@@ -1697,7 +1713,7 @@ export const startCodexSession = (
 				try {
 					const forked = await app.request<ThreadResponse>("thread/fork", {
 						threadId: activeThreadId,
-						...commonThreadParams,
+						...commonThreadParams(),
 					});
 					adoptDurableThread(forked);
 				} catch (cause) {
@@ -1711,7 +1727,7 @@ export const startCodexSession = (
 				try {
 					const resumed = await app.request<ThreadResponse>("thread/resume", {
 						threadId: activeThreadId,
-						...commonThreadParams,
+						...commonThreadParams(),
 					});
 					adoptDurableThread(resumed);
 				} catch (cause) {
@@ -1874,6 +1890,10 @@ export const startCodexSession = (
 				],
 				cwd,
 				approvalPolicy: codexApprovalPolicy(getRuntimeMode(), currentMode),
+				approvalsReviewer: codexApprovalsReviewer(
+					getRuntimeMode(),
+					currentMode,
+				),
 				sandboxPolicy: codexSandboxPolicy(getRuntimeMode(), currentMode, cwd),
 				model: input.model ?? null,
 				...(effort !== null ? { effort } : {}),
@@ -1932,7 +1952,7 @@ export const startCodexSession = (
 					try {
 						const forked = await app.request<ThreadResponse>("thread/fork", {
 							threadId: activeThreadId,
-							...commonThreadParams,
+							...commonThreadParams(),
 						});
 						adoptDurableThread(forked);
 						say(`Forked Codex thread ${activeThreadId}.`);

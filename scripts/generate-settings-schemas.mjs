@@ -1,17 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { RUNTIME_MODES } from "../packages/contracts/src/agent.ts";
 
 const outDir = join(process.cwd(), "apps", "web", "public", "schemas");
 const check = process.argv.includes("--check");
 const pending = [];
 
 const providerIds = ["claude", "codex", "grok", "gemini", "cursor", "opencode"];
-const runtimeModes = [
-  "approval-required",
-  "auto-accept-edits",
-  "auto-accept-edits-and-bash",
-  "full-access",
-];
+const runtimeModes = [...RUNTIME_MODES];
 const appearanceModes = ["system", "light", "dark"];
 const completionSounds = ["chime", "soft", "pop", "bell", "rise", "bloom"];
 const branchNamingStyles = ["username-slug", "slug", "feat-slug", "custom"];
