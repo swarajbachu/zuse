@@ -1,5 +1,32 @@
 [
   {
+    "version": "0.17.0",
+    "sections": [
+      {
+        "title": "Added",
+        "items": [
+          "Run Zuse natively on x64 Linux with `.deb` and AppImage installers, Linux-native credential storage and browser integration, platform-aware desktop controls, and automatic Linux builds in every release",
+          "Use the new documentation site for end-to-end guidance on setup, providers, projects and worktrees, remote access, browser workflows, mobile use, and recovery"
+        ]
+      },
+      {
+        "title": "Changed",
+        "items": [
+          "Navigate long conversations by turn while streaming responses, code blocks, and reading position remain stable during updates",
+          "Move the hosted app to `code.zuse.sh` and update Serve `0.1.1` to preserve its background data-directory state",
+          "Publish the project license and third-party attribution notices across distributed packages"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "items": [
+          "Restore hosted workspace connectivity and reliable thread and state discovery between desktop and Serve runtimes",
+          "Prevent diagnostics and telemetry capture from growing without bounds while preserving useful export data"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.16.1",
     "sections": [
       {
