@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
 	availableConnections,
 	connectionStorageKey,
+	connectionSupports,
 	decodeConnectionRecords,
 	replaceDiscoveredRoute,
 } from "../../../src/lib/connection-records";
@@ -59,6 +60,26 @@ describe("connection record persistence", () => {
 		]);
 
 		expect(record?.source).toBe("manual");
+	});
+
+	test("migrates flat mobile capabilities to the versioned manifest", () => {
+		const [record] = decodeConnectionRecords([
+			{
+				key: "paired:env-1",
+				host: "desktop.local",
+				port: 8787,
+				label: "Desktop",
+				updatedAt: 4,
+				source: "paired",
+				capabilities: ["mobile-terminal-v1", "attachment-read-v1"],
+			},
+		]);
+
+		expect(record?.capabilities).toEqual({
+			version: 1,
+			features: ["mobile-terminal-v1", "attachment-read-v1"],
+		});
+		expect(connectionSupports(record, "mobile-terminal-v1")).toBe(true);
 	});
 
 	test("rejects malformed persisted values", () => {
