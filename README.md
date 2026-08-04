@@ -6,6 +6,45 @@ A chat-first desktop app for developers who work with AI coding agents. Wraps Cl
 
 ---
 
+## Install on Linux
+
+Zuse currently ships x64 builds for Debian/Ubuntu and other Linux distributions
+that can run AppImages.
+
+### Debian and Ubuntu
+
+Install the latest `.deb` release directly from a terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/swarajbachu/zuse/main/scripts/install-linux.sh | sh
+```
+
+The installer downloads the `.deb` attached to the latest GitHub release,
+verifies its GitHub-published SHA-256 digest, and uses `apt`, which installs
+Zuse's Secret Service and Avahi runtime dependencies. You may be prompted for
+your `sudo` password.
+
+### Other distributions
+
+Download the latest x64 `.AppImage` from
+[GitHub Releases](https://github.com/swarajbachu/zuse/releases/latest), then run:
+
+```bash
+chmod +x Zuse-*-linux-x86_64.AppImage
+./Zuse-*-linux-x86_64.AppImage
+```
+
+AppImage users must provide a Secret Service implementation, such as GNOME
+Keyring or KWallet. Install `avahi-publish-service` if you want nearby-device
+discovery.
+
+Before starting an agent session, install and authenticate at least one of the
+[supported agent CLIs](#supported-agents). If a CLI installed through a version
+manager is not detected, set its absolute binary path in Zuse's provider
+settings.
+
+---
+
 ## Supported agents
 
 | Provider | CLI |
@@ -82,7 +121,7 @@ A chat-first desktop app for developers who work with AI coding agents. Wraps Cl
 
 | | |
 |---|---|
-| Shell | Electron 33 |
+| Shell | Electron 42 |
 | Renderer | React 19 + TypeScript + Vite |
 | Styling | Tailwind CSS v4 + shadcn/ui (zinc dark) |
 | State | Zustand (ephemeral) + SQLite (persistent) |
@@ -122,7 +161,7 @@ specs/
 bun install
 
 # Dev (renderer + Electron)
-turbo dev --filter=renderer --filter=desktop
+bun dev
 
 # Build
 turbo build
@@ -142,9 +181,8 @@ bun run dist:linux:unsigned
 
 Requires: Bun 1.3.10+, Node.js ≥ 22.13, and macOS or x64 Linux.
 
-The Linux `.deb` declares the Secret Service and Avahi runtime dependencies.
-For AppImage installs, provide a Secret Service implementation (such as
-GNOME Keyring or KWallet) and `avahi-publish-service` for nearby discovery.
+The packaging commands build x64 artifacts into `dist/`. End-user installation
+instructions are in [Install on Linux](#install-on-linux).
 
 ---
 

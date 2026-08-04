@@ -129,15 +129,15 @@ linux:
   icon: build/icon.png
   artifactName: Zuse-${version}-linux-${arch}.${ext}
   desktop:
-    entry:
-      Name: Zuse (Beta)
-      Comment: Desktop client for AI coding agents
-      Categories: Development;
-      Keywords: AI;Development;Coding;Agents;
-      StartupWMClass: zuse
-      Terminal: false
+    Name: Zuse (Beta)
+    Comment: Desktop client for AI coding agents
+    Categories: Development;
+    Keywords: AI;Development;Coding;Agents;
+    StartupWMClass: zuse
+    Terminal: false
 
 deb:
+  packageName: zuse
   depends:
     - libsecret-1-0
     - avahi-utils

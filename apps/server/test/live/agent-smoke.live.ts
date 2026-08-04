@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BrowserSend } from "@zuse/agents/drivers/browser-tools";
@@ -17,6 +23,7 @@ import {
 	type PermissionDecision,
 	type PermissionKind,
 	type ProviderId,
+	type RuntimeMode,
 	type StartSessionInput,
 } from "@zuse/contracts";
 import { Effect, Fiber, Layer, Stream } from "effect";
@@ -107,6 +114,19 @@ const requestPermission = async (
 	_kind: PermissionKind,
 ): Promise<PermissionDecision> => ({ _tag: "AllowOnce" });
 
+const liveRuntimeMode = (): RuntimeMode => {
+	const value = process.env.ZUSE_LIVE_RUNTIME_MODE;
+	if (
+		value === "approval-required" ||
+		value === "auto-accept-edits" ||
+		value === "auto-accept-edits-and-bash" ||
+		value === "full-access"
+	) {
+		return value;
+	}
+	return DEFAULT_RUNTIME_MODE;
+};
+
 const startProvider = async (
 	provider: LiveProvider,
 	input: StartSessionInput,
@@ -136,7 +156,7 @@ const startProvider = async (
 				binaryPath,
 				sessionId,
 				requestPermission,
-				() => DEFAULT_RUNTIME_MODE,
+				liveRuntimeMode,
 				browserSend,
 				which("bun") ?? "bun",
 			);
@@ -179,18 +199,16 @@ const startProvider = async (
 	}
 };
 
-const terminalTags = new Set<AgentEvent["_tag"]>([
-	"AssistantMessage",
-	"ToolResult",
-	"Error",
-	"Completed",
-	"Interrupted",
-]);
+const isTurnTerminal = (event: AgentEvent): boolean =>
+	event._tag === "Error" ||
+	event._tag === "Interrupted" ||
+	(event._tag === "Status" && event.status === "idle");
 
 type SmokeResult =
 	| {
 			readonly _tag: "Ran";
 			readonly events: ReadonlyArray<AgentEvent>;
+			readonly toolFixture: string | null;
 			readonly timedOut: boolean;
 	  }
 	| { readonly _tag: "Skipped"; readonly reason: string };
@@ -259,26 +277,36 @@ const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
 				).pipe(Effect.forkChild);
 
 				yield* handle.send(
-					"Read README.md and reply with the exact marker from it. Do not modify files.",
+					provider.providerId === "codex"
+						? [
+								"Exercise the native coding tools in this temporary fixture.",
+								"Read README.md.",
+								"Run a shell command that prints bash-ok.",
+								"Create tool-smoke.txt containing write-ok, then edit it to contain edit-ok followed by a newline.",
+								"Finally reply with fixture-ok, bash-ok, and edit-ok.",
+							].join(" ")
+						: "Read README.md and reply with the exact marker from it. Do not modify files.",
 				);
 
 				const deadline = Date.now() + (provider.timeoutMs ?? 60_000);
-				while (
-					Date.now() < deadline &&
-					!events.some((event) => terminalTags.has(event._tag))
-				) {
+				while (Date.now() < deadline && !events.some(isTurnTerminal)) {
 					yield* Effect.sleep("250 millis");
 				}
-				const sawTerminal = events.some((event) =>
-					terminalTags.has(event._tag),
-				);
+				const sawTerminal = events.some(isTurnTerminal);
 
 				yield* handle.close().pipe(Effect.catch(() => Effect.void));
 				yield* Fiber.interrupt(fiber).pipe(Effect.catch(() => Effect.void));
 				return sawTerminal;
 			}).pipe(Effect.provide(AttachmentServiceTest)),
 		);
-		return { _tag: "Ran", events, timedOut: !completed };
+		return {
+			_tag: "Ran",
+			events,
+			toolFixture: existsSync(join(dir, "tool-smoke.txt"))
+				? readFileSync(join(dir, "tool-smoke.txt"), "utf8")
+				: null,
+			timedOut: !completed,
+		};
 	} catch (cause) {
 		const skipReason = skippableLiveFailureReason(provider, cause);
 		if (skipReason !== null) {
@@ -316,14 +344,36 @@ describe("live agent smoke tests", () => {
 					`${provider.providerId} live smoke timed out after ${provider.timeoutMs ?? 60_000}ms without an assistant/result/error event; saw ${events.map((event) => event._tag).join(", ")}`,
 				).toBe(false);
 				expect(events.some((event) => event._tag === "Started")).toBe(true);
-				expect(events.some((event) => terminalTags.has(event._tag))).toBe(true);
+				expect(events.some(isTurnTerminal)).toBe(true);
+				expect(
+					events
+						.filter((event) => event._tag === "Error")
+						.map((event) => event.message),
+				).toEqual([]);
 				if (
 					provider.expectsCursor &&
-					!events.some((event) => event._tag === "Error")
+					events.every((event) => event._tag !== "Error")
 				) {
 					expect(events.some((event) => event._tag === "SessionCursor")).toBe(
 						true,
 					);
+				}
+				if (
+					provider.providerId === "codex" &&
+					events.every((event) => event._tag !== "Error")
+				) {
+					expect(result.toolFixture).toBe("edit-ok\n");
+					const tools = events
+						.filter((event) => event._tag === "ToolUse")
+						.map((event) => event.tool);
+					expect(tools).toContain("Bash");
+					expect(tools).toContain("Edit");
+					const toolOutput = events
+						.filter((event) => event._tag === "ToolResult")
+						.map((event) => event.output)
+						.join("\n");
+					expect(toolOutput).toContain("fixture-ok");
+					expect(toolOutput).toContain("bash-ok");
 				}
 			},
 			(provider.timeoutMs ?? 60_000) + 15_000,

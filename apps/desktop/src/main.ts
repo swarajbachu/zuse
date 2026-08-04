@@ -74,6 +74,10 @@ import {
 } from "electron";
 import fixPath from "fix-path";
 import selfsigned from "selfsigned";
+import {
+	createTitleBarOverlay,
+	createWindowTitleBarOptions,
+} from "./window-title-bar.ts";
 
 // Build verification runs the generated CommonJS bundle under Node to ensure
 // its static import graph initializes without temporal-dead-zone failures.
@@ -522,6 +526,11 @@ nativeTheme.themeSource = "dark";
 ipcMain.on("window:setAppearanceMode", (_event, value: unknown) => {
 	if (value !== "system" && value !== "light" && value !== "dark") return;
 	nativeTheme.themeSource = value;
+	if (process.platform !== "darwin" && mainWindow !== null) {
+		mainWindow.setTitleBarOverlay(
+			createTitleBarOverlay(nativeTheme.shouldUseDarkColors),
+		);
+	}
 });
 
 let mainWindow: BrowserWindow | null = null;
@@ -1707,7 +1716,10 @@ async function createMainWindow() {
 				}
 			: { backgroundColor: "#0b0b0c" }),
 		...(fsSync.existsSync(DEV_ICON_PATH) ? { icon: DEV_ICON_PATH } : {}),
-		titleBarStyle: isMac ? "hiddenInset" : "default",
+		...createWindowTitleBarOptions(
+			process.platform,
+			nativeTheme.shouldUseDarkColors,
+		),
 		title: APP_NAME,
 		webPreferences: {
 			preload: Path.join(__dirname, "preload.cjs"),

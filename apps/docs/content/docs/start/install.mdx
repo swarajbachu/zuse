@@ -1,6 +1,6 @@
 ---
 title: Install and connect Zuse
-description: Install the macOS app and make a supported coding-agent CLI available.
+description: Install Zuse on macOS or x64 Linux and make a supported coding-agent CLI available.
 section: start
 order: 2
 platforms: [desktop]
@@ -12,15 +12,38 @@ lastVerified: latest
 ---
 
 
-Zuse currently ships for macOS. It uses coding-agent installations already available on your computer, so the first launch checks which supported CLIs are installed and authenticated.
+Zuse ships for macOS and x64 Linux. It uses coding-agent installations already available on your computer, so the first launch checks which supported CLIs are installed and authenticated.
 
 ## Install the app
+
+### macOS
 
 1. Download the current macOS build from [zuse.sh/download](https://zuse.sh/download).
 2. Open the downloaded disk image and move Zuse to **Applications**.
 3. Launch Zuse. The onboarding flow opens automatically on a fresh installation.
 
 Zuse ships as a signed, notarized universal app for Apple silicon and Intel Macs. Updates are offered in the app when a newer release is available.
+
+### Debian and Ubuntu
+
+Install the latest x64 `.deb` release from a terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/swarajbachu/zuse/main/scripts/install-linux.sh | sh
+```
+
+The installer verifies the GitHub-published SHA-256 digest before invoking `apt`. The package installs the Secret Service and Avahi runtime dependencies.
+
+### Other Linux distributions
+
+Download the x64 `.AppImage` from [GitHub Releases](https://github.com/swarajbachu/zuse/releases/latest), make it executable, and launch it:
+
+```bash
+chmod +x Zuse-*-linux-x86_64.AppImage
+./Zuse-*-linux-x86_64.AppImage
+```
+
+AppImage users must provide a Secret Service implementation such as GNOME Keyring or KWallet. Install `avahi-publish-service` if you want nearby-device discovery.
 
 ## Connect a provider
 
@@ -32,7 +55,7 @@ During onboarding, Zuse shows the providers it detects. A provider may be:
 - **Needs attention** — usable, but an update or authentication check needs review.
 - **Unavailable** — missing, signed out, or below a required CLI version.
 
-Open **Settings → Providers** at any time to install, sign in, update, enable, or disable providers. Authentication is performed through each provider's supported flow. App-managed API keys are stored in the macOS Keychain, not in Zuse's settings JSON.
+Open **Settings → Providers** at any time to install, sign in, update, enable, or disable providers. Authentication is performed through each provider's supported flow. App-managed API keys are stored in macOS Keychain or Linux Secret Service, not in Zuse's settings JSON.
 
 ## Open a repository
 

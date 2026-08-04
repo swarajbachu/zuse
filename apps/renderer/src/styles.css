@@ -205,6 +205,11 @@ body,
 /* Pure neutral grays on a paper-white surface; the chartreuse primary is the
    only color in the UI. */
 :root {
+  /* Electron Window Controls Overlay reports the native button strip through
+     these env() values. It resolves to zero in browsers and on macOS. */
+  --zuse-window-controls-right-inset: calc(
+    100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)
+  );
   --radius: 0.875rem;
   --lime: hsl(72 92% 48%);
   --brand-highlight: hsl(72 92% 48%);

@@ -44,6 +44,7 @@ import {
 	type OpenPrWorkflow,
 } from "../lib/branch-workflow.ts";
 import type { OpenTarget } from "../lib/bridge.ts";
+import { isMacHost } from "../lib/host-platform.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { openTerminalCommand } from "../lib/run-terminal.ts";
@@ -105,6 +106,8 @@ const SECTION_CLASS =
 	"flex h-9 shrink-0 items-center gap-1.5 border-b border-border text-xs [-webkit-app-region:drag]";
 const ACTION_CLASS = "[-webkit-app-region:no-drag]";
 const ICON_BUTTON_CLASS = `${ACTION_CLASS} flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground`;
+const NATIVE_CONTROLS_INSET_CLASS =
+	"pr-[calc(var(--zuse-window-controls-right-inset)+0.25rem)]";
 
 /**
  * Top bar over the projects panel: product name on the left + a left-pane
@@ -115,10 +118,11 @@ const ICON_BUTTON_CLASS = `${ACTION_CLASS} flex size-6 items-center justify-cent
 export function TopBarLeft() {
 	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
 	const isFullScreen = useUiStore((s) => s.isFullScreen);
+	const reserveMacTrafficLights = isMacHost() && !isFullScreen;
 
 	return (
 		<header
-			className={`${SECTION_CLASS} pr-1 ${isFullScreen ? "pl-3" : "pl-20"}`}
+			className={`${SECTION_CLASS} pr-1 ${reserveMacTrafficLights ? "pl-20" : "pl-3"}`}
 		>
 			<span className="truncate font-semibold tracking-tight text-foreground">
 				Zuse (Beta)
@@ -220,7 +224,8 @@ export function TopBarMain() {
 	// open-toggle into the leading slot — and in windowed mode reserve 80px
 	// for the macOS controls. Native fullscreen hides those controls, so we
 	// skip the reserve.
-	const leftPad = showLeftToggle ? (isFullScreen ? "pl-2" : "pl-20") : "pl-2";
+	const leftPad =
+		showLeftToggle && isMacHost() && !isFullScreen ? "pl-20" : "pl-2";
 
 	useEffect(() => {
 		if (folderId === null) {
@@ -304,7 +309,9 @@ export function TopBarMain() {
 	};
 
 	return (
-		<header className={`${SECTION_CLASS} ${leftPad} pr-1`}>
+		<header
+			className={`${SECTION_CLASS} ${leftPad} ${rightSidebarOpen ? "pr-1" : NATIVE_CONTROLS_INSET_CLASS}`}
+		>
 			{showLeftToggle ? (
 				<Tooltip>
 					<TooltipTrigger
@@ -791,7 +798,9 @@ export function TopBarRight() {
 		<ErrorBoundary
 			resetKey={resetKey}
 			fallback={
-				<header className={`${SECTION_CLASS} justify-between px-2`}>
+				<header
+					className={`${SECTION_CLASS} ${NATIVE_CONTROLS_INSET_CLASS} justify-between pl-2`}
+				>
 					<div className={ACTION_CLASS} />
 					<div
 						className={`text-[11px] text-[var(--accent-red)] ${ACTION_CLASS}`}
@@ -835,7 +844,7 @@ export function TopBarRightContent({
 			className={
 				compact
 					? "flex min-w-0 flex-col gap-2"
-					: `${SECTION_CLASS} justify-between px-2`
+					: `${SECTION_CLASS} ${NATIVE_CONTROLS_INSET_CLASS} justify-between pl-2`
 			}
 		>
 			<div className={`flex min-w-0 flex-1 items-center gap-2 ${ACTION_CLASS}`}>
