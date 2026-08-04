@@ -12,10 +12,11 @@ import type {
 	UnresolvedFile as UnresolvedFileInstance,
 } from "@pierre/diffs";
 import { DEFAULT_THEMES, processFile } from "@pierre/diffs";
-import { Editor } from "@pierre/diffs/editor";
+import { Editor } from "@pierre/diffs/edit";
 import {
 	CodeView,
 	type CodeViewHandle,
+	EditProvider,
 	UnresolvedFile,
 	type UnresolvedFileReactOptions,
 	type WorkerInitializationRenderOptions,
@@ -31,8 +32,6 @@ import type {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import {
-	ArrowUp,
-	Bot,
 	ChevronDown,
 	ChevronRight,
 	ChevronsUpDown,
@@ -41,19 +40,13 @@ import {
 	Copy,
 	EyeOff,
 	FilePenLine,
-	GitPullRequest,
-	type LucideIcon,
 	MoreHorizontal,
 	PanelTop,
-	Pencil,
 	RotateCcw,
 	Rows3,
 	Save,
 	Settings2,
-	Sparkles,
 	SquarePlus,
-	Trash2,
-	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/use-auth.ts";
@@ -73,7 +66,10 @@ import { gitReviewKey, useGitReviewStore } from "../store/git-review.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { FileIcon } from "./file-icon.tsx";
-import { Button } from "./ui/button.tsx";
+import {
+	SavedReviewAnnotation,
+	DraftReviewAnnotation as SharedDraftReviewAnnotation,
+} from "./review-annotation.tsx";
 import { Popover, PopoverPrimitive, PopoverTrigger } from "./ui/popover.tsx";
 import { Switch } from "./ui/switch.tsx";
 
@@ -226,12 +222,14 @@ export function ChangesReview() {
 			poolOptions={REVIEW_POOL_OPTIONS}
 			highlighterOptions={REVIEW_HIGHLIGHTER_OPTIONS}
 		>
-			<ChangesReviewReady
-				key={`${context.folderId}:${context.worktreeId ?? "main"}`}
-				folderId={context.folderId}
-				worktreeId={context.worktreeId}
-				rootPath={context.rootPath}
-			/>
+			<EditProvider createEditor={(options) => new Editor(options)}>
+				<ChangesReviewReady
+					key={`${context.folderId}:${context.worktreeId ?? "main"}`}
+					folderId={context.folderId}
+					worktreeId={context.worktreeId}
+					rootPath={context.rootPath}
+				/>
+			</EditProvider>
 		</WorkerPoolContextProvider>
 	);
 }
@@ -839,9 +837,8 @@ function ChangesReviewReady({
 			const metadata = annotation.metadata;
 			if (metadata.kind === "draft") {
 				return (
-					<DraftReviewAnnotation
+					<SharedDraftReviewAnnotation
 						key={`${metadata.selection.id}:${metadata.selection.range.side ?? "none"}:${metadata.selection.range.start}:${metadata.selection.range.endSide ?? "none"}:${metadata.selection.range.end}`}
-						selection={metadata.selection}
 						author={annotationAuthor}
 						aiDisabledReason={
 							selectedSessionId === null
@@ -850,12 +847,14 @@ function ChangesReviewReady({
 						}
 						error={annotationError}
 						onCancel={cancelAnnotation}
-						onSave={saveAnnotation}
+						onSave={(message, destination) =>
+							saveAnnotation(metadata.selection, message, destination)
+						}
 					/>
 				);
 			}
 			return (
-				<SavedAnnotationCard
+				<SavedReviewAnnotation
 					annotation={metadata.annotation}
 					author={annotationAuthor}
 					sessionId={selectedSessionId}
@@ -911,18 +910,28 @@ function ChangesReviewReady({
 				) ?? null);
 	return (
 		<section className="flex h-full min-h-0 flex-col bg-background">
-			<div className="flex h-10 shrink-0 items-center gap-1 border-b border-border/70 px-2">
-				<div className="min-w-0 truncate pl-1 text-[11px] text-muted-foreground">
-					<span className="text-foreground">{summary.files.length} files</span>
-					<span className="mx-1.5 text-border">·</span>
-					{summary.baseRef === null ? "HEAD" : summary.baseRef}
-					<span className="mx-1.5 text-border">·</span>
-					{viewedCount}/{summary.files.length} viewed
+			<div className="flex min-h-12 shrink-0 items-center gap-3 border-b border-border/50 px-4">
+				<div className="min-w-0">
+					<div className="truncate text-xs font-medium text-foreground">
+						Review changes
+					</div>
+					<div className="mt-0.5 flex items-center gap-1.5 truncate text-[10px] text-muted-foreground">
+						<span>
+							{summary.baseRef === null ? "Working tree" : summary.baseRef}
+						</span>
+						<span aria-hidden="true">·</span>
+						<span className="tabular-nums">
+							{viewedCount} of {summary.files.length} reviewed
+						</span>
+					</div>
 				</div>
-				<div className="ml-auto flex shrink-0 items-center gap-0.5">
-					<div className="mr-1 tabular-nums text-[11px]">
-						<span className="text-emerald-400">+{summary.additions}</span>{" "}
-						<span className="text-rose-400">−{summary.deletions}</span>
+				<div className="ml-auto flex shrink-0 items-center gap-1">
+					<div
+						className="mr-1 flex h-7 items-center gap-1.5 rounded-md bg-muted/60 px-2 font-mono text-[10px] tabular-nums"
+						title={`${summary.additions} additions and ${summary.deletions} deletions`}
+					>
+						<span className="text-emerald-500">+{summary.additions}</span>
+						<span className="text-rose-500">−{summary.deletions}</span>
 					</div>
 					<ToolbarButton
 						label={
@@ -997,13 +1006,12 @@ function ChangesReviewReady({
 						items={items}
 						selectedLines={selectedLines}
 						onSelectedLinesChange={handleSelectedLinesChange}
-						createEditor={(options) => new Editor(options)}
 						onItemEditChange={(_item, file) => setEditDraft(file)}
 						renderHeaderPrefix={renderHeaderPrefix}
 						renderHeaderMetadata={renderHeaderMetadata}
 						renderAnnotation={renderAnnotation}
 						options={reviewOptions}
-						className="h-full overflow-auto overscroll-contain"
+						className="h-full overflow-auto overscroll-contain px-3 py-3"
 					/>
 				)}
 				{selectedConflict !== null ? (
@@ -1217,308 +1225,6 @@ function ConflictAction({
 		>
 			{children}
 		</button>
-	);
-}
-
-function DraftReviewAnnotation({
-	selection,
-	author,
-	aiDisabledReason,
-	error,
-	onCancel,
-	onSave,
-}: {
-	readonly selection: CodeViewLineSelection;
-	readonly author: AnnotationAuthor;
-	readonly aiDisabledReason: string | null;
-	readonly error: string | null;
-	readonly onCancel: () => void;
-	readonly onSave: (
-		selection: CodeViewLineSelection,
-		message: string,
-		destination: AnnotationDestination,
-	) => Promise<boolean>;
-}) {
-	const [message, setMessage] = useState("");
-	const [destination, setDestination] = useState<AnnotationDestination>("ai");
-	const [submitting, setSubmitting] = useState(false);
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const trimmedMessage = message.trim();
-	const disabledReason = destination === "ai" ? aiDisabledReason : null;
-	const disabled = disabledReason !== null;
-
-	useEffect(() => {
-		if (disabled || "ontouchstart" in window) return;
-		textareaRef.current?.focus({ preventScroll: true });
-	}, [disabled]);
-
-	const tryCancel = () => {
-		if (
-			trimmedMessage.length > 0 &&
-			!window.confirm("Discard this annotation draft?")
-		)
-			return;
-		onCancel();
-	};
-
-	return (
-		<form
-			onSubmit={async (event) => {
-				event.preventDefault();
-				if (disabled || submitting || trimmedMessage.length === 0) return;
-				setSubmitting(true);
-				const saved = await onSave(selection, trimmedMessage, destination);
-				if (!saved) setSubmitting(false);
-			}}
-			className="m-2 flex max-w-[600px] gap-2.5 rounded-xl border border-border/70 bg-card p-3 font-sans text-card-foreground shadow-[0_2px_4px_rgb(0_0_0_/_0.03),0_4px_10px_rgb(0_0_0_/_0.03)]"
-		>
-			<AnnotationAvatar author={author} />
-			<div className="min-w-0 flex-1">
-				<div className="flex min-h-5 items-center gap-2 text-xs">
-					<span className="min-w-0 truncate font-medium text-foreground">
-						{author.name}
-					</span>
-				</div>
-				<textarea
-					ref={textareaRef}
-					value={message}
-					onChange={(event) => setMessage(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === "Escape") {
-							event.preventDefault();
-							tryCancel();
-							return;
-						}
-						if (
-							event.key === "Enter" &&
-							!event.shiftKey &&
-							!event.nativeEvent.isComposing
-						) {
-							event.preventDefault();
-							event.currentTarget.form?.requestSubmit();
-						}
-					}}
-					placeholder={
-						disabled
-							? "Chat session required"
-							: destination === "github"
-								? "Post a review comment…"
-								: "Add an annotation for AI…"
-					}
-					disabled={disabled || submitting}
-					rows={2}
-					spellCheck={false}
-					className="field-sizing-content mt-1 min-h-12 w-full resize-none bg-transparent py-1 text-sm leading-5 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
-				/>
-				{disabledReason !== null || error !== null ? (
-					<p className="mt-1 text-xs text-rose-400" role="alert">
-						{error ?? disabledReason}
-					</p>
-				) : null}
-				<div className="mt-2 flex items-center justify-end gap-1">
-					<fieldset
-						aria-label="Annotation destination"
-						className="mr-0.5 flex shrink-0 items-center rounded-md border-0 bg-foreground/5 p-0.5"
-					>
-						<DestinationOption
-							active={destination === "ai"}
-							label="AI"
-							onClick={() => setDestination("ai")}
-							icon={Bot}
-						/>
-						<DestinationOption
-							active={destination === "github"}
-							label="GitHub"
-							onClick={() => setDestination("github")}
-							icon={GitPullRequest}
-						/>
-					</fieldset>
-					<button
-						type="button"
-						aria-label="Cancel annotation"
-						title="Cancel annotation (Esc)"
-						onClick={tryCancel}
-						disabled={submitting}
-						className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50"
-					>
-						<X className="size-3.5" aria-hidden="true" />
-					</button>
-					<button
-						type="submit"
-						aria-label="Save annotation"
-						title="Save annotation (Enter)"
-						disabled={disabled || submitting || trimmedMessage.length === 0}
-						className="grid size-7 place-items-center rounded-md bg-foreground text-background hover:bg-foreground/90 active:scale-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:bg-foreground/10 disabled:text-muted-foreground"
-					>
-						<ArrowUp className="size-4" aria-hidden="true" />
-					</button>
-				</div>
-			</div>
-		</form>
-	);
-}
-
-function DestinationOption({
-	active,
-	label,
-	icon: Icon,
-	onClick,
-}: {
-	readonly active: boolean;
-	readonly label: string;
-	readonly icon: LucideIcon;
-	readonly onClick: () => void;
-}) {
-	return (
-		<button
-			type="button"
-			aria-pressed={active}
-			aria-label={`Send annotation to ${label}`}
-			title={`Send to ${label}`}
-			onClick={onClick}
-			className={`flex h-6 items-center gap-1 rounded px-1.5 text-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring ${
-				active
-					? "bg-background text-foreground shadow-sm"
-					: "text-muted-foreground hover:text-foreground"
-			}`}
-		>
-			<Icon className="size-3" aria-hidden="true" />
-			{label}
-		</button>
-	);
-}
-
-function AnnotationAvatar({ author }: { readonly author: AnnotationAuthor }) {
-	const [imageFailed, setImageFailed] = useState(false);
-	useEffect(() => setImageFailed(false), [author.avatarUrl]);
-
-	return (
-		<div className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-full bg-muted text-xs font-medium text-muted-foreground">
-			{author.avatarUrl !== null && !imageFailed ? (
-				<img
-					src={author.avatarUrl}
-					alt={author.name}
-					className="size-full object-cover"
-					referrerPolicy="no-referrer"
-					onError={() => setImageFailed(true)}
-				/>
-			) : (
-				author.initial
-			)}
-		</div>
-	);
-}
-
-function SavedAnnotationCard({
-	annotation,
-	author,
-	sessionId,
-}: {
-	readonly annotation: CodeAnnotation;
-	readonly author: AnnotationAuthor;
-	readonly sessionId: ReturnType<
-		typeof useSessionsStore.getState
-	>["selectedSessionId"];
-}) {
-	const [editing, setEditing] = useState(false);
-	const [comment, setComment] = useState(annotation.comment);
-	useEffect(() => {
-		if (!editing) setComment(annotation.comment);
-	}, [annotation.comment, editing]);
-	return (
-		<div className="group m-2 flex max-w-[600px] gap-2.5 rounded-xl border border-border/70 bg-card p-3 font-sans text-sm text-card-foreground shadow-[0_2px_4px_rgb(0_0_0_/_0.03),0_4px_10px_rgb(0_0_0_/_0.03)]">
-			<AnnotationAvatar author={author} />
-			<div className="min-w-0 flex-1">
-				<div className="flex min-h-7 items-center gap-2">
-					<strong className="min-w-0 truncate font-medium text-foreground">
-						{author.name}
-					</strong>
-					<span className="inline-flex items-center gap-1 rounded-full bg-foreground/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-						<Sparkles className="size-2.5" aria-hidden="true" /> For AI
-					</span>
-					<span className="ml-auto truncate font-mono text-[10px] text-muted-foreground">
-						{annotation.startLine === annotation.endLine
-							? `Line ${annotation.startLine}`
-							: `Lines ${annotation.startLine}–${annotation.endLine}`}
-					</span>
-					{!editing ? (
-						<div className="flex items-center gap-0.5">
-							<button
-								type="button"
-								onClick={() => setEditing(true)}
-								aria-label="Edit annotation"
-								title="Edit annotation"
-								className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-							>
-								<Pencil className="size-3" aria-hidden="true" />
-							</button>
-							<button
-								type="button"
-								onClick={() => {
-									if (
-										sessionId !== null &&
-										window.confirm("Delete this annotation?")
-									) {
-										useAnnotationsStore
-											.getState()
-											.remove(sessionId, annotation.id);
-									}
-								}}
-								aria-label="Delete annotation"
-								title="Delete annotation"
-								className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-rose-500/10 hover:text-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-							>
-								<Trash2 className="size-3" aria-hidden="true" />
-							</button>
-						</div>
-					) : null}
-				</div>
-				{editing ? (
-					<form
-						onSubmit={(event) => {
-							event.preventDefault();
-							if (sessionId === null) return;
-							useAnnotationsStore
-								.getState()
-								.updateComment(sessionId, annotation.id, comment);
-							setEditing(false);
-						}}
-						className="mt-1"
-					>
-						<textarea
-							value={comment}
-							onChange={(event) => setComment(event.target.value)}
-							rows={2}
-							className="min-h-16 w-full resize-y rounded-md border border-border bg-transparent px-2.5 py-2 text-sm leading-5 outline-none focus:border-foreground/30"
-						/>
-						<div className="mt-2 flex justify-end gap-1.5">
-							<Button
-								type="button"
-								size="sm"
-								variant="ghost"
-								onClick={() => {
-									setComment(annotation.comment);
-									setEditing(false);
-								}}
-							>
-								Cancel
-							</Button>
-							<Button
-								type="submit"
-								size="sm"
-								disabled={comment.trim().length === 0}
-							>
-								Save annotation
-							</Button>
-						</div>
-					</form>
-				) : (
-					<p className="mt-1 whitespace-pre-wrap leading-5 text-foreground">
-						{annotation.comment}
-					</p>
-				)}
-			</div>
-		</div>
 	);
 }
 

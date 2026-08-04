@@ -86,6 +86,20 @@ describe("annotations store", () => {
 		expect(annotationsForSession(sessionId)).toEqual([]);
 	});
 
+	it("removes an annotation by id regardless of its owning session", () => {
+		const id = useAnnotationsStore.getState().add(otherSessionId, {
+			relPath: "a.ts",
+			absPath: "/repo/a.ts",
+			startLine: 1,
+			endLine: 3,
+			comment: "revealed from another session",
+		});
+
+		useAnnotationsStore.getState().removeById(id);
+
+		expect(annotationsForSession(otherSessionId)).toEqual([]);
+	});
+
 	it("edits annotation comments before send", () => {
 		const id = useAnnotationsStore.getState().add(sessionId, {
 			relPath: "src/app.ts",

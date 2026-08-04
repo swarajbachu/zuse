@@ -1,8 +1,8 @@
 import type {
-  BrowserAnnotation,
-  CodeAnnotation,
-  ComposerAnnotation,
-  SessionId,
+	BrowserAnnotation,
+	CodeAnnotation,
+	ComposerAnnotation,
+	SessionId,
 } from "@zuse/contracts";
 
 import { readStorageWithLegacy } from "../lib/storage-keys.ts";
@@ -24,126 +24,141 @@ const LEGACY_STORAGE_KEYS = ["memoize.annotations.v1"] as const;
 type Persisted = Record<string, ReadonlyArray<ComposerAnnotation>>;
 
 const load = (): Persisted => {
-  try {
-    const raw = readStorageWithLegacy(
-      window.localStorage,
-      STORAGE_KEY,
-      LEGACY_STORAGE_KEYS,
-    );
-    if (raw === null) return {};
-    const parsed = JSON.parse(raw) as unknown;
-    if (typeof parsed !== "object" || parsed === null) return {};
-    return parsed as Persisted;
-  } catch {
-    return {};
-  }
+	try {
+		const raw = readStorageWithLegacy(
+			window.localStorage,
+			STORAGE_KEY,
+			LEGACY_STORAGE_KEYS,
+		);
+		if (raw === null) return {};
+		const parsed = JSON.parse(raw) as unknown;
+		if (typeof parsed !== "object" || parsed === null) return {};
+		return parsed as Persisted;
+	} catch {
+		return {};
+	}
 };
 
 const persist = (state: Persisted): void => {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // Private-mode / quota errors are non-fatal — the drafts just won't stick.
-  }
+	try {
+		window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+	} catch {
+		// Private-mode / quota errors are non-fatal — the drafts just won't stick.
+	}
 };
 
 /** Stable id generator; falls back when `crypto.randomUUID` is unavailable. */
 const newId = (): string => {
-  try {
-    return crypto.randomUUID();
-  } catch {
-    return `ann-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
-  }
+	try {
+		return crypto.randomUUID();
+	} catch {
+		return `ann-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+	}
 };
 
 type AnnotationsState = {
-  readonly bySession: Persisted;
-  /** Append an annotation; `id` is generated here. Returns the new id. */
-  readonly add: (
-    sessionId: SessionId,
-    annotation: Omit<CodeAnnotation, "id">,
-  ) => string;
-  readonly addBrowser: (
-    sessionId: SessionId,
-    annotation: Omit<BrowserAnnotation, "id" | "_tag" | "createdAt">,
-  ) => BrowserAnnotation;
-  readonly remove: (sessionId: SessionId, id: string) => void;
-  readonly updateComment: (
-    sessionId: SessionId,
-    id: string,
-    comment: string,
-  ) => void;
-  readonly replace: (
-    sessionId: SessionId,
-    annotations: ReadonlyArray<ComposerAnnotation>,
-  ) => void;
-  readonly clear: (sessionId: SessionId) => void;
+	readonly bySession: Persisted;
+	/** Append an annotation; `id` is generated here. Returns the new id. */
+	readonly add: (
+		sessionId: SessionId,
+		annotation: Omit<CodeAnnotation, "id">,
+	) => string;
+	readonly addBrowser: (
+		sessionId: SessionId,
+		annotation: Omit<BrowserAnnotation, "id" | "_tag" | "createdAt">,
+	) => BrowserAnnotation;
+	readonly remove: (sessionId: SessionId, id: string) => void;
+	readonly removeById: (id: string) => void;
+	readonly updateComment: (
+		sessionId: SessionId,
+		id: string,
+		comment: string,
+	) => void;
+	readonly replace: (
+		sessionId: SessionId,
+		annotations: ReadonlyArray<ComposerAnnotation>,
+	) => void;
+	readonly clear: (sessionId: SessionId) => void;
 };
 
 export const useAnnotationsStore = create<AnnotationsState>((set, get) => ({
-  bySession: load(),
-  add: (sessionId, annotation) => {
-    const id = newId();
-    const entry: CodeAnnotation = { ...annotation, id };
-    const current = get().bySession[sessionId] ?? [];
-    const bySession = { ...get().bySession, [sessionId]: [...current, entry] };
-    set({ bySession });
-    persist(bySession);
-    return id;
-  },
-  addBrowser: (sessionId, annotation) => {
-    const entry: BrowserAnnotation = {
-      ...annotation,
-      _tag: "browser",
-      id: newId(),
-      createdAt: new Date().toISOString(),
-    };
-    const current = get().bySession[sessionId] ?? [];
-    const bySession = { ...get().bySession, [sessionId]: [...current, entry] };
-    set({ bySession });
-    persist(bySession);
-    return entry;
-  },
-  remove: (sessionId, id) => {
-    const current = get().bySession[sessionId];
-    if (current === undefined) return;
-    const next = current.filter((a) => a.id !== id);
-    const bySession = { ...get().bySession };
-    if (next.length === 0) delete bySession[sessionId];
-    else bySession[sessionId] = next;
-    set({ bySession });
-    persist(bySession);
-  },
-  updateComment: (sessionId, id, comment) => {
-    const current = get().bySession[sessionId];
-    if (current === undefined) return;
-    const trimmed = comment.trim();
-    if (trimmed.length === 0) return;
-    const next = current.map((a) =>
-      a.id === id ? { ...a, comment: trimmed } : a,
-    );
-    const bySession = { ...get().bySession, [sessionId]: next };
-    set({ bySession });
-    persist(bySession);
-  },
-  replace: (sessionId, annotations) => {
-    const bySession = { ...get().bySession };
-    if (annotations.length === 0) delete bySession[sessionId];
-    else bySession[sessionId] = [...annotations];
-    set({ bySession });
-    persist(bySession);
-  },
-  clear: (sessionId) => {
-    if (get().bySession[sessionId] === undefined) return;
-    const bySession = { ...get().bySession };
-    delete bySession[sessionId];
-    set({ bySession });
-    persist(bySession);
-  },
+	bySession: load(),
+	add: (sessionId, annotation) => {
+		const id = newId();
+		const entry: CodeAnnotation = { ...annotation, id };
+		const current = get().bySession[sessionId] ?? [];
+		const bySession = { ...get().bySession, [sessionId]: [...current, entry] };
+		set({ bySession });
+		persist(bySession);
+		return id;
+	},
+	addBrowser: (sessionId, annotation) => {
+		const entry: BrowserAnnotation = {
+			...annotation,
+			_tag: "browser",
+			id: newId(),
+			createdAt: new Date().toISOString(),
+		};
+		const current = get().bySession[sessionId] ?? [];
+		const bySession = { ...get().bySession, [sessionId]: [...current, entry] };
+		set({ bySession });
+		persist(bySession);
+		return entry;
+	},
+	remove: (sessionId, id) => {
+		const current = get().bySession[sessionId];
+		if (current === undefined) return;
+		const next = current.filter((a) => a.id !== id);
+		const bySession = { ...get().bySession };
+		if (next.length === 0) delete bySession[sessionId];
+		else bySession[sessionId] = next;
+		set({ bySession });
+		persist(bySession);
+	},
+	removeById: (id) => {
+		const bySession = { ...get().bySession };
+		let changed = false;
+		for (const [sessionId, annotations] of Object.entries(bySession)) {
+			const next = annotations.filter((annotation) => annotation.id !== id);
+			if (next.length === annotations.length) continue;
+			changed = true;
+			if (next.length === 0) delete bySession[sessionId];
+			else bySession[sessionId] = next;
+		}
+		if (!changed) return;
+		set({ bySession });
+		persist(bySession);
+	},
+	updateComment: (sessionId, id, comment) => {
+		const current = get().bySession[sessionId];
+		if (current === undefined) return;
+		const trimmed = comment.trim();
+		if (trimmed.length === 0) return;
+		const next = current.map((a) =>
+			a.id === id ? { ...a, comment: trimmed } : a,
+		);
+		const bySession = { ...get().bySession, [sessionId]: next };
+		set({ bySession });
+		persist(bySession);
+	},
+	replace: (sessionId, annotations) => {
+		const bySession = { ...get().bySession };
+		if (annotations.length === 0) delete bySession[sessionId];
+		else bySession[sessionId] = [...annotations];
+		set({ bySession });
+		persist(bySession);
+	},
+	clear: (sessionId) => {
+		if (get().bySession[sessionId] === undefined) return;
+		const bySession = { ...get().bySession };
+		delete bySession[sessionId];
+		set({ bySession });
+		persist(bySession);
+	},
 }));
 
 /** Snapshot read for non-reactive callers (e.g. the submit handler). */
 export const annotationsForSession = (
-  sessionId: SessionId,
+	sessionId: SessionId,
 ): ReadonlyArray<ComposerAnnotation> =>
-  useAnnotationsStore.getState().bySession[sessionId] ?? [];
+	useAnnotationsStore.getState().bySession[sessionId] ?? [];

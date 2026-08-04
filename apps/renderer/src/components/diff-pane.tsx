@@ -60,7 +60,6 @@ import {
 	AlertDialogTitle,
 } from "./ui/alert-dialog.tsx";
 import { Button } from "./ui/button.tsx";
-import { Frame, FrameFooter, FrameHeader, FramePanel } from "./ui/frame.tsx";
 
 const basename = (path: string): string => {
 	const i = path.lastIndexOf("/");
@@ -291,23 +290,25 @@ export function DiffPane({
 	};
 
 	return (
-		<div className="flex h-full min-h-0 flex-col">
-			<div className="flex shrink-0 items-center px-2 pt-2">
+		<div className="flex h-full min-h-0 flex-col bg-background">
+			<div className="flex h-12 shrink-0 items-center gap-1 border-b border-border/50 px-3">
 				{(["files", "comments"] as const).map((tab) => (
 					<button
 						key={tab}
 						type="button"
 						onClick={() => setNavigatorTab(tab)}
-						className={`border-b-2 px-2 pb-2 text-xs capitalize transition-colors ${
+						className={`flex h-7 items-center rounded-md px-2.5 text-[11px] capitalize transition-colors ${
 							navigatorTab === tab
-								? "border-foreground text-foreground"
-								: "border-transparent text-muted-foreground hover:text-foreground"
+								? "bg-muted text-foreground"
+								: "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
 						}`}
 					>
-						{tab}{" "}
-						{tab === "comments"
-							? comments.length + pullRequestFeedback.length
-							: (review?.files.length ?? 0)}
+						{tab}
+						<span className="ml-1.5 tabular-nums text-[10px] text-muted-foreground">
+							{tab === "comments"
+								? comments.length + pullRequestFeedback.length
+								: (review?.files.length ?? 0)}
+						</span>
 					</button>
 				))}
 				<button
@@ -315,7 +316,7 @@ export function DiffPane({
 					onClick={() =>
 						openChanges(nextUnviewed?.path ?? review?.files[0]?.path ?? null)
 					}
-					className="ml-auto rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+					className="ml-auto flex h-7 items-center rounded-md px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
 				>
 					{nextUnviewed === undefined ? "Open review" : "Next unviewed"}
 				</button>
@@ -323,9 +324,9 @@ export function DiffPane({
 			<div className="flex min-h-0 flex-1 flex-col overflow-hidden text-xs">
 				{navigatorTab === "files" ? (
 					<>
-						<div className="border-b border-border/60 px-3 py-2">
+						<div className="border-b border-border/40 px-3 py-2.5">
 							{review !== null ? (
-								<div className="flex items-center justify-between text-[11px] text-muted-foreground">
+								<div className="flex items-center justify-between text-[10px] text-muted-foreground">
 									<span>
 										{review.baseRef === null
 											? "Compared with HEAD"
@@ -885,9 +886,9 @@ function CommitComposer({
 	};
 
 	return (
-		<div className="shrink-0 border-t border-border bg-background/20 p-2">
-			<Frame>
-				<FrameHeader className="flex-row items-center justify-between gap-2 px-3 py-2">
+		<div className="shrink-0 border-t border-border/50 bg-background p-3">
+			<div className="overflow-hidden rounded-lg bg-muted/35 shadow-[0_0_0_1px_color-mix(in_oklab,var(--border)_65%,transparent)]">
+				<div className="flex items-center justify-between gap-2 border-b border-border/40 px-3 py-2">
 					<span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
 						<span className="truncate font-mono text-foreground">
 							{branch ?? "(detached)"}
@@ -917,8 +918,8 @@ function CommitComposer({
 						)}
 						Push
 					</button>
-				</FrameHeader>
-				<FramePanel className="p-0">
+				</div>
+				<div>
 					<textarea
 						value={message}
 						onChange={(e) => setMessage(e.target.value)}
@@ -931,10 +932,10 @@ function CommitComposer({
 						placeholder="Commit message"
 						rows={2}
 						disabled={!canCommit || busy === "commit"}
-						className="block min-h-16 w-full resize-none rounded-md bg-transparent px-3 py-2 font-mono text-[11px] leading-5 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+						className="block min-h-16 w-full resize-none bg-transparent px-3 py-2.5 text-xs leading-5 text-foreground outline-none placeholder:text-muted-foreground focus:bg-background/40 disabled:cursor-not-allowed disabled:opacity-60"
 					/>
-				</FramePanel>
-				<FrameFooter className="flex flex-row items-center justify-between gap-2 px-3 py-2">
+				</div>
+				<div className="flex flex-row items-center justify-between gap-2 border-t border-border/40 px-3 py-2">
 					<span className="min-w-0 truncate text-[10px] text-muted-foreground">
 						{error !== null ? (
 							<span className="text-destructive">{error}</span>
@@ -952,7 +953,7 @@ function CommitComposer({
 						disabled={
 							!canCommit || message.trim().length === 0 || busy === "commit"
 						}
-						className="flex shrink-0 items-center gap-1.5 rounded-sm bg-success/15 px-2 py-1 text-[11px] font-medium text-success transition-colors hover:bg-success/25 disabled:cursor-not-allowed disabled:opacity-40"
+						className="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-medium text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-30"
 					>
 						{busy === "commit" ? (
 							<HugeiconsIcon
@@ -964,8 +965,8 @@ function CommitComposer({
 						)}
 						{selectedCount > 0 ? `Commit ${selectedCount}` : "Commit"}
 					</button>
-				</FrameFooter>
-			</Frame>
+				</div>
+			</div>
 		</div>
 	);
 }
