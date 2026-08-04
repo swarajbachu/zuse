@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1]
+
+### Changed
+- Downloads now select the correct macOS or Linux installer automatically, with a dedicated `.deb` option for Debian and Ubuntu users
+- File editing and change review now share a cleaner annotation experience, including multi-line selection and gutter-based comment creation
+
+### Fixed
+- Annotation deletion now works reliably across sessions and revealed comments
+- Linux users can now start Codex and Grok without Bun, open Ghostty or the system terminal in the selected workspace, and run isolated worktree setup scripts without requiring zsh
+
 ## [0.17.0]
 
 ### Added
