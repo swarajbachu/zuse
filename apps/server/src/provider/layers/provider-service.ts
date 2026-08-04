@@ -395,15 +395,6 @@ export const ProviderServiceLive = Layer.effect(
 								executor,
 							),
 						);
-						if (mcpProxyCommand === null) {
-							return yield* Effect.fail(
-								new AgentSessionStartError({
-									providerId: "grok",
-									reason:
-										"Bun was not found on PATH. It is required for the MCP compatibility transport.",
-								}),
-							);
-						}
 						providerHandle = yield* startGrokSession(
 							driverInput,
 							cwd,
@@ -416,7 +407,7 @@ export const ProviderServiceLive = Layer.effect(
 								Effect.runPromiseWith(runtime)(
 									browserBridge.send(sessionId, command),
 								),
-							mcpProxyCommand,
+							mcpProxyCommand ?? process.execPath,
 							orchestrationTools,
 							resumeCursor,
 							providerEventCursor,
@@ -539,15 +530,6 @@ export const ProviderServiceLive = Layer.effect(
 								executor,
 							),
 						);
-						if (mcpProxyCommand === null) {
-							return yield* Effect.fail(
-								new AgentSessionStartError({
-									providerId: "codex",
-									reason:
-										"Bun was not found on PATH. It is required for the MCP compatibility transport.",
-								}),
-							);
-						}
 						for (const name of legacyAppOwnedCodexServerNames(
 							readNativeServers({
 								cwd,
@@ -589,7 +571,7 @@ export const ProviderServiceLive = Layer.effect(
 								Effect.runPromiseWith(runtime)(
 									browserBridge.send(sessionId, command),
 								),
-							mcpProxyCommand,
+							mcpProxyCommand ?? process.execPath,
 							orchestrationTools,
 							resumeCursor,
 						).pipe(Effect.provideService(AttachmentService, attachmentService));

@@ -12,6 +12,19 @@ export type PortableOpenTarget = {
 	readonly args: (path: string) => ReadonlyArray<string>;
 };
 
+export const terminalShellCommand = (path: string): ReadonlyArray<string> => [
+	"-e",
+	"sh",
+	"-c",
+	`cd -- "$1" && exec "\${SHELL:-/bin/sh}" -l`,
+	"zuse-terminal",
+	path,
+];
+
+export const ghosttyWorkingDirectoryArgs = (
+	path: string,
+): ReadonlyArray<string> => [`--working-directory=${path}`];
+
 export type PortableOpenTargetView = {
 	readonly id: string;
 	readonly label: string;
@@ -54,13 +67,13 @@ const linuxTargets: ReadonlyArray<PortableOpenTarget> = [
 		id: "ghostty",
 		label: "Ghostty",
 		command: "ghostty",
-		args: (path) => ["--working-directory", path],
+		args: ghosttyWorkingDirectoryArgs,
 	},
 	{
 		id: "terminal",
 		label: "Terminal",
 		command: "x-terminal-emulator",
-		args: (path) => ["--working-directory", path],
+		args: terminalShellCommand,
 	},
 ];
 

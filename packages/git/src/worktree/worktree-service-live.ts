@@ -121,6 +121,23 @@ const truncateOutput = (value: string): string =>
 		? value
 		: value.slice(value.length - MAX_SETUP_OUTPUT);
 
+export const shellCommandForPlatform = (
+	platform: NodeJS.Platform,
+	env: NodeJS.ProcessEnv,
+): { readonly command: string; readonly args: ReadonlyArray<string> } => {
+	if (platform === "win32") {
+		return {
+			command: env.COMSPEC?.trim() || "cmd.exe",
+			args: ["/d", "/s", "/c"],
+		};
+	}
+	return {
+		command:
+			env.SHELL?.trim() || (platform === "darwin" ? "/bin/zsh" : "/bin/sh"),
+		args: ["-lc"],
+	};
+};
+
 const readIfExists = async (path: string): Promise<Buffer | null> => {
 	try {
 		return await fs.readFile(path);
@@ -240,14 +257,22 @@ export const WorktreeServiceLive = Layer.effect(
 			}) {
 				return yield* Effect.scoped(
 					Effect.gen(function* () {
-						const command = Command.make("/bin/zsh", ["-lc", script], {
-							cwd,
-							env: { ...env },
-							extendEnv: true,
-							stdin: "ignore",
-						});
-						const process = yield* executor.spawn(command);
-						const output = yield* process.all.pipe(
+						const shell = shellCommandForPlatform(
+							process.platform,
+							process.env,
+						);
+						const command = Command.make(
+							shell.command,
+							[...shell.args, script],
+							{
+								cwd,
+								env: { ...env },
+								extendEnv: true,
+								stdin: "ignore",
+							},
+						);
+						const childProcess = yield* executor.spawn(command);
+						const output = yield* childProcess.all.pipe(
 							Stream.decodeText({ encoding: "utf-8" }),
 							Stream.runFold(
 								() => "",
@@ -258,7 +283,7 @@ export const WorktreeServiceLive = Layer.effect(
 								},
 							),
 						);
-						const exitCode = yield* process.exitCode;
+						const exitCode = yield* childProcess.exitCode;
 						return { exitCode, output } as const;
 					}),
 				).pipe(Effect.timeout(SETUP_TIMEOUT_MS));

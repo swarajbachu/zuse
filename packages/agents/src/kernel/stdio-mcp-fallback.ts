@@ -39,15 +39,17 @@ export const makeStdioMcpFallback = (
 	readonly ensure: () => Promise<ReadonlyArray<StdioMcpServerConfig>>;
 	readonly close: () => Promise<void>;
 } => {
+	const usesBun = basename(options.command).includes("bun");
 	const config: StdioMcpServerConfig = {
 		name: "zuse",
-		command: basename(options.command).includes("bun")
-			? options.command
-			: process.execPath,
+		command: usesBun ? options.command : process.execPath,
 		args: [childPath()],
 		env: [
 			{ name: "ZUSE_APP_MCP_URL", value: options.endpoint },
 			{ name: "ZUSE_APP_MCP_TOKEN", value: options.token },
+			...(usesBun
+				? []
+				: [{ name: "ELECTRON_RUN_AS_NODE", value: "1" } as const]),
 		],
 	};
 	return {

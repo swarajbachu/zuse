@@ -10,6 +10,29 @@ import {
 	parseNetstatListeners,
 	parseSsListeners,
 } from "../../src/host/local-port-inspector.ts";
+import {
+	ghosttyWorkingDirectoryArgs,
+	terminalShellCommand,
+} from "../../src/host/open-targets.ts";
+
+describe("Linux open targets", () => {
+	it("passes Ghostty's working directory as one option", () => {
+		expect(ghosttyWorkingDirectoryArgs("/tmp/a repo")).toEqual([
+			"--working-directory=/tmp/a repo",
+		]);
+	});
+
+	it("opens the portable terminal in the requested directory", () => {
+		expect(terminalShellCommand("/tmp/a repo")).toEqual([
+			"-e",
+			"sh",
+			"-c",
+			`cd -- "$1" && exec "\${SHELL:-/bin/sh}" -l`,
+			"zuse-terminal",
+			"/tmp/a repo",
+		]);
+	});
+});
 
 describe("browser cookie host adapter", () => {
 	it("discovers XDG, Snap, and Flatpak Chromium profiles on Linux", () => {
