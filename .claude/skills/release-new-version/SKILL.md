@@ -56,6 +56,14 @@ git push origin vX.Y.Z
 ```
 
 9. Verify the tag-triggered release workflow succeeds and that the expected GitHub Release and artifacts exist. If anything is still running or blocked, report it as pending rather than done.
+10. After artifact publication finishes, publish the same curated notes on the public GitHub Release and read the release back to verify its title, body, tag, and assets:
+
+```bash
+gh release edit vX.Y.Z --title "Zuse X.Y.Z" --notes-file /absolute/path/to/release-notes.md
+gh release view vX.Y.Z --json name,body,tagName,url,assets
+```
+
+An empty release body, raw commit dump, or PR-only description is incomplete. The public release must explain important features and preserve the `Added`, `Changed`, and `Fixed` grouping.
 
 ## What The Helper Does
 
@@ -75,4 +83,4 @@ Report release state with explicit outcomes:
 - validation commands and results;
 - PR and merge state;
 - tag and release-workflow state;
-- published artifacts, or the precise remaining blocker.
+- public release page and published artifacts, or the precise remaining blocker.
