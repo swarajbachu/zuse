@@ -158,7 +158,8 @@ describe("mobile UI contracts", () => {
 		}
 		expect(row).not.toContain("hydratePrState");
 		expect(row).not.toContain("BranchStateBadge");
-		expect(header).toContain("FolderIcon");
+		expect(row).toContain("ProviderLogo");
+		expect(header).toContain("Github");
 		expect(avatar).toContain("hydrateProjectOrigin");
 		expect(logo).toContain('from "expo-image"');
 		expect(logo).toContain('cachePolicy="memory-disk"');
