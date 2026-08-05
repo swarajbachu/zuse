@@ -1,9 +1,4 @@
-import {
-	ChevronDown,
-	ChevronRight,
-	Folder,
-	FolderOpen,
-} from "lucide-react-native";
+import { ChevronDown, ChevronRight, Github } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 
 import { PresenceDot } from "~/components/ui/presence-dot";
@@ -19,7 +14,6 @@ export function HomeProjectHeader({
 	collapsed: boolean;
 	onToggle: () => void;
 }) {
-	const FolderIcon = collapsed ? Folder : FolderOpen;
 	const Chevron = collapsed ? ChevronRight : ChevronDown;
 
 	return (
@@ -32,7 +26,7 @@ export function HomeProjectHeader({
 			onPress={onToggle}
 			className="mt-2 min-h-12 flex-row items-center gap-2.5 rounded-xl px-3 active:bg-muted"
 		>
-			<FolderIcon size={18} color={colors.fg} />
+			<Github size={18} color={colors.fg} />
 			<Text
 				className="min-w-0 flex-1 font-sans-medium text-[15px] text-foreground"
 				numberOfLines={1}
