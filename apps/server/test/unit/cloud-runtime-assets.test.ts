@@ -103,6 +103,10 @@ describe("cloud runtime assets", () => {
 		expect(workflow).toContain(
 			"github.event_name == 'push' && github.ref == 'refs/heads/main'",
 		);
+		expect(workflow).toContain("publish_staging:");
+		expect(workflow).toContain(
+			"github.event_name == 'workflow_dispatch' && inputs.publish_staging == true",
+		);
 		expect(workflow).not.toContain(
 			"ZUSE_RUNTIME_SIGNING_PRIVATE_JWK: $" +
 				"{{ secrets.ZUSE_RUNTIME_SIGNING_PRIVATE_JWK }}",
