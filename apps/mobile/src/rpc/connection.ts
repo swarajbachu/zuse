@@ -17,6 +17,7 @@ import {
 	isIntentionalConnectionInterruption,
 	isRetryableClientError,
 } from "./connection-failures";
+import { chooseGrantEndpoint } from "./endpoint-selection";
 import { ConnectionFailed } from "./errors";
 import { makeMobileWebSocket } from "./mobile-websocket";
 import { connectEnvironment } from "./relay-client";
@@ -74,7 +75,16 @@ const prepareOptions = async (
 		options.environmentId !== undefined
 	) {
 		const grant = await connectEnvironment(options.environmentId);
-		return { ...options, token: grant.connectToken };
+		const endpoint = await chooseGrantEndpoint(grant);
+		return {
+			...options,
+			host: new URL(endpoint.wsBaseUrl).hostname,
+			port:
+				Number(new URL(endpoint.wsBaseUrl).port) ||
+				(endpoint.wsBaseUrl.startsWith("wss:") ? 443 : 80),
+			wsBaseUrl: endpoint.wsBaseUrl,
+			token: grant.connectToken,
+		};
 	}
 	if (options.environmentId === undefined || options.wsBaseUrl === undefined) {
 		return options;
@@ -84,19 +94,20 @@ const prepareOptions = async (
 		environmentId: options.environmentId,
 	});
 	const grant = await connectEnvironment(options.environmentId);
+	const endpoint = await chooseGrantEndpoint(grant);
 	logConnectionDiagnostic("relay.connect_grant.ok", {
 		key: runtimeKey(options),
 		environmentId: options.environmentId,
-		wsBaseUrl: grant.endpoint.wsBaseUrl,
+		wsBaseUrl: endpoint.wsBaseUrl,
 		expiresAt: grant.expiresAt,
 	});
 	return {
 		...options,
-		host: new URL(grant.endpoint.wsBaseUrl).hostname,
+		host: new URL(endpoint.wsBaseUrl).hostname,
 		port:
-			Number(new URL(grant.endpoint.wsBaseUrl).port) ||
-			(grant.endpoint.wsBaseUrl.startsWith("wss:") ? 443 : 80),
-		wsBaseUrl: grant.endpoint.wsBaseUrl,
+			Number(new URL(endpoint.wsBaseUrl).port) ||
+			(endpoint.wsBaseUrl.startsWith("wss:") ? 443 : 80),
+		wsBaseUrl: endpoint.wsBaseUrl,
 		token: grant.connectToken,
 	};
 };

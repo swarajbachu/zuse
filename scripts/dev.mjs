@@ -82,6 +82,10 @@ async function shutdown(code) {
 }
 
 const sharedEnv = {
+	ZUSE_RELAY_URL:
+		process.env.ZUSE_RELAY_URL?.trim() || "https://relay-staging.stuff.md",
+	VITE_ZUSE_RELAY_URL:
+		process.env.VITE_ZUSE_RELAY_URL?.trim() || "https://relay-staging.stuff.md",
 	ZUSE_DEV_INSTANCE: instance.instance,
 	ZUSE_DEV_STARTED_AT: String(devStartedAt),
 	ZUSE_DESKTOP_WS_PORT: String(instance.websocketPort),

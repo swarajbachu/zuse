@@ -33,6 +33,8 @@ export interface EnvironmentRecord {
 	readonly environmentPublicKey: string;
 	readonly httpBaseUrl: string;
 	readonly wsBaseUrl: string;
+	readonly privateHttpBaseUrl?: string;
+	readonly privateWsBaseUrl?: string;
 	readonly tunnelHostname?: string;
 	readonly tunnelId?: string;
 	readonly dnsRecordId?: string;
@@ -80,6 +82,10 @@ export interface ActivityRecord {
 	readonly occurredAtMs: number;
 }
 
+export type EnvironmentRegistrationMode =
+	| "replace-same-account"
+	| "preserve-identity";
+
 export interface RelayStoreApi {
 	readonly createChallenge: (
 		challenge: LinkChallengeRecord,
@@ -92,6 +98,7 @@ export interface RelayStoreApi {
 	readonly registerEnvironment: (
 		environment: EnvironmentRecord,
 		maxEnvironmentsPerAccount: number | null,
+		mode: EnvironmentRegistrationMode,
 	) => Effect.Effect<boolean>;
 	readonly listEnvironments: (
 		accountId: string,
@@ -118,6 +125,15 @@ export interface RelayStoreApi {
 	readonly clearTunnelAllocation: (
 		environmentId: string,
 	) => Effect.Effect<void>;
+	readonly setPrivateEndpoint: (
+		environmentId: string,
+		endpoint:
+			| {
+					readonly httpBaseUrl: string;
+					readonly wsBaseUrl: string;
+			  }
+			| undefined,
+	) => Effect.Effect<void>;
 	/** Delete an environment (and cascade its credentials) — on unlink. */
 	readonly deleteEnvironment: (
 		environmentId: string,
@@ -129,6 +145,10 @@ export interface RelayStoreApi {
 	readonly findActiveCredentialByHash: (
 		credentialHash: string,
 	) => Effect.Effect<CredentialRecord | null>;
+	readonly revokeEnvironmentCredentials: (
+		environmentId: string,
+		revokedAtMs: number,
+	) => Effect.Effect<void>;
 	readonly upsertDevice: (device: DeviceRecord) => Effect.Effect<boolean>;
 	readonly listDevices: (
 		accountId: string,
@@ -185,12 +205,16 @@ export const RelayStoreMemory: Layer.Layer<RelayStore> = Layer.effect(
 					next.delete(challengeId);
 					return [found, next];
 				}),
-			registerEnvironment: (environment, maxEnvironmentsPerAccount) =>
+			registerEnvironment: (environment, maxEnvironmentsPerAccount, mode) =>
 				Ref.modify(environments, (map) => {
 					const current = map.get(environment.environmentId);
 					if (
 						current !== undefined &&
-						current.accountId !== environment.accountId
+						(current.accountId !== environment.accountId ||
+							(mode === "preserve-identity" &&
+								(current.providerKind !== environment.providerKind ||
+									current.environmentPublicKey !==
+										environment.environmentPublicKey)))
 					) {
 						return [false, map];
 					}
@@ -209,6 +233,13 @@ export const RelayStoreMemory: Layer.Layer<RelayStore> = Layer.effect(
 						new Map(map).set(environment.environmentId, {
 							...current,
 							...environment,
+							privateHttpBaseUrl: current?.privateHttpBaseUrl,
+							privateWsBaseUrl: current?.privateWsBaseUrl,
+							tunnelHostname: current?.tunnelHostname,
+							tunnelId: current?.tunnelId,
+							dnsRecordId: current?.dnsRecordId,
+							tunnelStatus: current?.tunnelStatus,
+							lastSeenAtMs: current?.lastSeenAtMs,
 						}),
 					];
 				}),
@@ -256,6 +287,16 @@ export const RelayStoreMemory: Layer.Layer<RelayStore> = Layer.effect(
 						tunnelStatus: undefined,
 					});
 				}),
+			setPrivateEndpoint: (environmentId, endpoint) =>
+				Ref.update(environments, (map) => {
+					const found = map.get(environmentId);
+					if (found === undefined) return map;
+					return new Map(map).set(environmentId, {
+						...found,
+						privateHttpBaseUrl: endpoint?.httpBaseUrl,
+						privateWsBaseUrl: endpoint?.wsBaseUrl,
+					});
+				}),
 			deleteEnvironment: (environmentId, accountId) =>
 				Effect.andThen(
 					Ref.update(environments, (map) => {
@@ -289,6 +330,19 @@ export const RelayStoreMemory: Layer.Layer<RelayStore> = Layer.effect(
 							) ?? null,
 					),
 				),
+			revokeEnvironmentCredentials: (environmentId, revokedAtMs) =>
+				Ref.update(credentials, (map) => {
+					const next = new Map(map);
+					for (const [id, credential] of map) {
+						if (
+							credential.environmentId === environmentId &&
+							credential.revokedAtMs === undefined
+						) {
+							next.set(id, { ...credential, revokedAtMs });
+						}
+					}
+					return next;
+				}),
 			upsertDevice: (device) =>
 				Ref.modify(devices, (map) => {
 					const current = map.get(device.deviceId);
@@ -391,6 +445,8 @@ interface EnvironmentRow {
 	readonly environment_public_key: string;
 	readonly http_base_url: string;
 	readonly ws_base_url: string;
+	readonly private_http_base_url: string | null;
+	readonly private_ws_base_url: string | null;
 	readonly tunnel_hostname: string | null;
 	readonly tunnel_id: string | null;
 	readonly dns_record_id: string | null;
@@ -412,6 +468,8 @@ const toEnvironment = (row: EnvironmentRow): EnvironmentRecord => ({
 	environmentPublicKey: row.environment_public_key,
 	httpBaseUrl: row.http_base_url,
 	wsBaseUrl: row.ws_base_url,
+	privateHttpBaseUrl: row.private_http_base_url ?? undefined,
+	privateWsBaseUrl: row.private_ws_base_url ?? undefined,
 	tunnelHostname: row.tunnel_hostname ?? undefined,
 	tunnelId: row.tunnel_id ?? undefined,
 	dnsRecordId: row.dns_record_id ?? undefined,
@@ -474,7 +532,7 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
 							}),
 						),
 					),
-				registerEnvironment: (env, maxEnvironmentsPerAccount) =>
+				registerEnvironment: (env, maxEnvironmentsPerAccount, mode) =>
 					orDie(
 						sql<{ readonly registered: boolean }>`
             WITH account_lock AS (
@@ -489,6 +547,13 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
                   SELECT 1 FROM relay_environments
                   WHERE environment_id = ${env.environmentId}
                     AND account_id = ${env.accountId}
+									AND (
+										${mode}::text = 'replace-same-account'
+										OR (
+											provider_kind = ${env.providerKind}
+											AND environment_public_key = ${env.environmentPublicKey}
+										)
+									)
                 )
                 OR (
                   NOT EXISTS (
@@ -532,7 +597,14 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
                 wire_protocol_version = EXCLUDED.wire_protocol_version,
                 capabilities = EXCLUDED.capabilities,
                 service_state = EXCLUDED.service_state
-              WHERE relay_environments.account_id = EXCLUDED.account_id
+							WHERE relay_environments.account_id = EXCLUDED.account_id
+								AND (
+									${mode}::text = 'replace-same-account'
+									OR (
+										relay_environments.provider_kind = EXCLUDED.provider_kind
+										AND relay_environments.environment_public_key = EXCLUDED.environment_public_key
+									)
+								)
               RETURNING environment_id
             )
             SELECT EXISTS(SELECT 1 FROM registered) AS registered
@@ -592,6 +664,15 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
             WHERE environment_id = ${environmentId}
           `.pipe(Effect.asVoid),
 					),
+				setPrivateEndpoint: (environmentId, endpoint) =>
+					orDie(
+						sql`
+							UPDATE relay_environments SET
+								private_http_base_url = ${endpoint?.httpBaseUrl ?? null},
+								private_ws_base_url = ${endpoint?.wsBaseUrl ?? null}
+							WHERE environment_id = ${environmentId}
+						`.pipe(Effect.asVoid),
+					),
 				deleteEnvironment: (environmentId, accountId) =>
 					orDie(
 						sql`
@@ -639,6 +720,14 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
 								} satisfies CredentialRecord;
 							}),
 						),
+					),
+				revokeEnvironmentCredentials: (environmentId, revokedAtMs) =>
+					orDie(
+						sql`
+							UPDATE relay_environment_credentials
+							SET revoked_at = ${revokedAtMs}
+							WHERE environment_id = ${environmentId} AND revoked_at IS NULL
+						`.pipe(Effect.asVoid),
 					),
 				upsertDevice: (device) =>
 					orDie(

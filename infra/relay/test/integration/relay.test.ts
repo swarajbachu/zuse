@@ -1,3 +1,9 @@
+import {
+	type BillingProviderAdapter,
+	BillingProviders,
+	BillingProvidersManual,
+} from "@zuse/billing-providers";
+import { MachineProvidersFake } from "@zuse/machine-providers/testing";
 import { Effect, Layer, Redacted } from "effect";
 import {
 	exportJWK,
@@ -12,6 +18,8 @@ import * as Config from "../../src/config.ts";
 import type { RelayContext } from "../../src/handler.ts";
 import {
 	AccountIdentity,
+	MachineControlConfiguration,
+	MachineStoreMemory,
 	ManagedTunnelProviderLive,
 	makeRelay,
 	PushDelivery,
@@ -76,8 +84,19 @@ let identityDeletes: string[];
 
 const makeLayer = async (
 	managedTunnel?: Config.ManagedTunnelConfig,
-	maxEnvironmentsPerAccount?: number,
+	billingLayerOrMaxEnvironments:
+		| Layer.Layer<BillingProviders>
+		| number = BillingProvidersManual,
+	liveCheckoutEnabled = false,
 ): Promise<Layer.Layer<RelayContext>> => {
+	const billingLayer =
+		typeof billingLayerOrMaxEnvironments === "number"
+			? BillingProvidersManual
+			: billingLayerOrMaxEnvironments;
+	const maxEnvironmentsPerAccount =
+		typeof billingLayerOrMaxEnvironments === "number"
+			? billingLayerOrMaxEnvironments
+			: undefined;
 	mintKey = (await eddsa()) as KeyPair;
 	const configLayer = Config.layer({
 		relayIssuer: RELAY_ISSUER,
@@ -112,6 +131,18 @@ const makeLayer = async (
 		configLayer,
 		WorkosVerifierTest,
 		RelayStoreMemory,
+		MachineStoreMemory,
+		MachineProvidersFake,
+		billingLayer,
+		Layer.succeed(MachineControlConfiguration, {
+			allowlistedAccountIds: new Set(["user_a", "user_b"]),
+			manualEntitlementsEnabled: true,
+			liveCheckoutEnabled,
+			enrollmentTtlMs: 30 * 60 * 1_000,
+			recoveryWindowMs: 7 * 24 * 60 * 60 * 1_000,
+			finalSnapshotRetentionMs: 14 * 24 * 60 * 60 * 1_000,
+			reconcileLeaseMs: 5 * 60 * 1_000,
+		}),
 		ManagedTunnelProviderLive.pipe(Layer.provide(configLayer)),
 		pushLayer,
 		accountIdentityLayer,
@@ -185,11 +216,27 @@ const linkEnvironment = async (input: {
 	return { envKey, credential: linked.environmentCredential };
 };
 
-const heartbeat = (environmentId: string, credential: string) =>
+const heartbeat = (
+	environmentId: string,
+	credential: string,
+	privateEndpoint?: {
+		readonly httpBaseUrl: string;
+		readonly wsBaseUrl: string;
+	},
+) =>
 	relay.fetch(
 		new Request(`${RELAY_ISSUER}/v1/environments/${environmentId}/heartbeat`, {
 			method: "POST",
-			headers: { authorization: `Bearer ${credential}` },
+			headers: {
+				authorization: `Bearer ${credential}`,
+				...(privateEndpoint === undefined
+					? {}
+					: { "content-type": "application/json" }),
+			},
+			body:
+				privateEndpoint === undefined
+					? undefined
+					: JSON.stringify({ privateEndpoint }),
 		}),
 	);
 
@@ -220,6 +267,232 @@ beforeEach(async () => {
 });
 
 describe("@zuse/relay", () => {
+	test("offers one server-owned alpha machine and makes creation idempotent", async () => {
+		const headers = {
+			authorization: "Bearer test-token:user_a",
+			"content-type": "application/json",
+		};
+		const offers = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/machine-offers`, { headers }),
+		);
+		expect(offers.status).toBe(200);
+		expect(await offers.json()).toMatchObject({
+			offers: [
+				{
+					offerId: "persistent-standard-v1",
+					vcpuCount: 4,
+					memoryMib: 8192,
+					diskGib: 80,
+					location: "Germany",
+					monthlyPriceCents: 1900,
+				},
+			],
+		});
+
+		const create = () =>
+			relay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/machines`, {
+					method: "POST",
+					headers,
+					body: JSON.stringify({
+						offerId: "persistent-standard-v1",
+						label: "Build box",
+						idempotencyKey: "create-once",
+					}),
+				}),
+			);
+		const first = await create();
+		const second = await create();
+		expect(first.status).toBe(201);
+		expect(second.status).toBe(200);
+		const firstBody = (await first.json()) as { machineId: string };
+		const secondBody = (await second.json()) as { machineId: string };
+		expect(secondBody.machineId).toBe(firstBody.machineId);
+
+		const list = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/machines`, { headers }),
+		);
+		const listBody = await list.json();
+		expect(JSON.stringify(listBody)).not.toContain("providerServerId");
+		expect(JSON.stringify(listBody)).not.toContain("lastError");
+
+		const another = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/machines`, {
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					offerId: "persistent-standard-v1",
+					idempotencyKey: "another-machine",
+				}),
+			}),
+		);
+		expect(another.status).toBe(409);
+		expect(await another.json()).toEqual({ error: "machine_limit_reached" });
+	});
+
+	test("keeps live checkout disabled during manual-entitlement alpha", async () => {
+		const response = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/billing/checkout`, {
+				method: "POST",
+				headers: {
+					authorization: "Bearer test-token:user_a",
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
+					offerId: "persistent-standard-v1",
+					successUrl: "zuse://machines",
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(503);
+		expect(await response.json()).toEqual({
+			error: "billing_approval_pending",
+		});
+	});
+
+	test("deduplicates billing events and reconciles out-of-order delivery from authoritative state", async () => {
+		let status: "active" | "ended" = "active";
+		const billing: BillingProviderAdapter = {
+			providerId: "billing-test",
+			checkout: () => Effect.succeed("https://billing.test/checkout"),
+			verifyEvent: (request) =>
+				Effect.promise(async () => {
+					const body = (await request.json()) as {
+						readonly eventId: string;
+						readonly subscriptionId: string;
+					};
+					return body;
+				}),
+			reconcileSubscription: (subscriptionId) =>
+				Effect.sync(() => ({
+					accountId: "user_a",
+					providerSubscriptionId: subscriptionId,
+					status,
+					offerId: "persistent-standard-v1",
+					paidThrough:
+						status === "active" ? Date.now() + 86_400_000 : Date.now(),
+				})),
+			cancel: () => Effect.void,
+			customerPortal: () => Effect.succeed("https://billing.test/portal"),
+		};
+		const defaultBilling: BillingProviderAdapter = {
+			...billing,
+			providerId: "billing-default",
+			customerPortal: () => Effect.succeed("https://default.test/portal"),
+		};
+		const billingRelay = makeRelay(
+			await makeLayer(
+				undefined,
+				BillingProviders.layer({
+					adapters: [billing, defaultBilling],
+					defaultProviderId: defaultBilling.providerId,
+				}).pipe(Layer.orDie),
+				false,
+			),
+		);
+		const deliver = (eventId: string) =>
+			billingRelay.fetch(
+				new Request(
+					`${RELAY_ISSUER}/v1/billing/webhook/${billing.providerId}`,
+					{
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({
+							eventId,
+							subscriptionId: "subscription_1",
+						}),
+					},
+				),
+			);
+
+		try {
+			const first = await deliver("event_newer");
+			const firstBody = (await first.json()) as {
+				readonly machineId: string;
+				readonly ok: boolean;
+				readonly duplicate: boolean;
+				readonly provisioningQueued: boolean;
+			};
+			const immediate = await billingRelay.reconcileMachine(
+				firstBody.machineId,
+				"webhook-test",
+			);
+			const unqualified = await billingRelay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/billing/webhook`, {
+					method: "POST",
+				}),
+			);
+			const portal = await billingRelay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/billing/portal`, {
+					method: "POST",
+					headers: { authorization: "Bearer test-token:user_a" },
+				}),
+			);
+			const duplicateCreate = await billingRelay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/machines`, {
+					method: "POST",
+					headers: {
+						authorization: "Bearer test-token:user_a",
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						offerId: "persistent-standard-v1",
+						idempotencyKey: "billing-machine",
+					}),
+				}),
+			);
+			const duplicate = await deliver("event_newer");
+			status = "ended";
+			const outOfOrder = await deliver("event_older");
+			const entitlements = await billingRelay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/billing/entitlements`, {
+					headers: { authorization: "Bearer test-token:user_a" },
+				}),
+			);
+			const machines = await billingRelay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/machines`, {
+					headers: { authorization: "Bearer test-token:user_a" },
+				}),
+			);
+
+			expect(firstBody).toMatchObject({
+				ok: true,
+				duplicate: false,
+				provisioningQueued: true,
+			});
+			expect(immediate).toEqual({ claimed: 1, processed: 1 });
+			expect(unqualified.status).toBe(400);
+			expect(await portal.json()).toEqual({
+				portalUrl: "https://billing.test/portal",
+			});
+			expect(duplicateCreate.status).toBe(409);
+			expect(await duplicate.json()).toMatchObject({
+				ok: true,
+				duplicate: true,
+				provisioningQueued: false,
+			});
+			expect(await outOfOrder.json()).toMatchObject({
+				ok: true,
+				duplicate: false,
+				provisioningQueued: false,
+			});
+			expect(await entitlements.json()).toMatchObject({
+				entitlements: [{ status: "ended" }],
+			});
+			expect(await machines.json()).toMatchObject({
+				machines: [
+					{
+						desiredState: "suspended",
+						statusCode: "cancellation-scheduled",
+					},
+				],
+			});
+		} finally {
+			await billingRelay.dispose();
+		}
+	});
+
 	test("brokers browser PKCE token exchanges without exposing a general proxy", async () => {
 		const response = await relay.fetch(
 			new Request(`${RELAY_ISSUER}/v1/auth/token`, {
@@ -460,7 +733,22 @@ describe("@zuse/relay", () => {
 		expect((await offline.json()).status).toBe("offline");
 
 		// Heartbeat → online.
-		expect((await heartbeat(environmentId, credential)).status).toBe(200);
+		expect(
+			(
+				await heartbeat(environmentId, credential, {
+					httpBaseUrl: "http://100.64.0.8:47837",
+					wsBaseUrl: "ws://100.64.0.8:47837",
+				})
+			).status,
+		).toBe(200);
+		expect(
+			(
+				await heartbeat(environmentId, credential, {
+					httpBaseUrl: "https://attacker.test",
+					wsBaseUrl: "wss://attacker.test",
+				})
+			).status,
+		).toBe(400);
 		const online = await relay.fetch(
 			new Request(statusUrl, {
 				method: "POST",
@@ -497,8 +785,18 @@ describe("@zuse/relay", () => {
 				}),
 			}),
 		);
-		const connectBody = (await connect.json()) as { connectToken: string };
+		const connectBody = (await connect.json()) as {
+			connectToken: string;
+			endpointCandidates: ReadonlyArray<{ kind: string; wsBaseUrl: string }>;
+		};
 		expect(connectBody.connectToken.split(".")).toHaveLength(3); // a JWT, not base64 stub
+		expect(connectBody.endpointCandidates[0]).toEqual({
+			kind: "private-network",
+			endpoint: {
+				httpBaseUrl: "http://100.64.0.8:47837",
+				wsBaseUrl: "ws://100.64.0.8:47837",
+			},
+		});
 		const verified = await jwtVerify(
 			connectBody.connectToken,
 			await importJWK(await exportJWK(mintKey.publicKey), "EdDSA"),
@@ -594,6 +892,49 @@ describe("@zuse/relay", () => {
 		);
 		expect((await list.json()).environments).toHaveLength(0);
 		expect((await heartbeat("env_delete", credential)).status).toBe(401);
+	});
+
+	test("revokes account access immediately and defers identity deletion until machine cleanup", async () => {
+		const create = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/machines`, {
+				method: "POST",
+				headers: {
+					authorization: "Bearer test-token:user_a",
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
+					offerId: "persistent-standard-v1",
+					idempotencyKey: "delete-account-machine",
+				}),
+			}),
+		);
+		expect(create.status).toBe(201);
+		await relay.reconcile("provision-before-delete");
+
+		const deletion = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/account`, {
+				method: "DELETE",
+				headers: { authorization: "Bearer test-token:user_a" },
+			}),
+		);
+		expect(deletion.status).toBe(202);
+		expect(await deletion.json()).toEqual({
+			ok: true,
+			cleanupPending: true,
+		});
+		expect(identityDeletes).toEqual([]);
+
+		await relay.reconcile("account-cleanup");
+		expect(identityDeletes).toEqual(["user_a"]);
+
+		const machines = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/machines`, {
+				headers: { authorization: "Bearer test-token:user_a" },
+			}),
+		);
+		expect(await machines.json()).toMatchObject({
+			machines: [{ state: "destroyed", statusCode: "destroyed" }],
+		});
 	});
 
 	test("scopes environments by account — cross-account access is denied", async () => {

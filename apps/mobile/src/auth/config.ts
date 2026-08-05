@@ -1,3 +1,5 @@
+import { WORKOS_PUBLIC_CLIENT_ID } from "@zuse/contracts";
+
 /**
  * Cloud-auth configuration, read from Expo public env vars. Set these in the
  * app's `.env` / EAS secrets:
@@ -7,14 +9,16 @@
 export const WORKOS_API = "https://api.workos.com";
 
 export const workosClientId = (): string =>
-  process.env.EXPO_PUBLIC_WORKOS_CLIENT_ID ?? WORKOS_PUBLIC_CLIENT_ID;
+	process.env.EXPO_PUBLIC_WORKOS_CLIENT_ID ?? WORKOS_PUBLIC_CLIENT_ID;
+
+export const defaultRelayBaseUrl = (development: boolean): string =>
+	development ? "https://relay-staging.stuff.md" : "https://relay.stuff.md";
 
 export const relayBaseUrl = (): string =>
-  (process.env.EXPO_PUBLIC_ZUSE_RELAY_URL ?? "https://relay.stuff.md").replace(
-    /\/$/,
-    "",
-  );
+	(
+		process.env.EXPO_PUBLIC_ZUSE_RELAY_URL ??
+		defaultRelayBaseUrl(typeof __DEV__ !== "undefined" && __DEV__)
+	).replace(/\/$/, "");
 
 /** App deep-link scheme (matches app.json `scheme`). */
 export const APP_SCHEME = "zuse";
-import { WORKOS_PUBLIC_CLIENT_ID } from "@zuse/contracts";

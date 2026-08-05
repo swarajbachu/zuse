@@ -1,10 +1,20 @@
 import { PgClient } from "@effect/sql-pg";
 import { HOSTED_APP_URL } from "@zuse/contracts";
 import { Effect, Layer, Redacted } from "effect";
-import { Pool, type PoolConfig } from "pg";
+import { Pool } from "pg";
+import cloudInitTemplate from "../../cloud-machines/bootstrap/cloud-init.yaml.tmpl";
 import { AccountIdentityLive } from "./account-identity.ts";
+import { resolveBillingRuntime } from "./billing-config.ts";
 import * as Config from "./config.ts";
+import { isConfigured } from "./environment.ts";
+import { hyperdrivePoolConfig } from "./hyperdrive.ts";
 import { makeRelay } from "./index.ts";
+import {
+	type MachineControlConfig,
+	MachineControlConfiguration,
+} from "./machine-config.ts";
+import { resolveMachineProviderRuntime } from "./machine-provider-config.ts";
+import { MachineStorePg } from "./machine-store.ts";
 import { ManagedTunnelProviderLive } from "./managed-tunnel.ts";
 import { PushDeliveryLive } from "./push.ts";
 import { RelayStorePg } from "./store.ts";
@@ -31,22 +41,36 @@ interface Env {
 	readonly CF_ZONE_ID?: string;
 	readonly MANAGED_TUNNEL_BASE_DOMAIN?: string;
 	readonly MANAGED_TUNNEL_NAMESPACE?: string;
+	readonly MACHINE_ALPHA_ALLOWLIST?: string;
+	readonly MACHINE_MANUAL_ENTITLEMENTS?: string;
+	readonly MACHINE_LIVE_CHECKOUT_ENABLED?: string;
+	readonly POLAR_ACCESS_TOKEN?: string;
+	readonly POLAR_ENVIRONMENT?: string;
+	readonly POLAR_PRODUCT_PERSISTENT_STANDARD_V1?: string;
+	readonly POLAR_VPS_SALES_APPROVED?: string;
+	readonly POLAR_WEBHOOK_SECRET?: string;
+	readonly MACHINE_PROVIDER?: string;
+	readonly HETZNER_ADAPTER_ENABLED?: string;
+	readonly HETZNER_API_TOKEN?: string;
+	readonly HETZNER_API_BASE_URL?: string;
+	readonly HETZNER_FIREWALL_ID?: string;
+	readonly HETZNER_IMAGE?: string;
+	readonly HETZNER_LOCATION?: string;
+	readonly HETZNER_SERVER_TYPE_PERSISTENT_STANDARD_V1?: string;
+	readonly MACHINE_RUNTIME_INSTALL_COMMAND?: string;
+	readonly MACHINE_RUNTIME_MANIFEST_URL?: string;
+	readonly MACHINE_RUNTIME_SIGNING_PUBLIC_JWK?: string;
 }
-
-const configured = (value: string | undefined): value is string =>
-	value !== undefined &&
-	value.trim().length > 0 &&
-	!value.trim().startsWith("REPLACE_WITH");
 
 const managedTunnelConfig = (
 	env: Env,
 ): Config.ManagedTunnelConfig | undefined => {
 	if (
-		!configured(env.CF_API_TOKEN) ||
-		!configured(env.CF_ACCOUNT_ID) ||
-		!configured(env.CF_ZONE_ID) ||
-		!configured(env.MANAGED_TUNNEL_BASE_DOMAIN) ||
-		!configured(env.MANAGED_TUNNEL_NAMESPACE)
+		!isConfigured(env.CF_API_TOKEN) ||
+		!isConfigured(env.CF_ACCOUNT_ID) ||
+		!isConfigured(env.CF_ZONE_ID) ||
+		!isConfigured(env.MANAGED_TUNNEL_BASE_DOMAIN) ||
+		!isConfigured(env.MANAGED_TUNNEL_NAMESPACE)
 	) {
 		return undefined;
 	}
@@ -59,19 +83,18 @@ const managedTunnelConfig = (
 	};
 };
 
-export const hyperdrivePoolConfig = (connectionString: string): PoolConfig => ({
-	connectionString,
-	max: 1,
-	connectionTimeoutMillis: 5_000,
-});
-
 const build = (env: Env): ReturnType<typeof makeRelay> => {
+	const billing = resolveBillingRuntime(env);
+	const machineProvider = resolveMachineProviderRuntime(env, {
+		cloudInitTemplate,
+		relayIssuer: env.RELAY_ISSUER,
+	});
 	const configuredLimit = Number(env.MAX_ENVIRONMENTS_PER_ACCOUNT ?? "5");
 	const configLayer = Config.layer({
 		relayIssuer: env.RELAY_ISSUER,
 		workosJwksUrl: env.WORKOS_JWKS_URL,
 		workosIssuer: env.WORKOS_ISSUER,
-		workosApiKey: configured(env.WORKOS_API_KEY)
+		workosApiKey: isConfigured(env.WORKOS_API_KEY)
 			? Redacted.make(env.WORKOS_API_KEY)
 			: undefined,
 		mintPrivateKey: Redacted.make(env.RELAY_MINT_PRIVATE_JWK),
@@ -96,11 +119,31 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 			),
 		}),
 	);
+	const machineConfig: MachineControlConfig = {
+		allowlistedAccountIds: new Set(
+			(env.MACHINE_ALPHA_ALLOWLIST ?? "")
+				.split(",")
+				.map((accountId) => accountId.trim())
+				.filter((accountId) => accountId.length > 0),
+		),
+		manualEntitlementsEnabled: env.MACHINE_MANUAL_ENTITLEMENTS === "true",
+		liveCheckoutEnabled:
+			billing.liveCheckoutEnabled &&
+			(env.POLAR_ENVIRONMENT === "sandbox" || machineProvider.productionReady),
+		enrollmentTtlMs: 30 * 60 * 1_000,
+		recoveryWindowMs: 7 * 24 * 60 * 60 * 1_000,
+		finalSnapshotRetentionMs: 14 * 24 * 60 * 60 * 1_000,
+		reconcileLeaseMs: 5 * 60 * 1_000,
+	};
 	const appLayer = Layer.mergeAll(
 		configLayer,
 		WorkosVerifierLive.pipe(Layer.provide(configLayer)),
 		AccountIdentityLive.pipe(Layer.provide(configLayer)),
 		RelayStorePg.pipe(Layer.provide(dbLayer)),
+		MachineStorePg.pipe(Layer.provide(dbLayer)),
+		machineProvider.layer,
+		billing.layer,
+		Layer.succeed(MachineControlConfiguration, machineConfig),
 		ManagedTunnelProviderLive.pipe(Layer.provide(configLayer)),
 		PushDeliveryLive,
 	).pipe(Layer.orDie);
@@ -108,14 +151,44 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 };
 
 export default {
-	async fetch(request: Request, env: Env): Promise<Response> {
+	async fetch(
+		request: Request,
+		env: Env,
+		context: { readonly waitUntil: (promise: Promise<unknown>) => void },
+	): Promise<Response> {
 		// Cloudflare recommends request-scoped database clients for Hyperdrive.
 		// A shared max-one pool stranded concurrent mobile auth requests.
 		const relay = build(env);
+		let response: Response;
 		try {
-			return await relay.fetch(request);
-		} finally {
+			response = await relay.fetch(request);
+		} catch (error) {
 			await relay.dispose();
+			throw error;
 		}
+		const machineId = response.headers.get("x-zuse-reconcile-machine");
+		response.headers.delete("x-zuse-reconcile-machine");
+		if (machineId === null) {
+			await relay.dispose();
+			return response;
+		}
+		context.waitUntil(
+			relay
+				.reconcileMachine(machineId, `webhook-${crypto.randomUUID()}`)
+				.finally(() => relay.dispose()),
+		);
+		return response;
+	},
+	async scheduled(
+		controller: { readonly scheduledTime: number },
+		env: Env,
+		context: { readonly waitUntil: (promise: Promise<unknown>) => void },
+	): Promise<void> {
+		const relay = build(env);
+		context.waitUntil(
+			relay
+				.reconcile(`cron-${controller.scheduledTime}`)
+				.finally(() => relay.dispose()),
+		);
 	},
 };

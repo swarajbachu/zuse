@@ -1,8 +1,8 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
-
 import {
 	CapabilityManifest,
+	ConnectAuthError,
 	EnvironmentEndpoint,
 	EnvironmentEndpointHealth,
 	EnvironmentServiceState,
@@ -46,6 +46,25 @@ export const RelayPaths = {
 		`/v1/environments/${encodeURIComponent(environmentId)}/heartbeat`,
 	agentActivity: (environmentId: string) =>
 		`/v1/environments/${encodeURIComponent(environmentId)}/agent-activity`,
+	machineOffers: "/v1/machine-offers",
+	machines: "/v1/machines",
+	machine: (machineId: string) =>
+		`/v1/machines/${encodeURIComponent(machineId)}`,
+	machineCancel: (machineId: string) =>
+		`/v1/machines/${encodeURIComponent(machineId)}/cancel`,
+	machineRecover: (machineId: string) =>
+		`/v1/machines/${encodeURIComponent(machineId)}/recover`,
+	machineDestroy: (machineId: string) =>
+		`/v1/machines/${encodeURIComponent(machineId)}/destroy`,
+	machineEnroll: "/v1/machines/enroll",
+	machineBootStatus: (machineId: string) =>
+		`/v1/machines/${encodeURIComponent(machineId)}/boot-status`,
+	billingCheckout: "/v1/billing/checkout",
+	billingEntitlements: "/v1/billing/entitlements",
+	billingPortal: "/v1/billing/portal",
+	billingWebhook: "/v1/billing/webhook",
+	billingProviderWebhook: (providerId: string) =>
+		`/v1/billing/webhook/${encodeURIComponent(providerId)}`,
 } as const;
 
 export const RelayAuthTokenGrant = Schema.Union([
@@ -164,6 +183,14 @@ export class RelayEnvironmentStatus extends Schema.Class<RelayEnvironmentStatus>
 )({
 	status: RelayPresence,
 	endpoint: EnvironmentEndpoint,
+	endpointCandidates: Schema.optional(
+		Schema.Array(
+			Schema.Struct({
+				kind: Schema.Literals(["private-network", "managed-tunnel"]),
+				endpoint: EnvironmentEndpoint,
+			}),
+		),
+	),
 	checkedAt: Schema.Number,
 }) {}
 
@@ -173,6 +200,14 @@ export class RelayConnectGrant extends Schema.Class<RelayConnectGrant>(
 	"RelayConnectGrant",
 )({
 	endpoint: EnvironmentEndpoint,
+	endpointCandidates: Schema.optional(
+		Schema.Array(
+			Schema.Struct({
+				kind: Schema.Literals(["private-network", "managed-tunnel"]),
+				endpoint: EnvironmentEndpoint,
+			}),
+		),
+	),
 	connectToken: Schema.String,
 	expiresAt: Schema.Number,
 }) {}
@@ -184,6 +219,18 @@ export class RelayLocalPairingBinding extends Schema.Class<RelayLocalPairingBind
 	devicePublicKey: Schema.String,
 	transportCertificatePin: Schema.String,
 }) {}
+
+export const EnvironmentsListRpc = Rpc.make("environments.list", {
+	payload: Schema.Void,
+	success: RelayEnvironmentList,
+	error: ConnectAuthError,
+});
+
+export const EnvironmentConnectRpc = Rpc.make("environments.connect", {
+	payload: Schema.Struct({ environmentId: EnvironmentId }),
+	success: RelayConnectGrant,
+	error: ConnectAuthError,
+});
 
 // --- device registration (mobile, DPoP) --------------------------------------
 

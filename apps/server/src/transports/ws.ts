@@ -561,6 +561,15 @@ export const wsServerProtocolLayer = (
 			});
 
 			const router = yield* HttpRouter.make;
+			yield* router.add("GET", "/healthz", () =>
+				json(
+					{
+						status: "ok",
+						wireProtocolVersion: WIRE_PROTOCOL_VERSION,
+					},
+					200,
+				),
+			);
 			yield* router.add("GET", "/", guarded);
 			// Existing relay deployments and previously linked environments may
 			// still advertise `/rpc`. Keep accepting it while newer links use `/`.
