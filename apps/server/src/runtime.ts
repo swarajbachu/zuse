@@ -29,6 +29,12 @@ import {
 	type LanAuthService,
 } from "./lan-auth/services/lan-auth-service.ts";
 import { LinearServiceLive } from "./linear/layers/linear-service.ts";
+import { MachineControlServiceLive } from "./machine/machine-control-service.ts";
+import {
+	MachineHostServiceLive,
+	MachinePrivateEndpointPublisherLive,
+} from "./machine/machine-host-service.ts";
+import { MachineRuntimeRole } from "./machine/machine-runtime-role.ts";
 import { McpServiceLive } from "./mcp/layers/mcp-service.ts";
 import { RuntimePerformanceMonitorLive } from "./observability/runtime-performance-monitor.ts";
 import { TelemetryObservabilityLive } from "./observability/telemetry-layer.ts";
@@ -43,9 +49,14 @@ import { BrowserBridgeServiceLive } from "./provider/layers/browser-bridge-servi
 import { CredentialsServiceLive } from "./provider/layers/credentials-service.ts";
 import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
+import type { CredentialsService } from "./provider/services/credentials-service.ts";
 import { TitleGeneratorLive } from "./provider/title-generator.ts";
 import { PtyServiceLive } from "./pty/layers/pty-service.ts";
 import { RelayActivityPublisherLive } from "./relay/activity-publisher.ts";
+import {
+	type CloudEnrollmentConfig,
+	makeCloudEnrollmentLayer,
+} from "./relay/cloud-enrollment.ts";
 import { ManagedTunnelRuntimeLive } from "./relay/managed-tunnel-runtime.ts";
 import {
 	RelayLinkService,
@@ -101,6 +112,9 @@ export interface MainLayerDeps {
 		Layer.Layer<RpcServer.Protocol, never, LanAuthService | AttachmentService>
 	>;
 	readonly authShell: typeof AuthShell.Service;
+	readonly credentialsLayer?: Layer.Layer<CredentialsService>;
+	readonly cloudEnrollment?: CloudEnrollmentConfig;
+	readonly machineRuntimeRole?: "control-plane" | "cloud-environment";
 	readonly lanAuth?: {
 		readonly policy: LanAuthPolicy;
 		readonly advertisedHost?: string | null;
@@ -183,6 +197,19 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(LanAuthConfigLayer),
 	);
+	const ManagedTunnelLayer = ManagedTunnelRuntimeLive.pipe(
+		Layer.provide(NodeServices.layer),
+		Layer.provide(AppPathsLayer),
+		Layer.provide(TelemetryStoreLayer),
+	);
+	const EnrolledLanAuthLayer = LanAuthLayer.pipe(
+		Layer.provideMerge(
+			makeCloudEnrollmentLayer(deps.cloudEnrollment).pipe(
+				Layer.provide(LanAuthLayer),
+				Layer.provide(ManagedTunnelLayer),
+			),
+		),
+	);
 
 	const WorkspaceLayer = WorkspaceServiceLive.pipe(
 		Layer.provide(MigratedSqlite),
@@ -239,9 +266,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(AppPathsLayer),
 		Layer.provide(NodeServices.layer),
 	);
-	const CredentialsLayer = CredentialsServiceLive.pipe(
-		Layer.provide(AppPathsLayer),
-	);
+	const CredentialsLayer =
+		deps.credentialsLayer ??
+		CredentialsServiceLive.pipe(Layer.provide(AppPathsLayer));
 
 	// Auth owns the account transition that analytics uses to move between a
 	// random installation identity and a namespaced account hash.
@@ -390,7 +417,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const RelayActivityPublisherLayer = RelayActivityPublisherLive.pipe(
-		Layer.provide(LanAuthLayer),
+		Layer.provide(EnrolledLanAuthLayer),
 	);
 	const LinearLayer = LinearServiceLive.pipe(
 		Layer.provide(CredentialsLayer),
@@ -398,6 +425,29 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(AttachmentLayer),
 		Layer.provide(MigratedSqlite),
 		Layer.provide(NodeServices.layer),
+	);
+	const MachineControlLayer = MachineControlServiceLive.pipe(
+		Layer.provide(AuthLayer),
+		Layer.provide(
+			Layer.succeed(
+				MachineRuntimeRole,
+				deps.machineRuntimeRole ?? "control-plane",
+			),
+		),
+	);
+	const MachineHostLayer = MachineHostServiceLive.pipe(
+		Layer.provide(AppPathsLayer),
+		Layer.provide(
+			MachinePrivateEndpointPublisherLive.pipe(
+				Layer.provide(EnrolledLanAuthLayer),
+			),
+		),
+		Layer.provide(
+			Layer.succeed(
+				MachineRuntimeRole,
+				deps.machineRuntimeRole ?? "control-plane",
+			),
+		),
 	);
 
 	const ConversationServicesLayer = ConversationServicesLive.pipe(
@@ -453,17 +503,12 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	// reuses the environment identity (LanAuthService) and the WorkOS token
 	// (AuthService); the renderer's Devices pane drives it via relay.* RPCs.
 	const RelayLinkLayer = RelayLinkServiceLive.pipe(
-		Layer.provide(LanAuthLayer),
+		Layer.provide(EnrolledLanAuthLayer),
 		Layer.provide(LanAuthConfigLayer),
 		Layer.provide(AuthLayer),
 		// The managed-tunnel connector (`cloudflared`) spawns via CommandExecutor.
-		Layer.provide(
-			ManagedTunnelRuntimeLive.pipe(
-				Layer.provide(NodeServices.layer),
-				Layer.provide(AppPathsLayer),
-				Layer.provide(TelemetryStoreLayer),
-			),
-		),
+		Layer.provide(ManagedTunnelLayer),
+		Layer.provide(AppPathsLayer),
 		Layer.provide(TelemetryStoreLayer),
 	);
 	const autoRelayLink = deps.autoRelayLink;
@@ -514,10 +559,12 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		CredentialsLayer,
 		SkillBridgeLayer,
 		DiagnosticsLayer,
-		LanAuthLayer,
+		EnrolledLanAuthLayer,
 		RelayLinkLayer,
 		ExternalThreadLayer,
 		LinearLayer,
+		MachineControlLayer,
+		MachineHostLayer,
 		FolderPickerLayer,
 	);
 
@@ -545,7 +592,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 			Layer.provide(Handlers),
 			Layer.provide(
 				serverProtocol.pipe(
-					Layer.provide(Layer.merge(LanAuthLayer, AttachmentLayer)),
+					Layer.provide(Layer.merge(EnrolledLanAuthLayer, AttachmentLayer)),
 				),
 			),
 		);

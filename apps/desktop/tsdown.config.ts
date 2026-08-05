@@ -40,6 +40,11 @@ const ZUSE_POSTHOG_HOST =
 const ZUSE_POSTHOG_ENABLE_DEV = resolveBuildEnv("ZUSE_POSTHOG_ENABLE_DEV");
 const NODE_ENV =
 	process.env.NODE_ENV === "production" ? "production" : "development";
+const ZUSE_RELAY_URL =
+	resolveBuildEnv("ZUSE_RELAY_URL") ||
+	(NODE_ENV === "production"
+		? "https://relay.stuff.md"
+		: "https://relay-staging.stuff.md");
 
 const shared = {
 	format: "cjs" as const,
@@ -57,6 +62,7 @@ const shared = {
 		"process.env.ZUSE_POSTHOG_ENABLE_DEV": JSON.stringify(
 			ZUSE_POSTHOG_ENABLE_DEV,
 		),
+		"process.env.ZUSE_RELAY_URL": JSON.stringify(ZUSE_RELAY_URL),
 		"process.env.NODE_ENV": JSON.stringify(NODE_ENV),
 	},
 	// Workspace packages ship as raw .ts source — bundle them in instead of

@@ -26,6 +26,12 @@ import {
 	type RelayError,
 	serviceUnavailable,
 } from "./errors.ts";
+import { requestMachineDestruction } from "./machine-lifecycle.ts";
+import {
+	type MachineRouteContext,
+	routeMachineRequest,
+} from "./machine-routes.ts";
+import { MachineStore } from "./machine-store.ts";
 import { ManagedTunnelProvider } from "./managed-tunnel.ts";
 import { PushDelivery } from "./push.ts";
 import {
@@ -43,7 +49,8 @@ export type RelayContext =
 	| RelayStore
 	| RelayConfiguration
 	| ManagedTunnelProvider
-	| PushDelivery;
+	| PushDelivery
+	| MachineRouteContext;
 
 const json = (body: unknown, status = 200): Response =>
 	new Response(JSON.stringify(body), {
@@ -148,6 +155,58 @@ const isLoopbackOrigin = (
 	);
 };
 
+const isPrivateNetworkHost = (hostname: string): boolean => {
+	const normalized = hostname.replace(/^\[|\]$/gu, "");
+	const octets = normalized.split(".").map(Number);
+	if (
+		octets.length === 4 &&
+		octets.every(
+			(octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255,
+		)
+	) {
+		return (
+			octets[0] === 100 && (octets[1] ?? 0) >= 64 && (octets[1] ?? 0) <= 127
+		);
+	}
+	return normalized.toLowerCase().startsWith("fd7a:115c:a1e0:");
+};
+
+const isPrivateEndpoint = (value: {
+	readonly httpBaseUrl?: unknown;
+	readonly wsBaseUrl?: unknown;
+}): value is { readonly httpBaseUrl: string; readonly wsBaseUrl: string } => {
+	if (
+		typeof value.httpBaseUrl !== "string" ||
+		typeof value.wsBaseUrl !== "string"
+	) {
+		return false;
+	}
+	try {
+		const http = new URL(value.httpBaseUrl);
+		const ws = new URL(value.wsBaseUrl);
+		return (
+			http.protocol === "http:" &&
+			ws.protocol === "ws:" &&
+			http.hostname === ws.hostname &&
+			isPrivateNetworkHost(http.hostname) &&
+			http.port === "47837" &&
+			ws.port === "47837" &&
+			http.pathname === "/" &&
+			ws.pathname === "/" &&
+			http.username === "" &&
+			http.password === "" &&
+			ws.username === "" &&
+			ws.password === "" &&
+			http.search === "" &&
+			ws.search === "" &&
+			http.hash === "" &&
+			ws.hash === ""
+		);
+	} catch {
+		return false;
+	}
+};
+
 const SENSITIVE_ACTIVITY_KEYS = new Set([
 	"chatBytes",
 	"command",
@@ -183,6 +242,25 @@ const publicEndpoint = (environment: EnvironmentRecord) =>
 				wsBaseUrl: environment.wsBaseUrl,
 			};
 
+const endpointCandidates = (environment: EnvironmentRecord) => [
+	...(environment.privateHttpBaseUrl !== undefined &&
+	environment.privateWsBaseUrl !== undefined
+		? [
+				{
+					kind: "private-network" as const,
+					endpoint: {
+						httpBaseUrl: environment.privateHttpBaseUrl,
+						wsBaseUrl: environment.privateWsBaseUrl,
+					},
+				},
+			]
+		: []),
+	{
+		kind: "managed-tunnel" as const,
+		endpoint: publicEndpoint(environment),
+	},
+];
+
 /** Routes a request to the matching endpoint. Failures surface as RelayError. */
 const route = (
 	request: Request,
@@ -197,6 +275,8 @@ const route = (
 		const accountIdentity = yield* AccountIdentity;
 		const workos = yield* WorkosVerifier;
 		const nowMs = yield* Clock.currentTimeMillis;
+		const machineResponse = yield* routeMachineRequest(request);
+		if (machineResponse !== null) return machineResponse;
 
 		if (method === "POST" && path === "/v1/auth/token") {
 			const untrustedBody = yield* readJson<unknown>(request);
@@ -348,6 +428,7 @@ const route = (
 					serviceState: body.serviceState,
 				},
 				config.maxEnvironmentsPerAccount,
+				"replace-same-account",
 			);
 			if (!registered) {
 				return yield* Effect.fail(conflict("computer_limit_reached"));
@@ -452,27 +533,42 @@ const route = (
 		if (method === "GET" && path === "/v1/environments") {
 			const principal = yield* requireWorkos(request);
 			const environments = yield* store.listEnvironments(principal.accountId);
+			const machines = yield* MachineStore;
+			const readyCloudEnvironmentIds = new Set(
+				(yield* machines.listMachines(principal.accountId))
+					.filter(
+						(machine) =>
+							machine.state === "ready" && machine.environmentId !== undefined,
+					)
+					.map((machine) => machine.environmentId),
+			);
 			return json({
-				environments: environments.map((environment) => ({
-					environmentId: environment.environmentId,
-					label: environment.label,
-					providerKind: environment.providerKind,
-					endpoint: publicEndpoint(environment),
-					linkedAt: environment.linkedAtMs,
-					runtimeVersion: environment.runtimeVersion,
-					wireProtocolVersion: environment.wireProtocolVersion,
-					capabilities: environment.capabilities,
-					serviceState: environment.serviceState,
-					endpointHealth: {
-						lan: "unknown",
-						managed:
-							environment.tunnelStatus === "ready"
-								? "available"
-								: "unavailable",
-						checkedAt: nowMs,
-					},
-					lastHeartbeat: environment.lastSeenAtMs,
-				})),
+				environments: environments
+					.filter(
+						(environment) =>
+							environment.providerKind !== "cloud" ||
+							readyCloudEnvironmentIds.has(environment.environmentId),
+					)
+					.map((environment) => ({
+						environmentId: environment.environmentId,
+						label: environment.label,
+						providerKind: environment.providerKind,
+						endpoint: publicEndpoint(environment),
+						linkedAt: environment.linkedAtMs,
+						runtimeVersion: environment.runtimeVersion,
+						wireProtocolVersion: environment.wireProtocolVersion,
+						capabilities: environment.capabilities,
+						serviceState: environment.serviceState,
+						endpointHealth: {
+							lan: "unknown",
+							managed:
+								environment.tunnelStatus === "ready"
+									? "available"
+									: "unavailable",
+							checkedAt: nowMs,
+						},
+						lastHeartbeat: environment.lastSeenAtMs,
+					})),
 			});
 		}
 
@@ -542,6 +638,46 @@ const route = (
 		// if the final identity-provider request is temporarily unavailable.
 		if (method === "DELETE" && path === "/v1/account") {
 			const principal = yield* requireWorkos(request);
+			const machineStore = yield* MachineStore;
+			const machines = yield* machineStore.listMachines(principal.accountId);
+			for (const machine of machines) {
+				let destructionBase = machine;
+				let destructionScheduled = machine.state === "destroyed";
+				for (
+					let attempt = 0;
+					attempt < 3 && !destructionScheduled;
+					attempt += 1
+				) {
+					destructionScheduled = yield* machineStore.compareAndSetMachine(
+						requestMachineDestruction(destructionBase, nowMs, nowMs),
+						destructionBase.revision,
+					);
+					if (!destructionScheduled) {
+						const current = yield* machineStore.getMachine(machine.machineId);
+						if (current === null || current.state === "destroyed") {
+							destructionScheduled = true;
+						} else {
+							destructionBase = current;
+						}
+					}
+				}
+				if (!destructionScheduled) {
+					return yield* Effect.fail(
+						serviceUnavailable("machine_transition_contended"),
+					);
+				}
+			}
+			const entitlements = yield* machineStore.listEntitlements(
+				principal.accountId,
+			);
+			for (const entitlement of entitlements) {
+				yield* machineStore.upsertEntitlement({
+					...entitlement,
+					status: "ended",
+					endedAtMs: nowMs,
+					updatedAtMs: nowMs,
+				});
+			}
 			const environments = yield* store.listEnvironments(principal.accountId);
 			const tunnel = yield* ManagedTunnelProvider;
 			yield* Effect.forEach(
@@ -556,8 +692,11 @@ const route = (
 				{ discard: true },
 			);
 			yield* store.deleteAccountData(principal.accountId);
+			if (machines.some((machine) => machine.state !== "destroyed")) {
+				return json({ ok: true, cleanupPending: true }, 202);
+			}
 			yield* accountIdentity.deleteUser(principal.accountId);
-			return json({ ok: true });
+			return json({ ok: true, cleanupPending: false });
 		}
 
 		// Path-parameterised environment routes.
@@ -578,6 +717,7 @@ const route = (
 			return json({
 				status: online ? "online" : "offline",
 				endpoint: publicEndpoint(environment),
+				endpointCandidates: endpointCandidates(environment),
 				checkedAt: nowMs,
 			});
 		}
@@ -680,6 +820,7 @@ const route = (
 			});
 			return json({
 				endpoint: publicEndpoint(environment),
+				endpointCandidates: endpointCandidates(environment),
 				connectToken,
 				expiresAt: nowMs + config.connectTokenTtlMs,
 			});
@@ -702,6 +843,10 @@ const route = (
 			if (hasJsonBody === true) {
 				const body = yield* readJson<{
 					readonly origin?: unknown;
+					readonly privateEndpoint?: {
+						readonly httpBaseUrl?: unknown;
+						readonly wsBaseUrl?: unknown;
+					};
 					readonly runtimeVersion?: unknown;
 					readonly wireProtocolVersion?: unknown;
 					readonly capabilities?: unknown;
@@ -748,6 +893,15 @@ const route = (
 						tunnelStatus: "ready",
 					});
 				}
+				if (body.privateEndpoint !== undefined) {
+					if (!isPrivateEndpoint(body.privateEndpoint)) {
+						return yield* Effect.fail(badRequest("invalid_private_endpoint"));
+					}
+					yield* store.setPrivateEndpoint(environmentId, {
+						httpBaseUrl: body.privateEndpoint.httpBaseUrl,
+						wsBaseUrl: body.privateEndpoint.wsBaseUrl,
+					});
+				}
 				yield* store.touchEnvironment(environmentId, nowMs, {
 					runtimeVersion:
 						typeof body.runtimeVersion === "string"
@@ -762,10 +916,14 @@ const route = (
 						? body.serviceState
 						: undefined,
 				});
-				return json({ ok: true });
 			}
 			yield* store.touchEnvironment(environmentId, nowMs);
-			return json({ ok: true });
+			const refreshed = yield* store.getEnvironment(environmentId);
+			return json({
+				ok: true,
+				endpointCandidates:
+					refreshed === null ? [] : endpointCandidates(refreshed),
+			});
 		}
 
 		// 7. Agent activity (desktop, environment-credential auth) — never chat data.

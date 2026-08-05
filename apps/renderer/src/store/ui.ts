@@ -32,6 +32,7 @@ export type SettingsSection =
 	| { readonly kind: "integrations" }
 	| { readonly kind: "mcp" }
 	| { readonly kind: "devices" }
+	| { readonly kind: "machines" }
 	| { readonly kind: "browser" }
 	| { readonly kind: "pokedex" }
 	| { readonly kind: "diagnostics" }

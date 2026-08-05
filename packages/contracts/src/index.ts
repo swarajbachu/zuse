@@ -18,6 +18,7 @@ export * from "./ids.ts";
 export * from "./keybindings.ts";
 export * from "./keybindings-parse.ts";
 export * from "./linear.ts";
+export * from "./machines.ts";
 export * from "./mcp.ts";
 export * from "./naming.ts";
 export * from "./network-access.ts";

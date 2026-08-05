@@ -23,11 +23,11 @@ export const notFound = (code = "not_found", detail?: string): RelayError =>
 export const badRequest = (code: string, detail?: string): RelayError =>
 	new RelayError({ code, status: 400, detail });
 
-export const gone = (code: string, detail?: string): RelayError =>
-	new RelayError({ code, status: 410, detail });
-
 export const conflict = (code: string, detail?: string): RelayError =>
 	new RelayError({ code, status: 409, detail });
+
+export const gone = (code: string, detail?: string): RelayError =>
+	new RelayError({ code, status: 410, detail });
 
 export const serviceUnavailable = (code: string, detail?: string): RelayError =>
 	new RelayError({ code, status: 503, detail });

@@ -129,7 +129,16 @@ function startApp() {
 			cwd: desktopDir,
 			// Pass the resolved dev URL through explicitly so main.ts sees it even
 			// when bun/turbo invoked us without setting the env var.
-			env: { ...process.env, VITE_DEV_SERVER_URL: devServerUrl },
+			env: {
+				...process.env,
+				VITE_DEV_SERVER_URL: devServerUrl,
+				ZUSE_RELAY_URL:
+					process.env.ZUSE_RELAY_URL?.trim() ||
+					"https://relay-staging.stuff.md",
+				VITE_ZUSE_RELAY_URL:
+					process.env.VITE_ZUSE_RELAY_URL?.trim() ||
+					"https://relay-staging.stuff.md",
+			},
 			stdio: "inherit",
 		},
 	);

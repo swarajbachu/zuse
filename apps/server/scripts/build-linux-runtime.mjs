@@ -1,0 +1,128 @@
+import { spawnSync } from "node:child_process";
+import { createHash, createPrivateKey, sign } from "node:crypto";
+import { cp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { dirname, join, relative } from "node:path";
+
+const serverRoot = dirname(new URL(import.meta.url).pathname);
+const packageRoot = dirname(serverRoot);
+const workspaceRoot = dirname(dirname(packageRoot));
+const outputRoot = join(packageRoot, "dist-cloud");
+const runtimeRoot = join(outputRoot, "runtime");
+const archivePath = join(outputRoot, "zuse-runtime-linux-x64.tar.gz");
+const packageJson = JSON.parse(
+	await readFile(join(packageRoot, "package.json"), "utf8"),
+);
+const require = createRequire(join(packageRoot, "package.json"));
+
+if (process.platform !== "linux" || process.arch !== "x64") {
+	throw new Error("The cloud runtime must be built on Linux x64");
+}
+
+const run = (command, args, cwd = workspaceRoot) => {
+	const result = spawnSync(command, args, { cwd, stdio: "inherit" });
+	if (result.status !== 0) {
+		throw new Error(`${command} exited with ${result.status ?? "no status"}`);
+	}
+};
+
+run("bunx", ["tsdown", "--config", "tsdown.cloud.config.ts"], packageRoot);
+await mkdir(runtimeRoot, { recursive: true });
+await cp(join(outputRoot, "bin.mjs"), join(runtimeRoot, "bin.mjs"));
+await cp(
+	join(packageRoot, "scripts", "runtime-updater.mjs"),
+	join(runtimeRoot, "runtime-updater.mjs"),
+);
+
+const nativePackages = [
+	"bindings",
+	"file-uri-to-path",
+	"node-pty",
+	"tree-sitter",
+	"tree-sitter-javascript",
+	"tree-sitter-json",
+	"tree-sitter-typescript",
+];
+for (const packageName of nativePackages) {
+	let source = dirname(require.resolve(packageName));
+	for (;;) {
+		const candidate = join(source, "package.json");
+		try {
+			const metadata = JSON.parse(await readFile(candidate, "utf8"));
+			if (metadata.name === packageName) break;
+		} catch {
+			// Keep walking: package exports often hide package.json itself.
+		}
+		const parent = dirname(source);
+		if (parent === source) {
+			throw new Error(`Could not resolve package root for ${packageName}`);
+		}
+		source = parent;
+	}
+	await cp(source, join(runtimeRoot, "node_modules", packageName), {
+		recursive: true,
+		filter: (entry) =>
+			!entry.endsWith(".map") &&
+			!entry.endsWith(".ts") &&
+			!entry.includes("/test/") &&
+			!entry.includes("/tests/"),
+	});
+}
+
+await writeFile(
+	join(runtimeRoot, "package.json"),
+	`${JSON.stringify(
+		{
+			name: "@zuse/cloud-runtime",
+			version: packageJson.version,
+			private: true,
+			type: "module",
+			bin: { zuse: "./bin.mjs" },
+		},
+		null,
+		2,
+	)}\n`,
+);
+
+run("tar", ["-czf", archivePath, "-C", runtimeRoot, "."]);
+const archive = await readFile(archivePath);
+const sha256 = createHash("sha256").update(archive).digest("hex");
+const runtimeUrl = process.env.ZUSE_RUNTIME_URL;
+if (runtimeUrl === undefined) {
+	throw new Error("ZUSE_RUNTIME_URL is required");
+}
+if (new URL(runtimeUrl).protocol !== "https:") {
+	throw new Error("ZUSE_RUNTIME_URL must use HTTPS");
+}
+const manifest = {
+	channel: "stable",
+	version: process.env.ZUSE_RUNTIME_VERSION ?? packageJson.version,
+	url: runtimeUrl,
+	architecture: "linux-x64",
+	sha256,
+	wireProtocol: { min: 2, max: 2 },
+	sizeBytes: (await stat(archivePath)).size,
+};
+
+const privateJwk = process.env.ZUSE_RUNTIME_SIGNING_PRIVATE_JWK;
+if (privateJwk === undefined) {
+	throw new Error("ZUSE_RUNTIME_SIGNING_PRIVATE_JWK is required");
+}
+const signature = sign(
+	null,
+	Buffer.from(JSON.stringify(manifest)),
+	createPrivateKey({ key: JSON.parse(privateJwk), format: "jwk" }),
+).toString("base64url");
+await writeFile(
+	join(outputRoot, "stable-manifest.json"),
+	`${JSON.stringify({ ...manifest, signature }, null, 2)}\n`,
+);
+
+console.log(
+	JSON.stringify({
+		archive: relative(workspaceRoot, archivePath),
+		manifest: relative(workspaceRoot, join(outputRoot, "stable-manifest.json")),
+		sha256,
+		sizeBytes: manifest.sizeBytes,
+	}),
+);

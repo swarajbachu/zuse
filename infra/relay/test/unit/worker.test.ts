@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { hyperdrivePoolConfig } from "../../src/worker.ts";
+import { hyperdrivePoolConfig } from "../../src/hyperdrive.ts";
 
 describe("relay worker database lifecycle", () => {
 	test("fails connection acquisition instead of leaving requests suspended", () => {
