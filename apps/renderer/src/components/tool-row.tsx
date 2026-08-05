@@ -35,7 +35,6 @@ import { useSessionsStore } from "~/store/sessions";
 import { type FileView, useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
 import { useWorktreesStore } from "~/store/worktrees";
-import { CodeBlock } from "./code-block.tsx";
 import { resolveFileOpenTarget, useFileChipContext } from "./file-chip.tsx";
 import { FileIcon } from "./file-icon.tsx";
 import {
@@ -48,6 +47,7 @@ import {
 	UnifiedPatchDiff,
 } from "./inline-diff.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
+import { ToolFileBlock } from "./tool-file-block.tsx";
 import { Button } from "./ui/button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
@@ -678,14 +678,6 @@ interface ToolView {
 	readonly fallbackBody?: React.ReactNode;
 }
 
-// Line-count derived from a tool result's textual output. Used by Read /
-// Grep / Glob to summarise "how much did this return?" in the collapsed row.
-const lineCountOf = (output: unknown): number => {
-	const text = toResultText(output);
-	if (text.length === 0) return 0;
-	return text.split("\n").length;
-};
-
 const buildToolView = (
 	tool: string,
 	input: unknown,
@@ -779,47 +771,27 @@ const buildToolView = (
 			};
 		}
 
-		case "Read": {
+		case "Read":
+		case "ReadFile": {
 			const path = asString(obj.file_path);
-			const offset = typeof obj.offset === "number" ? obj.offset : null;
-			const limit = typeof obj.limit === "number" ? obj.limit : null;
-			const range =
-				offset !== null || limit !== null
-					? `lines ${offset ?? 1}–${(offset ?? 1) + (limit ?? 0) - 1}`
-					: null;
 			const pending = result === undefined;
-			const lines = result !== undefined ? lineCountOf(result.output) : null;
-			const linesSuffix =
-				lines !== null
-					? lines === 0
-						? "empty"
-						: `${lines} line${lines === 1 ? "" : "s"}`
-					: null;
 			return {
 				icon: File01Icon,
 				label: pending ? "Reading" : "Read",
-				detail:
-					path !== null ? (
-						<MutedFilePath path={path} suffix={linesSuffix} />
-					) : undefined,
-				inputPanel:
-					path !== null ? (
-						<p className="font-mono text-[11px] text-muted-foreground break-all">
-							{path}
-							{range !== null ? ` · ${range}` : null}
-						</p>
-					) : undefined,
-				resultPanel: (result) => {
-					const text = toResultText(result.output);
-					if (path === null) {
-						return (
-							<PreBlock text={truncate(text, 4000)} isError={result.isError} />
-						);
-					}
-					return (
-						<CodeBlock filename={path} text={text} isError={result.isError} />
-					);
-				},
+				detail: path !== null ? <MutedFilePath path={path} /> : undefined,
+				fallbackBody:
+					result === undefined ? undefined : path === null ? (
+						<PreBlock
+							text={truncate(toResultText(result.output), 4000)}
+							isError={result.isError}
+						/>
+					) : (
+						<ToolFileBlock
+							path={path}
+							text={toResultText(result.output)}
+							isError={result.isError}
+						/>
+					),
 			};
 		}
 
