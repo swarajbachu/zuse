@@ -506,6 +506,8 @@ body,
   }
 
   .fz-diff {
+    --fz-diff-header-bg: var(--background);
+
     /* Surfaces — drop the diff onto the same neutral the pane uses so it
        reads as part of the app, not a bolted-on widget. Pierre computes
        its buffer / context / gutter tints from `--diffs-bg` mixed with a

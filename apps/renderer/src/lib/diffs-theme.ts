@@ -22,6 +22,10 @@ const ZUSE_DIFF_UNSAFE_CSS = `
   --diffs-bg-context-override: transparent;
   background-color: transparent;
 }
+
+[data-diffs-header] {
+  background-color: var(--fz-diff-header-bg);
+}
 `;
 
 type ZuseDiffThemeOptions = Pick<
