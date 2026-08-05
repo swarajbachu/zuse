@@ -11,7 +11,7 @@ import type {
 	SelectedLineRange,
 	UnresolvedFile as UnresolvedFileInstance,
 } from "@pierre/diffs";
-import { DEFAULT_THEMES, processFile } from "@pierre/diffs";
+import { processFile } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/edit";
 import {
 	CodeView,
@@ -51,7 +51,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/use-auth.ts";
-import { useResolvedAppearance } from "../lib/appearance.tsx";
+import { useZuseDiffTheme, ZUSE_DIFF_THEMES } from "../lib/diffs-theme.ts";
 import { formatError } from "../lib/format-error.ts";
 import {
 	getReviewAnnotationAnchor,
@@ -103,7 +103,7 @@ const REVIEW_POOL_OPTIONS: WorkerPoolOptions = {
 };
 
 const REVIEW_HIGHLIGHTER_OPTIONS: WorkerInitializationRenderOptions = {
-	theme: DEFAULT_THEMES,
+	theme: ZUSE_DIFF_THEMES,
 	langs: ["css", "go", "python", "rust", "sh", "swift", "tsx", "typescript"],
 	preferredHighlighter: "shiki-wasm",
 };
@@ -276,7 +276,7 @@ function ChangesReviewReady({
 		(state) => state.selectedSessionId,
 	);
 	const { user: authUser, name: authName } = useAuth();
-	const resolvedAppearance = useResolvedAppearance();
+	const diffTheme = useZuseDiffTheme();
 	const [repositoryAuthor, setRepositoryAuthor] =
 		useState<AnnotationAuthor | null>(null);
 	useEffect(() => {
@@ -875,7 +875,7 @@ function ChangesReviewReady({
 
 	const reviewOptions = useMemo<CodeViewOptions<AnnotationMetadata>>(
 		() => ({
-			themeType: resolvedAppearance,
+			...diffTheme,
 			diffStyle: preferences.diffStyle,
 			overflow: preferences.wrap ? "wrap" : "scroll",
 			disableLineNumbers: !preferences.lineNumbers,
@@ -894,7 +894,7 @@ function ChangesReviewReady({
 				}
 			},
 		}),
-		[createAnnotationDraft, preferences, resolvedAppearance],
+		[createAnnotationDraft, diffTheme, preferences],
 	);
 
 	if (summary === null && loading) {
@@ -1047,7 +1047,7 @@ function ConflictReview({
 	readonly onResolved: () => Promise<void>;
 	readonly onClose: () => void;
 }) {
-	const resolvedAppearance = useResolvedAppearance();
+	const diffTheme = useZuseDiffTheme();
 	const [contents, setContents] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [remaining, setRemaining] = useState(0);
@@ -1116,12 +1116,12 @@ function ConflictReview({
 	);
 	const conflictOptions = useMemo<UnresolvedFileReactOptions<undefined>>(
 		() => ({
-			themeType: resolvedAppearance,
+			...diffTheme,
 			diffIndicators: "bars",
 			overflow: "wrap",
 			hunkSeparators: "line-info",
 		}),
-		[resolvedAppearance],
+		[diffTheme],
 	);
 
 	return (
