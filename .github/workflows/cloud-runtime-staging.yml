@@ -2,6 +2,12 @@ name: staging cloud runtime
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_staging:
+        description: Publish this ref to the staging runtime channel
+        required: true
+        default: false
+        type: boolean
   pull_request:
     paths:
       - ".github/workflows/cloud-runtime-staging.yml"
@@ -50,7 +56,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Generate ephemeral verification signing key
-        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+        if: (github.event_name != 'push' || github.ref != 'refs/heads/main') && (github.event_name != 'workflow_dispatch' || inputs.publish_staging != true)
         run: |
           node --input-type=module <<'NODE'
           import { generateKeyPairSync } from "node:crypto";
@@ -65,7 +71,7 @@ jobs:
           NODE
 
       - name: Load trusted signing key
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.publish_staging == true)
         env:
           ZUSE_RUNTIME_SIGNING_PRIVATE_JWK_SECRET: ${{ secrets.ZUSE_RUNTIME_SIGNING_PRIVATE_JWK }}
         run: |
@@ -137,7 +143,7 @@ jobs:
           NODE
 
       - name: Stage release artifacts
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.publish_staging == true)
         uses: actions/upload-artifact@v4
         with:
           name: staging-cloud-runtime-${{ github.sha }}
@@ -149,7 +155,7 @@ jobs:
 
   publish:
     name: Publish staging channel
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.publish_staging == true)
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
