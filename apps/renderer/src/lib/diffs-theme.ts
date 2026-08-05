@@ -26,6 +26,14 @@ const ZUSE_DIFF_UNSAFE_CSS = `
 [data-diffs-header] {
   background-color: var(--fz-diff-header-bg);
 }
+
+/* The package colors the gutter utility glyph with --diffs-bg. Our base is
+   intentionally transparent, so give the annotation action an explicit app
+   surface and foreground instead of allowing the plus icon to disappear. */
+[data-utility-button] {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
 `;
 
 type ZuseDiffThemeOptions = Pick<
