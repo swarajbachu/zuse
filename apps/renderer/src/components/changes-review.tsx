@@ -874,7 +874,6 @@ function ChangesReviewReady({
 	const reviewOptions = useMemo<CodeViewOptions<AnnotationMetadata>>(
 		() => ({
 			...diffTheme,
-			disableBackground: true,
 			diffStyle: preferences.diffStyle,
 			overflow: preferences.wrap ? "wrap" : "scroll",
 			disableLineNumbers: !preferences.lineNumbers,
@@ -1115,7 +1114,6 @@ function ConflictReview({
 	const conflictOptions = useMemo<UnresolvedFileReactOptions<undefined>>(
 		() => ({
 			...diffTheme,
-			disableBackground: true,
 			diffIndicators: "bars",
 			overflow: "wrap",
 			hunkSeparators: "line-info",
