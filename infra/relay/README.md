@@ -142,8 +142,11 @@ binding requires separate, explicit approval.
      the firewall ID is invalid, a URL is not HTTPS, or the signing JWK is not
      valid JSON. Production checkout remains disabled while the fake adapter is
      selected.
-8. Deploy staging with `bun run deploy`. Point development clients at
-   `https://relay-staging.stuff.md` (`VITE_ZUSE_RELAY_URL`).
+8. Deploy staging with `bun run deploy`. Development desktop and renderer
+   builds default to `https://relay-staging.stuff.md` and the staging WorkOS
+   client; explicit `ZUSE_RELAY_URL`, `VITE_ZUSE_RELAY_URL`,
+   `WORKOS_CLIENT_ID`, and `VITE_WORKOS_CLIENT_ID` values still override those
+   defaults. Mobile development and preview profiles pin the same staging pair.
 
 ## Test managed machines
 
