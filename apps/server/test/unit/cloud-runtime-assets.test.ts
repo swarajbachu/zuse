@@ -12,7 +12,10 @@ describe("cloud runtime assets", () => {
 		);
 
 		expect(cloudInit).toContain("path: /var/lib/zuse/enrollment.env");
-		expect(cloudInit).toContain("owner: zuse:zuse");
+		expect(cloudInit).toContain("owner: root:root");
+		expect(cloudInit).toContain(
+			'chown -R "zuse:zuse" /var/lib/zuse /home/zuse',
+		);
 		expect(cloudInit).toContain(
 			"ZUSE_ENROLLMENT_TOKEN_FILE=/var/lib/zuse/enrollment.env",
 		);
@@ -32,6 +35,37 @@ describe("cloud runtime assets", () => {
 		expect(cloudInit).not.toContain(
 			"EnvironmentFile=-/etc/zuse/enrollment.env",
 		);
+	});
+
+	test("installs a pinned verified Node LTS without interactive package upgrades", async () => {
+		const cloudInit = await readWorkspaceFile(
+			"infra/cloud-machines/bootstrap/cloud-init.yaml.tmpl",
+		);
+
+		expect(cloudInit).toContain('version="24.18.0"');
+		expect(cloudInit).toMatch(/node-v\$\{version\}-linux-x64\.tar\.xz/);
+		expect(cloudInit).toContain(
+			"55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742",
+		);
+		expect(cloudInit).toContain("sha256sum --check --status");
+		expect(cloudInit).toContain("/usr/local/bin/node");
+		expect(cloudInit).toContain("/usr/local/bin/npm");
+		expect(cloudInit).not.toContain("deb.nodesource.com");
+		expect(cloudInit).not.toContain("package_upgrade: true");
+	});
+
+	test("fails fast and reports a stable bootstrap status without logging secrets", async () => {
+		const cloudInit = await readWorkspaceFile(
+			"infra/cloud-machines/bootstrap/cloud-init.yaml.tmpl",
+		);
+
+		expect(cloudInit).toContain("trap bootstrap_failed EXIT");
+		expect(cloudInit).toContain(
+			'"$ZUSE_RELAY_URL/v1/machines/$ZUSE_MACHINE_ID/boot-status"',
+		);
+		expect(cloudInit).toContain('report_boot_status failed "bootstrap-failed"');
+		expect(cloudInit).toContain("report_boot_status runtime-installed");
+		expect(cloudInit).not.toContain("set -x");
 	});
 
 	test("denies public inbound traffic and limits host services to the private interface", async () => {
