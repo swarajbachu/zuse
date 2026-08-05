@@ -79,7 +79,6 @@ type ReviewPreferences = {
 	readonly diffStyle: "split" | "unified";
 	readonly wrap: boolean;
 	readonly lineNumbers: boolean;
-	readonly backgrounds: boolean;
 	readonly indicators: "bars" | "classic" | "none";
 };
 
@@ -89,7 +88,6 @@ const DEFAULT_PREFERENCES: ReviewPreferences = {
 	diffStyle: "split",
 	wrap: true,
 	lineNumbers: true,
-	backgrounds: true,
 	indicators: "bars",
 };
 
@@ -876,10 +874,10 @@ function ChangesReviewReady({
 	const reviewOptions = useMemo<CodeViewOptions<AnnotationMetadata>>(
 		() => ({
 			...diffTheme,
+			disableBackground: true,
 			diffStyle: preferences.diffStyle,
 			overflow: preferences.wrap ? "wrap" : "scroll",
 			disableLineNumbers: !preferences.lineNumbers,
-			disableBackground: !preferences.backgrounds,
 			diffIndicators: preferences.indicators,
 			stickyHeaders: true,
 			enableLineSelection: true,
@@ -1117,6 +1115,7 @@ function ConflictReview({
 	const conflictOptions = useMemo<UnresolvedFileReactOptions<undefined>>(
 		() => ({
 			...diffTheme,
+			disableBackground: true,
 			diffIndicators: "bars",
 			overflow: "wrap",
 			hunkSeparators: "line-info",
@@ -1360,11 +1359,6 @@ function DisplaySettings({
 				>
 					<PopoverPrimitive.Popup className="w-60 rounded-lg border border-border/70 bg-popover p-3 text-popover-foreground shadow-xl/15 outline-none">
 						<div className="flex flex-col gap-1">
-							<DisplaySwitch
-								label="Backgrounds"
-								checked={preferences.backgrounds}
-								onCheckedChange={(backgrounds) => onChange({ backgrounds })}
-							/>
 							<DisplaySwitch
 								label="Line numbers"
 								checked={preferences.lineNumbers}

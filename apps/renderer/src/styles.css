@@ -495,9 +495,9 @@ body,
 /* `@pierre/diffs` ships with stock GitHub-style fire-engine red / spring
    green and pure white/black surfaces. That reads as a separate widget
    bolted onto the app. Override its public detail tokens here so the diff
-   uses the app's neutrals and softer change colors. The base host colors are
-   injected by `lib/diffs-theme.ts` because the library redeclares those
-   inside its shadow root. */
+   uses the app's neutrals and softer change colors. Review renderers use the
+   package's `disableBackground` option so their base surface stays transparent
+   and these inherited detail tokens blend into the surrounding pane. */
 @layer components {
   .chat-session-layout {
     --chat-reading-column: 56rem;
