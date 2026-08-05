@@ -3,8 +3,6 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
 
-import { cn } from "~/lib/cn";
-
 export function ProjectLogo({
 	title,
 	avatarUrl,
@@ -22,10 +20,13 @@ export function ProjectLogo({
 		avatarUrl !== null && avatarUrl !== failedUrl ? avatarUrl : null;
 	return (
 		<View
-			className={cn(
-				"items-center justify-center overflow-hidden rounded-xl border border-border bg-muted",
-			)}
-			style={{ width: size, height: size, borderCurve: "continuous" }}
+			className="items-center justify-center overflow-hidden border border-border bg-muted"
+			style={{
+				width: size,
+				height: size,
+				borderRadius: 5,
+				borderCurve: "continuous",
+			}}
 		>
 			{source ? (
 				<Image

@@ -165,6 +165,8 @@ describe("mobile UI contracts", () => {
 		expect(logo).toContain('from "expo-image"');
 		expect(logo).toContain('cachePolicy="memory-disk"');
 		expect(logo).toContain('contentFit="cover"');
+		expect(logo).toContain("borderRadius: 5");
+		expect(logo).not.toContain("rounded-xl");
 		expect(logo).toContain("recyclingKey={source}");
 		expect(logo).toContain("setFailedUrl(source)");
 	});
