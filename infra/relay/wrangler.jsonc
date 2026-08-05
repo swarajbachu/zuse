@@ -31,11 +31,12 @@
 		"CF_ZONE_ID": "1ebb00c5fd61050e9f48ce1c791a29da",
 
 		"MACHINE_ALPHA_ALLOWLIST": "user_01KW7R9WGJFFSKDNESE7RN00N1",
-		"MACHINE_MANUAL_ENTITLEMENTS": "true",
-		"MACHINE_LIVE_CHECKOUT_ENABLED": "false",
-		// A staged API token alone does not activate live provisioning.
-		"MACHINE_PROVIDER": "fake",
-		"HETZNER_ADAPTER_ENABLED": "false",
+		"MACHINE_MANUAL_ENTITLEMENTS": "false",
+		"MACHINE_LIVE_CHECKOUT_ENABLED": "true",
+		// Staging is allowlisted and uses sandbox billing, but exercises the real
+		// payment-to-provisioning path end to end.
+		"MACHINE_PROVIDER": "hetzner",
+		"HETZNER_ADAPTER_ENABLED": "true",
 		"HETZNER_API_BASE_URL": "https://api.hetzner.cloud/v1",
 		"HETZNER_FIREWALL_ID": "11418954",
 		"HETZNER_IMAGE": "ubuntu-24.04",
@@ -45,7 +46,7 @@
 		"MACHINE_RUNTIME_SIGNING_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"ODy1bBgW390GBMxIqn8wy2eO3C05kXdoPYk5JV09OZI\",\"kty\":\"OKP\"}",
 
 		"POLAR_ENVIRONMENT": "sandbox",
-		"POLAR_PRODUCT_PERSISTENT_STANDARD_V1": "",
+		"POLAR_PRODUCT_PERSISTENT_STANDARD_V1": "810223ea-94f2-47e7-9c09-af9a0fd86174",
 		"POLAR_VPS_SALES_APPROVED": "false"
 	},
 	"hyperdrive": [
