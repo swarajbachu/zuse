@@ -7,7 +7,6 @@ import { Pressable, Text, View } from "react-native";
 
 import { HugeIcon } from "~/components/ui/huge-icon";
 import { PresenceDot } from "~/components/ui/presence-dot";
-import { cn } from "~/lib/cn";
 import { optionsForConnection } from "~/lib/connection-params";
 import type { InboxProjectGroup } from "~/lib/inbox";
 import type { ConnectionRecord } from "~/store/connections";
@@ -46,11 +45,7 @@ export function HomeProjectHeader({
 				collapsed ? ", collapsed" : ""
 			}`}
 			onPress={onToggle}
-			className={cn(
-				"mt-3 min-h-[60px] flex-row items-center gap-3 rounded-t-2xl border-x border-t border-border bg-card px-3 py-3 active:bg-muted",
-				collapsed && "rounded-b-2xl border-b",
-			)}
-			style={{ borderCurve: "continuous" }}
+			className="mt-3 min-h-[60px] flex-row items-center gap-3 border-b border-border px-2 py-3 active:bg-muted"
 		>
 			<ProjectLogo title={group.title} avatarUrl={avatarUrl} size={36} />
 			<View className="min-w-0 flex-1">
