@@ -134,10 +134,15 @@ binding requires separate, explicit approval.
      `HETZNER_LOCATION`, and the ID of a pre-created zero-inbound-rule
      firewall in `HETZNER_FIREWALL_ID`. `HETZNER_API_BASE_URL` defaults to the
      official Cloud API endpoint.
-   - Set `MACHINE_RUNTIME_MANIFEST_URL`,
-     `MACHINE_RUNTIME_SIGNING_PUBLIC_JWK`, and
-     `MACHINE_RUNTIME_INSTALL_COMMAND` to the published, signed Linux runtime
-     channel. Store the project API token with `bun run secret:hetzner`.
+   - Set `MACHINE_RUNTIME_MANIFEST_URL` and
+     `MACHINE_RUNTIME_SIGNING_PUBLIC_JWK` to the published, signed Linux runtime
+     channel. The verified first-install program is embedded directly in
+     cloud-init from the same source as the daily updater. Store the project API
+     token with `bun run secret:hetzner`.
+   - Staging uses the fixed `cloud-runtime-staging` GitHub prerelease. Its
+     workflow publishes a commit-addressed archive and then atomically replaces
+     `stable-manifest.json`; the signing private key exists only as the
+     `ZUSE_RUNTIME_SIGNING_PRIVATE_JWK` Actions secret.
    - The Worker refuses to start the live adapter when any setting is missing,
      the firewall ID is invalid, a URL is not HTTPS, or the signing JWK is not
      valid JSON. Production checkout remains disabled while the fake adapter is

@@ -571,10 +571,17 @@ export const routeMachineRequest = (
 			if (outcome.kind === "machine-limit-reached") {
 				return yield* Effect.fail(conflict("machine_limit_reached"));
 			}
-			return json(
+			const response = json(
 				toPublicMachine(outcome.machine),
 				outcome.kind === "created" ? 201 : 200,
 			);
+			if (outcome.kind === "created" || outcome.machine.state === "creating") {
+				response.headers.set(
+					"x-zuse-reconcile-machine",
+					outcome.machine.machineId,
+				);
+			}
+			return response;
 		}
 
 		if (method === "GET" && path === RelayPaths.billingEntitlements) {

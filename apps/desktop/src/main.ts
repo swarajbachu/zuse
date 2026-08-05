@@ -68,6 +68,7 @@ import {
 	type TailnetShareOptions,
 } from "@zuse/tailnet";
 import {
+	CredentialsServiceLive,
 	makeMainLayer,
 	readBrowserCredentialFromVault,
 	wsServerProtocolLayer,
@@ -2965,6 +2966,7 @@ async function createMainWindow() {
 					...(nearbyWsProtocol === null ? [] : [nearbyWsProtocol]),
 				],
 				authShell,
+				credentialsLayer: CredentialsServiceLive,
 				lanAuth: {
 					policy: "protected",
 					advertisedHost: networkAccess.advertisedHost,
