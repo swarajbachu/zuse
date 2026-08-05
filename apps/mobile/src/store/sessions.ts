@@ -12,6 +12,7 @@ import type {
 import { Effect, Fiber, Stream } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 
+import { createConnectionRefreshCoordinator } from "~/lib/connection-refresh-coordinator";
 import { connectionSessionKey } from "~/lib/session-key";
 import { readSessionsSnapshot, writeSessionsSnapshot } from "~/offline/cache";
 import {
@@ -82,6 +83,7 @@ const stopFiber = async (
 };
 
 export const resetSessionsRuntime = async (): Promise<void> => {
+	sessionRefreshCoordinator.reset();
 	await Promise.all([
 		...Array.from(chatFibers.keys(), (key) => stopFiber(key, chatFibers)),
 		...Array.from(sessionSummaryFibers.keys(), (key) =>
@@ -516,10 +518,10 @@ export const createSession = async (
 	}
 };
 
-export const hydrateSessions = async (
+const hydrateSessionsOnce = async (
 	connKey: string,
 	options: WsProtocolOptions,
-): Promise<void> => {
+): Promise<boolean> => {
 	const cached = await Effect.runPromise(readSessionsSnapshot(connKey));
 	if (cached !== null) {
 		setConnectionBundles(
@@ -711,14 +713,31 @@ export const hydrateSessions = async (
 				savedAt: Date.now(),
 			}),
 		);
+		return true;
 	} catch (cause) {
 		reportConnectionFailure(options, cause);
 		batchAtomUpdates(() => {
 			setConnectionLoading(connKey, false);
 			setConnectionError(connKey, messageOf(cause));
 		});
+		return false;
 	}
 };
+
+const sessionRefreshCoordinator =
+	createConnectionRefreshCoordinator(hydrateSessionsOnce);
+
+export const hydrateSessions = (
+	connKey: string,
+	options: WsProtocolOptions,
+): Promise<void> => sessionRefreshCoordinator.hydrate(connKey, options);
+
+export const refreshSessionsAfterConnect = (
+	connKey: string,
+	options: WsProtocolOptions,
+	generation: number,
+): Promise<void> =>
+	sessionRefreshCoordinator.refreshConnected(connKey, options, generation);
 
 const removeChat = (
 	bundles: readonly ProjectBundle[],

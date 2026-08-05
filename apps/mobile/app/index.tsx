@@ -81,6 +81,7 @@ import {
 	errorByConnectionAtom,
 	hydrateSessions,
 	loadingByConnectionAtom,
+	refreshSessionsAfterConnect,
 	statusBySessionAtom,
 } from "~/store/sessions";
 import { colors } from "~/theme";
@@ -173,6 +174,20 @@ export default function HomeScreen() {
 			void refreshConnectionLabel(connection.key, options);
 		}
 	}, [connections, reachableConnections]);
+
+	useEffect(() => {
+		for (const connection of reachableConnections) {
+			const snapshot = connectionSnapshots[connection.key];
+			if (snapshot?.status !== "connected") continue;
+			const options = optionsForConnection(connection.key, connections);
+			if (options === null) continue;
+			void refreshSessionsAfterConnect(
+				connection.key,
+				options,
+				snapshot.generation,
+			);
+		}
+	}, [connectionSnapshots, connections, reachableConnections]);
 
 	const searching = search.trim().length > 0;
 	const groups = useMemo(
