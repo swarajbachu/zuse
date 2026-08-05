@@ -1,0 +1,185 @@
+name: staging cloud runtime
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/cloud-runtime-staging.yml"
+      - "apps/server/**"
+      - "infra/cloud-machines/**"
+      - "packages/**"
+      - "bun.lock"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/cloud-runtime-staging.yml"
+      - "apps/server/**"
+      - "infra/cloud-machines/**"
+      - "packages/**"
+      - "bun.lock"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-cloud-runtime
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build signed Linux runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: cloud-runtime-staging
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential libsecret-1-dev python3
+
+      - name: Install workspace dependencies
+        env:
+          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
+        run: bun install --frozen-lockfile
+
+      - name: Generate ephemeral verification signing key
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+        run: |
+          node --input-type=module <<'NODE'
+          import { generateKeyPairSync } from "node:crypto";
+          import { writeFileSync } from "node:fs";
+
+          const { privateKey } = generateKeyPairSync("ed25519");
+          writeFileSync(
+            `${process.env.RUNNER_TEMP}/runtime-signing-private.jwk`,
+            JSON.stringify(privateKey.export({ format: "jwk" })),
+            { mode: 0o600 },
+          );
+          NODE
+
+      - name: Load trusted signing key
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          ZUSE_RUNTIME_SIGNING_PRIVATE_JWK_SECRET: ${{ secrets.ZUSE_RUNTIME_SIGNING_PRIVATE_JWK }}
+        run: |
+          test -n "$ZUSE_RUNTIME_SIGNING_PRIVATE_JWK_SECRET"
+          printf '%s' "$ZUSE_RUNTIME_SIGNING_PRIVATE_JWK_SECRET" > "$RUNNER_TEMP/runtime-signing-private.jwk"
+          chmod 0600 "$RUNNER_TEMP/runtime-signing-private.jwk"
+
+      - name: Build signed runtime
+        env:
+          ZUSE_RUNTIME_ASSET_NAME: zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
+          ZUSE_RUNTIME_URL: https://github.com/${{ github.repository }}/releases/download/cloud-runtime-staging/zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
+          ZUSE_RUNTIME_VERSION: ${{ github.sha }}
+        run: |
+          export ZUSE_RUNTIME_SIGNING_PRIVATE_JWK="$(< "$RUNNER_TEMP/runtime-signing-private.jwk")"
+          bun --filter @zusehq/server build:cloud-runtime
+
+      - name: Verify signed manifest and archive
+        env:
+          ZUSE_RUNTIME_ASSET_NAME: zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
+          ZUSE_RUNTIME_URL: https://github.com/${{ github.repository }}/releases/download/cloud-runtime-staging/zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
+        run: |
+          node --input-type=module <<'NODE'
+          import { createHash, createPrivateKey, createPublicKey, verify } from "node:crypto";
+          import { readFile } from "node:fs/promises";
+
+          const root = "apps/server/dist-cloud";
+          const signed = JSON.parse(await readFile(`${root}/stable-manifest.json`, "utf8"));
+          const { signature, ...manifest } = signed;
+          const archive = await readFile(`${root}/${process.env.ZUSE_RUNTIME_ASSET_NAME}`);
+          const privateJwk = await readFile(
+            `${process.env.RUNNER_TEMP}/runtime-signing-private.jwk`,
+            "utf8",
+          );
+          const privateKey = createPrivateKey({
+            key: JSON.parse(privateJwk),
+            format: "jwk",
+          });
+          const signatureValid = verify(
+            null,
+            Buffer.from(JSON.stringify(manifest)),
+            createPublicKey(privateKey),
+            Buffer.from(signature, "base64url"),
+          );
+          const digest = createHash("sha256").update(archive).digest("hex");
+          if (!signatureValid || digest !== manifest.sha256 || manifest.url !== process.env.ZUSE_RUNTIME_URL) {
+            throw new Error("Runtime release verification failed");
+          }
+          NODE
+          tar -tzf "apps/server/dist-cloud/$ZUSE_RUNTIME_ASSET_NAME" >/dev/null
+
+      - name: Smoke-test clean runtime archive
+        env:
+          ZUSE_RUNTIME_ASSET_NAME: zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
+        run: |
+          mkdir "$RUNNER_TEMP/runtime-smoke"
+          tar -xzf "apps/server/dist-cloud/$ZUSE_RUNTIME_ASSET_NAME" \
+            -C "$RUNNER_TEMP/runtime-smoke"
+          cd "$RUNNER_TEMP/runtime-smoke"
+          node --input-type=module <<'NODE'
+          import { createRequire } from "node:module";
+
+          const require = createRequire(import.meta.url);
+          require("node-pty");
+          require("tree-sitter");
+          require("tree-sitter-javascript");
+          require("tree-sitter-json");
+          require("tree-sitter-typescript");
+          await import("./bin.mjs");
+          NODE
+
+      - name: Stage release artifacts
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-cloud-runtime-${{ github.sha }}
+          path: |
+            apps/server/dist-cloud/zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
+            apps/server/dist-cloud/stable-manifest.json
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish staging channel
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: cloud-runtime-staging
+      ZUSE_RUNTIME_ASSET_NAME: zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: staging-cloud-runtime-${{ github.sha }}
+          path: dist-cloud
+
+      - name: Publish archive before stable manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "Staging cloud runtime" \
+              --notes "Automatically published signed staging runtime."
+          fi
+          gh release upload "$RELEASE_TAG" \
+            "dist-cloud/$ZUSE_RUNTIME_ASSET_NAME" \
+            --clobber
+          gh release upload "$RELEASE_TAG" \
+            "dist-cloud/stable-manifest.json" \
+            --clobber

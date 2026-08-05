@@ -24,8 +24,15 @@ const template = [
 	"token=__ENROLLMENT_TOKEN__",
 	"manifest=__RUNTIME_MANIFEST_URL__",
 	"key=__RUNTIME_SIGNING_PUBLIC_JWK__",
-	'command="__INSTALL_VERIFIED_RUNTIME_COMMAND__"',
+	"installer:",
+	"      __RUNTIME_INSTALLER_SOURCE__",
 ].join("\n");
+
+const bootstrap = {
+	cloudInitTemplate: template,
+	relayIssuer: "https://relay.test",
+	runtimeInstallerSource: 'console.log("install");\n',
+} as const;
 
 const completeEnvironment = {
 	MACHINE_PROVIDER: "hetzner",
@@ -35,7 +42,6 @@ const completeEnvironment = {
 	HETZNER_IMAGE: "ubuntu-current",
 	HETZNER_LOCATION: "eu-1",
 	HETZNER_SERVER_TYPE_PERSISTENT_STANDARD_V1: "standard-4-8",
-	MACHINE_RUNTIME_INSTALL_COMMAND: 'install --channel "stable"',
 	MACHINE_RUNTIME_MANIFEST_URL: "https://releases.test/stable.json",
 	MACHINE_RUNTIME_SIGNING_PUBLIC_JWK: '{"kty":"OKP"}',
 } as const;
@@ -72,10 +78,7 @@ const providerModule = (
 
 describe("machine provider configuration", () => {
 	test("defaults to the fake provider with production checkout disabled", () => {
-		const runtime = resolveMachineProviderRuntime(
-			{},
-			{ cloudInitTemplate: template, relayIssuer: "https://relay.test" },
-		);
+		const runtime = resolveMachineProviderRuntime({}, bootstrap);
 
 		expect(runtime.providerId).toBe("fake");
 		expect(runtime.productionReady).toBe(false);
@@ -87,7 +90,7 @@ describe("machine provider configuration", () => {
 				MACHINE_PROVIDER: "fake",
 				HETZNER_API_TOKEN: "secret",
 			},
-			{ cloudInitTemplate: template, relayIssuer: "https://relay.test" },
+			bootstrap,
 		);
 
 		expect(runtime.providerId).toBe("fake");
@@ -102,17 +105,14 @@ describe("machine provider configuration", () => {
 					HETZNER_ADAPTER_ENABLED: "true",
 					HETZNER_API_TOKEN: "secret",
 				},
-				{ cloudInitTemplate: template, relayIssuer: "https://relay.test" },
+				bootstrap,
 			),
 		).toThrow(MachineProviderConfigurationError);
 	});
 
 	test("fails closed when live provider configuration is incomplete", () => {
 		expect(() =>
-			resolveMachineProviderRuntime(
-				{ MACHINE_PROVIDER: "hetzner" },
-				{ cloudInitTemplate: template, relayIssuer: "https://relay.test" },
-			),
+			resolveMachineProviderRuntime({ MACHINE_PROVIDER: "hetzner" }, bootstrap),
 		).toThrow(MachineProviderConfigurationError);
 	});
 
@@ -123,26 +123,26 @@ describe("machine provider configuration", () => {
 					...completeEnvironment,
 					HETZNER_API_TOKEN: "REPLACE_WITH_SECRET",
 				},
-				{ cloudInitTemplate: template, relayIssuer: "https://relay.test" },
+				bootstrap,
 			),
 		).toThrow(MachineProviderConfigurationError);
 	});
 
 	test("accepts only a complete HTTPS live provider configuration", () => {
-		const runtime = resolveMachineProviderRuntime(completeEnvironment, {
-			cloudInitTemplate: template,
-			relayIssuer: "https://relay.test",
-		});
+		const runtime = resolveMachineProviderRuntime(
+			completeEnvironment,
+			bootstrap,
+		);
 
 		expect(runtime.providerId).toBe(HETZNER_PROVIDER_ID);
 		expect(runtime.productionReady).toBe(true);
 	});
 
 	test("keeps machines with the previous provider id reconcilable", async () => {
-		const runtime = resolveMachineProviderRuntime(completeEnvironment, {
-			cloudInitTemplate: template,
-			relayIssuer: "https://relay.test",
-		});
+		const runtime = resolveMachineProviderRuntime(
+			completeEnvironment,
+			bootstrap,
+		);
 
 		const providerIds = await Effect.runPromise(
 			Effect.gen(function* () {
@@ -163,7 +163,7 @@ describe("machine provider configuration", () => {
 	test("loads every configured module while selecting one default", async () => {
 		const runtime = resolveMachineProviderRuntime(
 			{ MACHINE_PROVIDER: "provider-b" },
-			{ cloudInitTemplate: template, relayIssuer: "https://relay.test" },
+			bootstrap,
 			[
 				providerModule("provider-a", { aliases: ["provider-a-legacy"] }),
 				providerModule("provider-b"),
@@ -192,7 +192,7 @@ describe("machine provider configuration", () => {
 	test("keeps configured live modules available when fake is the default", async () => {
 		const runtime = resolveMachineProviderRuntime(
 			{ MACHINE_PROVIDER: "fake" },
-			{ cloudInitTemplate: template, relayIssuer: "https://relay.test" },
+			bootstrap,
 			[providerModule("provider-a", { aliases: ["provider-a-legacy"] })],
 		);
 
@@ -221,7 +221,7 @@ describe("machine provider configuration", () => {
 				MACHINE_PROVIDER: "provider-b",
 				HETZNER_API_BASE_URL: "https://api.hetzner.cloud/v1",
 			},
-			{ cloudInitTemplate: template, relayIssuer: "https://relay.test" },
+			bootstrap,
 			[HetznerMachineProviderModule, providerModule("provider-b")],
 		);
 
@@ -244,11 +244,11 @@ describe("machine provider configuration", () => {
 			relayIssuer: "https://relay.test",
 			runtimeManifestUrl: "https://releases.test/stable.json",
 			runtimeSigningPublicJwk: '{"kty":"OKP"}',
-			installVerifiedRuntimeCommand: 'install --channel "stable"',
+			runtimeInstallerSource: 'console.log("install");\n',
 		});
 
 		expect(rendered).not.toMatch(/__[A-Z0-9_]+__/);
-		expect(rendered).toContain('command="install --channel \\"stable\\""');
+		expect(rendered).toContain('      console.log("install");');
 		expect(rendered).toContain("token=zenr_secret");
 	});
 });

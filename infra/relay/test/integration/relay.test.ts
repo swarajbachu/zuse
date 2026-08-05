@@ -307,6 +307,12 @@ describe("@zuse/relay", () => {
 		expect(second.status).toBe(200);
 		const firstBody = (await first.json()) as { machineId: string };
 		const secondBody = (await second.json()) as { machineId: string };
+		expect(first.headers.get("x-zuse-reconcile-machine")).toBe(
+			firstBody.machineId,
+		);
+		expect(second.headers.get("x-zuse-reconcile-machine")).toBe(
+			firstBody.machineId,
+		);
 		expect(secondBody.machineId).toBe(firstBody.machineId);
 
 		const list = await relay.fetch(

@@ -2,6 +2,7 @@ import { PgClient } from "@effect/sql-pg";
 import { HOSTED_APP_URL } from "@zuse/contracts";
 import { Effect, Layer, Redacted } from "effect";
 import { Pool } from "pg";
+import runtimeInstallerSource from "../../../apps/server/scripts/runtime-updater.mjs";
 import cloudInitTemplate from "../../cloud-machines/bootstrap/cloud-init.yaml.tmpl";
 import { AccountIdentityLive } from "./account-identity.ts";
 import { resolveBillingRuntime } from "./billing-config.ts";
@@ -57,7 +58,6 @@ interface Env {
 	readonly HETZNER_IMAGE?: string;
 	readonly HETZNER_LOCATION?: string;
 	readonly HETZNER_SERVER_TYPE_PERSISTENT_STANDARD_V1?: string;
-	readonly MACHINE_RUNTIME_INSTALL_COMMAND?: string;
 	readonly MACHINE_RUNTIME_MANIFEST_URL?: string;
 	readonly MACHINE_RUNTIME_SIGNING_PUBLIC_JWK?: string;
 }
@@ -88,6 +88,7 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 	const machineProvider = resolveMachineProviderRuntime(env, {
 		cloudInitTemplate,
 		relayIssuer: env.RELAY_ISSUER,
+		runtimeInstallerSource,
 	});
 	const configuredLimit = Number(env.MAX_ENVIRONMENTS_PER_ACCOUNT ?? "5");
 	const configLayer = Config.layer({
