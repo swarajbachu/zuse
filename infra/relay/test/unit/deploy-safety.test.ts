@@ -67,6 +67,12 @@ describe("relay deployment safety", () => {
 		expect(config.vars.MACHINE_PROVIDER).toBe("fake");
 		expect(config.vars.HETZNER_ADAPTER_ENABLED).toBe("false");
 		expect(config.vars.HETZNER_FIREWALL_ID).toBe("11418954");
+		expect(config.vars.MACHINE_RUNTIME_MANIFEST_URL).toBe(
+			"https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-staging/stable-manifest.json",
+		);
+		expect(() =>
+			JSON.parse(config.vars.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK ?? ""),
+		).not.toThrow();
 		expect(config.vars.MACHINE_LIVE_CHECKOUT_ENABLED).toBe("false");
 		expect(config.vars.POLAR_VPS_SALES_APPROVED).toBe("false");
 		expect(config.hyperdrive).toEqual([
@@ -90,6 +96,8 @@ describe("relay deployment safety", () => {
 		expect(production.vars.MACHINE_PROVIDER).toBe("fake");
 		expect(production.vars.HETZNER_ADAPTER_ENABLED).toBe("false");
 		expect(production.vars.MACHINE_LIVE_CHECKOUT_ENABLED).toBe("false");
+		expect(production.vars.MACHINE_RUNTIME_MANIFEST_URL).toBe("");
+		expect(production.vars.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK).toBe("");
 		expect(production.hyperdrive).toEqual([
 			{
 				binding: "HYPERDRIVE",

@@ -43,6 +43,12 @@ write_files:
     content: |
       __RUNTIME_SIGNING_PUBLIC_JWK__
 
+  - path: /usr/local/lib/zuse/runtime-installer.mjs
+    owner: root:root
+    permissions: "0755"
+    content: |
+      __RUNTIME_INSTALLER_SOURCE__
+
   - path: /etc/ssh/sshd_config.d/90-zuse.conf
     owner: root:root
     permissions: "0644"
@@ -153,9 +159,10 @@ runcmd:
   - [nft, -f, /etc/nftables.conf]
   - [systemctl, enable, --now, nftables]
   - [systemctl, restart, ssh]
-  - [sh, -c, "__INSTALL_VERIFIED_RUNTIME_COMMAND__"]
+  - [sh, -c, "set -a; . /etc/zuse/runtime.env; set +a; ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_PUBLIC_KEY_FILE=/etc/zuse/runtime-signing-public.jwk /usr/bin/node /usr/local/lib/zuse/runtime-installer.mjs"]
   - [systemctl, daemon-reload]
   - [systemctl, enable, --now, zuse.service]
+  - [sh, -c, "for attempt in $(seq 1 30); do if curl --max-time 2 --connect-timeout 1 -fsS http://127.0.0.1:47837/healthz | jq -e '.status == \"ok\" and .wireProtocolVersion == 2' >/dev/null; then exit 0; fi; sleep 1; done; echo 'Runtime failed its initial health check' >&2; systemctl --no-pager status zuse.service || true; exit 1"]
   - [systemctl, enable, --now, zuse-update.timer]
 
 final_message: "Zuse cloud bootstrap finished"

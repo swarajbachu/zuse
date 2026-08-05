@@ -51,6 +51,7 @@ import {
 	PowerWorkloadState,
 } from "@zuse/contracts";
 import {
+	CredentialsServiceLive,
 	makeMainLayer,
 	readBrowserCredentialFromVault,
 	wsServerProtocolLayer,
@@ -2746,6 +2747,7 @@ async function createMainWindow() {
 					...(nearbyWsProtocol === null ? [] : [nearbyWsProtocol]),
 				],
 				authShell,
+				credentialsLayer: CredentialsServiceLive,
 				lanAuth: {
 					policy: "protected",
 					advertisedHost: networkAccess.advertisedHost,

@@ -11,7 +11,7 @@
 	"rules": [
 		{
 			"type": "Text",
-			"globs": ["**/*.yaml.tmpl"],
+			"globs": ["**/*.yaml.tmpl", "**/runtime-updater.mjs"],
 			"fallthrough": true
 		}
 	],
@@ -41,9 +41,8 @@
 		"HETZNER_IMAGE": "ubuntu-24.04",
 		"HETZNER_LOCATION": "nbg1",
 		"HETZNER_SERVER_TYPE_PERSISTENT_STANDARD_V1": "cx33",
-		"MACHINE_RUNTIME_MANIFEST_URL": "",
-		"MACHINE_RUNTIME_SIGNING_PUBLIC_JWK": "",
-		"MACHINE_RUNTIME_INSTALL_COMMAND": "",
+		"MACHINE_RUNTIME_MANIFEST_URL": "https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-staging/stable-manifest.json",
+		"MACHINE_RUNTIME_SIGNING_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"ODy1bBgW390GBMxIqn8wy2eO3C05kXdoPYk5JV09OZI\",\"kty\":\"OKP\"}",
 
 		"POLAR_ENVIRONMENT": "sandbox",
 		"POLAR_PRODUCT_PERSISTENT_STANDARD_V1": "",

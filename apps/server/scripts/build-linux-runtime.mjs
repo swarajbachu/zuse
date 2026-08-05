@@ -1,6 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { createHash, createPrivateKey, sign } from "node:crypto";
-import { cp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import {
+	cp,
+	mkdir,
+	readdir,
+	readFile,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
 
@@ -9,7 +16,16 @@ const packageRoot = dirname(serverRoot);
 const workspaceRoot = dirname(dirname(packageRoot));
 const outputRoot = join(packageRoot, "dist-cloud");
 const runtimeRoot = join(outputRoot, "runtime");
-const archivePath = join(outputRoot, "zuse-runtime-linux-x64.tar.gz");
+const runtimeAssetName = process.env.ZUSE_RUNTIME_ASSET_NAME;
+if (runtimeAssetName === undefined) {
+	throw new Error("ZUSE_RUNTIME_ASSET_NAME is required");
+}
+if (!/^zuse-runtime-linux-x64-[a-f0-9]{40}\.tar\.gz$/u.test(runtimeAssetName)) {
+	throw new Error(
+		"ZUSE_RUNTIME_ASSET_NAME must contain the full source commit SHA",
+	);
+}
+const archivePath = join(outputRoot, runtimeAssetName);
 const packageJson = JSON.parse(
 	await readFile(join(packageRoot, "package.json"), "utf8"),
 );
@@ -27,8 +43,23 @@ const run = (command, args, cwd = workspaceRoot) => {
 };
 
 run("bunx", ["tsdown", "--config", "tsdown.cloud.config.ts"], packageRoot);
+const generatedModules = (await readdir(outputRoot)).filter((name) =>
+	name.endsWith(".mjs"),
+);
+if (generatedModules.length !== 1 || generatedModules[0] !== "bin.mjs") {
+	throw new Error(
+		`Cloud runtime must be a single bundle; found ${generatedModules.join(", ")}`,
+	);
+}
+const bundlePath = join(outputRoot, "bin.mjs");
+const bundleSource = await readFile(bundlePath, "utf8");
+if (
+	/\b(?:from|import\s*\(|require\s*\()\s*["']keytar["']/u.test(bundleSource)
+) {
+	throw new Error("Cloud runtime unexpectedly imports keytar");
+}
 await mkdir(runtimeRoot, { recursive: true });
-await cp(join(outputRoot, "bin.mjs"), join(runtimeRoot, "bin.mjs"));
+await cp(bundlePath, join(runtimeRoot, "bin.mjs"));
 await cp(
 	join(packageRoot, "scripts", "runtime-updater.mjs"),
 	join(runtimeRoot, "runtime-updater.mjs"),
@@ -37,6 +68,7 @@ await cp(
 const nativePackages = [
 	"bindings",
 	"file-uri-to-path",
+	"node-gyp-build",
 	"node-pty",
 	"tree-sitter",
 	"tree-sitter-javascript",

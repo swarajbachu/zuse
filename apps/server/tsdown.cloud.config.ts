@@ -11,11 +11,13 @@ export default defineConfig({
 	dts: false,
 	sourcemap: false,
 	treeshake: true,
+	outputOptions: {
+		codeSplitting: false,
+	},
 	deps: {
 		alwaysBundle: [/.*/u],
 		neverBundle: [
 			"bindings",
-			"keytar",
 			"node-pty",
 			"tree-sitter",
 			"tree-sitter-javascript",
@@ -24,7 +26,6 @@ export default defineConfig({
 		],
 		onlyImport: [
 			"bindings",
-			"keytar",
 			"node-pty",
 			"tree-sitter",
 			"tree-sitter-javascript",

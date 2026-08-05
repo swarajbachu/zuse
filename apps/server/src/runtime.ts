@@ -46,7 +46,6 @@ import { NdjsonLoggerLive } from "./persistence/ndjson-logger.ts";
 import { SqliteLive } from "./persistence/sqlite.ts";
 import { PokemonServiceLive } from "./pokemon/layers/pokemon-service.ts";
 import { BrowserBridgeServiceLive } from "./provider/layers/browser-bridge-service.ts";
-import { CredentialsServiceLive } from "./provider/layers/credentials-service.ts";
 import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
 import type { CredentialsService } from "./provider/services/credentials-service.ts";
@@ -112,7 +111,7 @@ export interface MainLayerDeps {
 		Layer.Layer<RpcServer.Protocol, never, LanAuthService | AttachmentService>
 	>;
 	readonly authShell: typeof AuthShell.Service;
-	readonly credentialsLayer?: Layer.Layer<CredentialsService>;
+	readonly credentialsLayer: Layer.Layer<CredentialsService, never, AppPaths>;
 	readonly cloudEnrollment?: CloudEnrollmentConfig;
 	readonly machineRuntimeRole?: "control-plane" | "cloud-environment";
 	readonly lanAuth?: {
@@ -266,9 +265,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(AppPathsLayer),
 		Layer.provide(NodeServices.layer),
 	);
-	const CredentialsLayer =
-		deps.credentialsLayer ??
-		CredentialsServiceLive.pipe(Layer.provide(AppPathsLayer));
+	const CredentialsLayer = deps.credentialsLayer.pipe(
+		Layer.provide(AppPathsLayer),
+	);
 
 	// Auth owns the account transition that analytics uses to move between a
 	// random installation identity and a namespaced account hash.

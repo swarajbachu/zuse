@@ -12,6 +12,7 @@ export interface MachineProviderEnvironment {
 export interface MachineProviderBootstrap {
 	readonly cloudInitTemplate: string;
 	readonly relayIssuer: string;
+	readonly runtimeInstallerSource: string;
 }
 
 export interface MachineProviderRuntime {
@@ -35,8 +36,8 @@ export class MachineProviderConfigurationError extends Schema.TaggedErrorClass<M
 	{ message: Schema.String },
 ) {}
 
-const yamlDoubleQuotedContent = (value: string): string =>
-	JSON.stringify(value).slice(1, -1);
+const yamlBlockContinuation = (value: string, indentation: number): string =>
+	value.trimEnd().replaceAll("\n", `\n${" ".repeat(indentation)}`);
 
 export const renderMachineCloudInit = (
 	template: string,
@@ -48,7 +49,7 @@ export const renderMachineCloudInit = (
 		readonly relayIssuer: string;
 		readonly runtimeManifestUrl: string;
 		readonly runtimeSigningPublicJwk: string;
-		readonly installVerifiedRuntimeCommand: string;
+		readonly runtimeInstallerSource: string;
 	},
 ): string => {
 	const replacements: Readonly<Record<string, string>> = {
@@ -59,8 +60,9 @@ export const renderMachineCloudInit = (
 		__ENROLLMENT_TOKEN__: input.enrollmentToken,
 		__RUNTIME_MANIFEST_URL__: input.runtimeManifestUrl,
 		__RUNTIME_SIGNING_PUBLIC_JWK__: input.runtimeSigningPublicJwk,
-		__INSTALL_VERIFIED_RUNTIME_COMMAND__: yamlDoubleQuotedContent(
-			input.installVerifiedRuntimeCommand,
+		__RUNTIME_INSTALLER_SOURCE__: yamlBlockContinuation(
+			input.runtimeInstallerSource,
+			6,
 		),
 	};
 	let rendered = template;

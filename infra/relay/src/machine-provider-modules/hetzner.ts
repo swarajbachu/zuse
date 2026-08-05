@@ -38,7 +38,6 @@ const HetznerEnvironment = Schema.Struct({
 	HETZNER_IMAGE: ConfiguredString,
 	HETZNER_LOCATION: ConfiguredString,
 	HETZNER_SERVER_TYPE_PERSISTENT_STANDARD_V1: ConfiguredString,
-	MACHINE_RUNTIME_INSTALL_COMMAND: ConfiguredString,
 	MACHINE_RUNTIME_MANIFEST_URL: HttpsUrl,
 	MACHINE_RUNTIME_SIGNING_PUBLIC_JWK: ConfiguredString,
 });
@@ -102,8 +101,7 @@ export const HetznerMachineProviderModule: MachineProviderModule = {
 						relayIssuer: bootstrap.relayIssuer,
 						runtimeManifestUrl: config.MACHINE_RUNTIME_MANIFEST_URL.href,
 						runtimeSigningPublicJwk: config.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK,
-						installVerifiedRuntimeCommand:
-							config.MACHINE_RUNTIME_INSTALL_COMMAND,
+						runtimeInstallerSource: bootstrap.runtimeInstallerSource,
 					}),
 			}),
 			aliases: [HETZNER_LEGACY_PROVIDER_ID],
