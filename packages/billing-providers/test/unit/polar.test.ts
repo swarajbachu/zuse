@@ -69,7 +69,7 @@ describe("Polar billing provider", () => {
 				checkout: provider.checkout({
 					accountId: "account_1",
 					offerId: "persistent-standard-v1",
-					successUrl: "zuse://machines",
+					successUrl: "https://relay.test/v1/billing/checkout/complete",
 				}),
 				portal: provider.customerPortal("account_1"),
 			}),
@@ -83,7 +83,7 @@ describe("Polar billing provider", () => {
 			{
 				products: ["product_machine"],
 				externalCustomerId: "account_1",
-				successUrl: "zuse://machines",
+				successUrl: "https://relay.test/v1/billing/checkout/complete",
 				metadata: {
 					account_id: "account_1",
 					offer_id: "persistent-standard-v1",

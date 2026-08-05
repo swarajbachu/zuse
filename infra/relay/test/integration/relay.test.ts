@@ -3,6 +3,7 @@ import {
 	BillingProviders,
 	BillingProvidersManual,
 } from "@zuse/billing-providers";
+import { RelayPaths } from "@zuse/contracts";
 import { MachineProvidersFake } from "@zuse/machine-providers/testing";
 import { Effect, Layer, Redacted } from "effect";
 import {
@@ -346,7 +347,6 @@ describe("@zuse/relay", () => {
 				},
 				body: JSON.stringify({
 					offerId: "persistent-standard-v1",
-					successUrl: "zuse://machines",
 				}),
 			}),
 		);
@@ -355,6 +355,69 @@ describe("@zuse/relay", () => {
 		expect(await response.json()).toEqual({
 			error: "billing_approval_pending",
 		});
+	});
+
+	test("creates checkout with the relay-owned HTTPS completion page", async () => {
+		let checkoutInput:
+			| {
+					readonly accountId: string;
+					readonly offerId: string;
+					readonly successUrl: string;
+			  }
+			| undefined;
+		const billing: BillingProviderAdapter = {
+			providerId: "billing-test",
+			checkout: (input) => {
+				checkoutInput = input;
+				return Effect.succeed("https://billing.test/checkout");
+			},
+			verifyEvent: () => Effect.die("unused"),
+			reconcileSubscription: () => Effect.die("unused"),
+			cancel: () => Effect.void,
+			customerPortal: () => Effect.succeed("https://billing.test/portal"),
+		};
+		const billingRelay = makeRelay(
+			await makeLayer(
+				undefined,
+				BillingProviders.layer({
+					adapters: [billing],
+					defaultProviderId: billing.providerId,
+				}).pipe(Layer.orDie),
+				true,
+			),
+		);
+
+		try {
+			const response = await billingRelay.fetch(
+				new Request(`${RELAY_ISSUER}${RelayPaths.billingCheckout}`, {
+					method: "POST",
+					headers: {
+						authorization: "Bearer test-token:user_a",
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({ offerId: "persistent-standard-v1" }),
+				}),
+			);
+
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({
+				checkoutUrl: "https://billing.test/checkout",
+			});
+			expect(checkoutInput).toEqual({
+				accountId: "user_a",
+				offerId: "persistent-standard-v1",
+				successUrl: `${RELAY_ISSUER}${RelayPaths.billingCheckoutComplete}`,
+			});
+
+			const completion = await billingRelay.fetch(
+				new Request(`${RELAY_ISSUER}${RelayPaths.billingCheckoutComplete}`),
+			);
+			expect(completion.status).toBe(200);
+			expect(completion.headers.get("content-type")).toContain("text/html");
+			expect(await completion.text()).toContain("Return to Zuse");
+		} finally {
+			await billingRelay.dispose();
+		}
 	});
 
 	test("deduplicates billing events and reconciles out-of-order delivery from authoritative state", async () => {

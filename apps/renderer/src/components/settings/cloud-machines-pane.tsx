@@ -8,6 +8,10 @@ import {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { useCallback, useEffect, useState } from "react";
+import {
+	checkoutErrorMessage,
+	visibleCloudMachineError,
+} from "../../lib/cloud-machine-errors.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
 import {
 	getActiveEnvironmentId,
@@ -41,7 +45,8 @@ export function CloudMachinesPane() {
 	const [submitting, setSubmitting] = useState(false);
 	const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
 	const [action, setAction] = useState<string | null>(null);
-	const [error, setError] = useState<string | null>(null);
+	const [loadError, setLoadError] = useState<string | null>(null);
+	const [actionError, setActionError] = useState<string | null>(null);
 	const [networkKey, setNetworkKey] = useState("");
 	const [sshMode, setSshMode] = useState<SshMode>("authorized-keys");
 	const [network, setNetwork] = useState<MachinePrivateNetworkStatus | null>(
@@ -64,9 +69,9 @@ export function CloudMachinesPane() {
 				null;
 			setMachine(activeMachine);
 			if (activeMachine !== null) setCheckoutUrl(null);
-			setError(null);
+			setLoadError(null);
 		} catch {
-			setError(
+			setLoadError(
 				"Cloud machines are available only to signed-in alpha accounts.",
 			);
 		} finally {
@@ -88,7 +93,7 @@ export function CloudMachinesPane() {
 	const beginPurchase = async () => {
 		if (offer === null || submitting) return;
 		setSubmitting(true);
-		setError(null);
+		setActionError(null);
 		try {
 			if (checkoutUrl !== null) {
 				await openExternal(checkoutUrl);
@@ -99,7 +104,6 @@ export function CloudMachinesPane() {
 				const checkout = await Effect.runPromise(
 					client["machines.checkout"]({
 						offerId: offer.offerId,
-						successUrl: "zuse://machines",
 					}),
 				);
 				setCheckoutUrl(checkout.checkoutUrl);
@@ -121,11 +125,7 @@ export function CloudMachinesPane() {
 				setMachine(created);
 			}
 		} catch (cause) {
-			setError(
-				cause instanceof Error
-					? cause.message
-					: "Checkout could not be opened.",
-			);
+			setActionError(checkoutErrorMessage(cause));
 		} finally {
 			setSubmitting(false);
 		}
@@ -137,11 +137,11 @@ export function CloudMachinesPane() {
 	) => {
 		if (action !== null) return;
 		setAction(name);
-		setError(null);
+		setActionError(null);
 		try {
 			setMachine(await operation());
 		} catch {
-			setError("The machine could not be updated. Try again.");
+			setActionError("The machine could not be updated. Try again.");
 		} finally {
 			setAction(null);
 		}
@@ -177,6 +177,8 @@ export function CloudMachinesPane() {
 			<div className="h-64 animate-pulse rounded-xl border border-border bg-muted/20" />
 		);
 	}
+
+	const error = visibleCloudMachineError(loadError, actionError);
 
 	return (
 		<div className="max-w-2xl space-y-4">
@@ -341,7 +343,9 @@ export function CloudMachinesPane() {
 												);
 												setNetwork(status);
 											} catch {
-												setError("Private networking could not be enabled.");
+												setActionError(
+													"Private networking could not be enabled.",
+												);
 											} finally {
 												setNetworkKey("");
 												setAction(null);
@@ -476,7 +480,7 @@ export function CloudMachinesPane() {
 										);
 										await openExternal(portal.portalUrl);
 									} catch {
-										setError(
+										setActionError(
 											"Billing management is unavailable during the manual alpha.",
 										);
 									} finally {

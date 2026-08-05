@@ -200,7 +200,6 @@ export class BillingCheckoutRequest extends Schema.Class<BillingCheckoutRequest>
 	"BillingCheckoutRequest",
 )({
 	offerId: Schema.String,
-	successUrl: Schema.String,
 }) {}
 
 export class BillingCheckout extends Schema.Class<BillingCheckout>(

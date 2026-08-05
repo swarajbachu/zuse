@@ -60,6 +60,7 @@ export const RelayPaths = {
 	machineBootStatus: (machineId: string) =>
 		`/v1/machines/${encodeURIComponent(machineId)}/boot-status`,
 	billingCheckout: "/v1/billing/checkout",
+	billingCheckoutComplete: "/v1/billing/checkout/complete",
 	billingEntitlements: "/v1/billing/entitlements",
 	billingPortal: "/v1/billing/portal",
 	billingWebhook: "/v1/billing/webhook",
