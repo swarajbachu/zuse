@@ -91,7 +91,7 @@ describe("cloud runtime assets", () => {
 		expect(build).not.toContain("releases.invalid");
 	});
 
-	test("publishes the signed staging runtime automatically without deploying production", async () => {
+	test("gates automatic and explicit staging publication without deploying production", async () => {
 		const workflow = await readWorkspaceFile(
 			".github/workflows/cloud-runtime-staging.yml",
 		);
@@ -101,12 +101,19 @@ describe("cloud runtime assets", () => {
 		expect(workflow).toContain("Generate ephemeral verification signing key");
 		expect(workflow).toContain("Load trusted signing key");
 		expect(workflow).toContain(
-			"github.event_name == 'push' && github.ref == 'refs/heads/main'",
+			'"$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main"',
 		);
 		expect(workflow).toContain("publish_staging:");
 		expect(workflow).toContain(
-			"github.event_name == 'workflow_dispatch' && inputs.publish_staging == true",
+			"refs/heads/swarajbachu/managed-vps-cloud-provisioning",
 		);
+		expect(workflow.match(/id: publication/gu)).toHaveLength(1);
+		expect(
+			workflow.match(/steps\.publication\.outputs\.enabled == 'true'/gu),
+		).toHaveLength(2);
+		expect(
+			workflow.match(/needs\.build\.outputs\.publish_staging == 'true'/gu),
+		).toHaveLength(1);
 		expect(workflow).not.toContain(
 			"ZUSE_RUNTIME_SIGNING_PRIVATE_JWK: $" +
 				"{{ secrets.ZUSE_RUNTIME_SIGNING_PRIVATE_JWK }}",

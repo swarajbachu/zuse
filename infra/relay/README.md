@@ -56,8 +56,9 @@ bun run deploy
 Staging is the unnamed Wrangler default, so these commands and even an
 unqualified `wrangler deploy` use the `zuse-relay-staging` Worker,
 `relay-staging.stuff.md`, a separate Hyperdrive binding, the `zenv-staging`
-tunnel namespace, sandbox billing, manual entitlements, and the fake machine
-provider. The secret scripts in this package also target staging by default.
+tunnel namespace, sandbox billing, the allowlisted Hetzner adapter, and live
+sandbox checkout. The secret scripts in this package also target staging by
+default. Production remains separately configured and disabled.
 
 An intentional production deployment is guarded and requires both the explicit
 script and confirmation value:
@@ -170,6 +171,12 @@ through `GET /v1/billing/entitlements`. An active subscription webhook now
 atomically creates the one allowed machine and immediately schedules its first
 reconciliation pass; no separate machine-create call is required. Return
 `MACHINE_LIVE_CHECKOUT_ENABLED` to false after the test.
+
+The tracked staging alpha deliberately runs the combined allowlisted path:
+Polar sandbox checkout, signed webhook reconciliation, and real Hetzner
+provisioning. It keeps manual entitlements disabled, so the checkout webhook is
+the only normal creation path. Keep the allowlist to test accounts and disable
+checkout before expanding access.
 
 ## Notes
 - Link proofs are **Ed25519** (asymmetric): the desktop holds the private key and sends

@@ -36,9 +36,28 @@ jobs:
     name: Build signed Linux runtime
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    outputs:
+      publish_staging: ${{ steps.publication.outputs.enabled }}
     env:
       RELEASE_TAG: cloud-runtime-staging
     steps:
+      - name: Determine staging publication mode
+        id: publication
+        env:
+          REQUESTED_PUBLICATION: ${{ inputs.publish_staging }}
+        run: |
+          enabled=false
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main" ]]; then
+            enabled=true
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$REQUESTED_PUBLICATION" == "true" ]]; then
+            if [[ "$GITHUB_REF" != "refs/heads/swarajbachu/managed-vps-cloud-provisioning" ]]; then
+              echo "Ref $GITHUB_REF is not authorized to publish the staging runtime" >&2
+              exit 1
+            fi
+            enabled=true
+          fi
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -56,7 +75,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Generate ephemeral verification signing key
-        if: (github.event_name != 'push' || github.ref != 'refs/heads/main') && (github.event_name != 'workflow_dispatch' || inputs.publish_staging != true)
+        if: steps.publication.outputs.enabled != 'true'
         run: |
           node --input-type=module <<'NODE'
           import { generateKeyPairSync } from "node:crypto";
@@ -71,7 +90,7 @@ jobs:
           NODE
 
       - name: Load trusted signing key
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.publish_staging == true)
+        if: steps.publication.outputs.enabled == 'true'
         env:
           ZUSE_RUNTIME_SIGNING_PRIVATE_JWK_SECRET: ${{ secrets.ZUSE_RUNTIME_SIGNING_PRIVATE_JWK }}
         run: |
@@ -143,7 +162,7 @@ jobs:
           NODE
 
       - name: Stage release artifacts
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.publish_staging == true)
+        if: steps.publication.outputs.enabled == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: staging-cloud-runtime-${{ github.sha }}
@@ -155,7 +174,7 @@ jobs:
 
   publish:
     name: Publish staging channel
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.publish_staging == true)
+    if: needs.build.outputs.publish_staging == 'true'
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10

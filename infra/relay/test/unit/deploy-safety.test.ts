@@ -47,7 +47,7 @@ describe("relay deployment safety", () => {
 		}
 	});
 
-	test("keeps staging as the default with live operations disabled", async () => {
+	test("keeps the allowlisted sandbox workflow live only on staging", async () => {
 		const config = parse(
 			await readFile(wranglerConfigUrl, "utf8"),
 		) as WranglerTarget;
@@ -64,8 +64,9 @@ describe("relay deployment safety", () => {
 		expect(config.vars.MACHINE_ALPHA_ALLOWLIST).toBe(
 			"user_01KW7R9WGJFFSKDNESE7RN00N1",
 		);
-		expect(config.vars.MACHINE_PROVIDER).toBe("fake");
-		expect(config.vars.HETZNER_ADAPTER_ENABLED).toBe("false");
+		expect(config.vars.MACHINE_MANUAL_ENTITLEMENTS).toBe("false");
+		expect(config.vars.MACHINE_PROVIDER).toBe("hetzner");
+		expect(config.vars.HETZNER_ADAPTER_ENABLED).toBe("true");
 		expect(config.vars.HETZNER_FIREWALL_ID).toBe("11418954");
 		expect(config.vars.MACHINE_RUNTIME_MANIFEST_URL).toBe(
 			"https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-staging/stable-manifest.json",
@@ -73,7 +74,10 @@ describe("relay deployment safety", () => {
 		expect(() =>
 			JSON.parse(config.vars.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK ?? ""),
 		).not.toThrow();
-		expect(config.vars.MACHINE_LIVE_CHECKOUT_ENABLED).toBe("false");
+		expect(config.vars.MACHINE_LIVE_CHECKOUT_ENABLED).toBe("true");
+		expect(config.vars.POLAR_PRODUCT_PERSISTENT_STANDARD_V1).toBe(
+			"810223ea-94f2-47e7-9c09-af9a0fd86174",
+		);
 		expect(config.vars.POLAR_VPS_SALES_APPROVED).toBe("false");
 		expect(config.hyperdrive).toEqual([
 			{
