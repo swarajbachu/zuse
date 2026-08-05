@@ -1,0 +1,273 @@
+import { BillingProvidersManual } from "@zuse/billing-providers";
+import { MachineProviders } from "@zuse/machine-providers";
+import {
+	FakeMachineProviderControlService,
+	MachineProvidersFake,
+} from "@zuse/machine-providers/testing";
+import { Effect, Layer, Ref } from "effect";
+import { describe, expect, test } from "vitest";
+
+import {
+	AccountIdentity,
+	MachineControlConfiguration,
+	reconcileMachines,
+} from "../../src/index.ts";
+import { MachineStore, MachineStoreMemory } from "../../src/machine-store.ts";
+import {
+	ManagedTunnelProvider,
+	type ManagedTunnelProviderApi,
+} from "../../src/managed-tunnel.ts";
+import { RelayStoreMemory } from "../../src/store.ts";
+
+const noTunnel: ManagedTunnelProviderApi = {
+	enabled: false,
+	provision: () => Effect.die("disabled"),
+	deprovision: () => Effect.void,
+};
+
+const testLayer = Layer.mergeAll(
+	MachineStoreMemory,
+	MachineProvidersFake,
+	BillingProvidersManual,
+	RelayStoreMemory,
+	Layer.succeed(ManagedTunnelProvider, noTunnel),
+	Layer.succeed(
+		AccountIdentity,
+		AccountIdentity.of({ deleteUser: () => Effect.void }),
+	),
+	Layer.succeed(MachineControlConfiguration, {
+		allowlistedAccountIds: new Set(["user_a"]),
+		manualEntitlementsEnabled: true,
+		liveCheckoutEnabled: false,
+		enrollmentTtlMs: 30 * 60 * 1_000,
+		recoveryWindowMs: 7 * 24 * 60 * 60 * 1_000,
+		finalSnapshotRetentionMs: 14 * 24 * 60 * 60 * 1_000,
+		reconcileLeaseMs: 5 * 60 * 1_000,
+	}),
+);
+
+const seedMachine = Effect.fn("seedMachine")(function* (nowMs: number) {
+	const store = yield* MachineStore;
+	const providers = yield* MachineProviders;
+	const provider = yield* providers.getDefault;
+	yield* store.upsertEntitlement({
+		entitlementId: "ent_1",
+		accountId: "user_a",
+		kind: "persistent-machine",
+		offerId: "persistent-standard-v1",
+		provider: "manual",
+		status: "active",
+		paidThroughMs: nowMs + 30 * 24 * 60 * 60 * 1_000,
+		createdAtMs: nowMs,
+		updatedAtMs: nowMs,
+	});
+	const outcome = yield* store.createMachine({
+		accountId: "user_a",
+		offerId: "persistent-standard-v1",
+		idempotencyKey: "create_1",
+		machineId: "machine_1",
+		provider: provider.providerId,
+		providerLabel: "zuse-machine_1",
+		nowMs,
+	});
+	if (outcome.kind !== "created") return yield* Effect.die(outcome.kind);
+	return outcome.machine;
+});
+
+describe("machine reconciler", () => {
+	test("keeps a machine retryable when its persisted provider is unavailable", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const seeded = yield* seedMachine(Date.now() - 1_000);
+				const store = yield* MachineStore;
+				yield* store.saveMachine({
+					...seeded,
+					provider: "temporarily-missing",
+					nextActionAtMs: 0,
+				});
+				for (let attempt = 0; attempt < 10; attempt += 1) {
+					yield* reconcileMachines({ owner: `worker-${attempt}` });
+					const current = yield* store.getMachine(seeded.machineId);
+					if (current === null) return yield* Effect.die("missing machine");
+					yield* store.saveMachine({ ...current, nextActionAtMs: 0 });
+				}
+				return yield* store.getMachine(seeded.machineId);
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result?.state).toBe("creating");
+		expect(result?.statusCode).toBe("provider-unavailable");
+		expect(result?.stableFailureCode).toBe("machine-provider-not-configured");
+		expect(result?.attemptCount).toBe(0);
+		expect(result?.nextActionAtMs).toBeLessThan(Number.MAX_SAFE_INTEGER);
+	});
+
+	test("rejects stale lifecycle writes after destruction is requested", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const stale = yield* seedMachine(Date.now());
+				const store = yield* MachineStore;
+				const destroyed = yield* store.compareAndSetMachine(
+					{
+						...stale,
+						state: "destroying",
+						desiredState: "destroyed",
+						statusCode: "destruction-queued",
+					},
+					stale.revision,
+				);
+				const staleBoot = yield* store.compareAndSetMachine(
+					{
+						...stale,
+						state: "bootstrapping",
+						statusCode: "bootstrap-pending",
+					},
+					stale.revision,
+				);
+				return {
+					destroyed,
+					staleBoot,
+					machine: yield* store.getMachine(stale.machineId),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.destroyed).toBe(true);
+		expect(result.staleBoot).toBe(false);
+		expect(result.machine?.state).toBe("destroying");
+		expect(result.machine?.desiredState).toBe("destroyed");
+	});
+
+	test("transactional leases let only one concurrent worker claim a machine", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				yield* seedMachine(Date.now() - 1_000);
+				return yield* Effect.all(
+					[
+						reconcileMachines({ owner: "worker-a" }),
+						reconcileMachines({ owner: "worker-b" }),
+					],
+					{ concurrency: "unbounded" },
+				);
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result[0].claimed + result[1].claimed).toBe(1);
+		expect(result[0].processed + result[1].processed).toBe(1);
+	});
+
+	test("recovers a timed-out create by deterministic label without a duplicate", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const seeded = yield* seedMachine(Date.now() - 1_000);
+				const control = yield* FakeMachineProviderControlService;
+				yield* Ref.set(control.failNextCreateAfterProvision, true);
+
+				yield* reconcileMachines({ owner: "worker-a" });
+				const store = yield* MachineStore;
+				const afterTimeout = yield* store.getMachine(seeded.machineId);
+				if (afterTimeout === null) return yield* Effect.die("missing machine");
+				yield* store.saveMachine({ ...afterTimeout, nextActionAtMs: 0 });
+
+				yield* reconcileMachines({ owner: "worker-b" });
+				return {
+					machine: yield* store.getMachine(seeded.machineId),
+					createCalls: yield* Ref.get(control.createCalls),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.createCalls).toBe(1);
+		expect(result.machine?.state).toBe("bootstrapping");
+		expect(result.machine?.providerServerId).toBe("fake-machine_1");
+	});
+
+	test("suspends, resumes, snapshots, destroys, and later expires the snapshot", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const seeded = yield* seedMachine(Date.now() - 2_000);
+				const store = yield* MachineStore;
+				const control = yield* FakeMachineProviderControlService;
+
+				yield* reconcileMachines({ owner: "create" });
+				const provisioned = yield* store.getMachine(seeded.machineId);
+				if (provisioned?.providerServerId === undefined) {
+					return yield* Effect.die("machine was not provisioned");
+				}
+
+				yield* store.saveMachine({
+					...provisioned,
+					state: "ready",
+					desiredState: "suspended",
+					statusCode: "cancellation-scheduled",
+					paidThroughMs: 0,
+					recoveryDeadlineMs: Date.now() + 60_000,
+					nextActionAtMs: 0,
+				});
+				yield* reconcileMachines({ owner: "suspend" });
+				const suspended = yield* store.getMachine(seeded.machineId);
+				if (suspended === null) return yield* Effect.die("missing suspended");
+				const poweredOff = (yield* Ref.get(control.servers)).get(
+					provisioned.providerServerId,
+				);
+
+				yield* store.saveMachine({
+					...suspended,
+					state: "resuming",
+					desiredState: "ready",
+					statusCode: "resume-queued",
+					paidThroughMs: Date.now() + 60_000,
+					recoveryDeadlineMs: undefined,
+					nextActionAtMs: 0,
+				});
+				yield* reconcileMachines({ owner: "resume" });
+				const resumed = yield* store.getMachine(seeded.machineId);
+				if (resumed === null) return yield* Effect.die("missing resumed");
+				const poweredOn = (yield* Ref.get(control.servers)).get(
+					provisioned.providerServerId,
+				);
+
+				yield* store.saveMachine({
+					...resumed,
+					state: "destroying",
+					desiredState: "destroyed",
+					statusCode: "destruction-queued",
+					nextActionAtMs: 0,
+				});
+				yield* reconcileMachines({ owner: "destroy" });
+				const destroyed = yield* store.getMachine(seeded.machineId);
+				if (destroyed === null) return yield* Effect.die("missing destroyed");
+				const snapshotsBeforeExpiry = yield* Ref.get(control.snapshots);
+				const serversAfterDestroy = yield* Ref.get(control.servers);
+
+				yield* store.saveMachine({
+					...destroyed,
+					finalSnapshotDeleteAtMs: 0,
+					nextActionAtMs: 0,
+				});
+				yield* reconcileMachines({ owner: "expire-snapshot" });
+				return {
+					suspended,
+					poweredOff,
+					resumed,
+					poweredOn,
+					destroyed,
+					snapshotsBeforeExpiry,
+					serversAfterDestroy,
+					final: yield* store.getMachine(seeded.machineId),
+					snapshotsAfterExpiry: yield* Ref.get(control.snapshots),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.suspended.state).toBe("suspended");
+		expect(result.poweredOff?.powerState).toBe("off");
+		expect(result.resumed.state).toBe("ready");
+		expect(result.poweredOn?.powerState).toBe("running");
+		expect(result.destroyed.state).toBe("destroyed");
+		expect(result.snapshotsBeforeExpiry.size).toBe(1);
+		expect(result.serversAfterDestroy.size).toBe(0);
+		expect(result.final?.finalSnapshotId).toBeUndefined();
+		expect(result.snapshotsAfterExpiry.size).toBe(0);
+	});
+});

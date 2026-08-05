@@ -61,6 +61,7 @@ import {
 } from "~/lib/chat-attention-state";
 import { displayPath } from "~/lib/display-path";
 import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
+import { rendererPlatformCapabilities } from "~/lib/platform-capabilities.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import { dispatchCommand } from "../lib/commands.ts";
 import { noteSessionRuntimeCompletion } from "../lib/completion-sounds.ts";
@@ -448,7 +449,7 @@ export function ProjectsSidebar() {
 			tabIndex={-1}
 			className="flex h-full min-h-0 w-full flex-col bg-sidebar text-sidebar-foreground outline-none"
 		>
-			<ComputerSwitcher />
+			{rendererPlatformCapabilities().desktop ? null : <ComputerSwitcher />}
 			<SidebarActions />
 			<div className="flex items-center justify-between px-3 py-2 text-xs text-muted-foreground">
 				<span>Projects</span>

@@ -2,13 +2,19 @@ import {
 	makeRpcClientSession,
 	withWireProtocolVersion,
 } from "@zuse/client-runtime/connection";
+import { choosePreferredEndpoint } from "@zuse/client-runtime/endpoint-selection";
 import { parseEnvironmentRoute } from "@zuse/client-runtime/environment-scope";
 import {
 	type ConnectionSnapshot,
 	type ConnectionSupervisorEntry,
 	createConnectionSupervisor,
 } from "@zuse/client-runtime/supervisor";
-import { MemoizeRpcs, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
+import {
+	type EnvironmentEndpoint,
+	MemoizeRpcs,
+	type RelayConnectGrant,
+	WIRE_PROTOCOL_VERSION,
+} from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 import {
 	type RpcClient,
@@ -36,11 +42,19 @@ type RendererConnectionOptions =
 	  }
 	| {
 			readonly key: string;
-			readonly kind: "websocket";
-			readonly wsUrl: string;
+			readonly kind: "browser";
+	  }
+	| {
+			readonly key: `environment:${string}`;
+			readonly kind: "remote";
+			readonly environmentId: string;
+			readonly wsUrl?: string;
+			readonly token?: string;
 	  };
 
-const rendererConnectionKey = (): string => {
+const ACTIVE_ENVIRONMENT_KEY = "zuse.active-environment-id";
+
+const browserConnectionKey = (): string => {
 	if (typeof location === "undefined") return "environment:local";
 	const route = parseEnvironmentRoute(location.pathname);
 	return `environment:${route?.environmentId ?? "local"}`;
@@ -64,20 +78,62 @@ export function resolveRendererRpcTransportForTest(): {
 		: { kind: "websocket", wsUrl: resolveWebSocketUrl() };
 }
 
-const connectionOptions = (): RendererConnectionOptions => {
+const controlPlaneOptions = (): RendererConnectionOptions => {
 	const bridge = globalThis.window?.zuse ?? globalThis.window?.memoize;
 	return bridge
-		? { key: rendererConnectionKey(), kind: "electron", bridge: bridge.rpc }
-		: {
-				key: rendererConnectionKey(),
-				kind: "websocket",
-				wsUrl: resolveWebSocketUrl(),
-			};
+		? { key: "control-plane", kind: "electron", bridge: bridge.rpc }
+		: { key: browserConnectionKey(), kind: "browser" };
 };
 
 let online = globalThis.navigator?.onLine ?? true;
 
-const supervisor = createConnectionSupervisor<
+export const webSocketConnectionOwnerForTest = (
+	kind: "browser" | "remote",
+): "control-plane" | "environment" =>
+	kind === "browser" ? "control-plane" : "environment";
+
+const reportWebSocketClose = (
+	kind: "browser" | "remote",
+	event: { readonly code: number },
+): void => {
+	const entry =
+		webSocketConnectionOwnerForTest(kind) === "control-plane"
+			? controlPlaneEntry
+			: rendererEntry;
+	entry?.reportFailure(new Error(`WebSocket closed (${event.code}).`));
+};
+
+const createClient = async (options: RendererConnectionOptions) => {
+	const protocolLayer =
+		options.kind === "electron"
+			? electronClientProtocolLayer(options.bridge).pipe(
+					Layer.provide(RpcSerialization.layerJson),
+				)
+			: options.kind === "browser"
+				? wsClientProtocolLayer(
+						withWireProtocolVersion(
+							await requestBrowserWebSocketUrl(),
+							WIRE_PROTOCOL_VERSION,
+						),
+						{
+							onClose: (event) => reportWebSocketClose("browser", event),
+						},
+					)
+				: wsClientProtocolLayer(
+						remoteWebSocketUrl(options.wsUrl, options.token),
+						{
+							onClose: (event) => reportWebSocketClose("remote", event),
+						},
+					);
+	return instrumentRendererRpcClient(
+		await makeRpcClientSession(protocolLayer, MemoizeRpcs, {
+			protocolVersion: WIRE_PROTOCOL_VERSION,
+			perform: (client, hello) => client["connect.handshake"](hello),
+		}),
+	);
+};
+
+const controlSupervisor = createConnectionSupervisor<
 	RendererConnectionOptions,
 	MemoizeClient
 >({
@@ -87,39 +143,99 @@ const supervisor = createConnectionSupervisor<
 		const timer = setTimeout(reconnect, delayMs);
 		return () => clearTimeout(timer);
 	},
-	createClient: async (options) => {
-		const protocolLayer =
-			options.kind === "electron"
-				? electronClientProtocolLayer(options.bridge).pipe(
-						Layer.provide(RpcSerialization.layerJson),
-					)
-				: wsClientProtocolLayer(
-						withWireProtocolVersion(
-							await requestBrowserWebSocketUrl(),
-							WIRE_PROTOCOL_VERSION,
-						),
-						{
-							onClose: (event) => {
-								rendererEntry?.reportFailure(
-									new Error(`WebSocket closed (${event.code}).`),
-								);
-							},
-						},
-					);
-		return instrumentRendererRpcClient(
-			await makeRpcClientSession(protocolLayer, MemoizeRpcs, {
-				protocolVersion: WIRE_PROTOCOL_VERSION,
-				perform: (client, hello) => client["connect.handshake"](hello),
+	createClient,
+	isRetryableCommandError: isRpcClientError,
+});
+
+const environmentSupervisor = createConnectionSupervisor<
+	RendererConnectionOptions,
+	MemoizeClient
+>({
+	keyOf: (options) => options.key,
+	isOnline: () => online,
+	schedule: (delayMs, reconnect) => {
+		const timer = setTimeout(reconnect, delayMs);
+		return () => clearTimeout(timer);
+	},
+	prepareOptions: async (
+		options: RendererConnectionOptions,
+	): Promise<RendererConnectionOptions> => {
+		if (options.kind !== "remote") return options;
+		const control: MemoizeClient = await Effect.runPromise(
+			getControlPlaneEntry().getClient(),
+		);
+		const grant = await Effect.runPromise(
+			control["environments.connect"]({
+				environmentId: options.environmentId as never,
 			}),
 		);
+		const endpoint = await chooseGrantEndpoint(grant);
+		return {
+			...options,
+			wsUrl: endpoint.wsBaseUrl,
+			token: grant.connectToken,
+		};
 	},
+	createClient,
 	isRetryableCommandError: isRpcClientError,
 });
 
 let rendererEntry: ConnectionSupervisorEntry<MemoizeClient> | null = null;
+let controlPlaneEntry: ConnectionSupervisorEntry<MemoizeClient> | null = null;
+
+const remoteWebSocketUrl = (
+	wsUrl: string | undefined,
+	token: string | undefined,
+): string => {
+	if (wsUrl === undefined || token === undefined) {
+		throw new Error("Remote environment connect grant is incomplete");
+	}
+	const url = new URL(wsUrl);
+	url.searchParams.set("token", token);
+	url.searchParams.set("wireVersion", String(WIRE_PROTOCOL_VERSION));
+	return url.toString();
+};
+
+const probeWebSocket = (
+	endpoint: EnvironmentEndpoint,
+	token: string,
+): Promise<boolean> =>
+	new Promise((resolve) => {
+		let settled = false;
+		const socket = new WebSocket(remoteWebSocketUrl(endpoint.wsBaseUrl, token));
+		const finish = (reachable: boolean) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			socket.close();
+			resolve(reachable);
+		};
+		const timer = window.setTimeout(() => finish(false), 1_200);
+		socket.addEventListener("open", () => finish(true), { once: true });
+		socket.addEventListener("error", () => finish(false), { once: true });
+	});
+
+export const chooseGrantEndpoint = async (
+	grant: RelayConnectGrant,
+): Promise<EnvironmentEndpoint> =>
+	choosePreferredEndpoint(grant, probeWebSocket);
+
+const getControlPlaneEntry = (): ConnectionSupervisorEntry<MemoizeClient> => {
+	if (controlPlaneEntry === null) {
+		controlPlaneEntry = controlSupervisor.get(controlPlaneOptions());
+	}
+	return controlPlaneEntry;
+};
 
 const getRendererEntry = (): ConnectionSupervisorEntry<MemoizeClient> => {
-	const entry = supervisor.get(connectionOptions());
+	const environmentId = getActiveEnvironmentId();
+	if (environmentId === null) return getControlPlaneEntry();
+	const options: RendererConnectionOptions = {
+		key: `environment:${environmentId}` as `environment:${string}`,
+		kind: "remote",
+		environmentId,
+	};
+	const entry = environmentSupervisor.get(options);
 	if (rendererEntry === null) {
 		rendererEntry = entry;
 	}
@@ -137,6 +253,28 @@ function isRpcClientError(cause: unknown): boolean {
 
 export const getRpcClient = (): Promise<MemoizeClient> =>
 	Effect.runPromise(getRendererEntry().getClient());
+
+export const getControlPlaneRpcClient = (): Promise<MemoizeClient> =>
+	Effect.runPromise(getControlPlaneEntry().getClient());
+
+export const getActiveEnvironmentId = (): string | null => {
+	const bridge = globalThis.window?.zuse ?? globalThis.window?.memoize;
+	if (bridge === undefined) return null;
+	if (typeof localStorage === "undefined") return null;
+	return localStorage.getItem(ACTIVE_ENVIRONMENT_KEY);
+};
+
+export const selectEnvironment = async (
+	environmentId: string | null,
+): Promise<void> => {
+	if (environmentId === null) {
+		localStorage.removeItem(ACTIVE_ENVIRONMENT_KEY);
+	} else {
+		localStorage.setItem(ACTIVE_ENVIRONMENT_KEY, environmentId);
+	}
+	await disposeRpcClient();
+	location.reload();
+};
 
 export const reportRendererRpcFailure = (cause: unknown): void => {
 	getRendererEntry().reportFailure(cause);
@@ -168,17 +306,23 @@ export const dispatchRetryableRpcCommand = <A>(
 
 export const disposeRpcClient = async (): Promise<void> => {
 	rendererEntry = null;
-	await supervisor.dispose();
+	controlPlaneEntry = null;
+	await Promise.all([
+		controlSupervisor.dispose(),
+		environmentSupervisor.dispose(),
+	]);
 };
 
 if (typeof window !== "undefined") {
 	window.addEventListener("online", () => {
 		online = true;
-		supervisor.setOnline(true);
+		controlSupervisor.setOnline(true);
+		environmentSupervisor.setOnline(true);
 	});
 	window.addEventListener("offline", () => {
 		online = false;
-		supervisor.setOnline(false);
+		controlSupervisor.setOnline(false);
+		environmentSupervisor.setOnline(false);
 	});
 	window.addEventListener("pagehide", () => {
 		void disposeRpcClient();

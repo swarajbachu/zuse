@@ -35,6 +35,7 @@ import { Plus, RefreshCw as RefreshIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { displayPath } from "~/lib/display-path";
 import { hasHostCapability } from "~/lib/host-platform";
+import { rendererPlatformCapabilities } from "~/lib/platform-capabilities.ts";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 
 import {
@@ -60,6 +61,7 @@ import { BrowserProfileSelect } from "./browser-profile-select.tsx";
 import { ProviderCard } from "./provider-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
+import { CloudMachinesPane } from "./settings/cloud-machines-pane.tsx";
 import { DeveloperPane } from "./settings/developer-pane.tsx";
 import { DevicesPane } from "./settings/devices-pane.tsx";
 import { DiagnosticsPane as FullDiagnosticsPane } from "./settings/diagnostics-pane.tsx";
@@ -130,6 +132,12 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
 		section: { kind: "devices" },
 	},
 	{
+		id: "machines",
+		label: "Cloud machines",
+		Icon: ConnectIcon,
+		section: { kind: "machines" },
+	},
+	{
 		id: "browser",
 		label: "Browser",
 		Icon: BrowserIcon,
@@ -178,10 +186,19 @@ export function SettingsPage() {
 	const setSection = useUiStore((s) => s.setSettingsSection);
 	const folders = useWorkspaceStore((s) => s.folders);
 	const loadFolders = useWorkspaceStore((s) => s.load);
+	const desktop = rendererPlatformCapabilities().desktop;
+	const visibleSection: SettingsSection =
+		!desktop && section.kind === "machines" ? { kind: "general" } : section;
 
 	useEffect(() => {
 		if (folders.length === 0) void loadFolders();
 	}, [folders.length, loadFolders]);
+
+	useEffect(() => {
+		if (!desktop && section.kind === "machines") {
+			setSection({ kind: "general" });
+		}
+	}, [desktop, section.kind, setSection]);
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col bg-background">
@@ -198,20 +215,25 @@ export function SettingsPage() {
 				</button>
 			</header>
 			<div className="flex min-h-0 flex-1">
-				<Rail section={section} onSelect={setSection} folders={folders} />
+				<Rail
+					section={visibleSection}
+					onSelect={setSection}
+					folders={folders}
+					desktop={desktop}
+				/>
 				<div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-10 py-8">
 					<div
 						className={cn(
 							"mx-auto flex w-full flex-col gap-10",
-							section.kind === "diagnostics"
+							visibleSection.kind === "diagnostics"
 								? "max-w-6xl"
-								: section.kind === "pokedex"
+								: visibleSection.kind === "pokedex"
 									? "max-w-5xl"
 									: "max-w-2xl",
 						)}
 					>
-						<SectionTitle section={section} folders={folders} />
-						<Pane section={section} />
+						<SectionTitle section={visibleSection} folders={folders} />
+						<Pane section={visibleSection} />
 					</div>
 				</div>
 			</div>
@@ -223,15 +245,19 @@ function Rail({
 	section,
 	onSelect,
 	folders,
+	desktop,
 }: {
 	section: SettingsSection;
 	onSelect: (section: SettingsSection) => void;
 	folders: ReadonlyArray<Folder>;
+	desktop: boolean;
 }) {
 	return (
 		<nav className="flex w-56 shrink-0 flex-col gap-5 border-r border-border/40 bg-sidebar px-2.5 py-4 text-sm text-sidebar-foreground">
 			<div className="flex flex-col gap-0.5">
-				{VISIBLE_RAIL.map((item) => {
+				{VISIBLE_RAIL.filter(
+					(item) => desktop || item.section.kind !== "machines",
+				).map((item) => {
 					const active =
 						section.kind !== "repository" && section.kind === item.section.kind;
 					return (
@@ -355,6 +381,13 @@ function SectionTitle({
 					"Link this Mac to your account so you can drive it from your phone.",
 			};
 		}
+		if (section.kind === "machines") {
+			return {
+				title: "Cloud machines",
+				subtitle:
+					"Create and manage a persistent environment that stays ready when this Mac is offline.",
+			};
+		}
 		if (section.kind === "browser") {
 			return {
 				title: "Browser",
@@ -433,6 +466,7 @@ function Pane({ section }: { section: SettingsSection }) {
 	if (section.kind === "integrations") return <LinearIntegrationsPane />;
 	if (section.kind === "mcp") return <McpServersPane />;
 	if (section.kind === "devices") return <DevicesPane />;
+	if (section.kind === "machines") return <CloudMachinesPane />;
 	if (section.kind === "browser") return <BrowserSettingsPagePane />;
 	if (section.kind === "pokedex") return <PokedexPane />;
 	if (section.kind === "diagnostics") return <FullDiagnosticsPane />;

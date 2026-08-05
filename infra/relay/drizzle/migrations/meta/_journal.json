@@ -22,6 +22,13 @@
       "when": 1785356077643,
       "tag": "0002_absurd_leader",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785901182382,
+      "tag": "0003_managed_cloud_machines",
+      "breakpoints": true
     }
   ]
 }
