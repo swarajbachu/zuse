@@ -504,9 +504,9 @@ function makeLive(
   const term = new Terminal({
     fontFamily:
       '"SF Mono", "JetBrains Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace',
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "400",
-    lineHeight: 1.24,
+    lineHeight: 1.2,
     letterSpacing: 0,
     cursorBlink: true,
     cursorStyle: "bar",

@@ -328,7 +328,7 @@ export function RightPane({
 			{visiblePanels.length > 0 ? (
 				<div
 					ref={dockTabsRef}
-					className="flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto px-1 text-xs"
+					className="flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto px-1 text-[11px]"
 				>
 					{visiblePanels.map((panel) => (
 						<PanelTab

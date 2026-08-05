@@ -3,6 +3,7 @@ import {
 	Alert01Icon,
 	ArchiveArrowDownIcon,
 	ArrowDown01Icon,
+	ArrowRight01Icon,
 	Copy01Icon,
 	GitBranchIcon,
 	GitMergeIcon,
@@ -17,6 +18,7 @@ import {
 	PanelRightOpenIcon,
 	PencilEdit01Icon,
 	PlayIcon,
+	Search01Icon,
 	Tick01Icon,
 	Upload01Icon,
 	Wrench01Icon,
@@ -71,6 +73,7 @@ import {
 } from "./glass-action.tsx";
 import { OpenTargetIcon } from "./open-target-icon.tsx";
 import { TooltipShortcut } from "./projects-sidebar.tsx";
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar.tsx";
 import { ErrorBoundary } from "./ui/error-boundary.tsx";
 import {
 	Menu,
@@ -103,7 +106,7 @@ const openExternal = (url: string): void => {
 };
 
 const SECTION_CLASS =
-	"flex h-9 shrink-0 items-center gap-1.5 border-b border-border text-xs [-webkit-app-region:drag]";
+	"flex h-8 shrink-0 items-center gap-1 border-b border-border text-[11px] [-webkit-app-region:drag]";
 const ACTION_CLASS = "[-webkit-app-region:no-drag]";
 const ICON_BUTTON_CLASS = `${ACTION_CLASS} flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground`;
 const NATIVE_CONTROLS_INSET_CLASS =
@@ -218,6 +221,7 @@ export function TopBarMain() {
 	// stale-branch flash during the swap.
 	const branchLabel = status?.branch ?? null;
 	const repoLabel = originLabel ?? folder?.name ?? "No repository";
+	const originOwner = originLabel?.split("/", 1)[0] ?? null;
 	const showLeftToggle = !leftSidebarOpen;
 	// When the left panel is open its own header carries the traffic-light
 	// gutter, so this section starts flush. When it's collapsed we slide the
@@ -310,7 +314,7 @@ export function TopBarMain() {
 
 	return (
 		<header
-			className={`${SECTION_CLASS} ${leftPad} ${rightSidebarOpen ? "pr-1" : NATIVE_CONTROLS_INSET_CLASS}`}
+			className={`${SECTION_CLASS} ${leftPad} bg-muted/20 ${rightSidebarOpen ? "pr-1" : NATIVE_CONTROLS_INSET_CLASS}`}
 		>
 			{showLeftToggle ? (
 				<Tooltip>
@@ -336,20 +340,38 @@ export function TopBarMain() {
 			) : null}
 			<div className={`flex min-w-0 flex-1 items-center ${ACTION_CLASS}`}>
 				{hasSession ? (
-					<div className="flex min-w-0 max-w-[min(620px,100%)] items-center gap-1.5 text-xs">
+					<nav
+						aria-label="Repository location"
+						className="flex min-w-0 max-w-[min(460px,100%)] items-center gap-1 text-[11px]"
+					>
+						<Avatar className="mr-0.5 size-4 shrink-0 rounded-sm">
+							{originOwner !== null ? (
+								<AvatarImage
+									src={`https://github.com/${encodeURIComponent(originOwner)}.png?size=32`}
+									alt=""
+								/>
+							) : null}
+							<AvatarFallback className="rounded-sm bg-foreground/8 text-[8px] text-muted-foreground">
+								{repoLabel.slice(0, 1).toUpperCase()}
+							</AvatarFallback>
+						</Avatar>
 						<span
-							className="truncate font-medium text-foreground"
+							className="max-w-44 truncate font-medium text-foreground/90"
 							title={repoLabel}
 						>
 							{repoLabel}
 						</span>
 						{branchLabel ? (
 							<>
-								<span className="shrink-0 text-muted-foreground/70">/</span>
+								<HugeiconsIcon
+									icon={ArrowRight01Icon}
+									className="size-3 shrink-0 text-muted-foreground/50"
+								/>
 								<BranchMenuButton
 									branchLabel={branchLabel}
 									branches={branches}
 									canRename={worktreeId !== null}
+									className="min-w-0 max-w-52 px-1 py-0 text-[11px] font-normal text-muted-foreground hover:text-foreground"
 									dirtyFiles={status?.dirtyFiles ?? 0}
 									error={branchError}
 									loading={branchesLoading}
@@ -362,7 +384,7 @@ export function TopBarMain() {
 								/>
 							</>
 						) : null}
-					</div>
+					</nav>
 				) : null}
 			</div>
 			{renameOpen &&
@@ -441,10 +463,12 @@ export function TopBarMain() {
 	);
 }
 
-function BranchMenuButton({
+export function BranchMenuButton({
 	branchLabel,
 	branches,
 	canRename,
+	className,
+	popupSide = "bottom",
 	dirtyFiles,
 	error,
 	loading,
@@ -455,6 +479,8 @@ function BranchMenuButton({
 	branchLabel: string;
 	branches: ReadonlyArray<GitBranchInfo>;
 	canRename: boolean;
+	className?: string;
+	popupSide?: "bottom" | "left";
 	dirtyFiles: number;
 	error: string | null;
 	loading: boolean;
@@ -462,14 +488,22 @@ function BranchMenuButton({
 	onRename: () => void;
 	onSwitch: (branch: GitBranchInfo) => void;
 }) {
-	const localBranches = branches.filter((b) => b.kind === "local");
-	const remoteBranches = branches.filter((b) => b.kind === "remote");
+	const [branchQuery, setBranchQuery] = useState("");
+	const normalizedQuery = branchQuery.trim().toLocaleLowerCase();
+	const matchingBranches = branches.filter((branch) => {
+		if (normalizedQuery.length === 0) return true;
+		return [branch.name, branch.remote, branch.upstream].some((value) =>
+			value?.toLocaleLowerCase().includes(normalizedQuery),
+		);
+	});
+	const localBranches = matchingBranches.filter((b) => b.kind === "local");
+	const remoteBranches = matchingBranches.filter((b) => b.kind === "remote");
 
 	return (
-		<Menu>
+		<Menu onOpenChange={(open) => !open && setBranchQuery("")}>
 			<MenuTrigger
 				onClick={onOpen}
-				className="flex max-w-64 items-center gap-1 rounded-sm px-1.5 py-0.5 font-medium text-foreground outline-none hover:bg-foreground/5 data-[popup-open]:bg-foreground/5"
+				className={`flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-medium text-foreground outline-none hover:bg-foreground/5 data-[popup-open]:bg-foreground/5 ${className ?? "max-w-64"}`}
 				aria-label="Switch branch"
 			>
 				<HugeiconsIcon
@@ -494,7 +528,12 @@ function BranchMenuButton({
 					/>
 				)}
 			</MenuTrigger>
-			<MenuPopup align="center" className="min-w-64">
+			<MenuPopup
+				side={popupSide}
+				sideOffset={popupSide === "left" ? 8 : 4}
+				align="center"
+				className="w-72"
+			>
 				{error !== null ? (
 					<div className="max-w-72 px-2 py-1.5 text-[11px] leading-snug text-[var(--accent-red)]">
 						{error}
@@ -512,54 +551,80 @@ function BranchMenuButton({
 						<MenuSeparator />
 					</>
 				) : null}
-				<MenuSectionLabel>Local branches</MenuSectionLabel>
-				{localBranches.length > 0 ? (
-					localBranches.map((branch) => (
-						<MenuItem
-							key={`local:${branch.name}`}
-							disabled={branch.current || loading}
-							onClick={() => onSwitch(branch)}
-							className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
-						>
-							<HugeiconsIcon
-								icon={Tick01Icon}
-								className={`size-3.5 ${branch.current ? "opacity-100" : "opacity-0"}`}
-							/>
-							<span className="min-w-0 flex-1 truncate">{branch.name}</span>
-							{branch.upstream !== null ? (
-								<span className="max-w-28 truncate text-[10px] text-muted-foreground">
-									{branch.upstream}
-								</span>
-							) : null}
-						</MenuItem>
-					))
-				) : (
-					<div className="px-2 py-1.5 text-xs text-muted-foreground">
-						No local branches
-					</div>
-				)}
-				{remoteBranches.length > 0 ? (
-					<>
-						<MenuSeparator />
-						<MenuSectionLabel>Remote branches</MenuSectionLabel>
-						{remoteBranches.map((branch) => (
+				<div className="sticky top-0 z-10 bg-glass px-1 pb-1">
+					<label className="flex h-7 items-center gap-1.5 rounded-md border border-border/70 bg-background/50 px-2 focus-within:border-ring/60">
+						<HugeiconsIcon
+							icon={Search01Icon}
+							className="size-3.5 shrink-0 text-muted-foreground"
+						/>
+						<span className="sr-only">Search branches</span>
+						<input
+							type="search"
+							value={branchQuery}
+							onChange={(event) => setBranchQuery(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key !== "Escape") event.stopPropagation();
+							}}
+							placeholder="Search branches"
+							className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/70"
+						/>
+					</label>
+				</div>
+				<div className="max-h-56 overflow-y-auto overscroll-contain">
+					<MenuSectionLabel>Local branches</MenuSectionLabel>
+					{localBranches.length > 0 ? (
+						localBranches.map((branch) => (
 							<MenuItem
-								key={`remote:${branch.remote ?? branch.name}`}
-								disabled={loading}
+								key={`local:${branch.name}`}
+								disabled={branch.current || loading}
 								onClick={() => onSwitch(branch)}
 								className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
 							>
-								<HugeiconsIcon icon={GitBranchIcon} className="size-3.5" />
+								<HugeiconsIcon
+									icon={Tick01Icon}
+									className={`size-3.5 ${branch.current ? "opacity-100" : "opacity-0"}`}
+								/>
 								<span className="min-w-0 flex-1 truncate">{branch.name}</span>
-								{branch.remote !== null ? (
+								{branch.upstream !== null ? (
 									<span className="max-w-28 truncate text-[10px] text-muted-foreground">
-										{branch.remote}
+										{branch.upstream}
 									</span>
 								) : null}
 							</MenuItem>
-						))}
-					</>
-				) : null}
+						))
+					) : normalizedQuery.length === 0 ? (
+						<div className="px-2 py-1.5 text-xs text-muted-foreground">
+							No local branches
+						</div>
+					) : null}
+					{remoteBranches.length > 0 ? (
+						<>
+							<MenuSeparator />
+							<MenuSectionLabel>Remote branches</MenuSectionLabel>
+							{remoteBranches.map((branch) => (
+								<MenuItem
+									key={`remote:${branch.remote ?? branch.name}`}
+									disabled={loading}
+									onClick={() => onSwitch(branch)}
+									className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+								>
+									<HugeiconsIcon icon={GitBranchIcon} className="size-3.5" />
+									<span className="min-w-0 flex-1 truncate">{branch.name}</span>
+									{branch.remote !== null ? (
+										<span className="max-w-28 truncate text-[10px] text-muted-foreground">
+											{branch.remote}
+										</span>
+									) : null}
+								</MenuItem>
+							))}
+						</>
+					) : null}
+					{matchingBranches.length === 0 ? (
+						<div className="px-2 py-5 text-center text-xs text-muted-foreground">
+							No matching branches
+						</div>
+					) : null}
+				</div>
 			</MenuPopup>
 		</Menu>
 	);

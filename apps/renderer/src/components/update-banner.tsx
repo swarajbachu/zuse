@@ -122,26 +122,26 @@ export function UpdateBanner() {
 		<div
 			role="status"
 			className={cn(
-				"fixed right-4 bottom-4 z-50 flex w-[320px] flex-col gap-3 p-4",
+				"compact-notification fixed right-3 bottom-3 z-50 flex w-[288px] flex-col gap-2.5 p-3",
 				overlaySurface,
 			)}
 		>
-			<div className="flex items-start gap-3">
-				<span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+			<div className="flex items-start gap-2">
+				<span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-foreground">
 					<HugeiconsIcon
 						icon={isError ? Alert01Icon : CircleArrowUp01Icon}
-						className="size-4"
+						className="size-3.5"
 					/>
 				</span>
 				<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-					<span className="text-[13px] font-medium text-foreground">
+					<span className="text-xs font-medium text-foreground">
 						{isError
 							? "Update failed"
 							: confirming
 								? "Agents are running"
 								: "Update available"}
 					</span>
-					<span className="text-[12px] leading-snug text-muted-foreground">
+					<span className="text-[11px] leading-snug text-muted-foreground">
 						{isError && status.message}
 						{status.kind === "ready" &&
 							!confirming &&

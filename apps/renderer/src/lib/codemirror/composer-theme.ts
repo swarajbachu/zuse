@@ -12,7 +12,7 @@ export const composerTheme: Extension = EditorView.theme(
     "&": {
       backgroundColor: "transparent",
       color: "inherit",
-      fontSize: "13px",
+      fontSize: "12px",
     },
     "&.cm-focused": {
       outline: "none",
@@ -20,11 +20,11 @@ export const composerTheme: Extension = EditorView.theme(
     ".cm-scroller": {
       fontFamily:
         "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif",
-      lineHeight: "1.55",
+      lineHeight: "1.5",
       overflowX: "hidden",
     },
     ".cm-content": {
-      padding: "8px 4px",
+      padding: "7px 4px",
       caretColor: "currentColor",
     },
     ".cm-line": {

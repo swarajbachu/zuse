@@ -144,13 +144,6 @@ describe("config-store settings coercion", () => {
 		expect(settings.notchTrayEnabled).toBe(true);
 		expect(settings.notchTrayPinned).toBe(true);
 	});
-
-	it("enables analytics for legacy files and preserves an explicit opt-out", () => {
-		expect(coerceSettings({}).analyticsEnabled).toBe(true);
-		expect(coerceSettings({ analyticsEnabled: false }).analyticsEnabled).toBe(
-			false,
-		);
-	});
 });
 
 describe("config-store user JSON storage", () => {

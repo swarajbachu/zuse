@@ -1,7 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { router, Stack } from "expo-router";
 import {
-	BarChart3,
 	Bell,
 	HardDrive,
 	LogOut,
@@ -13,14 +12,7 @@ import {
 	UserRound,
 } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
-import {
-	ActivityIndicator,
-	Alert,
-	ScrollView,
-	Switch,
-	Text,
-	View,
-} from "react-native";
+import { ActivityIndicator, Alert, ScrollView, Text, View } from "react-native";
 
 import { ListRow, ListSection } from "~/components/ui/list";
 import { captureMobileAnalytics } from "~/lib/analytics";
@@ -30,7 +22,6 @@ import { successTap } from "~/lib/haptics";
 import { clearDownloadedMobileData } from "~/lib/mobile-data";
 import { registerCurrentDeviceForPush } from "~/notifications/push";
 import { downloadedCacheSize } from "~/offline/cache";
-import { analyticsEnabledAtom, setAnalyticsEnabled } from "~/store/analytics";
 import {
 	authAccountAtom,
 	authBusyAtom,
@@ -67,7 +58,6 @@ const formatBytes = (bytes: number | null): string => {
 };
 
 export default function SettingsScreen() {
-	const analyticsEnabled = useAtomValue(analyticsEnabledAtom);
 	const account = useAtomValue(authAccountAtom);
 	const hydrated = useAtomValue(authHydratedAtom);
 	const busy = useAtomValue(authBusyAtom);
@@ -314,24 +304,6 @@ export default function SettingsScreen() {
 						/>
 					</ListSection>
 				)}
-
-				<ListSection
-					header="Privacy"
-					footer="Shares pseudonymous feature use, model choices, active time, reliability, and standard geographic enrichment. Prompts, responses, code, paths, and account details are never included."
-				>
-					<ListRow
-						analyticsId="settings.share-usage-analytics"
-						icon={BarChart3}
-						iconTone="neutral"
-						title="Share usage analytics"
-						subtitle={analyticsEnabled ? "On" : "Off"}
-						chevron={false}
-						accessibilityRole="switch"
-						accessibilityState={{ checked: analyticsEnabled }}
-						trailing={<Switch pointerEvents="none" value={analyticsEnabled} />}
-						onPress={() => void setAnalyticsEnabled(!analyticsEnabled)}
-					/>
-				</ListSection>
 
 				<ListSection
 					header="Storage"

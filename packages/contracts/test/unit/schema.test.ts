@@ -625,7 +625,6 @@ describe("SettingsFile round-trip", () => {
 			appearanceMode: "system",
 			completionSoundEnabled: true,
 			completionSoundPreset: "bloom",
-			analyticsEnabled: false,
 			providerEnabled: {
 				claude: true,
 				codex: true,

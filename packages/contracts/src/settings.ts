@@ -83,8 +83,6 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 	appearanceMode: AppearanceMode,
 	completionSoundEnabled: Schema.Boolean,
 	completionSoundPreset: CompletionSoundPreset,
-	/** Share pseudonymous product and reliability analytics. Defaults on. */
-	analyticsEnabled: Schema.Boolean,
 	/**
 	 * Per-provider on/off toggle from the Providers settings card. Defaults
 	 * to `true` for every provider; flipping it to `false` filters the
@@ -173,7 +171,6 @@ export const SettingsPatch = Schema.Struct({
 	appearanceMode: Schema.optional(AppearanceMode),
 	completionSoundEnabled: Schema.optional(Schema.Boolean),
 	completionSoundPreset: Schema.optional(CompletionSoundPreset),
-	analyticsEnabled: Schema.optional(Schema.Boolean),
 	providerEnabled: Schema.optional(Schema.Record(ProviderId, Schema.Boolean)),
 	modelEnabledByProvider: Schema.optional(
 		Schema.Record(ProviderId, Schema.Record(Schema.String, Schema.Boolean)),

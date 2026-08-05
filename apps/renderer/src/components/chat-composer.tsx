@@ -1363,7 +1363,7 @@ export function ChatComposer({
 												type="button"
 												onClick={() => fileInputRef.current?.click()}
 												aria-label="Attach files"
-												className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+											className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
 											>
 												<HugeiconsIcon
 													icon={AttachmentIcon}
@@ -1571,7 +1571,7 @@ function FastModeToggle({ sessionId }: { sessionId: SessionId }) {
 						}
 						aria-pressed={enabled}
 						className={cn(
-							"flex h-6 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors",
+							"flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors",
 							enabled
 								? "bg-amber-400/20 text-amber-700 hover:bg-amber-400/30 dark:bg-amber-300/15 dark:text-amber-200 dark:hover:bg-amber-300/25"
 								: "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -1623,7 +1623,7 @@ function PlanModeToggle({
 						aria-label={isPlan ? "Exit plan mode" : "Enter plan mode"}
 						aria-pressed={isPlan}
 						className={cn(
-							"flex h-6 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors",
+							"flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors",
 							isPlan
 								? "bg-rose-400/20 text-rose-700 hover:bg-rose-400/30 dark:bg-rose-300/15 dark:text-rose-200 dark:hover:bg-rose-300/25"
 								: "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -1661,7 +1661,7 @@ function GoalModeToggle({
 						aria-label={active ? "Send next message as goal" : "Set goal"}
 						aria-pressed={active}
 						className={cn(
-							"flex h-6 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors",
+							"flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors",
 							active
 								? "bg-amber-400/20 text-amber-700 hover:bg-amber-400/30 dark:bg-amber-300/15 dark:text-amber-200 dark:hover:bg-amber-300/25"
 								: hasGoal
@@ -2006,7 +2006,7 @@ function ReasoningPicker({
 		<Menu>
 			<MenuTrigger
 				className={cn(
-					"flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors data-[popup-open]:bg-muted/60",
+					"flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors data-[popup-open]:bg-muted/60",
 					isUltracode
 						? "bg-gradient-to-r from-rose-400/90 via-amber-300/90 via-emerald-400/90 via-sky-400/90 to-violet-400/90 text-white shadow-sm/10 hover:opacity-95"
 						: "text-foreground hover:bg-muted/60",

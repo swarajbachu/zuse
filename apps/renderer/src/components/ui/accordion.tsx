@@ -34,7 +34,7 @@ export function AccordionTrigger({
 		<AccordionPrimitive.Header className="flex">
 			<AccordionPrimitive.Trigger
 				className={cn(
-					"flex flex-1 cursor-pointer items-start justify-between gap-4 rounded-md py-4 text-left font-medium text-sm outline-none transition-all focus-visible:ring-[3px] focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-64 data-panel-open:*:data-[slot=accordion-indicator]:rotate-180",
+					"flex min-h-7 flex-1 cursor-pointer items-center justify-between gap-2 rounded-md py-1.5 text-left font-medium text-xs outline-none transition-[color,background-color] duration-150 focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-64 data-panel-open:*:data-[slot=accordion-indicator]:rotate-180",
 					className,
 				)}
 				data-slot="accordion-trigger"
@@ -58,11 +58,11 @@ export function AccordionPanel({
 }: AccordionPrimitive.Panel.Props): React.ReactElement {
 	return (
 		<AccordionPrimitive.Panel
-			className="h-(--accordion-panel-height) overflow-hidden text-muted-foreground text-sm transition-[height] duration-200 ease-in-out data-ending-style:h-0 data-starting-style:h-0"
+			className="h-(--accordion-panel-height) overflow-hidden text-muted-foreground text-xs transition-[height] duration-180 ease-out data-ending-style:h-0 data-starting-style:h-0 motion-reduce:duration-80"
 			data-slot="accordion-panel"
 			{...props}
 		>
-			<div className={cn("pt-0 pb-4", className)}>{children}</div>
+			<div className={cn("pt-0 pb-2.5", className)}>{children}</div>
 		</AccordionPrimitive.Panel>
 	);
 }

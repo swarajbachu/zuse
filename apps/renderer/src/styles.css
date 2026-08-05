@@ -9,20 +9,20 @@
 html,
 body,
 #root {
-  height: 100%;
+	height: 100%;
 }
 
 * {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
 }
 
 .xterm-viewport::-webkit-scrollbar {
-  width: 8px;
+	width: 8px;
 }
 .xterm-viewport::-webkit-scrollbar-thumb {
-  background: var(--bg-overlay);
-  border-radius: 4px;
+	background: var(--bg-overlay);
+	border-radius: 4px;
 }
 
 @theme inline {
@@ -113,9 +113,9 @@ body,
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
 
-  --radius-sm: calc(var(--radius) * 0.45);
-  --radius-md: calc(var(--radius) * 0.65);
-  --radius-lg: calc(var(--radius) * 0.85);
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
   --radius-xl: var(--radius);
   --radius-2xl: calc(var(--radius) * 1.15);
   --radius-3xl: calc(var(--radius) * 1.35);
@@ -205,291 +205,384 @@ body,
 /* Pure neutral grays on a paper-white surface; the chartreuse primary is the
    only color in the UI. */
 :root {
-  /* Electron Window Controls Overlay reports the native button strip through
+	/* Electron Window Controls Overlay reports the native button strip through
      these env() values. It resolves to zero in browsers and on macOS. */
-  --zuse-window-controls-right-inset: calc(
-    100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)
-  );
-  --radius: 0.875rem;
-  --lime: hsl(72 92% 48%);
-  --brand-highlight: hsl(72 92% 48%);
-  --brand-highlight-muted: hsl(74 70% 58%);
+	--zuse-window-controls-right-inset: calc(
+		100vw -
+		env(titlebar-area-x, 0px) -
+		env(titlebar-area-width, 100vw)
+	);
+	/* Desktop density system: 24px rows, 28px text controls, 8px rhythm. */
+	--radius: 0.625rem;
+	--density-row: 1.5rem;
+	--density-control: 1.75rem;
+	--density-chrome: 2rem;
+	--density-gap: 0.5rem;
+	--text-ui: 0.75rem;
+	--text-ui-sm: 0.6875rem;
+	--text-ui-xs: 0.625rem;
+	--text-ui-meta: 0.5625rem;
+	--text-code: 0.6875rem;
+	--motion-enter: 180ms;
+	--motion-exit: 140ms;
+	--ease-compact-out: cubic-bezier(0.165, 0.84, 0.44, 1);
+	--lime: hsl(72 92% 48%);
+	--brand-highlight: hsl(72 92% 48%);
+	--brand-highlight-muted: hsl(74 70% 58%);
 
-  --background: hsl(0 0% 98%);
-  --foreground: hsl(0 0% 9%);
+	--background: hsl(0 0% 98%);
+	--foreground: hsl(0 0% 9%);
 
-  --bg-subtle: hsl(0 0% 96%);
-  --bg-elevated: hsl(0 0% 92%);
-  --bg-overlay: hsl(0 0% 84%);
-  --text-faint: hsl(0 0% 46%);
+	--bg-subtle: hsl(0 0% 96%);
+	--bg-elevated: hsl(0 0% 92%);
+	--bg-overlay: hsl(0 0% 84%);
+	--text-faint: hsl(0 0% 46%);
 
-  /* Chip surface — sits on top of cards/bubbles, must stay visibly darker than
+	/* Chip surface — sits on top of cards/bubbles, must stay visibly darker than
      --card so the pill reads as inset against the composer card. */
-  --chip-bg: hsl(0 0% 91%);
+	--chip-bg: hsl(0 0% 91%);
 
-  --card: hsl(0 0% 100%);
-  --card-foreground: var(--foreground);
-  --popover: hsl(0 0% 100%);
-  --popover-foreground: var(--foreground);
+	--card: hsl(0 0% 100%);
+	--card-foreground: var(--foreground);
+	--popover: hsl(0 0% 100%);
+	--popover-foreground: var(--foreground);
 
-  --primary: var(--lime);
-  --primary-foreground: hsl(72 82% 6%);
+	--primary: var(--lime);
+	--primary-foreground: hsl(72 82% 6%);
 
-  --accent-pink: hsl(339 84% 48%);
-  --accent-green: hsl(131 52% 42%);
-  --accent-blue: hsl(220 76% 54%);
-  --accent-amber: hsl(18 86% 52%);
-  --accent-red: hsl(0 74% 56%);
-  --accent-zinc: hsl(0 0% 42%);
+	--accent-pink: hsl(339 84% 48%);
+	--accent-green: hsl(131 52% 42%);
+	--accent-blue: hsl(220 76% 54%);
+	--accent-amber: hsl(18 86% 52%);
+	--accent-red: hsl(0 74% 56%);
+	--accent-zinc: hsl(0 0% 42%);
 
-  --file-icon-gray: #6c6c71;
-  --file-icon-red: #d52c36;
-  --file-icon-vermilion: #d5512f;
-  --file-icon-orange: #d47628;
-  --file-icon-yellow: #d5a910;
-  --file-icon-green: #199f43;
-  --file-icon-teal: #17a5af;
-  --file-icon-cyan: #1ca1c7;
-  --file-icon-blue: #1a85d4;
-  --file-icon-indigo: #693acf;
-  --file-icon-purple: #a631be;
-  --file-icon-pink: #d32a61;
-  --file-icon-mauve: #594c5b;
+	--file-icon-gray: #6c6c71;
+	--file-icon-red: #d52c36;
+	--file-icon-vermilion: #d5512f;
+	--file-icon-orange: #d47628;
+	--file-icon-yellow: #d5a910;
+	--file-icon-green: #199f43;
+	--file-icon-teal: #17a5af;
+	--file-icon-cyan: #1ca1c7;
+	--file-icon-blue: #1a85d4;
+	--file-icon-indigo: #693acf;
+	--file-icon-purple: #a631be;
+	--file-icon-pink: #d32a61;
+	--file-icon-mauve: #594c5b;
 
-  --secondary: hsl(0 0% 93%);
-  --secondary-foreground: var(--foreground);
-  --muted: hsl(0 0% 92%);
-  --muted-foreground: hsl(0 0% 38%);
-  --accent: hsl(0 0% 92.5%);
-  --accent-foreground: hsl(0 0% 11%);
+	--secondary: hsl(0 0% 93%);
+	--secondary-foreground: var(--foreground);
+	--muted: hsl(0 0% 92%);
+	--muted-foreground: hsl(0 0% 38%);
+	--accent: hsl(0 0% 92.5%);
+	--accent-foreground: hsl(0 0% 11%);
 
-  --destructive: hsl(0 74% 50%);
-  --destructive-foreground: hsl(0 0% 99%);
-  --success: hsl(131 52% 42%);
-  --success-foreground: hsl(0 0% 99%);
-  --warning: hsl(42 84% 47%);
-  --warning-foreground: hsl(0 0% 9%);
-  --info: hsl(220 76% 54%);
-  --info-foreground: hsl(0 0% 99%);
+	--destructive: hsl(0 74% 50%);
+	--destructive-foreground: hsl(0 0% 99%);
+	--success: hsl(131 52% 42%);
+	--success-foreground: hsl(0 0% 99%);
+	--warning: hsl(42 84% 47%);
+	--warning-foreground: hsl(0 0% 9%);
+	--info: hsl(220 76% 54%);
+	--info-foreground: hsl(0 0% 99%);
 
-  --alert-error-bg: hsl(0 72% 95%);
-  --alert-warning-bg: hsl(42 80% 92%);
-  --alert-info-bg: hsl(220 72% 94%);
-  --alert-success-bg: hsl(131 46% 92%);
+	--alert-error-bg: hsl(0 72% 95%);
+	--alert-warning-bg: hsl(42 80% 92%);
+	--alert-info-bg: hsl(220 72% 94%);
+	--alert-success-bg: hsl(131 46% 92%);
 
-  --border: hsl(0 0% 88%);
-  --input: hsl(0 0% 88%);
-  --ring: var(--lime);
+	--border: hsl(0 0% 88%);
+	--input: hsl(0 0% 88%);
+	--ring: var(--lime);
 
-  --sidebar: hsl(0 0% 98%);
-  --sidebar-foreground: hsl(0 0% 12%);
-  --sidebar-primary: var(--lime);
-  --sidebar-primary-foreground: hsl(72 82% 6%);
-  --sidebar-accent: hsl(0 0% 91.5%);
-  --sidebar-accent-foreground: hsl(0 0% 13%);
-  --sidebar-border: hsl(0 0% 90%);
-  --sidebar-ring: var(--lime);
+	--sidebar: hsl(0 0% 98%);
+	--sidebar-foreground: hsl(0 0% 12%);
+	--sidebar-primary: var(--lime);
+	--sidebar-primary-foreground: hsl(72 82% 6%);
+	--sidebar-accent: hsl(0 0% 91.5%);
+	--sidebar-accent-foreground: hsl(0 0% 13%);
+	--sidebar-border: hsl(0 0% 90%);
+	--sidebar-ring: var(--lime);
 
-  --chart-1: var(--lime);
-  --chart-2: hsl(131 52% 42%);
-  --chart-3: hsl(18 86% 52%);
-  --chart-4: hsl(220 76% 54%);
-  --chart-5: hsl(0 74% 56%);
+	--chart-1: var(--lime);
+	--chart-2: hsl(131 52% 42%);
+	--chart-3: hsl(18 86% 52%);
+	--chart-4: hsl(220 76% 54%);
+	--chart-5: hsl(0 74% 56%);
 
-  /* Chat bubble + prose. Independent of `primary` so we can keep button
+	/* Chat bubble + prose. Independent of `primary` so we can keep button
      primary punchy without bleaching message text. */
-  --user-bubble: hsl(0 0% 93.5%);
-  --user-bubble-foreground: hsl(0 0% 12%);
-  --message-text: hsl(0 0% 18%);
-  --message-heading: hsl(0 0% 9%);
-  --message-code: hsl(0 0% 24%);
-  --message-code-bg: hsl(0 0% 93%);
-  --message-pre-bg: hsl(0 0% 96%);
-  --message-quote: hsl(0 0% 40%);
-  --message-rule: hsl(0 0% 88%);
+	--user-bubble: hsl(0 0% 93.5%);
+	--user-bubble-foreground: hsl(0 0% 12%);
+	--message-text: hsl(0 0% 18%);
+	--message-heading: hsl(0 0% 9%);
+	--message-code: hsl(0 0% 24%);
+	--message-code-bg: hsl(0 0% 93%);
+	--message-pre-bg: hsl(0 0% 96%);
+	--message-quote: hsl(0 0% 40%);
+	--message-rule: hsl(0 0% 88%);
 
-  --syntax-keyword: hsl(276 66% 42%);
-  --syntax-string: hsl(131 48% 34%);
-  --syntax-number: hsl(38 82% 38%);
-  --syntax-function: hsl(220 70% 44%);
-  --syntax-type: hsl(190 68% 34%);
-  --syntax-attribute: hsl(339 70% 43%);
-  --syntax-tag: hsl(0 70% 45%);
+	--syntax-keyword: hsl(276 66% 42%);
+	--syntax-string: hsl(131 48% 34%);
+	--syntax-number: hsl(38 82% 38%);
+	--syntax-function: hsl(220 70% 44%);
+	--syntax-type: hsl(190 68% 34%);
+	--syntax-attribute: hsl(339 70% 43%);
+	--syntax-tag: hsl(0 70% 45%);
 
-  /* Overlay elevation. Raw box-shadow values (consumed by .shadow-overlay*
+	/* Overlay elevation. Raw box-shadow values (consumed by .shadow-overlay*
      and .border-glass) so they survive the light-mode --tw-shadow kill in
      @layer base. Light leads with a 1px ring that doubles as the border. */
-  --shadow-overlay-sm: 0 0 0 1px hsl(0 0% 0% / 0.05),
-    0 2px 6px hsl(0 0% 0% / 0.08);
-  --shadow-overlay: 0 0 0 1px hsl(0 0% 0% / 0.05),
-    0 2px 4px hsl(0 0% 0% / 0.05), 0 8px 16px -4px hsl(0 0% 0% / 0.07),
-    0 20px 32px -8px hsl(0 0% 0% / 0.08);
-  --shadow-overlay-lg: 0 0 0 1px hsl(0 0% 0% / 0.05),
-    0 8px 16px -4px hsl(0 0% 0% / 0.1), 0 32px 64px -12px hsl(0 0% 0% / 0.18);
+	--shadow-overlay-sm:
+		0 0 0 1px hsl(0 0% 0% / 0.05), 0 2px 6px hsl(0 0% 0% / 0.08);
+	--shadow-overlay:
+		0 0 0 1px hsl(0 0% 0% / 0.05),
+		0 2px 4px hsl(0 0% 0% / 0.05), 0 8px 16px -4px hsl(0 0% 0% / 0.07),
+		0 20px 32px -8px hsl(0 0% 0% / 0.08);
+	--shadow-overlay-lg:
+		0 0 0 1px hsl(0 0% 0% / 0.05), 0 8px 16px -4px hsl(0 0% 0% / 0.1),
+		0 32px 64px -12px hsl(0 0% 0% / 0.18);
 }
 
 .dark {
-  /* Pure neutral grays; the bright lime primary is the only color. */
-  --lime: hsl(72 98% 54%);
-  --brand-highlight: hsl(72 98% 54%);
-  --brand-highlight-muted: hsl(73 96% 72%);
+	/* Pure neutral grays; the bright lime primary is the only color. */
+	--lime: hsl(72 98% 54%);
+	--brand-highlight: hsl(72 98% 54%);
+	--brand-highlight-muted: hsl(73 96% 72%);
 
-  --background: hsl(0 0% 6%);
-  --foreground: hsl(0 0% 93%);
+	--background: hsl(0 0% 6%);
+	--foreground: hsl(0 0% 93%);
 
-  --bg-subtle: hsl(0 0% 10%);
-  --bg-elevated: hsl(0 0% 13%);
-  --bg-overlay: hsl(0 0% 22%);
-  --text-faint: hsl(0 0% 43%);
+	--bg-subtle: hsl(0 0% 10%);
+	--bg-elevated: hsl(0 0% 13%);
+	--bg-overlay: hsl(0 0% 22%);
+	--text-faint: hsl(0 0% 43%);
 
-  /* Chip surface — kept darker than --card so pills read as inset on the
+	/* Chip surface — kept darker than --card so pills read as inset on the
      composer surface. */
-  --chip-bg: hsl(0 0% 10%);
+	--chip-bg: hsl(0 0% 10%);
 
-  --card: hsl(0 0% 12%);
-  --card-foreground: var(--foreground);
+	--card: hsl(0 0% 12%);
+	--card-foreground: var(--foreground);
 
-  /* Popover sits just below card so the glass border/shadow has something to
+	/* Popover sits just below card so the glass border/shadow has something to
      bite on. */
-  --popover: hsl(0 0% 11%);
-  --popover-foreground: hsl(0 0% 93%);
+	--popover: hsl(0 0% 11%);
+	--popover-foreground: hsl(0 0% 93%);
 
-  --primary: var(--lime);
-  --primary-foreground: hsl(72 82% 5%);
+	--primary: var(--lime);
+	--primary-foreground: hsl(72 82% 5%);
 
-  --accent-pink: hsl(339 96% 52%);
-  --accent-green: hsl(131 72% 59%);
-  --accent-blue: hsl(220 96% 68%);
-  --accent-amber: hsl(18 96% 62%);
-  --accent-red: hsl(0 84% 60%);
-  --accent-zinc: hsl(0 0% 63%);
+	--accent-pink: hsl(339 96% 52%);
+	--accent-green: hsl(131 72% 59%);
+	--accent-blue: hsl(220 96% 68%);
+	--accent-amber: hsl(18 96% 62%);
+	--accent-red: hsl(0 84% 60%);
+	--accent-zinc: hsl(0 0% 63%);
 
-  --file-icon-gray: #adadb1;
-  --file-icon-red: #ff6762;
-  --file-icon-vermilion: #ff8c5b;
-  --file-icon-orange: #ffa359;
-  --file-icon-yellow: #ffd452;
-  --file-icon-green: #5ecc71;
-  --file-icon-teal: #64d1db;
-  --file-icon-cyan: #68cdf2;
-  --file-icon-blue: #69b1ff;
-  --file-icon-indigo: #9d6afb;
-  --file-icon-purple: #d568ea;
-  --file-icon-pink: #ff678d;
-  --file-icon-mauve: #79697b;
+	--file-icon-gray: #adadb1;
+	--file-icon-red: #ff6762;
+	--file-icon-vermilion: #ff8c5b;
+	--file-icon-orange: #ffa359;
+	--file-icon-yellow: #ffd452;
+	--file-icon-green: #5ecc71;
+	--file-icon-teal: #64d1db;
+	--file-icon-cyan: #68cdf2;
+	--file-icon-blue: #69b1ff;
+	--file-icon-indigo: #9d6afb;
+	--file-icon-purple: #d568ea;
+	--file-icon-pink: #ff678d;
+	--file-icon-mauve: #79697b;
 
-  --secondary: hsl(0 0% 10%);
-  --secondary-foreground: hsl(0 0% 93%);
+	--secondary: hsl(0 0% 10%);
+	--secondary-foreground: hsl(0 0% 93%);
 
-  /* Muted + accent sit ABOVE --card/--popover so hover/selected states and
+	/* Muted + accent sit ABOVE --card/--popover so hover/selected states and
      muted surfaces read clearly against cards and the 6% background. */
-  --muted: hsl(0 0% 20%);
-  --muted-foreground: hsl(0 0% 68%);
+	--muted: hsl(0 0% 20%);
+	--muted-foreground: hsl(0 0% 68%);
 
-  --accent: hsl(0 0% 20%);
-  --accent-foreground: hsl(0 0% 93%);
+	--accent: hsl(0 0% 20%);
+	--accent-foreground: hsl(0 0% 93%);
 
-  --destructive: hsl(0 84% 52%);
-  --destructive-foreground: hsl(0 0% 100%);
+	--destructive: hsl(0 84% 52%);
+	--destructive-foreground: hsl(0 0% 100%);
 
-  --success: hsl(131 72% 59%);
-  --success-foreground: hsl(130 66% 10%);
+	--success: hsl(131 72% 59%);
+	--success-foreground: hsl(130 66% 10%);
 
-  --warning: hsl(360 15% 22%);
-  --warning-foreground: hsl(0 0% 93%);
+	--warning: hsl(360 15% 22%);
+	--warning-foreground: hsl(0 0% 93%);
 
-  --info: hsl(220 96% 68%);
-  --info-foreground: hsl(217 45% 14%);
+	--info: hsl(220 96% 68%);
+	--info-foreground: hsl(217 45% 14%);
 
-  --alert-error-bg: hsl(0 54% 18%);
-  --alert-warning-bg: hsl(360 15% 22%);
-  --alert-info-bg: hsl(217 45% 18%);
-  --alert-success-bg: hsl(130 64% 11%);
+	--alert-error-bg: hsl(0 54% 18%);
+	--alert-warning-bg: hsl(360 15% 22%);
+	--alert-info-bg: hsl(217 45% 18%);
+	--alert-success-bg: hsl(130 64% 11%);
 
-  --border: hsl(0 0% 100% / 0.1);
-  --input: hsl(0 0% 100% / 0.2);
-  --ring: var(--lime);
+	--border: hsl(0 0% 100% / 0.1);
+	--input: hsl(0 0% 100% / 0.2);
+	--ring: var(--lime);
 
-  --sidebar: hsl(0 0% 10%);
-  --sidebar-foreground: hsl(0 0% 100% / 0.9);
+	--sidebar: hsl(0 0% 10%);
+	--sidebar-foreground: hsl(0 0% 100% / 0.9);
 
-  --sidebar-primary: var(--lime);
-  --sidebar-primary-foreground: hsl(72 82% 5%);
+	--sidebar-primary: var(--lime);
+	--sidebar-primary-foreground: hsl(72 82% 5%);
 
-  --sidebar-accent: hsl(0 0% 100% / 0.05);
-  --sidebar-accent-foreground: hsl(0 0% 100% / 0.9);
+	--sidebar-accent: hsl(0 0% 100% / 0.05);
+	--sidebar-accent-foreground: hsl(0 0% 100% / 0.9);
 
-  --sidebar-border: hsl(0 0% 100% / 0.1);
-  --sidebar-ring: var(--lime);
+	--sidebar-border: hsl(0 0% 100% / 0.1);
+	--sidebar-ring: var(--lime);
 
-  /* Subtle glass button tokens */
-  --color-neutral-primary-reverted-5: #ffffff0d;
-  --color-neutral-primary-reverted-20: #ffffff14;
-  --color-white-3: #ffffff08;
+	/* Subtle glass button tokens */
+	--color-neutral-primary-reverted-5: #ffffff0d;
+	--color-neutral-primary-reverted-20: #ffffff14;
+	--color-white-3: #ffffff08;
 
-  --chart-1: var(--lime);
-  --chart-2: hsl(131 72% 59%);
-  --chart-3: hsl(18 96% 62%);
-  --chart-4: hsl(220 96% 68%);
-  --chart-5: hsl(0 84% 60%);
+	--chart-1: var(--lime);
+	--chart-2: hsl(131 72% 59%);
+	--chart-3: hsl(18 96% 62%);
+	--chart-4: hsl(220 96% 68%);
+	--chart-5: hsl(0 84% 60%);
 
-  --user-bubble: hsl(0 0% 13%);
-  --user-bubble-foreground: hsl(0 0% 93%);
-  --message-text: hsl(0 0% 90%);
-  --message-heading: hsl(0 0% 94%);
-  --message-code: hsl(72 90% 64%);
-  --message-code-bg: hsl(0 0% 10%);
-  --message-pre-bg: hsl(0 0% 10%);
-  --message-quote: hsl(0 0% 64%);
-  --message-rule: hsl(0 0% 22%);
+	--user-bubble: hsl(0 0% 13%);
+	--user-bubble-foreground: hsl(0 0% 93%);
+	--message-text: hsl(0 0% 90%);
+	--message-heading: hsl(0 0% 94%);
+	--message-code: hsl(72 90% 64%);
+	--message-code-bg: hsl(0 0% 10%);
+	--message-pre-bg: hsl(0 0% 10%);
+	--message-quote: hsl(0 0% 64%);
+	--message-rule: hsl(0 0% 22%);
 
-  --syntax-keyword: #c084fc;
-  --syntax-string: #86efac;
-  --syntax-number: #fbbf24;
-  --syntax-function: #7dd3fc;
-  --syntax-type: #67e8f9;
-  --syntax-attribute: #fda4af;
-  --syntax-tag: #f87171;
+	--syntax-keyword: #c084fc;
+	--syntax-string: #86efac;
+	--syntax-number: #fbbf24;
+	--syntax-function: #7dd3fc;
+	--syntax-type: #67e8f9;
+	--syntax-attribute: #fda4af;
+	--syntax-tag: #f87171;
 
-  /* Overlay elevation — deeper on dark since borders carry the edge. */
-  --shadow-overlay-sm: 0 4px 8px -2px hsl(0 0% 0% / 0.4);
-  --shadow-overlay: 0 6px 12px -3px hsl(0 0% 0% / 0.4),
-    0 16px 32px -8px hsl(0 0% 0% / 0.35);
-  --shadow-overlay-lg: 0 12px 24px -6px hsl(0 0% 0% / 0.5),
-    0 40px 80px -16px hsl(0 0% 0% / 0.45);
+	/* Overlay elevation — deeper on dark since borders carry the edge. */
+	--shadow-overlay-sm: 0 4px 8px -2px hsl(0 0% 0% / 0.4);
+	--shadow-overlay:
+		0 6px 12px -3px hsl(0 0% 0% / 0.4), 0 16px 32px -8px hsl(0 0% 0% / 0.35);
+	--shadow-overlay-lg:
+		0 12px 24px -6px hsl(0 0% 0% / 0.5), 0 40px 80px -16px hsl(0 0% 0% / 0.45);
 }
 @layer base {
-  html:not(.dark) *,
-  html:not(.dark) *::before,
-  html:not(.dark) *::after {
-    --tw-shadow: 0 0 #0000 !important;
-    --tw-shadow-colored: 0 0 #0000 !important;
-    --tw-inset-shadow: 0 0 #0000 !important;
-  }
+	html:not(.dark) *,
+	html:not(.dark) *::before,
+	html:not(.dark) *::after {
+		--tw-shadow: 0 0 #0000 !important;
+		--tw-shadow-colored: 0 0 #0000 !important;
+		--tw-inset-shadow: 0 0 #0000 !important;
+	}
 
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply text-foreground;
-    /* Solid app background — the macOS vibrancy look read as washed-out,
+	* {
+		@apply border-border outline-ring/50;
+	}
+	body {
+		@apply text-foreground;
+		font-family: var(--font-sans);
+		font-size: var(--text-ui);
+		line-height: 1.35;
+		/* Solid app background — the macOS vibrancy look read as washed-out,
        especially in light mode, so panes paint flat theme colors instead. */
-    background-color: var(--background);
-  }
-  code,
-  kbd,
-  samp,
-  pre {
-    font-family: var(--font-mono);
-  }
+		background-color: var(--background);
+	}
+	code,
+	kbd,
+	samp,
+	pre {
+		font-family: var(--font-mono);
+	}
 
-  /* Icon weight: every 24x24 icon (hugeicons stroke set, lucide, inline
+	/* Icon weight: every 24x24 icon (hugeicons stroke set, lucide, inline
      glyphs) renders at stroke-width 1 for a consistently light line. The
      CSS property beats the per-path stroke-width="1.5" presentation attr. */
-  svg[viewBox="0 0 24 24"],
-  svg[viewBox="0 0 24 24"] [stroke-width] {
-    stroke-width: 1;
-  }
+	svg[viewBox="0 0 24 24"],
+	svg[viewBox="0 0 24 24"] [stroke-width] {
+		stroke-width: 1;
+	}
+}
+
+/* Applied only while the projects sidebar is programmatically opened or
+   closed, so manual resizing stays directly under the pointer. */
+.fz-sidebar-panel-motion {
+	transition: flex-grow 180ms cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.fz-sidebar-panel-motion {
+		transition: none;
+	}
+}
+
+@layer components {
+	/* Shared recipes for renderer-owned rows and toolbars. */
+	.compact-row {
+		min-height: var(--density-row);
+		gap: var(--density-gap);
+		padding-inline: var(--density-gap);
+		border-radius: var(--radius-md);
+		font-size: var(--text-ui);
+	}
+
+	.compact-toolbar {
+		min-height: var(--density-chrome);
+		gap: 0.375rem;
+		padding-inline: var(--density-gap);
+	}
+
+	.compact-section-label {
+		font-size: var(--text-ui-xs);
+		font-weight: 500;
+		letter-spacing: 0.02em;
+		color: var(--muted-foreground);
+	}
+
+	.compact-notification {
+		animation: compact-notification-in var(--motion-enter)
+			var(--ease-compact-out) both;
+	}
+
+	.compact-step-enter {
+		animation: compact-step-in-forward 160ms ease-out both;
+	}
+}
+
+@keyframes compact-notification-in {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+}
+
+@keyframes compact-step-in-forward {
+	from {
+		opacity: 0;
+		transform: translateX(6px);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.compact-notification,
+	.compact-step-enter {
+		animation-duration: 80ms !important;
+		animation-name: compact-fade-in !important;
+	}
+}
+
+@keyframes compact-fade-in {
+	from {
+		opacity: 0;
+	}
 }
 
 /* `@pierre/diffs` ships with stock GitHub-style fire-engine red / spring
@@ -499,94 +592,94 @@ body,
    package's final computed base token transparent in `lib/diffs-theme.ts`, so
    these inherited detail tokens blend into the surrounding pane. */
 @layer components {
-  .chat-session-layout {
-    --chat-reading-column: 56rem;
-    --chat-row-gutter: 0.75rem;
-    --chat-assistant-gutter: 1rem;
-  }
+	.chat-session-layout {
+		--chat-reading-column: 56rem;
+		--chat-row-gutter: 0.625rem;
+		--chat-assistant-gutter: 0.75rem;
+	}
 
-  .fz-diff {
-    --fz-diff-header-bg: var(--background);
+	.fz-diff {
+		--fz-diff-header-bg: var(--background);
 
-    /* Surfaces — drop the diff onto the same neutral the pane uses so it
+		/* Surfaces — drop the diff onto the same neutral the pane uses so it
        reads as part of the app, not a bolted-on widget. Pierre computes
        its buffer / context / gutter tints from `--diffs-bg` mixed with a
        `--diffs-mixer` (`#fff` in dark), which pushes toward zinc. We
        override the computed values directly to keep everything anchored
        on the app's `--background`. */
-    --diffs-light-bg: var(--background);
-    --diffs-dark-bg: var(--background);
-    --diffs-light: var(--foreground);
-    --diffs-dark: var(--foreground);
-    --diffs-bg-buffer-override: var(--background);
-    --diffs-bg-context-override: var(--background);
-    --diffs-bg-context-gutter-override: var(--bg-subtle);
-    --diffs-bg-separator-override: var(--border);
+		--diffs-light-bg: var(--background);
+		--diffs-dark-bg: var(--background);
+		--diffs-light: var(--foreground);
+		--diffs-dark: var(--foreground);
+		--diffs-bg-buffer-override: var(--background);
+		--diffs-bg-context-override: var(--background);
+		--diffs-bg-context-gutter-override: var(--bg-subtle);
+		--diffs-bg-separator-override: var(--border);
 
-    /* Add leans hard on the app's lime --primary — true yellow-chartreuse,
+		/* Add leans hard on the app's lime --primary — true yellow-chartreuse,
        not teal. Delete stays warm rose so a glance still tells add from
        delete. The text colors land on the marker / line text; the
        backgrounds are a faint wash of the same hue against the app bg so
        a + row reads as "a hint of lime" rather than "a green band." */
-    --diffs-added-light: oklch(0.55 0.2 108);
-    --diffs-added-dark: oklch(0.88 0.2 115);
-    --diffs-deleted-light: oklch(0.55 0.2 22);
-    --diffs-deleted-dark: oklch(0.78 0.15 20);
-    --diffs-modified-light: oklch(0.7 0.13 80);
-    --diffs-modified-dark: oklch(0.82 0.11 82);
+		--diffs-added-light: oklch(0.55 0.2 108);
+		--diffs-added-dark: oklch(0.88 0.2 115);
+		--diffs-deleted-light: oklch(0.55 0.2 22);
+		--diffs-deleted-dark: oklch(0.78 0.15 20);
+		--diffs-modified-light: oklch(0.7 0.13 80);
+		--diffs-modified-dark: oklch(0.82 0.11 82);
 
-    --diffs-bg-addition-override: color-mix(
-      in oklab,
-      var(--diffs-added-dark) 10%,
-      var(--background)
-    );
-    --diffs-bg-addition-emphasis-override: color-mix(
-      in oklab,
-      var(--diffs-added-dark) 20%,
-      var(--background)
-    );
-    --diffs-bg-addition-number-override: color-mix(
-      in oklab,
-      var(--diffs-added-dark) 14%,
-      var(--bg-subtle)
-    );
-    --diffs-bg-deletion-override: color-mix(
-      in oklab,
-      var(--diffs-deleted-dark) 10%,
-      var(--background)
-    );
-    --diffs-bg-deletion-emphasis-override: color-mix(
-      in oklab,
-      var(--diffs-deleted-dark) 20%,
-      var(--background)
-    );
-    --diffs-bg-deletion-number-override: color-mix(
-      in oklab,
-      var(--diffs-deleted-dark) 14%,
-      var(--bg-subtle)
-    );
+		--diffs-bg-addition-override: color-mix(
+			in oklab,
+			var(--diffs-added-dark) 10%,
+			var(--background)
+		);
+		--diffs-bg-addition-emphasis-override: color-mix(
+			in oklab,
+			var(--diffs-added-dark) 20%,
+			var(--background)
+		);
+		--diffs-bg-addition-number-override: color-mix(
+			in oklab,
+			var(--diffs-added-dark) 14%,
+			var(--bg-subtle)
+		);
+		--diffs-bg-deletion-override: color-mix(
+			in oklab,
+			var(--diffs-deleted-dark) 10%,
+			var(--background)
+		);
+		--diffs-bg-deletion-emphasis-override: color-mix(
+			in oklab,
+			var(--diffs-deleted-dark) 20%,
+			var(--background)
+		);
+		--diffs-bg-deletion-number-override: color-mix(
+			in oklab,
+			var(--diffs-deleted-dark) 14%,
+			var(--bg-subtle)
+		);
 
-    /* Typography — same monospace token as the rest of the app, slightly
+		/* Typography — same monospace token as the rest of the app, slightly
        smaller than Pierre's default so a diff doesn't dwarf the chat. */
-    --diffs-font-family: var(--font-mono);
-    --diffs-font-size: 12px;
-    --diffs-line-height: 18px;
+		--diffs-font-family: var(--font-mono);
+		--diffs-font-size: 12px;
+		--diffs-line-height: 18px;
 
-    /* Line selection (Pierre 1.2 native selection, used by the diff-tab
+		/* Line selection (Pierre 1.2 native selection, used by the diff-tab
        annotate flow). Tint the staged rows / gutter with the app primary so
        selecting lines to comment matches the rest of the UI. */
-    --diffs-selection-color-override: var(--primary);
-    --diffs-bg-selection-override: color-mix(
-      in oklab,
-      var(--primary) 22%,
-      transparent
-    );
-    --diffs-bg-selection-number-override: color-mix(
-      in oklab,
-      var(--primary) 40%,
-      transparent
-    );
-  }
+		--diffs-selection-color-override: var(--primary);
+		--diffs-bg-selection-override: color-mix(
+			in oklab,
+			var(--primary) 22%,
+			transparent
+		);
+		--diffs-bg-selection-number-override: color-mix(
+			in oklab,
+			var(--primary) 40%,
+			transparent
+		);
+	}
 }
 
 /* `@pierre/trees` renders the file tree into a shadow root and reads
@@ -596,37 +689,37 @@ body,
    rose-delete / amber-modified hues as the diff so an "M"/"A"/dot badge reads
    the same everywhere. */
 @layer components {
-  .fz-tree {
-    --trees-bg-override: var(--background);
-    --trees-fg-override: var(--foreground);
-    --trees-fg-muted-override: var(--muted-foreground);
-    --trees-bg-muted-override: var(--bg-subtle);
-    --trees-border-color-override: var(--border);
-    --trees-accent-override: var(--primary);
-    --trees-selected-bg-override: var(--sidebar-accent);
-    --trees-selected-fg-override: var(--foreground);
-    /* No bright focus ring / selection border — the active row reads through a
+	.fz-tree {
+		--trees-bg-override: var(--background);
+		--trees-fg-override: var(--foreground);
+		--trees-fg-muted-override: var(--muted-foreground);
+		--trees-bg-muted-override: var(--bg-subtle);
+		--trees-border-color-override: var(--border);
+		--trees-accent-override: var(--primary);
+		--trees-selected-bg-override: var(--sidebar-accent);
+		--trees-selected-fg-override: var(--foreground);
+		/* No bright focus ring / selection border — the active row reads through a
        subtle background instead of a loud lime box. */
-    --trees-selected-focused-border-color-override: transparent;
-    --trees-focus-ring-color-override: transparent;
-    /* Drop the vertical indent guide lines for a cleaner, flat tree. */
-    --trees-indent-guide-bg-override: transparent;
+		--trees-selected-focused-border-color-override: transparent;
+		--trees-focus-ring-color-override: transparent;
+		/* Drop the vertical indent guide lines for a cleaner, flat tree. */
+		--trees-indent-guide-bg-override: transparent;
 
-    /* Git-status badge colors, matched to the diff palette. */
-    --trees-status-added-override: oklch(0.88 0.2 115);
-    --trees-status-modified-override: oklch(0.82 0.11 82);
-    --trees-status-deleted-override: oklch(0.78 0.15 20);
-    --trees-status-renamed-override: oklch(0.82 0.11 82);
-    --trees-status-untracked-override: oklch(0.88 0.2 115);
-    --trees-status-ignored-override: var(--muted-foreground);
+		/* Git-status badge colors, matched to the diff palette. */
+		--trees-status-added-override: oklch(0.88 0.2 115);
+		--trees-status-modified-override: oklch(0.82 0.11 82);
+		--trees-status-deleted-override: oklch(0.78 0.15 20);
+		--trees-status-renamed-override: oklch(0.82 0.11 82);
+		--trees-status-untracked-override: oklch(0.88 0.2 115);
+		--trees-status-ignored-override: var(--muted-foreground);
 
-    /* Exact Hugeicons Folder01 (closed) and Folder02 (open) paths. The two
+		/* Exact Hugeicons Folder01 (closed) and Folder02 (open) paths. The two
        masks preserve the icons' original muted base / full-strength foreground
        treatment while inheriting the tree's current text color. */
-    --fz-folder-01: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M7.08264 2.24996C8.11205 2.24951 8.82373 2.24919 9.4626 2.48876C10.8581 3.01205 11.4704 4.25121 11.9425 5.20636C12.0838 5.48909 12.3409 6.0027 12.4128 6.11563C12.4348 6.15255 12.5044 6.22817 12.6064 6.23531C12.7396 6.24908 12.92 6.25 13.2361 6.25L16.7905 6.25C17.8095 6.24999 18.6312 6.24998 19.2905 6.31705C19.9711 6.38628 20.5613 6.53313 21.0834 6.88199C21.4929 7.15559 21.8444 7.50715 22.118 7.91661C22.4669 8.43872 22.6137 9.02893 22.683 9.70949C22.75 10.3688 22.75 11.2733 22.75 12.2923C22.75 14.012 22.75 15.3602 22.6408 16.4336C22.5295 17.5283 22.2983 18.4202 21.781 19.1945C21.3614 19.8224 20.8224 20.3614 20.1945 20.781C19.4202 21.2983 18.5283 21.5295 17.4336 21.6408C16.3602 21.75 15.012 21.75 13.2923 21.75H11.9426C9.63423 21.75 7.82519 21.75 6.41371 21.5603C4.96897 21.366 3.82895 20.9607 2.93414 20.0659C2.03933 19.1711 1.63399 18.031 1.43975 16.5863C1.24998 15.1748 1.24999 13.3658 1.25 11.0574V7.90951C1.24999 7.26419 1.24999 6.71057 1.26997 6.23531C1.27719 6.0634 1.28704 5.90174 1.30044 5.7497C1.35242 5.15996 1.46238 4.64388 1.7254 4.17258C2.06428 3.56534 2.56533 3.06428 3.17258 2.7254C3.64388 2.46238 4.15996 2.35243 4.7497 2.30044C5.32205 2.24999 6.2039 2.24995 7.08264 2.24996Z'/%3E%3C/svg%3E");
-    --fz-folder-02-background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M20.3201 10.3679C21.1491 10.4898 21.8892 10.7615 22.3622 11.4571C22.8359 12.1536 22.8144 12.9409 22.6198 13.7542C22.432 14.5395 22.0405 15.5138 21.5612 16.7069L21.5611 16.707C21.2076 17.5871 20.582 19.1443 20.2833 19.702C19.9714 20.2844 19.6166 20.7557 19.0967 21.1061C18.577 21.4565 18.0065 21.6092 17.3484 21.6811C16.7179 21.7501 15.9426 21.7501 14.9903 21.75L6.82564 21.75C5.53437 21.7501 4.48102 21.7501 3.67955 21.6322C2.85055 21.5103 2.11046 21.2386 1.63746 20.543C1.16382 19.8465 1.18526 19.0592 1.37984 18.2459C1.56772 17.4605 2.29668 15.6461 2.77606 14.453C3.12961 13.5729 3.41769 12.8558 3.71637 12.2981C4.02829 11.7157 4.38309 11.2444 4.90302 10.8939C5.42272 10.5436 5.99323 10.3909 6.65124 10.319C7.28177 10.25 8.05707 10.25 9.00939 10.25H17.174C18.4653 10.25 19.5187 10.25 20.3201 10.3679Z'/%3E%3C/svg%3E");
-    --fz-folder-02-foreground: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M7.14203 2.25009C8.02697 2.25009 8.86433 2.64958 9.41958 3.33668L10.8985 5.16676L15.9142 5.16676C16.5634 5.16674 17.1089 5.16673 17.5553 5.2031C18.0221 5.24113 18.4657 5.32371 18.8867 5.53764C19.5288 5.86387 20.0509 6.38443 20.3781 7.02471C20.5926 7.44457 20.6754 7.88689 20.7136 8.35232C20.75 8.79744 20.75 9.34143 20.75 9.98875V10.448C20.6101 10.4157 20.4665 10.3895 20.3201 10.3679C19.5187 10.25 18.4653 10.2501 17.1741 10.2501H9.00944C8.05712 10.2501 7.28177 10.2501 6.65124 10.319C5.99323 10.391 5.42272 10.5437 4.90302 10.894C4.38309 11.2445 4.02829 11.7157 3.71637 12.2981C3.41769 12.8558 3.12961 13.5729 2.77606 14.453C2.29668 15.6462 1.56772 17.4606 1.37984 18.2459C1.32416 18.4787 1.28265 18.7093 1.26287 18.9362C1.2544 18.8847 1.25 18.8318 1.25 18.7779V7.61054C1.24999 6.93793 1.24998 6.38272 1.28207 5.92856C1.31534 5.45753 1.38658 5.02223 1.56632 4.60478C1.96071 3.68878 2.6928 2.95878 3.61142 2.56551C4.02949 2.38653 4.46387 2.31532 4.93624 2.28208C5.39091 2.25008 5.94776 2.25008 6.62538 2.25009H7.14203Z'/%3E%3C/svg%3E");
-  }
+		--fz-folder-01: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M7.08264 2.24996C8.11205 2.24951 8.82373 2.24919 9.4626 2.48876C10.8581 3.01205 11.4704 4.25121 11.9425 5.20636C12.0838 5.48909 12.3409 6.0027 12.4128 6.11563C12.4348 6.15255 12.5044 6.22817 12.6064 6.23531C12.7396 6.24908 12.92 6.25 13.2361 6.25L16.7905 6.25C17.8095 6.24999 18.6312 6.24998 19.2905 6.31705C19.9711 6.38628 20.5613 6.53313 21.0834 6.88199C21.4929 7.15559 21.8444 7.50715 22.118 7.91661C22.4669 8.43872 22.6137 9.02893 22.683 9.70949C22.75 10.3688 22.75 11.2733 22.75 12.2923C22.75 14.012 22.75 15.3602 22.6408 16.4336C22.5295 17.5283 22.2983 18.4202 21.781 19.1945C21.3614 19.8224 20.8224 20.3614 20.1945 20.781C19.4202 21.2983 18.5283 21.5295 17.4336 21.6408C16.3602 21.75 15.012 21.75 13.2923 21.75H11.9426C9.63423 21.75 7.82519 21.75 6.41371 21.5603C4.96897 21.366 3.82895 20.9607 2.93414 20.0659C2.03933 19.1711 1.63399 18.031 1.43975 16.5863C1.24998 15.1748 1.24999 13.3658 1.25 11.0574V7.90951C1.24999 7.26419 1.24999 6.71057 1.26997 6.23531C1.27719 6.0634 1.28704 5.90174 1.30044 5.7497C1.35242 5.15996 1.46238 4.64388 1.7254 4.17258C2.06428 3.56534 2.56533 3.06428 3.17258 2.7254C3.64388 2.46238 4.15996 2.35243 4.7497 2.30044C5.32205 2.24999 6.2039 2.24995 7.08264 2.24996Z'/%3E%3C/svg%3E");
+		--fz-folder-02-background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M20.3201 10.3679C21.1491 10.4898 21.8892 10.7615 22.3622 11.4571C22.8359 12.1536 22.8144 12.9409 22.6198 13.7542C22.432 14.5395 22.0405 15.5138 21.5612 16.7069L21.5611 16.707C21.2076 17.5871 20.582 19.1443 20.2833 19.702C19.9714 20.2844 19.6166 20.7557 19.0967 21.1061C18.577 21.4565 18.0065 21.6092 17.3484 21.6811C16.7179 21.7501 15.9426 21.7501 14.9903 21.75L6.82564 21.75C5.53437 21.7501 4.48102 21.7501 3.67955 21.6322C2.85055 21.5103 2.11046 21.2386 1.63746 20.543C1.16382 19.8465 1.18526 19.0592 1.37984 18.2459C1.56772 17.4605 2.29668 15.6461 2.77606 14.453C3.12961 13.5729 3.41769 12.8558 3.71637 12.2981C4.02829 11.7157 4.38309 11.2444 4.90302 10.8939C5.42272 10.5436 5.99323 10.3909 6.65124 10.319C7.28177 10.25 8.05707 10.25 9.00939 10.25H17.174C18.4653 10.25 19.5187 10.25 20.3201 10.3679Z'/%3E%3C/svg%3E");
+		--fz-folder-02-foreground: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M7.14203 2.25009C8.02697 2.25009 8.86433 2.64958 9.41958 3.33668L10.8985 5.16676L15.9142 5.16676C16.5634 5.16674 17.1089 5.16673 17.5553 5.2031C18.0221 5.24113 18.4657 5.32371 18.8867 5.53764C19.5288 5.86387 20.0509 6.38443 20.3781 7.02471C20.5926 7.44457 20.6754 7.88689 20.7136 8.35232C20.75 8.79744 20.75 9.34143 20.75 9.98875V10.448C20.6101 10.4157 20.4665 10.3895 20.3201 10.3679C19.5187 10.25 18.4653 10.2501 17.1741 10.2501H9.00944C8.05712 10.2501 7.28177 10.2501 6.65124 10.319C5.99323 10.391 5.42272 10.5437 4.90302 10.894C4.38309 11.2445 4.02829 11.7157 3.71637 12.2981C3.41769 12.8558 3.12961 13.5729 2.77606 14.453C2.29668 15.6462 1.56772 17.4606 1.37984 18.2459C1.32416 18.4787 1.28265 18.7093 1.26287 18.9362C1.2544 18.8847 1.25 18.8318 1.25 18.7779V7.61054C1.24999 6.93793 1.24998 6.38272 1.28207 5.92856C1.31534 5.45753 1.38658 5.02223 1.56632 4.60478C1.96071 3.68878 2.6928 2.95878 3.61142 2.56551C4.02949 2.38653 4.46387 2.31532 4.93624 2.28208C5.39091 2.25008 5.94776 2.25008 6.62538 2.25009H7.14203Z'/%3E%3C/svg%3E");
+	}
 }
 
 /* Assistant message prose. Tuned for long-read comfort: body sits a touch
@@ -634,424 +727,421 @@ body,
    typographic rhythm (margins, line-height, list indents) calmed down so a
    long answer reads like a published doc instead of a wall of bold tags. */
 @layer components {
-  .fz-prose {
-    color: var(--message-text);
-    font-size: 0.9rem;
-    line-height: 1.62;
-    word-break: break-word;
-  }
-  .fz-prose > :first-child {
-    margin-top: 0;
-  }
-  .fz-prose > :last-child {
-    margin-bottom: 0;
-  }
-  .fz-prose p {
-    margin: 0.6em 0;
-  }
-  .fz-prose h1,
-  .fz-prose h2,
-  .fz-prose h3,
-  .fz-prose h4,
-  .fz-prose h5,
-  .fz-prose h6 {
-    color: var(--message-heading);
-    font-weight: 600;
-    line-height: 1.3;
-    letter-spacing: 0;
-    margin: 1.35em 0 0.45em;
-  }
-  .fz-prose h1 {
-    font-size: 1.4em;
-  }
-  .fz-prose h2 {
-    font-size: 1.2em;
-  }
-  .fz-prose h3 {
-    font-size: 1.05em;
-  }
-  .fz-prose h4,
-  .fz-prose h5,
-  .fz-prose h6 {
-    font-size: 1em;
-  }
-  .fz-prose strong {
-    color: var(--message-heading);
-    font-weight: 600;
-  }
-  .fz-prose a {
-    color: color-mix(in oklch, var(--info) 78%, var(--foreground));
-    text-decoration: underline;
-    text-decoration-color: color-mix(in oklch, var(--info) 36%, transparent);
-    text-underline-offset: 0.2em;
-  }
-  .fz-prose a:hover {
-    color: color-mix(in oklch, var(--info) 88%, var(--foreground));
-    text-decoration-color: color-mix(in oklch, var(--info) 68%, transparent);
-  }
-  .fz-prose ul,
-  .fz-prose ol {
-    margin: 0.6em 0;
-    padding-left: 1.4em;
-  }
-  .fz-prose li {
-    margin: 0.2em 0;
-  }
-  .fz-prose li::marker {
-    color: var(--text-faint);
-  }
-  .fz-prose blockquote {
-    margin: 0.8em 0;
-    padding: 0.2em 0 0.2em 0.9em;
-    border-left: 2px solid
-      color-mix(in oklch, var(--primary) 36%, var(--message-rule));
-    color: var(--message-quote);
-    font-style: normal;
-  }
-  .fz-prose hr {
-    border: 0;
-    border-top: 1px solid var(--message-rule);
-    margin: 1.2em 0;
-  }
-  .fz-prose code {
-    font-family: var(--font-mono);
-    font-size: 0.86em;
-    color: color-mix(in oklch, var(--foreground) 90%, transparent);
-    background-color: var(--message-code-bg);
-    border: 1px solid color-mix(in oklch, var(--border) 45%, transparent);
-    box-shadow: none;
-    padding: 0.08em 0.34em;
-    border-radius: 0.4rem;
-  }
-  .dark .fz-prose code {
-    background-color: color-mix(
-      in oklch,
-      var(--bg-elevated) 34%,
-      var(--background)
-    );
-    box-shadow:
-      inset 0 1px 0 color-mix(in oklch, white 4%, transparent),
-      0 1px 2px color-mix(in oklch, black 22%, transparent);
-  }
-  .fz-prose pre {
-    background-color: color-mix(
-      in oklch,
-      var(--message-pre-bg) 90%,
-      var(--background)
-    );
-    border: 1px solid var(--message-rule);
-    border-radius: 0.75rem;
-    padding: 0.85em 1em;
-    margin: 0.8em 0;
-    overflow-x: auto;
-    font-size: 0.84em;
-    line-height: 1.55;
-  }
-  .fz-prose pre code {
-    color: var(--message-text);
-    background: transparent;
-    border: 0;
-    box-shadow: none;
-    padding: 0;
-    font-size: inherit;
-  }
-  .fz-prose .markdown-code-block {
-    margin: 0.9em 0;
-  }
-  /* Assistant code stays aligned with the reading column on the left, but
+	.fz-prose {
+		color: var(--message-text);
+		font-size: 0.8125rem;
+		line-height: 1.55;
+		word-break: break-word;
+	}
+	.fz-prose > :first-child {
+		margin-top: 0;
+	}
+	.fz-prose > :last-child {
+		margin-bottom: 0;
+	}
+	.fz-prose p {
+		margin: 0.5em 0;
+	}
+	.fz-prose h1,
+	.fz-prose h2,
+	.fz-prose h3,
+	.fz-prose h4,
+	.fz-prose h5,
+	.fz-prose h6 {
+		color: var(--message-heading);
+		font-weight: 600;
+		line-height: 1.3;
+		letter-spacing: 0;
+		margin: 1.15em 0 0.4em;
+	}
+	.fz-prose h1 {
+		font-size: 1.4em;
+	}
+	.fz-prose h2 {
+		font-size: 1.2em;
+	}
+	.fz-prose h3 {
+		font-size: 1.05em;
+	}
+	.fz-prose h4,
+	.fz-prose h5,
+	.fz-prose h6 {
+		font-size: 1em;
+	}
+	.fz-prose strong {
+		color: var(--message-heading);
+		font-weight: 600;
+	}
+	.fz-prose a {
+		color: color-mix(in oklch, var(--info) 78%, var(--foreground));
+		text-decoration: underline;
+		text-decoration-color: color-mix(in oklch, var(--info) 36%, transparent);
+		text-underline-offset: 0.2em;
+	}
+	.fz-prose a:hover {
+		color: color-mix(in oklch, var(--info) 88%, var(--foreground));
+		text-decoration-color: color-mix(in oklch, var(--info) 68%, transparent);
+	}
+	.fz-prose ul,
+	.fz-prose ol {
+		margin: 0.6em 0;
+		padding-left: 1.4em;
+	}
+	.fz-prose li {
+		margin: 0.2em 0;
+	}
+	.fz-prose li::marker {
+		color: var(--text-faint);
+	}
+	.fz-prose blockquote {
+		margin: 0.8em 0;
+		padding: 0.2em 0 0.2em 0.9em;
+		border-left: 2px solid
+			color-mix(in oklch, var(--primary) 36%, var(--message-rule));
+		color: var(--message-quote);
+		font-style: normal;
+	}
+	.fz-prose hr {
+		border: 0;
+		border-top: 1px solid var(--message-rule);
+		margin: 1.2em 0;
+	}
+	.fz-prose code {
+		font-family: var(--font-mono);
+		font-size: 0.86em;
+		color: color-mix(in oklch, var(--foreground) 90%, transparent);
+		background-color: var(--message-code-bg);
+		border: 1px solid color-mix(in oklch, var(--border) 45%, transparent);
+		box-shadow: none;
+		padding: 0.08em 0.34em;
+		border-radius: 0.4rem;
+	}
+	.dark .fz-prose code {
+		background-color: color-mix(
+			in oklch,
+			var(--bg-elevated) 34%,
+			var(--background)
+		);
+		box-shadow:
+			inset 0 1px 0 color-mix(in oklch, white 4%, transparent),
+			0 1px 2px color-mix(in oklch, black 22%, transparent);
+	}
+	.fz-prose pre {
+		background-color: color-mix(
+			in oklch,
+			var(--message-pre-bg) 90%,
+			var(--background)
+		);
+		border: 1px solid var(--message-rule);
+		border-radius: 0.75rem;
+		padding: 0.85em 1em;
+		margin: 0.8em 0;
+		overflow-x: auto;
+		font-size: 0.84em;
+		line-height: 1.55;
+	}
+	.fz-prose pre code {
+		color: var(--message-text);
+		background: transparent;
+		border: 0;
+		box-shadow: none;
+		padding: 0;
+		font-size: inherit;
+	}
+	.fz-prose .markdown-code-block {
+		margin: 0.9em 0;
+	}
+	/* Assistant code stays aligned with the reading column on the left, but
      reaches the transcript edge on the right. The scroll thumb therefore
      lives at the pane edge instead of floating beside the centered column. */
-  .chat-assistant-markdown > .markdown-code-block {
-    width: calc(
-      100cqw -
-      max(
-        var(--chat-row-gutter),
-        (100cqw - var(--chat-reading-column)) / 2
-      ) -
-      var(--chat-assistant-gutter)
-    );
-  }
-  .fz-prose .markdown-mermaid-block {
-    position: relative;
-    margin: 0.9em 0;
-    padding: 0;
-    overflow: hidden;
-    border: 1px solid color-mix(in oklch, var(--message-rule) 82%, transparent);
-    border-radius: 0.6rem;
-    background-color: var(--background);
-  }
-  .fz-prose .markdown-mermaid-block-error {
-    padding: 1rem 1rem 0;
-  }
-  .fz-prose .markdown-mermaid-loading,
-  .fz-prose .markdown-mermaid-error {
-    color: var(--text-muted);
-    font-size: 0.9em;
-  }
-  .fz-prose .markdown-mermaid-error {
-    color: color-mix(in oklch, var(--destructive) 78%, var(--foreground));
-  }
-  .markdown-mermaid-svg {
-    min-width: max-content;
-  }
-  .markdown-mermaid-svg svg {
-    display: block;
-    height: auto;
-    max-width: none;
-    margin: 0 auto;
-    overflow: visible;
-    shape-rendering: geometricPrecision;
-    text-rendering: geometricPrecision;
-  }
-  .markdown-mermaid-svg svg text,
-  .markdown-mermaid-svg svg tspan {
-    text-rendering: geometricPrecision;
-  }
-  .markdown-mermaid-zoom-label {
-    display: inline-flex;
-    min-width: 3.3rem;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-    font-size: 0.74rem;
-    line-height: 1;
-  }
-  .markdown-mermaid-shell {
-    position: relative;
-    display: flex;
-    min-height: 0;
-    min-width: 0;
-    flex: 1;
-    flex-direction: column;
-    background-color: var(--message-pre-bg);
-  }
-  .markdown-mermaid-shell-inline {
-    height: min(58vh, 520px);
-    min-height: 260px;
-  }
-  .markdown-mermaid-shell-dialog {
-    min-height: 0;
-  }
-  .markdown-mermaid-viewer-controls {
-    position: absolute;
-    top: 0.55rem;
-    right: 0.55rem;
-    z-index: 2;
-    display: inline-flex;
-    flex-shrink: 0;
-    align-items: center;
-    gap: 0.2rem;
-    padding: 0.15rem;
-    border: 1px solid var(--message-rule);
-    border-radius: 0.55rem;
-    background-color: var(--popover);
-    box-shadow: none;
-  }
-  .markdown-mermaid-viewer {
-    position: relative;
-    display: grid;
-    min-height: 0;
-    flex: 1;
-    place-items: center;
-    overflow: auto;
-    background-color: var(--message-pre-bg);
-    cursor: grab;
-    touch-action: none;
-    user-select: none;
-  }
-  .markdown-mermaid-viewer:active {
-    cursor: grabbing;
-  }
-  .markdown-mermaid-viewer-canvas {
-    min-width: max-content;
-    padding: 2rem;
-    border-radius: 0.7rem;
-    background-color: var(--message-pre-bg);
-    zoom: var(--markdown-mermaid-scale);
-  }
-  .markdown-mermaid-viewer-canvas .markdown-mermaid-svg {
-    min-width: 0;
-  }
-  .markdown-mermaid-viewer-canvas svg {
-    max-width: none;
-  }
-  .markdown-mermaid-pan-hint {
-    pointer-events: none;
-    position: absolute;
-    right: 0.9rem;
-    bottom: 0.9rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.75rem;
-    height: 1.75rem;
-    border: 1px solid var(--message-rule);
-    border-radius: 0.45rem;
-    color: var(--text-muted);
-    background-color: var(--popover);
-  }
-  .dark .markdown-mermaid-shell,
-  .dark .markdown-mermaid-viewer,
-  .dark .markdown-mermaid-viewer-canvas {
-    background-color: #09090b;
-  }
-  .dark .markdown-mermaid-viewer-controls {
-    border-color: #3f3f46;
-    background-color: #18181b;
-    box-shadow: 0 10px 28px rgb(0 0 0 / 0.28);
-  }
-  .dark .markdown-mermaid-pan-hint {
-    border-color: #3f3f46;
-    background-color: #18181b;
-  }
-  .fz-prose .markdown-code-block code,
-  .fz-prose .markdown-code-block pre code,
-  .fz-prose .code-block-shiki code {
-    color: inherit;
-    background: transparent;
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
-    padding: 0;
-    font-size: inherit;
-  }
-  /* Rounded tables. `border-collapse: separate` so the outer radius works;
+	.chat-assistant-markdown > .markdown-code-block {
+		width: calc(
+			100cqw -
+			max(var(--chat-row-gutter), (100cqw - var(--chat-reading-column)) / 2) -
+			var(--chat-assistant-gutter)
+		);
+	}
+	.fz-prose .markdown-mermaid-block {
+		position: relative;
+		margin: 0.9em 0;
+		padding: 0;
+		overflow: hidden;
+		border: 1px solid color-mix(in oklch, var(--message-rule) 82%, transparent);
+		border-radius: 0.6rem;
+		background-color: var(--background);
+	}
+	.fz-prose .markdown-mermaid-block-error {
+		padding: 1rem 1rem 0;
+	}
+	.fz-prose .markdown-mermaid-loading,
+	.fz-prose .markdown-mermaid-error {
+		color: var(--text-muted);
+		font-size: 0.9em;
+	}
+	.fz-prose .markdown-mermaid-error {
+		color: color-mix(in oklch, var(--destructive) 78%, var(--foreground));
+	}
+	.markdown-mermaid-svg {
+		min-width: max-content;
+	}
+	.markdown-mermaid-svg svg {
+		display: block;
+		height: auto;
+		max-width: none;
+		margin: 0 auto;
+		overflow: visible;
+		shape-rendering: geometricPrecision;
+		text-rendering: geometricPrecision;
+	}
+	.markdown-mermaid-svg svg text,
+	.markdown-mermaid-svg svg tspan {
+		text-rendering: geometricPrecision;
+	}
+	.markdown-mermaid-zoom-label {
+		display: inline-flex;
+		min-width: 3.3rem;
+		align-items: center;
+		justify-content: center;
+		color: var(--text-muted);
+		font-family: var(--font-mono);
+		font-size: 0.74rem;
+		line-height: 1;
+	}
+	.markdown-mermaid-shell {
+		position: relative;
+		display: flex;
+		min-height: 0;
+		min-width: 0;
+		flex: 1;
+		flex-direction: column;
+		background-color: var(--message-pre-bg);
+	}
+	.markdown-mermaid-shell-inline {
+		height: min(58vh, 520px);
+		min-height: 260px;
+	}
+	.markdown-mermaid-shell-dialog {
+		min-height: 0;
+	}
+	.markdown-mermaid-viewer-controls {
+		position: absolute;
+		top: 0.55rem;
+		right: 0.55rem;
+		z-index: 2;
+		display: inline-flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 0.2rem;
+		padding: 0.15rem;
+		border: 1px solid var(--message-rule);
+		border-radius: 0.55rem;
+		background-color: var(--popover);
+		box-shadow: none;
+	}
+	.markdown-mermaid-viewer {
+		position: relative;
+		display: grid;
+		min-height: 0;
+		flex: 1;
+		place-items: center;
+		overflow: auto;
+		background-color: var(--message-pre-bg);
+		cursor: grab;
+		touch-action: none;
+		user-select: none;
+	}
+	.markdown-mermaid-viewer:active {
+		cursor: grabbing;
+	}
+	.markdown-mermaid-viewer-canvas {
+		min-width: max-content;
+		padding: 2rem;
+		border-radius: 0.7rem;
+		background-color: var(--message-pre-bg);
+		zoom: var(--markdown-mermaid-scale);
+	}
+	.markdown-mermaid-viewer-canvas .markdown-mermaid-svg {
+		min-width: 0;
+	}
+	.markdown-mermaid-viewer-canvas svg {
+		max-width: none;
+	}
+	.markdown-mermaid-pan-hint {
+		pointer-events: none;
+		position: absolute;
+		right: 0.9rem;
+		bottom: 0.9rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.75rem;
+		height: 1.75rem;
+		border: 1px solid var(--message-rule);
+		border-radius: 0.45rem;
+		color: var(--text-muted);
+		background-color: var(--popover);
+	}
+	.dark .markdown-mermaid-shell,
+	.dark .markdown-mermaid-viewer,
+	.dark .markdown-mermaid-viewer-canvas {
+		background-color: #09090b;
+	}
+	.dark .markdown-mermaid-viewer-controls {
+		border-color: #3f3f46;
+		background-color: #18181b;
+		box-shadow: 0 10px 28px rgb(0 0 0 / 0.28);
+	}
+	.dark .markdown-mermaid-pan-hint {
+		border-color: #3f3f46;
+		background-color: #18181b;
+	}
+	.fz-prose .markdown-code-block code,
+	.fz-prose .markdown-code-block pre code,
+	.fz-prose .code-block-shiki code {
+		color: inherit;
+		background: transparent;
+		border: 0;
+		border-radius: 0;
+		box-shadow: none;
+		padding: 0;
+		font-size: inherit;
+	}
+	/* Rounded tables. `border-collapse: separate` so the outer radius works;
      cells draw only inner dividers (right + bottom), the table draws the
      outer border, and corner cells round their own backgrounds. */
-  .fz-prose table {
-    width: auto;
-    border-collapse: separate;
-    border-spacing: 0;
-    margin: 0.8em 0;
-    font-size: 0.92em;
-    border: 1px solid var(--message-rule);
-    border-radius: 0.75rem;
-  }
-  .fz-prose th,
-  .fz-prose td {
-    border-right: 1px solid var(--message-rule);
-    border-bottom: 1px solid var(--message-rule);
-    padding: 0.4em 0.7em;
-    text-align: left;
-  }
-  .fz-prose tr > th:last-child,
-  .fz-prose tr > td:last-child {
-    border-right: 0;
-  }
-  .fz-prose tr:last-child > th,
-  .fz-prose tr:last-child > td {
-    border-bottom: 0;
-  }
-  .fz-prose tr:first-child > th:first-child,
-  .fz-prose tr:first-child > td:first-child {
-    border-top-left-radius: calc(0.75rem - 1px);
-  }
-  .fz-prose tr:first-child > th:last-child,
-  .fz-prose tr:first-child > td:last-child {
-    border-top-right-radius: calc(0.75rem - 1px);
-  }
-  .fz-prose tr:last-child > th:first-child,
-  .fz-prose tr:last-child > td:first-child {
-    border-bottom-left-radius: calc(0.75rem - 1px);
-  }
-  .fz-prose tr:last-child > th:last-child,
-  .fz-prose tr:last-child > td:last-child {
-    border-bottom-right-radius: calc(0.75rem - 1px);
-  }
-  .fz-prose th {
-    color: var(--message-heading);
-    font-weight: 600;
-    background-color: color-mix(
-      in oklch,
-      var(--message-pre-bg) 72%,
-      var(--background)
-    );
-  }
+	.fz-prose table {
+		width: auto;
+		border-collapse: separate;
+		border-spacing: 0;
+		margin: 0.8em 0;
+		font-size: 0.92em;
+		border: 1px solid var(--message-rule);
+		border-radius: 0.75rem;
+	}
+	.fz-prose th,
+	.fz-prose td {
+		border-right: 1px solid var(--message-rule);
+		border-bottom: 1px solid var(--message-rule);
+		padding: 0.4em 0.7em;
+		text-align: left;
+	}
+	.fz-prose tr > th:last-child,
+	.fz-prose tr > td:last-child {
+		border-right: 0;
+	}
+	.fz-prose tr:last-child > th,
+	.fz-prose tr:last-child > td {
+		border-bottom: 0;
+	}
+	.fz-prose tr:first-child > th:first-child,
+	.fz-prose tr:first-child > td:first-child {
+		border-top-left-radius: calc(0.75rem - 1px);
+	}
+	.fz-prose tr:first-child > th:last-child,
+	.fz-prose tr:first-child > td:last-child {
+		border-top-right-radius: calc(0.75rem - 1px);
+	}
+	.fz-prose tr:last-child > th:first-child,
+	.fz-prose tr:last-child > td:first-child {
+		border-bottom-left-radius: calc(0.75rem - 1px);
+	}
+	.fz-prose tr:last-child > th:last-child,
+	.fz-prose tr:last-child > td:last-child {
+		border-bottom-right-radius: calc(0.75rem - 1px);
+	}
+	.fz-prose th {
+		color: var(--message-heading);
+		font-weight: 600;
+		background-color: color-mix(
+			in oklch,
+			var(--message-pre-bg) 72%,
+			var(--background)
+		);
+	}
 }
 
 /* Composer atomic chips. Filled tag that visually replaces the underlying
    token (e.g. `@apps/foo.ts`) with an icon + label. Sized to sit on the
    prose baseline without disturbing line-height. */
 @layer components {
-  .fz-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.12rem 0.5rem 0.12rem 0.18rem;
-    margin: 0 0.15rem;
-    border: 1px solid color-mix(in srgb, var(--border), transparent 55%);
-    border-radius: 0.45rem;
-    background-color: var(--chip-bg);
-    box-shadow: none;
-    color: var(--foreground);
-    font-size: 0.85em;
-    line-height: 1.1;
-    /* Center the chip against the surrounding text line instead of hanging
+	.fz-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.12rem 0.5rem 0.12rem 0.18rem;
+		margin: 0 0.15rem;
+		border: 1px solid color-mix(in srgb, var(--border), transparent 55%);
+		border-radius: 0.45rem;
+		background-color: var(--chip-bg);
+		box-shadow: none;
+		color: var(--foreground);
+		font-size: 0.85em;
+		line-height: 1.1;
+		/* Center the chip against the surrounding text line instead of hanging
        below the baseline — keeps chips and typed text on one visual line. */
-    vertical-align: middle;
-    transform: translateY(-0.06em);
-    user-select: none;
-    white-space: nowrap;
-  }
-  .fz-chip-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.4em;
-    height: 1.4em;
-    border-radius: 0.25rem;
-    background-color: color-mix(
-      in oklch,
-      var(--chip-bg) 60%,
-      var(--foreground) 6%
-    );
-    flex-shrink: 0;
-  }
-  .fz-chip-iconimg {
-    width: 1em;
-    height: 1em;
-    object-fit: contain;
-  }
-  .fz-chip-thumb {
-    width: 1.4em;
-    height: 1.4em;
-    object-fit: cover;
-    border-radius: 0.25rem;
-  }
-  .fz-chip-divider {
-    display: none;
-  }
-  .fz-chip-label {
-    color: var(--foreground);
-  }
-  .fz-chip[data-kind="file"] {
-    cursor: pointer;
-  }
-  .fz-chip[data-kind="file"]:hover,
-  .fz-chip[data-kind="image"]:hover {
-    background-color: color-mix(
-      in oklch,
-      var(--chip-bg) 80%,
-      var(--foreground) 4%
-    );
-    box-shadow: none;
-  }
-  .dark .fz-chip {
-    box-shadow:
-      0 1px 0 color-mix(in oklch, white 4%, transparent) inset,
-      0 1px 2px color-mix(in oklch, black 22%, transparent);
-  }
-  .dark .fz-chip[data-kind="file"]:hover,
-  .dark .fz-chip[data-kind="image"]:hover {
-    box-shadow:
-      0 1px 0 color-mix(in oklch, white 6%, transparent) inset,
-      0 2px 5px color-mix(in oklch, black 24%, transparent);
-  }
-  /* Image-thumb chips: thumbnail fills the icon slot with no inner bg. */
-  .fz-chip[data-kind="image"] .fz-chip-icon:has(.fz-chip-thumb) {
-    background-color: transparent;
-  }
+		vertical-align: middle;
+		transform: translateY(-0.06em);
+		user-select: none;
+		white-space: nowrap;
+	}
+	.fz-chip-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.4em;
+		height: 1.4em;
+		border-radius: 0.25rem;
+		background-color: color-mix(
+			in oklch,
+			var(--chip-bg) 60%,
+			var(--foreground) 6%
+		);
+		flex-shrink: 0;
+	}
+	.fz-chip-iconimg {
+		width: 1em;
+		height: 1em;
+		object-fit: contain;
+	}
+	.fz-chip-thumb {
+		width: 1.4em;
+		height: 1.4em;
+		object-fit: cover;
+		border-radius: 0.25rem;
+	}
+	.fz-chip-divider {
+		display: none;
+	}
+	.fz-chip-label {
+		color: var(--foreground);
+	}
+	.fz-chip[data-kind="file"] {
+		cursor: pointer;
+	}
+	.fz-chip[data-kind="file"]:hover,
+	.fz-chip[data-kind="image"]:hover {
+		background-color: color-mix(
+			in oklch,
+			var(--chip-bg) 80%,
+			var(--foreground) 4%
+		);
+		box-shadow: none;
+	}
+	.dark .fz-chip {
+		box-shadow:
+			0 1px 0 color-mix(in oklch, white 4%, transparent) inset,
+			0 1px 2px color-mix(in oklch, black 22%, transparent);
+	}
+	.dark .fz-chip[data-kind="file"]:hover,
+	.dark .fz-chip[data-kind="image"]:hover {
+		box-shadow:
+			0 1px 0 color-mix(in oklch, white 6%, transparent) inset,
+			0 2px 5px color-mix(in oklch, black 24%, transparent);
+	}
+	/* Image-thumb chips: thumbnail fills the icon slot with no inner bg. */
+	.fz-chip[data-kind="image"] .fz-chip-icon:has(.fz-chip-thumb) {
+		background-color: transparent;
+	}
 }
 
 /* ============================================================
@@ -1061,250 +1151,251 @@ body,
 /* Lime glow utilities. All alpha layers derived from --lime via color-mix
    so re-toning the accent (in .dark { --lime: … }) propagates here. */
 @layer components {
-  .neon-lime {
-    color: var(--lime);
-    text-shadow: none;
-  }
+	.neon-lime {
+		color: var(--lime);
+		text-shadow: none;
+	}
 
-  .shadow-lime-glow {
-    box-shadow: 0 0 0 1px color-mix(in oklch, var(--lime) 24%, transparent);
-  }
+	.shadow-lime-glow {
+		box-shadow: 0 0 0 1px color-mix(in oklch, var(--lime) 24%, transparent);
+	}
 
-  .shadow-lime-glow-strong {
-    box-shadow: 0 0 0 1px color-mix(in oklch, var(--lime) 32%, transparent);
-  }
+	.shadow-lime-glow-strong {
+		box-shadow: 0 0 0 1px color-mix(in oklch, var(--lime) 32%, transparent);
+	}
 
-  /* Overlay elevation classes — raw box-shadow so they work in light mode
+	/* Overlay elevation classes — raw box-shadow so they work in light mode
      despite the --tw-shadow kill in @layer base. */
-  .shadow-overlay {
-    box-shadow: var(--shadow-overlay);
-  }
-  .shadow-overlay-sm {
-    box-shadow: var(--shadow-overlay-sm);
-  }
-  .shadow-overlay-lg {
-    box-shadow: var(--shadow-overlay-lg);
-  }
+	.shadow-overlay {
+		box-shadow: var(--shadow-overlay);
+	}
+	.shadow-overlay-sm {
+		box-shadow: var(--shadow-overlay-sm);
+	}
+	.shadow-overlay-lg {
+		box-shadow: var(--shadow-overlay-lg);
+	}
 
-  /* Glass surface for anchored popups (menus, popovers, selects).
+	/* Glass surface for anchored popups (menus, popovers, selects).
      Dark: translucent popover + blur + dual ring (inner white highlight,
      outer black seam) + elevation, all in one box-shadow stack.
      Light: glass reads muddy, so it degrades to an opaque white panel whose
      edge comes from the 1px ring baked into --shadow-overlay. */
-  .bg-glass {
-    background-color: var(--popover);
-    color: var(--popover-foreground);
-  }
-  .dark .bg-glass {
-    background-color: color-mix(in oklab, var(--popover) 70%, transparent);
-    backdrop-filter: blur(14px) saturate(1.1);
-  }
-  /* Composer surface: subtler glass than menus — mostly opaque so typing
+	.bg-glass {
+		background-color: var(--popover);
+		color: var(--popover-foreground);
+	}
+	.dark .bg-glass {
+		background-color: color-mix(in oklab, var(--popover) 70%, transparent);
+		backdrop-filter: blur(14px) saturate(1.1);
+	}
+	/* Composer surface: subtler glass than menus — mostly opaque so typing
      stays legible, but timeline text scrolling underneath shows through
      faintly. */
-  /* The Frame is the ONLY painted layer of the composer (the inner Card is
+	/* The Frame is the ONLY painted layer of the composer (the inner Card is
      bg-transparent) — stacking translucent layers just re-opacifies the
      whole thing and defeats the glass. The tint lives on a ::before overlay
      so no bg-* utility on the element can override it (utilities layer
      always beats components layer; pair with bg-transparent at call site). */
-  .composer-glass {
-    position: relative;
-    backdrop-filter: blur(20px) saturate(1.05);
-  }
-  .composer-glass::before {
-    content: "";
-    pointer-events: none;
-    position: absolute;
-    inset: 0;
-    /* Below ALL children (footer buttons included) — backdrop-filter gives
+	.composer-glass {
+		position: relative;
+		backdrop-filter: blur(20px) saturate(1.05);
+	}
+	.composer-glass::before {
+		content: "";
+		pointer-events: none;
+		position: absolute;
+		inset: 0;
+		/* Below ALL children (footer buttons included) — backdrop-filter gives
        the Frame its own stacking context, so -1 stays inside it. */
-    z-index: -1;
-    border-radius: inherit;
-    background-color: color-mix(in oklab, var(--secondary) 80%, transparent);
-  }
-  .dark .composer-glass::before {
-    background-color: color-mix(in oklab, var(--secondary) 58%, transparent);
-  }
+		z-index: -1;
+		border-radius: inherit;
+		background-color: color-mix(in oklab, var(--secondary) 80%, transparent);
+	}
+	.dark .composer-glass::before {
+		background-color: color-mix(in oklab, var(--secondary) 58%, transparent);
+	}
 
-  .border-glass {
-    box-shadow: var(--shadow-overlay);
-  }
-  .dark .border-glass {
-    box-shadow:
-      inset 0 0 0 1px hsl(0 0% 100% / 0.1),
-      0 0 0 0.5px hsl(0 0% 0% / 0.8),
-      var(--shadow-overlay);
-  }
+	.border-glass {
+		box-shadow: var(--shadow-overlay);
+	}
+	.dark .border-glass {
+		box-shadow:
+			inset 0 0 0 1px hsl(0 0% 100% / 0.1),
+			0 0 0 0.5px hsl(0 0% 0% / 0.8),
+			var(--shadow-overlay);
+	}
 
-  /* Embodied primary button */
-  .btn-lime-embodied {
-    transition:
-      box-shadow 120ms cubic-bezier(0.23, 1, 0.32, 1),
-      transform 80ms cubic-bezier(0.23, 1, 0.32, 1),
-      background-color 120ms ease;
-  }
-  .btn-lime-embodied:hover:not(:disabled):not([data-loading]) {
-    box-shadow: var(--tw-shadow, 0 0 #0000);
-    transform: translateY(-0.5px);
-  }
-  .btn-lime-embodied:active:not(:disabled):not([data-loading]),
-  .btn-lime-embodied[data-pressed]:not(:disabled):not([data-loading]) {
-    transform: translateY(0.5px) scale(0.985);
-    box-shadow: var(--tw-shadow, 0 0 #0000);
-  }
+	/* Embodied primary button */
+	.btn-lime-embodied {
+		transition:
+			box-shadow 120ms cubic-bezier(0.23, 1, 0.32, 1),
+			transform 80ms cubic-bezier(0.23, 1, 0.32, 1),
+			background-color 120ms ease;
+	}
+	.btn-lime-embodied:hover:not(:disabled):not([data-loading]) {
+		box-shadow: var(--tw-shadow, 0 0 #0000);
+		transform: translateY(-0.5px);
+	}
+	.btn-lime-embodied:active:not(:disabled):not([data-loading]),
+	.btn-lime-embodied[data-pressed]:not(:disabled):not([data-loading]) {
+		transform: translateY(0.5px) scale(0.985);
+		box-shadow: var(--tw-shadow, 0 0 #0000);
+	}
 
-  /* Framed card polish — ensure inner FramePanels get the full layered
+	/* Framed card polish — ensure inner FramePanels get the full layered
      bevel treatment when nested inside the main shell Frames. */
-  [data-slot="frame"] [data-slot="card"] {
-    box-shadow: var(--tw-shadow, 0 0 #0000);
-  }
+	[data-slot="frame"] [data-slot="card"] {
+		box-shadow: var(--tw-shadow, 0 0 #0000);
+	}
 
-  /* Tinted glass surfaces (PR card states, status buttons). Reads --tone
+	/* Tinted glass surfaces (PR card states, status buttons). Reads --tone
      from a per-instance CSS var, e.g.
        <div class="glass-tone" style={{ "--tone": "var(--accent-blue)" }}>
      The bg + inset highlight + text color all derive from one var so we
      never duplicate per-tone classes. */
-  .glass-tone {
-    background-color: color-mix(in oklch, var(--tone) 15%, transparent);
-    /* Light mode: bias toward the near-black foreground so tinted labels
+	.glass-tone {
+		background-color: color-mix(in oklch, var(--tone) 15%, transparent);
+		/* Light mode: bias toward the near-black foreground so tinted labels
        stay crisp on pale tinted fills instead of pastel-on-pastel. */
-    color: color-mix(in oklch, var(--tone) 48%, var(--foreground));
-    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--tone) 22%, transparent);
-    backdrop-filter: blur(12px);
-  }
-  .glass-tone:hover:not(:disabled) {
-    background-color: color-mix(in oklch, var(--tone) 20%, transparent);
-  }
-  .glass-tone:active:not(:disabled) {
-    background-color: color-mix(in oklch, var(--tone) 26%, transparent);
-  }
+		color: color-mix(in oklch, var(--tone) 48%, var(--foreground));
+		box-shadow: inset 0 0 0 1px
+			color-mix(in oklch, var(--tone) 22%, transparent);
+		backdrop-filter: blur(12px);
+	}
+	.glass-tone:hover:not(:disabled) {
+		background-color: color-mix(in oklch, var(--tone) 20%, transparent);
+	}
+	.glass-tone:active:not(:disabled) {
+		background-color: color-mix(in oklch, var(--tone) 26%, transparent);
+	}
 
-  /* Untinted glass — same shape, neutral palette. Used for secondary actions. */
-  .glass-neutral {
-    background-color: var(--color-neutral-primary-reverted-5);
-    color: var(--foreground);
-    box-shadow: none;
-    backdrop-filter: blur(12px);
-  }
-  .glass-neutral:hover:not(:disabled) {
-    background-color: var(--color-neutral-primary-reverted-20);
-  }
-  .glass-neutral:active:not(:disabled) {
-    background-color: rgba(255, 255, 255, 0.16);
-  }
+	/* Untinted glass — same shape, neutral palette. Used for secondary actions. */
+	.glass-neutral {
+		background-color: var(--color-neutral-primary-reverted-5);
+		color: var(--foreground);
+		box-shadow: none;
+		backdrop-filter: blur(12px);
+	}
+	.glass-neutral:hover:not(:disabled) {
+		background-color: var(--color-neutral-primary-reverted-20);
+	}
+	.glass-neutral:active:not(:disabled) {
+		background-color: rgba(255, 255, 255, 0.16);
+	}
 
-  .dark .neon-lime {
-    text-shadow:
-      0 0 4px color-mix(in oklch, var(--lime) 25%, transparent),
-      0 0 12px color-mix(in oklch, var(--lime) 15%, transparent);
-  }
+	.dark .neon-lime {
+		text-shadow:
+			0 0 4px color-mix(in oklch, var(--lime) 25%, transparent),
+			0 0 12px color-mix(in oklch, var(--lime) 15%, transparent);
+	}
 
-  .dark .shadow-lime-glow {
-    box-shadow:
-      0 0 0 1px color-mix(in oklch, var(--lime) 20%, transparent),
-      0 0 10px color-mix(in oklch, var(--lime) 25%, transparent),
-      0 0 24px color-mix(in oklch, var(--lime) 15%, transparent);
-  }
+	.dark .shadow-lime-glow {
+		box-shadow:
+			0 0 0 1px color-mix(in oklch, var(--lime) 20%, transparent),
+			0 0 10px color-mix(in oklch, var(--lime) 25%, transparent),
+			0 0 24px color-mix(in oklch, var(--lime) 15%, transparent);
+	}
 
-  .dark .shadow-lime-glow-strong {
-    box-shadow:
-      0 0 0 1px color-mix(in oklch, var(--lime) 32%, transparent),
-      0 0 14px color-mix(in oklch, var(--lime) 36%, transparent),
-      0 0 32px color-mix(in oklch, var(--lime) 24%, transparent);
-  }
+	.dark .shadow-lime-glow-strong {
+		box-shadow:
+			0 0 0 1px color-mix(in oklch, var(--lime) 32%, transparent),
+			0 0 14px color-mix(in oklch, var(--lime) 36%, transparent),
+			0 0 32px color-mix(in oklch, var(--lime) 24%, transparent);
+	}
 
-  .dark .btn-lime-embodied:hover:not(:disabled):not([data-loading]) {
-    box-shadow:
-      0 0 0 1px color-mix(in oklch, var(--lime) 25%, transparent),
-      0 0 12px color-mix(in oklch, var(--lime) 32%, transparent),
-      var(--tw-shadow, 0 0 #0000);
-  }
+	.dark .btn-lime-embodied:hover:not(:disabled):not([data-loading]) {
+		box-shadow:
+			0 0 0 1px color-mix(in oklch, var(--lime) 25%, transparent),
+			0 0 12px color-mix(in oklch, var(--lime) 32%, transparent),
+			var(--tw-shadow, 0 0 #0000);
+	}
 
-  .dark .btn-lime-embodied:active:not(:disabled):not([data-loading]),
-  .dark .btn-lime-embodied[data-pressed]:not(:disabled):not([data-loading]) {
-    box-shadow:
-      0 0 0 1px color-mix(in oklch, var(--lime) 15%, transparent),
-      0 0 6px color-mix(in oklch, var(--lime) 20%, transparent),
-      var(--tw-shadow, 0 0 #0000);
-  }
+	.dark .btn-lime-embodied:active:not(:disabled):not([data-loading]),
+	.dark .btn-lime-embodied[data-pressed]:not(:disabled):not([data-loading]) {
+		box-shadow:
+			0 0 0 1px color-mix(in oklch, var(--lime) 15%, transparent),
+			0 0 6px color-mix(in oklch, var(--lime) 20%, transparent),
+			var(--tw-shadow, 0 0 #0000);
+	}
 
-  .dark [data-slot="frame"] [data-slot="card"] {
-    box-shadow:
-      0 1px 0 oklch(1 0 0 / 0.035) inset,
-      0 -1px 0 oklch(0 0 0 / 0.25) inset,
-      var(--tw-shadow, 0 0 #0000);
-  }
+	.dark [data-slot="frame"] [data-slot="card"] {
+		box-shadow:
+			0 1px 0 oklch(1 0 0 / 0.035) inset,
+			0 -1px 0 oklch(0 0 0 / 0.25) inset,
+			var(--tw-shadow, 0 0 #0000);
+	}
 
-  .dark .glass-tone {
-    color: color-mix(in oklch, var(--tone) 88%, white);
-    box-shadow:
-      0 2px 1.5px -0.5px rgba(0, 0, 0, 0.04),
-      inset 0 1px 0 0 color-mix(in oklch, var(--tone) 24%, transparent),
-      inset 0 2px 3px 0 color-mix(in oklch, var(--tone) 14%, transparent);
-  }
+	.dark .glass-tone {
+		color: color-mix(in oklch, var(--tone) 88%, white);
+		box-shadow:
+			0 2px 1.5px -0.5px rgba(0, 0, 0, 0.04),
+			inset 0 1px 0 0 color-mix(in oklch, var(--tone) 24%, transparent),
+			inset 0 2px 3px 0 color-mix(in oklch, var(--tone) 14%, transparent);
+	}
 
-  .dark .glass-neutral {
-    box-shadow:
-      0 2px 1.5px -0.5px rgba(0, 0, 0, 0.03),
-      inset 0 2px 3px 0 rgba(255, 255, 255, 0.03);
-  }
+	.dark .glass-neutral {
+		box-shadow:
+			0 2px 1.5px -0.5px rgba(0, 0, 0, 0.03),
+			inset 0 2px 3px 0 rgba(255, 255, 255, 0.03);
+	}
 }
 
 /* Lime focus ring override for inputs/selects when inside dark framed surfaces */
 @layer base {
-  .dark .focus-lime-ring:focus-visible,
-  .dark [data-slot="input-control"]:has(:focus-visible) {
-    --ring: oklch(0.82 0.17 102 / 0.55);
-  }
+	.dark .focus-lime-ring:focus-visible,
+	.dark [data-slot="input-control"]:has(:focus-visible) {
+		--ring: oklch(0.82 0.17 102 / 0.55);
+	}
 }
 
 /* Shiki output container — line numbers gutter + padding + font.
    Shiki emits `<pre class="shiki ..."><code><span class="line" data-line>…`. */
 @layer components {
-  .code-block-shiki pre {
-    margin: 0;
-    padding: 6px 0;
-    /* CodeBlock draws its own frame; kill the .fz-prose pre card styling so
+	.code-block-shiki pre {
+		margin: 0;
+		padding: 6px 0;
+		/* CodeBlock draws its own frame; kill the .fz-prose pre card styling so
        fenced blocks don't render as a card inside a card. */
-    border: 0;
-    border-radius: 0;
-    background: transparent !important;
-    color: var(--message-text);
-    font-family: var(
-      --font-mono,
-      ui-monospace,
-      SFMono-Regular,
-      Menlo,
-      monospace
-    );
-    font-size: 12px;
-    line-height: 1.3;
-  }
-  .code-block-shiki code {
-    display: block;
-    width: max-content;
-    min-width: 100%;
-  }
-  .code-block-shiki .line {
-    display: block;
-    min-height: 1.3em;
-    padding: 0 10px;
-  }
-  /* Scrollbar polish — match xterm-viewport style. */
-  .code-block-scroll::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  .code-block-scroll::-webkit-scrollbar-thumb {
-    background: transparent;
-    border-radius: 999px;
-  }
-  .code-block-scroll:hover::-webkit-scrollbar-thumb,
-  .code-block-scroll:focus::-webkit-scrollbar-thumb {
-    background: var(--bg-overlay);
-  }
-  .code-block-scroll::-webkit-scrollbar-track,
-  .code-block-scroll::-webkit-scrollbar-corner {
-    background: transparent;
-  }
+		border: 0;
+		border-radius: 0;
+		background: transparent !important;
+		color: var(--message-text);
+		font-family: var(
+			--font-mono,
+			ui-monospace,
+			SFMono-Regular,
+			Menlo,
+			monospace
+		);
+		font-size: 12px;
+		line-height: 1.3;
+	}
+	.code-block-shiki code {
+		display: block;
+		width: max-content;
+		min-width: 100%;
+	}
+	.code-block-shiki .line {
+		display: block;
+		min-height: 1.3em;
+		padding: 0 10px;
+	}
+	/* Scrollbar polish — match xterm-viewport style. */
+	.code-block-scroll::-webkit-scrollbar {
+		width: 6px;
+		height: 6px;
+	}
+	.code-block-scroll::-webkit-scrollbar-thumb {
+		background: transparent;
+		border-radius: 999px;
+	}
+	.code-block-scroll:hover::-webkit-scrollbar-thumb,
+	.code-block-scroll:focus::-webkit-scrollbar-thumb {
+		background: var(--bg-overlay);
+	}
+	.code-block-scroll::-webkit-scrollbar-track,
+	.code-block-scroll::-webkit-scrollbar-corner {
+		background: transparent;
+	}
 }

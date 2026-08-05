@@ -1,5 +1,13 @@
 import { Effect } from "effect";
-import { lazy, Suspense, useEffect, useLayoutEffect, useState } from "react";
+import {
+	lazy,
+	type RefObject,
+	Suspense,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import {
 	Group,
 	Panel,
@@ -164,19 +172,35 @@ const UsageDashboard = lazy(() =>
 );
 
 /**
- * Sidebars snap to their requested state. These controls are used frequently;
- * avoiding a resize loop keeps navigation responsive under stream pressure.
+ * Animate only programmatic open/close changes. Drag resizing remains direct,
+ * and the browser handles the short flex transition outside React's render loop.
  */
 function usePanelCollapse(
 	panelRef: ReturnType<typeof usePanelRef>,
+	elementRef: RefObject<HTMLDivElement | null>,
 	open: boolean,
 ) {
 	useEffect(() => {
 		const panel = panelRef.current;
 		if (panel === null) return;
-		if (open && panel.isCollapsed()) panel.expand();
-		if (!open && !panel.isCollapsed()) panel.collapse();
-	}, [panelRef, open]);
+		const element = elementRef.current;
+		const shouldChange = open ? panel.isCollapsed() : !panel.isCollapsed();
+		if (!shouldChange) return;
+
+		element?.classList.add("fz-sidebar-panel-motion");
+		const frame = window.requestAnimationFrame(() => {
+			if (open) panel.expand();
+			else panel.collapse();
+		});
+		const timeout = window.setTimeout(() => {
+			element?.classList.remove("fz-sidebar-panel-motion");
+		}, 200);
+		return () => {
+			window.cancelAnimationFrame(frame);
+			window.clearTimeout(timeout);
+			element?.classList.remove("fz-sidebar-panel-motion");
+		};
+	}, [elementRef, panelRef, open]);
 }
 
 function SurfaceFallback() {
@@ -481,6 +505,7 @@ function MainShell() {
 	// open/close via the library's imperative resize() (see the hook). v4 has no
 	// `onCollapse` prop — we peek the imperative handle through `panelRef`.
 	const leftPanelRef = usePanelRef();
+	const leftPanelElementRef = useRef<HTMLDivElement>(null);
 	const rightPanelRef = usePanelRef();
 
 	// The composer floats over the timeline (glass) — measure it so the list
@@ -499,7 +524,7 @@ function MainShell() {
 		setComposerInset(composerNode.offsetHeight);
 		return () => ro.disconnect();
 	}, [composerNode]);
-	usePanelCollapse(leftPanelRef, leftSidebarOpen);
+	usePanelCollapse(leftPanelRef, leftPanelElementRef, leftSidebarOpen);
 	useLayoutEffect(() => {
 		const panel = rightPanelRef.current;
 		if (panel === null) return;
@@ -522,15 +547,16 @@ function MainShell() {
 			>
 				<Panel
 					id="projects"
-					defaultSize="20%"
+					defaultSize="232px"
 					// Keep project and chat labels usable when the pane is open. A
 					// collapsed pane may still rest at 0; stale near-zero expanded
 					// widths from persisted layouts are clamped to this minimum.
-					minSize="280px"
-					maxSize="40%"
+					minSize="200px"
+					maxSize="300px"
 					collapsible
 					collapsedSize="0%"
 					panelRef={leftPanelRef}
+					elementRef={leftPanelElementRef}
 					onResize={(size) => {
 						const open = size.asPercentage > 0;
 						if (open !== leftSidebarOpen) setLeftSidebarOpen(open);
@@ -579,7 +605,7 @@ function MainShell() {
 								// All that progress is surfaced inline by `WorktreeSetupCard`
 								// at the top of the timeline, with the composer pinned at the
 								// bottom (no full-screen takeover).
-								<div className="chat-session-layout flex min-h-0 min-w-0 flex-1">
+								<div className="chat-session-layout relative flex min-h-0 min-w-0 flex-1">
 									<div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
 										<Suspense fallback={<SurfaceFallback />}>
 											<ChatView
@@ -597,7 +623,7 @@ function MainShell() {
 											/>
 											<div
 												ref={setComposerNode}
-												className="pointer-events-auto mx-auto w-full max-w-[var(--chat-reading-column)]"
+												className="pointer-events-auto mx-auto w-full max-w-[var(--chat-reading-column)] pt-1"
 											>
 												<Suspense fallback={null}>
 													<CliUpgradeBanner
@@ -627,25 +653,17 @@ function MainShell() {
 									</div>
 									{environmentSummaryAvailable ? (
 										<div
-											className={`shrink-0 overflow-hidden transition-[width,opacity] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
+											className={`pointer-events-none absolute right-2 top-2 z-20 max-h-[calc(100%-1rem)] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
 												showEnvironmentSummary
-													? "w-[18.75rem] opacity-100"
-													: "w-0 opacity-0"
+													? "translate-x-0 opacity-100"
+													: "translate-x-2 opacity-0"
 											}`}
 											aria-hidden={!showEnvironmentSummary}
 											inert={!showEnvironmentSummary}
 										>
-											<div
-												className={`w-[18.75rem] transition-transform duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
-													showEnvironmentSummary
-														? "translate-x-0"
-														: "translate-x-3"
-												}`}
-											>
-												<Suspense fallback={null}>
-													<EnvironmentSummary />
-												</Suspense>
-											</div>
+											<Suspense fallback={null}>
+												<EnvironmentSummary />
+											</Suspense>
 										</div>
 									) : null}
 								</div>

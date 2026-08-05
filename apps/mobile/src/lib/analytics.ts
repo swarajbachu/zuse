@@ -12,10 +12,9 @@ import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
 import { getCalendars } from "expo-localization";
 import * as SecureStore from "expo-secure-store";
-import PostHog, { PostHogPersistedProperty } from "posthog-react-native";
+import PostHog from "posthog-react-native";
 import { AppState, Platform } from "react-native";
 
-const ENABLED_KEY = "zuse.mobile.analytics.enabled.v1";
 const ANONYMOUS_ID_KEY = "zuse.mobile.analytics.anonymous-id.v1";
 const IDENTITY_KIND_KEY = "zuse.mobile.analytics.identity-kind.v1";
 const PROJECT_KEY = (process.env.EXPO_PUBLIC_POSTHOG_KEY ?? "").trim();
@@ -151,9 +150,8 @@ const installActivityTracking = () => {
 
 export const hydrateMobileAnalytics = async (
 	accountId: string | null,
-): Promise<boolean> => {
-	const storedEnabled = await SecureStore.getItemAsync(ENABLED_KEY);
-	enabled = storedEnabled === null ? true : storedEnabled === "true";
+): Promise<void> => {
+	enabled = true;
 	const previousKind = await SecureStore.getItemAsync(IDENTITY_KIND_KEY);
 	if (accountId) {
 		distinctId = analyticsAccountId(accountId);
@@ -169,23 +167,6 @@ export const hydrateMobileAnalytics = async (
 	}
 	activityCleanup?.();
 	activityCleanup = installActivityTracking();
-	return enabled;
-};
-
-export const setMobileAnalyticsEnabled = async (
-	next: boolean,
-): Promise<void> => {
-	enabled = next;
-	await SecureStore.setItemAsync(ENABLED_KEY, String(next));
-	if (next) {
-		const instance = makeClient();
-		await instance?.optIn();
-	} else if (client) {
-		await client.optOut();
-		client.setPersistedProperty(PostHogPersistedProperty.Queue, null);
-		await client.shutdown(1_000);
-		client = null;
-	}
 };
 
 export const setMobileAnalyticsAccount = async (

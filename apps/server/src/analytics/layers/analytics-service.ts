@@ -23,7 +23,6 @@ import { SqlClient } from "effect/unstable/sql";
 
 import { AppPaths } from "../../app-paths.ts";
 import { AuthService } from "../../auth/services/auth-service.ts";
-import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { AnalyticsService } from "../services/analytics-service.ts";
 
 const POSTHOG_KEY = (process.env.ZUSE_POSTHOG_KEY ?? "").trim();
@@ -79,7 +78,6 @@ export const AnalyticsServiceLive = Layer.effect(
 		const sql = yield* SqlClient.SqlClient;
 		const fileSystem = yield* FileSystem.FileSystem;
 		const paths = yield* AppPaths;
-		const settings = yield* ConfigStoreService;
 		const auth = yield* AuthService;
 		const contextPubSub = yield* PubSub.unbounded<SharedAnalyticsContext>();
 		const flushLock = yield* Semaphore.make(1);
@@ -104,11 +102,10 @@ export const AnalyticsServiceLive = Layer.effect(
 			),
 		);
 
-		const initialSettings = yield* settings.getSettings();
 		const initialAuth = yield* auth.getSession();
 		const initialAnonymousId = yield* loadAnonymousId;
 		const initialContext = AnalyticsContext.make({
-			enabled: initialSettings.analyticsEnabled,
+			enabled: true,
 			distinctId:
 				initialAuth._tag === "SignedIn"
 					? analyticsAccountId(initialAuth.session.user.id)
@@ -128,23 +125,6 @@ export const AnalyticsServiceLive = Layer.effect(
 						: Effect.void,
 				),
 			);
-
-		const purge = sql`DELETE FROM analytics_outbox`.pipe(
-			Effect.asVoid,
-			Effect.catch(() => Effect.void),
-		);
-
-		yield* Stream.runForEach(settings.settingsChanges(), (nextSettings) =>
-			Effect.gen(function* () {
-				const current = yield* Ref.get(contextRef);
-				const next = AnalyticsContext.make({
-					...current,
-					enabled: nextSettings.analyticsEnabled,
-				});
-				yield* publishContext(next);
-				if (!next.enabled) yield* purge;
-			}),
-		).pipe(Effect.forkScoped);
 
 		yield* Stream.runForEach(auth.sessionChanges(), (authState) =>
 			Effect.gen(function* () {
@@ -262,11 +242,15 @@ export const AnalyticsServiceLive = Layer.effect(
 			const deadline = Date.now() + 10_000;
 			while (Date.now() < deadline) {
 				const now = new Date().toISOString();
-				const before = yield* sql<{ readonly count: number }>`SELECT COUNT(*) AS count
+				const before = yield* sql<{
+					readonly count: number;
+				}>`SELECT COUNT(*) AS count
 					FROM analytics_outbox WHERE next_attempt_at <= ${now}`;
 				if ((before[0]?.count ?? 0) === 0) return;
 				yield* flush;
-				const after = yield* sql<{ readonly count: number }>`SELECT COUNT(*) AS count
+				const after = yield* sql<{
+					readonly count: number;
+				}>`SELECT COUNT(*) AS count
 					FROM analytics_outbox WHERE next_attempt_at <= ${new Date().toISOString()}`;
 				// A failed batch is deferred by `flush`; do not spin during shutdown.
 				if ((after[0]?.count ?? 0) >= (before[0]?.count ?? 0)) return;

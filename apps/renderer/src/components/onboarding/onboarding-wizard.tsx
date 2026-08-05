@@ -115,13 +115,16 @@ export function OnboardingWizard() {
 			</div>
 
 			{/* Drag region so users can move the Electron window. */}
-			<div className="h-9 shrink-0 [-webkit-app-region:drag]" />
+			<div className="h-8 shrink-0 [-webkit-app-region:drag]" />
 
-			<div className="flex min-h-0 flex-1 items-center justify-center px-6 pb-12">
-				<div className="flex w-full max-w-xl flex-col gap-6">
+			<div className="flex min-h-0 flex-1 items-center justify-center px-5 pb-8">
+				<div className="flex w-full max-w-xl flex-col gap-4">
 					<StepIndicator stepIndex={stepIndex} />
 
-					<div className="min-h-[24rem] px-1 py-2">
+					<div
+						key={stepId}
+						className="compact-step-enter min-h-[20rem] px-1 py-1.5"
+					>
 						{stepId === "welcome" && <WelcomeStep />}
 						{stepId === "signin" && <SigninStep />}
 						{stepId === "maximize" && <MaximizeStep />}
@@ -141,7 +144,7 @@ export function OnboardingWizard() {
 								onClick={goBack}
 								disabled={isFirst}
 								className={cn(
-									"rounded-lg px-3 text-muted-foreground hover:text-foreground",
+									"px-2.5 text-muted-foreground hover:text-foreground",
 									isFirst && "invisible",
 								)}
 							>
@@ -155,7 +158,7 @@ export function OnboardingWizard() {
 										variant="ghost"
 										size="sm"
 										onClick={goNext}
-										className="rounded-lg px-3 text-muted-foreground hover:text-foreground"
+										className="px-2.5 text-muted-foreground hover:text-foreground"
 									>
 										Skip
 									</Button>
@@ -165,7 +168,7 @@ export function OnboardingWizard() {
 									size="default"
 									onClick={goNext}
 									disabled={!canAdvance}
-									className="rounded-lg px-5"
+									className="px-4"
 								>
 									{isFirst ? "Get started" : "Continue"}
 									<HugeiconsIcon icon={ArrowRight01Icon} />
@@ -181,7 +184,7 @@ export function OnboardingWizard() {
 
 function StepIndicator({ stepIndex }: { stepIndex: number }) {
 	return (
-		<div className="flex items-center justify-center gap-1.5">
+		<div className="flex items-center justify-center gap-1">
 			{STEPS.map((id, i) => {
 				const active = i === stepIndex;
 				const done = i < stepIndex;
@@ -189,10 +192,10 @@ function StepIndicator({ stepIndex }: { stepIndex: number }) {
 					<span
 						key={id}
 						className={cn(
-							"h-1 rounded-full transition-all duration-300",
-							active && "w-8 bg-foreground",
-							done && "w-4 bg-foreground/60",
-							!active && !done && "w-4 bg-foreground/15",
+							"h-0.5 rounded-full transition-[width,background-color] duration-180",
+							active && "w-6 bg-foreground",
+							done && "w-3 bg-foreground/60",
+							!active && !done && "w-3 bg-foreground/15",
 						)}
 					/>
 				);

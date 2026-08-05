@@ -20,7 +20,7 @@ import { ShimmerText } from "./ui/shimmer-text.tsx";
  */
 function TerminalPlaceholder({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-full w-full items-center justify-center bg-background text-sm text-muted-foreground">
+    <div className="flex h-full w-full items-center justify-center bg-background text-xs text-muted-foreground">
       {children}
     </div>
   );
@@ -120,7 +120,7 @@ export function PtyTerminal({
   return (
     <div
       ref={containerRef}
-      className="h-full w-full min-w-0 overflow-hidden bg-background px-2.5 py-2"
+      className="h-full w-full min-w-0 overflow-hidden bg-background px-2 py-1.5"
     />
   );
 }

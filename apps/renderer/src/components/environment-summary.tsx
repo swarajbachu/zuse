@@ -3,26 +3,29 @@ import {
 	Alert01Icon,
 	CheckListIcon,
 	Clock01Icon,
-	ComputerTerminal01Icon,
-	GitBranchIcon,
 	GitCompareIcon,
 	GitMergeIcon,
 	GitPullRequestIcon,
 	Loading02Icon,
 	Tick02Icon,
 } from "@hugeicons-pro/core-solid-rounded";
-import type { GitPrCheckRun, Message } from "@zuse/contracts";
+import type { GitBranchInfo, GitPrCheckRun, Message } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
-import { useMemo, useState } from "react";
+import { Effect } from "effect";
+import { ArrowLeftRight, Cloud, Laptop, MonitorSmartphone } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { deriveEnvironmentPrRows } from "../lib/branch-workflow.ts";
 import { displayPath } from "../lib/display-path.ts";
+import { formatError } from "../lib/format-error.ts";
 import { detachedSubagentGroups } from "../lib/group-messages.ts";
+import { getRpcClient } from "../lib/rpc-client.ts";
 import {
 	effectiveSessionRuntimeState,
 	isSessionTurnActive,
 } from "../lib/session-runtime-state.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
+import { gitDiffStatKey, useGitDiffStatStore } from "../store/git-diff-stat.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { useMessagesStore } from "../store/messages.ts";
 import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
@@ -33,10 +36,17 @@ import { useUiStore } from "../store/ui.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { SubagentAvatar } from "./subagent-identity.tsx";
 import {
+	BranchMenuButton,
 	FixActionsButton,
 	ResolveConflictsButton,
-	WorkflowActions,
 } from "./top-bar.tsx";
+import {
+	Menu,
+	MenuItem,
+	MenuPopup,
+	MenuSeparator,
+	MenuTrigger,
+} from "./ui/menu.tsx";
 import {
 	PreviewCard,
 	PreviewCardPopup,
@@ -44,8 +54,11 @@ import {
 } from "./ui/preview-card.tsx";
 
 const rowClass =
-	"group flex min-h-9 w-full min-w-0 items-center gap-2 rounded-lg px-2.5 text-left text-[13px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
+	"group flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-2.5 text-left text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
 const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
+
+const compactNumber = (value: number): string =>
+	new Intl.NumberFormat("en", { notation: "compact" }).format(value);
 
 const latestAssistantText = (
 	messages: ReadonlyArray<Message>,
@@ -66,6 +79,16 @@ export function EnvironmentSummary() {
 	const status = useGitStatusStore((s) =>
 		folderId ? (s.byKey[gitStatusKey(folderId, worktreeId)] ?? null) : null,
 	);
+	const diffStat = useGitDiffStatStore((s) =>
+		folderId ? (s.byKey[gitDiffStatKey(folderId, worktreeId)] ?? null) : null,
+	);
+	const hydrateDiffStat = useGitDiffStatStore((s) => s.hydrate);
+	const [branches, setBranches] = useState<ReadonlyArray<GitBranchInfo>>([]);
+	const [branchesLoading, setBranchesLoading] = useState(false);
+	const [branchError, setBranchError] = useState<string | null>(null);
+	useEffect(() => {
+		if (folderId !== null) void hydrateDiffStat(folderId, worktreeId);
+	}, [folderId, hydrateDiffStat, worktreeId]);
 	const pr = usePrStateStore((s) =>
 		folderId ? (s.byKey[prStateKey(folderId, worktreeId)] ?? null) : null,
 	);
@@ -126,14 +149,68 @@ export function EnvironmentSummary() {
 			) ?? null
 		);
 	});
+	const branchLabel = status?.branch ?? worktree?.branch ?? "Loading branch…";
+	const refreshBranches = async (): Promise<void> => {
+		if (folderId === null) return;
+		setBranchesLoading(true);
+		setBranchError(null);
+		try {
+			const client = await getRpcClient();
+			setBranches(
+				await Effect.runPromise(
+					client["git.branches"]({ folderId, worktreeId }),
+				),
+			);
+		} catch (error) {
+			setBranchError(formatError(error));
+		} finally {
+			setBranchesLoading(false);
+		}
+	};
+	useEffect(() => {
+		void refreshBranches();
+		// The active branch is the refresh boundary for this menu.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [branchLabel, folderId, worktreeId]);
+	const switchToBranch = async (branch: GitBranchInfo): Promise<void> => {
+		if (folderId === null || branch.current) return;
+		if (
+			(status?.dirtyFiles ?? 0) > 0 &&
+			!window.confirm(
+				`Switch branches with ${status?.dirtyFiles ?? 0} uncommitted changes? Git may refuse if they conflict.`,
+			)
+		)
+			return;
+		setBranchesLoading(true);
+		setBranchError(null);
+		try {
+			const client = await getRpcClient();
+			await Effect.runPromise(
+				client["git.switchBranch"]({
+					folderId,
+					worktreeId,
+					branch: branch.name,
+					remote: branch.remote,
+				}),
+			);
+			void useGitStatusStore.getState().refresh(folderId, worktreeId);
+			void usePrStateStore.getState().refresh(folderId, worktreeId);
+			void hydrateDiffStat(folderId, worktreeId);
+			await refreshBranches();
+		} catch (error) {
+			setBranchError(formatError(error));
+		} finally {
+			setBranchesLoading(false);
+		}
+	};
+	const openDevices = () => {
+		const ui = useUiStore.getState();
+		ui.setSettingsSection({ kind: "devices" });
+		ui.setView("settings");
+	};
 
 	if (ctx.status !== "ready") return null;
 
-	const checkoutLabel =
-		ctx.rootKind === "worktree"
-			? `Worktree ${worktree?.name ?? "preparing…"}`
-			: "Main checkout";
-	const branchLabel = status?.branch ?? worktree?.branch ?? "Loading branch…";
 	const changesLabel =
 		status === null
 			? "Changes"
@@ -202,9 +279,9 @@ export function EnvironmentSummary() {
 	return (
 		<aside
 			aria-label="Environment summary"
-			className="ml-3 mt-3 w-72 shrink-0 self-start rounded-3xl border border-border/70 bg-card/80 p-1.5 shadow-sm"
+			className="pointer-events-auto max-h-[calc(100dvh-7rem)] w-72 shrink-0 overflow-y-auto rounded-2xl border border-border/70 bg-card/95 p-1 shadow-overlay-sm backdrop-blur-xl"
 		>
-			<h2 className="px-2.5 pb-1 pt-1.5 text-xs font-medium text-muted-foreground">
+			<h2 className="px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">
 				Environment
 			</h2>
 			<button
@@ -214,49 +291,86 @@ export function EnvironmentSummary() {
 			>
 				<HugeiconsIcon icon={GitCompareIcon} className="size-4 shrink-0" />
 				<span className="min-w-0 flex-1 truncate">{changesLabel}</span>
-			</button>
-			<div className={rowClass} title={displayPath(ctx.rootPath)}>
-				<HugeiconsIcon
-					icon={ComputerTerminal01Icon}
-					className="size-4 shrink-0 text-muted-foreground"
-				/>
-				<span className="min-w-0 flex-1 truncate">{checkoutLabel}</span>
-			</div>
-			<div className={rowClass}>
-				<HugeiconsIcon
-					icon={GitBranchIcon}
-					className="size-4 shrink-0 text-muted-foreground"
-				/>
-				<span className="min-w-0 flex-1 truncate" title={branchLabel}>
-					{branchLabel}
-				</span>
-				{status !== null && (status.ahead > 0 || status.behind > 0) ? (
-					<span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
-						{status.ahead > 0 ? `↑${status.ahead}` : ""}
-						{status.behind > 0 ? ` ↓${status.behind}` : ""}
+				{diffStat !== null ? (
+					<span className="flex shrink-0 items-center gap-1 font-mono text-[11px] tabular-nums">
+						<span className="text-[var(--accent-green)]">
+							+{compactNumber(diffStat.additions)}
+						</span>
+						<span className="text-[var(--accent-red)]">
+							−{compactNumber(diffStat.deletions)}
+						</span>
 					</span>
 				) : null}
-			</div>
-			<div className={`${rowClass} justify-between`}>
-				<button
-					type="button"
-					className="flex min-h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
-					onClick={openPullRequest}
+			</button>
+			<Menu>
+				<MenuTrigger
+					className={`${rowClass} hover:bg-muted/60 data-[popup-open]:bg-muted/60`}
+					title={displayPath(ctx.rootPath)}
 				>
-					<HugeiconsIcon
-						icon={prStatus.icon}
-						className={`size-4 shrink-0 ${prStatus.className}`}
-						aria-label={prStatus.label}
-					/>
-					<span className="min-w-0 flex-1 truncate">{prLabel}</span>
-				</button>
-				<WorkflowActions
-					compact
-					includeRun={false}
-					includeHealthActions={false}
-					presentation="inline"
+					<Laptop className="size-4 shrink-0 text-muted-foreground" />
+					<span className="min-w-0 flex-1 truncate">Local</span>
+					<span className="size-1.5 rounded-full bg-[var(--accent-green)]" />
+				</MenuTrigger>
+				<MenuPopup
+					side="left"
+					align="start"
+					sideOffset={8}
+					className="min-w-64 p-1"
+				>
+					<div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
+						Run in
+					</div>
+					<MenuItem className="gap-2 px-2 py-1.5 text-xs">
+						<Laptop className="size-3.5" />
+						<span className="flex-1">This Mac</span>
+						<span className="text-[10px] text-[var(--accent-green)]">
+							Active
+						</span>
+					</MenuItem>
+					<MenuItem disabled className="gap-2 px-2 py-1.5 text-xs">
+						<Cloud className="size-3.5" />
+						<span className="flex-1">Cloud environment</span>
+						<span className="text-[10px]">Not connected</span>
+					</MenuItem>
+					<MenuSeparator />
+					<MenuItem onClick={openDevices} className="gap-2 px-2 py-1.5 text-xs">
+						<MonitorSmartphone className="size-3.5" />
+						<span className="flex-1">Connected devices</span>
+					</MenuItem>
+					<MenuItem onClick={openDevices} className="gap-2 px-2 py-1.5 text-xs">
+						<ArrowLeftRight className="size-3.5" />
+						<span className="flex-1">Worktree handoff</span>
+					</MenuItem>
+				</MenuPopup>
+			</Menu>
+			<BranchMenuButton
+				branchLabel={branchLabel}
+				branches={branches}
+				canRename={false}
+				className={`${rowClass} max-w-none justify-start hover:bg-muted/60 data-[popup-open]:bg-muted/60`}
+				popupSide="left"
+				dirtyFiles={status?.dirtyFiles ?? 0}
+				error={branchError}
+				loading={branchesLoading}
+				onOpen={() => void refreshBranches()}
+				onRename={() => {}}
+				onSwitch={(branch) => void switchToBranch(branch)}
+			/>
+			<button
+				type="button"
+				className={`${rowClass} justify-between hover:bg-muted/60`}
+				onClick={openPullRequest}
+			>
+				<HugeiconsIcon
+					icon={prStatus.icon}
+					className={`size-4 shrink-0 ${prStatus.className}`}
+					aria-label={prStatus.label}
 				/>
-			</div>
+				<span className="min-w-0 flex-1 truncate">{prLabel}</span>
+				<span className="shrink-0 text-[10px] text-muted-foreground">
+					{pr?.state === "none" ? "Create PR" : "Open"}
+				</span>
+			</button>
 			{prRows.checks !== null ? (
 				<div className={`${rowClass} justify-between`}>
 					<PreviewCard onOpenChange={hydrateChecks}>
@@ -264,11 +378,14 @@ export function EnvironmentSummary() {
 							render={
 								<button
 									type="button"
-									className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+									className="flex min-h-7 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
 									onClick={() => revealPanel("pr")}
 								>
 									<ChecksStatusIcon kind={prRows.checks.kind} />
 									<span className="min-w-0 flex-1 truncate">
+										GitHub Actions
+									</span>
+									<span className="shrink-0 text-[10px] text-muted-foreground">
 										{prRows.checks.label}
 									</span>
 								</button>
@@ -291,12 +408,14 @@ export function EnvironmentSummary() {
 						</PreviewCardPopup>
 					</PreviewCard>
 					{prRows.checks.canFix && folderId !== null ? (
-						<FixActionsButton
-							presentation="inline"
-							folderId={folderId}
-							worktreeId={worktreeId}
-							disabled={sessionId === null}
-						/>
+						<span className="pointer-events-none shrink-0 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 motion-reduce:transition-none">
+							<FixActionsButton
+								presentation="inline"
+								folderId={folderId}
+								worktreeId={worktreeId}
+								disabled={sessionId === null}
+							/>
+						</span>
 					) : null}
 				</div>
 			) : null}
@@ -304,7 +423,7 @@ export function EnvironmentSummary() {
 				<div className={`${rowClass} justify-between`}>
 					<button
 						type="button"
-						className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+						className="flex min-h-7 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
 						onClick={() => revealPanel("pr")}
 					>
 						<HugeiconsIcon
@@ -313,21 +432,26 @@ export function EnvironmentSummary() {
 						/>
 						<span className="min-w-0 flex-1 truncate">Merge conflicts</span>
 					</button>
-					<ResolveConflictsButton presentation="inline" />
+					<span className="pointer-events-none shrink-0 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 motion-reduce:transition-none">
+						<ResolveConflictsButton presentation="inline" />
+					</span>
 				</div>
 			) : null}
 			{planAvailable ? (
-				<button
-					type="button"
-					className={`${rowClass} hover:bg-muted/60`}
-					onClick={() => revealPanel("plan")}
-				>
-					<HugeiconsIcon
-						icon={CheckListIcon}
-						className="size-4 shrink-0 text-primary"
-					/>
-					<span className="min-w-0 flex-1 truncate">Plan</span>
-				</button>
+				<>
+					<div className="mx-2 my-1 border-border/60 border-t" />
+					<button
+						type="button"
+						className={`${rowClass} hover:bg-muted/60`}
+						onClick={() => revealPanel("plan")}
+					>
+						<HugeiconsIcon
+							icon={CheckListIcon}
+							className="size-4 shrink-0 text-primary"
+						/>
+						<span className="min-w-0 flex-1 truncate">Plan</span>
+					</button>
+				</>
 			) : null}
 			{subagents.length > 0 ? (
 				<section className="mx-2 mt-2 border-border/70 border-t px-0.5 pb-1 pt-3">

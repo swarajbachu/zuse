@@ -214,7 +214,7 @@ export function ChatTurnNavigator({
 			data-chat-turn-navigator
 			aria-hidden={hasSpace ? undefined : true}
 			className={cn(
-				"pointer-events-none absolute right-0 top-0 z-20",
+				"pointer-events-none absolute right-2 top-2 z-20",
 				!hasSpace && "invisible",
 			)}
 		>
@@ -249,24 +249,24 @@ export function ChatTurnNavigator({
 						openFromReaderIntent(true);
 					}}
 					className={cn(
-						"group/nav pointer-events-auto relative flex items-center justify-end bg-transparent",
-						coarsePointer ? "size-11" : "h-12 w-11",
+						"group/nav pointer-events-auto relative flex items-start justify-end bg-transparent",
+						coarsePointer ? "h-28 w-11" : "h-28 w-10",
 						"text-muted-foreground/50 outline-none transition-colors duration-150",
 						"hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
 					)}
 				>
 					<div
-						className="relative flex h-5 w-7 origin-right flex-col items-end justify-start gap-1 transition-transform duration-150 ease-out group-hover/nav:scale-x-[1.08] group-focus-visible/nav:scale-x-[1.08] motion-reduce:transition-none"
+						className="relative flex w-7 flex-col items-end justify-start gap-1"
 						aria-hidden
 					>
 						{railTurns.map((turn) => (
 							<span
 								key={turn.messageId}
 								className={cn(
-									"min-h-[1.25px] max-h-[3.5px] w-7 flex-1 origin-right rounded-full bg-current transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none",
+									"h-0.5 w-5 shrink-0 rounded-full transition-colors duration-150 motion-reduce:transition-none",
 									turn.messageId === activeMessageId
-										? "scale-x-100 scale-y-[1.2] opacity-100"
-										: "scale-x-[0.72] scale-y-100 opacity-60",
+										? "bg-primary"
+										: "bg-muted-foreground/35",
 								)}
 							/>
 						))}

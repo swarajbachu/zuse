@@ -33,8 +33,8 @@ export function JumpToLatestPill({
 				onClick={onClick}
 				aria-label="Jump to latest"
 				className={cn(
-					"pointer-events-auto relative inline-flex min-h-8 items-center gap-1.5 rounded-lg before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-['']",
-					"border border-border/60 bg-card px-3 py-1 text-xs text-muted-foreground shadow-overlay-sm",
+					"pointer-events-auto relative inline-flex min-h-6 items-center gap-1 rounded-md before:absolute before:-inset-y-1 before:inset-x-0 before:content-['']",
+					"border border-border/60 bg-card px-2 py-0.5 text-[10px] text-muted-foreground shadow-overlay-sm",
 					"transition-[background-color,border-color,color] duration-150 hover:border-border hover:bg-card hover:text-foreground motion-reduce:transition-none",
 					"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 				)}
@@ -45,7 +45,7 @@ export function JumpToLatestPill({
 						aria-hidden
 					/>
 				) : (
-					<HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5" />
+					<HugeiconsIcon icon={ArrowDown01Icon} className="size-3" />
 				)}
 				<span>Jump to latest</span>
 			</button>

@@ -450,13 +450,13 @@ export function ProjectsSidebar() {
 		>
 			<ComputerSwitcher />
 			<SidebarActions />
-			<div className="flex items-center justify-between px-3 py-2 text-xs text-muted-foreground">
+			<div className="flex items-center justify-between px-2.5 py-1.5 text-[11px] text-muted-foreground">
 				<span>Projects</span>
 				<ProjectAddMenu />
 			</div>
 			<SidebarErrorToasts />
 
-			<ul className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
+			<ul className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5">
 				{folders.length === 0 && !loading && (
 					<li className="px-3 py-4 text-center text-xs text-muted-foreground">
 						No projects yet. Click + to add one.
@@ -490,7 +490,7 @@ export function ProjectsSidebar() {
  */
 function SidebarActions() {
 	return (
-		<div className="flex flex-col gap-0.5 border-b border-sidebar-border/40 px-2 pb-2 pt-2">
+		<div className="flex flex-col gap-0.5 border-b border-sidebar-border/40 px-1.5 py-1.5">
 			<SidebarActionRow
 				icon={Edit01Icon}
 				label="New chat"
@@ -521,7 +521,7 @@ function SidebarActionRow({
 		<button
 			type="button"
 			onClick={onClick}
-			className="flex min-h-7 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+			className="flex min-h-6 w-full items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 		>
 			<HugeiconsIcon icon={icon} className="size-4 shrink-0" />
 			<span className="min-w-0 flex-1 truncate">{label}</span>
@@ -536,7 +536,7 @@ function SidebarActionRow({
 
 function SidebarFooter() {
 	return (
-		<div className="flex flex-col gap-0.5 border-t border-sidebar-border/40 px-2 py-1.5">
+		<div className="flex flex-col gap-0.5 border-t border-sidebar-border/40 px-1.5 py-1">
 			<SidebarAccount />
 		</div>
 	);
@@ -565,7 +565,7 @@ function SidebarAccount() {
 					render={
 						<button
 							type="button"
-							className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-[11px] text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+							className="flex min-h-7 w-full items-center gap-1.5 rounded-md px-2 text-[11px] text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
 						>
 							<HugeiconsIcon icon={UserCircleIcon} className="size-4" />
 							<span className="min-w-0 flex-1 truncate text-left">
@@ -799,7 +799,7 @@ function ProjectGroup({
 							onToggleExpanded();
 						}
 					}}
-					className="group flex cursor-pointer items-center gap-2 px-3 py-2.5 transition-colors hover:bg-sidebar-accent/30 rounded-md"
+					className="group flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent/30"
 				>
 					{/* Single 20px slot holds avatar (idle) and chevron (hover). Both
               live in the same grid cell so the row never reflows; opacity
@@ -839,7 +839,7 @@ function ProjectGroup({
 						/>
 					</div>
 					<span
-						className="min-w-0 flex-1 truncate text-sm"
+						className="min-w-0 flex-1 truncate text-[11px]"
 						title={
 							origin
 								? `${origin.owner}/${origin.repo} · ${displayPath(path)}`
@@ -1236,7 +1236,7 @@ function ChatRow({ chat }: { chat: Chat }) {
 						}
 					}}
 					className={cn(
-						"group flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-xs transition-colors",
+						"group flex min-h-6 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors",
 						isSelected && "bg-sidebar-accent text-sidebar-accent-foreground",
 						!isSelected &&
 							isArchived &&

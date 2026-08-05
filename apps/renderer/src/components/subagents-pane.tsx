@@ -53,21 +53,21 @@ export function SubagentsPane({
 			);
 		return (
 			<div className="flex min-h-0 flex-1 flex-col">
-				<div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/60 px-3">
+				<div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-border/60 px-2">
 					<button
 						type="button"
 						aria-label="Back to subagents"
 						onClick={() => selectSubagent(null)}
-						className="grid size-8 shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:outline focus-visible:outline-1"
+						className="grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:outline focus-visible:outline-1"
 					>
 						<HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
 					</button>
 					<SubagentAvatar name={selected.agentName} size="sm" />
-					<span className="min-w-0 flex-1 truncate text-sm font-medium">
+					<span className="min-w-0 flex-1 truncate text-xs font-medium">
 						{selected.agentName}
 					</span>
 				</div>
-				<div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+				<div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
 					<SubagentTranscript messages={selected.children} />
 					{selected.summary?.text && !summaryAlreadyInTranscript ? (
 						<MessageRow
@@ -86,7 +86,7 @@ export function SubagentsPane({
 	const active = groups.filter((group) => group.summary === null);
 	const done = groups.filter((group) => group.summary !== null);
 	return (
-		<div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+		<div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
 			<AgentSection title="Active" groups={active} onSelect={selectSubagent} />
 			<AgentSection
 				title={`Done · ${done.length}`}

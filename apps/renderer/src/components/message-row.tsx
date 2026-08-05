@@ -181,10 +181,7 @@ function MessageRowImpl({
 					text={message.content.text}
 					origin={message.content.origin}
 					goal={message.content.goal}
-					messageId={message.id}
-					sessionId={sessionId}
-					forkDestination={forkDestination}
-					sourceProjectId={sourceProjectId}
+					createdAt={message.createdAt}
 				/>
 			);
 		case "user_rich":
@@ -197,10 +194,7 @@ function MessageRowImpl({
 					annotations={message.content.annotations}
 					origin={message.content.origin}
 					goal={message.content.goal}
-					messageId={message.id}
-					sessionId={sessionId}
-					forkDestination={forkDestination}
-					sourceProjectId={sourceProjectId}
+					createdAt={message.createdAt}
 				/>
 			);
 		case "assistant":
@@ -471,10 +465,7 @@ function UserBubble({
 	annotations,
 	origin,
 	goal = false,
-	messageId,
-	sessionId,
-	forkDestination,
-	sourceProjectId,
+	createdAt,
 }: {
 	text: string;
 	attachments?: ReadonlyArray<AttachmentRef>;
@@ -483,10 +474,7 @@ function UserBubble({
 	annotations?: ReadonlyArray<ComposerAnnotation>;
 	origin?: MessageOrigin;
 	goal?: boolean;
-	messageId: Message["id"];
-	sessionId?: SessionId;
-	forkDestination?: ForkDestination;
-	sourceProjectId?: FolderId;
+	createdAt?: Date;
 }) {
 	const hasAnnotations = annotations !== undefined && annotations.length > 0;
 	const revealAnnotation = useRevealAnnotation();
@@ -507,11 +495,11 @@ function UserBubble({
 	const truncate = (name: string): string =>
 		name.length > 28 ? `${name.slice(0, 25)}...` : name;
 	return (
-		<div className="group/message flex justify-end px-4 py-2">
+		<div className="group/message flex justify-end px-3 py-1.5">
 			<div className="flex max-w-[80%] flex-col items-end">
 				<div
 					data-chat-user-bubble
-					className="rounded-2xl rounded-tr-sm bg-user-bubble px-3 py-2 text-sm text-user-bubble-foreground"
+					className="rounded-xl rounded-tr-sm bg-user-bubble px-2.5 py-1.5 text-xs leading-relaxed text-user-bubble-foreground"
 				>
 					{origin !== undefined ? (
 						<button
@@ -656,12 +644,8 @@ function UserBubble({
 				</div>
 				<MessageActions
 					text={display || text}
-					sessionId={sessionId}
-					messageId={messageId}
-					forkLabel="message"
-					forkDestination={forkDestination}
-					sourceProjectId={sourceProjectId}
-					className="mt-1 opacity-0 transition-opacity duration-150 ease-out group-hover/message:opacity-100 group-focus-within/message:opacity-100 motion-reduce:transition-none [@media(hover:none)]:opacity-100"
+					createdAt={createdAt}
+					className="mt-1"
 				/>
 			</div>
 		</div>
@@ -688,7 +672,7 @@ function AssistantBubble({
 	return (
 		<div
 			data-chat-assistant-bubble
-			className="group/assistant px-[var(--chat-assistant-gutter,1rem)] py-2"
+			className="group/assistant px-[var(--chat-assistant-gutter,0.75rem)] py-1.5"
 		>
 			<div className="max-w-full">
 				<MarkdownBody className="chat-assistant-markdown">{text}</MarkdownBody>

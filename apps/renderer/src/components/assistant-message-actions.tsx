@@ -54,10 +54,7 @@ export function AssistantMessageActions({
 			messageId={messageId}
 			forkDestination={forkDestination}
 			sourceProjectId={sourceProjectId}
-			className={cn(
-				"opacity-0 transition-opacity duration-150 ease-out group-hover/assistant:opacity-100 group-focus-within/assistant:opacity-100 motion-reduce:transition-none [@media(hover:none)]:opacity-100",
-				className,
-			)}
+			className={className}
 		/>
 	);
 }
