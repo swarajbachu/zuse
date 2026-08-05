@@ -53,8 +53,6 @@ import {
 	Option,
 	Path,
 	Queue,
-	Ref,
-	Schedule,
 	Semaphore,
 	Stream,
 } from "effect";

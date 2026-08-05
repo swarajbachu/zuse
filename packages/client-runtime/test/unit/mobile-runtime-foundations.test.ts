@@ -4,6 +4,7 @@ import {
 	containsComposerToken,
 	detectComposerTrigger,
 	replaceComposerTrigger,
+	retainComposerReferences,
 } from "../../src/composer-trigger";
 import { classifyMedia, sanitizeSvg } from "../../src/media";
 import { createTerminalInputPump } from "../../src/terminal-input-pump";
@@ -29,6 +30,32 @@ describe("mobile runtime foundations", () => {
 		expect(containsComposerToken("open @src/a", "@src/a")).toBe(true);
 		expect(containsComposerToken("open @src/abc", "@src/a")).toBe(false);
 		expect(containsComposerToken("/review next", "/review")).toBe(true);
+	});
+
+	it("keeps reference identity while ordinary composer text changes", () => {
+		const emptyReferences: Array<{ path: string }> = [];
+		expect(
+			retainComposerReferences(
+				emptyReferences,
+				"keep writing",
+				(reference) => `@${reference.path}`,
+			),
+		).toBe(emptyReferences);
+		const references = [{ path: "src/app.ts" }];
+		expect(
+			retainComposerReferences(
+				references,
+				"open @src/app.ts",
+				(reference) => `@${reference.path}`,
+			),
+		).toBe(references);
+		expect(
+			retainComposerReferences(
+				references,
+				"open another file",
+				(reference) => `@${reference.path}`,
+			),
+		).toEqual([]);
 	});
 
 	it("serializes terminal writes while preserving input queued during an ack", async () => {

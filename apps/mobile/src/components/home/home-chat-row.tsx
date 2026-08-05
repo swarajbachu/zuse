@@ -1,8 +1,4 @@
-import {
-	ArchiveIcon,
-	PinIcon,
-	PinOffIcon,
-} from "@zuse/icons/solid-rounded";
+import { ArchiveIcon, PinIcon, PinOffIcon } from "@zuse/icons/solid-rounded";
 import { Link } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import Swipeable from "react-native-gesture-handler/ReanimatedSwipeable";

@@ -72,3 +72,26 @@ export const containsComposerToken = (text: string, token: string): boolean => {
 	}
 	return false;
 };
+
+/**
+ * Drops references whose typed token was removed without allocating when the
+ * reference set is unchanged. Composer adapters call this on every keystroke,
+ * so stable identity prevents unrelated composer chrome from re-rendering.
+ */
+export const retainComposerReferences = <Reference>(
+	references: Reference[],
+	text: string,
+	tokenFor: (reference: Reference) => string,
+): Reference[] => {
+	let next: Reference[] | null = null;
+	for (let index = 0; index < references.length; index += 1) {
+		const reference = references[index];
+		if (reference === undefined) continue;
+		if (containsComposerToken(text, tokenFor(reference))) {
+			next?.push(reference);
+			continue;
+		}
+		if (next === null) next = references.slice(0, index);
+	}
+	return next ?? references;
+};
