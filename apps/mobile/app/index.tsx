@@ -303,17 +303,16 @@ export default function HomeScreen() {
 					<HomeProjectHeader
 						group={item.group}
 						collapsed={item.collapsed}
-						connections={reachableConnections}
 						onToggle={() => updateGroup(item.group.key, "toggle-collapsed")}
 					/>
 				);
 			case "show-more":
 				return (
-					<View className="flex-row gap-2 border-b border-border px-3 py-2 pl-12">
+					<View className="flex-row gap-1 px-3 py-1 pl-10">
 						{item.hiddenCount > 0 ? (
 							<Button
 								size="sm"
-								variant="secondary"
+								variant="ghost"
 								onPress={() => updateGroup(item.groupKey, "show-more")}
 							>
 								{`Show ${item.hiddenCount} more`}
@@ -334,7 +333,6 @@ export default function HomeScreen() {
 				return (
 					<HomeChatRow
 						item={item}
-						connections={reachableConnections}
 						onArchive={onArchiveRow}
 						onTogglePin={onTogglePinRow}
 					/>

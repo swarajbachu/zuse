@@ -9,6 +9,7 @@ import {
 	connectionStorageKey,
 	decodeConnectionRecords,
 	type LocalPathType,
+	refreshConnectionDescriptor,
 	replaceDiscoveredRoute,
 } from "~/lib/connection-records";
 import { deviceLabel, getOrCreateDeviceId } from "~/lib/device-identity";
@@ -232,18 +233,16 @@ export const refreshConnectionLabel = async (
 	const descriptor = await describeEnvironment(options);
 	if (descriptor === null) return;
 	const nextLabel = visibleConnectionLabel(descriptor.label, key);
-	const current = currentConnections().find((c) => c.key === key);
+	const connections = currentConnections();
+	const current = connections.find((c) => c.key === key);
 	if (current === undefined) return;
-	const next = currentConnections().map((connection) =>
-		connection.key === key
-			? {
-					...connection,
-					label: nextLabel,
-					capabilities: descriptor.capabilities,
-					updatedAt: Date.now(),
-				}
-			: connection,
+	const next = refreshConnectionDescriptor(
+		connections,
+		key,
+		nextLabel,
+		descriptor.capabilities,
 	);
+	if (next === connections) return;
 	appAtomRegistry.set(connectionsAtom, next);
 	await Effect.runPromise(saveConnections(next));
 };
