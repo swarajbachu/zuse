@@ -7,8 +7,8 @@ import { Link } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import Swipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 
+import { ProviderLogo } from "~/components/provider-logo";
 import { HugeIcon } from "~/components/ui/huge-icon";
-import { PresenceDot } from "~/components/ui/presence-dot";
 import { cn } from "~/lib/cn";
 import type { HomeFeedItem } from "~/lib/home-feed";
 import { colors } from "~/theme";
@@ -93,11 +93,14 @@ export function HomeChatRow({
 				<Link.Trigger>
 					<Pressable className="mx-1 min-h-[54px] justify-center rounded-xl px-3 py-2.5 active:bg-muted">
 						<View className="flex-row items-center gap-2.5">
-							<View className="h-3 w-3 items-center justify-center">
-								{isActive ? (
-									<PresenceDot tone="online" pulse size={7} />
-								) : row.unread ? (
-									<View className="h-[7px] w-[7px] rounded-full bg-primary" />
+							<View className="h-5 w-5 items-center justify-center">
+								<ProviderLogo
+									providerId={row.session.providerId}
+									size={17}
+									color={colors.secondaryFg}
+								/>
+								{isActive || row.unread ? (
+									<View className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
 								) : null}
 							</View>
 							<Text
@@ -118,7 +121,7 @@ export function HomeChatRow({
 						</View>
 						{context === null ? null : (
 							<Text
-								className="ml-[22px] mt-0.5 font-sans text-[12px] text-muted-foreground"
+								className="ml-[30px] mt-0.5 font-sans text-[12px] text-muted-foreground"
 								numberOfLines={1}
 							>
 								{context}
