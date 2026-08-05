@@ -10,10 +10,12 @@ import {
 	MachineList,
 	MachineOfferList,
 	MachineRecord,
+	PRODUCTION_RELAY_URL,
 	RelayAccessToken,
 	RelayConnectGrant,
 	RelayEnvironmentList,
 	RelayPaths,
+	STAGING_RELAY_URL,
 } from "@zuse/contracts";
 import { Context, Effect, Layer, Schema } from "effect";
 import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose";
@@ -78,9 +80,7 @@ export const resolveMachineRelayUrl = (
 ): string =>
 	(
 		env.ZUSE_RELAY_URL ??
-		(env.NODE_ENV === "production"
-			? "https://relay.stuff.md"
-			: "https://relay-staging.stuff.md")
+		(env.NODE_ENV === "production" ? PRODUCTION_RELAY_URL : STAGING_RELAY_URL)
 	).replace(/\/+$/u, "");
 
 const mapErrorCode = (status: number, code: unknown): MachineControlError => {

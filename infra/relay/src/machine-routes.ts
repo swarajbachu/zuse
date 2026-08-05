@@ -120,6 +120,14 @@ const requireAlphaAccess = (
 		}
 	});
 
+const requireMachineAlphaPrincipal = Effect.fn("requireMachineAlphaPrincipal")(
+	function* (request: Request) {
+		const principal = yield* requireWorkos(request);
+		yield* requireAlphaAccess(principal.accountId);
+		return principal;
+	},
+);
+
 const getOwnedMachine = (
 	machineId: string,
 	accountId: string,
@@ -522,21 +530,18 @@ export const routeMachineRequest = (
 		}
 
 		if (method === "GET" && path === RelayPaths.machineOffers) {
-			const principal = yield* requireWorkos(request);
-			yield* requireAlphaAccess(principal.accountId);
+			yield* requireMachineAlphaPrincipal(request);
 			return json({ offers: MACHINE_OFFERS });
 		}
 
 		if (method === "GET" && path === RelayPaths.machines) {
-			const principal = yield* requireWorkos(request);
-			yield* requireAlphaAccess(principal.accountId);
+			const principal = yield* requireMachineAlphaPrincipal(request);
 			const machines = yield* store.listMachines(principal.accountId);
 			return json({ machines: machines.map(toPublicMachine) });
 		}
 
 		if (method === "POST" && path === RelayPaths.machines) {
-			const principal = yield* requireWorkos(request);
-			yield* requireAlphaAccess(principal.accountId);
+			const principal = yield* requireMachineAlphaPrincipal(request);
 			const body = yield* decodeBody(MachineCreateRequest, request);
 			const offer = findMachineOffer(body.offerId);
 			if (offer === undefined || !offer.available) {
@@ -573,8 +578,7 @@ export const routeMachineRequest = (
 		}
 
 		if (method === "GET" && path === RelayPaths.billingEntitlements) {
-			const principal = yield* requireWorkos(request);
-			yield* requireAlphaAccess(principal.accountId);
+			const principal = yield* requireMachineAlphaPrincipal(request);
 			const entitlements = yield* store.listEntitlements(principal.accountId);
 			const machines = yield* store.listMachines(principal.accountId);
 			return json({
@@ -590,8 +594,7 @@ export const routeMachineRequest = (
 		}
 
 		if (method === "POST" && path === RelayPaths.billingCheckout) {
-			const principal = yield* requireWorkos(request);
-			yield* requireAlphaAccess(principal.accountId);
+			const principal = yield* requireMachineAlphaPrincipal(request);
 			const body = yield* decodeBody(BillingCheckoutRequest, request);
 			if (findMachineOffer(body.offerId) === undefined) {
 				return yield* Effect.fail(badRequest("invalid_machine_offer"));
@@ -640,8 +643,7 @@ export const routeMachineRequest = (
 		}
 
 		if (method === "POST" && path === RelayPaths.billingPortal) {
-			const principal = yield* requireWorkos(request);
-			yield* requireAlphaAccess(principal.accountId);
+			const principal = yield* requireMachineAlphaPrincipal(request);
 			const entitlements = yield* store.listEntitlements(principal.accountId);
 			const portalProviderIds = [
 				...new Set(
@@ -677,8 +679,7 @@ export const routeMachineRequest = (
 
 		const machineMatch = /^\/v1\/machines\/([^/]+)$/.exec(path);
 		if (method === "GET" && machineMatch !== null) {
-			const principal = yield* requireWorkos(request);
-			yield* requireAlphaAccess(principal.accountId);
+			const principal = yield* requireMachineAlphaPrincipal(request);
 			const machine = yield* getOwnedMachine(
 				decodeURIComponent(machineMatch[1] ?? ""),
 				principal.accountId,
@@ -688,8 +689,7 @@ export const routeMachineRequest = (
 
 		const cancelMatch = /^\/v1\/machines\/([^/]+)\/cancel$/.exec(path);
 		if (method === "POST" && cancelMatch !== null) {
-			const principal = yield* requireWorkos(request);
-			yield* requireAlphaAccess(principal.accountId);
+			const principal = yield* requireMachineAlphaPrincipal(request);
 			const machine = yield* getOwnedMachine(
 				decodeURIComponent(cancelMatch[1] ?? ""),
 				principal.accountId,
@@ -708,7 +708,7 @@ export const routeMachineRequest = (
 				statusCode: "cancellation-scheduled",
 				paidThroughMs,
 				recoveryDeadlineMs: paidThroughMs + config.recoveryWindowMs,
-				nextActionAtMs: Math.max(nowMs, paidThroughMs),
+				nextActionAtMs: nowMs,
 				updatedAtMs: nowMs,
 			};
 			const saved = yield* store.compareAndSetMachine(
@@ -721,8 +721,7 @@ export const routeMachineRequest = (
 
 		const recoverMatch = /^\/v1\/machines\/([^/]+)\/recover$/.exec(path);
 		if (method === "POST" && recoverMatch !== null) {
-			const principal = yield* requireWorkos(request);
-			yield* requireAlphaAccess(principal.accountId);
+			const principal = yield* requireMachineAlphaPrincipal(request);
 			const machine = yield* getOwnedMachine(
 				decodeURIComponent(recoverMatch[1] ?? ""),
 				principal.accountId,
@@ -770,8 +769,7 @@ export const routeMachineRequest = (
 
 		const destroyMatch = /^\/v1\/machines\/([^/]+)\/destroy$/.exec(path);
 		if (method === "POST" && destroyMatch !== null) {
-			const principal = yield* requireWorkos(request);
-			yield* requireAlphaAccess(principal.accountId);
+			const principal = yield* requireMachineAlphaPrincipal(request);
 			const body = yield* decodeBody(MachineDestroyRequest, request);
 			const pathMachineId = decodeURIComponent(destroyMatch[1] ?? "");
 			if (body.machineId !== pathMachineId) {

@@ -74,6 +74,33 @@ const withBillingFailure = (
 	};
 };
 
+const withCancellationBillingFailure = (
+	machine: MachinePersistenceRecord,
+	nowMs: number,
+): MachinePersistenceRecord => {
+	const attemptCount = machine.attemptCount + 1;
+	return {
+		...machine,
+		statusCode: "reconciliation-failed",
+		stableFailureCode: "billing-provider-unavailable",
+		attemptCount,
+		nextActionAtMs: retryAt(nowMs, attemptCount),
+		updatedAtMs: nowMs,
+	};
+};
+
+const withMissingProviderMachine = (
+	machine: MachinePersistenceRecord,
+	nowMs: number,
+): MachinePersistenceRecord => ({
+	...machine,
+	state: "failed",
+	statusCode: "reconciliation-failed",
+	stableFailureCode: "provider-machine-missing",
+	nextActionAtMs: Number.MAX_SAFE_INTEGER,
+	updatedAtMs: nowMs,
+});
+
 const reconcileReadyTarget = Effect.fn("reconcileReadyTarget")(function* (
 	machine: MachinePersistenceRecord,
 	nowMs: number,
@@ -176,14 +203,7 @@ const reconcileReadyTarget = Effect.fn("reconcileReadyTarget")(function* (
 
 	if (machine.state === "bootstrapping" || machine.state === "enrolling") {
 		if (machine.providerServerId === undefined) {
-			return {
-				...machine,
-				state: "failed" as const,
-				statusCode: "reconciliation-failed" as const,
-				stableFailureCode: "provider-machine-missing",
-				nextActionAtMs: Number.MAX_SAFE_INTEGER,
-				updatedAtMs: nowMs,
-			};
+			return withMissingProviderMachine(machine, nowMs);
 		}
 		const inspected = yield* provider
 			.inspect(machine.providerServerId)
@@ -192,14 +212,7 @@ const reconcileReadyTarget = Effect.fn("reconcileReadyTarget")(function* (
 			return withProviderFailure(machine, nowMs, inspected.failure);
 		}
 		if (inspected.success === null) {
-			return {
-				...machine,
-				state: "failed" as const,
-				statusCode: "reconciliation-failed" as const,
-				stableFailureCode: "provider-machine-missing",
-				nextActionAtMs: Number.MAX_SAFE_INTEGER,
-				updatedAtMs: nowMs,
-			};
+			return withMissingProviderMachine(machine, nowMs);
 		}
 		const attemptCount = machine.attemptCount + 1;
 		if (attemptCount >= MAX_ATTEMPTS) {
@@ -259,14 +272,7 @@ const reconcileReadyTarget = Effect.fn("reconcileReadyTarget")(function* (
 
 	if (machine.state === "ready") {
 		if (machine.providerServerId === undefined) {
-			return {
-				...machine,
-				state: "failed" as const,
-				statusCode: "reconciliation-failed" as const,
-				stableFailureCode: "provider-machine-missing",
-				nextActionAtMs: Number.MAX_SAFE_INTEGER,
-				updatedAtMs: nowMs,
-			};
+			return withMissingProviderMachine(machine, nowMs);
 		}
 		const inspected = yield* provider
 			.inspect(machine.providerServerId)
@@ -275,14 +281,7 @@ const reconcileReadyTarget = Effect.fn("reconcileReadyTarget")(function* (
 			return withProviderFailure(machine, nowMs, inspected.failure);
 		}
 		if (inspected.success === null) {
-			return {
-				...machine,
-				state: "failed" as const,
-				statusCode: "reconciliation-failed" as const,
-				stableFailureCode: "provider-machine-missing",
-				nextActionAtMs: Number.MAX_SAFE_INTEGER,
-				updatedAtMs: nowMs,
-			};
+			return withMissingProviderMachine(machine, nowMs);
 		}
 		return {
 			...machine,
@@ -312,6 +311,22 @@ const reconcileSuspendedTarget = Effect.fn("reconcileSuspendedTarget")(
 		nowMs: number,
 		provider: MachineProviderAdapter,
 	) {
+		if (machine.state !== "suspended") {
+			const store = yield* MachineStore;
+			const entitlements = yield* store.listEntitlements(machine.accountId);
+			const entitlement = entitlements.find(
+				(item) => item.entitlementId === machine.entitlementId,
+			);
+			if (entitlement?.providerSubscriptionId !== undefined) {
+				const cancelled = yield* cancelProviderSubscription({
+					providerId: entitlement.provider,
+					providerSubscriptionId: entitlement.providerSubscriptionId,
+				}).pipe(Effect.result);
+				if (cancelled._tag === "Failure") {
+					return withCancellationBillingFailure(machine, nowMs);
+				}
+			}
+		}
 		if (
 			machine.state === "suspended" &&
 			machine.recoveryDeadlineMs !== undefined &&
@@ -328,12 +343,7 @@ const reconcileSuspendedTarget = Effect.fn("reconcileSuspendedTarget")(
 			};
 		}
 		if (machine.paidThroughMs !== undefined && machine.paidThroughMs > nowMs) {
-			return {
-				...machine,
-				statusCode: "cancellation-scheduled" as const,
-				nextActionAtMs: machine.paidThroughMs,
-				updatedAtMs: nowMs,
-			};
+			return yield* reconcileReadyTarget(machine, nowMs, provider);
 		}
 		if (machine.providerServerId === undefined) {
 			return {
@@ -526,13 +536,6 @@ const reconcileOne = Effect.fn("reconcileOne")(function* (
 		} satisfies MachinePersistenceRecord;
 	}
 	const provider = selected.success;
-	if (
-		machine.desiredState === "suspended" &&
-		(machine.paidThroughMs ?? 0) > nowMs &&
-		machine.state !== "suspended"
-	) {
-		return yield* reconcileReadyTarget(machine, nowMs, provider);
-	}
 	switch (machine.desiredState) {
 		case "ready":
 			return yield* reconcileReadyTarget(machine, nowMs, provider);

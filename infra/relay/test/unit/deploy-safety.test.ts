@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
+import { WORKOS_STAGING_PUBLIC_CLIENT_ID } from "@zuse/contracts";
 import { parse } from "jsonc-parser";
 import { describe, expect, test } from "vitest";
 
@@ -57,6 +58,12 @@ describe("relay deployment safety", () => {
 		]);
 		expect(config.vars.RELAY_ISSUER).toBe("https://relay-staging.stuff.md");
 		expect(config.vars.MANAGED_TUNNEL_NAMESPACE).toBe("zenv-staging");
+		expect(config.vars.WORKOS_JWKS_URL).toBe(
+			`https://api.workos.com/sso/jwks/${WORKOS_STAGING_PUBLIC_CLIENT_ID}`,
+		);
+		expect(config.vars.MACHINE_ALPHA_ALLOWLIST).toBe(
+			"user_01KW7R9WGJFFSKDNESE7RN00N1",
+		);
 		expect(config.vars.MACHINE_PROVIDER).toBe("fake");
 		expect(config.vars.HETZNER_ADAPTER_ENABLED).toBe("false");
 		expect(config.vars.HETZNER_FIREWALL_ID).toBe("11418954");

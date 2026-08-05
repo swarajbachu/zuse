@@ -3,6 +3,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "tsdown";
+import deploymentProfiles from "../../packages/contracts/src/deployment-profiles.json" with {
+	type: "json",
+};
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..", "..");
@@ -32,7 +35,6 @@ const resolveBuildEnv = (name: string): string => {
 	return "";
 };
 
-const WORKOS_CLIENT_ID = resolveBuildEnv("WORKOS_CLIENT_ID");
 const LINEAR_CLIENT_ID = resolveBuildEnv("LINEAR_CLIENT_ID");
 const ZUSE_POSTHOG_KEY = resolveBuildEnv("ZUSE_POSTHOG_KEY");
 const ZUSE_POSTHOG_HOST =
@@ -40,11 +42,16 @@ const ZUSE_POSTHOG_HOST =
 const ZUSE_POSTHOG_ENABLE_DEV = resolveBuildEnv("ZUSE_POSTHOG_ENABLE_DEV");
 const NODE_ENV =
 	process.env.NODE_ENV === "production" ? "production" : "development";
+const WORKOS_CLIENT_ID =
+	resolveBuildEnv("WORKOS_CLIENT_ID") ||
+	(NODE_ENV === "production"
+		? deploymentProfiles.production.workosPublicClientId
+		: deploymentProfiles.staging.workosPublicClientId);
 const ZUSE_RELAY_URL =
 	resolveBuildEnv("ZUSE_RELAY_URL") ||
 	(NODE_ENV === "production"
-		? "https://relay.stuff.md"
-		: "https://relay-staging.stuff.md");
+		? deploymentProfiles.production.relayUrl
+		: deploymentProfiles.staging.relayUrl);
 
 const shared = {
 	format: "cjs" as const,

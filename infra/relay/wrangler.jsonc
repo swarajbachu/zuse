@@ -20,7 +20,7 @@
 	"vars": {
 		"RELAY_ISSUER": "https://relay-staging.stuff.md",
 		"WORKOS_ISSUER": "https://api.workos.com",
-		"WORKOS_JWKS_URL": "https://api.workos.com/sso/jwks/client_01KWGQ818571ARFATQ3G9AR2Y2",
+		"WORKOS_JWKS_URL": "https://api.workos.com/sso/jwks/client_01KW6ZEZKVMZ0G429A89XZD83Q",
 		"RELAY_MINT_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"rLuckqLkdtwPKtradClTam6ovMItDJZ3SNbBQXFjJWw\",\"kty\":\"OKP\"}",
 		"MAX_ENVIRONMENTS_PER_ACCOUNT": "5",
 		"ALLOWED_BROWSER_ORIGINS": "https://code.zuse.sh",
@@ -30,7 +30,7 @@
 		"CF_ACCOUNT_ID": "40dd16663d44dc635537be6d183af841",
 		"CF_ZONE_ID": "1ebb00c5fd61050e9f48ce1c791a29da",
 
-		"MACHINE_ALPHA_ALLOWLIST": "",
+		"MACHINE_ALPHA_ALLOWLIST": "user_01KW7R9WGJFFSKDNESE7RN00N1",
 		"MACHINE_MANUAL_ENTITLEMENTS": "true",
 		"MACHINE_LIVE_CHECKOUT_ENABLED": "false",
 		// A staged API token alone does not activate live provisioning.
