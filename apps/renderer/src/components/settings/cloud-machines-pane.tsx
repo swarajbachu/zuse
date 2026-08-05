@@ -9,9 +9,19 @@ import {
 import { Effect } from "effect";
 import { useCallback, useEffect, useState } from "react";
 import {
+	clearCloudMachineCheckoutSession,
+	readCloudMachineCheckoutSession,
+	writeCloudMachineCheckoutSession,
+} from "../../lib/cloud-machine-checkout-session.ts";
+import {
 	checkoutErrorMessage,
 	visibleCloudMachineError,
 } from "../../lib/cloud-machine-errors.ts";
+import {
+	cloudMachineProgress,
+	cloudMachineProgressSteps,
+} from "../../lib/cloud-machine-progress.ts";
+import { hostedAccountId } from "../../lib/hosted-connect.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
 import {
 	getActiveEnvironmentId,
@@ -22,21 +32,6 @@ import {
 import { Button } from "../ui/button.tsx";
 import { Card } from "../ui/card.tsx";
 import { Input } from "../ui/input.tsx";
-
-const progressSteps = [
-	"Creating server",
-	"Installing runtime",
-	"Enrolling",
-	"Ready",
-] as const;
-
-const progressIndex = (state: MachineRecord["state"]): number => {
-	if (state === "creating") return 0;
-	if (state === "bootstrapping") return 1;
-	if (state === "enrolling") return 2;
-	if (state === "ready") return 3;
-	return -1;
-};
 
 export function CloudMachinesPane() {
 	const [offer, setOffer] = useState<MachineOffer | null>(null);
@@ -62,13 +57,25 @@ export function CloudMachinesPane() {
 				Effect.runPromise(client["machines.offers"]()),
 				Effect.runPromise(client["machines.list"]()),
 			]);
-			setOffer(offers.offers[0] ?? null);
+			const nextOffer = offers.offers[0] ?? null;
+			setOffer(nextOffer);
 			const activeMachine =
 				machines.machines.find((item) => item.state !== "destroyed") ??
 				machines.machines[0] ??
 				null;
 			setMachine(activeMachine);
-			if (activeMachine !== null) setCheckoutUrl(null);
+			if (activeMachine !== null) {
+				setCheckoutUrl(null);
+				clearCloudMachineCheckoutSession(window.sessionStorage);
+			} else if (nextOffer !== null) {
+				setCheckoutUrl(
+					readCloudMachineCheckoutSession(window.sessionStorage, {
+						accountId: hostedAccountId(),
+						nowMs: Date.now(),
+						offerId: nextOffer.offerId,
+					}),
+				);
+			}
 			setLoadError(null);
 		} catch {
 			setLoadError(
@@ -107,6 +114,12 @@ export function CloudMachinesPane() {
 					}),
 				);
 				setCheckoutUrl(checkout.checkoutUrl);
+				writeCloudMachineCheckoutSession(window.sessionStorage, {
+					accountId: hostedAccountId(),
+					nowMs: Date.now(),
+					offerId: offer.offerId,
+					url: checkout.checkoutUrl,
+				});
 				await openExternal(checkout.checkoutUrl);
 			} catch (cause) {
 				if (
@@ -179,6 +192,8 @@ export function CloudMachinesPane() {
 	}
 
 	const error = visibleCloudMachineError(loadError, actionError);
+	const progress = machine === null ? null : cloudMachineProgress(machine);
+	const activeProgressStep = progress?.activeStep ?? null;
 
 	return (
 		<div className="max-w-2xl space-y-4">
@@ -225,15 +240,35 @@ export function CloudMachinesPane() {
 									: "Reopen checkout"}
 						</Button>
 					</div>
-					<p className="h-5 text-muted-foreground text-xs" aria-live="polite">
-						{checkoutUrl === null
-							? "Provisioning starts automatically after payment."
-							: "Complete payment in your browser. This page updates automatically."}
-					</p>
+					{checkoutUrl === null ? (
+						<p className="h-5 text-muted-foreground text-xs">
+							Provisioning starts automatically after payment.
+						</p>
+					) : (
+						<div
+							role="status"
+							aria-live="polite"
+							className="flex min-h-20 items-start gap-3 rounded-lg border border-border bg-muted/20 p-3"
+						>
+							<span
+								aria-hidden="true"
+								className="mt-1 size-2 shrink-0 animate-pulse rounded-full bg-foreground motion-reduce:animate-none"
+							/>
+							<div>
+								<p className="font-medium text-sm">
+									Waiting for payment confirmation
+								</p>
+								<p className="mt-1 text-muted-foreground text-xs">
+									Your cloud machine will be provisioned automatically once
+									payment is confirmed. You can safely return to this window.
+								</p>
+							</div>
+						</div>
+					)}
 				</Card>
 			) : null}
 
-			{machine !== null ? (
+			{machine !== null && progress !== null ? (
 				<Card className="space-y-5 p-5">
 					<div className="flex items-start justify-between gap-3">
 						<div>
@@ -241,8 +276,7 @@ export function CloudMachinesPane() {
 								{machine.label ?? machine.offer.displayName}
 							</h2>
 							<p className="mt-1 text-muted-foreground text-sm">
-								{machine.offer.location} ·{" "}
-								{machine.statusCode.replaceAll("-", " ")}
+								{machine.offer.location} · {progress.label}
 							</p>
 						</div>
 						{machine.environmentId !== undefined &&
@@ -259,23 +293,59 @@ export function CloudMachinesPane() {
 						) : null}
 					</div>
 
-					<section className="h-28" aria-label="Machine setup progress">
-						<ol className="grid grid-cols-4 gap-2">
-							{progressSteps.map((step, index) => {
-								const complete = index <= progressIndex(machine.state);
-								return (
-									<li key={step} className="min-w-0">
-										<div
-											className={`h-1.5 rounded-full ${
-												complete ? "bg-foreground" : "bg-muted"
-											}`}
-										/>
-										<p className="mt-2 text-muted-foreground text-xs">{step}</p>
-									</li>
-								);
-							})}
-						</ol>
-					</section>
+					<div
+						role={progress.tone === "error" ? "alert" : "status"}
+						aria-live="polite"
+						className={`min-h-20 rounded-lg border p-3 ${
+							progress.tone === "error"
+								? "border-destructive/30 bg-destructive/5"
+								: progress.tone === "warning"
+									? "border-amber-500/30 bg-amber-500/5"
+									: "border-border bg-muted/20"
+						}`}
+					>
+						<p className="font-medium text-sm">{progress.headline}</p>
+						<p className="mt-1 text-muted-foreground text-xs">
+							{progress.detail}
+						</p>
+					</div>
+
+					{activeProgressStep !== null ? (
+						<section className="min-h-24" aria-label="Machine setup progress">
+							<ol className="grid grid-cols-5 gap-2">
+								{cloudMachineProgressSteps.map((step, index) => {
+									const complete = index <= activeProgressStep;
+									const current = index === activeProgressStep;
+									return (
+										<li
+											key={step}
+											className="min-w-0"
+											aria-current={current ? "step" : undefined}
+										>
+											<div
+												className={`h-1.5 rounded-full ${
+													complete
+														? current && progress.tone === "error"
+															? "bg-destructive"
+															: current && progress.tone === "warning"
+																? "bg-amber-500"
+																: "bg-foreground"
+														: "bg-muted"
+												}`}
+											/>
+											<p
+												className={`mt-2 text-xs ${
+													current ? "text-foreground" : "text-muted-foreground"
+												}`}
+											>
+												{step}
+											</p>
+										</li>
+									);
+								})}
+							</ol>
+						</section>
+					) : null}
 
 					<div className="rounded-lg border border-border p-3 text-sm">
 						<p className="font-medium">Connection and SSH</p>

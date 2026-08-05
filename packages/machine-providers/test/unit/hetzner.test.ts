@@ -1,6 +1,6 @@
 import type { MachineOffer } from "@zuse/contracts";
 import { Effect, Redacted } from "effect";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import {
 	HETZNER_PROVIDER_ID,
 	type HetznerHttpClient,
@@ -76,7 +76,13 @@ const makeAdapter = (http: HetznerHttpClient) =>
 		http,
 	);
 
+const originalFetch = globalThis.fetch;
+
 describe("Hetzner machine provider", () => {
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
 	test("registers with the stable provider id", () => {
 		const http = makeHttp([]);
 
@@ -99,6 +105,31 @@ describe("Hetzner machine provider", () => {
 		expect(http.calls[0]?.url).toBe(
 			"https://api.hetzner.cloud/v1/servers?name=zuse-machine-1",
 		);
+	});
+
+	test("invokes the Worker fetch global with its required receiver", async () => {
+		let callCount = 0;
+		const workerFetch = function (this: unknown) {
+			callCount += 1;
+			if (this !== globalThis) throw new TypeError("Illegal invocation");
+			return Promise.resolve(
+				new Response(JSON.stringify({ servers: [] }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				}),
+			);
+		};
+		globalThis.fetch = workerFetch as typeof globalThis.fetch;
+		const adapter = makeHetznerMachineProvider({
+			accessToken: Redacted.make("secret-token"),
+			offerProfiles: {},
+			renderUserData: () => "",
+		});
+
+		await expect(
+			Effect.runPromise(adapter.recoverByLabel("zuse-machine-1")),
+		).resolves.toBeNull();
+		expect(callCount).toBe(1);
 	});
 
 	test("creates a firewalled server, sends bootstrap data, and enables backups", async () => {

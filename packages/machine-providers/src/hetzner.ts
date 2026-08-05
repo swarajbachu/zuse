@@ -61,6 +61,10 @@ export interface HetznerHttpClient {
 	readonly fetch: typeof globalThis.fetch;
 }
 
+const defaultHttpClient: HetznerHttpClient = {
+	fetch: (input, init) => globalThis.fetch(input, init),
+};
+
 const providerError = (
 	code: MachineProviderError["code"],
 ): MachineProviderError => new MachineProviderError({ code });
@@ -78,25 +82,35 @@ const toProviderMachine = (server: ApiServer): ProviderMachine => ({
 	powerState: server.status === "off" ? "off" : "running",
 });
 
+const reportRequestFailure = (input: {
+	readonly method: string;
+	readonly phase: "network" | "response" | "decode";
+	readonly status?: number;
+}): void => {
+	console.warn("[zuse:machine-provider] request failed", {
+		method: input.method,
+		phase: input.phase,
+		status: input.status,
+	});
+};
+
 export const HETZNER_API_BASE_URL = "https://api.hetzner.cloud/v1";
 export const HETZNER_PROVIDER_ID = "hetzner" as const;
 export const HETZNER_LEGACY_PROVIDER_ID = "cloud-api" as const;
 
 export const makeHetznerMachineProvider = (
 	config: HetznerMachineConfig,
-	http: HetznerHttpClient = { fetch: globalThis.fetch },
+	http: HetznerHttpClient = defaultHttpClient,
 ): MachineProviderAdapter => {
 	const apiBaseUrl = (config.apiBaseUrl ?? HETZNER_API_BASE_URL).replace(
 		/\/+$/,
 		"",
 	);
-
-	const request = <A, I>(
+	const send = (
 		method: string,
 		path: string,
-		schema: Schema.Codec<A, I>,
 		body?: unknown,
-	): Effect.Effect<A, MachineProviderError> =>
+	): Effect.Effect<Response, MachineProviderError> =>
 		Effect.tryPromise({
 			try: () =>
 				http.fetch(`${apiBaseUrl}${path}`, {
@@ -109,22 +123,51 @@ export const makeHetznerMachineProvider = (
 					},
 					body: body === undefined ? undefined : JSON.stringify(body),
 				}),
-			catch: () => providerError("transient"),
-		}).pipe(
+			catch: () => {
+				reportRequestFailure({ method, phase: "network" });
+				return providerError("transient");
+			},
+		});
+	const failForResponse = (
+		method: string,
+		response: Response,
+	): Effect.Effect<never, MachineProviderError> =>
+		Effect.sync(() => {
+			reportRequestFailure({
+				method,
+				phase: "response",
+				status: response.status,
+			});
+		}).pipe(Effect.andThen(Effect.fail(errorForStatus(response.status))));
+
+	const request = <A, I>(
+		method: string,
+		path: string,
+		schema: Schema.Codec<A, I>,
+		body?: unknown,
+	): Effect.Effect<A, MachineProviderError> =>
+		send(method, path, body).pipe(
 			Effect.flatMap((response) =>
 				response.ok
 					? Effect.tryPromise({
 							try: (): Promise<unknown> => response.json(),
-							catch: () => providerError("transient"),
+							catch: () => {
+								reportRequestFailure({
+									method,
+									phase: "decode",
+									status: response.status,
+								});
+								return providerError("transient");
+							},
 						})
-					: Effect.fail(errorForStatus(response.status)),
+					: failForResponse(method, response),
 			),
 			Effect.flatMap(Schema.decodeUnknownEffect(schema)),
-			Effect.mapError((error) =>
-				error instanceof MachineProviderError
-					? error
-					: providerError("transient"),
-			),
+			Effect.mapError((error) => {
+				if (error instanceof MachineProviderError) return error;
+				reportRequestFailure({ method, phase: "decode" });
+				return providerError("transient");
+			}),
 		);
 
 	const requestVoid = (
@@ -133,24 +176,11 @@ export const makeHetznerMachineProvider = (
 		body?: unknown,
 		notFoundIsSuccess = false,
 	): Effect.Effect<void, MachineProviderError> =>
-		Effect.tryPromise({
-			try: () =>
-				http.fetch(`${apiBaseUrl}${path}`, {
-					method,
-					headers: {
-						authorization: `Bearer ${Redacted.value(config.accessToken)}`,
-						...(body === undefined
-							? {}
-							: { "content-type": "application/json" }),
-					},
-					body: body === undefined ? undefined : JSON.stringify(body),
-				}),
-			catch: () => providerError("transient"),
-		}).pipe(
+		send(method, path, body).pipe(
 			Effect.flatMap((response) =>
 				response.ok || (notFoundIsSuccess && response.status === 404)
 					? Effect.void
-					: Effect.fail(errorForStatus(response.status)),
+					: failForResponse(method, response),
 			),
 		);
 
