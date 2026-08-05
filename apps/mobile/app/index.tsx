@@ -303,6 +303,7 @@ export default function HomeScreen() {
 					<HomeProjectHeader
 						group={item.group}
 						collapsed={item.collapsed}
+						connections={reachableConnections}
 						onToggle={() => updateGroup(item.group.key, "toggle-collapsed")}
 					/>
 				);

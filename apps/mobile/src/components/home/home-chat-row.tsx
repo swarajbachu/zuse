@@ -93,7 +93,10 @@ export function HomeChatRow({
 				<Link.Trigger>
 					<Pressable className="mx-1 min-h-[54px] justify-center rounded-xl px-3 py-2.5 active:bg-muted">
 						<View className="flex-row items-center gap-2.5">
-							<View className="h-5 w-5 items-center justify-center">
+							<View
+								className="h-5 w-5 items-center justify-center"
+								style={{ marginTop: 2 }}
+							>
 								<ProviderLogo
 									providerId={row.session.providerId}
 									size={17}
