@@ -1,4 +1,5 @@
 import {
+	CapabilityManifest,
 	ConnectAuthError,
 	EnvironmentDescriptor,
 	EnvironmentEndpoint,
@@ -30,6 +31,20 @@ export const makePairingStartResult = (result: {
 	readonly browserUrl: string;
 	readonly qrText: string;
 }): PairingStartResult => PairingStartResult.make(result);
+
+export const makeEnvironmentCapabilities = (
+	desktopHandoff: boolean,
+): CapabilityManifest =>
+	CapabilityManifest.make({
+		version: 1,
+		features: [
+			"mobile-terminal-v1",
+			"attachment-read-v1",
+			"voice-account-transcription-v1",
+			"git-remote-actions-v1",
+			...(desktopHandoff ? (["desktop-handoff-v1"] as const) : []),
+		],
+	});
 
 const PairingStart = MemoizeRpcs.toLayerHandler("pairing.start", () =>
 	Effect.gen(function* () {
@@ -117,18 +132,9 @@ const ConnectDescribe = MemoizeRpcs.toLayerHandler("connect.describe", () =>
 			environmentId: yield* auth.environmentId(),
 			providerKind: "desktop",
 			endpoint,
-			capabilities: {
-				version: 1,
-				features: [
-					"mobile-terminal-v1",
-					"attachment-read-v1",
-					"voice-account-transcription-v1",
-					"git-remote-actions-v1",
-					...(config.openHostSession === undefined
-						? []
-						: (["desktop-handoff-v1"] as const)),
-				],
-			},
+			capabilities: makeEnvironmentCapabilities(
+				config.openHostSession !== undefined,
+			),
 			label: yield* defaultEnvironmentLabel(),
 			advertisedEndpoints: buildAdvertisedEndpoints({
 				lan: config,

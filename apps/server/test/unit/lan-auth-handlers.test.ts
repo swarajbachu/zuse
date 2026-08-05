@@ -1,8 +1,15 @@
-import { PairingStartResult } from "@zuse/contracts";
+import {
+	EnvironmentDescriptor,
+	EnvironmentId,
+	PairingStartResult,
+} from "@zuse/contracts";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { makePairingStartResult } from "../../src/lan-auth/handlers.ts";
+import {
+	makeEnvironmentCapabilities,
+	makePairingStartResult,
+} from "../../src/lan-auth/handlers.ts";
 
 describe("LAN auth handlers", () => {
 	it("returns an encodable pairing start response", () => {
@@ -16,5 +23,22 @@ describe("LAN auth handlers", () => {
 		});
 
 		expect(() => Schema.encodeSync(PairingStartResult)(response)).not.toThrow();
+	});
+
+	it("returns encodable environment capabilities", () => {
+		const response = EnvironmentDescriptor.make({
+			environmentId: Schema.decodeUnknownSync(EnvironmentId)("environment-1"),
+			providerKind: "desktop",
+			endpoint: {
+				httpBaseUrl: "http://127.0.0.1:47837",
+				wsBaseUrl: "ws://127.0.0.1:47837",
+			},
+			capabilities: makeEnvironmentCapabilities(true),
+		});
+
+		expect(() =>
+			Schema.encodeSync(EnvironmentDescriptor)(response),
+		).not.toThrow();
+		expect(response.capabilities?.features).toContain("desktop-handoff-v1");
 	});
 });
