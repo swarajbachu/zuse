@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { cn } from "~/lib/utils";
 import { useAuth } from "../hooks/use-auth.ts";
+import { useZuseDiffTheme } from "../lib/diffs-theme.ts";
 import { classifyGit } from "../lib/git-rpc.ts";
 import {
 	bytesForImageContent,
@@ -299,6 +300,7 @@ function PierreEditBody({
 	hidden: boolean;
 	onClose: () => void;
 }) {
+	const diffTheme = useZuseDiffTheme();
 	const setFileDirty = useUiStore((s) => s.setFileDirty);
 	const [state, setState] = useState<EditorState>({ status: "loading" });
 	const [conflict, setConflict] = useState<string | null>(null);
@@ -553,7 +555,7 @@ function PierreEditBody({
 			)}
 			<SavingIndicator saving={saving} />
 			{state.status === "text" ? (
-				<div className="min-h-0 flex-1 overflow-auto p-3">
+				<div className="fz-diff min-h-0 flex-1 overflow-auto p-3">
 					<EditProvider createEditor={createPierreEditor}>
 						<File<FileAnnotationMetadata>
 							key={annotationRevision}
@@ -602,6 +604,7 @@ function PierreEditBody({
 								) : null
 							}
 							options={{
+								...diffTheme,
 								disableFileHeader: true,
 								overflow: "scroll",
 								lineHoverHighlight: "number",
@@ -748,6 +751,7 @@ function DiffViewBody({
 }: {
 	openFile: Extract<OpenFile, { kind: "text" }>;
 }) {
+	const diffTheme = useZuseDiffTheme();
 	const [state, setState] = useState<DiffState>({ status: "loading" });
 	// Bumped after an in-place `git init` from the no-repo CTA so the diff
 	// re-fetches without the user toggling Edit/Diff to force a remount.
@@ -779,12 +783,13 @@ function DiffViewBody({
 
 	const diffOptions = useMemo(
 		() => ({
+			...diffTheme,
 			enableLineSelection: true,
 			enableGutterUtility: true,
 			lineHoverHighlight: "number" as const,
 			onGutterUtilityClick,
 		}),
-		[onGutterUtilityClick],
+		[diffTheme, onGutterUtilityClick],
 	);
 
 	const lineAnnotations = useMemo<DiffLineAnnotation<{ kind: "editor" }>[]>(
