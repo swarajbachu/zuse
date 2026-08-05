@@ -309,7 +309,7 @@ export default function HomeScreen() {
 				);
 			case "show-more":
 				return (
-					<View className="flex-row gap-2 rounded-b-2xl border-x border-b border-border bg-card px-4 py-3 pl-14">
+					<View className="flex-row gap-2 border-b border-border px-3 py-2 pl-12">
 						{item.hiddenCount > 0 ? (
 							<Button
 								size="sm"

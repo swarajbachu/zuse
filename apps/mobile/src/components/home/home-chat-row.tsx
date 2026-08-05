@@ -1,7 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
 	ArchiveIcon,
-	ArrowRight01Icon,
 	PinIcon,
 	PinOffIcon,
 } from "@hugeicons-pro/core-solid-rounded";
@@ -77,9 +76,6 @@ export function HomeChatRow({
 		`/c/${encodeURIComponent(row.connectionKey)}/session/${encodeURIComponent(
 			row.session.id,
 		)}` as const;
-	// Flat sections round their own first row; project rows attach to a header.
-	const roundedTop = item.showProject && item.isFirst;
-
 	return (
 		<Swipeable
 			friction={2}
@@ -94,12 +90,7 @@ export function HomeChatRow({
 							<Pressable
 								accessibilityRole="button"
 								accessibilityLabel={row.pinned ? "Unpin chat" : "Pin chat"}
-								className={cn(
-									"w-24 items-center justify-center border-t border-border bg-muted",
-									roundedTop && "rounded-tl-2xl",
-									item.isLast && "rounded-bl-2xl border-b",
-								)}
-								style={{ borderCurve: "continuous" }}
+								className="w-24 items-center justify-center bg-muted"
 								onPress={() => {
 									methods.close();
 									onTogglePin(item);
@@ -121,12 +112,7 @@ export function HomeChatRow({
 				<Pressable
 					accessibilityRole="button"
 					accessibilityLabel="Archive chat"
-					className={cn(
-						"w-24 items-center justify-center border-t border-danger/25 bg-danger/25",
-						roundedTop && "rounded-tr-2xl",
-						item.isLast && "rounded-br-2xl border-b",
-					)}
-					style={{ borderCurve: "continuous" }}
+					className="w-24 items-center justify-center bg-danger/15"
 					onPress={() => {
 						methods.close();
 						void onArchive(item);
@@ -141,14 +127,7 @@ export function HomeChatRow({
 		>
 			<Link href={href} asChild>
 				<Link.Trigger>
-					<Pressable
-						className={cn(
-							"min-h-[64px] flex-row items-center gap-2.5 border-x border-t border-border bg-card px-3 py-3 active:bg-muted",
-							roundedTop && "rounded-t-2xl",
-							item.isLast && "rounded-b-2xl border-b",
-						)}
-						style={{ borderCurve: "continuous" }}
-					>
+					<Pressable className="min-h-[64px] flex-row items-center gap-2.5 border-b border-border px-2 py-3 active:bg-muted">
 						{item.showProject ? (
 							<ProjectLogo
 								title={row.projectName}
@@ -192,11 +171,6 @@ export function HomeChatRow({
 								<BranchStateBadge state={branchState} />
 							</View>
 						</View>
-						<HugeIcon
-							icon={ArrowRight01Icon}
-							size={16}
-							color={colors.tertiaryFg}
-						/>
 					</Pressable>
 				</Link.Trigger>
 			</Link>

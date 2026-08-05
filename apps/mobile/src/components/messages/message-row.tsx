@@ -34,6 +34,7 @@ import {
 import React, { useState } from "react";
 import { type ColorValue, Pressable, Text, View } from "react-native";
 import { InlineFileDiff } from "~/components/diff/inline-file-diff";
+import { InlineErrorNotice } from "~/components/inline-error-notice";
 import { FileIcon } from "~/components/ui/file-icon";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { cn } from "~/lib/cn";
@@ -404,7 +405,7 @@ const ToolUseRow = ({
 			},
 		});
 
-	// Errors keep the boxed danger row for readability (risk containment).
+	// Keep details available without turning a failed tool into a blocking card.
 	if (view.isError) {
 		return (
 			<ExpandableEventRow
@@ -617,16 +618,8 @@ const ToolResultRow = ({
 };
 
 const ErrorRow = ({ message }: { message: string }) => (
-	<View className="px-2 py-2">
-		<View
-			style={{ borderCurve: "continuous" }}
-			className="rounded-2xl border border-danger bg-danger/10 px-3 py-2"
-		>
-			<Text className="font-sans-medium text-xs text-danger">Error</Text>
-			<Text selectable className="mt-1 font-sans text-sm leading-5 text-danger">
-				{message}
-			</Text>
-		</View>
+	<View className="px-2 py-1">
+		<InlineErrorNotice message={message} compact />
 	</View>
 );
 
@@ -886,8 +879,8 @@ function ExpandableEventRow({
 				accessibilityState={{ expanded }}
 				onPress={() => setExpanded((value) => !value)}
 				className={cn(
-					"rounded-xl border px-3 py-2 active:opacity-75",
-					danger ? "border-danger/40 bg-danger/10" : "border-border bg-card",
+					"rounded-xl px-3 py-2 active:bg-muted",
+					!danger && "bg-card",
 				)}
 				style={{ borderCurve: "continuous" }}
 			>

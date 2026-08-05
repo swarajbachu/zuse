@@ -93,6 +93,7 @@ import {
 	type ComposerTextInputHandle,
 } from "./composer-text-input";
 import { ComposerVoiceButton } from "./composer-voice-button";
+import { InlineErrorNotice } from "./inline-error-notice";
 import type { ModelModeValue } from "./model-mode-menu";
 import { ModelSheet } from "./model-sheet";
 import { ModelSheetTrigger } from "./model-sheet-trigger";
@@ -512,6 +513,15 @@ export const Composer = ({
 					) : null}
 				</View>
 			) : null}
+			{composerError ? (
+				<View className="mb-1">
+					<InlineErrorNotice
+						message={composerError}
+						compact
+						onDismiss={() => setComposerError(null)}
+					/>
+				</View>
+			) : null}
 
 			<GlassSurface
 				style={{
@@ -749,12 +759,6 @@ export const Composer = ({
 					</View>
 				)}
 			</GlassSurface>
-			{composerError ? (
-				<Text selectable className="px-3 pt-2 font-sans text-xs text-danger">
-					{composerError}
-				</Text>
-			) : null}
-
 			{modelValue === null ? null : (
 				<ModelSheet
 					open={modelSheetOpen}

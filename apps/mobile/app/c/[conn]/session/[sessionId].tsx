@@ -50,6 +50,7 @@ import { useUniwind } from "uniwind";
 
 import { Composer } from "~/components/composer";
 import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
+import { InlineErrorNotice } from "~/components/inline-error-notice";
 import { ChatManagementBars } from "~/components/messages/chat-management-bars";
 import { LivePermissionAccessory } from "~/components/messages/live-permission-accessory";
 import type { MessageRowContext } from "~/components/messages/message-row";
@@ -1180,13 +1181,11 @@ function ThreadScreen() {
 					drawDistance={800}
 					sharedValues={{ isNearEnd }}
 					ListHeaderComponent={
-						error && connectionProblem === null ? (
-							<Text
-								selectable
-								className="pb-2 font-sans text-[13px] text-danger"
-							>
-								{error}
-							</Text>
+						error && connectionNotice === null ? (
+							<InlineErrorNotice
+								message={connectionErrorMessage(error)}
+								compact
+							/>
 						) : null
 					}
 					ListFooterComponent={
