@@ -111,18 +111,27 @@ const sha256 = async (value: string): Promise<string> =>
 		),
 	);
 
-const jwtExpiry = (token: string): number => {
+const decodeJwtPayload = (
+	token: string,
+): { readonly exp?: unknown; readonly sub?: unknown } | null => {
 	try {
 		const encoded = token.split(".")[1];
-		if (encoded === undefined) return Date.now() + 5 * 60_000;
+		if (encoded === undefined) return null;
 		const normalized = encoded.replaceAll("-", "+").replaceAll("_", "/");
-		const payload = JSON.parse(atob(normalized)) as { readonly exp?: unknown };
-		return typeof payload.exp === "number"
-			? payload.exp * 1_000
-			: Date.now() + 5 * 60_000;
+		return JSON.parse(atob(normalized)) as {
+			readonly exp?: unknown;
+			readonly sub?: unknown;
+		};
 	} catch {
-		return Date.now() + 5 * 60_000;
+		return null;
 	}
+};
+
+const jwtExpiry = (token: string): number => {
+	const payload = decodeJwtPayload(token);
+	return typeof payload?.exp === "number"
+		? payload.exp * 1_000
+		: Date.now() + 5 * 60_000;
 };
 
 const readSession = (): HostedSession | null => {
@@ -138,6 +147,13 @@ const readSession = (): HostedSession | null => {
 	} catch {
 		return null;
 	}
+};
+
+export const hostedAccountId = (): string | null => {
+	const token = readSession()?.accessToken;
+	if (token === undefined) return null;
+	const payload = decodeJwtPayload(token);
+	return typeof payload?.sub === "string" ? payload.sub : null;
 };
 
 const writeSession = (session: HostedSession): HostedSession => {

@@ -214,8 +214,10 @@ const reconcileReadyTarget = Effect.fn("reconcileReadyTarget")(function* (
 		if (inspected.success === null) {
 			return withMissingProviderMachine(machine, nowMs);
 		}
-		const attemptCount = machine.attemptCount + 1;
-		if (attemptCount >= MAX_ATTEMPTS) {
+		if (
+			machine.enrollmentExpiresAtMs === undefined ||
+			machine.enrollmentExpiresAtMs <= nowMs
+		) {
 			return {
 				...machine,
 				state: "failed" as const,
@@ -227,14 +229,13 @@ const reconcileReadyTarget = Effect.fn("reconcileReadyTarget")(function* (
 					machine.state === "bootstrapping"
 						? "bootstrap-timeout"
 						: "enrollment-timeout",
-				attemptCount,
 				nextActionAtMs: Number.MAX_SAFE_INTEGER,
 				updatedAtMs: nowMs,
 			};
 		}
 		return {
 			...machine,
-			attemptCount,
+			attemptCount: 0,
 			nextActionAtMs: nowMs + 60_000,
 			updatedAtMs: nowMs,
 		};

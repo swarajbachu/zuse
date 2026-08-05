@@ -195,6 +195,45 @@ describe("machine reconciler", () => {
 		expect(result.machine?.providerServerId).toBe("fake-machine_1");
 	});
 
+	test("bounds setup by the persisted enrollment deadline", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const seeded = yield* seedMachine(Date.now() - 1_000);
+				yield* reconcileMachines({ owner: "provision" });
+				const store = yield* MachineStore;
+				const provisioned = yield* store.getMachine(seeded.machineId);
+				if (provisioned === null) return yield* Effect.die("missing machine");
+				yield* store.saveMachine({
+					...provisioned,
+					attemptCount: 24,
+					enrollmentExpiresAtMs: Date.now() + 60_000,
+					nextActionAtMs: 0,
+				});
+
+				yield* reconcileMachines({ owner: "bootstrap-check" });
+				const continued = yield* store.getMachine(seeded.machineId);
+				if (continued === null) return yield* Effect.die("missing machine");
+				yield* store.saveMachine({
+					...continued,
+					enrollmentExpiresAtMs: 0,
+					nextActionAtMs: 0,
+				});
+				yield* reconcileMachines({ owner: "bootstrap-timeout" });
+				return {
+					continued,
+					timedOut: yield* store.getMachine(seeded.machineId),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.continued.state).toBe("bootstrapping");
+		expect(result.continued.statusCode).toBe("bootstrap-pending");
+		expect(result.continued.attemptCount).toBe(0);
+		expect(result.timedOut?.state).toBe("failed");
+		expect(result.timedOut?.stableFailureCode).toBe("bootstrap-timeout");
+		expect(result.timedOut?.attemptCount).toBe(0);
+	});
+
 	test("durably retries subscription cancellation before waiting for paid-through", async () => {
 		let cancellationAttempts = 0;
 		const billing: BillingProviderAdapter = {
