@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+	BillingCheckoutRequest,
 	MachineCreateRequest,
 	MachineRecord,
 	PERSISTENT_STANDARD_OFFER_ID,
@@ -54,6 +55,14 @@ describe("managed machine contracts", () => {
 				offerId: PERSISTENT_STANDARD_OFFER_ID,
 			}),
 		).toThrow();
+	});
+
+	it("keeps the checkout return URL server-owned", () => {
+		const decoded = Schema.decodeUnknownSync(BillingCheckoutRequest)({
+			offerId: PERSISTENT_STANDARD_OFFER_ID,
+		});
+
+		expect(decoded).toEqual({ offerId: PERSISTENT_STANDARD_OFFER_ID });
 	});
 
 	it("rejects legacy client-controlled provider placement", () => {

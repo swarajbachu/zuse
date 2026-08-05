@@ -58,6 +58,32 @@ const json = (body: unknown, status = 200): Response =>
 		headers: { "content-type": "application/json" },
 	});
 
+const checkoutComplete = (): Response =>
+	new Response(
+		`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Checkout submitted - Zuse</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0d0d0d;color:#f2f2f2;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.card{width:min(30rem,calc(100% - 2rem));padding:2rem;border:1px solid #303030;border-radius:1rem;background:#191919}h1{margin:0;font-size:1.5rem;line-height:1.25}p{margin:1rem 0 0;color:#aaa;line-height:1.5}.status{color:#caff00}
+</style>
+</head>
+<body><main class="card"><h1><span class="status">Checkout submitted.</span> Return to Zuse.</h1><p>We are waiting for payment confirmation. Your cloud machine will appear automatically when provisioning begins. You can close this tab.</p></main></body>
+</html>`,
+		{
+			status: 200,
+			headers: {
+				"cache-control": "no-store",
+				"content-security-policy":
+					"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+				"content-type": "text/html; charset=utf-8",
+				"x-content-type-options": "nosniff",
+			},
+		},
+	);
+
 const matchBillingWebhookPath = (
 	path: string,
 ): { readonly providerId?: string } | null => {
@@ -229,6 +255,10 @@ export const routeMachineRequest = (
 		const method = request.method.toUpperCase();
 		const nowMs = yield* Clock.currentTimeMillis;
 		const store = yield* MachineStore;
+
+		if (method === "GET" && path === RelayPaths.billingCheckoutComplete) {
+			return checkoutComplete();
+		}
 
 		const billingWebhookMatch = matchBillingWebhookPath(path);
 		if (method === "POST" && billingWebhookMatch !== null) {
@@ -606,8 +636,8 @@ export const routeMachineRequest = (
 			if (findMachineOffer(body.offerId) === undefined) {
 				return yield* Effect.fail(badRequest("invalid_machine_offer"));
 			}
-			const config = yield* MachineControlConfiguration;
-			if (!config.liveCheckoutEnabled) {
+			const machineConfig = yield* MachineControlConfiguration;
+			if (!machineConfig.liveCheckoutEnabled) {
 				return yield* Effect.fail(
 					serviceUnavailable("billing_approval_pending"),
 				);
@@ -630,6 +660,7 @@ export const routeMachineRequest = (
 				return yield* Effect.fail(conflict("machine_subscription_exists"));
 			}
 			const billingProviders = yield* BillingProviders;
+			const relayConfig = yield* RelayConfiguration;
 			const billing = yield* billingProviders.getDefault.pipe(
 				Effect.mapError(() =>
 					serviceUnavailable("billing_provider_unavailable"),
@@ -639,7 +670,10 @@ export const routeMachineRequest = (
 				.checkout({
 					accountId: principal.accountId,
 					offerId: body.offerId,
-					successUrl: body.successUrl,
+					successUrl: new URL(
+						RelayPaths.billingCheckoutComplete,
+						relayConfig.relayIssuer,
+					).toString(),
 				})
 				.pipe(
 					Effect.mapError(() =>
