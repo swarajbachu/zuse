@@ -330,16 +330,18 @@ export function DevicesPane() {
 		pairing === null ? null : preferredBrowserPairingUrl(pairing, status);
 
 	return (
-		<section className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 text-[13px]">
+		<section className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3 text-xs">
 			<Frame>
-				<FramePanel className="space-y-2.5 p-2.5">
-					<div className="flex items-start gap-3">
-						<div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
+				<FramePanel className="space-y-2 p-2.5">
+					<div className="flex items-start gap-2.5">
+						<div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted">
 							<Wifi className="size-4" aria-hidden />
 						</div>
 						<div className="min-w-0 flex-1">
-							<FrameTitle>{deviceAccessCopy.localTitle}</FrameTitle>
-							<p className="mt-1 text-xs text-muted-foreground">
+							<FrameTitle className="text-xs font-medium">
+								{deviceAccessCopy.localTitle}
+							</FrameTitle>
+							<p className="mt-0.5 text-[11px] text-muted-foreground">
 								{networkEnabled
 									? "Use this environment from a web browser or the mobile app on this network."
 									: "Enable network access to connect a browser or another device."}
@@ -355,12 +357,12 @@ export function DevicesPane() {
 							{networkEnabled ? "On" : "Off"}
 						</span>
 					</div>
-					<p className="text-xs text-muted-foreground">
+					<p className="text-[11px] text-muted-foreground">
 						This computer owns the projects, files, agents, and terminals. Each
 						connected client gets revocable access from a one-time link.
 					</p>
 				</FramePanel>
-				<FrameFooter className="flex flex-wrap justify-end gap-2 px-2.5 py-2">
+				<FrameFooter className="flex flex-wrap justify-end gap-1.5 px-2.5 py-1.5">
 					{!canManageNetwork ? (
 						<p className="text-right text-xs text-muted-foreground">
 							Network access is managed from the desktop app.
@@ -425,12 +427,12 @@ export function DevicesPane() {
 						</div>
 						<div className="flex min-w-0 flex-col justify-center gap-2.5">
 							<div>
-								<FrameTitle>
+								<FrameTitle className="text-xs font-medium">
 									{pairingTarget === "browser"
 										? "Connect a web browser"
 										: "Connect the mobile app"}
 								</FrameTitle>
-								<p className="mt-1 text-xs text-muted-foreground">
+								<p className="mt-0.5 text-[11px] text-muted-foreground">
 									This one-time link expires in five minutes. Access remains
 									until you revoke the connected device below.
 								</p>
@@ -504,13 +506,15 @@ export function DevicesPane() {
 
 			{hasActiveTokens && (
 				<Frame>
-					<FramePanel className="space-y-2.5 p-2.5">
-						<FrameTitle>{deviceAccessCopy.pairedTitle}</FrameTitle>
+					<FramePanel className="space-y-2 p-2.5">
+						<FrameTitle className="text-xs font-medium">
+							{deviceAccessCopy.pairedTitle}
+						</FrameTitle>
 						<div className="flex flex-col gap-2">
 							{identifiedDevices.map((token) => (
 								<div
 									key={token.id}
-									className="flex min-h-11 items-center gap-3 rounded-lg border border-border/50 bg-muted/20 px-3 py-2"
+									className="flex min-h-9 items-center gap-2.5 rounded-md border border-border/50 bg-muted/20 px-2.5 py-1.5"
 								>
 									{accessDeviceKind(token) === "browser" ? (
 										<Monitor
@@ -524,13 +528,13 @@ export function DevicesPane() {
 										/>
 									)}
 									<div className="min-w-0 flex-1">
-										<p className="truncate text-sm font-medium">
+										<p className="truncate text-xs font-medium">
 											{token.label ??
 												(accessDeviceKind(token) === "browser"
 													? "Web browser"
 													: "Mobile device")}
 										</p>
-										<p className="text-xs text-muted-foreground">
+										<p className="text-[11px] text-muted-foreground">
 											{token.lastUsedAt
 												? `Last connected ${token.lastUsedAt.toLocaleString()}`
 												: "Not connected yet"}
@@ -546,16 +550,16 @@ export function DevicesPane() {
 								</div>
 							))}
 							{legacyCredentials.length > 0 && (
-								<div className="flex min-h-11 items-center gap-3 rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
+								<div className="flex min-h-9 items-center gap-2.5 rounded-md border border-border/50 bg-muted/20 px-2.5 py-1.5">
 									<Smartphone
 										className="size-4 shrink-0 text-muted-foreground"
 										aria-hidden
 									/>
 									<div className="min-w-0 flex-1">
-										<p className="truncate text-sm font-medium">
+										<p className="truncate text-xs font-medium">
 											Older device access
 										</p>
-										<p className="text-xs text-muted-foreground">
+										<p className="text-[11px] text-muted-foreground">
 											{legacyCredentials.length} access credential
 											{legacyCredentials.length === 1 ? "" : "s"} from an
 											earlier version
@@ -576,7 +580,7 @@ export function DevicesPane() {
 			)}
 
 			<Frame>
-				<FramePanel className="space-y-2.5 p-2.5">
+				<FramePanel className="space-y-2 p-2.5">
 					<div className="flex items-center gap-2">
 						<span
 							className={
@@ -586,23 +590,25 @@ export function DevicesPane() {
 							}
 							aria-hidden
 						/>
-						<FrameTitle>{deviceAccessCopy.remoteTitle}</FrameTitle>
+						<FrameTitle className="text-xs font-medium">
+							{deviceAccessCopy.remoteTitle}
+						</FrameTitle>
 					</div>
 					{linked ? (
-						<p className="text-xs text-muted-foreground">
+						<p className="text-[11px] text-muted-foreground">
 							{remoteReady
 								? `Ready. Use ${status?.label ?? "this computer"} from a browser or mobile device away from this Wi-Fi.`
 								: "Linked to your account. Remote access will resume when this computer reconnects."}
 						</p>
 					) : (
 						<>
-							<p className="text-xs text-muted-foreground">
+							<p className="text-[11px] text-muted-foreground">
 								Optional. Sign in to reach this environment from a browser or
 								mobile device away from this Wi-Fi.
 							</p>
 							<label
 								htmlFor="device-computer-label"
-								className="flex flex-col gap-2 text-sm font-medium"
+								className="flex flex-col gap-1.5 text-xs font-medium"
 							>
 								Computer name (optional)
 								<Input
@@ -619,7 +625,7 @@ export function DevicesPane() {
 						separate environment and prints its own web link.
 					</p>
 				</FramePanel>
-				<FrameFooter className="flex justify-end px-2.5 py-2">
+				<FrameFooter className="flex justify-end px-2.5 py-1.5">
 					<Button
 						size="xs"
 						variant={linked ? "destructive-outline" : "default"}

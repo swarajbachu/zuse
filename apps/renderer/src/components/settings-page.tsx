@@ -184,7 +184,7 @@ export function SettingsPage() {
 	}, [folders.length, loadFolders]);
 
 	return (
-		<div className="settings-surface flex min-h-0 flex-1 flex-col bg-background">
+		<div className="settings-surface flex min-h-0 flex-1 flex-col bg-background [&_button[data-slot=button]:not([class*='size-'])]:h-7 [&_button[data-slot=button]:not([class*='size-'])]:text-[11px]">
 			<header className="flex h-8 shrink-0 items-center px-3 text-xs text-muted-foreground [-webkit-app-region:drag]">
 				<div className="w-16 shrink-0" />
 				<button
@@ -199,10 +199,10 @@ export function SettingsPage() {
 			</header>
 			<div className="flex min-h-0 flex-1">
 				<Rail section={section} onSelect={setSection} folders={folders} />
-				<div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-6">
+				<div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5">
 					<div
 						className={cn(
-							"mx-auto flex w-full flex-col gap-8",
+							"mx-auto flex w-full flex-col gap-4",
 							section.kind === "diagnostics"
 								? "max-w-6xl"
 								: section.kind === "pokedex"
@@ -395,7 +395,7 @@ function SectionTitle({
 	}, [section, folders]);
 	return (
 		<div className="flex min-w-0 items-center gap-1.5">
-			<h1 className="truncate text-base font-semibold tracking-tight text-foreground">
+			<h1 className="truncate text-sm font-semibold tracking-tight text-foreground">
 				{title}
 			</h1>
 			{subtitle && <InfoTip content={subtitle} />}
@@ -1374,7 +1374,7 @@ function ProvidersPane() {
 									aria-selected={selected}
 									onClick={() => setSelectedProvider(pid)}
 									className={cn(
-										"flex min-h-9 shrink-0 items-center gap-2 border-b px-2.5 text-sm transition-colors",
+										"flex min-h-7 shrink-0 items-center gap-1.5 border-b px-2 text-xs transition-colors",
 										selected
 											? "border-primary text-foreground"
 											: "border-transparent text-muted-foreground hover:text-foreground",
@@ -1438,10 +1438,10 @@ function ProvidersPane() {
 									role="radio"
 									aria-checked={selected}
 									onClick={() => setDefaultProvider(pid)}
-									className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+									className="group flex min-h-9 w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/40"
 								>
 									<ProviderIcon providerId={pid} className="size-4 shrink-0" />
-									<span className="flex-1 truncate text-sm font-medium text-foreground">
+									<span className="flex-1 truncate text-xs font-medium text-foreground">
 										{PROVIDER_LABEL[pid]}
 									</span>
 									<RadioCheck active={selected} />
@@ -1597,7 +1597,7 @@ export function SettingsCardHeader({
 	trailing?: React.ReactNode;
 }) {
 	return (
-		<header className="flex h-10 shrink-0 items-center gap-2 px-4 text-muted-foreground">
+		<header className="flex h-8 shrink-0 items-center gap-2 px-3 text-muted-foreground">
 			{Icon && <HugeiconsIcon icon={Icon} className="size-3.5" aria-hidden />}
 			<span className="min-w-0 flex-1 truncate text-[11px] font-medium text-muted-foreground">
 				{title}
@@ -1630,8 +1630,8 @@ export function SettingsRow({
 	children?: React.ReactNode;
 }) {
 	return (
-		<div className={cn("flex flex-col gap-3 px-4 py-3", className)}>
-			<div className="flex items-start gap-3">
+		<div className={cn("flex flex-col gap-2 px-3 py-2.5", className)}>
+			<div className="flex items-start gap-2.5">
 				{Icon && (
 					<HugeiconsIcon
 						icon={Icon}
@@ -1640,14 +1640,14 @@ export function SettingsRow({
 					/>
 				)}
 				<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-					<div className="text-sm font-medium text-foreground">{title}</div>
+					<div className="text-xs font-medium text-foreground">{title}</div>
 					{description && (
 						<div className="text-[11px] leading-snug text-muted-foreground">
 							{description}
 						</div>
 					)}
 				</div>
-				{action && <div className="shrink-0 pt-0.5">{action}</div>}
+				{action && <div className="shrink-0">{action}</div>}
 			</div>
 			{children}
 		</div>

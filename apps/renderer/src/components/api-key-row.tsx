@@ -245,13 +245,13 @@ export function ApiKeyRow({
 						aria-describedby={
 							persistedFeedback !== null ? feedbackId : undefined
 						}
-						className="h-9 rounded-md pe-10"
+						className="pe-8"
 					/>
 					<button
 						type="button"
 						onClick={() => setReveal((current) => !current)}
 						disabled={busy}
-						className="absolute end-0 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px]"
+						className="absolute end-0 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px]"
 						aria-label={reveal ? "Hide API key" : "Reveal API key"}
 					>
 						<HugeiconsIcon
@@ -263,7 +263,7 @@ export function ApiKeyRow({
 				</div>
 				<Button
 					type="submit"
-					size="sm"
+					size="default"
 					disabled={busy || value.trim().length === 0}
 				>
 					{busy ? "Verifying…" : required ? "Verify and save" : "Save"}
@@ -271,7 +271,7 @@ export function ApiKeyRow({
 				{required && hasKey && (
 					<Button
 						type="button"
-						size="sm"
+						size="default"
 						variant="ghost"
 						disabled={busy}
 						onClick={() => {
