@@ -151,15 +151,16 @@ describe("mobile UI contracts", () => {
 			"utf8",
 		);
 		for (const source of [row, header]) {
-			expect(source).not.toContain("useProjectAvatarUrl");
-			expect(source).not.toContain("ProjectLogo");
 			expect(source).not.toContain("bg-card");
 			expect(source).not.toContain("border-border");
 		}
+		expect(row).not.toContain("useProjectAvatarUrl");
+		expect(row).not.toContain("ProjectLogo");
 		expect(row).not.toContain("hydratePrState");
 		expect(row).not.toContain("BranchStateBadge");
 		expect(row).toContain("ProviderLogo");
-		expect(header).toContain("Github");
+		expect(header).toContain("useProjectAvatarUrl");
+		expect(header).toContain("ProjectLogo");
 		expect(avatar).toContain("hydrateProjectOrigin");
 		expect(logo).toContain('from "expo-image"');
 		expect(logo).toContain('cachePolicy="memory-disk"');
