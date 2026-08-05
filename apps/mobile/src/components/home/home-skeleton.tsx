@@ -33,22 +33,15 @@ export function HomeSkeleton() {
 			{ROWS.map((index) => (
 				<View
 					key={index}
-					className={cn(
-						"min-h-[64px] flex-row items-center gap-3 border-x border-t border-border bg-card px-3 py-3",
-						index === 0 && "mt-3 rounded-t-2xl",
-						index === ROWS.length - 1 && "rounded-b-2xl border-b",
-					)}
-					style={{ borderCurve: "continuous" }}
+					className={cn("min-h-[58px] px-4 py-3", index === 0 && "mt-3")}
 				>
 					<Animated.View
-						className="flex-1 flex-row items-center gap-3"
+						className="flex-1 flex-row items-center gap-2.5"
 						style={pulseStyle}
 					>
-						<View className="h-9 w-9 rounded-xl bg-muted" />
-						<View className="flex-1 gap-2">
-							<View className="h-3.5 w-3/5 rounded-full bg-muted" />
-							<View className="h-3 w-2/5 rounded-full bg-muted" />
-						</View>
+						<View className="h-2 w-2 rounded-full bg-muted" />
+						<View className="h-3.5 flex-1 rounded-full bg-muted" />
+						<View className="h-3 w-8 rounded-full bg-muted" />
 					</Animated.View>
 				</View>
 			))}

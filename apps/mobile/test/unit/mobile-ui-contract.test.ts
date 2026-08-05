@@ -133,7 +133,7 @@ describe("mobile UI contracts", () => {
 		expect(threadComposer.match(/<ComposerModeChip/g)).toHaveLength(4);
 	});
 
-	test("hydrates canonical project avatars and renders them through expo image", () => {
+	test("keeps home rows lightweight while reusable project images stay cached", () => {
 		const row = readFileSync(
 			`${process.cwd()}/src/components/home/home-chat-row.tsx`,
 			"utf8",
@@ -151,8 +151,14 @@ describe("mobile UI contracts", () => {
 			"utf8",
 		);
 		for (const source of [row, header]) {
-			expect(source).toContain("useProjectAvatarUrl");
+			expect(source).not.toContain("useProjectAvatarUrl");
+			expect(source).not.toContain("ProjectLogo");
+			expect(source).not.toContain("bg-card");
+			expect(source).not.toContain("border-border");
 		}
+		expect(row).not.toContain("hydratePrState");
+		expect(row).not.toContain("BranchStateBadge");
+		expect(header).toContain("FolderIcon");
 		expect(avatar).toContain("hydrateProjectOrigin");
 		expect(logo).toContain('from "expo-image"');
 		expect(logo).toContain('cachePolicy="memory-disk"');
