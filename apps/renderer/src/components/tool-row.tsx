@@ -848,7 +848,6 @@ const buildToolView = (
 									path={patch.file_path}
 									patch={patch.patch}
 									kind={patch.kind}
-									showHeader={patches.length > 1}
 								/>
 							))}
 						</div>
@@ -858,7 +857,6 @@ const buildToolView = (
 								<EditDiff
 									key={i}
 									edit={edit as FileEdit}
-									showHeader={edits.length > 1}
 								/>
 							))}
 						</div>
