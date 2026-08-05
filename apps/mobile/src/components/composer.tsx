@@ -5,7 +5,7 @@ import {
 	StopIcon,
 } from "@hugeicons-pro/core-solid-rounded";
 import type { ComposerTrigger } from "@zuse/client-runtime/composer-trigger";
-import { containsComposerToken } from "@zuse/client-runtime/composer-trigger";
+import { retainComposerReferences } from "@zuse/client-runtime/composer-trigger";
 import { chooseComposerSubmitRoute } from "@zuse/client-runtime/plan-interactions";
 import {
 	type FileRef,
@@ -590,13 +590,17 @@ export const Composer = ({
 									onPersist={persistDraftText}
 									onTextChange={(text) => {
 										setFileRefs((current) =>
-											current.filter((file) =>
-												containsComposerToken(text, `@${file.relPath}`),
+											retainComposerReferences(
+												current,
+												text,
+												(file) => `@${file.relPath}`,
 											),
 										);
 										setSkillRefs((current) =>
-											current.filter((skill) =>
-												containsComposerToken(text, `/${skill.name}`),
+											retainComposerReferences(
+												current,
+												text,
+												(skill) => `/${skill.name}`,
 											),
 										);
 									}}
