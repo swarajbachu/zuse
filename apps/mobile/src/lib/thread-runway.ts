@@ -1,18 +1,7 @@
 const MINIMUM_RUNWAY = 16;
-const VERTICAL_GUTTER = 24;
 
-export const transcriptEndRunwayHeight = ({
-	viewportHeight,
-	headerHeight,
-	composerHeight,
-}: {
-	readonly viewportHeight: number;
-	readonly headerHeight: number;
-	readonly composerHeight: number;
-}): number =>
-	Math.max(
-		MINIMUM_RUNWAY,
-		Math.round(
-			viewportHeight - headerHeight - composerHeight - VERTICAL_GUTTER,
-		),
-	);
+/**
+ * The keyboard-aware list owns composer clearance and temporary send anchoring.
+ * A settled transcript only needs a small visual gap after its final row.
+ */
+export const transcriptEndRunwayHeight = (): number => MINIMUM_RUNWAY;

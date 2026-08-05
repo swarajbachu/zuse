@@ -217,7 +217,7 @@ describe("mobile UI contracts", () => {
 		);
 		expect(layout).toContain("<KeyboardProvider");
 		expect(thread).toContain("useHeaderHeight");
-		expect(thread).toContain("<KeyboardGestureArea");
+		expect(thread).not.toContain("<KeyboardGestureArea");
 		expect(thread).toContain('contentInsetAdjustmentBehavior="never"');
 		expect(thread).toContain("alignItemsAtEnd");
 		expect(thread).toContain("contentInsetEndAdjustment");
@@ -295,7 +295,7 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("footerLayout: true");
 		expect(thread).toContain("scrollMessageToEnd");
 		expect(thread).toContain("keyboardOffset={insets.bottom}");
-		expect(thread).toContain('keyboardLiftBehavior="always"');
+		expect(thread).toContain('keyboardLiftBehavior="whenAtEnd"');
 		expect(thread).toContain("offset={{ closed: 0, opened: insets.bottom }}");
 		expect(thread).toContain(
 			"transcriptScroll.onMessageWillAppend(turns.length)",
@@ -345,12 +345,12 @@ describe("mobile UI contracts", () => {
 		expect(thread).not.toContain("latestTurnTopOffset");
 	});
 
-	test("shows intentional transcript loading and reserves a measured end runway", () => {
+	test("shows intentional transcript loading without a viewport-sized end runway", () => {
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
 		expect(thread).toContain("<TranscriptLoadingState");
 		expect(thread).toContain("initialTranscriptLoading");
 		expect(thread).toContain("transcriptEndRunwayHeight");
-		expect(thread).toContain("onLayout={onTranscriptLayout}");
+		expect(thread).not.toContain("onLayout={onTranscriptLayout}");
 	});
 
 	test("uses a synchronous composer submission gate", () => {

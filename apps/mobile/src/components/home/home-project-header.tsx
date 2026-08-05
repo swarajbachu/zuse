@@ -1,7 +1,4 @@
-import {
-	ArrowDown01Icon,
-	ArrowRight01Icon,
-} from "@zuse/icons/solid-rounded";
+import { ArrowDown01Icon, ArrowRight01Icon } from "@zuse/icons/solid-rounded";
 import { useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
 
@@ -45,7 +42,7 @@ export function HomeProjectHeader({
 				collapsed ? ", collapsed" : ""
 			}`}
 			onPress={onToggle}
-			className="mt-3 min-h-[60px] flex-row items-center gap-3 border-b border-border px-2 py-3 active:bg-muted"
+			className="mt-3 min-h-[60px] flex-row items-center gap-3 px-2 py-3 active:bg-muted"
 		>
 			<ProjectLogo title={group.title} avatarUrl={avatarUrl} size={36} />
 			<View className="min-w-0 flex-1">

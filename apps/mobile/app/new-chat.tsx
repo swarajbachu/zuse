@@ -1,5 +1,4 @@
 import { useAtomValue } from "@effect/atom-react";
-import { ArrowUpIcon, CloudOffIcon } from "@zuse/icons/solid-rounded";
 import {
 	orderedChatSessions,
 	resolveActiveChatSession,
@@ -11,6 +10,7 @@ import type {
 	GitPrSummary,
 	Worktree,
 } from "@zuse/contracts";
+import { ArrowUpIcon, CloudOffIcon } from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
