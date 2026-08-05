@@ -1,4 +1,9 @@
-import { BillingProvidersManual } from "@zuse/billing-providers";
+import {
+	type BillingProviderAdapter,
+	BillingProviderError,
+	BillingProviders,
+	BillingProvidersManual,
+} from "@zuse/billing-providers";
 import { MachineProviders } from "@zuse/machine-providers";
 import {
 	FakeMachineProviderControlService,
@@ -25,26 +30,34 @@ const noTunnel: ManagedTunnelProviderApi = {
 	deprovision: () => Effect.void,
 };
 
-const testLayer = Layer.mergeAll(
-	MachineStoreMemory,
-	MachineProvidersFake,
-	BillingProvidersManual,
-	RelayStoreMemory,
-	Layer.succeed(ManagedTunnelProvider, noTunnel),
-	Layer.succeed(
-		AccountIdentity,
-		AccountIdentity.of({ deleteUser: () => Effect.void }),
-	),
-	Layer.succeed(MachineControlConfiguration, {
-		allowlistedAccountIds: new Set(["user_a"]),
-		manualEntitlementsEnabled: true,
-		liveCheckoutEnabled: false,
-		enrollmentTtlMs: 30 * 60 * 1_000,
-		recoveryWindowMs: 7 * 24 * 60 * 60 * 1_000,
-		finalSnapshotRetentionMs: 14 * 24 * 60 * 60 * 1_000,
-		reconcileLeaseMs: 5 * 60 * 1_000,
-	}),
-);
+const makeTestLayer = (billing?: BillingProviderAdapter) =>
+	Layer.mergeAll(
+		MachineStoreMemory,
+		MachineProvidersFake,
+		billing === undefined
+			? BillingProvidersManual
+			: BillingProviders.layer({
+					adapters: [billing],
+					defaultProviderId: billing.providerId,
+				}).pipe(Layer.orDie),
+		RelayStoreMemory,
+		Layer.succeed(ManagedTunnelProvider, noTunnel),
+		Layer.succeed(
+			AccountIdentity,
+			AccountIdentity.of({ deleteUser: () => Effect.void }),
+		),
+		Layer.succeed(MachineControlConfiguration, {
+			allowlistedAccountIds: new Set(["user_a"]),
+			manualEntitlementsEnabled: true,
+			liveCheckoutEnabled: false,
+			enrollmentTtlMs: 30 * 60 * 1_000,
+			recoveryWindowMs: 7 * 24 * 60 * 60 * 1_000,
+			finalSnapshotRetentionMs: 14 * 24 * 60 * 60 * 1_000,
+			reconcileLeaseMs: 5 * 60 * 1_000,
+		}),
+	);
+
+const testLayer = makeTestLayer();
 
 const seedMachine = Effect.fn("seedMachine")(function* (nowMs: number) {
 	const store = yield* MachineStore;
@@ -180,6 +193,137 @@ describe("machine reconciler", () => {
 		expect(result.createCalls).toBe(1);
 		expect(result.machine?.state).toBe("bootstrapping");
 		expect(result.machine?.providerServerId).toBe("fake-machine_1");
+	});
+
+	test("durably retries subscription cancellation before waiting for paid-through", async () => {
+		let cancellationAttempts = 0;
+		const billing: BillingProviderAdapter = {
+			providerId: "billing-test",
+			checkout: () => new BillingProviderError({ code: "checkout-disabled" }),
+			verifyEvent: () =>
+				new BillingProviderError({ code: "checkout-disabled" }),
+			reconcileSubscription: () =>
+				new BillingProviderError({ code: "checkout-disabled" }),
+			cancel: () => {
+				cancellationAttempts += 1;
+				return cancellationAttempts === 1
+					? new BillingProviderError({ code: "provider-unavailable" })
+					: Effect.void;
+			},
+			customerPortal: () =>
+				new BillingProviderError({ code: "checkout-disabled" }),
+		};
+		const nowMs = Date.now();
+		const paidThroughMs = nowMs + 60_000;
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const seeded = yield* seedMachine(nowMs);
+				const store = yield* MachineStore;
+				yield* reconcileMachines({ owner: "provision" });
+				const provisioned = yield* store.getMachine(seeded.machineId);
+				if (provisioned === null) return yield* Effect.die("missing machine");
+				yield* store.upsertEntitlement({
+					entitlementId: "ent_1",
+					accountId: "user_a",
+					kind: "persistent-machine",
+					offerId: "persistent-standard-v1",
+					provider: billing.providerId,
+					providerSubscriptionId: "subscription_1",
+					status: "active",
+					paidThroughMs,
+					createdAtMs: nowMs,
+					updatedAtMs: nowMs,
+				});
+				yield* store.saveMachine({
+					...provisioned,
+					state: "ready",
+					desiredState: "suspended",
+					statusCode: "cancellation-scheduled",
+					paidThroughMs,
+					nextActionAtMs: 0,
+				});
+
+				yield* reconcileMachines({ owner: "cancel-fails" });
+				const afterFailure = yield* store.getMachine(seeded.machineId);
+				if (afterFailure === null) return yield* Effect.die("missing machine");
+				yield* store.saveMachine({ ...afterFailure, nextActionAtMs: 0 });
+				yield* reconcileMachines({ owner: "cancel-retries" });
+				return {
+					afterFailure,
+					afterRetry: yield* store.getMachine(seeded.machineId),
+				};
+			}).pipe(Effect.provide(makeTestLayer(billing))),
+		);
+
+		expect(cancellationAttempts).toBe(2);
+		expect(result.afterFailure.stableFailureCode).toBe(
+			"billing-provider-unavailable",
+		);
+		expect(result.afterRetry).toMatchObject({
+			state: "ready",
+			desiredState: "suspended",
+			statusCode: "cancellation-scheduled",
+			nextActionAtMs: paidThroughMs,
+		});
+	});
+
+	test("finishes provisioning after cancellation while the machine is paid through", async () => {
+		let cancellationAttempts = 0;
+		const billing: BillingProviderAdapter = {
+			providerId: "billing-test",
+			checkout: () => new BillingProviderError({ code: "checkout-disabled" }),
+			verifyEvent: () =>
+				new BillingProviderError({ code: "checkout-disabled" }),
+			reconcileSubscription: () =>
+				new BillingProviderError({ code: "checkout-disabled" }),
+			cancel: () =>
+				Effect.sync(() => {
+					cancellationAttempts += 1;
+				}),
+			customerPortal: () =>
+				new BillingProviderError({ code: "checkout-disabled" }),
+		};
+		const nowMs = Date.now();
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const seeded = yield* seedMachine(nowMs);
+				const store = yield* MachineStore;
+				const control = yield* FakeMachineProviderControlService;
+				yield* store.upsertEntitlement({
+					entitlementId: "ent_1",
+					accountId: "user_a",
+					kind: "persistent-machine",
+					offerId: "persistent-standard-v1",
+					provider: billing.providerId,
+					providerSubscriptionId: "subscription_1",
+					status: "active",
+					paidThroughMs: nowMs + 60_000,
+					createdAtMs: nowMs,
+					updatedAtMs: nowMs,
+				});
+				yield* store.saveMachine({
+					...seeded,
+					desiredState: "suspended",
+					statusCode: "cancellation-scheduled",
+					paidThroughMs: nowMs + 60_000,
+					nextActionAtMs: 0,
+				});
+
+				yield* reconcileMachines({ owner: "cancel-during-create" });
+				return {
+					machine: yield* store.getMachine(seeded.machineId),
+					createCalls: yield* Ref.get(control.createCalls),
+				};
+			}).pipe(Effect.provide(makeTestLayer(billing))),
+		);
+
+		expect(cancellationAttempts).toBe(1);
+		expect(result.createCalls).toBe(1);
+		expect(result.machine).toMatchObject({
+			state: "bootstrapping",
+			desiredState: "suspended",
+			statusCode: "bootstrap-pending",
+		});
 	});
 
 	test("suspends, resumes, snapshots, destroys, and later expires the snapshot", async () => {

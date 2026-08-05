@@ -11,6 +11,10 @@ import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
+import deploymentProfiles from "../../../packages/contracts/src/deployment-profiles.json" with {
+	type: "json",
+};
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopDir = resolve(__dirname, "..");
 const require = createRequire(import.meta.url);
@@ -134,10 +138,10 @@ function startApp() {
 				VITE_DEV_SERVER_URL: devServerUrl,
 				ZUSE_RELAY_URL:
 					process.env.ZUSE_RELAY_URL?.trim() ||
-					"https://relay-staging.stuff.md",
+					deploymentProfiles.staging.relayUrl,
 				VITE_ZUSE_RELAY_URL:
 					process.env.VITE_ZUSE_RELAY_URL?.trim() ||
-					"https://relay-staging.stuff.md",
+					deploymentProfiles.staging.relayUrl,
 			},
 			stdio: "inherit",
 		},

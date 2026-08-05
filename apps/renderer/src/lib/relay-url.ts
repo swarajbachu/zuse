@@ -1,5 +1,4 @@
-const PRODUCTION_RELAY_URL = "https://relay.stuff.md";
-const STAGING_RELAY_URL = "https://relay-staging.stuff.md";
+import { PRODUCTION_RELAY_URL, STAGING_RELAY_URL } from "@zuse/contracts";
 
 const environment = (): Record<string, string | undefined> =>
 	(import.meta as { readonly env?: Record<string, string | undefined> }).env ??

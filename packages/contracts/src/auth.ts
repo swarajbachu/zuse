@@ -1,8 +1,13 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
-/** Public AuthKit client identifier shared by all Zuse clients. */
-export const WORKOS_PUBLIC_CLIENT_ID = "client_01KWGQ818571ARFATQ3G9AR2Y2";
+export {
+	PRODUCTION_RELAY_URL,
+	PUBLIC_DEPLOYMENT_PROFILES,
+	STAGING_RELAY_URL,
+	WORKOS_PUBLIC_CLIENT_ID,
+	WORKOS_STAGING_PUBLIC_CLIENT_ID,
+} from "./deployment.ts";
 
 /** Canonical hosted product origin shared by Serve and browser clients. */
 export const HOSTED_APP_URL = "https://code.zuse.sh";

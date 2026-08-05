@@ -6,6 +6,7 @@ import {
 	RelayPaths,
 	WIRE_PROTOCOL_VERSION,
 	WORKOS_PUBLIC_CLIENT_ID,
+	WORKOS_STAGING_PUBLIC_CLIENT_ID,
 } from "@zuse/contracts";
 
 import { rendererRelayUrl } from "./relay-url.ts";
@@ -76,8 +77,18 @@ export const isHostedProduct = (
 ): boolean =>
 	environment().VITE_ZUSE_HOSTED === "1" || locationOrigin === HOSTED_APP_URL;
 
+export const resolveHostedWorkosClientId = (
+	configuredClientId: string | undefined,
+	development: boolean,
+): string =>
+	configuredClientId?.trim() ||
+	(development ? WORKOS_STAGING_PUBLIC_CLIENT_ID : WORKOS_PUBLIC_CLIENT_ID);
+
 const clientId = (): string =>
-	environment().VITE_WORKOS_CLIENT_ID?.trim() || WORKOS_PUBLIC_CLIENT_ID;
+	resolveHostedWorkosClientId(
+		environment().VITE_WORKOS_CLIENT_ID,
+		import.meta.env.DEV,
+	);
 const base64url = (input: Uint8Array): string => {
 	let raw = "";
 	for (const byte of input) raw += String.fromCharCode(byte);
