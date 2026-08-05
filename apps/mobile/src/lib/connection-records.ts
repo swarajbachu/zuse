@@ -84,6 +84,32 @@ export const connectionSupports = (
 	capability: typeof CapabilityFeature.Type,
 ): boolean => record?.capabilities?.features.includes(capability) === true;
 
+export const refreshConnectionDescriptor = (
+	connections: ConnectionRecord[],
+	key: string,
+	label: string,
+	capabilities: typeof CapabilityManifest.Type | undefined,
+	now: number = Date.now(),
+): ConnectionRecord[] => {
+	const current = connections.find((connection) => connection.key === key);
+	if (current === undefined) return connections;
+	const sameCapabilities =
+		current.capabilities === capabilities ||
+		(current.capabilities !== undefined &&
+			capabilities !== undefined &&
+			current.capabilities.version === capabilities.version &&
+			current.capabilities.features.length === capabilities.features.length &&
+			current.capabilities.features.every((feature) =>
+				capabilities.features.includes(feature),
+			));
+	if (current.label === label && sameCapabilities) return connections;
+	return connections.map((connection) =>
+		connection.key === key
+			? { ...connection, label, capabilities, updatedAt: now }
+			: connection,
+	);
+};
+
 const inferSource = (
 	record: typeof StoredConnectionRecord.Type,
 ): ConnectionSource => {
