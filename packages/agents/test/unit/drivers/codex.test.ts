@@ -3,8 +3,9 @@ import type { ThreadItem } from "@zuse/agents/codex-generated/v2/ThreadItem";
 import {
 	buildCodexTurnMode,
 	codexApprovalPolicy,
-	codexDetachedAgentFromSubAgentActivity,
+	codexApprovalsReviewer,
 	codexDetachedAgentFromRawSpawn,
+	codexDetachedAgentFromSubAgentActivity,
 	codexDetachedAgentToolUse,
 	codexFinishDetachedAgent,
 	codexReasoningEffort,
@@ -156,7 +157,10 @@ describe("translateCodexItem", () => {
 			text: "# Proposed plan",
 		};
 
-		const event = only(translateCodexItem(item, "completed"), "AssistantMessage");
+		const event = only(
+			translateCodexItem(item, "completed"),
+			"AssistantMessage",
+		);
 		expect(event.text).toBe("# Proposed plan");
 		expect(event.isPlan).toBe(true);
 	});
@@ -686,5 +690,16 @@ describe("Codex plan mode", () => {
 			type: "readOnly",
 			networkAccess: false,
 		});
+	});
+
+	it("routes auto approvals through the Codex reviewer and resets it explicitly", () => {
+		expect(codexApprovalPolicy("auto", "default")).toBe("on-request");
+		expect(codexSandboxPolicy("auto", "default", "/repo").type).toBe(
+			"workspaceWrite",
+		);
+		expect(codexApprovalsReviewer("auto", "default")).toBe("auto_review");
+		expect(codexApprovalsReviewer("approval-required", "default")).toBe("user");
+		expect(codexApprovalsReviewer("full-access", "default")).toBe("user");
+		expect(codexApprovalsReviewer("auto", "plan")).toBe("user");
 	});
 });

@@ -5,7 +5,12 @@ import {
 	Button as NativeButton,
 	Section,
 } from "@expo/ui/swift-ui";
-import type { PermissionMode, ProviderId, RuntimeMode } from "@zuse/contracts";
+import {
+	type PermissionMode,
+	type ProviderId,
+	type RuntimeMode,
+	runtimeModeForProvider,
+} from "@zuse/contracts";
 
 import {
 	defaultModelOptions,
@@ -13,9 +18,9 @@ import {
 	PERMISSION_OPTIONS,
 	PROVIDER_LABEL,
 	providerOptions,
-	RUNTIME_OPTIONS,
 	reasoningValueForModel,
 	runtimeOptionFor,
+	runtimeOptionsForProvider,
 } from "~/lib/model-options";
 import { NEON_GREEN } from "~/theme";
 
@@ -411,6 +416,10 @@ function ProviderModelMenus({
 									...value,
 									providerId: provider.value,
 									model: model.value,
+									runtimeMode: runtimeModeForProvider(
+										value.runtimeMode,
+										provider.value,
+									),
 									modelOptions: defaultModelOptions(
 										provider.value,
 										model.value,
@@ -527,7 +536,7 @@ function PermissionButtons({
 }) {
 	return (
 		<Section title="Approval">
-			{RUNTIME_OPTIONS.map((item) => (
+			{runtimeOptionsForProvider(value.providerId).map((item) => (
 				<NativeButton
 					key={item.value}
 					label={item.label}

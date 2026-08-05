@@ -28,6 +28,7 @@ import {
 	type FolderId,
 	type ProviderId,
 	type RuntimeMode,
+	runtimeModeForProvider,
 	visibleModelsForProvider,
 } from "@zuse/contracts";
 import { Effect } from "effect";
@@ -59,7 +60,7 @@ import { BlurredEmail } from "./blurred-email.tsx";
 import { BrowserProfileSelect } from "./browser-profile-select.tsx";
 import { ProviderCard } from "./provider-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
-import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
+import { MODE_META, runtimeModesForProvider } from "./runtime-mode-meta.ts";
 import { DeveloperPane } from "./settings/developer-pane.tsx";
 import { DevicesPane } from "./settings/devices-pane.tsx";
 import { DiagnosticsPane as FullDiagnosticsPane } from "./settings/diagnostics-pane.tsx";
@@ -901,10 +902,12 @@ const APPEARANCE_OPTIONS: ReadonlyArray<{
 function GeneralPane() {
 	const appearanceMode = useSettingsStore((s) => s.appearanceMode);
 	const setAppearanceMode = useSettingsStore((s) => s.setAppearanceMode);
+	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
 	const defaultRuntimeMode = useSettingsStore((s) => s.defaultRuntimeMode);
 	const setDefaultRuntimeMode = useSettingsStore(
 		(s) => s.setDefaultRuntimeMode,
 	);
+	const runtimeModes = runtimeModesForProvider(defaultProviderId);
 	const completionSoundEnabled = useSettingsStore(
 		(s) => s.completionSoundEnabled,
 	);
@@ -1096,7 +1099,7 @@ function GeneralPane() {
 						<Select
 							value={defaultRuntimeMode}
 							onValueChange={(v) => setDefaultRuntimeMode(v as RuntimeMode)}
-							items={MODES_ORDER.map((m) => ({
+							items={runtimeModes.map((m) => ({
 								label: MODE_META[m].label,
 								value: m,
 							}))}
@@ -1105,7 +1108,7 @@ function GeneralPane() {
 								<SelectValue />
 							</SelectTrigger>
 							<SelectPopup>
-								{MODES_ORDER.map((mode) => {
+								{runtimeModes.map((mode) => {
 									const m = MODE_META[mode];
 									return (
 										<SelectItem key={mode} value={mode}>
@@ -2083,7 +2086,7 @@ export function ensureValidDefaultsForRuntime(
 	return {
 		providerId: provider,
 		model,
-		runtimeMode: settings.defaultRuntimeMode,
+		runtimeMode: runtimeModeForProvider(settings.defaultRuntimeMode, provider),
 	};
 }
 

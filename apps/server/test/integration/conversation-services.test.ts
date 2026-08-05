@@ -2056,6 +2056,41 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it("normalizes provider-native review when a session leaves Codex", async () => {
+		await withRuntime(async (run) => {
+			const result = await run(
+				Effect.gen(function* () {
+					const s = yield* store;
+					const created = yield* s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "codex",
+						model: "gpt-5.6-sol",
+						runtimeMode: "auto",
+					});
+					yield* s.setProvider(
+						created.initialSession.id,
+						"claude",
+						"claude-opus-4-8",
+					);
+					const switched = yield* s.getSession(created.initialSession.id);
+					const createdUnsupported = yield* s.createSession({
+						chatId: created.chat.id,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						runtimeMode: "auto",
+					});
+					yield* s.setRuntimeMode(createdUnsupported.id, "auto");
+					const updatedUnsupported = yield* s.getSession(createdUnsupported.id);
+					return { switched, createdUnsupported, updatedUnsupported };
+				}),
+			);
+
+			expect(result.switched.runtimeMode).toBe("approval-required");
+			expect(result.createdUnsupported.runtimeMode).toBe("approval-required");
+			expect(result.updatedUnsupported.runtimeMode).toBe("approval-required");
+		});
+	});
+
 	it("starts a worktree-backed chat session in the worktree cwd", async () => {
 		await withRuntime(async (run) => {
 			const result = await run(

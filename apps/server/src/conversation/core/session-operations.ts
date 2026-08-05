@@ -11,6 +11,7 @@ import {
 	type MessageOrigin,
 	type ProviderId,
 	type ResumeStrategy,
+	runtimeModeForProvider,
 	Session,
 	SessionAlreadyStartedError,
 	SessionId,
@@ -220,7 +221,10 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			const initialPermissionMode =
 				input.permissionMode ?? DEFAULT_PERMISSION_MODE;
 			const initialToolSearch = input.toolSearch ?? false;
-			const initialRuntimeMode = input.runtimeMode ?? DEFAULT_RUNTIME_MODE;
+			const initialRuntimeMode = runtimeModeForProvider(
+				input.runtimeMode ?? DEFAULT_RUNTIME_MODE,
+				input.providerId,
+			);
 			state.setRuntimeMode(sessionId, initialRuntimeMode);
 			if (input.agents !== undefined && Object.keys(input.agents).length > 0) {
 				state.setAgents(sessionId, {
@@ -417,15 +421,19 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		runtimeMode,
 	) =>
 		Effect.gen(function* () {
-			yield* lookupSession(sessionId);
+			const session = yield* lookupSession(sessionId);
+			const nextRuntimeMode = runtimeModeForProvider(
+				runtimeMode,
+				session.providerId,
+			);
 			yield* dispatchSessionCommand(sessionId, {
 				_tag: "SetRuntimeMode",
-				runtimeMode,
+				runtimeMode: nextRuntimeMode,
 				updatedAt: yield* currentTimestamp,
 			});
 			// Poke the in-memory cache so the next `canUseTool` invocation picks
 			// up the new mode without restarting the SDK.
-			state.setRuntimeMode(sessionId, runtimeMode);
+			state.setRuntimeMode(sessionId, nextRuntimeMode);
 		});
 
 	/**
@@ -612,7 +620,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		model,
 	) =>
 		Effect.gen(function* () {
-			yield* lookupSession(sessionId);
+			const session = yield* lookupSession(sessionId);
 			yield* ensureSessionNotStarted(sessionId);
 			// Invalidate before persisting the selection so an explicit warm-up
 			// cannot attach the previous provider after the metadata switch.
@@ -624,6 +632,18 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				model,
 				updatedAt: yield* currentTimestamp,
 			});
+			const runtimeMode = runtimeModeForProvider(
+				session.runtimeMode,
+				providerId,
+			);
+			if (runtimeMode !== session.runtimeMode) {
+				yield* dispatchSessionCommand(sessionId, {
+					_tag: "SetRuntimeMode",
+					runtimeMode,
+					updatedAt: yield* currentTimestamp,
+				});
+				state.setRuntimeMode(sessionId, runtimeMode);
+			}
 			yield* setStatus(sessionId, "idle");
 		});
 

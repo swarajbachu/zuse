@@ -19,6 +19,7 @@ import {
 	type Message,
 	MODELS_BY_PROVIDER,
 	type ModelOption,
+	runtimeModeForProvider,
 	type SelectOptionDescriptor,
 } from "@zuse/contracts";
 import {
@@ -345,6 +346,10 @@ export function ModelPicker(props: ModelPickerProps) {
 		const sessionId = (props as any).sessionId as SessionId;
 		const chatId = (props as any).chatId as ChatId | undefined;
 		const runtimeMode = (props as any).runtimeMode as RuntimeMode | undefined;
+		const nextRuntimeMode =
+			runtimeMode === undefined
+				? undefined
+				: runtimeModeForProvider(runtimeMode, pid);
 
 		const isCross = pid !== providerId;
 		// Await whatever store call we kick off so we can keep the popover
@@ -356,7 +361,7 @@ export function ModelPicker(props: ModelPickerProps) {
 		try {
 			if (isCross && !isFresh && chatId !== undefined) {
 				const newId = await createSession(chatId, pid, modelId, {
-					runtimeMode,
+					runtimeMode: nextRuntimeMode,
 				});
 				if (newId === null) {
 					const reason =

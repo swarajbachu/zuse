@@ -4,6 +4,8 @@ import {
 	type FolderId,
 	MODELS_BY_PROVIDER,
 	type ProviderId,
+	type RuntimeMode,
+	runtimeModeForProvider,
 	visibleModelsForProvider,
 } from "@zuse/contracts";
 import type React from "react";
@@ -16,7 +18,7 @@ import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { PermissionsInspector } from "./permissions-inspector.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
-import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
+import { MODE_META, runtimeModesForProvider } from "./runtime-mode-meta.ts";
 import {
 	PROVIDER_LABEL,
 	RadioCheck,
@@ -42,6 +44,7 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
 	const refresh = useRepositorySettingsStore((s) => s.refresh);
 	const update = useRepositorySettingsStore((s) => s.update);
 	const [permissionsOpen, setPermissionsOpen] = useState(false);
+	const globalProviderId = useSettingsStore((s) => s.defaultProviderId);
 
 	useEffect(() => {
 		if (settings === null) void refresh(projectId);
@@ -72,12 +75,20 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
 						void update(projectId, {
 							defaultProviderId: provider,
 							defaultModel: model,
+							defaultRuntimeMode:
+								settings.defaultRuntimeMode === null
+									? null
+									: runtimeModeForProvider(
+											settings.defaultRuntimeMode,
+											provider ?? globalProviderId,
+										),
 						})
 					}
 				/>
 
 				<RuntimeModeOverrideSection
 					currentValue={settings.defaultRuntimeMode}
+					providerId={settings.defaultProviderId ?? globalProviderId}
 					onChange={(value) =>
 						void update(projectId, { defaultRuntimeMode: value })
 					}
@@ -309,16 +320,22 @@ function ProviderOverrideSection({
 
 function RuntimeModeOverrideSection({
 	currentValue,
+	providerId,
 	onChange,
 }: {
-	currentValue: (typeof MODES_ORDER)[number] | null;
-	onChange: (v: (typeof MODES_ORDER)[number] | null) => void;
+	currentValue: RuntimeMode | null;
+	providerId: ProviderId;
+	onChange: (v: RuntimeMode | null) => void;
 }) {
 	const globalMode = useSettingsStore((s) => s.defaultRuntimeMode);
-	const effective = currentValue ?? globalMode;
+	const effective = runtimeModeForProvider(
+		currentValue ?? globalMode,
+		providerId,
+	);
 	const isOverridden = currentValue !== null;
+	const runtimeModes = runtimeModesForProvider(providerId);
 	const onToggle = (next: boolean) => {
-		if (next) onChange(globalMode);
+		if (next) onChange(runtimeModeForProvider(globalMode, providerId));
 		else onChange(null);
 	};
 	return (
@@ -333,7 +350,7 @@ function RuntimeModeOverrideSection({
 					aria-label="Repository default permission mode"
 					className="overflow-hidden rounded-lg border border-border/40 bg-background/60"
 				>
-					{MODES_ORDER.map((mode) => {
+					{runtimeModes.map((mode) => {
 						const m = MODE_META[mode];
 						const selected = effective === mode;
 						return (
