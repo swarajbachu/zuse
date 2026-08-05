@@ -51,6 +51,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/use-auth.ts";
+import { useResolvedAppearance } from "../lib/appearance.tsx";
 import { formatError } from "../lib/format-error.ts";
 import {
 	getReviewAnnotationAnchor,
@@ -275,6 +276,7 @@ function ChangesReviewReady({
 		(state) => state.selectedSessionId,
 	);
 	const { user: authUser, name: authName } = useAuth();
+	const resolvedAppearance = useResolvedAppearance();
 	const [repositoryAuthor, setRepositoryAuthor] =
 		useState<AnnotationAuthor | null>(null);
 	useEffect(() => {
@@ -873,6 +875,7 @@ function ChangesReviewReady({
 
 	const reviewOptions = useMemo<CodeViewOptions<AnnotationMetadata>>(
 		() => ({
+			themeType: resolvedAppearance,
 			diffStyle: preferences.diffStyle,
 			overflow: preferences.wrap ? "wrap" : "scroll",
 			disableLineNumbers: !preferences.lineNumbers,
@@ -884,13 +887,14 @@ function ChangesReviewReady({
 			controlledSelection: true,
 			lineHoverHighlight: "number",
 			hunkSeparators: "line-info",
+			layout: { paddingTop: 0, paddingBottom: 12, gap: 8 },
 			onGutterUtilityClick(range, context) {
 				if (context.item.type === "diff") {
 					createAnnotationDraft(range, context.item.id);
 				}
 			},
 		}),
-		[createAnnotationDraft, preferences],
+		[createAnnotationDraft, preferences, resolvedAppearance],
 	);
 
 	if (summary === null && loading) {
@@ -1012,7 +1016,7 @@ function ChangesReviewReady({
 						renderHeaderMetadata={renderHeaderMetadata}
 						renderAnnotation={renderAnnotation}
 						options={reviewOptions}
-						className="h-full overflow-auto overscroll-contain px-3 py-3"
+						className="fz-diff h-full overflow-auto overscroll-contain px-3"
 					/>
 				)}
 				{selectedConflict !== null ? (
@@ -1043,6 +1047,7 @@ function ConflictReview({
 	readonly onResolved: () => Promise<void>;
 	readonly onClose: () => void;
 }) {
+	const resolvedAppearance = useResolvedAppearance();
 	const [contents, setContents] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [remaining, setRemaining] = useState(0);
@@ -1111,11 +1116,12 @@ function ConflictReview({
 	);
 	const conflictOptions = useMemo<UnresolvedFileReactOptions<undefined>>(
 		() => ({
+			themeType: resolvedAppearance,
 			diffIndicators: "bars",
 			overflow: "wrap",
 			hunkSeparators: "line-info",
 		}),
-		[],
+		[resolvedAppearance],
 	);
 
 	return (
@@ -1208,7 +1214,7 @@ function ConflictReview({
 								</div>
 							);
 						}}
-						className="mx-auto block w-full max-w-[1400px] overflow-hidden rounded-lg bg-card/30 shadow-sm ring-1 ring-border/50"
+						className="fz-diff mx-auto block w-full max-w-[1400px] overflow-hidden rounded-lg bg-card/30 shadow-sm ring-1 ring-border/50"
 					/>
 				)}
 			</div>
