@@ -4,6 +4,7 @@ import {
 	inspectTailnetShare,
 	parseTailnetStatus,
 	resolveTailnetExecutable,
+	serveStatusIsExclusive,
 	serveStatusMatches,
 	setTailnetShareEnabled,
 	type TailnetCommandResult,
@@ -44,6 +45,21 @@ describe("tailnet sharing", () => {
 			),
 		).toBe(true);
 		expect(serveStatusMatches("No serve config", 47837)).toBe(false);
+	});
+
+	it("only claims an exclusive root Serve route", () => {
+		expect(
+			serveStatusIsExclusive(
+				"https://build.ts.net\n|-- / proxy http://127.0.0.1:47837",
+				47837,
+			),
+		).toBe(true);
+		expect(
+			serveStatusIsExclusive(
+				"https://build.ts.net\n|-- / proxy http://127.0.0.1:47837\n|-- /docs proxy http://127.0.0.1:9000",
+				47837,
+			),
+		).toBe(false);
 	});
 
 	it("treats a missing CLI as unavailable", async () => {
@@ -115,5 +131,29 @@ describe("tailnet sharing", () => {
 			"--yes",
 			"127.0.0.1:47837",
 		]);
+	});
+
+	it("does not disable a shared Serve configuration", async () => {
+		const calls: ReadonlyArray<string>[] = [];
+		const run = async (args: ReadonlyArray<string>) => {
+			calls.push(args);
+			return args[0] === "status"
+				? result(
+						JSON.stringify({
+							BackendState: "Running",
+							Self: { DNSName: "box.example.ts.net." },
+						}),
+					)
+				: result(
+						"https://box.example.ts.net\n|-- / proxy http://127.0.0.1:47837\n|-- /docs proxy http://127.0.0.1:9000",
+					);
+		};
+		const state = await setTailnetShareEnabled(
+			{ enabled: false, port: 47837 },
+			run,
+		);
+		expect(state.availability).toBe("error");
+		expect(state.detail).toMatch(/additional routes/u);
+		expect(calls).not.toContainEqual(["serve", "--https=443", "off"]);
 	});
 });

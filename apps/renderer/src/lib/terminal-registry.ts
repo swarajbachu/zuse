@@ -7,7 +7,6 @@ import type { TerminalInstance } from "../store/terminals.ts";
 import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import { setPowerActiveTerminalCount } from "./power-runtime-activity.ts";
 import {
-	getActiveEnvironment,
 	getRpcClient,
 	reportRendererRpcFailure,
 	reportRendererRpcStreamFailure,
@@ -60,6 +59,11 @@ const registry = new Map<string, LiveTerminal>();
 const statusListeners = new Set<() => void>();
 let statusSnapshot: Readonly<Record<string, TerminalRuntimeStatus>> = {};
 
+export const terminalRuntimeKey = (
+	environmentId: string,
+	instanceId: string,
+): string => `${environmentId}:${instanceId}`;
+
 const publishPowerTerminalCount = (): void => {
 	setPowerActiveTerminalCount(
 		Object.values(statusSnapshot).filter(
@@ -85,7 +89,10 @@ function publishStatus(
 	const previous = live.status;
 	live.status = status;
 	live.host.dataset.terminalStatus = status;
-	statusSnapshot = { ...statusSnapshot, [live.instanceId]: status };
+	statusSnapshot = {
+		...statusSnapshot,
+		[terminalRuntimeKey(live.environmentId, live.instanceId)]: status,
+	};
 	publishPowerTerminalCount();
 	recordDiagnosticEvent({
 		level: status === "failed" ? "error" : "debug",
@@ -96,9 +103,10 @@ function publishStatus(
 	for (const listener of statusListeners) listener();
 }
 
-function removeStatus(instanceId: string): void {
-	if (!(instanceId in statusSnapshot)) return;
-	const { [instanceId]: _removed, ...next } = statusSnapshot;
+function removeStatus(environmentId: string, instanceId: string): void {
+	const key = terminalRuntimeKey(environmentId, instanceId);
+	if (!(key in statusSnapshot)) return;
+	const { [key]: _removed, ...next } = statusSnapshot;
 	statusSnapshot = next;
 	publishPowerTerminalCount();
 	for (const listener of statusListeners) listener();
@@ -492,6 +500,7 @@ async function openPty(
 }
 
 function makeLive(
+	environmentId: string,
 	instanceId: string,
 	container: HTMLElement,
 	opts: {
@@ -547,7 +556,7 @@ function makeLive(
 	let live: LiveTerminal;
 	const observer = new ResizeObserver(() => scheduleFit(live));
 	live = {
-		environmentId: getActiveEnvironment(),
+		environmentId,
 		instanceId,
 		term,
 		fit,
@@ -577,7 +586,10 @@ function makeLive(
 		disposed: false,
 	};
 
-	statusSnapshot = { ...statusSnapshot, [instanceId]: "connecting" };
+	statusSnapshot = {
+		...statusSnapshot,
+		[terminalRuntimeKey(environmentId, instanceId)]: "connecting",
+	};
 	publishPowerTerminalCount();
 	for (const listener of statusListeners) listener();
 	live.observer.observe(host);
@@ -589,6 +601,7 @@ function makeLive(
 }
 
 export function attach(
+	environmentId: string,
 	instanceId: string,
 	container: HTMLElement,
 	opts: {
@@ -596,7 +609,8 @@ export function attach(
 		readonly command?: TerminalInstance["command"];
 	},
 ): void {
-	const existing = registry.get(instanceId);
+	const key = terminalRuntimeKey(environmentId, instanceId);
+	const existing = registry.get(key);
 	if (existing !== undefined) {
 		if (existing.host.parentElement !== container) {
 			container.appendChild(existing.host);
@@ -607,20 +621,21 @@ export function attach(
 		scheduleFit(existing);
 		return;
 	}
-	registry.set(instanceId, makeLive(instanceId, container, opts));
+	registry.set(key, makeLive(environmentId, instanceId, container, opts));
 }
 
-export function detach(instanceId: string): void {
-	const live = registry.get(instanceId);
+export function detach(environmentId: string, instanceId: string): void {
+	const live = registry.get(terminalRuntimeKey(environmentId, instanceId));
 	if (live === undefined) return;
 	live.observer.disconnect();
 	if (live.host.parentElement !== null) live.host.remove();
 }
 
-export function dispose(instanceId: string): void {
-	const live = registry.get(instanceId);
+export function dispose(environmentId: string, instanceId: string): void {
+	const key = terminalRuntimeKey(environmentId, instanceId);
+	const live = registry.get(key);
 	if (live === undefined) return;
-	registry.delete(instanceId);
+	registry.delete(key);
 	live.disposed = true;
 	stopOutput(live);
 	live.inputPump?.dispose();
@@ -638,11 +653,13 @@ export function dispose(instanceId: string): void {
 	}
 	live.host.remove();
 	live.term.dispose();
-	removeStatus(instanceId);
+	removeStatus(environmentId, instanceId);
 }
 
 export function disposeAll(): void {
-	for (const id of [...registry.keys()]) dispose(id);
+	for (const live of [...registry.values()]) {
+		dispose(live.environmentId, live.instanceId);
+	}
 }
 
 if (

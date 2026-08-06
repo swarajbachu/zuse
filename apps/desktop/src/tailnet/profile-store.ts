@@ -28,24 +28,31 @@ export class TailnetEnvironmentProfileStore {
 
 	async load(): Promise<ReadonlyArray<TailnetEnvironmentProfile>> {
 		const path = filePath(this.userData);
+		let raw: string;
 		try {
-			const raw = await readFile(path, "utf8");
-			await chmod(path, 0o600);
+			raw = await readFile(path, "utf8");
+		} catch (cause) {
+			if (
+				typeof cause === "object" &&
+				cause !== null &&
+				"code" in cause &&
+				cause.code === "ENOENT"
+			) {
+				this.profiles.clear();
+				return [];
+			}
+			throw cause;
+		}
+		await chmod(path, 0o600);
+		try {
 			const decoded = Schema.decodeUnknownSync(ProfileDocument)(
 				JSON.parse(raw),
 			);
 			this.profiles = new Map(
 				decoded.profiles.map((profile) => [profile.profileId, profile]),
 			);
-		} catch (cause) {
-			if (
-				typeof cause !== "object" ||
-				cause === null ||
-				!("code" in cause) ||
-				cause.code !== "ENOENT"
-			) {
-				this.profiles.clear();
-			}
+		} catch {
+			this.profiles.clear();
 		}
 		return this.list();
 	}

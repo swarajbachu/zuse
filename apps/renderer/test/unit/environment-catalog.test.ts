@@ -1,6 +1,6 @@
 import { scopedCacheKey } from "@zuse/client-runtime/environment-scope";
 import { describe, expect, it } from "vitest";
-
+import { terminalRuntimeKey } from "../../src/lib/terminal-registry.ts";
 import {
 	type EnvironmentCatalogEntry,
 	orderEnvironmentCatalog,
@@ -71,6 +71,12 @@ describe("environment catalog", () => {
 	it("keeps colliding server IDs distinct across environments", () => {
 		expect(scopedCacheKey("env-a", "chat", "same-id")).not.toBe(
 			scopedCacheKey("env-b", "chat", "same-id"),
+		);
+	});
+
+	it("keeps colliding terminal runtime IDs distinct across environments", () => {
+		expect(terminalRuntimeKey("env-a", "terminal-1")).not.toBe(
+			terminalRuntimeKey("env-b", "terminal-1"),
 		);
 	});
 

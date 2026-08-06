@@ -104,6 +104,15 @@ export const serveStatusMatches = (raw: string, port: number): boolean => {
 	);
 };
 
+export const serveStatusIsExclusive = (raw: string, port: number): boolean => {
+	if (!serveStatusMatches(raw, port)) return false;
+	const routes = raw
+		.split(/\r?\n/u)
+		.map((line) => line.trim())
+		.filter((line) => line.startsWith("|--") || line.startsWith("+--"));
+	return routes.length === 1;
+};
+
 const hasServeConfiguration = (raw: string): boolean => {
 	const normalized = raw.trim().toLowerCase();
 	return normalized.length > 0 && !normalized.includes("no serve config");
@@ -195,7 +204,21 @@ export const setTailnetShareEnabled = async (
 ): Promise<TailnetShareState> => {
 	const before = await inspectTailnetShare(input.port, run);
 	if (before.availability !== "available") return before;
-	if (!input.enabled && !before.enabled) return before;
+	if (!input.enabled) {
+		if (!before.enabled) return before;
+		const existing = await run(["serve", "status"], 5_000);
+		if (
+			existing.code !== 0 ||
+			!serveStatusIsExclusive(existing.stdout, input.port)
+		) {
+			return TailnetShareState.make({
+				...before,
+				availability: "error",
+				detail:
+					"Tailscale Serve contains additional routes. Zuse will not turn them off automatically.",
+			});
+		}
+	}
 	if (input.enabled && !before.enabled) {
 		const existing = await run(["serve", "status"], 5_000);
 		if (existing.code === 0 && hasServeConfiguration(existing.stdout)) {

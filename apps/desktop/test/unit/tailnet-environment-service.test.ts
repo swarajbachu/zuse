@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,6 +8,7 @@ import {
 	parseTailnetPairingLink,
 	TailnetEnvironmentManager,
 } from "../../src/tailnet/environment-service.ts";
+import { TailnetEnvironmentProfileStore } from "../../src/tailnet/profile-store.ts";
 
 describe("Tailnet environment pairing", () => {
 	it("parses a secure Zuse pairing link", () => {
@@ -114,5 +115,14 @@ describe("Tailnet environment pairing", () => {
 		).rejects.toThrow(/different Zuse computer/u);
 		expect(manager.listProfiles()).toEqual([]);
 		expect(credentials.size).toBe(0);
+	});
+
+	it("surfaces filesystem failures instead of replacing profiles", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "zuse-tailnet-test-"));
+		const notDirectory = join(directory, "not-a-directory");
+		await writeFile(notDirectory, "occupied", "utf8");
+		await expect(
+			new TailnetEnvironmentProfileStore(notDirectory).load(),
+		).rejects.toThrow();
 	});
 });

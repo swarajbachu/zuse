@@ -276,7 +276,13 @@ export function RightPane({
 		if (panel.kind === "terminal") {
 			const instance = termList[panel.slot];
 			const failed =
-				instance !== undefined && terminalStatuses[instance.id] === "failed";
+				instance !== undefined &&
+				terminalStatuses[
+					terminalRegistry.terminalRuntimeKey(
+						instance.environmentId,
+						instance.id,
+					)
+				] === "failed";
 			if (failed) {
 				return (
 					<span

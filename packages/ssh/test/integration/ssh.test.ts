@@ -34,6 +34,8 @@ describe("@zuse/ssh", () => {
 		expect(script).toContain("@zusehq/serve@$VERSION");
 		expect(script).toContain("--ssh-managed");
 		expect(script).toContain("Node 22.5 or newer");
+		expect(script).toContain("active.json");
+		expect(script).toContain("unverified service");
 		expect(() => remoteBootstrapScript("latest; rm -rf /")).toThrow(
 			"Invalid compatible Serve runtime version",
 		);

@@ -344,10 +344,15 @@ fi
 is_ready() {
   "$NODE_BIN" -e "const s=require('net').connect($PORT,'127.0.0.1');s.on('connect',()=>process.exit(0));s.on('error',()=>process.exit(1));" >/dev/null 2>&1
 }
-if ! is_ready; then
+ACTIVE_VERSION="$("$NODE_BIN" -e "const fs=require('fs');try{const v=JSON.parse(fs.readFileSync(process.argv[1],'utf8')).version;process.stdout.write(typeof v==='string'?v:'')}catch{}" "$DATA_DIR/runtime/active.json")"
+if ! { [ "$ACTIVE_VERSION" = "$VERSION" ] && is_ready; }; then
   if command -v launchctl >/dev/null 2>&1 || { command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; }; then
     "$NODE_BIN" "$ZUSE_BIN" serve start --ssh-managed --data-dir "$DATA_DIR" >&2
   else
+    if is_ready; then
+      echo "Port $PORT is already used by an unverified service" >&2
+      exit 1
+    fi
     LOG="$ROOT/serve.log"
     nohup "$NODE_BIN" "$ZUSE_BIN" serve --foreground --ssh-managed --data-dir "$DATA_DIR" >"$LOG" 2>&1 </dev/null &
   fi
