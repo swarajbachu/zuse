@@ -1,3 +1,4 @@
+import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import {
 	type MachineProviderRegistration,
 	MachineProviders,
@@ -59,6 +60,7 @@ export const renderMachineCloudInit = (
 		__RELAY_ISSUER__: input.relayIssuer,
 		__ENROLLMENT_TOKEN__: input.enrollmentToken,
 		__RUNTIME_MANIFEST_URL__: input.runtimeManifestUrl,
+		__WIRE_PROTOCOL_VERSION__: String(WIRE_PROTOCOL_VERSION),
 		__RUNTIME_SIGNING_PUBLIC_JWK__: input.runtimeSigningPublicJwk,
 		__RUNTIME_INSTALLER_SOURCE__: yamlBlockContinuation(
 			input.runtimeInstallerSource,

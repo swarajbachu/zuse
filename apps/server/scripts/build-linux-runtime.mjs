@@ -11,6 +11,8 @@ import {
 import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
 
+import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
+
 const serverRoot = dirname(new URL(import.meta.url).pathname);
 const packageRoot = dirname(serverRoot);
 const workspaceRoot = dirname(dirname(packageRoot));
@@ -132,7 +134,7 @@ const manifest = {
 	url: runtimeUrl,
 	architecture: "linux-x64",
 	sha256,
-	wireProtocol: { min: 2, max: 2 },
+	wireProtocol: { min: WIRE_PROTOCOL_VERSION, max: WIRE_PROTOCOL_VERSION },
 	sizeBytes: (await stat(archivePath)).size,
 };
 

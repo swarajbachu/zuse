@@ -1,3 +1,4 @@
+import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import {
 	type MachineProviderAdapter,
 	MachineProviders,
@@ -23,6 +24,7 @@ const template = [
 	"issuer=__RELAY_ISSUER__",
 	"token=__ENROLLMENT_TOKEN__",
 	"manifest=__RUNTIME_MANIFEST_URL__",
+	"wire=__WIRE_PROTOCOL_VERSION__",
 	"key=__RUNTIME_SIGNING_PUBLIC_JWK__",
 	"installer:",
 	"      __RUNTIME_INSTALLER_SOURCE__",
@@ -250,5 +252,6 @@ describe("machine provider configuration", () => {
 		expect(rendered).not.toMatch(/__[A-Z0-9_]+__/);
 		expect(rendered).toContain('      console.log("install");');
 		expect(rendered).toContain("token=zenr_secret");
+		expect(rendered).toContain(`wire=${WIRE_PROTOCOL_VERSION}`);
 	});
 });

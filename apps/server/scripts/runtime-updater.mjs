@@ -21,9 +21,13 @@ const publicKeyFile =
 const healthUrl =
 	process.env.ZUSE_RUNTIME_HEALTH_URL ?? "http://127.0.0.1:47837/healthz";
 const installOnly = process.env.ZUSE_RUNTIME_INSTALL_ONLY === "1";
+const expectedWireProtocol = Number(process.env.ZUSE_RUNTIME_WIRE_PROTOCOL);
 
 if (manifestUrl === undefined) {
 	throw new Error("ZUSE_RUNTIME_MANIFEST_URL is required");
+}
+if (!Number.isInteger(expectedWireProtocol) || expectedWireProtocol < 1) {
+	throw new Error("ZUSE_RUNTIME_WIRE_PROTOCOL must be a positive integer");
 }
 
 const publicJwk = JSON.parse(await readFile(publicKeyFile, "utf8"));
@@ -69,7 +73,21 @@ const manifest = await fetchWithRetry(
 		if (candidate.architecture !== "linux-x64") {
 			throw new Error(`Unsupported architecture: ${candidate.architecture}`);
 		}
-		if (candidate.wireProtocol?.min > 2 || candidate.wireProtocol?.max < 2) {
+		const wireProtocol = candidate.wireProtocol;
+		if (
+			typeof wireProtocol !== "object" ||
+			wireProtocol === null ||
+			!Number.isInteger(wireProtocol.min) ||
+			!Number.isInteger(wireProtocol.max) ||
+			wireProtocol.min < 1 ||
+			wireProtocol.max < wireProtocol.min
+		) {
+			throw new Error("Runtime wire protocol metadata is invalid");
+		}
+		if (
+			wireProtocol.min > expectedWireProtocol ||
+			wireProtocol.max < expectedWireProtocol
+		) {
 			throw new Error("Runtime wire protocol is incompatible");
 		}
 		if (new URL(candidate.url).protocol !== "https:") {
@@ -115,6 +133,28 @@ const run = (command, args) =>
 		);
 	});
 
+const waitForHealthyRuntime = async () => {
+	for (let attempt = 0; attempt < 15; attempt += 1) {
+		await new Promise((resolve) => setTimeout(resolve, 1_000));
+		try {
+			const response = await fetch(healthUrl, {
+				signal: AbortSignal.timeout(2_000),
+			});
+			const body = await response.json();
+			if (
+				response.ok &&
+				body.status === "ok" &&
+				body.wireProtocolVersion === expectedWireProtocol
+			) {
+				return true;
+			}
+		} catch {
+			// Retry until the fixed health-check budget expires.
+		}
+	}
+	return false;
+};
+
 await run("tar", ["-xzf", archivePath, "-C", staging]);
 await rm(archivePath);
 try {
@@ -145,34 +185,19 @@ if (installOnly) {
 	console.log(`Installed Zuse cloud runtime ${manifest.version}`);
 } else {
 	await run("systemctl", ["restart", "zuse.service"]);
-
-	let healthy = false;
-	for (let attempt = 0; attempt < 15; attempt += 1) {
-		await new Promise((resolve) => setTimeout(resolve, 1_000));
-		try {
-			const response = await fetch(healthUrl, {
-				signal: AbortSignal.timeout(2_000),
-			});
-			const body = await response.json();
-			if (
-				response.ok &&
-				body.status === "ok" &&
-				body.wireProtocolVersion === 2
-			) {
-				healthy = true;
-				break;
-			}
-		} catch {
-			// Retry until the fixed health-check budget expires.
+	if (!(await waitForHealthyRuntime())) {
+		if (previousTarget === undefined) {
+			await rm(currentLink, { force: true });
+			throw new Error(
+				"Runtime health check failed; no prior release to restore",
+			);
 		}
-	}
-
-	if (!healthy) {
-		if (previousTarget !== undefined) {
-			const rollbackLink = `${currentLink}.rollback-${randomUUID()}`;
-			await symlink(previousTarget, rollbackLink);
-			await rename(rollbackLink, currentLink);
-			await run("systemctl", ["restart", "zuse.service"]);
+		const rollbackLink = `${currentLink}.rollback-${randomUUID()}`;
+		await symlink(previousTarget, rollbackLink);
+		await rename(rollbackLink, currentLink);
+		await run("systemctl", ["restart", "zuse.service"]);
+		if (!(await waitForHealthyRuntime())) {
+			throw new Error("Rollback runtime failed its health check");
 		}
 		throw new Error("Runtime health check failed; rolled back");
 	}

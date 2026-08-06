@@ -12,7 +12,7 @@
  * side-effect free (the server only boots when the file is the process entry).
  */
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -241,8 +241,20 @@ export const runHeadlessServer = (
 
 // Only boot when this file is the process entrypoint, so the re-export above
 // stays import-safe (Vite HMR, tests, the Electron shim).
+export const isProcessEntrypoint = (
+	entry: string | undefined,
+	moduleUrl = import.meta.url,
+): boolean => {
+	if (entry === undefined) return false;
+	try {
+		return realpathSync(entry) === realpathSync(fileURLToPath(moduleUrl));
+	} catch {
+		return pathToFileURL(entry).href === moduleUrl;
+	}
+};
+
 const entry = process.argv[1];
-if (entry && import.meta.url === pathToFileURL(entry).href) {
+if (isProcessEntrypoint(entry)) {
 	try {
 		runHeadlessServer(parseServeOptions(process.argv.slice(2)));
 	} catch (error) {
