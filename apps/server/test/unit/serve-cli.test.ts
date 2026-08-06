@@ -1,9 +1,10 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { parseServeOptions } from "../../src/bin.ts";
+import { isProcessEntrypoint, parseServeOptions } from "../../src/bin.ts";
 
 describe("zuse serve CLI", () => {
 	it("parses explicit host, port, data, static, open, and auth options", async () => {
@@ -63,5 +64,20 @@ describe("zuse serve CLI", () => {
 		expect(() => parseServeOptions(["unknown"], {})).toThrow(
 			/Unknown command/u,
 		);
+	});
+
+	it("recognizes a bundled entrypoint launched through a release symlink", async () => {
+		const root = await mkdtemp(join(tmpdir(), "zuse-cli-entry-"));
+		const release = join(root, "releases", "runtime");
+		await mkdir(release, { recursive: true });
+		await writeFile(join(release, "bin.mjs"), "");
+		await symlink(release, join(root, "current"));
+
+		expect(
+			isProcessEntrypoint(
+				join(root, "current", "bin.mjs"),
+				pathToFileURL(join(release, "bin.mjs")).href,
+			),
+		).toBe(true);
 	});
 });

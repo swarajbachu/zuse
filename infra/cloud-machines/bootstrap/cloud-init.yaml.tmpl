@@ -36,6 +36,7 @@ write_files:
     permissions: "0600"
     content: |
       ZUSE_RUNTIME_MANIFEST_URL=__RUNTIME_MANIFEST_URL__
+      ZUSE_RUNTIME_WIRE_PROTOCOL=__WIRE_PROTOCOL_VERSION__
       ZUSE_MACHINE_RUNTIME_ROLE=cloud-environment
 
   - path: /etc/zuse/runtime-signing-public.jwk
@@ -78,12 +79,46 @@ write_files:
       #!/bin/sh
       set -eu
 
+      set -a
+      . /etc/zuse/runtime.env
+      set +a
+      bootstrap_complete="/var/lib/zuse/bootstrap-complete"
+
+      wait_for_runtime() {
+        for attempt in $(seq 1 30); do
+          if curl --max-time 2 --connect-timeout 1 -fsS http://127.0.0.1:47837/healthz | jq -e --argjson expected "$ZUSE_RUNTIME_WIRE_PROTOCOL" '.status == "ok" and .wireProtocolVersion == $expected' >/dev/null; then
+            return 0
+          fi
+          sleep 1
+        done
+        return 1
+      }
+
+      complete_bootstrap() {
+        systemctl enable --now zuse-update.timer
+        install -o root -g root -m 0600 /dev/null "$bootstrap_complete"
+      }
+
+      if [ -f "$bootstrap_complete" ]; then
+        exit 0
+      fi
+      if [ ! -f /var/lib/zuse/enrollment.env ]; then
+        systemctl daemon-reload
+        systemctl enable --now zuse.service
+        if wait_for_runtime; then
+          complete_bootstrap
+          exit 0
+        fi
+        echo 'Enrollment material is absent and the runtime is unhealthy' >&2
+        exit 1
+      fi
+
       report_boot_status() {
         phase="$1"
         status_code="${2:-}"
-        set -a
-        . /var/lib/zuse/enrollment.env
-        set +a
+        if [ -z "${ZUSE_ENROLLMENT_TOKEN:-}" ]; then
+          . /var/lib/zuse/enrollment.env
+        fi
         if [ -n "$status_code" ]; then
           payload="{\"phase\":\"$phase\",\"statusCode\":\"$status_code\"}"
         else
@@ -111,7 +146,7 @@ write_files:
       report_boot_status bootstrap-started
 
       /usr/local/lib/zuse/install-node.sh
-      curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | gpg --dearmor -o /usr/share/keyrings/cloudflare-main.gpg
+      curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | gpg --batch --yes --dearmor -o /usr/share/keyrings/cloudflare-main.gpg
       printf '%s\n' 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' > /etc/apt/sources.list.d/cloudflared.list
       apt-get update
       DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y cloudflared
@@ -131,9 +166,6 @@ write_files:
       systemctl enable --now nftables
       systemctl restart ssh
 
-      set -a
-      . /etc/zuse/runtime.env
-      set +a
       ZUSE_RUNTIME_INSTALL_ONLY=1 \
         ZUSE_RUNTIME_PUBLIC_KEY_FILE=/etc/zuse/runtime-signing-public.jwk \
         /usr/local/bin/node /usr/local/lib/zuse/runtime-installer.mjs
@@ -141,19 +173,13 @@ write_files:
 
       systemctl daemon-reload
       systemctl enable --now zuse.service
-      for attempt in $(seq 1 30); do
-        if curl --max-time 2 --connect-timeout 1 -fsS http://127.0.0.1:47837/healthz | jq -e '.status == "ok" and .wireProtocolVersion == 2' >/dev/null; then
-          break
-        fi
-        if [ "$attempt" -eq 30 ]; then
-          echo 'Runtime failed its initial health check' >&2
-          systemctl --no-pager status zuse.service || true
-          exit 1
-        fi
-        sleep 1
-      done
-      systemctl enable --now zuse-update.timer
+      if ! wait_for_runtime; then
+        echo 'Runtime failed its initial health check' >&2
+        systemctl --no-pager status zuse.service || true
+        exit 1
+      fi
       report_boot_status service-started
+      complete_bootstrap
       trap - EXIT
 
   - path: /etc/ssh/sshd_config.d/90-zuse.conf

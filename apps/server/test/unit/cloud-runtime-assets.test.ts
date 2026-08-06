@@ -29,8 +29,25 @@ describe("cloud runtime assets", () => {
 		expect(cloudInit).toContain("ZUSE_RUNTIME_INSTALL_ONLY=1");
 		expect(cloudInit).toContain("http://127.0.0.1:47837/healthz");
 		expect(cloudInit).toContain("curl --max-time 2 --connect-timeout 1");
-		expect(cloudInit).toContain(".wireProtocolVersion == 2");
+		expect(cloudInit).toContain(
+			"ZUSE_RUNTIME_WIRE_PROTOCOL=__WIRE_PROTOCOL_VERSION__",
+		);
+		expect(cloudInit).toContain(
+			'--argjson expected "$ZUSE_RUNTIME_WIRE_PROTOCOL"',
+		);
+		expect(cloudInit).toContain(".wireProtocolVersion == $expected");
 		expect(cloudInit).toContain("Runtime failed its initial health check");
+		expect(cloudInit).toContain(
+			'bootstrap_complete="/var/lib/zuse/bootstrap-complete"',
+		);
+		expect(cloudInit).toContain('if [ -f "$bootstrap_complete" ]; then');
+		expect(cloudInit).toContain(
+			"if [ ! -f /var/lib/zuse/enrollment.env ]; then",
+		);
+		expect(cloudInit).toContain("if wait_for_runtime; then");
+		expect(cloudInit).toContain(
+			'install -o root -g root -m 0600 /dev/null "$bootstrap_complete"',
+		);
 		expect(cloudInit).not.toContain("__INSTALL_VERIFIED_RUNTIME_COMMAND__");
 		expect(cloudInit).not.toContain(
 			"EnvironmentFile=-/etc/zuse/enrollment.env",
@@ -52,6 +69,9 @@ describe("cloud runtime assets", () => {
 		expect(cloudInit).toContain("/usr/local/bin/npm");
 		expect(cloudInit).not.toContain("deb.nodesource.com");
 		expect(cloudInit).not.toContain("package_upgrade: true");
+		expect(cloudInit).toContain(
+			"gpg --batch --yes --dearmor -o /usr/share/keyrings/cloudflare-main.gpg",
+		);
 	});
 
 	test("fails fast and reports a stable bootstrap status without logging secrets", async () => {
@@ -65,6 +85,12 @@ describe("cloud runtime assets", () => {
 		);
 		expect(cloudInit).toContain('report_boot_status failed "bootstrap-failed"');
 		expect(cloudInit).toContain("report_boot_status runtime-installed");
+		expect(cloudInit).toContain(
+			`if [ -z "\${ZUSE_ENROLLMENT_TOKEN:-}" ]; then`,
+		);
+		expect(cloudInit).not.toContain(
+			"set -a\n        . /var/lib/zuse/enrollment.env",
+		);
 		expect(cloudInit).not.toContain("set -x");
 	});
 
@@ -91,7 +117,7 @@ describe("cloud runtime assets", () => {
 		expect(updater).not.toContain(
 			"await rm(release, { recursive: true, force: true })",
 		);
-		expect(updater).toContain("if (!healthy)");
+		expect(updater).toContain("if (!(await waitForHealthyRuntime()))");
 		expect(updater).toContain("previousTarget = await readlink(currentLink)");
 		expect(updater).toContain("await symlink(previousTarget, rollbackLink)");
 		expect(updater).not.toContain("currentLink}.target");
@@ -104,6 +130,15 @@ describe("cloud runtime assets", () => {
 		expect(updater).toContain("AbortSignal.timeout");
 		expect(updater).toContain("Runtime hash is invalid");
 		expect(updater).toContain("signal: AbortSignal.timeout(2_000)");
+		expect(updater).toContain("const expectedWireProtocol = Number(");
+		expect(updater).toContain("wireProtocol.min > expectedWireProtocol");
+		expect(updater).toContain(
+			"body.wireProtocolVersion === expectedWireProtocol",
+		);
+		expect(updater).toContain("Number.isInteger(wireProtocol.min)");
+		expect(updater).toContain("const waitForHealthyRuntime = async () =>");
+		expect(updater).toContain("await rm(currentLink, { force: true })");
+		expect(updater).toContain("Rollback runtime failed its health check");
 	});
 
 	test("refuses to publish a runtime manifest with a placeholder or insecure artifact URL", async () => {
@@ -117,6 +152,12 @@ describe("cloud runtime assets", () => {
 		);
 		expect(build).toContain("Cloud runtime unexpectedly imports keytar");
 		expect(build).toContain('"node-gyp-build"');
+		expect(build).toContain(
+			'import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts"',
+		);
+		expect(build).toContain(
+			"wireProtocol: { min: WIRE_PROTOCOL_VERSION, max: WIRE_PROTOCOL_VERSION }",
+		);
 		const buildConfig = await readWorkspaceFile(
 			"apps/server/tsdown.cloud.config.ts",
 		);
