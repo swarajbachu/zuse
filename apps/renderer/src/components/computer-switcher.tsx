@@ -181,32 +181,41 @@ function DesktopComputerSwitcher() {
 			<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
 				<DialogPopup className="max-w-xl">
 					<DialogHeader>
-						<DialogTitle>Add computer</DialogTitle>
+						<DialogTitle>Connect a computer</DialogTitle>
 						<DialogDescription>
-							Connect privately over Tailscale, or use SSH for advanced setups.
+							{connectionMode === "tailnet"
+								? "Paste a private connection link from the other computer. No address or port setup."
+								: "Connect using an existing OpenSSH configuration."}
 						</DialogDescription>
 					</DialogHeader>
 					<div className="min-h-0 space-y-5 overflow-y-auto px-5 pb-2">
-						<fieldset
-							className="grid min-w-0 grid-cols-2 gap-1 rounded-lg border-0 bg-muted p-1"
-							aria-label="Connection method"
-						>
-							{(["tailnet", "ssh"] as const).map((mode) => (
-								<Button
-									key={mode}
-									type="button"
-									aria-pressed={connectionMode === mode}
-									variant={connectionMode === mode ? "secondary" : "ghost"}
-									className="h-9"
-									onClick={() => {
-										setConnectionMode(mode);
-										setError(null);
-									}}
-								>
-									{mode === "tailnet" ? "Tailscale" : "SSH"}
-								</Button>
-							))}
-						</fieldset>
+						<div className="flex min-h-11 items-center justify-between gap-3 rounded-lg bg-muted/40 px-3 py-2">
+							<div className="min-w-0">
+								<p className="text-xs font-medium">
+									{connectionMode === "tailnet" ? "Private link" : "SSH"}
+								</p>
+								<p className="text-[11px] text-muted-foreground">
+									{connectionMode === "tailnet"
+										? "Recommended for another Zuse computer"
+										: "For servers already reachable with OpenSSH"}
+								</p>
+							</div>
+							<Button
+								type="button"
+								size="xs"
+								variant="ghost"
+								onClick={() => {
+									setConnectionMode((current) =>
+										current === "tailnet" ? "ssh" : "tailnet",
+									);
+									setError(null);
+								}}
+							>
+								{connectionMode === "tailnet"
+									? "Use SSH instead"
+									: "Use private link"}
+							</Button>
+						</div>
 						{entries.some((entry) => entry.profileId !== null) ? (
 							<section aria-labelledby="saved-computers-heading">
 								<h3
@@ -381,10 +390,9 @@ function DesktopComputerSwitcher() {
 								className="space-y-3"
 								onSubmit={(event) => void submitTailnet(event)}
 							>
-								<div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
-									On the other computer, open Settings → Devices, turn on
-									Tailscale sharing, then choose Connect a device and copy its
-									pairing link.
+								<div className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
+									On the other computer, open Settings → Devices and choose
+									Connect device. Paste the link it creates below.
 								</div>
 								<div>
 									<label
@@ -403,23 +411,26 @@ function DesktopComputerSwitcher() {
 										aria-invalid={error !== null || undefined}
 									/>
 								</div>
-								<div>
-									<label
-										htmlFor="tailnet-computer-label"
-										className="mb-1 block text-xs font-medium"
-									>
-										Label{" "}
-										<span className="font-normal text-muted-foreground">
-											Optional
-										</span>
-									</label>
-									<Input
-										id="tailnet-computer-label"
-										value={label}
-										onChange={(event) => setLabel(event.target.value)}
-										placeholder="Linux computer"
-									/>
-								</div>
+								<details className="rounded-lg border border-border/50">
+									<summary className="flex min-h-11 cursor-pointer list-none items-center px-3 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+										Custom name
+										<span className="ml-auto text-[11px]">Optional</span>
+									</summary>
+									<div className="border-t border-border/40 p-3">
+										<label
+											htmlFor="tailnet-computer-label"
+											className="mb-1 block text-xs font-medium"
+										>
+											Computer name
+										</label>
+										<Input
+											id="tailnet-computer-label"
+											value={label}
+											onChange={(event) => setLabel(event.target.value)}
+											placeholder="Linux computer"
+										/>
+									</div>
+								</details>
 							</form>
 						) : (
 							<form
@@ -449,72 +460,78 @@ function DesktopComputerSwitcher() {
 										placeholder="server.example.com"
 									/>
 								</div>
-								<div className="grid grid-cols-2 gap-3">
-									<div>
-										<label
-											htmlFor="computer-user"
-											className="mb-1 block text-xs font-medium"
-										>
-											Username{" "}
-											<span className="font-normal text-muted-foreground">
-												Optional
-											</span>
-										</label>
-										<Input
-											id="computer-user"
-											autoComplete="username"
-											value={target.username ?? ""}
-											onChange={(event) =>
-												setTarget((current) => ({
-													...current,
-													username: event.target.value || null,
-												}))
-											}
-										/>
+								<details className="rounded-lg border border-border/50">
+									<summary className="flex min-h-11 cursor-pointer list-none items-center px-3 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+										Connection options
+										<span className="ml-auto text-[11px]">Optional</span>
+									</summary>
+									<div className="grid gap-3 border-t border-border/40 p-3 sm:grid-cols-2">
+										<div>
+											<label
+												htmlFor="computer-user"
+												className="mb-1 block text-xs font-medium"
+											>
+												Username{" "}
+												<span className="font-normal text-muted-foreground">
+													Optional
+												</span>
+											</label>
+											<Input
+												id="computer-user"
+												autoComplete="username"
+												value={target.username ?? ""}
+												onChange={(event) =>
+													setTarget((current) => ({
+														...current,
+														username: event.target.value || null,
+													}))
+												}
+											/>
+										</div>
+										<div>
+											<label
+												htmlFor="computer-port"
+												className="mb-1 block text-xs font-medium"
+											>
+												Port{" "}
+												<span className="font-normal text-muted-foreground">
+													Optional
+												</span>
+											</label>
+											<Input
+												id="computer-port"
+												inputMode="numeric"
+												value={target.port ?? ""}
+												onChange={(event) =>
+													setTarget((current) => ({
+														...current,
+														port:
+															event.target.value === ""
+																? null
+																: Number(event.target.value),
+													}))
+												}
+											/>
+										</div>
+										<div className="sm:col-span-2">
+											<label
+												htmlFor="computer-label"
+												className="mb-1 block text-xs font-medium"
+											>
+												Label{" "}
+												<span className="font-normal text-muted-foreground">
+													Optional
+												</span>
+											</label>
+											<Input
+												id="computer-label"
+												value={label}
+												onChange={(event) => setLabel(event.target.value)}
+												placeholder="Build computer"
+											/>
+										</div>
 									</div>
-									<div>
-										<label
-											htmlFor="computer-port"
-											className="mb-1 block text-xs font-medium"
-										>
-											Port{" "}
-											<span className="font-normal text-muted-foreground">
-												Optional
-											</span>
-										</label>
-										<Input
-											id="computer-port"
-											inputMode="numeric"
-											value={target.port ?? ""}
-											onChange={(event) =>
-												setTarget((current) => ({
-													...current,
-													port:
-														event.target.value === ""
-															? null
-															: Number(event.target.value),
-												}))
-											}
-										/>
-									</div>
-								</div>
-								<div>
-									<label
-										htmlFor="computer-label"
-										className="mb-1 block text-xs font-medium"
-									>
-										Label{" "}
-										<span className="font-normal text-muted-foreground">
-											Optional
-										</span>
-									</label>
-									<Input
-										id="computer-label"
-										value={label}
-										onChange={(event) => setLabel(event.target.value)}
-										placeholder="Build computer"
-									/>
-								</div>
+								</details>
 							</form>
 						)}
 						{error !== null ? (

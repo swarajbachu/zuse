@@ -7,6 +7,7 @@ import type {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import {
+	ChevronDown,
 	Copy,
 	ExternalLink,
 	Monitor,
@@ -421,116 +422,128 @@ export function DevicesPane() {
 			<Frame>
 				<FrameHeader className="px-2 py-1.5">
 					<FrameTitle className="text-[13px] font-medium">
-						This computer
+						Access this computer
 					</FrameTitle>
 					<p className="mt-0.5 text-[11px] text-muted-foreground">
-						Choose where your other devices can reach this computer.
+						Connect privately from another device. Zuse handles the address and
+						HTTPS setup.
 					</p>
 				</FrameHeader>
 				<Card className="overflow-hidden">
-					<div className="flex flex-col divide-y divide-border/40">
-						<AccessRow
-							icon={<ShieldCheck className="size-4" aria-hidden />}
-							title="Tailscale"
-							description={
-								tailnet?.enabled === true
-									? (tailnet.httpsUrl ?? "Available privately on your Tailnet.")
-									: tailnet?.detail || "Private access from your Tailnet."
-							}
-							control={
-								tailnet?.availability === "approval-required" ? (
-									<Button
-										size="xs"
-										onClick={() =>
-											void (tailnet.approvalUrl
-												? openExternal(tailnet.approvalUrl)
-												: updateTailnet(true))
-										}
-									>
-										Approve
-									</Button>
-								) : tailnet?.availability === "not-installed" ? (
-									<Button
-										size="xs"
-										variant="outline"
-										onClick={() =>
-											void openExternal("https://tailscale.com/download")
-										}
-									>
-										Install
-									</Button>
-								) : tailnet?.availability === "signed-out" ? (
-									<Button
-										size="xs"
-										variant="outline"
-										onClick={() => void refresh()}
-									>
-										Check again
-									</Button>
-								) : tailnet?.availability === "error" ? (
-									<Button
-										size="xs"
-										variant="outline"
-										onClick={() => void updateTailnet(true)}
-										disabled={tailnetBusy}
-									>
-										Retry
-									</Button>
-								) : (
+					<AccessRow
+						icon={<ShieldCheck className="size-4" aria-hidden />}
+						title={
+							tailnet?.enabled === true
+								? "Private access is on"
+								: "Private access"
+						}
+						description={
+							tailnet?.enabled === true
+								? (tailnet.httpsUrl ?? "Ready on your private network.")
+								: tailnet?.detail ||
+									"Available to devices signed in to your Tailnet."
+						}
+						control={
+							tailnet?.availability === "approval-required" ? (
+								<Button
+									size="xs"
+									onClick={() =>
+										void (tailnet.approvalUrl
+											? openExternal(tailnet.approvalUrl)
+											: updateTailnet(true))
+									}
+								>
+									Approve
+								</Button>
+							) : tailnet?.availability === "not-installed" ? (
+								<Button
+									size="xs"
+									variant="outline"
+									onClick={() =>
+										void openExternal("https://tailscale.com/download")
+									}
+								>
+									Install
+								</Button>
+							) : tailnet?.availability === "signed-out" ? (
+								<Button
+									size="xs"
+									variant="outline"
+									onClick={() => void refresh()}
+								>
+									Check again
+								</Button>
+							) : tailnet?.availability === "error" ? (
+								<Button
+									size="xs"
+									variant="outline"
+									onClick={() => void updateTailnet(true)}
+									disabled={tailnetBusy}
+								>
+									Retry
+								</Button>
+							) : (
+								<Switch
+									aria-label="Private access"
+									checked={tailnet?.enabled === true}
+									onCheckedChange={(checked) => void updateTailnet(checked)}
+									disabled={tailnetBusy}
+								/>
+							)
+						}
+					/>
+					<details className="group border-t border-border/40">
+						<summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-[11px] font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+							<ChevronDown className="size-3.5" aria-hidden />
+							Other access options
+						</summary>
+						<div className="flex flex-col divide-y divide-border/40 border-t border-border/40">
+							<AccessRow
+								icon={<Wifi className="size-4" aria-hidden />}
+								title="Local network"
+								description={
+									networkEnabled
+										? "Available to devices on this network."
+										: "Access from browsers and devices on this network."
+								}
+								control={
+									canManageNetwork ? (
+										<Switch
+											aria-label="Local network access"
+											checked={networkEnabled}
+											onCheckedChange={setPendingNetworkMode}
+											disabled={busy}
+										/>
+									) : (
+										<span className="text-[11px] text-muted-foreground">
+											Desktop only
+										</span>
+									)
+								}
+							/>
+							<AccessRow
+								icon={<ExternalLink className="size-4" aria-hidden />}
+								title="Account access"
+								description={
+									remoteReady
+										? "Available anywhere through your account."
+										: linked
+											? "Linked and waiting for this computer to reconnect."
+											: "Access away from your local network."
+								}
+								control={
 									<Switch
-										aria-label="Share over Tailscale"
-										checked={tailnet?.enabled === true}
-										onCheckedChange={(checked) => void updateTailnet(checked)}
-										disabled={tailnetBusy}
-									/>
-								)
-							}
-						/>
-						<AccessRow
-							icon={<Wifi className="size-4" aria-hidden />}
-							title="Local network"
-							description={
-								networkEnabled
-									? "Available to devices on this network."
-									: "Access from browsers and devices on this network."
-							}
-							control={
-								canManageNetwork ? (
-									<Switch
-										aria-label="Local network access"
-										checked={networkEnabled}
-										onCheckedChange={setPendingNetworkMode}
+										aria-label="Account access"
+										checked={linked}
+										onCheckedChange={(checked) =>
+											void (checked ? connectRelay() : unlinkRelay())
+										}
 										disabled={busy}
 									/>
-								) : (
-									<span className="text-[11px] text-muted-foreground">
-										Desktop only
-									</span>
-								)
-							}
-						/>
-						<AccessRow
-							icon={<ExternalLink className="size-4" aria-hidden />}
-							title="Account access"
-							description={
-								remoteReady
-									? "Available anywhere through your account."
-									: linked
-										? "Linked and waiting for this computer to reconnect."
-										: "Access away from your local network."
-							}
-							control={
-								<Switch
-									aria-label="Account access"
-									checked={linked}
-									onCheckedChange={(checked) =>
-										void (checked ? connectRelay() : unlinkRelay())
-									}
-									disabled={busy}
-								/>
-							}
-						/>
-					</div>
+								}
+							/>
+						</div>
+					</details>
 				</Card>
 				<FrameFooter className="px-2 py-1.5 text-[11px] text-muted-foreground">
 					Headless computer? Run <code>zuse serve</code> there.
