@@ -48,6 +48,11 @@ describe("tailnet sharing", () => {
 	it("only accepts the Tailscale Serve feature approval URL", () => {
 		expect(
 			extractTailnetApprovalUrl(
+				"To enable, visit:\nhttps://login.tailscale.com/f/serve?node=example",
+			),
+		).toBe("https://login.tailscale.com/f/serve?node=example");
+		expect(
+			extractTailnetApprovalUrl(
 				"Approve at https://login.tailscale.com/admin/feature/serve?node=example",
 			),
 		).toBe("https://login.tailscale.com/admin/feature/serve?node=example");
@@ -84,7 +89,7 @@ describe("tailnet sharing", () => {
 		await writeFile(
 			executable,
 			`#!/usr/bin/env node
-process.stdout.write("Enable Serve at https://login.tailscale.com/admin/feature/serve?node=example\\n");
+process.stdout.write("Enable Serve at https://login.tailscale.com/f/serve?node=example\\n");
 setInterval(() => undefined, 10_000);
 `,
 			{ mode: 0o700 },
@@ -101,7 +106,7 @@ setInterval(() => undefined, 10_000);
 				executable,
 			)(["serve", "--bg", "--yes", "127.0.0.1:47837"], 2_000);
 			expect(output.approvalUrl).toBe(
-				"https://login.tailscale.com/admin/feature/serve?node=example",
+				"https://login.tailscale.com/f/serve?node=example",
 			);
 			expect(Date.now() - startedAt).toBeLessThan(1_800);
 			expect(diagnostics).toEqual([
@@ -190,8 +195,7 @@ setInterval(() => undefined, 10_000);
 	});
 
 	it("returns the first-use approval URL instead of a command timeout", async () => {
-		const approvalUrl =
-			"https://login.tailscale.com/admin/feature/serve?node=example";
+		const approvalUrl = "https://login.tailscale.com/f/serve?node=example";
 		const run = async (args: ReadonlyArray<string>) => {
 			if (args[0] === "status") {
 				return result(

@@ -78,7 +78,8 @@ export const extractTailnetApprovalUrl = (value: string): string | null => {
 			const url = new URL(candidate);
 			if (
 				url.hostname === "login.tailscale.com" &&
-				url.pathname.startsWith("/admin/feature/")
+				(url.pathname === "/f/serve" ||
+					url.pathname.startsWith("/admin/feature/"))
 			) {
 				return url.toString();
 			}
