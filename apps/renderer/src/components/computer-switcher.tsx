@@ -61,6 +61,7 @@ function DesktopComputerSwitcher() {
 	const remove = useEnvironmentCatalogStore((state) => state.remove);
 	const rename = useEnvironmentCatalogStore((state) => state.rename);
 	const [dialogOpen, setDialogOpen] = useState(false);
+	const [managingSaved, setManagingSaved] = useState(false);
 	const [connectionMode, setConnectionMode] = useState<"tailnet" | "ssh">(
 		"tailnet",
 	);
@@ -168,7 +169,7 @@ function DesktopComputerSwitcher() {
 					render={
 						<button
 							type="button"
-							aria-label="Manage computers"
+							aria-label="Add computer"
 							className="relative flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
 							onClick={() => setDialogOpen(true)}
 						>
@@ -176,47 +177,63 @@ function DesktopComputerSwitcher() {
 						</button>
 					}
 				/>
-				<TooltipPopup>Manage computers</TooltipPopup>
+				<TooltipPopup>Add computer</TooltipPopup>
 			</Tooltip>
-			<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+			<Dialog
+				open={dialogOpen}
+				onOpenChange={(open) => {
+					setDialogOpen(open);
+					if (!open) setManagingSaved(false);
+				}}
+			>
 				<DialogPopup className="max-w-xl">
 					<DialogHeader>
-						<DialogTitle>Connect a computer</DialogTitle>
+						<DialogTitle>
+							{managingSaved ? "Connected computers" : "Connect a computer"}
+						</DialogTitle>
 						<DialogDescription>
-							{connectionMode === "tailnet"
-								? "Paste a private connection link from the other computer. No address or port setup."
-								: "Connect using an existing OpenSSH configuration."}
+							{managingSaved
+								? "Rename, reconnect, or remove computers saved on this device."
+								: connectionMode === "tailnet"
+									? "Paste a private connection link from the other computer. No address or port setup."
+									: "Connect using an existing OpenSSH configuration."}
 						</DialogDescription>
 					</DialogHeader>
 					<div className="min-h-0 space-y-5 overflow-y-auto px-5 pb-2">
-						<div className="flex min-h-11 items-center justify-between gap-3 rounded-lg bg-muted/40 px-3 py-2">
-							<div className="min-w-0">
-								<p className="text-xs font-medium">
-									{connectionMode === "tailnet" ? "Private link" : "SSH"}
-								</p>
-								<p className="text-[11px] text-muted-foreground">
+						<div className="flex min-h-8 justify-end gap-1">
+							{entries.some((entry) => entry.profileId !== null) ? (
+								<Button
+									type="button"
+									size="xs"
+									variant="ghost"
+									onClick={() => {
+										setManagingSaved((current) => !current);
+										setError(null);
+									}}
+								>
+									{managingSaved ? "Add a computer" : "Manage saved computers"}
+								</Button>
+							) : null}
+							{!managingSaved ? (
+								<Button
+									type="button"
+									size="xs"
+									variant="ghost"
+									onClick={() => {
+										setConnectionMode((current) =>
+											current === "tailnet" ? "ssh" : "tailnet",
+										);
+										setError(null);
+									}}
+								>
 									{connectionMode === "tailnet"
-										? "Recommended for another Zuse computer"
-										: "For servers already reachable with OpenSSH"}
-								</p>
-							</div>
-							<Button
-								type="button"
-								size="xs"
-								variant="ghost"
-								onClick={() => {
-									setConnectionMode((current) =>
-										current === "tailnet" ? "ssh" : "tailnet",
-									);
-									setError(null);
-								}}
-							>
-								{connectionMode === "tailnet"
-									? "Use SSH instead"
-									: "Use private link"}
-							</Button>
+										? "Use SSH"
+										: "Back to private link"}
+								</Button>
+							) : null}
 						</div>
-						{entries.some((entry) => entry.profileId !== null) ? (
+						{managingSaved &&
+						entries.some((entry) => entry.profileId !== null) ? (
 							<section aria-labelledby="saved-computers-heading">
 								<h3
 									id="saved-computers-heading"
@@ -351,214 +368,217 @@ function DesktopComputerSwitcher() {
 							</section>
 						) : null}
 
-						{connectionMode === "ssh" && suggestions.length > 0 ? (
-							<section aria-labelledby="suggested-computers-heading">
-								<h3
-									id="suggested-computers-heading"
-									className="mb-2 text-xs font-medium text-muted-foreground"
-								>
-									Suggestions
-								</h3>
-								<div className="grid gap-1 sm:grid-cols-2">
-									{suggestions.map((host) => (
-										<Button
-											key={`${host.source}:${host.alias}`}
-											variant="outline"
-											className="h-auto min-h-11 justify-start px-3 py-2 text-left"
-											onClick={() => chooseSuggestion(host)}
+						{!managingSaved ? (
+							<>
+								{connectionMode === "ssh" && suggestions.length > 0 ? (
+									<section aria-labelledby="suggested-computers-heading">
+										<h3
+											id="suggested-computers-heading"
+											className="mb-2 text-xs font-medium text-muted-foreground"
 										>
-											<span className="min-w-0">
-												<span className="block truncate text-sm">
-													{host.displayName}
-												</span>
-												<span className="block truncate text-xs font-normal text-muted-foreground">
-													{host.source === "tailscale"
-														? "Tailnet"
-														: "SSH config"}{" "}
-													· {host.hostname}
-												</span>
-											</span>
-										</Button>
-									))}
-								</div>
-							</section>
-						) : null}
+											Suggestions
+										</h3>
+										<div className="grid gap-1 sm:grid-cols-2">
+											{suggestions.map((host) => (
+												<Button
+													key={`${host.source}:${host.alias}`}
+													variant="outline"
+													className="h-auto min-h-11 justify-start px-3 py-2 text-left"
+													onClick={() => chooseSuggestion(host)}
+												>
+													<span className="min-w-0">
+														<span className="block truncate text-sm">
+															{host.displayName}
+														</span>
+														<span className="block truncate text-xs font-normal text-muted-foreground">
+															{host.source === "tailscale"
+																? "Tailnet"
+																: "SSH config"}{" "}
+															· {host.hostname}
+														</span>
+													</span>
+												</Button>
+											))}
+										</div>
+									</section>
+								) : null}
 
-						{connectionMode === "tailnet" ? (
-							<form
-								id="add-tailnet-computer-form"
-								className="space-y-3"
-								onSubmit={(event) => void submitTailnet(event)}
-							>
-								<div className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
-									On the other computer, open Settings → Devices and choose
-									Connect device. Paste the link it creates below.
-								</div>
-								<div>
-									<label
-										htmlFor="tailnet-pairing-link"
-										className="mb-1 block text-xs font-medium"
+								{connectionMode === "tailnet" ? (
+									<form
+										id="add-tailnet-computer-form"
+										className="space-y-3"
+										onSubmit={(event) => void submitTailnet(event)}
 									>
-										Pairing link
-									</label>
-									<Input
-										id="tailnet-pairing-link"
-										autoFocus
-										autoComplete="off"
-										value={pairingLink}
-										onChange={(event) => setPairingLink(event.target.value)}
-										placeholder="zuse:///connect/pair?..."
-										aria-invalid={error !== null || undefined}
-									/>
-								</div>
-								<details className="rounded-lg border border-border/50">
-									<summary className="flex min-h-11 cursor-pointer list-none items-center px-3 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-										Custom name
-										<span className="ml-auto text-[11px]">Optional</span>
-									</summary>
-									<div className="border-t border-border/40 p-3">
-										<label
-											htmlFor="tailnet-computer-label"
-											className="mb-1 block text-xs font-medium"
-										>
-											Computer name
-										</label>
-										<Input
-											id="tailnet-computer-label"
-											value={label}
-											onChange={(event) => setLabel(event.target.value)}
-											placeholder="Linux computer"
-										/>
-									</div>
-								</details>
-							</form>
-						) : (
-							<form
-								id="add-computer-form"
-								className="space-y-3"
-								onSubmit={(event) => void submit(event)}
-							>
-								<div>
-									<label
-										htmlFor="computer-host"
-										className="mb-1 block text-xs font-medium"
-									>
-										Host
-									</label>
-									<Input
-										id="computer-host"
-										autoComplete="off"
-										value={target.hostname}
-										onChange={(event) =>
-											setTarget((current) => ({
-												...current,
-												hostname: event.target.value,
-												alias: event.target.value,
-											}))
-										}
-										aria-invalid={error !== null || undefined}
-										placeholder="server.example.com"
-									/>
-								</div>
-								<details className="rounded-lg border border-border/50">
-									<summary className="flex min-h-11 cursor-pointer list-none items-center px-3 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-										Connection options
-										<span className="ml-auto text-[11px]">Optional</span>
-									</summary>
-									<div className="grid gap-3 border-t border-border/40 p-3 sm:grid-cols-2">
+										<div className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
+											On the other computer, open Settings → Devices and choose
+											Connect device. Paste the link it creates below.
+										</div>
 										<div>
 											<label
-												htmlFor="computer-user"
+												htmlFor="tailnet-pairing-link"
 												className="mb-1 block text-xs font-medium"
 											>
-												Username{" "}
-												<span className="font-normal text-muted-foreground">
-													Optional
-												</span>
+												Pairing link
 											</label>
 											<Input
-												id="computer-user"
-												autoComplete="username"
-												value={target.username ?? ""}
-												onChange={(event) =>
-													setTarget((current) => ({
-														...current,
-														username: event.target.value || null,
-													}))
-												}
+												id="tailnet-pairing-link"
+												autoFocus
+												autoComplete="off"
+												value={pairingLink}
+												onChange={(event) => setPairingLink(event.target.value)}
+												placeholder="zuse:///connect/pair?..."
+												aria-invalid={error !== null || undefined}
 											/>
 										</div>
 										<div>
 											<label
-												htmlFor="computer-port"
+												htmlFor="tailnet-computer-label"
 												className="mb-1 block text-xs font-medium"
 											>
-												Port{" "}
+												Computer name{" "}
 												<span className="font-normal text-muted-foreground">
 													Optional
 												</span>
 											</label>
 											<Input
-												id="computer-port"
-												inputMode="numeric"
-												value={target.port ?? ""}
-												onChange={(event) =>
-													setTarget((current) => ({
-														...current,
-														port:
-															event.target.value === ""
-																? null
-																: Number(event.target.value),
-													}))
-												}
-											/>
-										</div>
-										<div className="sm:col-span-2">
-											<label
-												htmlFor="computer-label"
-												className="mb-1 block text-xs font-medium"
-											>
-												Label{" "}
-												<span className="font-normal text-muted-foreground">
-													Optional
-												</span>
-											</label>
-											<Input
-												id="computer-label"
+												id="tailnet-computer-label"
 												value={label}
 												onChange={(event) => setLabel(event.target.value)}
-												placeholder="Build computer"
+												placeholder="Linux computer"
 											/>
 										</div>
-									</div>
-								</details>
-							</form>
-						)}
+									</form>
+								) : (
+									<form
+										id="add-computer-form"
+										className="space-y-3"
+										onSubmit={(event) => void submit(event)}
+									>
+										<div>
+											<label
+												htmlFor="computer-host"
+												className="mb-1 block text-xs font-medium"
+											>
+												Host
+											</label>
+											<Input
+												id="computer-host"
+												autoComplete="off"
+												value={target.hostname}
+												onChange={(event) =>
+													setTarget((current) => ({
+														...current,
+														hostname: event.target.value,
+														alias: event.target.value,
+													}))
+												}
+												aria-invalid={error !== null || undefined}
+												placeholder="server.example.com"
+											/>
+										</div>
+										<div className="grid gap-3 sm:grid-cols-2">
+											<div>
+												<label
+													htmlFor="computer-user"
+													className="mb-1 block text-xs font-medium"
+												>
+													Username{" "}
+													<span className="font-normal text-muted-foreground">
+														Optional
+													</span>
+												</label>
+												<Input
+													id="computer-user"
+													autoComplete="username"
+													value={target.username ?? ""}
+													onChange={(event) =>
+														setTarget((current) => ({
+															...current,
+															username: event.target.value || null,
+														}))
+													}
+												/>
+											</div>
+											<div>
+												<label
+													htmlFor="computer-port"
+													className="mb-1 block text-xs font-medium"
+												>
+													Port{" "}
+													<span className="font-normal text-muted-foreground">
+														Optional
+													</span>
+												</label>
+												<Input
+													id="computer-port"
+													inputMode="numeric"
+													value={target.port ?? ""}
+													onChange={(event) =>
+														setTarget((current) => ({
+															...current,
+															port:
+																event.target.value === ""
+																	? null
+																	: Number(event.target.value),
+														}))
+													}
+												/>
+											</div>
+											<div className="sm:col-span-2">
+												<label
+													htmlFor="computer-label"
+													className="mb-1 block text-xs font-medium"
+												>
+													Label{" "}
+													<span className="font-normal text-muted-foreground">
+														Optional
+													</span>
+												</label>
+												<Input
+													id="computer-label"
+													value={label}
+													onChange={(event) => setLabel(event.target.value)}
+													placeholder="Build computer"
+												/>
+											</div>
+										</div>
+									</form>
+								)}
+							</>
+						) : null}
 						{error !== null ? (
 							<p role="alert" className="text-xs text-destructive">
 								{error}
 							</p>
 						) : null}
-						<p className="text-xs text-muted-foreground">
-							Removing a computer only forgets it here; its projects and data
-							remain untouched.
-						</p>
+						{managingSaved ? (
+							<p className="text-xs text-muted-foreground">
+								Removing a computer only forgets it here; its projects and data
+								remain untouched.
+							</p>
+						) : null}
 					</div>
 					<DialogFooter>
-						<Button variant="ghost" onClick={() => setDialogOpen(false)}>
-							Cancel
-						</Button>
-						<Button
-							form={
-								connectionMode === "tailnet"
-									? "add-tailnet-computer-form"
-									: "add-computer-form"
-							}
-							type="submit"
-							loading={submitting}
-						>
-							Connect
-						</Button>
+						{managingSaved ? (
+							<Button onClick={() => setDialogOpen(false)}>Done</Button>
+						) : (
+							<>
+								<Button variant="ghost" onClick={() => setDialogOpen(false)}>
+									Cancel
+								</Button>
+								<Button
+									form={
+										connectionMode === "tailnet"
+											? "add-tailnet-computer-form"
+											: "add-computer-form"
+									}
+									type="submit"
+									loading={submitting}
+								>
+									Connect
+								</Button>
+							</>
+						)}
 					</DialogFooter>
 				</DialogPopup>
 			</Dialog>

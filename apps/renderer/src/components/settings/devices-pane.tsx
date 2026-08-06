@@ -7,13 +7,11 @@ import type {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import {
-	ChevronDown,
 	Copy,
 	ExternalLink,
 	Monitor,
 	QrCode,
 	RefreshCw,
-	ShieldCheck,
 	Smartphone,
 	Wifi,
 } from "lucide-react";
@@ -251,9 +249,9 @@ export function DevicesPane() {
 	}, [pendingNetworkMode]);
 
 	const updateTailnet = useCallback(
-		async (enabled: boolean) => {
+		async (enabled: boolean): Promise<TailnetShareState | null> => {
 			const bridge = window.zuse ?? window.memoize;
-			if (bridge?.network === undefined || tailnetBusy) return;
+			if (bridge?.network === undefined || tailnetBusy) return null;
 			setTailnetBusy(true);
 			try {
 				const next = await bridge.network.setTailnetShareEnabled(enabled);
@@ -263,15 +261,17 @@ export function DevicesPane() {
 					next.approvalUrl !== null
 				) {
 					void openExternal(next.approvalUrl);
-					return;
+					return next;
 				}
 				if (next.availability !== "available" || next.enabled !== enabled) {
 					throw new Error(
 						next.detail ?? "Tailscale could not update private sharing.",
 					);
 				}
+				return next;
 			} catch (cause) {
 				showError("Could not update Tailscale access", cause);
+				return null;
 			} finally {
 				setTailnetBusy(false);
 			}
@@ -280,7 +280,10 @@ export function DevicesPane() {
 	);
 
 	const startPairing = useCallback(
-		async (target: "browser" | "mobile") => {
+		async (
+			target: "browser" | "mobile",
+			privateAccess: TailnetShareState | null = tailnet,
+		) => {
 			if (pairingBusy) return;
 			setPairingTarget(target);
 			setPairingBusy(true);
@@ -292,9 +295,9 @@ export function DevicesPane() {
 						.map((token) => token.id),
 				);
 				const next = await Effect.runPromise(client["pairing.start"]({}));
-				if (tailnet?.enabled === true && tailnet.dnsName !== null) {
-					const httpBaseUrl = `https://${tailnet.dnsName}`;
-					const wsBaseUrl = `wss://${tailnet.dnsName}/rpc`;
+				if (privateAccess?.enabled === true && privateAccess.dnsName !== null) {
+					const httpBaseUrl = `https://${privateAccess.dnsName}`;
+					const wsBaseUrl = `wss://${privateAccess.dnsName}/rpc`;
 					setPairing({
 						...next,
 						pairingUrl: wsBaseUrl,
@@ -312,6 +315,48 @@ export function DevicesPane() {
 		},
 		[pairingBusy, tailnet, tokens],
 	);
+
+	const connectDevice = useCallback(async () => {
+		if (pairingBusy || tailnetBusy) return;
+		if (tailnet?.enabled === true) {
+			await startPairing("mobile");
+			return;
+		}
+		if (tailnet?.availability === "available") {
+			const next = await updateTailnet(true);
+			if (next?.enabled === true) await startPairing("mobile", next);
+			return;
+		}
+		if (network?.mode === "network-accessible" || status?.linked === true) {
+			await startPairing("mobile");
+			return;
+		}
+		if (tailnet?.availability === "approval-required") {
+			const next = await updateTailnet(true);
+			if (next?.enabled === true) await startPairing("mobile", next);
+			return;
+		}
+		if (tailnet?.availability === "not-installed") {
+			await openExternal("https://tailscale.com/download");
+			return;
+		}
+		if (tailnet?.availability === "signed-out") {
+			showError(
+				"Tailscale sign-in required",
+				new Error("Open Tailscale, sign in, then try connecting again."),
+			);
+			return;
+		}
+		await updateTailnet(true);
+	}, [
+		network?.mode,
+		pairingBusy,
+		startPairing,
+		status?.linked,
+		tailnet,
+		tailnetBusy,
+		updateTailnet,
+	]);
 
 	const revokeToken = useCallback(async (token: AuthTokenSummary) => {
 		try {
@@ -417,136 +462,63 @@ export function DevicesPane() {
 			: tailnet?.enabled === true
 				? pairing.browserUrl
 				: preferredBrowserPairingUrl(pairing, status);
+	const preparingConnection = pairingBusy || tailnetBusy;
+	const connectActionLabel = preparingConnection
+		? "Preparing…"
+		: tailnet?.availability === "not-installed" && !canConnectDevice
+			? "Install Tailscale"
+			: tailnet?.availability === "approval-required"
+				? "Finish setup"
+				: "Connect device";
 	return (
 		<section className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3 text-xs">
 			<Frame>
-				<FrameHeader className="px-2 py-1.5">
-					<FrameTitle className="text-[13px] font-medium">
-						Access this computer
-					</FrameTitle>
-					<p className="mt-0.5 text-[11px] text-muted-foreground">
-						Connect privately from another device. Zuse handles the address and
-						HTTPS setup.
-					</p>
-				</FrameHeader>
 				<Card className="overflow-hidden">
-					<AccessRow
-						icon={<ShieldCheck className="size-4" aria-hidden />}
-						title={
-							tailnet?.enabled === true
-								? "Private access is on"
-								: "Private access"
-						}
-						description={
-							tailnet?.enabled === true
-								? (tailnet.httpsUrl ?? "Ready on your private network.")
-								: tailnet?.detail ||
-									"Available to devices signed in to your Tailnet."
-						}
-						control={
-							tailnet?.availability === "approval-required" ? (
-								<Button
-									size="xs"
-									onClick={() =>
-										void (tailnet.approvalUrl
-											? openExternal(tailnet.approvalUrl)
-											: updateTailnet(true))
-									}
-								>
-									Approve
-								</Button>
-							) : tailnet?.availability === "not-installed" ? (
-								<Button
-									size="xs"
-									variant="outline"
-									onClick={() =>
-										void openExternal("https://tailscale.com/download")
-									}
-								>
-									Install
-								</Button>
-							) : tailnet?.availability === "signed-out" ? (
-								<Button
-									size="xs"
-									variant="outline"
-									onClick={() => void refresh()}
-								>
-									Check again
-								</Button>
-							) : tailnet?.availability === "error" ? (
-								<Button
-									size="xs"
-									variant="outline"
-									onClick={() => void updateTailnet(true)}
-									disabled={tailnetBusy}
-								>
-									Retry
-								</Button>
-							) : (
-								<Switch
-									aria-label="Private access"
-									checked={tailnet?.enabled === true}
-									onCheckedChange={(checked) => void updateTailnet(checked)}
-									disabled={tailnetBusy}
-								/>
-							)
-						}
-					/>
-					<details className="group border-t border-border/40">
-						<summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-[11px] font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-							<ChevronDown className="size-3.5" aria-hidden />
-							Other access options
-						</summary>
-						<div className="flex flex-col divide-y divide-border/40 border-t border-border/40">
-							<AccessRow
-								icon={<Wifi className="size-4" aria-hidden />}
-								title="Local network"
-								description={
-									networkEnabled
-										? "Available to devices on this network."
-										: "Access from browsers and devices on this network."
-								}
-								control={
-									canManageNetwork ? (
-										<Switch
-											aria-label="Local network access"
-											checked={networkEnabled}
-											onCheckedChange={setPendingNetworkMode}
-											disabled={busy}
-										/>
-									) : (
-										<span className="text-[11px] text-muted-foreground">
-											Desktop only
-										</span>
-									)
-								}
-							/>
-							<AccessRow
-								icon={<ExternalLink className="size-4" aria-hidden />}
-								title="Account access"
-								description={
-									remoteReady
-										? "Available anywhere through your account."
-										: linked
-											? "Linked and waiting for this computer to reconnect."
-											: "Access away from your local network."
-								}
-								control={
-									<Switch
-										aria-label="Account access"
-										checked={linked}
-										onCheckedChange={(checked) =>
-											void (checked ? connectRelay() : unlinkRelay())
-										}
-										disabled={busy}
-									/>
-								}
-							/>
+					<div className="flex items-center gap-3 p-4">
+						<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+							<Smartphone className="size-5" aria-hidden />
 						</div>
-					</details>
+						<div className="min-w-0 flex-1">
+							<p className="text-[13px] font-medium">
+								Use Zuse on another device
+							</p>
+							<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+								{tailnet?.enabled === true
+									? "Create a private link for a phone, browser, or another computer."
+									: "Zuse will prepare private access and create a one-time connection link."}
+							</p>
+						</div>
+						<Button
+							onClick={() => void connectDevice()}
+							disabled={preparingConnection}
+						>
+							{connectActionLabel}
+						</Button>
+					</div>
+					<div className="flex min-h-10 items-center gap-2 border-t border-border/40 px-4 text-[11px] text-muted-foreground">
+						<span
+							aria-hidden
+							className={`size-1.5 rounded-full ${tailnet?.enabled === true ? "bg-emerald-500" : "bg-muted-foreground/35"}`}
+						/>
+						<span className="min-w-0 flex-1 truncate">
+							{tailnet?.enabled === true
+								? `Private access ready${tailnet.dnsName ? ` · ${tailnet.dnsName}` : ""}`
+								: "Private access is prepared when you connect a device"}
+						</span>
+						{tailnet?.enabled === true ? (
+							<Button
+								size="xs"
+								variant="ghost"
+								onClick={() => void updateTailnet(false)}
+								disabled={tailnetBusy}
+							>
+								Turn off
+							</Button>
+						) : null}
+					</div>
 				</Card>
 				<FrameFooter className="px-2 py-1.5 text-[11px] text-muted-foreground">
-					Headless computer? Run <code>zuse serve</code> there.
+					On a headless computer, run <code>zuse serve</code> once.
 				</FrameFooter>
 			</Frame>
 
@@ -660,25 +632,13 @@ export function DevicesPane() {
 			)}
 
 			<Frame>
-				<FrameHeader className="flex w-full flex-row items-center justify-between gap-3 px-2 py-1.5">
-					<div>
-						<FrameTitle className="text-[13px] font-medium">
-							{deviceAccessCopy.pairedTitle}
-						</FrameTitle>
-						{!canConnectDevice && (
-							<p className="mt-0.5 text-[11px] text-muted-foreground">
-								Turn on an access method above to connect a device.
-							</p>
-						)}
-					</div>
-					<Button
-						size="xs"
-						onClick={() => void startPairing("mobile")}
-						disabled={!canConnectDevice || pairingBusy}
-					>
-						<Smartphone aria-hidden />
-						{pairingBusy ? "Creating…" : "Connect device"}
-					</Button>
+				<FrameHeader className="px-2 py-1.5">
+					<FrameTitle className="text-[13px] font-medium">
+						{deviceAccessCopy.pairedTitle}
+					</FrameTitle>
+					<p className="mt-0.5 text-[11px] text-muted-foreground">
+						Devices that can open this computer’s projects and chats.
+					</p>
 				</FrameHeader>
 				<Card className="overflow-hidden">
 					{hasActiveTokens ? (
@@ -752,6 +712,65 @@ export function DevicesPane() {
 							No other devices are connected yet.
 						</p>
 					)}
+				</Card>
+			</Frame>
+
+			<Frame>
+				<FrameHeader className="px-2 py-1.5">
+					<FrameTitle className="text-[13px] font-medium">
+						Other access methods
+					</FrameTitle>
+					<p className="mt-0.5 text-[11px] text-muted-foreground">
+						Useful when private access is unavailable.
+					</p>
+				</FrameHeader>
+				<Card className="overflow-hidden">
+					<div className="flex flex-col divide-y divide-border/40">
+						<AccessRow
+							icon={<Wifi className="size-4" aria-hidden />}
+							title="Local network"
+							description={
+								networkEnabled
+									? "Available to devices on this network."
+									: "Connect from a browser on the same network."
+							}
+							control={
+								canManageNetwork ? (
+									<Switch
+										aria-label="Local network access"
+										checked={networkEnabled}
+										onCheckedChange={setPendingNetworkMode}
+										disabled={busy}
+									/>
+								) : (
+									<span className="text-[11px] text-muted-foreground">
+										Desktop only
+									</span>
+								)
+							}
+						/>
+						<AccessRow
+							icon={<ExternalLink className="size-4" aria-hidden />}
+							title="Account access"
+							description={
+								remoteReady
+									? "Available anywhere through your account."
+									: linked
+										? "Linked and waiting to reconnect."
+										: "Use your account when private access is unavailable."
+							}
+							control={
+								<Switch
+									aria-label="Account access"
+									checked={linked}
+									onCheckedChange={(checked) =>
+										void (checked ? connectRelay() : unlinkRelay())
+									}
+									disabled={busy}
+								/>
+							}
+						/>
+					</div>
 				</Card>
 			</Frame>
 
