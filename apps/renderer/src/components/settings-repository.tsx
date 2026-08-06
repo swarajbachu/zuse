@@ -49,14 +49,14 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
 
 	if (folder === undefined) {
 		return (
-			<p className="text-sm text-muted-foreground">
+			<p className="text-xs text-muted-foreground">
 				Project no longer exists. Pick another from the sidebar.
 			</p>
 		);
 	}
 
 	if (settings === null) {
-		return <p className="text-sm text-muted-foreground">Loading settings…</p>;
+		return <p className="text-xs text-muted-foreground">Loading settings…</p>;
 	}
 
 	return (
@@ -252,10 +252,10 @@ function ProviderOverrideSection({
 									role="radio"
 									aria-checked={selected}
 									onClick={() => onPickProvider(pid)}
-									className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+									className="group flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/40"
 								>
 									<ProviderIcon providerId={pid} className="size-4 shrink-0" />
-									<span className="flex-1 truncate text-sm font-medium text-foreground">
+									<span className="flex-1 truncate text-xs font-medium text-foreground">
 										{PROVIDER_LABEL[pid]}
 									</span>
 									<RadioCheck active={selected} />
@@ -279,10 +279,10 @@ function ProviderOverrideSection({
 														role="radio"
 														aria-checked={isCurrentModel}
 														onClick={() => onPickModel(m.id)}
-														className="group flex items-center gap-3 py-1.5 text-left"
+														className="group flex items-center gap-2.5 py-1 text-left"
 													>
 														<RadioCheck active={isCurrentModel} />
-														<span className="text-sm text-foreground">
+														<span className="text-xs text-foreground">
 															{m.label}
 														</span>
 													</button>
@@ -296,7 +296,7 @@ function ProviderOverrideSection({
 					})}
 				</div>
 			) : (
-				<p className="rounded-lg border border-border/40 bg-background/60 px-3 py-2.5 text-sm text-muted-foreground">
+				<p className="rounded-lg border border-border/40 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
 					Inheriting{" "}
 					<span className="text-foreground">
 						{PROVIDER_LABEL[globalProviderId]} · {globalModelLabel}
@@ -343,17 +343,17 @@ function RuntimeModeOverrideSection({
 								role="radio"
 								aria-checked={selected}
 								onClick={() => onChange(mode)}
-								className="group flex w-full items-start gap-3 border-b border-border/40 px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-muted/40"
+								className="group flex w-full items-start gap-2.5 border-b border-border/40 px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
 							>
 								<HugeiconsIcon
 									icon={m.Icon}
 									className="mt-0.5 size-4 shrink-0 text-muted-foreground"
 								/>
 								<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-									<span className="text-sm font-medium text-foreground">
+									<span className="text-xs font-medium text-foreground">
 										{m.label}
 									</span>
-									<span className="text-xs leading-snug text-muted-foreground">
+									<span className="text-[11px] leading-snug text-muted-foreground">
 										{m.description}
 									</span>
 								</span>
@@ -363,7 +363,7 @@ function RuntimeModeOverrideSection({
 					})}
 				</div>
 			) : (
-				<p className="rounded-lg border border-border/40 bg-background/60 px-3 py-2.5 text-sm text-muted-foreground">
+				<p className="rounded-lg border border-border/40 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
 					Inheriting{" "}
 					<span className="text-foreground">{MODE_META[globalMode].label}</span>
 				</p>
@@ -436,7 +436,7 @@ function WorktreeSection({
 
 			<div className="flex flex-col">
 				{sorted.length === 0 ? (
-					<p className="px-4 py-8 text-center text-xs text-muted-foreground">
+					<p className="px-3 py-6 text-center text-[11px] text-muted-foreground">
 						No worktrees yet. Zuse (Beta) creates one for you when you start a
 						new chat.
 					</p>
@@ -445,7 +445,7 @@ function WorktreeSection({
 						{sorted.map((wt) => (
 							<li
 								key={wt.id}
-								className="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/20"
+								className="grid grid-cols-[auto_1fr_auto] items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-muted/20"
 							>
 								<HugeiconsIcon
 									icon={GitBranchIcon}
@@ -455,7 +455,7 @@ function WorktreeSection({
 									className="flex min-w-0 flex-col gap-0.5"
 									title={displayPath(wt.path)}
 								>
-									<span className="truncate text-sm font-medium text-foreground">
+									<span className="truncate text-xs font-medium text-foreground">
 										{wt.name}
 									</span>
 									<span className="truncate font-mono text-[11px] text-muted-foreground">
@@ -482,11 +482,13 @@ function WorktreeSection({
 				)}
 			</div>
 
-			<div className="px-4 py-3">
+			<div className="px-3 py-2.5">
 				{pendingError !== null ? (
-					<p className="text-xs leading-relaxed text-red-400">{pendingError}</p>
+					<p className="text-[11px] leading-relaxed text-red-400">
+						{pendingError}
+					</p>
 				) : (
-					<p className="text-xs leading-relaxed text-muted-foreground">
+					<p className="text-[11px] leading-relaxed text-muted-foreground">
 						Git worktrees for this repo. Each lives under
 						~/.zuse/&lt;repo&gt;/&lt;name&gt;/ on disk.
 					</p>
@@ -576,12 +578,12 @@ function ScriptsSection({
 				placeholder={'rm -rf node_modules .next\npkill -f "next dev" || true'}
 				onChange={onArchiveScriptChange}
 			/>
-			<div className="px-4 py-3.5">
+			<div className="px-3 py-2.5">
 				<div className="mb-2">
-					<p className="text-sm font-medium text-foreground">
+					<p className="text-xs font-medium text-foreground">
 						Environment variables
 					</p>
-					<p className="text-xs text-muted-foreground">
+					<p className="text-[11px] text-muted-foreground">
 						KEY=value pairs passed to setup, run, and archive scripts.
 					</p>
 				</div>
@@ -597,8 +599,8 @@ function ScriptsSection({
 				value={fileIncludeGlobs}
 				onChange={onFileIncludeGlobsChange}
 			/>
-			<div className="px-4 py-3">
-				<p className="text-xs leading-relaxed text-muted-foreground">
+			<div className="px-3 py-2.5">
+				<p className="text-[11px] leading-relaxed text-muted-foreground">
 					Want to hand-edit or share repository settings? Use{" "}
 					<span className="font-mono">.zuse/settings.toml</span>.
 				</p>
@@ -620,12 +622,12 @@ function FileIncludesEditor({
 		if (draft !== value) onChange(draft);
 	};
 	return (
-		<div className="px-4 py-3.5">
+		<div className="px-3 py-2.5">
 			<div className="mb-2">
-				<p className="text-sm font-medium text-foreground">
+				<p className="text-xs font-medium text-foreground">
 					Worktree file includes
 				</p>
-				<p className="text-xs text-muted-foreground">
+				<p className="text-[11px] text-muted-foreground">
 					One pattern per line, linked from the main checkout into each new
 					worktree.
 				</p>
@@ -661,11 +663,11 @@ function ScriptEditor({
 		if ((value ?? "") !== (next ?? "")) onChange(next);
 	};
 	return (
-		<div className="px-4 py-3.5">
+		<div className="px-3 py-2.5">
 			<div className="mb-2 flex items-start justify-between gap-3">
 				<div className="min-w-0">
-					<p className="text-sm font-medium text-foreground">{title}</p>
-					<p className="text-xs text-muted-foreground">{description}</p>
+					<p className="text-xs font-medium text-foreground">{title}</p>
+					<p className="text-[11px] text-muted-foreground">{description}</p>
 				</div>
 				<span className="rounded-md border border-border/40 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
 					shell
@@ -694,7 +696,7 @@ function CodeTextarea({
 			<Textarea
 				spellCheck={false}
 				className={cn(
-					"resize-y border-0 bg-transparent px-3 py-2.5 font-mono text-xs leading-5 shadow-none outline-none placeholder:text-muted-foreground/50 focus-visible:ring-0",
+					"resize-y border-0 bg-transparent px-3 py-2 font-mono text-[11px] leading-4 shadow-none outline-none placeholder:text-muted-foreground/50 focus-visible:ring-0",
 					minHeightClassName,
 					className,
 				)}
