@@ -68,6 +68,13 @@ export const extractTailnetApprovalUrl = (value: string): string | null => {
 	return null;
 };
 
+export const tailnetCommandEnvironment = (
+	environment: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv => ({
+	...environment,
+	TAILSCALE_BE_CLI: "1",
+});
+
 export const runTailnetCommand = (
 	args: ReadonlyArray<string>,
 	timeoutMs = 10_000,
@@ -75,6 +82,7 @@ export const runTailnetCommand = (
 ): Promise<TailnetCommandResult> =>
 	new Promise((resolve, reject) => {
 		const child = spawn(executable, [...args], {
+			env: tailnetCommandEnvironment(),
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		const stdout: Buffer[] = [];

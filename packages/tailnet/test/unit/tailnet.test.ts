@@ -14,6 +14,7 @@ import {
 	serveStatusMatches,
 	setTailnetShareEnabled,
 	type TailnetCommandResult,
+	tailnetCommandEnvironment,
 } from "../../src/index.ts";
 
 const result = (
@@ -52,6 +53,18 @@ describe("tailnet sharing", () => {
 		expect(
 			extractTailnetApprovalUrl("Open https://example.com/admin/feature/serve"),
 		).toBeNull();
+	});
+
+	it("forces the bundled macOS app executable into CLI mode", () => {
+		expect(
+			tailnetCommandEnvironment({
+				PATH: "/usr/bin",
+				TAILSCALE_BE_CLI: "0",
+			}),
+		).toMatchObject({
+			PATH: "/usr/bin",
+			TAILSCALE_BE_CLI: "1",
+		});
 	});
 
 	it("stops a waiting Serve command as soon as it prints an approval URL", async () => {
