@@ -35,6 +35,7 @@ export * from "./session.ts";
 export * from "./settings.ts";
 export * from "./shell-display.ts";
 export * from "./skill.ts";
+export * from "./ssh.ts";
 export * from "./update.ts";
 export * from "./usage.ts";
 export * from "./usage-limits.ts";

@@ -251,6 +251,18 @@ const timelineEvictionTimers = new Map<
 	SessionId,
 	ReturnType<typeof setTimeout>
 >();
+
+export const suspendMessageStreams = async (): Promise<void> => {
+	const fibers = [...timelineFibers.values()];
+	timelineFibers.clear();
+	timelineTokens.clear();
+	timelineStarts.clear();
+	await Promise.all(
+		fibers.map((fiber) =>
+			Effect.runPromise(Fiber.interrupt(fiber)).catch(() => undefined),
+		),
+	);
+};
 const timelineReconnectAttempts = new Map<SessionId, number>();
 const timelineReconnectTimers = new Map<
 	SessionId,

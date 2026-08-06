@@ -66,6 +66,7 @@ const shared = {
 	deps: {
 		alwaysBundle: [
 			"@zuse/contracts",
+			"@zuse/client-runtime",
 			"@zuse/agents",
 			"@zusehq/server",
 			"@zuse/sqlite",

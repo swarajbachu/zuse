@@ -7,12 +7,444 @@ import {
 	environmentRoute,
 	parseEnvironmentRoute,
 } from "@zuse/client-runtime/environment-scope";
-import { HOSTED_APP_URL, type RelayEnvironmentRecord } from "@zuse/contracts";
+import {
+	type DiscoveredSshHost,
+	HOSTED_APP_URL,
+	type RelayEnvironmentRecord,
+	type SshEnvironmentTarget,
+} from "@zuse/contracts";
 import { Effect } from "effect";
-import { useEffect, useMemo, useState } from "react";
-
+import { Pencil, Plus, RotateCw, Trash2, Unplug } from "lucide-react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import {
+	useEnvironmentCatalogStore,
+	validateSshTarget,
+} from "../store/environment-catalog.ts";
+import { Button } from "./ui/button.tsx";
+import {
+	Dialog,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogPopup,
+	DialogTitle,
+} from "./ui/dialog.tsx";
+import { Input } from "./ui/input.tsx";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu.tsx";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
+
+const blankTarget = (): SshEnvironmentTarget => ({
+	alias: "",
+	hostname: "",
+	username: null,
+	port: null,
+});
+
+export function ComputerSwitcher() {
+	return window.zuse?.ssh === undefined ? (
+		<HostedComputerSwitcher />
+	) : (
+		<DesktopComputerSwitcher />
+	);
+}
+
+function DesktopComputerSwitcher() {
+	const entries = useEnvironmentCatalogStore((state) => state.entries);
+	const activeId = useEnvironmentCatalogStore(
+		(state) => state.activeEnvironmentId,
+	);
+	const initialize = useEnvironmentCatalogStore((state) => state.initialize);
+	const retry = useEnvironmentCatalogStore((state) => state.retry);
+	const disconnect = useEnvironmentCatalogStore((state) => state.disconnect);
+	const remove = useEnvironmentCatalogStore((state) => state.remove);
+	const rename = useEnvironmentCatalogStore((state) => state.rename);
+	const [dialogOpen, setDialogOpen] = useState(false);
+	const [suggestions, setSuggestions] = useState<
+		ReadonlyArray<DiscoveredSshHost>
+	>([]);
+	const [target, setTarget] = useState<SshEnvironmentTarget>(blankTarget);
+	const [label, setLabel] = useState("");
+	const [error, setError] = useState<string | null>(null);
+	const [submitting, setSubmitting] = useState(false);
+	const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+	const [editedLabel, setEditedLabel] = useState("");
+
+	useEffect(() => {
+		void initialize().catch((cause) =>
+			setError(cause instanceof Error ? cause.message : String(cause)),
+		);
+	}, [initialize]);
+
+	useEffect(() => {
+		if (!dialogOpen) return;
+		let cancelled = false;
+		void window.zuse?.ssh
+			?.discoverHosts()
+			.then((hosts) => {
+				if (!cancelled) setSuggestions(hosts);
+			})
+			.catch((cause) => {
+				if (!cancelled)
+					setError(cause instanceof Error ? cause.message : String(cause));
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [dialogOpen]);
+
+	const chooseSuggestion = (host: DiscoveredSshHost): void => {
+		setTarget({
+			alias: host.alias,
+			hostname: host.hostname,
+			username: host.username,
+			port: host.port,
+		});
+		setLabel(host.displayName);
+		setError(null);
+	};
+
+	const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+		event.preventDefault();
+		if (submitting) return;
+		const hostname = target.hostname.trim();
+		const validationError = validateSshTarget({ ...target, hostname });
+		if (validationError !== null) {
+			setError(validationError);
+			return;
+		}
+		setSubmitting(true);
+		setError(null);
+		try {
+			await useEnvironmentCatalogStore
+				.getState()
+				.add(
+					{ ...target, alias: target.alias.trim() || hostname, hostname },
+					label.trim() || undefined,
+				);
+			setTarget(blankTarget());
+			setLabel("");
+			setDialogOpen(false);
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : String(cause));
+		} finally {
+			setSubmitting(false);
+		}
+	};
+
+	return (
+		<>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<button
+							type="button"
+							aria-label="Manage computers"
+							className="relative flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+							onClick={() => setDialogOpen(true)}
+						>
+							<Plus aria-hidden="true" className="size-3.5" />
+						</button>
+					}
+				/>
+				<TooltipPopup>Manage computers</TooltipPopup>
+			</Tooltip>
+			<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+				<DialogPopup className="max-w-xl">
+					<DialogHeader>
+						<DialogTitle>Add computer</DialogTitle>
+						<DialogDescription>
+							Connect using your existing OpenSSH config, keys, agent, and
+							host-key policy.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="min-h-0 space-y-5 overflow-y-auto px-5 pb-2">
+						{entries.some((entry) => entry.profileId !== null) ? (
+							<section aria-labelledby="saved-computers-heading">
+								<h3
+									id="saved-computers-heading"
+									className="mb-2 text-xs font-medium text-muted-foreground"
+								>
+									Saved computers
+								</h3>
+								<div className="space-y-1">
+									{entries
+										.filter((entry) => entry.profileId !== null)
+										.map((entry) => (
+											<div
+												key={entry.profileId}
+												className="flex min-h-11 items-center gap-2 rounded-lg border border-border/50 px-3 py-2"
+											>
+												<div className="min-w-0 flex-1">
+													{editingProfileId === entry.profileId ? (
+														<form
+															className="flex gap-1"
+															onSubmit={(event) => {
+																event.preventDefault();
+																if (entry.profileId === null) return;
+																void rename(entry.profileId, editedLabel)
+																	.then(() => setEditingProfileId(null))
+																	.catch((cause) =>
+																		setError(
+																			cause instanceof Error
+																				? cause.message
+																				: String(cause),
+																		),
+																	);
+															}}
+														>
+															<Input
+																aria-label={`Label for ${entry.label}`}
+																autoFocus
+																value={editedLabel}
+																onChange={(event) =>
+																	setEditedLabel(event.target.value)
+																}
+															/>
+															<Button size="sm" type="submit">
+																Save
+															</Button>
+														</form>
+													) : (
+														<div className="truncate text-sm font-medium">
+															{entry.label}
+														</div>
+													)}
+													<div className="truncate text-xs text-muted-foreground">
+														{entry.error ??
+															`${entry.target?.hostname ?? ""} · ${entry.status}`}
+													</div>
+												</div>
+												<Button
+													aria-label={`Edit label for ${entry.label}`}
+													size="icon-sm"
+													variant="ghost"
+													onClick={() => {
+														setEditingProfileId(entry.profileId);
+														setEditedLabel(entry.label);
+													}}
+												>
+													<Pencil />
+												</Button>
+												{entry.status !== "connected" ? (
+													<Button
+														aria-label={`Retry ${entry.label}`}
+														size="icon-sm"
+														variant="ghost"
+														onClick={() =>
+															void retry(entry.profileId as string).catch(
+																(cause) =>
+																	setError(
+																		cause instanceof Error
+																			? cause.message
+																			: String(cause),
+																	),
+															)
+														}
+													>
+														<RotateCw />
+													</Button>
+												) : (
+													<Button
+														aria-label={`Disconnect ${entry.label}`}
+														disabled={entry.environmentId === activeId}
+														size="icon-sm"
+														variant="ghost"
+														onClick={() =>
+															void disconnect(entry.profileId as string).catch(
+																(cause) =>
+																	setError(
+																		cause instanceof Error
+																			? cause.message
+																			: String(cause),
+																	),
+															)
+														}
+													>
+														<Unplug />
+													</Button>
+												)}
+												<Button
+													aria-label={`Remove ${entry.label}`}
+													disabled={entry.environmentId === activeId}
+													size="icon-sm"
+													variant="ghost"
+													onClick={() => {
+														if (
+															window.confirm(
+																`Remove ${entry.label}? Remote projects and data will not be deleted.`,
+															)
+														) {
+															void remove(entry.profileId as string).catch(
+																(cause) =>
+																	setError(
+																		cause instanceof Error
+																			? cause.message
+																			: String(cause),
+																	),
+															);
+														}
+													}}
+												>
+													<Trash2 />
+												</Button>
+											</div>
+										))}
+								</div>
+							</section>
+						) : null}
+
+						{suggestions.length > 0 ? (
+							<section aria-labelledby="suggested-computers-heading">
+								<h3
+									id="suggested-computers-heading"
+									className="mb-2 text-xs font-medium text-muted-foreground"
+								>
+									Suggestions
+								</h3>
+								<div className="grid gap-1 sm:grid-cols-2">
+									{suggestions.map((host) => (
+										<Button
+											key={`${host.source}:${host.alias}`}
+											variant="outline"
+											className="h-auto min-h-11 justify-start px-3 py-2 text-left"
+											onClick={() => chooseSuggestion(host)}
+										>
+											<span className="min-w-0">
+												<span className="block truncate text-sm">
+													{host.displayName}
+												</span>
+												<span className="block truncate text-xs font-normal text-muted-foreground">
+													{host.source === "tailscale"
+														? "Tailnet"
+														: "SSH config"}{" "}
+													· {host.hostname}
+												</span>
+											</span>
+										</Button>
+									))}
+								</div>
+							</section>
+						) : null}
+
+						<form
+							id="add-computer-form"
+							className="space-y-3"
+							onSubmit={(event) => void submit(event)}
+						>
+							<div>
+								<label
+									htmlFor="computer-host"
+									className="mb-1 block text-xs font-medium"
+								>
+									Host
+								</label>
+								<Input
+									id="computer-host"
+									autoComplete="off"
+									value={target.hostname}
+									onChange={(event) =>
+										setTarget((current) => ({
+											...current,
+											hostname: event.target.value,
+											alias: event.target.value,
+										}))
+									}
+									aria-invalid={error !== null || undefined}
+									placeholder="server.example.com"
+								/>
+							</div>
+							<div className="grid grid-cols-2 gap-3">
+								<div>
+									<label
+										htmlFor="computer-user"
+										className="mb-1 block text-xs font-medium"
+									>
+										Username{" "}
+										<span className="font-normal text-muted-foreground">
+											Optional
+										</span>
+									</label>
+									<Input
+										id="computer-user"
+										autoComplete="username"
+										value={target.username ?? ""}
+										onChange={(event) =>
+											setTarget((current) => ({
+												...current,
+												username: event.target.value || null,
+											}))
+										}
+									/>
+								</div>
+								<div>
+									<label
+										htmlFor="computer-port"
+										className="mb-1 block text-xs font-medium"
+									>
+										Port{" "}
+										<span className="font-normal text-muted-foreground">
+											Optional
+										</span>
+									</label>
+									<Input
+										id="computer-port"
+										inputMode="numeric"
+										value={target.port ?? ""}
+										onChange={(event) =>
+											setTarget((current) => ({
+												...current,
+												port:
+													event.target.value === ""
+														? null
+														: Number(event.target.value),
+											}))
+										}
+									/>
+								</div>
+							</div>
+							<div>
+								<label
+									htmlFor="computer-label"
+									className="mb-1 block text-xs font-medium"
+								>
+									Label{" "}
+									<span className="font-normal text-muted-foreground">
+										Optional
+									</span>
+								</label>
+								<Input
+									id="computer-label"
+									value={label}
+									onChange={(event) => setLabel(event.target.value)}
+									placeholder="Build computer"
+								/>
+							</div>
+							{error !== null ? (
+								<p role="alert" className="text-xs text-destructive">
+									{error}
+								</p>
+							) : null}
+						</form>
+						<p className="text-xs text-muted-foreground">
+							First connections follow your OpenSSH host-key policy. Removing a
+							computer only forgets it here; remote projects and data remain
+							untouched.
+						</p>
+					</div>
+					<DialogFooter>
+						<Button variant="ghost" onClick={() => setDialogOpen(false)}>
+							Cancel
+						</Button>
+						<Button form="add-computer-form" type="submit" loading={submitting}>
+							Connect
+						</Button>
+					</DialogFooter>
+				</DialogPopup>
+			</Dialog>
+		</>
+	);
+}
 
 const ONLINE_WINDOW_MS = 90_000;
 
@@ -45,7 +477,7 @@ const openEnvironment = (environmentId: string): void => {
 	window.open(url, "_blank", "noopener,noreferrer");
 };
 
-export function ComputerSwitcher() {
+function HostedComputerSwitcher() {
 	const [environments, setEnvironments] = useState<
 		ReadonlyArray<RelayEnvironmentRecord>
 	>([]);
@@ -53,20 +485,20 @@ export function ComputerSwitcher() {
 		null,
 	);
 	const [failed, setFailed] = useState(false);
-
 	useEffect(() => {
 		let cancelled = false;
-		const refresh = async () => {
+		const refresh = async (): Promise<void> => {
 			try {
 				const client = await getRpcClient();
 				const [status, catalog] = await Promise.all([
 					Effect.runPromise(client["relay.status"]()),
 					Effect.runPromise(client["relay.environments"]()),
 				]);
-				if (cancelled) return;
-				setLocalEnvironmentId(status.environmentId ?? null);
-				setEnvironments(catalog.environments);
-				setFailed(false);
+				if (!cancelled) {
+					setLocalEnvironmentId(status.environmentId ?? null);
+					setEnvironments(catalog.environments);
+					setFailed(false);
+				}
 			} catch {
 				if (!cancelled) setFailed(true);
 			}
@@ -78,7 +510,6 @@ export function ComputerSwitcher() {
 			window.clearInterval(timer);
 		};
 	}, []);
-
 	const selectedId = routeEnvironmentId() ?? localEnvironmentId;
 	const selected = useMemo(
 		() =>
@@ -134,8 +565,8 @@ export function ComputerSwitcher() {
 						const active = environment.environmentId === selectedId;
 						return (
 							<MenuItem
-								className="min-h-11 items-start py-2"
 								key={environment.environmentId}
+								className="min-h-11 items-start py-2"
 								onClick={() =>
 									active
 										? undefined
@@ -144,9 +575,7 @@ export function ComputerSwitcher() {
 							>
 								<span
 									aria-hidden="true"
-									className={`mt-1.5 size-2 shrink-0 rounded-full ${
-										online ? "bg-emerald-500" : "bg-muted-foreground/35"
-									}`}
+									className={`mt-1.5 size-2 shrink-0 rounded-full ${online ? "bg-emerald-500" : "bg-muted-foreground/35"}`}
 								/>
 								<span className="min-w-0 flex-1">
 									<span className="flex items-center gap-2">

@@ -19,6 +19,7 @@
 		"test:integration": "vitest run test/integration"
 	},
 	"dependencies": {
+		"@zuse/contracts": "*",
 		"effect": "catalog:"
 	},
 	"devDependencies": {

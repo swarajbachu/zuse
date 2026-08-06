@@ -350,6 +350,44 @@ describe("connection supervisor", () => {
 		expect(harness.scheduled).toHaveLength(1);
 	});
 
+	test("supervises local, relay, and SSH generations independently", async () => {
+		const harness = makeHarness();
+		const local = harness.supervisor.get({ key: "local" });
+		const relay = harness.supervisor.get({ key: "relay" });
+		const ssh = harness.supervisor.get({ key: "ssh" });
+		await Promise.all([
+			runClient(local.getClient()),
+			runClient(relay.getClient()),
+			runClient(ssh.getClient()),
+		]);
+
+		expect(local.reportFailure(new Error("local stream closed"), 1)).toBe(true);
+		expect(harness.supervisor.snapshots()).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					key: "local",
+					status: "reconnecting",
+					generation: 1,
+				}),
+				expect.objectContaining({
+					key: "relay",
+					status: "connected",
+					generation: 1,
+				}),
+				expect.objectContaining({
+					key: "ssh",
+					status: "connected",
+					generation: 1,
+				}),
+			]),
+		);
+
+		harness.scheduled[0]?.fn();
+		await waitUntil(() => local.snapshot().generation === 2);
+		expect(relay.snapshot().generation).toBe(1);
+		expect(ssh.snapshot().generation).toBe(1);
+	});
+
 	test("ignores duplicate failure reports while a retry is already owned", async () => {
 		const harness = makeHarness({
 			createClient: async () => {

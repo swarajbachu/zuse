@@ -141,6 +141,7 @@ import {
 } from "./pty.ts";
 import {
 	RelayClientsRpc,
+	RelayConnectEnvironmentRpc,
 	RelayEnvironmentsRpc,
 	RelayRevokeClientRpc,
 } from "./relay.ts";
@@ -274,6 +275,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	RelayStatusRpc,
 	RelayUnlinkRpc,
 	RelayEnvironmentsRpc,
+	RelayConnectEnvironmentRpc,
 	RelayClientsRpc,
 	RelayRevokeClientRpc,
 	WorkspaceAddRpc,

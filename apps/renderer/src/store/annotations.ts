@@ -4,7 +4,7 @@ import type {
 	ComposerAnnotation,
 	SessionId,
 } from "@zuse/contracts";
-
+import { getActiveEnvironmentStorageScope } from "../lib/renderer-environment-scope.ts";
 import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 
@@ -23,6 +23,13 @@ const LEGACY_STORAGE_KEYS = ["memoize.annotations.v1"] as const;
 
 type Persisted = Record<string, ReadonlyArray<ComposerAnnotation>>;
 
+type PersistedDocument = {
+	readonly schemaVersion: 2;
+	readonly environments: Record<string, Persisted>;
+};
+
+const persistedByEnvironment: Record<string, Persisted> = {};
+
 const load = (): Persisted => {
 	try {
 		const raw = readStorageWithLegacy(
@@ -33,6 +40,21 @@ const load = (): Persisted => {
 		if (raw === null) return {};
 		const parsed = JSON.parse(raw) as unknown;
 		if (typeof parsed !== "object" || parsed === null) return {};
+		if (
+			"schemaVersion" in parsed &&
+			parsed.schemaVersion === 2 &&
+			"environments" in parsed &&
+			typeof parsed.environments === "object" &&
+			parsed.environments !== null
+		) {
+			Object.assign(
+				persistedByEnvironment,
+				parsed.environments as Record<string, Persisted>,
+			);
+			return persistedByEnvironment[getActiveEnvironmentStorageScope()] ?? {};
+		}
+		// The v1 document held only the local computer's annotations.
+		persistedByEnvironment.local = parsed as Persisted;
 		return parsed as Persisted;
 	} catch {
 		return {};
@@ -41,7 +63,12 @@ const load = (): Persisted => {
 
 const persist = (state: Persisted): void => {
 	try {
-		window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+		persistedByEnvironment[getActiveEnvironmentStorageScope()] = state;
+		const document: PersistedDocument = {
+			schemaVersion: 2,
+			environments: persistedByEnvironment,
+		};
+		window.localStorage.setItem(STORAGE_KEY, JSON.stringify(document));
 	} catch {
 		// Private-mode / quota errors are non-fatal — the drafts just won't stick.
 	}
@@ -162,3 +189,15 @@ export const annotationsForSession = (
 	sessionId: SessionId,
 ): ReadonlyArray<ComposerAnnotation> =>
 	useAnnotationsStore.getState().bySession[sessionId] ?? [];
+
+export const activateAnnotationsEnvironment = (): void => {
+	useAnnotationsStore.setState({
+		bySession: persistedByEnvironment[getActiveEnvironmentStorageScope()] ?? {},
+	});
+};
+
+export const resetAnnotationsPersistenceForTest = (): void => {
+	for (const key of Object.keys(persistedByEnvironment)) {
+		delete persistedByEnvironment[key];
+	}
+};

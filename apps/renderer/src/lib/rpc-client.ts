@@ -20,6 +20,10 @@ import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import type { RpcBridge } from "./bridge.ts";
 import { requestBrowserWebSocketUrl } from "./browser-session.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
+import {
+	LOCAL_RENDERER_STORAGE_SCOPE,
+	setActiveEnvironmentStorageScope,
+} from "./renderer-environment-scope.ts";
 import { instrumentRendererRpcClient } from "./rpc-stall-instrumentation.ts";
 import { wsClientProtocolLayer } from "./ws-client-protocol.ts";
 
@@ -38,7 +42,13 @@ type RendererConnectionOptions =
 			readonly key: string;
 			readonly kind: "websocket";
 			readonly wsUrl: string;
+			readonly refreshWsUrl?: () => Promise<string>;
 	  };
+
+export const LOCAL_ENVIRONMENT_KEY = "local";
+
+const environmentConnections = new Map<string, RendererConnectionOptions>();
+let activeEnvironmentId = LOCAL_ENVIRONMENT_KEY;
 
 const rendererConnectionKey = (): string => {
 	if (typeof location === "undefined") return "environment:local";
@@ -75,6 +85,17 @@ const connectionOptions = (): RendererConnectionOptions => {
 			};
 };
 
+const optionsForEnvironment = (
+	environmentId: string,
+): RendererConnectionOptions => {
+	const registered = environmentConnections.get(environmentId);
+	if (registered !== undefined) return registered;
+	if (environmentId !== LOCAL_ENVIRONMENT_KEY) {
+		throw new Error(`Environment ${environmentId} is not connected.`);
+	}
+	return connectionOptions();
+};
+
 let online = globalThis.navigator?.onLine ?? true;
 
 const supervisor = createConnectionSupervisor<
@@ -82,6 +103,10 @@ const supervisor = createConnectionSupervisor<
 	MemoizeClient
 >({
 	keyOf: (options) => options.key,
+	prepareOptions: async (options) =>
+		options.kind === "websocket" && options.refreshWsUrl !== undefined
+			? { ...options, wsUrl: await options.refreshWsUrl() }
+			: options,
 	isOnline: () => online,
 	schedule: (delayMs, reconnect) => {
 		const timer = setTimeout(reconnect, delayMs);
@@ -95,12 +120,13 @@ const supervisor = createConnectionSupervisor<
 					)
 				: wsClientProtocolLayer(
 						withWireProtocolVersion(
-							await requestBrowserWebSocketUrl(),
+							options.wsUrl || (await requestBrowserWebSocketUrl()),
 							WIRE_PROTOCOL_VERSION,
 						),
 						{
 							onClose: (event) => {
-								rendererEntry?.reportFailure(
+								reportRendererEntryFailure(
+									options.key,
 									new Error(`WebSocket closed (${event.code}).`),
 								);
 							},
@@ -114,15 +140,33 @@ const supervisor = createConnectionSupervisor<
 		);
 	},
 	isRetryableCommandError: isRpcClientError,
+	shouldReconnectOnOptionsChange: (previous, next) =>
+		previous.kind !== next.kind ||
+		(previous.kind === "websocket" &&
+			next.kind === "websocket" &&
+			previous.wsUrl !== next.wsUrl),
 });
 
-let rendererEntry: ConnectionSupervisorEntry<MemoizeClient> | null = null;
+const rendererEntries = new Map<
+	string,
+	ConnectionSupervisorEntry<MemoizeClient>
+>();
 
-const getRendererEntry = (): ConnectionSupervisorEntry<MemoizeClient> => {
-	const entry = supervisor.get(connectionOptions());
-	if (rendererEntry === null) {
-		rendererEntry = entry;
+const reportRendererEntryFailure = (key: string, cause: unknown): void => {
+	for (const entry of rendererEntries.values()) {
+		if (entry.snapshot().key === key) {
+			entry.reportFailure(cause);
+			return;
+		}
 	}
+};
+
+const getRendererEntry = (
+	environmentId = activeEnvironmentId,
+): ConnectionSupervisorEntry<MemoizeClient> => {
+	const options = optionsForEnvironment(environmentId);
+	const entry = supervisor.get(options);
+	rendererEntries.set(environmentId, entry);
 	return entry;
 };
 
@@ -135,18 +179,92 @@ function isRpcClientError(cause: unknown): boolean {
 	);
 }
 
-export const getRpcClient = (): Promise<MemoizeClient> =>
-	Effect.runPromise(getRendererEntry().getClient());
+export const getRpcClient = (environmentId?: unknown): Promise<MemoizeClient> =>
+	Effect.runPromise(
+		getRendererEntry(
+			typeof environmentId === "string" ? environmentId : activeEnvironmentId,
+		).getClient(),
+	);
 
-export const reportRendererRpcFailure = (cause: unknown): void => {
-	getRendererEntry().reportFailure(cause);
+export const registerWebSocketEnvironment = (
+	environmentId: string,
+	wsUrl: string,
+): void => {
+	environmentConnections.set(environmentId, {
+		key: `environment:${environmentId}`,
+		kind: "websocket",
+		wsUrl,
+	});
+};
+
+export const registerRelayEnvironment = (
+	environmentId: string,
+	initialWsUrl: string,
+	refreshWsUrl: () => Promise<string>,
+): void => {
+	let initial: string | null = initialWsUrl;
+	environmentConnections.set(environmentId, {
+		key: `environment:${environmentId}`,
+		kind: "websocket",
+		wsUrl: initialWsUrl,
+		refreshWsUrl: async () => {
+			if (initial !== null) {
+				const value = initial;
+				initial = null;
+				return value;
+			}
+			return refreshWsUrl();
+		},
+	});
+};
+
+export const registerLocalEnvironment = (environmentId: string): void => {
+	const bridge = globalThis.window?.zuse ?? globalThis.window?.memoize;
+	if (bridge === undefined) return;
+	environmentConnections.set(environmentId, {
+		key: `environment:${environmentId}`,
+		kind: "electron",
+		bridge: bridge.rpc,
+	});
+};
+
+export const setActiveEnvironment = (environmentId: string): void => {
+	const options = optionsForEnvironment(environmentId);
+	activeEnvironmentId = environmentId;
+	setActiveEnvironmentStorageScope(
+		options.kind === "electron" ? LOCAL_RENDERER_STORAGE_SCOPE : environmentId,
+	);
+};
+
+export const getActiveEnvironment = (): string => activeEnvironmentId;
+
+export const removeRendererEnvironment = async (
+	environmentId: string,
+): Promise<void> => {
+	environmentConnections.delete(environmentId);
+	const entry = rendererEntries.get(environmentId);
+	rendererEntries.delete(environmentId);
+	if (activeEnvironmentId === environmentId)
+		activeEnvironmentId = LOCAL_ENVIRONMENT_KEY;
+	if (activeEnvironmentId === LOCAL_ENVIRONMENT_KEY) {
+		setActiveEnvironmentStorageScope(LOCAL_RENDERER_STORAGE_SCOPE);
+	}
+	await entry?.remove();
+};
+
+export const reportRendererRpcFailure = (
+	cause: unknown,
+	environmentId = activeEnvironmentId,
+): void => {
+	getRendererEntry(environmentId).reportFailure(cause);
 };
 
 /** Report a long-lived stream failure once for the connection that owned it. */
 export const reportRendererRpcStreamFailure = (
 	generation: number,
 	cause: unknown,
-): boolean => getRendererEntry().reportFailure(cause, generation);
+	environmentId = activeEnvironmentId,
+): boolean => getRendererEntry(environmentId).reportFailure(cause, generation);
 
 /**
  * Observe the shared renderer connection lifecycle. Long-lived RPC streams use
@@ -155,19 +273,25 @@ export const reportRendererRpcStreamFailure = (
  */
 export const subscribeRendererRpcConnection = (
 	listener: (snapshot: ConnectionSnapshot) => void,
-): (() => void) => getRendererEntry().subscribe(listener);
+	environmentId = activeEnvironmentId,
+): (() => void) => getRendererEntry(environmentId).subscribe(listener);
 
-export const retryRendererRpcConnection = (): void =>
-	getRendererEntry().retryNow();
+export const retryRendererRpcConnection = (environmentId?: unknown): void =>
+	getRendererEntry(
+		typeof environmentId === "string" ? environmentId : activeEnvironmentId,
+	).retryNow();
 
 export const dispatchRetryableRpcCommand = <A>(
 	commandId: string,
 	operation: () => Promise<A>,
+	environmentId = activeEnvironmentId,
 ): Promise<A> =>
-	getRendererEntry().dispatchCommand(commandId, () => operation());
+	getRendererEntry(environmentId).dispatchCommand(commandId, () => operation());
 
 export const disposeRpcClient = async (): Promise<void> => {
-	rendererEntry = null;
+	rendererEntries.clear();
+	environmentConnections.clear();
+	setActiveEnvironmentStorageScope(LOCAL_RENDERER_STORAGE_SCOPE);
 	await supervisor.dispose();
 };
 

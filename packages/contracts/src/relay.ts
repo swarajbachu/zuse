@@ -222,6 +222,12 @@ export const RelayEnvironmentsRpc = Rpc.make("relay.environments", {
 	error: RelayControlError,
 });
 
+export const RelayConnectEnvironmentRpc = Rpc.make("relay.connectEnvironment", {
+	payload: Schema.Struct({ environmentId: EnvironmentId }),
+	success: RelayConnectGrant,
+	error: RelayControlError,
+});
+
 export const RelayClientsRpc = Rpc.make("relay.clients", {
 	payload: Schema.Void,
 	success: RelayAuthorizedClientList,

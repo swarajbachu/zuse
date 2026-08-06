@@ -43,4 +43,21 @@ describe("Zuse Serve service definitions", () => {
 		expect(definition.contents).toContain("NoNewPrivileges=true");
 		expect(definition.contents).not.toMatch(/token|credential|authorization/iu);
 	});
+
+	it("creates a credential-free SSH-managed service", () => {
+		const input = {
+			nodeExecutable: "/opt/node/bin/node",
+			executable: "/opt/zuse/bin/zuse",
+			dataDir: "/home/dev/.local/share/zuse",
+			sshManaged: true,
+		};
+
+		const launchAgent = launchAgentDefinition(input);
+		const systemd = systemdUserDefinition(input);
+
+		expect(launchAgent.contents).toContain("<string>--ssh-managed</string>");
+		expect(systemd.contents).toContain(" --ssh-managed");
+		expect(launchAgent.contents).not.toContain("ZUSE_SERVE_AUTO_LINK");
+		expect(systemd.contents).not.toContain("ZUSE_SERVE_AUTO_LINK");
+	});
 });

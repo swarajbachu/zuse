@@ -25,6 +25,7 @@ import {
 	AGENTS_RUNNING_COUNT_CHANNEL,
 	AuthFlowError,
 	type DeepEnergySummary,
+	EnsureSshEnvironmentInput,
 	type HostPlatform,
 	LagSample as LagSampleSchema,
 	type PerformanceCapabilities,
@@ -154,11 +155,7 @@ import {
 	sanitizeRemoteConnectionLog,
 	sanitizeRemoteDiagnosticValue,
 } from "./remote-diagnostic-sanitizer.ts";
-import {
-	ensureSshEnvironment,
-	listSshHosts,
-	type SshEnvironmentHandle,
-} from "./ssh/environment-service.ts";
+import { SshEnvironmentManager } from "./ssh/environment-service.ts";
 import {
 	getIsInstallingUpdate,
 	getLastStatus,
@@ -534,6 +531,7 @@ ipcMain.on("window:setAppearanceMode", (_event, value: unknown) => {
 });
 
 let mainWindow: BrowserWindow | null = null;
+let sshEnvironmentManager: SshEnvironmentManager | null = null;
 let runtimeFiber: Fiber.Fiber<void, never> | null = null;
 let notchTray: NotchTrayController | null = null;
 let localConnectivityHelper: ChildProcessWithoutNullStreams | null = null;
@@ -1664,6 +1662,8 @@ async function createMainWindow() {
 		configuredPort: process.env.ZUSE_DESKTOP_WS_PORT,
 	});
 	const userData = app.getPath("userData");
+	sshEnvironmentManager ??= new SshEnvironmentManager(userData);
+	await sshEnvironmentManager.initialize();
 	const networkAccessEnabled = await readNetworkAccessPreference(userData);
 	const systemHostname = hostname();
 	const stableLocalHost =
@@ -1755,7 +1755,6 @@ async function createMainWindow() {
 		mainWindow.webContents.send("window:fullscreen", mainWindow.isFullScreen());
 	};
 
-	const sshEnvironmentHandles = new Map<string, SshEnvironmentHandle>();
 	mainWindow.on("enter-full-screen", sendFullScreenState);
 	mainWindow.on("leave-full-screen", sendFullScreenState);
 	mainWindow.webContents.on("did-finish-load", sendFullScreenState);
@@ -1930,19 +1929,46 @@ async function createMainWindow() {
 		},
 	);
 
-	ipcMain.handle("ssh:listHosts", async () => listSshHosts());
-
-	ipcMain.handle("ssh:ensureEnvironment", async (_event, rawHost: unknown) => {
-		if (typeof rawHost !== "string" || rawHost.trim().length === 0) {
-			return null;
+	ipcMain.handle("ssh:discoverHosts", async () =>
+		sshEnvironmentManager?.discoverHosts(),
+	);
+	ipcMain.handle("ssh:listProfiles", async () =>
+		sshEnvironmentManager?.listProfiles(),
+	);
+	ipcMain.handle("ssh:ensureEnvironment", async (_event, input: unknown) => {
+		if (typeof input !== "object" || input === null) {
+			throw new Error("Invalid SSH environment request.");
 		}
-		const host = rawHost.trim();
-		const existing = sshEnvironmentHandles.get(host);
-		if (existing !== undefined) return existing.descriptor;
-		const handle = await ensureSshEnvironment(host);
-		sshEnvironmentHandles.set(host, handle);
-		return handle.descriptor;
+		if (sshEnvironmentManager === null) {
+			throw new Error("SSH environment service is unavailable.");
+		}
+		return sshEnvironmentManager.ensure(
+			Schema.decodeUnknownSync(EnsureSshEnvironmentInput)(input),
+		);
 	});
+	ipcMain.handle(
+		"ssh:disconnectEnvironment",
+		async (_event, profileId: unknown) => {
+			if (typeof profileId !== "string") return;
+			await sshEnvironmentManager?.disconnect(profileId);
+		},
+	);
+	ipcMain.handle("ssh:removeProfile", async (_event, profileId: unknown) => {
+		if (typeof profileId !== "string") return;
+		await sshEnvironmentManager?.remove(profileId);
+	});
+	ipcMain.handle(
+		"ssh:updateProfileLabel",
+		async (_event, profileId: unknown, label: unknown) => {
+			if (typeof profileId !== "string" || typeof label !== "string") {
+				throw new TypeError("Invalid SSH profile label request.");
+			}
+			if (sshEnvironmentManager === null) {
+				throw new Error("SSH environment service is unavailable.");
+			}
+			return sshEnvironmentManager.updateLabel(profileId, label);
+		},
+	);
 
 	// ---------------------------------------------------------------------------
 	// Agent browser CDP bridge
@@ -3344,6 +3370,8 @@ let runningAgentCount = 0;
 // re-entrant `before-quit` — Electron fires it again after `app.quit()` — does
 // not pop the dialog a second time.
 let quitConfirmed = false;
+let sshQuitCleanupComplete = false;
+let sshQuitCleanupInProgress = false;
 // Armed by the dialog's "Quit when idle" choice: keep running, then quit
 // automatically the moment the last agent finishes.
 let quitWhenIdle = false;
@@ -3360,12 +3388,34 @@ function pluralAgents(count: number): string {
 	return count === 1 ? "1 agent is running" : `${count} agents are running`;
 }
 
+const finishQuitAfterSshCleanup = (event: {
+	preventDefault: () => void;
+}): void => {
+	if (sshQuitCleanupComplete) return;
+	event.preventDefault();
+	if (sshQuitCleanupInProgress) return;
+	sshQuitCleanupInProgress = true;
+	const manager = sshEnvironmentManager;
+	void (manager?.close() ?? Promise.resolve()).finally(() => {
+		if (sshEnvironmentManager === manager) sshEnvironmentManager = null;
+		sshQuitCleanupComplete = true;
+		quitConfirmed = true;
+		app.quit();
+	});
+};
+
 app.on("before-quit", (event) => {
 	// An update-driven quit (user picked "Restart now") or an already-confirmed
 	// quit passes straight through — the user has opted in, and re-prompting
 	// would strand the relaunch.
-	if (quitConfirmed || getIsInstallingUpdate()) return;
-	if (runningAgentCount <= 0) return;
+	if (quitConfirmed || getIsInstallingUpdate()) {
+		finishQuitAfterSshCleanup(event);
+		return;
+	}
+	if (runningAgentCount <= 0) {
+		finishQuitAfterSshCleanup(event);
+		return;
+	}
 
 	event.preventDefault();
 
@@ -3382,7 +3432,7 @@ app.on("before-quit", (event) => {
 
 	if (choice === 1) {
 		quitConfirmed = true;
-		app.quit();
+		finishQuitAfterSshCleanup(event);
 	} else if (choice === 2) {
 		quitWhenIdle = true;
 		// Stay open; the running-count handler quits once the count hits zero.

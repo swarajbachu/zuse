@@ -1,7 +1,10 @@
 import type { SessionId } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
-import { resolveReadingPositionKeysToPrune } from "../../src/lib/session-timeline-cache.ts";
+import {
+	environmentSessionCacheKey,
+	resolveReadingPositionKeysToPrune,
+} from "../../src/lib/session-timeline-cache.ts";
 
 const position = (sessionId: string, updatedAt: number) => ({
 	schemaVersion: 1 as const,
@@ -33,5 +36,11 @@ describe("session timeline reading-position cache", () => {
 				-1,
 			),
 		).toEqual(["two", "one"]);
+	});
+
+	it("namespaces colliding session IDs by environment", () => {
+		expect(environmentSessionCacheKey("same" as SessionId, "local")).not.toBe(
+			environmentSessionCacheKey("same" as SessionId, "remote"),
+		);
 	});
 });

@@ -330,10 +330,31 @@ const bridge = {
 			>,
 	},
 	ssh: {
-		listHosts: () =>
-			ipcRenderer.invoke("ssh:listHosts") as Promise<ReadonlyArray<string>>,
-		ensureEnvironment: (host: string) =>
-			ipcRenderer.invoke("ssh:ensureEnvironment", host) as Promise<unknown>,
+		discoverHosts: () =>
+			ipcRenderer.invoke("ssh:discoverHosts") as Promise<
+				ReadonlyArray<import("@zuse/contracts").DiscoveredSshHost>
+			>,
+		listProfiles: () =>
+			ipcRenderer.invoke("ssh:listProfiles") as Promise<
+				ReadonlyArray<import("@zuse/contracts").RemoteEnvironmentProfile>
+			>,
+		ensureEnvironment: (
+			input: import("@zuse/contracts").EnsureSshEnvironmentInput,
+		) =>
+			ipcRenderer.invoke("ssh:ensureEnvironment", input) as Promise<
+				import("@zuse/contracts").SshEnvironmentConnection
+			>,
+		disconnectEnvironment: (profileId: string) =>
+			ipcRenderer.invoke(
+				"ssh:disconnectEnvironment",
+				profileId,
+			) as Promise<void>,
+		removeProfile: (profileId: string) =>
+			ipcRenderer.invoke("ssh:removeProfile", profileId) as Promise<void>,
+		updateProfileLabel: (profileId: string, label: string) =>
+			ipcRenderer.invoke("ssh:updateProfileLabel", profileId, label) as Promise<
+				import("@zuse/contracts").RemoteEnvironmentProfile
+			>,
 	},
 	updates: {
 		onStatus: (handler: (status: UpdateStatus) => void) => {

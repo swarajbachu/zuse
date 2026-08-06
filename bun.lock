@@ -38,6 +38,7 @@
         "@electron/rebuild": "^4.0.4",
         "@repo/typescript-config": "*",
         "@types/node": "catalog:",
+        "@zuse/client-runtime": "*",
         "@zuse/contracts": "*",
         "@zuse/ssh": "*",
         "@zuse/utils": "*",
@@ -237,7 +238,7 @@
     },
     "apps/server": {
       "name": "@zusehq/server",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "keytar": "^7.9.0",
         "node-pty": "^1.1.0",
@@ -488,7 +489,7 @@
     },
     "packages/serve": {
       "name": "@zusehq/serve",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "bin": {
         "zuse": "dist/bin.mjs",
       },
@@ -522,6 +523,7 @@
       "name": "@zuse/ssh",
       "version": "0.0.0",
       "dependencies": {
+        "@zuse/contracts": "*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -587,7 +589,7 @@
         "zusehq": "dist/bin.mjs",
       },
       "dependencies": {
-        "@zusehq/serve": "0.1.0",
+        "@zusehq/serve": "0.1.1",
       },
       "devDependencies": {
         "@repo/typescript-config": "*",
@@ -5322,6 +5324,8 @@
 
     "zip-stream/readable-stream": ["readable-stream@3.6.2", "http://registry.npmjs.org/readable-stream/-/readable-stream-3.6.2.tgz", { "dependencies": { "inherits": "^2.0.3", "string_decoder": "^1.1.1", "util-deprecate": "^1.0.1" } }, "sha512-9u/sniCrY3D5WdsERHzHE4G2YCXqoG5FTHUiCC4SIbr6XcLZBY05ya9EKjYek9O5xOAwjGq+1JdGBAS7Q9ScoA=="],
 
+    "zusehq/@zusehq/serve": ["@zusehq/serve@0.1.1", "", { "dependencies": { "@zusehq/server": "0.1.1" }, "bin": { "zuse": "dist/bin.mjs" } }, "sha512-TUwHH+NHUE7jNEPc9fLt/pWWGdtt1vZ2BOdyFYojjMLXWwUNpOO1OApbhQCEqyfnBWAzYbKMAFkCqBvlAyR+IQ=="],
+
     "zxing-wasm/type-fest": ["type-fest@5.8.0", "", { "dependencies": { "tagged-tag": "^1.0.0" } }, "sha512-YGYEVz3Fm5iy/AybuA0oyNFq7H4CgQNfRp/qfe8nurE1kuCeNm3/vfm9X4Mtl+qLyaKJUh5xrFZwogr41SMjYA=="],
 
     "@babel/core/@babel/helper-compilation-targets/@babel/compat-data": ["@babel/compat-data@7.29.3", "http://registry.npmjs.org/@babel/compat-data/-/compat-data-7.29.3.tgz", {}, "sha512-LIVqM46zQWZhj17qA8wb4nW/ixr2y1Nw+r1etiAWgRM6U1IqP+LNhL1yg440jYZR72jCWcWbLWzIosH+uP1fqg=="],
@@ -6013,6 +6017,8 @@
     "vitest/vite/tinyglobby": ["tinyglobby@0.2.16", "http://registry.npmjs.org/tinyglobby/-/tinyglobby-0.2.16.tgz", { "dependencies": { "fdir": "^6.5.0", "picomatch": "^4.0.4" } }, "sha512-pn99VhoACYR8nFHhxqix+uvsbXineAasWm5ojXoN8xEwK5Kd3/TrhNn1wByuD52UxWRLy8pu+kRMniEi6Eq9Zg=="],
 
     "zip-stream/archiver-utils/glob": ["glob@7.2.3", "", { "dependencies": { "fs.realpath": "^1.0.0", "inflight": "^1.0.4", "inherits": "2", "minimatch": "^3.1.1", "once": "^1.3.0", "path-is-absolute": "^1.0.0" } }, "sha512-nFR0zLpU2YCaRxwoCJvL6UvCH2JFyFVIvwTLsIf21AuHlMskA1hhTdk+LlYJtOlYt9v6dvszD2BGRqBL+iQK9Q=="],
+
+    "zusehq/@zusehq/serve/@zusehq/server": ["@zusehq/server@0.1.1", "", { "dependencies": { "keytar": "^7.9.0", "node-pty": "^1.1.0", "tree-sitter": "^0.21.1", "tree-sitter-javascript": "^0.23.0", "tree-sitter-json": "^0.24.0", "tree-sitter-typescript": "^0.23.0" }, "bin": { "zuse": "dist/bin.mjs" } }, "sha512-k9NWYyreDz4t6oob4y8cnq/qqKkzZq7Z54TKEBPQhWn9aV6sX+x649hUrUAGBrrPYyi6j3abht6A9SkRLMu2sg=="],
 
     "@babel/core/@babel/helper-compilation-targets/lru-cache/yallist": ["yallist@3.1.1", "http://registry.npmjs.org/yallist/-/yallist-3.1.1.tgz", {}, "sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g=="],
 

@@ -1,5 +1,8 @@
 import { Schema } from "effect";
 
+/** Headless runtime release tested against this desktop wire contract. */
+export const COMPATIBLE_SERVE_RUNTIME_VERSION = "0.1.2" as const;
+
 export const ServeServiceState = Schema.Literals([
 	"running",
 	"stopped",

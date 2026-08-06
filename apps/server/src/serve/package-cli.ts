@@ -46,7 +46,7 @@ export const SERVE_HELP = `Zuse Serve
 Run and manage Zuse on this computer.
 
 Usage:
-  zuse serve [start] [--foreground] [--data-dir <path>]
+  zuse serve [start] [--foreground] [--ssh-managed] [--data-dir <path>]
   zuse serve status [--json] [--data-dir <path>]
   zuse serve stop [--data-dir <path>]
   zuse serve update --force [--data-dir <path>]
@@ -63,6 +63,7 @@ Commands:
 
 Options:
   --foreground       Run in the current terminal
+  --ssh-managed      Run loopback-only without account linking for SSH tunnels
   --json             Emit versioned JSON from status
   --force            Confirm a safe update window
   --data-dir <path>  Override the Zuse data directory
@@ -374,18 +375,19 @@ export const runServePackageCli = async (
 			executable,
 			paths: servicePaths,
 			relayUrl: env.ZUSE_RELAY_URL,
+			sshManaged: command.sshManaged,
 		});
 
 	if (command.action === "start" && command.foreground) {
-		env.ZUSE_SERVE_AUTO_LINK = "1";
+		if (!command.sshManaged) env.ZUSE_SERVE_AUTO_LINK = "1";
 		runHeadlessServer({
 			host: "127.0.0.1",
 			port: Number(env.ZUSE_PORT ?? 4859),
 			dataDir,
 			staticDir: undefined,
 			open: false,
-			policy: "protected",
-			pairing: true,
+			policy: command.sshManaged ? "local" : "protected",
+			pairing: !command.sshManaged,
 		});
 		return;
 	}
@@ -444,18 +446,20 @@ export const runServePackageCli = async (
 	}
 
 	await mkdir(dataDir, { recursive: true, mode: 0o700 });
-	const session = await Effect.runPromise(
-		ensureServeSession({
-			clientId: workosClientId(env),
-			onPrompt: async (grant) => {
-				console.log("Authorize this computer");
-				console.log(`Code       ${grant.userCode}`);
-				console.log(`Open       ${grant.verificationUriComplete}`);
-				if (env.ZUSE_NO_OPEN !== "1")
-					openBrowser(grant.verificationUriComplete);
-			},
-		}),
-	);
+	const session = command.sshManaged
+		? null
+		: await Effect.runPromise(
+				ensureServeSession({
+					clientId: workosClientId(env),
+					onPrompt: async (grant) => {
+						console.log("Authorize this computer");
+						console.log(`Code       ${grant.userCode}`);
+						console.log(`Open       ${grant.verificationUriComplete}`);
+						if (env.ZUSE_NO_OPEN !== "1")
+							openBrowser(grant.verificationUriComplete);
+					},
+				}),
+			);
 	let installedExecutable: string;
 	try {
 		const packageVersion = options.packageVersion ?? "0.0.0";
@@ -470,15 +474,15 @@ export const runServePackageCli = async (
 	} catch (cause) {
 		if (cause instanceof UnsupportedServiceManagerError) {
 			console.warn(`${cause.message} Starting in the foreground instead.`);
-			env.ZUSE_SERVE_AUTO_LINK = "1";
+			if (!command.sshManaged) env.ZUSE_SERVE_AUTO_LINK = "1";
 			runHeadlessServer({
 				host: "127.0.0.1",
 				port: Number(env.ZUSE_PORT ?? 4859),
 				dataDir,
 				staticDir: undefined,
 				open: false,
-				policy: "protected",
-				pairing: true,
+				policy: command.sshManaged ? "local" : "protected",
+				pairing: !command.sshManaged,
 			});
 			return;
 		}
@@ -500,7 +504,7 @@ export const runServePackageCli = async (
 	console.log("");
 	console.log(`Computer   ${hostname()}`);
 	console.log("Status     Online");
-	console.log(`Account    ${session.email}`);
+	if (session !== null) console.log(`Account    ${session.email}`);
 	const agents = await installedAgents();
 	console.log(`Agents     ${agents.join(", ") || "None detected"}`);
 	console.log(`Open       ${HOSTED_APP_URL}`);

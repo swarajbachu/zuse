@@ -25,8 +25,14 @@ Object.defineProperty(globalThis, "window", {
 	configurable: true,
 });
 
-const { annotationsForSession, useAnnotationsStore } = await import(
-	"../../src/store/annotations.ts"
+const {
+	activateAnnotationsEnvironment,
+	annotationsForSession,
+	resetAnnotationsPersistenceForTest,
+	useAnnotationsStore,
+} = await import("../../src/store/annotations.ts");
+const { setActiveEnvironmentStorageScope } = await import(
+	"../../src/lib/renderer-environment-scope.ts"
 );
 
 const sessionId = "sess1" as SessionId;
@@ -35,6 +41,8 @@ const otherSessionId = "sess2" as SessionId;
 describe("annotations store", () => {
 	beforeEach(() => {
 		localStorage.clear();
+		resetAnnotationsPersistenceForTest();
+		setActiveEnvironmentStorageScope("local");
 		useAnnotationsStore.setState({ bySession: {} });
 	});
 
@@ -166,8 +174,37 @@ describe("annotations store", () => {
 
 		const raw = localStorage.getItem("zuse.annotations.v1");
 		expect(raw).not.toBeNull();
-		expect(JSON.parse(raw ?? "{}")).toEqual(
-			useAnnotationsStore.getState().bySession,
-		);
+		expect(JSON.parse(raw ?? "{}")).toEqual({
+			schemaVersion: 2,
+			environments: {
+				local: useAnnotationsStore.getState().bySession,
+			},
+		});
+	});
+
+	it("keeps colliding session annotations isolated by environment", () => {
+		useAnnotationsStore.getState().add(sessionId, {
+			relPath: "local.ts",
+			absPath: "/local.ts",
+			startLine: 1,
+			endLine: 1,
+			comment: "local",
+		});
+		setActiveEnvironmentStorageScope("remote");
+		activateAnnotationsEnvironment();
+		expect(annotationsForSession(sessionId)).toEqual([]);
+		useAnnotationsStore.getState().add(sessionId, {
+			relPath: "remote.ts",
+			absPath: "/remote.ts",
+			startLine: 1,
+			endLine: 1,
+			comment: "remote",
+		});
+
+		setActiveEnvironmentStorageScope("local");
+		activateAnnotationsEnvironment();
+		expect(annotationsForSession(sessionId)).toMatchObject([
+			{ comment: "local" },
+		]);
 	});
 });

@@ -10,6 +10,7 @@ describe("zuse serve management commands", () => {
 			foreground: false,
 			force: false,
 			dataDir: undefined,
+			sshManaged: false,
 		});
 	});
 
@@ -35,6 +36,7 @@ describe("zuse serve management commands", () => {
 			foreground: false,
 			force: false,
 			dataDir: undefined,
+			sshManaged: false,
 		});
 	});
 
@@ -45,6 +47,7 @@ describe("zuse serve management commands", () => {
 			foreground: true,
 			force: false,
 			dataDir: undefined,
+			sshManaged: false,
 		});
 		expect(parseServeCommand(["serve", "update", "--force"])).toEqual({
 			action: "update",
@@ -52,6 +55,7 @@ describe("zuse serve management commands", () => {
 			foreground: false,
 			force: true,
 			dataDir: undefined,
+			sshManaged: false,
 		});
 	});
 
@@ -69,6 +73,18 @@ describe("zuse serve management commands", () => {
 			foreground: true,
 			force: false,
 			dataDir: "/tmp/zuse-serve",
+			sshManaged: false,
+		});
+	});
+
+	it("parses SSH-managed start mode", () => {
+		expect(parseServeCommand(["serve", "start", "--ssh-managed"])).toEqual({
+			action: "start",
+			json: false,
+			foreground: false,
+			force: false,
+			dataDir: undefined,
+			sshManaged: true,
 		});
 	});
 
@@ -85,5 +101,8 @@ describe("zuse serve management commands", () => {
 		expect(() => parseServeCommand(["serve", "help", "--json"])).toThrow(
 			/--json is only valid with status/u,
 		);
+		expect(() =>
+			parseServeCommand(["serve", "status", "--ssh-managed"]),
+		).toThrow(/--ssh-managed is only valid when starting/u);
 	});
 });

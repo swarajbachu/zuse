@@ -1,4 +1,6 @@
 import type {
+	DiscoveredSshHost,
+	EnsureSshEnvironmentInput,
 	HostDescriptor,
 	LagSample,
 	NearbyPairingRequest,
@@ -9,6 +11,8 @@ import type {
 	PowerMonitorState,
 	PowerRecordingDurationMinutes,
 	PowerWorkloadState,
+	RemoteEnvironmentProfile,
+	SshEnvironmentConnection,
 	UpdateStatus,
 } from "@zuse/contracts";
 
@@ -306,8 +310,17 @@ export interface BrowserBridge {
 }
 
 export interface SshBridge {
-	readonly listHosts: () => Promise<ReadonlyArray<string>>;
-	readonly ensureEnvironment: (host: string) => Promise<unknown>;
+	readonly discoverHosts: () => Promise<ReadonlyArray<DiscoveredSshHost>>;
+	readonly listProfiles: () => Promise<ReadonlyArray<RemoteEnvironmentProfile>>;
+	readonly ensureEnvironment: (
+		input: EnsureSshEnvironmentInput,
+	) => Promise<SshEnvironmentConnection>;
+	readonly disconnectEnvironment: (profileId: string) => Promise<void>;
+	readonly removeProfile: (profileId: string) => Promise<void>;
+	readonly updateProfileLabel: (
+		profileId: string,
+		label: string,
+	) => Promise<RemoteEnvironmentProfile>;
 }
 
 export type NotchTrayItemState =
