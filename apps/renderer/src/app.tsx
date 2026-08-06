@@ -4,7 +4,6 @@ import {
 	type RefObject,
 	Suspense,
 	useEffect,
-	useLayoutEffect,
 	useRef,
 	useState,
 } from "react";
@@ -175,22 +174,33 @@ const UsageDashboard = lazy(() =>
  * Animate only programmatic open/close changes. Drag resizing remains direct,
  * and the browser handles the short flex transition outside React's render loop.
  */
-function usePanelCollapse(
+function useAnimatedPanelVisibility(
 	panelRef: ReturnType<typeof usePanelRef>,
 	elementRef: RefObject<HTMLDivElement | null>,
 	open: boolean,
+	expandedSize?: string,
 ) {
+	const expandedSizeRef = useRef(expandedSize);
+	expandedSizeRef.current = expandedSize;
 	useEffect(() => {
 		const panel = panelRef.current;
 		if (panel === null) return;
 		const element = elementRef.current;
 		const shouldChange = open ? panel.isCollapsed() : !panel.isCollapsed();
-		if (!shouldChange) return;
+		if (!shouldChange) {
+			return;
+		}
 
 		element?.classList.add("fz-sidebar-panel-motion");
 		const frame = window.requestAnimationFrame(() => {
-			if (open) panel.expand();
-			else panel.collapse();
+			if (open) {
+				panel.expand();
+				if (expandedSizeRef.current !== undefined) {
+					panel.resize(expandedSizeRef.current);
+				}
+			} else {
+				panel.collapse();
+			}
 		});
 		const timeout = window.setTimeout(() => {
 			element?.classList.remove("fz-sidebar-panel-motion");
@@ -429,7 +439,7 @@ function MainShell() {
 		selectedSessionId !== null &&
 		activeMainTab === "chat";
 	const showEnvironmentSummary =
-		environmentSummaryAvailable && environmentSummaryOpen && !rightSidebarOpen;
+		environmentSummaryAvailable && environmentSummaryOpen;
 
 	// Switching projects closes the file tab — its path wouldn't resolve
 	// under the new project's root anyway.
@@ -507,6 +517,7 @@ function MainShell() {
 	const leftPanelRef = usePanelRef();
 	const leftPanelElementRef = useRef<HTMLDivElement>(null);
 	const rightPanelRef = usePanelRef();
+	const rightPanelElementRef = useRef<HTMLDivElement>(null);
 
 	// The composer floats over the timeline (glass) — measure it so the list
 	// can pad its scroll range and the last message clears the overlay.
@@ -524,17 +535,17 @@ function MainShell() {
 		setComposerInset(composerNode.offsetHeight);
 		return () => ro.disconnect();
 	}, [composerNode]);
-	usePanelCollapse(leftPanelRef, leftPanelElementRef, leftSidebarOpen);
-	useLayoutEffect(() => {
-		const panel = rightPanelRef.current;
-		if (panel === null) return;
-		if (!rightSidebarOpen) {
-			if (!panel.isCollapsed()) panel.collapse();
-			return;
-		}
-		if (panel.isCollapsed()) panel.expand();
-		panel.resize(`${rightSidebarWidth}%`);
-	}, [rightPanelRef, rightSidebarOpen, rightSidebarWidth]);
+	useAnimatedPanelVisibility(
+		leftPanelRef,
+		leftPanelElementRef,
+		leftSidebarOpen,
+	);
+	useAnimatedPanelVisibility(
+		rightPanelRef,
+		rightPanelElementRef,
+		rightSidebarOpen,
+		`${rightSidebarWidth}%`,
+	);
 
 	return (
 		<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden text-foreground">
@@ -750,6 +761,7 @@ function MainShell() {
 					collapsible
 					collapsedSize="0%"
 					panelRef={rightPanelRef}
+					elementRef={rightPanelElementRef}
 					onResize={(size, _id, prev) => {
 						// Ignore the initial mount call (prev === undefined). The right
 						// dock defaults to closed (`rightSidebarOpen: false`); the

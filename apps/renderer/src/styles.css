@@ -512,8 +512,8 @@ body,
 	}
 }
 
-/* Applied only while the projects sidebar is programmatically opened or
-   closed, so manual resizing stays directly under the pointer. */
+/* Applied only while a sidebar is programmatically opened or closed, so
+   manual resizing stays directly under the pointer. */
 .fz-sidebar-panel-motion {
 	transition: flex-grow 180ms cubic-bezier(0.645, 0.045, 0.355, 1);
 }
