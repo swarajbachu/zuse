@@ -52,7 +52,12 @@ import {
 	type PowerThermalState,
 	PowerWorkloadState,
 } from "@zuse/contracts";
-import { inspectTailnetShare, setTailnetShareEnabled } from "@zuse/tailnet";
+import {
+	inspectTailnetShare,
+	makeTailnetCommandRunner,
+	setTailnetShareEnabled,
+	type TailnetDiagnosticEvent,
+} from "@zuse/tailnet";
 import {
 	makeMainLayer,
 	readBrowserCredentialFromVault,
@@ -243,6 +248,27 @@ function persistOfflineDiagnostic(
 		// Fatal diagnostics must never mask the original exception.
 	}
 }
+
+function persistTailnetDiagnostic(event: TailnetDiagnosticEvent): void {
+	try {
+		const logPath = Path.join(
+			app.getPath("userData"),
+			"logs",
+			"tailscale.ndjson",
+		);
+		fsSync.mkdirSync(Path.dirname(logPath), { recursive: true });
+		fsSync.appendFileSync(
+			logPath,
+			`${JSON.stringify({ createdAt: new Date().toISOString(), ...event })}\n`,
+			{ encoding: "utf8", mode: 0o600 },
+		);
+		fsSync.chmodSync(logPath, 0o600);
+	} catch {
+		// Connectivity diagnostics must never interfere with the action itself.
+	}
+}
+
+const tailnetCommandRunner = makeTailnetCommandRunner(persistTailnetDiagnostic);
 
 function recordMainFailure(
 	source: string,
@@ -1908,7 +1934,7 @@ async function createMainWindow() {
 		port: networkAccess.port,
 	}));
 	ipcMain.handle("network:getTailnetShareState", () =>
-		inspectTailnetShare(relayPort.port),
+		inspectTailnetShare(relayPort.port, tailnetCommandRunner),
 	);
 	ipcMain.handle(
 		"network:setTailnetShareEnabled",
@@ -1916,7 +1942,10 @@ async function createMainWindow() {
 			if (typeof enabled !== "boolean") {
 				throw new TypeError("Tailnet sharing must be enabled or disabled.");
 			}
-			return setTailnetShareEnabled({ enabled, port: relayPort.port });
+			return setTailnetShareEnabled(
+				{ enabled, port: relayPort.port },
+				tailnetCommandRunner,
+			);
 		},
 	);
 	ipcMain.handle(

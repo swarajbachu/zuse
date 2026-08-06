@@ -483,6 +483,27 @@ export function DevicesPane() {
 						<Button size="xs" variant="outline" onClick={() => void refresh()}>
 							Check again
 						</Button>
+					) : tailnet?.availability === "error" ? (
+						<>
+							<Button
+								size="xs"
+								variant="outline"
+								onClick={() =>
+									void (
+										window.zuse ?? window.memoize
+									)?.app?.revealDiagnosticsLogs?.()
+								}
+							>
+								Open logs
+							</Button>
+							<Button
+								size="xs"
+								onClick={() => void updateTailnet(true)}
+								disabled={tailnetBusy}
+							>
+								{tailnetBusy ? "Trying again…" : "Try again"}
+							</Button>
+						</>
 					) : (
 						<Button
 							size="xs"

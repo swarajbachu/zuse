@@ -7,14 +7,15 @@ import { describe, expect, it } from "vitest";
 import {
 	extractTailnetApprovalUrl,
 	inspectTailnetShare,
+	makeTailnetCommandRunner,
 	parseTailnetStatus,
 	resolveTailnetExecutable,
-	runTailnetCommand,
 	serveStatusIsExclusive,
 	serveStatusMatches,
 	setTailnetShareEnabled,
 	type TailnetCommandResult,
 	tailnetCommandEnvironment,
+	tailnetOutputHint,
 } from "../../src/index.ts";
 
 const result = (
@@ -67,6 +68,16 @@ describe("tailnet sharing", () => {
 		});
 	});
 
+	it("classifies command failures without retaining their raw output", () => {
+		expect(
+			tailnetOutputHint("", "operation not permitted for user alice"),
+		).toBe("permission-denied");
+		expect(tailnetOutputHint("", "failed to connect to local daemon")).toBe(
+			"daemon-unavailable",
+		);
+		expect(tailnetOutputHint("", "not logged in")).toBe("signed-out");
+	});
+
 	it("stops a waiting Serve command as soon as it prints an approval URL", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "zuse-tailnet-test-"));
 		const executable = join(directory, "tailscale-fixture.mjs");
@@ -80,16 +91,32 @@ setInterval(() => undefined, 10_000);
 		);
 		await chmod(executable, 0o700);
 		const startedAt = Date.now();
+		const diagnostics: Array<{
+			readonly event: string;
+			readonly command: string;
+		}> = [];
 		try {
-			const output = await runTailnetCommand(
-				["serve", "--bg", "--yes", "127.0.0.1:47837"],
-				2_000,
+			const output = await makeTailnetCommandRunner(
+				(event) => diagnostics.push(event),
 				executable,
-			);
+			)(["serve", "--bg", "--yes", "127.0.0.1:47837"], 2_000);
 			expect(output.approvalUrl).toBe(
 				"https://login.tailscale.com/admin/feature/serve?node=example",
 			);
 			expect(Date.now() - startedAt).toBeLessThan(1_800);
+			expect(diagnostics).toEqual([
+				expect.objectContaining({
+					event: "start",
+					command: "serve-enable",
+					timeoutMs: 2_000,
+				}),
+				expect.objectContaining({
+					event: "approval",
+					command: "serve-enable",
+					outputHint: "serve-configuration",
+				}),
+			]);
+			expect(JSON.stringify(diagnostics)).not.toContain("login.tailscale.com");
 		} finally {
 			await rm(directory, { recursive: true, force: true });
 		}

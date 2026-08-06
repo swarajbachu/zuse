@@ -16,6 +16,27 @@ export type TailnetCommandRunner = (
 	timeoutMs?: number,
 ) => Promise<TailnetCommandResult>;
 
+export type TailnetDiagnosticEvent = {
+	readonly event: "start" | "exit" | "timeout" | "approval" | "spawn-error";
+	readonly command: string;
+	readonly executable: "bundled-app" | "path";
+	readonly durationMs?: number;
+	readonly timeoutMs?: number;
+	readonly code?: number;
+	readonly stdoutBytes?: number;
+	readonly stderrBytes?: number;
+	readonly errorCode?: string;
+	readonly outputHint?:
+		| "empty"
+		| "permission-denied"
+		| "daemon-unavailable"
+		| "signed-out"
+		| "serve-configuration"
+		| "unknown";
+};
+
+export type TailnetDiagnosticSink = (event: TailnetDiagnosticEvent) => void;
+
 export const resolveTailnetExecutable = (
 	platform: NodeJS.Platform = process.platform,
 	canExecute: (path: string) => boolean = (path) => {
@@ -75,12 +96,65 @@ export const tailnetCommandEnvironment = (
 	TAILSCALE_BE_CLI: "1",
 });
 
+export const tailnetCommandLabel = (args: ReadonlyArray<string>): string => {
+	if (args[0] === "status") return "status";
+	if (args[0] !== "serve") return "unknown";
+	if (args[1] === "status") return "serve-status";
+	if (args.includes("--bg")) return "serve-enable";
+	if (args.at(-1) === "off") return "serve-disable";
+	return "serve-other";
+};
+
+export const tailnetOutputHint = (
+	stdout: string,
+	stderr: string,
+): NonNullable<TailnetDiagnosticEvent["outputHint"]> => {
+	const value = `${stderr}\n${stdout}`.trim().toLowerCase();
+	if (value.length === 0) return "empty";
+	if (/permission denied|operation not permitted|not authorized/u.test(value)) {
+		return "permission-denied";
+	}
+	if (
+		/failed to connect|connection refused|daemon.*(?:unavailable|not running)|tailscaled.*not running/u.test(
+			value,
+		)
+	) {
+		return "daemon-unavailable";
+	}
+	if (/not logged in|logged out|needs? login|sign in/u.test(value)) {
+		return "signed-out";
+	}
+	if (/serve|funnel|https|certificate|proxy/u.test(value)) {
+		return "serve-configuration";
+	}
+	return "unknown";
+};
+
 export const runTailnetCommand = (
 	args: ReadonlyArray<string>,
 	timeoutMs = 10_000,
 	executable = resolveTailnetExecutable(),
+	diagnostic: TailnetDiagnosticSink = () => undefined,
 ): Promise<TailnetCommandResult> =>
 	new Promise((resolve, reject) => {
+		const startedAt = Date.now();
+		const command = tailnetCommandLabel(args);
+		const executableKind = executable.startsWith("/Applications/")
+			? "bundled-app"
+			: "path";
+		const emit = (event: TailnetDiagnosticEvent): void => {
+			try {
+				diagnostic(event);
+			} catch {
+				// Diagnostics must never affect network setup.
+			}
+		};
+		emit({
+			event: "start",
+			command,
+			executable: executableKind,
+			timeoutMs,
+		});
 		const child = spawn(executable, [...args], {
 			env: tailnetCommandEnvironment(),
 			stdio: ["ignore", "pipe", "pipe"],
@@ -111,10 +185,31 @@ export const runTailnetCommand = (
 			);
 			if (approvalUrl === null) return;
 			child.kill("SIGTERM");
+			emit({
+				event: "approval",
+				command,
+				executable: executableKind,
+				durationMs: Date.now() - startedAt,
+				stdoutBytes: Buffer.concat(stdout).byteLength,
+				stderrBytes: Buffer.concat(stderr).byteLength,
+				outputHint: "serve-configuration",
+			});
 			finish(capturedResult(75, { approvalUrl }));
 		};
 		const timer = setTimeout(() => {
 			child.kill("SIGTERM");
+			emit({
+				event: "timeout",
+				command,
+				executable: executableKind,
+				durationMs: Date.now() - startedAt,
+				stdoutBytes: Buffer.concat(stdout).byteLength,
+				stderrBytes: Buffer.concat(stderr).byteLength,
+				outputHint: tailnetOutputHint(
+					Buffer.concat(stdout).toString("utf8"),
+					Buffer.concat(stderr).toString("utf8"),
+				),
+			});
 			finish(capturedResult(124, { timedOut: true }));
 		}, timeoutMs);
 		child.stdout.on("data", (chunk) => {
@@ -125,9 +220,46 @@ export const runTailnetCommand = (
 			stderr.push(Buffer.from(chunk));
 			finishForApproval();
 		});
-		child.once("error", finish);
-		child.once("exit", (code) => finish(capturedResult(code ?? 1)));
+		child.once("error", (cause) => {
+			emit({
+				event: "spawn-error",
+				command,
+				executable: executableKind,
+				durationMs: Date.now() - startedAt,
+				errorCode:
+					typeof cause === "object" && cause !== null && "code" in cause
+						? String(cause.code)
+						: "unknown",
+			});
+			finish(cause);
+		});
+		child.once("exit", (code) => {
+			if (!settled) {
+				emit({
+					event: "exit",
+					command,
+					executable: executableKind,
+					durationMs: Date.now() - startedAt,
+					code: code ?? 1,
+					stdoutBytes: Buffer.concat(stdout).byteLength,
+					stderrBytes: Buffer.concat(stderr).byteLength,
+					outputHint: tailnetOutputHint(
+						Buffer.concat(stdout).toString("utf8"),
+						Buffer.concat(stderr).toString("utf8"),
+					),
+				});
+			}
+			finish(capturedResult(code ?? 1));
+		});
 	});
+
+export const makeTailnetCommandRunner =
+	(
+		diagnostic: TailnetDiagnosticSink,
+		executable = resolveTailnetExecutable(),
+	): TailnetCommandRunner =>
+	(args, timeoutMs) =>
+		runTailnetCommand(args, timeoutMs, executable, diagnostic);
 
 export const parseTailnetStatus = (
 	raw: string,
