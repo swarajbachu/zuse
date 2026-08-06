@@ -533,6 +533,19 @@
         "vitest": "catalog:",
       },
     },
+    "packages/tailnet": {
+      "name": "@zuse/tailnet",
+      "version": "0.0.0",
+      "dependencies": {
+        "@zuse/contracts": "*",
+      },
+      "devDependencies": {
+        "@repo/typescript-config": "*",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/tokenmaxer": {
       "name": "tokenmaxer",
       "version": "0.0.0",
@@ -2151,6 +2164,8 @@
     "@zuse/ssh": ["@zuse/ssh@workspace:packages/ssh"],
 
     "@zuse/system-tests": ["@zuse/system-tests@workspace:tests/system"],
+
+    "@zuse/tailnet": ["@zuse/tailnet@workspace:packages/tailnet"],
 
     "@zuse/testkit": ["@zuse/testkit@workspace:tests/testkit"],
 

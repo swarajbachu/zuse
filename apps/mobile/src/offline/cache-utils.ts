@@ -5,7 +5,13 @@ export const slugConnectionKey = (key: string): string =>
 
 export const parsePairingUrl = (
 	value: string,
-): { host: string; port: number; token?: string } => {
+): {
+	host: string;
+	port: number;
+	token?: string;
+	wsBaseUrl: string;
+	httpBaseUrl: string;
+} => {
 	const url = new URL(value);
 	if (url.protocol !== "zuse:") {
 		throw new Error("This QR code is not a Zuse pairing code.");
@@ -42,6 +48,8 @@ export const parsePairingUrl = (
 	return {
 		host: normalized.hostname,
 		port,
+		wsBaseUrl: normalized.toString().replace(/\/$/u, ""),
+		httpBaseUrl: `${normalized.protocol === "wss:" ? "https:" : "http:"}//${normalized.host}`,
 		token,
 	};
 };

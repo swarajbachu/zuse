@@ -1,6 +1,7 @@
 import type {
 	DiscoveredSshHost,
 	EnsureSshEnvironmentInput,
+	EnsureTailnetEnvironmentInput,
 	HostDescriptor,
 	LagSample,
 	NearbyPairingRequest,
@@ -13,6 +14,9 @@ import type {
 	PowerWorkloadState,
 	RemoteEnvironmentProfile,
 	SshEnvironmentConnection,
+	TailnetEnvironmentConnection,
+	TailnetEnvironmentProfile,
+	TailnetShareState,
 	UpdateStatus,
 } from "@zuse/contracts";
 
@@ -64,6 +68,10 @@ export interface AppBridge {
 export interface NetworkBridge {
 	readonly getAccessState: () => Promise<NetworkAccessState>;
 	readonly setAccessEnabled: (enabled: boolean) => Promise<NetworkAccessState>;
+	readonly getTailnetShareState: () => Promise<TailnetShareState>;
+	readonly setTailnetShareEnabled: (
+		enabled: boolean,
+	) => Promise<TailnetShareState>;
 }
 
 export interface DiagnosticLogEntry {
@@ -323,6 +331,24 @@ export interface SshBridge {
 	) => Promise<RemoteEnvironmentProfile>;
 }
 
+export interface TailnetBridge {
+	readonly listProfiles: () => Promise<
+		ReadonlyArray<TailnetEnvironmentProfile>
+	>;
+	readonly ensureEnvironment: (
+		input: EnsureTailnetEnvironmentInput,
+	) => Promise<TailnetEnvironmentConnection>;
+	readonly confirmEnvironment: (
+		profileId: string,
+		environmentId: string,
+	) => Promise<TailnetEnvironmentProfile>;
+	readonly removeProfile: (profileId: string) => Promise<void>;
+	readonly updateProfileLabel: (
+		profileId: string,
+		label: string,
+	) => Promise<TailnetEnvironmentProfile>;
+}
+
 export type NotchTrayItemState =
 	| "running"
 	| "completed"
@@ -379,6 +405,7 @@ export interface ZuseBridge {
 	readonly browser?: BrowserBridge;
 	readonly notch?: NotchBridge;
 	readonly ssh?: SshBridge;
+	readonly tailnet?: TailnetBridge;
 }
 
 declare global {

@@ -7,6 +7,8 @@ import {
 	type RemoteEnvironmentProfile,
 	type Session,
 	type SshEnvironmentTarget,
+	type TailnetEnvironmentConnection,
+	type TailnetEnvironmentProfile,
 	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
 import { Effect } from "effect";
@@ -30,7 +32,7 @@ export type CatalogConnectionStatus =
 	| "error";
 
 export type EnvironmentCatalogEntry = {
-	readonly connectionKind: "local" | "relay" | "ssh";
+	readonly connectionKind: "local" | "relay" | "ssh" | "tailnet";
 	readonly environmentId: string;
 	readonly profileId: string | null;
 	readonly label: string;
@@ -74,6 +76,7 @@ type EnvironmentCatalogState = {
 	readonly initialized: boolean;
 	initialize: () => Promise<void>;
 	add: (target: SshEnvironmentTarget, label?: string) => Promise<void>;
+	addTailnet: (pairingLink: string, label?: string) => Promise<void>;
 	retry: (profileId: string) => Promise<void>;
 	retryEnvironment: (environmentId: string) => Promise<void>;
 	disconnect: (profileId: string) => Promise<void>;
@@ -101,6 +104,22 @@ const profileEntry = (
 	sessionsByProject: {},
 });
 
+const tailnetProfileEntry = (
+	profile: TailnetEnvironmentProfile,
+): EnvironmentCatalogEntry => ({
+	connectionKind: "tailnet",
+	environmentId: profile.environmentId,
+	profileId: profile.profileId,
+	label: profile.label,
+	target: null,
+	descriptor: null,
+	status: "connecting",
+	error: null,
+	folders: [],
+	chatsByProject: {},
+	sessionsByProject: {},
+});
+
 const relayEntry = (
 	environment: RelayEnvironmentRecord,
 ): EnvironmentCatalogEntry => ({
@@ -118,8 +137,8 @@ const relayEntry = (
 });
 
 const entryKey = (entry: EnvironmentCatalogEntry): string =>
-	entry.connectionKind === "ssh"
-		? `ssh:${entry.profileId}`
+	entry.connectionKind === "ssh" || entry.connectionKind === "tailnet"
+		? `${entry.connectionKind}:${entry.profileId}`
 		: `${entry.connectionKind}:${entry.environmentId}`;
 
 const relayGrantUrl = (grant: RelayConnectGrant): string => {
@@ -218,9 +237,9 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					error: null,
 					...catalog,
 				});
-				if (!recoverySubscriptions.has(profileId)) {
+				if (!recoverySubscriptions.has(catalogKey)) {
 					recoverySubscriptions.set(
-						profileId,
+						catalogKey,
 						subscribeRendererRpcConnection((snapshot) => {
 							if (
 								(snapshot.status === "reconnecting" ||
@@ -240,6 +259,89 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					connection.profile.environmentId,
 					catalogKey,
 				);
+			} catch (cause) {
+				patchEntry(catalogKey, {
+					status: "error",
+					error: errorMessage(cause),
+				});
+			}
+		};
+		const connectTailnetConnection = async (
+			connection: TailnetEnvironmentConnection,
+		): Promise<void> => {
+			const { profile } = connection;
+			const catalogKey = `tailnet:${profile.profileId}`;
+			registerWebSocketEnvironment(profile.environmentId, connection.wsUrl);
+			try {
+				const client = await getRpcClient(profile.environmentId);
+				const descriptor = await Effect.runPromise(
+					client["connect.describe"](),
+				);
+				if (descriptor.environmentId !== profile.environmentId) {
+					throw new Error(
+						"This Tailnet address now belongs to a different Zuse computer. Pair it again instead of reconnecting automatically.",
+					);
+				}
+				const confirmedProfile = await window.zuse?.tailnet?.confirmEnvironment(
+					profile.profileId,
+					descriptor.environmentId,
+				);
+				if (confirmedProfile === undefined) {
+					throw new Error("Tailnet connection confirmation is unavailable.");
+				}
+				const catalog = await hydrateEntry(profile.environmentId);
+				patchEntry(catalogKey, {
+					environmentId: profile.environmentId,
+					label: confirmedProfile.label,
+					descriptor,
+					status: "connected",
+					error: null,
+					...catalog,
+				});
+				if (!recoverySubscriptions.has(catalogKey)) {
+					recoverySubscriptions.set(
+						catalogKey,
+						subscribeRendererRpcConnection((snapshot) => {
+							if (
+								(snapshot.status === "reconnecting" ||
+									snapshot.status === "error") &&
+								!recovering.has(catalogKey)
+							) {
+								recovering.add(catalogKey);
+								void connectTailnetProfile(profile.profileId).finally(() =>
+									recovering.delete(catalogKey),
+								);
+							}
+						}, profile.environmentId),
+					);
+				}
+				startCatalogPoller(catalogKey, profile.environmentId, catalogKey);
+			} catch (cause) {
+				await removeRendererEnvironment(profile.environmentId).catch(
+					() => undefined,
+				);
+				throw cause;
+			}
+		};
+		const connectTailnetProfile = async (profileId: string): Promise<void> => {
+			const catalogKey = `tailnet:${profileId}`;
+			patchEntry(catalogKey, { status: "connecting", error: null });
+			try {
+				const connection = await window.zuse?.tailnet?.ensureEnvironment({
+					profileId,
+				});
+				if (connection === undefined) {
+					throw new Error("Tailnet connections are unavailable.");
+				}
+				try {
+					await connectTailnetConnection(connection);
+				} catch (cause) {
+					patchEntry(`tailnet:${connection.profile.profileId}`, {
+						status: "error",
+						error: errorMessage(cause),
+					});
+					throw cause;
+				}
 			} catch (cause) {
 				patchEntry(catalogKey, {
 					status: "error",
@@ -322,9 +424,10 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				set({ initialized: true });
 				try {
 					const localClient = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
-					const [descriptor, profiles] = await Promise.all([
+					const [descriptor, profiles, tailnetProfiles] = await Promise.all([
 						Effect.runPromise(localClient["connect.describe"]()),
 						window.zuse?.ssh?.listProfiles() ?? Promise.resolve([]),
+						window.zuse?.tailnet?.listProfiles() ?? Promise.resolve([]),
 					]);
 					registerLocalEnvironment(descriptor.environmentId);
 					setActiveEnvironment(descriptor.environmentId);
@@ -333,7 +436,9 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						localClient["relay.environments"](),
 					).catch(() => ({ environments: [] as const }));
 					const profileEnvironmentIds = new Set(
-						profiles.map((profile) => profile.environmentId),
+						[...profiles, ...tailnetProfiles].map(
+							(profile) => profile.environmentId,
+						),
 					);
 					const visibleRelayEnvironments =
 						relayEnvironments.environments.filter(
@@ -360,6 +465,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 							},
 							...visibleRelayEnvironments.map(relayEntry),
 							...profiles.map(profileEntry),
+							...tailnetProfiles.map(tailnetProfileEntry),
 						]),
 					});
 					startCatalogPoller(
@@ -369,6 +475,9 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					);
 					await Promise.allSettled([
 						...profiles.map((profile) => connectProfile(profile.profileId)),
+						...tailnetProfiles.map((profile) =>
+							connectTailnetProfile(profile.profileId),
+						),
 						...visibleRelayEnvironments.map((environment) =>
 							connectRelay(environment, descriptor.environmentId),
 						),
@@ -431,7 +540,81 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				}));
 				await connectProfile(connection.profile.profileId);
 			},
-			retry: async (profileId) => connectProfile(profileId),
+			addTailnet: async (pairingLink, label) => {
+				const bridge = window.zuse?.tailnet;
+				if (bridge === undefined) {
+					throw new Error("Tailnet connections are unavailable.");
+				}
+				const connection = await bridge.ensureEnvironment({
+					pairingLink,
+					label,
+				});
+				const duplicate = get().entries.find(
+					(entry) =>
+						entry.environmentId === connection.profile.environmentId &&
+						entry.connectionKind !== "local",
+				);
+				if (
+					duplicate !== undefined &&
+					get().activeEnvironmentId === duplicate.environmentId
+				) {
+					await bridge.removeProfile(connection.profile.profileId);
+					throw new Error(
+						"Switch to another computer before replacing its current connection with Tailscale.",
+					);
+				}
+				if (duplicate?.connectionKind === "ssh") {
+					await bridge.removeProfile(connection.profile.profileId);
+					throw new Error(
+						"This computer is already saved through SSH. Remove that connection before adding it through Tailscale.",
+					);
+				}
+				if (
+					duplicate?.connectionKind === "relay" ||
+					duplicate?.connectionKind === "tailnet"
+				) {
+					const duplicateKey = entryKey(duplicate);
+					recoverySubscriptions.get(duplicateKey)?.();
+					recoverySubscriptions.delete(duplicateKey);
+					window.clearInterval(catalogPollers.get(duplicateKey));
+					catalogPollers.delete(duplicateKey);
+					catalogPollsInFlight.delete(duplicateKey);
+					await removeRendererEnvironment(duplicate.environmentId);
+				}
+				const next = {
+					...tailnetProfileEntry(connection.profile),
+					descriptor: connection.descriptor,
+				};
+				set((state) => ({
+					entries: orderEnvironmentCatalog([
+						...state.entries.filter(
+							(entry) =>
+								entry.environmentId !== connection.profile.environmentId &&
+								entry.profileId !== connection.profile.profileId,
+						),
+						next,
+					]),
+				}));
+				try {
+					await connectTailnetConnection(connection);
+				} catch (cause) {
+					patchEntry(`tailnet:${connection.profile.profileId}`, {
+						status: "error",
+						error: errorMessage(cause),
+					});
+					throw cause;
+				}
+			},
+			retry: async (profileId) => {
+				const entry = get().entries.find(
+					(item) => item.profileId === profileId,
+				);
+				if (entry?.connectionKind === "tailnet") {
+					await connectTailnetProfile(profileId);
+					return;
+				}
+				await connectProfile(profileId);
+			},
 			retryEnvironment: async (environmentId) => {
 				const environment = relayRecords.get(environmentId);
 				const local = get().entries.find(
@@ -448,15 +631,19 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				const entry = get().entries.find(
 					(item) => item.profileId === profileId,
 				);
-				await window.zuse?.ssh?.disconnectEnvironment(profileId);
+				if (entry?.connectionKind === "ssh") {
+					await window.zuse?.ssh?.disconnectEnvironment(profileId);
+				}
 				if (entry !== undefined)
 					await removeRendererEnvironment(entry.environmentId);
-				recoverySubscriptions.get(profileId)?.();
-				recoverySubscriptions.delete(profileId);
-				window.clearInterval(catalogPollers.get(`ssh:${profileId}`));
-				catalogPollers.delete(`ssh:${profileId}`);
-				catalogPollsInFlight.delete(`ssh:${profileId}`);
-				patchEntry(`ssh:${profileId}`, {
+				if (entry === undefined) return;
+				const catalogKey = `${entry.connectionKind}:${profileId}`;
+				recoverySubscriptions.get(catalogKey)?.();
+				recoverySubscriptions.delete(catalogKey);
+				window.clearInterval(catalogPollers.get(catalogKey));
+				catalogPollers.delete(catalogKey);
+				catalogPollsInFlight.delete(catalogKey);
+				patchEntry(catalogKey, {
 					status: "offline",
 					error: null,
 					descriptor: null,
@@ -466,25 +653,39 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				const entry = get().entries.find(
 					(item) => item.profileId === profileId,
 				);
-				await window.zuse?.ssh?.removeProfile(profileId);
+				if (entry?.connectionKind === "tailnet") {
+					await window.zuse?.tailnet?.removeProfile(profileId);
+				} else {
+					await window.zuse?.ssh?.removeProfile(profileId);
+				}
 				if (entry !== undefined)
 					await removeRendererEnvironment(entry.environmentId);
-				recoverySubscriptions.get(profileId)?.();
-				recoverySubscriptions.delete(profileId);
-				window.clearInterval(catalogPollers.get(`ssh:${profileId}`));
-				catalogPollers.delete(`ssh:${profileId}`);
-				catalogPollsInFlight.delete(`ssh:${profileId}`);
+				if (entry !== undefined) {
+					const catalogKey = `${entry.connectionKind}:${profileId}`;
+					recoverySubscriptions.get(catalogKey)?.();
+					recoverySubscriptions.delete(catalogKey);
+					window.clearInterval(catalogPollers.get(catalogKey));
+					catalogPollers.delete(catalogKey);
+					catalogPollsInFlight.delete(catalogKey);
+				}
 				set((state) => ({
 					entries: state.entries.filter((item) => item.profileId !== profileId),
 				}));
 			},
 			rename: async (profileId, label) => {
-				const profile = await window.zuse?.ssh?.updateProfileLabel(
-					profileId,
-					label,
+				const entry = get().entries.find(
+					(item) => item.profileId === profileId,
 				);
-				if (profile === undefined) throw new Error("SSH is unavailable.");
-				patchEntry(`ssh:${profileId}`, { label: profile.label });
+				const profile =
+					entry?.connectionKind === "tailnet"
+						? await window.zuse?.tailnet?.updateProfileLabel(profileId, label)
+						: await window.zuse?.ssh?.updateProfileLabel(profileId, label);
+				if (profile === undefined) {
+					throw new Error("Computer management is unavailable.");
+				}
+				patchEntry(`${entry?.connectionKind ?? "ssh"}:${profileId}`, {
+					label: profile.label,
+				});
 			},
 			activate: async (environmentId) => {
 				const entry = get().entries.find(

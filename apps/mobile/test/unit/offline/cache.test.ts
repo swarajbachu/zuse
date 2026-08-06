@@ -15,6 +15,8 @@ describe("mobile offline helpers", () => {
 			host: "127.0.0.1",
 			port: 8787,
 			token: "abc",
+			wsBaseUrl: "ws://127.0.0.1:8787",
+			httpBaseUrl: "http://127.0.0.1:8787",
 		});
 		expect(
 			parsePairingUrl(
@@ -24,6 +26,19 @@ describe("mobile offline helpers", () => {
 			host: "192.168.1.2",
 			port: 9000,
 			token: "zp_code",
+			wsBaseUrl: "ws://192.168.1.2:9000",
+			httpBaseUrl: "http://192.168.1.2:9000",
+		});
+		expect(
+			parsePairingUrl(
+				"zuse:///connect/pair?pairingUrl=wss%3A%2F%2Fbuild.example.ts.net%2Frpc#token=zp_secure",
+			),
+		).toEqual({
+			host: "build.example.ts.net",
+			port: 443,
+			token: "zp_secure",
+			wsBaseUrl: "wss://build.example.ts.net/rpc",
+			httpBaseUrl: "https://build.example.ts.net",
 		});
 	});
 

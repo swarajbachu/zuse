@@ -6,6 +6,7 @@ export const redeemPairingCode = async (options: {
 	code: string;
 	deviceId: string;
 	deviceLabel: string;
+	httpBaseUrl?: string;
 	timeoutMs?: number;
 	fetchImpl?: typeof fetch;
 }): Promise<{
@@ -22,7 +23,7 @@ export const redeemPairingCode = async (options: {
 	let response: Response;
 	try {
 		response = await (options.fetchImpl ?? fetch)(
-			`http://${options.host}:${options.port}/pair`,
+			`${options.httpBaseUrl?.replace(/\/$/u, "") ?? `http://${options.host}:${options.port}`}/pair`,
 			{
 				method: "POST",
 				headers: { "content-type": "application/json" },
@@ -37,11 +38,11 @@ export const redeemPairingCode = async (options: {
 	} catch (cause) {
 		if (controller.signal.aborted) {
 			throw new Error(
-				"The desktop did not respond. Check that both devices are on the same Wi-Fi, then try again.",
+				"The computer did not respond. Check that both devices can reach the same private network, then try again.",
 			);
 		}
 		throw new Error(
-			"Could not reach the desktop. Check that both devices are on the same Wi-Fi, then try again.",
+			"Could not reach the computer. Check that both devices can reach the same private network, then try again.",
 			{ cause },
 		);
 	} finally {
@@ -60,7 +61,7 @@ export const redeemPairingCode = async (options: {
 			throw new Error("This pairing code is invalid or has already been used.");
 		}
 		throw new Error(
-			"Could not pair with the desktop. Check that both devices are on the same Wi-Fi.",
+			"Could not pair with the computer. Check the private-network connection and try again.",
 		);
 	}
 	const body = (await response.json()) as {

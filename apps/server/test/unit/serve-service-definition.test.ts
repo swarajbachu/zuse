@@ -60,4 +60,19 @@ describe("Zuse Serve service definitions", () => {
 		expect(launchAgent.contents).not.toContain("ZUSE_SERVE_AUTO_LINK");
 		expect(systemd.contents).not.toContain("ZUSE_SERVE_AUTO_LINK");
 	});
+
+	it("persists Tailnet sharing without enabling the account relay", () => {
+		const input = {
+			nodeExecutable: "/opt/node/bin/node",
+			executable: "/opt/zuse/bin/zuse",
+			dataDir: "/home/dev/.local/share/zuse",
+			tailscale: true,
+		};
+		const launchAgent = launchAgentDefinition(input);
+		const systemd = systemdUserDefinition(input);
+		expect(launchAgent.contents).toContain("<string>--tailscale</string>");
+		expect(systemd.contents).toContain(" --tailscale");
+		expect(launchAgent.contents).not.toContain("ZUSE_SERVE_AUTO_LINK");
+		expect(systemd.contents).not.toContain("ZUSE_SERVE_AUTO_LINK");
+	});
 });

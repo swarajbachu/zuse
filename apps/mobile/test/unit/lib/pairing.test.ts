@@ -15,6 +15,8 @@ describe("mobile pairing operation", () => {
 			host: "192.168.1.2",
 			port: 8787,
 			token: "zp_code",
+			wsBaseUrl: "ws://192.168.1.2:8787",
+			httpBaseUrl: "http://192.168.1.2:8787",
 			source: "paired",
 		});
 		expect(result).toMatchObject({ key: "env-1" });

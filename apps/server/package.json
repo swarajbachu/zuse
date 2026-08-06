@@ -71,6 +71,7 @@
 		"@zuse/index": "*",
 		"@zuse/pokemon-data": "*",
 		"@zuse/sqlite": "*",
+		"@zuse/tailnet": "*",
 		"@zuse/utils": "*",
 		"effect": "catalog:",
 		"fuzzysort": "catalog:",

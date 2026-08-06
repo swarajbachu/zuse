@@ -47,6 +47,7 @@ export type ServeOptions = {
 	readonly open: boolean;
 	readonly policy: LanAuthPolicy;
 	readonly pairing: boolean;
+	readonly pairingPublicBaseUrl?: string;
 };
 
 const parsePort = (raw: string): number => {
@@ -162,6 +163,7 @@ export const runHeadlessServer = (
 			port,
 			host,
 			staticDir: options.staticDir,
+			pairingPublicBaseUrl: options.pairingPublicBaseUrl,
 			onPairing: options.open
 				? ({ browserUrl }) => openBrowser(browserUrl)
 				: undefined,

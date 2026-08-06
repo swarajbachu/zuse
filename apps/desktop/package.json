@@ -52,6 +52,7 @@
 		"@zusehq/server": "*",
 		"@zuse/client-runtime": "*",
 		"@zuse/ssh": "*",
+		"@zuse/tailnet": "*",
 		"@zuse/contracts": "*",
 		"@zuse/utils": "*",
 		"@repo/typescript-config": "*",

@@ -79,6 +79,8 @@ export const addConnection = async ({
 	nearbyServiceName,
 	pathType,
 	refreshAccountGrant,
+	wsBaseUrl,
+	httpBaseUrl,
 }: {
 	host: string;
 	port: number;
@@ -90,17 +92,21 @@ export const addConnection = async ({
 	nearbyServiceName?: string;
 	pathType?: LocalPathType;
 	refreshAccountGrant?: boolean;
+	wsBaseUrl?: string;
+	httpBaseUrl?: string;
 }): Promise<ConnectionRecord> => {
 	const trimmedHost = host.trim();
 	const redeemed = await redeemPairingCodeIfNeeded({
 		host: trimmedHost,
 		port,
 		token,
+		httpBaseUrl,
 	});
 	const descriptor = await describeEnvironment({
 		host: trimmedHost,
 		port,
 		token: redeemed.token,
+		wsBaseUrl,
 	});
 	if (
 		descriptor === null &&
@@ -128,6 +134,7 @@ export const addConnection = async ({
 		host: trimmedHost,
 		port,
 		token: redeemed.token,
+		wsBaseUrl,
 		label: visibleConnectionLabel(descriptor?.label, identity),
 		updatedAt: Date.now(),
 		source,
@@ -179,6 +186,7 @@ export const addRelayConnection = async ({
 		label: visibleConnectionLabel(label),
 		updatedAt: Date.now(),
 		source: "relay",
+		refreshAccountGrant: true,
 	};
 	const next = [
 		record,
@@ -267,10 +275,12 @@ const redeemPairingCodeIfNeeded = async ({
 	host,
 	port,
 	token,
+	httpBaseUrl,
 }: {
 	host: string;
 	port: number;
 	token?: string | null;
+	httpBaseUrl?: string;
 }): Promise<{
 	readonly token: string | null;
 	readonly environmentId?: string;
@@ -287,6 +297,7 @@ const redeemPairingCodeIfNeeded = async ({
 		code: trimmed,
 		deviceId: await getOrCreateDeviceId(),
 		deviceLabel: deviceLabel(),
+		httpBaseUrl,
 	});
 };
 

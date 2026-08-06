@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
 	activateServeRuntimeUpdate,
+	latestPairingLink,
 	removeServeRuntime,
 	resolveServeDataDir,
 	runServePackageCli,
@@ -34,6 +35,14 @@ describe("serve data directory", () => {
 });
 
 describe("Serve package metadata commands", () => {
+	it("selects the newest pairing link from service output", () => {
+		expect(
+			latestPairingLink(
+				"QR: zuse:///connect/pair?old\nready\nQR: zuse:///connect/pair?new#token=zp_new\n",
+			),
+		).toBe("zuse:///connect/pair?new#token=zp_new");
+	});
+
 	it("prints help without starting or mutating the runtime environment", async () => {
 		const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 		const env: NodeJS.ProcessEnv = {};

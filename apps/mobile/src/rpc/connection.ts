@@ -70,13 +70,9 @@ const prepareOptions = async (
 		});
 	}
 	if (
-		options.refreshAccountGrant === true &&
-		options.environmentId !== undefined
+		options.refreshAccountGrant !== true ||
+		options.environmentId === undefined
 	) {
-		const grant = await connectEnvironment(options.environmentId);
-		return { ...options, token: grant.connectToken };
-	}
-	if (options.environmentId === undefined || options.wsBaseUrl === undefined) {
 		return options;
 	}
 	logConnectionDiagnostic("relay.connect_grant.start", {

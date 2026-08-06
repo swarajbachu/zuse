@@ -5,6 +5,8 @@ export type AddPairedConnection = (input: {
 	readonly host: string;
 	readonly port: number;
 	readonly token: string;
+	readonly wsBaseUrl?: string;
+	readonly httpBaseUrl?: string;
 	readonly source: "paired";
 	readonly serverKeyPin?: string;
 	readonly serverPublicKey?: string;

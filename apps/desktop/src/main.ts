@@ -26,6 +26,7 @@ import {
 	AuthFlowError,
 	type DeepEnergySummary,
 	EnsureSshEnvironmentInput,
+	EnsureTailnetEnvironmentInput,
 	type HostPlatform,
 	LagSample as LagSampleSchema,
 	type PerformanceCapabilities,
@@ -51,6 +52,7 @@ import {
 	type PowerThermalState,
 	PowerWorkloadState,
 } from "@zuse/contracts";
+import { inspectTailnetShare, setTailnetShareEnabled } from "@zuse/tailnet";
 import {
 	makeMainLayer,
 	readBrowserCredentialFromVault,
@@ -156,6 +158,7 @@ import {
 	sanitizeRemoteDiagnosticValue,
 } from "./remote-diagnostic-sanitizer.ts";
 import { SshEnvironmentManager } from "./ssh/environment-service.ts";
+import { TailnetEnvironmentManager } from "./tailnet/environment-service.ts";
 import {
 	getIsInstallingUpdate,
 	getLastStatus,
@@ -532,6 +535,7 @@ ipcMain.on("window:setAppearanceMode", (_event, value: unknown) => {
 
 let mainWindow: BrowserWindow | null = null;
 let sshEnvironmentManager: SshEnvironmentManager | null = null;
+let tailnetEnvironmentManager: TailnetEnvironmentManager | null = null;
 let runtimeFiber: Fiber.Fiber<void, never> | null = null;
 let notchTray: NotchTrayController | null = null;
 let localConnectivityHelper: ChildProcessWithoutNullStreams | null = null;
@@ -1664,6 +1668,8 @@ async function createMainWindow() {
 	const userData = app.getPath("userData");
 	sshEnvironmentManager ??= new SshEnvironmentManager(userData);
 	await sshEnvironmentManager.initialize();
+	tailnetEnvironmentManager ??= new TailnetEnvironmentManager(userData);
+	await tailnetEnvironmentManager.initialize();
 	const networkAccessEnabled = await readNetworkAccessPreference(userData);
 	const systemHostname = hostname();
 	const stableLocalHost =
@@ -1901,6 +1907,18 @@ async function createMainWindow() {
 		endpointUrl: networkAccess.endpointUrl,
 		port: networkAccess.port,
 	}));
+	ipcMain.handle("network:getTailnetShareState", () =>
+		inspectTailnetShare(relayPort.port),
+	);
+	ipcMain.handle(
+		"network:setTailnetShareEnabled",
+		async (_event, enabled: unknown) => {
+			if (typeof enabled !== "boolean") {
+				throw new TypeError("Tailnet sharing must be enabled or disabled.");
+			}
+			return setTailnetShareEnabled({ enabled, port: relayPort.port });
+		},
+	);
 	ipcMain.handle(
 		"network:setAccessEnabled",
 		async (_event, enabled: unknown) => {
@@ -1967,6 +1985,54 @@ async function createMainWindow() {
 				throw new Error("SSH environment service is unavailable.");
 			}
 			return sshEnvironmentManager.updateLabel(profileId, label);
+		},
+	);
+	ipcMain.handle("tailnet:listProfiles", async () =>
+		tailnetEnvironmentManager?.listProfiles(),
+	);
+	ipcMain.handle(
+		"tailnet:ensureEnvironment",
+		async (_event, input: unknown) => {
+			if (tailnetEnvironmentManager === null) {
+				throw new Error("Tailnet environment service is unavailable.");
+			}
+			return tailnetEnvironmentManager.ensure(
+				Schema.decodeUnknownSync(EnsureTailnetEnvironmentInput)(input),
+			);
+		},
+	);
+	ipcMain.handle(
+		"tailnet:confirmEnvironment",
+		async (_event, profileId: unknown, environmentId: unknown) => {
+			if (typeof profileId !== "string" || typeof environmentId !== "string") {
+				throw new TypeError("Invalid Tailnet environment confirmation.");
+			}
+			if (tailnetEnvironmentManager === null) {
+				throw new Error("Tailnet environment service is unavailable.");
+			}
+			return tailnetEnvironmentManager.confirmEnvironment(
+				profileId,
+				environmentId,
+			);
+		},
+	);
+	ipcMain.handle(
+		"tailnet:removeProfile",
+		async (_event, profileId: unknown) => {
+			if (typeof profileId !== "string") return;
+			await tailnetEnvironmentManager?.remove(profileId);
+		},
+	);
+	ipcMain.handle(
+		"tailnet:updateProfileLabel",
+		async (_event, profileId: unknown, label: unknown) => {
+			if (typeof profileId !== "string" || typeof label !== "string") {
+				throw new TypeError("Invalid Tailnet profile label request.");
+			}
+			if (tailnetEnvironmentManager === null) {
+				throw new Error("Tailnet environment service is unavailable.");
+			}
+			return tailnetEnvironmentManager.updateLabel(profileId, label);
 		},
 	);
 

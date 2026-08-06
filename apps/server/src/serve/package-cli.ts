@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -9,6 +9,7 @@ import {
 	type ServeStatusV1,
 	WORKOS_PUBLIC_CLIENT_ID,
 } from "@zuse/contracts";
+import { setTailnetShareEnabled } from "@zuse/tailnet";
 import { Effect } from "effect";
 
 import { SessionStoreLive } from "../auth/layers/session-store.ts";
@@ -46,7 +47,7 @@ export const SERVE_HELP = `Zuse Serve
 Run and manage Zuse on this computer.
 
 Usage:
-  zuse serve [start] [--foreground] [--ssh-managed] [--data-dir <path>]
+  zuse serve [start] [--foreground] [--ssh-managed] [--tailscale] [--data-dir <path>]
   zuse serve status [--json] [--data-dir <path>]
   zuse serve stop [--data-dir <path>]
   zuse serve update --force [--data-dir <path>]
@@ -64,6 +65,7 @@ Commands:
 Options:
   --foreground       Run in the current terminal
   --ssh-managed      Run loopback-only without account linking for SSH tunnels
+  --tailscale        Share privately over Tailscale Serve HTTPS
   --json             Emit versioned JSON from status
   --force            Confirm a safe update window
   --data-dir <path>  Override the Zuse data directory
@@ -110,6 +112,44 @@ const foregroundArgs = (dataDir: string): ReadonlyArray<string> => [
 	"--auth",
 	"protected",
 ];
+
+const captureCommand = (
+	command: string,
+	args: ReadonlyArray<string>,
+): Promise<string> =>
+	new Promise((resolve) => {
+		const child = spawn(command, [...args], {
+			stdio: ["ignore", "pipe", "ignore"],
+		});
+		const chunks: Buffer[] = [];
+		child.stdout.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+		child.once("error", () => resolve(""));
+		child.once("exit", () => resolve(Buffer.concat(chunks).toString("utf8")));
+	});
+
+export const latestPairingLink = (output: string): string | null => {
+	const matches = [...output.matchAll(/^QR:\s+(zuse:\/\/\/\S+)$/gmu)];
+	return matches.at(-1)?.[1] ?? null;
+};
+
+const readServicePairingLink = async (
+	paths: ReturnType<typeof resolveServeServicePaths>,
+): Promise<string | null> => {
+	const output =
+		paths.platform === "darwin"
+			? await readFile(join(paths.logDir, "serve.log"), "utf8").catch(() => "")
+			: await captureCommand("journalctl", [
+					"--user",
+					"-u",
+					"zuse-serve.service",
+					"-n",
+					"100",
+					"--no-pager",
+					"-o",
+					"cat",
+				]);
+	return latestPairingLink(output);
+};
 
 type LocalRelayConfig = {
 	readonly environmentId: string;
@@ -376,10 +416,27 @@ export const runServePackageCli = async (
 			paths: servicePaths,
 			relayUrl: env.ZUSE_RELAY_URL,
 			sshManaged: command.sshManaged,
+			tailscale: command.tailscale,
 		});
+	const enableTailnet = async (): Promise<string | null> => {
+		if (!command.tailscale) return null;
+		const state = await setTailnetShareEnabled({
+			enabled: true,
+			port: Number(env.ZUSE_PORT ?? 4859),
+		});
+		if (!state.enabled) {
+			throw new Error(
+				state.detail ?? "Tailscale Serve could not share this computer.",
+			);
+		}
+		console.log(`Tailnet    ${state.httpsUrl}`);
+		return state.httpsUrl;
+	};
 
 	if (command.action === "start" && command.foreground) {
-		if (!command.sshManaged) env.ZUSE_SERVE_AUTO_LINK = "1";
+		if (!command.sshManaged && !command.tailscale)
+			env.ZUSE_SERVE_AUTO_LINK = "1";
+		const tailnetOrigin = await enableTailnet();
 		runHeadlessServer({
 			host: "127.0.0.1",
 			port: Number(env.ZUSE_PORT ?? 4859),
@@ -388,6 +445,7 @@ export const runServePackageCli = async (
 			open: false,
 			policy: command.sshManaged ? "local" : "protected",
 			pairing: !command.sshManaged,
+			pairingPublicBaseUrl: tailnetOrigin ?? undefined,
 		});
 		return;
 	}
@@ -474,7 +532,9 @@ export const runServePackageCli = async (
 	} catch (cause) {
 		if (cause instanceof UnsupportedServiceManagerError) {
 			console.warn(`${cause.message} Starting in the foreground instead.`);
-			if (!command.sshManaged) env.ZUSE_SERVE_AUTO_LINK = "1";
+			if (!command.sshManaged && !command.tailscale)
+				env.ZUSE_SERVE_AUTO_LINK = "1";
+			const tailnetOrigin = await enableTailnet();
 			runHeadlessServer({
 				host: "127.0.0.1",
 				port: Number(env.ZUSE_PORT ?? 4859),
@@ -483,6 +543,7 @@ export const runServePackageCli = async (
 				open: false,
 				policy: command.sshManaged ? "local" : "protected",
 				pairing: !command.sshManaged,
+				pairingPublicBaseUrl: tailnetOrigin ?? undefined,
 			});
 			return;
 		}
@@ -494,6 +555,10 @@ export const runServePackageCli = async (
 			"Zuse Serve was installed, but the background host did not become reachable. Run `zuse serve status --json` for diagnostics.",
 		);
 	}
+	await enableTailnet();
+	const tailnetPairingLink = command.tailscale
+		? await readServicePairingLink(servicePaths)
+		: null;
 	await writeActiveServeRuntime(dataDir, {
 		version: options.packageVersion ?? "0.0.0",
 		executable: installedExecutable,
@@ -507,6 +572,9 @@ export const runServePackageCli = async (
 	if (session !== null) console.log(`Account    ${session.email}`);
 	const agents = await installedAgents();
 	console.log(`Agents     ${agents.join(", ") || "None detected"}`);
+	if (tailnetPairingLink !== null) {
+		console.log(`Pair       ${tailnetPairingLink}`);
+	}
 	console.log(`Open       ${HOSTED_APP_URL}`);
 };
 

@@ -11,6 +11,7 @@ describe("zuse serve management commands", () => {
 			force: false,
 			dataDir: undefined,
 			sshManaged: false,
+			tailscale: false,
 		});
 	});
 
@@ -37,6 +38,7 @@ describe("zuse serve management commands", () => {
 			force: false,
 			dataDir: undefined,
 			sshManaged: false,
+			tailscale: false,
 		});
 	});
 
@@ -48,6 +50,7 @@ describe("zuse serve management commands", () => {
 			force: false,
 			dataDir: undefined,
 			sshManaged: false,
+			tailscale: false,
 		});
 		expect(parseServeCommand(["serve", "update", "--force"])).toEqual({
 			action: "update",
@@ -56,6 +59,7 @@ describe("zuse serve management commands", () => {
 			force: true,
 			dataDir: undefined,
 			sshManaged: false,
+			tailscale: false,
 		});
 	});
 
@@ -74,6 +78,7 @@ describe("zuse serve management commands", () => {
 			force: false,
 			dataDir: "/tmp/zuse-serve",
 			sshManaged: false,
+			tailscale: false,
 		});
 	});
 
@@ -85,7 +90,23 @@ describe("zuse serve management commands", () => {
 			force: false,
 			dataDir: undefined,
 			sshManaged: true,
+			tailscale: false,
 		});
+	});
+
+	it("parses Tailnet sharing mode", () => {
+		expect(parseServeCommand(["serve", "start", "--tailscale"])).toEqual({
+			action: "start",
+			json: false,
+			foreground: false,
+			force: false,
+			dataDir: undefined,
+			sshManaged: false,
+			tailscale: true,
+		});
+		expect(() =>
+			parseServeCommand(["serve", "start", "--tailscale", "--ssh-managed"]),
+		).toThrow(/cannot be used together/u);
 	});
 
 	it("rejects unsupported commands and misplaced flags", () => {

@@ -328,6 +328,14 @@ const bridge = {
 			ipcRenderer.invoke("network:setAccessEnabled", enabled) as Promise<
 				import("@zuse/contracts").NetworkAccessState
 			>,
+		getTailnetShareState: () =>
+			ipcRenderer.invoke("network:getTailnetShareState") as Promise<
+				import("@zuse/contracts").TailnetShareState
+			>,
+		setTailnetShareEnabled: (enabled: boolean) =>
+			ipcRenderer.invoke("network:setTailnetShareEnabled", enabled) as Promise<
+				import("@zuse/contracts").TailnetShareState
+			>,
 	},
 	ssh: {
 		discoverHosts: () =>
@@ -355,6 +363,32 @@ const bridge = {
 			ipcRenderer.invoke("ssh:updateProfileLabel", profileId, label) as Promise<
 				import("@zuse/contracts").RemoteEnvironmentProfile
 			>,
+	},
+	tailnet: {
+		listProfiles: () =>
+			ipcRenderer.invoke("tailnet:listProfiles") as Promise<
+				ReadonlyArray<import("@zuse/contracts").TailnetEnvironmentProfile>
+			>,
+		ensureEnvironment: (
+			input: import("@zuse/contracts").EnsureTailnetEnvironmentInput,
+		) =>
+			ipcRenderer.invoke("tailnet:ensureEnvironment", input) as Promise<
+				import("@zuse/contracts").TailnetEnvironmentConnection
+			>,
+		confirmEnvironment: (profileId: string, environmentId: string) =>
+			ipcRenderer.invoke(
+				"tailnet:confirmEnvironment",
+				profileId,
+				environmentId,
+			) as Promise<import("@zuse/contracts").TailnetEnvironmentProfile>,
+		removeProfile: (profileId: string) =>
+			ipcRenderer.invoke("tailnet:removeProfile", profileId) as Promise<void>,
+		updateProfileLabel: (profileId: string, label: string) =>
+			ipcRenderer.invoke(
+				"tailnet:updateProfileLabel",
+				profileId,
+				label,
+			) as Promise<import("@zuse/contracts").TailnetEnvironmentProfile>,
 	},
 	updates: {
 		onStatus: (handler: (status: UpdateStatus) => void) => {

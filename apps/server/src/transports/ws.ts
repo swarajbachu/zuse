@@ -80,8 +80,11 @@ export type WsServerProtocolOptions = {
 	readonly onListening?: (address: WsServerListeningAddress) => void;
 	readonly onPairing?: (pairing: {
 		readonly browserUrl: string;
+		readonly qrText: string;
 		readonly expiresAt: Date;
 	}) => void;
+	/** Public HTTPS origin when a trusted private proxy fronts this listener. */
+	readonly pairingPublicBaseUrl?: string;
 	/** Production client root. Missing files fall back to index.html for the SPA. */
 	readonly staticDir?: string;
 	/** In development, browser navigations are redirected to this Vite origin. */
@@ -680,13 +683,21 @@ export const wsServerProtocolLayer = (
 				auth.pairingBootstrap
 			) {
 				const pairing = yield* auth.createPairingCode();
+				const publicBaseUrl = opts.pairingPublicBaseUrl?.replace(/\/$/u, "");
 				const browserUrl =
-					relay?.tunnelHostname === undefined
-						? opts.port === 0 && listeningAddress !== null
-							? `${opts.tls === undefined ? "http" : "https"}://${listeningAddress.host}:${listeningAddress.port}/#pair=${encodeURIComponent(pairing.code)}`
-							: pairing.browserUrl
-						: `https://${relay.tunnelHostname}/#pair=${encodeURIComponent(pairing.code)}`;
-				const redeemUrl = pairing.pairingUrl.replace(/^ws:/, "http:");
+					publicBaseUrl !== undefined
+						? `${publicBaseUrl}/#pair=${encodeURIComponent(pairing.code)}`
+						: relay?.tunnelHostname === undefined
+							? opts.port === 0 && listeningAddress !== null
+								? `${opts.tls === undefined ? "http" : "https"}://${listeningAddress.host}:${listeningAddress.port}/#pair=${encodeURIComponent(pairing.code)}`
+								: pairing.browserUrl
+							: `https://${relay.tunnelHostname}/#pair=${encodeURIComponent(pairing.code)}`;
+				const pairingUrl =
+					publicBaseUrl === undefined
+						? pairing.pairingUrl
+						: `${publicBaseUrl.replace(/^https:/u, "wss:")}/rpc`;
+				const qrText = `zuse:///connect/pair?pairingUrl=${encodeURIComponent(pairingUrl)}#token=${pairing.code}`;
+				const redeemUrl = pairingUrl.replace(/^ws:/, "http:");
 				yield* Effect.sync(() => {
 					console.log("Zuse browser pairing enabled");
 					console.log(`Browser: ${browserUrl}`);
@@ -694,11 +705,15 @@ export const wsServerProtocolLayer = (
 					console.log(
 						`Remote access: ${relay?.tunnelHostname === undefined ? "inactive" : "active"}`,
 					);
-					console.log(`QR: ${pairing.qrText}`);
+					console.log(`QR: ${qrText}`);
 					console.log(
 						`Redeem with: POST ${redeemUrl}/pair {"code":"${pairing.code}"}`,
 					);
-					opts.onPairing?.({ browserUrl, expiresAt: pairing.expiresAt });
+					opts.onPairing?.({
+						browserUrl,
+						qrText,
+						expiresAt: pairing.expiresAt,
+					});
 				});
 			}
 

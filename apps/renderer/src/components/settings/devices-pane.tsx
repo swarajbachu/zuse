@@ -3,6 +3,7 @@ import type {
 	NetworkAccessState,
 	PairingStartResult,
 	RelayLinkStatus,
+	TailnetShareState,
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import {
@@ -11,6 +12,7 @@ import {
 	Monitor,
 	QrCode,
 	RefreshCw,
+	ShieldCheck,
 	Smartphone,
 	Wifi,
 } from "lucide-react";
@@ -28,7 +30,7 @@ import {
 	openExternal,
 	rendererPlatformCapabilities,
 } from "../../lib/platform-capabilities.ts";
-import { getRpcClient } from "../../lib/rpc-client.ts";
+import { getRpcClient, LOCAL_ENVIRONMENT_KEY } from "../../lib/rpc-client.ts";
 import {
 	AlertDialog,
 	AlertDialogClose,
@@ -113,11 +115,13 @@ const preferredBrowserPairingUrl = (
 export function DevicesPane() {
 	const [status, setStatus] = useState<RelayLinkStatus | null>(null);
 	const [network, setNetwork] = useState<NetworkAccessState | null>(null);
+	const [tailnet, setTailnet] = useState<TailnetShareState | null>(null);
 	const [tokens, setTokens] = useState<ReadonlyArray<AuthTokenSummary>>([]);
 	const [pairing, setPairing] = useState<PairingStartResult | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [pairingBusy, setPairingBusy] = useState(false);
+	const [tailnetBusy, setTailnetBusy] = useState(false);
 	const [pairingTarget, setPairingTarget] = useState<"browser" | "mobile">(
 		"browser",
 	);
@@ -132,13 +136,16 @@ export function DevicesPane() {
 
 	const refresh = useCallback(async () => {
 		const bridge = window.zuse ?? window.memoize;
-		const client = await getRpcClient();
-		const [networkResult, relayResult, tokenResult] = await Promise.allSettled([
-			bridge?.network?.getAccessState() ?? Promise.resolve(null),
-			Effect.runPromise(client["relay.status"]()),
-			Effect.runPromise(client["pairing.listTokens"]({})),
-		]);
+		const client = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
+		const [networkResult, tailnetResult, relayResult, tokenResult] =
+			await Promise.allSettled([
+				bridge?.network?.getAccessState() ?? Promise.resolve(null),
+				bridge?.network?.getTailnetShareState() ?? Promise.resolve(null),
+				Effect.runPromise(client["relay.status"]()),
+				Effect.runPromise(client["pairing.listTokens"]({})),
+			]);
 		if (networkResult.status === "fulfilled") setNetwork(networkResult.value);
+		if (tailnetResult.status === "fulfilled") setTailnet(tailnetResult.value);
 		if (relayResult.status === "fulfilled") setStatus(relayResult.value);
 		if (tokenResult.status === "fulfilled") setTokens(tokenResult.value);
 		setLoading(false);
@@ -166,7 +173,7 @@ export function DevicesPane() {
 		if (pairing === null) return;
 		const checkForPairedPhone = async () => {
 			try {
-				const client = await getRpcClient();
+				const client = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
 				const next = await Effect.runPromise(client["pairing.listTokens"]({}));
 				setTokens(next);
 				if (
@@ -207,31 +214,65 @@ export function DevicesPane() {
 		}
 	}, [pendingNetworkMode]);
 
+	const updateTailnet = useCallback(
+		async (enabled: boolean) => {
+			const bridge = window.zuse ?? window.memoize;
+			if (bridge?.network === undefined || tailnetBusy) return;
+			setTailnetBusy(true);
+			try {
+				const next = await bridge.network.setTailnetShareEnabled(enabled);
+				setTailnet(next);
+				if (next.availability !== "available" || next.enabled !== enabled) {
+					throw new Error(
+						next.detail ?? "Tailscale could not update private sharing.",
+					);
+				}
+			} catch (cause) {
+				showError("Could not update Tailscale access", cause);
+			} finally {
+				setTailnetBusy(false);
+			}
+		},
+		[tailnetBusy],
+	);
+
 	const startPairing = useCallback(
 		async (target: "browser" | "mobile") => {
 			if (pairingBusy) return;
 			setPairingTarget(target);
 			setPairingBusy(true);
 			try {
-				const client = await getRpcClient();
+				const client = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
 				pairingTokenIdsRef.current = new Set(
 					tokens
 						.filter((token) => token.revokedAt === undefined)
 						.map((token) => token.id),
 				);
-				setPairing(await Effect.runPromise(client["pairing.start"]({})));
+				const next = await Effect.runPromise(client["pairing.start"]({}));
+				if (tailnet?.enabled === true && tailnet.dnsName !== null) {
+					const httpBaseUrl = `https://${tailnet.dnsName}`;
+					const wsBaseUrl = `wss://${tailnet.dnsName}/rpc`;
+					setPairing({
+						...next,
+						pairingUrl: wsBaseUrl,
+						browserUrl: `${httpBaseUrl}/#pair=${encodeURIComponent(next.code)}`,
+						qrText: `zuse:///connect/pair?pairingUrl=${encodeURIComponent(wsBaseUrl)}#token=${next.code}`,
+					});
+				} else {
+					setPairing(next);
+				}
 			} catch (cause) {
 				showError("Could not start pairing", cause);
 			} finally {
 				setPairingBusy(false);
 			}
 		},
-		[pairingBusy, tokens],
+		[pairingBusy, tailnet, tokens],
 	);
 
 	const revokeToken = useCallback(async (token: AuthTokenSummary) => {
 		try {
-			const client = await getRpcClient();
+			const client = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
 			await Effect.runPromise(
 				client["pairing.revokeToken"]({ tokenId: token.id }),
 			);
@@ -250,7 +291,7 @@ export function DevicesPane() {
 			if (legacyRevokeBusy) return;
 			setLegacyRevokeBusy(true);
 			try {
-				const client = await getRpcClient();
+				const client = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
 				const results = await Promise.allSettled(
 					items.map((token) =>
 						Effect.runPromise(
@@ -277,7 +318,7 @@ export function DevicesPane() {
 		actionInFlightRef.current = true;
 		setBusy(true);
 		try {
-			const client = await getRpcClient();
+			const client = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
 			setStatus(
 				await Effect.runPromise(
 					client["relay.link"]({
@@ -299,7 +340,7 @@ export function DevicesPane() {
 		actionInFlightRef.current = true;
 		setBusy(true);
 		try {
-			const client = await getRpcClient();
+			const client = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
 			await Effect.runPromise(client["relay.unlink"]());
 			setStatus(null);
 		} catch (cause) {
@@ -327,10 +368,104 @@ export function DevicesPane() {
 	const hasActiveTokens =
 		identifiedDevices.length > 0 || legacyCredentials.length > 0;
 	const browserUrl =
-		pairing === null ? null : preferredBrowserPairingUrl(pairing, status);
+		pairing === null
+			? null
+			: tailnet?.enabled === true
+				? pairing.browserUrl
+				: preferredBrowserPairingUrl(pairing, status);
+	const tailnetStatusLabel =
+		tailnet?.enabled === true
+			? "On"
+			: tailnet?.availability === "not-installed"
+				? "Not installed"
+				: tailnet?.availability === "signed-out"
+					? "Sign in required"
+					: tailnet?.availability === "error"
+						? "Error"
+						: "Off";
 
 	return (
 		<section className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3 text-xs">
+			<Frame>
+				<FramePanel className="space-y-2 p-2.5">
+					<div className="flex items-start gap-2.5">
+						<div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted">
+							<ShieldCheck className="size-4" aria-hidden />
+						</div>
+						<div className="min-w-0 flex-1">
+							<FrameTitle className="text-xs font-medium">Tailscale</FrameTitle>
+							<p className="mt-0.5 text-[11px] text-muted-foreground">
+								{tailnet?.enabled === true
+									? "This computer is available privately to devices in your Tailnet."
+									: "Share this computer privately without SSH keys or opening a public port."}
+							</p>
+						</div>
+						<span
+							className={
+								tailnet?.enabled === true
+									? "rounded-md bg-emerald-500/12 px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400"
+									: "rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
+							}
+						>
+							{tailnetStatusLabel}
+						</span>
+					</div>
+					{tailnet?.enabled === true && tailnet.httpsUrl !== null ? (
+						<code className="block truncate rounded-md bg-muted/50 px-2 py-1.5 text-[11px]">
+							{tailnet.httpsUrl}
+						</code>
+					) : tailnet?.detail !== null && tailnet?.detail !== undefined ? (
+						<p className="text-[11px] text-muted-foreground">
+							{tailnet.detail}
+						</p>
+					) : null}
+				</FramePanel>
+				<FrameFooter className="flex flex-wrap justify-end gap-1.5 px-2.5 py-1.5">
+					{tailnet?.enabled === true ? (
+						<>
+							<Button
+								size="xs"
+								variant="outline"
+								onClick={() => void updateTailnet(false)}
+								disabled={tailnetBusy}
+							>
+								Turn off
+							</Button>
+							<Button
+								size="xs"
+								onClick={() => void startPairing("mobile")}
+								disabled={pairingBusy || tailnetBusy}
+							>
+								<Smartphone aria-hidden />
+								Connect a device
+							</Button>
+						</>
+					) : tailnet?.availability === "not-installed" ? (
+						<Button
+							size="xs"
+							variant="outline"
+							onClick={() =>
+								void openExternal("https://tailscale.com/download")
+							}
+						>
+							Install Tailscale
+						</Button>
+					) : tailnet?.availability === "signed-out" ? (
+						<Button size="xs" variant="outline" onClick={() => void refresh()}>
+							Check again
+						</Button>
+					) : (
+						<Button
+							size="xs"
+							onClick={() => void updateTailnet(true)}
+							disabled={tailnetBusy}
+						>
+							{tailnetBusy ? "Setting up…" : "Share over Tailscale"}
+						</Button>
+					)}
+				</FrameFooter>
+			</Frame>
+
 			<Frame>
 				<FramePanel className="space-y-2 p-2.5">
 					<div className="flex items-start gap-2.5">
@@ -430,7 +565,7 @@ export function DevicesPane() {
 								<FrameTitle className="text-xs font-medium">
 									{pairingTarget === "browser"
 										? "Connect a web browser"
-										: "Connect the mobile app"}
+										: "Connect another device"}
 								</FrameTitle>
 								<p className="mt-0.5 text-[11px] text-muted-foreground">
 									This one-time link expires in five minutes. Access remains
@@ -474,6 +609,16 @@ export function DevicesPane() {
 											Open web app
 										</Button>
 									</>
+								)}
+								{pairingTarget === "mobile" && (
+									<Button
+										size="xs"
+										variant="outline"
+										onClick={() => void copyText(pairing.qrText)}
+									>
+										<Copy aria-hidden />
+										Copy pairing link
+									</Button>
 								)}
 							</div>
 							<div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-muted/30 p-2">
