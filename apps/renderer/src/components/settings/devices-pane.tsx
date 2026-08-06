@@ -1,4 +1,3 @@
-import { Card } from "@repo/ui/card";
 import type {
 	AuthTokenSummary,
 	NetworkAccessState,
@@ -48,7 +47,8 @@ import {
 	AlertDialogTitle,
 } from "../ui/alert-dialog.tsx";
 import { Button } from "../ui/button.tsx";
-import { Frame, FramePanel, FrameTitle } from "../ui/frame.tsx";
+import { Card } from "../ui/card.tsx";
+import { Frame, FrameFooter, FrameHeader, FrameTitle } from "../ui/frame.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 import { Switch } from "../ui/switch.tsx";
 import { toastManager } from "../ui/toast.tsx";
@@ -131,7 +131,7 @@ function AccessRow({
 	readonly control: ReactNode;
 }) {
 	return (
-		<Card className="flex min-h-14 items-center gap-2.5 rounded-md border border-border/60 bg-card px-2.5 py-2 text-card-foreground">
+		<div className="flex min-h-14 items-center gap-2.5 px-3 py-2">
 			<div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
 				{icon}
 			</div>
@@ -144,7 +144,7 @@ function AccessRow({
 			<div className="flex min-h-11 shrink-0 items-center gap-1.5">
 				{control}
 			</div>
-		</Card>
+		</div>
 	);
 }
 
@@ -419,255 +419,261 @@ export function DevicesPane() {
 	return (
 		<section className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3 text-xs">
 			<Frame>
-				<FramePanel className="p-2.5">
-					<FrameTitle className="text-xs font-medium">This computer</FrameTitle>
+				<FrameHeader className="px-2 py-1.5">
+					<FrameTitle className="text-[13px] font-medium">
+						This computer
+					</FrameTitle>
 					<p className="mt-0.5 text-[11px] text-muted-foreground">
 						Choose where your other devices can reach this computer.
 					</p>
-				</FramePanel>
-				<div className="grid gap-1 p-1 pt-0">
-					<AccessRow
-						icon={<ShieldCheck className="size-4" aria-hidden />}
-						title="Tailscale"
-						description={
-							tailnet?.enabled === true
-								? (tailnet.httpsUrl ?? "Available privately on your Tailnet.")
-								: tailnet?.detail || "Private access from your Tailnet."
-						}
-						control={
-							tailnet?.availability === "approval-required" ? (
-								<Button
-									size="xs"
-									onClick={() =>
-										void (tailnet.approvalUrl
-											? openExternal(tailnet.approvalUrl)
-											: updateTailnet(true))
-									}
-								>
-									Approve
-								</Button>
-							) : tailnet?.availability === "not-installed" ? (
-								<Button
-									size="xs"
-									variant="outline"
-									onClick={() =>
-										void openExternal("https://tailscale.com/download")
-									}
-								>
-									Install
-								</Button>
-							) : tailnet?.availability === "signed-out" ? (
-								<Button
-									size="xs"
-									variant="outline"
-									onClick={() => void refresh()}
-								>
-									Check again
-								</Button>
-							) : tailnet?.availability === "error" ? (
-								<Button
-									size="xs"
-									variant="outline"
-									onClick={() => void updateTailnet(true)}
-									disabled={tailnetBusy}
-								>
-									Retry
-								</Button>
-							) : (
+				</FrameHeader>
+				<Card className="overflow-hidden">
+					<div className="flex flex-col divide-y divide-border/40">
+						<AccessRow
+							icon={<ShieldCheck className="size-4" aria-hidden />}
+							title="Tailscale"
+							description={
+								tailnet?.enabled === true
+									? (tailnet.httpsUrl ?? "Available privately on your Tailnet.")
+									: tailnet?.detail || "Private access from your Tailnet."
+							}
+							control={
+								tailnet?.availability === "approval-required" ? (
+									<Button
+										size="xs"
+										onClick={() =>
+											void (tailnet.approvalUrl
+												? openExternal(tailnet.approvalUrl)
+												: updateTailnet(true))
+										}
+									>
+										Approve
+									</Button>
+								) : tailnet?.availability === "not-installed" ? (
+									<Button
+										size="xs"
+										variant="outline"
+										onClick={() =>
+											void openExternal("https://tailscale.com/download")
+										}
+									>
+										Install
+									</Button>
+								) : tailnet?.availability === "signed-out" ? (
+									<Button
+										size="xs"
+										variant="outline"
+										onClick={() => void refresh()}
+									>
+										Check again
+									</Button>
+								) : tailnet?.availability === "error" ? (
+									<Button
+										size="xs"
+										variant="outline"
+										onClick={() => void updateTailnet(true)}
+										disabled={tailnetBusy}
+									>
+										Retry
+									</Button>
+								) : (
+									<Switch
+										aria-label="Share over Tailscale"
+										checked={tailnet?.enabled === true}
+										onCheckedChange={(checked) => void updateTailnet(checked)}
+										disabled={tailnetBusy}
+									/>
+								)
+							}
+						/>
+						<AccessRow
+							icon={<Wifi className="size-4" aria-hidden />}
+							title="Local network"
+							description={
+								networkEnabled
+									? "Available to devices on this network."
+									: "Access from browsers and devices on this network."
+							}
+							control={
+								canManageNetwork ? (
+									<Switch
+										aria-label="Local network access"
+										checked={networkEnabled}
+										onCheckedChange={setPendingNetworkMode}
+										disabled={busy}
+									/>
+								) : (
+									<span className="text-[11px] text-muted-foreground">
+										Desktop only
+									</span>
+								)
+							}
+						/>
+						<AccessRow
+							icon={<ExternalLink className="size-4" aria-hidden />}
+							title="Account access"
+							description={
+								remoteReady
+									? "Available anywhere through your account."
+									: linked
+										? "Linked and waiting for this computer to reconnect."
+										: "Access away from your local network."
+							}
+							control={
 								<Switch
-									aria-label="Share over Tailscale"
-									checked={tailnet?.enabled === true}
-									onCheckedChange={(checked) => void updateTailnet(checked)}
-									disabled={tailnetBusy}
-								/>
-							)
-						}
-					/>
-					<AccessRow
-						icon={<Wifi className="size-4" aria-hidden />}
-						title="Local network"
-						description={
-							networkEnabled
-								? "Available to devices on this network."
-								: "Access from browsers and devices on this network."
-						}
-						control={
-							canManageNetwork ? (
-								<Switch
-									aria-label="Local network access"
-									checked={networkEnabled}
-									onCheckedChange={setPendingNetworkMode}
+									aria-label="Account access"
+									checked={linked}
+									onCheckedChange={(checked) =>
+										void (checked ? connectRelay() : unlinkRelay())
+									}
 									disabled={busy}
 								/>
-							) : (
-								<span className="text-[11px] text-muted-foreground">
-									Desktop only
-								</span>
-							)
-						}
-					/>
-					<AccessRow
-						icon={<ExternalLink className="size-4" aria-hidden />}
-						title="Account access"
-						description={
-							remoteReady
-								? "Available anywhere through your account."
-								: linked
-									? "Linked and waiting for this computer to reconnect."
-									: "Access away from your local network."
-						}
-						control={
-							<Switch
-								aria-label="Account access"
-								checked={linked}
-								onCheckedChange={(checked) =>
-									void (checked ? connectRelay() : unlinkRelay())
-								}
-								disabled={busy}
-							/>
-						}
-					/>
-				</div>
-				<div className="px-2.5 py-2 text-[11px] text-muted-foreground">
+							}
+						/>
+					</div>
+				</Card>
+				<FrameFooter className="px-2 py-1.5 text-[11px] text-muted-foreground">
 					Headless computer? Run <code>zuse serve</code> there.
-				</div>
+				</FrameFooter>
 			</Frame>
 
 			{pairing !== null && (
 				<Frame>
-					<FramePanel className="grid gap-3 p-3 sm:grid-cols-[132px_1fr]">
-						<div
-							className="flex size-[132px] items-center justify-center rounded-lg bg-white p-2.5"
-							role="img"
-							aria-label="Pairing QR code"
-						>
-							<QRCodeSVG
-								value={
-									pairingTarget === "browser"
-										? (browserUrl ?? pairing.browserUrl)
-										: pairing.qrText
-								}
-								size={112}
-								level="M"
-							/>
-						</div>
-						<div className="flex min-w-0 flex-col justify-center gap-2.5">
-							<div>
-								<FrameTitle className="text-xs font-medium">
-									{pairingTarget === "browser"
-										? "Connect a web browser"
-										: "Connect another device"}
-								</FrameTitle>
-								<p className="mt-0.5 text-[11px] text-muted-foreground">
-									This one-time link expires in five minutes. Access remains
-									until you revoke the connected device below.
-								</p>
-							</div>
-							<div className="flex flex-wrap gap-2">
-								<Button
-									size="xs"
-									variant="outline"
-									onClick={() =>
-										setPairingTarget((current) =>
-											current === "browser" ? "mobile" : "browser",
-										)
+					<FrameHeader className="px-2 py-1.5">
+						<FrameTitle className="text-[13px] font-medium">
+							{pairingTarget === "browser"
+								? "Connect a web browser"
+								: "Connect another device"}
+						</FrameTitle>
+						<p className="mt-0.5 text-[11px] text-muted-foreground">
+							This one-time link expires in five minutes. Access remains until
+							you revoke the connected device below.
+						</p>
+					</FrameHeader>
+					<Card>
+						<div className="grid gap-3 p-3 sm:grid-cols-[132px_1fr]">
+							<div
+								className="flex size-[132px] items-center justify-center rounded-lg bg-white p-2.5"
+								role="img"
+								aria-label="Pairing QR code"
+							>
+								<QRCodeSVG
+									value={
+										pairingTarget === "browser"
+											? (browserUrl ?? pairing.browserUrl)
+											: pairing.qrText
 									}
-								>
-									<QrCode aria-hidden />
-									{pairingTarget === "browser"
-										? "Show phone QR"
-										: "Show browser QR"}
-								</Button>
-								{pairingTarget === "browser" && (
-									<>
-										<Button
-											size="xs"
-											variant="outline"
-											onClick={() =>
-												void copyText(browserUrl ?? pairing.browserUrl)
-											}
-										>
-											<Copy aria-hidden />
-											Copy web link
-										</Button>
-										<Button
-											size="xs"
-											onClick={() =>
-												void openExternal(browserUrl ?? pairing.browserUrl)
-											}
-										>
-											<ExternalLink aria-hidden />
-											Open web app
-										</Button>
-									</>
-								)}
-								{pairingTarget === "mobile" && (
+									size={112}
+									level="M"
+								/>
+							</div>
+							<div className="flex min-w-0 flex-col justify-center gap-2.5">
+								<div className="flex flex-wrap gap-2">
 									<Button
 										size="xs"
 										variant="outline"
-										onClick={() => void copyText(pairing.qrText)}
+										onClick={() =>
+											setPairingTarget((current) =>
+												current === "browser" ? "mobile" : "browser",
+											)
+										}
+									>
+										<QrCode aria-hidden />
+										{pairingTarget === "browser"
+											? "Show phone QR"
+											: "Show browser QR"}
+									</Button>
+									{pairingTarget === "browser" && (
+										<>
+											<Button
+												size="xs"
+												variant="outline"
+												onClick={() =>
+													void copyText(browserUrl ?? pairing.browserUrl)
+												}
+											>
+												<Copy aria-hidden />
+												Copy web link
+											</Button>
+											<Button
+												size="xs"
+												onClick={() =>
+													void openExternal(browserUrl ?? pairing.browserUrl)
+												}
+											>
+												<ExternalLink aria-hidden />
+												Open web app
+											</Button>
+										</>
+									)}
+									{pairingTarget === "mobile" && (
+										<Button
+											size="xs"
+											variant="outline"
+											onClick={() => void copyText(pairing.qrText)}
+										>
+											<Copy aria-hidden />
+											Copy pairing link
+										</Button>
+									)}
+								</div>
+								<div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-muted/30 p-2">
+									<code className="min-w-0 flex-1 truncate text-xs">
+										{pairing.code}
+									</code>
+									<Button
+										size="icon-sm"
+										variant="ghost"
+										aria-label="Copy pairing code"
+										onClick={() =>
+											void navigator.clipboard.writeText(pairing.code)
+										}
 									>
 										<Copy aria-hidden />
-										Copy pairing link
 									</Button>
-								)}
-							</div>
-							<div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-muted/30 p-2">
-								<code className="min-w-0 flex-1 truncate text-xs">
-									{pairing.code}
-								</code>
+								</div>
 								<Button
-									size="icon-sm"
-									variant="ghost"
-									aria-label="Copy pairing code"
-									onClick={() =>
-										void navigator.clipboard.writeText(pairing.code)
-									}
+									size="xs"
+									variant="outline"
+									onClick={() => void startPairing(pairingTarget)}
 								>
-									<Copy aria-hidden />
+									<RefreshCw aria-hidden />
+									New code
 								</Button>
 							</div>
-							<Button
-								size="xs"
-								variant="outline"
-								onClick={() => void startPairing(pairingTarget)}
-							>
-								<RefreshCw aria-hidden />
-								New code
-							</Button>
 						</div>
-					</FramePanel>
+					</Card>
 				</Frame>
 			)}
 
 			<Frame>
-				<FramePanel className="space-y-2 p-2.5">
-					<div className="flex min-h-8 items-center justify-between gap-3">
-						<div>
-							<FrameTitle className="text-xs font-medium">
-								{deviceAccessCopy.pairedTitle}
-							</FrameTitle>
-							{!canConnectDevice && (
-								<p className="mt-0.5 text-[11px] text-muted-foreground">
-									Turn on an access method above to connect a device.
-								</p>
-							)}
-						</div>
-						<Button
-							size="xs"
-							onClick={() => void startPairing("mobile")}
-							disabled={!canConnectDevice || pairingBusy}
-						>
-							<Smartphone aria-hidden />
-							{pairingBusy ? "Creating…" : "Connect device"}
-						</Button>
+				<FrameHeader className="flex w-full flex-row items-center justify-between gap-3 px-2 py-1.5">
+					<div>
+						<FrameTitle className="text-[13px] font-medium">
+							{deviceAccessCopy.pairedTitle}
+						</FrameTitle>
+						{!canConnectDevice && (
+							<p className="mt-0.5 text-[11px] text-muted-foreground">
+								Turn on an access method above to connect a device.
+							</p>
+						)}
 					</div>
+					<Button
+						size="xs"
+						onClick={() => void startPairing("mobile")}
+						disabled={!canConnectDevice || pairingBusy}
+					>
+						<Smartphone aria-hidden />
+						{pairingBusy ? "Creating…" : "Connect device"}
+					</Button>
+				</FrameHeader>
+				<Card className="overflow-hidden">
 					{hasActiveTokens ? (
-						<div className="flex flex-col gap-2">
+						<div className="flex flex-col divide-y divide-border/40">
 							{identifiedDevices.map((token) => (
-								<Card
+								<div
 									key={token.id}
-									className="flex min-h-9 items-center gap-2.5 rounded-md border border-border/50 bg-muted/20 px-2.5 py-1.5"
+									className="flex min-h-11 items-center gap-2.5 px-3 py-2"
 								>
 									{accessDeviceKind(token) === "browser" ? (
 										<Monitor
@@ -700,10 +706,10 @@ export function DevicesPane() {
 									>
 										Revoke
 									</Button>
-								</Card>
+								</div>
 							))}
 							{legacyCredentials.length > 0 && (
-								<Card className="flex min-h-9 items-center gap-2.5 rounded-md border border-border/50 bg-muted/20 px-2.5 py-1.5">
+								<div className="flex min-h-11 items-center gap-2.5 px-3 py-2">
 									<Smartphone
 										className="size-4 shrink-0 text-muted-foreground"
 										aria-hidden
@@ -725,15 +731,15 @@ export function DevicesPane() {
 									>
 										Revoke all
 									</Button>
-								</Card>
+								</div>
 							)}
 						</div>
 					) : (
-						<p className="py-2 text-[11px] text-muted-foreground">
+						<p className="px-3 py-4 text-[11px] text-muted-foreground">
 							No other devices are connected yet.
 						</p>
 					)}
-				</FramePanel>
+				</Card>
 			</Frame>
 
 			<AlertDialog
