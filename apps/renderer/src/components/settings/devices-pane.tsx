@@ -7,7 +7,6 @@ import type {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import {
-	Cloud,
 	Copy,
 	ExternalLink,
 	Monitor,
@@ -49,14 +48,6 @@ import {
 } from "../ui/alert-dialog.tsx";
 import { Button } from "../ui/button.tsx";
 import { Card } from "../ui/card.tsx";
-import {
-	Dialog,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogPopup,
-	DialogTitle,
-} from "../ui/dialog.tsx";
 import { Frame, FrameFooter, FrameHeader, FrameTitle } from "../ui/frame.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 import { Switch } from "../ui/switch.tsx";
@@ -67,9 +58,8 @@ const DEFAULT_RELAY_URL =
 	"https://relay.stuff.md";
 
 type AccessDialog =
-	| "choose"
-	| "cloudflare-enable"
-	| "cloudflare-disable"
+	| "serve-enable"
+	| "serve-disable"
 	| "tailscale-enable"
 	| "tailscale-disable"
 	| null;
@@ -80,7 +70,7 @@ const messageForError = (cause: unknown): string => {
 		return "Sign in before setting up remote access.";
 	}
 	if (formatted.includes("cloudflared_not_found")) {
-		return "The secure tunnel needs cloudflared installed on this computer.";
+		return "Zuse Serve’s secure connection component is missing. Reinstall or update Zuse, then try again.";
 	}
 	if (formatted.includes("no_pairing_endpoint")) {
 		return "Enable browser and device access before creating a connection link.";
@@ -420,7 +410,7 @@ export function DevicesPane() {
 	}, []);
 
 	const confirmAccessChange = useCallback(async () => {
-		if (accessDialog === null || accessDialog === "choose") return;
+		if (accessDialog === null) return;
 		if (
 			accessDialog === "tailscale-enable" &&
 			tailnet?.availability === "not-installed"
@@ -430,9 +420,9 @@ export function DevicesPane() {
 			return;
 		}
 		const changed =
-			accessDialog === "cloudflare-enable"
+			accessDialog === "serve-enable"
 				? await connectRelay()
-				: accessDialog === "cloudflare-disable"
+				: accessDialog === "serve-disable"
 					? await unlinkRelay()
 					: (await updateTailnet(accessDialog === "tailscale-enable")) !== null;
 		if (changed) setAccessDialog(null);
@@ -462,8 +452,7 @@ export function DevicesPane() {
 		identifiedDevices.length > 0 || legacyCredentials.length > 0;
 	const canConnectDevice =
 		tailnet?.enabled === true || networkEnabled || remoteReady;
-	const activeAccessMethods = [
-		...(remoteReady ? ["Cloudflare Tunnel"] : []),
+	const alternativeAccessMethods = [
 		...(tailnet?.enabled === true ? ["Tailscale"] : []),
 		...(networkEnabled ? ["local network"] : []),
 	];
@@ -485,29 +474,49 @@ export function DevicesPane() {
 						<div className="min-w-0 flex-1">
 							<p className="text-[13px] font-medium">Zuse Serve</p>
 							<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-								Connect this computer’s projects and chats from another device.
+								Access this computer from devices signed into your Zuse account.
 							</p>
 						</div>
 						<Button
 							onClick={() => {
 								if (canConnectDevice) void startPairing("mobile");
-								else setAccessDialog("choose");
+								else setAccessDialog("serve-enable");
 							}}
-							disabled={preparingConnection}
+							disabled={preparingConnection || busy}
 						>
-							{preparingConnection ? "Creating link…" : "Connect device"}
+							{preparingConnection
+								? "Creating link…"
+								: canConnectDevice
+									? "Connect device"
+									: linked
+										? "Reconnect"
+										: "Set up Zuse Serve"}
 						</Button>
 					</div>
 					<div className="flex min-h-10 items-center gap-2 border-t border-border/40 px-4 text-[11px] text-muted-foreground">
 						<span
 							aria-hidden
-							className="size-1.5 rounded-full bg-emerald-500"
+							className={`size-1.5 rounded-full ${remoteReady ? "bg-emerald-500" : "bg-muted-foreground/35"}`}
 						/>
 						<span className="min-w-0 flex-1 truncate">
-							{activeAccessMethods.length > 0
-								? `Running · Reachable through ${activeAccessMethods.join(", ")}`
-								: "Running on this computer · Set up a way to connect"}
+							{remoteReady
+								? "On · Available anywhere through your Zuse account"
+								: linked
+									? "Reconnecting to your Zuse account"
+									: alternativeAccessMethods.length > 0
+										? `Off · ${alternativeAccessMethods.join(" and ")} access is available`
+										: "Off · Set up access from your Zuse account"}
 						</span>
+						{linked ? (
+							<Button
+								size="xs"
+								variant="ghost"
+								onClick={() => setAccessDialog("serve-disable")}
+								disabled={busy}
+							>
+								Turn off
+							</Button>
+						) : null}
 					</div>
 				</Card>
 				<FrameFooter className="px-2 py-1.5 text-[11px] text-muted-foreground">
@@ -711,39 +720,14 @@ export function DevicesPane() {
 			<Frame>
 				<FrameHeader className="px-2 py-1.5">
 					<FrameTitle className="text-[13px] font-medium">
-						How devices reach Zuse Serve
+						Other connection methods
 					</FrameTitle>
 					<p className="mt-0.5 text-[11px] text-muted-foreground">
-						Choose only the connection methods you need.
+						Optional alternatives to Zuse Serve.
 					</p>
 				</FrameHeader>
 				<Card className="overflow-hidden">
 					<div className="flex flex-col divide-y divide-border/40">
-						<AccessRow
-							icon={<Cloud className="size-4" aria-hidden />}
-							title="Cloudflare Tunnel"
-							description={
-								remoteReady
-									? "Reachable anywhere through your Zuse account."
-									: linked
-										? "Linked and waiting to reconnect."
-										: "Connect over the internet without opening router ports."
-							}
-							control={
-								<Button
-									size="xs"
-									variant={linked ? "ghost" : "outline"}
-									onClick={() =>
-										setAccessDialog(
-											linked ? "cloudflare-disable" : "cloudflare-enable",
-										)
-									}
-									disabled={busy}
-								>
-									{linked ? "Turn off" : "Set up"}
-								</Button>
-							}
-						/>
 						<AccessRow
 							icon={<ExternalLink className="size-4" aria-hidden />}
 							title="Tailscale"
@@ -796,80 +780,8 @@ export function DevicesPane() {
 				</Card>
 			</Frame>
 
-			<Dialog
-				open={accessDialog === "choose"}
-				onOpenChange={(open) => {
-					if (!open) setAccessDialog(null);
-				}}
-			>
-				<DialogPopup>
-					<DialogHeader>
-						<DialogTitle>Connect to Zuse Serve</DialogTitle>
-						<DialogDescription>
-							Choose how the other device can reach this computer. You can
-							change this later.
-						</DialogDescription>
-					</DialogHeader>
-					<div className="space-y-2 px-4 pb-4">
-						<Button
-							variant="outline"
-							className="h-auto min-h-14 w-full justify-start px-3 py-2.5 text-left"
-							onClick={() => setAccessDialog("cloudflare-enable")}
-						>
-							<Cloud className="size-4 shrink-0" aria-hidden />
-							<span>
-								<span className="block text-xs font-medium">
-									Cloudflare Tunnel
-								</span>
-								<span className="block text-[11px] font-normal text-muted-foreground">
-									Connect from anywhere through your Zuse account.
-								</span>
-							</span>
-						</Button>
-						<Button
-							variant="outline"
-							className="h-auto min-h-14 w-full justify-start px-3 py-2.5 text-left"
-							onClick={() => setAccessDialog("tailscale-enable")}
-						>
-							<ExternalLink className="size-4 shrink-0" aria-hidden />
-							<span>
-								<span className="block text-xs font-medium">Tailscale</span>
-								<span className="block text-[11px] font-normal text-muted-foreground">
-									Connect privately from devices on your tailnet.
-								</span>
-							</span>
-						</Button>
-						{canManageNetwork ? (
-							<Button
-								variant="outline"
-								className="h-auto min-h-14 w-full justify-start px-3 py-2.5 text-left"
-								onClick={() => {
-									setAccessDialog(null);
-									setPendingNetworkMode(true);
-								}}
-							>
-								<Wifi className="size-4 shrink-0" aria-hidden />
-								<span>
-									<span className="block text-xs font-medium">
-										Local network
-									</span>
-									<span className="block text-[11px] font-normal text-muted-foreground">
-										Connect from devices on the same network.
-									</span>
-								</span>
-							</Button>
-						) : null}
-					</div>
-					<DialogFooter>
-						<Button variant="ghost" onClick={() => setAccessDialog(null)}>
-							Cancel
-						</Button>
-					</DialogFooter>
-				</DialogPopup>
-			</Dialog>
-
 			<AlertDialog
-				open={accessDialog !== null && accessDialog !== "choose"}
+				open={accessDialog !== null}
 				onOpenChange={(open) => {
 					if (!open && !busy && !tailnetBusy) setAccessDialog(null);
 				}}
@@ -877,10 +789,10 @@ export function DevicesPane() {
 				<AlertDialogPopup>
 					<AlertDialogHeader>
 						<AlertDialogTitle>
-							{accessDialog === "cloudflare-enable"
-								? "Connect Zuse Serve through Cloudflare Tunnel?"
-								: accessDialog === "cloudflare-disable"
-									? "Turn off Cloudflare Tunnel?"
+							{accessDialog === "serve-enable"
+								? "Set up Zuse Serve?"
+								: accessDialog === "serve-disable"
+									? "Turn off Zuse Serve?"
 									: accessDialog === "tailscale-enable"
 										? "Share Zuse Serve through Tailscale?"
 										: "Turn off Tailscale access?"}
@@ -888,15 +800,15 @@ export function DevicesPane() {
 						<AlertDialogDescription render={<div />}>
 							<div className="space-y-2">
 								<p>
-									{accessDialog === "cloudflare-enable"
-										? "This creates an encrypted outbound tunnel so devices signed into your Zuse account can reach this computer over the internet."
-										: accessDialog === "cloudflare-disable"
+									{accessDialog === "serve-enable"
+										? "Zuse Serve makes this computer available to your signed-in devices through an encrypted outbound connection."
+										: accessDialog === "serve-disable"
 											? "Devices that rely on internet access will disconnect. Tailscale and local-network access will keep working if enabled."
 											: accessDialog === "tailscale-enable"
 												? "This uses Tailscale Serve to make Zuse available only to devices on your tailnet. Tailscale must be installed and signed in."
 												: "Devices using the private tailnet address will disconnect. Other enabled access methods will keep working."}
 								</p>
-								{accessDialog === "cloudflare-enable" ? (
+								{accessDialog === "serve-enable" ? (
 									<p>
 										No router ports are opened. The connection stays available
 										after restart until you turn it off.
@@ -921,7 +833,7 @@ export function DevicesPane() {
 						</AlertDialogClose>
 						<Button
 							variant={
-								accessDialog === "cloudflare-disable" ||
+								accessDialog === "serve-disable" ||
 								accessDialog === "tailscale-disable"
 									? "destructive"
 									: "default"
@@ -931,10 +843,10 @@ export function DevicesPane() {
 						>
 							{busy || tailnetBusy
 								? "Updating…"
-								: accessDialog === "cloudflare-enable"
-									? "Enable tunnel"
-									: accessDialog === "cloudflare-disable"
-										? "Turn off tunnel"
+								: accessDialog === "serve-enable"
+									? "Set up Zuse Serve"
+									: accessDialog === "serve-disable"
+										? "Turn off Zuse Serve"
 										: accessDialog === "tailscale-enable"
 											? tailnet?.availability === "not-installed"
 												? "Install Tailscale"
