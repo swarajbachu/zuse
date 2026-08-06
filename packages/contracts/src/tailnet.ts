@@ -6,6 +6,7 @@ import { EnvironmentId } from "./ids.ts";
 export const TailnetShareAvailability = Schema.Literals([
 	"not-installed",
 	"signed-out",
+	"approval-required",
 	"available",
 	"error",
 ]);
@@ -21,6 +22,7 @@ export class TailnetShareState extends Schema.Class<TailnetShareState>(
 	backendState: Schema.NullOr(Schema.String),
 	port: Schema.Number,
 	detail: Schema.NullOr(Schema.String),
+	approvalUrl: Schema.NullOr(Schema.String),
 }) {}
 
 export class TailnetEnvironmentProfile extends Schema.Class<TailnetEnvironmentProfile>(

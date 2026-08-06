@@ -1,9 +1,15 @@
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
+	extractTailnetApprovalUrl,
 	inspectTailnetShare,
 	parseTailnetStatus,
 	resolveTailnetExecutable,
+	runTailnetCommand,
 	serveStatusIsExclusive,
 	serveStatusMatches,
 	setTailnetShareEnabled,
@@ -35,6 +41,45 @@ describe("tailnet sharing", () => {
 			backendState: "Running",
 			dnsName: "build-box.example.ts.net",
 		});
+	});
+
+	it("only accepts the Tailscale Serve feature approval URL", () => {
+		expect(
+			extractTailnetApprovalUrl(
+				"Approve at https://login.tailscale.com/admin/feature/serve?node=example",
+			),
+		).toBe("https://login.tailscale.com/admin/feature/serve?node=example");
+		expect(
+			extractTailnetApprovalUrl("Open https://example.com/admin/feature/serve"),
+		).toBeNull();
+	});
+
+	it("stops a waiting Serve command as soon as it prints an approval URL", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "zuse-tailnet-test-"));
+		const executable = join(directory, "tailscale-fixture.mjs");
+		await writeFile(
+			executable,
+			`#!/usr/bin/env node
+process.stdout.write("Enable Serve at https://login.tailscale.com/admin/feature/serve?node=example\\n");
+setInterval(() => undefined, 10_000);
+`,
+			{ mode: 0o700 },
+		);
+		await chmod(executable, 0o700);
+		const startedAt = Date.now();
+		try {
+			const output = await runTailnetCommand(
+				["serve", "--bg", "--yes", "127.0.0.1:47837"],
+				2_000,
+				executable,
+			);
+			expect(output.approvalUrl).toBe(
+				"https://login.tailscale.com/admin/feature/serve?node=example",
+			);
+			expect(Date.now() - startedAt).toBeLessThan(1_800);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
 	});
 
 	it("recognizes the managed loopback target", () => {
@@ -102,6 +147,38 @@ describe("tailnet sharing", () => {
 		expect(state.enabled).toBe(true);
 		expect(state.httpsUrl).toBe("https://box.example.ts.net");
 		expect(calls).toContainEqual(["serve", "--bg", "--yes", "127.0.0.1:47837"]);
+	});
+
+	it("returns the first-use approval URL instead of a command timeout", async () => {
+		const approvalUrl =
+			"https://login.tailscale.com/admin/feature/serve?node=example";
+		const run = async (args: ReadonlyArray<string>) => {
+			if (args[0] === "status") {
+				return result(
+					JSON.stringify({
+						BackendState: "Running",
+						Self: { DNSName: "box.example.ts.net." },
+					}),
+				);
+			}
+			if (args.includes("--bg")) {
+				return {
+					...result(`Enable Tailscale Serve:\n${approvalUrl}`, 124),
+					approvalUrl,
+					timedOut: true,
+				};
+			}
+			return result("No serve config");
+		};
+
+		const state = await setTailnetShareEnabled(
+			{ enabled: true, port: 47837 },
+			run,
+		);
+
+		expect(state.availability).toBe("approval-required");
+		expect(state.approvalUrl).toBe(approvalUrl);
+		expect(state.detail).toMatch(/approve/iu);
 	});
 
 	it("does not replace an existing Serve configuration", async () => {

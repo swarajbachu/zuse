@@ -222,6 +222,13 @@ export function DevicesPane() {
 			try {
 				const next = await bridge.network.setTailnetShareEnabled(enabled);
 				setTailnet(next);
+				if (
+					next.availability === "approval-required" &&
+					next.approvalUrl !== null
+				) {
+					void openExternal(next.approvalUrl);
+					return;
+				}
 				if (next.availability !== "available" || next.enabled !== enabled) {
 					throw new Error(
 						next.detail ?? "Tailscale could not update private sharing.",
@@ -380,9 +387,11 @@ export function DevicesPane() {
 				? "Not installed"
 				: tailnet?.availability === "signed-out"
 					? "Sign in required"
-					: tailnet?.availability === "error"
-						? "Error"
-						: "Off";
+					: tailnet?.availability === "approval-required"
+						? "Approval required"
+						: tailnet?.availability === "error"
+							? "Error"
+							: "Off";
 
 	return (
 		<section className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3 text-xs">
@@ -438,6 +447,26 @@ export function DevicesPane() {
 							>
 								<Smartphone aria-hidden />
 								Connect a device
+							</Button>
+						</>
+					) : tailnet?.availability === "approval-required" ? (
+						<>
+							{tailnet.approvalUrl !== null ? (
+								<Button
+									size="xs"
+									variant="outline"
+									onClick={() => void openExternal(tailnet.approvalUrl ?? "")}
+								>
+									<ExternalLink aria-hidden />
+									Open approval
+								</Button>
+							) : null}
+							<Button
+								size="xs"
+								onClick={() => void updateTailnet(true)}
+								disabled={tailnetBusy}
+							>
+								{tailnetBusy ? "Checking…" : "I've approved — try again"}
 							</Button>
 						</>
 					) : tailnet?.availability === "not-installed" ? (

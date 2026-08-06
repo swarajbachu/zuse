@@ -7,6 +7,8 @@ export type TailnetCommandResult = {
 	readonly stdout: string;
 	readonly stderr: string;
 	readonly code: number;
+	readonly timedOut?: boolean;
+	readonly approvalUrl?: string;
 };
 
 export type TailnetCommandRunner = (
@@ -48,12 +50,31 @@ const compactDiagnostic = (value: string): string | null => {
 	return normalized.length === 0 ? null : normalized.slice(0, 500);
 };
 
-export const runTailnetCommand: TailnetCommandRunner = (
-	args,
+export const extractTailnetApprovalUrl = (value: string): string | null => {
+	for (const match of value.matchAll(/https:\/\/[^\s<>"']+/gu)) {
+		const candidate = match[0].replace(/[),.;]+$/u, "");
+		try {
+			const url = new URL(candidate);
+			if (
+				url.hostname === "login.tailscale.com" &&
+				url.pathname.startsWith("/admin/feature/")
+			) {
+				return url.toString();
+			}
+		} catch {
+			// Ignore malformed command output and continue looking for a valid URL.
+		}
+	}
+	return null;
+};
+
+export const runTailnetCommand = (
+	args: ReadonlyArray<string>,
 	timeoutMs = 10_000,
-) =>
+	executable = resolveTailnetExecutable(),
+): Promise<TailnetCommandResult> =>
 	new Promise((resolve, reject) => {
-		const child = spawn(resolveTailnetExecutable(), [...args], {
+		const child = spawn(executable, [...args], {
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		const stdout: Buffer[] = [];
@@ -66,20 +87,38 @@ export const runTailnetCommand: TailnetCommandRunner = (
 			if (result instanceof Error) reject(result);
 			else resolve(result);
 		};
+		const capturedResult = (
+			code: number,
+			extra: Pick<TailnetCommandResult, "timedOut" | "approvalUrl"> = {},
+		): TailnetCommandResult => ({
+			stdout: Buffer.concat(stdout).toString("utf8"),
+			stderr: Buffer.concat(stderr).toString("utf8"),
+			code,
+			...extra,
+		});
+		const finishForApproval = (): void => {
+			if (settled || args[0] !== "serve" || !args.includes("--bg")) return;
+			const approvalUrl = extractTailnetApprovalUrl(
+				`${Buffer.concat(stdout).toString("utf8")}\n${Buffer.concat(stderr).toString("utf8")}`,
+			);
+			if (approvalUrl === null) return;
+			child.kill("SIGTERM");
+			finish(capturedResult(75, { approvalUrl }));
+		};
 		const timer = setTimeout(() => {
 			child.kill("SIGTERM");
-			finish(new Error("Tailscale command timed out."));
+			finish(capturedResult(124, { timedOut: true }));
 		}, timeoutMs);
-		child.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
-		child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
+		child.stdout.on("data", (chunk) => {
+			stdout.push(Buffer.from(chunk));
+			finishForApproval();
+		});
+		child.stderr.on("data", (chunk) => {
+			stderr.push(Buffer.from(chunk));
+			finishForApproval();
+		});
 		child.once("error", finish);
-		child.once("exit", (code) =>
-			finish({
-				stdout: Buffer.concat(stdout).toString("utf8"),
-				stderr: Buffer.concat(stderr).toString("utf8"),
-				code: code ?? 1,
-			}),
-		);
+		child.once("exit", (code) => finish(capturedResult(code ?? 1)));
 	});
 
 export const parseTailnetStatus = (
@@ -135,6 +174,7 @@ export const inspectTailnetShare = async (
 			backendState: null,
 			port,
 			detail: compactDiagnostic(message),
+			approvalUrl: null,
 		});
 	}
 	if (status.code !== 0) {
@@ -147,6 +187,7 @@ export const inspectTailnetShare = async (
 			backendState: null,
 			port,
 			detail,
+			approvalUrl: null,
 		});
 	}
 
@@ -164,6 +205,7 @@ export const inspectTailnetShare = async (
 			detail: compactDiagnostic(
 				cause instanceof Error ? cause.message : String(cause),
 			),
+			approvalUrl: null,
 		});
 	}
 	if (parsed.backendState !== "Running" || parsed.dnsName === null) {
@@ -175,6 +217,7 @@ export const inspectTailnetShare = async (
 			backendState: parsed.backendState,
 			port,
 			detail: "Sign in to Tailscale on this computer.",
+			approvalUrl: null,
 		});
 	}
 
@@ -192,6 +235,7 @@ export const inspectTailnetShare = async (
 		backendState: parsed.backendState,
 		port,
 		detail: serve.code === 0 ? null : compactDiagnostic(serve.stderr),
+		approvalUrl: null,
 	});
 };
 
@@ -233,14 +277,25 @@ export const setTailnetShareEnabled = async (
 	const args = input.enabled
 		? ["serve", "--bg", "--yes", `127.0.0.1:${input.port}`]
 		: ["serve", "--https=443", "off"];
-	const result = await run(args, 20_000);
+	const result = await run(args, 90_000);
+	if (result.approvalUrl !== undefined) {
+		return TailnetShareState.make({
+			...before,
+			availability: "approval-required",
+			detail:
+				"Approve Tailscale Serve in your browser, then return here and try again.",
+			approvalUrl: result.approvalUrl,
+		});
+	}
 	if (result.code !== 0) {
 		return TailnetShareState.make({
 			...before,
 			availability: "error",
 			detail:
 				compactDiagnostic(result.stderr || result.stdout) ??
-				"Tailscale Serve could not be updated.",
+				(result.timedOut === true
+					? "Tailscale Serve did not finish setup. Open Tailscale, confirm it is connected, and try again."
+					: "Tailscale Serve could not be updated."),
 		});
 	}
 	return inspectTailnetShare(input.port, run);
