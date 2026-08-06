@@ -62,8 +62,8 @@ function DesktopComputerSwitcher() {
 	const rename = useEnvironmentCatalogStore((state) => state.rename);
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [managingSaved, setManagingSaved] = useState(false);
-	const [connectionMode, setConnectionMode] = useState<"tailnet" | "ssh">(
-		"tailnet",
+	const [connectionMode, setConnectionMode] = useState<"serve" | "ssh">(
+		"serve",
 	);
 	const [pairingLink, setPairingLink] = useState("");
 	const [suggestions, setSuggestions] = useState<
@@ -137,7 +137,7 @@ function DesktopComputerSwitcher() {
 			setSubmitting(false);
 		}
 	};
-	const submitTailnet = async (
+	const submitServeLink = async (
 		event: FormEvent<HTMLFormElement>,
 	): Promise<void> => {
 		event.preventDefault();
@@ -194,8 +194,8 @@ function DesktopComputerSwitcher() {
 						<DialogDescription>
 							{managingSaved
 								? "Rename, reconnect, or remove computers saved on this device."
-								: connectionMode === "tailnet"
-									? "Paste a private connection link from the other computer. No address or port setup."
+								: connectionMode === "serve"
+									? "Paste the connection link created by Zuse Serve on the other computer."
 									: "Connect using an existing OpenSSH configuration."}
 						</DialogDescription>
 					</DialogHeader>
@@ -221,14 +221,14 @@ function DesktopComputerSwitcher() {
 									variant="ghost"
 									onClick={() => {
 										setConnectionMode((current) =>
-											current === "tailnet" ? "ssh" : "tailnet",
+											current === "serve" ? "ssh" : "serve",
 										);
 										setError(null);
 									}}
 								>
-									{connectionMode === "tailnet"
+									{connectionMode === "serve"
 										? "Use SSH"
-										: "Back to private link"}
+										: "Back to Zuse Serve"}
 								</Button>
 							) : null}
 						</div>
@@ -403,15 +403,15 @@ function DesktopComputerSwitcher() {
 									</section>
 								) : null}
 
-								{connectionMode === "tailnet" ? (
+								{connectionMode === "serve" ? (
 									<form
-										id="add-tailnet-computer-form"
+										id="add-served-computer-form"
 										className="space-y-3"
-										onSubmit={(event) => void submitTailnet(event)}
+										onSubmit={(event) => void submitServeLink(event)}
 									>
 										<div className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
-											On the other computer, open Settings → Devices and choose
-											Connect device. Paste the link it creates below.
+											On the other computer, open Settings → Devices → Zuse
+											Serve and choose Connect device. Paste that link below.
 										</div>
 										<div>
 											<label
@@ -568,8 +568,8 @@ function DesktopComputerSwitcher() {
 								</Button>
 								<Button
 									form={
-										connectionMode === "tailnet"
-											? "add-tailnet-computer-form"
+										connectionMode === "serve"
+											? "add-served-computer-form"
 											: "add-computer-form"
 									}
 									type="submit"
