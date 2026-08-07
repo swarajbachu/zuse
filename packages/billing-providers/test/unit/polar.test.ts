@@ -130,6 +130,27 @@ describe("Polar billing provider", () => {
 		});
 	});
 
+	test("reconciles from provider checkout metadata when customer identity is absent", async () => {
+		const fake = makeClient();
+		fake.setSubscription({
+			...subscription("canceled"),
+			metadata: {
+				account_id: "account_1",
+				offer_id: "persistent-standard-v1",
+			},
+			customer: { externalId: null },
+		});
+		const provider = makePolarBillingProvider(config, { client: fake.client });
+
+		await expect(
+			Effect.runPromise(provider.reconcileSubscription("subscription_1")),
+		).resolves.toMatchObject({
+			accountId: "account_1",
+			offerId: "persistent-standard-v1",
+			status: "ended",
+		});
+	});
+
 	test("maps grace and ended states and revokes active subscriptions once", async () => {
 		const fake = makeClient();
 		const provider = makePolarBillingProvider(config, { client: fake.client });
