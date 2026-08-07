@@ -45,9 +45,7 @@ export interface PolarBillingClient {
 	readonly getSubscription: (
 		subscriptionId: string,
 	) => Promise<PolarSubscription | null>;
-	readonly cancelSubscriptionAtPeriodEnd: (
-		subscriptionId: string,
-	) => Promise<void>;
+	readonly revokeSubscription: (subscriptionId: string) => Promise<void>;
 	readonly createCustomerSession: (
 		externalCustomerId: string,
 	) => Promise<{ readonly customerPortalUrl: string }>;
@@ -89,11 +87,8 @@ const makeSdkClient = (config: PolarBillingConfig): PolarBillingClient => {
 				throw error;
 			}
 		},
-		cancelSubscriptionAtPeriodEnd: async (subscriptionId) => {
-			await polar.subscriptions.update({
-				id: subscriptionId,
-				subscriptionUpdate: { cancelAtPeriodEnd: true },
-			});
+		revokeSubscription: async (subscriptionId) => {
+			await polar.subscriptions.revoke({ id: subscriptionId });
 		},
 		createCustomerSession: (externalCustomerId) =>
 			polar.customerSessions.create({ externalCustomerId }),
@@ -253,13 +248,12 @@ export const makePolarBillingProvider = (
 				});
 				if (
 					subscription === null ||
-					subscription.cancelAtPeriodEnd ||
 					normalizeStatus(subscription.status) === "ended"
 				) {
 					return;
 				}
 				yield* Effect.tryPromise({
-					try: () => client.cancelSubscriptionAtPeriodEnd(subscriptionId),
+					try: () => client.revokeSubscription(subscriptionId),
 					catch: providerFailure,
 				});
 			}),

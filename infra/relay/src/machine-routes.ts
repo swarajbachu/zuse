@@ -137,6 +137,70 @@ const toPublicEntitlement = (entitlement: EntitlementPersistenceRecord) => ({
 	creditBalance: entitlement.creditBalance,
 });
 
+const reconcileCheckoutEntitlements = (
+	accountId: string,
+	entitlements: ReadonlyArray<EntitlementPersistenceRecord>,
+	nowMs: number,
+): Effect.Effect<
+	ReadonlyArray<EntitlementPersistenceRecord>,
+	RelayError,
+	BillingProviders | MachineStore
+> =>
+	Effect.gen(function* () {
+		const billingProviders = yield* BillingProviders;
+		const store = yield* MachineStore;
+		return yield* Effect.forEach(
+			entitlements,
+			(entitlement) => {
+				const providerSubscriptionId = entitlement.providerSubscriptionId;
+				if (
+					providerSubscriptionId === undefined ||
+					entitlement.status === "ended"
+				) {
+					return Effect.succeed(entitlement);
+				}
+				return Effect.gen(function* () {
+					const billing = yield* billingProviders
+						.get(entitlement.provider)
+						.pipe(
+							Effect.mapError(() =>
+								serviceUnavailable("billing_provider_unavailable"),
+							),
+						);
+					const subscription = yield* billing
+						.reconcileSubscription(providerSubscriptionId)
+						.pipe(
+							Effect.mapError(() =>
+								serviceUnavailable("billing_provider_unavailable"),
+							),
+						);
+					if (
+						subscription.accountId !== accountId ||
+						subscription.providerSubscriptionId !== providerSubscriptionId ||
+						subscription.offerId !== entitlement.offerId
+					) {
+						return yield* Effect.fail(
+							serviceUnavailable("billing_subscription_mismatch"),
+						);
+					}
+					const reconciled: EntitlementPersistenceRecord = {
+						...entitlement,
+						status: subscription.status,
+						paidThroughMs: subscription.paidThrough,
+						endedAtMs:
+							subscription.status === "ended"
+								? (entitlement.endedAtMs ?? nowMs)
+								: undefined,
+						updatedAtMs: nowMs,
+					};
+					yield* store.upsertEntitlement(reconciled);
+					return reconciled;
+				});
+			},
+			{ concurrency: 4 },
+		);
+	});
+
 const requireAlphaAccess = (
 	accountId: string,
 ): Effect.Effect<void, RelayError> =>
@@ -654,10 +718,15 @@ export const routeMachineRequest = (
 					serviceUnavailable("billing_approval_pending"),
 				);
 			}
-			const [entitlements, machines] = yield* Effect.all([
+			const [storedEntitlements, machines] = yield* Effect.all([
 				store.listEntitlements(principal.accountId),
 				store.listMachines(principal.accountId),
 			]);
+			const entitlements = yield* reconcileCheckoutEntitlements(
+				principal.accountId,
+				storedEntitlements,
+				nowMs,
+			);
 			const alreadySubscribed =
 				entitlements.some(
 					(entitlement) =>

@@ -20,7 +20,7 @@ const subscription = (
 const makeClient = () => {
 	const calls = {
 		checkouts: [] as ReadonlyArray<unknown>,
-		cancellations: [] as ReadonlyArray<string>,
+		revocations: [] as ReadonlyArray<string>,
 		sessions: [] as ReadonlyArray<string>,
 	};
 	let current: PolarSubscription | null = subscription();
@@ -30,8 +30,8 @@ const makeClient = () => {
 			return Promise.resolve({ url: "https://sandbox.example/checkout" });
 		},
 		getSubscription: () => Promise.resolve(current),
-		cancelSubscriptionAtPeriodEnd: (subscriptionId) => {
-			calls.cancellations = [...calls.cancellations, subscriptionId];
+		revokeSubscription: (subscriptionId) => {
+			calls.revocations = [...calls.revocations, subscriptionId];
 			return Promise.resolve();
 		},
 		createCustomerSession: (externalCustomerId) => {
@@ -130,7 +130,7 @@ describe("Polar billing provider", () => {
 		});
 	});
 
-	test("maps grace and ended states and cancels active subscriptions once", async () => {
+	test("maps grace and ended states and revokes active subscriptions once", async () => {
 		const fake = makeClient();
 		const provider = makePolarBillingProvider(config, { client: fake.client });
 
@@ -144,18 +144,24 @@ describe("Polar billing provider", () => {
 		).toBe("grace");
 
 		await Effect.runPromise(provider.cancel("subscription_1"));
-		expect(fake.calls.cancellations).toEqual(["subscription_1"]);
+		expect(fake.calls.revocations).toEqual(["subscription_1"]);
 
 		fake.setSubscription({
 			...subscription("active"),
 			cancelAtPeriodEnd: true,
 		});
 		await Effect.runPromise(provider.cancel("subscription_1"));
-		expect(fake.calls.cancellations).toEqual(["subscription_1"]);
+		expect(fake.calls.revocations).toEqual([
+			"subscription_1",
+			"subscription_1",
+		]);
 
 		fake.setSubscription(subscription("canceled"));
 		await Effect.runPromise(provider.cancel("subscription_1"));
-		expect(fake.calls.cancellations).toEqual(["subscription_1"]);
+		expect(fake.calls.revocations).toEqual([
+			"subscription_1",
+			"subscription_1",
+		]);
 		expect(
 			(
 				await Effect.runPromise(
