@@ -576,7 +576,9 @@ export const RelayLinkServiceLive: Layer.Layer<
             .getRelayConfig()
             .pipe(Effect.orElseSucceed(() => null));
           yield* stopHeartbeat;
-          yield* tunnel.stop();
+          yield* tunnel
+            .stop()
+            .pipe(Effect.mapError((error) => failRelay(error.reason)));
           // Best-effort relay deprovision (tears down the Cloudflare tunnel +
           // removes the environment from the account). Local unlink proceeds
           // even if the relay is unreachable or we're signed out.
