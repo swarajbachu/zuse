@@ -210,6 +210,27 @@ write_files:
         chain output { type filter hook output priority 0; policy accept; }
       }
 
+  - path: /etc/systemd/system/zuse-bootstrap.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Bootstrap the Zuse cloud environment
+      Wants=network-online.target
+      After=network-online.target
+      ConditionPathExists=!/var/lib/zuse/bootstrap-complete
+      StartLimitIntervalSec=15min
+      StartLimitBurst=2
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/lib/zuse/bootstrap.sh
+      Restart=on-failure
+      RestartSec=30
+
+      [Install]
+      WantedBy=multi-user.target
+
   - path: /etc/systemd/system/zuse.service
     owner: root:root
     permissions: "0644"
@@ -300,6 +321,6 @@ write_files:
       WantedBy=multi-user.target
 
 runcmd:
-  - [/usr/local/lib/zuse/bootstrap.sh]
+  - [systemctl, enable, --now, zuse-bootstrap.service]
 
 final_message: "Zuse cloud bootstrap finished"

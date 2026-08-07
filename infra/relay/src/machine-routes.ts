@@ -1,6 +1,7 @@
 import { BillingProviders } from "@zuse/billing-providers";
 import {
 	BillingCheckoutRequest,
+	type MachineBootPhase,
 	MachineBootStatusRequest,
 	MachineCreateRequest,
 	MachineDestroyRequest,
@@ -125,6 +126,115 @@ const toPublicMachine = (machine: MachinePersistenceRecord): MachineRecord => {
 		createdAt: machine.createdAtMs,
 		paidThrough: machine.paidThroughMs,
 		recoveryDeadline: machine.recoveryDeadlineMs,
+	};
+};
+
+const hasReportedHealthyRuntime = (
+	phase: MachineBootPhase | undefined,
+): boolean => phase === "zuse-started" || phase === "account-setup-available";
+
+const markMachineReady = (
+	machine: MachinePersistenceRecord,
+	nowMs: number,
+): MachinePersistenceRecord => ({
+	...machine,
+	state: "ready",
+	statusCode:
+		machine.desiredState === "suspended" ? "cancellation-scheduled" : "ready",
+	stableFailureCode: undefined,
+	attemptCount: 0,
+	nextActionAtMs: Math.min(
+		nowMs + 5 * 60 * 1_000,
+		machine.paidThroughMs ?? Number.MAX_SAFE_INTEGER,
+	),
+	updatedAtMs: nowMs,
+});
+
+const bootPhaseOrder = new Map<MachineBootPhase, number>([
+	["bootstrap-started", 0],
+	["runtime-installed", 1],
+	["developer-tools-installed", 2],
+	["service-started", 3],
+	["zuse-started", 4],
+	["account-setup-available", 5],
+]);
+
+const isDuplicateOrStaleBootPhase = (
+	machine: MachinePersistenceRecord,
+	phase: MachineBootPhase,
+): boolean => {
+	if (machine.bootPhase === undefined) return false;
+	const currentOrder = bootPhaseOrder.get(machine.bootPhase);
+	if (phase === "failed") {
+		return (
+			machine.state === "ready" ||
+			machine.bootPhase === "failed" ||
+			(currentOrder ?? -1) >= (bootPhaseOrder.get("zuse-started") ?? 4)
+		);
+	}
+	const nextOrder = bootPhaseOrder.get(phase);
+	return (
+		currentOrder !== undefined &&
+		nextOrder !== undefined &&
+		nextOrder <= currentOrder
+	);
+};
+
+const applyBootStatus = (
+	machine: MachinePersistenceRecord,
+	body: MachineBootStatusRequest,
+	nowMs: number,
+): MachinePersistenceRecord => {
+	if (machine.state === "ready" && body.phase !== "failed") {
+		return {
+			...machine,
+			bootPhase: body.phase,
+			updatedAtMs: nowMs,
+		};
+	}
+	if (body.phase === "failed") {
+		return {
+			...machine,
+			bootPhase: body.phase,
+			state: "failed",
+			statusCode: "bootstrap-failed",
+			stableFailureCode: body.statusCode ?? "bootstrap-failed",
+			nextActionAtMs: nowMs + 15 * 60 * 1_000,
+			updatedAtMs: nowMs,
+		};
+	}
+	const progress = {
+		...machine,
+		bootPhase: body.phase,
+		stableFailureCode: undefined,
+		lastError: undefined,
+		updatedAtMs: nowMs,
+	};
+	if (
+		machine.environmentId !== undefined &&
+		machine.enrolledEnvironmentPublicKey !== undefined &&
+		hasReportedHealthyRuntime(body.phase)
+	) {
+		return markMachineReady(progress, nowMs);
+	}
+	if (
+		machine.environmentId !== undefined ||
+		body.phase === "service-started" ||
+		body.phase === "zuse-started" ||
+		body.phase === "account-setup-available"
+	) {
+		return {
+			...progress,
+			state: "enrolling",
+			statusCode: "enrollment-pending",
+			nextActionAtMs: nowMs + 60_000,
+		};
+	}
+	return {
+		...progress,
+		state: "bootstrapping",
+		statusCode: "bootstrap-pending",
+		nextActionAtMs: nowMs + 60_000,
 	};
 };
 
@@ -496,23 +606,25 @@ export const routeMachineRequest = (
 			let enrollmentBase = machine;
 			let completed = false;
 			for (let attempt = 0; attempt < 3 && !completed; attempt += 1) {
-				const completedMachine: MachinePersistenceRecord = {
+				const enrolledMachine: MachinePersistenceRecord = {
 					...enrollmentBase,
 					environmentId: body.environmentId,
 					enrolledEnvironmentPublicKey: body.environmentPublicKey,
-					state: "ready",
+					state: "enrolling",
 					statusCode:
 						enrollmentBase.desiredState === "suspended"
 							? "cancellation-scheduled"
-							: "ready",
+							: "enrollment-pending",
 					stableFailureCode: undefined,
 					attemptCount: 0,
-					nextActionAtMs: Math.min(
-						nowMs + 5 * 60 * 1_000,
-						enrollmentBase.paidThroughMs ?? Number.MAX_SAFE_INTEGER,
-					),
+					nextActionAtMs: nowMs + 60_000,
 					updatedAtMs: nowMs,
 				};
+				const completedMachine = hasReportedHealthyRuntime(
+					enrollmentBase.bootPhase,
+				)
+					? markMachineReady(enrolledMachine, nowMs)
+					: enrolledMachine;
 				completed = yield* store.completeEnrollment(
 					completedMachine,
 					enrollmentTokenHash,
@@ -585,54 +697,31 @@ export const routeMachineRequest = (
 				return yield* Effect.fail(unauthorized("enrollment_machine_mismatch"));
 			}
 			const body = yield* decodeBody(MachineBootStatusRequest, request);
-			const updated: MachinePersistenceRecord =
-				machine.state === "ready" && body.phase !== "failed"
-					? {
-							...machine,
-							bootPhase: body.phase,
-							updatedAtMs: nowMs,
-						}
-					: body.phase === "failed"
-						? {
-								...machine,
-								bootPhase: body.phase,
-								state: "failed",
-								statusCode: "bootstrap-failed",
-								stableFailureCode: body.statusCode ?? "bootstrap-failed",
-								nextActionAtMs: nowMs + 15 * 60 * 1_000,
-								updatedAtMs: nowMs,
-							}
-						: body.phase === "service-started" ||
-								body.phase === "zuse-started" ||
-								body.phase === "account-setup-available"
-							? {
-									...machine,
-									bootPhase: body.phase,
-									state: "enrolling",
-									statusCode: "enrollment-pending",
-									nextActionAtMs: nowMs + 60_000,
-									updatedAtMs: nowMs,
-								}
-							: {
-									...machine,
-									bootPhase: body.phase,
-									state: "bootstrapping",
-									statusCode: "bootstrap-pending",
-									nextActionAtMs: nowMs + 60_000,
-									updatedAtMs: nowMs,
-								};
-			const saved = yield* store.compareAndSetMachine(
-				updated,
-				machine.revision,
-			);
-			if (!saved) {
-				const current = yield* store.getMachine(machine.machineId);
-				if (current === null) {
+			const enrollmentTokenHash = machine.enrollmentTokenHash;
+			let current = machine;
+			for (let attempt = 0; attempt < 3; attempt += 1) {
+				if (isDuplicateOrStaleBootPhase(current, body.phase)) {
+					return json(toPublicMachine(current));
+				}
+				const updated = applyBootStatus(current, body, nowMs);
+				const saved = yield* store.compareAndSetMachine(
+					updated,
+					current.revision,
+				);
+				if (saved) return json(toPublicMachine(updated));
+				const reloaded = yield* store.getMachine(machine.machineId);
+				if (
+					reloaded === null ||
+					reloaded.enrollmentTokenHash !== enrollmentTokenHash ||
+					reloaded.desiredState === "destroyed" ||
+					reloaded.state === "destroying" ||
+					reloaded.state === "destroyed"
+				) {
 					return yield* Effect.fail(gone("enrollment_machine_inactive"));
 				}
-				return json(toPublicMachine(current));
+				current = reloaded;
 			}
-			return json(toPublicMachine(updated));
+			return yield* Effect.fail(conflict("machine_state_changed"));
 		}
 
 		if (method === "GET" && path === RelayPaths.machineOffers) {

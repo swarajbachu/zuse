@@ -1,6 +1,6 @@
 import { BillingProvidersManual } from "@zuse/billing-providers";
 import { MachineProvidersFake } from "@zuse/machine-providers/testing";
-import { Effect, Layer, Redacted } from "effect";
+import { Effect, Layer, Redacted, Ref } from "effect";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, test } from "vitest";
 
@@ -48,6 +48,35 @@ const testLayer = Layer.mergeAll(
 	Layer.succeed(ManagedTunnelProvider, testTunnel),
 );
 
+const failFirstCompareAndSet = Layer.effect(
+	MachineStore,
+	Effect.gen(function* () {
+		const store = yield* MachineStore;
+		const failNext = yield* Ref.make(true);
+		return {
+			...store,
+			compareAndSetMachine: (machine, expectedRevision) =>
+				Ref.modify(failNext, (shouldFail) => [shouldFail, false]).pipe(
+					Effect.flatMap((shouldFail) =>
+						shouldFail
+							? Effect.succeed(false)
+							: store.compareAndSetMachine(machine, expectedRevision),
+					),
+				),
+		};
+	}),
+).pipe(Layer.provide(MachineStoreMemory));
+
+const compareAndSetRaceLayer = Layer.mergeAll(
+	configLayer,
+	WorkosVerifierTest,
+	failFirstCompareAndSet,
+	MachineProvidersFake,
+	BillingProvidersManual,
+	RelayStoreMemory,
+	Layer.succeed(ManagedTunnelProvider, testTunnel),
+);
+
 const proofFor = async (
 	privateKey: CryptoKey,
 	environmentId = ENVIRONMENT_ID,
@@ -84,6 +113,18 @@ const enrollRequest = (input: {
 			},
 			label: "Build box",
 		}),
+	});
+
+const bootStatusRequest = (
+	phase: "developer-tools-installed" | "failed" | "zuse-started",
+): Request =>
+	new Request(`${RELAY_ISSUER}/v1/machines/machine_1/boot-status`, {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${TOKEN}`,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({ phase }),
 	});
 
 const safeRoute = (request: Request) =>
@@ -128,6 +169,46 @@ const seedEnrollment = Effect.fn("seedEnrollment")(function* (nowMs: number) {
 });
 
 describe("machine enrollment", () => {
+	test("does not become ready until both enrollment and Zuse startup complete", async () => {
+		const key = await generateKeyPair("EdDSA", { extractable: true });
+		const publicJwk = JSON.stringify(await exportJWK(key.publicKey));
+		const proof = await proofFor(key.privateKey);
+
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				yield* seedEnrollment(Date.now());
+				const enrolled = yield* safeRoute(enrollRequest({ publicJwk, proof }));
+				const machineStore = yield* MachineStore;
+				const beforeStartup = yield* machineStore.getMachine("machine_1");
+				const toolsInstalled = yield* safeRoute(
+					bootStatusRequest("developer-tools-installed"),
+				);
+				const afterTools = yield* machineStore.getMachine("machine_1");
+				const started = yield* safeRoute(bootStatusRequest("zuse-started"));
+				const delayedFailure = yield* safeRoute(bootStatusRequest("failed"));
+				return {
+					enrolled,
+					beforeStartup,
+					toolsInstalled,
+					afterTools,
+					started,
+					delayedFailure,
+					afterStartup: yield* machineStore.getMachine("machine_1"),
+				};
+			}).pipe(Effect.provide(compareAndSetRaceLayer)),
+		);
+
+		expect(result.enrolled?.status).toBe(200);
+		expect(result.beforeStartup?.state).toBe("enrolling");
+		expect(result.beforeStartup?.statusCode).toBe("enrollment-pending");
+		expect(result.toolsInstalled?.status).toBe(200);
+		expect(result.afterTools?.state).toBe("enrolling");
+		expect(result.started?.status).toBe(200);
+		expect(result.delayedFailure?.status).toBe(200);
+		expect(result.afterStartup?.state).toBe("ready");
+		expect(result.afterStartup?.statusCode).toBe("ready");
+	});
+
 	test("allows a same-key retry but rejects another identity and expiry", async () => {
 		const key = await generateKeyPair("EdDSA", { extractable: true });
 		const otherKey = await generateKeyPair("EdDSA", { extractable: true });
@@ -139,13 +220,19 @@ describe("machine enrollment", () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				yield* seedEnrollment(Date.now());
+				const machineStore = yield* MachineStore;
+				const bootstrapped = yield* machineStore.getMachine("machine_1");
+				if (bootstrapped === null) return yield* Effect.die("missing machine");
+				yield* machineStore.saveMachine({
+					...bootstrapped,
+					bootPhase: "zuse-started",
+				});
 				const first = yield* safeRoute(enrollRequest({ publicJwk, proof }));
 				const retry = yield* safeRoute(enrollRequest({ publicJwk, proof }));
 				const wrongKey = yield* safeRoute(
 					enrollRequest({ publicJwk: otherPublicJwk, proof: otherProof }),
 				);
 
-				const machineStore = yield* MachineStore;
 				const machine = yield* machineStore.getMachine("machine_1");
 				if (machine === null) return yield* Effect.die("missing machine");
 				yield* machineStore.saveMachine({
