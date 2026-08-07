@@ -55,6 +55,19 @@ describe("cloud runtime assets", () => {
 		expect(cloudInit).toContain(
 			'install -o root -g root -m 0600 /dev/null "$bootstrap_complete"',
 		);
+		expect(cloudInit).toContain(
+			"path: /etc/systemd/system/zuse-bootstrap.service",
+		);
+		expect(cloudInit).toContain(
+			"ConditionPathExists=!/var/lib/zuse/bootstrap-complete",
+		);
+		expect(cloudInit).toContain("ExecStart=/usr/local/lib/zuse/bootstrap.sh");
+		expect(cloudInit).toContain("StartLimitBurst=2");
+		expect(cloudInit).toContain("Restart=on-failure");
+		expect(cloudInit).toContain("RestartSec=30");
+		expect(cloudInit).toContain(
+			"[systemctl, enable, --now, zuse-bootstrap.service]",
+		);
 		expect(cloudInit).not.toContain("__INSTALL_VERIFIED_RUNTIME_COMMAND__");
 		expect(cloudInit).not.toContain(
 			"EnvironmentFile=-/etc/zuse/enrollment.env",
@@ -128,6 +141,9 @@ describe("cloud runtime assets", () => {
 		expect(reconciler).toContain(
 			"Toolchain version was reused with different contents",
 		);
+		expect(reconciler).toContain('["ssh", ["-V"]]');
+		expect(reconciler).toContain('["tmux", ["-V"]]');
+		expect(reconciler).not.toContain('"ssh",\n\t\t"tmux"');
 		expect(updater).toContain("ZUSE_RUNTIME_SKIP_TOOLCHAIN");
 		expect(updater).toContain('join(release, "toolchain-reconciler.mjs")');
 		expect(updater).toContain("manifest.toolchain.sha256");

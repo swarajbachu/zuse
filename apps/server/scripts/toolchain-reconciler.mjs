@@ -169,18 +169,18 @@ try {
 			throw new Error(`${command} did not report the pinned version`);
 		}
 	}
-	for (const command of [
-		"git",
-		"gh",
-		"git-lfs",
-		"ssh",
-		"tmux",
-		"rg",
-		"fd",
-		"jq",
-		"python3",
+	for (const [command, args] of [
+		["git", ["--version"]],
+		["gh", ["--version"]],
+		["git-lfs", ["--version"]],
+		["ssh", ["-V"]],
+		["tmux", ["-V"]],
+		["rg", ["--version"]],
+		["fd", ["--version"]],
+		["jq", ["--version"]],
+		["python3", ["--version"]],
 	]) {
-		await run(command, ["--version"], { capture: true });
+		await run(command, args, { capture: true });
 	}
 } catch (cause) {
 	if (previousTarget === undefined) await rm(currentLink, { force: true });
