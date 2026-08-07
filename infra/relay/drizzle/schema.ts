@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
 	bigint,
 	bigserial,
+	boolean,
 	check,
 	index,
 	jsonb,
@@ -141,6 +142,7 @@ export const relayMachines = pgTable(
 		state: text("state").notNull(),
 		desiredState: text("desired_state").notNull(),
 		statusCode: text("status_code").notNull(),
+		bootPhase: text("boot_phase"),
 		stableFailureCode: text("stable_failure_code"),
 		lastError: text("last_error"),
 		entitlementId: text("entitlement_id")
@@ -158,6 +160,18 @@ export const relayMachines = pgTable(
 		accountDeletionRequestedAt: bigint("account_deletion_requested_at", {
 			mode: "number",
 		}),
+		credentialCleanupRequestedAt: bigint("credential_cleanup_requested_at", {
+			mode: "number",
+		}),
+		credentialCleanupDeadline: bigint("credential_cleanup_deadline", {
+			mode: "number",
+		}),
+		credentialCleanupCompletedAt: bigint("credential_cleanup_completed_at", {
+			mode: "number",
+		}),
+		finalSnapshotSkipped: boolean("final_snapshot_skipped")
+			.notNull()
+			.default(false),
 		nextActionAt: bigint("next_action_at", { mode: "number" }).notNull(),
 		attemptCount: bigint("attempt_count", { mode: "number" })
 			.notNull()

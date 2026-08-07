@@ -157,6 +157,8 @@ export class RelayEnvironmentRecord extends Schema.Class<RelayEnvironmentRecord>
 	serviceState: Schema.optional(EnvironmentServiceState),
 	endpointHealth: Schema.optional(EnvironmentEndpointHealth),
 	lastHeartbeat: Schema.optional(Schema.Number),
+	/** Public environment identity used to verify environment-authored handoffs. */
+	environmentPublicKey: Schema.optional(Schema.String),
 }) {}
 
 export class RelayEnvironmentList extends Schema.Class<RelayEnvironmentList>(

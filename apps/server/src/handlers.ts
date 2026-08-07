@@ -1,4 +1,5 @@
 import { Layer } from "effect";
+import { AccountAccessHandlersLayer } from "./account-access/handlers.ts";
 import { AnalyticsHandlersLayer } from "./analytics/handlers.ts";
 import { AttachmentHandlersLayer } from "./attachment/handlers.ts";
 import { AuthHandlersLayer } from "./auth/handlers.ts";
@@ -30,6 +31,7 @@ import { WorktreeHandlersLayer } from "./worktree/handlers.ts";
  */
 export const HandlersLayer = Layer.mergeAll(
 	PingHandlersLayer,
+	AccountAccessHandlersLayer,
 	AnalyticsHandlersLayer,
 	LanAuthHandlersLayer,
 	RelayHandlersLayer,

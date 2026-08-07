@@ -66,6 +66,14 @@ await cp(
 	join(packageRoot, "scripts", "runtime-updater.mjs"),
 	join(runtimeRoot, "runtime-updater.mjs"),
 );
+await cp(
+	join(packageRoot, "scripts", "toolchain-reconciler.mjs"),
+	join(runtimeRoot, "toolchain-reconciler.mjs"),
+);
+await cp(
+	join(packageRoot, "scripts", "toolchain-manifest.json"),
+	join(runtimeRoot, "toolchain-manifest.json"),
+);
 
 const nativePackages = [
 	"bindings",
@@ -121,6 +129,10 @@ await writeFile(
 run("tar", ["-czf", archivePath, "-C", runtimeRoot, "."]);
 const archive = await readFile(archivePath);
 const sha256 = createHash("sha256").update(archive).digest("hex");
+const toolchainManifestBytes = await readFile(
+	join(runtimeRoot, "toolchain-manifest.json"),
+);
+const toolchainManifest = JSON.parse(toolchainManifestBytes);
 const runtimeUrl = process.env.ZUSE_RUNTIME_URL;
 if (runtimeUrl === undefined) {
 	throw new Error("ZUSE_RUNTIME_URL is required");
@@ -135,6 +147,10 @@ const manifest = {
 	architecture: "linux-x64",
 	sha256,
 	wireProtocol: { min: WIRE_PROTOCOL_VERSION, max: WIRE_PROTOCOL_VERSION },
+	toolchain: {
+		version: toolchainManifest.version,
+		sha256: createHash("sha256").update(toolchainManifestBytes).digest("hex"),
+	},
 	sizeBytes: (await stat(archivePath)).size,
 };
 

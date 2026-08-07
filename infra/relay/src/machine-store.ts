@@ -2,6 +2,7 @@ import type {
 	DesiredMachineState,
 	EntitlementKind,
 	EntitlementStatus,
+	MachineBootPhase,
 	MachineState,
 	MachineStatusCode,
 } from "@zuse/contracts";
@@ -21,6 +22,7 @@ export interface MachinePersistenceRecord {
 	readonly state: MachineState;
 	readonly desiredState: DesiredMachineState;
 	readonly statusCode: MachineStatusCode;
+	readonly bootPhase?: MachineBootPhase;
 	readonly stableFailureCode?: string;
 	readonly lastError?: string;
 	readonly entitlementId: string;
@@ -32,6 +34,10 @@ export interface MachinePersistenceRecord {
 	readonly paidThroughMs?: number;
 	readonly recoveryDeadlineMs?: number;
 	readonly accountDeletionRequestedAtMs?: number;
+	readonly credentialCleanupRequestedAtMs?: number;
+	readonly credentialCleanupDeadlineMs?: number;
+	readonly credentialCleanupCompletedAtMs?: number;
+	readonly finalSnapshotSkipped?: boolean;
 	readonly nextActionAtMs: number;
 	readonly attemptCount: number;
 	readonly leaseOwner?: string;
@@ -114,6 +120,9 @@ export interface MachineStoreApi {
 	) => Effect.Effect<ReadonlyArray<MachinePersistenceRecord>>;
 	readonly getMachine: (
 		machineId: string,
+	) => Effect.Effect<MachinePersistenceRecord | null>;
+	readonly findMachineByEnvironmentId: (
+		environmentId: string,
 	) => Effect.Effect<MachinePersistenceRecord | null>;
 	readonly saveMachine: (
 		machine: MachinePersistenceRecord,
@@ -339,6 +348,15 @@ export const MachineStoreMemory = Layer.effect(
 			getMachine: (machineId) =>
 				Ref.get(state).pipe(
 					Effect.map((current) => current.machines.get(machineId) ?? null),
+				),
+			findMachineByEnvironmentId: (environmentId) =>
+				Ref.get(state).pipe(
+					Effect.map(
+						(current) =>
+							[...current.machines.values()].find(
+								(machine) => machine.environmentId === environmentId,
+							) ?? null,
+					),
 				),
 			saveMachine: (machine) =>
 				Ref.update(state, (current) => {
@@ -581,6 +599,7 @@ interface MachineRow {
 	readonly state: MachineState;
 	readonly desired_state: DesiredMachineState;
 	readonly status_code: MachineStatusCode;
+	readonly boot_phase: MachineBootPhase | null;
 	readonly stable_failure_code: string | null;
 	readonly last_error: string | null;
 	readonly entitlement_id: string;
@@ -592,6 +611,10 @@ interface MachineRow {
 	readonly paid_through: number | null;
 	readonly recovery_deadline: number | null;
 	readonly account_deletion_requested_at: number | null;
+	readonly credential_cleanup_requested_at: number | null;
+	readonly credential_cleanup_deadline: number | null;
+	readonly credential_cleanup_completed_at: number | null;
+	readonly final_snapshot_skipped: boolean;
 	readonly next_action_at: number;
 	readonly attempt_count: number;
 	readonly lease_owner: string | null;
@@ -634,6 +657,7 @@ const toMachine = (row: MachineRow): MachinePersistenceRecord => ({
 	state: row.state,
 	desiredState: row.desired_state,
 	statusCode: row.status_code,
+	bootPhase: row.boot_phase ?? undefined,
 	stableFailureCode: row.stable_failure_code ?? undefined,
 	lastError: row.last_error ?? undefined,
 	entitlementId: row.entitlement_id,
@@ -648,6 +672,14 @@ const toMachine = (row: MachineRow): MachinePersistenceRecord => ({
 	accountDeletionRequestedAtMs: optionalNumber(
 		row.account_deletion_requested_at,
 	),
+	credentialCleanupRequestedAtMs: optionalNumber(
+		row.credential_cleanup_requested_at,
+	),
+	credentialCleanupDeadlineMs: optionalNumber(row.credential_cleanup_deadline),
+	credentialCleanupCompletedAtMs: optionalNumber(
+		row.credential_cleanup_completed_at,
+	),
+	finalSnapshotSkipped: row.final_snapshot_skipped,
 	nextActionAtMs: Number(row.next_action_at),
 	attemptCount: Number(row.attempt_count),
 	leaseOwner: row.lease_owner ?? undefined,
@@ -701,6 +733,7 @@ export const MachineStorePg: Layer.Layer<
 						state = ${machine.state},
 						desired_state = ${machine.desiredState},
 						status_code = ${machine.statusCode},
+						boot_phase = ${machine.bootPhase ?? null},
 						stable_failure_code = ${machine.stableFailureCode ?? null},
 						last_error = ${machine.lastError ?? null},
 						enrollment_token_hash = ${machine.enrollmentTokenHash ?? null},
@@ -711,6 +744,10 @@ export const MachineStorePg: Layer.Layer<
 						paid_through = ${machine.paidThroughMs ?? null},
 						recovery_deadline = ${machine.recoveryDeadlineMs ?? null},
 						account_deletion_requested_at = ${machine.accountDeletionRequestedAtMs ?? null},
+						credential_cleanup_requested_at = ${machine.credentialCleanupRequestedAtMs ?? null},
+						credential_cleanup_deadline = ${machine.credentialCleanupDeadlineMs ?? null},
+						credential_cleanup_completed_at = ${machine.credentialCleanupCompletedAtMs ?? null},
+						final_snapshot_skipped = ${machine.finalSnapshotSkipped ?? false},
 						next_action_at = ${machine.nextActionAtMs},
 						attempt_count = ${machine.attemptCount},
 						lease_owner = ${releaseLease ? null : (machine.leaseOwner ?? null)},
@@ -852,6 +889,12 @@ export const MachineStorePg: Layer.Layer<
 				orDie(
 					sql<MachineRow>`
 						SELECT * FROM relay_machines WHERE machine_id = ${machineId}
+					`.pipe(Effect.map((rows) => (rows[0] ? toMachine(rows[0]) : null))),
+				),
+			findMachineByEnvironmentId: (environmentId) =>
+				orDie(
+					sql<MachineRow>`
+						SELECT * FROM relay_machines WHERE environment_id = ${environmentId}
 					`.pipe(Effect.map((rows) => (rows[0] ? toMachine(rows[0]) : null))),
 				),
 			saveMachine: (machine) => save(machine).pipe(Effect.asVoid),

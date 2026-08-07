@@ -1,0 +1,232 @@
+import { generateKeyPairSync } from "node:crypto";
+import { access, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { EnvironmentId } from "@zuse/contracts";
+import { Effect, Layer, Stream } from "effect";
+import { afterEach, describe, expect, it } from "vitest";
+import { sealCredentialTransfer } from "../../src/account-access/sealed-transfer.ts";
+import {
+	AccountAccessProcess,
+	type AccountAccessProcessShape,
+	AccountAccessService,
+	AccountAccessServiceLive,
+} from "../../src/account-access/service.ts";
+import { AppPaths } from "../../src/app-paths.ts";
+import { AuthService } from "../../src/auth/services/auth-service.ts";
+import { LanAuthService } from "../../src/lan-auth/services/lan-auth-service.ts";
+import { MachineRuntimeRole } from "../../src/machine/machine-runtime-role.ts";
+import { makeFileCredentialsService } from "../../src/provider/layers/file-credentials-service.ts";
+import { CredentialsService } from "../../src/provider/services/credentials-service.ts";
+
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+	for (const directory of temporaryDirectories.splice(0)) {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+const makeLayer = (
+	userData: string,
+	processRunner: AccountAccessProcessShape = {
+		capture: () =>
+			Effect.succeed({
+				stdout: "Claude Code 2.1.224",
+				stderr: "",
+				code: 0,
+			}),
+		stream: () => Stream.empty,
+	},
+) => {
+	const environmentId = EnvironmentId.make("01JZUSE0000000000000000000");
+	const identity = generateKeyPairSync("ed25519");
+	const privateJwk = JSON.stringify(
+		identity.privateKey.export({ format: "jwk" }),
+	);
+	const publicJwk = JSON.stringify(
+		identity.publicKey.export({ format: "jwk" }),
+	);
+	const credentialsLayer = makeFileCredentialsService(userData);
+	return AccountAccessServiceLive.pipe(
+		Layer.provide(credentialsLayer),
+		Layer.provide(Layer.succeed(AppPaths, { userData })),
+		Layer.provide(Layer.succeed(MachineRuntimeRole, "cloud-environment")),
+		Layer.provide(
+			Layer.succeed(
+				AuthService,
+				AuthService.of({
+					getSession: () => Effect.succeed({ _tag: "SignedOut" }),
+					signIn: () => Effect.die("unused"),
+					signOut: () => Effect.void,
+					sessionChanges: () => Stream.empty,
+					getAccessToken: () => Effect.die("unused"),
+				}),
+			),
+		),
+		Layer.provide(
+			Layer.succeed(LanAuthService, {
+				environmentId: () => Effect.succeed(environmentId),
+				environmentKeys: () =>
+					Effect.succeed({
+						environmentId,
+						envId: environmentId,
+						privateJwk,
+						publicJwk,
+					}),
+				getRelayConfig: () =>
+					Effect.succeed({
+						relayUrl: "https://relay.staging.example",
+						relayIssuer: "https://relay.staging.example",
+						environmentId,
+						environmentCredential: "unused-in-test",
+						label: undefined,
+						connectorToken: undefined,
+						tunnelHostname: undefined,
+						mintPublicKey: undefined,
+					}),
+			} as unknown as LanAuthService["Service"]),
+		),
+		Layer.provide(
+			Layer.succeed(
+				AccountAccessProcess,
+				AccountAccessProcess.of(processRunner),
+			),
+		),
+		Layer.merge(credentialsLayer),
+	);
+};
+
+describe("AccountAccessService", () => {
+	it("imports a prepared Claude credential exactly once", async () => {
+		const userData = await mkdtemp(join(tmpdir(), "zuse-account-access-"));
+		temporaryDirectories.push(userData);
+		const layer = makeLayer(userData);
+
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const service = yield* AccountAccessService;
+				const prepared = yield* service.prepareImport({
+					accountId: "user_01JZUSE0000000000000000000",
+					providerId: "claude",
+				});
+				const sealed = sealCredentialTransfer(prepared, {
+					providerId: "claude",
+					kind: "oauth-token",
+					secret: "remote-oauth-token",
+				});
+				const imported = yield* service.importCredential({
+					transferId: prepared.transferId,
+					sealed,
+				});
+				const credentials = yield* CredentialsService;
+				const stored = yield* credentials.getProviderCredential("claude");
+				const replay = yield* Effect.flip(
+					service.importCredential({
+						transferId: prepared.transferId,
+						sealed,
+					}),
+				);
+				return { imported, stored, replay };
+			}).pipe(Effect.provide(layer)),
+		);
+
+		expect(result.imported).toMatchObject({
+			providerId: "claude",
+			state: "connected",
+			authKind: "oauth-token",
+		});
+		expect(result.stored).toMatchObject({
+			kind: "oauth-token",
+			secret: "remote-oauth-token",
+		});
+		expect(result.replay.code).toBe("transfer-replayed");
+	});
+
+	it("removes only known credential paths before requesting runtime stop", async () => {
+		const userData = await mkdtemp(join(tmpdir(), "zuse-account-cleanup-"));
+		temporaryDirectories.push(userData);
+		const accountHome = join(userData, "home");
+		const credentialPaths = [
+			join(userData, "secrets", "credentials.json"),
+			join(accountHome, ".config", "gh", "hosts.yml"),
+			join(accountHome, ".codex", "auth.json"),
+			join(accountHome, ".claude", ".credentials.json"),
+		];
+		const unrelated = join(accountHome, ".claude", "settings.json");
+		for (const path of [...credentialPaths, unrelated]) {
+			await mkdir(join(path, ".."), { recursive: true });
+			await writeFile(path, "secret", { mode: 0o600 });
+		}
+		const previousHome = process.env.ZUSE_ACCOUNT_ACCESS_HOME;
+		process.env.ZUSE_ACCOUNT_ACCESS_HOME = accountHome;
+		try {
+			await Effect.runPromise(
+				Effect.gen(function* () {
+					const service = yield* AccountAccessService;
+					yield* service.sanitizeCredentials();
+					yield* service.requestRuntimeStop();
+				}).pipe(Effect.provide(makeLayer(userData))),
+			);
+		} finally {
+			if (previousHome === undefined)
+				delete process.env.ZUSE_ACCOUNT_ACCESS_HOME;
+			else process.env.ZUSE_ACCOUNT_ACCESS_HOME = previousHome;
+		}
+
+		for (const path of credentialPaths) {
+			await expect(access(path)).rejects.toThrow();
+		}
+		await expect(access(unrelated)).resolves.toBeUndefined();
+		const marker = join(userData, "credential-cleanup-ready");
+		expect((await stat(marker)).mode & 0o777).toBe(0o600);
+	});
+
+	it("hardens native GitHub and Codex credential stores after login", async () => {
+		const userData = await mkdtemp(join(tmpdir(), "zuse-account-native-"));
+		temporaryDirectories.push(userData);
+		const accountHome = join(userData, "home");
+		const githubDirectory = join(accountHome, ".config", "gh");
+		const codexDirectory = join(accountHome, ".codex");
+		const githubFile = join(githubDirectory, "hosts.yml");
+		const codexFile = join(codexDirectory, "auth.json");
+		for (const [directory, file] of [
+			[githubDirectory, githubFile],
+			[codexDirectory, codexFile],
+		] as const) {
+			await mkdir(directory, { recursive: true, mode: 0o755 });
+			await writeFile(file, "credential", { mode: 0o644 });
+		}
+		const previousHome = process.env.ZUSE_ACCOUNT_ACCESS_HOME;
+		process.env.ZUSE_ACCOUNT_ACCESS_HOME = accountHome;
+		try {
+			await Effect.runPromise(
+				Effect.gen(function* () {
+					const service = yield* AccountAccessService;
+					yield* Stream.runDrain(service.startLogin("github"));
+					yield* Stream.runDrain(service.startLogin("codex"));
+				}).pipe(
+					Effect.provide(
+						makeLayer(userData, {
+							capture: () =>
+								Effect.succeed({ stdout: "account", stderr: "", code: 0 }),
+							stream: () => Stream.make({ _tag: "exit", code: 0 }),
+						}),
+					),
+				),
+			);
+		} finally {
+			if (previousHome === undefined)
+				delete process.env.ZUSE_ACCOUNT_ACCESS_HOME;
+			else process.env.ZUSE_ACCOUNT_ACCESS_HOME = previousHome;
+		}
+
+		for (const directory of [githubDirectory, codexDirectory]) {
+			expect((await stat(directory)).mode & 0o777).toBe(0o700);
+		}
+		for (const file of [githubFile, codexFile]) {
+			expect((await stat(file)).mode & 0o777).toBe(0o600);
+		}
+	});
+});

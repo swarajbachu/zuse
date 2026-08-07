@@ -158,8 +158,17 @@ jobs:
           require("tree-sitter-javascript");
           require("tree-sitter-json");
           require("tree-sitter-typescript");
+          const toolchain = require("./toolchain-manifest.json");
+          if (
+            toolchain.architecture !== "linux-x64" ||
+            toolchain.npmPackages["@openai/codex"] !== "0.144.5"
+          ) {
+            throw new Error("Toolchain manifest verification failed");
+          }
           await import("./bin.mjs");
           NODE
+          node --check runtime-updater.mjs
+          node --check toolchain-reconciler.mjs
 
       - name: Stage release artifacts
         if: steps.publication.outputs.enabled == 'true'

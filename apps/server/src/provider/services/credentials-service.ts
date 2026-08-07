@@ -1,19 +1,46 @@
 import type { ProviderId } from "@zuse/contracts";
-import { Context, type Effect } from "effect";
+import { Context, type Effect, Schema } from "effect";
 
 import type { CredentialsError } from "../errors.ts";
+
+export const ProviderCredentialKind = Schema.Literals([
+	"api-key",
+	"oauth-token",
+]);
+export type ProviderCredentialKind = typeof ProviderCredentialKind.Type;
+
+export class ProviderCredential extends Schema.Class<ProviderCredential>(
+	"ProviderCredential",
+)({
+	kind: ProviderCredentialKind,
+	secret: Schema.String,
+	updatedAt: Schema.Number,
+}) {}
+
+export interface ProviderCredentialInput {
+	readonly kind: ProviderCredentialKind;
+	readonly secret: string;
+}
 
 /**
  * Encrypted-vault credential store keyed by `providerId`. The vault is
  * protected by one cached OS-keychain master key; individual credentials never
  * become Keychain entries. Used by SDK adapters without surfacing keys to the
  * renderer.
- * Set via the `agent.setCredential` RPC; never returned over the wire — only
- * `listConfigured()` is renderer-visible, surfaced as the `hasApiKey` flag
- * on `AgentAvailability`. CLI-login credentials (the primary auth path)
- * never touch this service.
+ * API keys are set via `agent.setCredential`; the cloud account-access flow can
+ * store a sealed Claude OAuth token through the server-side typed methods.
+ * Secrets are never returned over the wire — only `listConfigured()` is
+ * renderer-visible, surfaced as `hasApiKey` on `AgentAvailability`. Native CLI
+ * login stores for GitHub and Codex remain outside this service.
  */
 export interface CredentialsServiceShape {
+	readonly getProviderCredential: (
+		providerId: ProviderId,
+	) => Effect.Effect<ProviderCredential | null, CredentialsError>;
+	readonly setProviderCredential: (
+		providerId: ProviderId,
+		credential: ProviderCredentialInput,
+	) => Effect.Effect<void, CredentialsError>;
 	readonly get: (
 		providerId: ProviderId,
 	) => Effect.Effect<string | null, CredentialsError>;

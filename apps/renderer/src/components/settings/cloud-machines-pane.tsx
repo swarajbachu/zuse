@@ -32,6 +32,7 @@ import {
 import { Button } from "../ui/button.tsx";
 import { Card } from "../ui/card.tsx";
 import { Input } from "../ui/input.tsx";
+import { CloudAccountAccess } from "./cloud-account-access.tsx";
 
 export function CloudMachinesPane() {
 	const [offer, setOffer] = useState<MachineOffer | null>(null);
@@ -312,7 +313,7 @@ export function CloudMachinesPane() {
 
 					{activeProgressStep !== null ? (
 						<section className="min-h-24" aria-label="Machine setup progress">
-							<ol className="grid grid-cols-5 gap-2">
+							<ol className="grid grid-cols-7 gap-2">
 								{cloudMachineProgressSteps.map((step, index) => {
 									const complete = index <= activeProgressStep;
 									const current = index === activeProgressStep;
@@ -377,162 +378,167 @@ export function CloudMachinesPane() {
 
 					{machine.environmentId !== undefined &&
 					getActiveEnvironmentId() === machine.environmentId ? (
-						<div className="space-y-4 rounded-lg border border-border p-3">
-							<div>
-								<p className="font-medium text-sm">Private networking</p>
-								<p className="mt-1 text-muted-foreground text-xs">
-									The key is sent directly to this machine and is never saved.
-								</p>
-							</div>
-							<div className="flex gap-2">
-								<label className="sr-only" htmlFor="private-network-key">
-									Private-network auth key
-								</label>
-								<Input
-									id="private-network-key"
-									type="password"
-									value={networkKey}
-									onChange={(event) => setNetworkKey(event.target.value)}
-									placeholder="Auth key"
-									autoComplete="off"
-									className="min-h-11"
-								/>
-								<Button
-									type="button"
-									disabled={networkKey.length === 0 || action !== null}
-									onClick={() => {
-										void (async () => {
-											setAction("network");
-											try {
-												const client = await getRpcClient();
-												const status = await Effect.runPromise(
-													client["machine.privateNetwork.enable"]({
-														authKey: networkKey,
-														sshMode,
-													}),
-												);
-												setNetwork(status);
-											} catch {
-												setActionError(
-													"Private networking could not be enabled.",
-												);
-											} finally {
-												setNetworkKey("");
-												setAction(null);
-											}
-										})();
-									}}
-									className="min-h-11"
-								>
-									Connect
-								</Button>
-							</div>
-							<fieldset className="space-y-2">
-								<legend className="font-medium text-sm">SSH mode</legend>
-								{(
-									[
-										["authorized-keys", "Standard SSH keys"],
-										["tailnet-identity", "Identity-based SSH"],
-									] as const
-								).map(([mode, label]) => (
-									<label
-										key={mode}
-										className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md border border-border px-3 text-sm"
-									>
-										<input
-											type="radio"
-											name="ssh-mode"
-											value={mode}
-											checked={sshMode === mode}
-											onChange={() => {
-												setSshMode(mode);
-												if (network?.enabled === true) {
-													void (async () => {
-														const client = await getRpcClient();
-														const status = await Effect.runPromise(
-															client["machine.sshMode.set"]({ mode }),
-														);
-														setNetwork(status);
-													})();
-												}
-											}}
-										/>
-										{label}
-									</label>
-								))}
-								{sshMode === "tailnet-identity" ? (
-									<p className="text-amber-600 text-xs">
-										Your network ACL must explicitly allow SSH access to this
-										machine.
+						<>
+							<CloudAccountAccess />
+							<div className="space-y-4 rounded-lg border border-border p-3">
+								<div>
+									<p className="font-medium text-sm">Private networking</p>
+									<p className="mt-1 text-muted-foreground text-xs">
+										The key is sent directly to this machine and is never saved.
 									</p>
-								) : null}
-							</fieldset>
-							{sshMode === "authorized-keys" ? (
-								<div className="space-y-2">
-									<label
-										htmlFor="ssh-public-key"
-										className="font-medium text-sm"
-									>
-										Authorized keys
+								</div>
+								<div className="flex gap-2">
+									<label className="sr-only" htmlFor="private-network-key">
+										Private-network auth key
 									</label>
-									<div className="flex gap-2">
-										<Input
-											id="ssh-public-key"
-											value={sshPublicKey}
-											onChange={(event) => setSshPublicKey(event.target.value)}
-											placeholder="ssh-ed25519 …"
-											className="min-h-11"
-										/>
-										<Button
-											type="button"
-											disabled={sshPublicKey.length === 0}
-											onClick={() => {
-												void (async () => {
+									<Input
+										id="private-network-key"
+										type="password"
+										value={networkKey}
+										onChange={(event) => setNetworkKey(event.target.value)}
+										placeholder="Auth key"
+										autoComplete="off"
+										className="min-h-11"
+									/>
+									<Button
+										type="button"
+										disabled={networkKey.length === 0 || action !== null}
+										onClick={() => {
+											void (async () => {
+												setAction("network");
+												try {
 													const client = await getRpcClient();
-													await Effect.runPromise(
-														client["machine.sshKeys.add"]({
-															publicKey: sshPublicKey,
+													const status = await Effect.runPromise(
+														client["machine.privateNetwork.enable"]({
+															authKey: networkKey,
+															sshMode,
 														}),
 													);
-													setSshPublicKey("");
-													await refreshHostSettings();
-												})();
-											}}
-											className="min-h-11"
+													setNetwork(status);
+												} catch {
+													setActionError(
+														"Private networking could not be enabled.",
+													);
+												} finally {
+													setNetworkKey("");
+													setAction(null);
+												}
+											})();
+										}}
+										className="min-h-11"
+									>
+										Connect
+									</Button>
+								</div>
+								<fieldset className="space-y-2">
+									<legend className="font-medium text-sm">SSH mode</legend>
+									{(
+										[
+											["authorized-keys", "Standard SSH keys"],
+											["tailnet-identity", "Identity-based SSH"],
+										] as const
+									).map(([mode, label]) => (
+										<label
+											key={mode}
+											className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md border border-border px-3 text-sm"
 										>
-											Add
-										</Button>
-									</div>
-									{sshKeys.map((key) => (
-										<div
-											key={key.fingerprint}
-											className="flex min-h-11 items-center gap-2 text-xs"
+											<input
+												type="radio"
+												name="ssh-mode"
+												value={mode}
+												checked={sshMode === mode}
+												onChange={() => {
+													setSshMode(mode);
+													if (network?.enabled === true) {
+														void (async () => {
+															const client = await getRpcClient();
+															const status = await Effect.runPromise(
+																client["machine.sshMode.set"]({ mode }),
+															);
+															setNetwork(status);
+														})();
+													}
+												}}
+											/>
+											{label}
+										</label>
+									))}
+									{sshMode === "tailnet-identity" ? (
+										<p className="text-amber-600 text-xs">
+											Your network ACL must explicitly allow SSH access to this
+											machine.
+										</p>
+									) : null}
+								</fieldset>
+								{sshMode === "authorized-keys" ? (
+									<div className="space-y-2">
+										<label
+											htmlFor="ssh-public-key"
+											className="font-medium text-sm"
 										>
-											<span className="min-w-0 flex-1 truncate">
-												{key.label ?? key.fingerprint}
-											</span>
+											Authorized keys
+										</label>
+										<div className="flex gap-2">
+											<Input
+												id="ssh-public-key"
+												value={sshPublicKey}
+												onChange={(event) =>
+													setSshPublicKey(event.target.value)
+												}
+												placeholder="ssh-ed25519 …"
+												className="min-h-11"
+											/>
 											<Button
 												type="button"
-												variant="ghost"
+												disabled={sshPublicKey.length === 0}
 												onClick={() => {
 													void (async () => {
 														const client = await getRpcClient();
 														await Effect.runPromise(
-															client["machine.sshKeys.remove"]({
-																fingerprint: key.fingerprint,
+															client["machine.sshKeys.add"]({
+																publicKey: sshPublicKey,
 															}),
 														);
+														setSshPublicKey("");
 														await refreshHostSettings();
 													})();
 												}}
+												className="min-h-11"
 											>
-												Remove
+												Add
 											</Button>
 										</div>
-									))}
-								</div>
-							) : null}
-						</div>
+										{sshKeys.map((key) => (
+											<div
+												key={key.fingerprint}
+												className="flex min-h-11 items-center gap-2 text-xs"
+											>
+												<span className="min-w-0 flex-1 truncate">
+													{key.label ?? key.fingerprint}
+												</span>
+												<Button
+													type="button"
+													variant="ghost"
+													onClick={() => {
+														void (async () => {
+															const client = await getRpcClient();
+															await Effect.runPromise(
+																client["machine.sshKeys.remove"]({
+																	fingerprint: key.fingerprint,
+																}),
+															);
+															await refreshHostSettings();
+														})();
+													}}
+												>
+													Remove
+												</Button>
+											</div>
+										))}
+									</div>
+								) : null}
+							</div>
+						</>
 					) : null}
 
 					<div className="flex flex-wrap gap-2 border-border border-t pt-4">
@@ -607,7 +613,7 @@ export function CloudMachinesPane() {
 							onClick={() => {
 								if (
 									!window.confirm(
-										"Destroy this machine now? A final snapshot will be kept temporarily, but access ends immediately.",
+										"Destroy this machine now? Access ends immediately. A sanitized final snapshot is kept temporarily only when credential cleanup can be verified.",
 									)
 								) {
 									return;

@@ -1,15 +1,25 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import type { ProviderId } from "@zuse/contracts";
-import { Effect, Layer } from "effect";
+import { ProviderId } from "@zuse/contracts";
+import { Effect, Layer, Schema } from "effect";
 
 import { CredentialsError } from "../errors.ts";
-import { CredentialsService } from "../services/credentials-service.ts";
+import {
+	CredentialsService,
+	ProviderCredential,
+} from "../services/credentials-service.ts";
 
-type CredentialFile = Readonly<Record<string, string>>;
+const CredentialValues = Schema.Record(Schema.String, Schema.String);
+const ProviderCredentials = Schema.Record(Schema.String, ProviderCredential);
+const CredentialFileV2 = Schema.Struct({
+	version: Schema.Literal(2),
+	values: CredentialValues,
+	providers: ProviderCredentials,
+});
+type CredentialFileV2 = typeof CredentialFileV2.Type;
+const LegacyCredentialFile = Schema.Record(Schema.String, Schema.String);
 
-const providerKey = (providerId: ProviderId): string => `apiKey:${providerId}`;
 const browserKey = (origin: string): string =>
 	`browserCred:${new URL(origin).origin}`;
 const integrationPrefix = (integration: string): string =>
@@ -34,6 +44,36 @@ const asError = (cause: unknown, providerId = "") =>
 		cause,
 	});
 
+const emptyCredentialFile = (): CredentialFileV2 => ({
+	version: 2,
+	values: {},
+	providers: {},
+});
+
+const normalizeCredentialFile = (parsed: unknown): CredentialFileV2 => {
+	const current = Schema.decodeUnknownOption(CredentialFileV2)(parsed);
+	if (current._tag === "Some") return current.value;
+	const legacy = Schema.decodeUnknownSync(LegacyCredentialFile)(parsed);
+	const values: Record<string, string> = {};
+	const providers: Record<string, ProviderCredential> = {};
+	for (const [key, value] of Object.entries(legacy)) {
+		if (key.startsWith("apiKey:")) {
+			const candidate = key.slice("apiKey:".length);
+			const provider = Schema.decodeUnknownOption(ProviderId)(candidate);
+			if (provider._tag === "Some") {
+				providers[provider.value] = ProviderCredential.make({
+					kind: "api-key",
+					secret: value,
+					updatedAt: 0,
+				});
+				continue;
+			}
+		}
+		values[key] = value;
+	}
+	return { version: 2, values, providers };
+};
+
 /**
  * File-backed secret storage for unprivileged Linux hosts. The containing
  * directory is mode 0700 and every atomically replaced file is mode 0600.
@@ -54,31 +94,23 @@ export const makeFileCredentialsService = (
 			return result;
 		};
 
-		const read = async (): Promise<CredentialFile> => {
+		const read = async (): Promise<CredentialFileV2> => {
 			try {
 				const raw = await readFile(filePath, "utf8");
-				const parsed: unknown = JSON.parse(raw);
-				if (
-					parsed === null ||
-					typeof parsed !== "object" ||
-					Array.isArray(parsed)
-				) {
-					throw new Error("Credential file must contain a JSON object");
-				}
-				return parsed as CredentialFile;
+				return normalizeCredentialFile(JSON.parse(raw) as unknown);
 			} catch (cause) {
 				if (
 					cause instanceof Error &&
 					"code" in cause &&
 					cause.code === "ENOENT"
 				) {
-					return {};
+					return emptyCredentialFile();
 				}
 				throw cause;
 			}
 		};
 
-		const write = async (contents: CredentialFile): Promise<void> => {
+		const write = async (contents: CredentialFileV2): Promise<void> => {
 			const directory = dirname(filePath);
 			await mkdir(directory, { recursive: true, mode: 0o700 });
 			await chmod(directory, 0o700);
@@ -102,29 +134,75 @@ export const makeFileCredentialsService = (
 			});
 
 		const get = (key: string, providerId = "") =>
-			operation(async () => (await read())[key] ?? null, providerId);
+			operation(async () => (await read()).values[key] ?? null, providerId);
 		const set = (key: string, value: string, providerId = "") =>
 			operation(async () => {
 				const contents = await read();
-				await write({ ...contents, [key]: value });
+				await write({
+					...contents,
+					values: { ...contents.values, [key]: value },
+				});
 			}, providerId);
 		const remove = (key: string, providerId = "") =>
 			operation(async () => {
-				const contents = { ...(await read()) };
-				delete contents[key];
-				await write(contents);
+				const contents = await read();
+				const values = { ...contents.values };
+				delete values[key];
+				await write({ ...contents, values });
 			}, providerId);
 
 		return CredentialsService.of({
-			get: (providerId) => get(providerKey(providerId), providerId),
+			getProviderCredential: (providerId) =>
+				operation(
+					async () => (await read()).providers[providerId] ?? null,
+					providerId,
+				),
+			setProviderCredential: (providerId, credential) =>
+				operation(async () => {
+					const contents = await read();
+					await write({
+						...contents,
+						providers: {
+							...contents.providers,
+							[providerId]: ProviderCredential.make({
+								...credential,
+								updatedAt: Date.now(),
+							}),
+						},
+					});
+				}, providerId),
+			get: (providerId) =>
+				operation(
+					async () => (await read()).providers[providerId]?.secret ?? null,
+					providerId,
+				),
 			set: (providerId, apiKey) =>
-				set(providerKey(providerId), apiKey, providerId),
-			remove: (providerId) => remove(providerKey(providerId), providerId),
+				operation(async () => {
+					const contents = await read();
+					await write({
+						...contents,
+						providers: {
+							...contents.providers,
+							[providerId]: ProviderCredential.make({
+								kind: "api-key",
+								secret: apiKey,
+								updatedAt: Date.now(),
+							}),
+						},
+					});
+				}, providerId),
+			remove: (providerId) =>
+				operation(async () => {
+					const contents = await read();
+					const providers = { ...contents.providers };
+					delete providers[providerId];
+					await write({ ...contents, providers });
+				}, providerId),
 			listConfigured: () =>
 				operation(async () => {
 					const contents = await read();
 					return knownProviders.filter(
-						(providerId) => contents[providerKey(providerId)] !== undefined,
+						(providerId) => contents.providers[providerId] !== undefined,
 					);
 				}),
 			setBrowser: (origin, username, password) =>
@@ -145,7 +223,7 @@ export const makeFileCredentialsService = (
 			listBrowser: () =>
 				operation(async () => {
 					const contents = await read();
-					return Object.entries(contents).flatMap(([key, value]) => {
+					return Object.entries(contents.values).flatMap(([key, value]) => {
 						if (!key.startsWith("browserCred:")) return [];
 						const parsed = JSON.parse(value) as { readonly username: string };
 						return [
@@ -168,7 +246,7 @@ export const makeFileCredentialsService = (
 			listIntegrationAccounts: (integration) =>
 				operation(async () => {
 					const prefix = integrationPrefix(integration);
-					return Object.keys(await read())
+					return Object.keys((await read()).values)
 						.filter((key) => key.startsWith(prefix))
 						.map((key) => key.slice(prefix.length));
 				}),

@@ -415,6 +415,7 @@ describe("machine reconciler", () => {
 					state: "destroying",
 					desiredState: "destroyed",
 					statusCode: "destruction-queued",
+					credentialCleanupCompletedAtMs: Date.now(),
 					nextActionAtMs: 0,
 				});
 				yield* reconcileMachines({ owner: "destroy" });
@@ -452,5 +453,137 @@ describe("machine reconciler", () => {
 		expect(result.serversAfterDestroy.size).toBe(0);
 		expect(result.final?.finalSnapshotId).toBeUndefined();
 		expect(result.snapshotsAfterExpiry.size).toBe(0);
+	});
+
+	test("waits for credential cleanup before taking a final snapshot", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const seeded = yield* seedMachine(Date.now() - 2_000);
+				const store = yield* MachineStore;
+				const control = yield* FakeMachineProviderControlService;
+				yield* reconcileMachines({ owner: "create-cleanup" });
+				const provisioned = yield* store.getMachine(seeded.machineId);
+				if (provisioned?.providerServerId === undefined) {
+					return yield* Effect.die("machine was not provisioned");
+				}
+				yield* Ref.update(control.servers, (servers) => {
+					const server = servers.get(provisioned.providerServerId as string);
+					return server === undefined
+						? servers
+						: new Map(servers).set(provisioned.providerServerId as string, {
+								...server,
+								powerState: "off",
+							});
+				});
+				yield* store.saveMachine({
+					...provisioned,
+					environmentId: "env_cleanup",
+					state: "destroying",
+					desiredState: "destroyed",
+					statusCode: "destruction-queued",
+					nextActionAtMs: 0,
+				});
+				yield* reconcileMachines({ owner: "request-cleanup" });
+				const waiting = yield* store.getMachine(seeded.machineId);
+				if (waiting === null)
+					return yield* Effect.die("missing waiting machine");
+				const snapshotsWhileWaiting = yield* Ref.get(control.snapshots);
+				const serverWhileWaiting = (yield* Ref.get(control.servers)).get(
+					provisioned.providerServerId,
+				);
+				yield* store.saveMachine({
+					...waiting,
+					credentialCleanupCompletedAtMs: Date.now(),
+					nextActionAtMs: 0,
+				});
+				yield* reconcileMachines({ owner: "finish-cleanup" });
+				return {
+					waiting,
+					serverWhileWaiting,
+					snapshotsWhileWaiting,
+					final: yield* store.getMachine(seeded.machineId),
+					snapshotsAfterCleanup: yield* Ref.get(control.snapshots),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.waiting.credentialCleanupRequestedAtMs).toBeTypeOf("number");
+		expect(result.serverWhileWaiting?.powerState).toBe("running");
+		expect(result.snapshotsWhileWaiting.size).toBe(0);
+		expect(result.final?.state).toBe("destroyed");
+		expect(result.snapshotsAfterCleanup.size).toBe(1);
+	});
+
+	test("deletes without a final snapshot when cleanup cannot be verified", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const seeded = yield* seedMachine(Date.now() - 2_000);
+				const store = yield* MachineStore;
+				const control = yield* FakeMachineProviderControlService;
+				yield* reconcileMachines({ owner: "create-unverified" });
+				const provisioned = yield* store.getMachine(seeded.machineId);
+				if (provisioned?.providerServerId === undefined) {
+					return yield* Effect.die("machine was not provisioned");
+				}
+				yield* store.saveMachine({
+					...provisioned,
+					environmentId: "env_unverified",
+					state: "destroying",
+					desiredState: "destroyed",
+					statusCode: "destruction-queued",
+					credentialCleanupRequestedAtMs: 1,
+					credentialCleanupDeadlineMs: 2,
+					nextActionAtMs: 0,
+				});
+				yield* reconcileMachines({ owner: "skip-snapshot" });
+				return {
+					machine: yield* store.getMachine(seeded.machineId),
+					snapshots: yield* Ref.get(control.snapshots),
+					servers: yield* Ref.get(control.servers),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.machine).toMatchObject({
+			state: "destroyed",
+			finalSnapshotSkipped: true,
+			stableFailureCode: "credential-cleanup-unverified",
+		});
+		expect(result.snapshots.size).toBe(0);
+		expect(result.servers.size).toBe(0);
+	});
+
+	test("fails closed when a machine has no environment to acknowledge cleanup", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const seeded = yield* seedMachine(Date.now() - 2_000);
+				const store = yield* MachineStore;
+				const control = yield* FakeMachineProviderControlService;
+				yield* reconcileMachines({ owner: "create-without-environment" });
+				const provisioned = yield* store.getMachine(seeded.machineId);
+				if (provisioned?.providerServerId === undefined) {
+					return yield* Effect.die("machine was not provisioned");
+				}
+				yield* store.saveMachine({
+					...provisioned,
+					state: "destroying",
+					desiredState: "destroyed",
+					statusCode: "destruction-queued",
+					nextActionAtMs: 0,
+				});
+				yield* reconcileMachines({ owner: "destroy-without-environment" });
+				return {
+					machine: yield* store.getMachine(seeded.machineId),
+					snapshots: yield* Ref.get(control.snapshots),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.machine).toMatchObject({
+			state: "destroyed",
+			finalSnapshotSkipped: true,
+			stableFailureCode: "credential-cleanup-unverified",
+		});
+		expect(result.snapshots.size).toBe(0);
 	});
 });

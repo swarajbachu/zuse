@@ -6,7 +6,8 @@ import { cloudMachineProgress } from "../../src/lib/cloud-machine-progress.ts";
 const progressFor = (
 	state: MachineRecord["state"],
 	statusCode: MachineRecord["statusCode"],
-) => cloudMachineProgress({ state, statusCode });
+	bootPhase?: MachineRecord["bootPhase"],
+) => cloudMachineProgress({ state, statusCode, bootPhase });
 
 describe("cloud machine progress", () => {
 	it("shows payment as confirmed while the server is queued", () => {
@@ -34,12 +35,25 @@ describe("cloud machine progress", () => {
 		expect(progressFor("bootstrapping", "bootstrap-pending").activeStep).toBe(
 			2,
 		);
-		expect(progressFor("enrolling", "enrollment-pending").activeStep).toBe(3);
+		expect(
+			progressFor("bootstrapping", "bootstrap-pending", "runtime-installed"),
+		).toMatchObject({
+			activeStep: 3,
+			headline: "Installing developer tools",
+		});
+		expect(
+			progressFor(
+				"bootstrapping",
+				"bootstrap-pending",
+				"developer-tools-installed",
+			),
+		).toMatchObject({ activeStep: 4, headline: "Starting Zuse" });
+		expect(progressFor("enrolling", "enrollment-pending").activeStep).toBe(5);
 	});
 
 	it("marks all setup stages complete when ready", () => {
 		expect(progressFor("ready", "ready")).toMatchObject({
-			activeStep: 4,
+			activeStep: 6,
 			headline: "Your cloud machine is ready",
 			label: "Ready",
 			tone: "success",

@@ -10,6 +10,10 @@ const reconciliationMigrationUrl = new URL(
 	"../../drizzle/migrations/0003_managed_cloud_machines.sql",
 	import.meta.url,
 );
+const credentialCleanupMigrationUrl = new URL(
+	"../../drizzle/migrations/0004_credential_cleanup_handshake.sql",
+	import.meta.url,
+);
 
 describe("relay migration reconciliation", () => {
 	test("keeps the main migration history before managed cloud machines", async () => {
@@ -25,6 +29,7 @@ describe("relay migration reconciliation", () => {
 			{ idx: 1, tag: "0001_next_catseye" },
 			{ idx: 2, tag: "0002_absurd_leader" },
 			{ idx: 3, tag: "0003_managed_cloud_machines" },
+			{ idx: 4, tag: "0004_credential_cleanup_handshake" },
 		]);
 	});
 
@@ -51,6 +56,21 @@ describe("relay migration reconciliation", () => {
 		expect(migration).toContain("SELECT 1 FROM pg_constraint");
 		expect(migration).toContain(
 			'CREATE UNIQUE INDEX IF NOT EXISTS "relay_machines_account_idempotency_idx"',
+		);
+	});
+
+	test("persists the final-snapshot credential cleanup handshake", async () => {
+		const migration = await readFile(credentialCleanupMigrationUrl, "utf8");
+
+		expect(migration).toContain('ADD COLUMN "boot_phase" text');
+		expect(migration).toContain(
+			'ADD COLUMN "credential_cleanup_requested_at" bigint',
+		);
+		expect(migration).toContain(
+			'ADD COLUMN "credential_cleanup_completed_at" bigint',
+		);
+		expect(migration).toContain(
+			'ADD COLUMN "final_snapshot_skipped" boolean DEFAULT false NOT NULL',
 		);
 	});
 });

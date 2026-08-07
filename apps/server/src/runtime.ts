@@ -8,6 +8,10 @@ import { GitServiceLive } from "@zuse/git/git-service-live";
 import { WorktreeServiceLive } from "@zuse/git/worktree-service-live";
 import { Effect, Layer } from "effect";
 import { RpcServer } from "effect/unstable/rpc";
+import {
+	AccountAccessProcessLive,
+	AccountAccessServiceLive,
+} from "./account-access/service.ts";
 import { AnalyticsServiceLive } from "./analytics/layers/analytics-service.ts";
 import { AppPaths, type TelemetryIdentity } from "./app-paths.ts";
 import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
@@ -268,6 +272,10 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const CredentialsLayer = deps.credentialsLayer.pipe(
 		Layer.provide(AppPathsLayer),
 	);
+	const MachineRuntimeRoleLayer = Layer.succeed(
+		MachineRuntimeRole,
+		deps.machineRuntimeRole ?? "control-plane",
+	);
 
 	// Auth owns the account transition that analytics uses to move between a
 	// random installation identity and a namespaced account hash.
@@ -427,12 +435,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 	const MachineControlLayer = MachineControlServiceLive.pipe(
 		Layer.provide(AuthLayer),
-		Layer.provide(
-			Layer.succeed(
-				MachineRuntimeRole,
-				deps.machineRuntimeRole ?? "control-plane",
-			),
-		),
+		Layer.provide(MachineRuntimeRoleLayer),
 	);
 	const MachineHostLayer = MachineHostServiceLive.pipe(
 		Layer.provide(AppPathsLayer),
@@ -441,12 +444,15 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 				Layer.provide(EnrolledLanAuthLayer),
 			),
 		),
-		Layer.provide(
-			Layer.succeed(
-				MachineRuntimeRole,
-				deps.machineRuntimeRole ?? "control-plane",
-			),
-		),
+		Layer.provide(MachineRuntimeRoleLayer),
+	);
+	const AccountAccessLayer = AccountAccessServiceLive.pipe(
+		Layer.provide(AccountAccessProcessLive),
+		Layer.provide(AuthLayer),
+		Layer.provide(EnrolledLanAuthLayer),
+		Layer.provide(CredentialsLayer),
+		Layer.provide(AppPathsLayer),
+		Layer.provide(MachineRuntimeRoleLayer),
 	);
 
 	const ConversationServicesLayer = ConversationServicesLive.pipe(
@@ -502,6 +508,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	// reuses the environment identity (LanAuthService) and the WorkOS token
 	// (AuthService); the renderer's Devices pane drives it via relay.* RPCs.
 	const RelayLinkLayer = RelayLinkServiceLive.pipe(
+		Layer.provide(AccountAccessLayer),
 		Layer.provide(EnrolledLanAuthLayer),
 		Layer.provide(LanAuthConfigLayer),
 		Layer.provide(AuthLayer),
@@ -564,6 +571,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		LinearLayer,
 		MachineControlLayer,
 		MachineHostLayer,
+		AccountAccessLayer,
 		FolderPickerLayer,
 	);
 

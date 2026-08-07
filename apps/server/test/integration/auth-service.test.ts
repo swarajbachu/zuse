@@ -80,6 +80,8 @@ const makeHarness = (
 	const CredentialsLayer = Layer.succeed(
 		CredentialsService,
 		CredentialsService.of({
+			getProviderCredential: (_providerId: ProviderId) => Effect.succeed(null),
+			setProviderCredential: () => Effect.void,
 			get: (_providerId: ProviderId) => Effect.succeed(null),
 			set: (_providerId: ProviderId, _apiKey: string) => Effect.void,
 			remove: (_providerId: ProviderId) => Effect.void,

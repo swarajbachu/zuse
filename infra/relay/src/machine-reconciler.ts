@@ -28,6 +28,7 @@ export type MachineReconcilerContext =
 
 const MAX_ATTEMPTS = 8;
 const MAX_BACKOFF_MS = 15 * 60 * 1_000;
+const CREDENTIAL_CLEANUP_TIMEOUT_MS = 5 * 60 * 1_000;
 
 const retryAt = (nowMs: number, attemptCount: number): number =>
 	nowMs +
@@ -411,14 +412,97 @@ const reconcileDestroyedTarget = Effect.fn("reconcileDestroyedTarget")(
 		let updated = machine;
 		if (
 			machine.providerServerId !== undefined &&
-			machine.finalSnapshotId === undefined
+			machine.finalSnapshotId === undefined &&
+			machine.finalSnapshotSkipped !== true &&
+			machine.credentialCleanupCompletedAtMs === undefined
 		) {
+			if (machine.environmentId === undefined) {
+				updated = {
+					...machine,
+					finalSnapshotSkipped: true,
+					stableFailureCode: "credential-cleanup-unverified",
+					lastError:
+						"Final snapshot skipped because no environment could verify credential cleanup",
+					updatedAtMs: nowMs,
+				};
+			} else if (machine.credentialCleanupRequestedAtMs === undefined) {
+				const inspected = yield* provider
+					.inspect(machine.providerServerId)
+					.pipe(Effect.result);
+				if (inspected._tag === "Failure") {
+					return withProviderFailure(machine, nowMs, inspected.failure);
+				}
+				if (inspected.success === null) {
+					updated = {
+						...machine,
+						finalSnapshotSkipped: true,
+						stableFailureCode: "credential-cleanup-unverified",
+						lastError:
+							"Final snapshot skipped because the provider server was missing",
+						updatedAtMs: nowMs,
+					};
+				} else {
+					if (inspected.success.powerState === "off") {
+						const poweredOn = yield* provider
+							.powerOn(machine.providerServerId)
+							.pipe(Effect.result);
+						if (poweredOn._tag === "Failure") {
+							return withProviderFailure(machine, nowMs, poweredOn.failure);
+						}
+					}
+					return {
+						...machine,
+						state: "destroying" as const,
+						statusCode: "destruction-queued" as const,
+						credentialCleanupRequestedAtMs: nowMs,
+						credentialCleanupDeadlineMs: nowMs + CREDENTIAL_CLEANUP_TIMEOUT_MS,
+						nextActionAtMs: nowMs + 30_000,
+						updatedAtMs: nowMs,
+					};
+				}
+			} else if ((machine.credentialCleanupDeadlineMs ?? 0) > nowMs) {
+				return {
+					...machine,
+					state: "destroying" as const,
+					statusCode: "destruction-queued" as const,
+					nextActionAtMs: Math.min(
+						nowMs + 30_000,
+						machine.credentialCleanupDeadlineMs ?? nowMs + 30_000,
+					),
+					updatedAtMs: nowMs,
+				};
+			} else {
+				updated = {
+					...machine,
+					finalSnapshotSkipped: true,
+					stableFailureCode: "credential-cleanup-unverified",
+					lastError:
+						"Final snapshot skipped because credential cleanup was not verified",
+					updatedAtMs: nowMs,
+				};
+			}
+		}
+		if (
+			updated.providerServerId !== undefined &&
+			updated.finalSnapshotId === undefined &&
+			updated.finalSnapshotSkipped !== true
+		) {
+			const poweredOff = yield* provider
+				.powerOff(updated.providerServerId)
+				.pipe(Effect.result);
+			if (poweredOff._tag === "Failure") {
+				return withProviderFailure(
+					{ ...updated, state: "destroying" },
+					nowMs,
+					poweredOff.failure,
+				);
+			}
 			const snapshot = yield* provider
-				.snapshot(machine.providerServerId, `final-${machine.machineId}`)
+				.snapshot(updated.providerServerId, `final-${updated.machineId}`)
 				.pipe(Effect.result);
 			if (snapshot._tag === "Failure") {
 				return withProviderFailure(
-					{ ...machine, state: "destroying" },
+					{ ...updated, state: "destroying" },
 					nowMs,
 					snapshot.failure,
 				);
