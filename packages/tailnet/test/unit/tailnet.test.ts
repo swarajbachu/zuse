@@ -5,8 +5,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+	authorizeTailnetOperator,
 	extractTailnetApprovalUrl,
 	inspectTailnetShare,
+	isTailnetOperatorPermissionError,
 	makeTailnetCommandRunner,
 	parseTailnetStatus,
 	resolveTailnetExecutable,
@@ -81,6 +83,62 @@ describe("tailnet sharing", () => {
 			"daemon-unavailable",
 		);
 		expect(tailnetOutputHint("", "not logged in")).toBe("signed-out");
+	});
+
+	it("recognizes the Linux operator permission failure", () => {
+		expect(
+			isTailnetOperatorPermissionError(
+				"sending serve config: Access denied: serve config denied Use 'sudo tailscale serve --bg --yes 127.0.0.1:8788'. To not require root, use 'sudo tailscale set --operator=$USER' once.",
+			),
+		).toBe(true);
+		expect(
+			isTailnetOperatorPermissionError("Tailscale Serve is already configured"),
+		).toBe(false);
+	});
+
+	it("authorizes the current Linux user through a graphical privilege prompt", async () => {
+		const calls: Array<{
+			readonly args: ReadonlyArray<string>;
+			readonly timeoutMs?: number;
+		}> = [];
+		const authorization = await authorizeTailnetOperator(
+			{
+				username: "alice",
+				platform: "linux",
+				canExecute: (path) =>
+					path === "/usr/bin/pkexec" || path === "/usr/bin/tailscale",
+			},
+			async (args, timeoutMs) => {
+				calls.push({ args, timeoutMs });
+				return result("");
+			},
+		);
+
+		expect(authorization).toEqual({
+			authorized: true,
+			manualCommand: "sudo tailscale set --operator=$USER",
+			detail: null,
+		});
+		expect(calls).toEqual([
+			{
+				args: ["/usr/bin/tailscale", "set", "--operator=alice"],
+				timeoutMs: 120_000,
+			},
+		]);
+	});
+
+	it("falls back to the one-time command when no privilege prompt exists", async () => {
+		await expect(
+			authorizeTailnetOperator({
+				username: "alice",
+				platform: "linux",
+				canExecute: () => false,
+			}),
+		).resolves.toEqual({
+			authorized: false,
+			manualCommand: "sudo tailscale set --operator=$USER",
+			detail: "A graphical administrator prompt is unavailable.",
+		});
 	});
 
 	it("stops a waiting Serve command as soon as it prints an approval URL", async () => {

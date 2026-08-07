@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants } from "node:fs";
+import { accessSync, constants, statSync } from "node:fs";
 
 import { TailnetShareState } from "@zuse/contracts";
 
@@ -129,6 +129,99 @@ export const tailnetOutputHint = (
 		return "serve-configuration";
 	}
 	return "unknown";
+};
+
+export const isTailnetOperatorPermissionError = (value: string): boolean => {
+	const normalized = value.toLowerCase();
+	return (
+		(normalized.includes("serve config denied") ||
+			normalized.includes("access denied")) &&
+		(normalized.includes("--operator=") ||
+			normalized.includes("not require root"))
+	);
+};
+
+export type TailnetOperatorAuthorization = {
+	readonly authorized: boolean;
+	readonly manualCommand: string;
+	readonly detail: string | null;
+};
+
+const LINUX_TAILSCALE_PATHS = [
+	"/usr/bin/tailscale",
+	"/usr/sbin/tailscale",
+	"/usr/local/bin/tailscale",
+] as const;
+
+export const authorizeTailnetOperator = async (
+	input: {
+		readonly username: string;
+		readonly platform?: NodeJS.Platform;
+		readonly canExecute?: (path: string) => boolean;
+	},
+	runElevated: TailnetCommandRunner = (args, timeoutMs) =>
+		runTailnetCommand(args, timeoutMs, "/usr/bin/pkexec"),
+): Promise<TailnetOperatorAuthorization> => {
+	const manualCommand = "sudo tailscale set --operator=$USER";
+	if ((input.platform ?? process.platform) !== "linux") {
+		return {
+			authorized: false,
+			manualCommand,
+			detail: "Automatic Tailscale authorization is available only on Linux.",
+		};
+	}
+	if (
+		!/^[A-Za-z0-9._-]+$/u.test(input.username) ||
+		input.username.startsWith("-")
+	) {
+		return {
+			authorized: false,
+			manualCommand,
+			detail: "The current Linux username cannot be authorized automatically.",
+		};
+	}
+	const canExecute =
+		input.canExecute ??
+		((path: string): boolean => {
+			try {
+				accessSync(path, constants.X_OK);
+				const stat = statSync(path);
+				return stat.isFile() && stat.uid === 0 && (stat.mode & 0o022) === 0;
+			} catch {
+				return false;
+			}
+		});
+	const executable = LINUX_TAILSCALE_PATHS.find(canExecute);
+	if (executable === undefined || !canExecute("/usr/bin/pkexec")) {
+		return {
+			authorized: false,
+			manualCommand,
+			detail: "A graphical administrator prompt is unavailable.",
+		};
+	}
+	try {
+		const result = await runElevated(
+			[executable, "set", `--operator=${input.username}`],
+			120_000,
+		);
+		return {
+			authorized: result.code === 0,
+			manualCommand,
+			detail:
+				result.code === 0
+					? null
+					: (compactDiagnostic(result.stderr || result.stdout) ??
+						"Administrator authorization was cancelled."),
+		};
+	} catch (cause) {
+		return {
+			authorized: false,
+			manualCommand,
+			detail: compactDiagnostic(
+				cause instanceof Error ? cause.message : String(cause),
+			),
+		};
+	}
 };
 
 export const runTailnetCommand = (

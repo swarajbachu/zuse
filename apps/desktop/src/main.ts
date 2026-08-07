@@ -16,6 +16,7 @@ import {
 	arch as osArch,
 	release as osRelease,
 	totalmem,
+	userInfo,
 } from "node:os";
 import * as Path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
@@ -51,10 +52,14 @@ import {
 	type PowerSnapshot,
 	type PowerThermalState,
 	PowerWorkloadState,
+	TailnetShareState,
 } from "@zuse/contracts";
 import {
+	authorizeTailnetOperator,
 	inspectTailnetShare,
+	isTailnetOperatorPermissionError,
 	makeTailnetCommandRunner,
+	runTailnetCommand,
 	setTailnetShareEnabled,
 	type TailnetDiagnosticEvent,
 } from "@zuse/tailnet";
@@ -1942,10 +1947,38 @@ async function createMainWindow() {
 			if (typeof enabled !== "boolean") {
 				throw new TypeError("Tailnet sharing must be enabled or disabled.");
 			}
-			return setTailnetShareEnabled(
+			const next = await setTailnetShareEnabled(
 				{ enabled, port: relayPort.port },
 				tailnetCommandRunner,
 			);
+			if (
+				process.platform !== "linux" ||
+				!enabled ||
+				next.detail === null ||
+				!isTailnetOperatorPermissionError(next.detail)
+			) {
+				return next;
+			}
+			const authorization = await authorizeTailnetOperator(
+				{ username: userInfo().username },
+				(args, timeoutMs) =>
+					runTailnetCommand(
+						args,
+						timeoutMs,
+						"/usr/bin/pkexec",
+						persistTailnetDiagnostic,
+					),
+			);
+			if (authorization.authorized) {
+				return setTailnetShareEnabled(
+					{ enabled: true, port: relayPort.port },
+					tailnetCommandRunner,
+				);
+			}
+			return TailnetShareState.make({
+				...next,
+				detail: `Linux administrator permission was not granted. Run ${authorization.manualCommand} once, then try again.`,
+			});
 		},
 	);
 	ipcMain.handle(
