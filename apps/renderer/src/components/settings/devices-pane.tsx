@@ -11,7 +11,6 @@ import {
 	ExternalLink,
 	Monitor,
 	QrCode,
-	RefreshCw,
 	Server,
 	Smartphone,
 	Wifi,
@@ -48,7 +47,17 @@ import {
 } from "../ui/alert-dialog.tsx";
 import { Button } from "../ui/button.tsx";
 import { Card } from "../ui/card.tsx";
+import {
+	Dialog,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogPanel,
+	DialogPopup,
+	DialogTitle,
+} from "../ui/dialog.tsx";
 import { Frame, FrameFooter, FrameHeader, FrameTitle } from "../ui/frame.tsx";
+import { RadioGroup, RadioGroupItem } from "../ui/radio-group.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 import { Switch } from "../ui/switch.tsx";
 import { toastManager } from "../ui/toast.tsx";
@@ -63,6 +72,8 @@ type AccessDialog =
 	| "tailscale-enable"
 	| "tailscale-disable"
 	| null;
+
+type PairingProvider = "account" | "tailscale" | "local";
 
 const messageForError = (cause: unknown): string => {
 	const formatted = formatError(cause);
@@ -164,6 +175,9 @@ export function DevicesPane() {
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [pairingBusy, setPairingBusy] = useState(false);
+	const [pairingDialogOpen, setPairingDialogOpen] = useState(false);
+	const [pairingProvider, setPairingProvider] =
+		useState<PairingProvider>("account");
 	const [tailnetBusy, setTailnetBusy] = useState(false);
 	const [pairingTarget, setPairingTarget] = useState<"browser" | "mobile">(
 		"browser",
@@ -289,10 +303,7 @@ export function DevicesPane() {
 	);
 
 	const startPairing = useCallback(
-		async (
-			target: "browser" | "mobile",
-			privateAccess: TailnetShareState | null = tailnet,
-		) => {
+		async (target: "browser" | "mobile", provider: PairingProvider) => {
 			if (pairingBusy) return;
 			setPairingTarget(target);
 			setPairingBusy(true);
@@ -304,9 +315,26 @@ export function DevicesPane() {
 						.map((token) => token.id),
 				);
 				const next = await Effect.runPromise(client["pairing.start"]({}));
-				if (privateAccess?.enabled === true && privateAccess.dnsName !== null) {
-					const httpBaseUrl = `https://${privateAccess.dnsName}`;
-					const wsBaseUrl = `wss://${privateAccess.dnsName}/rpc`;
+				const accountEndpoint = status?.advertisedEndpoints?.find(
+					(endpoint) =>
+						(endpoint.reachability === "tunnel" ||
+							endpoint.reachability === "public") &&
+						endpoint.status !== "unavailable",
+				);
+				if (provider === "account" && accountEndpoint !== undefined) {
+					setPairing({
+						...next,
+						pairingUrl: accountEndpoint.wsBaseUrl,
+						browserUrl: `${accountEndpoint.httpBaseUrl}/#pair=${encodeURIComponent(next.code)}`,
+						qrText: `zuse:///connect/pair?pairingUrl=${encodeURIComponent(accountEndpoint.wsBaseUrl)}#token=${next.code}`,
+					});
+				} else if (
+					provider === "tailscale" &&
+					tailnet?.enabled === true &&
+					tailnet.dnsName !== null
+				) {
+					const httpBaseUrl = `https://${tailnet.dnsName}`;
+					const wsBaseUrl = `wss://${tailnet.dnsName}/rpc`;
 					setPairing({
 						...next,
 						pairingUrl: wsBaseUrl,
@@ -322,7 +350,7 @@ export function DevicesPane() {
 				setPairingBusy(false);
 			}
 		},
-		[pairingBusy, tailnet, tokens],
+		[pairingBusy, status?.advertisedEndpoints, tailnet, tokens],
 	);
 
 	const revokeToken = useCallback(async (token: AuthTokenSummary) => {
@@ -450,8 +478,6 @@ export function DevicesPane() {
 		groupPairedDeviceTokens(tokens);
 	const hasActiveTokens =
 		identifiedDevices.length > 0 || legacyCredentials.length > 0;
-	const canConnectDevice =
-		tailnet?.enabled === true || networkEnabled || remoteReady;
 	const alternativeAccessMethods = [
 		...(tailnet?.enabled === true ? ["Tailscale"] : []),
 		...(networkEnabled ? ["local network"] : []),
@@ -459,9 +485,9 @@ export function DevicesPane() {
 	const browserUrl =
 		pairing === null
 			? null
-			: tailnet?.enabled === true
-				? pairing.browserUrl
-				: preferredBrowserPairingUrl(pairing, status);
+			: pairingProvider === "account"
+				? preferredBrowserPairingUrl(pairing, status)
+				: pairing.browserUrl;
 	const preparingConnection = pairingBusy;
 	return (
 		<section className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3 text-xs">
@@ -479,18 +505,13 @@ export function DevicesPane() {
 						</div>
 						<Button
 							onClick={() => {
-								if (canConnectDevice) void startPairing("mobile");
-								else setAccessDialog("serve-enable");
+								setPairing(null);
+								setPairingProvider("account");
+								setPairingDialogOpen(true);
 							}}
 							disabled={preparingConnection || busy}
 						>
-							{preparingConnection
-								? "Creating link…"
-								: canConnectDevice
-									? "Connect device"
-									: linked
-										? "Reconnect"
-										: "Set up Zuse Serve"}
+							Create pairing link
 						</Button>
 					</div>
 					<div className="flex min-h-10 items-center gap-2 border-t border-border/40 px-4 text-[11px] text-muted-foreground">
@@ -523,115 +544,6 @@ export function DevicesPane() {
 					On a headless computer, run <code>zuse serve</code> once.
 				</FrameFooter>
 			</Frame>
-
-			{pairing !== null && (
-				<Frame>
-					<FrameHeader className="px-2 py-1.5">
-						<FrameTitle className="text-[13px] font-medium">
-							{pairingTarget === "browser"
-								? "Connect a web browser"
-								: "Connect another device"}
-						</FrameTitle>
-						<p className="mt-0.5 text-[11px] text-muted-foreground">
-							This one-time link expires in five minutes. Access remains until
-							you revoke the connected device below.
-						</p>
-					</FrameHeader>
-					<Card>
-						<div className="grid gap-3 p-3 sm:grid-cols-[132px_1fr]">
-							<div
-								className="flex size-[132px] items-center justify-center rounded-lg bg-white p-2.5"
-								role="img"
-								aria-label="Pairing QR code"
-							>
-								<QRCodeSVG
-									value={
-										pairingTarget === "browser"
-											? (browserUrl ?? pairing.browserUrl)
-											: pairing.qrText
-									}
-									size={112}
-									level="M"
-								/>
-							</div>
-							<div className="flex min-w-0 flex-col justify-center gap-2.5">
-								<div className="flex flex-wrap gap-2">
-									<Button
-										size="xs"
-										variant="outline"
-										onClick={() =>
-											setPairingTarget((current) =>
-												current === "browser" ? "mobile" : "browser",
-											)
-										}
-									>
-										<QrCode aria-hidden />
-										{pairingTarget === "browser"
-											? "Show phone QR"
-											: "Show browser QR"}
-									</Button>
-									{pairingTarget === "browser" && (
-										<>
-											<Button
-												size="xs"
-												variant="outline"
-												onClick={() =>
-													void copyText(browserUrl ?? pairing.browserUrl)
-												}
-											>
-												<Copy aria-hidden />
-												Copy web link
-											</Button>
-											<Button
-												size="xs"
-												onClick={() =>
-													void openExternal(browserUrl ?? pairing.browserUrl)
-												}
-											>
-												<ExternalLink aria-hidden />
-												Open web app
-											</Button>
-										</>
-									)}
-									{pairingTarget === "mobile" && (
-										<Button
-											size="xs"
-											variant="outline"
-											onClick={() => void copyText(pairing.qrText)}
-										>
-											<Copy aria-hidden />
-											Copy pairing link
-										</Button>
-									)}
-								</div>
-								<div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-muted/30 p-2">
-									<code className="min-w-0 flex-1 truncate text-xs">
-										{pairing.code}
-									</code>
-									<Button
-										size="icon-sm"
-										variant="ghost"
-										aria-label="Copy pairing code"
-										onClick={() =>
-											void navigator.clipboard.writeText(pairing.code)
-										}
-									>
-										<Copy aria-hidden />
-									</Button>
-								</div>
-								<Button
-									size="xs"
-									variant="outline"
-									onClick={() => void startPairing(pairingTarget)}
-								>
-									<RefreshCw aria-hidden />
-									New code
-								</Button>
-							</div>
-						</div>
-					</Card>
-				</Frame>
-			)}
 
 			<Frame>
 				<FrameHeader className="px-2 py-1.5">
@@ -779,6 +691,202 @@ export function DevicesPane() {
 					</div>
 				</Card>
 			</Frame>
+
+			<Dialog
+				open={pairingDialogOpen}
+				onOpenChange={(open) => {
+					if (pairingBusy) return;
+					setPairingDialogOpen(open);
+					if (!open) setPairing(null);
+				}}
+			>
+				<DialogPopup className="max-w-md">
+					<DialogHeader>
+						<DialogTitle>Create pairing link</DialogTitle>
+						<DialogDescription>
+							Choose how the other device can reach this computer. The link
+							expires in five minutes.
+						</DialogDescription>
+					</DialogHeader>
+					<DialogPanel className="space-y-3">
+						{pairing === null ? (
+							<RadioGroup
+								value={pairingProvider}
+								onValueChange={(value) =>
+									setPairingProvider(value as PairingProvider)
+								}
+								aria-label="Connection provider"
+								className="gap-1.5"
+							>
+								<label
+									htmlFor="pairing-provider-account"
+									className="flex min-h-14 cursor-pointer items-center gap-3 rounded-lg border border-border/60 px-3 py-2 has-[[data-checked]]:border-primary/50 has-[[data-checked]]:bg-primary/5"
+								>
+									<RadioGroupItem
+										id="pairing-provider-account"
+										value="account"
+									/>
+									<span className="min-w-0 flex-1">
+										<span className="block text-xs font-medium">
+											Zuse account
+										</span>
+										<span className="block text-[11px] leading-4 text-muted-foreground">
+											Connect from anywhere. Signed-in devices also discover
+											this computer automatically.
+										</span>
+									</span>
+									<span className="text-[11px] text-muted-foreground">
+										{remoteReady ? "Ready" : "Set up"}
+									</span>
+								</label>
+								<label
+									htmlFor="pairing-provider-tailscale"
+									className="flex min-h-14 cursor-pointer items-center gap-3 rounded-lg border border-border/60 px-3 py-2 has-[[data-checked]]:border-primary/50 has-[[data-checked]]:bg-primary/5"
+								>
+									<RadioGroupItem
+										id="pairing-provider-tailscale"
+										value="tailscale"
+									/>
+									<span className="min-w-0 flex-1">
+										<span className="block text-xs font-medium">Tailscale</span>
+										<span className="block text-[11px] leading-4 text-muted-foreground">
+											Connect privately from another device on the same tailnet.
+										</span>
+									</span>
+									<span className="text-[11px] text-muted-foreground">
+										{tailnet?.enabled === true ? "Ready" : "Set up"}
+									</span>
+								</label>
+								<label
+									htmlFor="pairing-provider-local"
+									className="flex min-h-14 cursor-pointer items-center gap-3 rounded-lg border border-border/60 px-3 py-2 has-[[data-checked]]:border-primary/50 has-[[data-checked]]:bg-primary/5"
+								>
+									<RadioGroupItem id="pairing-provider-local" value="local" />
+									<span className="min-w-0 flex-1">
+										<span className="block text-xs font-medium">
+											Local network
+										</span>
+										<span className="block text-[11px] leading-4 text-muted-foreground">
+											Connect from a phone or browser on the same network.
+										</span>
+									</span>
+									<span className="text-[11px] text-muted-foreground">
+										{networkEnabled ? "Ready" : "Restart required"}
+									</span>
+								</label>
+							</RadioGroup>
+						) : (
+							<div className="grid gap-4 sm:grid-cols-[132px_1fr]">
+								<div
+									className="flex size-[132px] items-center justify-center rounded-lg bg-white p-2.5"
+									role="img"
+									aria-label="Pairing QR code"
+								>
+									<QRCodeSVG
+										value={
+											pairingTarget === "browser"
+												? (browserUrl ?? pairing.browserUrl)
+												: pairing.qrText
+										}
+										size={112}
+										level="M"
+									/>
+								</div>
+								<div className="flex min-w-0 flex-col justify-center gap-2">
+									<p className="text-[11px] leading-4 text-muted-foreground">
+										{pairingTarget === "mobile"
+											? pairingProvider === "tailscale"
+												? "Scan this QR code, or paste the link into Zuse on the other computer."
+												: "Scan this QR code with the Zuse mobile app, or copy the link to that device."
+											: "Scan this QR code or open the link in a browser."}
+									</p>
+									<Button
+										variant="outline"
+										onClick={() =>
+											void copyText(
+												pairingTarget === "mobile"
+													? pairing.qrText
+													: (browserUrl ?? pairing.browserUrl),
+											)
+										}
+									>
+										<Copy aria-hidden />
+										{pairingTarget === "mobile"
+											? "Copy pairing link"
+											: "Copy web link"}
+									</Button>
+									<Button
+										variant="ghost"
+										onClick={() =>
+											setPairingTarget((current) =>
+												current === "browser" ? "mobile" : "browser",
+											)
+										}
+									>
+										<QrCode aria-hidden />
+										{pairingTarget === "browser"
+											? "Show device link"
+											: "Show browser link"}
+									</Button>
+								</div>
+							</div>
+						)}
+					</DialogPanel>
+					<DialogFooter>
+						{pairing === null ? (
+							<>
+								<Button
+									variant="ghost"
+									onClick={() => setPairingDialogOpen(false)}
+								>
+									Cancel
+								</Button>
+								<Button
+									disabled={pairingBusy}
+									onClick={() => {
+										if (pairingProvider === "account" && !remoteReady) {
+											setAccessDialog("serve-enable");
+											return;
+										}
+										if (
+											pairingProvider === "tailscale" &&
+											tailnet?.enabled !== true
+										) {
+											setAccessDialog("tailscale-enable");
+											return;
+										}
+										if (pairingProvider === "local" && !networkEnabled) {
+											setPendingNetworkMode(true);
+											return;
+										}
+										void startPairing("mobile", pairingProvider);
+									}}
+								>
+									{pairingBusy
+										? "Creating…"
+										: pairingProvider === "account" && !remoteReady
+											? "Set up Zuse Serve"
+											: pairingProvider === "tailscale" &&
+													tailnet?.enabled !== true
+												? "Set up Tailscale"
+												: pairingProvider === "local" && !networkEnabled
+													? "Turn on and restart"
+													: "Create link"}
+								</Button>
+							</>
+						) : (
+							<>
+								<Button variant="ghost" onClick={() => setPairing(null)}>
+									Back
+								</Button>
+								<Button onClick={() => setPairingDialogOpen(false)}>
+									Done
+								</Button>
+							</>
+						)}
+					</DialogFooter>
+				</DialogPopup>
+			</Dialog>
 
 			<AlertDialog
 				open={accessDialog !== null}

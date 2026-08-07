@@ -62,8 +62,8 @@ function DesktopComputerSwitcher() {
 	const rename = useEnvironmentCatalogStore((state) => state.rename);
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [managingSaved, setManagingSaved] = useState(false);
-	const [connectionMode, setConnectionMode] = useState<"serve" | "ssh">(
-		"serve",
+	const [connectionMode, setConnectionMode] = useState<"tailscale" | "ssh">(
+		"tailscale",
 	);
 	const [pairingLink, setPairingLink] = useState("");
 	const [suggestions, setSuggestions] = useState<
@@ -194,8 +194,8 @@ function DesktopComputerSwitcher() {
 						<DialogDescription>
 							{managingSaved
 								? "Rename, reconnect, or remove computers saved on this device."
-								: connectionMode === "serve"
-									? "Paste the connection link created by Zuse Serve on the other computer."
+								: connectionMode === "tailscale"
+									? "Paste the Tailscale pairing link created on the other computer."
 									: "Connect using an existing OpenSSH configuration."}
 						</DialogDescription>
 					</DialogHeader>
@@ -221,14 +221,14 @@ function DesktopComputerSwitcher() {
 									variant="ghost"
 									onClick={() => {
 										setConnectionMode((current) =>
-											current === "serve" ? "ssh" : "serve",
+											current === "tailscale" ? "ssh" : "tailscale",
 										);
 										setError(null);
 									}}
 								>
-									{connectionMode === "serve"
+									{connectionMode === "tailscale"
 										? "Use SSH"
-										: "Back to Zuse Serve"}
+										: "Use Tailscale link"}
 								</Button>
 							) : null}
 						</div>
@@ -403,15 +403,16 @@ function DesktopComputerSwitcher() {
 									</section>
 								) : null}
 
-								{connectionMode === "serve" ? (
+								{connectionMode === "tailscale" ? (
 									<form
 										id="add-served-computer-form"
 										className="space-y-3"
 										onSubmit={(event) => void submitServeLink(event)}
 									>
 										<div className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
-											On the other computer, open Settings → Devices → Zuse
-											Serve and choose Connect device. Paste that link below.
+											On the other computer, open Settings → Devices → Create
+											pairing link, then choose Tailscale. Paste that link
+											below.
 										</div>
 										<div>
 											<label
@@ -568,7 +569,7 @@ function DesktopComputerSwitcher() {
 								</Button>
 								<Button
 									form={
-										connectionMode === "serve"
+										connectionMode === "tailscale"
 											? "add-served-computer-form"
 											: "add-computer-form"
 									}
