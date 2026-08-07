@@ -7,7 +7,7 @@ import type {
 } from "@zuse/contracts";
 import { Effect, Stream } from "effect";
 import { useCallback, useEffect, useMemo, useState } from "react";
-
+import { subscribeToCloudAccountAccessIntent } from "../../lib/cloud-account-access-intent.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
 import {
 	getControlPlaneRpcClient,
@@ -90,6 +90,14 @@ export function CloudAccountAccess() {
 	useEffect(() => {
 		void refresh();
 	}, [refresh]);
+
+	useEffect(() => {
+		return subscribeToCloudAccountAccessIntent(
+			window.sessionStorage,
+			window,
+			setPendingProvider,
+		);
+	}, []);
 
 	const statusByProvider = useMemo(
 		() => new Map(statuses.map((status) => [status.providerId, status])),

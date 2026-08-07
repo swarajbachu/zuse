@@ -70,6 +70,7 @@ export interface AccountAccessProcessShape {
 	readonly stream: (
 		command: string,
 		args: ReadonlyArray<string>,
+		environment?: Readonly<Record<string, string>>,
 	) => Stream.Stream<AccountAccessProcessEvent, AccountAccessServiceError>;
 }
 
@@ -108,7 +109,22 @@ const captureProcess: AccountAccessProcessShape["capture"] = (command, args) =>
 		catch: () => new AccountAccessServiceError("tool-not-installed"),
 	});
 
-const streamPtyProcess: AccountAccessProcessShape["stream"] = (command, args) =>
+const processEnvironment = (
+	overrides: Readonly<Record<string, string>> | undefined,
+): Record<string, string> => ({
+	...Object.fromEntries(
+		Object.entries(scrubInheritedClaudeMarkers(process.env)).filter(
+			(entry): entry is [string, string] => entry[1] !== undefined,
+		),
+	),
+	...overrides,
+});
+
+const streamPtyProcess: AccountAccessProcessShape["stream"] = (
+	command,
+	args,
+	environment,
+) =>
 	Stream.callback<AccountAccessProcessEvent, AccountAccessServiceError>(
 		(queue) =>
 			Effect.gen(function* () {
@@ -118,11 +134,7 @@ const streamPtyProcess: AccountAccessProcessShape["stream"] = (command, args) =>
 					cols: 100,
 					rows: 24,
 					cwd: homedir(),
-					env: Object.fromEntries(
-						Object.entries(scrubInheritedClaudeMarkers(process.env)).filter(
-							(entry): entry is [string, string] => entry[1] !== undefined,
-						),
-					),
+					env: processEnvironment(environment),
 				});
 				let buffer = "";
 				const data = child.onData((chunk) => {
@@ -156,15 +168,19 @@ const streamPtyProcess: AccountAccessProcessShape["stream"] = (command, args) =>
 			}),
 	);
 
-const streamProcess: AccountAccessProcessShape["stream"] = (command, args) =>
+const streamProcess: AccountAccessProcessShape["stream"] = (
+	command,
+	args,
+	environment,
+) =>
 	command === "claude" && args[0] === "setup-token"
-		? streamPtyProcess(command, args)
+		? streamPtyProcess(command, args, environment)
 		: Stream.callback<AccountAccessProcessEvent, AccountAccessServiceError>(
 				(queue) =>
 					Effect.gen(function* () {
 						const child = spawn(command, [...args], {
 							cwd: homedir(),
-							env: process.env,
+							env: processEnvironment(environment),
 							stdio: ["ignore", "pipe", "pipe"],
 						});
 						let completed = false;
@@ -481,7 +497,13 @@ export const AccountAccessServiceLive = Layer.effect(
 			}
 			const command = getAccountAccessLoginCommand(providerId);
 			let verificationEmitted = false;
-			return processRunner.stream(command.command, command.args).pipe(
+			let pendingVerificationCode: string | undefined;
+			const loginEvents = processRunner.stream(
+				command.command,
+				command.args,
+				command.environment,
+			);
+			return loginEvents.pipe(
 				Stream.flatMap(
 					(
 						event,
@@ -531,13 +553,14 @@ export const AccountAccessServiceLive = Layer.effect(
 						}
 						const safe = redactAccountAccessOutput(event.text).slice(0, 500);
 						const verification = parseDeviceLoginVerification(providerId, safe);
+						pendingVerificationCode ??= verification.code;
 						if (!verificationEmitted && verification.url !== undefined) {
 							verificationEmitted = true;
 							return Stream.succeed({
 								_tag: "verification",
 								url: verification.url,
-								...(verification.code !== undefined
-									? { code: verification.code }
+								...(pendingVerificationCode !== undefined
+									? { code: pendingVerificationCode }
 									: {}),
 							});
 						}

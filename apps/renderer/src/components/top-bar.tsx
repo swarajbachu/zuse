@@ -24,6 +24,7 @@ import {
 	Wrench01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
 import {
+	type AccountAccessProviderStatus,
 	ComposerInput,
 	type FolderId,
 	type GitBranchInfo,
@@ -47,6 +48,7 @@ import {
 	type OpenPrWorkflow,
 } from "../lib/branch-workflow.ts";
 import type { OpenTarget } from "../lib/bridge.ts";
+import { requestCloudAccountAccess } from "../lib/cloud-account-access-intent.ts";
 import { isMacHost } from "../lib/host-platform.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import {
@@ -136,7 +138,12 @@ export function TopBarLeft() {
 			<span className="truncate font-semibold tracking-tight text-foreground">
 				Zuse (Beta)
 			</span>
-			{rendererPlatformCapabilities().desktop ? <EnvironmentSelector /> : null}
+			{rendererPlatformCapabilities().desktop ? (
+				<>
+					<EnvironmentSelector />
+					<CloudGithubAccessShortcut />
+				</>
+			) : null}
 			<span className="flex-1" />
 			<Tooltip>
 				<TooltipTrigger
@@ -159,6 +166,77 @@ export function TopBarLeft() {
 				</TooltipPopup>
 			</Tooltip>
 		</header>
+	);
+}
+
+function CloudGithubAccessShortcut() {
+	const setView = useUiStore((state) => state.setView);
+	const setSettingsSection = useUiStore((state) => state.setSettingsSection);
+	const environmentId = getActiveEnvironmentId();
+	const [githubStatus, setGithubStatus] =
+		useState<AccountAccessProviderStatus | null>(null);
+
+	useEffect(() => {
+		if (environmentId === null) {
+			setGithubStatus(null);
+			return;
+		}
+		let cancelled = false;
+		void (async () => {
+			try {
+				const client = await getRpcClient();
+				const status = await Effect.runPromise(
+					client["accountAccess.status"](),
+				);
+				if (!cancelled) {
+					setGithubStatus(
+						status.providers.find(
+							(provider) => provider.providerId === "github",
+						) ?? null,
+					);
+				}
+			} catch {
+				if (!cancelled) setGithubStatus(null);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [environmentId]);
+
+	if (environmentId === null) {
+		return null;
+	}
+
+	return (
+		<span className="flex w-[6.75rem] shrink-0 items-center">
+			{githubStatus?.installed && githubStatus.state !== "connected" ? (
+				<CloudGithubAccessShortcutButton
+					onClick={() => {
+						requestCloudAccountAccess(window.sessionStorage, window, "github");
+						setSettingsSection({ kind: "machines" });
+						setView("settings");
+					}}
+				/>
+			) : null}
+		</span>
+	);
+}
+
+export function CloudGithubAccessShortcutButton({
+	onClick,
+}: {
+	readonly onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			className={`${ACTION_CLASS} flex min-h-8 w-full shrink-0 items-center justify-center rounded-md px-2 font-medium text-foreground hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+			aria-label="Connect GitHub to this cloud machine"
+			onClick={onClick}
+		>
+			Connect GitHub
+		</button>
 	);
 }
 

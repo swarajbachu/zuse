@@ -1,5 +1,13 @@
 import { generateKeyPairSync } from "node:crypto";
-import { access, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import {
+	access,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -178,7 +186,7 @@ describe("AccountAccessService", () => {
 		for (const path of credentialPaths) {
 			await expect(access(path)).rejects.toThrow();
 		}
-		await expect(access(unrelated)).resolves.toBeUndefined();
+		expect(await readFile(unrelated, "utf8")).toBe("secret");
 		const marker = join(userData, "credential-cleanup-ready");
 		expect((await stat(marker)).mode & 0o777).toBe(0o600);
 	});
@@ -189,6 +197,9 @@ describe("AccountAccessService", () => {
 		const accountHome = join(userData, "home");
 		const githubDirectory = join(accountHome, ".config", "gh");
 		const codexDirectory = join(accountHome, ".codex");
+		const loginEnvironments: Array<
+			Readonly<Record<string, string>> | undefined
+		> = [];
 		const githubFile = join(githubDirectory, "hosts.yml");
 		const codexFile = join(codexDirectory, "auth.json");
 		for (const [directory, file] of [
@@ -211,7 +222,10 @@ describe("AccountAccessService", () => {
 						makeLayer(userData, {
 							capture: () =>
 								Effect.succeed({ stdout: "account", stderr: "", code: 0 }),
-							stream: () => Stream.make({ _tag: "exit", code: 0 }),
+							stream: (_command, _args, environment) => {
+								loginEnvironments.push(environment);
+								return Stream.make({ _tag: "exit", code: 0 });
+							},
 						}),
 					),
 				),
@@ -228,5 +242,38 @@ describe("AccountAccessService", () => {
 		for (const file of [githubFile, codexFile]) {
 			expect((await stat(file)).mode & 0o777).toBe(0o600);
 		}
+		expect(loginEnvironments).toEqual([{ GH_PROMPT_DISABLED: "1" }, undefined]);
+	});
+
+	it("keeps GitHub's device code until its later verification URL", async () => {
+		const userData = await mkdtemp(join(tmpdir(), "zuse-account-device-code-"));
+		temporaryDirectories.push(userData);
+		const events = await Effect.runPromise(
+			Effect.gen(function* () {
+				const service = yield* AccountAccessService;
+				const collected = yield* Stream.runCollect(
+					service.startLogin("github"),
+				);
+				return collected;
+			}).pipe(
+				Effect.provide(
+					makeLayer(userData, {
+						capture: () =>
+							Effect.succeed({ stdout: "account", stderr: "", code: 0 }),
+						stream: () =>
+							Stream.make(
+								{ _tag: "line", text: "Copy your one-time code: ABCD-EFGH" },
+								{ _tag: "line", text: "Open https://github.com/login/device" },
+							),
+					}),
+				),
+			),
+		);
+
+		expect([...events]).toContainEqual({
+			_tag: "verification",
+			url: "https://github.com/login/device",
+			code: "ABCD-EFGH",
+		});
 	});
 });
