@@ -120,6 +120,7 @@ const toPublicMachine = (machine: MachinePersistenceRecord): MachineRecord => {
 		state: machine.state,
 		desiredState: machine.desiredState,
 		statusCode: machine.statusCode,
+		bootPhase: machine.bootPhase,
 		environmentId: machine.environmentId as MachineRecord["environmentId"],
 		createdAt: machine.createdAtMs,
 		paidThrough: machine.paidThroughMs,
@@ -521,30 +522,41 @@ export const routeMachineRequest = (
 			}
 			const body = yield* decodeBody(MachineBootStatusRequest, request);
 			const updated: MachinePersistenceRecord =
-				body.phase === "failed"
+				machine.state === "ready" && body.phase !== "failed"
 					? {
 							...machine,
-							state: "failed",
-							statusCode: "bootstrap-failed",
-							stableFailureCode: body.statusCode ?? "bootstrap-failed",
-							nextActionAtMs: nowMs + 15 * 60 * 1_000,
+							bootPhase: body.phase,
 							updatedAtMs: nowMs,
 						}
-					: body.phase === "service-started"
+					: body.phase === "failed"
 						? {
 								...machine,
-								state: "enrolling",
-								statusCode: "enrollment-pending",
-								nextActionAtMs: nowMs + 60_000,
+								bootPhase: body.phase,
+								state: "failed",
+								statusCode: "bootstrap-failed",
+								stableFailureCode: body.statusCode ?? "bootstrap-failed",
+								nextActionAtMs: nowMs + 15 * 60 * 1_000,
 								updatedAtMs: nowMs,
 							}
-						: {
-								...machine,
-								state: "bootstrapping",
-								statusCode: "bootstrap-pending",
-								nextActionAtMs: nowMs + 60_000,
-								updatedAtMs: nowMs,
-							};
+						: body.phase === "service-started" ||
+								body.phase === "zuse-started" ||
+								body.phase === "account-setup-available"
+							? {
+									...machine,
+									bootPhase: body.phase,
+									state: "enrolling",
+									statusCode: "enrollment-pending",
+									nextActionAtMs: nowMs + 60_000,
+									updatedAtMs: nowMs,
+								}
+							: {
+									...machine,
+									bootPhase: body.phase,
+									state: "bootstrapping",
+									statusCode: "bootstrap-pending",
+									nextActionAtMs: nowMs + 60_000,
+									updatedAtMs: nowMs,
+								};
 			const saved = yield* store.compareAndSetMachine(
 				updated,
 				machine.revision,

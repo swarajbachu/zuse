@@ -37,6 +37,13 @@ describe("cloud runtime assets", () => {
 		);
 		expect(cloudInit).toContain(".wireProtocolVersion == $expected");
 		expect(cloudInit).toContain("Runtime failed its initial health check");
+		expect(cloudInit).toContain("zuse-credential-cleanup.path");
+		expect(cloudInit).toContain(
+			"PathExists=/var/lib/zuse/credential-cleanup-ready",
+		);
+		expect(cloudInit).toContain("systemctl stop zuse.service");
+		expect(cloudInit).toContain("KillMode=control-group");
+		expect(cloudInit).toContain("TimeoutStopSec=30");
 		expect(cloudInit).toContain(
 			'bootstrap_complete="/var/lib/zuse/bootstrap-complete"',
 		);
@@ -71,6 +78,61 @@ describe("cloud runtime assets", () => {
 		expect(cloudInit).not.toContain("package_upgrade: true");
 		expect(cloudInit).toContain(
 			"gpg --batch --yes --dearmor -o /usr/share/keyrings/cloudflare-main.gpg",
+		);
+	});
+
+	test("ships a versioned idempotent developer toolchain in the signed runtime", async () => {
+		const manifest = JSON.parse(
+			await readWorkspaceFile("apps/server/scripts/toolchain-manifest.json"),
+		) as {
+			version: string;
+			systemPackages: string[];
+			npmPackages: Record<string, string>;
+		};
+		const reconciler = await readWorkspaceFile(
+			"apps/server/scripts/toolchain-reconciler.mjs",
+		);
+		const build = await readWorkspaceFile(
+			"apps/server/scripts/build-linux-runtime.mjs",
+		);
+		const updater = await readWorkspaceFile(
+			"apps/server/scripts/runtime-updater.mjs",
+		);
+
+		expect(manifest.version).toMatch(/^\d{4}\.\d{2}\.\d{2}\.\d+$/u);
+		expect(manifest.npmPackages["@openai/codex"]).toBe("0.144.5");
+		expect(manifest.npmPackages["@anthropic-ai/claude-code"]).toMatch(/^\d/u);
+		expect(manifest.npmPackages.bun).toMatch(/^\d/u);
+		expect(manifest.systemPackages).toEqual(
+			expect.arrayContaining([
+				"git",
+				"git-lfs",
+				"gh",
+				"openssh-server",
+				"tmux",
+				"ripgrep",
+				"fd-find",
+				"jq",
+				"build-essential",
+				"python3",
+			]),
+		);
+		expect(build).toContain('"toolchain-reconciler.mjs"');
+		expect(build).toContain('"toolchain-manifest.json"');
+		expect(build).toContain("toolchainManifestBytes");
+		expect(build).toContain("toolchainManifest.version");
+		expect(reconciler).toContain("toolchain-current");
+		expect(reconciler).toMatch(/\.staging-\$\{randomUUID\(\)\}/u);
+		expect(reconciler).toContain("previousTarget");
+		expect(reconciler).toContain("releaseReady");
+		expect(reconciler).toContain(
+			"Toolchain version was reused with different contents",
+		);
+		expect(updater).toContain("ZUSE_RUNTIME_SKIP_TOOLCHAIN");
+		expect(updater).toContain('join(release, "toolchain-reconciler.mjs")');
+		expect(updater).toContain("manifest.toolchain.sha256");
+		expect(updater).toContain(
+			"Signed toolchain manifest does not match the runtime",
 		);
 	});
 

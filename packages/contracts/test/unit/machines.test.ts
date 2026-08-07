@@ -2,6 +2,11 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+	AccountAccessCreateClaudeTransferRequest,
+	AccountAccessImportRequest,
+	AccountAccessPreparedImport,
+	AccountAccessStatus,
+	AccountAccessTransferEvent,
 	BillingCheckoutRequest,
 	MachineCreateRequest,
 	MachineRecord,
@@ -33,6 +38,7 @@ describe("managed machine contracts", () => {
 			state: "ready",
 			desiredState: "ready",
 			statusCode: "ready",
+			bootPhase: "account-setup-available",
 			environmentId: "01JZUSE0000000000000000000",
 			createdAt: 1_800_000_000_000,
 			paidThrough: 1_802_678_400_000,
@@ -40,6 +46,7 @@ describe("managed machine contracts", () => {
 
 		expect(record.offer.offerId).toBe(PERSISTENT_STANDARD_OFFER_ID);
 		expect(record.state).toBe("ready");
+		expect(record.bootPhase).toBe("account-setup-available");
 	});
 
 	it("requires an offer and idempotency key for creation", () => {
@@ -131,5 +138,67 @@ describe("managed machine contracts", () => {
 		expect(
 			grant.endpointCandidates?.map((candidate) => candidate.kind),
 		).toEqual(["private-network", "managed-tunnel"]);
+	});
+
+	it("decodes safe account-access status without credential material", () => {
+		const status = Schema.decodeUnknownSync(AccountAccessStatus)({
+			providers: [
+				{
+					providerId: "github",
+					state: "connected",
+					installed: true,
+					accountLabel: "octocat",
+					authKind: "device",
+					lastSyncedAt: 1_800_000_000_000,
+				},
+			],
+		});
+
+		expect(status.providers[0]?.providerId).toBe("github");
+		expect(JSON.stringify(status)).not.toContain("token");
+	});
+
+	it("binds sealed Claude transfers to a prepared environment import", () => {
+		const prepared = Schema.decodeUnknownSync(AccountAccessPreparedImport)({
+			transferId: "access_01JZUSE0000000000000000000",
+			accountId: "user_01JZUSE0000000000000000000",
+			environmentId: "01JZUSE0000000000000000000",
+			recipientPublicKey: "recipient-public-key",
+			expiresAt: 1_800_000_300_000,
+			environmentProof: "signed-environment-proof",
+		});
+		const request = Schema.decodeUnknownSync(
+			AccountAccessCreateClaudeTransferRequest,
+		)({ prepared });
+		const imported = Schema.decodeUnknownSync(AccountAccessImportRequest)({
+			transferId: prepared.transferId,
+			sealed: {
+				ephemeralPublicKey: "ephemeral-public-key",
+				nonce: "nonce",
+				ciphertext: "ciphertext",
+			},
+		});
+
+		expect(request.prepared.environmentId).toBe(prepared.environmentId);
+		expect(imported.transferId).toBe(prepared.transferId);
+	});
+
+	it("allows only safe progress and ciphertext events during token transfer", () => {
+		expect(
+			Schema.decodeUnknownSync(AccountAccessTransferEvent)({
+				_tag: "verification",
+				url: "https://example.test/device",
+				code: "ABCD-EFGH",
+			}),
+		).toMatchObject({ _tag: "verification", code: "ABCD-EFGH" });
+		const sealed = Schema.decodeUnknownSync(AccountAccessTransferEvent)({
+			_tag: "sealed",
+			sealed: {
+				ephemeralPublicKey: "ephemeral-public-key",
+				nonce: "nonce",
+				ciphertext: "ciphertext",
+			},
+		});
+		expect(sealed._tag).toBe("sealed");
 	});
 });

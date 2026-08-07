@@ -78,6 +78,17 @@ export const MachineStatusCode = Schema.Literals([
 ]);
 export type MachineStatusCode = typeof MachineStatusCode.Type;
 
+export const MachineBootPhase = Schema.Literals([
+	"bootstrap-started",
+	"runtime-installed",
+	"developer-tools-installed",
+	"zuse-started",
+	"account-setup-available",
+	"service-started",
+	"failed",
+]);
+export type MachineBootPhase = typeof MachineBootPhase.Type;
+
 export class MachineRecord extends Schema.Class<MachineRecord>("MachineRecord")(
 	{
 		machineId: Schema.String,
@@ -86,6 +97,7 @@ export class MachineRecord extends Schema.Class<MachineRecord>("MachineRecord")(
 		state: MachineState,
 		desiredState: DesiredMachineState,
 		statusCode: MachineStatusCode,
+		bootPhase: Schema.optional(MachineBootPhase),
 		environmentId: Schema.optional(EnvironmentId),
 		createdAt: Schema.Number,
 		paidThrough: Schema.optional(Schema.Number),
@@ -146,14 +158,6 @@ export class MachineEnrollResponse extends Schema.Class<MachineEnrollResponse>(
 	tunnelHostname: Schema.optional(Schema.String),
 	connectorToken: Schema.optional(Schema.String),
 }) {}
-
-export const MachineBootPhase = Schema.Literals([
-	"bootstrap-started",
-	"runtime-installed",
-	"service-started",
-	"failed",
-]);
-export type MachineBootPhase = typeof MachineBootPhase.Type;
 
 export class MachineBootStatusRequest extends Schema.Class<MachineBootStatusRequest>(
 	"MachineBootStatusRequest",
@@ -377,4 +381,188 @@ export const MachineSshModeSetRpc = Rpc.make("machine.sshMode.set", {
 	payload: Schema.Struct({ mode: SshMode }),
 	success: MachinePrivateNetworkStatus,
 	error: MachineOpError,
+});
+
+// ---------------------------------------------------------------------------
+// Cloud-machine account access
+// ---------------------------------------------------------------------------
+
+export const AccountAccessProvider = Schema.Literals([
+	"github",
+	"claude",
+	"codex",
+]);
+export type AccountAccessProvider = typeof AccountAccessProvider.Type;
+
+export const AccountAccessState = Schema.Literals([
+	"missing-tool",
+	"disconnected",
+	"authorizing",
+	"connected",
+	"error",
+]);
+export type AccountAccessState = typeof AccountAccessState.Type;
+
+export const AccountAccessAuthKind = Schema.Literals([
+	"device",
+	"api-key",
+	"oauth-token",
+]);
+export type AccountAccessAuthKind = typeof AccountAccessAuthKind.Type;
+
+export class AccountAccessProviderStatus extends Schema.Class<AccountAccessProviderStatus>(
+	"AccountAccessProviderStatus",
+)({
+	providerId: AccountAccessProvider,
+	state: AccountAccessState,
+	installed: Schema.Boolean,
+	accountLabel: Schema.optional(Schema.String),
+	authKind: Schema.optional(AccountAccessAuthKind),
+	lastSyncedAt: Schema.optional(Schema.Number),
+	errorCode: Schema.optional(Schema.String),
+}) {}
+
+export class AccountAccessStatus extends Schema.Class<AccountAccessStatus>(
+	"AccountAccessStatus",
+)({
+	providers: Schema.Array(AccountAccessProviderStatus),
+}) {}
+
+export class LocalAccountDescriptor extends Schema.Class<LocalAccountDescriptor>(
+	"LocalAccountDescriptor",
+)({
+	providerId: AccountAccessProvider,
+	installed: Schema.Boolean,
+	detected: Schema.Boolean,
+	accountLabel: Schema.optional(Schema.String),
+	action: Schema.Literals(["device-login", "sealed-transfer"]),
+}) {}
+
+export class LocalAccountDescriptorList extends Schema.Class<LocalAccountDescriptorList>(
+	"LocalAccountDescriptorList",
+)({
+	accounts: Schema.Array(LocalAccountDescriptor),
+}) {}
+
+export class AccountAccessPreparedImport extends Schema.Class<AccountAccessPreparedImport>(
+	"AccountAccessPreparedImport",
+)({
+	transferId: Schema.String,
+	accountId: Schema.String,
+	environmentId: EnvironmentId,
+	recipientPublicKey: Schema.String,
+	expiresAt: Schema.Number,
+	environmentProof: Schema.String,
+}) {}
+
+export class AccountAccessSealedCredential extends Schema.Class<AccountAccessSealedCredential>(
+	"AccountAccessSealedCredential",
+)({
+	ephemeralPublicKey: Schema.String,
+	nonce: Schema.String,
+	ciphertext: Schema.String,
+}) {}
+
+export class AccountAccessCreateClaudeTransferRequest extends Schema.Class<AccountAccessCreateClaudeTransferRequest>(
+	"AccountAccessCreateClaudeTransferRequest",
+)({
+	prepared: AccountAccessPreparedImport,
+}) {}
+
+export class AccountAccessImportRequest extends Schema.Class<AccountAccessImportRequest>(
+	"AccountAccessImportRequest",
+)({
+	transferId: Schema.String,
+	sealed: AccountAccessSealedCredential,
+}) {}
+
+export const AccountAccessTransferEvent = Schema.Union([
+	Schema.TaggedStruct("progress", { message: Schema.String }),
+	Schema.TaggedStruct("verification", {
+		url: Schema.String,
+		code: Schema.optional(Schema.String),
+	}),
+	Schema.TaggedStruct("sealed", { sealed: AccountAccessSealedCredential }),
+	Schema.TaggedStruct("done", {
+		ok: Schema.Boolean,
+		reason: Schema.optional(Schema.String),
+	}),
+]);
+export type AccountAccessTransferEvent = typeof AccountAccessTransferEvent.Type;
+
+export const AccountAccessErrorCode = Schema.Literals([
+	"not-allowed",
+	"not-signed-in",
+	"unsupported-provider",
+	"tool-not-installed",
+	"login-failed",
+	"transfer-expired",
+	"transfer-replayed",
+	"transfer-rejected",
+	"credential-store-failed",
+	"cleanup-failed",
+]);
+export type AccountAccessErrorCode = typeof AccountAccessErrorCode.Type;
+
+export class AccountAccessOpError extends Schema.TaggedErrorClass<AccountAccessOpError>()(
+	"AccountAccessOpError",
+	{ code: AccountAccessErrorCode },
+) {}
+
+export const AccountAccessStatusRpc = Rpc.make("accountAccess.status", {
+	payload: Schema.Void,
+	success: AccountAccessStatus,
+	error: AccountAccessOpError,
+});
+
+export const AccountAccessDetectLocalRpc = Rpc.make(
+	"accountAccess.detectLocal",
+	{
+		payload: Schema.Void,
+		success: LocalAccountDescriptorList,
+		error: AccountAccessOpError,
+	},
+);
+
+export const AccountAccessStartLoginRpc = Rpc.make("accountAccess.startLogin", {
+	payload: Schema.Struct({
+		providerId: Schema.Literals(["github", "codex"]),
+	}),
+	success: AccountAccessTransferEvent,
+	error: AccountAccessOpError,
+	stream: true,
+});
+
+export const AccountAccessPrepareImportRpc = Rpc.make(
+	"accountAccess.prepareImport",
+	{
+		payload: Schema.Struct({
+			accountId: Schema.String,
+			providerId: Schema.Literal("claude"),
+		}),
+		success: AccountAccessPreparedImport,
+		error: AccountAccessOpError,
+	},
+);
+
+export const AccountAccessCreateClaudeTransferRpc = Rpc.make(
+	"accountAccess.createClaudeTransfer",
+	{
+		payload: AccountAccessCreateClaudeTransferRequest,
+		success: AccountAccessTransferEvent,
+		error: AccountAccessOpError,
+		stream: true,
+	},
+);
+
+export const AccountAccessImportRpc = Rpc.make("accountAccess.import", {
+	payload: AccountAccessImportRequest,
+	success: AccountAccessProviderStatus,
+	error: AccountAccessOpError,
+});
+
+export const AccountAccessDisconnectRpc = Rpc.make("accountAccess.disconnect", {
+	payload: Schema.Struct({ providerId: AccountAccessProvider }),
+	success: AccountAccessProviderStatus,
+	error: AccountAccessOpError,
 });

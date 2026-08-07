@@ -568,6 +568,7 @@ const route = (
 							checkedAt: nowMs,
 						},
 						lastHeartbeat: environment.lastSeenAtMs,
+						environmentPublicKey: environment.environmentPublicKey,
 					})),
 			});
 		}
@@ -836,6 +837,7 @@ const route = (
 				request,
 				environmentId,
 			);
+			let machineAction: "sanitize-credentials" | undefined;
 			const hasJsonBody = request.headers
 				.get("content-type")
 				?.toLowerCase()
@@ -851,6 +853,7 @@ const route = (
 					readonly wireProtocolVersion?: unknown;
 					readonly capabilities?: unknown;
 					readonly serviceState?: unknown;
+					readonly credentialCleanupComplete?: unknown;
 				}>(request);
 				if (body.origin !== undefined && !isLoopbackOrigin(body.origin)) {
 					return yield* Effect.fail(badRequest("invalid_tunnel_origin"));
@@ -865,7 +868,9 @@ const route = (
 					(body.capabilities !== undefined &&
 						!isCapabilityManifest(body.capabilities)) ||
 					(body.serviceState !== undefined &&
-						!isServiceState(body.serviceState))
+						!isServiceState(body.serviceState)) ||
+					(body.credentialCleanupComplete !== undefined &&
+						typeof body.credentialCleanupComplete !== "boolean")
 				) {
 					return yield* Effect.fail(badRequest("invalid_environment_metadata"));
 				}
@@ -916,11 +921,44 @@ const route = (
 						? body.serviceState
 						: undefined,
 				});
+				if (body.credentialCleanupComplete === true) {
+					const machines = yield* MachineStore;
+					const machine =
+						yield* machines.findMachineByEnvironmentId(environmentId);
+					if (
+						machine !== null &&
+						machine.accountId === principal.accountId &&
+						machine.desiredState === "destroyed" &&
+						machine.credentialCleanupRequestedAtMs !== undefined
+					) {
+						yield* machines.compareAndSetMachine(
+							{
+								...machine,
+								credentialCleanupCompletedAtMs: nowMs,
+								nextActionAtMs: nowMs,
+								updatedAtMs: nowMs,
+							},
+							machine.revision,
+						);
+					}
+				}
 			}
 			yield* store.touchEnvironment(environmentId, nowMs);
 			const refreshed = yield* store.getEnvironment(environmentId);
+			const machines = yield* MachineStore;
+			const machine = yield* machines.findMachineByEnvironmentId(environmentId);
+			if (
+				machine !== null &&
+				machine.accountId === principal.accountId &&
+				machine.desiredState === "destroyed" &&
+				machine.credentialCleanupRequestedAtMs !== undefined &&
+				machine.credentialCleanupCompletedAtMs === undefined
+			) {
+				machineAction = "sanitize-credentials";
+			}
 			return json({
 				ok: true,
+				...(machineAction === undefined ? {} : { machineAction }),
 				endpointCandidates:
 					refreshed === null ? [] : endpointCandidates(refreshed),
 			});

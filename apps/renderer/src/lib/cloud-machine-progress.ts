@@ -4,6 +4,8 @@ export const cloudMachineProgressSteps = [
 	"Payment confirmed",
 	"Creating server",
 	"Installing runtime",
+	"Developer tools",
+	"Starting Zuse",
 	"Connecting securely",
 	"Ready",
 ] as const;
@@ -19,29 +21,44 @@ export type CloudMachineProgress = Readonly<{
 const setupStepFor = (
 	state: MachineRecord["state"],
 	statusCode: MachineRecord["statusCode"],
+	bootPhase?: MachineRecord["bootPhase"],
 ): number | null => {
 	switch (state) {
 		case "creating":
 			return 1;
 		case "bootstrapping":
+			if (bootPhase === "runtime-installed") return 3;
+			if (bootPhase === "developer-tools-installed") return 4;
+			if (
+				bootPhase === "zuse-started" ||
+				bootPhase === "account-setup-available" ||
+				bootPhase === "service-started"
+			) {
+				return 5;
+			}
 			return 2;
 		case "enrolling":
-			return 3;
+			return 5;
 		case "failed":
 			if (statusCode === "bootstrap-failed") return 2;
-			if (statusCode === "enrollment-failed") return 3;
+			if (statusCode === "enrollment-failed") return 5;
 			return 1;
 		case "ready":
-			return 4;
+			return 6;
 		default:
 			return null;
 	}
 };
 
 export const cloudMachineProgress = (
-	machine: Pick<MachineRecord, "state" | "statusCode">,
+	machine: Pick<MachineRecord, "state" | "statusCode"> &
+		Partial<Pick<MachineRecord, "bootPhase">>,
 ): CloudMachineProgress => {
-	const activeStep = setupStepFor(machine.state, machine.statusCode);
+	const activeStep = setupStepFor(
+		machine.state,
+		machine.statusCode,
+		machine.bootPhase,
+	);
 	switch (machine.statusCode) {
 		case "creation-queued":
 			return {
@@ -69,6 +86,26 @@ export const cloudMachineProgress = (
 				tone: "warning",
 			};
 		case "bootstrap-pending":
+			if (machine.bootPhase === "runtime-installed") {
+				return {
+					activeStep,
+					detail:
+						"The runtime is verified. Developer tools are being installed.",
+					headline: "Installing developer tools",
+					label: "Installing tools",
+					tone: "progress",
+				};
+			}
+			if (machine.bootPhase === "developer-tools-installed") {
+				return {
+					activeStep,
+					detail:
+						"Git, agent CLIs, and build tools are ready. Zuse is starting.",
+					headline: "Starting Zuse",
+					label: "Starting",
+					tone: "progress",
+				};
+			}
 			return {
 				activeStep,
 				detail: "The server is online. We are installing and verifying Zuse.",

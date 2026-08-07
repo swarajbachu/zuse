@@ -11,12 +11,9 @@ package_upgrade: false
 packages:
   - ca-certificates
   - curl
-  - git
   - gnupg
   - jq
   - nftables
-  - openssh-server
-  - tmux
   - xz-utils
 
 write_files:
@@ -95,7 +92,7 @@ write_files:
       }
 
       complete_bootstrap() {
-        systemctl enable --now zuse-update.timer
+        systemctl enable --now zuse-update.timer zuse-credential-cleanup.path
         install -o root -g root -m 0600 /dev/null "$bootstrap_complete"
       }
 
@@ -152,9 +149,6 @@ write_files:
       DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y cloudflared
       curl -fsSL https://tailscale.com/install.sh | sh
       tailscale set --operator=zuse
-      /usr/local/bin/npm config set prefix /usr/local
-      /usr/local/bin/npm install -g @anthropic-ai/claude-code
-
       mkdir -p /opt/zuse/releases /var/lib/zuse /home/zuse/.ssh
       chown -R "zuse:zuse" /var/lib/zuse /home/zuse
       chmod 0700 /home/zuse/.ssh
@@ -167,9 +161,13 @@ write_files:
       systemctl restart ssh
 
       ZUSE_RUNTIME_INSTALL_ONLY=1 \
+        ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 \
         ZUSE_RUNTIME_PUBLIC_KEY_FILE=/etc/zuse/runtime-signing-public.jwk \
         /usr/local/bin/node /usr/local/lib/zuse/runtime-installer.mjs
       report_boot_status runtime-installed
+      /usr/local/bin/node /opt/zuse/current/toolchain-reconciler.mjs \
+        /opt/zuse/current/toolchain-manifest.json
+      report_boot_status developer-tools-installed
 
       systemctl daemon-reload
       systemctl enable --now zuse.service
@@ -178,7 +176,8 @@ write_files:
         systemctl --no-pager status zuse.service || true
         exit 1
       fi
-      report_boot_status service-started
+      report_boot_status zuse-started
+      report_boot_status account-setup-available
       complete_bootstrap
       trap - EXIT
 
@@ -224,6 +223,8 @@ write_files:
       Type=simple
       User=zuse
       Group=zuse
+      KillMode=control-group
+      TimeoutStopSec=30
       EnvironmentFile=/etc/zuse/runtime.env
       EnvironmentFile=-/var/lib/zuse/enrollment.env
       Environment=ZUSE_HOST=0.0.0.0
@@ -272,6 +273,31 @@ write_files:
 
       [Install]
       WantedBy=timers.target
+
+  - path: /etc/systemd/system/zuse-credential-cleanup.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Stop Zuse after verified credential cleanup
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/sh -c 'sleep 10; rm -f /var/lib/zuse/credential-cleanup-ready; systemctl stop zuse.service'
+
+  - path: /etc/systemd/system/zuse-credential-cleanup.path
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Watch for verified Zuse credential cleanup
+
+      [Path]
+      PathExists=/var/lib/zuse/credential-cleanup-ready
+      Unit=zuse-credential-cleanup.service
+
+      [Install]
+      WantedBy=multi-user.target
 
 runcmd:
   - [/usr/local/lib/zuse/bootstrap.sh]

@@ -21,6 +21,7 @@ const publicKeyFile =
 const healthUrl =
 	process.env.ZUSE_RUNTIME_HEALTH_URL ?? "http://127.0.0.1:47837/healthz";
 const installOnly = process.env.ZUSE_RUNTIME_INSTALL_ONLY === "1";
+const skipToolchain = process.env.ZUSE_RUNTIME_SKIP_TOOLCHAIN === "1";
 const expectedWireProtocol = Number(process.env.ZUSE_RUNTIME_WIRE_PROTOCOL);
 
 if (manifestUrl === undefined) {
@@ -89,6 +90,16 @@ const manifest = await fetchWithRetry(
 			wireProtocol.max < expectedWireProtocol
 		) {
 			throw new Error("Runtime wire protocol is incompatible");
+		}
+		if (
+			typeof candidate.toolchain !== "object" ||
+			candidate.toolchain === null ||
+			typeof candidate.toolchain.version !== "string" ||
+			!/^\d{4}\.\d{2}\.\d{2}\.\d+$/u.test(candidate.toolchain.version) ||
+			typeof candidate.toolchain.sha256 !== "string" ||
+			!/^[a-f0-9]{64}$/u.test(candidate.toolchain.sha256)
+		) {
+			throw new Error("Runtime toolchain metadata is invalid");
 		}
 		if (new URL(candidate.url).protocol !== "https:") {
 			throw new Error("Runtime URL must use HTTPS");
@@ -171,11 +182,36 @@ try {
 	}
 }
 
+const toolchainManifestPath = join(release, "toolchain-manifest.json");
+const toolchainManifestBytes = await readFile(toolchainManifestPath);
+const toolchainManifestDigest = createHash("sha256")
+	.update(toolchainManifestBytes)
+	.digest("hex");
+const toolchainManifest = JSON.parse(toolchainManifestBytes);
+if (
+	toolchainManifestDigest !== manifest.toolchain.sha256 ||
+	toolchainManifest.version !== manifest.toolchain.version
+) {
+	throw new Error("Signed toolchain manifest does not match the runtime");
+}
+
 let previousTarget;
 try {
 	previousTarget = await readlink(currentLink);
 } catch {
 	previousTarget = undefined;
+}
+let previousToolchainTarget;
+try {
+	previousToolchainTarget = await readlink("/opt/zuse/toolchain-current");
+} catch {
+	previousToolchainTarget = undefined;
+}
+if (!skipToolchain) {
+	await run("/usr/local/bin/node", [
+		join(release, "toolchain-reconciler.mjs"),
+		toolchainManifestPath,
+	]);
 }
 const temporaryLink = `${currentLink}.next-${randomUUID()}`;
 await symlink(release, temporaryLink);
@@ -186,6 +222,15 @@ if (installOnly) {
 } else {
 	await run("systemctl", ["restart", "zuse.service"]);
 	if (!(await waitForHealthyRuntime())) {
+		if (!skipToolchain) {
+			if (previousToolchainTarget === undefined) {
+				await rm("/opt/zuse/toolchain-current", { force: true });
+			} else {
+				const toolchainRollback = `/opt/zuse/toolchain-current.rollback-${randomUUID()}`;
+				await symlink(previousToolchainTarget, toolchainRollback);
+				await rename(toolchainRollback, "/opt/zuse/toolchain-current");
+			}
+		}
 		if (previousTarget === undefined) {
 			await rm(currentLink, { force: true });
 			throw new Error(

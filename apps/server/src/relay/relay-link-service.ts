@@ -10,6 +10,7 @@ import {
 } from "@zuse/contracts";
 import { Clock, Context, Data, Effect, Fiber, Layer, Ref } from "effect";
 
+import { AccountAccessService } from "../account-access/service.ts";
 import { AuthService } from "../auth/services/auth-service.ts";
 import { buildAdvertisedEndpoints } from "../lan-auth/advertised-endpoints.ts";
 import { defaultEnvironmentLabel } from "../lan-auth/environment-label.ts";
@@ -174,6 +175,7 @@ export const RelayLinkServiceLive: Layer.Layer<
 	| LanAuthService
 	| LanAuthConfig
 	| AuthService
+	| AccountAccessService
 	| ManagedTunnelRuntime
 	| TelemetryStore
 > = Layer.effect(
@@ -182,6 +184,7 @@ export const RelayLinkServiceLive: Layer.Layer<
 		const auth = yield* LanAuthService;
 		const config = yield* LanAuthConfig;
 		const authService = yield* AuthService;
+		const accountAccess = yield* AccountAccessService;
 		const tunnel = yield* ManagedTunnelRuntime;
 		const telemetry = yield* TelemetryStore;
 		const heartbeatRef = yield* Ref.make<Fiber.Fiber<void> | null>(null);
@@ -340,15 +343,38 @@ export const RelayLinkServiceLive: Layer.Layer<
 			advertisedHost: config.advertisedHost ?? null,
 		});
 
+		const heartbeatOnce = (input: {
+			readonly relayUrl: string;
+			readonly environmentId: EnvironmentId;
+			readonly credential: string;
+		}) =>
+			Effect.gen(function* () {
+				const url = `${input.relayUrl}${RelayPaths.heartbeat(input.environmentId)}`;
+				const response = yield* postJson<{
+					readonly machineAction?: "sanitize-credentials";
+				}>(url, { bearer: input.credential, body: relayRuntimeMetadata() });
+				if (response.machineAction !== "sanitize-credentials") return;
+				yield* accountAccess
+					.sanitizeCredentials()
+					.pipe(Effect.mapError((error) => failRelay(error.code)));
+				yield* postJson(url, {
+					bearer: input.credential,
+					body: {
+						...relayRuntimeMetadata(),
+						credentialCleanupComplete: true,
+					},
+				});
+				yield* accountAccess
+					.requestRuntimeStop()
+					.pipe(Effect.mapError((error) => failRelay(error.code)));
+			});
+
 		const heartbeatLoop = (input: {
 			readonly relayUrl: string;
 			readonly environmentId: EnvironmentId;
 			readonly credential: string;
 		}) =>
-			postJson(
-				`${input.relayUrl}${RelayPaths.heartbeat(input.environmentId)}`,
-				{ bearer: input.credential, body: relayRuntimeMetadata() },
-			).pipe(
+			heartbeatOnce(input).pipe(
 				Effect.ignore,
 				Effect.andThen(Effect.sleep(HEARTBEAT_INTERVAL)),
 				Effect.forever,

@@ -315,9 +315,10 @@ export const ProviderServiceLive = Layer.effect(
 							cwd,
 						}),
 					};
-					const apiKey = yield* credentials
-						.get(input.providerId)
-						.pipe(Effect.catch(() => Effect.succeed<string | null>(null)));
+					const managedCredential = yield* credentials
+						.getProviderCredential(input.providerId)
+						.pipe(Effect.catch(() => Effect.succeed(null)));
+					const apiKey = managedCredential?.secret ?? null;
 					let providerHandle: ProviderSessionHandle;
 					if (input.providerId === "gemini") {
 						// Same story as Grok: hand the driver the user's installed
@@ -491,7 +492,7 @@ export const ProviderServiceLive = Layer.effect(
 						providerHandle = yield* startClaudeSession(
 							driverInput,
 							cwd,
-							apiKey,
+							managedCredential,
 							claudePath,
 							sessionId,
 							buildRequestPermission(input.folderId),

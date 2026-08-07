@@ -27,3 +27,27 @@ persists only the issued environment credential in its file credential store,
 then unlinks the enrollment file. Private-network auth keys are accepted only
 through the authenticated machine RPC and are removed immediately after the
 network client exits.
+
+## Developer tools and account access
+
+The signed runtime archive also carries a versioned developer-toolchain
+manifest and reconciler. Cloud-init installs that exact manifest after the
+runtime, and the daily updater reconciles it again so existing machines receive
+validated Git, shell-tool, GitHub CLI, Claude, and Codex versions without being
+recreated. Provisioning reports runtime, developer-tool, Zuse-health, and
+account-setup stages independently; account authorization is not required for
+the machine to become healthy.
+
+Account setup never copies local credential directories. GitHub and Codex use
+their supported remote login flows. Claude receives only a short-lived,
+environment-bound encrypted credential transfer initiated by the local control
+plane. Credentials are absent from Relay payloads, database rows, renderer
+state, and mobile storage.
+
+Ordinary provider backups intentionally preserve the machine's authenticated
+CLI state and must be treated as secret-bearing infrastructure. Before a final
+retained snapshot, the Relay requests credential cleanup, the runtime removes
+and verifies the known Zuse, GitHub, Claude, and Codex credential files, and
+systemd stops the complete Zuse process group. If that handshake cannot be
+verified, reconciliation skips the snapshot and deletes the server and bound
+backups instead of retaining active credentials.
