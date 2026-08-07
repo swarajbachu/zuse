@@ -21,7 +21,9 @@
 	],
 	"scripts": {
 		"build": "vp pack src/bin.ts",
-		"check-types": "tsc --noEmit"
+		"check-types": "tsc --noEmit",
+		"test": "vp test run test/unit",
+		"test:unit": "vp test run test/unit"
 	},
 	"dependencies": {
 		"@zusehq/serve": "0.1.1"

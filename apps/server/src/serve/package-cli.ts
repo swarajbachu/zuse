@@ -29,6 +29,7 @@ import {
 	getServeServiceStatus,
 	installServeService,
 	resolveServeServicePaths,
+	startServeService,
 	stopServeService,
 	UnsupportedServiceManagerError,
 	uninstallServeService,
@@ -292,6 +293,27 @@ export const activateServeRuntimeUpdate = async (input: {
 export const removeServeRuntime = (dataDir: string): Promise<void> =>
 	rm(join(dataDir, "runtime"), { recursive: true, force: true });
 
+export const waitForRelayConfiguration = async (
+	dataDir: string,
+	timeoutMs = 45_000,
+	pollIntervalMs = 1_000,
+): Promise<LocalRelayConfig | null> => {
+	const deadline = Date.now() + timeoutMs;
+	let relay = readLocalRelayConfig(dataDir);
+	while (relay?.tunnelHostname === undefined && Date.now() < deadline) {
+		await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+		relay = readLocalRelayConfig(dataDir);
+	}
+	return relay?.tunnelHostname === undefined ? null : relay;
+};
+
+const requireRemoteReadiness = async (dataDir: string): Promise<void> => {
+	if ((await waitForRelayConfiguration(dataDir)) !== null) return;
+	throw new Error(
+		"Zuse Serve started locally, but remote tunnel registration did not complete. Run `zusehq serve status --json` for diagnostics.",
+	);
+};
+
 const clearServeSession = (): Promise<void> =>
 	Effect.runPromise(
 		Effect.gen(function* () {
@@ -456,6 +478,23 @@ export const runServePackageCli = async (
 			},
 		}),
 	);
+	const current = await getServeServiceStatus(servicePaths);
+	if (current.installed && !current.running) {
+		await startServeService(servicePaths);
+		if (!(await waitForReachability(env))) {
+			throw new Error(
+				"Zuse Serve started, but its local readiness check failed. Run `zusehq serve status --json` for diagnostics.",
+			);
+		}
+		await requireRemoteReadiness(dataDir);
+		await printStatus(await getServeServiceStatus(servicePaths), {
+			json: false,
+			dataDir,
+			env,
+		});
+		return;
+	}
+
 	let installedExecutable: string;
 	try {
 		const packageVersion = options.packageVersion ?? "0.0.0";
@@ -487,9 +526,10 @@ export const runServePackageCli = async (
 	const reachable = await waitForReachability(env);
 	if (!reachable) {
 		throw new Error(
-			"Zuse Serve was installed, but the background host did not become reachable. Run `zuse serve status --json` for diagnostics.",
+			"Zuse Serve was installed, but the background host did not become reachable. Run `zusehq serve status --json` for diagnostics.",
 		);
 	}
+	await requireRemoteReadiness(dataDir);
 	await writeActiveServeRuntime(dataDir, {
 		version: options.packageVersion ?? "0.0.0",
 		executable: installedExecutable,
