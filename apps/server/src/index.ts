@@ -4,7 +4,10 @@
  * not re-exported here is internal — keep the surface minimal.
  */
 export { AppPaths } from "./app-paths.ts";
-export { readBrowserCredentialFromVault } from "./provider/layers/credentials-service.ts";
+export {
+	CredentialsServiceLive,
+	readBrowserCredentialFromVault,
+} from "./provider/layers/credentials-service.ts";
 export { type MainLayerDeps, makeMainLayer } from "./runtime.ts";
 export { wsServerProtocolLayer } from "./transports/ws.ts";
 export { FolderPicker } from "./workspace/services/folder-picker.ts";

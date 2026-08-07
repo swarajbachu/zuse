@@ -44,19 +44,54 @@ Tests wire `RelayStoreMemory` + `WorkosVerifierTest` and simulate the desktop
 (Ed25519) and mobile (ES256 DPoP) clients with `jose` — covering link, presence,
 connect, cross-account isolation, proof forgery, and replay rejection.
 
-## Deploy (needs Cloudflare + PlanetScale accounts)
+## Deploy
+
+The tracked default workflow is staging-only:
+
+```sh
+bun run dev
+bun run deploy
+```
+
+Staging is the unnamed Wrangler default, so these commands and even an
+unqualified `wrangler deploy` use the `zuse-relay-staging` Worker,
+`relay-staging.stuff.md`, a separate Hyperdrive binding, the `zenv-staging`
+tunnel namespace, sandbox billing, the allowlisted Hetzner adapter, and live
+sandbox checkout. The secret scripts in this package also target staging by
+default. Production remains separately configured and disabled.
+
+An intentional production deployment is guarded and requires both the explicit
+script and confirmation value:
+
+```sh
+ZUSE_CONFIRM_PRODUCTION_RELAY_DEPLOY=deploy-relay.stuff.md \
+	bun run deploy:production
+```
+
+Production lives in a separate `wrangler.production.jsonc` file that ordinary
+commands never read. The guarded script is the only approved entry point.
+Audit production secret names read-only with
+`wrangler secret list --config wrangler.production.jsonc`. Never delete or
+replace a production binding during staging work; removing an accidental legacy
+binding requires separate, explicit approval.
+
+### Deployment prerequisites (Cloudflare + Postgres)
 1. **Mint the relay Ed25519 keypair** (JWK) — run from `infra/relay` (where `jose`
    is a dependency; a bare `node -e` from the repo root can't resolve it):
    ```
    node scripts/mint-keys.mjs
    ```
    Put the printed PUBLIC JWK in `wrangler.jsonc` `RELAY_MINT_PUBLIC_JWK`; set the
-   PRIVATE one as a secret: `bunx wrangler secret put RELAY_MINT_PRIVATE_JWK`.
-2. **PlanetScale**: create a Postgres database, copy `.env.example` → `.env`, set
-   `DATABASE_URL`, then apply migrations:
+   PRIVATE one as a secret. The package secret script targets staging; set an
+   explicit production secret only during an approved production operation.
+2. **Postgres**: copy `.env.example` → `.env`, set `DATABASE_URL`, then apply
+   migrations:
    ```
    bun run db:migrate
    ```
+   This is staging-only and validates the configured Neon host and database name
+   before Drizzle runs. Production migrations are intentionally not scripted
+   until an approved production database identity can be pinned and reviewed.
 3. **Hyperdrive**: `bunx wrangler hyperdrive create zuse-relay-db --connection-string="postgres://…"`
    and paste the id into `wrangler.jsonc`.
 4. **WorkOS**: set `WORKOS_JWKS_URL` (`https://api.workos.com/sso/jwks/<client_id>`) and `WORKOS_ISSUER`. Set the server-side account-deletion key with `bun run secret:workos` (`wrangler secret put WORKOS_API_KEY`); the mobile deletion flow deliberately fails closed when this secret is absent.
@@ -70,7 +105,78 @@ connect, cross-account isolation, proof forgery, and replay rejection.
      needs **Account: Cloudflare Tunnel: Edit** + **Zone: DNS: Edit** on that zone.
    - The desktop must have **`cloudflared`** on PATH (`brew install cloudflared`); it runs the
      connector automatically on link and relaunches it on boot.
-6. `bunx wrangler deploy`. Point the desktop at the deployed URL (`VITE_ZUSE_RELAY_URL`).
+6. **Polar sandbox billing**:
+   - Create the recurring machine product in Polar sandbox and place its product
+     ID in `POLAR_PRODUCT_PERSISTENT_STANDARD_V1`.
+   - Set `POLAR_ENVIRONMENT` to `sandbox`, then store the sandbox access token
+     with `bun run secret:polar` and the endpoint signing secret with
+     `bun run secret:polar-webhook`.
+   - Add a webhook endpoint at
+     `https://<relay-host>/v1/billing/webhook/polar` for subscription created,
+     updated, active, past due, canceled, revoked, and uncanceled events.
+   - Keep `MACHINE_LIVE_CHECKOUT_ENABLED` false while using manual alpha
+     entitlements. Production checkout also requires
+     `POLAR_VPS_SALES_APPROVED=true`; sandbox checkout never accepts real money
+     and does not use the approval flag. This switch gates new checkout only;
+     signed webhooks and the customer portal remain available for existing
+     subscriptions.
+7. **Live machine provider**:
+   - Keep `MACHINE_PROVIDER=fake` for local and sandbox-only lifecycle tests.
+   - Live adapters are discovered through the module catalog in
+     `src/machine-provider-config.ts`. Every configured adapter remains
+     registered for reconciliation; `MACHINE_PROVIDER` selects only the
+     default used for new machines.
+   - Staging a provider secret does not activate its adapter. Set
+     `HETZNER_ADAPTER_ENABLED=true` only when a complete runtime channel is
+     configured and existing machines from that provider must remain
+     reconcilable while another provider is the default.
+   - For Hetzner provisioning, set `MACHINE_PROVIDER=hetzner`,
+     `HETZNER_SERVER_TYPE_PERSISTENT_STANDARD_V1`, `HETZNER_IMAGE`,
+     `HETZNER_LOCATION`, and the ID of a pre-created zero-inbound-rule
+     firewall in `HETZNER_FIREWALL_ID`. `HETZNER_API_BASE_URL` defaults to the
+     official Cloud API endpoint.
+   - Set `MACHINE_RUNTIME_MANIFEST_URL` and
+     `MACHINE_RUNTIME_SIGNING_PUBLIC_JWK` to the published, signed Linux runtime
+     channel. The verified first-install program is embedded directly in
+     cloud-init from the same source as the daily updater. Store the project API
+     token with `bun run secret:hetzner`.
+   - Staging uses the fixed `cloud-runtime-staging` GitHub prerelease. Its
+     workflow publishes a commit-addressed archive and then atomically replaces
+     `stable-manifest.json`; the signing private key exists only as the
+     `ZUSE_RUNTIME_SIGNING_PRIVATE_JWK` Actions secret.
+   - The Worker refuses to start the live adapter when any setting is missing,
+     the firewall ID is invalid, a URL is not HTTPS, or the signing JWK is not
+     valid JSON. Production checkout remains disabled while the fake adapter is
+     selected.
+8. Deploy staging with `bun run deploy`. Development desktop and renderer
+   builds default to `https://relay-staging.stuff.md` and the staging WorkOS
+   client; explicit `ZUSE_RELAY_URL`, `VITE_ZUSE_RELAY_URL`,
+   `WORKOS_CLIENT_ID`, and `VITE_WORKOS_CLIENT_ID` values still override those
+   defaults. Mobile development and preview profiles pin the same staging pair.
+
+## Test managed machines
+
+For the technical alpha without taking payment, allowlist the WorkOS account
+ID, set `MACHINE_MANUAL_ENTITLEMENTS` to `true`, leave both paid-checkout flags
+false, and run the relay. Creating `persistent-standard-v1` then issues a
+31-day manual entitlement and exercises the machine lifecycle without calling
+Polar.
+
+For a sandbox billing test, configure Polar as above, keep the machine-provider
+side in its fake configuration, set `MACHINE_LIVE_CHECKOUT_ENABLED=true`, and
+leave `POLAR_VPS_SALES_APPROVED=false`. Call the checkout endpoint as an
+allowlisted account and complete the hosted checkout with Polar's sandbox test
+payment details. The signed webhook should create the entitlement; confirm it
+through `GET /v1/billing/entitlements`. An active subscription webhook now
+atomically creates the one allowed machine and immediately schedules its first
+reconciliation pass; no separate machine-create call is required. Return
+`MACHINE_LIVE_CHECKOUT_ENABLED` to false after the test.
+
+The tracked staging alpha deliberately runs the combined allowlisted path:
+Polar sandbox checkout, signed webhook reconciliation, and real Hetzner
+provisioning. It keeps manual entitlements disabled, so the checkout webhook is
+the only normal creation path. Keep the allowlist to test accounts and disable
+checkout before expanding access.
 
 ## Notes
 - Link proofs are **Ed25519** (asymmetric): the desktop holds the private key and sends

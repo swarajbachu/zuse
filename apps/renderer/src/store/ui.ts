@@ -32,6 +32,7 @@ export type SettingsSection =
 	| { readonly kind: "integrations" }
 	| { readonly kind: "mcp" }
 	| { readonly kind: "devices" }
+	| { readonly kind: "machines" }
 	| { readonly kind: "browser" }
 	| { readonly kind: "pokedex" }
 	| { readonly kind: "diagnostics" }
@@ -193,6 +194,8 @@ type UiState = {
 	readonly rightPaneLayoutByChat: Record<string, RightPaneLayout>;
 	/** Whether the cross-project chat quick-switcher (Cmd+K) overlay is open. */
 	readonly chatSwitcherOpen: boolean;
+	/** Path-entry dialog used when the selected environment is headless. */
+	readonly cloudProjectPathDialogOpen: boolean;
 	readonly isFullScreen: boolean;
 	/** User preference for the fullscreen environment summary. The summary is
 	 * still gated by native fullscreen and available width at render time. */
@@ -235,6 +238,7 @@ type UiState = {
 	) => void;
 	readonly setChatSwitcherOpen: (open: boolean) => void;
 	readonly toggleChatSwitcher: () => void;
+	readonly setCloudProjectPathDialogOpen: (open: boolean) => void;
 	readonly setFullScreen: (full: boolean) => void;
 	readonly setEnvironmentSummaryOpen: (open: boolean) => void;
 	readonly toggleEnvironmentSummary: () => void;
@@ -409,6 +413,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 	leftSidebarPeek: false,
 	rightPaneLayoutByChat: initialRightPaneLayout(),
 	chatSwitcherOpen: false,
+	cloudProjectPathDialogOpen: false,
 	isFullScreen: false,
 	environmentSummaryOpen: initialEnvironmentSummaryOpen(),
 	rightPanelsByChat: {},
@@ -518,6 +523,8 @@ export const useUiStore = create<UiState>((set, get) => ({
 	setChatSwitcherOpen: (open) => set({ chatSwitcherOpen: open }),
 	toggleChatSwitcher: () =>
 		set((s) => ({ chatSwitcherOpen: !s.chatSwitcherOpen })),
+	setCloudProjectPathDialogOpen: (open) =>
+		set({ cloudProjectPathDialogOpen: open }),
 	setFullScreen: (full) => set({ isFullScreen: full }),
 	setEnvironmentSummaryOpen: (open) => {
 		persistEnvironmentSummaryOpen(open);

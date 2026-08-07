@@ -28,6 +28,7 @@ import {
 	openExternal,
 	rendererPlatformCapabilities,
 } from "../../lib/platform-capabilities.ts";
+import { rendererRelayUrl } from "../../lib/relay-url.ts";
 import { getRpcClient } from "../../lib/rpc-client.ts";
 import {
 	AlertDialog,
@@ -44,9 +45,7 @@ import { Input } from "../ui/input.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 import { toastManager } from "../ui/toast.tsx";
 
-const DEFAULT_RELAY_URL =
-	(import.meta.env.VITE_ZUSE_RELAY_URL as string | undefined) ??
-	"https://relay.stuff.md";
+const DEFAULT_RELAY_URL = rendererRelayUrl();
 
 const messageForError = (cause: unknown): string => {
 	const formatted = formatError(cause);

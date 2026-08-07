@@ -12,15 +12,16 @@
  * side-effect free (the server only boots when the file is the process entry).
  */
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { NodeRuntime } from "@effect/platform-node";
 import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Redacted } from "effect";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
 import { resolveAuthPolicy } from "./lan-auth/policy.ts";
+import { makeFileCredentialsService } from "./provider/layers/file-credentials-service.ts";
 import { makeMainLayer } from "./runtime.ts";
 import { wsServerProtocolLayer } from "./transports/ws.ts";
 
@@ -151,6 +152,26 @@ export const runHeadlessServer = (
 		process.env.ZUSE_ADVERTISED_HOST ??
 		(host === "0.0.0.0" || host === "::" ? null : host);
 	const pairingBootstrap = options.pairing;
+	const enrollmentToken = process.env.ZUSE_ENROLLMENT_TOKEN;
+	const machineId = process.env.ZUSE_MACHINE_ID;
+	const relayUrl = process.env.ZUSE_RELAY_URL?.replace(/\/+$/u, "");
+	const relayIssuer = process.env.ZUSE_RELAY_ISSUER?.replace(/\/+$/u, "");
+	const cloudEnrollment =
+		enrollmentToken !== undefined &&
+		machineId !== undefined &&
+		relayUrl !== undefined &&
+		relayIssuer !== undefined
+			? {
+					machineId,
+					relayUrl,
+					relayIssuer,
+					token: Redacted.make(enrollmentToken),
+					tokenFile: process.env.ZUSE_ENROLLMENT_TOKEN_FILE,
+					label: process.env.ZUSE_MACHINE_LABEL,
+					port,
+				}
+			: undefined;
+	delete process.env.ZUSE_ENROLLMENT_TOKEN;
 
 	const layer = makeMainLayer({
 		userData,
@@ -195,6 +216,12 @@ export const runHeadlessServer = (
 			open: () => Effect.void,
 			onCallbackUrl: () => Effect.void,
 		},
+		credentialsLayer: makeFileCredentialsService(userData),
+		cloudEnrollment,
+		machineRuntimeRole:
+			process.env.ZUSE_MACHINE_RUNTIME_ROLE === "cloud-environment"
+				? "cloud-environment"
+				: "control-plane",
 		lanAuth: { policy, advertisedHost, port, pairingBootstrap },
 		autoRelayLink:
 			process.env.ZUSE_SERVE_AUTO_LINK === "1"
@@ -212,8 +239,20 @@ export const runHeadlessServer = (
 
 // Only boot when this file is the process entrypoint, so the re-export above
 // stays import-safe (Vite HMR, tests, the Electron shim).
+export const isProcessEntrypoint = (
+	entry: string | undefined,
+	moduleUrl = import.meta.url,
+): boolean => {
+	if (entry === undefined) return false;
+	try {
+		return realpathSync(entry) === realpathSync(fileURLToPath(moduleUrl));
+	} catch {
+		return pathToFileURL(entry).href === moduleUrl;
+	}
+};
+
 const entry = process.argv[1];
-if (entry && import.meta.url === pathToFileURL(entry).href) {
+if (isProcessEntrypoint(entry)) {
 	try {
 		runHeadlessServer(parseServeOptions(process.argv.slice(2)));
 	} catch (error) {

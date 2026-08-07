@@ -28,6 +28,8 @@ type WorkspaceState = {
   ghAuthenticated: boolean | null;
   load: () => Promise<void>;
   add: () => Promise<void>;
+  /** Register an existing folder path in the active local/cloud environment. */
+  addPath: (path: string) => Promise<Folder>;
   remove: (folderId: FolderId) => Promise<void>;
   select: (folderId: FolderId) => Promise<void>;
   /**
@@ -127,14 +129,27 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const client = await getRpcClient();
       const path = await Effect.runPromise(client["workspace.pickFolder"]({}));
       if (path === null) return;
-      const folder = await Effect.runPromise(client["workspace.add"]({ path }));
+      await get().addPath(path);
+    } catch (err) {
+      set({ error: formatError(err) });
+    }
+  },
+  addPath: async (path) => {
+    set({ error: null });
+    try {
+      const client = await getRpcClient();
+      const folder = await Effect.runPromise(
+        client["workspace.add"]({ path: path.trim() }),
+      );
       set((s) => ({
         folders: [...s.folders, folder],
         selectedFolderId: folder.id,
       }));
       await persistSelection(folder.id);
+      return folder;
     } catch (err) {
       set({ error: formatError(err) });
+      return rethrow(err);
     }
   },
   remove: async (folderId) => {

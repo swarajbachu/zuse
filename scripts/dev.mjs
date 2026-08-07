@@ -3,6 +3,10 @@ import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import deploymentProfiles from "../packages/contracts/src/deployment-profiles.json" with {
+	type: "json",
+};
+
 import {
 	devInstanceDiagnostics,
 	initialDevInstance,
@@ -82,6 +86,17 @@ async function shutdown(code) {
 }
 
 const sharedEnv = {
+	WORKOS_CLIENT_ID:
+		process.env.WORKOS_CLIENT_ID?.trim() ||
+		deploymentProfiles.staging.workosPublicClientId,
+	VITE_WORKOS_CLIENT_ID:
+		process.env.VITE_WORKOS_CLIENT_ID?.trim() ||
+		deploymentProfiles.staging.workosPublicClientId,
+	ZUSE_RELAY_URL:
+		process.env.ZUSE_RELAY_URL?.trim() || deploymentProfiles.staging.relayUrl,
+	VITE_ZUSE_RELAY_URL:
+		process.env.VITE_ZUSE_RELAY_URL?.trim() ||
+		deploymentProfiles.staging.relayUrl,
 	ZUSE_DEV_INSTANCE: instance.instance,
 	ZUSE_DEV_STARTED_AT: String(devStartedAt),
 	ZUSE_DESKTOP_WS_PORT: String(instance.websocketPort),

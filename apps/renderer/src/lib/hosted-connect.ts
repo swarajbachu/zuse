@@ -6,7 +6,10 @@ import {
 	RelayPaths,
 	WIRE_PROTOCOL_VERSION,
 	WORKOS_PUBLIC_CLIENT_ID,
+	WORKOS_STAGING_PUBLIC_CLIENT_ID,
 } from "@zuse/contracts";
+
+import { rendererRelayUrl } from "./relay-url.ts";
 
 const WORKOS_API = "https://api.workos.com";
 const SESSION_KEY = "zuse.hosted.session.v1";
@@ -74,13 +77,18 @@ export const isHostedProduct = (
 ): boolean =>
 	environment().VITE_ZUSE_HOSTED === "1" || locationOrigin === HOSTED_APP_URL;
 
-const clientId = (): string =>
-	environment().VITE_WORKOS_CLIENT_ID?.trim() || WORKOS_PUBLIC_CLIENT_ID;
-const relayUrl = (): string =>
-	(
-		environment().VITE_ZUSE_RELAY_URL?.trim() || "https://relay.stuff.md"
-	).replace(/\/$/u, "");
+export const resolveHostedWorkosClientId = (
+	configuredClientId: string | undefined,
+	development: boolean,
+): string =>
+	configuredClientId?.trim() ||
+	(development ? WORKOS_STAGING_PUBLIC_CLIENT_ID : WORKOS_PUBLIC_CLIENT_ID);
 
+const clientId = (): string =>
+	resolveHostedWorkosClientId(
+		environment().VITE_WORKOS_CLIENT_ID,
+		import.meta.env.DEV,
+	);
 const base64url = (input: Uint8Array): string => {
 	let raw = "";
 	for (const byte of input) raw += String.fromCharCode(byte);
@@ -103,18 +111,27 @@ const sha256 = async (value: string): Promise<string> =>
 		),
 	);
 
-const jwtExpiry = (token: string): number => {
+const decodeJwtPayload = (
+	token: string,
+): { readonly exp?: unknown; readonly sub?: unknown } | null => {
 	try {
 		const encoded = token.split(".")[1];
-		if (encoded === undefined) return Date.now() + 5 * 60_000;
+		if (encoded === undefined) return null;
 		const normalized = encoded.replaceAll("-", "+").replaceAll("_", "/");
-		const payload = JSON.parse(atob(normalized)) as { readonly exp?: unknown };
-		return typeof payload.exp === "number"
-			? payload.exp * 1_000
-			: Date.now() + 5 * 60_000;
+		return JSON.parse(atob(normalized)) as {
+			readonly exp?: unknown;
+			readonly sub?: unknown;
+		};
 	} catch {
-		return Date.now() + 5 * 60_000;
+		return null;
 	}
+};
+
+const jwtExpiry = (token: string): number => {
+	const payload = decodeJwtPayload(token);
+	return typeof payload?.exp === "number"
+		? payload.exp * 1_000
+		: Date.now() + 5 * 60_000;
 };
 
 const readSession = (): HostedSession | null => {
@@ -132,12 +149,19 @@ const readSession = (): HostedSession | null => {
 	}
 };
 
+export const hostedAccountId = (): string | null => {
+	const token = readSession()?.accessToken;
+	if (token === undefined) return null;
+	const payload = decodeJwtPayload(token);
+	return typeof payload?.sub === "string" ? payload.sub : null;
+};
+
 const writeSession = (session: HostedSession): HostedSession => {
 	sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
 	return session;
 };
 
-export const hostedAuthTokenEndpoint = (baseUrl = relayUrl()): string =>
+export const hostedAuthTokenEndpoint = (baseUrl = rendererRelayUrl()): string =>
 	`${baseUrl.replace(/\/$/u, "")}${RelayPaths.authToken}`;
 
 const authenticate = async (
@@ -350,7 +374,7 @@ const relayFetch = async (
 		readonly body?: unknown;
 	},
 ): Promise<Response> => {
-	const target = `${relayUrl()}${path}`;
+	const target = `${rendererRelayUrl()}${path}`;
 	const proof = await signDpopProof({ method: init.method, url: target });
 	const workosToken = init.token === undefined ? await accessToken() : null;
 	if (init.token === undefined && workosToken === null) {
@@ -405,9 +429,12 @@ export const listHostedEnvironments =
 	async (): Promise<RelayEnvironmentList> => {
 		const token = await accessToken();
 		if (token === null) throw new Error("hosted_signed_out");
-		const response = await fetch(`${relayUrl()}${RelayPaths.environments}`, {
-			headers: { authorization: `Bearer ${token}` },
-		});
+		const response = await fetch(
+			`${rendererRelayUrl()}${RelayPaths.environments}`,
+			{
+				headers: { authorization: `Bearer ${token}` },
+			},
+		);
 		if (!response.ok) throw new Error(`relay_environments_${response.status}`);
 		return (await response.json()) as RelayEnvironmentList;
 	};
@@ -420,7 +447,7 @@ export const registerHostedClient = async (): Promise<void> => {
 		deviceId = crypto.randomUUID();
 		localStorage.setItem(DEVICE_ID_KEY, deviceId);
 	}
-	const target = `${relayUrl()}${RelayPaths.devices}`;
+	const target = `${rendererRelayUrl()}${RelayPaths.devices}`;
 	const response = await fetch(target, {
 		method: "POST",
 		headers: {
@@ -475,7 +502,7 @@ export const signOutHostedProduct = async (): Promise<void> => {
 	const token = await accessToken();
 	const deviceId = localStorage.getItem(DEVICE_ID_KEY);
 	if (token !== null && deviceId !== null) {
-		await fetch(`${relayUrl()}${RelayPaths.client(deviceId)}`, {
+		await fetch(`${rendererRelayUrl()}${RelayPaths.client(deviceId)}`, {
 			method: "DELETE",
 			headers: { authorization: `Bearer ${token}` },
 		}).catch(() => undefined);

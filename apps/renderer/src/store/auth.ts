@@ -1,14 +1,14 @@
-import { Effect, Fiber, Schedule, Stream } from "effect";
-import { createAtomStore as create } from "../state/atom-store.ts";
-
 import type { AuthState } from "@zuse/contracts";
-
+import { Effect, Schedule, Stream } from "effect";
 import { toastManager } from "../components/ui/toast.tsx";
-import { getRpcClient } from "../lib/rpc-client.ts";
+// Account authentication belongs to the permanent local control plane, not
+// whichever execution environment happens to be selected.
+import { getControlPlaneRpcClient as getRpcClient } from "../lib/rpc-client.ts";
 import {
   readStorageWithLegacy,
   removeStorageKeys,
 } from "../lib/storage-keys.ts";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 /**
  * WorkOS auth state mirror. Subscribes once to the server's `auth.sessionChanges`
@@ -88,9 +88,8 @@ type AuthStore = {
   readonly setDisplayName: (value: string) => void;
 };
 
-let streamFiber: Fiber.Fiber<unknown, unknown> | null = null;
-// Real double-subscribe guard — `streamFiber` is only a handle (see the same
-// note in store/permissions.ts).
+// Real double-subscribe guard. The self-healing fiber clears it if the stream
+// ever terminates permanently.
 let started = false;
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
@@ -115,12 +114,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       Effect.repeat(Schedule.spaced("2 seconds")),
       Effect.ensuring(
         Effect.sync(() => {
-          streamFiber = null;
           started = false;
         }),
       ),
     );
-    streamFiber = Effect.runFork(program);
+    Effect.runFork(program);
   },
   hydrate: async () => {
     try {

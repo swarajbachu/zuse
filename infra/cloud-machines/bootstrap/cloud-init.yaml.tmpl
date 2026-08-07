@@ -1,0 +1,326 @@
+#cloud-config
+users:
+  - name: zuse
+    gecos: Zuse runtime
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: null
+
+package_update: true
+package_upgrade: false
+packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - jq
+  - nftables
+  - xz-utils
+
+write_files:
+  - path: /var/lib/zuse/enrollment.env
+    owner: root:root
+    permissions: "0600"
+    content: |
+      ZUSE_MACHINE_ID=__MACHINE_ID__
+      ZUSE_MACHINE_LABEL=__MACHINE_LABEL__
+      ZUSE_RELAY_URL=__RELAY_URL__
+      ZUSE_RELAY_ISSUER=__RELAY_ISSUER__
+      ZUSE_ENROLLMENT_TOKEN=__ENROLLMENT_TOKEN__
+      ZUSE_ENROLLMENT_TOKEN_FILE=/var/lib/zuse/enrollment.env
+
+  - path: /etc/zuse/runtime.env
+    owner: root:root
+    permissions: "0600"
+    content: |
+      ZUSE_RUNTIME_MANIFEST_URL=__RUNTIME_MANIFEST_URL__
+      ZUSE_RUNTIME_WIRE_PROTOCOL=__WIRE_PROTOCOL_VERSION__
+      ZUSE_MACHINE_RUNTIME_ROLE=cloud-environment
+
+  - path: /etc/zuse/runtime-signing-public.jwk
+    owner: root:root
+    permissions: "0644"
+    content: |
+      __RUNTIME_SIGNING_PUBLIC_JWK__
+
+  - path: /usr/local/lib/zuse/runtime-installer.mjs
+    owner: root:root
+    permissions: "0755"
+    content: |
+      __RUNTIME_INSTALLER_SOURCE__
+
+  - path: /usr/local/lib/zuse/install-node.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -eu
+      version="24.18.0"
+      archive="/tmp/node-v${version}-linux-x64.tar.xz"
+      release="/usr/local/lib/nodejs/node-v${version}-linux-x64"
+      curl -fsSL "https://nodejs.org/dist/v${version}/node-v${version}-linux-x64.tar.xz" -o "$archive"
+      printf '%s  %s\n' "55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742" "$archive" | sha256sum --check --status
+      install -d -m 0755 /usr/local/lib/nodejs
+      tar -xJf "$archive" -C /usr/local/lib/nodejs
+      ln -sfn "$release" /usr/local/lib/nodejs/current
+      ln -sfn /usr/local/lib/nodejs/current/bin/node /usr/local/bin/node
+      ln -sfn /usr/local/lib/nodejs/current/bin/npm /usr/local/bin/npm
+      ln -sfn /usr/local/lib/nodejs/current/bin/npx /usr/local/bin/npx
+      rm -f "$archive"
+      /usr/local/bin/node --version
+      /usr/local/bin/npm --version
+
+  - path: /usr/local/lib/zuse/bootstrap.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -eu
+
+      set -a
+      . /etc/zuse/runtime.env
+      set +a
+      bootstrap_complete="/var/lib/zuse/bootstrap-complete"
+
+      wait_for_runtime() {
+        for attempt in $(seq 1 30); do
+          if curl --max-time 2 --connect-timeout 1 -fsS http://127.0.0.1:47837/healthz | jq -e --argjson expected "$ZUSE_RUNTIME_WIRE_PROTOCOL" '.status == "ok" and .wireProtocolVersion == $expected' >/dev/null; then
+            return 0
+          fi
+          sleep 1
+        done
+        return 1
+      }
+
+      complete_bootstrap() {
+        systemctl enable --now zuse-update.timer zuse-credential-cleanup.path
+        install -o root -g root -m 0600 /dev/null "$bootstrap_complete"
+      }
+
+      if [ -f "$bootstrap_complete" ]; then
+        exit 0
+      fi
+      if [ ! -f /var/lib/zuse/enrollment.env ]; then
+        systemctl daemon-reload
+        systemctl enable --now zuse.service
+        if wait_for_runtime; then
+          complete_bootstrap
+          exit 0
+        fi
+        echo 'Enrollment material is absent and the runtime is unhealthy' >&2
+        exit 1
+      fi
+
+      report_boot_status() {
+        phase="$1"
+        status_code="${2:-}"
+        if [ -z "${ZUSE_ENROLLMENT_TOKEN:-}" ]; then
+          . /var/lib/zuse/enrollment.env
+        fi
+        if [ -n "$status_code" ]; then
+          payload="{\"phase\":\"$phase\",\"statusCode\":\"$status_code\"}"
+        else
+          payload="{\"phase\":\"$phase\"}"
+        fi
+        curl --max-time 10 --connect-timeout 3 -fsS \
+          -X POST \
+          -H "authorization: Bearer $ZUSE_ENROLLMENT_TOKEN" \
+          -H "content-type: application/json" \
+          --data "$payload" \
+          "$ZUSE_RELAY_URL/v1/machines/$ZUSE_MACHINE_ID/boot-status" \
+          >/dev/null || true
+      }
+
+      bootstrap_failed() {
+        exit_code="$?"
+        trap - EXIT
+        if [ "$exit_code" -ne 0 ]; then
+          report_boot_status failed "bootstrap-failed"
+        fi
+        exit "$exit_code"
+      }
+
+      trap bootstrap_failed EXIT
+      report_boot_status bootstrap-started
+
+      /usr/local/lib/zuse/install-node.sh
+      curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | gpg --batch --yes --dearmor -o /usr/share/keyrings/cloudflare-main.gpg
+      printf '%s\n' 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' > /etc/apt/sources.list.d/cloudflared.list
+      apt-get update
+      DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y cloudflared
+      curl -fsSL https://tailscale.com/install.sh | sh
+      tailscale set --operator=zuse
+      mkdir -p /opt/zuse/releases /var/lib/zuse /home/zuse/.ssh
+      chown -R "zuse:zuse" /var/lib/zuse /home/zuse
+      chmod 0700 /home/zuse/.ssh
+      touch /home/zuse/.ssh/authorized_keys
+      chown "zuse:zuse" /home/zuse/.ssh/authorized_keys
+      chmod 0600 /home/zuse/.ssh/authorized_keys
+
+      nft -f /etc/nftables.conf
+      systemctl enable --now nftables
+      systemctl restart ssh
+
+      ZUSE_RUNTIME_INSTALL_ONLY=1 \
+        ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 \
+        ZUSE_RUNTIME_PUBLIC_KEY_FILE=/etc/zuse/runtime-signing-public.jwk \
+        /usr/local/bin/node /usr/local/lib/zuse/runtime-installer.mjs
+      report_boot_status runtime-installed
+      /usr/local/bin/node /opt/zuse/current/toolchain-reconciler.mjs \
+        /opt/zuse/current/toolchain-manifest.json
+      report_boot_status developer-tools-installed
+
+      systemctl daemon-reload
+      systemctl enable --now zuse.service
+      if ! wait_for_runtime; then
+        echo 'Runtime failed its initial health check' >&2
+        systemctl --no-pager status zuse.service || true
+        exit 1
+      fi
+      report_boot_status zuse-started
+      report_boot_status account-setup-available
+      complete_bootstrap
+      trap - EXIT
+
+  - path: /etc/ssh/sshd_config.d/90-zuse.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+      PubkeyAuthentication yes
+      AllowUsers zuse
+
+  - path: /etc/nftables.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      #!/usr/sbin/nft -f
+      flush ruleset
+      table inet filter {
+        chain input {
+          type filter hook input priority 0; policy drop;
+          iifname "lo" accept
+          ct state established,related accept
+          ip protocol icmp accept
+          ip6 nexthdr ipv6-icmp accept
+          iifname "tailscale0" tcp dport { 22, 47837 } accept
+        }
+        chain forward { type filter hook forward priority 0; policy drop; }
+        chain output { type filter hook output priority 0; policy accept; }
+      }
+
+  - path: /etc/systemd/system/zuse-bootstrap.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Bootstrap the Zuse cloud environment
+      Wants=network-online.target
+      After=network-online.target
+      ConditionPathExists=!/var/lib/zuse/bootstrap-complete
+      StartLimitIntervalSec=15min
+      StartLimitBurst=2
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/lib/zuse/bootstrap.sh
+      Restart=on-failure
+      RestartSec=30
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/zuse.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Zuse cloud environment
+      Wants=network-online.target tailscaled.service
+      After=network-online.target tailscaled.service
+
+      [Service]
+      Type=simple
+      User=zuse
+      Group=zuse
+      KillMode=control-group
+      TimeoutStopSec=30
+      EnvironmentFile=/etc/zuse/runtime.env
+      EnvironmentFile=-/var/lib/zuse/enrollment.env
+      Environment=ZUSE_HOST=0.0.0.0
+      Environment=ZUSE_PORT=47837
+      Environment=ZUSE_AUTH_POLICY=protected
+      Environment=ZUSE_ENABLE_PAIRING=0
+      Environment=ZUSE_USER_DATA=/var/lib/zuse
+      ExecStart=/usr/local/bin/node /opt/zuse/current/bin.mjs serve
+      Restart=always
+      RestartSec=5
+      NoNewPrivileges=true
+      PrivateTmp=true
+      ProtectSystem=strict
+      ProtectHome=read-only
+      ReadWritePaths=/var/lib/zuse /home/zuse
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/zuse-update.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Update the Zuse cloud runtime
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      Type=oneshot
+      EnvironmentFile=/etc/zuse/runtime.env
+      Environment=ZUSE_RUNTIME_PUBLIC_KEY_FILE=/etc/zuse/runtime-signing-public.jwk
+      ExecStart=/usr/local/bin/node /opt/zuse/current/runtime-updater.mjs
+
+  - path: /etc/systemd/system/zuse-update.timer
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Daily Zuse cloud runtime update
+
+      [Timer]
+      OnCalendar=daily
+      RandomizedDelaySec=2h
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+  - path: /etc/systemd/system/zuse-credential-cleanup.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Stop Zuse after verified credential cleanup
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/sh -c 'sleep 10; rm -f /var/lib/zuse/credential-cleanup-ready; systemctl stop zuse.service'
+
+  - path: /etc/systemd/system/zuse-credential-cleanup.path
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Watch for verified Zuse credential cleanup
+
+      [Path]
+      PathExists=/var/lib/zuse/credential-cleanup-ready
+      Unit=zuse-credential-cleanup.service
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - [systemctl, enable, --now, zuse-bootstrap.service]
+
+final_message: "Zuse cloud bootstrap finished"

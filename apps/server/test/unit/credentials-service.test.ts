@@ -38,7 +38,10 @@ describe("CredentialsService", () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const credentials = yield* CredentialsService;
-				yield* credentials.set("codex", "provider-secret");
+				yield* credentials.setProviderCredential("claude", {
+					kind: "oauth-token",
+					secret: "provider-secret",
+				});
 				yield* credentials.setIntegration(
 					"linear",
 					"workspace-1",
@@ -46,7 +49,7 @@ describe("CredentialsService", () => {
 				);
 				return {
 					configured: yield* credentials.listConfigured(),
-					provider: yield* credentials.get("codex"),
+					provider: yield* credentials.getProviderCredential("claude"),
 					integration: yield* credentials.getIntegration(
 						"linear",
 						"workspace-1",
@@ -62,8 +65,11 @@ describe("CredentialsService", () => {
 		);
 
 		expect(result).toEqual({
-			configured: ["codex"],
-			provider: "provider-secret",
+			configured: ["claude"],
+			provider: expect.objectContaining({
+				kind: "oauth-token",
+				secret: "provider-secret",
+			}),
 			integration: "integration-secret",
 		});
 		expect(keytar.findCredentials).not.toHaveBeenCalled();

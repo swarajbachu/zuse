@@ -10,12 +10,15 @@ import {
 import { join } from "node:path";
 
 import type { ProviderId } from "@zuse/contracts";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 
 import { AppPaths } from "../../app-paths.ts";
 import { secureStorageMasterKey } from "../../secure-storage-master-key.ts";
 import { CredentialsError } from "../errors.ts";
-import { CredentialsService } from "../services/credentials-service.ts";
+import {
+	CredentialsService,
+	ProviderCredential,
+} from "../services/credentials-service.ts";
 
 const VAULT_FILENAME = "secure-vault.json";
 const VAULT_AAD = Buffer.from("zuse-secure-vault:v1", "utf8");
@@ -26,8 +29,8 @@ interface BrowserCredential {
 }
 
 interface VaultContents {
-	readonly version: 1;
-	readonly providers: Partial<Record<ProviderId, string>>;
+	readonly version: 2;
+	readonly providers: Partial<Record<ProviderId, ProviderCredential>>;
 	readonly browserCredentials: Record<string, BrowserCredential>;
 	readonly integrations: Record<string, Record<string, string>>;
 	readonly mcpOauth: Record<string, string>;
@@ -41,7 +44,7 @@ interface VaultEnvelope {
 }
 
 const emptyVault = (): VaultContents => ({
-	version: 1,
+	version: 2,
 	providers: {},
 	browserCredentials: {},
 	integrations: {},
@@ -81,13 +84,39 @@ const isIntegrationRecord = (
 	typeof value === "object" &&
 	Object.values(value).every(isStringRecord);
 
+const ProviderCredentialRecord = Schema.Record(
+	Schema.String,
+	ProviderCredential,
+);
+
 const parseVaultContents = (value: unknown): VaultContents => {
 	if (value === null || typeof value !== "object")
 		throw new Error("Secure storage is corrupt.");
-	const raw = value as Partial<VaultContents>;
+	const raw = value as {
+		readonly version?: unknown;
+		readonly providers?: unknown;
+		readonly browserCredentials?: unknown;
+		readonly integrations?: unknown;
+		readonly mcpOauth?: unknown;
+	};
+	const currentProviders = Schema.decodeUnknownOption(ProviderCredentialRecord)(
+		raw.providers,
+	);
+	const legacyProviders = isStringRecord(raw.providers)
+		? Object.fromEntries(
+				Object.entries(raw.providers).map(([providerId, secret]) => [
+					providerId,
+					ProviderCredential.make({
+						kind: "api-key",
+						secret,
+						updatedAt: 0,
+					}),
+				]),
+			)
+		: null;
 	if (
-		raw.version !== 1 ||
-		!isStringRecord(raw.providers) ||
+		(raw.version !== 1 && raw.version !== 2) ||
+		(currentProviders._tag === "None" && legacyProviders === null) ||
 		!isBrowserCredentialRecord(raw.browserCredentials) ||
 		!isIntegrationRecord(raw.integrations) ||
 		!isStringRecord(raw.mcpOauth)
@@ -95,8 +124,11 @@ const parseVaultContents = (value: unknown): VaultContents => {
 		throw new Error("Secure storage uses an unsupported format.");
 	}
 	return {
-		version: 1,
-		providers: { ...raw.providers },
+		version: 2,
+		providers:
+			currentProviders._tag === "Some"
+				? { ...currentProviders.value }
+				: { ...legacyProviders },
 		browserCredentials: { ...raw.browserCredentials },
 		integrations: Object.fromEntries(
 			Object.entries(raw.integrations).map(([name, accounts]) => [
@@ -252,12 +284,32 @@ export const CredentialsServiceLive = Layer.effect(
 			});
 
 		return CredentialsService.of({
-			get: (providerId) =>
+			getProviderCredential: (providerId) =>
 				read((contents) => contents.providers[providerId] ?? null),
+			setProviderCredential: (providerId, credential) =>
+				mutate((contents) => ({
+					...contents,
+					providers: {
+						...contents.providers,
+						[providerId]: ProviderCredential.make({
+							...credential,
+							updatedAt: Date.now(),
+						}),
+					},
+				})),
+			get: (providerId) =>
+				read((contents) => contents.providers[providerId]?.secret ?? null),
 			set: (providerId, apiKey) =>
 				mutate((contents) => ({
 					...contents,
-					providers: { ...contents.providers, [providerId]: apiKey },
+					providers: {
+						...contents.providers,
+						[providerId]: ProviderCredential.make({
+							kind: "api-key",
+							secret: apiKey,
+							updatedAt: Date.now(),
+						}),
+					},
 				})),
 			remove: (providerId) =>
 				mutate((contents) => {
@@ -270,8 +322,7 @@ export const CredentialsServiceLive = Layer.effect(
 					(contents) =>
 						Object.keys(contents.providers).filter(
 							(providerId): providerId is ProviderId =>
-								typeof contents.providers[providerId as ProviderId] ===
-								"string",
+								contents.providers[providerId as ProviderId] !== undefined,
 						) as ReadonlyArray<ProviderId>,
 				),
 			setBrowser: (origin, username, password) =>

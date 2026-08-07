@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { Smartphone } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { recordDiagnosticEvent } from "../lib/diagnostics-recorder.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import { getControlPlaneRpcClient as getRpcClient } from "../lib/rpc-client.ts";
 import {
 	AlertDialog,
 	AlertDialogDescription,

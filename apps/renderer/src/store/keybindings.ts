@@ -1,19 +1,17 @@
-import { Effect, Fiber, Stream } from "effect";
-import { createAtomStore as create } from "../state/atom-store.ts";
-
 import {
   type Command,
-  keyToElectronAccelerator,
   type KeybindingRule,
   type KeybindingShortcut,
   type KeybindingWhenNode,
+  keyToElectronAccelerator,
   MAX_KEYBINDING_RULES,
   parseKey,
   parseWhen,
 } from "@zuse/contracts";
-
+import { Effect, Fiber, Stream } from "effect";
 import { mergeWithDefaults } from "../lib/default-keybindings";
-import { getRpcClient } from "../lib/rpc-client";
+import { getControlPlaneRpcClient as getRpcClient } from "../lib/rpc-client";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 /**
  * A keybinding rule augmented with its parsed binary form. Building this

@@ -1413,10 +1413,31 @@ export const applyUltrathinkPrefix = (
  */
 export type GetRuntimeMode = () => RuntimeMode;
 
+export interface ClaudeManagedCredential {
+	readonly kind: "api-key" | "oauth-token";
+	readonly secret: string;
+}
+
+export const applyClaudeCredentialEnv = (
+	base: NodeJS.ProcessEnv,
+	credential: ClaudeManagedCredential | null,
+): NodeJS.ProcessEnv => {
+	const env = { ...base };
+	if (credential === null) return env;
+	delete env.ANTHROPIC_API_KEY;
+	delete env.CLAUDE_CODE_OAUTH_TOKEN;
+	if (credential.kind === "api-key") {
+		env.ANTHROPIC_API_KEY = credential.secret;
+	} else {
+		env.CLAUDE_CODE_OAUTH_TOKEN = credential.secret;
+	}
+	return env;
+};
+
 export const startClaudeSession = (
 	input: StartSessionInput,
 	cwd: string,
-	apiKey: string | null,
+	credential: ClaudeManagedCredential | string | null,
 	claudeExecutablePath: string | null,
 	sessionId: AgentSessionId,
 	requestPermission: RequestPermission,
@@ -1587,11 +1608,14 @@ export const startClaudeSession = (
 			},
 		});
 
-		const env = applyClaudeWorktreeEnv(
-			scrubInheritedClaudeMarkers(process.env),
-			cwd,
+		const managedCredential =
+			typeof credential === "string"
+				? ({ kind: "api-key", secret: credential } as const)
+				: credential;
+		const env = applyClaudeCredentialEnv(
+			applyClaudeWorktreeEnv(scrubInheritedClaudeMarkers(process.env), cwd),
+			managedCredential,
 		);
-		if (apiKey !== null) env.ANTHROPIC_API_KEY = apiKey;
 		// Sub-agent map → SDK Options.agents. When at least one preset is
 		// present and the master toggle is on, also add `Agent` to
 		// allowedTools so the model can actually call it. Sessions without

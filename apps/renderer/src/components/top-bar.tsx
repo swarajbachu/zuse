@@ -24,10 +24,12 @@ import {
 	Wrench01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
 import {
+	type AccountAccessProviderStatus,
 	ComposerInput,
 	type FolderId,
 	type GitBranchInfo,
 	type GitMergeMethod,
+	type MachineRecord,
 	type WorktreeId,
 } from "@zuse/contracts";
 import { Effect } from "effect";
@@ -46,9 +48,15 @@ import {
 	type OpenPrWorkflow,
 } from "../lib/branch-workflow.ts";
 import type { OpenTarget } from "../lib/bridge.ts";
+import { requestCloudAccountAccess } from "../lib/cloud-account-access-intent.ts";
 import { isMacHost } from "../lib/host-platform.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import {
+	getActiveEnvironmentId,
+	getControlPlaneRpcClient,
+	getRpcClient,
+	selectEnvironment,
+} from "../lib/rpc-client.ts";
 import { openTerminalCommand } from "../lib/run-terminal.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
@@ -130,6 +138,12 @@ export function TopBarLeft() {
 			<span className="truncate font-semibold tracking-tight text-foreground">
 				Zuse (Beta)
 			</span>
+			{rendererPlatformCapabilities().desktop ? (
+				<>
+					<EnvironmentSelector />
+					<CloudGithubAccessShortcut />
+				</>
+			) : null}
 			<span className="flex-1" />
 			<Tooltip>
 				<TooltipTrigger
@@ -152,6 +166,187 @@ export function TopBarLeft() {
 				</TooltipPopup>
 			</Tooltip>
 		</header>
+	);
+}
+
+function CloudGithubAccessShortcut() {
+	const setView = useUiStore((state) => state.setView);
+	const setSettingsSection = useUiStore((state) => state.setSettingsSection);
+	const environmentId = getActiveEnvironmentId();
+	const [githubStatus, setGithubStatus] =
+		useState<AccountAccessProviderStatus | null>(null);
+
+	useEffect(() => {
+		if (environmentId === null) {
+			setGithubStatus(null);
+			return;
+		}
+		let cancelled = false;
+		void (async () => {
+			try {
+				const client = await getRpcClient();
+				const status = await Effect.runPromise(
+					client["accountAccess.status"](),
+				);
+				if (!cancelled) {
+					setGithubStatus(
+						status.providers.find(
+							(provider) => provider.providerId === "github",
+						) ?? null,
+					);
+				}
+			} catch {
+				if (!cancelled) setGithubStatus(null);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [environmentId]);
+
+	if (environmentId === null) {
+		return null;
+	}
+
+	return (
+		<span className="flex w-[6.75rem] shrink-0 items-center">
+			{githubStatus?.installed && githubStatus.state !== "connected" ? (
+				<CloudGithubAccessShortcutButton
+					onClick={() => {
+						requestCloudAccountAccess(window.sessionStorage, window, "github");
+						setSettingsSection({ kind: "machines" });
+						setView("settings");
+					}}
+				/>
+			) : null}
+		</span>
+	);
+}
+
+export function CloudGithubAccessShortcutButton({
+	onClick,
+}: {
+	readonly onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			className={`${ACTION_CLASS} flex min-h-8 w-full shrink-0 items-center justify-center rounded-md px-2 font-medium text-foreground hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+			aria-label="Connect GitHub to this cloud machine"
+			onClick={onClick}
+		>
+			Connect GitHub
+		</button>
+	);
+}
+
+function EnvironmentSelector() {
+	const setView = useUiStore((state) => state.setView);
+	const setSettingsSection = useUiStore((state) => state.setSettingsSection);
+	const [machines, setMachines] = useState<ReadonlyArray<MachineRecord>>([]);
+	const [loading, setLoading] = useState(false);
+	const activeEnvironmentId = getActiveEnvironmentId();
+	const activeMachine = machines.find(
+		(machine) => machine.environmentId === activeEnvironmentId,
+	);
+	const label =
+		activeEnvironmentId === null
+			? "This Mac"
+			: (activeMachine?.label ?? "Cloud machine");
+
+	const load = async () => {
+		setLoading(true);
+		try {
+			const client = await getControlPlaneRpcClient();
+			const result = await Effect.runPromise(client["machines.list"]());
+			setMachines(
+				result.machines.filter(
+					(machine) =>
+						machine.state === "ready" && machine.environmentId !== undefined,
+				),
+			);
+		} catch {
+			setMachines([]);
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	return (
+		<Menu onOpenChange={(open) => open && void load()}>
+			<MenuTrigger
+				render={
+					<button
+						type="button"
+						className={`${ACTION_CLASS} flex min-h-8 min-w-0 max-w-40 items-center gap-1 rounded-md px-2 text-muted-foreground hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+						aria-label={`Environment: ${label}`}
+					>
+						<span className="truncate">{label}</span>
+						<HugeiconsIcon
+							icon={loading ? Loading02Icon : ArrowDown01Icon}
+							className={`size-3 shrink-0 ${loading ? "animate-spin" : ""}`}
+						/>
+					</button>
+				}
+			/>
+			<MenuPopup align="start" className="min-w-56">
+				<MenuItem
+					onClick={() => void selectEnvironment(null)}
+					className="flex min-h-11 items-center gap-2"
+				>
+					<HugeiconsIcon
+						icon={Tick01Icon}
+						className={`size-3.5 ${
+							activeEnvironmentId === null ? "opacity-100" : "opacity-0"
+						}`}
+					/>
+					This Mac
+				</MenuItem>
+				{machines.map((machine) => (
+					<MenuItem
+						key={machine.machineId}
+						onClick={() =>
+							void selectEnvironment(machine.environmentId ?? null)
+						}
+						className="flex min-h-11 items-center gap-2"
+					>
+						<HugeiconsIcon
+							icon={Tick01Icon}
+							className={`size-3.5 ${
+								machine.environmentId === activeEnvironmentId
+									? "opacity-100"
+									: "opacity-0"
+							}`}
+						/>
+						<span className="min-w-0 flex-1 truncate">
+							{machine.label ?? machine.offer.displayName}
+						</span>
+						<span className="text-[10px] text-muted-foreground">Ready</span>
+					</MenuItem>
+				))}
+				<MenuSeparator />
+				<MenuItem
+					onClick={() => {
+						setSettingsSection({ kind: "machines" });
+						setView("settings");
+					}}
+					className="min-h-11"
+				>
+					New Cloud Machine
+				</MenuItem>
+				{activeEnvironmentId !== null && activeMachine === undefined ? (
+					<>
+						<MenuSeparator />
+						<div
+							role="alert"
+							className="max-w-64 px-2 py-1.5 text-[11px] text-destructive"
+						>
+							This environment is unavailable. Return to This Mac to recover.
+						</div>
+					</>
+				) : null}
+			</MenuPopup>
+		</Menu>
 	);
 }
 
