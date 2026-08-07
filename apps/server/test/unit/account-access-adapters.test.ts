@@ -12,6 +12,7 @@ describe("account-access provider adapters", () => {
 	it("uses native device authorization for GitHub and Codex", () => {
 		expect(getAccountAccessLoginCommand("github")).toEqual({
 			command: "gh",
+			environment: { GH_PROMPT_DISABLED: "1" },
 			args: [
 				"auth",
 				"login",
@@ -20,7 +21,6 @@ describe("account-access provider adapters", () => {
 				"--git-protocol",
 				"https",
 				"--web",
-				"--skip-ssh-key",
 			],
 		});
 		expect(getAccountAccessLoginCommand("codex")).toEqual({

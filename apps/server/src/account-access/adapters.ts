@@ -36,10 +36,15 @@ type DeviceLoginProvider = "github" | "codex";
 
 const LOGIN_COMMANDS: Record<
 	DeviceLoginProvider,
-	{ readonly command: string; readonly args: ReadonlyArray<string> }
+	{
+		readonly command: string;
+		readonly args: ReadonlyArray<string>;
+		readonly environment?: Readonly<Record<string, string>>;
+	}
 > = {
 	github: {
 		command: "gh",
+		environment: { GH_PROMPT_DISABLED: "1" },
 		args: [
 			"auth",
 			"login",
@@ -48,7 +53,6 @@ const LOGIN_COMMANDS: Record<
 			"--git-protocol",
 			"https",
 			"--web",
-			"--skip-ssh-key",
 		],
 	},
 	codex: {
@@ -59,8 +63,11 @@ const LOGIN_COMMANDS: Record<
 
 export const getAccountAccessLoginCommand = (
 	providerId: DeviceLoginProvider,
-): { readonly command: string; readonly args: ReadonlyArray<string> } =>
-	LOGIN_COMMANDS[providerId];
+): {
+	readonly command: string;
+	readonly args: ReadonlyArray<string>;
+	readonly environment?: Readonly<Record<string, string>>;
+} => LOGIN_COMMANDS[providerId];
 
 const DEVICE_CODE_PATTERN = /\b[A-Z0-9]{4,8}(?:-[A-Z0-9]{4,8})+\b/u;
 const URL_PATTERN = /https:\/\/[^\s"'<>]+/giu;
