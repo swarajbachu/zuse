@@ -9,8 +9,8 @@ import { lazy, Suspense, useState } from "react";
 
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { dispatchCommand } from "../lib/commands.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
-import { useWorkspaceStore } from "../store/workspace.ts";
 import { TooltipShortcut } from "./projects-sidebar.tsx";
 
 const loadCloneRepoDialog = () => import("./clone-repo-dialog.tsx");
@@ -38,7 +38,6 @@ const CreateProjectDialog = lazy(() =>
  * stays one keypress away; the other two are mouse-driven for v1.
  */
 export function ProjectAddMenu() {
-	const add = useWorkspaceStore((s) => s.add);
 	const [cloneOpen, setCloneOpen] = useState(false);
 	const [createOpen, setCreateOpen] = useState(false);
 
@@ -65,7 +64,7 @@ export function ProjectAddMenu() {
 				</Tooltip>
 				<MenuPopup align="end" className="min-w-[200px]">
 					<MenuItem
-						onClick={() => void add()}
+						onClick={() => dispatchCommand("open-project")}
 						className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
 					>
 						<HugeiconsIcon

@@ -17,6 +17,7 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 const {
+	connectionTargetForScopeForTest,
 	getActiveEnvironmentId,
 	resolveRendererRpcTransportForTest,
 	selectEnvironment,
@@ -63,5 +64,18 @@ describe("renderer RPC transport selection", () => {
 		expect(getActiveEnvironmentId()).toBeNull();
 		expect(storage.size).toBe(0);
 		expect(locationValue.reload).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps shell operations on the local control plane after a cloud switch", async () => {
+		await selectEnvironment("env_cloud_1");
+
+		expect(connectionTargetForScopeForTest("control-plane")).toBe(
+			"control-plane",
+		);
+		expect(connectionTargetForScopeForTest("environment")).toBe(
+			"environment:env_cloud_1",
+		);
+
+		await selectEnvironment(null);
 	});
 });

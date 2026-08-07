@@ -27,7 +27,7 @@ import {
 } from "./lib/analytics.ts";
 import { AppearanceController } from "./lib/appearance.tsx";
 import { closeActiveChatTab } from "./lib/close-chat-tab.ts";
-import { getRpcClient } from "./lib/rpc-client.ts";
+import { getControlPlaneRpcClient } from "./lib/rpc-client.ts";
 import { shouldMountRightPane } from "./shell/right-pane-lifecycle.ts";
 import { useAuthStore } from "./store/auth.ts";
 import { useChatsStore } from "./store/chats.ts";
@@ -94,9 +94,19 @@ const EnvironmentSummary = lazy(() =>
 		default: module.EnvironmentSummary,
 	})),
 );
+const CloudEnvironmentGate = lazy(() =>
+	import("./components/cloud-environment-recovery.tsx").then((module) => ({
+		default: module.CloudEnvironmentGate,
+	})),
+);
 const NearbyPairingApproval = lazy(() =>
 	import("./components/nearby-pairing-approval.tsx").then((module) => ({
 		default: module.NearbyPairingApproval,
+	})),
+);
+const OpenCloudProjectDialog = lazy(() =>
+	import("./components/open-cloud-project-dialog.tsx").then((module) => ({
+		default: module.OpenCloudProjectDialog,
 	})),
 );
 const NotchTrayBridge = lazy(() =>
@@ -234,6 +244,7 @@ function AmbientSurfaces() {
 		<Suspense fallback={null}>
 			<NotchTrayBridge />
 			<NearbyPairingApproval />
+			<OpenCloudProjectDialog />
 		</Suspense>
 	);
 }
@@ -301,13 +312,14 @@ export function App() {
 		return win.onFullScreenChange((value) => setFullScreen(value));
 	}, [setFullScreen]);
 
-	// One-shot RPC ping so we know the bridge is alive early. Only the failure
-	// is logged — the success path is silent to keep the renderer console clean.
+	// One-shot local control-plane ping. Cloud connectivity is supervised by
+	// CloudEnvironmentGate so selecting a machine can never hide a local-server
+	// failure or make the desktop shell depend on the remote environment.
 	useEffect(() => {
 		let cancelled = false;
 		void (async () => {
 			try {
-				const client = await getRpcClient();
+				const client = await getControlPlaneRpcClient();
 				await Effect.runPromise(client["ping.ping"]({}));
 			} catch (error) {
 				if (cancelled) return;
@@ -320,6 +332,7 @@ export function App() {
 		};
 	}, []);
 
+	const settingsLoaded = useSettingsStore((s) => s.loaded);
 	const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted);
 	const view = useUiStore((s) => s.view);
 	const activeMainTab = useUiStore((s) => s.activeMainTab);
@@ -332,6 +345,18 @@ export function App() {
 				: "onboarding",
 		);
 	}, [activeMainTab, onboardingCompleted, view]);
+
+	if (!settingsLoaded) {
+		return (
+			<TooltipProvider>
+				<AmbientSurfaces />
+				<AppearanceController />
+				<div className="flex h-dvh w-screen bg-background" aria-busy="true">
+					<SurfaceFallback />
+				</div>
+			</TooltipProvider>
+		);
+	}
 
 	if (!onboardingCompleted) {
 		return (
@@ -352,11 +377,13 @@ export function App() {
 			<TooltipProvider>
 				<AmbientSurfaces />
 				<AppearanceController />
-				<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
-					<Suspense fallback={<SurfaceFallback />}>
-						<SettingsPage />
-					</Suspense>
-				</div>
+				<Suspense fallback={<SurfaceFallback />}>
+					<CloudEnvironmentGate>
+						<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
+							<SettingsPage />
+						</div>
+					</CloudEnvironmentGate>
+				</Suspense>
 			</TooltipProvider>
 		);
 	}
@@ -365,7 +392,11 @@ export function App() {
 		<TooltipProvider>
 			<AmbientSurfaces />
 			<AppearanceController />
-			<MainShell />
+			<Suspense fallback={<SurfaceFallback />}>
+				<CloudEnvironmentGate>
+					<MainShell />
+				</CloudEnvironmentGate>
+			</Suspense>
 		</TooltipProvider>
 	);
 }

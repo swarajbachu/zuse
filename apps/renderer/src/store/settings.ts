@@ -14,7 +14,9 @@ import {
 	type SettingsFile,
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
-import { getRpcClient } from "../lib/rpc-client";
+// Settings define the desktop shell itself. They must remain available even
+// when the selected cloud environment is offline or cannot authenticate.
+import { getControlPlaneRpcClient as getRpcClient } from "../lib/rpc-client";
 import { readStorageWithLegacy, removeStorageKeys } from "../lib/storage-keys";
 import { createAtomStore as create } from "../state/atom-store.ts";
 

@@ -52,6 +52,8 @@ type RendererConnectionOptions =
 			readonly token?: string;
 	  };
 
+export type RendererRpcScope = "control-plane" | "environment";
+
 const ACTIVE_ENVIRONMENT_KEY = "zuse.active-environment-id";
 
 const browserConnectionKey = (): string => {
@@ -227,11 +229,22 @@ const getControlPlaneEntry = (): ConnectionSupervisorEntry<MemoizeClient> => {
 	return controlPlaneEntry;
 };
 
-const getRendererEntry = (): ConnectionSupervisorEntry<MemoizeClient> => {
+const connectionTargetForScope = (scope: RendererRpcScope): string => {
+	if (scope === "control-plane") return "control-plane";
 	const environmentId = getActiveEnvironmentId();
-	if (environmentId === null) return getControlPlaneEntry();
+	return environmentId === null
+		? "control-plane"
+		: `environment:${environmentId}`;
+};
+
+const getEntryForScope = (
+	scope: RendererRpcScope,
+): ConnectionSupervisorEntry<MemoizeClient> => {
+	const target = connectionTargetForScope(scope);
+	if (target === "control-plane") return getControlPlaneEntry();
+	const environmentId = target.slice("environment:".length);
 	const options: RendererConnectionOptions = {
-		key: `environment:${environmentId}` as `environment:${string}`,
+		key: target as `environment:${string}`,
 		kind: "remote",
 		environmentId,
 	};
@@ -241,6 +254,8 @@ const getRendererEntry = (): ConnectionSupervisorEntry<MemoizeClient> => {
 	}
 	return entry;
 };
+
+export const connectionTargetForScopeForTest = connectionTargetForScope;
 
 function isRpcClientError(cause: unknown): boolean {
 	return (
@@ -252,10 +267,10 @@ function isRpcClientError(cause: unknown): boolean {
 }
 
 export const getRpcClient = (): Promise<MemoizeClient> =>
-	Effect.runPromise(getRendererEntry().getClient());
+	Effect.runPromise(getEntryForScope("environment").getClient());
 
 export const getControlPlaneRpcClient = (): Promise<MemoizeClient> =>
-	Effect.runPromise(getControlPlaneEntry().getClient());
+	Effect.runPromise(getEntryForScope("control-plane").getClient());
 
 export const getActiveEnvironmentId = (): string | null => {
 	const bridge = globalThis.window?.zuse ?? globalThis.window?.memoize;
@@ -277,14 +292,14 @@ export const selectEnvironment = async (
 };
 
 export const reportRendererRpcFailure = (cause: unknown): void => {
-	getRendererEntry().reportFailure(cause);
+	getEntryForScope("environment").reportFailure(cause);
 };
 
 /** Report a long-lived stream failure once for the connection that owned it. */
 export const reportRendererRpcStreamFailure = (
 	generation: number,
 	cause: unknown,
-): boolean => getRendererEntry().reportFailure(cause, generation);
+): boolean => getEntryForScope("environment").reportFailure(cause, generation);
 
 /**
  * Observe the shared renderer connection lifecycle. Long-lived RPC streams use
@@ -293,16 +308,16 @@ export const reportRendererRpcStreamFailure = (
  */
 export const subscribeRendererRpcConnection = (
 	listener: (snapshot: ConnectionSnapshot) => void,
-): (() => void) => getRendererEntry().subscribe(listener);
+): (() => void) => getEntryForScope("environment").subscribe(listener);
 
 export const retryRendererRpcConnection = (): void =>
-	getRendererEntry().retryNow();
+	getEntryForScope("environment").retryNow();
 
 export const dispatchRetryableRpcCommand = <A>(
 	commandId: string,
 	operation: () => Promise<A>,
 ): Promise<A> =>
-	getRendererEntry().dispatchCommand(commandId, () => operation());
+	getEntryForScope("environment").dispatchCommand(commandId, () => operation());
 
 export const disposeRpcClient = async (): Promise<void> => {
 	rendererEntry = null;

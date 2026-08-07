@@ -11,6 +11,8 @@ import { useSettingsStore } from "../store/settings";
 import { useUiStore } from "../store/ui";
 import { useWorkspaceStore } from "../store/workspace";
 import { captureAnalytics } from "./analytics";
+import { openProjectForEnvironment } from "./project-opening";
+import { getActiveEnvironmentId } from "./rpc-client";
 import { activeChatId, orderedChatTabs } from "./tab-order";
 
 /* ────────────────────────── Navigation helpers ──────────────────────────
@@ -137,7 +139,11 @@ const HANDLERS: Record<Command, () => void> = {
 		void createNewSession(projectId);
 	},
 	"open-project": () => {
-		void useWorkspaceStore.getState().add();
+		openProjectForEnvironment(getActiveEnvironmentId(), {
+			openNativePicker: () => void useWorkspaceStore.getState().add(),
+			openRemotePathDialog: () =>
+				useUiStore.getState().setCloudProjectPathDialogOpen(true),
+		});
 	},
 	settings: () => {
 		const ui = useUiStore.getState();
