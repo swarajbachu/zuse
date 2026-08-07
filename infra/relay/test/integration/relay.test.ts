@@ -420,6 +420,105 @@ describe("@zuse/relay", () => {
 		}
 	});
 
+	test("reconciles an ended subscription before offering replacement checkout", async () => {
+		let status: "active" | "ended" = "active";
+		const billing: BillingProviderAdapter = {
+			providerId: "billing-test",
+			checkout: () => Effect.succeed("https://billing.test/replacement"),
+			verifyEvent: (request) =>
+				Effect.promise(async () => {
+					const body = (await request.json()) as {
+						readonly eventId: string;
+						readonly subscriptionId: string;
+					};
+					return body;
+				}),
+			reconcileSubscription: (subscriptionId) =>
+				Effect.succeed({
+					accountId: "user_a",
+					providerSubscriptionId: subscriptionId,
+					status,
+					offerId: "persistent-standard-v1",
+					paidThrough: Date.now() + 86_400_000,
+				}),
+			cancel: () => Effect.void,
+			customerPortal: () => Effect.succeed("https://billing.test/portal"),
+		};
+		const billingRelay = makeRelay(
+			await makeLayer(
+				undefined,
+				BillingProviders.layer({
+					adapters: [billing],
+					defaultProviderId: billing.providerId,
+				}).pipe(Layer.orDie),
+				true,
+			),
+		);
+
+		try {
+			const activated = await billingRelay.fetch(
+				new Request(
+					`${RELAY_ISSUER}/v1/billing/webhook/${billing.providerId}`,
+					{
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({
+							eventId: "replacement-active",
+							subscriptionId: "replacement-subscription",
+						}),
+					},
+				),
+			);
+			expect(activated.status).toBe(200);
+
+			const listed = await billingRelay.fetch(
+				new Request(`${RELAY_ISSUER}${RelayPaths.machines}`, {
+					headers: { authorization: "Bearer test-token:user_a" },
+				}),
+			);
+			const machine = (await listed.json()) as {
+				readonly machines: ReadonlyArray<{ readonly machineId: string }>;
+			};
+			const machineId = machine.machines[0]?.machineId;
+			expect(machineId).toBeDefined();
+
+			const destroyed = await billingRelay.fetch(
+				new Request(
+					`${RELAY_ISSUER}${RelayPaths.machineDestroy(machineId ?? "")}`,
+					{
+						method: "POST",
+						headers: {
+							authorization: "Bearer test-token:user_a",
+							"content-type": "application/json",
+						},
+						body: JSON.stringify({ machineId, confirmation: "destroy" }),
+					},
+				),
+			);
+			expect(destroyed.status).toBe(200);
+			await billingRelay.reconcile("replacement-destroy");
+
+			status = "ended";
+			const checkout = await billingRelay.fetch(
+				new Request(`${RELAY_ISSUER}${RelayPaths.billingCheckout}`, {
+					method: "POST",
+					headers: {
+						authorization: "Bearer test-token:user_a",
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({ offerId: "persistent-standard-v1" }),
+				}),
+			);
+
+			expect(checkout.status).toBe(200);
+			expect(await checkout.json()).toEqual({
+				checkoutUrl: "https://billing.test/replacement",
+			});
+		} finally {
+			await billingRelay.dispose();
+		}
+	});
+
 	test("deduplicates billing events and reconciles out-of-order delivery from authoritative state", async () => {
 		let status: "active" | "ended" = "active";
 		const billing: BillingProviderAdapter = {

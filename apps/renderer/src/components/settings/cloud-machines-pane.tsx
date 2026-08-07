@@ -21,6 +21,7 @@ import {
 	cloudMachineProgress,
 	cloudMachineProgressSteps,
 } from "../../lib/cloud-machine-progress.ts";
+import { selectActiveCloudMachine } from "../../lib/cloud-machine-selection.ts";
 import { hostedAccountId } from "../../lib/hosted-connect.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
 import {
@@ -60,10 +61,7 @@ export function CloudMachinesPane() {
 			]);
 			const nextOffer = offers.offers[0] ?? null;
 			setOffer(nextOffer);
-			const activeMachine =
-				machines.machines.find((item) => item.state !== "destroyed") ??
-				machines.machines[0] ??
-				null;
+			const activeMachine = selectActiveCloudMachine(machines.machines);
 			setMachine(activeMachine);
 			if (activeMachine !== null) {
 				setCheckoutUrl(null);
