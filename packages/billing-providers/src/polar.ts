@@ -29,6 +29,7 @@ export interface PolarSubscription {
 	readonly currentPeriodEnd: Date;
 	readonly productId: string;
 	readonly cancelAtPeriodEnd: boolean;
+	readonly metadata?: Readonly<Record<string, unknown>>;
 	readonly customer: {
 		readonly externalId?: string | null;
 	};
@@ -219,7 +220,13 @@ export const makePolarBillingProvider = (
 					try: () => client.getSubscription(subscriptionId),
 					catch: providerFailure,
 				});
-				const accountId = subscription?.customer.externalId;
+				const metadataAccountId = subscription?.metadata?.account_id;
+				const metadataOfferId = subscription?.metadata?.offer_id;
+				const accountId =
+					subscription?.customer.externalId ??
+					(typeof metadataAccountId === "string"
+						? metadataAccountId
+						: undefined);
 				const offerId =
 					subscription === null
 						? undefined
@@ -228,7 +235,8 @@ export const makePolarBillingProvider = (
 					subscription === null ||
 					accountId === undefined ||
 					accountId === null ||
-					offerId === undefined
+					offerId === undefined ||
+					(typeof metadataOfferId === "string" && metadataOfferId !== offerId)
 				) {
 					return yield* providerFailure();
 				}
