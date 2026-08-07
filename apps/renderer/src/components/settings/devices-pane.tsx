@@ -58,6 +58,13 @@ import {
 } from "../ui/dialog.tsx";
 import { Frame, FrameFooter, FrameHeader, FrameTitle } from "../ui/frame.tsx";
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group.tsx";
+import {
+	Select,
+	SelectItem,
+	SelectPopup,
+	SelectTrigger,
+	SelectValue,
+} from "../ui/select.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 import { Switch } from "../ui/switch.tsx";
 import { toastManager } from "../ui/toast.tsx";
@@ -107,34 +114,49 @@ const showError = (title: string, cause: unknown): void => {
 	});
 };
 
-const preferredBrowserPairingUrl = (
+const pairingWithEndpoint = (
 	pairing: PairingStartResult,
+	httpBaseUrl: string,
+	wsBaseUrl: string,
+): PairingStartResult => ({
+	...pairing,
+	pairingUrl: wsBaseUrl,
+	browserUrl: `${httpBaseUrl.replace(/\/$/u, "")}/#pair=${encodeURIComponent(pairing.code)}`,
+	qrText: `zuse:///connect/pair?pairingUrl=${encodeURIComponent(wsBaseUrl)}#token=${pairing.code}`,
+});
+
+const accountPairingEndpoint = (status: RelayLinkStatus | null) =>
+	status?.advertisedEndpoints?.find(
+		(endpoint) =>
+			(endpoint.reachability === "tunnel" ||
+				endpoint.reachability === "public") &&
+			endpoint.status !== "unavailable",
+	);
+
+const pairingForProvider = (
+	pairing: PairingStartResult,
+	provider: PairingProvider,
 	status: RelayLinkStatus | null,
-): string => {
-	const priority = (reachability: string): number =>
-		reachability === "tunnel" || reachability === "public"
-			? 0
-			: reachability === "lan"
-				? 1
-				: 2;
-	const endpoint = status?.advertisedEndpoints
-		?.filter(
-			(candidate) =>
-				candidate.status !== "unavailable" &&
-				candidate.compatibility.hostedHttpsApp !== "mixed-content-blocked",
-		)
-		.sort(
-			(left, right) =>
-				priority(left.reachability) - priority(right.reachability),
-		)[0];
-	if (endpoint === undefined) return pairing.browserUrl;
-	try {
-		const url = new URL(endpoint.httpBaseUrl);
-		url.hash = `pair=${encodeURIComponent(pairing.code)}`;
-		return url.toString();
-	} catch {
-		return pairing.browserUrl;
+	tailnet: TailnetShareState | null,
+): PairingStartResult => {
+	if (provider === "account") {
+		const endpoint = accountPairingEndpoint(status);
+		return endpoint === undefined
+			? pairing
+			: pairingWithEndpoint(pairing, endpoint.httpBaseUrl, endpoint.wsBaseUrl);
 	}
+	if (
+		provider === "tailscale" &&
+		tailnet?.enabled === true &&
+		tailnet.dnsName !== null
+	) {
+		return pairingWithEndpoint(
+			pairing,
+			`https://${tailnet.dnsName}`,
+			`wss://${tailnet.dnsName}/rpc`,
+		);
+	}
+	return pairing;
 };
 
 function AccessRow({
@@ -303,7 +325,7 @@ export function DevicesPane() {
 	);
 
 	const startPairing = useCallback(
-		async (target: "browser" | "mobile", provider: PairingProvider) => {
+		async (target: "browser" | "mobile") => {
 			if (pairingBusy) return;
 			setPairingTarget(target);
 			setPairingBusy(true);
@@ -315,42 +337,14 @@ export function DevicesPane() {
 						.map((token) => token.id),
 				);
 				const next = await Effect.runPromise(client["pairing.start"]({}));
-				const accountEndpoint = status?.advertisedEndpoints?.find(
-					(endpoint) =>
-						(endpoint.reachability === "tunnel" ||
-							endpoint.reachability === "public") &&
-						endpoint.status !== "unavailable",
-				);
-				if (provider === "account" && accountEndpoint !== undefined) {
-					setPairing({
-						...next,
-						pairingUrl: accountEndpoint.wsBaseUrl,
-						browserUrl: `${accountEndpoint.httpBaseUrl}/#pair=${encodeURIComponent(next.code)}`,
-						qrText: `zuse:///connect/pair?pairingUrl=${encodeURIComponent(accountEndpoint.wsBaseUrl)}#token=${next.code}`,
-					});
-				} else if (
-					provider === "tailscale" &&
-					tailnet?.enabled === true &&
-					tailnet.dnsName !== null
-				) {
-					const httpBaseUrl = `https://${tailnet.dnsName}`;
-					const wsBaseUrl = `wss://${tailnet.dnsName}/rpc`;
-					setPairing({
-						...next,
-						pairingUrl: wsBaseUrl,
-						browserUrl: `${httpBaseUrl}/#pair=${encodeURIComponent(next.code)}`,
-						qrText: `zuse:///connect/pair?pairingUrl=${encodeURIComponent(wsBaseUrl)}#token=${next.code}`,
-					});
-				} else {
-					setPairing(next);
-				}
+				setPairing(next);
 			} catch (cause) {
 				showError("Could not start pairing", cause);
 			} finally {
 				setPairingBusy(false);
 			}
 		},
-		[pairingBusy, status?.advertisedEndpoints, tailnet, tokens],
+		[pairingBusy, tokens],
 	);
 
 	const revokeToken = useCallback(async (token: AuthTokenSummary) => {
@@ -482,12 +476,12 @@ export function DevicesPane() {
 		...(tailnet?.enabled === true ? ["Tailscale"] : []),
 		...(networkEnabled ? ["local network"] : []),
 	];
-	const browserUrl =
+	const activePairing =
 		pairing === null
 			? null
-			: pairingProvider === "account"
-				? preferredBrowserPairingUrl(pairing, status)
-				: pairing.browserUrl;
+			: pairingForProvider(pairing, pairingProvider, status, tailnet);
+	const pairingLink = activePairing?.qrText ?? "";
+	const browserLink = activePairing?.browserUrl ?? "";
 	const preparingConnection = pairingBusy;
 	return (
 		<section className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3 text-xs">
@@ -784,15 +778,43 @@ export function DevicesPane() {
 								>
 									<QRCodeSVG
 										value={
-											pairingTarget === "browser"
-												? (browserUrl ?? pairing.browserUrl)
-												: pairing.qrText
+											pairingTarget === "browser" ? browserLink : pairingLink
 										}
 										size={112}
 										level="M"
 									/>
 								</div>
 								<div className="flex min-w-0 flex-col justify-center gap-2">
+									<div>
+										<label
+											htmlFor="pairing-link-provider"
+											className="mb-1 block text-[11px] font-medium"
+										>
+											Pairing link for
+										</label>
+										<Select
+											value={pairingProvider}
+											onValueChange={(value) =>
+												setPairingProvider(value as PairingProvider)
+											}
+										>
+											<SelectTrigger id="pairing-link-provider">
+												<SelectValue />
+											</SelectTrigger>
+											<SelectPopup>
+												{remoteReady ? (
+													<SelectItem value="account">Zuse Serve</SelectItem>
+												) : null}
+												{tailnet?.enabled === true &&
+												tailnet.dnsName !== null ? (
+													<SelectItem value="tailscale">Tailscale</SelectItem>
+												) : null}
+												{networkEnabled ? (
+													<SelectItem value="local">Local network</SelectItem>
+												) : null}
+											</SelectPopup>
+										</Select>
+									</div>
 									<p className="text-[11px] leading-4 text-muted-foreground">
 										{pairingTarget === "mobile"
 											? pairingProvider === "tailscale"
@@ -804,9 +826,7 @@ export function DevicesPane() {
 										variant="outline"
 										onClick={() =>
 											void copyText(
-												pairingTarget === "mobile"
-													? pairing.qrText
-													: (browserUrl ?? pairing.browserUrl),
+												pairingTarget === "mobile" ? pairingLink : browserLink,
 											)
 										}
 									>
@@ -859,7 +879,7 @@ export function DevicesPane() {
 											setPendingNetworkMode(true);
 											return;
 										}
-										void startPairing("mobile", pairingProvider);
+										void startPairing("mobile");
 									}}
 								>
 									{pairingBusy
