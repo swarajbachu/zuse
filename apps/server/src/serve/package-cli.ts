@@ -9,7 +9,7 @@ import {
 	type ServeStatusV1,
 	WORKOS_PUBLIC_CLIENT_ID,
 } from "@zuse/contracts";
-import { setTailnetShareEnabled } from "@zuse/tailnet";
+import { probeZuseLoopback, setTailnetShareEnabled } from "@zuse/tailnet";
 import { Effect } from "effect";
 
 import { SessionStoreLive } from "../auth/layers/session-store.ts";
@@ -420,10 +420,35 @@ export const runServePackageCli = async (
 		});
 	const enableTailnet = async (): Promise<string | null> => {
 		if (!command.tailscale) return null;
-		const state = await setTailnetShareEnabled({
+		const port = Number(env.ZUSE_PORT ?? 4859);
+		const options = { ownershipDir: dataDir, probe: probeZuseLoopback };
+		let state = await setTailnetShareEnabled({
 			enabled: true,
-			port: Number(env.ZUSE_PORT ?? 4859),
+			port,
+			...options,
 		});
+		if (
+			state.availability === "conflict" &&
+			state.conflict?.reason === "unresponsive-owner"
+		) {
+			// The route's previous owner is gone; `--tailscale` was explicit, so
+			// reclaim the route for this daemon.
+			state = await setTailnetShareEnabled({
+				enabled: true,
+				port,
+				replaceExisting: true,
+				...options,
+			});
+		}
+		if (state.enabled && state.managedBy === "zuse-serve") {
+			// The route points at another live Zuse server (usually the desktop
+			// app). Leave it alone; its auth and data belong to that instance, so
+			// this daemon must not advertise the tailnet origin as its own.
+			console.warn(
+				"Tailscale Serve is routed to another Zuse instance on this machine; leaving it in place.",
+			);
+			return null;
+		}
 		if (!state.enabled) {
 			throw new Error(
 				state.detail ?? "Tailscale Serve could not share this computer.",

@@ -104,6 +104,11 @@ const NotchTrayBridge = lazy(() =>
 		default: module.NotchTrayBridge,
 	})),
 );
+const PairingLinkAccept = lazy(() =>
+	import("./components/pairing-link-accept.tsx").then((module) => ({
+		default: module.PairingLinkAccept,
+	})),
+);
 const ProviderUpdatesToast = lazy(() =>
 	import("./components/provider-updates-toast.tsx").then((module) => ({
 		default: module.ProviderUpdatesToast,
@@ -234,6 +239,7 @@ function AmbientSurfaces() {
 		<Suspense fallback={null}>
 			<NotchTrayBridge />
 			<NearbyPairingApproval />
+			<PairingLinkAccept />
 		</Suspense>
 	);
 }

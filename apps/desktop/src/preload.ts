@@ -82,6 +82,20 @@ const bridge = {
 				ipcRenderer.off("pairing:nearby-request", wrapped);
 			};
 		},
+		onPairingLink: (handler: (link: string) => void) => {
+			const wrapped = (_event: IpcRendererEvent, link: unknown) => {
+				if (typeof link === "string") handler(link);
+			};
+			ipcRenderer.on("pairing:link", wrapped);
+			return () => {
+				ipcRenderer.off("pairing:link", wrapped);
+			};
+		},
+		// Main buffers connect/pair deep links until this fires, so links that
+		// arrive before the renderer mounts (cold start) are not lost.
+		subscribePairingLinks: () => {
+			ipcRenderer.send("pairing:link-subscribe");
+		},
 	},
 	browser: {
 		/**
@@ -332,10 +346,15 @@ const bridge = {
 			ipcRenderer.invoke("network:getTailnetShareState") as Promise<
 				import("@zuse/contracts").TailnetShareState
 			>,
-		setTailnetShareEnabled: (enabled: boolean) =>
-			ipcRenderer.invoke("network:setTailnetShareEnabled", enabled) as Promise<
-				import("@zuse/contracts").TailnetShareState
-			>,
+		setTailnetShareEnabled: (
+			enabled: boolean,
+			options?: { readonly replaceExisting?: boolean },
+		) =>
+			ipcRenderer.invoke(
+				"network:setTailnetShareEnabled",
+				enabled,
+				options,
+			) as Promise<import("@zuse/contracts").TailnetShareState>,
 	},
 	ssh: {
 		discoverHosts: () =>

@@ -8,9 +8,31 @@ export const TailnetShareAvailability = Schema.Literals([
 	"signed-out",
 	"approval-required",
 	"available",
+	"conflict",
 	"error",
 ]);
 export type TailnetShareAvailability = typeof TailnetShareAvailability.Type;
+
+export const TailnetServeConflictReason = Schema.Literals([
+	"foreign-app",
+	"unresponsive-owner",
+	"unrecognized-config",
+]);
+export type TailnetServeConflictReason = typeof TailnetServeConflictReason.Type;
+
+export class TailnetServeConflict extends Schema.Class<TailnetServeConflict>(
+	"TailnetServeConflict",
+)({
+	reason: TailnetServeConflictReason,
+	targetPort: Schema.NullOr(Schema.Number),
+	canReplace: Schema.Boolean,
+}) {}
+
+export const TailnetShareManagedBy = Schema.Literals([
+	"this-app",
+	"zuse-serve",
+]);
+export type TailnetShareManagedBy = typeof TailnetShareManagedBy.Type;
 
 export class TailnetShareState extends Schema.Class<TailnetShareState>(
 	"TailnetShareState",
@@ -23,6 +45,8 @@ export class TailnetShareState extends Schema.Class<TailnetShareState>(
 	port: Schema.Number,
 	detail: Schema.NullOr(Schema.String),
 	approvalUrl: Schema.NullOr(Schema.String),
+	managedBy: Schema.NullOr(TailnetShareManagedBy),
+	conflict: Schema.NullOr(TailnetServeConflict),
 }) {}
 
 export class TailnetEnvironmentProfile extends Schema.Class<TailnetEnvironmentProfile>(

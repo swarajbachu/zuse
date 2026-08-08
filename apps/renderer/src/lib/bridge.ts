@@ -43,6 +43,17 @@ export interface PairingBridge {
 	readonly onNearbyRequest: (
 		handler: (request: NearbyPairingRequest) => void,
 	) => () => void;
+	/**
+	 * Connect/pair deep links (`zuse:///connect/pair?...`) forwarded raw from
+	 * main. Optional — absent on preload builds that predate deep-link pairing.
+	 */
+	readonly onPairingLink?: (handler: (link: string) => void) => () => void;
+	/**
+	 * Tell main the renderer is ready for pairing links. Main buffers links
+	 * that arrive earlier (cold start) and flushes them, in order, on this
+	 * signal. Call after `onPairingLink` is registered.
+	 */
+	readonly subscribePairingLinks?: () => void;
 }
 
 export interface AppBridge {
@@ -71,6 +82,7 @@ export interface NetworkBridge {
 	readonly getTailnetShareState: () => Promise<TailnetShareState>;
 	readonly setTailnetShareEnabled: (
 		enabled: boolean,
+		options?: { readonly replaceExisting?: boolean },
 	) => Promise<TailnetShareState>;
 }
 

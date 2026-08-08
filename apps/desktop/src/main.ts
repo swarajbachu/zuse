@@ -59,9 +59,13 @@ import {
 	inspectTailnetShare,
 	isTailnetOperatorPermissionError,
 	makeTailnetCommandRunner,
+	probeZuseLoopback,
+	readServeOwnershipMarker,
+	repairTailnetShare,
 	runTailnetCommand,
 	setTailnetShareEnabled,
 	type TailnetDiagnosticEvent,
+	type TailnetShareOptions,
 } from "@zuse/tailnet";
 import {
 	makeMainLayer,
@@ -130,6 +134,7 @@ import {
 	type DeepEnergyProfileHandle,
 	startDeepEnergyProfile,
 } from "./deep-energy-profiler.ts";
+import { createBufferedChannel, isPairingDeepLink } from "./deep-link.ts";
 import { listLocalServers } from "./host/local-port-inspector.ts";
 import {
 	listPortableOpenTargets,
@@ -397,6 +402,24 @@ const AUTH_DEEP_LINK_SCHEMES = ["zuse://", "memoize://"] as const;
 const isAuthDeepLink = (arg: string): boolean =>
 	AUTH_DEEP_LINK_SCHEMES.some((scheme) => arg.startsWith(scheme));
 
+// Connect/pair deep links (`zuse:///connect/pair?...#token=...`) bypass the
+// auth flow entirely: they are routed to the renderer's Add-computer dialog.
+// A link can arrive before the renderer mounts its handler (cold start), so
+// publish into a buffered channel and flush once the renderer subscribes.
+// Raw strings pass through untouched — the `#token=` fragment must survive.
+const pairingLinkChannel = createBufferedChannel<string>();
+
+ipcMain.on("pairing:link-subscribe", () => {
+	pairingLinkChannel.subscribe((url) => {
+		mainWindow?.webContents.send("pairing:link", url);
+	});
+});
+
+const handlePairingDeepLink = (url: string): void => {
+	pairingLinkChannel.publish(url);
+	focusMainWindow();
+};
+
 let deliverAuthUrl: ((url: string) => void) | null = null;
 let pendingAuthUrls: string[] = [];
 let deliverLinearUrl: ((url: string) => void) | null = null;
@@ -547,6 +570,10 @@ const desktopRunId = `desktop_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
 // macOS: deep links arrive here (also on cold launch, before whenReady).
 app.on("open-url", (event, url) => {
 	event.preventDefault();
+	if (isPairingDeepLink(url)) {
+		handlePairingDeepLink(url);
+		return;
+	}
 	handleAuthCallback(url);
 });
 
@@ -1145,7 +1172,11 @@ const rendererDistDir = (): string =>
 // the primary instance. Pull any auth deep-link arg out of its argv and focus
 // the existing window.
 app.on("second-instance", (_event, argv) => {
-	const url = argv.find(isAuthDeepLink);
+	const pairingUrl = argv.find(isPairingDeepLink);
+	if (pairingUrl !== undefined) pairingLinkChannel.publish(pairingUrl);
+	const url = argv.find(
+		(arg) => isAuthDeepLink(arg) && !isPairingDeepLink(arg),
+	);
 	if (url !== undefined) handleAuthCallback(url);
 	focusMainWindow();
 });
@@ -1701,6 +1732,28 @@ async function createMainWindow() {
 	await sshEnvironmentManager.initialize();
 	tailnetEnvironmentManager ??= new TailnetEnvironmentManager(userData);
 	await tailnetEnvironmentManager.initialize();
+	const tailnetShareOptions: TailnetShareOptions = {
+		ownershipDir: userData,
+		probe: probeZuseLoopback,
+	};
+	// The relay port can drift between launches (fallback or ephemeral bind).
+	// When a persisted marker shows Zuse owns the Tailscale Serve route on the
+	// old port, repoint it in the background so sharing survives the drift.
+	void readServeOwnershipMarker(userData)
+		.then(async (markerPort) => {
+			if (markerPort === null || markerPort === relayPort.port) return;
+			const repaired = await repairTailnetShare(
+				relayPort.port,
+				tailnetShareOptions,
+				tailnetCommandRunner,
+			);
+			if (repaired.enabled && repaired.managedBy === "this-app") {
+				console.log(
+					`desktop.tailnet.serve_repaired ${markerPort} -> ${relayPort.port}`,
+				);
+			}
+		})
+		.catch(() => undefined);
 	const networkAccessEnabled = await readNetworkAccessPreference(userData);
 	const systemHostname = hostname();
 	const stableLocalHost =
@@ -1939,16 +1992,30 @@ async function createMainWindow() {
 		port: networkAccess.port,
 	}));
 	ipcMain.handle("network:getTailnetShareState", () =>
-		inspectTailnetShare(relayPort.port, tailnetCommandRunner),
+		inspectTailnetShare(
+			relayPort.port,
+			tailnetCommandRunner,
+			tailnetShareOptions,
+		),
 	);
 	ipcMain.handle(
 		"network:setTailnetShareEnabled",
-		async (_event, enabled: unknown) => {
+		async (_event, enabled: unknown, options: unknown) => {
 			if (typeof enabled !== "boolean") {
 				throw new TypeError("Tailnet sharing must be enabled or disabled.");
 			}
+			const replaceExisting =
+				typeof options === "object" &&
+				options !== null &&
+				"replaceExisting" in options &&
+				(options as { replaceExisting: unknown }).replaceExisting === true;
 			const next = await setTailnetShareEnabled(
-				{ enabled, port: relayPort.port },
+				{
+					enabled,
+					port: relayPort.port,
+					replaceExisting,
+					...tailnetShareOptions,
+				},
 				tailnetCommandRunner,
 			);
 			if (
@@ -1971,7 +2038,12 @@ async function createMainWindow() {
 			);
 			if (authorization.authorized) {
 				return setTailnetShareEnabled(
-					{ enabled: true, port: relayPort.port },
+					{
+						enabled: true,
+						port: relayPort.port,
+						replaceExisting,
+						...tailnetShareOptions,
+					},
 					tailnetCommandRunner,
 				);
 			}
@@ -3419,7 +3491,13 @@ void app.whenReady().then(async () => {
 	await startAuthLoopback();
 
 	// Win/Linux cold launch from a deep link: the URL is an argv entry.
-	const initialDeepLink = process.argv.find(isAuthDeepLink);
+	const initialPairingLink = process.argv.find(isPairingDeepLink);
+	if (initialPairingLink !== undefined) {
+		pairingLinkChannel.publish(initialPairingLink);
+	}
+	const initialDeepLink = process.argv.find(
+		(arg) => isAuthDeepLink(arg) && !isPairingDeepLink(arg),
+	);
 	if (initialDeepLink !== undefined) handleAuthCallback(initialDeepLink);
 
 	registerZuseProtocol();

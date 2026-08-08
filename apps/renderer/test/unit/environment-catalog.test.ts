@@ -1,12 +1,20 @@
 import { scopedCacheKey } from "@zuse/client-runtime/environment-scope";
+import type { Folder, FolderId } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 import { terminalRuntimeKey } from "../../src/lib/terminal-registry.ts";
+import {
+	composerDraftKeyForLanding,
+	useComposerDraftsStore,
+} from "../../src/store/composer-drafts.ts";
 import {
 	type EnvironmentCatalogEntry,
 	orderEnvironmentCatalog,
 	validateSshTarget,
 } from "../../src/store/environment-catalog.ts";
-import { createEnvironmentStateRegistry } from "../../src/store/environment-state-coordinator.ts";
+import {
+	activateEnvironmentState,
+	createEnvironmentStateRegistry,
+} from "../../src/store/environment-state-coordinator.ts";
 
 const entry = (
 	label: string,
@@ -25,6 +33,7 @@ const entry = (
 	status,
 	error: null,
 	folders: [],
+	originsByFolder: {},
 	chatsByProject: {},
 	sessionsByProject: {},
 });
@@ -78,6 +87,28 @@ describe("environment catalog", () => {
 		expect(terminalRuntimeKey("env-a", "terminal-1")).not.toBe(
 			terminalRuntimeKey("env-b", "terminal-1"),
 		);
+	});
+
+	it("carries the composer draft into the restored folder's landing key", async () => {
+		const folderId = "folder-remote" as FolderId;
+		const folder = { id: folderId, name: "Remote folder" } as unknown as Folder;
+		const catalogEntry: EnvironmentCatalogEntry = {
+			...entry("Remote", "remote", "connected"),
+			folders: [folder],
+		};
+		const selectedFolderId = await activateEnvironmentState({
+			fromEnvironmentId: "env-local",
+			entry: catalogEntry,
+			carryComposerDraft: { doc: "carry me across" },
+			activateConnection: async () => undefined,
+			resolveEntry: () => catalogEntry,
+		});
+		expect(selectedFolderId).toBe(folderId);
+		expect(
+			useComposerDraftsStore.getState().draftsByKey[
+				composerDraftKeyForLanding(folderId)
+			],
+		).toEqual({ doc: "carry me across", chips: [] });
 	});
 
 	it("restores isolated state when server IDs collide", () => {

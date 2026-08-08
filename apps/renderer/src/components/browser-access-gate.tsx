@@ -59,7 +59,7 @@ const errorCopy = (
 			return {
 				title: "This pairing link expired",
 				description:
-					"In the desktop app, open Settings → Devices and create a fresh web link.",
+					"In the desktop app, open Settings → Remote access and create a fresh web link.",
 				retryable: false,
 			};
 		}
@@ -67,7 +67,7 @@ const errorCopy = (
 			return {
 				title: "Pair this browser",
 				description:
-					"In the desktop app, open Settings → Devices → Create web link. Open that one-time link to authorize this browser.",
+					"In the desktop app, open Settings → Remote access → Connect a device. Open that one-time link to authorize this browser.",
 				retryable: false,
 			};
 		}

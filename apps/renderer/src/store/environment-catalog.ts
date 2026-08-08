@@ -2,6 +2,7 @@ import {
 	type Chat,
 	type EnvironmentDescriptor,
 	type Folder,
+	type GitOriginInfo,
 	type RelayConnectGrant,
 	type RelayEnvironmentRecord,
 	type RemoteEnvironmentProfile,
@@ -41,6 +42,8 @@ export type EnvironmentCatalogEntry = {
 	readonly status: CatalogConnectionStatus;
 	readonly error: string | null;
 	readonly folders: ReadonlyArray<Folder>;
+	/** Git origin per folder id (`null` = no origin / lookup failed). */
+	readonly originsByFolder: Readonly<Record<string, GitOriginInfo | null>>;
 	readonly chatsByProject: Readonly<Record<string, ReadonlyArray<Chat>>>;
 	readonly sessionsByProject: Readonly<Record<string, ReadonlyArray<Session>>>;
 };
@@ -74,15 +77,49 @@ type EnvironmentCatalogState = {
 	readonly entries: ReadonlyArray<EnvironmentCatalogEntry>;
 	readonly activeEnvironmentId: string;
 	readonly initialized: boolean;
+	readonly hiddenRelayEnvironmentIds: ReadonlyArray<string>;
 	initialize: () => Promise<void>;
 	add: (target: SshEnvironmentTarget, label?: string) => Promise<void>;
-	addTailnet: (pairingLink: string, label?: string) => Promise<void>;
+	/** Resolves with the connected computer's label once the link settles. */
+	addTailnet: (pairingLink: string, label?: string) => Promise<string>;
 	retry: (profileId: string) => Promise<void>;
 	retryEnvironment: (environmentId: string) => Promise<void>;
 	disconnect: (profileId: string) => Promise<void>;
 	remove: (profileId: string) => Promise<void>;
 	rename: (profileId: string, label: string) => Promise<void>;
+	hideRelayEnvironment: (environmentId: string) => Promise<void>;
+	unhideRelayEnvironments: () => Promise<void>;
 	activate: (environmentId: string) => Promise<void>;
+};
+
+const HIDDEN_RELAY_STORAGE_KEY = "zuse.catalog.hiddenRelayEnvironments";
+
+const readHiddenRelayEnvironmentIds = (): ReadonlyArray<string> => {
+	try {
+		const raw = window.localStorage.getItem(HIDDEN_RELAY_STORAGE_KEY);
+		if (raw === null) return [];
+		const parsed: unknown = JSON.parse(raw);
+		return Array.isArray(parsed)
+			? parsed.filter((id): id is string => typeof id === "string")
+			: [];
+	} catch {
+		return [];
+	}
+};
+
+const writeHiddenRelayEnvironmentIds = (ids: ReadonlyArray<string>): void => {
+	try {
+		if (ids.length === 0) {
+			window.localStorage.removeItem(HIDDEN_RELAY_STORAGE_KEY);
+		} else {
+			window.localStorage.setItem(
+				HIDDEN_RELAY_STORAGE_KEY,
+				JSON.stringify(ids),
+			);
+		}
+	} catch {
+		// Persisting hidden computers is best-effort.
+	}
 };
 
 const errorMessage = (cause: unknown): string =>
@@ -100,6 +137,7 @@ const profileEntry = (
 	status: "connecting",
 	error: null,
 	folders: [],
+	originsByFolder: {},
 	chatsByProject: {},
 	sessionsByProject: {},
 });
@@ -116,6 +154,7 @@ const tailnetProfileEntry = (
 	status: "connecting",
 	error: null,
 	folders: [],
+	originsByFolder: {},
 	chatsByProject: {},
 	sessionsByProject: {},
 });
@@ -132,6 +171,7 @@ const relayEntry = (
 	status: "connecting",
 	error: null,
 	folders: [],
+	originsByFolder: {},
 	chatsByProject: {},
 	sessionsByProject: {},
 });
@@ -150,10 +190,11 @@ const relayGrantUrl = (grant: RelayConnectGrant): string => {
 
 const hydrateEntry = async (
 	environmentId: string,
+	previous?: Pick<EnvironmentCatalogEntry, "folders" | "originsByFolder">,
 ): Promise<
 	Pick<
 		EnvironmentCatalogEntry,
-		"folders" | "chatsByProject" | "sessionsByProject"
+		"folders" | "originsByFolder" | "chatsByProject" | "sessionsByProject"
 	>
 > => {
 	const client = await getRpcClient(environmentId);
@@ -167,8 +208,36 @@ const hydrateEntry = async (
 			return [folder.id, chats, sessions] as const;
 		}),
 	);
+	// Origins are effectively immutable per folder, so only re-fetch when the
+	// folder id set changed — the 15s poller would otherwise issue one extra
+	// RPC per folder per tick.
+	const folderSetUnchanged =
+		previous !== undefined &&
+		previous.folders.length === folders.length &&
+		folders.every((folder) =>
+			previous.folders.some((candidate) => candidate.id === folder.id),
+		);
+	const originsByFolder = folderSetUnchanged
+		? previous.originsByFolder
+		: await (async () => {
+				const results = await Promise.allSettled(
+					folders.map((folder) =>
+						Effect.runPromise(client["git.origin"]({ folderId: folder.id })),
+					),
+				);
+				return Object.fromEntries(
+					folders.map((folder, index) => {
+						const result = results[index];
+						return [
+							folder.id,
+							result?.status === "fulfilled" ? result.value : null,
+						];
+					}),
+				);
+			})();
 	return {
 		folders,
+		originsByFolder,
 		chatsByProject: Object.fromEntries(
 			pairs.map(([projectId, chats]) => [projectId, chats]),
 		),
@@ -185,6 +254,22 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 		const recovering = new Set<string>();
 		const catalogPollers = new Map<string, number>();
 		const catalogPollsInFlight = new Set<string>();
+		/**
+		 * Previous folders + origins for an entry so `hydrateEntry` can skip
+		 * re-resolving git origins when the folder set is unchanged.
+		 */
+		const previousCatalog = (
+			catalogKey: string,
+		):
+			| Pick<EnvironmentCatalogEntry, "folders" | "originsByFolder">
+			| undefined => {
+			const entry = get().entries.find(
+				(candidate) => entryKey(candidate) === catalogKey,
+			);
+			return entry === undefined
+				? undefined
+				: { folders: entry.folders, originsByFolder: entry.originsByFolder };
+		};
 		const patchEntry = (
 			key: string,
 			patch: Partial<EnvironmentCatalogEntry>,
@@ -207,12 +292,19 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				window.setInterval(() => {
 					if (catalogPollsInFlight.has(key)) return;
 					catalogPollsInFlight.add(key);
-					void hydrateEntry(environmentId)
+					void hydrateEntry(environmentId, previousCatalog(catalogKey))
 						.then((catalog) => patchEntry(catalogKey, catalog))
 						.catch(() => undefined)
 						.finally(() => catalogPollsInFlight.delete(key));
 				}, 15_000),
 			);
+		};
+		const stopEntryRuntime = (catalogKey: string): void => {
+			recoverySubscriptions.get(catalogKey)?.();
+			recoverySubscriptions.delete(catalogKey);
+			window.clearInterval(catalogPollers.get(catalogKey));
+			catalogPollers.delete(catalogKey);
+			catalogPollsInFlight.delete(catalogKey);
 		};
 
 		const connectProfile = async (profileId: string): Promise<void> => {
@@ -227,7 +319,10 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					connection.profile.environmentId,
 					connection.descriptor.endpoint.wsBaseUrl,
 				);
-				const catalog = await hydrateEntry(connection.profile.environmentId);
+				const catalog = await hydrateEntry(
+					connection.profile.environmentId,
+					previousCatalog(catalogKey),
+				);
 				patchEntry(catalogKey, {
 					environmentId: connection.profile.environmentId,
 					label: connection.profile.label,
@@ -289,7 +384,10 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				if (confirmedProfile === undefined) {
 					throw new Error("Tailnet connection confirmation is unavailable.");
 				}
-				const catalog = await hydrateEntry(profile.environmentId);
+				const catalog = await hydrateEntry(
+					profile.environmentId,
+					previousCatalog(catalogKey),
+				);
 				patchEntry(catalogKey, {
 					environmentId: profile.environmentId,
 					label: confirmedProfile.label,
@@ -396,7 +494,10 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						}, environment.environmentId),
 					);
 				}
-				const catalog = await hydrateEntry(environment.environmentId);
+				const catalog = await hydrateEntry(
+					environment.environmentId,
+					previousCatalog(catalogKey),
+				);
 				patchEntry(catalogKey, {
 					descriptor: {
 						...environment,
@@ -419,6 +520,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			entries: [],
 			activeEnvironmentId: LOCAL_ENVIRONMENT_KEY,
 			initialized: false,
+			hiddenRelayEnvironmentIds: [],
 			initialize: async () => {
 				if (get().initialized) return;
 				set({ initialized: true });
@@ -440,17 +542,25 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 							(profile) => profile.environmentId,
 						),
 					);
-					const visibleRelayEnvironments =
+					const hiddenRelayEnvironmentIds = readHiddenRelayEnvironmentIds();
+					const hiddenRelayIds = new Set(hiddenRelayEnvironmentIds);
+					const accountRelayEnvironments =
 						relayEnvironments.environments.filter(
 							(environment) =>
 								environment.environmentId !== descriptor.environmentId &&
 								!profileEnvironmentIds.has(environment.environmentId),
 						);
-					for (const environment of visibleRelayEnvironments) {
+					// Record every account relay environment — including hidden ones —
+					// so retry and unhide can reconnect without re-fetching the list.
+					for (const environment of accountRelayEnvironments) {
 						relayRecords.set(environment.environmentId, environment);
 					}
+					const visibleRelayEnvironments = accountRelayEnvironments.filter(
+						(environment) => !hiddenRelayIds.has(environment.environmentId),
+					);
 					set({
 						activeEnvironmentId: descriptor.environmentId,
+						hiddenRelayEnvironmentIds,
 						entries: orderEnvironmentCatalog([
 							{
 								connectionKind: "local",
@@ -507,11 +617,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					);
 				}
 				if (duplicateRelay) {
-					recoverySubscriptions.get(relayKey)?.();
-					recoverySubscriptions.delete(relayKey);
-					window.clearInterval(catalogPollers.get(relayKey));
-					catalogPollers.delete(relayKey);
-					catalogPollsInFlight.delete(relayKey);
+					stopEntryRuntime(relayKey);
 					await removeRendererEnvironment(connection.profile.environmentId);
 					set((state) => ({
 						entries: state.entries.filter(
@@ -573,12 +679,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					duplicate?.connectionKind === "relay" ||
 					duplicate?.connectionKind === "tailnet"
 				) {
-					const duplicateKey = entryKey(duplicate);
-					recoverySubscriptions.get(duplicateKey)?.();
-					recoverySubscriptions.delete(duplicateKey);
-					window.clearInterval(catalogPollers.get(duplicateKey));
-					catalogPollers.delete(duplicateKey);
-					catalogPollsInFlight.delete(duplicateKey);
+					stopEntryRuntime(entryKey(duplicate));
 					await removeRendererEnvironment(duplicate.environmentId);
 				}
 				const next = {
@@ -604,6 +705,11 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					});
 					throw cause;
 				}
+				return (
+					get().entries.find(
+						(entry) => entry.profileId === connection.profile.profileId,
+					)?.label ?? connection.profile.label
+				);
 			},
 			retry: async (profileId) => {
 				const entry = get().entries.find(
@@ -638,11 +744,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					await removeRendererEnvironment(entry.environmentId);
 				if (entry === undefined) return;
 				const catalogKey = `${entry.connectionKind}:${profileId}`;
-				recoverySubscriptions.get(catalogKey)?.();
-				recoverySubscriptions.delete(catalogKey);
-				window.clearInterval(catalogPollers.get(catalogKey));
-				catalogPollers.delete(catalogKey);
-				catalogPollsInFlight.delete(catalogKey);
+				stopEntryRuntime(catalogKey);
 				patchEntry(catalogKey, {
 					status: "offline",
 					error: null,
@@ -658,15 +760,9 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				} else {
 					await window.zuse?.ssh?.removeProfile(profileId);
 				}
-				if (entry !== undefined)
-					await removeRendererEnvironment(entry.environmentId);
 				if (entry !== undefined) {
-					const catalogKey = `${entry.connectionKind}:${profileId}`;
-					recoverySubscriptions.get(catalogKey)?.();
-					recoverySubscriptions.delete(catalogKey);
-					window.clearInterval(catalogPollers.get(catalogKey));
-					catalogPollers.delete(catalogKey);
-					catalogPollsInFlight.delete(catalogKey);
+					await removeRendererEnvironment(entry.environmentId);
+					stopEntryRuntime(`${entry.connectionKind}:${profileId}`);
 				}
 				set((state) => ({
 					entries: state.entries.filter((item) => item.profileId !== profileId),
@@ -686,6 +782,55 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				patchEntry(`${entry?.connectionKind ?? "ssh"}:${profileId}`, {
 					label: profile.label,
 				});
+			},
+			hideRelayEnvironment: async (environmentId) => {
+				if (get().activeEnvironmentId === environmentId) {
+					throw new Error("Switch to another computer before hiding this one.");
+				}
+				const current = readHiddenRelayEnvironmentIds();
+				const hiddenRelayEnvironmentIds = current.includes(environmentId)
+					? current
+					: [...current, environmentId];
+				writeHiddenRelayEnvironmentIds(hiddenRelayEnvironmentIds);
+				const catalogKey = `relay:${environmentId}`;
+				stopEntryRuntime(catalogKey);
+				await removeRendererEnvironment(environmentId).catch(() => undefined);
+				set((state) => ({
+					hiddenRelayEnvironmentIds,
+					entries: state.entries.filter(
+						(entry) => entryKey(entry) !== catalogKey,
+					),
+				}));
+			},
+			unhideRelayEnvironments: async () => {
+				const hidden = readHiddenRelayEnvironmentIds();
+				writeHiddenRelayEnvironmentIds([]);
+				set({ hiddenRelayEnvironmentIds: [] });
+				const local = get().entries.find(
+					(entry) => entry.connectionKind === "local",
+				);
+				if (hidden.length === 0 || local === undefined) return;
+				const records = hidden
+					.map((environmentId) => relayRecords.get(environmentId))
+					.filter(
+						(record): record is RelayEnvironmentRecord => record !== undefined,
+					)
+					.filter(
+						(record) =>
+							!get().entries.some(
+								(entry) => entry.environmentId === record.environmentId,
+							),
+					);
+				if (records.length === 0) return;
+				set((state) => ({
+					entries: orderEnvironmentCatalog([
+						...state.entries,
+						...records.map(relayEntry),
+					]),
+				}));
+				await Promise.allSettled(
+					records.map((record) => connectRelay(record, local.environmentId)),
+				);
 			},
 			activate: async (environmentId) => {
 				const entry = get().entries.find(

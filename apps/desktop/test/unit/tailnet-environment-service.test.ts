@@ -23,6 +23,18 @@ describe("Tailnet environment pairing", () => {
 		});
 	});
 
+	it("parses secure links to hosts outside the tailnet", () => {
+		expect(
+			parseTailnetPairingLink(
+				"zuse:///connect/pair?pairingUrl=wss%3A%2F%2Fexample.com%2Frpc#token=zp_once",
+			),
+		).toEqual({
+			code: "zp_once",
+			httpBaseUrl: "https://example.com",
+			wsBaseUrl: "wss://example.com/rpc",
+		});
+	});
+
 	it("rejects insecure and incomplete links", () => {
 		expect(() =>
 			parseTailnetPairingLink(
@@ -36,9 +48,9 @@ describe("Tailnet environment pairing", () => {
 		).toThrow(/incomplete/u);
 		expect(() =>
 			parseTailnetPairingLink(
-				"zuse:///connect/pair?pairingUrl=wss%3A%2F%2Fexample.com%2Frpc#token=zp_once",
+				"zuse:///connect/pair?pairingUrl=wss%3A%2F%2Fuser%3Apass%40example.com%2Frpc#token=zp_once",
 			),
-		).toThrow(/Tailscale device/u);
+		).toThrow(/reachable Zuse computer/u);
 	});
 
 	it("stores only profile metadata on disk and restores the secret from the vault", async () => {

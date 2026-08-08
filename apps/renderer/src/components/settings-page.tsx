@@ -125,7 +125,7 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
 	},
 	{
 		id: "devices",
-		label: "Devices",
+		label: "Remote access",
 		Icon: SmartPhone01Icon,
 		section: { kind: "devices" },
 	},
@@ -350,9 +350,9 @@ function SectionTitle({
 		}
 		if (section.kind === "devices") {
 			return {
-				title: "Devices",
+				title: "Remote access",
 				subtitle:
-					"Link this Mac to your account so you can drive it from your phone.",
+					"Use this computer from your phone, a browser, or another computer.",
 			};
 		}
 		if (section.kind === "browser") {

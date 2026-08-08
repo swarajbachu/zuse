@@ -6,6 +6,7 @@ import {
 	ArchiveIcon,
 	ArrowDown01Icon,
 	ArrowRight01Icon,
+	ComputerIcon,
 	Delete02Icon,
 	Edit01Icon,
 	FolderAddIcon,
@@ -21,7 +22,6 @@ import {
 import type {
 	Chat,
 	ChatId,
-	Folder,
 	FolderId,
 	GitOriginInfo,
 	Session,
@@ -65,6 +65,12 @@ import { cn, formatCompactNumber } from "~/lib/utils";
 import { dispatchCommand } from "../lib/commands.ts";
 import { noteSessionRuntimeCompletion } from "../lib/completion-sounds.ts";
 import {
+	buildLogicalProjectGroups,
+	type LogicalChatRef,
+	type LogicalProjectGroup,
+	preferredGroupMember,
+} from "../lib/project-groups.ts";
+import {
 	getRpcClient,
 	reportRendererRpcStreamFailure,
 	subscribeRendererRpcConnection,
@@ -74,6 +80,7 @@ import {
 	isSessionRuntimeBusy,
 } from "../lib/session-runtime-state.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
+import { switchToEnvironment } from "../lib/switch-environment.ts";
 import { useArchivePreviewStore } from "../store/archive-preview.ts";
 import {
 	archiveChatWithConfirm,
@@ -81,8 +88,11 @@ import {
 	isChatUnread,
 	useChatsStore,
 } from "../store/chats.ts";
-import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
-import { activateEnvironmentState } from "../store/environment-state-coordinator.ts";
+import {
+	type EnvironmentCatalogEntry,
+	useEnvironmentCatalogStore,
+} from "../store/environment-catalog.ts";
+import { useFolderOriginsStore } from "../store/folder-origins.ts";
 import { gitDiffStatKey, useGitDiffStatStore } from "../store/git-diff-stat.ts";
 import { useMessagesStore } from "../store/messages.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
@@ -96,6 +106,7 @@ import { getSessionById, useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useUsageLimitsStore } from "../store/usage-limits.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
+import { openAddComputerDialog } from "./add-computer-dialog.tsx";
 import { BranchIcon, type BranchState } from "./branch-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
@@ -382,16 +393,14 @@ export function ProjectsSidebar() {
 	const activeEnvironmentId = useEnvironmentCatalogStore(
 		(s) => s.activeEnvironmentId,
 	);
-	const activateEnvironment = useEnvironmentCatalogStore((s) => s.activate);
 
 	const sessionsByProject = useSessionsStore((s) => s.sessionsByProject);
 
 	const chatsByProject = useChatsStore((s) => s.chatsByProject);
 	const hydrateChats = useChatsStore((s) => s.hydrate);
 
-	const [origins, setOrigins] = useState<Record<string, GitOriginInfo | null>>(
-		{},
-	);
+	const origins = useFolderOriginsStore((s) => s.byFolder);
+	const hydrateOrigins = useFolderOriginsStore((s) => s.hydrate);
 	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
 	useEffect(() => {
@@ -432,64 +441,48 @@ export function ProjectsSidebar() {
 	// inside `SessionRow` so each row pulls the entry that matches its
 	// session — no per-project bulk hydrate.
 
-	// Resolve git origin for avatar rendering. Lookups that fail stay `null`
-	// and the row falls back to initials.
+	// Resolve git origin for avatar rendering + logical grouping. Lookups that
+	// fail stay `null` and the row falls back to initials.
 	useEffect(() => {
-		let cancelled = false;
-		const missing = folders.filter((f) => !(f.id in origins));
-		if (missing.length === 0) return;
-		void (async () => {
-			const client = await getRpcClient();
-			for (const folder of missing) {
-				try {
-					const info = await Effect.runPromise(
-						client["git.origin"]({ folderId: folder.id }),
-					);
-					if (cancelled) return;
-					setOrigins((prev) => ({ ...prev, [folder.id]: info }));
-				} catch {
-					if (cancelled) return;
-					setOrigins((prev) => ({ ...prev, [folder.id]: null }));
-				}
-			}
-		})();
-		return () => {
-			cancelled = true;
-		};
-	}, [folders, origins]);
+		void hydrateOrigins(folders.map((folder) => folder.id));
+	}, [folders, hydrateOrigins]);
 
 	useProjectSessionSummarySubscriptions(
 		folders.map((folder) => folder.id),
 		activeEnvironmentId,
 	);
 
-	const onToggleExpanded = (environmentId: string, id: FolderId) => {
-		const key = environmentProjectKey(environmentId, id);
+	const onToggleKey = (key: string) => {
 		setExpanded((previous) => ({ ...previous, [key]: !previous[key] }));
 	};
-
-	const openCatalogItem = async (
-		environmentId: string,
-		folderId: FolderId,
-		chatId?: ChatId,
-	): Promise<void> => {
-		const entry = catalogEntries.find(
-			(candidate) => candidate.environmentId === environmentId,
-		);
-		if (entry === undefined || entry.status !== "connected") return;
-		await activateEnvironmentState({
-			fromEnvironmentId: activeEnvironmentId,
-			entry,
-			folderId,
-			chatId,
-			activateConnection: activateEnvironment,
-			resolveEntry: (id) =>
-				useEnvironmentCatalogStore
-					.getState()
-					.entries.find((candidate) => candidate.environmentId === id),
-		});
+	const onToggleExpanded = (environmentId: string, id: FolderId) => {
+		onToggleKey(environmentProjectKey(environmentId, id));
 	};
+
 	const desktopCatalogEnabled = window.zuse?.ssh !== undefined;
+
+	// One merged timeline: computers never form sections. The same repo across
+	// machines collapses into one logical group; the computer is a row property.
+	const logicalGroups = useMemo(
+		() =>
+			desktopCatalogEnabled
+				? buildLogicalProjectGroups({
+						entries: catalogEntries,
+						activeEnvironmentId,
+						activeFolders: folders,
+						activeOrigins: origins,
+						activeChatsByProject: chatsByProject,
+					})
+				: [],
+		[
+			desktopCatalogEnabled,
+			catalogEntries,
+			activeEnvironmentId,
+			folders,
+			origins,
+			chatsByProject,
+		],
+	);
 
 	return (
 		<aside
@@ -518,107 +511,61 @@ export function ProjectsSidebar() {
 					<ProjectAddMenu />
 				)}
 			</div>
+			{desktopCatalogEnabled ? (
+				<CatalogConnectionNotice entries={catalogEntries} />
+			) : null}
 			<SidebarErrorToasts />
 
 			<ul className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5">
 				{desktopCatalogEnabled ? (
-					catalogEntries.map((entry, index) => {
-						const active = entry.environmentId === activeEnvironmentId;
-						return (
-							<li
-								key={`${entry.connectionKind}:${entry.profileId ?? entry.environmentId}`}
-								className={cn(
-									index > 0 && "mt-2 border-t border-sidebar-border/40 pt-2",
-								)}
-							>
-								<div className="flex min-h-8 items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-									<span
-										aria-hidden="true"
-										className={cn(
-											"size-1.5 shrink-0 rounded-full",
-											entry.status === "connected"
-												? "bg-emerald-500"
-												: entry.status === "connecting"
-													? "bg-amber-400"
-													: "bg-muted-foreground/35",
-										)}
-									/>
-									<span className="min-w-0 flex-1 truncate">{entry.label}</span>
-									<span className="normal-case font-normal">
-										{entry.status}
-									</span>
-									{active ? <ProjectAddMenu /> : null}
-								</div>
-								<ul aria-label={`${entry.label} projects`}>
-									{active ? (
-										<>
-											{folders.length === 0 && !loading ? (
-												<li className="px-3 py-4 text-center text-xs text-muted-foreground">
-													No projects yet. Click + to add one.
-												</li>
-											) : null}
-											{folders.map((folder) => (
-												<ProjectGroup
-													key={`${entry.environmentId}:${folder.id}`}
-													id={folder.id}
-													name={folder.name}
-													path={folder.path}
-													origin={origins[folder.id] ?? null}
-													isExpanded={
-														expanded[
-															environmentProjectKey(
-																entry.environmentId,
-																folder.id,
-															)
-														] === true
-													}
-													chats={chatsByProject[folder.id] ?? []}
-													projectSessions={sessionsByProject[folder.id] ?? []}
-													onSelect={() => void select(folder.id)}
-													onToggleExpanded={() =>
-														onToggleExpanded(entry.environmentId, folder.id)
-													}
-													onRemove={() => void remove(folder.id)}
-												/>
-											))}
-										</>
-									) : entry.status === "connected" ? (
-										entry.folders.map((folder) => (
-											<CatalogProjectGroup
-												key={`${entry.environmentId}:${folder.id}`}
-												environmentId={entry.environmentId}
-												folder={folder}
-												chats={entry.chatsByProject[folder.id] ?? []}
-												sessions={entry.sessionsByProject[folder.id] ?? []}
-												isExpanded={
-													expanded[
-														environmentProjectKey(
-															entry.environmentId,
-															folder.id,
-														)
-													] === true
-												}
-												onToggle={() =>
-													onToggleExpanded(entry.environmentId, folder.id)
-												}
-												onOpen={(chatId) =>
-													void openCatalogItem(
-														entry.environmentId,
-														folder.id,
-														chatId,
-													)
-												}
-											/>
-										))
-									) : (
-										<li className="px-3 py-2 text-xs text-muted-foreground">
-											Projects will return when this computer reconnects.
-										</li>
-									)}
-								</ul>
+					<>
+						{logicalGroups.length === 0 && !loading ? (
+							<li className="px-3 py-4 text-center text-xs text-muted-foreground">
+								No projects yet. Click + to add one.
 							</li>
-						);
-					})
+						) : null}
+						{logicalGroups.map((group) => {
+							const activeMember = group.members.find(
+								(member) => member.isActive,
+							);
+							const folder =
+								activeMember === undefined
+									? undefined
+									: folders.find((f) => f.id === activeMember.folderId);
+							if (activeMember !== undefined && folder !== undefined) {
+								return (
+									<ProjectGroup
+										key={group.key}
+										id={folder.id}
+										name={folder.name}
+										path={folder.path}
+										origin={origins[folder.id] ?? null}
+										isExpanded={
+											expanded[
+												environmentProjectKey(activeEnvironmentId, folder.id)
+											] === true
+										}
+										chats={chatsByProject[folder.id] ?? []}
+										projectSessions={sessionsByProject[folder.id] ?? []}
+										remoteChats={remoteChatRows(group)}
+										onSelect={() => void select(folder.id)}
+										onToggleExpanded={() =>
+											onToggleExpanded(activeEnvironmentId, folder.id)
+										}
+										onRemove={() => void remove(folder.id)}
+									/>
+								);
+							}
+							return (
+								<LogicalCatalogGroup
+									key={group.key}
+									group={group}
+									isExpanded={expanded[group.key] === true}
+									onToggle={() => onToggleKey(group.key)}
+								/>
+							);
+						})}
+					</>
 				) : (
 					<>
 						{folders.length === 0 && !loading ? (
@@ -836,25 +783,96 @@ function SidebarAccount() {
 	);
 }
 
-function CatalogProjectGroup({
-	environmentId,
-	folder,
-	chats,
-	sessions,
+/** A remote chat row plus whether its computer is currently reachable. */
+type RemoteChatRow = {
+	readonly ref: LogicalChatRef;
+	readonly connected: boolean;
+};
+
+const remoteChatRows = (
+	group: LogicalProjectGroup,
+): ReadonlyArray<RemoteChatRow> => {
+	const connectedEnvironments = new Set(
+		group.members
+			.filter((member) => member.connected)
+			.map((member) => member.environmentId),
+	);
+	return group.chats
+		.filter((ref) => ref.remote)
+		.map((ref) => ({
+			ref,
+			connected: connectedEnvironments.has(ref.environmentId),
+		}));
+};
+
+/**
+ * Connection problems no longer occupy sidebar blocks — one quiet line under
+ * the "Computers" strip carries them, with the details in a tooltip and a
+ * click-through to the connect dialog.
+ */
+function CatalogConnectionNotice({
+	entries,
+}: {
+	entries: ReadonlyArray<EnvironmentCatalogEntry>;
+}) {
+	const failing = entries.filter((entry) => entry.status === "error");
+	const first = failing[0];
+	if (first === undefined) return null;
+	const label =
+		failing.length === 1
+			? `${first.label} can't connect`
+			: `${failing.length} computers can't connect`;
+	const detail = failing
+		.map((entry) =>
+			entry.error === null ? entry.label : `${entry.label}: ${entry.error}`,
+		)
+		.join("\n");
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<button
+						type="button"
+						onClick={() => openAddComputerDialog()}
+						className="mx-1.5 flex min-h-6 items-center gap-1.5 rounded-md px-2 text-left text-[11px] text-muted-foreground/80 outline-none hover:bg-sidebar-accent/40 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+					>
+						<span
+							aria-hidden="true"
+							className="size-1.5 shrink-0 rounded-full bg-muted-foreground/35"
+						/>
+						<span className="min-w-0 flex-1 truncate">{label}</span>
+					</button>
+				}
+			/>
+			<TooltipPopup className="max-w-64 whitespace-pre-line">
+				{detail}
+			</TooltipPopup>
+		</Tooltip>
+	);
+}
+
+/**
+ * A logical project group with no folder on the active environment: a light
+ * header (avatar ↔ chevron swap, same anatomy as the full `ProjectGroup`)
+ * over `CatalogChatRow`s. Clicking a chat switches to its computer.
+ */
+function LogicalCatalogGroup({
+	group,
 	isExpanded,
 	onToggle,
-	onOpen,
 }: {
-	environmentId: string;
-	folder: Folder;
-	chats: ReadonlyArray<Chat>;
-	sessions: ReadonlyArray<Session>;
+	group: LogicalProjectGroup;
 	isExpanded: boolean;
 	onToggle: () => void;
-	onOpen: (chatId?: ChatId) => void;
 }) {
-	const visibleChats = chats.filter((chat) => chat.archivedAt === null);
+	const preferred = preferredGroupMember(group);
+	const rows = remoteChatRows(group);
 	const chevron = isExpanded ? ArrowDown01Icon : ArrowRight01Icon;
+	const avatarUrl = avatarUrlFor(group.origin);
+	const listId = `catalog-project-${group.key.replace(/[^\w-]/gu, "-")}`;
+	const memberLabels = group.members
+		.map((member) => member.environmentLabel)
+		.join(", ");
 
 	return (
 		<Fragment>
@@ -863,14 +881,17 @@ function CatalogProjectGroup({
 					<button
 						type="button"
 						aria-expanded={isExpanded}
-						aria-controls={`catalog-project-${environmentId}-${folder.id}`}
+						aria-controls={listId}
 						className="flex min-w-0 flex-1 items-center gap-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
 						onClick={onToggle}
 					>
 						<span className="relative grid size-5 shrink-0 place-items-center">
 							<Avatar className="col-start-1 row-start-1 size-5 rounded transition-opacity duration-150 ease-out group-hover:opacity-0 motion-reduce:transition-none">
+								{avatarUrl !== null && (
+									<AvatarImage src={avatarUrl} alt={group.displayName} />
+								)}
 								<AvatarFallback className="rounded text-[9px]">
-									{initialsOf(folder.name)}
+									{initialsOf(group.origin?.owner ?? group.displayName)}
 								</AvatarFallback>
 							</Avatar>
 							<HugeiconsIcon
@@ -880,62 +901,135 @@ function CatalogProjectGroup({
 							/>
 						</span>
 						<span className="min-w-0 flex-1 truncate text-[11px]">
-							{folder.name}
+							{group.displayName}
 						</span>
 					</button>
-					<button
-						type="button"
-						aria-label={`New chat in ${folder.name}`}
-						className="rounded-md p-1 text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
-						onClick={() => onOpen()}
-					>
-						<HugeiconsIcon icon={Edit01Icon} className="size-3.5" />
-					</button>
+					{group.environmentPresence === "remote-only" ? (
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<span className="inline-flex shrink-0 text-muted-foreground/70">
+										<HugeiconsIcon
+											icon={ComputerIcon}
+											aria-hidden
+											className="size-3"
+										/>
+										<span className="sr-only">On {memberLabels}</span>
+									</span>
+								}
+							/>
+							<TooltipPopup>On {memberLabels}</TooltipPopup>
+						</Tooltip>
+					) : null}
+					{preferred?.connected ? (
+						<button
+							type="button"
+							aria-label={`New chat in ${group.displayName}`}
+							className="rounded-md p-1 text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+							onClick={() =>
+								void switchToEnvironment({
+									environmentId: preferred.environmentId,
+									folderId: preferred.folderId,
+								})
+							}
+						>
+							<HugeiconsIcon icon={Edit01Icon} className="size-3.5" />
+						</button>
+					) : null}
 				</div>
 			</li>
-			<li
-				id={`catalog-project-${environmentId}-${folder.id}`}
-				className="list-none"
-				hidden={!isExpanded}
-			>
-				<ul aria-label={`${folder.name} chats`}>
-					{visibleChats.length === 0 ? (
+			<li id={listId} className="list-none" hidden={!isExpanded}>
+				<ul aria-label={`${group.displayName} chats`}>
+					{rows.length === 0 ? (
 						<li className="px-12 py-1 text-[11px] text-muted-foreground">
 							No chats yet.
 						</li>
 					) : null}
-					{visibleChats.map((chat) => {
-						const busy = sessions.some(
-							(session) =>
-								session.chatId === chat.id &&
-								(session.status === "booting" || session.status === "running"),
-						);
-						return (
-							<li key={`${environmentId}:${chat.id}`}>
-								<button
-									type="button"
-									className="flex min-h-6 w-full items-center rounded-md pl-10 pr-2 text-left text-[11px] text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
-									onClick={() => onOpen(chat.id)}
-								>
-									<span className="min-w-0 flex-1 truncate">
-										{chat.title || "New chat"}
-									</span>
-									{busy ? (
-										<>
-											<span
-												aria-hidden="true"
-												className="size-1.5 shrink-0 rounded-full bg-emerald-500"
-											/>
-											<span className="sr-only">Agent running</span>
-										</>
-									) : null}
-								</button>
-							</li>
-						);
-					})}
+					{rows.map((row) => (
+						<CatalogChatRow
+							key={`${row.ref.environmentId}:${row.ref.chat.id}`}
+							chatRef={row.ref}
+							connected={row.connected}
+						/>
+					))}
 				</ul>
 			</li>
 		</Fragment>
+	);
+}
+
+/**
+ * A chat that lives on another computer, mirroring `ChatRow`'s anatomy. The
+ * muted computer icon appears ONLY here — active-environment rows never carry
+ * one. Clicking switches the whole app to that chat's environment.
+ */
+function CatalogChatRow({
+	chatRef,
+	connected,
+}: {
+	chatRef: LogicalChatRef;
+	connected: boolean;
+}) {
+	const { chat, environmentId, environmentLabel, busy } = chatRef;
+	return (
+		<li>
+			<button
+				type="button"
+				aria-disabled={!connected}
+				onClick={() => {
+					if (!connected) return;
+					void switchToEnvironment({
+						environmentId,
+						folderId: chat.projectId,
+						chatId: chat.id,
+					});
+				}}
+				title={chat.title}
+				className={cn(
+					"group flex min-h-6 w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+					connected
+						? "cursor-pointer hover:bg-sidebar-accent/40"
+						: "cursor-default opacity-60",
+				)}
+			>
+				<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
+					{busy ? (
+						<>
+							<span
+								aria-hidden="true"
+								className="size-1.5 rounded-full bg-emerald-500"
+							/>
+							<span className="sr-only">Agent running</span>
+						</>
+					) : (
+						<span aria-hidden="true" />
+					)}
+				</span>
+				<span className="min-w-0 flex-1 truncate">
+					{chat.title || "New chat"}
+				</span>
+				<div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<span className="mr-1 inline-flex text-muted-foreground/70">
+									<HugeiconsIcon
+										icon={ComputerIcon}
+										aria-hidden
+										className="size-3"
+									/>
+									<span className="sr-only">On {environmentLabel}</span>
+								</span>
+							}
+						/>
+						<TooltipPopup>On {environmentLabel}</TooltipPopup>
+					</Tooltip>
+					<span className="tabular-nums text-[10px] text-muted-foreground">
+						{formatRelative(chat.updatedAt)}
+					</span>
+				</div>
+			</button>
+		</li>
 	);
 }
 
@@ -947,6 +1041,7 @@ function ProjectGroup({
 	isExpanded,
 	chats,
 	projectSessions,
+	remoteChats,
 	onSelect,
 	onToggleExpanded,
 	onRemove,
@@ -963,6 +1058,8 @@ function ProjectGroup({
 		readonly archivedAt: Date | null;
 		readonly status: SessionStatus;
 	}>;
+	/** Same-repo chats on other computers, interleaved into the chat list. */
+	remoteChats?: ReadonlyArray<RemoteChatRow>;
 	onSelect: () => void;
 	onToggleExpanded: () => void;
 	onRemove: () => void;
@@ -1008,6 +1105,24 @@ function ProjectGroup({
 		() => chats.filter((c) => c.archivedAt === null),
 		[chats],
 	);
+
+	// One merged timeline inside the group: local chats and same-repo chats on
+	// other computers interleave by recency instead of forming sections.
+	const chatRows = useMemo(() => {
+		const local = visibleChats.map((chat) => ({
+			kind: "local" as const,
+			chat,
+			updatedAt: chat.updatedAt.getTime(),
+		}));
+		const remote = (remoteChats ?? []).map((row) => ({
+			kind: "remote" as const,
+			row,
+			updatedAt: row.ref.chat.updatedAt.getTime(),
+		}));
+		return [...local, ...remote].sort(
+			(left, right) => right.updatedAt - left.updatedAt,
+		);
+	}, [visibleChats, remoteChats]);
 
 	// Surface the highest-priority attention hint on the collapsed project
 	// header when any session inside this project needs attention.
@@ -1157,14 +1272,22 @@ function ProjectGroup({
 
 			<li className="list-none" hidden={!isExpanded}>
 				<ul aria-label={`${displayName} chats`}>
-					{visibleChats.length === 0 && (
+					{chatRows.length === 0 && (
 						<li className="px-12 py-1 text-[11px] text-muted-foreground">
 							No chats yet.
 						</li>
 					)}
-					{visibleChats.map((chat) => (
-						<ChatRow key={chat.id} chat={chat} />
-					))}
+					{chatRows.map((entry) =>
+						entry.kind === "local" ? (
+							<ChatRow key={entry.chat.id} chat={entry.chat} />
+						) : (
+							<CatalogChatRow
+								key={`${entry.row.ref.environmentId}:${entry.row.ref.chat.id}`}
+								chatRef={entry.row.ref}
+								connected={entry.row.connected}
+							/>
+						),
+					)}
 				</ul>
 			</li>
 		</Fragment>

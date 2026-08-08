@@ -1,7 +1,10 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { accessSync, constants, statSync } from "node:fs";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
-import { TailnetShareState } from "@zuse/contracts";
+import { TailnetServeConflict, TailnetShareState } from "@zuse/contracts";
 
 export type TailnetCommandResult = {
 	readonly stdout: string;
@@ -369,13 +372,30 @@ export const parseTailnetStatus = (
 	};
 };
 
-export const serveStatusMatches = (raw: string, port: number): boolean => {
-	const normalized = raw.toLowerCase();
-	return (
-		normalized.includes(`127.0.0.1:${port}`) ||
-		normalized.includes(`localhost:${port}`)
-	);
+export type ServeProxyTarget = {
+	readonly host: string;
+	readonly port: number;
 };
+
+const SERVE_PROXY_TARGET_PATTERN =
+	/(?:https?:\/\/)?(127\.0\.0\.1|localhost|\[::1\]):(\d{1,5})(?!\d)/gu;
+
+export const parseServeProxyTargets = (
+	raw: string,
+): ReadonlyArray<ServeProxyTarget> => {
+	const targets: ServeProxyTarget[] = [];
+	for (const match of raw.toLowerCase().matchAll(SERVE_PROXY_TARGET_PATTERN)) {
+		const host = match[1];
+		const port = Number(match[2]);
+		if (host !== undefined && port >= 1 && port <= 65_535) {
+			targets.push({ host, port });
+		}
+	}
+	return targets;
+};
+
+export const serveStatusMatches = (raw: string, port: number): boolean =>
+	parseServeProxyTargets(raw).some((target) => target.port === port);
 
 export const serveStatusIsExclusive = (raw: string, port: number): boolean => {
 	if (!serveStatusMatches(raw, port)) return false;
@@ -387,13 +407,158 @@ export const serveStatusIsExclusive = (raw: string, port: number): boolean => {
 };
 
 const hasServeConfiguration = (raw: string): boolean => {
-	const normalized = raw.trim().toLowerCase();
-	return normalized.length > 0 && !normalized.includes("no serve config");
+	if (raw.trim().length === 0) return false;
+	if (parseServeProxyTargets(raw).length > 0) return true;
+	return raw
+		.split(/\r?\n/u)
+		.some(
+			(line) => line.trim().startsWith("|--") || line.trim().startsWith("+--"),
+		);
+};
+
+export type ZuseProbeResult = "zuse" | "other" | "unreachable";
+export type ZuseIdentityProbe = (port: number) => Promise<ZuseProbeResult>;
+
+const PROBE_TIMEOUT_MS = 1_500;
+
+type ProbeResponse =
+	| { readonly kind: "json"; readonly value: Record<string, unknown> }
+	| { readonly kind: "other" }
+	| { readonly kind: "unreachable" };
+
+const probeRequest = async (
+	port: number,
+	path: string,
+	init: RequestInit,
+): Promise<ProbeResponse> => {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+	try {
+		const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+			...init,
+			signal: controller.signal,
+		});
+		if (!response.ok) return { kind: "other" };
+		const value: unknown = await response.json();
+		return typeof value === "object" && value !== null
+			? { kind: "json", value: value as Record<string, unknown> }
+			: { kind: "other" };
+	} catch (cause) {
+		// A parse failure on a 200 means "answered, but not as expected".
+		if (cause instanceof SyntaxError) return { kind: "other" };
+		return { kind: "unreachable" };
+	} finally {
+		clearTimeout(timer);
+	}
+};
+
+export const probeZuseLoopback: ZuseIdentityProbe = async (port) => {
+	const identity = await probeRequest(port, "/pair/identity", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ challenge: randomBytes(16).toString("hex") }),
+	});
+	if (identity.kind === "unreachable") return "unreachable";
+	if (
+		identity.kind === "json" &&
+		typeof identity.value.publicKey === "string" &&
+		typeof identity.value.signature === "string"
+	) {
+		return "zuse";
+	}
+	// Older zuse serve daemons may predate /pair/identity.
+	const session = await probeRequest(port, "/auth/session", { method: "GET" });
+	if (session.kind === "unreachable") return "unreachable";
+	if (
+		session.kind === "json" &&
+		typeof session.value.authenticated === "boolean" &&
+		typeof session.value.authRequired === "boolean"
+	) {
+		return "zuse";
+	}
+	return "other";
+};
+
+const SERVE_OWNERSHIP_FILE = "tailnet-serve.json";
+
+export const readServeOwnershipMarker = async (
+	dir: string,
+): Promise<number | null> => {
+	try {
+		const raw = await readFile(join(dir, SERVE_OWNERSHIP_FILE), "utf8");
+		const parsed = JSON.parse(raw) as { readonly port?: unknown };
+		return typeof parsed.port === "number" &&
+			Number.isInteger(parsed.port) &&
+			parsed.port >= 1 &&
+			parsed.port <= 65_535
+			? parsed.port
+			: null;
+	} catch {
+		return null;
+	}
+};
+
+export const writeServeOwnershipMarker = async (
+	dir: string,
+	port: number,
+): Promise<void> => {
+	const target = join(dir, SERVE_OWNERSHIP_FILE);
+	const temporary = `${target}.tmp`;
+	await writeFile(temporary, `${JSON.stringify({ port })}\n`, {
+		mode: 0o600,
+	});
+	await rename(temporary, target);
+};
+
+export const clearServeOwnershipMarker = async (dir: string): Promise<void> => {
+	await rm(join(dir, SERVE_OWNERSHIP_FILE), { force: true });
+};
+
+export type ServeOwnership =
+	| { readonly kind: "none" }
+	| { readonly kind: "active" }
+	| { readonly kind: "repair"; readonly previousPort: number }
+	| { readonly kind: "zuse-daemon"; readonly port: number }
+	| { readonly kind: "dead-target"; readonly port: number }
+	| { readonly kind: "foreign"; readonly port: number }
+	| { readonly kind: "unrecognized" };
+
+export const resolveServeOwnership = async (input: {
+	readonly serveStatusRaw: string;
+	readonly requestedPort: number;
+	readonly markerPort: number | null;
+	readonly probe: ZuseIdentityProbe;
+}): Promise<ServeOwnership> => {
+	if (!hasServeConfiguration(input.serveStatusRaw)) return { kind: "none" };
+	const targets = parseServeProxyTargets(input.serveStatusRaw);
+	const target = targets[0];
+	if (target === undefined) return { kind: "unrecognized" };
+	if (target.port === input.requestedPort) return { kind: "active" };
+	// The marker wins even when something else now listens on the old port:
+	// that squatter is exactly why the relay port drifted, and the serve route
+	// still belongs to Zuse until Zuse repoints or releases it.
+	if (target.port === input.markerPort) {
+		return { kind: "repair", previousPort: target.port };
+	}
+	switch (await input.probe(target.port)) {
+		case "zuse":
+			return { kind: "zuse-daemon", port: target.port };
+		case "unreachable":
+			return { kind: "dead-target", port: target.port };
+		default:
+			return { kind: "foreign", port: target.port };
+	}
+};
+
+export type TailnetShareOptions = {
+	readonly ownershipDir?: string;
+	readonly probe?: ZuseIdentityProbe;
 };
 
 export const inspectTailnetShare = async (
 	port: number,
 	run: TailnetCommandRunner = runTailnetCommand,
+	options: TailnetShareOptions = {},
 ): Promise<TailnetShareState> => {
 	let status: TailnetCommandResult;
 	try {
@@ -409,6 +574,8 @@ export const inspectTailnetShare = async (
 			port,
 			detail: compactDiagnostic(message),
 			approvalUrl: null,
+			managedBy: null,
+			conflict: null,
 		});
 	}
 	if (status.code !== 0) {
@@ -422,6 +589,8 @@ export const inspectTailnetShare = async (
 			port,
 			detail,
 			approvalUrl: null,
+			managedBy: null,
+			conflict: null,
 		});
 	}
 
@@ -440,6 +609,8 @@ export const inspectTailnetShare = async (
 				cause instanceof Error ? cause.message : String(cause),
 			),
 			approvalUrl: null,
+			managedBy: null,
+			conflict: null,
 		});
 	}
 	if (parsed.backendState !== "Running" || parsed.dnsName === null) {
@@ -452,6 +623,8 @@ export const inspectTailnetShare = async (
 			port,
 			detail: "Sign in to Tailscale on this computer.",
 			approvalUrl: null,
+			managedBy: null,
+			conflict: null,
 		});
 	}
 
@@ -460,30 +633,160 @@ export const inspectTailnetShare = async (
 		stderr: cause instanceof Error ? cause.message : String(cause),
 		code: 1,
 	}));
-	const enabled = serve.code === 0 && serveStatusMatches(serve.stdout, port);
-	return TailnetShareState.make({
-		availability: "available",
-		enabled,
+	const base = {
 		dnsName: parsed.dnsName,
-		httpsUrl: enabled ? `https://${parsed.dnsName}` : null,
 		backendState: parsed.backendState,
 		port,
-		detail: serve.code === 0 ? null : compactDiagnostic(serve.stderr),
 		approvalUrl: null,
+	};
+	if (serve.code !== 0) {
+		return TailnetShareState.make({
+			...base,
+			availability: "available",
+			enabled: false,
+			httpsUrl: null,
+			detail: compactDiagnostic(serve.stderr),
+			managedBy: null,
+			conflict: null,
+		});
+	}
+	const markerPort =
+		options.ownershipDir === undefined
+			? null
+			: await readServeOwnershipMarker(options.ownershipDir);
+	const ownership = await resolveServeOwnership({
+		serveStatusRaw: serve.stdout,
+		requestedPort: port,
+		markerPort,
+		probe: options.probe ?? probeZuseLoopback,
 	});
+	switch (ownership.kind) {
+		case "none":
+			return TailnetShareState.make({
+				...base,
+				availability: "available",
+				enabled: false,
+				httpsUrl: null,
+				detail: null,
+				managedBy: null,
+				conflict: null,
+			});
+		case "active":
+			if (options.ownershipDir !== undefined && markerPort !== port) {
+				// Existing routes predate the marker; record ownership now so the
+				// next port drift repairs silently instead of reporting a conflict.
+				await writeServeOwnershipMarker(options.ownershipDir, port).catch(
+					() => undefined,
+				);
+			}
+			return TailnetShareState.make({
+				...base,
+				availability: "available",
+				enabled: true,
+				httpsUrl: `https://${parsed.dnsName}`,
+				detail: null,
+				managedBy: "this-app",
+				conflict: null,
+			});
+		case "repair":
+			// Zuse owns the route but the local port drifted; enabling again (or
+			// repairTailnetShare at startup) repoints it.
+			return TailnetShareState.make({
+				...base,
+				availability: "available",
+				enabled: false,
+				httpsUrl: null,
+				detail: null,
+				managedBy: "this-app",
+				conflict: null,
+			});
+		case "zuse-daemon":
+			return TailnetShareState.make({
+				...base,
+				availability: "available",
+				enabled: true,
+				httpsUrl: `https://${parsed.dnsName}`,
+				detail: null,
+				managedBy: "zuse-serve",
+				conflict: null,
+			});
+		case "dead-target":
+			return TailnetShareState.make({
+				...base,
+				availability: "conflict",
+				enabled: false,
+				httpsUrl: null,
+				detail: `Tailscale Serve points at port ${ownership.port}, which is not responding.`,
+				managedBy: null,
+				conflict: TailnetServeConflict.make({
+					reason: "unresponsive-owner",
+					targetPort: ownership.port,
+					canReplace: true,
+				}),
+			});
+		case "foreign":
+			return TailnetShareState.make({
+				...base,
+				availability: "conflict",
+				enabled: false,
+				httpsUrl: null,
+				detail: `Tailscale Serve is used by another app (port ${ownership.port}).`,
+				managedBy: null,
+				conflict: TailnetServeConflict.make({
+					reason: "foreign-app",
+					targetPort: ownership.port,
+					canReplace: true,
+				}),
+			});
+		case "unrecognized":
+			return TailnetShareState.make({
+				...base,
+				availability: "conflict",
+				enabled: false,
+				httpsUrl: null,
+				detail:
+					"Tailscale Serve has an existing configuration Zuse doesn't recognize.",
+				managedBy: null,
+				conflict: TailnetServeConflict.make({
+					reason: "unrecognized-config",
+					targetPort: null,
+					canReplace: true,
+				}),
+			});
+	}
 };
 
 export const setTailnetShareEnabled = async (
 	input: {
 		readonly enabled: boolean;
 		readonly port: number;
+		readonly replaceExisting?: boolean;
+		readonly ownershipDir?: string;
+		readonly probe?: ZuseIdentityProbe;
 	},
 	run: TailnetCommandRunner = runTailnetCommand,
 ): Promise<TailnetShareState> => {
-	const before = await inspectTailnetShare(input.port, run);
-	if (before.availability !== "available") return before;
+	const options: TailnetShareOptions = {
+		ownershipDir: input.ownershipDir,
+		probe: input.probe,
+	};
+	const before = await inspectTailnetShare(input.port, run, options);
+	if (
+		before.availability !== "available" &&
+		before.availability !== "conflict"
+	) {
+		return before;
+	}
 	if (!input.enabled) {
 		if (!before.enabled) return before;
+		if (before.managedBy === "zuse-serve") {
+			return TailnetShareState.make({
+				...before,
+				availability: "error",
+				detail:
+					"Tailscale sharing is managed by zuse serve on this computer. Run `zuse serve --stop` to change it.",
+			});
+		}
 		const existing = await run(["serve", "status"], 5_000);
 		if (
 			existing.code !== 0 ||
@@ -497,15 +800,13 @@ export const setTailnetShareEnabled = async (
 			});
 		}
 	}
-	if (input.enabled && !before.enabled) {
-		const existing = await run(["serve", "status"], 5_000);
-		if (existing.code === 0 && hasServeConfiguration(existing.stdout)) {
-			return TailnetShareState.make({
-				...before,
-				availability: "error",
-				detail:
-					"Tailscale Serve is already configured for another app. Turn it off before sharing Zuse.",
-			});
+	if (input.enabled) {
+		// Covers both an active route on this port and a live zuse serve daemon;
+		// neither should be replaced, and the daemon route stays untouched.
+		if (before.enabled) return before;
+		if (before.availability === "conflict") {
+			const reclaimable = before.conflict?.reason === "unresponsive-owner";
+			if (!reclaimable && input.replaceExisting !== true) return before;
 		}
 	}
 	const args = input.enabled
@@ -532,5 +833,38 @@ export const setTailnetShareEnabled = async (
 					: "Tailscale Serve could not be updated."),
 		});
 	}
-	return inspectTailnetShare(input.port, run);
+	if (input.ownershipDir !== undefined) {
+		if (input.enabled) {
+			await writeServeOwnershipMarker(input.ownershipDir, input.port).catch(
+				() => undefined,
+			);
+		} else {
+			await clearServeOwnershipMarker(input.ownershipDir).catch(
+				() => undefined,
+			);
+		}
+	}
+	return inspectTailnetShare(input.port, run, options);
+};
+
+/**
+ * Repoints a Zuse-owned Serve route after the local port drifted between
+ * launches. A no-op unless the current state is exactly the drift signature:
+ * available, not enabled for the requested port, but still marked as owned by
+ * this app (the persisted ownership marker matches the existing route).
+ */
+export const repairTailnetShare = async (
+	port: number,
+	options: TailnetShareOptions,
+	run: TailnetCommandRunner = runTailnetCommand,
+): Promise<TailnetShareState> => {
+	const state = await inspectTailnetShare(port, run, options);
+	if (
+		state.availability !== "available" ||
+		state.enabled ||
+		state.managedBy !== "this-app"
+	) {
+		return state;
+	}
+	return setTailnetShareEnabled({ enabled: true, port, ...options }, run);
 };

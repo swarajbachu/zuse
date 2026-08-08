@@ -8,7 +8,10 @@ import { useArchivePreviewStore } from "./archive-preview.ts";
 import { useAttachmentsStore } from "./attachments.ts";
 import { stopProjectChatStream } from "./chat-commands.ts";
 import { useChatsStore } from "./chats.ts";
-import { useComposerDraftsStore } from "./composer-drafts.ts";
+import {
+	composerDraftKeyForLanding,
+	useComposerDraftsStore,
+} from "./composer-drafts.ts";
 import type { EnvironmentCatalogEntry } from "./environment-catalog.ts";
 import { useExternalThreadsStore } from "./external-threads.ts";
 import { useGitChangesStore } from "./git-changes.ts";
@@ -88,13 +91,19 @@ const stateRegistry = createEnvironmentStateRegistry(stores);
 export const activateEnvironmentState = async (input: {
 	readonly fromEnvironmentId: string;
 	readonly entry: EnvironmentCatalogEntry;
-	readonly folderId: FolderId;
+	readonly folderId?: FolderId;
 	readonly chatId?: ChatId;
+	/**
+	 * Composer text carried across the environment switch. Written into the
+	 * landing draft of the restored folder after the snapshot restore so the
+	 * remounting composer picks it up.
+	 */
+	readonly carryComposerDraft?: { readonly doc: string };
 	readonly activateConnection: (environmentId: string) => Promise<void>;
 	readonly resolveEntry: (
 		environmentId: string,
 	) => EnvironmentCatalogEntry | undefined;
-}): Promise<void> => {
+}): Promise<FolderId | null> => {
 	const currentFolders = useWorkspaceStore.getState().folders;
 	stateRegistry.capture(input.fromEnvironmentId);
 	await Promise.all([
@@ -108,11 +117,19 @@ export const activateEnvironmentState = async (input: {
 	useUiStore.getState().clearRevealedAnnotation();
 	const refreshedEntry =
 		input.resolveEntry(input.entry.environmentId) ?? input.entry;
-	const selectedFolderId = refreshedEntry.folders.some(
-		(folder) => folder.id === input.folderId,
-	)
-		? input.folderId
-		: (refreshedEntry.folders[0]?.id ?? null);
+	const selectedFolderId =
+		input.folderId !== undefined &&
+		refreshedEntry.folders.some((folder) => folder.id === input.folderId)
+			? input.folderId
+			: (refreshedEntry.folders[0]?.id ?? null);
+	if (input.carryComposerDraft !== undefined) {
+		useComposerDraftsStore
+			.getState()
+			.save(composerDraftKeyForLanding(selectedFolderId), {
+				doc: input.carryComposerDraft.doc,
+				chips: [],
+			});
+	}
 	useWorkspaceStore.setState({
 		folders: refreshedEntry.folders,
 		selectedFolderId,
@@ -134,6 +151,7 @@ export const activateEnvironmentState = async (input: {
 		await useSessionsStore.getState().hydrate(selectedFolderId);
 		useChatsStore.getState().select(input.chatId);
 	}
+	return selectedFolderId;
 };
 
 export const resetEnvironmentStateSnapshotsForTest = (): void => {

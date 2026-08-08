@@ -40,7 +40,7 @@ export const parseTailnetPairingLink = (
 	value: string,
 ): ParsedTailnetPairingLink => {
 	const outer = new URL(value.trim());
-	if (outer.protocol !== "zuse:") {
+	if (outer.protocol !== "zuse:" && outer.protocol !== "memoize:") {
 		throw new Error("Paste a Zuse pairing link from the other computer.");
 	}
 	const endpointValue = outer.searchParams.get("pairingUrl");
@@ -50,16 +50,17 @@ export const parseTailnetPairingLink = (
 	if (endpointValue === null || code.length === 0) {
 		throw new Error("This pairing link is incomplete or expired.");
 	}
-	const endpoint = new URL(endpointValue);
-	if (endpoint.protocol !== "wss:") {
-		throw new Error("Tailnet pairing requires a secure wss:// endpoint.");
+	let endpoint: URL;
+	try {
+		endpoint = new URL(endpointValue);
+	} catch {
+		throw new Error("This link doesn't point to a reachable Zuse computer.");
 	}
-	if (
-		!endpoint.hostname.endsWith(".ts.net") ||
-		endpoint.username.length > 0 ||
-		endpoint.password.length > 0
-	) {
-		throw new Error("This is not a valid Tailscale device address.");
+	if (endpoint.protocol !== "wss:") {
+		throw new Error("Connect links must use a secure wss:// address.");
+	}
+	if (endpoint.username.length > 0 || endpoint.password.length > 0) {
+		throw new Error("This link doesn't point to a reachable Zuse computer.");
 	}
 	return {
 		code,

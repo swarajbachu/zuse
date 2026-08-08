@@ -54,13 +54,24 @@ import {
 import { applyPreparedLinearContext } from "~/composer/linear-context-input";
 import { resolveChatWorkspacePolicy } from "~/lib/auto-worktree";
 import { saveContextFile } from "~/lib/context-handoff";
+import {
+	buildLogicalProjectGroups,
+	type LogicalProjectGroup,
+	preferredGroupMember,
+} from "~/lib/project-groups";
 import { getRpcClient } from "~/lib/rpc-client";
+import { switchToEnvironment } from "~/lib/switch-environment";
 import { cn } from "~/lib/utils";
 import { useAttachmentsStore } from "~/store/attachments";
 import { useChatsStore } from "~/store/chats";
 import { useComposerBridge } from "~/store/composer-bridge";
-import { composerDraftKeyForLanding } from "~/store/composer-drafts";
+import {
+	composerDraftKeyForLanding,
+	useComposerDraftsStore,
+} from "~/store/composer-drafts";
+import { useEnvironmentCatalogStore } from "~/store/environment-catalog";
 import { useExternalThreadsStore } from "~/store/external-threads";
+import { useFolderOriginsStore } from "~/store/folder-origins";
 import { useMessagesStore } from "~/store/messages";
 import { useRepositorySettingsStore } from "~/store/repository-settings.ts";
 import { DRAFT_SESSION_ID, useSessionsStore } from "~/store/sessions";
@@ -68,6 +79,7 @@ import { useSettingsStore } from "~/store/settings";
 import { useWorkspaceStore } from "~/store/workspace";
 import { EMPTY_WORKTREES, useWorktreesStore } from "~/store/worktrees";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
+import { ComputerPicker } from "./composer/computer-picker.tsx";
 import {
 	CreateFromMenu,
 	type CreateFromSelection,
@@ -112,6 +124,13 @@ const migrateModelOptions = (fromId: string, toId: string): void => {
 		window.sessionStorage.removeItem(from);
 	}
 };
+
+/**
+ * The landing pickers only need group membership (which repos on which
+ * computers), never the merged chat lists — so the builder gets an empty
+ * chat map instead of subscribing this surface to every chat update.
+ */
+const EMPTY_CHATS_BY_PROJECT: Readonly<Record<string, never>> = {};
 
 const formatThreadRelative = (date: Date): string => {
 	const ms = Math.max(0, Date.now() - date.getTime());
@@ -227,6 +246,44 @@ export function ChatLanding() {
 		[folders, selectedFolderId],
 	);
 
+	const catalogEntries = useEnvironmentCatalogStore((s) => s.entries);
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(s) => s.activeEnvironmentId,
+	);
+	const origins = useFolderOriginsStore((s) => s.byFolder);
+	const hydrateOrigins = useFolderOriginsStore((s) => s.hydrate);
+	const desktopCatalogEnabled = window.zuse?.ssh !== undefined;
+
+	useEffect(() => {
+		void hydrateOrigins(folders.map((folder) => folder.id));
+	}, [folders, hydrateOrigins]);
+
+	// One picker row per repo across machines. In hosted mode the catalog is
+	// empty, so groups degrade to exactly the active workspace's folders.
+	const projectGroups = useMemo(
+		() =>
+			buildLogicalProjectGroups({
+				entries: catalogEntries,
+				activeEnvironmentId,
+				activeFolders: folders,
+				activeOrigins: origins,
+				activeChatsByProject: EMPTY_CHATS_BY_PROJECT,
+			}),
+		[catalogEntries, activeEnvironmentId, folders, origins],
+	);
+	const selectedGroup = useMemo(
+		() =>
+			selectedFolderId === null
+				? null
+				: (projectGroups.find((group) =>
+						group.members.some(
+							(member) =>
+								member.isActive && member.folderId === selectedFolderId,
+						),
+					) ?? null),
+		[projectGroups, selectedFolderId],
+	);
+
 	// Spin up (or re-spin, on project switch) the draft session that backs the
 	// composer. Re-runs only when the project changes — model/provider/runtime
 	// edits the user makes inside the composer mutate the draft in place, so we
@@ -258,8 +315,25 @@ export function ChatLanding() {
 		? `What should we build in ${selectedFolder.name}?`
 		: "What should we build today?";
 
-	const onPick = (folderId: FolderId) => {
-		void selectFolder(folderId);
+	// Picking a group resolves to its preferred member: the active environment
+	// first, else the first connected computer. A remote member switches the
+	// whole app there — carrying whatever the user already typed.
+	const onPickGroup = (group: LogicalProjectGroup) => {
+		const member = preferredGroupMember(group);
+		if (member === null) return;
+		if (member.isActive) {
+			void selectFolder(member.folderId);
+			return;
+		}
+		const doc =
+			useComposerDraftsStore.getState().draftsByKey[
+				composerDraftKeyForLanding(selectedFolderId)
+			]?.doc ?? "";
+		void switchToEnvironment({
+			environmentId: member.environmentId,
+			folderId: member.folderId,
+			...(doc.length > 0 ? { carryComposerDraft: { doc } } : {}),
+		});
 	};
 	const onAdd = () => {
 		void addFolder();
@@ -732,7 +806,9 @@ export function ChatLanding() {
 				{draftSession !== null ? (
 					<Suspense fallback={<div className="h-28" aria-busy="true" />}>
 						<ChatComposer
-							key={selectedFolderId ?? "none"}
+							// Environment id included so the editor remounts
+							// deterministically when a "Run on" pick switches computers.
+							key={`${activeEnvironmentId}:${selectedFolderId ?? "none"}`}
 							session={draftSession}
 							composerDraftKey={composerDraftKeyForLanding(selectedFolderId)}
 							onDraftSubmit={(input, opts) =>
@@ -740,13 +816,24 @@ export function ChatLanding() {
 							}
 							headerSlot={
 								<div className="flex w-full items-center justify-between gap-2">
-									<ProjectPicker
-										folders={folders}
-										selectedFolderId={selectedFolderId}
-										selectedName={selectedFolder?.name ?? null}
-										onPick={onPick}
-										onAdd={onAdd}
-									/>
+									<div className="flex min-w-0 items-center gap-1.5">
+										<ProjectPicker
+											groups={projectGroups}
+											selectedFolderId={selectedFolderId}
+											selectedName={selectedFolder?.name ?? null}
+											onPickGroup={onPickGroup}
+											onAdd={onAdd}
+										/>
+										{desktopCatalogEnabled ? (
+											<ComputerPicker
+												group={selectedGroup}
+												activeEnvironmentId={activeEnvironmentId}
+												currentDraftKey={composerDraftKeyForLanding(
+													selectedFolderId,
+												)}
+											/>
+										) : null}
+									</div>
 									<div className="flex min-w-0 items-center gap-1.5">
 										{createSource !== null && (
 											<span className="flex min-w-0 items-center gap-1 overflow-x-auto">
@@ -1019,16 +1106,16 @@ function QueuedComposerPill({
 }
 
 function ProjectPicker({
-	folders,
+	groups,
 	selectedFolderId,
 	selectedName,
-	onPick,
+	onPickGroup,
 	onAdd,
 }: {
-	folders: ReturnType<typeof useWorkspaceStore.getState>["folders"];
+	groups: ReadonlyArray<LogicalProjectGroup>;
 	selectedFolderId: FolderId | null;
 	selectedName: string | null;
-	onPick: (folderId: FolderId) => void;
+	onPickGroup: (group: LogicalProjectGroup) => void;
 	onAdd: () => void;
 }) {
 	return (
@@ -1042,17 +1129,22 @@ function ProjectPicker({
 				<HugeiconsIcon icon={ArrowDown01Icon} className="size-3 opacity-60" />
 			</MenuTrigger>
 			<MenuPopup side="bottom" align="start" className="w-64 p-1">
-				{folders.length === 0 ? (
+				{groups.length === 0 ? (
 					<div className="px-2 py-1.5 text-xs text-muted-foreground">
 						No projects yet.
 					</div>
 				) : (
-					folders.map((folder) => {
-						const active = folder.id === selectedFolderId;
+					groups.map((group) => {
+						const active = group.members.some(
+							(member) =>
+								member.isActive && member.folderId === selectedFolderId,
+						);
+						const disabled = preferredGroupMember(group) === null;
 						return (
 							<MenuItem
-								key={folder.id}
-								onClick={() => onPick(folder.id)}
+								key={group.key}
+								disabled={disabled}
+								onClick={() => onPickGroup(group)}
 								className={cn(
 									"grid grid-cols-[1rem_auto_1fr] items-center gap-x-2 rounded-md px-2 py-1.5 text-sm",
 									active
@@ -1073,7 +1165,7 @@ function ProjectPicker({
 									className="col-start-2 row-start-1 size-3.5 opacity-80"
 								/>
 								<span className="col-start-3 row-start-1 truncate">
-									{folder.name}
+									{group.displayName}
 								</span>
 							</MenuItem>
 						);
