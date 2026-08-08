@@ -354,23 +354,26 @@ export const RelayLinkServiceLive: Layer.Layer<
 				Effect.forever,
 			);
 
-		const startHeartbeat = (input: {
-			readonly relayUrl: string;
-			readonly environmentId: EnvironmentId;
-			readonly credential: string;
-		}) =>
-			Effect.gen(function* () {
+		const startHeartbeat = Effect.fn("RelayLinkService.startHeartbeat")(
+			function* (input: {
+				readonly relayUrl: string;
+				readonly environmentId: EnvironmentId;
+				readonly credential: string;
+			}) {
 				const existing = yield* Ref.get(heartbeatRef);
 				if (existing !== null) yield* Fiber.interrupt(existing);
 				const fiber = yield* Effect.forkDetach(heartbeatLoop(input));
 				yield* Ref.set(heartbeatRef, fiber);
-			});
+			},
+		);
 
-		const stopHeartbeat = Effect.gen(function* () {
-			const existing = yield* Ref.get(heartbeatRef);
-			if (existing !== null) yield* Fiber.interrupt(existing);
-			yield* Ref.set(heartbeatRef, null);
-		});
+		const stopHeartbeat = Effect.fn("RelayLinkService.stopHeartbeat")(
+			function* () {
+				const existing = yield* Ref.get(heartbeatRef);
+				if (existing !== null) yield* Fiber.interrupt(existing);
+				yield* Ref.set(heartbeatRef, null);
+			},
+		);
 
 		const reconcileTunnelOrigin = (input: {
 			readonly relayUrl: string;
@@ -725,7 +728,7 @@ export const RelayLinkServiceLive: Layer.Layer<
 					const cfg = yield* auth
 						.getRelayConfig()
 						.pipe(Effect.orElseSucceed(() => null));
-					yield* stopHeartbeat;
+					yield* stopHeartbeat();
 					yield* tunnel.stop();
 					// Best-effort relay deprovision (tears down the Cloudflare tunnel +
 					// removes the environment from the account). Local unlink proceeds

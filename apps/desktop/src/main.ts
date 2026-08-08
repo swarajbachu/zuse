@@ -2000,20 +2000,14 @@ async function createMainWindow() {
 	);
 	ipcMain.handle(
 		"network:setTailnetShareEnabled",
-		async (_event, enabled: unknown, options: unknown) => {
+		async (_event, enabled: unknown) => {
 			if (typeof enabled !== "boolean") {
 				throw new TypeError("Tailnet sharing must be enabled or disabled.");
 			}
-			const replaceExisting =
-				typeof options === "object" &&
-				options !== null &&
-				"replaceExisting" in options &&
-				(options as { replaceExisting: unknown }).replaceExisting === true;
 			const next = await setTailnetShareEnabled(
 				{
 					enabled,
 					port: relayPort.port,
-					replaceExisting,
 					...tailnetShareOptions,
 				},
 				tailnetCommandRunner,
@@ -2041,7 +2035,6 @@ async function createMainWindow() {
 					{
 						enabled: true,
 						port: relayPort.port,
-						replaceExisting,
 						...tailnetShareOptions,
 					},
 					tailnetCommandRunner,

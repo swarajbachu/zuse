@@ -8,6 +8,7 @@ import {
 	activateServeRuntimeUpdate,
 	latestPairingLink,
 	removeServeRuntime,
+	requiresServeAccountAuthorization,
 	resolveServeDataDir,
 	runServePackageCli,
 	SERVE_HELP,
@@ -35,6 +36,21 @@ describe("serve data directory", () => {
 });
 
 describe("Serve package metadata commands", () => {
+	it("does not require account authorization for private or SSH-managed access", () => {
+		expect(
+			requiresServeAccountAuthorization({ sshManaged: false, tailscale: true }),
+		).toBe(false);
+		expect(
+			requiresServeAccountAuthorization({ sshManaged: true, tailscale: false }),
+		).toBe(false);
+		expect(
+			requiresServeAccountAuthorization({
+				sshManaged: false,
+				tailscale: false,
+			}),
+		).toBe(true);
+	});
+
 	it("selects the newest pairing link from service output", () => {
 		expect(
 			latestPairingLink(

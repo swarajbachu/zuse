@@ -721,7 +721,7 @@ export const inspectTailnetShare = async (
 				conflict: TailnetServeConflict.make({
 					reason: "unresponsive-owner",
 					targetPort: ownership.port,
-					canReplace: true,
+					canReplace: false,
 				}),
 			});
 		case "foreign":
@@ -735,7 +735,7 @@ export const inspectTailnetShare = async (
 				conflict: TailnetServeConflict.make({
 					reason: "foreign-app",
 					targetPort: ownership.port,
-					canReplace: true,
+					canReplace: false,
 				}),
 			});
 		case "unrecognized":
@@ -750,7 +750,7 @@ export const inspectTailnetShare = async (
 				conflict: TailnetServeConflict.make({
 					reason: "unrecognized-config",
 					targetPort: null,
-					canReplace: true,
+					canReplace: false,
 				}),
 			});
 	}
@@ -760,7 +760,6 @@ export const setTailnetShareEnabled = async (
 	input: {
 		readonly enabled: boolean;
 		readonly port: number;
-		readonly replaceExisting?: boolean;
 		readonly ownershipDir?: string;
 		readonly probe?: ZuseIdentityProbe;
 	},
@@ -804,10 +803,7 @@ export const setTailnetShareEnabled = async (
 		// Covers both an active route on this port and a live zuse serve daemon;
 		// neither should be replaced, and the daemon route stays untouched.
 		if (before.enabled) return before;
-		if (before.availability === "conflict") {
-			const reclaimable = before.conflict?.reason === "unresponsive-owner";
-			if (!reclaimable && input.replaceExisting !== true) return before;
-		}
+		if (before.availability === "conflict") return before;
 	}
 	const args = input.enabled
 		? ["serve", "--bg", "--yes", `127.0.0.1:${input.port}`]

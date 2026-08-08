@@ -290,7 +290,7 @@ describe("tailnetStatusLine", () => {
 		).toEqual({
 			description:
 				"A previous serve route (port 7777) is no longer responding.",
-			action: "replace",
+			action: null,
 		});
 	});
 
@@ -308,7 +308,7 @@ describe("tailnetStatusLine", () => {
 			),
 		).toEqual({
 			description: "Tailscale Serve is used by another app (port 443).",
-			action: "replace-confirm",
+			action: null,
 		});
 	});
 
@@ -327,7 +327,7 @@ describe("tailnetStatusLine", () => {
 		).toEqual({
 			description:
 				"Tailscale Serve has an existing configuration Zuse doesn’t recognize.",
-			action: "replace-confirm",
+			action: null,
 		});
 	});
 

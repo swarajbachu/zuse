@@ -101,13 +101,7 @@ export const bestReadyMethod = (
 	readiness: PairingReadiness,
 ): PairingMethod | null => readyMethods(readiness)[0] ?? null;
 
-export type TailnetStatusAction =
-	| "turn-off"
-	| "details"
-	| "replace"
-	| "replace-confirm"
-	| "set-up"
-	| null;
+export type TailnetStatusAction = "turn-off" | "details" | "set-up" | null;
 
 export interface TailnetStatusLine {
 	readonly description: string;
@@ -128,24 +122,24 @@ export const tailnetStatusLine = (
 		};
 	}
 	if (state?.availability === "conflict" && state.conflict !== null) {
-		const { reason, targetPort, canReplace } = state.conflict;
+		const { reason, targetPort } = state.conflict;
 		const port = targetPort === null ? "" : ` (port ${targetPort})`;
 		if (reason === "unresponsive-owner") {
 			return {
 				description: `A previous serve route${port} is no longer responding.`,
-				action: canReplace ? "replace" : null,
+				action: null,
 			};
 		}
 		if (reason === "foreign-app") {
 			return {
 				description: `Tailscale Serve is used by another app${port}.`,
-				action: canReplace ? "replace-confirm" : null,
+				action: null,
 			};
 		}
 		return {
 			description:
 				"Tailscale Serve has an existing configuration Zuse doesn’t recognize.",
-			action: canReplace ? "replace-confirm" : null,
+			action: null,
 		};
 	}
 	if (state?.availability === "signed-out") {

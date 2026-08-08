@@ -23,6 +23,7 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 	};
 });
 
+import { createInitializationGate } from "../../src/lib/initialization-gate.ts";
 import { terminalRuntimeKey } from "../../src/lib/terminal-registry.ts";
 import { useChatsStore } from "../../src/store/chats.ts";
 import {
@@ -60,6 +61,31 @@ const entry = (
 });
 
 describe("environment catalog", () => {
+	it("shares initialization and retries only after a failed attempt", async () => {
+		const gate = createInitializationGate();
+		let release: (() => void) | undefined;
+		const initialize = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					release = resolve;
+				}),
+		);
+		const first = gate(false, initialize);
+		const second = gate(false, initialize);
+		expect(second).toBe(first);
+		expect(initialize).toHaveBeenCalledOnce();
+		release?.();
+		await first;
+
+		const failure = new Error("failed");
+		await expect(gate(false, async () => Promise.reject(failure))).rejects.toBe(
+			failure,
+		);
+		const retry = vi.fn(async () => undefined);
+		await gate(false, retry);
+		expect(retry).toHaveBeenCalledOnce();
+	});
+
 	it("orders local, connected, then offline saved computers", () => {
 		expect(
 			orderEnvironmentCatalog([

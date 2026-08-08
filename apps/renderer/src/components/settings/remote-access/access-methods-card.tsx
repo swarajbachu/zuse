@@ -10,15 +10,6 @@ import {
 	accountPairingEndpoint,
 	tailnetStatusLine,
 } from "../../../lib/remote-access.ts";
-import {
-	AlertDialog,
-	AlertDialogClose,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogPopup,
-	AlertDialogTitle,
-} from "../../ui/alert-dialog.tsx";
 import { Button } from "../../ui/button.tsx";
 import { Card } from "../../ui/card.tsx";
 import {
@@ -72,7 +63,6 @@ export function AccessMethodsCard({
 	busy,
 	tailnetBusy,
 	onOpenAccessDialog,
-	onReplaceTailnet,
 	onRequestNetworkMode,
 }: {
 	readonly status: RelayLinkStatus | null;
@@ -89,11 +79,9 @@ export function AccessMethodsCard({
 			| "tailscale-enable"
 			| "tailscale-disable",
 	) => void;
-	readonly onReplaceTailnet: () => Promise<void>;
 	readonly onRequestNetworkMode: (enabled: boolean) => void;
 }) {
 	const [serveDetailsOpen, setServeDetailsOpen] = useState(false);
-	const [replaceConfirmOpen, setReplaceConfirmOpen] = useState(false);
 
 	// Zuse Serve row.
 	const linked = status?.linked === true;
@@ -133,30 +121,6 @@ export function AccessMethodsCard({
 					onClick={() => setServeDetailsOpen(true)}
 				>
 					Details
-				</Button>
-			);
-		}
-		if (line.action === "replace") {
-			return (
-				<Button
-					size="xs"
-					variant="outline"
-					onClick={() => void onReplaceTailnet()}
-					disabled={tailnetBusy}
-				>
-					{tailnetBusy ? "Replacing…" : "Replace"}
-				</Button>
-			);
-		}
-		if (line.action === "replace-confirm") {
-			return (
-				<Button
-					size="xs"
-					variant="outline"
-					onClick={() => setReplaceConfirmOpen(true)}
-					disabled={tailnetBusy}
-				>
-					Replace…
 				</Button>
 			);
 		}
@@ -261,42 +225,6 @@ export function AccessMethodsCard({
 					</DialogFooter>
 				</DialogPopup>
 			</Dialog>
-
-			<AlertDialog
-				open={replaceConfirmOpen}
-				onOpenChange={(open) => {
-					if (!tailnetBusy) setReplaceConfirmOpen(open);
-				}}
-			>
-				<AlertDialogPopup>
-					<AlertDialogHeader>
-						<AlertDialogTitle>
-							Replace Tailscale Serve configuration?
-						</AlertDialogTitle>
-						<AlertDialogDescription>
-							Another app is using Tailscale Serve on this computer. Replacing
-							it will point your tailnet address at Zuse instead.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogClose
-							render={<Button variant="outline" disabled={tailnetBusy} />}
-						>
-							Cancel
-						</AlertDialogClose>
-						<Button
-							disabled={tailnetBusy}
-							onClick={() => {
-								void onReplaceTailnet().finally(() =>
-									setReplaceConfirmOpen(false),
-								);
-							}}
-						>
-							{tailnetBusy ? "Replacing…" : "Replace and share Zuse"}
-						</Button>
-					</AlertDialogFooter>
-				</AlertDialogPopup>
-			</AlertDialog>
 		</Frame>
 	);
 }

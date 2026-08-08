@@ -16,6 +16,7 @@ import { Effect, Fiber, Stream } from "effect";
 
 import { createCatalogRetryController } from "../lib/catalog-retry.ts";
 import { formatError } from "../lib/format-error.ts";
+import { createInitializationGate } from "../lib/initialization-gate.ts";
 import {
 	getRpcClient,
 	LOCAL_ENVIRONMENT_KEY,
@@ -258,12 +259,14 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 		const relayRecords = new Map<string, RelayEnvironmentRecord>();
 		const recovering = new Set<string>();
 		const connectionAttempts = new Map<string, Promise<void>>();
-		const catalogPollers = new Map<string, number>();
+		const fallbackPollers = new Map<string, number>();
 		const workspaceChangeFibers = new Map<
 			string,
 			Fiber.Fiber<unknown, unknown>
 		>();
 		const catalogPollsInFlight = new Set<string>();
+		const stoppedRuntimes = new Set<string>();
+		const initializeOnce = createInitializationGate();
 		const automaticRetry = createCatalogRetryController((delayMs, run) => {
 			const timer = window.setTimeout(run, delayMs);
 			return () => window.clearTimeout(timer);
@@ -305,21 +308,37 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					),
 				),
 			}));
-		const startCatalogPoller = (
+		const stopFallbackPoller = (key: string): void => {
+			const timer = fallbackPollers.get(key);
+			if (timer !== undefined) window.clearTimeout(timer);
+			fallbackPollers.delete(key);
+		};
+		const startFallbackPoller = (
 			key: string,
 			environmentId: string,
 			catalogKey: string,
 		): void => {
-			if (catalogPollers.has(key)) return;
-			catalogPollers.set(
+			if (fallbackPollers.has(key)) return;
+			fallbackPollers.set(
 				key,
-				window.setInterval(() => {
-					if (catalogPollsInFlight.has(key)) return;
+				window.setTimeout(() => {
+					fallbackPollers.delete(key);
+					if (stoppedRuntimes.has(key)) return;
+					if (workspaceChangeFibers.has(key)) return;
+					if (catalogPollsInFlight.has(key)) {
+						startFallbackPoller(key, environmentId, catalogKey);
+						return;
+					}
 					catalogPollsInFlight.add(key);
 					void hydrateEntry(environmentId, previousCatalog(catalogKey))
 						.then((catalog) => patchEntry(catalogKey, catalog))
 						.catch(() => undefined)
-						.finally(() => catalogPollsInFlight.delete(key));
+						.finally(() => {
+							catalogPollsInFlight.delete(key);
+							if (!stoppedRuntimes.has(key)) {
+								startFallbackPoller(key, environmentId, catalogKey);
+							}
+						});
 				}, 15_000),
 			);
 		};
@@ -328,6 +347,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			environmentId: string,
 			catalogKey: string,
 		): Promise<void> => {
+			stoppedRuntimes.delete(key);
 			const previous = workspaceChangeFibers.get(key);
 			if (previous !== undefined) {
 				await Effect.runPromise(Fiber.interrupt(previous)).catch(
@@ -335,7 +355,11 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				);
 			}
 			const client = await getRpcClient(environmentId).catch(() => null);
-			if (client === null) return;
+			if (client === null) {
+				startFallbackPoller(key, environmentId, catalogKey);
+				return;
+			}
+			stopFallbackPoller(key);
 			const program = Stream.runForEach(
 				client["workspace.streamChanges"]({}),
 				(folders) =>
@@ -362,14 +386,23 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						catch: () => undefined,
 					}).pipe(Effect.ignore),
 			);
-			workspaceChangeFibers.set(key, Effect.runFork(program));
+			const fiber = Effect.runFork(program);
+			workspaceChangeFibers.set(key, fiber);
+			void Effect.runPromise(Fiber.await(fiber)).finally(() => {
+				if (workspaceChangeFibers.get(key) === fiber) {
+					workspaceChangeFibers.delete(key);
+					if (!stoppedRuntimes.has(key)) {
+						startFallbackPoller(key, environmentId, catalogKey);
+					}
+				}
+			});
 		};
 		const stopEntryRuntime = (catalogKey: string): void => {
+			stoppedRuntimes.add(catalogKey);
 			automaticRetry.stop(catalogKey);
 			recoverySubscriptions.get(catalogKey)?.();
 			recoverySubscriptions.delete(catalogKey);
-			window.clearInterval(catalogPollers.get(catalogKey));
-			catalogPollers.delete(catalogKey);
+			stopFallbackPoller(catalogKey);
 			catalogPollsInFlight.delete(catalogKey);
 			const workspaceFiber = workspaceChangeFibers.get(catalogKey);
 			if (workspaceFiber !== undefined) {
@@ -378,6 +411,81 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					() => undefined,
 				);
 			}
+		};
+		const completeConnection = async (input: {
+			readonly catalogKey: string;
+			readonly environmentId: string;
+			readonly patch: Partial<EnvironmentCatalogEntry>;
+			readonly reconnect: () => Promise<void>;
+		}): Promise<void> => {
+			const catalog = await hydrateEntry(
+				input.environmentId,
+				previousCatalog(input.catalogKey),
+			);
+			patchEntry(input.catalogKey, {
+				...input.patch,
+				status: "connected",
+				error: null,
+				...catalog,
+			});
+			automaticRetry.succeeded(input.catalogKey);
+			if (!recoverySubscriptions.has(input.catalogKey)) {
+				recoverySubscriptions.set(
+					input.catalogKey,
+					subscribeRendererRpcConnection((snapshot) => {
+						if (snapshot.status === "connected") {
+							patchEntry(input.catalogKey, {
+								status: "connected",
+								error: null,
+							});
+							return;
+						}
+						if (
+							snapshot.status === "connecting" ||
+							snapshot.status === "reconnecting"
+						) {
+							patchEntry(input.catalogKey, { status: "connecting" });
+						}
+						if (
+							snapshot.status === "error" ||
+							snapshot.status === "blockedAuth"
+						) {
+							patchEntry(input.catalogKey, {
+								status: "error",
+								error:
+									snapshot.error === null ? null : formatError(snapshot.error),
+							});
+						}
+						if (
+							(snapshot.status === "reconnecting" ||
+								snapshot.status === "error" ||
+								snapshot.status === "blockedAuth") &&
+							!recovering.has(input.catalogKey)
+						) {
+							recovering.add(input.catalogKey);
+							void input
+								.reconnect()
+								.finally(() => recovering.delete(input.catalogKey));
+						}
+					}, input.environmentId),
+				);
+			}
+			void startWorkspaceChangeStream(
+				input.catalogKey,
+				input.environmentId,
+				input.catalogKey,
+			);
+		};
+		const failConnection = (
+			catalogKey: string,
+			cause: unknown,
+			reconnect: () => Promise<void>,
+		): void => {
+			patchEntry(catalogKey, {
+				status: "error",
+				error: errorMessage(cause),
+			});
+			automaticRetry.schedule(catalogKey, () => void reconnect());
 		};
 
 		const connectProfile = (profileId: string): Promise<void> => {
@@ -393,55 +501,18 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						connection.profile.environmentId,
 						connection.descriptor.endpoint.wsBaseUrl,
 					);
-					const catalog = await hydrateEntry(
-						connection.profile.environmentId,
-						previousCatalog(catalogKey),
-					);
-					patchEntry(catalogKey, {
+					await completeConnection({
+						catalogKey,
 						environmentId: connection.profile.environmentId,
-						label: connection.profile.label,
-						target: connection.profile.target,
-						descriptor: connection.descriptor,
-						status: "connected",
-						error: null,
-						...catalog,
+						patch: {
+							label: connection.profile.label,
+							target: connection.profile.target,
+							descriptor: connection.descriptor,
+						},
+						reconnect: () => connectProfile(profileId),
 					});
-					automaticRetry.succeeded(catalogKey);
-					if (!recoverySubscriptions.has(catalogKey)) {
-						recoverySubscriptions.set(
-							catalogKey,
-							subscribeRendererRpcConnection((snapshot) => {
-								if (
-									(snapshot.status === "reconnecting" ||
-										snapshot.status === "error") &&
-									!recovering.has(profileId)
-								) {
-									recovering.add(profileId);
-									void connectProfile(profileId).finally(() =>
-										recovering.delete(profileId),
-									);
-								}
-							}, connection.profile.environmentId),
-						);
-					}
-					startCatalogPoller(
-						catalogKey,
-						connection.profile.environmentId,
-						catalogKey,
-					);
-					void startWorkspaceChangeStream(
-						catalogKey,
-						connection.profile.environmentId,
-						catalogKey,
-					);
 				} catch (cause) {
-					patchEntry(catalogKey, {
-						status: "error",
-						error: errorMessage(cause),
-					});
-					automaticRetry.schedule(catalogKey, () => {
-						void connectProfile(profileId);
-					});
+					failConnection(catalogKey, cause, () => connectProfile(profileId));
 				}
 			});
 		};
@@ -468,42 +539,15 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				if (confirmedProfile === undefined) {
 					throw new Error("Tailnet connection confirmation is unavailable.");
 				}
-				const catalog = await hydrateEntry(
-					profile.environmentId,
-					previousCatalog(catalogKey),
-				);
-				patchEntry(catalogKey, {
+				await completeConnection({
+					catalogKey,
 					environmentId: profile.environmentId,
-					label: confirmedProfile.label,
-					descriptor,
-					status: "connected",
-					error: null,
-					...catalog,
+					patch: {
+						label: confirmedProfile.label,
+						descriptor,
+					},
+					reconnect: () => connectTailnetProfile(profile.profileId),
 				});
-				automaticRetry.succeeded(catalogKey);
-				if (!recoverySubscriptions.has(catalogKey)) {
-					recoverySubscriptions.set(
-						catalogKey,
-						subscribeRendererRpcConnection((snapshot) => {
-							if (
-								(snapshot.status === "reconnecting" ||
-									snapshot.status === "error") &&
-								!recovering.has(catalogKey)
-							) {
-								recovering.add(catalogKey);
-								void connectTailnetProfile(profile.profileId).finally(() =>
-									recovering.delete(catalogKey),
-								);
-							}
-						}, profile.environmentId),
-					);
-				}
-				startCatalogPoller(catalogKey, profile.environmentId, catalogKey);
-				void startWorkspaceChangeStream(
-					catalogKey,
-					profile.environmentId,
-					catalogKey,
-				);
 			} catch (cause) {
 				await removeRendererEnvironment(profile.environmentId).catch(
 					() => undefined,
@@ -532,13 +576,9 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						throw cause;
 					}
 				} catch (cause) {
-					patchEntry(catalogKey, {
-						status: "error",
-						error: errorMessage(cause),
-					});
-					automaticRetry.schedule(catalogKey, () => {
-						void connectTailnetProfile(profileId);
-					});
+					failConnection(catalogKey, cause, () =>
+						connectTailnetProfile(profileId),
+					);
 				}
 			});
 		};
@@ -567,60 +607,21 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 								),
 							),
 					);
-					if (!recoverySubscriptions.has(catalogKey)) {
-						recoverySubscriptions.set(
-							catalogKey,
-							subscribeRendererRpcConnection((snapshot) => {
-								if (snapshot.status === "connected") {
-									patchEntry(catalogKey, { status: "connected", error: null });
-								} else if (
-									snapshot.status === "connecting" ||
-									snapshot.status === "reconnecting"
-								) {
-									patchEntry(catalogKey, { status: "connecting" });
-								} else if (
-									snapshot.status === "error" ||
-									snapshot.status === "blockedAuth"
-								) {
-									patchEntry(catalogKey, {
-										status: "error",
-										error:
-											snapshot.error === null
-												? null
-												: formatError(snapshot.error),
-									});
-								}
-							}, environment.environmentId),
-						);
-					}
-					const catalog = await hydrateEntry(
-						environment.environmentId,
-						previousCatalog(catalogKey),
-					);
-					patchEntry(catalogKey, {
-						descriptor: {
-							...environment,
-							endpoint: grant.endpoint,
+					await completeConnection({
+						catalogKey,
+						environmentId: environment.environmentId,
+						patch: {
+							descriptor: {
+								...environment,
+								endpoint: grant.endpoint,
+							},
 						},
-						status: "connected",
-						error: null,
-						...catalog,
+						reconnect: () => connectRelay(environment, localEnvironmentId),
 					});
-					automaticRetry.succeeded(catalogKey);
-					startCatalogPoller(catalogKey, environment.environmentId, catalogKey);
-					void startWorkspaceChangeStream(
-						catalogKey,
-						environment.environmentId,
-						catalogKey,
-					);
 				} catch (cause) {
-					patchEntry(catalogKey, {
-						status: "error",
-						error: errorMessage(cause),
-					});
-					automaticRetry.schedule(catalogKey, () => {
-						void connectRelay(environment, localEnvironmentId);
-					});
+					failConnection(catalogKey, cause, () =>
+						connectRelay(environment, localEnvironmentId),
+					);
 				}
 			});
 		};
@@ -630,10 +631,8 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			activeEnvironmentId: LOCAL_ENVIRONMENT_KEY,
 			initialized: false,
 			hiddenRelayEnvironmentIds: [],
-			initialize: async () => {
-				if (get().initialized) return;
-				set({ initialized: true });
-				try {
+			initialize: () => {
+				return initializeOnce(get().initialized, async () => {
 					const localClient = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
 					const [descriptor, profiles, tailnetProfiles] = await Promise.all([
 						Effect.runPromise(localClient["connect.describe"]()),
@@ -687,11 +686,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 							...tailnetProfiles.map(tailnetProfileEntry),
 						]),
 					});
-					startCatalogPoller(
-						`local:${descriptor.environmentId}`,
-						descriptor.environmentId,
-						`local:${descriptor.environmentId}`,
-					);
 					void startWorkspaceChangeStream(
 						`local:${descriptor.environmentId}`,
 						descriptor.environmentId,
@@ -706,10 +700,8 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 							connectRelay(environment, descriptor.environmentId),
 						),
 					]);
-				} catch (cause) {
-					set({ initialized: false });
-					throw cause;
-				}
+					set({ initialized: true });
+				});
 			},
 			add: async (target, label) => {
 				const bridge = window.zuse?.ssh;

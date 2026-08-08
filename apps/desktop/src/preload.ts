@@ -346,15 +346,10 @@ const bridge = {
 			ipcRenderer.invoke("network:getTailnetShareState") as Promise<
 				import("@zuse/contracts").TailnetShareState
 			>,
-		setTailnetShareEnabled: (
-			enabled: boolean,
-			options?: { readonly replaceExisting?: boolean },
-		) =>
-			ipcRenderer.invoke(
-				"network:setTailnetShareEnabled",
-				enabled,
-				options,
-			) as Promise<import("@zuse/contracts").TailnetShareState>,
+		setTailnetShareEnabled: (enabled: boolean) =>
+			ipcRenderer.invoke("network:setTailnetShareEnabled", enabled) as Promise<
+				import("@zuse/contracts").TailnetShareState
+			>,
 	},
 	ssh: {
 		discoverHosts: () =>

@@ -1,5 +1,14 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import {
+	chmod,
+	mkdir,
+	readFile,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { hostname } from "node:os";
+import { join } from "node:path";
 
 import {
 	type EnsureTailnetEnvironmentInput,
@@ -13,6 +22,41 @@ import keytar from "keytar";
 import { TailnetEnvironmentProfileStore } from "./profile-store.ts";
 
 const CREDENTIAL_SERVICE = "sh.zuse.tailnet-environment";
+const CLIENT_ID_FILE = "tailnet-client-id";
+
+const readOrCreateClientId = async (userData: string): Promise<string> => {
+	const destination = join(userData, CLIENT_ID_FILE);
+	try {
+		const existing = (await readFile(destination, "utf8")).trim();
+		if (existing.length > 0 && existing.length <= 128) {
+			await chmod(destination, 0o600);
+			return existing;
+		}
+	} catch (cause) {
+		if (
+			typeof cause !== "object" ||
+			cause === null ||
+			!("code" in cause) ||
+			cause.code !== "ENOENT"
+		) {
+			throw cause;
+		}
+	}
+	await mkdir(userData, { recursive: true, mode: 0o700 });
+	const clientId = `desktop_${randomUUID()}`;
+	const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+	await writeFile(temporary, `${clientId}\n`, {
+		mode: 0o600,
+		encoding: "utf8",
+	});
+	try {
+		await rename(temporary, destination);
+		await chmod(destination, 0o600);
+	} finally {
+		await rm(temporary, { force: true });
+	}
+	return clientId;
+};
 
 export type CredentialVault = {
 	readonly get: (profileId: string) => Promise<string | null>;
@@ -83,6 +127,7 @@ const wsUrlWithToken = (wsBaseUrl: string, token: string): string => {
 
 export class TailnetEnvironmentManager {
 	private readonly profiles: TailnetEnvironmentProfileStore;
+	private readonly clientId: Promise<string>;
 	private readonly pending = new Map<
 		string,
 		{ readonly profile: TailnetEnvironmentProfile; readonly token: string }
@@ -94,6 +139,7 @@ export class TailnetEnvironmentManager {
 		private readonly fetcher: typeof fetch = fetch,
 	) {
 		this.profiles = new TailnetEnvironmentProfileStore(userData);
+		this.clientId = readOrCreateClientId(userData);
 	}
 
 	initialize(): Promise<ReadonlyArray<TailnetEnvironmentProfile>> {
@@ -124,12 +170,13 @@ export class TailnetEnvironmentManager {
 
 		const parsed = parseTailnetPairingLink(input.pairingLink);
 		const profileId = profileIdFor(parsed.httpBaseUrl);
+		const deviceId = await this.clientId;
 		const response = await this.fetcher(`${parsed.httpBaseUrl}/pair`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
 				code: parsed.code,
-				deviceId: profileId,
+				deviceId,
 				deviceLabel: hostname(),
 			}),
 			signal: AbortSignal.timeout(15_000),

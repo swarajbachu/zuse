@@ -74,6 +74,11 @@ Options:
 const workosClientId = (env: NodeJS.ProcessEnv): string =>
 	(env.WORKOS_CLIENT_ID ?? "").trim() || WORKOS_PUBLIC_CLIENT_ID;
 
+export const requiresServeAccountAuthorization = (input: {
+	readonly sshManaged: boolean;
+	readonly tailscale: boolean;
+}): boolean => !input.sshManaged && !input.tailscale;
+
 export const resolveServeDataDir = (
 	env: NodeJS.ProcessEnv,
 	override?: string,
@@ -422,24 +427,11 @@ export const runServePackageCli = async (
 		if (!command.tailscale) return null;
 		const port = Number(env.ZUSE_PORT ?? 4859);
 		const options = { ownershipDir: dataDir, probe: probeZuseLoopback };
-		let state = await setTailnetShareEnabled({
+		const state = await setTailnetShareEnabled({
 			enabled: true,
 			port,
 			...options,
 		});
-		if (
-			state.availability === "conflict" &&
-			state.conflict?.reason === "unresponsive-owner"
-		) {
-			// The route's previous owner is gone; `--tailscale` was explicit, so
-			// reclaim the route for this daemon.
-			state = await setTailnetShareEnabled({
-				enabled: true,
-				port,
-				replaceExisting: true,
-				...options,
-			});
-		}
 		if (state.enabled && state.managedBy === "zuse-serve") {
 			// The route points at another live Zuse server (usually the desktop
 			// app). Leave it alone; its auth and data belong to that instance, so
@@ -529,9 +521,8 @@ export const runServePackageCli = async (
 	}
 
 	await mkdir(dataDir, { recursive: true, mode: 0o700 });
-	const session = command.sshManaged
-		? null
-		: await Effect.runPromise(
+	const session = requiresServeAccountAuthorization(command)
+		? await Effect.runPromise(
 				ensureServeSession({
 					clientId: workosClientId(env),
 					onPrompt: async (grant) => {
@@ -542,7 +533,8 @@ export const runServePackageCli = async (
 							openBrowser(grant.verificationUriComplete);
 					},
 				}),
-			);
+			)
+		: null;
 	let installedExecutable: string;
 	try {
 		const packageVersion = options.packageVersion ?? "0.0.0";
@@ -556,21 +548,9 @@ export const runServePackageCli = async (
 		await installService(installedExecutable);
 	} catch (cause) {
 		if (cause instanceof UnsupportedServiceManagerError) {
-			console.warn(`${cause.message} Starting in the foreground instead.`);
-			if (!command.sshManaged && !command.tailscale)
-				env.ZUSE_SERVE_AUTO_LINK = "1";
-			const tailnetOrigin = await enableTailnet();
-			runHeadlessServer({
-				host: "127.0.0.1",
-				port: Number(env.ZUSE_PORT ?? 4859),
-				dataDir,
-				staticDir: undefined,
-				open: false,
-				policy: command.sshManaged ? "local" : "protected",
-				pairing: !command.sshManaged,
-				pairingPublicBaseUrl: tailnetOrigin ?? undefined,
-			});
-			return;
+			throw new UnsupportedServiceManagerError(
+				`${cause.message} Zuse Serve requires a durable user service. Run with --foreground explicitly for a temporary session.`,
+			);
 		}
 		throw cause;
 	}

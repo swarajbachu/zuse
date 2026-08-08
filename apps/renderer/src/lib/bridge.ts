@@ -82,7 +82,6 @@ export interface NetworkBridge {
 	readonly getTailnetShareState: () => Promise<TailnetShareState>;
 	readonly setTailnetShareEnabled: (
 		enabled: boolean,
-		options?: { readonly replaceExisting?: boolean },
 	) => Promise<TailnetShareState>;
 }
 

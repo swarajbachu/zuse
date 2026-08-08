@@ -44,26 +44,25 @@ const collectText = (
  * screenshots, but we fall back to `~` so a fresh-laptop user doesn't
  * see a confusing error.
  */
-const resolveParent = (
+const resolveParent = Effect.fn("ProjectScaffold.resolveParent")(function* (
 	fs: FileSystem.FileSystem,
 	path: Path.Path,
 	parent: string,
-): Effect.Effect<string> =>
-	Effect.gen(function* () {
-		const trimmed = parent.trim();
-		const home = os.homedir();
-		if (trimmed.length > 0) {
-			const expanded = expandHomePath(trimmed, home, (left, right) =>
-				path.join(left, right),
-			);
-			return path.resolve(expanded);
-		}
-		const developer = path.join(home, "Developer");
-		const dev = yield* fs.stat(developer).pipe(Effect.option);
-		return dev._tag === "Some" && dev.value.type === "Directory"
-			? developer
-			: home;
-	});
+) {
+	const trimmed = parent.trim();
+	const home = os.homedir();
+	if (trimmed.length > 0) {
+		const expanded = expandHomePath(trimmed, home, (left, right) =>
+			path.join(left, right),
+		);
+		return path.resolve(expanded);
+	}
+	const developer = path.join(home, "Developer");
+	const dev = yield* fs.stat(developer).pipe(Effect.option);
+	return dev._tag === "Some" && dev.value.type === "Directory"
+		? developer
+		: home;
+});
 
 export const ProjectScaffoldLive = Layer.effect(
 	ProjectScaffold,

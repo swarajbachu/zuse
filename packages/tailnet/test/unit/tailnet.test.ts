@@ -314,7 +314,7 @@ setInterval(() => undefined, 10_000);
 		expect(state.conflict).toMatchObject({
 			reason: "foreign-app",
 			targetPort: 9000,
-			canReplace: true,
+			canReplace: false,
 		});
 		expect(state.detail).toMatch(/another app/u);
 		expect(calls).not.toContainEqual([
@@ -325,7 +325,7 @@ setInterval(() => undefined, 10_000);
 		]);
 	});
 
-	it("replaces a foreign configuration only when explicitly asked", async () => {
+	it("refuses to replace a foreign configuration", async () => {
 		const calls: ReadonlyArray<string>[] = [];
 		let sharing = false;
 		const run = async (args: ReadonlyArray<string>) => {
@@ -349,20 +349,20 @@ setInterval(() => undefined, 10_000);
 			);
 		};
 		const state = await setTailnetShareEnabled(
-			{
-				enabled: true,
-				port: 47837,
-				replaceExisting: true,
-				probe: async () => "other",
-			},
+			{ enabled: true, port: 47837, probe: async () => "other" },
 			run,
 		);
-		expect(state.enabled).toBe(true);
-		expect(state.managedBy).toBe("this-app");
-		expect(calls).toContainEqual(["serve", "--bg", "--yes", "127.0.0.1:47837"]);
+		expect(state.availability).toBe("conflict");
+		expect(state.enabled).toBe(false);
+		expect(calls).not.toContainEqual([
+			"serve",
+			"--bg",
+			"--yes",
+			"127.0.0.1:47837",
+		]);
 	});
 
-	it("reclaims a route whose owner is no longer responding", async () => {
+	it("refuses to reclaim a route whose owner is no longer responding", async () => {
 		let sharing = false;
 		const run = async (args: ReadonlyArray<string>) => {
 			if (args[0] === "status") {
@@ -387,8 +387,8 @@ setInterval(() => undefined, 10_000);
 			{ enabled: true, port: 47837, probe: async () => "unreachable" },
 			run,
 		);
-		expect(state.enabled).toBe(true);
-		expect(state.managedBy).toBe("this-app");
+		expect(state.enabled).toBe(false);
+		expect(state.availability).toBe("conflict");
 	});
 
 	it("treats a live zuse serve route as enabled and never steals it", async () => {

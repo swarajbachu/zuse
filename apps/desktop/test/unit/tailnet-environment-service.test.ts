@@ -11,6 +11,48 @@ import {
 import { TailnetEnvironmentProfileStore } from "../../src/tailnet/profile-store.ts";
 
 describe("Tailnet environment pairing", () => {
+	it("uses a stable per-desktop identity instead of the remote profile id", async () => {
+		const firstDirectory = await mkdtemp(
+			join(tmpdir(), "zuse-tailnet-client-"),
+		);
+		const secondDirectory = await mkdtemp(
+			join(tmpdir(), "zuse-tailnet-client-"),
+		);
+		const deviceIds: string[] = [];
+		const fetcher = vi.fn(
+			async (_url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+				const body = JSON.parse(String(init?.body)) as { deviceId: string };
+				deviceIds.push(body.deviceId);
+				return new Response(
+					JSON.stringify({ token: "zt_secret", environmentId: "env_remote" }),
+					{ status: 200 },
+				);
+			},
+		);
+		const vault = {
+			get: async () => null,
+			set: async () => undefined,
+			remove: async () => undefined,
+		};
+		const pairingLink =
+			"zuse:///connect/pair?pairingUrl=wss%3A%2F%2Fbuild.example.ts.net%2Frpc#token=zp_once";
+		await new TailnetEnvironmentManager(firstDirectory, vault, fetcher).ensure({
+			pairingLink,
+		});
+		await new TailnetEnvironmentManager(firstDirectory, vault, fetcher).ensure({
+			pairingLink,
+		});
+		await new TailnetEnvironmentManager(secondDirectory, vault, fetcher).ensure(
+			{
+				pairingLink,
+			},
+		);
+
+		expect(deviceIds[0]).toMatch(/^desktop_/u);
+		expect(deviceIds[1]).toBe(deviceIds[0]);
+		expect(deviceIds[2]).not.toBe(deviceIds[0]);
+	});
+
 	it("parses a secure Zuse pairing link", () => {
 		expect(
 			parseTailnetPairingLink(

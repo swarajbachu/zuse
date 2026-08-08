@@ -91,18 +91,12 @@ export function DevicesPane() {
 	}, [pendingNetworkMode]);
 
 	const updateTailnet = useCallback(
-		async (
-			enabled: boolean,
-			options?: { readonly replaceExisting?: boolean },
-		): Promise<TailnetShareState | null> => {
+		async (enabled: boolean): Promise<TailnetShareState | null> => {
 			const bridge = window.zuse ?? window.memoize;
 			if (bridge?.network === undefined || tailnetBusy) return null;
 			setTailnetBusy(true);
 			try {
-				const next = await bridge.network.setTailnetShareEnabled(
-					enabled,
-					options,
-				);
+				const next = await bridge.network.setTailnetShareEnabled(enabled);
 				setTailnet(next);
 				if (
 					next.availability === "approval-required" &&
@@ -131,10 +125,6 @@ export function DevicesPane() {
 		},
 		[tailnetBusy],
 	);
-
-	const replaceTailnet = useCallback(async () => {
-		await updateTailnet(true, { replaceExisting: true });
-	}, [updateTailnet]);
 
 	const connectRelay = useCallback(async (): Promise<boolean> => {
 		if (actionInFlightRef.current) return false;
@@ -224,7 +214,6 @@ export function DevicesPane() {
 				busy={busy}
 				tailnetBusy={tailnetBusy}
 				onOpenAccessDialog={setAccessDialog}
-				onReplaceTailnet={replaceTailnet}
 				onRequestNetworkMode={setPendingNetworkMode}
 			/>
 			<ConnectLinkCard

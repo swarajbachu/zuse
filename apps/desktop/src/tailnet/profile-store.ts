@@ -1,111 +1,35 @@
-import {
-	chmod,
-	mkdir,
-	readFile,
-	rename,
-	rm,
-	writeFile,
-} from "node:fs/promises";
-import { join } from "node:path";
-
 import { TailnetEnvironmentProfile } from "@zuse/contracts";
 import { Schema } from "effect";
 
-const PROFILE_FILE = "tailnet-environments.json";
-const ProfileDocument = Schema.Struct({
-	schemaVersion: Schema.Literal(1),
-	profiles: Schema.Array(TailnetEnvironmentProfile),
-});
-type ProfileDocument = typeof ProfileDocument.Type;
-
-const filePath = (userData: string): string => join(userData, PROFILE_FILE);
+import { AtomicProfileStore } from "../profile-store.ts";
 
 export class TailnetEnvironmentProfileStore {
-	private profiles = new Map<string, TailnetEnvironmentProfile>();
-	private writeTail = Promise.resolve();
+	private readonly store: AtomicProfileStore<TailnetEnvironmentProfile>;
 
-	constructor(private readonly userData: string) {}
+	constructor(userData: string) {
+		this.store = new AtomicProfileStore(userData, {
+			fileName: "tailnet-environments.json",
+			decode: Schema.decodeUnknownSync(TailnetEnvironmentProfile),
+		});
+	}
 
 	async load(): Promise<ReadonlyArray<TailnetEnvironmentProfile>> {
-		const path = filePath(this.userData);
-		let raw: string;
-		try {
-			raw = await readFile(path, "utf8");
-		} catch (cause) {
-			if (
-				typeof cause === "object" &&
-				cause !== null &&
-				"code" in cause &&
-				cause.code === "ENOENT"
-			) {
-				this.profiles.clear();
-				return [];
-			}
-			throw cause;
-		}
-		await chmod(path, 0o600);
-		try {
-			const decoded = Schema.decodeUnknownSync(ProfileDocument)(
-				JSON.parse(raw),
-			);
-			this.profiles = new Map(
-				decoded.profiles.map((profile) => [profile.profileId, profile]),
-			);
-		} catch {
-			this.profiles.clear();
-		}
-		return this.list();
+		return this.store.load();
 	}
 
 	list(): ReadonlyArray<TailnetEnvironmentProfile> {
-		return [...this.profiles.values()].sort((left, right) =>
-			left.label.localeCompare(right.label),
-		);
+		return this.store.list();
 	}
 
 	get(profileId: string): TailnetEnvironmentProfile | null {
-		return this.profiles.get(profileId) ?? null;
+		return this.store.get(profileId);
 	}
 
 	async put(profile: TailnetEnvironmentProfile): Promise<void> {
-		await this.mutate(() => this.profiles.set(profile.profileId, profile));
+		await this.store.put(profile);
 	}
 
 	async remove(profileId: string): Promise<void> {
-		await this.mutate(() => this.profiles.delete(profileId));
-	}
-
-	private mutate(update: () => void): Promise<void> {
-		const operation = this.writeTail.then(async () => {
-			const previous = new Map(this.profiles);
-			update();
-			try {
-				await this.persist();
-			} catch (cause) {
-				this.profiles = previous;
-				throw cause;
-			}
-		});
-		this.writeTail = operation.catch(() => undefined);
-		return operation;
-	}
-
-	private async persist(): Promise<void> {
-		await mkdir(this.userData, { recursive: true, mode: 0o700 });
-		const destination = filePath(this.userData);
-		const temporary = `${destination}.${process.pid}.tmp`;
-		const document: ProfileDocument = {
-			schemaVersion: 1,
-			profiles: this.list(),
-		};
-		await writeFile(temporary, `${JSON.stringify(document, null, 2)}\n`, {
-			encoding: "utf8",
-			mode: 0o600,
-		});
-		try {
-			await rename(temporary, destination);
-		} finally {
-			await rm(temporary, { force: true });
-		}
+		await this.store.remove(profileId);
 	}
 }
