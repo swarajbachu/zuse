@@ -4,6 +4,7 @@ import type { PlanType } from "@zuse/agents/codex-generated/PlanType";
 import type { Account } from "@zuse/agents/codex-generated/v2/Account";
 import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
 import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-client";
+import { readKiroAuthContext } from "@zuse/agents/drivers/kiro-auth";
 import {
   AgentAvailability,
   type CliVersionStatus,
@@ -128,6 +129,21 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
     nativeUpdate: {
       command: "opencode upgrade",
       matches: (p) => p.endsWith("/.opencode/bin/opencode"),
+    },
+  },
+  {
+    ...PROVIDER_CLI_REGISTRY.kiro,
+    // ACP landed in recent Kiro CLI builds (`kiro-cli acp`). We don't pin a
+    // hard floor here — missing `acp` surfaces as a clear session-start
+    // error from the driver. The native self-updater is `kiro-cli update`.
+    minVersion: null,
+    upgradeCommand: "kiro-cli update",
+    npmPackage: null,
+    homebrewFormula: null,
+    nativeUpdate: {
+      command: "kiro-cli update",
+      matches: (p) =>
+        p.endsWith("/kiro-cli") || p.includes("/Kiro CLI.app/"),
     },
   },
 ];
@@ -966,6 +982,47 @@ const probeGeminiAccount: Effect.Effect<
     : ({ authStatus: "unauthenticated" } satisfies AccountInfo);
 });
 
+// Kiro CLI keeps the live OIDC token in its app-support SQLite
+// (`auth_kv` / `kirocli:odic:token`). The `~/.aws/sso/cache/kiro-auth-token*.json`
+// files can lag behind. Prefer the SQLite read (via `readKiroAuthContext`);
+// fall back to cache-file presence for older installs.
+const probeKiroAccount: Effect.Effect<
+  AccountInfo,
+  never,
+  FileSystem.FileSystem
+> = Effect.gen(function* () {
+  const auth = yield* Effect.sync(() =>
+    readKiroAuthContext({ refreshIfExpired: false }),
+  ).pipe(Effect.catch(() => Effect.succeed(null)));
+  if (auth !== null) {
+    return {
+      authStatus: "authenticated",
+      authType: "cli",
+      authLabel: "Kiro",
+    } satisfies AccountInfo;
+  }
+
+  const fs = yield* FileSystem.FileSystem;
+  const cacheDir = join(homedir(), ".aws", "sso", "cache");
+  const candidates = [
+    join(cacheDir, "kiro-auth-token-cli.json"),
+    join(cacheDir, "kiro-auth-token.json"),
+  ];
+  for (const path of candidates) {
+    const exists = yield* fs
+      .exists(path)
+      .pipe(Effect.catch(() => Effect.succeed(false)));
+    if (exists) {
+      return {
+        authStatus: "authenticated",
+        authType: "cli",
+        authLabel: "Kiro",
+      } satisfies AccountInfo;
+    }
+  }
+  return { authStatus: "unauthenticated" } satisfies AccountInfo;
+});
+
 // OpenCode stores per-provider credentials in `~/.local/share/opencode/auth.json`
 // after `opencode auth login <provider>`. Each top-level key is a provider id
 // (anthropic, openai, …) and the value carries the access token or API key.
@@ -1041,6 +1098,8 @@ const probeAccount = (
       return probeGeminiAccount;
     case "opencode":
       return probeOpencodeAccount;
+    case "kiro":
+      return probeKiroAccount;
   }
 };
 

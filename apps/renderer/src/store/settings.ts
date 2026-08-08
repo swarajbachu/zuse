@@ -41,6 +41,7 @@ const PROVIDER_IDS: ReadonlyArray<ProviderId> = [
 	"cursor",
 	"gemini",
 	"opencode",
+	"kiro",
 ];
 
 const seedModels = (): Record<ProviderId, string> => ({
@@ -50,6 +51,7 @@ const seedModels = (): Record<ProviderId, string> => ({
 	cursor: defaultModelFor("cursor"),
 	gemini: defaultModelFor("gemini"),
 	opencode: defaultModelFor("opencode"),
+	kiro: defaultModelFor("kiro"),
 });
 
 const seedProviderEnabled = (): Record<ProviderId, boolean> => {

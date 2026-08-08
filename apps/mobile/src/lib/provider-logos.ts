@@ -11,6 +11,7 @@ export const PROVIDER_LOGOS: Record<ProviderId, ImageSourcePropType> = {
 	gemini: require("../../assets/providers/gemini.png"),
 	grok: require("../../assets/providers/grok.png"),
 	opencode: require("../../assets/providers/opencode.png"),
+	kiro: require("../../assets/providers/kiro.png"),
 };
 
 /** Matching image-set names bundled in the native iOS asset catalog. */
@@ -21,4 +22,5 @@ export const PROVIDER_NATIVE_ASSET_NAMES: Record<ProviderId, string> = {
 	gemini: "provider-gemini",
 	grok: "provider-grok",
 	opencode: "provider-opencode",
+	kiro: "provider-kiro",
 };

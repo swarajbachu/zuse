@@ -37,6 +37,7 @@ const providers: ReadonlyArray<ProviderId> = [
 	"gemini",
 	"cursor",
 	"opencode",
+	"kiro",
 ];
 
 const availabilityFor = (

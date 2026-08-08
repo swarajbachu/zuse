@@ -7,6 +7,7 @@ import { ClaudeIcon } from "./icons/claude-icon";
 import { CodexIcon } from "./icons/codex-icon";
 import { GeminiIcon } from "./icons/gemini-icon";
 import { GrokIcon } from "./icons/grok-icon";
+import { KiroIcon } from "./icons/kiro-icon";
 
 type ProviderIconProps = SVGProps<SVGSVGElement> & {
   providerId: ProviderId;
@@ -51,7 +52,7 @@ function CursorBrandIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
 }
 
 /**
- * Provider glyph for Claude, Codex, Grok, Gemini, Cursor, and OpenCode
+ * Provider glyph for Claude, Codex, Grok, Gemini, Cursor, OpenCode, and Kiro
  * sessions. Every provider uses an inline brand SVG (real logos, no remote
  * downloads, tinted via currentColor). Default size matches the `size-3.5`
  * pattern used elsewhere in the sidebar/composer.
@@ -75,5 +76,7 @@ export function ProviderIcon({
       return <CursorBrandIcon className={className} {...props} />;
     case "opencode":
       return <OpencodeBrandIcon className={className} {...props} />;
+    case "kiro":
+      return <KiroIcon className={sized} {...props} />;
   }
 }

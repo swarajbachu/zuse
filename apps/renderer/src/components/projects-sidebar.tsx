@@ -962,6 +962,7 @@ const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
 	grok: "Run `grok` in your terminal to sign in",
 	gemini: "Run `gemini` in your terminal to sign in",
 	opencode: "Run `opencode auth login` in your terminal to connect a provider",
+	kiro: "Run `kiro-cli login` in your terminal to sign in",
 };
 
 /**

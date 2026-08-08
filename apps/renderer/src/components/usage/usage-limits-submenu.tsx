@@ -27,6 +27,7 @@ const PROVIDERS: ReadonlyArray<ProviderId> = [
 	"codex",
 	"grok",
 	"gemini",
+	"kiro",
 ];
 const WINDOW_ORDER = { session: 0, weekly: 1, model: 2, overall: 3 } as const;
 const PLACEHOLDER_FETCHED_AT = new Date(0).toISOString();

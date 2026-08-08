@@ -87,6 +87,7 @@ export const ResumeStrategy = Schema.Literals([
 	"cursor-session-id",
 	"gemini-session-id",
 	"opencode-session-id",
+	"kiro-session-id",
 	"none",
 ]);
 export type ResumeStrategy = typeof ResumeStrategy.Type;

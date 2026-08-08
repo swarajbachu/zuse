@@ -588,6 +588,8 @@ const providerSystemImage = (providerId: ProviderId): string => {
 			return "diamond";
 		case "opencode":
 			return "chevron.left.forwardslash.chevron.right";
+		case "kiro":
+			return "face.smiling";
 	}
 };
 

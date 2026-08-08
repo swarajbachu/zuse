@@ -18,6 +18,7 @@ const POLL_PROVIDER_IDS: ReadonlyArray<PolledProviderId> = [
 	"codex",
 	"grok",
 	"gemini",
+	"kiro",
 ];
 const FRESH_SESSION_WINDOW_MS = 30 * 60 * 1_000;
 const DAILY_COST_PERSIST_INTERVAL_MS = 6 * 60 * 60 * 1_000;

@@ -4,6 +4,7 @@ import { fetchClaudeUsage } from "./claude-usage.ts";
 import { fetchCodexUsage } from "./codex-usage.ts";
 import { fetchGeminiUsage } from "./gemini-usage.ts";
 import { fetchGrokUsage } from "./grok-usage.ts";
+import { fetchKiroUsage } from "./kiro-usage.ts";
 
 const TTL = 60_000;
 const FORCE_FLOOR = 10_000;
@@ -12,6 +13,7 @@ const defaultFetchers = {
 	codex: fetchCodexUsage,
 	grok: fetchGrokUsage,
 	gemini: fetchGeminiUsage,
+	kiro: fetchKiroUsage,
 } satisfies Partial<Record<ProviderId, () => Promise<ProviderUsageLimits>>>;
 export type PolledProviderId = keyof typeof defaultFetchers;
 let fetchers = { ...defaultFetchers };

@@ -2,6 +2,7 @@ import { RpcGroup } from "effect/unstable/rpc";
 
 import {
 	ProviderAvailabilityRpc,
+	ProviderKiroInventoryRpc,
 	ProviderOpencodeAddCustomRpc,
 	ProviderOpencodeInventoryRpc,
 	ProviderOpencodeRemoveAuthRpc,
@@ -339,6 +340,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	ProviderRemoveCredentialRpc,
 	ProviderSetCredentialRpc,
 	ProviderOpencodeInventoryRpc,
+	ProviderKiroInventoryRpc,
 	ProviderOpencodeSetAuthRpc,
 	ProviderOpencodeRemoveAuthRpc,
 	ProviderOpencodeAddCustomRpc,

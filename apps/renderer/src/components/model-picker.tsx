@@ -44,6 +44,7 @@ import {
 } from "~/lib/model-picker-recents";
 import { cn } from "~/lib/utils";
 import { useMessagesStore } from "~/store/messages";
+import { useKiroInventory } from "~/store/kiro-inventory";
 import { useOpencodeInventory } from "~/store/opencode-inventory";
 import { useProvidersStore } from "~/store/providers";
 import { useSessionsStore } from "~/store/sessions";
@@ -59,6 +60,7 @@ const PROVIDER_LABEL: Record<ProviderId, string> = {
 	cursor: "Cursor",
 	gemini: "Gemini",
 	opencode: "OpenCode",
+	kiro: "Kiro",
 };
 
 const PROVIDER_CHIP_LABEL: Record<ProviderId, string> = {
@@ -68,6 +70,7 @@ const PROVIDER_CHIP_LABEL: Record<ProviderId, string> = {
 	cursor: "Cursor",
 	gemini: "Gemini",
 	opencode: "OpenCode",
+	kiro: "Kiro",
 };
 
 interface ModelPickerEntry {
@@ -138,6 +141,8 @@ export function ModelPicker(props: ModelPickerProps) {
 	const refreshAvailability = useProvidersStore((s) => s.refresh);
 	const opencodeInventory = useOpencodeInventory((s) => s.inventory);
 	const ensureOpencodeInventory = useOpencodeInventory((s) => s.ensureLoaded);
+	const kiroInventory = useKiroInventory((s) => s.inventory);
+	const ensureKiroInventory = useKiroInventory((s) => s.ensureLoaded);
 
 	const userMessageCount = useMessagesStore((s) => {
 		if (isDefault) return 0;
@@ -153,7 +158,8 @@ export function ModelPicker(props: ModelPickerProps) {
 
 	useEffect(() => {
 		void ensureOpencodeInventory();
-	}, [ensureOpencodeInventory]);
+		void ensureKiroInventory();
+	}, [ensureOpencodeInventory, ensureKiroInventory]);
 
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
@@ -192,6 +198,17 @@ export function ModelPicker(props: ModelPickerProps) {
 		(
 			pid: ProviderId,
 		): ReadonlyArray<Pick<ModelOption, "id" | "label" | "badgeLabel">> => {
+			if (pid === "kiro" && kiroInventory !== null) {
+				// Live Kiro catalog from control-plane / CLI. Prefer it over the
+				// static seed so tier/region-gated models appear correctly.
+				return kiroInventory.models.map((m) => ({
+					id: m.id,
+					label: m.label,
+					...(m.rateMultiplier !== null && m.rateMultiplier !== 1
+						? { badgeLabel: `${m.rateMultiplier}× credits` }
+						: {}),
+				}));
+			}
 			if (pid !== "opencode" || opencodeInventory === null) {
 				return MODELS_BY_PROVIDER[pid] ?? [];
 			}
@@ -209,6 +226,7 @@ export function ModelPicker(props: ModelPickerProps) {
 				);
 		},
 		[
+			kiroInventory,
 			opencodeInventory,
 			opencodeProviderVisible,
 			opencodeModelVisibleByProvider,
@@ -491,7 +509,9 @@ export function ModelPicker(props: ModelPickerProps) {
 								count={totalCount}
 							/>
 							{pickableProviders.map((pid) => {
-								const live = pid === "opencode" && opencodeInventory !== null;
+								const live =
+									(pid === "opencode" && opencodeInventory !== null) ||
+									(pid === "kiro" && kiroInventory !== null);
 								return (
 									<ProviderSidebarItem
 										key={pid}

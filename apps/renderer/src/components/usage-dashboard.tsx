@@ -70,6 +70,7 @@ const PROVIDER_ORDER: ReadonlyArray<ProviderId> = [
 	"codex",
 	"grok",
 	"gemini",
+	"kiro",
 ];
 
 const SERIES: ReadonlyArray<{

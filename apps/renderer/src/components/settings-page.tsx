@@ -1314,6 +1314,7 @@ function ProvidersPane() {
 		"gemini",
 		"cursor",
 		"opencode",
+		"kiro",
 	];
 	const [selectedProvider, setSelectedProvider] =
 		useState<ProviderId>("claude");
