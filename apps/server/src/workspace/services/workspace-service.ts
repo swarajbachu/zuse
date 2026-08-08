@@ -1,34 +1,30 @@
-import { Context, type Effect } from "effect";
-
-import {
-  type Folder,
-  type FolderId,
-  type WorkspaceDuplicatePathError,
-  type WorkspaceInvalidPathError,
-  type WorkspaceNotFoundError,
+import type {
+	Folder,
+	FolderId,
+	WorkspaceDuplicatePathError,
+	WorkspaceInvalidPathError,
+	WorkspaceNotFoundError,
 } from "@zuse/contracts";
+import { Context, type Effect, type Stream } from "effect";
 
 export interface WorkspaceServiceShape {
-  readonly add: (
-    path: string,
-  ) => Effect.Effect<
-    Folder,
-    WorkspaceDuplicatePathError | WorkspaceInvalidPathError
-  >;
-  readonly list: () => Effect.Effect<ReadonlyArray<Folder>>;
-  readonly remove: (
-    folderId: FolderId,
-  ) => Effect.Effect<void, WorkspaceNotFoundError>;
-  readonly getSelected: () => Effect.Effect<FolderId | null>;
-  readonly setSelected: (
-    folderId: FolderId | null,
-  ) => Effect.Effect<void>;
-  readonly findById: (
-    folderId: FolderId,
-  ) => Effect.Effect<Folder | null>;
+	readonly add: (
+		path: string,
+	) => Effect.Effect<
+		Folder,
+		WorkspaceDuplicatePathError | WorkspaceInvalidPathError
+	>;
+	readonly list: () => Effect.Effect<ReadonlyArray<Folder>>;
+	readonly streamChanges: () => Stream.Stream<ReadonlyArray<Folder>>;
+	readonly remove: (
+		folderId: FolderId,
+	) => Effect.Effect<void, WorkspaceNotFoundError>;
+	readonly getSelected: () => Effect.Effect<FolderId | null>;
+	readonly setSelected: (folderId: FolderId | null) => Effect.Effect<void>;
+	readonly findById: (folderId: FolderId) => Effect.Effect<Folder | null>;
 }
 
 export class WorkspaceService extends Context.Service<
-  WorkspaceService,
-  WorkspaceServiceShape
+	WorkspaceService,
+	WorkspaceServiceShape
 >()("memoize/WorkspaceService") {}

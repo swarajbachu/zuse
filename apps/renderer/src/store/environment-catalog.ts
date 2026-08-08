@@ -12,7 +12,7 @@ import {
 	type TailnetEnvironmentProfile,
 	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
-import { Effect } from "effect";
+import { Effect, Fiber, Stream } from "effect";
 
 import { createCatalogRetryController } from "../lib/catalog-retry.ts";
 import { formatError } from "../lib/format-error.ts";
@@ -27,6 +27,7 @@ import {
 	subscribeRendererRpcConnection,
 } from "../lib/rpc-client.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
+import { useWorkspaceStore } from "./workspace.ts";
 
 export type CatalogConnectionStatus =
 	| "connecting"
@@ -258,6 +259,10 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 		const recovering = new Set<string>();
 		const connectionAttempts = new Map<string, Promise<void>>();
 		const catalogPollers = new Map<string, number>();
+		const workspaceChangeFibers = new Map<
+			string,
+			Fiber.Fiber<unknown, unknown>
+		>();
 		const catalogPollsInFlight = new Set<string>();
 		const automaticRetry = createCatalogRetryController((delayMs, run) => {
 			const timer = window.setTimeout(run, delayMs);
@@ -318,6 +323,47 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				}, 15_000),
 			);
 		};
+		const startWorkspaceChangeStream = async (
+			key: string,
+			environmentId: string,
+			catalogKey: string,
+		): Promise<void> => {
+			const previous = workspaceChangeFibers.get(key);
+			if (previous !== undefined) {
+				await Effect.runPromise(Fiber.interrupt(previous)).catch(
+					() => undefined,
+				);
+			}
+			const client = await getRpcClient(environmentId).catch(() => null);
+			if (client === null) return;
+			const program = Stream.runForEach(
+				client["workspace.streamChanges"]({}),
+				(folders) =>
+					Effect.tryPromise({
+						try: async () => {
+							if (get().activeEnvironmentId === environmentId) {
+								useWorkspaceStore.setState((workspace) => ({
+									folders,
+									selectedFolderId:
+										workspace.selectedFolderId !== null &&
+										folders.some(
+											(folder) => folder.id === workspace.selectedFolderId,
+										)
+											? workspace.selectedFolderId
+											: (folders[0]?.id ?? null),
+								}));
+							}
+							const catalog = await hydrateEntry(
+								environmentId,
+								previousCatalog(catalogKey),
+							);
+							patchEntry(catalogKey, catalog);
+						},
+						catch: () => undefined,
+					}).pipe(Effect.ignore),
+			);
+			workspaceChangeFibers.set(key, Effect.runFork(program));
+		};
 		const stopEntryRuntime = (catalogKey: string): void => {
 			automaticRetry.stop(catalogKey);
 			recoverySubscriptions.get(catalogKey)?.();
@@ -325,6 +371,13 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			window.clearInterval(catalogPollers.get(catalogKey));
 			catalogPollers.delete(catalogKey);
 			catalogPollsInFlight.delete(catalogKey);
+			const workspaceFiber = workspaceChangeFibers.get(catalogKey);
+			if (workspaceFiber !== undefined) {
+				workspaceChangeFibers.delete(catalogKey);
+				void Effect.runPromise(Fiber.interrupt(workspaceFiber)).catch(
+					() => undefined,
+				);
+			}
 		};
 
 		const connectProfile = (profileId: string): Promise<void> => {
@@ -372,6 +425,11 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						);
 					}
 					startCatalogPoller(
+						catalogKey,
+						connection.profile.environmentId,
+						catalogKey,
+					);
+					void startWorkspaceChangeStream(
 						catalogKey,
 						connection.profile.environmentId,
 						catalogKey,
@@ -441,6 +499,11 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					);
 				}
 				startCatalogPoller(catalogKey, profile.environmentId, catalogKey);
+				void startWorkspaceChangeStream(
+					catalogKey,
+					profile.environmentId,
+					catalogKey,
+				);
 			} catch (cause) {
 				await removeRendererEnvironment(profile.environmentId).catch(
 					() => undefined,
@@ -545,6 +608,11 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					});
 					automaticRetry.succeeded(catalogKey);
 					startCatalogPoller(catalogKey, environment.environmentId, catalogKey);
+					void startWorkspaceChangeStream(
+						catalogKey,
+						environment.environmentId,
+						catalogKey,
+					);
 				} catch (cause) {
 					patchEntry(catalogKey, {
 						status: "error",
@@ -620,6 +688,11 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						]),
 					});
 					startCatalogPoller(
+						`local:${descriptor.environmentId}`,
+						descriptor.environmentId,
+						`local:${descriptor.environmentId}`,
+					);
+					void startWorkspaceChangeStream(
 						`local:${descriptor.environmentId}`,
 						descriptor.environmentId,
 						`local:${descriptor.environmentId}`,

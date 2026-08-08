@@ -119,6 +119,13 @@ export const WorkspaceListRpc = Rpc.make("workspace.list", {
 	success: Schema.Array(Folder),
 });
 
+/** Current workspace folders, followed by a fresh snapshot after add/remove. */
+export const WorkspaceStreamChangesRpc = Rpc.make("workspace.streamChanges", {
+	payload: Schema.Struct({}),
+	success: Schema.Array(Folder),
+	stream: true,
+});
+
 export const WorkspaceRemoveRpc = Rpc.make("workspace.remove", {
 	payload: Schema.Struct({ folderId: FolderId }),
 	success: Schema.Void,

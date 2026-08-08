@@ -232,6 +232,7 @@ import {
 	WorkspaceRemoveRpc,
 	WorkspaceSearchFilesRpc,
 	WorkspaceSetSelectedRpc,
+	WorkspaceStreamChangesRpc,
 } from "./workspace.ts";
 import {
 	WorktreeCreateRpc,
@@ -286,6 +287,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	WorkspacePickFolderRpc,
 	WorkspaceGetSelectedRpc,
 	WorkspaceSetSelectedRpc,
+	WorkspaceStreamChangesRpc,
 	WorkspaceSearchFilesRpc,
 	WorkspaceCloneRepoRpc,
 	WorkspaceCreateProjectRpc,
