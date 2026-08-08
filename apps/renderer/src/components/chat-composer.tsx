@@ -178,11 +178,14 @@ export function ChatComposer({
 	headerSlot,
 	constrain = true,
 	directoryUnavailable = false,
+	submitDisabled = false,
 }: {
 	session: Session;
 	composerDraftKey?: string;
 	constrain?: boolean;
 	directoryUnavailable?: boolean;
+	/** Disable sending while keeping the editor interactive and mounted. */
+	submitDisabled?: boolean;
 	/**
 	 * Optional content rendered as a header row inside the composer frame, above
 	 * the editor. Used by the new-chat landing to host the "Create from…" picker
@@ -472,6 +475,7 @@ export function ChatComposer({
 	// even with an empty text box.
 	const canSend =
 		!directoryUnavailable &&
+		!submitDisabled &&
 		uploadingAttachmentCount === 0 &&
 		(hasText || annotationCount > 0);
 
@@ -1363,7 +1367,7 @@ export function ChatComposer({
 												type="button"
 												onClick={() => fileInputRef.current?.click()}
 												aria-label="Attach files"
-											className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+												className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
 											>
 												<HugeiconsIcon
 													icon={AttachmentIcon}

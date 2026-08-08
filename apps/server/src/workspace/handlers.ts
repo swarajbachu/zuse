@@ -36,66 +36,74 @@ const Remove = MemoizeRpcs.toLayerHandler("workspace.remove", ({ folderId }) =>
 // the Electron shim (or any other host) provides the live impl. Keeps this
 // handler — and apps/server as a whole — free of UI-toolkit imports.
 const PickFolder = MemoizeRpcs.toLayerHandler("workspace.pickFolder", () =>
-  Effect.flatMap(FolderPicker, (picker) => picker.pick()),
+	Effect.flatMap(FolderPicker, (picker) => picker.pick()),
+);
+
+const BrowseDirectory = MemoizeRpcs.toLayerHandler(
+	"workspace.browseDirectory",
+	({ path }) =>
+		Effect.flatMap(ProjectScaffold, (scaffold) =>
+			scaffold.browseDirectory(path),
+		),
 );
 
 const GetSelected = MemoizeRpcs.toLayerHandler("workspace.getSelected", () =>
-  Effect.flatMap(WorkspaceService, (ws) => ws.getSelected()),
+	Effect.flatMap(WorkspaceService, (ws) => ws.getSelected()),
 );
 
 const SetSelected = MemoizeRpcs.toLayerHandler(
-  "workspace.setSelected",
-  ({ folderId }) =>
-    Effect.flatMap(WorkspaceService, (ws) => ws.setSelected(folderId)),
+	"workspace.setSelected",
+	({ folderId }) =>
+		Effect.flatMap(WorkspaceService, (ws) => ws.setSelected(folderId)),
 );
 
 const SearchFiles = MemoizeRpcs.toLayerHandler(
-  "workspace.searchFiles",
-  ({ projectId, query, limit, worktreeId }) =>
-    Effect.flatMap(FileSearchService, (svc) =>
-      svc.search(projectId, query, limit, worktreeId ?? null),
-    ),
+	"workspace.searchFiles",
+	({ projectId, query, limit, worktreeId }) =>
+		Effect.flatMap(FileSearchService, (svc) =>
+			svc.search(projectId, query, limit, worktreeId ?? null),
+		),
 );
 
 // Clone → register pipeline. The scaffold service produces the absolute
 // path of the new working tree, then we hand it to `WorkspaceService.add`
 // for SQLite registration + the standard sidebar/code-index side effects.
 const CloneRepo = MemoizeRpcs.toLayerHandler(
-  "workspace.cloneRepo",
-  ({ url, parent }) =>
-    Effect.gen(function* () {
-      const scaffold = yield* ProjectScaffold;
-      const ws = yield* WorkspaceService;
-      const path = yield* scaffold.cloneRepo(url, parent);
-      return yield* ws.add(path);
-    }),
+	"workspace.cloneRepo",
+	({ url, parent }) =>
+		Effect.gen(function* () {
+			const scaffold = yield* ProjectScaffold;
+			const ws = yield* WorkspaceService;
+			const path = yield* scaffold.cloneRepo(url, parent);
+			return yield* ws.add(path);
+		}),
 );
 
 // Scaffold → register pipeline. Same shape as CloneRepo. We coerce the
 // optional `alsoCreateGithubRepo` to a definite boolean here so the
 // scaffold service never has to worry about `undefined`.
 const CreateProject = MemoizeRpcs.toLayerHandler(
-  "workspace.createProject",
-  ({ name, parent, template, alsoCreateGithubRepo }) =>
-    Effect.gen(function* () {
-      const scaffold = yield* ProjectScaffold;
-      const ws = yield* WorkspaceService;
-      const path = yield* scaffold.createFromTemplate(
-        name,
-        parent,
-        template,
-        alsoCreateGithubRepo === true,
-      );
-      return yield* ws.add(path);
-    }),
+	"workspace.createProject",
+	({ name, parent, template, alsoCreateGithubRepo }) =>
+		Effect.gen(function* () {
+			const scaffold = yield* ProjectScaffold;
+			const ws = yield* WorkspaceService;
+			const path = yield* scaffold.createFromTemplate(
+				name,
+				parent,
+				template,
+				alsoCreateGithubRepo === true,
+			);
+			return yield* ws.add(path);
+		}),
 );
 
 // `gh repo list` proxy for the Clone dialog's recents list. Returns an
 // empty array for any failure — the renderer treats the empty case as
 // "show a sign-in hint."
 const ListGithubRepos = MemoizeRpcs.toLayerHandler(
-  "workspace.listGithubRepos",
-  ({ limit }) =>
+	"workspace.listGithubRepos",
+	({ limit }) =>
 		Effect.flatMap(ProjectScaffold, (svc) => svc.listGithubRepos(limit ?? 30)),
 );
 
@@ -104,15 +112,16 @@ const GhAuthStatus = MemoizeRpcs.toLayerHandler("workspace.ghAuthStatus", () =>
 );
 
 export const WorkspaceHandlersLayer = Layer.mergeAll(
-  Add,
-  List,
-  Remove,
-  PickFolder,
-  GetSelected,
-  SetSelected,
-  SearchFiles,
-  CloneRepo,
-  CreateProject,
-  ListGithubRepos,
-  GhAuthStatus,
+	Add,
+	List,
+	Remove,
+	PickFolder,
+	BrowseDirectory,
+	GetSelected,
+	SetSelected,
+	SearchFiles,
+	CloneRepo,
+	CreateProject,
+	ListGithubRepos,
+	GhAuthStatus,
 );

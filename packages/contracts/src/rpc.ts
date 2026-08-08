@@ -221,6 +221,7 @@ import { UsageOverviewRpc, UsageReportRpc, UsageSessionsRpc } from "./usage.ts";
 import { UsageLimitsHistoryRpc, UsageLimitsRpc } from "./usage-limits.ts";
 import {
 	WorkspaceAddRpc,
+	WorkspaceBrowseDirectoryRpc,
 	WorkspaceCloneRepoRpc,
 	WorkspaceCreateProjectRpc,
 	WorkspaceGetSelectedRpc,
@@ -279,6 +280,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	RelayClientsRpc,
 	RelayRevokeClientRpc,
 	WorkspaceAddRpc,
+	WorkspaceBrowseDirectoryRpc,
 	WorkspaceListRpc,
 	WorkspaceRemoveRpc,
 	WorkspacePickFolderRpc,

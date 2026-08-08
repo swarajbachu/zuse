@@ -54,6 +54,7 @@ import {
 import { applyPreparedLinearContext } from "~/composer/linear-context-input";
 import { resolveChatWorkspacePolicy } from "~/lib/auto-worktree";
 import { saveContextFile } from "~/lib/context-handoff";
+import { formatError } from "~/lib/format-error";
 import {
 	buildLogicalProjectGroups,
 	defaultNewChatTarget,
@@ -93,6 +94,11 @@ import { SetupCardView } from "./worktree-setup-card.tsx";
 const ChatComposer = lazy(() =>
 	import("./chat-composer.tsx").then((module) => ({
 		default: module.ChatComposer,
+	})),
+);
+const ProjectSetupDialog = lazy(() =>
+	import("./project-setup-dialog.tsx").then((module) => ({
+		default: module.ProjectSetupDialog,
 	})),
 );
 
@@ -253,9 +259,42 @@ export function ChatLanding() {
 	const activeEnvironmentId = useEnvironmentCatalogStore(
 		(s) => s.activeEnvironmentId,
 	);
+	const retryProfile = useEnvironmentCatalogStore((s) => s.retry);
+	const retryEnvironment = useEnvironmentCatalogStore(
+		(s) => s.retryEnvironment,
+	);
+	const [retryingEnvironmentId, setRetryingEnvironmentId] = useState<
+		string | null
+	>(null);
 	const origins = useFolderOriginsStore((s) => s.byFolder);
 	const hydrateOrigins = useFolderOriginsStore((s) => s.hydrate);
-	const desktopCatalogEnabled = window.zuse?.ssh !== undefined;
+	const desktopCatalogEnabled =
+		window.zuse?.ssh !== undefined || window.zuse?.tailnet !== undefined;
+	const unavailableComputers = catalogEntries.filter(
+		(entry) =>
+			entry.connectionKind !== "local" &&
+			(entry.status === "error" || entry.status === "offline"),
+	);
+	const retryComputer = (environmentId: string): void => {
+		const entry = catalogEntries.find(
+			(candidate) => candidate.environmentId === environmentId,
+		);
+		if (entry === undefined || entry.status === "connecting") return;
+		setRetryingEnvironmentId(environmentId);
+		const operation =
+			entry.profileId === null
+				? retryEnvironment(environmentId)
+				: retryProfile(entry.profileId);
+		void operation
+			.catch((cause) =>
+				toastManager.add({
+					title: "Could not reconnect",
+					description: formatError(cause),
+					type: "error",
+				}),
+			)
+			.finally(() => setRetryingEnvironmentId(null));
+	};
 
 	useEffect(() => {
 		void hydrateOrigins(folders.map((folder) => folder.id));
@@ -300,6 +339,7 @@ export function ChatLanding() {
 	const [targetOverride, setTargetOverride] = useState<NewChatTarget | null>(
 		null,
 	);
+	const [projectSetupOpen, setProjectSetupOpen] = useState(false);
 	const anchoredGroup = useMemo(
 		() =>
 			remoteAnchor === null
@@ -319,6 +359,19 @@ export function ChatLanding() {
 			: pickerGroup !== null
 				? defaultNewChatTarget(pickerGroup)
 				: null);
+	const pendingProjectSetup =
+		resolvedTarget?.folderId === null &&
+		pickerGroup?.origin?.cloneUrl !== undefined
+			? {
+					environmentId: resolvedTarget.environmentId,
+					label:
+						catalogEntries.find(
+							(entry) => entry.environmentId === resolvedTarget.environmentId,
+						)?.label ?? "the selected computer",
+					url: pickerGroup.origin.cloneUrl,
+					name: pickerGroup.displayName,
+				}
+			: null;
 
 	// Spin up (or re-spin, on project switch) the draft session that backs the
 	// composer. Re-runs only when the project changes — model/provider/runtime
@@ -511,11 +564,18 @@ export function ChatLanding() {
 		const draft = useSessionsStore.getState().draftSession;
 		if (draft === null) return;
 		const target = resolvedTarget;
+		if (target !== null && target.folderId === null) {
+			setSubmitError(
+				"Clone this project onto the selected computer before starting the chat.",
+			);
+			return;
+		}
 		const remoteTarget =
 			target !== null &&
+			target.folderId !== null &&
 			(target.environmentId !== activeEnvironmentId ||
 				target.folderId !== selectedFolderId)
-				? target
+				? { environmentId: target.environmentId, folderId: target.folderId }
 				: null;
 		if (remoteTarget !== null) {
 			// Create the chat ON the target computer first, then open it. The
@@ -888,6 +948,59 @@ export function ChatLanding() {
 					{headline}
 				</h1>
 
+				{unavailableComputers.length > 0 ? (
+					<div
+						role="status"
+						aria-live="polite"
+						className="mx-auto flex w-full max-w-2xl items-center gap-2.5 rounded-lg border border-border/60 bg-muted/35 px-3 py-2"
+					>
+						<span className="size-1.5 shrink-0 rounded-full bg-destructive/80" />
+						<p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+							<span className="font-medium text-foreground/90">
+								{unavailableComputers.length === 1
+									? unavailableComputers[0]?.label
+									: `${unavailableComputers.length} computers`}
+							</span>{" "}
+							{unavailableComputers.length === 1
+								? "is unavailable."
+								: "are unavailable."}{" "}
+							Zuse will keep trying.
+						</p>
+						<button
+							type="button"
+							disabled={retryingEnvironmentId !== null}
+							className="inline-flex h-6 shrink-0 items-center rounded-md border border-border/60 bg-muted px-2 text-[10px] font-medium text-foreground outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+							onClick={() => {
+								for (const entry of unavailableComputers) {
+									retryComputer(entry.environmentId);
+								}
+							}}
+						>
+							{retryingEnvironmentId === null ? "Retry" : "Retrying…"}
+						</button>
+					</div>
+				) : null}
+
+				{pendingProjectSetup !== null ? (
+					<div className="mx-auto flex w-full max-w-2xl items-center gap-3 rounded-lg border border-border bg-muted/45 px-3 py-2">
+						<div className="min-w-0 flex-1">
+							<p className="text-xs font-medium text-foreground">
+								This project isn’t on {pendingProjectSetup.label}
+							</p>
+							<p className="text-[11px] text-muted-foreground">
+								Clone it there before starting this chat.
+							</p>
+						</div>
+						<button
+							type="button"
+							className="inline-flex min-h-8 shrink-0 items-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring"
+							onClick={() => setProjectSetupOpen(true)}
+						>
+							Clone project
+						</button>
+					</div>
+				) : null}
+
 				{submitError !== null && (
 					<div className="mx-auto flex w-full max-w-2xl items-start gap-2 rounded-lg border border-rose-400/30 bg-rose-500/[0.08] px-3 py-2 text-[12px] text-rose-200">
 						<span className="mt-px shrink-0">⚠</span>
@@ -909,6 +1022,7 @@ export function ChatLanding() {
 				{draftSession !== null ? (
 					<Suspense fallback={<div className="h-28" aria-busy="true" />}>
 						<ChatComposer
+							submitDisabled={pendingProjectSetup !== null}
 							// Keyed by the draft's anchor — NOT by the "Run on" target,
 							// so picking a computer never remounts the editor and the
 							// typed text stays exactly where it is.
@@ -947,7 +1061,9 @@ export function ChatLanding() {
 											<ComputerPicker
 												group={pickerGroup}
 												target={resolvedTarget}
+												entries={catalogEntries}
 												onPickTarget={setTargetOverride}
+												onRetryEnvironment={retryComputer}
 											/>
 										) : null}
 									</div>
@@ -1045,6 +1161,22 @@ export function ChatLanding() {
 					onContinue={(thread) => void continueExternalThread(thread)}
 				/>
 			</div>
+			{projectSetupOpen && pendingProjectSetup !== null ? (
+				<Suspense fallback={null}>
+					<ProjectSetupDialog
+						open
+						onOpenChange={setProjectSetupOpen}
+						initialMode="clone"
+						initialEnvironmentId={pendingProjectSetup.environmentId}
+						sourceUrl={pendingProjectSetup.url}
+						sourceName={pendingProjectSetup.name}
+						onComplete={(folder, environmentId) => {
+							setTargetOverride({ environmentId, folderId: folder.id });
+							setSubmitError(null);
+						}}
+					/>
+				</Suspense>
+			) : null}
 		</div>
 	);
 }

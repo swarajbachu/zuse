@@ -19,7 +19,12 @@ const folder = (id: string, name: string): Folder =>
 	({ id: id as FolderId, name, path: `/repos/${name}` }) as unknown as Folder;
 
 const origin = (owner: string, repo: string): GitOriginInfo =>
-	({ host: "github.com", owner, repo }) as unknown as GitOriginInfo;
+	({
+		host: "github.com",
+		owner,
+		repo,
+		cloneUrl: `git@github.com:${owner}/${repo}.git`,
+	}) as unknown as GitOriginInfo;
 
 const chat = (
 	id: string,
@@ -284,8 +289,9 @@ describe("computerPickerItems", () => {
 		expect(model.items.map((item) => item.disabled)).toEqual([
 			false,
 			false,
-			true,
+			false,
 		]);
+		expect(model.items[2]?.retryable).toBe(true);
 	});
 
 	it("defaults selection to this desktop's member and honors an explicit target", () => {
@@ -306,6 +312,12 @@ describe("computerPickerItems", () => {
 	});
 
 	it("hides the picker when the only member is on this desktop", () => {
+		const offlineComputer = entry({
+			environmentId: "env-offline",
+			label: "Old laptop",
+			status: "error",
+			error: "Couldn't reach the computer.",
+		});
 		const groups = build({
 			activeFolders: [folder("lf-1", "solo")],
 			activeOrigins: { "lf-1": null },
@@ -313,6 +325,76 @@ describe("computerPickerItems", () => {
 		const group = groups[0];
 		if (group === undefined) throw new Error("expected a group");
 		expect(computerPickerItems(group, null).kind).toBe("hidden");
+		const withSavedComputer = computerPickerItems(group, null, [
+			offlineComputer,
+		]);
+		expect(withSavedComputer.kind).toBe("menu");
+		if (withSavedComputer.kind !== "menu") return;
+		expect(withSavedComputer.items).toEqual([
+			expect.objectContaining({
+				environmentId: "env-local",
+				folderId: "lf-1",
+				projectAvailable: true,
+				selected: true,
+			}),
+			expect.objectContaining({
+				environmentId: "env-offline",
+				folderId: null,
+				label: "Old laptop",
+				projectAvailable: false,
+				retryable: true,
+				disabled: false,
+			}),
+		]);
+	});
+
+	it("keeps an originless project unavailable on a connected computer", () => {
+		const groups = build({
+			activeFolders: [folder("lf-1", "solo")],
+			activeOrigins: { "lf-1": null },
+		});
+		const group = groups[0];
+		if (group === undefined) throw new Error("expected a group");
+		const model = computerPickerItems(group, null, [
+			entry({ environmentId: "env-other", label: "Studio" }),
+		]);
+		expect(model.kind).toBe("menu");
+		if (model.kind !== "menu") return;
+		expect(model.items[1]).toEqual(
+			expect.objectContaining({
+				environmentId: "env-other",
+				folderId: null,
+				projectAvailable: false,
+				retryable: false,
+				disabled: true,
+			}),
+		);
+	});
+
+	it("allows a connected computer to be selected for Git-backed setup", () => {
+		const groups = build({
+			activeFolders: [folder("lf-1", "solo")],
+			activeOrigins: { "lf-1": origin("team", "solo") },
+		});
+		const group = groups[0];
+		if (group === undefined) throw new Error("expected a group");
+		const model = computerPickerItems(
+			group,
+			{ environmentId: "env-other", folderId: null },
+			[entry({ environmentId: "env-other", label: "Studio" })],
+		);
+		expect(model.kind).toBe("menu");
+		if (model.kind !== "menu") return;
+		expect(model.items[1]).toEqual(
+			expect.objectContaining({
+				environmentId: "env-other",
+				folderId: null,
+				projectAvailable: false,
+				setupAvailable: true,
+				selected: true,
+				disabled: false,
+			}),
+		);
 	});
 
 	it("renders a static label when the only member is remote", () => {

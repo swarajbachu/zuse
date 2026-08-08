@@ -1,12 +1,12 @@
-import { Context, type Effect } from "effect";
-
-import {
-  type GithubRepoSummary,
-  type ProjectTemplate,
-  type WorkspaceCloneFailedError,
-  type WorkspaceCreateFailedError,
-  type WorkspaceInvalidPathError,
+import type {
+	GithubRepoSummary,
+	ProjectTemplate,
+	WorkspaceCloneFailedError,
+	WorkspaceCreateFailedError,
+	WorkspaceDirectoryListing,
+	WorkspaceInvalidPathError,
 } from "@zuse/contracts";
+import { Context, type Effect } from "effect";
 
 /**
  * Everything the workspace handlers need to *produce* a project path on
@@ -20,45 +20,55 @@ import {
  * service and assert "the handler passed our fake path to `add`."
  */
 export interface ProjectScaffoldShape {
-  /** Run `git clone` and return the absolute path of the new working tree. */
-  readonly cloneRepo: (
-    url: string,
-    parent: string,
-  ) => Effect.Effect<string, WorkspaceCloneFailedError | WorkspaceInvalidPathError>;
+	/** Resolve and list an arbitrary project-parent directory. */
+	readonly browseDirectory: (
+		path: string,
+	) => Effect.Effect<WorkspaceDirectoryListing, WorkspaceInvalidPathError>;
 
-  /**
-   * Scaffold a fresh project under `<parent>/<name>` using the named
-   * template, `git init` it, and optionally create + push a private
-   * GitHub repo. Returns the absolute path. Each failing step maps to
-   * `WorkspaceCreateFailedError.step` so the renderer can point the user
-   * at the right fix (e.g. "install bun" vs "run gh auth login").
-   */
-  readonly createFromTemplate: (
-    name: string,
-    parent: string,
-    template: ProjectTemplate,
-    alsoCreateGithubRepo: boolean,
-  ) => Effect.Effect<
-    string,
-    WorkspaceCreateFailedError | WorkspaceInvalidPathError
-  >;
+	/** Run `git clone` and return the absolute path of the new working tree. */
+	readonly cloneRepo: (
+		url: string,
+		parent: string,
+	) => Effect.Effect<
+		string,
+		WorkspaceCloneFailedError | WorkspaceInvalidPathError
+	>;
 
-  /**
-   * `gh repo list --json …` for the signed-in user. Returns `[]` for
-   * any failure (gh missing, signed-out, network) — the dialog falls
-   * back to the URL field and a one-line auth hint.
-   */
-  readonly listGithubRepos: (
-    limit: number,
-  ) => Effect.Effect<ReadonlyArray<GithubRepoSummary>>;
+	/**
+	 * Scaffold a fresh project under `<parent>/<name>` using the named
+	 * template, `git init` it, and optionally create + push a private
+	 * GitHub repo. Returns the absolute path. Each failing step maps to
+	 * `WorkspaceCreateFailedError.step` so the renderer can point the user
+	 * at the right fix (e.g. "install bun" vs "run gh auth login").
+	 */
+	readonly createFromTemplate: (
+		name: string,
+		parent: string,
+		template: ProjectTemplate,
+		alsoCreateGithubRepo: boolean,
+	) => Effect.Effect<
+		string,
+		WorkspaceCreateFailedError | WorkspaceInvalidPathError
+	>;
 
-  /** Best-effort "is gh signed in" probe for enabling the create-repo checkbox. */
-  readonly ghAuthStatus: () => Effect.Effect<{ readonly authenticated: boolean }>;
+	/**
+	 * `gh repo list --json …` for the signed-in user. Returns `[]` for
+	 * any failure (gh missing, signed-out, network) — the dialog falls
+	 * back to the URL field and a one-line auth hint.
+	 */
+	readonly listGithubRepos: (
+		limit: number,
+	) => Effect.Effect<ReadonlyArray<GithubRepoSummary>>;
+
+	/** Best-effort "is gh signed in" probe for enabling the create-repo checkbox. */
+	readonly ghAuthStatus: () => Effect.Effect<{
+		readonly authenticated: boolean;
+	}>;
 }
 
 export class ProjectScaffold extends Context.Service<
-  ProjectScaffold,
-  ProjectScaffoldShape
+	ProjectScaffold,
+	ProjectScaffoldShape
 >()("memoize/ProjectScaffold") {}
 
 /**
@@ -73,25 +83,38 @@ export class ProjectScaffold extends Context.Service<
  *   https://gitlab.com/group/sub/x    → x
  */
 export const deriveCloneTargetName = (url: string): string | null => {
-  const trimmed = url.trim();
-  if (trimmed.length === 0) return null;
-  // Strip query/fragment so they don't sneak into the folder name.
-  const noQuery = trimmed.split(/[?#]/)[0]!;
-  // ssh form `git@host:owner/repo.git` — split on the last colon, keep
-  // the path portion.
-  const afterColon = noQuery.includes("://")
-    ? noQuery.split("://", 2)[1] ?? ""
-    : noQuery.includes(":")
-      ? noQuery.split(":").slice(1).join(":")
-      : noQuery;
-  // Drop the host component (first `/`-separated piece) when we still
-  // have one after the colon split.
-  const path = afterColon.replace(/^[^/]+\//, "");
-  const segments = path.split("/").filter((s) => s.length > 0);
-  const last = segments[segments.length - 1];
-  if (last === undefined) return null;
-  const stripped = last.replace(/\.git$/i, "");
-  return stripped.length > 0 ? stripped : null;
+	const trimmed = url.trim();
+	if (trimmed.length === 0) return null;
+	// Strip query/fragment so they don't sneak into the folder name.
+	const noQuery = trimmed.split(/[?#]/)[0]!;
+	// ssh form `git@host:owner/repo.git` — split on the last colon, keep
+	// the path portion.
+	const afterColon = noQuery.includes("://")
+		? (noQuery.split("://", 2)[1] ?? "")
+		: noQuery.includes(":")
+			? noQuery.split(":").slice(1).join(":")
+			: noQuery;
+	// Drop the host component (first `/`-separated piece) when we still
+	// have one after the colon split.
+	const path = afterColon.replace(/^[^/]+\//, "");
+	const segments = path.split("/").filter((s) => s.length > 0);
+	const last = segments[segments.length - 1];
+	if (last === undefined) return null;
+	const stripped = last.replace(/\.git$/i, "");
+	return stripped.length > 0 ? stripped : null;
+};
+
+/** Expand only a leading home shorthand; all other input stays opaque. */
+export const expandHomePath = (
+	input: string,
+	home: string,
+	join: (left: string, right: string) => string,
+): string => {
+	if (input === "~") return home;
+	if (input.startsWith("~/") || input.startsWith("~\\")) {
+		return join(home, input.slice(2));
+	}
+	return input;
 };
 
 /**
@@ -102,4 +125,4 @@ export const deriveCloneTargetName = (url: string): string | null => {
  */
 export const PROJECT_NAME_REGEX = /^[a-z0-9][a-z0-9-_]*$/;
 export const isValidProjectName = (name: string): boolean =>
-  PROJECT_NAME_REGEX.test(name);
+	PROJECT_NAME_REGEX.test(name);

@@ -61,7 +61,8 @@ export type LogicalProjectGroup = {
 /** Where a NEW chat should run: a member of the selected logical project. */
 export type NewChatTarget = {
 	readonly environmentId: string;
-	readonly folderId: FolderId;
+	/** Null means the computer is selected but this project must be cloned first. */
+	readonly folderId: FolderId | null;
 };
 
 const originKeyOf = (origin: GitOriginInfo | null): string | null =>
@@ -294,9 +295,12 @@ export const defaultNewChatTarget = (
 
 export type ComputerPickerItem = {
 	readonly environmentId: string;
-	readonly folderId: FolderId;
+	readonly folderId: FolderId | null;
 	readonly label: string;
 	readonly status: CatalogConnectionStatus;
+	readonly projectAvailable: boolean;
+	readonly setupAvailable: boolean;
+	readonly retryable: boolean;
 	readonly selected: boolean;
 	readonly disabled: boolean;
 };
@@ -319,9 +323,10 @@ export type ComputerPickerModel =
 export const computerPickerItems = (
 	group: LogicalProjectGroup,
 	target: NewChatTarget | null,
+	entries: ReadonlyArray<EnvironmentCatalogEntry> = [],
 ): ComputerPickerModel => {
 	const resolved = target ?? defaultNewChatTarget(group);
-	const items = [...group.members]
+	const memberItems = [...group.members]
 		.sort(
 			(left, right) =>
 				Number(right.local) - Number(left.local) ||
@@ -336,15 +341,56 @@ export const computerPickerItems = (
 						? "This computer"
 						: member.environmentLabel,
 				status: member.status,
+				projectAvailable: true,
+				setupAvailable: false,
+				retryable: member.status === "error" || member.status === "offline",
 				selected:
 					resolved !== null &&
 					member.environmentId === resolved.environmentId &&
 					member.folderId === resolved.folderId,
-				disabled: !member.connected,
+				disabled:
+					!member.connected &&
+					member.status !== "error" &&
+					member.status !== "offline",
 			}),
 		);
+	const representedEnvironmentIds = new Set(
+		memberItems.map((item) => item.environmentId),
+	);
+	const catalogItems = entries
+		.filter(
+			(entry) =>
+				entry.connectionKind !== "local" &&
+				!representedEnvironmentIds.has(entry.environmentId),
+		)
+		.map(
+			(entry): ComputerPickerItem => ({
+				environmentId: entry.environmentId,
+				folderId: null,
+				label: entry.label,
+				status: entry.status,
+				projectAvailable: false,
+				setupAvailable:
+					entry.status === "connected" && group.origin?.cloneUrl !== undefined,
+				retryable: entry.status === "error" || entry.status === "offline",
+				selected:
+					resolved?.environmentId === entry.environmentId &&
+					resolved.folderId === null,
+				disabled:
+					entry.status === "connecting" ||
+					(entry.status === "connected" &&
+						group.origin?.cloneUrl === undefined),
+			}),
+		)
+		.sort(
+			(left, right) =>
+				Number(right.retryable) - Number(left.retryable) ||
+				left.label.localeCompare(right.label),
+		);
+	const items = [...memberItems, ...catalogItems];
 	const only = items.length === 1 ? items[0] : undefined;
 	if (only !== undefined) {
+		if (only.retryable) return { kind: "menu", items };
 		return group.members[0]?.local
 			? { kind: "hidden" }
 			: { kind: "static", item: only };

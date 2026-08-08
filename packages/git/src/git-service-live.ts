@@ -388,13 +388,42 @@ const parseReviewStats = (out: string): ReadonlyMap<string, ReviewStat> => {
 //   https://github.com/owner/repo[.git]
 // Returns null for anything we can't confidently parse (file:// remotes,
 // custom transports, etc.) — the caller treats null as "no origin info".
-const parseRemoteUrl = (url: string): GitOriginInfo | null => {
-	const cleaned = url.replace(/\.git$/, "");
+const safeCloneUrl = (raw: string): string | null => {
+	const trimmed = raw.trim();
+	if (/^[\w.-]+@[\w.-]+:[^\s]+$/.test(trimmed)) return trimmed;
+	try {
+		const parsed = new URL(trimmed);
+		if (
+			!(
+				parsed.protocol === "http:" ||
+				parsed.protocol === "https:" ||
+				parsed.protocol === "ssh:"
+			)
+		)
+			return null;
+		parsed.password = "";
+		if (parsed.protocol !== "ssh:") parsed.username = "";
+		parsed.search = "";
+		parsed.hash = "";
+		return parsed.toString();
+	} catch {
+		return null;
+	}
+};
+
+export const parseRemoteUrl = (url: string): GitOriginInfo | null => {
+	const cloneUrl = safeCloneUrl(url);
+	const cleaned = (cloneUrl ?? url).replace(/\.git\/?$/, "");
 	const scp = /^[\w.-]+@([\w.-]+):([\w.-]+)\/([\w.-]+)$/.exec(cleaned);
 	if (scp) {
 		const [, host, owner, repo] = scp;
 		if (host !== undefined && owner !== undefined && repo !== undefined) {
-			return GitOriginInfo.make({ host, owner, repo });
+			return GitOriginInfo.make({
+				host,
+				owner,
+				repo,
+				cloneUrl: cloneUrl ?? undefined,
+			});
 		}
 	}
 	const proto =
@@ -404,7 +433,12 @@ const parseRemoteUrl = (url: string): GitOriginInfo | null => {
 	if (proto) {
 		const [, host, owner, repo] = proto;
 		if (host !== undefined && owner !== undefined && repo !== undefined) {
-			return GitOriginInfo.make({ host, owner, repo });
+			return GitOriginInfo.make({
+				host,
+				owner,
+				repo,
+				cloneUrl: cloneUrl ?? undefined,
+			});
 		}
 	}
 	return null;

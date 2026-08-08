@@ -11,6 +11,29 @@ export class Folder extends Schema.Class<Folder>("Folder")({
 	addedAt: Schema.DateFromString,
 }) {}
 
+export const WorkspaceDirectoryEntryKind = Schema.Literals([
+	"directory",
+	"file",
+]);
+export type WorkspaceDirectoryEntryKind =
+	typeof WorkspaceDirectoryEntryKind.Type;
+
+export class WorkspaceDirectoryEntry extends Schema.Class<WorkspaceDirectoryEntry>(
+	"WorkspaceDirectoryEntry",
+)({
+	name: Schema.String,
+	path: Schema.String,
+	kind: WorkspaceDirectoryEntryKind,
+}) {}
+
+export class WorkspaceDirectoryListing extends Schema.Class<WorkspaceDirectoryListing>(
+	"WorkspaceDirectoryListing",
+)({
+	path: Schema.String,
+	parent: Schema.NullOr(Schema.String),
+	entries: Schema.Array(WorkspaceDirectoryEntry),
+}) {}
+
 export class WorkspaceDuplicatePathError extends Schema.TaggedErrorClass<WorkspaceDuplicatePathError>()(
 	"WorkspaceDuplicatePathError",
 	{ path: Schema.String },
@@ -106,6 +129,21 @@ export const WorkspacePickFolderRpc = Rpc.make("workspace.pickFolder", {
 	payload: Schema.Struct({}),
 	success: Schema.NullOr(Schema.String),
 });
+
+/**
+ * Browse a directory on the RPC-owning environment. Unlike `fs.tree`, this is
+ * intentionally not project-scoped because it is used to choose where a new
+ * project will be created. Empty input resolves to the environment's default
+ * project parent (`~/Developer` when present, otherwise home).
+ */
+export const WorkspaceBrowseDirectoryRpc = Rpc.make(
+	"workspace.browseDirectory",
+	{
+		payload: Schema.Struct({ path: Schema.String }),
+		success: WorkspaceDirectoryListing,
+		error: WorkspaceInvalidPathError,
+	},
+);
 
 export const WorkspaceGetSelectedRpc = Rpc.make("workspace.getSelected", {
 	payload: Schema.Struct({}),

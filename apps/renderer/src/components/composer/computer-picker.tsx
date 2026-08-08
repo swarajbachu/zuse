@@ -19,16 +19,23 @@ import {
 	type NewChatTarget,
 } from "~/lib/project-groups.ts";
 import { cn } from "~/lib/utils";
+import type { EnvironmentCatalogEntry } from "~/store/environment-catalog.ts";
 import { openAddComputerDialog } from "../add-computer-dialog.tsx";
 
 const statusText = (item: ComputerPickerItem): string =>
-	item.status === "connecting"
-		? "Connecting…"
-		: item.status === "error"
-			? "Can't connect"
-			: item.status === "offline"
-				? "Offline"
-				: "Connected";
+	item.retryable
+		? "Retry"
+		: !item.projectAvailable && item.status === "connected"
+			? item.setupAvailable
+				? "Clone project"
+				: "Git remote required"
+			: item.status === "connecting"
+				? "Connecting…"
+				: item.status === "error"
+					? "Can't connect"
+					: item.status === "offline"
+						? "Offline"
+						: "Connected";
 
 /**
  * "Run on" control for the Chat Lander: picks which computer a new chat runs
@@ -43,14 +50,18 @@ const statusText = (item: ComputerPickerItem): string =>
 export function ComputerPicker({
 	group,
 	target,
+	entries,
 	onPickTarget,
+	onRetryEnvironment,
 }: {
 	group: LogicalProjectGroup | null;
 	target: NewChatTarget | null;
+	entries: ReadonlyArray<EnvironmentCatalogEntry>;
 	onPickTarget: (target: NewChatTarget) => void;
+	onRetryEnvironment: (environmentId: string) => void;
 }) {
 	if (group === null) return null;
-	const model = computerPickerItems(group, target);
+	const model = computerPickerItems(group, target, entries);
 	if (model.kind === "hidden") return null;
 
 	if (model.kind === "static") {
@@ -65,6 +76,10 @@ export function ComputerPicker({
 	const current =
 		model.items.find((item) => item.selected) ?? model.items[0] ?? null;
 	const pick = (item: ComputerPickerItem): void => {
+		if (item.retryable) {
+			onRetryEnvironment(item.environmentId);
+			return;
+		}
 		if (item.disabled || item.selected) return;
 		onPickTarget({
 			environmentId: item.environmentId,
@@ -85,7 +100,7 @@ export function ComputerPicker({
 			<MenuPopup side="bottom" align="start" className="w-64 p-1">
 				{model.items.map((item) => (
 					<MenuItem
-						key={`${item.environmentId}:${item.folderId}`}
+						key={`${item.environmentId}:${item.folderId ?? "unavailable"}`}
 						disabled={item.disabled}
 						onClick={() => pick(item)}
 						className={cn(
@@ -110,7 +125,8 @@ export function ComputerPicker({
 						<span className="col-start-3 row-start-1 truncate">
 							{item.label}
 						</span>
-						{!item.selected && item.status !== "connected" ? (
+						{!item.selected &&
+						(item.status !== "connected" || !item.projectAvailable) ? (
 							<span className="col-start-4 row-start-1 text-[10px] text-muted-foreground">
 								{statusText(item)}
 							</span>
