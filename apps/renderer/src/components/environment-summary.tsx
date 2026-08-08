@@ -19,7 +19,7 @@ import { deriveEnvironmentPrRows } from "../lib/branch-workflow.ts";
 import { displayPath } from "../lib/display-path.ts";
 import { formatError } from "../lib/format-error.ts";
 import { detachedSubagentGroups } from "../lib/group-messages.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import { getActiveEnvironment, getRpcClient } from "../lib/rpc-client.ts";
 import {
 	effectiveSessionRuntimeState,
 	isSessionTurnActive,
@@ -80,17 +80,25 @@ export function EnvironmentSummary() {
 		folderId ? (s.byKey[gitStatusKey(folderId, worktreeId)] ?? null) : null,
 	);
 	const diffStat = useGitDiffStatStore((s) =>
-		folderId ? (s.byKey[gitDiffStatKey(folderId, worktreeId)] ?? null) : null,
+		folderId
+			? (s.byKey[
+					gitDiffStatKey(getActiveEnvironment(), folderId, worktreeId)
+				] ?? null)
+			: null,
 	);
 	const hydrateDiffStat = useGitDiffStatStore((s) => s.hydrate);
 	const [branches, setBranches] = useState<ReadonlyArray<GitBranchInfo>>([]);
 	const [branchesLoading, setBranchesLoading] = useState(false);
 	const [branchError, setBranchError] = useState<string | null>(null);
 	useEffect(() => {
-		if (folderId !== null) void hydrateDiffStat(folderId, worktreeId);
+		if (folderId !== null)
+			void hydrateDiffStat(getActiveEnvironment(), folderId, worktreeId);
 	}, [folderId, hydrateDiffStat, worktreeId]);
 	const pr = usePrStateStore((s) =>
-		folderId ? (s.byKey[prStateKey(folderId, worktreeId)] ?? null) : null,
+		folderId
+			? (s.byKey[prStateKey(getActiveEnvironment(), folderId, worktreeId)] ??
+				null)
+			: null,
 	);
 	const prDetails = usePrDetailsStore((s) =>
 		folderId ? (s.byKey[prDetailsKey(folderId, worktreeId)] ?? null) : null,
@@ -194,8 +202,10 @@ export function EnvironmentSummary() {
 				}),
 			);
 			void useGitStatusStore.getState().refresh(folderId, worktreeId);
-			void usePrStateStore.getState().refresh(folderId, worktreeId);
-			void hydrateDiffStat(folderId, worktreeId);
+			void usePrStateStore
+				.getState()
+				.refresh(getActiveEnvironment(), folderId, worktreeId);
+			void hydrateDiffStat(getActiveEnvironment(), folderId, worktreeId);
 			await refreshBranches();
 		} catch (error) {
 			setBranchError(formatError(error));

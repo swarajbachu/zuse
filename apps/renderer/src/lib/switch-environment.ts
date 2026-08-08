@@ -1,7 +1,10 @@
 import type { ChatId, FolderId } from "@zuse/contracts";
 
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
-import { activateEnvironmentState } from "../store/environment-state-coordinator.ts";
+import {
+	type ActivateEnvironmentSeed,
+	activateEnvironmentState,
+} from "../store/environment-state-coordinator.ts";
 
 export type SwitchEnvironmentResult = {
 	readonly switched: boolean;
@@ -19,14 +22,14 @@ let switchInFlight = false;
 /**
  * Shared entry point for switching the active environment. Resolves the
  * catalog entry, refuses anything that is not connected, and hands off to
- * `activateEnvironmentState` — optionally carrying the current composer text
- * into the landing draft of the folder that ends up selected.
+ * `activateEnvironmentState` — optionally seeding a chat that was just
+ * created on the target environment so it can be selected immediately.
  */
 export const switchToEnvironment = async (input: {
 	readonly environmentId: string;
 	readonly folderId?: FolderId;
 	readonly chatId?: ChatId;
-	readonly carryComposerDraft?: { readonly doc: string };
+	readonly seed?: ActivateEnvironmentSeed;
 }): Promise<SwitchEnvironmentResult> => {
 	if (switchInFlight) return { switched: false, selectedFolderId: null };
 	const state = useEnvironmentCatalogStore.getState();
@@ -43,7 +46,7 @@ export const switchToEnvironment = async (input: {
 			entry,
 			folderId: input.folderId,
 			chatId: input.chatId,
-			carryComposerDraft: input.carryComposerDraft,
+			seed: input.seed,
 			activateConnection: state.activate,
 			resolveEntry: (environmentId) =>
 				useEnvironmentCatalogStore

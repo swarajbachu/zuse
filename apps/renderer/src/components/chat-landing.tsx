@@ -56,10 +56,13 @@ import { resolveChatWorkspacePolicy } from "~/lib/auto-worktree";
 import { saveContextFile } from "~/lib/context-handoff";
 import {
 	buildLogicalProjectGroups,
+	defaultNewChatTarget,
 	type LogicalProjectGroup,
+	type LogicalProjectMember,
+	type NewChatTarget,
 	preferredGroupMember,
 } from "~/lib/project-groups";
-import { getRpcClient } from "~/lib/rpc-client";
+import { getLocalEnvironmentId, getRpcClient } from "~/lib/rpc-client";
 import { switchToEnvironment } from "~/lib/switch-environment";
 import { cn } from "~/lib/utils";
 import { useAttachmentsStore } from "~/store/attachments";
@@ -67,7 +70,7 @@ import { useChatsStore } from "~/store/chats";
 import { useComposerBridge } from "~/store/composer-bridge";
 import {
 	composerDraftKeyForLanding,
-	useComposerDraftsStore,
+	composerDraftKeyForRemoteLanding,
 } from "~/store/composer-drafts";
 import { useEnvironmentCatalogStore } from "~/store/environment-catalog";
 import { useExternalThreadsStore } from "~/store/external-threads";
@@ -265,6 +268,7 @@ export function ChatLanding() {
 			buildLogicalProjectGroups({
 				entries: catalogEntries,
 				activeEnvironmentId,
+				localEnvironmentId: getLocalEnvironmentId(),
 				activeFolders: folders,
 				activeOrigins: origins,
 				activeChatsByProject: EMPTY_CHATS_BY_PROJECT,
@@ -284,19 +288,54 @@ export function ChatLanding() {
 		[projectGroups, selectedFolderId],
 	);
 
+	// A project that exists ONLY on other computers, chosen from the project
+	// picker. Anchoring shows its composer WITHOUT switching the app there —
+	// the machine is decided per chat, at submit.
+	const [remoteAnchor, setRemoteAnchor] = useState<{
+		readonly groupKey: string;
+		readonly member: LogicalProjectMember;
+	} | null>(null);
+	// Explicit "Run on" pick for the pending draft. Null = the group default
+	// (this desktop's member when present, else the first connected one).
+	const [targetOverride, setTargetOverride] = useState<NewChatTarget | null>(
+		null,
+	);
+	const anchoredGroup = useMemo(
+		() =>
+			remoteAnchor === null
+				? null
+				: (projectGroups.find((group) => group.key === remoteAnchor.groupKey) ??
+					null),
+		[projectGroups, remoteAnchor],
+	);
+	const pickerGroup = anchoredGroup ?? selectedGroup;
+	const resolvedTarget: NewChatTarget | null =
+		targetOverride ??
+		(remoteAnchor !== null
+			? {
+					environmentId: remoteAnchor.member.environmentId,
+					folderId: remoteAnchor.member.folderId,
+				}
+			: pickerGroup !== null
+				? defaultNewChatTarget(pickerGroup)
+				: null);
+
 	// Spin up (or re-spin, on project switch) the draft session that backs the
 	// composer. Re-runs only when the project changes — model/provider/runtime
 	// edits the user makes inside the composer mutate the draft in place, so we
 	// must not clobber them on unrelated default-settings changes.
 	useLayoutEffect(() => {
-		// A create-from source is scoped to the project it was picked in.
+		// A create-from source is scoped to the project it was picked in, and a
+		// "Run on" override to the draft it was picked for.
 		setCreateSource(null);
-		if (selectedFolderId === null) {
+		setTargetOverride(null);
+		const draftFolderId = remoteAnchor?.member.folderId ?? selectedFolderId;
+		if (draftFolderId === null) {
 			clearDraft();
 			return;
 		}
 		beginDraft({
-			projectId: selectedFolderId,
+			projectId: draftFolderId,
 			providerId: defaultProviderId,
 			model:
 				defaultModelByProvider[defaultProviderId] ??
@@ -305,35 +344,32 @@ export function ChatLanding() {
 		});
 		return () => clearDraft();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [selectedFolderId]);
+	}, [selectedFolderId, remoteAnchor]);
 
 	useEffect(() => {
 		void hydrateExternalThreads();
 	}, [hydrateExternalThreads]);
 
-	const headline = selectedFolder
-		? `What should we build in ${selectedFolder.name}?`
-		: "What should we build today?";
+	const headline =
+		anchoredGroup !== null
+			? `What should we build in ${anchoredGroup.displayName}?`
+			: selectedFolder
+				? `What should we build in ${selectedFolder.name}?`
+				: "What should we build today?";
 
 	// Picking a group resolves to its preferred member: the active environment
-	// first, else the first connected computer. A remote member switches the
-	// whole app there — carrying whatever the user already typed.
+	// first, else the first connected computer. A remote-only group ANCHORS the
+	// composer to that project — it never switches the app; the machine is
+	// decided per chat, at submit.
 	const onPickGroup = (group: LogicalProjectGroup) => {
 		const member = preferredGroupMember(group);
 		if (member === null) return;
 		if (member.isActive) {
+			setRemoteAnchor(null);
 			void selectFolder(member.folderId);
 			return;
 		}
-		const doc =
-			useComposerDraftsStore.getState().draftsByKey[
-				composerDraftKeyForLanding(selectedFolderId)
-			]?.doc ?? "";
-		void switchToEnvironment({
-			environmentId: member.environmentId,
-			folderId: member.folderId,
-			...(doc.length > 0 ? { carryComposerDraft: { doc } } : {}),
-		});
+		setRemoteAnchor({ groupKey: group.key, member });
 	};
 	const onAdd = () => {
 		void addFolder();
@@ -471,9 +507,76 @@ export function ChatLanding() {
 			readonly pendingContextFiles: ReadonlyArray<PendingDraftContextFile>;
 		},
 	): Promise<void> => {
-		if (selectedFolderId === null || submitting) return;
+		if (submitting) return;
 		const draft = useSessionsStore.getState().draftSession;
 		if (draft === null) return;
+		const target = resolvedTarget;
+		const remoteTarget =
+			target !== null &&
+			(target.environmentId !== activeEnvironmentId ||
+				target.folderId !== selectedFolderId)
+				? target
+				: null;
+		if (remoteTarget !== null) {
+			// Create the chat ON the target computer first, then open it. The
+			// draft is consumed here, so nothing needs carrying across the
+			// activation — and with desktop-anchored badges the sidebar does not
+			// reorganize; the only visible effect is the chat opening.
+			if (
+				opts.pendingAttachments.length > 0 ||
+				opts.pendingContextFiles.length > 0 ||
+				createSource !== null ||
+				opts.asGoal
+			) {
+				setSubmitError(
+					"Attachments, context files, goals, and Create-from aren't supported yet when starting a chat on another computer.",
+				);
+				return;
+			}
+			setSubmitError(null);
+			setSubmitting(true);
+			setPendingPrompt(
+				input.text.trim().length > 0 ? input.text.trim() : "New chat",
+			);
+			const remoteResult = await create(
+				remoteTarget.folderId,
+				draft.providerId,
+				draft.model,
+				{
+					environmentId: remoteTarget.environmentId,
+					runtimeMode: draft.runtimeMode,
+					permissionMode: draft.permissionMode,
+					startupInput: ComposerInput.make({ ...input, asGoal: false }),
+				},
+			);
+			if (remoteResult === null) {
+				setSubmitError(
+					useChatsStore.getState().error ??
+						`Couldn't start ${draft.providerId} on the selected computer.`,
+				);
+				setPendingPrompt(null);
+				setSubmitting(false);
+				return;
+			}
+			const switched = await switchToEnvironment({
+				environmentId: remoteTarget.environmentId,
+				folderId: remoteTarget.folderId,
+				chatId: remoteResult.chatId,
+				seed: remoteResult.remoteSeed,
+			});
+			useSessionsStore.getState().clearDraft();
+			setRemoteAnchor(null);
+			setTargetOverride(null);
+			if (!switched.switched) {
+				setSubmitError(
+					"The chat was created, but the computer disconnected before it could open. It will appear in the sidebar when the computer reconnects.",
+				);
+				setPendingPrompt(null);
+			}
+			setSubmitting(false);
+			return;
+		}
+		if (selectedFolderId === null) return;
 		const startupInput = ComposerInput.make({ ...input, asGoal: opts.asGoal });
 		setSubmitError(null);
 		setSubmitting(true);
@@ -806,11 +909,23 @@ export function ChatLanding() {
 				{draftSession !== null ? (
 					<Suspense fallback={<div className="h-28" aria-busy="true" />}>
 						<ChatComposer
-							// Environment id included so the editor remounts
-							// deterministically when a "Run on" pick switches computers.
-							key={`${activeEnvironmentId}:${selectedFolderId ?? "none"}`}
+							// Keyed by the draft's anchor — NOT by the "Run on" target,
+							// so picking a computer never remounts the editor and the
+							// typed text stays exactly where it is.
+							key={
+								remoteAnchor !== null
+									? `remote:${remoteAnchor.member.environmentId}:${remoteAnchor.member.folderId}`
+									: `${activeEnvironmentId}:${selectedFolderId ?? "none"}`
+							}
 							session={draftSession}
-							composerDraftKey={composerDraftKeyForLanding(selectedFolderId)}
+							composerDraftKey={
+								remoteAnchor !== null
+									? composerDraftKeyForRemoteLanding(
+											remoteAnchor.member.environmentId,
+											remoteAnchor.member.folderId,
+										)
+									: composerDraftKeyForLanding(selectedFolderId)
+							}
 							onDraftSubmit={(input, opts) =>
 								void handleDraftSubmit(input, opts)
 							}
@@ -820,17 +935,19 @@ export function ChatLanding() {
 										<ProjectPicker
 											groups={projectGroups}
 											selectedFolderId={selectedFolderId}
-											selectedName={selectedFolder?.name ?? null}
+											selectedName={
+												anchoredGroup?.displayName ??
+												selectedFolder?.name ??
+												null
+											}
 											onPickGroup={onPickGroup}
 											onAdd={onAdd}
 										/>
 										{desktopCatalogEnabled ? (
 											<ComputerPicker
-												group={selectedGroup}
-												activeEnvironmentId={activeEnvironmentId}
-												currentDraftKey={composerDraftKeyForLanding(
-													selectedFolderId,
-												)}
+												group={pickerGroup}
+												target={resolvedTarget}
+												onPickTarget={setTargetOverride}
 											/>
 										) : null}
 									</div>
@@ -902,10 +1019,14 @@ export function ChatLanding() {
 										{creatingSource && (
 											<Spinner className="size-3.5 text-muted-foreground" />
 										)}
-										<CreateFromMenu
-											folderId={selectedFolderId}
-											onSelect={(sel) => void handleCreateFromSelect(sel)}
-										/>
+										{/* Create-from browses the ACTIVE environment's PRs and
+										    branches — hidden for a remote-anchored draft. */}
+										{remoteAnchor === null ? (
+											<CreateFromMenu
+												folderId={selectedFolderId}
+												onSelect={(sel) => void handleCreateFromSelect(sel)}
+											/>
+										) : null}
 									</div>
 								</div>
 							}

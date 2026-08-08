@@ -14,6 +14,7 @@ import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Plus, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useRef, useSyncExternalStore } from "react";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
+import { getActiveEnvironment } from "../lib/rpc-client.ts";
 import {
 	effectiveSessionRuntimeState,
 	isSessionTurnActive,
@@ -157,7 +158,9 @@ export function RightPane({
 	);
 	const pr = usePrStateStore((s) =>
 		selectedFolderId
-			? (s.byKey[prStateKey(selectedFolderId, worktreeId)] ?? null)
+			? (s.byKey[
+					prStateKey(getActiveEnvironment(), selectedFolderId, worktreeId)
+				] ?? null)
 			: null,
 	);
 	const details = usePrDetailsStore((s) =>

@@ -24,6 +24,8 @@ export type LogicalProjectMember = {
 	readonly folderId: FolderId;
 	readonly folderName: string;
 	readonly isActive: boolean;
+	/** True when this member lives on this physical desktop. */
+	readonly local: boolean;
 	readonly connected: boolean;
 };
 
@@ -31,11 +33,17 @@ export type LogicalChatRef = {
 	readonly chat: Chat;
 	readonly environmentId: string;
 	readonly environmentLabel: string;
-	/** True when the chat lives on a non-active environment. */
+	/**
+	 * True when the chat lives on a different physical machine than this
+	 * desktop. Anchored to the immutable local environment id — it never
+	 * changes when the active environment does.
+	 */
 	readonly remote: boolean;
+	/** True when the ref came from the ACTIVE environment's live stores. */
+	readonly live: boolean;
 	/**
 	 * True when any session of this chat is booting/running. Only computed for
-	 * remote refs — active-environment rows derive activity from live stores.
+	 * catalog refs — active-environment rows derive activity from live stores.
 	 */
 	readonly busy: boolean;
 };
@@ -48,6 +56,12 @@ export type LogicalProjectGroup = {
 	/** Merged across members, newest `updatedAt` first. Archived chats excluded. */
 	readonly chats: ReadonlyArray<LogicalChatRef>;
 	readonly environmentPresence: "local-only" | "remote-only" | "mixed";
+};
+
+/** Where a NEW chat should run: a member of the selected logical project. */
+export type NewChatTarget = {
+	readonly environmentId: string;
+	readonly folderId: FolderId;
 };
 
 const originKeyOf = (origin: GitOriginInfo | null): string | null =>
@@ -85,6 +99,12 @@ type MemberSource = {
 export const buildLogicalProjectGroups = (input: {
 	readonly entries: ReadonlyArray<EnvironmentCatalogEntry>;
 	readonly activeEnvironmentId: string;
+	/**
+	 * The immutable id of this physical desktop's environment. "Remote"
+	 * badges compare against THIS, never the active environment, so the
+	 * sidebar reads identically no matter which computer is active.
+	 */
+	readonly localEnvironmentId: string;
 	/** Live workspace-store folders for the ACTIVE environment (catalog may lag). */
 	readonly activeFolders: ReadonlyArray<Folder>;
 	readonly activeOrigins: Readonly<Record<string, GitOriginInfo | null>>;
@@ -94,6 +114,7 @@ export const buildLogicalProjectGroups = (input: {
 	const groupsByOrigin = new Map<string, MutableGroup[]>();
 
 	const addMember = (source: MemberSource): void => {
+		const local = source.environmentId === input.localEnvironmentId;
 		const member: LogicalProjectMember = {
 			environmentId: source.environmentId,
 			environmentLabel: source.environmentLabel,
@@ -102,6 +123,7 @@ export const buildLogicalProjectGroups = (input: {
 			folderId: source.folder.id,
 			folderName: source.folder.name,
 			isActive: source.isActive,
+			local,
 			connected: source.status === "connected",
 		};
 		const chatRefs: LogicalChatRef[] = source.chats
@@ -110,7 +132,8 @@ export const buildLogicalProjectGroups = (input: {
 				chat,
 				environmentId: source.environmentId,
 				environmentLabel: source.environmentLabel,
-				remote: !source.isActive,
+				remote: !local,
+				live: source.isActive,
 				busy: source.isActive ? false : isChatBusy(chat, source.sessions),
 			}));
 		const originKey = originKeyOf(source.origin);
@@ -206,7 +229,7 @@ export const buildLogicalProjectGroups = (input: {
 			members.find((member) => member.connected)?.folderName ??
 			members[0]?.folderName ??
 			"";
-		const activeCount = members.filter((member) => member.isActive).length;
+		const localCount = members.filter((member) => member.local).length;
 		return {
 			key: group.key,
 			displayName,
@@ -217,9 +240,9 @@ export const buildLogicalProjectGroups = (input: {
 					right.chat.updatedAt.getTime() - left.chat.updatedAt.getTime(),
 			),
 			environmentPresence:
-				activeCount === members.length
+				localCount === members.length
 					? "local-only"
-					: activeCount === 0
+					: localCount === 0
 						? "remote-only"
 						: "mixed",
 		};
@@ -253,12 +276,28 @@ export const preferredGroupMember = (
 	group.members.find((member) => member.connected) ??
 	null;
 
+/**
+ * Where a new chat runs unless the user picks otherwise: this desktop's
+ * member of the group when present, else the first connected member.
+ */
+export const defaultNewChatTarget = (
+	group: LogicalProjectGroup,
+): NewChatTarget | null => {
+	const member =
+		group.members.find((candidate) => candidate.local) ??
+		group.members.find((candidate) => candidate.connected) ??
+		null;
+	return member === null
+		? null
+		: { environmentId: member.environmentId, folderId: member.folderId };
+};
+
 export type ComputerPickerItem = {
 	readonly environmentId: string;
 	readonly folderId: FolderId;
 	readonly label: string;
 	readonly status: CatalogConnectionStatus;
-	readonly isActive: boolean;
+	readonly selected: boolean;
 	readonly disabled: boolean;
 };
 
@@ -271,20 +310,21 @@ export type ComputerPickerModel =
 	  };
 
 /**
- * "Run on" options for a logical project group. Hidden when there is nothing
- * to choose (single member on the active environment); a non-interactive
- * static label when the only member is remote; otherwise a menu with the
- * active computer first and non-connected members disabled.
+ * "Run on" options for a logical project group. Selection reflects the
+ * draft's target only — picking never touches global state. Hidden when
+ * there is nothing to choose (single member on this desktop); a
+ * non-interactive static label when the only member is remote; otherwise a
+ * menu with this desktop first and non-connected members disabled.
  */
 export const computerPickerItems = (
 	group: LogicalProjectGroup,
-	activeEnvironmentId: string,
+	target: NewChatTarget | null,
 ): ComputerPickerModel => {
+	const resolved = target ?? defaultNewChatTarget(group);
 	const items = [...group.members]
 		.sort(
 			(left, right) =>
-				Number(right.environmentId === activeEnvironmentId) -
-					Number(left.environmentId === activeEnvironmentId) ||
+				Number(right.local) - Number(left.local) ||
 				Number(right.connected) - Number(left.connected),
 		)
 		.map(
@@ -296,13 +336,18 @@ export const computerPickerItems = (
 						? "This computer"
 						: member.environmentLabel,
 				status: member.status,
-				isActive: member.environmentId === activeEnvironmentId,
+				selected:
+					resolved !== null &&
+					member.environmentId === resolved.environmentId &&
+					member.folderId === resolved.folderId,
 				disabled: !member.connected,
 			}),
 		);
 	const only = items.length === 1 ? items[0] : undefined;
 	if (only !== undefined) {
-		return only.isActive ? { kind: "hidden" } : { kind: "static", item: only };
+		return group.members[0]?.local
+			? { kind: "hidden" }
+			: { kind: "static", item: only };
 	}
 	return { kind: "menu", items };
 };

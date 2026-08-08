@@ -49,6 +49,7 @@ export const LOCAL_ENVIRONMENT_KEY = "local";
 
 const environmentConnections = new Map<string, RendererConnectionOptions>();
 let activeEnvironmentId = LOCAL_ENVIRONMENT_KEY;
+let localEnvironmentId = LOCAL_ENVIRONMENT_KEY;
 
 const rendererConnectionKey = (): string => {
 	if (typeof location === "undefined") return "environment:local";
@@ -221,6 +222,7 @@ export const registerRelayEnvironment = (
 export const registerLocalEnvironment = (environmentId: string): void => {
 	const bridge = globalThis.window?.zuse ?? globalThis.window?.memoize;
 	if (bridge === undefined) return;
+	localEnvironmentId = environmentId;
 	environmentConnections.set(environmentId, {
 		key: `environment:${environmentId}`,
 		kind: "electron",
@@ -237,6 +239,13 @@ export const setActiveEnvironment = (environmentId: string): void => {
 };
 
 export const getActiveEnvironment = (): string => activeEnvironmentId;
+
+/**
+ * The environment id of this physical desktop, registered once at catalog
+ * initialize. Unlike the active environment it never changes afterwards —
+ * it is the app's immutable frame of reference for "local vs remote".
+ */
+export const getLocalEnvironmentId = (): string => localEnvironmentId;
 
 export const removeRendererEnvironment = async (
 	environmentId: string,
@@ -291,6 +300,7 @@ export const dispatchRetryableRpcCommand = <A>(
 export const disposeRpcClient = async (): Promise<void> => {
 	rendererEntries.clear();
 	environmentConnections.clear();
+	localEnvironmentId = LOCAL_ENVIRONMENT_KEY;
 	setActiveEnvironmentStorageScope(LOCAL_RENDERER_STORAGE_SCOPE);
 	await supervisor.dispose();
 };

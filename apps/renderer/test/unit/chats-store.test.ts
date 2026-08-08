@@ -33,7 +33,8 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 		await importOriginal<typeof import("../../src/lib/rpc-client.ts")>();
 	return {
 		...original,
-		getRpcClient: async () => rpcClientFactory(),
+		getRpcClient: async (environmentId?: unknown) =>
+			rpcClientFactory(environmentId),
 		reportRendererRpcStreamFailure,
 		subscribeRendererRpcConnection,
 	};
@@ -211,6 +212,58 @@ describe("chats store selection", () => {
 		expect(
 			useSessionsStore.getState().selectedSessionByProject[projectId],
 		).toBe(sessionId);
+	});
+
+	it("creates on a remote environment without touching local stores", async () => {
+		let environmentIdSeen: unknown;
+		let payload: Record<string, unknown> | undefined;
+		rpcClientFactory.mockImplementation((environmentId: unknown) => {
+			environmentIdSeen = environmentId;
+			return {
+				"chat.create": (input: Record<string, unknown>) =>
+					Effect.promise(async () => {
+						payload = input;
+						return { chat, initialSession: session, initialMessage: null };
+					}),
+			};
+		});
+		const startupInput = new ComposerInput({
+			text: "run this over there",
+			attachments: [],
+			fileRefs: [],
+			skillRefs: [],
+		});
+
+		const result = await useChatsStore
+			.getState()
+			.create(projectId, session.providerId, session.model, {
+				environmentId: "env-remote",
+				startupInput,
+			});
+
+		expect(environmentIdSeen).toBe("env-remote");
+		expect(result?.chatId).toBe(chatId);
+		expect(result?.remoteSeed).toEqual({
+			chat,
+			initialSession: session,
+			initialMessage: null,
+		});
+		// The prompt travels as server-side `initialPrompt`; the local startup
+		// queue and workspace policy machinery must not be engaged.
+		expect(payload?.initialPrompt).toBe("run this over there");
+		expect(payload?.startupInput).toBeUndefined();
+		expect(payload?.startupQueueId).toBeUndefined();
+		expect(payload?.workspacePolicy).toBeUndefined();
+		expect(payload?.worktreeId).toBeUndefined();
+		// No local-store writes: the target environment's stores are seeded
+		// during the follow-up switch instead.
+		expect(useChatsStore.getState().chatsByProject[projectId]).toEqual([chat]);
+		expect(useChatsStore.getState().selectedChatId).toBeNull();
+		expect(useChatsStore.getState().pendingCreationByChat).toEqual({});
+		expect(useSessionsStore.getState().sessionsByProject[projectId]).toEqual([
+			session,
+		]);
+		expect(useSessionsStore.getState().selectedSessionId).toBeNull();
 	});
 
 	it("inserts the booting shell and startup queue before creation acknowledges", async () => {

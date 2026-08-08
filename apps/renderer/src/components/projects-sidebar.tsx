@@ -64,6 +64,7 @@ import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import { dispatchCommand } from "../lib/commands.ts";
 import { noteSessionRuntimeCompletion } from "../lib/completion-sounds.ts";
+import { branchStateFor, diffStatsFor } from "../lib/pr-branch-state.ts";
 import {
 	buildLogicalProjectGroups,
 	type LogicalChatRef,
@@ -71,6 +72,7 @@ import {
 	preferredGroupMember,
 } from "../lib/project-groups.ts";
 import {
+	getLocalEnvironmentId,
 	getRpcClient,
 	reportRendererRpcStreamFailure,
 	subscribeRendererRpcConnection,
@@ -469,6 +471,7 @@ export function ProjectsSidebar() {
 				? buildLogicalProjectGroups({
 						entries: catalogEntries,
 						activeEnvironmentId,
+						localEnvironmentId: getLocalEnvironmentId(),
 						activeFolders: folders,
 						activeOrigins: origins,
 						activeChatsByProject: chatsByProject,
@@ -797,8 +800,11 @@ const remoteChatRows = (
 			.filter((member) => member.connected)
 			.map((member) => member.environmentId),
 	);
+	// Data-source split: everything NOT from the active environment's live
+	// stores renders as a catalog row. The remote BADGE is `ref.remote`,
+	// which is anchored to this physical desktop instead.
 	return group.chats
-		.filter((ref) => ref.remote)
+		.filter((ref) => !ref.live)
 		.map((ref) => ({
 			ref,
 			connected: connectedEnvironments.has(ref.environmentId),
@@ -959,9 +965,11 @@ function LogicalCatalogGroup({
 }
 
 /**
- * A chat that lives on another computer, mirroring `ChatRow`'s anatomy. The
- * muted computer icon appears ONLY here — active-environment rows never carry
- * one. Clicking switches the whole app to that chat's environment.
+ * A chat rendered from the environment catalog (any computer that is not the
+ * ACTIVE environment), mirroring `ChatRow`'s anatomy — including the branch
+ * icon and `+N −N` diff stats, fetched from the chat's own computer. The
+ * muted computer icon marks rows on a different physical machine than this
+ * desktop. Clicking switches the whole app to that chat's environment.
  */
 function CatalogChatRow({
 	chatRef,
@@ -970,7 +978,34 @@ function CatalogChatRow({
 	chatRef: LogicalChatRef;
 	connected: boolean;
 }) {
-	const { chat, environmentId, environmentLabel, busy } = chatRef;
+	const { chat, environmentId, environmentLabel, remote, busy } = chatRef;
+	const isArchived = chat.archivedAt !== null;
+	const prInfo = usePrStateStore(
+		(s) =>
+			s.byKey[prStateKey(environmentId, chat.projectId, chat.worktreeId)] ??
+			null,
+	);
+	const hydratePrState = usePrStateStore((s) => s.hydrate);
+	const diffStat = useGitDiffStatStore(
+		(s) =>
+			s.byKey[gitDiffStatKey(environmentId, chat.projectId, chat.worktreeId)] ??
+			null,
+	);
+	const hydrateDiffStat = useGitDiffStatStore((s) => s.hydrate);
+	useEffect(() => {
+		// Only reachable computers get asked — never hammer an offline env.
+		if (!connected) return;
+		void hydratePrState(environmentId, chat.projectId, chat.worktreeId);
+		void hydrateDiffStat(environmentId, chat.projectId, chat.worktreeId);
+	}, [
+		connected,
+		environmentId,
+		chat.projectId,
+		chat.worktreeId,
+		hydratePrState,
+		hydrateDiffStat,
+	]);
+	const stats = diffStatsFor(diffStat, prInfo);
 	return (
 		<li>
 			<button
@@ -1002,30 +1037,46 @@ function CatalogChatRow({
 							<span className="sr-only">Agent running</span>
 						</>
 					) : (
-						<span aria-hidden="true" />
+						<BranchIcon
+							state={branchStateFor(prInfo, isArchived)}
+							selected={false}
+						/>
 					)}
 				</span>
 				<span className="min-w-0 flex-1 truncate">
 					{chat.title || "New chat"}
 				</span>
 				<div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<span className="mr-1 inline-flex text-muted-foreground/70">
-									<HugeiconsIcon
-										icon={ComputerIcon}
-										aria-hidden
-										className="size-3"
-									/>
-									<span className="sr-only">On {environmentLabel}</span>
-								</span>
-							}
-						/>
-						<TooltipPopup>On {environmentLabel}</TooltipPopup>
-					</Tooltip>
+					{remote ? (
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<span className="mr-1 inline-flex text-muted-foreground/70">
+										<HugeiconsIcon
+											icon={ComputerIcon}
+											aria-hidden
+											className="size-3"
+										/>
+										<span className="sr-only">On {environmentLabel}</span>
+									</span>
+								}
+							/>
+							<TooltipPopup>On {environmentLabel}</TooltipPopup>
+						</Tooltip>
+					) : null}
 					<span className="tabular-nums text-[10px] text-muted-foreground">
-						{formatRelative(chat.updatedAt)}
+						{stats !== null ? (
+							<>
+								<span className="text-success">
+									+{formatCompactNumber(stats.additions)}
+								</span>{" "}
+								<span className="text-destructive">
+									−{formatCompactNumber(stats.deletions)}
+								</span>
+							</>
+						) : (
+							formatRelative(chat.updatedAt)
+						)}
 					</span>
 				</div>
 			</button>
@@ -1444,27 +1495,58 @@ function ChatRow({ chat }: { chat: Chat }) {
 		(s) => s.pendingCreationByChat[chat.id] !== undefined,
 	);
 
-	// PR state is keyed by (project, worktree). A chat owns its worktree,
-	// so all its sessions share the same PR row — hydrate once per chat.
+	// Live rows always belong to the ACTIVE environment; the row is "remote"
+	// when that environment is not this physical desktop.
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(s) => s.activeEnvironmentId,
+	);
+	const environmentLabel = useEnvironmentCatalogStore(
+		(s) =>
+			s.entries.find((entry) => entry.environmentId === s.activeEnvironmentId)
+				?.label ?? "another computer",
+	);
+	const onRemoteEnvironment = activeEnvironmentId !== getLocalEnvironmentId();
+
+	// PR state is keyed by (environment, project, worktree). A chat owns its
+	// worktree, so all its sessions share the same PR row — hydrate once per
+	// chat.
 	const prInfo = usePrStateStore(
-		(s) => s.byKey[prStateKey(chat.projectId, chat.worktreeId)] ?? null,
+		(s) =>
+			s.byKey[
+				prStateKey(activeEnvironmentId, chat.projectId, chat.worktreeId)
+			] ?? null,
 	);
 	const hydratePrState = usePrStateStore((s) => s.hydrate);
 	useEffect(() => {
 		if (creationPending) return;
-		void hydratePrState(chat.projectId, chat.worktreeId);
-	}, [creationPending, hydratePrState, chat.projectId, chat.worktreeId]);
+		void hydratePrState(activeEnvironmentId, chat.projectId, chat.worktreeId);
+	}, [
+		creationPending,
+		hydratePrState,
+		activeEnvironmentId,
+		chat.projectId,
+		chat.worktreeId,
+	]);
 
 	// Per-branch diff stats (additions/deletions vs base), shown even when no
 	// PR exists yet — so a working branch surfaces its size in the sidebar.
 	const diffStat = useGitDiffStatStore(
-		(s) => s.byKey[gitDiffStatKey(chat.projectId, chat.worktreeId)] ?? null,
+		(s) =>
+			s.byKey[
+				gitDiffStatKey(activeEnvironmentId, chat.projectId, chat.worktreeId)
+			] ?? null,
 	);
 	const hydrateDiffStat = useGitDiffStatStore((s) => s.hydrate);
 	useEffect(() => {
 		if (creationPending) return;
-		void hydrateDiffStat(chat.projectId, chat.worktreeId);
-	}, [creationPending, hydrateDiffStat, chat.projectId, chat.worktreeId]);
+		void hydrateDiffStat(activeEnvironmentId, chat.projectId, chat.worktreeId);
+	}, [
+		creationPending,
+		hydrateDiffStat,
+		activeEnvironmentId,
+		chat.projectId,
+		chat.worktreeId,
+	]);
 
 	// Ids of this chat's non-archived sessions — so the sidebar busy
 	// indicator reflects ANY tab being active, not just the currently
@@ -1529,29 +1611,8 @@ function ChatRow({ chat }: { chat: Chat }) {
 		(isChatUnread(chat, selectedChatId) ||
 			permissionAttention === "permission");
 
-	const branchState: BranchState = isArchived
-		? "archived"
-		: prInfo === null || prInfo.state === "none"
-			? "default"
-			: prInfo.state === "merged"
-				? "pr-merged"
-				: prInfo.state === "closed"
-					? "pr-closed"
-					: // open PR — reflect CI / conflict status
-						prInfo.checks === "failure" || prInfo.mergeable === "conflicting"
-						? "pr-failing"
-						: prInfo.checks === "pending"
-							? "pr-pending"
-							: "pr-open";
-
-	// Prefer the live branch diff (works without a PR); fall back to the PR's
-	// own counts so merged/closed branches still show their size.
-	const stats =
-		diffStat !== null && (diffStat.additions > 0 || diffStat.deletions > 0)
-			? diffStat
-			: prInfo !== null && (prInfo.additions > 0 || prInfo.deletions > 0)
-				? { additions: prInfo.additions, deletions: prInfo.deletions }
-				: null;
+	const branchState: BranchState = branchStateFor(prInfo, isArchived);
+	const stats = diffStatsFor(diffStat, prInfo);
 	const showDiff = stats !== null;
 
 	const [renameOpen, setRenameOpen] = useState(false);
@@ -1653,6 +1714,23 @@ function ChatRow({ chat }: { chat: Chat }) {
 						className="min-w-0 flex-1 truncate"
 					/>
 					<div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
+						{onRemoteEnvironment ? (
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<span className="mr-1 inline-flex text-muted-foreground/70 group-hover:hidden">
+											<HugeiconsIcon
+												icon={ComputerIcon}
+												aria-hidden
+												className="size-3"
+											/>
+											<span className="sr-only">On {environmentLabel}</span>
+										</span>
+									}
+								/>
+								<TooltipPopup>On {environmentLabel}</TooltipPopup>
+							</Tooltip>
+						) : null}
 						<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
 							{showDiff && stats !== null ? (
 								<>

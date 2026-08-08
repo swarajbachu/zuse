@@ -25,7 +25,7 @@ import {
 	Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import { getActiveEnvironment, getRpcClient } from "../lib/rpc-client.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { gitChangesKey, useGitChangesStore } from "../store/git-changes.ts";
 import { gitReviewKey, useGitReviewStore } from "../store/git-review.ts";
@@ -170,7 +170,7 @@ export function DiffPane({
 		await Promise.all([
 			refreshChanges(folderId, worktreeId),
 			refreshStatus(folderId, worktreeId),
-			refreshPrState(folderId, worktreeId),
+			refreshPrState(getActiveEnvironment(), folderId, worktreeId),
 			refreshPrDetails(folderId, worktreeId),
 			refreshReview(folderId, worktreeId),
 		]);

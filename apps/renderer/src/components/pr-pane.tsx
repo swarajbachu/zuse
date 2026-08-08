@@ -23,6 +23,7 @@ import {
 	attachFileWhenReady,
 	saveContextFile,
 } from "../lib/context-handoff.ts";
+import { getActiveEnvironment } from "../lib/rpc-client.ts";
 import { softTone, type Tone } from "../lib/tones.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import {
@@ -192,7 +193,10 @@ export function PrPane({
 			: false,
 	);
 	const pr = usePrStateStore((s) =>
-		folderId ? (s.byKey[prStateKey(folderId, worktreeId)] ?? null) : null,
+		folderId
+			? (s.byKey[prStateKey(getActiveEnvironment(), folderId, worktreeId)] ??
+				null)
+			: null,
 	);
 	const details = usePrDetailsStore((s) =>
 		folderId ? (s.byKey[prDetailsKey(folderId, worktreeId)] ?? null) : null,

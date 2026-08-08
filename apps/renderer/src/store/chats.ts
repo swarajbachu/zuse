@@ -9,6 +9,7 @@ import {
 	type ChatWorkspacePolicy,
 	ComposerInput,
 	type FolderId,
+	type Message,
 	type PermissionMode,
 	type ProviderId,
 	type RuntimeMode,
@@ -25,6 +26,7 @@ import {
 	trackRendererRpc,
 } from "../lib/performance-marks.ts";
 import {
+	getActiveEnvironment,
 	getRpcClient,
 	reportRendererRpcStreamFailure,
 	subscribeRendererRpcConnection,
@@ -141,6 +143,14 @@ type ChatsState = {
 		model: string,
 		opts?: {
 			readonly title?: string;
+			/**
+			 * Create the chat on another computer. When set to a non-active
+			 * environment the RPC is addressed to that environment's own client,
+			 * every local-store write is skipped (the target's stores are seeded
+			 * during the follow-up switch), and only the prompt TEXT of
+			 * `startupInput` is delivered via the server-side `initialPrompt`.
+			 */
+			readonly environmentId?: string;
 			readonly runtimeMode?: RuntimeMode;
 			readonly worktreeId?: WorktreeId | null | Promise<WorktreeId | null>;
 			readonly workspacePolicy?:
@@ -163,6 +173,12 @@ type ChatsState = {
 		readonly initialSessionId: SessionId;
 		readonly worktreeId: WorktreeId | null;
 		readonly startupQueueId: string | null;
+		/** Present only for remote-targeted creates: entities to seed during the switch. */
+		readonly remoteSeed?: {
+			readonly chat: Chat;
+			readonly initialSession: Session;
+			readonly initialMessage: Message | null;
+		};
 	} | null>;
 	readonly rename: (chatId: ChatId, title: string) => Promise<void>;
 	readonly setWorktree: (
@@ -811,6 +827,60 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		}
 	},
 	create: async (projectId, providerId, model, opts) => {
+		const targetEnvironmentId = opts?.environmentId;
+		if (
+			targetEnvironmentId !== undefined &&
+			targetEnvironmentId !== getActiveEnvironment()
+		) {
+			// Remote-targeted create: talk to the target computer directly and
+			// touch NOTHING local — this desktop's stores describe the active
+			// environment, and anything written here would be snapshotted away
+			// by the follow-up switch anyway. The returned `remoteSeed` is
+			// handed to `switchToEnvironment` so the chat is selectable the
+			// moment the target environment activates.
+			const remoteChatId =
+				opts?.chatId ?? ChatId.make(`chat_${crypto.randomUUID()}`);
+			const remoteSessionId =
+				opts?.initialSessionId ?? SessionId.make(`s_${crypto.randomUUID()}`);
+			const remoteOperationId =
+				opts?.operationId ?? `create_${crypto.randomUUID()}`;
+			const initialPrompt = opts?.startupInput?.text.trim();
+			try {
+				const client = await getRpcClient(targetEnvironmentId);
+				const result = await trackRendererRpc("chat.create", () =>
+					Effect.runPromise(
+						client["chat.create"]({
+							operationId: remoteOperationId,
+							chatId: remoteChatId,
+							initialSessionId: remoteSessionId,
+							projectId,
+							providerId,
+							model,
+							title: opts?.title,
+							initialPrompt:
+								initialPrompt === undefined || initialPrompt === ""
+									? undefined
+									: initialPrompt,
+							runtimeMode: opts?.runtimeMode,
+							permissionMode: opts?.permissionMode,
+							toolSearch: opts?.toolSearch,
+							background: true,
+						}),
+					),
+				);
+				const { chat, initialSession, initialMessage } = result;
+				return {
+					chatId: chat.id,
+					initialSessionId: initialSession.id,
+					worktreeId: chat.worktreeId,
+					startupQueueId: null,
+					remoteSeed: { chat, initialSession, initialMessage },
+				};
+			} catch (err) {
+				set({ error: formatError(err) });
+				return null;
+			}
+		}
 		const chatId = opts?.chatId ?? ChatId.make(`chat_${crypto.randomUUID()}`);
 		const initialSessionId =
 			opts?.initialSessionId ?? SessionId.make(`s_${crypto.randomUUID()}`);

@@ -16,10 +16,9 @@ import {
 	type ComputerPickerItem,
 	computerPickerItems,
 	type LogicalProjectGroup,
+	type NewChatTarget,
 } from "~/lib/project-groups.ts";
-import { switchToEnvironment } from "~/lib/switch-environment.ts";
 import { cn } from "~/lib/utils";
-import { useComposerDraftsStore } from "~/store/composer-drafts";
 import { openAddComputerDialog } from "../add-computer-dialog.tsx";
 
 const statusText = (item: ComputerPickerItem): string =>
@@ -33,23 +32,25 @@ const statusText = (item: ComputerPickerItem): string =>
 
 /**
  * "Run on" control for the Chat Lander: picks which computer a new chat runs
- * on within the selected logical project. Picking another computer carries
- * the typed draft across the switch; everything else in the UI stays put.
+ * on within the selected logical project. A pure controlled selector —
+ * picking re-targets the pending draft ONLY. It never switches the active
+ * environment, so the sidebar, the typed text, and the rest of the app stay
+ * exactly where they are.
  *
- * Hidden when there is nothing to choose (the only member is on the active
- * environment); a static label when the only member is remote.
+ * Hidden when there is nothing to choose (the only member is on this
+ * desktop); a static label when the only member is remote.
  */
 export function ComputerPicker({
 	group,
-	activeEnvironmentId,
-	currentDraftKey,
+	target,
+	onPickTarget,
 }: {
 	group: LogicalProjectGroup | null;
-	activeEnvironmentId: string;
-	currentDraftKey: string;
+	target: NewChatTarget | null;
+	onPickTarget: (target: NewChatTarget) => void;
 }) {
 	if (group === null) return null;
-	const model = computerPickerItems(group, activeEnvironmentId);
+	const model = computerPickerItems(group, target);
 	if (model.kind === "hidden") return null;
 
 	if (model.kind === "static") {
@@ -62,17 +63,12 @@ export function ComputerPicker({
 	}
 
 	const current =
-		model.items.find((item) => item.isActive) ?? model.items[0] ?? null;
+		model.items.find((item) => item.selected) ?? model.items[0] ?? null;
 	const pick = (item: ComputerPickerItem): void => {
-		if (item.disabled || item.isActive) return;
-		// Carry whatever the user already typed into the destination folder's
-		// landing draft so switching computers never loses the prompt.
-		const doc =
-			useComposerDraftsStore.getState().draftsByKey[currentDraftKey]?.doc ?? "";
-		void switchToEnvironment({
+		if (item.disabled || item.selected) return;
+		onPickTarget({
 			environmentId: item.environmentId,
 			folderId: item.folderId,
-			...(doc.length > 0 ? { carryComposerDraft: { doc } } : {}),
 		});
 	};
 
@@ -94,13 +90,13 @@ export function ComputerPicker({
 						onClick={() => pick(item)}
 						className={cn(
 							"grid grid-cols-[1rem_auto_1fr_auto] items-center gap-x-2 rounded-md px-2 py-1.5 text-sm",
-							item.isActive
+							item.selected
 								? "bg-accent/40 text-accent-foreground data-highlighted:bg-accent/60"
 								: undefined,
 						)}
 					>
 						<span className="col-start-1 row-start-1 flex items-center justify-center">
-							{item.isActive && (
+							{item.selected && (
 								<HugeiconsIcon
 									icon={Tick01Icon}
 									className="size-3.5 opacity-90"
@@ -114,7 +110,7 @@ export function ComputerPicker({
 						<span className="col-start-3 row-start-1 truncate">
 							{item.label}
 						</span>
-						{!item.isActive && item.status !== "connected" ? (
+						{!item.selected && item.status !== "connected" ? (
 							<span className="col-start-4 row-start-1 text-[10px] text-muted-foreground">
 								{statusText(item)}
 							</span>

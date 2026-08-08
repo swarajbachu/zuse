@@ -26,6 +26,15 @@ const TAG_MESSAGES: Record<string, string> = {
 	GitNotInstalledError: "Git is not installed.",
 	FsFolderNotFoundError: "Project folder not found.",
 	WorktreeNotFoundError: "Worktree not found.",
+	// Transport failures ("SocketOpenError: An error occurred during Open")
+	// mean the computer on the other end is unreachable — say that instead.
+	SocketOpenError: "Couldn't reach the computer. It may be asleep or offline.",
+	SocketCloseError: "The connection to the computer was interrupted.",
+	SocketReadError: "The connection to the computer was interrupted.",
+	SocketWriteError: "The connection to the computer was interrupted.",
+	SocketError: "Couldn't reach the computer. It may be asleep or offline.",
+	ClientConnectionError:
+		"Couldn't reach the computer. It may be asleep or offline.",
 };
 
 const parseJsonRecord = (
@@ -57,6 +66,15 @@ export const formatError = (err: unknown): string => {
 };
 
 const formatErrorInner = (err: unknown): string => {
+	// Plain strings (e.g. a connection supervisor's stored error text) still
+	// deserve the tag mapping: "SocketOpenError: An error occurred during
+	// Open" should read as human copy everywhere.
+	if (typeof err === "string") {
+		const stringTag = tagFromErrorName(err);
+		return stringTag !== null && TAG_MESSAGES[stringTag] !== undefined
+			? TAG_MESSAGES[stringTag]
+			: err;
+	}
 	if (!isRecord(err)) return String(err);
 
 	const message = typeof err["message"] === "string" ? err["message"] : null;
@@ -126,6 +144,14 @@ const formatErrorInner = (err: unknown): string => {
 	}
 	if (tag !== null && TAG_MESSAGES[tag] !== undefined) {
 		return TAG_MESSAGES[tag];
+	}
+	// A wrapper error (connection layer, fiber failure) often carries the
+	// tagged error only as text — "SocketOpenError: An error occurred during
+	// Open". Map it when the embedded tag is a known one; never use the
+	// embedded tag for generic prefixing.
+	const messageTag = tagFromErrorName(message);
+	if (messageTag !== null && TAG_MESSAGES[messageTag] !== undefined) {
+		return TAG_MESSAGES[messageTag];
 	}
 	if (message !== null && message.length > 0) {
 		return tag !== null ? `${tag}: ${message}` : message;

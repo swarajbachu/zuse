@@ -59,13 +59,16 @@ const entry = (
 
 const build = (input: {
 	entries?: ReadonlyArray<EnvironmentCatalogEntry>;
+	activeEnvironmentId?: string;
+	localEnvironmentId?: string;
 	activeFolders?: ReadonlyArray<Folder>;
 	activeOrigins?: Readonly<Record<string, GitOriginInfo | null>>;
 	activeChatsByProject?: Readonly<Record<string, ReadonlyArray<Chat>>>;
 }): ReadonlyArray<LogicalProjectGroup> =>
 	buildLogicalProjectGroups({
 		entries: input.entries ?? [],
-		activeEnvironmentId: "env-local",
+		activeEnvironmentId: input.activeEnvironmentId ?? "env-local",
+		localEnvironmentId: input.localEnvironmentId ?? "env-local",
 		activeFolders: input.activeFolders ?? [],
 		activeOrigins: input.activeOrigins ?? {},
 		activeChatsByProject: input.activeChatsByProject ?? {},
@@ -170,6 +173,40 @@ describe("buildLogicalProjectGroups", () => {
 		expect(refs.map((ref) => ref.remote)).toEqual([true, false, true]);
 	});
 
+	it("anchors remote badges to the physical desktop, not the active environment", () => {
+		const localEntry = entry({
+			environmentId: "env-local",
+			label: "MacBook",
+			connectionKind: "local",
+			folders: [folder("lf-1", "zuse")],
+			originsByFolder: { "lf-1": origin("forkzero", "zuse") },
+			chatsByProject: {
+				"lf-1": [chat("local-mid", "lf-1", "2026-08-05T00:00:00Z")],
+			},
+		});
+		// The REMOTE environment is active — the app is looking at Studio's chat.
+		const groups = build({
+			entries: [localEntry, remoteEntry],
+			activeEnvironmentId: "env-remote",
+			localEnvironmentId: "env-local",
+			activeFolders: [folder("rf-1", "zuse-checkout")],
+			activeOrigins: { "rf-1": origin("forkzero", "zuse") },
+			activeChatsByProject: {
+				"rf-1": [chat("remote-new", "rf-1", "2026-08-07T00:00:00Z")],
+			},
+		});
+		const refs = groups[0]?.chats ?? [];
+		const byId = new Map(refs.map((ref) => [String(ref.chat.id), ref]));
+		// The active environment's live rows still read as remote…
+		expect(byId.get("remote-new")?.remote).toBe(true);
+		expect(byId.get("remote-new")?.live).toBe(true);
+		// …and this desktop's rows (fed from the catalog) never do.
+		expect(byId.get("local-mid")?.remote).toBe(false);
+		expect(byId.get("local-mid")?.live).toBe(false);
+		// Presence is desktop-anchored too — identical to when local is active.
+		expect(groups[0]?.environmentPresence).toBe("mixed");
+	});
+
 	it("marks a remote chat busy only while a session is booting or running", () => {
 		const groups = build({ entries: [remoteEntry] });
 		const byId = new Map(
@@ -235,8 +272,8 @@ describe("computerPickerItems", () => {
 		return group;
 	};
 
-	it("orders the active computer first and disables non-connected members", () => {
-		const model = computerPickerItems(mixedGroup(), "env-local");
+	it("orders this desktop first and disables non-connected members", () => {
+		const model = computerPickerItems(mixedGroup(), null);
 		expect(model.kind).toBe("menu");
 		if (model.kind !== "menu") return;
 		expect(model.items.map((item) => item.environmentId)).toEqual([
@@ -251,25 +288,55 @@ describe("computerPickerItems", () => {
 		]);
 	});
 
-	it("hides the picker when the only member is on the active environment", () => {
+	it("defaults selection to this desktop's member and honors an explicit target", () => {
+		const group = mixedGroup();
+		const defaulted = computerPickerItems(group, null);
+		if (defaulted.kind !== "menu") throw new Error("expected a menu");
+		expect(defaulted.items.find((item) => item.selected)?.environmentId).toBe(
+			"env-local",
+		);
+		const targeted = computerPickerItems(group, {
+			environmentId: "env-remote",
+			folderId: "rf-1" as FolderId,
+		});
+		if (targeted.kind !== "menu") throw new Error("expected a menu");
+		expect(targeted.items.find((item) => item.selected)?.environmentId).toBe(
+			"env-remote",
+		);
+	});
+
+	it("hides the picker when the only member is on this desktop", () => {
 		const groups = build({
 			activeFolders: [folder("lf-1", "solo")],
 			activeOrigins: { "lf-1": null },
 		});
 		const group = groups[0];
 		if (group === undefined) throw new Error("expected a group");
-		expect(computerPickerItems(group, "env-local").kind).toBe("hidden");
+		expect(computerPickerItems(group, null).kind).toBe("hidden");
 	});
 
 	it("renders a static label when the only member is remote", () => {
 		const groups = build({ entries: [remoteEntry] });
 		const group = groups[0];
 		if (group === undefined) throw new Error("expected a group");
-		const model = computerPickerItems(group, "env-local");
+		const model = computerPickerItems(group, null);
 		expect(model.kind).toBe("static");
 		if (model.kind !== "static") return;
 		expect(model.item.label).toBe("Studio");
 		expect(model.item.disabled).toBe(false);
+	});
+
+	it("shows a static label for a single active member that is not this desktop", () => {
+		// The remote env is active and owns the only checkout of this repo.
+		const groups = build({
+			activeEnvironmentId: "env-remote",
+			localEnvironmentId: "env-local",
+			activeFolders: [folder("rf-1", "zuse-checkout")],
+			activeOrigins: { "rf-1": origin("forkzero", "zuse") },
+		});
+		const group = groups[0];
+		if (group === undefined) throw new Error("expected a group");
+		expect(computerPickerItems(group, null).kind).toBe("static");
 	});
 
 	it("resolves the preferred member as active first, then first connected", () => {

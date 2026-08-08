@@ -1,11 +1,30 @@
 import { scopedCacheKey } from "@zuse/client-runtime/environment-scope";
-import type { Folder, FolderId } from "@zuse/contracts";
-import { describe, expect, it } from "vitest";
+import type { Chat, Folder, FolderId, Message, Session } from "@zuse/contracts";
+import { describe, expect, it, vi } from "vitest";
+
+// The coordinator now kicks off chat hydration (which wires the change
+// stream) once the target connection reports connected; neither can reach a
+// real connection here, so report "connected" immediately and fail the RPC.
+vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
+	const original =
+		await importOriginal<typeof import("../../src/lib/rpc-client.ts")>();
+	return {
+		...original,
+		getRpcClient: async () => {
+			throw new Error("no rpc in tests");
+		},
+		subscribeRendererRpcConnection: (
+			listener: (snapshot: { status: string }) => void,
+		) => {
+			listener({ status: "connected" });
+			return () => {};
+		},
+		retryRendererRpcConnection: () => {},
+	};
+});
+
 import { terminalRuntimeKey } from "../../src/lib/terminal-registry.ts";
-import {
-	composerDraftKeyForLanding,
-	useComposerDraftsStore,
-} from "../../src/store/composer-drafts.ts";
+import { useChatsStore } from "../../src/store/chats.ts";
 import {
 	type EnvironmentCatalogEntry,
 	orderEnvironmentCatalog,
@@ -15,6 +34,8 @@ import {
 	activateEnvironmentState,
 	createEnvironmentStateRegistry,
 } from "../../src/store/environment-state-coordinator.ts";
+import { useMessagesStore } from "../../src/store/messages.ts";
+import { useSessionsStore } from "../../src/store/sessions.ts";
 
 const entry = (
 	label: string,
@@ -89,26 +110,47 @@ describe("environment catalog", () => {
 		);
 	});
 
-	it("carries the composer draft into the restored folder's landing key", async () => {
+	it("seeds a freshly created chat during activation and restarts chat hydration", async () => {
 		const folderId = "folder-remote" as FolderId;
 		const folder = { id: folderId, name: "Remote folder" } as unknown as Folder;
 		const catalogEntry: EnvironmentCatalogEntry = {
 			...entry("Remote", "remote", "connected"),
 			folders: [folder],
 		};
+		const chat = {
+			id: "chat-seeded",
+			projectId: folderId,
+			title: "Seeded",
+			archivedAt: null,
+		} as unknown as Chat;
+		const initialSession = {
+			id: "session-seeded",
+			projectId: folderId,
+			chatId: "chat-seeded",
+		} as unknown as Session;
+		const initialMessage = { id: "message-seeded" } as unknown as Message;
 		const selectedFolderId = await activateEnvironmentState({
 			fromEnvironmentId: "env-local",
 			entry: catalogEntry,
-			carryComposerDraft: { doc: "carry me across" },
+			seed: { chat, initialSession, initialMessage },
 			activateConnection: async () => undefined,
 			resolveEntry: () => catalogEntry,
 		});
 		expect(selectedFolderId).toBe(folderId);
+		expect(useChatsStore.getState().chatsByProject[folderId]?.[0]?.id).toBe(
+			"chat-seeded",
+		);
 		expect(
-			useComposerDraftsStore.getState().draftsByKey[
-				composerDraftKeyForLanding(folderId)
-			],
-		).toEqual({ doc: "carry me across", chips: [] });
+			useSessionsStore.getState().sessionsByProject[folderId]?.[0]?.id,
+		).toBe("session-seeded");
+		expect(
+			useMessagesStore.getState().messagesBySession["session-seeded"]?.[0]?.id,
+		).toBe("message-seeded");
+		// Stream-restart regression: the coordinator pre-populates
+		// `chatsByProject`, which defeats the sidebar's lazy-hydrate guard, so
+		// activation itself must kick off `hydrate` (the only path that
+		// re-establishes `chat.streamChanges`) for every restored folder.
+		expect(useChatsStore.getState().loadingByProject[folderId]).toBe(true);
 	});
 
 	it("restores isolated state when server IDs collide", () => {

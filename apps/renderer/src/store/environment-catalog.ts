@@ -14,6 +14,7 @@ import {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 
+import { formatError } from "../lib/format-error.ts";
 import {
 	getRpcClient,
 	LOCAL_ENVIRONMENT_KEY,
@@ -122,8 +123,9 @@ const writeHiddenRelayEnvironmentIds = (ids: ReadonlyArray<string>): void => {
 	}
 };
 
-const errorMessage = (cause: unknown): string =>
-	cause instanceof Error ? cause.message : String(cause);
+// Everything stored in `entry.error` is user-facing (project picker, sidebar
+// notice, settings rows) — always humanize through the shared formatter.
+const errorMessage = (cause: unknown): string => formatError(cause);
 
 const profileEntry = (
 	profile: RemoteEnvironmentProfile,
@@ -488,7 +490,10 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 							) {
 								patchEntry(catalogKey, {
 									status: "error",
-									error: snapshot.error,
+									error:
+										snapshot.error === null
+											? null
+											: formatError(snapshot.error),
 								});
 							}
 						}, environment.environmentId),

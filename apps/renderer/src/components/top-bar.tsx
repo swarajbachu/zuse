@@ -48,7 +48,7 @@ import {
 import type { OpenTarget } from "../lib/bridge.ts";
 import { isMacHost } from "../lib/host-platform.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import { getActiveEnvironment, getRpcClient } from "../lib/rpc-client.ts";
 import { openTerminalCommand } from "../lib/run-terminal.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
@@ -208,7 +208,7 @@ export function TopBarMain() {
 		if (folderId === null) return;
 		const tick = () => {
 			void refresh(folderId, worktreeId);
-			void refreshPr(folderId, worktreeId);
+			void refreshPr(getActiveEnvironment(), folderId, worktreeId);
 		};
 		tick();
 		const id = window.setInterval(tick, 5000);
@@ -785,7 +785,9 @@ const refreshAfterAction = (
 	worktreeId: WorktreeId | null,
 ): void => {
 	void useGitStatusStore.getState().refresh(folderId, worktreeId);
-	void usePrStateStore.getState().refresh(folderId, worktreeId);
+	void usePrStateStore
+		.getState()
+		.refresh(getActiveEnvironment(), folderId, worktreeId);
 };
 
 /**
@@ -895,7 +897,10 @@ export function TopBarRightContent({
 		folderId ? (s.byKey[gitStatusKey(folderId, worktreeId)] ?? null) : null,
 	);
 	const pr = usePrStateStore((s) =>
-		folderId ? (s.byKey[prStateKey(folderId, worktreeId)] ?? null) : null,
+		folderId
+			? (s.byKey[prStateKey(getActiveEnvironment(), folderId, worktreeId)] ??
+				null)
+			: null,
 	);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 
@@ -1039,7 +1044,10 @@ export function WorkflowActions({
 		folderId ? (s.byKey[gitStatusKey(folderId, worktreeId)] ?? null) : null,
 	);
 	const pr = usePrStateStore((s) =>
-		folderId ? (s.byKey[prStateKey(folderId, worktreeId)] ?? null) : null,
+		folderId
+			? (s.byKey[prStateKey(getActiveEnvironment(), folderId, worktreeId)] ??
+				null)
+			: null,
 	);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
