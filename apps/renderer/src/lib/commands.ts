@@ -1,7 +1,6 @@
 import type { ChatId, Command, Session } from "@zuse/contracts";
 import { defaultModelFor } from "@zuse/contracts";
 
-import { createNewSession } from "../components/projects-sidebar";
 import { useChatsStore } from "../store/chats";
 import { useComposerBridge } from "../store/composer-bridge";
 import { usePaneFocus } from "../store/pane-focus";
@@ -11,6 +10,7 @@ import { useSettingsStore } from "../store/settings";
 import { useUiStore } from "../store/ui";
 import { useWorkspaceStore } from "../store/workspace";
 import { captureAnalytics } from "./analytics";
+import { openNewChatLanding } from "./open-new-chat-landing.ts";
 import { activeChatId, orderedChatTabs } from "./tab-order";
 
 /* ────────────────────────── Navigation helpers ──────────────────────────
@@ -134,7 +134,7 @@ const HANDLERS: Record<Command, () => void> = {
 	"new-chat": () => {
 		const projectId = useWorkspaceStore.getState().selectedFolderId;
 		if (projectId === null) return;
-		void createNewSession(projectId);
+		openNewChatLanding(projectId);
 	},
 	"open-project": () => {
 		void useWorkspaceStore.getState().add();

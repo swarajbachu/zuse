@@ -64,6 +64,7 @@ import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import { dispatchCommand } from "../lib/commands.ts";
 import { noteSessionRuntimeCompletion } from "../lib/completion-sounds.ts";
+import { openNewChatLanding } from "../lib/open-new-chat-landing.ts";
 import { branchStateFor, diffStatsFor } from "../lib/pr-branch-state.ts";
 import {
 	buildLogicalProjectGroups,
@@ -1403,35 +1404,10 @@ function ProjectContextMenu({
 	);
 }
 
-/**
- * Start a brand-new chat in the given project. Creation is deferred to the
- * first message: clicking "New chat" must NOT branch a worktree or spin up a
- * session — it just clears the active selection so `MainShell` falls through
- * to `<ChatLanding/>` ("What should we build in <project>?"). The landing's
- * `submit()` is the sole creation path (worktree → chat → queue). Reads from
- * stores directly so callers (the sidebar button + the Cmd+N menu shortcut)
- * don't need prop drilling.
- */
-export function createNewSession(projectId: FolderId): void {
-	// The landing lives on the chat tab. Return there before clearing the
-	// selection so creating a chat from Usage or Archives is immediately
-	// visible instead of leaving that takeover surface mounted.
-	useUiStore.getState().setActiveMainTab("chat");
-	// Select the project first (synchronous: `workspace.select` sets
-	// `selectedFolderId` before awaiting persistence), then clear the chat +
-	// session selection for it. `chats.select(null)` cascades into
-	// `sessions.select(null)`, so both the tab strip and the chat surface fall
-	// back to the empty landing for this project.
-	if (useWorkspaceStore.getState().selectedFolderId !== projectId) {
-		void useWorkspaceStore.getState().select(projectId);
-	}
-	useChatsStore.getState().select(null);
-}
-
 function NewChatButton({ projectId }: { projectId: FolderId }) {
 	const onClick = (e: React.MouseEvent) => {
 		e.stopPropagation();
-		createNewSession(projectId);
+		openNewChatLanding(projectId);
 	};
 
 	return (

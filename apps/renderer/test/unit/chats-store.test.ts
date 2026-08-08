@@ -40,7 +40,7 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 	};
 });
 
-import { createNewSession } from "../../src/components/projects-sidebar.tsx";
+import { openNewChatLanding } from "../../src/lib/open-new-chat-landing.ts";
 import { useArchivePreviewStore } from "../../src/store/archive-preview.ts";
 import {
 	archiveChatWithConfirm,
@@ -184,7 +184,7 @@ describe("chats store selection", () => {
 	] as const)("opens the new-chat landing from %s", (activeMainTab) => {
 		useUiStore.setState({ activeMainTab });
 
-		createNewSession(projectId);
+		openNewChatLanding(projectId);
 
 		expect(useUiStore.getState().activeMainTab).toBe("chat");
 		expect(useChatsStore.getState().selectedChatId).toBeNull();
