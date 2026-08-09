@@ -358,13 +358,13 @@ export const MachineHostServiceLive: Layer.Layer<
 						recursive: true,
 						mode: 0o770,
 					});
-					const queued: MachineRuntimeStatus = {
+					const queued = new MachineRuntimeStatus({
 						...status,
 						state: "updating",
 						phase: "queued",
 						progressPercent: 2,
 						updatedAt: Date.now(),
-					};
+					});
 					const statusTemporary = `${runtimeUpdateStatus}.${process.pid}.tmp`;
 					await writeFile(statusTemporary, `${JSON.stringify(queued)}\n`, {
 						mode: 0o644,

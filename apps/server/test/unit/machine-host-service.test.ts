@@ -2,7 +2,8 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Effect, Layer } from "effect";
+import { MachineRuntimeStatus } from "@zuse/contracts";
+import { Effect, Layer, Schema } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { AppPaths } from "../../src/app-paths.ts";
@@ -114,6 +115,7 @@ describe("machine runtime updates", () => {
 			targetAppVersion: "0.17.1",
 			targetRuntimeVersion: "new-runtime",
 		});
+		expect(() => Schema.encodeSync(MachineRuntimeStatus)(queued)).not.toThrow();
 		expect(
 			JSON.parse(
 				await readFile(
