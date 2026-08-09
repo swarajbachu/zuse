@@ -72,7 +72,16 @@ jobs:
       - name: Install workspace dependencies
         env:
           HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
-        run: bun install --frozen-lockfile
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 6m bun install --frozen-lockfile; then
+              exit 0
+            fi
+            if [[ "$attempt" == "3" ]]; then
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
 
       - name: Generate ephemeral verification signing key
         if: steps.publication.outputs.enabled != 'true'
