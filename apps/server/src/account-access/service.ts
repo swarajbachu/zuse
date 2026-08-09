@@ -42,6 +42,7 @@ import { ensureNodePtySpawnHelperExecutable } from "../pty/node-pty-helper.ts";
 import {
 	extractClaudeSetupToken,
 	getAccountAccessLoginCommand,
+	parseClaudeSetupFailure,
 	parseClaudeSetupVerification,
 	parseDeviceLoginVerification,
 	redactAccountAccessOutput,
@@ -136,6 +137,10 @@ const processEnvironment = (
 
 const interactiveProcesses = new InteractiveProcessRegistry<pty.IPty>();
 const CLAUDE_CODE_EXCHANGE_TIMEOUT_MS = 90_000;
+// Claude renders the long-lived token through a terminal UI. Keep the PTY
+// wider than any supported token so the terminal does not insert soft wraps;
+// the parser still accepts wrapped output for compatibility and safety.
+const CLAUDE_SETUP_TOKEN_PTY_COLUMNS = 4_096;
 
 export const accountAccessEventFromPtyChunk = (
 	chunk: string,
@@ -159,7 +164,7 @@ const streamPtyProcess: AccountAccessProcessShape["stream"] = (
 				ensureNodePtySpawnHelperExecutable();
 				const child = pty.spawn(command, [...args], {
 					name: "xterm-256color",
-					cols: 100,
+					cols: CLAUDE_SETUP_TOKEN_PTY_COLUMNS,
 					rows: 24,
 					cwd: homedir(),
 					env: processEnvironment(environment),
@@ -721,15 +726,12 @@ export const AccountAccessServiceLive = Layer.effect(
 									}
 									const safeTranscript =
 										redactAccountAccessOutput(setupTranscript);
-									if (
-										/Invalid code|Failed to exchange authorization code/iu.test(
-											safeTranscript,
-										)
-									) {
+									const failure = parseClaudeSetupFailure(safeTranscript);
+									if (failure !== null) {
 										return Stream.succeed<AccountAccessTransferEvent>({
 											_tag: "done",
 											ok: false,
-											reason: "login-failed",
+											reason: failure,
 										});
 									}
 									const events: AccountAccessTransferEvent[] = [];
@@ -763,17 +765,12 @@ export const AccountAccessServiceLive = Layer.effect(
 												],
 									);
 								}
-								if (event.code !== 0) {
-									return Stream.succeed<AccountAccessTransferEvent>({
-										_tag: "done",
-										ok: false,
-										reason: "login-failed",
-									});
-								}
 								return Stream.succeed<AccountAccessTransferEvent>({
 									_tag: "done",
 									ok: false,
-									reason: "login-failed",
+									reason:
+										parseClaudeSetupFailure(setupTranscript) ??
+										(event.code === 0 ? "token-not-captured" : "login-failed"),
 								});
 							}),
 							Stream.takeUntil((event) => event._tag === "done"),

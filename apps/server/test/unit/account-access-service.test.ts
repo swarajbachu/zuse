@@ -464,7 +464,7 @@ describe("AccountAccessService", () => {
 									},
 									{
 										_tag: "line",
-										text: "Token: sk-ant-oat01-abcdefghijklmnopqrstuvwxyz123456",
+										text: "Token: sk-ant-oat01-abcdefghijklmnopqrstuvwxyz123456\u001b[39m",
 									},
 								),
 						},

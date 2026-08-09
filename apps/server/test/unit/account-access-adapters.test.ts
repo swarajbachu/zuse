@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	extractClaudeSetupToken,
 	getAccountAccessLoginCommand,
+	parseClaudeSetupFailure,
 	parseClaudeSetupVerification,
 	parseDeviceLoginVerification,
 	redactAccountAccessOutput,
@@ -88,9 +89,35 @@ describe("account-access provider adapters", () => {
 
 	it("captures setup-token output without allowing the credential into logs", () => {
 		const token = "sk-ant-oat01-super-secret-value-that-is-long-enough";
-		expect(extractClaudeSetupToken(`Token: ${token}`)).toBe(token);
-		expect(redactAccountAccessOutput(`Token: ${token}`)).toBe(
+		expect(extractClaudeSetupToken(`Token: ${token}\u001b[39m`)).toBe(token);
+		expect(redactAccountAccessOutput(`Token: ${token}\u001b[39m`)).toBe(
+			"Token: [credential redacted]\u001b[39m",
+		);
+		expect(extractClaudeSetupToken(`Token: ${token.slice(0, 32)}`)).toBeNull();
+		expect(redactAccountAccessOutput(`Token: ${token.slice(0, 32)}`)).toBe(
 			"Token: [credential redacted]",
 		);
+	});
+
+	it("captures and redacts a setup token wrapped by the interactive terminal", () => {
+		const token =
+			"sk-ant-oat01-super-secret-value-that-is-long-enough-to-wrap-in-a-terminal";
+		const wrapped = `Token: \u001b[33m${token.slice(0, 48)}\r\n${token.slice(48)}\u001b[39m`;
+
+		expect(extractClaudeSetupToken(wrapped)).toBe(token);
+		expect(redactAccountAccessOutput(wrapped)).not.toContain("super-secret");
+		expect(redactAccountAccessOutput(wrapped)).not.toContain("terminal");
+	});
+
+	it("classifies safe Claude setup failures without forwarding terminal output", () => {
+		expect(parseClaudeSetupFailure("Invalid code. Copy the full code.")).toBe(
+			"invalid-code",
+		);
+		expect(
+			parseClaudeSetupFailure(
+				"Failed to exchange authorization code for access token.",
+			),
+		).toBe("exchange-failed");
+		expect(parseClaudeSetupFailure("unrecognized terminal output")).toBeNull();
 	});
 });

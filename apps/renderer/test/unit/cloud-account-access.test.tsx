@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	CloudAccountAccess,
+	claudeAuthorizationFailureMessage,
 	hasConnectedClaudeAccess,
 } from "../../src/components/settings/cloud-account-access.tsx";
 import {
@@ -11,6 +12,15 @@ import {
 } from "../../src/components/settings/cloud-machines-pane.tsx";
 
 describe("CloudAccountAccess", () => {
+	it("gives actionable Claude authorization failures", () => {
+		expect(
+			claudeAuthorizationFailureMessage(new Error("invalid-code")),
+		).toContain("including the part after #");
+		expect(
+			claudeAuthorizationFailureMessage(new Error("token-not-captured")),
+		).toContain("could not capture the credential");
+	});
+
 	it("reconciles a lost import response from the remote provider status", () => {
 		expect(
 			hasConnectedClaudeAccess({

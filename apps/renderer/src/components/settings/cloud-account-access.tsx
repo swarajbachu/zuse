@@ -57,6 +57,28 @@ export const hasConnectedClaudeAccess = (
 			provider.providerId === "claude" && provider.state === "connected",
 	);
 
+export const claudeAuthorizationFailureMessage = (cause: unknown): string => {
+	const reason =
+		cause instanceof Error
+			? cause.message
+			: typeof cause === "string"
+				? cause
+				: "";
+	if (reason.includes("invalid-code")) {
+		return "Claude rejected that value. Copy the full authorization code, including the part after #, then start a fresh login.";
+	}
+	if (reason.includes("exchange-failed")) {
+		return "Claude could not exchange that authorization code. Start a fresh login and use the newly generated code.";
+	}
+	if (reason.includes("policy-blocked")) {
+		return "Your Claude organization does not allow long-lived setup tokens. Use an Anthropic API key instead.";
+	}
+	if (reason.includes("token-not-captured")) {
+		return "Claude finished authorization, but Zuse could not capture the credential. Restart Zuse and try once more.";
+	}
+	return "Claude authorization did not finish. Start a fresh login and try again.";
+};
+
 const ACCOUNT_ACCESS_ERROR_CODES: ReadonlyArray<AccountAccessErrorCode> = [
 	"not-allowed",
 	"not-signed-in",
@@ -257,7 +279,7 @@ export function CloudAccountAccess({
 									setClaudeCodeReady(true);
 									setProgress({
 										providerId,
-										message: "Paste the one-time code from Claude.",
+										message: "Paste the full authorization code from Claude.",
 									});
 								} else if (event._tag === "verification") {
 									setProgress({
@@ -350,7 +372,7 @@ export function CloudAccountAccess({
 					providerId === "claude" && claudePhase === "remote-import"
 						? "Claude authorized locally, but access could not be saved on the cloud machine. Reconnect and try again."
 						: providerId === "claude"
-							? "Claude did not finish exchanging the one-time code. Start a fresh login and try again."
+							? claudeAuthorizationFailureMessage(cause)
 							: `${PROVIDER_LABEL[providerId]} access could not be connected.`;
 				setError(`${detail}${code === null ? "" : ` (${code})`}`);
 			}
@@ -370,7 +392,7 @@ export function CloudAccountAccess({
 		}
 		const code = new FormData(form).get("claude-authorization-code");
 		if (typeof code !== "string" || code.trim().length === 0) {
-			setClaudeCodeError("Paste the one-time code from Claude.");
+			setClaudeCodeError("Paste the full authorization code from Claude.");
 			return;
 		}
 		setSubmittingClaudeCode(true);
@@ -391,7 +413,7 @@ export function CloudAccountAccess({
 			form.reset();
 			setProgress({
 				providerId: "claude",
-				message: "Exchanging the one-time code securely…",
+				message: "Exchanging the authorization code securely…",
 			});
 		} catch {
 			setSubmittingClaudeCode(false);
@@ -661,9 +683,9 @@ export function CloudAccountAccess({
 							<DialogTitle>Finish Claude authorization</DialogTitle>
 							<DialogDescription>
 								{submittingClaudeCode
-									? "Exchanging the one-time code. This normally takes only a few seconds."
+									? "Exchanging the authorization code. This normally takes only a few seconds."
 									: claudeCodeReady
-										? "Copy the one-time code shown by Claude and paste it here. It is sent only to the local login process."
+										? "Copy the full authorization code shown by Claude, including the part after #. It is sent only to the local login process."
 										: "Complete sign-in in your browser. The code field will unlock when the local Claude process is ready."}
 							</DialogDescription>
 						</DialogHeader>
@@ -675,7 +697,9 @@ export function CloudAccountAccess({
 								className="block space-y-1"
 								htmlFor="claude-authorization-code"
 							>
-								<span className="text-[11px] font-medium">One-time code</span>
+								<span className="text-[11px] font-medium">
+									Authorization code
+								</span>
 								<Input
 									id="claude-authorization-code"
 									name="claude-authorization-code"

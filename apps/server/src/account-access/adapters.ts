@@ -72,7 +72,86 @@ export const getAccountAccessLoginCommand = (
 
 const DEVICE_CODE_PATTERN = /\b[A-Z0-9]{4,8}(?:-[A-Z0-9]{4,8})+\b/u;
 const URL_PATTERN = /https:\/\/[^\s"'<>]+/giu;
-const CLAUDE_SETUP_TOKEN_PATTERN = /\bsk-ant-oat01-[A-Za-z0-9_-]{20,}\b/gu;
+const CLAUDE_SETUP_TOKEN_PREFIX = "sk-ant-oat01-";
+const CLAUDE_SETUP_TOKEN_MINIMUM_SECRET_LENGTH = 20;
+const CLAUDE_SETUP_TOKEN_CHARACTER = /^[A-Za-z0-9_-]$/u;
+const CLAUDE_SETUP_TOKEN_FOLLOWING_COPY = "Store this token securely";
+const ESCAPE_CHARACTER = String.fromCharCode(27);
+
+interface ClaudeSetupTokenMatch {
+	readonly token: string;
+	readonly start: number;
+	readonly end: number;
+}
+
+const ansiSequenceAt = (raw: string, cursor: number): string | null => {
+	if (raw[cursor] !== ESCAPE_CHARACTER) return null;
+	const match = /^\[[0-?]*[ -/]*[@-~]/u.exec(raw.slice(cursor + 1));
+	return match === null ? null : `${ESCAPE_CHARACTER}${match[0]}`;
+};
+
+/**
+ * Claude renders setup tokens through Ink, so a token may contain terminal
+ * line wraps and SGR sequences in the PTY stream. A match is complete only
+ * once the color reset or Claude's following safety copy arrives. Treating a
+ * chunk boundary as the end would seal a truncated credential.
+ */
+const findClaudeSetupToken = (
+	raw: string,
+	fromIndex = 0,
+): ClaudeSetupTokenMatch | null => {
+	let start = raw.indexOf(CLAUDE_SETUP_TOKEN_PREFIX, fromIndex);
+	while (start >= 0) {
+		let cursor = start + CLAUDE_SETUP_TOKEN_PREFIX.length;
+		let secret = "";
+		while (cursor < raw.length) {
+			const character = raw[cursor];
+			if (
+				character !== undefined &&
+				CLAUDE_SETUP_TOKEN_CHARACTER.test(character)
+			) {
+				secret += character;
+				cursor += 1;
+				continue;
+			}
+			if (character === "\r" || character === "\n") {
+				const lineEnd = cursor;
+				while (raw[cursor] === "\r" || raw[cursor] === "\n") cursor += 1;
+				if (raw.startsWith(CLAUDE_SETUP_TOKEN_FOLLOWING_COPY, cursor)) {
+					return secret.length >= CLAUDE_SETUP_TOKEN_MINIMUM_SECRET_LENGTH
+						? {
+								token: `${CLAUDE_SETUP_TOKEN_PREFIX}${secret}`,
+								start,
+								end: lineEnd,
+							}
+						: null;
+				}
+				continue;
+			}
+			if (character === ESCAPE_CHARACTER) {
+				const sequence = ansiSequenceAt(raw, cursor);
+				if (sequence === null) break;
+				if (
+					sequence.endsWith("m") &&
+					/(?:^|;)(?:0|39)(?:;|m)/u.test(sequence.slice(2))
+				) {
+					return secret.length >= CLAUDE_SETUP_TOKEN_MINIMUM_SECRET_LENGTH
+						? {
+								token: `${CLAUDE_SETUP_TOKEN_PREFIX}${secret}`,
+								start,
+								end: cursor,
+							}
+						: null;
+				}
+				cursor += sequence.length;
+				continue;
+			}
+			break;
+		}
+		start = raw.indexOf(CLAUDE_SETUP_TOKEN_PREFIX, start + 1);
+	}
+	return null;
+};
 
 const oscLoginUrls = (raw: string): ReadonlyArray<string> => {
 	const escapeCharacter = String.fromCharCode(27);
@@ -159,11 +238,51 @@ export const parseClaudeSetupVerification = (
 };
 
 export const extractClaudeSetupToken = (raw: string): string | null => {
-	CLAUDE_SETUP_TOKEN_PATTERN.lastIndex = 0;
-	return CLAUDE_SETUP_TOKEN_PATTERN.exec(raw)?.[0] ?? null;
+	return findClaudeSetupToken(raw)?.token ?? null;
+};
+
+export const parseClaudeSetupFailure = (
+	raw: string,
+): "invalid-code" | "exchange-failed" | "policy-blocked" | null => {
+	const safe = stripAnsi(raw);
+	if (/Invalid code/iu.test(safe)) return "invalid-code";
+	if (
+		/Token exchange failed|Failed to exchange authorization code/iu.test(safe)
+	) {
+		return "exchange-failed";
+	}
+	if (/policy does not permit/iu.test(safe)) return "policy-blocked";
+	return null;
 };
 
 export const redactAccountAccessOutput = (raw: string): string => {
-	CLAUDE_SETUP_TOKEN_PATTERN.lastIndex = 0;
-	return raw.replace(CLAUDE_SETUP_TOKEN_PATTERN, "[credential redacted]");
+	let result = raw;
+	let cursor = 0;
+	while (true) {
+		const start = result.indexOf(CLAUDE_SETUP_TOKEN_PREFIX, cursor);
+		if (start < 0) return result;
+		const complete = findClaudeSetupToken(result, start);
+		if (complete?.start === start) {
+			result = `${result.slice(0, start)}[credential redacted]${result.slice(complete.end)}`;
+			cursor = start + "[credential redacted]".length;
+			continue;
+		}
+		// Even an incomplete PTY chunk is secret-bearing. Redact the partial
+		// suffix rather than allowing it into diagnostics while awaiting more data.
+		let end = start + CLAUDE_SETUP_TOKEN_PREFIX.length;
+		while (end < result.length) {
+			const character = result[end];
+			if (
+				character === undefined ||
+				(!CLAUDE_SETUP_TOKEN_CHARACTER.test(character) &&
+					character !== "\r" &&
+					character !== "\n")
+			) {
+				break;
+			}
+			end += 1;
+		}
+		result = `${result.slice(0, start)}[credential redacted]${result.slice(end)}`;
+		cursor = start + "[credential redacted]".length;
+	}
 };
