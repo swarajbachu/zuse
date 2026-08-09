@@ -209,7 +209,7 @@ function useAnimatedPanelVisibility(
 		});
 		const timeout = window.setTimeout(() => {
 			element?.classList.remove("fz-sidebar-panel-motion");
-		}, 200);
+		}, 240);
 		return () => {
 			window.cancelAnimationFrame(frame);
 			window.clearTimeout(timeout);
@@ -575,6 +575,16 @@ function MainShell() {
 					panelRef={leftPanelRef}
 					elementRef={leftPanelElementRef}
 					onResize={(size) => {
+						// Programmatic open/close emits the same resize events as a drag.
+						// The store already owns that state, so reflecting an intermediate
+						// animated size would immediately undo a close.
+						if (
+							leftPanelElementRef.current?.classList.contains(
+								"fz-sidebar-panel-motion",
+							)
+						) {
+							return;
+						}
 						const open = size.asPercentage > 0;
 						if (open !== leftSidebarOpen) setLeftSidebarOpen(open);
 					}}
@@ -775,6 +785,13 @@ function MainShell() {
 						// flip the sidebar open before the collapse effect runs.
 						if (prev === undefined) return;
 						if (selectedChatId === null) return;
+						if (
+							rightPanelElementRef.current?.classList.contains(
+								"fz-sidebar-panel-motion",
+							)
+						) {
+							return;
+						}
 						const open = size.asPercentage > 0;
 						if (open !== rightSidebarOpen) {
 							setRightSidebarOpenForChat(selectedChatId, open);
