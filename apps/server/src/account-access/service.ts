@@ -710,6 +710,30 @@ export const AccountAccessServiceLive = Layer.effect(
 										-32_768,
 									);
 									token ??= extractClaudeSetupToken(setupTranscript);
+									if (token !== null) {
+										const sealed = sealCredentialTransfer(request.prepared, {
+											providerId: "claude",
+											kind: "oauth-token",
+											secret: token,
+										});
+										return Stream.fromIterable<AccountAccessTransferEvent>([
+											{ _tag: "sealed", sealed },
+											{ _tag: "done", ok: true },
+										]);
+									}
+									const safeTranscript =
+										redactAccountAccessOutput(setupTranscript);
+									if (
+										/Invalid code|Failed to exchange authorization code/iu.test(
+											safeTranscript,
+										)
+									) {
+										return Stream.succeed<AccountAccessTransferEvent>({
+											_tag: "done",
+											ok: false,
+											reason: "login-failed",
+										});
+									}
 									const verification =
 										parseClaudeSetupVerification(setupTranscript);
 									if (!verificationEmitted && verification.url !== undefined) {
@@ -727,23 +751,20 @@ export const AccountAccessServiceLive = Layer.effect(
 										message: "Waiting for Claude authorization…",
 									});
 								}
-								if (event.code !== 0 || token === null) {
+								if (event.code !== 0) {
 									return Stream.succeed<AccountAccessTransferEvent>({
 										_tag: "done",
 										ok: false,
 										reason: "login-failed",
 									});
 								}
-								const sealed = sealCredentialTransfer(request.prepared, {
-									providerId: "claude",
-									kind: "oauth-token",
-									secret: token,
+								return Stream.succeed<AccountAccessTransferEvent>({
+									_tag: "done",
+									ok: false,
+									reason: "login-failed",
 								});
-								return Stream.fromIterable<AccountAccessTransferEvent>([
-									{ _tag: "sealed", sealed },
-									{ _tag: "done", ok: true },
-								]);
 							}),
+							Stream.takeUntil((event) => event._tag === "done"),
 						);
 				}),
 			);

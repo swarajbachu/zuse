@@ -9,7 +9,7 @@ import {
 	type LocalAccountDescriptor,
 } from "@zuse/contracts";
 import { Effect, Stream } from "effect";
-import { RefreshCw } from "lucide-react";
+import { Copy, ExternalLink, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { copyText, openExternal } from "../../lib/platform-capabilities.ts";
 import {
@@ -82,6 +82,7 @@ type RowProgress = {
 	readonly providerId: AccountAccessProvider;
 	readonly message: string;
 	readonly code?: string;
+	readonly url?: string;
 };
 
 const statusBadge = (
@@ -235,9 +236,14 @@ export function CloudAccountAccess({
 										message:
 											"Finish authorization, then paste the one-time code.",
 										code: event.code,
+										url: event.url,
 									});
 									await openExternal(event.url);
 								} else if (event._tag === "sealed") {
+									setProgress({
+										providerId,
+										message: "Saving Claude access on this machine…",
+									});
 									sealed = event.sealed;
 								} else if (event._tag === "done" && !event.ok) {
 									throw new Error(event.reason ?? "login-failed");
@@ -276,6 +282,7 @@ export function CloudAccountAccess({
 											? "Code copied. Paste it in your browser."
 											: "Enter the code in your browser.",
 										code: event.code,
+										url: event.url,
 									});
 									await openExternal(event.url);
 								} else if (event._tag === "done" && !event.ok) {
@@ -311,6 +318,10 @@ export function CloudAccountAccess({
 		}
 		setSubmittingClaudeCode(true);
 		setClaudeCodeError(null);
+		setProgress({
+			providerId: "claude",
+			message: "Submitting the authorization code…",
+		});
 		try {
 			const control = await getControlPlaneRpcClient();
 			await Effect.runPromise(
@@ -324,7 +335,7 @@ export function CloudAccountAccess({
 			setClaudeTransferId(null);
 			setProgress({
 				providerId: "claude",
-				message: "Checking authorization…",
+				message: "Creating the secure Claude credential…",
 			});
 		} catch {
 			setClaudeCodeError("The code could not be submitted. Try again.");
@@ -426,7 +437,7 @@ export function CloudAccountAccess({
 								(providerId === "claude"
 									? "Secure token transfer from this Mac"
 									: "Authorize this machine in your browser"))
-							: `${rowProgress.message}${rowProgress.code === undefined ? "" : ` Code: ${rowProgress.code}`}`;
+							: rowProgress.message;
 					return (
 						<CloudSettingsRow
 							key={providerId}
@@ -472,7 +483,40 @@ export function CloudAccountAccess({
 									)}
 								</>
 							}
-						/>
+						>
+							{rowProgress?.code === undefined ? null : (
+								<div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-muted/35 px-2.5 py-2">
+									<div className="min-w-0 flex-1">
+										<p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+											Device code
+										</p>
+										<code className="mt-0.5 block select-all font-semibold text-sm tracking-[0.12em] text-foreground">
+											{rowProgress.code}
+										</code>
+									</div>
+									<Button
+										type="button"
+										size="xs"
+										variant="outline"
+										onClick={() => void copyText(rowProgress.code ?? "")}
+									>
+										<Copy aria-hidden />
+										Copy code
+									</Button>
+									{rowProgress.url === undefined ? null : (
+										<Button
+											type="button"
+											size="xs"
+											variant="ghost"
+											onClick={() => void openExternal(rowProgress.url ?? "")}
+										>
+											<ExternalLink aria-hidden />
+											Open login page
+										</Button>
+									)}
+								</div>
+							)}
+						</CloudSettingsRow>
 					);
 				})}
 				<CloudSettingsRow
@@ -545,8 +589,12 @@ export function CloudAccountAccess({
 					if (!open) void cancelClaudeTransfer();
 				}}
 			>
-				<DialogPopup className="max-w-sm" showCloseButton={false}>
+				<DialogPopup
+					className="max-w-sm overflow-hidden"
+					showCloseButton={false}
+				>
 					<form
+						className="flex min-h-0 flex-col"
 						onSubmit={(event) => {
 							event.preventDefault();
 							void continueClaudeTransfer(event.currentTarget);
@@ -559,7 +607,10 @@ export function CloudAccountAccess({
 								paste it here. It is sent only to the local login process.
 							</DialogDescription>
 						</DialogHeader>
-						<DialogPanel className="space-y-2">
+						<DialogPanel
+							className="space-y-2 px-4 pb-4 pt-1"
+							scrollFade={false}
+						>
 							<label
 								className="block space-y-1"
 								htmlFor="claude-authorization-code"
@@ -591,7 +642,7 @@ export function CloudAccountAccess({
 								</p>
 							)}
 						</DialogPanel>
-						<DialogFooter>
+						<DialogFooter className="px-4 py-2">
 							<Button
 								type="button"
 								size="xs"
