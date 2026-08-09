@@ -3,7 +3,7 @@ import { ChevronDown } from "lucide-react";
 import {
 	ComputerIcon,
 	Tick01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 
 import {
 	Menu,

@@ -5,7 +5,7 @@ import {
 	Delete02Icon,
 	DragDropVerticalIcon,
 	MoreHorizontalIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type { QueuedMessage, SessionId } from "@zuse/contracts";
 import { ChevronDown, ChevronUp, Pencil } from "lucide-react";
 import { useState } from "react";

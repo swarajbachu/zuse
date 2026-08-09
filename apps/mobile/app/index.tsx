@@ -5,7 +5,7 @@ import {
 	QrCodeIcon,
 	Settings01Icon,
 	Wifi01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import { router, Stack } from "expo-router";
 import { MessageSquare, Search } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

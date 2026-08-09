@@ -6,7 +6,7 @@ import {
 	Atom02Icon,
 	Flower2Icon,
 	GeometricShapes02Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 
 const ICONS = [
 	Atom02Icon,

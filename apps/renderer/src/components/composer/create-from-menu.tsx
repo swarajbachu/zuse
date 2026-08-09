@@ -9,7 +9,7 @@ import {
 	Progress03Icon,
 	RecordIcon,
 	Search01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type {
 	FolderId,
 	GitBranchInfo,

@@ -5,7 +5,7 @@ import {
 	Search01Icon,
 	StarIcon,
 	Tick01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type {
 	AgentAvailability,
 	ChatId,

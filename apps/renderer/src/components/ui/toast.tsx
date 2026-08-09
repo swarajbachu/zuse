@@ -9,7 +9,7 @@ import {
 	CheckmarkCircle02Icon,
 	InformationCircleIcon,
 	Loading03Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type React from "react";
 import { buttonVariants } from "~/components/ui/button";
 import { cn } from "~/lib/utils";

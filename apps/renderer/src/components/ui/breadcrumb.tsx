@@ -3,7 +3,7 @@
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { MoreHorizontalIcon } from "@hugeicons-pro/core-solid-rounded";
+import { MoreHorizontalIcon } from "@zuse/icons/solid-rounded";
 import { ChevronRight } from "lucide-react";
 import type * as React from "react";
 import { cn } from "~/lib/utils";

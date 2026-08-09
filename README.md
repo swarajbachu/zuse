@@ -181,6 +181,17 @@ bun run dist:linux:unsigned
 
 Requires: Bun 1.3.10+, Node.js ≥ 22.13, and macOS or x64 Linux.
 
+The default install uses the public icon set and does not require registry
+credentials. Contributors can clone the repository and run the commands above
+without any additional setup.
+
+Licensed developers can opt into the paid icon styles by exporting
+`HUGEICONS_TOKEN` before `bun install`. The install hook downloads the licensed
+packages into an isolated local directory; they are never added to the public
+workspace dependency graph. If lifecycle scripts were disabled, run
+`bun run icons:install-paid`, then confirm the active set with
+`bun run icons:status --expect=paid`.
+
 The packaging commands build x64 artifacts into `dist/`. End-user installation
 instructions are in [Install on Linux](#install-on-linux).
 

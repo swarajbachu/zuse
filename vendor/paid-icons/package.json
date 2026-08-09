@@ -1,0 +1,10 @@
+{
+	"name": "@zuse/paid-icons-runtime",
+	"version": "0.0.0",
+	"private": true,
+	"dependencies": {
+		"@hugeicons-pro/core-bulk-rounded": "4.2.1",
+		"@hugeicons-pro/core-solid-rounded": "4.2.1",
+		"@hugeicons-pro/core-stroke-rounded": "4.2.2"
+	}
+}

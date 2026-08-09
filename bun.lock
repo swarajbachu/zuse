@@ -5,8 +5,6 @@
     "": {
       "name": "zurich",
       "dependencies": {
-        "@hugeicons-pro/core-bulk-rounded": "^4.2.1",
-        "@hugeicons-pro/core-solid-rounded": "^4.2.1",
         "@openai/codex": "^0.144.5",
       },
       "devDependencies": {
@@ -109,7 +107,6 @@
         "@expo-google-fonts/geist-mono": "^0.4.1",
         "@expo-google-fonts/inter": "^0.4.2",
         "@expo/ui": "~57.0.6",
-        "@hugeicons-pro/core-solid-rounded": "^4.2.1",
         "@hugeicons/react-native": "^1.0.15",
         "@legendapp/list": "3.3.3",
         "@noble/ciphers": "^1.3.0",
@@ -118,6 +115,7 @@
         "@zuse/analytics": "workspace:*",
         "@zuse/client-runtime": "*",
         "@zuse/contracts": "*",
+        "@zuse/icons": "workspace:*",
         "@zuse/utils": "*",
         "clsx": "^2.1.1",
         "effect": "catalog:",
@@ -187,8 +185,6 @@
         "@fontsource-variable/geist-mono": "^5.2.7",
         "@fontsource-variable/inter": "^5.2.8",
         "@formkit/auto-animate": "^0.9.0",
-        "@hugeicons-pro/core-solid-rounded": "^4.2.1",
-        "@hugeicons-pro/core-stroke-rounded": "4.2.2",
         "@hugeicons/react": "^1.1.7",
         "@legendapp/list": "3.3.3",
         "@pierre/diffs": "1.3.3",
@@ -199,6 +195,7 @@
         "@zuse/analytics": "workspace:*",
         "@zuse/client-runtime": "*",
         "@zuse/contracts": "*",
+        "@zuse/icons": "workspace:*",
         "@zuse/utils": "*",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -485,6 +482,13 @@
         "@zuse/sqlite": "*",
         "typescript": "catalog:",
         "vitest": "catalog:",
+      },
+    },
+    "packages/icons": {
+      "name": "@zuse/icons",
+      "version": "0.0.0",
+      "dependencies": {
+        "@hugeicons/core-free-icons": "4.2.1",
       },
     },
     "packages/index": {
@@ -1210,11 +1214,7 @@
 
     "@hono/node-server": ["@hono/node-server@1.19.14", "http://registry.npmjs.org/@hono/node-server/-/node-server-1.19.14.tgz", { "peerDependencies": { "hono": "^4" } }, "sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw=="],
 
-    "@hugeicons-pro/core-bulk-rounded": ["@hugeicons-pro/core-bulk-rounded@4.2.1", "https://npm.hugeicons.com/@hugeicons-pro/core-bulk-rounded/-/core-bulk-rounded-4.2.1.tgz", {}, "sha512-NaV2xmHovYsuGlb+JpGitUYZ10pN+z6YJo9RD1nh7Gu3oxFD4PYIFvOZ2e1zq+0Eo0IfLGArrPIyLltfXG5ESA=="],
-
-    "@hugeicons-pro/core-solid-rounded": ["@hugeicons-pro/core-solid-rounded@4.2.1", "https://npm.hugeicons.com/@hugeicons-pro/core-solid-rounded/-/core-solid-rounded-4.2.1.tgz", {}, "sha512-rODm75eQ4TH7DpGxngWKFCulMwr8BI+QaJ9ykngRsc3NWbbOnVq0M50LbmYVItNXG2meWxo9uRanmsF7YaYjGg=="],
-
-    "@hugeicons-pro/core-stroke-rounded": ["@hugeicons-pro/core-stroke-rounded@4.2.2", "https://npm.hugeicons.com/@hugeicons-pro/core-stroke-rounded/-/core-stroke-rounded-4.2.2.tgz", {}, "sha512-+TruczzkMDuo1PVTAQWNOkjzPhOkTE/mGsk3OU1kwGnm66c+pgSrLpSRpp0OWmKaHCDCnKfdufFroK7+gs8oWQ=="],
+    "@hugeicons/core-free-icons": ["@hugeicons/core-free-icons@4.2.1", "", {}, "sha512-75jYZKYyA9VwS35YRmmGUGzFedbY+Fl0Vxx5FzXR2CGDlIhNRumFeVqaaKoClf2MeYEJwPAVMEL9RwCYtOgnSw=="],
 
     "@hugeicons/react": ["@hugeicons/react@1.1.7", "", { "peerDependencies": { "react": ">=16.0.0" } }, "sha512-0q1gekPJvNtIsfqi6alVdKfqsLz0PGiZWOzxJDxOd55UpFwcgohBFU4CwTcJ7kg4hO3kwXuzxrn/JEj280GX3g=="],
 
@@ -2209,6 +2209,8 @@
     "@zuse/domain": ["@zuse/domain@workspace:packages/domain"],
 
     "@zuse/git": ["@zuse/git@workspace:packages/git"],
+
+    "@zuse/icons": ["@zuse/icons@workspace:packages/icons"],
 
     "@zuse/index": ["@zuse/index@workspace:packages/index"],
 

@@ -1,5 +1,13 @@
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import type {
+	Chat,
+	ChatId,
+	FolderId,
+	GitOriginInfo,
+	Session,
+	SessionId,
+	SessionStatus,
+} from "@zuse/contracts";
 import {
 	Analytics01Icon,
 	ArchiveArrowDownIcon,
@@ -17,17 +25,9 @@ import {
 	SquareLock01Icon,
 	TaskDone01Icon,
 	UserCircleIcon,
-} from "@hugeicons-pro/core-solid-rounded";
-import type {
-	Chat,
-	ChatId,
-	FolderId,
-	GitOriginInfo,
-	Session,
-	SessionId,
-	SessionStatus,
-} from "@zuse/contracts";
+} from "@zuse/icons/solid-rounded";
 import { Effect, Fiber, Stream } from "effect";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
 	Fragment,
 	lazy,
@@ -1413,17 +1413,6 @@ function ProjectContextMenu({
 		</Menu>
 	);
 }
-
-// One-line login hint per provider — the user runs this in their terminal
-// and memoize picks up the credentials automatically on next refresh.
-const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
-	claude: "Run `claude /login` in your terminal",
-	codex: "Run `codex login` in your terminal",
-	grok: "Run `grok` in your terminal to sign in",
-	gemini: "Run `gemini` in your terminal to sign in",
-	opencode: "Run `opencode auth login` in your terminal to connect a provider",
-	kiro: "Run `kiro-cli login` in your terminal to sign in",
-};
 
 /**
  * Start a brand-new chat in the given project. Creation is deferred to the

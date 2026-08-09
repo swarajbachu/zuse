@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Delete02Icon, GitBranchIcon } from "@hugeicons-pro/core-solid-rounded";
+import { Delete02Icon, GitBranchIcon } from "@zuse/icons/solid-rounded";
 import {
 	type FolderId,
 	MODELS_BY_PROVIDER,

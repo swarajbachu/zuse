@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Loading02Icon } from "@hugeicons-pro/core-solid-rounded";
-import { GitBranchIcon } from "@hugeicons-pro/core-stroke-rounded";
+import { Loading02Icon } from "@zuse/icons/solid-rounded";
+import { GitBranchIcon } from "@zuse/icons/stroke-rounded";
 import type {
 	FolderId,
 	ForkDestination,

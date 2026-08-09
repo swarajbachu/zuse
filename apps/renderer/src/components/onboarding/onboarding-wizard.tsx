@@ -1,7 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "~/components/ui/button";

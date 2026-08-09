@@ -5,7 +5,7 @@ import {
 	PencilIcon,
 	Search01Icon,
 	UndoIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import {
 	type Command,
 	type KeybindingRule,

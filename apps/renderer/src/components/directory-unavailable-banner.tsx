@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert02Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { Alert02Icon } from "@zuse/icons/bulk-rounded";
 
 export function DirectoryUnavailableBanner({ archived = false }) {
 	return (

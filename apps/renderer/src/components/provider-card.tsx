@@ -6,7 +6,7 @@ import {
 	LinkSquare01Icon,
 	Loading02Icon,
 	Tick01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import {
 	type AgentAvailability,
 	MODELS_BY_PROVIDER,

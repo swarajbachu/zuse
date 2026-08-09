@@ -1,0 +1,14 @@
+{
+	"name": "@zuse/icons",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./bulk-rounded": "./src/free.ts",
+		"./solid-rounded": "./src/free.ts",
+		"./stroke-rounded": "./src/free.ts"
+	},
+	"dependencies": {
+		"@hugeicons/core-free-icons": "4.2.1"
+	}
+}

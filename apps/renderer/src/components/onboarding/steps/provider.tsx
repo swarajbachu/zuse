@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { LinkSquare01Icon, Tick01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { LinkSquare01Icon, Tick01Icon } from "@zuse/icons/bulk-rounded";
 
 import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 

@@ -4,7 +4,7 @@ import {
 	PencilEdit01Icon,
 	SquareLock01Icon,
 	TaskDone01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import {
 	defaultModelFor,
 	type FolderId,

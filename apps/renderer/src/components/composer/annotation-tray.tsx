@@ -5,7 +5,7 @@ import {
 	CursorMagicSelection01Icon,
 	PencilEdit01Icon,
 	Tick01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type {
 	BrowserAnnotation,
 	CodeAnnotation,

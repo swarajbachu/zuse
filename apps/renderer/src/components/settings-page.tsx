@@ -19,7 +19,7 @@ import {
 	TestTubeIcon,
 	Tick01Icon,
 	VolumeHighIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import {
 	type AppearanceMode,
 	type BranchNamingStyle,

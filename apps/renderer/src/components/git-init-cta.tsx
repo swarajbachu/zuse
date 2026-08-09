@@ -2,7 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	GitBranchIcon,
 	Loading02Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type { FolderId, WorktreeId } from "@zuse/contracts";
 import { useState } from "react";
 

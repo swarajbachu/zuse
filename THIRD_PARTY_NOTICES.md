@@ -47,6 +47,9 @@ The project also builds directly on public libraries and component registries:
   Effect protocol as the implementation reference;
 - shadcn/ui, Base UI, and configured component registries provide UI primitives
   that are generated and then maintained in this repository;
+- the public icon data package and its React and React Native renderers provide
+  the default contributor icon set; licensed release builds may use separately
+  installed paid icon data governed by its own license terms;
 - CodeMirror, xterm.js, and the Pierre packages provide editor, terminal, diff,
   and tree foundations;
 - Next.js and Fumadocs provide the documentation application.

@@ -21,7 +21,7 @@ import {
 	Tick01Icon,
 	Upload01Icon,
 	Wrench01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import {
 	ComposerInput,
 	type FolderId,

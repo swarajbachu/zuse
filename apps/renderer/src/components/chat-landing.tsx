@@ -4,7 +4,7 @@ import {
 	Folder01Icon,
 	FolderAddIcon,
 	Tick01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import {
 	type ChatId,
 	type ChatWorkspacePolicy,

@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ClipboardIcon } from "@hugeicons-pro/core-solid-rounded";
+import { ClipboardIcon } from "@zuse/icons/solid-rounded";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { AgentItemId, Message } from "@zuse/contracts";
 import { memo, useEffect, useMemo, useState } from "react";

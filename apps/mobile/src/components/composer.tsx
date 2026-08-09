@@ -3,7 +3,7 @@ import {
 	ArrowUp02Icon,
 	CloudOffIcon,
 	StopIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import { chooseComposerSubmitRoute } from "@zuse/client-runtime/plan-interactions";
 import type { ConnectionStatus } from "@zuse/client-runtime/supervisor";
 import {

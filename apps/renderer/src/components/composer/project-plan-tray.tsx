@@ -3,7 +3,7 @@ import { ChevronDown } from "lucide-react";
 import {
 	CheckListIcon,
 	Tick02Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type { Message, SessionId } from "@zuse/contracts";
 import { useMemo, useState } from "react";
 

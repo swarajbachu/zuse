@@ -8,7 +8,7 @@ import {
 	GitPullRequestIcon,
 	Loading02Icon,
 	Tick02Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type { GitBranchInfo, GitPrCheckRun, Message } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Effect } from "effect";

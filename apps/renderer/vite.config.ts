@@ -22,6 +22,14 @@ const hostedBuild = process.env.VITE_ZUSE_HOSTED === "1";
 // resolve a known font package at config-load time and walk up to the
 // store root so every hoisted dep gets allowed too.
 const require = createRequire(import.meta.url);
+const iconRuntime = require("../../scripts/icon-runtime.cjs") as {
+	getPaidIconAliases: () => Record<string, string>;
+	resolveIconMode: () => "free" | "paid";
+};
+const iconAliases =
+	iconRuntime.resolveIconMode() === "paid"
+		? iconRuntime.getPaidIconAliases()
+		: {};
 const desktopPackage = require("../desktop/package.json") as {
 	version: string;
 };
@@ -67,6 +75,7 @@ export default defineConfig({
 	],
 	resolve: {
 		alias: {
+			...iconAliases,
 			"~": fileURLToPath(new URL("./src", import.meta.url)),
 		},
 	},

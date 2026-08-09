@@ -11,7 +11,7 @@ import {
 	Search01Icon,
 	ViewIcon,
 	ViewOffIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type { OpencodeInventoryProvider } from "@zuse/contracts";
 import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
