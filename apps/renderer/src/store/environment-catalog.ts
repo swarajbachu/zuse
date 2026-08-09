@@ -592,7 +592,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				try {
 					const localClient = await getRpcClient(localEnvironmentId);
 					const grant = await Effect.runPromise(
-						localClient["relay.connectEnvironment"]({
+						localClient["environments.connect"]({
 							environmentId: environment.environmentId,
 						}),
 					);
@@ -602,7 +602,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						async () =>
 							relayGrantUrl(
 								await Effect.runPromise(
-									localClient["relay.connectEnvironment"]({
+									localClient["environments.connect"]({
 										environmentId: environment.environmentId,
 									}),
 								),
@@ -644,7 +644,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					setActiveEnvironment(descriptor.environmentId);
 					const localCatalog = await hydrateEntry(descriptor.environmentId);
 					const relayEnvironments = await Effect.runPromise(
-						localClient["relay.environments"](),
+						localClient["environments.list"](),
 					).catch(() => ({ environments: [] as const }));
 					const profileEnvironmentIds = new Set(
 						[...profiles, ...tailnetProfiles].map(
@@ -715,7 +715,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 
 				const localClient = await getRpcClient(local.environmentId);
 				const result = await Effect.runPromise(
-					localClient["relay.environments"](),
+					localClient["environments.list"](),
 				);
 				const profileEnvironmentIds = new Set(
 					get()

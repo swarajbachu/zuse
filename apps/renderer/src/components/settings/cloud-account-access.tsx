@@ -6,6 +6,7 @@ import type {
 	LocalAccountDescriptor,
 } from "@zuse/contracts";
 import { Effect, Stream } from "effect";
+import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { openExternal } from "../../lib/platform-capabilities.ts";
 import {
@@ -23,6 +24,7 @@ import {
 } from "../ui/alert-dialog.tsx";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
+import { CloudSettingsGroup, CloudSettingsRow } from "./cloud-settings-ui.tsx";
 
 const PROVIDERS = ["github", "claude", "codex"] as const;
 const PROVIDER_LABEL: Record<AccountAccessProvider, string> = {
@@ -35,7 +37,6 @@ type RowProgress = {
 	readonly providerId: AccountAccessProvider;
 	readonly message: string;
 	readonly code?: string;
-	readonly url?: string;
 };
 
 const statusBadge = (
@@ -134,7 +135,6 @@ export function CloudAccountAccess({
 									setProgress({
 										providerId,
 										message: "Finish authorization in your browser.",
-										url: event.url,
 										code: event.code,
 									});
 								} else if (event._tag === "sealed") {
@@ -163,7 +163,6 @@ export function CloudAccountAccess({
 									setProgress({
 										providerId,
 										message: "Enter the code in your browser.",
-										url: event.url,
 										code: event.code,
 									});
 								} else if (event._tag === "done" && !event.ok) {
@@ -205,142 +204,119 @@ export function CloudAccountAccess({
 		pendingProvider === null ? undefined : localByProvider.get(pendingProvider);
 
 	return (
-		<section
-			aria-labelledby="cloud-account-access-title"
-			className="h-[26rem] overflow-y-auto rounded-lg border border-border p-3"
-		>
-			<div className="flex min-h-14 items-start justify-between gap-3">
-				<div>
-					<h3 id="cloud-account-access-title" className="font-medium text-sm">
-						Bring access from this Mac
-					</h3>
-					<p className="mt-1 text-muted-foreground text-xs">
-						Connect the same accounts with separate, machine-specific
-						credentials.
-					</p>
-				</div>
-				<Button
-					type="button"
-					variant="ghost"
-					className="min-h-11"
-					onClick={() => void refresh()}
-				>
-					Refresh
-				</Button>
-			</div>
-
-			<div className="mt-2 space-y-2" aria-busy={loading}>
-				<div className="flex min-h-14 items-center gap-3 rounded-md bg-muted/20 px-3">
-					<div className="min-w-0 flex-1">
-						<p className="font-medium text-sm">Developer tools</p>
-						<p className="text-muted-foreground text-xs">
-							Installed and verified
+		<>
+			<CloudSettingsGroup
+				title="Developer access"
+				description="Connect separate, machine-specific credentials for the accounts you use on this Mac."
+				action={
+					<Button
+						size="icon-sm"
+						variant="ghost"
+						aria-label="Refresh developer access"
+						loading={loading}
+						onClick={() => void refresh()}
+					>
+						<RefreshCw aria-hidden />
+					</Button>
+				}
+				footer={
+					error === null ? null : (
+						<p role="alert" className="text-[11px] text-destructive">
+							{error}
 						</p>
-					</div>
-					<Badge variant="success">Ready</Badge>
-				</div>
+					)
+				}
+			>
+				<CloudSettingsRow
+					title="Developer tools"
+					description="Git, GitHub CLI, Bun, Node, Claude Code, and Codex are installed."
+					action={<Badge variant="success">Ready</Badge>}
+				/>
 				{PROVIDERS.map((providerId) => {
 					const status = statusByProvider.get(providerId);
 					const local = localByProvider.get(providerId);
 					const badge = statusBadge(status);
 					const connected = status?.state === "connected";
 					const busy = busyProvider === providerId;
+					const rowProgress =
+						progress?.providerId === providerId ? progress : null;
+					const description =
+						rowProgress === null
+							? (status?.accountLabel ??
+								local?.accountLabel ??
+								(providerId === "claude"
+									? "Secure token transfer from this Mac"
+									: "Authorize this machine in your browser"))
+							: `${rowProgress.message}${rowProgress.code === undefined ? "" : ` Code: ${rowProgress.code}`}`;
 					return (
-						<div
+						<CloudSettingsRow
 							key={providerId}
-							className="flex min-h-16 items-center gap-3 rounded-md border border-border/60 px-3"
-						>
-							<div className="min-w-0 flex-1">
-								<div className="flex items-center gap-2">
-									<p className="font-medium text-sm">
-										{PROVIDER_LABEL[providerId]}
-									</p>
-									<Badge variant={badge.variant}>{badge.label}</Badge>
-								</div>
-								<p className="mt-0.5 truncate text-muted-foreground text-xs">
-									{progress?.providerId === providerId
-										? progress.message
-										: (status?.accountLabel ??
-											local?.accountLabel ??
-											(providerId === "claude"
-												? "Secure token transfer"
-												: "Browser device authorization"))}
-								</p>
-							</div>
-							{progress?.providerId === providerId &&
-							progress.code !== undefined ? (
-								<code className="rounded bg-muted px-2 py-1 font-mono text-xs">
-									{progress.code}
-								</code>
-							) : null}
-							{connected ? (
+							title={PROVIDER_LABEL[providerId]}
+							description={<span aria-live="polite">{description}</span>}
+							action={
 								<>
-									<Button
-										type="button"
-										variant="ghost"
-										className="min-h-11"
-										disabled={busyProvider !== null}
-										onClick={() => setPendingProvider(providerId)}
-									>
-										Re-sync
-									</Button>
-									<Button
-										type="button"
-										variant="ghost"
-										className="min-h-11"
-										disabled={busyProvider !== null}
-										onClick={() => void disconnect(providerId)}
-									>
-										Disconnect
-									</Button>
+									<Badge variant={badge.variant}>{badge.label}</Badge>
+									{connected ? (
+										<>
+											<Button
+												size="xs"
+												variant="ghost"
+												disabled={busyProvider !== null}
+												onClick={() => setPendingProvider(providerId)}
+											>
+												Re-sync
+											</Button>
+											<Button
+												size="xs"
+												variant="ghost"
+												disabled={busyProvider !== null}
+												onClick={() => void disconnect(providerId)}
+											>
+												Disconnect
+											</Button>
+										</>
+									) : (
+										<Button
+											size="xs"
+											variant="outline"
+											loading={busy}
+											disabled={
+												loading ||
+												busyProvider !== null ||
+												status?.installed === false
+											}
+											onClick={() => setPendingProvider(providerId)}
+										>
+											Connect
+										</Button>
+									)}
 								</>
-							) : (
-								<Button
-									type="button"
-									className="min-h-11"
-									disabled={
-										loading ||
-										busyProvider !== null ||
-										status?.installed === false
-									}
-									onClick={() => setPendingProvider(providerId)}
-								>
-									{busy ? "Connecting…" : "Connect"}
-								</Button>
-							)}
-						</div>
+							}
+						/>
 					);
 				})}
-				<div className="flex min-h-14 items-center gap-3 rounded-md bg-muted/20 px-3">
-					<div className="min-w-0 flex-1">
-						<p className="font-medium text-sm">Project access</p>
-						<p className="text-muted-foreground text-xs">
+				<CloudSettingsRow
+					title="Private repository access"
+					description={
+						statusByProvider.get("github")?.state === "connected"
+							? "GitHub CLI can clone, fetch, and push private repositories."
+							: "Connect GitHub before opening a private repository."
+					}
+					action={
+						<Badge
+							variant={
+								statusByProvider.get("github")?.state === "connected"
+									? "success"
+									: "outline"
+							}
+						>
 							{statusByProvider.get("github")?.state === "connected"
-								? "Private repositories can be cloned from this machine."
-								: "Connect GitHub to clone private repositories."}
-						</p>
-					</div>
-					<Badge
-						variant={
-							statusByProvider.get("github")?.state === "connected"
-								? "success"
-								: "outline"
-						}
-					>
-						{statusByProvider.get("github")?.state === "connected"
-							? "Ready"
-							: "Pending"}
-					</Badge>
-				</div>
-			</div>
-
-			<div className="mt-2 min-h-5" aria-live="polite">
-				{error !== null ? (
-					<p role="alert" className="text-destructive text-xs">
-						{error}
-					</p>
-				) : null}
-			</div>
+								? "Ready"
+								: "Pending"}
+						</Badge>
+					}
+				/>
+			</CloudSettingsGroup>
 
 			<AlertDialog
 				open={pendingProvider !== null}
@@ -356,15 +332,15 @@ export function CloudAccountAccess({
 						<AlertDialogDescription>
 							{pendingProvider === null
 								? ""
-								: `${PROVIDER_LABEL[pendingProvider]}${selectedLocal?.accountLabel ? ` (${selectedLocal.accountLabel})` : ""} will be usable by agents and terminals on this cloud machine. No local config directories, SSH private keys, cookies, or environment files are copied.`}
+								: `${PROVIDER_LABEL[pendingProvider]}${selectedLocal?.accountLabel ? ` (${selectedLocal.accountLabel})` : ""} will be usable by agents and terminals on this cloud machine. Local config folders, SSH private keys, cookies, and environment files stay on this Mac.`}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogClose render={<Button type="button" variant="ghost" />}>
+						<AlertDialogClose render={<Button size="xs" variant="ghost" />}>
 							Cancel
 						</AlertDialogClose>
 						<Button
-							type="button"
+							size="xs"
 							onClick={() => {
 								if (pendingProvider !== null) void runSetup(pendingProvider);
 							}}
@@ -374,6 +350,6 @@ export function CloudAccountAccess({
 					</AlertDialogFooter>
 				</AlertDialogPopup>
 			</AlertDialog>
-		</section>
+		</>
 	);
 }

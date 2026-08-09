@@ -7,12 +7,14 @@ import {
 	type SshMode,
 } from "@zuse/contracts";
 import { Effect } from "effect";
+import { ExternalLink, KeyRound, LoaderCircle, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
 	clearCloudMachineCheckoutSession,
 	readCloudMachineCheckoutSession,
 	writeCloudMachineCheckoutSession,
 } from "../../lib/cloud-machine-checkout-session.ts";
+import { cloudConnectionPresentation } from "../../lib/cloud-machine-connection.ts";
 import {
 	checkoutErrorMessage,
 	visibleCloudMachineError,
@@ -31,10 +33,54 @@ import {
 import { switchToEnvironment } from "../../lib/switch-environment.ts";
 import { useEnvironmentCatalogStore } from "../../store/environment-catalog.ts";
 import { useUiStore } from "../../store/ui.ts";
+import {
+	AlertDialog,
+	AlertDialogClose,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogPopup,
+	AlertDialogTitle,
+} from "../ui/alert-dialog.tsx";
+import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
-import { Card } from "../ui/card.tsx";
+import {
+	Dialog,
+	DialogClose,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogPanel,
+	DialogPopup,
+	DialogTitle,
+} from "../ui/dialog.tsx";
 import { Input } from "../ui/input.tsx";
+import {
+	Select,
+	SelectItem,
+	SelectPopup,
+	SelectTrigger,
+	SelectValue,
+} from "../ui/select.tsx";
+import { Spinner } from "../ui/spinner.tsx";
 import { CloudAccountAccess } from "./cloud-account-access.tsx";
+import { CloudSettingsGroup, CloudSettingsRow } from "./cloud-settings-ui.tsx";
+
+const formatDate = (value: number | undefined, fallback: string): string =>
+	value === undefined
+		? fallback
+		: new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
+				new Date(value),
+			);
+
+const progressVariant = (
+	tone: ReturnType<typeof cloudMachineProgress>["tone"],
+): "success" | "warning" | "error" | "info" => {
+	if (tone === "success") return "success";
+	if (tone === "warning") return "warning";
+	if (tone === "error") return "error";
+	return "info";
+};
 
 export function CloudMachinesPane() {
 	const [offer, setOffer] = useState<MachineOffer | null>(null);
@@ -52,6 +98,10 @@ export function CloudMachinesPane() {
 	);
 	const [sshPublicKey, setSshPublicKey] = useState("");
 	const [sshKeys, setSshKeys] = useState<ReadonlyArray<MachineSshKey>>([]);
+	const [networkDialogOpen, setNetworkDialogOpen] = useState(false);
+	const [keysDialogOpen, setKeysDialogOpen] = useState(false);
+	const [destroyDialogOpen, setDestroyDialogOpen] = useState(false);
+	const [connectionBusy, setConnectionBusy] = useState(false);
 	const machineEnvironmentId = machine?.environmentId;
 	const machineEnvironment = useEnvironmentCatalogStore((state) =>
 		machineEnvironmentId === undefined
@@ -62,6 +112,9 @@ export function CloudMachinesPane() {
 	);
 	const syncAccountEnvironments = useEnvironmentCatalogStore(
 		(state) => state.syncAccountEnvironments,
+	);
+	const retryEnvironment = useEnvironmentCatalogStore(
+		(state) => state.retryEnvironment,
 	);
 	const setView = useUiStore((state) => state.setView);
 
@@ -85,10 +138,7 @@ export function CloudMachinesPane() {
 						(entry) => entry.environmentId === activeMachine.environmentId,
 					)
 			) {
-				void syncAccountEnvironments().catch(() => {
-					// The next machine poll retries discovery. Once present, the
-					// catalog's normal retry surface owns connection failures.
-				});
+				void syncAccountEnvironments().catch(() => undefined);
 			}
 			if (activeMachine !== null) {
 				setCheckoutUrl(null);
@@ -135,9 +185,7 @@ export function CloudMachinesPane() {
 			const client = await getControlPlaneRpcClient();
 			try {
 				const checkout = await Effect.runPromise(
-					client["machines.checkout"]({
-						offerId: offer.offerId,
-					}),
+					client["machines.checkout"]({ offerId: offer.offerId }),
 				);
 				setCheckoutUrl(checkout.checkoutUrl);
 				writeCloudMachineCheckoutSession(window.sessionStorage, {
@@ -190,8 +238,9 @@ export function CloudMachinesPane() {
 		if (
 			machineEnvironmentId === undefined ||
 			machineEnvironment?.status !== "connected"
-		)
+		) {
 			return;
+		}
 		try {
 			const client = await getRpcClient(machineEnvironmentId);
 			const [status, keys] = await Promise.all([
@@ -202,7 +251,7 @@ export function CloudMachinesPane() {
 			setSshMode(status.sshMode);
 			setSshKeys(keys.keys);
 		} catch {
-			// The normal connection recovery surface owns transport failures.
+			// Connection recovery remains owned by the environment catalog.
 		}
 	}, [machineEnvironment?.status, machineEnvironmentId]);
 
@@ -210,465 +259,718 @@ export function CloudMachinesPane() {
 		void refreshHostSettings();
 	}, [refreshHostSettings]);
 
+	const retryMachineConnection = async () => {
+		if (connectionBusy) return;
+		setConnectionBusy(true);
+		setActionError(null);
+		try {
+			if (machineEnvironmentId === undefined) {
+				await load();
+			} else if (machineEnvironment === undefined) {
+				await syncAccountEnvironments();
+			} else {
+				await retryEnvironment(machineEnvironmentId);
+			}
+		} catch {
+			setActionError(
+				"The secure connection could not be established. Try again.",
+			);
+		} finally {
+			setConnectionBusy(false);
+		}
+	};
+
+	const openMachine = async () => {
+		if (machineEnvironmentId === undefined || connectionBusy) return;
+		setConnectionBusy(true);
+		setActionError(null);
+		try {
+			const result = await switchToEnvironment({
+				environmentId: machineEnvironmentId,
+			});
+			if (result.switched) {
+				setView("chat");
+			} else {
+				setActionError(
+					"The machine is not connected yet. Retry the connection.",
+				);
+			}
+		} catch {
+			setActionError("The machine could not be opened. Retry the connection.");
+		} finally {
+			setConnectionBusy(false);
+		}
+	};
+
+	const enablePrivateNetwork = async () => {
+		if (machineEnvironmentId === undefined || networkKey.trim().length === 0)
+			return;
+		setAction("network");
+		setActionError(null);
+		try {
+			const client = await getRpcClient(machineEnvironmentId);
+			const status = await Effect.runPromise(
+				client["machine.privateNetwork.enable"]({
+					authKey: networkKey,
+					sshMode,
+				}),
+			);
+			setNetwork(status);
+			setNetworkDialogOpen(false);
+		} catch {
+			setActionError("Private networking could not be enabled.");
+		} finally {
+			setNetworkKey("");
+			setAction(null);
+		}
+	};
+
+	const updateSshMode = async (mode: SshMode) => {
+		setSshMode(mode);
+		if (machineEnvironmentId === undefined || network?.enabled !== true) return;
+		setAction("ssh-mode");
+		setActionError(null);
+		try {
+			const client = await getRpcClient(machineEnvironmentId);
+			setNetwork(
+				await Effect.runPromise(client["machine.sshMode.set"]({ mode })),
+			);
+		} catch {
+			setActionError("The SSH mode could not be updated.");
+			await refreshHostSettings();
+		} finally {
+			setAction(null);
+		}
+	};
+
+	const addSshKey = async () => {
+		if (machineEnvironmentId === undefined || sshPublicKey.trim().length === 0)
+			return;
+		setAction("ssh-key");
+		setActionError(null);
+		try {
+			const client = await getRpcClient(machineEnvironmentId);
+			await Effect.runPromise(
+				client["machine.sshKeys.add"]({ publicKey: sshPublicKey.trim() }),
+			);
+			setSshPublicKey("");
+			await refreshHostSettings();
+		} catch {
+			setActionError("The SSH key could not be added.");
+		} finally {
+			setAction(null);
+		}
+	};
+
+	const removeSshKey = async (fingerprint: string) => {
+		if (machineEnvironmentId === undefined) return;
+		setAction(`remove-key:${fingerprint}`);
+		setActionError(null);
+		try {
+			const client = await getRpcClient(machineEnvironmentId);
+			await Effect.runPromise(
+				client["machine.sshKeys.remove"]({ fingerprint }),
+			);
+			await refreshHostSettings();
+		} catch {
+			setActionError("The SSH key could not be removed.");
+		} finally {
+			setAction(null);
+		}
+	};
+
 	if (loading) {
 		return (
-			<div className="h-64 animate-pulse rounded-xl border border-border bg-muted/20" />
+			<div className="flex min-h-32 items-center justify-center" role="status">
+				<Spinner className="text-muted-foreground" />
+				<span className="sr-only">Loading cloud machine</span>
+			</div>
 		);
 	}
 
 	const error = visibleCloudMachineError(loadError, actionError);
 	const progress = machine === null ? null : cloudMachineProgress(machine);
 	const activeProgressStep = progress?.activeStep ?? null;
+	const connection = cloudConnectionPresentation(
+		machineEnvironment?.status,
+		machineEnvironment?.error,
+	);
+	const connected = machineEnvironment?.status === "connected";
 
 	return (
-		<div className="max-w-2xl space-y-4">
-			{error !== null ? (
+		<section className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3 text-xs">
+			{error === null ? null : (
 				<div
 					role="alert"
-					className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive text-sm"
+					className="rounded-md bg-alert-error-bg px-3 py-2 text-[11px] text-destructive-foreground ring-1 ring-inset ring-destructive/10"
 				>
 					{error}
 				</div>
-			) : null}
+			)}
 
 			{machine === null && offer !== null ? (
-				<Card className="space-y-5 p-5">
-					<div>
-						<h2 className="font-semibold text-base">{offer.displayName}</h2>
-						<p className="mt-1 text-muted-foreground text-sm">
-							{offer.vcpuCount} vCPU · {offer.memoryMib / 1024} GB memory ·{" "}
-							{offer.diskGib} GB disk · {offer.location}
-						</p>
-					</div>
-					<div className="flex items-end justify-between gap-4">
-						<div>
-							<p className="font-semibold text-2xl">
-								${(offer.monthlyPriceCents / 100).toFixed(0)}
-								<span className="font-normal text-muted-foreground text-sm">
-									/month
-								</span>
-							</p>
-							<p className="text-muted-foreground text-xs">
-								Automatic backups included. No public inbound ports.
-							</p>
-						</div>
-						<Button
-							type="button"
-							disabled={submitting}
-							onClick={() => void beginPurchase()}
-							className="min-h-11"
-						>
-							{submitting
-								? "Opening…"
-								: checkoutUrl === null
-									? "Continue to checkout"
-									: "Reopen checkout"}
-						</Button>
-					</div>
-					{checkoutUrl === null ? (
-						<p className="h-5 text-muted-foreground text-xs">
-							Provisioning starts automatically after payment.
-						</p>
-					) : (
-						<div
-							role="status"
-							aria-live="polite"
-							className="flex min-h-20 items-start gap-3 rounded-lg border border-border bg-muted/20 p-3"
-						>
-							<span
-								aria-hidden="true"
-								className="mt-1 size-2 shrink-0 animate-pulse rounded-full bg-foreground motion-reduce:animate-none"
-							/>
-							<div>
-								<p className="font-medium text-sm">
-									Waiting for payment confirmation
+				<CloudSettingsGroup
+					title="Persistent cloud machine"
+					description="A private, always-on development computer managed by Zuse."
+				>
+					<CloudSettingsRow
+						title={offer.displayName}
+						description={`${offer.vcpuCount} vCPU · ${offer.memoryMib / 1024} GB memory · ${offer.diskGib} GB disk · ${offer.location}`}
+						action={
+							<div className="flex items-center gap-2">
+								<p className="whitespace-nowrap text-[11px] text-muted-foreground">
+									<span className="font-medium text-foreground">
+										${(offer.monthlyPriceCents / 100).toFixed(0)}
+									</span>{" "}
+									/ month
 								</p>
-								<p className="mt-1 text-muted-foreground text-xs">
-									Your cloud machine will be provisioned automatically once
-									payment is confirmed. You can safely return to this window.
-								</p>
+								<Button
+									size="xs"
+									loading={submitting}
+									onClick={() => void beginPurchase()}
+								>
+									<ExternalLink aria-hidden />
+									{checkoutUrl === null ? "Checkout" : "Reopen"}
+								</Button>
 							</div>
-						</div>
+						}
+					/>
+					<CloudSettingsRow
+						title="Backups and network"
+						description="Automatic backups included. Public inbound traffic is blocked."
+						action={<Badge variant="success">Included</Badge>}
+					/>
+					{checkoutUrl === null ? null : (
+						<CloudSettingsRow
+							title="Waiting for payment"
+							description="Provisioning begins automatically when payment is confirmed. You can close this window."
+							action={<Badge variant="warning">Checking</Badge>}
+						/>
 					)}
-				</Card>
+				</CloudSettingsGroup>
+			) : null}
+
+			{machine === null && offer === null && loadError === null ? (
+				<CloudSettingsGroup
+					title="Cloud machines"
+					description="Persistent cloud machines are currently invite-only."
+				>
+					<CloudSettingsRow
+						title="No offer available"
+						description="This account does not currently have access to a cloud-machine offer."
+						action={<Badge variant="outline">Unavailable</Badge>}
+					/>
+				</CloudSettingsGroup>
 			) : null}
 
 			{machine !== null && progress !== null ? (
-				<Card className="space-y-5 p-5">
-					<div className="flex items-start justify-between gap-3">
-						<div>
-							<h2 className="font-semibold text-base">
-								{machine.label ?? machine.offer.displayName}
-							</h2>
-							<p className="mt-1 text-muted-foreground text-sm">
-								{machine.offer.location} · {progress.label}
-							</p>
-						</div>
-						{machineEnvironmentId !== undefined && machine.state === "ready" ? (
-							<Button
-								type="button"
-								disabled={machineEnvironment?.status !== "connected"}
-								onClick={() => {
-									void switchToEnvironment({
-										environmentId: machineEnvironmentId,
-									}).then((result) => {
-										if (result.switched) setView("chat");
-									});
-								}}
-								className="min-h-11"
-							>
-								{machineEnvironment?.status === "connected"
-									? "Open machine"
-									: "Connecting…"}
-							</Button>
-						) : null}
-					</div>
-
-					<div
-						role={progress.tone === "error" ? "alert" : "status"}
-						aria-live="polite"
-						className={`min-h-20 rounded-lg border p-3 ${
-							progress.tone === "error"
-								? "border-destructive/30 bg-destructive/5"
-								: progress.tone === "warning"
-									? "border-amber-500/30 bg-amber-500/5"
-									: "border-border bg-muted/20"
-						}`}
+				<>
+					<CloudSettingsGroup
+						title={machine.label ?? machine.offer.displayName}
+						description="Your persistent provider-managed development computer."
+						action={
+							<Badge variant={progressVariant(progress.tone)}>
+								{progress.label}
+							</Badge>
+						}
 					>
-						<p className="font-medium text-sm">{progress.headline}</p>
-						<p className="mt-1 text-muted-foreground text-xs">
-							{progress.detail}
-						</p>
-					</div>
-
-					{activeProgressStep !== null ? (
-						<section className="min-h-24" aria-label="Machine setup progress">
-							<ol className="grid grid-cols-7 gap-2">
-								{cloudMachineProgressSteps.map((step, index) => {
-									const complete = index <= activeProgressStep;
-									const current = index === activeProgressStep;
-									return (
-										<li
+						<CloudSettingsRow
+							title="Machine"
+							description={`${machine.offer.vcpuCount} vCPU · ${machine.offer.memoryMib / 1024} GB memory · ${machine.offer.diskGib} GB disk`}
+							action={
+								<span className="text-[11px] text-muted-foreground">
+									{machine.offer.location}
+								</span>
+							}
+						/>
+						<CloudSettingsRow
+							title={progress.headline}
+							description={progress.detail}
+							action={
+								<Badge variant={progressVariant(progress.tone)}>
+									{progress.label}
+								</Badge>
+							}
+						>
+							{activeProgressStep === null ? null : (
+								<div
+									className="grid grid-cols-7 gap-1"
+									aria-label={`Provisioning step ${activeProgressStep + 1} of ${cloudMachineProgressSteps.length}: ${cloudMachineProgressSteps[activeProgressStep]}`}
+									aria-valuemax={cloudMachineProgressSteps.length}
+									aria-valuemin={1}
+									aria-valuenow={activeProgressStep + 1}
+									role="progressbar"
+								>
+									{cloudMachineProgressSteps.map((step, index) => (
+										<span
 											key={step}
-											className="min-w-0"
-											aria-current={current ? "step" : undefined}
-										>
-											<div
-												className={`h-1.5 rounded-full ${
-													complete
-														? current && progress.tone === "error"
-															? "bg-destructive"
-															: current && progress.tone === "warning"
-																? "bg-amber-500"
-																: "bg-foreground"
-														: "bg-muted"
-												}`}
-											/>
-											<p
-												className={`mt-2 text-xs ${
-													current ? "text-foreground" : "text-muted-foreground"
-												}`}
+											title={step}
+											className={`h-1 rounded-full ${
+												index <= activeProgressStep
+													? progress.tone === "error" &&
+														index === activeProgressStep
+														? "bg-destructive"
+														: progress.tone === "warning" &&
+																index === activeProgressStep
+															? "bg-warning"
+															: "bg-foreground"
+													: "bg-muted"
+											}`}
+										/>
+									))}
+								</div>
+							)}
+						</CloudSettingsRow>
+						{machine.state !== "ready" ? null : (
+							<CloudSettingsRow
+								title="Managed connection"
+								description={connection.description}
+								action={
+									<>
+										<Badge variant={connection.variant}>
+											{machineEnvironment?.status === "connecting" ||
+											connectionBusy ? (
+												<LoaderCircle className="animate-spin motion-reduce:animate-none" />
+											) : null}
+											{connection.label}
+										</Badge>
+										{connected && machineEnvironmentId !== undefined ? (
+											<Button
+												size="xs"
+												loading={connectionBusy}
+												onClick={() => void openMachine()}
 											>
-												{step}
-											</p>
-										</li>
-									);
-								})}
-							</ol>
-						</section>
-					) : null}
+												Open machine
+											</Button>
+										) : (
+											<Button
+												size="xs"
+												variant="outline"
+												loading={connectionBusy}
+												onClick={() => void retryMachineConnection()}
+											>
+												Retry
+											</Button>
+										)}
+									</>
+								}
+							/>
+						)}
+					</CloudSettingsGroup>
 
-					<div className="rounded-lg border border-border p-3 text-sm">
-						<p className="font-medium">Connection and SSH</p>
-						<p className="mt-1 text-muted-foreground text-xs">
-							Managed connection is always available. Open the machine to add a
-							private network, manage authorized keys, or opt into
-							identity-based SSH.
-						</p>
-					</div>
-
-					<div className="grid min-h-16 grid-cols-2 gap-3 rounded-lg border border-border p-3 text-xs">
-						<div>
-							<p className="text-muted-foreground">Paid through</p>
-							<p className="mt-1 font-medium">
-								{machine.paidThrough === undefined
-									? "Manual alpha"
-									: new Date(machine.paidThrough).toLocaleDateString()}
-							</p>
-						</div>
-						<div>
-							<p className="text-muted-foreground">Recovery deadline</p>
-							<p className="mt-1 font-medium">
-								{machine.recoveryDeadline === undefined
-									? "Not scheduled"
-									: new Date(machine.recoveryDeadline).toLocaleDateString()}
-							</p>
-						</div>
-					</div>
-
-					{machineEnvironmentId !== undefined &&
-					machineEnvironment?.status === "connected" ? (
+					{connected && machineEnvironmentId !== undefined ? (
 						<>
 							<CloudAccountAccess environmentId={machineEnvironmentId} />
-							<div className="space-y-4 rounded-lg border border-border p-3">
-								<div>
-									<p className="font-medium text-sm">Private networking</p>
-									<p className="mt-1 text-muted-foreground text-xs">
-										The key is sent directly to this machine and is never saved.
-									</p>
-								</div>
-								<div className="flex gap-2">
-									<label className="sr-only" htmlFor="private-network-key">
-										Private-network auth key
-									</label>
+							<CloudSettingsGroup
+								title="Private access"
+								description="Optional private networking and SSH access for this machine."
+							>
+								<CloudSettingsRow
+									title="Private network"
+									description={
+										network?.enabled === true
+											? (network.dnsName ?? "Connected to your private network")
+											: "Connect once with a reusable or ephemeral network auth key."
+									}
+									action={
+										<>
+											<Badge
+												variant={
+													network?.enabled === true ? "success" : "outline"
+												}
+											>
+												{network?.enabled === true
+													? "Enabled"
+													: "Not configured"}
+											</Badge>
+											<Button
+												size="xs"
+												variant="outline"
+												onClick={() => setNetworkDialogOpen(true)}
+											>
+												{network?.enabled === true ? "Reconnect" : "Set up"}
+											</Button>
+										</>
+									}
+								/>
+								<CloudSettingsRow
+									title="SSH mode"
+									description={
+										sshMode === "tailnet-identity"
+											? "Network identity controls SSH access. Explicit ACL rules are required."
+											: "Standard public keys authorize SSH access."
+									}
+									action={
+										<Select
+											value={sshMode}
+											disabled={network?.enabled !== true || action !== null}
+											onValueChange={(value) =>
+												void updateSshMode(value as SshMode)
+											}
+										>
+											<SelectTrigger size="sm" className="w-36">
+												<SelectValue />
+											</SelectTrigger>
+											<SelectPopup>
+												<SelectItem value="authorized-keys">
+													SSH keys
+												</SelectItem>
+												<SelectItem value="tailnet-identity">
+													Network identity
+												</SelectItem>
+											</SelectPopup>
+										</Select>
+									}
+								/>
+								<CloudSettingsRow
+									title="Authorized keys"
+									description={
+										sshKeys.length === 0
+											? "No SSH public keys have been added."
+											: `${sshKeys.length} ${sshKeys.length === 1 ? "key" : "keys"} authorized`
+									}
+									action={
+										<Button
+											size="xs"
+											variant="outline"
+											disabled={network?.enabled !== true}
+											onClick={() => setKeysDialogOpen(true)}
+										>
+											<KeyRound aria-hidden />
+											Manage
+										</Button>
+									}
+								/>
+							</CloudSettingsGroup>
+						</>
+					) : null}
+
+					<CloudSettingsGroup
+						title="Plan and billing"
+						description="Subscription dates and lifecycle controls for this machine."
+					>
+						<CloudSettingsRow
+							title="Monthly plan"
+							description={machine.offer.displayName}
+							action={
+								<span className="font-medium text-[11px]">
+									${(machine.offer.monthlyPriceCents / 100).toFixed(0)} / month
+								</span>
+							}
+						/>
+						<CloudSettingsRow
+							title="Paid through"
+							description={formatDate(machine.paidThrough, "Manual alpha")}
+						/>
+						<CloudSettingsRow
+							title="Recovery deadline"
+							description={formatDate(
+								machine.recoveryDeadline,
+								"Not scheduled",
+							)}
+						/>
+						<CloudSettingsRow
+							title="Billing"
+							description="Manage payment details and invoices in the billing portal."
+							action={
+								<Button
+									size="xs"
+									variant="outline"
+									loading={action === "billing"}
+									disabled={action !== null}
+									onClick={() => {
+										void (async () => {
+											setAction("billing");
+											setActionError(null);
+											try {
+												const client = await getControlPlaneRpcClient();
+												const portal = await Effect.runPromise(
+													client["machines.billingPortal"](),
+												);
+												await openExternal(portal.portalUrl);
+											} catch {
+												setActionError(
+													"Billing management is unavailable during the manual alpha.",
+												);
+											} finally {
+												setAction(null);
+											}
+										})();
+									}}
+								>
+									<ExternalLink aria-hidden />
+									Open portal
+								</Button>
+							}
+						/>
+						{machine.state === "suspended" ? (
+							<CloudSettingsRow
+								title="Recover machine"
+								description="Restore access before the recovery deadline."
+								action={
+									<Button
+										size="xs"
+										loading={action === "recover"}
+										disabled={action !== null}
+										onClick={() =>
+											void machineAction("recover", async () => {
+												const client = await getControlPlaneRpcClient();
+												return Effect.runPromise(
+													client["machines.recover"]({
+														machineId: machine.machineId,
+													}),
+												);
+											})
+										}
+									>
+										Recover
+									</Button>
+								}
+							/>
+						) : machine.desiredState === "ready" ? (
+							<CloudSettingsRow
+								title="Subscription"
+								description="Keep using the machine until the end of the paid period."
+								action={
+									<Button
+										size="xs"
+										variant="outline"
+										loading={action === "cancel"}
+										disabled={action !== null}
+										onClick={() =>
+											void machineAction("cancel", async () => {
+												const client = await getControlPlaneRpcClient();
+												return Effect.runPromise(
+													client["machines.cancel"]({
+														machineId: machine.machineId,
+													}),
+												);
+											})
+										}
+									>
+										Cancel at period end
+									</Button>
+								}
+							/>
+						) : null}
+					</CloudSettingsGroup>
+
+					<CloudSettingsGroup
+						title="Danger zone"
+						description="Permanent actions for this cloud machine."
+					>
+						<CloudSettingsRow
+							title="Destroy machine"
+							description="Immediately revoke access, sanitize credentials, and schedule provider cleanup."
+							action={
+								<Button
+									size="xs"
+									variant="destructive-outline"
+									disabled={action !== null || machine.state === "destroyed"}
+									onClick={() => setDestroyDialogOpen(true)}
+								>
+									<Trash2 aria-hidden />
+									Destroy
+								</Button>
+							}
+						/>
+					</CloudSettingsGroup>
+
+					<Dialog
+						open={networkDialogOpen}
+						onOpenChange={(open) => {
+							setNetworkDialogOpen(open);
+							if (!open) setNetworkKey("");
+						}}
+					>
+						<DialogPopup className="max-w-sm">
+							<DialogHeader>
+								<DialogTitle>Connect private network</DialogTitle>
+								<DialogDescription>
+									The auth key goes directly to this machine and is discarded
+									after setup.
+								</DialogDescription>
+							</DialogHeader>
+							<DialogPanel className="space-y-3">
+								<label
+									className="block space-y-1"
+									htmlFor="private-network-key"
+								>
+									<span className="text-[11px] font-medium">Auth key</span>
 									<Input
 										id="private-network-key"
 										type="password"
 										value={networkKey}
 										onChange={(event) => setNetworkKey(event.target.value)}
-										placeholder="Auth key"
+										placeholder="Paste an auth key"
 										autoComplete="off"
-										className="min-h-11"
+										spellCheck={false}
+										data-1p-ignore
+									/>
+								</label>
+								<label
+									className="block space-y-1"
+									htmlFor="private-network-ssh-mode"
+								>
+									<span className="text-[11px] font-medium">SSH mode</span>
+									<Select
+										value={sshMode}
+										onValueChange={(value) => setSshMode(value as SshMode)}
+									>
+										<SelectTrigger id="private-network-ssh-mode">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectPopup>
+											<SelectItem value="authorized-keys">
+												Standard SSH keys
+											</SelectItem>
+											<SelectItem value="tailnet-identity">
+												Network identity SSH
+											</SelectItem>
+										</SelectPopup>
+									</Select>
+								</label>
+							</DialogPanel>
+							<DialogFooter>
+								<DialogClose render={<Button size="xs" variant="ghost" />}>
+									Cancel
+								</DialogClose>
+								<Button
+									size="xs"
+									loading={action === "network"}
+									disabled={action !== null || networkKey.trim().length === 0}
+									onClick={() => void enablePrivateNetwork()}
+								>
+									Connect
+								</Button>
+							</DialogFooter>
+						</DialogPopup>
+					</Dialog>
+
+					<Dialog open={keysDialogOpen} onOpenChange={setKeysDialogOpen}>
+						<DialogPopup className="max-w-md">
+							<DialogHeader>
+								<DialogTitle>Authorized SSH keys</DialogTitle>
+								<DialogDescription>
+									Only these public keys can access the machine over its private
+									network.
+								</DialogDescription>
+							</DialogHeader>
+							<DialogPanel className="space-y-3">
+								<form
+									className="flex gap-2"
+									onSubmit={(event) => {
+										event.preventDefault();
+										void addSshKey();
+									}}
+								>
+									<label className="sr-only" htmlFor="ssh-public-key">
+										SSH public key
+									</label>
+									<Input
+										id="ssh-public-key"
+										value={sshPublicKey}
+										onChange={(event) => setSshPublicKey(event.target.value)}
+										placeholder="ssh-ed25519 …"
+										autoComplete="off"
+										spellCheck={false}
 									/>
 									<Button
-										type="button"
-										disabled={networkKey.length === 0 || action !== null}
-										onClick={() => {
-											void (async () => {
-												setAction("network");
-												try {
-													const client =
-														await getRpcClient(machineEnvironmentId);
-													const status = await Effect.runPromise(
-														client["machine.privateNetwork.enable"]({
-															authKey: networkKey,
-															sshMode,
-														}),
-													);
-													setNetwork(status);
-												} catch {
-													setActionError(
-														"Private networking could not be enabled.",
-													);
-												} finally {
-													setNetworkKey("");
-													setAction(null);
-												}
-											})();
-										}}
-										className="min-h-11"
+										type="submit"
+										size="sm"
+										loading={action === "ssh-key"}
+										disabled={
+											action !== null || sshPublicKey.trim().length === 0
+										}
 									>
-										Connect
+										Add
 									</Button>
-								</div>
-								<fieldset className="space-y-2">
-									<legend className="font-medium text-sm">SSH mode</legend>
-									{(
-										[
-											["authorized-keys", "Standard SSH keys"],
-											["tailnet-identity", "Identity-based SSH"],
-										] as const
-									).map(([mode, label]) => (
-										<label
-											key={mode}
-											className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md border border-border px-3 text-sm"
-										>
-											<input
-												type="radio"
-												name="ssh-mode"
-												value={mode}
-												checked={sshMode === mode}
-												onChange={() => {
-													setSshMode(mode);
-													if (network?.enabled === true) {
-														void (async () => {
-															const client =
-																await getRpcClient(machineEnvironmentId);
-															const status = await Effect.runPromise(
-																client["machine.sshMode.set"]({ mode }),
-															);
-															setNetwork(status);
-														})();
-													}
-												}}
-											/>
-											{label}
-										</label>
-									))}
-									{sshMode === "tailnet-identity" ? (
-										<p className="text-amber-600 text-xs">
-											Your network ACL must explicitly allow SSH access to this
-											machine.
+								</form>
+								<div className="overflow-hidden rounded-md border border-border/60">
+									{sshKeys.length === 0 ? (
+										<p className="px-3 py-3 text-[11px] text-muted-foreground">
+											No keys added yet.
 										</p>
-									) : null}
-								</fieldset>
-								{sshMode === "authorized-keys" ? (
-									<div className="space-y-2">
-										<label
-											htmlFor="ssh-public-key"
-											className="font-medium text-sm"
-										>
-											Authorized keys
-										</label>
-										<div className="flex gap-2">
-											<Input
-												id="ssh-public-key"
-												value={sshPublicKey}
-												onChange={(event) =>
-													setSshPublicKey(event.target.value)
-												}
-												placeholder="ssh-ed25519 …"
-												className="min-h-11"
-											/>
-											<Button
-												type="button"
-												disabled={sshPublicKey.length === 0}
-												onClick={() => {
-													void (async () => {
-														const client =
-															await getRpcClient(machineEnvironmentId);
-														await Effect.runPromise(
-															client["machine.sshKeys.add"]({
-																publicKey: sshPublicKey,
-															}),
-														);
-														setSshPublicKey("");
-														await refreshHostSettings();
-													})();
-												}}
-												className="min-h-11"
-											>
-												Add
-											</Button>
-										</div>
-										{sshKeys.map((key) => (
-											<div
-												key={key.fingerprint}
-												className="flex min-h-11 items-center gap-2 text-xs"
-											>
-												<span className="min-w-0 flex-1 truncate">
-													{key.label ?? key.fingerprint}
-												</span>
-												<Button
-													type="button"
-													variant="ghost"
-													onClick={() => {
-														void (async () => {
-															const client =
-																await getRpcClient(machineEnvironmentId);
-															await Effect.runPromise(
-																client["machine.sshKeys.remove"]({
-																	fingerprint: key.fingerprint,
-																}),
-															);
-															await refreshHostSettings();
-														})();
-													}}
+									) : (
+										<div className="divide-y divide-border/40">
+											{sshKeys.map((key) => (
+												<div
+													key={key.fingerprint}
+													className="flex min-h-10 items-center gap-2 px-3 py-2"
 												>
-													Remove
-												</Button>
-											</div>
-										))}
-									</div>
-								) : null}
-							</div>
-						</>
-					) : null}
+													<div className="min-w-0 flex-1">
+														<p className="truncate text-xs font-medium">
+															{key.label ?? "SSH key"}
+														</p>
+														<p className="truncate text-[10px] text-muted-foreground">
+															{key.fingerprint}
+														</p>
+													</div>
+													<Button
+														size="xs"
+														variant="ghost"
+														loading={action === `remove-key:${key.fingerprint}`}
+														disabled={action !== null}
+														onClick={() => void removeSshKey(key.fingerprint)}
+													>
+														Remove
+													</Button>
+												</div>
+											))}
+										</div>
+									)}
+								</div>
+							</DialogPanel>
+							<DialogFooter>
+								<DialogClose render={<Button size="xs" variant="ghost" />}>
+									Done
+								</DialogClose>
+							</DialogFooter>
+						</DialogPopup>
+					</Dialog>
 
-					<div className="flex flex-wrap gap-2 border-border border-t pt-4">
-						<Button
-							type="button"
-							variant="outline"
-							disabled={action !== null}
-							onClick={() => {
-								void (async () => {
-									setAction("billing");
-									try {
-										const client = await getControlPlaneRpcClient();
-										const portal = await Effect.runPromise(
-											client["machines.billingPortal"](),
-										);
-										await openExternal(portal.portalUrl);
-									} catch {
-										setActionError(
-											"Billing management is unavailable during the manual alpha.",
-										);
-									} finally {
-										setAction(null);
-									}
-								})();
-							}}
-							className="min-h-11"
-						>
-							Billing
-						</Button>
-						{machine.state === "suspended" ? (
-							<Button
-								type="button"
-								disabled={action !== null}
-								onClick={() =>
-									void machineAction("recover", async () => {
-										const client = await getControlPlaneRpcClient();
-										return Effect.runPromise(
-											client["machines.recover"]({
-												machineId: machine.machineId,
-											}),
-										);
-									})
-								}
-								className="min-h-11"
-							>
-								Recover machine
-							</Button>
-						) : machine.desiredState === "ready" ? (
-							<Button
-								type="button"
-								variant="outline"
-								disabled={action !== null}
-								onClick={() =>
-									void machineAction("cancel", async () => {
-										const client = await getControlPlaneRpcClient();
-										return Effect.runPromise(
-											client["machines.cancel"]({
-												machineId: machine.machineId,
-											}),
-										);
-									})
-								}
-								className="min-h-11"
-							>
-								Cancel at period end
-							</Button>
-						) : null}
-						<Button
-							type="button"
-							variant="destructive"
-							disabled={action !== null || machine.state === "destroyed"}
-							onClick={() => {
-								if (
-									!window.confirm(
-										"Destroy this machine now? Access ends immediately. A sanitized final snapshot is kept temporarily only when credential cleanup can be verified.",
-									)
-								) {
-									return;
-								}
-								void machineAction("destroy", async () => {
-									const client = await getControlPlaneRpcClient();
-									return Effect.runPromise(
-										client["machines.destroy"]({
-											machineId: machine.machineId,
-											confirmation: "destroy",
-										}),
-									);
-								});
-							}}
-							className="min-h-11"
-						>
-							Destroy now…
-						</Button>
-					</div>
-				</Card>
+					<AlertDialog
+						open={destroyDialogOpen}
+						onOpenChange={setDestroyDialogOpen}
+					>
+						<AlertDialogPopup>
+							<AlertDialogHeader>
+								<AlertDialogTitle>Destroy this cloud machine?</AlertDialogTitle>
+								<AlertDialogDescription>
+									Access ends immediately. Credentials are removed before any
+									final snapshot, and provider cleanup is scheduled.
+								</AlertDialogDescription>
+							</AlertDialogHeader>
+							<AlertDialogFooter>
+								<AlertDialogClose render={<Button size="xs" variant="ghost" />}>
+									Keep machine
+								</AlertDialogClose>
+								<Button
+									size="xs"
+									variant="destructive"
+									loading={action === "destroy"}
+									disabled={action !== null}
+									onClick={() => {
+										void machineAction("destroy", async () => {
+											const client = await getControlPlaneRpcClient();
+											const destroyed = await Effect.runPromise(
+												client["machines.destroy"]({
+													machineId: machine.machineId,
+													confirmation: "destroy",
+												}),
+											);
+											setDestroyDialogOpen(false);
+											return destroyed;
+										});
+									}}
+								>
+									Destroy machine
+								</Button>
+							</AlertDialogFooter>
+						</AlertDialogPopup>
+					</AlertDialog>
+				</>
 			) : null}
-		</div>
+		</section>
 	);
 }

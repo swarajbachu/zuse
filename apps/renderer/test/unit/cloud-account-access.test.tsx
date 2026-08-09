@@ -9,13 +9,14 @@ describe("CloudAccountAccess", () => {
 			<CloudAccountAccess environmentId="env-cloud" />,
 		);
 
-		expect(markup).toContain("Bring access from this Mac");
+		expect(markup).toContain("Developer access");
 		expect(markup).toContain("Developer tools");
-		expect(markup).toContain("Project access");
+		expect(markup).toContain("Private repository access");
 		expect(markup).toContain("GitHub");
 		expect(markup).toContain("Claude");
 		expect(markup).toContain("Codex");
 		expect(markup.match(/>Connect<\/button>/gu)).toHaveLength(3);
+		expect(markup).toContain('aria-label="Refresh developer access"');
 		expect(markup).toContain('aria-live="polite"');
 		expect(markup).not.toContain('type="password"');
 		expect(markup).not.toContain("auth.json");
