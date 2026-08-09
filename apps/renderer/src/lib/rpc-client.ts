@@ -187,6 +187,13 @@ export const getRpcClient = (environmentId?: unknown): Promise<MemoizeClient> =>
 		).getClient(),
 	);
 
+/**
+ * Account and machine lifecycle operations always belong to the desktop that
+ * owns this renderer, even while a project on another computer is active.
+ */
+export const getControlPlaneRpcClient = (): Promise<MemoizeClient> =>
+	getRpcClient(localEnvironmentId);
+
 export const registerWebSocketEnvironment = (
 	environmentId: string,
 	wsUrl: string,

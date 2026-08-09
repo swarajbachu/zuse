@@ -7,7 +7,6 @@ import type {
 } from "@zuse/contracts";
 import { Effect, Stream } from "effect";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { subscribeToCloudAccountAccessIntent } from "../../lib/cloud-account-access-intent.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
 import {
 	getControlPlaneRpcClient,
@@ -52,7 +51,11 @@ const statusBadge = (
 	return { label: "Not connected", variant: "outline" };
 };
 
-export function CloudAccountAccess() {
+export function CloudAccountAccess({
+	environmentId,
+}: {
+	readonly environmentId: string;
+}) {
 	const [statuses, setStatuses] = useState<
 		ReadonlyArray<AccountAccessProviderStatus>
 	>([]);
@@ -70,7 +73,7 @@ export function CloudAccountAccess() {
 	const refresh = useCallback(async () => {
 		try {
 			const [environment, control] = await Promise.all([
-				getRpcClient(),
+				getRpcClient(environmentId),
 				getControlPlaneRpcClient(),
 			]);
 			const [remote, local] = await Promise.all([
@@ -85,19 +88,11 @@ export function CloudAccountAccess() {
 		} finally {
 			setLoading(false);
 		}
-	}, []);
+	}, [environmentId]);
 
 	useEffect(() => {
 		void refresh();
 	}, [refresh]);
-
-	useEffect(() => {
-		return subscribeToCloudAccountAccessIntent(
-			window.sessionStorage,
-			window,
-			setPendingProvider,
-		);
-	}, []);
 
 	const statusByProvider = useMemo(
 		() => new Map(statuses.map((status) => [status.providerId, status])),
@@ -116,7 +111,7 @@ export function CloudAccountAccess() {
 		setError(null);
 		try {
 			const [environment, control] = await Promise.all([
-				getRpcClient(),
+				getRpcClient(environmentId),
 				getControlPlaneRpcClient(),
 			]);
 			if (providerId === "claude") {
@@ -191,7 +186,7 @@ export function CloudAccountAccess() {
 		setBusyProvider(providerId);
 		setError(null);
 		try {
-			const environment = await getRpcClient();
+			const environment = await getRpcClient(environmentId);
 			await Effect.runPromise(
 				environment["accountAccess.disconnect"]({ providerId }),
 			);

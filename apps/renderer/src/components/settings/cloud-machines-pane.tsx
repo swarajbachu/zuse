@@ -25,11 +25,12 @@ import { selectActiveCloudMachine } from "../../lib/cloud-machine-selection.ts";
 import { hostedAccountId } from "../../lib/hosted-connect.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
 import {
-	getActiveEnvironmentId,
 	getControlPlaneRpcClient,
 	getRpcClient,
-	selectEnvironment,
 } from "../../lib/rpc-client.ts";
+import { switchToEnvironment } from "../../lib/switch-environment.ts";
+import { useEnvironmentCatalogStore } from "../../store/environment-catalog.ts";
+import { useUiStore } from "../../store/ui.ts";
 import { Button } from "../ui/button.tsx";
 import { Card } from "../ui/card.tsx";
 import { Input } from "../ui/input.tsx";
@@ -51,6 +52,18 @@ export function CloudMachinesPane() {
 	);
 	const [sshPublicKey, setSshPublicKey] = useState("");
 	const [sshKeys, setSshKeys] = useState<ReadonlyArray<MachineSshKey>>([]);
+	const machineEnvironmentId = machine?.environmentId;
+	const machineEnvironment = useEnvironmentCatalogStore((state) =>
+		machineEnvironmentId === undefined
+			? undefined
+			: state.entries.find(
+					(entry) => entry.environmentId === machineEnvironmentId,
+				),
+	);
+	const syncAccountEnvironments = useEnvironmentCatalogStore(
+		(state) => state.syncAccountEnvironments,
+	);
+	const setView = useUiStore((state) => state.setView);
 
 	const load = useCallback(async () => {
 		try {
@@ -63,6 +76,20 @@ export function CloudMachinesPane() {
 			setOffer(nextOffer);
 			const activeMachine = selectActiveCloudMachine(machines.machines);
 			setMachine(activeMachine);
+			if (
+				activeMachine?.state === "ready" &&
+				activeMachine.environmentId !== undefined &&
+				!useEnvironmentCatalogStore
+					.getState()
+					.entries.some(
+						(entry) => entry.environmentId === activeMachine.environmentId,
+					)
+			) {
+				void syncAccountEnvironments().catch(() => {
+					// The next machine poll retries discovery. Once present, the
+					// catalog's normal retry surface owns connection failures.
+				});
+			}
 			if (activeMachine !== null) {
 				setCheckoutUrl(null);
 				clearCloudMachineCheckoutSession(window.sessionStorage);
@@ -83,7 +110,7 @@ export function CloudMachinesPane() {
 		} finally {
 			setLoading(false);
 		}
-	}, []);
+	}, [syncAccountEnvironments]);
 
 	useEffect(() => {
 		void load();
@@ -161,13 +188,12 @@ export function CloudMachinesPane() {
 
 	const refreshHostSettings = useCallback(async () => {
 		if (
-			machine?.environmentId === undefined ||
-			getActiveEnvironmentId() !== machine.environmentId
-		) {
+			machineEnvironmentId === undefined ||
+			machineEnvironment?.status !== "connected"
+		)
 			return;
-		}
 		try {
-			const client = await getRpcClient();
+			const client = await getRpcClient(machineEnvironmentId);
 			const [status, keys] = await Promise.all([
 				Effect.runPromise(client["machine.privateNetwork.status"]()),
 				Effect.runPromise(client["machine.sshKeys.list"]()),
@@ -178,7 +204,7 @@ export function CloudMachinesPane() {
 		} catch {
 			// The normal connection recovery surface owns transport failures.
 		}
-	}, [machine?.environmentId]);
+	}, [machineEnvironment?.status, machineEnvironmentId]);
 
 	useEffect(() => {
 		void refreshHostSettings();
@@ -278,16 +304,22 @@ export function CloudMachinesPane() {
 								{machine.offer.location} · {progress.label}
 							</p>
 						</div>
-						{machine.environmentId !== undefined &&
-						machine.state === "ready" ? (
+						{machineEnvironmentId !== undefined && machine.state === "ready" ? (
 							<Button
 								type="button"
-								onClick={() =>
-									void selectEnvironment(machine.environmentId ?? null)
-								}
+								disabled={machineEnvironment?.status !== "connected"}
+								onClick={() => {
+									void switchToEnvironment({
+										environmentId: machineEnvironmentId,
+									}).then((result) => {
+										if (result.switched) setView("chat");
+									});
+								}}
 								className="min-h-11"
 							>
-								Open machine
+								{machineEnvironment?.status === "connected"
+									? "Open machine"
+									: "Connecting…"}
 							</Button>
 						) : null}
 					</div>
@@ -374,10 +406,10 @@ export function CloudMachinesPane() {
 						</div>
 					</div>
 
-					{machine.environmentId !== undefined &&
-					getActiveEnvironmentId() === machine.environmentId ? (
+					{machineEnvironmentId !== undefined &&
+					machineEnvironment?.status === "connected" ? (
 						<>
-							<CloudAccountAccess />
+							<CloudAccountAccess environmentId={machineEnvironmentId} />
 							<div className="space-y-4 rounded-lg border border-border p-3">
 								<div>
 									<p className="font-medium text-sm">Private networking</p>
@@ -405,7 +437,8 @@ export function CloudMachinesPane() {
 											void (async () => {
 												setAction("network");
 												try {
-													const client = await getRpcClient();
+													const client =
+														await getRpcClient(machineEnvironmentId);
 													const status = await Effect.runPromise(
 														client["machine.privateNetwork.enable"]({
 															authKey: networkKey,
@@ -449,7 +482,8 @@ export function CloudMachinesPane() {
 													setSshMode(mode);
 													if (network?.enabled === true) {
 														void (async () => {
-															const client = await getRpcClient();
+															const client =
+																await getRpcClient(machineEnvironmentId);
 															const status = await Effect.runPromise(
 																client["machine.sshMode.set"]({ mode }),
 															);
@@ -491,7 +525,8 @@ export function CloudMachinesPane() {
 												disabled={sshPublicKey.length === 0}
 												onClick={() => {
 													void (async () => {
-														const client = await getRpcClient();
+														const client =
+															await getRpcClient(machineEnvironmentId);
 														await Effect.runPromise(
 															client["machine.sshKeys.add"]({
 																publicKey: sshPublicKey,
@@ -519,7 +554,8 @@ export function CloudMachinesPane() {
 													variant="ghost"
 													onClick={() => {
 														void (async () => {
-															const client = await getRpcClient();
+															const client =
+																await getRpcClient(machineEnvironmentId);
 															await Effect.runPromise(
 																client["machine.sshKeys.remove"]({
 																	fingerprint: key.fingerprint,

@@ -5,7 +5,9 @@ import { CloudAccountAccess } from "../../src/components/settings/cloud-account-
 
 describe("CloudAccountAccess", () => {
 	it("renders a stable keyboard-operable setup checklist without secret inputs", () => {
-		const markup = renderToStaticMarkup(<CloudAccountAccess />);
+		const markup = renderToStaticMarkup(
+			<CloudAccountAccess environmentId="env-cloud" />,
+		);
 
 		expect(markup).toContain("Bring access from this Mac");
 		expect(markup).toContain("Developer tools");

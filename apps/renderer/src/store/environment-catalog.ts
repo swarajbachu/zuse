@@ -83,6 +83,7 @@ type EnvironmentCatalogState = {
 	readonly initialized: boolean;
 	readonly hiddenRelayEnvironmentIds: ReadonlyArray<string>;
 	initialize: () => Promise<void>;
+	syncAccountEnvironments: () => Promise<void>;
 	add: (target: SshEnvironmentTarget, label?: string) => Promise<void>;
 	/** Resolves with the connected computer's label once the link settles. */
 	addTailnet: (pairingLink: string, label?: string) => Promise<string>;
@@ -702,6 +703,60 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					]);
 					set({ initialized: true });
 				});
+			},
+			syncAccountEnvironments: async () => {
+				const local = get().entries.find(
+					(entry) => entry.connectionKind === "local",
+				);
+				if (local === undefined) {
+					await get().initialize();
+					return;
+				}
+
+				const localClient = await getRpcClient(local.environmentId);
+				const result = await Effect.runPromise(
+					localClient["relay.environments"](),
+				);
+				const profileEnvironmentIds = new Set(
+					get()
+						.entries.filter(
+							(entry) =>
+								entry.connectionKind === "ssh" ||
+								entry.connectionKind === "tailnet",
+						)
+						.map((entry) => entry.environmentId),
+				);
+				const hiddenRelayIds = new Set(get().hiddenRelayEnvironmentIds);
+				const accountEnvironments = result.environments.filter(
+					(environment) =>
+						environment.environmentId !== local.environmentId &&
+						!profileEnvironmentIds.has(environment.environmentId),
+				);
+				for (const environment of accountEnvironments) {
+					relayRecords.set(environment.environmentId, environment);
+				}
+
+				const knownEnvironmentIds = new Set(
+					get().entries.map((entry) => entry.environmentId),
+				);
+				const added = accountEnvironments.filter(
+					(environment) =>
+						!hiddenRelayIds.has(environment.environmentId) &&
+						!knownEnvironmentIds.has(environment.environmentId),
+				);
+				if (added.length === 0) return;
+
+				set((state) => ({
+					entries: orderEnvironmentCatalog([
+						...state.entries,
+						...added.map(relayEntry),
+					]),
+				}));
+				await Promise.allSettled(
+					added.map((environment) =>
+						connectRelay(environment, local.environmentId),
+					),
+				);
 			},
 			add: async (target, label) => {
 				const bridge = window.zuse?.ssh;
