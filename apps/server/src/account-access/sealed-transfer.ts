@@ -9,10 +9,10 @@ import {
 	randomBytes,
 } from "node:crypto";
 
-import type {
+import {
 	AccountAccessPreparedImport,
 	AccountAccessSealedCredential,
-	EnvironmentId,
+	type EnvironmentId,
 } from "@zuse/contracts";
 import { Schema } from "effect";
 import { importJWK, jwtVerify, SignJWT } from "jose";
@@ -74,14 +74,15 @@ export const prepareCredentialTransfer = (
 export const publicPreparedImport = (
 	prepared: PreparedCredentialTransfer,
 	environmentProof: string,
-): AccountAccessPreparedImport => ({
-	transferId: prepared.transferId,
-	accountId: prepared.accountId,
-	environmentId: prepared.environmentId,
-	recipientPublicKey: prepared.recipientPublicKey,
-	expiresAt: prepared.expiresAt,
-	environmentProof,
-});
+): AccountAccessPreparedImport =>
+	new AccountAccessPreparedImport({
+		transferId: prepared.transferId,
+		accountId: prepared.accountId,
+		environmentId: prepared.environmentId,
+		recipientPublicKey: prepared.recipientPublicKey,
+		expiresAt: prepared.expiresAt,
+		environmentProof,
+	});
 
 export const signPreparedImport = async (
 	prepared: PreparedCredentialTransfer,
@@ -174,11 +175,11 @@ export const sealCredentialTransfer = (
 		]);
 		const ephemeralJwk = ephemeral.publicKey.export({ format: "jwk" });
 		if (ephemeralJwk.x === undefined) throw new Error("missing_ephemeral_key");
-		return {
+		return new AccountAccessSealedCredential({
 			ephemeralPublicKey: ephemeralJwk.x,
 			nonce: nonce.toString("base64url"),
 			ciphertext: ciphertext.toString("base64url"),
-		};
+		});
 	} catch (cause) {
 		if (cause instanceof Error && cause.message === "transfer_too_large") {
 			throw cause;

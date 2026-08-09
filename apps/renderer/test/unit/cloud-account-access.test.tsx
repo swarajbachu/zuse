@@ -2,7 +2,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { CloudAccountAccess } from "../../src/components/settings/cloud-account-access.tsx";
-import { runtimePhaseLabel } from "../../src/components/settings/cloud-machines-pane.tsx";
+import {
+	runtimePhaseLabel,
+	runtimeVersionDescription,
+} from "../../src/components/settings/cloud-machines-pane.tsx";
 
 describe("CloudAccountAccess", () => {
 	it("renders a stable keyboard-operable setup checklist without secret inputs", () => {
@@ -19,6 +22,10 @@ describe("CloudAccountAccess", () => {
 		expect(markup).toContain("Claude");
 		expect(markup).toContain("Codex");
 		expect(markup.match(/>Connect<\/button>/gu)).toHaveLength(3);
+		expect(
+			markup.match(/<button[^>]*disabled=""[^>]*>Connect<\/button>/gu),
+		).toHaveLength(3);
+		expect(markup).not.toContain("Not connected");
 		expect(markup).toContain('aria-label="Refresh developer access"');
 		expect(markup).toContain('aria-live="polite"');
 		expect(markup).not.toContain('type="password"');
@@ -45,5 +52,26 @@ describe("cloud runtime update progress", () => {
 				failureCode: "rollback-complete",
 			}),
 		).toBe("Update failed; previous version restored");
+	});
+
+	it("shows the installed and target Zuse versions", () => {
+		expect(
+			runtimeVersionDescription({
+				state: "update-available",
+				phase: "idle",
+				progressPercent: 0,
+				targetAppVersion: "0.17.1",
+				installedAppVersion: "0.16.0",
+			}),
+		).toBe("Installed Zuse 0.16.0; desktop requires 0.17.1.");
+		expect(
+			runtimeVersionDescription({
+				state: "current",
+				phase: "idle",
+				progressPercent: 100,
+				targetAppVersion: "0.17.1",
+				installedAppVersion: "0.17.1",
+			}),
+		).toBe("Installed Zuse 0.17.1. This matches the desktop app.");
 	});
 });

@@ -51,15 +51,22 @@ type RowProgress = {
 
 const statusBadge = (
 	status: AccountAccessProviderStatus | undefined,
+	available: boolean,
+	loading: boolean,
 ): {
 	readonly label: string;
 	readonly variant: "success" | "warning" | "outline";
 } => {
+	if (!available) {
+		return loading
+			? { label: "Checking", variant: "outline" }
+			: { label: "Unavailable", variant: "warning" };
+	}
 	if (status?.state === "connected")
-		return { label: "Connected", variant: "success" };
+		return { label: "Authorized", variant: "success" };
 	if (status?.state === "missing-tool")
 		return { label: "Tool missing", variant: "warning" };
-	return { label: "Not connected", variant: "outline" };
+	return { label: "Signed out", variant: "outline" };
 };
 
 export function CloudAccountAccess({
@@ -124,6 +131,7 @@ export function CloudAccountAccess({
 	const missingTools = statuses.filter(
 		(status) => status.state === "missing-tool",
 	);
+	const accountAccessAvailable = statuses.length === PROVIDERS.length;
 	const developerTools =
 		loading && statuses.length === 0
 			? {
@@ -151,6 +159,12 @@ export function CloudAccountAccess({
 						};
 
 	const runSetup = async (providerId: AccountAccessProvider) => {
+		if (!accountAccessAvailable) {
+			setError(
+				"Account setup is unavailable on this machine runtime. Finish the update, then refresh.",
+			);
+			return;
+		}
 		setPendingProvider(null);
 		setBusyProvider(providerId);
 		setProgress({ providerId, message: "Waiting for authorization…" });
@@ -225,6 +239,7 @@ export function CloudAccountAccess({
 			setClaudeTransferId(null);
 			await refresh();
 		} catch {
+			setProgress(null);
 			if (!claudeLoginCancelled.current) {
 				setError(
 					`${PROVIDER_LABEL[providerId]} access could not be connected.`,
@@ -313,7 +328,7 @@ export function CloudAccountAccess({
 		<>
 			<CloudSettingsGroup
 				title="Developer access"
-				description="Connect separate, machine-specific credentials for the accounts you use on this Mac."
+				description="Machine connectivity is separate from account authorization. Authorize each developer account you want available remotely."
 				action={
 					<Button
 						size="icon-sm"
@@ -345,13 +360,16 @@ export function CloudAccountAccess({
 				{PROVIDERS.map((providerId) => {
 					const status = statusByProvider.get(providerId);
 					const local = localByProvider.get(providerId);
-					const badge = statusBadge(status);
+					const badge = statusBadge(status, accountAccessAvailable, loading);
 					const connected = status?.state === "connected";
 					const busy = busyProvider === providerId;
 					const rowProgress =
 						progress?.providerId === providerId ? progress : null;
-					const description =
-						rowProgress === null
+					const description = !accountAccessAvailable
+						? loading
+							? "Checking whether account setup is available."
+							: "Update this machine before configuring account access."
+						: rowProgress === null
 							? (status?.accountLabel ??
 								local?.accountLabel ??
 								(providerId === "claude"
@@ -392,6 +410,7 @@ export function CloudAccountAccess({
 											loading={busy}
 											disabled={
 												loading ||
+												!accountAccessAvailable ||
 												busyProvider !== null ||
 												status?.installed === false
 											}
@@ -408,21 +427,29 @@ export function CloudAccountAccess({
 				<CloudSettingsRow
 					title="Private repository access"
 					description={
-						statusByProvider.get("github")?.state === "connected"
-							? "GitHub CLI can clone, fetch, and push private repositories."
-							: "Connect GitHub before opening a private repository."
+						!accountAccessAvailable
+							? "Update this machine before checking repository authorization."
+							: statusByProvider.get("github")?.state === "connected"
+								? "GitHub CLI can clone, fetch, and push private repositories."
+								: "Connect GitHub before opening a private repository."
 					}
 					action={
 						<Badge
 							variant={
-								statusByProvider.get("github")?.state === "connected"
-									? "success"
-									: "outline"
+								!accountAccessAvailable
+									? "warning"
+									: statusByProvider.get("github")?.state === "connected"
+										? "success"
+										: "outline"
 							}
 						>
-							{statusByProvider.get("github")?.state === "connected"
-								? "Ready"
-								: "Pending"}
+							{!accountAccessAvailable
+								? loading
+									? "Checking"
+									: "Unavailable"
+								: statusByProvider.get("github")?.state === "connected"
+									? "Ready"
+									: "Pending"}
 						</Badge>
 					}
 				/>

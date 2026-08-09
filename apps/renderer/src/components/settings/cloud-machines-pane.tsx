@@ -101,6 +101,22 @@ export const runtimePhaseLabel = (status: MachineRuntimeStatus): string => {
 	return "Version unavailable";
 };
 
+export const runtimeVersionDescription = (
+	status: MachineRuntimeStatus,
+): string => {
+	const installed = status.installedAppVersion ?? "unknown";
+	if (status.state === "updating") {
+		return `Updating Zuse ${installed} to ${status.targetAppVersion}. Terminals and agents may reconnect briefly.`;
+	}
+	if (status.state === "current") {
+		return `Installed Zuse ${installed}. This matches the desktop app.`;
+	}
+	if (status.state === "update-available") {
+		return `Installed Zuse ${installed}; desktop requires ${status.targetAppVersion}.`;
+	}
+	return `Installed Zuse ${installed}; target ${status.targetAppVersion}.`;
+};
+
 export function CloudMachinesPane() {
 	const [offer, setOffer] = useState<MachineOffer | null>(null);
 	const [machine, setMachine] = useState<MachineRecord | null>(null);
@@ -656,9 +672,7 @@ export function CloudMachinesPane() {
 											? runtimeStatusUnavailable
 												? "This machine cannot report runtime updates yet. Older machines need one manual updater run."
 												: "Checks automatically against this version of Zuse."
-											: runtimeStatus.state === "updating"
-												? "Terminals and agents may reconnect briefly while services restart."
-												: `Cloud machine target: Zuse ${runtimeStatus.targetAppVersion}`
+											: runtimeVersionDescription(runtimeStatus)
 									}
 									action={
 										<>

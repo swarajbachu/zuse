@@ -11,8 +11,16 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { AuthSession, AuthUser, EnvironmentId } from "@zuse/contracts";
-import { Effect, Layer, Stream } from "effect";
+import {
+	AccountAccessPreparedImport,
+	AccountAccessSealedCredential,
+	AccountAccessStatus,
+	AuthSession,
+	AuthUser,
+	EnvironmentId,
+	LocalAccountDescriptorList,
+} from "@zuse/contracts";
+import { Effect, Layer, Schema, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { sealCredentialTransfer } from "../../src/account-access/sealed-transfer.ts";
 import {
@@ -135,6 +143,47 @@ const makeLayer = (
 };
 
 describe("AccountAccessService", () => {
+	it("returns wire-encodable account status and transfer values", async () => {
+		const userData = await mkdtemp(join(tmpdir(), "zuse-account-wire-"));
+		temporaryDirectories.push(userData);
+		const cloudLayer = makeLayer(userData);
+		const { prepared, sealed, status } = await Effect.runPromise(
+			Effect.gen(function* () {
+				const service = yield* AccountAccessService;
+				const status = yield* service.status();
+				const prepared = yield* service.prepareImport({
+					accountId: "user_01JZUSE0000000000000000000",
+					providerId: "claude",
+				});
+				const sealed = sealCredentialTransfer(prepared, {
+					providerId: "claude",
+					kind: "oauth-token",
+					secret: "remote-oauth-token",
+				});
+				return { prepared, sealed, status };
+			}).pipe(Effect.provide(cloudLayer)),
+		);
+		const local = await Effect.runPromise(
+			Effect.gen(function* () {
+				const service = yield* AccountAccessService;
+				return yield* service.detectLocal();
+			}).pipe(
+				Effect.provide(makeLayer(userData, {}, { role: "control-plane" })),
+			),
+		);
+
+		expect(() => Schema.encodeSync(AccountAccessStatus)(status)).not.toThrow();
+		expect(() =>
+			Schema.encodeSync(LocalAccountDescriptorList)(local),
+		).not.toThrow();
+		expect(() =>
+			Schema.encodeSync(AccountAccessPreparedImport)(prepared),
+		).not.toThrow();
+		expect(() =>
+			Schema.encodeSync(AccountAccessSealedCredential)(sealed),
+		).not.toThrow();
+	});
+
 	it("imports a prepared Claude credential exactly once", async () => {
 		const userData = await mkdtemp(join(tmpdir(), "zuse-account-access-"));
 		temporaryDirectories.push(userData);

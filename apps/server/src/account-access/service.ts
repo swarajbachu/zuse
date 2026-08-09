@@ -10,13 +10,16 @@ import type {
 	AccountAccessImportRequest,
 	AccountAccessPreparedImport,
 	AccountAccessProvider,
+	AccountAccessTransferEvent,
+} from "@zuse/contracts";
+import {
 	AccountAccessProviderStatus,
 	AccountAccessStatus,
-	AccountAccessTransferEvent,
 	LocalAccountDescriptor,
 	LocalAccountDescriptorList,
+	RelayEnvironmentList,
+	RelayPaths,
 } from "@zuse/contracts";
-import { RelayEnvironmentList, RelayPaths } from "@zuse/contracts";
 import {
 	Cause,
 	Context,
@@ -314,11 +317,12 @@ export class AccountAccessService extends Context.Service<
 const emptyStatus = (
 	providerId: AccountAccessProvider,
 	installed: boolean,
-): AccountAccessProviderStatus => ({
-	providerId,
-	state: installed ? "disconnected" : "missing-tool",
-	installed,
-});
+): AccountAccessProviderStatus =>
+	new AccountAccessProviderStatus({
+		providerId,
+		state: installed ? "disconnected" : "missing-tool",
+		installed,
+	});
 
 export const AccountAccessServiceLive = Layer.effect(
 	AccountAccessService,
@@ -383,13 +387,13 @@ export const AccountAccessServiceLive = Layer.effect(
 					);
 				return credential === null
 					? emptyStatus("claude", true)
-					: {
+					: new AccountAccessProviderStatus({
 							providerId: "claude" as const,
 							state: "connected" as const,
 							installed: true,
 							authKind: credential.kind,
 							lastSyncedAt: credential.updatedAt,
-						};
+						});
 			}
 
 			const result =
@@ -417,14 +421,14 @@ export const AccountAccessServiceLive = Layer.effect(
 				try: async () => (await stat(nativeCredentialPath(providerId))).mtimeMs,
 				catch: () => undefined,
 			}).pipe(Effect.orElseSucceed(() => undefined));
-			return {
+			return new AccountAccessProviderStatus({
 				providerId,
 				state: "connected" as const,
 				installed: true,
 				accountLabel: safeLabel || undefined,
 				authKind: "device" as const,
 				...(lastSyncedAt === undefined ? {} : { lastSyncedAt }),
-			};
+			});
 		});
 
 		const status = Effect.fn("AccountAccess.status")(function* () {
@@ -433,7 +437,7 @@ export const AccountAccessServiceLive = Layer.effect(
 				(["github", "claude", "codex"] as const).map(providerStatus),
 				{ concurrency: 3 },
 			);
-			return { providers } satisfies AccountAccessStatus;
+			return new AccountAccessStatus({ providers });
 		});
 
 		const detectLocal = Effect.fn("AccountAccess.detectLocal")(function* () {
@@ -470,19 +474,19 @@ export const AccountAccessServiceLive = Layer.effect(
 									: "OpenAI account"
 								: undefined;
 						}
-						return {
+						return new LocalAccountDescriptor({
 							providerId,
 							installed,
 							detected,
 							...(accountLabel !== undefined ? { accountLabel } : {}),
 							action:
 								providerId === "claude" ? "sealed-transfer" : "device-login",
-						} satisfies LocalAccountDescriptor;
+						});
 					}),
 				),
 				{ concurrency: 3 },
 			);
-			return { accounts } satisfies LocalAccountDescriptorList;
+			return new LocalAccountDescriptorList({ accounts });
 		});
 
 		const prepareImport = Effect.fn("AccountAccess.prepareImport")(
