@@ -135,6 +135,11 @@ const processEnvironment = (
 
 const interactiveProcesses = new Map<string, pty.IPty>();
 
+export const accountAccessEventFromPtyChunk = (
+	chunk: string,
+): AccountAccessProcessEvent | null =>
+	chunk.length === 0 ? null : { _tag: "line", text: chunk };
+
 const streamPtyProcess: AccountAccessProcessShape["stream"] = (
 	command,
 	args,
@@ -158,23 +163,13 @@ const streamPtyProcess: AccountAccessProcessShape["stream"] = (
 					env: processEnvironment(environment),
 				});
 				interactiveProcesses.set(sessionId, child);
-				let buffer = "";
 				const data = child.onData((chunk) => {
-					buffer += chunk;
-					const parts = buffer.split(/\r?\n|\r/u);
-					buffer = parts.pop() ?? "";
-					for (const text of parts) {
-						if (text.trim().length > 0) {
-							Queue.offerUnsafe(queue, { _tag: "line", text });
-						}
-					}
+					const event = accountAccessEventFromPtyChunk(chunk);
+					if (event !== null) Queue.offerUnsafe(queue, event);
 				});
 				const exit = child.onExit(({ exitCode }) => {
 					if (interactiveProcesses.get(sessionId) === child) {
 						interactiveProcesses.delete(sessionId);
-					}
-					if (buffer.trim().length > 0) {
-						Queue.offerUnsafe(queue, { _tag: "line", text: buffer });
 					}
 					Queue.offerUnsafe(queue, { _tag: "exit", code: exitCode });
 					Queue.endUnsafe(queue);

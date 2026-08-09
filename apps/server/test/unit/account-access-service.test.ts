@@ -28,6 +28,7 @@ import {
 	type AccountAccessProcessShape,
 	AccountAccessService,
 	AccountAccessServiceLive,
+	accountAccessEventFromPtyChunk,
 } from "../../src/account-access/service.ts";
 import { AppPaths } from "../../src/app-paths.ts";
 import { AuthService } from "../../src/auth/services/auth-service.ts";
@@ -38,6 +39,18 @@ import { makeFileCredentialsService } from "../../src/provider/layers/file-crede
 import { CredentialsService } from "../../src/provider/services/credentials-service.ts";
 
 const temporaryDirectories: string[] = [];
+
+describe("interactive account access output", () => {
+	it("forwards prompts and credentials even when the CLI does not print a newline", () => {
+		expect(
+			accountAccessEventFromPtyChunk("Paste code here if prompted > "),
+		).toEqual({
+			_tag: "line",
+			text: "Paste code here if prompted > ",
+		});
+		expect(accountAccessEventFromPtyChunk("")).toBeNull();
+	});
+});
 
 afterEach(async () => {
 	vi.restoreAllMocks();

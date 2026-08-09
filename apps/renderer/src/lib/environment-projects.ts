@@ -7,14 +7,14 @@ import type {
 import { Effect } from "effect";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
-import { getRpcClient } from "./rpc-client.ts";
+import { getRpcClient, getVerifiedRpcClient } from "./rpc-client.ts";
 
 const messageOf = (cause: unknown): string => {
-	if (cause instanceof Error) return cause.message;
 	if (typeof cause === "object" && cause !== null) {
 		const record = cause as Record<string, unknown>;
 		if (typeof record.reason === "string") return record.reason;
 	}
+	if (cause instanceof Error) return cause.message;
 	return String(cause);
 };
 
@@ -23,9 +23,13 @@ const run = async <A>(
 	operation: (
 		client: Awaited<ReturnType<typeof getRpcClient>>,
 	) => Effect.Effect<A, unknown>,
+	options: { readonly preflight?: boolean } = {},
 ): Promise<A> => {
 	try {
-		const client = await getRpcClient(environmentId);
+		const client =
+			options.preflight === true
+				? await getVerifiedRpcClient(environmentId)
+				: await getRpcClient(environmentId);
 		return await Effect.runPromise(operation(client));
 	} catch (cause) {
 		throw new Error(messageOf(cause));
@@ -66,8 +70,10 @@ export const addEnvironmentFolder = async (
 	environmentId: string,
 	path: string,
 ): Promise<Folder> => {
-	const folder = await run(environmentId, (client) =>
-		client["workspace.add"]({ path }),
+	const folder = await run(
+		environmentId,
+		(client) => client["workspace.add"]({ path }),
+		{ preflight: true },
 	);
 	await registerResult(environmentId, folder);
 	return folder;
@@ -78,8 +84,10 @@ export const cloneEnvironmentProject = async (
 	url: string,
 	parent: string,
 ): Promise<Folder> => {
-	const folder = await run(environmentId, (client) =>
-		client["workspace.cloneRepo"]({ url, parent }),
+	const folder = await run(
+		environmentId,
+		(client) => client["workspace.cloneRepo"]({ url, parent }),
+		{ preflight: true },
 	);
 	await registerResult(environmentId, folder);
 	return folder;
@@ -94,8 +102,10 @@ export const createEnvironmentProject = async (
 		readonly alsoCreateGithubRepo: boolean;
 	},
 ): Promise<Folder> => {
-	const folder = await run(environmentId, (client) =>
-		client["workspace.createProject"](input),
+	const folder = await run(
+		environmentId,
+		(client) => client["workspace.createProject"](input),
+		{ preflight: true },
 	);
 	await registerResult(environmentId, folder);
 	return folder;

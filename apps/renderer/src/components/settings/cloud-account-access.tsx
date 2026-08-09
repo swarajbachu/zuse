@@ -5,6 +5,7 @@ import {
 	type AccountAccessProvider,
 	type AccountAccessProviderStatus,
 	type AccountAccessSealedCredential,
+	type AccountAccessStatus,
 	type AccountAccessTransferEvent,
 	type LocalAccountDescriptor,
 } from "@zuse/contracts";
@@ -15,6 +16,8 @@ import { copyText, openExternal } from "../../lib/platform-capabilities.ts";
 import {
 	getControlPlaneRpcClient,
 	getRpcClient,
+	getVerifiedRpcClient,
+	reportRendererRpcFailure,
 } from "../../lib/rpc-client.ts";
 import {
 	AlertDialog,
@@ -45,6 +48,14 @@ const PROVIDER_LABEL: Record<AccountAccessProvider, string> = {
 	claude: "Claude",
 	codex: "Codex",
 };
+
+export const hasConnectedClaudeAccess = (
+	status: AccountAccessStatus,
+): boolean =>
+	status.providers.some(
+		(provider) =>
+			provider.providerId === "claude" && provider.state === "connected",
+	);
 
 const ACCOUNT_ACCESS_ERROR_CODES: ReadonlyArray<AccountAccessErrorCode> = [
 	"not-allowed",
@@ -195,6 +206,7 @@ export function CloudAccountAccess({
 						};
 
 	const runSetup = async (providerId: AccountAccessProvider) => {
+		let claudePhase: "authorization" | "remote-import" = "authorization";
 		if (!accountAccessAvailable) {
 			setError(
 				"Account setup is unavailable on this machine runtime. Finish the update, then refresh.",
@@ -220,6 +232,16 @@ export function CloudAccountAccess({
 						providerId: "claude",
 					}),
 				);
+				// The Claude CLI may open the browser itself and render its manual-code
+				// prompt without a newline. Keep the destination visible from the moment
+				// the interactive process starts instead of making the dialog depend on
+				// parsing a verification URL from terminal output.
+				setClaudeTransferId(prepared.transferId);
+				setClaudeCodeError(null);
+				setProgress({
+					providerId,
+					message: "Sign in to Claude, then paste the one-time code here.",
+				});
 				let sealed: AccountAccessSealedCredential | null = null;
 				await Effect.runPromise(
 					Stream.runForEach(
@@ -229,8 +251,6 @@ export function CloudAccountAccess({
 						(event: AccountAccessTransferEvent) =>
 							Effect.promise(async () => {
 								if (event._tag === "verification") {
-									setClaudeTransferId(prepared.transferId);
-									setClaudeCodeError(null);
 									setProgress({
 										providerId,
 										message:
@@ -252,14 +272,32 @@ export function CloudAccountAccess({
 					),
 				);
 				if (sealed === null) throw new Error("transfer-rejected");
-				await Effect.runPromise(
-					environment["accountAccess.import"](
-						new AccountAccessImportRequest({
-							transferId: prepared.transferId,
-							sealed,
-						}),
-					),
-				);
+				const importRequest = new AccountAccessImportRequest({
+					transferId: prepared.transferId,
+					sealed,
+				});
+				claudePhase = "remote-import";
+				try {
+					const destination = await getVerifiedRpcClient(environmentId);
+					await Effect.runPromise(
+						destination["accountAccess.import"](importRequest).pipe(
+							Effect.timeout("10 seconds"),
+						),
+					);
+				} catch (cause) {
+					// The response may be lost after the remote machine stores this
+					// single-use transfer. Reconcile status instead of replaying it.
+					reportRendererRpcFailure(cause, environmentId);
+					const destination = await getVerifiedRpcClient(environmentId);
+					const reconciled = await Effect.runPromise(
+						destination["accountAccess.status"]().pipe(
+							Effect.timeout("10 seconds"),
+						),
+					);
+					if (!hasConnectedClaudeAccess(reconciled)) {
+						throw cause;
+					}
+				}
 			} else {
 				await Effect.runPromise(
 					Stream.runForEach(
@@ -299,9 +337,11 @@ export function CloudAccountAccess({
 			setProgress(null);
 			if (!claudeLoginCancelled.current) {
 				const code = stableAccountAccessErrorCode(cause);
-				setError(
-					`${PROVIDER_LABEL[providerId]} access could not be connected.${code === null ? "" : ` (${code})`}`,
-				);
+				const detail =
+					providerId === "claude" && claudePhase === "remote-import"
+						? "Claude authorized locally, but access could not be saved on the cloud machine. Reconnect and try again."
+						: `${PROVIDER_LABEL[providerId]} access could not be connected.`;
+				setError(`${detail}${code === null ? "" : ` (${code})`}`);
 			}
 		} finally {
 			setClaudeTransferId(null);

@@ -1,13 +1,32 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { CloudAccountAccess } from "../../src/components/settings/cloud-account-access.tsx";
+import {
+	CloudAccountAccess,
+	hasConnectedClaudeAccess,
+} from "../../src/components/settings/cloud-account-access.tsx";
 import {
 	runtimePhaseLabel,
 	runtimeVersionDescription,
 } from "../../src/components/settings/cloud-machines-pane.tsx";
 
 describe("CloudAccountAccess", () => {
+	it("reconciles a lost import response from the remote provider status", () => {
+		expect(
+			hasConnectedClaudeAccess({
+				providers: [
+					{
+						providerId: "claude",
+						state: "connected",
+						installed: true,
+						authKind: "oauth-token",
+					},
+				],
+			}),
+		).toBe(true);
+		expect(hasConnectedClaudeAccess({ providers: [] })).toBe(false);
+	});
+
 	it("renders a stable keyboard-operable setup checklist without secret inputs", () => {
 		const markup = renderToStaticMarkup(
 			<CloudAccountAccess environmentId="env-cloud" />,

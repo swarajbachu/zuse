@@ -188,6 +188,30 @@ export const getRpcClient = (environmentId?: unknown): Promise<MemoizeClient> =>
 	);
 
 /**
+ * Acquire a client and prove its socket is responsive before sending a
+ * non-idempotent command. Dialogs can remain open across machine restarts or
+ * multi-minute browser authorization flows.
+ */
+export const getVerifiedRpcClient = async (
+	environmentId = activeEnvironmentId,
+): Promise<MemoizeClient> => {
+	let client = await getRpcClient(environmentId);
+	try {
+		await Effect.runPromise(
+			client["ping.ping"]({}).pipe(Effect.timeout("5 seconds")),
+		);
+	} catch (cause) {
+		reportRendererRpcFailure(cause, environmentId);
+		retryRendererRpcConnection(environmentId);
+		client = await getRpcClient(environmentId);
+		await Effect.runPromise(
+			client["ping.ping"]({}).pipe(Effect.timeout("5 seconds")),
+		);
+	}
+	return client;
+};
+
+/**
  * Account and machine lifecycle operations always belong to the desktop that
  * owns this renderer, even while a project on another computer is active.
  */
