@@ -131,6 +131,8 @@ describe("cloud runtime assets", () => {
 			]),
 		);
 		expect(build).toContain('"toolchain-reconciler.mjs"');
+		expect(build).toContain('"runtime-update-trigger.mjs"');
+		expect(build).toContain('"runtime-metadata.json"');
 		expect(build).toContain('"toolchain-manifest.json"');
 		expect(build).toContain("toolchainManifestBytes");
 		expect(build).toContain("toolchainManifest.version");
@@ -145,6 +147,7 @@ describe("cloud runtime assets", () => {
 		expect(reconciler).toContain('["tmux", ["-V"]]');
 		expect(reconciler).not.toContain('"ssh",\n\t\t"tmux"');
 		expect(updater).toContain("ZUSE_RUNTIME_SKIP_TOOLCHAIN");
+		expect(reconciler).toContain('"runtime-update-trigger.mjs"');
 		expect(updater).toContain('join(release, "toolchain-reconciler.mjs")');
 		expect(updater).toContain("manifest.toolchain.sha256");
 		expect(updater).toContain(
@@ -217,6 +220,30 @@ describe("cloud runtime assets", () => {
 		expect(updater).toContain("const waitForHealthyRuntime = async () =>");
 		expect(updater).toContain("await rm(currentLink, { force: true })");
 		expect(updater).toContain("Rollback runtime failed its health check");
+		expect(updater).toContain('process.argv.includes("--check")');
+		expect(updater).toContain("ZUSE_RUNTIME_UPDATE_REQUEST_FILE");
+		expect(updater).toContain("ZUSE_RUNTIME_UPDATE_STATUS_FILE");
+		expect(updater).toContain('phase: "restarting"');
+		expect(updater).toContain('phase: "verifying"');
+	});
+
+	test("installs a narrow root-owned manual update trigger", async () => {
+		const trigger = await readWorkspaceFile(
+			"apps/server/scripts/runtime-update-trigger.mjs",
+		);
+
+		expect(trigger).toContain("zuse-update-request.path");
+		expect(trigger).toContain("PathExists=" + "$" + "{requestFile}");
+		expect(trigger).toContain("ExecStartPre=/bin/sleep 2");
+		expect(trigger).toContain('"0770"');
+		expect(trigger).toContain('"zuse"');
+		expect(trigger).toContain(
+			"ExecStart=/usr/local/bin/node /opt/zuse/current/runtime-updater.mjs",
+		);
+		expect(trigger).toContain(
+			"ExecStopPost=/usr/bin/rm -f " + "$" + "{requestFile}",
+		);
+		expect(trigger).not.toContain("sudo");
 	});
 
 	test("refuses to publish a runtime manifest with a placeholder or insecure artifact URL", async () => {
@@ -236,6 +263,7 @@ describe("cloud runtime assets", () => {
 		expect(build).toContain(
 			"wireProtocol: { min: WIRE_PROTOCOL_VERSION, max: WIRE_PROTOCOL_VERSION }",
 		);
+		expect(build).toContain("appVersion,");
 		const buildConfig = await readWorkspaceFile(
 			"apps/server/tsdown.cloud.config.ts",
 		);

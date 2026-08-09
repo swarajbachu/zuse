@@ -16,7 +16,7 @@ import type {
 	MachineSshKey,
 	SshMode,
 } from "@zuse/contracts";
-import { RelayPaths } from "@zuse/contracts";
+import { MachineRuntimeStatus, RelayPaths } from "@zuse/contracts";
 import { Context, Effect, Layer, Schema } from "effect";
 
 import { AppPaths } from "../app-paths.ts";
@@ -105,6 +105,16 @@ export interface MachineHostServiceShape {
 	readonly setSshMode: (
 		mode: SshMode,
 	) => Effect.Effect<MachinePrivateNetworkStatus, MachineControlError>;
+	readonly runtimeTarget: () => Effect.Effect<
+		{ readonly appVersion: string },
+		MachineControlError
+	>;
+	readonly runtimeStatus: (
+		targetAppVersion: string,
+	) => Effect.Effect<MachineRuntimeStatus, MachineControlError>;
+	readonly requestRuntimeUpdate: (
+		targetAppVersion: string,
+	) => Effect.Effect<MachineRuntimeStatus, MachineControlError>;
 }
 
 export class MachineHostService extends Context.Service<
@@ -197,6 +207,12 @@ export const MachineHostServiceLive: Layer.Layer<
 			process.env.ZUSE_AUTHORIZED_KEYS_FILE ??
 			join(homedir(), ".ssh", "authorized_keys");
 		const modeFile = join(paths.userData, "secrets", "ssh-mode");
+		const runtimeUpdateDirectory = join(paths.userData, "runtime-update");
+		const runtimeUpdateRequest = join(runtimeUpdateDirectory, "request.json");
+		const runtimeUpdateStatus = join(runtimeUpdateDirectory, "status.json");
+		const runtimeUpdater =
+			process.env.ZUSE_RUNTIME_UPDATER_PATH ??
+			"/opt/zuse/current/runtime-updater.mjs";
 		let fileTail: Promise<void> = Promise.resolve();
 
 		const exclusive = <A>(operation: () => Promise<A>): Promise<A> => {
@@ -217,6 +233,24 @@ export const MachineHostServiceLive: Layer.Layer<
 								? cause
 								: new MachineControlError("provider-unavailable"),
 					});
+		const validAppVersion = (value: string): string => {
+			const normalized = value.trim();
+			if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$/u.test(normalized)) {
+				throw new MachineControlError("invalid-request");
+			}
+			return normalized;
+		};
+		const readRuntimeStatus = async (
+			targetAppVersion: string,
+		): Promise<MachineRuntimeStatus> => {
+			const target = validAppVersion(targetAppVersion);
+			const raw = await run(process.execPath, [runtimeUpdater, "--check"], {
+				...process.env,
+				ZUSE_RUNTIME_DESIRED_APP_VERSION: target,
+				ZUSE_RUNTIME_UPDATE_STATUS_FILE: runtimeUpdateStatus,
+			});
+			return Schema.decodeUnknownSync(MachineRuntimeStatus)(JSON.parse(raw));
+		};
 		const readKeys = async (): Promise<ReadonlyArray<MachineSshKey>> => {
 			try {
 				return (await readFile(authorizedKeys, "utf8"))
@@ -302,6 +336,49 @@ export const MachineHostServiceLive: Layer.Layer<
 		};
 
 		return MachineHostService.of({
+			runtimeTarget: () =>
+				runtimeRole === "control-plane"
+					? Effect.succeed({
+							appVersion: process.env.ZUSE_APP_VERSION?.trim() || "0.0.0",
+						})
+					: Effect.fail(new MachineControlError("not-allowed")),
+			runtimeStatus: (targetAppVersion) =>
+				effect(() => readRuntimeStatus(targetAppVersion)),
+			requestRuntimeUpdate: (targetAppVersion) =>
+				effect(async () => {
+					const target = validAppVersion(targetAppVersion);
+					const status = await readRuntimeStatus(target);
+					if (status.state === "current" || status.state === "updating") {
+						return status;
+					}
+					if (status.state !== "update-available") {
+						throw new MachineControlError("provider-unavailable");
+					}
+					await mkdir(runtimeUpdateDirectory, {
+						recursive: true,
+						mode: 0o770,
+					});
+					const queued: MachineRuntimeStatus = {
+						...status,
+						state: "updating",
+						phase: "queued",
+						progressPercent: 2,
+						updatedAt: Date.now(),
+					};
+					const statusTemporary = `${runtimeUpdateStatus}.${process.pid}.tmp`;
+					await writeFile(statusTemporary, `${JSON.stringify(queued)}\n`, {
+						mode: 0o644,
+					});
+					await rename(statusTemporary, runtimeUpdateStatus);
+					const requestTemporary = `${runtimeUpdateRequest}.${process.pid}.tmp`;
+					await writeFile(
+						requestTemporary,
+						`${JSON.stringify({ targetAppVersion: target })}\n`,
+						{ mode: 0o600 },
+					);
+					await rename(requestTemporary, runtimeUpdateRequest);
+					return queued;
+				}),
 			addSshKey: (publicKey, label) =>
 				effect(async () => {
 					const key = normalizedKey(

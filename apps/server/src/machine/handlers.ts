@@ -101,6 +101,19 @@ const SetSshMode = MemoizeRpcs.toLayerHandler(
 	"machine.sshMode.set",
 	({ mode }) => withHost((service) => service.setSshMode(mode)),
 );
+const RuntimeTarget = MemoizeRpcs.toLayerHandler("machine.runtime.target", () =>
+	withHost((service) => service.runtimeTarget()),
+);
+const RuntimeStatus = MemoizeRpcs.toLayerHandler(
+	"machine.runtime.status",
+	({ targetAppVersion }) =>
+		withHost((service) => service.runtimeStatus(targetAppVersion)),
+);
+const RuntimeUpdate = MemoizeRpcs.toLayerHandler(
+	"machine.runtime.update",
+	({ targetAppVersion }) =>
+		withHost((service) => service.requestRuntimeUpdate(targetAppVersion)),
+);
 
 export const MachineHandlersLayer = Layer.mergeAll(
 	Offers,
@@ -121,4 +134,7 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	EnablePrivateNetwork,
 	PrivateNetworkStatus,
 	SetSshMode,
+	RuntimeTarget,
+	RuntimeStatus,
+	RuntimeUpdate,
 );

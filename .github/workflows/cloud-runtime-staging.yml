@@ -159,15 +159,20 @@ jobs:
           require("tree-sitter-json");
           require("tree-sitter-typescript");
           const toolchain = require("./toolchain-manifest.json");
+          const runtime = require("./runtime-metadata.json");
           if (
             toolchain.architecture !== "linux-x64" ||
-            toolchain.npmPackages["@openai/codex"] !== "0.144.5"
+            toolchain.npmPackages["@openai/codex"] !== "0.144.5" ||
+            runtime.schemaVersion !== 1 ||
+            typeof runtime.appVersion !== "string" ||
+            typeof runtime.runtimeVersion !== "string"
           ) {
             throw new Error("Toolchain manifest verification failed");
           }
           await import("./bin.mjs");
           NODE
           node --check runtime-updater.mjs
+          node --check runtime-update-trigger.mjs
           node --check toolchain-reconciler.mjs
 
       - name: Stage release artifacts

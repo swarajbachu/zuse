@@ -199,4 +199,13 @@ for (const name of ["bun", "corepack", "claude", "codex"]) {
 	await rename(temporary, destination);
 }
 
+if (
+	process.getuid?.() === 0 &&
+	process.env.ZUSE_RUNTIME_SKIP_TRIGGER_INSTALL !== "1"
+) {
+	await run("/usr/local/bin/node", [
+		join(dirname(manifestFile), "runtime-update-trigger.mjs"),
+	]);
+}
+
 console.log(`Reconciled Zuse developer toolchain ${manifest.version}`);

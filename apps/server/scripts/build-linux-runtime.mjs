@@ -31,6 +31,14 @@ const archivePath = join(outputRoot, runtimeAssetName);
 const packageJson = JSON.parse(
 	await readFile(join(packageRoot, "package.json"), "utf8"),
 );
+const desktopPackageJson = JSON.parse(
+	await readFile(
+		join(workspaceRoot, "apps", "desktop", "package.json"),
+		"utf8",
+	),
+);
+const runtimeVersion = process.env.ZUSE_RUNTIME_VERSION ?? packageJson.version;
+const appVersion = process.env.ZUSE_APP_VERSION ?? desktopPackageJson.version;
 const require = createRequire(join(packageRoot, "package.json"));
 
 if (process.platform !== "linux" || process.arch !== "x64") {
@@ -69,6 +77,10 @@ await cp(
 await cp(
 	join(packageRoot, "scripts", "toolchain-reconciler.mjs"),
 	join(runtimeRoot, "toolchain-reconciler.mjs"),
+);
+await cp(
+	join(packageRoot, "scripts", "runtime-update-trigger.mjs"),
+	join(runtimeRoot, "runtime-update-trigger.mjs"),
 );
 await cp(
 	join(packageRoot, "scripts", "toolchain-manifest.json"),
@@ -125,6 +137,19 @@ await writeFile(
 		2,
 	)}\n`,
 );
+await writeFile(
+	join(runtimeRoot, "runtime-metadata.json"),
+	`${JSON.stringify(
+		{
+			schemaVersion: 1,
+			appVersion,
+			runtimeVersion,
+			wireProtocolVersion: WIRE_PROTOCOL_VERSION,
+		},
+		null,
+		2,
+	)}\n`,
+);
 
 run("tar", ["-czf", archivePath, "-C", runtimeRoot, "."]);
 const archive = await readFile(archivePath);
@@ -142,7 +167,8 @@ if (new URL(runtimeUrl).protocol !== "https:") {
 }
 const manifest = {
 	channel: "stable",
-	version: process.env.ZUSE_RUNTIME_VERSION ?? packageJson.version,
+	version: runtimeVersion,
+	appVersion,
 	url: runtimeUrl,
 	architecture: "linux-x64",
 	sha256,

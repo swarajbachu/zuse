@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { CloudAccountAccess } from "../../src/components/settings/cloud-account-access.tsx";
+import { runtimePhaseLabel } from "../../src/components/settings/cloud-machines-pane.tsx";
 
 describe("CloudAccountAccess", () => {
 	it("renders a stable keyboard-operable setup checklist without secret inputs", () => {
@@ -20,5 +21,27 @@ describe("CloudAccountAccess", () => {
 		expect(markup).toContain('aria-live="polite"');
 		expect(markup).not.toContain('type="password"');
 		expect(markup).not.toContain("auth.json");
+	});
+});
+
+describe("cloud runtime update progress", () => {
+	it("uses stable progress and rollback copy", () => {
+		expect(
+			runtimePhaseLabel({
+				state: "updating",
+				phase: "restarting",
+				progressPercent: 85,
+				targetAppVersion: "0.17.1",
+			}),
+		).toBe("Restarting cloud services");
+		expect(
+			runtimePhaseLabel({
+				state: "failed",
+				phase: "failed",
+				progressPercent: 95,
+				targetAppVersion: "0.17.1",
+				failureCode: "rollback-complete",
+			}),
+		).toBe("Update failed; previous version restored");
 	});
 });

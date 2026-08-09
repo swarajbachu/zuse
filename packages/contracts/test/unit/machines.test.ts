@@ -11,6 +11,7 @@ import {
 	BillingCheckoutRequest,
 	MachineCreateRequest,
 	MachineRecord,
+	MachineRuntimeStatus,
 	PERSISTENT_STANDARD_OFFER_ID,
 	RelayConnectGrant,
 	SshMode,
@@ -157,6 +158,22 @@ describe("managed machine contracts", () => {
 
 		expect(status.providers[0]?.providerId).toBe("github");
 		expect(JSON.stringify(status)).not.toContain("token");
+	});
+
+	it("decodes durable cloud runtime update progress", () => {
+		const status = Schema.decodeUnknownSync(MachineRuntimeStatus)({
+			state: "updating",
+			phase: "restarting",
+			progressPercent: 85,
+			targetAppVersion: "0.17.1",
+			installedAppVersion: "0.16.0",
+			installedRuntimeVersion: "old-runtime",
+			targetRuntimeVersion: "new-runtime",
+			updatedAt: 1_800_000_000_000,
+		});
+
+		expect(status.phase).toBe("restarting");
+		expect(status.progressPercent).toBe(85);
 	});
 
 	it("binds sealed Claude transfers to a prepared environment import", () => {

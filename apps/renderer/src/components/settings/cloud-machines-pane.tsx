@@ -3,6 +3,7 @@ import {
 	MachineOpError,
 	type MachinePrivateNetworkStatus,
 	type MachineRecord,
+	type MachineRuntimeStatus,
 	type MachineSshKey,
 	type SshMode,
 } from "@zuse/contracts";
@@ -82,6 +83,24 @@ const progressVariant = (
 	return "info";
 };
 
+export const runtimePhaseLabel = (status: MachineRuntimeStatus): string => {
+	if (status.phase === "queued") return "Update queued";
+	if (status.phase === "checking") return "Checking release";
+	if (status.phase === "downloading") return "Downloading runtime";
+	if (status.phase === "installing") return "Installing runtime";
+	if (status.phase === "developer-tools") return "Updating developer tools";
+	if (status.phase === "restarting") return "Restarting cloud services";
+	if (status.phase === "verifying") return "Verifying connection";
+	if (status.phase === "rolling-back") return "Restoring previous version";
+	if (status.phase === "failed")
+		return status.failureCode === "rollback-complete"
+			? "Update failed; previous version restored"
+			: "Update failed";
+	if (status.state === "current") return "Up to date";
+	if (status.state === "update-available") return "Update available";
+	return "Version unavailable";
+};
+
 export function CloudMachinesPane() {
 	const [offer, setOffer] = useState<MachineOffer | null>(null);
 	const [machine, setMachine] = useState<MachineRecord | null>(null);
@@ -102,6 +121,13 @@ export function CloudMachinesPane() {
 	const [keysDialogOpen, setKeysDialogOpen] = useState(false);
 	const [destroyDialogOpen, setDestroyDialogOpen] = useState(false);
 	const [connectionBusy, setConnectionBusy] = useState(false);
+	const [runtimeStatus, setRuntimeStatus] =
+		useState<MachineRuntimeStatus | null>(null);
+	const [runtimeTargetVersion, setRuntimeTargetVersion] = useState<
+		string | null
+	>(null);
+	const [runtimeUpdateBusy, setRuntimeUpdateBusy] = useState(false);
+	const [runtimeUpdateDialogOpen, setRuntimeUpdateDialogOpen] = useState(false);
 	const machineEnvironmentId = machine?.environmentId;
 	const machineEnvironment = useEnvironmentCatalogStore((state) =>
 		machineEnvironmentId === undefined
@@ -258,6 +284,69 @@ export function CloudMachinesPane() {
 	useEffect(() => {
 		void refreshHostSettings();
 	}, [refreshHostSettings]);
+
+	const refreshRuntimeStatus = useCallback(async () => {
+		if (
+			machineEnvironmentId === undefined ||
+			machineEnvironment?.status !== "connected"
+		) {
+			return;
+		}
+		try {
+			const [environment, control] = await Promise.all([
+				getRpcClient(machineEnvironmentId),
+				getControlPlaneRpcClient(),
+			]);
+			const target = await Effect.runPromise(
+				control["machine.runtime.target"](),
+			);
+			setRuntimeTargetVersion(target.appVersion);
+			setRuntimeStatus(
+				await Effect.runPromise(
+					environment["machine.runtime.status"]({
+						targetAppVersion: target.appVersion,
+					}),
+				),
+			);
+		} catch {
+			// Keep the last durable progress visible while the runtime reconnects.
+		}
+	}, [machineEnvironment?.status, machineEnvironmentId]);
+
+	useEffect(() => {
+		void refreshRuntimeStatus();
+		const interval = window.setInterval(
+			() => void refreshRuntimeStatus(),
+			runtimeStatus?.state === "updating" ? 2_000 : 30_000,
+		);
+		return () => window.clearInterval(interval);
+	}, [refreshRuntimeStatus, runtimeStatus?.state]);
+
+	const updateRuntime = async () => {
+		if (
+			machineEnvironmentId === undefined ||
+			runtimeTargetVersion === null ||
+			runtimeUpdateBusy
+		) {
+			return;
+		}
+		setRuntimeUpdateBusy(true);
+		setActionError(null);
+		try {
+			const environment = await getRpcClient(machineEnvironmentId);
+			const next = await Effect.runPromise(
+				environment["machine.runtime.update"]({
+					targetAppVersion: runtimeTargetVersion,
+				}),
+			);
+			setRuntimeStatus(next);
+			setRuntimeUpdateDialogOpen(false);
+		} catch {
+			setActionError("The cloud runtime update could not be started.");
+		} finally {
+			setRuntimeUpdateBusy(false);
+		}
+	};
 
 	const retryMachineConnection = async () => {
 		if (connectionBusy) return;
@@ -522,39 +611,98 @@ export function CloudMachinesPane() {
 							)}
 						</CloudSettingsRow>
 						{machine.state !== "ready" ? null : (
-							<CloudSettingsRow
-								title="Managed connection"
-								description={connection.description}
-								action={
-									<>
-										<Badge variant={connection.variant}>
-											{machineEnvironment?.status === "connecting" ||
-											connectionBusy ? (
-												<LoaderCircle className="animate-spin motion-reduce:animate-none" />
+							<>
+								<CloudSettingsRow
+									title="Managed connection"
+									description={connection.description}
+									action={
+										<>
+											<Badge variant={connection.variant}>
+												{machineEnvironment?.status === "connecting" ||
+												connectionBusy ? (
+													<LoaderCircle className="animate-spin motion-reduce:animate-none" />
+												) : null}
+												{connection.label}
+											</Badge>
+											{connected && machineEnvironmentId !== undefined ? (
+												<Button
+													size="xs"
+													loading={connectionBusy}
+													onClick={() => void openMachine()}
+												>
+													Open machine
+												</Button>
+											) : (
+												<Button
+													size="xs"
+													variant="outline"
+													loading={connectionBusy}
+													onClick={() => void retryMachineConnection()}
+												>
+													Retry
+												</Button>
+											)}
+										</>
+									}
+								/>
+								<CloudSettingsRow
+									title="Cloud runtime"
+									description={
+										runtimeStatus === null
+											? "Checks automatically against this version of Zuse."
+											: runtimeStatus.state === "updating"
+												? "Terminals and agents may reconnect briefly while services restart."
+												: `Cloud machine target: Zuse ${runtimeStatus.targetAppVersion}`
+									}
+									action={
+										<>
+											<Badge
+												variant={
+													runtimeStatus?.state === "current"
+														? "success"
+														: runtimeStatus?.state === "failed"
+															? "warning"
+															: "outline"
+												}
+											>
+												{runtimeStatus === null
+													? "Checking"
+													: runtimePhaseLabel(runtimeStatus)}
+											</Badge>
+											{runtimeStatus?.state === "update-available" ||
+											runtimeStatus?.state === "failed" ? (
+												<Button
+													size="xs"
+													variant="outline"
+													disabled={!connected || runtimeUpdateBusy}
+													onClick={() => setRuntimeUpdateDialogOpen(true)}
+												>
+													Update now
+												</Button>
 											) : null}
-											{connection.label}
-										</Badge>
-										{connected && machineEnvironmentId !== undefined ? (
-											<Button
-												size="xs"
-												loading={connectionBusy}
-												onClick={() => void openMachine()}
-											>
-												Open machine
-											</Button>
-										) : (
-											<Button
-												size="xs"
-												variant="outline"
-												loading={connectionBusy}
-												onClick={() => void retryMachineConnection()}
-											>
-												Retry
-											</Button>
-										)}
-									</>
-								}
-							/>
+										</>
+									}
+								>
+									{runtimeStatus?.state === "updating" ? (
+										<div
+											className="h-1 overflow-hidden rounded-full bg-muted"
+											role="progressbar"
+											aria-label={runtimePhaseLabel(runtimeStatus)}
+											aria-valuemin={0}
+											aria-valuemax={100}
+											aria-valuenow={runtimeStatus.progressPercent}
+										>
+											<span
+												className="block h-full rounded-full bg-foreground transition-transform duration-200 ease-out motion-reduce:transition-none"
+												style={{
+													transform: `scaleX(${runtimeStatus.progressPercent / 100})`,
+													transformOrigin: "left",
+												}}
+											/>
+										</div>
+									) : null}
+								</CloudSettingsRow>
+							</>
 						)}
 					</CloudSettingsGroup>
 
@@ -928,6 +1076,34 @@ export function CloudMachinesPane() {
 							</DialogFooter>
 						</DialogPopup>
 					</Dialog>
+
+					<AlertDialog
+						open={runtimeUpdateDialogOpen}
+						onOpenChange={setRuntimeUpdateDialogOpen}
+					>
+						<AlertDialogPopup className="max-w-sm">
+							<AlertDialogHeader>
+								<AlertDialogTitle>Update cloud runtime?</AlertDialogTitle>
+								<AlertDialogDescription>
+									The signed runtime and developer tools will be updated to
+									match Zuse {runtimeTargetVersion ?? ""}. Active terminals and
+									agents may briefly reconnect during the service restart.
+								</AlertDialogDescription>
+							</AlertDialogHeader>
+							<AlertDialogFooter>
+								<AlertDialogClose render={<Button size="xs" variant="ghost" />}>
+									Cancel
+								</AlertDialogClose>
+								<Button
+									size="xs"
+									loading={runtimeUpdateBusy}
+									onClick={() => void updateRuntime()}
+								>
+									Update runtime
+								</Button>
+							</AlertDialogFooter>
+						</AlertDialogPopup>
+					</AlertDialog>
 
 					<AlertDialog
 						open={destroyDialogOpen}

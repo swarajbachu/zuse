@@ -383,6 +383,72 @@ export const MachineSshModeSetRpc = Rpc.make("machine.sshMode.set", {
 	error: MachineOpError,
 });
 
+export const MachineRuntimeUpdateState = Schema.Literals([
+	"current",
+	"update-available",
+	"updating",
+	"failed",
+	"unavailable",
+]);
+export type MachineRuntimeUpdateState = typeof MachineRuntimeUpdateState.Type;
+
+export const MachineRuntimeUpdatePhase = Schema.Literals([
+	"idle",
+	"checking",
+	"queued",
+	"downloading",
+	"installing",
+	"developer-tools",
+	"restarting",
+	"verifying",
+	"complete",
+	"rolling-back",
+	"failed",
+]);
+export type MachineRuntimeUpdatePhase = typeof MachineRuntimeUpdatePhase.Type;
+
+export const MachineRuntimeUpdateFailureCode = Schema.Literals([
+	"check-failed",
+	"target-version-unavailable",
+	"install-failed",
+	"health-check-failed",
+	"rollback-complete",
+]);
+export type MachineRuntimeUpdateFailureCode =
+	typeof MachineRuntimeUpdateFailureCode.Type;
+
+export class MachineRuntimeStatus extends Schema.Class<MachineRuntimeStatus>(
+	"MachineRuntimeStatus",
+)({
+	state: MachineRuntimeUpdateState,
+	phase: MachineRuntimeUpdatePhase,
+	progressPercent: Schema.Number,
+	targetAppVersion: Schema.String,
+	installedAppVersion: Schema.optional(Schema.String),
+	installedRuntimeVersion: Schema.optional(Schema.String),
+	targetRuntimeVersion: Schema.optional(Schema.String),
+	updatedAt: Schema.optional(Schema.Number),
+	failureCode: Schema.optional(MachineRuntimeUpdateFailureCode),
+}) {}
+
+export const MachineRuntimeTargetRpc = Rpc.make("machine.runtime.target", {
+	payload: Schema.Void,
+	success: Schema.Struct({ appVersion: Schema.String }),
+	error: MachineOpError,
+});
+
+export const MachineRuntimeStatusRpc = Rpc.make("machine.runtime.status", {
+	payload: Schema.Struct({ targetAppVersion: Schema.String }),
+	success: MachineRuntimeStatus,
+	error: MachineOpError,
+});
+
+export const MachineRuntimeUpdateRpc = Rpc.make("machine.runtime.update", {
+	payload: Schema.Struct({ targetAppVersion: Schema.String }),
+	success: MachineRuntimeStatus,
+	error: MachineOpError,
+});
+
 // ---------------------------------------------------------------------------
 // Cloud-machine account access
 // ---------------------------------------------------------------------------
