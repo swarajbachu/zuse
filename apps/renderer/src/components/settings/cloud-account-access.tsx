@@ -86,6 +86,7 @@ export function CloudAccountAccess({
 	const claudeLoginCancelled = useRef(false);
 
 	const refresh = useCallback(async () => {
+		setLoading(true);
 		try {
 			const [environment, control] = await Promise.all([
 				getRpcClient(environmentId),
@@ -99,7 +100,9 @@ export function CloudAccountAccess({
 			setLocalAccounts(local.accounts);
 			setError(null);
 		} catch {
-			setError("Account access could not be checked. Reconnect and try again.");
+			setError(
+				"Account access could not be checked. Update or reconnect the machine, then try again.",
+			);
 		} finally {
 			setLoading(false);
 		}
@@ -118,6 +121,34 @@ export function CloudAccountAccess({
 			new Map(localAccounts.map((account) => [account.providerId, account])),
 		[localAccounts],
 	);
+	const missingTools = statuses.filter(
+		(status) => status.state === "missing-tool",
+	);
+	const developerTools =
+		loading && statuses.length === 0
+			? {
+					description: "Checking installed developer tools.",
+					label: "Checking",
+					variant: "outline" as const,
+				}
+			: statuses.length !== PROVIDERS.length
+				? {
+						description: "Installed developer tools could not be verified.",
+						label: "Unavailable",
+						variant: "warning" as const,
+					}
+				: missingTools.length > 0
+					? {
+							description: `${missingTools.map((status) => PROVIDER_LABEL[status.providerId]).join(", ")} ${missingTools.length === 1 ? "is" : "are"} not installed.`,
+							label: "Needs update",
+							variant: "warning" as const,
+						}
+					: {
+							description:
+								"Git, GitHub CLI, Bun, Node, Claude Code, and Codex are installed.",
+							label: "Ready",
+							variant: "success" as const,
+						};
 
 	const runSetup = async (providerId: AccountAccessProvider) => {
 		setPendingProvider(null);
@@ -304,8 +335,12 @@ export function CloudAccountAccess({
 			>
 				<CloudSettingsRow
 					title="Developer tools"
-					description="Git, GitHub CLI, Bun, Node, Claude Code, and Codex are installed."
-					action={<Badge variant="success">Ready</Badge>}
+					description={developerTools.description}
+					action={
+						<Badge variant={developerTools.variant}>
+							{developerTools.label}
+						</Badge>
+					}
 				/>
 				{PROVIDERS.map((providerId) => {
 					const status = statusByProvider.get(providerId);

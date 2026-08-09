@@ -123,6 +123,8 @@ export function CloudMachinesPane() {
 	const [connectionBusy, setConnectionBusy] = useState(false);
 	const [runtimeStatus, setRuntimeStatus] =
 		useState<MachineRuntimeStatus | null>(null);
+	const [runtimeStatusUnavailable, setRuntimeStatusUnavailable] =
+		useState(false);
 	const [runtimeTargetVersion, setRuntimeTargetVersion] = useState<
 		string | null
 	>(null);
@@ -308,8 +310,10 @@ export function CloudMachinesPane() {
 					}),
 				),
 			);
+			setRuntimeStatusUnavailable(false);
 		} catch {
-			// Keep the last durable progress visible while the runtime reconnects.
+			setRuntimeStatusUnavailable(true);
+			// Keep any last durable progress visible while the runtime reconnects.
 		}
 	}, [machineEnvironment?.status, machineEnvironmentId]);
 
@@ -649,7 +653,9 @@ export function CloudMachinesPane() {
 									title="Cloud runtime"
 									description={
 										runtimeStatus === null
-											? "Checks automatically against this version of Zuse."
+											? runtimeStatusUnavailable
+												? "This machine cannot report runtime updates yet. Older machines need one manual updater run."
+												: "Checks automatically against this version of Zuse."
 											: runtimeStatus.state === "updating"
 												? "Terminals and agents may reconnect briefly while services restart."
 												: `Cloud machine target: Zuse ${runtimeStatus.targetAppVersion}`
@@ -662,11 +668,15 @@ export function CloudMachinesPane() {
 														? "success"
 														: runtimeStatus?.state === "failed"
 															? "warning"
-															: "outline"
+															: runtimeStatusUnavailable
+																? "warning"
+																: "outline"
 												}
 											>
 												{runtimeStatus === null
-													? "Checking"
+													? runtimeStatusUnavailable
+														? "Manual update needed"
+														: "Checking"
 													: runtimePhaseLabel(runtimeStatus)}
 											</Badge>
 											{runtimeStatus?.state === "update-available" ||

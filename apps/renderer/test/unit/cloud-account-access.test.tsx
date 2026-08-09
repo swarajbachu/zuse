@@ -12,6 +12,8 @@ describe("CloudAccountAccess", () => {
 
 		expect(markup).toContain("Developer access");
 		expect(markup).toContain("Developer tools");
+		expect(markup).toContain("Checking installed developer tools.");
+		expect(markup).not.toContain(">Ready</span>");
 		expect(markup).toContain("Private repository access");
 		expect(markup).toContain("GitHub");
 		expect(markup).toContain("Claude");
