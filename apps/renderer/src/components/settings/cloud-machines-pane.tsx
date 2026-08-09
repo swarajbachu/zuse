@@ -319,13 +319,20 @@ export function CloudMachinesPane() {
 				control["machine.runtime.target"](),
 			);
 			setRuntimeTargetVersion(target.appVersion);
-			setRuntimeStatus(
-				await Effect.runPromise(
-					environment["machine.runtime.status"]({
-						targetAppVersion: target.appVersion,
-					}),
-				),
+			const next = await Effect.runPromise(
+				environment["machine.runtime.status"]({
+					targetAppVersion: target.appVersion,
+				}),
 			);
+			setRuntimeStatus(next);
+			if (next.state === "current" || next.state === "updating") {
+				setActionError((current) =>
+					current === "The cloud runtime update could not be started."
+						? null
+						: current,
+				);
+				setRuntimeUpdateDialogOpen(false);
+			}
 			setRuntimeStatusUnavailable(false);
 		} catch {
 			setRuntimeStatusUnavailable(true);
