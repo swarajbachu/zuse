@@ -19,6 +19,7 @@ import {
 	type PowerMonitorState,
 	type PowerRecordingDurationMinutes,
 	type PowerWorkloadState,
+	type PreviewServer,
 	UPDATE_CHECK_CHANNEL,
 	UPDATE_DOWNLOAD_CHANNEL,
 	UPDATE_INSTALL_CHANNEL,
@@ -183,7 +184,7 @@ const bridge = {
 			} | null>,
 		listLocalServers: () =>
 			ipcRenderer.invoke("browser:listLocalServers") as Promise<
-				ReadonlyArray<{ name: string; port: number }>
+				ReadonlyArray<PreviewServer>
 			>,
 		saveRecording: (bytes: Uint8Array, mimeType: string, durationMs: number) =>
 			ipcRenderer.invoke(

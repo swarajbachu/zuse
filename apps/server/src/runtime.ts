@@ -49,6 +49,7 @@ import { MigrationsLive } from "./persistence/migrations.ts";
 import { NdjsonLoggerLive } from "./persistence/ndjson-logger.ts";
 import { SqliteLive } from "./persistence/sqlite.ts";
 import { PokemonServiceLive } from "./pokemon/layers/pokemon-service.ts";
+import { PreviewServiceLive } from "./preview/preview-service.ts";
 import { BrowserBridgeServiceLive } from "./provider/layers/browser-bridge-service.ts";
 import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
@@ -555,6 +556,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		FileSearchLayer,
 		ProjectScaffoldLayer,
 		ProviderLayer,
+		PreviewServiceLive,
 		McpLayer,
 		SessionDomainLayer,
 		ConversationServicesLayer,

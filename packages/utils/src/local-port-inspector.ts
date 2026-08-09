@@ -58,7 +58,7 @@ export const parseNetstatListeners = (
 	return [...byPort].map(([port, name]) => ({ name, port }));
 };
 
-const parseProcListeners = (
+export const parseProcListeners = (
 	contents: string,
 ): ReadonlyArray<LocalServerSummary> => {
 	const ports = new Set<number>();

@@ -12,6 +12,7 @@ import {
 	type BrowserTarget,
 	type BrowserViewportMode,
 	type ChatId,
+	type PreviewServer,
 	type SessionId,
 } from "@zuse/contracts";
 import { Effect, Fiber, Schedule, Stream } from "effect";
@@ -20,6 +21,7 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	Eraser,
+	ExternalLink,
 	MousePointer2,
 	MousePointerClick,
 	PencilLine,
@@ -33,6 +35,7 @@ import {
 	type ComponentType,
 	type ReactNode,
 	type PointerEvent as ReactPointerEvent,
+	useCallback,
 	useEffect,
 	useRef,
 	useState,
@@ -42,7 +45,6 @@ import type {
 	BrowserCookieImportStatus,
 	BrowserInputAction,
 	CdpCommandOutcome,
-	LocalServerSummary,
 	NetworkQueryResult,
 } from "../lib/bridge.ts";
 import {
@@ -54,11 +56,18 @@ import {
 	type BrowserRecordingArtifact,
 	BrowserRecordingController,
 } from "../lib/browser-recording.ts";
+import { openExternal } from "../lib/platform-capabilities.ts";
 import { reportPowerBrowserSession } from "../lib/power-runtime-activity.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import {
+	localPreviewUrl,
+	type PreviewUiError,
+	previewErrorDetails,
+} from "../lib/preview-routing.ts";
+import { getLocalEnvironmentId, getRpcClient } from "../lib/rpc-client.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { useAttachmentsStore } from "../store/attachments.ts";
 import { useChatsStore } from "../store/chats.ts";
+import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { AgentCursor, type AgentCursorIntent } from "./agent-cursor.tsx";
@@ -130,13 +139,6 @@ const annotationTools: ReadonlyArray<{
 	{ id: "region", label: "Region", icon: SquareDashedMousePointer },
 	{ id: "draw", label: "Draw", icon: PencilLine },
 	{ id: "erase", label: "Erase", icon: Eraser },
-];
-
-const fallbackLocalServers: ReadonlyArray<LocalServerSummary> = [
-	{ name: "T3 Code", port: 3773 },
-	{ name: "Vite", port: 5173 },
-	{ name: "Zuse", port: 5733 },
-	{ name: "Next.js", port: 3000 },
 ];
 
 const newAnnotationId = (prefix: string): string => {
@@ -439,6 +441,16 @@ export function BrowserPane({
 	readonly sessionId: SessionId | null;
 	readonly visible: boolean;
 }) {
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(state) => state.activeEnvironmentId,
+	);
+	const activeEnvironmentLabel = useEnvironmentCatalogStore(
+		(state) =>
+			state.entries.find(
+				(entry) => entry.environmentId === state.activeEnvironmentId,
+			)?.label ?? "Remote computer",
+	);
+	const previewIsLocal = activeEnvironmentId === getLocalEnvironmentId();
 	useEffect(() => {
 		reportPowerBrowserSession(chatId, false);
 		return () => reportPowerBrowserSession(chatId, null);
@@ -463,6 +475,7 @@ export function BrowserPane({
 	// (Click/Type/Hover/Press fall back to the previous synthetic behaviour so
 	// we never silently no-op if the bridge somehow doesn't load).
 	const webContentsIdRef = useRef<number | null>(null);
+	const previewRefreshGenerationRef = useRef(0);
 	const recordingRef = useRef(new BrowserRecordingController());
 	const actionTimelineRef = useRef<BrowserActionEvent[]>([]);
 	const agentOverlaysRef = useRef<BrowserOverlayShape[]>([]);
@@ -549,8 +562,14 @@ export function BrowserPane({
 		useState<BrowserAnnotationStroke | null>(null);
 	const [annotationComment, setAnnotationComment] = useState("");
 	const [attachingAnnotation, setAttachingAnnotation] = useState(false);
-	const [localServers, setLocalServers] =
-		useState<ReadonlyArray<LocalServerSummary>>(fallbackLocalServers);
+	const [previewServers, setPreviewServers] = useState<
+		ReadonlyArray<PreviewServer>
+	>([]);
+	const [previewServersLoading, setPreviewServersLoading] = useState(true);
+	const [previewPortOpening, setPreviewPortOpening] = useState<number | null>(
+		null,
+	);
+	const [previewError, setPreviewError] = useState<PreviewUiError | null>(null);
 	const hasLoadedPage = url !== "" && url !== "about:blank";
 	const viewportPreviewScale =
 		viewport.mode === "fill" ||
@@ -799,16 +818,45 @@ export function BrowserPane({
 		);
 	};
 
+	const refreshPreviewServers = useCallback(async (): Promise<void> => {
+		const generation = previewRefreshGenerationRef.current + 1;
+		previewRefreshGenerationRef.current = generation;
+		setPreviewServers([]);
+		setPreviewServersLoading(true);
+		setPreviewPortOpening(null);
+		setPreviewError(null);
+		try {
+			if (previewIsLocal) {
+				const servers =
+					(await window.zuse?.browser?.listLocalServers?.()) ?? [];
+				if (previewRefreshGenerationRef.current === generation) {
+					setPreviewServers(servers);
+				}
+				return;
+			}
+			const client = await getRpcClient(activeEnvironmentId);
+			const result = await Effect.runPromise(client["preview.servers.list"]());
+			if (previewRefreshGenerationRef.current === generation) {
+				setPreviewServers(result.servers);
+			}
+		} catch {
+			if (previewRefreshGenerationRef.current === generation) {
+				setPreviewServers([]);
+				setPreviewError({
+					message: `Servers on ${activeEnvironmentLabel} could not be checked.`,
+					approvalUrl: null,
+				});
+			}
+		} finally {
+			if (previewRefreshGenerationRef.current === generation) {
+				setPreviewServersLoading(false);
+			}
+		}
+	}, [activeEnvironmentId, activeEnvironmentLabel, previewIsLocal]);
+
 	useEffect(() => {
-		let cancelled = false;
-		void window.zuse?.browser?.listLocalServers?.().then((servers) => {
-			if (cancelled || servers.length === 0) return;
-			setLocalServers(servers);
-		});
-		return () => {
-			cancelled = true;
-		};
-	}, []);
+		void refreshPreviewServers();
+	}, [refreshPreviewServers]);
 
 	// Wire navigation lifecycle events onto the underlying webview element.
 	// We attach via `addEventListener` because the webview tag isn't a real
@@ -1092,6 +1140,43 @@ export function BrowserPane({
 				void wv.loadURL(resolved).catch(() => {});
 			} catch {
 				wv.src = resolved;
+			}
+		}
+	};
+
+	const openPreviewServer = async (server: PreviewServer): Promise<void> => {
+		if (previewIsLocal) {
+			navigate(localPreviewUrl(server.port));
+			return;
+		}
+		setPreviewPortOpening(server.port);
+		setPreviewError(null);
+		const environmentId = activeEnvironmentId;
+		try {
+			const client = await getRpcClient(environmentId);
+			const result = await Effect.runPromise(
+				client["preview.forward"]({ port: server.port }),
+			);
+			if (
+				useEnvironmentCatalogStore.getState().activeEnvironmentId !==
+				environmentId
+			) {
+				return;
+			}
+			navigate(result.url);
+		} catch (error) {
+			if (
+				useEnvironmentCatalogStore.getState().activeEnvironmentId ===
+				environmentId
+			) {
+				setPreviewError(previewErrorDetails(error));
+			}
+		} finally {
+			if (
+				useEnvironmentCatalogStore.getState().activeEnvironmentId ===
+				environmentId
+			) {
+				setPreviewPortOpening(null);
 			}
 		}
 	};
@@ -1545,6 +1630,13 @@ export function BrowserPane({
 				>
 					<HugeiconsIcon icon={StarIcon} className="size-3.5" />
 				</ToolbarButton>
+				<ToolbarButton
+					onClick={() => void openExternal(url)}
+					disabled={!hasLoadedPage}
+					ariaLabel="Open in default browser"
+				>
+					<ExternalLink className="size-3.5" strokeWidth={1.8} />
+				</ToolbarButton>
 				<input
 					type="text"
 					value={inputValue}
@@ -1754,7 +1846,22 @@ export function BrowserPane({
 				className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-muted/20"
 			>
 				{!hasLoadedPage ? (
-					<BrowserEmptyState servers={localServers} onOpen={navigate} />
+					<BrowserEmptyState
+						computerLabel={previewIsLocal ? "This Mac" : activeEnvironmentLabel}
+						error={previewError}
+						loading={previewServersLoading}
+						onApprove={
+							previewError?.approvalUrl === null ||
+							previewError?.approvalUrl === undefined
+								? undefined
+								: () => void openExternal(previewError.approvalUrl ?? "")
+						}
+						onOpen={(server) => void openPreviewServer(server)}
+						onRefresh={() => void refreshPreviewServers()}
+						openingPort={previewPortOpening}
+						remote={!previewIsLocal}
+						servers={previewServers}
+					/>
 				) : null}
 				<div
 					className="relative shrink-0"
@@ -3732,42 +3839,128 @@ function BrowserAgentOverlay({
 }
 
 function BrowserEmptyState({
+	computerLabel,
+	error,
+	loading,
+	onApprove,
 	servers,
 	onOpen,
+	onRefresh,
+	openingPort,
+	remote,
 }: {
-	servers: ReadonlyArray<LocalServerSummary>;
-	onOpen: (url: string) => void;
+	computerLabel: string;
+	error: PreviewUiError | null;
+	loading: boolean;
+	onApprove?: () => void;
+	servers: ReadonlyArray<PreviewServer>;
+	onOpen: (server: PreviewServer) => void;
+	onRefresh: () => void;
+	openingPort: number | null;
+	remote: boolean;
 }) {
-	const rows = servers.length > 0 ? servers : fallbackLocalServers;
 	return (
 		<div className="absolute inset-0 z-10 overflow-auto bg-background px-8 py-10">
 			<div className="mx-auto max-w-3xl">
-				<div className="mb-5 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-					<Server className="size-4" strokeWidth={1.8} />
-					Local servers
+				<div className="mb-5 flex min-h-9 items-center gap-3">
+					<div className="min-w-0 flex-1">
+						<div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+							<Server className="size-4" strokeWidth={1.8} />
+							Servers on {computerLabel}
+						</div>
+						<p className="mt-1 text-muted-foreground text-xs">
+							{remote
+								? "Open a private preview from this cloud computer."
+								: "Open a development server running on this Mac."}
+						</p>
+					</div>
+					<button
+						type="button"
+						aria-label={`Refresh servers on ${computerLabel}`}
+						className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 pointer-coarse:size-11"
+						disabled={loading}
+						onClick={onRefresh}
+					>
+						<RefreshCw
+							className={
+								loading
+									? "size-3.5 animate-spin motion-reduce:animate-none"
+									: "size-3.5"
+							}
+						/>
+					</button>
 				</div>
-				<div className="overflow-hidden rounded-xl border border-border/70 bg-card/70">
-					{rows.map((server) => (
-						<button
-							key={`${server.name}-${server.port}`}
-							type="button"
-							onClick={() => onOpen(`http://localhost:${server.port}`)}
-							className="flex w-full items-center gap-4 border-b border-border/60 px-4 py-3 text-left last:border-b-0 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-						>
-							<span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-background text-muted-foreground">
-								<Server className="size-4" strokeWidth={1.8} />
-							</span>
-							<span className="grid min-w-0 flex-1">
-								<span className="truncate text-sm font-semibold text-foreground">
-									{server.name}
+				{error !== null ? (
+					<div
+						className="mb-3 flex min-h-10 items-center gap-3 rounded-lg border border-destructive/15 bg-alert-error-bg px-3 py-2 text-destructive-foreground text-xs"
+						role="alert"
+					>
+						<span className="min-w-0 flex-1">{error.message}</span>
+						{onApprove !== undefined ? (
+							<button
+								type="button"
+								className="h-7 shrink-0 rounded-md border border-destructive/20 bg-background/60 px-2.5 font-medium outline-none hover:bg-background focus-visible:ring-2 focus-visible:ring-ring/60 pointer-coarse:min-h-11"
+								onClick={onApprove}
+							>
+								Approve
+							</button>
+						) : null}
+					</div>
+				) : null}
+				<div
+					className="overflow-hidden rounded-xl border border-border/70 bg-card/70"
+					aria-busy={loading}
+					aria-live="polite"
+				>
+					{loading && servers.length === 0 ? (
+						<div className="flex min-h-20 items-center justify-center text-muted-foreground text-xs">
+							Checking {computerLabel}…
+						</div>
+					) : null}
+					{!loading && servers.length === 0 ? (
+						<div className="flex min-h-28 flex-col items-center justify-center gap-1.5 px-6 text-center">
+							<p className="font-medium text-sm">No web servers detected</p>
+							<p className="max-w-sm text-muted-foreground text-xs">
+								Start a server in the terminal, then refresh this list.
+							</p>
+						</div>
+					) : null}
+					{servers.map((server) => {
+						const opening = openingPort === server.port;
+						return (
+							<button
+								key={`${server.name}-${server.port}`}
+								type="button"
+								disabled={openingPort !== null}
+								onClick={() => onOpen(server)}
+								className="flex min-h-16 w-full items-center gap-4 border-b border-border/60 px-4 py-3 text-left outline-none last:border-b-0 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-wait disabled:opacity-70"
+							>
+								<span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-background text-muted-foreground">
+									<Server className="size-4" strokeWidth={1.8} />
 								</span>
-								<span className="text-sm text-muted-foreground">
-									localhost:{server.port}
+								<span className="grid min-w-0 flex-1">
+									<span className="truncate text-sm font-semibold text-foreground">
+										{server.name}
+									</span>
+									<span className="text-sm text-muted-foreground">
+										localhost:{server.port}
+									</span>
 								</span>
-							</span>
-							<span className="size-2.5 rounded-full bg-emerald-500" />
-						</button>
-					))}
+								<span className="flex w-24 shrink-0 items-center justify-end gap-2 text-muted-foreground text-xs">
+									{opening ? (
+										<>
+											<RefreshCw className="size-3.5 animate-spin motion-reduce:animate-none" />
+											Opening…
+										</>
+									) : remote ? (
+										"Private preview"
+									) : (
+										<span className="size-2.5 rounded-full bg-emerald-500" />
+									)}
+								</span>
+							</button>
+						);
+					})}
 				</div>
 			</div>
 		</div>

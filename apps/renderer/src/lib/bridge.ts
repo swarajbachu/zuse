@@ -12,6 +12,7 @@ import type {
 	PowerMonitorState,
 	PowerRecordingDurationMinutes,
 	PowerWorkloadState,
+	PreviewServer,
 	RemoteEnvironmentProfile,
 	SshEnvironmentConnection,
 	TailnetEnvironmentConnection,
@@ -250,10 +251,7 @@ export interface BrowserCookieImportStatus {
 	readonly message?: string;
 }
 
-export interface LocalServerSummary {
-	readonly name: string;
-	readonly port: number;
-}
+export type LocalServerSummary = PreviewServer;
 
 export interface BrowserBridge {
 	/**
