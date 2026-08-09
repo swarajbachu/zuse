@@ -258,7 +258,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 	(set, get) => {
 		const recoverySubscriptions = new Map<string, () => void>();
 		const relayRecords = new Map<string, RelayEnvironmentRecord>();
-		const recovering = new Set<string>();
 		const connectionAttempts = new Map<string, Promise<void>>();
 		const fallbackPollers = new Map<string, number>();
 		const workspaceChangeFibers = new Map<
@@ -417,7 +416,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			readonly catalogKey: string;
 			readonly environmentId: string;
 			readonly patch: Partial<EnvironmentCatalogEntry>;
-			readonly reconnect: () => Promise<void>;
 		}): Promise<void> => {
 			const catalog = await hydrateEntry(
 				input.environmentId,
@@ -456,17 +454,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 								error:
 									snapshot.error === null ? null : formatError(snapshot.error),
 							});
-						}
-						if (
-							(snapshot.status === "reconnecting" ||
-								snapshot.status === "error" ||
-								snapshot.status === "blockedAuth") &&
-							!recovering.has(input.catalogKey)
-						) {
-							recovering.add(input.catalogKey);
-							void input
-								.reconnect()
-								.finally(() => recovering.delete(input.catalogKey));
 						}
 					}, input.environmentId),
 				);
@@ -510,7 +497,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 							target: connection.profile.target,
 							descriptor: connection.descriptor,
 						},
-						reconnect: () => connectProfile(profileId),
 					});
 				} catch (cause) {
 					failConnection(catalogKey, cause, () => connectProfile(profileId));
@@ -547,7 +533,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						label: confirmedProfile.label,
 						descriptor,
 					},
-					reconnect: () => connectTailnetProfile(profile.profileId),
 				});
 			} catch (cause) {
 				await removeRendererEnvironment(profile.environmentId).catch(
@@ -617,7 +602,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 								endpoint: grant.endpoint,
 							},
 						},
-						reconnect: () => connectRelay(environment, localEnvironmentId),
 					});
 				} catch (cause) {
 					failConnection(catalogKey, cause, () =>

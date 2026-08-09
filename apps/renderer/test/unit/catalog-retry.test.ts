@@ -6,7 +6,7 @@ import {
 } from "../../src/lib/catalog-retry.ts";
 
 describe("catalogRetryDelayMs", () => {
-	it("backs off quickly and stays capped at one minute", () => {
+	it("backs off quickly", () => {
 		expect([0, 1, 2, 3, 8].map(catalogRetryDelayMs)).toEqual([
 			5_000, 15_000, 30_000, 60_000, 60_000,
 		]);
@@ -53,5 +53,28 @@ describe("createCatalogRetryController", () => {
 		controller.prepareManualRetry("ssh:one");
 		controller.schedule("ssh:one", retry);
 		expect(scheduled).toHaveLength(1);
+	});
+
+	it("stops after two automatic retries and waits for manual retry", () => {
+		const scheduled: Array<{ delay: number; run: () => void }> = [];
+		const controller = createCatalogRetryController((delay, run) => {
+			scheduled.push({ delay, run });
+			return vi.fn();
+		});
+		const retry = vi.fn();
+
+		controller.schedule("relay:one", retry);
+		scheduled[0]?.run();
+		controller.schedule("relay:one", retry);
+		scheduled[1]?.run();
+		controller.schedule("relay:one", retry);
+
+		expect(retry).toHaveBeenCalledTimes(2);
+		expect(scheduled).toHaveLength(2);
+
+		controller.prepareManualRetry("relay:one");
+		controller.schedule("relay:one", retry);
+		expect(scheduled).toHaveLength(3);
+		expect(scheduled[2]?.delay).toBe(5_000);
 	});
 });

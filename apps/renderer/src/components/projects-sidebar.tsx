@@ -6,7 +6,6 @@ import {
 	ArchiveIcon,
 	ArrowDown01Icon,
 	ArrowRight01Icon,
-	ComputerIcon,
 	Delete02Icon,
 	Edit01Icon,
 	FolderAddIcon,
@@ -14,6 +13,7 @@ import {
 	Login03Icon,
 	Logout01Icon,
 	PencilIcon,
+	ServerStack01Icon,
 	Settings01Icon,
 	SquareLock01Icon,
 	TaskDone01Icon,
@@ -858,6 +858,38 @@ function CatalogConnectionNotice({
 	);
 }
 
+function RemoteComputerIndicator({
+	label,
+	className,
+}: {
+	readonly label: string;
+	readonly className?: string;
+}) {
+	const context = `Runs on ${label}`;
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<span
+						className={cn(
+							"inline-flex shrink-0 text-muted-foreground/70",
+							className,
+						)}
+					>
+						<HugeiconsIcon
+							icon={ServerStack01Icon}
+							aria-hidden
+							className="size-3"
+						/>
+						<span className="sr-only">{context}</span>
+					</span>
+				}
+			/>
+			<TooltipPopup>{context}</TooltipPopup>
+		</Tooltip>
+	);
+}
+
 /**
  * A logical project group with no folder on the active environment: a light
  * header (avatar ↔ chevron swap, same anatomy as the full `ProjectGroup`)
@@ -912,21 +944,7 @@ function LogicalCatalogGroup({
 						</span>
 					</button>
 					{group.environmentPresence === "remote-only" ? (
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<span className="inline-flex shrink-0 text-muted-foreground/70">
-										<HugeiconsIcon
-											icon={ComputerIcon}
-											aria-hidden
-											className="size-3"
-										/>
-										<span className="sr-only">On {memberLabels}</span>
-									</span>
-								}
-							/>
-							<TooltipPopup>On {memberLabels}</TooltipPopup>
-						</Tooltip>
+						<RemoteComputerIndicator label={memberLabels} />
 					) : null}
 					{preferred?.connected ? (
 						<button
@@ -1049,21 +1067,10 @@ function CatalogChatRow({
 				</span>
 				<div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
 					{remote ? (
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<span className="mr-1 inline-flex text-muted-foreground/70">
-										<HugeiconsIcon
-											icon={ComputerIcon}
-											aria-hidden
-											className="size-3"
-										/>
-										<span className="sr-only">On {environmentLabel}</span>
-									</span>
-								}
-							/>
-							<TooltipPopup>On {environmentLabel}</TooltipPopup>
-						</Tooltip>
+						<RemoteComputerIndicator
+							label={environmentLabel}
+							className="mr-1"
+						/>
 					) : null}
 					<span className="tabular-nums text-[10px] text-muted-foreground">
 						{stats !== null ? (
@@ -1691,21 +1698,10 @@ function ChatRow({ chat }: { chat: Chat }) {
 					/>
 					<div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
 						{onRemoteEnvironment ? (
-							<Tooltip>
-								<TooltipTrigger
-									render={
-										<span className="mr-1 inline-flex text-muted-foreground/70 group-hover:hidden">
-											<HugeiconsIcon
-												icon={ComputerIcon}
-												aria-hidden
-												className="size-3"
-											/>
-											<span className="sr-only">On {environmentLabel}</span>
-										</span>
-									}
-								/>
-								<TooltipPopup>On {environmentLabel}</TooltipPopup>
-							</Tooltip>
+							<RemoteComputerIndicator
+								label={environmentLabel}
+								className="mr-1"
+							/>
 						) : null}
 						<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
 							{showDiff && stats !== null ? (

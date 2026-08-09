@@ -12,19 +12,30 @@ import {
 import type { GitBranchInfo, GitPrCheckRun, Message } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Effect } from "effect";
-import { ArrowLeftRight, Cloud, Laptop, MonitorSmartphone } from "lucide-react";
+import {
+	ArrowLeftRight,
+	Laptop,
+	MonitorSmartphone,
+	Server,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { deriveEnvironmentPrRows } from "../lib/branch-workflow.ts";
 import { displayPath } from "../lib/display-path.ts";
+import { deriveEnvironmentLocation } from "../lib/environment-location.ts";
 import { formatError } from "../lib/format-error.ts";
 import { detachedSubagentGroups } from "../lib/group-messages.ts";
-import { getActiveEnvironment, getRpcClient } from "../lib/rpc-client.ts";
+import {
+	getActiveEnvironment,
+	getLocalEnvironmentId,
+	getRpcClient,
+} from "../lib/rpc-client.ts";
 import {
 	effectiveSessionRuntimeState,
 	isSessionTurnActive,
 } from "../lib/session-runtime-state.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
+import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { gitDiffStatKey, useGitDiffStatStore } from "../store/git-diff-stat.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { useMessagesStore } from "../store/messages.ts";
@@ -76,6 +87,21 @@ export function EnvironmentSummary() {
 	const ctx = useActiveContext();
 	const folderId = ctx.status === "ready" ? ctx.folderId : null;
 	const worktreeId = ctx.status === "ready" ? ctx.worktreeId : null;
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(state) => state.activeEnvironmentId,
+	);
+	const activeEnvironmentEntry = useEnvironmentCatalogStore(
+		(state) =>
+			state.entries.find(
+				(entry) => entry.environmentId === state.activeEnvironmentId,
+			) ?? null,
+	);
+	const environmentLocation = deriveEnvironmentLocation({
+		activeEnvironmentId,
+		localEnvironmentId: getLocalEnvironmentId(),
+		activeEntry: activeEnvironmentEntry,
+	});
+	const EnvironmentIcon = environmentLocation.isLocal ? Laptop : Server;
 	const status = useGitStatusStore((s) =>
 		folderId ? (s.byKey[gitStatusKey(folderId, worktreeId)] ?? null) : null,
 	);
@@ -315,10 +341,12 @@ export function EnvironmentSummary() {
 			<Menu>
 				<MenuTrigger
 					className={`${rowClass} hover:bg-muted/60 data-[popup-open]:bg-muted/60`}
-					title={displayPath(ctx.rootPath)}
+					title={`${environmentLocation.menuLabel} · ${displayPath(ctx.rootPath)}`}
 				>
-					<Laptop className="size-4 shrink-0 text-muted-foreground" />
-					<span className="min-w-0 flex-1 truncate">Local</span>
+					<EnvironmentIcon className="size-4 shrink-0 text-muted-foreground" />
+					<span className="min-w-0 flex-1 truncate">
+						{environmentLocation.label}
+					</span>
 					<span className="size-1.5 rounded-full bg-[var(--accent-green)]" />
 				</MenuTrigger>
 				<MenuPopup
@@ -328,19 +356,14 @@ export function EnvironmentSummary() {
 					className="min-w-64 p-1"
 				>
 					<div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
-						Run in
+						Running on
 					</div>
 					<MenuItem className="gap-2 px-2 py-1.5 text-xs">
-						<Laptop className="size-3.5" />
-						<span className="flex-1">This Mac</span>
+						<EnvironmentIcon className="size-3.5" />
+						<span className="flex-1">{environmentLocation.menuLabel}</span>
 						<span className="text-[10px] text-[var(--accent-green)]">
 							Active
 						</span>
-					</MenuItem>
-					<MenuItem disabled className="gap-2 px-2 py-1.5 text-xs">
-						<Cloud className="size-3.5" />
-						<span className="flex-1">Cloud environment</span>
-						<span className="text-[10px]">Not connected</span>
 					</MenuItem>
 					<MenuSeparator />
 					<MenuItem onClick={openDevices} className="gap-2 px-2 py-1.5 text-xs">

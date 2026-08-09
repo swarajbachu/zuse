@@ -1,4 +1,5 @@
 const RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000] as const;
+const MAX_AUTOMATIC_RETRIES = 2;
 
 export const catalogRetryDelayMs = (attempt: number): number =>
 	RETRY_DELAYS_MS[Math.min(Math.max(attempt, 0), RETRY_DELAYS_MS.length - 1)] ??
@@ -25,6 +26,10 @@ export const createCatalogRetryController = (scheduleTimer: Schedule) => {
 		schedule(key: string, retry: () => void): void {
 			if (stopped.has(key) || timers.has(key)) return;
 			const attempt = attempts.get(key) ?? 0;
+			if (attempt >= MAX_AUTOMATIC_RETRIES) {
+				stopped.add(key);
+				return;
+			}
 			attempts.set(key, attempt + 1);
 			const cancel = scheduleTimer(catalogRetryDelayMs(attempt), () => {
 				timers.delete(key);

@@ -98,6 +98,7 @@ const optionsForEnvironment = (
 };
 
 let online = globalThis.navigator?.onLine ?? true;
+export const RENDERER_MAX_AUTOMATIC_CONNECTION_ATTEMPTS = 3;
 
 const supervisor = createConnectionSupervisor<
 	RendererConnectionOptions,
@@ -146,6 +147,7 @@ const supervisor = createConnectionSupervisor<
 		(previous.kind === "websocket" &&
 			next.kind === "websocket" &&
 			previous.wsUrl !== next.wsUrl),
+	maxAutomaticAttempts: RENDERER_MAX_AUTOMATIC_CONNECTION_ATTEMPTS,
 });
 
 const rendererEntries = new Map<
