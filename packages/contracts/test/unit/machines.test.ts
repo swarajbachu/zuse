@@ -216,6 +216,11 @@ describe("managed machine contracts", () => {
 				code: "ABCD-EFGH",
 			}),
 		).toMatchObject({ _tag: "verification", code: "ABCD-EFGH" });
+		expect(
+			Schema.decodeUnknownSync(AccountAccessTransferEvent)({
+				_tag: "input-ready",
+			}),
+		).toEqual({ _tag: "input-ready" });
 		const sealed = Schema.decodeUnknownSync(AccountAccessTransferEvent)({
 			_tag: "sealed",
 			sealed: {

@@ -136,6 +136,7 @@ export function CloudAccountAccess({
 	const [error, setError] = useState<string | null>(null);
 	const [claudeTransferId, setClaudeTransferId] = useState<string | null>(null);
 	const [claudeCodeError, setClaudeCodeError] = useState<string | null>(null);
+	const [claudeCodeReady, setClaudeCodeReady] = useState(false);
 	const [submittingClaudeCode, setSubmittingClaudeCode] = useState(false);
 	const claudeLoginCancelled = useRef(false);
 
@@ -207,6 +208,8 @@ export function CloudAccountAccess({
 
 	const runSetup = async (providerId: AccountAccessProvider) => {
 		let claudePhase: "authorization" | "remote-import" = "authorization";
+		setClaudeCodeReady(false);
+		setSubmittingClaudeCode(false);
 		if (!accountAccessAvailable) {
 			setError(
 				"Account setup is unavailable on this machine runtime. Finish the update, then refresh.",
@@ -240,7 +243,7 @@ export function CloudAccountAccess({
 				setClaudeCodeError(null);
 				setProgress({
 					providerId,
-					message: "Sign in to Claude, then paste the one-time code here.",
+					message: "Sign in to Claude. The code field will unlock when ready.",
 				});
 				let sealed: AccountAccessSealedCredential | null = null;
 				await Effect.runPromise(
@@ -250,11 +253,17 @@ export function CloudAccountAccess({
 						),
 						(event: AccountAccessTransferEvent) =>
 							Effect.promise(async () => {
-								if (event._tag === "verification") {
+								if (event._tag === "input-ready") {
+									setClaudeCodeReady(true);
+									setProgress({
+										providerId,
+										message: "Paste the one-time code from Claude.",
+									});
+								} else if (event._tag === "verification") {
 									setProgress({
 										providerId,
 										message:
-											"Finish authorization, then paste the one-time code.",
+											"Finish authorization. Waiting for Claude's code prompt…",
 										code: event.code,
 										url: event.url,
 									});
@@ -340,17 +349,25 @@ export function CloudAccountAccess({
 				const detail =
 					providerId === "claude" && claudePhase === "remote-import"
 						? "Claude authorized locally, but access could not be saved on the cloud machine. Reconnect and try again."
-						: `${PROVIDER_LABEL[providerId]} access could not be connected.`;
+						: providerId === "claude"
+							? "Claude did not finish exchanging the one-time code. Start a fresh login and try again."
+							: `${PROVIDER_LABEL[providerId]} access could not be connected.`;
 				setError(`${detail}${code === null ? "" : ` (${code})`}`);
 			}
 		} finally {
 			setClaudeTransferId(null);
+			setClaudeCodeReady(false);
+			setSubmittingClaudeCode(false);
 			setBusyProvider(null);
 		}
 	};
 
 	const continueClaudeTransfer = async (form: HTMLFormElement) => {
 		if (claudeTransferId === null) return;
+		if (!claudeCodeReady) {
+			setClaudeCodeError("Wait until Claude is ready for the code.");
+			return;
+		}
 		const code = new FormData(form).get("claude-authorization-code");
 		if (typeof code !== "string" || code.trim().length === 0) {
 			setClaudeCodeError("Paste the one-time code from Claude.");
@@ -372,15 +389,13 @@ export function CloudAccountAccess({
 				}),
 			);
 			form.reset();
-			setClaudeTransferId(null);
 			setProgress({
 				providerId: "claude",
-				message: "Creating the secure Claude credential…",
+				message: "Exchanging the one-time code securely…",
 			});
 		} catch {
-			setClaudeCodeError("The code could not be submitted. Try again.");
-		} finally {
 			setSubmittingClaudeCode(false);
+			setClaudeCodeError("The code could not be submitted. Try again.");
 		}
 	};
 
@@ -390,6 +405,8 @@ export function CloudAccountAccess({
 		claudeLoginCancelled.current = true;
 		setClaudeTransferId(null);
 		setClaudeCodeError(null);
+		setClaudeCodeReady(false);
+		setSubmittingClaudeCode(false);
 		setProgress(null);
 		try {
 			const control = await getControlPlaneRpcClient();
@@ -643,8 +660,11 @@ export function CloudAccountAccess({
 						<DialogHeader>
 							<DialogTitle>Finish Claude authorization</DialogTitle>
 							<DialogDescription>
-								After signing in, copy the one-time code shown by Claude and
-								paste it here. It is sent only to the local login process.
+								{submittingClaudeCode
+									? "Exchanging the one-time code. This normally takes only a few seconds."
+									: claudeCodeReady
+										? "Copy the one-time code shown by Claude and paste it here. It is sent only to the local login process."
+										: "Complete sign-in in your browser. The code field will unlock when the local Claude process is ready."}
 							</DialogDescription>
 						</DialogHeader>
 						<DialogPanel
@@ -664,6 +684,7 @@ export function CloudAccountAccess({
 									spellCheck={false}
 									data-1p-ignore
 									autoFocus
+									disabled={!claudeCodeReady || submittingClaudeCode}
 									aria-invalid={claudeCodeError !== null}
 									aria-describedby={
 										claudeCodeError === null
@@ -687,13 +708,20 @@ export function CloudAccountAccess({
 								type="button"
 								size="xs"
 								variant="ghost"
-								disabled={submittingClaudeCode}
 								onClick={() => void cancelClaudeTransfer()}
 							>
 								Cancel login
 							</Button>
-							<Button type="submit" size="xs" loading={submittingClaudeCode}>
-								Continue
+							<Button
+								type="submit"
+								size="xs"
+								disabled={!claudeCodeReady || submittingClaudeCode}
+							>
+								{submittingClaudeCode
+									? "Connecting…"
+									: claudeCodeReady
+										? "Continue"
+										: "Waiting…"}
 							</Button>
 						</DialogFooter>
 					</form>

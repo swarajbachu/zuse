@@ -556,6 +556,7 @@ export class AccountAccessImportRequest extends Schema.Class<AccountAccessImport
 
 export const AccountAccessTransferEvent = Schema.Union([
 	Schema.TaggedStruct("progress", { message: Schema.String }),
+	Schema.TaggedStruct("input-ready", {}),
 	Schema.TaggedStruct("verification", {
 		url: Schema.String,
 		code: Schema.optional(Schema.String),

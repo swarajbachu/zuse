@@ -47,6 +47,7 @@ import {
 	redactAccountAccessOutput,
 } from "./adapters.ts";
 import { AccountAccessServiceError } from "./errors.ts";
+import { InteractiveProcessRegistry } from "./interactive-process-registry.ts";
 import {
 	openCredentialTransfer,
 	type PreparedCredentialTransfer,
@@ -133,7 +134,8 @@ const processEnvironment = (
 	...overrides,
 });
 
-const interactiveProcesses = new Map<string, pty.IPty>();
+const interactiveProcesses = new InteractiveProcessRegistry<pty.IPty>();
+const CLAUDE_CODE_EXCHANGE_TIMEOUT_MS = 90_000;
 
 export const accountAccessEventFromPtyChunk = (
 	chunk: string,
@@ -149,7 +151,7 @@ const streamPtyProcess: AccountAccessProcessShape["stream"] = (
 	Stream.callback<AccountAccessProcessEvent, AccountAccessServiceError>(
 		(queue) =>
 			Effect.gen(function* () {
-				if (sessionId === undefined || interactiveProcesses.has(sessionId)) {
+				if (sessionId === undefined || interactiveProcesses.get(sessionId)) {
 					return yield* Effect.fail(
 						new AccountAccessServiceError("login-failed"),
 					);
@@ -162,15 +164,13 @@ const streamPtyProcess: AccountAccessProcessShape["stream"] = (
 					cwd: homedir(),
 					env: processEnvironment(environment),
 				});
-				interactiveProcesses.set(sessionId, child);
+				interactiveProcesses.replace(sessionId, child);
 				const data = child.onData((chunk) => {
 					const event = accountAccessEventFromPtyChunk(chunk);
 					if (event !== null) Queue.offerUnsafe(queue, event);
 				});
 				const exit = child.onExit(({ exitCode }) => {
-					if (interactiveProcesses.get(sessionId) === child) {
-						interactiveProcesses.delete(sessionId);
-					}
+					interactiveProcesses.release(sessionId, child);
 					Queue.offerUnsafe(queue, { _tag: "exit", code: exitCode });
 					Queue.endUnsafe(queue);
 				});
@@ -178,9 +178,7 @@ const streamPtyProcess: AccountAccessProcessShape["stream"] = (
 					Effect.sync(() => {
 						data.dispose();
 						exit.dispose();
-						if (interactiveProcesses.get(sessionId) === child) {
-							interactiveProcesses.delete(sessionId);
-						}
+						interactiveProcesses.release(sessionId, child);
 						try {
 							child.kill();
 						} catch {
@@ -243,6 +241,10 @@ const writeProcess: AccountAccessProcessShape["write"] = (sessionId, input) =>
 			const child = interactiveProcesses.get(sessionId);
 			if (child === undefined) throw new Error("session_not_found");
 			child.write(input);
+			interactiveProcesses.armTimeout(
+				sessionId,
+				CLAUDE_CODE_EXCHANGE_TIMEOUT_MS,
+			);
 		},
 		catch: () => new AccountAccessServiceError("login-failed"),
 	});
@@ -252,7 +254,7 @@ const cancelProcess: AccountAccessProcessShape["cancel"] = (sessionId) =>
 		try: () => {
 			const child = interactiveProcesses.get(sessionId);
 			if (child === undefined) throw new Error("session_not_found");
-			child.kill();
+			interactiveProcesses.cancel(sessionId, child);
 		},
 		catch: () => new AccountAccessServiceError("login-failed"),
 	});
@@ -690,6 +692,7 @@ export const AccountAccessServiceLive = Layer.effect(
 					});
 					let token: string | null = null;
 					let verificationEmitted = false;
+					let inputReadyEmitted = false;
 					let setupTranscript = "";
 					return processRunner
 						.stream(
@@ -729,11 +732,12 @@ export const AccountAccessServiceLive = Layer.effect(
 											reason: "login-failed",
 										});
 									}
+									const events: AccountAccessTransferEvent[] = [];
 									const verification =
 										parseClaudeSetupVerification(setupTranscript);
 									if (!verificationEmitted && verification.url !== undefined) {
 										verificationEmitted = true;
-										return Stream.succeed<AccountAccessTransferEvent>({
+										events.push({
 											_tag: "verification",
 											url: verification.url,
 											...(verification.code === undefined
@@ -741,10 +745,23 @@ export const AccountAccessServiceLive = Layer.effect(
 												: { code: verification.code }),
 										});
 									}
-									return Stream.succeed<AccountAccessTransferEvent>({
-										_tag: "progress",
-										message: "Waiting for Claude authorization…",
-									});
+									if (
+										!inputReadyEmitted &&
+										/Paste code here if prompted\s*>/iu.test(safeTranscript)
+									) {
+										inputReadyEmitted = true;
+										events.push({ _tag: "input-ready" });
+									}
+									return Stream.fromIterable<AccountAccessTransferEvent>(
+										events.length > 0
+											? events
+											: [
+													{
+														_tag: "progress",
+														message: "Waiting for Claude authorization…",
+													},
+												],
+									);
 								}
 								if (event.code !== 0) {
 									return Stream.succeed<AccountAccessTransferEvent>({

@@ -460,7 +460,7 @@ describe("AccountAccessService", () => {
 								Stream.make(
 									{
 										_tag: "line",
-										text: "Open https://claude.ai/setup-token",
+										text: "Open https://claude.ai/setup-token\r\nPaste code here if prompted > ",
 									},
 									{
 										_tag: "line",
@@ -483,6 +483,7 @@ describe("AccountAccessService", () => {
 		expect([...events]).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ _tag: "verification" }),
+				{ _tag: "input-ready" },
 				expect.objectContaining({ _tag: "sealed" }),
 				{ _tag: "done", ok: true },
 			]),
