@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { scrubInheritedClaudeMarkers } from "@zuse/agents/drivers/claude-env";
 import type {
+	AccountAccessClaudeTransferContinuation,
 	AccountAccessCreateClaudeTransferRequest,
 	AccountAccessImportRequest,
 	AccountAccessPreparedImport,
@@ -71,7 +72,15 @@ export interface AccountAccessProcessShape {
 		command: string,
 		args: ReadonlyArray<string>,
 		environment?: Readonly<Record<string, string>>,
+		sessionId?: string,
 	) => Stream.Stream<AccountAccessProcessEvent, AccountAccessServiceError>;
+	readonly write: (
+		sessionId: string,
+		input: string,
+	) => Effect.Effect<void, AccountAccessServiceError>;
+	readonly cancel: (
+		sessionId: string,
+	) => Effect.Effect<void, AccountAccessServiceError>;
 }
 
 export class AccountAccessProcess extends Context.Service<
@@ -120,14 +129,22 @@ const processEnvironment = (
 	...overrides,
 });
 
+const interactiveProcesses = new Map<string, pty.IPty>();
+
 const streamPtyProcess: AccountAccessProcessShape["stream"] = (
 	command,
 	args,
 	environment,
+	sessionId,
 ) =>
 	Stream.callback<AccountAccessProcessEvent, AccountAccessServiceError>(
 		(queue) =>
 			Effect.gen(function* () {
+				if (sessionId === undefined || interactiveProcesses.has(sessionId)) {
+					return yield* Effect.fail(
+						new AccountAccessServiceError("login-failed"),
+					);
+				}
 				ensureNodePtySpawnHelperExecutable();
 				const child = pty.spawn(command, [...args], {
 					name: "xterm-256color",
@@ -136,6 +153,7 @@ const streamPtyProcess: AccountAccessProcessShape["stream"] = (
 					cwd: homedir(),
 					env: processEnvironment(environment),
 				});
+				interactiveProcesses.set(sessionId, child);
 				let buffer = "";
 				const data = child.onData((chunk) => {
 					buffer += chunk;
@@ -148,6 +166,9 @@ const streamPtyProcess: AccountAccessProcessShape["stream"] = (
 					}
 				});
 				const exit = child.onExit(({ exitCode }) => {
+					if (interactiveProcesses.get(sessionId) === child) {
+						interactiveProcesses.delete(sessionId);
+					}
 					if (buffer.trim().length > 0) {
 						Queue.offerUnsafe(queue, { _tag: "line", text: buffer });
 					}
@@ -158,6 +179,9 @@ const streamPtyProcess: AccountAccessProcessShape["stream"] = (
 					Effect.sync(() => {
 						data.dispose();
 						exit.dispose();
+						if (interactiveProcesses.get(sessionId) === child) {
+							interactiveProcesses.delete(sessionId);
+						}
 						try {
 							child.kill();
 						} catch {
@@ -172,9 +196,10 @@ const streamProcess: AccountAccessProcessShape["stream"] = (
 	command,
 	args,
 	environment,
+	sessionId,
 ) =>
 	command === "claude" && args[0] === "setup-token"
-		? streamPtyProcess(command, args, environment)
+		? streamPtyProcess(command, args, environment, sessionId)
 		: Stream.callback<AccountAccessProcessEvent, AccountAccessServiceError>(
 				(queue) =>
 					Effect.gen(function* () {
@@ -213,9 +238,34 @@ const streamProcess: AccountAccessProcessShape["stream"] = (
 					}),
 			);
 
+const writeProcess: AccountAccessProcessShape["write"] = (sessionId, input) =>
+	Effect.try({
+		try: () => {
+			const child = interactiveProcesses.get(sessionId);
+			if (child === undefined) throw new Error("session_not_found");
+			child.write(input);
+		},
+		catch: () => new AccountAccessServiceError("login-failed"),
+	});
+
+const cancelProcess: AccountAccessProcessShape["cancel"] = (sessionId) =>
+	Effect.try({
+		try: () => {
+			const child = interactiveProcesses.get(sessionId);
+			if (child === undefined) throw new Error("session_not_found");
+			child.kill();
+		},
+		catch: () => new AccountAccessServiceError("login-failed"),
+	});
+
 export const AccountAccessProcessLive = Layer.succeed(
 	AccountAccessProcess,
-	AccountAccessProcess.of({ capture: captureProcess, stream: streamProcess }),
+	AccountAccessProcess.of({
+		capture: captureProcess,
+		stream: streamProcess,
+		write: writeProcess,
+		cancel: cancelProcess,
+	}),
 );
 
 export interface AccountAccessServiceShape {
@@ -237,6 +287,9 @@ export interface AccountAccessServiceShape {
 	readonly createClaudeTransfer: (
 		request: AccountAccessCreateClaudeTransferRequest,
 	) => Stream.Stream<AccountAccessTransferEvent, AccountAccessServiceError>;
+	readonly continueClaudeTransfer: (
+		request: AccountAccessClaudeTransferContinuation,
+	) => Effect.Effect<void, AccountAccessServiceError>;
 	readonly importCredential: (
 		request: AccountAccessImportRequest,
 	) => Effect.Effect<AccountAccessProviderStatus, AccountAccessServiceError>;
@@ -644,47 +697,85 @@ export const AccountAccessServiceLive = Layer.effect(
 					});
 					let token: string | null = null;
 					let verificationEmitted = false;
-					return processRunner.stream("claude", ["setup-token"]).pipe(
-						Stream.flatMap((event) => {
-							if (event._tag === "line") {
-								token ??= extractClaudeSetupToken(event.text);
-								const verification = parseClaudeSetupVerification(event.text);
-								if (!verificationEmitted && verification.url !== undefined) {
-									verificationEmitted = true;
+					return processRunner
+						.stream(
+							"claude",
+							["setup-token"],
+							undefined,
+							request.prepared.transferId,
+						)
+						.pipe(
+							Stream.flatMap((event) => {
+								if (event._tag === "line") {
+									token ??= extractClaudeSetupToken(event.text);
+									const verification = parseClaudeSetupVerification(event.text);
+									if (!verificationEmitted && verification.url !== undefined) {
+										verificationEmitted = true;
+										return Stream.succeed<AccountAccessTransferEvent>({
+											_tag: "verification",
+											url: verification.url,
+											...(verification.code === undefined
+												? {}
+												: { code: verification.code }),
+										});
+									}
 									return Stream.succeed<AccountAccessTransferEvent>({
-										_tag: "verification",
-										url: verification.url,
-										...(verification.code === undefined
-											? {}
-											: { code: verification.code }),
+										_tag: "progress",
+										message: "Waiting for Claude authorization…",
 									});
 								}
-								return Stream.succeed<AccountAccessTransferEvent>({
-									_tag: "progress",
-									message: "Waiting for Claude authorization…",
+								if (event.code !== 0 || token === null) {
+									return Stream.succeed<AccountAccessTransferEvent>({
+										_tag: "done",
+										ok: false,
+										reason: "login-failed",
+									});
+								}
+								const sealed = sealCredentialTransfer(request.prepared, {
+									providerId: "claude",
+									kind: "oauth-token",
+									secret: token,
 								});
-							}
-							if (event.code !== 0 || token === null) {
-								return Stream.succeed<AccountAccessTransferEvent>({
-									_tag: "done",
-									ok: false,
-									reason: "login-failed",
-								});
-							}
-							const sealed = sealCredentialTransfer(request.prepared, {
-								providerId: "claude",
-								kind: "oauth-token",
-								secret: token,
-							});
-							return Stream.fromIterable<AccountAccessTransferEvent>([
-								{ _tag: "sealed", sealed },
-								{ _tag: "done", ok: true },
-							]);
-						}),
-					);
+								return Stream.fromIterable<AccountAccessTransferEvent>([
+									{ _tag: "sealed", sealed },
+									{ _tag: "done", ok: true },
+								]);
+							}),
+						);
 				}),
 			);
 		};
+
+		const continueClaudeTransfer = Effect.fn(
+			"AccountAccess.continueClaudeTransfer",
+		)(function* (request: AccountAccessClaudeTransferContinuation) {
+			yield* requireRole("control-plane");
+			const session = yield* auth.getSession();
+			if (session._tag !== "SignedIn") {
+				return yield* Effect.fail(
+					new AccountAccessServiceError("not-signed-in"),
+				);
+			}
+			if (request._tag === "cancel") {
+				yield* processRunner.cancel(request.transferId);
+				return;
+			}
+			const code = request.code.trim();
+			const containsControlCharacter = [...code].some((character) => {
+				const value = character.charCodeAt(0);
+				return value < 32 || value === 127;
+			});
+			if (
+				code.length === 0 ||
+				code.length > 4_096 ||
+				containsControlCharacter
+			) {
+				return yield* Effect.fail(
+					new AccountAccessServiceError("transfer-rejected"),
+				);
+			}
+			yield* processRunner.write(request.transferId, `${code}\r`);
+		});
 
 		const importCredential = Effect.fn("AccountAccess.importCredential")(
 			function* (request: AccountAccessImportRequest) {
@@ -826,6 +917,7 @@ export const AccountAccessServiceLive = Layer.effect(
 			startLogin,
 			prepareImport,
 			createClaudeTransfer,
+			continueClaudeTransfer,
 			importCredential,
 			disconnect,
 			sanitizeCredentials,

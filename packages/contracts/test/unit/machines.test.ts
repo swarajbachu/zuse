@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+	AccountAccessClaudeTransferContinuation,
 	AccountAccessCreateClaudeTransferRequest,
 	AccountAccessImportRequest,
 	AccountAccessPreparedImport,
@@ -181,6 +182,13 @@ describe("managed machine contracts", () => {
 
 		expect(request.prepared.environmentId).toBe(prepared.environmentId);
 		expect(imported.transferId).toBe(prepared.transferId);
+		expect(
+			Schema.decodeUnknownSync(AccountAccessClaudeTransferContinuation)({
+				_tag: "code",
+				transferId: prepared.transferId,
+				code: "one-time-code",
+			}),
+		).toMatchObject({ _tag: "code", transferId: prepared.transferId });
 	});
 
 	it("allows only safe progress and ciphertext events during token transfer", () => {

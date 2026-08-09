@@ -5,6 +5,7 @@ import type {
 	LocalAccountDescriptor,
 } from "@zuse/contracts";
 import type { Effect, Stream } from "effect";
+import stripAnsi from "strip-ansi";
 
 import type { AccountAccessServiceError } from "./errors.ts";
 
@@ -73,6 +74,37 @@ const DEVICE_CODE_PATTERN = /\b[A-Z0-9]{4,8}(?:-[A-Z0-9]{4,8})+\b/u;
 const URL_PATTERN = /https:\/\/[^\s"'<>]+/giu;
 const CLAUDE_SETUP_TOKEN_PATTERN = /\bsk-ant-oat01-[A-Za-z0-9_-]{20,}\b/gu;
 
+const oscLoginUrls = (raw: string): ReadonlyArray<string> => {
+	const escapeCharacter = String.fromCharCode(27);
+	const bell = String.fromCharCode(7);
+	const prefix = `${escapeCharacter}]8;`;
+	const results: string[] = [];
+	let cursor = 0;
+	while (cursor < raw.length) {
+		const start = raw.indexOf(prefix, cursor);
+		if (start < 0) break;
+		const urlStart = raw.indexOf(";", start + prefix.length);
+		if (urlStart < 0) break;
+		const bellEnd = raw.indexOf(bell, urlStart + 1);
+		const escapeEnd = raw.indexOf(`${escapeCharacter}\\`, urlStart + 1);
+		const ends = [bellEnd, escapeEnd].filter((value) => value >= 0);
+		if (ends.length === 0) break;
+		const end = Math.min(...ends);
+		const candidate = raw.slice(urlStart + 1, end);
+		if (candidate.startsWith("https://")) results.push(candidate);
+		cursor = end + 1;
+	}
+	return results;
+};
+
+const loginUrlCandidates = (raw: string): ReadonlyArray<string> => {
+	const visible = stripAnsi(raw);
+	return [
+		...oscLoginUrls(raw),
+		...[...visible.matchAll(URL_PATTERN)].map((match) => match[0]),
+	].filter((candidate): candidate is string => candidate !== undefined);
+};
+
 const allowedLoginUrl = (
 	providerId: DeviceLoginProvider | "claude",
 	candidate: string,
@@ -85,7 +117,7 @@ const allowedLoginUrl = (
 				? ["github.com"]
 				: providerId === "codex"
 					? ["openai.com", "chatgpt.com"]
-					: ["anthropic.com", "claude.ai"];
+					: ["anthropic.com", "claude.ai", "claude.com"];
 		return allowedDomains.some(
 			(domain) =>
 				url.hostname === domain || url.hostname.endsWith(`.${domain}`),
@@ -101,9 +133,9 @@ export const parseDeviceLoginVerification = (
 	providerId: DeviceLoginProvider,
 	raw: string,
 ): { readonly url?: string; readonly code?: string } => {
-	const code = raw.match(DEVICE_CODE_PATTERN)?.[0];
-	const url = [...raw.matchAll(URL_PATTERN)]
-		.map((match) => match[0])
+	const safe = stripAnsi(raw);
+	const code = safe.match(DEVICE_CODE_PATTERN)?.[0];
+	const url = loginUrlCandidates(raw)
 		.map((candidate) => allowedLoginUrl(providerId, candidate))
 		.find((candidate): candidate is string => candidate !== null);
 	return {
@@ -115,9 +147,9 @@ export const parseDeviceLoginVerification = (
 export const parseClaudeSetupVerification = (
 	raw: string,
 ): { readonly url?: string; readonly code?: string } => {
-	const parsed = parseDeviceLoginVerification("codex", raw);
-	const url = [...raw.matchAll(URL_PATTERN)]
-		.map((match) => match[0])
+	const safe = stripAnsi(raw);
+	const parsed = parseDeviceLoginVerification("codex", safe);
+	const url = loginUrlCandidates(raw)
 		.map((candidate) => allowedLoginUrl("claude", candidate))
 		.find((candidate): candidate is string => candidate !== null);
 	return {

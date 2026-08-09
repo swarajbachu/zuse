@@ -111,6 +111,7 @@ import {
 	LinearPrepareContextRpc,
 } from "./linear.ts";
 import {
+	AccountAccessContinueClaudeTransferRpc,
 	AccountAccessCreateClaudeTransferRpc,
 	AccountAccessDetectLocalRpc,
 	AccountAccessDisconnectRpc,
@@ -326,6 +327,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	AccountAccessStartLoginRpc,
 	AccountAccessPrepareImportRpc,
 	AccountAccessCreateClaudeTransferRpc,
+	AccountAccessContinueClaudeTransferRpc,
 	AccountAccessImportRpc,
 	AccountAccessDisconnectRpc,
 	RelayEnvironmentsRpc,

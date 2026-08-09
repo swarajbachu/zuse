@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { EnvironmentId } from "@zuse/contracts";
+import { AuthSession, AuthUser, EnvironmentId } from "@zuse/contracts";
 import { Effect, Layer, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { sealCredentialTransfer } from "../../src/account-access/sealed-transfer.ts";
@@ -38,7 +38,13 @@ afterEach(async () => {
 
 const makeLayer = (
 	userData: string,
-	processRunner: AccountAccessProcessShape = {
+	processOverrides: Partial<AccountAccessProcessShape> = {},
+	options: {
+		readonly role?: "control-plane" | "cloud-environment";
+		readonly signedInUserId?: string;
+	} = {},
+) => {
+	const processRunner: AccountAccessProcessShape = {
 		capture: () =>
 			Effect.succeed({
 				stdout: "Claude Code 2.1.224",
@@ -46,8 +52,10 @@ const makeLayer = (
 				code: 0,
 			}),
 		stream: () => Stream.empty,
-	},
-) => {
+		write: () => Effect.void,
+		cancel: () => Effect.void,
+		...processOverrides,
+	};
 	const environmentId = EnvironmentId.make("01JZUSE0000000000000000000");
 	const identity = generateKeyPairSync("ed25519");
 	const privateJwk = JSON.stringify(
@@ -60,12 +68,32 @@ const makeLayer = (
 	return AccountAccessServiceLive.pipe(
 		Layer.provide(credentialsLayer),
 		Layer.provide(Layer.succeed(AppPaths, { userData })),
-		Layer.provide(Layer.succeed(MachineRuntimeRole, "cloud-environment")),
+		Layer.provide(
+			Layer.succeed(MachineRuntimeRole, options.role ?? "cloud-environment"),
+		),
 		Layer.provide(
 			Layer.succeed(
 				AuthService,
 				AuthService.of({
-					getSession: () => Effect.succeed({ _tag: "SignedOut" }),
+					getSession: () =>
+						Effect.succeed(
+							options.signedInUserId === undefined
+								? ({ _tag: "SignedOut" } as const)
+								: ({
+										_tag: "SignedIn",
+										session: AuthSession.make({
+											user: AuthUser.make({
+												id: options.signedInUserId,
+												email: "person@example.com",
+												firstName: null,
+												lastName: null,
+												profilePictureUrl: null,
+											}),
+											organizationId: null,
+											expiresAt: Date.now() + 60_000,
+										}),
+									} as const),
+						),
 					signIn: () => Effect.die("unused"),
 					signOut: () => Effect.void,
 					sessionChanges: () => Stream.empty,
@@ -275,5 +303,56 @@ describe("AccountAccessService", () => {
 			url: "https://github.com/login/device",
 			code: "ABCD-EFGH",
 		});
+	});
+
+	it("continues and cancels an interactive Claude login without exposing the code in arguments", async () => {
+		const userData = await mkdtemp(join(tmpdir(), "zuse-account-continue-"));
+		temporaryDirectories.push(userData);
+		const writes: Array<{
+			readonly sessionId: string;
+			readonly input: string;
+		}> = [];
+		const cancellations: string[] = [];
+		const layer = makeLayer(
+			userData,
+			{
+				write: (sessionId, input) =>
+					Effect.sync(() => writes.push({ sessionId, input })),
+				cancel: (sessionId) => Effect.sync(() => cancellations.push(sessionId)),
+			},
+			{
+				role: "control-plane",
+				signedInUserId: "user_01JZUSE0000000000000000000",
+			},
+		);
+
+		const invalid = await Effect.runPromise(
+			Effect.gen(function* () {
+				const service = yield* AccountAccessService;
+				yield* service.continueClaudeTransfer({
+					_tag: "code",
+					transferId: "transfer-1",
+					code: "safe-auth-code",
+				});
+				const rejected = yield* Effect.flip(
+					service.continueClaudeTransfer({
+						_tag: "code",
+						transferId: "transfer-1",
+						code: "unsafe\ncode",
+					}),
+				);
+				yield* service.continueClaudeTransfer({
+					_tag: "cancel",
+					transferId: "transfer-2",
+				});
+				return rejected;
+			}).pipe(Effect.provide(layer)),
+		);
+
+		expect(writes).toEqual([
+			{ sessionId: "transfer-1", input: "safe-auth-code\r" },
+		]);
+		expect(cancellations).toEqual(["transfer-2"]);
+		expect(invalid.code).toBe("transfer-rejected");
 	});
 });

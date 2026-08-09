@@ -50,6 +50,11 @@ const CreateClaudeTransfer = MemoizeRpcs.toLayerHandler(
 	(input) => withStream((service) => service.createClaudeTransfer(input)),
 );
 
+const ContinueClaudeTransfer = MemoizeRpcs.toLayerHandler(
+	"accountAccess.continueClaudeTransfer",
+	(input) => withService((service) => service.continueClaudeTransfer(input)),
+);
+
 const ImportCredential = MemoizeRpcs.toLayerHandler(
 	"accountAccess.import",
 	(input) => withService((service) => service.importCredential(input)),
@@ -66,6 +71,7 @@ export const AccountAccessHandlersLayer = Layer.mergeAll(
 	StartLogin,
 	PrepareImport,
 	CreateClaudeTransfer,
+	ContinueClaudeTransfer,
 	ImportCredential,
 	Disconnect,
 );

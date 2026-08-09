@@ -41,6 +41,13 @@ describe("account-access provider adapters", () => {
 		expect(
 			parseClaudeSetupVerification("Open https://attacker.invalid/steal"),
 		).toEqual({});
+		expect(
+			parseClaudeSetupVerification(
+				"\u001b]8;id=login;https://claude.com/cai/oauth/authorize?code=true\u0007Open authorization\u001b]8;;\u0007",
+			),
+		).toEqual({
+			url: "https://claude.com/cai/oauth/authorize?code=true",
+		});
 	});
 
 	it("extracts only provider-approved verification URLs and short codes", () => {
@@ -61,6 +68,15 @@ describe("account-access provider adapters", () => {
 		).toEqual({
 			url: "https://auth.openai.com/codex/device",
 			code: "WXYZ-1234",
+		});
+		expect(
+			parseDeviceLoginVerification(
+				"codex",
+				"\u001b[94mhttps://auth.openai.com/codex/device\u001b[0m \u001b[94mHH9Y-43O37\u001b[0m",
+			),
+		).toEqual({
+			url: "https://auth.openai.com/codex/device",
+			code: "HH9Y-43O37",
 		});
 		expect(
 			parseDeviceLoginVerification(

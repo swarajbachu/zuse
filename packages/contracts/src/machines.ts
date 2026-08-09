@@ -469,6 +469,18 @@ export class AccountAccessCreateClaudeTransferRequest extends Schema.Class<Accou
 	prepared: AccountAccessPreparedImport,
 }) {}
 
+export const AccountAccessClaudeTransferContinuation = Schema.Union([
+	Schema.TaggedStruct("code", {
+		transferId: Schema.String,
+		code: Schema.String,
+	}),
+	Schema.TaggedStruct("cancel", {
+		transferId: Schema.String,
+	}),
+]);
+export type AccountAccessClaudeTransferContinuation =
+	typeof AccountAccessClaudeTransferContinuation.Type;
+
 export class AccountAccessImportRequest extends Schema.Class<AccountAccessImportRequest>(
 	"AccountAccessImportRequest",
 )({
@@ -552,6 +564,15 @@ export const AccountAccessCreateClaudeTransferRpc = Rpc.make(
 		success: AccountAccessTransferEvent,
 		error: AccountAccessOpError,
 		stream: true,
+	},
+);
+
+export const AccountAccessContinueClaudeTransferRpc = Rpc.make(
+	"accountAccess.continueClaudeTransfer",
+	{
+		payload: AccountAccessClaudeTransferContinuation,
+		success: Schema.Void,
+		error: AccountAccessOpError,
 	},
 );
 

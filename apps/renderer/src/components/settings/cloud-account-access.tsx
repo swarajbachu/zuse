@@ -7,7 +7,7 @@ import type {
 } from "@zuse/contracts";
 import { Effect, Stream } from "effect";
 import { RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openExternal } from "../../lib/platform-capabilities.ts";
 import {
 	getControlPlaneRpcClient,
@@ -24,6 +24,16 @@ import {
 } from "../ui/alert-dialog.tsx";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
+import {
+	Dialog,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogPanel,
+	DialogPopup,
+	DialogTitle,
+} from "../ui/dialog.tsx";
+import { Input } from "../ui/input.tsx";
 import { CloudSettingsGroup, CloudSettingsRow } from "./cloud-settings-ui.tsx";
 
 const PROVIDERS = ["github", "claude", "codex"] as const;
@@ -70,6 +80,10 @@ export function CloudAccountAccess({
 		useState<AccountAccessProvider | null>(null);
 	const [progress, setProgress] = useState<RowProgress | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [claudeTransferId, setClaudeTransferId] = useState<string | null>(null);
+	const [claudeCodeError, setClaudeCodeError] = useState<string | null>(null);
+	const [submittingClaudeCode, setSubmittingClaudeCode] = useState(false);
+	const claudeLoginCancelled = useRef(false);
 
 	const refresh = useCallback(async () => {
 		try {
@@ -110,6 +124,7 @@ export function CloudAccountAccess({
 		setBusyProvider(providerId);
 		setProgress({ providerId, message: "Waiting for authorization…" });
 		setError(null);
+		claudeLoginCancelled.current = false;
 		try {
 			const [environment, control] = await Promise.all([
 				getRpcClient(environmentId),
@@ -132,9 +147,12 @@ export function CloudAccountAccess({
 							Effect.promise(async () => {
 								if (event._tag === "verification") {
 									await openExternal(event.url);
+									setClaudeTransferId(prepared.transferId);
+									setClaudeCodeError(null);
 									setProgress({
 										providerId,
-										message: "Finish authorization in your browser.",
+										message:
+											"Finish authorization, then paste the one-time code.",
 										code: event.code,
 									});
 								} else if (event._tag === "sealed") {
@@ -173,11 +191,68 @@ export function CloudAccountAccess({
 				);
 			}
 			setProgress({ providerId, message: "Connected." });
+			setClaudeTransferId(null);
 			await refresh();
 		} catch {
-			setError(`${PROVIDER_LABEL[providerId]} access could not be connected.`);
+			if (!claudeLoginCancelled.current) {
+				setError(
+					`${PROVIDER_LABEL[providerId]} access could not be connected.`,
+				);
+			}
 		} finally {
+			setClaudeTransferId(null);
 			setBusyProvider(null);
+		}
+	};
+
+	const continueClaudeTransfer = async (form: HTMLFormElement) => {
+		if (claudeTransferId === null) return;
+		const code = new FormData(form).get("claude-authorization-code");
+		if (typeof code !== "string" || code.trim().length === 0) {
+			setClaudeCodeError("Paste the one-time code from Claude.");
+			return;
+		}
+		setSubmittingClaudeCode(true);
+		setClaudeCodeError(null);
+		try {
+			const control = await getControlPlaneRpcClient();
+			await Effect.runPromise(
+				control["accountAccess.continueClaudeTransfer"]({
+					_tag: "code",
+					transferId: claudeTransferId,
+					code,
+				}),
+			);
+			form.reset();
+			setClaudeTransferId(null);
+			setProgress({
+				providerId: "claude",
+				message: "Checking authorization…",
+			});
+		} catch {
+			setClaudeCodeError("The code could not be submitted. Try again.");
+		} finally {
+			setSubmittingClaudeCode(false);
+		}
+	};
+
+	const cancelClaudeTransfer = async () => {
+		if (claudeTransferId === null) return;
+		const transferId = claudeTransferId;
+		claudeLoginCancelled.current = true;
+		setClaudeTransferId(null);
+		setClaudeCodeError(null);
+		setProgress(null);
+		try {
+			const control = await getControlPlaneRpcClient();
+			await Effect.runPromise(
+				control["accountAccess.continueClaudeTransfer"]({
+					_tag: "cancel",
+					transferId,
+				}),
+			);
+		} catch {
+			setError("Claude login could not be cancelled cleanly.");
 		}
 	};
 
@@ -350,6 +425,76 @@ export function CloudAccountAccess({
 					</AlertDialogFooter>
 				</AlertDialogPopup>
 			</AlertDialog>
+
+			<Dialog
+				open={claudeTransferId !== null}
+				onOpenChange={(open) => {
+					if (!open) void cancelClaudeTransfer();
+				}}
+			>
+				<DialogPopup className="max-w-sm" showCloseButton={false}>
+					<form
+						onSubmit={(event) => {
+							event.preventDefault();
+							void continueClaudeTransfer(event.currentTarget);
+						}}
+					>
+						<DialogHeader>
+							<DialogTitle>Finish Claude authorization</DialogTitle>
+							<DialogDescription>
+								After signing in, copy the one-time code shown by Claude and
+								paste it here. It is sent only to the local login process.
+							</DialogDescription>
+						</DialogHeader>
+						<DialogPanel className="space-y-2">
+							<label
+								className="block space-y-1"
+								htmlFor="claude-authorization-code"
+							>
+								<span className="text-[11px] font-medium">One-time code</span>
+								<Input
+									id="claude-authorization-code"
+									name="claude-authorization-code"
+									type="password"
+									autoComplete="off"
+									spellCheck={false}
+									data-1p-ignore
+									autoFocus
+									aria-invalid={claudeCodeError !== null}
+									aria-describedby={
+										claudeCodeError === null
+											? undefined
+											: "claude-authorization-code-error"
+									}
+								/>
+							</label>
+							{claudeCodeError === null ? null : (
+								<p
+									id="claude-authorization-code-error"
+									role="alert"
+									className="text-[11px] text-destructive"
+								>
+									{claudeCodeError}
+								</p>
+							)}
+						</DialogPanel>
+						<DialogFooter>
+							<Button
+								type="button"
+								size="xs"
+								variant="ghost"
+								disabled={submittingClaudeCode}
+								onClick={() => void cancelClaudeTransfer()}
+							>
+								Cancel login
+							</Button>
+							<Button type="submit" size="xs" loading={submittingClaudeCode}>
+								Continue
+							</Button>
+						</DialogFooter>
+					</form>
+				</DialogPopup>
+			</Dialog>
 		</>
 	);
 }
