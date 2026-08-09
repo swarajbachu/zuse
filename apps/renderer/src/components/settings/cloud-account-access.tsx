@@ -1,14 +1,17 @@
-import type {
-	AccountAccessProvider,
-	AccountAccessProviderStatus,
-	AccountAccessSealedCredential,
-	AccountAccessTransferEvent,
-	LocalAccountDescriptor,
+import {
+	AccountAccessCreateClaudeTransferRequest,
+	type AccountAccessErrorCode,
+	AccountAccessImportRequest,
+	type AccountAccessProvider,
+	type AccountAccessProviderStatus,
+	type AccountAccessSealedCredential,
+	type AccountAccessTransferEvent,
+	type LocalAccountDescriptor,
 } from "@zuse/contracts";
 import { Effect, Stream } from "effect";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { openExternal } from "../../lib/platform-capabilities.ts";
+import { copyText, openExternal } from "../../lib/platform-capabilities.ts";
 import {
 	getControlPlaneRpcClient,
 	getRpcClient,
@@ -41,6 +44,38 @@ const PROVIDER_LABEL: Record<AccountAccessProvider, string> = {
 	github: "GitHub",
 	claude: "Claude",
 	codex: "Codex",
+};
+
+const ACCOUNT_ACCESS_ERROR_CODES: ReadonlyArray<AccountAccessErrorCode> = [
+	"not-allowed",
+	"not-signed-in",
+	"unsupported-provider",
+	"tool-not-installed",
+	"login-failed",
+	"transfer-expired",
+	"transfer-replayed",
+	"transfer-rejected",
+	"credential-store-failed",
+	"cleanup-failed",
+];
+
+const stableAccountAccessErrorCode = (
+	cause: unknown,
+): AccountAccessErrorCode | null => {
+	if (typeof cause === "object" && cause !== null && "code" in cause) {
+		const code = cause.code;
+		if (
+			typeof code === "string" &&
+			ACCOUNT_ACCESS_ERROR_CODES.includes(code as AccountAccessErrorCode)
+		) {
+			return code as AccountAccessErrorCode;
+		}
+	}
+	const text = typeof cause === "string" ? cause : "";
+	return (
+		ACCOUNT_ACCESS_ERROR_CODES.find((candidate) => text.includes(candidate)) ??
+		null
+	);
 };
 
 type RowProgress = {
@@ -187,11 +222,12 @@ export function CloudAccountAccess({
 				let sealed: AccountAccessSealedCredential | null = null;
 				await Effect.runPromise(
 					Stream.runForEach(
-						control["accountAccess.createClaudeTransfer"]({ prepared }),
+						control["accountAccess.createClaudeTransfer"](
+							new AccountAccessCreateClaudeTransferRequest({ prepared }),
+						),
 						(event: AccountAccessTransferEvent) =>
 							Effect.promise(async () => {
 								if (event._tag === "verification") {
-									await openExternal(event.url);
 									setClaudeTransferId(prepared.transferId);
 									setClaudeCodeError(null);
 									setProgress({
@@ -200,6 +236,7 @@ export function CloudAccountAccess({
 											"Finish authorization, then paste the one-time code.",
 										code: event.code,
 									});
+									await openExternal(event.url);
 								} else if (event._tag === "sealed") {
 									sealed = event.sealed;
 								} else if (event._tag === "done" && !event.ok) {
@@ -210,10 +247,12 @@ export function CloudAccountAccess({
 				);
 				if (sealed === null) throw new Error("transfer-rejected");
 				await Effect.runPromise(
-					environment["accountAccess.import"]({
-						transferId: prepared.transferId,
-						sealed,
-					}),
+					environment["accountAccess.import"](
+						new AccountAccessImportRequest({
+							transferId: prepared.transferId,
+							sealed,
+						}),
+					),
 				);
 			} else {
 				await Effect.runPromise(
@@ -222,12 +261,23 @@ export function CloudAccountAccess({
 						(event: AccountAccessTransferEvent) =>
 							Effect.promise(async () => {
 								if (event._tag === "verification") {
-									await openExternal(event.url);
+									let codeCopied = false;
+									if (event.code !== undefined) {
+										try {
+											await copyText(event.code);
+											codeCopied = true;
+										} catch {
+											// The code remains visible in the row for manual copying.
+										}
+									}
 									setProgress({
 										providerId,
-										message: "Enter the code in your browser.",
+										message: codeCopied
+											? "Code copied. Paste it in your browser."
+											: "Enter the code in your browser.",
 										code: event.code,
 									});
+									await openExternal(event.url);
 								} else if (event._tag === "done" && !event.ok) {
 									throw new Error(event.reason ?? "login-failed");
 								}
@@ -238,11 +288,12 @@ export function CloudAccountAccess({
 			setProgress({ providerId, message: "Connected." });
 			setClaudeTransferId(null);
 			await refresh();
-		} catch {
+		} catch (cause) {
 			setProgress(null);
 			if (!claudeLoginCancelled.current) {
+				const code = stableAccountAccessErrorCode(cause);
 				setError(
-					`${PROVIDER_LABEL[providerId]} access could not be connected.`,
+					`${PROVIDER_LABEL[providerId]} access could not be connected.${code === null ? "" : ` (${code})`}`,
 				);
 			}
 		} finally {

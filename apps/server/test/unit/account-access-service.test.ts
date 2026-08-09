@@ -21,7 +21,7 @@ import {
 	LocalAccountDescriptorList,
 } from "@zuse/contracts";
 import { Effect, Layer, Schema, Stream } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { sealCredentialTransfer } from "../../src/account-access/sealed-transfer.ts";
 import {
 	AccountAccessProcess,
@@ -32,6 +32,7 @@ import {
 import { AppPaths } from "../../src/app-paths.ts";
 import { AuthService } from "../../src/auth/services/auth-service.ts";
 import { LanAuthService } from "../../src/lan-auth/services/lan-auth-service.ts";
+import { resolveMachineRelayUrl } from "../../src/machine/machine-control-service.ts";
 import { MachineRuntimeRole } from "../../src/machine/machine-runtime-role.ts";
 import { makeFileCredentialsService } from "../../src/provider/layers/file-credentials-service.ts";
 import { CredentialsService } from "../../src/provider/services/credentials-service.ts";
@@ -39,10 +40,19 @@ import { CredentialsService } from "../../src/provider/services/credentials-serv
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
+	vi.restoreAllMocks();
 	for (const directory of temporaryDirectories.splice(0)) {
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+
+const makeIdentity = () => {
+	const identity = generateKeyPairSync("ed25519");
+	return {
+		privateJwk: JSON.stringify(identity.privateKey.export({ format: "jwk" })),
+		publicJwk: JSON.stringify(identity.publicKey.export({ format: "jwk" })),
+	};
+};
 
 const makeLayer = (
 	userData: string,
@@ -50,6 +60,10 @@ const makeLayer = (
 	options: {
 		readonly role?: "control-plane" | "cloud-environment";
 		readonly signedInUserId?: string;
+		readonly accessToken?: string;
+		readonly identity?: ReturnType<typeof makeIdentity>;
+		readonly relayConfig?: "available" | "missing";
+		readonly relayUrl?: string;
 	} = {},
 ) => {
 	const processRunner: AccountAccessProcessShape = {
@@ -65,13 +79,8 @@ const makeLayer = (
 		...processOverrides,
 	};
 	const environmentId = EnvironmentId.make("01JZUSE0000000000000000000");
-	const identity = generateKeyPairSync("ed25519");
-	const privateJwk = JSON.stringify(
-		identity.privateKey.export({ format: "jwk" }),
-	);
-	const publicJwk = JSON.stringify(
-		identity.publicKey.export({ format: "jwk" }),
-	);
+	const identity = options.identity ?? makeIdentity();
+	const { privateJwk, publicJwk } = identity;
 	const credentialsLayer = makeFileCredentialsService(userData);
 	return AccountAccessServiceLive.pipe(
 		Layer.provide(credentialsLayer),
@@ -105,7 +114,8 @@ const makeLayer = (
 					signIn: () => Effect.die("unused"),
 					signOut: () => Effect.void,
 					sessionChanges: () => Stream.empty,
-					getAccessToken: () => Effect.die("unused"),
+					getAccessToken: () =>
+						Effect.succeed(options.accessToken ?? "test-token"),
 				}),
 			),
 		),
@@ -120,16 +130,21 @@ const makeLayer = (
 						publicJwk,
 					}),
 				getRelayConfig: () =>
-					Effect.succeed({
-						relayUrl: "https://relay.staging.example",
-						relayIssuer: "https://relay.staging.example",
-						environmentId,
-						environmentCredential: "unused-in-test",
-						label: undefined,
-						connectorToken: undefined,
-						tunnelHostname: undefined,
-						mintPublicKey: undefined,
-					}),
+					Effect.succeed(
+						options.relayConfig === "missing"
+							? null
+							: {
+									relayUrl: options.relayUrl ?? "https://relay.staging.example",
+									relayIssuer:
+										options.relayUrl ?? "https://relay.staging.example",
+									environmentId,
+									environmentCredential: "unused-in-test",
+									label: undefined,
+									connectorToken: undefined,
+									tunnelHostname: undefined,
+									mintPublicKey: undefined,
+								},
+					),
 			} as unknown as LanAuthService["Service"]),
 		),
 		Layer.provide(
@@ -352,6 +367,114 @@ describe("AccountAccessService", () => {
 			url: "https://github.com/login/device",
 			code: "ABCD-EFGH",
 		});
+	});
+
+	it("waits for Codex's code when the verification URL arrives first", async () => {
+		const userData = await mkdtemp(join(tmpdir(), "zuse-account-codex-code-"));
+		temporaryDirectories.push(userData);
+		const events = await Effect.runPromise(
+			Effect.gen(function* () {
+				const service = yield* AccountAccessService;
+				return yield* Stream.runCollect(service.startLogin("codex"));
+			}).pipe(
+				Effect.provide(
+					makeLayer(userData, {
+						stream: () =>
+							Stream.make(
+								{
+									_tag: "line",
+									text: "Open https://auth.openai.com/codex/device",
+								},
+								{ _tag: "line", text: "Enter code WXYZ-12345" },
+							),
+					}),
+				),
+			),
+		);
+
+		expect([...events]).toContainEqual({
+			_tag: "verification",
+			url: "https://auth.openai.com/codex/device",
+			code: "WXYZ-12345",
+		});
+	});
+
+	it("starts a Claude transfer without a local relay registration", async () => {
+		const userData = await mkdtemp(
+			join(tmpdir(), "zuse-account-claude-relay-"),
+		);
+		temporaryDirectories.push(userData);
+		const accountId = "user_01JZUSE0000000000000000000";
+		const relayUrl = resolveMachineRelayUrl();
+		const identity = makeIdentity();
+		const prepared = await Effect.runPromise(
+			Effect.gen(function* () {
+				const service = yield* AccountAccessService;
+				return yield* service.prepareImport({
+					accountId,
+					providerId: "claude",
+				});
+			}).pipe(Effect.provide(makeLayer(userData, {}, { identity, relayUrl }))),
+		);
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					environments: [
+						{
+							environmentId: prepared.environmentId,
+							providerKind: "cloud",
+							linkedAt: Date.now(),
+							environmentPublicKey: identity.publicJwk,
+						},
+					],
+				}),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			),
+		);
+
+		const events = await Effect.runPromise(
+			Effect.gen(function* () {
+				const service = yield* AccountAccessService;
+				return yield* Stream.runCollect(
+					service.createClaudeTransfer({ prepared }),
+				);
+			}).pipe(
+				Effect.provide(
+					makeLayer(
+						userData,
+						{
+							stream: () =>
+								Stream.make(
+									{
+										_tag: "line",
+										text: "Open https://claude.ai/setup-token",
+									},
+									{
+										_tag: "line",
+										text: "Token: sk-ant-oat01-abcdefghijklmnopqrstuvwxyz123456",
+									},
+									{ _tag: "exit", code: 0 },
+								),
+						},
+						{
+							role: "control-plane",
+							signedInUserId: accountId,
+							identity,
+							relayConfig: "missing",
+							relayUrl,
+						},
+					),
+				),
+			),
+		);
+
+		expect([...events]).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ _tag: "verification" }),
+				expect.objectContaining({ _tag: "sealed" }),
+				{ _tag: "done", ok: true },
+			]),
+		);
 	});
 
 	it("continues and cancels an interactive Claude login without exposing the code in arguments", async () => {

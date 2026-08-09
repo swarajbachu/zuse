@@ -35,6 +35,7 @@ import * as pty from "node-pty";
 import { AppPaths } from "../app-paths.ts";
 import { AuthService } from "../auth/services/auth-service.ts";
 import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
+import { resolveMachineRelayUrl } from "../machine/machine-control-service.ts";
 import { MachineRuntimeRole } from "../machine/machine-runtime-role.ts";
 import { CredentialsService } from "../provider/services/credentials-service.ts";
 import { ensureNodePtySpawnHelperExecutable } from "../pty/node-pty-helper.ts";
@@ -555,6 +556,7 @@ export const AccountAccessServiceLive = Layer.effect(
 			const command = getAccountAccessLoginCommand(providerId);
 			let verificationEmitted = false;
 			let pendingVerificationCode: string | undefined;
+			let pendingVerificationUrl: string | undefined;
 			const loginEvents = processRunner.stream(
 				command.command,
 				command.args,
@@ -611,14 +613,17 @@ export const AccountAccessServiceLive = Layer.effect(
 						const safe = redactAccountAccessOutput(event.text).slice(0, 500);
 						const verification = parseDeviceLoginVerification(providerId, safe);
 						pendingVerificationCode ??= verification.code;
-						if (!verificationEmitted && verification.url !== undefined) {
+						pendingVerificationUrl ??= verification.url;
+						if (
+							!verificationEmitted &&
+							pendingVerificationUrl !== undefined &&
+							pendingVerificationCode !== undefined
+						) {
 							verificationEmitted = true;
 							return Stream.succeed({
 								_tag: "verification",
-								url: verification.url,
-								...(pendingVerificationCode !== undefined
-									? { code: pendingVerificationCode }
-									: {}),
+								url: pendingVerificationUrl,
+								code: pendingVerificationCode,
 							});
 						}
 						return Stream.succeed({
@@ -645,18 +650,7 @@ export const AccountAccessServiceLive = Layer.effect(
 					) {
 						return Stream.fail(new AccountAccessServiceError("not-signed-in"));
 					}
-					const relayConfig = yield* lanAuth
-						.getRelayConfig()
-						.pipe(
-							Effect.mapError(
-								() => new AccountAccessServiceError("transfer-rejected"),
-							),
-						);
-					if (relayConfig === null) {
-						return Stream.fail(
-							new AccountAccessServiceError("transfer-rejected"),
-						);
-					}
+					const relayUrl = resolveMachineRelayUrl();
 					const accessToken = yield* auth
 						.getAccessToken()
 						.pipe(
@@ -667,7 +661,7 @@ export const AccountAccessServiceLive = Layer.effect(
 					const environments = yield* Effect.tryPromise({
 						try: async () => {
 							const response = await fetch(
-								`${relayConfig.relayUrl}${RelayPaths.environments}`,
+								`${relayUrl}${RelayPaths.environments}`,
 								{
 									headers: { authorization: `Bearer ${accessToken}` },
 									signal: AbortSignal.timeout(10_000),
@@ -695,12 +689,13 @@ export const AccountAccessServiceLive = Layer.effect(
 							verifyPreparedImport(
 								request.prepared,
 								environmentPublicKey,
-								relayConfig.relayIssuer,
+								relayUrl,
 							),
 						catch: () => new AccountAccessServiceError("transfer-rejected"),
 					});
 					let token: string | null = null;
 					let verificationEmitted = false;
+					let setupTranscript = "";
 					return processRunner
 						.stream(
 							"claude",
@@ -711,8 +706,12 @@ export const AccountAccessServiceLive = Layer.effect(
 						.pipe(
 							Stream.flatMap((event) => {
 								if (event._tag === "line") {
-									token ??= extractClaudeSetupToken(event.text);
-									const verification = parseClaudeSetupVerification(event.text);
+									setupTranscript = `${setupTranscript}${event.text}`.slice(
+										-32_768,
+									);
+									token ??= extractClaudeSetupToken(setupTranscript);
+									const verification =
+										parseClaudeSetupVerification(setupTranscript);
 									if (!verificationEmitted && verification.url !== undefined) {
 										verificationEmitted = true;
 										return Stream.succeed<AccountAccessTransferEvent>({
