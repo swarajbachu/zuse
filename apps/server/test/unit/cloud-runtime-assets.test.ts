@@ -272,6 +272,18 @@ describe("cloud runtime assets", () => {
 		expect(build).not.toContain("releases.invalid");
 	});
 
+	test("declares native runtime loader packages in the server workspace", async () => {
+		const packageJson = JSON.parse(
+			await readWorkspaceFile("apps/server/package.json"),
+		) as { dependencies?: Record<string, string> };
+
+		expect(packageJson.dependencies).toMatchObject({
+			bindings: "1.5.0",
+			"file-uri-to-path": "1.0.0",
+			"node-gyp-build": "4.8.4",
+		});
+	});
+
 	test("gates automatic and explicit staging publication without deploying production", async () => {
 		const workflow = await readWorkspaceFile(
 			".github/workflows/cloud-runtime-staging.yml",
