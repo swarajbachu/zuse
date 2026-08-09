@@ -1,3 +1,4 @@
+import { Socket } from "node:net";
 import type {
 	PreviewErrorCode,
 	PreviewForwardResult,
@@ -16,7 +17,8 @@ import {
 import { Context, Effect, Layer } from "effect";
 
 const MINIMUM_PREVIEW_PORT = 1_024;
-const HTTP_PROBE_TIMEOUT_MS = 2_500;
+const HTTP_PROBE_TIMEOUT_MS = 1_000;
+const HTTP_RESPONSE_PREFIX_LENGTH = "HTTP/".length;
 
 export class PreviewServiceError {
 	readonly _tag = "PreviewServiceError";
@@ -56,20 +58,34 @@ const isAllowedPreviewPort = (port: number, zusePort: number): boolean =>
 	port !== zusePort;
 
 export const probeLoopbackHttp = async (port: number): Promise<boolean> => {
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), HTTP_PROBE_TIMEOUT_MS);
-	try {
-		await fetch(`http://127.0.0.1:${port}/`, {
-			method: "HEAD",
-			redirect: "manual",
-			signal: controller.signal,
+	return new Promise<boolean>((resolve) => {
+		const socket = new Socket();
+		let settled = false;
+		let responsePrefix = "";
+		const timeout = setTimeout(() => finish(false), HTTP_PROBE_TIMEOUT_MS);
+		const finish = (http: boolean): void => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeout);
+			socket.destroy();
+			resolve(http);
+		};
+
+		socket.once("error", () => finish(false));
+		socket.once("close", () => finish(false));
+		socket.on("data", (chunk: Buffer) => {
+			responsePrefix += chunk.toString("latin1");
+			if (responsePrefix.length >= HTTP_RESPONSE_PREFIX_LENGTH) {
+				finish(responsePrefix.startsWith("HTTP/"));
+			}
 		});
-		return true;
-	} catch {
-		return false;
-	} finally {
-		clearTimeout(timeout);
-	}
+		socket.once("connect", () => {
+			socket.write(
+				"OPTIONS * HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+			);
+		});
+		socket.connect(port, "127.0.0.1");
+	});
 };
 
 const safePreviewServers = async (

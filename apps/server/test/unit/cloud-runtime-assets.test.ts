@@ -285,9 +285,7 @@ describe("cloud runtime assets", () => {
 			'"$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main"',
 		);
 		expect(workflow).toContain("publish_staging:");
-		expect(workflow).toContain(
-			"refs/heads/swarajbachu/managed-vps-cloud-provisioning",
-		);
+		expect(workflow).toContain("refs/heads/swarajbachu/relay-web-preview");
 		expect(workflow.match(/id: publication/gu)).toHaveLength(1);
 		expect(
 			workflow.match(/steps\.publication\.outputs\.enabled == 'true'/gu),

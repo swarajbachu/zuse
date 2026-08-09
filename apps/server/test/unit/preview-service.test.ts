@@ -1,8 +1,13 @@
+import { createServer } from "node:http";
+import { createServer as createTcpServer, type Socket } from "node:net";
 import type { TailnetCommandResult } from "@zuse/tailnet";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { makePreviewService } from "../../src/preview/preview-service.ts";
+import {
+	makePreviewService,
+	probeLoopbackHttp,
+} from "../../src/preview/preview-service.ts";
 
 const commandResult = (
 	stdout = "",
@@ -16,6 +21,62 @@ const runningStatus = JSON.stringify({
 });
 
 describe("preview service", () => {
+	it("detects HTTP without waiting for an application route", async () => {
+		const server = createServer((request, response) => {
+			if (request.method === "OPTIONS" && request.url === "*") {
+				response.writeHead(204);
+				response.end();
+			}
+		});
+		await new Promise<void>((resolve) =>
+			server.listen(0, "127.0.0.1", resolve),
+		);
+		const address = server.address();
+		if (address === null || typeof address === "string") {
+			throw new Error("Test server did not bind a TCP port");
+		}
+
+		try {
+			const startedAt = performance.now();
+			await expect(probeLoopbackHttp(address.port)).resolves.toBe(true);
+			expect(performance.now() - startedAt).toBeLessThan(1_000);
+		} finally {
+			server.closeAllConnections();
+			await new Promise<void>((resolve, reject) =>
+				server.close((error) =>
+					error === undefined ? resolve() : reject(error),
+				),
+			);
+		}
+	});
+
+	it("does not expose a non-HTTP listener as a preview", async () => {
+		const connections = new Set<Socket>();
+		const server = createTcpServer((socket) => {
+			connections.add(socket);
+			socket.once("close", () => connections.delete(socket));
+			socket.end("NOT-HTTP\n");
+		});
+		await new Promise<void>((resolve) =>
+			server.listen(0, "127.0.0.1", resolve),
+		);
+		const address = server.address();
+		if (address === null || typeof address === "string") {
+			throw new Error("Test server did not bind a TCP port");
+		}
+
+		try {
+			await expect(probeLoopbackHttp(address.port)).resolves.toBe(false);
+		} finally {
+			for (const connection of connections) connection.destroy();
+			await new Promise<void>((resolve, reject) =>
+				server.close((error) =>
+					error === undefined ? resolve() : reject(error),
+				),
+			);
+		}
+	});
+
 	it("lists only loopback HTTP servers and hides the Zuse control port", async () => {
 		const service = makePreviewService({
 			listListeners: async () => [
