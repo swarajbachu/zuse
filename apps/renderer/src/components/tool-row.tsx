@@ -24,9 +24,18 @@ import {
 	type UserQuestion,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { displayPath } from "~/lib/display-path";
 import { parseOrchestrationResult } from "~/lib/orchestration-tools";
+import type { SubagentReference } from "~/lib/subagent-metadata";
+import {
+	deriveSubagentWaitView,
+	formatSubagentWaitDuration,
+	type SubagentWaitResult,
+	type SubagentWaitView,
+	subagentWaitAccessibleTiming,
+	subagentWaitLabel,
+} from "~/lib/subagent-wait";
 import { toolImageDataUrl, toolImageResult } from "~/lib/tool-image-result";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
@@ -132,6 +141,7 @@ export const iconForTool = (tool: string): IconHandle => {
 interface ToolResult {
 	readonly output: unknown;
 	readonly isError: boolean;
+	readonly completedAt?: Date;
 }
 
 const stringifyJson = (value: unknown): string => {
@@ -852,10 +862,7 @@ const buildToolView = (
 					) : edits.length > 0 ? (
 						<div className="space-y-px">
 							{edits.map((edit, i) => (
-								<EditDiff
-									key={i}
-									edit={edit as FileEdit}
-								/>
+								<EditDiff key={i} edit={edit as FileEdit} />
 							))}
 						</div>
 					) : (
@@ -1799,6 +1806,75 @@ export function ToolRow({
 			hasContent={sections.length > 0}
 			body={sections.length > 0 ? sections : null}
 		/>
+	);
+}
+
+export function SubagentWaitRow({
+	input,
+	result,
+	startedAt,
+	subagentsByTaskId,
+}: {
+	readonly input: unknown;
+	readonly result: SubagentWaitResult | undefined;
+	readonly startedAt: Date;
+	readonly subagentsByTaskId: ReadonlyMap<string, SubagentReference>;
+}) {
+	const [now, setNow] = useState(() => new Date());
+	useEffect(() => {
+		if (result !== undefined) return;
+		const timer = window.setInterval(() => setNow(new Date()), 1000);
+		return () => window.clearInterval(timer);
+	}, [result]);
+
+	const view = deriveSubagentWaitView({
+		input,
+		result,
+		startedAt,
+		now,
+		subagentsByTaskId,
+	});
+	if (view === null) return null;
+
+	const label = subagentWaitLabel(view.status);
+	const output = result === undefined ? "" : toResultText(result.output);
+	const hasContent = output.length > 0 || result?.isError === true;
+	const resultText =
+		output.length > 0 ? output : result?.isError ? "(No error details.)" : "";
+
+	return (
+		<ExpandableIconRow
+			icon={Robot01Icon}
+			label={label}
+			pending={view.status === "waiting"}
+			detail={<SubagentWaitDetail view={view} />}
+			hasContent={hasContent}
+			body={
+				hasContent ? (
+					<PreBlock text={resultText} isError={result?.isError} />
+				) : null
+			}
+		/>
+	);
+}
+
+function SubagentWaitDetail({ view }: { readonly view: SubagentWaitView }) {
+	return (
+		<>
+			<span className="sr-only">{subagentWaitAccessibleTiming(view)}</span>
+			<span className="truncate text-muted-foreground" title={view.agentName}>
+				{view.agentName}
+			</span>
+			<span
+				aria-hidden="true"
+				className="min-w-[7.5rem] shrink-0 text-right tabular-nums text-[11px] text-muted-foreground/70"
+			>
+				{view.status === "waiting" && view.timeoutMs > 0
+					? `${formatSubagentWaitDuration(view.timeoutMs)} max · `
+					: null}
+				{formatSubagentWaitDuration(view.elapsedMs)}
+			</span>
+		</>
 	);
 }
 

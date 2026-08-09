@@ -38,6 +38,7 @@ import {
 	effectiveSessionRuntimeState,
 	isSessionTurnActive,
 } from "~/lib/session-runtime-state";
+import { subagentTaskIdForBlockingWait } from "~/lib/subagent-wait";
 import { normalizeToolCallEnvelope } from "~/lib/tool-call-envelope";
 import {
 	openExternal,
@@ -88,6 +89,7 @@ import { MarkdownBody } from "./markdown-body.tsx";
 import {
 	ExitPlanModeRow,
 	OrchestrationThreadRow,
+	SubagentWaitRow,
 	ThinkingRow,
 	ToolRow,
 	UserInputRow,
@@ -218,7 +220,12 @@ function MessageRowImpl({
 				/>
 			);
 		case "tool_use":
-			return <ToolUseMessageRow content={message.content} />;
+			return (
+				<ToolUseMessageRow
+					content={message.content}
+					createdAt={message.createdAt}
+				/>
+			);
 		case "tool_result":
 			return <ToolResultMessageRow content={message.content} />;
 		case "user_question":
@@ -305,13 +312,29 @@ function ThinkingMessageRow({
 
 function ToolUseMessageRow({
 	content,
+	createdAt,
 }: {
 	content: MessageContent<"tool_use">;
+	createdAt: Date;
 }) {
-	const { resultsByItemId } = useChatLookups();
+	const { resultsByItemId, subagentsByTaskId } = useChatLookups();
 	const result = resultsByItemId.get(content.itemId);
 	if (content.tool === "ExitPlanMode") {
 		return <ExitPlanModeRow input={content.input} result={result} />;
+	}
+	if (content.tool === "TaskOutput") {
+		if (
+			subagentTaskIdForBlockingWait(content.input, subagentsByTaskId) !== null
+		) {
+			return (
+				<SubagentWaitRow
+					input={content.input}
+					result={result}
+					startedAt={createdAt}
+					subagentsByTaskId={subagentsByTaskId}
+				/>
+			);
+		}
 	}
 	const normalized = normalizeToolCallEnvelope(
 		content.tool,
