@@ -50,7 +50,7 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main" ]]; then
             enabled=true
           elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$REQUESTED_PUBLICATION" == "true" ]]; then
-            if [[ "$GITHUB_REF" != "refs/heads/swarajbachu/managed-vps-cloud-provisioning" ]]; then
+            if [[ "$GITHUB_REF" != "refs/heads/swarajbachu/relay-web-preview" ]]; then
               echo "Ref $GITHUB_REF is not authorized to publish the staging runtime" >&2
               exit 1
             fi
