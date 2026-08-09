@@ -70,11 +70,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential libsecret-1-dev python3
 
       - name: Install workspace dependencies
-        env:
-          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
         run: |
           for attempt in 1 2 3; do
-            if timeout 6m bun install --frozen-lockfile; then
+            if timeout 6m bun install --frozen-lockfile --filter @zusehq/server; then
               exit 0
             fi
             if [[ "$attempt" == "3" ]]; then
