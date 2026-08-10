@@ -8,7 +8,6 @@ import {
 } from "../../src/sandbox-provider-config.ts";
 
 const configuredEnvironment = {
-	SANDBOX_DEFAULT_PROVIDER: "e2b",
 	E2B_ADAPTER_ENABLED: "true",
 	E2B_API_KEY: "secret",
 	E2B_API_BASE_URL: "https://sandbox.test",
@@ -24,8 +23,7 @@ describe("sandbox provider configuration", () => {
 			}).pipe(Effect.provide(runtime.layer)),
 		);
 
-		expect(runtime.providerId).toBe("fake");
-		expect(runtime.productionReady).toBe(false);
+		expect(runtime.configuredProviders).toEqual([]);
 		expect(runtime.offer).toMatchObject({
 			port: 47_837,
 			createTimeoutSeconds: 86_400,
@@ -34,23 +32,32 @@ describe("sandbox provider configuration", () => {
 		expect(providerId).toBe("fake");
 	});
 
-	test("fails closed when the selected live provider is incomplete", () => {
+	test("fails closed when an enabled provider is incomplete", () => {
 		expect(() =>
-			resolveSandboxProviderRuntime({ SANDBOX_DEFAULT_PROVIDER: "e2b" }),
+			resolveSandboxProviderRuntime({ E2B_ADAPTER_ENABLED: "true" }),
 		).toThrow(SandboxProviderConfigurationError);
 	});
 
 	test("loads a complete live provider without marking it production ready", async () => {
 		const runtime = resolveSandboxProviderRuntime(configuredEnvironment);
-		const providerId = await Effect.runPromise(
+		const providers = await Effect.runPromise(
 			Effect.gen(function* () {
-				return (yield* (yield* SandboxProviders).getDefault).providerId;
+				const registry = yield* SandboxProviders;
+				return {
+					defaultProviderId: (yield* registry.getDefault).providerId,
+					availableProviderIds: registry.availableProviders.map(
+						(provider) => provider.providerId,
+					),
+				};
 			}).pipe(Effect.provide(runtime.layer)),
 		);
 
-		expect(runtime.providerId).toBe("e2b");
-		expect(runtime.productionReady).toBe(false);
-		expect(runtime.providerId).toBe("e2b");
-		expect(providerId).toBe("e2b");
+		expect(runtime.configuredProviders).toEqual([
+			{ providerId: "e2b", productionReady: false },
+		]);
+		expect(providers).toEqual({
+			defaultProviderId: "fake",
+			availableProviderIds: ["e2b"],
+		});
 	});
 });

@@ -41,10 +41,10 @@ Worker secret with
 `bun --filter @zuse/relay secret:e2b`, and deploy the relay only after the
 template can be created with the configured API key.
 
-`SANDBOX_DEFAULT_PROVIDER` is only the fallback placement when a provisioning
-request does not choose an enabled provider. Future adapters keep their native
-image, snapshot, or recipe settings under their own prefixes while sharing the
-same sandbox offer and lifecycle contract.
+If exactly one adapter is available, placement selects it automatically. If
+multiple adapters are available, the provisioning request must select one.
+Future adapters keep their native image, snapshot, or recipe settings under
+their own prefixes while sharing the same sandbox offer and lifecycle contract.
 
 The relay injects enrollment values into the process, not the template's global
 environment. The entrypoint fails before starting Zuse if any required value is

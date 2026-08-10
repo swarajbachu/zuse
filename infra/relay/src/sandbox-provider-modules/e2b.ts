@@ -59,8 +59,8 @@ export const E2bSandboxProviderModule: SandboxProviderModule = {
 	// Keep production checkout gated until staging proves template boot,
 	// enrollment, public proxy WebSockets, and keep-alive behavior.
 	productionReady: false,
-	configure: ({ env, selected }) => {
-		if (!selected && !isActivated(env)) return undefined;
+	configure: ({ env }) => {
+		if (!isActivated(env)) return undefined;
 		const config = decodeEnvironment(env);
 		return {
 			adapter: makeE2bSandboxProvider({

@@ -1,13 +1,11 @@
-import {
-	type SandboxProviderRegistration,
+import type {
+	SandboxProviderRegistration,
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
 import { makeSandboxProvidersFake } from "@zuse/sandbox-providers/testing";
-import { Context, Layer, Schema } from "effect";
+import { Context, type Layer, Schema } from "effect";
 
-export interface SandboxProviderEnvironment {
-	readonly SANDBOX_DEFAULT_PROVIDER?: string;
-}
+export type SandboxProviderEnvironment = object;
 
 export interface SandboxOfferConfig {
 	readonly port: number;
@@ -23,8 +21,6 @@ export class SandboxOfferConfiguration extends Context.Service<
 export interface SandboxProviderRuntime {
 	readonly layer: Layer.Layer<SandboxProviders>;
 	readonly offer: SandboxOfferConfig;
-	readonly productionReady: boolean;
-	readonly providerId: string;
 	readonly configuredProviders: ReadonlyArray<{
 		readonly providerId: string;
 		readonly productionReady: boolean;
@@ -36,7 +32,6 @@ export interface SandboxProviderModule {
 	readonly productionReady: boolean;
 	readonly configure: (input: {
 		readonly env: SandboxProviderEnvironment;
-		readonly selected: boolean;
 	}) => SandboxProviderRegistration | undefined;
 }
 
@@ -57,22 +52,8 @@ export const resolveSandboxProviderRuntimeFromModules = <
 	env: Environment,
 	modules: ReadonlyArray<SandboxProviderModule>,
 ): SandboxProviderRuntime => {
-	const providerId = env.SANDBOX_DEFAULT_PROVIDER ?? "fake";
-	const selectedModule =
-		providerId === "fake"
-			? undefined
-			: modules.find((module) => module.providerId === providerId);
-	if (providerId !== "fake" && selectedModule === undefined) {
-		throw new SandboxProviderConfigurationError({
-			message: `Unknown sandbox provider: ${providerId}`,
-		});
-	}
-
 	const registrations = modules.flatMap((module) => {
-		const registration = module.configure({
-			env,
-			selected: module.providerId === providerId,
-		});
+		const registration = module.configure({ env });
 		return registration === undefined ? [] : [registration];
 	});
 	const offer = offerConfiguration();
@@ -82,33 +63,9 @@ export const resolveSandboxProviderRuntimeFromModules = <
 			modules.find((module) => module.providerId === adapter.providerId)
 				?.productionReady ?? false,
 	}));
-	if (providerId === "fake") {
-		return {
-			layer: makeSandboxProvidersFake(registrations),
-			offer,
-			productionReady: false,
-			providerId,
-			configuredProviders,
-		};
-	}
-
-	const selectedRegistration = registrations.find(
-		({ adapter }) => adapter.providerId === providerId,
-	);
-	if (selectedRegistration === undefined || selectedModule === undefined) {
-		throw new SandboxProviderConfigurationError({
-			message: `Sandbox provider is not configured: ${providerId}`,
-		});
-	}
-
 	return {
-		layer: SandboxProviders.layer({
-			registrations,
-			defaultProviderId: selectedRegistration.adapter.providerId,
-		}).pipe(Layer.orDie),
+		layer: makeSandboxProvidersFake(registrations),
 		offer,
-		productionReady: selectedModule.productionReady,
-		providerId,
 		configuredProviders,
 	};
 };

@@ -75,13 +75,15 @@ describe("relay deployment safety", () => {
 			JSON.parse(config.vars.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK ?? ""),
 		).not.toThrow();
 		expect(config.vars.MACHINE_LIVE_CHECKOUT_ENABLED).toBe("true");
-		expect(config.vars.SANDBOX_DEFAULT_PROVIDER).toBe("fake");
-		expect(config.vars.E2B_ADAPTER_ENABLED).toBe("false");
+		expect(config.vars).not.toHaveProperty("SANDBOX_DEFAULT_PROVIDER");
+		expect(config.vars.E2B_ADAPTER_ENABLED).toBe("true");
 		expect(config.vars.E2B_TEMPLATE_ID).toBe("zuse-cloud-sandbox");
 		expect(config.vars.POLAR_PRODUCT_PERSISTENT_STANDARD_V1).toBe(
 			"810223ea-94f2-47e7-9c09-af9a0fd86174",
 		);
-		expect(config.vars.POLAR_PRODUCT_SANDBOX_STANDARD_V1).toBe("");
+		expect(config.vars.POLAR_PRODUCT_SANDBOX_STANDARD_V1).toBe(
+			"31616352-13b0-48dd-a9cd-11724f358199",
+		);
 		expect(config.vars.POLAR_VPS_SALES_APPROVED).toBe("false");
 		expect(config.hyperdrive).toEqual([
 			{
@@ -106,7 +108,7 @@ describe("relay deployment safety", () => {
 		expect(production.vars.MACHINE_LIVE_CHECKOUT_ENABLED).toBe("false");
 		expect(production.vars.MACHINE_RUNTIME_MANIFEST_URL).toBe("");
 		expect(production.vars.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK).toBe("");
-		expect(production.vars.SANDBOX_DEFAULT_PROVIDER).toBe("fake");
+		expect(production.vars).not.toHaveProperty("SANDBOX_DEFAULT_PROVIDER");
 		expect(production.vars.E2B_ADAPTER_ENABLED).toBe("false");
 		expect(production.vars.E2B_TEMPLATE_ID).toBe("");
 		expect(production.vars.POLAR_PRODUCT_SANDBOX_STANDARD_V1).toBe("");

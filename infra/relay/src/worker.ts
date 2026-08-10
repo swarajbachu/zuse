@@ -69,7 +69,6 @@ interface Env {
 	readonly HETZNER_SERVER_TYPE_PERSISTENT_STANDARD_V1?: string;
 	readonly MACHINE_RUNTIME_MANIFEST_URL?: string;
 	readonly MACHINE_RUNTIME_SIGNING_PUBLIC_JWK?: string;
-	readonly SANDBOX_DEFAULT_PROVIDER?: string;
 	readonly E2B_ADAPTER_ENABLED?: string;
 	readonly E2B_API_KEY?: string;
 	readonly E2B_API_BASE_URL?: string;
