@@ -1,4 +1,4 @@
-import { chmod, mkdir, unlink, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -28,10 +28,11 @@ export interface CloudEnrollmentConfig {
 
 export class CloudEnrollmentError extends Schema.TaggedErrorClass<CloudEnrollmentError>()(
 	"CloudEnrollmentError",
-	{ reason: Schema.String },
+	{ reason: Schema.String, message: Schema.String },
 ) {}
 
-const fail = (reason: string) => new CloudEnrollmentError({ reason });
+const fail = (reason: string) =>
+	new CloudEnrollmentError({ reason, message: reason });
 
 const RelayErrorBody = Schema.Struct({
 	error: Schema.optional(Schema.String),
@@ -93,6 +94,54 @@ const removeEnrollmentToken = (
 					return fail("enrollment_token_file_remove_failed");
 				},
 			});
+
+const waitForWorkspaceNetwork = (): Effect.Effect<void, CloudEnrollmentError> =>
+	Effect.tryPromise({
+		try: async () => {
+			const marker = "/var/lib/zuse/workspace/network-open";
+			const deadline = Date.now() + 2 * 60 * 1_000;
+			while (Date.now() < deadline) {
+				try {
+					await access(marker);
+					return;
+				} catch (cause) {
+					if (
+						!(
+							cause instanceof Error &&
+							"code" in cause &&
+							cause.code === "ENOENT"
+						)
+					)
+						throw cause;
+				}
+				await new Promise((resolve) => setTimeout(resolve, 250));
+			}
+			throw new Error("workspace_network_open_timeout");
+		},
+		catch: () => fail("workspace_network_open_failed"),
+	});
+
+const workspaceCredentialsReady = (): Effect.Effect<
+	boolean,
+	CloudEnrollmentError
+> =>
+	Effect.tryPromise({
+		try: async () => {
+			try {
+				await access("/var/lib/zuse/workspace/credentials-ready");
+				return true;
+			} catch (cause) {
+				if (
+					cause instanceof Error &&
+					"code" in cause &&
+					cause.code === "ENOENT"
+				)
+					return false;
+				throw cause;
+			}
+		},
+		catch: () => fail("workspace_ready_marker_check_failed"),
+	});
 
 const installCloudCredentials = Effect.fn("installCloudCredentials")(function* (
 	credentials: MachineEnrollResponse["cloudCredentials"],
@@ -184,8 +233,22 @@ export const makeCloudEnrollmentLayer = (
 						.getRelayConfig()
 						.pipe(Effect.mapError((error) => fail(error.reason)));
 					if (existing !== null) {
-						yield* removeEnrollmentToken(config.tokenFile).pipe(Effect.ignore);
-						return;
+						if (
+							config.resourceKind !== "workspace" ||
+							(yield* workspaceCredentialsReady())
+						) {
+							yield* removeEnrollmentToken(config.tokenFile).pipe(
+								Effect.ignore,
+							);
+							return;
+						}
+						// A previous process may have persisted relay identity before all
+						// imported credentials reached disk. The workspace enrollment token
+						// remains valid until the relay observes the final readiness marker,
+						// so discard the partial local link and replay enrollment safely.
+						yield* auth
+							.clearRelayConfig()
+							.pipe(Effect.mapError((error) => fail(error.reason)));
 					}
 
 					const token = Redacted.value(config.token);
@@ -249,6 +312,7 @@ export const makeCloudEnrollmentLayer = (
 						.pipe(Effect.mapError((error) => fail(error.reason)));
 					yield* installCloudCredentials(enrolled.cloudCredentials);
 					if (config.resourceKind === "workspace") {
+						yield* waitForWorkspaceNetwork();
 						yield* Effect.tryPromise({
 							try: async () => {
 								const marker = "/var/lib/zuse/workspace/credentials-ready";

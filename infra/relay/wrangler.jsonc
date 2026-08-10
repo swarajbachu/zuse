@@ -46,6 +46,7 @@
 		"MACHINE_RUNTIME_SIGNING_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"ODy1bBgW390GBMxIqn8wy2eO3C05kXdoPYk5JV09OZI\",\"kty\":\"OKP\"}",
 		"E2B_ADAPTER_ENABLED": "true",
 		"E2B_TEMPLATE_ID": "zuse-cloud-sandbox",
+		"E2B_TEMPLATE_VERSION": "dceb8cde-b413-4a5a-aa66-44a9837f1fd1",
 
 		"POLAR_ENVIRONMENT": "sandbox",
 		"POLAR_PRODUCT_PERSISTENT_STANDARD_V1": "810223ea-94f2-47e7-9c09-af9a0fd86174",

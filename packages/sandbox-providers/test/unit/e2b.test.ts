@@ -96,6 +96,20 @@ describe("E2B sandbox provider", () => {
 		expect(makeAdapter(http.client).providerId).toBe(E2B_PROVIDER_ID);
 	});
 
+	test("records the published template build as its version", () => {
+		const http = makeHttp([]);
+		const adapter = makeE2bSandboxProvider(
+			{
+				apiKey: Redacted.make("secret-key"),
+				templateId: "zuse-base",
+				templateVersion: "build-4",
+			},
+			http.client,
+		);
+
+		expect(adapter.templateVersion).toBe("build-4");
+	});
+
 	test("uses the official API endpoint by default", async () => {
 		const http = makeHttp([{ status: 200, body: [] }]);
 		const adapter = makeE2bSandboxProvider(
@@ -209,6 +223,41 @@ describe("E2B sandbox provider", () => {
 			denyOut: ["10.0.0.0/8"],
 		});
 		expect(body.allow_internet_access).toBeUndefined();
+	});
+
+	test("omits unsupported IPv6 deny rules from E2B network policies", async () => {
+		const http = makeHttp([
+			{ status: 201, body: { sandboxID: "sbx_1" } },
+			{ status: 204 },
+		]);
+		const adapter = makeAdapter(http.client);
+
+		await Effect.runPromise(
+			adapter.create({
+				...createInput,
+				network: {
+					kind: "restricted",
+					allowOut: ["relay.zuse.test"],
+					denyOut: ["0.0.0.0/0", "::/0"],
+				},
+			}),
+		);
+		await Effect.runPromise(
+			adapter.setNetwork("sbx_1", {
+				kind: "restricted",
+				allowOut: ["relay.zuse.test"],
+				denyOut: ["0.0.0.0/0", "::/0"],
+			}),
+		);
+
+		expect(JSON.parse(String(http.calls[0]?.init?.body)).network).toEqual({
+			allowOut: ["relay.zuse.test"],
+			denyOut: ["0.0.0.0/0"],
+		});
+		expect(JSON.parse(String(http.calls[1]?.init?.body))).toEqual({
+			allowOut: ["relay.zuse.test"],
+			denyOut: ["0.0.0.0/0"],
+		});
 	});
 
 	test("forks from a snapshot and always starts quarantined", async () => {

@@ -92,8 +92,16 @@ binding requires separate, explicit approval.
    This is staging-only and validates the configured Neon host and database name
    before Drizzle runs. Production migrations are intentionally not scripted
    until an approved production database identity can be pinned and reviewed.
-3. **Hyperdrive**: `bunx wrangler hyperdrive create zuse-relay-db --connection-string="postgres://…"`
-   and paste the id into `wrangler.jsonc`.
+3. **Hyperdrive**: create the binding with SQL response caching disabled, then
+   paste the id into `wrangler.jsonc`:
+   ```sh
+   bunx wrangler hyperdrive create zuse-relay-db \
+     --connection-string="postgres://…" \
+     --caching-disabled
+   ```
+   Relay lifecycle transitions require read-after-write consistency; cached
+   workspace rows can otherwise make enrollment observe stale endpoints or
+   tokens.
 4. **WorkOS**: set `WORKOS_JWKS_URL` (`https://api.workos.com/sso/jwks/<client_id>`) and `WORKOS_ISSUER`. Set the server-side account-deletion key with `bun run secret:workos` (`wrangler secret put WORKOS_API_KEY`); the mobile deletion flow deliberately fails closed when this secret is absent.
 5. **Managed Cloudflare tunnel** (optional — enables reach-from-anywhere; leave off for LAN-only):
    - In `wrangler.jsonc` set `MANAGED_TUNNEL_BASE_DOMAIN` (the CF zone apex),

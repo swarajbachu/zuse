@@ -38,6 +38,7 @@ type SandboxDetail = Schema.Schema.Type<typeof SandboxDetail>;
 export interface E2bSandboxConfig {
 	readonly apiKey: Redacted.Redacted<string>;
 	readonly templateId: string;
+	readonly templateVersion?: string;
 	readonly apiBaseUrl?: string;
 	// Fallback for composing per-port hosts when the API omits `domain`.
 	readonly sandboxDomain?: string;
@@ -81,6 +82,20 @@ const reportRequestFailure = (input: {
 // updateNetwork replaces the whole egress config on the provider side, so
 // every policy maps to one complete body — never an incremental "clear then
 // add" sequence (ADR 0033 quarantine caveat).
+const e2bRestrictedNetwork = (
+	network: Extract<SandboxNetworkPolicy, { readonly kind: "restricted" }>,
+): {
+	readonly allowOut: ReadonlyArray<string>;
+	readonly denyOut: string[];
+} => ({
+	allowOut: network.allowOut,
+	// The current E2B network API rejects the IPv6 catch-all even though it
+	// accepts the equivalent IPv4 CIDR. E2B documents `allow_internet_access:
+	// false` as equivalent to denying 0.0.0.0/0, so the IPv4 rule is the
+	// provider-compatible universal deny used by restricted policies.
+	denyOut: network.denyOut.filter((entry) => entry !== "::/0"),
+});
+
 const networkUpdateBody = (network: SandboxNetworkPolicy): unknown => {
 	switch (network.kind) {
 		case "quarantined":
@@ -88,7 +103,7 @@ const networkUpdateBody = (network: SandboxNetworkPolicy): unknown => {
 		case "open":
 			return { allow_internet_access: true };
 		case "restricted":
-			return { allowOut: network.allowOut, denyOut: network.denyOut };
+			return e2bRestrictedNetwork(network);
 	}
 };
 
@@ -102,7 +117,7 @@ const networkCreateFields = (
 			return { allow_internet_access: true };
 		case "restricted":
 			return {
-				network: { allowOut: network.allowOut, denyOut: network.denyOut },
+				network: e2bRestrictedNetwork(network),
 			};
 	}
 };
@@ -538,7 +553,7 @@ export const makeE2bSandboxProvider = (
 	return {
 		providerId: E2B_PROVIDER_ID,
 		displayName: "E2B",
-		templateVersion: config.templateId,
+		templateVersion: config.templateVersion ?? config.templateId,
 		resolveEndpoint: (providerSandboxId, port) =>
 			sandboxDetail(providerSandboxId).pipe(
 				Effect.map((detail) => {

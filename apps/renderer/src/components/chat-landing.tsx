@@ -56,6 +56,10 @@ import {
 } from "~/composer/draft-attachments";
 import { applyPreparedLinearContext } from "~/composer/linear-context-input";
 import { resolveChatWorkspacePolicy } from "~/lib/auto-worktree";
+import {
+	chatLandingProgress,
+	cloudWorkspaceFailureMessage,
+} from "~/lib/chat-landing-progress";
 import { saveContextFile } from "~/lib/context-handoff";
 import { formatError } from "~/lib/format-error";
 import {
@@ -727,9 +731,7 @@ export function ChatLanding() {
 				};
 				for (let attempt = 0; workspace.state !== "ready"; attempt++) {
 					if (workspace.state === "failed") {
-						throw new Error(
-							`Cloud workspace setup failed (${workspace.statusCode}).`,
-						);
+						throw new Error(cloudWorkspaceFailureMessage(workspace.statusCode));
 					}
 					if (attempt >= 180)
 						throw new Error("Cloud workspace setup timed out. Try again.");
@@ -1170,23 +1172,28 @@ export function ChatLanding() {
 	// Mirrors that layout — the unified setup card on top, the queued message
 	// pinned at the bottom — so the handoff to the live card is seamless.
 	if (submitting && pendingPrompt !== null) {
+		const progress = chatLandingProgress({
+			cloudStatus: pendingCloudStatus,
+			hasPendingWorktree:
+				pendingWorktreeId !== null ||
+				defaultAutoCreateWorktree ||
+				repositoryAutoCreateWorktree,
+		});
 		return (
 			<div className="flex min-h-0 flex-1 flex-col">
 				<div className="min-h-0 flex-1 overflow-y-auto">
-					{pendingCloudStatus !== null ? (
+					{progress.kind === "cloud" ? (
 						<div className="mx-auto mt-8 flex w-full max-w-2xl items-center gap-3 rounded-lg border border-border/60 bg-muted/30 px-4 py-3">
 							<Spinner className="size-4" />
 							<div className="min-w-0">
 								<p className="text-sm font-medium">Starting Cloud Sandbox</p>
 								<p className="text-xs text-muted-foreground">
-									{pendingCloudStatus}
+									{progress.status}
 								</p>
 							</div>
 						</div>
 					) : null}
-					{pendingWorktreeId !== null ||
-					defaultAutoCreateWorktree ||
-					repositoryAutoCreateWorktree ? (
+					{progress.kind === "worktree" ? (
 						<SetupCardView
 							data={{
 								repoName: selectedFolder?.name ?? "this repo",

@@ -205,14 +205,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(AppPathsLayer),
 		Layer.provide(TelemetryStoreLayer),
 	);
-	const EnrolledLanAuthLayer = LanAuthLayer.pipe(
-		Layer.provideMerge(
-			makeCloudEnrollmentLayer(deps.cloudEnrollment).pipe(
-				Layer.provide(LanAuthLayer),
-				Layer.provide(ManagedTunnelLayer),
-			),
-		),
-	);
 
 	const WorkspaceLayer = WorkspaceServiceLive.pipe(
 		Layer.provide(MigratedSqlite),
@@ -271,6 +263,15 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 	const CredentialsLayer = deps.credentialsLayer.pipe(
 		Layer.provide(AppPathsLayer),
+	);
+	const EnrolledLanAuthLayer = LanAuthLayer.pipe(
+		Layer.provideMerge(
+			makeCloudEnrollmentLayer(deps.cloudEnrollment).pipe(
+				Layer.provide(LanAuthLayer),
+				Layer.provide(ManagedTunnelLayer),
+				Layer.provide(CredentialsLayer),
+			),
+		),
 	);
 	const MachineRuntimeRoleLayer = Layer.succeed(
 		MachineRuntimeRole,

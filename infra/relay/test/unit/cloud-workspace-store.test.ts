@@ -81,7 +81,10 @@ describe("cloud workspace store", () => {
 			),
 		).toBeNull();
 		await runtime.runPromise(
-			store.saveWorkspace({ ...workspace, revision: workspace.revision + 1 }),
+			store.saveWorkspace({
+				...(claimed ?? workspace),
+				revision: workspace.revision + 1,
+			}),
 		);
 		expect(
 			await runtime.runPromise(
@@ -135,6 +138,58 @@ describe("cloud workspace store", () => {
 		};
 		expect(await runtime.runPromise(store.recordUsage(event))).toBe(true);
 		expect(await runtime.runPromise(store.recordUsage(event))).toBe(false);
+		await runtime.dispose();
+	});
+
+	test("does not let a stale reconciler overwrite a newer workspace revision", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(store.connectProject(project));
+		await runtime.runPromise(store.createBuild(build));
+		const original = {
+			workspaceId: "workspace-race",
+			accountId: "account-1",
+			projectId: project.projectId,
+			buildId: build.buildId,
+			provider: build.provider,
+			branch: "task/race",
+			baseRef: "origin/main",
+			state: "setup" as const,
+			desiredState: "ready" as const,
+			statusCode: "enrollment-pending",
+			credentialEpoch: 0,
+			idempotencyKey: "workspace-race-key",
+			requestConfig: {},
+			nextActionAtMs: 100,
+			revision: 2,
+			createdAtMs: 100,
+			updatedAtMs: 100,
+			lastActivityAtMs: 100,
+		};
+		await runtime.runPromise(store.createWorkspace(original));
+		await runtime.runPromise(
+			store.saveWorkspace({
+				...original,
+				environmentId: "environment-new",
+				revision: 3,
+				updatedAtMs: 200,
+			}),
+		);
+		await runtime.runPromise(
+			store.saveWorkspace({
+				...original,
+				statusCode: "stale-retry",
+				updatedAtMs: 150,
+			}),
+		);
+
+		expect(
+			await runtime.runPromise(store.getWorkspace(original.workspaceId)),
+		).toMatchObject({
+			environmentId: "environment-new",
+			revision: 3,
+			statusCode: "enrollment-pending",
+		});
 		await runtime.dispose();
 	});
 

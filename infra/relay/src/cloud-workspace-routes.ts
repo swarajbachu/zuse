@@ -390,12 +390,13 @@ export const routeCloudWorkspaceRequest = (
 				...workspace,
 				environmentId: body.environmentId,
 				enrolledEnvironmentPublicKey: body.environmentPublicKey,
-				enrollmentTokenHash: undefined,
-				enrollmentExpiresAtMs: undefined,
 				state: "setup",
 				statusCode: "setup-running",
 				nextActionAtMs: nowMs,
-				revision: workspace.revision + 1,
+				// Enrollment races the provider-marker poller. Give the external
+				// identity transition a later revision so a stale failed-marker read
+				// cannot erase the newly enrolled environment.
+				revision: workspace.revision + 2,
 				updatedAtMs: nowMs,
 			});
 			return json({
@@ -551,7 +552,11 @@ export const routeCloudWorkspaceRequest = (
 				project.projectId,
 				provider.providerId,
 			);
-			if (build === null || build.snapshotId === undefined)
+			if (
+				build === null ||
+				build.snapshotId === undefined ||
+				build.templateVersion !== provider.templateVersion
+			)
 				return yield* Effect.fail(conflict("cloud_project_not_ready"));
 			const workspaceId = yield* randomToken("workspace", 12);
 			const branch = body.branch ?? `zuse/${workspaceId.slice(-8)}`;
@@ -562,7 +567,7 @@ export const routeCloudWorkspaceRequest = (
 				return yield* Effect.fail(badRequest("invalid_git_ref"));
 			const requestedCredentialKinds = [
 				...(body.credentialKinds ?? []),
-				...(project.visibility === "private" ? (["github"] as const) : []),
+				"github" as const,
 			].filter((kind, index, items) => items.indexOf(kind) === index);
 			for (const kind of requestedCredentialKinds) {
 				const credential = yield* store.getCredential(

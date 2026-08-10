@@ -12,6 +12,7 @@ const configuredEnvironment = {
 	E2B_API_KEY: "secret",
 	E2B_API_BASE_URL: "https://sandbox.test",
 	E2B_TEMPLATE_ID: "zuse-sandbox",
+	E2B_TEMPLATE_VERSION: "build-4",
 } as const;
 
 describe("sandbox provider configuration", () => {
@@ -48,6 +49,7 @@ describe("sandbox provider configuration", () => {
 					availableProviderIds: registry.availableProviders.map(
 						(provider) => provider.providerId,
 					),
+					templateVersion: registry.availableProviders[0]?.templateVersion,
 				};
 			}).pipe(Effect.provide(runtime.layer)),
 		);
@@ -58,6 +60,7 @@ describe("sandbox provider configuration", () => {
 		expect(providers).toEqual({
 			defaultProviderId: "fake",
 			availableProviderIds: ["e2b"],
+			templateVersion: "build-4",
 		});
 	});
 });

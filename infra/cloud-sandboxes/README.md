@@ -36,7 +36,11 @@ npx --yes @e2b/cli@latest template create zuse-cloud-sandbox \
 The current CLI's `template create` command is used instead of the legacy
 `e2b.toml` workflow. This provider's template ID stays inside its adapter
 configuration; it is not part of the provider-neutral Cloud Sandbox offer.
-Copy the resulting template ID to `E2B_TEMPLATE_ID`, set the `E2B_API_KEY`
+Keep the stable template alias in `E2B_TEMPLATE_ID` and copy the immutable build
+identifier printed by the CLI to `E2B_TEMPLATE_VERSION`. Change that version on
+every template publication. The relay refuses to fork a prepared project whose
+recorded version differs, so publish the template, deploy the new version, and
+prepare a fresh project build as one staging rollout. Set the `E2B_API_KEY`
 Worker secret with
 `bun --filter @zuse/relay secret:e2b`, and deploy the relay only after the
 template can be created with the configured API key.

@@ -28,6 +28,7 @@ const E2bEnvironment = Schema.Struct({
 	E2B_API_BASE_URL: Schema.optionalKey(HttpsUrl),
 	E2B_SANDBOX_DOMAIN: Schema.optionalKey(ConfiguredString),
 	E2B_TEMPLATE_ID: ConfiguredString,
+	E2B_TEMPLATE_VERSION: ConfiguredString,
 });
 
 const configurationError = (): SandboxProviderConfigurationError =>
@@ -66,6 +67,7 @@ export const E2bSandboxProviderModule: SandboxProviderModule = {
 			adapter: makeE2bSandboxProvider({
 				apiKey: Redacted.make(config.E2B_API_KEY),
 				templateId: config.E2B_TEMPLATE_ID,
+				templateVersion: config.E2B_TEMPLATE_VERSION,
 				apiBaseUrl: config.E2B_API_BASE_URL?.href,
 				sandboxDomain: config.E2B_SANDBOX_DOMAIN,
 			}),

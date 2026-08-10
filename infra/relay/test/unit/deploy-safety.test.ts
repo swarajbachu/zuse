@@ -78,6 +78,9 @@ describe("relay deployment safety", () => {
 		expect(config.vars).not.toHaveProperty("SANDBOX_DEFAULT_PROVIDER");
 		expect(config.vars.E2B_ADAPTER_ENABLED).toBe("true");
 		expect(config.vars.E2B_TEMPLATE_ID).toBe("zuse-cloud-sandbox");
+		expect(config.vars.E2B_TEMPLATE_VERSION).toBe(
+			"dceb8cde-b413-4a5a-aa66-44a9837f1fd1",
+		);
 		expect(config.vars.POLAR_PRODUCT_PERSISTENT_STANDARD_V1).toBe(
 			"810223ea-94f2-47e7-9c09-af9a0fd86174",
 		);
@@ -111,6 +114,7 @@ describe("relay deployment safety", () => {
 		expect(production.vars).not.toHaveProperty("SANDBOX_DEFAULT_PROVIDER");
 		expect(production.vars.E2B_ADAPTER_ENABLED).toBe("false");
 		expect(production.vars.E2B_TEMPLATE_ID).toBe("");
+		expect(production.vars.E2B_TEMPLATE_VERSION).toBe("");
 		expect(production.vars.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1).toBe("");
 		expect(production.hyperdrive).toEqual([
 			{

@@ -82,6 +82,7 @@ interface Env {
 	readonly E2B_API_BASE_URL?: string;
 	readonly E2B_SANDBOX_DOMAIN?: string;
 	readonly E2B_TEMPLATE_ID?: string;
+	readonly E2B_TEMPLATE_VERSION?: string;
 }
 
 const managedTunnelConfig = (

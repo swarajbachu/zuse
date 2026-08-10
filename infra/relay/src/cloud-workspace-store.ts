@@ -431,14 +431,24 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					] as const;
 				}),
 			saveWorkspace: (workspace) =>
-				Ref.update(state, (current) => ({
-					...current,
-					workspaces: new Map(current.workspaces).set(workspace.workspaceId, {
-						...workspace,
-						leaseOwner: undefined,
-						leaseExpiresAtMs: undefined,
-					}),
-				})),
+				Ref.update(state, (current) => {
+					const saved = current.workspaces.get(workspace.workspaceId);
+					if (
+						saved !== undefined &&
+						(saved.revision > workspace.revision ||
+							(saved.revision === workspace.revision &&
+								saved.updatedAtMs > workspace.updatedAtMs))
+					)
+						return current;
+					return {
+						...current,
+						workspaces: new Map(current.workspaces).set(workspace.workspaceId, {
+							...workspace,
+							leaseOwner: undefined,
+							leaseExpiresAtMs: undefined,
+						}),
+					};
+				}),
 			listDueWorkspaces: (nowMs, limit) =>
 				Ref.get(state).pipe(
 					Effect.map((current) =>
@@ -692,7 +702,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			);
 		const saveWorkspace = (w: CloudWorkspaceRecord) =>
 			orDie(
-				sql`UPDATE relay_cloud_workspaces SET provider_sandbox_id=${w.providerSandboxId ?? null}, provider_endpoint_http_base_url=${w.providerEndpointHttpBaseUrl ?? null}, provider_endpoint_ws_base_url=${w.providerEndpointWsBaseUrl ?? null}, environment_id=${w.environmentId ?? null}, enrollment_token_hash=${w.enrollmentTokenHash ?? null}, enrollment_expires_at=${w.enrollmentExpiresAtMs ?? null}, enrolled_environment_public_key=${w.enrolledEnvironmentPublicKey ?? null}, state=${w.state}, desired_state=${w.desiredState}, status_code=${w.statusCode}, credential_epoch=${w.credentialEpoch}, recovery_bundle_key=${w.recoveryBundleKey ?? null}, warm_retention_deadline=${w.warmRetentionDeadlineMs ?? null}, request_config=${JSON.stringify(w.requestConfig)}::jsonb, next_action_at=${w.nextActionAtMs}, lease_owner=NULL, lease_expires_at=NULL, revision=${w.revision}, updated_at=${w.updatedAtMs}, last_activity_at=${w.lastActivityAtMs}, running_since=${w.runningSinceMs ?? null}, deleted_at=${w.deletedAtMs ?? null} WHERE workspace_id=${w.workspaceId}`.pipe(
+				sql`UPDATE relay_cloud_workspaces SET provider_sandbox_id=${w.providerSandboxId ?? null}, provider_endpoint_http_base_url=${w.providerEndpointHttpBaseUrl ?? null}, provider_endpoint_ws_base_url=${w.providerEndpointWsBaseUrl ?? null}, environment_id=${w.environmentId ?? null}, enrollment_token_hash=${w.enrollmentTokenHash ?? null}, enrollment_expires_at=${w.enrollmentExpiresAtMs ?? null}, enrolled_environment_public_key=${w.enrolledEnvironmentPublicKey ?? null}, state=${w.state}, desired_state=${w.desiredState}, status_code=${w.statusCode}, credential_epoch=${w.credentialEpoch}, recovery_bundle_key=${w.recoveryBundleKey ?? null}, warm_retention_deadline=${w.warmRetentionDeadlineMs ?? null}, request_config=${JSON.stringify(w.requestConfig)}::jsonb, next_action_at=${w.nextActionAtMs}, lease_owner=NULL, lease_expires_at=NULL, revision=${w.revision}, updated_at=${w.updatedAtMs}, last_activity_at=${w.lastActivityAtMs}, running_since=${w.runningSinceMs ?? null}, deleted_at=${w.deletedAtMs ?? null} WHERE workspace_id=${w.workspaceId} AND (revision < ${w.revision} OR (revision = ${w.revision} AND updated_at <= ${w.updatedAtMs}))`.pipe(
 					Effect.asVoid,
 				),
 			);
