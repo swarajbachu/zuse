@@ -5,8 +5,6 @@ import {
 	type CloudProviderOption,
 	type CloudWorkspace,
 	CloudWorkspaceOpError,
-	ComposerInput,
-	defaultModelFor,
 	type LocalAccountDescriptor,
 } from "@zuse/contracts";
 import { Effect } from "effect";
@@ -15,13 +13,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { cloudWorkspaceAccessPresentation } from "../../lib/cloud-workspace-access.ts";
 import { formatError } from "../../lib/format-error.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
-import {
-	getControlPlaneRpcClient,
-	getRpcClient,
-} from "../../lib/rpc-client.ts";
-import { switchToEnvironment } from "../../lib/switch-environment.ts";
-import { useChatsStore } from "../../store/chats.ts";
-import { useEnvironmentCatalogStore } from "../../store/environment-catalog.ts";
+import { getControlPlaneRpcClient } from "../../lib/rpc-client.ts";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
@@ -71,14 +63,6 @@ export function CloudWorkspacePool({
 		"public" | "private"
 	>("public");
 	const [selectedProvider, setSelectedProvider] = useState("");
-	const [workspaceBaseRef, setWorkspaceBaseRef] = useState("");
-	const [workspaceBranch, setWorkspaceBranch] = useState("");
-	const [workspaceAgent, setWorkspaceAgent] = useState<"" | "claude" | "codex">(
-		"",
-	);
-	const [workspaceModel, setWorkspaceModel] = useState("");
-	const [workspacePermissions, setWorkspacePermissions] = useState("");
-	const [workspaceFirstMessage, setWorkspaceFirstMessage] = useState("");
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [projectError, setProjectError] = useState<string | null>(null);
@@ -274,70 +258,6 @@ export function CloudWorkspacePool({
 				...current.filter((item) => item.kind !== kind),
 				disconnected,
 			]);
-		});
-
-	const openCloudAgent = (workspace: CloudWorkspace) =>
-		run(`agent:${workspace.workspaceId}`, async () => {
-			if (workspace.environmentId === undefined)
-				throw new Error("The cloud workspace has not finished connecting yet.");
-			if (workspaceAgent === "")
-				throw new Error("Choose Claude or Codex before opening the agent.");
-
-			const catalog = useEnvironmentCatalogStore.getState();
-			await catalog.syncAccountEnvironments();
-			const entry = useEnvironmentCatalogStore
-				.getState()
-				.entries.find(
-					(candidate) => candidate.environmentId === workspace.environmentId,
-				);
-			if (entry?.status !== "connected")
-				throw new Error(
-					"The workspace runtime is ready but its desktop connection is still starting. Try again in a few seconds.",
-				);
-
-			const client = await getRpcClient(workspace.environmentId);
-			const folders = await Effect.runPromise(client["workspace.list"]({}));
-			const folder =
-				folders.find(
-					(candidate) => candidate.path === "/home/zuse/workspace",
-				) ??
-				(await Effect.runPromise(
-					client["workspace.add"]({ path: "/home/zuse/workspace" }),
-				));
-			const prompt = workspaceFirstMessage.trim();
-			const created = await useChatsStore
-				.getState()
-				.create(
-					folder.id,
-					workspaceAgent,
-					workspaceModel.trim() || defaultModelFor(workspaceAgent),
-					{
-						environmentId: workspace.environmentId,
-						startupInput:
-							prompt.length === 0
-								? undefined
-								: ComposerInput.make({
-										text: prompt,
-										attachments: [],
-										fileRefs: [],
-										skillRefs: [],
-									}),
-					},
-				);
-			if (created === null)
-				throw new Error(
-					useChatsStore.getState().error ?? "The cloud agent could not start.",
-				);
-			const switched = await switchToEnvironment({
-				environmentId: workspace.environmentId,
-				folderId: folder.id,
-				chatId: created.chatId,
-				seed: created.remoteSeed,
-			});
-			if (!switched.switched)
-				throw new Error(
-					"The agent started, but the workspace disconnected before it could open. Try opening it again.",
-				);
 		});
 
 	return (
@@ -586,56 +506,7 @@ export function CloudWorkspacePool({
 																? "Retry prepare"
 																: "Prepare"}
 													</Button>
-												) : (
-													<Button
-														size="xs"
-														loading={busy === `workspace:${project.projectId}`}
-														onClick={() =>
-															void run(
-																`workspace:${project.projectId}`,
-																async () => {
-																	const client =
-																		await getControlPlaneRpcClient();
-																	const created = await Effect.runPromise(
-																		client["cloud.workspaces.create"]({
-																			projectId: project.projectId,
-																			providerId: selectedProvider,
-																			baseRef:
-																				workspaceBaseRef.trim() ||
-																				`origin/${project.defaultBranch}`,
-																			branch:
-																				workspaceBranch.trim() || undefined,
-																			agent: workspaceAgent || undefined,
-																			model: workspaceModel.trim() || undefined,
-																			credentialKinds:
-																				workspaceAgent === ""
-																					? []
-																					: [workspaceAgent],
-																			permissions: workspacePermissions
-																				.split(",")
-																				.map((item) => item.trim())
-																				.filter(Boolean),
-																			firstMessage:
-																				workspaceFirstMessage.trim() ||
-																				undefined,
-																			idempotencyKey: crypto.randomUUID(),
-																		}),
-																	);
-																	setWorkspaces((current) => [
-																		...current.filter(
-																			(item) =>
-																				item.workspaceId !==
-																				created.workspaceId,
-																		),
-																		created,
-																	]);
-																},
-															)
-														}
-													>
-														New workspace
-													</Button>
-												)}
+												) : null}
 												<Badge
 													variant={
 														project.state === "ready"
@@ -668,38 +539,26 @@ export function CloudWorkspacePool({
 														{workspace.state}
 													</Badge>
 													{workspace.state === "ready" ? (
-														<>
-															<Button
-																size="xs"
-																loading={
-																	busy === `agent:${workspace.workspaceId}`
-																}
-																disabled={workspaceAgent === ""}
-																onClick={() => void openCloudAgent(workspace)}
-															>
-																Open agent
-															</Button>
-															<Button
-																size="xs"
-																variant="ghost"
-																onClick={() =>
-																	void run(
-																		`pause:${workspace.workspaceId}`,
-																		async () => {
-																			const client =
-																				await getControlPlaneRpcClient();
-																			await Effect.runPromise(
-																				client["cloud.workspaces.pause"]({
-																					workspaceId: workspace.workspaceId,
-																				}),
-																			);
-																		},
-																	)
-																}
-															>
-																Pause
-															</Button>
-														</>
+														<Button
+															size="xs"
+															variant="ghost"
+															onClick={() =>
+																void run(
+																	`pause:${workspace.workspaceId}`,
+																	async () => {
+																		const client =
+																			await getControlPlaneRpcClient();
+																		await Effect.runPromise(
+																			client["cloud.workspaces.pause"]({
+																				workspaceId: workspace.workspaceId,
+																			}),
+																		);
+																	},
+																)
+															}
+														>
+															Pause
+														</Button>
 													) : workspace.state === "paused" ? (
 														<Button
 															size="xs"
@@ -731,7 +590,7 @@ export function CloudWorkspacePool({
 						})
 					)}
 					{providers.length > 0 ? (
-						<div className="grid gap-2 p-3 pt-0 sm:grid-cols-2">
+						<div className="p-3 pt-0">
 							<label className="block space-y-1" htmlFor="cloud-provider">
 								<span className="text-[11px] font-medium">
 									Compute provider
@@ -757,58 +616,6 @@ export function CloudWorkspacePool({
 									</SelectPopup>
 								</Select>
 							</label>
-							<Input
-								value={workspaceBaseRef}
-								onChange={(event) => setWorkspaceBaseRef(event.target.value)}
-								placeholder="Base branch or PR (default branch)"
-								aria-label="Workspace base reference"
-							/>
-							<Input
-								value={workspaceBranch}
-								onChange={(event) => setWorkspaceBranch(event.target.value)}
-								placeholder="Task branch (automatic)"
-								aria-label="Workspace branch"
-							/>
-							<Select
-								value={workspaceAgent}
-								onValueChange={(value) => {
-									if (value === "" || value === "claude" || value === "codex")
-										setWorkspaceAgent(value);
-								}}
-							>
-								<SelectTrigger
-									aria-label="Workspace agent"
-									className="min-h-11"
-								>
-									<SelectValue placeholder="Choose agent" />
-								</SelectTrigger>
-								<SelectPopup>
-									<SelectItem value="claude">Claude</SelectItem>
-									<SelectItem value="codex">Codex</SelectItem>
-								</SelectPopup>
-							</Select>
-							<Input
-								value={workspaceModel}
-								onChange={(event) => setWorkspaceModel(event.target.value)}
-								placeholder="Model (agent default)"
-								aria-label="Workspace model"
-							/>
-							<Input
-								value={workspacePermissions}
-								onChange={(event) =>
-									setWorkspacePermissions(event.target.value)
-								}
-								placeholder="Permissions, comma separated"
-								aria-label="Workspace permissions"
-							/>
-							<Input
-								value={workspaceFirstMessage}
-								onChange={(event) =>
-									setWorkspaceFirstMessage(event.target.value)
-								}
-								placeholder="First message (optional)"
-								aria-label="Workspace first message"
-							/>
 						</div>
 					) : null}
 				</CloudSettingsGroup>

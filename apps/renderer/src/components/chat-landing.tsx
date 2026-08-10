@@ -8,6 +8,9 @@ import {
 import {
 	type ChatId,
 	type ChatWorkspacePolicy,
+	type CloudProject,
+	type CloudProviderOption,
+	type CloudWorkspace,
 	ComposerInput,
 	defaultModelFor,
 	type FolderId,
@@ -63,7 +66,11 @@ import {
 	type NewChatTarget,
 	preferredGroupMember,
 } from "~/lib/project-groups";
-import { getLocalEnvironmentId, getRpcClient } from "~/lib/rpc-client";
+import {
+	getControlPlaneRpcClient,
+	getLocalEnvironmentId,
+	getRpcClient,
+} from "~/lib/rpc-client";
 import { switchToEnvironment } from "~/lib/switch-environment";
 import { cn } from "~/lib/utils";
 import { useAttachmentsStore } from "~/store/attachments";
@@ -83,7 +90,10 @@ import { useSettingsStore } from "~/store/settings";
 import { useWorkspaceStore } from "~/store/workspace";
 import { EMPTY_WORKTREES, useWorktreesStore } from "~/store/worktrees";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
-import { ComputerPicker } from "./composer/computer-picker.tsx";
+import {
+	type CloudComputerPickerItem,
+	ComputerPicker,
+} from "./composer/computer-picker.tsx";
 import {
 	CreateFromMenu,
 	type CreateFromSelection,
@@ -218,6 +228,9 @@ export function ChatLanding() {
 	const [pendingWorktreeId, setPendingWorktreeId] = useState<WorktreeId | null>(
 		null,
 	);
+	const [pendingCloudStatus, setPendingCloudStatus] = useState<string | null>(
+		null,
+	);
 	// The provider chosen in the composer for this submit (may differ from the
 	// default — e.g. the user switched to Grok). Drives the bridge card's
 	// "Starting <provider>" label so it matches what's actually booting.
@@ -339,6 +352,15 @@ export function ChatLanding() {
 	const [targetOverride, setTargetOverride] = useState<NewChatTarget | null>(
 		null,
 	);
+	const [selectedCloudProviderId, setSelectedCloudProviderId] = useState<
+		string | null
+	>(null);
+	const [cloudProviders, setCloudProviders] = useState<
+		ReadonlyArray<CloudProviderOption>
+	>([]);
+	const [cloudProject, setCloudProject] = useState<CloudProject | null>(null);
+	const [cloudSubscribed, setCloudSubscribed] = useState(false);
+	const [cloudPlacementError, setCloudPlacementError] = useState(false);
 	const [projectSetupOpen, setProjectSetupOpen] = useState(false);
 	const anchoredGroup = useMemo(
 		() =>
@@ -349,17 +371,100 @@ export function ChatLanding() {
 		[projectGroups, remoteAnchor],
 	);
 	const pickerGroup = anchoredGroup ?? selectedGroup;
+	const cloudRepositoryIdentity =
+		pickerGroup?.origin === null || pickerGroup?.origin === undefined
+			? null
+			: `${pickerGroup.origin.host}/${pickerGroup.origin.owner}/${pickerGroup.origin.repo}`.toLowerCase();
+	useEffect(() => {
+		let cancelled = false;
+		setSelectedCloudProviderId(null);
+		setCloudProviders([]);
+		setCloudProject(null);
+		setCloudSubscribed(false);
+		setCloudPlacementError(false);
+		if (cloudRepositoryIdentity === null) return;
+		void (async () => {
+			try {
+				const client = await getControlPlaneRpcClient();
+				const [providerResult, projectResult, entitlementResult] =
+					await Promise.all([
+						Effect.runPromise(client["cloud.providers"]()),
+						Effect.runPromise(client["cloud.projects.list"]()),
+						Effect.runPromise(client["machines.entitlements"]()),
+					]);
+				if (cancelled) return;
+				setCloudProviders(providerResult.providers);
+				setCloudProject(
+					projectResult.projects.find(
+						(project) =>
+							project.repositoryIdentity.toLowerCase() ===
+							cloudRepositoryIdentity,
+					) ?? null,
+				);
+				setCloudSubscribed(
+					entitlementResult.entitlements.some(
+						(item) =>
+							item.kind === "cloud-workspace" &&
+							(item.status === "active" ||
+								item.status === "grace" ||
+								(item.status === "ended" &&
+									item.paidThrough !== undefined &&
+									item.paidThrough > Date.now())),
+					),
+				);
+				setCloudPlacementError(false);
+			} catch {
+				if (!cancelled) setCloudPlacementError(true);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [cloudRepositoryIdentity]);
+	const cloudPickerItems = useMemo<ReadonlyArray<CloudComputerPickerItem>>(
+		() =>
+			cloudProviders.map((provider) => {
+				const build = cloudProject?.latestBuilds[provider.providerId];
+				const ready =
+					cloudProject?.activeBuilds[provider.providerId] !== undefined;
+				const statusText = cloudPlacementError
+					? "Unavailable"
+					: !cloudSubscribed
+						? "Subscription required"
+						: cloudProject === null
+							? "Connect in Settings"
+							: ready
+								? provider.displayName
+								: build?.state === "failed"
+									? "Setup failed"
+									: "Preparing";
+				return {
+					providerId: provider.providerId,
+					providerLabel: provider.displayName,
+					disabled:
+						cloudPlacementError ||
+						!cloudSubscribed ||
+						cloudProject === null ||
+						!ready,
+					statusText,
+				};
+			}),
+		[cloudPlacementError, cloudProject, cloudProviders, cloudSubscribed],
+	);
 	const resolvedTarget: NewChatTarget | null =
-		targetOverride ??
-		(remoteAnchor !== null
-			? {
-					environmentId: remoteAnchor.member.environmentId,
-					folderId: remoteAnchor.member.folderId,
-				}
-			: pickerGroup !== null
-				? defaultNewChatTarget(pickerGroup)
-				: null);
+		selectedCloudProviderId !== null
+			? null
+			: (targetOverride ??
+				(remoteAnchor !== null
+					? {
+							environmentId: remoteAnchor.member.environmentId,
+							folderId: remoteAnchor.member.folderId,
+						}
+					: pickerGroup !== null
+						? defaultNewChatTarget(pickerGroup)
+						: null));
 	const pendingProjectSetup =
+		selectedCloudProviderId === null &&
 		resolvedTarget?.folderId === null &&
 		pickerGroup?.origin?.cloneUrl !== undefined
 			? {
@@ -382,6 +487,7 @@ export function ChatLanding() {
 		// "Run on" override to the draft it was picked for.
 		setCreateSource(null);
 		setTargetOverride(null);
+		setSelectedCloudProviderId(null);
 		const draftFolderId = remoteAnchor?.member.folderId ?? selectedFolderId;
 		if (draftFolderId === null) {
 			clearDraft();
@@ -563,6 +669,158 @@ export function ChatLanding() {
 		if (submitting) return;
 		const draft = useSessionsStore.getState().draftSession;
 		if (draft === null) return;
+		if (selectedCloudProviderId !== null) {
+			if (cloudProject === null) {
+				setSubmitError(
+					"Connect and prepare this repository in Cloud Sandbox settings first.",
+				);
+				return;
+			}
+			if (draft.providerId !== "claude" && draft.providerId !== "codex") {
+				setSubmitError("Cloud Sandbox currently supports Claude and Codex.");
+				return;
+			}
+			if (
+				opts.pendingAttachments.length > 0 ||
+				opts.pendingContextFiles.length > 0 ||
+				createSource !== null ||
+				opts.asGoal
+			) {
+				setSubmitError(
+					"Attachments, context files, goals, and Create-from aren't supported yet when starting a cloud workspace.",
+				);
+				return;
+			}
+			setSubmitError(null);
+			setSubmitting(true);
+			setPendingPrompt(
+				input.text.trim().length > 0 ? input.text.trim() : "New chat",
+			);
+			setPendingCloudStatus("Creating cloud workspace…");
+			try {
+				const control = await getControlPlaneRpcClient();
+				let workspace = await Effect.runPromise(
+					control["cloud.workspaces.create"]({
+						projectId: cloudProject.projectId,
+						providerId: selectedCloudProviderId,
+						baseRef: `origin/${cloudProject.defaultBranch}`,
+						agent: draft.providerId,
+						model: draft.model,
+						credentialKinds: [draft.providerId],
+						idempotencyKey: crypto.randomUUID(),
+					}),
+				);
+				const statusCopy = (value: CloudWorkspace): string => {
+					switch (value.state) {
+						case "queued":
+							return "Allocating cloud sandbox…";
+						case "provisioning":
+							return "Creating isolated workspace…";
+						case "setup":
+							return "Preparing repository and credentials…";
+						case "resuming":
+						case "recovering":
+							return "Restoring cloud workspace…";
+						default:
+							return "Connecting cloud workspace…";
+					}
+				};
+				for (let attempt = 0; workspace.state !== "ready"; attempt++) {
+					if (workspace.state === "failed") {
+						throw new Error(
+							`Cloud workspace setup failed (${workspace.statusCode}).`,
+						);
+					}
+					if (attempt >= 180)
+						throw new Error("Cloud workspace setup timed out. Try again.");
+					setPendingCloudStatus(statusCopy(workspace));
+					await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+					const listed = await Effect.runPromise(
+						control["cloud.workspaces.list"]({
+							projectId: cloudProject.projectId,
+						}),
+					);
+					workspace =
+						listed.workspaces.find(
+							(candidate) => candidate.workspaceId === workspace.workspaceId,
+						) ?? workspace;
+				}
+				if (workspace.environmentId === undefined)
+					throw new Error(
+						"Cloud workspace connected without a runtime identity.",
+					);
+				setPendingCloudStatus("Starting agent…");
+				const catalog = useEnvironmentCatalogStore.getState();
+				await catalog.syncAccountEnvironments();
+				let entry = useEnvironmentCatalogStore
+					.getState()
+					.entries.find(
+						(candidate) => candidate.environmentId === workspace.environmentId,
+					);
+				let retriedConnection = false;
+				for (let attempt = 0; entry?.status !== "connected"; attempt++) {
+					if (attempt >= 30) {
+						throw new Error(
+							entry?.error ??
+								"The cloud workspace is ready, but its connection could not be established.",
+						);
+					}
+					if (entry?.status === "error" && !retriedConnection) {
+						retriedConnection = true;
+						await catalog.retryEnvironment(workspace.environmentId);
+					} else {
+						await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+					}
+					entry = useEnvironmentCatalogStore
+						.getState()
+						.entries.find(
+							(candidate) =>
+								candidate.environmentId === workspace.environmentId,
+						);
+				}
+				const client = await getRpcClient(workspace.environmentId);
+				const remoteFolders = await Effect.runPromise(
+					client["workspace.list"]({}),
+				);
+				const folder =
+					remoteFolders.find(
+						(candidate) => candidate.path === "/home/zuse/workspace",
+					) ??
+					(await Effect.runPromise(
+						client["workspace.add"]({ path: "/home/zuse/workspace" }),
+					));
+				const created = await create(folder.id, draft.providerId, draft.model, {
+					environmentId: workspace.environmentId,
+					runtimeMode: draft.runtimeMode,
+					permissionMode: draft.permissionMode,
+					startupInput: ComposerInput.make({ ...input, asGoal: false }),
+				});
+				if (created === null)
+					throw new Error(
+						useChatsStore.getState().error ??
+							"The cloud agent could not start.",
+					);
+				const switched = await switchToEnvironment({
+					environmentId: workspace.environmentId,
+					folderId: folder.id,
+					chatId: created.chatId,
+					seed: created.remoteSeed,
+				});
+				if (!switched.switched)
+					throw new Error(
+						"The cloud agent started, but its workspace disconnected before opening.",
+					);
+				useSessionsStore.getState().clearDraft();
+				setSelectedCloudProviderId(null);
+			} catch (cause) {
+				setSubmitError(formatError(cause));
+				setPendingPrompt(null);
+			} finally {
+				setPendingCloudStatus(null);
+				setSubmitting(false);
+			}
+			return;
+		}
 		const target = resolvedTarget;
 		if (target !== null && target.folderId === null) {
 			setSubmitError(
@@ -915,6 +1173,17 @@ export function ChatLanding() {
 		return (
 			<div className="flex min-h-0 flex-1 flex-col">
 				<div className="min-h-0 flex-1 overflow-y-auto">
+					{pendingCloudStatus !== null ? (
+						<div className="mx-auto mt-8 flex w-full max-w-2xl items-center gap-3 rounded-lg border border-border/60 bg-muted/30 px-4 py-3">
+							<Spinner className="size-4" />
+							<div className="min-w-0">
+								<p className="text-sm font-medium">Starting Cloud Sandbox</p>
+								<p className="text-xs text-muted-foreground">
+									{pendingCloudStatus}
+								</p>
+							</div>
+						</div>
+					) : null}
 					{pendingWorktreeId !== null ||
 					defaultAutoCreateWorktree ||
 					repositoryAutoCreateWorktree ? (
@@ -1057,12 +1326,21 @@ export function ChatLanding() {
 											onPickGroup={onPickGroup}
 											onAdd={onAdd}
 										/>
-										{desktopCatalogEnabled ? (
+										{desktopCatalogEnabled || cloudPickerItems.length > 0 ? (
 											<ComputerPicker
 												group={pickerGroup}
 												target={resolvedTarget}
 												entries={catalogEntries}
-												onPickTarget={setTargetOverride}
+												onPickTarget={(target) => {
+													setSelectedCloudProviderId(null);
+													setTargetOverride(target);
+												}}
+												cloudItems={cloudPickerItems}
+												selectedCloudProviderId={selectedCloudProviderId}
+												onPickCloud={(providerId) => {
+													setTargetOverride(null);
+													setSelectedCloudProviderId(providerId);
+												}}
 												onRetryEnvironment={retryComputer}
 											/>
 										) : null}

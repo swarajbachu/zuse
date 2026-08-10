@@ -306,7 +306,7 @@ export type ComputerPickerItem = {
 };
 
 export type ComputerPickerModel =
-	| { readonly kind: "hidden" }
+	| { readonly kind: "hidden"; readonly item: ComputerPickerItem }
 	| { readonly kind: "static"; readonly item: ComputerPickerItem }
 	| {
 			readonly kind: "menu";
@@ -392,7 +392,7 @@ export const computerPickerItems = (
 	if (only !== undefined) {
 		if (only.retryable) return { kind: "menu", items };
 		return group.members[0]?.local
-			? { kind: "hidden" }
+			? { kind: "hidden", item: only }
 			: { kind: "static", item: only };
 	}
 	return { kind: "menu", items };
