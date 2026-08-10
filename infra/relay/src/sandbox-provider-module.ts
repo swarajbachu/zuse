@@ -42,8 +42,8 @@ export class SandboxProviderConfigurationError extends Schema.TaggedErrorClass<S
 
 const offerConfiguration = (): SandboxOfferConfig => ({
 	port: 47_837,
-	createTimeoutSeconds: 24 * 60 * 60,
-	keepAliveTimeoutSeconds: 24 * 60 * 60,
+	createTimeoutSeconds: 60 * 60,
+	keepAliveTimeoutSeconds: 60 * 60,
 });
 
 export const resolveSandboxProviderRuntimeFromModules = <

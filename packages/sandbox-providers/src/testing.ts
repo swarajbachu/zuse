@@ -14,6 +14,18 @@ export interface FakeSandboxProviderControl {
 	readonly networkBySandbox: Ref.Ref<Map<string, SandboxNetworkPolicy>>;
 	readonly snapshots: Ref.Ref<Set<string>>;
 	readonly createCalls: Ref.Ref<number>;
+	readonly createInputs: Ref.Ref<
+		ReadonlyArray<{
+			readonly timeoutSeconds: number;
+			readonly onTimeout: "pause" | "terminate";
+		}>
+	>;
+	readonly resumeInputs: Ref.Ref<
+		ReadonlyArray<{
+			readonly timeoutSeconds: number;
+			readonly onTimeout: "pause" | "terminate";
+		}>
+	>;
 	readonly startProcessCalls: Ref.Ref<ReadonlyArray<string>>;
 	readonly failNextCreateAfterProvision: Ref.Ref<boolean>;
 }
@@ -33,6 +45,18 @@ const FakeSandboxProviderControlLive = Layer.effect(
 			),
 			snapshots: yield* Ref.make(new Set<string>()),
 			createCalls: yield* Ref.make(0),
+			createInputs: yield* Ref.make<
+				ReadonlyArray<{
+					readonly timeoutSeconds: number;
+					readonly onTimeout: "pause" | "terminate";
+				}>
+			>([]),
+			resumeInputs: yield* Ref.make<
+				ReadonlyArray<{
+					readonly timeoutSeconds: number;
+					readonly onTimeout: "pause" | "terminate";
+				}>
+			>([]),
 			startProcessCalls: yield* Ref.make<ReadonlyArray<string>>([]),
 			failNextCreateAfterProvision: yield* Ref.make(false),
 		});
@@ -50,8 +74,17 @@ const makeSandboxProvidersFakeFromControl = (
 				readonly sandboxId: string;
 				readonly providerLabel: string;
 				readonly network: SandboxNetworkPolicy;
+				readonly timeoutSeconds: number;
+				readonly onTimeout: "pause" | "terminate";
 			}) {
 				yield* Ref.update(control.createCalls, (count) => count + 1);
+				yield* Ref.update(control.createInputs, (calls) => [
+					...calls,
+					{
+						timeoutSeconds: input.timeoutSeconds,
+						onTimeout: input.onTimeout,
+					},
+				]);
 				const existing = yield* Ref.get(control.sandboxes).pipe(
 					Effect.map(
 						(items) =>
@@ -96,6 +129,8 @@ const makeSandboxProvidersFakeFromControl = (
 						sandboxId: input.sandboxId,
 						providerLabel: input.providerLabel,
 						network: { kind: "quarantined" },
+						timeoutSeconds: input.timeoutSeconds,
+						onTimeout: input.onTimeout,
 					}),
 				recoverByLabel: (providerLabel) =>
 					Ref.get(control.sandboxes).pipe(
@@ -121,8 +156,12 @@ const makeSandboxProvidersFakeFromControl = (
 						wsBaseUrl: `wss://${port}-${providerSandboxId}.sandbox.test`,
 					}),
 				pause: (providerSandboxId) => setState(providerSandboxId, "paused"),
-				resume: (providerSandboxId) =>
-					setState(providerSandboxId, "running").pipe(
+				resume: (providerSandboxId, timeoutSeconds, onTimeout) =>
+					Ref.update(control.resumeInputs, (calls) => [
+						...calls,
+						{ timeoutSeconds, onTimeout },
+					]).pipe(
+						Effect.andThen(setState(providerSandboxId, "running")),
 						Effect.andThen(Ref.get(control.sandboxes)),
 						Effect.flatMap((items) => {
 							const found = items.get(providerSandboxId);

@@ -26,8 +26,8 @@ describe("sandbox provider configuration", () => {
 		expect(runtime.configuredProviders).toEqual([]);
 		expect(runtime.offer).toMatchObject({
 			port: 47_837,
-			createTimeoutSeconds: 86_400,
-			keepAliveTimeoutSeconds: 86_400,
+			createTimeoutSeconds: 3_600,
+			keepAliveTimeoutSeconds: 3_600,
 		});
 		expect(providerId).toBe("fake");
 	});

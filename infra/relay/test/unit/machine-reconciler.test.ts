@@ -50,8 +50,8 @@ const makeTestLayer = (billing?: BillingProviderAdapter) =>
 		SandboxProvidersFake,
 		Layer.succeed(SandboxOfferConfiguration, {
 			port: 47_837,
-			createTimeoutSeconds: 86_400,
-			keepAliveTimeoutSeconds: 86_400,
+			createTimeoutSeconds: 3_600,
+			keepAliveTimeoutSeconds: 3_600,
 		}),
 		billing === undefined
 			? BillingProvidersManual
@@ -198,6 +198,8 @@ describe("machine reconciler", () => {
 					destroyed: yield* store.getMachine(seeded.machineId),
 					providerSandboxes: yield* Ref.get(control.sandboxes),
 					startProcessCalls: yield* Ref.get(control.startProcessCalls),
+					createInputs: yield* Ref.get(control.createInputs),
+					resumeInputs: yield* Ref.get(control.resumeInputs),
 					network: yield* Ref.get(control.networkBySandbox),
 				};
 			}).pipe(Effect.provide(testLayer)),
@@ -210,6 +212,12 @@ describe("machine reconciler", () => {
 			`wss://47837-${result.created.providerServerId}.sandbox.test`,
 		);
 		expect(result.startProcessCalls).toEqual([result.created.providerServerId]);
+		expect(result.createInputs).toEqual([
+			{ timeoutSeconds: 3_600, onTimeout: "pause" },
+		]);
+		expect(result.resumeInputs).toEqual([
+			{ timeoutSeconds: 3_600, onTimeout: "pause" },
+		]);
 		expect(result.created.nextActionAtMs - result.created.updatedAtMs).toBe(
 			15_000,
 		);

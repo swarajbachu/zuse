@@ -52,7 +52,7 @@ export interface SandboxProviderAdapter {
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;
 		readonly network: SandboxNetworkPolicy;
-		readonly autoPause?: boolean;
+		readonly onTimeout: "pause" | "terminate";
 	}) => Effect.Effect<ProviderSandbox, SandboxProviderError>;
 	readonly fork: (input: {
 		readonly sandboxId: string;
@@ -60,6 +60,7 @@ export interface SandboxProviderAdapter {
 		readonly snapshotId: string;
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;
+		readonly onTimeout: "pause" | "terminate";
 	}) => Effect.Effect<ProviderSandbox, SandboxProviderError>;
 	readonly recoverByLabel: (
 		providerLabel: string,
@@ -81,7 +82,7 @@ export interface SandboxProviderAdapter {
 	readonly resume: (
 		providerSandboxId: string,
 		timeoutSeconds: number,
-		autoPause?: boolean,
+		onTimeout: "pause" | "terminate",
 	) => Effect.Effect<ProviderSandbox, SandboxProviderError>;
 	readonly extendTimeout: (
 		providerSandboxId: string,

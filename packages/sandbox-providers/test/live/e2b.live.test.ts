@@ -50,6 +50,7 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 					timeoutSeconds: LIVE_TIMEOUT_SECONDS,
 					env: { ZUSE_LIVE_TEST: runId },
 					network: { kind: "quarantined" },
+					onTimeout: "pause",
 				}),
 			);
 			createdIds.push(created.providerSandboxId);
@@ -103,7 +104,11 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 
 			// resume via connect
 			const resumed = await Effect.runPromise(
-				adapter.resume(created.providerSandboxId, LIVE_TIMEOUT_SECONDS),
+				adapter.resume(
+					created.providerSandboxId,
+					LIVE_TIMEOUT_SECONDS,
+					"pause",
+				),
 			);
 			expect(resumed.state).toBe("running");
 
@@ -126,6 +131,7 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 					snapshotId,
 					timeoutSeconds: LIVE_TIMEOUT_SECONDS,
 					env: { ZUSE_LIVE_TEST: runId },
+					onTimeout: "pause",
 				}),
 			);
 			createdIds.push(forked.providerSandboxId);

@@ -112,7 +112,7 @@ const ensureRunning = Effect.fn("ensureSandboxRunning")(function* (
 	const config = yield* SandboxOfferConfiguration;
 	if (inspected.success.state === "paused") {
 		const resumed = yield* provider
-			.resume(machine.providerServerId, config.keepAliveTimeoutSeconds)
+			.resume(machine.providerServerId, config.keepAliveTimeoutSeconds, "pause")
 			.pipe(Effect.result);
 		if (resumed._tag === "Failure") {
 			return {
@@ -251,6 +251,7 @@ const reconcileReadyTarget = Effect.fn("reconcileSandboxReadyTarget")(
 					sandboxId: machine.machineId,
 					providerLabel: machine.providerLabel,
 					timeoutSeconds: sandboxConfig.createTimeoutSeconds,
+					onTimeout: "pause",
 					env: {},
 					network: { kind: "open" },
 				})

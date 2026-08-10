@@ -60,7 +60,7 @@ const createInput = {
 	timeoutSeconds: 300,
 	env: { ZUSE_ENROLLMENT_TOKEN: "zenr_secret" },
 	network: { kind: "quarantined" } as const,
-	autoPause: true,
+	onTimeout: "pause" as const,
 };
 
 const originalFetch = globalThis.fetch;
@@ -222,6 +222,7 @@ describe("E2B sandbox provider", () => {
 				snapshotId: "snap_1:default",
 				timeoutSeconds: 120,
 				env: { ZUSE_ENROLLMENT_TOKEN: "zenr_fork" },
+				onTimeout: "pause",
 			}),
 		);
 
@@ -427,7 +428,9 @@ describe("E2B sandbox provider", () => {
 		]);
 		const adapter = makeAdapter(http.client);
 
-		const resumed = await Effect.runPromise(adapter.resume("sbx_1", 300));
+		const resumed = await Effect.runPromise(
+			adapter.resume("sbx_1", 300, "pause"),
+		);
 
 		expect(resumed.state).toBe("running");
 		expect(http.calls[0]?.url).toBe(
@@ -435,6 +438,7 @@ describe("E2B sandbox provider", () => {
 		);
 		expect(JSON.parse(String(http.calls[0]?.init?.body))).toEqual({
 			timeout: 300,
+			autoPause: true,
 		});
 		expect(http.calls[1]?.url).toBe("https://sandbox.test/sandboxes/sbx_1");
 	});

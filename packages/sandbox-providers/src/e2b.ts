@@ -268,7 +268,7 @@ export const makeE2bSandboxProvider = (
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;
 		readonly network: SandboxNetworkPolicy;
-		readonly autoPause?: boolean;
+		readonly onTimeout: "pause" | "terminate";
 	}): Effect.Effect<ProviderSandbox, SandboxProviderError> =>
 		request("POST", "/sandboxes", CreateResponse, {
 			templateID: input.templateId,
@@ -280,7 +280,7 @@ export const makeE2bSandboxProvider = (
 			},
 			envVars: input.env,
 			...networkCreateFields(input.network),
-			...(input.autoPause === undefined ? {} : { autoPause: input.autoPause }),
+			autoPause: input.onTimeout === "pause",
 		}).pipe(
 			Effect.tap((created) =>
 				Effect.sync(() => {
@@ -421,6 +421,7 @@ export const makeE2bSandboxProvider = (
 				timeoutSeconds: input.timeoutSeconds,
 				env: input.env,
 				network: { kind: "quarantined" },
+				onTimeout: input.onTimeout,
 			}),
 		recoverByLabel: (providerLabel) =>
 			request(
@@ -451,11 +452,14 @@ export const makeE2bSandboxProvider = (
 				[409],
 			),
 		resume: Effect.fn("E2bSandboxProvider.resume")(
-			function* (providerSandboxId, timeoutSeconds) {
+			function* (providerSandboxId, timeoutSeconds, onTimeout) {
 				yield* requestVoid(
 					"POST",
 					`/sandboxes/${encodeURIComponent(providerSandboxId)}/connect`,
-					{ timeout: timeoutSeconds },
+					{
+						timeout: timeoutSeconds,
+						autoPause: onTimeout === "pause",
+					},
 				);
 				const sandbox = yield* inspect(providerSandboxId);
 				if (sandbox === null) {
