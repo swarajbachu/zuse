@@ -44,16 +44,15 @@ bootstrap_failed() {
 }
 
 report_ready_phases() {
-  for _ in $(seq 1 60); do
-    if curl --max-time 2 --connect-timeout 1 --fail --silent \
-      http://127.0.0.1:47837/healthz >/dev/null; then
-      report_boot_status zuse-started
-      report_boot_status account-setup-available
-      return 0
-    fi
-    sleep 1
-  done
-  return 1
+	# This watcher is tied to the server process below and is killed if that
+	# process exits, so it can safely cover slow first boots without a second
+	# independent timeout that strands an otherwise healthy sandbox.
+	until curl --max-time 2 --connect-timeout 1 --fail --silent \
+		http://127.0.0.1:47837/healthz >/dev/null; do
+		sleep 1
+	done
+	report_boot_status zuse-started
+	report_boot_status account-setup-available
 }
 
 trap bootstrap_failed EXIT

@@ -6,6 +6,16 @@ const readWorkspaceFile = (relativePath: string) =>
 	readFile(new URL(`../../../../${relativePath}`, import.meta.url), "utf8");
 
 describe("cloud runtime assets", () => {
+	test("keeps sandbox readiness reporting alive for slow first boots", async () => {
+		const entrypoint = await readWorkspaceFile(
+			"infra/cloud-sandboxes/entrypoint.sh",
+		);
+
+		expect(entrypoint).toContain("until curl");
+		expect(entrypoint).toContain('kill "$readiness_pid"');
+		expect(entrypoint).not.toContain("seq 1 60");
+	});
+
 	test("keeps enrollment material owner-only and removable without breaking updates", async () => {
 		const cloudInit = await readWorkspaceFile(
 			"infra/cloud-machines/bootstrap/cloud-init.yaml.tmpl",
