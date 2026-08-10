@@ -2,6 +2,19 @@ import {
 	BillingCheckout,
 	type BillingCheckoutRequest,
 	BillingPortal,
+	CloudCredentialConnection,
+	type CloudCredentialConnectRequest,
+	type CloudCredentialKind,
+	CloudCredentialList,
+	CloudProject,
+	CloudProjectBuild,
+	type CloudProjectConnectRequest,
+	CloudProjectList,
+	type CloudProjectPrepareRequest,
+	CloudProviderList,
+	CloudWorkspace,
+	type CloudWorkspaceCreateRequest,
+	CloudWorkspaceList,
 	EntitlementList,
 	type EnvironmentId,
 	type MachineCreateRequest,
@@ -25,6 +38,40 @@ import { MachineRuntimeRole } from "./machine-runtime-role.ts";
 
 export interface MachineControlServiceShape {
 	readonly offers: () => Effect.Effect<MachineOfferList, MachineControlError>;
+	readonly cloudProviders: () => Effect.Effect<
+		CloudProviderList,
+		MachineControlError
+	>;
+	readonly cloudProjects: () => Effect.Effect<
+		CloudProjectList,
+		MachineControlError
+	>;
+	readonly connectCloudProject: (
+		input: CloudProjectConnectRequest,
+	) => Effect.Effect<CloudProject, MachineControlError>;
+	readonly prepareCloudProject: (
+		input: CloudProjectPrepareRequest,
+	) => Effect.Effect<CloudProjectBuild, MachineControlError>;
+	readonly cloudWorkspaces: (
+		projectId?: string,
+	) => Effect.Effect<CloudWorkspaceList, MachineControlError>;
+	readonly createCloudWorkspace: (
+		input: CloudWorkspaceCreateRequest,
+	) => Effect.Effect<CloudWorkspace, MachineControlError>;
+	readonly cloudWorkspaceAction: (
+		workspaceId: string,
+		action: "pause" | "resume" | "archive" | "delete",
+	) => Effect.Effect<CloudWorkspace, MachineControlError>;
+	readonly cloudCredentials: () => Effect.Effect<
+		CloudCredentialList,
+		MachineControlError
+	>;
+	readonly connectCloudCredential: (
+		input: CloudCredentialConnectRequest,
+	) => Effect.Effect<CloudCredentialConnection, MachineControlError>;
+	readonly disconnectCloudCredential: (
+		kind: CloudCredentialKind,
+	) => Effect.Effect<CloudCredentialConnection, MachineControlError>;
 	readonly list: () => Effect.Effect<MachineList, MachineControlError>;
 	readonly get: (
 		machineId: string,
@@ -93,6 +140,10 @@ const mapErrorCode = (status: number, code: unknown): MachineControlError => {
 	if (code === "entitlement_required") {
 		return new MachineControlError("entitlement-required");
 	}
+	if (code === "cloud_entitlement_required")
+		return new MachineControlError("entitlement-required");
+	if (code === "cloud_project_not_ready")
+		return new MachineControlError("invalid-state");
 	if (code === "machine_limit_reached") {
 		return new MachineControlError("machine-limit-reached");
 	}
@@ -184,6 +235,50 @@ export const MachineControlServiceLive: Layer.Layer<
 			});
 
 		return MachineControlService.of({
+			cloudProviders: () =>
+				request(RelayPaths.cloudProviders, CloudProviderList),
+			cloudProjects: () => request(RelayPaths.cloudProjects, CloudProjectList),
+			connectCloudProject: (input) =>
+				request(RelayPaths.cloudProjects, CloudProject, "POST", input),
+			prepareCloudProject: (input) =>
+				request(
+					RelayPaths.cloudProjectPrepare(input.projectId),
+					CloudProjectBuild,
+					"POST",
+					input,
+				),
+			cloudWorkspaces: (projectId) =>
+				request(
+					projectId === undefined
+						? RelayPaths.cloudWorkspaces
+						: `${RelayPaths.cloudWorkspaces}?projectId=${encodeURIComponent(projectId)}`,
+					CloudWorkspaceList,
+				),
+			createCloudWorkspace: (input) =>
+				request(RelayPaths.cloudWorkspaces, CloudWorkspace, "POST", input),
+			cloudWorkspaceAction: (workspaceId, action) =>
+				request(
+					RelayPaths.cloudWorkspaceAction(workspaceId, action),
+					CloudWorkspace,
+					"POST",
+					{},
+				),
+			cloudCredentials: () =>
+				request(RelayPaths.cloudCredentials, CloudCredentialList),
+			connectCloudCredential: (input) =>
+				request(
+					RelayPaths.cloudCredentials,
+					CloudCredentialConnection,
+					"POST",
+					input,
+				),
+			disconnectCloudCredential: (kind) =>
+				request(
+					RelayPaths.cloudCredentialDisconnect(kind),
+					CloudCredentialConnection,
+					"POST",
+					{},
+				),
 			offers: () => request(RelayPaths.machineOffers, MachineOfferList),
 			list: () => request(RelayPaths.machines, MachineList),
 			get: (machineId) => request(RelayPaths.machine(machineId), MachineRecord),

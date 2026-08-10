@@ -1,8 +1,8 @@
 import { RelayAuthTokenGrant } from "@zuse/contracts";
+import { SandboxProviders } from "@zuse/sandbox-providers";
 import { Clock, Effect, Redacted, Schema } from "effect";
 
 import { AccountIdentity } from "./account-identity.ts";
-
 import {
 	mintAccessToken,
 	RELAY_SCOPES,
@@ -10,6 +10,11 @@ import {
 	requireEnvironmentCredential,
 	requireWorkos,
 } from "./auth.ts";
+import {
+	type CloudWorkspaceRouteContext,
+	routeCloudWorkspaceRequest,
+} from "./cloud-workspace-routes.ts";
+import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { RelayConfiguration } from "./config.ts";
 import {
 	parseJwk,
@@ -44,6 +49,8 @@ import {
 } from "./store.ts";
 import { WorkosVerifier } from "./workos.ts";
 
+const CLOUD_WORKSPACE_IDLE_MS = 60 * 60 * 1_000;
+
 export type RelayContext =
 	| AccountIdentity
 	| WorkosVerifier
@@ -52,6 +59,7 @@ export type RelayContext =
 	| ManagedTunnelProvider
 	| PushDelivery
 	| SandboxOfferConfiguration
+	| CloudWorkspaceRouteContext
 	| MachineRouteContext;
 
 const json = (body: unknown, status = 200): Response =>
@@ -295,6 +303,8 @@ const route = (
 		const nowMs = yield* Clock.currentTimeMillis;
 		const machineResponse = yield* routeMachineRequest(request);
 		if (machineResponse !== null) return machineResponse;
+		const cloudWorkspaceResponse = yield* routeCloudWorkspaceRequest(request);
+		if (cloudWorkspaceResponse !== null) return cloudWorkspaceResponse;
 
 		if (method === "POST" && path === "/v1/auth/token") {
 			const untrustedBody = yield* readJson<unknown>(request);
@@ -658,6 +668,7 @@ const route = (
 		if (method === "DELETE" && path === "/v1/account") {
 			const principal = yield* requireWorkos(request);
 			const machineStore = yield* MachineStore;
+			const cloudStore = yield* CloudWorkspaceStore;
 			const machines = yield* machineStore.listMachines(principal.accountId);
 			for (const machine of machines) {
 				let destructionBase = machine;
@@ -686,6 +697,26 @@ const route = (
 					);
 				}
 			}
+			const cloudWorkspaces = yield* cloudStore.listWorkspaces(
+				principal.accountId,
+			);
+			for (const workspace of cloudWorkspaces) {
+				if (workspace.state === "deleted") continue;
+				yield* cloudStore.saveWorkspace({
+					...workspace,
+					desiredState: "deleted",
+					statusCode: "delete-queued",
+					nextActionAtMs: nowMs,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				});
+			}
+			if (
+				machines.some((machine) => machine.state !== "destroyed") ||
+				cloudWorkspaces.some((workspace) => workspace.state !== "deleted")
+			) {
+				return json({ ok: true, cleanupPending: true }, 202);
+			}
 			const entitlements = yield* machineStore.listEntitlements(
 				principal.accountId,
 			);
@@ -697,6 +728,28 @@ const route = (
 					updatedAtMs: nowMs,
 				});
 			}
+			const cloudProjects = yield* cloudStore.listProjects(principal.accountId);
+			const sandboxProviders = yield* SandboxProviders;
+			for (const project of cloudProjects) {
+				for (const build of yield* cloudStore.listBuilds(project.projectId)) {
+					if (build.snapshotId === undefined) continue;
+					const provider = yield* sandboxProviders
+						.get(build.provider)
+						.pipe(
+							Effect.mapError(() =>
+								serviceUnavailable("cloud_provider_unavailable"),
+							),
+						);
+					yield* provider
+						.deleteSnapshot(build.snapshotId)
+						.pipe(
+							Effect.mapError(() =>
+								serviceUnavailable("cloud_snapshot_cleanup_failed"),
+							),
+						);
+				}
+			}
+			yield* cloudStore.deleteAccountData(principal.accountId);
 			const environments = yield* store.listEnvironments(principal.accountId);
 			const tunnel = yield* ManagedTunnelProvider;
 			yield* Effect.forEach(
@@ -711,9 +764,6 @@ const route = (
 				{ discard: true },
 			);
 			yield* store.deleteAccountData(principal.accountId);
-			if (machines.some((machine) => machine.state !== "destroyed")) {
-				return json({ ok: true, cleanupPending: true }, 202);
-			}
 			yield* accountIdentity.deleteUser(principal.accountId);
 			return json({ ok: true, cleanupPending: false });
 		}
@@ -752,6 +802,15 @@ const route = (
 			) {
 				return yield* Effect.fail(notFound());
 			}
+			const cloudWorkspace =
+				yield* (yield* CloudWorkspaceStore).recordActivityByEnvironment(
+					environmentId,
+					principal.accountId,
+					nowMs,
+					nowMs + CLOUD_WORKSPACE_IDLE_MS,
+				);
+			if (cloudWorkspace?.state === "paused")
+				return yield* Effect.fail(serviceUnavailable("workspace_resuming"));
 			let requestedWireVersion: number | undefined;
 			let requireManaged = false;
 			let localPairing:
@@ -962,6 +1021,12 @@ const route = (
 				}
 			}
 			yield* store.touchEnvironment(environmentId, nowMs);
+			yield* (yield* CloudWorkspaceStore).recordActivityByEnvironment(
+				environmentId,
+				principal.accountId,
+				nowMs,
+				nowMs + CLOUD_WORKSPACE_IDLE_MS,
+			);
 			const refreshed = yield* store.getEnvironment(environmentId);
 			const machines = yield* MachineStore;
 			const machine = yield* machines.findMachineByEnvironmentId(environmentId);
@@ -1003,6 +1068,12 @@ const route = (
 			if (typeof body.sessionId !== "string" || !isActivityKind(body.kind)) {
 				return yield* Effect.fail(badRequest("invalid_activity"));
 			}
+			yield* (yield* CloudWorkspaceStore).recordActivityByEnvironment(
+				environmentId,
+				principal.accountId,
+				nowMs,
+				nowMs + CLOUD_WORKSPACE_IDLE_MS,
+			);
 			if (body.title !== undefined && typeof body.title !== "string") {
 				return yield* Effect.fail(badRequest("invalid_activity"));
 			}

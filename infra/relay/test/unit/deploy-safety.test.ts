@@ -81,7 +81,7 @@ describe("relay deployment safety", () => {
 		expect(config.vars.POLAR_PRODUCT_PERSISTENT_STANDARD_V1).toBe(
 			"810223ea-94f2-47e7-9c09-af9a0fd86174",
 		);
-		expect(config.vars.POLAR_PRODUCT_SANDBOX_STANDARD_V1).toBe(
+		expect(config.vars.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1).toBe(
 			"31616352-13b0-48dd-a9cd-11724f358199",
 		);
 		expect(config.vars.POLAR_VPS_SALES_APPROVED).toBe("false");
@@ -111,7 +111,7 @@ describe("relay deployment safety", () => {
 		expect(production.vars).not.toHaveProperty("SANDBOX_DEFAULT_PROVIDER");
 		expect(production.vars.E2B_ADAPTER_ENABLED).toBe("false");
 		expect(production.vars.E2B_TEMPLATE_ID).toBe("");
-		expect(production.vars.POLAR_PRODUCT_SANDBOX_STANDARD_V1).toBe("");
+		expect(production.vars.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1).toBe("");
 		expect(production.hyperdrive).toEqual([
 			{
 				binding: "HYPERDRIVE",

@@ -66,6 +66,19 @@ export const RelayPaths = {
 	billingWebhook: "/v1/billing/webhook",
 	billingProviderWebhook: (providerId: string) =>
 		`/v1/billing/webhook/${encodeURIComponent(providerId)}`,
+	cloudProviders: "/v1/cloud/providers",
+	cloudProjects: "/v1/cloud/projects",
+	cloudProjectPrepare: (projectId: string) =>
+		`/v1/cloud/projects/${encodeURIComponent(projectId)}/prepare`,
+	cloudWorkspaces: "/v1/cloud/workspaces",
+	cloudWorkspace: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}`,
+	cloudWorkspaceAction: (workspaceId: string, action: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/${encodeURIComponent(action)}`,
+	cloudWorkspaceEnroll: "/v1/cloud/workspaces/enroll",
+	cloudCredentials: "/v1/cloud/credentials",
+	cloudCredentialDisconnect: (kind: string) =>
+		`/v1/cloud/credentials/${encodeURIComponent(kind)}/disconnect`,
 } as const;
 
 export const RelayAuthTokenGrant = Schema.Union([

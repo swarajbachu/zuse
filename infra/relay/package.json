@@ -21,6 +21,7 @@
 		"secret:polar-webhook": "wrangler secret put POLAR_WEBHOOK_SECRET --env=",
 		"secret:hetzner": "wrangler secret put HETZNER_API_TOKEN --env=",
 		"secret:e2b": "wrangler secret put E2B_API_KEY --env=",
+		"secret:cloud-vault": "wrangler secret put CLOUD_CREDENTIAL_VAULT_KEY --env=",
 		"dev": "wrangler dev --env=",
 		"deploy": "wrangler deploy --env=",
 		"deploy:staging": "wrangler deploy --env=",

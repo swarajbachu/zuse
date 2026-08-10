@@ -1,4 +1,9 @@
-import { ConnectAuthError, MachineOpError, MemoizeRpcs } from "@zuse/contracts";
+import {
+	CloudWorkspaceOpError,
+	ConnectAuthError,
+	MachineOpError,
+	MemoizeRpcs,
+} from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 
 import {
@@ -20,6 +25,32 @@ const withControl = <A>(
 		return yield* run(service);
 	}).pipe(Effect.mapError(toError));
 
+const withCloudControl = <A>(
+	run: (
+		service: MachineControlService["Service"],
+	) => Effect.Effect<A, MachineControlError>,
+) =>
+	Effect.gen(function* () {
+		const service = yield* MachineControlService;
+		return yield* run(service);
+	}).pipe(
+		Effect.mapError(
+			(error) =>
+				new CloudWorkspaceOpError({
+					code:
+						error.code === "invalid-state"
+							? "project-not-ready"
+							: error.code === "machine-limit-reached" ||
+									error.code === "invalid-offer" ||
+									error.code === "billing-unavailable" ||
+									error.code === "enrollment-expired" ||
+									error.code === "enrollment-rejected"
+								? "invalid-request"
+								: error.code,
+				}),
+		),
+	);
+
 const withHost = <A>(
 	run: (
 		service: MachineHostService["Service"],
@@ -32,6 +63,71 @@ const withHost = <A>(
 
 const Offers = MemoizeRpcs.toLayerHandler("machines.offers", () =>
 	withControl((service) => service.offers()),
+);
+const CloudProviders = MemoizeRpcs.toLayerHandler("cloud.providers", () =>
+	withCloudControl((service) => service.cloudProviders()),
+);
+const CloudProjects = MemoizeRpcs.toLayerHandler("cloud.projects.list", () =>
+	withCloudControl((service) => service.cloudProjects()),
+);
+const ConnectCloudProject = MemoizeRpcs.toLayerHandler(
+	"cloud.projects.connect",
+	(input) => withCloudControl((service) => service.connectCloudProject(input)),
+);
+const PrepareCloudProject = MemoizeRpcs.toLayerHandler(
+	"cloud.projects.prepare",
+	(input) => withCloudControl((service) => service.prepareCloudProject(input)),
+);
+const CloudWorkspaces = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.list",
+	({ projectId }) =>
+		withCloudControl((service) => service.cloudWorkspaces(projectId)),
+);
+const CreateCloudWorkspace = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.create",
+	(input) => withCloudControl((service) => service.createCloudWorkspace(input)),
+);
+const PauseCloudWorkspace = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.pause",
+	({ workspaceId }) =>
+		withCloudControl((service) =>
+			service.cloudWorkspaceAction(workspaceId, "pause"),
+		),
+);
+const ResumeCloudWorkspace = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.resume",
+	({ workspaceId }) =>
+		withCloudControl((service) =>
+			service.cloudWorkspaceAction(workspaceId, "resume"),
+		),
+);
+const ArchiveCloudWorkspace = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.archive",
+	({ workspaceId }) =>
+		withCloudControl((service) =>
+			service.cloudWorkspaceAction(workspaceId, "archive"),
+		),
+);
+const DeleteCloudWorkspace = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.delete",
+	({ workspaceId }) =>
+		withCloudControl((service) =>
+			service.cloudWorkspaceAction(workspaceId, "delete"),
+		),
+);
+const CloudCredentials = MemoizeRpcs.toLayerHandler(
+	"cloud.credentials.list",
+	() => withCloudControl((service) => service.cloudCredentials()),
+);
+const ConnectCloudCredential = MemoizeRpcs.toLayerHandler(
+	"cloud.credentials.connect",
+	(input) =>
+		withCloudControl((service) => service.connectCloudCredential(input)),
+);
+const DisconnectCloudCredential = MemoizeRpcs.toLayerHandler(
+	"cloud.credentials.disconnect",
+	({ kind }) =>
+		withCloudControl((service) => service.disconnectCloudCredential(kind)),
 );
 const List = MemoizeRpcs.toLayerHandler("machines.list", () =>
 	withControl((service) => service.list()),
@@ -116,6 +212,19 @@ const RuntimeUpdate = MemoizeRpcs.toLayerHandler(
 );
 
 export const MachineHandlersLayer = Layer.mergeAll(
+	CloudProviders,
+	CloudProjects,
+	ConnectCloudProject,
+	PrepareCloudProject,
+	CloudWorkspaces,
+	CreateCloudWorkspace,
+	PauseCloudWorkspace,
+	ResumeCloudWorkspace,
+	ArchiveCloudWorkspace,
+	DeleteCloudWorkspace,
+	CloudCredentials,
+	ConnectCloudCredential,
+	DisconnectCloudCredential,
 	Offers,
 	List,
 	Get,

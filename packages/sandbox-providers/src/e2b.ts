@@ -395,9 +395,150 @@ export const makeE2bSandboxProvider = (
 		});
 	});
 
+	const pathExists = Effect.fn("E2bSandboxProvider.pathExists")(function* (
+		providerSandboxId: string,
+		path: string,
+		user?: string,
+	) {
+		const detail = yield* sandboxDetail(providerSandboxId);
+		let accessToken = controlTokens.get(providerSandboxId);
+		if (accessToken === undefined) {
+			const connected = yield* request(
+				"POST",
+				`/sandboxes/${encodeURIComponent(providerSandboxId)}/connect`,
+				CreateResponse,
+				{ timeout: 300 },
+			);
+			accessToken = connected.envdAccessToken ?? undefined;
+			if (accessToken !== undefined)
+				controlTokens.set(providerSandboxId, accessToken);
+		}
+		if (accessToken === undefined) return yield* providerError("rejected");
+		const port = 49_983;
+		const host = `${port}-${providerSandboxId}.${endpointDomain(detail.domain)}`;
+		const response = yield* Effect.tryPromise({
+			try: () =>
+				http.fetch(`https://${host}/filesystem.Filesystem/Stat`, {
+					method: "POST",
+					headers: {
+						"Connect-Protocol-Version": "1",
+						"Content-Type": "application/json",
+						"E2b-Sandbox-Id": providerSandboxId,
+						"E2b-Sandbox-Port": String(port),
+						"X-Access-Token": accessToken,
+						...(user === undefined
+							? {}
+							: { Authorization: `Basic ${btoa(`${user}:`)}` }),
+					},
+					body: JSON.stringify({ path }),
+				}),
+			catch: () => providerError("transient"),
+		});
+		if (response.status === 404) return false;
+		if (!response.ok) return yield* errorForStatus(response.status);
+		return true;
+	});
+
+	const readTextFile = Effect.fn("E2bSandboxProvider.readTextFile")(function* (
+		providerSandboxId: string,
+		path: string,
+		user?: string,
+	) {
+		const detail = yield* sandboxDetail(providerSandboxId);
+		let accessToken = controlTokens.get(providerSandboxId);
+		if (accessToken === undefined) {
+			const connected = yield* request(
+				"POST",
+				`/sandboxes/${encodeURIComponent(providerSandboxId)}/connect`,
+				CreateResponse,
+				{ timeout: 300 },
+			);
+			accessToken = connected.envdAccessToken ?? undefined;
+			if (accessToken !== undefined)
+				controlTokens.set(providerSandboxId, accessToken);
+		}
+		if (accessToken === undefined) return yield* providerError("rejected");
+		const port = 49_983;
+		const host = `${port}-${providerSandboxId}.${endpointDomain(detail.domain)}`;
+		const query = new URLSearchParams({ path });
+		if (user !== undefined) query.set("username", user);
+		const response = yield* Effect.tryPromise({
+			try: () =>
+				http.fetch(`https://${host}/files?${query.toString()}`, {
+					headers: {
+						"E2b-Sandbox-Id": providerSandboxId,
+						"E2b-Sandbox-Port": String(port),
+						"X-Access-Token": accessToken,
+					},
+				}),
+			catch: () => providerError("transient"),
+		});
+		if (!response.ok) return yield* errorForStatus(response.status);
+		const contentLength = Number(response.headers.get("content-length") ?? "0");
+		if (contentLength > 65_536) return yield* providerError("rejected");
+		const text = yield* Effect.tryPromise({
+			try: () => response.text(),
+			catch: () => providerError("transient"),
+		});
+		if (new TextEncoder().encode(text).byteLength > 65_536)
+			return yield* providerError("rejected");
+		return text;
+	});
+
+	const writeTextFile = Effect.fn("E2bSandboxProvider.writeTextFile")(
+		function* (
+			providerSandboxId: string,
+			path: string,
+			contents: string,
+			user?: string,
+		) {
+			if (new TextEncoder().encode(contents).byteLength > 65_536)
+				return yield* providerError("rejected");
+			const detail = yield* sandboxDetail(providerSandboxId);
+			let accessToken = controlTokens.get(providerSandboxId);
+			if (accessToken === undefined) {
+				const connected = yield* request(
+					"POST",
+					`/sandboxes/${encodeURIComponent(providerSandboxId)}/connect`,
+					CreateResponse,
+					{ timeout: 300 },
+				);
+				accessToken = connected.envdAccessToken ?? undefined;
+				if (accessToken !== undefined)
+					controlTokens.set(providerSandboxId, accessToken);
+			}
+			if (accessToken === undefined) return yield* providerError("rejected");
+			const port = 49_983;
+			const host = `${port}-${providerSandboxId}.${endpointDomain(detail.domain)}`;
+			const query = new URLSearchParams({ path });
+			if (user !== undefined) query.set("username", user);
+			const form = new FormData();
+			form.append(
+				"file",
+				new Blob([contents], { type: "text/plain" }),
+				path.split("/").at(-1) ?? "file",
+			);
+			const response = yield* Effect.tryPromise({
+				try: () =>
+					http.fetch(`https://${host}/files?${query.toString()}`, {
+						method: "POST",
+						headers: {
+							"E2b-Sandbox-Id": providerSandboxId,
+							"E2b-Sandbox-Port": String(port),
+							"X-Access-Token": accessToken,
+						},
+						body: form,
+					}),
+				catch: () => providerError("transient"),
+			});
+			if (!response.ok) return yield* errorForStatus(response.status);
+		},
+	);
+
 	return {
 		providerId: E2B_PROVIDER_ID,
 		displayName: "E2B",
+		templateVersion: config.templateId,
 		resolveEndpoint: (providerSandboxId, port) =>
 			sandboxDetail(providerSandboxId).pipe(
 				Effect.map((detail) => {
@@ -442,6 +583,9 @@ export const makeE2bSandboxProvider = (
 				}),
 			),
 		startProcess,
+		pathExists,
+		readTextFile,
+		writeTextFile,
 		inspect,
 		pause: (providerSandboxId) =>
 			requestVoid(

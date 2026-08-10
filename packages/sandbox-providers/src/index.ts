@@ -46,6 +46,7 @@ export interface SandboxProcessInput {
 export interface SandboxProviderAdapter {
 	readonly providerId: string;
 	readonly displayName: string;
+	readonly templateVersion: string;
 	readonly create: (input: {
 		readonly sandboxId: string;
 		readonly providerLabel: string;
@@ -68,6 +69,22 @@ export interface SandboxProviderAdapter {
 	readonly startProcess: (
 		providerSandboxId: string,
 		input: SandboxProcessInput,
+	) => Effect.Effect<void, SandboxProviderError>;
+	readonly pathExists: (
+		providerSandboxId: string,
+		path: string,
+		user?: string,
+	) => Effect.Effect<boolean, SandboxProviderError>;
+	readonly readTextFile: (
+		providerSandboxId: string,
+		path: string,
+		user?: string,
+	) => Effect.Effect<string, SandboxProviderError>;
+	readonly writeTextFile: (
+		providerSandboxId: string,
+		path: string,
+		contents: string,
+		user?: string,
 	) => Effect.Effect<void, SandboxProviderError>;
 	readonly inspect: (
 		providerSandboxId: string,

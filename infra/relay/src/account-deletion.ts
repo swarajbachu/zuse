@@ -12,6 +12,17 @@ export const deleteAccountIdentityWhenInfrastructureIsClean = Effect.fn(
 			other.machineId !== machine.machineId && other.state !== "destroyed",
 	);
 	if (anotherMachineIsCleaning) return "deferred" as const;
+	const entitlements = yield* (yield* MachineStore).listEntitlements(
+		machine.accountId,
+	);
+	if (
+		entitlements.some(
+			(entitlement) =>
+				entitlement.kind === "cloud-workspace" &&
+				(entitlement.status === "active" || entitlement.status === "grace"),
+		)
+	)
+		return "deferred" as const;
 	const deleted = yield* (yield* AccountIdentity)
 		.deleteUser(machine.accountId)
 		.pipe(Effect.result);

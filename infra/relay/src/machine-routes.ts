@@ -1,6 +1,7 @@
 import { BillingProviders } from "@zuse/billing-providers";
 import {
 	BillingCheckoutRequest,
+	CLOUD_WORKSPACE_OFFER_ID,
 	type MachineBootPhase,
 	MachineBootStatusRequest,
 	MachineCreateRequest,
@@ -552,10 +553,19 @@ export const routeMachineRequest = (
 					`${billing.providerId}:${subscription.providerSubscriptionId}`,
 				)
 			).slice(0, 24)}`;
+			const subscriptionOffer =
+				subscription.offerId === CLOUD_WORKSPACE_OFFER_ID
+					? undefined
+					: subscription.offerId === undefined
+						? undefined
+						: findMachineOffer(subscription.offerId);
 			const entitlement: EntitlementPersistenceRecord = {
 				entitlementId,
 				accountId: subscription.accountId,
-				kind: "persistent-machine",
+				kind:
+					subscription.offerId === CLOUD_WORKSPACE_OFFER_ID
+						? "cloud-workspace"
+						: "persistent-machine",
 				offerId: subscription.offerId,
 				provider: billing.providerId,
 				providerSubscriptionId: subscription.providerSubscriptionId,
@@ -566,10 +576,7 @@ export const routeMachineRequest = (
 				updatedAtMs: nowMs,
 			};
 			const machineConfig = yield* MachineControlConfiguration;
-			const offer =
-				subscription.offerId === undefined
-					? undefined
-					: findMachineOffer(subscription.offerId);
+			const offer = subscriptionOffer;
 			const shouldProvision =
 				subscription.status === "active" &&
 				offer !== undefined &&
@@ -965,14 +972,18 @@ export const routeMachineRequest = (
 			const principal = yield* requireMachineAlphaPrincipal(request);
 			const body = yield* decodeBody(BillingCheckoutRequest, request);
 			const machineConfig = yield* MachineControlConfiguration;
+			const isCloudWorkspace = body.offerId === CLOUD_WORKSPACE_OFFER_ID;
 			const offer = findMachineOffer(body.offerId);
 			if (
-				offer === undefined ||
-				!offerIsAvailable(body.offerId, machineConfig)
+				(!isCloudWorkspace && offer === undefined) ||
+				!(machineConfig.liveCheckoutOfferIds?.has(body.offerId) ?? true)
 			) {
 				return yield* Effect.fail(badRequest("invalid_machine_offer"));
 			}
-			if (offer.kind !== "sandbox" && body.sandboxProviderId !== undefined) {
+			if (
+				(isCloudWorkspace || offer?.kind !== "sandbox") &&
+				body.sandboxProviderId !== undefined
+			) {
 				return yield* Effect.fail(badRequest("invalid_sandbox_provider"));
 			}
 			if (
@@ -988,7 +999,7 @@ export const routeMachineRequest = (
 				store.listMachines(principal.accountId),
 			]);
 			const recoverableSandbox =
-				offer.kind === "sandbox"
+				offer?.kind === "sandbox"
 					? machines.find(
 							(machine) =>
 								offerIdsOfKind("sandbox").includes(machine.offerId) &&
@@ -1004,7 +1015,7 @@ export const routeMachineRequest = (
 				return yield* Effect.fail(conflict("sandbox_provider_mismatch"));
 			}
 			const selectedSandboxProviderId =
-				offer.kind === "sandbox"
+				offer?.kind === "sandbox"
 					? yield* providerIdForKind(
 							offer.kind,
 							body.sandboxProviderId ?? recoverableSandbox?.provider,
@@ -1027,18 +1038,19 @@ export const routeMachineRequest = (
 						(entitlement.paidThroughMs === undefined ||
 							entitlement.paidThroughMs > nowMs),
 				) ||
-				machines.some(
-					(machine) =>
-						offerIdsOfKind(
-							findMachineOffer(body.offerId)?.kind ?? "persistent",
-						).includes(machine.offerId) &&
-						machine.state !== "destroyed" &&
-						!(
-							machine.state === "suspended" &&
-							machine.recoveryDeadlineMs !== undefined &&
-							machine.recoveryDeadlineMs > nowMs
-						),
-				);
+				(!isCloudWorkspace &&
+					machines.some(
+						(machine) =>
+							offerIdsOfKind(
+								findMachineOffer(body.offerId)?.kind ?? "persistent",
+							).includes(machine.offerId) &&
+							machine.state !== "destroyed" &&
+							!(
+								machine.state === "suspended" &&
+								machine.recoveryDeadlineMs !== undefined &&
+								machine.recoveryDeadlineMs > nowMs
+							),
+					));
 			if (alreadySubscribed) {
 				return yield* Effect.fail(conflict("machine_subscription_exists"));
 			}

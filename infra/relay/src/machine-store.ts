@@ -841,6 +841,8 @@ export const MachineStorePg: Layer.Layer<
 							${entitlement.createdAtMs}, ${entitlement.updatedAtMs}
 						)
 						ON CONFLICT (entitlement_id) DO UPDATE SET
+							kind = EXCLUDED.kind,
+							offer_id = EXCLUDED.offer_id,
 							status = EXCLUDED.status,
 							paid_through = EXCLUDED.paid_through,
 							ended_at = EXCLUDED.ended_at,
@@ -1088,6 +1090,8 @@ export const MachineStorePg: Layer.Layer<
 								${input.entitlement.updatedAtMs}
 							)
 							ON CONFLICT (entitlement_id) DO UPDATE SET
+								kind = EXCLUDED.kind,
+								offer_id = EXCLUDED.offer_id,
 								status = EXCLUDED.status,
 								paid_through = EXCLUDED.paid_through,
 								ended_at = EXCLUDED.ended_at,

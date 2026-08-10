@@ -1,10 +1,16 @@
 import { type Layer, ManagedRuntime } from "effect";
-
+import {
+	reconcileCloudBuild,
+	reconcileCloudResources,
+	reconcileCloudWorkspace,
+} from "./cloud-workspace-reconciler.ts";
 import { handleRequest, type RelayContext } from "./handler.ts";
 import { reconcileMachine, reconcileMachines } from "./machine-reconciler.ts";
 
 export * from "./account-identity.ts";
 export { RELAY_SCOPES } from "./auth.ts";
+export * from "./cloud-credential-vault.ts";
+export * from "./cloud-workspace-store.ts";
 export * from "./config.ts";
 export * from "./errors.ts";
 export * from "./machine-config.ts";
@@ -38,6 +44,12 @@ export const makeRelay = (
 		readonly claimed: number;
 		readonly processed: number;
 	}>;
+	readonly reconcileCloud: () => Promise<{
+		readonly builds: number;
+		readonly workspaces: number;
+	}>;
+	readonly reconcileCloudBuild: (buildId: string) => Promise<void>;
+	readonly reconcileCloudWorkspace: (workspaceId: string) => Promise<void>;
 	readonly dispose: () => Promise<void>;
 } => {
 	const runtime = ManagedRuntime.make(layer);
@@ -46,6 +58,11 @@ export const makeRelay = (
 		reconcile: (owner) => runtime.runPromise(reconcileMachines({ owner })),
 		reconcileMachine: (machineId, owner) =>
 			runtime.runPromise(reconcileMachine({ machineId, owner })),
+		reconcileCloud: () => runtime.runPromise(reconcileCloudResources()),
+		reconcileCloudBuild: (buildId) =>
+			runtime.runPromise(reconcileCloudBuild(buildId)),
+		reconcileCloudWorkspace: (workspaceId) =>
+			runtime.runPromise(reconcileCloudWorkspace(workspaceId)),
 		dispose: () => runtime.dispose(),
 	};
 };

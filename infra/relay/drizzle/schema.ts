@@ -240,11 +240,248 @@ export const relayEntitlements = pgTable(
 		),
 		check(
 			"relay_entitlements_kind_check",
-			sql`${table.kind} IN ('persistent-machine', 'usage-credits')`,
+			sql`${table.kind} IN ('persistent-machine', 'cloud-workspace', 'usage-credits')`,
 		),
 		check(
 			"relay_entitlements_status_check",
 			sql`${table.status} IN ('pending', 'active', 'grace', 'ended')`,
+		),
+	],
+);
+
+export const relayCloudProjects = pgTable(
+	"relay_cloud_projects",
+	{
+		projectId: text("project_id").primaryKey(),
+		accountId: text("account_id").notNull(),
+		repositoryIdentity: text("repository_identity").notNull(),
+		repositoryUrl: text("repository_url").notNull(),
+		displayName: text("display_name").notNull(),
+		defaultBranch: text("default_branch").notNull(),
+		visibility: text("visibility").notNull(),
+		gitConnectionKind: text("git_connection_kind").notNull(),
+		setupCommand: text("setup_command"),
+		cloudEnvironment: jsonb("cloud_environment").notNull().default({}),
+		secretBindings: jsonb("secret_bindings").notNull().default([]),
+		configurationDigest: text("configuration_digest").notNull(),
+		state: text("state").notNull(),
+		lastErrorCode: text("last_error_code"),
+		idempotencyKey: text("idempotency_key").notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		uniqueIndex("relay_cloud_projects_account_repo_idx").on(
+			table.accountId,
+			table.repositoryIdentity,
+		),
+		uniqueIndex("relay_cloud_projects_account_idempotency_idx").on(
+			table.accountId,
+			table.idempotencyKey,
+		),
+		index("relay_cloud_projects_account_idx").on(table.accountId),
+		check(
+			"relay_cloud_projects_visibility_check",
+			sql`${table.visibility} IN ('public', 'private')`,
+		),
+		check(
+			"relay_cloud_projects_state_check",
+			sql`${table.state} IN ('connected', 'preparing', 'ready', 'failed')`,
+		),
+	],
+);
+
+export const relayCloudProjectBuilds = pgTable(
+	"relay_cloud_project_builds",
+	{
+		buildId: text("build_id").primaryKey(),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => relayCloudProjects.projectId, { onDelete: "cascade" }),
+		accountId: text("account_id").notNull(),
+		provider: text("provider").notNull(),
+		providerSandboxId: text("provider_sandbox_id"),
+		snapshotId: text("snapshot_id"),
+		sourceCommit: text("source_commit"),
+		templateVersion: text("template_version").notNull(),
+		configurationDigest: text("configuration_digest").notNull(),
+		state: text("state").notNull(),
+		lastErrorCode: text("last_error_code"),
+		idempotencyKey: text("idempotency_key").notNull(),
+		nextActionAt: bigint("next_action_at", { mode: "number" }).notNull(),
+		leaseOwner: text("lease_owner"),
+		leaseExpiresAt: bigint("lease_expires_at", { mode: "number" }),
+		revision: bigint("revision", { mode: "number" }).notNull().default(0),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		uniqueIndex("relay_cloud_builds_project_provider_idempotency_idx").on(
+			table.projectId,
+			table.provider,
+			table.idempotencyKey,
+		),
+		index("relay_cloud_builds_active_idx").on(
+			table.projectId,
+			table.provider,
+			table.state,
+			table.updatedAt,
+		),
+		index("relay_cloud_builds_reconcile_idx").on(
+			table.state,
+			table.nextActionAt,
+			table.leaseExpiresAt,
+		),
+		check(
+			"relay_cloud_builds_state_check",
+			sql`${table.state} IN ('queued', 'building', 'sanitizing', 'ready', 'failed')`,
+		),
+	],
+);
+
+export const relayCloudWorkspaces = pgTable(
+	"relay_cloud_workspaces",
+	{
+		workspaceId: text("workspace_id").primaryKey(),
+		accountId: text("account_id").notNull(),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => relayCloudProjects.projectId),
+		buildId: text("build_id")
+			.notNull()
+			.references(() => relayCloudProjectBuilds.buildId),
+		provider: text("provider").notNull(),
+		providerSandboxId: text("provider_sandbox_id"),
+		providerEndpointHttpBaseUrl: text("provider_endpoint_http_base_url"),
+		providerEndpointWsBaseUrl: text("provider_endpoint_ws_base_url"),
+		environmentId: text("environment_id"),
+		enrollmentTokenHash: text("enrollment_token_hash"),
+		enrollmentExpiresAt: bigint("enrollment_expires_at", { mode: "number" }),
+		enrolledEnvironmentPublicKey: text("enrolled_environment_public_key"),
+		branch: text("branch").notNull(),
+		baseRef: text("base_ref").notNull(),
+		state: text("state").notNull(),
+		desiredState: text("desired_state").notNull(),
+		statusCode: text("status_code").notNull(),
+		credentialEpoch: bigint("credential_epoch", { mode: "number" })
+			.notNull()
+			.default(0),
+		recoveryBundleKey: text("recovery_bundle_key"),
+		warmRetentionDeadline: bigint("warm_retention_deadline", {
+			mode: "number",
+		}),
+		idempotencyKey: text("idempotency_key").notNull(),
+		requestConfig: jsonb("request_config").notNull().default({}),
+		nextActionAt: bigint("next_action_at", { mode: "number" }).notNull(),
+		leaseOwner: text("lease_owner"),
+		leaseExpiresAt: bigint("lease_expires_at", { mode: "number" }),
+		revision: bigint("revision", { mode: "number" }).notNull().default(0),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+		lastActivityAt: bigint("last_activity_at", { mode: "number" }).notNull(),
+		runningSince: bigint("running_since", { mode: "number" }),
+		deletedAt: bigint("deleted_at", { mode: "number" }),
+	},
+	(table) => [
+		uniqueIndex("relay_cloud_workspaces_account_idempotency_idx").on(
+			table.accountId,
+			table.idempotencyKey,
+		),
+		uniqueIndex("relay_cloud_workspaces_provider_sandbox_idx").on(
+			table.provider,
+			table.providerSandboxId,
+		),
+		uniqueIndex("relay_cloud_workspaces_environment_idx").on(
+			table.environmentId,
+		),
+		index("relay_cloud_workspaces_project_idx").on(
+			table.projectId,
+			table.updatedAt,
+		),
+		index("relay_cloud_workspaces_branch_lease_idx").on(
+			table.projectId,
+			table.branch,
+			table.state,
+		),
+		uniqueIndex("relay_cloud_workspaces_active_branch_idx")
+			.on(table.projectId, table.branch)
+			.where(sql`${table.state} <> 'deleted'`),
+		index("relay_cloud_workspaces_reconcile_idx").on(
+			table.desiredState,
+			table.nextActionAt,
+			table.leaseExpiresAt,
+		),
+		check(
+			"relay_cloud_workspaces_state_check",
+			sql`${table.state} IN ('queued', 'provisioning', 'setup', 'ready', 'pausing', 'paused', 'resuming', 'archiving', 'archived', 'recovering', 'deleting', 'deleted', 'failed')`,
+		),
+		check(
+			"relay_cloud_workspaces_desired_state_check",
+			sql`${table.desiredState} IN ('ready', 'paused', 'archived', 'deleted')`,
+		),
+	],
+);
+
+export const relayCloudCredentialConnections = pgTable(
+	"relay_cloud_credential_connections",
+	{
+		connectionId: text("connection_id").primaryKey(),
+		accountId: text("account_id").notNull(),
+		kind: text("kind").notNull(),
+		state: text("state").notNull(),
+		accountLabel: text("account_label"),
+		encryptedPayload: text("encrypted_payload"),
+		encryptionKeyVersion: text("encryption_key_version"),
+		credentialVersion: bigint("credential_version", { mode: "number" })
+			.notNull()
+			.default(1),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+		disconnectedAt: bigint("disconnected_at", { mode: "number" }),
+	},
+	(table) => [
+		uniqueIndex("relay_cloud_credentials_account_kind_idx").on(
+			table.accountId,
+			table.kind,
+		),
+		check(
+			"relay_cloud_credentials_kind_check",
+			sql`${table.kind} IN ('github', 'claude', 'codex')`,
+		),
+		check(
+			"relay_cloud_credentials_state_check",
+			sql`${table.state} IN ('connected', 'disconnected', 'error')`,
+		),
+	],
+);
+
+export const relayCloudWorkspaceUsage = pgTable(
+	"relay_cloud_workspace_usage",
+	{
+		eventId: text("event_id").primaryKey(),
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => relayCloudWorkspaces.workspaceId),
+		accountId: text("account_id").notNull(),
+		provider: text("provider").notNull(),
+		kind: text("kind").notNull(),
+		quantity: bigint("quantity", { mode: "number" }).notNull(),
+		providerEventId: text("provider_event_id"),
+		occurredAt: bigint("occurred_at", { mode: "number" }).notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		uniqueIndex("relay_cloud_usage_provider_event_idx").on(
+			table.provider,
+			table.providerEventId,
+		),
+		index("relay_cloud_usage_workspace_idx").on(
+			table.workspaceId,
+			table.occurredAt,
+		),
+		check(
+			"relay_cloud_usage_kind_check",
+			sql`${table.kind} IN ('runtime-seconds', 'pause', 'resume', 'snapshot-bytes', 'storage-byte-seconds', 'archive', 'restore', 'delete')`,
 		),
 	],
 );

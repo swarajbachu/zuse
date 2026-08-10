@@ -123,6 +123,7 @@ const makeSandboxProvidersFakeFromControl = (
 			const adapter: SandboxProviderAdapter = {
 				providerId: "fake",
 				displayName: "Test sandbox",
+				templateVersion: "test-template",
 				create,
 				fork: (input) =>
 					create({
@@ -146,6 +147,9 @@ const makeSandboxProvidersFakeFromControl = (
 						...calls,
 						providerSandboxId,
 					]),
+				pathExists: () => Effect.succeed(false),
+				readTextFile: () => Effect.succeed(""),
+				writeTextFile: () => Effect.void,
 				inspect: (providerSandboxId) =>
 					Ref.get(control.sandboxes).pipe(
 						Effect.map((items) => items.get(providerSandboxId) ?? null),

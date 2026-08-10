@@ -8,6 +8,7 @@ import {
 } from "../../src/hetzner.ts";
 
 const offer: MachineOffer = {
+	kind: "persistent",
 	offerId: "persistent-standard-v1",
 	displayName: "Standard",
 	architecture: "x86_64",

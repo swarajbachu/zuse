@@ -22,6 +22,14 @@ const providerNeutralEndpointMigrationUrl = new URL(
 	"../../drizzle/migrations/0006_robust_cammi.sql",
 	import.meta.url,
 );
+const cloudWorkspaceMigrationUrl = new URL(
+	"../../drizzle/migrations/0007_outstanding_lifeguard.sql",
+	import.meta.url,
+);
+const cloudWorkspaceEnrollmentMigrationUrl = new URL(
+	"../../drizzle/migrations/0008_clammy_butterfly.sql",
+	import.meta.url,
+);
 
 describe("relay migration reconciliation", () => {
 	test("keeps the main migration history before managed cloud machines", async () => {
@@ -40,7 +48,36 @@ describe("relay migration reconciliation", () => {
 			{ idx: 4, tag: "0004_credential_cleanup_handshake" },
 			{ idx: 5, tag: "0005_sandbox_endpoint_domain" },
 			{ idx: 6, tag: "0006_robust_cammi" },
+			{ idx: 7, tag: "0007_outstanding_lifeguard" },
+			{ idx: 8, tag: "0008_clammy_butterfly" },
+			{ idx: 9, tag: "0009_tan_steel_serpent" },
 		]);
+	});
+
+	test("persists post-fork workspace enrollment without a machine row", async () => {
+		const migration = await readFile(
+			cloudWorkspaceEnrollmentMigrationUrl,
+			"utf8",
+		);
+		expect(migration).toContain('ADD COLUMN "enrollment_token_hash"');
+		expect(migration).toContain('ADD COLUMN "enrolled_environment_public_key"');
+		expect(migration).toContain('ADD COLUMN "provider_endpoint_ws_base_url"');
+	});
+
+	test("separates entitlement, projects, builds, workspaces, credentials, and usage", async () => {
+		const migration = await readFile(cloudWorkspaceMigrationUrl, "utf8");
+		for (const table of [
+			"relay_cloud_projects",
+			"relay_cloud_project_builds",
+			"relay_cloud_workspaces",
+			"relay_cloud_credential_connections",
+			"relay_cloud_workspace_usage",
+		])
+			expect(migration).toContain(`CREATE TABLE "${table}"`);
+		expect(migration).toContain("relay_cloud_workspaces_active_branch_idx");
+		expect(migration).toContain("'cloud-workspace'");
+		expect(migration).toContain("'cloud-workspace-standard-v1'");
+		expect(migration).toContain("\"desired_state\" = 'destroyed'");
 	});
 
 	test("migrates provider-native domains to resolved sandbox endpoints", async () => {

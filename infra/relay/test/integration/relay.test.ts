@@ -24,6 +24,9 @@ import * as Config from "../../src/config.ts";
 import type { RelayContext } from "../../src/handler.ts";
 import {
 	AccountIdentity,
+	CloudCredentialVault,
+	CloudCredentialVaultLive,
+	CloudWorkspaceStoreMemory,
 	type MachineControlConfig,
 	MachineControlConfiguration,
 	MachineStoreMemory,
@@ -93,10 +96,14 @@ let identityDeletes: string[];
 const placementAdapter = (providerId: string): SandboxProviderAdapter => ({
 	providerId,
 	displayName: "Fast compute",
+	templateVersion: "test-template",
 	create: () => Effect.die("unused"),
 	fork: () => Effect.die("unused"),
 	recoverByLabel: () => Effect.succeed(null),
 	startProcess: () => Effect.void,
+	pathExists: () => Effect.succeed(false),
+	readTextFile: () => Effect.succeed(""),
+	writeTextFile: () => Effect.void,
 	inspect: () => Effect.succeed(null),
 	resolveEndpoint: () => Effect.die("unused"),
 	pause: () => Effect.void,
@@ -160,6 +167,11 @@ const makeLayer = async (
 		WorkosVerifierTest,
 		RelayStoreMemory,
 		MachineStoreMemory,
+		CloudWorkspaceStoreMemory,
+		Layer.effect(CloudCredentialVault, CloudCredentialVaultLive).pipe(
+			Layer.provide(configLayer),
+			Layer.orDie,
+		),
 		MachineProvidersFake,
 		sandboxProvidersLayer,
 		Layer.succeed(SandboxOfferConfiguration, {
@@ -1841,5 +1853,78 @@ describe("@zuse/relay managed tunnel", () => {
 		};
 		expect(body.connectorToken).toBeUndefined();
 		expect(body.endpoint.wsBaseUrl).toBe("ws://127.0.0.1:8787/rpc"); // LAN fallback
+	});
+
+	test("connects cloud projects idempotently and queues provider-scoped builds", async () => {
+		relay = makeRelay(await makeLayer());
+		const connect = () =>
+			relay.fetch(
+				new Request(`${RELAY_ISSUER}${RelayPaths.cloudProjects}`, {
+					method: "POST",
+					headers: {
+						authorization: "Bearer test-token:user_a",
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						repositoryUrl: "https://github.com/acme/app",
+						defaultBranch: "main",
+						visibility: "public",
+						idempotencyKey: "connect-app",
+					}),
+				}),
+			);
+		const first = await connect();
+		expect(first.status).toBe(201);
+		const project = (await first.json()) as { projectId: string };
+		const duplicate = await connect();
+		expect((await duplicate.json()) as { projectId: string }).toMatchObject({
+			projectId: project.projectId,
+		});
+
+		const prepare = await relay.fetch(
+			new Request(
+				`${RELAY_ISSUER}${RelayPaths.cloudProjectPrepare(project.projectId)}`,
+				{
+					method: "POST",
+					headers: {
+						authorization: "Bearer test-token:user_a",
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						projectId: project.projectId,
+						providerId: "fake",
+						idempotencyKey: "prepare-app",
+					}),
+				},
+			),
+		);
+		expect(prepare.status).toBe(202);
+		expect(prepare.headers.get("x-zuse-reconcile-cloud-build")).toBeTruthy();
+		expect(await prepare.json()).toMatchObject({
+			projectId: project.projectId,
+			providerId: "fake",
+			state: "queued",
+		});
+	});
+
+	test("rejects repository URLs containing credentials", async () => {
+		relay = makeRelay(await makeLayer());
+		const response = await relay.fetch(
+			new Request(`${RELAY_ISSUER}${RelayPaths.cloudProjects}`, {
+				method: "POST",
+				headers: {
+					authorization: "Bearer test-token:user_a",
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
+					repositoryUrl: "https://token@github.com/acme/app.git",
+					defaultBranch: "main",
+					visibility: "private",
+					idempotencyKey: "unsafe",
+				}),
+			}),
+		);
+		expect(response.status).toBe(400);
+		expect((await response.json()).error).toBe("invalid_repository");
 	});
 });

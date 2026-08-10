@@ -1686,6 +1686,7 @@ export const WorktreeServiceLive = Layer.effect(
 			env: Readonly<Record<string, string>>,
 		): Record<string, string> => ({
 			...env,
+			ZUSE_RUNTIME_KIND: "local",
 			ZUSE_ROOT_PATH: repoPath,
 			ZUSE_WORKTREE_PATH: worktree.path,
 			ZUSE_WORKTREE_ID: worktree.id,

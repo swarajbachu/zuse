@@ -37,6 +37,8 @@ export interface RelayConfig {
 	readonly workosApiKey?: Redacted.Redacted<string>;
 	readonly mintPrivateKey: Redacted.Redacted<string>;
 	readonly mintPublicKey: string;
+	/** 32-byte base64url AES key for account-level cloud credential envelopes. */
+	readonly cloudCredentialVaultKey?: Redacted.Redacted<string>;
 	readonly challengeTtlMs: number;
 	readonly connectTokenTtlMs: number;
 	readonly accessTokenTtlMs: number;

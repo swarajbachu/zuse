@@ -46,6 +46,14 @@ RUN useradd --create-home --shell /bin/bash zuse \
     && chown -R zuse:zuse /home/zuse
 
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/zuse-entrypoint
+COPY --chmod=0755 project-builder.sh /usr/local/bin/zuse-project-builder
+COPY --chmod=0755 workspace-bootstrap.sh /usr/local/bin/zuse-workspace-bootstrap
+COPY --chmod=0755 git-askpass.sh /usr/local/bin/zuse-git-askpass
+COPY repository-script.ts /usr/local/lib/zuse/repository-script.ts
+COPY --chmod=0755 archive-workspace.sh /usr/local/bin/zuse-archive-workspace
+
+RUN mkdir -p /var/lib/zuse/project-build /var/lib/zuse/workspace \
+	&& chown -R zuse:zuse /var/lib/zuse
 
 USER zuse
 WORKDIR /home/zuse

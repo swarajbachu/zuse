@@ -4,6 +4,7 @@ export * from "./attachment.ts";
 export * from "./auth.ts";
 export * from "./autonomy.ts";
 export * from "./browser.ts";
+export * from "./cloud-workspaces.ts";
 export * from "./code-index.ts";
 export * from "./composer.ts";
 export * from "./connect.ts";

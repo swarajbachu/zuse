@@ -1,0 +1,1 @@
+ALTER TABLE "relay_cloud_workspaces" ADD COLUMN "running_since" bigint;

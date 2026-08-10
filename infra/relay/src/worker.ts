@@ -1,8 +1,8 @@
 import { PgClient } from "@effect/sql-pg";
 import {
+	CLOUD_WORKSPACE_OFFER_ID,
 	HOSTED_APP_URL,
 	PERSISTENT_STANDARD_OFFER_ID,
-	SANDBOX_STANDARD_OFFER_ID,
 } from "@zuse/contracts";
 import { Effect, Layer, Redacted } from "effect";
 import { Pool } from "pg";
@@ -10,6 +10,11 @@ import runtimeInstallerSource from "../../../apps/server/scripts/runtime-updater
 import cloudInitTemplate from "../../cloud-machines/bootstrap/cloud-init.yaml.tmpl";
 import { AccountIdentityLive } from "./account-identity.ts";
 import { resolveBillingRuntime } from "./billing-config.ts";
+import {
+	CloudCredentialVault,
+	CloudCredentialVaultLive,
+} from "./cloud-credential-vault.ts";
+import { CloudWorkspaceStorePg } from "./cloud-workspace-store.ts";
 import * as Config from "./config.ts";
 import { isConfigured } from "./environment.ts";
 import { hyperdrivePoolConfig } from "./hyperdrive.ts";
@@ -42,6 +47,7 @@ interface Env {
 	readonly WORKOS_API_KEY?: string;
 	readonly RELAY_MINT_PRIVATE_JWK: string;
 	readonly RELAY_MINT_PUBLIC_JWK: string;
+	readonly CLOUD_CREDENTIAL_VAULT_KEY?: string;
 	readonly MAX_ENVIRONMENTS_PER_ACCOUNT?: string;
 	readonly ALLOWED_BROWSER_ORIGINS?: string;
 	// Managed Cloudflare tunnel (optional — absent disables provisioning).
@@ -55,7 +61,9 @@ interface Env {
 	readonly MACHINE_LIVE_CHECKOUT_ENABLED?: string;
 	readonly POLAR_ACCESS_TOKEN?: string;
 	readonly POLAR_ENVIRONMENT?: string;
+	readonly POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1?: string;
 	readonly POLAR_PRODUCT_PERSISTENT_STANDARD_V1?: string;
+	/** @deprecated Use POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1. */
 	readonly POLAR_PRODUCT_SANDBOX_STANDARD_V1?: string;
 	readonly POLAR_VPS_SALES_APPROVED?: string;
 	readonly POLAR_WEBHOOK_SECRET?: string;
@@ -118,7 +126,10 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		(env.POLAR_ENVIRONMENT === "sandbox" || machineProvider.productionReady);
 	const sandboxOperational =
 		availableSandboxProviderIds.size > 0 &&
-		isConfigured(env.POLAR_PRODUCT_SANDBOX_STANDARD_V1);
+		isConfigured(
+			env.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1 ??
+				env.POLAR_PRODUCT_SANDBOX_STANDARD_V1,
+		);
 	const sandboxCheckoutReady =
 		billing.liveCheckoutEnabled && sandboxOperational;
 	const configuredLimit = Number(env.MAX_ENVIRONMENTS_PER_ACCOUNT ?? "5");
@@ -131,6 +142,9 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 			: undefined,
 		mintPrivateKey: Redacted.make(env.RELAY_MINT_PRIVATE_JWK),
 		mintPublicKey: env.RELAY_MINT_PUBLIC_JWK,
+		cloudCredentialVaultKey: isConfigured(env.CLOUD_CREDENTIAL_VAULT_KEY)
+			? Redacted.make(env.CLOUD_CREDENTIAL_VAULT_KEY)
+			: undefined,
 		maxEnvironmentsPerAccount:
 			Number.isInteger(configuredLimit) && configuredLimit > 0
 				? configuredLimit
@@ -160,13 +174,10 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		),
 		manualEntitlementsEnabled: env.MACHINE_MANUAL_ENTITLEMENTS === "true",
 		liveCheckoutEnabled: persistentCheckoutReady || sandboxCheckoutReady,
-		availableOfferIds: new Set([
-			PERSISTENT_STANDARD_OFFER_ID,
-			...(sandboxOperational ? [SANDBOX_STANDARD_OFFER_ID] : []),
-		]),
+		availableOfferIds: new Set([PERSISTENT_STANDARD_OFFER_ID]),
 		liveCheckoutOfferIds: new Set([
 			...(persistentCheckoutReady ? [PERSISTENT_STANDARD_OFFER_ID] : []),
-			...(sandboxCheckoutReady ? [SANDBOX_STANDARD_OFFER_ID] : []),
+			...(sandboxCheckoutReady ? [CLOUD_WORKSPACE_OFFER_ID] : []),
 		]),
 		availableSandboxProviderIds,
 		enrollmentTtlMs: 30 * 60 * 1_000,
@@ -180,6 +191,10 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		AccountIdentityLive.pipe(Layer.provide(configLayer)),
 		RelayStorePg.pipe(Layer.provide(dbLayer)),
 		MachineStorePg.pipe(Layer.provide(dbLayer)),
+		CloudWorkspaceStorePg.pipe(Layer.provide(dbLayer)),
+		Layer.effect(CloudCredentialVault, CloudCredentialVaultLive).pipe(
+			Layer.provide(configLayer),
+		),
 		machineProvider.layer,
 		sandboxProvider.layer,
 		Layer.succeed(SandboxOfferConfiguration, sandboxProvider.offer),
@@ -208,15 +223,33 @@ export default {
 			throw error;
 		}
 		const machineId = response.headers.get("x-zuse-reconcile-machine");
+		const cloudBuildId = response.headers.get("x-zuse-reconcile-cloud-build");
+		const cloudWorkspaceId = response.headers.get(
+			"x-zuse-reconcile-cloud-workspace",
+		);
 		response.headers.delete("x-zuse-reconcile-machine");
-		if (machineId === null) {
+		response.headers.delete("x-zuse-reconcile-cloud-build");
+		response.headers.delete("x-zuse-reconcile-cloud-workspace");
+		if (
+			machineId === null &&
+			cloudBuildId === null &&
+			cloudWorkspaceId === null
+		) {
 			await relay.dispose();
 			return response;
 		}
 		context.waitUntil(
-			relay
-				.reconcileMachine(machineId, `webhook-${crypto.randomUUID()}`)
-				.finally(() => relay.dispose()),
+			Promise.all([
+				machineId === null
+					? Promise.resolve()
+					: relay.reconcileMachine(machineId, `webhook-${crypto.randomUUID()}`),
+				cloudBuildId === null
+					? Promise.resolve()
+					: relay.reconcileCloudBuild(cloudBuildId),
+				cloudWorkspaceId === null
+					? Promise.resolve()
+					: relay.reconcileCloudWorkspace(cloudWorkspaceId),
+			]).finally(() => relay.dispose()),
 		);
 		return response;
 	},
@@ -227,9 +260,10 @@ export default {
 	): Promise<void> {
 		const relay = build(env);
 		context.waitUntil(
-			relay
-				.reconcile(`cron-${controller.scheduledTime}`)
-				.finally(() => relay.dispose()),
+			Promise.all([
+				relay.reconcile(`cron-${controller.scheduledTime}`),
+				relay.reconcileCloud(),
+			]).finally(() => relay.dispose()),
 		);
 	},
 };

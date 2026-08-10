@@ -859,6 +859,7 @@ describe("RepositorySettingsFile round-trip", () => {
 			environmentVariables: {
 				NODE_ENV: "development",
 			},
+			cloudEnvironmentVariables: {},
 			fileIncludeGlobs: ".env\n.env.local\n",
 			mcpDisabledServers: ["codex:pencil"],
 		});

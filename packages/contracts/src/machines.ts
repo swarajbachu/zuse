@@ -167,6 +167,19 @@ export class MachineEnrollRequest extends Schema.Class<MachineEnrollRequest>(
 	label: Schema.optional(Schema.String),
 }) {}
 
+export class CloudRuntimeCredential extends Schema.Class<CloudRuntimeCredential>(
+	"CloudRuntimeCredential",
+)({
+	kind: Schema.Literals(["github", "claude", "codex"]),
+	credentialType: Schema.Literals([
+		"api-key",
+		"oauth-token",
+		"repository-token",
+	]),
+	secret: Schema.String,
+	version: Schema.Number,
+}) {}
+
 export class MachineEnrollResponse extends Schema.Class<MachineEnrollResponse>(
 	"MachineEnrollResponse",
 )({
@@ -177,6 +190,7 @@ export class MachineEnrollResponse extends Schema.Class<MachineEnrollResponse>(
 	mintPublicKey: Schema.String,
 	tunnelHostname: Schema.optional(Schema.String),
 	connectorToken: Schema.optional(Schema.String),
+	cloudCredentials: Schema.optional(Schema.Array(CloudRuntimeCredential)),
 }) {}
 
 export class MachineBootStatusRequest extends Schema.Class<MachineBootStatusRequest>(
@@ -190,6 +204,7 @@ export class MachineBootStatusRequest extends Schema.Class<MachineBootStatusRequ
 
 export const EntitlementKind = Schema.Literals([
 	"persistent-machine",
+	"cloud-workspace",
 	"usage-credits",
 ]);
 export type EntitlementKind = typeof EntitlementKind.Type;

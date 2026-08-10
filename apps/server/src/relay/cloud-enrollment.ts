@@ -1,4 +1,6 @@
-import { unlink } from "node:fs/promises";
+import { chmod, mkdir, unlink, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 import {
 	DEFAULT_LOCAL_DESKTOP_PORT,
@@ -9,11 +11,13 @@ import {
 import { Clock, Effect, Layer, Redacted, Schema } from "effect";
 
 import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
+import { CredentialsService } from "../provider/services/credentials-service.ts";
 import { signEnvironmentLinkProof } from "./link-proof.ts";
 import { ManagedTunnelRuntime } from "./managed-tunnel-runtime.ts";
 
 export interface CloudEnrollmentConfig {
 	readonly machineId: string;
+	readonly resourceKind?: "machine" | "workspace";
 	readonly relayUrl: string;
 	readonly relayIssuer: string;
 	readonly token: Redacted.Redacted<string>;
@@ -90,6 +94,48 @@ const removeEnrollmentToken = (
 				},
 			});
 
+const installCloudCredentials = Effect.fn("installCloudCredentials")(function* (
+	credentials: MachineEnrollResponse["cloudCredentials"],
+) {
+	if (credentials === undefined) return;
+	const credentialStore = yield* CredentialsService;
+	for (const credential of credentials) {
+		if (credential.kind === "github") {
+			const accountHome =
+				process.env.ZUSE_ACCOUNT_ACCESS_HOME?.trim() || homedir();
+			const hostsFile = join(accountHome, ".config", "gh", "hosts.yml");
+			const gitConfigFile = join(accountHome, ".gitconfig");
+			yield* Effect.tryPromise({
+				try: async () => {
+					await mkdir(dirname(hostsFile), { recursive: true, mode: 0o700 });
+					await chmod(dirname(hostsFile), 0o700);
+					await writeFile(
+						hostsFile,
+						`github.com:\n    oauth_token: ${JSON.stringify(credential.secret)}\n    git_protocol: https\n`,
+						{ encoding: "utf8", mode: 0o600 },
+					);
+					await writeFile(
+						gitConfigFile,
+						'[credential "https://github.com"]\n\thelper = !gh auth git-credential\n',
+						{ encoding: "utf8", mode: 0o600 },
+					);
+				},
+				catch: () => fail("credential_install_failed"),
+			});
+			continue;
+		}
+		yield* credentialStore
+			.setProviderCredential(credential.kind, {
+				kind:
+					credential.credentialType === "oauth-token"
+						? "oauth-token"
+						: "api-key",
+				secret: credential.secret,
+			})
+			.pipe(Effect.mapError(() => fail("credential_install_failed")));
+	}
+});
+
 /**
  * One-shot cloud enrollment. The layer is initialized before the normal relay
  * link service, so that service immediately resumes the connector and
@@ -100,7 +146,7 @@ export const makeCloudEnrollmentLayer = (
 ): Layer.Layer<
 	never,
 	CloudEnrollmentError,
-	LanAuthService | ManagedTunnelRuntime
+	LanAuthService | ManagedTunnelRuntime | CredentialsService
 > =>
 	config === undefined
 		? Layer.empty
@@ -120,12 +166,14 @@ export const makeCloudEnrollmentLayer = (
 					const keys = yield* auth
 						.environmentKeys()
 						.pipe(Effect.mapError((error) => fail(error.reason)));
-					yield* post(
-						MachineRecord,
-						`${config.relayUrl}${RelayPaths.machineBootStatus(config.machineId)}`,
-						token,
-						{ phase: "service-started" },
-					);
+					if (config.resourceKind !== "workspace") {
+						yield* post(
+							MachineRecord,
+							`${config.relayUrl}${RelayPaths.machineBootStatus(config.machineId)}`,
+							token,
+							{ phase: "service-started" },
+						);
+					}
 					const nowMs = yield* Clock.currentTimeMillis;
 					const proof = yield* signEnvironmentLinkProof({
 						privateJwk: keys.privateJwk,
@@ -136,7 +184,7 @@ export const makeCloudEnrollmentLayer = (
 					});
 					const enrolled = yield* post(
 						MachineEnrollResponse,
-						`${config.relayUrl}${RelayPaths.machineEnroll}`,
+						`${config.relayUrl}${config.resourceKind === "workspace" ? RelayPaths.cloudWorkspaceEnroll : RelayPaths.machineEnroll}`,
 						token,
 						{
 							machineId: config.machineId,
@@ -172,6 +220,17 @@ export const makeCloudEnrollmentLayer = (
 							mintPublicKey: enrolled.mintPublicKey,
 						})
 						.pipe(Effect.mapError((error) => fail(error.reason)));
+					yield* installCloudCredentials(enrolled.cloudCredentials);
+					if (config.resourceKind === "workspace") {
+						yield* Effect.tryPromise({
+							try: async () => {
+								const marker = "/var/lib/zuse/workspace/credentials-ready";
+								await mkdir(dirname(marker), { recursive: true, mode: 0o700 });
+								await writeFile(marker, "ready\n", { mode: 0o600 });
+							},
+							catch: () => fail("workspace_ready_marker_failed"),
+						});
+					}
 					yield* removeEnrollmentToken(config.tokenFile);
 				}),
 			);
