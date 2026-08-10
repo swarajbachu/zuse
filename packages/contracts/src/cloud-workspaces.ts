@@ -66,6 +66,17 @@ export class CloudProviderList extends Schema.Class<CloudProviderList>(
 	automaticPlacementProviderId: Schema.optional(Schema.String),
 }) {}
 
+export class CloudProjectBuildStatus extends Schema.Class<CloudProjectBuildStatus>(
+	"CloudProjectBuildStatus",
+)({
+	buildId: Schema.String,
+	providerId: Schema.String,
+	state: CloudProjectBuildState,
+	errorCode: Schema.optional(Schema.String),
+	createdAt: Schema.Number,
+	updatedAt: Schema.Number,
+}) {}
+
 export class CloudProject extends Schema.Class<CloudProject>("CloudProject")({
 	projectId: Schema.String,
 	repositoryIdentity: Schema.String,
@@ -75,6 +86,7 @@ export class CloudProject extends Schema.Class<CloudProject>("CloudProject")({
 	visibility: Schema.Literals(["public", "private"]),
 	state: CloudProjectState,
 	activeBuilds: Schema.Record(Schema.String, Schema.String),
+	latestBuilds: Schema.Record(Schema.String, CloudProjectBuildStatus),
 	createdAt: Schema.Number,
 	updatedAt: Schema.Number,
 }) {}

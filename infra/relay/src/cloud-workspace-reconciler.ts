@@ -16,6 +16,7 @@ import { RelayStore } from "./store.ts";
 
 const RETRY_MS = 5_000;
 const RECONCILE_LEASE_MS = 2 * 60 * 1_000;
+const PROJECT_BUILD_TIMEOUT_MS = 15 * 60 * 1_000;
 const IDLE_PAUSE_MS = 60 * 60 * 1_000;
 const WARM_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 
@@ -88,7 +89,11 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 		}
 		yield* provider
 			.startProcess(sandbox.providerSandboxId, {
-				command: "/usr/local/bin/zuse-project-builder",
+				command: "/bin/bash",
+				args: [
+					"-lc",
+					'set +e; /usr/local/bin/zuse-project-builder >/dev/null 2>&1; code=$?; printf \'%s\\n\' "$code" >/tmp/zuse-project-builder-exit-code; touch /tmp/zuse-project-builder-exited; exit "$code"',
+				],
 				env: {
 					...project.cloudEnvironment,
 					ZUSE_REPOSITORY_URL: project.repositoryUrl,
@@ -111,14 +116,31 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 		return;
 	}
 	if (build.state === "building" && build.providerSandboxId !== undefined) {
+		const buildTimedOut = nowMs - build.createdAtMs >= PROJECT_BUILD_TIMEOUT_MS;
+		const builderExited = yield* provider
+			.pathExists(
+				build.providerSandboxId,
+				"/tmp/zuse-project-builder-exited",
+				"zuse",
+			)
+			.pipe(Effect.orDie);
+		const ready = yield* provider
+			.pathExists(
+				build.providerSandboxId,
+				"/var/lib/zuse/project-build/ready",
+				"zuse",
+			)
+			.pipe(Effect.orDie);
 		if (
-			yield* provider
+			buildTimedOut ||
+			(builderExited && !ready) ||
+			(yield* provider
 				.pathExists(
 					build.providerSandboxId,
 					"/var/lib/zuse/project-build/failed",
 					"zuse",
 				)
-				.pipe(Effect.orDie)
+				.pipe(Effect.orDie))
 		) {
 			yield* provider.kill(build.providerSandboxId).pipe(Effect.ignore);
 			const previous = yield* store.getActiveBuild(
@@ -129,7 +151,9 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 				...build,
 				providerSandboxId: undefined,
 				state: "failed",
-				lastErrorCode: "project-setup-failed",
+				lastErrorCode: buildTimedOut
+					? "project-setup-timeout"
+					: "project-setup-failed",
 				nextActionAtMs: Number.MAX_SAFE_INTEGER,
 				revision: build.revision + 1,
 				updatedAtMs: nowMs,
@@ -137,20 +161,14 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 			yield* store.saveProject({
 				...project,
 				state: previous === null ? "failed" : "ready",
-				lastErrorCode: "project-setup-failed",
+				lastErrorCode: buildTimedOut
+					? "project-setup-timeout"
+					: "project-setup-failed",
 				updatedAtMs: nowMs,
 			});
 			return;
 		}
-		if (
-			!(yield* provider
-				.pathExists(
-					build.providerSandboxId,
-					"/var/lib/zuse/project-build/ready",
-					"zuse",
-				)
-				.pipe(Effect.orDie))
-		) {
+		if (!ready) {
 			yield* store.saveBuild({
 				...build,
 				nextActionAtMs: nowMs + RETRY_MS,

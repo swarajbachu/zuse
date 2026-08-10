@@ -536,6 +536,11 @@ export function CloudWorkspacePool({
 					) : (
 						projects.map((project) => {
 							const buildId = project.activeBuilds[selectedProvider];
+							const latestBuild = project.latestBuilds[selectedProvider];
+							const buildInProgress =
+								latestBuild?.state === "queued" ||
+								latestBuild?.state === "building" ||
+								latestBuild?.state === "sanitizing";
 							const projectWorkspaces = workspaces.filter(
 								(workspace) => workspace.projectId === project.projectId,
 							);
@@ -549,8 +554,13 @@ export function CloudWorkspacePool({
 												{buildId === undefined ? (
 													<Button
 														size="xs"
-														loading={busy === `prepare:${project.projectId}`}
-														disabled={selectedProvider.length === 0}
+														loading={
+															busy === `prepare:${project.projectId}` ||
+															buildInProgress
+														}
+														disabled={
+															selectedProvider.length === 0 || buildInProgress
+														}
 														onClick={() =>
 															void run(
 																`prepare:${project.projectId}`,
@@ -568,7 +578,13 @@ export function CloudWorkspacePool({
 															)
 														}
 													>
-														Prepare
+														{buildInProgress
+															? latestBuild.state === "sanitizing"
+																? "Saving build"
+																: "Preparing"
+															: latestBuild?.state === "failed"
+																? "Retry prepare"
+																: "Prepare"}
 													</Button>
 												) : (
 													<Button
@@ -631,6 +647,13 @@ export function CloudWorkspacePool({
 												>
 													{project.state}
 												</Badge>
+												{latestBuild?.state === "failed" ? (
+													<span className="max-w-48 text-pretty text-xs text-destructive">
+														{latestBuild.errorCode === "project-setup-timeout"
+															? "Setup timed out. Retry with the latest template."
+															: "Setup failed. Retry preparation."}
+													</span>
+												) : null}
 											</div>
 										}
 									/>

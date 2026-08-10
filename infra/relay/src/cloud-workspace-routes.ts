@@ -120,22 +120,44 @@ const isSafeCloudEnvironment = (
 const publicProject = (
 	project: CloudProjectRecord,
 	builds: ReadonlyArray<CloudProjectBuildRecord>,
-) => ({
-	projectId: project.projectId,
-	repositoryIdentity: project.repositoryIdentity,
-	repositoryUrl: project.repositoryUrl,
-	displayName: project.displayName,
-	defaultBranch: project.defaultBranch,
-	visibility: project.visibility,
-	state: project.state,
-	activeBuilds: Object.fromEntries(
-		builds
-			.filter((build) => build.state === "ready")
-			.map((build) => [build.provider, build.buildId]),
-	),
-	createdAt: project.createdAtMs,
-	updatedAt: project.updatedAtMs,
-});
+) => {
+	const latestByProvider = new Map<string, CloudProjectBuildRecord>();
+	for (const build of builds) {
+		const current = latestByProvider.get(build.provider);
+		if (current === undefined || build.createdAtMs > current.createdAtMs) {
+			latestByProvider.set(build.provider, build);
+		}
+	}
+	return {
+		projectId: project.projectId,
+		repositoryIdentity: project.repositoryIdentity,
+		repositoryUrl: project.repositoryUrl,
+		displayName: project.displayName,
+		defaultBranch: project.defaultBranch,
+		visibility: project.visibility,
+		state: project.state,
+		activeBuilds: Object.fromEntries(
+			builds
+				.filter((build) => build.state === "ready")
+				.map((build) => [build.provider, build.buildId]),
+		),
+		latestBuilds: Object.fromEntries(
+			[...latestByProvider.values()].map((build) => [
+				build.provider,
+				{
+					buildId: build.buildId,
+					providerId: build.provider,
+					state: build.state,
+					errorCode: build.lastErrorCode,
+					createdAt: build.createdAtMs,
+					updatedAt: build.updatedAtMs,
+				},
+			]),
+		),
+		createdAt: project.createdAtMs,
+		updatedAt: project.updatedAtMs,
+	};
+};
 const publicBuild = (build: CloudProjectBuildRecord) => ({
 	buildId: build.buildId,
 	projectId: build.projectId,
