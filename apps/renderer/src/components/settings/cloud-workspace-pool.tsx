@@ -72,6 +72,7 @@ export function CloudWorkspacePool({
 	const [workspaceFirstMessage, setWorkspaceFirstMessage] = useState("");
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [projectError, setProjectError] = useState<string | null>(null);
 	const access = cloudWorkspaceAccessPresentation({
 		entitlementSubscribed,
 		legacySandboxSubscribed,
@@ -175,7 +176,11 @@ export function CloudWorkspacePool({
 		return () => window.clearInterval(timer);
 	}, [load]);
 
-	const run = async (name: string, operation: () => Promise<unknown>) => {
+	const run = async (
+		name: string,
+		operation: () => Promise<unknown>,
+		onError?: (message: string) => void,
+	) => {
 		if (busy !== null) return;
 		setBusy(name);
 		setError(null);
@@ -183,16 +188,21 @@ export function CloudWorkspacePool({
 			await operation();
 			await load();
 		} catch (cause) {
-			setError(
+			const message =
 				cause instanceof CloudWorkspaceOpError &&
-					cause.code === "entitlement-required"
+				cause.code === "entitlement-required"
 					? "A Cloud Workspace subscription is required."
-					: name.startsWith("credential:") &&
+					: name === "connect" &&
 							cause instanceof CloudWorkspaceOpError &&
 							cause.code === "invalid-request"
-						? "No signed-in local account could be imported. Sign in on this Mac and try again."
-						: "That cloud action could not be completed. Try again.",
-			);
+						? "Enter a repository like github.com/owner/repository and a valid default branch."
+						: name.startsWith("credential:") &&
+								cause instanceof CloudWorkspaceOpError &&
+								cause.code === "invalid-request"
+							? "No signed-in local account could be imported. Sign in on this Mac and try again."
+							: "That cloud action could not be completed. Try again.";
+			if (onError === undefined) setError(message);
+			else onError(message);
 		} finally {
 			setBusy(null);
 		}
@@ -207,19 +217,29 @@ export function CloudWorkspacePool({
 			await openExternal(result.checkoutUrl);
 		});
 
-	const connectProject = () =>
-		run("connect", async () => {
-			const client = await getControlPlaneRpcClient();
-			await Effect.runPromise(
-				client["cloud.projects.connect"]({
-					repositoryUrl: repositoryUrl.trim(),
-					defaultBranch: defaultBranch.trim(),
-					visibility: repositoryVisibility,
-					idempotencyKey: crypto.randomUUID(),
-				}),
-			);
-			setRepositoryUrl("");
-		});
+	const connectProject = () => {
+		setProjectError(null);
+		return run(
+			"connect",
+			async () => {
+				const client = await getControlPlaneRpcClient();
+				const project = await Effect.runPromise(
+					client["cloud.projects.connect"]({
+						repositoryUrl: repositoryUrl.trim(),
+						defaultBranch: defaultBranch.trim(),
+						visibility: repositoryVisibility,
+						idempotencyKey: crypto.randomUUID(),
+					}),
+				);
+				setProjects((current) => [
+					...current.filter((item) => item.projectId !== project.projectId),
+					project,
+				]);
+				setRepositoryUrl("");
+			},
+			setProjectError,
+		);
+	};
 
 	const connectCredential = (kind: "github" | "claude" | "codex") =>
 		run(`credential:${kind}`, async () => {
@@ -367,7 +387,7 @@ export function CloudWorkspacePool({
 			{subscribed && serviceAvailable ? (
 				<CloudSettingsGroup
 					title="Connected projects"
-					description="Each provider gets its own sanitized prepared build. Existing workspaces stay pinned to the build they started from."
+					description="Connect a repository, prepare its cloud build, then provision an isolated workspace. Opening the first agent session is not wired yet."
 				>
 					<form
 						className="grid gap-2 p-3 sm:grid-cols-[minmax(0,1fr)_9rem_8rem_auto]"
@@ -427,6 +447,11 @@ export function CloudWorkspacePool({
 							Connect
 						</Button>
 					</form>
+					{projectError === null ? null : (
+						<p role="alert" className="px-3 pb-3 text-xs text-destructive">
+							{projectError}
+						</p>
+					)}
 					{projects.length === 0 ? (
 						<CloudSettingsRow
 							title="No repositories connected"

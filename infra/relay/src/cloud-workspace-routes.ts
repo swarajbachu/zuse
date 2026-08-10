@@ -67,7 +67,7 @@ const decodeBody = <A, I>(
 		Effect.mapError(() => badRequest("invalid_request")),
 	);
 
-const normalizeRepository = (
+export const normalizeRepository = (
 	raw: string,
 ): {
 	readonly identity: string;
@@ -75,7 +75,12 @@ const normalizeRepository = (
 	readonly name: string;
 } | null => {
 	try {
-		const url = new URL(raw);
+		const trimmed = raw.trim();
+		const url = new URL(
+			/^[A-Za-z][A-Za-z0-9+.-]*:\/\//u.test(trimmed)
+				? trimmed
+				: `https://${trimmed}`,
+		);
 		if (
 			url.protocol !== "https:" ||
 			url.username.length > 0 ||
