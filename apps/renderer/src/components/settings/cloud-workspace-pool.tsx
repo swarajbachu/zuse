@@ -106,32 +106,57 @@ export function CloudWorkspacePool({
 			}
 
 			const [
-				providerList,
-				projectList,
-				workspaceList,
-				credentialList,
-				localAccountList,
-			] = await Promise.all([
+				providerResult,
+				projectResult,
+				workspaceResult,
+				credentialResult,
+				localAccountResult,
+			] = await Promise.allSettled([
 				Effect.runPromise(client["cloud.providers"]()),
 				Effect.runPromise(client["cloud.projects.list"]()),
 				Effect.runPromise(client["cloud.workspaces.list"]({})),
 				Effect.runPromise(client["cloud.credentials.list"]()),
 				Effect.runPromise(client["accountAccess.detectLocal"]()),
 			]);
-			setServiceAvailable(true);
-			setProviders(providerList.providers);
-			setSelectedProvider(
-				(current) =>
-					current ||
-					providerList.automaticPlacementProviderId ||
-					providerList.providers[0]?.providerId ||
-					"",
+			const relayResults = [
+				providerResult,
+				projectResult,
+				workspaceResult,
+				credentialResult,
+			] as const;
+			const relayAvailable = relayResults.some(
+				(result) => result.status === "fulfilled",
 			);
-			setProjects(projectList.projects);
-			setWorkspaces(workspaceList.workspaces);
-			setCredentials(credentialList.credentials);
-			setLocalAccounts(localAccountList.accounts);
-			setError(null);
+			setServiceAvailable(relayAvailable);
+			if (providerResult.status === "fulfilled") {
+				setProviders(providerResult.value.providers);
+				setSelectedProvider(
+					(current) =>
+						current ||
+						providerResult.value.automaticPlacementProviderId ||
+						providerResult.value.providers[0]?.providerId ||
+						"",
+				);
+			}
+			if (projectResult.status === "fulfilled")
+				setProjects(projectResult.value.projects);
+			if (workspaceResult.status === "fulfilled")
+				setWorkspaces(workspaceResult.value.workspaces);
+			if (credentialResult.status === "fulfilled")
+				setCredentials(credentialResult.value.credentials);
+			if (localAccountResult.status === "fulfilled")
+				setLocalAccounts(localAccountResult.value.accounts);
+			setError(
+				relayResults.every((result) => result.status === "fulfilled")
+					? null
+					: relayAvailable
+						? "Some cloud workspace data could not be refreshed. Connected accounts remain available."
+						: cloudWorkspaceAccessPresentation({
+								entitlementSubscribed: loadedSubscribed,
+								legacySandboxSubscribed: false,
+								serviceAvailable: false,
+							}).serviceError,
+			);
 		} catch {
 			setServiceAvailable(false);
 			setError(
