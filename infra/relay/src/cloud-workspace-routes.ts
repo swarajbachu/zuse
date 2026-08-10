@@ -11,6 +11,7 @@ import { SandboxProviders } from "@zuse/sandbox-providers";
 import { Clock, Effect, Schema } from "effect";
 import { requireWorkos } from "./auth.ts";
 import { CloudCredentialVault } from "./cloud-credential-vault.ts";
+import { hasUsableCloudWorkspaceEntitlement } from "./cloud-entitlement.ts";
 import {
 	type CloudProjectBuildRecord,
 	type CloudProjectRecord,
@@ -228,12 +229,7 @@ const hasEntitlement = Effect.fn("hasCloudWorkspaceEntitlement")(function* (
 		});
 		entitlements = yield* machineStore.listEntitlements(accountId);
 	}
-	return entitlements.some(
-		(item) =>
-			item.kind === "cloud-workspace" &&
-			(item.status === "active" || item.status === "grace") &&
-			(item.paidThroughMs === undefined || item.paidThroughMs > nowMs),
-	);
+	return hasUsableCloudWorkspaceEntitlement(entitlements, nowMs);
 });
 
 export const routeCloudWorkspaceRequest = (

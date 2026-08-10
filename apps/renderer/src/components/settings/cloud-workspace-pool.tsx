@@ -91,7 +91,11 @@ export function CloudWorkspacePool({
 					entitlements.entitlements.some(
 						(item) =>
 							item.kind === "cloud-workspace" &&
-							(item.status === "active" || item.status === "grace"),
+							(item.status === "active" ||
+								item.status === "grace" ||
+								(item.status === "ended" &&
+									item.paidThrough !== undefined &&
+									item.paidThrough > Date.now())),
 					);
 				setEntitlementSubscribed(loadedSubscribed);
 			} catch {
