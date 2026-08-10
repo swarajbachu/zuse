@@ -5,14 +5,23 @@ import {
 	type CloudProviderOption,
 	type CloudWorkspace,
 	CloudWorkspaceOpError,
+	ComposerInput,
+	defaultModelFor,
 	type LocalAccountDescriptor,
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { ExternalLink, Plus } from "lucide-react";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { cloudWorkspaceAccessPresentation } from "../../lib/cloud-workspace-access.ts";
+import { formatError } from "../../lib/format-error.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
-import { getControlPlaneRpcClient } from "../../lib/rpc-client.ts";
+import {
+	getControlPlaneRpcClient,
+	getRpcClient,
+} from "../../lib/rpc-client.ts";
+import { switchToEnvironment } from "../../lib/switch-environment.ts";
+import { useChatsStore } from "../../store/chats.ts";
+import { useEnvironmentCatalogStore } from "../../store/environment-catalog.ts";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
@@ -200,7 +209,9 @@ export function CloudWorkspacePool({
 								cause instanceof CloudWorkspaceOpError &&
 								cause.code === "invalid-request"
 							? "No signed-in local account could be imported. Sign in on this Mac and try again."
-							: "That cloud action could not be completed. Try again.";
+							: name.startsWith("agent:")
+								? formatError(cause)
+								: "That cloud action could not be completed. Try again.";
 			if (onError === undefined) setError(message);
 			else onError(message);
 		} finally {
@@ -263,6 +274,70 @@ export function CloudWorkspacePool({
 				...current.filter((item) => item.kind !== kind),
 				disconnected,
 			]);
+		});
+
+	const openCloudAgent = (workspace: CloudWorkspace) =>
+		run(`agent:${workspace.workspaceId}`, async () => {
+			if (workspace.environmentId === undefined)
+				throw new Error("The cloud workspace has not finished connecting yet.");
+			if (workspaceAgent === "")
+				throw new Error("Choose Claude or Codex before opening the agent.");
+
+			const catalog = useEnvironmentCatalogStore.getState();
+			await catalog.syncAccountEnvironments();
+			const entry = useEnvironmentCatalogStore
+				.getState()
+				.entries.find(
+					(candidate) => candidate.environmentId === workspace.environmentId,
+				);
+			if (entry?.status !== "connected")
+				throw new Error(
+					"The workspace runtime is ready but its desktop connection is still starting. Try again in a few seconds.",
+				);
+
+			const client = await getRpcClient(workspace.environmentId);
+			const folders = await Effect.runPromise(client["workspace.list"]({}));
+			const folder =
+				folders.find(
+					(candidate) => candidate.path === "/home/zuse/workspace",
+				) ??
+				(await Effect.runPromise(
+					client["workspace.add"]({ path: "/home/zuse/workspace" }),
+				));
+			const prompt = workspaceFirstMessage.trim();
+			const created = await useChatsStore
+				.getState()
+				.create(
+					folder.id,
+					workspaceAgent,
+					workspaceModel.trim() || defaultModelFor(workspaceAgent),
+					{
+						environmentId: workspace.environmentId,
+						startupInput:
+							prompt.length === 0
+								? undefined
+								: ComposerInput.make({
+										text: prompt,
+										attachments: [],
+										fileRefs: [],
+										skillRefs: [],
+									}),
+					},
+				);
+			if (created === null)
+				throw new Error(
+					useChatsStore.getState().error ?? "The cloud agent could not start.",
+				);
+			const switched = await switchToEnvironment({
+				environmentId: workspace.environmentId,
+				folderId: folder.id,
+				chatId: created.chatId,
+				seed: created.remoteSeed,
+			});
+			if (!switched.switched)
+				throw new Error(
+					"The agent started, but the workspace disconnected before it could open. Try opening it again.",
+				);
 		});
 
 	return (
@@ -387,7 +462,7 @@ export function CloudWorkspacePool({
 			{subscribed && serviceAvailable ? (
 				<CloudSettingsGroup
 					title="Connected projects"
-					description="Connect a repository, prepare its cloud build, then provision an isolated workspace. Opening the first agent session is not wired yet."
+					description="Connect a repository, prepare its cloud build, provision an isolated workspace, then open the selected agent inside it."
 				>
 					<form
 						className="grid gap-2 p-3 sm:grid-cols-[minmax(0,1fr)_9rem_8rem_auto]"
@@ -505,7 +580,7 @@ export function CloudWorkspacePool({
 																async () => {
 																	const client =
 																		await getControlPlaneRpcClient();
-																	await Effect.runPromise(
+																	const created = await Effect.runPromise(
 																		client["cloud.workspaces.create"]({
 																			projectId: project.projectId,
 																			providerId: selectedProvider,
@@ -530,6 +605,14 @@ export function CloudWorkspacePool({
 																			idempotencyKey: crypto.randomUUID(),
 																		}),
 																	);
+																	setWorkspaces((current) => [
+																		...current.filter(
+																			(item) =>
+																				item.workspaceId !==
+																				created.workspaceId,
+																		),
+																		created,
+																	]);
 																},
 															)
 														}
@@ -562,26 +645,38 @@ export function CloudWorkspacePool({
 														{workspace.state}
 													</Badge>
 													{workspace.state === "ready" ? (
-														<Button
-															size="xs"
-															variant="ghost"
-															onClick={() =>
-																void run(
-																	`pause:${workspace.workspaceId}`,
-																	async () => {
-																		const client =
-																			await getControlPlaneRpcClient();
-																		await Effect.runPromise(
-																			client["cloud.workspaces.pause"]({
-																				workspaceId: workspace.workspaceId,
-																			}),
-																		);
-																	},
-																)
-															}
-														>
-															Pause
-														</Button>
+														<>
+															<Button
+																size="xs"
+																loading={
+																	busy === `agent:${workspace.workspaceId}`
+																}
+																disabled={workspaceAgent === ""}
+																onClick={() => void openCloudAgent(workspace)}
+															>
+																Open agent
+															</Button>
+															<Button
+																size="xs"
+																variant="ghost"
+																onClick={() =>
+																	void run(
+																		`pause:${workspace.workspaceId}`,
+																		async () => {
+																			const client =
+																				await getControlPlaneRpcClient();
+																			await Effect.runPromise(
+																				client["cloud.workspaces.pause"]({
+																					workspaceId: workspace.workspaceId,
+																				}),
+																			);
+																		},
+																	)
+																}
+															>
+																Pause
+															</Button>
+														</>
 													) : workspace.state === "paused" ? (
 														<Button
 															size="xs"
