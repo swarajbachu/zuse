@@ -9,6 +9,7 @@ import {
 import { Effect } from "effect";
 import { ExternalLink, Plus } from "lucide-react";
 import { Fragment, useCallback, useEffect, useState } from "react";
+import { cloudWorkspaceAccessPresentation } from "../../lib/cloud-workspace-access.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
 import { getControlPlaneRpcClient } from "../../lib/rpc-client.ts";
 import { Badge } from "../ui/badge.tsx";
@@ -34,8 +35,13 @@ const stateVariant = (
 				? "outline"
 				: "warning";
 
-export function CloudWorkspacePool() {
-	const [subscribed, setSubscribed] = useState(false);
+export function CloudWorkspacePool({
+	legacySandboxSubscribed = false,
+}: {
+	readonly legacySandboxSubscribed?: boolean;
+}) {
+	const [entitlementSubscribed, setEntitlementSubscribed] = useState(false);
+	const [serviceAvailable, setServiceAvailable] = useState(true);
 	const [providers, setProviders] = useState<
 		ReadonlyArray<CloudProviderOption>
 	>([]);
@@ -65,30 +71,43 @@ export function CloudWorkspacePool() {
 	const [workspaceFirstMessage, setWorkspaceFirstMessage] = useState("");
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const access = cloudWorkspaceAccessPresentation({
+		entitlementSubscribed,
+		legacySandboxSubscribed,
+		serviceAvailable,
+	});
+	const subscribed = access.subscribed;
 
 	const load = useCallback(async () => {
+		let loadedSubscribed = legacySandboxSubscribed;
 		try {
 			const client = await getControlPlaneRpcClient();
-			const [
-				entitlements,
-				providerList,
-				projectList,
-				workspaceList,
-				credentialList,
-			] = await Promise.all([
-				Effect.runPromise(client["machines.entitlements"]()),
-				Effect.runPromise(client["cloud.providers"]()),
-				Effect.runPromise(client["cloud.projects.list"]()),
-				Effect.runPromise(client["cloud.workspaces.list"]({})),
-				Effect.runPromise(client["cloud.credentials.list"]()),
-			]);
-			setSubscribed(
-				entitlements.entitlements.some(
-					(item) =>
-						item.kind === "cloud-workspace" &&
-						(item.status === "active" || item.status === "grace"),
-				),
-			);
+			try {
+				const entitlements = await Effect.runPromise(
+					client["machines.entitlements"](),
+				);
+				loadedSubscribed =
+					loadedSubscribed ||
+					entitlements.entitlements.some(
+						(item) =>
+							item.kind === "cloud-workspace" &&
+							(item.status === "active" || item.status === "grace"),
+					);
+				setEntitlementSubscribed(loadedSubscribed);
+			} catch {
+				if (!loadedSubscribed) {
+					setError("Your Cloud Workspace subscription could not be verified.");
+				}
+			}
+
+			const [providerList, projectList, workspaceList, credentialList] =
+				await Promise.all([
+					Effect.runPromise(client["cloud.providers"]()),
+					Effect.runPromise(client["cloud.projects.list"]()),
+					Effect.runPromise(client["cloud.workspaces.list"]({})),
+					Effect.runPromise(client["cloud.credentials.list"]()),
+				]);
+			setServiceAvailable(true);
 			setProviders(providerList.providers);
 			setSelectedProvider(
 				(current) =>
@@ -102,9 +121,16 @@ export function CloudWorkspacePool() {
 			setCredentials(credentialList.credentials);
 			setError(null);
 		} catch {
-			setError("Cloud workspace access could not be loaded.");
+			setServiceAvailable(false);
+			setError(
+				cloudWorkspaceAccessPresentation({
+					entitlementSubscribed: loadedSubscribed,
+					legacySandboxSubscribed: false,
+					serviceAvailable: false,
+				}).serviceError,
+			);
 		}
-	}, []);
+	}, [legacySandboxSubscribed]);
 
 	useEffect(() => {
 		void load();
@@ -188,15 +214,27 @@ export function CloudWorkspacePool() {
 				description="Connect repositories once, then create an isolated sandbox and branch for each task."
 				action={
 					<Badge variant={subscribed ? "success" : "outline"}>
-						{subscribed ? "Active" : "$20 / month"}
+						{subscribed
+							? serviceAvailable
+								? "Active"
+								: "Update required"
+							: "$20 / month"}
 					</Badge>
 				}
 			>
 				{subscribed ? (
 					<CloudSettingsRow
 						title="Workspace entitlement"
-						description="Includes repository connections and metered cloud workspaces. Compute providers are selected when a workspace is created."
-						action={<Badge variant="success">Subscribed</Badge>}
+						description={
+							serviceAvailable
+								? "Includes repository connections and metered cloud workspaces. Compute providers are selected when a workspace is created."
+								: "Your paid access is intact. Update the relay before using the new workspace pool."
+						}
+						action={
+							<Badge variant={serviceAvailable ? "success" : "warning"}>
+								{serviceAvailable ? "Subscribed" : "Relay update required"}
+							</Badge>
+						}
 					/>
 				) : (
 					<CloudSettingsRow
@@ -216,7 +254,7 @@ export function CloudWorkspacePool() {
 				)}
 			</CloudSettingsGroup>
 
-			{subscribed ? (
+			{subscribed && serviceAvailable ? (
 				<CloudSettingsGroup
 					title="Cloud Access"
 					description="Account-level Git and agent credentials are supplied to authorized workspaces with a versioned credential epoch."
@@ -284,7 +322,7 @@ export function CloudWorkspacePool() {
 				</CloudSettingsGroup>
 			) : null}
 
-			{subscribed ? (
+			{subscribed && serviceAvailable ? (
 				<CloudSettingsGroup
 					title="Connected projects"
 					description="Each provider gets its own sanitized prepared build. Existing workspaces stay pinned to the build they started from."

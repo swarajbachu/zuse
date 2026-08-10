@@ -552,7 +552,7 @@ export function CloudMachinesPane() {
 	const [_sandboxProviders, setSandboxProviders] = useState<
 		ReadonlyArray<SandboxProviderOption>
 	>([]);
-	const [_sandboxMachine, setSandboxMachine] = useState<MachineRecord | null>(
+	const [sandboxMachine, setSandboxMachine] = useState<MachineRecord | null>(
 		null,
 	);
 	const [loading, setLoading] = useState(true);
@@ -989,7 +989,7 @@ export function CloudMachinesPane() {
 
 	return (
 		<section className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3 text-xs">
-			<CloudWorkspacePool />
+			<CloudWorkspacePool legacySandboxSubscribed={sandboxMachine !== null} />
 			{error === null ? null : (
 				<div
 					role="alert"
