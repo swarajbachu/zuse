@@ -1,5 +1,13 @@
 import { execFile, spawn } from "node:child_process";
-import { chmod, lstat, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	lstat,
+	mkdir,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -15,6 +23,7 @@ import type {
 import {
 	AccountAccessProviderStatus,
 	AccountAccessStatus,
+	LocalAccountCredential,
 	LocalAccountDescriptor,
 	LocalAccountDescriptorList,
 	RelayEnvironmentList,
@@ -25,6 +34,7 @@ import {
 	Context,
 	Effect,
 	Layer,
+	Option,
 	Queue,
 	Ref,
 	Schema,
@@ -283,6 +293,9 @@ export interface AccountAccessServiceShape {
 		LocalAccountDescriptorList,
 		AccountAccessServiceError
 	>;
+	readonly exportLocalCredential: (
+		providerId: AccountAccessProvider,
+	) => Effect.Effect<LocalAccountCredential, AccountAccessServiceError>;
 	readonly startLogin: (
 		providerId: "github" | "codex",
 	) => Stream.Stream<AccountAccessTransferEvent, AccountAccessServiceError>;
@@ -490,6 +503,93 @@ export const AccountAccessServiceLive = Layer.effect(
 				{ concurrency: 3 },
 			);
 			return new LocalAccountDescriptorList({ accounts });
+		});
+
+		const exportLocalCredential = Effect.fn(
+			"AccountAccess.exportLocalCredential",
+		)(function* (providerId: AccountAccessProvider) {
+			yield* requireRole("control-plane");
+			const accountHome =
+				process.env.ZUSE_ACCOUNT_ACCESS_HOME?.trim() || homedir();
+			if (providerId === "github") {
+				const result = yield* capture("gh", [
+					"auth",
+					"token",
+					"--hostname",
+					"github.com",
+				]);
+				const secret = result.stdout.trim();
+				if (result.code !== 0 || secret.length < 8)
+					return yield* Effect.fail(
+						new AccountAccessServiceError("credential-export-failed"),
+					);
+				return new LocalAccountCredential({
+					providerId,
+					credentialType: "repository-token",
+					secret,
+					accountLabel: "GitHub account",
+				});
+			}
+
+			if (providerId === "claude") {
+				const managed = yield* credentials
+					.getProviderCredential("claude")
+					.pipe(
+						Effect.mapError(
+							() => new AccountAccessServiceError("credential-export-failed"),
+						),
+					);
+				if (managed !== null) {
+					return new LocalAccountCredential({
+						providerId,
+						credentialType: managed.kind,
+						secret: managed.secret,
+						accountLabel: "Claude account",
+					});
+				}
+			}
+
+			const nativePath =
+				providerId === "claude"
+					? join(accountHome, ".claude", ".credentials.json")
+					: join(accountHome, ".codex", "auth.json");
+			let secret = yield* Effect.tryPromise({
+				try: () => readFile(nativePath, "utf8"),
+				catch: () => new AccountAccessServiceError("credential-export-failed"),
+			}).pipe(Effect.option);
+			if (secret._tag === "None" && providerId === "claude") {
+				const keychain = yield* capture("security", [
+					"find-generic-password",
+					"-s",
+					"Claude Code-credentials",
+					"-w",
+				]).pipe(Effect.option);
+				if (keychain._tag === "Some" && keychain.value.code === 0) {
+					secret = Option.some(keychain.value.stdout);
+				}
+			}
+			if (
+				secret._tag === "None" ||
+				secret.value.trim().length < 8 ||
+				secret.value.length > 32_768
+			)
+				return yield* Effect.fail(
+					new AccountAccessServiceError("credential-export-failed"),
+				);
+			try {
+				JSON.parse(secret.value);
+			} catch {
+				return yield* Effect.fail(
+					new AccountAccessServiceError("credential-export-failed"),
+				);
+			}
+			return new LocalAccountCredential({
+				providerId,
+				credentialType: "native-store",
+				secret: secret.value,
+				accountLabel:
+					providerId === "claude" ? "Claude account" : "OpenAI account",
+			});
 		});
 
 		const prepareImport = Effect.fn("AccountAccess.prepareImport")(
@@ -947,6 +1047,7 @@ export const AccountAccessServiceLive = Layer.effect(
 		return AccountAccessService.of({
 			status,
 			detectLocal,
+			exportLocalCredential,
 			startLogin,
 			prepareImport,
 			createClaudeTransfer,

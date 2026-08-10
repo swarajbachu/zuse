@@ -124,6 +124,30 @@ const installCloudCredentials = Effect.fn("installCloudCredentials")(function* (
 			});
 			continue;
 		}
+		if (credential.credentialType === "native-store") {
+			const accountHome =
+				process.env.ZUSE_ACCOUNT_ACCESS_HOME?.trim() || homedir();
+			const credentialFile =
+				credential.kind === "claude"
+					? join(accountHome, ".claude", ".credentials.json")
+					: join(accountHome, ".codex", "auth.json");
+			yield* Effect.tryPromise({
+				try: async () => {
+					JSON.parse(credential.secret);
+					await mkdir(dirname(credentialFile), {
+						recursive: true,
+						mode: 0o700,
+					});
+					await chmod(dirname(credentialFile), 0o700);
+					await writeFile(credentialFile, credential.secret, {
+						encoding: "utf8",
+						mode: 0o600,
+					});
+				},
+				catch: () => fail("credential_install_failed"),
+			});
+			continue;
+		}
 		yield* credentialStore
 			.setProviderCredential(credential.kind, {
 				kind:

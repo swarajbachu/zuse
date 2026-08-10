@@ -650,7 +650,9 @@ export const routeCloudWorkspaceRequest = (
 				body.secret.length < 8 ||
 				body.secret.length > 32_768 ||
 				(body.accountLabel?.length ?? 0) > 200 ||
-				(body.kind === "github" && body.credentialType !== "repository-token")
+				(body.kind === "github" &&
+					body.credentialType !== "repository-token") ||
+				(body.kind !== "github" && body.credentialType === "repository-token")
 			)
 				return yield* Effect.fail(badRequest("invalid_cloud_credential"));
 			const vault = yield* CloudCredentialVault;

@@ -2,7 +2,11 @@ import { Context, Effect, Redacted, Schema } from "effect";
 import { RelayConfiguration } from "./config.ts";
 
 export type CloudCredentialPayload = {
-	readonly credentialType: "api-key" | "oauth-token" | "repository-token";
+	readonly credentialType:
+		| "api-key"
+		| "oauth-token"
+		| "repository-token"
+		| "native-store";
 	readonly secret: string;
 };
 
@@ -71,6 +75,7 @@ const Payload = Schema.Struct({
 		"api-key",
 		"oauth-token",
 		"repository-token",
+		"native-store",
 	]),
 	secret: Schema.String,
 });

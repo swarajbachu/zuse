@@ -175,6 +175,7 @@ export class CloudRuntimeCredential extends Schema.Class<CloudRuntimeCredential>
 		"api-key",
 		"oauth-token",
 		"repository-token",
+		"native-store",
 	]),
 	secret: Schema.String,
 	version: Schema.Number,
@@ -616,6 +617,7 @@ export const AccountAccessErrorCode = Schema.Literals([
 	"transfer-rejected",
 	"credential-store-failed",
 	"cleanup-failed",
+	"credential-export-failed",
 ]);
 export type AccountAccessErrorCode = typeof AccountAccessErrorCode.Type;
 
@@ -635,6 +637,29 @@ export const AccountAccessDetectLocalRpc = Rpc.make(
 	{
 		payload: Schema.Void,
 		success: LocalAccountDescriptorList,
+		error: AccountAccessOpError,
+	},
+);
+
+export class LocalAccountCredential extends Schema.Class<LocalAccountCredential>(
+	"LocalAccountCredential",
+)({
+	providerId: AccountAccessProvider,
+	credentialType: Schema.Literals([
+		"api-key",
+		"oauth-token",
+		"repository-token",
+		"native-store",
+	]),
+	secret: Schema.String,
+	accountLabel: Schema.optional(Schema.String),
+}) {}
+
+export const AccountAccessExportLocalRpc = Rpc.make(
+	"accountAccess.exportLocal",
+	{
+		payload: Schema.Struct({ providerId: AccountAccessProvider }),
+		success: LocalAccountCredential,
 		error: AccountAccessOpError,
 	},
 );

@@ -171,6 +171,40 @@ const makeLayer = (
 };
 
 describe("AccountAccessService", () => {
+	it("exports an authenticated local GitHub account for one-click cloud import", async () => {
+		const userData = await mkdtemp(join(tmpdir(), "zuse-account-export-"));
+		temporaryDirectories.push(userData);
+		const credential = await Effect.runPromise(
+			Effect.gen(function* () {
+				const service = yield* AccountAccessService;
+				return yield* service.exportLocalCredential("github");
+			}).pipe(
+				Effect.provide(
+					makeLayer(
+						userData,
+						{
+							capture: (command, args) =>
+								command === "gh" && args[0] === "auth" && args[1] === "token"
+									? Effect.succeed({
+											stdout: "github-test-token\n",
+											stderr: "",
+											code: 0,
+										})
+									: Effect.succeed({ stdout: "", stderr: "", code: 1 }),
+						},
+						{ role: "control-plane" },
+					),
+				),
+			),
+		);
+
+		expect(credential).toMatchObject({
+			providerId: "github",
+			credentialType: "repository-token",
+			secret: "github-test-token",
+		});
+	});
+
 	it("returns wire-encodable account status and transfer values", async () => {
 		const userData = await mkdtemp(join(tmpdir(), "zuse-account-wire-"));
 		temporaryDirectories.push(userData);

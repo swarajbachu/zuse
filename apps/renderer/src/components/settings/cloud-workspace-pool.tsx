@@ -5,6 +5,7 @@ import {
 	type CloudProviderOption,
 	type CloudWorkspace,
 	CloudWorkspaceOpError,
+	type LocalAccountDescriptor,
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { ExternalLink, Plus } from "lucide-react";
@@ -52,14 +53,14 @@ export function CloudWorkspacePool({
 	const [credentials, setCredentials] = useState<
 		ReadonlyArray<CloudCredentialConnection>
 	>([]);
+	const [localAccounts, setLocalAccounts] = useState<
+		ReadonlyArray<LocalAccountDescriptor>
+	>([]);
 	const [repositoryUrl, setRepositoryUrl] = useState("");
 	const [defaultBranch, setDefaultBranch] = useState("main");
 	const [repositoryVisibility, setRepositoryVisibility] = useState<
 		"public" | "private"
 	>("public");
-	const [credentialSecrets, setCredentialSecrets] = useState<
-		Record<"github" | "claude" | "codex", string>
-	>({ github: "", claude: "", codex: "" });
 	const [selectedProvider, setSelectedProvider] = useState("");
 	const [workspaceBaseRef, setWorkspaceBaseRef] = useState("");
 	const [workspaceBranch, setWorkspaceBranch] = useState("");
@@ -104,13 +105,19 @@ export function CloudWorkspacePool({
 				}
 			}
 
-			const [providerList, projectList, workspaceList, credentialList] =
-				await Promise.all([
-					Effect.runPromise(client["cloud.providers"]()),
-					Effect.runPromise(client["cloud.projects.list"]()),
-					Effect.runPromise(client["cloud.workspaces.list"]({})),
-					Effect.runPromise(client["cloud.credentials.list"]()),
-				]);
+			const [
+				providerList,
+				projectList,
+				workspaceList,
+				credentialList,
+				localAccountList,
+			] = await Promise.all([
+				Effect.runPromise(client["cloud.providers"]()),
+				Effect.runPromise(client["cloud.projects.list"]()),
+				Effect.runPromise(client["cloud.workspaces.list"]({})),
+				Effect.runPromise(client["cloud.credentials.list"]()),
+				Effect.runPromise(client["accountAccess.detectLocal"]()),
+			]);
 			setServiceAvailable(true);
 			setProviders(providerList.providers);
 			setSelectedProvider(
@@ -123,6 +130,7 @@ export function CloudWorkspacePool({
 			setProjects(projectList.projects);
 			setWorkspaces(workspaceList.workspaces);
 			setCredentials(credentialList.credentials);
+			setLocalAccounts(localAccountList.accounts);
 			setError(null);
 		} catch {
 			setServiceAvailable(false);
@@ -187,14 +195,17 @@ export function CloudWorkspacePool({
 	const connectCredential = (kind: "github" | "claude" | "codex") =>
 		run(`credential:${kind}`, async () => {
 			const client = await getControlPlaneRpcClient();
+			const localCredential = await Effect.runPromise(
+				client["accountAccess.exportLocal"]({ providerId: kind }),
+			);
 			await Effect.runPromise(
 				client["cloud.credentials.connect"]({
 					kind,
-					credentialType: kind === "github" ? "repository-token" : "api-key",
-					secret: credentialSecrets[kind],
+					credentialType: localCredential.credentialType,
+					secret: localCredential.secret,
+					accountLabel: localCredential.accountLabel,
 				}),
 			);
-			setCredentialSecrets((current) => ({ ...current, [kind]: "" }));
 		});
 
 	const disconnectCredential = (kind: "github" | "claude" | "codex") =>
@@ -265,6 +276,9 @@ export function CloudWorkspacePool({
 				>
 					{(["github", "claude", "codex"] as const).map((kind) => {
 						const credential = credentials.find((item) => item.kind === kind);
+						const localAccount = localAccounts.find(
+							(item) => item.providerId === kind,
+						);
 						return (
 							<CloudSettingsRow
 								key={kind}
@@ -293,29 +307,21 @@ export function CloudWorkspacePool({
 											</Button>
 										</div>
 									) : (
-										<div className="flex min-h-11 w-72 items-center gap-2">
-											<Input
-												type="password"
-												value={credentialSecrets[kind]}
-												onChange={(event) =>
-													setCredentialSecrets((current) => ({
-														...current,
-														[kind]: event.target.value,
-													}))
-												}
-												placeholder={
-													kind === "github" ? "Repository token" : "API key"
-												}
-												autoComplete="off"
-												aria-label={`${kind} credential`}
-											/>
+										<div className="flex min-h-11 items-center gap-2">
+											<Badge
+												variant={localAccount?.detected ? "success" : "outline"}
+											>
+												{localAccount?.detected
+													? (localAccount.accountLabel ?? "Signed in")
+													: "Sign in on this Mac"}
+											</Badge>
 											<Button
 												size="xs"
 												loading={busy === `credential:${kind}`}
-												disabled={credentialSecrets[kind].length < 8}
+												disabled={!localAccount?.detected}
 												onClick={() => void connectCredential(kind)}
 											>
-												Connect
+												Import from this Mac
 											</Button>
 										</div>
 									)

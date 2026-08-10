@@ -35,6 +35,12 @@ const DetectLocal = MemoizeRpcs.toLayerHandler(
 	() => withService((service) => service.detectLocal()),
 );
 
+const ExportLocal = MemoizeRpcs.toLayerHandler(
+	"accountAccess.exportLocal",
+	({ providerId }) =>
+		withService((service) => service.exportLocalCredential(providerId)),
+);
+
 const StartLogin = MemoizeRpcs.toLayerHandler(
 	"accountAccess.startLogin",
 	({ providerId }) => withStream((service) => service.startLogin(providerId)),
@@ -68,6 +74,7 @@ const Disconnect = MemoizeRpcs.toLayerHandler(
 export const AccountAccessHandlersLayer = Layer.mergeAll(
 	Status,
 	DetectLocal,
+	ExportLocal,
 	StartLogin,
 	PrepareImport,
 	CreateClaudeTransfer,

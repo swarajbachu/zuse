@@ -186,6 +186,7 @@ export class CloudCredentialConnectRequest extends Schema.Class<CloudCredentialC
 		"api-key",
 		"oauth-token",
 		"repository-token",
+		"native-store",
 	]),
 	secret: Schema.String,
 	accountLabel: Schema.optional(Schema.String),
