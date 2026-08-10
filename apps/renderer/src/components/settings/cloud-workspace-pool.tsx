@@ -199,15 +199,25 @@ export function CloudWorkspacePool({
 	const connectCredential = (kind: "github" | "claude" | "codex") =>
 		run(`credential:${kind}`, async () => {
 			const client = await getControlPlaneRpcClient();
-			await Effect.runPromise(
+			const connected = await Effect.runPromise(
 				client["cloud.credentials.importLocal"]({ kind }),
 			);
+			setCredentials((current) => [
+				...current.filter((item) => item.kind !== kind),
+				connected,
+			]);
 		});
 
 	const disconnectCredential = (kind: "github" | "claude" | "codex") =>
 		run(`credential:${kind}`, async () => {
 			const client = await getControlPlaneRpcClient();
-			await Effect.runPromise(client["cloud.credentials.disconnect"]({ kind }));
+			const disconnected = await Effect.runPromise(
+				client["cloud.credentials.disconnect"]({ kind }),
+			);
+			setCredentials((current) => [
+				...current.filter((item) => item.kind !== kind),
+				disconnected,
+			]);
 		});
 
 	return (
@@ -286,8 +296,9 @@ export function CloudWorkspacePool({
 											: "Codex"
 								}
 								description={
-									credential?.accountLabel ??
-									"Connect once to use this account in new cloud workspaces."
+									credential?.state === "connected"
+										? `${credential.accountLabel ?? "This account"} is connected to cloud and ready for new workspaces.`
+										: "Connect once to use this account in new cloud workspaces."
 								}
 								action={
 									credential?.state === "connected" ? (
