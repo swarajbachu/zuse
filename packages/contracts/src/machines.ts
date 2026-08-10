@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
 import { EnvironmentEndpoint } from "./connect.ts";
@@ -9,12 +9,19 @@ import { EnvironmentId } from "./ids.ts";
 // ---------------------------------------------------------------------------
 
 export const PERSISTENT_STANDARD_OFFER_ID = "persistent-standard-v1" as const;
+export const SANDBOX_STANDARD_OFFER_ID = "sandbox-standard-v1" as const;
 
 export const MachineArchitecture = Schema.Literals(["x86_64"]);
 export type MachineArchitecture = typeof MachineArchitecture.Type;
 
+export const MachineOfferKind = Schema.Literals(["persistent", "sandbox"]);
+export type MachineOfferKind = typeof MachineOfferKind.Type;
+
 export class MachineOffer extends Schema.Class<MachineOffer>("MachineOffer")({
 	offerId: Schema.String,
+	kind: MachineOfferKind.pipe(
+		Schema.withDecodingDefaultKey(Effect.succeed("persistent" as const)),
+	),
 	displayName: Schema.String,
 	architecture: MachineArchitecture,
 	vcpuCount: Schema.Number,

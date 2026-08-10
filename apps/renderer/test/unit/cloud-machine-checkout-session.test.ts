@@ -67,7 +67,7 @@ describe("cloud machine checkout session", () => {
 			offerId: "offer-1",
 			url: "https://checkout.example/session",
 		});
-		clearCloudMachineCheckoutSession(storage);
+		clearCloudMachineCheckoutSession(storage, "offer-1");
 
 		expect(
 			readCloudMachineCheckoutSession(storage, {
@@ -76,5 +76,32 @@ describe("cloud machine checkout session", () => {
 				offerId: "offer-1",
 			}),
 		).toBeNull();
+	});
+
+	it("keeps checkout sessions independent per offer", () => {
+		const storage = makeStorage();
+		for (const offerId of ["persistent-standard-v1", "sandbox-standard-v1"]) {
+			writeCloudMachineCheckoutSession(storage, {
+				accountId: "account-1",
+				nowMs: 1_000,
+				offerId,
+				url: `https://checkout.example/${offerId}`,
+			});
+		}
+
+		expect(
+			readCloudMachineCheckoutSession(storage, {
+				accountId: "account-1",
+				nowMs: 2_000,
+				offerId: "persistent-standard-v1",
+			}),
+		).toBe("https://checkout.example/persistent-standard-v1");
+		expect(
+			readCloudMachineCheckoutSession(storage, {
+				accountId: "account-1",
+				nowMs: 2_000,
+				offerId: "sandbox-standard-v1",
+			}),
+		).toBe("https://checkout.example/sandbox-standard-v1");
 	});
 });

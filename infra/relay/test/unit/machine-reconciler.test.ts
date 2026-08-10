@@ -9,9 +9,14 @@ import {
 	FakeMachineProviderControlService,
 	MachineProvidersFake,
 } from "@zuse/machine-providers/testing";
-import { Effect, Layer, Ref } from "effect";
+import { SandboxProviders } from "@zuse/sandbox-providers";
+import {
+	FakeSandboxProviderControlService,
+	SandboxProvidersFake,
+} from "@zuse/sandbox-providers/testing";
+import { Effect, Layer, Redacted, Ref } from "effect";
 import { describe, expect, test } from "vitest";
-
+import * as Config from "../../src/config.ts";
 import {
 	AccountIdentity,
 	MachineControlConfiguration,
@@ -22,6 +27,7 @@ import {
 	ManagedTunnelProvider,
 	type ManagedTunnelProviderApi,
 } from "../../src/managed-tunnel.ts";
+import { SandboxOfferConfiguration } from "../../src/sandbox-provider-module.ts";
 import { RelayStoreMemory } from "../../src/store.ts";
 
 const noTunnel: ManagedTunnelProviderApi = {
@@ -32,8 +38,22 @@ const noTunnel: ManagedTunnelProviderApi = {
 
 const makeTestLayer = (billing?: BillingProviderAdapter) =>
 	Layer.mergeAll(
+		Config.layer({
+			relayIssuer: "https://relay.test",
+			workosJwksUrl: "https://unused.test/jwks",
+			workosIssuer: "https://unused.test",
+			mintPrivateKey: Redacted.make("{}"),
+			mintPublicKey: '{"kty":"OKP"}',
+		}),
 		MachineStoreMemory,
 		MachineProvidersFake,
+		SandboxProvidersFake,
+		Layer.succeed(SandboxOfferConfiguration, {
+			templateId: "test-template",
+			port: 47_837,
+			createTimeoutSeconds: 86_400,
+			keepAliveTimeoutSeconds: 86_400,
+		}),
 		billing === undefined
 			? BillingProvidersManual
 			: BillingProviders.layer({
@@ -77,6 +97,7 @@ const seedMachine = Effect.fn("seedMachine")(function* (nowMs: number) {
 	const outcome = yield* store.createMachine({
 		accountId: "user_a",
 		offerId: "persistent-standard-v1",
+		sameKindOfferIds: ["persistent-standard-v1"],
 		idempotencyKey: "create_1",
 		machineId: "machine_1",
 		provider: provider.providerId,
@@ -87,7 +108,145 @@ const seedMachine = Effect.fn("seedMachine")(function* (nowMs: number) {
 	return outcome.machine;
 });
 
+const seedSandbox = Effect.fn("seedSandbox")(function* (nowMs: number) {
+	const store = yield* MachineStore;
+	const provider = yield* (yield* SandboxProviders).getDefault;
+	yield* store.upsertEntitlement({
+		entitlementId: "ent_sandbox",
+		accountId: "user_a",
+		kind: "persistent-machine",
+		offerId: "sandbox-standard-v1",
+		provider: "manual",
+		status: "active",
+		paidThroughMs: nowMs + 30 * 24 * 60 * 60 * 1_000,
+		createdAtMs: nowMs,
+		updatedAtMs: nowMs,
+	});
+	const outcome = yield* store.createMachine({
+		accountId: "user_a",
+		offerId: "sandbox-standard-v1",
+		sameKindOfferIds: ["sandbox-standard-v1"],
+		idempotencyKey: "create_sandbox",
+		machineId: "machine_sandbox",
+		provider: provider.providerId,
+		providerLabel: "zuse-machine_sandbox",
+		nowMs,
+	});
+	if (outcome.kind !== "created") return yield* Effect.die(outcome.kind);
+	return outcome.machine;
+});
+
 describe("machine reconciler", () => {
+	test("creates, self-heals, pauses, and destroys a sandbox", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const seeded = yield* seedSandbox(Date.now() - 1_000);
+				const store = yield* MachineStore;
+				const control = yield* FakeSandboxProviderControlService;
+
+				yield* reconcileMachines({ owner: "create" });
+				const created = yield* store.getMachine(seeded.machineId);
+				if (created?.providerServerId === undefined) {
+					return yield* Effect.die("sandbox was not created");
+				}
+				const sandboxes = yield* Ref.get(control.sandboxes);
+				yield* Ref.set(
+					control.sandboxes,
+					new Map([
+						[
+							created.providerServerId,
+							{
+								...(sandboxes.get(created.providerServerId) as NonNullable<
+									ReturnType<typeof sandboxes.get>
+								>),
+								state: "paused" as const,
+							},
+						],
+					]),
+				);
+				yield* store.saveMachine({
+					...created,
+					state: "ready",
+					statusCode: "ready",
+					nextActionAtMs: 0,
+				});
+				yield* reconcileMachines({ owner: "self-heal" });
+				const healed = yield* store.getMachine(seeded.machineId);
+				if (healed === null) return yield* Effect.die("missing sandbox");
+
+				yield* store.saveMachine({
+					...healed,
+					desiredState: "suspended",
+					paidThroughMs: 0,
+					recoveryDeadlineMs: Date.now() + 60_000,
+					nextActionAtMs: 0,
+				});
+				yield* reconcileMachines({ owner: "pause" });
+				const paused = yield* store.getMachine(seeded.machineId);
+				if (paused === null) return yield* Effect.die("missing sandbox");
+
+				yield* store.saveMachine({
+					...paused,
+					state: "destroying",
+					desiredState: "destroyed",
+					nextActionAtMs: 0,
+				});
+				yield* reconcileMachines({ owner: "destroy" });
+				return {
+					created,
+					healed,
+					paused,
+					destroyed: yield* store.getMachine(seeded.machineId),
+					providerSandboxes: yield* Ref.get(control.sandboxes),
+					startProcessCalls: yield* Ref.get(control.startProcessCalls),
+					network: yield* Ref.get(control.networkBySandbox),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.created.providerEndpointDomain).toBe("sandbox.test");
+		expect(result.startProcessCalls).toEqual([result.created.providerServerId]);
+		expect(result.created.nextActionAtMs - result.created.updatedAtMs).toBe(
+			15_000,
+		);
+		expect(
+			result.network.get(result.created.providerServerId as string),
+		).toEqual({ kind: "open" });
+		expect(result.healed.state).toBe("ready");
+		expect(result.paused.state).toBe("suspended");
+		expect(result.destroyed?.state).toBe("destroyed");
+		expect(result.providerSandboxes.size).toBe(0);
+	});
+
+	test("recreates a resumed sandbox after provider retention expires", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const seeded = yield* seedSandbox(Date.now() - 1_000);
+				const store = yield* MachineStore;
+				const control = yield* FakeSandboxProviderControlService;
+				yield* reconcileMachines({ owner: "create-before-gc" });
+				const created = yield* store.getMachine(seeded.machineId);
+				if (created === null) return yield* Effect.die("missing sandbox");
+				yield* Ref.set(control.sandboxes, new Map());
+				yield* store.saveMachine({
+					...created,
+					state: "resuming",
+					desiredState: "ready",
+					nextActionAtMs: 0,
+				});
+				yield* reconcileMachines({ owner: "recover-after-gc" });
+				return yield* store.getMachine(seeded.machineId);
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result).toMatchObject({
+			state: "creating",
+			statusCode: "creation-queued",
+			providerServerId: undefined,
+			providerEndpointDomain: undefined,
+		});
+	});
+
 	test("keeps a machine retryable when its persisted provider is unavailable", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {

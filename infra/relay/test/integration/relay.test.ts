@@ -5,6 +5,7 @@ import {
 } from "@zuse/billing-providers";
 import { RelayPaths } from "@zuse/contracts";
 import { MachineProvidersFake } from "@zuse/machine-providers/testing";
+import { SandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, Redacted } from "effect";
 import {
 	exportJWK,
@@ -19,6 +20,7 @@ import * as Config from "../../src/config.ts";
 import type { RelayContext } from "../../src/handler.ts";
 import {
 	AccountIdentity,
+	type MachineControlConfig,
 	MachineControlConfiguration,
 	MachineStoreMemory,
 	ManagedTunnelProviderLive,
@@ -26,6 +28,7 @@ import {
 	PushDelivery,
 	RelayStoreMemory,
 } from "../../src/index.ts";
+import { SandboxOfferConfiguration } from "../../src/sandbox-provider-module.ts";
 import { WorkosVerifierTest } from "../../src/workos.ts";
 
 const RELAY_ISSUER = "https://relay.test";
@@ -89,6 +92,7 @@ const makeLayer = async (
 		| Layer.Layer<BillingProviders>
 		| number = BillingProvidersManual,
 	liveCheckoutEnabled = false,
+	machineControlOverrides: Partial<MachineControlConfig> = {},
 ): Promise<Layer.Layer<RelayContext>> => {
 	const billingLayer =
 		typeof billingLayerOrMaxEnvironments === "number"
@@ -134,6 +138,13 @@ const makeLayer = async (
 		RelayStoreMemory,
 		MachineStoreMemory,
 		MachineProvidersFake,
+		SandboxProvidersFake,
+		Layer.succeed(SandboxOfferConfiguration, {
+			templateId: "test-template",
+			port: 47_837,
+			createTimeoutSeconds: 86_400,
+			keepAliveTimeoutSeconds: 86_400,
+		}),
 		billingLayer,
 		Layer.succeed(MachineControlConfiguration, {
 			allowlistedAccountIds: new Set(["user_a", "user_b"]),
@@ -143,6 +154,7 @@ const makeLayer = async (
 			recoveryWindowMs: 7 * 24 * 60 * 60 * 1_000,
 			finalSnapshotRetentionMs: 14 * 24 * 60 * 60 * 1_000,
 			reconcileLeaseMs: 5 * 60 * 1_000,
+			...machineControlOverrides,
 		}),
 		ManagedTunnelProviderLive.pipe(Layer.provide(configLayer)),
 		pushLayer,
@@ -155,6 +167,10 @@ const requestEnvironmentLink = async (input: {
 	environmentId: string;
 	runtimeVersion?: string;
 	wireProtocolVersion?: number;
+	endpoint?: {
+		readonly httpBaseUrl: string;
+		readonly wsBaseUrl: string;
+	};
 }): Promise<{ envKey: KeyPair; response: Response }> => {
 	const bearer = `test-token:${input.account}`;
 	const challengeRes = await relay.fetch(
@@ -187,7 +203,7 @@ const requestEnvironmentLink = async (input: {
 				environmentId: input.environmentId,
 				environmentPublicKey: JSON.stringify(await exportJWK(envKey.publicKey)),
 				providerKind: "desktop",
-				endpoint: {
+				endpoint: input.endpoint ?? {
 					httpBaseUrl: "http://127.0.0.1:8787",
 					wsBaseUrl: "ws://127.0.0.1:8787/rpc",
 				},
@@ -210,6 +226,10 @@ const linkEnvironment = async (input: {
 	environmentId: string;
 	runtimeVersion?: string;
 	wireProtocolVersion?: number;
+	endpoint?: {
+		readonly httpBaseUrl: string;
+		readonly wsBaseUrl: string;
+	};
 }): Promise<{ envKey: KeyPair; credential: string }> => {
 	const { envKey, response: linkRes } = await requestEnvironmentLink(input);
 	expect(linkRes.status).toBe(200);
@@ -268,7 +288,7 @@ beforeEach(async () => {
 });
 
 describe("@zuse/relay", () => {
-	test("offers one server-owned alpha machine and makes creation idempotent", async () => {
+	test("offers each server-owned cloud machine and makes creation idempotent", async () => {
 		const headers = {
 			authorization: "Bearer test-token:user_a",
 			"content-type": "application/json",
@@ -281,11 +301,20 @@ describe("@zuse/relay", () => {
 			offers: [
 				{
 					offerId: "persistent-standard-v1",
+					kind: "persistent",
 					vcpuCount: 4,
 					memoryMib: 8192,
 					diskGib: 80,
 					location: "Germany",
 					monthlyPriceCents: 1900,
+				},
+				{
+					offerId: "sandbox-standard-v1",
+					kind: "sandbox",
+					vcpuCount: 2,
+					memoryMib: 4096,
+					diskGib: 10,
+					monthlyPriceCents: 2000,
 				},
 			],
 		});
@@ -335,6 +364,44 @@ describe("@zuse/relay", () => {
 		);
 		expect(another.status).toBe(409);
 		expect(await another.json()).toEqual({ error: "machine_limit_reached" });
+	});
+
+	test("marks an unconfigured sandbox offer unavailable and rejects creation", async () => {
+		const gatedRelay = makeRelay(
+			await makeLayer(undefined, BillingProvidersManual, false, {
+				availableOfferIds: new Set(["persistent-standard-v1"]),
+			}),
+		);
+		const headers = {
+			authorization: "Bearer test-token:user_a",
+			"content-type": "application/json",
+		};
+		try {
+			const offers = await gatedRelay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/machine-offers`, { headers }),
+			);
+			expect(await offers.json()).toMatchObject({
+				offers: [
+					{ offerId: "persistent-standard-v1", available: true },
+					{ offerId: "sandbox-standard-v1", available: false },
+				],
+			});
+
+			const create = await gatedRelay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/machines`, {
+					method: "POST",
+					headers,
+					body: JSON.stringify({
+						offerId: "sandbox-standard-v1",
+						idempotencyKey: "disabled-sandbox",
+					}),
+				}),
+			);
+			expect(create.status).toBe(400);
+			expect(await create.json()).toEqual({ error: "invalid_machine_offer" });
+		} finally {
+			await gatedRelay.dispose();
+		}
 	});
 
 	test("keeps live checkout disabled during manual-entitlement alpha", async () => {
@@ -1026,6 +1093,48 @@ describe("@zuse/relay", () => {
 		expect(unavailable.status).toBe(503);
 		expect(await unavailable.json()).toEqual({
 			error: "tunnel_unavailable",
+		});
+	});
+
+	test("accepts a public HTTPS endpoint when managed connectivity is required", async () => {
+		const environmentId = "env_public_endpoint";
+		await linkEnvironment({
+			account: "user_public_endpoint",
+			environmentId,
+			wireProtocolVersion: 2,
+			endpoint: {
+				httpBaseUrl: "https://47837-sandbox.sandbox.test",
+				wsBaseUrl: "wss://47837-sandbox.sandbox.test",
+			},
+		});
+		const device = (await ec()) as KeyPair;
+		const jwk = await exportJWK(device.publicKey);
+		const accessToken = await mintAccess("user_public_endpoint", device, jwk);
+		const connectUrl = `${RELAY_ISSUER}/v1/environments/${environmentId}/connect`;
+		const response = await relay.fetch(
+			new Request(connectUrl, {
+				method: "POST",
+				headers: {
+					authorization: `DPoP ${accessToken}`,
+					dpop: await dpopProof(device, jwk, {
+						method: "POST",
+						url: connectUrl,
+					}),
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
+					wireProtocolVersion: 2,
+					requireManaged: true,
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			endpoint: {
+				httpBaseUrl: "https://47837-sandbox.sandbox.test",
+				wsBaseUrl: "wss://47837-sandbox.sandbox.test",
+			},
 		});
 	});
 

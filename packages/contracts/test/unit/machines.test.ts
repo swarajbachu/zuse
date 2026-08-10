@@ -10,10 +10,12 @@ import {
 	AccountAccessTransferEvent,
 	BillingCheckoutRequest,
 	MachineCreateRequest,
+	MachineOffer,
 	MachineRecord,
 	MachineRuntimeStatus,
 	PERSISTENT_STANDARD_OFFER_ID,
 	RelayConnectGrant,
+	SANDBOX_STANDARD_OFFER_ID,
 	SshMode,
 } from "../../src/index.ts";
 
@@ -32,6 +34,26 @@ const offer = {
 };
 
 describe("managed machine contracts", () => {
+	it("defaults legacy machine offers to the persistent kind", () => {
+		const decoded = Schema.decodeUnknownSync(MachineOffer)(offer);
+
+		expect(decoded.kind).toBe("persistent");
+	});
+
+	it("round-trips sandbox offers with their kind", () => {
+		const decoded = Schema.decodeUnknownSync(MachineOffer)({
+			...offer,
+			offerId: SANDBOX_STANDARD_OFFER_ID,
+			displayName: "Cloud Sandbox",
+			kind: "sandbox",
+		});
+
+		expect(Schema.encodeSync(MachineOffer)(decoded)).toMatchObject({
+			offerId: SANDBOX_STANDARD_OFFER_ID,
+			kind: "sandbox",
+		});
+	});
+
 	it("decodes the server-owned offer and public machine fields", () => {
 		const record = Schema.decodeUnknownSync(MachineRecord)({
 			machineId: "machine_1",

@@ -17,6 +17,7 @@ export interface MachinePersistenceRecord {
 	readonly environmentId?: string;
 	readonly provider: string;
 	readonly providerServerId?: string;
+	readonly providerEndpointDomain?: string;
 	readonly providerLabel: string;
 	readonly label?: string;
 	readonly state: MachineState;
@@ -81,6 +82,7 @@ export interface BillingProvisioningInput {
 }
 
 export interface ApplyBillingEventInput {
+	readonly sameKindOfferIds: ReadonlyArray<string>;
 	readonly event: {
 		readonly provider: string;
 		readonly eventId: string;
@@ -108,6 +110,7 @@ export interface MachineStoreApi {
 	readonly createMachine: (input: {
 		readonly accountId: string;
 		readonly offerId: string;
+		readonly sameKindOfferIds: ReadonlyArray<string>;
 		readonly idempotencyKey: string;
 		readonly machineId: string;
 		readonly provider: string;
@@ -254,6 +257,25 @@ const newMachineForBillingEvent = (
 	updatedAtMs: input.event.nowMs,
 });
 
+const renewedMachineForBillingEvent = (
+	machine: MachinePersistenceRecord,
+	entitlement: EntitlementPersistenceRecord,
+	nowMs: number,
+): MachinePersistenceRecord => ({
+	...machine,
+	entitlementId: entitlement.entitlementId,
+	state: "resuming",
+	desiredState: "ready",
+	statusCode: "resume-queued",
+	paidThroughMs: entitlement.paidThroughMs,
+	recoveryDeadlineMs: undefined,
+	nextActionAtMs: nowMs,
+	attemptCount: 0,
+	stableFailureCode: undefined,
+	lastError: undefined,
+	updatedAtMs: nowMs,
+});
+
 export const MachineStoreMemory = Layer.effect(
 	MachineStore,
 	Effect.gen(function* () {
@@ -293,6 +315,7 @@ export const MachineStoreMemory = Layer.effect(
 					const hasActiveMachine = [...current.machines.values()].some(
 						(machine) =>
 							machine.accountId === input.accountId &&
+							input.sameKindOfferIds.includes(machine.offerId) &&
 							machine.state !== "destroyed",
 					);
 					if (hasActiveMachine) {
@@ -536,6 +559,26 @@ export const MachineStoreMemory = Layer.effect(
 								item.state !== "destroyed",
 						);
 						let machineCreated = false;
+						if (
+							machine === undefined &&
+							input.entitlement.status === "active" &&
+							input.entitlement.offerId !== undefined
+						) {
+							const recoverable = [...machines.values()].find(
+								(item) =>
+									item.accountId === input.entitlement.accountId &&
+									input.sameKindOfferIds.includes(item.offerId) &&
+									item.state === "suspended" &&
+									(item.recoveryDeadlineMs ?? 0) > input.event.nowMs,
+							);
+							if (recoverable !== undefined) {
+								machine = renewedMachineForBillingEvent(
+									recoverable,
+									input.entitlement,
+									input.event.nowMs,
+								);
+							}
+						}
 
 						if (
 							machine === undefined &&
@@ -546,6 +589,7 @@ export const MachineStoreMemory = Layer.effect(
 							const accountHasMachine = [...machines.values()].some(
 								(item) =>
 									item.accountId === input.entitlement.accountId &&
+									input.sameKindOfferIds.includes(item.offerId) &&
 									item.state !== "destroyed",
 							);
 							if (!accountHasMachine) {
@@ -594,6 +638,7 @@ interface MachineRow {
 	readonly environment_id: string | null;
 	readonly provider: string;
 	readonly provider_server_id: string | null;
+	readonly provider_endpoint_domain: string | null;
 	readonly provider_label: string;
 	readonly label: string | null;
 	readonly state: MachineState;
@@ -652,6 +697,7 @@ const toMachine = (row: MachineRow): MachinePersistenceRecord => ({
 	environmentId: row.environment_id ?? undefined,
 	provider: row.provider,
 	providerServerId: row.provider_server_id ?? undefined,
+	providerEndpointDomain: row.provider_endpoint_domain ?? undefined,
 	providerLabel: row.provider_label,
 	label: row.label ?? undefined,
 	state: row.state,
@@ -729,6 +775,7 @@ export const MachineStorePg: Layer.Layer<
 					UPDATE relay_machines SET
 						environment_id = ${machine.environmentId ?? null},
 						provider_server_id = ${machine.providerServerId ?? null},
+						provider_endpoint_domain = ${machine.providerEndpointDomain ?? null},
 						label = ${machine.label ?? null},
 						state = ${machine.state},
 						desired_state = ${machine.desiredState},
@@ -822,7 +869,9 @@ export const MachineStorePg: Layer.Layer<
 						}
 						const active = yield* sql<{ readonly machine_id: string }>`
 							SELECT machine_id FROM relay_machines
-							WHERE account_id = ${input.accountId} AND state <> 'destroyed'
+							WHERE account_id = ${input.accountId}
+								AND offer_id IN ${sql.in(input.sameKindOfferIds)}
+								AND state <> 'destroyed'
 							LIMIT 1
 						`;
 						if (active.length > 0) {
@@ -1057,12 +1106,36 @@ export const MachineStorePg: Layer.Layer<
 						if (
 							machine === undefined &&
 							input.entitlement.status === "active" &&
+							input.entitlement.offerId !== undefined
+						) {
+							const recoverableRows = yield* sql<MachineRow>`
+								SELECT * FROM relay_machines
+								WHERE account_id = ${input.entitlement.accountId}
+									AND offer_id IN ${sql.in(input.sameKindOfferIds)}
+									AND state = 'suspended'
+									AND recovery_deadline > ${input.event.nowMs}
+								LIMIT 1
+								FOR UPDATE
+							`;
+							if (recoverableRows[0] !== undefined) {
+								machine = renewedMachineForBillingEvent(
+									toMachine(recoverableRows[0]),
+									input.entitlement,
+									input.event.nowMs,
+								);
+							}
+						}
+
+						if (
+							machine === undefined &&
+							input.entitlement.status === "active" &&
 							input.entitlement.offerId !== undefined &&
 							input.provisioning !== undefined
 						) {
 							const activeRows = yield* sql<{ readonly machine_id: string }>`
 								SELECT machine_id FROM relay_machines
 								WHERE account_id = ${input.entitlement.accountId}
+									AND offer_id IN ${sql.in(input.sameKindOfferIds)}
 									AND state <> 'destroyed'
 								LIMIT 1
 								FOR UPDATE

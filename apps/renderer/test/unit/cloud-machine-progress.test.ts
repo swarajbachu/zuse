@@ -1,7 +1,10 @@
 import type { MachineRecord } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
-import { cloudMachineProgress } from "../../src/lib/cloud-machine-progress.ts";
+import {
+	cloudMachineProgress,
+	cloudMachineProgressSteps,
+} from "../../src/lib/cloud-machine-progress.ts";
 
 const progressFor = (
 	state: MachineRecord["state"],
@@ -74,6 +77,40 @@ describe("cloud machine progress", () => {
 			headline: "Provisioning needs attention",
 			label: "Setup interrupted",
 			tone: "error",
+		});
+	});
+
+	it("uses seconds-scale sandbox setup steps and copy", () => {
+		expect(cloudMachineProgressSteps("sandbox")).toEqual([
+			"Payment confirmed",
+			"Creating sandbox",
+			"Starting Zuse",
+			"Connecting",
+			"Ready",
+		]);
+		expect(
+			cloudMachineProgress(
+				{ state: "creating", statusCode: "provider-provisioning" },
+				"sandbox",
+			),
+		).toMatchObject({
+			headline: "Creating your sandbox",
+			detail: "Your sandbox is starting. This usually takes a few seconds.",
+		});
+		expect(
+			cloudMachineProgress(
+				{ state: "suspended", statusCode: "recovery-available" },
+				"sandbox",
+			),
+		).toMatchObject({ headline: "Your cloud sandbox is suspended" });
+		expect(
+			cloudMachineProgress(
+				{ state: "destroyed", statusCode: "destroyed" },
+				"sandbox",
+			),
+		).toMatchObject({
+			headline: "Cloud sandbox removed",
+			detail: "The sandbox and its access credentials have been removed.",
 		});
 	});
 });

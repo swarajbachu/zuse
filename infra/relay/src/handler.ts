@@ -34,6 +34,7 @@ import {
 import { MachineStore } from "./machine-store.ts";
 import { ManagedTunnelProvider } from "./managed-tunnel.ts";
 import { PushDelivery } from "./push.ts";
+import type { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
 import {
 	type ActivityKind,
 	type DevicePlatform,
@@ -50,6 +51,7 @@ export type RelayContext =
 	| RelayConfiguration
 	| ManagedTunnelProvider
 	| PushDelivery
+	| SandboxOfferConfiguration
 	| MachineRouteContext;
 
 const json = (body: unknown, status = 200): Response =>
@@ -241,6 +243,22 @@ const publicEndpoint = (environment: EnvironmentRecord) =>
 				httpBaseUrl: environment.httpBaseUrl,
 				wsBaseUrl: environment.wsBaseUrl,
 			};
+
+const hasManagedPublicEndpoint = (environment: EnvironmentRecord): boolean => {
+	if (environment.tunnelHostname !== undefined) return true;
+	try {
+		const endpoint = new URL(environment.httpBaseUrl);
+		const hostname = endpoint.hostname.replace(/^\[|\]$/gu, "").toLowerCase();
+		return (
+			endpoint.protocol === "https:" &&
+			hostname !== "localhost" &&
+			hostname !== "127.0.0.1" &&
+			hostname !== "::1"
+		);
+	} catch {
+		return false;
+	}
+};
 
 const endpointCandidates = (environment: EnvironmentRecord) => [
 	...(environment.privateHttpBaseUrl !== undefined &&
@@ -806,7 +824,7 @@ const route = (
 			) {
 				return yield* Effect.fail(serviceUnavailable("service_unhealthy"));
 			}
-			if (requireManaged && environment.tunnelHostname === undefined) {
+			if (requireManaged && !hasManagedPublicEndpoint(environment)) {
 				return yield* Effect.fail(serviceUnavailable("tunnel_unavailable"));
 			}
 			const connectToken = yield* signConnectToken({

@@ -1,94 +1,47 @@
 import type { BillingProviders } from "@zuse/billing-providers";
 import {
 	type MachineProviderAdapter,
-	type MachineProviderError,
 	MachineProviders,
 } from "@zuse/machine-providers";
+import { SandboxProviders } from "@zuse/sandbox-providers";
 import { Clock, Effect } from "effect";
-import { AccountIdentity } from "./account-identity.ts";
+import { deleteAccountIdentityWhenInfrastructureIsClean } from "./account-deletion.ts";
+import type { AccountIdentity } from "./account-identity.ts";
 import { cancelProviderSubscription } from "./billing-operations.ts";
 import { randomToken, sha256Hex } from "./crypto.ts";
 import { MachineControlConfiguration } from "./machine-config.ts";
 import { requestMachineDestruction } from "./machine-lifecycle.ts";
-import { findMachineOffer } from "./machine-offers.ts";
+import { findMachineOffer, offerKind } from "./machine-offers.ts";
 import {
 	type MachinePersistenceRecord,
 	MachineStore,
 } from "./machine-store.ts";
 import { ManagedTunnelProvider } from "./managed-tunnel.ts";
+import {
+	MAX_RECONCILE_ATTEMPTS,
+	MAX_RECONCILE_BACKOFF_MS,
+	retryAt,
+	withBillingFailure,
+	withCancellationBillingFailure,
+	withProviderFailure,
+} from "./reconciliation-failures.ts";
+import type { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
+import { reconcileSandboxMachine } from "./sandbox-reconciler.ts";
 import { RelayStore } from "./store.ts";
 
 export type MachineReconcilerContext =
 	| MachineStore
 	| MachineProviders
+	| SandboxProviders
+	| SandboxOfferConfiguration
 	| BillingProviders
 	| ManagedTunnelProvider
 	| RelayStore
 	| AccountIdentity;
 
-const MAX_ATTEMPTS = 8;
-const MAX_BACKOFF_MS = 15 * 60 * 1_000;
+const MAX_ATTEMPTS = MAX_RECONCILE_ATTEMPTS;
+const MAX_BACKOFF_MS = MAX_RECONCILE_BACKOFF_MS;
 const CREDENTIAL_CLEANUP_TIMEOUT_MS = 5 * 60 * 1_000;
-
-const retryAt = (nowMs: number, attemptCount: number): number =>
-	nowMs +
-	Math.min(MAX_BACKOFF_MS, 5_000 * 2 ** Math.min(attemptCount, MAX_ATTEMPTS));
-
-const withProviderFailure = (
-	machine: MachinePersistenceRecord,
-	nowMs: number,
-	error: MachineProviderError,
-): MachinePersistenceRecord => {
-	const attemptCount = machine.attemptCount + 1;
-	const exhausted = attemptCount >= MAX_ATTEMPTS || error.code === "rejected";
-	return {
-		...machine,
-		state: exhausted ? "failed" : machine.state,
-		statusCode: exhausted ? "reconciliation-failed" : "provider-unavailable",
-		stableFailureCode:
-			error.code === "rejected"
-				? "provider-rejected"
-				: error.code === "not-found"
-					? "provider-machine-missing"
-					: "provider-temporarily-unavailable",
-		attemptCount,
-		nextActionAtMs: exhausted
-			? nowMs + MAX_BACKOFF_MS
-			: retryAt(nowMs, attemptCount),
-		updatedAtMs: nowMs,
-	};
-};
-
-const withBillingFailure = (
-	machine: MachinePersistenceRecord,
-	nowMs: number,
-): MachinePersistenceRecord => {
-	const attemptCount = machine.attemptCount + 1;
-	return {
-		...machine,
-		state: "destroying",
-		statusCode: "reconciliation-failed",
-		stableFailureCode: "billing-provider-unavailable",
-		attemptCount,
-		nextActionAtMs: retryAt(nowMs, attemptCount),
-		updatedAtMs: nowMs,
-	};
-};
-
-const withCancellationBillingFailure = (
-	machine: MachinePersistenceRecord,
-	nowMs: number,
-): MachinePersistenceRecord => {
-	const attemptCount = machine.attemptCount + 1;
-	return {
-		...machine,
-		statusCode: "reconciliation-failed",
-		stableFailureCode: "billing-provider-unavailable",
-		attemptCount,
-		nextActionAtMs: retryAt(nowMs, attemptCount),
-		updatedAtMs: nowMs,
-	};
-};
 
 const withMissingProviderMachine = (
 	machine: MachinePersistenceRecord,
@@ -388,6 +341,28 @@ const reconcileDestroyedTarget = Effect.fn("reconcileDestroyedTarget")(
 		const config = yield* MachineControlConfiguration;
 
 		if (machine.state === "destroyed") {
+			if (machine.accountDeletionRequestedAtMs !== undefined) {
+				const identity =
+					yield* deleteAccountIdentityWhenInfrastructureIsClean(machine);
+				if (identity === "failed") {
+					return {
+						...machine,
+						statusCode: "reconciliation-failed" as const,
+						stableFailureCode: "identity-deletion-failed",
+						attemptCount: machine.attemptCount + 1,
+						nextActionAtMs: retryAt(nowMs, machine.attemptCount + 1),
+						updatedAtMs: nowMs,
+					};
+				}
+				if (identity === "deferred") {
+					return {
+						...machine,
+						nextActionAtMs: nowMs + 60_000,
+						updatedAtMs: nowMs,
+					};
+				}
+				machine = { ...machine, accountDeletionRequestedAtMs: undefined };
+			}
 			if (
 				machine.finalSnapshotId !== undefined &&
 				(machine.finalSnapshotDeleteAtMs ?? Number.MAX_SAFE_INTEGER) <= nowMs
@@ -570,12 +545,11 @@ const reconcileDestroyedTarget = Effect.fn("reconcileDestroyedTarget")(
 				return withProviderFailure(updated, nowMs, deleted.failure);
 			}
 		}
+		let identityDeletion = "deleted" as "deleted" | "deferred" | "failed";
 		if (updated.accountDeletionRequestedAtMs !== undefined) {
-			const identity = yield* AccountIdentity;
-			const deleted = yield* identity
-				.deleteUser(updated.accountId)
-				.pipe(Effect.result);
-			if (deleted._tag === "Failure") {
+			identityDeletion =
+				yield* deleteAccountIdentityWhenInfrastructureIsClean(updated);
+			if (identityDeletion === "failed") {
 				return {
 					...updated,
 					state: "destroying" as const,
@@ -593,13 +567,19 @@ const reconcileDestroyedTarget = Effect.fn("reconcileDestroyedTarget")(
 			state: "destroyed" as const,
 			statusCode: "destroyed" as const,
 			environmentId: undefined,
+			providerServerId: undefined,
 			enrollmentTokenHash: undefined,
 			enrollmentExpiresAtMs: undefined,
 			destroyedAtMs: nowMs,
-			accountDeletionRequestedAtMs: undefined,
+			accountDeletionRequestedAtMs:
+				identityDeletion === "deferred"
+					? updated.accountDeletionRequestedAtMs
+					: undefined,
 			attemptCount: 0,
 			nextActionAtMs:
-				updated.finalSnapshotDeleteAtMs ?? Number.MAX_SAFE_INTEGER,
+				identityDeletion === "deferred"
+					? nowMs + 60_000
+					: (updated.finalSnapshotDeleteAtMs ?? Number.MAX_SAFE_INTEGER),
 			updatedAtMs: nowMs,
 		};
 	},
@@ -609,6 +589,20 @@ const reconcileOne = Effect.fn("reconcileOne")(function* (
 	machine: MachinePersistenceRecord,
 	nowMs: number,
 ) {
+	if (offerKind(machine.offerId) === "sandbox") {
+		const providers = yield* SandboxProviders;
+		const selected = yield* providers.get(machine.provider).pipe(Effect.result);
+		if (selected._tag === "Failure") {
+			return {
+				...machine,
+				statusCode: "provider-unavailable",
+				stableFailureCode: "sandbox-provider-not-configured",
+				nextActionAtMs: nowMs + MAX_BACKOFF_MS,
+				updatedAtMs: nowMs,
+			} satisfies MachinePersistenceRecord;
+		}
+		return yield* reconcileSandboxMachine(machine, nowMs, selected.success);
+	}
 	const providers = yield* MachineProviders;
 	const selected = yield* providers.get(machine.provider).pipe(Effect.result);
 	if (selected._tag === "Failure") {

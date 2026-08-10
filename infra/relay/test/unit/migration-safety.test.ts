@@ -14,6 +14,10 @@ const credentialCleanupMigrationUrl = new URL(
 	"../../drizzle/migrations/0004_credential_cleanup_handshake.sql",
 	import.meta.url,
 );
+const sandboxEndpointMigrationUrl = new URL(
+	"../../drizzle/migrations/0005_sandbox_endpoint_domain.sql",
+	import.meta.url,
+);
 
 describe("relay migration reconciliation", () => {
 	test("keeps the main migration history before managed cloud machines", async () => {
@@ -30,7 +34,14 @@ describe("relay migration reconciliation", () => {
 			{ idx: 2, tag: "0002_absurd_leader" },
 			{ idx: 3, tag: "0003_managed_cloud_machines" },
 			{ idx: 4, tag: "0004_credential_cleanup_handshake" },
+			{ idx: 5, tag: "0005_sandbox_endpoint_domain" },
 		]);
+	});
+
+	test("persists the provider endpoint used by tunnel-less sandboxes", async () => {
+		const migration = await readFile(sandboxEndpointMigrationUrl, "utf8");
+
+		expect(migration).toContain('ADD COLUMN "provider_endpoint_domain" text');
 	});
 
 	test("converges both existing staging and main databases idempotently", async () => {

@@ -8,6 +8,7 @@ const configuredEnvironment = {
 	POLAR_ACCESS_TOKEN: "polar_test_token",
 	POLAR_ENVIRONMENT: "sandbox",
 	POLAR_PRODUCT_PERSISTENT_STANDARD_V1: "product_machine",
+	POLAR_PRODUCT_SANDBOX_STANDARD_V1: "product_sandbox",
 	POLAR_VPS_SALES_APPROVED: "false",
 	POLAR_WEBHOOK_SECRET: "polar_webhook_secret",
 };
@@ -60,5 +61,24 @@ describe("relay billing configuration", () => {
 				POLAR_VPS_SALES_APPROVED: "true",
 			}).liveCheckoutEnabled,
 		).toBe(true);
+	});
+
+	test("maps the optional sandbox subscription product", async () => {
+		const runtime = resolveBillingRuntime(configuredEnvironment);
+		const billing = await Effect.runPromise(
+			Effect.gen(function* () {
+				return yield* (yield* BillingProviders).getDefault;
+			}).pipe(Effect.provide(runtime.layer)),
+		);
+
+		await expect(
+			Effect.runPromise(
+				billing.checkout({
+					accountId: "user_a",
+					offerId: "sandbox-standard-v1",
+					successUrl: "https://relay.test/complete",
+				}),
+			),
+		).rejects.not.toMatchObject({ code: "invalid-offer" });
 	});
 });

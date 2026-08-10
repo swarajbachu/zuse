@@ -1,5 +1,9 @@
 import { PgClient } from "@effect/sql-pg";
-import { HOSTED_APP_URL } from "@zuse/contracts";
+import {
+	HOSTED_APP_URL,
+	PERSISTENT_STANDARD_OFFER_ID,
+	SANDBOX_STANDARD_OFFER_ID,
+} from "@zuse/contracts";
 import { Effect, Layer, Redacted } from "effect";
 import { Pool } from "pg";
 import runtimeInstallerSource from "../../../apps/server/scripts/runtime-updater.mjs";
@@ -18,6 +22,10 @@ import { resolveMachineProviderRuntime } from "./machine-provider-config.ts";
 import { MachineStorePg } from "./machine-store.ts";
 import { ManagedTunnelProviderLive } from "./managed-tunnel.ts";
 import { PushDeliveryLive } from "./push.ts";
+import {
+	resolveSandboxProviderRuntime,
+	SandboxOfferConfiguration,
+} from "./sandbox-provider-config.ts";
 import { RelayStorePg } from "./store.ts";
 import { WorkosVerifierLive } from "./workos.ts";
 
@@ -48,6 +56,7 @@ interface Env {
 	readonly POLAR_ACCESS_TOKEN?: string;
 	readonly POLAR_ENVIRONMENT?: string;
 	readonly POLAR_PRODUCT_PERSISTENT_STANDARD_V1?: string;
+	readonly POLAR_PRODUCT_SANDBOX_STANDARD_V1?: string;
 	readonly POLAR_VPS_SALES_APPROVED?: string;
 	readonly POLAR_WEBHOOK_SECRET?: string;
 	readonly MACHINE_PROVIDER?: string;
@@ -60,6 +69,12 @@ interface Env {
 	readonly HETZNER_SERVER_TYPE_PERSISTENT_STANDARD_V1?: string;
 	readonly MACHINE_RUNTIME_MANIFEST_URL?: string;
 	readonly MACHINE_RUNTIME_SIGNING_PUBLIC_JWK?: string;
+	readonly SANDBOX_PROVIDER?: string;
+	readonly E2B_ADAPTER_ENABLED?: string;
+	readonly E2B_API_KEY?: string;
+	readonly E2B_API_BASE_URL?: string;
+	readonly E2B_SANDBOX_DOMAIN?: string;
+	readonly E2B_TEMPLATE_ID?: string;
 }
 
 const managedTunnelConfig = (
@@ -90,6 +105,17 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		relayIssuer: env.RELAY_ISSUER,
 		runtimeInstallerSource,
 	});
+	const sandboxProvider = resolveSandboxProviderRuntime(env);
+	const persistentCheckoutReady =
+		billing.liveCheckoutEnabled &&
+		(env.POLAR_ENVIRONMENT === "sandbox" || machineProvider.productionReady);
+	const sandboxOperational =
+		sandboxProvider.providerId !== "fake" &&
+		isConfigured(env.POLAR_PRODUCT_SANDBOX_STANDARD_V1);
+	const sandboxCheckoutReady =
+		billing.liveCheckoutEnabled &&
+		sandboxOperational &&
+		(env.POLAR_ENVIRONMENT === "sandbox" || sandboxProvider.productionReady);
 	const configuredLimit = Number(env.MAX_ENVIRONMENTS_PER_ACCOUNT ?? "5");
 	const configLayer = Config.layer({
 		relayIssuer: env.RELAY_ISSUER,
@@ -128,9 +154,15 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 				.filter((accountId) => accountId.length > 0),
 		),
 		manualEntitlementsEnabled: env.MACHINE_MANUAL_ENTITLEMENTS === "true",
-		liveCheckoutEnabled:
-			billing.liveCheckoutEnabled &&
-			(env.POLAR_ENVIRONMENT === "sandbox" || machineProvider.productionReady),
+		liveCheckoutEnabled: persistentCheckoutReady || sandboxCheckoutReady,
+		availableOfferIds: new Set([
+			PERSISTENT_STANDARD_OFFER_ID,
+			...(sandboxOperational ? [SANDBOX_STANDARD_OFFER_ID] : []),
+		]),
+		liveCheckoutOfferIds: new Set([
+			...(persistentCheckoutReady ? [PERSISTENT_STANDARD_OFFER_ID] : []),
+			...(sandboxCheckoutReady ? [SANDBOX_STANDARD_OFFER_ID] : []),
+		]),
 		enrollmentTtlMs: 30 * 60 * 1_000,
 		recoveryWindowMs: 7 * 24 * 60 * 60 * 1_000,
 		finalSnapshotRetentionMs: 14 * 24 * 60 * 60 * 1_000,
@@ -143,6 +175,8 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		RelayStorePg.pipe(Layer.provide(dbLayer)),
 		MachineStorePg.pipe(Layer.provide(dbLayer)),
 		machineProvider.layer,
+		sandboxProvider.layer,
+		Layer.succeed(SandboxOfferConfiguration, sandboxProvider.offer),
 		billing.layer,
 		Layer.succeed(MachineControlConfiguration, machineConfig),
 		ManagedTunnelProviderLive.pipe(Layer.provide(configLayer)),

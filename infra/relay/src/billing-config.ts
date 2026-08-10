@@ -15,6 +15,7 @@ export interface BillingEnvironment {
 	readonly POLAR_ACCESS_TOKEN?: string;
 	readonly POLAR_ENVIRONMENT?: string;
 	readonly POLAR_PRODUCT_PERSISTENT_STANDARD_V1?: string;
+	readonly POLAR_PRODUCT_SANDBOX_STANDARD_V1?: string;
 	readonly POLAR_VPS_SALES_APPROVED?: string;
 	readonly POLAR_WEBHOOK_SECRET?: string;
 }
@@ -43,6 +44,11 @@ const polarConfig = (
 		environment: env.POLAR_ENVIRONMENT,
 		offerProducts: {
 			"persistent-standard-v1": env.POLAR_PRODUCT_PERSISTENT_STANDARD_V1,
+			...(isConfigured(env.POLAR_PRODUCT_SANDBOX_STANDARD_V1)
+				? {
+						"sandbox-standard-v1": env.POLAR_PRODUCT_SANDBOX_STANDARD_V1,
+					}
+				: {}),
 		},
 	};
 };

@@ -117,9 +117,429 @@ export const runtimeVersionDescription = (
 	return `Installed Zuse ${installed}; target ${status.targetAppVersion}.`;
 };
 
+function SandboxCloudMachineCard({
+	offer,
+	machine,
+	onMachineChange,
+	onRefresh,
+}: {
+	readonly offer: MachineOffer;
+	readonly machine: MachineRecord | null;
+	readonly onMachineChange: (machine: MachineRecord | null) => void;
+	readonly onRefresh: () => Promise<void>;
+}) {
+	const [checkoutUrl, setCheckoutUrl] = useState<string | null>(() =>
+		readCloudMachineCheckoutSession(window.sessionStorage, {
+			accountId: hostedAccountId(),
+			nowMs: Date.now(),
+			offerId: offer.offerId,
+		}),
+	);
+	const [action, setAction] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const [destroyOpen, setDestroyOpen] = useState(false);
+	const environmentId = machine?.environmentId;
+	const environment = useEnvironmentCatalogStore((state) =>
+		environmentId === undefined
+			? undefined
+			: state.entries.find((entry) => entry.environmentId === environmentId),
+	);
+	const syncAccountEnvironments = useEnvironmentCatalogStore(
+		(state) => state.syncAccountEnvironments,
+	);
+	const retryEnvironment = useEnvironmentCatalogStore(
+		(state) => state.retryEnvironment,
+	);
+	const setView = useUiStore((state) => state.setView);
+
+	useEffect(() => {
+		if (machine === null || machine.state === "suspended") return;
+		setCheckoutUrl(null);
+		clearCloudMachineCheckoutSession(window.sessionStorage, offer.offerId);
+	}, [machine, offer.offerId]);
+
+	const purchase = async (recoverMachine = false) => {
+		if (action !== null || !offer.available) return;
+		setAction("purchase");
+		setError(null);
+		try {
+			if (checkoutUrl !== null) {
+				await openExternal(checkoutUrl);
+				return;
+			}
+			const client = await getControlPlaneRpcClient();
+			try {
+				const checkout = await Effect.runPromise(
+					client["machines.checkout"]({ offerId: offer.offerId }),
+				);
+				setCheckoutUrl(checkout.checkoutUrl);
+				writeCloudMachineCheckoutSession(window.sessionStorage, {
+					accountId: hostedAccountId(),
+					nowMs: Date.now(),
+					offerId: offer.offerId,
+					url: checkout.checkoutUrl,
+				});
+				await openExternal(checkout.checkoutUrl);
+			} catch (cause) {
+				if (
+					!(cause instanceof MachineOpError) ||
+					cause.code !== "billing-unavailable"
+				) {
+					throw cause;
+				}
+				onMachineChange(
+					await Effect.runPromise(
+						recoverMachine && machine !== null
+							? client["machines.recover"]({ machineId: machine.machineId })
+							: client["machines.create"]({
+									offerId: offer.offerId,
+									label: "Cloud sandbox",
+									idempotencyKey: crypto.randomUUID(),
+								}),
+					),
+				);
+			}
+		} catch (cause) {
+			setError(checkoutErrorMessage(cause));
+		} finally {
+			setAction(null);
+		}
+	};
+
+	const updateMachine = async (
+		name: string,
+		operation: () => Promise<MachineRecord>,
+	) => {
+		if (action !== null) return;
+		setAction(name);
+		setError(null);
+		try {
+			onMachineChange(await operation());
+			await onRefresh();
+		} catch {
+			setError("The sandbox could not be updated. Try again.");
+		} finally {
+			setAction(null);
+		}
+	};
+
+	const connect = async () => {
+		if (environmentId === undefined || action !== null) return;
+		setAction("connect");
+		setError(null);
+		try {
+			if (environment === undefined) {
+				await syncAccountEnvironments();
+			} else if (environment.status !== "connected") {
+				await retryEnvironment(environmentId);
+			} else {
+				const switched = await switchToEnvironment({ environmentId });
+				if (switched.switched) setView("chat");
+				else throw new Error("environment did not switch");
+			}
+		} catch {
+			setError("The sandbox connection could not be established. Try again.");
+		} finally {
+			setAction(null);
+		}
+	};
+
+	if (machine === null) {
+		return (
+			<CloudSettingsGroup
+				title="Cloud sandbox"
+				description="Fast, isolated compute for agents and terminals on a $20 monthly plan."
+			>
+				{error === null ? null : (
+					<div role="alert" className="px-3 py-2 text-destructive-foreground">
+						{error}
+					</div>
+				)}
+				<CloudSettingsRow
+					title={offer.displayName}
+					description={`${offer.vcpuCount} vCPU · ${offer.memoryMib / 1024} GB memory · ${offer.diskGib} GB disk · starts in seconds`}
+					action={
+						<div className="flex items-center gap-2">
+							<p className="whitespace-nowrap text-[11px] text-muted-foreground">
+								<span className="font-medium text-foreground tabular-nums">
+									${(offer.monthlyPriceCents / 100).toFixed(0)}
+								</span>{" "}
+								/ month
+							</p>
+							<Button
+								size="xs"
+								loading={action === "purchase"}
+								disabled={action !== null}
+								onClick={() => void purchase()}
+							>
+								<ExternalLink aria-hidden />
+								{checkoutUrl === null ? "Checkout" : "Reopen"}
+							</Button>
+						</div>
+					}
+				/>
+				<CloudSettingsRow
+					title="Managed connection"
+					description="No SSH or private-network setup required. Zuse connects through the sandbox provider."
+					action={<Badge variant="success">Included</Badge>}
+				/>
+				{checkoutUrl === null ? null : (
+					<CloudSettingsRow
+						title="Waiting for payment"
+						description="Provisioning starts automatically after payment confirmation."
+						action={<Badge variant="warning">Checking</Badge>}
+					/>
+				)}
+			</CloudSettingsGroup>
+		);
+	}
+
+	const progress = cloudMachineProgress(machine, "sandbox");
+	const steps = cloudMachineProgressSteps("sandbox");
+	const connected = environment?.status === "connected";
+	const connection = cloudConnectionPresentation(
+		environment?.status,
+		environment?.error,
+	);
+
+	return (
+		<>
+			<CloudSettingsGroup
+				title={machine.label ?? offer.displayName}
+				description="Your fast provider-managed cloud sandbox."
+				action={
+					<Badge variant={progressVariant(progress.tone)}>
+						{progress.label}
+					</Badge>
+				}
+			>
+				{error === null ? null : (
+					<div role="alert" className="px-3 py-2 text-destructive-foreground">
+						{error}
+					</div>
+				)}
+				<CloudSettingsRow
+					title={progress.headline}
+					description={progress.detail}
+					action={
+						<Badge variant={progressVariant(progress.tone)}>
+							{progress.label}
+						</Badge>
+					}
+				>
+					{progress.activeStep === null ? null : (
+						<div
+							className="grid grid-cols-5 gap-1"
+							role="progressbar"
+							aria-label={`Provisioning step ${progress.activeStep + 1} of ${steps.length}: ${steps[progress.activeStep]}`}
+							aria-valuemin={1}
+							aria-valuemax={steps.length}
+							aria-valuenow={progress.activeStep + 1}
+						>
+							{steps.map((step, index) => (
+								<span
+									key={step}
+									title={step}
+									className={`h-1 rounded-full ${index <= (progress.activeStep ?? -1) ? "bg-foreground" : "bg-muted"}`}
+								/>
+							))}
+						</div>
+					)}
+				</CloudSettingsRow>
+				{machine.state !== "ready" ? null : (
+					<CloudSettingsRow
+						title="Managed connection"
+						description={connection.description}
+						action={
+							<>
+								<Badge variant={connection.variant}>{connection.label}</Badge>
+								<Button
+									size="xs"
+									variant={connected ? "default" : "outline"}
+									loading={action === "connect"}
+									disabled={action !== null || environmentId === undefined}
+									onClick={() => void connect()}
+								>
+									{connected ? "Open sandbox" : "Retry"}
+								</Button>
+							</>
+						}
+					/>
+				)}
+			</CloudSettingsGroup>
+
+			{connected && environmentId !== undefined ? (
+				<CloudAccountAccess environmentId={environmentId} />
+			) : null}
+
+			<CloudSettingsGroup
+				title="Plan and billing"
+				description="Base subscription and lifecycle controls for this sandbox."
+			>
+				<CloudSettingsRow
+					title="Monthly plan"
+					description="Usage metering is coming later; this preview is billed at the base monthly rate."
+					action={
+						<span className="font-medium text-[11px] tabular-nums">
+							${(offer.monthlyPriceCents / 100).toFixed(0)} / month
+						</span>
+					}
+				/>
+				<CloudSettingsRow
+					title="Paid through"
+					description={formatDate(machine.paidThrough, "Manual alpha")}
+				/>
+				<CloudSettingsRow
+					title="Billing"
+					description="Manage payment details and invoices in the billing portal."
+					action={
+						<Button
+							size="xs"
+							variant="outline"
+							loading={action === "billing"}
+							disabled={action !== null}
+							onClick={() => {
+								void (async () => {
+									setAction("billing");
+									setError(null);
+									try {
+										const client = await getControlPlaneRpcClient();
+										const portal = await Effect.runPromise(
+											client["machines.billingPortal"](),
+										);
+										await openExternal(portal.portalUrl);
+									} catch {
+										setError("Billing management is unavailable right now.");
+									} finally {
+										setAction(null);
+									}
+								})();
+							}}
+						>
+							<ExternalLink aria-hidden />
+							Open portal
+						</Button>
+					}
+				/>
+				{machine.state === "suspended" ? (
+					<CloudSettingsRow
+						title="Recover sandbox"
+						description={
+							offer.available
+								? "Renew before the recovery deadline to restore this sandbox and its files."
+								: "Recovery checkout is temporarily unavailable. Your sandbox remains retained through the recovery deadline."
+						}
+						action={
+							<Button
+								size="xs"
+								loading={action === "recover"}
+								disabled={action !== null || !offer.available}
+								onClick={() => void purchase(true)}
+							>
+								{offer.available
+									? checkoutUrl === null
+										? "Renew and recover"
+										: "Reopen checkout"
+									: "Unavailable"}
+							</Button>
+						}
+					/>
+				) : machine.desiredState === "ready" ? (
+					<CloudSettingsRow
+						title="Subscription"
+						description="The sandbox remains available through the paid period, then pauses."
+						action={
+							<Button
+								size="xs"
+								variant="outline"
+								loading={action === "cancel"}
+								disabled={action !== null}
+								onClick={() =>
+									void updateMachine("cancel", async () => {
+										const client = await getControlPlaneRpcClient();
+										return Effect.runPromise(
+											client["machines.cancel"]({
+												machineId: machine.machineId,
+											}),
+										);
+									})
+								}
+							>
+								Cancel at period end
+							</Button>
+						}
+					/>
+				) : null}
+			</CloudSettingsGroup>
+
+			<CloudSettingsGroup
+				title="Danger zone"
+				description="Permanent actions for this cloud sandbox."
+			>
+				<CloudSettingsRow
+					title="Destroy sandbox"
+					description="Immediately revoke access and permanently delete the sandbox."
+					action={
+						<Button
+							size="xs"
+							variant="destructive-outline"
+							disabled={action !== null || machine.state === "destroyed"}
+							onClick={() => setDestroyOpen(true)}
+						>
+							<Trash2 aria-hidden />
+							Destroy
+						</Button>
+					}
+				/>
+			</CloudSettingsGroup>
+
+			<AlertDialog open={destroyOpen} onOpenChange={setDestroyOpen}>
+				<AlertDialogPopup>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Destroy this cloud sandbox?</AlertDialogTitle>
+						<AlertDialogDescription>
+							Access ends immediately and the sandbox is permanently deleted.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogClose render={<Button size="xs" variant="ghost" />}>
+							Keep sandbox
+						</AlertDialogClose>
+						<Button
+							size="xs"
+							variant="destructive"
+							loading={action === "destroy"}
+							disabled={action !== null}
+							onClick={() =>
+								void updateMachine("destroy", async () => {
+									const client = await getControlPlaneRpcClient();
+									const destroyed = await Effect.runPromise(
+										client["machines.destroy"]({
+											machineId: machine.machineId,
+											confirmation: "destroy",
+										}),
+									);
+									setDestroyOpen(false);
+									return destroyed;
+								})
+							}
+						>
+							Destroy sandbox
+						</Button>
+					</AlertDialogFooter>
+				</AlertDialogPopup>
+			</AlertDialog>
+		</>
+	);
+}
+
 export function CloudMachinesPane() {
 	const [offer, setOffer] = useState<MachineOffer | null>(null);
 	const [machine, setMachine] = useState<MachineRecord | null>(null);
+	const [sandboxOffer, setSandboxOffer] = useState<MachineOffer | null>(null);
+	const [sandboxMachine, setSandboxMachine] = useState<MachineRecord | null>(
+		null,
+	);
 	const [loading, setLoading] = useState(true);
 	const [submitting, setSubmitting] = useState(false);
 	const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
@@ -169,10 +589,31 @@ export function CloudMachinesPane() {
 				Effect.runPromise(client["machines.offers"]()),
 				Effect.runPromise(client["machines.list"]()),
 			]);
-			const nextOffer = offers.offers[0] ?? null;
+			const nextOffer =
+				offers.offers.find((candidate) => candidate.kind === "persistent") ??
+				null;
+			const sandboxCandidate =
+				offers.offers.find((candidate) => candidate.kind === "sandbox") ?? null;
 			setOffer(nextOffer);
-			const activeMachine = selectActiveCloudMachine(machines.machines);
+			const activeMachine = selectActiveCloudMachine(
+				machines.machines,
+				"persistent",
+			);
+			const activeSandbox = selectActiveCloudMachine(
+				machines.machines,
+				"sandbox",
+			);
+			const nextSandboxOffer =
+				(activeSandbox === null
+					? null
+					: {
+							...activeSandbox.offer,
+							available: sandboxCandidate?.available ?? false,
+						}) ??
+				(sandboxCandidate?.available === true ? sandboxCandidate : null);
+			setSandboxOffer(nextSandboxOffer);
 			setMachine(activeMachine);
+			setSandboxMachine(activeSandbox);
 			if (
 				activeMachine?.state === "ready" &&
 				activeMachine.environmentId !== undefined &&
@@ -184,9 +625,23 @@ export function CloudMachinesPane() {
 			) {
 				void syncAccountEnvironments().catch(() => undefined);
 			}
+			if (
+				activeSandbox?.state === "ready" &&
+				activeSandbox.environmentId !== undefined &&
+				!useEnvironmentCatalogStore
+					.getState()
+					.entries.some(
+						(entry) => entry.environmentId === activeSandbox.environmentId,
+					)
+			) {
+				void syncAccountEnvironments().catch(() => undefined);
+			}
 			if (activeMachine !== null) {
 				setCheckoutUrl(null);
-				clearCloudMachineCheckoutSession(window.sessionStorage);
+				clearCloudMachineCheckoutSession(
+					window.sessionStorage,
+					activeMachine.offer.offerId,
+				);
 			} else if (nextOffer !== null) {
 				setCheckoutUrl(
 					readCloudMachineCheckoutSession(window.sessionStorage, {
@@ -505,7 +960,10 @@ export function CloudMachinesPane() {
 	}
 
 	const error = visibleCloudMachineError(loadError, actionError);
-	const progress = machine === null ? null : cloudMachineProgress(machine);
+	const progress =
+		machine === null ? null : cloudMachineProgress(machine, machine.offer.kind);
+	const progressSteps =
+		machine === null ? [] : cloudMachineProgressSteps(machine.offer.kind);
 	const activeProgressStep = progress?.activeStep ?? null;
 	const connection = cloudConnectionPresentation(
 		machineEnvironment?.status,
@@ -522,6 +980,15 @@ export function CloudMachinesPane() {
 				>
 					{error}
 				</div>
+			)}
+
+			{sandboxOffer === null ? null : (
+				<SandboxCloudMachineCard
+					offer={sandboxOffer}
+					machine={sandboxMachine}
+					onMachineChange={setSandboxMachine}
+					onRefresh={load}
+				/>
 			)}
 
 			{machine === null && offer !== null ? (
@@ -566,7 +1033,10 @@ export function CloudMachinesPane() {
 				</CloudSettingsGroup>
 			) : null}
 
-			{machine === null && offer === null && loadError === null ? (
+			{machine === null &&
+			offer === null &&
+			sandboxOffer === null &&
+			loadError === null ? (
 				<CloudSettingsGroup
 					title="Cloud machines"
 					description="Persistent cloud machines are currently invite-only."
@@ -611,13 +1081,13 @@ export function CloudMachinesPane() {
 							{activeProgressStep === null ? null : (
 								<div
 									className="grid grid-cols-7 gap-1"
-									aria-label={`Provisioning step ${activeProgressStep + 1} of ${cloudMachineProgressSteps.length}: ${cloudMachineProgressSteps[activeProgressStep]}`}
-									aria-valuemax={cloudMachineProgressSteps.length}
+									aria-label={`Provisioning step ${activeProgressStep + 1} of ${progressSteps.length}: ${progressSteps[activeProgressStep]}`}
+									aria-valuemax={progressSteps.length}
 									aria-valuemin={1}
 									aria-valuenow={activeProgressStep + 1}
 									role="progressbar"
 								>
-									{cloudMachineProgressSteps.map((step, index) => (
+									{progressSteps.map((step, index) => (
 										<span
 											key={step}
 											title={step}

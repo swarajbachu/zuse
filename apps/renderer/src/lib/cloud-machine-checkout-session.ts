@@ -1,4 +1,5 @@
-const checkoutSessionKey = "zuse.cloud-machine.checkout.v1";
+const checkoutSessionKey = (offerId: string): string =>
+	`zuse.cloud-machine.checkout.v1:${offerId}`;
 const checkoutSessionTtlMs = 30 * 60_000;
 
 type CheckoutSession = Readonly<{
@@ -19,7 +20,7 @@ export const readCloudMachineCheckoutSession = (
 	},
 ): string | null => {
 	try {
-		const raw = storage.getItem(checkoutSessionKey);
+		const raw = storage.getItem(checkoutSessionKey(input.offerId));
 		if (raw === null) return null;
 		const session = JSON.parse(raw) as Partial<CheckoutSession>;
 		if (
@@ -29,7 +30,7 @@ export const readCloudMachineCheckoutSession = (
 			typeof session.url !== "string" ||
 			session.expiresAt <= input.nowMs
 		) {
-			storage.removeItem(checkoutSessionKey);
+			storage.removeItem(checkoutSessionKey(input.offerId));
 			return null;
 		}
 		return input.accountId === session.accountId &&
@@ -53,7 +54,7 @@ export const writeCloudMachineCheckoutSession = (
 	if (input.accountId === null) return;
 	try {
 		storage.setItem(
-			checkoutSessionKey,
+			checkoutSessionKey(input.offerId),
 			JSON.stringify({
 				accountId: input.accountId,
 				expiresAt: input.nowMs + checkoutSessionTtlMs,
@@ -68,9 +69,10 @@ export const writeCloudMachineCheckoutSession = (
 
 export const clearCloudMachineCheckoutSession = (
 	storage: CheckoutStorage,
+	offerId: string,
 ): void => {
 	try {
-		storage.removeItem(checkoutSessionKey);
+		storage.removeItem(checkoutSessionKey(offerId));
 	} catch {
 		// There is nothing else to clear when browser storage is unavailable.
 	}

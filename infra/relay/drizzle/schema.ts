@@ -137,6 +137,7 @@ export const relayMachines = pgTable(
 		environmentId: text("environment_id"),
 		provider: text("provider").notNull(),
 		providerServerId: text("provider_server_id"),
+		providerEndpointDomain: text("provider_endpoint_domain"),
 		providerLabel: text("provider_label").notNull(),
 		label: text("label"),
 		state: text("state").notNull(),

@@ -537,6 +537,20 @@
         "vitest": "catalog:",
       },
     },
+    "packages/sandbox-providers": {
+      "name": "@zuse/sandbox-providers",
+      "version": "0.0.0",
+      "dependencies": {
+        "@zuse/provider-registry": "*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@repo/typescript-config": "*",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/serve": {
       "name": "@zusehq/serve",
       "version": "0.1.2",
@@ -2218,6 +2232,8 @@
     "@zuse/provider-registry": ["@zuse/provider-registry@workspace:packages/provider-registry"],
 
     "@zuse/relay": ["@zuse/relay@workspace:infra/relay"],
+
+    "@zuse/sandbox-providers": ["@zuse/sandbox-providers@workspace:packages/sandbox-providers"],
 
     "@zuse/sqlite": ["@zuse/sqlite@workspace:packages/sqlite"],
 

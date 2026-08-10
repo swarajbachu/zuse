@@ -4,6 +4,8 @@ export interface MachineControlConfig {
 	readonly allowlistedAccountIds: ReadonlySet<string>;
 	readonly manualEntitlementsEnabled: boolean;
 	readonly liveCheckoutEnabled: boolean;
+	readonly availableOfferIds?: ReadonlySet<string>;
+	readonly liveCheckoutOfferIds?: ReadonlySet<string>;
 	readonly enrollmentTtlMs: number;
 	readonly recoveryWindowMs: number;
 	readonly finalSnapshotRetentionMs: number;

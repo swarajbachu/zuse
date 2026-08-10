@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
 	activateServeRuntimeUpdate,
+	foregroundServeOptions,
 	latestPairingLink,
 	removeServeRuntime,
 	requiresServeAccountAuthorization,
@@ -36,6 +37,27 @@ describe("serve data directory", () => {
 });
 
 describe("Serve package metadata commands", () => {
+	it("honors container host and pairing environment in foreground mode", () => {
+		expect(
+			foregroundServeOptions(
+				{
+					ZUSE_HOST: "0.0.0.0",
+					ZUSE_PORT: "47837",
+					ZUSE_ENABLE_PAIRING: "0",
+				},
+				{
+					sshManaged: false,
+					dataDir: "/home/zuse/.zuse-data",
+				},
+			),
+		).toMatchObject({
+			host: "0.0.0.0",
+			port: 47_837,
+			pairing: false,
+			policy: "protected",
+		});
+	});
+
 	it("does not require account authorization for private or SSH-managed access", () => {
 		expect(
 			requiresServeAccountAuthorization({ sshManaged: false, tailscale: true }),

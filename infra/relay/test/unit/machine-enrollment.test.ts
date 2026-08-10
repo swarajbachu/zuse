@@ -1,5 +1,6 @@
 import { BillingProvidersManual } from "@zuse/billing-providers";
 import { MachineProvidersFake } from "@zuse/machine-providers/testing";
+import { SandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, Redacted, Ref } from "effect";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, test } from "vitest";
@@ -38,15 +39,22 @@ const configLayer = Config.layer({
 	mintPublicKey: '{"kty":"OKP"}',
 });
 
-const testLayer = Layer.mergeAll(
-	configLayer,
-	WorkosVerifierTest,
-	MachineStoreMemory,
-	MachineProvidersFake,
-	BillingProvidersManual,
-	RelayStoreMemory,
-	Layer.succeed(ManagedTunnelProvider, testTunnel),
-);
+const makeTestLayer = (
+	machineStore: Layer.Layer<MachineStore>,
+	tunnel: ManagedTunnelProviderApi,
+) =>
+	Layer.mergeAll(
+		configLayer,
+		WorkosVerifierTest,
+		machineStore,
+		MachineProvidersFake,
+		SandboxProvidersFake,
+		BillingProvidersManual,
+		RelayStoreMemory,
+		Layer.succeed(ManagedTunnelProvider, tunnel),
+	);
+
+const testLayer = makeTestLayer(MachineStoreMemory, testTunnel);
 
 const failFirstCompareAndSet = Layer.effect(
 	MachineStore,
@@ -67,14 +75,9 @@ const failFirstCompareAndSet = Layer.effect(
 	}),
 ).pipe(Layer.provide(MachineStoreMemory));
 
-const compareAndSetRaceLayer = Layer.mergeAll(
-	configLayer,
-	WorkosVerifierTest,
+const compareAndSetRaceLayer = makeTestLayer(
 	failFirstCompareAndSet,
-	MachineProvidersFake,
-	BillingProvidersManual,
-	RelayStoreMemory,
-	Layer.succeed(ManagedTunnelProvider, testTunnel),
+	testTunnel,
 );
 
 const proofFor = async (
@@ -134,13 +137,21 @@ const safeRoute = (request: Request) =>
 		),
 	);
 
-const seedEnrollment = Effect.fn("seedEnrollment")(function* (nowMs: number) {
+const seedEnrollment = Effect.fn("seedEnrollment")(function* (
+	nowMs: number,
+	options: {
+		readonly offerId?: string;
+		readonly providerServerId?: string;
+		readonly providerEndpointDomain?: string;
+	} = {},
+) {
 	const store = yield* MachineStore;
+	const offerId = options.offerId ?? "persistent-standard-v1";
 	yield* store.upsertEntitlement({
 		entitlementId: "ent_1",
 		accountId: "user_a",
 		kind: "persistent-machine",
-		offerId: "persistent-standard-v1",
+		offerId,
 		provider: "manual",
 		status: "active",
 		paidThroughMs: nowMs + 30 * 24 * 60 * 60 * 1_000,
@@ -149,7 +160,8 @@ const seedEnrollment = Effect.fn("seedEnrollment")(function* (nowMs: number) {
 	});
 	const created = yield* store.createMachine({
 		accountId: "user_a",
-		offerId: "persistent-standard-v1",
+		offerId,
+		sameKindOfferIds: [offerId],
 		idempotencyKey: "create_1",
 		machineId: "machine_1",
 		provider: "fake",
@@ -159,6 +171,8 @@ const seedEnrollment = Effect.fn("seedEnrollment")(function* (nowMs: number) {
 	if (created.kind !== "created") return yield* Effect.die(created.kind);
 	const machine = {
 		...created.machine,
+		providerServerId: options.providerServerId,
+		providerEndpointDomain: options.providerEndpointDomain,
 		state: "enrolling" as const,
 		statusCode: "enrollment-pending" as const,
 		enrollmentTokenHash: yield* sha256Hex(TOKEN),
@@ -169,6 +183,56 @@ const seedEnrollment = Effect.fn("seedEnrollment")(function* (nowMs: number) {
 });
 
 describe("machine enrollment", () => {
+	test("enrolls a sandbox at its public provider endpoint without a tunnel", async () => {
+		let tunnelProvisionCalls = 0;
+		const tunnel: ManagedTunnelProviderApi = {
+			enabled: true,
+			provision: () => {
+				tunnelProvisionCalls += 1;
+				return Effect.die("sandbox enrollment must not provision a tunnel");
+			},
+			deprovision: () => Effect.void,
+		};
+		const key = await generateKeyPair("EdDSA", { extractable: true });
+		const publicJwk = JSON.stringify(await exportJWK(key.publicKey));
+		const proof = await proofFor(key.privateKey);
+
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				yield* seedEnrollment(Date.now(), {
+					offerId: "sandbox-standard-v1",
+					providerServerId: "sandbox_1",
+					providerEndpointDomain: "sandbox.test",
+				});
+				const response = yield* safeRoute(enrollRequest({ publicJwk, proof }));
+				if (response === null) return yield* Effect.die("route did not match");
+				const relayStore = yield* RelayStore;
+				return {
+					response,
+					body: (yield* Effect.promise(() => response.json())) as {
+						readonly endpoint: {
+							readonly httpBaseUrl: string;
+							readonly wsBaseUrl: string;
+						};
+						readonly tunnelHostname?: string;
+						readonly connectorToken?: string;
+					},
+					environment: yield* relayStore.getEnvironment(ENVIRONMENT_ID),
+				};
+			}).pipe(Effect.provide(makeTestLayer(MachineStoreMemory, tunnel))),
+		);
+
+		expect(result.response?.status).toBe(200);
+		expect(result.body.endpoint).toEqual({
+			httpBaseUrl: "https://47837-sandbox_1.sandbox.test",
+			wsBaseUrl: "wss://47837-sandbox_1.sandbox.test",
+		});
+		expect(result.body.tunnelHostname).toBeUndefined();
+		expect(result.body.connectorToken).toBeUndefined();
+		expect(result.environment?.tunnelId).toBeUndefined();
+		expect(tunnelProvisionCalls).toBe(0);
+	});
+
 	test("does not become ready until both enrollment and Zuse startup complete", async () => {
 		const key = await generateKeyPair("EdDSA", { extractable: true });
 		const publicJwk = JSON.stringify(await exportJWK(key.publicKey));
