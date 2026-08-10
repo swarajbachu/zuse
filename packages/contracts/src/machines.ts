@@ -641,29 +641,6 @@ export const AccountAccessDetectLocalRpc = Rpc.make(
 	},
 );
 
-export class LocalAccountCredential extends Schema.Class<LocalAccountCredential>(
-	"LocalAccountCredential",
-)({
-	providerId: AccountAccessProvider,
-	credentialType: Schema.Literals([
-		"api-key",
-		"oauth-token",
-		"repository-token",
-		"native-store",
-	]),
-	secret: Schema.String,
-	accountLabel: Schema.optional(Schema.String),
-}) {}
-
-export const AccountAccessExportLocalRpc = Rpc.make(
-	"accountAccess.exportLocal",
-	{
-		payload: Schema.Struct({ providerId: AccountAccessProvider }),
-		success: LocalAccountCredential,
-		error: AccountAccessOpError,
-	},
-);
-
 export const AccountAccessStartLoginRpc = Rpc.make("accountAccess.startLogin", {
 	payload: Schema.Struct({
 		providerId: Schema.Literals(["github", "codex"]),

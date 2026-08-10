@@ -267,10 +267,10 @@ export const CloudCredentialsListRpc = Rpc.make("cloud.credentials.list", {
 	success: CloudCredentialList,
 	error: CloudWorkspaceOpError,
 });
-export const CloudCredentialsConnectRpc = Rpc.make(
-	"cloud.credentials.connect",
+export const CloudCredentialsImportLocalRpc = Rpc.make(
+	"cloud.credentials.importLocal",
 	{
-		payload: CloudCredentialConnectRequest,
+		payload: Schema.Struct({ kind: CloudCredentialKind }),
 		success: CloudCredentialConnection,
 		error: CloudWorkspaceOpError,
 	},

@@ -114,11 +114,13 @@ const installCloudCredentials = Effect.fn("installCloudCredentials")(function* (
 						`github.com:\n    oauth_token: ${JSON.stringify(credential.secret)}\n    git_protocol: https\n`,
 						{ encoding: "utf8", mode: 0o600 },
 					);
+					await chmod(hostsFile, 0o600);
 					await writeFile(
 						gitConfigFile,
 						'[credential "https://github.com"]\n\thelper = !gh auth git-credential\n',
 						{ encoding: "utf8", mode: 0o600 },
 					);
+					await chmod(gitConfigFile, 0o600);
 				},
 				catch: () => fail("credential_install_failed"),
 			});
@@ -143,6 +145,7 @@ const installCloudCredentials = Effect.fn("installCloudCredentials")(function* (
 						encoding: "utf8",
 						mode: 0o600,
 					});
+					await chmod(credentialFile, 0o600);
 				},
 				catch: () => fail("credential_install_failed"),
 			});

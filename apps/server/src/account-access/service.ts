@@ -23,7 +23,6 @@ import type {
 import {
 	AccountAccessProviderStatus,
 	AccountAccessStatus,
-	LocalAccountCredential,
 	LocalAccountDescriptor,
 	LocalAccountDescriptorList,
 	RelayEnvironmentList,
@@ -71,6 +70,50 @@ import {
 
 const execFileAsync = promisify(execFile);
 const TRANSFER_TTL_MS = 5 * 60 * 1_000;
+const MAX_NATIVE_CREDENTIAL_BYTES = 32_768;
+
+const validateNativeCredential = (
+	providerId: "claude" | "codex",
+	secret: string,
+): string => {
+	if (
+		secret.trim().length < 8 ||
+		Buffer.byteLength(secret, "utf8") > MAX_NATIVE_CREDENTIAL_BYTES
+	)
+		throw new AccountAccessServiceError("credential-export-failed");
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(secret);
+	} catch {
+		throw new AccountAccessServiceError("credential-export-failed");
+	}
+	if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
+		throw new AccountAccessServiceError("credential-export-failed");
+	const record = parsed as Record<string, unknown>;
+	const recognized =
+		providerId === "claude"
+			? record.claudeAiOauth !== undefined
+			: record.tokens !== undefined || record.OPENAI_API_KEY !== undefined;
+	if (!recognized)
+		throw new AccountAccessServiceError("credential-export-failed");
+	return secret;
+};
+
+const readNativeCredentialFile = async (
+	providerId: "claude" | "codex",
+	path: string,
+): Promise<string> => {
+	const metadata = await lstat(path);
+	const ownedByCurrentUser =
+		typeof process.getuid !== "function" || metadata.uid === process.getuid();
+	if (
+		!metadata.isFile() ||
+		!ownedByCurrentUser ||
+		(metadata.mode & 0o077) !== 0
+	)
+		throw new AccountAccessServiceError("credential-export-failed");
+	return validateNativeCredential(providerId, await readFile(path, "utf8"));
+};
 
 export type AccountAccessProcessEvent =
 	| { readonly _tag: "line"; readonly text: string }
@@ -293,9 +336,21 @@ export interface AccountAccessServiceShape {
 		LocalAccountDescriptorList,
 		AccountAccessServiceError
 	>;
-	readonly exportLocalCredential: (
+	readonly readLocalCredential: (
 		providerId: AccountAccessProvider,
-	) => Effect.Effect<LocalAccountCredential, AccountAccessServiceError>;
+	) => Effect.Effect<
+		{
+			readonly providerId: AccountAccessProvider;
+			readonly credentialType:
+				| "api-key"
+				| "oauth-token"
+				| "repository-token"
+				| "native-store";
+			readonly secret: string;
+			readonly accountLabel?: string;
+		},
+		AccountAccessServiceError
+	>;
 	readonly startLogin: (
 		providerId: "github" | "codex",
 	) => Stream.Stream<AccountAccessTransferEvent, AccountAccessServiceError>;
@@ -505,92 +560,70 @@ export const AccountAccessServiceLive = Layer.effect(
 			return new LocalAccountDescriptorList({ accounts });
 		});
 
-		const exportLocalCredential = Effect.fn(
-			"AccountAccess.exportLocalCredential",
-		)(function* (providerId: AccountAccessProvider) {
-			yield* requireRole("control-plane");
-			const accountHome =
-				process.env.ZUSE_ACCOUNT_ACCESS_HOME?.trim() || homedir();
-			if (providerId === "github") {
-				const result = yield* capture("gh", [
-					"auth",
-					"token",
-					"--hostname",
-					"github.com",
-				]);
-				const secret = result.stdout.trim();
-				if (result.code !== 0 || secret.length < 8)
+		const readLocalCredential = Effect.fn("AccountAccess.readLocalCredential")(
+			function* (providerId: AccountAccessProvider) {
+				yield* requireRole("control-plane");
+				const accountHome =
+					process.env.ZUSE_ACCOUNT_ACCESS_HOME?.trim() || homedir();
+				if (providerId === "github") {
+					const result = yield* capture("gh", [
+						"auth",
+						"token",
+						"--hostname",
+						"github.com",
+					]);
+					const secret = result.stdout.trim();
+					if (result.code !== 0 || secret.length < 8)
+						return yield* Effect.fail(
+							new AccountAccessServiceError("credential-export-failed"),
+						);
+					return {
+						providerId,
+						credentialType: "repository-token",
+						secret,
+						accountLabel: "GitHub account",
+					} as const;
+				}
+
+				const nativePath =
+					providerId === "claude"
+						? join(accountHome, ".claude", ".credentials.json")
+						: join(accountHome, ".codex", "auth.json");
+				let secret = yield* Effect.tryPromise({
+					try: () => readNativeCredentialFile(providerId, nativePath),
+					catch: () =>
+						new AccountAccessServiceError("credential-export-failed"),
+				}).pipe(Effect.option);
+				if (secret._tag === "None" && providerId === "claude") {
+					const keychain = yield* capture("security", [
+						"find-generic-password",
+						"-s",
+						"Claude Code-credentials",
+						"-w",
+					]).pipe(Effect.option);
+					if (keychain._tag === "Some" && keychain.value.code === 0) {
+						try {
+							secret = Option.some(
+								validateNativeCredential("claude", keychain.value.stdout),
+							);
+						} catch {
+							secret = Option.none();
+						}
+					}
+				}
+				if (secret._tag === "None")
 					return yield* Effect.fail(
 						new AccountAccessServiceError("credential-export-failed"),
 					);
-				return new LocalAccountCredential({
+				return {
 					providerId,
-					credentialType: "repository-token",
-					secret,
-					accountLabel: "GitHub account",
-				});
-			}
-
-			if (providerId === "claude") {
-				const managed = yield* credentials
-					.getProviderCredential("claude")
-					.pipe(
-						Effect.mapError(
-							() => new AccountAccessServiceError("credential-export-failed"),
-						),
-					);
-				if (managed !== null) {
-					return new LocalAccountCredential({
-						providerId,
-						credentialType: managed.kind,
-						secret: managed.secret,
-						accountLabel: "Claude account",
-					});
-				}
-			}
-
-			const nativePath =
-				providerId === "claude"
-					? join(accountHome, ".claude", ".credentials.json")
-					: join(accountHome, ".codex", "auth.json");
-			let secret = yield* Effect.tryPromise({
-				try: () => readFile(nativePath, "utf8"),
-				catch: () => new AccountAccessServiceError("credential-export-failed"),
-			}).pipe(Effect.option);
-			if (secret._tag === "None" && providerId === "claude") {
-				const keychain = yield* capture("security", [
-					"find-generic-password",
-					"-s",
-					"Claude Code-credentials",
-					"-w",
-				]).pipe(Effect.option);
-				if (keychain._tag === "Some" && keychain.value.code === 0) {
-					secret = Option.some(keychain.value.stdout);
-				}
-			}
-			if (
-				secret._tag === "None" ||
-				secret.value.trim().length < 8 ||
-				secret.value.length > 32_768
-			)
-				return yield* Effect.fail(
-					new AccountAccessServiceError("credential-export-failed"),
-				);
-			try {
-				JSON.parse(secret.value);
-			} catch {
-				return yield* Effect.fail(
-					new AccountAccessServiceError("credential-export-failed"),
-				);
-			}
-			return new LocalAccountCredential({
-				providerId,
-				credentialType: "native-store",
-				secret: secret.value,
-				accountLabel:
-					providerId === "claude" ? "Claude account" : "OpenAI account",
-			});
-		});
+					credentialType: "native-store",
+					secret: secret.value,
+					accountLabel:
+						providerId === "claude" ? "Claude account" : "OpenAI account",
+				} as const;
+			},
+		);
 
 		const prepareImport = Effect.fn("AccountAccess.prepareImport")(
 			function* (input: {
@@ -1047,7 +1080,7 @@ export const AccountAccessServiceLive = Layer.effect(
 		return AccountAccessService.of({
 			status,
 			detectLocal,
-			exportLocalCredential,
+			readLocalCredential,
 			startLogin,
 			prepareImport,
 			createClaudeTransfer,

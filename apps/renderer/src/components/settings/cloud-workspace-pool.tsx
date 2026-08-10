@@ -162,7 +162,11 @@ export function CloudWorkspacePool({
 				cause instanceof CloudWorkspaceOpError &&
 					cause.code === "entitlement-required"
 					? "A Cloud Workspace subscription is required."
-					: "That cloud action could not be completed. Try again.",
+					: name.startsWith("credential:") &&
+							cause instanceof CloudWorkspaceOpError &&
+							cause.code === "invalid-request"
+						? "No signed-in local account could be imported. Sign in on this Mac and try again."
+						: "That cloud action could not be completed. Try again.",
 			);
 		} finally {
 			setBusy(null);
@@ -195,16 +199,8 @@ export function CloudWorkspacePool({
 	const connectCredential = (kind: "github" | "claude" | "codex") =>
 		run(`credential:${kind}`, async () => {
 			const client = await getControlPlaneRpcClient();
-			const localCredential = await Effect.runPromise(
-				client["accountAccess.exportLocal"]({ providerId: kind }),
-			);
 			await Effect.runPromise(
-				client["cloud.credentials.connect"]({
-					kind,
-					credentialType: localCredential.credentialType,
-					secret: localCredential.secret,
-					accountLabel: localCredential.accountLabel,
-				}),
+				client["cloud.credentials.importLocal"]({ kind }),
 			);
 		});
 

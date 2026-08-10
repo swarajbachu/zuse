@@ -6,6 +6,7 @@ import {
 } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 
+import { AccountAccessService } from "../account-access/service.ts";
 import {
 	type MachineControlError,
 	MachineControlService,
@@ -119,10 +120,29 @@ const CloudCredentials = MemoizeRpcs.toLayerHandler(
 	"cloud.credentials.list",
 	() => withCloudControl((service) => service.cloudCredentials()),
 );
-const ConnectCloudCredential = MemoizeRpcs.toLayerHandler(
-	"cloud.credentials.connect",
-	(input) =>
-		withCloudControl((service) => service.connectCloudCredential(input)),
+const ImportLocalCloudCredential = MemoizeRpcs.toLayerHandler(
+	"cloud.credentials.importLocal",
+	({ kind }) =>
+		Effect.gen(function* () {
+			const accountAccess = yield* AccountAccessService;
+			const credential = yield* accountAccess
+				.readLocalCredential(kind)
+				.pipe(
+					Effect.mapError(
+						() => new CloudWorkspaceOpError({ code: "invalid-request" }),
+					),
+				);
+			return yield* withCloudControl((service) =>
+				service.connectCloudCredential({
+					kind,
+					credentialType: credential.credentialType,
+					secret: credential.secret,
+					...(credential.accountLabel === undefined
+						? {}
+						: { accountLabel: credential.accountLabel }),
+				}),
+			);
+		}),
 );
 const DisconnectCloudCredential = MemoizeRpcs.toLayerHandler(
 	"cloud.credentials.disconnect",
@@ -223,7 +243,7 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	ArchiveCloudWorkspace,
 	DeleteCloudWorkspace,
 	CloudCredentials,
-	ConnectCloudCredential,
+	ImportLocalCloudCredential,
 	DisconnectCloudCredential,
 	Offers,
 	List,
