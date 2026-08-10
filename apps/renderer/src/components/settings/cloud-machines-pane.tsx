@@ -5,6 +5,7 @@ import {
 	type MachineRecord,
 	type MachineRuntimeStatus,
 	type MachineSshKey,
+	type SandboxProviderOption,
 	type SshMode,
 } from "@zuse/contracts";
 import { Effect } from "effect";
@@ -120,11 +121,13 @@ export const runtimeVersionDescription = (
 function SandboxCloudMachineCard({
 	offer,
 	machine,
+	providerDisplayName,
 	onMachineChange,
 	onRefresh,
 }: {
 	readonly offer: MachineOffer;
 	readonly machine: MachineRecord | null;
+	readonly providerDisplayName: string;
 	readonly onMachineChange: (machine: MachineRecord | null) => void;
 	readonly onRefresh: () => Promise<void>;
 }) {
@@ -170,7 +173,10 @@ function SandboxCloudMachineCard({
 			const client = await getControlPlaneRpcClient();
 			try {
 				const checkout = await Effect.runPromise(
-					client["machines.checkout"]({ offerId: offer.offerId }),
+					client["machines.checkout"]({
+						offerId: offer.offerId,
+						sandboxProviderId: machine?.sandboxProviderId,
+					}),
 				);
 				setCheckoutUrl(checkout.checkoutUrl);
 				writeCloudMachineCheckoutSession(window.sessionStorage, {
@@ -318,6 +324,11 @@ function SandboxCloudMachineCard({
 						{error}
 					</div>
 				)}
+				<CloudSettingsRow
+					title="Compute provider"
+					description={providerDisplayName}
+					action={<Badge variant="outline">Managed</Badge>}
+				/>
 				<CloudSettingsRow
 					title={progress.headline}
 					description={progress.detail}
@@ -537,6 +548,9 @@ export function CloudMachinesPane() {
 	const [offer, setOffer] = useState<MachineOffer | null>(null);
 	const [machine, setMachine] = useState<MachineRecord | null>(null);
 	const [sandboxOffer, setSandboxOffer] = useState<MachineOffer | null>(null);
+	const [sandboxProviders, setSandboxProviders] = useState<
+		ReadonlyArray<SandboxProviderOption>
+	>([]);
 	const [sandboxMachine, setSandboxMachine] = useState<MachineRecord | null>(
 		null,
 	);
@@ -612,6 +626,7 @@ export function CloudMachinesPane() {
 						}) ??
 				(sandboxCandidate?.available === true ? sandboxCandidate : null);
 			setSandboxOffer(nextSandboxOffer);
+			setSandboxProviders(offers.sandboxProviders);
 			setMachine(activeMachine);
 			setSandboxMachine(activeSandbox);
 			if (
@@ -986,6 +1001,15 @@ export function CloudMachinesPane() {
 				<SandboxCloudMachineCard
 					offer={sandboxOffer}
 					machine={sandboxMachine}
+					providerDisplayName={
+						sandboxProviders.find(
+							(provider) =>
+								provider.providerId === sandboxMachine?.sandboxProviderId,
+						)?.displayName ??
+						sandboxProviders.find((provider) => provider.default)
+							?.displayName ??
+						"Automatically selected"
+					}
 					onMachineChange={setSandboxMachine}
 					onRefresh={load}
 				/>

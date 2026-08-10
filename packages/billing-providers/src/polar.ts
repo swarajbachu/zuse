@@ -176,6 +176,7 @@ export const makePolarBillingProvider = (
 							externalCustomerId: input.accountId,
 							successUrl: input.successUrl,
 							metadata: {
+								...input.fulfillmentMetadata,
 								account_id: input.accountId,
 								offer_id: input.offerId,
 							},
@@ -222,6 +223,14 @@ export const makePolarBillingProvider = (
 				});
 				const metadataAccountId = subscription?.metadata?.account_id;
 				const metadataOfferId = subscription?.metadata?.offer_id;
+				const fulfillmentMetadata = Object.fromEntries(
+					Object.entries(subscription?.metadata ?? {}).filter(
+						(entry): entry is [string, string] =>
+							entry[0] !== "account_id" &&
+							entry[0] !== "offer_id" &&
+							typeof entry[1] === "string",
+					),
+				);
 				const accountId =
 					subscription?.customer.externalId ??
 					(typeof metadataAccountId === "string"
@@ -245,6 +254,9 @@ export const makePolarBillingProvider = (
 					providerSubscriptionId: subscription.id,
 					status: normalizeStatus(subscription.status),
 					offerId,
+					...(Object.keys(fulfillmentMetadata).length === 0
+						? {}
+						: { fulfillmentMetadata }),
 					paidThrough: subscription.currentPeriodEnd.getTime(),
 				};
 			}),

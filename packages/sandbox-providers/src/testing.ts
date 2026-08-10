@@ -65,7 +65,6 @@ const makeSandboxProvidersFakeFromControl = (
 					providerSandboxId: `fake-${input.sandboxId}`,
 					providerLabel: input.providerLabel,
 					state: "running",
-					endpointDomain: "sandbox.test",
 				};
 				yield* Ref.update(control.sandboxes, (items) =>
 					new Map(items).set(created.providerSandboxId, created),
@@ -90,6 +89,7 @@ const makeSandboxProvidersFakeFromControl = (
 				});
 			const adapter: SandboxProviderAdapter = {
 				providerId: "fake",
+				displayName: "Test sandbox",
 				create,
 				fork: (input) =>
 					create({
@@ -115,6 +115,11 @@ const makeSandboxProvidersFakeFromControl = (
 					Ref.get(control.sandboxes).pipe(
 						Effect.map((items) => items.get(providerSandboxId) ?? null),
 					),
+				resolveEndpoint: (providerSandboxId, port) =>
+					Effect.succeed({
+						httpBaseUrl: `https://${port}-${providerSandboxId}.sandbox.test`,
+						wsBaseUrl: `wss://${port}-${providerSandboxId}.sandbox.test`,
+					}),
 				pause: (providerSandboxId) => setState(providerSandboxId, "paused"),
 				resume: (providerSandboxId) =>
 					setState(providerSandboxId, "running").pipe(
@@ -159,7 +164,7 @@ const makeSandboxProvidersFakeFromControl = (
 			};
 			return SandboxProviders.of(
 				yield* makeSandboxProviders({
-					registrations: [{ adapter }, ...registrations],
+					registrations: [{ adapter, advertised: false }, ...registrations],
 					defaultProviderId: adapter.providerId,
 				}),
 			);

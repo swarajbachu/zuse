@@ -8,7 +8,7 @@ import {
 } from "../../src/sandbox-provider-config.ts";
 
 const configuredEnvironment = {
-	SANDBOX_PROVIDER: "e2b",
+	SANDBOX_DEFAULT_PROVIDER: "e2b",
 	E2B_ADAPTER_ENABLED: "true",
 	E2B_API_KEY: "secret",
 	E2B_API_BASE_URL: "https://sandbox.test",
@@ -36,7 +36,7 @@ describe("sandbox provider configuration", () => {
 
 	test("fails closed when the selected live provider is incomplete", () => {
 		expect(() =>
-			resolveSandboxProviderRuntime({ SANDBOX_PROVIDER: "e2b" }),
+			resolveSandboxProviderRuntime({ SANDBOX_DEFAULT_PROVIDER: "e2b" }),
 		).toThrow(SandboxProviderConfigurationError);
 	});
 
@@ -50,7 +50,7 @@ describe("sandbox provider configuration", () => {
 
 		expect(runtime.providerId).toBe("e2b");
 		expect(runtime.productionReady).toBe(false);
-		expect(runtime.offer.templateId).toBe("zuse-sandbox");
+		expect(runtime.providerId).toBe("e2b");
 		expect(providerId).toBe("e2b");
 	});
 });

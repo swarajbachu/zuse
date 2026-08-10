@@ -34,10 +34,21 @@ export class MachineOffer extends Schema.Class<MachineOffer>("MachineOffer")({
 	available: Schema.Boolean,
 }) {}
 
+export class SandboxProviderOption extends Schema.Class<SandboxProviderOption>(
+	"SandboxProviderOption",
+)({
+	providerId: Schema.String,
+	displayName: Schema.String,
+	default: Schema.Boolean,
+}) {}
+
 export class MachineOfferList extends Schema.Class<MachineOfferList>(
 	"MachineOfferList",
 )({
 	offers: Schema.Array(MachineOffer),
+	sandboxProviders: Schema.Array(SandboxProviderOption).pipe(
+		Schema.withDecodingDefaultKey(Effect.succeed([])),
+	),
 }) {}
 
 export const MachineState = Schema.Literals([
@@ -105,6 +116,7 @@ export class MachineRecord extends Schema.Class<MachineRecord>("MachineRecord")(
 		desiredState: DesiredMachineState,
 		statusCode: MachineStatusCode,
 		bootPhase: Schema.optional(MachineBootPhase),
+		sandboxProviderId: Schema.optional(Schema.String),
 		environmentId: Schema.optional(EnvironmentId),
 		createdAt: Schema.Number,
 		paidThrough: Schema.optional(Schema.Number),
@@ -120,6 +132,7 @@ export class MachineCreateRequest extends Schema.Class<MachineCreateRequest>(
 	"MachineCreateRequest",
 )({
 	offerId: Schema.String,
+	sandboxProviderId: Schema.optional(Schema.String),
 	label: Schema.optional(Schema.String),
 	idempotencyKey: Schema.String,
 }) {}
@@ -211,6 +224,7 @@ export class BillingCheckoutRequest extends Schema.Class<BillingCheckoutRequest>
 	"BillingCheckoutRequest",
 )({
 	offerId: Schema.String,
+	sandboxProviderId: Schema.optional(Schema.String),
 }) {}
 
 export class BillingCheckout extends Schema.Class<BillingCheckout>(

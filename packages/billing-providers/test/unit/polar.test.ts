@@ -70,6 +70,9 @@ describe("Polar billing provider", () => {
 					accountId: "account_1",
 					offerId: "persistent-standard-v1",
 					successUrl: "https://relay.test/v1/billing/checkout/complete",
+					fulfillmentMetadata: {
+						sandbox_provider_id: "provider-a",
+					},
 				}),
 				portal: provider.customerPortal("account_1"),
 			}),
@@ -85,6 +88,7 @@ describe("Polar billing provider", () => {
 				externalCustomerId: "account_1",
 				successUrl: "https://relay.test/v1/billing/checkout/complete",
 				metadata: {
+					sandbox_provider_id: "provider-a",
 					account_id: "account_1",
 					offer_id: "persistent-standard-v1",
 				},
@@ -137,6 +141,7 @@ describe("Polar billing provider", () => {
 			metadata: {
 				account_id: "account_1",
 				offer_id: "persistent-standard-v1",
+				sandbox_provider_id: "provider-a",
 			},
 			customer: { externalId: null },
 		});
@@ -148,6 +153,7 @@ describe("Polar billing provider", () => {
 			accountId: "account_1",
 			offerId: "persistent-standard-v1",
 			status: "ended",
+			fulfillmentMetadata: { sandbox_provider_id: "provider-a" },
 		});
 	});
 

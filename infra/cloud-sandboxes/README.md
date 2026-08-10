@@ -34,10 +34,17 @@ npx --yes @e2b/cli@latest template create zuse-cloud-sandbox \
 ```
 
 The current CLI's `template create` command is used instead of the legacy
-`e2b.toml` workflow. Copy the resulting template ID to `E2B_TEMPLATE_ID` in the
-staging relay configuration, set the `E2B_API_KEY` Worker secret with
+`e2b.toml` workflow. This provider's template ID stays inside its adapter
+configuration; it is not part of the provider-neutral Cloud Sandbox offer.
+Copy the resulting template ID to `E2B_TEMPLATE_ID`, set the `E2B_API_KEY`
+Worker secret with
 `bun --filter @zuse/relay secret:e2b`, and deploy the relay only after the
 template can be created with the configured API key.
+
+`SANDBOX_DEFAULT_PROVIDER` is only the fallback placement when a provisioning
+request does not choose an enabled provider. Future adapters keep their native
+image, snapshot, or recipe settings under their own prefixes while sharing the
+same sandbox offer and lifecycle contract.
 
 The relay injects enrollment values into the process, not the template's global
 environment. The entrypoint fails before starting Zuse if any required value is

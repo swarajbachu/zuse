@@ -65,6 +65,7 @@ export const E2bSandboxProviderModule: SandboxProviderModule = {
 		return {
 			adapter: makeE2bSandboxProvider({
 				apiKey: Redacted.make(config.E2B_API_KEY),
+				templateId: config.E2B_TEMPLATE_ID,
 				apiBaseUrl: config.E2B_API_BASE_URL?.href,
 				sandboxDomain: config.E2B_SANDBOX_DOMAIN,
 			}),

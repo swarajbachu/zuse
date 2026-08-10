@@ -18,6 +18,10 @@ const sandboxEndpointMigrationUrl = new URL(
 	"../../drizzle/migrations/0005_sandbox_endpoint_domain.sql",
 	import.meta.url,
 );
+const providerNeutralEndpointMigrationUrl = new URL(
+	"../../drizzle/migrations/0006_robust_cammi.sql",
+	import.meta.url,
+);
 
 describe("relay migration reconciliation", () => {
 	test("keeps the main migration history before managed cloud machines", async () => {
@@ -35,7 +39,24 @@ describe("relay migration reconciliation", () => {
 			{ idx: 3, tag: "0003_managed_cloud_machines" },
 			{ idx: 4, tag: "0004_credential_cleanup_handshake" },
 			{ idx: 5, tag: "0005_sandbox_endpoint_domain" },
+			{ idx: 6, tag: "0006_robust_cammi" },
 		]);
+	});
+
+	test("migrates provider-native domains to resolved sandbox endpoints", async () => {
+		const migration = await readFile(
+			providerNeutralEndpointMigrationUrl,
+			"utf8",
+		);
+
+		expect(migration).toContain(
+			'ADD COLUMN "provider_endpoint_http_base_url" text',
+		);
+		expect(migration).toContain(
+			'ADD COLUMN "provider_endpoint_ws_base_url" text',
+		);
+		expect(migration).toContain('UPDATE "relay_machines"');
+		expect(migration).toContain('DROP COLUMN "provider_endpoint_domain"');
 	});
 
 	test("persists the provider endpoint used by tunnel-less sandboxes", async () => {

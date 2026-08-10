@@ -33,6 +33,7 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 		const adapter = makeE2bSandboxProvider({
 			// biome-ignore lint/style/noNonNullAssertion: guarded by skipIf
 			apiKey: Redacted.make(apiKey!),
+			templateId: LIVE_TEMPLATE,
 		});
 		const runId = Date.now().toString(36);
 		const label = `zuse-live-${runId}`;
@@ -46,7 +47,6 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 				adapter.create({
 					sandboxId: `live_${runId}`,
 					providerLabel: label,
-					templateId: LIVE_TEMPLATE,
 					timeoutSeconds: LIVE_TIMEOUT_SECONDS,
 					env: { ZUSE_LIVE_TEST: runId },
 					network: { kind: "quarantined" },
@@ -55,7 +55,6 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 			createdIds.push(created.providerSandboxId);
 			expect(created.providerSandboxId).not.toBe("");
 			expect(created.state).toBe("running");
-			expect(created.endpointDomain).not.toBe("");
 
 			// inspect
 			const inspected = await Effect.runPromise(
@@ -74,11 +73,14 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 					user: "user",
 				}),
 			);
+			const endpoint = await Effect.runPromise(
+				adapter.resolveEndpoint(created.providerSandboxId, 47_837),
+			);
 			const publicResponse = await pollUntil(
 				() =>
-					fetch(
-						`https://47837-${created.providerSandboxId}.${created.endpointDomain}`,
-					).catch(() => new Response(null, { status: 503 })),
+					fetch(endpoint.httpBaseUrl).catch(
+						() => new Response(null, { status: 503 }),
+					),
 				(response) => response.ok,
 			);
 			expect(publicResponse.ok).toBe(true);

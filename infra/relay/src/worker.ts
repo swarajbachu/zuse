@@ -69,7 +69,7 @@ interface Env {
 	readonly HETZNER_SERVER_TYPE_PERSISTENT_STANDARD_V1?: string;
 	readonly MACHINE_RUNTIME_MANIFEST_URL?: string;
 	readonly MACHINE_RUNTIME_SIGNING_PUBLIC_JWK?: string;
-	readonly SANDBOX_PROVIDER?: string;
+	readonly SANDBOX_DEFAULT_PROVIDER?: string;
 	readonly E2B_ADAPTER_ENABLED?: string;
 	readonly E2B_API_KEY?: string;
 	readonly E2B_API_BASE_URL?: string;
@@ -106,16 +106,22 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		runtimeInstallerSource,
 	});
 	const sandboxProvider = resolveSandboxProviderRuntime(env);
+	const availableSandboxProviderIds = new Set(
+		sandboxProvider.configuredProviders
+			.filter(
+				(provider) =>
+					env.POLAR_ENVIRONMENT === "sandbox" || provider.productionReady,
+			)
+			.map((provider) => provider.providerId),
+	);
 	const persistentCheckoutReady =
 		billing.liveCheckoutEnabled &&
 		(env.POLAR_ENVIRONMENT === "sandbox" || machineProvider.productionReady);
 	const sandboxOperational =
-		sandboxProvider.providerId !== "fake" &&
+		availableSandboxProviderIds.size > 0 &&
 		isConfigured(env.POLAR_PRODUCT_SANDBOX_STANDARD_V1);
 	const sandboxCheckoutReady =
-		billing.liveCheckoutEnabled &&
-		sandboxOperational &&
-		(env.POLAR_ENVIRONMENT === "sandbox" || sandboxProvider.productionReady);
+		billing.liveCheckoutEnabled && sandboxOperational;
 	const configuredLimit = Number(env.MAX_ENVIRONMENTS_PER_ACCOUNT ?? "5");
 	const configLayer = Config.layer({
 		relayIssuer: env.RELAY_ISSUER,
@@ -163,6 +169,7 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 			...(persistentCheckoutReady ? [PERSISTENT_STANDARD_OFFER_ID] : []),
 			...(sandboxCheckoutReady ? [SANDBOX_STANDARD_OFFER_ID] : []),
 		]),
+		availableSandboxProviderIds,
 		enrollmentTtlMs: 30 * 60 * 1_000,
 		recoveryWindowMs: 7 * 24 * 60 * 60 * 1_000,
 		finalSnapshotRetentionMs: 14 * 24 * 60 * 60 * 1_000,

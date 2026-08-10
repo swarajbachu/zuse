@@ -1,5 +1,8 @@
 import type { BillingProviders } from "@zuse/billing-providers";
-import type { SandboxProviderAdapter } from "@zuse/sandbox-providers";
+import type {
+	SandboxEndpoint,
+	SandboxProviderAdapter,
+} from "@zuse/sandbox-providers";
 import { Effect } from "effect";
 import { deleteAccountIdentityWhenInfrastructureIsClean } from "./account-deletion.ts";
 import type { AccountIdentity } from "./account-identity.ts";
@@ -56,15 +59,11 @@ const startSandboxServer = (
 		user: "zuse",
 	});
 
-const sandboxHealthReady = (sandbox: {
-	readonly providerSandboxId: string;
-	readonly endpointDomain: string;
-}) =>
+const sandboxHealthReady = (endpoint: SandboxEndpoint) =>
 	Effect.tryPromise(() =>
-		fetch(
-			`https://${SANDBOX_OFFER_PORT}-${sandbox.providerSandboxId}.${sandbox.endpointDomain}/healthz`,
-			{ signal: AbortSignal.timeout(3_000) },
-		).then((response) => response.ok),
+		fetch(`${endpoint.httpBaseUrl}/healthz`, {
+			signal: AbortSignal.timeout(3_000),
+		}).then((response) => response.ok),
 	).pipe(Effect.catch(() => Effect.succeed(false)));
 
 const SANDBOX_OFFER_PORT = 47_837;
@@ -154,11 +153,21 @@ const reconcileReadyTarget = Effect.fn("reconcileSandboxReadyTarget")(
 				return withProviderFailure(machine, nowMs, recoveredResult.failure);
 			}
 			if (recoveredResult.success !== null) {
-				if (yield* sandboxHealthReady(recoveredResult.success)) {
+				const endpointResult = yield* provider
+					.resolveEndpoint(
+						recoveredResult.success.providerSandboxId,
+						SANDBOX_OFFER_PORT,
+					)
+					.pipe(Effect.result);
+				if (endpointResult._tag === "Failure") {
+					return withProviderFailure(machine, nowMs, endpointResult.failure);
+				}
+				if (yield* sandboxHealthReady(endpointResult.success)) {
 					return {
 						...machine,
 						providerServerId: recoveredResult.success.providerSandboxId,
-						providerEndpointDomain: recoveredResult.success.endpointDomain,
+						providerEndpointHttpBaseUrl: endpointResult.success.httpBaseUrl,
+						providerEndpointWsBaseUrl: endpointResult.success.wsBaseUrl,
 						state: "bootstrapping" as const,
 						statusCode: "bootstrap-pending" as const,
 						stableFailureCode: undefined,
@@ -176,7 +185,8 @@ const reconcileReadyTarget = Effect.fn("reconcileSandboxReadyTarget")(
 				const recovered: MachinePersistenceRecord = {
 					...machine,
 					providerServerId: recoveredResult.success.providerSandboxId,
-					providerEndpointDomain: recoveredResult.success.endpointDomain,
+					providerEndpointHttpBaseUrl: endpointResult.success.httpBaseUrl,
+					providerEndpointWsBaseUrl: endpointResult.success.wsBaseUrl,
 					enrollmentTokenHash,
 					enrollmentExpiresAtMs: nowMs + machineConfig.enrollmentTtlMs,
 					statusCode: "provider-provisioning" as const,
@@ -240,7 +250,6 @@ const reconcileReadyTarget = Effect.fn("reconcileSandboxReadyTarget")(
 				.create({
 					sandboxId: machine.machineId,
 					providerLabel: machine.providerLabel,
-					templateId: sandboxConfig.templateId,
 					timeoutSeconds: sandboxConfig.createTimeoutSeconds,
 					env: {},
 					network: { kind: "open" },
@@ -249,10 +258,23 @@ const reconcileReadyTarget = Effect.fn("reconcileSandboxReadyTarget")(
 			if (createdResult._tag === "Failure") {
 				return withProviderFailure(persisted, nowMs, createdResult.failure);
 			}
+			const endpointResult = yield* provider
+				.resolveEndpoint(
+					createdResult.success.providerSandboxId,
+					SANDBOX_OFFER_PORT,
+				)
+				.pipe(Effect.result);
+			if (endpointResult._tag === "Failure") {
+				yield* provider
+					.kill(createdResult.success.providerSandboxId)
+					.pipe(Effect.ignore);
+				return withProviderFailure(persisted, nowMs, endpointResult.failure);
+			}
 			const providerReady: MachinePersistenceRecord = {
 				...persisted,
 				providerServerId: createdResult.success.providerSandboxId,
-				providerEndpointDomain: createdResult.success.endpointDomain,
+				providerEndpointHttpBaseUrl: endpointResult.success.httpBaseUrl,
+				providerEndpointWsBaseUrl: endpointResult.success.wsBaseUrl,
 				updatedAtMs: nowMs,
 			};
 			const providerSaved = yield* store.compareAndSetMachine(
@@ -359,7 +381,8 @@ const reconcileReadyTarget = Effect.fn("reconcileSandboxReadyTarget")(
 					state: "creating" as const,
 					statusCode: "creation-queued" as const,
 					providerServerId: undefined,
-					providerEndpointDomain: undefined,
+					providerEndpointHttpBaseUrl: undefined,
+					providerEndpointWsBaseUrl: undefined,
 					environmentId: undefined,
 					enrolledEnvironmentPublicKey: undefined,
 					enrollmentTokenHash: undefined,

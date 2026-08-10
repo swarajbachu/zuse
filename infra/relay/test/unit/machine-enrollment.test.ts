@@ -142,7 +142,8 @@ const seedEnrollment = Effect.fn("seedEnrollment")(function* (
 	options: {
 		readonly offerId?: string;
 		readonly providerServerId?: string;
-		readonly providerEndpointDomain?: string;
+		readonly providerEndpointHttpBaseUrl?: string;
+		readonly providerEndpointWsBaseUrl?: string;
 	} = {},
 ) {
 	const store = yield* MachineStore;
@@ -172,7 +173,8 @@ const seedEnrollment = Effect.fn("seedEnrollment")(function* (
 	const machine = {
 		...created.machine,
 		providerServerId: options.providerServerId,
-		providerEndpointDomain: options.providerEndpointDomain,
+		providerEndpointHttpBaseUrl: options.providerEndpointHttpBaseUrl,
+		providerEndpointWsBaseUrl: options.providerEndpointWsBaseUrl,
 		state: "enrolling" as const,
 		statusCode: "enrollment-pending" as const,
 		enrollmentTokenHash: yield* sha256Hex(TOKEN),
@@ -202,7 +204,8 @@ describe("machine enrollment", () => {
 				yield* seedEnrollment(Date.now(), {
 					offerId: "sandbox-standard-v1",
 					providerServerId: "sandbox_1",
-					providerEndpointDomain: "sandbox.test",
+					providerEndpointHttpBaseUrl: "https://47837-sandbox_1.sandbox.test",
+					providerEndpointWsBaseUrl: "wss://47837-sandbox_1.sandbox.test",
 				});
 				const response = yield* safeRoute(enrollRequest({ publicJwk, proof }));
 				if (response === null) return yield* Effect.die("route did not match");

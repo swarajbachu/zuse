@@ -6,6 +6,7 @@ export interface MachineControlConfig {
 	readonly liveCheckoutEnabled: boolean;
 	readonly availableOfferIds?: ReadonlySet<string>;
 	readonly liveCheckoutOfferIds?: ReadonlySet<string>;
+	readonly availableSandboxProviderIds?: ReadonlySet<string>;
 	readonly enrollmentTtlMs: number;
 	readonly recoveryWindowMs: number;
 	readonly finalSnapshotRetentionMs: number;

@@ -28,7 +28,11 @@ export interface ProviderSandbox {
 	readonly providerSandboxId: string;
 	readonly providerLabel: string;
 	readonly state: "running" | "paused";
-	readonly endpointDomain: string;
+}
+
+export interface SandboxEndpoint {
+	readonly httpBaseUrl: string;
+	readonly wsBaseUrl: string;
 }
 
 export interface SandboxProcessInput {
@@ -39,17 +43,12 @@ export interface SandboxProcessInput {
 	readonly user?: string;
 }
 
-export const sandboxHostForPort = (
-	sandbox: Pick<ProviderSandbox, "providerSandboxId" | "endpointDomain">,
-	port: number,
-): string => `${port}-${sandbox.providerSandboxId}.${sandbox.endpointDomain}`;
-
 export interface SandboxProviderAdapter {
 	readonly providerId: string;
+	readonly displayName: string;
 	readonly create: (input: {
 		readonly sandboxId: string;
 		readonly providerLabel: string;
-		readonly templateId: string;
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;
 		readonly network: SandboxNetworkPolicy;
@@ -72,6 +71,10 @@ export interface SandboxProviderAdapter {
 	readonly inspect: (
 		providerSandboxId: string,
 	) => Effect.Effect<ProviderSandbox | null, SandboxProviderError>;
+	readonly resolveEndpoint: (
+		providerSandboxId: string,
+		port: number,
+	) => Effect.Effect<SandboxEndpoint, SandboxProviderError>;
 	readonly pause: (
 		providerSandboxId: string,
 	) => Effect.Effect<void, SandboxProviderError>;
@@ -103,10 +106,13 @@ export interface SandboxProviderAdapter {
 export interface SandboxProviderRegistration {
 	readonly adapter: SandboxProviderAdapter;
 	readonly aliases?: ReadonlyArray<string>;
+	readonly advertised?: boolean;
 }
 
 export interface SandboxProvidersApi
-	extends ProviderRegistry<SandboxProviderAdapter> {}
+	extends ProviderRegistry<SandboxProviderAdapter> {
+	readonly availableProviders: ReadonlyArray<SandboxProviderAdapter>;
+}
 
 const adaptersFor = (
 	registrations: ReadonlyArray<SandboxProviderRegistration>,
@@ -124,7 +130,14 @@ export const makeSandboxProviders = Effect.fn("makeSandboxProviders")(
 		makeProviderRegistry({
 			adapters: adaptersFor(input.registrations),
 			defaultProviderId: input.defaultProviderId,
-		}),
+		}).pipe(
+			Effect.map((registry) => ({
+				...registry,
+				availableProviders: input.registrations
+					.filter((registration) => registration.advertised !== false)
+					.map((registration) => registration.adapter),
+			})),
+		),
 );
 
 export class SandboxProviders extends Context.Service<

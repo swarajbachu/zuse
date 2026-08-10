@@ -11,7 +11,7 @@ import {
 	RelayPaths,
 } from "@zuse/contracts";
 import { MachineProviders } from "@zuse/machine-providers";
-import { SandboxProviders, sandboxHostForPort } from "@zuse/sandbox-providers";
+import { SandboxProviders } from "@zuse/sandbox-providers";
 import { Clock, Effect, Schema } from "effect";
 
 import { requireWorkos } from "./auth.ts";
@@ -62,12 +62,71 @@ export type MachineRouteContext =
 
 const providerIdForKind = Effect.fn("providerIdForKind")(function* (
 	kind: MachineOfferKind,
+	sandboxProviderId?: string,
 ) {
 	if (kind === "sandbox") {
-		return (yield* (yield* SandboxProviders).getDefault).providerId;
+		const providers = yield* SandboxProviders;
+		const config = yield* MachineControlConfiguration;
+		const selectable = providers.availableProviders.filter(
+			(provider) =>
+				config.availableSandboxProviderIds?.has(provider.providerId) ?? true,
+		);
+		const provider = yield* sandboxProviderId === undefined
+			? providers.getDefault.pipe(
+					Effect.flatMap((defaultProvider) =>
+						selectable.some(
+							(candidate) =>
+								candidate.providerId === defaultProvider.providerId,
+						)
+							? Effect.succeed(defaultProvider)
+							: selectable.length === 1
+								? Effect.succeed(selectable[0] as (typeof selectable)[number])
+								: Effect.fail(
+										new Error("sandbox provider placement must be selected"),
+									),
+					),
+				)
+			: providers.get(sandboxProviderId);
+		if (
+			config.availableSandboxProviderIds !== undefined &&
+			!config.availableSandboxProviderIds.has(provider.providerId)
+		) {
+			return yield* Effect.fail(
+				new Error("sandbox provider is not available for placement"),
+			);
+		}
+		return provider.providerId;
+	}
+	if (sandboxProviderId !== undefined) {
+		return yield* Effect.fail(
+			new Error("sandbox provider cannot place a persistent machine"),
+		);
 	}
 	return (yield* (yield* MachineProviders).getDefault).providerId;
 });
+
+const sandboxProviderOptions = Effect.fn("sandboxProviderOptions")(
+	function* () {
+		const providers = yield* SandboxProviders;
+		const config = yield* MachineControlConfiguration;
+		const available = providers.availableProviders.filter(
+			(provider) =>
+				config.availableSandboxProviderIds?.has(provider.providerId) ?? true,
+		);
+		const defaultProviderId = available.some(
+			(provider) => provider.providerId === providers.defaultProviderId,
+		)
+			? providers.defaultProviderId
+			: available.length === 1
+				? available[0]?.providerId
+				: undefined;
+		return available.map((provider) => ({
+			providerId: provider.providerId,
+			displayName: provider.displayName,
+			default: provider.providerId === defaultProviderId,
+		}));
+	},
+);
 
 const offerIsAvailable = (
 	offerId: string,
@@ -145,6 +204,7 @@ const toPublicMachine = (machine: MachinePersistenceRecord): MachineRecord => {
 		desiredState: machine.desiredState,
 		statusCode: machine.statusCode,
 		bootPhase: machine.bootPhase,
+		sandboxProviderId: offer.kind === "sandbox" ? machine.provider : undefined,
 		environmentId: machine.environmentId as MachineRecord["environmentId"],
 		createdAt: machine.createdAtMs,
 		paidThrough: machine.paidThroughMs,
@@ -518,12 +578,35 @@ export const routeMachineRequest = (
 				? yield* randomToken("machine", 12)
 				: undefined;
 			const computeProviderId = shouldProvision
-				? yield* providerIdForKind(offer?.kind ?? "persistent").pipe(
+				? yield* providerIdForKind(
+						offer?.kind ?? "persistent",
+						offer?.kind === "sandbox"
+							? subscription.fulfillmentMetadata?.sandbox_provider_id
+							: undefined,
+					).pipe(
 						Effect.mapError(() =>
 							serviceUnavailable("machine_provider_unavailable"),
 						),
 					)
 				: undefined;
+			if (shouldProvision && offer?.kind === "sandbox") {
+				const recoverable = (yield* store.listMachines(
+					subscription.accountId,
+				)).find(
+					(machine) =>
+						offerIdsOfKind("sandbox").includes(machine.offerId) &&
+						machine.state === "suspended" &&
+						(machine.recoveryDeadlineMs ?? 0) > nowMs,
+				);
+				if (
+					recoverable !== undefined &&
+					computeProviderId !== recoverable.provider
+				) {
+					return yield* Effect.fail(
+						serviceUnavailable("machine_provider_unavailable"),
+					);
+				}
+			}
 			const outcome = yield* store.applyBillingEvent({
 				sameKindOfferIds: offer === undefined ? [] : offerIdsOfKind(offer.kind),
 				event: {
@@ -613,22 +696,16 @@ export const routeMachineRequest = (
 			if (offer.kind === "sandbox") {
 				if (
 					machine.providerServerId === undefined ||
-					machine.providerEndpointDomain === undefined
+					machine.providerEndpointHttpBaseUrl === undefined ||
+					machine.providerEndpointWsBaseUrl === undefined
 				) {
 					return yield* Effect.fail(
 						serviceUnavailable("sandbox_endpoint_unavailable"),
 					);
 				}
-				const hostname = sandboxHostForPort(
-					{
-						providerSandboxId: machine.providerServerId,
-						endpointDomain: machine.providerEndpointDomain,
-					},
-					body.origin.localHttpPort,
-				);
 				endpoint = {
-					httpBaseUrl: `https://${hostname}`,
-					wsBaseUrl: `wss://${hostname}`,
+					httpBaseUrl: machine.providerEndpointHttpBaseUrl,
+					wsBaseUrl: machine.providerEndpointWsBaseUrl,
 				};
 			} else {
 				const tunnel = yield* ManagedTunnelProvider;
@@ -805,6 +882,7 @@ export const routeMachineRequest = (
 					...offer,
 					available: offerIsAvailable(offer.offerId, machineConfig),
 				})),
+				sandboxProviders: yield* sandboxProviderOptions(),
 			});
 		}
 
@@ -827,9 +905,14 @@ export const routeMachineRequest = (
 			}
 			yield* ensureManualEntitlement(principal.accountId, offer.offerId, nowMs);
 			const machineId = yield* randomToken("machine", 12);
-			const providerId = yield* providerIdForKind(offer.kind).pipe(
+			const providerId = yield* providerIdForKind(
+				offer.kind,
+				body.sandboxProviderId,
+			).pipe(
 				Effect.mapError(() =>
-					serviceUnavailable("machine_provider_unavailable"),
+					body.sandboxProviderId === undefined
+						? serviceUnavailable("machine_provider_unavailable")
+						: badRequest("invalid_sandbox_provider"),
 				),
 			);
 			const outcome = yield* store.createMachine({
@@ -882,8 +965,15 @@ export const routeMachineRequest = (
 			const principal = yield* requireMachineAlphaPrincipal(request);
 			const body = yield* decodeBody(BillingCheckoutRequest, request);
 			const machineConfig = yield* MachineControlConfiguration;
-			if (!offerIsAvailable(body.offerId, machineConfig)) {
+			const offer = findMachineOffer(body.offerId);
+			if (
+				offer === undefined ||
+				!offerIsAvailable(body.offerId, machineConfig)
+			) {
 				return yield* Effect.fail(badRequest("invalid_machine_offer"));
+			}
+			if (offer.kind !== "sandbox" && body.sandboxProviderId !== undefined) {
+				return yield* Effect.fail(badRequest("invalid_sandbox_provider"));
 			}
 			if (
 				!machineConfig.liveCheckoutEnabled ||
@@ -897,6 +987,31 @@ export const routeMachineRequest = (
 				store.listEntitlements(principal.accountId),
 				store.listMachines(principal.accountId),
 			]);
+			const recoverableSandbox =
+				offer.kind === "sandbox"
+					? machines.find(
+							(machine) =>
+								offerIdsOfKind("sandbox").includes(machine.offerId) &&
+								machine.state === "suspended" &&
+								(machine.recoveryDeadlineMs ?? 0) > nowMs,
+						)
+					: undefined;
+			if (
+				recoverableSandbox !== undefined &&
+				body.sandboxProviderId !== undefined &&
+				body.sandboxProviderId !== recoverableSandbox.provider
+			) {
+				return yield* Effect.fail(conflict("sandbox_provider_mismatch"));
+			}
+			const selectedSandboxProviderId =
+				offer.kind === "sandbox"
+					? yield* providerIdForKind(
+							offer.kind,
+							body.sandboxProviderId ?? recoverableSandbox?.provider,
+						).pipe(
+							Effect.mapError(() => badRequest("invalid_sandbox_provider")),
+						)
+					: undefined;
 			const entitlements = yield* reconcileCheckoutEntitlements(
 				principal.accountId,
 				storedEntitlements,
@@ -942,6 +1057,13 @@ export const routeMachineRequest = (
 						RelayPaths.billingCheckoutComplete,
 						relayConfig.relayIssuer,
 					).toString(),
+					...(selectedSandboxProviderId === undefined
+						? {}
+						: {
+								fulfillmentMetadata: {
+									sandbox_provider_id: selectedSandboxProviderId,
+								},
+							}),
 				})
 				.pipe(
 					Effect.mapError(() =>

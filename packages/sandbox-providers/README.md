@@ -19,12 +19,21 @@ Each adapter must:
   single-call `setNetwork` that writes the complete final policy (ADR 0033:
   the quarantine barrier is provider-enforced and never a caller choice).
 
-`ProviderSandbox.endpointDomain` composes per-port public hosts via
-`sandboxHostForPort` — sandbox providers supply reachability directly, unlike
+`SandboxProviderAdapter.resolveEndpoint` returns provider-neutral HTTPS and
+WebSocket URLs — sandbox providers supply reachability directly, unlike
 persistent machines, which dial out through a managed tunnel.
 
-`SandboxProviderRegistration.aliases` maps retired provider IDs to the same
-adapter implementation, mirroring the machine-provider registry.
+`SandboxProviderRegistration.aliases` maps retired persisted provider IDs to
+the same adapter implementation, but aliases are never advertised as new
+placement choices. Registrations marked `advertised: false` remain internal.
+
+The Cloud Sandbox offer is provider-neutral. The public placement contract
+accepts only an advertised provider ID, and checkout metadata preserves that
+choice until its signed webhook provisions the sandbox. Native templates,
+images, snapshots, credentials, and endpoints remain inside each adapter.
+The relay additionally filters placement choices through per-provider
+operational readiness; offer-level checkout readiness is never used as a proxy
+for every registered adapter.
 
 ## Adding a provider
 

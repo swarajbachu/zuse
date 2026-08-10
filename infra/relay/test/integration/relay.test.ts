@@ -5,6 +5,10 @@ import {
 } from "@zuse/billing-providers";
 import { RelayPaths } from "@zuse/contracts";
 import { MachineProvidersFake } from "@zuse/machine-providers/testing";
+import {
+	type SandboxProviderAdapter,
+	SandboxProviders,
+} from "@zuse/sandbox-providers";
 import { SandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, Redacted } from "effect";
 import {
@@ -86,6 +90,24 @@ let pushCalls: ReadonlyArray<{
 }>[];
 let identityDeletes: string[];
 
+const placementAdapter = (providerId: string): SandboxProviderAdapter => ({
+	providerId,
+	displayName: "Fast compute",
+	create: () => Effect.die("unused"),
+	fork: () => Effect.die("unused"),
+	recoverByLabel: () => Effect.succeed(null),
+	startProcess: () => Effect.void,
+	inspect: () => Effect.succeed(null),
+	resolveEndpoint: () => Effect.die("unused"),
+	pause: () => Effect.void,
+	resume: () => Effect.die("unused"),
+	extendTimeout: () => Effect.void,
+	setNetwork: () => Effect.void,
+	snapshot: () => Effect.die("unused"),
+	kill: () => Effect.void,
+	deleteSnapshot: () => Effect.void,
+});
+
 const makeLayer = async (
 	managedTunnel?: Config.ManagedTunnelConfig,
 	billingLayerOrMaxEnvironments:
@@ -93,6 +115,7 @@ const makeLayer = async (
 		| number = BillingProvidersManual,
 	liveCheckoutEnabled = false,
 	machineControlOverrides: Partial<MachineControlConfig> = {},
+	sandboxProvidersLayer: Layer.Layer<SandboxProviders> = SandboxProvidersFake,
 ): Promise<Layer.Layer<RelayContext>> => {
 	const billingLayer =
 		typeof billingLayerOrMaxEnvironments === "number"
@@ -138,9 +161,8 @@ const makeLayer = async (
 		RelayStoreMemory,
 		MachineStoreMemory,
 		MachineProvidersFake,
-		SandboxProvidersFake,
+		sandboxProvidersLayer,
 		Layer.succeed(SandboxOfferConfiguration, {
-			templateId: "test-template",
 			port: 47_837,
 			createTimeoutSeconds: 86_400,
 			keepAliveTimeoutSeconds: 86_400,
@@ -404,6 +426,93 @@ describe("@zuse/relay", () => {
 		}
 	});
 
+	test("advertises and honors an explicit sandbox provider placement", async () => {
+		const provider = placementAdapter("provider-a");
+		const providerLayer = SandboxProviders.layer({
+			registrations: [
+				{ adapter: provider },
+				{ adapter: placementAdapter("provider-not-ready") },
+			],
+			defaultProviderId: "provider-not-ready",
+		}).pipe(Layer.orDie);
+		const placementRelay = makeRelay(
+			await makeLayer(
+				undefined,
+				BillingProvidersManual,
+				false,
+				{ availableSandboxProviderIds: new Set(["provider-a"]) },
+				providerLayer,
+			),
+		);
+		const headers = {
+			authorization: "Bearer test-token:user_a",
+			"content-type": "application/json",
+		};
+		try {
+			const offers = await placementRelay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/machine-offers`, { headers }),
+			);
+			expect(await offers.json()).toMatchObject({
+				sandboxProviders: [
+					{
+						providerId: "provider-a",
+						displayName: "Fast compute",
+						default: true,
+					},
+				],
+			});
+
+			const created = await placementRelay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/machines`, {
+					method: "POST",
+					headers,
+					body: JSON.stringify({
+						offerId: "sandbox-standard-v1",
+						idempotencyKey: "provider-placement",
+					}),
+				}),
+			);
+			expect(created.status).toBe(201);
+			expect(await created.json()).toMatchObject({
+				sandboxProviderId: "provider-a",
+			});
+
+			const invalid = await placementRelay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/machines`, {
+					method: "POST",
+					headers,
+					body: JSON.stringify({
+						offerId: "sandbox-standard-v1",
+						sandboxProviderId: "missing",
+						idempotencyKey: "invalid-placement",
+					}),
+				}),
+			);
+			expect(invalid.status).toBe(400);
+			expect(await invalid.json()).toEqual({
+				error: "invalid_sandbox_provider",
+			});
+
+			const unavailable = await placementRelay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/machines`, {
+					method: "POST",
+					headers,
+					body: JSON.stringify({
+						offerId: "sandbox-standard-v1",
+						sandboxProviderId: "provider-not-ready",
+						idempotencyKey: "unready-placement",
+					}),
+				}),
+			);
+			expect(unavailable.status).toBe(400);
+			expect(await unavailable.json()).toEqual({
+				error: "invalid_sandbox_provider",
+			});
+		} finally {
+			await placementRelay.dispose();
+		}
+	});
+
 	test("keeps live checkout disabled during manual-entitlement alpha", async () => {
 		const response = await relay.fetch(
 			new Request(`${RELAY_ISSUER}/v1/billing/checkout`, {
@@ -482,6 +591,64 @@ describe("@zuse/relay", () => {
 			expect(completion.status).toBe(200);
 			expect(completion.headers.get("content-type")).toContain("text/html");
 			expect(await completion.text()).toContain("Return to Zuse");
+		} finally {
+			await billingRelay.dispose();
+		}
+	});
+
+	test("carries sandbox provider placement through checkout metadata", async () => {
+		let checkoutInput:
+			| Parameters<BillingProviderAdapter["checkout"]>[0]
+			| undefined;
+		const billing: BillingProviderAdapter = {
+			providerId: "billing-test",
+			checkout: (input) => {
+				checkoutInput = input;
+				return Effect.succeed("https://billing.test/sandbox-checkout");
+			},
+			verifyEvent: () => Effect.die("unused"),
+			reconcileSubscription: () => Effect.die("unused"),
+			cancel: () => Effect.void,
+			customerPortal: () => Effect.succeed("https://billing.test/portal"),
+		};
+		const provider = placementAdapter("provider-a");
+		const billingRelay = makeRelay(
+			await makeLayer(
+				undefined,
+				BillingProviders.layer({
+					adapters: [billing],
+					defaultProviderId: billing.providerId,
+				}).pipe(Layer.orDie),
+				true,
+				{},
+				SandboxProviders.layer({
+					registrations: [{ adapter: provider }],
+					defaultProviderId: provider.providerId,
+				}).pipe(Layer.orDie),
+			),
+		);
+
+		try {
+			const response = await billingRelay.fetch(
+				new Request(`${RELAY_ISSUER}${RelayPaths.billingCheckout}`, {
+					method: "POST",
+					headers: {
+						authorization: "Bearer test-token:user_a",
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						offerId: "sandbox-standard-v1",
+						sandboxProviderId: "provider-a",
+					}),
+				}),
+			);
+
+			expect(response.status).toBe(200);
+			expect(checkoutInput).toMatchObject({
+				accountId: "user_a",
+				offerId: "sandbox-standard-v1",
+				fulfillmentMetadata: { sandbox_provider_id: "provider-a" },
+			});
 		} finally {
 			await billingRelay.dispose();
 		}

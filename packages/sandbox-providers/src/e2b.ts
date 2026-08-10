@@ -37,6 +37,7 @@ type SandboxDetail = Schema.Schema.Type<typeof SandboxDetail>;
 
 export interface E2bSandboxConfig {
 	readonly apiKey: Redacted.Redacted<string>;
+	readonly templateId: string;
 	readonly apiBaseUrl?: string;
 	// Fallback for composing per-port hosts when the API omits `domain`.
 	readonly sandboxDomain?: string;
@@ -258,7 +259,6 @@ export const makeE2bSandboxProvider = (
 		providerSandboxId: detail.sandboxID,
 		providerLabel: detail.metadata?.[LABEL_METADATA_KEY] ?? "",
 		state: detail.state,
-		endpointDomain: endpointDomain(detail.domain),
 	});
 
 	const createSandbox = (input: {
@@ -294,7 +294,6 @@ export const makeE2bSandboxProvider = (
 					providerSandboxId: created.sandboxID,
 					providerLabel: input.providerLabel,
 					state: "running",
-					endpointDomain: endpointDomain(created.domain),
 				}),
 			),
 		);
@@ -398,7 +397,19 @@ export const makeE2bSandboxProvider = (
 
 	return {
 		providerId: E2B_PROVIDER_ID,
-		create: createSandbox,
+		displayName: "E2B",
+		resolveEndpoint: (providerSandboxId, port) =>
+			sandboxDetail(providerSandboxId).pipe(
+				Effect.map((detail) => {
+					const host = `${port}-${providerSandboxId}.${endpointDomain(detail.domain)}`;
+					return {
+						httpBaseUrl: `https://${host}`,
+						wsBaseUrl: `wss://${host}`,
+					};
+				}),
+			),
+		create: (input) =>
+			createSandbox({ ...input, templateId: config.templateId }),
 		// A fork wakes with the parent's warm state and secrets, so the network
 		// barrier is hard-coded here: it opens only via an explicit setNetwork
 		// after re-key/enrollment completes (ADR 0033).

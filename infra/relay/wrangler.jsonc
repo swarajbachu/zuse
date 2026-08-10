@@ -44,11 +44,11 @@
 		"HETZNER_SERVER_TYPE_PERSISTENT_STANDARD_V1": "cx33",
 		"MACHINE_RUNTIME_MANIFEST_URL": "https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-staging/stable-manifest.json",
 		"MACHINE_RUNTIME_SIGNING_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"ODy1bBgW390GBMxIqn8wy2eO3C05kXdoPYk5JV09OZI\",\"kty\":\"OKP\"}",
-		// Turn these on together after a template and billing product are published.
-		// Keeping the fake selected prevents a partially configured paid flow.
-		"SANDBOX_PROVIDER": "fake",
+		// The offer is provider-neutral. This is only the default placement used
+		// when a provisioning request does not choose an enabled adapter.
+		"SANDBOX_DEFAULT_PROVIDER": "fake",
 		"E2B_ADAPTER_ENABLED": "false",
-		"E2B_TEMPLATE_ID": "",
+		"E2B_TEMPLATE_ID": "zuse-cloud-sandbox",
 
 		"POLAR_ENVIRONMENT": "sandbox",
 		"POLAR_PRODUCT_PERSISTENT_STANDARD_V1": "810223ea-94f2-47e7-9c09-af9a0fd86174",

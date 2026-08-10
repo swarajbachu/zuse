@@ -21,6 +21,7 @@ export interface ReconciledSubscription {
 	readonly providerSubscriptionId: string;
 	readonly status: "pending" | "active" | "grace" | "ended";
 	readonly offerId: string;
+	readonly fulfillmentMetadata?: Readonly<Record<string, string>>;
 	readonly paidThrough?: number;
 }
 
@@ -30,6 +31,7 @@ export interface BillingProviderAdapter {
 		readonly accountId: string;
 		readonly offerId: string;
 		readonly successUrl: string;
+		readonly fulfillmentMetadata?: Readonly<Record<string, string>>;
 	}) => Effect.Effect<string, BillingProviderError>;
 	readonly verifyEvent: (
 		request: Request,

@@ -49,7 +49,6 @@ const makeTestLayer = (billing?: BillingProviderAdapter) =>
 		MachineProvidersFake,
 		SandboxProvidersFake,
 		Layer.succeed(SandboxOfferConfiguration, {
-			templateId: "test-template",
 			port: 47_837,
 			createTimeoutSeconds: 86_400,
 			keepAliveTimeoutSeconds: 86_400,
@@ -204,7 +203,12 @@ describe("machine reconciler", () => {
 			}).pipe(Effect.provide(testLayer)),
 		);
 
-		expect(result.created.providerEndpointDomain).toBe("sandbox.test");
+		expect(result.created.providerEndpointHttpBaseUrl).toBe(
+			`https://47837-${result.created.providerServerId}.sandbox.test`,
+		);
+		expect(result.created.providerEndpointWsBaseUrl).toBe(
+			`wss://47837-${result.created.providerServerId}.sandbox.test`,
+		);
 		expect(result.startProcessCalls).toEqual([result.created.providerServerId]);
 		expect(result.created.nextActionAtMs - result.created.updatedAtMs).toBe(
 			15_000,
@@ -243,7 +247,8 @@ describe("machine reconciler", () => {
 			state: "creating",
 			statusCode: "creation-queued",
 			providerServerId: undefined,
-			providerEndpointDomain: undefined,
+			providerEndpointHttpBaseUrl: undefined,
+			providerEndpointWsBaseUrl: undefined,
 		});
 	});
 

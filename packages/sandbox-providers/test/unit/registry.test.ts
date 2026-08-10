@@ -7,11 +7,13 @@ import {
 
 const adapter = (providerId: string): SandboxProviderAdapter => ({
 	providerId,
+	displayName: providerId,
 	create: () => Effect.die("unused"),
 	fork: () => Effect.die("unused"),
 	recoverByLabel: () => Effect.succeed(null),
 	startProcess: () => Effect.void,
 	inspect: () => Effect.succeed(null),
+	resolveEndpoint: () => Effect.die("unused"),
 	pause: () => Effect.void,
 	resume: () => Effect.die("unused"),
 	extendTimeout: () => Effect.void,
@@ -56,6 +58,9 @@ describe("sandbox provider registry", () => {
 				const providers = yield* SandboxProviders;
 				return {
 					providerIds: providers.providerIds,
+					availableProviderIds: providers.availableProviders.map(
+						(provider) => provider.providerId,
+					),
 					defaultProvider: (yield* providers.getDefault).providerId,
 					legacyProvider: (yield* providers.get("provider-legacy")).providerId,
 				};
@@ -76,6 +81,7 @@ describe("sandbox provider registry", () => {
 
 		expect(result).toEqual({
 			providerIds: ["provider-current", "provider-legacy"],
+			availableProviderIds: ["provider-current"],
 			defaultProvider: "provider-current",
 			legacyProvider: "provider-legacy",
 		});

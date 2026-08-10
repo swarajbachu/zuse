@@ -5,7 +5,6 @@ import {
 	type E2bHttpClient,
 	makeE2bSandboxProvider,
 } from "../../src/e2b.ts";
-import { sandboxHostForPort } from "../../src/index.ts";
 
 const makeHttp = (
 	responses: ReadonlyArray<{
@@ -49,6 +48,7 @@ const makeAdapter = (http: E2bHttpClient) =>
 	makeE2bSandboxProvider(
 		{
 			apiKey: Redacted.make("secret-key"),
+			templateId: "zuse-base",
 			apiBaseUrl: "https://sandbox.test",
 		},
 		http,
@@ -57,7 +57,6 @@ const makeAdapter = (http: E2bHttpClient) =>
 const createInput = {
 	sandboxId: "sandbox_1",
 	providerLabel: "zuse-sandbox-1",
-	templateId: "zuse-base",
 	timeoutSeconds: 300,
 	env: { ZUSE_ENROLLMENT_TOKEN: "zenr_secret" },
 	network: { kind: "quarantined" } as const,
@@ -100,7 +99,7 @@ describe("E2B sandbox provider", () => {
 	test("uses the official API endpoint by default", async () => {
 		const http = makeHttp([{ status: 200, body: [] }]);
 		const adapter = makeE2bSandboxProvider(
-			{ apiKey: Redacted.make("secret-key") },
+			{ apiKey: Redacted.make("secret-key"), templateId: "zuse-base" },
 			http.client,
 		);
 
@@ -126,6 +125,7 @@ describe("E2B sandbox provider", () => {
 		globalThis.fetch = workerFetch as typeof globalThis.fetch;
 		const adapter = makeE2bSandboxProvider({
 			apiKey: Redacted.make("secret-key"),
+			templateId: "zuse-base",
 		});
 
 		await expect(
@@ -146,7 +146,6 @@ describe("E2B sandbox provider", () => {
 			providerSandboxId: "sbx_1",
 			providerLabel: "zuse-sandbox-1",
 			state: "running",
-			endpointDomain: "custom.e2b.app",
 		});
 		expect(http.calls[0]?.url).toBe("https://sandbox.test/sandboxes");
 		expect(http.calls[0]?.init?.headers).toMatchObject({
@@ -170,12 +169,20 @@ describe("E2B sandbox provider", () => {
 		const http = makeHttp([{ status: 201, body: { sandboxID: "sbx_1" } }]);
 		const adapter = makeAdapter(http.client);
 
-		const created = await Effect.runPromise(
+		await Effect.runPromise(
 			adapter.create({ ...createInput, network: { kind: "open" } }),
 		);
 
-		expect(created.endpointDomain).toBe("e2b.app");
-		expect(sandboxHostForPort(created, 47_837)).toBe("47837-sbx_1.e2b.app");
+		const endpointHttp = makeHttp([
+			{ status: 200, body: { sandboxID: "sbx_1", state: "running" } },
+		]);
+		const endpointAdapter = makeAdapter(endpointHttp.client);
+		await expect(
+			Effect.runPromise(endpointAdapter.resolveEndpoint("sbx_1", 47_837)),
+		).resolves.toEqual({
+			httpBaseUrl: "https://47837-sbx_1.e2b.app",
+			wsBaseUrl: "wss://47837-sbx_1.e2b.app",
+		});
 		expect(
 			JSON.parse(String(http.calls[0]?.init?.body)).allow_internet_access,
 		).toBe(true);
@@ -247,7 +254,6 @@ describe("E2B sandbox provider", () => {
 			providerSandboxId: "sbx_9",
 			providerLabel: "zuse-sandbox-9",
 			state: "paused",
-			endpointDomain: "e2b.app",
 		});
 	});
 

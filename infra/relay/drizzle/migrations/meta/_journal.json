@@ -43,6 +43,13 @@
 			"when": 1786346271898,
 			"tag": "0005_sandbox_endpoint_domain",
 			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "7",
+			"when": 1786353229445,
+			"tag": "0006_robust_cammi",
+			"breakpoints": true
 		}
 	]
 }

@@ -17,7 +17,8 @@ export interface MachinePersistenceRecord {
 	readonly environmentId?: string;
 	readonly provider: string;
 	readonly providerServerId?: string;
-	readonly providerEndpointDomain?: string;
+	readonly providerEndpointHttpBaseUrl?: string;
+	readonly providerEndpointWsBaseUrl?: string;
 	readonly providerLabel: string;
 	readonly label?: string;
 	readonly state: MachineState;
@@ -638,7 +639,8 @@ interface MachineRow {
 	readonly environment_id: string | null;
 	readonly provider: string;
 	readonly provider_server_id: string | null;
-	readonly provider_endpoint_domain: string | null;
+	readonly provider_endpoint_http_base_url: string | null;
+	readonly provider_endpoint_ws_base_url: string | null;
 	readonly provider_label: string;
 	readonly label: string | null;
 	readonly state: MachineState;
@@ -697,7 +699,8 @@ const toMachine = (row: MachineRow): MachinePersistenceRecord => ({
 	environmentId: row.environment_id ?? undefined,
 	provider: row.provider,
 	providerServerId: row.provider_server_id ?? undefined,
-	providerEndpointDomain: row.provider_endpoint_domain ?? undefined,
+	providerEndpointHttpBaseUrl: row.provider_endpoint_http_base_url ?? undefined,
+	providerEndpointWsBaseUrl: row.provider_endpoint_ws_base_url ?? undefined,
 	providerLabel: row.provider_label,
 	label: row.label ?? undefined,
 	state: row.state,
@@ -775,7 +778,8 @@ export const MachineStorePg: Layer.Layer<
 					UPDATE relay_machines SET
 						environment_id = ${machine.environmentId ?? null},
 						provider_server_id = ${machine.providerServerId ?? null},
-						provider_endpoint_domain = ${machine.providerEndpointDomain ?? null},
+						provider_endpoint_http_base_url = ${machine.providerEndpointHttpBaseUrl ?? null},
+						provider_endpoint_ws_base_url = ${machine.providerEndpointWsBaseUrl ?? null},
 						label = ${machine.label ?? null},
 						state = ${machine.state},
 						desired_state = ${machine.desiredState},
