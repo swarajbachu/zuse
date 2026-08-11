@@ -29,11 +29,21 @@ const providerLabel = (kind: "build" | "workspace", id: string): string =>
 const workspaceStartupTimedOut = (
 	workspace: CloudWorkspaceRecord,
 	nowMs: number,
-): boolean =>
-	(workspace.state === "queued" ||
-		workspace.state === "provisioning" ||
-		workspace.state === "setup") &&
-	nowMs - workspace.createdAtMs >= WORKSPACE_START_TIMEOUT_MS;
+): boolean => {
+	const timings = workspace.requestConfig.startupTimings as
+		| Readonly<Record<string, unknown>>
+		| undefined;
+	const allocatedAt =
+		typeof timings?.allocatedAt === "number"
+			? timings.allocatedAt
+			: workspace.createdAtMs;
+	return (
+		(workspace.state === "queued" ||
+			workspace.state === "provisioning" ||
+			workspace.state === "setup") &&
+		nowMs - allocatedAt >= WORKSPACE_START_TIMEOUT_MS
+	);
+};
 
 const issueWorkspaceRuntimeBoot = Effect.fn("issueWorkspaceRuntimeBoot")(
 	function* (
@@ -632,6 +642,95 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 									"/home/zuse/.zuse-runtime-signing-public.jwk",
 								ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
 							}),
+				},
+				user: "zuse",
+			});
+			return;
+		}
+
+		if (
+			workspace.state === "resuming" &&
+			workspace.desiredState === "ready" &&
+			workspace.providerSandboxId !== undefined
+		) {
+			const project = yield* store.getProject(workspace.projectId);
+			if (project === null) return;
+			yield* provider.resume(
+				workspace.providerSandboxId,
+				config.keepAliveTimeoutSeconds,
+				"pause",
+			);
+			const relay = yield* RelayConfiguration;
+			const relayHost = new URL(relay.relayIssuer).hostname;
+			const runtimeManifestHost =
+				config.runtimeManifestUrl === undefined
+					? undefined
+					: new URL(config.runtimeManifestUrl).hostname;
+			const [boot] = yield* Effect.all(
+				[
+					issueWorkspaceRuntimeBoot(
+						provider,
+						workspace.providerSandboxId,
+						nowMs,
+					),
+					provider.setNetwork(workspace.providerSandboxId, {
+						kind: "restricted",
+						allowOut: [
+							relayHost,
+							...(runtimeManifestHost === undefined
+								? []
+								: [
+										runtimeManifestHost,
+										"github.com",
+										"release-assets.githubusercontent.com",
+										"objects.githubusercontent.com",
+									]),
+						],
+						denyOut: ["0.0.0.0/0", "::/0"],
+					}),
+				],
+				{ concurrency: "unbounded" },
+			);
+			const timings =
+				(workspace.requestConfig.startupTimings as
+					| Readonly<Record<string, number>>
+					| undefined) ?? {};
+			yield* store.saveWorkspace({
+				...workspace,
+				runtimeBootTokenHash: boot.tokenHash,
+				runtimeBootTokenExpiresAtMs: boot.expiresAtMs,
+				runtimeCredentialHash: undefined,
+				runtimeState: "offline",
+				state: "provisioning",
+				statusCode: "resume-runtime-restarting",
+				requestConfig: {
+					...workspace.requestConfig,
+					startupTimings: { ...timings, allocatedAt: nowMs },
+				},
+				nextActionAtMs: nowMs + 30_000,
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+			});
+			yield* provider.startProcess(workspace.providerSandboxId, {
+				command: "/bin/bash",
+				args: [
+					"-lc",
+					"pkill -KILL -u zuse -f '[z]use serve|[/]opt/zuse/current/bin.mjs serve' 2>/dev/null || true; if [[ -f /opt/zuse/current/bin.mjs ]]; then exec node /opt/zuse/current/bin.mjs serve --foreground; else exec zuse serve --foreground; fi",
+				],
+				cwd: "/home/zuse/workspace",
+				env: {
+					...project.cloudEnvironment,
+					ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
+					ZUSE_RUNTIME_BOOT_TOKEN_FILE: WORKSPACE_RUNTIME_BOOT_TOKEN_FILE,
+					ZUSE_RELAY_URL: relay.relayIssuer,
+					ZUSE_RUNTIME_KIND: "cloud-workspace",
+					ZUSE_HOST: "127.0.0.1",
+					ZUSE_PORT: "47837",
+					ZUSE_AUTH_POLICY: "protected",
+					ZUSE_ENABLE_PAIRING: "0",
+					ZUSE_MACHINE_RUNTIME_ROLE: "cloud-environment",
+					ZUSE_SERVER_READY_STDOUT: "1",
+					ZUSE_USER_DATA: "/home/zuse/.zuse-data",
 				},
 				user: "zuse",
 			});

@@ -1083,17 +1083,7 @@ export const routeCloudWorkspaceRequest = (
 				createdAtMs: nowMs,
 			});
 			const shouldResume = workspace.state === "paused";
-			if (shouldResume)
-				yield* store.saveWorkspace({
-					...workspace,
-					state: "resuming",
-					desiredState: "ready",
-					statusCode: "resume-requested",
-					nextActionAtMs: nowMs,
-					revision: workspace.revision + 1,
-					updatedAtMs: nowMs,
-					lastActivityAtMs: nowMs,
-				});
+			yield* recordWorkspaceActivity(workspace);
 			const response = json({}, 202);
 			response.headers.set("x-zuse-gateway-workspace", workspaceId);
 			response.headers.set("x-zuse-gateway-command", "available");

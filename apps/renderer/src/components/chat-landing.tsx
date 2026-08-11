@@ -27,6 +27,7 @@ import {
 	useEffect,
 	useLayoutEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import {
@@ -366,6 +367,7 @@ export function ChatLanding() {
 	const [cloudProject, setCloudProject] = useState<CloudProject | null>(null);
 	const [cloudSubscribed, setCloudSubscribed] = useState(false);
 	const [cloudPlacementError, setCloudPlacementError] = useState(false);
+	const cloudCacheRefreshRequests = useRef(new Set<string>());
 	const [projectSetupOpen, setProjectSetupOpen] = useState(false);
 	const anchoredGroup = useMemo(
 		() =>
@@ -382,13 +384,15 @@ export function ChatLanding() {
 			: `${pickerGroup.origin.host}/${pickerGroup.origin.owner}/${pickerGroup.origin.repo}`.toLowerCase();
 	useEffect(() => {
 		let cancelled = false;
+		let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+		cloudCacheRefreshRequests.current.clear();
 		setSelectedCloudProviderId(null);
 		setCloudProviders([]);
 		setCloudProject(null);
 		setCloudSubscribed(false);
 		setCloudPlacementError(false);
 		if (cloudRepositoryIdentity === null) return;
-		void (async () => {
+		const loadCloudPlacement = async (): Promise<void> => {
 			try {
 				const client = await getControlPlaneRpcClient();
 				const [providerResult, projectResult, entitlementResult] =
@@ -398,32 +402,76 @@ export function ChatLanding() {
 						Effect.runPromise(client["machines.entitlements"]()),
 					]);
 				if (cancelled) return;
-				setCloudProviders(providerResult.providers);
-				setCloudProject(
+				const project =
 					projectResult.projects.find(
 						(project) =>
 							project.repositoryIdentity.toLowerCase() ===
 							cloudRepositoryIdentity,
-					) ?? null,
+					) ?? null;
+				const subscribed = entitlementResult.entitlements.some(
+					(item) =>
+						item.kind === "cloud-workspace" &&
+						(item.status === "active" ||
+							item.status === "grace" ||
+							(item.status === "ended" &&
+								item.paidThrough !== undefined &&
+								item.paidThrough > Date.now())),
 				);
-				setCloudSubscribed(
-					entitlementResult.entitlements.some(
-						(item) =>
-							item.kind === "cloud-workspace" &&
-							(item.status === "active" ||
-								item.status === "grace" ||
-								(item.status === "ended" &&
-									item.paidThrough !== undefined &&
-									item.paidThrough > Date.now())),
-					),
-				);
+				setCloudProviders(providerResult.providers);
+				setCloudProject(project);
+				setCloudSubscribed(subscribed);
 				setCloudPlacementError(false);
+
+				const staleProviders =
+					project === null || !subscribed
+						? []
+						: providerResult.providers.filter((provider) => {
+								const latest = project.latestBuilds[provider.providerId];
+								return (
+									project.activeBuilds[provider.providerId] === undefined &&
+									latest?.state === "ready"
+								);
+							});
+				for (const provider of staleProviders) {
+					const latest = project?.latestBuilds[provider.providerId];
+					if (project === null || latest === undefined) continue;
+					const requestKey = `${project.projectId}:${provider.providerId}:${latest.buildId}`;
+					if (cloudCacheRefreshRequests.current.has(requestKey)) continue;
+					cloudCacheRefreshRequests.current.add(requestKey);
+					try {
+						await Effect.runPromise(
+							client["cloud.projects.prepare"]({
+								projectId: project.projectId,
+								providerId: provider.providerId,
+								idempotencyKey: `automatic-refresh:${requestKey}`,
+							}),
+						);
+					} catch (cause) {
+						cloudCacheRefreshRequests.current.delete(requestKey);
+						throw cause;
+					}
+				}
+				const buildIsChanging =
+					staleProviders.length > 0 ||
+					(project !== null &&
+						Object.values(project.latestBuilds).some(
+							(build) =>
+								build.state === "queued" ||
+								build.state === "building" ||
+								build.state === "sanitizing",
+						));
+				if (buildIsChanging && !cancelled)
+					refreshTimer = setTimeout(() => {
+						void loadCloudPlacement();
+					}, 2_000);
 			} catch {
 				if (!cancelled) setCloudPlacementError(true);
 			}
-		})();
+		};
+		void loadCloudPlacement();
 		return () => {
 			cancelled = true;
+			if (refreshTimer !== undefined) clearTimeout(refreshTimer);
 		};
 	}, [cloudRepositoryIdentity]);
 	const cloudPickerItems = useMemo<ReadonlyArray<CloudComputerPickerItem>>(
@@ -441,7 +489,7 @@ export function ChatLanding() {
 							: ready
 								? provider.displayName
 								: build?.state === "ready"
-									? "Cache ready"
+									? "Updating cache"
 									: build?.state === "failed"
 										? "Cache update failed"
 										: "Caching repository";

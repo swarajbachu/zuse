@@ -1,5 +1,11 @@
 import type { ChatId } from "@zuse/contracts";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import * as terminalRegistry from "../lib/terminal-registry.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
@@ -7,7 +13,7 @@ import {
 	cloudSummaryForChat,
 	localProjectForCloudChat,
 } from "../store/cloud-chat-registry.ts";
-import { openCloudChat } from "../store/cloud-chats.ts";
+import { openCloudChat, useCloudChatsStore } from "../store/cloud-chats.ts";
 import {
 	EMPTY_TERMINALS,
 	type TerminalInstance,
@@ -80,7 +86,12 @@ function PlainTerminalSlot({
 	slot: number;
 }) {
 	const key = terminalsKey(chatId);
-	const cloudSummary = cloudSummaryForChat(chatId);
+	const registeredCloudSummary = cloudSummaryForChat(chatId);
+	const cloudSummary = useCloudChatsStore(
+		(state) =>
+			state.summaries.find((summary) => summary.chatId === chatId) ??
+			registeredCloudSummary,
+	);
 	const cloudProjectId = localProjectForCloudChat(chatId);
 	const [cloudConnection, setCloudConnection] = useState<
 		"idle" | "connecting" | "ready" | "failed"
@@ -90,21 +101,35 @@ function PlainTerminalSlot({
 	const resolvedRootPath =
 		cloudSummary === null ? rootPath : "/home/zuse/workspace";
 
+	const connectCloudTerminal = useCallback(
+		(activate: boolean) => {
+			if (
+				cloudSummary === null ||
+				cloudProjectId === null ||
+				cloudConnection === "connecting"
+			)
+				return;
+			setCloudConnection("connecting");
+			void openCloudChat(cloudSummary, cloudProjectId, { activate })
+				.then(() => {
+					setCloudConnection("ready");
+				})
+				.catch(() => {
+					setCloudConnection("failed");
+				});
+		},
+		[cloudConnection, cloudProjectId, cloudSummary],
+	);
+
 	useEffect(() => {
-		if (cloudSummary === null || cloudProjectId === null) return;
-		let cancelled = false;
-		setCloudConnection("connecting");
-		void openCloudChat(cloudSummary, cloudProjectId, { activate: true })
-			.then(() => {
-				if (!cancelled) setCloudConnection("ready");
-			})
-			.catch(() => {
-				if (!cancelled) setCloudConnection("failed");
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [cloudProjectId, cloudSummary]);
+		if (
+			cloudSummary?.state !== "ready" ||
+			cloudSummary.runtimeState !== "online" ||
+			cloudConnection !== "idle"
+		)
+			return;
+		connectCloudTerminal(false);
+	}, [cloudConnection, cloudSummary, connectCloudTerminal]);
 
 	useEffect(() => {
 		if (cloudConnection !== "ready") return;
@@ -125,16 +150,31 @@ function PlainTerminalSlot({
 		slot,
 	]);
 
-	if (cloudConnection === "connecting" || cloudConnection === "idle")
+	if (cloudConnection === "connecting")
 		return (
 			<TerminalPlaceholder>
-				<ShimmerText>Resuming cloud workspace…</ShimmerText>
+				<ShimmerText>Connecting cloud terminal…</ShimmerText>
 			</TerminalPlaceholder>
 		);
-	if (cloudConnection === "failed")
+	if (cloudSummary !== null && cloudConnection !== "ready")
 		return (
 			<TerminalPlaceholder>
-				Cloud terminal could not connect. Close this tab and try again.
+				<div className="flex flex-col items-center gap-3 px-6 text-center">
+					<span>
+						{cloudConnection === "failed"
+							? "Cloud terminal could not connect."
+							: cloudSummary.state === "paused"
+								? "This cloud workspace is paused."
+								: "The cloud terminal is not connected."}
+					</span>
+					<button
+						type="button"
+						className="inline-flex min-h-11 items-center justify-center rounded-md border border-border bg-secondary px-4 text-foreground outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+						onClick={() => connectCloudTerminal(true)}
+					>
+						{cloudConnection === "failed" ? "Try again" : "Resume terminal"}
+					</button>
+				</div>
 			</TerminalPlaceholder>
 		);
 

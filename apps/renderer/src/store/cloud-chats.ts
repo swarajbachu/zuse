@@ -256,6 +256,7 @@ export const stageCloudChat = (
 				),
 			],
 		},
+		error: null,
 	}));
 	useSessionsStore.setState((state) => ({
 		sessionsByProject: {

@@ -1424,6 +1424,10 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				},
 			};
 		});
+		// Cloud chat/session selection is projected from the control plane. The
+		// sandbox-local conversation row may not exist while compute is paused,
+		// so selecting a durable transcript must never issue this local RPC.
+		if (cloudSummaryForChat(chatId) !== null) return;
 		try {
 			const client = await getRpcClient();
 			await Effect.runPromise(

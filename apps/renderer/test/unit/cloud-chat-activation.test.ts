@@ -9,6 +9,7 @@ import chatLandingSource from "../../src/components/chat-landing.tsx?raw";
 import projectsSidebarSource from "../../src/components/projects-sidebar.tsx?raw";
 import terminalPaneSource from "../../src/components/terminal-pane.tsx?raw";
 import commandsSource from "../../src/lib/commands.ts?raw";
+import chatsSource from "../../src/store/chats.ts?raw";
 import { registerCloudChat } from "../../src/store/cloud-chat-registry.ts";
 import cloudChatsSource from "../../src/store/cloud-chats.ts?raw";
 import messagesSource from "../../src/store/messages.ts?raw";
@@ -25,6 +26,13 @@ describe("cloud chat activation", () => {
 		);
 		expect(cloudChatsSource).toContain(
 			"if (!activate && !alreadyLive) return;",
+		);
+		expect(terminalPaneSource).not.toContain(
+			"openCloudChat(cloudSummary, cloudProjectId, { activate: true })",
+		);
+		expect(terminalPaneSource).toContain("connectCloudTerminal(true)");
+		expect(chatsSource).toContain(
+			"if (cloudSummaryForChat(chatId) !== null) return;",
 		);
 	});
 
@@ -94,6 +102,7 @@ describe("cloud chat activation", () => {
 			.ensureSlot(summary.chatId, 0, "/Users/local/repository");
 		expect(terminal.environmentId).toBe(summary.workspaceId);
 		expect(terminal.cwd).toBe("/home/zuse/workspace");
-		expect(terminalPaneSource).toContain("Resuming cloud workspace…");
+		expect(terminalPaneSource).toContain("This cloud workspace is paused.");
+		expect(terminalPaneSource).toContain("Resume terminal");
 	});
 });
