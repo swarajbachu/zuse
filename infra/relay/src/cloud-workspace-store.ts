@@ -17,7 +17,6 @@ export interface CloudProjectRecord {
 	readonly defaultBranch: string;
 	readonly visibility: "public" | "private";
 	readonly gitConnectionKind: "github-app";
-	readonly setupCommand?: string;
 	readonly cloudEnvironment: Readonly<Record<string, string>>;
 	readonly secretBindings: ReadonlyArray<string>;
 	readonly configurationDigest: string;
@@ -858,7 +857,6 @@ const projectFromRow = (row: Row): CloudProjectRecord => ({
 	defaultBranch: String(row.default_branch),
 	visibility: row.visibility as "public" | "private",
 	gitConnectionKind: "github-app",
-	setupCommand: optionalString(row.setup_command),
 	cloudEnvironment: (row.cloud_environment ?? {}) as Record<string, string>,
 	secretBindings: (row.secret_bindings ?? []) as string[],
 	configurationDigest: String(row.configuration_digest),
@@ -961,7 +959,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			effect.pipe(Effect.orDie);
 		const saveProject = (p: CloudProjectRecord) =>
 			orDie(
-				sql`UPDATE relay_cloud_projects SET repository_url=${p.repositoryUrl}, display_name=${p.displayName}, default_branch=${p.defaultBranch}, visibility=${p.visibility}, setup_command=${p.setupCommand ?? null}, cloud_environment=${JSON.stringify(p.cloudEnvironment)}::jsonb, secret_bindings=${JSON.stringify(p.secretBindings)}::jsonb, configuration_digest=${p.configurationDigest}, state=${p.state}, last_error_code=${p.lastErrorCode ?? null}, updated_at=${p.updatedAtMs} WHERE project_id=${p.projectId}`.pipe(
+				sql`UPDATE relay_cloud_projects SET repository_url=${p.repositoryUrl}, display_name=${p.displayName}, default_branch=${p.defaultBranch}, visibility=${p.visibility}, cloud_environment=${JSON.stringify(p.cloudEnvironment)}::jsonb, secret_bindings=${JSON.stringify(p.secretBindings)}::jsonb, configuration_digest=${p.configurationDigest}, state=${p.state}, last_error_code=${p.lastErrorCode ?? null}, updated_at=${p.updatedAtMs} WHERE project_id=${p.projectId}`.pipe(
 					Effect.asVoid,
 				),
 			);
@@ -986,7 +984,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							yield* sql`SELECT * FROM relay_cloud_projects WHERE account_id=${p.accountId} AND idempotency_key=${p.idempotencyKey} LIMIT 1`;
 						if (retry[0]) return projectFromRow(retry[0] as Row);
 						const rows =
-							yield* sql`INSERT INTO relay_cloud_projects (project_id, account_id, repository_identity, repository_url, display_name, default_branch, visibility, git_connection_kind, setup_command, cloud_environment, secret_bindings, configuration_digest, state, last_error_code, idempotency_key, created_at, updated_at) VALUES (${p.projectId}, ${p.accountId}, ${p.repositoryIdentity}, ${p.repositoryUrl}, ${p.displayName}, ${p.defaultBranch}, ${p.visibility}, ${p.gitConnectionKind}, ${p.setupCommand ?? null}, ${JSON.stringify(p.cloudEnvironment)}::jsonb, ${JSON.stringify(p.secretBindings)}::jsonb, ${p.configurationDigest}, ${p.state}, ${p.lastErrorCode ?? null}, ${p.idempotencyKey}, ${p.createdAtMs}, ${p.updatedAtMs}) ON CONFLICT (account_id, repository_identity) DO UPDATE SET repository_url=EXCLUDED.repository_url, display_name=EXCLUDED.display_name, default_branch=EXCLUDED.default_branch, visibility=EXCLUDED.visibility, setup_command=EXCLUDED.setup_command, cloud_environment=EXCLUDED.cloud_environment, secret_bindings=EXCLUDED.secret_bindings, configuration_digest=EXCLUDED.configuration_digest, state='connected', last_error_code=NULL, idempotency_key=EXCLUDED.idempotency_key, updated_at=EXCLUDED.updated_at RETURNING *`;
+							yield* sql`INSERT INTO relay_cloud_projects (project_id, account_id, repository_identity, repository_url, display_name, default_branch, visibility, git_connection_kind, cloud_environment, secret_bindings, configuration_digest, state, last_error_code, idempotency_key, created_at, updated_at) VALUES (${p.projectId}, ${p.accountId}, ${p.repositoryIdentity}, ${p.repositoryUrl}, ${p.displayName}, ${p.defaultBranch}, ${p.visibility}, ${p.gitConnectionKind}, ${JSON.stringify(p.cloudEnvironment)}::jsonb, ${JSON.stringify(p.secretBindings)}::jsonb, ${p.configurationDigest}, ${p.state}, ${p.lastErrorCode ?? null}, ${p.idempotencyKey}, ${p.createdAtMs}, ${p.updatedAtMs}) ON CONFLICT (account_id, repository_identity) DO UPDATE SET repository_url=EXCLUDED.repository_url, display_name=EXCLUDED.display_name, default_branch=EXCLUDED.default_branch, visibility=EXCLUDED.visibility, cloud_environment=EXCLUDED.cloud_environment, secret_bindings=EXCLUDED.secret_bindings, configuration_digest=EXCLUDED.configuration_digest, state='connected', last_error_code=NULL, idempotency_key=EXCLUDED.idempotency_key, updated_at=EXCLUDED.updated_at RETURNING *`;
 						return projectFromRow(rows[0] as Row);
 					}).pipe(sql.withTransaction),
 				),

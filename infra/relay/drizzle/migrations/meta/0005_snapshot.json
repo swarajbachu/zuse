@@ -522,12 +522,6 @@
 					"primaryKey": false,
 					"notNull": true
 				},
-				"setup_command": {
-					"name": "setup_command",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": false
-				},
 				"cloud_environment": {
 					"name": "cloud_environment",
 					"type": "jsonb",

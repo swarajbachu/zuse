@@ -372,7 +372,7 @@ export function CloudWorkspacePool() {
 			{subscribed && serviceAvailable ? (
 				<CloudSettingsGroup
 					title="Connected projects"
-					description="Connect a repository, prepare its cloud build, provision an isolated workspace, then open the selected agent inside it."
+					description="Prepare saves a clean repository snapshot without installing dependencies. Install anything you need later from the workspace terminal or agent."
 				>
 					<form
 						className="grid gap-2 p-3 sm:grid-cols-[minmax(0,1fr)_9rem_8rem_auto]"

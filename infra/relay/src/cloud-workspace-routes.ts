@@ -716,9 +716,8 @@ export const routeCloudWorkspaceRequest = (
 				);
 			const configurationDigest = yield* sha256Hex(
 				JSON.stringify({
-					setupCommand: body.setupCommand ?? null,
-					cloudEnvironment: body.cloudEnvironment ?? {},
-					secretBindings: [...(body.secretBindings ?? [])].sort(),
+					defaultBranch: body.defaultBranch,
+					preparationMode: "repository-only-v1",
 				}),
 			);
 			const project: CloudProjectRecord = {
@@ -730,7 +729,6 @@ export const routeCloudWorkspaceRequest = (
 				defaultBranch: body.defaultBranch,
 				visibility: body.visibility,
 				gitConnectionKind: "github-app",
-				setupCommand: body.setupCommand,
 				cloudEnvironment: body.cloudEnvironment ?? {},
 				secretBindings: body.secretBindings ?? [],
 				configurationDigest,

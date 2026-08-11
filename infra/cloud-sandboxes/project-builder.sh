@@ -35,17 +35,6 @@ source_commit="$(git rev-parse HEAD)"
 rm -f /run/zuse-secrets/github-token
 unset GIT_ASKPASS ZUSE_GIT_TOKEN_FILE
 
-while IFS= read -r -d '' key && IFS= read -r -d '' value; do
-  if [[ -z "${!key+x}" ]]; then export "$key=$value"; fi
-done < <(bun /usr/local/lib/zuse/repository-script.ts environment)
-setup_command="${ZUSE_SETUP_COMMAND:-}"
-if [[ -z "$setup_command" ]]; then
-  setup_command="$(bun /usr/local/lib/zuse/repository-script.ts setup)"
-fi
-if [[ -n "$setup_command" ]]; then
-  bash -lc "$setup_command"
-fi
-
 # A prepared build is reusable. Strip every identity and credential surface
 # before the relay is allowed to snapshot it.
 rm -rf /home/zuse/.config/gh /home/zuse/.claude /home/zuse/.codex \

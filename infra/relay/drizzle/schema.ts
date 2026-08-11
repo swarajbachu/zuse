@@ -258,7 +258,6 @@ export const relayCloudProjects = pgTable(
 		defaultBranch: text("default_branch").notNull(),
 		visibility: text("visibility").notNull(),
 		gitConnectionKind: text("git_connection_kind").notNull(),
-		setupCommand: text("setup_command"),
 		cloudEnvironment: jsonb("cloud_environment").notNull().default({}),
 		secretBindings: jsonb("secret_bindings").notNull().default([]),
 		configurationDigest: text("configuration_digest").notNull(),

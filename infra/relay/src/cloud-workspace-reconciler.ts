@@ -132,10 +132,8 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 					'set +e; /usr/local/bin/zuse-project-builder >/dev/null 2>&1; code=$?; printf \'%s\\n\' "$code" >/tmp/zuse-project-builder-exit-code; touch /tmp/zuse-project-builder-exited; exit "$code"',
 				],
 				env: {
-					...project.cloudEnvironment,
 					ZUSE_REPOSITORY_URL: project.repositoryUrl,
 					ZUSE_DEFAULT_BRANCH: project.defaultBranch,
-					ZUSE_SETUP_COMMAND: project.setupCommand ?? "",
 					ZUSE_TEMPLATE_VERSION: build.templateVersion,
 					ZUSE_CONFIGURATION_DIGEST: build.configurationDigest,
 				},

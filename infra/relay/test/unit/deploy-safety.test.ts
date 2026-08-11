@@ -79,7 +79,7 @@ describe("relay deployment safety", () => {
 		expect(config.vars.E2B_ADAPTER_ENABLED).toBe("true");
 		expect(config.vars.E2B_TEMPLATE_ID).toBe("zuse-cloud-sandbox");
 		expect(config.vars.E2B_TEMPLATE_VERSION).toBe(
-			"ae448d7e-e4ed-443e-8973-7478c2e047d3",
+			"68078e23-6400-4ed9-9c57-336f6914e24f",
 		);
 		expect(config.vars.POLAR_PRODUCT_PERSISTENT_STANDARD_V1).toBe(
 			"810223ea-94f2-47e7-9c09-af9a0fd86174",

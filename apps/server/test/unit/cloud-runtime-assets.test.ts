@@ -6,6 +6,19 @@ const readWorkspaceFile = (relativePath: string) =>
 	readFile(new URL(`../../../../${relativePath}`, import.meta.url), "utf8");
 
 describe("cloud runtime assets", () => {
+	test("prepares repository snapshots without installing project dependencies", async () => {
+		const builder = await readWorkspaceFile(
+			"infra/cloud-sandboxes/project-builder.sh",
+		);
+		const reconciler = await readWorkspaceFile(
+			"infra/relay/src/cloud-workspace-reconciler.ts",
+		);
+
+		expect(builder).not.toContain("repository-script.ts setup");
+		expect(builder).not.toContain("ZUSE_SETUP_COMMAND");
+		expect(reconciler).not.toContain("ZUSE_SETUP_COMMAND");
+	});
+
 	test("boots workspace-native runtime without an inbound provider endpoint", async () => {
 		const bootstrap = await readWorkspaceFile(
 			"infra/cloud-sandboxes/workspace-bootstrap.sh",

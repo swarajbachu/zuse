@@ -45,7 +45,6 @@ CREATE TABLE "relay_cloud_projects" (
 	"default_branch" text NOT NULL,
 	"visibility" text NOT NULL,
 	"git_connection_kind" text NOT NULL,
-	"setup_command" text,
 	"cloud_environment" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"secret_bindings" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"configuration_digest" text NOT NULL,

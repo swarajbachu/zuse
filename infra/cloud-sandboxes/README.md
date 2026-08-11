@@ -51,6 +51,12 @@ account default. Future adapters keep native image, snapshot, or recipe
 settings under their own prefixes while sharing the workspace lifecycle.
 
 The relay injects boot values into the process, never the template environment.
+Prepare only clones the selected repository and branch, removes credentials and
+runtime identity, validates the clean checkout, and creates a snapshot. It does
+not evaluate repository environment configuration, install dependencies, or run
+the project setup command. Install dependencies later from the workspace terminal
+or through the agent when the task requires them.
+
 The runtime exchanges the one-time token for a renewable workspace credential,
 installs account credentials, removes the boot token, fetches the latest base,
 checks out the task branch, and acknowledges the durable start command. The

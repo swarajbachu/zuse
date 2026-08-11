@@ -145,7 +145,6 @@ export class CloudProjectConnectRequest extends Schema.Class<CloudProjectConnect
 	defaultBranch: Schema.String,
 	visibility: Schema.Literals(["public", "private"]),
 	displayName: Schema.optional(Schema.String),
-	setupCommand: Schema.optional(Schema.String),
 	cloudEnvironment: Schema.optional(
 		Schema.Record(Schema.String, Schema.String),
 	),
