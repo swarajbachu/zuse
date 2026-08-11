@@ -75,6 +75,12 @@ describe("relay deployment safety", () => {
 			JSON.parse(config.vars.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK ?? ""),
 		).not.toThrow();
 		expect(config.vars.MACHINE_LIVE_CHECKOUT_ENABLED).toBe("true");
+		expect(config.vars).not.toHaveProperty(
+			"CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL",
+		);
+		expect(config.vars).not.toHaveProperty(
+			"CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK",
+		);
 		expect(config.vars).not.toHaveProperty("SANDBOX_DEFAULT_PROVIDER");
 		expect(config.vars.E2B_ADAPTER_ENABLED).toBe("true");
 		expect(config.vars.E2B_TEMPLATE_ID).toBe("zuse-cloud-sandbox");

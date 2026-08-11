@@ -51,6 +51,10 @@ account default. Future adapters keep native image, snapshot, or recipe
 settings under their own prefixes while sharing the workspace lifecycle.
 
 The relay injects boot values into the process, never the template environment.
+Managed-server runtime manifests are intentionally not reused by cloud
+workspaces. A cloud-specific signed manifest may be configured separately after
+its workspace protocol has passed staging compatibility checks; otherwise the
+workspace uses the runtime baked into the published template.
 The optional fast-start cache clones the selected repository as a bare mirror,
 removes credentials and runtime identity, validates the result, and creates a
 snapshot. It does

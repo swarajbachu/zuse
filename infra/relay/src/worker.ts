@@ -87,6 +87,8 @@ interface Env {
 	readonly HETZNER_SERVER_TYPE_PERSISTENT_STANDARD_V1?: string;
 	readonly MACHINE_RUNTIME_MANIFEST_URL?: string;
 	readonly MACHINE_RUNTIME_SIGNING_PUBLIC_JWK?: string;
+	readonly CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL?: string;
+	readonly CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK?: string;
 	readonly E2B_ADAPTER_ENABLED?: string;
 	readonly E2B_API_KEY?: string;
 	readonly E2B_API_BASE_URL?: string;
@@ -126,11 +128,12 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 	const sandboxProvider = resolveSandboxProviderRuntime(env);
 	const sandboxOffer = {
 		...sandboxProvider.offer,
-		...(isConfigured(env.MACHINE_RUNTIME_MANIFEST_URL) &&
-		isConfigured(env.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK)
+		...(isConfigured(env.CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL) &&
+		isConfigured(env.CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK)
 			? {
-					runtimeManifestUrl: env.MACHINE_RUNTIME_MANIFEST_URL,
-					runtimeSigningPublicJwk: env.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK,
+					runtimeManifestUrl: env.CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL,
+					runtimeSigningPublicJwk:
+						env.CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK,
 				}
 			: {}),
 	};
