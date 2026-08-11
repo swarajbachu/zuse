@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0]
+
+### Added
+- Work across local, account-linked, SSH, and private-network computers from one desktop window, with persistent connections, independent reconnects, and projects grouped by computer
+- Create and manage invite-only persistent cloud computers, including checkout, lifecycle controls, secure enrollment, environment switching, and mobile discovery; live availability remains subject to account and rollout eligibility
+- Use Kiro as a first-class agent provider across desktop and mobile, including sessions, images, plan mode, model discovery, and usage limits
+- Start chats in folders that are not Git repositories; Zuse now falls back to the project directory and preserves that choice across retries and restarts
+
+### Changed
+- Queued steering is now durable across restarts and transient failures, with direct controls to steer, edit, or remove queued messages and clearer separation between background tasks and sub-agent waits
+- Usage analytics now use a more compact, interactive dashboard and keep the app responsive while scanning large local histories
+- The desktop workspace has denser, more consistent navigation, tabs, sidebars, summaries, and review surfaces
+- Community installs no longer require private icon-registry credentials, while licensed builds can opt into the full icon set
+
+### Fixed
+- Long-running ACP prompts no longer fail at an arbitrary five-minute deadline, while connection and setup operations retain bounded timeouts
+- Closing the right sidebar no longer causes it to reopen from intermediate animation resize events
+
 ## [0.17.1]
 
 ### Changed
