@@ -715,14 +715,18 @@ export const startGrokSession = (
 		const request = (
 			method: string,
 			params: unknown,
-			timeoutMs = 30_000,
+			timeoutMs: number | null = 30_000,
 			onAssignedId?: (id: number) => void,
 		): Promise<unknown> =>
 			rpc.request(method, params, {
 				timeoutMs,
 				onAssignedId,
-				timeoutError: () =>
-					new Error(`Grok ACP ${method} timed out after ${timeoutMs}ms`),
+				...(timeoutMs === null
+					? {}
+					: {
+							timeoutError: () =>
+								new Error(`Grok ACP ${method} timed out after ${timeoutMs}ms`),
+						}),
 			});
 
 		const notify = (method: string, params: unknown): void => {
@@ -1407,7 +1411,7 @@ export const startGrokSession = (
 								sessionId: sid,
 								prompt,
 							},
-							5 * 60_000,
+							null,
 							(id) => {
 								currentPromptRpcId = id;
 							},

@@ -14,7 +14,8 @@ export interface AcpRequestContext {
 }
 
 export interface AcpRequestOptions {
-	readonly timeoutMs?: number;
+	/** `null` keeps the request pending until it settles or is cancelled. */
+	readonly timeoutMs?: number | null;
 	readonly onAssignedId?: (id: number) => void;
 	readonly timeoutError?: (
 		context: AcpRequestContext & { readonly timeoutMs: number },
@@ -28,7 +29,7 @@ export interface AcpResponseOptions {
 type PendingRequest = AcpRequestContext & {
 	readonly resolve: (value: unknown) => void;
 	readonly reject: (cause: Error) => void;
-	readonly timer: ReturnType<typeof setTimeout>;
+	readonly timer: ReturnType<typeof setTimeout> | null;
 };
 
 export class AcpResponseError extends Error {
@@ -58,16 +59,20 @@ export class AcpRpcClient {
 		options: AcpRequestOptions = {},
 	): Promise<unknown> {
 		const id = this.nextId++;
-		const timeoutMs = options.timeoutMs ?? 30_000;
+		const timeoutMs =
+			options.timeoutMs === undefined ? 30_000 : options.timeoutMs;
 		options.onAssignedId?.(id);
 		const response = new Promise<unknown>((resolve, reject) => {
-			const timer = setTimeout(() => {
-				this.pending.delete(id);
-				reject(
-					options.timeoutError?.({ id, method, timeoutMs }) ??
-						new Error(`${method} timed out after ${timeoutMs}ms`),
-				);
-			}, timeoutMs);
+			const timer =
+				timeoutMs === null
+					? null
+					: setTimeout(() => {
+							this.pending.delete(id);
+							reject(
+								options.timeoutError?.({ id, method, timeoutMs }) ??
+									new Error(`${method} timed out after ${timeoutMs}ms`),
+							);
+						}, timeoutMs);
 			this.pending.set(id, { id, method, resolve, reject, timer });
 		});
 		try {
@@ -99,7 +104,7 @@ export class AcpRpcClient {
 		const pending = this.pending.get(message.id);
 		if (pending === undefined) return false;
 		this.pending.delete(message.id);
-		clearTimeout(pending.timer);
+		if (pending.timer !== null) clearTimeout(pending.timer);
 		if (message.error !== undefined) {
 			pending.reject(
 				options.mapError?.(message.error, pending) ??
@@ -119,14 +124,14 @@ export class AcpRpcClient {
 		const pending = this.pending.get(id);
 		if (pending === undefined) return null;
 		this.pending.delete(id);
-		clearTimeout(pending.timer);
+		if (pending.timer !== null) clearTimeout(pending.timer);
 		pending.reject(cause);
 		return { id, method: pending.method };
 	}
 
 	rejectAll(cause: Error): void {
 		for (const pending of this.pending.values()) {
-			clearTimeout(pending.timer);
+			if (pending.timer !== null) clearTimeout(pending.timer);
 			pending.reject(cause);
 		}
 		this.pending.clear();

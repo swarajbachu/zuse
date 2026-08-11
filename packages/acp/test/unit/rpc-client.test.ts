@@ -55,6 +55,7 @@ describe("AcpRpcClient", () => {
 			"session/prompt",
 			{},
 			{
+				timeoutMs: null,
 				onAssignedId: (assigned) => {
 					id = assigned;
 				},
@@ -97,5 +98,41 @@ describe("AcpRpcClient", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("keeps deadline-free requests pending until a response arrives", async () => {
+		vi.useFakeTimers();
+		try {
+			const client = new AcpRpcClient(() => {});
+			const response = client.request(
+				"session/prompt",
+				{},
+				{ timeoutMs: null },
+			);
+
+			await vi.advanceTimersByTimeAsync(300_001);
+			expect(client.pendingCount).toBe(1);
+			expect(
+				client.acceptResponse({
+					jsonrpc: "2.0",
+					id: 1,
+					result: { stopReason: "end_turn" },
+				}),
+			).toBe(true);
+			await expect(response).resolves.toEqual({ stopReason: "end_turn" });
+			expect(client.pendingCount).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("rejects deadline-free requests when the transport closes", async () => {
+		const client = new AcpRpcClient(() => {});
+		const response = client.request("session/prompt", {}, { timeoutMs: null });
+
+		client.rejectAll(new Error("transport closed"));
+
+		await expect(response).rejects.toThrow("transport closed");
+		expect(client.pendingCount).toBe(0);
 	});
 });

@@ -294,19 +294,24 @@ export const startGeminiSession = (
 		const request = (
 			method: string,
 			params: unknown,
-			timeoutMs = 30_000,
+			timeoutMs: number | null = 30_000,
 			onAssignedId?: (id: number) => void,
 		): Promise<unknown> =>
 			rpc.request(method, params, {
 				timeoutMs,
 				onAssignedId,
-				timeoutError: () => {
-					const diagnostics = formatGeminiDiagnostics(diagnosticTail());
-					const detail = diagnostics.length > 0 ? ` — ${diagnostics}` : "";
-					return new Error(
-						`Gemini ACP ${method} timed out after ${timeoutMs}ms${detail}`,
-					);
-				},
+				...(timeoutMs === null
+					? {}
+					: {
+							timeoutError: () => {
+								const diagnostics = formatGeminiDiagnostics(diagnosticTail());
+								const detail =
+									diagnostics.length > 0 ? ` — ${diagnostics}` : "";
+								return new Error(
+									`Gemini ACP ${method} timed out after ${timeoutMs}ms${detail}`,
+								);
+							},
+						}),
 			});
 
 		const notify = (method: string, params: unknown): void => {
@@ -636,7 +641,7 @@ export const startGeminiSession = (
 									...(input.model !== undefined ? { model: input.model } : {}),
 								},
 							},
-							5 * 60_000,
+							null,
 							(id) => {
 								currentPromptRpcId = id;
 							},
