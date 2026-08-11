@@ -79,6 +79,13 @@ export const requiresServeAccountAuthorization = (input: {
 	readonly tailscale: boolean;
 }): boolean => !input.sshManaged && !input.tailscale;
 
+export const shouldAutoLinkForeground = (input: {
+	readonly sshManaged: boolean;
+	readonly tailscale: boolean;
+	readonly cloudWorkspaceId?: string;
+}): boolean =>
+	!input.sshManaged && !input.tailscale && input.cloudWorkspaceId === undefined;
+
 export const foregroundServeOptions = (
 	env: NodeJS.ProcessEnv,
 	command: { readonly sshManaged: boolean; readonly dataDir?: string },
@@ -466,7 +473,13 @@ export const runServePackageCli = async (
 	};
 
 	if (command.action === "start" && command.foreground) {
-		if (!command.sshManaged && !command.tailscale)
+		if (
+			shouldAutoLinkForeground({
+				sshManaged: command.sshManaged,
+				tailscale: command.tailscale,
+				cloudWorkspaceId: env.ZUSE_CLOUD_WORKSPACE_ID,
+			})
+		)
 			env.ZUSE_SERVE_AUTO_LINK = "1";
 		const tailnetOrigin = await enableTailnet();
 		runHeadlessServer(

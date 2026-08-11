@@ -13,6 +13,7 @@ import {
 	resolveServeDataDir,
 	runServePackageCli,
 	SERVE_HELP,
+	shouldAutoLinkForeground,
 } from "../../src/serve/package-cli.ts";
 
 describe("serve data directory", () => {
@@ -71,6 +72,22 @@ describe("Serve package metadata commands", () => {
 				tailscale: false,
 			}),
 		).toBe(true);
+	});
+
+	it("does not auto-link a cloud workspace as a persistent computer", () => {
+		expect(
+			shouldAutoLinkForeground({
+				sshManaged: false,
+				tailscale: false,
+			}),
+		).toBe(true);
+		expect(
+			shouldAutoLinkForeground({
+				sshManaged: false,
+				tailscale: false,
+				cloudWorkspaceId: "workspace_123",
+			}),
+		).toBe(false);
 	});
 
 	it("selects the newest pairing link from service output", () => {
