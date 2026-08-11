@@ -2,6 +2,7 @@ import type { ChatId, Command, Session } from "@zuse/contracts";
 import { defaultModelFor } from "@zuse/contracts";
 
 import { useChatsStore } from "../store/chats";
+import { localProjectForCloudChat } from "../store/cloud-chat-registry.ts";
 import { useComposerBridge } from "../store/composer-bridge";
 import { usePaneFocus } from "../store/pane-focus";
 import { useProvidersStore } from "../store/providers";
@@ -11,6 +12,8 @@ import { useUiStore } from "../store/ui";
 import { useWorkspaceStore } from "../store/workspace";
 import { captureAnalytics } from "./analytics";
 import { openNewChatLanding } from "./open-new-chat-landing.ts";
+import { getActiveEnvironment, getLocalEnvironmentId } from "./rpc-client.ts";
+import { switchToEnvironment } from "./switch-environment.ts";
 import { activeChatId, orderedChatTabs } from "./tab-order";
 
 /* ────────────────────────── Navigation helpers ──────────────────────────
@@ -132,6 +135,23 @@ function stepPanel(delta: 1 | -1): void {
  */
 const HANDLERS: Record<Command, () => void> = {
 	"new-chat": () => {
+		const selectedChatId = useChatsStore.getState().selectedChatId;
+		const cloudProjectId =
+			selectedChatId === null ? null : localProjectForCloudChat(selectedChatId);
+		if (cloudProjectId !== null) {
+			if (getActiveEnvironment() === getLocalEnvironmentId()) {
+				openNewChatLanding(cloudProjectId);
+				return;
+			}
+			void switchToEnvironment({
+				environmentId: getLocalEnvironmentId(),
+				folderId: cloudProjectId,
+			}).then((result) => {
+				if (result.switched && result.selectedFolderId !== null)
+					openNewChatLanding(result.selectedFolderId);
+			});
+			return;
+		}
 		const projectId = useWorkspaceStore.getState().selectedFolderId;
 		if (projectId === null) return;
 		openNewChatLanding(projectId);

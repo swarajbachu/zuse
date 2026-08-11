@@ -1,8 +1,13 @@
 import type { ChatId } from "@zuse/contracts";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import * as terminalRegistry from "../lib/terminal-registry.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
+import {
+	cloudSummaryForChat,
+	localProjectForCloudChat,
+} from "../store/cloud-chat-registry.ts";
+import { openCloudChat } from "../store/cloud-chats.ts";
 import {
 	EMPTY_TERMINALS,
 	type TerminalInstance,
@@ -75,12 +80,63 @@ function PlainTerminalSlot({
 	slot: number;
 }) {
 	const key = terminalsKey(chatId);
+	const cloudSummary = cloudSummaryForChat(chatId);
+	const cloudProjectId = localProjectForCloudChat(chatId);
+	const [cloudConnection, setCloudConnection] = useState<
+		"idle" | "connecting" | "ready" | "failed"
+	>(cloudSummary === null ? "ready" : "idle");
 	const list = useTerminalsStore((s) => s.byKey[key] ?? EMPTY_TERMINALS);
 	const ensureSlot = useTerminalsStore((s) => s.ensureSlot);
+	const resolvedRootPath =
+		cloudSummary === null ? rootPath : "/home/zuse/workspace";
 
 	useEffect(() => {
-		if (list.length <= slot) ensureSlot(key, slot, rootPath);
-	}, [key, list.length, slot, ensureSlot, rootPath]);
+		if (cloudSummary === null || cloudProjectId === null) return;
+		let cancelled = false;
+		setCloudConnection("connecting");
+		void openCloudChat(cloudSummary, cloudProjectId, { activate: true })
+			.then(() => {
+				if (!cancelled) setCloudConnection("ready");
+			})
+			.catch(() => {
+				if (!cancelled) setCloudConnection("failed");
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [cloudProjectId, cloudSummary]);
+
+	useEffect(() => {
+		if (cloudConnection !== "ready") return;
+		const instance = list[slot];
+		if (
+			instance === undefined ||
+			(cloudSummary !== null &&
+				instance.environmentId !== cloudSummary.workspaceId)
+		)
+			ensureSlot(key, slot, resolvedRootPath);
+	}, [
+		cloudConnection,
+		cloudSummary,
+		ensureSlot,
+		key,
+		list,
+		resolvedRootPath,
+		slot,
+	]);
+
+	if (cloudConnection === "connecting" || cloudConnection === "idle")
+		return (
+			<TerminalPlaceholder>
+				<ShimmerText>Resuming cloud workspace…</ShimmerText>
+			</TerminalPlaceholder>
+		);
+	if (cloudConnection === "failed")
+		return (
+			<TerminalPlaceholder>
+				Cloud terminal could not connect. Close this tab and try again.
+			</TerminalPlaceholder>
+		);
 
 	const inst = list[slot];
 	if (inst === undefined) return null;

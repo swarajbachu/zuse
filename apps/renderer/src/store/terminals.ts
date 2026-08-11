@@ -1,6 +1,7 @@
 import type { ChatId } from "@zuse/contracts";
 import { getActiveEnvironment } from "../lib/rpc-client.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
+import { cloudSummaryForChat } from "./cloud-chat-registry.ts";
 
 const disposeTerminal = (environmentId: string, id: string): void => {
 	void import("../lib/terminal-registry.ts").then((registry) =>
@@ -71,6 +72,11 @@ type TerminalsState = {
 
 export const terminalsKey = (chatId: ChatId): string => chatId;
 
+const environmentForTerminalKey = (key: string): string =>
+	cloudSummaryForChat(key)?.workspaceId ?? getActiveEnvironment();
+const cwdForTerminalKey = (key: string, cwd: string): string =>
+	cloudSummaryForChat(key) === null ? cwd : "/home/zuse/workspace";
+
 const newId = (): string =>
 	globalThis.crypto?.randomUUID?.() ??
 	`t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -94,10 +100,10 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
 		set((state) => {
 			if ((state.byKey[key]?.length ?? 0) > 0) return state;
 			const instance: TerminalInstance = {
-				environmentId: getActiveEnvironment(),
+				environmentId: environmentForTerminalKey(key),
 				id: newId(),
 				title: "zsh",
-				cwd,
+				cwd: cwdForTerminalKey(key, cwd),
 			};
 			return {
 				byKey: { ...state.byKey, [key]: [instance] },
@@ -108,17 +114,42 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
 		let result: TerminalInstance | undefined;
 		set((state) => {
 			const list = state.byKey[key] ?? [];
+			const expectedEnvironment = environmentForTerminalKey(key);
 			if (list.length > slot) {
-				result = list[slot];
-				return state;
+				const existing = list[slot] as TerminalInstance;
+				if (existing.environmentId === expectedEnvironment) {
+					result = existing;
+					return state;
+				}
+				disposeTerminal(existing.environmentId, existing.id);
+				const replacement: TerminalInstance = {
+					environmentId: expectedEnvironment,
+					id: newId(),
+					title: existing.title,
+					cwd: cwdForTerminalKey(key, cwd),
+					command: existing.command,
+				};
+				const next = [...list];
+				next[slot] = replacement;
+				result = replacement;
+				return {
+					byKey: { ...state.byKey, [key]: next },
+					activeByKey: {
+						...state.activeByKey,
+						[key]:
+							state.activeByKey[key] === existing.id
+								? replacement.id
+								: (state.activeByKey[key] ?? replacement.id),
+					},
+				};
 			}
 			const next = [...list];
 			while (next.length <= slot) {
 				next.push({
-					environmentId: getActiveEnvironment(),
+					environmentId: expectedEnvironment,
 					id: newId(),
 					title: nextTitle(next),
-					cwd,
+					cwd: cwdForTerminalKey(key, cwd),
 				});
 			}
 			const instance = next[slot] as TerminalInstance;
@@ -139,10 +170,10 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
 		set((state) => {
 			const list = state.byKey[key] ?? [];
 			const instance: TerminalInstance = {
-				environmentId: getActiveEnvironment(),
+				environmentId: environmentForTerminalKey(key),
 				id,
 				title: nextTitle(list),
-				cwd,
+				cwd: cwdForTerminalKey(key, cwd),
 			};
 			return {
 				byKey: { ...state.byKey, [key]: [...list, instance] },
@@ -158,10 +189,10 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
 			const list = state.byKey[key] ?? [];
 			index = list.length;
 			const instance: TerminalInstance = {
-				environmentId: getActiveEnvironment(),
+				environmentId: environmentForTerminalKey(key),
 				id,
 				title,
-				cwd,
+				cwd: cwdForTerminalKey(key, cwd),
 				command,
 			};
 			return {

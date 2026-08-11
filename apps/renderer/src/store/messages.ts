@@ -175,7 +175,10 @@ type MessagesState = {
 	readonly queueBySession: Record<string, ReadonlyArray<QueuedMessage>>;
 	readonly queuePausedBySession: Record<string, boolean>;
 	readonly goalBySession: Record<string, ThreadGoal | null>;
-	readonly hydrate: (sessionId: SessionId) => Promise<void>;
+	readonly hydrate: (
+		sessionId: SessionId,
+		options?: { readonly live?: boolean },
+	) => Promise<void>;
 	/**
 	 * Send a user turn. Accepts either a raw string (legacy / simple-text
 	 * callers) or a fully-typed `ComposerInput`. The underlying RPC accepts
@@ -646,7 +649,11 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 	queueBySession: {},
 	queuePausedBySession: {},
 	goalBySession: {},
-	hydrate: async (sessionId) => {
+	hydrate: async (sessionId, options) => {
+		if (cloudSummaryForSession(sessionId) !== null && options?.live !== true) {
+			markQueueHydrated(sessionId);
+			return;
+		}
 		retainedTimelineSessions.add(sessionId);
 		const eviction = timelineEvictionTimers.get(sessionId);
 		if (eviction !== undefined) clearTimeout(eviction);

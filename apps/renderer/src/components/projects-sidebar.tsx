@@ -989,12 +989,16 @@ function LogicalCatalogGroup({
 							type="button"
 							aria-label={`New chat in ${group.displayName}`}
 							className="rounded-md p-1 text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
-							onClick={() =>
+							onClick={(event) => {
+								event.stopPropagation();
 								void switchToEnvironment({
 									environmentId: preferred.environmentId,
 									folderId: preferred.folderId,
-								})
-							}
+								}).then((result) => {
+									if (result.switched && result.selectedFolderId !== null)
+										openNewChatLanding(result.selectedFolderId);
+								});
+							}}
 						>
 							<HugeiconsIcon icon={Edit01Icon} className="size-3.5" />
 						</button>
@@ -1424,45 +1428,90 @@ function CloudChatRow({
 	readonly projectId: FolderId;
 }) {
 	const selectedChatId = useChatsStore((state) => state.selectedChatId);
-	const [opening, setOpening] = useState(false);
+	const historyLoading = useCloudChatsStore(
+		(state) => state.historyLoadingByChat[summary.chatId] === true,
+	);
+	const archive = useCloudChatsStore((state) => state.archive);
+	const [archiving, setArchiving] = useState(false);
 	const label = cloudStateLabel(summary);
+	const selected = selectedChatId === summary.chatId;
+	const open = () => {
+		void openCloudChat(summary, projectId).catch((cause) =>
+			toastManager.add({
+				type: "error",
+				title: "Cloud chat could not refresh",
+				description: formatError(cause),
+			}),
+		);
+	};
+	const archiveChat = () => {
+		if (archiving) return;
+		setArchiving(true);
+		void archive(summary)
+			.catch((cause) =>
+				toastManager.add({
+					type: "error",
+					title: "Cloud chat could not be archived",
+					description: formatError(cause),
+				}),
+			)
+			.finally(() => setArchiving(false));
+	};
 	return (
 		<li>
-			<button
-				type="button"
+			{/* biome-ignore lint/a11y/useSemanticElements: the row contains a nested archive action. */}
+			<div
+				role="button"
+				tabIndex={0}
 				aria-label={`${summary.title}. ${label}`}
-				aria-busy={opening || undefined}
+				aria-busy={historyLoading || undefined}
 				className={cn(
-					"group flex min-h-7 w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/40 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
-					selectedChatId === summary.chatId &&
-						"bg-sidebar-accent text-sidebar-accent-foreground",
+					"group flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/40 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
+					selected && "bg-sidebar-accent text-sidebar-accent-foreground",
 				)}
-				onClick={() => {
-					setOpening(true);
-					void openCloudChat(summary, projectId)
-						.catch((cause) =>
-							toastManager.add({
-								type: "error",
-								title: "Cloud chat could not open",
-								description: formatError(cause),
-							}),
-						)
-						.finally(() => setOpening(false));
+				onClick={open}
+				onKeyDown={(event) => {
+					if (event.key === "Enter" || event.key === " ") {
+						event.preventDefault();
+						open();
+					}
 				}}
 			>
-				<HugeiconsIcon
-					icon={CloudIcon}
-					aria-hidden
-					className={cn(
-						"size-3 shrink-0",
-						summary.state === "paused" && "opacity-55",
-					)}
-				/>
-				<span className="min-w-0 flex-1 truncate">{summary.title}</span>
-				<span className="shrink-0 text-[9px] text-muted-foreground/70">
-					{opening ? "Opening…" : label}
+				<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
+					<BranchIcon state="default" selected={selected} />
 				</span>
-			</button>
+				<span className="min-w-0 flex-1 truncate">{summary.title}</span>
+				<div className="flex h-4 shrink-0 items-center justify-end gap-1">
+					<span className="text-[9px] text-muted-foreground/70 group-hover:hidden group-focus-within:hidden">
+						{label}
+					</span>
+					<button
+						type="button"
+						disabled={archiving}
+						onClick={(event) => {
+							event.stopPropagation();
+							archiveChat();
+						}}
+						className="hidden rounded-md p-0.5 text-muted-foreground hover:text-sidebar-accent-foreground group-hover:flex group-focus-within:flex"
+						aria-label={`Archive ${summary.title}`}
+						title="Archive"
+					>
+						{archiving ? (
+							<Spinner className="size-3.5" />
+						) : (
+							<HugeiconsIcon icon={ArchiveArrowDownIcon} className="size-3.5" />
+						)}
+					</button>
+					<HugeiconsIcon
+						icon={CloudIcon}
+						aria-hidden
+						className={cn(
+							"size-3 shrink-0",
+							summary.state === "paused" && "opacity-55",
+						)}
+					/>
+				</div>
+			</div>
 		</li>
 	);
 }

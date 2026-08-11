@@ -35,6 +35,7 @@ import { createAtomStore as create } from "../state/atom-store.ts";
 import { batchAtomUpdates } from "../state/registry.tsx";
 import { useArchivePreviewStore } from "./archive-preview.ts";
 import { registerChatCommands } from "./chat-commands.ts";
+import { cloudSummaryForChat } from "./cloud-chat-registry.ts";
 import {
 	acknowledgeTimelineSessionCreated,
 	deferTimelineUntilSessionCreated,
@@ -1809,6 +1810,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		void get().markRead(chatId);
 	},
 	markRead: async (chatId) => {
+		if (cloudSummaryForChat(chatId) !== null) return;
 		const projectId = findChatProject(get().chatsByProject, chatId);
 		if (projectId === null) return;
 		const chat = (get().chatsByProject[projectId] ?? []).find(

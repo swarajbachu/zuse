@@ -42,6 +42,8 @@ import {
 	TranscriptScrollCoordinator,
 	type TranscriptScrollSnapshot,
 } from "../lib/transcript-scroll-coordinator.ts";
+import { cloudSummaryForSession } from "../store/cloud-chat-registry.ts";
+import { useCloudChatsStore } from "../store/cloud-chats.ts";
 import {
 	acknowledgeTimelineRendered,
 	teardownLiveStreams,
@@ -62,6 +64,7 @@ import { ErrorBubble, MessageRow } from "./message-row.tsx";
 import { NextUnreadButton } from "./next-unread-button.tsx";
 import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 
 const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
@@ -140,6 +143,12 @@ export function ChatView({
 		void state.sessionsByProject;
 		return getSessionById(sessionId);
 	});
+	const cloudSummary = cloudSummaryForSession(sessionId);
+	const cloudHistoryLoading = useCloudChatsStore((state) =>
+		cloudSummary === null
+			? false
+			: state.historyLoadingByChat[cloudSummary.chatId] === true,
+	);
 
 	const worktreeId = session?.worktreeId ?? null;
 	const setupActive = useWorktreesStore((state) => {
@@ -284,12 +293,14 @@ export function ChatView({
 	}, [endInset]);
 
 	useEffect(() => {
-		void hydrate(sessionId);
-		void hydrateSkills(sessionId);
+		if (cloudSummary === null) {
+			void hydrate(sessionId);
+			void hydrateSkills(sessionId);
+		}
 		return () => {
 			void teardownLiveStreams(sessionId);
 		};
-	}, [hydrate, hydrateSkills, sessionId]);
+	}, [cloudSummary, hydrate, hydrateSkills, sessionId]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -614,7 +625,11 @@ export function ChatView({
 							<div className="px-[var(--chat-row-gutter,0.75rem)]">
 								<WorktreeSetupCard />
 							</div>
-							{setupActive ? null : (
+							{setupActive ? null : cloudHistoryLoading ? (
+								<div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+									<ShimmerText>Loading chat history…</ShimmerText>
+								</div>
+							) : (
 								<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
 									<HugeiconsIcon
 										icon={Message01Icon}

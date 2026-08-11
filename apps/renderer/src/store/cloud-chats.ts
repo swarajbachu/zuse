@@ -1,6 +1,6 @@
 import {
 	Chat,
-	type CloudChatHistory,
+	CloudChatHistory,
 	type CloudChatSummary,
 	type CloudWorkspace,
 	type FolderId,
@@ -11,7 +11,7 @@ import {
 	Session,
 	SessionId,
 } from "@zuse/contracts";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { formatError } from "../lib/format-error.ts";
 import {
 	getControlPlaneRpcClient,
@@ -33,15 +33,49 @@ import {
 } from "./messages.ts";
 import { markQueueHydrated } from "./queue-hydration.ts";
 import { useSessionsStore } from "./sessions.ts";
+import { useSkillsStore } from "./skills.ts";
+import { useTerminalsStore } from "./terminals.ts";
+import { useUiStore } from "./ui.ts";
 
 type CloudChatsState = {
 	readonly summaries: ReadonlyArray<CloudChatSummary>;
+	readonly historyLoadingByChat: Readonly<Record<string, boolean>>;
 	readonly loading: boolean;
 	readonly error: string | null;
 	readonly hydrate: () => Promise<void>;
+	readonly archive: (summary: CloudChatSummary) => Promise<void>;
 };
 
 const opening = new Map<string, Promise<void>>();
+const historyCacheKey = (workspaceId: string): string =>
+	`zuse.cloudChatHistory.${workspaceId}`;
+
+const readCachedHistory = (workspaceId: string): CloudChatHistory | null => {
+	if (typeof window === "undefined") return null;
+	try {
+		const value = window.localStorage.getItem(historyCacheKey(workspaceId));
+		if (value === null) return null;
+		const decoded = Schema.decodeUnknownOption(CloudChatHistory)(
+			JSON.parse(value),
+		);
+		return decoded._tag === "Some" ? decoded.value : null;
+	} catch {
+		return null;
+	}
+};
+
+const writeCachedHistory = (history: CloudChatHistory): void => {
+	if (typeof window === "undefined") return;
+	try {
+		window.localStorage.setItem(
+			historyCacheKey(history.workspaceId),
+			JSON.stringify(history),
+		);
+	} catch {
+		// Central history remains authoritative when the local cache is full or
+		// unavailable (for example in a restricted browser context).
+	}
+};
 
 const refreshSummaryFromWorkspace = (
 	summary: CloudChatSummary,
@@ -182,6 +216,22 @@ const messagesFromHistory = (
 			all.findIndex((candidate) => candidate.id === message.id) === index,
 	);
 
+const applyCloudHistory = (
+	summary: CloudChatSummary,
+	projectId: FolderId,
+	history: CloudChatHistory,
+): ReadonlyArray<Message> => {
+	stageCloudChat(summary, projectId, history.firstMessage);
+	const projected = messagesFromHistory(history);
+	useMessagesStore.setState((state) => ({
+		messagesBySession: {
+			...state.messagesBySession,
+			[summary.initialSessionId]: projected,
+		},
+	}));
+	return projected;
+};
+
 export const stageCloudChat = (
 	summary: CloudChatSummary,
 	projectId: FolderId,
@@ -238,20 +288,39 @@ export const openCloudChat = (
 	if (existing !== undefined) return existing;
 	const operation = (async () => {
 		stageCloudChat(summary, projectId);
+		markQueueHydrated(SessionId.make(summary.initialSessionId));
 		useChatsStore.getState().select(summary.chatId);
-		const control = await getControlPlaneRpcClient();
-		const history = await Effect.runPromise(
-			control["cloud.chats.history"]({ workspaceId: summary.workspaceId }),
-		);
-		stageCloudChat(summary, projectId, history.firstMessage);
-		const projected = messagesFromHistory(history);
-		if (projected.length > 0)
-			useMessagesStore.setState((state) => ({
-				messagesBySession: {
-					...state.messagesBySession,
-					[summary.initialSessionId]: projected,
+		const cached = readCachedHistory(summary.workspaceId);
+		let projected =
+			cached === null ? [] : applyCloudHistory(summary, projectId, cached);
+		useCloudChatsStore.setState((state) => ({
+			historyLoadingByChat: {
+				...state.historyLoadingByChat,
+				[summary.chatId]: cached === null,
+			},
+		}));
+		let control: Awaited<ReturnType<typeof getControlPlaneRpcClient>>;
+		let history: CloudChatHistory;
+		try {
+			control = await getControlPlaneRpcClient();
+			try {
+				history = await Effect.runPromise(
+					control["cloud.chats.history"]({ workspaceId: summary.workspaceId }),
+				);
+			} catch (cause) {
+				if (cached === null) throw cause;
+				history = cached;
+			}
+			writeCachedHistory(history);
+			projected = [...applyCloudHistory(summary, projectId, history)];
+		} finally {
+			useCloudChatsStore.setState((state) => ({
+				historyLoadingByChat: {
+					...state.historyLoadingByChat,
+					[summary.chatId]: false,
 				},
 			}));
+		}
 		// Central history has no runtime queue stream to hydrate. Release the
 		// ordinary composer immediately so a paused chat remains fully readable
 		// and the next message can be durably queued without waking compute first.
@@ -317,6 +386,10 @@ export const openCloudChat = (
 			},
 		});
 		acknowledgeTimelineSessionCreated(liveSeed.session.id);
+		await useMessagesStore
+			.getState()
+			.hydrate(liveSeed.session.id, { live: true });
+		void useSkillsStore.getState().hydrate(liveSeed.session.id);
 	})().finally(() => opening.delete(operationKey));
 	opening.set(operationKey, operation);
 	return operation;
@@ -354,6 +427,7 @@ export const summaryFromLaunch = (input: {
 
 export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 	summaries: [],
+	historyLoadingByChat: {},
 	loading: false,
 	error: null,
 	hydrate: async () => {
@@ -366,5 +440,41 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 		} catch (cause) {
 			set({ error: formatError(cause), loading: false });
 		}
+	},
+	archive: async (summary) => {
+		const client = await getControlPlaneRpcClient();
+		await Effect.runPromise(
+			client["cloud.workspaces.archive"]({
+				workspaceId: summary.workspaceId,
+			}),
+		);
+		const projectId = localProjectForCloudChat(summary.chatId);
+		if (useChatsStore.getState().selectedChatId === summary.chatId)
+			useChatsStore.getState().select(null);
+		set((state) => ({
+			summaries: state.summaries.filter(
+				(candidate) => candidate.chatId !== summary.chatId,
+			),
+		}));
+		if (projectId !== null) {
+			useChatsStore.setState((state) => ({
+				chatsByProject: {
+					...state.chatsByProject,
+					[projectId]: (state.chatsByProject[projectId] ?? []).filter(
+						(chat) => chat.id !== summary.chatId,
+					),
+				},
+			}));
+			useSessionsStore.setState((state) => ({
+				sessionsByProject: {
+					...state.sessionsByProject,
+					[projectId]: (state.sessionsByProject[projectId] ?? []).filter(
+						(session) => session.chatId !== summary.chatId,
+					),
+				},
+			}));
+		}
+		useTerminalsStore.getState().disposeChat(summary.chatId);
+		useUiStore.getState().clearChatPanels(summary.chatId);
 	},
 }));
