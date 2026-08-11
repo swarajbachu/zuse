@@ -140,6 +140,15 @@ export const shouldAttachCloudChatOnOpen = (
 	summary: CloudChatSummary,
 ): boolean => summary.state === "ready" && summary.runtimeState === "online";
 
+export const shouldAttachCloudChatWithPendingCommands = (
+	history: Pick<CloudChatHistory, "commandState" | "queuedMessages">,
+): boolean =>
+	history.commandState === "queued" ||
+	history.commandState === "claimed" ||
+	history.queuedMessages.some(
+		(message) => message.state === "queued" || message.state === "claimed",
+	);
+
 export const shouldUseLocalMessageQueue = (input: {
 	readonly queueRequested: boolean;
 	readonly isCloudSession: boolean;
@@ -448,7 +457,11 @@ export const openCloudChat = (
 		if (shouldAttachCloudChatOnOpen(summary))
 			void ensureCloudWorkspaceAttached(summary).catch(() => {});
 		const cached = readCachedHistory(summary.workspaceId);
-		if (cached !== null) applyCloudHistory(summary, projectId, cached);
+		if (cached !== null) {
+			applyCloudHistory(summary, projectId, cached);
+			if (shouldAttachCloudChatWithPendingCommands(cached))
+				void ensureCloudWorkspaceAttached(summary).catch(() => {});
+		}
 		useCloudChatsStore.setState((state) => ({
 			historyLoadingByChat: {
 				...state.historyLoadingByChat,
@@ -463,6 +476,8 @@ export const openCloudChat = (
 				);
 				writeCachedHistory(history);
 				applyCloudHistory(summary, projectId, history);
+				if (shouldAttachCloudChatWithPendingCommands(history))
+					void ensureCloudWorkspaceAttached(summary).catch(() => {});
 			} catch (cause) {
 				if (cached === null) throw cause;
 			}

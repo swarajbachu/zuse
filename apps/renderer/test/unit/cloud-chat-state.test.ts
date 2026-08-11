@@ -1,6 +1,7 @@
 import {
 	AgentSessionId,
 	ChatId,
+	CloudChatHistory,
 	CloudChatSummary,
 	FolderId,
 	Message,
@@ -13,6 +14,7 @@ import {
 	mergeCloudChatMessages,
 	mergeCloudChatSummaries,
 	shouldAttachCloudChatOnOpen,
+	shouldAttachCloudChatWithPendingCommands,
 	shouldRetryCloudWorkspaceAttachment,
 	shouldUseLocalMessageQueue,
 	stageCloudChat,
@@ -165,6 +167,40 @@ describe("cloud chat state reconciliation", () => {
 				desiredState: "ready",
 				resumeAttempts: 2,
 			}),
+		).toBe(false);
+	});
+
+	test("reopening continues durable queued cloud work without waking an idle chat", () => {
+		const history = (state: "queued" | "acknowledged") =>
+			CloudChatHistory.make({
+				workspaceId: "workspace-cloud",
+				chatId: ChatId.make("chat-cloud"),
+				initialSessionId: AgentSessionId.make("session-cloud"),
+				commandState: "acknowledged",
+				events: [],
+				queuedMessages: [
+					{
+						clientMessageId: MessageId.make("message-cloud"),
+						input: {
+							text: "work",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+							annotations: [],
+						},
+						state,
+						asGoal: false,
+						createdAt: Date.now(),
+					},
+				],
+				cursor: 0,
+			});
+
+		expect(shouldAttachCloudChatWithPendingCommands(history("queued"))).toBe(
+			true,
+		);
+		expect(
+			shouldAttachCloudChatWithPendingCommands(history("acknowledged")),
 		).toBe(false);
 	});
 });
