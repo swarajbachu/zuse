@@ -253,6 +253,8 @@ export const MachineErrorCode = Schema.Literals([
 	"provider-unavailable",
 	"enrollment-expired",
 	"enrollment-rejected",
+	"credential-required",
+	"branch-in-use",
 	"conflict",
 	"invalid-request",
 ]);

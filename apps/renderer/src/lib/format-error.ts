@@ -46,6 +46,8 @@ const CLOUD_WORKSPACE_CODE_MESSAGES: Readonly<Record<string, string>> = {
 		"The cloud provider is temporarily unavailable. Try again shortly.",
 	"project-not-ready":
 		"This cloud project needs to be prepared again before starting a workspace.",
+	"credential-required":
+		"Connect GitHub and the selected agent in Cloud Sandbox settings, then try again.",
 	"branch-in-use":
 		"That branch is already open in another cloud workspace. Reuse it or choose another branch.",
 	conflict:

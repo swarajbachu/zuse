@@ -142,7 +142,10 @@ export const resolveMachineRelayUrl = (
 		(env.NODE_ENV === "production" ? PRODUCTION_RELAY_URL : STAGING_RELAY_URL)
 	).replace(/\/+$/u, "");
 
-const mapErrorCode = (status: number, code: unknown): MachineControlError => {
+export const mapRelayErrorCode = (
+	status: number,
+	code: unknown,
+): MachineControlError => {
 	if (code === "machine_alpha_not_allowed") {
 		return new MachineControlError("not-allowed");
 	}
@@ -156,6 +159,10 @@ const mapErrorCode = (status: number, code: unknown): MachineControlError => {
 		return new MachineControlError("entitlement-required");
 	if (code === "cloud_project_not_ready")
 		return new MachineControlError("invalid-state");
+	if (code === "cloud_credential_connection_required")
+		return new MachineControlError("credential-required");
+	if (typeof code === "string" && code.startsWith("cloud_branch_in_use:"))
+		return new MachineControlError("branch-in-use");
 	if (code === "machine_limit_reached") {
 		return new MachineControlError("machine-limit-reached");
 	}
@@ -232,7 +239,7 @@ export const MachineControlServiceLive: Layer.Layer<
 							}>,
 					);
 					return yield* Effect.fail(
-						mapErrorCode(response.status, payload.error),
+						mapRelayErrorCode(response.status, payload.error),
 					);
 				}
 				const payload = yield* Effect.tryPromise({
@@ -363,7 +370,7 @@ export const MachineControlServiceLive: Layer.Layer<
 					});
 					if (!tokenResponse.ok) {
 						return yield* Effect.fail(
-							mapErrorCode(tokenResponse.status, undefined),
+							mapRelayErrorCode(tokenResponse.status, undefined),
 						);
 					}
 					const accessPayload = yield* Effect.tryPromise({
@@ -390,7 +397,9 @@ export const MachineControlServiceLive: Layer.Layer<
 						catch: () => new MachineControlError("provider-unavailable"),
 					});
 					if (!response.ok) {
-						return yield* Effect.fail(mapErrorCode(response.status, undefined));
+						return yield* Effect.fail(
+							mapRelayErrorCode(response.status, undefined),
+						);
 					}
 					const payload = yield* Effect.tryPromise({
 						try: (): Promise<unknown> => response.json(),

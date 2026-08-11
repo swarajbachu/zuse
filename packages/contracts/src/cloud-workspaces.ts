@@ -311,6 +311,7 @@ export class CloudWorkspaceOpError extends Schema.TaggedErrorClass<CloudWorkspac
 			"entitlement-required",
 			"provider-unavailable",
 			"project-not-ready",
+			"credential-required",
 			"branch-in-use",
 			"conflict",
 		]),
