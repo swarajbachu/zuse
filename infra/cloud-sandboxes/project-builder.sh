@@ -29,6 +29,12 @@ git clone --no-single-branch "$ZUSE_REPOSITORY_URL" "$workspace"
 cd "$workspace"
 git checkout "${ZUSE_DEFAULT_BRANCH:?}"
 source_commit="$(git rev-parse HEAD)"
+
+# Repository-controlled setup must never run while the account Git credential
+# exists. The token is used only by Git for the trusted github.com clone above.
+rm -f /run/zuse-secrets/github-token
+unset GIT_ASKPASS ZUSE_GIT_TOKEN_FILE
+
 while IFS= read -r -d '' key && IFS= read -r -d '' value; do
   if [[ -z "${!key+x}" ]]; then export "$key=$value"; fi
 done < <(bun /usr/local/lib/zuse/repository-script.ts environment)

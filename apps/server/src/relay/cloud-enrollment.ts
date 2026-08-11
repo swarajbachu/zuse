@@ -1,4 +1,4 @@
-import { access, chmod, mkdir, unlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -17,7 +17,6 @@ import { ManagedTunnelRuntime } from "./managed-tunnel-runtime.ts";
 
 export interface CloudEnrollmentConfig {
 	readonly machineId: string;
-	readonly resourceKind?: "machine" | "workspace";
 	readonly relayUrl: string;
 	readonly relayIssuer: string;
 	readonly token: Redacted.Redacted<string>;
@@ -37,7 +36,6 @@ const fail = (reason: string) =>
 const RelayErrorBody = Schema.Struct({
 	error: Schema.optional(Schema.String),
 });
-const WorkspaceCallbackResponse = Schema.Struct({ ok: Schema.Boolean });
 
 const post = <A, I>(
 	schema: Schema.Codec<A, I>,
@@ -96,96 +94,74 @@ const removeEnrollmentToken = (
 				},
 			});
 
-const workspaceCredentialsReady = (): Effect.Effect<
-	boolean,
-	CloudEnrollmentError
-> =>
-	Effect.tryPromise({
-		try: async () => {
-			try {
-				await access("/var/lib/zuse/workspace/credentials-ready");
-				return true;
-			} catch (cause) {
-				if (
-					cause instanceof Error &&
-					"code" in cause &&
-					cause.code === "ENOENT"
-				)
-					return false;
-				throw cause;
+export const installCloudCredentials = Effect.fn("installCloudCredentials")(
+	function* (credentials: MachineEnrollResponse["cloudCredentials"]) {
+		if (credentials === undefined) return;
+		const credentialStore = yield* CredentialsService;
+		for (const credential of credentials) {
+			if (credential.kind === "github") {
+				const accountHome =
+					process.env.ZUSE_ACCOUNT_ACCESS_HOME?.trim() || homedir();
+				const hostsFile = join(accountHome, ".config", "gh", "hosts.yml");
+				const gitConfigFile = join(accountHome, ".gitconfig");
+				yield* Effect.tryPromise({
+					try: async () => {
+						await mkdir(dirname(hostsFile), { recursive: true, mode: 0o700 });
+						await chmod(dirname(hostsFile), 0o700);
+						await writeFile(
+							hostsFile,
+							`github.com:\n    oauth_token: ${JSON.stringify(credential.secret)}\n    git_protocol: https\n`,
+							{ encoding: "utf8", mode: 0o600 },
+						);
+						await chmod(hostsFile, 0o600);
+						await writeFile(
+							gitConfigFile,
+							'[credential "https://github.com"]\n\thelper = !gh auth git-credential\n',
+							{ encoding: "utf8", mode: 0o600 },
+						);
+						await chmod(gitConfigFile, 0o600);
+					},
+					catch: () => fail("credential_install_failed"),
+				});
+				continue;
 			}
-		},
-		catch: () => fail("workspace_ready_marker_check_failed"),
-	});
-
-const installCloudCredentials = Effect.fn("installCloudCredentials")(function* (
-	credentials: MachineEnrollResponse["cloudCredentials"],
-) {
-	if (credentials === undefined) return;
-	const credentialStore = yield* CredentialsService;
-	for (const credential of credentials) {
-		if (credential.kind === "github") {
-			const accountHome =
-				process.env.ZUSE_ACCOUNT_ACCESS_HOME?.trim() || homedir();
-			const hostsFile = join(accountHome, ".config", "gh", "hosts.yml");
-			const gitConfigFile = join(accountHome, ".gitconfig");
-			yield* Effect.tryPromise({
-				try: async () => {
-					await mkdir(dirname(hostsFile), { recursive: true, mode: 0o700 });
-					await chmod(dirname(hostsFile), 0o700);
-					await writeFile(
-						hostsFile,
-						`github.com:\n    oauth_token: ${JSON.stringify(credential.secret)}\n    git_protocol: https\n`,
-						{ encoding: "utf8", mode: 0o600 },
-					);
-					await chmod(hostsFile, 0o600);
-					await writeFile(
-						gitConfigFile,
-						'[credential "https://github.com"]\n\thelper = !gh auth git-credential\n',
-						{ encoding: "utf8", mode: 0o600 },
-					);
-					await chmod(gitConfigFile, 0o600);
-				},
-				catch: () => fail("credential_install_failed"),
-			});
-			continue;
+			if (credential.credentialType === "native-store") {
+				const accountHome =
+					process.env.ZUSE_ACCOUNT_ACCESS_HOME?.trim() || homedir();
+				const credentialFile =
+					credential.kind === "claude"
+						? join(accountHome, ".claude", ".credentials.json")
+						: join(accountHome, ".codex", "auth.json");
+				yield* Effect.tryPromise({
+					try: async () => {
+						JSON.parse(credential.secret);
+						await mkdir(dirname(credentialFile), {
+							recursive: true,
+							mode: 0o700,
+						});
+						await chmod(dirname(credentialFile), 0o700);
+						await writeFile(credentialFile, credential.secret, {
+							encoding: "utf8",
+							mode: 0o600,
+						});
+						await chmod(credentialFile, 0o600);
+					},
+					catch: () => fail("credential_install_failed"),
+				});
+				continue;
+			}
+			yield* credentialStore
+				.setProviderCredential(credential.kind, {
+					kind:
+						credential.credentialType === "oauth-token"
+							? "oauth-token"
+							: "api-key",
+					secret: credential.secret,
+				})
+				.pipe(Effect.mapError(() => fail("credential_install_failed")));
 		}
-		if (credential.credentialType === "native-store") {
-			const accountHome =
-				process.env.ZUSE_ACCOUNT_ACCESS_HOME?.trim() || homedir();
-			const credentialFile =
-				credential.kind === "claude"
-					? join(accountHome, ".claude", ".credentials.json")
-					: join(accountHome, ".codex", "auth.json");
-			yield* Effect.tryPromise({
-				try: async () => {
-					JSON.parse(credential.secret);
-					await mkdir(dirname(credentialFile), {
-						recursive: true,
-						mode: 0o700,
-					});
-					await chmod(dirname(credentialFile), 0o700);
-					await writeFile(credentialFile, credential.secret, {
-						encoding: "utf8",
-						mode: 0o600,
-					});
-					await chmod(credentialFile, 0o600);
-				},
-				catch: () => fail("credential_install_failed"),
-			});
-			continue;
-		}
-		yield* credentialStore
-			.setProviderCredential(credential.kind, {
-				kind:
-					credential.credentialType === "oauth-token"
-						? "oauth-token"
-						: "api-key",
-				secret: credential.secret,
-			})
-			.pipe(Effect.mapError(() => fail("credential_install_failed")));
-	}
-});
+	},
+);
 
 /**
  * One-shot cloud enrollment. The layer is initialized before the normal relay
@@ -208,22 +184,8 @@ export const makeCloudEnrollmentLayer = (
 						.getRelayConfig()
 						.pipe(Effect.mapError((error) => fail(error.reason)));
 					if (existing !== null) {
-						if (
-							config.resourceKind !== "workspace" ||
-							(yield* workspaceCredentialsReady())
-						) {
-							yield* removeEnrollmentToken(config.tokenFile).pipe(
-								Effect.ignore,
-							);
-							return;
-						}
-						// A previous process may have persisted relay identity before all
-						// imported credentials reached disk. The workspace enrollment token
-						// remains valid until the relay observes the final readiness marker,
-						// so discard the partial local link and replay enrollment safely.
-						yield* auth
-							.clearRelayConfig()
-							.pipe(Effect.mapError((error) => fail(error.reason)));
+						yield* removeEnrollmentToken(config.tokenFile).pipe(Effect.ignore);
+						return;
 					}
 
 					const token = Redacted.value(config.token);
@@ -231,14 +193,12 @@ export const makeCloudEnrollmentLayer = (
 					const keys = yield* auth
 						.environmentKeys()
 						.pipe(Effect.mapError((error) => fail(error.reason)));
-					if (config.resourceKind !== "workspace") {
-						yield* post(
-							MachineRecord,
-							`${config.relayUrl}${RelayPaths.machineBootStatus(config.machineId)}`,
-							token,
-							{ phase: "service-started" },
-						);
-					}
+					yield* post(
+						MachineRecord,
+						`${config.relayUrl}${RelayPaths.machineBootStatus(config.machineId)}`,
+						token,
+						{ phase: "service-started" },
+					);
 					const nowMs = yield* Clock.currentTimeMillis;
 					const proof = yield* signEnvironmentLinkProof({
 						privateJwk: keys.privateJwk,
@@ -249,7 +209,7 @@ export const makeCloudEnrollmentLayer = (
 					});
 					const enrolled = yield* post(
 						MachineEnrollResponse,
-						`${config.relayUrl}${config.resourceKind === "workspace" ? RelayPaths.cloudWorkspaceEnroll : RelayPaths.machineEnroll}`,
+						`${config.relayUrl}${RelayPaths.machineEnroll}`,
 						token,
 						{
 							machineId: config.machineId,
@@ -286,30 +246,6 @@ export const makeCloudEnrollmentLayer = (
 						})
 						.pipe(Effect.mapError((error) => fail(error.reason)));
 					yield* installCloudCredentials(enrolled.cloudCredentials);
-					if (config.resourceKind === "workspace") {
-						yield* post(
-							WorkspaceCallbackResponse,
-							`${config.relayUrl}${RelayPaths.cloudWorkspaceCredentialsReady(config.machineId)}`,
-							token,
-							{},
-						);
-						yield* Effect.tryPromise({
-							try: async () => {
-								const marker = "/var/lib/zuse/workspace/credentials-ready";
-								await mkdir(dirname(marker), { recursive: true, mode: 0o700 });
-								await writeFile(marker, "ready\n", { mode: 0o600 });
-								// The bootstrap owns this FIFO before starting the runtime. Opening it
-								// for write blocks until its reader exists, so readiness cannot be
-								// lost in the check-before-wait race possible with process signals.
-								await writeFile(
-									"/var/lib/zuse/workspace/credentials-ready-event",
-									"ready\n",
-								);
-							},
-							catch: () => fail("workspace_ready_marker_failed"),
-						});
-					}
-					if (config.resourceKind !== "workspace")
-						yield* removeEnrollmentToken(config.tokenFile);
+					yield* removeEnrollmentToken(config.tokenFile);
 				}),
 			);

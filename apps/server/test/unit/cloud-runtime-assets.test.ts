@@ -6,14 +6,21 @@ const readWorkspaceFile = (relativePath: string) =>
 	readFile(new URL(`../../../../${relativePath}`, import.meta.url), "utf8");
 
 describe("cloud runtime assets", () => {
-	test("keeps sandbox readiness reporting alive for slow first boots", async () => {
-		const entrypoint = await readWorkspaceFile(
-			"infra/cloud-sandboxes/entrypoint.sh",
+	test("boots workspace-native runtime without an inbound provider endpoint", async () => {
+		const bootstrap = await readWorkspaceFile(
+			"infra/cloud-sandboxes/workspace-bootstrap.sh",
+		);
+		const runtime = await readWorkspaceFile(
+			"apps/server/src/relay/cloud-workspace-runtime.ts",
 		);
 
-		expect(entrypoint).toContain("until curl");
-		expect(entrypoint).toContain('kill "$readiness_pid"');
-		expect(entrypoint).not.toContain("seq 1 60");
+		expect(runtime).toContain("bootTokenFile");
+		expect(bootstrap).toContain("export ZUSE_HOST=127.0.0.1");
+		expect(bootstrap).toContain('touch "$status_dir/repository-ready"');
+		expect(bootstrap).not.toContain("workspace-ready.ts");
+		expect(runtime).toContain("bootstrap.gatewayUrl");
+		expect(runtime).toContain("client.frame");
+		expect(runtime).not.toContain("setTimeout(resolve");
 	});
 
 	test("keeps enrollment material owner-only and removable without breaking updates", async () => {

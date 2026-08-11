@@ -2,6 +2,7 @@ import {
 	BillingCheckout,
 	type BillingCheckoutRequest,
 	BillingPortal,
+	CloudChatHistory,
 	CloudCredentialConnection,
 	type CloudCredentialConnectRequest,
 	type CloudCredentialKind,
@@ -13,7 +14,9 @@ import {
 	type CloudProjectPrepareRequest,
 	CloudProviderList,
 	CloudWorkspace,
+	CloudWorkspaceConnection,
 	type CloudWorkspaceCreateRequest,
+	CloudWorkspaceLaunch,
 	CloudWorkspaceList,
 	EntitlementList,
 	type EnvironmentId,
@@ -60,17 +63,16 @@ export interface MachineControlServiceShape {
 	) => Effect.Effect<CloudWorkspace, MachineControlError>;
 	readonly createCloudWorkspace: (
 		input: CloudWorkspaceCreateRequest,
-	) => Effect.Effect<CloudWorkspace, MachineControlError>;
+	) => Effect.Effect<CloudWorkspaceLaunch, MachineControlError>;
+	readonly connectCloudWorkspace: (
+		workspaceId: string,
+	) => Effect.Effect<CloudWorkspaceConnection, MachineControlError>;
+	readonly cloudChatHistory: (
+		workspaceId: string,
+	) => Effect.Effect<CloudChatHistory, MachineControlError>;
 	readonly cloudWorkspaceAction: (
 		workspaceId: string,
-		action:
-			| "pause"
-			| "resume"
-			| "archive"
-			| "delete"
-			| "connected"
-			| "chat-created"
-			| "agent-started",
+		action: "pause" | "resume" | "archive" | "delete",
 	) => Effect.Effect<CloudWorkspace, MachineControlError>;
 	readonly cloudCredentials: () => Effect.Effect<
 		CloudCredentialList,
@@ -267,7 +269,24 @@ export const MachineControlServiceLive: Layer.Layer<
 			cloudWorkspace: (workspaceId) =>
 				request(RelayPaths.cloudWorkspace(workspaceId), CloudWorkspace),
 			createCloudWorkspace: (input) =>
-				request(RelayPaths.cloudWorkspaces, CloudWorkspace, "POST", input),
+				request(
+					RelayPaths.cloudWorkspaces,
+					CloudWorkspaceLaunch,
+					"POST",
+					input,
+				),
+			connectCloudWorkspace: (workspaceId) =>
+				request(
+					RelayPaths.cloudWorkspaceConnectionGrant(workspaceId),
+					CloudWorkspaceConnection,
+					"POST",
+					{},
+				),
+			cloudChatHistory: (workspaceId) =>
+				request(
+					RelayPaths.cloudWorkspaceHistory(workspaceId),
+					CloudChatHistory,
+				),
 			cloudWorkspaceAction: (workspaceId, action) =>
 				request(
 					RelayPaths.cloudWorkspaceAction(workspaceId, action),

@@ -8,8 +8,7 @@ rm -f \
   "$status_dir/ready" \
   "$status_dir/failed" \
   "$status_dir/credentials-ready" \
-  "$status_dir/network-open" \
-  "$status_dir/network-ready" \
+  "$status_dir/repository-ready" \
   "$status_dir/rekeyed"
 trap 'touch "$status_dir/failed"' ERR
 
@@ -23,7 +22,7 @@ chmod 700 /home/zuse/.zuse-data
 # and then remains available for the desktop connection.
 export ZUSE_RUNTIME_KIND=cloud-workspace
 export ZUSE_CLOUD_WORKSPACE_ID
-export ZUSE_HOST=0.0.0.0
+export ZUSE_HOST=127.0.0.1
 export ZUSE_PORT=47837
 export ZUSE_AUTH_POLICY=protected
 export ZUSE_ENABLE_PAIRING=0
@@ -58,6 +57,5 @@ remote_ref="${ZUSE_BASE_REF#origin/}"
 git fetch --prune origin "$remote_ref"
 git checkout -B "$ZUSE_BRANCH" FETCH_HEAD
 touch "$status_dir/ready"
-bun /usr/local/lib/zuse/workspace-ready.ts
-rm -f "${ZUSE_ENROLLMENT_TOKEN_FILE}"
+touch "$status_dir/repository-ready"
 wait "$runtime_pid"

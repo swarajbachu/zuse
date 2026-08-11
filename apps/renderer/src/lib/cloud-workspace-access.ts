@@ -5,11 +5,9 @@ export interface CloudWorkspaceAccessPresentation {
 
 export const cloudWorkspaceAccessPresentation = (input: {
 	readonly entitlementSubscribed: boolean;
-	readonly legacySandboxSubscribed: boolean;
 	readonly serviceAvailable: boolean;
 }): CloudWorkspaceAccessPresentation => {
-	const subscribed =
-		input.entitlementSubscribed || input.legacySandboxSubscribed;
+	const subscribed = input.entitlementSubscribed;
 	return {
 		subscribed,
 		serviceError: input.serviceAvailable

@@ -34,6 +34,8 @@ import {
 import { RelayStorePg } from "./store.ts";
 import { WorkosVerifierLive } from "./workos.ts";
 
+export { WorkspaceGateway } from "./workspace-gateway.ts";
+
 /**
  * Cloudflare Worker bindings. Secrets (`RELAY_MINT_PRIVATE_JWK`) are set via
  * `wrangler secret put`; the rest are `vars` in wrangler.jsonc. `HYPERDRIVE`
@@ -41,6 +43,12 @@ import { WorkosVerifierLive } from "./workos.ts";
  */
 interface Env {
 	readonly HYPERDRIVE: { readonly connectionString: string };
+	readonly WORKSPACE_GATEWAY: {
+		readonly idFromName: (name: string) => unknown;
+		readonly get: (id: unknown) => {
+			readonly fetch: (request: Request) => Promise<Response>;
+		};
+	};
 	readonly RELAY_ISSUER: string;
 	readonly WORKOS_JWKS_URL: string;
 	readonly WORKOS_ISSUER: string;
@@ -222,6 +230,43 @@ export default {
 		} catch (error) {
 			await relay.dispose();
 			throw error;
+		}
+		const gatewayWorkspaceId = response.headers.get("x-zuse-gateway-workspace");
+		const gatewayRole = response.headers.get("x-zuse-gateway-role");
+		if (
+			gatewayWorkspaceId !== null &&
+			(gatewayRole === "runtime" || gatewayRole === "client") &&
+			request.headers.get("upgrade")?.toLowerCase() === "websocket"
+		) {
+			const connectionId = response.headers.get("x-zuse-gateway-connection");
+			const headers = new Headers(request.headers);
+			headers.delete("authorization");
+			headers.set("x-zuse-gateway-workspace", gatewayWorkspaceId);
+			headers.set("x-zuse-gateway-role", gatewayRole);
+			if (connectionId !== null)
+				headers.set("x-zuse-gateway-connection", connectionId);
+			await relay.dispose();
+			const id = env.WORKSPACE_GATEWAY.idFromName(gatewayWorkspaceId);
+			return env.WORKSPACE_GATEWAY.get(id).fetch(
+				new Request(request, { headers }),
+			);
+		}
+		const eventSequence = response.headers.get("x-zuse-gateway-event-sequence");
+		if (gatewayWorkspaceId !== null && eventSequence !== null) {
+			response.headers.delete("x-zuse-gateway-workspace");
+			response.headers.delete("x-zuse-gateway-event-sequence");
+			const id = env.WORKSPACE_GATEWAY.idFromName(gatewayWorkspaceId);
+			context.waitUntil(
+				env.WORKSPACE_GATEWAY.get(id).fetch(
+					new Request("https://workspace-gateway.internal/notify", {
+						method: "POST",
+						body: JSON.stringify({
+							type: "event.available",
+							throughSequence: Number(eventSequence),
+						}),
+					}),
+				),
+			);
 		}
 		const machineId = response.headers.get("x-zuse-reconcile-machine");
 		const cloudBuildId = response.headers.get("x-zuse-reconcile-cloud-build");

@@ -2,11 +2,10 @@ import { describe, expect, test } from "vitest";
 import { cloudWorkspaceAccessPresentation } from "../../src/lib/cloud-workspace-access.ts";
 
 describe("cloud workspace access presentation", () => {
-	test("preserves paid access when the desktop is newer than the relay", () => {
+	test("preserves paid access when cloud controls are unavailable", () => {
 		expect(
 			cloudWorkspaceAccessPresentation({
-				entitlementSubscribed: false,
-				legacySandboxSubscribed: true,
+				entitlementSubscribed: true,
 				serviceAvailable: false,
 			}),
 		).toEqual({
@@ -20,7 +19,6 @@ describe("cloud workspace access presentation", () => {
 		expect(
 			cloudWorkspaceAccessPresentation({
 				entitlementSubscribed: false,
-				legacySandboxSubscribed: false,
 				serviceAvailable: false,
 			}),
 		).toEqual({

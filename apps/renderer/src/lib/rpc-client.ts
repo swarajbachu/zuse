@@ -8,7 +8,11 @@ import {
 	type ConnectionSupervisorEntry,
 	createConnectionSupervisor,
 } from "@zuse/client-runtime/supervisor";
-import { MemoizeRpcs, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
+import {
+	type CloudWorkspaceConnection,
+	MemoizeRpcs,
+	WIRE_PROTOCOL_VERSION,
+} from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 import {
 	type RpcClient,
@@ -42,7 +46,9 @@ type RendererConnectionOptions =
 			readonly key: string;
 			readonly kind: "websocket";
 			readonly wsUrl: string;
+			readonly protocols?: ReadonlyArray<string>;
 			readonly refreshWsUrl?: () => Promise<string>;
+			readonly refreshConnection?: () => Promise<CloudWorkspaceConnection>;
 	  };
 
 export const LOCAL_ENVIRONMENT_KEY = "local";
@@ -106,10 +112,20 @@ const supervisor = createConnectionSupervisor<
 	MemoizeClient
 >({
 	keyOf: (options) => options.key,
-	prepareOptions: async (options) =>
-		options.kind === "websocket" && options.refreshWsUrl !== undefined
-			? { ...options, wsUrl: await options.refreshWsUrl() }
-			: options,
+	prepareOptions: async (options) => {
+		if (options.kind !== "websocket") return options;
+		if (options.refreshConnection !== undefined) {
+			const connection = await options.refreshConnection();
+			return {
+				...options,
+				wsUrl: connection.wsUrl,
+				protocols: [connection.protocol, connection.credential],
+			};
+		}
+		return options.refreshWsUrl === undefined
+			? options
+			: { ...options, wsUrl: await options.refreshWsUrl() };
+	},
 	isOnline: () => online,
 	schedule: (delayMs, reconnect) => {
 		const timer = setTimeout(reconnect, delayMs);
@@ -128,6 +144,13 @@ const supervisor = createConnectionSupervisor<
 						),
 						{
 							openTimeout: RENDERER_WEBSOCKET_OPEN_TIMEOUT,
+							makeWebSocket:
+								options.protocols === undefined
+									? undefined
+									: (url) =>
+											new globalThis.WebSocket(url, [
+												...(options.protocols ?? []),
+											]),
 							onClose: (event) => {
 								reportRendererEntryFailure(
 									options.key,
@@ -250,6 +273,29 @@ export const registerRelayEnvironment = (
 				return value;
 			}
 			return refreshWsUrl();
+		},
+	});
+};
+
+/** Register a cloud workspace directly against its stable gateway route. */
+export const registerCloudWorkspace = (
+	workspaceId: string,
+	initial: CloudWorkspaceConnection,
+	refreshConnection: () => Promise<CloudWorkspaceConnection>,
+): void => {
+	let first: CloudWorkspaceConnection | null = initial;
+	environmentConnections.set(workspaceId, {
+		key: `workspace:${workspaceId}`,
+		kind: "websocket",
+		wsUrl: initial.wsUrl,
+		protocols: [initial.protocol, initial.credential],
+		refreshConnection: async () => {
+			if (first !== null) {
+				const connection = first;
+				first = null;
+				return connection;
+			}
+			return refreshConnection();
 		},
 	});
 };

@@ -2,7 +2,6 @@ import {
 	type MachineOffer,
 	type MachineOfferKind,
 	PERSISTENT_STANDARD_OFFER_ID,
-	SANDBOX_STANDARD_OFFER_ID,
 } from "@zuse/contracts";
 
 export const PERSISTENT_STANDARD_OFFER: MachineOffer = {
@@ -20,24 +19,8 @@ export const PERSISTENT_STANDARD_OFFER: MachineOffer = {
 	available: true,
 };
 
-export const SANDBOX_STANDARD_OFFER: MachineOffer = {
-	offerId: SANDBOX_STANDARD_OFFER_ID,
-	kind: "sandbox",
-	displayName: "Cloud Sandbox",
-	architecture: "x86_64",
-	vcpuCount: 2,
-	memoryMib: 4_096,
-	diskGib: 10,
-	location: "Global",
-	monthlyPriceCents: 2_000,
-	currency: "USD",
-	automaticBackups: false,
-	available: true,
-};
-
 export const MACHINE_OFFERS: ReadonlyArray<MachineOffer> = [
 	PERSISTENT_STANDARD_OFFER,
-	SANDBOX_STANDARD_OFFER,
 ];
 
 export const findMachineOffer = (offerId: string): MachineOffer | undefined =>

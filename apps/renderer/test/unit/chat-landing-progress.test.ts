@@ -1,10 +1,23 @@
 import { describe, expect, test } from "vitest";
-import {
-	chatLandingProgress,
-	cloudWorkspaceFailureMessage,
-} from "../../src/lib/chat-landing-progress.ts";
+import chatLandingSource from "../../src/components/chat-landing.tsx?raw";
+import { chatLandingProgress } from "../../src/lib/chat-landing-progress.ts";
 
 describe("chat landing progress", () => {
+	test("launches cloud chats through the workspace gateway without catalog polling", () => {
+		expect(chatLandingSource).toContain('control["cloud.workspaces.connect"]');
+		expect(chatLandingSource).toContain("registerCloudWorkspace(");
+		expect(chatLandingSource).toContain("switchToCloudWorkspace(");
+		expect(chatLandingSource).not.toContain(
+			'control["cloud.workspaces.connected"]',
+		);
+		expect(chatLandingSource).not.toContain(
+			'control["cloud.workspaces.chatCreated"]',
+		);
+		expect(chatLandingSource).not.toContain(
+			'control["cloud.workspaces.agentStarted"]',
+		);
+	});
+
 	test("shows only cloud progress while a cloud workspace is starting", () => {
 		expect(
 			chatLandingProgress({
@@ -30,25 +43,5 @@ describe("chat landing progress", () => {
 				hasPendingWorktree: false,
 			}),
 		).toEqual({ kind: "none" });
-	});
-});
-
-describe("cloud workspace failure messages", () => {
-	test("explains a rejected network policy without exposing internals", () => {
-		expect(cloudWorkspaceFailureMessage("network-policy-rejected")).toBe(
-			"Cloud Sandbox could not apply its network policy. Try again after the provider configuration is fixed.",
-		);
-	});
-
-	test("explains when the provider sandbox disappeared", () => {
-		expect(cloudWorkspaceFailureMessage("provider-sandbox-missing")).toBe(
-			"The cloud sandbox no longer exists. Start a new cloud workspace.",
-		);
-	});
-
-	test("keeps an unknown status available for support", () => {
-		expect(cloudWorkspaceFailureMessage("unexpected-status")).toBe(
-			"Cloud workspace setup failed (unexpected-status).",
-		);
 	});
 });

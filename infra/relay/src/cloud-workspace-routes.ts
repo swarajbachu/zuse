@@ -5,27 +5,24 @@ import {
 	CloudProjectPrepareRequest,
 	CloudWorkspaceCreateRequest,
 	CloudWorkspaceStartupTimings,
-	MachineEnrollRequest,
 	RelayPaths,
 } from "@zuse/contracts";
 import { SandboxProviders } from "@zuse/sandbox-providers";
 import { Clock, Effect, Schema } from "effect";
+import { CompactEncrypt, importJWK, type JWK } from "jose";
 import { requireWorkos } from "./auth.ts";
 import { CloudCredentialVault } from "./cloud-credential-vault.ts";
 import { hasUsableCloudWorkspaceEntitlement } from "./cloud-entitlement.ts";
 import {
 	type CloudProjectBuildRecord,
 	type CloudProjectRecord,
+	type CloudWorkspaceCommandRecord,
+	type CloudWorkspaceEventRecord,
 	type CloudWorkspaceRecord,
 	CloudWorkspaceStore,
 } from "./cloud-workspace-store.ts";
 import { RelayConfiguration } from "./config.ts";
-import {
-	parseJwk,
-	randomToken,
-	sha256Hex,
-	verifyEnvironmentLinkProof,
-} from "./crypto.ts";
+import { randomToken, sha256Hex } from "./crypto.ts";
 import {
 	badRequest,
 	conflict,
@@ -38,8 +35,8 @@ import {
 import { MachineControlConfiguration } from "./machine-config.ts";
 import { MachineStore } from "./machine-store.ts";
 import type { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
-import { RelayStore } from "./store.ts";
 import type { WorkosVerifier } from "./workos.ts";
+import { WORKSPACE_GATEWAY_PROTOCOL } from "./workspace-gateway-protocol.ts";
 
 export type CloudWorkspaceRouteContext =
 	| CloudWorkspaceStore
@@ -48,14 +45,18 @@ export type CloudWorkspaceRouteContext =
 	| SandboxProviders
 	| SandboxOfferConfiguration
 	| RelayConfiguration
-	| RelayStore
 	| WorkosVerifier;
+
+const CONNECTION_GRANT_TTL_MS = 30_000;
+const RUNTIME_CREDENTIAL_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
+const IDLE_PAUSE_MS = 60 * 60 * 1_000;
 
 const json = (body: unknown, status = 200): Response =>
 	new Response(JSON.stringify(body), {
 		status,
 		headers: { "content-type": "application/json" },
 	});
+
 const decodeBody = <A, I>(
 	schema: Schema.Codec<A, I>,
 	request: Request,
@@ -67,6 +68,31 @@ const decodeBody = <A, I>(
 		Effect.flatMap(Schema.decodeUnknownEffect(schema)),
 		Effect.mapError(() => badRequest("invalid_request")),
 	);
+
+const bearer = (request: Request): string | undefined => {
+	const authorization = request.headers.get("authorization");
+	return authorization?.startsWith("Bearer ")
+		? authorization.slice("Bearer ".length)
+		: undefined;
+};
+
+const gatewayCredential = (request: Request): string | undefined => {
+	const values = request.headers
+		.get("sec-websocket-protocol")
+		?.split(",")
+		.map((value) => value.trim())
+		.filter(Boolean);
+	return values?.[0] === WORKSPACE_GATEWAY_PROTOCOL ? values[1] : undefined;
+};
+
+const gatewayUrl = (relayIssuer: string, workspaceId: string): string => {
+	const url = new URL(
+		RelayPaths.cloudWorkspaceGateway(workspaceId),
+		relayIssuer,
+	);
+	url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+	return url.toString();
+};
 
 export const normalizeRepository = (
 	raw: string,
@@ -140,9 +166,8 @@ const publicProject = (
 	const latestByProvider = new Map<string, CloudProjectBuildRecord>();
 	for (const build of builds) {
 		const current = latestByProvider.get(build.provider);
-		if (current === undefined || build.createdAtMs > current.createdAtMs) {
+		if (current === undefined || build.createdAtMs > current.createdAtMs)
 			latestByProvider.set(build.provider, build);
-		}
 	}
 	return {
 		projectId: project.projectId,
@@ -173,6 +198,7 @@ const publicProject = (
 		updatedAt: project.updatedAtMs,
 	};
 };
+
 const publicBuild = (build: CloudProjectBuildRecord) => ({
 	buildId: build.buildId,
 	projectId: build.projectId,
@@ -184,97 +210,30 @@ const publicBuild = (build: CloudProjectBuildRecord) => ({
 	createdAt: build.createdAtMs,
 	updatedAt: build.updatedAtMs,
 });
+
 const startupTimings = (
 	workspace: CloudWorkspaceRecord,
 ): CloudWorkspaceStartupTimings => {
-	const value = workspace.requestConfig.startupTimings;
 	const decoded = Schema.decodeUnknownOption(CloudWorkspaceStartupTimings)(
-		value,
+		workspace.requestConfig.startupTimings,
 	);
 	return decoded._tag === "Some"
 		? decoded.value
 		: CloudWorkspaceStartupTimings.make({});
 };
 
-export const cloudWorkspaceReadinessAuthorization = (
-	workspace: CloudWorkspaceRecord,
-	tokenHash: string,
-	nowMs: number,
-): "initial" | "retry" | "reject" => {
-	const receiptMatches =
-		workspace.requestConfig.readinessReceiptHash === tokenHash &&
-		typeof workspace.requestConfig.readinessReceiptExpiresAtMs === "number" &&
-		workspace.requestConfig.readinessReceiptExpiresAtMs > nowMs;
-	if (receiptMatches)
-		return workspace.state === "ready" &&
-			startupTimings(workspace).repositoryReadyAt !== undefined
-			? "retry"
-			: "reject";
-	return workspace.state === "setup" &&
-		workspace.enrollmentTokenHash === tokenHash &&
-		(workspace.enrollmentExpiresAtMs ?? 0) > nowMs
-		? "initial"
-		: "reject";
-};
-
 const startupPhase = (workspace: CloudWorkspaceRecord) => {
 	if (workspace.state === "failed") return "failed" as const;
 	if (startupTimings(workspace).agentStartedAt !== undefined)
 		return "running" as const;
-	if (
-		workspace.statusCode === "runtime-connected" ||
-		workspace.statusCode === "agent-starting"
-	)
+	if (startupTimings(workspace).repositoryReadyAt !== undefined)
 		return "starting-agent" as const;
-	if (workspace.statusCode === "ready") return "connecting" as const;
-	if (workspace.statusCode === "repository-setup-running")
-		return "syncing-repository" as const;
-	if (workspace.environmentId !== undefined) return "enrolling" as const;
-	if (workspace.providerSandboxId !== undefined)
-		return "starting-runtime" as const;
+	if (workspace.runtimeState === "online") return "syncing-repository" as const;
+	if (workspace.runtimeState === "connecting")
+		return "authenticating-runtime" as const;
+	if (workspace.providerSandboxId !== undefined) return "booting" as const;
 	return "allocating" as const;
 };
-
-const withStartupTiming = (
-	workspace: CloudWorkspaceRecord,
-	name: keyof CloudWorkspaceStartupTimings,
-	atMs: number,
-): CloudWorkspaceRecord => ({
-	...workspace,
-	requestConfig: (() => {
-		const timings = startupTimings(workspace);
-		const predecessor: Partial<
-			Readonly<
-				Record<
-					keyof CloudWorkspaceStartupTimings,
-					readonly [
-						keyof CloudWorkspaceStartupTimings,
-						keyof CloudWorkspaceStartupTimings,
-					]
-				>
-			>
-		> = {
-			allocatedAt: ["requestedAt", "allocationDurationMs"],
-			enrolledAt: ["allocatedAt", "enrollmentDurationMs"],
-			networkOpenedAt: ["enrolledAt", "credentialInstallDurationMs"],
-			repositoryReadyAt: ["networkOpenedAt", "repositoryDurationMs"],
-			connectedAt: ["repositoryReadyAt", "connectionDurationMs"],
-			agentStartedAt: ["connectedAt", "agentStartDurationMs"],
-		};
-		const previous = predecessor[name];
-		return {
-			...workspace.requestConfig,
-			startupTimings: {
-				...timings,
-				[name]: atMs,
-				...(name === "enrolledAt" ? { runtimeReadyAt: atMs } : {}),
-				...(previous === undefined || timings[previous[0]] === undefined
-					? {}
-					: { [previous[1]]: atMs - (timings[previous[0]] as number) }),
-			},
-		};
-	})(),
-});
 
 const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 	workspaceId: workspace.workspaceId,
@@ -288,7 +247,9 @@ const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 	statusCode: workspace.statusCode,
 	startupPhase: startupPhase(workspace),
 	startupTimings: startupTimings(workspace),
-	environmentId: workspace.environmentId,
+	runtimeState: workspace.runtimeState,
+	chatId: workspace.chatId,
+	initialSessionId: workspace.initialSessionId,
 	createdAt: workspace.createdAtMs,
 	updatedAt: workspace.updatedAtMs,
 	lastActivityAt: workspace.lastActivityAtMs,
@@ -296,6 +257,7 @@ const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 	recoveryAvailable:
 		workspace.recoveryBundleKey !== undefined || workspace.state === "archived",
 });
+
 const publicCredential = (credential: {
 	readonly kind: "github" | "claude" | "codex";
 	readonly state: "connected" | "disconnected" | "error";
@@ -320,10 +282,7 @@ const selectedProvider = Effect.fn("selectedCloudProvider")(function* (
 			config.availableSandboxProviderIds?.has(provider.providerId) ?? true,
 	);
 	if (requested !== undefined) {
-		if (
-			config.availableSandboxProviderIds !== undefined &&
-			!config.availableSandboxProviderIds.has(requested)
-		)
+		if (!available.some((provider) => provider.providerId === requested))
 			return yield* Effect.fail(
 				serviceUnavailable("cloud_provider_unavailable"),
 			);
@@ -334,10 +293,6 @@ const selectedProvider = Effect.fn("selectedCloudProvider")(function* (
 			);
 	}
 	if (available.length === 1) return available[0] as (typeof available)[number];
-	const preferred = available.find(
-		(provider) => provider.providerId === providers.defaultProviderId,
-	);
-	if (preferred !== undefined) return preferred;
 	return yield* Effect.fail(badRequest("cloud_provider_required"));
 });
 
@@ -368,6 +323,117 @@ const hasEntitlement = Effect.fn("hasCloudWorkspaceEntitlement")(function* (
 	return hasUsableCloudWorkspaceEntitlement(entitlements, nowMs);
 });
 
+const requestedCredentials = (
+	workspace: CloudWorkspaceRecord,
+): ReadonlyArray<"github" | "claude" | "codex"> =>
+	Array.isArray(workspace.requestConfig.credentialKinds)
+		? workspace.requestConfig.credentialKinds.flatMap((kind) => {
+				const decoded = Schema.decodeUnknownOption(CloudCredentialKind)(kind);
+				return decoded._tag === "Some" ? [decoded.value] : [];
+			})
+		: [];
+
+const deliverCredentials = Effect.fn("deliverCloudWorkspaceCredentials")(
+	function* (workspace: CloudWorkspaceRecord, credentialPublicJwk: string) {
+		const store = yield* CloudWorkspaceStore;
+		const vault = yield* CloudCredentialVault;
+		const publicKey = yield* Effect.tryPromise({
+			try: async () => {
+				const parsed = JSON.parse(credentialPublicJwk) as JWK;
+				if (parsed.kty !== "RSA") throw new Error("invalid_workspace_key");
+				return importJWK(parsed, "RSA-OAEP-256");
+			},
+			catch: () => badRequest("invalid_workspace_key"),
+		});
+		return yield* Effect.forEach(requestedCredentials(workspace), (kind) =>
+			Effect.gen(function* () {
+				const connection = yield* store.getCredential(
+					workspace.accountId,
+					kind,
+				);
+				if (
+					connection?.state !== "connected" ||
+					connection.encryptedPayload === undefined
+				)
+					return yield* Effect.fail(
+						conflict("cloud_credential_connection_required"),
+					);
+				const payload = yield* vault
+					.decrypt(
+						workspace.accountId,
+						kind,
+						connection.credentialVersion,
+						connection.encryptedPayload,
+					)
+					.pipe(
+						Effect.mapError(() =>
+							serviceUnavailable("cloud_credential_delivery_failed"),
+						),
+					);
+				const sealedSecret = yield* Effect.tryPromise({
+					try: () =>
+						new CompactEncrypt(new TextEncoder().encode(payload.secret))
+							.setProtectedHeader({
+								alg: "RSA-OAEP-256",
+								enc: "A256GCM",
+							})
+							.encrypt(publicKey),
+					catch: () => serviceUnavailable("cloud_credential_delivery_failed"),
+				});
+				return {
+					kind,
+					credentialType: payload.credentialType,
+					sealedSecret,
+					version: connection.credentialVersion,
+				};
+			}),
+		);
+	},
+);
+
+const RuntimeEventsRequest = Schema.Struct({
+	commandId: Schema.optional(Schema.String),
+	events: Schema.Array(
+		Schema.Struct({
+			runtimeSequence: Schema.Number,
+			eventId: Schema.String,
+			streamId: Schema.String,
+			streamVersion: Schema.Number,
+			type: Schema.String,
+			payloadJson: Schema.String,
+		}),
+	),
+});
+
+const RuntimeReadyRequest = Schema.Struct({
+	phase: Schema.Literals(["repository-ready", "agent-started"]),
+	commandId: Schema.optional(Schema.String),
+});
+
+const RuntimeBootstrapRequest = Schema.Struct({
+	credentialPublicJwk: Schema.String,
+});
+
+const requireRuntime = Effect.fn("requireCloudWorkspaceRuntime")(function* (
+	request: Request,
+	workspaceId: string,
+	nowMs: number,
+) {
+	const store = yield* CloudWorkspaceStore;
+	const workspace = yield* store.getWorkspace(workspaceId);
+	const token = bearer(request);
+	if (
+		workspace === null ||
+		token === undefined ||
+		workspace.runtimeCredentialHash !== (yield* sha256Hex(token)) ||
+		typeof workspace.requestConfig.runtimeCredentialExpiresAtMs !== "number" ||
+		workspace.requestConfig.runtimeCredentialExpiresAtMs <= nowMs ||
+		workspace.state === "deleted"
+	)
+		return yield* Effect.fail(unauthorized("workspace_runtime_rejected"));
+	return workspace;
+});
+
 export const routeCloudWorkspaceRequest = (
 	request: Request,
 ): Effect.Effect<Response | null, RelayError, CloudWorkspaceRouteContext> =>
@@ -378,178 +444,39 @@ export const routeCloudWorkspaceRequest = (
 		if (!path.startsWith("/v1/cloud/")) return null;
 		const nowMs = yield* Clock.currentTimeMillis;
 		const store = yield* CloudWorkspaceStore;
-		if (method === "POST" && path === RelayPaths.cloudWorkspaceEnroll) {
-			const authorization = request.headers.get("authorization");
-			const token = authorization?.startsWith("Bearer ")
-				? authorization.slice("Bearer ".length)
-				: undefined;
-			if (token === undefined)
-				return yield* Effect.fail(
-					unauthorized("workspace_enrollment_required"),
-				);
-			const body = yield* decodeBody(MachineEnrollRequest, request);
-			const workspace = yield* store.getWorkspace(body.machineId);
+
+		const bootstrapMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/bootstrap$/u.exec(path);
+		if (method === "POST" && bootstrapMatch !== null) {
+			const workspaceId = decodeURIComponent(bootstrapMatch[1] ?? "");
+			const body = yield* decodeBody(RuntimeBootstrapRequest, request);
+			const workspace = yield* store.getWorkspace(workspaceId);
+			const token = bearer(request);
 			if (
 				workspace === null ||
-				workspace.enrollmentTokenHash !== (yield* sha256Hex(token)) ||
-				(workspace.enrollmentExpiresAtMs ?? 0) <= nowMs ||
-				(workspace.state !== "provisioning" && workspace.state !== "setup") ||
-				workspace.desiredState !== "ready"
-			)
-				return yield* Effect.fail(
-					unauthorized("workspace_enrollment_rejected"),
-				);
-			if (
-				workspace.providerEndpointHttpBaseUrl === undefined ||
-				workspace.providerEndpointWsBaseUrl === undefined
-			)
-				return yield* Effect.fail(
-					serviceUnavailable("workspace_endpoint_unavailable"),
-				);
-			if (
-				workspace.enrolledEnvironmentPublicKey !== undefined &&
-				(workspace.enrolledEnvironmentPublicKey !== body.environmentPublicKey ||
-					workspace.environmentId !== body.environmentId)
-			)
-				return yield* Effect.fail(conflict("workspace_identity_conflict"));
-			const relayConfig = yield* RelayConfiguration;
-			yield* verifyEnvironmentLinkProof({
-				proof: body.proof,
-				environmentPublicJwk: yield* parseJwk(body.environmentPublicKey),
-				expectedChallenge: token,
-				expectedEnvironmentId: body.environmentId,
-				relayIssuer: relayConfig.relayIssuer,
-			});
-			const relayStore = yield* RelayStore;
-			const endpoint = {
-				httpBaseUrl: workspace.providerEndpointHttpBaseUrl,
-				wsBaseUrl: workspace.providerEndpointWsBaseUrl,
-			};
-			const claimed = yield* relayStore.registerEnvironment(
-				{
-					environmentId: body.environmentId,
-					accountId: workspace.accountId,
-					providerKind: "cloud",
-					label: body.label ?? workspace.branch,
-					environmentPublicKey: body.environmentPublicKey,
-					httpBaseUrl: endpoint.httpBaseUrl,
-					wsBaseUrl: endpoint.wsBaseUrl,
-					linkedAtMs: nowMs,
-				},
-				null,
-				"preserve-identity",
-			);
-			if (!claimed)
-				return yield* Effect.fail(conflict("workspace_identity_conflict"));
-			const credentialSecret = yield* randomToken("zenv");
-			yield* relayStore.insertCredential({
-				credentialId: yield* randomToken("cred", 8),
-				environmentId: body.environmentId,
-				accountId: workspace.accountId,
-				credentialHash: yield* sha256Hex(credentialSecret),
-				createdAtMs: nowMs,
-			});
-			const requestedCredentialKinds = Array.isArray(
-				workspace.requestConfig.credentialKinds,
-			)
-				? workspace.requestConfig.credentialKinds
-						.map((kind) =>
-							Schema.decodeUnknownOption(CloudCredentialKind)(kind),
-						)
-						.flatMap((decoded) =>
-							decoded._tag === "Some" ? [decoded.value] : [],
-						)
-				: [];
-			const vault = yield* CloudCredentialVault;
-			const cloudCredentials = yield* Effect.forEach(
-				requestedCredentialKinds,
-				(kind) =>
-					Effect.gen(function* () {
-						const connection = yield* store.getCredential(
-							workspace.accountId,
-							kind,
-						);
-						if (
-							connection?.state !== "connected" ||
-							connection.encryptedPayload === undefined
-						)
-							return yield* Effect.fail(
-								conflict("cloud_credential_connection_required"),
-							);
-						const payload = yield* vault
-							.decrypt(
-								workspace.accountId,
-								kind,
-								connection.credentialVersion,
-								connection.encryptedPayload,
-							)
-							.pipe(
-								Effect.mapError(() =>
-									serviceUnavailable("cloud_credential_delivery_failed"),
-								),
-							);
-						return {
-							kind,
-							credentialType: payload.credentialType,
-							secret: payload.secret,
-							version: connection.credentialVersion,
-						};
-					}),
-			);
-			const enrolledWorkspace = withStartupTiming(
-				{
-					...workspace,
-					environmentId: body.environmentId,
-					enrolledEnvironmentPublicKey: body.environmentPublicKey,
-					state: "setup",
-					statusCode: "repository-setup-running",
-					nextActionAtMs: nowMs + 30_000,
-					// Enrollment races the provider-marker poller. Give the external
-					// identity transition a later revision so a stale failed-marker read
-					// cannot erase the newly enrolled environment.
-					revision: workspace.revision + 2,
-					updatedAtMs: nowMs,
-				},
-				"enrolledAt",
-				nowMs,
-			);
-			yield* store.saveWorkspace(enrolledWorkspace);
-			return json({
-				environmentId: body.environmentId,
-				endpoint,
-				relayIssuer: relayConfig.relayIssuer,
-				environmentCredential: credentialSecret,
-				mintPublicKey: relayConfig.mintPublicKey,
-				cloudCredentials,
-			});
-		}
-		const credentialsReadyMatch =
-			/^\/v1\/cloud\/workspaces\/([^/]+)\/credentials-ready$/u.exec(path);
-		if (method === "POST" && credentialsReadyMatch !== null) {
-			const authorization = request.headers.get("authorization");
-			const token = authorization?.startsWith("Bearer ")
-				? authorization.slice("Bearer ".length)
-				: undefined;
-			const workspace = yield* store.getWorkspace(
-				decodeURIComponent(credentialsReadyMatch[1] ?? ""),
-			);
-			if (
 				token === undefined ||
-				workspace === null ||
-				workspace.enrollmentTokenHash !== (yield* sha256Hex(token)) ||
-				(workspace.enrollmentExpiresAtMs ?? 0) <= nowMs ||
-				workspace.environmentId === undefined ||
-				workspace.providerSandboxId === undefined ||
-				workspace.state !== "setup" ||
-				workspace.desiredState !== "ready"
+				workspace.runtimeBootTokenHash !== (yield* sha256Hex(token)) ||
+				(workspace.runtimeBootTokenExpiresAtMs ?? 0) <= nowMs ||
+				workspace.desiredState !== "ready" ||
+				workspace.providerSandboxId === undefined
 			)
-				return yield* Effect.fail(
-					unauthorized("workspace_credentials_ready_rejected"),
-				);
-			const timings = startupTimings(workspace);
-			if (timings.networkOpenedAt !== undefined) return json({ ok: true });
+				return yield* Effect.fail(unauthorized("workspace_bootstrap_rejected"));
+			const runtimeCredential = yield* randomToken("workspace_runtime", 32);
+			const consumed = yield* store.consumeRuntimeBoot({
+				workspaceId,
+				bootTokenHash: yield* sha256Hex(token),
+				runtimeCredentialHash: yield* sha256Hex(runtimeCredential),
+				runtimeCredentialExpiresAtMs: nowMs + RUNTIME_CREDENTIAL_TTL_MS,
+				nowMs,
+			});
+			if (consumed === null)
+				return yield* Effect.fail(unauthorized("workspace_bootstrap_rejected"));
+			const credentials = yield* deliverCredentials(
+				consumed,
+				body.credentialPublicJwk,
+			);
 			const provider = yield* (yield* SandboxProviders)
-				.get(workspace.provider)
+				.get(consumed.provider)
 				.pipe(
 					Effect.mapError(() =>
 						serviceUnavailable("cloud_provider_unavailable"),
@@ -562,74 +489,177 @@ export const routeCloudWorkspaceRequest = (
 						serviceUnavailable("workspace_network_release_failed"),
 					),
 				);
-			yield* store.saveWorkspace(
-				withStartupTiming(
-					{
-						...workspace,
-						statusCode: "repository-setup-running",
-						nextActionAtMs: nowMs + 30_000,
-						revision: workspace.revision + 1,
-						updatedAtMs: nowMs,
-					},
-					"networkOpenedAt",
-					nowMs,
-				),
+			const relay = yield* RelayConfiguration;
+			return json({
+				workspaceId,
+				runtimeCredential,
+				gatewayUrl: gatewayUrl(relay.relayIssuer, workspaceId),
+				gatewayProtocol: WORKSPACE_GATEWAY_PROTOCOL,
+				chatId: workspace.chatId,
+				initialSessionId: workspace.initialSessionId,
+				cloudCredentials: credentials,
+			});
+		}
+
+		const commandMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/commands$/u.exec(path);
+		if (method === "GET" && commandMatch !== null) {
+			const workspaceId = decodeURIComponent(commandMatch[1] ?? "");
+			yield* requireRuntime(request, workspaceId, nowMs);
+			const after = Number(url.searchParams.get("after") ?? "0");
+			if (!Number.isSafeInteger(after) || after < 0)
+				return yield* Effect.fail(badRequest("invalid_command_cursor"));
+			return json({
+				commands: yield* store.listCommands(workspaceId, after, nowMs),
+			});
+		}
+
+		const eventsMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/events$/u.exec(path);
+		if (method === "POST" && eventsMatch !== null) {
+			const workspaceId = decodeURIComponent(eventsMatch[1] ?? "");
+			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
+			const body = yield* decodeBody(RuntimeEventsRequest, request);
+			if (
+				body.events.length > 500 ||
+				body.events.some(
+					(event) =>
+						!Number.isSafeInteger(event.runtimeSequence) ||
+						event.runtimeSequence < 1 ||
+						event.payloadJson.length > 2_000_000,
+				)
+			)
+				return yield* Effect.fail(badRequest("invalid_runtime_events"));
+			const events: ReadonlyArray<CloudWorkspaceEventRecord> = body.events.map(
+				(event) => ({ ...event, workspaceId, createdAtMs: nowMs }),
+			);
+			yield* store.appendEvents(workspaceId, events);
+			if (body.commandId !== undefined)
+				yield* store.acknowledgeCommand(workspaceId, body.commandId, nowMs);
+			const throughSequence = Math.max(
+				0,
+				...body.events.map((event) => event.runtimeSequence),
+			);
+			yield* store.saveWorkspace({
+				...workspace,
+				lastActivityAtMs: nowMs,
+				nextActionAtMs: nowMs + IDLE_PAUSE_MS,
+				requestConfig: {
+					...workspace.requestConfig,
+					...(body.commandId === undefined
+						? {}
+						: { commandState: "acknowledged" }),
+				},
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+			});
+			const response = json({ appendedThrough: throughSequence });
+			response.headers.set("x-zuse-gateway-workspace", workspaceId);
+			response.headers.set(
+				"x-zuse-gateway-event-sequence",
+				String(throughSequence),
+			);
+			return response;
+		}
+
+		const activityMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/activity$/u.exec(path);
+		if (method === "POST" && activityMatch !== null) {
+			const workspaceId = decodeURIComponent(activityMatch[1] ?? "");
+			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
+			yield* store.recordActivity(
+				workspaceId,
+				workspace.accountId,
+				nowMs,
+				nowMs + IDLE_PAUSE_MS,
 			);
 			return json({ ok: true });
 		}
+
 		const readyMatch = /^\/v1\/cloud\/workspaces\/([^/]+)\/ready$/u.exec(path);
 		if (method === "POST" && readyMatch !== null) {
-			const authorization = request.headers.get("authorization");
-			const token = authorization?.startsWith("Bearer ")
-				? authorization.slice("Bearer ".length)
-				: undefined;
 			const workspaceId = decodeURIComponent(readyMatch[1] ?? "");
-			const workspace = yield* store.getWorkspace(workspaceId);
-			const tokenHash =
-				token === undefined ? undefined : yield* sha256Hex(token);
-			const readinessAuthorization =
-				workspace === null || tokenHash === undefined
-					? "reject"
-					: cloudWorkspaceReadinessAuthorization(workspace, tokenHash, nowMs);
-			if (readinessAuthorization === "retry" && workspace !== null)
-				return json(publicWorkspace(workspace));
-			if (
-				readinessAuthorization !== "initial" ||
-				workspace === null ||
-				workspace.environmentId === undefined ||
-				startupTimings(workspace).networkOpenedAt === undefined ||
-				workspace.desiredState !== "ready"
-			)
-				return yield* Effect.fail(unauthorized("workspace_readiness_rejected"));
-			if (
-				workspace.state === "ready" &&
-				startupTimings(workspace).repositoryReadyAt !== undefined
-			)
-				return json(publicWorkspace(workspace));
-			const ready = withStartupTiming(
-				{
-					...workspace,
-					enrollmentTokenHash: undefined,
-					enrollmentExpiresAtMs: undefined,
-					requestConfig: {
-						...workspace.requestConfig,
-						readinessReceiptHash: tokenHash,
-						readinessReceiptExpiresAtMs:
-							workspace.enrollmentExpiresAtMs ?? nowMs + 60_000,
+			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
+			const body = yield* decodeBody(RuntimeReadyRequest, request);
+			const timings = startupTimings(workspace);
+			if (body.commandId !== undefined)
+				yield* store.acknowledgeCommand(workspaceId, body.commandId, nowMs);
+			const agentStarted = body.phase === "agent-started";
+			const updated: CloudWorkspaceRecord = {
+				...workspace,
+				runtimeState: "online",
+				state: "ready",
+				statusCode: agentStarted ? "agent-running" : "agent-starting",
+				requestConfig: {
+					...workspace.requestConfig,
+					...(body.commandId === undefined
+						? {}
+						: { commandState: "acknowledged" }),
+					startupTimings: {
+						...timings,
+						connectedAt: timings.connectedAt ?? nowMs,
+						repositoryReadyAt: timings.repositoryReadyAt ?? nowMs,
+						...(agentStarted
+							? {
+									agentStartedAt: nowMs,
+									launchDurationMs:
+										timings.requestedAt === undefined
+											? undefined
+											: nowMs - timings.requestedAt,
+								}
+							: {}),
 					},
-					state: "ready",
-					statusCode: "ready",
-					nextActionAtMs: workspace.lastActivityAtMs + 60 * 60 * 1_000,
-					runningSinceMs: nowMs,
-					revision: workspace.revision + 1,
-					updatedAtMs: nowMs,
 				},
-				"repositoryReadyAt",
-				nowMs,
-			);
-			yield* store.saveWorkspace(ready);
-			return json(publicWorkspace(ready));
+				nextActionAtMs: nowMs + IDLE_PAUSE_MS,
+				runningSinceMs: workspace.runningSinceMs ?? nowMs,
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+				lastActivityAtMs: nowMs,
+			};
+			yield* store.saveWorkspace(updated);
+			return json(publicWorkspace(updated));
 		}
+
+		const gatewayMatch = /^\/v1\/cloud\/workspaces\/([^/]+)\/gateway$/u.exec(
+			path,
+		);
+		if (method === "GET" && gatewayMatch !== null) {
+			if (request.headers.get("upgrade")?.toLowerCase() !== "websocket")
+				return yield* Effect.fail(badRequest("websocket_upgrade_required"));
+			const workspaceId = decodeURIComponent(gatewayMatch[1] ?? "");
+			const workspace = yield* store.getWorkspace(workspaceId);
+			const credential = gatewayCredential(request);
+			if (workspace === null || credential === undefined)
+				return yield* Effect.fail(unauthorized("workspace_gateway_rejected"));
+			const credentialHash = yield* sha256Hex(credential);
+			const runtime =
+				workspace.runtimeCredentialHash === credentialHash &&
+				typeof workspace.requestConfig.runtimeCredentialExpiresAtMs ===
+					"number" &&
+				workspace.requestConfig.runtimeCredentialExpiresAtMs > nowMs;
+			const client = runtime
+				? false
+				: yield* store.consumeConnectionGrant(
+						credentialHash,
+						workspaceId,
+						nowMs,
+					);
+			if (!runtime && !client)
+				return yield* Effect.fail(unauthorized("workspace_gateway_rejected"));
+			const response = new Response(null, { status: 204 });
+			response.headers.set("x-zuse-gateway-workspace", workspaceId);
+			response.headers.set(
+				"x-zuse-gateway-role",
+				runtime ? "runtime" : "client",
+			);
+			if (client)
+				response.headers.set(
+					"x-zuse-gateway-connection",
+					yield* randomToken("connection", 12),
+				);
+			return response;
+		}
+
 		const principal = yield* requireWorkos(request);
 
 		if (method === "GET" && path === RelayPaths.cloudProviders) {
@@ -644,13 +674,9 @@ export const routeCloudWorkspaceRequest = (
 					providerId: provider.providerId,
 					displayName: provider.displayName,
 				})),
-				automaticPlacementProviderId: available.some(
-					(provider) => provider.providerId === providers.defaultProviderId,
-				)
-					? providers.defaultProviderId
-					: undefined,
 			});
 		}
+
 		if (method === "GET" && path === RelayPaths.cloudProjects) {
 			const projects = yield* store.listProjects(principal.accountId);
 			const providers = yield* SandboxProviders;
@@ -660,17 +686,19 @@ export const routeCloudWorkspaceRequest = (
 					provider.templateVersion,
 				]),
 			);
-			const result = yield* Effect.forEach(projects, (project) =>
-				store
-					.listBuilds(project.projectId)
-					.pipe(
-						Effect.map((builds) =>
-							publicProject(project, builds, currentTemplateVersions),
+			return json({
+				projects: yield* Effect.forEach(projects, (project) =>
+					store
+						.listBuilds(project.projectId)
+						.pipe(
+							Effect.map((builds) =>
+								publicProject(project, builds, currentTemplateVersions),
+							),
 						),
-					),
-			);
-			return json({ projects: result });
+				),
+			});
 		}
+
 		if (method === "POST" && path === RelayPaths.cloudProjects) {
 			if (!(yield* hasEntitlement(principal.accountId, nowMs)))
 				return yield* Effect.fail(forbidden("cloud_entitlement_required"));
@@ -716,32 +744,20 @@ export const routeCloudWorkspaceRequest = (
 				201,
 			);
 		}
-		const prepareMatch = path.match(
-			/^\/v1\/cloud\/projects\/([^/]+)\/prepare$/u,
+
+		const prepareMatch = /^\/v1\/cloud\/projects\/([^/]+)\/prepare$/u.exec(
+			path,
 		);
 		if (method === "POST" && prepareMatch !== null) {
 			if (!(yield* hasEntitlement(principal.accountId, nowMs)))
 				return yield* Effect.fail(forbidden("cloud_entitlement_required"));
-			const projectId = decodeURIComponent(prepareMatch[1] as string);
+			const projectId = decodeURIComponent(prepareMatch[1] ?? "");
 			const body = yield* decodeBody(CloudProjectPrepareRequest, request);
 			if (body.projectId !== projectId)
 				return yield* Effect.fail(badRequest("project_mismatch"));
 			const project = yield* store.getProject(projectId);
 			if (project === null || project.accountId !== principal.accountId)
 				return yield* Effect.fail(notFound("cloud_project_not_found"));
-			if (project.visibility === "private") {
-				const gitCredential = yield* store.getCredential(
-					principal.accountId,
-					"github",
-				);
-				if (
-					gitCredential?.state !== "connected" ||
-					gitCredential.encryptedPayload === undefined
-				)
-					return yield* Effect.fail(
-						conflict("cloud_credential_connection_required"),
-					);
-			}
 			const provider = yield* selectedProvider(body.providerId);
 			const build: CloudProjectBuildRecord = {
 				buildId: yield* randomToken("build", 12),
@@ -768,6 +784,7 @@ export const routeCloudWorkspaceRequest = (
 			response.headers.set("x-zuse-reconcile-cloud-build", created.buildId);
 			return response;
 		}
+
 		if (method === "GET" && path === RelayPaths.cloudWorkspaces) {
 			return json({
 				workspaces: (yield* store.listWorkspaces(
@@ -776,6 +793,7 @@ export const routeCloudWorkspaceRequest = (
 				)).map(publicWorkspace),
 			});
 		}
+
 		const workspaceMatch = /^\/v1\/cloud\/workspaces\/([^/]+)$/u.exec(path);
 		if (method === "GET" && workspaceMatch !== null) {
 			const workspace = yield* store.getWorkspace(
@@ -785,78 +803,79 @@ export const routeCloudWorkspaceRequest = (
 				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
 			return json(publicWorkspace(workspace));
 		}
-		const startupEventMatch =
-			/^\/v1\/cloud\/workspaces\/([^/]+)\/(connected|chat-created|agent-started)$/u.exec(
-				path,
-			);
-		if (method === "POST" && startupEventMatch !== null) {
-			const workspace = yield* store.getWorkspace(
-				decodeURIComponent(startupEventMatch[1] ?? ""),
-			);
+
+		const grantMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/connection-grant$/u.exec(path);
+		if (method === "POST" && grantMatch !== null) {
+			const workspaceId = decodeURIComponent(grantMatch[1] ?? "");
+			const workspace = yield* store.getWorkspace(workspaceId);
 			if (workspace === null || workspace.accountId !== principal.accountId)
 				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
-			if (workspace.state !== "ready")
-				return yield* Effect.fail(conflict("cloud_workspace_not_ready"));
-			const timings = startupTimings(workspace);
-			const agentStarted = startupEventMatch[2] === "agent-started";
-			const chatCreated = startupEventMatch[2] === "chat-created";
-			if (chatCreated && timings.connectedAt === undefined)
-				return yield* Effect.fail(conflict("cloud_workspace_not_connected"));
-			if (agentStarted && timings.durableChatCreatedAt === undefined)
-				return yield* Effect.fail(conflict("cloud_workspace_chat_not_ready"));
-			const safeRequestConfig =
-				chatCreated || agentStarted
-					? Object.fromEntries(
-							Object.entries(workspace.requestConfig).filter(
-								([name]) =>
-									name !== "firstMessage" &&
-									(!agentStarted ||
-										(name !== "readinessReceiptHash" &&
-											name !== "readinessReceiptExpiresAtMs")),
-							),
-						)
-					: workspace.requestConfig;
-			const timingName = agentStarted
-				? "agentStartedAt"
-				: chatCreated
-					? "durableChatCreatedAt"
-					: "connectedAt";
-			if (timings[timingName] !== undefined)
-				return json(publicWorkspace(workspace));
-			const updated: CloudWorkspaceRecord = {
-				...workspace,
-				statusCode: agentStarted
-					? "agent-running"
-					: chatCreated
-						? "agent-starting"
-						: "runtime-connected",
-				requestConfig: {
-					...safeRequestConfig,
-					startupTimings: {
-						...timings,
-						[timingName]: nowMs,
-						...(agentStarted && timings.durableChatCreatedAt !== undefined
-							? {
-									agentStartDurationMs: nowMs - timings.durableChatCreatedAt,
-								}
-							: chatCreated && timings.connectedAt !== undefined
-								? { chatCreateDurationMs: nowMs - timings.connectedAt }
-								: !agentStarted && timings.repositoryReadyAt !== undefined
-									? {
-											connectionDurationMs: nowMs - timings.repositoryReadyAt,
-										}
-									: {}),
-						...(!agentStarted || timings.requestedAt === undefined
-							? {}
-							: { launchDurationMs: nowMs - timings.requestedAt }),
-					},
-				},
-				revision: workspace.revision + 1,
-				updatedAtMs: nowMs,
-			};
-			yield* store.saveWorkspace(updated);
-			return json(publicWorkspace(updated));
+			if (workspace.state === "failed" || workspace.state === "deleted")
+				return yield* Effect.fail(conflict("cloud_workspace_unavailable"));
+			yield* store.recordActivity(
+				workspaceId,
+				principal.accountId,
+				nowMs,
+				nowMs + IDLE_PAUSE_MS,
+			);
+			const credential = yield* randomToken("workspace_client", 32);
+			const expiresAt = nowMs + CONNECTION_GRANT_TTL_MS;
+			yield* store.createConnectionGrant({
+				grantHash: yield* sha256Hex(credential),
+				workspaceId,
+				accountId: principal.accountId,
+				expiresAtMs: expiresAt,
+				createdAtMs: nowMs,
+			});
+			const relay = yield* RelayConfiguration;
+			const response = json({
+				workspaceId,
+				wsUrl: gatewayUrl(relay.relayIssuer, workspaceId),
+				protocol: WORKSPACE_GATEWAY_PROTOCOL,
+				credential,
+				expiresAt,
+			});
+			if (workspace.state === "paused")
+				response.headers.set("x-zuse-reconcile-cloud-workspace", workspaceId);
+			return response;
 		}
+
+		const historyMatch = /^\/v1\/cloud\/workspaces\/([^/]+)\/chat$/u.exec(path);
+		if (method === "GET" && historyMatch !== null) {
+			const workspaceId = decodeURIComponent(historyMatch[1] ?? "");
+			const workspace = yield* store.getWorkspace(workspaceId);
+			if (workspace === null || workspace.accountId !== principal.accountId)
+				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
+			const after = Number(url.searchParams.get("after") ?? "0");
+			if (!Number.isSafeInteger(after) || after < 0)
+				return yield* Effect.fail(badRequest("invalid_event_cursor"));
+			const events = yield* store.listEvents(workspaceId, after);
+			return json({
+				workspaceId,
+				chatId: workspace.chatId,
+				initialSessionId: workspace.initialSessionId,
+				firstMessage:
+					typeof workspace.requestConfig.firstMessage === "string"
+						? workspace.requestConfig.firstMessage
+						: undefined,
+				commandState:
+					workspace.requestConfig.commandState === "acknowledged"
+						? "acknowledged"
+						: "queued",
+				events: events.map((event) => ({
+					sequence: event.runtimeSequence,
+					eventId: event.eventId,
+					streamId: event.streamId,
+					streamVersion: event.streamVersion,
+					type: event.type,
+					payloadJson: event.payloadJson,
+					createdAt: event.createdAtMs,
+				})),
+				cursor: events.at(-1)?.runtimeSequence ?? after,
+			});
+		}
+
 		if (method === "POST" && path === RelayPaths.cloudWorkspaces) {
 			if (!(yield* hasEntitlement(principal.accountId, nowMs)))
 				return yield* Effect.fail(forbidden("cloud_entitlement_required"));
@@ -876,17 +895,19 @@ export const routeCloudWorkspaceRequest = (
 			)
 				return yield* Effect.fail(conflict("cloud_project_not_ready"));
 			const workspaceId = yield* randomToken("workspace", 12);
+			const chatId = `chat_${crypto.randomUUID()}`;
+			const initialSessionId = `s_${crypto.randomUUID()}`;
 			const branch = body.branch ?? `zuse/${workspaceId.slice(-8)}`;
 			if (
 				!/^[A-Za-z0-9._/-]+$/u.test(branch) ||
 				!/^[A-Za-z0-9._/#-]+$/u.test(body.baseRef)
 			)
 				return yield* Effect.fail(badRequest("invalid_git_ref"));
-			const requestedCredentialKinds = [
+			const credentialKinds = [
 				...(body.credentialKinds ?? []),
 				"github" as const,
-			].filter((kind, index, items) => items.indexOf(kind) === index);
-			for (const kind of requestedCredentialKinds) {
+			].filter((kind, index, values) => values.indexOf(kind) === index);
+			for (const kind of credentialKinds) {
 				const credential = yield* store.getCredential(
 					principal.accountId,
 					kind,
@@ -899,19 +920,15 @@ export const routeCloudWorkspaceRequest = (
 						conflict("cloud_credential_connection_required"),
 					);
 			}
-			const requestedSecretBindings = body.secretBindings ?? [];
-			if (
-				requestedSecretBindings.some(
-					(binding) => !project.secretBindings.includes(binding),
-				)
-			)
-				return yield* Effect.fail(badRequest("cloud_secret_not_allowed"));
 			const workspace: CloudWorkspaceRecord = {
 				workspaceId,
 				accountId: principal.accountId,
 				projectId: project.projectId,
 				buildId: build.buildId,
 				provider: provider.providerId,
+				runtimeState: "offline",
+				chatId,
+				initialSessionId,
 				branch,
 				baseRef: body.baseRef,
 				state: "queued",
@@ -922,11 +939,10 @@ export const routeCloudWorkspaceRequest = (
 				requestConfig: {
 					agent: body.agent,
 					model: body.model,
-					credentialKinds: requestedCredentialKinds,
-					secretBindings: requestedSecretBindings,
+					credentialKinds,
 					permissions: body.permissions ?? [],
 					firstMessage: body.firstMessage,
-					startupProtocol: "callback-v1",
+					commandState: "queued",
 					startupTimings: { requestedAt: nowMs },
 				},
 				nextActionAtMs: nowMs,
@@ -935,13 +951,41 @@ export const routeCloudWorkspaceRequest = (
 				updatedAtMs: nowMs,
 				lastActivityAtMs: nowMs,
 			};
-			const outcome = yield* store.createWorkspace(workspace);
+			const commandFor = (
+				target: CloudWorkspaceRecord,
+			): CloudWorkspaceCommandRecord => ({
+				commandId: `start:${target.workspaceId}`,
+				workspaceId: target.workspaceId,
+				accountId: target.accountId,
+				sequence: 1,
+				kind: "start-agent",
+				payload: {
+					chatId: target.chatId,
+					initialSessionId: target.initialSessionId,
+					agent: body.agent,
+					model: body.model,
+					firstMessage: body.firstMessage,
+					permissions: body.permissions ?? [],
+				},
+				state: "queued",
+				createdAtMs: nowMs,
+			});
+			const outcome = yield* store.createWorkspace(
+				workspace,
+				commandFor(workspace),
+			);
 			if (outcome.kind === "branch-in-use")
 				return yield* Effect.fail(
 					conflict(`cloud_branch_in_use:${outcome.workspace.workspaceId}`),
 				);
+			if (outcome.kind === "existing")
+				yield* store.createCommand(commandFor(outcome.workspace));
 			const response = json(
-				publicWorkspace(outcome.workspace),
+				{
+					workspace: publicWorkspace(outcome.workspace),
+					chatId: outcome.workspace.chatId,
+					initialSessionId: outcome.workspace.initialSessionId,
+				},
 				outcome.kind === "created" ? 201 : 200,
 			);
 			if (outcome.kind === "created")
@@ -951,12 +995,14 @@ export const routeCloudWorkspaceRequest = (
 				);
 			return response;
 		}
-		const actionMatch = path.match(
-			/^\/v1\/cloud\/workspaces\/([^/]+)\/(pause|resume|archive|delete)$/u,
-		);
+
+		const actionMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/(pause|resume|archive|delete)$/u.exec(
+				path,
+			);
 		if (method === "POST" && actionMatch !== null) {
 			const workspace = yield* store.getWorkspace(
-				decodeURIComponent(actionMatch[1] as string),
+				decodeURIComponent(actionMatch[1] ?? ""),
 			);
 			if (workspace === null || workspace.accountId !== principal.accountId)
 				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
@@ -977,34 +1023,26 @@ export const routeCloudWorkspaceRequest = (
 				...workspace,
 				desiredState,
 				statusCode: `${action}-queued`,
-				requestConfig:
-					action === "resume"
-						? {
-								...workspace.requestConfig,
-								startupTimings: {
-									requestedAt: nowMs,
-									resumeRequestedAt: nowMs,
-								},
-							}
-						: workspace.requestConfig,
 				nextActionAtMs: nowMs,
+				revision: workspace.revision + 1,
 				updatedAtMs: nowMs,
 			};
 			yield* store.saveWorkspace(updated);
 			const response = json(publicWorkspace(updated));
 			response.headers.set(
 				"x-zuse-reconcile-cloud-workspace",
-				updated.workspaceId,
+				workspace.workspaceId,
 			);
 			return response;
 		}
-		if (method === "GET" && path === RelayPaths.cloudCredentials) {
+
+		if (method === "GET" && path === RelayPaths.cloudCredentials)
 			return json({
 				credentials: (yield* store.listCredentials(principal.accountId)).map(
 					publicCredential,
 				),
 			});
-		}
+
 		if (method === "POST" && path === RelayPaths.cloudCredentials) {
 			const body = yield* decodeBody(CloudCredentialConnectRequest, request);
 			if (
@@ -1036,39 +1074,43 @@ export const routeCloudWorkspaceRequest = (
 						serviceUnavailable("cloud_credential_store_failed"),
 					),
 				);
-			const saved = yield* store.saveCredential({
-				connectionId:
-					existing?.connectionId ??
-					(yield* randomToken("cloud_credential", 12)),
-				accountId: principal.accountId,
-				kind: body.kind,
-				state: "connected",
-				accountLabel: body.accountLabel,
-				encryptedPayload,
-				encryptionKeyVersion: "v1",
-				credentialVersion: version,
-				createdAtMs: existing?.createdAtMs ?? nowMs,
-				updatedAtMs: nowMs,
-			});
-			return json(publicCredential(saved), existing === null ? 201 : 200);
-		}
-		const credentialDisconnectMatch = path.match(
-			/^\/v1\/cloud\/credentials\/([^/]+)\/disconnect$/u,
-		);
-		if (method === "POST" && credentialDisconnectMatch !== null) {
-			const decoded = Schema.decodeUnknownOption(CloudCredentialKind)(
-				decodeURIComponent(credentialDisconnectMatch[1] as string),
+			return json(
+				publicCredential(
+					yield* store.saveCredential({
+						connectionId:
+							existing?.connectionId ??
+							(yield* randomToken("cloud_credential", 12)),
+						accountId: principal.accountId,
+						kind: body.kind,
+						state: "connected",
+						accountLabel: body.accountLabel,
+						encryptedPayload,
+						encryptionKeyVersion: "v1",
+						credentialVersion: version,
+						createdAtMs: existing?.createdAtMs ?? nowMs,
+						updatedAtMs: nowMs,
+					}),
+				),
 			);
-			if (decoded._tag === "None")
-				return yield* Effect.fail(badRequest("invalid_cloud_credential"));
+		}
+
+		const disconnectMatch =
+			/^\/v1\/cloud\/credentials\/([^/]+)\/disconnect$/u.exec(path);
+		if (method === "POST" && disconnectMatch !== null) {
+			const kind = Schema.decodeUnknownOption(CloudCredentialKind)(
+				decodeURIComponent(disconnectMatch[1] ?? ""),
+			);
+			if (kind._tag === "None")
+				return yield* Effect.fail(badRequest("invalid_cloud_credential_kind"));
 			const disconnected = yield* store.disconnectCredential(
 				principal.accountId,
-				decoded.value,
+				kind.value,
 				nowMs,
 			);
 			if (disconnected === null)
 				return yield* Effect.fail(notFound("cloud_credential_not_found"));
 			return json(publicCredential(disconnected));
 		}
-		return yield* Effect.fail(notFound("cloud_route_not_found"));
+
+		return null;
 	});

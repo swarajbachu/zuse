@@ -89,30 +89,19 @@ const CloudWorkspace = MemoizeRpcs.toLayerHandler(
 	({ workspaceId }) =>
 		withCloudControl((service) => service.cloudWorkspace(workspaceId)),
 );
-const CloudWorkspaceAgentStarted = MemoizeRpcs.toLayerHandler(
-	"cloud.workspaces.agentStarted",
-	({ workspaceId }) =>
-		withCloudControl((service) =>
-			service.cloudWorkspaceAction(workspaceId, "agent-started"),
-		),
-);
-const CloudWorkspaceConnected = MemoizeRpcs.toLayerHandler(
-	"cloud.workspaces.connected",
-	({ workspaceId }) =>
-		withCloudControl((service) =>
-			service.cloudWorkspaceAction(workspaceId, "connected"),
-		),
-);
-const CloudWorkspaceChatCreated = MemoizeRpcs.toLayerHandler(
-	"cloud.workspaces.chatCreated",
-	({ workspaceId }) =>
-		withCloudControl((service) =>
-			service.cloudWorkspaceAction(workspaceId, "chat-created"),
-		),
-);
 const CreateCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.create",
 	(input) => withCloudControl((service) => service.createCloudWorkspace(input)),
+);
+const ConnectCloudWorkspace = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.connect",
+	({ workspaceId }) =>
+		withCloudControl((service) => service.connectCloudWorkspace(workspaceId)),
+);
+const CloudChatHistory = MemoizeRpcs.toLayerHandler(
+	"cloud.chats.history",
+	({ workspaceId }) =>
+		withCloudControl((service) => service.cloudChatHistory(workspaceId)),
 );
 const PauseCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.pause",
@@ -264,10 +253,9 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	PrepareCloudProject,
 	CloudWorkspaces,
 	CloudWorkspace,
-	CloudWorkspaceAgentStarted,
-	CloudWorkspaceConnected,
-	CloudWorkspaceChatCreated,
 	CreateCloudWorkspace,
+	ConnectCloudWorkspace,
+	CloudChatHistory,
 	PauseCloudWorkspace,
 	ResumeCloudWorkspace,
 	ArchiveCloudWorkspace,

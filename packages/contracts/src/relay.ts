@@ -73,11 +73,22 @@ export const RelayPaths = {
 	cloudWorkspaces: "/v1/cloud/workspaces",
 	cloudWorkspace: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}`,
+	cloudWorkspaceConnectionGrant: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/connection-grant`,
+	cloudWorkspaceGateway: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/gateway`,
+	cloudWorkspaceBootstrap: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/bootstrap`,
+	cloudWorkspaceCommands: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/commands`,
+	cloudWorkspaceEvents: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/events`,
+	cloudWorkspaceActivity: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/activity`,
+	cloudWorkspaceHistory: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/chat`,
 	cloudWorkspaceAction: (workspaceId: string, action: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/${encodeURIComponent(action)}`,
-	cloudWorkspaceEnroll: "/v1/cloud/workspaces/enroll",
-	cloudWorkspaceCredentialsReady: (workspaceId: string) =>
-		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/credentials-ready`,
 	cloudWorkspaceReady: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/ready`,
 	cloudCredentials: "/v1/cloud/credentials",

@@ -1,1 +1,0 @@
-ALTER TABLE "relay_machines" ADD COLUMN "provider_endpoint_domain" text;

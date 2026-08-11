@@ -3,7 +3,6 @@ import {
 	type MachineProviderAdapter,
 	MachineProviders,
 } from "@zuse/machine-providers";
-import { SandboxProviders } from "@zuse/sandbox-providers";
 import { Clock, Effect } from "effect";
 import { deleteAccountIdentityWhenInfrastructureIsClean } from "./account-deletion.ts";
 import type { AccountIdentity } from "./account-identity.ts";
@@ -11,7 +10,7 @@ import { cancelProviderSubscription } from "./billing-operations.ts";
 import { randomToken, sha256Hex } from "./crypto.ts";
 import { MachineControlConfiguration } from "./machine-config.ts";
 import { requestMachineDestruction } from "./machine-lifecycle.ts";
-import { findMachineOffer, offerKind } from "./machine-offers.ts";
+import { findMachineOffer } from "./machine-offers.ts";
 import {
 	type MachinePersistenceRecord,
 	MachineStore,
@@ -25,15 +24,11 @@ import {
 	withCancellationBillingFailure,
 	withProviderFailure,
 } from "./reconciliation-failures.ts";
-import type { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
-import { reconcileSandboxMachine } from "./sandbox-reconciler.ts";
 import { RelayStore } from "./store.ts";
 
 export type MachineReconcilerContext =
 	| MachineStore
 	| MachineProviders
-	| SandboxProviders
-	| SandboxOfferConfiguration
 	| BillingProviders
 	| ManagedTunnelProvider
 	| RelayStore
@@ -589,20 +584,6 @@ const reconcileOne = Effect.fn("reconcileOne")(function* (
 	machine: MachinePersistenceRecord,
 	nowMs: number,
 ) {
-	if (offerKind(machine.offerId) === "sandbox") {
-		const providers = yield* SandboxProviders;
-		const selected = yield* providers.get(machine.provider).pipe(Effect.result);
-		if (selected._tag === "Failure") {
-			return {
-				...machine,
-				statusCode: "provider-unavailable",
-				stableFailureCode: "sandbox-provider-not-configured",
-				nextActionAtMs: nowMs + MAX_BACKOFF_MS,
-				updatedAtMs: nowMs,
-			} satisfies MachinePersistenceRecord;
-		}
-		return yield* reconcileSandboxMachine(machine, nowMs, selected.success);
-	}
 	const providers = yield* MachineProviders;
 	const selected = yield* providers.get(machine.provider).pipe(Effect.result);
 	if (selected._tag === "Failure") {

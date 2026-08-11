@@ -137,8 +137,6 @@ export const relayMachines = pgTable(
 		environmentId: text("environment_id"),
 		provider: text("provider").notNull(),
 		providerServerId: text("provider_server_id"),
-		providerEndpointHttpBaseUrl: text("provider_endpoint_http_base_url"),
-		providerEndpointWsBaseUrl: text("provider_endpoint_ws_base_url"),
 		providerLabel: text("provider_label").notNull(),
 		label: text("label"),
 		state: text("state").notNull(),
@@ -352,12 +350,14 @@ export const relayCloudWorkspaces = pgTable(
 			.references(() => relayCloudProjectBuilds.buildId),
 		provider: text("provider").notNull(),
 		providerSandboxId: text("provider_sandbox_id"),
-		providerEndpointHttpBaseUrl: text("provider_endpoint_http_base_url"),
-		providerEndpointWsBaseUrl: text("provider_endpoint_ws_base_url"),
-		environmentId: text("environment_id"),
-		enrollmentTokenHash: text("enrollment_token_hash"),
-		enrollmentExpiresAt: bigint("enrollment_expires_at", { mode: "number" }),
-		enrolledEnvironmentPublicKey: text("enrolled_environment_public_key"),
+		runtimeBootTokenHash: text("runtime_boot_token_hash"),
+		runtimeBootTokenExpiresAt: bigint("runtime_boot_token_expires_at", {
+			mode: "number",
+		}),
+		runtimeCredentialHash: text("runtime_credential_hash"),
+		runtimeState: text("runtime_state").notNull().default("offline"),
+		chatId: text("chat_id").notNull(),
+		initialSessionId: text("initial_session_id").notNull(),
 		branch: text("branch").notNull(),
 		baseRef: text("base_ref").notNull(),
 		state: text("state").notNull(),
@@ -391,9 +391,7 @@ export const relayCloudWorkspaces = pgTable(
 			table.provider,
 			table.providerSandboxId,
 		),
-		uniqueIndex("relay_cloud_workspaces_environment_idx").on(
-			table.environmentId,
-		),
+		uniqueIndex("relay_cloud_workspaces_chat_idx").on(table.chatId),
 		index("relay_cloud_workspaces_project_idx").on(
 			table.projectId,
 			table.updatedAt,
@@ -418,6 +416,90 @@ export const relayCloudWorkspaces = pgTable(
 		check(
 			"relay_cloud_workspaces_desired_state_check",
 			sql`${table.desiredState} IN ('ready', 'paused', 'archived', 'deleted')`,
+		),
+		check(
+			"relay_cloud_workspaces_runtime_state_check",
+			sql`${table.runtimeState} IN ('offline', 'connecting', 'online')`,
+		),
+	],
+);
+
+export const relayCloudWorkspaceConnectionGrants = pgTable(
+	"relay_cloud_workspace_connection_grants",
+	{
+		grantHash: text("grant_hash").primaryKey(),
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => relayCloudWorkspaces.workspaceId, {
+				onDelete: "cascade",
+			}),
+		accountId: text("account_id").notNull(),
+		expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+		consumedAt: bigint("consumed_at", { mode: "number" }),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		index("relay_cloud_workspace_grants_workspace_idx").on(table.workspaceId),
+	],
+);
+
+export const relayCloudWorkspaceCommands = pgTable(
+	"relay_cloud_workspace_commands",
+	{
+		commandId: text("command_id").primaryKey(),
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => relayCloudWorkspaces.workspaceId, {
+				onDelete: "cascade",
+			}),
+		accountId: text("account_id").notNull(),
+		sequence: bigint("sequence", { mode: "number" }).notNull(),
+		kind: text("kind").notNull(),
+		payload: jsonb("payload").notNull(),
+		state: text("state").notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		claimedAt: bigint("claimed_at", { mode: "number" }),
+		acknowledgedAt: bigint("acknowledged_at", { mode: "number" }),
+		failedAt: bigint("failed_at", { mode: "number" }),
+	},
+	(table) => [
+		uniqueIndex("relay_cloud_workspace_commands_sequence_idx").on(
+			table.workspaceId,
+			table.sequence,
+		),
+		check(
+			"relay_cloud_workspace_commands_state_check",
+			sql`${table.state} IN ('queued', 'claimed', 'acknowledged', 'failed')`,
+		),
+	],
+);
+
+export const relayCloudWorkspaceEvents = pgTable(
+	"relay_cloud_workspace_events",
+	{
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => relayCloudWorkspaces.workspaceId, {
+				onDelete: "cascade",
+			}),
+		runtimeSequence: bigint("runtime_sequence", { mode: "number" }).notNull(),
+		eventId: text("event_id").notNull(),
+		streamId: text("stream_id").notNull(),
+		streamVersion: bigint("stream_version", { mode: "number" }).notNull(),
+		type: text("type").notNull(),
+		payloadJson: text("payload_json").notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.workspaceId, table.runtimeSequence] }),
+		uniqueIndex("relay_cloud_workspace_events_id_idx").on(
+			table.workspaceId,
+			table.eventId,
+		),
+		index("relay_cloud_workspace_events_stream_idx").on(
+			table.workspaceId,
+			table.streamId,
+			table.streamVersion,
 		),
 	],
 );

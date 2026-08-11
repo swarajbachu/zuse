@@ -1,11 +1,11 @@
 # Cloud sandbox template
 
-This image contains the managed Zuse server and the supported developer
-toolchain. The image's inert `sleep infinity` command is deliberate: template
-start commands run while the template is built and cannot receive the
-per-sandbox enrollment variables supplied to `Sandbox.create`. The relay starts
-`/usr/local/bin/zuse-entrypoint` through the sandbox process API immediately
-after creation instead.
+This credential-free image contains the Zuse runtime and supported developer
+toolchain. Its inert `sleep infinity` command is deliberate. Project builders
+start `zuse-project-builder`; workspace forks start `zuse-workspace-bootstrap`
+with a one-time workspace boot token. The runtime binds only to loopback and
+opens an authenticated outbound connection to the workspace gateway, so no
+provider endpoint is exposed to clients.
 
 Node 22 is intentional. It satisfies the server's runtime floor and remains
 compatible with the native tree-sitter dependency; Node 24 currently forces an
@@ -45,13 +45,14 @@ Worker secret with
 `bun --filter @zuse/relay secret:e2b`, and deploy the relay only after the
 template can be created with the configured API key.
 
-If exactly one adapter is available, placement selects it automatically. If
-multiple adapters are available, the provisioning request must select one.
-Future adapters keep their native image, snapshot, or recipe settings under
-their own prefixes while sharing the same sandbox offer and lifecycle contract.
+Adapter environment variables only determine availability. The user selects
+placement in the composer; no adapter configured in the relay becomes an
+account default. Future adapters keep native image, snapshot, or recipe
+settings under their own prefixes while sharing the workspace lifecycle.
 
-The relay injects enrollment values into the process, not the template's global
-environment. The entrypoint fails before starting Zuse if any required value is
-missing, serializes repeated starts with `flock`, reports boot phases, and binds
-the protected server to port `47837` for the provider's authenticated HTTPS/WSS
-proxy.
+The relay injects boot values into the process, never the template environment.
+The runtime exchanges the one-time token for a renewable workspace credential,
+installs account credentials, removes the boot token, fetches the latest base,
+checks out the task branch, and acknowledges the durable start command. The
+prepared snapshot contains no repository token, agent credential, runtime
+identity, shell history, or authenticated process.

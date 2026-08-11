@@ -37,11 +37,7 @@ const stateVariant = (
 				? "outline"
 				: "warning";
 
-export function CloudWorkspacePool({
-	legacySandboxSubscribed = false,
-}: {
-	readonly legacySandboxSubscribed?: boolean;
-}) {
+export function CloudWorkspacePool() {
 	const [entitlementSubscribed, setEntitlementSubscribed] = useState(false);
 	const [serviceAvailable, setServiceAvailable] = useState(true);
 	const [providers, setProviders] = useState<
@@ -68,13 +64,12 @@ export function CloudWorkspacePool({
 	const [projectError, setProjectError] = useState<string | null>(null);
 	const access = cloudWorkspaceAccessPresentation({
 		entitlementSubscribed,
-		legacySandboxSubscribed,
 		serviceAvailable,
 	});
 	const subscribed = access.subscribed;
 
 	const load = useCallback(async () => {
-		let loadedSubscribed = legacySandboxSubscribed;
+		let loadedSubscribed = false;
 		try {
 			const client = await getControlPlaneRpcClient();
 			try {
@@ -126,10 +121,7 @@ export function CloudWorkspacePool({
 				setProviders(providerResult.value.providers);
 				setSelectedProvider(
 					(current) =>
-						current ||
-						providerResult.value.automaticPlacementProviderId ||
-						providerResult.value.providers[0]?.providerId ||
-						"",
+						current || providerResult.value.providers[0]?.providerId || "",
 				);
 			}
 			if (projectResult.status === "fulfilled")
@@ -147,7 +139,6 @@ export function CloudWorkspacePool({
 						? "Some cloud workspace data could not be refreshed. Connected accounts remain available."
 						: cloudWorkspaceAccessPresentation({
 								entitlementSubscribed: loadedSubscribed,
-								legacySandboxSubscribed: false,
 								serviceAvailable: false,
 							}).serviceError,
 			);
@@ -156,12 +147,11 @@ export function CloudWorkspacePool({
 			setError(
 				cloudWorkspaceAccessPresentation({
 					entitlementSubscribed: loadedSubscribed,
-					legacySandboxSubscribed: false,
 					serviceAvailable: false,
 				}).serviceError,
 			);
 		}
-	}, [legacySandboxSubscribed]);
+	}, []);
 
 	useEffect(() => {
 		void load();

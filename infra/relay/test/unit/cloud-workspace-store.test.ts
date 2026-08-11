@@ -38,6 +38,17 @@ const build = {
 	updatedAtMs: 100,
 };
 
+const startCommand = (workspaceId: string, accountId = "account-1") => ({
+	commandId: `start:${workspaceId}`,
+	workspaceId,
+	accountId,
+	sequence: 1,
+	kind: "start-agent" as const,
+	payload: {},
+	state: "queued" as const,
+	createdAtMs: 100,
+});
+
 describe("cloud workspace store", () => {
 	test("connects repositories idempotently and leases one active workspace per branch", async () => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
@@ -54,6 +65,9 @@ describe("cloud workspace store", () => {
 			projectId: project.projectId,
 			buildId: build.buildId,
 			provider: build.provider,
+			runtimeState: "offline" as const,
+			chatId: "chat-1",
+			initialSessionId: "session-1",
 			branch: "task/one",
 			baseRef: "origin/main",
 			state: "queued" as const,
@@ -69,7 +83,11 @@ describe("cloud workspace store", () => {
 			lastActivityAtMs: 100,
 		};
 		expect(
-			(await runtime.runPromise(store.createWorkspace(workspace))).kind,
+			(
+				await runtime.runPromise(
+					store.createWorkspace(workspace, startCommand(workspace.workspaceId)),
+				)
+			).kind,
 		).toBe("created");
 		const claimed = await runtime.runPromise(
 			store.claimWorkspace(workspace.workspaceId, "worker-a", 100, 200),
@@ -95,11 +113,14 @@ describe("cloud workspace store", () => {
 		expect(
 			(
 				await runtime.runPromise(
-					store.createWorkspace({
-						...workspace,
-						workspaceId: "workspace-2",
-						idempotencyKey: "other",
-					}),
+					store.createWorkspace(
+						{
+							...workspace,
+							workspaceId: "workspace-2",
+							idempotencyKey: "other",
+						},
+						startCommand("workspace-2"),
+					),
 				)
 			).kind,
 		).toBe("branch-in-use");
@@ -113,11 +134,14 @@ describe("cloud workspace store", () => {
 		expect(
 			(
 				await runtime.runPromise(
-					store.createWorkspace({
-						...workspace,
-						workspaceId: "workspace-2",
-						idempotencyKey: "other",
-					}),
+					store.createWorkspace(
+						{
+							...workspace,
+							workspaceId: "workspace-2",
+							idempotencyKey: "other",
+						},
+						startCommand("workspace-2"),
+					),
 				)
 			).kind,
 		).toBe("branch-in-use");
@@ -141,6 +165,64 @@ describe("cloud workspace store", () => {
 		await runtime.dispose();
 	});
 
+	test("creates the first command atomically and consumes runtime boot once", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(store.connectProject(project));
+		await runtime.runPromise(store.createBuild(build));
+		const workspace = {
+			workspaceId: "workspace-boot",
+			accountId: "account-1",
+			projectId: project.projectId,
+			buildId: build.buildId,
+			provider: build.provider,
+			providerSandboxId: "sandbox-boot",
+			runtimeBootTokenHash: "boot-hash",
+			runtimeBootTokenExpiresAtMs: 1_000,
+			runtimeState: "offline" as const,
+			chatId: "chat-boot",
+			initialSessionId: "session-boot",
+			branch: "task/boot",
+			baseRef: "origin/main",
+			state: "provisioning" as const,
+			desiredState: "ready" as const,
+			statusCode: "runtime-starting",
+			credentialEpoch: 0,
+			idempotencyKey: "workspace-boot-key",
+			requestConfig: { startupTimings: { allocatedAt: 100 } },
+			nextActionAtMs: 100,
+			revision: 1,
+			createdAtMs: 100,
+			updatedAtMs: 100,
+			lastActivityAtMs: 100,
+		};
+		await runtime.runPromise(
+			store.createWorkspace(workspace, startCommand(workspace.workspaceId)),
+		);
+		expect(
+			await runtime.runPromise(
+				store.listCommands(workspace.workspaceId, 0, 150),
+			),
+		).toHaveLength(1);
+		const consume = () =>
+			runtime.runPromise(
+				store.consumeRuntimeBoot({
+					workspaceId: workspace.workspaceId,
+					bootTokenHash: "boot-hash",
+					runtimeCredentialHash: "runtime-hash",
+					runtimeCredentialExpiresAtMs: 10_000,
+					nowMs: 200,
+				}),
+			);
+		expect(await consume()).toMatchObject({
+			runtimeBootTokenHash: undefined,
+			runtimeCredentialHash: "runtime-hash",
+			state: "setup",
+		});
+		expect(await consume()).toBeNull();
+		await runtime.dispose();
+	});
+
 	test("does not let a stale reconciler overwrite a newer workspace revision", async () => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
 		const store = await runtime.runPromise(CloudWorkspaceStore);
@@ -152,6 +234,9 @@ describe("cloud workspace store", () => {
 			projectId: project.projectId,
 			buildId: build.buildId,
 			provider: build.provider,
+			runtimeState: "connecting" as const,
+			chatId: "chat-race",
+			initialSessionId: "session-race",
 			branch: "task/race",
 			baseRef: "origin/main",
 			state: "setup" as const,
@@ -166,11 +251,14 @@ describe("cloud workspace store", () => {
 			updatedAtMs: 100,
 			lastActivityAtMs: 100,
 		};
-		await runtime.runPromise(store.createWorkspace(original));
+		await runtime.runPromise(
+			store.createWorkspace(original, startCommand(original.workspaceId)),
+		);
 		await runtime.runPromise(
 			store.saveWorkspace({
 				...original,
-				environmentId: "environment-new",
+				runtimeCredentialHash: "credential-new",
+				runtimeState: "online",
 				revision: 3,
 				updatedAtMs: 200,
 			}),
@@ -186,51 +274,52 @@ describe("cloud workspace store", () => {
 		expect(
 			await runtime.runPromise(store.getWorkspace(original.workspaceId)),
 		).toMatchObject({
-			environmentId: "environment-new",
+			runtimeCredentialHash: "credential-new",
+			runtimeState: "online",
 			revision: 3,
 			statusCode: "enrollment-pending",
 		});
 		await runtime.dispose();
 	});
 
-	test("starts fresh telemetry when activity resumes a paused workspace", async () => {
+	test("starts fresh telemetry when workspace activity resumes a paused workspace", async () => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
 		const store = await runtime.runPromise(CloudWorkspaceStore);
 		await runtime.runPromise(store.connectProject(project));
 		await runtime.runPromise(store.createBuild(build));
 		await runtime.runPromise(
-			store.createWorkspace({
-				workspaceId: "workspace-paused",
-				accountId: "account-1",
-				projectId: project.projectId,
-				buildId: build.buildId,
-				provider: build.provider,
-				environmentId: "environment-paused",
-				branch: "task/paused",
-				baseRef: "origin/main",
-				state: "paused",
-				desiredState: "paused",
-				statusCode: "paused",
-				credentialEpoch: 0,
-				idempotencyKey: "workspace-paused-key",
-				requestConfig: {
-					startupTimings: { requestedAt: 100, agentStartedAt: 200 },
+			store.createWorkspace(
+				{
+					workspaceId: "workspace-paused",
+					accountId: "account-1",
+					projectId: project.projectId,
+					buildId: build.buildId,
+					provider: build.provider,
+					runtimeState: "offline",
+					chatId: "chat-paused",
+					initialSessionId: "session-paused",
+					branch: "task/paused",
+					baseRef: "origin/main",
+					state: "paused",
+					desiredState: "paused",
+					statusCode: "paused",
+					credentialEpoch: 0,
+					idempotencyKey: "workspace-paused-key",
+					requestConfig: {
+						startupTimings: { requestedAt: 100, agentStartedAt: 200 },
+					},
+					nextActionAtMs: 10_000,
+					revision: 1,
+					createdAtMs: 100,
+					updatedAtMs: 200,
+					lastActivityAtMs: 200,
 				},
-				nextActionAtMs: 10_000,
-				revision: 1,
-				createdAtMs: 100,
-				updatedAtMs: 200,
-				lastActivityAtMs: 200,
-			}),
+				startCommand("workspace-paused"),
+			),
 		);
 
 		const resumed = await runtime.runPromise(
-			store.recordActivityByEnvironment(
-				"environment-paused",
-				"account-1",
-				500,
-				3_600_500,
-			),
+			store.recordActivity("workspace-paused", "account-1", 500, 3_600_500),
 		);
 		expect(resumed).toMatchObject({
 			desiredState: "ready",
@@ -240,6 +329,51 @@ describe("cloud workspace store", () => {
 				startupTimings: { requestedAt: 500, resumeRequestedAt: 500 },
 			},
 		});
+		await runtime.dispose();
+	});
+
+	test("delivers commands and stores runtime events idempotently", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		const command = {
+			commandId: "start:workspace-1",
+			workspaceId: "workspace-1",
+			accountId: "account-1",
+			sequence: 1,
+			kind: "start-agent" as const,
+			payload: { firstMessage: "hello" },
+			state: "queued" as const,
+			createdAtMs: 100,
+		};
+		await runtime.runPromise(store.createCommand(command));
+		expect(
+			await runtime.runPromise(store.listCommands("workspace-1", 0, 200)),
+		).toMatchObject([{ state: "claimed", sequence: 1 }]);
+		expect(
+			await runtime.runPromise(
+				store.acknowledgeCommand("workspace-1", command.commandId, 300),
+			),
+		).toBe(true);
+
+		const event = {
+			workspaceId: "workspace-1",
+			runtimeSequence: 1,
+			eventId: "event-1",
+			streamId: "session-1",
+			streamVersion: 1,
+			type: "SessionCreated",
+			payloadJson: '{"_tag":"SessionCreated"}',
+			createdAtMs: 300,
+		};
+		expect(
+			await runtime.runPromise(store.appendEvents("workspace-1", [event])),
+		).toBe(1);
+		expect(
+			await runtime.runPromise(store.appendEvents("workspace-1", [event])),
+		).toBe(0);
+		expect(
+			await runtime.runPromise(store.listEvents("workspace-1", 0)),
+		).toEqual([event]);
 		await runtime.dispose();
 	});
 

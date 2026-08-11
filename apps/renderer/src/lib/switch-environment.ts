@@ -1,10 +1,11 @@
-import type { ChatId, FolderId } from "@zuse/contracts";
+import type { ChatId, Folder, FolderId } from "@zuse/contracts";
 
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import {
 	type ActivateEnvironmentSeed,
 	activateEnvironmentState,
 } from "../store/environment-state-coordinator.ts";
+import { setActiveEnvironment } from "./rpc-client.ts";
 
 export type SwitchEnvironmentResult = {
 	readonly switched: boolean;
@@ -54,6 +55,55 @@ export const switchToEnvironment = async (input: {
 					.entries.find(
 						(candidate) => candidate.environmentId === environmentId,
 					),
+		});
+		return { switched: true, selectedFolderId };
+	} finally {
+		switchInFlight = false;
+	}
+};
+
+/**
+ * Activates a cloud workspace connection without adding it to the computer
+ * catalog. The shared state coordinator is transport-agnostic; the synthetic
+ * entry only supplies the freshly hydrated workspace state for this switch.
+ */
+export const switchToCloudWorkspace = async (input: {
+	readonly workspaceId: string;
+	readonly folder: Folder;
+	readonly chatId: ChatId;
+	readonly seed?: ActivateEnvironmentSeed;
+}): Promise<SwitchEnvironmentResult> => {
+	if (switchInFlight) return { switched: false, selectedFolderId: null };
+	const catalog = useEnvironmentCatalogStore.getState();
+	const entry = {
+		connectionKind: "relay" as const,
+		environmentId: input.workspaceId,
+		profileId: null,
+		label: "Cloud workspace",
+		target: null,
+		descriptor: null,
+		status: "connected" as const,
+		error: null,
+		folders: [input.folder],
+		originsByFolder: {},
+		chatsByProject: {},
+		sessionsByProject: {},
+	};
+	switchInFlight = true;
+	try {
+		const selectedFolderId = await activateEnvironmentState({
+			fromEnvironmentId: catalog.activeEnvironmentId,
+			entry,
+			folderId: input.folder.id,
+			chatId: input.chatId,
+			seed: input.seed,
+			activateConnection: async () => {
+				setActiveEnvironment(input.workspaceId);
+				useEnvironmentCatalogStore.setState({
+					activeEnvironmentId: input.workspaceId,
+				});
+			},
+			resolveEntry: () => entry,
 		});
 		return { switched: true, selectedFolderId };
 	} finally {

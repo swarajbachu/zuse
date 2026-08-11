@@ -56,12 +56,12 @@ export interface CloudWorkspaceRecord {
 	readonly buildId: string;
 	readonly provider: string;
 	readonly providerSandboxId?: string;
-	readonly providerEndpointHttpBaseUrl?: string;
-	readonly providerEndpointWsBaseUrl?: string;
-	readonly environmentId?: string;
-	readonly enrollmentTokenHash?: string;
-	readonly enrollmentExpiresAtMs?: number;
-	readonly enrolledEnvironmentPublicKey?: string;
+	readonly runtimeBootTokenHash?: string;
+	readonly runtimeBootTokenExpiresAtMs?: number;
+	readonly runtimeCredentialHash?: string;
+	readonly runtimeState: "offline" | "connecting" | "online";
+	readonly chatId: string;
+	readonly initialSessionId: string;
 	readonly branch: string;
 	readonly baseRef: string;
 	readonly state: CloudWorkspaceState;
@@ -81,6 +81,31 @@ export interface CloudWorkspaceRecord {
 	readonly lastActivityAtMs: number;
 	readonly runningSinceMs?: number;
 	readonly deletedAtMs?: number;
+}
+
+export interface CloudWorkspaceCommandRecord {
+	readonly commandId: string;
+	readonly workspaceId: string;
+	readonly accountId: string;
+	readonly sequence: number;
+	readonly kind: "start-agent";
+	readonly payload: Readonly<Record<string, unknown>>;
+	readonly state: "queued" | "claimed" | "acknowledged" | "failed";
+	readonly createdAtMs: number;
+	readonly claimedAtMs?: number;
+	readonly acknowledgedAtMs?: number;
+	readonly failedAtMs?: number;
+}
+
+export interface CloudWorkspaceEventRecord {
+	readonly workspaceId: string;
+	readonly runtimeSequence: number;
+	readonly eventId: string;
+	readonly streamId: string;
+	readonly streamVersion: number;
+	readonly type: string;
+	readonly payloadJson: string;
+	readonly createdAtMs: number;
 }
 
 export interface CloudCredentialRecord {
@@ -144,6 +169,7 @@ export interface CloudWorkspaceStoreApi {
 	) => Effect.Effect<ReadonlyArray<CloudProjectBuildRecord>>;
 	readonly createWorkspace: (
 		workspace: CloudWorkspaceRecord,
+		command: CloudWorkspaceCommandRecord,
 	) => Effect.Effect<CreateCloudWorkspaceOutcome>;
 	readonly listWorkspaces: (
 		accountId: string,
@@ -161,16 +187,56 @@ export interface CloudWorkspaceStoreApi {
 	readonly saveWorkspace: (
 		workspace: CloudWorkspaceRecord,
 	) => Effect.Effect<void>;
+	readonly consumeRuntimeBoot: (input: {
+		readonly workspaceId: string;
+		readonly bootTokenHash: string;
+		readonly runtimeCredentialHash: string;
+		readonly runtimeCredentialExpiresAtMs: number;
+		readonly nowMs: number;
+	}) => Effect.Effect<CloudWorkspaceRecord | null>;
 	readonly listDueWorkspaces: (
 		nowMs: number,
 		limit: number,
 	) => Effect.Effect<ReadonlyArray<CloudWorkspaceRecord>>;
-	readonly recordActivityByEnvironment: (
-		environmentId: string,
+	readonly recordActivity: (
+		workspaceId: string,
 		accountId: string,
 		nowMs: number,
 		nextIdleAtMs: number,
 	) => Effect.Effect<CloudWorkspaceRecord | null>;
+	readonly createConnectionGrant: (input: {
+		readonly grantHash: string;
+		readonly workspaceId: string;
+		readonly accountId: string;
+		readonly expiresAtMs: number;
+		readonly createdAtMs: number;
+	}) => Effect.Effect<void>;
+	readonly consumeConnectionGrant: (
+		grantHash: string,
+		workspaceId: string,
+		nowMs: number,
+	) => Effect.Effect<boolean>;
+	readonly createCommand: (
+		command: CloudWorkspaceCommandRecord,
+	) => Effect.Effect<CloudWorkspaceCommandRecord>;
+	readonly listCommands: (
+		workspaceId: string,
+		afterSequence: number,
+		nowMs: number,
+	) => Effect.Effect<ReadonlyArray<CloudWorkspaceCommandRecord>>;
+	readonly acknowledgeCommand: (
+		workspaceId: string,
+		commandId: string,
+		nowMs: number,
+	) => Effect.Effect<boolean>;
+	readonly appendEvents: (
+		workspaceId: string,
+		events: ReadonlyArray<CloudWorkspaceEventRecord>,
+	) => Effect.Effect<number>;
+	readonly listEvents: (
+		workspaceId: string,
+		afterSequence: number,
+	) => Effect.Effect<ReadonlyArray<CloudWorkspaceEventRecord>>;
 	readonly listCredentials: (
 		accountId: string,
 	) => Effect.Effect<ReadonlyArray<CloudCredentialRecord>>;
@@ -211,6 +277,17 @@ interface MemoryState {
 	readonly workspaces: Map<string, CloudWorkspaceRecord>;
 	readonly credentials: Map<string, CloudCredentialRecord>;
 	readonly usage: Set<string>;
+	readonly connectionGrants: Map<
+		string,
+		{
+			readonly workspaceId: string;
+			readonly accountId: string;
+			readonly expiresAtMs: number;
+			readonly consumedAtMs?: number;
+		}
+	>;
+	readonly commands: Map<string, CloudWorkspaceCommandRecord>;
+	readonly events: Map<string, CloudWorkspaceEventRecord>;
 }
 
 const activeBranch = (workspace: CloudWorkspaceRecord): boolean =>
@@ -225,6 +302,9 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 			workspaces: new Map(),
 			credentials: new Map(),
 			usage: new Set(),
+			connectionGrants: new Map(),
+			commands: new Map(),
+			events: new Map(),
 		});
 		return CloudWorkspaceStore.of({
 			connectProject: (project) =>
@@ -361,7 +441,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							.slice(0, limit),
 					),
 				),
-			createWorkspace: (workspace) =>
+			createWorkspace: (workspace, command) =>
 				Ref.modify<MemoryState, CreateCloudWorkspaceOutcome>(
 					state,
 					(current) => {
@@ -393,6 +473,10 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 								workspaces: new Map(current.workspaces).set(
 									workspace.workspaceId,
 									workspace,
+								),
+								commands: new Map(current.commands).set(
+									command.commandId,
+									command,
 								),
 							},
 						] as const;
@@ -430,6 +514,58 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						},
 					] as const;
 				}),
+			consumeRuntimeBoot: (input) =>
+				Ref.modify(state, (current) => {
+					const workspace = current.workspaces.get(input.workspaceId);
+					if (
+						workspace === undefined ||
+						workspace.runtimeBootTokenHash !== input.bootTokenHash ||
+						(workspace.runtimeBootTokenExpiresAtMs ?? 0) <= input.nowMs ||
+						workspace.desiredState !== "ready" ||
+						workspace.providerSandboxId === undefined ||
+						workspace.state === "deleted"
+					)
+						return [null, current] as const;
+					const timings =
+						(workspace.requestConfig.startupTimings as
+							| Readonly<Record<string, number>>
+							| undefined) ?? {};
+					const updated: CloudWorkspaceRecord = {
+						...workspace,
+						runtimeBootTokenHash: undefined,
+						runtimeBootTokenExpiresAtMs: undefined,
+						runtimeCredentialHash: input.runtimeCredentialHash,
+						runtimeState: "connecting",
+						state: "setup",
+						statusCode: "runtime-authenticating",
+						requestConfig: {
+							...workspace.requestConfig,
+							runtimeCredentialExpiresAtMs: input.runtimeCredentialExpiresAtMs,
+							startupTimings: {
+								...timings,
+								enrolledAt: input.nowMs,
+								runtimeReadyAt: input.nowMs,
+								enrollmentDurationMs:
+									timings.allocatedAt === undefined
+										? undefined
+										: input.nowMs - timings.allocatedAt,
+							},
+						},
+						nextActionAtMs: input.nowMs + 30_000,
+						revision: workspace.revision + 1,
+						updatedAtMs: input.nowMs,
+					};
+					return [
+						updated,
+						{
+							...current,
+							workspaces: new Map(current.workspaces).set(
+								workspace.workspaceId,
+								updated,
+							),
+						},
+					] as const;
+				}),
 			saveWorkspace: (workspace) =>
 				Ref.update(state, (current) => {
 					const saved = current.workspaces.get(workspace.workspaceId);
@@ -461,19 +597,11 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							.slice(0, limit),
 					),
 				),
-			recordActivityByEnvironment: (
-				environmentId,
-				accountId,
-				nowMs,
-				nextIdleAtMs,
-			) =>
+			recordActivity: (workspaceId, accountId, nowMs, nextIdleAtMs) =>
 				Ref.modify(state, (current) => {
-					const workspace = [...current.workspaces.values()].find(
-						(item) =>
-							item.environmentId === environmentId &&
-							item.accountId === accountId,
-					);
-					if (workspace === undefined) return [null, current] as const;
+					const workspace = current.workspaces.get(workspaceId);
+					if (workspace?.accountId !== accountId)
+						return [null, current] as const;
 					const updated: CloudWorkspaceRecord = {
 						...workspace,
 						desiredState:
@@ -508,6 +636,116 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						},
 					] as const;
 				}),
+			createConnectionGrant: (input) =>
+				Ref.update(state, (current) => ({
+					...current,
+					connectionGrants: new Map(current.connectionGrants).set(
+						input.grantHash,
+						{
+							workspaceId: input.workspaceId,
+							accountId: input.accountId,
+							expiresAtMs: input.expiresAtMs,
+						},
+					),
+				})),
+			consumeConnectionGrant: (grantHash, workspaceId, nowMs) =>
+				Ref.modify(state, (current) => {
+					const grant = current.connectionGrants.get(grantHash);
+					if (
+						grant === undefined ||
+						grant.workspaceId !== workspaceId ||
+						grant.consumedAtMs !== undefined ||
+						grant.expiresAtMs <= nowMs
+					)
+						return [false, current] as const;
+					return [
+						true,
+						{
+							...current,
+							connectionGrants: new Map(current.connectionGrants).set(
+								grantHash,
+								{ ...grant, consumedAtMs: nowMs },
+							),
+						},
+					] as const;
+				}),
+			createCommand: (command) =>
+				Ref.modify(state, (current) => {
+					const existing = current.commands.get(command.commandId);
+					if (existing !== undefined) return [existing, current] as const;
+					return [
+						command,
+						{
+							...current,
+							commands: new Map(current.commands).set(
+								command.commandId,
+								command,
+							),
+						},
+					] as const;
+				}),
+			listCommands: (workspaceId, afterSequence, nowMs) =>
+				Ref.modify(state, (current) => {
+					const commands = [...current.commands.values()]
+						.filter(
+							(command) =>
+								command.workspaceId === workspaceId &&
+								command.sequence > afterSequence &&
+								(command.state === "queued" || command.state === "claimed"),
+						)
+						.sort((a, b) => a.sequence - b.sequence)
+						.map((command) => ({
+							...command,
+							state: "claimed" as const,
+							claimedAtMs: command.claimedAtMs ?? nowMs,
+						}));
+					const updated = new Map(current.commands);
+					for (const command of commands)
+						updated.set(command.commandId, command);
+					return [commands, { ...current, commands: updated }] as const;
+				}),
+			acknowledgeCommand: (workspaceId, commandId, nowMs) =>
+				Ref.modify(state, (current) => {
+					const command = current.commands.get(commandId);
+					if (command?.workspaceId !== workspaceId)
+						return [false, current] as const;
+					const updated = {
+						...command,
+						state: "acknowledged" as const,
+						acknowledgedAtMs: nowMs,
+					};
+					return [
+						true,
+						{
+							...current,
+							commands: new Map(current.commands).set(commandId, updated),
+						},
+					] as const;
+				}),
+			appendEvents: (workspaceId, events) =>
+				Ref.modify(state, (current) => {
+					const updated = new Map(current.events);
+					let appended = 0;
+					for (const event of events) {
+						const key = `${workspaceId}:${event.runtimeSequence}`;
+						if (updated.has(key)) continue;
+						updated.set(key, event);
+						appended += 1;
+					}
+					return [appended, { ...current, events: updated }] as const;
+				}),
+			listEvents: (workspaceId, afterSequence) =>
+				Ref.get(state).pipe(
+					Effect.map((current) =>
+						[...current.events.values()]
+							.filter(
+								(event) =>
+									event.workspaceId === workspaceId &&
+									event.runtimeSequence > afterSequence,
+							)
+							.sort((a, b) => a.runtimeSequence - b.runtimeSequence),
+					),
+				),
 			listCredentials: (accountId) =>
 				Ref.get(state).pipe(
 					Effect.map((current) =>
@@ -657,16 +895,14 @@ const workspaceFromRow = (row: Row): CloudWorkspaceRecord => ({
 	buildId: String(row.build_id),
 	provider: String(row.provider),
 	providerSandboxId: optionalString(row.provider_sandbox_id),
-	providerEndpointHttpBaseUrl: optionalString(
-		row.provider_endpoint_http_base_url,
+	runtimeBootTokenHash: optionalString(row.runtime_boot_token_hash),
+	runtimeBootTokenExpiresAtMs: optionalNumber(
+		row.runtime_boot_token_expires_at,
 	),
-	providerEndpointWsBaseUrl: optionalString(row.provider_endpoint_ws_base_url),
-	environmentId: optionalString(row.environment_id),
-	enrollmentTokenHash: optionalString(row.enrollment_token_hash),
-	enrollmentExpiresAtMs: optionalNumber(row.enrollment_expires_at),
-	enrolledEnvironmentPublicKey: optionalString(
-		row.enrolled_environment_public_key,
-	),
+	runtimeCredentialHash: optionalString(row.runtime_credential_hash),
+	runtimeState: row.runtime_state as CloudWorkspaceRecord["runtimeState"],
+	chatId: String(row.chat_id),
+	initialSessionId: String(row.initial_session_id),
 	branch: String(row.branch),
 	baseRef: String(row.base_ref),
 	state: row.state as CloudWorkspaceState,
@@ -686,6 +922,31 @@ const workspaceFromRow = (row: Row): CloudWorkspaceRecord => ({
 	lastActivityAtMs: numberValue(row.last_activity_at),
 	runningSinceMs: optionalNumber(row.running_since),
 	deletedAtMs: optionalNumber(row.deleted_at),
+});
+
+const commandFromRow = (row: Row): CloudWorkspaceCommandRecord => ({
+	commandId: String(row.command_id),
+	workspaceId: String(row.workspace_id),
+	accountId: String(row.account_id),
+	sequence: numberValue(row.sequence),
+	kind: row.kind as CloudWorkspaceCommandRecord["kind"],
+	payload: (row.payload ?? {}) as Record<string, unknown>,
+	state: row.state as CloudWorkspaceCommandRecord["state"],
+	createdAtMs: numberValue(row.created_at),
+	claimedAtMs: optionalNumber(row.claimed_at),
+	acknowledgedAtMs: optionalNumber(row.acknowledged_at),
+	failedAtMs: optionalNumber(row.failed_at),
+});
+
+const eventFromRow = (row: Row): CloudWorkspaceEventRecord => ({
+	workspaceId: String(row.workspace_id),
+	runtimeSequence: numberValue(row.runtime_sequence),
+	eventId: String(row.event_id),
+	streamId: String(row.stream_id),
+	streamVersion: numberValue(row.stream_version),
+	type: String(row.type),
+	payloadJson: String(row.payload_json),
+	createdAtMs: numberValue(row.created_at),
 });
 
 export const CloudWorkspaceStorePg: Layer.Layer<
@@ -712,7 +973,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			);
 		const saveWorkspace = (w: CloudWorkspaceRecord) =>
 			orDie(
-				sql`UPDATE relay_cloud_workspaces SET provider_sandbox_id=${w.providerSandboxId ?? null}, provider_endpoint_http_base_url=${w.providerEndpointHttpBaseUrl ?? null}, provider_endpoint_ws_base_url=${w.providerEndpointWsBaseUrl ?? null}, environment_id=${w.environmentId ?? null}, enrollment_token_hash=${w.enrollmentTokenHash ?? null}, enrollment_expires_at=${w.enrollmentExpiresAtMs ?? null}, enrolled_environment_public_key=${w.enrolledEnvironmentPublicKey ?? null}, state=${w.state}, desired_state=${w.desiredState}, status_code=${w.statusCode}, credential_epoch=${w.credentialEpoch}, recovery_bundle_key=${w.recoveryBundleKey ?? null}, warm_retention_deadline=${w.warmRetentionDeadlineMs ?? null}, request_config=${JSON.stringify(w.requestConfig)}::jsonb, next_action_at=${w.nextActionAtMs}, lease_owner=NULL, lease_expires_at=NULL, revision=${w.revision}, updated_at=${w.updatedAtMs}, last_activity_at=${w.lastActivityAtMs}, running_since=${w.runningSinceMs ?? null}, deleted_at=${w.deletedAtMs ?? null} WHERE workspace_id=${w.workspaceId} AND (revision < ${w.revision} OR (revision = ${w.revision} AND updated_at <= ${w.updatedAtMs}))`.pipe(
+				sql`UPDATE relay_cloud_workspaces SET provider_sandbox_id=${w.providerSandboxId ?? null}, runtime_boot_token_hash=${w.runtimeBootTokenHash ?? null}, runtime_boot_token_expires_at=${w.runtimeBootTokenExpiresAtMs ?? null}, runtime_credential_hash=${w.runtimeCredentialHash ?? null}, runtime_state=${w.runtimeState}, state=${w.state}, desired_state=${w.desiredState}, status_code=${w.statusCode}, credential_epoch=${w.credentialEpoch}, recovery_bundle_key=${w.recoveryBundleKey ?? null}, warm_retention_deadline=${w.warmRetentionDeadlineMs ?? null}, request_config=${JSON.stringify(w.requestConfig)}::jsonb, next_action_at=${w.nextActionAtMs}, lease_owner=NULL, lease_expires_at=NULL, revision=${w.revision}, updated_at=${w.updatedAtMs}, last_activity_at=${w.lastActivityAtMs}, running_since=${w.runningSinceMs ?? null}, deleted_at=${w.deletedAtMs ?? null} WHERE workspace_id=${w.workspaceId} AND (revision < ${w.revision} OR (revision = ${w.revision} AND updated_at <= ${w.updatedAtMs}))`.pipe(
 					Effect.asVoid,
 				),
 			);
@@ -793,7 +1054,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						Effect.map((rows) => rows.map((row) => buildFromRow(row as Row))),
 					),
 				),
-			createWorkspace: (w) =>
+			createWorkspace: (w, command) =>
 				orDie(
 					Effect.gen(function* () {
 						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${w.projectId}:${w.branch}`}, 0))`;
@@ -814,7 +1075,8 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							} satisfies CreateCloudWorkspaceOutcome;
 						}
 						const created =
-							yield* sql`INSERT INTO relay_cloud_workspaces (workspace_id, account_id, project_id, build_id, provider, branch, base_ref, state, desired_state, status_code, credential_epoch, idempotency_key, request_config, next_action_at, revision, created_at, updated_at, last_activity_at) VALUES (${w.workspaceId}, ${w.accountId}, ${w.projectId}, ${w.buildId}, ${w.provider}, ${w.branch}, ${w.baseRef}, ${w.state}, ${w.desiredState}, ${w.statusCode}, ${w.credentialEpoch}, ${w.idempotencyKey}, ${JSON.stringify(w.requestConfig)}::jsonb, ${w.nextActionAtMs}, ${w.revision}, ${w.createdAtMs}, ${w.updatedAtMs}, ${w.lastActivityAtMs}) RETURNING *`;
+							yield* sql`INSERT INTO relay_cloud_workspaces (workspace_id, account_id, project_id, build_id, provider, runtime_state, chat_id, initial_session_id, branch, base_ref, state, desired_state, status_code, credential_epoch, idempotency_key, request_config, next_action_at, revision, created_at, updated_at, last_activity_at) VALUES (${w.workspaceId}, ${w.accountId}, ${w.projectId}, ${w.buildId}, ${w.provider}, ${w.runtimeState}, ${w.chatId}, ${w.initialSessionId}, ${w.branch}, ${w.baseRef}, ${w.state}, ${w.desiredState}, ${w.statusCode}, ${w.credentialEpoch}, ${w.idempotencyKey}, ${JSON.stringify(w.requestConfig)}::jsonb, ${w.nextActionAtMs}, ${w.revision}, ${w.createdAtMs}, ${w.updatedAtMs}, ${w.lastActivityAtMs}) RETURNING *`;
+						yield* sql`INSERT INTO relay_cloud_workspace_commands (command_id, workspace_id, account_id, sequence, kind, payload, state, created_at) VALUES (${command.commandId}, ${command.workspaceId}, ${command.accountId}, ${command.sequence}, ${command.kind}, ${JSON.stringify(command.payload)}::jsonb, ${command.state}, ${command.createdAtMs})`;
 						return {
 							kind: "created",
 							workspace: workspaceFromRow(created[0] as Row),
@@ -849,6 +1111,14 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 					),
 				),
 			saveWorkspace,
+			consumeRuntimeBoot: (input) =>
+				orDie(
+					sql`UPDATE relay_cloud_workspaces SET runtime_boot_token_hash=NULL, runtime_boot_token_expires_at=NULL, runtime_credential_hash=${input.runtimeCredentialHash}, runtime_state='connecting', state='setup', status_code='runtime-authenticating', request_config=jsonb_set(jsonb_set(request_config, '{runtimeCredentialExpiresAtMs}', to_jsonb(${input.runtimeCredentialExpiresAtMs}::bigint), true), '{startupTimings}', COALESCE(request_config->'startupTimings', '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object('enrolledAt', ${input.nowMs}, 'runtimeReadyAt', ${input.nowMs}, 'enrollmentDurationMs', CASE WHEN request_config#>>'{startupTimings,allocatedAt}' IS NULL THEN NULL ELSE ${input.nowMs} - (request_config#>>'{startupTimings,allocatedAt}')::bigint END)), true), next_action_at=${input.nowMs + 30_000}, revision=revision+1, updated_at=${input.nowMs} WHERE workspace_id=${input.workspaceId} AND runtime_boot_token_hash=${input.bootTokenHash} AND runtime_boot_token_expires_at > ${input.nowMs} AND desired_state='ready' AND provider_sandbox_id IS NOT NULL AND state <> 'deleted' RETURNING *`.pipe(
+						Effect.map((rows) =>
+							rows[0] ? workspaceFromRow(rows[0] as Row) : null,
+						),
+					),
+				),
 			listDueWorkspaces: (nowMs, limit) =>
 				orDie(
 					sql`SELECT * FROM relay_cloud_workspaces WHERE state <> 'deleted' AND next_action_at <= ${nowMs} ORDER BY next_action_at LIMIT ${limit}`.pipe(
@@ -857,17 +1127,64 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						),
 					),
 				),
-			recordActivityByEnvironment: (
-				environmentId,
-				accountId,
-				nowMs,
-				nextIdleAtMs,
-			) =>
+			recordActivity: (workspaceId, accountId, nowMs, nextIdleAtMs) =>
 				orDie(
-					sql`UPDATE relay_cloud_workspaces SET desired_state=CASE WHEN state='paused' THEN 'ready' ELSE desired_state END, status_code=CASE WHEN state='paused' THEN 'resume-queued' ELSE status_code END, request_config=CASE WHEN state='paused' THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}, 'resumeRequestedAt', ${nowMs}), true) ELSE request_config END, next_action_at=CASE WHEN state='paused' THEN ${nowMs} WHEN state='ready' THEN ${nextIdleAtMs} ELSE next_action_at END, last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs} WHERE environment_id=${environmentId} AND account_id=${accountId} AND state <> 'deleted' RETURNING *`.pipe(
+					sql`UPDATE relay_cloud_workspaces SET desired_state=CASE WHEN state='paused' THEN 'ready' ELSE desired_state END, status_code=CASE WHEN state='paused' THEN 'resume-queued' ELSE status_code END, request_config=CASE WHEN state='paused' THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}, 'resumeRequestedAt', ${nowMs}), true) ELSE request_config END, next_action_at=CASE WHEN state='paused' THEN ${nowMs} WHEN state='ready' THEN ${nextIdleAtMs} ELSE next_action_at END, last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs} WHERE workspace_id=${workspaceId} AND account_id=${accountId} AND state <> 'deleted' RETURNING *`.pipe(
 						Effect.map((rows) =>
 							rows[0] ? workspaceFromRow(rows[0] as Row) : null,
 						),
+					),
+				),
+			createConnectionGrant: (input) =>
+				orDie(
+					sql`INSERT INTO relay_cloud_workspace_connection_grants (grant_hash, workspace_id, account_id, expires_at, created_at) VALUES (${input.grantHash}, ${input.workspaceId}, ${input.accountId}, ${input.expiresAtMs}, ${input.createdAtMs})`.pipe(
+						Effect.asVoid,
+					),
+				),
+			consumeConnectionGrant: (grantHash, workspaceId, nowMs) =>
+				orDie(
+					sql`UPDATE relay_cloud_workspace_connection_grants SET consumed_at=${nowMs} WHERE grant_hash=${grantHash} AND workspace_id=${workspaceId} AND consumed_at IS NULL AND expires_at > ${nowMs} RETURNING grant_hash`.pipe(
+						Effect.map((rows) => rows.length > 0),
+					),
+				),
+			createCommand: (command) =>
+				orDie(
+					sql`INSERT INTO relay_cloud_workspace_commands (command_id, workspace_id, account_id, sequence, kind, payload, state, created_at, claimed_at, acknowledged_at, failed_at) VALUES (${command.commandId}, ${command.workspaceId}, ${command.accountId}, ${command.sequence}, ${command.kind}, ${JSON.stringify(command.payload)}::jsonb, ${command.state}, ${command.createdAtMs}, ${command.claimedAtMs ?? null}, ${command.acknowledgedAtMs ?? null}, ${command.failedAtMs ?? null}) ON CONFLICT (command_id) DO UPDATE SET command_id=EXCLUDED.command_id RETURNING *`.pipe(
+						Effect.map((rows) => commandFromRow(rows[0] as Row)),
+					),
+				),
+			listCommands: (workspaceId, afterSequence, nowMs) =>
+				orDie(
+					sql`UPDATE relay_cloud_workspace_commands SET state='claimed', claimed_at=COALESCE(claimed_at, ${nowMs}) WHERE workspace_id=${workspaceId} AND sequence > ${afterSequence} AND state IN ('queued','claimed') RETURNING *`.pipe(
+						Effect.map((rows) =>
+							rows
+								.map((row) => commandFromRow(row as Row))
+								.sort((a, b) => a.sequence - b.sequence),
+						),
+					),
+				),
+			acknowledgeCommand: (workspaceId, commandId, nowMs) =>
+				orDie(
+					sql`UPDATE relay_cloud_workspace_commands SET state='acknowledged', acknowledged_at=${nowMs} WHERE workspace_id=${workspaceId} AND command_id=${commandId} RETURNING command_id`.pipe(
+						Effect.map((rows) => rows.length > 0),
+					),
+				),
+			appendEvents: (workspaceId, events) =>
+				orDie(
+					Effect.gen(function* () {
+						let appended = 0;
+						for (const event of events) {
+							const rows =
+								yield* sql`INSERT INTO relay_cloud_workspace_events (workspace_id, runtime_sequence, event_id, stream_id, stream_version, type, payload_json, created_at) VALUES (${workspaceId}, ${event.runtimeSequence}, ${event.eventId}, ${event.streamId}, ${event.streamVersion}, ${event.type}, ${event.payloadJson}, ${event.createdAtMs}) ON CONFLICT DO NOTHING RETURNING runtime_sequence`;
+							appended += rows.length;
+						}
+						return appended;
+					}).pipe(sql.withTransaction),
+				),
+			listEvents: (workspaceId, afterSequence) =>
+				orDie(
+					sql`SELECT * FROM relay_cloud_workspace_events WHERE workspace_id=${workspaceId} AND runtime_sequence > ${afterSequence} ORDER BY runtime_sequence`.pipe(
+						Effect.map((rows) => rows.map((row) => eventFromRow(row as Row))),
 					),
 				),
 			listCredentials: (accountId) =>

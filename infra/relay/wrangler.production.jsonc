@@ -55,5 +55,19 @@
 			"binding": "HYPERDRIVE",
 			"id": "c49c02e939494a958fb5fe6805e7b0f2"
 		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "WORKSPACE_GATEWAY",
+				"class_name": "WorkspaceGateway"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1-workspace-gateway",
+			"new_sqlite_classes": ["WorkspaceGateway"]
+		}
 	]
 }

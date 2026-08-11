@@ -49,8 +49,6 @@ import {
 } from "./store.ts";
 import { WorkosVerifier } from "./workos.ts";
 
-const CLOUD_WORKSPACE_IDLE_MS = 60 * 60 * 1_000;
-
 export type RelayContext =
 	| AccountIdentity
 	| WorkosVerifier
@@ -802,15 +800,6 @@ const route = (
 			) {
 				return yield* Effect.fail(notFound());
 			}
-			const cloudWorkspace =
-				yield* (yield* CloudWorkspaceStore).recordActivityByEnvironment(
-					environmentId,
-					principal.accountId,
-					nowMs,
-					nowMs + CLOUD_WORKSPACE_IDLE_MS,
-				);
-			if (cloudWorkspace?.state === "paused")
-				return yield* Effect.fail(serviceUnavailable("workspace_resuming"));
 			let requestedWireVersion: number | undefined;
 			let requireManaged = false;
 			let localPairing:
@@ -1021,12 +1010,6 @@ const route = (
 				}
 			}
 			yield* store.touchEnvironment(environmentId, nowMs);
-			yield* (yield* CloudWorkspaceStore).recordActivityByEnvironment(
-				environmentId,
-				principal.accountId,
-				nowMs,
-				nowMs + CLOUD_WORKSPACE_IDLE_MS,
-			);
 			const refreshed = yield* store.getEnvironment(environmentId);
 			const machines = yield* MachineStore;
 			const machine = yield* machines.findMachineByEnvironmentId(environmentId);
@@ -1068,12 +1051,6 @@ const route = (
 			if (typeof body.sessionId !== "string" || !isActivityKind(body.kind)) {
 				return yield* Effect.fail(badRequest("invalid_activity"));
 			}
-			yield* (yield* CloudWorkspaceStore).recordActivityByEnvironment(
-				environmentId,
-				principal.accountId,
-				nowMs,
-				nowMs + CLOUD_WORKSPACE_IDLE_MS,
-			);
 			if (body.title !== undefined && typeof body.title !== "string") {
 				return yield* Effect.fail(badRequest("invalid_activity"));
 			}

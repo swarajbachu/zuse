@@ -40,36 +40,8 @@
 		{
 			"idx": 5,
 			"version": "7",
-			"when": 1786346271898,
-			"tag": "0005_sandbox_endpoint_domain",
-			"breakpoints": true
-		},
-		{
-			"idx": 6,
-			"version": "7",
-			"when": 1786353229445,
-			"tag": "0006_robust_cammi",
-			"breakpoints": true
-		},
-		{
-			"idx": 7,
-			"version": "7",
-			"when": 1786364547265,
-			"tag": "0007_outstanding_lifeguard",
-			"breakpoints": true
-		},
-		{
-			"idx": 8,
-			"version": "7",
-			"when": 1786365558434,
-			"tag": "0008_clammy_butterfly",
-			"breakpoints": true
-		},
-		{
-			"idx": 9,
-			"version": "7",
-			"when": 1786366771564,
-			"tag": "0009_tan_steel_serpent",
+			"when": 1786438949570,
+			"tag": "0005_thin_rawhide_kid",
 			"breakpoints": true
 		}
 	]

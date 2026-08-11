@@ -60,6 +60,10 @@ import {
 	type CloudEnrollmentConfig,
 	makeCloudEnrollmentLayer,
 } from "./relay/cloud-enrollment.ts";
+import {
+	type CloudWorkspaceRuntimeConfig,
+	makeCloudWorkspaceRuntimeLayer,
+} from "./relay/cloud-workspace-runtime.ts";
 import { ManagedTunnelRuntimeLive } from "./relay/managed-tunnel-runtime.ts";
 import {
 	RelayLinkService,
@@ -117,6 +121,7 @@ export interface MainLayerDeps {
 	readonly authShell: typeof AuthShell.Service;
 	readonly credentialsLayer: Layer.Layer<CredentialsService, never, AppPaths>;
 	readonly cloudEnrollment?: CloudEnrollmentConfig;
+	readonly cloudWorkspaceRuntime?: CloudWorkspaceRuntimeConfig;
 	readonly machineRuntimeRole?: "control-plane" | "cloud-environment";
 	readonly lanAuth?: {
 		readonly policy: LanAuthPolicy;
@@ -476,6 +481,16 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(NdjsonLoggerLayer),
 	);
+	const CloudWorkspaceRuntimeLayer = makeCloudWorkspaceRuntimeLayer(
+		deps.cloudWorkspaceRuntime,
+	).pipe(
+		Layer.provide(CredentialsLayer),
+		Layer.provide(EnrolledLanAuthLayer),
+		Layer.provide(WorkspaceLayer),
+		Layer.provide(ConversationServicesLayer),
+		Layer.provide(SessionDomainLayer),
+		Layer.provide(NodeServices.layer),
+	);
 
 	const DiagnosticsLayer = DiagnosticsServiceLive.pipe(
 		Layer.provide(MigratedSqlite),
@@ -619,6 +634,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		NodeServices.layer,
 		UsagePoller,
 		AutoRelayLinkLayer,
+		CloudWorkspaceRuntimeLayer,
 		RuntimePerformanceLayer,
 	).pipe(Layer.provide(TelemetryLayer));
 };

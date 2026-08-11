@@ -9,14 +9,13 @@ import {
 	AccountAccessStatus,
 	AccountAccessTransferEvent,
 	BillingCheckoutRequest,
+	CLOUD_WORKSPACE_OFFER_ID,
 	MachineCreateRequest,
 	MachineOffer,
-	MachineOfferList,
 	MachineRecord,
 	MachineRuntimeStatus,
 	PERSISTENT_STANDARD_OFFER_ID,
 	RelayConnectGrant,
-	SANDBOX_STANDARD_OFFER_ID,
 	SshMode,
 } from "../../src/index.ts";
 
@@ -41,41 +40,6 @@ describe("managed machine contracts", () => {
 		expect(decoded.kind).toBe("persistent");
 	});
 
-	it("round-trips sandbox offers with their kind", () => {
-		const decoded = Schema.decodeUnknownSync(MachineOffer)({
-			...offer,
-			offerId: SANDBOX_STANDARD_OFFER_ID,
-			displayName: "Cloud Sandbox",
-			kind: "sandbox",
-		});
-
-		expect(Schema.encodeSync(MachineOffer)(decoded)).toMatchObject({
-			offerId: SANDBOX_STANDARD_OFFER_ID,
-			kind: "sandbox",
-		});
-	});
-
-	it("advertises provider-neutral sandbox placement options", () => {
-		const decoded = Schema.decodeUnknownSync(MachineOfferList)({
-			offers: [{ ...offer, kind: "sandbox" }],
-			sandboxProviders: [
-				{
-					providerId: "provider-a",
-					displayName: "Provider A",
-					default: true,
-				},
-			],
-		});
-
-		expect(decoded.sandboxProviders).toEqual([
-			{
-				providerId: "provider-a",
-				displayName: "Provider A",
-				default: true,
-			},
-		]);
-	});
-
 	it("decodes the server-owned offer and public machine fields", () => {
 		const record = Schema.decodeUnknownSync(MachineRecord)({
 			machineId: "machine_1",
@@ -98,13 +62,11 @@ describe("managed machine contracts", () => {
 	it("requires an offer and idempotency key for creation", () => {
 		const decoded = Schema.decodeUnknownSync(MachineCreateRequest)({
 			offerId: PERSISTENT_STANDARD_OFFER_ID,
-			sandboxProviderId: "provider-a",
 			label: "Build box",
 			idempotencyKey: "create_01JZUSE0000000000000000000",
 		});
 
 		expect(decoded.idempotencyKey).toContain("create_");
-		expect(decoded.sandboxProviderId).toBe("provider-a");
 		expect(() =>
 			Schema.decodeUnknownSync(MachineCreateRequest)({
 				offerId: PERSISTENT_STANDARD_OFFER_ID,
@@ -114,13 +76,11 @@ describe("managed machine contracts", () => {
 
 	it("keeps the checkout return URL server-owned", () => {
 		const decoded = Schema.decodeUnknownSync(BillingCheckoutRequest)({
-			offerId: SANDBOX_STANDARD_OFFER_ID,
-			sandboxProviderId: "provider-a",
+			offerId: CLOUD_WORKSPACE_OFFER_ID,
 		});
 
 		expect(decoded).toEqual({
-			offerId: SANDBOX_STANDARD_OFFER_ID,
-			sandboxProviderId: "provider-a",
+			offerId: CLOUD_WORKSPACE_OFFER_ID,
 		});
 	});
 

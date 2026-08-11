@@ -14,20 +14,8 @@ const credentialCleanupMigrationUrl = new URL(
 	"../../drizzle/migrations/0004_credential_cleanup_handshake.sql",
 	import.meta.url,
 );
-const sandboxEndpointMigrationUrl = new URL(
-	"../../drizzle/migrations/0005_sandbox_endpoint_domain.sql",
-	import.meta.url,
-);
-const providerNeutralEndpointMigrationUrl = new URL(
-	"../../drizzle/migrations/0006_robust_cammi.sql",
-	import.meta.url,
-);
 const cloudWorkspaceMigrationUrl = new URL(
-	"../../drizzle/migrations/0007_outstanding_lifeguard.sql",
-	import.meta.url,
-);
-const cloudWorkspaceEnrollmentMigrationUrl = new URL(
-	"../../drizzle/migrations/0008_clammy_butterfly.sql",
+	"../../drizzle/migrations/0005_thin_rawhide_kid.sql",
 	import.meta.url,
 );
 
@@ -46,60 +34,28 @@ describe("relay migration reconciliation", () => {
 			{ idx: 2, tag: "0002_absurd_leader" },
 			{ idx: 3, tag: "0003_managed_cloud_machines" },
 			{ idx: 4, tag: "0004_credential_cleanup_handshake" },
-			{ idx: 5, tag: "0005_sandbox_endpoint_domain" },
-			{ idx: 6, tag: "0006_robust_cammi" },
-			{ idx: 7, tag: "0007_outstanding_lifeguard" },
-			{ idx: 8, tag: "0008_clammy_butterfly" },
-			{ idx: 9, tag: "0009_tan_steel_serpent" },
+			{ idx: 5, tag: "0005_thin_rawhide_kid" },
 		]);
 	});
 
-	test("persists post-fork workspace enrollment without a machine row", async () => {
-		const migration = await readFile(
-			cloudWorkspaceEnrollmentMigrationUrl,
-			"utf8",
-		);
-		expect(migration).toContain('ADD COLUMN "enrollment_token_hash"');
-		expect(migration).toContain('ADD COLUMN "enrolled_environment_public_key"');
-		expect(migration).toContain('ADD COLUMN "provider_endpoint_ws_base_url"');
-	});
-
-	test("separates entitlement, projects, builds, workspaces, credentials, and usage", async () => {
+	test("separates durable cloud control-plane resources from machine enrollment", async () => {
 		const migration = await readFile(cloudWorkspaceMigrationUrl, "utf8");
 		for (const table of [
 			"relay_cloud_projects",
 			"relay_cloud_project_builds",
 			"relay_cloud_workspaces",
 			"relay_cloud_credential_connections",
+			"relay_cloud_workspace_connection_grants",
+			"relay_cloud_workspace_commands",
+			"relay_cloud_workspace_events",
 			"relay_cloud_workspace_usage",
 		])
 			expect(migration).toContain(`CREATE TABLE "${table}"`);
 		expect(migration).toContain("relay_cloud_workspaces_active_branch_idx");
 		expect(migration).toContain("'cloud-workspace'");
-		expect(migration).toContain("'cloud-workspace-standard-v1'");
-		expect(migration).toContain("\"desired_state\" = 'destroyed'");
-	});
-
-	test("migrates provider-native domains to resolved sandbox endpoints", async () => {
-		const migration = await readFile(
-			providerNeutralEndpointMigrationUrl,
-			"utf8",
-		);
-
-		expect(migration).toContain(
-			'ADD COLUMN "provider_endpoint_http_base_url" text',
-		);
-		expect(migration).toContain(
-			'ADD COLUMN "provider_endpoint_ws_base_url" text',
-		);
-		expect(migration).toContain('UPDATE "relay_machines"');
-		expect(migration).toContain('DROP COLUMN "provider_endpoint_domain"');
-	});
-
-	test("persists the provider endpoint used by tunnel-less sandboxes", async () => {
-		const migration = await readFile(sandboxEndpointMigrationUrl, "utf8");
-
-		expect(migration).toContain('ADD COLUMN "provider_endpoint_domain" text');
+		expect(migration).toContain('"runtime_boot_token_hash" text');
+		expect(migration).not.toContain('"environment_id" text NOT NULL');
+		expect(migration).not.toContain('"enrolled_environment_public_key"');
 	});
 
 	test("converges both existing staging and main databases idempotently", async () => {

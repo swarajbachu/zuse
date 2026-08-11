@@ -160,20 +160,17 @@ export const runHeadlessServer = (
 			? undefined
 			: readFileSync(enrollmentTokenFile, "utf8").trim());
 	const workspaceId = process.env.ZUSE_CLOUD_WORKSPACE_ID;
-	const machineId = process.env.ZUSE_MACHINE_ID ?? workspaceId;
+	const machineId = process.env.ZUSE_MACHINE_ID;
 	const relayUrl = process.env.ZUSE_RELAY_URL?.replace(/\/+$/u, "");
 	const relayIssuer = process.env.ZUSE_RELAY_ISSUER?.replace(/\/+$/u, "");
 	const cloudEnrollment =
 		enrollmentToken !== undefined &&
 		machineId !== undefined &&
+		workspaceId === undefined &&
 		relayUrl !== undefined &&
 		relayIssuer !== undefined
 			? {
 					machineId,
-					resourceKind:
-						workspaceId === undefined
-							? ("machine" as const)
-							: ("workspace" as const),
 					relayUrl,
 					relayIssuer,
 					token: Redacted.make(enrollmentToken),
@@ -182,7 +179,26 @@ export const runHeadlessServer = (
 					port,
 				}
 			: undefined;
+	const runtimeBootTokenFile = process.env.ZUSE_RUNTIME_BOOT_TOKEN_FILE;
+	const runtimeBootToken =
+		process.env.ZUSE_RUNTIME_BOOT_TOKEN ??
+		(runtimeBootTokenFile === undefined
+			? undefined
+			: readFileSync(runtimeBootTokenFile, "utf8").trim());
+	const cloudWorkspaceRuntime =
+		workspaceId !== undefined &&
+		relayUrl !== undefined &&
+		runtimeBootToken !== undefined
+			? {
+					workspaceId,
+					relayUrl,
+					bootToken: Redacted.make(runtimeBootToken),
+					bootTokenFile: runtimeBootTokenFile,
+					localPort: port,
+				}
+			: undefined;
 	delete process.env.ZUSE_ENROLLMENT_TOKEN;
+	delete process.env.ZUSE_RUNTIME_BOOT_TOKEN;
 
 	const layer = makeMainLayer({
 		userData,
@@ -230,6 +246,7 @@ export const runHeadlessServer = (
 		},
 		credentialsLayer: makeFileCredentialsService(userData),
 		cloudEnrollment,
+		cloudWorkspaceRuntime,
 		machineRuntimeRole:
 			process.env.ZUSE_MACHINE_RUNTIME_ROLE === "cloud-environment"
 				? "cloud-environment"

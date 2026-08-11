@@ -185,57 +185,6 @@ const seedEnrollment = Effect.fn("seedEnrollment")(function* (
 });
 
 describe("machine enrollment", () => {
-	test("enrolls a sandbox at its public provider endpoint without a tunnel", async () => {
-		let tunnelProvisionCalls = 0;
-		const tunnel: ManagedTunnelProviderApi = {
-			enabled: true,
-			provision: () => {
-				tunnelProvisionCalls += 1;
-				return Effect.die("sandbox enrollment must not provision a tunnel");
-			},
-			deprovision: () => Effect.void,
-		};
-		const key = await generateKeyPair("EdDSA", { extractable: true });
-		const publicJwk = JSON.stringify(await exportJWK(key.publicKey));
-		const proof = await proofFor(key.privateKey);
-
-		const result = await Effect.runPromise(
-			Effect.gen(function* () {
-				yield* seedEnrollment(Date.now(), {
-					offerId: "sandbox-standard-v1",
-					providerServerId: "sandbox_1",
-					providerEndpointHttpBaseUrl: "https://47837-sandbox_1.sandbox.test",
-					providerEndpointWsBaseUrl: "wss://47837-sandbox_1.sandbox.test",
-				});
-				const response = yield* safeRoute(enrollRequest({ publicJwk, proof }));
-				if (response === null) return yield* Effect.die("route did not match");
-				const relayStore = yield* RelayStore;
-				return {
-					response,
-					body: (yield* Effect.promise(() => response.json())) as {
-						readonly endpoint: {
-							readonly httpBaseUrl: string;
-							readonly wsBaseUrl: string;
-						};
-						readonly tunnelHostname?: string;
-						readonly connectorToken?: string;
-					},
-					environment: yield* relayStore.getEnvironment(ENVIRONMENT_ID),
-				};
-			}).pipe(Effect.provide(makeTestLayer(MachineStoreMemory, tunnel))),
-		);
-
-		expect(result.response?.status).toBe(200);
-		expect(result.body.endpoint).toEqual({
-			httpBaseUrl: "https://47837-sandbox_1.sandbox.test",
-			wsBaseUrl: "wss://47837-sandbox_1.sandbox.test",
-		});
-		expect(result.body.tunnelHostname).toBeUndefined();
-		expect(result.body.connectorToken).toBeUndefined();
-		expect(result.environment?.tunnelId).toBeUndefined();
-		expect(tunnelProvisionCalls).toBe(0);
-	});
-
 	test("does not become ready until both enrollment and Zuse startup complete", async () => {
 		const key = await generateKeyPair("EdDSA", { extractable: true });
 		const publicJwk = JSON.stringify(await exportJWK(key.publicKey));

@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
+import { AgentSessionId, ChatId } from "./ids.ts";
 
 export const CLOUD_WORKSPACE_OFFER_ID = "cloud-workspace-standard-v1" as const;
 
@@ -47,10 +48,9 @@ export type CloudWorkspaceDesiredState = typeof CloudWorkspaceDesiredState.Type;
 
 export const CloudWorkspaceStartupPhase = Schema.Literals([
 	"allocating",
-	"starting-runtime",
-	"enrolling",
+	"booting",
+	"authenticating-runtime",
 	"syncing-repository",
-	"connecting",
 	"starting-agent",
 	"running",
 	"failed",
@@ -82,6 +82,13 @@ export class CloudWorkspaceStartupTimings extends Schema.Class<CloudWorkspaceSta
 	providerResumeDurationMs: Schema.optional(Schema.Number),
 }) {}
 
+export const CloudWorkspaceRuntimeState = Schema.Literals([
+	"offline",
+	"connecting",
+	"online",
+]);
+export type CloudWorkspaceRuntimeState = typeof CloudWorkspaceRuntimeState.Type;
+
 export const CloudCredentialKind = Schema.Literals([
 	"github",
 	"claude",
@@ -100,7 +107,6 @@ export class CloudProviderList extends Schema.Class<CloudProviderList>(
 	"CloudProviderList",
 )({
 	providers: Schema.Array(CloudProviderOption),
-	automaticPlacementProviderId: Schema.optional(Schema.String),
 }) {}
 
 export class CloudProjectBuildStatus extends Schema.Class<CloudProjectBuildStatus>(
@@ -183,12 +189,61 @@ export class CloudWorkspace extends Schema.Class<CloudWorkspace>(
 	statusCode: Schema.String,
 	startupPhase: CloudWorkspaceStartupPhase,
 	startupTimings: CloudWorkspaceStartupTimings,
-	environmentId: Schema.optional(Schema.String),
+	runtimeState: CloudWorkspaceRuntimeState,
+	chatId: ChatId,
+	initialSessionId: AgentSessionId,
 	createdAt: Schema.Number,
 	updatedAt: Schema.Number,
 	lastActivityAt: Schema.Number,
 	warmRetentionDeadline: Schema.optional(Schema.Number),
 	recoveryAvailable: Schema.Boolean,
+}) {}
+
+export class CloudWorkspaceLaunch extends Schema.Class<CloudWorkspaceLaunch>(
+	"CloudWorkspaceLaunch",
+)({
+	workspace: CloudWorkspace,
+	chatId: ChatId,
+	initialSessionId: AgentSessionId,
+}) {}
+
+export class CloudWorkspaceConnection extends Schema.Class<CloudWorkspaceConnection>(
+	"CloudWorkspaceConnection",
+)({
+	workspaceId: Schema.String,
+	wsUrl: Schema.String,
+	protocol: Schema.String,
+	credential: Schema.String,
+	expiresAt: Schema.Number,
+}) {}
+
+export class CloudChatEvent extends Schema.Class<CloudChatEvent>(
+	"CloudChatEvent",
+)({
+	sequence: Schema.Number,
+	eventId: Schema.String,
+	streamId: Schema.String,
+	streamVersion: Schema.Number,
+	type: Schema.String,
+	payloadJson: Schema.String,
+	createdAt: Schema.Number,
+}) {}
+
+export class CloudChatHistory extends Schema.Class<CloudChatHistory>(
+	"CloudChatHistory",
+)({
+	workspaceId: Schema.String,
+	chatId: ChatId,
+	initialSessionId: AgentSessionId,
+	firstMessage: Schema.optional(Schema.String),
+	commandState: Schema.Literals([
+		"queued",
+		"claimed",
+		"acknowledged",
+		"failed",
+	]),
+	events: Schema.Array(CloudChatEvent),
+	cursor: Schema.Number,
 }) {}
 
 export class CloudWorkspaceList extends Schema.Class<CloudWorkspaceList>(
@@ -199,11 +254,11 @@ export class CloudWorkspaceCreateRequest extends Schema.Class<CloudWorkspaceCrea
 	"CloudWorkspaceCreateRequest",
 )({
 	projectId: Schema.String,
-	providerId: Schema.optional(Schema.String),
+	providerId: Schema.String,
 	baseRef: Schema.String,
 	branch: Schema.optional(Schema.String),
-	agent: Schema.optional(Schema.String),
-	model: Schema.optional(Schema.String),
+	agent: Schema.String,
+	model: Schema.String,
 	credentialKinds: Schema.optional(Schema.Array(CloudCredentialKind)),
 	secretBindings: Schema.optional(Schema.Array(Schema.String)),
 	permissions: Schema.optional(Schema.Array(Schema.String)),
@@ -293,33 +348,19 @@ export const CloudWorkspacesGetRpc = Rpc.make("cloud.workspaces.get", {
 	success: CloudWorkspace,
 	error: CloudWorkspaceOpError,
 });
-export const CloudWorkspacesAgentStartedRpc = Rpc.make(
-	"cloud.workspaces.agentStarted",
-	{
-		payload: CloudWorkspaceActionRequest,
-		success: CloudWorkspace,
-		error: CloudWorkspaceOpError,
-	},
-);
-export const CloudWorkspacesConnectedRpc = Rpc.make(
-	"cloud.workspaces.connected",
-	{
-		payload: CloudWorkspaceActionRequest,
-		success: CloudWorkspace,
-		error: CloudWorkspaceOpError,
-	},
-);
-export const CloudWorkspacesChatCreatedRpc = Rpc.make(
-	"cloud.workspaces.chatCreated",
-	{
-		payload: CloudWorkspaceActionRequest,
-		success: CloudWorkspace,
-		error: CloudWorkspaceOpError,
-	},
-);
 export const CloudWorkspacesCreateRpc = Rpc.make("cloud.workspaces.create", {
 	payload: CloudWorkspaceCreateRequest,
-	success: CloudWorkspace,
+	success: CloudWorkspaceLaunch,
+	error: CloudWorkspaceOpError,
+});
+export const CloudWorkspacesConnectRpc = Rpc.make("cloud.workspaces.connect", {
+	payload: CloudWorkspaceActionRequest,
+	success: CloudWorkspaceConnection,
+	error: CloudWorkspaceOpError,
+});
+export const CloudChatsHistoryRpc = Rpc.make("cloud.chats.history", {
+	payload: CloudWorkspaceActionRequest,
+	success: CloudChatHistory,
 	error: CloudWorkspaceOpError,
 });
 export const CloudWorkspacesPauseRpc = Rpc.make("cloud.workspaces.pause", {
