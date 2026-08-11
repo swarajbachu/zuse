@@ -356,6 +356,7 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 // The first-turn auto-namer may fire for chats with a worktree. Tests here
 // do not exercise branch naming, so these stubs only satisfy the layer graph.
 const StubGitLive = Layer.succeed(GitService, {
+	isRepository: () => Effect.succeed(true),
 	log: () => Effect.die("not used"),
 	status: () => Effect.die("not used"),
 	branches: () => Effect.die("not used"),
