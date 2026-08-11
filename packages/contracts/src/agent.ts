@@ -432,6 +432,11 @@ const ToolUseEvent = Schema.TaggedStruct("ToolUse", {
   tool: Schema.String,
   input: Schema.Unknown,
   parentItemId: Schema.optional(AgentItemId),
+  backgroundTask: Schema.optional(
+    Schema.Struct({
+      taskId: Schema.String,
+    }),
+  ),
   subagent: Schema.optional(
     Schema.Struct({
       childSessionId: Schema.String,

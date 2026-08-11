@@ -368,6 +368,9 @@ function ToolUseMessageRow({
 			tool={orch ?? normalized.tool}
 			input={normalized.input}
 			result={normalized.result}
+			presentation={
+				content.backgroundTask === undefined ? undefined : "background-task"
+			}
 		/>
 	);
 }

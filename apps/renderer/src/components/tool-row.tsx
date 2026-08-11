@@ -11,6 +11,7 @@ import {
 	Folder01Icon,
 	GlobeIcon,
 	PencilEdit01Icon,
+	PlayIcon,
 	Robot01Icon,
 	SearchIcon,
 	TerminalIcon,
@@ -690,12 +691,49 @@ const buildToolView = (
 	tool: string,
 	input: unknown,
 	result: ToolResult | undefined,
+	presentation?: "background-task",
 ): ToolView => {
 	const normalizedTool = normalizeToolName(tool);
 	const obj =
 		input !== null && typeof input === "object"
 			? (input as Record<string, unknown>)
 			: {};
+
+	if (presentation === "background-task") {
+		const cmd =
+			asString(obj.command) ?? asString(obj.cmd) ?? asString(obj.shell_command);
+		return {
+			icon: PlayIcon,
+			label: "Background Task",
+			detail:
+				cmd === null && result?.isError !== true ? undefined : (
+					<>
+						{cmd === null ? null : (
+							<span className="truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+								{cmd}
+							</span>
+						)}
+						{result?.isError === true ? (
+							<span className="text-[11px] text-destructive">failed</span>
+						) : null}
+					</>
+				),
+			fallbackBody:
+				cmd === null ? (
+					<PreBlock text={stringifyJson(input)} />
+				) : (
+					<TerminalBlock
+						command={cmd}
+						output={
+							result === undefined
+								? undefined
+								: toResultText(result.output) || "(no output)"
+						}
+						isError={result?.isError}
+					/>
+				),
+		};
+	}
 
 	switch (normalizedTool) {
 		case "Bash":
@@ -1750,12 +1788,14 @@ export function ToolRow({
 	tool,
 	input,
 	result,
+	presentation,
 }: {
 	tool: string;
 	input: unknown;
 	result?: ToolResult;
+	presentation?: "background-task";
 }) {
-	const view = buildToolView(tool, input, result);
+	const view = buildToolView(tool, input, result, presentation);
 	const pending = result === undefined;
 
 	const sections: React.ReactNode[] = [];
