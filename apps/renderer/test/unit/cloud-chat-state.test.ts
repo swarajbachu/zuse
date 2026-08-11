@@ -127,10 +127,10 @@ describe("cloud chat state reconciliation", () => {
 		).toBe(false);
 	});
 
-	test("authoritative paused and failed states require resume", () => {
+	test("authoritative paused, failed, and interrupted resuming states require resume", () => {
 		expect(cloudWorkspaceNeedsResume({ state: "paused" })).toBe(true);
 		expect(cloudWorkspaceNeedsResume({ state: "failed" })).toBe(true);
-		expect(cloudWorkspaceNeedsResume({ state: "resuming" })).toBe(false);
+		expect(cloudWorkspaceNeedsResume({ state: "resuming" })).toBe(true);
 		expect(cloudWorkspaceNeedsResume({ state: "ready" })).toBe(false);
 	});
 });

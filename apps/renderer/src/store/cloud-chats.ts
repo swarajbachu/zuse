@@ -142,7 +142,10 @@ export const shouldAttachCloudChatOnOpen = (
 
 export const cloudWorkspaceNeedsResume = (
 	workspace: Pick<CloudWorkspace, "state">,
-): boolean => workspace.state === "paused" || workspace.state === "failed";
+): boolean =>
+	workspace.state === "paused" ||
+	workspace.state === "failed" ||
+	workspace.state === "resuming";
 
 export const repositoryIdentityForOrigin = (
 	origin: GitOriginInfo | null | undefined,
