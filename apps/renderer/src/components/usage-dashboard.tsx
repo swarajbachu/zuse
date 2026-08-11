@@ -15,6 +15,11 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { Bar } from "~/components/dither-kit/bar";
+import { BarChart } from "~/components/dither-kit/bar-chart";
+import { Grid } from "~/components/dither-kit/grid";
+import { XAxis } from "~/components/dither-kit/x-axis";
+import { YAxis } from "~/components/dither-kit/y-axis";
 import { useUsageSessions } from "~/hooks/use-usage-sessions";
 import { PROVIDER_DISPLAY } from "~/lib/provider-status";
 import { usagePace } from "~/lib/usage-pace";
@@ -26,13 +31,7 @@ import {
 	useUsageStore,
 } from "~/store/usage.ts";
 import { useUsageLimitsStore } from "~/store/usage-limits";
-import {
-	cacheTokens,
-	formatTokens,
-	formatUsd,
-	type TokenRow,
-	totalTokens,
-} from "../lib/format-usage.ts";
+import { formatTokens, formatUsd, totalTokens } from "../lib/format-usage.ts";
 import { ProviderIcon } from "./provider-icons";
 import { Button } from "./ui/button.tsx";
 import {
@@ -42,7 +41,6 @@ import {
 	FramePanel,
 	FrameTitle,
 } from "./ui/frame.tsx";
-import { ShimmerText } from "./ui/shimmer-text.tsx";
 import {
 	Table,
 	TableBody,
@@ -71,43 +69,6 @@ const PROVIDER_ORDER: ReadonlyArray<ProviderId> = [
 	"grok",
 	"gemini",
 	"kiro",
-];
-
-const SERIES: ReadonlyArray<{
-	readonly key: string;
-	readonly label: string;
-	readonly bar: string;
-	readonly dot: string;
-	readonly value: (row: TokenRow) => number;
-}> = [
-	{
-		key: "input",
-		label: "Input",
-		bar: "bg-primary",
-		dot: "bg-primary",
-		value: (row) => row.inputTokens,
-	},
-	{
-		key: "output",
-		label: "Output",
-		bar: "bg-primary/65",
-		dot: "bg-primary/65",
-		value: (row) => row.outputTokens,
-	},
-	{
-		key: "cache",
-		label: "Cache",
-		bar: "bg-primary/35",
-		dot: "bg-primary/35",
-		value: cacheTokens,
-	},
-	{
-		key: "reasoning",
-		label: "Reasoning",
-		bar: "bg-primary/20",
-		dot: "bg-primary/20",
-		value: (row) => row.reasoningTokens,
-	},
 ];
 
 export function UsageDashboard({
@@ -254,11 +215,11 @@ export function UsageDashboard({
 function UsageSkeleton() {
 	return (
 		<div
-			className="min-h-0 flex-1 space-y-4 overflow-hidden p-4"
+			className="mx-auto min-h-0 w-full max-w-6xl flex-1 space-y-6 overflow-hidden px-6 py-6"
 			role="status"
 			aria-label="Loading usage"
 		>
-			<ShimmerText className="h-4 w-36">Loading usage…</ShimmerText>
+			<span className="sr-only">Loading usage…</span>
 			<div className="grid h-32 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
 				{Array.from({ length: PROVIDER_ORDER.length }, (_, index) => (
 					<div
@@ -267,7 +228,7 @@ function UsageSkeleton() {
 					/>
 				))}
 			</div>
-			<div className="grid h-28 grid-cols-3 gap-3">
+			<div className="grid h-28 grid-cols-1 gap-3 sm:grid-cols-3">
 				{Array.from({ length: 3 }, (_, index) => (
 					<div
 						key={index}
@@ -335,42 +296,44 @@ function UsageReportView({
 	];
 
 	return (
-		<div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
-			<LimitStrip />
-			<div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-				{metrics.map((metric) => (
-					<Metric key={metric.label} {...metric} />
-				))}
-			</div>
-			<UsageChart
-				groups={report.groups}
-				selectedRange={selectedRange}
-				onSelectRange={onSelectRange}
-			/>
-			<Contributors
-				bySource={report.bySource}
-				byModel={report.byModel}
-				byProject={report.byProject}
-				previousBySource={report.previousBySource}
-				previousByModel={report.previousByModel}
-				previousByProject={report.previousByProject}
-			/>
-			<SessionsExplorer
-				projectId={projectId}
-				period={period}
-				sessionCount={report.sessionCount}
-				selectedRange={selectedRange}
-			/>
-			<div className="flex items-center justify-between text-[10px] text-muted-foreground">
-				<span>
-					{report.sources.filter((source) => source.detected).length} sources
-					detected
-				</span>
-				<span className="tabular-nums">
-					{refreshing
-						? "Updating…"
-						: `Updated ${report.generatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
-				</span>
+		<div className="min-h-0 flex-1 overflow-auto">
+			<div className="mx-auto w-full max-w-6xl space-y-6 px-6 py-6">
+				<LimitStrip />
+				<div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+					{metrics.map((metric) => (
+						<Metric key={metric.label} {...metric} />
+					))}
+				</div>
+				<UsageChart
+					groups={report.groups}
+					selectedRange={selectedRange}
+					onSelectRange={onSelectRange}
+				/>
+				<Contributors
+					bySource={report.bySource}
+					byModel={report.byModel}
+					byProject={report.byProject}
+					previousBySource={report.previousBySource}
+					previousByModel={report.previousByModel}
+					previousByProject={report.previousByProject}
+				/>
+				<SessionsExplorer
+					projectId={projectId}
+					period={period}
+					sessionCount={report.sessionCount}
+					selectedRange={selectedRange}
+				/>
+				<div className="flex items-center justify-between text-[10px] text-muted-foreground">
+					<span>
+						{report.sources.filter((source) => source.detected).length} sources
+						detected
+					</span>
+					<span className="tabular-nums">
+						{refreshing
+							? "Updating…"
+							: `Updated ${report.generatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+					</span>
+				</div>
 			</div>
 		</div>
 	);
@@ -694,12 +657,26 @@ function UsageChart({
 	onSelectRange: (range: UsageRange | null) => void;
 }) {
 	const [measure, setMeasure] = useState<ChartMeasure>("tokens");
-	const [selected, setSelected] = useState<number | null>(null);
+	const [hovered, setHovered] = useState<number | null>(null);
 	const visible = useMemo(() => groups.slice(-90), [groups]);
-	const valueFor = (group: UsageGroup) =>
-		measure === "cost" ? (group.costUsd ?? 0) : totalTokens(group);
-	const peak = Math.max(1, ...visible.map(valueFor));
-	const detail = selected === null ? null : visible[selected];
+	const chartData = useMemo(
+		() =>
+			visible.map((group) => ({
+				label: group.label,
+				value: measure === "cost" ? (group.costUsd ?? 0) : totalTokens(group),
+			})),
+		[measure, visible],
+	);
+	const detail = hovered === null ? null : visible[hovered];
+	const chartConfig = useMemo(
+		() => ({
+			value: {
+				label: measure === "cost" ? "Estimated cost" : "Tokens",
+				color: "blue" as const,
+			},
+		}),
+		[measure],
+	);
 	return (
 		<Frame>
 			<FrameHeader className="flex-row items-center justify-between px-4 py-3">
@@ -734,89 +711,69 @@ function UsageChart({
 					))}
 				</div>
 			</FrameHeader>
-			<FramePanel>
-				{measure === "tokens" ? (
-					<div className="mb-3 flex flex-wrap gap-3">
-						{SERIES.map((series) => (
-							<span
-								key={series.key}
-								className="flex items-center gap-1.5 text-[10px] text-muted-foreground"
-							>
-								<span className={cn("size-2 rounded-[2px]", series.dot)} />
-								{series.label}
-							</span>
-						))}
-					</div>
-				) : (
-					<div className="mb-3 h-3 text-[10px] text-muted-foreground">
-						Estimated cost by day
-					</div>
-				)}
+			<FramePanel className="p-4">
+				<div className="mb-3 h-4 text-[10px] text-muted-foreground">
+					{measure === "cost"
+						? "Estimated cost by day"
+						: "Processed tokens by day"}
+				</div>
 				{visible.length === 0 ? (
-					<div className="flex h-44 items-center justify-center text-sm text-muted-foreground">
+					<div className="flex h-52 items-center justify-center text-sm text-muted-foreground">
 						No usage in this period.
 					</div>
 				) : (
 					<>
-						<div className="flex h-44 items-end gap-[3px] border-b border-border/60">
-							{visible.map((group, index) => (
-								<button
-									key={group.key}
-									type="button"
-									className={cn(
-										"group relative flex h-full min-w-[4px] flex-1 flex-col-reverse overflow-hidden rounded-t-[3px] outline-none focus-visible:ring-2 focus-visible:ring-foreground/40",
-										selected === index && "ring-1 ring-foreground/40",
-									)}
-									onClick={() => {
-										setSelected(index);
-										const since = group.startedAt;
-										if (!since) return;
-										onSelectRange({
-											since,
-											until:
-												group.endedAt ?? new Date(since.getTime() + 86_400_000),
-											label: group.label,
-										});
-									}}
-									onFocus={() => setSelected(index)}
-									aria-label={`${group.label}: ${measure === "cost" ? formatUsd(group.costUsd) : formatTokens(totalTokens(group))}`}
-								>
-									{measure === "cost" ? (
-										<span
-											className="w-full bg-primary"
-											style={{ height: `${(valueFor(group) / peak) * 100}%` }}
-										/>
-									) : (
-										SERIES.map((series) => {
-											const value = series.value(group);
-											return value > 0 ? (
-												<span
-													key={series.key}
-													className={cn("w-full", series.bar)}
-													style={{ height: `${(value / peak) * 100}%` }}
-												/>
-											) : null;
-										})
-									)}
-								</button>
-							))}
-						</div>
-						<div className="mt-2 flex justify-between text-[10px] text-muted-foreground">
-							<span>{visible[0]?.label}</span>
-							<span>{visible.at(-1)?.label}</span>
+						<div className="h-52 w-full">
+							<BarChart
+								data={chartData}
+								config={chartConfig}
+								animate={false}
+								bloom="off"
+								onHoverChange={setHovered}
+							>
+								<Grid />
+								<XAxis dataKey="label" maxTicks={7} />
+								<YAxis
+									tickCount={4}
+									tickFormatter={measure === "cost" ? formatUsd : formatTokens}
+								/>
+								<Bar dataKey="value" variant="dotted" />
+							</BarChart>
 						</div>
 						<div
-							className="mt-3 h-9 rounded-md bg-muted/35 px-3 py-2 text-[11px]"
+							className="mt-3 flex h-9 items-center justify-between gap-3 rounded-md bg-muted/35 px-3 text-[11px]"
 							aria-live="polite"
 						>
 							{detail ? (
-								<div className="flex justify-between gap-3">
+								<>
 									<span className="truncate font-medium">{detail.label}</span>
-									<span className="shrink-0 tabular-nums text-muted-foreground">
-										{formatTokens(totalTokens(detail))} ·{" "}
-										{formatUsd(detail.costUsd)}
-									</span>
-								</div>
+									<div className="flex shrink-0 items-center gap-3">
+										<span className="tabular-nums text-muted-foreground">
+											{formatTokens(totalTokens(detail))} ·{" "}
+											{formatUsd(detail.costUsd)}
+										</span>
+										{detail.startedAt ? (
+											<button
+												type="button"
+												className="rounded px-1.5 py-1 font-medium text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-foreground/30"
+												onClick={() =>
+													onSelectRange({
+														since: detail.startedAt as Date,
+														until:
+															detail.endedAt ??
+															new Date(
+																(detail.startedAt as Date).getTime() +
+																	86_400_000,
+															),
+														label: detail.label,
+													})
+												}
+											>
+												View day
+											</button>
+										) : null}
+									</div>
+								</>
 							) : (
 								<span className="text-muted-foreground">
 									Select a bar for details
