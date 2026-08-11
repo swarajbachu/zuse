@@ -1,6 +1,15 @@
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronLeft } from "lucide-react";
+import {
+	type AppearanceMode,
+	type BranchNamingStyle,
+	type CompletionSoundPreset,
+	type Folder,
+	type FolderId,
+	type ProviderId,
+	type RuntimeMode,
+	visibleModelsForProvider,
+} from "@zuse/contracts";
 import {
 	Alert01Icon,
 	BrowserIcon,
@@ -20,19 +29,10 @@ import {
 	Tick01Icon,
 	VolumeHighIcon,
 } from "@zuse/icons/solid-rounded";
-import {
-	type AppearanceMode,
-	type BranchNamingStyle,
-	type CompletionSoundPreset,
-	type Folder,
-	type FolderId,
-	type ProviderId,
-	type RuntimeMode,
-	visibleModelsForProvider,
-} from "@zuse/contracts";
 import { Effect } from "effect";
-import { Plus, RefreshCw as RefreshIcon } from "lucide-react";
+import { ChevronLeft, Plus, RefreshCw as RefreshIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { cloudMachinesAvailable } from "~/lib/cloud-machines-availability.ts";
 import { displayPath } from "~/lib/display-path";
 import { hasHostCapability } from "~/lib/host-platform";
 import { rendererPlatformCapabilities } from "~/lib/platform-capabilities.ts";
@@ -171,9 +171,16 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
 	},
 ];
 
-const VISIBLE_RAIL: ReadonlyArray<RailItemBase> = import.meta.env.DEV
-	? TOP_RAIL
-	: TOP_RAIL.filter((i) => i.id !== "developer");
+const CLOUD_MACHINES_AVAILABLE = cloudMachinesAvailable({
+	desktop: rendererPlatformCapabilities().desktop,
+	development: import.meta.env.DEV,
+});
+
+const VISIBLE_RAIL: ReadonlyArray<RailItemBase> = TOP_RAIL.filter(
+	(item) =>
+		(item.id !== "developer" || import.meta.env.DEV) &&
+		(item.id !== "machines" || CLOUD_MACHINES_AVAILABLE),
+);
 
 /**
  * Two-pane settings surface. The left rail navigates between global
@@ -188,17 +195,19 @@ export function SettingsPage() {
 	const loadFolders = useWorkspaceStore((s) => s.load);
 	const desktop = rendererPlatformCapabilities().desktop;
 	const visibleSection: SettingsSection =
-		!desktop && section.kind === "machines" ? { kind: "general" } : section;
+		!CLOUD_MACHINES_AVAILABLE && section.kind === "machines"
+			? { kind: "general" }
+			: section;
 
 	useEffect(() => {
 		if (folders.length === 0) void loadFolders();
 	}, [folders.length, loadFolders]);
 
 	useEffect(() => {
-		if (!desktop && section.kind === "machines") {
+		if (!CLOUD_MACHINES_AVAILABLE && section.kind === "machines") {
 			setSection({ kind: "general" });
 		}
-	}, [desktop, section.kind, setSection]);
+	}, [section.kind, setSection]);
 
 	return (
 		<div className="settings-surface flex min-h-0 flex-1 flex-col bg-background [&_button[data-slot=button]:not([class*='size-'])]:h-7 [&_button[data-slot=button]:not([class*='size-'])]:text-[11px]">
