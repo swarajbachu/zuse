@@ -1280,6 +1280,10 @@ export const routeCloudWorkspaceRequest = (
 					? {
 							state: "queued" as const,
 							runtimeState: "offline" as const,
+							requestConfig: {
+								...workspace.requestConfig,
+								startupTimings: { requestedAt: nowMs },
+							},
 						}
 					: {}),
 				desiredState,
