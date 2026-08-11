@@ -1129,7 +1129,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				),
 			recordActivity: (workspaceId, accountId, nowMs, nextIdleAtMs) =>
 				orDie(
-					sql`UPDATE relay_cloud_workspaces SET desired_state=CASE WHEN state='paused' THEN 'ready' ELSE desired_state END, status_code=CASE WHEN state='paused' THEN 'resume-queued' ELSE status_code END, request_config=CASE WHEN state='paused' THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}, 'resumeRequestedAt', ${nowMs}), true) ELSE request_config END, next_action_at=CASE WHEN state='paused' THEN ${nowMs} WHEN state='ready' THEN ${nextIdleAtMs} ELSE next_action_at END, last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs} WHERE workspace_id=${workspaceId} AND account_id=${accountId} AND state <> 'deleted' RETURNING *`.pipe(
+					sql`UPDATE relay_cloud_workspaces SET desired_state=CASE WHEN state='paused' THEN 'ready' ELSE desired_state END, status_code=CASE WHEN state='paused' THEN 'resume-queued' ELSE status_code END, request_config=CASE WHEN state='paused' THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}::bigint, 'resumeRequestedAt', ${nowMs}::bigint), true) ELSE request_config END, next_action_at=CASE WHEN state='paused' THEN ${nowMs} WHEN state='ready' THEN ${nextIdleAtMs} ELSE next_action_at END, last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs} WHERE workspace_id=${workspaceId} AND account_id=${accountId} AND state <> 'deleted' RETURNING *`.pipe(
 						Effect.map((rows) =>
 							rows[0] ? workspaceFromRow(rows[0] as Row) : null,
 						),
