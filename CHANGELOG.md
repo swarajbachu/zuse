@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1]
+
+### Fixed
+- Cloud machines no longer appear in production settings until the feature is ready for release, while development builds retain access for testing
+
 ## [0.18.0]
 
 ### Added

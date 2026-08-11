@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.18.1",
+    "sections": [
+      {
+        "title": "Fixed",
+        "items": [
+          "Cloud machines no longer appear in production settings until the feature is ready for release, while development builds retain access for testing"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.18.0",
     "sections": [
       {
