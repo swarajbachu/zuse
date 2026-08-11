@@ -14,6 +14,7 @@ import type { SessionCommand } from "@zuse/domain/core/commands";
 import { Effect, type Scope, Semaphore } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { QueueServiceShape } from "../services/conversation-services.ts";
+import { handoffToServiceScope } from "./service-scope.ts";
 
 interface QueuedMessageRow {
 	readonly id: string;
@@ -366,18 +367,21 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 						yield* runQueuedMessageWhileIdle(sessionId, queueId);
 						return;
 					}
-					yield* dispatchSessionCommandWithId(
-						sessionId,
-						`queue-run-next:${queueId}`,
-						{
-							_tag: "SteerQueuedTurn",
-							expectedTurnId: resolvedTurnId,
-							queueId,
-							successorTurnId: AgentTurnId.make(`turn_queued_${queueId}`),
-							requestedAt: Date.now(),
-						},
+					yield* handoffToServiceScope(
+						dispatchSessionCommandWithId(
+							sessionId,
+							`queue-run-next:${queueId}`,
+							{
+								_tag: "SteerQueuedTurn",
+								expectedTurnId: resolvedTurnId,
+								queueId,
+								successorTurnId: AgentTurnId.make(`turn_queued_${queueId}`),
+								requestedAt: Date.now(),
+							},
+						),
+						runSessionReactors,
+						serviceScope,
 					);
-					yield* runSessionReactors;
 				}),
 			);
 

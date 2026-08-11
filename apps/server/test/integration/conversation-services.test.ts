@@ -149,6 +149,7 @@ let failProviderStart = false;
 let failProviderSend = false;
 let providerStartFailureReason = "scripted start failure";
 let providerStartBarrier: Promise<void> | null = null;
+let providerInterruptBarrier: Promise<void> | null = null;
 let testAutonomyLevel: AutonomyLevel = "approval-gated";
 let createdWorktreeCount = 0;
 let createdWorktrees = new Map<string, Worktree>();
@@ -216,7 +217,10 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 						}),
 			),
 		),
-	interrupt: () => Effect.void,
+	interrupt: () =>
+		providerInterruptBarrier === null
+			? Effect.void
+			: Effect.promise(() => providerInterruptBarrier as Promise<void>),
 	close: (sessionId) =>
 		Effect.sync(() => {
 			activeProviderSessions.delete(sessionId);
@@ -641,6 +645,7 @@ beforeEach(() => {
 	failProviderSend = false;
 	providerStartFailureReason = "scripted start failure";
 	providerStartBarrier = null;
+	providerInterruptBarrier = null;
 	testAutonomyLevel = "approval-gated";
 	createdWorktreeCount = 0;
 	createdWorktrees = new Map();
@@ -3937,6 +3942,74 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				_tag: "user",
 				text: "run this next",
 			});
+		});
+	});
+
+	it("starts a steered successor after the requesting client disconnects", async () => {
+		await withRuntime(async (run) => {
+			const interruptBarrier = deferred<void>();
+			providerInterruptBarrier = interruptBarrier.promise;
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "already running",
+					}),
+				),
+			);
+			const queued = await run(
+				Effect.flatMap(store, (s) =>
+					s.addQueuedMessage(
+						initialSession.id,
+						new ComposerInput({
+							text: "steer here",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+					),
+				),
+			);
+
+			await run(
+				Effect.gen(function* () {
+					const service = yield* store;
+					const sql = yield* SqlClient.SqlClient;
+					const requestFiber = yield* Effect.forkChild(
+						service.runQueuedMessageNext(initialSession.id, queued.id),
+					);
+					yield* Effect.gen(function* () {
+						const rows = yield* sql<{ readonly count: number }>`
+							SELECT COUNT(*) AS count FROM events
+							WHERE stream_id = ${initialSession.id}
+								AND type = 'TurnInterruptRequested'
+						`;
+						if ((rows[0]?.count ?? 0) === 0) {
+							return yield* Effect.fail("steer interrupt not requested");
+						}
+					}).pipe(
+						Effect.retry(
+							Schedule.max([
+								Schedule.spaced("10 millis"),
+								Schedule.recurs(100),
+							]),
+						),
+					);
+					yield* Fiber.interrupt(requestFiber);
+					yield* Effect.sync(() => interruptBarrier.resolve());
+					yield* Effect.tryPromise({
+						try: () =>
+							expect
+								.poll(() =>
+									providerSentTexts.filter((text) => text === "steer here"),
+								)
+								.toEqual(["steer here"]),
+						catch: (cause) => cause,
+					});
+				}),
+			);
 		});
 	});
 

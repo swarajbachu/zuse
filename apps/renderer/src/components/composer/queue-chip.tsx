@@ -1,8 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import {
+	ArrowTurnDownIcon,
 	Chat01Icon,
-	CornerDownRightIcon,
 	Delete02Icon,
 	DragDropVerticalIcon,
 	MoreHorizontalIcon,
@@ -126,27 +126,23 @@ export function QueueChip({
 									)}
 									aria-label={
 										running
-											? "Run queued message next"
+											? "Steer to queued message"
 											: "Send queued message now"
 									}
 								>
 									<HugeiconsIcon
-										icon={CornerDownRightIcon}
+										icon={ArrowTurnDownIcon}
 										className="size-3.5"
 									/>
 									<span className="text-[11px]">
-										{runningNow
-											? "Starting…"
-											: running
-												? "Run next"
-												: "Send now"}
+										{runningNow ? "Starting…" : running ? "Steer" : "Send now"}
 									</span>
 								</button>
 							}
 						/>
 						<TooltipPopup>
 							{running
-								? "Stop the current turn and run this next"
+								? "Steer the agent to this message next"
 								: "Send this message now"}
 						</TooltipPopup>
 					</Tooltip>
@@ -165,6 +161,21 @@ export function QueueChip({
 						/>
 						<TooltipPopup>Edit</TooltipPopup>
 					</Tooltip>
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<button
+									type="button"
+									onClick={() => drop(sessionId, item.id)}
+									className={cn(trayPillActionClass, "hover:text-destructive")}
+									aria-label="Remove queued message"
+								>
+									<HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
+								</button>
+							}
+						/>
+						<TooltipPopup>Remove</TooltipPopup>
+					</Tooltip>
 					<Menu>
 						<MenuTrigger
 							render={
@@ -181,10 +192,6 @@ export function QueueChip({
 							}
 						/>
 						<MenuPopup align="end" sideOffset={4}>
-							<MenuItem onClick={() => void runNext()} disabled={runningNow}>
-								<HugeiconsIcon icon={CornerDownRightIcon} />
-								{running ? "Run next" : "Send now"}
-							</MenuItem>
 							<MenuItem
 								onClick={() => onMove(index, index - 1)}
 								disabled={index === 0}
@@ -198,10 +205,6 @@ export function QueueChip({
 							>
 								<ChevronDown />
 								Move down
-							</MenuItem>
-							<MenuItem onClick={() => drop(sessionId, item.id)}>
-								<HugeiconsIcon icon={Delete02Icon} />
-								Remove from queue
 							</MenuItem>
 						</MenuPopup>
 					</Menu>

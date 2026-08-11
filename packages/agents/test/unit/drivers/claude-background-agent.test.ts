@@ -5,6 +5,87 @@ import { describe, expect, it } from "vitest";
 const sdk = (value: unknown): SDKMessage => value as SDKMessage;
 
 describe("Claude background agents", () => {
+	it("keeps local background shell tasks out of the subagent lifecycle", () => {
+		const events = translateClaudeSdkMessages([
+			sdk({
+				type: "assistant",
+				parent_tool_use_id: null,
+				message: {
+					content: [
+						{
+							type: "tool_use",
+							id: "background-shell-1",
+							name: "Bash",
+							input: { command: "npm run dev", run_in_background: true },
+						},
+					],
+				},
+			}),
+			sdk({
+				type: "system",
+				subtype: "task_started",
+				task_id: "background-task-1",
+				tool_use_id: "background-shell-1",
+				description: "Restart dev server",
+				task_type: "local_bash",
+				prompt: "Restart dev server",
+				skip_transcript: true,
+			}),
+			sdk({
+				type: "system",
+				subtype: "task_progress",
+				task_id: "background-task-1",
+				tool_use_id: "background-shell-1",
+				description: "Waiting for dev server",
+				usage: { total_tokens: 0, tool_uses: 1, duration_ms: 500 },
+			}),
+			sdk({
+				type: "system",
+				subtype: "task_notification",
+				task_id: "background-task-1",
+				tool_use_id: "background-shell-1",
+				status: "completed",
+				output_file: "/private/internal/output.txt",
+				summary: "Dev server is ready",
+				usage: { total_tokens: 0, tool_uses: 1, duration_ms: 1200 },
+				skip_transcript: true,
+			}),
+			sdk({
+				type: "user",
+				parent_tool_use_id: null,
+				message: {
+					content: [
+						{
+							type: "tool_result",
+							tool_use_id: "background-shell-1",
+							content: "Dev server is ready",
+							is_error: false,
+						},
+					],
+				},
+			}),
+		]);
+
+		expect(events.filter((event) => event._tag === "ToolUse")).toEqual([
+			expect.objectContaining({
+				_tag: "ToolUse",
+				itemId: "background-shell-1",
+				tool: "Bash",
+			}),
+		]);
+		expect(events.some((event) => event._tag === "SubagentSummary")).toBe(
+			false,
+		);
+		expect(
+			events.some(
+				(event) =>
+					event._tag === "AssistantMessage" &&
+					event.parentItemId === "background-shell-1",
+			),
+		).toBe(false);
+		expect(events.some((event) => event._tag === "ToolResult")).toBe(true);
+	});
+
 	it("normalizes structured task lifecycle events as one detached run", () => {
 		const events = translateClaudeSdkMessages([
 			sdk({
