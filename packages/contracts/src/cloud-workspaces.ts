@@ -45,6 +45,43 @@ export const CloudWorkspaceDesiredState = Schema.Literals([
 ]);
 export type CloudWorkspaceDesiredState = typeof CloudWorkspaceDesiredState.Type;
 
+export const CloudWorkspaceStartupPhase = Schema.Literals([
+	"allocating",
+	"starting-runtime",
+	"enrolling",
+	"syncing-repository",
+	"connecting",
+	"starting-agent",
+	"running",
+	"failed",
+]);
+export type CloudWorkspaceStartupPhase = typeof CloudWorkspaceStartupPhase.Type;
+
+export class CloudWorkspaceStartupTimings extends Schema.Class<CloudWorkspaceStartupTimings>(
+	"CloudWorkspaceStartupTimings",
+)({
+	requestedAt: Schema.optional(Schema.Number),
+	resumeRequestedAt: Schema.optional(Schema.Number),
+	allocatedAt: Schema.optional(Schema.Number),
+	allocationDurationMs: Schema.optional(Schema.Number),
+	enrolledAt: Schema.optional(Schema.Number),
+	runtimeReadyAt: Schema.optional(Schema.Number),
+	enrollmentDurationMs: Schema.optional(Schema.Number),
+	networkOpenedAt: Schema.optional(Schema.Number),
+	credentialInstallDurationMs: Schema.optional(Schema.Number),
+	repositoryReadyAt: Schema.optional(Schema.Number),
+	repositoryDurationMs: Schema.optional(Schema.Number),
+	connectedAt: Schema.optional(Schema.Number),
+	connectionDurationMs: Schema.optional(Schema.Number),
+	durableChatCreatedAt: Schema.optional(Schema.Number),
+	chatCreateDurationMs: Schema.optional(Schema.Number),
+	agentStartedAt: Schema.optional(Schema.Number),
+	agentStartDurationMs: Schema.optional(Schema.Number),
+	launchDurationMs: Schema.optional(Schema.Number),
+	providerResumedAt: Schema.optional(Schema.Number),
+	providerResumeDurationMs: Schema.optional(Schema.Number),
+}) {}
+
 export const CloudCredentialKind = Schema.Literals([
 	"github",
 	"claude",
@@ -144,6 +181,8 @@ export class CloudWorkspace extends Schema.Class<CloudWorkspace>(
 	state: CloudWorkspaceState,
 	desiredState: CloudWorkspaceDesiredState,
 	statusCode: Schema.String,
+	startupPhase: CloudWorkspaceStartupPhase,
+	startupTimings: CloudWorkspaceStartupTimings,
 	environmentId: Schema.optional(Schema.String),
 	createdAt: Schema.Number,
 	updatedAt: Schema.Number,
@@ -249,6 +288,35 @@ export const CloudWorkspacesListRpc = Rpc.make("cloud.workspaces.list", {
 	success: CloudWorkspaceList,
 	error: CloudWorkspaceOpError,
 });
+export const CloudWorkspacesGetRpc = Rpc.make("cloud.workspaces.get", {
+	payload: CloudWorkspaceActionRequest,
+	success: CloudWorkspace,
+	error: CloudWorkspaceOpError,
+});
+export const CloudWorkspacesAgentStartedRpc = Rpc.make(
+	"cloud.workspaces.agentStarted",
+	{
+		payload: CloudWorkspaceActionRequest,
+		success: CloudWorkspace,
+		error: CloudWorkspaceOpError,
+	},
+);
+export const CloudWorkspacesConnectedRpc = Rpc.make(
+	"cloud.workspaces.connected",
+	{
+		payload: CloudWorkspaceActionRequest,
+		success: CloudWorkspace,
+		error: CloudWorkspaceOpError,
+	},
+);
+export const CloudWorkspacesChatCreatedRpc = Rpc.make(
+	"cloud.workspaces.chatCreated",
+	{
+		payload: CloudWorkspaceActionRequest,
+		success: CloudWorkspace,
+		error: CloudWorkspaceOpError,
+	},
+);
 export const CloudWorkspacesCreateRpc = Rpc.make("cloud.workspaces.create", {
 	payload: CloudWorkspaceCreateRequest,
 	success: CloudWorkspace,

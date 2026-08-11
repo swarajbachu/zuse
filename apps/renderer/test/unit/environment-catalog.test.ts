@@ -1,5 +1,12 @@
 import { scopedCacheKey } from "@zuse/client-runtime/environment-scope";
-import type { Chat, Folder, FolderId, Message, Session } from "@zuse/contracts";
+import {
+	type Chat,
+	EnvironmentId,
+	type Folder,
+	type FolderId,
+	type Message,
+	type Session,
+} from "@zuse/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 // The coordinator now kicks off chat hydration (which wires the change
@@ -27,8 +34,11 @@ import { createInitializationGate } from "../../src/lib/initialization-gate.ts";
 import { terminalRuntimeKey } from "../../src/lib/terminal-registry.ts";
 import { useChatsStore } from "../../src/store/chats.ts";
 import {
+	cloudConnectionFailure,
+	createConnectionAttemptCoordinator,
 	type EnvironmentCatalogEntry,
 	orderEnvironmentCatalog,
+	relayEnvironmentsNeedingConnection,
 	validateSshTarget,
 } from "../../src/store/environment-catalog.ts";
 import {
@@ -95,6 +105,65 @@ describe("environment catalog", () => {
 				entry("Remote", "remote", "connected"),
 			]).map(({ label }) => label),
 		).toEqual(["Local", "Relay", "Remote", "Offline"]);
+	});
+
+	it("retries an already-known relay environment stuck while connecting", () => {
+		const connecting = entry("Cloud", null, "connecting", "relay");
+		const connected = entry("Ready", null, "connected", "relay");
+		const records = [
+			{
+				environmentId: EnvironmentId.make(connecting.environmentId),
+				providerKind: "cloud" as const,
+				linkedAt: 1,
+			},
+			{
+				environmentId: EnvironmentId.make(connected.environmentId),
+				providerKind: "cloud" as const,
+				linkedAt: 1,
+			},
+		] satisfies Parameters<typeof relayEnvironmentsNeedingConnection>[0];
+		expect(
+			relayEnvironmentsNeedingConnection(records, [connecting, connected]).map(
+				(environment) => environment.environmentId,
+			),
+		).toEqual([connecting.environmentId]);
+	});
+
+	it("replaces an in-flight connection attempt that never became ready", async () => {
+		const coordinator = createConnectionAttemptCoordinator();
+		let releaseFirst: (() => void) | undefined;
+		let firstStillCurrent = true;
+		const first = coordinator.run("relay:cloud", (isCurrent) =>
+			new Promise<void>((resolve) => {
+				releaseFirst = resolve;
+			}).then(() => {
+				firstStillCurrent = isCurrent();
+			}),
+		);
+		const replacement = coordinator.run(
+			"relay:cloud",
+			async (isCurrent) => {
+				expect(isCurrent()).toBe(true);
+			},
+			true,
+		);
+		expect(replacement).not.toBe(first);
+		await replacement;
+		releaseFirst?.();
+		await first;
+		expect(firstStillCurrent).toBe(false);
+	});
+
+	it("reports the failed secure-connection phase", () => {
+		expect(cloudConnectionFailure(new Error("open timed out")).message).toMatch(
+			/^Endpoint reachability failed:/u,
+		);
+		expect(
+			cloudConnectionFailure(new Error("unexpected response")).message,
+		).toMatch(/^WebSocket upgrade failed:/u);
+		expect(
+			cloudConnectionFailure(new Error("wire version mismatch")).message,
+		).toMatch(/^Protocol handshake failed:/u);
 	});
 
 	it("validates manual hosts and ports", () => {

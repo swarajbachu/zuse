@@ -76,6 +76,10 @@ export const RelayPaths = {
 	cloudWorkspaceAction: (workspaceId: string, action: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/${encodeURIComponent(action)}`,
 	cloudWorkspaceEnroll: "/v1/cloud/workspaces/enroll",
+	cloudWorkspaceCredentialsReady: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/credentials-ready`,
+	cloudWorkspaceReady: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/ready`,
 	cloudCredentials: "/v1/cloud/credentials",
 	cloudCredentialDisconnect: (kind: string) =>
 		`/v1/cloud/credentials/${encodeURIComponent(kind)}/disconnect`,

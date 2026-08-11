@@ -89,6 +89,7 @@ type EnvironmentCatalogState = {
 	addTailnet: (pairingLink: string, label?: string) => Promise<string>;
 	retry: (profileId: string) => Promise<void>;
 	retryEnvironment: (environmentId: string) => Promise<void>;
+	ensureEnvironmentConnected: (environmentId: string) => Promise<void>;
 	refreshEnvironment: (environmentId: string) => Promise<void>;
 	disconnect: (profileId: string) => Promise<void>;
 	remove: (profileId: string) => Promise<void>;
@@ -183,6 +184,56 @@ const relayEntry = (
 	sessionsByProject: {},
 });
 
+export const relayEnvironmentsNeedingConnection = (
+	environments: ReadonlyArray<RelayEnvironmentRecord>,
+	entries: ReadonlyArray<EnvironmentCatalogEntry>,
+): ReadonlyArray<RelayEnvironmentRecord> =>
+	environments.filter((environment) => {
+		const entry = entries.find(
+			(candidate) => candidate.environmentId === environment.environmentId,
+		);
+		return entry !== undefined && entry.status !== "connected";
+	});
+
+export const cloudConnectionFailure = (cause: unknown): Error => {
+	const detail = errorMessage(cause);
+	const normalized = detail.toLowerCase();
+	if (/\b(401|403|auth|unauthori[sz]ed|forbidden)\b/u.test(normalized))
+		return new Error(`Authentication failed: ${detail}`);
+	if (/upgrade|unexpected response/u.test(normalized))
+		return new Error(`WebSocket upgrade failed: ${detail}`);
+	if (/handshake|protocol|wire version/u.test(normalized))
+		return new Error(`Protocol handshake failed: ${detail}`);
+	if (/timeout|timed out|network|socket|connect|unreachable/u.test(normalized))
+		return new Error(`Endpoint reachability failed: ${detail}`);
+	return new Error(`Secure connection failed: ${detail}`);
+};
+
+export const createConnectionAttemptCoordinator = () => {
+	const attempts = new Map<string, Promise<void>>();
+	const attemptIds = new Map<string, symbol>();
+	return {
+		run: (
+			key: string,
+			operation: (isCurrent: () => boolean) => Promise<void>,
+			replace = false,
+		): Promise<void> => {
+			const current = attempts.get(key);
+			if (!replace && current !== undefined) return current;
+			const attemptId = Symbol(key);
+			attemptIds.set(key, attemptId);
+			const isCurrent = () => attemptIds.get(key) === attemptId;
+			const attempt = operation(isCurrent).finally(() => {
+				if (!isCurrent()) return;
+				attempts.delete(key);
+				attemptIds.delete(key);
+			});
+			attempts.set(key, attempt);
+			return attempt;
+		},
+	};
+};
+
 const entryKey = (entry: EnvironmentCatalogEntry): string =>
 	entry.connectionKind === "ssh" || entry.connectionKind === "tailnet"
 		? `${entry.connectionKind}:${entry.profileId}`
@@ -258,7 +309,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 	(set, get) => {
 		const recoverySubscriptions = new Map<string, () => void>();
 		const relayRecords = new Map<string, RelayEnvironmentRecord>();
-		const connectionAttempts = new Map<string, Promise<void>>();
+		const connectionAttempts = createConnectionAttemptCoordinator();
 		const fallbackPollers = new Map<string, number>();
 		const workspaceChangeFibers = new Map<
 			string,
@@ -271,16 +322,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			const timer = window.setTimeout(run, delayMs);
 			return () => window.clearTimeout(timer);
 		});
-		const runConnectionAttempt = (
-			key: string,
-			operation: () => Promise<void>,
-		): Promise<void> => {
-			const current = connectionAttempts.get(key);
-			if (current !== undefined) return current;
-			const attempt = operation().finally(() => connectionAttempts.delete(key));
-			connectionAttempts.set(key, attempt);
-			return attempt;
-		};
 		/**
 		 * Previous folders + origins for an entry so `hydrateEntry` can skip
 		 * re-resolving git origins when the folder set is unchanged.
@@ -416,17 +457,24 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			readonly catalogKey: string;
 			readonly environmentId: string;
 			readonly patch: Partial<EnvironmentCatalogEntry>;
+			readonly isCurrent?: () => boolean;
 		}): Promise<void> => {
-			const catalog = await hydrateEntry(
-				input.environmentId,
-				previousCatalog(input.catalogKey),
-			);
+			// `getRpcClient` performs the WebSocket open and protocol handshake. Mark
+			// the environment connected at that boundary; catalog hydration is useful
+			// background work and must not block a fresh cloud agent.
+			await getRpcClient(input.environmentId);
+			if (input.isCurrent?.() === false) return;
 			patchEntry(input.catalogKey, {
 				...input.patch,
 				status: "connected",
 				error: null,
-				...catalog,
 			});
+			void hydrateEntry(input.environmentId, previousCatalog(input.catalogKey))
+				.then((catalog) => {
+					if (input.isCurrent?.() !== false)
+						patchEntry(input.catalogKey, catalog);
+				})
+				.catch(() => undefined);
 			automaticRetry.succeeded(input.catalogKey);
 			if (!recoverySubscriptions.has(input.catalogKey)) {
 				recoverySubscriptions.set(
@@ -478,7 +526,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 
 		const connectProfile = (profileId: string): Promise<void> => {
 			const catalogKey = `ssh:${profileId}`;
-			return runConnectionAttempt(catalogKey, async () => {
+			return connectionAttempts.run(catalogKey, async () => {
 				patchEntry(catalogKey, { status: "connecting", error: null });
 				try {
 					const connection = await window.zuse?.ssh?.ensureEnvironment({
@@ -543,7 +591,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 		};
 		const connectTailnetProfile = (profileId: string): Promise<void> => {
 			const catalogKey = `tailnet:${profileId}`;
-			return runConnectionAttempt(catalogKey, async () => {
+			return connectionAttempts.run(catalogKey, async () => {
 				patchEntry(catalogKey, { status: "connecting", error: null });
 				try {
 					const connection = await window.zuse?.tailnet?.ensureEnvironment({
@@ -571,44 +619,63 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 		const connectRelay = (
 			environment: RelayEnvironmentRecord,
 			localEnvironmentId: string,
+			replace = false,
 		): Promise<void> => {
 			const catalogKey = `relay:${environment.environmentId}`;
-			return runConnectionAttempt(catalogKey, async () => {
-				try {
-					const localClient = await getRpcClient(localEnvironmentId);
-					const grant = await Effect.runPromise(
-						localClient["environments.connect"]({
-							environmentId: environment.environmentId,
-						}),
-					);
-					registerRelayEnvironment(
-						environment.environmentId,
-						relayGrantUrl(grant),
-						async () =>
-							relayGrantUrl(
-								await Effect.runPromise(
+			return connectionAttempts.run(
+				catalogKey,
+				async (isCurrent) => {
+					try {
+						const { grant, localClient } = await (async () => {
+							try {
+								const localClient = await getRpcClient(localEnvironmentId);
+								const grant = await Effect.runPromise(
 									localClient["environments.connect"]({
 										environmentId: environment.environmentId,
 									}),
+								);
+								return { grant, localClient };
+							} catch (cause) {
+								throw new Error(`Relay grant failed: ${errorMessage(cause)}`);
+							}
+						})();
+						if (!isCurrent()) return;
+						registerRelayEnvironment(
+							environment.environmentId,
+							relayGrantUrl(grant),
+							async () =>
+								relayGrantUrl(
+									await Effect.runPromise(
+										localClient["environments.connect"]({
+											environmentId: environment.environmentId,
+										}),
+									),
 								),
-							),
-					);
-					await completeConnection({
-						catalogKey,
-						environmentId: environment.environmentId,
-						patch: {
-							descriptor: {
-								...environment,
-								endpoint: grant.endpoint,
-							},
-						},
-					});
-				} catch (cause) {
-					failConnection(catalogKey, cause, () =>
-						connectRelay(environment, localEnvironmentId),
-					);
-				}
-			});
+						);
+						try {
+							await completeConnection({
+								catalogKey,
+								environmentId: environment.environmentId,
+								patch: {
+									descriptor: {
+										...environment,
+										endpoint: grant.endpoint,
+									},
+								},
+								isCurrent,
+							});
+						} catch (cause) {
+							throw cloudConnectionFailure(cause);
+						}
+					} catch (cause) {
+						if (!isCurrent()) return;
+						failConnection(catalogKey, cause, () =>
+							connectRelay(environment, localEnvironmentId),
+						);
+					}
+				},
+				replace,
+			);
 		};
 
 		return {
@@ -728,16 +795,18 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						!hiddenRelayIds.has(environment.environmentId) &&
 						!knownEnvironmentIds.has(environment.environmentId),
 				);
-				if (added.length === 0) return;
-
-				set((state) => ({
-					entries: orderEnvironmentCatalog([
-						...state.entries,
-						...added.map(relayEntry),
-					]),
-				}));
+				if (added.length > 0)
+					set((state) => ({
+						entries: orderEnvironmentCatalog([
+							...state.entries,
+							...added.map(relayEntry),
+						]),
+					}));
 				await Promise.allSettled(
-					added.map((environment) =>
+					relayEnvironmentsNeedingConnection(
+						accountEnvironments,
+						get().entries,
+					).map((environment) =>
 						connectRelay(environment, local.environmentId),
 					),
 				);
@@ -893,6 +962,58 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					error: null,
 				});
 				await connectRelay(environment, local.environmentId);
+			},
+			ensureEnvironmentConnected: async (environmentId) => {
+				let local = get().entries.find(
+					(entry) => entry.connectionKind === "local",
+				);
+				if (local === undefined) {
+					await get().initialize();
+					local = get().entries.find(
+						(entry) => entry.connectionKind === "local",
+					);
+				}
+				if (local === undefined)
+					throw new Error(
+						"Relay grant failed: local environment is unavailable.",
+					);
+				const localClient = await getRpcClient(local.environmentId);
+				const listed = await Effect.runPromise(
+					localClient["environments.list"](),
+				).catch((cause) => {
+					throw new Error(`Relay grant failed: ${errorMessage(cause)}`);
+				});
+				const environment = listed.environments.find(
+					(candidate) => candidate.environmentId === environmentId,
+				);
+				if (environment === undefined)
+					throw new Error(
+						"Relay grant failed: cloud environment is not registered.",
+					);
+				relayRecords.set(environment.environmentId, environment);
+				const catalogKey = `relay:${environment.environmentId}`;
+				const existing = get().entries.find(
+					(candidate) => candidate.environmentId === environmentId,
+				);
+				if (existing === undefined) {
+					set((state) => ({
+						entries: orderEnvironmentCatalog([
+							...state.entries,
+							relayEntry(environment),
+						]),
+					}));
+				} else {
+					patchEntry(catalogKey, { status: "connecting", error: null });
+				}
+				automaticRetry.prepareManualRetry(catalogKey);
+				await connectRelay(environment, local.environmentId, true);
+				const entry = get().entries.find(
+					(candidate) => candidate.environmentId === environmentId,
+				);
+				if (entry?.status !== "connected")
+					throw new Error(
+						entry?.error ?? "Cloud runtime connection did not complete.",
+					);
 			},
 			disconnect: async (profileId) => {
 				const entry = get().entries.find(

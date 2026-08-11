@@ -99,6 +99,7 @@ const optionsForEnvironment = (
 
 let online = globalThis.navigator?.onLine ?? true;
 export const RENDERER_MAX_AUTOMATIC_CONNECTION_ATTEMPTS = 3;
+export const RENDERER_WEBSOCKET_OPEN_TIMEOUT = "3 seconds" as const;
 
 const supervisor = createConnectionSupervisor<
 	RendererConnectionOptions,
@@ -126,6 +127,7 @@ const supervisor = createConnectionSupervisor<
 							WIRE_PROTOCOL_VERSION,
 						),
 						{
+							openTimeout: RENDERER_WEBSOCKET_OPEN_TIMEOUT,
 							onClose: (event) => {
 								reportRendererEntryFailure(
 									options.key,

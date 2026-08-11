@@ -4,6 +4,7 @@ import {
 	CloudProjectConnectRequest,
 	CloudProjectPrepareRequest,
 	CloudWorkspaceCreateRequest,
+	CloudWorkspaceStartupTimings,
 	MachineEnrollRequest,
 	RelayPaths,
 } from "@zuse/contracts";
@@ -169,6 +170,98 @@ const publicBuild = (build: CloudProjectBuildRecord) => ({
 	createdAt: build.createdAtMs,
 	updatedAt: build.updatedAtMs,
 });
+const startupTimings = (
+	workspace: CloudWorkspaceRecord,
+): CloudWorkspaceStartupTimings => {
+	const value = workspace.requestConfig.startupTimings;
+	const decoded = Schema.decodeUnknownOption(CloudWorkspaceStartupTimings)(
+		value,
+	);
+	return decoded._tag === "Some"
+		? decoded.value
+		: CloudWorkspaceStartupTimings.make({});
+};
+
+export const cloudWorkspaceReadinessAuthorization = (
+	workspace: CloudWorkspaceRecord,
+	tokenHash: string,
+	nowMs: number,
+): "initial" | "retry" | "reject" => {
+	const receiptMatches =
+		workspace.requestConfig.readinessReceiptHash === tokenHash &&
+		typeof workspace.requestConfig.readinessReceiptExpiresAtMs === "number" &&
+		workspace.requestConfig.readinessReceiptExpiresAtMs > nowMs;
+	if (receiptMatches)
+		return workspace.state === "ready" &&
+			startupTimings(workspace).repositoryReadyAt !== undefined
+			? "retry"
+			: "reject";
+	return workspace.state === "setup" &&
+		workspace.enrollmentTokenHash === tokenHash &&
+		(workspace.enrollmentExpiresAtMs ?? 0) > nowMs
+		? "initial"
+		: "reject";
+};
+
+const startupPhase = (workspace: CloudWorkspaceRecord) => {
+	if (workspace.state === "failed") return "failed" as const;
+	if (startupTimings(workspace).agentStartedAt !== undefined)
+		return "running" as const;
+	if (
+		workspace.statusCode === "runtime-connected" ||
+		workspace.statusCode === "agent-starting"
+	)
+		return "starting-agent" as const;
+	if (workspace.statusCode === "ready") return "connecting" as const;
+	if (workspace.statusCode === "repository-setup-running")
+		return "syncing-repository" as const;
+	if (workspace.environmentId !== undefined) return "enrolling" as const;
+	if (workspace.providerSandboxId !== undefined)
+		return "starting-runtime" as const;
+	return "allocating" as const;
+};
+
+const withStartupTiming = (
+	workspace: CloudWorkspaceRecord,
+	name: keyof CloudWorkspaceStartupTimings,
+	atMs: number,
+): CloudWorkspaceRecord => ({
+	...workspace,
+	requestConfig: (() => {
+		const timings = startupTimings(workspace);
+		const predecessor: Partial<
+			Readonly<
+				Record<
+					keyof CloudWorkspaceStartupTimings,
+					readonly [
+						keyof CloudWorkspaceStartupTimings,
+						keyof CloudWorkspaceStartupTimings,
+					]
+				>
+			>
+		> = {
+			allocatedAt: ["requestedAt", "allocationDurationMs"],
+			enrolledAt: ["allocatedAt", "enrollmentDurationMs"],
+			networkOpenedAt: ["enrolledAt", "credentialInstallDurationMs"],
+			repositoryReadyAt: ["networkOpenedAt", "repositoryDurationMs"],
+			connectedAt: ["repositoryReadyAt", "connectionDurationMs"],
+			agentStartedAt: ["connectedAt", "agentStartDurationMs"],
+		};
+		const previous = predecessor[name];
+		return {
+			...workspace.requestConfig,
+			startupTimings: {
+				...timings,
+				[name]: atMs,
+				...(name === "enrolledAt" ? { runtimeReadyAt: atMs } : {}),
+				...(previous === undefined || timings[previous[0]] === undefined
+					? {}
+					: { [previous[1]]: atMs - (timings[previous[0]] as number) }),
+			},
+		};
+	})(),
+});
+
 const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 	workspaceId: workspace.workspaceId,
 	projectId: workspace.projectId,
@@ -179,6 +272,8 @@ const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 	state: workspace.state,
 	desiredState: workspace.desiredState,
 	statusCode: workspace.statusCode,
+	startupPhase: startupPhase(workspace),
+	startupTimings: startupTimings(workspace),
 	environmentId: workspace.environmentId,
 	createdAt: workspace.createdAtMs,
 	updatedAt: workspace.updatedAtMs,
@@ -284,6 +379,7 @@ export const routeCloudWorkspaceRequest = (
 				workspace === null ||
 				workspace.enrollmentTokenHash !== (yield* sha256Hex(token)) ||
 				(workspace.enrollmentExpiresAtMs ?? 0) <= nowMs ||
+				(workspace.state !== "provisioning" && workspace.state !== "setup") ||
 				workspace.desiredState !== "ready"
 			)
 				return yield* Effect.fail(
@@ -386,19 +482,24 @@ export const routeCloudWorkspaceRequest = (
 						};
 					}),
 			);
-			yield* store.saveWorkspace({
-				...workspace,
-				environmentId: body.environmentId,
-				enrolledEnvironmentPublicKey: body.environmentPublicKey,
-				state: "setup",
-				statusCode: "setup-running",
-				nextActionAtMs: nowMs,
-				// Enrollment races the provider-marker poller. Give the external
-				// identity transition a later revision so a stale failed-marker read
-				// cannot erase the newly enrolled environment.
-				revision: workspace.revision + 2,
-				updatedAtMs: nowMs,
-			});
+			const enrolledWorkspace = withStartupTiming(
+				{
+					...workspace,
+					environmentId: body.environmentId,
+					enrolledEnvironmentPublicKey: body.environmentPublicKey,
+					state: "setup",
+					statusCode: "repository-setup-running",
+					nextActionAtMs: nowMs + 30_000,
+					// Enrollment races the provider-marker poller. Give the external
+					// identity transition a later revision so a stale failed-marker read
+					// cannot erase the newly enrolled environment.
+					revision: workspace.revision + 2,
+					updatedAtMs: nowMs,
+				},
+				"enrolledAt",
+				nowMs,
+			);
+			yield* store.saveWorkspace(enrolledWorkspace);
 			return json({
 				environmentId: body.environmentId,
 				endpoint,
@@ -407,6 +508,113 @@ export const routeCloudWorkspaceRequest = (
 				mintPublicKey: relayConfig.mintPublicKey,
 				cloudCredentials,
 			});
+		}
+		const credentialsReadyMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/credentials-ready$/u.exec(path);
+		if (method === "POST" && credentialsReadyMatch !== null) {
+			const authorization = request.headers.get("authorization");
+			const token = authorization?.startsWith("Bearer ")
+				? authorization.slice("Bearer ".length)
+				: undefined;
+			const workspace = yield* store.getWorkspace(
+				decodeURIComponent(credentialsReadyMatch[1] ?? ""),
+			);
+			if (
+				token === undefined ||
+				workspace === null ||
+				workspace.enrollmentTokenHash !== (yield* sha256Hex(token)) ||
+				(workspace.enrollmentExpiresAtMs ?? 0) <= nowMs ||
+				workspace.environmentId === undefined ||
+				workspace.providerSandboxId === undefined ||
+				workspace.state !== "setup" ||
+				workspace.desiredState !== "ready"
+			)
+				return yield* Effect.fail(
+					unauthorized("workspace_credentials_ready_rejected"),
+				);
+			const timings = startupTimings(workspace);
+			if (timings.networkOpenedAt !== undefined) return json({ ok: true });
+			const provider = yield* (yield* SandboxProviders)
+				.get(workspace.provider)
+				.pipe(
+					Effect.mapError(() =>
+						serviceUnavailable("cloud_provider_unavailable"),
+					),
+				);
+			yield* provider
+				.setNetwork(workspace.providerSandboxId, { kind: "open" })
+				.pipe(
+					Effect.mapError(() =>
+						serviceUnavailable("workspace_network_release_failed"),
+					),
+				);
+			yield* store.saveWorkspace(
+				withStartupTiming(
+					{
+						...workspace,
+						statusCode: "repository-setup-running",
+						nextActionAtMs: nowMs + 30_000,
+						revision: workspace.revision + 1,
+						updatedAtMs: nowMs,
+					},
+					"networkOpenedAt",
+					nowMs,
+				),
+			);
+			return json({ ok: true });
+		}
+		const readyMatch = /^\/v1\/cloud\/workspaces\/([^/]+)\/ready$/u.exec(path);
+		if (method === "POST" && readyMatch !== null) {
+			const authorization = request.headers.get("authorization");
+			const token = authorization?.startsWith("Bearer ")
+				? authorization.slice("Bearer ".length)
+				: undefined;
+			const workspaceId = decodeURIComponent(readyMatch[1] ?? "");
+			const workspace = yield* store.getWorkspace(workspaceId);
+			const tokenHash =
+				token === undefined ? undefined : yield* sha256Hex(token);
+			const readinessAuthorization =
+				workspace === null || tokenHash === undefined
+					? "reject"
+					: cloudWorkspaceReadinessAuthorization(workspace, tokenHash, nowMs);
+			if (readinessAuthorization === "retry" && workspace !== null)
+				return json(publicWorkspace(workspace));
+			if (
+				readinessAuthorization !== "initial" ||
+				workspace === null ||
+				workspace.environmentId === undefined ||
+				startupTimings(workspace).networkOpenedAt === undefined ||
+				workspace.desiredState !== "ready"
+			)
+				return yield* Effect.fail(unauthorized("workspace_readiness_rejected"));
+			if (
+				workspace.state === "ready" &&
+				startupTimings(workspace).repositoryReadyAt !== undefined
+			)
+				return json(publicWorkspace(workspace));
+			const ready = withStartupTiming(
+				{
+					...workspace,
+					enrollmentTokenHash: undefined,
+					enrollmentExpiresAtMs: undefined,
+					requestConfig: {
+						...workspace.requestConfig,
+						readinessReceiptHash: tokenHash,
+						readinessReceiptExpiresAtMs:
+							workspace.enrollmentExpiresAtMs ?? nowMs + 60_000,
+					},
+					state: "ready",
+					statusCode: "ready",
+					nextActionAtMs: workspace.lastActivityAtMs + 60 * 60 * 1_000,
+					runningSinceMs: nowMs,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				},
+				"repositoryReadyAt",
+				nowMs,
+			);
+			yield* store.saveWorkspace(ready);
+			return json(publicWorkspace(ready));
 		}
 		const principal = yield* requireWorkos(request);
 
@@ -540,6 +748,87 @@ export const routeCloudWorkspaceRequest = (
 				)).map(publicWorkspace),
 			});
 		}
+		const workspaceMatch = /^\/v1\/cloud\/workspaces\/([^/]+)$/u.exec(path);
+		if (method === "GET" && workspaceMatch !== null) {
+			const workspace = yield* store.getWorkspace(
+				decodeURIComponent(workspaceMatch[1] ?? ""),
+			);
+			if (workspace === null || workspace.accountId !== principal.accountId)
+				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
+			return json(publicWorkspace(workspace));
+		}
+		const startupEventMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/(connected|chat-created|agent-started)$/u.exec(
+				path,
+			);
+		if (method === "POST" && startupEventMatch !== null) {
+			const workspace = yield* store.getWorkspace(
+				decodeURIComponent(startupEventMatch[1] ?? ""),
+			);
+			if (workspace === null || workspace.accountId !== principal.accountId)
+				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
+			if (workspace.state !== "ready")
+				return yield* Effect.fail(conflict("cloud_workspace_not_ready"));
+			const timings = startupTimings(workspace);
+			const agentStarted = startupEventMatch[2] === "agent-started";
+			const chatCreated = startupEventMatch[2] === "chat-created";
+			if (chatCreated && timings.connectedAt === undefined)
+				return yield* Effect.fail(conflict("cloud_workspace_not_connected"));
+			if (agentStarted && timings.durableChatCreatedAt === undefined)
+				return yield* Effect.fail(conflict("cloud_workspace_chat_not_ready"));
+			const safeRequestConfig =
+				chatCreated || agentStarted
+					? Object.fromEntries(
+							Object.entries(workspace.requestConfig).filter(
+								([name]) =>
+									name !== "firstMessage" &&
+									(!agentStarted ||
+										(name !== "readinessReceiptHash" &&
+											name !== "readinessReceiptExpiresAtMs")),
+							),
+						)
+					: workspace.requestConfig;
+			const timingName = agentStarted
+				? "agentStartedAt"
+				: chatCreated
+					? "durableChatCreatedAt"
+					: "connectedAt";
+			if (timings[timingName] !== undefined)
+				return json(publicWorkspace(workspace));
+			const updated: CloudWorkspaceRecord = {
+				...workspace,
+				statusCode: agentStarted
+					? "agent-running"
+					: chatCreated
+						? "agent-starting"
+						: "runtime-connected",
+				requestConfig: {
+					...safeRequestConfig,
+					startupTimings: {
+						...timings,
+						[timingName]: nowMs,
+						...(agentStarted && timings.durableChatCreatedAt !== undefined
+							? {
+									agentStartDurationMs: nowMs - timings.durableChatCreatedAt,
+								}
+							: chatCreated && timings.connectedAt !== undefined
+								? { chatCreateDurationMs: nowMs - timings.connectedAt }
+								: !agentStarted && timings.repositoryReadyAt !== undefined
+									? {
+											connectionDurationMs: nowMs - timings.repositoryReadyAt,
+										}
+									: {}),
+						...(!agentStarted || timings.requestedAt === undefined
+							? {}
+							: { launchDurationMs: nowMs - timings.requestedAt }),
+					},
+				},
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+			};
+			yield* store.saveWorkspace(updated);
+			return json(publicWorkspace(updated));
+		}
 		if (method === "POST" && path === RelayPaths.cloudWorkspaces) {
 			if (!(yield* hasEntitlement(principal.accountId, nowMs)))
 				return yield* Effect.fail(forbidden("cloud_entitlement_required"));
@@ -609,6 +898,8 @@ export const routeCloudWorkspaceRequest = (
 					secretBindings: requestedSecretBindings,
 					permissions: body.permissions ?? [],
 					firstMessage: body.firstMessage,
+					startupProtocol: "callback-v1",
+					startupTimings: { requestedAt: nowMs },
 				},
 				nextActionAtMs: nowMs,
 				revision: 0,
@@ -658,6 +949,16 @@ export const routeCloudWorkspaceRequest = (
 				...workspace,
 				desiredState,
 				statusCode: `${action}-queued`,
+				requestConfig:
+					action === "resume"
+						? {
+								...workspace.requestConfig,
+								startupTimings: {
+									requestedAt: nowMs,
+									resumeRequestedAt: nowMs,
+								},
+							}
+						: workspace.requestConfig,
 				nextActionAtMs: nowMs,
 				updatedAtMs: nowMs,
 			};

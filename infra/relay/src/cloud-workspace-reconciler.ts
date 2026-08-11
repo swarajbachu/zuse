@@ -397,7 +397,26 @@ const discardUnsafeWorkspaceSandbox = (
 			))?.providerSandboxId;
 		if (providerSandboxId !== undefined)
 			yield* provider.kill(providerSandboxId);
-	}).pipe(Effect.ignore);
+	}).pipe(
+		Effect.as(true),
+		Effect.catchTag("SandboxProviderError", () => Effect.succeed(false)),
+	);
+
+const cleanupRetry = (
+	workspace: CloudWorkspaceRecord,
+	nowMs: number,
+	failureStatusCode: string,
+): CloudWorkspaceRecord => ({
+	...workspace,
+	statusCode: "cleanup-retrying",
+	requestConfig: {
+		...workspace.requestConfig,
+		cleanupFailureStatusCode: failureStatusCode,
+	},
+	nextActionAtMs: nowMs + RETRY_MS,
+	revision: workspace.revision + 1,
+	updatedAtMs: nowMs,
+});
 
 const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 	function* (workspace: CloudWorkspaceRecord) {
@@ -408,10 +427,18 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		const config = yield* SandboxOfferConfiguration;
 		const nowMs = yield* Clock.currentTimeMillis;
 		if (workspace.desiredState === "deleted") {
+			if (!(yield* discardUnsafeWorkspaceSandbox(provider, workspace))) {
+				yield* store.saveWorkspace({
+					...workspace,
+					statusCode: "delete-retrying",
+					nextActionAtMs: nowMs + RETRY_MS,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
 			if (workspace.runningSinceMs !== undefined)
 				yield* recordLifecycle(workspace, "runtime-seconds", nowMs);
-			if (workspace.providerSandboxId !== undefined)
-				yield* provider.kill(workspace.providerSandboxId).pipe(Effect.ignore);
 			if (workspace.environmentId !== undefined)
 				yield* (yield* RelayStore).deleteEnvironment(
 					workspace.environmentId,
@@ -432,8 +459,48 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			});
 			return;
 		}
+		if (workspace.statusCode === "cleanup-retrying") {
+			if (!(yield* discardUnsafeWorkspaceSandbox(provider, workspace))) {
+				yield* store.saveWorkspace({
+					...workspace,
+					nextActionAtMs: nowMs + RETRY_MS,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
+			if (workspace.environmentId !== undefined)
+				yield* (yield* RelayStore).deleteEnvironment(
+					workspace.environmentId,
+					workspace.accountId,
+				);
+			const requestConfig = Object.fromEntries(
+				Object.entries(workspace.requestConfig).filter(
+					([name]) => name !== "cleanupFailureStatusCode",
+				),
+			);
+			yield* store.saveWorkspace(
+				cloudWorkspaceWithoutProviderSandbox({
+					...workspace,
+					state: "failed",
+					statusCode:
+						typeof workspace.requestConfig.cleanupFailureStatusCode === "string"
+							? workspace.requestConfig.cleanupFailureStatusCode
+							: "provider-unavailable",
+					requestConfig,
+					nextActionAtMs: Number.MAX_SAFE_INTEGER,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				}),
+			);
+			return;
+		}
 		if (cloudWorkspaceStartupTimedOut(workspace, nowMs)) {
-			yield* discardUnsafeWorkspaceSandbox(provider, workspace);
+			if (!(yield* discardUnsafeWorkspaceSandbox(provider, workspace))) {
+				yield* store.saveWorkspace(
+					cleanupRetry(workspace, nowMs, "provider-unavailable"),
+				);
+				return;
+			}
 			if (workspace.environmentId !== undefined)
 				yield* (yield* RelayStore).deleteEnvironment(
 					workspace.environmentId,
@@ -524,12 +591,50 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					env: {},
 					onTimeout: "pause",
 				}));
+			const allocatedAtMs = yield* Clock.currentTimeMillis;
 			const relay = yield* RelayConfiguration;
-			const enrollment = yield* issueWorkspaceEnrollment(
-				provider,
-				sandbox.providerSandboxId,
-				nowMs,
+			const relayHost = new URL(relay.relayIssuer).hostname;
+			const [enrollment, endpoint] = yield* Effect.all(
+				[
+					issueWorkspaceEnrollment(
+						provider,
+						sandbox.providerSandboxId,
+						allocatedAtMs,
+					),
+					provider.resolveEndpoint(sandbox.providerSandboxId, config.port),
+					provider.setNetwork(sandbox.providerSandboxId, {
+						kind: "restricted",
+						allowOut: [relayHost],
+						denyOut: ["0.0.0.0/0", "::/0"],
+					}),
+				],
+				{ concurrency: "unbounded" },
 			);
+			const provisioning: CloudWorkspaceRecord = {
+				...workspace,
+				providerSandboxId: sandbox.providerSandboxId,
+				providerEndpointHttpBaseUrl: endpoint.httpBaseUrl,
+				providerEndpointWsBaseUrl: endpoint.wsBaseUrl,
+				enrollmentTokenHash: enrollment.tokenHash,
+				enrollmentExpiresAtMs: enrollment.expiresAtMs,
+				state: "provisioning",
+				statusCode: "runtime-starting",
+				requestConfig: {
+					...workspace.requestConfig,
+					startupTimings: {
+						...((workspace.requestConfig.startupTimings as
+							| Readonly<Record<string, number>>
+							| undefined) ?? {}),
+						allocatedAt: allocatedAtMs,
+					},
+				},
+				nextActionAtMs: nowMs + 30_000,
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+			};
+			// Persist the public endpoint before the runtime can enroll. Enrollment is
+			// the event that advances the happy path; the reconciler is recovery only.
+			yield* store.saveWorkspace(provisioning);
 			yield* provider.startProcess(sandbox.providerSandboxId, {
 				command: "/usr/local/bin/zuse-workspace-bootstrap",
 				cwd: "/home/zuse/workspace",
@@ -541,20 +646,8 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					ZUSE_RELAY_ISSUER: relay.relayIssuer,
 					ZUSE_BASE_REF: workspace.baseRef,
 					ZUSE_BRANCH: workspace.branch,
-					ZUSE_INCREMENTAL_SETUP_COMMAND: project.setupCommand ?? "",
 				},
 				user: "zuse",
-			});
-			yield* store.saveWorkspace({
-				...workspace,
-				providerSandboxId: sandbox.providerSandboxId,
-				enrollmentTokenHash: enrollment.tokenHash,
-				enrollmentExpiresAtMs: enrollment.expiresAtMs,
-				state: "provisioning",
-				statusCode: "identity-reset",
-				nextActionAtMs: nowMs + RETRY_MS,
-				revision: workspace.revision + 1,
-				updatedAtMs: nowMs,
 			});
 			return;
 		}
@@ -578,12 +671,15 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 									error.code,
 									nowMs,
 								);
-								if (failure.state === "failed")
-									yield* discardUnsafeWorkspaceSandbox(provider, workspace);
+								const discarded =
+									failure.state !== "failed" ||
+									(yield* discardUnsafeWorkspaceSandbox(provider, workspace));
 								yield* store.saveWorkspace(
-									failure.state === "failed"
+									failure.state === "failed" && discarded
 										? cloudWorkspaceWithoutProviderSandbox(failure)
-										: failure,
+										: failure.state === "failed"
+											? cleanupRetry(workspace, nowMs, failure.statusCode)
+											: failure,
 								);
 								return false;
 							}),
@@ -607,7 +703,12 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					"zuse",
 				)
 			) {
-				yield* discardUnsafeWorkspaceSandbox(provider, workspace);
+				if (!(yield* discardUnsafeWorkspaceSandbox(provider, workspace))) {
+					yield* store.saveWorkspace(
+						cleanupRetry(workspace, nowMs, "setup-failed"),
+					);
+					return;
+				}
 				yield* store.saveWorkspace(
 					cloudWorkspaceWithoutProviderSandbox(
 						cloudWorkspaceAfterSetupFailure(workspace, nowMs),
@@ -647,12 +748,15 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 								nowMs,
 								"network-policy-rejected",
 							);
-							if (failure.state === "failed")
-								yield* discardUnsafeWorkspaceSandbox(provider, workspace);
+							const discarded =
+								failure.state !== "failed" ||
+								(yield* discardUnsafeWorkspaceSandbox(provider, workspace));
 							yield* store.saveWorkspace(
-								failure.state === "failed"
+								failure.state === "failed" && discarded
 									? cloudWorkspaceWithoutProviderSandbox(failure)
-									: failure,
+									: failure.state === "failed"
+										? cleanupRetry(workspace, nowMs, failure.statusCode)
+										: failure,
 							);
 							return false;
 						}),
@@ -679,6 +783,42 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			workspace.state === "setup" &&
 			workspace.providerSandboxId !== undefined
 		) {
+			if (workspace.requestConfig.startupProtocol === "callback-v1") {
+				if (
+					yield* provider.pathExists(
+						workspace.providerSandboxId,
+						"/var/lib/zuse/workspace/failed",
+						"zuse",
+					)
+				) {
+					if (!(yield* discardUnsafeWorkspaceSandbox(provider, workspace))) {
+						yield* store.saveWorkspace(
+							cleanupRetry(workspace, nowMs, "setup-failed"),
+						);
+						return;
+					}
+					if (workspace.environmentId !== undefined)
+						yield* (yield* RelayStore).deleteEnvironment(
+							workspace.environmentId,
+							workspace.accountId,
+						);
+					yield* store.saveWorkspace(
+						cloudWorkspaceWithoutProviderSandbox(
+							cloudWorkspaceAfterSetupFailure(workspace, nowMs),
+						),
+					);
+					return;
+				}
+				// The authenticated runtime callbacks own every successful state
+				// transition. Recovery observes failure/timeout only; it must never
+				// consume a ready marker or invalidate an in-flight callback.
+				yield* store.saveWorkspace({
+					...workspace,
+					nextActionAtMs: nowMs + 30_000,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
 			if (cloudWorkspaceEnrollmentNeedsRefresh(workspace, nowMs)) {
 				const enrollment = yield* issueWorkspaceEnrollment(
 					provider,
@@ -816,11 +956,27 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				"pause",
 			);
 			yield* recordLifecycle(workspace, "resume", nowMs);
+			const startupTimings =
+				(workspace.requestConfig.startupTimings as
+					| Readonly<Record<string, number>>
+					| undefined) ?? {};
 			yield* store.saveWorkspace({
 				...workspace,
 				state: "ready",
 				desiredState: "ready",
 				statusCode: "ready",
+				requestConfig: {
+					...workspace.requestConfig,
+					startupTimings: {
+						...startupTimings,
+						providerResumedAt: nowMs,
+						...(startupTimings.requestedAt === undefined
+							? {}
+							: {
+									providerResumeDurationMs: nowMs - startupTimings.requestedAt,
+								}),
+					},
+				},
 				warmRetentionDeadlineMs: undefined,
 				nextActionAtMs: nowMs + IDLE_PAUSE_MS,
 				lastActivityAtMs: nowMs,
@@ -912,16 +1068,22 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 							failure.state === "failed" &&
 							(workspace.state === "queued" ||
 								workspace.state === "provisioning");
+						let discarded = false;
 						if (unsafeStartupFailure) {
 							const provider = yield* (yield* SandboxProviders)
 								.get(workspace.provider)
 								.pipe(Effect.orDie);
-							yield* discardUnsafeWorkspaceSandbox(provider, workspace);
+							discarded = yield* discardUnsafeWorkspaceSandbox(
+								provider,
+								workspace,
+							);
 						}
 						yield* store.saveWorkspace(
-							unsafeStartupFailure
+							unsafeStartupFailure && discarded
 								? cloudWorkspaceWithoutProviderSandbox(failure)
-								: failure,
+								: unsafeStartupFailure
+									? cleanupRetry(workspace, failureAtMs, failure.statusCode)
+									: failure,
 						);
 					}),
 				),

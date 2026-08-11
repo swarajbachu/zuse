@@ -37,6 +37,7 @@ const fail = (reason: string) =>
 const RelayErrorBody = Schema.Struct({
 	error: Schema.optional(Schema.String),
 });
+const WorkspaceCallbackResponse = Schema.Struct({ ok: Schema.Boolean });
 
 const post = <A, I>(
 	schema: Schema.Codec<A, I>,
@@ -94,32 +95,6 @@ const removeEnrollmentToken = (
 					return fail("enrollment_token_file_remove_failed");
 				},
 			});
-
-const waitForWorkspaceNetwork = (): Effect.Effect<void, CloudEnrollmentError> =>
-	Effect.tryPromise({
-		try: async () => {
-			const marker = "/var/lib/zuse/workspace/network-open";
-			const deadline = Date.now() + 2 * 60 * 1_000;
-			while (Date.now() < deadline) {
-				try {
-					await access(marker);
-					return;
-				} catch (cause) {
-					if (
-						!(
-							cause instanceof Error &&
-							"code" in cause &&
-							cause.code === "ENOENT"
-						)
-					)
-						throw cause;
-				}
-				await new Promise((resolve) => setTimeout(resolve, 250));
-			}
-			throw new Error("workspace_network_open_timeout");
-		},
-		catch: () => fail("workspace_network_open_failed"),
-	});
 
 const workspaceCredentialsReady = (): Effect.Effect<
 	boolean,
@@ -312,16 +287,29 @@ export const makeCloudEnrollmentLayer = (
 						.pipe(Effect.mapError((error) => fail(error.reason)));
 					yield* installCloudCredentials(enrolled.cloudCredentials);
 					if (config.resourceKind === "workspace") {
-						yield* waitForWorkspaceNetwork();
+						yield* post(
+							WorkspaceCallbackResponse,
+							`${config.relayUrl}${RelayPaths.cloudWorkspaceCredentialsReady(config.machineId)}`,
+							token,
+							{},
+						);
 						yield* Effect.tryPromise({
 							try: async () => {
 								const marker = "/var/lib/zuse/workspace/credentials-ready";
 								await mkdir(dirname(marker), { recursive: true, mode: 0o700 });
 								await writeFile(marker, "ready\n", { mode: 0o600 });
+								// The bootstrap owns this FIFO before starting the runtime. Opening it
+								// for write blocks until its reader exists, so readiness cannot be
+								// lost in the check-before-wait race possible with process signals.
+								await writeFile(
+									"/var/lib/zuse/workspace/credentials-ready-event",
+									"ready\n",
+								);
 							},
 							catch: () => fail("workspace_ready_marker_failed"),
 						});
 					}
-					yield* removeEnrollmentToken(config.tokenFile);
+					if (config.resourceKind !== "workspace")
+						yield* removeEnrollmentToken(config.tokenFile);
 				}),
 			);

@@ -84,6 +84,32 @@ const CloudWorkspaces = MemoizeRpcs.toLayerHandler(
 	({ projectId }) =>
 		withCloudControl((service) => service.cloudWorkspaces(projectId)),
 );
+const CloudWorkspace = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.get",
+	({ workspaceId }) =>
+		withCloudControl((service) => service.cloudWorkspace(workspaceId)),
+);
+const CloudWorkspaceAgentStarted = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.agentStarted",
+	({ workspaceId }) =>
+		withCloudControl((service) =>
+			service.cloudWorkspaceAction(workspaceId, "agent-started"),
+		),
+);
+const CloudWorkspaceConnected = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.connected",
+	({ workspaceId }) =>
+		withCloudControl((service) =>
+			service.cloudWorkspaceAction(workspaceId, "connected"),
+		),
+);
+const CloudWorkspaceChatCreated = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.chatCreated",
+	({ workspaceId }) =>
+		withCloudControl((service) =>
+			service.cloudWorkspaceAction(workspaceId, "chat-created"),
+		),
+);
 const CreateCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.create",
 	(input) => withCloudControl((service) => service.createCloudWorkspace(input)),
@@ -237,6 +263,10 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	ConnectCloudProject,
 	PrepareCloudProject,
 	CloudWorkspaces,
+	CloudWorkspace,
+	CloudWorkspaceAgentStarted,
+	CloudWorkspaceConnected,
+	CloudWorkspaceChatCreated,
 	CreateCloudWorkspace,
 	PauseCloudWorkspace,
 	ResumeCloudWorkspace,

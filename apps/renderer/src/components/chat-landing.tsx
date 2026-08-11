@@ -20,7 +20,7 @@ import {
 	type WorktreeCreateSource,
 	type WorktreeId,
 } from "@zuse/contracts";
-import { Effect } from "effect";
+import { Effect, Option, Result, Stream } from "effect";
 import { X } from "lucide-react";
 import {
 	lazy,
@@ -129,12 +129,12 @@ const migrateModelOptions = (fromId: string, toId: string): void => {
 	const moves: Array<[string, string]> = [];
 	for (let i = 0; i < window.sessionStorage.length; i++) {
 		const key = window.sessionStorage.key(i);
-		if (key !== null && key.startsWith(prefix)) {
+		if (key?.startsWith(prefix)) {
 			moves.push([
 				key,
 				`zuse.modelOptions.${toId}.${key.slice(prefix.length)}`,
 			]);
-		} else if (key !== null && key.startsWith(legacyPrefix)) {
+		} else if (key?.startsWith(legacyPrefix)) {
 			moves.push([
 				key,
 				`zuse.modelOptions.${toId}.${key.slice(legacyPrefix.length)}`,
@@ -711,41 +711,45 @@ export function ChatLanding() {
 						agent: draft.providerId,
 						model: draft.model,
 						credentialKinds: [draft.providerId],
+						firstMessage: input.text,
 						idempotencyKey: crypto.randomUUID(),
 					}),
 				);
 				const statusCopy = (value: CloudWorkspace): string => {
-					switch (value.state) {
-						case "queued":
+					switch (value.startupPhase) {
+						case "allocating":
 							return "Allocating cloud sandbox…";
-						case "provisioning":
-							return "Creating isolated workspace…";
-						case "setup":
-							return "Preparing repository and credentials…";
-						case "resuming":
-						case "recovering":
-							return "Restoring cloud workspace…";
-						default:
+						case "starting-runtime":
+							return "Starting cloud runtime…";
+						case "enrolling":
+							return "Installing workspace credentials…";
+						case "syncing-repository":
+							return "Updating task branch…";
+						case "connecting":
 							return "Connecting cloud workspace…";
+						case "starting-agent":
+							return "Starting agent…";
+						case "running":
+							return "Agent started";
+						case "failed":
+							return "Cloud workspace startup failed";
 					}
 				};
 				for (let attempt = 0; workspace.state !== "ready"; attempt++) {
 					if (workspace.state === "failed") {
 						throw new Error(cloudWorkspaceFailureMessage(workspace.statusCode));
 					}
-					if (attempt >= 180)
-						throw new Error("Cloud workspace setup timed out. Try again.");
+					if (attempt >= 1_500)
+						throw new Error(
+							`Cloud workspace remained in ${workspace.startupPhase} for five minutes.`,
+						);
 					setPendingCloudStatus(statusCopy(workspace));
-					await new Promise((resolve) => window.setTimeout(resolve, 2_000));
-					const listed = await Effect.runPromise(
-						control["cloud.workspaces.list"]({
-							projectId: cloudProject.projectId,
+					await new Promise((resolve) => window.setTimeout(resolve, 200));
+					workspace = await Effect.runPromise(
+						control["cloud.workspaces.get"]({
+							workspaceId: workspace.workspaceId,
 						}),
 					);
-					workspace =
-						listed.workspaces.find(
-							(candidate) => candidate.workspaceId === workspace.workspaceId,
-						) ?? workspace;
 				}
 				if (workspace.environmentId === undefined)
 					throw new Error(
@@ -753,37 +757,19 @@ export function ChatLanding() {
 					);
 				setPendingCloudStatus("Starting agent…");
 				const catalog = useEnvironmentCatalogStore.getState();
-				await catalog.syncAccountEnvironments();
-				let entry = useEnvironmentCatalogStore
-					.getState()
-					.entries.find(
-						(candidate) => candidate.environmentId === workspace.environmentId,
-					);
-				let retriedConnection = false;
-				for (let attempt = 0; entry?.status !== "connected"; attempt++) {
-					if (attempt >= 30) {
-						throw new Error(
-							entry?.error ??
-								"The cloud workspace is ready, but its connection could not be established.",
-						);
-					}
-					if (entry?.status === "error" && !retriedConnection) {
-						retriedConnection = true;
-						await catalog.retryEnvironment(workspace.environmentId);
-					} else {
-						await new Promise((resolve) => window.setTimeout(resolve, 1_000));
-					}
-					entry = useEnvironmentCatalogStore
-						.getState()
-						.entries.find(
-							(candidate) =>
-								candidate.environmentId === workspace.environmentId,
-						);
-				}
+				setPendingCloudStatus("Connecting secure runtime…");
+				await catalog.ensureEnvironmentConnected(workspace.environmentId);
+				await Effect.runPromise(
+					control["cloud.workspaces.connected"]({
+						workspaceId: workspace.workspaceId,
+					}),
+				);
 				const client = await getRpcClient(workspace.environmentId);
 				const remoteFolders = await Effect.runPromise(
 					client["workspace.list"]({}),
-				);
+				).catch((cause) => {
+					throw new Error(`Initial RPC failed: ${formatError(cause)}`);
+				});
 				const folder =
 					remoteFolders.find(
 						(candidate) => candidate.path === "/home/zuse/workspace",
@@ -802,6 +788,64 @@ export function ChatLanding() {
 						useChatsStore.getState().error ??
 							"The cloud agent could not start.",
 					);
+				await Effect.runPromise(
+					control["cloud.workspaces.chatCreated"]({
+						workspaceId: workspace.workspaceId,
+					}),
+				);
+				const slowAgentTimer = window.setTimeout(
+					() =>
+						setPendingCloudStatus(
+							"Agent startup is taking longer than expected…",
+						),
+					5_000,
+				);
+				const startedSession = await Effect.runPromise(
+					client["session.streamChanges"]({ projectId: folder.id }).pipe(
+						Stream.filterMap((change) => {
+							const session =
+								change._tag === "snapshot"
+									? change.sessions.find(
+											(candidate) => candidate.id === created.initialSessionId,
+										)
+									: change._tag === "change" &&
+											change.session.id === created.initialSessionId
+										? change.session
+										: undefined;
+							return session !== undefined && session.status !== "booting"
+								? Result.succeed(session)
+								: Result.fail(undefined);
+						}),
+						Stream.runHead,
+						Effect.timeout("2 minutes"),
+					),
+				)
+					.catch((cause) => {
+						if (
+							typeof cause === "object" &&
+							cause !== null &&
+							"_tag" in cause &&
+							cause._tag === "TimeoutException"
+						)
+							throw new Error(
+								"The agent process did not finish starting within two minutes.",
+							);
+						throw cause;
+					})
+					.finally(() => window.clearTimeout(slowAgentTimer));
+				if (Option.isNone(startedSession))
+					throw new Error(
+						"The agent process did not finish starting within two minutes.",
+					);
+				if (startedSession.value.status === "error")
+					throw new Error(
+						"The cloud runtime connected, but the selected agent process failed to start.",
+					);
+				await Effect.runPromise(
+					control["cloud.workspaces.agentStarted"]({
+						workspaceId: workspace.workspaceId,
+					}),
+				);
 				const switched = await switchToEnvironment({
 					environmentId: workspace.environmentId,
 					folderId: folder.id,

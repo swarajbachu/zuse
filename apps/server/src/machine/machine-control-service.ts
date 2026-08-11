@@ -55,12 +55,22 @@ export interface MachineControlServiceShape {
 	readonly cloudWorkspaces: (
 		projectId?: string,
 	) => Effect.Effect<CloudWorkspaceList, MachineControlError>;
+	readonly cloudWorkspace: (
+		workspaceId: string,
+	) => Effect.Effect<CloudWorkspace, MachineControlError>;
 	readonly createCloudWorkspace: (
 		input: CloudWorkspaceCreateRequest,
 	) => Effect.Effect<CloudWorkspace, MachineControlError>;
 	readonly cloudWorkspaceAction: (
 		workspaceId: string,
-		action: "pause" | "resume" | "archive" | "delete",
+		action:
+			| "pause"
+			| "resume"
+			| "archive"
+			| "delete"
+			| "connected"
+			| "chat-created"
+			| "agent-started",
 	) => Effect.Effect<CloudWorkspace, MachineControlError>;
 	readonly cloudCredentials: () => Effect.Effect<
 		CloudCredentialList,
@@ -254,6 +264,8 @@ export const MachineControlServiceLive: Layer.Layer<
 						: `${RelayPaths.cloudWorkspaces}?projectId=${encodeURIComponent(projectId)}`,
 					CloudWorkspaceList,
 				),
+			cloudWorkspace: (workspaceId) =>
+				request(RelayPaths.cloudWorkspace(workspaceId), CloudWorkspace),
 			createCloudWorkspace: (input) =>
 				request(RelayPaths.cloudWorkspaces, CloudWorkspace, "POST", input),
 			cloudWorkspaceAction: (workspaceId, action) =>

@@ -181,6 +181,15 @@ describe("cloud workspace eager reconciliation", () => {
 			),
 		).toBeNull();
 		expect(
+			cloudWorkspaceReconcileDelay(
+				workspace({
+					statusCode: "runtime-starting",
+					nextActionAtMs: 32_000,
+				}),
+				2_000,
+			),
+		).toBeNull();
+		expect(
 			cloudWorkspaceReconcileDelay(workspace({ nextActionAtMs: 7_001 }), 2_000),
 		).toBeNull();
 	});

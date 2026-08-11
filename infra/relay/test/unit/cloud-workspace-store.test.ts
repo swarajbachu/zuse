@@ -193,6 +193,56 @@ describe("cloud workspace store", () => {
 		await runtime.dispose();
 	});
 
+	test("starts fresh telemetry when activity resumes a paused workspace", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(store.connectProject(project));
+		await runtime.runPromise(store.createBuild(build));
+		await runtime.runPromise(
+			store.createWorkspace({
+				workspaceId: "workspace-paused",
+				accountId: "account-1",
+				projectId: project.projectId,
+				buildId: build.buildId,
+				provider: build.provider,
+				environmentId: "environment-paused",
+				branch: "task/paused",
+				baseRef: "origin/main",
+				state: "paused",
+				desiredState: "paused",
+				statusCode: "paused",
+				credentialEpoch: 0,
+				idempotencyKey: "workspace-paused-key",
+				requestConfig: {
+					startupTimings: { requestedAt: 100, agentStartedAt: 200 },
+				},
+				nextActionAtMs: 10_000,
+				revision: 1,
+				createdAtMs: 100,
+				updatedAtMs: 200,
+				lastActivityAtMs: 200,
+			}),
+		);
+
+		const resumed = await runtime.runPromise(
+			store.recordActivityByEnvironment(
+				"environment-paused",
+				"account-1",
+				500,
+				3_600_500,
+			),
+		);
+		expect(resumed).toMatchObject({
+			desiredState: "ready",
+			statusCode: "resume-queued",
+			nextActionAtMs: 500,
+			requestConfig: {
+				startupTimings: { requestedAt: 500, resumeRequestedAt: 500 },
+			},
+		});
+		await runtime.dispose();
+	});
+
 	test("rotates and disconnects account credentials without retaining plaintext", async () => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
 		const store = await runtime.runPromise(CloudWorkspaceStore);

@@ -7,11 +7,13 @@ Object.defineProperty(globalThis, "location", {
 	configurable: true,
 });
 
-const { resolveRendererRpcTransportForTest } = await import(
-	"../../src/lib/rpc-client.ts"
-);
+const { RENDERER_WEBSOCKET_OPEN_TIMEOUT, resolveRendererRpcTransportForTest } =
+	await import("../../src/lib/rpc-client.ts");
 
 describe("renderer RPC transport selection", () => {
+	it("bounds the WebSocket opening phase", () => {
+		expect(RENDERER_WEBSOCKET_OPEN_TIMEOUT).toBe("3 seconds");
+	});
 	it("uses WebSocket mode when no Electron bridge is present", () => {
 		Object.defineProperty(globalThis, "window", {
 			value: {},

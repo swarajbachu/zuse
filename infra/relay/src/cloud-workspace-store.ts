@@ -482,6 +482,16 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							workspace.state === "paused"
 								? "resume-queued"
 								: workspace.statusCode,
+						requestConfig:
+							workspace.state === "paused"
+								? {
+										...workspace.requestConfig,
+										startupTimings: {
+											requestedAt: nowMs,
+											resumeRequestedAt: nowMs,
+										},
+									}
+								: workspace.requestConfig,
 						nextActionAtMs: workspace.state === "paused" ? nowMs : nextIdleAtMs,
 						lastActivityAtMs: nowMs,
 						revision: workspace.revision + 1,
@@ -854,7 +864,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				nextIdleAtMs,
 			) =>
 				orDie(
-					sql`UPDATE relay_cloud_workspaces SET desired_state=CASE WHEN state='paused' THEN 'ready' ELSE desired_state END, status_code=CASE WHEN state='paused' THEN 'resume-queued' ELSE status_code END, next_action_at=CASE WHEN state='paused' THEN ${nowMs} WHEN state='ready' THEN ${nextIdleAtMs} ELSE next_action_at END, last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs} WHERE environment_id=${environmentId} AND account_id=${accountId} AND state <> 'deleted' RETURNING *`.pipe(
+					sql`UPDATE relay_cloud_workspaces SET desired_state=CASE WHEN state='paused' THEN 'ready' ELSE desired_state END, status_code=CASE WHEN state='paused' THEN 'resume-queued' ELSE status_code END, request_config=CASE WHEN state='paused' THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}, 'resumeRequestedAt', ${nowMs}), true) ELSE request_config END, next_action_at=CASE WHEN state='paused' THEN ${nowMs} WHEN state='ready' THEN ${nextIdleAtMs} ELSE next_action_at END, last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs} WHERE environment_id=${environmentId} AND account_id=${accountId} AND state <> 'deleted' RETURNING *`.pipe(
 						Effect.map((rows) =>
 							rows[0] ? workspaceFromRow(rows[0] as Row) : null,
 						),
