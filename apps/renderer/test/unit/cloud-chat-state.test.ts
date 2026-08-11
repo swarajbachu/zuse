@@ -11,6 +11,7 @@ import { describe, expect, test } from "vitest";
 import {
 	mergeCloudChatMessages,
 	mergeCloudChatSummaries,
+	shouldAttachCloudChatOnOpen,
 	stageCloudChat,
 } from "../../src/store/cloud-chats.ts";
 import { useQueueHydrationStore } from "../../src/store/queue-hydration.ts";
@@ -105,5 +106,23 @@ describe("cloud chat state reconciliation", () => {
 				cloud.initialSessionId
 			],
 		).toBe(true);
+	});
+
+	test("opening attaches only an already-running cloud chat", () => {
+		expect(
+			shouldAttachCloudChatOnOpen(
+				summary({ revision: 21, startupPhase: "running" }),
+			),
+		).toBe(true);
+		expect(
+			shouldAttachCloudChatOnOpen(
+				CloudChatSummary.make({
+					...summary({ revision: 22, startupPhase: "running" }),
+					state: "paused",
+					desiredState: "paused",
+					runtimeState: "offline",
+				}),
+			),
+		).toBe(false);
 	});
 });

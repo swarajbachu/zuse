@@ -136,6 +136,10 @@ export const mergeCloudChatMessages = (
 	);
 };
 
+export const shouldAttachCloudChatOnOpen = (
+	summary: CloudChatSummary,
+): boolean => summary.state === "ready" && summary.runtimeState === "online";
+
 export const repositoryIdentityForOrigin = (
 	origin: GitOriginInfo | null | undefined,
 ): string | null =>
@@ -417,8 +421,11 @@ export const openCloudChat = (
 	if (existing !== undefined) return existing;
 	const operation = (async () => {
 		stageCloudChat(summary, projectId);
-		markQueueHydrated(SessionId.make(summary.initialSessionId));
 		useChatsStore.getState().select(summary.chatId);
+		// Reading a paused chat stays offline, but an already-running workspace
+		// should attach immediately so its live answer does not require a reload.
+		if (shouldAttachCloudChatOnOpen(summary))
+			void ensureCloudWorkspaceAttached(summary).catch(() => {});
 		const cached = readCachedHistory(summary.workspaceId);
 		if (cached !== null) applyCloudHistory(summary, projectId, cached);
 		useCloudChatsStore.setState((state) => ({

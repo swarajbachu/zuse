@@ -23,6 +23,7 @@ import {
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { selectChatSession, upsertForkedChat } from "./chat-commands.ts";
+import { cloudSummaryForChat } from "./cloud-chat-registry.ts";
 import {
 	markQueueHydrated,
 	notifySessionAcknowledged,
@@ -299,7 +300,14 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		// This tab was minted locally and therefore has no recovered queue to wait for.
 		markQueueHydrated(sessionId);
 		try {
-			const client = await getRpcClient();
+			const cloudSummary = cloudSummaryForChat(chatId);
+			if (cloudSummary !== null) {
+				const { ensureCloudWorkspaceAttached } = await import(
+					"./cloud-chats.ts"
+				);
+				await ensureCloudWorkspaceAttached(cloudSummary);
+			}
+			const client = await getRpcClient(cloudSummary?.workspaceId);
 			const session = await trackRendererRpc("session.create", () =>
 				Effect.runPromise(
 					client["session.create"]({

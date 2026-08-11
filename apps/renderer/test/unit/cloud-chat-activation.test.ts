@@ -15,6 +15,7 @@ import { registerCloudChat } from "../../src/store/cloud-chat-registry.ts";
 import { messagesFromHistory } from "../../src/store/cloud-chats.ts";
 import cloudChatsSource from "../../src/store/cloud-chats.ts?raw";
 import messagesSource from "../../src/store/messages.ts?raw";
+import sessionsSource from "../../src/store/sessions.ts?raw";
 import { useTerminalsStore } from "../../src/store/terminals.ts";
 
 const initialTerminalsState = useTerminalsStore.getInitialState();
@@ -52,6 +53,13 @@ describe("cloud chat activation", () => {
 		expect(cloudChatsSource).toContain(
 			"current = refreshSummaryFromWorkspace(current, resumed)",
 		);
+	});
+
+	test("new tabs in a cloud chat create their session in the cloud workspace", () => {
+		expect(sessionsSource).toContain(
+			"ensureCloudWorkspaceAttached(cloudSummary)",
+		);
+		expect(sessionsSource).toContain("cloudSummary?.workspaceId");
 	});
 
 	test("central history releases the ordinary composer without a runtime", () => {
