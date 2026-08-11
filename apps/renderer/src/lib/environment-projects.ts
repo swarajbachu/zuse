@@ -6,7 +6,7 @@ import type {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
-import { useWorkspaceStore } from "../store/workspace.ts";
+import { registerFolder, useWorkspaceStore } from "../store/workspace.ts";
 import { getRpcClient, getVerifiedRpcClient } from "./rpc-client.ts";
 
 const messageOf = (cause: unknown): string => {
@@ -42,12 +42,7 @@ const registerResult = async (
 ): Promise<void> => {
 	const catalog = useEnvironmentCatalogStore.getState();
 	if (catalog.activeEnvironmentId === environmentId) {
-		useWorkspaceStore.setState((state) => ({
-			folders: state.folders.some((item) => item.id === folder.id)
-				? state.folders
-				: [...state.folders, folder],
-			selectedFolderId: folder.id,
-		}));
+		useWorkspaceStore.setState((state) => registerFolder(state, folder));
 		await run(environmentId, (client) =>
 			client["workspace.setSelected"]({ folderId: folder.id }),
 		).catch(() => undefined);
