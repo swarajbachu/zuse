@@ -27,22 +27,24 @@ describe("cloud chat activation", () => {
 			"openCloudChat(summary, projectId)",
 		);
 		expect(cloudChatsSource).toContain(
-			"if (!activate && !alreadyLive) return;",
+			"export const ensureCloudWorkspaceAttached",
 		);
 		expect(terminalPaneSource).not.toContain(
 			"openCloudChat(cloudSummary, cloudProjectId, { activate: true })",
 		);
 		expect(terminalPaneSource).toContain("onKeyDown={(event) =>");
-		expect(terminalPaneSource).toContain("connectCloudTerminal(true)");
+		expect(terminalPaneSource).toContain("connectCloudTerminal()");
 		expect(chatsSource).toContain(
 			"if (cloudSummaryForChat(chatId) !== null) return;",
 		);
 	});
 
 	test("an explicit message activates and attaches the workspace", () => {
-		expect(chatLandingSource).toContain("{ activate: true }");
+		expect(chatLandingSource).toContain(
+			"ensureCloudWorkspaceAttached(summary)",
+		);
 		expect(messagesSource).toContain(
-			"openCloudChat(cloudSummary, projectId, { activate: true })",
+			"ensureCloudWorkspaceAttached(cloudSummary)",
 		);
 		expect(cloudChatsSource).toContain(
 			'summary.state === "paused" || summary.state === "failed"',
@@ -59,9 +61,7 @@ describe("cloud chat activation", () => {
 		expect(cloudChatsSource).toContain(
 			'summary.state === "failed" ? "error" : "idle"',
 		);
-		expect(cloudChatsSource).toContain(
-			"const liveSeed = seedFor(current, folder.id, history.firstMessage)",
-		);
+		expect(cloudChatsSource).toContain("mergeCloudChatMessages(");
 	});
 
 	test("projects the durable first message before runtime events exist", () => {
@@ -125,10 +125,13 @@ describe("cloud chat activation", () => {
 			agent: "codex",
 			model: "gpt-5.6",
 			state: "paused",
+			desiredState: "paused",
 			runtimeState: "offline",
 			statusCode: "paused",
 			startupPhase: "running",
+			revision: 1,
 			unread: false,
+			lastMessageAt: 1,
 			createdAt: 1,
 			updatedAt: 1,
 		});

@@ -56,6 +56,15 @@ export const LOCAL_ENVIRONMENT_KEY = "local";
 const environmentConnections = new Map<string, RendererConnectionOptions>();
 let activeEnvironmentId = LOCAL_ENVIRONMENT_KEY;
 let localEnvironmentId = LOCAL_ENVIRONMENT_KEY;
+let defaultEnvironmentResolver: (() => string | undefined) | null = null;
+const resolveDefaultEnvironment = (): string =>
+	defaultEnvironmentResolver?.() ?? activeEnvironmentId;
+
+export const setDefaultRpcEnvironmentResolver = (
+	resolver: (() => string | undefined) | null,
+): void => {
+	defaultEnvironmentResolver = resolver;
+};
 
 const rendererConnectionKey = (): string => {
 	if (typeof location === "undefined") return "environment:local";
@@ -210,7 +219,9 @@ function isRpcClientError(cause: unknown): boolean {
 export const getRpcClient = (environmentId?: unknown): Promise<MemoizeClient> =>
 	Effect.runPromise(
 		getRendererEntry(
-			typeof environmentId === "string" ? environmentId : activeEnvironmentId,
+			typeof environmentId === "string"
+				? environmentId
+				: resolveDefaultEnvironment(),
 		).getClient(),
 	);
 
@@ -220,7 +231,7 @@ export const getRpcClient = (environmentId?: unknown): Promise<MemoizeClient> =>
  * multi-minute browser authorization flows.
  */
 export const getVerifiedRpcClient = async (
-	environmentId = activeEnvironmentId,
+	environmentId = resolveDefaultEnvironment(),
 ): Promise<MemoizeClient> => {
 	let client = await getRpcClient(environmentId);
 	try {
@@ -344,7 +355,7 @@ export const removeRendererEnvironment = async (
 
 export const reportRendererRpcFailure = (
 	cause: unknown,
-	environmentId = activeEnvironmentId,
+	environmentId = resolveDefaultEnvironment(),
 ): void => {
 	getRendererEntry(environmentId).reportFailure(cause);
 };
@@ -353,7 +364,7 @@ export const reportRendererRpcFailure = (
 export const reportRendererRpcStreamFailure = (
 	generation: number,
 	cause: unknown,
-	environmentId = activeEnvironmentId,
+	environmentId = resolveDefaultEnvironment(),
 ): boolean => getRendererEntry(environmentId).reportFailure(cause, generation);
 
 /**
@@ -363,18 +374,20 @@ export const reportRendererRpcStreamFailure = (
  */
 export const subscribeRendererRpcConnection = (
 	listener: (snapshot: ConnectionSnapshot) => void,
-	environmentId = activeEnvironmentId,
+	environmentId = resolveDefaultEnvironment(),
 ): (() => void) => getRendererEntry(environmentId).subscribe(listener);
 
 export const retryRendererRpcConnection = (environmentId?: unknown): void =>
 	getRendererEntry(
-		typeof environmentId === "string" ? environmentId : activeEnvironmentId,
+		typeof environmentId === "string"
+			? environmentId
+			: resolveDefaultEnvironment(),
 	).retryNow();
 
 export const dispatchRetryableRpcCommand = <A>(
 	commandId: string,
 	operation: () => Promise<A>,
-	environmentId = activeEnvironmentId,
+	environmentId = resolveDefaultEnvironment(),
 ): Promise<A> =>
 	getRendererEntry(environmentId).dispatchCommand(commandId, () => operation());
 

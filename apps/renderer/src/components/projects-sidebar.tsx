@@ -1225,11 +1225,13 @@ function ProjectGroup({
 			row,
 			updatedAt: row.ref.chat.updatedAt.getTime(),
 		}));
-		const cloud = (cloudChats ?? []).map((summary) => ({
-			kind: "cloud" as const,
-			summary,
-			updatedAt: summary.updatedAt,
-		}));
+		const cloud = (cloudChats ?? [])
+			.filter((summary) => summary.state !== "archived")
+			.map((summary) => ({
+				kind: "cloud" as const,
+				summary,
+				updatedAt: summary.lastMessageAt ?? summary.createdAt,
+			}));
 		return [...local, ...remote, ...cloud].sort(
 			(left, right) => right.updatedAt - left.updatedAt,
 		);
@@ -1412,6 +1414,10 @@ function ProjectGroup({
 }
 
 const cloudStateLabel = (summary: CloudChatSummary): string => {
+	if (summary.desiredState === "archived" && summary.state === "failed")
+		return "Archive failed";
+	if (summary.desiredState === "archived" && summary.state !== "archived")
+		return "Archiving…";
 	if (summary.state === "paused") return "Paused";
 	if (summary.state === "failed") return "Needs attention";
 	if (summary.state === "ready" && summary.runtimeState === "online")
@@ -1434,7 +1440,10 @@ function CloudChatRow({
 	const archive = useCloudChatsStore((state) => state.archive);
 	const [archiving, setArchiving] = useState(false);
 	const label = cloudStateLabel(summary);
+	const archivePending =
+		summary.desiredState === "archived" && summary.state !== "failed";
 	const cloudWorkspaceLoading =
+		summary.desiredState === "archived" ||
 		summary.state === "queued" ||
 		summary.state === "provisioning" ||
 		summary.state === "setup" ||
@@ -1453,7 +1462,7 @@ function CloudChatRow({
 		);
 	};
 	const archiveChat = () => {
-		if (archiving) return;
+		if (archiving || archivePending) return;
 		setArchiving(true);
 		void archive(summary)
 			.catch((cause) =>
@@ -1495,14 +1504,18 @@ function CloudChatRow({
 					</span>
 					<button
 						type="button"
-						disabled={archiving}
+						disabled={archiving || archivePending}
 						onClick={(event) => {
 							event.stopPropagation();
 							archiveChat();
 						}}
 						className="hidden rounded-md p-0.5 text-muted-foreground hover:text-sidebar-accent-foreground group-hover:flex group-focus-within:flex"
-						aria-label={`Archive ${summary.title}`}
-						title="Archive"
+						aria-label={`${summary.state === "failed" && summary.desiredState === "archived" ? "Retry archiving" : "Archive"} ${summary.title}`}
+						title={
+							summary.state === "failed" && summary.desiredState === "archived"
+								? "Retry archive"
+								: "Archive"
+						}
 					>
 						{archiving ? (
 							<Spinner className="size-3.5" />
@@ -1512,16 +1525,15 @@ function CloudChatRow({
 					</button>
 					{cloudWorkspaceLoading || historyLoading ? (
 						<Spinner className="size-3 shrink-0 motion-reduce:animate-none" />
-					) : (
-						<HugeiconsIcon
-							icon={CloudIcon}
-							aria-hidden
-							className={cn(
-								"size-3 shrink-0",
-								summary.state === "paused" && "opacity-55",
-							)}
-						/>
-					)}
+					) : null}
+					<HugeiconsIcon
+						icon={CloudIcon}
+						aria-hidden
+						className={cn(
+							"size-3 shrink-0",
+							summary.state === "paused" && "opacity-55",
+						)}
+					/>
 				</div>
 			</div>
 		</li>

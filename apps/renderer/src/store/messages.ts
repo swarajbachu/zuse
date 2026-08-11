@@ -177,7 +177,7 @@ type MessagesState = {
 	readonly goalBySession: Record<string, ThreadGoal | null>;
 	readonly hydrate: (
 		sessionId: SessionId,
-		options?: { readonly live?: boolean },
+		options?: { readonly live?: boolean; readonly environmentId?: string },
 	) => Promise<void>;
 	/**
 	 * Send a user turn. Accepts either a raw string (legacy / simple-text
@@ -289,6 +289,7 @@ const timelineLagObservations = new Map<
 const timelineProbeFailures = new Map<SessionId, number>();
 const goalFibers = new Map<SessionId, Fiber.Fiber<unknown, unknown>>();
 let liveConnectionGeneration: number | null = null;
+const environmentBySession = new Map<SessionId, string>();
 let unsubscribeLiveConnection: (() => void) | null = null;
 // Message ids we minted optimistically in `send()`. When the server echoes the
 // same row back over the live stream (same id, because the renderer passes the
@@ -310,7 +311,9 @@ const ensureLiveConnectionSubscription = (): void => {
 			liveConnectionGeneration = snapshot.generation;
 			for (const sessionId of retainedTimelineSessions) {
 				if (!timelineFibers.has(sessionId) && !timelineStarts.has(sessionId)) {
-					void useMessagesStore.getState().hydrate(sessionId);
+					void useMessagesStore.getState().hydrate(sessionId, {
+						environmentId: environmentBySession.get(sessionId),
+					});
 				}
 			}
 			return;
@@ -325,7 +328,9 @@ const ensureLiveConnectionSubscription = (): void => {
 			void Effect.runPromise(Fiber.interrupt(fiber));
 		}
 		for (const sessionId of sessions)
-			void useMessagesStore.getState().hydrate(sessionId);
+			void useMessagesStore.getState().hydrate(sessionId, {
+				environmentId: environmentBySession.get(sessionId),
+			});
 	});
 };
 
@@ -655,6 +660,8 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 			return;
 		}
 		retainedTimelineSessions.add(sessionId);
+		if (options?.environmentId !== undefined)
+			environmentBySession.set(sessionId, options.environmentId);
 		const eviction = timelineEvictionTimers.get(sessionId);
 		if (eviction !== undefined) clearTimeout(eviction);
 		timelineEvictionTimers.delete(sessionId);
@@ -734,7 +741,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 					markQueueHydrated(sessionId);
 				}
 			}
-			const client = await getMessagesRpcClient();
+			const client = await getMessagesRpcClient(options?.environmentId);
 			if (
 				!retainedTimelineSessions.has(sessionId) ||
 				timelineFibers.has(sessionId)
@@ -1011,6 +1018,12 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 						asGoal: opts?.asGoal,
 					}),
 				);
+				// The control plane has durably accepted the turn. Do not keep the
+				// provider spinner optimistic while a paused sandbox wakes; the live
+				// timeline will move the session to running when execution actually starts.
+				useSessionRuntimeStore
+					.getState()
+					.settleOptimisticTurn(sessionId, "idle");
 				// The message is durable once the control plane accepts it. Resume and
 				// attach in the background so viewing history alone never wakes compute,
 				// while an explicit send does.
@@ -1020,7 +1033,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 				);
 				if (projectId !== null)
 					void cloudChats
-						.openCloudChat(cloudSummary, projectId, { activate: true })
+						.ensureCloudWorkspaceAttached(cloudSummary)
 						.catch((cause) =>
 							set((state) => ({
 								errorBySession: {

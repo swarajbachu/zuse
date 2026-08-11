@@ -191,6 +191,7 @@ export class CloudWorkspace extends Schema.Class<CloudWorkspace>(
 	startupPhase: CloudWorkspaceStartupPhase,
 	startupTimings: CloudWorkspaceStartupTimings,
 	runtimeState: CloudWorkspaceRuntimeState,
+	revision: Schema.Number,
 	chatId: ChatId,
 	initialSessionId: AgentSessionId,
 	createdAt: Schema.Number,
@@ -274,10 +275,17 @@ export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
 	agent: ProviderId,
 	model: Schema.String,
 	state: CloudWorkspaceState,
+	desiredState: CloudWorkspaceDesiredState,
 	runtimeState: CloudWorkspaceRuntimeState,
 	statusCode: Schema.String,
 	startupPhase: CloudWorkspaceStartupPhase,
+	revision: Schema.Number,
 	unread: Schema.Boolean,
+	lastMessageAt: Schema.NullOr(Schema.Number),
+	archivedAt: Schema.optional(Schema.Number),
+	archivePhase: Schema.optional(Schema.String),
+	archiveErrorCode: Schema.optional(Schema.String),
+	archiveDiagnostic: Schema.optional(Schema.String),
 	createdAt: Schema.Number,
 	updatedAt: Schema.Number,
 }) {}
@@ -407,8 +415,19 @@ export const CloudChatsHistoryRpc = Rpc.make("cloud.chats.history", {
 	error: CloudWorkspaceOpError,
 });
 export const CloudChatsListRpc = Rpc.make("cloud.chats.list", {
-	payload: Schema.Struct({ projectId: Schema.optional(Schema.String) }),
+	payload: Schema.Struct({
+		projectId: Schema.optional(Schema.String),
+		scope: Schema.optional(Schema.Literals(["active", "archived", "all"])),
+	}),
 	success: CloudChatList,
+	error: CloudWorkspaceOpError,
+});
+export const CloudChatsRenameRpc = Rpc.make("cloud.chats.rename", {
+	payload: Schema.Struct({
+		workspaceId: Schema.String,
+		title: Schema.String,
+	}),
+	success: CloudChatSummary,
 	error: CloudWorkspaceOpError,
 });
 export const CloudChatsSendRpc = Rpc.make("cloud.chats.send", {
@@ -436,6 +455,14 @@ export const CloudWorkspacesArchiveRpc = Rpc.make("cloud.workspaces.archive", {
 	success: CloudWorkspace,
 	error: CloudWorkspaceOpError,
 });
+export const CloudWorkspacesUnarchiveRpc = Rpc.make(
+	"cloud.workspaces.unarchive",
+	{
+		payload: CloudWorkspaceActionRequest,
+		success: CloudWorkspace,
+		error: CloudWorkspaceOpError,
+	},
+);
 export const CloudWorkspacesDeleteRpc = Rpc.make("cloud.workspaces.delete", {
 	payload: CloudWorkspaceActionRequest,
 	success: CloudWorkspace,

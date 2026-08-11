@@ -4,6 +4,7 @@ import {
 	BillingPortal,
 	CloudChatHistory,
 	CloudChatList,
+	CloudChatSummary,
 	CloudCredentialConnection,
 	type CloudCredentialConnectRequest,
 	type CloudCredentialKind,
@@ -74,7 +75,12 @@ export interface MachineControlServiceShape {
 	) => Effect.Effect<CloudChatHistory, MachineControlError>;
 	readonly cloudChats: (
 		projectId?: string,
+		scope?: "active" | "archived" | "all",
 	) => Effect.Effect<CloudChatList, MachineControlError>;
+	readonly renameCloudChat: (
+		workspaceId: string,
+		title: string,
+	) => Effect.Effect<CloudChatSummary, MachineControlError>;
 	readonly sendCloudChatMessage: (input: {
 		readonly workspaceId: string;
 		readonly input: ComposerInput;
@@ -83,7 +89,7 @@ export interface MachineControlServiceShape {
 	}) => Effect.Effect<void, MachineControlError>;
 	readonly cloudWorkspaceAction: (
 		workspaceId: string,
-		action: "pause" | "resume" | "archive" | "delete",
+		action: "pause" | "resume" | "archive" | "unarchive" | "delete",
 	) => Effect.Effect<CloudWorkspace, MachineControlError>;
 	readonly cloudCredentials: () => Effect.Effect<
 		CloudCredentialList,
@@ -305,12 +311,20 @@ export const MachineControlServiceLive: Layer.Layer<
 					RelayPaths.cloudWorkspaceHistory(workspaceId),
 					CloudChatHistory,
 				),
-			cloudChats: (projectId) =>
+			cloudChats: (projectId, scope) =>
 				request(
-					projectId === undefined
-						? RelayPaths.cloudChats
-						: `${RelayPaths.cloudChats}?projectId=${encodeURIComponent(projectId)}`,
+					`${RelayPaths.cloudChats}?${new URLSearchParams({
+						...(projectId === undefined ? {} : { projectId }),
+						...(scope === undefined ? {} : { scope }),
+					}).toString()}`,
 					CloudChatList,
+				),
+			renameCloudChat: (workspaceId, title) =>
+				request(
+					RelayPaths.cloudWorkspaceChatRename(workspaceId),
+					CloudChatSummary,
+					"POST",
+					{ title },
 				),
 			sendCloudChatMessage: (input) =>
 				request(

@@ -1,7 +1,10 @@
+import type { FolderId, SessionId, WorktreeId } from "@zuse/contracts";
 import { useMemo } from "react";
 
-import type { FolderId, SessionId, WorktreeId } from "@zuse/contracts";
-
+import {
+	cloudExecutionTarget,
+	cloudSummaryForSession,
+} from "./cloud-chat-registry.ts";
 import { useSessionsStore } from "./sessions.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "./worktrees.ts";
@@ -21,37 +24,37 @@ import { EMPTY_WORKTREES, useWorktreesStore } from "./worktrees.ts";
  * `worktreePending` flag in the `ready` variant makes that race explicit.
  */
 export type ActiveContext =
-  /** Folders RPC hasn't resolved yet on cold start. */
-  | { readonly status: "loading" }
-  /** Folders loaded, but none selected (empty workspace or after remove). */
-  | { readonly status: "empty" }
-  | {
-      readonly status: "ready";
-      readonly folderId: FolderId;
-      readonly folderPath: string;
-      readonly sessionId: SessionId | null;
-      /**
-       * The worktree the session has bound. `null` when the session runs in
-       * the main checkout — or when no session is selected for this project.
-       */
-      readonly worktreeId: WorktreeId | null;
-      /**
-       * The path consumers should open files / PTYs / git ops in. Equals
-       * the worktree's path when one is bound and hydrated, otherwise the
-       * folder's path. **Never** silently falls back to the folder when a
-       * worktree is bound — see `worktreePending`.
-       */
-      readonly rootPath: string;
-      readonly rootKind: "folder" | "worktree";
-      /**
-       * `true` when the session names a worktreeId but `worktrees.byProject`
-       * doesn't have its row yet. Consumers that would mount a PTY or open
-       * a file in the resolved path should wait (render a placeholder)
-       * instead of using `rootPath` — `rootPath` is `folderPath` in this
-       * state, which is **not** where the user wants to operate.
-       */
-      readonly worktreePending: boolean;
-    };
+	/** Folders RPC hasn't resolved yet on cold start. */
+	| { readonly status: "loading" }
+	/** Folders loaded, but none selected (empty workspace or after remove). */
+	| { readonly status: "empty" }
+	| {
+			readonly status: "ready";
+			readonly folderId: FolderId;
+			readonly folderPath: string;
+			readonly sessionId: SessionId | null;
+			/**
+			 * The worktree the session has bound. `null` when the session runs in
+			 * the main checkout — or when no session is selected for this project.
+			 */
+			readonly worktreeId: WorktreeId | null;
+			/**
+			 * The path consumers should open files / PTYs / git ops in. Equals
+			 * the worktree's path when one is bound and hydrated, otherwise the
+			 * folder's path. **Never** silently falls back to the folder when a
+			 * worktree is bound — see `worktreePending`.
+			 */
+			readonly rootPath: string;
+			readonly rootKind: "folder" | "worktree";
+			/**
+			 * `true` when the session names a worktreeId but `worktrees.byProject`
+			 * doesn't have its row yet. Consumers that would mount a PTY or open
+			 * a file in the resolved path should wait (render a placeholder)
+			 * instead of using `rootPath` — `rootPath` is `folderPath` in this
+			 * state, which is **not** where the user wants to operate.
+			 */
+			readonly worktreePending: boolean;
+	  };
 
 /**
  * Returns the canonical active context. Recomputed on the minimal set of
@@ -59,80 +62,98 @@ export type ActiveContext =
  * dependency arrays without re-firing on unrelated store updates.
  */
 export const useActiveContext = (): ActiveContext => {
-  const foldersLoaded = useWorkspaceStore(
-    (s) => !s.loading || s.folders.length > 0,
-  );
-  const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
-  const folderPath = useWorkspaceStore((s) => {
-    if (s.selectedFolderId === null) return null;
-    return s.folders.find((f) => f.id === s.selectedFolderId)?.path ?? null;
-  });
-  const sessionId = useSessionsStore((s) =>
-    selectedFolderId !== null
-      ? (s.selectedSessionByProject[selectedFolderId] ?? null)
-      : null,
-  );
-  const sessionWorktreeId = useSessionsStore((s) => {
-    if (selectedFolderId === null || sessionId === null) return null;
-    const list = s.sessionsByProject[selectedFolderId] ?? null;
-    if (list === null) return null;
-    return list.find((sess) => sess.id === sessionId)?.worktreeId ?? null;
-  });
-  const worktreePath = useWorktreesStore((s) => {
-    if (selectedFolderId === null || sessionWorktreeId === null) return null;
-    const list = s.byProject[selectedFolderId] ?? EMPTY_WORKTREES;
-    return list.find((w) => w.id === sessionWorktreeId)?.path ?? null;
-  });
+	const foldersLoaded = useWorkspaceStore(
+		(s) => !s.loading || s.folders.length > 0,
+	);
+	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
+	const folderPath = useWorkspaceStore((s) => {
+		if (s.selectedFolderId === null) return null;
+		return s.folders.find((f) => f.id === s.selectedFolderId)?.path ?? null;
+	});
+	const sessionId = useSessionsStore((s) =>
+		selectedFolderId !== null
+			? (s.selectedSessionByProject[selectedFolderId] ?? null)
+			: null,
+	);
+	const sessionWorktreeId = useSessionsStore((s) => {
+		if (selectedFolderId === null || sessionId === null) return null;
+		const list = s.sessionsByProject[selectedFolderId] ?? null;
+		if (list === null) return null;
+		return list.find((sess) => sess.id === sessionId)?.worktreeId ?? null;
+	});
+	const worktreePath = useWorktreesStore((s) => {
+		if (selectedFolderId === null || sessionWorktreeId === null) return null;
+		const list = s.byProject[selectedFolderId] ?? EMPTY_WORKTREES;
+		return list.find((w) => w.id === sessionWorktreeId)?.path ?? null;
+	});
 
-  return useMemo<ActiveContext>(() => {
-    if (!foldersLoaded) return { status: "loading" };
-    if (selectedFolderId === null || folderPath === null) {
-      return { status: "empty" };
-    }
-    if (sessionWorktreeId !== null && worktreePath !== null) {
-      return {
-        status: "ready",
-        folderId: selectedFolderId,
-        folderPath,
-        sessionId,
-        worktreeId: sessionWorktreeId,
-        rootPath: worktreePath,
-        rootKind: "worktree",
-        worktreePending: false,
-      };
-    }
-    if (sessionWorktreeId !== null && worktreePath === null) {
-      // Session is bound to a worktree we haven't hydrated yet. Surface this
-      // explicitly — do NOT silently fall back to folderPath.
-      return {
-        status: "ready",
-        folderId: selectedFolderId,
-        folderPath,
-        sessionId,
-        worktreeId: sessionWorktreeId,
-        rootPath: folderPath,
-        rootKind: "folder",
-        worktreePending: true,
-      };
-    }
-    return {
-      status: "ready",
-      folderId: selectedFolderId,
-      folderPath,
-      sessionId,
-      worktreeId: null,
-      rootPath: folderPath,
-      rootKind: "folder",
-      worktreePending: false,
-    };
-  }, [
-    foldersLoaded,
-    selectedFolderId,
-    folderPath,
-    sessionId,
-    sessionWorktreeId,
-    worktreePath,
-  ]);
+	return useMemo<ActiveContext>(() => {
+		if (!foldersLoaded) return { status: "loading" };
+		if (selectedFolderId === null || folderPath === null) {
+			return { status: "empty" };
+		}
+		const cloudSummary =
+			sessionId === null ? null : cloudSummaryForSession(sessionId);
+		const cloudTarget =
+			cloudSummary === null
+				? null
+				: cloudExecutionTarget(cloudSummary.workspaceId);
+		if (cloudTarget !== null) {
+			return {
+				status: "ready",
+				folderId: cloudTarget.folderId,
+				folderPath: cloudTarget.rootPath,
+				sessionId,
+				worktreeId: null,
+				rootPath: cloudTarget.rootPath,
+				rootKind: "folder",
+				worktreePending: false,
+			};
+		}
+		if (sessionWorktreeId !== null && worktreePath !== null) {
+			return {
+				status: "ready",
+				folderId: selectedFolderId,
+				folderPath,
+				sessionId,
+				worktreeId: sessionWorktreeId,
+				rootPath: worktreePath,
+				rootKind: "worktree",
+				worktreePending: false,
+			};
+		}
+		if (sessionWorktreeId !== null && worktreePath === null) {
+			// Session is bound to a worktree we haven't hydrated yet. Surface this
+			// explicitly — do NOT silently fall back to folderPath.
+			return {
+				status: "ready",
+				folderId: selectedFolderId,
+				folderPath,
+				sessionId,
+				worktreeId: sessionWorktreeId,
+				rootPath: folderPath,
+				rootKind: "folder",
+				worktreePending: true,
+			};
+		}
+		return {
+			status: "ready",
+			folderId: selectedFolderId,
+			folderPath,
+			sessionId,
+			worktreeId: null,
+			rootPath: folderPath,
+			rootKind: "folder",
+			worktreePending: false,
+		};
+	}, [
+		foldersLoaded,
+		selectedFolderId,
+		folderPath,
+		sessionId,
+		sessionWorktreeId,
+		worktreePath,
+	]);
 };
 
 /**
@@ -144,17 +165,17 @@ export const useActiveContext = (): ActiveContext => {
  * `useActiveContext()` — it can never disagree with itself across panels.
  */
 export const useActiveWorktreeId = (
-  folderId: FolderId | null,
+	folderId: FolderId | null,
 ): WorktreeId | null => {
-  const sessionId = useSessionsStore((s) =>
-    folderId !== null ? (s.selectedSessionByProject[folderId] ?? null) : null,
-  );
-  const sessions = useSessionsStore((s) =>
-    folderId !== null ? (s.sessionsByProject[folderId] ?? null) : null,
-  );
-  if (sessionId === null || sessions === null) return null;
-  const found = sessions.find((sess) => sess.id === sessionId);
-  return found?.worktreeId ?? null;
+	const sessionId = useSessionsStore((s) =>
+		folderId !== null ? (s.selectedSessionByProject[folderId] ?? null) : null,
+	);
+	const sessions = useSessionsStore((s) =>
+		folderId !== null ? (s.sessionsByProject[folderId] ?? null) : null,
+	);
+	if (sessionId === null || sessions === null) return null;
+	const found = sessions.find((sess) => sess.id === sessionId);
+	return found?.worktreeId ?? null;
 };
 
 /**
@@ -165,20 +186,20 @@ export const useActiveWorktreeId = (
  * race from a deliberate main-checkout session.
  */
 export const useActiveWorkspaceRoot = (
-  folderId: FolderId | null,
+	folderId: FolderId | null,
 ): string | null => {
-  const folder = useWorkspaceStore((s) =>
-    folderId === null
-      ? null
-      : (s.folders.find((f) => f.id === folderId) ?? null),
-  );
-  const worktreeId = useActiveWorktreeId(folderId);
-  const worktree = useWorktreesStore((s) => {
-    if (folderId === null || worktreeId === null) return null;
-    const list = s.byProject[folderId] ?? [];
-    return list.find((w) => w.id === worktreeId) ?? null;
-  });
-  if (folder === null) return null;
-  if (worktreeId === null || worktree === null) return folder.path;
-  return worktree.path;
+	const folder = useWorkspaceStore((s) =>
+		folderId === null
+			? null
+			: (s.folders.find((f) => f.id === folderId) ?? null),
+	);
+	const worktreeId = useActiveWorktreeId(folderId);
+	const worktree = useWorktreesStore((s) => {
+		if (folderId === null || worktreeId === null) return null;
+		const list = s.byProject[folderId] ?? [];
+		return list.find((w) => w.id === worktreeId) ?? null;
+	});
+	if (folder === null) return null;
+	if (worktreeId === null || worktree === null) return folder.path;
+	return worktree.path;
 };

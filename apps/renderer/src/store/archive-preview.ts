@@ -7,10 +7,10 @@ import type {
 	SessionId,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { createAtomStore as create } from "../state/atom-store.ts";
-
 import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { createAtomStore as create } from "../state/atom-store.ts";
+import { cloudSummaryForChat } from "./cloud-chat-registry.ts";
 import { useUiStore } from "./ui.ts";
 
 type ArchivePreview = {
@@ -44,6 +44,11 @@ type ArchivePreviewState = {
 		sessionId: SessionId,
 	) => Promise<void>;
 	readonly upsertChat: (chat: Chat) => void;
+	readonly upsertCloudChat: (
+		chat: Chat,
+		session: Session,
+		messages: ReadonlyArray<Message>,
+	) => void;
 	readonly removeChat: (chatId: ChatId, projectId: FolderId) => void;
 	readonly setRestoring: (chatId: ChatId, restoring: boolean) => void;
 	readonly setRestoreError: (chatId: ChatId, error: string | null) => void;
@@ -188,9 +193,14 @@ export const useArchivePreviewStore = create<ArchivePreviewState>(
 						set((state) => ({
 							chatsByProject: {
 								...state.chatsByProject,
-								[projectId]: chats
-									.filter((chat) => chat.archivedAt !== null)
-									.sort((a, b) => archiveSortTime(b) - archiveSortTime(a)),
+								[projectId]: [
+									...chats.filter((chat) => chat.archivedAt !== null),
+									...(state.chatsByProject[projectId] ?? []).filter(
+										(chat) =>
+											cloudSummaryForChat(chat.id) !== null &&
+											!chats.some((candidate) => candidate.id === chat.id),
+									),
+								].sort((a, b) => archiveSortTime(b) - archiveSortTime(a)),
 							},
 							loadedByProject: {
 								...state.loadedByProject,
@@ -325,6 +335,26 @@ export const useArchivePreviewStore = create<ArchivePreviewState>(
 							state.chatsByProject[chat.projectId] ?? [],
 							chat,
 						),
+					},
+				}));
+			},
+			upsertCloudChat: (chat, session, messages) => {
+				bumpGeneration(projectGenerations, chat.projectId);
+				set((state) => ({
+					chatsByProject: {
+						...state.chatsByProject,
+						[chat.projectId]: upsertArchived(
+							state.chatsByProject[chat.projectId] ?? [],
+							chat,
+						),
+					},
+					previewsByChat: {
+						...state.previewsByChat,
+						[chat.id]: { chat, sessions: [session] },
+					},
+					messagesBySession: {
+						...state.messagesBySession,
+						[session.id]: messages,
 					},
 				}));
 			},

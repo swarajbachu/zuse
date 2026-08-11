@@ -558,10 +558,44 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					"zuse",
 				)
 			) {
+				const [reportedCode, archivePhase, diagnostic] = yield* Effect.all(
+					[
+						provider.readTextFile(
+							workspace.providerSandboxId,
+							"/var/lib/zuse/workspace-archive/error-code",
+							"zuse",
+						),
+						provider.readTextFile(
+							workspace.providerSandboxId,
+							"/var/lib/zuse/workspace-archive/phase",
+							"zuse",
+						),
+						provider.readTextFile(
+							workspace.providerSandboxId,
+							"/var/lib/zuse/workspace-archive/diagnostic.log",
+							"zuse",
+						),
+					],
+					{ concurrency: "unbounded" },
+				).pipe(
+					Effect.map((values) => values.map((value) => value.trim())),
+					Effect.catchTag("SandboxProviderError", () =>
+						Effect.succeed(["", "unknown", ""]),
+					),
+				);
+				const failureCode = /^[a-z][a-z0-9-]{0,63}$/u.test(reportedCode ?? "")
+					? (reportedCode as string)
+					: "archive-failed";
 				yield* store.saveWorkspace({
 					...workspace,
 					state: "failed",
-					statusCode: "archive-failed",
+					statusCode: failureCode,
+					requestConfig: {
+						...workspace.requestConfig,
+						archivePhase,
+						archiveErrorCode: failureCode,
+						archiveDiagnostic: (diagnostic ?? "").slice(-8_192),
+					},
 					nextActionAtMs: Number.MAX_SAFE_INTEGER,
 					revision: workspace.revision + 1,
 					updatedAtMs: nowMs,

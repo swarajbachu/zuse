@@ -5,7 +5,7 @@ import { chatLandingProgress } from "../../src/lib/chat-landing-progress.ts";
 describe("chat landing progress", () => {
 	test("stages the durable chat before attaching the workspace gateway", () => {
 		expect(chatLandingSource).toContain("stageCloudChat(");
-		expect(chatLandingSource).toContain("openCloudChat(");
+		expect(chatLandingSource).toContain("ensureCloudWorkspaceAttached(");
 		expect(chatLandingSource).not.toContain(
 			'control["cloud.workspaces.connect"]',
 		);

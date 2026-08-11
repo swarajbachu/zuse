@@ -13,7 +13,10 @@ import {
 	cloudSummaryForChat,
 	localProjectForCloudChat,
 } from "../store/cloud-chat-registry.ts";
-import { openCloudChat, useCloudChatsStore } from "../store/cloud-chats.ts";
+import {
+	ensureCloudWorkspaceAttached,
+	useCloudChatsStore,
+} from "../store/cloud-chats.ts";
 import {
 	EMPTY_TERMINALS,
 	type TerminalInstance,
@@ -102,25 +105,22 @@ function PlainTerminalSlot({
 	const resolvedRootPath =
 		cloudSummary === null ? rootPath : "/home/zuse/workspace";
 
-	const connectCloudTerminal = useCallback(
-		(activate: boolean) => {
-			if (
-				cloudSummary === null ||
-				cloudProjectId === null ||
-				cloudConnection === "connecting"
-			)
-				return;
-			setCloudConnection("connecting");
-			void openCloudChat(cloudSummary, cloudProjectId, { activate })
-				.then(() => {
-					setCloudConnection("ready");
-				})
-				.catch(() => {
-					setCloudConnection("failed");
-				});
-		},
-		[cloudConnection, cloudProjectId, cloudSummary],
-	);
+	const connectCloudTerminal = useCallback(() => {
+		if (
+			cloudSummary === null ||
+			cloudProjectId === null ||
+			cloudConnection === "connecting"
+		)
+			return;
+		setCloudConnection("connecting");
+		void ensureCloudWorkspaceAttached(cloudSummary)
+			.then(() => {
+				setCloudConnection("ready");
+			})
+			.catch(() => {
+				setCloudConnection("failed");
+			});
+	}, [cloudConnection, cloudProjectId, cloudSummary]);
 
 	useEffect(() => {
 		if (
@@ -129,7 +129,7 @@ function PlainTerminalSlot({
 			cloudConnection !== "idle"
 		)
 			return;
-		connectCloudTerminal(false);
+		connectCloudTerminal();
 	}, [cloudConnection, cloudSummary, connectCloudTerminal]);
 
 	useEffect(() => {
@@ -197,14 +197,14 @@ function PlainTerminalSlot({
 						if (input.length === 0 || event.metaKey || event.ctrlKey) return;
 						event.preventDefault();
 						setPendingTerminalInput(input);
-						connectCloudTerminal(true);
+						connectCloudTerminal();
 					}}
 					onPaste={(event) => {
 						const input = event.clipboardData.getData("text");
 						if (input.length === 0) return;
 						event.preventDefault();
 						setPendingTerminalInput(input);
-						connectCloudTerminal(true);
+						connectCloudTerminal();
 					}}
 				/>
 			</TerminalPlaceholder>

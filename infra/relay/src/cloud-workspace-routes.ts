@@ -277,6 +277,7 @@ const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 	startupPhase: startupPhase(workspace),
 	startupTimings: startupTimings(workspace),
 	runtimeState: workspace.runtimeState,
+	revision: workspace.revision,
 	chatId: workspace.chatId,
 	initialSessionId: workspace.initialSessionId,
 	createdAt: workspace.createdAtMs,
@@ -288,6 +289,11 @@ const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 });
 
 const cloudChatTitle = (workspace: CloudWorkspaceRecord): string => {
+	if (
+		typeof workspace.requestConfig.title === "string" &&
+		workspace.requestConfig.title.trim().length > 0
+	)
+		return workspace.requestConfig.title.trim();
 	const firstMessage = workspace.requestConfig.firstMessage;
 	if (typeof firstMessage !== "string") return workspace.branch;
 	const title = firstMessage.trim().split(/\r?\n/u, 1)[0]?.trim() ?? "";
@@ -302,6 +308,7 @@ const publicCloudChat = (
 	workspace: CloudWorkspaceRecord,
 	project: CloudProjectRecord,
 	unread: boolean,
+	lastMessageAt: number | null,
 ) => ({
 	workspaceId: workspace.workspaceId,
 	projectId: project.projectId,
@@ -321,10 +328,28 @@ const publicCloudChat = (
 			? workspace.requestConfig.model
 			: "",
 	state: workspace.state,
+	desiredState: workspace.desiredState,
 	runtimeState: workspace.runtimeState,
 	statusCode: workspace.statusCode,
 	startupPhase: startupPhase(workspace),
+	revision: workspace.revision,
 	unread,
+	lastMessageAt,
+	...(workspace.state === "archived"
+		? { archivedAt: workspace.updatedAtMs }
+		: {}),
+	...(typeof workspace.requestConfig.archivePhase === "string"
+		? { archivePhase: workspace.requestConfig.archivePhase }
+		: {}),
+	...(typeof workspace.requestConfig.archiveErrorCode === "string"
+		? { archiveErrorCode: workspace.requestConfig.archiveErrorCode }
+		: {}),
+	...(typeof workspace.requestConfig.archiveDiagnostic === "string"
+		? {
+				archiveDiagnostic:
+					workspace.requestConfig.archiveDiagnostic.slice(-8_192),
+			}
+		: {}),
 	createdAt: workspace.createdAtMs,
 	updatedAt: workspace.updatedAtMs,
 });
@@ -807,15 +832,19 @@ export const routeCloudWorkspaceRequest = (
 
 		if (method === "GET" && path === RelayPaths.cloudChats) {
 			const projectId = url.searchParams.get("projectId") ?? undefined;
+			const scope = url.searchParams.get("scope") ?? "active";
 			const workspaces = yield* store.listWorkspaces(
 				principal.accountId,
 				projectId,
 			);
 			const chats = yield* Effect.forEach(
-				workspaces.filter(
-					(workspace) =>
-						workspace.state !== "deleted" && workspace.state !== "archived",
-				),
+				workspaces.filter((workspace) => {
+					if (workspace.state === "deleted") return false;
+					if (scope === "all") return true;
+					return scope === "archived"
+						? workspace.state === "archived"
+						: workspace.state !== "archived";
+				}),
 				(workspace) =>
 					Effect.all([
 						store.getProject(workspace.projectId),
@@ -831,6 +860,7 @@ export const routeCloudWorkspaceRequest = (
 								workspace,
 								project,
 								latestEventAt !== null && latestEventAt > lastReadAt,
+								latestEventAt,
 							);
 						}),
 					),
@@ -838,7 +868,11 @@ export const routeCloudWorkspaceRequest = (
 			return json({
 				chats: chats
 					.filter((chat) => chat !== null)
-					.sort((left, right) => right.updatedAt - left.updatedAt),
+					.sort(
+						(left, right) =>
+							(right.lastMessageAt ?? right.createdAt) -
+							(left.lastMessageAt ?? left.createdAt),
+					),
 			});
 		}
 
@@ -1194,6 +1228,17 @@ export const routeCloudWorkspaceRequest = (
 					credentialKinds,
 					permissions: body.permissions ?? [],
 					firstMessage: body.firstMessage,
+					title: (() => {
+						const value = body.firstMessage
+							?.trim()
+							.split(/\r?\n/u, 1)[0]
+							?.trim();
+						return value === undefined || value.length === 0
+							? branch
+							: value.length > 80
+								? `${value.slice(0, 77)}…`
+								: value;
+					})(),
 					commandState: "queued",
 					repositoryCache: preparedSnapshotAvailable
 						? "prepared"
@@ -1217,6 +1262,7 @@ export const routeCloudWorkspaceRequest = (
 				payload: {
 					chatId: target.chatId,
 					initialSessionId: target.initialSessionId,
+					title: target.requestConfig.title,
 					agent: body.agent,
 					model: body.model,
 					firstMessage: body.firstMessage,
@@ -1251,8 +1297,52 @@ export const routeCloudWorkspaceRequest = (
 			return response;
 		}
 
+		const renameMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/chat\/rename$/u.exec(path);
+		if (method === "POST" && renameMatch !== null) {
+			const workspace = yield* store.getWorkspace(
+				decodeURIComponent(renameMatch[1] ?? ""),
+			);
+			if (workspace === null || workspace.accountId !== principal.accountId)
+				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
+			const body = yield* decodeBody(
+				Schema.Struct({ title: Schema.String }),
+				request,
+			);
+			const title = body.title.trim();
+			if (title.length === 0 || title.length > 80)
+				return yield* Effect.fail(badRequest("invalid_cloud_chat_title"));
+			const updated: CloudWorkspaceRecord = {
+				...workspace,
+				requestConfig: { ...workspace.requestConfig, title },
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+			};
+			yield* store.saveWorkspace(updated);
+			yield* store.createNextCommand({
+				commandId: `rename:${updated.workspaceId}:${updated.revision}`,
+				workspaceId: updated.workspaceId,
+				accountId: updated.accountId,
+				kind: "rename-chat",
+				payload: { title },
+				state: "queued",
+				createdAtMs: nowMs,
+			});
+			const project = yield* store.getProject(updated.projectId);
+			if (project === null)
+				return yield* Effect.fail(notFound("cloud_project_not_found"));
+			return json(
+				publicCloudChat(
+					updated,
+					project,
+					false,
+					yield* store.latestEventAt(updated.workspaceId),
+				),
+			);
+		}
+
 		const actionMatch =
-			/^\/v1\/cloud\/workspaces\/([^/]+)\/(pause|resume|archive|delete)$/u.exec(
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/(pause|resume|archive|unarchive|delete)$/u.exec(
 				path,
 			);
 		if (method === "POST" && actionMatch !== null) {
@@ -1265,17 +1355,32 @@ export const routeCloudWorkspaceRequest = (
 				| "pause"
 				| "resume"
 				| "archive"
+				| "unarchive"
 				| "delete";
 			const desiredState =
 				action === "resume"
 					? "ready"
-					: action === "delete"
-						? "deleted"
-						: action === "archive"
-							? "archived"
-							: "paused";
+					: action === "unarchive"
+						? "paused"
+						: action === "delete"
+							? "deleted"
+							: action === "archive"
+								? "archived"
+								: "paused";
+			const {
+				archivePhase: _archivePhase,
+				archiveErrorCode: _archiveErrorCode,
+				archiveDiagnostic: _archiveDiagnostic,
+				...requestConfigWithoutArchiveFailure
+			} = workspace.requestConfig;
 			const updated: CloudWorkspaceRecord = {
 				...workspace,
+				...(action === "unarchive"
+					? { state: "paused" as const, runtimeState: "offline" as const }
+					: {}),
+				...(action === "archive"
+					? { requestConfig: requestConfigWithoutArchiveFailure }
+					: {}),
 				...(action === "resume" && workspace.state === "failed"
 					? {
 							state: "queued" as const,

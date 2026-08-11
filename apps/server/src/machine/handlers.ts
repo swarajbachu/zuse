@@ -105,8 +105,13 @@ const CloudChatHistory = MemoizeRpcs.toLayerHandler(
 );
 const CloudChats = MemoizeRpcs.toLayerHandler(
 	"cloud.chats.list",
-	({ projectId }) =>
-		withCloudControl((service) => service.cloudChats(projectId)),
+	({ projectId, scope }) =>
+		withCloudControl((service) => service.cloudChats(projectId, scope)),
+);
+const RenameCloudChat = MemoizeRpcs.toLayerHandler(
+	"cloud.chats.rename",
+	({ workspaceId, title }) =>
+		withCloudControl((service) => service.renameCloudChat(workspaceId, title)),
 );
 const SendCloudChatMessage = MemoizeRpcs.toLayerHandler(
 	"cloud.chats.send",
@@ -131,6 +136,13 @@ const ArchiveCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	({ workspaceId }) =>
 		withCloudControl((service) =>
 			service.cloudWorkspaceAction(workspaceId, "archive"),
+		),
+);
+const UnarchiveCloudWorkspace = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.unarchive",
+	({ workspaceId }) =>
+		withCloudControl((service) =>
+			service.cloudWorkspaceAction(workspaceId, "unarchive"),
 		),
 );
 const DeleteCloudWorkspace = MemoizeRpcs.toLayerHandler(
@@ -266,10 +278,12 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	ConnectCloudWorkspace,
 	CloudChatHistory,
 	CloudChats,
+	RenameCloudChat,
 	SendCloudChatMessage,
 	PauseCloudWorkspace,
 	ResumeCloudWorkspace,
 	ArchiveCloudWorkspace,
+	UnarchiveCloudWorkspace,
 	DeleteCloudWorkspace,
 	CloudCredentials,
 	ImportLocalCloudCredential,

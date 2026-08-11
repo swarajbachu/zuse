@@ -87,7 +87,7 @@ export interface CloudWorkspaceCommandRecord {
 	readonly workspaceId: string;
 	readonly accountId: string;
 	readonly sequence: number;
-	readonly kind: "start-agent" | "send-message";
+	readonly kind: "start-agent" | "send-message" | "rename-chat";
 	readonly payload: Readonly<Record<string, unknown>>;
 	readonly state: "queued" | "claimed" | "acknowledged" | "failed";
 	readonly createdAtMs: number;

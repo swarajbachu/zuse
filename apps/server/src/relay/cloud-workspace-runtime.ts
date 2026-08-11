@@ -71,7 +71,7 @@ const BootstrapResponse = Schema.Struct({
 const Command = Schema.Struct({
 	commandId: Schema.String,
 	sequence: Schema.Number,
-	kind: Schema.Literals(["start-agent", "send-message"]),
+	kind: Schema.Literals(["start-agent", "send-message", "rename-chat"]),
 	payload: Schema.Record(Schema.String, Schema.Unknown),
 });
 
@@ -301,6 +301,25 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const processCommand = (command: RuntimeCommand) =>
 						Effect.gen(function* () {
 							if (processedCommands.has(command.commandId)) return;
+							if (command.kind === "rename-chat") {
+								if (typeof command.payload.title !== "string")
+									return yield* Effect.fail(fail("workspace_rename_invalid"));
+								yield* chats
+									.renameChat(
+										ChatId.make(bootstrap.chatId),
+										command.payload.title,
+									)
+									.pipe(Effect.mapError(() => fail("workspace_rename_failed")));
+								yield* postReady(
+									config,
+									bootstrap.runtimeCredential,
+									"command-acknowledged",
+									command.commandId,
+								);
+								processedCommands.add(command.commandId);
+								commandCursor = Math.max(commandCursor, command.sequence);
+								return;
+							}
 							if (command.kind === "send-message") {
 								const input = Schema.decodeUnknownOption(ComposerInput)(
 									command.payload.input,
@@ -367,6 +386,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 										bootstrap.initialSessionId,
 									),
 									projectId: FolderId.make(folder.id),
+									title:
+										typeof command.payload.title === "string"
+											? command.payload.title
+											: undefined,
 									providerId: provider.value,
 									model: command.payload.model,
 									initialPrompt:

@@ -89,6 +89,8 @@ export const RelayPaths = {
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/chat`,
 	cloudWorkspaceMessages: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/messages`,
+	cloudWorkspaceChatRename: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/chat/rename`,
 	cloudChats: "/v1/cloud/chats",
 	cloudWorkspaceAction: (workspaceId: string, action: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/${encodeURIComponent(action)}`,

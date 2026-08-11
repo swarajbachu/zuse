@@ -33,6 +33,7 @@ import {
 import {
 	CloudChatsHistoryRpc,
 	CloudChatsListRpc,
+	CloudChatsRenameRpc,
 	CloudChatsSendRpc,
 	CloudCredentialsDisconnectRpc,
 	CloudCredentialsImportLocalRpc,
@@ -49,6 +50,7 @@ import {
 	CloudWorkspacesListRpc,
 	CloudWorkspacesPauseRpc,
 	CloudWorkspacesResumeRpc,
+	CloudWorkspacesUnarchiveRpc,
 } from "./cloud-workspaces.ts";
 import {
 	ConnectDescribeRpc,
@@ -339,10 +341,12 @@ export const MemoizeRpcs = RpcGroup.make(
 	CloudWorkspacesConnectRpc,
 	CloudChatsHistoryRpc,
 	CloudChatsListRpc,
+	CloudChatsRenameRpc,
 	CloudChatsSendRpc,
 	CloudWorkspacesPauseRpc,
 	CloudWorkspacesResumeRpc,
 	CloudWorkspacesArchiveRpc,
+	CloudWorkspacesUnarchiveRpc,
 	CloudWorkspacesDeleteRpc,
 	CloudCredentialsListRpc,
 	CloudCredentialsImportLocalRpc,
