@@ -31,6 +31,7 @@ import {
 	deferTimelineUntilSessionCreated,
 	useMessagesStore,
 } from "./messages.ts";
+import { markQueueHydrated } from "./queue-hydration.ts";
 import { useSessionsStore } from "./sessions.ts";
 
 type CloudChatsState = {
@@ -71,11 +72,7 @@ export const repositoryIdentityForOrigin = (
 		: `${origin.host.toLowerCase()}/${origin.owner.toLowerCase()}/${origin.repo.toLowerCase()}`;
 
 const sessionStatus = (summary: CloudChatSummary): Session["status"] =>
-	summary.state === "failed"
-		? "error"
-		: summary.state === "ready" && summary.runtimeState === "online"
-			? "idle"
-			: "booting";
+	summary.state === "failed" ? "error" : "idle";
 
 const seedFor = (
 	summary: CloudChatSummary,
@@ -233,8 +230,11 @@ export const stageCloudChat = (
 export const openCloudChat = (
 	summary: CloudChatSummary,
 	projectId: FolderId,
+	options?: { readonly activate?: boolean },
 ): Promise<void> => {
-	const existing = opening.get(summary.workspaceId);
+	const activate = options?.activate === true;
+	const operationKey = `${summary.workspaceId}:${activate ? "activate" : "view"}`;
+	const existing = opening.get(operationKey);
 	if (existing !== undefined) return existing;
 	const operation = (async () => {
 		stageCloudChat(summary, projectId);
@@ -252,7 +252,14 @@ export const openCloudChat = (
 					[summary.initialSessionId]: projected,
 				},
 			}));
-		if (summary.state === "paused")
+		// Central history has no runtime queue stream to hydrate. Release the
+		// ordinary composer immediately so a paused chat remains fully readable
+		// and the next message can be durably queued without waking compute first.
+		markQueueHydrated(SessionId.make(summary.initialSessionId));
+		const alreadyLive =
+			summary.state === "ready" && summary.runtimeState === "online";
+		if (!activate && !alreadyLive) return;
+		if (activate && summary.state === "paused")
 			await Effect.runPromise(
 				control["cloud.workspaces.resume"]({
 					workspaceId: summary.workspaceId,
@@ -298,7 +305,7 @@ export const openCloudChat = (
 			(await Effect.runPromise(
 				client["workspace.add"]({ path: "/home/zuse/workspace" }),
 			));
-		const liveSeed = seedFor(summary, folder.id, history.firstMessage);
+		const liveSeed = seedFor(current, folder.id, history.firstMessage);
 		await switchToCloudWorkspace({
 			workspaceId: summary.workspaceId,
 			folder,
@@ -310,8 +317,8 @@ export const openCloudChat = (
 			},
 		});
 		acknowledgeTimelineSessionCreated(liveSeed.session.id);
-	})().finally(() => opening.delete(summary.workspaceId));
-	opening.set(summary.workspaceId, operation);
+	})().finally(() => opening.delete(operationKey));
+	opening.set(operationKey, operation);
 	return operation;
 };
 

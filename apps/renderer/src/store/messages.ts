@@ -1004,6 +1004,27 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 						asGoal: opts?.asGoal,
 					}),
 				);
+				// The message is durable once the control plane accepts it. Resume and
+				// attach in the background so viewing history alone never wakes compute,
+				// while an explicit send does.
+				const cloudChats = await import("./cloud-chats.ts");
+				const projectId = cloudChats.localProjectForCloudChat(
+					cloudSummary.chatId,
+				);
+				if (projectId !== null)
+					void cloudChats
+						.openCloudChat(cloudSummary, projectId, { activate: true })
+						.catch((cause) =>
+							set((state) => ({
+								errorBySession: {
+									...state.errorBySession,
+									[sessionId]: classifyError(
+										cause,
+										lookupSessionProvider(sessionId),
+									),
+								},
+							})),
+						);
 				return;
 			}
 			await dispatchRetryableRpcCommand(messageId, async () => {

@@ -733,12 +733,13 @@ export function ChatLanding() {
 					throw new Error("Select a repository before starting a cloud chat.");
 				stageCloudChat(summary, selectedFolderId, input.text);
 				useChatsStore.getState().select(summary.chatId);
-				void openCloudChat(summary, selectedFolderId).catch((cause) =>
-					toastManager.add({
-						type: "error",
-						title: "Cloud workspace needs attention",
-						description: formatError(cause),
-					}),
+				void openCloudChat(summary, selectedFolderId, { activate: true }).catch(
+					(cause) =>
+						toastManager.add({
+							type: "error",
+							title: "Cloud workspace needs attention",
+							description: formatError(cause),
+						}),
 				);
 				useSessionsStore.getState().clearDraft();
 				setSelectedCloudProviderId(null);
