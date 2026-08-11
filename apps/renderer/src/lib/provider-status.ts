@@ -6,37 +6,37 @@ import type { AgentAvailability, ProviderId } from "@zuse/contracts";
  * language.
  */
 export const PROVIDER_STATUS_STYLES = {
-  ready: { dot: "bg-emerald-400" },
-  warning: { dot: "bg-amber-400" },
-  error: { dot: "bg-rose-400" },
-  disabled: { dot: "bg-muted-foreground/40" },
-  loading: { dot: "bg-muted-foreground/40 animate-pulse" },
-  // Subscription-gated providers (Grok → SuperGrok or X Premium+) — distinct from
-  // amber "sign in required" because the user already signed in; their
-  // plan is what's missing.
-  subscription: { dot: "bg-violet-400" },
+	ready: { dot: "bg-emerald-400" },
+	warning: { dot: "bg-amber-400" },
+	error: { dot: "bg-rose-400" },
+	disabled: { dot: "bg-muted-foreground/40" },
+	loading: { dot: "bg-muted-foreground/40 animate-pulse" },
+	// Subscription-gated providers (Grok → SuperGrok or X Premium+) — distinct from
+	// amber "sign in required" because the user already signed in; their
+	// plan is what's missing.
+	subscription: { dot: "bg-violet-400" },
 } as const;
 
 export type ProviderStatusKey = keyof typeof PROVIDER_STATUS_STYLES;
 
 export interface ProviderSummary {
-  readonly statusKey: ProviderStatusKey;
-  readonly headline: string;
-  readonly detail: string | null;
-  /**
-   * Email rendered alongside the headline when known. Surfaced separately
-   * from `headline` so the renderer can blur it for screen-record privacy
-   * and reveal on click.
-   */
-  readonly authEmail: string | null;
-  /** When true, the headline is a CTA — render with stronger emphasis. */
-  readonly actionable: boolean;
+	readonly statusKey: ProviderStatusKey;
+	readonly headline: string;
+	readonly detail: string | null;
+	/**
+	 * Email rendered alongside the headline when known. Surfaced separately
+	 * from `headline` so the renderer can blur it for screen-record privacy
+	 * and reveal on click.
+	 */
+	readonly authEmail: string | null;
+	/** When true, the headline is a CTA — render with stronger emphasis. */
+	readonly actionable: boolean;
 }
 
 export interface ProviderStatusNotice {
-  readonly key: string;
-  readonly title: string;
-  readonly description: string;
+	readonly key: string;
+	readonly title: string;
+	readonly description: string;
 }
 
 /**
@@ -45,44 +45,45 @@ export interface ProviderStatusNotice {
  * and sign-in states already have dedicated provider-card treatments.
  */
 export function getProviderStatusNotice(
-  availability: ReadonlyArray<AgentAvailability>,
+	availability: ReadonlyArray<AgentAvailability>,
 ): ProviderStatusNotice | null {
-  const codex = availability.find((item) => item.providerId === "codex");
-  if (
-    codex?.authStatus !== "unknown" ||
-    codex.statusMessage === undefined ||
-    codex.statusMessage.trim().length === 0
-  ) {
-    return null;
-  }
+	const codex = availability.find((item) => item.providerId === "codex");
+	if (
+		codex?.authStatus !== "unknown" ||
+		codex.statusMessage === undefined ||
+		codex.statusMessage.trim().length === 0
+	) {
+		return null;
+	}
 
-  const statusMessage = codex.statusMessage.trim();
-  const description = /tim(?:e|ed) ?out|timeout/i.test(statusMessage)
-    ? "Timed out while checking Codex app-server provider status."
-    : /failed to initialize (?:sqlite )?state runtime/i.test(statusMessage)
-      ? "Codex app-server couldn't initialize local session state. Try again in a moment."
-      : statusMessage;
-  return {
-    key: "codex-provider-status",
-    title: "Codex provider status",
-    description,
-  };
+	const statusMessage = codex.statusMessage.trim();
+	const description = /tim(?:e|ed) ?out|timeout/i.test(statusMessage)
+		? "Timed out while checking Codex app-server provider status."
+		: /failed to initialize (?:sqlite )?state runtime/i.test(statusMessage)
+			? "Codex app-server couldn't initialize local session state. Try again in a moment."
+			: statusMessage;
+	return {
+		key: "codex-provider-status",
+		title: "Codex provider status",
+		description,
+	};
 }
 
 export function isInitialProviderAvailabilityLoading(
-  loading: boolean,
-  availabilityLoaded: boolean,
+	loading: boolean,
+	availabilityLoaded: boolean,
 ): boolean {
-  return loading && !availabilityLoaded;
+	return loading && !availabilityLoaded;
 }
 
 export const PROVIDER_DISPLAY: Record<ProviderId, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  grok: "Grok",
-  gemini: "Gemini",
-  cursor: "Cursor",
-  opencode: "OpenCode",
+	claude: "Claude Code",
+	codex: "Codex",
+	grok: "Grok",
+	gemini: "Gemini",
+	cursor: "Cursor",
+	opencode: "OpenCode",
+	kiro: "Kiro CLI",
 };
 
 /**
@@ -92,115 +93,115 @@ export const PROVIDER_DISPLAY: Record<ProviderId, string> = {
  * server didn't ship `status`) agrees with the live status when it does.
  */
 export function getProviderSummary(
-  a: AgentAvailability | undefined,
-  enabled: boolean,
-  loading: boolean,
+	a: AgentAvailability | undefined,
+	enabled: boolean,
+	loading: boolean,
 ): ProviderSummary {
-  if (a === undefined) {
-    return loading
-      ? {
-          statusKey: "loading",
-          headline: "Checking…",
-          detail: null,
-          authEmail: null,
-          actionable: false,
-        }
-      : {
-          statusKey: "warning",
-          headline: "Checking provider status",
-          detail: "Waiting for the server to report install + auth state.",
-          authEmail: null,
-          actionable: false,
-        };
-  }
-  const name = PROVIDER_DISPLAY[a.providerId];
-  if (!enabled) {
-    return {
-      statusKey: "disabled",
-      headline: "Disabled",
-      detail: null,
-      authEmail: null,
-      actionable: false,
-    };
-  }
-  if ((a.runtimeAvailable ?? a.cliInstalled) === false) {
-    return {
-      statusKey: "error",
-      headline: "Not installed",
-      detail: a.statusMessage ?? `${name} CLI not detected on PATH.`,
-      authEmail: null,
-      actionable: true,
-    };
-  }
-  if (a.cliVersionStatus === "outdated") {
-    return {
-      statusKey: "warning",
-      headline: "Update required",
-      detail:
-        a.statusMessage ??
-        `${name} ${a.cliVersion ?? ""} below ${a.cliVersionMinRequired ?? "minimum"}.`,
-      authEmail: null,
-      actionable: true,
-    };
-  }
-  if (a.authStatus === "authenticated") {
-    if (a.providerId === "cursor" && a.authType === "apiKey") {
-      return {
-        statusKey: "ready",
-        headline: "API key verified",
-        detail: null,
-        authEmail: null,
-        actionable: false,
-      };
-    }
-    const subscription = a.authLabel ?? null;
-    return {
-      statusKey: "ready",
-      headline: a.authEmail
-        ? "Authenticated as"
-        : subscription
-          ? `Authenticated · ${subscription}`
-          : "Authenticated",
-      detail: a.authEmail ? subscription : null,
-      authEmail: a.authEmail ?? null,
-      actionable: false,
-    };
-  }
-  if (a.authStatus === "unauthenticated") {
-    return {
-      statusKey: a.apiKeyStatus === "invalid" ? "error" : "warning",
-      headline:
-        a.providerId === "cursor" ? "API key required" : "Sign in required",
-      detail:
-        a.statusMessage ??
-        (a.providerId === "cursor"
-          ? "Add an API key in provider settings to continue."
-          : `Run the ${name} login command to continue.`),
-      authEmail: null,
-      actionable: true,
-    };
-  }
-  if (a.cliLoggedIn || a.hasApiKey) {
-    return {
-      statusKey: "warning",
-      headline: "Available",
-      detail:
-        a.statusMessage ??
-        (a.hasApiKey
-          ? "API key set."
-          : "Credentials found — not yet verified."),
-      authEmail: null,
-      actionable: false,
-    };
-  }
-  return {
-    statusKey: "warning",
-    headline: "Needs attention",
-    detail:
-      a.statusMessage ?? "Installed, but the server could not verify auth.",
-    authEmail: null,
-    actionable: true,
-  };
+	if (a === undefined) {
+		return loading
+			? {
+					statusKey: "loading",
+					headline: "Checking…",
+					detail: null,
+					authEmail: null,
+					actionable: false,
+				}
+			: {
+					statusKey: "warning",
+					headline: "Checking provider status",
+					detail: "Waiting for the server to report install + auth state.",
+					authEmail: null,
+					actionable: false,
+				};
+	}
+	const name = PROVIDER_DISPLAY[a.providerId];
+	if (!enabled) {
+		return {
+			statusKey: "disabled",
+			headline: "Disabled",
+			detail: null,
+			authEmail: null,
+			actionable: false,
+		};
+	}
+	if ((a.runtimeAvailable ?? a.cliInstalled) === false) {
+		return {
+			statusKey: "error",
+			headline: "Not installed",
+			detail: a.statusMessage ?? `${name} CLI not detected on PATH.`,
+			authEmail: null,
+			actionable: true,
+		};
+	}
+	if (a.cliVersionStatus === "outdated") {
+		return {
+			statusKey: "warning",
+			headline: "Update required",
+			detail:
+				a.statusMessage ??
+				`${name} ${a.cliVersion ?? ""} below ${a.cliVersionMinRequired ?? "minimum"}.`,
+			authEmail: null,
+			actionable: true,
+		};
+	}
+	if (a.authStatus === "authenticated") {
+		if (a.providerId === "cursor" && a.authType === "apiKey") {
+			return {
+				statusKey: "ready",
+				headline: "API key verified",
+				detail: null,
+				authEmail: null,
+				actionable: false,
+			};
+		}
+		const subscription = a.authLabel ?? null;
+		return {
+			statusKey: "ready",
+			headline: a.authEmail
+				? "Authenticated as"
+				: subscription
+					? `Authenticated · ${subscription}`
+					: "Authenticated",
+			detail: a.authEmail ? subscription : null,
+			authEmail: a.authEmail ?? null,
+			actionable: false,
+		};
+	}
+	if (a.authStatus === "unauthenticated") {
+		return {
+			statusKey: a.apiKeyStatus === "invalid" ? "error" : "warning",
+			headline:
+				a.providerId === "cursor" ? "API key required" : "Sign in required",
+			detail:
+				a.statusMessage ??
+				(a.providerId === "cursor"
+					? "Add an API key in provider settings to continue."
+					: `Run the ${name} login command to continue.`),
+			authEmail: null,
+			actionable: true,
+		};
+	}
+	if (a.cliLoggedIn || a.hasApiKey) {
+		return {
+			statusKey: "warning",
+			headline: "Available",
+			detail:
+				a.statusMessage ??
+				(a.hasApiKey
+					? "API key set."
+					: "Credentials found — not yet verified."),
+			authEmail: null,
+			actionable: false,
+		};
+	}
+	return {
+		statusKey: "warning",
+		headline: "Needs attention",
+		detail:
+			a.statusMessage ?? "Installed, but the server could not verify auth.",
+		authEmail: null,
+		actionable: true,
+	};
 }
 
 /**
@@ -208,12 +209,12 @@ export function getProviderSummary(
  * so cards render consistently regardless of which CLI is reporting.
  */
 export function formatVersionLabel(
-  version: string | null | undefined,
+	version: string | null | undefined,
 ): string | null {
-  if (!version) return null;
-  const trimmed = version.trim();
-  if (trimmed.length === 0) return null;
-  if (/^v\d/.test(trimmed)) return trimmed;
-  if (/^\d/.test(trimmed)) return `v${trimmed}`;
-  return trimmed;
+	if (!version) return null;
+	const trimmed = version.trim();
+	if (trimmed.length === 0) return null;
+	if (/^v\d/.test(trimmed)) return trimmed;
+	if (/^\d/.test(trimmed)) return `v${trimmed}`;
+	return trimmed;
 }

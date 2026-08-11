@@ -57,6 +57,7 @@ const PROVIDER_LABEL: Record<ProviderId, string> = {
 	gemini: "Gemini",
 	cursor: "Cursor",
 	opencode: "OpenCode",
+	kiro: "Kiro",
 };
 
 const INSTALL_HINT: Partial<Record<ProviderId, string>> = {
@@ -65,6 +66,7 @@ const INSTALL_HINT: Partial<Record<ProviderId, string>> = {
 	grok: "curl -fsSL https://x.ai/cli/install.sh | bash",
 	gemini: "npm i -g @google/gemini-cli",
 	opencode: "curl -fsSL https://opencode.ai/install | bash",
+	kiro: "Install from https://kiro.dev",
 };
 
 const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
@@ -73,6 +75,7 @@ const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
 	grok: "grok login",
 	gemini: "gemini /auth",
 	opencode: "opencode auth login",
+	kiro: "kiro-cli login",
 };
 
 /**

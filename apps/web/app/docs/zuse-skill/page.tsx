@@ -33,9 +33,9 @@ export default function ZuseSkillDocs() {
       <section className="space-y-3">
         <h2 className="text-xl font-semibold">Unsupported providers</h2>
         <p className="text-muted-foreground">
-          Grok, OpenCode, Cursor, and Gemini do not receive injected fallback
-          skill text. They can support this later when native provider skill
-          surfaces are available in Zuse.
+          Grok, OpenCode, Cursor, Gemini, and Kiro do not receive injected
+          fallback skill text. They can support this later when native provider
+          skill surfaces are available in Zuse.
         </p>
       </section>
     </main>

@@ -1,3 +1,4 @@
+import { loadKiroInventory } from "@zuse/agents/drivers/kiro-inventory";
 import {
 	loadOpencodeInventory,
 	removeOpencodeProviderAuth,
@@ -135,6 +136,45 @@ const OpencodeInventory = MemoizeRpcs.toLayerHandler(
 				opencodePath,
 				process.cwd(),
 				settings.opencodeCustomProviders,
+			);
+		}),
+);
+
+const requireKiroPath = (): Effect.Effect<
+	string,
+	AgentSessionStartError,
+	CommandExecutor.ChildProcessSpawner
+> =>
+	Effect.gen(function* () {
+		const kiroPath = yield* resolveCliPath("kiro-cli");
+		if (kiroPath === null) {
+			return yield* Effect.fail(
+				new AgentSessionStartError({
+					providerId: "kiro",
+					reason:
+						"Kiro CLI not found on PATH. Install from https://kiro.dev and ensure `kiro-cli` is available.",
+				}),
+			);
+		}
+		return kiroPath;
+	});
+
+// Renderer refreshes the Kiro model picker from the account's live catalog
+// (control-plane ListAvailableModels, with CLI list-models fallback).
+const KiroInventory = MemoizeRpcs.toLayerHandler(
+	"provider.kiro.inventory",
+	() =>
+		Effect.gen(function* () {
+			const kiroPath = yield* requireKiroPath();
+			return yield* loadKiroInventory(kiroPath).pipe(
+				Effect.mapError(
+					(cause) =>
+						new AgentSessionStartError({
+							providerId: "kiro",
+							reason:
+								cause instanceof Error ? cause.message : String(cause),
+						}),
+				),
 			);
 		}),
 );
@@ -1206,6 +1246,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	StartLogin,
 	UpdateProvider,
 	OpencodeInventory,
+	KiroInventory,
 	OpencodeSetProviderAuth,
 	OpencodeRemoveProviderAuth,
 	OpencodeAddCustomProvider,

@@ -21,7 +21,7 @@ import {
  * (GEMINI/GROK/CURSOR) for raw JSON-RPC frame logs in the drivers.
  */
 
-export type AcpProviderTag = "grok" | "gemini" | "cursor";
+export type AcpProviderTag = "grok" | "gemini" | "cursor" | "kiro";
 
 const ACP_TRACE = process.env.MEMOIZE_DEBUG_ACP === "1";
 
@@ -1752,7 +1752,9 @@ export const createAcpTranslator = (
 							? "Grok"
 							: provider === "cursor"
 								? "Cursor"
-								: "Gemini";
+								: provider === "kiro"
+									? "Kiro"
+									: "Gemini";
 					const message =
 						detail !== null
 							? detail

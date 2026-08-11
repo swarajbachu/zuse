@@ -32,6 +32,7 @@ describe("supported provider CLIs", () => {
 			["grok", "grok"],
 			["gemini", "gemini"],
 			["opencode", "opencode"],
+			["kiro", "kiro-cli"],
 		]);
 	});
 });

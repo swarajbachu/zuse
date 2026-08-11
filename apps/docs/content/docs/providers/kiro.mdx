@@ -1,0 +1,49 @@
+---
+title: Kiro CLI
+description: Connect Kiro CLI over ACP and use its models, plan mode, and credit limits in Zuse.
+section: providers
+order: 38
+platforms: [desktop, browser, mobile]
+providers: [kiro]
+prerequisites: [/start/install, /providers/setup]
+related: [/composer/modes-permissions, /reference/diagnostics]
+next: /composer
+lastVerified: latest
+---
+
+Kiro runs through the local `kiro-cli` binary in ACP mode (`kiro-cli acp`). Zuse starts a persistent ACP session, translates streaming updates into the shared timeline, and applies the same project, worktree, permission, and review surfaces used by other providers.
+
+## Install and sign in
+
+Install Kiro CLI from [kiro.dev](https://kiro.dev), then sign in with the CLI:
+
+```bash
+kiro-cli login
+```
+
+Complete the AWS Builder ID, IAM Identity Center, or social sign-in flow the CLI opens. Zuse reads the local login state (Kiro's app-support credentials) and does not store a separate Kiro API key.
+
+The provider card in **Settings → Providers** shows install, authentication, and upgrade status. Use `kiro-cli update` when Zuse reports an incompatible or outdated CLI. ACP support requires a recent Kiro CLI build that exposes `kiro-cli acp`.
+
+## Workflows in Zuse
+
+- Start and resume ACP-backed sessions in the active checkout or a per-chat worktree.
+- Choose from the live model inventory when available (control plane or `kiro-cli chat --list-models`), including Claude, GPT, and other models exposed to your account.
+- Show credit multipliers and usage limits from Kiro's control plane when authenticated.
+- Stream assistant text, tools, file edits, and errors into the durable Zuse timeline.
+- Use Plan mode (maps to Kiro's planner agent configuration) with Zuse's permission presets.
+- Attach images when the selected model supports them through ACP prompt capabilities.
+- Use Zuse's browser and orchestration MCP tools when the session exposes the compatibility transport (Bun is required on PATH for that fallback).
+
+## Requirements and recovery
+
+Kiro sessions require `kiro-cli` on the desktop service path. Bun is required when Zuse falls back to the stdio MCP bridge for app-hosted tools.
+
+If startup fails:
+
+1. Run `kiro-cli --version` and confirm ACP is available (`kiro-cli acp --help` or upgrade with `kiro-cli update`).
+2. Run `kiro-cli login` / `kiro-cli whoami` if authentication expired.
+3. Confirm `bun --version` succeeds when browser or orchestration tools are needed.
+4. Refresh **Settings → Providers** and create a new session.
+
+Zuse resumes a stored Kiro session via ACP `session/load` when the provider cursor is still valid. If the cursor is unavailable, the driver starts a replacement session while keeping the existing Zuse timeline. Kiro-native slash commands and extension methods beyond the shared ACP surface are not added to Zuse's command catalog.

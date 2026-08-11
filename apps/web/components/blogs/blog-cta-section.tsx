@@ -11,7 +11,7 @@ export const BlogCtaSection = () => {
           </span>
           <span className="-tracking-xs text-muted-foreground text-base leading-6 font-medium">
             Zuse (Beta) is for power users running Claude Code, Codex, Cursor,
-            Gemini, Grok, and OpenCode across real projects. Keep the agents
+            Gemini, Grok, OpenCode, and Kiro across real projects. Keep the agents
             busy, isolate the work, and review the diffs before anything lands.
           </span>
           <span className="-tracking-xs text-muted-foreground text-base leading-6 font-medium">

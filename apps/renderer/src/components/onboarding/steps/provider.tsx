@@ -45,6 +45,7 @@ const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
   grok: "grok",
   gemini: "gemini",
   opencode: "opencode auth login",
+  kiro: "kiro-cli login",
 };
 
 const INSTALL_HINT: Partial<Record<ProviderId, string>> = {
@@ -53,6 +54,7 @@ const INSTALL_HINT: Partial<Record<ProviderId, string>> = {
   grok: "curl -fsSL https://x.ai/cli/install.sh | bash",
   gemini: "npm i -g @google/gemini-cli",
   opencode: "curl -fsSL https://opencode.ai/install | bash",
+  kiro: "Install from https://kiro.dev",
 };
 
 type ProviderState =
@@ -133,6 +135,7 @@ export function ProviderStep() {
     "gemini",
     "cursor",
     "opencode",
+    "kiro",
   ];
 
   const initialLoading = isInitialProviderAvailabilityLoading(

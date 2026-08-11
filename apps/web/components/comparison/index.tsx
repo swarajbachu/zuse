@@ -21,7 +21,7 @@ const cardsData: InfoCardsProps[] = [
   {
     title: "Max out the tools you already have",
     description:
-      "Run Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode from one project-aware app.",
+      "Run Claude Code, Codex, Cursor, Gemini, Grok, OpenCode, and Kiro from one project-aware app.",
     icon: <DoorsOpenIcon />,
   },
   {

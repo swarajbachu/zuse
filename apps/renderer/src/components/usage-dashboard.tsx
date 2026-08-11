@@ -70,6 +70,7 @@ const PROVIDER_ORDER: ReadonlyArray<ProviderId> = [
 	"codex",
 	"grok",
 	"gemini",
+	"kiro",
 ];
 
 const SERIES: ReadonlyArray<{
@@ -258,8 +259,8 @@ function UsageSkeleton() {
 			aria-label="Loading usage"
 		>
 			<ShimmerText className="h-4 w-36">Loading usage…</ShimmerText>
-			<div className="grid h-32 grid-cols-2 gap-3 lg:grid-cols-4">
-				{Array.from({ length: 4 }, (_, index) => (
+			<div className="grid h-32 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+				{Array.from({ length: PROVIDER_ORDER.length }, (_, index) => (
 					<div
 						key={index}
 						className="rounded-lg border border-border bg-muted/20"
@@ -377,20 +378,29 @@ function UsageReportView({
 
 function LimitStrip() {
 	const providers = useUsageLimitsStore((state) => state.providers);
-	const ordered = useMemo(() => {
-		const urgency = (provider: ProviderUsageLimits) =>
-			provider.windows.reduce(
-				(peak, window) => Math.max(peak, window.usedPercent ?? -1),
-				-1,
-			);
-		return providers
-			.slice()
-			.sort(
-				(a, b) =>
-					urgency(b) - urgency(a) ||
-					PROVIDER_ORDER.indexOf(a.providerId) -
-						PROVIDER_ORDER.indexOf(b.providerId),
-			);
+	const loading = useUsageLimitsStore((state) => state.loading);
+	// Always paint every limits-capable provider (incl. Kiro) in a stable
+	// order so a missing/empty API row cannot hide a card.
+	const cards = useMemo(() => {
+		const byId = new Map(
+			providers.map((provider) => [provider.providerId, provider] as const),
+		);
+		return PROVIDER_ORDER.map((id) => {
+			const provider = byId.get(id);
+			if (provider === undefined) {
+				return { id, kind: "placeholder" as const };
+			}
+			const hasData =
+				provider.windows.length > 0 || provider.creditsRemaining !== null;
+			if (!hasData && provider.unavailableReason !== undefined) {
+				return {
+					id,
+					kind: "placeholder" as const,
+					reason: provider.unavailableReason,
+				};
+			}
+			return { id, kind: "card" as const, provider };
+		});
 	}, [providers]);
 
 	return (
@@ -401,19 +411,19 @@ function LimitStrip() {
 			>
 				Limits
 			</h2>
-			<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-				{ordered.map((provider) => (
-					<LimitCard key={provider.providerId} provider={provider} />
-				))}
-				{PROVIDER_ORDER.filter(
-					(id) => !providers.some((provider) => provider.providerId === id),
-				).map((id) => (
-					<LimitPlaceholder
-						key={id}
-						providerId={id}
-						unavailable={providers.length > 0}
-					/>
-				))}
+			<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+				{cards.map((entry) =>
+					entry.kind === "card" ? (
+						<LimitCard key={entry.id} provider={entry.provider} />
+					) : (
+						<LimitPlaceholder
+							key={entry.id}
+							providerId={entry.id}
+							unavailable={providers.length > 0 || !loading}
+							reason={"reason" in entry ? entry.reason : undefined}
+						/>
+					),
+				)}
 			</div>
 		</section>
 	);
@@ -422,19 +432,34 @@ function LimitStrip() {
 function LimitPlaceholder({
 	providerId,
 	unavailable = false,
+	reason,
 }: {
 	providerId: ProviderId;
 	unavailable?: boolean;
+	reason?: ProviderUsageLimits["unavailableReason"];
 }) {
+	const message = !unavailable
+		? "Checking limits…"
+		: reason === "no-credentials"
+			? providerId === "kiro"
+				? "Sign in with kiro-cli login"
+				: "Sign in to see limits"
+			: reason === "expired"
+				? providerId === "kiro"
+					? "Session expired — run kiro-cli login"
+					: "Session expired — sign in again"
+				: reason === "error"
+					? "Could not load limits"
+					: reason === "unsupported"
+						? "Not available for this account"
+						: "No usage data available";
 	return (
 		<div className="h-28 rounded-lg border border-border bg-card p-3">
 			<div className="flex items-center gap-2 text-xs">
 				<ProviderIcon providerId={providerId} className="size-4" />
 				{PROVIDER_DISPLAY[providerId]}
 			</div>
-			<div className="mt-8 text-[11px] text-muted-foreground">
-				{unavailable ? "No usage data available" : "Checking limits…"}
-			</div>
+			<div className="mt-8 text-[11px] text-muted-foreground">{message}</div>
 		</div>
 	);
 }
@@ -502,6 +527,11 @@ function LimitCard({ provider }: { provider: ProviderUsageLimits }) {
 					<div className="mt-2 flex items-end justify-between gap-2">
 						<span className="text-xl font-semibold tracking-tight tabular-nums">
 							{left == null ? "—" : `${left}%`}
+							{left != null ? (
+								<span className="ml-0.5 text-[11px] font-medium text-muted-foreground">
+									left
+								</span>
+							) : null}
 						</span>
 						<span className="mb-0.5 text-[10px] text-muted-foreground">
 							{resetLabel(primary.resetsAt) ?? "No reset"}
@@ -527,16 +557,29 @@ function LimitCard({ provider }: { provider: ProviderUsageLimits }) {
 						</div>
 					) : null}
 				</>
+			) : provider.creditsRemaining !== null ? (
+				<div className="mt-2 flex items-end justify-between gap-2">
+					<span className="text-xl font-semibold tracking-tight tabular-nums">
+						{provider.creditsRemaining.toLocaleString(undefined, {
+							maximumFractionDigits: 1,
+						})}
+					</span>
+					<span className="mb-0.5 text-[10px] text-muted-foreground">
+						credits left
+					</span>
+				</div>
 			) : (
 				<div className="mt-7 text-[11px] text-muted-foreground">
 					No usage data available
 				</div>
 			)}
-			{provider.creditsRemaining !== null ? (
+			{provider.creditsRemaining !== null && primary ? (
 				<div className="mt-2 flex items-center justify-between border-t border-border/60 pt-2 text-[10px]">
 					<span className="text-muted-foreground">Credits remaining</span>
 					<span className="font-medium tabular-nums">
-						{provider.creditsRemaining.toLocaleString()}
+						{provider.creditsRemaining.toLocaleString(undefined, {
+							maximumFractionDigits: 1,
+						})}
 					</span>
 				</div>
 			) : null}
@@ -920,7 +963,6 @@ function SessionsExplorer({
 	sessionCount: number;
 	selectedRange: UsageRange | null;
 }) {
-	const providers = useUsageLimitsStore((state) => state.providers);
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [sortKey, setSortKey] = useState<SortKey>("tokens");
@@ -996,9 +1038,9 @@ function SessionsExplorer({
 							aria-label="Filter sessions by provider"
 						>
 							<option value="">All providers</option>
-							{providers.map((provider) => (
-								<option key={provider.providerId} value={provider.providerId}>
-									{PROVIDER_DISPLAY[provider.providerId]}
+							{PROVIDER_ORDER.map((id) => (
+								<option key={id} value={id}>
+									{PROVIDER_DISPLAY[id]}
 								</option>
 							))}
 						</select>

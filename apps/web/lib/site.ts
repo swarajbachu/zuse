@@ -20,4 +20,5 @@ export const AGENTS = [
   "Gemini",
   "Grok",
   "OpenCode",
+  "Kiro",
 ] as const;

@@ -15,6 +15,7 @@ export const ProviderId = Schema.Literals([
   "gemini",
   "cursor",
   "opencode",
+  "kiro",
 ]);
 export type ProviderId = typeof ProviderId.Type;
 
@@ -589,6 +590,7 @@ const SessionCursorEvent = Schema.TaggedStruct("SessionCursor", {
     "cursor-session-id",
     "gemini-session-id",
     "opencode-session-id",
+    "kiro-session-id",
   ]),
 });
 
@@ -1270,6 +1272,114 @@ export const MODELS_BY_PROVIDER: Record<
       supportsWebSearch: "queryOnly",
     },
   ],
+  // Kiro CLI (`kiro-cli acp`) speaks standard ACP. Model ids match
+  // `kiro-cli chat --list-models --format json`. Effort can be passed at
+  // spawn time via `kiro-cli acp --effort …` and at runtime via
+  // `session/set_model` does not carry effort — so we surface effort as a
+  // model option that the driver applies on process start / next turn.
+  kiro: [
+    {
+      id: "auto",
+      label: "Auto",
+      supportsPlanMode: true,
+    },
+    {
+      id: "claude-opus-5",
+      label: "Claude Opus 5",
+      badgeLabel: "Experimental",
+      optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+      supportsPlanMode: true,
+    },
+    {
+      id: "claude-sonnet-5",
+      label: "Claude Sonnet 5",
+      optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+      supportsPlanMode: true,
+    },
+    {
+      id: "claude-opus-4.8",
+      label: "Claude Opus 4.8",
+      optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+      supportsPlanMode: true,
+    },
+    {
+      id: "gpt-5.6-sol",
+      label: "GPT-5.6 Sol",
+      badgeLabel: "Experimental",
+      supportsPlanMode: true,
+    },
+    {
+      id: "gpt-5.6-terra",
+      label: "GPT-5.6 Terra",
+      badgeLabel: "Experimental",
+      supportsPlanMode: true,
+    },
+    {
+      id: "gpt-5.6-luna",
+      label: "GPT-5.6 Luna",
+      badgeLabel: "Experimental",
+      supportsPlanMode: true,
+    },
+    {
+      id: "claude-opus-4.7",
+      label: "Claude Opus 4.7",
+      defaultVisible: false,
+      optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+      supportsPlanMode: true,
+    },
+    {
+      id: "claude-opus-4.6",
+      label: "Claude Opus 4.6",
+      defaultVisible: false,
+      optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+      supportsPlanMode: true,
+    },
+    {
+      id: "claude-sonnet-4.6",
+      label: "Claude Sonnet 4.6",
+      defaultVisible: false,
+      optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+      supportsPlanMode: true,
+    },
+    {
+      id: "claude-sonnet-4.5",
+      label: "Claude Sonnet 4.5",
+      defaultVisible: false,
+      supportsPlanMode: true,
+    },
+    {
+      id: "claude-haiku-4.5",
+      label: "Claude Haiku 4.5",
+      defaultVisible: false,
+      supportsPlanMode: true,
+    },
+    {
+      id: "minimax-m2.5",
+      label: "MiniMax M2.5",
+      defaultVisible: false,
+      supportsPlanMode: true,
+    },
+    {
+      id: "glm-5",
+      label: "GLM-5",
+      defaultVisible: false,
+      supportsPlanMode: true,
+    },
+    {
+      id: "deepseek-3.2",
+      label: "DeepSeek 3.2",
+      badgeLabel: "Experimental",
+      defaultVisible: false,
+      supportsPlanMode: true,
+    },
+    {
+      id: "qwen3-coder-next",
+      label: "Qwen3 Coder Next",
+      badgeLabel: "Experimental",
+      defaultVisible: false,
+      supportsPlanMode: true,
+    },
+  ],
   // The bundled SDK exposes a broad model catalog. This curated shortlist is
   // only the picker seed, not a whitelist. The `default` slug maps to the
   // SDK's default composer model.
@@ -1446,6 +1556,15 @@ export const MODEL_ALIASES_BY_PROVIDER: Record<
   gemini: {
     "gemini-3-pro": "gemini-3-pro-preview",
     "gemini-3.1-pro-preview": "gemini-3-pro-preview",
+  },
+  kiro: {
+    // Common shorthand / dotted-vs-hyphen variants users may persist.
+    "claude-opus-4-8": "claude-opus-4.8",
+    "claude-opus-4-7": "claude-opus-4.7",
+    "claude-opus-4-6": "claude-opus-4.6",
+    "claude-sonnet-4-6": "claude-sonnet-4.6",
+    "claude-sonnet-4-5": "claude-sonnet-4.5",
+    "claude-haiku-4-5": "claude-haiku-4.5",
   },
   // Cursor retired the old `gpt-5` / `sonnet-4*` / `opus-4.x` slugs sometime
   // around 2025-11. Existing user settings persisted by earlier builds get
@@ -1726,6 +1845,35 @@ export const ProviderOpencodeInventoryRpc = Rpc.make(
     error: AgentSessionStartError,
   },
 );
+
+// ---------------------------------------------------------------------------
+// Kiro live model inventory. Prefer control-plane ListAvailableModels; fall
+// back to `kiro-cli chat --list-models`. The renderer merges this into the
+// static `MODELS_BY_PROVIDER.kiro` seed so the picker reflects the account's
+// currently-available catalog (which varies by tier / region).
+// ---------------------------------------------------------------------------
+
+export const KiroInventoryModel = Schema.Struct({
+  id: Schema.String,
+  label: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  contextWindow: Schema.NullOr(Schema.Number),
+  rateMultiplier: Schema.NullOr(Schema.Number),
+  supportsImages: Schema.Boolean,
+});
+export type KiroInventoryModel = typeof KiroInventoryModel.Type;
+
+export const KiroInventory = Schema.Struct({
+  models: Schema.Array(KiroInventoryModel),
+  defaultModelId: Schema.String,
+});
+export type KiroInventory = typeof KiroInventory.Type;
+
+export const ProviderKiroInventoryRpc = Rpc.make("provider.kiro.inventory", {
+  payload: Schema.Struct({}),
+  success: KiroInventory,
+  error: AgentSessionStartError,
+});
 
 // ---------------------------------------------------------------------------
 // OpenCode provider management. The settings UI lets the user connect any of

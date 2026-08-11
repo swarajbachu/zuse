@@ -787,6 +787,7 @@ const PROVIDER_LABEL_FOR_ERROR: Record<ProviderId, string> = {
 	gemini: "Gemini",
 	cursor: "Cursor",
 	opencode: "OpenCode",
+	kiro: "Kiro",
 };
 
 /**

@@ -34,6 +34,11 @@ export const PROVIDER_CLI_REGISTRY = {
 		displayName: "OpenCode",
 		cliBinary: "opencode",
 	},
+	kiro: {
+		providerId: "kiro",
+		displayName: "Kiro",
+		cliBinary: "kiro-cli",
+	},
 } as const satisfies Record<CliProviderId, ProviderCliDescriptor>;
 
 export const SUPPORTED_PROVIDER_CLIS: ReadonlyArray<ProviderCliDescriptor> =

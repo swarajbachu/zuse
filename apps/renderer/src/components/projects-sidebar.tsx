@@ -673,7 +673,7 @@ function SidebarAccount() {
 	const { isSignedIn, user, name, signingIn, signIn, signOut } = useAuth();
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
-	const loadUsageLimits = useUsageLimitsStore((s) => s.load);
+	const refreshUsageLimits = useUsageLimitsStore((s) => s.refresh);
 
 	// Always render an affordance. Until auth state resolves (or whenever signed
 	// out) we show "Sign in" — a brief flash to the signed-in row on cold load
@@ -721,8 +721,14 @@ function SidebarAccount() {
 				render={
 					<button
 						type="button"
-						onPointerEnter={() => void loadUsageLimits()}
-						onFocus={() => void loadUsageLimits()}
+						onPointerEnter={() => {
+							// Force-refresh so Kiro OIDC misses cannot stick in the
+							// soft 60s cache (token is short-lived).
+							void refreshUsageLimits(true);
+						}}
+						onFocus={() => {
+							void refreshUsageLimits(true);
+						}}
 						className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-[12px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
 					>
 						{isSignedIn ? (
@@ -1406,6 +1412,42 @@ function ProjectContextMenu({
 			</MenuPopup>
 		</Menu>
 	);
+}
+
+// One-line login hint per provider — the user runs this in their terminal
+// and memoize picks up the credentials automatically on next refresh.
+const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
+	claude: "Run `claude /login` in your terminal",
+	codex: "Run `codex login` in your terminal",
+	grok: "Run `grok` in your terminal to sign in",
+	gemini: "Run `gemini` in your terminal to sign in",
+	opencode: "Run `opencode auth login` in your terminal to connect a provider",
+	kiro: "Run `kiro-cli login` in your terminal to sign in",
+};
+
+/**
+ * Start a brand-new chat in the given project. Creation is deferred to the
+ * first message: clicking "New chat" must NOT branch a worktree or spin up a
+ * session — it just clears the active selection so `MainShell` falls through
+ * to `<ChatLanding/>` ("What should we build in <project>?"). The landing's
+ * `submit()` is the sole creation path (worktree → chat → queue). Reads from
+ * stores directly so callers (the sidebar button + the Cmd+N menu shortcut)
+ * don't need prop drilling.
+ */
+export function createNewSession(projectId: FolderId): void {
+	// The landing lives on the chat tab. Return there before clearing the
+	// selection so creating a chat from Usage or Archives is immediately
+	// visible instead of leaving that takeover surface mounted.
+	useUiStore.getState().setActiveMainTab("chat");
+	// Select the project first (synchronous: `workspace.select` sets
+	// `selectedFolderId` before awaiting persistence), then clear the chat +
+	// session selection for it. `chats.select(null)` cascades into
+	// `sessions.select(null)`, so both the tab strip and the chat surface fall
+	// back to the empty landing for this project.
+	if (useWorkspaceStore.getState().selectedFolderId !== projectId) {
+		void useWorkspaceStore.getState().select(projectId);
+	}
+	useChatsStore.getState().select(null);
 }
 
 function NewChatButton({ projectId }: { projectId: FolderId }) {

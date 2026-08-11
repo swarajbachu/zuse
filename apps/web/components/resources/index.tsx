@@ -5,9 +5,9 @@ import { FilterBadge } from "@/components/resources/filter-badge";
 
 const data: CardData[] = [
   {
-    title: "Run six coding agents side by side",
+    title: "Run coding agents side by side",
     description:
-      "Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode in one window. Switch providers without losing context.",
+      "Claude Code, Codex, Cursor, Gemini, Grok, OpenCode, and Kiro in one window. Switch providers without losing context.",
     time: "5 min read",
     image: "/assets/blog-preview-agents-clean.svg",
     href: "/blog/run-six-agents-side-by-side",

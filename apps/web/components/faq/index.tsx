@@ -25,7 +25,7 @@ const data = [
   {
     question: "Which agents are supported?",
     answer:
-      "Zuse (Beta) wraps six coding agent CLIs in one workspace: Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode. You can run them side by side and switch providers without leaving the app.",
+      "Zuse (Beta) wraps seven coding agent CLIs in one workspace: Claude Code, Codex, Cursor, Gemini, Grok, OpenCode, and Kiro. You can run them side by side and switch providers without leaving the app.",
   },
   {
     question: "Do I need my own API keys or subscriptions?",
