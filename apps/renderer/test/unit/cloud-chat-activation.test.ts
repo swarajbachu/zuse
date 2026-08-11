@@ -47,9 +47,7 @@ describe("cloud chat activation", () => {
 		expect(messagesSource).toContain(
 			"ensureCloudWorkspaceAttached(cloudSummary)",
 		);
-		expect(cloudChatsSource).toContain(
-			'summary.state === "paused" || summary.state === "failed"',
-		);
+		expect(cloudChatsSource).toContain("cloudWorkspaceNeedsResume(discovered)");
 		expect(cloudChatsSource).toContain(
 			"current = refreshSummaryFromWorkspace(current, resumed)",
 		);

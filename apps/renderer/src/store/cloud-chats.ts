@@ -140,6 +140,10 @@ export const shouldAttachCloudChatOnOpen = (
 	summary: CloudChatSummary,
 ): boolean => summary.state === "ready" && summary.runtimeState === "online";
 
+export const cloudWorkspaceNeedsResume = (
+	workspace: Pick<CloudWorkspace, "state">,
+): boolean => workspace.state === "paused" || workspace.state === "failed";
+
 export const repositoryIdentityForOrigin = (
 	origin: GitOriginInfo | null | undefined,
 ): string | null =>
@@ -470,8 +474,12 @@ export const ensureCloudWorkspaceAttached = (
 	if (existing !== undefined) return existing;
 	const operation = (async () => {
 		const control = await getControlPlaneRpcClient();
-		let current = summary;
-		if (summary.state === "paused" || summary.state === "failed") {
+		const discovered = await Effect.runPromise(
+			control["cloud.workspaces.get"]({ workspaceId: summary.workspaceId }),
+		);
+		let current = refreshSummaryFromWorkspace(summary, discovered);
+		updateSummary(current);
+		if (cloudWorkspaceNeedsResume(discovered)) {
 			const resumed = await Effect.runPromise(
 				control["cloud.workspaces.resume"]({
 					workspaceId: summary.workspaceId,
