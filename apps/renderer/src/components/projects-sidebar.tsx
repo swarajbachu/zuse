@@ -1422,7 +1422,8 @@ const cloudStateLabel = (summary: CloudChatSummary): string => {
 	if (summary.state === "failed") return "Needs attention";
 	if (summary.state === "ready" && summary.runtimeState === "online")
 		return "Active";
-	if (summary.state === "resuming") return "Resuming";
+	if (summary.state === "resuming" || summary.statusCode.startsWith("resume-"))
+		return "Resuming";
 	return "Cloud starting";
 };
 
@@ -1443,7 +1444,7 @@ function CloudChatRow({
 	const archivePending =
 		summary.desiredState === "archived" && summary.state !== "failed";
 	const cloudWorkspaceLoading =
-		summary.desiredState === "archived" ||
+		archivePending ||
 		summary.state === "queued" ||
 		summary.state === "provisioning" ||
 		summary.state === "setup" ||

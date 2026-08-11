@@ -93,6 +93,7 @@ import { useMessagesStore } from "~/store/messages";
 import { useRepositorySettingsStore } from "~/store/repository-settings.ts";
 import { DRAFT_SESSION_ID, useSessionsStore } from "~/store/sessions";
 import { useSettingsStore } from "~/store/settings";
+import { useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
 import { EMPTY_WORKTREES, useWorktreesStore } from "~/store/worktrees";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
@@ -367,6 +368,8 @@ export function ChatLanding() {
 	const [cloudProject, setCloudProject] = useState<CloudProject | null>(null);
 	const [cloudSubscribed, setCloudSubscribed] = useState(false);
 	const [cloudPlacementError, setCloudPlacementError] = useState(false);
+	const setView = useUiStore((state) => state.setView);
+	const setSettingsSection = useUiStore((state) => state.setSettingsSection);
 	const cloudCacheRefreshRequests = useRef(new Set<string>());
 	const [projectSetupOpen, setProjectSetupOpen] = useState(false);
 	const anchoredGroup = useMemo(
@@ -485,19 +488,14 @@ export function ChatLanding() {
 					: !cloudSubscribed
 						? "Subscription required"
 						: cloudProject === null
-							? "Connect in Settings"
-							: ready
+							? "Connect repository"
+							: ready || build !== undefined
 								? provider.displayName
-								: build?.state === "ready"
-									? "Updating fast-start cache"
-									: build?.state === "failed"
-										? "Direct clone"
-										: "Warming Git cache";
+								: "Getting ready";
 				return {
 					providerId: provider.providerId,
 					providerLabel: provider.displayName,
-					disabled:
-						cloudPlacementError || !cloudSubscribed || cloudProject === null,
+					disabled: cloudPlacementError || !cloudSubscribed,
 					statusText,
 				};
 			}),
@@ -1318,6 +1316,11 @@ export function ChatLanding() {
 												cloudItems={cloudPickerItems}
 												selectedCloudProviderId={selectedCloudProviderId}
 												onPickCloud={(providerId) => {
+													if (cloudProject === null) {
+														setSettingsSection({ kind: "machines" });
+														setView("settings");
+														return;
+													}
 													setTargetOverride(null);
 													setSelectedCloudProviderId(providerId);
 												}}

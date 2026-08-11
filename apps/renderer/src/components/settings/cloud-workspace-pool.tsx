@@ -440,24 +440,11 @@ export function CloudWorkspacePool() {
 					{projects.length === 0 ? (
 						<CloudSettingsRow
 							title="No repositories connected"
-							description="Connect a repository to cache it for fast cloud workspace startup."
+							description="Connect a repository to use it in a cloud workspace."
 							action={<Badge variant="outline">Empty</Badge>}
 						/>
 					) : (
 						projects.map((project) => {
-							const latestBuild = project.latestBuilds[selectedProvider];
-							const cacheUnavailable = latestBuild?.state === "failed";
-							const buildInProgress =
-								latestBuild?.state === "queued" ||
-								latestBuild?.state === "building" ||
-								latestBuild?.state === "sanitizing";
-							const cacheLabel = cacheUnavailable
-								? "Direct clone"
-								: project.state === "ready"
-									? "Ready"
-									: buildInProgress
-										? "Caching"
-										: "Connected";
 							const projectWorkspaces = workspaces.filter(
 								(workspace) => workspace.projectId === project.projectId,
 							);
@@ -468,23 +455,7 @@ export function CloudWorkspacePool() {
 										description={`${project.repositoryIdentity} · ${project.defaultBranch}`}
 										action={
 											<div className="flex min-h-11 items-center gap-2">
-												<Badge
-													variant={
-														cacheUnavailable
-															? "outline"
-															: project.state === "ready"
-																? "success"
-																: "warning"
-													}
-												>
-													{cacheLabel}
-												</Badge>
-												{cacheUnavailable ? (
-													<span className="max-w-48 text-pretty text-xs text-muted-foreground">
-														Fast-start cache unavailable. New workspaces will
-														clone normally.
-													</span>
-												) : null}
+												<Badge variant="success">Ready</Badge>
 											</div>
 										}
 									/>
