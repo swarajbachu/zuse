@@ -439,9 +439,11 @@ export function ChatLanding() {
 							? "Connect in Settings"
 							: ready
 								? provider.displayName
-								: build?.state === "failed"
-									? "Setup failed"
-									: "Preparing";
+								: build?.state === "ready"
+									? "Prepare required"
+									: build?.state === "failed"
+										? "Setup failed"
+										: "Preparing";
 				return {
 					providerId: provider.providerId,
 					providerLabel: provider.displayName,

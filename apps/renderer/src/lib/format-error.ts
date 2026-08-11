@@ -37,6 +37,21 @@ const TAG_MESSAGES: Record<string, string> = {
 		"Couldn't reach the computer. It may be asleep or offline.",
 };
 
+const CLOUD_WORKSPACE_CODE_MESSAGES: Readonly<Record<string, string>> = {
+	"not-found": "This cloud workspace could not be found.",
+	"not-allowed": "Cloud workspace access is not available for this account.",
+	"invalid-request": "The cloud workspace request is invalid.",
+	"entitlement-required": "A Cloud Sandbox subscription is required.",
+	"provider-unavailable":
+		"The cloud provider is temporarily unavailable. Try again shortly.",
+	"project-not-ready":
+		"This cloud project needs to be prepared again before starting a workspace.",
+	"branch-in-use":
+		"That branch is already open in another cloud workspace. Reuse it or choose another branch.",
+	conflict:
+		"The cloud workspace changed while starting. Refresh and try again.",
+};
+
 const parseJsonRecord = (
 	value: string | null,
 ): Record<string, unknown> | null => {
@@ -92,6 +107,12 @@ const formatErrorInner = (err: unknown): string => {
 			: typeof messagePayload?.["reason"] === "string"
 				? messagePayload["reason"]
 				: null;
+	const code =
+		typeof err["code"] === "string"
+			? err["code"]
+			: typeof messagePayload?.["code"] === "string"
+				? messagePayload["code"]
+				: null;
 	const providerId =
 		typeof err["providerId"] === "string"
 			? err["providerId"]
@@ -135,6 +156,13 @@ const formatErrorInner = (err: unknown): string => {
 		return output !== null && output.trim().length > 0
 			? `Archive cleanup timed out after ${seconds}:\n${output.trim()}`
 			: `Archive cleanup timed out after ${seconds}.`;
+	}
+	if (
+		tag === "CloudWorkspaceOpError" &&
+		code !== null &&
+		CLOUD_WORKSPACE_CODE_MESSAGES[code] !== undefined
+	) {
+		return CLOUD_WORKSPACE_CODE_MESSAGES[code];
 	}
 	if (reason !== null && reason.length > 0) {
 		const provider = providerId !== null ? `${providerId}: ` : "";

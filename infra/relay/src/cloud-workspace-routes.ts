@@ -118,9 +118,24 @@ const isSafeCloudEnvironment = (
 			value.length <= 8_192,
 	);
 
+export const currentActiveCloudProjectBuilds = (
+	builds: ReadonlyArray<CloudProjectBuildRecord>,
+	currentTemplateVersions: ReadonlyMap<string, string>,
+): Readonly<Record<string, string>> =>
+	Object.fromEntries(
+		builds
+			.filter(
+				(build) =>
+					build.state === "ready" &&
+					currentTemplateVersions.get(build.provider) === build.templateVersion,
+			)
+			.map((build) => [build.provider, build.buildId]),
+	);
+
 const publicProject = (
 	project: CloudProjectRecord,
 	builds: ReadonlyArray<CloudProjectBuildRecord>,
+	currentTemplateVersions: ReadonlyMap<string, string>,
 ) => {
 	const latestByProvider = new Map<string, CloudProjectBuildRecord>();
 	for (const build of builds) {
@@ -137,10 +152,9 @@ const publicProject = (
 		defaultBranch: project.defaultBranch,
 		visibility: project.visibility,
 		state: project.state,
-		activeBuilds: Object.fromEntries(
-			builds
-				.filter((build) => build.state === "ready")
-				.map((build) => [build.provider, build.buildId]),
+		activeBuilds: currentActiveCloudProjectBuilds(
+			builds,
+			currentTemplateVersions,
 		),
 		latestBuilds: Object.fromEntries(
 			[...latestByProvider.values()].map((build) => [
@@ -639,10 +653,21 @@ export const routeCloudWorkspaceRequest = (
 		}
 		if (method === "GET" && path === RelayPaths.cloudProjects) {
 			const projects = yield* store.listProjects(principal.accountId);
+			const providers = yield* SandboxProviders;
+			const currentTemplateVersions = new Map(
+				providers.availableProviders.map((provider) => [
+					provider.providerId,
+					provider.templateVersion,
+				]),
+			);
 			const result = yield* Effect.forEach(projects, (project) =>
 				store
 					.listBuilds(project.projectId)
-					.pipe(Effect.map((builds) => publicProject(project, builds))),
+					.pipe(
+						Effect.map((builds) =>
+							publicProject(project, builds, currentTemplateVersions),
+						),
+					),
 			);
 			return json({ projects: result });
 		}
@@ -686,7 +711,10 @@ export const routeCloudWorkspaceRequest = (
 				createdAtMs: nowMs,
 				updatedAtMs: nowMs,
 			};
-			return json(publicProject(yield* store.connectProject(project), []), 201);
+			return json(
+				publicProject(yield* store.connectProject(project), [], new Map()),
+				201,
+			);
 		}
 		const prepareMatch = path.match(
 			/^\/v1\/cloud\/projects\/([^/]+)\/prepare$/u,
