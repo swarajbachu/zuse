@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { currentActiveCloudProjectBuilds } from "../../src/cloud-workspace-routes.ts";
+import {
+	currentActiveCloudProjectBuilds,
+	selectCloudWorkspaceBuild,
+} from "../../src/cloud-workspace-routes.ts";
 import type { CloudProjectBuildRecord } from "../../src/cloud-workspace-store.ts";
 
 const build = (
@@ -35,5 +38,24 @@ describe("cloud project build version", () => {
 				new Map([["sandbox", "template-v2"]]),
 			),
 		).toEqual({ sandbox: "current" });
+	});
+
+	test("uses a direct clone when no compatible snapshot is available", () => {
+		const failed = {
+			...build("failed", "template-v2"),
+			snapshotId: undefined,
+			state: "failed" as const,
+		};
+		expect(
+			selectCloudWorkspaceBuild(null, null, [failed], "template-v2"),
+		).toEqual({ build: failed, preparedSnapshotAvailable: false });
+	});
+
+	test("prefers a compatible snapshot over a stale account snapshot", () => {
+		const stale = build("account-stale", "template-v1");
+		const current = build("project-current", "template-v2");
+		expect(
+			selectCloudWorkspaceBuild(stale, current, [current], "template-v2"),
+		).toEqual({ build: current, preparedSnapshotAvailable: true });
 	});
 });

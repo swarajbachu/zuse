@@ -158,6 +158,35 @@ export const currentActiveCloudProjectBuilds = (
 			.map((build) => [build.provider, build.buildId]),
 	);
 
+export const selectCloudWorkspaceBuild = (
+	accountBuild: CloudProjectBuildRecord | null,
+	projectBuild: CloudProjectBuildRecord | null,
+	projectBuilds: ReadonlyArray<CloudProjectBuildRecord>,
+	currentTemplateVersion: string,
+):
+	| {
+			readonly build: CloudProjectBuildRecord;
+			readonly preparedSnapshotAvailable: boolean;
+	  }
+	| undefined => {
+	const candidates = [
+		accountBuild,
+		projectBuild,
+		...[...projectBuilds].sort(
+			(left, right) => right.createdAtMs - left.createdAtMs,
+		),
+	].filter((build): build is CloudProjectBuildRecord => build !== null);
+	const preparedBuild = candidates.find(
+		(build) =>
+			build.snapshotId !== undefined &&
+			build.templateVersion === currentTemplateVersion,
+	);
+	const build = preparedBuild ?? candidates[0];
+	return build === undefined
+		? undefined
+		: { build, preparedSnapshotAvailable: preparedBuild !== undefined };
+};
+
 const publicProject = (
 	project: CloudProjectRecord,
 	builds: ReadonlyArray<CloudProjectBuildRecord>,
@@ -1104,17 +1133,19 @@ export const routeCloudWorkspaceRequest = (
 				project.projectId,
 				provider.providerId,
 			);
-			const build = yield* store.getActiveAccountBuild(
+			const accountBuild = yield* store.getActiveAccountBuild(
 				principal.accountId,
 				provider.providerId,
 			);
-			if (
-				projectBuild === null ||
-				build === null ||
-				build.snapshotId === undefined ||
-				build.templateVersion !== provider.templateVersion
-			)
+			const selection = selectCloudWorkspaceBuild(
+				accountBuild,
+				projectBuild,
+				yield* store.listBuilds(project.projectId),
+				provider.templateVersion,
+			);
+			if (selection === undefined)
 				return yield* Effect.fail(conflict("cloud_project_not_ready"));
+			const { build, preparedSnapshotAvailable } = selection;
 			const workspaceId = yield* randomToken("workspace", 12);
 			const chatId = `chat_${crypto.randomUUID()}`;
 			const initialSessionId = `s_${crypto.randomUUID()}`;
@@ -1164,6 +1195,9 @@ export const routeCloudWorkspaceRequest = (
 					permissions: body.permissions ?? [],
 					firstMessage: body.firstMessage,
 					commandState: "queued",
+					repositoryCache: preparedSnapshotAvailable
+						? "prepared"
+						: "direct-clone",
 					startupTimings: { requestedAt: nowMs },
 				},
 				nextActionAtMs: nowMs,

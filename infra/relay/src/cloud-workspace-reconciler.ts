@@ -254,6 +254,23 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 				)
 				.pipe(Effect.orDie))
 		) {
+			const reportedFailurePhase = buildTimedOut
+				? ""
+				: yield* provider
+						.readTextFile(
+							build.providerSandboxId,
+							"/var/lib/zuse/project-build/failure-phase",
+							"zuse",
+						)
+						.pipe(
+							Effect.map((phase) => phase.trim()),
+							Effect.catchTag("SandboxProviderError", () => Effect.succeed("")),
+						);
+			const failureCode = buildTimedOut
+				? "project-setup-timeout"
+				: /^[a-z][a-z0-9-]{0,63}$/.test(reportedFailurePhase)
+					? `project-${reportedFailurePhase}-failed`
+					: "project-setup-failed";
 			yield* provider.kill(build.providerSandboxId).pipe(Effect.ignore);
 			const previous = yield* store.getActiveBuild(
 				build.projectId,
@@ -263,9 +280,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 				...build,
 				providerSandboxId: undefined,
 				state: "failed",
-				lastErrorCode: buildTimedOut
-					? "project-setup-timeout"
-					: "project-setup-failed",
+				lastErrorCode: failureCode,
 				nextActionAtMs: Number.MAX_SAFE_INTEGER,
 				revision: build.revision + 1,
 				updatedAtMs: nowMs,
@@ -273,9 +288,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 			yield* store.saveProject({
 				...project,
 				state: previous === null ? "failed" : "ready",
-				lastErrorCode: buildTimedOut
-					? "project-setup-timeout"
-					: "project-setup-failed",
+				lastErrorCode: failureCode,
 				updatedAtMs: nowMs,
 			});
 			return;
@@ -575,18 +588,30 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		if (workspace.state === "queued") {
 			const build = yield* store.getBuild(workspace.buildId);
 			const project = yield* store.getProject(workspace.projectId);
-			if (build?.snapshotId === undefined || project === null) return;
+			if (build === null || project === null) return;
 			const label = providerLabel("workspace", workspace.workspaceId);
+			const preparedSnapshotAvailable =
+				build.snapshotId !== undefined &&
+				build.templateVersion === provider.templateVersion;
 			const sandbox =
 				(yield* provider.recoverByLabel(label)) ??
-				(yield* provider.fork({
-					sandboxId: workspace.workspaceId,
-					providerLabel: label,
-					snapshotId: build.snapshotId,
-					timeoutSeconds: config.keepAliveTimeoutSeconds,
-					env: {},
-					onTimeout: "pause",
-				}));
+				(preparedSnapshotAvailable
+					? yield* provider.fork({
+							sandboxId: workspace.workspaceId,
+							providerLabel: label,
+							snapshotId: build.snapshotId as string,
+							timeoutSeconds: config.keepAliveTimeoutSeconds,
+							env: {},
+							onTimeout: "pause",
+						})
+					: yield* provider.create({
+							sandboxId: workspace.workspaceId,
+							providerLabel: label,
+							timeoutSeconds: config.keepAliveTimeoutSeconds,
+							env: {},
+							network: { kind: "quarantined" },
+							onTimeout: "pause",
+						}));
 			const allocatedAtMs = yield* Clock.currentTimeMillis;
 			const relay = yield* RelayConfiguration;
 			const relayHost = new URL(relay.relayIssuer).hostname;

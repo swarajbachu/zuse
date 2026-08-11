@@ -481,7 +481,8 @@ export function CloudWorkspacePool() {
 												</Badge>
 												{latestBuild?.state === "failed" ? (
 													<span className="max-w-48 text-pretty text-xs text-destructive">
-														Repository cache update failed. Reconnect to retry.
+														Fast-start cache unavailable. New workspaces will
+														clone normally.
 													</span>
 												) : null}
 											</div>

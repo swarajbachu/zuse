@@ -489,18 +489,15 @@ export function ChatLanding() {
 							: ready
 								? provider.displayName
 								: build?.state === "ready"
-									? "Updating cache"
+									? "Updating fast-start cache"
 									: build?.state === "failed"
-										? "Cache update failed"
-										: "Caching repository";
+										? "Direct clone"
+										: "Warming Git cache";
 				return {
 					providerId: provider.providerId,
 					providerLabel: provider.displayName,
 					disabled:
-						cloudPlacementError ||
-						!cloudSubscribed ||
-						cloudProject === null ||
-						!ready,
+						cloudPlacementError || !cloudSubscribed || cloudProject === null,
 					statusText,
 				};
 			}),
@@ -727,7 +724,7 @@ export function ChatLanding() {
 		if (selectedCloudProviderId !== null) {
 			if (cloudProject === null) {
 				setSubmitError(
-					"Connect this repository in Cloud Sandbox settings and wait for its cache to be ready.",
+					"Connect this repository in Cloud Sandbox settings first.",
 				);
 				return;
 			}
