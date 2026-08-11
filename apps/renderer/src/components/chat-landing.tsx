@@ -15,7 +15,7 @@ import {
 	type FolderId,
 	type LinearIssueSummary,
 	type ProviderId,
-	SessionId,
+	type SessionId,
 	type WorktreeCreateSource,
 	type WorktreeId,
 } from "@zuse/contracts";
@@ -70,15 +70,16 @@ import {
 	getControlPlaneRpcClient,
 	getLocalEnvironmentId,
 	getRpcClient,
-	registerCloudWorkspace,
 } from "~/lib/rpc-client";
-import {
-	switchToCloudWorkspace,
-	switchToEnvironment,
-} from "~/lib/switch-environment";
+import { switchToEnvironment } from "~/lib/switch-environment";
 import { cn } from "~/lib/utils";
 import { useAttachmentsStore } from "~/store/attachments";
 import { useChatsStore } from "~/store/chats";
+import {
+	openCloudChat,
+	stageCloudChat,
+	summaryFromLaunch,
+} from "~/store/cloud-chats";
 import { useComposerBridge } from "~/store/composer-bridge";
 import {
 	composerDraftKeyForLanding,
@@ -440,10 +441,10 @@ export function ChatLanding() {
 							: ready
 								? provider.displayName
 								: build?.state === "ready"
-									? "Prepare required"
+									? "Cache ready"
 									: build?.state === "failed"
-										? "Setup failed"
-										: "Preparing";
+										? "Cache update failed"
+										: "Caching repository";
 				return {
 					providerId: provider.providerId,
 					providerLabel: provider.displayName,
@@ -678,7 +679,7 @@ export function ChatLanding() {
 		if (selectedCloudProviderId !== null) {
 			if (cloudProject === null) {
 				setSubmitError(
-					"Connect and prepare this repository in Cloud Sandbox settings first.",
+					"Connect this repository in Cloud Sandbox settings and wait for its cache to be ready.",
 				);
 				return;
 			}
@@ -717,54 +718,28 @@ export function ChatLanding() {
 						idempotencyKey: crypto.randomUUID(),
 					}),
 				);
-				const connectionForWorkspace = () =>
-					Effect.runPromise(
-						control["cloud.workspaces.connect"]({
-							workspaceId: launch.workspace.workspaceId,
-						}),
-					);
-				const connection = await connectionForWorkspace();
-				registerCloudWorkspace(
-					launch.workspace.workspaceId,
-					connection,
-					connectionForWorkspace,
+				const title =
+					input.text.trim().split(/\r?\n/u, 1)[0]?.slice(0, 80) ||
+					launch.workspace.branch;
+				const summary = summaryFromLaunch({
+					workspace: launch.workspace,
+					repositoryIdentity: cloudProject.repositoryIdentity,
+					repositoryDisplayName: cloudProject.displayName,
+					title,
+					agent: draft.providerId,
+					model: draft.model,
+				});
+				if (selectedFolderId === null)
+					throw new Error("Select a repository before starting a cloud chat.");
+				stageCloudChat(summary, selectedFolderId, input.text);
+				useChatsStore.getState().select(summary.chatId);
+				void openCloudChat(summary, selectedFolderId).catch((cause) =>
+					toastManager.add({
+						type: "error",
+						title: "Cloud workspace needs attention",
+						description: formatError(cause),
+					}),
 				);
-				setPendingCloudStatus("Starting sandbox and agent…");
-				const client = await getRpcClient(launch.workspace.workspaceId);
-				const remoteFolders = await Effect.runPromise(
-					client["workspace.list"]({}),
-				).catch((cause) => {
-					throw new Error(`Initial RPC failed: ${formatError(cause)}`);
-				});
-				const folder =
-					remoteFolders.find(
-						(candidate) => candidate.path === "/home/zuse/workspace",
-					) ??
-					(await Effect.runPromise(
-						client["workspace.add"]({ path: "/home/zuse/workspace" }),
-					));
-				const created = await create(folder.id, draft.providerId, draft.model, {
-					environmentId: launch.workspace.workspaceId,
-					runtimeMode: draft.runtimeMode,
-					permissionMode: draft.permissionMode,
-					chatId: launch.chatId,
-					initialSessionId: SessionId.make(launch.initialSessionId),
-				});
-				if (created === null)
-					throw new Error(
-						useChatsStore.getState().error ??
-							"The cloud agent could not start.",
-					);
-				const switched = await switchToCloudWorkspace({
-					workspaceId: launch.workspace.workspaceId,
-					folder,
-					chatId: created.chatId,
-					seed: created.remoteSeed,
-				});
-				if (!switched.switched)
-					throw new Error(
-						"The cloud agent started, but its workspace disconnected before opening.",
-					);
 				useSessionsStore.getState().clearDraft();
 				setSelectedCloudProviderId(null);
 			} catch (cause) {

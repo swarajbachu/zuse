@@ -1,1 +1,2 @@
 artifacts/*.tgz
+artifacts/runtime-updater.mjs

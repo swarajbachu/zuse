@@ -87,7 +87,7 @@ export interface CloudWorkspaceCommandRecord {
 	readonly workspaceId: string;
 	readonly accountId: string;
 	readonly sequence: number;
-	readonly kind: "start-agent";
+	readonly kind: "start-agent" | "send-message";
 	readonly payload: Readonly<Record<string, unknown>>;
 	readonly state: "queued" | "claimed" | "acknowledged" | "failed";
 	readonly createdAtMs: number;
@@ -149,6 +149,14 @@ export interface CloudWorkspaceStoreApi {
 		projectId: string,
 		provider: string,
 	) => Effect.Effect<CloudProjectBuildRecord | null>;
+	readonly getActiveAccountBuild: (
+		accountId: string,
+		provider: string,
+	) => Effect.Effect<CloudProjectBuildRecord | null>;
+	readonly listAccountBuilds: (
+		accountId: string,
+		provider: string,
+	) => Effect.Effect<ReadonlyArray<CloudProjectBuildRecord>>;
 	readonly getBuild: (
 		buildId: string,
 	) => Effect.Effect<CloudProjectBuildRecord | null>;
@@ -218,10 +226,16 @@ export interface CloudWorkspaceStoreApi {
 	readonly createCommand: (
 		command: CloudWorkspaceCommandRecord,
 	) => Effect.Effect<CloudWorkspaceCommandRecord>;
+	readonly createNextCommand: (
+		command: Omit<CloudWorkspaceCommandRecord, "sequence">,
+	) => Effect.Effect<CloudWorkspaceCommandRecord>;
 	readonly listCommands: (
 		workspaceId: string,
 		afterSequence: number,
 		nowMs: number,
+	) => Effect.Effect<ReadonlyArray<CloudWorkspaceCommandRecord>>;
+	readonly listMessageCommands: (
+		workspaceId: string,
 	) => Effect.Effect<ReadonlyArray<CloudWorkspaceCommandRecord>>;
 	readonly acknowledgeCommand: (
 		workspaceId: string,
@@ -236,6 +250,12 @@ export interface CloudWorkspaceStoreApi {
 		workspaceId: string,
 		afterSequence: number,
 	) => Effect.Effect<ReadonlyArray<CloudWorkspaceEventRecord>>;
+	readonly latestEventAt: (workspaceId: string) => Effect.Effect<number | null>;
+	readonly markChatRead: (
+		workspaceId: string,
+		accountId: string,
+		nowMs: number,
+	) => Effect.Effect<void>;
 	readonly listCredentials: (
 		accountId: string,
 	) => Effect.Effect<ReadonlyArray<CloudCredentialRecord>>;
@@ -386,6 +406,31 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 										build.state === "ready",
 								)
 								.sort((a, b) => b.updatedAtMs - a.updatedAtMs)[0] ?? null,
+					),
+				),
+			getActiveAccountBuild: (accountId, provider) =>
+				Ref.get(state).pipe(
+					Effect.map(
+						(current) =>
+							[...current.builds.values()]
+								.filter(
+									(build) =>
+										build.accountId === accountId &&
+										build.provider === provider &&
+										build.state === "ready",
+								)
+								.sort((a, b) => b.updatedAtMs - a.updatedAtMs)[0] ?? null,
+					),
+				),
+			listAccountBuilds: (accountId, provider) =>
+				Ref.get(state).pipe(
+					Effect.map((current) =>
+						[...current.builds.values()]
+							.filter(
+								(build) =>
+									build.accountId === accountId && build.provider === provider,
+							)
+							.sort((a, b) => a.createdAtMs - b.createdAtMs),
 					),
 				),
 			getBuild: (buildId) =>
@@ -683,6 +728,29 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						},
 					] as const;
 				}),
+			createNextCommand: (command) =>
+				Ref.modify(state, (current) => {
+					const existing = current.commands.get(command.commandId);
+					if (existing !== undefined) return [existing, current] as const;
+					const sequence =
+						Math.max(
+							0,
+							...[...current.commands.values()]
+								.filter((item) => item.workspaceId === command.workspaceId)
+								.map((item) => item.sequence),
+						) + 1;
+					const created = { ...command, sequence };
+					return [
+						created,
+						{
+							...current,
+							commands: new Map(current.commands).set(
+								created.commandId,
+								created,
+							),
+						},
+					] as const;
+				}),
 			listCommands: (workspaceId, afterSequence, nowMs) =>
 				Ref.modify(state, (current) => {
 					const commands = [...current.commands.values()]
@@ -703,6 +771,18 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						updated.set(command.commandId, command);
 					return [commands, { ...current, commands: updated }] as const;
 				}),
+			listMessageCommands: (workspaceId) =>
+				Ref.get(state).pipe(
+					Effect.map((current) =>
+						[...current.commands.values()]
+							.filter(
+								(command) =>
+									command.workspaceId === workspaceId &&
+									command.kind === "send-message",
+							)
+							.sort((a, b) => a.sequence - b.sequence),
+					),
+				),
 			acknowledgeCommand: (workspaceId, commandId, nowMs) =>
 				Ref.modify(state, (current) => {
 					const command = current.commands.get(commandId);
@@ -745,6 +825,27 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							.sort((a, b) => a.runtimeSequence - b.runtimeSequence),
 					),
 				),
+			latestEventAt: (workspaceId) =>
+				Ref.get(state).pipe(
+					Effect.map((current) => {
+						const timestamps = [...current.events.values()]
+							.filter((event) => event.workspaceId === workspaceId)
+							.map((event) => event.createdAtMs);
+						return timestamps.length === 0 ? null : Math.max(...timestamps);
+					}),
+				),
+			markChatRead: (workspaceId, accountId, nowMs) =>
+				Ref.update(state, (current) => {
+					const workspace = current.workspaces.get(workspaceId);
+					if (workspace?.accountId !== accountId) return current;
+					return {
+						...current,
+						workspaces: new Map(current.workspaces).set(workspaceId, {
+							...workspace,
+							requestConfig: { ...workspace.requestConfig, lastReadAt: nowMs },
+						}),
+					};
+				}),
 			listCredentials: (accountId) =>
 				Ref.get(state).pipe(
 					Effect.map((current) =>
@@ -1023,6 +1124,20 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						),
 					),
 				),
+			getActiveAccountBuild: (accountId, provider) =>
+				orDie(
+					sql`SELECT * FROM relay_cloud_project_builds WHERE account_id=${accountId} AND provider=${provider} AND state='ready' ORDER BY updated_at DESC LIMIT 1`.pipe(
+						Effect.map((rows) =>
+							rows[0] ? buildFromRow(rows[0] as Row) : null,
+						),
+					),
+				),
+			listAccountBuilds: (accountId, provider) =>
+				orDie(
+					sql`SELECT * FROM relay_cloud_project_builds WHERE account_id=${accountId} AND provider=${provider} ORDER BY created_at`.pipe(
+						Effect.map((rows) => rows.map((row) => buildFromRow(row as Row))),
+					),
+				),
 			getBuild: (id) =>
 				orDie(
 					sql`SELECT * FROM relay_cloud_project_builds WHERE build_id=${id}`.pipe(
@@ -1153,6 +1268,18 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						Effect.map((rows) => commandFromRow(rows[0] as Row)),
 					),
 				),
+			createNextCommand: (command) =>
+				orDie(
+					Effect.gen(function* () {
+						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`command:${command.workspaceId}`}, 0))`;
+						const existing =
+							yield* sql`SELECT * FROM relay_cloud_workspace_commands WHERE command_id=${command.commandId}`;
+						if (existing[0]) return commandFromRow(existing[0] as Row);
+						const rows =
+							yield* sql`INSERT INTO relay_cloud_workspace_commands (command_id, workspace_id, account_id, sequence, kind, payload, state, created_at, claimed_at, acknowledged_at, failed_at) SELECT ${command.commandId}, ${command.workspaceId}, ${command.accountId}, COALESCE(MAX(sequence), 0) + 1, ${command.kind}, ${JSON.stringify(command.payload)}::jsonb, ${command.state}, ${command.createdAtMs}, ${command.claimedAtMs ?? null}, ${command.acknowledgedAtMs ?? null}, ${command.failedAtMs ?? null} FROM relay_cloud_workspace_commands WHERE workspace_id=${command.workspaceId} RETURNING *`;
+						return commandFromRow(rows[0] as Row);
+					}).pipe(sql.withTransaction),
+				),
 			listCommands: (workspaceId, afterSequence, nowMs) =>
 				orDie(
 					sql`UPDATE relay_cloud_workspace_commands SET state='claimed', claimed_at=COALESCE(claimed_at, ${nowMs}) WHERE workspace_id=${workspaceId} AND sequence > ${afterSequence} AND state IN ('queued','claimed') RETURNING *`.pipe(
@@ -1161,6 +1288,12 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 								.map((row) => commandFromRow(row as Row))
 								.sort((a, b) => a.sequence - b.sequence),
 						),
+					),
+				),
+			listMessageCommands: (workspaceId) =>
+				orDie(
+					sql`SELECT * FROM relay_cloud_workspace_commands WHERE workspace_id=${workspaceId} AND kind='send-message' ORDER BY sequence`.pipe(
+						Effect.map((rows) => rows.map((row) => commandFromRow(row as Row))),
 					),
 				),
 			acknowledgeCommand: (workspaceId, commandId, nowMs) =>
@@ -1185,6 +1318,23 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				orDie(
 					sql`SELECT * FROM relay_cloud_workspace_events WHERE workspace_id=${workspaceId} AND runtime_sequence > ${afterSequence} ORDER BY runtime_sequence`.pipe(
 						Effect.map((rows) => rows.map((row) => eventFromRow(row as Row))),
+					),
+				),
+			latestEventAt: (workspaceId) =>
+				orDie(
+					sql`SELECT MAX(created_at) AS latest_at FROM relay_cloud_workspace_events WHERE workspace_id=${workspaceId}`.pipe(
+						Effect.map((rows) => {
+							const value = rows[0]?.latest_at;
+							return value === null || value === undefined
+								? null
+								: Number(value);
+						}),
+					),
+				),
+			markChatRead: (workspaceId, accountId, nowMs) =>
+				orDie(
+					sql`UPDATE relay_cloud_workspaces SET request_config=jsonb_set(request_config, '{lastReadAt}', to_jsonb(${nowMs}::bigint), true) WHERE workspace_id=${workspaceId} AND account_id=${accountId}`.pipe(
+						Effect.asVoid,
 					),
 				),
 			listCredentials: (accountId) =>

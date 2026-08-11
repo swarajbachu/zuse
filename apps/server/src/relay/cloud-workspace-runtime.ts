@@ -5,7 +5,9 @@ import {
 	AgentSessionId,
 	ChatId,
 	CloudRuntimeCredential,
+	ComposerInput,
 	FolderId,
+	MessageId,
 	ProviderId,
 	RelayPaths,
 	WIRE_PROTOCOL_VERSION,
@@ -14,7 +16,10 @@ import type { StoredEvent } from "@zuse/domain/engine/dispatch";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { Effect, Layer, Redacted, Schedule, Schema, Stream } from "effect";
 import { compactDecrypt, exportJWK, generateKeyPair } from "jose";
-import { ChatService } from "../conversation/services/conversation-services.ts";
+import {
+	ChatService,
+	MessageService,
+} from "../conversation/services/conversation-services.ts";
 import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
 import type { CredentialsService } from "../provider/services/credentials-service.ts";
 import { WorkspaceService } from "../workspace/services/workspace-service.ts";
@@ -66,7 +71,7 @@ const BootstrapResponse = Schema.Struct({
 const Command = Schema.Struct({
 	commandId: Schema.String,
 	sequence: Schema.Number,
-	kind: Schema.Literal("start-agent"),
+	kind: Schema.Literals(["start-agent", "send-message"]),
 	payload: Schema.Record(Schema.String, Schema.Unknown),
 });
 
@@ -108,7 +113,7 @@ const requestJson = <A, I>(input: {
 const postReady = (
 	config: CloudWorkspaceRuntimeConfig,
 	runtimeCredential: string,
-	phase: "repository-ready" | "agent-started",
+	phase: "repository-ready" | "agent-started" | "command-acknowledged",
 	commandId?: string,
 ): Effect.Effect<void, CloudWorkspaceRuntimeError> =>
 	requestJson({
@@ -230,6 +235,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 	| LanAuthService
 	| WorkspaceService
 	| ChatService
+	| MessageService
 	| SessionDomain
 > =>
 	config === undefined
@@ -239,6 +245,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const auth = yield* LanAuthService;
 					const workspaces = yield* WorkspaceService;
 					const chats = yield* ChatService;
+					const messages = yield* MessageService;
 					const sessions = yield* SessionDomain;
 					const credentialKeyPair = yield* Effect.tryPromise({
 						try: () =>
@@ -294,7 +301,43 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const processCommand = (command: RuntimeCommand) =>
 						Effect.gen(function* () {
 							if (processedCommands.has(command.commandId)) return;
-							if (command.kind !== "start-agent") return;
+							if (command.kind === "send-message") {
+								const input = Schema.decodeUnknownOption(ComposerInput)(
+									command.payload.input,
+								);
+								if (
+									input._tag === "None" ||
+									typeof command.payload.clientMessageId !== "string"
+								)
+									return yield* Effect.fail(
+										fail("workspace_message_command_invalid"),
+									);
+								yield* messages
+									.sendMessage(
+										AgentSessionId.make(bootstrap.initialSessionId),
+										input.value.text,
+										input.value.attachments,
+										input.value.fileRefs,
+										input.value.skillRefs,
+										input.value.annotations,
+										command.payload.asGoal === true,
+										MessageId.make(command.payload.clientMessageId),
+									)
+									.pipe(
+										Effect.mapError(() =>
+											fail("workspace_message_delivery_failed"),
+										),
+									);
+								yield* postReady(
+									config,
+									bootstrap.runtimeCredential,
+									"command-acknowledged",
+									command.commandId,
+								);
+								processedCommands.add(command.commandId);
+								commandCursor = Math.max(commandCursor, command.sequence);
+								return;
+							}
 							const provider = Schema.decodeUnknownOption(ProviderId)(
 								command.payload.agent,
 							);
@@ -359,25 +402,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							),
 						);
 
-					const replicateEvent = (record: StoredEvent) =>
-						requestJson({
-							schema: Schema.Unknown,
-							url: `${config.relayUrl}${RelayPaths.cloudWorkspaceEvents(config.workspaceId)}`,
-							token: bootstrap.runtimeCredential,
-							method: "POST",
-							body: { events: [eventPayload(record)] },
-						}).pipe(Effect.asVoid);
-					yield* sessions.allEvents({ afterSequence: 0 }).pipe(
-						Stream.runForEach(replicateEvent),
-						// The local event log is the runtime outbox. Keep replaying after
-						// transient relay failures; the control plane deduplicates event IDs.
-						Effect.retry(Schedule.spaced("1 second")),
-						Effect.forkScoped({ startImmediately: true }),
-					);
-
-					const localSockets = new Map<string, WebSocket>();
-					const pendingFrames = new Map<string, Array<string | ArrayBuffer>>();
-					let gateway: WebSocket | null = null;
 					let lastActivityPublishedAt = 0;
 					const publishActivity = () => {
 						const now = Date.now();
@@ -392,6 +416,28 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							}).pipe(Effect.ignore),
 						);
 					};
+					const replicateEvent = (record: StoredEvent) =>
+						requestJson({
+							schema: Schema.Unknown,
+							url: `${config.relayUrl}${RelayPaths.cloudWorkspaceEvents(config.workspaceId)}`,
+							token: bootstrap.runtimeCredential,
+							method: "POST",
+							body: { events: [eventPayload(record)] },
+						}).pipe(
+							Effect.tap(() => Effect.sync(publishActivity)),
+							Effect.asVoid,
+						);
+					yield* sessions.allEvents({ afterSequence: 0 }).pipe(
+						Stream.runForEach(replicateEvent),
+						// The local event log is the runtime outbox. Keep replaying after
+						// transient relay failures; the control plane deduplicates event IDs.
+						Effect.retry(Schedule.spaced("1 second")),
+						Effect.forkScoped({ startImmediately: true }),
+					);
+
+					const localSockets = new Map<string, WebSocket>();
+					const pendingFrames = new Map<string, Array<string | ArrayBuffer>>();
+					let gateway: WebSocket | null = null;
 					const sendGateway = (message: unknown) => {
 						if (gateway?.readyState === WebSocket.OPEN)
 							gateway.send(JSON.stringify(message));
@@ -410,6 +456,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							pendingFrames.delete(connectionId);
 						});
 						socket.addEventListener("message", (event) => {
+							publishActivity();
 							if (typeof event.data === "string")
 								sendGateway({
 									type: "runtime.frame",

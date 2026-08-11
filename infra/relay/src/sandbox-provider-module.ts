@@ -11,6 +11,8 @@ export interface SandboxOfferConfig {
 	readonly port: number;
 	readonly createTimeoutSeconds: number;
 	readonly keepAliveTimeoutSeconds: number;
+	readonly runtimeManifestUrl?: string;
+	readonly runtimeSigningPublicJwk?: string;
 }
 
 export class SandboxOfferConfiguration extends Context.Service<
@@ -43,7 +45,7 @@ export class SandboxProviderConfigurationError extends Schema.TaggedErrorClass<S
 const offerConfiguration = (): SandboxOfferConfig => ({
 	port: 47_837,
 	createTimeoutSeconds: 60 * 60,
-	keepAliveTimeoutSeconds: 60 * 60,
+	keepAliveTimeoutSeconds: 10 * 60,
 });
 
 export const resolveSandboxProviderRuntimeFromModules = <

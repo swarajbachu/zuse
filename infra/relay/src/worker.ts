@@ -56,6 +56,8 @@ interface Env {
 	readonly RELAY_MINT_PRIVATE_JWK: string;
 	readonly RELAY_MINT_PUBLIC_JWK: string;
 	readonly CLOUD_CREDENTIAL_VAULT_KEY?: string;
+	readonly CLOUD_WORKSPACE_IDLE_TIMEOUT_MS?: string;
+	readonly CLOUD_REPOSITORY_CACHE_MAX_BYTES?: string;
 	readonly MAX_ENVIRONMENTS_PER_ACCOUNT?: string;
 	readonly ALLOWED_BROWSER_ORIGINS?: string;
 	// Managed Cloudflare tunnel (optional — absent disables provisioning).
@@ -122,6 +124,16 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		runtimeInstallerSource,
 	});
 	const sandboxProvider = resolveSandboxProviderRuntime(env);
+	const sandboxOffer = {
+		...sandboxProvider.offer,
+		...(isConfigured(env.MACHINE_RUNTIME_MANIFEST_URL) &&
+		isConfigured(env.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK)
+			? {
+					runtimeManifestUrl: env.MACHINE_RUNTIME_MANIFEST_URL,
+					runtimeSigningPublicJwk: env.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK,
+				}
+			: {}),
+	};
 	const availableSandboxProviderIds = new Set(
 		sandboxProvider.configuredProviders
 			.filter(
@@ -142,6 +154,12 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 	const sandboxCheckoutReady =
 		billing.liveCheckoutEnabled && sandboxOperational;
 	const configuredLimit = Number(env.MAX_ENVIRONMENTS_PER_ACCOUNT ?? "5");
+	const configuredIdleTimeout = Number(
+		env.CLOUD_WORKSPACE_IDLE_TIMEOUT_MS ?? 10 * 60 * 1_000,
+	);
+	const configuredCacheMaxBytes = Number(
+		env.CLOUD_REPOSITORY_CACHE_MAX_BYTES ?? 8 * 1024 * 1024 * 1024,
+	);
 	const configLayer = Config.layer({
 		relayIssuer: env.RELAY_ISSUER,
 		workosJwksUrl: env.WORKOS_JWKS_URL,
@@ -154,6 +172,16 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		cloudCredentialVaultKey: isConfigured(env.CLOUD_CREDENTIAL_VAULT_KEY)
 			? Redacted.make(env.CLOUD_CREDENTIAL_VAULT_KEY)
 			: undefined,
+		cloudWorkspaceIdleTimeoutMs:
+			Number.isSafeInteger(configuredIdleTimeout) &&
+			configuredIdleTimeout >= 60_000
+				? configuredIdleTimeout
+				: 10 * 60 * 1_000,
+		cloudRepositoryCacheMaxBytes:
+			Number.isSafeInteger(configuredCacheMaxBytes) &&
+			configuredCacheMaxBytes >= 256 * 1024 * 1024
+				? configuredCacheMaxBytes
+				: 8 * 1024 * 1024 * 1024,
 		maxEnvironmentsPerAccount:
 			Number.isInteger(configuredLimit) && configuredLimit > 0
 				? configuredLimit
@@ -206,7 +234,7 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		),
 		machineProvider.layer,
 		sandboxProvider.layer,
-		Layer.succeed(SandboxOfferConfiguration, sandboxProvider.offer),
+		Layer.succeed(SandboxOfferConfiguration, sandboxOffer),
 		billing.layer,
 		Layer.succeed(MachineControlConfiguration, machineConfig),
 		ManagedTunnelProviderLive.pipe(Layer.provide(configLayer)),
@@ -252,6 +280,20 @@ export default {
 			);
 		}
 		const eventSequence = response.headers.get("x-zuse-gateway-event-sequence");
+		const commandAvailable = response.headers.get("x-zuse-gateway-command");
+		if (gatewayWorkspaceId !== null && commandAvailable === "available") {
+			response.headers.delete("x-zuse-gateway-workspace");
+			response.headers.delete("x-zuse-gateway-command");
+			const id = env.WORKSPACE_GATEWAY.idFromName(gatewayWorkspaceId);
+			context.waitUntil(
+				env.WORKSPACE_GATEWAY.get(id).fetch(
+					new Request("https://workspace-gateway.internal/notify", {
+						method: "POST",
+						body: JSON.stringify({ type: "command.available" }),
+					}),
+				),
+			);
+		}
 		if (gatewayWorkspaceId !== null && eventSequence !== null) {
 			response.headers.delete("x-zuse-gateway-workspace");
 			response.headers.delete("x-zuse-gateway-event-sequence");
@@ -270,6 +312,11 @@ export default {
 		}
 		const machineId = response.headers.get("x-zuse-reconcile-machine");
 		const cloudBuildId = response.headers.get("x-zuse-reconcile-cloud-build");
+		const cloudBuildIds =
+			cloudBuildId
+				?.split(",")
+				.map((value) => value.trim())
+				.filter(Boolean) ?? [];
 		const cloudWorkspaceId = response.headers.get(
 			"x-zuse-reconcile-cloud-workspace",
 		);
@@ -289,9 +336,7 @@ export default {
 				machineId === null
 					? Promise.resolve()
 					: relay.reconcileMachine(machineId, `webhook-${crypto.randomUUID()}`),
-				cloudBuildId === null
-					? Promise.resolve()
-					: relay.reconcileCloudBuild(cloudBuildId),
+				...cloudBuildIds.map((buildId) => relay.reconcileCloudBuild(buildId)),
 				cloudWorkspaceId === null
 					? Promise.resolve()
 					: relay.reconcileCloudWorkspace(cloudWorkspaceId),

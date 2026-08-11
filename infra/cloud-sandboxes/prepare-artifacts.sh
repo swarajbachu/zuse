@@ -12,3 +12,5 @@ bun run --filter @zusehq/server build:bundle
 bun run --filter @zusehq/serve build
 npm pack ./apps/server --pack-destination "$artifacts_dir"
 npm pack ./packages/serve --pack-destination "$artifacts_dir"
+cp "$repo_root/apps/server/scripts/runtime-updater.mjs" \
+  "$artifacts_dir/runtime-updater.mjs"

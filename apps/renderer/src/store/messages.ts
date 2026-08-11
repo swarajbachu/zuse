@@ -27,6 +27,7 @@ import {
 import { sessionTimelineCache } from "../lib/session-timeline-cache.ts";
 import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
+import { cloudSummaryForSession } from "./cloud-chat-registry.ts";
 import {
 	markQueueHydrated,
 	subscribeSessionAcknowledged,
@@ -106,13 +107,13 @@ const readSessionModelOptions = (
 	// Backwards compat — the previous schema stored reasoning under a
 	// bare `memoize.reasoning.<sessionId>` key. Read it if the new key
 	// wasn't set so existing sessions don't lose their picker selection.
-	if (out["reasoning"] === undefined) {
+	if (out.reasoning === undefined) {
 		const legacy = readStorageWithLegacy(
 			window.sessionStorage,
 			`zuse.reasoning.${sessionId}`,
 			[`memoize.reasoning.${sessionId}`],
 		);
-		if (legacy !== null && legacy.length > 0) out["reasoning"] = legacy;
+		if (legacy !== null && legacy.length > 0) out.reasoning = legacy;
 	}
 	return Object.keys(out).length === 0 ? null : out;
 };
@@ -980,6 +981,31 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 							clientMessageId: messageId,
 							...(modelOptions !== null ? { modelOptions } : {}),
 						};
+			const cloudSummary = cloudSummaryForSession(sessionId);
+			if (cloudSummary !== null) {
+				const control = await import("../lib/rpc-client.ts").then((module) =>
+					module.getControlPlaneRpcClient(),
+				);
+				const richInput: ComposerInput =
+					typeof input === "string"
+						? new ComposerInput({
+								text: input,
+								attachments: [],
+								fileRefs: [],
+								skillRefs: [],
+								annotations: [],
+							})
+						: input;
+				await Effect.runPromise(
+					control["cloud.chats.send"]({
+						workspaceId: cloudSummary.workspaceId,
+						input: richInput,
+						clientMessageId: messageId,
+						asGoal: opts?.asGoal,
+					}),
+				);
+				return;
+			}
 			await dispatchRetryableRpcCommand(messageId, async () => {
 				const client = await getMessagesRpcClient();
 				return Effect.runPromise(client["messages.send"](payload));
@@ -1400,7 +1426,8 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 	retry: async (sessionId) => {
 		const msgs = get().messagesBySession[sessionId] ?? [];
 		for (let i = msgs.length - 1; i >= 0; i--) {
-			const m = msgs[i]!;
+			const m = msgs[i];
+			if (m === undefined) continue;
 			const c = m.content;
 			if (c._tag === "user_rich") {
 				await get().send(

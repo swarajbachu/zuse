@@ -42,17 +42,19 @@ RUN npm install --global /tmp/zusehq-server.tgz \
 	&& npm cache clean --force
 
 RUN useradd --create-home --shell /bin/bash zuse \
-    && mkdir -p /home/zuse/.zuse-data /home/zuse/workspaces \
-    && chown -R zuse:zuse /home/zuse
+    && mkdir -p /home/zuse/.zuse-data /var/cache/zuse/repositories \
+    && chown -R zuse:zuse /home/zuse /var/cache/zuse
 
 COPY --chmod=0755 project-builder.sh /usr/local/bin/zuse-project-builder
 COPY --chmod=0755 workspace-bootstrap.sh /usr/local/bin/zuse-workspace-bootstrap
 COPY --chmod=0755 git-askpass.sh /usr/local/bin/zuse-git-askpass
 COPY repository-script.ts /usr/local/lib/zuse/repository-script.ts
+COPY artifacts/runtime-updater.mjs /usr/local/lib/zuse/runtime-updater.mjs
 COPY --chmod=0755 archive-workspace.sh /usr/local/bin/zuse-archive-workspace
 
 RUN mkdir -p /var/lib/zuse/project-build /var/lib/zuse/workspace \
-	&& chown -R zuse:zuse /var/lib/zuse
+	&& mkdir -p /opt/zuse/releases \
+	&& chown -R zuse:zuse /var/lib/zuse /opt/zuse
 
 USER zuse
 WORKDIR /home/zuse

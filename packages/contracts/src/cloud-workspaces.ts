@@ -1,6 +1,8 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
-import { AgentSessionId, ChatId } from "./ids.ts";
+import { ProviderId } from "./agent.ts";
+import { ComposerInput } from "./composer.ts";
+import { AgentSessionId, ChatId, MessageId } from "./ids.ts";
 
 export const CLOUD_WORKSPACE_OFFER_ID = "cloud-workspace-standard-v1" as const;
 
@@ -228,6 +230,16 @@ export class CloudChatEvent extends Schema.Class<CloudChatEvent>(
 	createdAt: Schema.Number,
 }) {}
 
+export class CloudChatQueuedMessage extends Schema.Class<CloudChatQueuedMessage>(
+	"CloudChatQueuedMessage",
+)({
+	clientMessageId: MessageId,
+	input: ComposerInput,
+	state: Schema.Literals(["queued", "claimed", "acknowledged", "failed"]),
+	asGoal: Schema.Boolean,
+	createdAt: Schema.Number,
+}) {}
+
 export class CloudChatHistory extends Schema.Class<CloudChatHistory>(
 	"CloudChatHistory",
 )({
@@ -242,8 +254,39 @@ export class CloudChatHistory extends Schema.Class<CloudChatHistory>(
 		"failed",
 	]),
 	events: Schema.Array(CloudChatEvent),
+	queuedMessages: Schema.Array(CloudChatQueuedMessage),
 	cursor: Schema.Number,
 }) {}
+
+/** Durable cloud-chat metadata that is available without a live sandbox. */
+export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
+	"CloudChatSummary",
+)({
+	workspaceId: Schema.String,
+	projectId: Schema.String,
+	repositoryIdentity: Schema.String,
+	repositoryDisplayName: Schema.String,
+	chatId: ChatId,
+	initialSessionId: AgentSessionId,
+	title: Schema.String,
+	branch: Schema.String,
+	providerId: Schema.String,
+	agent: ProviderId,
+	model: Schema.String,
+	state: CloudWorkspaceState,
+	runtimeState: CloudWorkspaceRuntimeState,
+	statusCode: Schema.String,
+	startupPhase: CloudWorkspaceStartupPhase,
+	unread: Schema.Boolean,
+	createdAt: Schema.Number,
+	updatedAt: Schema.Number,
+}) {}
+
+export class CloudChatList extends Schema.Class<CloudChatList>("CloudChatList")(
+	{
+		chats: Schema.Array(CloudChatSummary),
+	},
+) {}
 
 export class CloudWorkspaceList extends Schema.Class<CloudWorkspaceList>(
 	"CloudWorkspaceList",
@@ -361,6 +404,21 @@ export const CloudWorkspacesConnectRpc = Rpc.make("cloud.workspaces.connect", {
 export const CloudChatsHistoryRpc = Rpc.make("cloud.chats.history", {
 	payload: CloudWorkspaceActionRequest,
 	success: CloudChatHistory,
+	error: CloudWorkspaceOpError,
+});
+export const CloudChatsListRpc = Rpc.make("cloud.chats.list", {
+	payload: Schema.Struct({ projectId: Schema.optional(Schema.String) }),
+	success: CloudChatList,
+	error: CloudWorkspaceOpError,
+});
+export const CloudChatsSendRpc = Rpc.make("cloud.chats.send", {
+	payload: Schema.Struct({
+		workspaceId: Schema.String,
+		input: ComposerInput,
+		clientMessageId: MessageId,
+		asGoal: Schema.optional(Schema.Boolean),
+	}),
+	success: Schema.Void,
 	error: CloudWorkspaceOpError,
 });
 export const CloudWorkspacesPauseRpc = Rpc.make("cloud.workspaces.pause", {

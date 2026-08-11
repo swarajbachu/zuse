@@ -372,7 +372,7 @@ export function CloudWorkspacePool() {
 			{subscribed && serviceAvailable ? (
 				<CloudSettingsGroup
 					title="Connected projects"
-					description="Prepare saves a clean repository snapshot without installing dependencies. Install anything you need later from the workspace terminal or agent."
+					description="Connected repositories are cached automatically. Dependencies remain workspace-owned and are never installed while caching."
 				>
 					<form
 						className="grid gap-2 p-3 sm:grid-cols-[minmax(0,1fr)_9rem_8rem_auto]"
@@ -440,17 +440,24 @@ export function CloudWorkspacePool() {
 					{projects.length === 0 ? (
 						<CloudSettingsRow
 							title="No repositories connected"
-							description="Connect a repository to prepare its first cloud build."
+							description="Connect a repository to cache it for fast cloud workspace startup."
 							action={<Badge variant="outline">Empty</Badge>}
 						/>
 					) : (
 						projects.map((project) => {
-							const buildId = project.activeBuilds[selectedProvider];
 							const latestBuild = project.latestBuilds[selectedProvider];
 							const buildInProgress =
 								latestBuild?.state === "queued" ||
 								latestBuild?.state === "building" ||
 								latestBuild?.state === "sanitizing";
+							const cacheLabel =
+								project.state === "ready"
+									? "Ready"
+									: project.state === "failed"
+										? "Update failed"
+										: buildInProgress
+											? "Caching"
+											: "Connected";
 							const projectWorkspaces = workspaces.filter(
 								(workspace) => workspace.projectId === project.projectId,
 							);
@@ -461,42 +468,6 @@ export function CloudWorkspacePool() {
 										description={`${project.repositoryIdentity} · ${project.defaultBranch}`}
 										action={
 											<div className="flex min-h-11 items-center gap-2">
-												{buildId === undefined ? (
-													<Button
-														size="xs"
-														loading={
-															busy === `prepare:${project.projectId}` ||
-															buildInProgress
-														}
-														disabled={
-															selectedProvider.length === 0 || buildInProgress
-														}
-														onClick={() =>
-															void run(
-																`prepare:${project.projectId}`,
-																async () => {
-																	const client =
-																		await getControlPlaneRpcClient();
-																	await Effect.runPromise(
-																		client["cloud.projects.prepare"]({
-																			projectId: project.projectId,
-																			providerId: selectedProvider,
-																			idempotencyKey: crypto.randomUUID(),
-																		}),
-																	);
-																},
-															)
-														}
-													>
-														{buildInProgress
-															? latestBuild.state === "sanitizing"
-																? "Saving build"
-																: "Preparing"
-															: latestBuild?.state === "failed"
-																? "Retry prepare"
-																: "Prepare"}
-													</Button>
-												) : null}
 												<Badge
 													variant={
 														project.state === "ready"
@@ -506,13 +477,11 @@ export function CloudWorkspacePool() {
 																: "warning"
 													}
 												>
-													{project.state}
+													{cacheLabel}
 												</Badge>
 												{latestBuild?.state === "failed" ? (
 													<span className="max-w-48 text-pretty text-xs text-destructive">
-														{latestBuild.errorCode === "project-setup-timeout"
-															? "Setup timed out. Retry with the latest template."
-															: "Setup failed. Retry preparation."}
+														Repository cache update failed. Reconnect to retry.
 													</span>
 												) : null}
 											</div>

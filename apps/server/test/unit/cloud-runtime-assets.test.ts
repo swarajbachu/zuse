@@ -316,7 +316,7 @@ describe("cloud runtime assets", () => {
 		);
 		expect(workflow).toContain("publish_staging:");
 		expect(workflow).toContain(
-			"refs/heads/swarajbachu/managed-vps-cloud-provisioning",
+			"refs/heads/swarajbachu/e2b-integration-feasibility",
 		);
 		expect(workflow.match(/id: publication/gu)).toHaveLength(1);
 		expect(

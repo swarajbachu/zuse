@@ -3,6 +3,7 @@ import {
 	type BillingCheckoutRequest,
 	BillingPortal,
 	CloudChatHistory,
+	CloudChatList,
 	CloudCredentialConnection,
 	type CloudCredentialConnectRequest,
 	type CloudCredentialKind,
@@ -18,6 +19,7 @@ import {
 	type CloudWorkspaceCreateRequest,
 	CloudWorkspaceLaunch,
 	CloudWorkspaceList,
+	type ComposerInput,
 	EntitlementList,
 	type EnvironmentId,
 	type MachineCreateRequest,
@@ -70,6 +72,15 @@ export interface MachineControlServiceShape {
 	readonly cloudChatHistory: (
 		workspaceId: string,
 	) => Effect.Effect<CloudChatHistory, MachineControlError>;
+	readonly cloudChats: (
+		projectId?: string,
+	) => Effect.Effect<CloudChatList, MachineControlError>;
+	readonly sendCloudChatMessage: (input: {
+		readonly workspaceId: string;
+		readonly input: ComposerInput;
+		readonly clientMessageId: string;
+		readonly asGoal?: boolean;
+	}) => Effect.Effect<void, MachineControlError>;
 	readonly cloudWorkspaceAction: (
 		workspaceId: string,
 		action: "pause" | "resume" | "archive" | "delete",
@@ -293,6 +304,20 @@ export const MachineControlServiceLive: Layer.Layer<
 				request(
 					RelayPaths.cloudWorkspaceHistory(workspaceId),
 					CloudChatHistory,
+				),
+			cloudChats: (projectId) =>
+				request(
+					projectId === undefined
+						? RelayPaths.cloudChats
+						: `${RelayPaths.cloudChats}?projectId=${encodeURIComponent(projectId)}`,
+					CloudChatList,
+				),
+			sendCloudChatMessage: (input) =>
+				request(
+					RelayPaths.cloudWorkspaceMessages(input.workspaceId),
+					Schema.Void,
+					"POST",
+					input,
 				),
 			cloudWorkspaceAction: (workspaceId, action) =>
 				request(

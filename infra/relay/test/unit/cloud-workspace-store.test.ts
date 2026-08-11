@@ -374,6 +374,39 @@ describe("cloud workspace store", () => {
 		expect(
 			await runtime.runPromise(store.listEvents("workspace-1", 0)),
 		).toEqual([event]);
+		expect(await runtime.runPromise(store.latestEventAt("workspace-1"))).toBe(
+			300,
+		);
+		await runtime.dispose();
+	});
+
+	test("queues durable cloud messages in strict workspace order", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		const message = (id: string, text: string) => ({
+			commandId: `message:${id}`,
+			workspaceId: "workspace-1",
+			accountId: "account-1",
+			kind: "send-message" as const,
+			payload: { clientMessageId: id, input: { text } },
+			state: "queued" as const,
+			createdAtMs: 400,
+		});
+		const first = await runtime.runPromise(
+			store.createNextCommand(message("message-1", "first")),
+		);
+		const duplicate = await runtime.runPromise(
+			store.createNextCommand(message("message-1", "first")),
+		);
+		const second = await runtime.runPromise(
+			store.createNextCommand(message("message-2", "second")),
+		);
+
+		expect(duplicate).toEqual(first);
+		expect(second.sequence).toBe(first.sequence + 1);
+		expect(
+			await runtime.runPromise(store.listMessageCommands("workspace-1")),
+		).toEqual([first, second]);
 		await runtime.dispose();
 	});
 

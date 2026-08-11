@@ -3,6 +3,7 @@ set -euo pipefail
 
 status_dir=/var/lib/zuse/workspace
 workspace=/home/zuse/workspace
+mirror="/var/cache/zuse/repositories/${ZUSE_PROJECT_CACHE_ID:?}.git"
 mkdir -p "$status_dir"
 rm -f \
   "$status_dir/ready" \
@@ -32,9 +33,18 @@ export ZUSE_USER_DATA=/home/zuse/.zuse-data
 credentials_event="$status_dir/credentials-ready-event"
 rm -f "$credentials_event"
 mkfifo -m 600 "$credentials_event"
+runtime_command=(zuse serve --foreground)
+if [[ -n "${ZUSE_RUNTIME_MANIFEST_URL:-}" && -f "${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]]; then
+  ZUSE_RUNTIME_INSTALL_ONLY=1 \
+    ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 \
+    ZUSE_RUNTIME_WIRE_PROTOCOL="${ZUSE_RUNTIME_WIRE_PROTOCOL:?}" \
+    node /usr/local/lib/zuse/runtime-updater.mjs \
+    >"$status_dir/runtime-update.log" 2>&1
+  runtime_command=(node /opt/zuse/current/bin.mjs serve --foreground)
+fi
 (
   set +e
-  zuse serve --foreground >"$status_dir/runtime.log" 2>&1
+  "${runtime_command[@]}" >"$status_dir/runtime.log" 2>&1
   code=$?
   [[ -f "$status_dir/credentials-ready" ]] || touch "$status_dir/failed"
   exit "$code"
@@ -52,7 +62,14 @@ fi
 [[ ! -f "$status_dir/failed" ]]
 rm -f "$credentials_event"
 
+rm -rf "$workspace"
+if [[ -d "$mirror" ]]; then
+  git clone --no-hardlinks "$mirror" "$workspace"
+else
+  git clone "${ZUSE_REPOSITORY_URL:?}" "$workspace"
+fi
 cd "$workspace"
+git remote set-url origin "${ZUSE_REPOSITORY_URL:?}"
 remote_ref="${ZUSE_BASE_REF#origin/}"
 git fetch --prune origin "$remote_ref"
 git checkout -B "$ZUSE_BRANCH" FETCH_HEAD

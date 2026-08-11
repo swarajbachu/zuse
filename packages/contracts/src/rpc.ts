@@ -32,6 +32,8 @@ import {
 } from "./browser.ts";
 import {
 	CloudChatsHistoryRpc,
+	CloudChatsListRpc,
+	CloudChatsSendRpc,
 	CloudCredentialsDisconnectRpc,
 	CloudCredentialsImportLocalRpc,
 	CloudCredentialsListRpc,
@@ -336,6 +338,8 @@ export const MemoizeRpcs = RpcGroup.make(
 	CloudWorkspacesCreateRpc,
 	CloudWorkspacesConnectRpc,
 	CloudChatsHistoryRpc,
+	CloudChatsListRpc,
+	CloudChatsSendRpc,
 	CloudWorkspacesPauseRpc,
 	CloudWorkspacesResumeRpc,
 	CloudWorkspacesArchiveRpc,

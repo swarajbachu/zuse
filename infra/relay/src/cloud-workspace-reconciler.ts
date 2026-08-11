@@ -1,3 +1,4 @@
+import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import {
 	type SandboxProviderAdapter,
 	SandboxProviders,
@@ -17,7 +18,6 @@ const RETRY_MS = 5_000;
 const WORKSPACE_START_TIMEOUT_MS = 5 * 60 * 1_000;
 const RECONCILE_LEASE_MS = 2 * 60 * 1_000;
 const PROJECT_BUILD_TIMEOUT_MS = 15 * 60 * 1_000;
-const IDLE_PAUSE_MS = 60 * 60 * 1_000;
 const WARM_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_RUNTIME_BOOT_TTL_MS = 30 * 60 * 1_000;
 const WORKSPACE_RUNTIME_BOOT_TOKEN_FILE =
@@ -72,6 +72,26 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 	const config = yield* SandboxOfferConfiguration;
 	const nowMs = yield* Clock.currentTimeMillis;
 	if (build.state === "queued") {
+		const accountBuilds = yield* store.listAccountBuilds(
+			build.accountId,
+			build.provider,
+		);
+		const earlierPending = accountBuilds.some(
+			(candidate) =>
+				candidate.buildId !== build.buildId &&
+				candidate.createdAtMs < build.createdAtMs &&
+				(candidate.state === "queued" ||
+					candidate.state === "building" ||
+					candidate.state === "sanitizing"),
+		);
+		if (earlierPending) {
+			yield* store.saveBuild({
+				...build,
+				nextActionAtMs: nowMs + RETRY_MS,
+				updatedAtMs: nowMs,
+			});
+			return;
+		}
 		const gitCredential =
 			project.visibility === "private"
 				? yield* store.getCredential(project.accountId, "github")
@@ -98,19 +118,35 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 			return;
 		}
 		const label = providerLabel("build", build.buildId);
+		const relayConfig = yield* RelayConfiguration;
 		const existing = yield* provider.recoverByLabel(label).pipe(Effect.orDie);
+		const previousAccountBuild = yield* store.getActiveAccountBuild(
+			build.accountId,
+			build.provider,
+		);
 		const sandbox =
 			existing ??
-			(yield* provider
-				.create({
-					sandboxId: build.buildId,
-					providerLabel: label,
-					timeoutSeconds: config.createTimeoutSeconds,
-					env: {},
-					network: { kind: "open" },
-					onTimeout: "terminate",
-				})
-				.pipe(Effect.orDie));
+			(previousAccountBuild?.snapshotId === undefined
+				? yield* provider
+						.create({
+							sandboxId: build.buildId,
+							providerLabel: label,
+							timeoutSeconds: config.createTimeoutSeconds,
+							env: {},
+							network: { kind: "open" },
+							onTimeout: "terminate",
+						})
+						.pipe(Effect.orDie)
+				: yield* provider
+						.fork({
+							sandboxId: build.buildId,
+							providerLabel: label,
+							snapshotId: previousAccountBuild.snapshotId,
+							timeoutSeconds: config.createTimeoutSeconds,
+							env: {},
+							onTimeout: "terminate",
+						})
+						.pipe(Effect.orDie));
 		if (gitPayload !== null) {
 			yield* provider.writeTextFile(
 				sandbox.providerSandboxId,
@@ -133,9 +169,13 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 				],
 				env: {
 					ZUSE_REPOSITORY_URL: project.repositoryUrl,
+					ZUSE_PROJECT_CACHE_ID: project.projectId,
 					ZUSE_DEFAULT_BRANCH: project.defaultBranch,
 					ZUSE_TEMPLATE_VERSION: build.templateVersion,
 					ZUSE_CONFIGURATION_DIGEST: build.configurationDigest,
+					ZUSE_REPOSITORY_CACHE_MAX_BYTES: String(
+						relayConfig.cloudRepositoryCacheMaxBytes,
+					),
 				},
 				user: "zuse",
 			})
@@ -282,7 +322,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 			)
 			.pipe(Effect.orDie);
 		yield* provider.kill(build.providerSandboxId).pipe(Effect.ignore);
-		yield* store.saveBuild({
+		const promoted = {
 			...sanitizing,
 			snapshotId,
 			providerSandboxId: undefined,
@@ -290,13 +330,37 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 			nextActionAtMs: Number.MAX_SAFE_INTEGER,
 			revision: sanitizing.revision + 1,
 			updatedAtMs: nowMs,
-		});
+		} as const;
+		yield* store.saveBuild(promoted);
 		yield* store.saveProject({
 			...project,
 			state: "ready",
 			lastErrorCode: undefined,
 			updatedAtMs: nowMs,
 		});
+		const referencedBuildIds = new Set(
+			(yield* store.listWorkspaces(build.accountId))
+				.filter((workspace) => workspace.state !== "deleted")
+				.map((workspace) => workspace.buildId),
+		);
+		const superseded = (yield* store.listAccountBuilds(
+			build.accountId,
+			build.provider,
+		)).filter(
+			(candidate) =>
+				candidate.buildId !== promoted.buildId &&
+				candidate.snapshotId !== undefined &&
+				!referencedBuildIds.has(candidate.buildId),
+		);
+		for (const candidate of superseded) {
+			if (candidate.snapshotId === undefined) continue;
+			yield* provider.deleteSnapshot(candidate.snapshotId).pipe(Effect.ignore);
+			yield* store.saveBuild({
+				...candidate,
+				snapshotId: undefined,
+				revision: candidate.revision + 1,
+			});
+		}
 	}
 });
 
@@ -377,6 +441,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			.get(workspace.provider)
 			.pipe(Effect.orDie);
 		const config = yield* SandboxOfferConfiguration;
+		const relayConfig = yield* RelayConfiguration;
 		const nowMs = yield* Clock.currentTimeMillis;
 
 		if (workspace.desiredState === "deleted") {
@@ -488,6 +553,10 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			const allocatedAtMs = yield* Clock.currentTimeMillis;
 			const relay = yield* RelayConfiguration;
 			const relayHost = new URL(relay.relayIssuer).hostname;
+			const runtimeManifestHost =
+				config.runtimeManifestUrl === undefined
+					? undefined
+					: new URL(config.runtimeManifestUrl).hostname;
 			const [boot] = yield* Effect.all(
 				[
 					issueWorkspaceRuntimeBoot(
@@ -497,12 +566,32 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					),
 					provider.setNetwork(sandbox.providerSandboxId, {
 						kind: "restricted",
-						allowOut: [relayHost],
+						allowOut: [
+							relayHost,
+							...(runtimeManifestHost === undefined
+								? []
+								: [
+										runtimeManifestHost,
+										"github.com",
+										"release-assets.githubusercontent.com",
+										"objects.githubusercontent.com",
+									]),
+						],
 						denyOut: ["0.0.0.0/0", "::/0"],
 					}),
 				],
 				{ concurrency: "unbounded" },
 			);
+			if (
+				config.runtimeManifestUrl !== undefined &&
+				config.runtimeSigningPublicJwk !== undefined
+			)
+				yield* provider.writeTextFile(
+					sandbox.providerSandboxId,
+					"/home/zuse/.zuse-runtime-signing-public.jwk",
+					config.runtimeSigningPublicJwk,
+					"zuse",
+				);
 			const timings =
 				(workspace.requestConfig.startupTimings as
 					| Readonly<Record<string, number>>
@@ -525,7 +614,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			});
 			yield* provider.startProcess(sandbox.providerSandboxId, {
 				command: "/usr/local/bin/zuse-workspace-bootstrap",
-				cwd: "/home/zuse/workspace",
+				cwd: "/home/zuse",
 				env: {
 					...project.cloudEnvironment,
 					ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
@@ -533,6 +622,16 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					ZUSE_RELAY_URL: relay.relayIssuer,
 					ZUSE_BASE_REF: workspace.baseRef,
 					ZUSE_BRANCH: workspace.branch,
+					ZUSE_PROJECT_CACHE_ID: project.projectId,
+					ZUSE_REPOSITORY_URL: project.repositoryUrl,
+					...(config.runtimeManifestUrl === undefined
+						? {}
+						: {
+								ZUSE_RUNTIME_MANIFEST_URL: config.runtimeManifestUrl,
+								ZUSE_RUNTIME_PUBLIC_KEY_FILE:
+									"/home/zuse/.zuse-runtime-signing-public.jwk",
+								ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
+							}),
 				},
 				user: "zuse",
 			});
@@ -584,7 +683,8 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 
 		if (
 			workspace.state === "ready" &&
-			nowMs >= workspace.lastActivityAtMs + IDLE_PAUSE_MS
+			nowMs >=
+				workspace.lastActivityAtMs + relayConfig.cloudWorkspaceIdleTimeoutMs
 		)
 			return yield* pauseWorkspace(workspace, provider, nowMs, false);
 
@@ -612,7 +712,17 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				yield* store.saveWorkspace(invalidated);
 				yield* provider.setNetwork(workspace.providerSandboxId, {
 					kind: "restricted",
-					allowOut: [new URL(relay.relayIssuer).hostname],
+					allowOut: [
+						new URL(relay.relayIssuer).hostname,
+						...(config.runtimeManifestUrl === undefined
+							? []
+							: [
+									new URL(config.runtimeManifestUrl).hostname,
+									"github.com",
+									"release-assets.githubusercontent.com",
+									"objects.githubusercontent.com",
+								]),
+					],
 					denyOut: ["0.0.0.0/0", "::/0"],
 				});
 				yield* provider.resume(
@@ -640,7 +750,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 						"-lc",
 						"pkill -KILL -u zuse -f '[z]use serve' 2>/dev/null || true; exec /usr/local/bin/zuse-workspace-bootstrap",
 					],
-					cwd: "/home/zuse/workspace",
+					cwd: "/home/zuse",
 					env: {
 						...project.cloudEnvironment,
 						ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
@@ -648,6 +758,16 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 						ZUSE_RELAY_URL: relay.relayIssuer,
 						ZUSE_BASE_REF: workspace.baseRef,
 						ZUSE_BRANCH: workspace.branch,
+						ZUSE_PROJECT_CACHE_ID: project.projectId,
+						ZUSE_REPOSITORY_URL: project.repositoryUrl,
+						...(config.runtimeManifestUrl === undefined
+							? {}
+							: {
+									ZUSE_RUNTIME_MANIFEST_URL: config.runtimeManifestUrl,
+									ZUSE_RUNTIME_PUBLIC_KEY_FILE:
+										"/home/zuse/.zuse-runtime-signing-public.jwk",
+									ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
+								}),
 					},
 					user: "zuse",
 				});

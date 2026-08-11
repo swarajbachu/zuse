@@ -43,6 +43,9 @@ export interface RelayConfig {
 	readonly connectTokenTtlMs: number;
 	readonly accessTokenTtlMs: number;
 	readonly presenceStaleMs: number;
+	/** Inactivity window before an active cloud workspace is paused. */
+	readonly cloudWorkspaceIdleTimeoutMs: number;
+	readonly cloudRepositoryCacheMaxBytes: number;
 	readonly maxEnvironmentsPerAccount: number | null;
 	readonly allowedBrowserOrigins: ReadonlyArray<string>;
 	readonly managedTunnel?: ManagedTunnelConfig;
@@ -58,6 +61,8 @@ const DEFAULTS = {
 	connectTokenTtlMs: 60 * 1000,
 	accessTokenTtlMs: 30 * 60 * 1000,
 	presenceStaleMs: 90 * 1000,
+	cloudWorkspaceIdleTimeoutMs: 10 * 60 * 1000,
+	cloudRepositoryCacheMaxBytes: 8 * 1024 * 1024 * 1024,
 	maxEnvironmentsPerAccount: 5 as number | null,
 	allowedBrowserOrigins: [HOSTED_APP_URL] as ReadonlyArray<string>,
 } as const;

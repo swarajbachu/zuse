@@ -6,6 +6,7 @@ import {
 	ArchiveIcon,
 	ArrowDown01Icon,
 	ArrowRight01Icon,
+	CloudIcon,
 	Delete02Icon,
 	Edit01Icon,
 	FolderAddIcon,
@@ -22,6 +23,7 @@ import {
 import type {
 	Chat,
 	ChatId,
+	CloudChatSummary,
 	FolderId,
 	GitOriginInfo,
 	Session,
@@ -60,6 +62,7 @@ import {
 	mergeChatAttentionStates,
 } from "~/lib/chat-attention-state";
 import { displayPath } from "~/lib/display-path";
+import { formatError } from "~/lib/format-error.ts";
 import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import { dispatchCommand } from "../lib/commands.ts";
@@ -91,6 +94,11 @@ import {
 	isChatUnread,
 	useChatsStore,
 } from "../store/chats.ts";
+import {
+	openCloudChat,
+	repositoryIdentityForOrigin,
+	useCloudChatsStore,
+} from "../store/cloud-chats.ts";
 import {
 	type EnvironmentCatalogEntry,
 	useEnvironmentCatalogStore,
@@ -401,6 +409,8 @@ export function ProjectsSidebar() {
 
 	const chatsByProject = useChatsStore((s) => s.chatsByProject);
 	const hydrateChats = useChatsStore((s) => s.hydrate);
+	const cloudChats = useCloudChatsStore((s) => s.summaries);
+	const hydrateCloudChats = useCloudChatsStore((s) => s.hydrate);
 
 	const origins = useFolderOriginsStore((s) => s.byFolder);
 	const hydrateOrigins = useFolderOriginsStore((s) => s.hydrate);
@@ -408,7 +418,25 @@ export function ProjectsSidebar() {
 
 	useEffect(() => {
 		void load();
-	}, [load]);
+		void hydrateCloudChats();
+	}, [load, hydrateCloudChats]);
+
+	useEffect(() => {
+		const hasTransitioningWorkspace = cloudChats.some(
+			(chat) =>
+				chat.state === "queued" ||
+				chat.state === "provisioning" ||
+				chat.state === "setup" ||
+				chat.state === "pausing" ||
+				chat.state === "resuming" ||
+				chat.runtimeState === "connecting",
+		);
+		const interval = window.setInterval(
+			() => void hydrateCloudChats(),
+			hasTransitioningWorkspace ? 2_000 : 30_000,
+		);
+		return () => window.clearInterval(interval);
+	}, [cloudChats, hydrateCloudChats]);
 
 	// Auto-expand the selected project so newly opened workspaces immediately
 	// reveal their session list.
@@ -552,6 +580,11 @@ export function ProjectsSidebar() {
 										chats={chatsByProject[folder.id] ?? []}
 										projectSessions={sessionsByProject[folder.id] ?? []}
 										remoteChats={remoteChatRows(group)}
+										cloudChats={cloudChats.filter(
+											(chat) =>
+												chat.repositoryIdentity ===
+												repositoryIdentityForOrigin(origins[folder.id]),
+										)}
 										onSelect={() => void select(folder.id)}
 										onToggleExpanded={() =>
 											onToggleExpanded(activeEnvironmentId, folder.id)
@@ -591,6 +624,11 @@ export function ProjectsSidebar() {
 								}
 								chats={chatsByProject[folder.id] ?? []}
 								projectSessions={sessionsByProject[folder.id] ?? []}
+								cloudChats={cloudChats.filter(
+									(chat) =>
+										chat.repositoryIdentity ===
+										repositoryIdentityForOrigin(origins[folder.id]),
+								)}
 								onSelect={() => void select(folder.id)}
 								onToggleExpanded={() =>
 									onToggleExpanded(activeEnvironmentId, folder.id)
@@ -1101,6 +1139,7 @@ function ProjectGroup({
 	chats,
 	projectSessions,
 	remoteChats,
+	cloudChats,
 	onSelect,
 	onToggleExpanded,
 	onRemove,
@@ -1119,6 +1158,8 @@ function ProjectGroup({
 	}>;
 	/** Same-repo chats on other computers, interleaved into the chat list. */
 	remoteChats?: ReadonlyArray<RemoteChatRow>;
+	/** Durable cloud chats remain visible independently of sandbox state. */
+	cloudChats?: ReadonlyArray<CloudChatSummary>;
 	onSelect: () => void;
 	onToggleExpanded: () => void;
 	onRemove: () => void;
@@ -1160,10 +1201,12 @@ function ProjectGroup({
 		setMenuOpen(true);
 	};
 
-	const visibleChats = useMemo(
-		() => chats.filter((c) => c.archivedAt === null),
-		[chats],
-	);
+	const visibleChats = useMemo(() => {
+		const cloudIds = new Set((cloudChats ?? []).map((row) => row.chatId));
+		return chats.filter(
+			(chat) => chat.archivedAt === null && !cloudIds.has(chat.id),
+		);
+	}, [chats, cloudChats]);
 
 	// One merged timeline inside the group: local chats and same-repo chats on
 	// other computers interleave by recency instead of forming sections.
@@ -1178,10 +1221,15 @@ function ProjectGroup({
 			row,
 			updatedAt: row.ref.chat.updatedAt.getTime(),
 		}));
-		return [...local, ...remote].sort(
+		const cloud = (cloudChats ?? []).map((summary) => ({
+			kind: "cloud" as const,
+			summary,
+			updatedAt: summary.updatedAt,
+		}));
+		return [...local, ...remote, ...cloud].sort(
 			(left, right) => right.updatedAt - left.updatedAt,
 		);
-	}, [visibleChats, remoteChats]);
+	}, [visibleChats, remoteChats, cloudChats]);
 
 	// Surface the highest-priority attention hint on the collapsed project
 	// header when any session inside this project needs attention.
@@ -1339,17 +1387,83 @@ function ProjectGroup({
 					{chatRows.map((entry) =>
 						entry.kind === "local" ? (
 							<ChatRow key={entry.chat.id} chat={entry.chat} />
-						) : (
+						) : entry.kind === "remote" ? (
 							<CatalogChatRow
 								key={`${entry.row.ref.environmentId}:${entry.row.ref.chat.id}`}
 								chatRef={entry.row.ref}
 								connected={entry.row.connected}
+							/>
+						) : (
+							<CloudChatRow
+								key={entry.summary.chatId}
+								summary={entry.summary}
+								projectId={id}
 							/>
 						),
 					)}
 				</ul>
 			</li>
 		</Fragment>
+	);
+}
+
+const cloudStateLabel = (summary: CloudChatSummary): string => {
+	if (summary.state === "paused") return "Paused";
+	if (summary.state === "failed") return "Needs attention";
+	if (summary.state === "ready" && summary.runtimeState === "online")
+		return "Active";
+	if (summary.state === "resuming") return "Resuming";
+	return "Cloud starting";
+};
+
+function CloudChatRow({
+	summary,
+	projectId,
+}: {
+	readonly summary: CloudChatSummary;
+	readonly projectId: FolderId;
+}) {
+	const selectedChatId = useChatsStore((state) => state.selectedChatId);
+	const [opening, setOpening] = useState(false);
+	const label = cloudStateLabel(summary);
+	return (
+		<li>
+			<button
+				type="button"
+				aria-label={`${summary.title}. ${label}`}
+				aria-busy={opening || undefined}
+				className={cn(
+					"group flex min-h-7 w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/40 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
+					selectedChatId === summary.chatId &&
+						"bg-sidebar-accent text-sidebar-accent-foreground",
+				)}
+				onClick={() => {
+					setOpening(true);
+					void openCloudChat(summary, projectId)
+						.catch((cause) =>
+							toastManager.add({
+								type: "error",
+								title: "Cloud chat could not open",
+								description: formatError(cause),
+							}),
+						)
+						.finally(() => setOpening(false));
+				}}
+			>
+				<HugeiconsIcon
+					icon={CloudIcon}
+					aria-hidden
+					className={cn(
+						"size-3 shrink-0",
+						summary.state === "paused" && "opacity-55",
+					)}
+				/>
+				<span className="min-w-0 flex-1 truncate">{summary.title}</span>
+				<span className="shrink-0 text-[9px] text-muted-foreground/70">
+					{opening ? "Opening…" : label}
+				</span>
+			</button>
+		</li>
 	);
 }
 

@@ -5,6 +5,7 @@ import {
 	CloudProjectPrepareRequest,
 	CloudWorkspaceCreateRequest,
 	CloudWorkspaceStartupTimings,
+	ComposerInput,
 	RelayPaths,
 } from "@zuse/contracts";
 import { SandboxProviders } from "@zuse/sandbox-providers";
@@ -49,7 +50,6 @@ export type CloudWorkspaceRouteContext =
 
 const CONNECTION_GRANT_TTL_MS = 30_000;
 const RUNTIME_CREDENTIAL_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
-const IDLE_PAUSE_MS = 60 * 60 * 1_000;
 
 const json = (body: unknown, status = 200): Response =>
 	new Response(JSON.stringify(body), {
@@ -258,6 +258,48 @@ const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 		workspace.recoveryBundleKey !== undefined || workspace.state === "archived",
 });
 
+const cloudChatTitle = (workspace: CloudWorkspaceRecord): string => {
+	const firstMessage = workspace.requestConfig.firstMessage;
+	if (typeof firstMessage !== "string") return workspace.branch;
+	const title = firstMessage.trim().split(/\r?\n/u, 1)[0]?.trim() ?? "";
+	return title.length === 0
+		? workspace.branch
+		: title.length > 80
+			? `${title.slice(0, 77)}…`
+			: title;
+};
+
+const publicCloudChat = (
+	workspace: CloudWorkspaceRecord,
+	project: CloudProjectRecord,
+	unread: boolean,
+) => ({
+	workspaceId: workspace.workspaceId,
+	projectId: project.projectId,
+	repositoryIdentity: project.repositoryIdentity,
+	repositoryDisplayName: project.displayName,
+	chatId: workspace.chatId,
+	initialSessionId: workspace.initialSessionId,
+	title: cloudChatTitle(workspace),
+	branch: workspace.branch,
+	providerId: workspace.provider,
+	agent:
+		typeof workspace.requestConfig.agent === "string"
+			? workspace.requestConfig.agent
+			: "codex",
+	model:
+		typeof workspace.requestConfig.model === "string"
+			? workspace.requestConfig.model
+			: "",
+	state: workspace.state,
+	runtimeState: workspace.runtimeState,
+	statusCode: workspace.statusCode,
+	startupPhase: startupPhase(workspace),
+	unread,
+	createdAt: workspace.createdAtMs,
+	updatedAt: workspace.updatedAtMs,
+});
+
 const publicCredential = (credential: {
 	readonly kind: "github" | "claude" | "codex";
 	readonly state: "connected" | "disconnected" | "error";
@@ -406,12 +448,23 @@ const RuntimeEventsRequest = Schema.Struct({
 });
 
 const RuntimeReadyRequest = Schema.Struct({
-	phase: Schema.Literals(["repository-ready", "agent-started"]),
+	phase: Schema.Literals([
+		"repository-ready",
+		"agent-started",
+		"command-acknowledged",
+	]),
 	commandId: Schema.optional(Schema.String),
 });
 
 const RuntimeBootstrapRequest = Schema.Struct({
 	credentialPublicJwk: Schema.String,
+});
+
+const CloudChatSendRequest = Schema.Struct({
+	workspaceId: Schema.String,
+	input: ComposerInput,
+	clientMessageId: Schema.String,
+	asGoal: Schema.optional(Schema.Boolean),
 });
 
 const requireRuntime = Effect.fn("requireCloudWorkspaceRuntime")(function* (
@@ -444,6 +497,33 @@ export const routeCloudWorkspaceRequest = (
 		if (!path.startsWith("/v1/cloud/")) return null;
 		const nowMs = yield* Clock.currentTimeMillis;
 		const store = yield* CloudWorkspaceStore;
+		const relayConfiguration = yield* RelayConfiguration;
+		const idlePauseMs = relayConfiguration.cloudWorkspaceIdleTimeoutMs;
+		const recordWorkspaceActivity = Effect.fn("recordWorkspaceActivity")(
+			function* (workspace: CloudWorkspaceRecord) {
+				const updated = yield* store.recordActivity(
+					workspace.workspaceId,
+					workspace.accountId,
+					nowMs,
+					nowMs + idlePauseMs,
+				);
+				if (
+					updated?.providerSandboxId !== undefined &&
+					updated.state !== "paused"
+				) {
+					const provider = yield* (yield* SandboxProviders)
+						.get(updated.provider)
+						.pipe(Effect.orDie);
+					yield* provider
+						.extendTimeout(
+							updated.providerSandboxId,
+							Math.ceil(idlePauseMs / 1_000),
+						)
+						.pipe(Effect.ignore);
+				}
+				return updated;
+			},
+		);
 
 		const bootstrapMatch =
 			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/bootstrap$/u.exec(path);
@@ -543,7 +623,7 @@ export const routeCloudWorkspaceRequest = (
 			yield* store.saveWorkspace({
 				...workspace,
 				lastActivityAtMs: nowMs,
-				nextActionAtMs: nowMs + IDLE_PAUSE_MS,
+				nextActionAtMs: nowMs + idlePauseMs,
 				requestConfig: {
 					...workspace.requestConfig,
 					...(body.commandId === undefined
@@ -567,12 +647,7 @@ export const routeCloudWorkspaceRequest = (
 		if (method === "POST" && activityMatch !== null) {
 			const workspaceId = decodeURIComponent(activityMatch[1] ?? "");
 			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
-			yield* store.recordActivity(
-				workspaceId,
-				workspace.accountId,
-				nowMs,
-				nowMs + IDLE_PAUSE_MS,
-			);
+			yield* recordWorkspaceActivity(workspace);
 			return json({ ok: true });
 		}
 
@@ -584,6 +659,8 @@ export const routeCloudWorkspaceRequest = (
 			const timings = startupTimings(workspace);
 			if (body.commandId !== undefined)
 				yield* store.acknowledgeCommand(workspaceId, body.commandId, nowMs);
+			if (body.phase === "command-acknowledged")
+				return json({ workspace: publicWorkspace(workspace) });
 			const agentStarted = body.phase === "agent-started";
 			const updated: CloudWorkspaceRecord = {
 				...workspace,
@@ -610,7 +687,7 @@ export const routeCloudWorkspaceRequest = (
 							: {}),
 					},
 				},
-				nextActionAtMs: nowMs + IDLE_PAUSE_MS,
+				nextActionAtMs: nowMs + idlePauseMs,
 				runningSinceMs: workspace.runningSinceMs ?? nowMs,
 				revision: workspace.revision + 1,
 				updatedAtMs: nowMs,
@@ -699,6 +776,43 @@ export const routeCloudWorkspaceRequest = (
 			});
 		}
 
+		if (method === "GET" && path === RelayPaths.cloudChats) {
+			const projectId = url.searchParams.get("projectId") ?? undefined;
+			const workspaces = yield* store.listWorkspaces(
+				principal.accountId,
+				projectId,
+			);
+			const chats = yield* Effect.forEach(
+				workspaces.filter(
+					(workspace) =>
+						workspace.state !== "deleted" && workspace.state !== "archived",
+				),
+				(workspace) =>
+					Effect.all([
+						store.getProject(workspace.projectId),
+						store.latestEventAt(workspace.workspaceId),
+					]).pipe(
+						Effect.map(([project, latestEventAt]) => {
+							if (project === null) return null;
+							const lastReadAt =
+								typeof workspace.requestConfig.lastReadAt === "number"
+									? workspace.requestConfig.lastReadAt
+									: workspace.createdAtMs;
+							return publicCloudChat(
+								workspace,
+								project,
+								latestEventAt !== null && latestEventAt > lastReadAt,
+							);
+						}),
+					),
+			);
+			return json({
+				chats: chats
+					.filter((chat) => chat !== null)
+					.sort((left, right) => right.updatedAt - left.updatedAt),
+			});
+		}
+
 		if (method === "POST" && path === RelayPaths.cloudProjects) {
 			if (!(yield* hasEntitlement(principal.accountId, nowMs)))
 				return yield* Effect.fail(forbidden("cloud_entitlement_required"));
@@ -717,7 +831,7 @@ export const routeCloudWorkspaceRequest = (
 			const configurationDigest = yield* sha256Hex(
 				JSON.stringify({
 					defaultBranch: body.defaultBranch,
-					preparationMode: "repository-only-v1",
+					preparationMode: "account-repository-cache-v1",
 				}),
 			);
 			const project: CloudProjectRecord = {
@@ -737,10 +851,59 @@ export const routeCloudWorkspaceRequest = (
 				createdAtMs: nowMs,
 				updatedAtMs: nowMs,
 			};
-			return json(
-				publicProject(yield* store.connectProject(project), [], new Map()),
+			const connected = yield* store.connectProject(project);
+			const providers = yield* SandboxProviders;
+			const machineConfig = yield* MachineControlConfiguration;
+			const available = providers.availableProviders.filter(
+				(provider) =>
+					machineConfig.availableSandboxProviderIds?.has(provider.providerId) ??
+					true,
+			);
+			const builds = yield* Effect.forEach(available, (provider) =>
+				Effect.gen(function* () {
+					const build: CloudProjectBuildRecord = {
+						buildId: yield* randomToken("build", 12),
+						projectId: connected.projectId,
+						accountId: connected.accountId,
+						provider: provider.providerId,
+						templateVersion: provider.templateVersion,
+						configurationDigest: connected.configurationDigest,
+						state: "queued",
+						idempotencyKey: `automatic:${body.idempotencyKey}:${provider.templateVersion}`,
+						nextActionAtMs: nowMs,
+						revision: 0,
+						createdAtMs: nowMs,
+						updatedAtMs: nowMs,
+					};
+					return yield* store.createBuild(build);
+				}),
+			);
+			if (builds.length > 0)
+				yield* store.saveProject({
+					...connected,
+					state: "preparing",
+					updatedAtMs: nowMs,
+				});
+			const currentTemplateVersions = new Map(
+				available.map((provider) => [
+					provider.providerId,
+					provider.templateVersion,
+				]),
+			);
+			const response = json(
+				publicProject(
+					{
+						...connected,
+						state: builds.length > 0 ? "preparing" : connected.state,
+					},
+					builds,
+					currentTemplateVersions,
+				),
 				201,
 			);
+			for (const build of builds)
+				response.headers.append("x-zuse-reconcile-cloud-build", build.buildId);
+			return response;
 		}
 
 		const prepareMatch = /^\/v1\/cloud\/projects\/([^/]+)\/prepare$/u.exec(
@@ -811,12 +974,7 @@ export const routeCloudWorkspaceRequest = (
 				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
 			if (workspace.state === "failed" || workspace.state === "deleted")
 				return yield* Effect.fail(conflict("cloud_workspace_unavailable"));
-			yield* store.recordActivity(
-				workspaceId,
-				principal.accountId,
-				nowMs,
-				nowMs + IDLE_PAUSE_MS,
-			);
+			yield* recordWorkspaceActivity(workspace);
 			const credential = yield* randomToken("workspace_client", 32);
 			const expiresAt = nowMs + CONNECTION_GRANT_TTL_MS;
 			yield* store.createConnectionGrant({
@@ -849,6 +1007,8 @@ export const routeCloudWorkspaceRequest = (
 			if (!Number.isSafeInteger(after) || after < 0)
 				return yield* Effect.fail(badRequest("invalid_event_cursor"));
 			const events = yield* store.listEvents(workspaceId, after);
+			const messageCommands = yield* store.listMessageCommands(workspaceId);
+			yield* store.markChatRead(workspaceId, principal.accountId, nowMs);
 			return json({
 				workspaceId,
 				chatId: workspace.chatId,
@@ -870,8 +1030,76 @@ export const routeCloudWorkspaceRequest = (
 					payloadJson: event.payloadJson,
 					createdAt: event.createdAtMs,
 				})),
+				queuedMessages: messageCommands.flatMap((command) => {
+					const input = Schema.decodeUnknownOption(ComposerInput)(
+						command.payload.input,
+					);
+					const clientMessageId = command.payload.clientMessageId;
+					return input._tag === "Some" && typeof clientMessageId === "string"
+						? [
+								{
+									clientMessageId,
+									input: input.value,
+									state: command.state,
+									asGoal: command.payload.asGoal === true,
+									createdAt: command.createdAtMs,
+								},
+							]
+						: [];
+				}),
 				cursor: events.at(-1)?.runtimeSequence ?? after,
 			});
+		}
+
+		const messageMatch = /^\/v1\/cloud\/workspaces\/([^/]+)\/messages$/u.exec(
+			path,
+		);
+		if (method === "POST" && messageMatch !== null) {
+			const workspaceId = decodeURIComponent(messageMatch[1] ?? "");
+			const workspace = yield* store.getWorkspace(workspaceId);
+			if (workspace === null || workspace.accountId !== principal.accountId)
+				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
+			if (
+				workspace.state === "archived" ||
+				workspace.state === "deleting" ||
+				workspace.state === "deleted"
+			)
+				return yield* Effect.fail(conflict("cloud_workspace_not_writable"));
+			const body = yield* decodeBody(CloudChatSendRequest, request);
+			if (body.workspaceId !== workspaceId)
+				return yield* Effect.fail(badRequest("workspace_id_mismatch"));
+			yield* store.createNextCommand({
+				commandId: `message:${body.clientMessageId}`,
+				workspaceId,
+				accountId: principal.accountId,
+				kind: "send-message",
+				payload: {
+					initialSessionId: workspace.initialSessionId,
+					input: body.input,
+					clientMessageId: body.clientMessageId,
+					asGoal: body.asGoal ?? false,
+				},
+				state: "queued",
+				createdAtMs: nowMs,
+			});
+			const shouldResume = workspace.state === "paused";
+			if (shouldResume)
+				yield* store.saveWorkspace({
+					...workspace,
+					state: "resuming",
+					desiredState: "ready",
+					statusCode: "resume-requested",
+					nextActionAtMs: nowMs,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+					lastActivityAtMs: nowMs,
+				});
+			const response = json({}, 202);
+			response.headers.set("x-zuse-gateway-workspace", workspaceId);
+			response.headers.set("x-zuse-gateway-command", "available");
+			if (shouldResume)
+				response.headers.set("x-zuse-reconcile-cloud-workspace", workspaceId);
+			return response;
 		}
 
 		if (method === "POST" && path === RelayPaths.cloudWorkspaces) {
@@ -882,11 +1110,16 @@ export const routeCloudWorkspaceRequest = (
 			if (project === null || project.accountId !== principal.accountId)
 				return yield* Effect.fail(notFound("cloud_project_not_found"));
 			const provider = yield* selectedProvider(body.providerId);
-			const build = yield* store.getActiveBuild(
+			const projectBuild = yield* store.getActiveBuild(
 				project.projectId,
 				provider.providerId,
 			);
+			const build = yield* store.getActiveAccountBuild(
+				principal.accountId,
+				provider.providerId,
+			);
 			if (
+				projectBuild === null ||
 				build === null ||
 				build.snapshotId === undefined ||
 				build.templateVersion !== provider.templateVersion
@@ -1019,6 +1252,15 @@ export const routeCloudWorkspaceRequest = (
 							: "paused";
 			const updated: CloudWorkspaceRecord = {
 				...workspace,
+				...(action === "resume" && workspace.state === "failed"
+					? {
+							state:
+								workspace.providerSandboxId === undefined
+									? ("queued" as const)
+									: ("resuming" as const),
+							runtimeState: "offline" as const,
+						}
+					: {}),
 				desiredState,
 				statusCode: `${action}-queued`,
 				nextActionAtMs: nowMs,

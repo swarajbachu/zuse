@@ -3,10 +3,13 @@ import chatLandingSource from "../../src/components/chat-landing.tsx?raw";
 import { chatLandingProgress } from "../../src/lib/chat-landing-progress.ts";
 
 describe("chat landing progress", () => {
-	test("launches cloud chats through the workspace gateway without catalog polling", () => {
-		expect(chatLandingSource).toContain('control["cloud.workspaces.connect"]');
-		expect(chatLandingSource).toContain("registerCloudWorkspace(");
-		expect(chatLandingSource).toContain("switchToCloudWorkspace(");
+	test("stages the durable chat before attaching the workspace gateway", () => {
+		expect(chatLandingSource).toContain("stageCloudChat(");
+		expect(chatLandingSource).toContain("openCloudChat(");
+		expect(chatLandingSource).not.toContain(
+			'control["cloud.workspaces.connect"]',
+		);
+		expect(chatLandingSource).not.toContain("registerCloudWorkspace(");
 		expect(chatLandingSource).not.toContain(
 			'control["cloud.workspaces.connected"]',
 		);
