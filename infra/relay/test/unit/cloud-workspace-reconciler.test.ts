@@ -48,6 +48,12 @@ describe("cloud workspace reconciler", () => {
 		).toBe(false);
 	});
 
+	test("the resume launcher keeps a downloaded runtime in the foreground", () => {
+		expect(WORKSPACE_RUNTIME_RESUME_COMMAND).toContain(
+			'node "$runtime" serve --foreground',
+		);
+	});
+
 	test("restarts the workspace runtime in the same pass that resumes a paused sandbox", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {

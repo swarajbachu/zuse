@@ -25,7 +25,7 @@ const WORKSPACE_RUNTIME_BOOT_TOKEN_FILE =
 export const WORKSPACE_RUNTIME_PROCESS_PATTERN =
 	"[z]use serve|[/]opt/zuse/current/bin.mjs serve";
 export const WORKSPACE_RUNTIME_RESUME_COMMAND =
-	'runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; pkill -KILL -u zuse -f \'[z]use serve|[/]opt/zuse/current/bin.mjs serve\' 2>/dev/null || true; rm -f /var/lib/zuse/workspace/failed; if [ -f "$runtime" ]; then exec /usr/bin/node "$runtime" serve; else exec "$fallback" serve --foreground; fi';
+	'runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; pkill -KILL -u zuse -f \'[z]use serve|[/]opt/zuse/current/bin.mjs serve\' 2>/dev/null || true; rm -f /var/lib/zuse/workspace/failed; if [ -f "$runtime" ]; then exec /usr/bin/node "$runtime" serve --foreground; else exec "$fallback" serve --foreground; fi';
 
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
