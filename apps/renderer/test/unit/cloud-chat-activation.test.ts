@@ -42,6 +42,12 @@ describe("cloud chat activation", () => {
 		expect(messagesSource).toContain(
 			"openCloudChat(cloudSummary, projectId, { activate: true })",
 		);
+		expect(cloudChatsSource).toContain(
+			'summary.state === "paused" || summary.state === "failed"',
+		);
+		expect(cloudChatsSource).toContain(
+			"current = refreshSummaryFromWorkspace(current, resumed)",
+		);
 	});
 
 	test("central history releases the ordinary composer without a runtime", () => {

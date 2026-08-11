@@ -329,13 +329,19 @@ export const openCloudChat = (
 		const alreadyLive =
 			summary.state === "ready" && summary.runtimeState === "online";
 		if (!activate && !alreadyLive) return;
-		if (activate && summary.state === "paused")
-			await Effect.runPromise(
+		let current = summary;
+		if (
+			activate &&
+			(summary.state === "paused" || summary.state === "failed")
+		) {
+			const resumed = await Effect.runPromise(
 				control["cloud.workspaces.resume"]({
 					workspaceId: summary.workspaceId,
 				}),
 			);
-		let current = summary;
+			current = refreshSummaryFromWorkspace(current, resumed);
+			updateSummary(current);
+		}
 		const readinessDeadline = Date.now() + 5 * 60 * 1_000;
 		while (
 			(current.state !== "ready" || current.runtimeState !== "online") &&

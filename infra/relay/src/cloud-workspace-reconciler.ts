@@ -81,6 +81,33 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 		.pipe(Effect.orDie);
 	const config = yield* SandboxOfferConfiguration;
 	const nowMs = yield* Clock.currentTimeMillis;
+	if (
+		(build.state === "building" || build.state === "sanitizing") &&
+		(build.providerSandboxId === undefined ||
+			(yield* provider.inspect(build.providerSandboxId).pipe(Effect.orDie)) ===
+				null)
+	) {
+		const previous = yield* store.getActiveBuild(
+			build.projectId,
+			build.provider,
+		);
+		yield* store.saveBuild({
+			...build,
+			providerSandboxId: undefined,
+			state: "failed",
+			lastErrorCode: "provider-sandbox-missing",
+			nextActionAtMs: Number.MAX_SAFE_INTEGER,
+			revision: build.revision + 1,
+			updatedAtMs: nowMs,
+		});
+		yield* store.saveProject({
+			...project,
+			state: previous === null ? "failed" : "ready",
+			lastErrorCode: "provider-sandbox-missing",
+			updatedAtMs: nowMs,
+		});
+		return;
+	}
 	if (build.state === "queued") {
 		const accountBuilds = yield* store.listAccountBuilds(
 			build.accountId,
