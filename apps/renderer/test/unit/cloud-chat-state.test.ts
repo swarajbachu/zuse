@@ -13,6 +13,7 @@ import {
 	mergeCloudChatMessages,
 	mergeCloudChatSummaries,
 	shouldAttachCloudChatOnOpen,
+	shouldRetryCloudWorkspaceAttachment,
 	shouldUseLocalMessageQueue,
 	stageCloudChat,
 } from "../../src/store/cloud-chats.ts";
@@ -148,5 +149,22 @@ describe("cloud chat state reconciliation", () => {
 				isCloudSession: false,
 			}),
 		).toBe(true);
+	});
+
+	test("an attachment retries one failed resume without user intervention", () => {
+		expect(
+			shouldRetryCloudWorkspaceAttachment({
+				state: "failed",
+				desiredState: "ready",
+				resumeAttempts: 1,
+			}),
+		).toBe(true);
+		expect(
+			shouldRetryCloudWorkspaceAttachment({
+				state: "failed",
+				desiredState: "ready",
+				resumeAttempts: 2,
+			}),
+		).toBe(false);
 	});
 });

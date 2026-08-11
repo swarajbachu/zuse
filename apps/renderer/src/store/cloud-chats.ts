@@ -152,6 +152,15 @@ export const cloudWorkspaceNeedsResume = (
 	workspace.state === "failed" ||
 	workspace.state === "resuming";
 
+export const shouldRetryCloudWorkspaceAttachment = (
+	input: Pick<CloudWorkspace, "state" | "desiredState"> & {
+		readonly resumeAttempts: number;
+	},
+): boolean =>
+	input.state === "failed" &&
+	input.desiredState === "ready" &&
+	input.resumeAttempts < 2;
+
 export const repositoryIdentityForOrigin = (
 	origin: GitOriginInfo | null | undefined,
 ): string | null =>
@@ -487,19 +496,23 @@ export const ensureCloudWorkspaceAttached = (
 		);
 		let current = refreshSummaryFromWorkspace(summary, discovered);
 		updateSummary(current);
-		if (cloudWorkspaceNeedsResume(discovered)) {
+		let resumeAttempts = 0;
+		const resumeWorkspace = async (): Promise<void> => {
 			const resumed = await Effect.runPromise(
 				control["cloud.workspaces.resume"]({
 					workspaceId: summary.workspaceId,
 				}),
 			);
+			resumeAttempts += 1;
 			current = refreshSummaryFromWorkspace(current, resumed);
 			updateSummary(current);
+		};
+		if (cloudWorkspaceNeedsResume(discovered)) {
+			await resumeWorkspace();
 		}
 		const readinessDeadline = Date.now() + 5 * 60 * 1_000;
 		while (
 			(current.state !== "ready" || current.runtimeState !== "online") &&
-			current.state !== "failed" &&
 			Date.now() < readinessDeadline
 		) {
 			const workspace = await Effect.runPromise(
@@ -508,6 +521,17 @@ export const ensureCloudWorkspaceAttached = (
 			current = refreshSummaryFromWorkspace(current, workspace);
 			updateSummary(current);
 			if (current.state === "ready" && current.runtimeState === "online") break;
+			if (
+				shouldRetryCloudWorkspaceAttachment({
+					state: current.state,
+					desiredState: current.desiredState,
+					resumeAttempts,
+				})
+			) {
+				await resumeWorkspace();
+				continue;
+			}
+			if (current.state === "failed") break;
 			await new Promise((resolve) => setTimeout(resolve, 500));
 		}
 		if (current.state === "failed")
