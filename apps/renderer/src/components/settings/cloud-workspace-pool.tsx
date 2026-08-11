@@ -446,18 +446,18 @@ export function CloudWorkspacePool() {
 					) : (
 						projects.map((project) => {
 							const latestBuild = project.latestBuilds[selectedProvider];
+							const cacheUnavailable = latestBuild?.state === "failed";
 							const buildInProgress =
 								latestBuild?.state === "queued" ||
 								latestBuild?.state === "building" ||
 								latestBuild?.state === "sanitizing";
-							const cacheLabel =
-								project.state === "ready"
+							const cacheLabel = cacheUnavailable
+								? "Direct clone"
+								: project.state === "ready"
 									? "Ready"
-									: project.state === "failed"
-										? "Update failed"
-										: buildInProgress
-											? "Caching"
-											: "Connected";
+									: buildInProgress
+										? "Caching"
+										: "Connected";
 							const projectWorkspaces = workspaces.filter(
 								(workspace) => workspace.projectId === project.projectId,
 							);
@@ -470,17 +470,17 @@ export function CloudWorkspacePool() {
 											<div className="flex min-h-11 items-center gap-2">
 												<Badge
 													variant={
-														project.state === "ready"
-															? "success"
-															: project.state === "failed"
-																? "error"
+														cacheUnavailable
+															? "outline"
+															: project.state === "ready"
+																? "success"
 																: "warning"
 													}
 												>
 													{cacheLabel}
 												</Badge>
-												{latestBuild?.state === "failed" ? (
-													<span className="max-w-48 text-pretty text-xs text-destructive">
+												{cacheUnavailable ? (
+													<span className="max-w-48 text-pretty text-xs text-muted-foreground">
 														Fast-start cache unavailable. New workspaces will
 														clone normally.
 													</span>
