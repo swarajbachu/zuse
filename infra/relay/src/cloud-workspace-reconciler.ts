@@ -202,7 +202,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 				command: "/bin/bash",
 				args: [
 					"-lc",
-					'set +e; /usr/local/bin/zuse-project-builder >/dev/null 2>&1; code=$?; printf \'%s\\n\' "$code" >/tmp/zuse-project-builder-exit-code; touch /tmp/zuse-project-builder-exited; exit "$code"',
+					'set +e; /usr/local/bin/zuse-project-builder >/var/lib/zuse/project-build/build.log 2>&1; code=$?; printf \'%s\\n\' "$code" >/tmp/zuse-project-builder-exit-code; touch /tmp/zuse-project-builder-exited; exit "$code"',
 				],
 				env: {
 					ZUSE_REPOSITORY_URL: project.repositoryUrl,

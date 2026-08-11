@@ -429,13 +429,13 @@ export function ChatLanding() {
 								const latest = project.latestBuilds[provider.providerId];
 								return (
 									project.activeBuilds[provider.providerId] === undefined &&
-									latest?.state === "ready"
+									(latest?.state === "ready" || latest?.state === "failed")
 								);
 							});
 				for (const provider of staleProviders) {
 					const latest = project?.latestBuilds[provider.providerId];
 					if (project === null || latest === undefined) continue;
-					const requestKey = `${project.projectId}:${provider.providerId}:${latest.buildId}`;
+					const requestKey = `${project.projectId}:${provider.providerId}`;
 					if (cloudCacheRefreshRequests.current.has(requestKey)) continue;
 					cloudCacheRefreshRequests.current.add(requestKey);
 					try {
@@ -443,7 +443,7 @@ export function ChatLanding() {
 							client["cloud.projects.prepare"]({
 								projectId: project.projectId,
 								providerId: provider.providerId,
-								idempotencyKey: `automatic-refresh:${requestKey}`,
+								idempotencyKey: `automatic-refresh:${requestKey}:${latest.buildId}`,
 							}),
 						);
 					} catch (cause) {
