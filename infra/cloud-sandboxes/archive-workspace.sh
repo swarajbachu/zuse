@@ -56,9 +56,15 @@ if tar -tzf "$status_dir/recovery.tar.gz" | grep -Eq '(^|/)(secrets|credentials\
 fi
 
 set_phase sanitizing
-rm -rf /home/zuse/.config/gh /home/zuse/.claude /home/zuse/.codex /run/zuse-secrets
+rm -rf /home/zuse/.config/gh /home/zuse/.claude /home/zuse/.codex
+if [[ -d /run/zuse-secrets ]]; then
+  find /run/zuse-secrets -mindepth 1 -delete
+fi
 rm -f /home/zuse/.git-credentials /home/zuse/.netrc \
   /home/zuse/.zuse-data/secrets/credentials.json
+if [[ -d /run/zuse-secrets ]] && [[ -n "$(find /run/zuse-secrets -mindepth 1 -print -quit)" ]]; then
+  exit 72
+fi
 
 set_phase complete
 touch "$status_dir/ready"
