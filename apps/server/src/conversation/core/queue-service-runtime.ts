@@ -385,20 +385,36 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 				}),
 			);
 
+		const flushHead = (sessionId: SessionId) =>
+			Effect.gen(function* () {
+				if (yield* isPaused(sessionId)) return;
+				const head = (yield* listRows(sessionId))[0];
+				if (head === undefined || !head.ready) return;
+				const item = yield* claim(sessionId, head.id);
+				if (item !== null) yield* sendClaimed(item);
+			});
+
 		const flushQueuedMessages: QueueServiceShape["flushQueuedMessages"] = (
 			sessionId,
 		) =>
 			flushLock(sessionId).withPermits(1)(
 				Effect.gen(function* () {
-					yield* lookupSession(sessionId);
+					// Explicit flush preserves recovery of an atomically restored item.
 					const session = yield* lookupSession(sessionId);
 					if (session.status === "running" || session.status === "booting")
 						return;
-					if (yield* isPaused(sessionId)) return;
-					const head = (yield* listRows(sessionId))[0];
-					if (head === undefined || !head.ready) return;
-					const item = yield* claim(sessionId, head.id);
-					if (item !== null) yield* sendClaimed(item);
+					yield* flushHead(sessionId);
+				}),
+			);
+
+		const flushAfterIdle = (sessionId: SessionId) =>
+			flushLock(sessionId).withPermits(1)(
+				Effect.gen(function* () {
+					yield* lookupSession(sessionId);
+					// Automatic flushes use turn events as their authority. The session
+					// status projection can lag settlement in either direction.
+					if ((yield* resolveActiveTurn(sessionId)) !== undefined) return;
+					yield* flushHead(sessionId);
 				}),
 			);
 
@@ -420,10 +436,9 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 
 		requestFlush = (sessionId) =>
 			lookupSession(sessionId).pipe(
-				Effect.flatMap((session) =>
-					session.status === "idle"
-						? flushQueuedMessages(sessionId)
-						: Effect.void,
+				Effect.andThen(resolveActiveTurn(sessionId)),
+				Effect.flatMap((activeTurnId) =>
+					activeTurnId === undefined ? flushAfterIdle(sessionId) : Effect.void,
 				),
 				Effect.catch(() => Effect.void),
 			);
@@ -475,7 +490,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 		return {
 			service,
 			flushAfterIdle: (sessionId) =>
-				flushQueuedMessages(sessionId).pipe(Effect.catch(() => Effect.void)),
+				flushAfterIdle(sessionId).pipe(Effect.catch(() => Effect.void)),
 			pauseAfterInterrupt,
 			shutdown,
 		} satisfies QueueServiceRuntime;

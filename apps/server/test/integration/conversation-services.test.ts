@@ -150,6 +150,7 @@ let failProviderSend = false;
 let providerStartFailureReason = "scripted start failure";
 let providerStartBarrier: Promise<void> | null = null;
 let providerInterruptBarrier: Promise<void> | null = null;
+let providerEventsBarrier: Promise<void> | null = null;
 let testAutonomyLevel: AutonomyLevel = "approval-gated";
 let createdWorktreeCount = 0;
 let createdWorktrees = new Map<string, Worktree>();
@@ -232,7 +233,13 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 				turnId: providerTurnIds.get(sessionId) ?? AgentTurnId.make("test-turn"),
 				event,
 			}));
-			return events.length === 0 ? Stream.never : Stream.fromIterable(events);
+			const stream =
+				events.length === 0 ? Stream.never : Stream.fromIterable(events);
+			return providerEventsBarrier === null
+				? stream
+				: Stream.fromEffect(
+						Effect.promise(() => providerEventsBarrier as Promise<void>),
+					).pipe(Stream.flatMap(() => stream));
 		}),
 	setCredential: () => Effect.succeed({ verification: "notChecked" }),
 	removeCredential: () => Effect.void,
@@ -646,6 +653,7 @@ beforeEach(() => {
 	providerStartFailureReason = "scripted start failure";
 	providerStartBarrier = null;
 	providerInterruptBarrier = null;
+	providerEventsBarrier = null;
 	testAutonomyLevel = "approval-gated";
 	createdWorktreeCount = 0;
 	createdWorktrees = new Map();
@@ -3551,6 +3559,139 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				_tag: "user",
 				text: "queued one",
 			});
+		});
+	});
+
+	it("automatically sends the queue head when the active turn completes", async () => {
+		const eventsBarrier = deferred<void>();
+		providerEventsBarrier = eventsBarrier.promise;
+		scriptedEvents = [{ _tag: "Completed", reason: "ended" }];
+		try {
+			await withRuntime(async (run) => {
+				const { initialSession } = await run(
+					Effect.flatMap(store, (s) =>
+						s.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							initialPrompt: "first turn",
+						}),
+					),
+				);
+				await run(
+					Effect.flatMap(store, (s) =>
+						s.addQueuedMessage(
+							initialSession.id,
+							new ComposerInput({
+								text: "send automatically",
+								attachments: [],
+								fileRefs: [],
+								skillRefs: [],
+							}),
+						),
+					),
+				);
+
+				eventsBarrier.resolve();
+
+				await expect
+					.poll(() =>
+						providerSentTexts.filter((text) => text === "send automatically"),
+					)
+					.toEqual(["send automatically"]);
+			});
+		} finally {
+			providerEventsBarrier = null;
+			scriptedEvents = [];
+		}
+	});
+
+	it("auto-flushes from authoritative turn state when status projection is stale", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain
+						.dispatch({
+							commandId: "stale-status-after-settlement",
+							streamId: initialSession.id,
+							command: {
+								_tag: "SetStatus",
+								status: "running",
+								updatedAt: Date.now(),
+							},
+						})
+						.pipe(Effect.asVoid),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.addQueuedMessage(
+						initialSession.id,
+						new ComposerInput({
+							text: "send despite stale status",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+					),
+				),
+			);
+
+			await expect
+				.poll(() => providerSentTexts)
+				.toContain("send despite stale status");
+		});
+	});
+
+	it("does not flush while an authoritative turn is active despite stale idle status", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "active turn",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) =>
+						sql`UPDATE sessions SET status = 'idle' WHERE id = ${initialSession.id}`,
+				),
+			);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.addQueuedMessage(
+						initialSession.id,
+						new ComposerInput({
+							text: "must remain queued",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+					),
+				),
+			);
+
+			expect(providerSentTexts).toEqual(["active turn"]);
+			const queue = await run(
+				Effect.flatMap(store, (s) => s.listQueuedMessages(initialSession.id)),
+			);
+			expect(queue.items.map((item) => item.input.text)).toEqual([
+				"must remain queued",
+			]);
 		});
 	});
 
