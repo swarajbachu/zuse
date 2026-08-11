@@ -112,6 +112,8 @@ import {
 	useAnnotationsStore,
 } from "../store/annotations.ts";
 import { useAttachmentsStore } from "../store/attachments.ts";
+import { cloudSummaryForSession } from "../store/cloud-chat-registry.ts";
+import { shouldUseLocalMessageQueue } from "../store/cloud-chats.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import {
 	composerDraftKeyForSession,
@@ -1074,7 +1076,10 @@ export function ChatComposer({
 				? chooseComposerSubmitRoute({
 						sendPlanFeedbackNow,
 						goalSendMode,
-						shouldQueue: inFlight || holdForAgent,
+						shouldQueue: shouldUseLocalMessageQueue({
+							queueRequested: inFlight || holdForAgent,
+							isCloudSession: cloudSummaryForSession(sessionId) !== null,
+						}),
 					})
 				: null;
 		clearComposer(view, {

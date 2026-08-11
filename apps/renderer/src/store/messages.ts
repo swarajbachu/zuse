@@ -189,7 +189,7 @@ type MessagesState = {
 		sessionId: SessionId,
 		input: string | ComposerInput,
 		opts?: { readonly asGoal?: boolean },
-	) => Promise<void>;
+	) => Promise<boolean>;
 	readonly setGoal: (
 		sessionId: SessionId,
 		goal: ThreadGoalSetInput,
@@ -1045,13 +1045,14 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 								},
 							})),
 						);
-				return;
+				return true;
 			}
 			await dispatchRetryableRpcCommand(messageId, async () => {
 				const client = await getMessagesRpcClient();
 				return Effect.runPromise(client["messages.send"](payload));
 			});
 			void useSessionsStore.getState().refreshOne(sessionId);
+			return true;
 		} catch (err) {
 			// Reset the optimistic running flag — otherwise a failed send leaves
 			// the composer stuck on Interrupt with no path back to Send (the
@@ -1073,6 +1074,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 					),
 				},
 			}));
+			return false;
 		}
 	},
 	setGoal: async (sessionId, goal) => {
@@ -1174,6 +1176,9 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 		return queueId;
 	},
 	persistQueued: async (sessionId, queueId, input, options) => {
+		// Cloud turns are queued durably by the control plane when they are sent.
+		// Never persist their temporary composer chips through a computer RPC.
+		if (cloudSummaryForSession(sessionId) !== null) return;
 		try {
 			const item = await trackRendererRpc("messages.queue.add", () =>
 				dispatchMessagesRpcCommand(
@@ -1230,6 +1235,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 				),
 			},
 		}));
+		if (cloudSummaryForSession(sessionId) !== null) return;
 		try {
 			const client = await getMessagesRpcClient();
 			const item = await Effect.runPromise(
@@ -1286,6 +1292,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 				queueBySession: { ...s.queueBySession, [sessionId]: ordered },
 			};
 		});
+		if (cloudSummaryForSession(sessionId) !== null) return;
 		void (async () => {
 			try {
 				const client = await getMessagesRpcClient();
@@ -1303,6 +1310,14 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 		})();
 	},
 	flushQueue: (sessionId) => {
+		if (cloudSummaryForSession(sessionId) !== null) {
+			const next = (get().queueBySession[sessionId] ?? []).find(
+				(item) => item.ready,
+			);
+			if (next !== undefined)
+				void get().runQueuedMessageNext(sessionId, next.id);
+			return;
+		}
 		const previous = queueFlushTails.get(sessionId) ?? Promise.resolve();
 		const commandId = `queue-flush:${sessionId}:${crypto.randomUUID()}`;
 		const current = previous
@@ -1339,6 +1354,10 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 					[sessionId]: false,
 				},
 			}));
+			if (cloudSummaryForSession(sessionId) !== null) {
+				get().flushQueue(sessionId);
+				return;
+			}
 			const client = await getMessagesRpcClient();
 			await Effect.runPromise(client["messages.queue.resume"]({ sessionId }));
 		} catch (err) {
@@ -1359,6 +1378,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 				),
 			},
 		}));
+		if (cloudSummaryForSession(sessionId) !== null) return;
 		void (async () => {
 			try {
 				const client = await getMessagesRpcClient();
@@ -1388,6 +1408,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 				),
 			},
 		}));
+		if (cloudSummaryForSession(sessionId) !== null) return item;
 		try {
 			const client = await getMessagesRpcClient();
 			await Effect.runPromise(
@@ -1422,6 +1443,21 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 		const queue = get().queueBySession[sessionId] ?? [];
 		const item = queue.find((q) => q.id === queueId);
 		if (!item) return;
+		if (cloudSummaryForSession(sessionId) !== null) {
+			const sent = await get().send(sessionId, item.input, {
+				asGoal: item.input.asGoal,
+			});
+			if (!sent) return;
+			set((state) => ({
+				queueBySession: {
+					...state.queueBySession,
+					[sessionId]: (state.queueBySession[sessionId] ?? []).filter(
+						(queued) => queued.id !== queueId,
+					),
+				},
+			}));
+			return;
+		}
 		// Optimistic — drop the chip from the queue before issuing the RPCs so
 		// a re-click can't fire twice.
 		set((s) => ({

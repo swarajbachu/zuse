@@ -1,6 +1,9 @@
 import type { ConnectionSnapshot } from "@zuse/client-runtime/supervisor";
 import {
+	AgentSessionId,
 	AgentTurnId,
+	ChatId,
+	CloudChatSummary,
 	ComposerInput,
 	Message,
 	MessageId,
@@ -42,6 +45,9 @@ const {
 } = await import("../../src/store/messages.ts");
 const { resetSessionRuntimeForTest, useSessionRuntimeStore } = await import(
 	"../../src/store/session-runtime.ts"
+);
+const { registerCloudChat } = await import(
+	"../../src/store/cloud-chat-registry.ts"
 );
 
 const sessionId = "session-queue" as SessionId;
@@ -207,6 +213,41 @@ describe("messages store queue actions", () => {
 
 		expect(interruptCalls).toBe(0);
 		expect(runNextCalls).toEqual([{ sessionId, queueId: queued.id }]);
+	});
+
+	it("never persists a cloud queue chip through a computer RPC", async () => {
+		const cloudSessionId = AgentSessionId.make("session-cloud-queue");
+		registerCloudChat(
+			CloudChatSummary.make({
+				workspaceId: "workspace-cloud-queue",
+				projectId: "project-cloud-queue",
+				repositoryIdentity: "github.com/example/cloud-queue",
+				repositoryDisplayName: "cloud-queue",
+				chatId: ChatId.make("chat-cloud-queue"),
+				initialSessionId: cloudSessionId,
+				title: "Cloud queue",
+				branch: "zuse/cloud-queue",
+				providerId: "e2b",
+				agent: "codex",
+				model: "gpt-5.6-sol",
+				state: "ready",
+				runtimeState: "online",
+				statusCode: "ready",
+				startupPhase: "running",
+				desiredState: "ready",
+				revision: 1,
+				unread: false,
+				lastMessageAt: Date.now(),
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+			}),
+		);
+
+		await useMessagesStore
+			.getState()
+			.persistQueued(cloudSessionId, "q_cloud", input);
+
+		expect(addCalls).toEqual([]);
 	});
 
 	it("delegates a running session before its active turn reaches the timeline", async () => {

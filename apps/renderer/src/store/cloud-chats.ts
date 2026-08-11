@@ -140,6 +140,11 @@ export const shouldAttachCloudChatOnOpen = (
 	summary: CloudChatSummary,
 ): boolean => summary.state === "ready" && summary.runtimeState === "online";
 
+export const shouldUseLocalMessageQueue = (input: {
+	readonly queueRequested: boolean;
+	readonly isCloudSession: boolean;
+}): boolean => input.queueRequested && !input.isCloudSession;
+
 export const cloudWorkspaceNeedsResume = (
 	workspace: Pick<CloudWorkspace, "state">,
 ): boolean =>

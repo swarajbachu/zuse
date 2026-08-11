@@ -13,6 +13,7 @@ import {
 	mergeCloudChatMessages,
 	mergeCloudChatSummaries,
 	shouldAttachCloudChatOnOpen,
+	shouldUseLocalMessageQueue,
 	stageCloudChat,
 } from "../../src/store/cloud-chats.ts";
 import { useQueueHydrationStore } from "../../src/store/queue-hydration.ts";
@@ -132,5 +133,20 @@ describe("cloud chat state reconciliation", () => {
 		expect(cloudWorkspaceNeedsResume({ state: "failed" })).toBe(true);
 		expect(cloudWorkspaceNeedsResume({ state: "resuming" })).toBe(true);
 		expect(cloudWorkspaceNeedsResume({ state: "ready" })).toBe(false);
+	});
+
+	test("cloud messages use the durable command queue while a turn is active", () => {
+		expect(
+			shouldUseLocalMessageQueue({
+				queueRequested: true,
+				isCloudSession: true,
+			}),
+		).toBe(false);
+		expect(
+			shouldUseLocalMessageQueue({
+				queueRequested: true,
+				isCloudSession: false,
+			}),
+		).toBe(true);
 	});
 });
