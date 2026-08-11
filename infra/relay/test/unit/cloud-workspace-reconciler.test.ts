@@ -5,7 +5,11 @@ import {
 import { Effect, Layer, Redacted, Ref } from "effect";
 import { describe, expect, test } from "vitest";
 import { CloudCredentialVault } from "../../src/cloud-credential-vault.ts";
-import { reconcileCloudWorkspace } from "../../src/cloud-workspace-reconciler.ts";
+import {
+	reconcileCloudWorkspace,
+	WORKSPACE_RUNTIME_PROCESS_PATTERN,
+	WORKSPACE_RUNTIME_RESUME_COMMAND,
+} from "../../src/cloud-workspace-reconciler.ts";
 import {
 	CloudWorkspaceStore,
 	CloudWorkspaceStoreMemory,
@@ -36,6 +40,14 @@ const testLayer = Layer.mergeAll(
 );
 
 describe("cloud workspace reconciler", () => {
+	test("the resume launcher does not match its own stale-runtime kill pattern", () => {
+		expect(
+			new RegExp(WORKSPACE_RUNTIME_PROCESS_PATTERN).test(
+				WORKSPACE_RUNTIME_RESUME_COMMAND,
+			),
+		).toBe(false);
+	});
+
 	test("restarts the workspace runtime in the same pass that resumes a paused sandbox", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {

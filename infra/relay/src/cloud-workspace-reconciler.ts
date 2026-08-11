@@ -22,6 +22,10 @@ const WARM_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_RUNTIME_BOOT_TTL_MS = 30 * 60 * 1_000;
 const WORKSPACE_RUNTIME_BOOT_TOKEN_FILE =
 	"/run/zuse-secrets/workspace-runtime-boot-token";
+export const WORKSPACE_RUNTIME_PROCESS_PATTERN =
+	"[z]use serve|[/]opt/zuse/current/bin.mjs serve";
+export const WORKSPACE_RUNTIME_RESUME_COMMAND =
+	'runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; pkill -KILL -u zuse -f \'[z]use serve|[/]opt/zuse/current/bin.mjs serve\' 2>/dev/null || true; rm -f /var/lib/zuse/workspace/failed; if [ -f "$runtime" ]; then exec /usr/bin/node "$runtime" serve; else exec "$fallback" serve --foreground; fi';
 
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
@@ -553,10 +557,7 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 		});
 		yield* provider.startProcess(providerSandboxId, {
 			command: "/bin/bash",
-			args: [
-				"-lc",
-				"pkill -KILL -u zuse -f '[z]use serve|[/]opt/zuse/current/bin.mjs serve' 2>/dev/null || true; rm -f /var/lib/zuse/workspace/failed; if [ -f /opt/zuse/current/bin.mjs ]; then exec /usr/bin/node /opt/zuse/current/bin.mjs serve; else exec /usr/local/bin/zuse serve --foreground; fi",
-			],
+			args: ["-lc", WORKSPACE_RUNTIME_RESUME_COMMAND],
 			cwd: "/home/zuse/workspace",
 			env: {
 				...project.cloudEnvironment,

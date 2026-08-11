@@ -30,7 +30,7 @@ import {
 	registerCloudExecutionTarget,
 } from "./cloud-chat-registry.ts";
 import {
-	deferTimelineUntilSessionCreated,
+	acknowledgeTimelineSessionCreated,
 	useMessagesStore,
 } from "./messages.ts";
 import { markQueueHydrated } from "./queue-hydration.ts";
@@ -315,7 +315,11 @@ export const stageCloudChat = (
 		summaries: mergeCloudChatSummaries(state.summaries, [summary]),
 	}));
 	const seed = seedFor(summary, projectId, firstMessage);
-	deferTimelineUntilSessionCreated(seed.session.id);
+	// Cloud chat/session creation is already durable before this projection is
+	// staged. Release any stale local creation barrier immediately so live
+	// timeline hydration can attach instead of returning early forever.
+	acknowledgeTimelineSessionCreated(seed.session.id);
+	markQueueHydrated(seed.session.id);
 	useChatsStore.setState((state) => ({
 		chatsByProject: {
 			...state.chatsByProject,

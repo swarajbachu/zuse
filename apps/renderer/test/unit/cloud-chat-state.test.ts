@@ -2,6 +2,7 @@ import {
 	AgentSessionId,
 	ChatId,
 	CloudChatSummary,
+	FolderId,
 	Message,
 	MessageId,
 	SessionId,
@@ -10,7 +11,9 @@ import { describe, expect, test } from "vitest";
 import {
 	mergeCloudChatMessages,
 	mergeCloudChatSummaries,
+	stageCloudChat,
 } from "../../src/store/cloud-chats.ts";
+import { useQueueHydrationStore } from "../../src/store/queue-hydration.ts";
 
 const summary = (input: {
 	revision: number;
@@ -91,5 +94,16 @@ describe("cloud chat state reconciliation", () => {
 				(message) => message.id,
 			),
 		).toEqual([durableFirst.id, optimistic.id]);
+	});
+
+	test("staging a durable cloud chat immediately releases its composer", () => {
+		const cloud = summary({ revision: 20, startupPhase: "allocating" });
+		stageCloudChat(cloud, FolderId.make("folder-cloud"), "hello");
+
+		expect(
+			useQueueHydrationStore.getState().hydratedBySession[
+				cloud.initialSessionId
+			],
+		).toBe(true);
 	});
 });
