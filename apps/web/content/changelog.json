@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.18.2",
+    "sections": [
+      {
+        "title": "Fixed",
+        "items": [
+          "Adding a project no longer creates duplicate sidebar entries, and Quick Start is available again from the Add Project dialog"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.18.1",
     "sections": [
       {

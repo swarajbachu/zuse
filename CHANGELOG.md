@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.2]
+
+### Fixed
+- Adding a project no longer creates duplicate sidebar entries, and Quick Start is available again from the Add Project dialog
+
 ## [0.18.1]
 
 ### Fixed
