@@ -145,6 +145,13 @@ const cloudPhaseRank: Record<CloudChatSummary["startupPhase"], number> = {
 	failed: -1,
 };
 
+const cloudFailureRank = (statusCode: string): number => {
+	if (/agent/u.test(statusCode)) return 3;
+	if (/git|repository|branch/u.test(statusCode)) return 2;
+	if (/runtime|enroll|credential|auth/u.test(statusCode)) return 1;
+	return 0;
+};
+
 export function CloudWorkspaceSetupCard({
 	summary,
 }: {
@@ -179,9 +186,11 @@ export function CloudWorkspaceSetupCard({
 		}
 	};
 	const failed = summary.startupPhase === "failed";
-	const rank = cloudPhaseRank[summary.startupPhase];
+	const rank = failed
+		? cloudFailureRank(summary.statusCode)
+		: cloudPhaseRank[summary.startupPhase];
 	const step = (index: number): StepState =>
-		failed && index === Math.max(0, rank)
+		failed && index === rank
 			? "failed"
 			: rank > index
 				? "done"
@@ -214,7 +223,7 @@ export function CloudWorkspaceSetupCard({
 				</header>
 				<div className="flex flex-col gap-1.5 px-3.5 py-2.5 text-[12px]">
 					<StepRow state={step(0)} label="Starting cloud workspace" />
-					<StepRow state={step(1)} label="Restoring workspace environment" />
+					<StepRow state={step(1)} label="Starting secure cloud runtime" />
 					<StepRow state={step(2)} label="Fetching the latest Git changes" />
 					<StepRow
 						state={step(3)}

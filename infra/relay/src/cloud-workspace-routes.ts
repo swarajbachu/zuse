@@ -1278,10 +1278,7 @@ export const routeCloudWorkspaceRequest = (
 				...workspace,
 				...(action === "resume" && workspace.state === "failed"
 					? {
-							state:
-								workspace.providerSandboxId === undefined
-									? ("queued" as const)
-									: ("resuming" as const),
+							state: "queued" as const,
 							runtimeState: "offline" as const,
 						}
 					: {}),

@@ -163,34 +163,58 @@ const seedFor = (
 	return { chat, session, initialMessage };
 };
 
-const messagesFromHistory = (
+export const messagesFromHistory = (
 	history: CloudChatHistory,
-): ReadonlyArray<Message> =>
-	[
-		...history.events.flatMap((row) => {
-			if (row.type !== "MessagePersisted") return [];
-			try {
-				const event = JSON.parse(row.payloadJson) as Record<string, unknown>;
-				if (
-					typeof event.messageId !== "string" ||
-					typeof event.role !== "string" ||
-					typeof event.contentJson !== "string" ||
-					typeof event.createdAt !== "number"
-				)
-					return [];
-				return [
+	firstMessageCreatedAt = 0,
+): ReadonlyArray<Message> => {
+	const eventMessages = history.events.flatMap((row) => {
+		if (row.type !== "MessagePersisted") return [];
+		try {
+			const event = JSON.parse(row.payloadJson) as Record<string, unknown>;
+			if (
+				typeof event.messageId !== "string" ||
+				typeof event.role !== "string" ||
+				typeof event.contentJson !== "string" ||
+				typeof event.createdAt !== "number"
+			)
+				return [];
+			return [
+				Message.make({
+					id: MessageId.make(event.messageId),
+					sessionId: SessionId.make(history.initialSessionId),
+					role: event.role as Message["role"],
+					content: JSON.parse(event.contentJson) as Message["content"],
+					createdAt: new Date(event.createdAt),
+				}),
+			];
+		} catch {
+			return [];
+		}
+	});
+	const firstPersistedUserMessage = eventMessages.find(
+		(message) => message.role === "user",
+	);
+	const firstMessageAlreadyPersisted =
+		history.firstMessage !== undefined &&
+		firstPersistedUserMessage?.content._tag === "user" &&
+		firstPersistedUserMessage.content.text === history.firstMessage;
+	const durableFirstMessage =
+		history.firstMessage === undefined ||
+		history.firstMessage.trim().length === 0 ||
+		firstMessageAlreadyPersisted
+			? []
+			: [
 					Message.make({
-						id: MessageId.make(event.messageId),
+						id: MessageId.make(`cloud-initial:${history.workspaceId}`),
 						sessionId: SessionId.make(history.initialSessionId),
-						role: event.role as Message["role"],
-						content: JSON.parse(event.contentJson) as Message["content"],
-						createdAt: new Date(event.createdAt),
+						role: "user",
+						content: { _tag: "user", text: history.firstMessage },
+						createdAt: new Date(firstMessageCreatedAt),
 					}),
 				];
-			} catch {
-				return [];
-			}
-		}),
+	return [
+		...durableFirstMessage,
+		...eventMessages,
 		...history.queuedMessages.map((queued) =>
 			Message.make({
 				id: queued.clientMessageId,
@@ -215,6 +239,7 @@ const messagesFromHistory = (
 		(message, index, all) =>
 			all.findIndex((candidate) => candidate.id === message.id) === index,
 	);
+};
 
 const applyCloudHistory = (
 	summary: CloudChatSummary,
@@ -222,7 +247,7 @@ const applyCloudHistory = (
 	history: CloudChatHistory,
 ): ReadonlyArray<Message> => {
 	stageCloudChat(summary, projectId, history.firstMessage);
-	const projected = messagesFromHistory(history);
+	const projected = messagesFromHistory(history, summary.createdAt);
 	useMessagesStore.setState((state) => ({
 		messagesBySession: {
 			...state.messagesBySession,

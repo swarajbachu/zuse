@@ -786,11 +786,9 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			});
 			yield* provider.startProcess(workspace.providerSandboxId, {
 				command: installedRuntime ? "/usr/bin/node" : "/usr/local/bin/zuse",
-				args: [
-					...(installedRuntime ? ["/opt/zuse/current/bin.mjs"] : []),
-					"serve",
-					"--foreground",
-				],
+				args: installedRuntime
+					? ["/opt/zuse/current/bin.mjs", "serve"]
+					: ["serve", "--foreground"],
 				cwd: "/home/zuse/workspace",
 				env: {
 					...project.cloudEnvironment,
@@ -822,10 +820,23 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					"zuse",
 				)
 			) {
+				const reportedFailurePhase = yield* provider
+					.readTextFile(
+						workspace.providerSandboxId,
+						"/var/lib/zuse/workspace/failure-phase",
+						"zuse",
+					)
+					.pipe(
+						Effect.map((phase) => phase.trim()),
+						Effect.catchTag("SandboxProviderError", () => Effect.succeed("")),
+					);
+				const failureCode = /^[a-z][a-z0-9-]{0,63}$/.test(reportedFailurePhase)
+					? `${reportedFailurePhase}-failed`
+					: "setup-failed";
 				yield* store.saveWorkspace({
 					...workspace,
 					state: "failed",
-					statusCode: "setup-failed",
+					statusCode: failureCode,
 					runtimeState: "offline",
 					nextActionAtMs: Number.MAX_SAFE_INTEGER,
 					revision: workspace.revision + 1,

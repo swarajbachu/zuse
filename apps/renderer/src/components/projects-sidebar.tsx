@@ -1434,6 +1434,14 @@ function CloudChatRow({
 	const archive = useCloudChatsStore((state) => state.archive);
 	const [archiving, setArchiving] = useState(false);
 	const label = cloudStateLabel(summary);
+	const cloudWorkspaceLoading =
+		summary.state === "queued" ||
+		summary.state === "provisioning" ||
+		summary.state === "setup" ||
+		summary.state === "pausing" ||
+		summary.state === "resuming" ||
+		summary.state === "recovering" ||
+		summary.runtimeState === "connecting";
 	const selected = selectedChatId === summary.chatId;
 	const open = () => {
 		void openCloudChat(summary, projectId).catch((cause) =>
@@ -1464,7 +1472,7 @@ function CloudChatRow({
 				role="button"
 				tabIndex={0}
 				aria-label={`${summary.title}. ${label}`}
-				aria-busy={historyLoading || undefined}
+				aria-busy={cloudWorkspaceLoading || historyLoading || undefined}
 				className={cn(
 					"group flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/40 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
 					selected && "bg-sidebar-accent text-sidebar-accent-foreground",
@@ -1502,14 +1510,18 @@ function CloudChatRow({
 							<HugeiconsIcon icon={ArchiveArrowDownIcon} className="size-3.5" />
 						)}
 					</button>
-					<HugeiconsIcon
-						icon={CloudIcon}
-						aria-hidden
-						className={cn(
-							"size-3 shrink-0",
-							summary.state === "paused" && "opacity-55",
-						)}
-					/>
+					{cloudWorkspaceLoading || historyLoading ? (
+						<Spinner className="size-3 shrink-0 motion-reduce:animate-none" />
+					) : (
+						<HugeiconsIcon
+							icon={CloudIcon}
+							aria-hidden
+							className={cn(
+								"size-3 shrink-0",
+								summary.state === "paused" && "opacity-55",
+							)}
+						/>
+					)}
 				</div>
 			</div>
 		</li>

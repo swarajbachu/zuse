@@ -1,6 +1,7 @@
 import {
 	AgentSessionId,
 	ChatId,
+	CloudChatHistory,
 	CloudChatSummary,
 	FolderId,
 } from "@zuse/contracts";
@@ -11,6 +12,7 @@ import terminalPaneSource from "../../src/components/terminal-pane.tsx?raw";
 import commandsSource from "../../src/lib/commands.ts?raw";
 import chatsSource from "../../src/store/chats.ts?raw";
 import { registerCloudChat } from "../../src/store/cloud-chat-registry.ts";
+import { messagesFromHistory } from "../../src/store/cloud-chats.ts";
 import cloudChatsSource from "../../src/store/cloud-chats.ts?raw";
 import messagesSource from "../../src/store/messages.ts?raw";
 import { useTerminalsStore } from "../../src/store/terminals.ts";
@@ -62,12 +64,39 @@ describe("cloud chat activation", () => {
 		);
 	});
 
+	test("projects the durable first message before runtime events exist", () => {
+		const history = CloudChatHistory.make({
+			workspaceId: "workspace-starting",
+			chatId: ChatId.make("chat-starting"),
+			initialSessionId: AgentSessionId.make("session-starting"),
+			firstMessage: "Please inspect the repository",
+			commandState: "queued",
+			events: [],
+			queuedMessages: [],
+			cursor: 0,
+		});
+
+		expect(messagesFromHistory(history)).toMatchObject([
+			{
+				role: "user",
+				content: { _tag: "user", text: "Please inspect the repository" },
+			},
+		]);
+	});
+
 	test("opens cached history immediately without replacing status with Opening", () => {
 		expect(cloudChatsSource).toContain(
 			"readCachedHistory(summary.workspaceId)",
 		);
 		expect(projectsSidebarSource).not.toContain('opening ? "Opening…"');
 		expect(projectsSidebarSource).toContain("historyLoadingByChat");
+	});
+
+	test("shows cloud startup progress in the sidebar row", () => {
+		expect(projectsSidebarSource).toContain("cloudWorkspaceLoading");
+		expect(projectsSidebarSource).toContain(
+			"cloudWorkspaceLoading || historyLoading",
+		);
 	});
 
 	test("archives cloud chats through the control plane", () => {

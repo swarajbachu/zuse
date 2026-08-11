@@ -14,7 +14,7 @@ export function Spinner({
 		<HugeiconsIcon
 			icon={Loading03Icon}
 			aria-label="Loading"
-			className={cn("animate-spin", className)}
+			className={cn("animate-spin motion-reduce:animate-none", className)}
 			role="status"
 			{...props}
 		/>

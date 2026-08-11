@@ -23,6 +23,9 @@ describe("cloud runtime assets", () => {
 		const bootstrap = await readWorkspaceFile(
 			"infra/cloud-sandboxes/workspace-bootstrap.sh",
 		);
+		const reconciler = await readWorkspaceFile(
+			"infra/relay/src/cloud-workspace-reconciler.ts",
+		);
 		const runtime = await readWorkspaceFile(
 			"apps/server/src/relay/cloud-workspace-runtime.ts",
 		);
@@ -30,6 +33,15 @@ describe("cloud runtime assets", () => {
 		expect(runtime).toContain("bootTokenFile");
 		expect(bootstrap).toContain("export ZUSE_HOST=127.0.0.1");
 		expect(bootstrap).toContain('touch "$status_dir/repository-ready"');
+		expect(bootstrap).toContain(
+			"runtime_command=(node /opt/zuse/current/bin.mjs serve)",
+		);
+		expect(bootstrap).not.toContain(
+			"runtime_command=(node /opt/zuse/current/bin.mjs serve --foreground)",
+		);
+		expect(reconciler).toMatch(
+			/installedRuntime\s*\? \["\/opt\/zuse\/current\/bin\.mjs", "serve"\]\s*: \["serve", "--foreground"\]/u,
+		);
 		expect(bootstrap).not.toContain("workspace-ready.ts");
 		expect(runtime).toContain("bootstrap.gatewayUrl");
 		expect(runtime).toContain("client.frame");
