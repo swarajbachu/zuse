@@ -42,6 +42,10 @@ describe("cloud runtime assets", () => {
 		expect(reconciler).toMatch(
 			/installedRuntime\s*\? \["\/opt\/zuse\/current\/bin\.mjs", "serve"\]\s*: \["serve", "--foreground"\]/u,
 		);
+		expect(reconciler).toContain("replacingFailedSandbox");
+		expect(reconciler).toContain(
+			"yield* provider.kill(workspace.providerSandboxId)",
+		);
 		expect(bootstrap).not.toContain("workspace-ready.ts");
 		expect(runtime).toContain("bootstrap.gatewayUrl");
 		expect(runtime).toContain("client.frame");

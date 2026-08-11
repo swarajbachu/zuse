@@ -590,11 +590,18 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			const project = yield* store.getProject(workspace.projectId);
 			if (build === null || project === null) return;
 			const label = providerLabel("workspace", workspace.workspaceId);
+			const replacingFailedSandbox =
+				workspace.statusCode === "resume-queued" &&
+				workspace.providerSandboxId !== undefined;
+			if (replacingFailedSandbox && workspace.providerSandboxId !== undefined)
+				yield* provider.kill(workspace.providerSandboxId);
 			const preparedSnapshotAvailable =
 				build.snapshotId !== undefined &&
 				build.templateVersion === provider.templateVersion;
 			const sandbox =
-				(yield* provider.recoverByLabel(label)) ??
+				(replacingFailedSandbox
+					? null
+					: yield* provider.recoverByLabel(label)) ??
 				(preparedSnapshotAvailable
 					? yield* provider.fork({
 							sandboxId: workspace.workspaceId,
