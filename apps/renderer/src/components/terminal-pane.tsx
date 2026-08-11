@@ -96,6 +96,7 @@ function PlainTerminalSlot({
 	const [cloudConnection, setCloudConnection] = useState<
 		"idle" | "connecting" | "ready" | "failed"
 	>(cloudSummary === null ? "ready" : "idle");
+	const [pendingTerminalInput, setPendingTerminalInput] = useState("");
 	const list = useTerminalsStore((s) => s.byKey[key] ?? EMPTY_TERMINALS);
 	const ensureSlot = useTerminalsStore((s) => s.ensureSlot);
 	const resolvedRootPath =
@@ -157,24 +158,55 @@ function PlainTerminalSlot({
 			</TerminalPlaceholder>
 		);
 	if (cloudSummary !== null && cloudConnection !== "ready")
+		if (
+			cloudSummary.state === "resuming" ||
+			cloudSummary.state === "provisioning" ||
+			cloudSummary.state === "setup"
+		)
+			return (
+				<TerminalPlaceholder>
+					<ShimmerText>Resuming cloud workspace…</ShimmerText>
+				</TerminalPlaceholder>
+			);
+	if (cloudSummary !== null && cloudConnection !== "ready")
 		return (
 			<TerminalPlaceholder>
-				<div className="flex flex-col items-center gap-3 px-6 text-center">
-					<span>
-						{cloudConnection === "failed"
-							? "Cloud terminal could not connect."
+				<textarea
+					value=""
+					onChange={() => undefined}
+					aria-label="Cloud terminal. Type to resume the workspace."
+					placeholder={
+						cloudConnection === "failed"
+							? "Cloud terminal could not connect. Type here to try again."
 							: cloudSummary.state === "paused"
-								? "This cloud workspace is paused."
-								: "The cloud terminal is not connected."}
-					</span>
-					<button
-						type="button"
-						className="inline-flex min-h-11 items-center justify-center rounded-md border border-border bg-secondary px-4 text-foreground outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-						onClick={() => connectCloudTerminal(true)}
-					>
-						{cloudConnection === "failed" ? "Try again" : "Resume terminal"}
-					</button>
-				</div>
+								? "Workspace paused — type here to resume the terminal."
+								: "Cloud terminal is unavailable."
+					}
+					className="h-full min-h-11 w-full resize-none cursor-text content-center border-0 bg-transparent px-6 text-center text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+					onKeyDown={(event) => {
+						const input =
+							event.key.length === 1
+								? event.key
+								: event.key === "Enter"
+									? "\r"
+									: event.key === "Tab"
+										? "\t"
+										: event.key === "Backspace"
+											? "\u007f"
+											: "";
+						if (input.length === 0 || event.metaKey || event.ctrlKey) return;
+						event.preventDefault();
+						setPendingTerminalInput(input);
+						connectCloudTerminal(true);
+					}}
+					onPaste={(event) => {
+						const input = event.clipboardData.getData("text");
+						if (input.length === 0) return;
+						event.preventDefault();
+						setPendingTerminalInput(input);
+						connectCloudTerminal(true);
+					}}
+				/>
 			</TerminalPlaceholder>
 		);
 
@@ -186,6 +218,7 @@ function PlainTerminalSlot({
 			environmentId={inst.environmentId}
 			instanceId={inst.id}
 			command={inst.command}
+			initialInput={pendingTerminalInput}
 		/>
 	);
 }
@@ -203,11 +236,13 @@ export function PtyTerminal({
 	environmentId,
 	instanceId,
 	command,
+	initialInput,
 }: {
 	cwd: string;
 	environmentId: string;
 	instanceId: string;
 	command?: TerminalInstance["command"];
+	initialInput?: string;
 }) {
 	const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -217,6 +252,7 @@ export function PtyTerminal({
 		terminalRegistry.attach(environmentId, instanceId, container, {
 			cwd,
 			command,
+			initialInput,
 		});
 		return () => terminalRegistry.detach(environmentId, instanceId);
 		// `cwd`/`command` only matter on first open; reconnects reuse the live

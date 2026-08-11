@@ -30,6 +30,7 @@ describe("cloud chat activation", () => {
 		expect(terminalPaneSource).not.toContain(
 			"openCloudChat(cloudSummary, cloudProjectId, { activate: true })",
 		);
+		expect(terminalPaneSource).toContain("onKeyDown={(event) =>");
 		expect(terminalPaneSource).toContain("connectCloudTerminal(true)");
 		expect(chatsSource).toContain(
 			"if (cloudSummaryForChat(chatId) !== null) return;",
@@ -102,7 +103,9 @@ describe("cloud chat activation", () => {
 			.ensureSlot(summary.chatId, 0, "/Users/local/repository");
 		expect(terminal.environmentId).toBe(summary.workspaceId);
 		expect(terminal.cwd).toBe("/home/zuse/workspace");
-		expect(terminalPaneSource).toContain("This cloud workspace is paused.");
-		expect(terminalPaneSource).toContain("Resume terminal");
+		expect(terminalPaneSource).toContain(
+			"Workspace paused — type here to resume the terminal.",
+		);
+		expect(terminalPaneSource).toContain("initialInput={pendingTerminalInput}");
 	});
 });

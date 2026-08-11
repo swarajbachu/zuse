@@ -695,6 +695,27 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				(workspace.requestConfig.startupTimings as
 					| Readonly<Record<string, number>>
 					| undefined) ?? {};
+			yield* provider.startProcess(workspace.providerSandboxId, {
+				command: "/usr/bin/pkill",
+				args: [
+					"-KILL",
+					"-u",
+					"zuse",
+					"-f",
+					"[z]use serve|[/]opt/zuse/current/bin.mjs serve",
+				],
+				user: "zuse",
+			});
+			yield* provider.startProcess(workspace.providerSandboxId, {
+				command: "/usr/bin/rm",
+				args: ["-f", "/var/lib/zuse/workspace/failed"],
+				user: "zuse",
+			});
+			const installedRuntime = yield* provider.pathExists(
+				workspace.providerSandboxId,
+				"/opt/zuse/current/bin.mjs",
+				"zuse",
+			);
 			yield* store.saveWorkspace({
 				...workspace,
 				runtimeBootTokenHash: boot.tokenHash,
@@ -712,10 +733,11 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				updatedAtMs: nowMs,
 			});
 			yield* provider.startProcess(workspace.providerSandboxId, {
-				command: "/bin/bash",
+				command: installedRuntime ? "/usr/bin/node" : "/usr/local/bin/zuse",
 				args: [
-					"-lc",
-					"pkill -KILL -u zuse -f '[z]use serve|[/]opt/zuse/current/bin.mjs serve' 2>/dev/null || true; if [[ -f /opt/zuse/current/bin.mjs ]]; then exec node /opt/zuse/current/bin.mjs serve --foreground; else exec zuse serve --foreground; fi",
+					...(installedRuntime ? ["/opt/zuse/current/bin.mjs"] : []),
+					"serve",
+					"--foreground",
 				],
 				cwd: "/home/zuse/workspace",
 				env: {

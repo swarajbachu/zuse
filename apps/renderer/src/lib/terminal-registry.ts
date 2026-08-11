@@ -440,6 +440,7 @@ async function openPty(
 	opts: {
 		readonly cwd: string;
 		readonly command?: TerminalInstance["command"];
+		readonly initialInput?: string;
 	},
 ): Promise<void> {
 	try {
@@ -487,6 +488,8 @@ async function openPty(
 				});
 			},
 		});
+		if (opts.initialInput !== undefined && opts.initialInput.length > 0)
+			live.inputPump.enqueue(opts.initialInput);
 		scheduleFit(live);
 		scheduleResize(live);
 		if (live.connectedGeneration !== null) {
@@ -506,6 +509,7 @@ function makeLive(
 	opts: {
 		readonly cwd: string;
 		readonly command?: TerminalInstance["command"];
+		readonly initialInput?: string;
 	},
 ): LiveTerminal {
 	const host = document.createElement("div");
@@ -607,6 +611,7 @@ export function attach(
 	opts: {
 		readonly cwd: string;
 		readonly command?: TerminalInstance["command"];
+		readonly initialInput?: string;
 	},
 ): void {
 	const key = terminalRuntimeKey(environmentId, instanceId);
