@@ -680,7 +680,7 @@ function MainShell() {
 									</div>
 									{environmentSummaryAvailable ? (
 										<div
-											className={`pointer-events-none absolute right-2 top-2 z-20 max-h-[calc(100%-1rem)] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
+											className={`pointer-events-none absolute right-2 -top-2 z-20 max-h-[calc(100%+1rem)] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
 												showEnvironmentSummary
 													? "translate-x-0 opacity-100"
 													: "translate-x-2 opacity-0"

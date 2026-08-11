@@ -1,7 +1,7 @@
 import type { EditorView } from "@codemirror/view";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronDown } from "lucide-react";
 import {
-	ArrowDown01Icon,
 	AttachmentIcon,
 	DashboardSpeedIcon,
 	Delete02Icon,
@@ -2031,7 +2031,7 @@ function ReasoningPicker({
 						aria-hidden
 					/>
 				)}
-				<HugeiconsIcon icon={ArrowDown01Icon} className="size-3 opacity-60" />
+				<ChevronDown className="size-3 opacity-60" />
 			</MenuTrigger>
 			<MenuPopup side="top" align="start" className="w-44">
 				<MenuGroup>

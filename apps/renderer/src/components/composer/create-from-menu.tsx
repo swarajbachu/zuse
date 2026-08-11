@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronDown } from "lucide-react";
 import {
-	ArrowDown01Icon,
 	CancelCircleIcon,
 	CheckmarkCircle01Icon,
 	CircleDashedIcon,
@@ -426,7 +426,7 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
 					className="size-3.5 text-muted-foreground"
 				/>
 				<span>Create from…</span>
-				<HugeiconsIcon icon={ArrowDown01Icon} className="size-3 opacity-60" />
+				<ChevronDown className="size-3 opacity-60" />
 			</PopoverPrimitive.Trigger>
 			<PopoverPrimitive.Portal>
 				<PopoverPrimitive.Positioner

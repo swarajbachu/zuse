@@ -1,11 +1,10 @@
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
 	Analytics01Icon,
 	ArchiveArrowDownIcon,
 	ArchiveArrowUpIcon,
 	ArchiveIcon,
-	ArrowDown01Icon,
-	ArrowRight01Icon,
 	Delete02Icon,
 	Edit01Icon,
 	FolderAddIcon,
@@ -505,7 +504,7 @@ export function ProjectsSidebar() {
 				</Suspense>
 			)}
 			<SidebarActions />
-			<div className="flex items-center justify-between px-2.5 py-1.5 text-[11px] text-muted-foreground">
+			<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
 				<span>{desktopCatalogEnabled ? "Computers" : "Projects"}</span>
 				{desktopCatalogEnabled ? (
 					<Suspense fallback={<span className="size-8" />}>
@@ -524,7 +523,7 @@ export function ProjectsSidebar() {
 				{desktopCatalogEnabled ? (
 					<>
 						{logicalGroups.length === 0 && !loading ? (
-							<li className="px-3 py-4 text-center text-xs text-muted-foreground">
+							<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
 								No projects yet. Click + to add one.
 							</li>
 						) : null}
@@ -573,7 +572,7 @@ export function ProjectsSidebar() {
 				) : (
 					<>
 						{folders.length === 0 && !loading ? (
-							<li className="px-3 py-4 text-center text-xs text-muted-foreground">
+							<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
 								No projects yet. Click + to add one.
 							</li>
 						) : null}
@@ -644,12 +643,12 @@ function SidebarActionRow({
 		<button
 			type="button"
 			onClick={onClick}
-			className="flex min-h-6 w-full items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+			className="flex min-h-6 w-full items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[12px] text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 		>
 			<HugeiconsIcon icon={icon} className="size-4 shrink-0" />
 			<span className="min-w-0 flex-1 truncate">{label}</span>
 			{shortcut !== undefined && shortcut !== "" ? (
-				<kbd className="shrink-0 font-sans text-[11px] text-muted-foreground/60">
+				<kbd className="shrink-0 font-sans text-[12px] text-muted-foreground/60">
 					{shortcut}
 				</kbd>
 			) : null}
@@ -688,7 +687,7 @@ function SidebarAccount() {
 					render={
 						<button
 							type="button"
-							className="flex min-h-7 w-full items-center gap-1.5 rounded-md px-2 text-[11px] text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+							className="flex min-h-7 w-full items-center gap-1.5 rounded-md px-2 text-[12px] text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
 						>
 							<HugeiconsIcon icon={UserCircleIcon} className="size-4" />
 							<span className="min-w-0 flex-1 truncate text-left">
@@ -706,7 +705,7 @@ function SidebarAccount() {
 					<MenuItem
 						variant="destructive"
 						onClick={() => void signOutHostedProduct()}
-						className="min-h-9 rounded-lg px-2.5 text-xs"
+						className="min-h-9 rounded-lg px-2.5 text-[13px]"
 					>
 						<HugeiconsIcon icon={Logout01Icon} />
 						Sign out of this browser
@@ -724,14 +723,14 @@ function SidebarAccount() {
 						type="button"
 						onPointerEnter={() => void loadUsageLimits()}
 						onFocus={() => void loadUsageLimits()}
-						className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+						className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-[12px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
 					>
 						{isSignedIn ? (
-							<Avatar className="size-5 text-[9px]">
+							<Avatar className="size-5 text-[10px]">
 								{user?.profilePictureUrl ? (
 									<AvatarImage src={user.profilePictureUrl} alt={name} />
 								) : null}
-								<AvatarFallback className="text-[9px]">
+								<AvatarFallback className="text-[10px]">
 									{initial}
 								</AvatarFallback>
 							</Avatar>
@@ -841,7 +840,7 @@ function CatalogConnectionNotice({
 					<button
 						type="button"
 						onClick={() => openAddComputerDialog()}
-						className="mx-1.5 flex min-h-6 items-center gap-1.5 rounded-md px-2 text-left text-[11px] text-muted-foreground/80 outline-none hover:bg-sidebar-accent/40 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+						className="mx-1.5 flex min-h-6 items-center gap-1.5 rounded-md px-2 text-left text-[12px] text-muted-foreground/80 outline-none hover:bg-sidebar-accent/40 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
 					>
 						<span
 							aria-hidden="true"
@@ -879,7 +878,7 @@ function RemoteComputerIndicator({
 						<HugeiconsIcon
 							icon={ServerStack01Icon}
 							aria-hidden
-							className="size-3"
+							className="size-3.5"
 						/>
 						<span className="sr-only">{context}</span>
 					</span>
@@ -906,7 +905,7 @@ function LogicalCatalogGroup({
 }) {
 	const preferred = preferredGroupMember(group);
 	const rows = remoteChatRows(group);
-	const chevron = isExpanded ? ArrowDown01Icon : ArrowRight01Icon;
+	const Chevron = isExpanded ? ChevronDown : ChevronRight;
 	const avatarUrl = avatarUrlFor(group.origin);
 	const listId = `catalog-project-${group.key.replace(/[^\w-]/gu, "-")}`;
 	const memberLabels = group.members
@@ -929,17 +928,16 @@ function LogicalCatalogGroup({
 								{avatarUrl !== null && (
 									<AvatarImage src={avatarUrl} alt={group.displayName} />
 								)}
-								<AvatarFallback className="rounded text-[9px]">
+								<AvatarFallback className="rounded text-[10px]">
 									{initialsOf(group.origin?.owner ?? group.displayName)}
 								</AvatarFallback>
 							</Avatar>
-							<HugeiconsIcon
+							<Chevron
 								aria-hidden="true"
-								icon={chevron}
 								className="col-start-1 row-start-1 size-3.5 text-muted-foreground opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100 motion-reduce:transition-none"
 							/>
 						</span>
-						<span className="min-w-0 flex-1 truncate text-[11px]">
+						<span className="min-w-0 flex-1 truncate text-[12px]">
 							{group.displayName}
 						</span>
 					</button>
@@ -966,7 +964,7 @@ function LogicalCatalogGroup({
 			<li id={listId} className="list-none" hidden={!isExpanded}>
 				<ul aria-label={`${group.displayName} chats`}>
 					{rows.length === 0 ? (
-						<li className="px-12 py-1 text-[11px] text-muted-foreground">
+						<li className="px-12 py-1 text-[12px] text-muted-foreground">
 							No chats yet.
 						</li>
 					) : null}
@@ -1040,7 +1038,7 @@ function CatalogChatRow({
 				}}
 				title={chat.title}
 				className={cn(
-					"group flex min-h-6 w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+					"group flex min-h-6 w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12px] text-muted-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
 					connected
 						? "cursor-pointer hover:bg-sidebar-accent/40"
 						: "cursor-default opacity-60",
@@ -1227,7 +1225,7 @@ function ProjectGroup({
 	]);
 	const showHeaderAttention = headerAttention !== "idle" && !isExpanded;
 
-	const chevron = isExpanded ? ArrowDown01Icon : ArrowRight01Icon;
+	const Chevron = isExpanded ? ChevronDown : ChevronRight;
 
 	return (
 		<Fragment>
@@ -1264,7 +1262,7 @@ function ProjectGroup({
 							{avatarUrl !== null && (
 								<AvatarImage src={avatarUrl} alt={displayName} />
 							)}
-							<AvatarFallback className="rounded text-[9px]">
+							<AvatarFallback className="rounded text-[10px]">
 								{fallbackText}
 							</AvatarFallback>
 						</Avatar>
@@ -1278,8 +1276,7 @@ function ProjectGroup({
 								context="project"
 							/>
 						)}
-						<HugeiconsIcon
-							icon={chevron}
+						<Chevron
 							aria-hidden="true"
 							className={cn(
 								"col-start-1 row-start-1 size-3.5 text-muted-foreground opacity-0 transition-opacity duration-150 ease-out",
@@ -1288,7 +1285,7 @@ function ProjectGroup({
 						/>
 					</div>
 					<span
-						className="min-w-0 flex-1 truncate text-[11px]"
+						className="min-w-0 flex-1 truncate text-[12px]"
 						title={
 							origin
 								? `${origin.owner}/${origin.repo} · ${displayPath(path)}`
@@ -1332,7 +1329,7 @@ function ProjectGroup({
 			<li className="list-none" hidden={!isExpanded}>
 				<ul aria-label={`${displayName} chats`}>
 					{chatRows.length === 0 && (
-						<li className="px-12 py-1 text-[11px] text-muted-foreground">
+						<li className="px-12 py-1 text-[12px] text-muted-foreground">
 							No chats yet.
 						</li>
 					)}
@@ -1380,28 +1377,28 @@ function ProjectContextMenu({
 			>
 				<MenuItem
 					onClick={onOpenSettings}
-					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 				>
 					<HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
 					Settings
 				</MenuItem>
 				<MenuItem
 					onClick={onOpenArchives}
-					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 				>
 					<HugeiconsIcon icon={ArchiveIcon} className="size-3.5" />
 					Archived chats
 				</MenuItem>
 				<MenuItem
 					onClick={onOpenUsage}
-					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 				>
 					<HugeiconsIcon icon={Analytics01Icon} className="size-3.5" />
 					Usage
 				</MenuItem>
 				<MenuItem
 					onClick={onRemove}
-					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-red-300 hover:bg-red-500/20"
+					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-red-300 hover:bg-red-500/20"
 				>
 					<HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
 					Remove project
@@ -1668,7 +1665,7 @@ function ChatRow({ chat }: { chat: Chat }) {
 						}
 					}}
 					className={cn(
-						"group flex min-h-6 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors",
+						"group flex min-h-7 cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-2 pl-1 text-[12px] transition-colors",
 						isSelected && "bg-sidebar-accent text-sidebar-accent-foreground",
 						!isSelected &&
 							isArchived &&
@@ -1753,7 +1750,7 @@ function ChatRow({ chat }: { chat: Chat }) {
 				>
 					<MenuItem
 						onClick={onRename}
-						className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+						className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 					>
 						<HugeiconsIcon icon={PencilIcon} className="size-3.5" />
 						Rename
@@ -1761,7 +1758,7 @@ function ChatRow({ chat }: { chat: Chat }) {
 					{isArchived ? (
 						<MenuItem
 							onClick={() => void unarchiveChat(chat.id)}
-							className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+							className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 						>
 							<HugeiconsIcon icon={ArchiveArrowUpIcon} className="size-3.5" />
 							Unarchive
@@ -1770,7 +1767,7 @@ function ChatRow({ chat }: { chat: Chat }) {
 						<MenuItem
 							disabled={isArchiving}
 							onClick={archiveChat}
-							className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+							className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 						>
 							{isArchiving ? (
 								<Spinner className="size-3.5" />
@@ -1785,7 +1782,7 @@ function ChatRow({ chat }: { chat: Chat }) {
 					)}
 					<MenuItem
 						onClick={onDelete}
-						className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-red-300 hover:bg-red-500/20"
+						className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-red-300 hover:bg-red-500/20"
 					>
 						<HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
 						Delete

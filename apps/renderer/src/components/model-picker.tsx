@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronDown } from "lucide-react";
 import {
-	ArrowDown01Icon,
 	ArrowUpRight01Icon,
 	Search01Icon,
 	StarIcon,
@@ -463,7 +463,7 @@ export function ModelPicker(props: ModelPickerProps) {
 			>
 				<ProviderIcon providerId={providerId} className="size-3" />
 				<span>{currentLabel}</span>
-				<HugeiconsIcon icon={ArrowDown01Icon} className="size-3 opacity-60" />
+				<ChevronDown className="size-3 opacity-60" />
 			</PopoverTrigger>
 			<PopoverPrimitive.Portal>
 				<PopoverPrimitive.Positioner

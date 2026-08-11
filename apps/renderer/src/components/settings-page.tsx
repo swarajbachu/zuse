@@ -1,8 +1,8 @@
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronLeft } from "lucide-react";
 import {
 	Alert01Icon,
-	ArrowLeft01Icon,
 	BrowserIcon,
 	ConnectIcon,
 	Delete02Icon,
@@ -210,7 +210,7 @@ export function SettingsPage() {
 					aria-label="Back to app"
 					className="flex items-center gap-1 rounded p-1 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground [-webkit-app-region:no-drag]"
 				>
-					<HugeiconsIcon icon={ArrowLeft01Icon} className="size-3.5" />
+					<ChevronLeft className="size-3.5" />
 					<span>Back to app</span>
 				</button>
 			</header>
@@ -221,7 +221,7 @@ export function SettingsPage() {
 					folders={folders}
 					desktop={desktop}
 				/>
-				<div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5">
+				<div className="flex min-h-0 flex-1 flex-col overflow-y-auto scroll-smooth overscroll-contain px-6 py-5">
 					<div
 						className={cn(
 							"mx-auto flex w-full flex-col gap-4",

@@ -1,8 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
 	AlertCircleIcon,
-	ArrowDown01Icon,
-	ArrowRight01Icon,
 	Copy01Icon,
 	DashboardSpeedIcon,
 	LinkSquare01Icon,
@@ -693,7 +692,7 @@ function AssistantBubble({
 
 function ToolErrorRow({ output }: { output: unknown }) {
 	const [expanded, setExpanded] = useState(false);
-	const chevron = expanded ? ArrowDown01Icon : ArrowRight01Icon;
+	const Chevron = expanded ? ChevronDown : ChevronRight;
 	const text = typeof output === "string" ? output : stringifyJson(output);
 	const firstLine = text.split("\n", 1)[0] ?? "";
 	return (
@@ -713,8 +712,7 @@ function ToolErrorRow({ output }: { output: unknown }) {
 							"group-hover:opacity-0 motion-reduce:transition-none",
 						)}
 					/>
-					<HugeiconsIcon
-						icon={chevron}
+					<Chevron
 						aria-hidden="true"
 						className={cn(
 							"col-start-1 row-start-1 size-3.5 text-muted-foreground opacity-0 transition-opacity duration-150 ease-out",

@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronDown } from "lucide-react";
 import {
-	ArrowDown01Icon,
 	CheckListIcon,
 	Tick02Icon,
 } from "@hugeicons-pro/core-solid-rounded";
@@ -275,8 +275,7 @@ export function ProjectPlanTray({ sessionId }: { sessionId: SessionId }) {
 			ariaExpanded={expanded}
 			ariaLabel={expanded ? "Collapse plan" : "Expand plan"}
 			actions={
-				<HugeiconsIcon
-					icon={ArrowDown01Icon}
+				<ChevronDown
 					className={cn(
 						"size-4 text-muted-foreground transition-transform",
 						expanded ? "rotate-180" : "",

@@ -1,7 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
-	ArrowDown01Icon,
-	ArrowRight01Icon,
 	BubbleChatIcon,
 	Wrench01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
@@ -161,7 +160,7 @@ function TurnSummaryImpl({
 		return items;
 	}, [toolUses]);
 
-	const chevron = expanded ? ArrowDown01Icon : ArrowRight01Icon;
+	const Chevron = expanded ? ChevronDown : ChevronRight;
 	const mutedWhenOpen = expanded
 		? "text-muted-foreground/50"
 		: "text-muted-foreground";
@@ -194,10 +193,7 @@ function TurnSummaryImpl({
 					mutedWhenOpen,
 				)}
 			>
-				<HugeiconsIcon
-					icon={chevron}
-					className="size-3.5 shrink-0 opacity-70"
-				/>
+				<Chevron className="size-3.5 shrink-0 opacity-70" />
 				<span className="flex items-center gap-1.5">
 					<HugeiconsIcon
 						icon={Wrench01Icon}
@@ -306,10 +302,11 @@ function TurnSummaryImpl({
 						onClick={() => setFilesExpanded((e) => !e)}
 						className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
 					>
-						<HugeiconsIcon
-							icon={filesExpanded ? ArrowDown01Icon : ArrowRight01Icon}
-							className="size-3.5 shrink-0 opacity-70"
-						/>
+						{filesExpanded ? (
+							<ChevronDown className="size-3.5 shrink-0 opacity-70" />
+						) : (
+							<ChevronRight className="size-3.5 shrink-0 opacity-70" />
+						)}
 						{filesExpanded ? (
 							<span>Show less</span>
 						) : (

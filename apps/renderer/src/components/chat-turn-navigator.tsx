@@ -250,7 +250,7 @@ export function ChatTurnNavigator({
 					}}
 					className={cn(
 						"group/nav pointer-events-auto relative flex items-start justify-end bg-transparent",
-						coarsePointer ? "h-28 w-11" : "h-28 w-10",
+						coarsePointer ? "w-11 py-1.5" : "w-10 py-1",
 						"text-muted-foreground/50 outline-none transition-colors duration-150",
 						"hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
 					)}
@@ -276,9 +276,9 @@ export function ChatTurnNavigator({
 					) : null}
 				</PopoverTrigger>
 				<PopoverPopup
-					side="bottom"
-					align="end"
-					sideOffset={4}
+					side="left"
+					align="start"
+					sideOffset={8}
 					className="w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-border/70 bg-popover p-0 shadow-overlay-lg motion-reduce:transition-none [&_[data-slot=popover-viewport]]:rounded-lg [&_[data-slot=popover-viewport]]:p-0"
 					initialFocus={() => focusPopupOnOpenRef.current}
 					finalFocus={false}

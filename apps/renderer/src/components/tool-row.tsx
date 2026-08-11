@@ -1,7 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
-	ArrowDown01Icon,
-	ArrowRight01Icon,
 	Brain01Icon,
 	BrowserIcon,
 	BubbleChatIcon,
@@ -605,7 +604,7 @@ function ExpandableIconRow({
 	pending?: boolean;
 }) {
 	const [expanded, setExpanded] = useState(false);
-	const chevron = expanded ? ArrowDown01Icon : ArrowRight01Icon;
+	const Chevron = expanded ? ChevronDown : ChevronRight;
 	return (
 		<div className="px-4 py-0.5">
 			<button
@@ -628,8 +627,7 @@ function ExpandableIconRow({
 						)}
 					/>
 					{hasContent ? (
-						<HugeiconsIcon
-							icon={chevron}
+						<Chevron
 							aria-hidden="true"
 							className={cn(
 								"col-start-1 row-start-1 size-3.5 text-muted-foreground opacity-0 transition-opacity duration-150 ease-out",

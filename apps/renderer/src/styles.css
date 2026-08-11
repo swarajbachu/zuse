@@ -214,13 +214,13 @@ body,
 	);
 	/* Desktop density system: 24px rows, 28px text controls, 8px rhythm. */
 	--radius: 0.625rem;
-	--density-row: 1.5rem;
-	--density-control: 1.75rem;
-	--density-chrome: 2rem;
+	--density-row: 1.75rem;
+	--density-control: 1.875rem;
+	--density-chrome: 2.125rem;
 	--density-gap: 0.5rem;
-	--text-ui: 0.75rem;
-	--text-ui-sm: 0.6875rem;
-	--text-ui-xs: 0.625rem;
+	--text-ui: 0.8125rem;
+	--text-ui-sm: 0.75rem;
+	--text-ui-xs: 0.6875rem;
 	--text-ui-meta: 0.5625rem;
 	--text-code: 0.6875rem;
 	--motion-enter: 180ms;
@@ -351,24 +351,24 @@ body,
 	--brand-highlight: hsl(72 98% 54%);
 	--brand-highlight-muted: hsl(73 96% 72%);
 
-	--background: hsl(0 0% 6%);
+	--background: hsl(240 6% 9%);
 	--foreground: hsl(0 0% 93%);
 
-	--bg-subtle: hsl(0 0% 10%);
-	--bg-elevated: hsl(0 0% 13%);
-	--bg-overlay: hsl(0 0% 22%);
+	--bg-subtle: hsl(240 5% 12%);
+	--bg-elevated: hsl(240 5% 15%);
+	--bg-overlay: hsl(240 4% 24%);
 	--text-faint: hsl(0 0% 43%);
 
 	/* Chip surface — kept darker than --card so pills read as inset on the
      composer surface. */
 	--chip-bg: hsl(0 0% 10%);
 
-	--card: hsl(0 0% 12%);
+	--card: hsl(240 5% 12%);
 	--card-foreground: var(--foreground);
 
 	/* Popover sits just below card so the glass border/shadow has something to
      bite on. */
-	--popover: hsl(0 0% 11%);
+	--popover: hsl(240 5% 11.5%);
 	--popover-foreground: hsl(0 0% 93%);
 
 	--primary: var(--lime);
@@ -395,15 +395,15 @@ body,
 	--file-icon-pink: #ff678d;
 	--file-icon-mauve: #79697b;
 
-	--secondary: hsl(0 0% 10%);
+	--secondary: hsl(240 5% 14%);
 	--secondary-foreground: hsl(0 0% 93%);
 
 	/* Muted + accent sit ABOVE --card/--popover so hover/selected states and
-     muted surfaces read clearly against cards and the 6% background. */
-	--muted: hsl(0 0% 20%);
-	--muted-foreground: hsl(0 0% 68%);
+     muted surfaces read clearly against cards and the background. */
+	--muted: hsl(240 4% 19%);
+	--muted-foreground: hsl(240 5% 70%);
 
-	--accent: hsl(0 0% 20%);
+	--accent: hsl(240 4% 19%);
 	--accent-foreground: hsl(0 0% 93%);
 
 	--destructive: hsl(0 84% 52%);
@@ -427,7 +427,7 @@ body,
 	--input: hsl(0 0% 100% / 0.2);
 	--ring: var(--lime);
 
-	--sidebar: hsl(0 0% 10%);
+	--sidebar: hsl(240 6% 10.5%);
 	--sidebar-foreground: hsl(0 0% 100% / 0.9);
 
 	--sidebar-primary: var(--lime);
@@ -509,6 +509,17 @@ body,
 	svg[viewBox="0 0 24 24"],
 	svg[viewBox="0 0 24 24"] [stroke-width] {
 		stroke-width: 1;
+	}
+
+	/* Lucide icons are stroked (unlike the solid hugeicons set the rule above is
+	   tuned for), so stroke-width 1 renders them — chevrons especially — too
+	   faint. Give lucide a heavier stroke, and nudge the chevrons up a touch so
+	   they read cleanly at the small sizes used in menus, selects, and rows. */
+	svg[class*="lucide"] {
+		stroke-width: 2;
+	}
+	svg[class*="lucide-chevron"] {
+		scale: 1.15;
 	}
 }
 

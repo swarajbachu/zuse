@@ -1,7 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import {
-	ArrowDown01Icon,
-	ArrowUp01Icon,
 	Chat01Icon,
 	CornerDownRightIcon,
 	Delete02Icon,
@@ -190,14 +189,14 @@ export function QueueChip({
 								onClick={() => onMove(index, index - 1)}
 								disabled={index === 0}
 							>
-								<HugeiconsIcon icon={ArrowUp01Icon} />
+								<ChevronUp />
 								Move up
 							</MenuItem>
 							<MenuItem
 								onClick={() => onMove(index, index + 1)}
 								disabled={index >= count - 1}
 							>
-								<HugeiconsIcon icon={ArrowDown01Icon} />
+								<ChevronDown />
 								Move down
 							</MenuItem>
 							<MenuItem onClick={() => drop(sessionId, item.id)}>

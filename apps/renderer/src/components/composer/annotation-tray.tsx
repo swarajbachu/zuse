@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronDown } from "lucide-react";
 import {
-	ArrowDown01Icon,
 	BubbleChatIcon,
 	CursorMagicSelection01Icon,
 	PencilEdit01Icon,
@@ -124,8 +124,7 @@ export function AnnotationTray({
 					<span className="rounded border border-border/45 bg-background/70 px-1 py-px text-[10px] font-medium tabular-nums text-muted-foreground">
 						{annotations.length}
 					</span>
-					<HugeiconsIcon
-						icon={ArrowDown01Icon}
+					<ChevronDown
 						className={cn(
 							"ml-auto size-4 shrink-0 text-muted-foreground transition-transform",
 							expanded ? "rotate-180" : "",

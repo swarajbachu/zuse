@@ -158,8 +158,8 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 					onRename={(title) => renameSession(renamingSession.id, title)}
 				/>
 			) : null}
-			<header className="flex h-8 min-w-0 max-w-full shrink-0 items-stretch overflow-hidden border-b border-border">
-				<div className="flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto overflow-y-hidden px-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+			<header className="flex h-9 min-w-0 max-w-full shrink-0 items-center overflow-hidden pt-1.5">
+				<div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden px-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					{changesTabOpen ? (
 						<FileTabButton
 							active={activeMainTab === "changes"}
@@ -269,10 +269,10 @@ function TabButton({
 			type="button"
 			onClick={onClick}
 			title={title ?? label}
-			className={`relative flex max-w-[160px] shrink-0 items-center gap-1.5 px-2 text-[12px] transition-colors after:pointer-events-none after:absolute after:inset-x-1.5 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
+			className={`relative flex h-6 max-w-[160px] shrink-0 items-center gap-1.5 px-2 text-[12px] transition-colors after:pointer-events-none after:absolute after:inset-x-1.5 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
 				active
-					? "text-foreground after:bg-foreground"
-					: "text-muted-foreground hover:text-foreground after:bg-transparent"
+					? "rounded-md bg-accent text-foreground after:bg-transparent"
+					: "rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground after:bg-transparent"
 			}`}
 		>
 			<span className="truncate">{label}</span>
@@ -309,10 +309,10 @@ export function ChatTabButton({
 }) {
 	return (
 		<div
-			className={`group relative flex max-w-[160px] shrink-0 items-center gap-1 px-2 text-[12px] transition-colors after:pointer-events-none after:absolute after:inset-x-1.5 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
+			className={`group relative flex h-6 max-w-[160px] shrink-0 items-center gap-1 px-2 text-[12px] transition-colors after:pointer-events-none after:absolute after:inset-x-1.5 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
 				active
-					? "text-foreground after:bg-foreground"
-					: "text-muted-foreground hover:text-foreground after:bg-transparent"
+					? "rounded-md bg-accent text-foreground after:bg-transparent"
+					: "rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground after:bg-transparent"
 			}`}
 		>
 			<button
@@ -346,7 +346,7 @@ export function ChatTabButton({
 					<TypewriterText text={label} className="truncate" />
 				</span>
 			</button>
-			<div className="absolute right-1 top-1/2 z-10 flex -translate-y-1/2 items-center rounded bg-background/90 p-0.5 opacity-0 shadow-[-8px_0_8px_var(--background)] transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+			<div className="absolute right-0.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-accent p-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
 				<button
 					type="button"
 					onClick={(event) => {
@@ -447,10 +447,10 @@ function FileTabButton({
 }) {
 	return (
 		<div
-			className={`group relative flex max-w-[160px] shrink-0 items-center gap-1 px-2 text-[12px] leading-none transition-colors after:pointer-events-none after:absolute after:inset-x-1.5 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
+			className={`group relative flex h-6 max-w-[160px] shrink-0 items-center gap-1 px-2 text-[12px] leading-none transition-colors after:pointer-events-none after:absolute after:inset-x-1.5 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
 				active
-					? "text-foreground after:bg-foreground"
-					: "text-muted-foreground hover:text-foreground after:bg-transparent"
+					? "rounded-md bg-accent text-foreground after:bg-transparent"
+					: "rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground after:bg-transparent"
 			}`}
 		>
 			<button
@@ -474,7 +474,7 @@ function FileTabButton({
 				type="button"
 				onClick={onClose}
 				aria-label={closeLabel}
-				className="absolute right-1 top-1/2 z-10 -translate-y-1/2 rounded bg-background/90 p-0.5 text-muted-foreground opacity-0 shadow-[-8px_0_8px_var(--background)] transition-opacity hover:bg-foreground/10 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+				className="absolute right-0.5 top-1/2 z-10 -translate-y-1/2 rounded-md bg-accent p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-foreground/10 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
 			>
 				<X className="size-3" strokeWidth={1.8} />
 			</button>

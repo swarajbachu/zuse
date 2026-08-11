@@ -1,9 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
 	Alert01Icon,
 	ArchiveArrowDownIcon,
-	ArrowDown01Icon,
-	ArrowRight01Icon,
 	Copy01Icon,
 	GitBranchIcon,
 	GitMergeIcon,
@@ -106,7 +105,7 @@ const openExternal = (url: string): void => {
 };
 
 const SECTION_CLASS =
-	"flex h-8 shrink-0 items-center gap-1 border-b border-border text-[11px] [-webkit-app-region:drag]";
+	"flex h-10 shrink-0 items-center gap-1 border-b border-border text-[11px] [-webkit-app-region:drag]";
 const ACTION_CLASS = "[-webkit-app-region:no-drag]";
 const ICON_BUTTON_CLASS = `${ACTION_CLASS} flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground`;
 const NATIVE_CONTROLS_INSET_CLASS =
@@ -363,8 +362,7 @@ export function TopBarMain() {
 						</span>
 						{branchLabel ? (
 							<>
-								<HugeiconsIcon
-									icon={ArrowRight01Icon}
+								<ChevronRight
 									className="size-3 shrink-0 text-muted-foreground/50"
 								/>
 								<BranchMenuButton
@@ -522,8 +520,7 @@ export function BranchMenuButton({
 						className="size-3 animate-spin text-muted-foreground"
 					/>
 				) : (
-					<HugeiconsIcon
-						icon={ArrowDown01Icon}
+					<ChevronDown
 						className="size-3 text-muted-foreground"
 					/>
 				)}
@@ -742,7 +739,7 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 								)}
 							</span>
 							<span className="flex size-7 items-center justify-center">
-								<HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5" />
+								<ChevronDown className="size-3.5" />
 							</span>
 						</MenuTrigger>
 					}
@@ -1384,7 +1381,7 @@ function MergeButton({
 								className="flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
 								aria-label="Choose merge method"
 							>
-								<HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5" />
+								<ChevronDown className="size-3.5" />
 							</MenuTrigger>
 						}
 					/>

@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronDown } from "lucide-react";
 import {
-	ArrowDown01Icon,
 	ComputerIcon,
 	Tick01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
@@ -95,7 +95,7 @@ export function ComputerPicker({
 			>
 				<HugeiconsIcon icon={ComputerIcon} className="size-3.5" />
 				<span className="truncate">{current?.label ?? "Run on"}</span>
-				<HugeiconsIcon icon={ArrowDown01Icon} className="size-3 opacity-60" />
+				<ChevronDown className="size-3 opacity-60" />
 			</MenuTrigger>
 			<MenuPopup side="bottom" align="start" className="w-64 p-1">
 				{model.items.map((item) => (
