@@ -11,7 +11,7 @@ import {
 	type SessionNotFoundError,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
-import { Effect, type Scope, Semaphore } from "effect";
+import { Cause, Effect, Queue, type Scope, Semaphore } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { QueueServiceShape } from "../services/conversation-services.ts";
 import { handoffToServiceScope } from "./service-scope.ts";
@@ -59,6 +59,8 @@ export interface QueueServiceRuntimeDeps {
 export interface QueueServiceRuntime {
 	readonly service: QueueServiceShape;
 	readonly flushAfterIdle: (sessionId: SessionId) => Effect.Effect<void>;
+	/** Reconcile durable ready work once startup catch-up has settled session state. */
+	readonly reconcileReadyQueues: Effect.Effect<void>;
 	readonly pauseAfterInterrupt: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly shutdown: (sessionId: SessionId) => Effect.Effect<void>;
 }
@@ -88,6 +90,9 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			resolveActiveTurn,
 		} = deps;
 		const flushLocks = new Map<SessionId, Semaphore.Semaphore>();
+		const drainRequests = yield* Queue.unbounded<SessionId>();
+		const retryAttempts = new Map<SessionId, number>();
+		const scheduledRetries = new Set<SessionId>();
 		const flushLock = (sessionId: SessionId): Semaphore.Semaphore => {
 			const existing = flushLocks.get(sessionId);
 			if (existing !== undefined) return existing;
@@ -171,7 +176,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 					if (existing[0] !== undefined) {
 						const item = queuedMessageFromRow(existing[0]);
 						if (item.ready && flush) {
-							yield* Effect.forkIn(requestFlush(sessionId), serviceScope);
+							yield* requestFlush(sessionId);
 						}
 						return item;
 					}
@@ -205,7 +210,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 				}
 				const item = queuedMessageFromRow(row);
 				if (item.ready && flush) {
-					yield* Effect.forkIn(requestFlush(sessionId), serviceScope);
+					yield* requestFlush(sessionId);
 				}
 				return item;
 			});
@@ -251,7 +256,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 					return yield* new QueuedMessageNotFoundError({ sessionId, queueId });
 				}
 				const item = queuedMessageFromRow(row);
-				yield* Effect.forkIn(requestFlush(sessionId), serviceScope);
+				yield* requestFlush(sessionId);
 				return item;
 			});
 
@@ -387,6 +392,8 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 
 		const flushHead = (sessionId: SessionId) =>
 			Effect.gen(function* () {
+				const session = yield* lookupSession(sessionId);
+				if (session.status === "error") return;
 				if (yield* isPaused(sessionId)) return;
 				const head = (yield* listRows(sessionId))[0];
 				if (head === undefined || !head.ready) return;
@@ -435,13 +442,51 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			});
 
 		requestFlush = (sessionId) =>
-			lookupSession(sessionId).pipe(
-				Effect.andThen(resolveActiveTurn(sessionId)),
-				Effect.flatMap((activeTurnId) =>
-					activeTurnId === undefined ? flushAfterIdle(sessionId) : Effect.void,
+			Queue.offer(drainRequests, sessionId).pipe(Effect.asVoid);
+		const scheduleRetry = (sessionId: SessionId) =>
+			Effect.gen(function* () {
+				if (scheduledRetries.has(sessionId)) return;
+				const attempt = (retryAttempts.get(sessionId) ?? 0) + 1;
+				retryAttempts.set(sessionId, attempt);
+				scheduledRetries.add(sessionId);
+				const delayMs = Math.min(100 * 2 ** (attempt - 1), 10_000);
+				const retry = Effect.sleep(`${delayMs} millis`).pipe(
+					Effect.andThen(
+						Effect.sync(() => {
+							scheduledRetries.delete(sessionId);
+						}),
+					),
+					Effect.andThen(requestFlush(sessionId)),
+				);
+				yield* Effect.forkIn(retry, serviceScope);
+			});
+		const runAutomaticDrain = (sessionId: SessionId) =>
+			flushAfterIdle(sessionId).pipe(
+				Effect.tap(() =>
+					Effect.sync(() => {
+						retryAttempts.delete(sessionId);
+					}),
 				),
-				Effect.catch(() => Effect.void),
+				Effect.catchTag("SessionNotFoundError", () =>
+					Effect.sync(() => {
+						retryAttempts.delete(sessionId);
+						scheduledRetries.delete(sessionId);
+					}),
+				),
+				Effect.catchCause((cause) =>
+					Cause.hasInterruptsOnly(cause)
+						? Effect.failCause(cause)
+						: Effect.logError(
+								`[ConversationQueue] drain failed for ${sessionId}: ${String(cause)}`,
+							).pipe(Effect.andThen(scheduleRetry(sessionId))),
+				),
 			);
+		const drainWorker = Effect.forever(
+			Queue.take(drainRequests).pipe(Effect.flatMap(runAutomaticDrain)),
+		);
+		for (let index = 0; index < 4; index += 1) {
+			yield* Effect.forkIn(drainWorker, serviceScope);
+		}
 
 		const pauseAfterInterrupt = (sessionId: SessionId) =>
 			Effect.gen(function* () {
@@ -451,6 +496,23 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			});
 
 		const shutdown = (_sessionId: SessionId) => Effect.void;
+		const reconcileReadyQueues = Effect.gen(function* () {
+			const sessions = yield* sql<{ readonly session_id: string }>`
+				SELECT DISTINCT q.session_id
+				FROM queued_messages q
+				INNER JOIN sessions s ON s.id = q.session_id
+				WHERE q.ready = 1
+					AND s.queue_paused = 0
+					AND s.archived_at IS NULL
+					AND s.status <> 'error'
+				ORDER BY q.session_id
+			`.pipe(Effect.orDie);
+			yield* Effect.forEach(
+				sessions,
+				(row) => runAutomaticDrain(SessionId.make(row.session_id)),
+				{ discard: true },
+			);
+		});
 
 		// One-time-compatible import: legacy rows become aggregate events before
 		// runtime mutations begin. The decider makes this restart-idempotent and
@@ -489,8 +551,8 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 
 		return {
 			service,
-			flushAfterIdle: (sessionId) =>
-				flushAfterIdle(sessionId).pipe(Effect.catch(() => Effect.void)),
+			flushAfterIdle: requestFlush,
+			reconcileReadyQueues,
 			pauseAfterInterrupt,
 			shutdown,
 		} satisfies QueueServiceRuntime;

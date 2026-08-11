@@ -3377,7 +3377,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			failProviderSend = false;
 			await run(
 				Effect.flatMap(store, (service) =>
-					service.flushQueuedMessages(created.initialSession.id),
+					service.resumeQueuedMessages(created.initialSession.id),
 				),
 			);
 			const messages = await run(
@@ -3606,6 +3606,55 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		}
 	});
 
+	it("automatically sends a message queued while the active turn is booting", async () => {
+		const startBarrier = deferred<void>();
+		const eventsBarrier = deferred<void>();
+		providerStartBarrier = startBarrier.promise;
+		providerEventsBarrier = eventsBarrier.promise;
+		scriptedEvents = [{ _tag: "Completed", reason: "ended" }];
+		try {
+			await withRuntime(async (run) => {
+				const { initialSession } = await run(
+					Effect.flatMap(store, (s) =>
+						s.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							initialPrompt: "first turn",
+						}),
+					),
+				);
+				await run(
+					Effect.flatMap(store, (s) =>
+						s.addQueuedMessage(
+							initialSession.id,
+							new ComposerInput({
+								text: "queued during boot",
+								attachments: [],
+								fileRefs: [],
+								skillRefs: [],
+							}),
+						),
+					),
+				);
+
+				startBarrier.resolve();
+				providerStartBarrier = null;
+				eventsBarrier.resolve();
+
+				await expect
+					.poll(() =>
+						providerSentTexts.filter((text) => text === "queued during boot"),
+					)
+					.toEqual(["queued during boot"]);
+			});
+		} finally {
+			providerStartBarrier = null;
+			providerEventsBarrier = null;
+			scriptedEvents = [];
+		}
+	});
+
 	it("auto-flushes from authoritative turn state when status projection is stale", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
@@ -3770,6 +3819,231 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 			expect(queue.items.map((item) => item.input.text)).toEqual(["wait"]);
 		});
+	});
+
+	it("keeps an errored queue blocked until explicit resume", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain
+						.dispatch({
+							commandId: "test:error-before-queue",
+							streamId: initialSession.id,
+							command: {
+								_tag: "SetStatus",
+								status: "error",
+								updatedAt: Date.now(),
+							},
+						})
+						.pipe(Effect.asVoid),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.addQueuedMessage(
+						initialSession.id,
+						new ComposerInput({
+							text: "send after resume",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+					),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.flushQueuedMessages(initialSession.id),
+				),
+			);
+			let queue = await run(
+				Effect.flatMap(store, (service) =>
+					service.listQueuedMessages(initialSession.id),
+				),
+			);
+			expect(queue.items.map((item) => item.input.text)).toEqual([
+				"send after resume",
+			]);
+
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.resumeQueuedMessages(initialSession.id),
+				),
+			);
+			queue = await run(
+				Effect.flatMap(store, (service) =>
+					service.listQueuedMessages(initialSession.id),
+				),
+			);
+			expect(queue.items).toEqual([]);
+		});
+	});
+
+	it("reconciles a ready queue for an idle session after restart", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-idle-queue-restart-"));
+		const dbPath = join(directory, "test.sqlite");
+		const first = makeRuntime(dbPath);
+		const runFirst = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
+			first.runPromise(effect as Effect.Effect<A, unknown, never>);
+		try {
+			await runFirst(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const now = new Date().toISOString();
+					yield* sql`
+						INSERT INTO projects (id, path, name, created_at, updated_at)
+						VALUES (${PROJECT_ID}, ${directory}, ${"Test"}, ${now}, ${now})
+					`;
+				}),
+			);
+			const { initialSession } = await runFirst(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await runFirst(
+				Effect.flatMap(store, (service) =>
+					service.addQueuedMessage(
+						initialSession.id,
+						new ComposerInput({
+							text: "recover idle queue",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+						undefined,
+						true,
+						false,
+					),
+				),
+			);
+			const { initialSession: corruptSession } = await runFirst(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await runFirst(
+				Effect.flatMap(store, (service) =>
+					service.addQueuedMessage(
+						corruptSession.id,
+						new ComposerInput({
+							text: "corrupt queue",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+						undefined,
+						true,
+						false,
+					),
+				),
+			);
+			const corruptSessionId =
+				corruptSession.id < initialSession.id
+					? corruptSession.id
+					: initialSession.id;
+			const healthySessionId =
+				corruptSessionId === corruptSession.id
+					? initialSession.id
+					: corruptSession.id;
+			const healthyText =
+				healthySessionId === initialSession.id
+					? "recover idle queue"
+					: "corrupt queue";
+			await runFirst(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) =>
+						sql`UPDATE queued_messages SET input_json = '{' WHERE session_id = ${corruptSessionId}`,
+				),
+			);
+			await first.dispose();
+
+			const restarted = makeRuntime(dbPath, false);
+			const runRestarted = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
+				restarted.runPromise(effect as Effect.Effect<A, unknown, never>);
+			try {
+				await expect
+					.poll(() =>
+						runRestarted(
+							Effect.flatMap(store, (service) =>
+								service.listMessages(healthySessionId),
+							),
+						),
+					)
+					.toEqual(
+						expect.arrayContaining([
+							expect.objectContaining({
+								role: "user",
+								content: expect.objectContaining({
+									text: healthyText,
+								}),
+							}),
+						]),
+					);
+				const queue = await runRestarted(
+					Effect.flatMap(store, (service) =>
+						service.listQueuedMessages(healthySessionId),
+					),
+				);
+				expect(queue.items).toEqual([]);
+
+				await runRestarted(
+					Effect.flatMap(
+						SqlClient.SqlClient,
+						(sql) =>
+							sql`UPDATE queued_messages
+								SET input_json = ${JSON.stringify({
+									text: "recovered corrupt queue",
+									attachments: [],
+									fileRefs: [],
+									skillRefs: [],
+								})}
+								WHERE session_id = ${corruptSessionId}`,
+					),
+				);
+				await expect
+					.poll(() =>
+						runRestarted(
+							Effect.flatMap(store, (service) =>
+								service.listMessages(corruptSessionId),
+							),
+						),
+					)
+					.toEqual(
+						expect.arrayContaining([
+							expect.objectContaining({
+								role: "user",
+								content: expect.objectContaining({
+									text: "recovered corrupt queue",
+								}),
+							}),
+						]),
+					);
+			} finally {
+				await restarted.dispose();
+			}
+		} finally {
+			await first.dispose();
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	it("keeps queued work durable when restart cannot correlate a stale running status", async () => {
