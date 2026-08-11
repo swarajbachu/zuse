@@ -1,5 +1,4 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronDown, ChevronUp } from "lucide-react";
 import {
 	ArrowTurnDownIcon,
 	Chat01Icon,
@@ -8,7 +7,7 @@ import {
 	MoreHorizontalIcon,
 } from "@hugeicons-pro/core-solid-rounded";
 import type { QueuedMessage, SessionId } from "@zuse/contracts";
-import { Pencil } from "lucide-react";
+import { ChevronDown, ChevronUp, Pencil } from "lucide-react";
 import { useState } from "react";
 
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";

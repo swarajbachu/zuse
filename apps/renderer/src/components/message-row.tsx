@@ -1,5 +1,4 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronDown, ChevronRight } from "lucide-react";
 import {
 	AlertCircleIcon,
 	Copy01Icon,
@@ -24,7 +23,11 @@ import type {
 	SessionId,
 	SkillRef,
 } from "@zuse/contracts";
-import { RefreshCw as RefreshIcon } from "lucide-react";
+import {
+	ChevronDown,
+	ChevronRight,
+	RefreshCw as RefreshIcon,
+} from "lucide-react";
 import { memo, useEffect, useState } from "react";
 
 import { FileIcon } from "~/components/file-icon";

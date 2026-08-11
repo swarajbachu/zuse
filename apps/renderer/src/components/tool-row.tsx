@@ -1,5 +1,4 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronDown, ChevronRight } from "lucide-react";
 import {
 	Brain01Icon,
 	BrowserIcon,
@@ -25,6 +24,7 @@ import {
 	type UserQuestion,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { displayPath } from "~/lib/display-path";
 import { parseOrchestrationResult } from "~/lib/orchestration-tools";
