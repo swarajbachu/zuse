@@ -162,6 +162,7 @@ import {
 } from "./permission.ts";
 import { PingRpc } from "./ping.ts";
 import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
+import { PreviewForwardRpc, PreviewServersListRpc } from "./preview.ts";
 import {
 	PtyCloseRpc,
 	PtyOpenRpc,
@@ -489,6 +490,8 @@ export const MemoizeRpcs = RpcGroup.make(
 	BrowserSetCredentialRpc,
 	BrowserListCredentialsRpc,
 	BrowserRemoveCredentialRpc,
+	PreviewServersListRpc,
+	PreviewForwardRpc,
 	WorktreeCreateRpc,
 	WorktreeListRpc,
 	WorktreeGetRpc,

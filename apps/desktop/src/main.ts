@@ -121,6 +121,7 @@ if (
 	fixPath();
 }
 
+import { listLocalServers } from "@zuse/utils/local-port-inspector";
 import { makeBatchedLogWriter } from "./batched-log-writer.ts";
 import { type BatteryStatus, readBatteryStatus } from "./battery-status.ts";
 import {
@@ -137,7 +138,6 @@ import {
 	startDeepEnergyProfile,
 } from "./deep-energy-profiler.ts";
 import { createBufferedChannel, isPairingDeepLink } from "./deep-link.ts";
-import { listLocalServers } from "./host/local-port-inspector.ts";
 import {
 	listPortableOpenTargets,
 	openPathWithPortableTarget,

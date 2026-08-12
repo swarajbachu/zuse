@@ -1,15 +1,13 @@
 import { readdir, readFile } from "node:fs/promises";
 import Path from "node:path";
 import { fileURLToPath } from "node:url";
-
-import { describe, expect, it } from "vitest";
-
-import { createBrowserCookieHostAdapter } from "../../src/host/browser-cookie.ts";
 import {
 	parseLsofListeners,
 	parseNetstatListeners,
 	parseSsListeners,
-} from "../../src/host/local-port-inspector.ts";
+} from "@zuse/utils/local-port-inspector";
+import { describe, expect, it } from "vitest";
+import { createBrowserCookieHostAdapter } from "../../src/host/browser-cookie.ts";
 import {
 	ghosttyWorkingDirectoryArgs,
 	terminalShellCommand,
