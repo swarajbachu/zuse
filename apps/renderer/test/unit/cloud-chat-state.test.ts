@@ -8,13 +8,16 @@ import {
 	MessageId,
 	SessionId,
 } from "@zuse/contracts";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import { cloudChatRowPresentation } from "../../src/lib/cloud-chat-row-presentation.ts";
 import { cloudConnectionPresentation } from "../../src/lib/cloud-connection-presentation.ts";
 import {
 	setCloudAttachmentState,
 	useCloudExecutionStore,
 } from "../../src/store/cloud-chat-registry.ts";
 import {
+	attachCloudTranscriptLive,
+	canReuseCloudWorkspaceAttachment,
 	cloudWorkspaceNeedsResume,
 	mergeCloudChatMessages,
 	mergeCloudChatSummaries,
@@ -58,6 +61,67 @@ const summary = (input: {
 	});
 
 describe("cloud chat state reconciliation", () => {
+	test("sidebar reflects the current turn instead of only the sandbox lifecycle", () => {
+		const active = summary({ revision: 12, startupPhase: "running" });
+		expect(cloudChatRowPresentation(active, "starting")).toEqual({
+			label: "Working",
+			busy: true,
+		});
+		expect(cloudChatRowPresentation(active, "running")).toEqual({
+			label: "Working",
+			busy: true,
+		});
+		expect(cloudChatRowPresentation(active, "idle")).toEqual({
+			label: "Active",
+			busy: false,
+		});
+	});
+
+	test("a queued turn on paused compute is presented as resuming", () => {
+		const paused = CloudChatSummary.make({
+			...summary({ revision: 12, startupPhase: "running" }),
+			state: "paused",
+			runtimeState: "offline",
+		});
+		expect(cloudChatRowPresentation(paused, "starting")).toEqual({
+			label: "Resuming",
+			busy: true,
+		});
+	});
+
+	test("an attached online workspace is reused across follow-up messages", () => {
+		const active = summary({ revision: 12, startupPhase: "running" });
+		expect(
+			canReuseCloudWorkspaceAttachment({
+				summary: active,
+				attachmentState: "ready",
+				hasExecutionTarget: true,
+			}),
+		).toBe(true);
+		expect(
+			canReuseCloudWorkspaceAttachment({
+				summary: active,
+				attachmentState: "ready",
+				hasExecutionTarget: false,
+			}),
+		).toBe(false);
+	});
+
+	test("live cloud transcript hydration targets the workspace connection", async () => {
+		const hydrate = vi.fn(async () => undefined);
+		await attachCloudTranscriptLive(
+			{
+				initialSessionId: AgentSessionId.make("session-cloud"),
+				workspaceId: "workspace-cloud",
+			},
+			hydrate,
+		);
+		expect(hydrate).toHaveBeenCalledWith(SessionId.make("session-cloud"), {
+			live: true,
+			environmentId: "workspace-cloud",
+		});
+	});
+
 	test("a stale summary cannot move a running chat back to starting", () => {
 		const running = summary({ revision: 12, startupPhase: "running" });
 		const stale = summary({
@@ -166,7 +230,7 @@ describe("cloud chat state reconciliation", () => {
 				summary({ revision: 24, startupPhase: "running" }),
 				"attaching",
 			),
-		).toBe("reconnecting");
+		).toBe("hidden");
 		expect(
 			cloudConnectionPresentation(
 				summary({ revision: 25, startupPhase: "running" }),

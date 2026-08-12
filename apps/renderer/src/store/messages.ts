@@ -962,8 +962,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 		// so it should show the running indicator like any normal send.
 		const cloudSummary = cloudSummaryForSession(sessionId);
 		const skipOptimisticRunning =
-			cloudSummary !== null ||
-			(opts?.asGoal === true && lookupSessionProvider(sessionId) === "codex");
+			opts?.asGoal === true && lookupSessionProvider(sessionId) === "codex";
 		// Optimistic message insert — show the user's turn instantly instead of
 		// waiting for the server echo on the live stream. We mint the id here and
 		// pass it as `clientMessageId` so the server persists the row under the
@@ -1058,23 +1057,13 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 						asGoal: opts?.asGoal,
 					}),
 				);
-				// The control plane has durably accepted the turn. Do not keep the
-				// provider spinner optimistic while a paused sandbox wakes; the live
-				// timeline will move the session to running when execution actually starts.
-				useSessionRuntimeStore
-					.getState()
-					.settleOptimisticTurn(sessionId, "idle");
 				// The message is durable once the control plane accepts it. Resume and
 				// attach in the background so viewing history alone never wakes compute,
 				// while an explicit send does.
 				const cloudChats = await import("./cloud-chats.ts");
-				const projectId = cloudChats.localProjectForCloudChat(
-					cloudSummary.chatId,
-				);
-				if (projectId !== null)
-					void cloudChats
-						.ensureCloudWorkspaceAttached(cloudSummary)
-						.catch(() => undefined);
+				void cloudChats
+					.ensureCloudWorkspaceAttached(cloudSummary)
+					.catch(() => undefined);
 				return true;
 			}
 			await dispatchRetryableRpcCommand(messageId, async () => {
@@ -1151,7 +1140,14 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 	interrupt: async (sessionId) => {
 		useSessionRuntimeStore.getState().beginOptimisticStop(sessionId);
 		try {
-			const client = await getMessagesRpcClient();
+			const cloudSummary = cloudSummaryForSession(sessionId);
+			if (cloudSummary !== null) {
+				const cloudChats = await import("./cloud-chats.ts");
+				await cloudChats.ensureCloudWorkspaceAttached(cloudSummary);
+			}
+			const client = await getMessagesRpcClient(
+				cloudSummary?.workspaceId ?? environmentForSession(sessionId),
+			);
 			await Effect.runPromise(client["messages.interrupt"]({ sessionId }));
 			// The RPC only resolves after the server has durably settled the turn.
 			// Reconcile immediately instead of waiting for a second stream delivery:

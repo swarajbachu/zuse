@@ -23,10 +23,15 @@ import {
 	registerCloudWorkspace,
 	setDefaultRpcEnvironmentResolver,
 } from "../lib/rpc-client.ts";
+import {
+	effectiveSessionRuntimeState,
+	isSessionRuntimeBusy,
+} from "../lib/session-runtime-state.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useArchivePreviewStore } from "./archive-preview.ts";
 import { useChatsStore } from "./chats.ts";
 import {
+	type CloudAttachmentState,
 	cloudExecutionTarget,
 	cloudSummaryForChat,
 	localProjectForCloudChat,
@@ -257,6 +262,28 @@ export const shouldAttachCloudChatOnOpen = (
 	summary: CloudChatSummary,
 ): boolean => summary.state === "ready" && summary.runtimeState === "online";
 
+export const canReuseCloudWorkspaceAttachment = (input: {
+	readonly summary: Pick<CloudChatSummary, "state" | "runtimeState">;
+	readonly attachmentState: CloudAttachmentState | undefined;
+	readonly hasExecutionTarget: boolean;
+}): boolean =>
+	input.attachmentState === "ready" &&
+	input.hasExecutionTarget &&
+	input.summary.state === "ready" &&
+	input.summary.runtimeState === "online";
+
+export const attachCloudTranscriptLive = (
+	summary: Pick<CloudChatSummary, "initialSessionId" | "workspaceId">,
+	hydrate: (
+		sessionId: SessionId,
+		options: { readonly live: true; readonly environmentId: string },
+	) => Promise<void> = useMessagesStore.getState().hydrate,
+): Promise<void> =>
+	hydrate(SessionId.make(summary.initialSessionId), {
+		live: true,
+		environmentId: summary.workspaceId,
+	});
+
 export const shouldAttachCloudChatWithPendingCommands = (
 	history: Pick<CloudChatHistory, "commandState" | "queuedMessages">,
 ): boolean =>
@@ -461,16 +488,26 @@ const applyCloudHistory = (
 			),
 		},
 	}));
-	const latestStatus = [...mergedHistory.events]
-		.reverse()
-		.find((event) => event.type === "SessionStatusSet");
-	if (latestStatus !== undefined) {
+	const sessionId = SessionId.make(summary.initialSessionId);
+	const currentRuntimeState = effectiveSessionRuntimeState(
+		useSessionRuntimeStore.getState().bySession[sessionId],
+	);
+	if (
+		shouldAttachCloudChatWithPendingCommands(history) &&
+		!isSessionRuntimeBusy(currentRuntimeState)
+	)
+		useSessionRuntimeStore.getState().beginOptimisticTurn(sessionId);
+
+	// Apply only the newly fetched status events, in sequence. Replaying the
+	// merged history on every poll can regress a live turn through old states.
+	for (const statusEvent of history.events
+		.filter((event) => event.type === "SessionStatusSet")
+		.sort((left, right) => left.sequence - right.sequence)) {
 		try {
-			const payload = JSON.parse(latestStatus.payloadJson) as {
+			const payload = JSON.parse(statusEvent.payloadJson) as {
 				readonly status?: Session["status"];
 			};
 			if (payload.status !== undefined) {
-				const sessionId = SessionId.make(summary.initialSessionId);
 				useSessionsStore.getState().setSessionStatus(sessionId, payload.status);
 				useSessionRuntimeStore
 					.getState()
@@ -739,6 +776,16 @@ export const openCloudChat = (
 export const ensureCloudWorkspaceAttached = (
 	summary: CloudChatSummary,
 ): Promise<void> => {
+	const attachmentState =
+		useCloudExecutionStore.getState().stateByWorkspace[summary.workspaceId];
+	if (
+		canReuseCloudWorkspaceAttachment({
+			summary,
+			attachmentState,
+			hasExecutionTarget: cloudExecutionTarget(summary.workspaceId) !== null,
+		})
+	)
+		return Promise.resolve();
 	const existing = attaching.get(summary.workspaceId);
 	if (existing !== undefined) return existing;
 	const operation = (async () => {
@@ -820,6 +867,7 @@ export const ensureCloudWorkspaceAttached = (
 			folderId: folder.id,
 			rootPath: folder.path,
 		});
+		await attachCloudTranscriptLive(summary);
 		setCloudAttachmentState(summary.workspaceId, "ready");
 	})()
 		.catch((cause) => {

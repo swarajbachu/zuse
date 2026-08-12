@@ -18,7 +18,7 @@ export const cloudConnectionPresentation = (
 	if (summary.statusCode.includes("runtime-update")) return "updating";
 	if (attachment === "attaching")
 		return summary.state === "ready" && summary.runtimeState === "online"
-			? "reconnecting"
+			? "hidden"
 			: "resuming";
 	if (summary.state === "paused") return "paused";
 	return "hidden";

@@ -143,6 +143,18 @@ describe("session runtime projector", () => {
 		expect(runtimeState()).toBe("starting");
 	});
 
+	it("keeps a queued send visible through an initial idle snapshot", () => {
+		const runtime = useSessionRuntimeStore.getState();
+		runtime.observeTimeline(sessionId, projection("idle", null), 8);
+		runtime.beginOptimisticTurn(sessionId);
+		runtime.observeTimeline(sessionId, projection("idle", null), 9);
+
+		expect(runtimeState()).toBe("starting");
+
+		runtime.observeTimeline(sessionId, projection("running", "running"), 10);
+		expect(runtimeState()).toBe("running");
+	});
+
 	it("accepts summaries again after the live timeline releases ownership", () => {
 		const runtime = useSessionRuntimeStore.getState();
 		runtime.observeTimeline(sessionId, projection("idle", null), 8);

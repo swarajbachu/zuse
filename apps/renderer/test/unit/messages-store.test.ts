@@ -22,12 +22,16 @@ const { reportRendererRpcStreamFailure, subscribeRendererRpcConnection } =
 		reportRendererRpcStreamFailure: vi.fn(),
 		subscribeRendererRpcConnection: vi.fn(),
 	}));
+const { getControlPlaneRpcClient } = vi.hoisted(() => ({
+	getControlPlaneRpcClient: vi.fn(),
+}));
 
 vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 	const original =
 		await importOriginal<typeof import("../../src/lib/rpc-client.ts")>();
 	return {
 		...original,
+		getControlPlaneRpcClient,
 		reportRendererRpcStreamFailure,
 		subscribeRendererRpcConnection,
 	};
@@ -193,6 +197,7 @@ describe("messages store queue actions", () => {
 		dispatchedCommandIds = [];
 		reportRendererRpcStreamFailure.mockReset();
 		subscribeRendererRpcConnection.mockReset();
+		getControlPlaneRpcClient.mockReset();
 		rpcClientFactory = makeQueueClient;
 		useMessagesStore.setState({
 			messagesBySession: {},
@@ -204,6 +209,47 @@ describe("messages store queue actions", () => {
 			goalBySession: {},
 		});
 		resetSessionRuntimeForTest();
+	});
+
+	it("keeps a cloud turn visibly starting after its durable command is accepted", async () => {
+		const cloudSessionId = AgentSessionId.make("session-cloud-feedback");
+		registerCloudChat(
+			CloudChatSummary.make({
+				workspaceId: "workspace-cloud-feedback",
+				projectId: "project-cloud-feedback",
+				repositoryIdentity: "github.com/example/cloud-feedback",
+				repositoryDisplayName: "cloud-feedback",
+				chatId: ChatId.make("chat-cloud-feedback"),
+				initialSessionId: cloudSessionId,
+				title: "Cloud feedback",
+				branch: "zuse/cloud-feedback",
+				providerId: "e2b",
+				agent: "codex",
+				model: "gpt-5.6-sol",
+				state: "ready",
+				runtimeState: "online",
+				statusCode: "ready",
+				startupPhase: "running",
+				desiredState: "ready",
+				revision: 1,
+				unread: false,
+				lastMessageAt: Date.now(),
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+			}),
+		);
+		getControlPlaneRpcClient.mockResolvedValue({
+			"cloud.chats.send": () => Effect.succeed({}),
+			"cloud.workspaces.get": () => Effect.fail(new Error("not attached")),
+		});
+
+		await useMessagesStore.getState().send(cloudSessionId, "keep working");
+
+		expect(
+			effectiveSessionRuntimeState(
+				useSessionRuntimeStore.getState().bySession[cloudSessionId],
+			),
+		).toBe("starting");
 	});
 
 	it("delegates an idle queued item to the server-owned run-next command", async () => {

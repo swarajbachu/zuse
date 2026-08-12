@@ -1,19 +1,5 @@
 import type { EditorView } from "@codemirror/view";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronDown } from "lucide-react";
-import {
-	AttachmentIcon,
-	DashboardSpeedIcon,
-	Delete02Icon,
-	FlashIcon,
-	InformationCircleIcon,
-	MapsIcon,
-	PencilIcon,
-	PlayIcon,
-	SentIcon,
-	SquareIcon,
-	Upload01Icon,
-} from "@zuse/icons/solid-rounded";
 import {
 	type BooleanOptionDescriptor,
 	type BrowserAnnotation,
@@ -30,7 +16,21 @@ import {
 	type SessionId,
 	type ThreadGoal,
 } from "@zuse/contracts";
+import {
+	AttachmentIcon,
+	DashboardSpeedIcon,
+	Delete02Icon,
+	FlashIcon,
+	InformationCircleIcon,
+	MapsIcon,
+	PencilIcon,
+	PlayIcon,
+	SentIcon,
+	SquareIcon,
+	Upload01Icon,
+} from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
+import { ChevronDown } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { CostChip } from "~/components/cost-footer";
 import { Button } from "~/components/ui/button";
@@ -220,8 +220,12 @@ export function ChatComposer({
 	const runtimeState = useSessionRuntimeStore((s) =>
 		effectiveSessionRuntimeState(s.bySession[sessionId]),
 	);
+	const isCloudSession = cloudSummaryForSession(sessionId) !== null;
 	const interrupting = runtimeState === "stopping";
-	const inFlight = runtimeState === "running" || runtimeState === "stopping";
+	const inFlight =
+		runtimeState === "running" ||
+		runtimeState === "stopping" ||
+		(isCloudSession && runtimeState === "starting");
 	// Hold messages only while the provider is unavailable or an earlier message
 	// is already queued. Worktree setup is independent background work and must
 	// not delay an agent that has finished booting.

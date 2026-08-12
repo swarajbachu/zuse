@@ -67,21 +67,30 @@ export function ChatWorkingRow({
 	const activityState = deriveAgentActivityState(messages);
 
 	return (
-		<div className="flex min-h-9 items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground">
+		<div
+			className="flex min-h-9 items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground"
+			role="status"
+			aria-live="polite"
+		>
 			<AgentActivityOrb state={activityState} />
-			{runtimeState === "starting" ? (
-				<span className={delayed ? "text-warning" : "text-muted-foreground"}>
-					{providerStartupLabel({
-						providerLabel,
-						failed: false,
-						delayed,
-					})}
-				</span>
-			) : (
-				<ShimmerText tone="lime" className="tabular-nums">
-					{formatElapsed(elapsed)}
-				</ShimmerText>
-			)}
+			<span
+				className={
+					runtimeState === "starting" && delayed
+						? "text-warning"
+						: "text-muted-foreground"
+				}
+			>
+				{runtimeState === "starting"
+					? providerStartupLabel({
+							providerLabel,
+							failed: false,
+							delayed,
+						})
+					: `${providerLabel} is working`}
+			</span>
+			<ShimmerText tone="lime" className="ml-auto tabular-nums">
+				{formatElapsed(elapsed)}
+			</ShimmerText>
 		</div>
 	);
 }

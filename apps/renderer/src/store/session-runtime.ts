@@ -140,8 +140,12 @@ const durableTimelineSupersedesCommand = (
 	timeline: TimelineFact,
 	version: number,
 ): boolean => {
+	if (command.kind === "send") {
+		if (timeline.state === "failed") return true;
+		if (timeline.state === "idle") return false;
+		return version > command.observedVersion;
+	}
 	if (timeline.state === "idle" || timeline.state === "failed") return true;
-	if (command.kind === "send") return version > command.observedVersion;
 	if (command.phase === "pending") return false;
 	return (
 		version > command.observedVersion &&
@@ -184,8 +188,12 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>(
 			for (const { sessionId, status } of summaries) {
 				const state = runtimeStateFromStatus(status);
 				const previous = summaryBySession.get(sessionId);
-				if (previous === state) continue;
-				summaryBySession.set(sessionId, state);
+				const command = commandBySession.get(sessionId);
+				const acceptedOptimisticSend =
+					command?.kind === "send" && state === "running";
+				if (acceptedOptimisticSend) commandBySession.delete(sessionId);
+				if (previous === state && !acceptedOptimisticSend) continue;
+				if (previous !== state) summaryBySession.set(sessionId, state);
 				changed.add(sessionId);
 				if (
 					timelineBySession.get(sessionId) === undefined &&

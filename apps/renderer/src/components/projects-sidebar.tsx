@@ -64,6 +64,7 @@ import { displayPath } from "~/lib/display-path";
 import { formatError } from "~/lib/format-error.ts";
 import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
+import { cloudChatRowPresentation } from "../lib/cloud-chat-row-presentation.ts";
 import { dispatchCommand } from "../lib/commands.ts";
 import { noteSessionRuntimeCompletion } from "../lib/completion-sounds.ts";
 import { openNewChatLanding } from "../lib/open-new-chat-landing.ts";
@@ -1416,20 +1417,6 @@ function ProjectGroup({
 	);
 }
 
-const cloudStateLabel = (summary: CloudChatSummary): string => {
-	if (summary.desiredState === "archived" && summary.state === "failed")
-		return "Archive failed";
-	if (summary.desiredState === "archived" && summary.state !== "archived")
-		return "Archiving…";
-	if (summary.state === "paused") return "Paused";
-	if (summary.state === "failed") return "Needs attention";
-	if (summary.state === "ready" && summary.runtimeState === "online")
-		return "Active";
-	if (summary.state === "resuming" || summary.statusCode.startsWith("resume-"))
-		return "Resuming";
-	return "Cloud starting";
-};
-
 function CloudChatRow({
 	summary,
 	projectId,
@@ -1443,18 +1430,14 @@ function CloudChatRow({
 	);
 	const archive = useCloudChatsStore((state) => state.archive);
 	const [archiving, setArchiving] = useState(false);
-	const label = cloudStateLabel(summary);
+	const runtimeState = useSessionRuntimeStore((state) =>
+		effectiveSessionRuntimeState(state.bySession[summary.initialSessionId]),
+	);
+	const presentation = cloudChatRowPresentation(summary, runtimeState);
+	const label = presentation.label;
 	const archivePending =
 		summary.desiredState === "archived" && summary.state !== "failed";
-	const cloudWorkspaceLoading =
-		archivePending ||
-		summary.state === "queued" ||
-		summary.state === "provisioning" ||
-		summary.state === "setup" ||
-		summary.state === "pausing" ||
-		summary.state === "resuming" ||
-		summary.state === "recovering" ||
-		summary.runtimeState === "connecting";
+	const cloudWorkspaceLoading = presentation.busy;
 	const selected = selectedChatId === summary.chatId;
 	const open = () => {
 		void openCloudChat(summary, projectId).catch((cause) =>
