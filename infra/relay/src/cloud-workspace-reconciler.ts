@@ -25,7 +25,7 @@ const WORKSPACE_RUNTIME_BOOT_TOKEN_FILE =
 export const WORKSPACE_RUNTIME_PROCESS_PATTERN =
 	"[z]use serve|[/]opt/zuse/current/bin.mjs serve";
 export const WORKSPACE_RUNTIME_RESUME_COMMAND =
-	'set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; pkill -KILL -u zuse -f \'[z]use serve|[/]opt/zuse/current/bin.mjs serve\' 2>/dev/null || true; rm -f /var/lib/zuse/workspace/failed; if [ -n "$(printenv ZUSE_RUNTIME_MANIFEST_URL 2>/dev/null)" ] && [ -f /home/zuse/.zuse-runtime-signing-public.jwk ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >/var/lib/zuse/workspace/runtime-update.log 2>&1; fi; if [ -f "$runtime" ]; then exec /usr/bin/node "$runtime" serve --foreground; else exec "$fallback" serve --foreground; fi';
+	'set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; pkill -KILL -u zuse -f \'[z]use serve|[/]opt/zuse/current/bin.mjs serve\' 2>/dev/null || true; rm -f /var/lib/zuse/workspace/failed; if [ -n "$(printenv ZUSE_RUNTIME_MANIFEST_URL 2>/dev/null)" ] && [ -f /home/zuse/.zuse-runtime-signing-public.jwk ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >/var/lib/zuse/workspace/runtime-update.log 2>&1; fi; if [ -f "$runtime" ]; then exec node "$runtime" serve; else exec "$fallback" serve; fi';
 
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);

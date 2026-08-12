@@ -48,10 +48,11 @@ describe("cloud workspace reconciler", () => {
 		).toBe(false);
 	});
 
-	test("the resume launcher keeps a downloaded runtime in the foreground", () => {
+	test("the resume launcher starts the downloaded runtime with the supported CLI", () => {
 		expect(WORKSPACE_RUNTIME_RESUME_COMMAND).toContain(
-			'node "$runtime" serve --foreground',
+			'exec node "$runtime" serve',
 		);
+		expect(WORKSPACE_RUNTIME_RESUME_COMMAND).not.toContain("--foreground");
 	});
 
 	test("restarts the workspace runtime in the same pass that resumes a paused sandbox", async () => {
