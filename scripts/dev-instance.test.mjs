@@ -34,6 +34,7 @@ test("named instances produce deterministic isolated resources", () => {
 	assert.equal(first.websocketPort, second.websocketPort);
 	assert.match(first.userDataDir, /review\/user-data$/u);
 	assert.match(first.packDir, /review\/dist-electron$/u);
+	assert.match(first.cliAccessFile, /review\/cli-access\.json$/u);
 });
 
 test("the first unnamed instance preserves the existing development profile", () => {
@@ -46,6 +47,7 @@ test("the first unnamed instance preserves the existing development profile", ()
 	assert.equal(instance.websocketPort, 8788);
 	assert.equal(instance.userDataDir, undefined);
 	assert.match(instance.packDir, /default\/dist-electron$/u);
+	assert.match(instance.cliAccessFile, /default\/cli-access\.json$/u);
 	assert.equal(
 		devInstanceDiagnostics(instance).dataDirectory,
 		"Electron default (existing Zuse Alpha (Dev) profile)",
@@ -92,6 +94,7 @@ test("scans paired ports forward and fails occupied explicit overrides", async (
 	assert.equal(scanned.websocketPort, 8790);
 	assert.equal(scanned.userDataDir, initial.userDataDir);
 	assert.match(scanned.packDir, /scan-p5735\/dist-electron$/u);
+	assert.match(scanned.cliAccessFile, /scan-p5735\/cli-access\.json$/u);
 
 	const explicit = initialDevInstance({
 		argv: ["--instance", "busy"],

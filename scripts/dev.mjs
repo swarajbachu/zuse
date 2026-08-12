@@ -100,6 +100,7 @@ const sharedEnv = {
 	ZUSE_DEV_INSTANCE: instance.instance,
 	ZUSE_DEV_STARTED_AT: String(devStartedAt),
 	ZUSE_DESKTOP_WS_PORT: String(instance.websocketPort),
+	ZUSE_DEV_CLI_ACCESS_FILE: instance.cliAccessFile,
 	...(instance.userDataDir ? { ZUSE_USER_DATA_DIR: instance.userDataDir } : {}),
 	ZUSE_DESKTOP_OUT_DIR: instance.packDir,
 	ZUSE_DESKTOP_DIR: resolve(repoRoot, "apps", "desktop"),

@@ -283,7 +283,11 @@ Use an idempotency key for creation commands whenever a transport failure might 
 
 `--project` accepts a project ID, exact name, or path. Zuse infers it only when the current directory belongs to exactly one registered project; otherwise the error response includes candidates.
 
-The CLI targets the local Zuse RPC server by default. To target another connected computer, first list computers, then provide its connection endpoint:
+The CLI targets the local Zuse RPC server by default. When run from a repository using `bun dev`, the development desktop publishes its selected port and a dedicated credential to an owner-readable, gitignored `.zuse/dev-instances/<instance>/cli-access.json` descriptor. The branch-local CLI discovers it automatically, including when concurrent dev instances shifted away from port `8788`. It never prints the credential.
+
+Explicit `--ws-url`/`--token` options and `ZUSE_WS_URL`/`ZUSE_TOKEN` override development discovery. Outside a development checkout, the conventional installed-desktop endpoint remains the fallback.
+
+To target another connected computer, first list computers, then provide its connection endpoint:
 
 ```bash
 zuse computer list
@@ -294,7 +298,7 @@ zuse session list \
   --project <project-id>
 ```
 
-`ZUSE_WS_URL`, `ZUSE_TOKEN`, and `ZUSE_PORT` are available for controlled automation environments. Do not print tokens, embed them in prompts, or commit them to the repository. Prefer environment-based secret injection where shell-history exposure matters.
+`ZUSE_WS_URL`, `ZUSE_TOKEN`, `ZUSE_PORT`, `ZUSE_DEV_INSTANCE`, and `ZUSE_DEV_CLI_ACCESS_FILE` are available for controlled automation environments. Do not print tokens, embed them in prompts, or commit them to the repository. Prefer environment-based secret injection where shell-history exposure matters.
 
 ## Reliable automation sequence
 

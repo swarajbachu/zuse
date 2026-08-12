@@ -73,6 +73,7 @@ const instanceResources = (repoRoot, instance) => {
 	return {
 		instanceRoot,
 		userDataDir: resolve(instanceRoot, "user-data"),
+		cliAccessFile: resolve(instanceRoot, "cli-access.json"),
 		packDir: resolve(
 			repoRoot,
 			"apps",
@@ -85,7 +86,7 @@ const instanceResources = (repoRoot, instance) => {
 };
 
 const defaultInstanceResources = (repoRoot) => ({
-	instanceRoot: undefined,
+	instanceRoot: resolve(repoRoot, ".zuse", "dev-instances", "default"),
 	userDataDir: undefined,
 	packDir: resolve(
 		repoRoot,
@@ -94,6 +95,13 @@ const defaultInstanceResources = (repoRoot) => ({
 		".dev-instances",
 		"default",
 		"dist-electron",
+	),
+	cliAccessFile: resolve(
+		repoRoot,
+		".zuse",
+		"dev-instances",
+		"default",
+		"cli-access.json",
 	),
 });
 
@@ -176,16 +184,21 @@ export const withScannedPorts = async (
 				const portsShifted =
 					rendererPort !== initial.rendererPort ||
 					websocketPort !== initial.websocketPort;
+				const shiftedResources = portsShifted
+					? instanceResources(
+							initial.repoRoot,
+							`${initial.instance}-p${rendererPort}`,
+						)
+					: null;
 				return {
 					...initial,
-					...(portsShifted
-						? {
-								packDir: instanceResources(
-									initial.repoRoot,
-									`${initial.instance}-p${rendererPort}`,
-								).packDir,
-							}
-						: {}),
+					...(shiftedResources === null
+						? {}
+						: {
+								instanceRoot: shiftedResources.instanceRoot,
+								packDir: shiftedResources.packDir,
+								cliAccessFile: shiftedResources.cliAccessFile,
+							}),
 					...(initial.userDataExplicit
 						? { userDataDir: initial.userDataDir }
 						: {}),
@@ -195,13 +208,16 @@ export const withScannedPorts = async (
 				};
 			}
 			const instance = validateInstance(`port-${rendererPort}`);
+			const resources =
+				rendererPort === RENDERER_BASE_PORT &&
+				websocketPort === WEBSOCKET_BASE_PORT
+					? defaultInstanceResources(initial.repoRoot)
+					: instanceResources(initial.repoRoot, instance);
 			return {
 				...initial,
-				packDir:
-					rendererPort === RENDERER_BASE_PORT &&
-					websocketPort === WEBSOCKET_BASE_PORT
-						? defaultInstanceResources(initial.repoRoot).packDir
-						: instanceResources(initial.repoRoot, instance).packDir,
+				instanceRoot: resources.instanceRoot,
+				packDir: resources.packDir,
+				cliAccessFile: resources.cliAccessFile,
 				...(initial.userDataExplicit
 					? { userDataDir: initial.userDataDir }
 					: {}),

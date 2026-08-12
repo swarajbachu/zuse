@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import {
+	basename,
+	dirname,
+	isAbsolute,
+	join,
+	relative,
+	resolve,
+} from "node:path";
 
 import { makeRpcClientSession } from "@zuse/client-runtime/connection";
 import { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
@@ -162,7 +169,48 @@ const promptFor = async (args: Args, message = false): Promise<string> => {
 	return file === "-" ? readStdin() : readFile(resolve(file), "utf8");
 };
 
-const endpoint = (args: Args, env: NodeJS.ProcessEnv): string => {
+type DevCliAccess = {
+	readonly schemaVersion: 1;
+	readonly wsUrl: string;
+	readonly token: string;
+};
+const devCliAccess = async (
+	env: NodeJS.ProcessEnv,
+): Promise<DevCliAccess | null> => {
+	const explicit = env.ZUSE_DEV_CLI_ACCESS_FILE?.trim();
+	const candidates: string[] = explicit ? [resolve(explicit)] : [];
+	let cursor = resolve(process.cwd());
+	while (true) {
+		const instance = env.ZUSE_DEV_INSTANCE?.trim() || "default";
+		candidates.push(
+			join(cursor, ".zuse", "dev-instances", instance, "cli-access.json"),
+		);
+		const parent = dirname(cursor);
+		if (parent === cursor) break;
+		cursor = parent;
+	}
+	for (const candidate of candidates) {
+		try {
+			const parsed = JSON.parse(
+				await readFile(candidate, "utf8"),
+			) as Partial<DevCliAccess>;
+			if (
+				parsed.schemaVersion === 1 &&
+				typeof parsed.wsUrl === "string" &&
+				typeof parsed.token === "string"
+			)
+				return parsed as DevCliAccess;
+		} catch {
+			// Continue to the next repository ancestor.
+		}
+	}
+	return null;
+};
+
+const endpoint = async (
+	args: Args,
+	env: NodeJS.ProcessEnv,
+): Promise<string> => {
 	const computer = one(args, "computer") ?? "local";
 	if (computer !== "local" && one(args, "ws-url") === undefined) {
 		throw new CliError(
@@ -171,19 +219,25 @@ const endpoint = (args: Args, env: NodeJS.ProcessEnv): string => {
 			{ computer },
 		);
 	}
+	const access =
+		one(args, "ws-url") === undefined && env.ZUSE_WS_URL === undefined
+			? await devCliAccess(env)
+			: null;
 	const raw =
 		one(args, "ws-url") ??
 		env.ZUSE_WS_URL ??
+		access?.wsUrl ??
 		`ws://127.0.0.1:${env.ZUSE_PORT ?? "47837"}/rpc`;
 	const url = new URL(raw);
 	if (url.pathname === "/") url.pathname = "/rpc";
-	const token = one(args, "token") ?? env.ZUSE_TOKEN;
+	url.searchParams.set("wireVersion", String(WIRE_PROTOCOL_VERSION));
+	const token = one(args, "token") ?? env.ZUSE_TOKEN ?? access?.token;
 	if (token !== undefined) url.searchParams.set("token", token);
 	return url.toString();
 };
 
 const connect = async (args: Args, env: NodeJS.ProcessEnv) => {
-	const layer = wsClientProtocolLayer(endpoint(args, env));
+	const layer = wsClientProtocolLayer(await endpoint(args, env));
 	return makeRpcClientSession(layer, MemoizeRpcs, {
 		protocolVersion: WIRE_PROTOCOL_VERSION,
 		perform: (client, hello) => client["connect.handshake"](hello),
@@ -1086,4 +1140,11 @@ export const runAgentCli = async (
 	}
 };
 
-export const __testing = { parse, execute, commandManifest, expandInputJson };
+export const __testing = {
+	parse,
+	execute,
+	commandManifest,
+	expandInputJson,
+	devCliAccess,
+	endpoint,
+};

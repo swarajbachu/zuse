@@ -89,6 +89,10 @@ archive, unarchive, and delete actions mirror the UI; deletion requires
 The local server is the default computer. Remote targets require
 \`--computer <id> --ws-url <url>\` and, when protected, \`--token <token>\`.
 Never print or persist access tokens.
+
+In a \`bun dev\` checkout, the branch-local CLI automatically discovers the
+active protected dev RPC through its owner-readable, gitignored instance
+descriptor. Do not read or print that credential file yourself.
 `;
 
 const assetCandidates = (): string[] => {

@@ -176,3 +176,9 @@ The default target is the local Zuse RPC server. For another connected
 computer, pass `--computer <id> --ws-url <url>` and `--token <token>` when the
 endpoint is protected. Do not print or persist tokens in logs, prompts, or
 committed files.
+
+Inside a `bun dev` repository, use the branch-local CLI source. It automatically
+discovers the active dev instance through its owner-readable, gitignored
+`.zuse/dev-instances/<instance>/cli-access.json` descriptor, including shifted
+ports and protected local RPC authentication. Do not read or print the
+descriptor yourself; let the CLI consume it.
