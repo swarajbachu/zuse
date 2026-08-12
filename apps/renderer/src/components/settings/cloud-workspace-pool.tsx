@@ -10,6 +10,7 @@ import {
 import { Effect } from "effect";
 import { ExternalLink, Plus } from "lucide-react";
 import { Fragment, useCallback, useEffect, useState } from "react";
+import { useAuth } from "../../hooks/use-auth.ts";
 import { cloudWorkspaceAccessPresentation } from "../../lib/cloud-workspace-access.ts";
 import { formatError } from "../../lib/format-error.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
@@ -38,6 +39,7 @@ const stateVariant = (
 				: "warning";
 
 export function CloudWorkspacePool() {
+	const { isLoading: authLoading, isSignedIn, signIn, signingIn } = useAuth();
 	const [entitlementSubscribed, setEntitlementSubscribed] = useState(false);
 	const [serviceAvailable, setServiceAvailable] = useState(true);
 	const [providers, setProviders] = useState<
@@ -69,6 +71,7 @@ export function CloudWorkspacePool() {
 	const subscribed = access.subscribed;
 
 	const load = useCallback(async () => {
+		if (!isSignedIn) return;
 		let loadedSubscribed = false;
 		try {
 			const client = await getControlPlaneRpcClient();
@@ -151,13 +154,14 @@ export function CloudWorkspacePool() {
 				}).serviceError,
 			);
 		}
-	}, []);
+	}, [isSignedIn]);
 
 	useEffect(() => {
+		if (authLoading || !isSignedIn) return;
 		void load();
 		const timer = window.setInterval(() => void load(), 5_000);
 		return () => window.clearInterval(timer);
-	}, [load]);
+	}, [authLoading, isSignedIn, load]);
 
 	const run = async (
 		name: string,
@@ -249,6 +253,26 @@ export function CloudWorkspacePool() {
 				disconnected,
 			]);
 		});
+
+	if (authLoading) return null;
+	if (!isSignedIn) {
+		return (
+			<CloudSettingsGroup
+				title="Cloud Workspace"
+				description="Your saved chats remain available on this device. Sign in again to access cloud compute and billing."
+			>
+				<CloudSettingsRow
+					title="Session expired"
+					description="Your account session could not be renewed. You do not need to sign out first."
+					action={
+						<Button size="xs" loading={signingIn} onClick={() => void signIn()}>
+							Sign in
+						</Button>
+					}
+				/>
+			</CloudSettingsGroup>
+		);
+	}
 
 	return (
 		<>

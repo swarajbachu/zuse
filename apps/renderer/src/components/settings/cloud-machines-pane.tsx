@@ -10,6 +10,7 @@ import {
 import { Effect } from "effect";
 import { ExternalLink, KeyRound, LoaderCircle, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "../../hooks/use-auth.ts";
 import {
 	clearCloudMachineCheckoutSession,
 	readCloudMachineCheckoutSession,
@@ -119,6 +120,7 @@ export const runtimeVersionDescription = (
 };
 
 export function CloudMachinesPane() {
+	const { isLoading: authLoading, isSignedIn } = useAuth();
 	const [offer, setOffer] = useState<MachineOffer | null>(null);
 	const [machine, setMachine] = useState<MachineRecord | null>(null);
 	const [loading, setLoading] = useState(true);
@@ -216,6 +218,12 @@ export function CloudMachinesPane() {
 	}, [syncAccountEnvironments]);
 
 	useEffect(() => {
+		if (authLoading) return;
+		if (!isSignedIn) {
+			setLoading(false);
+			setLoadError(null);
+			return;
+		}
 		void load();
 		const timer = window.setInterval(() => void load(), 5_000);
 		const handleFocus = () => void load();
@@ -224,7 +232,7 @@ export function CloudMachinesPane() {
 			window.clearInterval(timer);
 			window.removeEventListener("focus", handleFocus);
 		};
-	}, [load]);
+	}, [authLoading, isSignedIn, load]);
 
 	const beginPurchase = async () => {
 		if (offer === null || submitting) return;

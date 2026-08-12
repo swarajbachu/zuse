@@ -402,4 +402,35 @@ describe("AuthService WorkOS refresh", () => {
 			await harness.dispose();
 		}
 	});
+
+	it("clears a definitively rejected refresh token so sign-in can recover directly", async () => {
+		const expired = makeBundle({
+			accessToken: jwtWithExp(Date.now() - 5 * 60_000),
+			refreshToken: "revoked-refresh",
+			expiresAt: Date.now() - 5 * 60_000,
+		});
+		mockAuthenticate(() =>
+			Response.json(
+				{ error: "invalid_grant", error_description: "Refresh token rejected" },
+				{ status: 400 },
+			),
+		);
+		const harness = makeHarness(expired);
+		try {
+			const result = await harness
+				.run(Effect.flatMap(AuthService, (svc) => svc.getAccessToken()))
+				.then(
+					() => ({ ok: true as const }),
+					(err) => ({ ok: false as const, err }),
+				);
+			expect(result.ok).toBe(false);
+			expect(harness.readStored()).toBeNull();
+			const state = await harness.run(
+				Effect.flatMap(AuthService, (svc) => svc.getSession()),
+			);
+			expect(state).toEqual({ _tag: "SignedOut" });
+		} finally {
+			await harness.dispose();
+		}
+	});
 });

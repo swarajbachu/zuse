@@ -181,6 +181,13 @@ export const AuthServiceLive = Layer.effect(
                     yield* Ref.set(lastKnown, winner);
                     return winner;
                   }
+                  // A refresh token is single-use. If no concurrent process
+                  // persisted a rotated replacement, this session cannot recover by
+                  // retrying. Clear it and publish the truthful state so the UI can
+                  // offer Sign in directly instead of remaining deceptively signed in.
+                  yield* store.clear();
+                  yield* Ref.set(lastKnown, null);
+                  yield* PubSub.publish(pubsub, SIGNED_OUT);
                 }
                 return yield* Effect.fail(refreshed.failure);
               }
