@@ -1,12 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Analytics01Icon } from "@zuse/icons/solid-rounded";
 import type {
 	ProviderId,
 	ProviderUsageLimits,
 	UsageLimitWindow,
 } from "@zuse/contracts";
+import { Analytics01Icon } from "@zuse/icons/solid-rounded";
 
 import { PROVIDER_DISPLAY } from "~/lib/provider-status";
+import { usageLimitsUnavailableLabel } from "~/lib/usage-limits-display";
 import { usagePace } from "~/lib/usage-pace";
 import { formatRelativeTime } from "~/lib/use-relative-time";
 import { useUiStore } from "~/store/ui";
@@ -220,15 +221,10 @@ function ProviderMenuItem({ providerId }: { providerId: ProviderId }) {
 						<div className="py-6 text-center text-xs text-muted-foreground">
 							{loading
 								? "Loading usage…"
-								: provider.unavailableReason === "unsupported"
-									? "Not available for this account"
-									: provider.unavailableReason === "no-credentials"
-										? "Sign in with kiro-cli login to see limits"
-										: provider.unavailableReason === "expired"
-											? "Session expired — run kiro-cli login"
-											: provider.unavailableReason === "error"
-												? "Could not load limits — try again"
-												: "No usage data available"}
+								: usageLimitsUnavailableLabel(
+										providerId,
+										provider.unavailableReason,
+									)}
 						</div>
 					)}
 					{provider.creditsRemaining !== null ? (

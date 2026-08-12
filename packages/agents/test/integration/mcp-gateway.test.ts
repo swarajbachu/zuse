@@ -144,6 +144,50 @@ describe("MCP gateway", () => {
 		).toBe(401);
 	});
 
+	test("an obsolete session handle cannot revoke its replacement", async () => {
+		const first = await issueMcpGatewaySession({
+			sessionId: "replacement-test",
+			scopes: { browser: false, orchestration: true },
+			ctx: {
+				orchestration: {
+					deps: baseDeps,
+					requestPermission: async () => ({ _tag: "AllowOnce" }),
+					getRuntimeMode: () => "full-access",
+					getPermissionMode: () => "default",
+				},
+			},
+		});
+		const replacement = await issueMcpGatewaySession({
+			sessionId: "replacement-test",
+			scopes: { browser: false, orchestration: true },
+			ctx: {
+				orchestration: {
+					deps: baseDeps,
+					requestPermission: async () => ({ _tag: "AllowOnce" }),
+					getRuntimeMode: () => "full-access",
+					getPermissionMode: () => "default",
+				},
+			},
+		});
+
+		await first.close();
+
+		expect(
+			(await callTool(replacement.endpoint, replacement.token, "whoami", {}))
+				.status,
+		).toBe(200);
+		expect(
+			(
+				await callTool(
+					replacement.endpoint,
+					replacement.token,
+					"list_threads",
+					{},
+				)
+			).status,
+		).toBe(200);
+	});
+
 	test("returns 404 for unknown paths", async () => {
 		const issued = await issueMcpGatewaySession({
 			sessionId: "scope-test",
