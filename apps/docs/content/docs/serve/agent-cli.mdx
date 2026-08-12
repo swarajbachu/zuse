@@ -88,6 +88,49 @@ zuse session create \
 
 `thread create` aliases `chat create`. Other `thread` actions alias the corresponding session action. Prefer the explicit `chat` and `session` names in new automation because they preserve the application topology.
 
+## Change models and providers
+
+Changing a model does not change the provider:
+
+```bash
+zuse session model --project <project-id> --session <session-id> --model <model-id>
+```
+
+Provider switching is a distinct operation and requires a model from the new provider:
+
+```bash
+zuse session provider --project <project-id> --session <session-id> --provider claude --model <model-id>
+```
+
+Provider switching is accepted only before the session has its first user message. A mid-conversation provider change would discard provider-native context, so create a fork with the new provider when you need to hand an active conversation to another provider.
+
+## Fork from any message
+
+Use a message ID returned by `session read`. Fork into another tab in the source chat:
+
+```bash
+zuse session fork \
+  --project <project-id> \
+  --session <source-session-id> \
+  --message <message-id> \
+  --destination tab \
+  --title "Alternative approach"
+```
+
+Or create another chat and fresh isolated workspace, optionally selecting a different provider and model:
+
+```bash
+zuse session fork \
+  --project <project-id> \
+  --session <source-session-id> \
+  --message <message-id> \
+  --destination chat \
+  --provider codex \
+  --model <model-id>
+```
+
+New-chat forks create a fresh worktree by default, matching the graphical chat. Use `--workspace main` for the main checkout or `--workspace <worktree-id>` for an existing worktree. If fork creation fails after allocating a fresh worktree, the CLI attempts to remove that unused worktree. If the fork is at the source transcript's tail and the provider supports native continuation, the result reports `forkMode: "resume"`. Other forks report `forkMode: "copy"` and import the visible transcript through the selected message. The source may be any session in the selected project; it does not need to be the currently active chat.
+
 ## Send, interrupt, and resume
 
 ```bash
@@ -125,6 +168,99 @@ zuse session send \
 ```
 
 `--attach` uploads supported image files. `--file` accepts a project-relative file or directory and rejects paths outside the selected project. `--linear` resolves an exact issue identifier or ID and prepares its available context. Warnings from context preparation are returned in the success envelope.
+
+### Transcript and plan handoffs
+
+Retrieve transcript Markdown, optionally ending at a specific message:
+
+```bash
+zuse session transcript --project <project-id> --session <source-session-id>
+zuse session transcript --project <project-id> --session <source-session-id> --through-message <message-id>
+```
+
+Retrieve the most recent proposed plan:
+
+```bash
+zuse session plan --project <project-id> --session <planning-session-id>
+```
+
+To hand either artifact to another agent, attach it directly to any chat-create, session-create, session-send, or queue-add/update command:
+
+```bash
+zuse session send \
+  --project <project-id> \
+  --session <target-session-id> \
+  --message "Continue from these handoff materials." \
+  --transcript <source-session-id> \
+  --plan <planning-session-id>
+```
+
+Zuse exports each artifact to a Markdown file under the target workspace's gitignored `.context/files/` directory and sends it through the normal file-reference pipeline. Repeat `--transcript` or `--plan` to combine handoffs. `--through-message` applies to exported transcript attachments.
+
+## Plans and interactive questions
+
+Respond to a pending plan-review tool call:
+
+```bash
+zuse session plan-respond \
+  --project <project-id> \
+  --session <session-id> \
+  --tool-call <tool-call-id> \
+  --outcome approved
+```
+
+Outcomes are `approved`, `cancelled`, and `abandoned`. Add `--feedback <text>` when the outcome needs explanation.
+
+Answer a pending agent question using the question and option indexes returned by the session event:
+
+```bash
+zuse session answer \
+  --project <project-id> \
+  --session <session-id> \
+  --item <item-id> \
+  --answers-json '[{"questionIndex":0,"selected":[1]}]'
+```
+
+Each answer may include `other` text. The command resolves the same pending interaction shown by the graphical chat.
+
+## Durable message queue
+
+Use the session queue while an agent is running or when follow-up order matters:
+
+```bash
+zuse session queue-list --project <project-id> --session <session-id>
+zuse session queue-add --project <project-id> --session <session-id> --message "Run integration tests."
+zuse session queue-update --project <project-id> --session <session-id> --queue <queue-id> --message "Run focused integration tests."
+zuse session queue-delete --project <project-id> --session <session-id> --queue <queue-id>
+zuse session queue-reorder --project <project-id> --session <session-id> --queue <first-id> --queue <second-id>
+zuse session queue-run-next --project <project-id> --session <session-id> --queue <queue-id>
+zuse session queue-flush --project <project-id> --session <session-id>
+zuse session queue-resume --project <project-id> --session <session-id>
+```
+
+Queue add and update accept the same `--attach`, `--file`, `--linear`, `--transcript`, and `--plan` context options as a direct send. Use `--draft` to add an item that is not ready and `--no-flush` to prevent immediate idle auto-flush.
+
+## Rename, archive, and delete
+
+Chat and session lifecycle actions mirror their graphical equivalents:
+
+```bash
+zuse chat rename --project <project-id> --chat <chat-id> --title "New title"
+zuse chat archive --project <project-id> --chat <chat-id>
+zuse chat unarchive --project <project-id> --chat <chat-id>
+zuse session rename --project <project-id> --session <session-id> --title "Review"
+zuse session archive --project <project-id> --session <session-id>
+zuse session unarchive --project <project-id> --session <session-id>
+```
+
+Move an unstarted chat to the main checkout or another existing worktree with `chat workspace --workspace main|<worktree-id>`. Started chats remain locked to their workspace.
+
+Deletion is irreversible through the CLI and therefore requires explicit confirmation:
+
+```bash
+zuse chat delete --project <project-id> --chat <chat-id> --confirm
+zuse session delete --project <project-id> --session <session-id> --confirm
+```
 
 ## JSON input and stdin
 

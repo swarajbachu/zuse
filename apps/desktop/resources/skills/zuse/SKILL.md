@@ -132,6 +132,12 @@ Zuse's CLI uses the same project → workspace → chat → session model as MCP
 - `zuse session create --chat <id>` adds a session tab to an existing chat.
 - `zuse session send|read|mode|interrupt|resume --session <id>` operates on a
   specific provider conversation.
+- `zuse session model --session <id> --model <id>` changes only the model.
+  `session provider` is separate and only works before the first user message.
+- `zuse session fork --session <id> --message <id>` branches from any message
+  into a same-chat tab or a different chat. New-chat forks create a fresh
+  isolated worktree by default.
+- `zuse session transcript|plan --session <id>` retrieves handoff context.
 - `zuse thread create` aliases `chat create`; other `thread` actions alias the
   corresponding `session` action.
 
@@ -151,6 +157,15 @@ Context can be attached while creating a chat or session, or while sending:
 - `--file <project-relative-path>` adds a file or directory reference.
 - `--linear <issue-id>` adds prepared issue context; use
   `--linear-workspace <id>` when needed to disambiguate the workspace.
+- `--transcript <session-id>` exports another session and attaches it as a
+  Markdown context file. Add `--through-message <id>` to stop at a fork point.
+- `--plan <session-id>` attaches that session's latest proposed plan.
+
+For interactive parity, use `session plan-respond` to approve, cancel, or
+abandon a pending plan; `session answer` for pending agent questions; and the
+`session queue-*` commands for durable queued messages. Rename, archive,
+unarchive, delete, and workspace operations are also available. Deletion
+requires `--confirm`.
 
 Set the session posture with `--permission default|plan|accept-edits` and
 `--runtime approval-required|auto-accept-edits|auto-accept-edits-and-bash|full-access`.

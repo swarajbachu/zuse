@@ -66,11 +66,25 @@ conversation tabs. Resolve IDs with list commands, select the project with
 \`--project\`, and check \`model list\` before selecting \`--provider\` and
 \`--model\`.
 
+Use \`session model\` to change only the model. Provider switching is a
+separate \`session provider\` operation and is limited to sessions without a
+user message. \`session fork --session <id> --message <id>\` branches any
+conversation point into a same-chat tab or another chat; new-chat forks create
+a fresh isolated worktree by default. Retrieve handoff context with
+\`session transcript\` and \`session plan\`.
+
 Prefer \`--input-json\` or \`--input-json @request.json\` for automation and
 \`--idempotency-key\` for retryable creation. Context options are repeatable
 \`--attach\` images, project-relative \`--file\` references, and \`--linear\`
-issue context. Modes use \`--permission default|plan|accept-edits\` and
+issue context. \`--transcript <session-id>\` and \`--plan <session-id>\` save
+and attach Markdown handoff context to create, send, and queue commands. Modes use
+\`--permission default|plan|accept-edits\` and
 \`--runtime approval-required|auto-accept-edits|auto-accept-edits-and-bash|full-access\`.
+
+Use \`session plan-respond\`, \`session answer\`, and \`session queue-*\` for
+pending plans, questions, and durable queued messages. Chat/session rename,
+archive, unarchive, and delete actions mirror the UI; deletion requires
+\`--confirm\`.
 
 The local server is the default computer. Remote targets require
 \`--computer <id> --ws-url <url>\` and, when protected, \`--token <token>\`.

@@ -49,6 +49,10 @@ describe("bundled Zuse skill installer", () => {
 			expect(installedClaudeSkill).toContain("--input-json");
 			expect(installedClaudeSkill).toContain("--idempotency-key");
 			expect(installedClaudeSkill).toContain("--linear");
+			expect(installedClaudeSkill).toContain("session fork");
+			expect(installedClaudeSkill).toContain("session transcript");
+			expect(installedClaudeSkill).toContain("--transcript");
+			expect(installedClaudeSkill).toContain("session plan-respond");
 			expect(installedClaudeSkill).not.toContain("create_chat");
 			expect(installedClaudeSkill).not.toContain("create_worktree");
 			expect(installedCodexSkill).toContain("zuse-orchestration");

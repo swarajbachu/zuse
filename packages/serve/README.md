@@ -34,6 +34,17 @@ zuse chat create --input-json @request.json
 zuse session send --input-json '{"project":"<project-id>","session":"<session-id>","message":"Continue with the approved plan."}'
 ```
 
+Fork and hand off conversations without copying large transcripts through the
+shell:
+
+```bash
+zuse session fork --project <project-id> --session <source-session-id> --message <message-id> --destination tab
+zuse session send --project <project-id> --session <target-session-id> --message "Continue this handoff." --transcript <source-session-id> --plan <planning-session-id>
+```
+
+Use `session model` to change only the active model. Provider changes remain a
+separate `session provider` command.
+
 Agent commands emit one versioned JSON envelope on stdout. Check both the exit
 code and the envelope's `ok` field before treating a mutation as successful.
 Creation commands support `--idempotency-key` for safe retries.

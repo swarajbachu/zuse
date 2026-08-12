@@ -31,6 +31,24 @@ describe("agent CLI", () => {
 		expect(manifest.commands).toContain("chat create");
 		expect(manifest.commands).toContain("session mode");
 		expect(manifest.commands).toContain("session send");
+		expect(manifest.commands).toContain("session fork");
+		expect(manifest.commands).toContain("session model");
+		expect(manifest.commands).toContain("session provider");
+		expect(manifest.commands).toContain("session transcript");
+		expect(manifest.commands).toContain("session plan");
+		expect(manifest.commands).toContain("session plan-respond");
+		expect(manifest.commands).toContain("session answer");
+		expect(manifest.commands).toContain("session queue-add");
+		expect(manifest.commands).toContain("chat archive");
+		expect(manifest.commands).toContain("chat workspace");
+		expect(manifest.contextOptions).toEqual([
+			"--attach",
+			"--file",
+			"--linear",
+			"--transcript",
+			"--plan",
+		]);
+		expect(manifest.deleteRequires).toBe("--confirm");
 	});
 
 	test("expands JSON input into the same repeatable flag contract", async () => {

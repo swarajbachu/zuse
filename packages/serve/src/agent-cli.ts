@@ -11,6 +11,7 @@ import {
 	type FileRef,
 	type LinearIssueRef,
 	MemoizeRpcs,
+	type MessageId,
 	MODELS_BY_PROVIDER,
 	type PermissionMode,
 	type ProviderId,
@@ -199,16 +200,42 @@ const commandManifest = () => ({
 		"chat list",
 		"chat get",
 		"chat create",
+		"chat rename",
+		"chat archive",
+		"chat unarchive",
+		"chat delete",
+		"chat workspace",
 		"session list",
 		"session get",
 		"session create",
 		"session read",
 		"session send",
+		"session fork",
+		"session model",
+		"session provider",
+		"session rename",
+		"session archive",
+		"session unarchive",
+		"session delete",
+		"session transcript",
+		"session plan",
+		"session plan-respond",
+		"session answer",
+		"session queue-list",
+		"session queue-add",
+		"session queue-update",
+		"session queue-delete",
+		"session queue-reorder",
+		"session queue-run-next",
+		"session queue-flush",
+		"session queue-resume",
 		"session mode",
 		"session interrupt",
 		"session resume",
 	],
 	commonOptions: ["--computer", "--ws-url", "--token", "--project"],
+	contextOptions: ["--attach", "--file", "--linear", "--transcript", "--plan"],
+	deleteRequires: "--confirm",
 	schemaVersion: 1,
 });
 
@@ -291,6 +318,16 @@ const runtime = (args: Args): RuntimeMode => {
 };
 const asSessionId = (value: string): SessionId => value as SessionId;
 const asChatId = (value: string): ChatId => value as ChatId;
+const asMessageId = (value: string): MessageId => value as MessageId;
+
+const jsonObject = (value: string | undefined, name: string): unknown => {
+	const raw = required(value, name);
+	try {
+		return JSON.parse(raw);
+	} catch {
+		throw new CliError("invalid_input", `${name} must be valid JSON.`);
+	}
+};
 
 const mimeFor = (path: string): string => {
 	const ext = path.toLowerCase().split(".").at(-1);
@@ -314,7 +351,7 @@ const contextFor = async (
 	client: RpcClient,
 	args: Args,
 	sessionId: string,
-	project: { path: string },
+	project: { id: string; path: string },
 ) => {
 	const attachments: AttachmentRef[] = [];
 	const fileRefs: FileRef[] = [];
@@ -355,6 +392,61 @@ const contextFor = async (
 		});
 	}
 	const warnings: unknown[] = [];
+	for (const sourceSession of many(args, "transcript")) {
+		const source = await rpc(
+			client["session.get"]({ sessionId: asSessionId(sourceSession) }),
+		);
+		if (source.projectId !== project.id)
+			throw new CliError(
+				"project_session_mismatch",
+				"Transcript source must belong to the selected project.",
+			);
+		const throughMessage = one(args, "through-message");
+		const exported = await rpc(
+			client["session.exportTranscript"]({
+				sessionId: asSessionId(sourceSession),
+				...(throughMessage
+					? { uptoMessageId: asMessageId(throughMessage) }
+					: {}),
+			}),
+		);
+		const saved = await rpc(
+			client["context.saveText"]({
+				sessionId: asSessionId(sessionId),
+				text: exported.markdown,
+				ext: "md",
+				rootPath: project.path,
+			}),
+		);
+		fileRefs.push({ ...saved, kind: "file" });
+	}
+	for (const sourceSession of many(args, "plan")) {
+		const source = await rpc(
+			client["session.get"]({ sessionId: asSessionId(sourceSession) }),
+		);
+		if (source.projectId !== project.id)
+			throw new CliError(
+				"project_session_mismatch",
+				"Plan source must belong to the selected project.",
+			);
+		const { plan } = await rpc(
+			client["session.latestPlan"]({ sessionId: asSessionId(sourceSession) }),
+		);
+		if (plan === null)
+			throw new CliError(
+				"plan_not_found",
+				`Session ${sourceSession} has no proposed plan.`,
+			);
+		const saved = await rpc(
+			client["context.saveText"]({
+				sessionId: asSessionId(sessionId),
+				text: plan,
+				ext: "md",
+				rootPath: project.path,
+			}),
+		);
+		fileRefs.push({ ...saved, kind: "file" });
+	}
 	for (const issueSelector of many(args, "linear")) {
 		const workspace = one(args, "linear-workspace");
 		const result = await rpc(
@@ -486,6 +578,52 @@ const execute = async (
 					}),
 				),
 			};
+		if (group === "chat" && action === "rename")
+			return {
+				chat: await rpc(
+					client["chat.rename"]({
+						chatId: asChatId(required(one(args, "chat"), "--chat")),
+						title: required(one(args, "title"), "--title"),
+					}),
+				),
+			};
+		if (group === "chat" && action === "archive")
+			return {
+				result: await rpc(
+					client["chat.archive"]({
+						chatId: asChatId(required(one(args, "chat"), "--chat")),
+					}),
+				),
+			};
+		if (group === "chat" && action === "unarchive")
+			return {
+				result: await rpc(
+					client["chat.unarchive"]({
+						chatId: asChatId(required(one(args, "chat"), "--chat")),
+					}),
+				),
+			};
+		if (group === "chat" && action === "delete") {
+			if (!bool(args, "confirm"))
+				throw new CliError(
+					"confirmation_required",
+					"chat delete requires --confirm.",
+				);
+			const chatId = asChatId(required(one(args, "chat"), "--chat"));
+			await rpc(client["chat.delete"]({ chatId }));
+			return { chatId, deleted: true };
+		}
+		if (group === "chat" && action === "workspace") {
+			const workspace = required(one(args, "workspace"), "--workspace");
+			return {
+				chat: await rpc(
+					client["chat.setWorktree"]({
+						chatId: asChatId(required(one(args, "chat"), "--chat")),
+						worktreeId: workspace === "main" ? null : (workspace as WorktreeId),
+					}),
+				),
+			};
+		}
 		if (group === "session" && action === "list")
 			return {
 				sessions: (
@@ -510,6 +648,67 @@ const execute = async (
 					}),
 				),
 			};
+		if (group === "session" && action === "fork") {
+			const sourceSessionId = asSessionId(
+				required(one(args, "session") ?? args.positionals[2], "--session"),
+			);
+			const sourceSession = await rpc(
+				client["session.get"]({ sessionId: sourceSessionId }),
+			);
+			if (sourceSession.projectId !== project.id)
+				throw new CliError(
+					"project_session_mismatch",
+					"The source session does not belong to the selected project.",
+				);
+			const destination = one(args, "destination") ?? "tab";
+			if (destination !== "tab" && destination !== "chat")
+				throw new CliError(
+					"invalid_input",
+					"--destination must be tab or chat.",
+				);
+			if (one(args, "provider") && !one(args, "model"))
+				throw new CliError(
+					"invalid_input",
+					"Forking to another provider requires --model.",
+				);
+			const workspace = one(args, "workspace");
+			let createdWorktree: WorktreeId | null = null;
+			let worktreeId: WorktreeId | null | undefined;
+			if (destination === "chat") {
+				if (workspace === undefined || workspace === "fresh") {
+					const created = await rpc(
+						client["worktree.create"]({ projectId: project.id }),
+					);
+					createdWorktree = created.id;
+					worktreeId = created.id;
+				} else {
+					worktreeId = workspace === "main" ? null : (workspace as WorktreeId);
+				}
+			}
+			try {
+				return await rpc(
+					client["session.fork"]({
+						sourceSessionId,
+						fromMessageId: asMessageId(
+							required(one(args, "message"), "--message"),
+						),
+						destination,
+						...(one(args, "provider") ? { providerId: provider(args) } : {}),
+						...(one(args, "model") ? { model: one(args, "model") } : {}),
+						...(destination === "chat"
+							? { worktreeId: worktreeId ?? null }
+							: {}),
+						...(one(args, "title") ? { title: one(args, "title") } : {}),
+					}),
+				);
+			} catch (cause) {
+				if (createdWorktree !== null)
+					await rpc(
+						client["worktree.remove"]({ worktreeId: createdWorktree }),
+					).catch(() => undefined);
+				throw cause;
+			}
+		}
 		if (group === "chat" && action === "create") {
 			const p = provider(args);
 			const m = model(args, p);
@@ -608,6 +807,77 @@ const execute = async (
 				messages: limit !== undefined ? messages.slice(-limit) : messages,
 			};
 		}
+		if (group === "session" && action === "transcript")
+			return await rpc(
+				client["session.exportTranscript"]({
+					sessionId: selectedSessionId,
+					...(one(args, "through-message")
+						? {
+								uptoMessageId: asMessageId(
+									required(one(args, "through-message"), "--through-message"),
+								),
+							}
+						: {}),
+				}),
+			);
+		if (group === "session" && action === "plan")
+			return await rpc(
+				client["session.latestPlan"]({ sessionId: selectedSessionId }),
+			);
+		if (group === "session" && action === "model") {
+			await rpc(
+				client["session.setModel"]({
+					sessionId: selectedSessionId,
+					model: required(one(args, "model"), "--model"),
+				}),
+			);
+			return {
+				session: await rpc(
+					client["session.get"]({ sessionId: selectedSessionId }),
+				),
+			};
+		}
+		if (group === "session" && action === "provider") {
+			const nextProvider = provider(args);
+			await rpc(
+				client["session.setProvider"]({
+					sessionId: selectedSessionId,
+					providerId: nextProvider,
+					model: model(args, nextProvider),
+				}),
+			);
+			return {
+				session: await rpc(
+					client["session.get"]({ sessionId: selectedSessionId }),
+				),
+			};
+		}
+		if (group === "session" && action === "rename")
+			return {
+				session: await rpc(
+					client["session.rename"]({
+						sessionId: selectedSessionId,
+						title: required(one(args, "title"), "--title"),
+					}),
+				),
+			};
+		if (group === "session" && action === "archive") {
+			await rpc(client["session.archive"]({ sessionId: selectedSessionId }));
+			return { sessionId: selectedSessionId, archived: true };
+		}
+		if (group === "session" && action === "unarchive") {
+			await rpc(client["session.unarchive"]({ sessionId: selectedSessionId }));
+			return { sessionId: selectedSessionId, archived: false };
+		}
+		if (group === "session" && action === "delete") {
+			if (!bool(args, "confirm"))
+				throw new CliError(
+					"confirmation_required",
+					"session delete requires --confirm.",
+				);
+			await rpc(client["session.delete"]({ sessionId: selectedSessionId }));
+			return { sessionId: selectedSessionId, deleted: true };
+		}
 		if (group === "session" && action === "send") {
 			const context = await contextFor(
 				client,
@@ -642,6 +912,123 @@ const execute = async (
 				),
 				warnings: context.warnings,
 			};
+		}
+		if (group === "session" && action === "plan-respond") {
+			const outcome = required(one(args, "outcome"), "--outcome");
+			if (!["approved", "cancelled", "abandoned"].includes(outcome))
+				throw new CliError(
+					"invalid_input",
+					"--outcome must be approved, cancelled, or abandoned.",
+				);
+			await rpc(
+				client["session.plan.respond"]({
+					sessionId: selectedSessionId,
+					toolCallId: required(one(args, "tool-call"), "--tool-call"),
+					outcome: outcome as "approved" | "cancelled" | "abandoned",
+					...(one(args, "feedback") ? { feedback: one(args, "feedback") } : {}),
+				}),
+			);
+			return { sessionId: selectedSessionId, outcome };
+		}
+		if (group === "session" && action === "answer") {
+			const answers = jsonObject(one(args, "answers-json"), "--answers-json");
+			if (!Array.isArray(answers))
+				throw new CliError(
+					"invalid_input",
+					"--answers-json must contain an array.",
+				);
+			await rpc(
+				client["session.answerQuestion"]({
+					sessionId: selectedSessionId,
+					itemId: required(one(args, "item"), "--item"),
+					answers: answers as Array<{
+						questionIndex: number;
+						selected: number[];
+						other?: string;
+					}>,
+				}),
+			);
+			return { sessionId: selectedSessionId, answered: true };
+		}
+		if (group === "session" && action === "queue-list")
+			return await rpc(
+				client["messages.queue.list"]({ sessionId: selectedSessionId }),
+			);
+		if (
+			group === "session" &&
+			(action === "queue-add" || action === "queue-update")
+		) {
+			const context = await contextFor(
+				client,
+				args,
+				selectedSessionId,
+				project,
+			);
+			const input = composer(await promptFor(args, true), context);
+			if (action === "queue-add")
+				return {
+					item: await rpc(
+						client["messages.queue.add"]({
+							sessionId: selectedSessionId,
+							input,
+							...(one(args, "queue") ? { queueId: one(args, "queue") } : {}),
+							ready: !bool(args, "draft"),
+							flush: !bool(args, "no-flush"),
+						}),
+					),
+					warnings: context.warnings,
+				};
+			return {
+				item: await rpc(
+					client["messages.queue.update"]({
+						sessionId: selectedSessionId,
+						queueId: required(one(args, "queue"), "--queue"),
+						input,
+					}),
+				),
+				warnings: context.warnings,
+			};
+		}
+		if (group === "session" && action === "queue-delete") {
+			const queueId = required(one(args, "queue"), "--queue");
+			await rpc(
+				client["messages.queue.delete"]({
+					sessionId: selectedSessionId,
+					queueId,
+				}),
+			);
+			return { sessionId: selectedSessionId, queueId, deleted: true };
+		}
+		if (group === "session" && action === "queue-reorder")
+			return {
+				items: await rpc(
+					client["messages.queue.reorder"]({
+						sessionId: selectedSessionId,
+						queueIds: many(args, "queue"),
+					}),
+				),
+			};
+		if (group === "session" && action === "queue-run-next") {
+			const queueId = required(one(args, "queue"), "--queue");
+			await rpc(
+				client["messages.queue.runNext"]({
+					sessionId: selectedSessionId,
+					queueId,
+				}),
+			);
+			return { sessionId: selectedSessionId, queueId, started: true };
+		}
+		if (group === "session" && action === "queue-flush") {
+			await rpc(
+				client["messages.queue.flush"]({ sessionId: selectedSessionId }),
+			);
+			return { sessionId: selectedSessionId, flushed: true };
+		}
+		if (group === "session" && action === "queue-resume") {
+			await rpc(
+				client["messages.queue.resume"]({ sessionId: selectedSessionId }),
+			);
+			return { sessionId: selectedSessionId, resumed: true };
 		}
 		if (group === "session" && action === "mode") {
 			if (!one(args, "permission") && !one(args, "runtime"))
