@@ -24,8 +24,13 @@ const WORKSPACE_RUNTIME_BOOT_TOKEN_FILE =
 	"/run/zuse-secrets/workspace-runtime-boot-token";
 export const WORKSPACE_RUNTIME_PROCESS_PATTERN =
 	"[z]use serve|[/]opt/zuse/current/bin.mjs serve";
-export const WORKSPACE_RUNTIME_RESUME_COMMAND =
-	'set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; pkill -KILL -u zuse -f \'[z]use serve|[/]opt/zuse/current/bin.mjs serve\' 2>/dev/null || true; rm -f /var/lib/zuse/workspace/failed; if [ -n "$(printenv ZUSE_RUNTIME_MANIFEST_URL 2>/dev/null)" ] && [ -f /home/zuse/.zuse-runtime-signing-public.jwk ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >/var/lib/zuse/workspace/runtime-update.log 2>&1; fi; if [ -f "$runtime" ]; then exec node "$runtime" serve; else exec "$fallback" serve; fi';
+export const WORKSPACE_RUNTIME_RESUME_SCRIPT =
+	'set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; pkill -KILL -u zuse -f \'[z]use serve|[/]opt/zuse/current/bin.mjs serve\' 2>/dev/null || true; rm -f /var/lib/zuse/workspace/failed; if [ -f "$runtime" ]; then exec node "$runtime" serve; else exec "$fallback" serve; fi';
+const shellSingleQuote = (value: string): string =>
+	`'${value.replaceAll("'", `'"'"'`)}'`;
+export const WORKSPACE_RUNTIME_RESUME_COMMAND = `nohup /bin/bash -lc ${shellSingleQuote(
+	WORKSPACE_RUNTIME_RESUME_SCRIPT,
+)} >/var/lib/zuse/workspace/runtime-launch.log 2>&1 </dev/null &`;
 
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
@@ -545,25 +550,9 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 			(workspace.requestConfig.startupTimings as
 				| Readonly<Record<string, number>>
 				| undefined) ?? {};
-		yield* store.saveWorkspace({
-			...workspace,
-			runtimeBootTokenHash: boot.tokenHash,
-			runtimeBootTokenExpiresAtMs: boot.expiresAtMs,
-			runtimeCredentialHash: undefined,
-			runtimeState: "offline",
-			state: "provisioning",
-			statusCode: "resume-runtime-restarting",
-			warmRetentionDeadlineMs: undefined,
-			requestConfig: {
-				...workspace.requestConfig,
-				startupTimings: { ...timings, allocatedAt: nowMs },
-			},
-			nextActionAtMs: nowMs + 30_000,
-			lastActivityAtMs: nowMs,
-			runningSinceMs: nowMs,
-			revision: workspace.revision + 1,
-			updatedAtMs: nowMs,
-		});
+		// Keep the reconciliation lease until the token file and detached runtime
+		// launch agree. Persisting first releases the lease, allowing a concurrent
+		// resume to overwrite either side with a different one-time token.
 		yield* provider.startProcess(providerSandboxId, {
 			command: "/bin/bash",
 			args: ["-lc", WORKSPACE_RUNTIME_RESUME_COMMAND],
@@ -591,6 +580,25 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 						}),
 			},
 			user: "zuse",
+		});
+		yield* store.saveWorkspace({
+			...workspace,
+			runtimeBootTokenHash: boot.tokenHash,
+			runtimeBootTokenExpiresAtMs: boot.expiresAtMs,
+			runtimeCredentialHash: undefined,
+			runtimeState: "offline",
+			state: "provisioning",
+			statusCode: "resume-runtime-restarting",
+			warmRetentionDeadlineMs: undefined,
+			requestConfig: {
+				...workspace.requestConfig,
+				startupTimings: { ...timings, allocatedAt: nowMs },
+			},
+			nextActionAtMs: nowMs + 30_000,
+			lastActivityAtMs: nowMs,
+			runningSinceMs: nowMs,
+			revision: workspace.revision + 1,
+			updatedAtMs: nowMs,
 		});
 	},
 );

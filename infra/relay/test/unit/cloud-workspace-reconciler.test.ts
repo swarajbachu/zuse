@@ -9,6 +9,7 @@ import {
 	reconcileCloudWorkspace,
 	WORKSPACE_RUNTIME_PROCESS_PATTERN,
 	WORKSPACE_RUNTIME_RESUME_COMMAND,
+	WORKSPACE_RUNTIME_RESUME_SCRIPT,
 } from "../../src/cloud-workspace-reconciler.ts";
 import {
 	CloudWorkspaceStore,
@@ -49,10 +50,19 @@ describe("cloud workspace reconciler", () => {
 	});
 
 	test("the resume launcher starts the downloaded runtime with the supported CLI", () => {
-		expect(WORKSPACE_RUNTIME_RESUME_COMMAND).toContain(
+		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
 			'exec node "$runtime" serve',
 		);
-		expect(WORKSPACE_RUNTIME_RESUME_COMMAND).not.toContain("--foreground");
+		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain("--foreground");
+	});
+
+	test("the resumed runtime survives release of the provider process stream", () => {
+		expect(WORKSPACE_RUNTIME_RESUME_COMMAND).toContain("nohup");
+		expect(WORKSPACE_RUNTIME_RESUME_COMMAND).toMatch(/&$/u);
+	});
+
+	test("resume starts the installed runtime without blocking on an update", () => {
+		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain("runtime-updater");
 	});
 
 	test("marks paused runtimes offline before resuming the same sandbox", async () => {
