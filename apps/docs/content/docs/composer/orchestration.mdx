@@ -6,7 +6,7 @@ order: 54
 platforms: [desktop, browser, mobile]
 providers: [claude, codex, grok, gemini]
 prerequisites: [/concepts/project-chat-session, /composer/modes-permissions]
-related: [/composer/subagents, /composer/modes-permissions, /composer/parallel-agents, /composer/monitor-delegated-work]
+related: [/composer/subagents, /composer/modes-permissions, /serve/agent-cli, /composer/parallel-agents, /composer/monitor-delegated-work]
 next: /composer/parallel-agents
 lastVerified: latest
 ---
@@ -47,6 +47,8 @@ For example:
 > Split this into an isolated implementation task and a same-checkout review tab. The implementation owns the parser and focused tests. The reviewer is read-only until the implementation reports back. Bring both results here, resolve disagreements, and show me the final verification before any pull request action.
 
 Zuse surfaces creation in the parent timeline. Use **Open chat** to inspect the delegated conversation directly. The coordinating agent can also read recent progress and deliver attributed follow-up instructions without copying the entire transcript by hand.
+
+For orchestration from a shell, automation, or an agent without the in-session MCP server, use the [agent CLI](/serve/agent-cli/). It exposes the same chat and session boundaries with structured JSON output, computer targeting, model selection, modes, and context attachments.
 
 ## Keep one integrator
 

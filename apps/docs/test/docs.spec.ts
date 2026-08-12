@@ -25,6 +25,12 @@ test("browser and orchestration guides render as linked documentation", async ({
 	await expect(
 		page.getByRole("link", { name: "Run agents in parallel" }).first(),
 	).toBeVisible();
+	await page.getByRole("link", { name: "agent CLI" }).first().click();
+	await expect(page).toHaveURL(/\/serve\/agent-cli/u);
+	await expect(page.getByRole("heading", { name: "Agent CLI" })).toBeVisible();
+	await expect(
+		page.getByText("zuse chat create", { exact: false }).first(),
+	).toBeVisible();
 });
 
 test("product links use the canonical website domain", async ({

@@ -20,7 +20,7 @@
     },
     "apps/desktop": {
       "name": "desktop",
-      "version": "0.18.4",
+      "version": "0.19.0",
       "dependencies": {
         "@cursor/sdk": "1.0.23",
         "electron-updater": "^6.3.9",
@@ -569,16 +569,18 @@
         "zuse": "dist/bin.mjs",
       },
       "dependencies": {
-        "@zusehq/server": "0.1.1",
+        "@zusehq/server": "0.1.2",
         "effect": "catalog:",
       },
       "devDependencies": {
         "@repo/typescript-config": "*",
         "@types/node": "catalog:",
+        "@zuse/client-runtime": "*",
         "@zuse/contracts": "*",
         "tsdown": "0.21.10",
         "typescript": "catalog:",
         "vite-plus": "0.2.5",
+        "vitest": "4.1.10",
       },
     },
     "packages/sqlite": {

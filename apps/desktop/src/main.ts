@@ -179,6 +179,7 @@ import { TailnetEnvironmentManager } from "./tailnet/environment-service.ts";
 import {
 	getIsInstallingUpdate,
 	getLastStatus,
+	installPendingUpdateOnQuit,
 	onStatusChange,
 	registerUpdaterDemo,
 	startAutoUpdater,
@@ -3063,6 +3064,14 @@ async function createMainWindow() {
 						}
 					},
 				},
+				...(isDevelopment && process.env.ZUSE_DEV_CLI_ACCESS_FILE
+					? {
+							devCliAccess: {
+								path: process.env.ZUSE_DEV_CLI_ACCESS_FILE,
+								wsUrl: `ws://127.0.0.1:${relayWsPort}/rpc`,
+							},
+						}
+					: {}),
 			}),
 		).pipe(
 			Effect.catchCause((cause) =>
@@ -3606,15 +3615,29 @@ const finishQuitAfterSshCleanup = (event: {
 	});
 };
 
+const beginPendingUpdateInstall = (event: Electron.Event): boolean => {
+	if (!installPendingUpdateOnQuit()) return false;
+	event.preventDefault();
+	return true;
+};
+
 app.on("before-quit", (event) => {
 	// An update-driven quit (user picked "Restart now") or an already-confirmed
 	// quit passes straight through — the user has opted in, and re-prompting
 	// would strand the relaunch.
-	if (quitConfirmed || getIsInstallingUpdate()) {
+	if (getIsInstallingUpdate()) {
+		finishQuitAfterSshCleanup(event);
+		return;
+	}
+	if (quitConfirmed) {
+		// On macOS, stage only after quit is allowed so a newer release can
+		// supersede an older download without bypassing the running-agent guard.
+		if (beginPendingUpdateInstall(event)) return;
 		finishQuitAfterSshCleanup(event);
 		return;
 	}
 	if (runningAgentCount <= 0) {
+		if (beginPendingUpdateInstall(event)) return;
 		finishQuitAfterSshCleanup(event);
 		return;
 	}

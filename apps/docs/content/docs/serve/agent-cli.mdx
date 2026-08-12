@@ -1,0 +1,312 @@
+---
+title: "Agent CLI"
+description: "Control Zuse chats and sessions from scripts with structured JSON output."
+section: "Serve CLI"
+order: 5
+platforms: [serve, desktop]
+providers: [claude, codex, grok, gemini, opencode]
+prerequisites: [/serve, /concepts/project-chat-session]
+related: [/composer/orchestration, /composer/modes-permissions, /composer/context-attachments, /serve/command-reference]
+next: /composer/orchestration
+lastVerified: latest
+---
+
+
+The agent CLI controls Zuse from a terminal or automation process. It can discover computers, projects, and models; create and inspect chats and sessions; send messages; change modes; interrupt or resume work; and attach files, images, or issue context.
+
+Install the published executable globally for the examples below:
+
+<Command>npm install --global @zusehq/serve</Command>
+
+Run `npx @zusehq/serve` instead of `zuse` if you prefer an installless invocation.
+
+## Discover the surface
+
+Start with read-only discovery:
+
+```bash
+zuse commands
+zuse computer list
+zuse project list
+zuse model list
+```
+
+`zuse commands` returns the supported command manifest. List projects and models before creating work so automation uses IDs and choices returned by the connected server.
+
+## JSON contract
+
+Every agent command writes exactly one JSON object to standard output. Success uses:
+
+```json
+{"schemaVersion":1,"ok":true,"data":{}}
+```
+
+A failure writes a structured error and exits non-zero:
+
+```json
+{"schemaVersion":1,"ok":false,"error":{"code":"project_required","message":"--project is required when the project cannot be inferred uniquely.","details":{"candidates":[]}}}
+```
+
+Exit code `2` means invalid input, `3` means authentication or connection authorization failed, and other failures exit `1`. Automation must check both the process exit code and the `ok` field. Receiving parseable JSON does not mean a mutation succeeded.
+
+## Chats and sessions
+
+A chat is a sidebar item tied to a project and workspace. A session is one provider conversation tab inside a chat.
+
+```bash
+zuse chat list --project <project-id>
+zuse chat get --project <project-id> --chat <chat-id>
+zuse session list --project <project-id> --chat <chat-id>
+zuse session get --project <project-id> --session <session-id>
+zuse session read --project <project-id> --session <session-id> --limit 20
+```
+
+Create an isolated workspace and start its first session:
+
+```bash
+zuse chat create \
+  --project <project-id> \
+  --workspace fresh \
+  --title "Implement parser" \
+  --provider codex \
+  --model <model-id> \
+  --prompt "Implement the parser and run focused tests." \
+  --idempotency-key <unique-operation-id>
+```
+
+Use `--workspace main` for the main checkout or pass an existing worktree ID. Create another provider conversation in the same chat with:
+
+```bash
+zuse session create \
+  --project <project-id> \
+  --chat <chat-id> \
+  --provider codex \
+  --model <model-id> \
+  --prompt "Review the current diff without editing files." \
+  --idempotency-key <unique-session-id>
+```
+
+`thread create` aliases `chat create`. Other `thread` actions alias the corresponding session action. Prefer the explicit `chat` and `session` names in new automation because they preserve the application topology.
+
+## Change models and providers
+
+Changing a model does not change the provider:
+
+```bash
+zuse session model --project <project-id> --session <session-id> --model <model-id>
+```
+
+Provider switching is a distinct operation and requires a model from the new provider:
+
+```bash
+zuse session provider --project <project-id> --session <session-id> --provider claude --model <model-id>
+```
+
+Provider switching is accepted only before the session has its first user message. A mid-conversation provider change would discard provider-native context, so create a fork with the new provider when you need to hand an active conversation to another provider.
+
+## Fork from any message
+
+Use a message ID returned by `session read`. Fork into another tab in the source chat:
+
+```bash
+zuse session fork \
+  --project <project-id> \
+  --session <source-session-id> \
+  --message <message-id> \
+  --destination tab \
+  --title "Alternative approach"
+```
+
+Or create another chat and fresh isolated workspace, optionally selecting a different provider and model:
+
+```bash
+zuse session fork \
+  --project <project-id> \
+  --session <source-session-id> \
+  --message <message-id> \
+  --destination chat \
+  --provider codex \
+  --model <model-id>
+```
+
+New-chat forks create a fresh worktree by default, matching the graphical chat. Use `--workspace main` for the main checkout or `--workspace <worktree-id>` for an existing worktree. If fork creation fails after allocating a fresh worktree, the CLI attempts to remove that unused worktree. If the fork is at the source transcript's tail and the provider supports native continuation, the result reports `forkMode: "resume"`. Other forks report `forkMode: "copy"` and import the visible transcript through the selected message. The source may be any session in the selected project; it does not need to be the currently active chat.
+
+## Send, interrupt, and resume
+
+```bash
+zuse session send --project <project-id> --session <session-id> --message "Run the failing test again."
+zuse session interrupt --project <project-id> --session <session-id>
+zuse session resume --project <project-id> --session <session-id>
+```
+
+Sending can also change the permission or runtime mode before delivering the message. Use `session mode` when no message is needed:
+
+```bash
+zuse session mode \
+  --project <project-id> \
+  --session <session-id> \
+  --permission plan \
+  --runtime approval-required
+```
+
+Permission values are `default`, `plan`, and `accept-edits`. Runtime values are `approval-required`, `auto-accept-edits`, `auto-accept-edits-and-bash`, and `full-access`. A mode change does not grant authority for unrelated external or destructive actions.
+
+## Attach context
+
+Creation and send commands accept repeatable context options:
+
+```bash
+zuse session send \
+  --project <project-id> \
+  --session <session-id> \
+  --message "Use these references." \
+  --attach ./screenshots/error.png \
+  --file src/parser.ts \
+  --file test/parser.test.ts \
+  --linear ENG-123 \
+  --linear-workspace <workspace-id>
+```
+
+`--attach` uploads supported image files. `--file` accepts a project-relative file or directory and rejects paths outside the selected project. `--linear` resolves an exact issue identifier or ID and prepares its available context. Warnings from context preparation are returned in the success envelope.
+
+### Transcript and plan handoffs
+
+Retrieve transcript Markdown, optionally ending at a specific message:
+
+```bash
+zuse session transcript --project <project-id> --session <source-session-id>
+zuse session transcript --project <project-id> --session <source-session-id> --through-message <message-id>
+```
+
+Retrieve the most recent proposed plan:
+
+```bash
+zuse session plan --project <project-id> --session <planning-session-id>
+```
+
+To hand either artifact to another agent, attach it directly to any chat-create, session-create, session-send, or queue-add/update command:
+
+```bash
+zuse session send \
+  --project <project-id> \
+  --session <target-session-id> \
+  --message "Continue from these handoff materials." \
+  --transcript <source-session-id> \
+  --plan <planning-session-id>
+```
+
+Zuse exports each artifact to a Markdown file under the target workspace's gitignored `.context/files/` directory and sends it through the normal file-reference pipeline. Repeat `--transcript` or `--plan` to combine handoffs. `--through-message` applies to exported transcript attachments.
+
+## Plans and interactive questions
+
+Respond to a pending plan-review tool call:
+
+```bash
+zuse session plan-respond \
+  --project <project-id> \
+  --session <session-id> \
+  --tool-call <tool-call-id> \
+  --outcome approved
+```
+
+Outcomes are `approved`, `cancelled`, and `abandoned`. Add `--feedback <text>` when the outcome needs explanation.
+
+Answer a pending agent question using the question and option indexes returned by the session event:
+
+```bash
+zuse session answer \
+  --project <project-id> \
+  --session <session-id> \
+  --item <item-id> \
+  --answers-json '[{"questionIndex":0,"selected":[1]}]'
+```
+
+Each answer may include `other` text. The command resolves the same pending interaction shown by the graphical chat.
+
+## Durable message queue
+
+Use the session queue while an agent is running or when follow-up order matters:
+
+```bash
+zuse session queue-list --project <project-id> --session <session-id>
+zuse session queue-add --project <project-id> --session <session-id> --message "Run integration tests."
+zuse session queue-update --project <project-id> --session <session-id> --queue <queue-id> --message "Run focused integration tests."
+zuse session queue-delete --project <project-id> --session <session-id> --queue <queue-id>
+zuse session queue-reorder --project <project-id> --session <session-id> --queue <first-id> --queue <second-id>
+zuse session queue-run-next --project <project-id> --session <session-id> --queue <queue-id>
+zuse session queue-flush --project <project-id> --session <session-id>
+zuse session queue-resume --project <project-id> --session <session-id>
+```
+
+Queue add and update accept the same `--attach`, `--file`, `--linear`, `--transcript`, and `--plan` context options as a direct send. Use `--draft` to add an item that is not ready and `--no-flush` to prevent immediate idle auto-flush.
+
+## Rename, archive, and delete
+
+Chat and session lifecycle actions mirror their graphical equivalents:
+
+```bash
+zuse chat rename --project <project-id> --chat <chat-id> --title "New title"
+zuse chat archive --project <project-id> --chat <chat-id>
+zuse chat unarchive --project <project-id> --chat <chat-id>
+zuse session rename --project <project-id> --session <session-id> --title "Review"
+zuse session archive --project <project-id> --session <session-id>
+zuse session unarchive --project <project-id> --session <session-id>
+```
+
+Move an unstarted chat to the main checkout or another existing worktree with `chat workspace --workspace main|<worktree-id>`. Started chats remain locked to their workspace.
+
+Deletion is irreversible through the CLI and therefore requires explicit confirmation:
+
+```bash
+zuse chat delete --project <project-id> --chat <chat-id> --confirm
+zuse session delete --project <project-id> --session <session-id> --confirm
+```
+
+## JSON input and stdin
+
+Pass a complete option object directly or from a file:
+
+```bash
+zuse session send --input-json '{"project":"<project-id>","session":"<session-id>","message":"Continue with the approved plan."}'
+zuse chat create --input-json @request.json
+```
+
+Array values become repeated options, which is useful for `file`, `attach`, and `linear`. Read a long prompt from stdin with `--prompt-file -`:
+
+```bash
+printf '%s' "$(<prompt.md)" | zuse chat create --project <project-id> --prompt-file - --idempotency-key <unique-operation-id>
+```
+
+Use an idempotency key for creation commands whenever a transport failure might cause a retry. Keep it stable for the same intended creation and generate a new key for genuinely new work.
+
+## Select a project and computer
+
+`--project` accepts a project ID, exact name, or path. Zuse infers it only when the current directory belongs to exactly one registered project; otherwise the error response includes candidates.
+
+The CLI targets the local Zuse RPC server by default. When run from a repository using `bun dev`, the development desktop publishes its selected port and a dedicated credential to an owner-readable, gitignored `.zuse/dev-instances/<instance>/cli-access.json` descriptor. The branch-local CLI discovers it automatically, including when concurrent dev instances shifted away from port `8788`. It never prints the credential.
+
+Explicit `--ws-url`/`--token` options and `ZUSE_WS_URL`/`ZUSE_TOKEN` override development discovery. Outside a development checkout, the conventional installed-desktop endpoint remains the fallback.
+
+To target another connected computer, first list computers, then provide its connection endpoint:
+
+```bash
+zuse computer list
+zuse session list \
+  --computer <computer-id> \
+  --ws-url <wss-url> \
+  --token <access-token> \
+  --project <project-id>
+```
+
+`ZUSE_WS_URL`, `ZUSE_TOKEN`, `ZUSE_PORT`, `ZUSE_DEV_INSTANCE`, and `ZUSE_DEV_CLI_ACCESS_FILE` are available for controlled automation environments. Do not print tokens, embed them in prompts, or commit them to the repository. Prefer environment-based secret injection where shell-history exposure matters.
+
+## Reliable automation sequence
+
+1. Run `computer list`, `project list`, and `model list`.
+2. Resolve returned IDs instead of relying on display text.
+3. Create the chat or session with a stable idempotency key.
+4. Require exit code `0` and `ok: true` before storing returned IDs.
+5. Fetch the created chat or session to verify its persisted state when the workflow is consequential.
+6. Use `session read` for progress and `session send` for follow-up instructions.
+
+For deciding when work needs an isolated workspace rather than a shared session tab, continue with [Agent orchestration](/composer/orchestration/).

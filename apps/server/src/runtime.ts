@@ -1,3 +1,5 @@
+import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { NodeServices } from "@effect/platform-node";
 import type { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import { MemoizeRpcs } from "@zuse/contracts";
@@ -30,7 +32,7 @@ import { LanAuthServiceLive } from "./lan-auth/layers/lan-auth-service.ts";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
 import {
 	LanAuthConfig,
-	type LanAuthService,
+	LanAuthService,
 } from "./lan-auth/services/lan-auth-service.ts";
 import { LinearServiceLive } from "./linear/layers/linear-service.ts";
 import { MachineControlServiceLive } from "./machine/machine-control-service.ts";
@@ -139,6 +141,10 @@ export interface MainLayerDeps {
 		readonly relayUrl: string;
 		readonly label?: string;
 	};
+	readonly devCliAccess?: {
+		readonly path: string;
+		readonly wsUrl: string;
+	};
 }
 
 /**
@@ -205,6 +211,36 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(LanAuthConfigLayer),
 	);
+	const devCliAccess = deps.devCliAccess;
+	const DevCliAccessLayer =
+		devCliAccess === undefined
+			? Layer.empty
+			: Layer.effectDiscard(
+					Effect.gen(function* () {
+						const auth = yield* LanAuthService;
+						const existing = yield* auth.listTokens();
+						for (const token of existing) {
+							if (
+								token.label === "Development CLI" &&
+								token.revokedAt === undefined
+							)
+								yield* auth.revokeToken(token.id);
+						}
+						const minted = yield* auth.mintToken("Development CLI");
+						const { path: target, wsUrl } = devCliAccess;
+						const temporary = `${target}.${process.pid}.tmp`;
+						yield* Effect.promise(async () => {
+							await mkdir(dirname(target), { recursive: true });
+							await writeFile(
+								temporary,
+								`${JSON.stringify({ schemaVersion: 1, wsUrl, token: minted.token })}\n`,
+								{ mode: 0o600 },
+							);
+							await chmod(temporary, 0o600);
+							await rename(temporary, target);
+						});
+					}),
+				).pipe(Layer.provide(LanAuthLayer));
 	const ManagedTunnelLayer = ManagedTunnelRuntimeLive.pipe(
 		Layer.provide(NodeServices.layer),
 		Layer.provide(AppPathsLayer),
@@ -636,5 +672,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		AutoRelayLinkLayer,
 		CloudWorkspaceRuntimeLayer,
 		RuntimePerformanceLayer,
+		DevCliAccessLayer,
 	).pipe(Layer.provide(TelemetryLayer));
 };

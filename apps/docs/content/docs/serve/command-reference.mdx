@@ -6,7 +6,7 @@ order: 3
 platforms: [serve]
 providers: []
 prerequisites: [/serve]
-related: [/serve/operations, /serve/status-json, /serve/troubleshooting]
+related: [/serve/operations, /serve/status-json, /serve/agent-cli, /serve/troubleshooting]
 next: /serve/status-json
 lastVerified: latest
 ---
@@ -65,5 +65,7 @@ Successful lifecycle commands print a short human-readable confirmation. `status
 <Callout title="Public surface">
 Only the commands and options on this page are supported for operators. Internal server transport flags are not a second public Serve CLI.
 </Callout>
+
+Agent automation uses a separate JSON-only command surface on the same executable. See the [agent CLI reference](/serve/agent-cli/).
 
 <NextStep href="/serve/status-json/" label="Automate status checks" />

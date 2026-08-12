@@ -30,18 +30,21 @@
 	],
 	"scripts": {
 		"build": "vp pack src/bin.ts src/cli.ts src/status.ts",
-		"check-types": "tsc --noEmit"
+		"check-types": "tsc --noEmit",
+		"test": "vitest run test"
 	},
 	"dependencies": {
 		"@zusehq/server": "0.1.2",
 		"effect": "catalog:"
 	},
 	"devDependencies": {
+		"@zuse/client-runtime": "*",
 		"@repo/typescript-config": "*",
 		"@types/node": "catalog:",
 		"@zuse/contracts": "*",
 		"tsdown": "0.21.10",
 		"typescript": "catalog:",
+		"vitest": "4.1.10",
 		"vite-plus": "0.2.5"
 	}
 }
