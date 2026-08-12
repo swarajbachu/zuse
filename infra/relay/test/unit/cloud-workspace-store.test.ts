@@ -378,8 +378,8 @@ describe("cloud workspace store", () => {
 			eventId: "event-1",
 			streamId: "session-1",
 			streamVersion: 1,
-			type: "SessionCreated",
-			payloadJson: '{"_tag":"SessionCreated"}',
+			type: "MessagePersisted",
+			payloadJson: '{"_tag":"MessagePersisted"}',
 			createdAtMs: 300,
 		};
 		expect(
@@ -392,6 +392,7 @@ describe("cloud workspace store", () => {
 			...event,
 			eventId: "event-after-replacement",
 			streamVersion: 2,
+			type: "SessionStatusSet",
 			createdAtMs: 400,
 		};
 		expect(
@@ -402,8 +403,8 @@ describe("cloud workspace store", () => {
 		expect(
 			await runtime.runPromise(store.listEvents("workspace-1", 0)),
 		).toEqual([event, { ...replacementEvent, runtimeSequence: 2 }]);
-		expect(await runtime.runPromise(store.latestEventAt("workspace-1"))).toBe(
-			400,
+		expect(await runtime.runPromise(store.latestMessageAt("workspace-1"))).toBe(
+			300,
 		);
 		await runtime.dispose();
 	});

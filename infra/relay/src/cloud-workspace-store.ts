@@ -277,7 +277,9 @@ export interface CloudWorkspaceStoreApi {
 		runtimeSequence: number,
 		encryptedPayload: string,
 	) => Effect.Effect<void>;
-	readonly latestEventAt: (workspaceId: string) => Effect.Effect<number | null>;
+	readonly latestMessageAt: (
+		workspaceId: string,
+	) => Effect.Effect<number | null>;
 	readonly markChatRead: (
 		workspaceId: string,
 		accountId: string,
@@ -958,11 +960,15 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						}),
 					};
 				}),
-			latestEventAt: (workspaceId) =>
+			latestMessageAt: (workspaceId) =>
 				Ref.get(state).pipe(
 					Effect.map((current) => {
 						const timestamps = [...current.events.values()]
-							.filter((event) => event.workspaceId === workspaceId)
+							.filter(
+								(event) =>
+									event.workspaceId === workspaceId &&
+									event.type === "MessagePersisted",
+							)
 							.map((event) => event.createdAtMs);
 						return timestamps.length === 0 ? null : Math.max(...timestamps);
 					}),
@@ -1501,9 +1507,9 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						Effect.asVoid,
 					),
 				),
-			latestEventAt: (workspaceId) =>
+			latestMessageAt: (workspaceId) =>
 				orDie(
-					sql`SELECT MAX(created_at) AS latest_at FROM relay_cloud_workspace_events WHERE workspace_id=${workspaceId}`.pipe(
+					sql`SELECT MAX(created_at) AS latest_at FROM relay_cloud_workspace_events WHERE workspace_id=${workspaceId} AND type='MessagePersisted'`.pipe(
 						Effect.map((rows) => {
 							const value = rows[0]?.latest_at;
 							return value === null || value === undefined

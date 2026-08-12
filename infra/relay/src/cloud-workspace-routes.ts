@@ -1177,9 +1177,9 @@ export const routeCloudWorkspaceRequest = (
 				(workspace) =>
 					Effect.all([
 						store.getProject(workspace.projectId),
-						store.latestEventAt(workspace.workspaceId),
+						store.latestMessageAt(workspace.workspaceId),
 					]).pipe(
-						Effect.flatMap(([project, latestEventAt]) => {
+						Effect.flatMap(([project, latestMessageAt]) => {
 							if (project === null) return Effect.succeed(null);
 							const lastReadAt =
 								typeof workspace.requestConfig.lastReadAt === "number"
@@ -1188,8 +1188,8 @@ export const routeCloudWorkspaceRequest = (
 							return publicCloudChat(
 								workspace,
 								project,
-								latestEventAt !== null && latestEventAt > lastReadAt,
-								latestEventAt,
+								latestMessageAt !== null && latestMessageAt > lastReadAt,
+								latestMessageAt,
 							);
 						}),
 					),
@@ -1395,7 +1395,8 @@ export const routeCloudWorkspaceRequest = (
 			const workspace = yield* store.getWorkspace(workspaceId);
 			if (workspace === null || workspace.accountId !== principal.accountId)
 				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
-			const after = Number(url.searchParams.get("after") ?? "0");
+			const afterParameter = url.searchParams.get("after");
+			const after = Number(afterParameter ?? "0");
 			if (!Number.isSafeInteger(after) || after < 0)
 				return yield* Effect.fail(badRequest("invalid_event_cursor"));
 			const events = yield* Effect.forEach(
@@ -1407,7 +1408,10 @@ export const routeCloudWorkspaceRequest = (
 				decryptCommand,
 			);
 			const metadata = yield* cloudChatMetadata(workspace);
-			yield* store.markChatRead(workspaceId, principal.accountId, nowMs);
+			// Initial transcript reads update unread state. Incremental streaming
+			// polls stay read-only instead of writing to PostgreSQL four times a second.
+			if (afterParameter === null)
+				yield* store.markChatRead(workspaceId, principal.accountId, nowMs);
 			return json({
 				workspaceId,
 				chatId: workspace.chatId,
@@ -1708,7 +1712,7 @@ export const routeCloudWorkspaceRequest = (
 					updated,
 					project,
 					false,
-					yield* store.latestEventAt(updated.workspaceId),
+					yield* store.latestMessageAt(updated.workspaceId),
 				),
 			);
 		}
