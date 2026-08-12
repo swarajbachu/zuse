@@ -9,6 +9,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import chatLandingSource from "../../src/components/chat-landing.tsx?raw";
 import projectsSidebarSource from "../../src/components/projects-sidebar.tsx?raw";
 import terminalPaneSource from "../../src/components/terminal-pane.tsx?raw";
+import { cloudFailureMessage } from "../../src/components/worktree-setup-card.tsx";
 import commandsSource from "../../src/lib/commands.ts?raw";
 import chatsSource from "../../src/store/chats.ts?raw";
 import { registerCloudChat } from "../../src/store/cloud-chat-registry.ts";
@@ -95,6 +96,24 @@ describe("cloud chat activation", () => {
 		expect(cloudChatsSource).toContain(".load(summary.workspaceId)");
 		expect(projectsSidebarSource).not.toContain('opening ? "Opening…"');
 		expect(projectsSidebarSource).toContain("historyLoadingByChat");
+		expect(projectsSidebarSource).toContain(
+			"void openCloudChat(summary, projectId)",
+		);
+	});
+
+	test("keeps a failed cloud chat selectable with a visible recovery path", () => {
+		expect(projectsSidebarSource).toContain('return "Needs attention"');
+		expect(projectsSidebarSource).toContain("onClick={open}");
+		expect(cloudChatsSource).toContain("stageCloudChat(summary, projectId)");
+		expect(cloudChatsSource).toContain(
+			"useChatsStore.getState().select(summary.chatId)",
+		);
+		expect(cloudFailureMessage("runtime-connection-timeout")).toBe(
+			"The sandbox started, but its secure runtime did not connect in time.",
+		);
+		expect(cloudFailureMessage("provider-sandbox-missing")).toContain(
+			"restore this workspace in a new sandbox",
+		);
 	});
 
 	test("shows cloud startup progress in the sidebar row", () => {
@@ -149,6 +168,9 @@ describe("cloud chat activation", () => {
 		expect(terminalPaneSource).toContain(
 			"Workspace paused — type here to resume the terminal.",
 		);
+		expect(terminalPaneSource).toContain("Reconnecting cloud terminal…");
+		expect(terminalPaneSource).not.toContain("Connecting cloud terminal…");
+		expect(terminalPaneSource).toContain('rootPath="/home/zuse/workspace"');
 		expect(terminalPaneSource).toContain("initialInput={pendingTerminalInput}");
 	});
 });

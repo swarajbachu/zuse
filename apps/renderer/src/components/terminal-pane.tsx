@@ -67,14 +67,22 @@ export function TerminalSlotPane({ slot }: { slot: number }) {
 		);
 	}
 	if (ctx.status === "cloud-unavailable") {
+		if (chatId !== null && cloudSummaryForChat(chatId) !== null)
+			return (
+				<PlainTerminalSlot
+					chatId={chatId}
+					rootPath="/home/zuse/workspace"
+					slot={slot}
+				/>
+			);
 		return (
 			<TerminalPlaceholder>
 				{ctx.attachmentState === "failed" ? (
-					"Cloud connection failed. Select Terminal again to retry."
+					"Cloud connection failed."
 				) : (
 					<ShimmerText>
 						{ctx.attachmentState === "attaching"
-							? "Connecting cloud terminal…"
+							? "Reconnecting cloud terminal…"
 							: "Open Terminal to resume this cloud workspace"}
 					</ShimmerText>
 				)}
@@ -169,7 +177,7 @@ function PlainTerminalSlot({
 	if (cloudConnection === "connecting")
 		return (
 			<TerminalPlaceholder>
-				<ShimmerText>Connecting cloud terminal…</ShimmerText>
+				<ShimmerText>Reconnecting cloud terminal…</ShimmerText>
 			</TerminalPlaceholder>
 		);
 	if (cloudSummary !== null && cloudConnection !== "ready")

@@ -158,6 +158,22 @@ const cloudFailureRank = (statusCode: string): number => {
 	return 0;
 };
 
+export const cloudFailureMessage = (statusCode: string): string => {
+	switch (statusCode) {
+		case "runtime-connection-timeout":
+			return "The sandbox started, but its secure runtime did not connect in time.";
+		case "provider-sandbox-missing":
+			return "The saved sandbox no longer exists. Retry will restore this workspace in a new sandbox.";
+		case "provider-unavailable":
+			return "The cloud provider is temporarily unavailable.";
+		case "workspace-credential-install-failed":
+		case "credential-install-failed":
+			return "The workspace could not install your connected account credentials.";
+		default:
+			return `Startup stopped during ${statusCode}.`;
+	}
+};
+
 export function CloudWorkspaceSetupCard({
 	summary,
 }: {
@@ -239,7 +255,7 @@ export function CloudWorkspaceSetupCard({
 				{failed ? (
 					<div className="flex items-center gap-2 border-t border-border/40 px-3.5 py-2">
 						<p className="min-w-0 flex-1 text-[11px] text-[var(--accent-red)]">
-							Startup stopped during {summary.statusCode}.
+							{cloudFailureMessage(summary.statusCode)}
 						</p>
 						<Button
 							size="xs"
