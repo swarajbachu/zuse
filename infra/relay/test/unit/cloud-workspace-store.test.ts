@@ -371,11 +371,22 @@ describe("cloud workspace store", () => {
 		expect(
 			await runtime.runPromise(store.appendEvents("workspace-1", [event])),
 		).toBe(0);
+		const replacementEvent = {
+			...event,
+			eventId: "event-after-replacement",
+			streamVersion: 2,
+			createdAtMs: 400,
+		};
+		expect(
+			await runtime.runPromise(
+				store.appendEvents("workspace-1", [replacementEvent]),
+			),
+		).toBe(1);
 		expect(
 			await runtime.runPromise(store.listEvents("workspace-1", 0)),
-		).toEqual([event]);
+		).toEqual([event, { ...replacementEvent, runtimeSequence: 2 }]);
 		expect(await runtime.runPromise(store.latestEventAt("workspace-1"))).toBe(
-			300,
+			400,
 		);
 		await runtime.dispose();
 	});

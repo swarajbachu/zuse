@@ -887,10 +887,24 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 				Ref.modify(state, (current) => {
 					const updated = new Map(current.events);
 					let appended = 0;
+					let nextSequence = Math.max(
+						0,
+						...[...updated.values()]
+							.filter((event) => event.workspaceId === workspaceId)
+							.map((event) => event.runtimeSequence),
+					);
 					for (const event of events) {
-						const key = `${workspaceId}:${event.runtimeSequence}`;
-						if (updated.has(key)) continue;
-						updated.set(key, event);
+						if (
+							[...updated.values()].some(
+								(existing) =>
+									existing.workspaceId === workspaceId &&
+									existing.eventId === event.eventId,
+							)
+						)
+							continue;
+						nextSequence += 1;
+						const stored = { ...event, runtimeSequence: nextSequence };
+						updated.set(`${workspaceId}:${nextSequence}`, stored);
 						appended += 1;
 					}
 					return [appended, { ...current, events: updated }] as const;
@@ -1431,11 +1445,17 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			appendEvents: (workspaceId, events) =>
 				orDie(
 					Effect.gen(function* () {
+						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`events:${workspaceId}`}, 0))`;
+						const maximum =
+							yield* sql`SELECT COALESCE(MAX(runtime_sequence), 0) AS maximum FROM relay_cloud_workspace_events WHERE workspace_id=${workspaceId}`;
+						let nextSequence = numberValue(maximum[0]?.maximum);
 						let appended = 0;
 						for (const event of events) {
+							const sequence = nextSequence + 1;
 							const rows =
-								yield* sql`INSERT INTO relay_cloud_workspace_events (workspace_id, runtime_sequence, event_id, stream_id, stream_version, type, payload_json, encrypted_payload, created_at) VALUES (${workspaceId}, ${event.runtimeSequence}, ${event.eventId}, ${event.streamId}, ${event.streamVersion}, ${event.type}, ${event.payloadJson ?? null}, ${event.encryptedPayload ?? null}, ${event.createdAtMs}) ON CONFLICT DO NOTHING RETURNING runtime_sequence`;
+								yield* sql`INSERT INTO relay_cloud_workspace_events (workspace_id, runtime_sequence, event_id, stream_id, stream_version, type, payload_json, encrypted_payload, created_at) VALUES (${workspaceId}, ${sequence}, ${event.eventId}, ${event.streamId}, ${event.streamVersion}, ${event.type}, ${event.payloadJson ?? null}, ${event.encryptedPayload ?? null}, ${event.createdAtMs}) ON CONFLICT (workspace_id, event_id) DO NOTHING RETURNING runtime_sequence`;
 							appended += rows.length;
+							if (rows.length > 0) nextSequence = sequence;
 						}
 						return appended;
 					}).pipe(sql.withTransaction),
