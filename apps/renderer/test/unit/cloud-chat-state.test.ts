@@ -31,6 +31,7 @@ import {
 	shouldRetryCloudWorkspaceAttachment,
 	shouldUseLocalMessageQueue,
 	stageCloudChat,
+	tryReuseCloudWorkspaceAttachment,
 } from "../../src/store/cloud-chats.ts";
 import { useQueueHydrationStore } from "../../src/store/queue-hydration.ts";
 
@@ -313,6 +314,23 @@ describe("cloud chat state reconciliation", () => {
 				hasExecutionTarget: false,
 			}),
 		).toBe(false);
+	});
+
+	test("a cached ready attachment is rejected when its socket died during sleep", async () => {
+		const verify = vi.fn(async () => {
+			throw new Error("WebSocket is closed");
+		});
+		const attach = vi.fn(async () => undefined);
+
+		await expect(
+			tryReuseCloudWorkspaceAttachment({
+				workspaceId: "workspace-cloud",
+				verify,
+				attach,
+			}),
+		).resolves.toBe(false);
+		expect(verify).toHaveBeenCalledWith("workspace-cloud");
+		expect(attach).not.toHaveBeenCalled();
 	});
 
 	test("a workspace ticket is reused until its final minute", () => {

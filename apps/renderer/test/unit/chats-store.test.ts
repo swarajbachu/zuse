@@ -8,7 +8,12 @@ import type {
 	Session,
 	SessionId,
 } from "@zuse/contracts";
-import { ComposerInput } from "@zuse/contracts";
+import {
+	AgentSessionId,
+	CloudChatSummary,
+	CloudWorkspace,
+	ComposerInput,
+} from "@zuse/contracts";
 import { Effect, Queue, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -35,6 +40,7 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 		...original,
 		getRpcClient: async (environmentId?: unknown) =>
 			rpcClientFactory(environmentId),
+		getControlPlaneRpcClient: async () => rpcClientFactory("local"),
 		reportRendererRpcStreamFailure,
 		subscribeRendererRpcConnection,
 	};
@@ -47,6 +53,7 @@ import {
 	stopChatChangeStream,
 	useChatsStore,
 } from "../../src/store/chats.ts";
+import { registerCloudChat } from "../../src/store/cloud-chat-registry.ts";
 import { useMessagesStore } from "../../src/store/messages.ts";
 import { useSessionsStore } from "../../src/store/sessions.ts";
 import { useUiStore } from "../../src/store/ui.ts";
@@ -1144,6 +1151,89 @@ describe("archiveChatWithConfirm", () => {
 		expect(
 			useChatsStore.getState().archiveProgressByChat[chatId],
 		).toBeUndefined();
+	});
+
+	it("routes a cloud chat archive through its durable workspace and keeps the row mounted", async () => {
+		const cloudChatId = "chat-cloud-archive" as ChatId;
+		const cloudSessionId = AgentSessionId.make("session-cloud-archive");
+		const cloudSummary = CloudChatSummary.make({
+			workspaceId: "workspace-cloud-archive",
+			projectId: "cloud-project-archive",
+			repositoryIdentity: "github.com/example/repository",
+			repositoryDisplayName: "repository",
+			chatId: cloudChatId,
+			initialSessionId: cloudSessionId,
+			title: "Archive cloud chat",
+			branch: "task/archive-cloud-chat",
+			providerId: "provider-cloud",
+			agent: "codex",
+			model: "gpt-5.6",
+			state: "ready",
+			desiredState: "ready",
+			runtimeState: "online",
+			statusCode: "ready",
+			startupPhase: "running",
+			revision: 1,
+			unread: false,
+			lastMessageAt: now.getTime(),
+			createdAt: now.getTime(),
+			updatedAt: now.getTime(),
+		});
+		registerCloudChat(cloudSummary, projectId);
+		const cloudChat = { ...chat, id: cloudChatId };
+		useChatsStore.setState({
+			chatsByProject: { [projectId]: [cloudChat] },
+			selectedChatId: cloudChatId,
+			selectedChatByProject: { [projectId]: cloudChatId },
+		});
+		const ordinaryArchive = vi.fn(() =>
+			Effect.fail(new Error("ordinary archive must not run")),
+		);
+		const cloudArchive = vi.fn(() =>
+			Effect.succeed(
+				CloudWorkspace.make({
+					workspaceId: cloudSummary.workspaceId,
+					projectId: cloudSummary.projectId,
+					buildId: "build-cloud-archive",
+					providerId: cloudSummary.providerId,
+					branch: cloudSummary.branch,
+					baseRef: "origin/main",
+					state: "ready",
+					desiredState: "archived",
+					statusCode: "archive-queued",
+					startupPhase: "running",
+					startupTimings: {},
+					runtimeState: "online",
+					revision: 2,
+					chatId: cloudChatId,
+					initialSessionId: cloudSessionId,
+					createdAt: now.getTime(),
+					updatedAt: now.getTime() + 1,
+					lastActivityAt: now.getTime(),
+					recoveryAvailable: false,
+				}),
+			),
+		);
+		rpcClientFactory.mockReturnValue({
+			"chat.archive": ordinaryArchive,
+			"cloud.workspaces.archive": cloudArchive,
+		});
+
+		await expect(
+			useChatsStore.getState().archive(cloudChatId),
+		).resolves.toEqual({
+			ok: true,
+		});
+		expect(cloudArchive).toHaveBeenCalledWith({
+			workspaceId: cloudSummary.workspaceId,
+		});
+		expect(ordinaryArchive).not.toHaveBeenCalled();
+		expect(useChatsStore.getState().selectedChatId).toBe(cloudChatId);
+		expect(
+			useChatsStore
+				.getState()
+				.chatsByProject[projectId]?.some((row) => row.id === cloudChatId),
+		).toBe(true);
 	});
 
 	it("clears progress without leaking a rejected promise when archive fails", async () => {

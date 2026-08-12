@@ -434,6 +434,8 @@ export function ProjectsSidebar() {
 				chat.state === "setup" ||
 				chat.state === "pausing" ||
 				chat.state === "resuming" ||
+				chat.state === "archiving" ||
+				chat.desiredState === "archived" ||
 				chat.runtimeState === "connecting",
 		);
 		const interval = window.setInterval(

@@ -22,6 +22,7 @@ import { formatError } from "../lib/format-error.ts";
 import {
 	getControlPlaneRpcClient,
 	getRpcClient,
+	getVerifiedRpcClient,
 	registerCloudWorkspace,
 	setDefaultRpcEnvironmentResolver,
 } from "../lib/rpc-client.ts";
@@ -363,6 +364,20 @@ export const attachCloudTranscriptLive = (
 		live: true,
 		environmentId: summary.workspaceId,
 	});
+
+export const tryReuseCloudWorkspaceAttachment = async (input: {
+	readonly workspaceId: string;
+	readonly verify?: (workspaceId: string) => Promise<unknown>;
+	readonly attach: () => Promise<void>;
+}): Promise<boolean> => {
+	try {
+		await (input.verify ?? getVerifiedRpcClient)(input.workspaceId);
+		await input.attach();
+		return true;
+	} catch {
+		return false;
+	}
+};
 
 export const shouldAttachCloudChatWithPendingCommands = (
 	history: Pick<CloudChatHistory, "commandState" | "queuedMessages">,
@@ -779,21 +794,23 @@ export const openCloudChat = (
 export const ensureCloudWorkspaceAttached = (
 	summary: CloudChatSummary,
 ): Promise<void> => {
-	const attachmentState =
-		useCloudExecutionStore.getState().stateByWorkspace[summary.workspaceId];
-	if (
-		canReuseCloudWorkspaceAttachment({
-			summary,
-			attachmentState,
-			hasExecutionTarget: cloudExecutionTarget(summary.workspaceId) !== null,
-		})
-	)
-		// Reuse the workspace connection, but retain/restart this chat's stream if
-		// the view was previously closed long enough for its subscriber to evict.
-		return attachCloudTranscriptLive(summary);
 	const existing = attaching.get(summary.workspaceId);
 	if (existing !== undefined) return existing;
 	const operation = (async () => {
+		const attachmentState =
+			useCloudExecutionStore.getState().stateByWorkspace[summary.workspaceId];
+		if (
+			canReuseCloudWorkspaceAttachment({
+				summary,
+				attachmentState,
+				hasExecutionTarget: cloudExecutionTarget(summary.workspaceId) !== null,
+			}) &&
+			(await tryReuseCloudWorkspaceAttachment({
+				workspaceId: summary.workspaceId,
+				attach: () => attachCloudTranscriptLive(summary),
+			}))
+		)
+			return;
 		const projectId = localProjectForCloudChat(summary.chatId);
 		setCloudAttachmentState(summary.workspaceId, "attaching");
 		const control = await getControlPlaneRpcClient();

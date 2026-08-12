@@ -1468,6 +1468,23 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			get().discardCreation(chatId);
 			return { ok: true } as const;
 		}
+		const cloudSummary = cloudSummaryForChat(chatId);
+		if (cloudSummary !== null) {
+			try {
+				const { useCloudChatsStore } = await import("./cloud-chats.ts");
+				await useCloudChatsStore.getState().archive(cloudSummary);
+				return { ok: true } as const;
+			} catch (cause) {
+				const reason = formatError(cause);
+				set({ error: reason });
+				toastManager.add({
+					type: "error",
+					title: "Cloud chat could not be archived",
+					description: reason,
+				});
+				return { ok: false, reason } as const;
+			}
+		}
 		const projectIdBeforeArchive = findChatProject(
 			get().chatsByProject,
 			chatId,

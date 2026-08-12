@@ -762,6 +762,64 @@ describe("messages store queue actions", () => {
 		);
 	});
 
+	it("keeps a durable cloud transcript free of provider errors during reconnect", async () => {
+		const cloudSessionId = AgentSessionId.make("session-cloud-reconnect-error");
+		const workspaceId = "workspace-cloud-reconnect-error";
+		registerCloudChat(
+			CloudChatSummary.make({
+				workspaceId,
+				projectId: "project-cloud-reconnect-error",
+				repositoryIdentity: "github.com/example/cloud-reconnect-error",
+				repositoryDisplayName: "cloud-reconnect-error",
+				chatId: ChatId.make("chat-cloud-reconnect-error"),
+				initialSessionId: cloudSessionId,
+				title: "Cloud reconnect",
+				branch: "task/cloud-reconnect",
+				providerId: "provider-cloud",
+				agent: "codex",
+				model: "gpt-5.6",
+				state: "ready",
+				desiredState: "ready",
+				runtimeState: "online",
+				statusCode: "ready",
+				startupPhase: "running",
+				revision: 1,
+				unread: false,
+				lastMessageAt: Date.now(),
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+			}),
+		);
+		subscribeRendererRpcConnection.mockImplementation((listener) => {
+			listener({
+				key: `workspace:${workspaceId}`,
+				status: "connected",
+				generation: 1,
+				attempt: 0,
+				error: null,
+			});
+			return vi.fn();
+		});
+		rpcClientFactory = () =>
+			({
+				"session.events": () =>
+					Stream.fail(new Error("WebSocket closed during laptop sleep")),
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+
+		await useMessagesStore.getState().hydrate(cloudSessionId, {
+			live: true,
+			environmentId: workspaceId,
+		});
+		await expect
+			.poll(() => reportRendererRpcStreamFailure.mock.calls.length)
+			.toBeGreaterThan(0);
+		expect(
+			useMessagesStore.getState().errorBySession[cloudSessionId],
+		).toBeFalsy();
+	});
+
 	it("releases an optimistic overlay when its timeline stream terminates", async () => {
 		const frames = Effect.runSync(
 			Queue.unbounded<SessionTimelineFrame, Error>(),

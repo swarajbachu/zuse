@@ -8,6 +8,7 @@ Object.defineProperty(globalThis, "location", {
 });
 
 const {
+	isIgnorableRendererFailure,
 	RENDERER_WEBSOCKET_OPEN_TIMEOUT,
 	resolveRendererRpcTransportForTest,
 	shouldReconnectRendererConnection,
@@ -15,6 +16,17 @@ const {
 } = await import("../../src/lib/rpc-client.ts");
 
 describe("renderer RPC transport selection", () => {
+	it("does not poison a healthy connection when a suspended stream is interrupted", () => {
+		expect(
+			isIgnorableRendererFailure(
+				new Error("All fibers interrupted without error"),
+			),
+		).toBe(true);
+		expect(
+			isIgnorableRendererFailure(new Error("WebSocket closed (1006).")),
+		).toBe(false);
+	});
+
 	it("bounds the WebSocket opening phase", () => {
 		expect(RENDERER_WEBSOCKET_OPEN_TIMEOUT).toBe("3 seconds");
 	});

@@ -28,7 +28,8 @@ fi
 # Quiesce all writers before reading runtime state. The archive process is
 # provider-owned, so stopping the runtime cannot stop this script.
 set_phase quiescing
-server_pid="$(pgrep -u zuse -f 'zuse serve' | head -n 1 || true)"
+runtime_pattern='[z]use serve|[/]opt/zuse/current/bin.mjs serve'
+server_pid="$(pgrep -u zuse -f "$runtime_pattern" | head -n 1 || true)"
 if [[ -n "$server_pid" ]]; then
   pkill -TERM -P "$server_pid" 2>/dev/null || true
   kill -TERM "$server_pid" 2>/dev/null || true

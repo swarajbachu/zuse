@@ -1,6 +1,7 @@
 import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import {
 	type SandboxProviderAdapter,
+	SandboxProviderError,
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
 import { Clock, Effect } from "effect";
@@ -31,6 +32,7 @@ const shellSingleQuote = (value: string): string =>
 export const WORKSPACE_RUNTIME_RESUME_COMMAND = `nohup /bin/bash -lc ${shellSingleQuote(
 	WORKSPACE_RUNTIME_RESUME_SCRIPT,
 )} >/var/lib/zuse/workspace/runtime-launch.log 2>&1 </dev/null &`;
+export const WORKSPACE_ARCHIVE_SCRIPT = `set -e; runtime_pid="$(pgrep -u zuse -f '${WORKSPACE_RUNTIME_PROCESS_PATTERN}' | head -n 1 || true)"; if [ -n "$runtime_pid" ]; then pkill -TERM -P "$runtime_pid" 2>/dev/null || true; kill -TERM "$runtime_pid" 2>/dev/null || true; for _ in $(seq 1 50); do kill -0 "$runtime_pid" 2>/dev/null || break; sleep 0.1; done; kill -KILL "$runtime_pid" 2>/dev/null || true; fi; exec /usr/local/bin/zuse-archive-workspace`;
 
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
@@ -655,8 +657,18 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		) {
 			if (workspace.providerSandboxId === undefined) return;
 			if (workspace.state !== "archiving") {
+				const sandbox = yield* provider.inspect(workspace.providerSandboxId);
+				if (sandbox === null)
+					return yield* new SandboxProviderError({ code: "not-found" });
+				if (sandbox.state === "paused")
+					yield* provider.resume(
+						workspace.providerSandboxId,
+						config.keepAliveTimeoutSeconds,
+						"pause",
+					);
 				yield* provider.startProcess(workspace.providerSandboxId, {
-					command: "/usr/local/bin/zuse-archive-workspace",
+					command: "/bin/bash",
+					args: ["-lc", WORKSPACE_ARCHIVE_SCRIPT],
 					cwd: "/home/zuse/workspace",
 					user: "zuse",
 				});

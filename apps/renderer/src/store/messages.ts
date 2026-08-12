@@ -883,15 +883,19 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 					Effect.sync(() => {
 						reportActiveStreamFailure(sessionId, err);
 						console.error("[messages] message stream errored", err);
-						set((s) => ({
-							errorBySession: {
-								...s.errorBySession,
-								[sessionId]: classifyError(
-									err,
-									lookupSessionProvider(sessionId),
-								),
-							},
-						}));
+						// Cloud transcripts stay readable from their durable projection while
+						// the connection supervisor reconnects. A transport drop is not an
+						// agent/provider error and must not become a transcript error row.
+						if (cloudSummaryForSession(sessionId) === null)
+							set((s) => ({
+								errorBySession: {
+									...s.errorBySession,
+									[sessionId]: classifyError(
+										err,
+										lookupSessionProvider(sessionId),
+									),
+								},
+							}));
 					}),
 				),
 				Effect.ensuring(
@@ -945,12 +949,13 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 			}
 		} catch (err) {
 			timelineStarts.delete(sessionId);
-			set((s) => ({
-				errorBySession: {
-					...s.errorBySession,
-					[sessionId]: classifyError(err, lookupSessionProvider(sessionId)),
-				},
-			}));
+			if (cloudSummaryForSession(sessionId) === null)
+				set((s) => ({
+					errorBySession: {
+						...s.errorBySession,
+						[sessionId]: classifyError(err, lookupSessionProvider(sessionId)),
+					},
+				}));
 			scheduleTimelineReconnect(sessionId);
 		}
 	},

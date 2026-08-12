@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { CloudCredentialVault } from "../../src/cloud-credential-vault.ts";
 import {
 	reconcileCloudWorkspace,
+	WORKSPACE_ARCHIVE_SCRIPT,
 	WORKSPACE_RUNTIME_PROCESS_PATTERN,
 	WORKSPACE_RUNTIME_RESUME_COMMAND,
 	WORKSPACE_RUNTIME_RESUME_SCRIPT,
@@ -41,6 +42,15 @@ const testLayer = Layer.mergeAll(
 );
 
 describe("cloud workspace reconciler", () => {
+	test("archive quiesces the current versioned runtime before bundling", () => {
+		expect(WORKSPACE_ARCHIVE_SCRIPT).toContain(
+			WORKSPACE_RUNTIME_PROCESS_PATTERN,
+		);
+		expect(WORKSPACE_ARCHIVE_SCRIPT).toContain(
+			"exec /usr/local/bin/zuse-archive-workspace",
+		);
+	});
+
 	test("the resume launcher does not match its own stale-runtime kill pattern", () => {
 		expect(
 			new RegExp(WORKSPACE_RUNTIME_PROCESS_PATTERN).test(

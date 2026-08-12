@@ -134,6 +134,10 @@ let online = globalThis.navigator?.onLine ?? true;
 export const RENDERER_MAX_AUTOMATIC_CONNECTION_ATTEMPTS = 3;
 export const RENDERER_WEBSOCKET_OPEN_TIMEOUT = "3 seconds" as const;
 
+export const isIgnorableRendererFailure = (cause: unknown): boolean =>
+	cause instanceof Error &&
+	cause.message === "All fibers interrupted without error";
+
 const supervisor = createConnectionSupervisor<
 	RendererConnectionOptions,
 	MemoizeClient
@@ -154,6 +158,7 @@ const supervisor = createConnectionSupervisor<
 			: { ...options, wsUrl: await options.refreshWsUrl() };
 	},
 	isOnline: () => online,
+	isIgnorableFailure: isIgnorableRendererFailure,
 	schedule: (delayMs, reconnect) => {
 		const timer = setTimeout(reconnect, delayMs);
 		return () => clearTimeout(timer);
