@@ -277,6 +277,11 @@ export const failedWorkspaceResumeTarget = (
 				providerSandboxId: workspace.providerSandboxId,
 			} as const);
 
+export const cloudWorkspaceResumeIsAlreadyRequested = (
+	workspace: Pick<CloudWorkspaceRecord, "desiredState" | "state">,
+): boolean =>
+	workspace.desiredState === "ready" && workspace.state !== "failed";
+
 const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 	workspaceId: workspace.workspaceId,
 	projectId: workspace.projectId,
@@ -1724,6 +1729,20 @@ export const routeCloudWorkspaceRequest = (
 				| "archive"
 				| "unarchive"
 				| "delete";
+			// Sending while a workspace is waking can issue resume more than once.
+			// Treat those requests as one operation: rewriting the workspace here can
+			// release the reconciler lease and replace its freshly staged boot token.
+			if (
+				action === "resume" &&
+				cloudWorkspaceResumeIsAlreadyRequested(workspace)
+			) {
+				const response = json(publicWorkspace(workspace));
+				response.headers.set(
+					"x-zuse-reconcile-cloud-workspace",
+					workspace.workspaceId,
+				);
+				return response;
+			}
 			const desiredState =
 				action === "resume"
 					? "ready"

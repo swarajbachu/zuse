@@ -550,9 +550,28 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 			(workspace.requestConfig.startupTimings as
 				| Readonly<Record<string, number>>
 				| undefined) ?? {};
-		// Keep the reconciliation lease until the token file and detached runtime
-		// launch agree. Persisting first releases the lease, allowing a concurrent
-		// resume to overwrite either side with a different one-time token.
+		// Authorize the exact token written above before the detached runtime can
+		// read it. Repeated resume requests are idempotent, so releasing the lease
+		// here cannot replace this token while startup is in flight.
+		yield* store.saveWorkspace({
+			...workspace,
+			runtimeBootTokenHash: boot.tokenHash,
+			runtimeBootTokenExpiresAtMs: boot.expiresAtMs,
+			runtimeCredentialHash: undefined,
+			runtimeState: "offline",
+			state: "provisioning",
+			statusCode: "resume-runtime-restarting",
+			warmRetentionDeadlineMs: undefined,
+			requestConfig: {
+				...workspace.requestConfig,
+				startupTimings: { ...timings, allocatedAt: nowMs },
+			},
+			nextActionAtMs: nowMs + 30_000,
+			lastActivityAtMs: nowMs,
+			runningSinceMs: nowMs,
+			revision: workspace.revision + 1,
+			updatedAtMs: nowMs,
+		});
 		yield* provider.startProcess(providerSandboxId, {
 			command: "/bin/bash",
 			args: ["-lc", WORKSPACE_RUNTIME_RESUME_COMMAND],
@@ -580,25 +599,6 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 						}),
 			},
 			user: "zuse",
-		});
-		yield* store.saveWorkspace({
-			...workspace,
-			runtimeBootTokenHash: boot.tokenHash,
-			runtimeBootTokenExpiresAtMs: boot.expiresAtMs,
-			runtimeCredentialHash: undefined,
-			runtimeState: "offline",
-			state: "provisioning",
-			statusCode: "resume-runtime-restarting",
-			warmRetentionDeadlineMs: undefined,
-			requestConfig: {
-				...workspace.requestConfig,
-				startupTimings: { ...timings, allocatedAt: nowMs },
-			},
-			nextActionAtMs: nowMs + 30_000,
-			lastActivityAtMs: nowMs,
-			runningSinceMs: nowMs,
-			revision: workspace.revision + 1,
-			updatedAtMs: nowMs,
 		});
 	},
 );
