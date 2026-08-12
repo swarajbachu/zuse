@@ -1,6 +1,6 @@
 {
 	"name": "@zusehq/serve",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"description": "One-command remote access for Zuse workspaces",
 	"license": "AGPL-3.0-only",
 	"type": "module",
@@ -35,7 +35,7 @@
 	},
 	"dependencies": {
 		"@zusehq/server": "0.1.2",
-		"effect": "catalog:"
+		"effect": "4.0.0-beta.102"
 	},
 	"devDependencies": {
 		"@zuse/client-runtime": "*",
