@@ -44,6 +44,8 @@
 		"HETZNER_SERVER_TYPE_PERSISTENT_STANDARD_V1": "cx33",
 		"MACHINE_RUNTIME_MANIFEST_URL": "https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-staging/stable-manifest.json",
 		"MACHINE_RUNTIME_SIGNING_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"ODy1bBgW390GBMxIqn8wy2eO3C05kXdoPYk5JV09OZI\",\"kty\":\"OKP\"}",
+		"CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL": "https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-staging/stable-manifest.json",
+		"CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"ODy1bBgW390GBMxIqn8wy2eO3C05kXdoPYk5JV09OZI\",\"kty\":\"OKP\"}",
 		"E2B_ADAPTER_ENABLED": "true",
 		"E2B_TEMPLATE_ID": "zuse-cloud-sandbox",
 		"E2B_TEMPLATE_VERSION": "8314e49a-5f80-4899-895c-7688ac80bd23",

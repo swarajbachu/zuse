@@ -25,7 +25,7 @@ const WORKSPACE_RUNTIME_BOOT_TOKEN_FILE =
 export const WORKSPACE_RUNTIME_PROCESS_PATTERN =
 	"[z]use serve|[/]opt/zuse/current/bin.mjs serve";
 export const WORKSPACE_RUNTIME_RESUME_COMMAND =
-	'runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; pkill -KILL -u zuse -f \'[z]use serve|[/]opt/zuse/current/bin.mjs serve\' 2>/dev/null || true; rm -f /var/lib/zuse/workspace/failed; if [ -f "$runtime" ]; then exec /usr/bin/node "$runtime" serve --foreground; else exec "$fallback" serve --foreground; fi';
+	'set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; pkill -KILL -u zuse -f \'[z]use serve|[/]opt/zuse/current/bin.mjs serve\' 2>/dev/null || true; rm -f /var/lib/zuse/workspace/failed; if [ -n "$(printenv ZUSE_RUNTIME_MANIFEST_URL 2>/dev/null)" ] && [ -f /home/zuse/.zuse-runtime-signing-public.jwk ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >/var/lib/zuse/workspace/runtime-update.log 2>&1; fi; if [ -f "$runtime" ]; then exec /usr/bin/node "$runtime" serve --foreground; else exec "$fallback" serve --foreground; fi';
 
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
@@ -529,6 +529,14 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 					],
 					denyOut: ["0.0.0.0/0", "::/0"],
 				}),
+				config.runtimeSigningPublicJwk === undefined
+					? Effect.void
+					: provider.writeTextFile(
+							providerSandboxId,
+							"/home/zuse/.zuse-runtime-signing-public.jwk",
+							config.runtimeSigningPublicJwk,
+							"zuse",
+						),
 			],
 			{ concurrency: "unbounded" },
 		);
@@ -572,6 +580,14 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 				ZUSE_MACHINE_RUNTIME_ROLE: "cloud-environment",
 				ZUSE_SERVER_READY_STDOUT: "1",
 				ZUSE_USER_DATA: "/home/zuse/.zuse-data",
+				...(config.runtimeManifestUrl === undefined
+					? {}
+					: {
+							ZUSE_RUNTIME_MANIFEST_URL: config.runtimeManifestUrl,
+							ZUSE_RUNTIME_PUBLIC_KEY_FILE:
+								"/home/zuse/.zuse-runtime-signing-public.jwk",
+							ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
+						}),
 			},
 			user: "zuse",
 		});
@@ -958,6 +974,13 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					workspace.providerSandboxId,
 					nowMs,
 				);
+				if (config.runtimeSigningPublicJwk !== undefined)
+					yield* provider.writeTextFile(
+						workspace.providerSandboxId,
+						"/home/zuse/.zuse-runtime-signing-public.jwk",
+						config.runtimeSigningPublicJwk,
+						"zuse",
+					);
 				yield* store.saveWorkspace({
 					...invalidated,
 					runtimeBootTokenHash: boot.tokenHash,
