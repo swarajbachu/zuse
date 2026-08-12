@@ -39,8 +39,8 @@ describe("cloud runtime assets", () => {
 		expect(bootstrap).not.toContain(
 			"runtime_command=(node /opt/zuse/current/bin.mjs serve --foreground)",
 		);
-		expect(reconciler).toMatch(
-			/installedRuntime\s*\? \["\/opt\/zuse\/current\/bin\.mjs", "serve"\]\s*: \["serve", "--foreground"\]/u,
+		expect(reconciler).toContain(
+			'exec /usr/bin/node "$runtime" serve --foreground',
 		);
 		expect(reconciler).toContain("replacingFailedSandbox");
 		expect(reconciler).toContain(

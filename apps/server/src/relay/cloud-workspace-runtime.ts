@@ -46,6 +46,20 @@ export class CloudWorkspaceRuntimeError extends Schema.TaggedErrorClass<CloudWor
 
 const fail = (reason: string) => new CloudWorkspaceRuntimeError({ reason });
 
+/**
+ * The gateway notification is an acceleration signal, not the durable command
+ * transport. Polling guarantees that commands accepted while the gateway is
+ * reconnecting are still observed after the one-time startup fetch.
+ */
+export const pollCloudWorkspaceCommands = <A, E, R>(
+	fetchCommands: Effect.Effect<A, E, R>,
+): Effect.Effect<void, E, R> =>
+	fetchCommands.pipe(
+		Effect.retry(Schedule.spaced("1 second")),
+		Effect.repeat(Schedule.spaced("1 second")),
+		Effect.asVoid,
+	);
+
 const BootstrapResponse = Schema.Struct({
 	workspaceId: Schema.String,
 	runtimeCredential: Schema.String,
@@ -546,8 +560,8 @@ export const makeCloudWorkspaceRuntimeLayer = (
 										openLocal(message.connectionId);
 									}
 								}
-								if (message.type === "command.available")
-									void Effect.runPromise(fetchCommands());
+								// Durable command polling below is authoritative. Gateway
+								// notifications remain a latency hint for a future serialized pump.
 							});
 						},
 					).pipe(
@@ -569,6 +583,8 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						bootstrap.runtimeCredential,
 						"repository-ready",
 					);
-					yield* fetchCommands();
+					yield* pollCloudWorkspaceCommands(fetchCommands()).pipe(
+						Effect.forkScoped({ startImmediately: true }),
+					);
 				}),
 			);
