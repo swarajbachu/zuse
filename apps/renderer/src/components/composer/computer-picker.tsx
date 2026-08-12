@@ -1,7 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CloudIcon, ComputerIcon, Tick01Icon } from "@zuse/icons/solid-rounded";
 import { ChevronDown } from "lucide-react";
-
+import { Badge } from "~/components/ui/badge";
 import {
 	Menu,
 	MenuItem,
@@ -112,6 +112,11 @@ export function ComputerPicker({
 				<span className="truncate">
 					{cloudSelected ? "Cloud Sandbox" : (current?.label ?? "Run on")}
 				</span>
+				{cloudSelected ? (
+					<Badge size="sm" variant="outline">
+						Beta
+					</Badge>
+				) : null}
 				<ChevronDown className="size-3 opacity-60" />
 			</MenuTrigger>
 			<MenuPopup side="bottom" align="start" className="w-64 p-1">
@@ -176,7 +181,12 @@ export function ComputerPicker({
 										icon={CloudIcon}
 										className="col-start-2 size-3.5 opacity-80"
 									/>
-									<span className="col-start-3 truncate">Cloud Sandbox</span>
+									<span className="col-start-3 flex min-w-0 items-center gap-1.5">
+										<span className="truncate">Cloud Sandbox</span>
+										<Badge size="sm" variant="outline">
+											Beta
+										</Badge>
+									</span>
 									<span className="col-start-4 text-[10px] text-muted-foreground">
 										{item.statusText ?? item.providerLabel}
 									</span>

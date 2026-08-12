@@ -32,7 +32,7 @@ import {
 import { Effect } from "effect";
 import { ChevronLeft, Plus, RefreshCw as RefreshIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { cloudMachinesAvailable } from "~/lib/cloud-machines-availability.ts";
+import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
 import { displayPath } from "~/lib/display-path";
 import { hasHostCapability } from "~/lib/host-platform";
 import { rendererPlatformCapabilities } from "~/lib/platform-capabilities.ts";
@@ -133,7 +133,7 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
 	},
 	{
 		id: "machines",
-		label: "Cloud machines",
+		label: "Cloud Sandbox · Beta",
 		Icon: ConnectIcon,
 		section: { kind: "machines" },
 	},
@@ -171,10 +171,7 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
 	},
 ];
 
-const CLOUD_MACHINES_AVAILABLE = cloudMachinesAvailable({
-	desktop: rendererPlatformCapabilities().desktop,
-	development: import.meta.env.DEV,
-});
+const CLOUD_MACHINES_AVAILABLE = cloudWorkspaceBetaAvailable();
 
 const VISIBLE_RAIL: ReadonlyArray<RailItemBase> = TOP_RAIL.filter(
 	(item) =>
@@ -392,9 +389,9 @@ function SectionTitle({
 		}
 		if (section.kind === "machines") {
 			return {
-				title: "Cloud machines",
+				title: "Cloud Sandbox · Beta",
 				subtitle:
-					"Create and manage a persistent environment that stays ready when this Mac is offline.",
+					"Connect repositories and run isolated cloud workspaces while this desktop beta is enabled.",
 			};
 		}
 		if (section.kind === "browser") {

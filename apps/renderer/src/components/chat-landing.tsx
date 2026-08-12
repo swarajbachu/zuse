@@ -1,10 +1,4 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronDown } from "lucide-react";
-import {
-	Folder01Icon,
-	FolderAddIcon,
-	Tick01Icon,
-} from "@zuse/icons/solid-rounded";
 import {
 	type ChatId,
 	type ChatWorkspacePolicy,
@@ -19,8 +13,13 @@ import {
 	type WorktreeCreateSource,
 	type WorktreeId,
 } from "@zuse/contracts";
+import {
+	Folder01Icon,
+	FolderAddIcon,
+	Tick01Icon,
+} from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
-import { X } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 import {
 	lazy,
 	Suspense,
@@ -57,6 +56,7 @@ import {
 import { applyPreparedLinearContext } from "~/composer/linear-context-input";
 import { resolveChatWorkspacePolicy } from "~/lib/auto-worktree";
 import { chatLandingProgress } from "~/lib/chat-landing-progress";
+import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
 import { saveContextFile } from "~/lib/context-handoff";
 import { formatError } from "~/lib/format-error";
 import {
@@ -157,6 +157,7 @@ const migrateModelOptions = (fromId: string, toId: string): void => {
  * chat map instead of subscribing this surface to every chat update.
  */
 const EMPTY_CHATS_BY_PROJECT: Readonly<Record<string, never>> = {};
+const CLOUD_WORKSPACE_BETA_AVAILABLE = cloudWorkspaceBetaAvailable();
 
 const formatThreadRelative = (date: Date): string => {
 	const ms = Math.max(0, Date.now() - date.getTime());
@@ -394,7 +395,8 @@ export function ChatLanding() {
 		setCloudProject(null);
 		setCloudSubscribed(false);
 		setCloudPlacementError(false);
-		if (cloudRepositoryIdentity === null) return;
+		if (!CLOUD_WORKSPACE_BETA_AVAILABLE || cloudRepositoryIdentity === null)
+			return;
 		const loadCloudPlacement = async (): Promise<void> => {
 			try {
 				const client = await getControlPlaneRpcClient();
@@ -720,6 +722,7 @@ export function ChatLanding() {
 		const draft = useSessionsStore.getState().draftSession;
 		if (draft === null) return;
 		if (selectedCloudProviderId !== null) {
+			if (!CLOUD_WORKSPACE_BETA_AVAILABLE) return;
 			if (cloudProject === null) {
 				setSubmitError(
 					"Connect this repository in Cloud Sandbox settings first.",

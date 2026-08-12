@@ -258,7 +258,7 @@ export function CloudWorkspacePool() {
 	if (!isSignedIn) {
 		return (
 			<CloudSettingsGroup
-				title="Cloud Workspace"
+				title="Cloud Workspace · Beta"
 				description="Your saved chats remain available on this device. Sign in again to access cloud compute and billing."
 			>
 				<CloudSettingsRow
@@ -285,7 +285,7 @@ export function CloudWorkspacePool() {
 				</div>
 			)}
 			<CloudSettingsGroup
-				title="Cloud Workspace"
+				title="Cloud Workspace · Beta"
 				description="Connect repositories once, then create an isolated sandbox and branch for each task."
 				action={
 					<Badge variant={subscribed ? "success" : "outline"}>

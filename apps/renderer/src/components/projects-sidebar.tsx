@@ -66,6 +66,7 @@ import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import { deriveCloudChatActivity } from "../lib/cloud-chat-activity.ts";
 import { cloudChatRowPresentation } from "../lib/cloud-chat-row-presentation.ts";
+import { cloudWorkspaceBetaAvailable } from "../lib/cloud-machines-availability.ts";
 import { dispatchCommand } from "../lib/commands.ts";
 import { noteSessionRuntimeCompletion } from "../lib/completion-sounds.ts";
 import { openNewChatLanding } from "../lib/open-new-chat-landing.ts";
@@ -124,6 +125,9 @@ import { BranchIcon, type BranchState } from "./branch-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { Spinner } from "./ui/spinner";
+
+const CLOUD_WORKSPACE_BETA_AVAILABLE = cloudWorkspaceBetaAvailable();
+const EMPTY_CLOUD_CHATS: ReadonlyArray<CloudChatSummary> = [];
 
 const loadRenameDialog = () => import("./rename-dialog.tsx");
 const RenameDialog = lazy(() =>
@@ -414,7 +418,10 @@ export function ProjectsSidebar() {
 
 	const chatsByProject = useChatsStore((s) => s.chatsByProject);
 	const hydrateChats = useChatsStore((s) => s.hydrate);
-	const cloudChats = useCloudChatsStore((s) => s.summaries);
+	const storedCloudChats = useCloudChatsStore((s) => s.summaries);
+	const cloudChats = CLOUD_WORKSPACE_BETA_AVAILABLE
+		? storedCloudChats
+		: EMPTY_CLOUD_CHATS;
 	const hydrateCloudChats = useCloudChatsStore((s) => s.hydrate);
 
 	const origins = useFolderOriginsStore((s) => s.byFolder);
@@ -423,10 +430,11 @@ export function ProjectsSidebar() {
 
 	useEffect(() => {
 		void load();
-		void hydrateCloudChats();
+		if (CLOUD_WORKSPACE_BETA_AVAILABLE) void hydrateCloudChats();
 	}, [load, hydrateCloudChats]);
 
 	useEffect(() => {
+		if (!CLOUD_WORKSPACE_BETA_AVAILABLE) return;
 		const hasTransitioningWorkspace = cloudChats.some(
 			(chat) =>
 				chat.state === "queued" ||
