@@ -60,6 +60,16 @@ export const pollCloudWorkspaceCommands = <A, E, R>(
 		Effect.asVoid,
 	);
 
+/**
+ * Runtime enrollment depends on a workspace row written immediately before
+ * the sandbox starts. A single transient relay or database read failure must
+ * not leave an otherwise healthy sandbox permanently detached.
+ */
+export const retryCloudWorkspaceBootstrap = <A, E, R>(
+	bootstrap: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> =>
+	bootstrap.pipe(Effect.retry(Schedule.spaced("1 second")));
+
 const BootstrapResponse = Schema.Struct({
 	workspaceId: Schema.String,
 	runtimeCredential: Schema.String,
@@ -273,13 +283,15 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							JSON.stringify(await exportJWK(credentialKeyPair.publicKey)),
 						catch: () => fail("workspace_credential_key_failed"),
 					});
-					const bootstrap = yield* requestJson({
-						schema: BootstrapResponse,
-						url: `${config.relayUrl}${RelayPaths.cloudWorkspaceBootstrap(config.workspaceId)}`,
-						token: Redacted.value(config.bootToken),
-						method: "POST",
-						body: { credentialPublicJwk },
-					});
+					const bootstrap = yield* retryCloudWorkspaceBootstrap(
+						requestJson({
+							schema: BootstrapResponse,
+							url: `${config.relayUrl}${RelayPaths.cloudWorkspaceBootstrap(config.workspaceId)}`,
+							token: Redacted.value(config.bootToken),
+							method: "POST",
+							body: { credentialPublicJwk },
+						}),
+					);
 					const cloudCredentials = yield* Effect.forEach(
 						bootstrap.cloudCredentials,
 						(credential) =>
