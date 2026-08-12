@@ -766,7 +766,6 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					if (
 						grant === undefined ||
 						grant.workspaceId !== workspaceId ||
-						grant.consumedAtMs !== undefined ||
 						grant.expiresAtMs <= nowMs
 					)
 						return [false, current] as const;
@@ -1415,7 +1414,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				),
 			consumeConnectionGrant: (grantHash, workspaceId, nowMs) =>
 				orDie(
-					sql`UPDATE relay_cloud_workspace_connection_grants SET consumed_at=${nowMs} WHERE grant_hash=${grantHash} AND workspace_id=${workspaceId} AND consumed_at IS NULL AND expires_at > ${nowMs} RETURNING grant_hash`.pipe(
+					sql`UPDATE relay_cloud_workspace_connection_grants SET consumed_at=COALESCE(consumed_at, ${nowMs}) WHERE grant_hash=${grantHash} AND workspace_id=${workspaceId} AND expires_at > ${nowMs} RETURNING grant_hash`.pipe(
 						Effect.map((rows) => rows.length > 0),
 					),
 				),

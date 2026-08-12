@@ -50,7 +50,10 @@ export type CloudWorkspaceRouteContext =
 	| RelayConfiguration
 	| WorkosVerifier;
 
-const CONNECTION_GRANT_TTL_MS = 30_000;
+// The RPC socket transparently reconnects with the same WebSocket protocols.
+// Keep the workspace-scoped grant valid across those reconnects; explicit live
+// actions mint a replacement, and the idle workspace pauses before this lease.
+const CONNECTION_GRANT_TTL_MS = 15 * 60_000;
 const RUNTIME_CREDENTIAL_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 
 const json = (body: unknown, status = 200): Response =>

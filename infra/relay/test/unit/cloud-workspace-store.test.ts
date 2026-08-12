@@ -422,6 +422,32 @@ describe("cloud workspace store", () => {
 		expect(await runtime.runPromise(store.latestMessageAt("workspace-1"))).toBe(
 			304,
 		);
+		await runtime.runPromise(
+			store.createConnectionGrant({
+				grantHash: "grant-1",
+				workspaceId: "workspace-1",
+				accountId: "account-1",
+				expiresAtMs: 1_000,
+				createdAtMs: 500,
+			}),
+		);
+		expect(
+			await runtime.runPromise(
+				store.consumeConnectionGrant("grant-1", "workspace-1", 600),
+			),
+		).toBe(true);
+		// The RPC socket owns transparent reconnects, so the same scoped grant
+		// remains usable until its short lease expires.
+		expect(
+			await runtime.runPromise(
+				store.consumeConnectionGrant("grant-1", "workspace-1", 700),
+			),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(
+				store.consumeConnectionGrant("grant-1", "workspace-1", 1_000),
+			),
+		).toBe(false);
 		await runtime.dispose();
 	});
 
