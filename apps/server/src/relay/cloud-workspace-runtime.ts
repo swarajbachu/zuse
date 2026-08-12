@@ -137,15 +137,20 @@ const requestJson = <A, I>(input: {
 const postReady = (
 	config: CloudWorkspaceRuntimeConfig,
 	runtimeCredential: string,
-	phase: "repository-ready" | "agent-started" | "command-acknowledged",
+	phase:
+		| "repository-ready"
+		| "agent-started"
+		| "command-acknowledged"
+		| "command-failed",
 	commandId?: string,
+	errorCode?: string,
 ): Effect.Effect<void, CloudWorkspaceRuntimeError> =>
 	requestJson({
 		schema: Schema.Unknown,
 		url: `${config.relayUrl}${RelayPaths.cloudWorkspaceReady(config.workspaceId)}`,
 		token: runtimeCredential,
 		method: "POST",
-		body: { phase, commandId },
+		body: { phase, commandId, errorCode },
 	}).pipe(Effect.asVoid);
 
 const writeCredentialsReady = Effect.tryPromise({
@@ -341,7 +346,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 									bootstrap.runtimeCredential,
 									"command-acknowledged",
 									command.commandId,
-								);
+								).pipe(Effect.retry(Schedule.spaced("1 second")));
 								processedCommands.add(command.commandId);
 								commandCursor = Math.max(commandCursor, command.sequence);
 								return;
@@ -357,28 +362,45 @@ export const makeCloudWorkspaceRuntimeLayer = (
 									return yield* Effect.fail(
 										fail("workspace_message_command_invalid"),
 									);
-								yield* messages
-									.sendMessage(
-										AgentSessionId.make(bootstrap.initialSessionId),
-										input.value.text,
-										input.value.attachments,
-										input.value.fileRefs,
-										input.value.skillRefs,
-										input.value.annotations,
-										command.payload.asGoal === true,
-										MessageId.make(command.payload.clientMessageId),
-									)
+								const sessionId = AgentSessionId.make(
+									bootstrap.initialSessionId,
+								);
+								const clientMessageId = MessageId.make(
+									command.payload.clientMessageId,
+								);
+								const alreadyDelivered = yield* messages
+									.listMessages(sessionId)
 									.pipe(
+										Effect.map((rows) =>
+											rows.some((message) => message.id === clientMessageId),
+										),
 										Effect.mapError(() =>
 											fail("workspace_message_delivery_failed"),
 										),
 									);
+								if (!alreadyDelivered)
+									yield* messages
+										.sendMessage(
+											sessionId,
+											input.value.text,
+											input.value.attachments,
+											input.value.fileRefs,
+											input.value.skillRefs,
+											input.value.annotations,
+											command.payload.asGoal === true,
+											clientMessageId,
+										)
+										.pipe(
+											Effect.mapError(() =>
+												fail("workspace_message_delivery_failed"),
+											),
+										);
 								yield* postReady(
 									config,
 									bootstrap.runtimeCredential,
 									"command-acknowledged",
 									command.commandId,
-								);
+								).pipe(Effect.retry(Schedule.spaced("1 second")));
 								processedCommands.add(command.commandId);
 								commandCursor = Math.max(commandCursor, command.sequence);
 								return;
@@ -432,10 +454,28 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								bootstrap.runtimeCredential,
 								"agent-started",
 								command.commandId,
-							);
+							).pipe(Effect.retry(Schedule.spaced("1 second")));
 							processedCommands.add(command.commandId);
 							commandCursor = Math.max(commandCursor, command.sequence);
-						});
+						}).pipe(
+							Effect.catch((error) => {
+								if (command.kind === "start-agent") return Effect.fail(error);
+								return Effect.gen(function* () {
+									yield* Effect.logError(
+										`[CloudWorkspaceRuntime] ${command.kind} failed: ${error.reason}`,
+									);
+									yield* postReady(
+										config,
+										bootstrap.runtimeCredential,
+										"command-failed",
+										command.commandId,
+										error.reason,
+									).pipe(Effect.retry(Schedule.spaced("1 second")));
+									processedCommands.add(command.commandId);
+									commandCursor = Math.max(commandCursor, command.sequence);
+								});
+							}),
+						);
 
 					const fetchCommands = () =>
 						requestJson({

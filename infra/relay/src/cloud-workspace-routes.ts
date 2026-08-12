@@ -609,8 +609,10 @@ const RuntimeReadyRequest = Schema.Struct({
 		"repository-ready",
 		"agent-started",
 		"command-acknowledged",
+		"command-failed",
 	]),
 	commandId: Schema.optional(Schema.String),
+	errorCode: Schema.optional(Schema.String),
 });
 
 const RuntimeBootstrapRequest = Schema.Struct({
@@ -983,8 +985,20 @@ export const routeCloudWorkspaceRequest = (
 			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
 			const body = yield* decodeBody(RuntimeReadyRequest, request);
 			const timings = startupTimings(workspace);
-			if (body.commandId !== undefined)
-				yield* store.acknowledgeCommand(workspaceId, body.commandId, nowMs);
+			if (body.commandId !== undefined) {
+				if (body.phase === "command-failed")
+					yield* store.failCommand(workspaceId, body.commandId, nowMs);
+				else
+					yield* store.acknowledgeCommand(workspaceId, body.commandId, nowMs);
+			}
+			if (body.phase === "command-failed") {
+				console.error("[cloud-workspace] runtime command failed", {
+					workspaceId,
+					commandId: body.commandId,
+					errorCode: body.errorCode ?? "workspace_command_failed",
+				});
+				return json({ workspace: publicWorkspace(workspace) });
+			}
 			if (body.phase === "command-acknowledged")
 				return json({ workspace: publicWorkspace(workspace) });
 			const agentStarted = body.phase === "agent-started";

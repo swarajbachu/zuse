@@ -259,6 +259,11 @@ export interface CloudWorkspaceStoreApi {
 		commandId: string,
 		nowMs: number,
 	) => Effect.Effect<boolean>;
+	readonly failCommand: (
+		workspaceId: string,
+		commandId: string,
+		nowMs: number,
+	) => Effect.Effect<boolean>;
 	readonly appendEvents: (
 		workspaceId: string,
 		events: ReadonlyArray<CloudWorkspaceEventRecord>,
@@ -883,6 +888,24 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						},
 					] as const;
 				}),
+			failCommand: (workspaceId, commandId, nowMs) =>
+				Ref.modify(state, (current) => {
+					const command = current.commands.get(commandId);
+					if (command?.workspaceId !== workspaceId)
+						return [false, current] as const;
+					const updated = {
+						...command,
+						state: "failed" as const,
+						failedAtMs: nowMs,
+					};
+					return [
+						true,
+						{
+							...current,
+							commands: new Map(current.commands).set(commandId, updated),
+						},
+					] as const;
+				}),
 			appendEvents: (workspaceId, events) =>
 				Ref.modify(state, (current) => {
 					const updated = new Map(current.events);
@@ -1439,6 +1462,12 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			acknowledgeCommand: (workspaceId, commandId, nowMs) =>
 				orDie(
 					sql`UPDATE relay_cloud_workspace_commands SET state='acknowledged', acknowledged_at=${nowMs} WHERE workspace_id=${workspaceId} AND command_id=${commandId} RETURNING command_id`.pipe(
+						Effect.map((rows) => rows.length > 0),
+					),
+				),
+			failCommand: (workspaceId, commandId, nowMs) =>
+				orDie(
+					sql`UPDATE relay_cloud_workspace_commands SET state='failed', failed_at=${nowMs} WHERE workspace_id=${workspaceId} AND command_id=${commandId} RETURNING command_id`.pipe(
 						Effect.map((rows) => rows.length > 0),
 					),
 				),

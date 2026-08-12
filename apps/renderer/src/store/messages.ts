@@ -288,9 +288,10 @@ const timelineLagObservations = new Map<
 >();
 const timelineProbeFailures = new Map<SessionId, number>();
 const goalFibers = new Map<SessionId, Fiber.Fiber<unknown, unknown>>();
-let liveConnectionGeneration: number | null = null;
 const environmentBySession = new Map<SessionId, string>();
-let unsubscribeLiveConnection: (() => void) | null = null;
+const DEFAULT_CONNECTION_SCOPE = "renderer-default";
+const liveConnectionGenerationByScope = new Map<string, number>();
+const unsubscribeLiveConnectionByScope = new Map<string, () => void>();
 // Message ids we minted optimistically in `send()`. When the server echoes the
 // same row back over the live stream (same id, because the renderer passes the
 // id as `clientMessageId`), we replace the optimistic row in place with the
@@ -298,30 +299,52 @@ let unsubscribeLiveConnection: (() => void) | null = null;
 // (stripped `pending-` attachments, server `createdAt`) win.
 const optimisticIds = new Set<MessageId>();
 const stopLiveConnectionSubscription = (): void => {
-	unsubscribeLiveConnection?.();
-	unsubscribeLiveConnection = null;
-	liveConnectionGeneration = null;
+	for (const unsubscribe of unsubscribeLiveConnectionByScope.values()) {
+		unsubscribe();
+	}
+	unsubscribeLiveConnectionByScope.clear();
+	liveConnectionGenerationByScope.clear();
 };
 
-const ensureLiveConnectionSubscription = (): void => {
-	if (unsubscribeLiveConnection !== null) return;
-	unsubscribeLiveConnection = subscribeRendererRpcConnection((snapshot) => {
+const connectionScope = (environmentId?: string): string =>
+	environmentId ?? DEFAULT_CONNECTION_SCOPE;
+
+const environmentForSession = (sessionId: SessionId): string | undefined =>
+	environmentBySession.get(sessionId);
+
+const connectionGenerationForSession = (sessionId: SessionId): number | null =>
+	liveConnectionGenerationByScope.get(
+		connectionScope(environmentForSession(sessionId)),
+	) ?? null;
+
+const ensureLiveConnectionSubscription = (environmentId?: string): void => {
+	const scope = connectionScope(environmentId);
+	if (unsubscribeLiveConnectionByScope.has(scope)) return;
+	const unsubscribe = subscribeRendererRpcConnection((snapshot) => {
 		if (snapshot.status !== "connected") return;
-		if (liveConnectionGeneration === null) {
-			liveConnectionGeneration = snapshot.generation;
+		const generation = liveConnectionGenerationByScope.get(scope);
+		if (generation === undefined) {
+			liveConnectionGenerationByScope.set(scope, snapshot.generation);
 			for (const sessionId of retainedTimelineSessions) {
-				if (!timelineFibers.has(sessionId) && !timelineStarts.has(sessionId)) {
+				if (
+					environmentForSession(sessionId) === environmentId &&
+					!timelineFibers.has(sessionId) &&
+					!timelineStarts.has(sessionId)
+				) {
 					void useMessagesStore.getState().hydrate(sessionId, {
-						environmentId: environmentBySession.get(sessionId),
+						environmentId,
 					});
 				}
 			}
 			return;
 		}
-		if (liveConnectionGeneration === snapshot.generation) return;
-		liveConnectionGeneration = snapshot.generation;
-		const sessions = [...retainedTimelineSessions];
+		if (generation === snapshot.generation) return;
+		liveConnectionGenerationByScope.set(scope, snapshot.generation);
+		const sessions = [...retainedTimelineSessions].filter(
+			(sessionId) => environmentForSession(sessionId) === environmentId,
+		);
 		for (const [sessionId, fiber] of timelineFibers) {
+			if (environmentForSession(sessionId) !== environmentId) continue;
 			clearTimelineReconnect(sessionId);
 			timelineFibers.delete(sessionId);
 			timelineTokens.delete(sessionId);
@@ -329,15 +352,26 @@ const ensureLiveConnectionSubscription = (): void => {
 		}
 		for (const sessionId of sessions)
 			void useMessagesStore.getState().hydrate(sessionId, {
-				environmentId: environmentBySession.get(sessionId),
+				environmentId,
 			});
-	});
+	}, environmentId);
+	unsubscribeLiveConnectionByScope.set(
+		scope,
+		typeof unsubscribe === "function" ? unsubscribe : () => {},
+	);
 };
 
-const reportActiveStreamFailure = (cause: unknown): void => {
-	const generation = liveConnectionGeneration;
+const reportActiveStreamFailure = (
+	sessionId: SessionId,
+	cause: unknown,
+): void => {
+	const generation = connectionGenerationForSession(sessionId);
 	if (generation === null) return;
-	reportRendererRpcStreamFailure(generation, cause);
+	reportRendererRpcStreamFailure(
+		generation,
+		cause,
+		environmentForSession(sessionId),
+	);
 };
 
 const clearTimelineReconnect = (sessionId: SessionId): void => {
@@ -366,7 +400,9 @@ const scheduleTimelineReconnect = (sessionId: SessionId): void => {
 				retainedTimelineSessions.has(sessionId) &&
 				!timelineFibers.has(sessionId)
 			) {
-				void useMessagesStore.getState().hydrate(sessionId);
+				void useMessagesStore.getState().hydrate(sessionId, {
+					environmentId: environmentForSession(sessionId),
+				});
 			}
 		}, delayMs),
 	);
@@ -392,7 +428,9 @@ const restartTimeline = async (sessionId: SessionId): Promise<void> => {
 		retainedTimelineSessions.has(sessionId) ||
 		timelineRegistry.state(sessionId).projection?.currentTurn != null
 	) {
-		await useMessagesStore.getState().hydrate(sessionId);
+		await useMessagesStore.getState().hydrate(sessionId, {
+			environmentId: environmentForSession(sessionId),
+		});
 		if (!wasRetained) retainedTimelineSessions.delete(sessionId);
 	}
 };
@@ -411,7 +449,7 @@ export const checkTimelineLiveness = async (
 	sessionId: SessionId,
 ): Promise<boolean> => {
 	const token = timelineTokens.get(sessionId);
-	const generation = liveConnectionGeneration;
+	const generation = connectionGenerationForSession(sessionId);
 	if (
 		token === undefined ||
 		(!retainedTimelineSessions.has(sessionId) &&
@@ -420,13 +458,13 @@ export const checkTimelineLiveness = async (
 		return false;
 	}
 	try {
-		const client = await getMessagesRpcClient();
+		const client = await getMessagesRpcClient(environmentForSession(sessionId));
 		const { throughVersion } = await Effect.runPromise(
 			client["session.events.head"]({ sessionId }).pipe(Effect.timeout(3_000)),
 		);
 		if (
 			timelineTokens.get(sessionId) !== token ||
-			liveConnectionGeneration !== generation
+			connectionGenerationForSession(sessionId) !== generation
 		) {
 			return false;
 		}
@@ -467,7 +505,7 @@ export const checkTimelineLiveness = async (
 				appliedVersion,
 				renderedVersion,
 				throughVersion,
-				connectionGeneration: liveConnectionGeneration,
+				connectionGeneration: connectionGenerationForSession(sessionId),
 			}),
 		});
 		if (throughVersion <= appliedVersion) {
@@ -484,7 +522,7 @@ export const checkTimelineLiveness = async (
 	} catch {
 		if (
 			timelineTokens.get(sessionId) !== token ||
-			liveConnectionGeneration !== generation
+			connectionGenerationForSession(sessionId) !== generation
 		) {
 			return false;
 		}
@@ -666,7 +704,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 		if (eviction !== undefined) clearTimeout(eviction);
 		timelineEvictionTimers.delete(sessionId);
 		if (pendingTimelineSessionCreations.has(sessionId)) return;
-		ensureLiveConnectionSubscription();
+		ensureLiveConnectionSubscription(options?.environmentId);
 		if (timelineFibers.has(sessionId)) {
 			scheduleTimelineWatchdog(sessionId);
 			return;
@@ -834,13 +872,14 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 				Effect.andThen(
 					Effect.sync(() => {
 						reportActiveStreamFailure(
+							sessionId,
 							new Error("active transcript stream completed unexpectedly"),
 						);
 					}),
 				),
 				Effect.catch((err) =>
 					Effect.sync(() => {
-						reportActiveStreamFailure(err);
+						reportActiveStreamFailure(sessionId, err);
 						console.error("[messages] message stream errored", err);
 						set((s) => ({
 							errorBySession: {

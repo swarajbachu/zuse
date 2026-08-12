@@ -658,6 +658,58 @@ describe("messages store queue actions", () => {
 			]);
 	});
 
+	it("observes cloud and local transcript connections independently", async () => {
+		const cloudSessionId = AgentSessionId.make("session-cloud-stream");
+		const workspaceId = "workspace-cloud-stream";
+		registerCloudChat(
+			CloudChatSummary.make({
+				workspaceId,
+				projectId: "project-cloud-stream",
+				repositoryIdentity: "github.com/example/cloud-stream",
+				repositoryDisplayName: "cloud-stream",
+				chatId: ChatId.make("chat-cloud-stream"),
+				initialSessionId: cloudSessionId,
+				title: "Cloud stream",
+				branch: "zuse/cloud-stream",
+				providerId: "e2b",
+				agent: "codex",
+				model: "gpt-5.6-sol",
+				state: "ready",
+				runtimeState: "online",
+				statusCode: "ready",
+				startupPhase: "running",
+				desiredState: "ready",
+				revision: 1,
+				unread: false,
+				lastMessageAt: Date.now(),
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+			}),
+		);
+		subscribeRendererRpcConnection.mockImplementation(() => vi.fn());
+		rpcClientFactory = () =>
+			({
+				"session.events": () => Stream.never,
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+
+		await useMessagesStore.getState().hydrate(sessionId);
+		await useMessagesStore.getState().hydrate(cloudSessionId, {
+			live: true,
+			environmentId: workspaceId,
+		});
+
+		expect(subscribeRendererRpcConnection).toHaveBeenCalledWith(
+			expect.any(Function),
+			undefined,
+		);
+		expect(subscribeRendererRpcConnection).toHaveBeenCalledWith(
+			expect.any(Function),
+			workspaceId,
+		);
+	});
+
 	it("releases an optimistic overlay when its timeline stream terminates", async () => {
 		const frames = Effect.runSync(
 			Queue.unbounded<SessionTimelineFrame, Error>(),

@@ -286,9 +286,9 @@ export const PermissionServiceLive = Layer.effect(
 		);
 
 		// The driver Deferred is process-local, but the prompt itself is durable.
-		// Recreate unresolved entries before replaying the reactor so a restarted UI
-		// can still list and decide them. The original provider process is gone; the
-		// replacement Deferred simply gives the normal resolution path a safe target.
+		// Recover unresolved entries in quarantine: the original provider process is
+		// gone, so the UI must not see the prompt until a matching replacement
+		// callback reattaches and can consume its decision.
 		const unresolved = yield* sql<PendingRequestRow>`
       SELECT json_extract(requested.payload_json, '$.payloadJson') AS request_json,
              sessions.project_id
@@ -359,6 +359,10 @@ export const PermissionServiceLive = Layer.effect(
 						kindTag: kind._tag,
 						kindKey: kindKey(kind),
 					});
+					// A recovered request has no live provider callback until this
+					// matching request reattaches. Publish it only now so the renderer
+					// cannot resolve a prompt whose original turn is already gone.
+					yield* PubSub.publish(pubsub, recovered.request);
 					return yield* Deferred.await(recovered.deferred);
 				}
 
@@ -465,7 +469,9 @@ export const PermissionServiceLive = Layer.effect(
 				const map = yield* Ref.get(pending);
 				const out: PermissionRequest[] = [];
 				for (const entry of map.values()) {
-					if (entry.request.sessionId === sessionId) out.push(entry.request);
+					if (!entry.recovered && entry.request.sessionId === sessionId) {
+						out.push(entry.request);
+					}
 				}
 				log("list_pending", {
 					sessionId,
@@ -480,9 +486,9 @@ export const PermissionServiceLive = Layer.effect(
 				Effect.gen(function* () {
 					const dequeue = yield* PubSub.subscribe(pubsub);
 					const map = yield* Ref.get(pending);
-					const current = Array.from(map.values()).map(
-						(entry) => entry.request,
-					);
+					const current = Array.from(map.values())
+						.filter((entry) => !entry.recovered)
+						.map((entry) => entry.request);
 					log("stream.subscribe", {
 						replayCount: current.length,
 						requestIds: current.map((req) => req.id),

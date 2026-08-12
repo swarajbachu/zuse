@@ -133,7 +133,7 @@ const createSession = Effect.gen(function* () {
 });
 
 describe("PermissionService restart recovery", () => {
-	test("replays an unresolved durable request and accepts its decision", async () => {
+	test("publishes a recovered request only after its provider reattaches", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-permission-restart-"));
 		directories.push(directory);
 		const filename = join(directory, "test.sqlite");
@@ -167,7 +167,13 @@ describe("PermissionService restart recovery", () => {
 					service.listPending(SessionId.make("session-1")),
 				),
 			);
-			expect(pending.map((request) => request.id)).toEqual([published?.id]);
+			expect(pending).toEqual([]);
+			const republished = restarted.runFork(
+				Effect.flatMap(PermissionService, (service) =>
+					service.requests().pipe(Stream.take(1), Stream.runCollect),
+				),
+			);
+			await restarted.runPromise(Effect.yieldNow);
 			const reattached = restarted.runFork(
 				Effect.flatMap(PermissionService, (service) =>
 					service.request(
@@ -177,6 +183,17 @@ describe("PermissionService restart recovery", () => {
 					),
 				),
 			);
+			const [liveRequest] = await Effect.runPromise(
+				Fiber.join(republished).pipe(Effect.timeout(1_000)),
+			);
+			expect(liveRequest?.id).toBe(published?.id);
+			expect(
+				await restarted.runPromise(
+					Effect.flatMap(PermissionService, (service) =>
+						service.listPending(SessionId.make("session-1")),
+					),
+				),
+			).toEqual([liveRequest]);
 			await restarted.runPromise(
 				Effect.flatMap(PermissionService, (service) =>
 					service.decide(published?.id ?? "missing", { _tag: "AllowOnce" }),

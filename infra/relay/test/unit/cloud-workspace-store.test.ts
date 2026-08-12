@@ -354,6 +354,23 @@ describe("cloud workspace store", () => {
 				store.acknowledgeCommand("workspace-1", command.commandId, 300),
 			),
 		).toBe(true);
+		const failedCommand = {
+			...command,
+			commandId: "message:workspace-1",
+			sequence: 2,
+			kind: "send-message" as const,
+			state: "queued" as const,
+		};
+		await runtime.runPromise(store.createCommand(failedCommand));
+		await runtime.runPromise(store.listCommands("workspace-1", 1, 350));
+		expect(
+			await runtime.runPromise(
+				store.failCommand("workspace-1", failedCommand.commandId, 400),
+			),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(store.listCommands("workspace-1", 0, 450)),
+		).toEqual([]);
 
 		const event = {
 			workspaceId: "workspace-1",
