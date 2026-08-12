@@ -21,6 +21,7 @@ const RECONCILE_LEASE_MS = 2 * 60 * 1_000;
 const PROJECT_BUILD_TIMEOUT_MS = 15 * 60 * 1_000;
 const WARM_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_RUNTIME_BOOT_TTL_MS = 30 * 60 * 1_000;
+const WARM_RUNTIME_RECONNECT_GRACE_MS = 5_000;
 const WORKSPACE_RUNTIME_BOOT_TOKEN_FILE =
 	"/run/zuse-secrets/workspace-runtime-boot-token";
 export const WORKSPACE_RUNTIME_PROCESS_PATTERN =
@@ -502,6 +503,7 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 		providerSandboxId: string,
 		provider: SandboxProviderAdapter,
 		nowMs: number,
+		providerAlreadyRunning = false,
 	) {
 		const store = yield* CloudWorkspaceStore;
 		const config = yield* SandboxOfferConfiguration;
@@ -514,11 +516,12 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 				? undefined
 				: new URL(config.runtimeManifestUrl).hostname;
 
-		yield* provider.resume(
-			providerSandboxId,
-			config.keepAliveTimeoutSeconds,
-			"pause",
-		);
+		if (!providerAlreadyRunning)
+			yield* provider.resume(
+				providerSandboxId,
+				config.keepAliveTimeoutSeconds,
+				"pause",
+			);
 		const [boot] = yield* Effect.all(
 			[
 				issueWorkspaceRuntimeBoot(provider, providerSandboxId, nowMs),
@@ -882,6 +885,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				workspace.providerSandboxId,
 				provider,
 				nowMs,
+				workspace.statusCode === "resume-runtime-waking",
 			);
 		}
 
@@ -1041,12 +1045,27 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				return;
 			}
 			yield* recordLifecycle(workspace, "resume", nowMs);
-			return yield* restartWorkspaceRuntime(
-				workspace,
+			// Provider pause preserves memory and processes. Wake the sandbox first
+			// and give its existing runtime a brief window to reconnect to the
+			// gateway. That preserves an active agent turn across laptop sleep and
+			// avoids manufacturing an orphaned running turn on every resume.
+			yield* provider.resume(
 				workspace.providerSandboxId,
-				provider,
-				nowMs,
+				config.keepAliveTimeoutSeconds,
+				"pause",
 			);
+			return yield* store.saveWorkspace({
+				...workspace,
+				runtimeState: "connecting",
+				state: "resuming",
+				statusCode: "resume-runtime-waking",
+				warmRetentionDeadlineMs: undefined,
+				nextActionAtMs: nowMs + WARM_RUNTIME_RECONNECT_GRACE_MS,
+				lastActivityAtMs: nowMs,
+				runningSinceMs: workspace.runningSinceMs ?? nowMs,
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+			});
 		}
 
 		if (

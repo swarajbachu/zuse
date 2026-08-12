@@ -122,6 +122,10 @@ export const retryCloudWorkspaceBootstrap = <A, E, R>(
 ): Effect.Effect<A, E, R> =>
 	bootstrap.pipe(Effect.retry(Schedule.spaced("1 second")));
 
+export const runtimeReadyPhaseOnGatewayOpen = (
+	repositoryReady: boolean,
+): "repository-ready" | null => (repositoryReady ? "repository-ready" : null);
+
 const BootstrapResponse = Schema.Struct({
 	workspaceId: Schema.String,
 	runtimeCredential: Schema.String,
@@ -594,6 +598,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const localSockets = new Map<string, WebSocket>();
 					const pendingFrames = new Map<string, Array<string | ArrayBuffer>>();
 					let gateway: WebSocket | null = null;
+					let repositoryReady = false;
 					// A fetch drains every command after the durable cursor, so only the
 					// newest wake-up matters. Sliding capacity one coalesces bursts and
 					// remains bounded while the relay or local runtime is unavailable.
@@ -642,6 +647,16 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						[bootstrap.gatewayProtocol, bootstrap.runtimeCredential],
 						(socket) => {
 							gateway = socket;
+							const reconnectPhase =
+								runtimeReadyPhaseOnGatewayOpen(repositoryReady);
+							if (reconnectPhase !== null)
+								void Effect.runPromise(
+									postReady(
+										config,
+										bootstrap.runtimeCredential,
+										reconnectPhase,
+									).pipe(Effect.ignore),
+								);
 							socket.addEventListener("message", (event) => {
 								if (typeof event.data !== "string") return;
 								let message: Record<string, unknown>;
@@ -705,6 +720,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						Effect.forkScoped({ startImmediately: true }),
 					);
 					yield* waitForRepository;
+					repositoryReady = true;
 					yield* postReady(
 						config,
 						bootstrap.runtimeCredential,

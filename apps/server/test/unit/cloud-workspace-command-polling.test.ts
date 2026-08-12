@@ -5,9 +5,15 @@ import {
 	pollCloudWorkspaceCommands,
 	replicateCloudWorkspaceEvents,
 	retryCloudWorkspaceBootstrap,
+	runtimeReadyPhaseOnGatewayOpen,
 } from "../../src/relay/cloud-workspace-runtime.ts";
 
 describe("cloud workspace bootstrap", () => {
+	it("announces readiness when a preserved runtime reconnects", () => {
+		expect(runtimeReadyPhaseOnGatewayOpen(false)).toBeNull();
+		expect(runtimeReadyPhaseOnGatewayOpen(true)).toBe("repository-ready");
+	});
+
 	it("retries a transient enrollment failure instead of leaving the runtime detached", async () => {
 		await Effect.runPromise(
 			Effect.gen(function* () {

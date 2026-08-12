@@ -75,7 +75,7 @@ describe("cloud workspace reconciler", () => {
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain("runtime-updater");
 	});
 
-	test("marks paused runtimes offline before resuming the same sandbox", async () => {
+	test("preserves a paused runtime before falling back to a restart", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -167,6 +167,12 @@ describe("cloud workspace reconciler", () => {
 					nowMs + 600_001,
 				);
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const warming = yield* store.getWorkspace(workspace.workspaceId);
+				const callsBeforeFallback = yield* Ref.get(control.startProcessCalls);
+				// If the provider preserved the runtime, its gateway reconnect callback
+				// advances the workspace to ready before this retry. When no callback
+				// arrives, the next reconciliation performs the existing hard restart.
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				const resumed = yield* store.getWorkspace(workspace.workspaceId);
 				const resumeBeforeMissing = yield* Ref.get(control.resumeInputs);
 				if (resumed === null) return yield* Effect.die("workspace disappeared");
@@ -188,8 +194,10 @@ describe("cloud workspace reconciler", () => {
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				return {
 					paused,
+					warming,
 					workspace: resumed,
 					missing: yield* store.getWorkspace(workspace.workspaceId),
+					callsBeforeFallback,
 					resumeBeforeMissing,
 					resumeInputs: yield* Ref.get(control.resumeInputs),
 					startProcessCalls: yield* Ref.get(control.startProcessCalls),
@@ -203,6 +211,12 @@ describe("cloud workspace reconciler", () => {
 			runtimeState: "offline",
 		});
 		expect(result.resumeBeforeMissing).toHaveLength(1);
+		expect(result.callsBeforeFallback).toHaveLength(0);
+		expect(result.warming).toMatchObject({
+			state: "resuming",
+			statusCode: "resume-runtime-waking",
+			runtimeState: "connecting",
+		});
 		// One chmod for the boot token and one runtime launch. Resume must not
 		// serialize extra remote process calls before starting the runtime.
 		expect(result.startProcessCalls).toHaveLength(2);

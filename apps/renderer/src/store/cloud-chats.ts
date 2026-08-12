@@ -33,6 +33,7 @@ import {
 	type CloudAttachmentState,
 	cloudExecutionTarget,
 	cloudSummaryForChat,
+	cloudSummaryForSession,
 	localProjectForCloudChat,
 	registerCloudChat,
 	registerCloudExecutionTarget,
@@ -1014,6 +1015,18 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 		updateSummary(refreshSummaryFromWorkspace(summary, workspace));
 	},
 }));
+
+export const useCloudChatSummaryForSession = (
+	sessionId: SessionId,
+): CloudChatSummary | null => {
+	const registered = cloudSummaryForSession(sessionId);
+	return useCloudChatsStore(
+		(state) =>
+			state.summaries.find(
+				(summary) => summary.initialSessionId === sessionId,
+			) ?? registered,
+	);
+};
 
 export const noteCloudCommand = (
 	workspaceId: string,

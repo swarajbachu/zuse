@@ -9,7 +9,10 @@ import {
 	SessionId,
 } from "@zuse/contracts";
 import { describe, expect, test, vi } from "vitest";
-import { deriveCloudChatActivity } from "../../src/lib/cloud-chat-activity.ts";
+import {
+	cloudChatShowsWorking,
+	deriveCloudChatActivity,
+} from "../../src/lib/cloud-chat-activity.ts";
 import { cloudChatRowPresentation } from "../../src/lib/cloud-chat-row-presentation.ts";
 import { cloudConnectionPresentation } from "../../src/lib/cloud-connection-presentation.ts";
 import { canReuseCloudWorkspaceTicket } from "../../src/lib/rpc-client.ts";
@@ -217,6 +220,11 @@ describe("cloud chat state reconciliation", () => {
 				}),
 			).toBe("paused");
 		}
+		expect(cloudChatShowsWorking("paused")).toBe(false);
+		expect(cloudChatShowsWorking("resuming")).toBe(false);
+		expect(cloudChatShowsWorking("attaching")).toBe(false);
+		expect(cloudChatShowsWorking("queued")).toBe(false);
+		expect(cloudChatShowsWorking("running")).toBe(true);
 	});
 
 	test("paused compute overrides a stale failed timeline", () => {

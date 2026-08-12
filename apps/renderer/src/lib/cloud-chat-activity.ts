@@ -27,6 +27,14 @@ export type CloudChatActivityInput = {
 	readonly command: CloudCommandState;
 };
 
+/** True only after a live runtime owns the turn. Resume, attachment, and
+ * durable queueing have their own connection notice and must not render the
+ * transcript working row or Stop controls from stale cached session state. */
+export const cloudChatShowsWorking = (activity: CloudChatActivity): boolean =>
+	activity === "starting-agent" ||
+	activity === "running" ||
+	activity === "stopping";
+
 /**
  * The only cloud-chat activity projection used by renderer surfaces.
  *

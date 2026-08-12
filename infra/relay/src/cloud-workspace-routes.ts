@@ -636,6 +636,25 @@ export const runtimeReadyStatusCode = (
 		? "agent-running"
 		: "agent-starting";
 
+export const runtimeActivityLifecycle = (
+	workspace: Pick<
+		CloudWorkspaceRecord,
+		"state" | "desiredState" | "runtimeState" | "statusCode"
+	>,
+) =>
+	workspace.desiredState === "ready" &&
+	(workspace.state === "resuming" || workspace.statusCode.startsWith("resume-"))
+		? ({
+				state: "ready",
+				runtimeState: "online",
+				statusCode: "agent-running",
+			} as const)
+		: {
+				state: workspace.state,
+				runtimeState: workspace.runtimeState,
+				statusCode: workspace.statusCode,
+			};
+
 const RuntimeBootstrapRequest = Schema.Struct({
 	credentialPublicJwk: Schema.String,
 });
@@ -971,6 +990,7 @@ export const routeCloudWorkspaceRequest = (
 			);
 			yield* store.saveWorkspace({
 				...workspace,
+				...runtimeActivityLifecycle(workspace),
 				lastActivityAtMs: nowMs,
 				nextActionAtMs: nowMs + idlePauseMs,
 				requestConfig: {
@@ -996,7 +1016,17 @@ export const routeCloudWorkspaceRequest = (
 		if (method === "POST" && activityMatch !== null) {
 			const workspaceId = decodeURIComponent(activityMatch[1] ?? "");
 			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
-			yield* recordWorkspaceActivity(workspace);
+			const active = yield* recordWorkspaceActivity(workspace);
+			if (
+				active !== null &&
+				runtimeActivityLifecycle(active).state !== active.state
+			)
+				yield* store.saveWorkspace({
+					...active,
+					...runtimeActivityLifecycle(active),
+					revision: active.revision + 1,
+					updatedAtMs: nowMs,
+				});
 			return json({ ok: true });
 		}
 
@@ -1018,10 +1048,32 @@ export const routeCloudWorkspaceRequest = (
 					commandId: body.commandId,
 					errorCode: body.errorCode ?? "workspace_command_failed",
 				});
-				return json({ workspace: publicWorkspace(workspace) });
 			}
-			if (body.phase === "command-acknowledged")
-				return json({ workspace: publicWorkspace(workspace) });
+			if (
+				body.phase === "command-acknowledged" ||
+				body.phase === "command-failed"
+			) {
+				const updated: CloudWorkspaceRecord = {
+					...workspace,
+					...runtimeActivityLifecycle(workspace),
+					requestConfig: {
+						...workspace.requestConfig,
+						...(body.phase === "command-acknowledged"
+							? { commandState: "acknowledged" }
+							: {}),
+						startupTimings: {
+							...timings,
+							connectedAt: timings.connectedAt ?? nowMs,
+						},
+					},
+					nextActionAtMs: nowMs + idlePauseMs,
+					lastActivityAtMs: nowMs,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				};
+				yield* store.saveWorkspace(updated);
+				return json({ workspace: publicWorkspace(updated) });
+			}
 			const agentStarted = body.phase === "agent-started";
 			const updated: CloudWorkspaceRecord = {
 				...workspace,

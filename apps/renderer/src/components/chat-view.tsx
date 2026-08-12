@@ -1,7 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Message01Icon } from "@zuse/icons/solid-rounded";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import type { Message, SessionId } from "@zuse/contracts";
+import { Message01Icon } from "@zuse/icons/solid-rounded";
 import {
 	type ReactNode,
 	useCallback,
@@ -26,6 +26,10 @@ import {
 	resolveLatestUserMessageId,
 	rowAnchorMessageId,
 } from "../lib/chat-timeline-rows.ts";
+import {
+	cloudChatShowsWorking,
+	deriveCloudChatActivity,
+} from "../lib/cloud-chat-activity.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
 import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
 import { timelineReadingPositionStore } from "../lib/session-timeline-cache.ts";
@@ -42,8 +46,11 @@ import {
 	TranscriptScrollCoordinator,
 	type TranscriptScrollSnapshot,
 } from "../lib/transcript-scroll-coordinator.ts";
-import { cloudSummaryForSession } from "../store/cloud-chat-registry.ts";
-import { useCloudChatsStore } from "../store/cloud-chats.ts";
+import { useCloudExecutionStore } from "../store/cloud-chat-registry.ts";
+import {
+	useCloudChatSummaryForSession,
+	useCloudChatsStore,
+} from "../store/cloud-chats.ts";
 import {
 	acknowledgeTimelineRendered,
 	teardownLiveStreams,
@@ -118,10 +125,32 @@ export function ChatView({
 	const runtimeState = useSessionRuntimeStore((state) =>
 		effectiveSessionRuntimeState(state.bySession[sessionId]),
 	);
+	const cloudSummary = useCloudChatSummaryForSession(sessionId);
+	const cloudAttachment = useCloudExecutionStore((state) =>
+		cloudSummary === null
+			? "detached"
+			: (state.stateByWorkspace[cloudSummary.workspaceId] ?? "detached"),
+	);
+	const cloudCommand = useCloudChatsStore((state) =>
+		cloudSummary === null
+			? null
+			: (state.commandByWorkspace[cloudSummary.workspaceId]?.state ?? null),
+	);
+	const cloudActivity =
+		cloudSummary === null
+			? null
+			: deriveCloudChatActivity({
+					summary: cloudSummary,
+					attachment: cloudAttachment,
+					runtime: runtimeState,
+					command: cloudCommand,
+				});
 	const inFlight =
-		runtimeState === "starting" ||
-		runtimeState === "running" ||
-		runtimeState === "stopping";
+		cloudActivity === null
+			? runtimeState === "starting" ||
+				runtimeState === "running" ||
+				runtimeState === "stopping"
+			: cloudChatShowsWorking(cloudActivity);
 	const awaitingPermissionPlanApproval = usePermissionsStore((state) => {
 		for (const request of Object.values(state.requestsById)) {
 			if (request.sessionId !== sessionId) continue;
@@ -143,7 +172,6 @@ export function ChatView({
 		void state.sessionsByProject;
 		return getSessionById(sessionId);
 	});
-	const cloudSummary = cloudSummaryForSession(sessionId);
 	const cloudHistoryLoading = useCloudChatsStore((state) =>
 		cloudSummary === null
 			? false

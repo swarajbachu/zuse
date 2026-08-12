@@ -105,7 +105,10 @@ import type {
 } from "../composer/draft-attachments.ts";
 import { composerSnapshotFromInput } from "../composer/input-snapshot.ts";
 import { parseComposerInput } from "../composer/segment-parser.ts";
-import { deriveCloudChatActivity } from "../lib/cloud-chat-activity.ts";
+import {
+	cloudChatShowsWorking,
+	deriveCloudChatActivity,
+} from "../lib/cloud-chat-activity.ts";
 import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
 import { useActiveWorkspaceRoot } from "../store/active-workspace.ts";
 import {
@@ -113,12 +116,10 @@ import {
 	useAnnotationsStore,
 } from "../store/annotations.ts";
 import { useAttachmentsStore } from "../store/attachments.ts";
-import {
-	cloudSummaryForSession,
-	useCloudExecutionStore,
-} from "../store/cloud-chat-registry.ts";
+import { useCloudExecutionStore } from "../store/cloud-chat-registry.ts";
 import {
 	shouldUseLocalMessageQueue,
+	useCloudChatSummaryForSession,
 	useCloudChatsStore,
 } from "../store/cloud-chats.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
@@ -227,7 +228,7 @@ export function ChatComposer({
 	const runtimeState = useSessionRuntimeStore((s) =>
 		effectiveSessionRuntimeState(s.bySession[sessionId]),
 	);
-	const cloudSummary = cloudSummaryForSession(sessionId);
+	const cloudSummary = useCloudChatSummaryForSession(sessionId);
 	const isCloudSession = cloudSummary !== null;
 	const cloudAttachment = useCloudExecutionStore((state) =>
 		cloudSummary === null
@@ -248,11 +249,16 @@ export function ChatComposer({
 					runtime: runtimeState,
 					command: cloudCommand,
 				});
-	const interrupting = runtimeState === "stopping";
+	const interrupting =
+		cloudActivity === null
+			? runtimeState === "stopping"
+			: cloudActivity === "stopping";
 	const inFlight =
-		runtimeState === "running" ||
-		runtimeState === "stopping" ||
-		(isCloudSession && runtimeState === "starting");
+		cloudActivity === null
+			? runtimeState === "running" ||
+				runtimeState === "stopping" ||
+				(isCloudSession && runtimeState === "starting")
+			: cloudChatShowsWorking(cloudActivity);
 	const showActiveTimer =
 		cloudActivity === null
 			? inFlight
@@ -1115,7 +1121,7 @@ export function ChatComposer({
 						goalSendMode,
 						shouldQueue: shouldUseLocalMessageQueue({
 							queueRequested: inFlight || holdForAgent,
-							isCloudSession: cloudSummaryForSession(sessionId) !== null,
+							isCloudSession,
 						}),
 					})
 				: null;
