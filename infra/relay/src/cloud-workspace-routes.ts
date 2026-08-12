@@ -266,6 +266,17 @@ const startupPhase = (workspace: CloudWorkspaceRecord) => {
 	return "allocating" as const;
 };
 
+export const failedWorkspaceResumeTarget = (
+	workspace: Pick<CloudWorkspaceRecord, "providerSandboxId" | "statusCode">,
+) =>
+	workspace.providerSandboxId === undefined ||
+	workspace.statusCode === "provider-sandbox-missing"
+		? ({ state: "queued", providerSandboxId: undefined } as const)
+		: ({
+				state: "resuming",
+				providerSandboxId: workspace.providerSandboxId,
+			} as const);
+
 const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 	workspaceId: workspace.workspaceId,
 	projectId: workspace.projectId,
@@ -1714,7 +1725,7 @@ export const routeCloudWorkspaceRequest = (
 					: {}),
 				...(action === "resume" && workspace.state === "failed"
 					? {
-							state: "queued" as const,
+							...failedWorkspaceResumeTarget(workspace),
 							runtimeState: "offline" as const,
 							requestConfig: {
 								...workspace.requestConfig,
