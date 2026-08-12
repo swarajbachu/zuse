@@ -513,18 +513,28 @@ export const issueMcpGatewaySession = async (
 			bearer_token_env_var: "ZUSE_MCP_TOKEN",
 			enabled: true,
 		},
-		close: () => revokeMcpGatewaySession(input.sessionId),
+		close: () => revokeMcpGatewaySessionRecord(input.sessionId, hash),
 	};
+};
+
+const revokeMcpGatewaySessionRecord = async (
+	sessionId: string,
+	expectedTokenHash?: string,
+): Promise<void> => {
+	const record = recordsBySession.get(sessionId);
+	if (
+		record === undefined ||
+		(expectedTokenHash !== undefined && record.tokenHash !== expectedTokenHash)
+	) {
+		return;
+	}
+	recordsBySession.delete(sessionId);
+	recordsByHash.delete(record.tokenHash);
 };
 
 export const revokeMcpGatewaySession = async (
 	sessionId: string,
-): Promise<void> => {
-	const record = recordsBySession.get(sessionId);
-	if (record === undefined) return;
-	recordsBySession.delete(sessionId);
-	recordsByHash.delete(record.tokenHash);
-};
+): Promise<void> => revokeMcpGatewaySessionRecord(sessionId);
 
 export const revokeAllMcpGatewaySessions = async (): Promise<void> => {
 	recordsBySession.clear();
