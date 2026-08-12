@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.3]
+
+### Changed
+- Performance diagnostics now use readable dithered charts with hover values and restrained motion
+
+### Fixed
+- Restored New Project and Quick Start from the desktop sidebar, while preventing in-progress folder lookups from overwriting newer paths
+- Agent permission requests now work reliably for Kiro and Grok while honoring Zuse's permission modes and policies
+
 ## [0.18.2]
 
 ### Fixed

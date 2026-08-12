@@ -1,5 +1,23 @@
 [
   {
+    "version": "0.18.3",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Performance diagnostics now use readable dithered charts with hover values and restrained motion"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "items": [
+          "Restored New Project and Quick Start from the desktop sidebar, while preventing in-progress folder lookups from overwriting newer paths",
+          "Agent permission requests now work reliably for Kiro and Grok while honoring Zuse's permission modes and policies"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.18.2",
     "sections": [
       {
