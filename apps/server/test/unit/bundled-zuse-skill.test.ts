@@ -27,13 +27,16 @@ describe("bundled Zuse skill installer", () => {
 			expect(codexPath).toBe(
 				join(home, ".codex", "skills", "zuse", "SKILL.md"),
 			);
-			expect(existsSync(claudePath!)).toBe(true);
-			expect(existsSync(codexPath!)).toBe(true);
+			if (claudePath === null || codexPath === null) {
+				throw new Error("Expected native skill paths for Claude and Codex.");
+			}
+			expect(existsSync(claudePath)).toBe(true);
+			expect(existsSync(codexPath)).toBe(true);
 
-			writeFileSync(claudePath!, "stale", "utf8");
+			writeFileSync(claudePath, "stale", "utf8");
 			ensureBundledZuseSkillInstalled("claude", home);
-			const installedClaudeSkill = readFileSync(claudePath!, "utf8");
-			const installedCodexSkill = readFileSync(codexPath!, "utf8");
+			const installedClaudeSkill = readFileSync(claudePath, "utf8");
+			const installedCodexSkill = readFileSync(codexPath, "utf8");
 			expect(installedClaudeSkill).toContain("name: zuse");
 			expect(installedClaudeSkill).toContain("zuse-orchestration");
 			expect(installedClaudeSkill).toContain("Workspaces vs chat threads");
@@ -41,6 +44,11 @@ describe("bundled Zuse skill installer", () => {
 			expect(installedClaudeSkill).toContain("list_models");
 			expect(installedClaudeSkill).toContain("create_thread");
 			expect(installedClaudeSkill).toContain("create_session");
+			expect(installedClaudeSkill).toContain("## Agent CLI");
+			expect(installedClaudeSkill).toContain("zuse commands");
+			expect(installedClaudeSkill).toContain("--input-json");
+			expect(installedClaudeSkill).toContain("--idempotency-key");
+			expect(installedClaudeSkill).toContain("--linear");
 			expect(installedClaudeSkill).not.toContain("create_chat");
 			expect(installedClaudeSkill).not.toContain("create_worktree");
 			expect(installedCodexSkill).toContain("zuse-orchestration");

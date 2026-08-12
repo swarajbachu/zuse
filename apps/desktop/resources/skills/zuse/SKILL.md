@@ -100,3 +100,64 @@ expected smoke flow is:
 
 If `zuse-orchestration` is not available, report that autonomy tools are not
 registered for this session instead of silently using another provider feature.
+
+## Agent CLI
+
+Use the `zuse` CLI when orchestration must run from a terminal, script, CI job,
+or an agent that does not have the in-session `zuse-orchestration` MCP server.
+The CLI emits exactly one JSON envelope on stdout, including failures. Discover
+the supported surface before automating it:
+
+```bash
+zuse commands
+zuse computer list
+zuse project list
+zuse model list
+```
+
+The object shape is stable and machine-readable:
+
+```json
+{"schemaVersion":1,"ok":true,"data":{}}
+```
+
+Failures set a non-zero exit code and return `ok: false` with an error `code`,
+`message`, and optional `details`. Check both the exit code and `ok`; never treat
+the presence of JSON as proof that a mutation succeeded.
+
+Zuse's CLI uses the same project → workspace → chat → session model as MCP:
+
+- `zuse chat create` creates a sidebar chat and selects `--workspace fresh`,
+  `main`, or an existing worktree ID.
+- `zuse session create --chat <id>` adds a session tab to an existing chat.
+- `zuse session send|read|mode|interrupt|resume --session <id>` operates on a
+  specific provider conversation.
+- `zuse thread create` aliases `chat create`; other `thread` actions alias the
+  corresponding `session` action.
+
+Resolve IDs with `chat list` and `session list` instead of guessing. Select a
+project by ID, exact name, or path with `--project`; it is only inferred when
+the current directory identifies exactly one registered project. Use
+`--provider` and `--model` after checking `model list`.
+
+For agent-safe input, prefer `--input-json '<object>'` or
+`--input-json @request.json`. Use `--prompt-file -` to read a prompt from stdin.
+Creation commands accept `--idempotency-key` so retrying after an uncertain
+transport result does not intentionally create duplicate work.
+
+Context can be attached while creating a chat or session, or while sending:
+
+- `--attach <path>` uploads an image; repeat it for multiple images.
+- `--file <project-relative-path>` adds a file or directory reference.
+- `--linear <issue-id>` adds prepared issue context; use
+  `--linear-workspace <id>` when needed to disambiguate the workspace.
+
+Set the session posture with `--permission default|plan|accept-edits` and
+`--runtime approval-required|auto-accept-edits|auto-accept-edits-and-bash|full-access`.
+Changing modes does not broaden the user's authorization for external or
+destructive actions.
+
+The default target is the local Zuse RPC server. For another connected
+computer, pass `--computer <id> --ws-url <url>` and `--token <token>` when the
+endpoint is protected. Do not print or persist tokens in logs, prompts, or
+committed files.
