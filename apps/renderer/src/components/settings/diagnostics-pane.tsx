@@ -56,6 +56,10 @@ import {
 } from "../../lib/diagnostics-view-model.ts";
 import { getRpcClient } from "../../lib/rpc-client.ts";
 import { cn } from "../../lib/utils.ts";
+import { Area } from "../dither-kit/area.tsx";
+import { AreaChart } from "../dither-kit/area-chart.tsx";
+import { Sparkline as DitherSparkline } from "../dither-kit/sparkline.tsx";
+import { Tooltip as DitherTooltip } from "../dither-kit/tooltip.tsx";
 import { Button } from "../ui/button.tsx";
 import {
 	Dialog,
@@ -148,48 +152,31 @@ function SeverityPill({ severity }: { severity: DiagnosticSeverity }) {
 	);
 }
 
-function Sparkline({
+function MetricSparkline({
 	values,
-	className,
+	color,
 	label,
 }: {
 	readonly values: ReadonlyArray<number>;
-	readonly className?: string;
+	readonly color: "grey" | "orange" | "red";
 	readonly label: string;
 }) {
-	const width = 112;
-	const height = 30;
-	const chartValues =
+	const chartValues: number[] =
 		values.length === 0
 			? [0, 0]
 			: values.length === 1
 				? [values[0] ?? 0, values[0] ?? 0]
-				: values;
-	const peak = Math.max(1, ...chartValues);
-	const points = chartValues
-		.map((value, index) => {
-			const x = (index / Math.max(1, chartValues.length - 1)) * width;
-			const y = height - Math.min(1, value / peak) * (height - 4) - 2;
-			return `${x.toFixed(1)},${y.toFixed(1)}`;
-		})
-		.join(" ");
-
+				: Array.from(values);
 	return (
-		<svg
-			viewBox={`0 0 ${width} ${height}`}
-			preserveAspectRatio="none"
-			className={cn("h-[30px] w-28", className)}
-			role="img"
-			aria-label={label}
-		>
-			<polyline
-				points={points}
-				fill="none"
-				vectorEffect="non-scaling-stroke"
-				strokeWidth="1.5"
-				className="stroke-current"
+		<div className="h-[30px] w-28 shrink-0" role="img" aria-label={label}>
+			<DitherSparkline
+				data={chartValues}
+				color={color}
+				variant="gradient"
+				animate={false}
+				className="[&_canvas]:opacity-45"
 			/>
-		</svg>
+		</div>
 	);
 }
 
@@ -221,14 +208,12 @@ function PulseMetric({
 				</p>
 			</div>
 			{values && (
-				<Sparkline
+				<MetricSparkline
 					values={values}
 					label={`${label} live trend`}
-					className={cn(
-						"shrink-0 text-muted-foreground/65",
-						tone === "danger" && "text-destructive/70",
-						tone === "warning" && "text-warning/70",
-					)}
+					color={
+						tone === "danger" ? "red" : tone === "warning" ? "orange" : "grey"
+					}
 				/>
 			)}
 		</div>
@@ -241,30 +226,26 @@ function ResourceChart({
 	peak,
 	values,
 	formatValue,
-	className,
+	color,
 }: {
 	readonly label: string;
 	readonly value: number;
 	readonly peak: number;
 	readonly values: ReadonlyArray<number>;
 	readonly formatValue: (value: number) => string;
-	readonly className: string;
+	readonly color: "blue" | "green" | "orange" | "red";
 }) {
-	const width = 420;
-	const height = 116;
-	const ceiling = Math.max(1, peak);
-	const chartValues =
+	const chartValues: number[] =
 		values.length === 0
 			? [0, 0]
 			: values.length === 1
 				? [values[0] ?? 0, values[0] ?? 0]
-				: values;
-	const points = chartValues.map((sample, index, all) => {
-		const x = (index / Math.max(1, all.length - 1)) * width;
-		const y = height - Math.min(1, sample / ceiling) * (height - 10) - 5;
-		return `${x.toFixed(1)},${y.toFixed(1)}`;
-	});
-
+				: Array.from(values);
+	const chartData = chartValues.map((sample, index) => ({
+		sample: `Sample ${index + 1}`,
+		value: sample,
+	}));
+	const chartConfig = { value: { label, color } } as const;
 	return (
 		<div className="min-w-0 p-4">
 			<div className="flex items-start justify-between gap-3">
@@ -280,23 +261,26 @@ function ResourceChart({
 					Peak <span className="font-mono">{formatValue(peak)}</span>
 				</p>
 			</div>
-			<svg
-				viewBox={`0 0 ${width} ${height}`}
-				preserveAspectRatio="none"
+			<div
 				className="mt-3 block h-28 w-full"
 				role="img"
 				aria-label={`${label}: ${formatValue(value)}, peak ${formatValue(peak)}`}
 			>
-				<line x1="0" x2={width} y1="38" y2="38" className="stroke-border/45" />
-				<line x1="0" x2={width} y1="77" y2="77" className="stroke-border/45" />
-				<polyline
-					points={points.join(" ")}
-					fill="none"
-					vectorEffect="non-scaling-stroke"
-					strokeWidth="1.5"
-					className={className}
-				/>
-			</svg>
+				<AreaChart
+					data={chartData}
+					config={chartConfig}
+					margins={{ top: 3, right: 3, bottom: 3, left: 3 }}
+					animate={false}
+					bloom="off"
+					className="[&_canvas]:opacity-55 hover:[&_canvas]:opacity-70"
+				>
+					<Area dataKey="value" variant="gradient" />
+					<DitherTooltip
+						labelKey="sample"
+						valueFormatter={(sample) => formatValue(sample)}
+					/>
+				</AreaChart>
+			</div>
 			<p className="text-[9px] text-muted-foreground">
 				Live samples from this page session
 			</p>
@@ -1861,7 +1845,7 @@ export function DiagnosticsPane() {
 								peak={resourceMaxCpu}
 								values={resourceSamples.map((sample) => sample.totalCpuPercent)}
 								formatValue={(value) => `${value.toFixed(1)}%`}
-								className="stroke-foreground"
+								color="blue"
 							/>
 							<ResourceChart
 								label="Memory usage"
@@ -1871,7 +1855,7 @@ export function DiagnosticsPane() {
 									(sample) => sample.totalMemoryBytes,
 								)}
 								formatValue={formatBytes}
-								className="stroke-warning"
+								color="orange"
 							/>
 						</div>
 						<div className="grid border-t border-border/45 lg:grid-cols-2 lg:divide-x lg:divide-border/45">
@@ -1883,7 +1867,7 @@ export function DiagnosticsPane() {
 									(sample) => sample.totalIdleWakeupsPerSecond,
 								)}
 								formatValue={(value) => `${value.toFixed(1)}/s`}
-								className="stroke-success"
+								color="green"
 							/>
 							<ResourceChart
 								label="Interface stalls"
@@ -1891,7 +1875,7 @@ export function DiagnosticsPane() {
 								peak={maxLag}
 								values={lagSamples.map((sample) => sample.durationMs)}
 								formatValue={formatDuration}
-								className="stroke-destructive"
+								color="red"
 							/>
 						</div>
 						<StallWorkspace
