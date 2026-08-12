@@ -1,8 +1,9 @@
-import { Effect, Fiber, Ref } from "effect";
+import { Effect, Fiber, Ref, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
 import {
 	pollCloudWorkspaceCommands,
+	replicateCloudWorkspaceEvents,
 	retryCloudWorkspaceBootstrap,
 } from "../../src/relay/cloud-workspace-runtime.ts";
 
@@ -56,5 +57,57 @@ describe("cloud workspace command polling", () => {
 				yield* Fiber.interrupt(fiber);
 			}).pipe(Effect.provide(TestClock.layer())),
 		);
+	});
+});
+
+describe("cloud workspace event replication", () => {
+	it("batches replayed history instead of serializing one request per event", async () => {
+		const batchSizes = await Effect.runPromise(
+			Effect.gen(function* () {
+				const sent = yield* Ref.make<ReadonlyArray<number>>([]);
+				const records = Array.from({ length: 1_001 }, (_, index) => index + 1);
+				yield* replicateCloudWorkspaceEvents(
+					Stream.fromIterable(records),
+					(batch) => Ref.update(sent, (sizes) => [...sizes, batch.length]),
+				);
+				return yield* Ref.get(sent);
+			}),
+		);
+
+		expect(batchSizes).toEqual([500, 500, 1]);
+	});
+
+	it("flushes a live event without waiting for a full replay batch", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const sent = yield* Ref.make<ReadonlyArray<ReadonlyArray<number>>>([]);
+				const fiber = yield* Effect.forkDetach(
+					replicateCloudWorkspaceEvents(
+						Stream.make(101).pipe(Stream.concat(Stream.never)),
+						(batch) => Ref.update(sent, (batches) => [...batches, batch]),
+					),
+				);
+
+				yield* TestClock.adjust("25 millis");
+				expect(yield* Ref.get(sent)).toEqual([[101]]);
+				yield* Fiber.interrupt(fiber);
+			}).pipe(Effect.provide(TestClock.layer())),
+		);
+	});
+
+	it("splits a replay before its request body becomes too large", async () => {
+		const batches = await Effect.runPromise(
+			Effect.gen(function* () {
+				const sent = yield* Ref.make<ReadonlyArray<ReadonlyArray<string>>>([]);
+				yield* replicateCloudWorkspaceEvents(
+					Stream.make("first", "second", "third"),
+					(batch) => Ref.update(sent, (items) => [...items, batch]),
+					() => 4_000_001,
+				);
+				return yield* Ref.get(sent);
+			}),
+		);
+
+		expect(batches).toEqual([["first"], ["second"], ["third"]]);
 	});
 });

@@ -61,6 +61,39 @@ export const pollCloudWorkspaceCommands = <A, E, R>(
 	);
 
 /**
+ * The local event log is the runtime outbox. A resumed runtime can contain a
+ * large acknowledged history, so replication must catch up in bounded batches
+ * instead of putting every new live event behind one network round trip per
+ * historical event.
+ */
+export const replicateCloudWorkspaceEvents = <A, E, R, E2, R2>(
+	events: Stream.Stream<A, E, R>,
+	replicateBatch: (batch: ReadonlyArray<A>) => Effect.Effect<void, E2, R2>,
+	eventSizeBytes: (event: A) => number = () => 0,
+): Effect.Effect<void, E | E2, R | R2> =>
+	events.pipe(
+		Stream.groupedWithin(500, "25 millis"),
+		Stream.flatMap((batch) => {
+			const batches: Array<Array<A>> = [];
+			let current: Array<A> = [];
+			let currentBytes = 0;
+			for (const event of batch) {
+				const eventBytes = eventSizeBytes(event);
+				if (current.length > 0 && currentBytes + eventBytes > 8_000_000) {
+					batches.push(current);
+					current = [];
+					currentBytes = 0;
+				}
+				current.push(event);
+				currentBytes += eventBytes;
+			}
+			if (current.length > 0) batches.push(current);
+			return Stream.fromIterable(batches);
+		}),
+		Stream.runForEach(replicateBatch),
+	);
+
+/**
  * Runtime enrollment depends on a workspace row written immediately before
  * the sandbox starts. A single transient relay or database read failure must
  * not leave an otherwise healthy sandbox permanently detached.
@@ -100,6 +133,7 @@ const Command = Schema.Struct({
 });
 
 const CommandsResponse = Schema.Struct({ commands: Schema.Array(Command) });
+const EventsResponse = Schema.Struct({ appendedThrough: Schema.Number });
 
 const requestJson = <A, I>(input: {
 	readonly schema: Schema.Codec<A, I>;
@@ -505,19 +539,33 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							}).pipe(Effect.ignore),
 						);
 					};
-					const replicateEvent = (record: StoredEvent) =>
-						requestJson({
-							schema: Schema.Unknown,
+					type EventPayload = ReturnType<typeof eventPayload>;
+					const replicateEventBatch = (events: ReadonlyArray<EventPayload>) => {
+						const firstSequence = events[0]?.runtimeSequence;
+						const lastSequence = events.at(-1)?.runtimeSequence;
+						return requestJson({
+							schema: EventsResponse,
 							url: `${config.relayUrl}${RelayPaths.cloudWorkspaceEvents(config.workspaceId)}`,
 							token: bootstrap.runtimeCredential,
 							method: "POST",
-							body: { events: [eventPayload(record)] },
+							body: { events },
 						}).pipe(
 							Effect.tap(() => Effect.sync(publishActivity)),
+							Effect.tap(() =>
+								Effect.logDebug(
+									`[CloudWorkspaceRuntime] replicated ${events.length} event(s) (${firstSequence ?? "?"}-${lastSequence ?? "?"})`,
+								),
+							),
 							Effect.asVoid,
 						);
-					yield* sessions.allEvents({ afterSequence: 0 }).pipe(
-						Stream.runForEach(replicateEvent),
+					};
+					yield* replicateCloudWorkspaceEvents(
+						sessions
+							.allEvents({ afterSequence: 0 })
+							.pipe(Stream.map(eventPayload)),
+						replicateEventBatch,
+						(event) => Buffer.byteLength(event.payloadJson, "utf8") + 512,
+					).pipe(
 						// The local event log is the runtime outbox. Keep replaying after
 						// transient relay failures; the control plane deduplicates event IDs.
 						Effect.retry(Schedule.spaced("1 second")),
