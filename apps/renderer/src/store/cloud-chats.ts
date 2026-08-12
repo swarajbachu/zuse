@@ -785,7 +785,9 @@ export const ensureCloudWorkspaceAttached = (
 			hasExecutionTarget: cloudExecutionTarget(summary.workspaceId) !== null,
 		})
 	)
-		return Promise.resolve();
+		// Reuse the workspace connection, but retain/restart this chat's stream if
+		// the view was previously closed long enough for its subscriber to evict.
+		return attachCloudTranscriptLive(summary);
 	const existing = attaching.get(summary.workspaceId);
 	if (existing !== undefined) return existing;
 	const operation = (async () => {

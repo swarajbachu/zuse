@@ -222,10 +222,9 @@ export function ChatComposer({
 	);
 	const isCloudSession = cloudSummaryForSession(sessionId) !== null;
 	const interrupting = runtimeState === "stopping";
-	const inFlight =
-		runtimeState === "running" ||
-		runtimeState === "stopping" ||
-		(isCloudSession && runtimeState === "starting");
+	const inFlight = runtimeState === "running" || runtimeState === "stopping";
+	const showActiveTimer =
+		inFlight || (isCloudSession && runtimeState === "starting");
 	// Hold messages only while the provider is unavailable or an earlier message
 	// is already queued. Worktree setup is independent background work and must
 	// not delay an agent that has finished booting.
@@ -1443,7 +1442,10 @@ export function ChatComposer({
 								{!isDraft ? <ContextStatusPopover session={session} /> : null}
 								{!isDraft ? <CostChip sessionId={sessionId} /> : null}
 								{!isDraft ? (
-									<SessionTimer sessionId={sessionId} inFlight={inFlight} />
+									<SessionTimer
+										sessionId={sessionId}
+										inFlight={showActiveTimer}
+									/>
 								) : null}
 								{sendPlanFeedbackNow && hasText ? (
 									<Button
