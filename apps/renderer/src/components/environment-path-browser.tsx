@@ -89,6 +89,13 @@ export function EnvironmentPathBrowser({
 		event.preventDefault();
 		void browse(value);
 	};
+	const changePath = (path: string): void => {
+		// Invalidate an in-flight browse immediately. Otherwise its normalized
+		// response can overwrite a newer path while the user is still typing it.
+		requestGeneration.current += 1;
+		onReadyChange?.(false);
+		onChange(path);
+	};
 
 	const useNativePicker = async (): Promise<void> => {
 		const picked = await pickEnvironmentFolder(environmentId);
@@ -104,7 +111,7 @@ export function EnvironmentPathBrowser({
 				<Input
 					id="project-parent-path"
 					value={value}
-					onChange={(event) => onChange(event.currentTarget.value)}
+					onChange={(event) => changePath(event.currentTarget.value)}
 					placeholder="~/Developer"
 					spellCheck={false}
 					autoComplete="off"

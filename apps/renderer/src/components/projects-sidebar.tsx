@@ -395,6 +395,9 @@ export function ProjectsSidebar() {
 	const activeEnvironmentId = useEnvironmentCatalogStore(
 		(s) => s.activeEnvironmentId,
 	);
+	const initializeEnvironmentCatalog = useEnvironmentCatalogStore(
+		(s) => s.initialize,
+	);
 
 	const sessionsByProject = useSessionsStore((s) => s.sessionsByProject);
 
@@ -408,6 +411,15 @@ export function ProjectsSidebar() {
 	useEffect(() => {
 		void load();
 	}, [load]);
+
+	const desktopCatalogEnabled = window.zuse?.ssh !== undefined;
+
+	useEffect(() => {
+		if (!desktopCatalogEnabled) return;
+		void initializeEnvironmentCatalog().catch((cause) =>
+			console.error("[zuse] environment catalog initialize failed", cause),
+		);
+	}, [desktopCatalogEnabled, initializeEnvironmentCatalog]);
 
 	// Auto-expand the selected project so newly opened workspaces immediately
 	// reveal their session list.
@@ -461,7 +473,9 @@ export function ProjectsSidebar() {
 		onToggleKey(environmentProjectKey(environmentId, id));
 	};
 
-	const desktopCatalogEnabled = window.zuse?.ssh !== undefined;
+	const showComputerControls =
+		desktopCatalogEnabled &&
+		catalogEntries.filter((entry) => entry.status === "connected").length > 1;
 
 	// One merged timeline: computers never form sections. The same repo across
 	// machines collapses into one logical group; the computer is a row property.
@@ -504,17 +518,19 @@ export function ProjectsSidebar() {
 				</Suspense>
 			)}
 			<SidebarActions />
-			<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
-				<span>{desktopCatalogEnabled ? "Computers" : "Projects"}</span>
-				{desktopCatalogEnabled ? (
+			{showComputerControls ? (
+				<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
+					<span>Computers</span>
 					<Suspense fallback={<span className="size-8" />}>
 						<ComputerSwitcher />
 					</Suspense>
-				) : (
-					<ProjectAddMenu />
-				)}
+				</div>
+			) : null}
+			<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
+				<span>Projects</span>
+				<ProjectAddMenu />
 			</div>
-			{desktopCatalogEnabled ? (
+			{showComputerControls ? (
 				<CatalogConnectionNotice entries={catalogEntries} />
 			) : null}
 			<SidebarErrorToasts />
