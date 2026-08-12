@@ -9,7 +9,7 @@ import {
 	GlobeIcon,
 	MagicWand01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
-import type { FolderId, Message, WorktreeId } from "@zuse/contracts";
+import type { Folder, FolderId, Message, WorktreeId } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Plus, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useRef, useSyncExternalStore } from "react";
@@ -65,6 +65,19 @@ const BrowserPaneHost = lazy(() =>
 		default: module.BrowserPaneHost,
 	})),
 );
+
+/**
+ * The right pane has two folder identities for a cloud chat: the logical
+ * desktop project used to render project UI, and the sandbox checkout used by
+ * live RPCs. Resolve project presence exclusively from the logical selection.
+ */
+export const logicalRightPaneProject = (
+	folders: ReadonlyArray<Folder>,
+	selectedFolderId: FolderId | null,
+): Folder | null =>
+	selectedFolderId === null
+		? null
+		: (folders.find((folder) => folder.id === selectedFolderId) ?? null);
 
 /**
  * Metadata for each addable panel kind: launcher/tab label, icon, and the
@@ -146,26 +159,25 @@ export function RightPane({
 	useRegisterPane("rightPane", paneRef);
 	const ctx = useActiveContext();
 	const folders = useWorkspaceStore((s) => s.folders);
-	const selectedFolderId = ctx.status === "ready" ? ctx.folderId : null;
+	const logicalSelectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
+	const executionFolderId = ctx.status === "ready" ? ctx.folderId : null;
 	const worktreeId = ctx.status === "ready" ? ctx.worktreeId : null;
-	const selected = selectedFolderId
-		? (folders.find((f) => f.id === selectedFolderId) ?? null)
-		: null;
+	const selected = logicalRightPaneProject(folders, logicalSelectedFolderId);
 	const status = useGitStatusStore((s) =>
-		selectedFolderId
-			? (s.byKey[gitStatusKey(selectedFolderId, worktreeId)] ?? null)
+		executionFolderId
+			? (s.byKey[gitStatusKey(executionFolderId, worktreeId)] ?? null)
 			: null,
 	);
 	const pr = usePrStateStore((s) =>
-		selectedFolderId
+		executionFolderId
 			? (s.byKey[
-					prStateKey(getActiveEnvironment(), selectedFolderId, worktreeId)
+					prStateKey(getActiveEnvironment(), executionFolderId, worktreeId)
 				] ?? null)
 			: null,
 	);
 	const details = usePrDetailsStore((s) =>
-		selectedFolderId
-			? (s.byKey[prDetailsKey(selectedFolderId, worktreeId)] ?? null)
+		executionFolderId
+			? (s.byKey[prDetailsKey(executionFolderId, worktreeId)] ?? null)
 			: null,
 	);
 	// Dock layout + terminals are scoped to the selected sidebar chat, so each
@@ -375,7 +387,7 @@ export function RightPane({
 						>
 							<PanelBody
 								panel={panel}
-								folderId={selected.id}
+								folderId={executionFolderId ?? selected.id}
 								worktreeId={worktreeId}
 								sessionId={sessionId}
 								planMarkdown={planMarkdown}

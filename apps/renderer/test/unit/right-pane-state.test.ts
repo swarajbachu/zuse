@@ -1,6 +1,7 @@
-import type { ChatId } from "@zuse/contracts";
+import { type ChatId, Folder, FolderId } from "@zuse/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { logicalRightPaneProject } from "../../src/components/right-pane.tsx";
 import { useChatsStore } from "../../src/store/chats.ts";
 import {
 	DEFAULT_RIGHT_PANE_WIDTH_PERCENT,
@@ -65,5 +66,19 @@ describe("chat-scoped right pane state", () => {
 		expect(state.rightPanelsByChat[chatB]).toBeUndefined();
 		expect(state.activeRightPanelByChat[chatB]).toBeUndefined();
 		expect(state.selectedSubagentByChat[chatB]).toBeUndefined();
+	});
+
+	it("keeps the logical project selected when cloud execution uses a sandbox folder", () => {
+		const localProjectId = FolderId.make("folder-local");
+		const sandboxFolderId = FolderId.make("folder-sandbox");
+		const project = Folder.make({
+			id: localProjectId,
+			name: "repository",
+			path: "/Users/example/repository",
+			addedAt: new Date(0),
+		});
+
+		expect(sandboxFolderId).not.toBe(localProjectId);
+		expect(logicalRightPaneProject([project], localProjectId)).toBe(project);
 	});
 });
