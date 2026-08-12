@@ -1,9 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	Alert01Icon,
-	CircleArrowUp01Icon,
-} from "@zuse/icons/solid-rounded";
 import type { UpdateStatus } from "@zuse/contracts";
+import { Alert01Icon, CircleArrowUp01Icon } from "@zuse/icons/solid-rounded";
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -29,8 +26,7 @@ import { useSessionRuntimeStore } from "~/store/session-runtime.ts";
  * On `ready` the user picks one of:
  *  - **Restart now** — installs + relaunches immediately. If agents are still
  *    running we confirm first ("N agents are running — restart anyway?").
- *  - **Restart later** — dismiss; electron-updater installs on next quit
- *    (`autoInstallOnAppQuit = true`).
+ *  - **Restart later** — dismiss; the main process installs on next quit.
  *  - **Restart when idle** — installs automatically once no agents are running.
  */
 export function UpdateBanner() {

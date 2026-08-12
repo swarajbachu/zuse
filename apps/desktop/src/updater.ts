@@ -1,10 +1,3 @@
-import { app, ipcMain, type BrowserWindow } from "electron";
-import {
-  autoUpdater,
-  type ProgressInfo,
-  type UpdateInfo,
-} from "electron-updater";
-
 import {
   UPDATE_CHECK_CHANNEL,
   UPDATE_DOWNLOAD_CHANNEL,
@@ -12,12 +5,22 @@ import {
   UPDATE_STATUS_CHANNEL,
   type UpdateStatus,
 } from "@zuse/contracts";
+import { app, type BrowserWindow, ipcMain } from "electron";
+import {
+  autoUpdater,
+  type ProgressInfo,
+  type UpdateInfo,
+} from "electron-updater";
 import {
   automaticUpdateRetryDelay,
   isTransientUpdateCheckError,
   updateCheckErrorMessage,
   updateDownloadErrorMessage,
 } from "./updater-errors.ts";
+import {
+  shouldAutoInstallUpdateOnQuit,
+  shouldInstallPendingUpdateOnQuit,
+} from "./updater-policy.ts";
 
 // electron-updater talks to the GitHub Releases feed configured in
 // apps/desktop/electron-builder.yml (`publish.provider: github`). It reads
@@ -55,6 +58,30 @@ let installingUpdate = false;
  */
 export function getIsInstallingUpdate(): boolean {
   return installingUpdate;
+}
+
+/**
+ * On macOS we deliberately do not let electron-updater hand a download to
+ * Squirrel until the app is actually quitting. Squirrel keeps the first
+ * staged update for the lifetime of the process, which otherwise means a
+ * newer release discovered later cannot replace it.
+ *
+ * Returns true when the caller must prevent the current quit event. The
+ * updater will start a fresh quit after Squirrel has staged the latest file.
+ */
+export function installPendingUpdateOnQuit(): boolean {
+  if (
+    !shouldInstallPendingUpdateOnQuit({
+      platform: process.platform,
+      status: lastStatus,
+      installing: installingUpdate,
+    })
+  ) {
+    return false;
+  }
+
+  installUpdate();
+  return true;
 }
 
 /**
@@ -250,7 +277,13 @@ export function startAutoUpdater(window: BrowserWindow): void {
   // "Restart" button we still install on next quit so the update isn't
   // stranded forever.
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // Squirrel.Mac cannot supersede an update it has already staged during the
+  // current process. Keep downloads in electron-updater's replaceable cache
+  // on macOS, then stage the latest one from the before-quit handler. Other
+  // platforms can safely retain electron-updater's normal install-on-quit.
+  autoUpdater.autoInstallOnAppQuit = shouldAutoInstallUpdateOnQuit(
+    process.platform,
+  );
 
   autoUpdater.on("checking-for-update", () => {
     clearStallTimer();
