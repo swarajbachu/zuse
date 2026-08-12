@@ -1480,19 +1480,25 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			appendEvents: (workspaceId, events) =>
 				orDie(
 					Effect.gen(function* () {
+						if (events.length === 0) return 0;
 						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`events:${workspaceId}`}, 0))`;
 						const maximum =
 							yield* sql`SELECT COALESCE(MAX(runtime_sequence), 0) AS maximum FROM relay_cloud_workspace_events WHERE workspace_id=${workspaceId}`;
-						let nextSequence = numberValue(maximum[0]?.maximum);
-						let appended = 0;
-						for (const event of events) {
-							const sequence = nextSequence + 1;
-							const rows =
-								yield* sql`INSERT INTO relay_cloud_workspace_events (workspace_id, runtime_sequence, event_id, stream_id, stream_version, type, payload_json, encrypted_payload, created_at) VALUES (${workspaceId}, ${sequence}, ${event.eventId}, ${event.streamId}, ${event.streamVersion}, ${event.type}, ${event.payloadJson ?? null}, ${event.encryptedPayload ?? null}, ${event.createdAtMs}) ON CONFLICT (workspace_id, event_id) DO NOTHING RETURNING runtime_sequence`;
-							appended += rows.length;
-							if (rows.length > 0) nextSequence = sequence;
-						}
-						return appended;
+						const firstSequence = numberValue(maximum[0]?.maximum) + 1;
+						const rows = events.map((event, index) => ({
+							workspace_id: workspaceId,
+							runtime_sequence: firstSequence + index,
+							event_id: event.eventId,
+							stream_id: event.streamId,
+							stream_version: event.streamVersion,
+							type: event.type,
+							payload_json: event.payloadJson ?? null,
+							encrypted_payload: event.encryptedPayload ?? null,
+							created_at: event.createdAtMs,
+						}));
+						const inserted =
+							yield* sql`INSERT INTO relay_cloud_workspace_events ${sql.insert(rows)} ON CONFLICT (workspace_id, event_id) DO NOTHING RETURNING runtime_sequence`;
+						return inserted.length;
 					}).pipe(sql.withTransaction),
 				),
 			listEvents: (workspaceId, afterSequence) =>
