@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0]
+
+### Added
+- Added a machine-readable `zuse agent` CLI for automating projects, chats, sessions, models, messages, attachments, transcripts, plans, handoffs, and forks, with secure discovery of local development instances
+- Added Grok 4.6 to the model picker and updated current Grok aliases to use it while preserving explicit Grok 4.5 selection
+
+### Fixed
+- macOS now installs the newest downloaded update on quit instead of potentially staging an older cached release first
+
 ## [0.18.4]
 
 ### Fixed
