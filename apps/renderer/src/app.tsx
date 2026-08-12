@@ -37,7 +37,11 @@ import { useQueueHydrationStore } from "./store/queue-hydration.ts";
 import { getSessionById, useSessionsStore } from "./store/sessions.ts";
 import { useSettingsStore } from "./store/settings.ts";
 import { useTerminalsStore } from "./store/terminals.ts";
-import { DEFAULT_RIGHT_PANE_WIDTH_PERCENT, useUiStore } from "./store/ui.ts";
+import {
+	DEFAULT_RIGHT_PANE_WIDTH_PERCENT,
+	openFileBelongsToProject,
+	useUiStore,
+} from "./store/ui.ts";
 import { useWorkspaceStore } from "./store/workspace.ts";
 import { useWorktreesStore } from "./store/worktrees.ts";
 
@@ -467,7 +471,7 @@ function MainShell() {
 	useEffect(() => {
 		if (openFile === null) return;
 		if (openFile.kind !== "text") return;
-		if (selectedFolderId !== null && openFile.folderId === selectedFolderId) {
+		if (openFileBelongsToProject(openFile, selectedFolderId)) {
 			return;
 		}
 		closeFileTab();

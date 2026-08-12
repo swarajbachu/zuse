@@ -4,7 +4,6 @@ import {
 	CheckListIcon,
 	ComputerTerminal01Icon,
 	Folder01Icon,
-	GitBranchIcon,
 	GitCompareIcon,
 	GitPullRequestIcon,
 	GlobeIcon,
@@ -46,7 +45,6 @@ import {
 	useUiStore,
 } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
-import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { DiffPane } from "./diff-pane.tsx";
 import { FileTree } from "./file-tree.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
@@ -193,6 +191,7 @@ export function RightPane({
 	// Dock layout + terminals are scoped to the selected sidebar chat, so each
 	// chat keeps its own open tabs and running shells.
 	const chatId = useChatsStore((s) => s.selectedChatId);
+	const cloudSummary = chatId === null ? null : cloudSummaryForChat(chatId);
 	const sessionId = useSessionsStore((s) => s.selectedSessionId);
 	const session = useSessionsStore((s) => {
 		if (sessionId === null) return null;
@@ -248,10 +247,8 @@ export function RightPane({
 	const setActive = useUiStore((s) => s.setActiveRightPanel);
 	const openChanges = useUiStore((s) => s.openChanges);
 	const requestCloudAttachment = () => {
-		if (chatId === null) return;
-		const summary = cloudSummaryForChat(chatId);
-		if (summary !== null)
-			void ensureCloudWorkspaceAttached(summary).catch(() => {});
+		if (cloudSummary !== null)
+			void ensureCloudWorkspaceAttached(cloudSummary).catch(() => {});
 	};
 	const handleAddPanel = (kind: PanelKind) => {
 		addPanel(kind);
@@ -409,6 +406,8 @@ export function RightPane({
 							<PanelBody
 								panel={panel}
 								folderId={executionFolderId ?? selected.id}
+								projectId={selected.id}
+								environmentId={cloudSummary?.workspaceId}
 								cloudUnavailable={ctx.status === "cloud-unavailable"}
 								worktreeId={worktreeId}
 								sessionId={sessionId}
@@ -455,6 +454,8 @@ export function RightPane({
 function PanelBody({
 	panel,
 	folderId,
+	projectId,
+	environmentId,
 	worktreeId,
 	sessionId,
 	planMarkdown,
@@ -463,6 +464,8 @@ function PanelBody({
 }: {
 	panel: PanelInstance;
 	folderId: FolderId;
+	projectId: FolderId;
+	environmentId?: string;
 	worktreeId: WorktreeId | null;
 	sessionId: import("@zuse/contracts").SessionId | null;
 	planMarkdown: string | null;
@@ -498,7 +501,12 @@ function PanelBody({
 		case "files":
 			return (
 				<div className="min-h-0 flex-1 overflow-hidden">
-					<FileTree key={folderId} folderId={folderId} />
+					<FileTree
+						key={folderId}
+						folderId={folderId}
+						projectId={projectId}
+						environmentId={environmentId}
+					/>
 				</div>
 			);
 		case "terminal":
@@ -673,40 +681,6 @@ function PanelTab({
 			>
 				<X className="size-3" strokeWidth={1.8} />
 			</button>
-		</div>
-	);
-}
-
-/**
- * Strip above the file tree showing whether the current selection is rooted
- * in the project's main checkout or in a worktree. Read-only label — pick a
- * worktree from the chat composer's workspace picker; this chip just makes
- * the active root visible so users don't get confused by what they're
- * looking at. Reads the canonical active context so it can never disagree
- * with the terminal, top-bar branch, or composer chip.
- */
-function ActiveWorkspaceChip() {
-	const ctx = useActiveContext();
-	const worktree = useWorktreesStore((s) => {
-		if (ctx.status !== "ready" || ctx.worktreeId === null) return null;
-		const list = s.byProject[ctx.folderId] ?? EMPTY_WORKTREES;
-		return list.find((w) => w.id === ctx.worktreeId) ?? null;
-	});
-	if (ctx.status !== "ready") return null;
-	const onWorktree = ctx.rootKind === "worktree";
-	const icon = onWorktree ? GitBranchIcon : Folder01Icon;
-	const label = onWorktree ? (worktree?.name ?? "Worktree") : "Main checkout";
-	const sub = onWorktree ? (worktree?.branch ?? null) : null;
-	return (
-		<div className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-[11px] text-muted-foreground">
-			<HugeiconsIcon icon={icon} className="size-3.5 shrink-0 opacity-70" />
-			<span className="truncate font-medium text-foreground/80">{label}</span>
-			{sub !== null ? (
-				<span className="truncate font-mono opacity-70">· {sub}</span>
-			) : null}
-			{ctx.worktreePending ? (
-				<span className="shrink-0 text-amber-300">syncing…</span>
-			) : null}
 		</div>
 	);
 }

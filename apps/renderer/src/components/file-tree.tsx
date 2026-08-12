@@ -1,15 +1,4 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronRight } from "lucide-react";
-import {
-	BubbleChatIcon,
-	Copy01Icon,
-	Delete02Icon,
-	FileAddIcon,
-	FolderAddIcon,
-	FolderOpenIcon,
-	PencilEdit01Icon,
-	Search01Icon,
-} from "@zuse/icons/solid-rounded";
 import type {
 	ContextMenuItem as FileTreeContextMenuItem,
 	ContextMenuOpenContext as FileTreeContextMenuOpenContext,
@@ -21,8 +10,19 @@ import type {
 } from "@pierre/trees";
 import { FileTree as PierreTree, useFileTree } from "@pierre/trees/react";
 import type { FolderId, GitChange, GitChangeKind } from "@zuse/contracts";
+import {
+	BubbleChatIcon,
+	Copy01Icon,
+	Delete02Icon,
+	FileAddIcon,
+	FolderAddIcon,
+	FolderOpenIcon,
+	PencilEdit01Icon,
+	Search01Icon,
+} from "@zuse/icons/solid-rounded";
 import { Effect, Fiber, Stream } from "effect";
 import fuzzysort from "fuzzysort";
+import { ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { OpenTarget } from "../lib/bridge.ts";
@@ -175,7 +175,15 @@ const toGitStatusEntries = (
  * through the model. Re-roots by remounting (`key`) when the folder/worktree
  * changes; incremental disk changes flow through `model.batch`.
  */
-export function FileTree({ folderId }: { folderId: FolderId }) {
+export function FileTree({
+	folderId,
+	projectId = folderId,
+	environmentId,
+}: {
+	folderId: FolderId;
+	projectId?: FolderId;
+	environmentId?: string;
+}) {
 	const worktreeId = useActiveWorktreeId(folderId);
 	const [state, setState] = useState<PathsState>({ status: "loading" });
 
@@ -184,7 +192,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
 		setState({ status: "loading" });
 		void (async () => {
 			try {
-				const client = await getRpcClient();
+				const client = await getRpcClient(environmentId);
 				const result = await Effect.runPromise(
 					client["fs.listPaths"]({ folderId, worktreeId }),
 				);
@@ -202,7 +210,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [folderId, worktreeId]);
+	}, [environmentId, folderId, worktreeId]);
 
 	if (state.status === "loading") {
 		return (
@@ -233,6 +241,8 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
 			// is rebuilt from a clean presorted list.
 			key={`${folderId}:${worktreeId ?? "main"}`}
 			folderId={folderId}
+			projectId={projectId}
+			environmentId={environmentId}
 			worktreeId={worktreeId}
 			initialPaths={state.paths}
 			truncated={state.truncated}
@@ -244,11 +254,15 @@ type DeleteState = { path: string; kind: "file" | "directory" } | null;
 
 function TreeView({
 	folderId,
+	projectId,
+	environmentId,
 	worktreeId,
 	initialPaths,
 	truncated,
 }: {
 	folderId: FolderId;
+	projectId: FolderId;
+	environmentId?: string;
 	worktreeId: ReturnType<typeof useActiveWorktreeId>;
 	initialPaths: ReadonlyArray<string>;
 	truncated: boolean;
@@ -292,9 +306,17 @@ function TreeView({
 
 	const openFile = useCallback(
 		(path: string, name: string) => {
-			openFileInTab({ kind: "text", folderId, path, name, worktreeId });
+			openFileInTab({
+				kind: "text",
+				folderId,
+				projectId,
+				environmentId,
+				path,
+				name,
+				worktreeId,
+			});
 		},
-		[folderId, openFileInTab, worktreeId],
+		[environmentId, folderId, openFileInTab, projectId, worktreeId],
 	);
 
 	// Single selection of a file row opens it — matches the old click-to-open.
@@ -320,7 +342,7 @@ function TreeView({
 		({ sourcePath, destinationPath }: FileTreeRenameEvent) => {
 			void (async () => {
 				try {
-					const client = await getRpcClient();
+					const client = await getRpcClient(environmentId);
 					await Effect.runPromise(
 						client["fs.move"]({
 							folderId,
@@ -336,7 +358,7 @@ function TreeView({
 				}
 			})();
 		},
-		[folderId, worktreeId],
+		[environmentId, folderId, worktreeId],
 	);
 
 	const persistDrop = useCallback(
@@ -344,7 +366,7 @@ function TreeView({
 			const dir =
 				target.directoryPath === null ? "" : stripSlash(target.directoryPath);
 			void (async () => {
-				const client = await getRpcClient();
+				const client = await getRpcClient(environmentId);
 				for (const dragged of draggedPaths) {
 					const from = stripSlash(dragged);
 					const to = joinRelPath(dir, basename(from));
@@ -367,7 +389,7 @@ function TreeView({
 				}
 			})();
 		},
-		[folderId, worktreeId],
+		[environmentId, folderId, worktreeId],
 	);
 
 	const { model } = useFileTree({
@@ -437,7 +459,7 @@ function TreeView({
 			const changedPaths = [...pendingPaths];
 			pendingPaths.clear();
 			try {
-				const client = await getRpcClient();
+				const client = await getRpcClient(environmentId);
 				const result = await reconcileFileTreePaths({
 					changedPaths,
 					knownPaths: knownPathsRef.current,
@@ -503,7 +525,7 @@ function TreeView({
 		};
 
 		void (async () => {
-			const client = await getRpcClient();
+			const client = await getRpcClient(environmentId);
 			if (cancelled) return;
 			fiber = Effect.runFork(
 				Stream.runForEach(
@@ -519,7 +541,7 @@ function TreeView({
 			if (retryTimer !== null) clearTimeout(retryTimer);
 			if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
 		};
-	}, [folderId, worktreeId, model]);
+	}, [environmentId, folderId, worktreeId, model]);
 
 	const attach = useCallback(
 		(path: string, kind: "file" | "directory") => {
@@ -562,7 +584,7 @@ function TreeView({
 			if (name === null) return;
 			const path = joinRelPath(stripSlash(dirPath), name);
 			try {
-				const client = await getRpcClient();
+				const client = await getRpcClient(environmentId);
 				if (kind === "file") {
 					await Effect.runPromise(
 						client["fs.createFile"]({ folderId, path, worktreeId }),
@@ -579,7 +601,7 @@ function TreeView({
 				window.alert(formatError(err));
 			}
 		},
-		[folderId, model, openFile, worktreeId],
+		[environmentId, folderId, model, openFile, worktreeId],
 	);
 
 	const confirmDelete = useCallback(async () => {
@@ -587,7 +609,7 @@ function TreeView({
 		if (target === null) return;
 		setDeleting(true);
 		try {
-			const client = await getRpcClient();
+			const client = await getRpcClient(environmentId);
 			await Effect.runPromise(
 				client["fs.remove"]({
 					folderId,
@@ -602,7 +624,7 @@ function TreeView({
 		} finally {
 			setDeleting(false);
 		}
-	}, [deleteTarget, folderId, model, worktreeId]);
+	}, [deleteTarget, environmentId, folderId, model, worktreeId]);
 
 	const renderContextMenu = useCallback(
 		(
@@ -809,16 +831,19 @@ function FileSearchPalette({
 	};
 
 	return (
-		<div
+		<dialog
+			open
+			aria-label="Search project files"
 			className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[12vh]"
-			onMouseDown={onClose}
+			onMouseDown={(event) => {
+				if (event.target === event.currentTarget) onClose();
+			}}
 		>
 			<div
 				className={cn(
 					"flex max-h-[62vh] w-[min(680px,92vw)] flex-col overflow-hidden",
 					overlaySurface,
 				)}
-				onMouseDown={(e) => e.stopPropagation()}
 			>
 				<div className="flex items-center gap-2 border-b border-border/60 px-3">
 					<HugeiconsIcon
@@ -883,7 +908,7 @@ function FileSearchPalette({
 					)}
 				</div>
 			</div>
-		</div>
+		</dialog>
 	);
 }
 
@@ -933,9 +958,7 @@ function OpenInSubmenu({
 			>
 				<HugeiconsIcon icon={FolderOpenIcon} className="size-4" />
 				<span>Open in</span>
-				<ChevronRight
-					className="ml-auto size-3.5 text-muted-foreground"
-				/>
+				<ChevronRight className="ml-auto size-3.5 text-muted-foreground" />
 			</button>
 			<div
 				role="menu"

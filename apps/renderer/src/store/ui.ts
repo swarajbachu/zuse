@@ -125,6 +125,10 @@ export type OpenFile =
 	| {
 			readonly kind: "text";
 			readonly folderId: FolderId;
+			/** Logical project that owns the file when folderId is a remote checkout. */
+			readonly projectId?: FolderId;
+			/** Explicit RPC environment for remote/cloud file operations. */
+			readonly environmentId?: string;
 			readonly path: string;
 			readonly name: string;
 			/**
@@ -153,6 +157,13 @@ export type OpenFile =
 			readonly name: string;
 			readonly view: FileView;
 	  };
+
+export const openFileBelongsToProject = (
+	openFile: Extract<OpenFile, { kind: "text" }>,
+	selectedProjectId: FolderId | null,
+): boolean =>
+	selectedProjectId !== null &&
+	(openFile.projectId ?? openFile.folderId) === selectedProjectId;
 
 export type RevealedAnnotation = CodeAnnotation & {
 	/**

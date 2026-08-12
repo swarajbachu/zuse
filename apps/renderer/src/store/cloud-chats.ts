@@ -33,6 +33,7 @@ import {
 	registerCloudChat,
 	registerCloudExecutionTarget,
 	setCloudAttachmentState,
+	useCloudExecutionStore,
 } from "./cloud-chat-registry.ts";
 import {
 	acknowledgeTimelineSessionCreated,
@@ -422,7 +423,13 @@ export const stageCloudChat = (
 				current.updatedAt > summary.updatedAt))
 	)
 		return;
-	if (summary.state === "paused" || summary.state === "archived")
+	const attachmentState =
+		useCloudExecutionStore.getState().stateByWorkspace[summary.workspaceId] ??
+		"detached";
+	if (
+		(summary.state === "paused" || summary.state === "archived") &&
+		attachmentState !== "attaching"
+	)
 		setCloudAttachmentState(summary.workspaceId, "detached");
 	registerCloudChat(summary, projectId);
 	useCloudChatsStore.setState((state) => ({

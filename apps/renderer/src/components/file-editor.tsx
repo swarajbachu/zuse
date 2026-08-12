@@ -220,7 +220,9 @@ function FileImageBody({ openFile }: { openFile: EditableFile }) {
 
 		void (async () => {
 			try {
-				const client = await getRpcClient();
+				const client = await getRpcClient(
+					openFile.kind === "text" ? openFile.environmentId : undefined,
+				);
 				const result =
 					openFile.kind === "external"
 						? await Effect.runPromise(
@@ -391,7 +393,9 @@ function PierreEditBody({
 		setSaving(true);
 		setSaveError(null);
 		try {
-			const client = await getRpcClient();
+			const client = await getRpcClient(
+				file.kind === "text" ? file.environmentId : undefined,
+			);
 			const result =
 				file.kind === "external"
 					? await Effect.runPromise(
@@ -439,7 +443,9 @@ function PierreEditBody({
 		setSaveError(null);
 		void (async () => {
 			try {
-				const client = await getRpcClient();
+				const client = await getRpcClient(
+					openFile.kind === "text" ? openFile.environmentId : undefined,
+				);
 				const result =
 					openFile.kind === "external"
 						? await Effect.runPromise(
@@ -832,7 +838,7 @@ function DiffViewBody({
 		let cancelled = false;
 		setState({ status: "loading" });
 		void (async () => {
-			const client = await getRpcClient();
+			const client = await getRpcClient(openFile.environmentId);
 			const result = await classifyGit(
 				client["git.diff"]({
 					folderId: openFile.folderId,
@@ -943,7 +949,9 @@ function PreviewViewBody({ openFile }: { openFile: EditableFile }) {
 					return;
 				}
 
-				const client = await getRpcClient();
+				const client = await getRpcClient(
+					openFile.kind === "text" ? openFile.environmentId : undefined,
+				);
 				const result =
 					openFile.kind === "external"
 						? await Effect.runPromise(

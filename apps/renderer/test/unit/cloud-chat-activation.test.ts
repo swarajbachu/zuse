@@ -91,9 +91,8 @@ describe("cloud chat activation", () => {
 	});
 
 	test("opens cached history immediately without replacing status with Opening", () => {
-		expect(cloudChatsSource).toContain(
-			"readCachedHistory(summary.workspaceId)",
-		);
+		expect(cloudChatsSource).toContain("cloudChatSnapshotStore");
+		expect(cloudChatsSource).toContain(".load(summary.workspaceId)");
 		expect(projectsSidebarSource).not.toContain('opening ? "Opening…"');
 		expect(projectsSidebarSource).toContain("historyLoadingByChat");
 	});

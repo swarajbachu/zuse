@@ -11,6 +11,10 @@ import {
 import { describe, expect, test } from "vitest";
 import { cloudConnectionPresentation } from "../../src/lib/cloud-connection-presentation.ts";
 import {
+	setCloudAttachmentState,
+	useCloudExecutionStore,
+} from "../../src/store/cloud-chat-registry.ts";
+import {
 	cloudWorkspaceNeedsResume,
 	mergeCloudChatMessages,
 	mergeCloudChatSummaries,
@@ -169,6 +173,25 @@ describe("cloud chat state reconciliation", () => {
 				"ready",
 			),
 		).toBe("hidden");
+	});
+
+	test("a paused status refresh cannot cancel an attachment already in progress", () => {
+		const paused = CloudChatSummary.make({
+			...summary({ revision: 26, startupPhase: "running" }),
+			workspaceId: "workspace-resuming",
+			chatId: ChatId.make("chat-resuming"),
+			initialSessionId: AgentSessionId.make("session-resuming"),
+			state: "paused",
+			desiredState: "ready",
+			runtimeState: "offline",
+		});
+		setCloudAttachmentState(paused.workspaceId, "attaching");
+
+		stageCloudChat(paused, FolderId.make("folder-resuming"));
+
+		expect(
+			useCloudExecutionStore.getState().stateByWorkspace[paused.workspaceId],
+		).toBe("attaching");
 	});
 
 	test("authoritative paused, failed, and interrupted resuming states require resume", () => {

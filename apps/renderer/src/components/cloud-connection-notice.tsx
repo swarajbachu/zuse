@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CloudIcon, RefreshIcon } from "@hugeicons-pro/core-solid-rounded";
+import { CloudIcon, RefreshIcon } from "@zuse/icons/solid-rounded";
 import {
 	type CloudConnectionPresentation,
 	cloudConnectionPresentation,
@@ -14,6 +14,7 @@ import {
 	useCloudChatsStore,
 } from "../store/cloud-chats.ts";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
+import { Spinner } from "./ui/spinner.tsx";
 
 const copy: Record<
 	Exclude<CloudConnectionPresentation, "hidden">,
@@ -70,10 +71,14 @@ export function CloudConnectionNotice() {
 			aria-live="polite"
 			className="mb-1 flex min-h-9 items-center gap-2 rounded-lg border border-border/60 bg-background/90 px-3 py-2 text-xs shadow-sm"
 		>
-			<HugeiconsIcon
-				icon={CloudIcon}
-				className="size-4 text-muted-foreground"
-			/>
+			{busy ? (
+				<Spinner className="size-4 shrink-0 text-muted-foreground motion-reduce:animate-none" />
+			) : (
+				<HugeiconsIcon
+					icon={CloudIcon}
+					className="size-4 shrink-0 text-muted-foreground"
+				/>
+			)}
 			<div className="min-w-0 flex-1">
 				{busy ? (
 					<ShimmerText>{value.title}</ShimmerText>
