@@ -64,6 +64,7 @@ import { displayPath } from "~/lib/display-path";
 import { formatError } from "~/lib/format-error.ts";
 import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
+import { deriveCloudChatActivity } from "../lib/cloud-chat-activity.ts";
 import { cloudChatRowPresentation } from "../lib/cloud-chat-row-presentation.ts";
 import { dispatchCommand } from "../lib/commands.ts";
 import { noteSessionRuntimeCompletion } from "../lib/completion-sounds.ts";
@@ -94,6 +95,7 @@ import {
 	isChatUnread,
 	useChatsStore,
 } from "../store/chats.ts";
+import { useCloudExecutionStore } from "../store/cloud-chat-registry.ts";
 import {
 	openCloudChat,
 	repositoryIdentityForOrigin,
@@ -1433,7 +1435,19 @@ function CloudChatRow({
 	const runtimeState = useSessionRuntimeStore((state) =>
 		effectiveSessionRuntimeState(state.bySession[summary.initialSessionId]),
 	);
-	const presentation = cloudChatRowPresentation(summary, runtimeState);
+	const attachment = useCloudExecutionStore(
+		(state) => state.stateByWorkspace[summary.workspaceId] ?? "detached",
+	);
+	const command = useCloudChatsStore(
+		(state) => state.commandByWorkspace[summary.workspaceId]?.state ?? null,
+	);
+	const activity = deriveCloudChatActivity({
+		summary,
+		attachment,
+		runtime: runtimeState,
+		command,
+	});
+	const presentation = cloudChatRowPresentation(summary, activity);
 	const label = presentation.label;
 	const archivePending =
 		summary.desiredState === "archived" && summary.state !== "failed";

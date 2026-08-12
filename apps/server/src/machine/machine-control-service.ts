@@ -87,7 +87,7 @@ export interface MachineControlServiceShape {
 		readonly input: ComposerInput;
 		readonly clientMessageId: string;
 		readonly asGoal?: boolean;
-	}) => Effect.Effect<void, MachineControlError>;
+	}) => Effect.Effect<{ readonly sequence: number }, MachineControlError>;
 	readonly cloudWorkspaceAction: (
 		workspaceId: string,
 		action: "pause" | "resume" | "archive" | "unarchive" | "delete",
@@ -330,7 +330,7 @@ export const MachineControlServiceLive: Layer.Layer<
 			sendCloudChatMessage: (input) =>
 				request(
 					RelayPaths.cloudWorkspaceMessages(input.workspaceId),
-					Schema.Void,
+					Schema.Struct({ sequence: Schema.Number }),
 					"POST",
 					input,
 				),

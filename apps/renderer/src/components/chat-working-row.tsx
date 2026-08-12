@@ -8,6 +8,7 @@ import {
 	useProviderStartupDelay,
 } from "../lib/provider-startup-delay.ts";
 import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
+import { cloudSummaryForSession } from "../store/cloud-chat-registry.ts";
 import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { getSessionById, useSessionsStore } from "../store/sessions.ts";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
@@ -39,8 +40,14 @@ export function ChatWorkingRow({
 		session === null || session === undefined
 			? "Agent"
 			: (PROVIDER_LABEL[session.providerId] ?? session.providerId);
+	const cloudSummary = cloudSummaryForSession(sessionId);
+	const initialCloudAgentStart =
+		cloudSummary !== null && cloudSummary.startupPhase === "starting-agent";
+	const showStartup =
+		runtimeState === "starting" &&
+		(cloudSummary === null || initialCloudAgentStart);
 	const delayed = useProviderStartupDelay(
-		runtimeState === "starting",
+		showStartup,
 		`${sessionId}:${session?.providerId ?? "unknown"}:${session?.model ?? "unknown"}`,
 	);
 	const anchorMs = useMemo(() => {
@@ -75,12 +82,10 @@ export function ChatWorkingRow({
 			<AgentActivityOrb state={activityState} />
 			<span
 				className={
-					runtimeState === "starting" && delayed
-						? "text-warning"
-						: "text-muted-foreground"
+					showStartup && delayed ? "text-warning" : "text-muted-foreground"
 				}
 			>
-				{runtimeState === "starting"
+				{showStartup
 					? providerStartupLabel({
 							providerLabel,
 							failed: false,

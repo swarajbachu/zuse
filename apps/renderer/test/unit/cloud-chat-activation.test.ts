@@ -8,10 +8,7 @@ import {
 import { afterEach, describe, expect, test } from "vitest";
 import { cloudFailureMessage } from "../../src/components/worktree-setup-card.tsx";
 import { registerCloudChat } from "../../src/store/cloud-chat-registry.ts";
-import {
-	messagesFromHistory,
-	runCloudHistoryPump,
-} from "../../src/store/cloud-chats.ts";
+import { messagesFromHistory } from "../../src/store/cloud-chats.ts";
 import { useTerminalsStore } from "../../src/store/terminals.ts";
 
 const initialTerminalsState = useTerminalsStore.getInitialState();
@@ -49,8 +46,11 @@ describe("cloud chat activation", () => {
 			payloadJson: JSON.stringify({
 				_tag: "MessagePersisted",
 				messageId: "assistant-streaming",
+				turnId: null,
 				role: "assistant",
+				kind: "assistant",
 				contentJson: JSON.stringify({ _tag: "assistant", text }),
+				parentItemId: null,
 				createdAt: 100,
 			}),
 			createdAt: 100 + sequence,
@@ -68,36 +68,6 @@ describe("cloud chat activation", () => {
 		expect(messagesFromHistory(history)).toMatchObject([
 			{ content: { _tag: "assistant", text: "complete response" } },
 		]);
-	});
-
-	test("continuously applies central cloud events without reopening the chat", async () => {
-		const cursors: number[] = [];
-		const applied: number[] = [];
-		let active = true;
-		await runCloudHistoryPump({
-			initialCursor: 4,
-			isActive: () => active,
-			fetchAfter: async (after) => {
-				cursors.push(after);
-				return CloudChatHistory.make({
-					workspaceId: "workspace-live",
-					chatId: ChatId.make("chat-live"),
-					initialSessionId: AgentSessionId.make("session-live"),
-					commandState: "acknowledged",
-					events: [],
-					queuedMessages: [],
-					cursor: 7,
-				});
-			},
-			apply: (history) => {
-				applied.push(history.cursor);
-				active = false;
-			},
-			wait: async () => {},
-		});
-
-		expect(cursors).toEqual([4]);
-		expect(applied).toEqual([7]);
 	});
 
 	test("describes actionable cloud failures", () => {

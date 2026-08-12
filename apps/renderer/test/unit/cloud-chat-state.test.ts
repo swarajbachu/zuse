@@ -9,8 +9,10 @@ import {
 	SessionId,
 } from "@zuse/contracts";
 import { describe, expect, test, vi } from "vitest";
+import { deriveCloudChatActivity } from "../../src/lib/cloud-chat-activity.ts";
 import { cloudChatRowPresentation } from "../../src/lib/cloud-chat-row-presentation.ts";
 import { cloudConnectionPresentation } from "../../src/lib/cloud-connection-presentation.ts";
+import { canReuseCloudWorkspaceTicket } from "../../src/lib/rpc-client.ts";
 import {
 	setCloudAttachmentState,
 	useCloudExecutionStore,
@@ -19,8 +21,11 @@ import {
 	attachCloudTranscriptLive,
 	canReuseCloudWorkspaceAttachment,
 	cloudWorkspaceNeedsResume,
+	commandStateFromCloudHistory,
 	mergeCloudChatMessages,
 	mergeCloudChatSummaries,
+	mergeCloudCommandProjection,
+	selectLatestCloudCommand,
 	shouldAttachCloudChatOnOpen,
 	shouldAttachCloudChatWithPendingCommands,
 	shouldRetryCloudWorkspaceAttachment,
@@ -61,9 +66,212 @@ const summary = (input: {
 	});
 
 describe("cloud chat state reconciliation", () => {
+	test("a stale command response cannot regress a newer message", () => {
+		const newer = {
+			clientMessageId: "message-2",
+			state: "queued" as const,
+			createdAt: 20,
+		};
+		expect(
+			mergeCloudCommandProjection(newer, {
+				clientMessageId: "message-1",
+				state: "acknowledged",
+				createdAt: 10,
+			}),
+		).toEqual(newer);
+		expect(
+			mergeCloudCommandProjection(newer, {
+				...newer,
+				state: "acknowledged",
+			}),
+		).toMatchObject({ state: "acknowledged" });
+	});
+
+	test("durable command sequence orders same-millisecond messages", () => {
+		const newer = {
+			clientMessageId: "message-newer",
+			state: "queued" as const,
+			createdAt: 20,
+			sequence: 12,
+		};
+		expect(
+			mergeCloudCommandProjection(newer, {
+				clientMessageId: "message-older",
+				state: "acknowledged",
+				createdAt: 20,
+				sequence: 11,
+			}),
+		).toEqual(newer);
+		expect(
+			mergeCloudCommandProjection(
+				{ ...newer, state: "acknowledged" },
+				{ ...newer, state: "failed" },
+			),
+		).toMatchObject({ state: "acknowledged" });
+	});
+
+	test("an unresolved concurrent send stays visible across reversed responses", () => {
+		const first = {
+			clientMessageId: "message-a",
+			state: "queued" as const,
+			createdAt: 1,
+		};
+		const second = {
+			clientMessageId: "message-b",
+			state: "queued" as const,
+			createdAt: 2,
+		};
+		expect(
+			selectLatestCloudCommand([{ ...first, sequence: 2 }, second]),
+		).toEqual(second);
+		expect(
+			selectLatestCloudCommand([
+				{ ...first, sequence: 2 },
+				{ ...second, sequence: 1 },
+			]),
+		).toMatchObject({ clientMessageId: "message-a", sequence: 2 });
+	});
+
+	test("an unaccepted failure cannot replace a later durable command", () => {
+		expect(
+			selectLatestCloudCommand([
+				{
+					clientMessageId: "message-failed",
+					state: "failed",
+					createdAt: 1,
+				},
+				{
+					clientMessageId: "message-durable",
+					state: "queued",
+					createdAt: 2,
+					sequence: 1,
+				},
+			]),
+		).toMatchObject({ clientMessageId: "message-durable", sequence: 1 });
+	});
+
+	test("a paused follow-up progresses from resume to attach without claiming Codex started", () => {
+		const paused = CloudChatSummary.make({
+			...summary({ revision: 12, startupPhase: "running" }),
+			state: "paused",
+			runtimeState: "offline",
+		});
+		expect(
+			deriveCloudChatActivity({
+				summary: paused,
+				attachment: "attaching",
+				runtime: "idle",
+				command: "queued",
+			}),
+		).toBe("resuming");
+
+		const online = summary({ revision: 13, startupPhase: "running" });
+		expect(
+			deriveCloudChatActivity({
+				summary: online,
+				attachment: "attaching",
+				runtime: "idle",
+				command: "queued",
+			}),
+		).toBe("attaching");
+		expect(
+			deriveCloudChatActivity({
+				summary: online,
+				attachment: "ready",
+				runtime: "running",
+				command: "acknowledged",
+			}),
+		).toBe("running");
+	});
+
+	test("paused compute with a pending command outranks a stale running timeline", () => {
+		const paused = CloudChatSummary.make({
+			...summary({ revision: 12, startupPhase: "running" }),
+			state: "paused",
+			runtimeState: "offline",
+		});
+		expect(
+			deriveCloudChatActivity({
+				summary: paused,
+				attachment: "attaching",
+				runtime: "running",
+				command: "queued",
+			}),
+		).toBe("resuming");
+	});
+
+	test("paused compute is static even when the cached timeline was running", () => {
+		const paused = CloudChatSummary.make({
+			...summary({ revision: 12, startupPhase: "running" }),
+			state: "paused",
+			runtimeState: "offline",
+		});
+		for (const command of [null, "acknowledged"] as const) {
+			expect(
+				deriveCloudChatActivity({
+					summary: paused,
+					attachment: "detached",
+					runtime: "running",
+					command,
+				}),
+			).toBe("paused");
+		}
+	});
+
+	test("paused compute overrides a stale failed timeline", () => {
+		const paused = CloudChatSummary.make({
+			...summary({ revision: 12, startupPhase: "running" }),
+			state: "paused",
+			runtimeState: "offline",
+		});
+		for (const command of [null, "acknowledged"] as const) {
+			expect(
+				deriveCloudChatActivity({
+					summary: paused,
+					attachment: "detached",
+					runtime: "failed",
+					command,
+				}),
+			).toBe("paused");
+		}
+	});
+
+	test("a newer online revision immediately clears stale resume presentation", () => {
+		expect(
+			deriveCloudChatActivity({
+				summary: summary({ revision: 14, startupPhase: "running" }),
+				attachment: "ready",
+				runtime: "idle",
+				command: "acknowledged",
+			}),
+		).toBe("idle");
+	});
+
+	test("an acknowledged initial command cannot leave a stale startup loader", () => {
+		expect(
+			deriveCloudChatActivity({
+				summary: summary({ revision: 14, startupPhase: "starting-agent" }),
+				attachment: "ready",
+				runtime: "idle",
+				command: "acknowledged",
+			}),
+		).toBe("idle");
+	});
+
+	test("follow-up session startup is working, not initial Codex startup", () => {
+		expect(
+			deriveCloudChatActivity({
+				summary: summary({ revision: 15, startupPhase: "running" }),
+				attachment: "ready",
+				runtime: "starting",
+				command: "acknowledged",
+			}),
+		).toBe("running");
+	});
+
 	test("sidebar reflects the current turn instead of only the sandbox lifecycle", () => {
 		const active = summary({ revision: 12, startupPhase: "running" });
-		expect(cloudChatRowPresentation(active, "starting")).toEqual({
+		expect(cloudChatRowPresentation(active, "starting-agent")).toEqual({
 			label: "Working",
 			busy: true,
 		});
@@ -83,7 +291,7 @@ describe("cloud chat state reconciliation", () => {
 			state: "paused",
 			runtimeState: "offline",
 		});
-		expect(cloudChatRowPresentation(paused, "starting")).toEqual({
+		expect(cloudChatRowPresentation(paused, "resuming")).toEqual({
 			label: "Resuming",
 			busy: true,
 		});
@@ -104,6 +312,21 @@ describe("cloud chat state reconciliation", () => {
 				attachmentState: "ready",
 				hasExecutionTarget: false,
 			}),
+		).toBe(false);
+	});
+
+	test("a workspace ticket is reused until its final minute", () => {
+		const now = 1_000_000;
+		const connection = {
+			workspaceId: "workspace-cloud",
+			wsUrl: "wss://relay.example.test/workspace-cloud",
+			protocol: "zuse-workspace-v1",
+			credential: "opaque-in-test-only",
+			expiresAt: now + 5 * 60_000,
+		};
+		expect(canReuseCloudWorkspaceTicket(connection, now)).toBe(true);
+		expect(
+			canReuseCloudWorkspaceTicket(connection, connection.expiresAt - 59_000),
 		).toBe(false);
 	});
 
@@ -223,20 +446,26 @@ describe("cloud chat state reconciliation", () => {
 			desiredState: "paused",
 			runtimeState: "offline",
 		});
-		expect(cloudConnectionPresentation(paused, "detached")).toBe("paused");
-		expect(cloudConnectionPresentation(paused, "attaching")).toBe("resuming");
+		expect(cloudConnectionPresentation(paused, "paused")).toBe("paused");
+		expect(cloudConnectionPresentation(paused, "resuming")).toBe("resuming");
 		expect(
 			cloudConnectionPresentation(
 				summary({ revision: 24, startupPhase: "running" }),
 				"attaching",
 			),
+		).toBe("reconnecting");
+		expect(
+			cloudConnectionPresentation(
+				summary({ revision: 25, startupPhase: "running" }),
+				"idle",
+			),
 		).toBe("hidden");
 		expect(
 			cloudConnectionPresentation(
 				summary({ revision: 25, startupPhase: "running" }),
-				"ready",
+				"queued",
 			),
-		).toBe("hidden");
+		).toBe("queued");
 	});
 
 	test("a paused status refresh cannot cancel an attachment already in progress", () => {
@@ -329,5 +558,9 @@ describe("cloud chat state reconciliation", () => {
 		expect(
 			shouldAttachCloudChatWithPendingCommands(history("acknowledged")),
 		).toBe(false);
+		expect(commandStateFromCloudHistory(history("queued"))).toBe("queued");
+		expect(commandStateFromCloudHistory(history("acknowledged"))).toBe(
+			"acknowledged",
+		);
 	});
 });

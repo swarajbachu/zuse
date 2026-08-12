@@ -1,25 +1,24 @@
 import type { CloudChatSummary } from "@zuse/contracts";
-import type { CloudAttachmentState } from "../store/cloud-chat-registry.ts";
+import type { CloudChatActivity } from "./cloud-chat-activity.ts";
 
 export type CloudConnectionPresentation =
 	| "hidden"
 	| "paused"
 	| "resuming"
 	| "reconnecting"
+	| "queued"
 	| "updating"
 	| "failed";
 
 export const cloudConnectionPresentation = (
 	summary: CloudChatSummary,
-	attachment: CloudAttachmentState,
+	activity: CloudChatActivity,
 ): CloudConnectionPresentation => {
-	if (attachment === "failed") return "failed";
-	if (attachment === "ready") return "hidden";
+	if (activity === "failed") return "failed";
 	if (summary.statusCode.includes("runtime-update")) return "updating";
-	if (attachment === "attaching")
-		return summary.state === "ready" && summary.runtimeState === "online"
-			? "hidden"
-			: "resuming";
-	if (summary.state === "paused") return "paused";
+	if (activity === "resuming") return "resuming";
+	if (activity === "attaching") return "reconnecting";
+	if (activity === "queued") return "queued";
+	if (activity === "paused") return "paused";
 	return "hidden";
 };

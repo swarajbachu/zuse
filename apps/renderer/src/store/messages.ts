@@ -298,6 +298,8 @@ const unsubscribeLiveConnectionByScope = new Map<string, () => void>();
 // canonical server message instead of skipping it, so server-side fixups
 // (stripped `pending-` attachments, server `createdAt`) win.
 const optimisticIds = new Set<MessageId>();
+export const isOptimisticMessage = (messageId: string): boolean =>
+	optimisticIds.has(MessageId.make(messageId));
 const stopLiveConnectionSubscription = (): void => {
 	for (const unsubscribe of unsubscribeLiveConnectionByScope.values()) {
 		unsubscribe();
@@ -1000,7 +1002,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 			createdAt: new Date(),
 		});
 		optimisticIds.add(messageId);
-		if (!skipOptimisticRunning) {
+		if (!skipOptimisticRunning && cloudSummary === null) {
 			useSessionRuntimeStore.getState().beginOptimisticTurn(sessionId);
 		}
 		set((s) => ({
@@ -1036,6 +1038,13 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 							...(modelOptions !== null ? { modelOptions } : {}),
 						};
 			if (cloudSummary !== null) {
+				const cloudChats = await import("./cloud-chats.ts");
+				const commandCreatedAt = cloudChats.nextCloudCommandSubmissionAt();
+				cloudChats.noteCloudCommand(cloudSummary.workspaceId, {
+					clientMessageId: messageId,
+					state: "queued",
+					createdAt: commandCreatedAt,
+				});
 				const control = await import("../lib/rpc-client.ts").then((module) =>
 					module.getControlPlaneRpcClient(),
 				);
@@ -1049,7 +1058,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 								annotations: [],
 							})
 						: input;
-				await Effect.runPromise(
+				const accepted = await Effect.runPromise(
 					control["cloud.chats.send"]({
 						workspaceId: cloudSummary.workspaceId,
 						input: richInput,
@@ -1057,10 +1066,15 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 						asGoal: opts?.asGoal,
 					}),
 				);
+				cloudChats.noteCloudCommand(cloudSummary.workspaceId, {
+					clientMessageId: messageId,
+					state: "queued",
+					createdAt: commandCreatedAt,
+					sequence: accepted.sequence,
+				});
 				// The message is durable once the control plane accepts it. Resume and
 				// attach in the background so viewing history alone never wakes compute,
 				// while an explicit send does.
-				const cloudChats = await import("./cloud-chats.ts");
 				void cloudChats
 					.ensureCloudWorkspaceAttached(cloudSummary)
 					.catch(() => undefined);
@@ -1073,6 +1087,14 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 			void useSessionsStore.getState().refreshOne(sessionId);
 			return true;
 		} catch (err) {
+			if (cloudSummary !== null) {
+				const cloudChats = await import("./cloud-chats.ts");
+				cloudChats.noteCloudCommand(cloudSummary.workspaceId, {
+					clientMessageId: messageId,
+					state: "failed",
+					createdAt: optimisticMessage.createdAt.getTime(),
+				});
+			}
 			// Reset the optimistic running flag — otherwise a failed send leaves
 			// the composer stuck on Interrupt with no path back to Send (the
 			// status stream won't emit "idle" if the server never saw the turn).

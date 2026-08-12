@@ -1,8 +1,5 @@
 import type { CloudChatSummary } from "@zuse/contracts";
-import {
-	isSessionRuntimeBusy,
-	type SessionRuntimeState,
-} from "./session-runtime-state.ts";
+import type { CloudChatActivity } from "./cloud-chat-activity.ts";
 
 export type CloudChatRowPresentation = {
 	readonly label: string;
@@ -12,7 +9,7 @@ export type CloudChatRowPresentation = {
 /** One presentation for the durable workspace lifecycle and its current turn. */
 export const cloudChatRowPresentation = (
 	summary: CloudChatSummary,
-	runtimeState: SessionRuntimeState,
+	activity: CloudChatActivity,
 ): CloudChatRowPresentation => {
 	const archivePending =
 		summary.desiredState === "archived" && summary.state !== "failed";
@@ -22,29 +19,23 @@ export const cloudChatRowPresentation = (
 	if (summary.state === "failed")
 		return { label: "Needs attention", busy: false };
 
-	const turnBusy = isSessionRuntimeBusy(runtimeState);
-	const computeUnavailable =
-		summary.state !== "ready" || summary.runtimeState !== "online";
-	if (turnBusy) {
-		if (computeUnavailable) return { label: "Resuming", busy: true };
-		return {
-			label: runtimeState === "stopping" ? "Stopping" : "Working",
-			busy: true,
-		};
+	switch (activity) {
+		case "failed":
+			return { label: "Needs attention", busy: false };
+		case "paused":
+			return { label: "Paused", busy: false };
+		case "queued":
+			return { label: "Queued", busy: true };
+		case "resuming":
+			return { label: "Resuming", busy: true };
+		case "attaching":
+			return { label: "Connecting", busy: true };
+		case "starting-agent":
+		case "running":
+			return { label: "Working", busy: true };
+		case "stopping":
+			return { label: "Stopping", busy: true };
+		case "idle":
+			return { label: "Active", busy: false };
 	}
-
-	if (summary.state === "paused") return { label: "Paused", busy: false };
-	if (summary.state === "resuming" || summary.statusCode.startsWith("resume-"))
-		return { label: "Resuming", busy: true };
-	if (summary.state === "ready" && summary.runtimeState === "online")
-		return { label: "Active", busy: false };
-
-	const workspaceBusy =
-		summary.state === "queued" ||
-		summary.state === "provisioning" ||
-		summary.state === "setup" ||
-		summary.state === "pausing" ||
-		summary.state === "recovering" ||
-		summary.runtimeState === "connecting";
-	return { label: "Cloud starting", busy: workspaceBusy };
 };

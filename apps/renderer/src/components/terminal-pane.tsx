@@ -12,6 +12,7 @@ import { useChatsStore } from "../store/chats.ts";
 import {
 	cloudSummaryForChat,
 	localProjectForCloudChat,
+	useCloudExecutionStore,
 } from "../store/cloud-chat-registry.ts";
 import {
 	ensureCloudWorkspaceAttached,
@@ -119,9 +120,11 @@ function PlainTerminalSlot({
 			registeredCloudSummary,
 	);
 	const cloudProjectId = localProjectForCloudChat(chatId);
-	const [cloudConnection, setCloudConnection] = useState<
-		"idle" | "connecting" | "ready" | "failed"
-	>(cloudSummary === null ? "ready" : "idle");
+	const cloudAttachment = useCloudExecutionStore((state) =>
+		cloudSummary === null
+			? "ready"
+			: (state.stateByWorkspace[cloudSummary.workspaceId] ?? "detached"),
+	);
 	const [pendingTerminalInput, setPendingTerminalInput] = useState("");
 	const list = useTerminalsStore((s) => s.byKey[key] ?? EMPTY_TERMINALS);
 	const ensureSlot = useTerminalsStore((s) => s.ensureSlot);
@@ -132,31 +135,14 @@ function PlainTerminalSlot({
 		if (
 			cloudSummary === null ||
 			cloudProjectId === null ||
-			cloudConnection === "connecting"
+			cloudAttachment === "attaching"
 		)
 			return;
-		setCloudConnection("connecting");
-		void ensureCloudWorkspaceAttached(cloudSummary)
-			.then(() => {
-				setCloudConnection("ready");
-			})
-			.catch(() => {
-				setCloudConnection("failed");
-			});
-	}, [cloudConnection, cloudProjectId, cloudSummary]);
+		void ensureCloudWorkspaceAttached(cloudSummary).catch(() => undefined);
+	}, [cloudAttachment, cloudProjectId, cloudSummary]);
 
 	useEffect(() => {
-		if (
-			cloudSummary?.state !== "ready" ||
-			cloudSummary.runtimeState !== "online" ||
-			cloudConnection !== "idle"
-		)
-			return;
-		connectCloudTerminal();
-	}, [cloudConnection, cloudSummary, connectCloudTerminal]);
-
-	useEffect(() => {
-		if (cloudConnection !== "ready") return;
+		if (cloudAttachment !== "ready") return;
 		const instance = list[slot];
 		if (
 			instance === undefined ||
@@ -165,7 +151,7 @@ function PlainTerminalSlot({
 		)
 			ensureSlot(key, slot, resolvedRootPath);
 	}, [
-		cloudConnection,
+		cloudAttachment,
 		cloudSummary,
 		ensureSlot,
 		key,
@@ -174,13 +160,13 @@ function PlainTerminalSlot({
 		slot,
 	]);
 
-	if (cloudConnection === "connecting")
+	if (cloudAttachment === "attaching")
 		return (
 			<TerminalPlaceholder>
 				<ShimmerText>Reconnecting cloud terminal…</ShimmerText>
 			</TerminalPlaceholder>
 		);
-	if (cloudSummary !== null && cloudConnection !== "ready")
+	if (cloudSummary !== null && cloudAttachment !== "ready")
 		if (
 			cloudSummary.state === "resuming" ||
 			cloudSummary.state === "provisioning" ||
@@ -191,7 +177,7 @@ function PlainTerminalSlot({
 					<ShimmerText>Resuming cloud workspace…</ShimmerText>
 				</TerminalPlaceholder>
 			);
-	if (cloudSummary !== null && cloudConnection !== "ready")
+	if (cloudSummary !== null && cloudAttachment !== "ready")
 		return (
 			<TerminalPlaceholder>
 				<textarea
@@ -199,7 +185,7 @@ function PlainTerminalSlot({
 					onChange={() => undefined}
 					aria-label="Cloud terminal. Type to resume the workspace."
 					placeholder={
-						cloudConnection === "failed"
+						cloudAttachment === "failed"
 							? "Cloud terminal could not connect. Type here to try again."
 							: cloudSummary.state === "paused"
 								? "Workspace paused — type here to resume the terminal."
@@ -242,6 +228,7 @@ function PlainTerminalSlot({
 			instanceId={inst.id}
 			command={inst.command}
 			initialInput={pendingTerminalInput}
+			onInitialInputWritten={() => setPendingTerminalInput("")}
 		/>
 	);
 }
@@ -260,12 +247,14 @@ export function PtyTerminal({
 	instanceId,
 	command,
 	initialInput,
+	onInitialInputWritten,
 }: {
 	cwd: string;
 	environmentId: string;
 	instanceId: string;
 	command?: TerminalInstance["command"];
 	initialInput?: string;
+	onInitialInputWritten?: () => void;
 }) {
 	const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -276,6 +265,7 @@ export function PtyTerminal({
 			cwd,
 			command,
 			initialInput,
+			onInitialInputWritten,
 		});
 		return () => terminalRegistry.detach(environmentId, instanceId);
 		// `cwd`/`command` only matter on first open; reconnects reuse the live

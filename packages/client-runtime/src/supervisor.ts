@@ -322,6 +322,9 @@ class SupervisorEntryImpl<Options, Client>
 				attempt: 0,
 				error: null,
 			});
+			this.diagnostic("connection.ready", {
+				generation: this.state.generation,
+			});
 			if (reconnect) this.commandDispatcher.redispatchPending();
 			return client;
 		} catch (cause) {

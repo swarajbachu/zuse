@@ -23,6 +23,7 @@ import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 
 import type { RpcBridge } from "./bridge.ts";
 import { requestBrowserWebSocketUrl } from "./browser-session.ts";
+import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
 import {
 	LOCAL_RENDERER_STORAGE_SCOPE,
@@ -54,6 +55,23 @@ type RendererConnectionOptions =
 export const LOCAL_ENVIRONMENT_KEY = "local";
 
 const environmentConnections = new Map<string, RendererConnectionOptions>();
+type CloudWorkspaceRegistration = {
+	connection: CloudWorkspaceConnection | null;
+	refresh: () => Promise<CloudWorkspaceConnection>;
+	readonly refreshStable: () => Promise<CloudWorkspaceConnection>;
+};
+const cloudWorkspaceRegistrations = new Map<
+	string,
+	CloudWorkspaceRegistration
+>();
+const CLOUD_TICKET_REUSE_WINDOW_MS = 60_000;
+
+export const canReuseCloudWorkspaceTicket = (
+	connection: CloudWorkspaceConnection | null,
+	nowMs = Date.now(),
+): connection is CloudWorkspaceConnection =>
+	connection !== null &&
+	connection.expiresAt - nowMs > CLOUD_TICKET_REUSE_WINDOW_MS;
 let activeEnvironmentId = LOCAL_ENVIRONMENT_KEY;
 let localEnvironmentId = LOCAL_ENVIRONMENT_KEY;
 let defaultEnvironmentResolver: (() => string | undefined) | null = null;
@@ -161,6 +179,13 @@ const supervisor = createConnectionSupervisor<
 												...(options.protocols ?? []),
 											]),
 							onClose: (event) => {
+								if (options.key.startsWith("workspace:")) {
+									const workspaceId = options.key.slice("workspace:".length);
+									const registration =
+										cloudWorkspaceRegistrations.get(workspaceId);
+									if (registration !== undefined)
+										registration.connection = null;
+								}
 								reportRendererEntryFailure(
 									options.key,
 									new Error(`WebSocket closed (${event.code}).`),
@@ -178,6 +203,30 @@ const supervisor = createConnectionSupervisor<
 	isRetryableCommandError: isRpcClientError,
 	shouldReconnectOnOptionsChange: shouldReconnectRendererConnection,
 	maxAutomaticAttempts: RENDERER_MAX_AUTOMATIC_CONNECTION_ATTEMPTS,
+	onDiagnostic: ({ event, key, details }) => {
+		recordDiagnosticEvent({
+			level:
+				event.includes("failure") || event.includes("exhausted")
+					? "warn"
+					: "info",
+			source: "connection.supervisor",
+			message: event,
+			detail: JSON.stringify({
+				key,
+				status: details?.status,
+				attempt: details?.attempt,
+				generation: details?.generation,
+				delayMs: details?.delayMs,
+				reason:
+					typeof details?.reason === "string" &&
+					/^WebSocket closed \(\d+\)\.$/u.test(details.reason)
+						? details.reason
+						: details?.reason === undefined
+							? undefined
+							: "connection failure",
+			}),
+		});
+	},
 });
 
 export function shouldReconnectRendererConnection(
@@ -304,40 +353,56 @@ export const registerCloudWorkspace = (
 	refreshConnection: () => Promise<CloudWorkspaceConnection>,
 ): void => {
 	const existingEntry = rendererEntries.get(workspaceId);
-	let first: CloudWorkspaceConnection | null = initial;
-	environmentConnections.set(workspaceId, {
-		key: `workspace:${workspaceId}`,
-		kind: "websocket",
-		wsUrl: initial.wsUrl,
-		protocols: [initial.protocol, initial.credential],
-		refreshConnection: async () => {
-			if (first !== null) {
-				const connection = first;
-				first = null;
-				return connection;
-			}
-			return refreshConnection();
-		},
-	});
-	// A workspace uses one stable gateway URL, while every attachment receives a
-	// fresh one-time grant. If an earlier attachment exhausted its retries, the
-	// supervisor otherwise keeps rejecting the stable key without ever consuming
-	// the new grant. Supersede only a non-connected entry so routine sends do not
-	// churn a healthy terminal/chat connection.
+	let registration = cloudWorkspaceRegistrations.get(workspaceId);
+	if (registration === undefined) {
+		const created: CloudWorkspaceRegistration = {
+			connection: initial,
+			refresh: refreshConnection,
+			refreshStable: async () => {
+				const current = cloudWorkspaceRegistrations.get(workspaceId);
+				if (current === undefined)
+					throw new Error("Cloud workspace connection was removed.");
+				if (canReuseCloudWorkspaceTicket(current.connection))
+					return current.connection;
+				const refreshed = await current.refresh();
+				current.connection = refreshed;
+				return refreshed;
+			},
+		};
+		cloudWorkspaceRegistrations.set(workspaceId, created);
+		registration = created;
+		environmentConnections.set(workspaceId, {
+			key: `workspace:${workspaceId}`,
+			kind: "websocket",
+			wsUrl: initial.wsUrl,
+			protocols: [initial.protocol, initial.credential],
+			refreshConnection: created.refreshStable,
+		});
+	} else {
+		registration.refresh = refreshConnection;
+		if (
+			registration.connection === null ||
+			initial.expiresAt > registration.connection.expiresAt
+		)
+			registration.connection = initial;
+	}
+	// Repeated live actions update the reusable ticket source but never replace
+	// a connected or in-flight client. Only a terminal supervisor failure gets a
+	// deliberate fresh-ticket retry.
 	if (
 		existingEntry !== undefined &&
 		shouldRestartCloudWorkspaceConnection(existingEntry.snapshot().status)
 	) {
-		// Reading the entry applies the new connection options. The supervisor
-		// immediately reconnects when the one-time grant changes, so a second
-		// retry here would supersede that fresh in-flight attempt.
-		getRendererEntry(workspaceId);
+		// `initial` was minted by the live action that reached this retry path.
+		// Keep it so retryNow consumes that ticket instead of immediately minting
+		// a second one. Genuine socket closes invalidate the ticket in onClose.
+		existingEntry.retryNow();
 	}
 };
 
 export const shouldRestartCloudWorkspaceConnection = (
 	status: ConnectionSnapshot["status"],
-): boolean => status !== "connected";
+): boolean => status === "error" || status === "blockedAuth";
 
 export const registerLocalEnvironment = (environmentId: string): void => {
 	const bridge = globalThis.window?.zuse ?? globalThis.window?.memoize;
@@ -371,6 +436,7 @@ export const removeRendererEnvironment = async (
 	environmentId: string,
 ): Promise<void> => {
 	environmentConnections.delete(environmentId);
+	cloudWorkspaceRegistrations.delete(environmentId);
 	const entry = rendererEntries.get(environmentId);
 	rendererEntries.delete(environmentId);
 	if (activeEnvironmentId === environmentId)
@@ -422,6 +488,7 @@ export const dispatchRetryableRpcCommand = <A>(
 export const disposeRpcClient = async (): Promise<void> => {
 	rendererEntries.clear();
 	environmentConnections.clear();
+	cloudWorkspaceRegistrations.clear();
 	localEnvironmentId = LOCAL_ENVIRONMENT_KEY;
 	setActiveEnvironmentStorageScope(LOCAL_RENDERER_STORAGE_SCOPE);
 	await supervisor.dispose();

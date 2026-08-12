@@ -1,4 +1,4 @@
-import { Effect, Fiber, Ref, Stream } from "effect";
+import { Deferred, Effect, Fiber, Queue, Ref, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
 import {
@@ -38,20 +38,30 @@ describe("cloud workspace bootstrap", () => {
 });
 
 describe("cloud workspace command polling", () => {
-	it("fetches commands queued after the initial startup fetch", async () => {
+	it("fetches immediately when the gateway announces a queued command", async () => {
 		await Effect.runPromise(
 			Effect.gen(function* () {
 				const fetchCount = yield* Ref.make(0);
+				const signals = yield* Queue.unbounded<number>();
+				const secondFetch = yield* Deferred.make<void>();
 				const fiber = yield* Effect.forkDetach(
 					pollCloudWorkspaceCommands(
-						Ref.update(fetchCount, (count) => count + 1),
+						Ref.updateAndGet(fetchCount, (count) => count + 1).pipe(
+							Effect.tap((count) =>
+								count >= 2
+									? Deferred.succeed(secondFetch, undefined)
+									: Effect.void,
+							),
+						),
+						signals,
 					),
 				);
 
 				yield* Effect.yieldNow;
 				expect(yield* Ref.get(fetchCount)).toBe(1);
 
-				yield* TestClock.adjust("1 second");
+				yield* Queue.offer(signals, 2);
+				yield* Deferred.await(secondFetch);
 				expect(yield* Ref.get(fetchCount)).toBeGreaterThanOrEqual(2);
 
 				yield* Fiber.interrupt(fiber);

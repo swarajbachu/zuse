@@ -234,6 +234,84 @@ export interface MintedTokenClaims {
 	readonly scope: ReadonlyArray<string>;
 }
 
+export interface WorkspaceClientTicketClaims {
+	readonly accountId: string;
+	readonly workspaceId: string;
+	readonly scope: "workspace-client";
+}
+
+/** Mint a reusable, short-lived client ticket for one cloud workspace. */
+export const signWorkspaceClientTicket = (input: {
+	readonly mintPrivateJwk: JWK;
+	readonly issuer: string;
+	readonly accountId: string;
+	readonly workspaceId: string;
+	readonly ttlMs: number;
+	readonly nowMs: number;
+}): Effect.Effect<string, RelayError> =>
+	Effect.gen(function* () {
+		const key = yield* importEd25519(input.mintPrivateJwk, "sign");
+		return yield* Effect.tryPromise({
+			try: () =>
+				new SignJWT({
+					workspaceId: input.workspaceId,
+					scope: "workspace-client",
+				})
+					.setProtectedHeader({
+						alg: "EdDSA",
+						typ: "workspace-client+jwt",
+					})
+					.setIssuer(input.issuer)
+					.setAudience(`zuse-workspace:${input.workspaceId}`)
+					.setSubject(input.accountId)
+					.setIssuedAt(Math.floor(input.nowMs / 1000))
+					.setExpirationTime(Math.floor((input.nowMs + input.ttlMs) / 1000))
+					.sign(key),
+			catch: () => badRequest("workspace_ticket_sign_failed"),
+		});
+	});
+
+/** Verify signature, scope, account/workspace binding, and expiry. */
+export const verifyWorkspaceClientTicket = (input: {
+	readonly token: string;
+	readonly mintPublicJwk: JWK;
+	readonly issuer: string;
+	readonly expectedAccountId: string;
+	readonly expectedWorkspaceId: string;
+	readonly nowMs: number;
+}): Effect.Effect<WorkspaceClientTicketClaims, RelayError> =>
+	Effect.gen(function* () {
+		const key = yield* importEd25519(input.mintPublicJwk, "verify");
+		const verified = yield* Effect.tryPromise({
+			try: () =>
+				jwtVerify(input.token, key, {
+					issuer: input.issuer,
+					audience: `zuse-workspace:${input.expectedWorkspaceId}`,
+					typ: "workspace-client+jwt",
+					currentDate: new Date(input.nowMs),
+				}),
+			catch: () => unauthorized("invalid_workspace_ticket"),
+		});
+		const payload = verified.payload as {
+			readonly sub?: unknown;
+			readonly workspaceId?: unknown;
+			readonly scope?: unknown;
+		};
+		if (
+			payload.sub !== input.expectedAccountId ||
+			payload.workspaceId !== input.expectedWorkspaceId ||
+			payload.scope !== "workspace-client"
+		)
+			return yield* Effect.fail(
+				unauthorized("workspace_ticket_binding_mismatch"),
+			);
+		return {
+			accountId: input.expectedAccountId,
+			workspaceId: input.expectedWorkspaceId,
+			scope: "workspace-client",
+		};
+	});
+
 /** Verify a relay-minted access token (for DPoP-protected endpoints). */
 export const verifyAccessToken = (input: {
 	readonly token: string;

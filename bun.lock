@@ -195,6 +195,7 @@
         "@zuse/analytics": "workspace:*",
         "@zuse/client-runtime": "*",
         "@zuse/contracts": "*",
+        "@zuse/domain": "*",
         "@zuse/icons": "workspace:*",
         "@zuse/utils": "*",
         "class-variance-authority": "^0.7.1",

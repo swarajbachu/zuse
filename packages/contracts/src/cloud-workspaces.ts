@@ -234,6 +234,7 @@ export class CloudChatEvent extends Schema.Class<CloudChatEvent>(
 export class CloudChatQueuedMessage extends Schema.Class<CloudChatQueuedMessage>(
 	"CloudChatQueuedMessage",
 )({
+	sequence: Schema.optional(Schema.Number),
 	clientMessageId: MessageId,
 	input: ComposerInput,
 	state: Schema.Literals(["queued", "claimed", "acknowledged", "failed"]),
@@ -440,7 +441,7 @@ export const CloudChatsSendRpc = Rpc.make("cloud.chats.send", {
 		clientMessageId: MessageId,
 		asGoal: Schema.optional(Schema.Boolean),
 	}),
-	success: Schema.Void,
+	success: Schema.Struct({ sequence: Schema.Number }),
 	error: CloudWorkspaceOpError,
 });
 export const CloudWorkspacesPauseRpc = Rpc.make("cloud.workspaces.pause", {

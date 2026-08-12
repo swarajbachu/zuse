@@ -317,15 +317,22 @@ export default {
 		}
 		const eventSequence = response.headers.get("x-zuse-gateway-event-sequence");
 		const commandAvailable = response.headers.get("x-zuse-gateway-command");
+		const commandSequence = response.headers.get(
+			"x-zuse-gateway-command-sequence",
+		);
 		if (gatewayWorkspaceId !== null && commandAvailable === "available") {
 			response.headers.delete("x-zuse-gateway-workspace");
 			response.headers.delete("x-zuse-gateway-command");
+			response.headers.delete("x-zuse-gateway-command-sequence");
 			const id = env.WORKSPACE_GATEWAY.idFromName(gatewayWorkspaceId);
 			context.waitUntil(
 				env.WORKSPACE_GATEWAY.get(id).fetch(
 					new Request("https://workspace-gateway.internal/notify", {
 						method: "POST",
-						body: JSON.stringify({ type: "command.available" }),
+						body: JSON.stringify({
+							type: "command.available",
+							throughSequence: Number(commandSequence ?? "0"),
+						}),
 					}),
 				),
 			);

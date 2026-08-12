@@ -9,7 +9,7 @@ import {
 	RelayPaths,
 } from "@zuse/contracts";
 import { SandboxProviders } from "@zuse/sandbox-providers";
-import { Clock, Effect, Schema } from "effect";
+import { Clock, Effect, Redacted, Schema } from "effect";
 import { CompactEncrypt, importJWK, type JWK } from "jose";
 import { requireWorkos } from "./auth.ts";
 import { CloudChatCipher } from "./cloud-chat-cipher.ts";
@@ -24,7 +24,13 @@ import {
 	CloudWorkspaceStore,
 } from "./cloud-workspace-store.ts";
 import { RelayConfiguration } from "./config.ts";
-import { randomToken, sha256Hex } from "./crypto.ts";
+import {
+	parseJwk,
+	randomToken,
+	sha256Hex,
+	signWorkspaceClientTicket,
+	verifyWorkspaceClientTicket,
+} from "./crypto.ts";
 import {
 	badRequest,
 	conflict,
@@ -50,10 +56,9 @@ export type CloudWorkspaceRouteContext =
 	| RelayConfiguration
 	| WorkosVerifier;
 
-// The RPC socket transparently reconnects with the same WebSocket protocols.
-// Keep the workspace-scoped grant valid across those reconnects; explicit live
-// actions mint a replacement, and the idle workspace pauses before this lease.
-const CONNECTION_GRANT_TTL_MS = 15 * 60_000;
+// The RPC socket may reconnect without another user action. A signed ticket is
+// reusable during this short lease; expiry affects only new connections.
+const WORKSPACE_CLIENT_TICKET_TTL_MS = 5 * 60_000;
 const RUNTIME_CREDENTIAL_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 
 const json = (body: unknown, status = 200): Response =>
@@ -1073,15 +1078,40 @@ export const routeCloudWorkspaceRequest = (
 				typeof workspace.requestConfig.runtimeCredentialExpiresAtMs ===
 					"number" &&
 				workspace.requestConfig.runtimeCredentialExpiresAtMs > nowMs;
+			const relay = yield* RelayConfiguration;
+			const mintPublicJwk = yield* parseJwk(relay.mintPublicKey);
 			const client = runtime
 				? false
-				: yield* store.consumeConnectionGrant(
-						credentialHash,
-						workspaceId,
+				: yield* verifyWorkspaceClientTicket({
+						token: credential,
+						mintPublicJwk,
+						issuer: relay.relayIssuer,
+						expectedAccountId: workspace.accountId,
+						expectedWorkspaceId: workspaceId,
 						nowMs,
+					}).pipe(
+						Effect.as(true),
+						Effect.tapError((error) =>
+							Effect.sync(() =>
+								console.warn("[cloud-workspace] gateway upgrade rejected", {
+									workspaceId,
+									phase: "client-ticket",
+									code: error.code,
+								}),
+							),
+						),
 					);
 			if (!runtime && !client)
 				return yield* Effect.fail(unauthorized("workspace_gateway_rejected"));
+			if (
+				client &&
+				(workspace.state !== "ready" || workspace.runtimeState !== "online")
+			)
+				return yield* Effect.fail(conflict("cloud_workspace_unavailable"));
+			console.info("[cloud-workspace] gateway upgrade accepted", {
+				workspaceId,
+				role: runtime ? "runtime" : "client",
+			});
 			const response = new Response(null, { status: 204 });
 			response.headers.set("x-zuse-gateway-workspace", workspaceId);
 			response.headers.set(
@@ -1370,16 +1400,20 @@ export const routeCloudWorkspaceRequest = (
 			if (workspace.state === "failed" || workspace.state === "deleted")
 				return yield* Effect.fail(conflict("cloud_workspace_unavailable"));
 			yield* recordWorkspaceActivity(workspace);
-			const credential = yield* randomToken("workspace_client", 32);
-			const expiresAt = nowMs + CONNECTION_GRANT_TTL_MS;
-			yield* store.createConnectionGrant({
-				grantHash: yield* sha256Hex(credential),
-				workspaceId,
-				accountId: principal.accountId,
-				expiresAtMs: expiresAt,
-				createdAtMs: nowMs,
-			});
 			const relay = yield* RelayConfiguration;
+			const expiresAt = nowMs + WORKSPACE_CLIENT_TICKET_TTL_MS;
+			const credential = yield* signWorkspaceClientTicket({
+				mintPrivateJwk: yield* parseJwk(Redacted.value(relay.mintPrivateKey)),
+				issuer: relay.relayIssuer,
+				accountId: principal.accountId,
+				workspaceId,
+				ttlMs: WORKSPACE_CLIENT_TICKET_TTL_MS,
+				nowMs,
+			});
+			console.info("[cloud-workspace] client ticket minted", {
+				workspaceId,
+				expiresAt,
+			});
 			const response = json({
 				workspaceId,
 				wsUrl: gatewayUrl(relay.relayIssuer, workspaceId),
@@ -1441,6 +1475,7 @@ export const routeCloudWorkspaceRequest = (
 					return input._tag === "Some" && typeof clientMessageId === "string"
 						? [
 								{
+									sequence: command.sequence,
 									clientMessageId,
 									input: input.value,
 									state: command.state,
@@ -1472,7 +1507,7 @@ export const routeCloudWorkspaceRequest = (
 			if (body.workspaceId !== workspaceId)
 				return yield* Effect.fail(badRequest("workspace_id_mismatch"));
 			const commandId = `message:${body.clientMessageId}`;
-			yield* store.createNextCommand({
+			const command = yield* store.createNextCommand({
 				commandId,
 				workspaceId,
 				accountId: principal.accountId,
@@ -1493,9 +1528,13 @@ export const routeCloudWorkspaceRequest = (
 			});
 			const shouldResume = workspace.state === "paused";
 			yield* recordWorkspaceActivity(workspace);
-			const response = json({}, 202);
+			const response = json({ sequence: command.sequence }, 202);
 			response.headers.set("x-zuse-gateway-workspace", workspaceId);
 			response.headers.set("x-zuse-gateway-command", "available");
+			response.headers.set(
+				"x-zuse-gateway-command-sequence",
+				String(command.sequence),
+			);
 			if (shouldResume)
 				response.headers.set("x-zuse-reconcile-cloud-workspace", workspaceId);
 			return response;
@@ -1693,7 +1732,7 @@ export const routeCloudWorkspaceRequest = (
 			};
 			yield* store.saveWorkspace(updated);
 			const renameCommandId = `rename:${updated.workspaceId}:${updated.revision}`;
-			yield* store.createNextCommand({
+			const renameCommand = yield* store.createNextCommand({
 				commandId: renameCommandId,
 				workspaceId: updated.workspaceId,
 				accountId: updated.accountId,
@@ -1710,7 +1749,7 @@ export const routeCloudWorkspaceRequest = (
 			const project = yield* store.getProject(updated.projectId);
 			if (project === null)
 				return yield* Effect.fail(notFound("cloud_project_not_found"));
-			return json(
+			const response = json(
 				yield* publicCloudChat(
 					updated,
 					project,
@@ -1718,6 +1757,13 @@ export const routeCloudWorkspaceRequest = (
 					yield* store.latestMessageAt(updated.workspaceId),
 				),
 			);
+			response.headers.set("x-zuse-gateway-workspace", updated.workspaceId);
+			response.headers.set("x-zuse-gateway-command", "available");
+			response.headers.set(
+				"x-zuse-gateway-command-sequence",
+				String(renameCommand.sequence),
+			);
+			return response;
 		}
 
 		const actionMatch =

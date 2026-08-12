@@ -11,7 +11,9 @@ import {
 	Session,
 	SessionId,
 } from "@zuse/contracts";
+import { timelineSnapshotFromSerializedEvents } from "@zuse/domain/projectors/timeline-projection";
 import { Effect } from "effect";
+import type { CloudCommandState } from "../lib/cloud-chat-activity.ts";
 import {
 	cloudChatSnapshotStore,
 	makeCloudChatSnapshot,
@@ -23,10 +25,6 @@ import {
 	registerCloudWorkspace,
 	setDefaultRpcEnvironmentResolver,
 } from "../lib/rpc-client.ts";
-import {
-	effectiveSessionRuntimeState,
-	isSessionRuntimeBusy,
-} from "../lib/session-runtime-state.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useArchivePreviewStore } from "./archive-preview.ts";
 import { useChatsStore } from "./chats.ts";
@@ -42,6 +40,7 @@ import {
 } from "./cloud-chat-registry.ts";
 import {
 	acknowledgeTimelineSessionCreated,
+	isOptimisticMessage,
 	useMessagesStore,
 } from "./messages.ts";
 import { markQueueHydrated } from "./queue-hydration.ts";
@@ -50,11 +49,88 @@ import { useSessionsStore } from "./sessions.ts";
 
 type CloudChatsState = {
 	readonly summaries: ReadonlyArray<CloudChatSummary>;
+	readonly commandByWorkspace: Readonly<Record<string, CloudCommandProjection>>;
 	readonly historyLoadingByChat: Readonly<Record<string, boolean>>;
 	readonly loading: boolean;
 	readonly error: string | null;
 	readonly hydrate: () => Promise<void>;
 	readonly archive: (summary: CloudChatSummary) => Promise<void>;
+};
+
+export type CloudCommandProjection = {
+	readonly clientMessageId: string;
+	readonly state: Exclude<CloudCommandState, null>;
+	readonly createdAt: number;
+	readonly sequence?: number;
+};
+
+const COMMAND_STATE_RANK: Readonly<
+	Record<CloudCommandProjection["state"], number>
+> = {
+	queued: 0,
+	claimed: 1,
+	failed: 2,
+	acknowledged: 3,
+};
+
+const commandProjections = new Map<
+	string,
+	Map<string, CloudCommandProjection>
+>();
+
+let lastCloudCommandSubmissionAt = 0;
+export const nextCloudCommandSubmissionAt = (): number => {
+	lastCloudCommandSubmissionAt = Math.max(
+		Date.now(),
+		lastCloudCommandSubmissionAt + 1,
+	);
+	return lastCloudCommandSubmissionAt;
+};
+
+export const mergeCloudCommandProjection = (
+	current: CloudCommandProjection | undefined,
+	incoming: CloudCommandProjection,
+): CloudCommandProjection => {
+	if (current === undefined) return incoming;
+	if (current.clientMessageId === incoming.clientMessageId)
+		return COMMAND_STATE_RANK[incoming.state] >
+			COMMAND_STATE_RANK[current.state]
+			? { ...current, ...incoming }
+			: current.sequence === undefined && incoming.sequence !== undefined
+				? { ...current, sequence: incoming.sequence }
+				: current;
+	if (current.sequence !== undefined && incoming.sequence !== undefined)
+		return incoming.sequence > current.sequence ? incoming : current;
+	if (incoming.createdAt !== current.createdAt)
+		return incoming.createdAt > current.createdAt ? incoming : current;
+	return incoming.clientMessageId > current.clientMessageId
+		? incoming
+		: current;
+};
+
+export const selectLatestCloudCommand = (
+	commands: ReadonlyArray<CloudCommandProjection>,
+): CloudCommandProjection | undefined => {
+	const unresolved = commands
+		.filter(
+			(command) =>
+				command.sequence === undefined &&
+				(command.state === "queued" || command.state === "claimed"),
+		)
+		.sort(
+			(left, right) =>
+				right.createdAt - left.createdAt ||
+				right.clientMessageId.localeCompare(left.clientMessageId),
+		)[0];
+	if (unresolved !== undefined) return unresolved;
+	return [...commands].sort(
+		(left, right) =>
+			Number(right.sequence !== undefined) -
+				Number(left.sequence !== undefined) ||
+			(right.sequence ?? 0) - (left.sequence ?? 0) ||
+			right.createdAt - left.createdAt ||
+			right.clientMessageId.localeCompare(left.clientMessageId),
+	)[0];
 };
 
 const opening = new Map<string, Promise<void>>();
@@ -69,36 +145,7 @@ setDefaultRpcEnvironmentResolver(() => {
 });
 let hydration: Promise<void> | null = null;
 const histories = new Map<string, CloudChatHistory>();
-const historyPumps = new Map<string, Promise<void>>();
 const snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-const CLOUD_HISTORY_POLL_MS = 250;
-
-export const runCloudHistoryPump = async (input: {
-	readonly initialCursor: number;
-	readonly isActive: () => boolean;
-	readonly fetchAfter: (cursor: number) => Promise<CloudChatHistory>;
-	readonly apply: (history: CloudChatHistory) => void;
-	readonly wait?: () => Promise<void>;
-}): Promise<void> => {
-	let cursor = input.initialCursor;
-	const wait =
-		input.wait ??
-		(() =>
-			new Promise<void>((resolve) =>
-				setTimeout(resolve, CLOUD_HISTORY_POLL_MS),
-			));
-	while (input.isActive()) {
-		try {
-			const history = await input.fetchAfter(cursor);
-			cursor = Math.max(cursor, history.cursor);
-			input.apply(history);
-		} catch {
-			// A transient control-plane failure must not terminate live delivery.
-		}
-		if (input.isActive()) await wait();
-	}
-};
 
 const mergeCloudChatHistory = (
 	current: CloudChatHistory | null,
@@ -112,18 +159,51 @@ const mergeCloudChatHistory = (
 	const queued = new Map(
 		current.queuedMessages.map((message) => [message.clientMessageId, message]),
 	);
-	for (const message of incoming.queuedMessages)
-		queued.set(message.clientMessageId, message);
+	for (const message of incoming.queuedMessages) {
+		const previous = queued.get(message.clientMessageId);
+		if (
+			previous === undefined ||
+			COMMAND_STATE_RANK[message.state] >= COMMAND_STATE_RANK[previous.state]
+		)
+			queued.set(message.clientMessageId, message);
+	}
 	return CloudChatHistory.make({
 		workspaceId: incoming.workspaceId,
 		chatId: incoming.chatId,
 		initialSessionId: incoming.initialSessionId,
 		firstMessage: incoming.firstMessage ?? current.firstMessage,
-		commandState: incoming.commandState,
+		commandState:
+			current.commandState === "acknowledged"
+				? "acknowledged"
+				: incoming.commandState,
 		events: [...events.values()].sort((a, b) => a.sequence - b.sequence),
 		queuedMessages: [...queued.values()],
 		cursor: Math.max(current.cursor, incoming.cursor),
 	});
+};
+
+export const commandStateFromCloudHistory = (
+	history: Pick<CloudChatHistory, "commandState" | "queuedMessages">,
+): CloudCommandState =>
+	history.queuedMessages.at(-1)?.state ?? history.commandState;
+
+const commandProjectionFromHistory = (
+	history: CloudChatHistory,
+): CloudCommandProjection | null => {
+	const latest = [...history.queuedMessages].sort(
+		(left, right) =>
+			(right.sequence ?? 0) - (left.sequence ?? 0) ||
+			right.createdAt - left.createdAt ||
+			right.clientMessageId.localeCompare(left.clientMessageId),
+	)[0];
+	return latest === undefined
+		? null
+		: {
+				clientMessageId: latest.clientMessageId,
+				state: latest.state,
+				createdAt: latest.createdAt,
+				sequence: latest.sequence,
+			};
 };
 
 const persistCloudChatSnapshot = (
@@ -384,38 +464,15 @@ const seedFor = (
 	return { chat, session, initialMessage };
 };
 
-export const messagesFromHistory = (
+const projectCloudHistory = (
 	history: CloudChatHistory,
 	firstMessageCreatedAt = 0,
-): ReadonlyArray<Message> => {
-	const eventMessageRevisions = history.events.flatMap((row) => {
-		if (row.type !== "MessagePersisted") return [];
-		try {
-			const event = JSON.parse(row.payloadJson) as Record<string, unknown>;
-			if (
-				typeof event.messageId !== "string" ||
-				typeof event.role !== "string" ||
-				typeof event.contentJson !== "string" ||
-				typeof event.createdAt !== "number"
-			)
-				return [];
-			return [
-				Message.make({
-					id: MessageId.make(event.messageId),
-					sessionId: SessionId.make(history.initialSessionId),
-					role: event.role as Message["role"],
-					content: JSON.parse(event.contentJson) as Message["content"],
-					createdAt: new Date(event.createdAt),
-				}),
-			];
-		} catch {
-			return [];
-		}
-	});
-	const latestEventMessageById = new Map<MessageId, Message>();
-	for (const message of eventMessageRevisions)
-		latestEventMessageById.set(message.id, message);
-	const eventMessages = [...latestEventMessageById.values()].sort(
+) => {
+	const timeline = timelineSnapshotFromSerializedEvents(
+		SessionId.make(history.initialSessionId),
+		[...history.events].sort((left, right) => left.sequence - right.sequence),
+	);
+	const eventMessages = [...timeline.messages].sort(
 		(left, right) => left.createdAt.getTime() - right.createdAt.getTime(),
 	);
 	const firstPersistedUserMessage = eventMessages.find(
@@ -439,7 +496,7 @@ export const messagesFromHistory = (
 						createdAt: new Date(firstMessageCreatedAt),
 					}),
 				];
-	return [
+	const messages = [
 		...durableFirstMessage,
 		...eventMessages,
 		...history.queuedMessages.map((queued) =>
@@ -466,7 +523,14 @@ export const messagesFromHistory = (
 		(message, index, all) =>
 			all.findIndex((candidate) => candidate.id === message.id) === index,
 	);
+	return { messages, timeline };
 };
+
+export const messagesFromHistory = (
+	history: CloudChatHistory,
+	firstMessageCreatedAt = 0,
+): ReadonlyArray<Message> =>
+	projectCloudHistory(history, firstMessageCreatedAt).messages;
 
 const applyCloudHistory = (
 	summary: CloudChatSummary,
@@ -478,7 +542,11 @@ const applyCloudHistory = (
 		history,
 	);
 	histories.set(summary.workspaceId, mergedHistory);
-	const projected = messagesFromHistory(mergedHistory, summary.createdAt);
+	const commandProjection = commandProjectionFromHistory(mergedHistory);
+	if (commandProjection !== null)
+		noteCloudCommand(summary.workspaceId, commandProjection);
+	const projection = projectCloudHistory(mergedHistory, summary.createdAt);
+	const projected = projection.messages;
 	useMessagesStore.setState((state) => ({
 		messagesBySession: {
 			...state.messagesBySession,
@@ -489,33 +557,18 @@ const applyCloudHistory = (
 		},
 	}));
 	const sessionId = SessionId.make(summary.initialSessionId);
-	const currentRuntimeState = effectiveSessionRuntimeState(
-		useSessionRuntimeStore.getState().bySession[sessionId],
-	);
-	if (
-		shouldAttachCloudChatWithPendingCommands(history) &&
-		!isSessionRuntimeBusy(currentRuntimeState)
-	)
-		useSessionRuntimeStore.getState().beginOptimisticTurn(sessionId);
 
-	// Apply only the newly fetched status events, in sequence. Replaying the
-	// merged history on every poll can regress a live turn through old states.
-	for (const statusEvent of history.events
-		.filter((event) => event.type === "SessionStatusSet")
-		.sort((left, right) => left.sequence - right.sequence)) {
-		try {
-			const payload = JSON.parse(statusEvent.payloadJson) as {
-				readonly status?: Session["status"];
-			};
-			if (payload.status !== undefined) {
-				useSessionsStore.getState().setSessionStatus(sessionId, payload.status);
-				useSessionRuntimeStore
-					.getState()
-					.observeSummary(sessionId, payload.status);
-			}
-		} catch {
-			// Ignore malformed runtime events; message projection remains available.
-		}
+	const timeline = projection.timeline;
+	const attachment =
+		useCloudExecutionStore.getState().stateByWorkspace[summary.workspaceId] ??
+		"detached";
+	// Mirrored status is authoritative only while detached. Once live session
+	// events are attached, central history may lag and must never regress them.
+	if (attachment !== "ready") {
+		useSessionsStore.getState().setSessionStatus(sessionId, timeline.status);
+		useSessionRuntimeStore
+			.getState()
+			.observeSummary(sessionId, timeline.status);
 	}
 	const latestMessageAt = projected.reduce(
 		(latest, message) => Math.max(latest, message.createdAt.getTime()),
@@ -528,55 +581,6 @@ const applyCloudHistory = (
 	}));
 	persistCloudChatSnapshot(summary, projectId);
 	return projected;
-};
-
-const cloudHistoryHasChanges = (
-	current: CloudChatHistory | undefined,
-	incoming: CloudChatHistory,
-): boolean => {
-	if (current === undefined || incoming.cursor > current.cursor) return true;
-	if (incoming.commandState !== current.commandState) return true;
-	const currentQueue = new Map(
-		current.queuedMessages.map((message) => [
-			message.clientMessageId,
-			message.state,
-		]),
-	);
-	return incoming.queuedMessages.some(
-		(message) => currentQueue.get(message.clientMessageId) !== message.state,
-	);
-};
-
-const startCloudHistoryPump = (
-	summary: CloudChatSummary,
-	projectId: FolderId,
-): void => {
-	if (historyPumps.has(summary.workspaceId)) return;
-	const pump = (async () => {
-		await runCloudHistoryPump({
-			initialCursor: histories.get(summary.workspaceId)?.cursor ?? 0,
-			isActive: () =>
-				useChatsStore.getState().selectedChatId === summary.chatId,
-			fetchAfter: async (after) => {
-				const control = await getControlPlaneRpcClient();
-				return Effect.runPromise(
-					control["cloud.chats.history"]({
-						workspaceId: summary.workspaceId,
-						after,
-					}),
-				);
-			},
-			apply: (history) => {
-				if (
-					!cloudHistoryHasChanges(histories.get(summary.workspaceId), history)
-				)
-					return;
-				const latest = cloudSummaryForChat(summary.chatId) ?? summary;
-				applyCloudHistory(latest, projectId, history);
-			},
-		});
-	})().finally(() => historyPumps.delete(summary.workspaceId));
-	historyPumps.set(summary.workspaceId, pump);
 };
 
 export const stageCloudChat = (
@@ -766,7 +770,6 @@ export const openCloudChat = (
 		// ordinary composer immediately so a paused chat remains fully readable
 		// and the next message can be durably queued without waking compute first.
 		markQueueHydrated(SessionId.make(summary.initialSessionId));
-		startCloudHistoryPump(summary, projectId);
 	})().finally(() => opening.delete(summary.workspaceId));
 	opening.set(summary.workspaceId, operation);
 	return operation;
@@ -792,7 +795,6 @@ export const ensureCloudWorkspaceAttached = (
 	if (existing !== undefined) return existing;
 	const operation = (async () => {
 		const projectId = localProjectForCloudChat(summary.chatId);
-		if (projectId !== null) startCloudHistoryPump(summary, projectId);
 		setCloudAttachmentState(summary.workspaceId, "attaching");
 		const control = await getControlPlaneRpcClient();
 		const discovered = await Effect.runPromise(
@@ -871,6 +873,19 @@ export const ensureCloudWorkspaceAttached = (
 		});
 		await attachCloudTranscriptLive(summary);
 		setCloudAttachmentState(summary.workspaceId, "ready");
+		// Reconcile delivery once after live attachment. The session timeline is
+		// authoritative while connected; this read only closes a detached gap.
+		if (projectId !== null) {
+			const after = histories.get(summary.workspaceId)?.cursor ?? 0;
+			const reconciled = await Effect.runPromise(
+				control["cloud.chats.history"]({
+					workspaceId: summary.workspaceId,
+					after,
+				}),
+			).catch(() => null);
+			if (reconciled !== null)
+				applyCloudHistory(current, projectId, reconciled);
+		}
 	})()
 		.catch((cause) => {
 			setCloudAttachmentState(summary.workspaceId, "failed");
@@ -916,6 +931,7 @@ export const summaryFromLaunch = (input: {
 
 export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 	summaries: [],
+	commandByWorkspace: {},
 	historyLoadingByChat: {},
 	loading: false,
 	error: null,
@@ -982,6 +998,32 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 	},
 }));
 
+export const noteCloudCommand = (
+	workspaceId: string,
+	command: CloudCommandProjection,
+): void => {
+	let workspaceCommands = commandProjections.get(workspaceId);
+	if (workspaceCommands === undefined) {
+		workspaceCommands = new Map();
+		commandProjections.set(workspaceId, workspaceCommands);
+	}
+	workspaceCommands.set(
+		command.clientMessageId,
+		mergeCloudCommandProjection(
+			workspaceCommands.get(command.clientMessageId),
+			command,
+		),
+	);
+	const latest = selectLatestCloudCommand([...workspaceCommands.values()]);
+	if (latest === undefined) return;
+	useCloudChatsStore.setState((state) => ({
+		commandByWorkspace: {
+			...state.commandByWorkspace,
+			[workspaceId]: latest,
+		},
+	}));
+};
+
 useMessagesStore.subscribe((state, previous) => {
 	for (const summary of useCloudChatsStore.getState().summaries) {
 		if (
@@ -989,6 +1031,21 @@ useMessagesStore.subscribe((state, previous) => {
 			previous.messagesBySession[summary.initialSessionId]
 		)
 			continue;
+		const command =
+			useCloudChatsStore.getState().commandByWorkspace[summary.workspaceId];
+		if (
+			command !== undefined &&
+			command.state !== "acknowledged" &&
+			(state.messagesBySession[summary.initialSessionId] ?? []).some(
+				(message) =>
+					message.id === command.clientMessageId &&
+					!isOptimisticMessage(message.id),
+			)
+		)
+			noteCloudCommand(summary.workspaceId, {
+				...command,
+				state: "acknowledged",
+			});
 		const projectId = localProjectForCloudChat(summary.chatId);
 		if (projectId !== null) persistCloudChatSnapshot(summary, projectId);
 	}

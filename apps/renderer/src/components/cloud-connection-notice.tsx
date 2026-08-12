@@ -1,9 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CloudIcon, RefreshIcon } from "@zuse/icons/solid-rounded";
+import { deriveCloudChatActivity } from "../lib/cloud-chat-activity.ts";
 import {
 	type CloudConnectionPresentation,
 	cloudConnectionPresentation,
 } from "../lib/cloud-connection-presentation.ts";
+import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
 import { useChatsStore } from "../store/chats.ts";
 import {
 	cloudSummaryForChat,
@@ -13,6 +15,7 @@ import {
 	ensureCloudWorkspaceAttached,
 	useCloudChatsStore,
 } from "../store/cloud-chats.ts";
+import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner.tsx";
 
@@ -31,6 +34,10 @@ const copy: Record<
 	reconnecting: {
 		title: "Reconnecting",
 		detail: "Compute is online; Zuse is attaching securely.",
+	},
+	queued: {
+		title: "Sending message",
+		detail: "Waiting for the connected workspace to accept it.",
 	},
 	updating: {
 		title: "Updating cloud runtime",
@@ -57,13 +64,30 @@ export function CloudConnectionNotice() {
 			? "detached"
 			: (state.stateByWorkspace[summary.workspaceId] ?? "detached"),
 	);
+	const command = useCloudChatsStore((state) =>
+		summary === null
+			? null
+			: (state.commandByWorkspace[summary.workspaceId]?.state ?? null),
+	);
+	const runtime = useSessionRuntimeStore((state) =>
+		summary === null
+			? "idle"
+			: effectiveSessionRuntimeState(state.bySession[summary.initialSessionId]),
+	);
 	if (summary === null) return null;
-	const presentation = cloudConnectionPresentation(summary, attachment);
+	const activity = deriveCloudChatActivity({
+		summary,
+		attachment,
+		runtime,
+		command,
+	});
+	const presentation = cloudConnectionPresentation(summary, activity);
 	if (presentation === "hidden") return null;
 	const value = copy[presentation];
 	const busy =
 		presentation === "resuming" ||
 		presentation === "reconnecting" ||
+		presentation === "queued" ||
 		presentation === "updating";
 	return (
 		<div

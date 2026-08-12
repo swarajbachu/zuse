@@ -39,20 +39,20 @@ describe("renderer RPC transport selection", () => {
 		expect(resolveRendererRpcTransportForTest()).toEqual({ kind: "electron" });
 	});
 
-	it("restarts stale cloud attachments when a fresh grant is registered", () => {
-		expect(shouldRestartCloudWorkspaceConnection("connecting")).toBe(true);
-		expect(shouldRestartCloudWorkspaceConnection("reconnecting")).toBe(true);
+	it("restarts only terminal cloud connection failures", () => {
+		expect(shouldRestartCloudWorkspaceConnection("connecting")).toBe(false);
+		expect(shouldRestartCloudWorkspaceConnection("reconnecting")).toBe(false);
 		expect(shouldRestartCloudWorkspaceConnection("error")).toBe(true);
 		expect(shouldRestartCloudWorkspaceConnection("blockedAuth")).toBe(true);
 		expect(shouldRestartCloudWorkspaceConnection("connected")).toBe(false);
 	});
 
-	it("reconnects when a stable cloud gateway receives a fresh one-time grant", () => {
+	it("reconnects when a stable cloud gateway explicitly receives a new ticket", () => {
 		const refresh = async () => ({
 			workspaceId: "workspace-1",
 			wsUrl: "wss://cloud.example/workspaces/workspace-1",
 			protocol: "zuse-workspace-v1",
-			credential: "new-grant",
+			credential: "new-ticket",
 			expiresAt: Date.now() + 60_000,
 		});
 		expect(
@@ -61,14 +61,14 @@ describe("renderer RPC transport selection", () => {
 					key: "workspace:workspace-1",
 					kind: "websocket",
 					wsUrl: "wss://cloud.example/workspaces/workspace-1",
-					protocols: ["zuse-workspace-v1", "expired-grant"],
+					protocols: ["zuse-workspace-v1", "expired-ticket"],
 					refreshConnection: refresh,
 				},
 				{
 					key: "workspace:workspace-1",
 					kind: "websocket",
 					wsUrl: "wss://cloud.example/workspaces/workspace-1",
-					protocols: ["zuse-workspace-v1", "new-grant"],
+					protocols: ["zuse-workspace-v1", "new-ticket"],
 					refreshConnection: refresh,
 				},
 			),

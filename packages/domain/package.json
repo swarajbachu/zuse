@@ -22,6 +22,7 @@
 		"./engine/sql-consumer-storage": "./src/engine/sql-consumer-storage.ts",
 		"./engine/sql-dispatch-storage": "./src/engine/sql-dispatch-storage.ts",
 		"./projectors/read-model": "./src/projectors/read-model.ts",
+		"./projectors/timeline-projection": "./src/projectors/timeline-projection.ts",
 		"./projectors/sql-chat-projector": "./src/projectors/sql-chat-projector.ts",
 		"./projectors/sql-session-projector": "./src/projectors/sql-session-projector.ts",
 		"./reactors/conversation": "./src/reactors/conversation.ts",

@@ -105,6 +105,7 @@ import type {
 } from "../composer/draft-attachments.ts";
 import { composerSnapshotFromInput } from "../composer/input-snapshot.ts";
 import { parseComposerInput } from "../composer/segment-parser.ts";
+import { deriveCloudChatActivity } from "../lib/cloud-chat-activity.ts";
 import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
 import { useActiveWorkspaceRoot } from "../store/active-workspace.ts";
 import {
@@ -112,8 +113,14 @@ import {
 	useAnnotationsStore,
 } from "../store/annotations.ts";
 import { useAttachmentsStore } from "../store/attachments.ts";
-import { cloudSummaryForSession } from "../store/cloud-chat-registry.ts";
-import { shouldUseLocalMessageQueue } from "../store/cloud-chats.ts";
+import {
+	cloudSummaryForSession,
+	useCloudExecutionStore,
+} from "../store/cloud-chat-registry.ts";
+import {
+	shouldUseLocalMessageQueue,
+	useCloudChatsStore,
+} from "../store/cloud-chats.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import {
 	composerDraftKeyForSession,
@@ -220,11 +227,38 @@ export function ChatComposer({
 	const runtimeState = useSessionRuntimeStore((s) =>
 		effectiveSessionRuntimeState(s.bySession[sessionId]),
 	);
-	const isCloudSession = cloudSummaryForSession(sessionId) !== null;
+	const cloudSummary = cloudSummaryForSession(sessionId);
+	const isCloudSession = cloudSummary !== null;
+	const cloudAttachment = useCloudExecutionStore((state) =>
+		cloudSummary === null
+			? "detached"
+			: (state.stateByWorkspace[cloudSummary.workspaceId] ?? "detached"),
+	);
+	const cloudCommand = useCloudChatsStore((state) =>
+		cloudSummary === null
+			? null
+			: (state.commandByWorkspace[cloudSummary.workspaceId]?.state ?? null),
+	);
+	const cloudActivity =
+		cloudSummary === null
+			? null
+			: deriveCloudChatActivity({
+					summary: cloudSummary,
+					attachment: cloudAttachment,
+					runtime: runtimeState,
+					command: cloudCommand,
+				});
 	const interrupting = runtimeState === "stopping";
-	const inFlight = runtimeState === "running" || runtimeState === "stopping";
+	const inFlight =
+		runtimeState === "running" ||
+		runtimeState === "stopping" ||
+		(isCloudSession && runtimeState === "starting");
 	const showActiveTimer =
-		inFlight || (isCloudSession && runtimeState === "starting");
+		cloudActivity === null
+			? inFlight
+			: cloudActivity !== "idle" &&
+				cloudActivity !== "paused" &&
+				cloudActivity !== "failed";
 	// Hold messages only while the provider is unavailable or an earlier message
 	// is already queued. Worktree setup is independent background work and must
 	// not delay an agent that has finished booting.

@@ -53,6 +53,7 @@ const { resetSessionRuntimeForTest, useSessionRuntimeStore } = await import(
 const { registerCloudChat } = await import(
 	"../../src/store/cloud-chat-registry.ts"
 );
+const { useCloudChatsStore } = await import("../../src/store/cloud-chats.ts");
 
 const sessionId = "session-queue" as SessionId;
 const runtimeStateForTest = () =>
@@ -211,7 +212,7 @@ describe("messages store queue actions", () => {
 		resetSessionRuntimeForTest();
 	});
 
-	it("keeps a cloud turn visibly starting after its durable command is accepted", async () => {
+	it("keeps cloud delivery queued without pretending the agent started", async () => {
 		const cloudSessionId = AgentSessionId.make("session-cloud-feedback");
 		registerCloudChat(
 			CloudChatSummary.make({
@@ -239,7 +240,7 @@ describe("messages store queue actions", () => {
 			}),
 		);
 		getControlPlaneRpcClient.mockResolvedValue({
-			"cloud.chats.send": () => Effect.succeed({}),
+			"cloud.chats.send": () => Effect.succeed({ sequence: 1 }),
 			"cloud.workspaces.get": () => Effect.fail(new Error("not attached")),
 		});
 
@@ -249,7 +250,12 @@ describe("messages store queue actions", () => {
 			effectiveSessionRuntimeState(
 				useSessionRuntimeStore.getState().bySession[cloudSessionId],
 			),
-		).toBe("starting");
+		).toBe("idle");
+		expect(
+			useCloudChatsStore.getState().commandByWorkspace[
+				"workspace-cloud-feedback"
+			]?.state,
+		).toBe("queued");
 	});
 
 	it("delegates an idle queued item to the server-owned run-next command", async () => {

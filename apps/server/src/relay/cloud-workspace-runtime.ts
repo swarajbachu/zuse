@@ -14,7 +14,15 @@ import {
 } from "@zuse/contracts";
 import type { StoredEvent } from "@zuse/domain/engine/dispatch";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
-import { Effect, Layer, Redacted, Schedule, Schema, Stream } from "effect";
+import {
+	Effect,
+	Layer,
+	Queue,
+	Redacted,
+	Schedule,
+	Schema,
+	Stream,
+} from "effect";
 import { compactDecrypt, exportJWK, generateKeyPair } from "jose";
 import {
 	ChatService,
@@ -53,12 +61,23 @@ const fail = (reason: string) => new CloudWorkspaceRuntimeError({ reason });
  */
 export const pollCloudWorkspaceCommands = <A, E, R>(
 	fetchCommands: Effect.Effect<A, E, R>,
+	notifications?: Queue.Dequeue<number>,
 ): Effect.Effect<void, E, R> =>
-	fetchCommands.pipe(
-		Effect.retry(Schedule.spaced("1 second")),
-		Effect.repeat(Schedule.spaced("1 second")),
-		Effect.asVoid,
-	);
+	Effect.forever(
+		fetchCommands.pipe(
+			Effect.retry(Schedule.spaced("1 second")),
+			Effect.andThen(
+				notifications === undefined
+					? Effect.sleep("30 seconds")
+					: Queue.take(notifications).pipe(
+							Effect.timeoutOrElse({
+								duration: "30 seconds",
+								orElse: () => Effect.succeed(0),
+							}),
+						),
+			),
+		),
+	).pipe(Effect.asVoid);
 
 /**
  * The local event log is the runtime outbox. A resumed runtime can contain a
@@ -575,6 +594,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const localSockets = new Map<string, WebSocket>();
 					const pendingFrames = new Map<string, Array<string | ArrayBuffer>>();
 					let gateway: WebSocket | null = null;
+					// A fetch drains every command after the durable cursor, so only the
+					// newest wake-up matters. Sliding capacity one coalesces bursts and
+					// remains bounded while the relay or local runtime is unavailable.
+					const commandSignals = yield* Queue.sliding<number>(1);
 					const sendGateway = (message: unknown) => {
 						if (gateway?.readyState === WebSocket.OPEN)
 							gateway.send(JSON.stringify(message));
@@ -628,6 +651,12 @@ export const makeCloudWorkspaceRuntimeLayer = (
 									return;
 								}
 								if (
+									message.type === "command.available" &&
+									typeof message.throughSequence === "number"
+								) {
+									Queue.offerUnsafe(commandSignals, message.throughSequence);
+								}
+								if (
 									message.type === "client.open" &&
 									typeof message.connectionId === "string"
 								)
@@ -660,8 +689,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 										openLocal(message.connectionId);
 									}
 								}
-								// Durable command polling below is authoritative. Gateway
-								// notifications remain a latency hint for a future serialized pump.
 							});
 						},
 					).pipe(
@@ -683,8 +710,9 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						bootstrap.runtimeCredential,
 						"repository-ready",
 					);
-					yield* pollCloudWorkspaceCommands(fetchCommands()).pipe(
-						Effect.forkScoped({ startImmediately: true }),
-					);
+					yield* pollCloudWorkspaceCommands(
+						fetchCommands(),
+						commandSignals,
+					).pipe(Effect.forkScoped({ startImmediately: true }));
 				}),
 			);
