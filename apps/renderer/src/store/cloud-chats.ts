@@ -770,6 +770,12 @@ export const openCloudChat = (
 					}),
 				);
 				applyCloudHistory(summary, projectId, history);
+				// A message accepted before sleep remains an explicit live action.
+				// Reopening that chat must resume and drain the durable command instead
+				// of leaving it queued forever. A normally paused chat has no pending
+				// command and therefore remains offline.
+				if (shouldAttachCloudChatWithPendingCommands(history))
+					void ensureCloudWorkspaceAttached(summary).catch(() => {});
 			} catch (cause) {
 				if (cached === null)
 					useCloudChatsStore.setState({ error: formatError(cause) });
