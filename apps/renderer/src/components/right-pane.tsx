@@ -24,6 +24,8 @@ import * as terminalRegistry from "../lib/terminal-registry.ts";
 import { useAutoAnimate } from "../lib/use-auto-animate.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
+import { cloudSummaryForChat } from "../store/cloud-chat-registry.ts";
+import { ensureCloudWorkspaceAttached } from "../store/cloud-chats.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { useMessagesStore } from "../store/messages.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
@@ -103,6 +105,14 @@ const PANEL_META: Record<
 	browser: { label: "Browser", icon: GlobeIcon },
 	subagents: { label: "Subagents", icon: MagicWand01Icon },
 };
+
+const LIVE_PANEL_KINDS = new Set<PanelKind>([
+	"files",
+	"terminal",
+	"changes",
+	"pr",
+	"browser",
+]);
 
 /** Primary surfaces shown in the empty launcher and standard add menu. */
 const PRIMARY_PANEL_ORDER: ReadonlyArray<PanelKind> = [
@@ -237,6 +247,16 @@ export function RightPane({
 	const closePanel = useUiStore((s) => s.closePanel);
 	const setActive = useUiStore((s) => s.setActiveRightPanel);
 	const openChanges = useUiStore((s) => s.openChanges);
+	const requestCloudAttachment = () => {
+		if (chatId === null) return;
+		const summary = cloudSummaryForChat(chatId);
+		if (summary !== null)
+			void ensureCloudWorkspaceAttached(summary).catch(() => {});
+	};
+	const handleAddPanel = (kind: PanelKind) => {
+		addPanel(kind);
+		if (LIVE_PANEL_KINDS.has(kind)) requestCloudAttachment();
+	};
 	const addablePanels = addableKinds(panels).filter(
 		(kind) =>
 			!directoryUnavailable ||
@@ -336,7 +356,7 @@ export function RightPane({
 	const browserActive = activePanel?.kind === "browser";
 	const browserAvailable = rendererPlatformCapabilities().integratedBrowser;
 	const addPanelMenu = (
-		<AddPanelMenu addable={addablePanels} onAdd={addPanel} />
+		<AddPanelMenu addable={addablePanels} onAdd={handleAddPanel} />
 	);
 
 	return (
@@ -360,6 +380,7 @@ export function RightPane({
 							badge={tabBadge(panel)}
 							onSelect={() => {
 								setActive(panel.id);
+								if (LIVE_PANEL_KINDS.has(panel.kind)) requestCloudAttachment();
 								if (panel.kind === "changes") openChanges();
 							}}
 							onClose={() => handleClose(panel)}
@@ -373,7 +394,7 @@ export function RightPane({
 					<PanelLauncher
 						actions={addPanelMenu}
 						addable={addablePanels}
-						onAdd={addPanel}
+						onAdd={handleAddPanel}
 					/>
 				) : null}
 				{/* Non-browser panels: mount on add, kept mounted while open. */}
@@ -388,6 +409,7 @@ export function RightPane({
 							<PanelBody
 								panel={panel}
 								folderId={executionFolderId ?? selected.id}
+								cloudUnavailable={ctx.status === "cloud-unavailable"}
 								worktreeId={worktreeId}
 								sessionId={sessionId}
 								planMarkdown={planMarkdown}
@@ -398,7 +420,7 @@ export function RightPane({
 				{/* One host owns the command stream and keeps a webview mounted for
             every chat with a Browser panel. Only the selected chat is visible;
             background chats retain history and receive only their commands. */}
-				{browserAvailable ? (
+				{browserAvailable && ctx.status !== "cloud-unavailable" ? (
 					<Suspense
 						fallback={<div className="min-h-0 flex-1" aria-busy="true" />}
 					>
@@ -437,6 +459,7 @@ function PanelBody({
 	sessionId,
 	planMarkdown,
 	directoryUnavailable,
+	cloudUnavailable,
 }: {
 	panel: PanelInstance;
 	folderId: FolderId;
@@ -444,7 +467,18 @@ function PanelBody({
 	sessionId: import("@zuse/contracts").SessionId | null;
 	planMarkdown: string | null;
 	directoryUnavailable: boolean;
+	cloudUnavailable: boolean;
 }) {
+	if (cloudUnavailable && LIVE_PANEL_KINDS.has(panel.kind)) {
+		return (
+			<div
+				role="status"
+				className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs text-muted-foreground"
+			>
+				This cloud workspace is disconnected. Select this tab to reconnect.
+			</div>
+		);
+	}
 	if (
 		directoryUnavailable &&
 		(panel.kind === "files" ||

@@ -1,4 +1,5 @@
 import type { CloudChatSummary, FolderId, SessionId } from "@zuse/contracts";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 const summaryByChat = new Map<string, CloudChatSummary>();
 const summaryBySession = new Map<string, CloudChatSummary>();
@@ -10,6 +11,19 @@ export type CloudExecutionTarget = {
 	readonly rootPath: string;
 };
 const executionTargetByWorkspace = new Map<string, CloudExecutionTarget>();
+export type CloudAttachmentState =
+	| "detached"
+	| "attaching"
+	| "ready"
+	| "failed";
+type CloudExecutionState = {
+	readonly stateByWorkspace: Readonly<Record<string, CloudAttachmentState>>;
+	readonly targetByWorkspace: Readonly<Record<string, CloudExecutionTarget>>;
+};
+export const useCloudExecutionStore = create<CloudExecutionState>(() => ({
+	stateByWorkspace: {},
+	targetByWorkspace: {},
+}));
 
 export const registerCloudChat = (
 	summary: CloudChatSummary,
@@ -38,6 +52,32 @@ export const registerCloudExecutionTarget = (
 	target: CloudExecutionTarget,
 ): void => {
 	executionTargetByWorkspace.set(workspaceId, target);
+	useCloudExecutionStore.setState((state) => ({
+		stateByWorkspace: state.stateByWorkspace,
+		targetByWorkspace: { ...state.targetByWorkspace, [workspaceId]: target },
+	}));
+};
+
+export const setCloudAttachmentState = (
+	workspaceId: string,
+	attachmentState: CloudAttachmentState,
+): void => {
+	if (attachmentState === "detached" || attachmentState === "failed")
+		executionTargetByWorkspace.delete(workspaceId);
+	useCloudExecutionStore.setState((state) => ({
+		stateByWorkspace: {
+			...state.stateByWorkspace,
+			[workspaceId]: attachmentState,
+		},
+		targetByWorkspace:
+			attachmentState === "ready" || attachmentState === "attaching"
+				? state.targetByWorkspace
+				: Object.fromEntries(
+						Object.entries(state.targetByWorkspace).filter(
+							([id]) => id !== workspaceId,
+						),
+					),
+	}));
 };
 
 export const cloudExecutionTarget = (

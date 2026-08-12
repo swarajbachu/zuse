@@ -410,7 +410,10 @@ export const CloudWorkspacesConnectRpc = Rpc.make("cloud.workspaces.connect", {
 	error: CloudWorkspaceOpError,
 });
 export const CloudChatsHistoryRpc = Rpc.make("cloud.chats.history", {
-	payload: CloudWorkspaceActionRequest,
+	payload: Schema.Struct({
+		workspaceId: Schema.String,
+		after: Schema.optional(Schema.Number),
+	}),
 	success: CloudChatHistory,
 	error: CloudWorkspaceOpError,
 });

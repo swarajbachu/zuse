@@ -66,6 +66,21 @@ export function TerminalSlotPane({ slot }: { slot: number }) {
 			</TerminalPlaceholder>
 		);
 	}
+	if (ctx.status === "cloud-unavailable") {
+		return (
+			<TerminalPlaceholder>
+				{ctx.attachmentState === "failed" ? (
+					"Cloud connection failed. Select Terminal again to retry."
+				) : (
+					<ShimmerText>
+						{ctx.attachmentState === "attaching"
+							? "Connecting cloud terminal…"
+							: "Open Terminal to resume this cloud workspace"}
+					</ShimmerText>
+				)}
+			</TerminalPlaceholder>
+		);
+	}
 	if (ctx.worktreePending) {
 		return (
 			<TerminalPlaceholder>

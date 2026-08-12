@@ -22,6 +22,8 @@
 		"secret:hetzner": "wrangler secret put HETZNER_API_TOKEN --env=",
 		"secret:e2b": "wrangler secret put E2B_API_KEY --env=",
 		"secret:cloud-vault": "wrangler secret put CLOUD_CREDENTIAL_VAULT_KEY --env=",
+		"secret:cloud-chat-keys": "wrangler secret put CLOUD_CHAT_ENCRYPTION_KEYS --env=",
+		"secret:cloud-chat-active-key": "wrangler secret put CLOUD_CHAT_ENCRYPTION_ACTIVE_KEY_ID --env=",
 		"dev": "wrangler dev --env=",
 		"deploy": "wrangler deploy --env=",
 		"deploy:staging": "wrangler deploy --env=",

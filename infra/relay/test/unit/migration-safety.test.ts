@@ -18,6 +18,10 @@ const cloudWorkspaceMigrationUrl = new URL(
 	"../../drizzle/migrations/0005_thin_rawhide_kid.sql",
 	import.meta.url,
 );
+const cloudChatEncryptionMigrationUrl = new URL(
+	"../../drizzle/migrations/0006_cloud_chat_encryption.sql",
+	import.meta.url,
+);
 
 describe("relay migration reconciliation", () => {
 	test("keeps the main migration history before managed cloud machines", async () => {
@@ -35,7 +39,22 @@ describe("relay migration reconciliation", () => {
 			{ idx: 3, tag: "0003_managed_cloud_machines" },
 			{ idx: 4, tag: "0004_credential_cleanup_handshake" },
 			{ idx: 5, tag: "0005_thin_rawhide_kid" },
+			{ idx: 6, tag: "0006_cloud_chat_encryption" },
 		]);
+	});
+
+	test("moves chat content into nullable encrypted envelopes", async () => {
+		const migration = await readFile(cloudChatEncryptionMigrationUrl, "utf8");
+		expect(migration).toContain('"chat_metadata_ciphertext" text');
+		expect(
+			migration.match(/ADD COLUMN "encrypted_payload" text/gu),
+		).toHaveLength(2);
+		expect(migration).toContain(
+			'"relay_cloud_workspace_commands" ALTER COLUMN "payload" DROP NOT NULL',
+		);
+		expect(migration).toContain(
+			'"relay_cloud_workspace_events" ALTER COLUMN "payload_json" DROP NOT NULL',
+		);
 	});
 
 	test("separates durable cloud control-plane resources from machine enrollment", async () => {

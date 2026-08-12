@@ -24,6 +24,8 @@ import * as Config from "../../src/config.ts";
 import type { RelayContext } from "../../src/handler.ts";
 import {
 	AccountIdentity,
+	CloudChatCipher,
+	CloudChatCipherLive,
 	CloudCredentialVault,
 	CloudCredentialVaultLive,
 	CloudWorkspaceStoreMemory,
@@ -141,6 +143,10 @@ const makeLayer = async (
 			JSON.stringify(await exportJWK(mintKey.privateKey)),
 		),
 		mintPublicKey: JSON.stringify(await exportJWK(mintKey.publicKey)),
+		cloudChatEncryptionKeys: {
+			test: Redacted.make("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+		},
+		cloudChatEncryptionActiveKeyId: "test",
 		managedTunnel,
 		maxEnvironmentsPerAccount,
 	});
@@ -169,6 +175,10 @@ const makeLayer = async (
 		MachineStoreMemory,
 		CloudWorkspaceStoreMemory,
 		Layer.effect(CloudCredentialVault, CloudCredentialVaultLive).pipe(
+			Layer.provide(configLayer),
+			Layer.orDie,
+		),
+		Layer.effect(CloudChatCipher, CloudChatCipherLive).pipe(
 			Layer.provide(configLayer),
 			Layer.orDie,
 		),

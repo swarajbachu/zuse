@@ -12,6 +12,7 @@ import { SandboxProviders } from "@zuse/sandbox-providers";
 import { Clock, Effect, Schema } from "effect";
 import { CompactEncrypt, importJWK, type JWK } from "jose";
 import { requireWorkos } from "./auth.ts";
+import { CloudChatCipher } from "./cloud-chat-cipher.ts";
 import { CloudCredentialVault } from "./cloud-credential-vault.ts";
 import { hasUsableCloudWorkspaceEntitlement } from "./cloud-entitlement.ts";
 import {
@@ -41,6 +42,7 @@ import { WORKSPACE_GATEWAY_PROTOCOL } from "./workspace-gateway-protocol.ts";
 
 export type CloudWorkspaceRouteContext =
 	| CloudWorkspaceStore
+	| CloudChatCipher
 	| CloudCredentialVault
 	| MachineStore
 	| SandboxProviders
@@ -288,70 +290,160 @@ const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 		workspace.recoveryBundleKey !== undefined || workspace.state === "archived",
 });
 
-const cloudChatTitle = (workspace: CloudWorkspaceRecord): string => {
+interface CloudChatMetadata {
+	readonly title: string;
+	readonly firstMessage?: string;
+}
+const CloudChatMetadataSchema = Schema.Struct({
+	title: Schema.String,
+	firstMessage: Schema.optional(Schema.String),
+});
+
+const legacyCloudChatMetadata = (
+	workspace: CloudWorkspaceRecord,
+): CloudChatMetadata => {
 	if (
 		typeof workspace.requestConfig.title === "string" &&
 		workspace.requestConfig.title.trim().length > 0
 	)
-		return workspace.requestConfig.title.trim();
+		return {
+			title: workspace.requestConfig.title.trim(),
+			...(typeof workspace.requestConfig.firstMessage === "string"
+				? { firstMessage: workspace.requestConfig.firstMessage }
+				: {}),
+		};
 	const firstMessage = workspace.requestConfig.firstMessage;
-	if (typeof firstMessage !== "string") return workspace.branch;
+	if (typeof firstMessage !== "string") return { title: workspace.branch };
 	const title = firstMessage.trim().split(/\r?\n/u, 1)[0]?.trim() ?? "";
-	return title.length === 0
-		? workspace.branch
-		: title.length > 80
-			? `${title.slice(0, 77)}…`
-			: title;
+	return {
+		title:
+			title.length === 0
+				? workspace.branch
+				: title.length > 80
+					? `${title.slice(0, 77)}…`
+					: title,
+		firstMessage,
+	};
 };
 
-const publicCloudChat = (
+const cloudChatMetadata = Effect.fn("decryptCloudChatMetadata")(function* (
+	workspace: CloudWorkspaceRecord,
+) {
+	const cipher = yield* CloudChatCipher;
+	if (workspace.chatMetadataCiphertext === undefined) {
+		const legacy = legacyCloudChatMetadata(workspace);
+		const encrypted = yield* cipher
+			.encrypt(
+				{
+					accountId: workspace.accountId,
+					workspaceId: workspace.workspaceId,
+					recordKind: "workspace-metadata",
+					recordId: workspace.chatId,
+					version: 1,
+				},
+				JSON.stringify(legacy),
+			)
+			.pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("cloud_chat_encryption_unavailable"),
+				),
+			);
+		const verified = yield* cipher
+			.decrypt(
+				{
+					accountId: workspace.accountId,
+					workspaceId: workspace.workspaceId,
+					recordKind: "workspace-metadata",
+					recordId: workspace.chatId,
+					version: 1,
+				},
+				encrypted,
+			)
+			.pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("cloud_chat_encryption_verify_failed"),
+				),
+			);
+		if (verified !== JSON.stringify(legacy))
+			return yield* Effect.fail(
+				serviceUnavailable("cloud_chat_encryption_verify_failed"),
+			);
+		const store = yield* CloudWorkspaceStore;
+		yield* store.migrateWorkspaceChatMetadata(workspace.workspaceId, encrypted);
+		return legacy;
+	}
+	const plaintext = yield* cipher
+		.decrypt(
+			{
+				accountId: workspace.accountId,
+				workspaceId: workspace.workspaceId,
+				recordKind: "workspace-metadata",
+				recordId: workspace.chatId,
+				version: 1,
+			},
+			workspace.chatMetadataCiphertext,
+		)
+		.pipe(
+			Effect.mapError(() => serviceUnavailable("cloud_chat_decrypt_failed")),
+		);
+	return yield* Effect.try({
+		try: () =>
+			Schema.decodeUnknownSync(CloudChatMetadataSchema)(JSON.parse(plaintext)),
+		catch: () => serviceUnavailable("cloud_chat_decrypt_failed"),
+	});
+});
+
+const publicCloudChat = Effect.fn("publicCloudChat")(function* (
 	workspace: CloudWorkspaceRecord,
 	project: CloudProjectRecord,
 	unread: boolean,
 	lastMessageAt: number | null,
-) => ({
-	workspaceId: workspace.workspaceId,
-	projectId: project.projectId,
-	repositoryIdentity: project.repositoryIdentity,
-	repositoryDisplayName: project.displayName,
-	chatId: workspace.chatId,
-	initialSessionId: workspace.initialSessionId,
-	title: cloudChatTitle(workspace),
-	branch: workspace.branch,
-	providerId: workspace.provider,
-	agent:
-		typeof workspace.requestConfig.agent === "string"
-			? workspace.requestConfig.agent
-			: "codex",
-	model:
-		typeof workspace.requestConfig.model === "string"
-			? workspace.requestConfig.model
-			: "",
-	state: workspace.state,
-	desiredState: workspace.desiredState,
-	runtimeState: workspace.runtimeState,
-	statusCode: workspace.statusCode,
-	startupPhase: startupPhase(workspace),
-	revision: workspace.revision,
-	unread,
-	lastMessageAt,
-	...(workspace.state === "archived"
-		? { archivedAt: workspace.updatedAtMs }
-		: {}),
-	...(typeof workspace.requestConfig.archivePhase === "string"
-		? { archivePhase: workspace.requestConfig.archivePhase }
-		: {}),
-	...(typeof workspace.requestConfig.archiveErrorCode === "string"
-		? { archiveErrorCode: workspace.requestConfig.archiveErrorCode }
-		: {}),
-	...(typeof workspace.requestConfig.archiveDiagnostic === "string"
-		? {
-				archiveDiagnostic:
-					workspace.requestConfig.archiveDiagnostic.slice(-8_192),
-			}
-		: {}),
-	createdAt: workspace.createdAtMs,
-	updatedAt: workspace.updatedAtMs,
+) {
+	const metadata = yield* cloudChatMetadata(workspace);
+	return {
+		workspaceId: workspace.workspaceId,
+		projectId: project.projectId,
+		repositoryIdentity: project.repositoryIdentity,
+		repositoryDisplayName: project.displayName,
+		chatId: workspace.chatId,
+		initialSessionId: workspace.initialSessionId,
+		title: metadata.title,
+		branch: workspace.branch,
+		providerId: workspace.provider,
+		agent:
+			typeof workspace.requestConfig.agent === "string"
+				? workspace.requestConfig.agent
+				: "codex",
+		model:
+			typeof workspace.requestConfig.model === "string"
+				? workspace.requestConfig.model
+				: "",
+		state: workspace.state,
+		desiredState: workspace.desiredState,
+		runtimeState: workspace.runtimeState,
+		statusCode: workspace.statusCode,
+		startupPhase: startupPhase(workspace),
+		revision: workspace.revision,
+		unread,
+		lastMessageAt,
+		...(workspace.state === "archived"
+			? { archivedAt: workspace.updatedAtMs }
+			: {}),
+		...(typeof workspace.requestConfig.archivePhase === "string"
+			? { archivePhase: workspace.requestConfig.archivePhase }
+			: {}),
+		...(typeof workspace.requestConfig.archiveErrorCode === "string"
+			? { archiveErrorCode: workspace.requestConfig.archiveErrorCode }
+			: {}),
+		...(typeof workspace.requestConfig.archiveDiagnostic === "string"
+			? {
+					archiveDiagnostic:
+						workspace.requestConfig.archiveDiagnostic.slice(-8_192),
+				}
+			: {}),
+		createdAt: workspace.createdAtMs,
+		updatedAt: workspace.updatedAtMs,
+	};
 });
 
 const publicCredential = (credential: {
@@ -551,6 +643,7 @@ export const routeCloudWorkspaceRequest = (
 		if (!path.startsWith("/v1/cloud/")) return null;
 		const nowMs = yield* Clock.currentTimeMillis;
 		const store = yield* CloudWorkspaceStore;
+		const chatCipher = yield* CloudChatCipher;
 		const relayConfiguration = yield* RelayConfiguration;
 		const idlePauseMs = relayConfiguration.cloudWorkspaceIdleTimeoutMs;
 		const recordWorkspaceActivity = Effect.fn("recordWorkspaceActivity")(
@@ -578,6 +671,155 @@ export const routeCloudWorkspaceRequest = (
 				return updated;
 			},
 		);
+		const encryptChatPayload = (
+			workspace: Pick<CloudWorkspaceRecord, "workspaceId" | "accountId">,
+			recordKind: "workspace-metadata" | "command" | "runtime-event",
+			recordId: string,
+			payload: unknown,
+		) =>
+			chatCipher
+				.encrypt(
+					{
+						accountId: workspace.accountId,
+						workspaceId: workspace.workspaceId,
+						recordKind,
+						recordId,
+						version: 1,
+					},
+					recordKind === "runtime-event" && typeof payload === "string"
+						? payload
+						: JSON.stringify(payload),
+				)
+				.pipe(
+					Effect.mapError(() =>
+						serviceUnavailable("cloud_chat_encryption_unavailable"),
+					),
+				);
+		const verifyChatPayload = (
+			workspace: Pick<CloudWorkspaceRecord, "workspaceId" | "accountId">,
+			recordKind: "workspace-metadata" | "command" | "runtime-event",
+			recordId: string,
+			encryptedPayload: string,
+			expectedPlaintext: string,
+		) =>
+			chatCipher
+				.decrypt(
+					{
+						accountId: workspace.accountId,
+						workspaceId: workspace.workspaceId,
+						recordKind,
+						recordId,
+						version: 1,
+					},
+					encryptedPayload,
+				)
+				.pipe(
+					Effect.filterOrFail(
+						(plaintext) => plaintext === expectedPlaintext,
+						() => serviceUnavailable("cloud_chat_encryption_verify_failed"),
+					),
+					Effect.mapError(() =>
+						serviceUnavailable("cloud_chat_encryption_verify_failed"),
+					),
+				);
+		const decryptCommand = (command: CloudWorkspaceCommandRecord) =>
+			Effect.gen(function* () {
+				if (command.encryptedPayload === undefined) {
+					if (command.payload !== undefined) {
+						const encryptedPayload = yield* encryptChatPayload(
+							command,
+							"command",
+							command.commandId,
+							command.payload,
+						);
+						yield* verifyChatPayload(
+							command,
+							"command",
+							command.commandId,
+							encryptedPayload,
+							JSON.stringify(command.payload),
+						);
+						yield* store.migrateCommandPayload(
+							command.commandId,
+							encryptedPayload,
+						);
+						return command;
+					}
+					return yield* Effect.fail(
+						serviceUnavailable("cloud_chat_decrypt_failed"),
+					);
+				}
+				const plaintext = yield* chatCipher
+					.decrypt(
+						{
+							accountId: command.accountId,
+							workspaceId: command.workspaceId,
+							recordKind: "command",
+							recordId: command.commandId,
+							version: 1,
+						},
+						command.encryptedPayload,
+					)
+					.pipe(
+						Effect.mapError(() =>
+							serviceUnavailable("cloud_chat_decrypt_failed"),
+						),
+					);
+				const payload = yield* Effect.try({
+					try: () => JSON.parse(plaintext) as Record<string, unknown>,
+					catch: () => serviceUnavailable("cloud_chat_decrypt_failed"),
+				});
+				return { ...command, payload, encryptedPayload: undefined };
+			});
+		const decryptEvent = (
+			workspace: CloudWorkspaceRecord,
+			event: CloudWorkspaceEventRecord,
+		) =>
+			Effect.gen(function* () {
+				if (event.encryptedPayload === undefined) {
+					if (event.payloadJson !== undefined) {
+						const encryptedPayload = yield* encryptChatPayload(
+							workspace,
+							"runtime-event",
+							event.eventId,
+							event.payloadJson,
+						);
+						yield* verifyChatPayload(
+							workspace,
+							"runtime-event",
+							event.eventId,
+							encryptedPayload,
+							event.payloadJson,
+						);
+						yield* store.migrateEventPayload(
+							event.workspaceId,
+							event.runtimeSequence,
+							encryptedPayload,
+						);
+						return event;
+					}
+					return yield* Effect.fail(
+						serviceUnavailable("cloud_chat_decrypt_failed"),
+					);
+				}
+				const payloadJson = yield* chatCipher
+					.decrypt(
+						{
+							accountId: workspace.accountId,
+							workspaceId: event.workspaceId,
+							recordKind: "runtime-event",
+							recordId: event.eventId,
+							version: 1,
+						},
+						event.encryptedPayload,
+					)
+					.pipe(
+						Effect.mapError(() =>
+							serviceUnavailable("cloud_chat_decrypt_failed"),
+						),
+					);
+				return { ...event, payloadJson, encryptedPayload: undefined };
+			});
 
 		const bootstrapMatch =
 			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/bootstrap$/u.exec(path);
@@ -643,8 +885,9 @@ export const routeCloudWorkspaceRequest = (
 			const after = Number(url.searchParams.get("after") ?? "0");
 			if (!Number.isSafeInteger(after) || after < 0)
 				return yield* Effect.fail(badRequest("invalid_command_cursor"));
+			const commands = yield* store.listCommands(workspaceId, after, nowMs);
 			return json({
-				commands: yield* store.listCommands(workspaceId, after, nowMs),
+				commands: yield* Effect.forEach(commands, decryptCommand),
 			});
 		}
 
@@ -664,9 +907,27 @@ export const routeCloudWorkspaceRequest = (
 				)
 			)
 				return yield* Effect.fail(badRequest("invalid_runtime_events"));
-			const events: ReadonlyArray<CloudWorkspaceEventRecord> = body.events.map(
-				(event) => ({ ...event, workspaceId, createdAtMs: nowMs }),
-			);
+			const events: ReadonlyArray<CloudWorkspaceEventRecord> =
+				yield* Effect.forEach(body.events, (event) =>
+					Effect.gen(function* () {
+						const eventId = event.eventId;
+						return {
+							workspaceId,
+							runtimeSequence: event.runtimeSequence,
+							eventId,
+							streamId: event.streamId,
+							streamVersion: event.streamVersion,
+							type: event.type,
+							encryptedPayload: yield* encryptChatPayload(
+								workspace,
+								"runtime-event",
+								eventId,
+								event.payloadJson,
+							),
+							createdAtMs: nowMs,
+						};
+					}),
+				);
 			yield* store.appendEvents(workspaceId, events);
 			if (body.commandId !== undefined)
 				yield* store.acknowledgeCommand(workspaceId, body.commandId, nowMs);
@@ -837,6 +1098,33 @@ export const routeCloudWorkspaceRequest = (
 				principal.accountId,
 				projectId,
 			);
+			// Compatibility backfill: an authenticated full chat listing visits every
+			// legacy row for the account, verifies its encrypted replacement, and only
+			// then clears the plaintext column. New writes never use these columns.
+			yield* Effect.forEach(
+				workspaces,
+				(workspace) =>
+					Effect.all([
+						cloudChatMetadata(workspace),
+						store
+							.listStoredCommands(workspace.workspaceId)
+							.pipe(
+								Effect.flatMap((commands) =>
+									Effect.forEach(commands, decryptCommand),
+								),
+							),
+						store
+							.listEvents(workspace.workspaceId, 0)
+							.pipe(
+								Effect.flatMap((events) =>
+									Effect.forEach(events, (event) =>
+										decryptEvent(workspace, event),
+									),
+								),
+							),
+					]),
+				{ concurrency: 4 },
+			);
 			const chats = yield* Effect.forEach(
 				workspaces.filter((workspace) => {
 					if (workspace.state === "deleted") return false;
@@ -850,8 +1138,8 @@ export const routeCloudWorkspaceRequest = (
 						store.getProject(workspace.projectId),
 						store.latestEventAt(workspace.workspaceId),
 					]).pipe(
-						Effect.map(([project, latestEventAt]) => {
-							if (project === null) return null;
+						Effect.flatMap(([project, latestEventAt]) => {
+							if (project === null) return Effect.succeed(null);
 							const lastReadAt =
 								typeof workspace.requestConfig.lastReadAt === "number"
 									? workspace.requestConfig.lastReadAt
@@ -1069,17 +1357,21 @@ export const routeCloudWorkspaceRequest = (
 			const after = Number(url.searchParams.get("after") ?? "0");
 			if (!Number.isSafeInteger(after) || after < 0)
 				return yield* Effect.fail(badRequest("invalid_event_cursor"));
-			const events = yield* store.listEvents(workspaceId, after);
-			const messageCommands = yield* store.listMessageCommands(workspaceId);
+			const events = yield* Effect.forEach(
+				yield* store.listEvents(workspaceId, after),
+				(event) => decryptEvent(workspace, event),
+			);
+			const messageCommands = yield* Effect.forEach(
+				yield* store.listMessageCommands(workspaceId),
+				decryptCommand,
+			);
+			const metadata = yield* cloudChatMetadata(workspace);
 			yield* store.markChatRead(workspaceId, principal.accountId, nowMs);
 			return json({
 				workspaceId,
 				chatId: workspace.chatId,
 				initialSessionId: workspace.initialSessionId,
-				firstMessage:
-					typeof workspace.requestConfig.firstMessage === "string"
-						? workspace.requestConfig.firstMessage
-						: undefined,
+				firstMessage: metadata.firstMessage,
 				commandState:
 					workspace.requestConfig.commandState === "acknowledged"
 						? "acknowledged"
@@ -1090,21 +1382,21 @@ export const routeCloudWorkspaceRequest = (
 					streamId: event.streamId,
 					streamVersion: event.streamVersion,
 					type: event.type,
-					payloadJson: event.payloadJson,
+					payloadJson: event.payloadJson ?? "{}",
 					createdAt: event.createdAtMs,
 				})),
 				queuedMessages: messageCommands.flatMap((command) => {
 					const input = Schema.decodeUnknownOption(ComposerInput)(
-						command.payload.input,
+						command.payload?.input,
 					);
-					const clientMessageId = command.payload.clientMessageId;
+					const clientMessageId = command.payload?.clientMessageId;
 					return input._tag === "Some" && typeof clientMessageId === "string"
 						? [
 								{
 									clientMessageId,
 									input: input.value,
 									state: command.state,
-									asGoal: command.payload.asGoal === true,
+									asGoal: command.payload?.asGoal === true,
 									createdAt: command.createdAtMs,
 								},
 							]
@@ -1131,17 +1423,23 @@ export const routeCloudWorkspaceRequest = (
 			const body = yield* decodeBody(CloudChatSendRequest, request);
 			if (body.workspaceId !== workspaceId)
 				return yield* Effect.fail(badRequest("workspace_id_mismatch"));
+			const commandId = `message:${body.clientMessageId}`;
 			yield* store.createNextCommand({
-				commandId: `message:${body.clientMessageId}`,
+				commandId,
 				workspaceId,
 				accountId: principal.accountId,
 				kind: "send-message",
-				payload: {
-					initialSessionId: workspace.initialSessionId,
-					input: body.input,
-					clientMessageId: body.clientMessageId,
-					asGoal: body.asGoal ?? false,
-				},
+				encryptedPayload: yield* encryptChatPayload(
+					workspace,
+					"command",
+					commandId,
+					{
+						initialSessionId: workspace.initialSessionId,
+						input: body.input,
+						clientMessageId: body.clientMessageId,
+						asGoal: body.asGoal ?? false,
+					},
+				),
 				state: "queued",
 				createdAtMs: nowMs,
 			});
@@ -1206,6 +1504,25 @@ export const routeCloudWorkspaceRequest = (
 						conflict("cloud_credential_connection_required"),
 					);
 			}
+			const title = (() => {
+				const value = body.firstMessage?.trim().split(/\r?\n/u, 1)[0]?.trim();
+				return value === undefined || value.length === 0
+					? branch
+					: value.length > 80
+						? `${value.slice(0, 77)}…`
+						: value;
+			})();
+			const chatMetadataCiphertext = yield* encryptChatPayload(
+				{ workspaceId, accountId: principal.accountId },
+				"workspace-metadata",
+				chatId,
+				{
+					title,
+					...(body.firstMessage === undefined
+						? {}
+						: { firstMessage: body.firstMessage }),
+				},
+			);
 			const workspace: CloudWorkspaceRecord = {
 				workspaceId,
 				accountId: principal.accountId,
@@ -1222,23 +1539,12 @@ export const routeCloudWorkspaceRequest = (
 				statusCode: "provisioning-queued",
 				credentialEpoch: yield* store.credentialEpoch(principal.accountId),
 				idempotencyKey: body.idempotencyKey,
+				chatMetadataCiphertext,
 				requestConfig: {
 					agent: body.agent,
 					model: body.model,
 					credentialKinds,
 					permissions: body.permissions ?? [],
-					firstMessage: body.firstMessage,
-					title: (() => {
-						const value = body.firstMessage
-							?.trim()
-							.split(/\r?\n/u, 1)[0]
-							?.trim();
-						return value === undefined || value.length === 0
-							? branch
-							: value.length > 80
-								? `${value.slice(0, 77)}…`
-								: value;
-					})(),
 					commandState: "queued",
 					repositoryCache: preparedSnapshotAvailable
 						? "prepared"
@@ -1251,36 +1557,44 @@ export const routeCloudWorkspaceRequest = (
 				updatedAtMs: nowMs,
 				lastActivityAtMs: nowMs,
 			};
-			const commandFor = (
+			const commandFor = Effect.fn("encryptStartCloudAgentCommand")(function* (
 				target: CloudWorkspaceRecord,
-			): CloudWorkspaceCommandRecord => ({
-				commandId: `start:${target.workspaceId}`,
-				workspaceId: target.workspaceId,
-				accountId: target.accountId,
-				sequence: 1,
-				kind: "start-agent",
-				payload: {
-					chatId: target.chatId,
-					initialSessionId: target.initialSessionId,
-					title: target.requestConfig.title,
-					agent: body.agent,
-					model: body.model,
-					firstMessage: body.firstMessage,
-					permissions: body.permissions ?? [],
-				},
-				state: "queued",
-				createdAtMs: nowMs,
+			) {
+				const commandId = `start:${target.workspaceId}`;
+				return {
+					commandId,
+					workspaceId: target.workspaceId,
+					accountId: target.accountId,
+					sequence: 1,
+					kind: "start-agent",
+					encryptedPayload: yield* encryptChatPayload(
+						target,
+						"command",
+						commandId,
+						{
+							chatId: target.chatId,
+							initialSessionId: target.initialSessionId,
+							title,
+							agent: body.agent,
+							model: body.model,
+							firstMessage: body.firstMessage,
+							permissions: body.permissions ?? [],
+						},
+					),
+					state: "queued",
+					createdAtMs: nowMs,
+				} satisfies CloudWorkspaceCommandRecord;
 			});
 			const outcome = yield* store.createWorkspace(
 				workspace,
-				commandFor(workspace),
+				yield* commandFor(workspace),
 			);
 			if (outcome.kind === "branch-in-use")
 				return yield* Effect.fail(
 					conflict(`cloud_branch_in_use:${outcome.workspace.workspaceId}`),
 				);
 			if (outcome.kind === "existing")
-				yield* store.createCommand(commandFor(outcome.workspace));
+				yield* store.createCommand(yield* commandFor(outcome.workspace));
 			const response = json(
 				{
 					workspace: publicWorkspace(outcome.workspace),
@@ -1312,19 +1626,36 @@ export const routeCloudWorkspaceRequest = (
 			const title = body.title.trim();
 			if (title.length === 0 || title.length > 80)
 				return yield* Effect.fail(badRequest("invalid_cloud_chat_title"));
+			const metadata = yield* cloudChatMetadata(workspace);
 			const updated: CloudWorkspaceRecord = {
 				...workspace,
-				requestConfig: { ...workspace.requestConfig, title },
+				chatMetadataCiphertext: yield* encryptChatPayload(
+					workspace,
+					"workspace-metadata",
+					workspace.chatId,
+					{ ...metadata, title },
+				),
+				requestConfig: Object.fromEntries(
+					Object.entries(workspace.requestConfig).filter(
+						([key]) => key !== "title" && key !== "firstMessage",
+					),
+				),
 				revision: workspace.revision + 1,
 				updatedAtMs: nowMs,
 			};
 			yield* store.saveWorkspace(updated);
+			const renameCommandId = `rename:${updated.workspaceId}:${updated.revision}`;
 			yield* store.createNextCommand({
-				commandId: `rename:${updated.workspaceId}:${updated.revision}`,
+				commandId: renameCommandId,
 				workspaceId: updated.workspaceId,
 				accountId: updated.accountId,
 				kind: "rename-chat",
-				payload: { title },
+				encryptedPayload: yield* encryptChatPayload(
+					updated,
+					"command",
+					renameCommandId,
+					{ title },
+				),
 				state: "queued",
 				createdAtMs: nowMs,
 			});
@@ -1332,7 +1663,7 @@ export const routeCloudWorkspaceRequest = (
 			if (project === null)
 				return yield* Effect.fail(notFound("cloud_project_not_found"));
 			return json(
-				publicCloudChat(
+				yield* publicCloudChat(
 					updated,
 					project,
 					false,

@@ -111,7 +111,13 @@ export function WorktreeSetupCard() {
 		hasWorktree,
 		setupDone,
 	});
-	if (cloudSummary !== null && cloudSummary.startupPhase !== "running")
+	if (
+		cloudSummary !== null &&
+		cloudSummary.startupPhase !== "running" &&
+		cloudSummary.state !== "paused" &&
+		cloudSummary.state !== "resuming" &&
+		!cloudSummary.statusCode.includes("resume")
+	)
 		return <CloudWorkspaceSetupCard summary={cloudSummary} />;
 	if (!visible) return null;
 

@@ -43,6 +43,13 @@
 			"when": 1786438949570,
 			"tag": "0005_thin_rawhide_kid",
 			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "7",
+			"when": 1786521587993,
+			"tag": "0006_cloud_chat_encryption",
+			"breakpoints": true
 		}
 	]
 }

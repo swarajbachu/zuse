@@ -904,7 +904,10 @@ export function TopBarRightContent({
 	);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 
-	const canCreatePrWhenSynced = canCreatePrFromSyncedBranch(status, ctx);
+	const canCreatePrWhenSynced = canCreatePrFromSyncedBranch(
+		status,
+		ctx.status === "cloud-unavailable" ? { status: "empty" } : ctx,
+	);
 	const workflow = deriveBranchWorkflow(status, pr, canCreatePrWhenSynced);
 	const agentReady = selectedSessionId !== null;
 
@@ -1064,7 +1067,10 @@ export function WorkflowActions({
 		void useMessagesStore.getState().send(selectedSessionId, text);
 	};
 
-	const canCreatePrWhenSynced = canCreatePrFromSyncedBranch(status, ctx);
+	const canCreatePrWhenSynced = canCreatePrFromSyncedBranch(
+		status,
+		ctx.status === "cloud-unavailable" ? { status: "empty" } : ctx,
+	);
 	const workflow = deriveBranchWorkflow(status, pr, canCreatePrWhenSynced);
 	const agentReady = selectedSessionId !== null;
 

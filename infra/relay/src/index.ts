@@ -1,4 +1,5 @@
 import { type Layer, ManagedRuntime } from "effect";
+import { backfillCloudChatEncryption } from "./cloud-chat-backfill.ts";
 import {
 	reconcileCloudBuild,
 	reconcileCloudResources,
@@ -9,6 +10,8 @@ import { reconcileMachine, reconcileMachines } from "./machine-reconciler.ts";
 
 export * from "./account-identity.ts";
 export { RELAY_SCOPES } from "./auth.ts";
+export * from "./cloud-chat-backfill.ts";
+export * from "./cloud-chat-cipher.ts";
 export * from "./cloud-credential-vault.ts";
 export * from "./cloud-workspace-store.ts";
 export * from "./config.ts";
@@ -50,6 +53,10 @@ export const makeRelay = (
 	}>;
 	readonly reconcileCloudBuild: (buildId: string) => Promise<void>;
 	readonly reconcileCloudWorkspace: (workspaceId: string) => Promise<void>;
+	readonly backfillCloudChatEncryption: () => Promise<{
+		readonly workspaces: number;
+		readonly records: number;
+	}>;
 	readonly dispose: () => Promise<void>;
 } => {
 	const runtime = ManagedRuntime.make(layer);
@@ -63,6 +70,8 @@ export const makeRelay = (
 			runtime.runPromise(reconcileCloudBuild(buildId)),
 		reconcileCloudWorkspace: (workspaceId) =>
 			runtime.runPromise(reconcileCloudWorkspace(workspaceId)),
+		backfillCloudChatEncryption: () =>
+			runtime.runPromise(backfillCloudChatEncryption()),
 		dispose: () => runtime.dispose(),
 	};
 };

@@ -1,0 +1,99 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { CloudIcon, RefreshIcon } from "@hugeicons-pro/core-solid-rounded";
+import {
+	type CloudConnectionPresentation,
+	cloudConnectionPresentation,
+} from "../lib/cloud-connection-presentation.ts";
+import { useChatsStore } from "../store/chats.ts";
+import {
+	cloudSummaryForChat,
+	useCloudExecutionStore,
+} from "../store/cloud-chat-registry.ts";
+import {
+	ensureCloudWorkspaceAttached,
+	useCloudChatsStore,
+} from "../store/cloud-chats.ts";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
+
+const copy: Record<
+	Exclude<CloudConnectionPresentation, "hidden">,
+	{ readonly title: string; readonly detail: string }
+> = {
+	paused: {
+		title: "Cloud workspace paused",
+		detail: "Sending a message or opening a live tool will resume it.",
+	},
+	resuming: {
+		title: "Resuming cloud workspace",
+		detail: "The sandbox compute is waking up.",
+	},
+	reconnecting: {
+		title: "Reconnecting",
+		detail: "Compute is online; Zuse is attaching securely.",
+	},
+	updating: {
+		title: "Updating cloud runtime",
+		detail: "Zuse will reconnect after the compatible runtime starts.",
+	},
+	failed: {
+		title: "Connection failed",
+		detail: "Your cached chat is still available.",
+	},
+};
+
+export function CloudConnectionNotice() {
+	const selectedChatId = useChatsStore((state) => state.selectedChatId);
+	const registered =
+		selectedChatId === null ? null : cloudSummaryForChat(selectedChatId);
+	const summary = useCloudChatsStore((state) =>
+		selectedChatId === null
+			? null
+			: (state.summaries.find((item) => item.chatId === selectedChatId) ??
+				registered),
+	);
+	const attachment = useCloudExecutionStore((state) =>
+		summary === null
+			? "detached"
+			: (state.stateByWorkspace[summary.workspaceId] ?? "detached"),
+	);
+	if (summary === null) return null;
+	const presentation = cloudConnectionPresentation(summary, attachment);
+	if (presentation === "hidden") return null;
+	const value = copy[presentation];
+	const busy =
+		presentation === "resuming" ||
+		presentation === "reconnecting" ||
+		presentation === "updating";
+	return (
+		<div
+			role="status"
+			aria-live="polite"
+			className="mb-1 flex min-h-9 items-center gap-2 rounded-lg border border-border/60 bg-background/90 px-3 py-2 text-xs shadow-sm"
+		>
+			<HugeiconsIcon
+				icon={CloudIcon}
+				className="size-4 text-muted-foreground"
+			/>
+			<div className="min-w-0 flex-1">
+				{busy ? (
+					<ShimmerText>{value.title}</ShimmerText>
+				) : (
+					<p className="font-medium text-foreground">{value.title}</p>
+				)}
+				<p className="truncate text-muted-foreground">{value.detail}</p>
+			</div>
+			{presentation === "failed" ? (
+				<button
+					type="button"
+					className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					onClick={() =>
+						void ensureCloudWorkspaceAttached(summary).catch(() => {})
+					}
+				>
+					<HugeiconsIcon icon={RefreshIcon} className="size-3.5" />
+					Retry
+				</button>
+			) : null}
+		</div>
+	);
+}

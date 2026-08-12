@@ -10,6 +10,7 @@ import runtimeInstallerSource from "../../../apps/server/scripts/runtime-updater
 import cloudInitTemplate from "../../cloud-machines/bootstrap/cloud-init.yaml.tmpl";
 import { AccountIdentityLive } from "./account-identity.ts";
 import { resolveBillingRuntime } from "./billing-config.ts";
+import { CloudChatCipher, CloudChatCipherLive } from "./cloud-chat-cipher.ts";
 import {
 	CloudCredentialVault,
 	CloudCredentialVaultLive,
@@ -56,6 +57,8 @@ interface Env {
 	readonly RELAY_MINT_PRIVATE_JWK: string;
 	readonly RELAY_MINT_PUBLIC_JWK: string;
 	readonly CLOUD_CREDENTIAL_VAULT_KEY?: string;
+	readonly CLOUD_CHAT_ENCRYPTION_KEYS?: string;
+	readonly CLOUD_CHAT_ENCRYPTION_ACTIVE_KEY_ID?: string;
 	readonly CLOUD_WORKSPACE_IDLE_TIMEOUT_MS?: string;
 	readonly CLOUD_REPOSITORY_CACHE_MAX_BYTES?: string;
 	readonly MAX_ENVIRONMENTS_PER_ACCOUNT?: string;
@@ -119,6 +122,27 @@ const managedTunnelConfig = (
 };
 
 const build = (env: Env): ReturnType<typeof makeRelay> => {
+	const cloudChatEncryptionKeys = (() => {
+		if (!isConfigured(env.CLOUD_CHAT_ENCRYPTION_KEYS)) return undefined;
+		try {
+			const parsed = JSON.parse(env.CLOUD_CHAT_ENCRYPTION_KEYS) as unknown;
+			if (
+				typeof parsed !== "object" ||
+				parsed === null ||
+				Array.isArray(parsed)
+			)
+				return undefined;
+			return Object.fromEntries(
+				Object.entries(parsed).flatMap(([keyId, value]) =>
+					typeof value === "string" && keyId.length > 0
+						? [[keyId, Redacted.make(value)] as const]
+						: [],
+				),
+			);
+		} catch {
+			return undefined;
+		}
+	})();
 	const billing = resolveBillingRuntime(env);
 	const machineProvider = resolveMachineProviderRuntime(env, {
 		cloudInitTemplate,
@@ -174,6 +198,12 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		mintPublicKey: env.RELAY_MINT_PUBLIC_JWK,
 		cloudCredentialVaultKey: isConfigured(env.CLOUD_CREDENTIAL_VAULT_KEY)
 			? Redacted.make(env.CLOUD_CREDENTIAL_VAULT_KEY)
+			: undefined,
+		cloudChatEncryptionKeys,
+		cloudChatEncryptionActiveKeyId: isConfigured(
+			env.CLOUD_CHAT_ENCRYPTION_ACTIVE_KEY_ID,
+		)
+			? env.CLOUD_CHAT_ENCRYPTION_ACTIVE_KEY_ID
 			: undefined,
 		cloudWorkspaceIdleTimeoutMs:
 			Number.isSafeInteger(configuredIdleTimeout) &&
@@ -233,6 +263,9 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		MachineStorePg.pipe(Layer.provide(dbLayer)),
 		CloudWorkspaceStorePg.pipe(Layer.provide(dbLayer)),
 		Layer.effect(CloudCredentialVault, CloudCredentialVaultLive).pipe(
+			Layer.provide(configLayer),
+		),
+		Layer.effect(CloudChatCipher, CloudChatCipherLive).pipe(
 			Layer.provide(configLayer),
 		),
 		machineProvider.layer,
@@ -357,6 +390,7 @@ export default {
 			Promise.all([
 				relay.reconcile(`cron-${controller.scheduledTime}`),
 				relay.reconcileCloud(),
+				relay.backfillCloudChatEncryption(),
 			]).finally(() => relay.dispose()),
 		);
 	},

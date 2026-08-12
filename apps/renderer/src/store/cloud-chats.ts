@@ -11,7 +11,11 @@ import {
 	Session,
 	SessionId,
 } from "@zuse/contracts";
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
+import {
+	cloudChatSnapshotStore,
+	makeCloudChatSnapshot,
+} from "../lib/cloud-chat-snapshot-store.ts";
 import { formatError } from "../lib/format-error.ts";
 import {
 	getControlPlaneRpcClient,
@@ -28,6 +32,7 @@ import {
 	localProjectForCloudChat,
 	registerCloudChat,
 	registerCloudExecutionTarget,
+	setCloudAttachmentState,
 } from "./cloud-chat-registry.ts";
 import {
 	acknowledgeTimelineSessionCreated,
@@ -56,34 +61,74 @@ setDefaultRpcEnvironmentResolver(() => {
 	return cloudExecutionTarget(summary.workspaceId)?.workspaceId;
 });
 let hydration: Promise<void> | null = null;
-const historyCacheKey = (workspaceId: string): string =>
-	`zuse.cloudChatHistory.${workspaceId}`;
+const histories = new Map<string, CloudChatHistory>();
+const snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-const readCachedHistory = (workspaceId: string): CloudChatHistory | null => {
-	if (typeof window === "undefined") return null;
-	try {
-		const value = window.localStorage.getItem(historyCacheKey(workspaceId));
-		if (value === null) return null;
-		const decoded = Schema.decodeUnknownOption(CloudChatHistory)(
-			JSON.parse(value),
-		);
-		return decoded._tag === "Some" ? decoded.value : null;
-	} catch {
-		return null;
-	}
+const mergeCloudChatHistory = (
+	current: CloudChatHistory | null,
+	incoming: CloudChatHistory,
+): CloudChatHistory => {
+	if (current === null) return incoming;
+	const events = new Map(
+		current.events.map((event) => [event.sequence, event] as const),
+	);
+	for (const event of incoming.events) events.set(event.sequence, event);
+	const queued = new Map(
+		current.queuedMessages.map((message) => [message.clientMessageId, message]),
+	);
+	for (const message of incoming.queuedMessages)
+		queued.set(message.clientMessageId, message);
+	return CloudChatHistory.make({
+		workspaceId: incoming.workspaceId,
+		chatId: incoming.chatId,
+		initialSessionId: incoming.initialSessionId,
+		firstMessage: incoming.firstMessage ?? current.firstMessage,
+		commandState: incoming.commandState,
+		events: [...events.values()].sort((a, b) => a.sequence - b.sequence),
+		queuedMessages: [...queued.values()],
+		cursor: Math.max(current.cursor, incoming.cursor),
+	});
 };
 
-const writeCachedHistory = (history: CloudChatHistory): void => {
-	if (typeof window === "undefined") return;
-	try {
-		window.localStorage.setItem(
-			historyCacheKey(history.workspaceId),
-			JSON.stringify(history),
-		);
-	} catch {
-		// Central history remains authoritative when the local cache is full or
-		// unavailable (for example in a restricted browser context).
-	}
+const persistCloudChatSnapshot = (
+	summary: CloudChatSummary,
+	projectId: FolderId,
+): void => {
+	if (cloudChatSnapshotStore === null) return;
+	const previous = snapshotTimers.get(summary.workspaceId);
+	if (previous !== undefined) clearTimeout(previous);
+	snapshotTimers.set(
+		summary.workspaceId,
+		setTimeout(() => {
+			snapshotTimers.delete(summary.workspaceId);
+			const latest = cloudSummaryForChat(summary.chatId) ?? summary;
+			const history =
+				histories.get(summary.workspaceId) ??
+				CloudChatHistory.make({
+					workspaceId: latest.workspaceId,
+					chatId: latest.chatId,
+					initialSessionId: latest.initialSessionId,
+					commandState: "queued",
+					events: [],
+					queuedMessages: [],
+					cursor: 0,
+				});
+			histories.set(summary.workspaceId, history);
+			void cloudChatSnapshotStore
+				?.save(
+					makeCloudChatSnapshot({
+						projectId,
+						summary: latest,
+						history,
+						messages:
+							useMessagesStore.getState().messagesBySession[
+								latest.initialSessionId
+							] ?? [],
+					}),
+				)
+				.catch(() => {});
+		}, 100),
+	);
 };
 
 const refreshSummaryFromWorkspace = (
@@ -101,9 +146,19 @@ const refreshSummaryFromWorkspace = (
 });
 
 const updateSummary = (summary: CloudChatSummary): void => {
-	registerCloudChat(summary);
+	const current = cloudSummaryForChat(summary.chatId);
+	if (
+		current !== null &&
+		(current.revision > summary.revision ||
+			(current.revision === summary.revision &&
+				current.updatedAt >= summary.updatedAt))
+	)
+		return;
 	const projectId = localProjectForCloudChat(summary.chatId);
-	if (projectId !== null) stageCloudChat(summary, projectId);
+	if (projectId !== null) {
+		stageCloudChat(summary, projectId);
+		persistCloudChatSnapshot(summary, projectId);
+	}
 	useCloudChatsStore.setState((state) => ({
 		summaries: mergeCloudChatSummaries(state.summaries, [summary]),
 	}));
@@ -116,8 +171,19 @@ export const mergeCloudChatSummaries = (
 	const byChat = new Map(current.map((summary) => [summary.chatId, summary]));
 	for (const summary of incoming) {
 		const previous = byChat.get(summary.chatId);
-		if (previous === undefined || summary.revision >= previous.revision)
+		if (previous === undefined || summary.revision > previous.revision)
 			byChat.set(summary.chatId, summary);
+		else if (summary.revision === previous.revision)
+			byChat.set(summary.chatId, {
+				...previous,
+				unread: previous.unread || summary.unread,
+				lastMessageAt:
+					previous.lastMessageAt === null
+						? summary.lastMessageAt
+						: summary.lastMessageAt === null
+							? previous.lastMessageAt
+							: Math.max(previous.lastMessageAt, summary.lastMessageAt),
+			});
 	}
 	return [...byChat.values()].sort(
 		(a, b) =>
@@ -323,8 +389,13 @@ const applyCloudHistory = (
 	projectId: FolderId,
 	history: CloudChatHistory,
 ): ReadonlyArray<Message> => {
+	const mergedHistory = mergeCloudChatHistory(
+		histories.get(summary.workspaceId) ?? null,
+		history,
+	);
+	histories.set(summary.workspaceId, mergedHistory);
 	stageCloudChat(summary, projectId, history.firstMessage);
-	const projected = messagesFromHistory(history, summary.createdAt);
+	const projected = messagesFromHistory(mergedHistory, summary.createdAt);
 	useMessagesStore.setState((state) => ({
 		messagesBySession: {
 			...state.messagesBySession,
@@ -334,6 +405,7 @@ const applyCloudHistory = (
 			),
 		},
 	}));
+	persistCloudChatSnapshot(summary, projectId);
 	return projected;
 };
 
@@ -343,7 +415,15 @@ export const stageCloudChat = (
 	firstMessage?: string,
 ): void => {
 	const current = cloudSummaryForChat(summary.chatId);
-	if (current !== null && current.revision > summary.revision) return;
+	if (
+		current !== null &&
+		(current.revision > summary.revision ||
+			(current.revision === summary.revision &&
+				current.updatedAt > summary.updatedAt))
+	)
+		return;
+	if (summary.state === "paused" || summary.state === "archived")
+		setCloudAttachmentState(summary.workspaceId, "detached");
 	registerCloudChat(summary, projectId);
 	useCloudChatsStore.setState((state) => ({
 		summaries: mergeCloudChatSummaries(state.summaries, [summary]),
@@ -456,11 +536,27 @@ export const openCloudChat = (
 		// should attach immediately so its live answer does not require a reload.
 		if (shouldAttachCloudChatOnOpen(summary))
 			void ensureCloudWorkspaceAttached(summary).catch(() => {});
-		const cached = readCachedHistory(summary.workspaceId);
-		if (cached !== null) {
-			applyCloudHistory(summary, projectId, cached);
-			if (shouldAttachCloudChatWithPendingCommands(cached))
-				void ensureCloudWorkspaceAttached(summary).catch(() => {});
+		const snapshot = await cloudChatSnapshotStore
+			?.load(summary.workspaceId)
+			.catch(() => null);
+		const cached = snapshot?.history ?? null;
+		if (snapshot !== null && snapshot !== undefined) {
+			const cachedSummary =
+				snapshot.summary.revision > summary.revision
+					? snapshot.summary
+					: summary;
+			stageCloudChat(cachedSummary, projectId, snapshot.history.firstMessage);
+			histories.set(summary.workspaceId, snapshot.history);
+			useMessagesStore.setState((state) => ({
+				messagesBySession: {
+					...state.messagesBySession,
+					[summary.initialSessionId]: mergeCloudChatMessages(
+						state.messagesBySession[summary.initialSessionId] ?? [],
+						snapshot.messages,
+					),
+				},
+			}));
+			applyCloudHistory(cachedSummary, projectId, snapshot.history);
 		}
 		useCloudChatsStore.setState((state) => ({
 			historyLoadingByChat: {
@@ -472,12 +568,12 @@ export const openCloudChat = (
 			const control = await getControlPlaneRpcClient();
 			try {
 				const history = await Effect.runPromise(
-					control["cloud.chats.history"]({ workspaceId: summary.workspaceId }),
+					control["cloud.chats.history"]({
+						workspaceId: summary.workspaceId,
+						...(cached === null ? {} : { after: cached.cursor }),
+					}),
 				);
-				writeCachedHistory(history);
 				applyCloudHistory(summary, projectId, history);
-				if (shouldAttachCloudChatWithPendingCommands(history))
-					void ensureCloudWorkspaceAttached(summary).catch(() => {});
 			} catch (cause) {
 				if (cached === null) throw cause;
 			}
@@ -505,6 +601,7 @@ export const ensureCloudWorkspaceAttached = (
 	const existing = attaching.get(summary.workspaceId);
 	if (existing !== undefined) return existing;
 	const operation = (async () => {
+		setCloudAttachmentState(summary.workspaceId, "attaching");
 		const control = await getControlPlaneRpcClient();
 		const discovered = await Effect.runPromise(
 			control["cloud.workspaces.get"]({ workspaceId: summary.workspaceId }),
@@ -586,7 +683,13 @@ export const ensureCloudWorkspaceAttached = (
 				live: true,
 				environmentId: summary.workspaceId,
 			});
-	})().finally(() => attaching.delete(summary.workspaceId));
+		setCloudAttachmentState(summary.workspaceId, "ready");
+	})()
+		.catch((cause) => {
+			setCloudAttachmentState(summary.workspaceId, "failed");
+			throw cause;
+		})
+		.finally(() => attaching.delete(summary.workspaceId));
 	attaching.set(summary.workspaceId, operation);
 	return operation;
 };
@@ -634,6 +737,32 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 		hydration = (async () => {
 			set({ loading: true, error: null });
 			try {
+				const snapshots =
+					(await cloudChatSnapshotStore?.list().catch(() => [])) ?? [];
+				for (const snapshot of snapshots) {
+					histories.set(snapshot.workspaceId, snapshot.history);
+					stageCloudChat(
+						snapshot.summary,
+						snapshot.projectId,
+						snapshot.history.firstMessage,
+					);
+					useMessagesStore.setState((state) => ({
+						messagesBySession: {
+							...state.messagesBySession,
+							[snapshot.summary.initialSessionId]: mergeCloudChatMessages(
+								state.messagesBySession[snapshot.summary.initialSessionId] ??
+									[],
+								snapshot.messages,
+							),
+						},
+					}));
+				}
+				set((state) => ({
+					summaries: mergeCloudChatSummaries(
+						state.summaries,
+						snapshots.map((snapshot) => snapshot.summary),
+					),
+				}));
 				const client = await getControlPlaneRpcClient();
 				const result = await Effect.runPromise(
 					client["cloud.chats.list"]({ scope: "all" }),
@@ -665,3 +794,15 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 		updateSummary(refreshSummaryFromWorkspace(summary, workspace));
 	},
 }));
+
+useMessagesStore.subscribe((state, previous) => {
+	for (const summary of useCloudChatsStore.getState().summaries) {
+		if (
+			state.messagesBySession[summary.initialSessionId] ===
+			previous.messagesBySession[summary.initialSessionId]
+		)
+			continue;
+		const projectId = localProjectForCloudChat(summary.chatId);
+		if (projectId !== null) persistCloudChatSnapshot(summary, projectId);
+	}
+});

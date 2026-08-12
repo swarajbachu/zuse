@@ -72,6 +72,7 @@ export interface MachineControlServiceShape {
 	) => Effect.Effect<CloudWorkspaceConnection, MachineControlError>;
 	readonly cloudChatHistory: (
 		workspaceId: string,
+		after?: number,
 	) => Effect.Effect<CloudChatHistory, MachineControlError>;
 	readonly cloudChats: (
 		projectId?: string,
@@ -306,9 +307,9 @@ export const MachineControlServiceLive: Layer.Layer<
 					"POST",
 					{},
 				),
-			cloudChatHistory: (workspaceId) =>
+			cloudChatHistory: (workspaceId, after) =>
 				request(
-					RelayPaths.cloudWorkspaceHistory(workspaceId),
+					`${RelayPaths.cloudWorkspaceHistory(workspaceId)}${after === undefined ? "" : `?after=${after}`}`,
 					CloudChatHistory,
 				),
 			cloudChats: (projectId, scope) =>

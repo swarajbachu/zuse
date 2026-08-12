@@ -921,8 +921,10 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 		// status via native goal notifications), so we skip the optimistic flip
 		// there. Grok runs goal mode by forwarding `/goal` as a real prompt turn,
 		// so it should show the running indicator like any normal send.
+		const cloudSummary = cloudSummaryForSession(sessionId);
 		const skipOptimisticRunning =
-			opts?.asGoal === true && lookupSessionProvider(sessionId) === "codex";
+			cloudSummary !== null ||
+			(opts?.asGoal === true && lookupSessionProvider(sessionId) === "codex");
 		// Optimistic message insert — show the user's turn instantly instead of
 		// waiting for the server echo on the live stream. We mint the id here and
 		// pass it as `clientMessageId` so the server persists the row under the
@@ -995,7 +997,6 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 							clientMessageId: messageId,
 							...(modelOptions !== null ? { modelOptions } : {}),
 						};
-			const cloudSummary = cloudSummaryForSession(sessionId);
 			if (cloudSummary !== null) {
 				const control = await import("../lib/rpc-client.ts").then((module) =>
 					module.getControlPlaneRpcClient(),

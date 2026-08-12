@@ -9,6 +9,7 @@ import {
 	SessionId,
 } from "@zuse/contracts";
 import { describe, expect, test } from "vitest";
+import { cloudConnectionPresentation } from "../../src/lib/cloud-connection-presentation.ts";
 import {
 	cloudWorkspaceNeedsResume,
 	mergeCloudChatMessages,
@@ -62,6 +63,22 @@ describe("cloud chat state reconciliation", () => {
 		});
 
 		expect(mergeCloudChatSummaries([running], [stale])).toEqual([running]);
+	});
+
+	test("equal revisions preserve monotonic unread and message ordering fields", () => {
+		const current = CloudChatSummary.make({
+			...summary({ revision: 12, startupPhase: "running" }),
+			unread: true,
+			lastMessageAt: 200,
+		});
+		const staleProjection = CloudChatSummary.make({
+			...current,
+			unread: false,
+			lastMessageAt: 100,
+		});
+		expect(mergeCloudChatSummaries([current], [staleProjection])).toEqual([
+			current,
+		]);
 	});
 
 	test("archive intent stays visible until a newer terminal state arrives", () => {
@@ -129,6 +146,29 @@ describe("cloud chat state reconciliation", () => {
 				}),
 			),
 		).toBe(false);
+	});
+
+	test("connection presentation follows compute before RPC attachment", () => {
+		const paused = CloudChatSummary.make({
+			...summary({ revision: 23, startupPhase: "running" }),
+			state: "paused",
+			desiredState: "paused",
+			runtimeState: "offline",
+		});
+		expect(cloudConnectionPresentation(paused, "detached")).toBe("paused");
+		expect(cloudConnectionPresentation(paused, "attaching")).toBe("resuming");
+		expect(
+			cloudConnectionPresentation(
+				summary({ revision: 24, startupPhase: "running" }),
+				"attaching",
+			),
+		).toBe("reconnecting");
+		expect(
+			cloudConnectionPresentation(
+				summary({ revision: 25, startupPhase: "running" }),
+				"ready",
+			),
+		).toBe("hidden");
 	});
 
 	test("authoritative paused, failed, and interrupted resuming states require resume", () => {

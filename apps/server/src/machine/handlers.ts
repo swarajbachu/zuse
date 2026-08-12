@@ -100,8 +100,8 @@ const ConnectCloudWorkspace = MemoizeRpcs.toLayerHandler(
 );
 const CloudChatHistory = MemoizeRpcs.toLayerHandler(
 	"cloud.chats.history",
-	({ workspaceId }) =>
-		withCloudControl((service) => service.cloudChatHistory(workspaceId)),
+	({ workspaceId, after }) =>
+		withCloudControl((service) => service.cloudChatHistory(workspaceId, after)),
 );
 const CloudChats = MemoizeRpcs.toLayerHandler(
 	"cloud.chats.list",

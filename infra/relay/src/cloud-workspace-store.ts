@@ -70,6 +70,7 @@ export interface CloudWorkspaceRecord {
 	readonly recoveryBundleKey?: string;
 	readonly warmRetentionDeadlineMs?: number;
 	readonly idempotencyKey: string;
+	readonly chatMetadataCiphertext?: string;
 	readonly requestConfig: Readonly<Record<string, unknown>>;
 	readonly nextActionAtMs: number;
 	readonly leaseOwner?: string;
@@ -88,7 +89,8 @@ export interface CloudWorkspaceCommandRecord {
 	readonly accountId: string;
 	readonly sequence: number;
 	readonly kind: "start-agent" | "send-message" | "rename-chat";
-	readonly payload: Readonly<Record<string, unknown>>;
+	readonly payload?: Readonly<Record<string, unknown>>;
+	readonly encryptedPayload?: string;
 	readonly state: "queued" | "claimed" | "acknowledged" | "failed";
 	readonly createdAtMs: number;
 	readonly claimedAtMs?: number;
@@ -103,7 +105,8 @@ export interface CloudWorkspaceEventRecord {
 	readonly streamId: string;
 	readonly streamVersion: number;
 	readonly type: string;
-	readonly payloadJson: string;
+	readonly payloadJson?: string;
+	readonly encryptedPayload?: string;
 	readonly createdAtMs: number;
 }
 
@@ -182,6 +185,9 @@ export interface CloudWorkspaceStoreApi {
 		accountId: string,
 		projectId?: string,
 	) => Effect.Effect<ReadonlyArray<CloudWorkspaceRecord>>;
+	readonly listLegacyChatWorkspaces: (
+		limit: number,
+	) => Effect.Effect<ReadonlyArray<CloudWorkspaceRecord>>;
 	readonly getWorkspace: (
 		workspaceId: string,
 	) => Effect.Effect<CloudWorkspaceRecord | null>;
@@ -193,6 +199,10 @@ export interface CloudWorkspaceStoreApi {
 	) => Effect.Effect<CloudWorkspaceRecord | null>;
 	readonly saveWorkspace: (
 		workspace: CloudWorkspaceRecord,
+	) => Effect.Effect<void>;
+	readonly migrateWorkspaceChatMetadata: (
+		workspaceId: string,
+		encryptedMetadata: string,
 	) => Effect.Effect<void>;
 	readonly consumeRuntimeBoot: (input: {
 		readonly workspaceId: string;
@@ -237,6 +247,13 @@ export interface CloudWorkspaceStoreApi {
 	readonly listMessageCommands: (
 		workspaceId: string,
 	) => Effect.Effect<ReadonlyArray<CloudWorkspaceCommandRecord>>;
+	readonly listStoredCommands: (
+		workspaceId: string,
+	) => Effect.Effect<ReadonlyArray<CloudWorkspaceCommandRecord>>;
+	readonly migrateCommandPayload: (
+		commandId: string,
+		encryptedPayload: string,
+	) => Effect.Effect<void>;
 	readonly acknowledgeCommand: (
 		workspaceId: string,
 		commandId: string,
@@ -250,6 +267,11 @@ export interface CloudWorkspaceStoreApi {
 		workspaceId: string,
 		afterSequence: number,
 	) => Effect.Effect<ReadonlyArray<CloudWorkspaceEventRecord>>;
+	readonly migrateEventPayload: (
+		workspaceId: string,
+		runtimeSequence: number,
+		encryptedPayload: string,
+	) => Effect.Effect<void>;
 	readonly latestEventAt: (workspaceId: string) => Effect.Effect<number | null>;
 	readonly markChatRead: (
 		workspaceId: string,
@@ -536,6 +558,28 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						),
 					),
 				),
+			listLegacyChatWorkspaces: (limit) =>
+				Ref.get(state).pipe(
+					Effect.map((current) =>
+						[...current.workspaces.values()]
+							.filter((workspace) => {
+								if (workspace.chatMetadataCiphertext === undefined) return true;
+								return (
+									[...current.commands.values()].some(
+										(command) =>
+											command.workspaceId === workspace.workspaceId &&
+											command.payload !== undefined,
+									) ||
+									[...current.events.values()].some(
+										(event) =>
+											event.workspaceId === workspace.workspaceId &&
+											event.payloadJson !== undefined,
+									)
+								);
+							})
+							.slice(0, limit),
+					),
+				),
 			getWorkspace: (workspaceId) =>
 				Ref.get(state).pipe(
 					Effect.map((current) => current.workspaces.get(workspaceId) ?? null),
@@ -626,6 +670,23 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							...workspace,
 							leaseOwner: undefined,
 							leaseExpiresAtMs: undefined,
+						}),
+					};
+				}),
+			migrateWorkspaceChatMetadata: (workspaceId, encryptedMetadata) =>
+				Ref.update(state, (current) => {
+					const workspace = current.workspaces.get(workspaceId);
+					if (workspace === undefined) return current;
+					return {
+						...current,
+						workspaces: new Map(current.workspaces).set(workspaceId, {
+							...workspace,
+							chatMetadataCiphertext: encryptedMetadata,
+							requestConfig: Object.fromEntries(
+								Object.entries(workspace.requestConfig).filter(
+									([key]) => key !== "title" && key !== "firstMessage",
+								),
+							),
 						}),
 					};
 				}),
@@ -783,6 +844,27 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							.sort((a, b) => a.sequence - b.sequence),
 					),
 				),
+			listStoredCommands: (workspaceId) =>
+				Ref.get(state).pipe(
+					Effect.map((current) =>
+						[...current.commands.values()]
+							.filter((command) => command.workspaceId === workspaceId)
+							.sort((a, b) => a.sequence - b.sequence),
+					),
+				),
+			migrateCommandPayload: (commandId, encryptedPayload) =>
+				Ref.update(state, (current) => {
+					const command = current.commands.get(commandId);
+					if (command === undefined) return current;
+					return {
+						...current,
+						commands: new Map(current.commands).set(commandId, {
+							...command,
+							payload: undefined,
+							encryptedPayload,
+						}),
+					};
+				}),
 			acknowledgeCommand: (workspaceId, commandId, nowMs) =>
 				Ref.modify(state, (current) => {
 					const command = current.commands.get(commandId);
@@ -825,6 +907,20 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							.sort((a, b) => a.runtimeSequence - b.runtimeSequence),
 					),
 				),
+			migrateEventPayload: (workspaceId, runtimeSequence, encryptedPayload) =>
+				Ref.update(state, (current) => {
+					const key = `${workspaceId}:${runtimeSequence}`;
+					const event = current.events.get(key);
+					if (event === undefined) return current;
+					return {
+						...current,
+						events: new Map(current.events).set(key, {
+							...event,
+							payloadJson: undefined,
+							encryptedPayload,
+						}),
+					};
+				}),
 			latestEventAt: (workspaceId) =>
 				Ref.get(state).pipe(
 					Effect.map((current) => {
@@ -1011,6 +1107,7 @@ const workspaceFromRow = (row: Row): CloudWorkspaceRecord => ({
 	recoveryBundleKey: optionalString(row.recovery_bundle_key),
 	warmRetentionDeadlineMs: optionalNumber(row.warm_retention_deadline),
 	idempotencyKey: String(row.idempotency_key),
+	chatMetadataCiphertext: optionalString(row.chat_metadata_ciphertext),
 	requestConfig: (row.request_config ?? {}) as Record<string, unknown>,
 	nextActionAtMs: numberValue(row.next_action_at),
 	leaseOwner: optionalString(row.lease_owner),
@@ -1029,7 +1126,9 @@ const commandFromRow = (row: Row): CloudWorkspaceCommandRecord => ({
 	accountId: String(row.account_id),
 	sequence: numberValue(row.sequence),
 	kind: row.kind as CloudWorkspaceCommandRecord["kind"],
-	payload: (row.payload ?? {}) as Record<string, unknown>,
+	payload:
+		row.payload == null ? undefined : (row.payload as Record<string, unknown>),
+	encryptedPayload: optionalString(row.encrypted_payload),
 	state: row.state as CloudWorkspaceCommandRecord["state"],
 	createdAtMs: numberValue(row.created_at),
 	claimedAtMs: optionalNumber(row.claimed_at),
@@ -1044,7 +1143,8 @@ const eventFromRow = (row: Row): CloudWorkspaceEventRecord => ({
 	streamId: String(row.stream_id),
 	streamVersion: numberValue(row.stream_version),
 	type: String(row.type),
-	payloadJson: String(row.payload_json),
+	payloadJson: optionalString(row.payload_json),
+	encryptedPayload: optionalString(row.encrypted_payload),
 	createdAtMs: numberValue(row.created_at),
 });
 
@@ -1072,7 +1172,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			);
 		const saveWorkspace = (w: CloudWorkspaceRecord) =>
 			orDie(
-				sql`UPDATE relay_cloud_workspaces SET provider_sandbox_id=${w.providerSandboxId ?? null}, runtime_boot_token_hash=${w.runtimeBootTokenHash ?? null}, runtime_boot_token_expires_at=${w.runtimeBootTokenExpiresAtMs ?? null}, runtime_credential_hash=${w.runtimeCredentialHash ?? null}, runtime_state=${w.runtimeState}, state=${w.state}, desired_state=${w.desiredState}, status_code=${w.statusCode}, credential_epoch=${w.credentialEpoch}, recovery_bundle_key=${w.recoveryBundleKey ?? null}, warm_retention_deadline=${w.warmRetentionDeadlineMs ?? null}, request_config=${JSON.stringify(w.requestConfig)}::jsonb, next_action_at=${w.nextActionAtMs}, lease_owner=NULL, lease_expires_at=NULL, revision=${w.revision}, updated_at=${w.updatedAtMs}, last_activity_at=${w.lastActivityAtMs}, running_since=${w.runningSinceMs ?? null}, deleted_at=${w.deletedAtMs ?? null} WHERE workspace_id=${w.workspaceId} AND (revision < ${w.revision} OR (revision = ${w.revision} AND updated_at <= ${w.updatedAtMs}))`.pipe(
+				sql`UPDATE relay_cloud_workspaces SET provider_sandbox_id=${w.providerSandboxId ?? null}, runtime_boot_token_hash=${w.runtimeBootTokenHash ?? null}, runtime_boot_token_expires_at=${w.runtimeBootTokenExpiresAtMs ?? null}, runtime_credential_hash=${w.runtimeCredentialHash ?? null}, runtime_state=${w.runtimeState}, state=${w.state}, desired_state=${w.desiredState}, status_code=${w.statusCode}, credential_epoch=${w.credentialEpoch}, recovery_bundle_key=${w.recoveryBundleKey ?? null}, warm_retention_deadline=${w.warmRetentionDeadlineMs ?? null}, chat_metadata_ciphertext=${w.chatMetadataCiphertext ?? null}, request_config=${JSON.stringify(w.requestConfig)}::jsonb, next_action_at=${w.nextActionAtMs}, lease_owner=NULL, lease_expires_at=NULL, revision=${w.revision}, updated_at=${w.updatedAtMs}, last_activity_at=${w.lastActivityAtMs}, running_since=${w.runningSinceMs ?? null}, deleted_at=${w.deletedAtMs ?? null} WHERE workspace_id=${w.workspaceId} AND (revision < ${w.revision} OR (revision = ${w.revision} AND updated_at <= ${w.updatedAtMs}))`.pipe(
 					Effect.asVoid,
 				),
 			);
@@ -1188,8 +1288,8 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							} satisfies CreateCloudWorkspaceOutcome;
 						}
 						const created =
-							yield* sql`INSERT INTO relay_cloud_workspaces (workspace_id, account_id, project_id, build_id, provider, runtime_state, chat_id, initial_session_id, branch, base_ref, state, desired_state, status_code, credential_epoch, idempotency_key, request_config, next_action_at, revision, created_at, updated_at, last_activity_at) VALUES (${w.workspaceId}, ${w.accountId}, ${w.projectId}, ${w.buildId}, ${w.provider}, ${w.runtimeState}, ${w.chatId}, ${w.initialSessionId}, ${w.branch}, ${w.baseRef}, ${w.state}, ${w.desiredState}, ${w.statusCode}, ${w.credentialEpoch}, ${w.idempotencyKey}, ${JSON.stringify(w.requestConfig)}::jsonb, ${w.nextActionAtMs}, ${w.revision}, ${w.createdAtMs}, ${w.updatedAtMs}, ${w.lastActivityAtMs}) RETURNING *`;
-						yield* sql`INSERT INTO relay_cloud_workspace_commands (command_id, workspace_id, account_id, sequence, kind, payload, state, created_at) VALUES (${command.commandId}, ${command.workspaceId}, ${command.accountId}, ${command.sequence}, ${command.kind}, ${JSON.stringify(command.payload)}::jsonb, ${command.state}, ${command.createdAtMs})`;
+							yield* sql`INSERT INTO relay_cloud_workspaces (workspace_id, account_id, project_id, build_id, provider, runtime_state, chat_id, initial_session_id, branch, base_ref, state, desired_state, status_code, credential_epoch, idempotency_key, chat_metadata_ciphertext, request_config, next_action_at, revision, created_at, updated_at, last_activity_at) VALUES (${w.workspaceId}, ${w.accountId}, ${w.projectId}, ${w.buildId}, ${w.provider}, ${w.runtimeState}, ${w.chatId}, ${w.initialSessionId}, ${w.branch}, ${w.baseRef}, ${w.state}, ${w.desiredState}, ${w.statusCode}, ${w.credentialEpoch}, ${w.idempotencyKey}, ${w.chatMetadataCiphertext ?? null}, ${JSON.stringify(w.requestConfig)}::jsonb, ${w.nextActionAtMs}, ${w.revision}, ${w.createdAtMs}, ${w.updatedAtMs}, ${w.lastActivityAtMs}) RETURNING *`;
+						yield* sql`INSERT INTO relay_cloud_workspace_commands (command_id, workspace_id, account_id, sequence, kind, payload, encrypted_payload, state, created_at) VALUES (${command.commandId}, ${command.workspaceId}, ${command.accountId}, ${command.sequence}, ${command.kind}, ${command.payload === undefined ? null : JSON.stringify(command.payload)}::jsonb, ${command.encryptedPayload ?? null}, ${command.state}, ${command.createdAtMs})`;
 						return {
 							kind: "created",
 							workspace: workspaceFromRow(created[0] as Row),
@@ -1202,6 +1302,14 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						? sql`SELECT * FROM relay_cloud_workspaces WHERE account_id=${accountId} ORDER BY created_at`
 						: sql`SELECT * FROM relay_cloud_workspaces WHERE account_id=${accountId} AND project_id=${projectId} ORDER BY created_at`
 					).pipe(
+						Effect.map((rows) =>
+							rows.map((row) => workspaceFromRow(row as Row)),
+						),
+					),
+				),
+			listLegacyChatWorkspaces: (limit) =>
+				orDie(
+					sql`SELECT w.* FROM relay_cloud_workspaces w WHERE (w.chat_metadata_ciphertext IS NULL AND (w.request_config ? 'title' OR w.request_config ? 'firstMessage')) OR EXISTS (SELECT 1 FROM relay_cloud_workspace_commands c WHERE c.workspace_id=w.workspace_id AND c.payload IS NOT NULL) OR EXISTS (SELECT 1 FROM relay_cloud_workspace_events e WHERE e.workspace_id=w.workspace_id AND e.payload_json IS NOT NULL) ORDER BY w.created_at LIMIT ${limit}`.pipe(
 						Effect.map((rows) =>
 							rows.map((row) => workspaceFromRow(row as Row)),
 						),
@@ -1224,6 +1332,12 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 					),
 				),
 			saveWorkspace,
+			migrateWorkspaceChatMetadata: (workspaceId, encryptedMetadata) =>
+				orDie(
+					sql`UPDATE relay_cloud_workspaces SET chat_metadata_ciphertext=${encryptedMetadata}, request_config=request_config - 'title' - 'firstMessage' WHERE workspace_id=${workspaceId} AND chat_metadata_ciphertext IS NULL`.pipe(
+						Effect.asVoid,
+					),
+				),
 			// PostgreSQL cannot infer bound parameter types through
 			// jsonb_build_object(any). Keep every timing value explicitly bigint.
 			consumeRuntimeBoot: (input) =>
@@ -1264,7 +1378,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				),
 			createCommand: (command) =>
 				orDie(
-					sql`INSERT INTO relay_cloud_workspace_commands (command_id, workspace_id, account_id, sequence, kind, payload, state, created_at, claimed_at, acknowledged_at, failed_at) VALUES (${command.commandId}, ${command.workspaceId}, ${command.accountId}, ${command.sequence}, ${command.kind}, ${JSON.stringify(command.payload)}::jsonb, ${command.state}, ${command.createdAtMs}, ${command.claimedAtMs ?? null}, ${command.acknowledgedAtMs ?? null}, ${command.failedAtMs ?? null}) ON CONFLICT (command_id) DO UPDATE SET command_id=EXCLUDED.command_id RETURNING *`.pipe(
+					sql`INSERT INTO relay_cloud_workspace_commands (command_id, workspace_id, account_id, sequence, kind, payload, encrypted_payload, state, created_at, claimed_at, acknowledged_at, failed_at) VALUES (${command.commandId}, ${command.workspaceId}, ${command.accountId}, ${command.sequence}, ${command.kind}, ${command.payload === undefined ? null : JSON.stringify(command.payload)}::jsonb, ${command.encryptedPayload ?? null}, ${command.state}, ${command.createdAtMs}, ${command.claimedAtMs ?? null}, ${command.acknowledgedAtMs ?? null}, ${command.failedAtMs ?? null}) ON CONFLICT (command_id) DO UPDATE SET command_id=EXCLUDED.command_id RETURNING *`.pipe(
 						Effect.map((rows) => commandFromRow(rows[0] as Row)),
 					),
 				),
@@ -1276,7 +1390,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							yield* sql`SELECT * FROM relay_cloud_workspace_commands WHERE command_id=${command.commandId}`;
 						if (existing[0]) return commandFromRow(existing[0] as Row);
 						const rows =
-							yield* sql`INSERT INTO relay_cloud_workspace_commands (command_id, workspace_id, account_id, sequence, kind, payload, state, created_at, claimed_at, acknowledged_at, failed_at) SELECT ${command.commandId}, ${command.workspaceId}, ${command.accountId}, COALESCE(MAX(sequence), 0) + 1, ${command.kind}, ${JSON.stringify(command.payload)}::jsonb, ${command.state}, ${command.createdAtMs}, ${command.claimedAtMs ?? null}, ${command.acknowledgedAtMs ?? null}, ${command.failedAtMs ?? null} FROM relay_cloud_workspace_commands WHERE workspace_id=${command.workspaceId} RETURNING *`;
+							yield* sql`INSERT INTO relay_cloud_workspace_commands (command_id, workspace_id, account_id, sequence, kind, payload, encrypted_payload, state, created_at, claimed_at, acknowledged_at, failed_at) SELECT ${command.commandId}, ${command.workspaceId}, ${command.accountId}, COALESCE(MAX(sequence), 0) + 1, ${command.kind}, ${command.payload === undefined ? null : JSON.stringify(command.payload)}::jsonb, ${command.encryptedPayload ?? null}, ${command.state}, ${command.createdAtMs}, ${command.claimedAtMs ?? null}, ${command.acknowledgedAtMs ?? null}, ${command.failedAtMs ?? null} FROM relay_cloud_workspace_commands WHERE workspace_id=${command.workspaceId} RETURNING *`;
 						return commandFromRow(rows[0] as Row);
 					}).pipe(sql.withTransaction),
 				),
@@ -1296,6 +1410,18 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						Effect.map((rows) => rows.map((row) => commandFromRow(row as Row))),
 					),
 				),
+			listStoredCommands: (workspaceId) =>
+				orDie(
+					sql`SELECT * FROM relay_cloud_workspace_commands WHERE workspace_id=${workspaceId} ORDER BY sequence`.pipe(
+						Effect.map((rows) => rows.map((row) => commandFromRow(row as Row))),
+					),
+				),
+			migrateCommandPayload: (commandId, encryptedPayload) =>
+				orDie(
+					sql`UPDATE relay_cloud_workspace_commands SET encrypted_payload=${encryptedPayload}, payload=NULL WHERE command_id=${commandId} AND encrypted_payload IS NULL`.pipe(
+						Effect.asVoid,
+					),
+				),
 			acknowledgeCommand: (workspaceId, commandId, nowMs) =>
 				orDie(
 					sql`UPDATE relay_cloud_workspace_commands SET state='acknowledged', acknowledged_at=${nowMs} WHERE workspace_id=${workspaceId} AND command_id=${commandId} RETURNING command_id`.pipe(
@@ -1308,7 +1434,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						let appended = 0;
 						for (const event of events) {
 							const rows =
-								yield* sql`INSERT INTO relay_cloud_workspace_events (workspace_id, runtime_sequence, event_id, stream_id, stream_version, type, payload_json, created_at) VALUES (${workspaceId}, ${event.runtimeSequence}, ${event.eventId}, ${event.streamId}, ${event.streamVersion}, ${event.type}, ${event.payloadJson}, ${event.createdAtMs}) ON CONFLICT DO NOTHING RETURNING runtime_sequence`;
+								yield* sql`INSERT INTO relay_cloud_workspace_events (workspace_id, runtime_sequence, event_id, stream_id, stream_version, type, payload_json, encrypted_payload, created_at) VALUES (${workspaceId}, ${event.runtimeSequence}, ${event.eventId}, ${event.streamId}, ${event.streamVersion}, ${event.type}, ${event.payloadJson ?? null}, ${event.encryptedPayload ?? null}, ${event.createdAtMs}) ON CONFLICT DO NOTHING RETURNING runtime_sequence`;
 							appended += rows.length;
 						}
 						return appended;
@@ -1318,6 +1444,12 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				orDie(
 					sql`SELECT * FROM relay_cloud_workspace_events WHERE workspace_id=${workspaceId} AND runtime_sequence > ${afterSequence} ORDER BY runtime_sequence`.pipe(
 						Effect.map((rows) => rows.map((row) => eventFromRow(row as Row))),
+					),
+				),
+			migrateEventPayload: (workspaceId, runtimeSequence, encryptedPayload) =>
+				orDie(
+					sql`UPDATE relay_cloud_workspace_events SET encrypted_payload=${encryptedPayload}, payload_json=NULL WHERE workspace_id=${workspaceId} AND runtime_sequence=${runtimeSequence} AND encrypted_payload IS NULL`.pipe(
+						Effect.asVoid,
 					),
 				),
 			latestEventAt: (workspaceId) =>

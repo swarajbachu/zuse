@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import {
 	cloudExecutionTarget,
 	cloudSummaryForSession,
+	useCloudExecutionStore,
 } from "./cloud-chat-registry.ts";
 import { useSessionsStore } from "./sessions.ts";
 import { useWorkspaceStore } from "./workspace.ts";
@@ -28,6 +29,13 @@ export type ActiveContext =
 	| { readonly status: "loading" }
 	/** Folders loaded, but none selected (empty workspace or after remove). */
 	| { readonly status: "empty" }
+	| {
+			readonly status: "cloud-unavailable";
+			readonly workspaceId: string;
+			readonly projectId: FolderId;
+			readonly sessionId: SessionId;
+			readonly attachmentState: "detached" | "attaching" | "failed";
+	  }
 	| {
 			readonly status: "ready";
 			readonly folderId: FolderId;
@@ -86,6 +94,7 @@ export const useActiveContext = (): ActiveContext => {
 		const list = s.byProject[selectedFolderId] ?? EMPTY_WORKTREES;
 		return list.find((w) => w.id === sessionWorktreeId)?.path ?? null;
 	});
+	const cloudExecution = useCloudExecutionStore((state) => state);
 
 	return useMemo<ActiveContext>(() => {
 		if (!foldersLoaded) return { status: "loading" };
@@ -98,6 +107,18 @@ export const useActiveContext = (): ActiveContext => {
 			cloudSummary === null
 				? null
 				: cloudExecutionTarget(cloudSummary.workspaceId);
+		if (cloudSummary !== null && cloudTarget === null && sessionId !== null) {
+			const attachmentState =
+				cloudExecution.stateByWorkspace[cloudSummary.workspaceId] ?? "detached";
+			return {
+				status: "cloud-unavailable",
+				workspaceId: cloudSummary.workspaceId,
+				projectId: selectedFolderId,
+				sessionId,
+				attachmentState:
+					attachmentState === "ready" ? "detached" : attachmentState,
+			};
+		}
 		if (cloudTarget !== null) {
 			return {
 				status: "ready",
@@ -153,6 +174,7 @@ export const useActiveContext = (): ActiveContext => {
 		sessionId,
 		sessionWorktreeId,
 		worktreePath,
+		cloudExecution,
 	]);
 };
 
