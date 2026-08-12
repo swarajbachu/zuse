@@ -458,6 +458,7 @@ const pauseWorkspace = (
 			...workspace,
 			state: archived ? "archived" : "paused",
 			desiredState: archived ? "archived" : "paused",
+			runtimeState: "offline",
 			statusCode: archived ? "archived" : "paused",
 			warmRetentionDeadlineMs: archived
 				? nowMs + WARM_RETENTION_MS
@@ -1095,13 +1096,27 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 			Effect.catchTag("SandboxProviderError", (error) =>
 				Effect.gen(function* () {
 					const failedAtMs = yield* Clock.currentTimeMillis;
+					if (error.code === "not-found") {
+						yield* store.saveWorkspace({
+							...workspace,
+							providerSandboxId: undefined,
+							runtimeBootTokenHash: undefined,
+							runtimeBootTokenExpiresAtMs: undefined,
+							runtimeCredentialHash: undefined,
+							state: "queued",
+							desiredState: "ready",
+							statusCode: "provider-sandbox-replacing",
+							runtimeState: "offline",
+							nextActionAtMs: failedAtMs,
+							revision: workspace.revision + 1,
+							updatedAtMs: failedAtMs,
+						});
+						return;
+					}
 					yield* store.saveWorkspace({
 						...workspace,
 						state: "failed",
-						statusCode:
-							error.code === "not-found"
-								? "provider-sandbox-missing"
-								: "provider-unavailable",
+						statusCode: "provider-unavailable",
 						runtimeState: "offline",
 						nextActionAtMs: Number.MAX_SAFE_INTEGER,
 						revision: workspace.revision + 1,

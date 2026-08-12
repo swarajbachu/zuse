@@ -615,6 +615,14 @@ const RuntimeReadyRequest = Schema.Struct({
 	errorCode: Schema.optional(Schema.String),
 });
 
+export const runtimeReadyStatusCode = (
+	phase: "repository-ready" | "agent-started",
+	commandState: unknown,
+): "agent-starting" | "agent-running" =>
+	phase === "agent-started" || commandState === "acknowledged"
+		? "agent-running"
+		: "agent-starting";
+
 const RuntimeBootstrapRequest = Schema.Struct({
 	credentialPublicJwk: Schema.String,
 });
@@ -1006,7 +1014,10 @@ export const routeCloudWorkspaceRequest = (
 				...workspace,
 				runtimeState: "online",
 				state: "ready",
-				statusCode: agentStarted ? "agent-running" : "agent-starting",
+				statusCode: runtimeReadyStatusCode(
+					body.phase,
+					workspace.requestConfig.commandState,
+				),
 				requestConfig: {
 					...workspace.requestConfig,
 					...(body.commandId === undefined

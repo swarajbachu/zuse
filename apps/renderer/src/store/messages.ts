@@ -1074,17 +1074,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 				if (projectId !== null)
 					void cloudChats
 						.ensureCloudWorkspaceAttached(cloudSummary)
-						.catch((cause) =>
-							set((state) => ({
-								errorBySession: {
-									...state.errorBySession,
-									[sessionId]: classifyError(
-										cause,
-										lookupSessionProvider(sessionId),
-									),
-								},
-							})),
-						);
+						.catch(() => undefined);
 				return true;
 			}
 			await dispatchRetryableRpcCommand(messageId, async () => {

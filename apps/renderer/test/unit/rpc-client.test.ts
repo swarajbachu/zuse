@@ -10,6 +10,7 @@ Object.defineProperty(globalThis, "location", {
 const {
 	RENDERER_WEBSOCKET_OPEN_TIMEOUT,
 	resolveRendererRpcTransportForTest,
+	shouldReconnectRendererConnection,
 	shouldRestartCloudWorkspaceConnection,
 } = await import("../../src/lib/rpc-client.ts");
 
@@ -44,5 +45,33 @@ describe("renderer RPC transport selection", () => {
 		expect(shouldRestartCloudWorkspaceConnection("error")).toBe(true);
 		expect(shouldRestartCloudWorkspaceConnection("blockedAuth")).toBe(true);
 		expect(shouldRestartCloudWorkspaceConnection("connected")).toBe(false);
+	});
+
+	it("reconnects when a stable cloud gateway receives a fresh one-time grant", () => {
+		const refresh = async () => ({
+			workspaceId: "workspace-1",
+			wsUrl: "wss://cloud.example/workspaces/workspace-1",
+			protocol: "zuse-workspace-v1",
+			credential: "new-grant",
+			expiresAt: Date.now() + 60_000,
+		});
+		expect(
+			shouldReconnectRendererConnection(
+				{
+					key: "workspace:workspace-1",
+					kind: "websocket",
+					wsUrl: "wss://cloud.example/workspaces/workspace-1",
+					protocols: ["zuse-workspace-v1", "expired-grant"],
+					refreshConnection: refresh,
+				},
+				{
+					key: "workspace:workspace-1",
+					kind: "websocket",
+					wsUrl: "wss://cloud.example/workspaces/workspace-1",
+					protocols: ["zuse-workspace-v1", "new-grant"],
+					refreshConnection: refresh,
+				},
+			),
+		).toBe(true);
 	});
 });

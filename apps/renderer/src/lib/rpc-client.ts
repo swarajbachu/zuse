@@ -176,13 +176,22 @@ const supervisor = createConnectionSupervisor<
 		);
 	},
 	isRetryableCommandError: isRpcClientError,
-	shouldReconnectOnOptionsChange: (previous, next) =>
-		previous.kind !== next.kind ||
-		(previous.kind === "websocket" &&
-			next.kind === "websocket" &&
-			previous.wsUrl !== next.wsUrl),
+	shouldReconnectOnOptionsChange: shouldReconnectRendererConnection,
 	maxAutomaticAttempts: RENDERER_MAX_AUTOMATIC_CONNECTION_ATTEMPTS,
 });
+
+export function shouldReconnectRendererConnection(
+	previous: RendererConnectionOptions,
+	next: RendererConnectionOptions,
+): boolean {
+	if (previous.kind !== next.kind) return true;
+	if (previous.kind !== "websocket" || next.kind !== "websocket") return false;
+	return (
+		previous.wsUrl !== next.wsUrl ||
+		previous.protocols?.join("\u0000") !== next.protocols?.join("\u0000") ||
+		previous.refreshConnection !== next.refreshConnection
+	);
+}
 
 const rendererEntries = new Map<
 	string,
@@ -319,7 +328,10 @@ export const registerCloudWorkspace = (
 		existingEntry !== undefined &&
 		shouldRestartCloudWorkspaceConnection(existingEntry.snapshot().status)
 	) {
-		getRendererEntry(workspaceId).retryNow();
+		// Reading the entry applies the new connection options. The supervisor
+		// immediately reconnects when the one-time grant changes, so a second
+		// retry here would supersede that fresh in-flight attempt.
+		getRendererEntry(workspaceId);
 	}
 };
 

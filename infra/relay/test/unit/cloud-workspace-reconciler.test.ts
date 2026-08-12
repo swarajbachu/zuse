@@ -55,7 +55,7 @@ describe("cloud workspace reconciler", () => {
 		expect(WORKSPACE_RUNTIME_RESUME_COMMAND).not.toContain("--foreground");
 	});
 
-	test("restarts the workspace runtime in the same pass that resumes a paused sandbox", async () => {
+	test("marks paused runtimes offline before resuming the same sandbox", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -100,14 +100,14 @@ describe("cloud workspace reconciler", () => {
 					buildId: build.buildId,
 					provider: "fake",
 					providerSandboxId: "sandbox-resume",
-					runtimeState: "offline" as const,
+					runtimeState: "online" as const,
 					chatId: "chat-resume",
 					initialSessionId: "session-resume",
 					branch: "task/resume",
 					baseRef: "origin/main",
-					state: "paused" as const,
-					desiredState: "ready" as const,
-					statusCode: "resume-queued",
+					state: "ready" as const,
+					desiredState: "paused" as const,
+					statusCode: "agent-running",
 					credentialEpoch: 0,
 					idempotencyKey: "workspace-resume-key",
 					requestConfig: {},
@@ -134,20 +134,55 @@ describe("cloud workspace reconciler", () => {
 					new Map(sandboxes).set(workspace.providerSandboxId, {
 						providerSandboxId: workspace.providerSandboxId,
 						providerLabel: "zuse-cloud-workspace-workspace-resume",
-						state: "paused",
+						state: "running",
 					}),
 				);
 
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const paused = yield* store.getWorkspace(workspace.workspaceId);
+				yield* store.recordActivity(
+					workspace.workspaceId,
+					workspace.accountId,
+					nowMs + 1,
+					nowMs + 600_001,
+				);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const resumed = yield* store.getWorkspace(workspace.workspaceId);
+				const resumeBeforeMissing = yield* Ref.get(control.resumeInputs);
+				if (resumed === null) return yield* Effect.die("workspace disappeared");
+				yield* Ref.update(control.sandboxes, (sandboxes) => {
+					const next = new Map(sandboxes);
+					next.delete(workspace.providerSandboxId);
+					return next;
+				});
+				yield* store.saveWorkspace({
+					...resumed,
+					state: "paused",
+					desiredState: "ready",
+					runtimeState: "offline",
+					statusCode: "resume-queued",
+					nextActionAtMs: nowMs + 2,
+					revision: resumed.revision + 1,
+					updatedAtMs: nowMs + 2,
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				return {
-					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					paused,
+					workspace: resumed,
+					missing: yield* store.getWorkspace(workspace.workspaceId),
+					resumeBeforeMissing,
 					resumeInputs: yield* Ref.get(control.resumeInputs),
 					startProcessCalls: yield* Ref.get(control.startProcessCalls),
 				};
 			}).pipe(Effect.provide(testLayer)),
 		);
 
-		expect(result.resumeInputs).toHaveLength(1);
+		expect(result.paused).toMatchObject({
+			state: "paused",
+			statusCode: "paused",
+			runtimeState: "offline",
+		});
+		expect(result.resumeBeforeMissing).toHaveLength(1);
 		// One chmod for the boot token and one runtime launch. Resume must not
 		// serialize extra remote process calls before starting the runtime.
 		expect(result.startProcessCalls).toHaveLength(2);
@@ -157,5 +192,11 @@ describe("cloud workspace reconciler", () => {
 			runtimeState: "offline",
 		});
 		expect(result.workspace?.runtimeBootTokenHash).toBeTruthy();
+		expect(result.missing).toMatchObject({
+			state: "queued",
+			providerSandboxId: undefined,
+			statusCode: "provider-sandbox-replacing",
+			runtimeState: "offline",
+		});
 	});
 });
