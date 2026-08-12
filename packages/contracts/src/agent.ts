@@ -1212,6 +1212,13 @@ export const MODELS_BY_PROVIDER: Record<
       supportsWebSearch: "queryOnly",
     },
     {
+      id: "grok-4.6",
+      label: "Grok 4.6",
+      badgeLabel: "New",
+      supportsPlanMode: true,
+      supportsWebSearch: "queryOnly",
+    },
+    {
       id: "grok-4.5",
       label: "Grok 4.5",
       supportsPlanMode: true,
@@ -1555,8 +1562,9 @@ export const MODEL_ALIASES_BY_PROVIDER: Record<
     "gpt-5": "gpt-5.5",
   },
   grok: {
+    "grok-4.6-latest": "grok-4.6",
     "grok-4.5-latest": "grok-4.5",
-    "grok-build-latest": "grok-4.5",
+    "grok-build-latest": "grok-4.6",
   },
   gemini: {
     "gemini-3-pro": "gemini-3-pro-preview",
