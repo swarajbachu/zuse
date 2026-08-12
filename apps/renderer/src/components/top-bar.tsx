@@ -1,5 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import {
+	ComposerInput,
+	type FolderId,
+	type GitBranchInfo,
+	type GitMergeMethod,
+	type WorktreeId,
+} from "@zuse/contracts";
 import {
 	Alert01Icon,
 	ArchiveArrowDownIcon,
@@ -22,14 +28,8 @@ import {
 	Upload01Icon,
 	Wrench01Icon,
 } from "@zuse/icons/solid-rounded";
-import {
-	ComposerInput,
-	type FolderId,
-	type GitBranchInfo,
-	type GitMergeMethod,
-	type WorktreeId,
-} from "@zuse/contracts";
 import { Effect } from "effect";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
 	type CSSProperties,
 	lazy,
@@ -45,6 +45,7 @@ import {
 	type OpenPrWorkflow,
 } from "../lib/branch-workflow.ts";
 import type { OpenTarget } from "../lib/bridge.ts";
+import { cloudTopBarContext } from "../lib/cloud-top-bar-context.ts";
 import { isMacHost } from "../lib/host-platform.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import { getActiveEnvironment, getRpcClient } from "../lib/rpc-client.ts";
@@ -56,6 +57,8 @@ import {
 	chatArchiveProgressLabel,
 	useChatsStore,
 } from "../store/chats.ts";
+import { cloudSummaryForChat } from "../store/cloud-chat-registry.ts";
+import { useCloudChatsStore } from "../store/cloud-chats.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { useMergePrefs } from "../store/merge-prefs.ts";
 import { useMessagesStore } from "../store/messages.ts";
@@ -176,6 +179,15 @@ export function TopBarMain() {
 	const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
 	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
+	const registeredCloudSummary =
+		selectedChatId === null ? null : cloudSummaryForChat(selectedChatId);
+	const cloudSummary = useCloudChatsStore((state) =>
+		selectedChatId === null
+			? null
+			: (state.summaries.find((item) => item.chatId === selectedChatId) ??
+				registeredCloudSummary),
+	);
+	const cachedCloudContext = cloudTopBarContext(cloudSummary);
 	const rightSidebarOpen = useUiStore((s) =>
 		selectedChatId === null
 			? false
@@ -218,9 +230,15 @@ export function TopBarMain() {
 	// the *new* (folderId, worktreeId), so reading `status` returns null
 	// until the first refresh lands — which is the correct behavior. No
 	// stale-branch flash during the swap.
-	const branchLabel = status?.branch ?? null;
-	const repoLabel = originLabel ?? folder?.name ?? "No repository";
-	const originOwner = originLabel?.split("/", 1)[0] ?? null;
+	const branchLabel = status?.branch ?? cachedCloudContext?.branch ?? null;
+	const branchIsCached = status?.branch == null && cachedCloudContext !== null;
+	const repoLabel =
+		originLabel ??
+		cachedCloudContext?.repositoryLabel ??
+		folder?.name ??
+		"No repository";
+	const originOwner =
+		originLabel?.split("/", 1)[0] ?? cachedCloudContext?.owner ?? null;
 	const showLeftToggle = !leftSidebarOpen;
 	// When the left panel is open its own header carries the traffic-light
 	// gutter, so this section starts flush. When it's collapsed we slide the
@@ -362,24 +380,31 @@ export function TopBarMain() {
 						</span>
 						{branchLabel ? (
 							<>
-								<ChevronRight
-									className="size-3 shrink-0 text-muted-foreground/50"
-								/>
-								<BranchMenuButton
-									branchLabel={branchLabel}
-									branches={branches}
-									canRename={worktreeId !== null}
-									className="min-w-0 max-w-52 px-1 py-0 text-[11px] font-normal text-muted-foreground hover:text-foreground"
-									dirtyFiles={status?.dirtyFiles ?? 0}
-									error={branchError}
-									loading={branchesLoading}
-									onOpen={() => void refreshBranches()}
-									onRename={() => {
-										void loadRenameDialog();
-										setRenameOpen(true);
-									}}
-									onSwitch={(branch) => void switchToBranch(branch)}
-								/>
+								<ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
+								{branchIsCached ? (
+									<span
+										className="min-w-0 max-w-52 truncate px-1 text-muted-foreground"
+										title={branchLabel}
+									>
+										{branchLabel}
+									</span>
+								) : (
+									<BranchMenuButton
+										branchLabel={branchLabel}
+										branches={branches}
+										canRename={worktreeId !== null}
+										className="min-w-0 max-w-52 px-1 py-0 text-[11px] font-normal text-muted-foreground hover:text-foreground"
+										dirtyFiles={status?.dirtyFiles ?? 0}
+										error={branchError}
+										loading={branchesLoading}
+										onOpen={() => void refreshBranches()}
+										onRename={() => {
+											void loadRenameDialog();
+											setRenameOpen(true);
+										}}
+										onSwitch={(branch) => void switchToBranch(branch)}
+									/>
+								)}
 							</>
 						) : null}
 					</nav>
@@ -520,9 +545,7 @@ export function BranchMenuButton({
 						className="size-3 animate-spin text-muted-foreground"
 					/>
 				) : (
-					<ChevronDown
-						className="size-3 text-muted-foreground"
-					/>
+					<ChevronDown className="size-3 text-muted-foreground" />
 				)}
 			</MenuTrigger>
 			<MenuPopup
