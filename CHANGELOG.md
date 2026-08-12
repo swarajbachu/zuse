@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.4]
+
+### Fixed
+- Kept built-in MCP tools authenticated when a running chat replaces its provider session, so orchestration can continue in the same chat without re-authenticating or starting over
+
 ## [0.18.3]
 
 ### Changed

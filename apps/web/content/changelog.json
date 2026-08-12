@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.18.4",
+    "sections": [
+      {
+        "title": "Fixed",
+        "items": [
+          "Kept built-in MCP tools authenticated when a running chat replaces its provider session, so orchestration can continue in the same chat without re-authenticating or starting over"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.18.3",
     "sections": [
       {
