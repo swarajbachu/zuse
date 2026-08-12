@@ -7,8 +7,11 @@ Object.defineProperty(globalThis, "location", {
 	configurable: true,
 });
 
-const { RENDERER_WEBSOCKET_OPEN_TIMEOUT, resolveRendererRpcTransportForTest } =
-	await import("../../src/lib/rpc-client.ts");
+const {
+	RENDERER_WEBSOCKET_OPEN_TIMEOUT,
+	resolveRendererRpcTransportForTest,
+	shouldRestartCloudWorkspaceConnection,
+} = await import("../../src/lib/rpc-client.ts");
 
 describe("renderer RPC transport selection", () => {
 	it("bounds the WebSocket opening phase", () => {
@@ -33,5 +36,13 @@ describe("renderer RPC transport selection", () => {
 		});
 
 		expect(resolveRendererRpcTransportForTest()).toEqual({ kind: "electron" });
+	});
+
+	it("restarts stale cloud attachments when a fresh grant is registered", () => {
+		expect(shouldRestartCloudWorkspaceConnection("connecting")).toBe(true);
+		expect(shouldRestartCloudWorkspaceConnection("reconnecting")).toBe(true);
+		expect(shouldRestartCloudWorkspaceConnection("error")).toBe(true);
+		expect(shouldRestartCloudWorkspaceConnection("blockedAuth")).toBe(true);
+		expect(shouldRestartCloudWorkspaceConnection("connected")).toBe(false);
 	});
 });

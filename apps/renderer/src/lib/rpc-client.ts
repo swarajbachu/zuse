@@ -294,6 +294,7 @@ export const registerCloudWorkspace = (
 	initial: CloudWorkspaceConnection,
 	refreshConnection: () => Promise<CloudWorkspaceConnection>,
 ): void => {
+	const existingEntry = rendererEntries.get(workspaceId);
 	let first: CloudWorkspaceConnection | null = initial;
 	environmentConnections.set(workspaceId, {
 		key: `workspace:${workspaceId}`,
@@ -309,7 +310,22 @@ export const registerCloudWorkspace = (
 			return refreshConnection();
 		},
 	});
+	// A workspace uses one stable gateway URL, while every attachment receives a
+	// fresh one-time grant. If an earlier attachment exhausted its retries, the
+	// supervisor otherwise keeps rejecting the stable key without ever consuming
+	// the new grant. Supersede only a non-connected entry so routine sends do not
+	// churn a healthy terminal/chat connection.
+	if (
+		existingEntry !== undefined &&
+		shouldRestartCloudWorkspaceConnection(existingEntry.snapshot().status)
+	) {
+		getRendererEntry(workspaceId).retryNow();
+	}
 };
+
+export const shouldRestartCloudWorkspaceConnection = (
+	status: ConnectionSnapshot["status"],
+): boolean => status !== "connected";
 
 export const registerLocalEnvironment = (environmentId: string): void => {
 	const bridge = globalThis.window?.zuse ?? globalThis.window?.memoize;
