@@ -281,6 +281,10 @@ interface TranslateState {
 	pendingAgents: Map<string, PendingAgent>;
 	/** Maps SDK background task ids to their originating Agent tool use. */
 	backgroundTaskParents: Map<string, AgentItemId>;
+	/** Shell inputs retained until the SDK classifies them as background. */
+	backgroundShellInputs: Map<string, unknown>;
+	/** SDK task ids mapped to their dedicated BackgroundTask timeline item. */
+	localBackgroundTasks: Map<string, AgentItemId>;
 	/**
 	 * Most recent `parent_tool_use_id` seen on an SDK message. The Claude
 	 * SDK's `canUseTool` callback signature does not include a parent id,
@@ -324,8 +328,8 @@ interface TranslateState {
 	 * Set when the user interrupts the running turn (`handle.interrupt`). The SDK
 	 * ends an interrupted turn with an `error_during_execution` result, which
 	 * would otherwise surface as a bogus error bubble; while this flag is set the
-	 * translator emits an `Interrupted` event + `Completed reason:"interrupted"`
-	 * instead. Reset per turn once consumed.
+	 * translator emits an `Interrupted` event instead. The shared turn protocol
+	 * owns terminal synthesis. Reset per turn once consumed.
 	 */
 	interrupted: boolean;
 }
@@ -335,6 +339,8 @@ const newTranslateState = (): TranslateState => ({
 	emittedThinkingThisTurn: false,
 	pendingAgents: new Map(),
 	backgroundTaskParents: new Map(),
+	backgroundShellInputs: new Map(),
+	localBackgroundTasks: new Map(),
 	latestParentItemId: undefined,
 	askUserQuestionIds: new Set(),
 	exitPlanModeIds: new Set(),
@@ -633,6 +639,9 @@ const translate = (
 					// tool runs; we mirror that into our session row.
 					if (block.name === "ExitPlanMode") {
 						state.exitPlanModeIds.add(id as string);
+					}
+					if (block.name === "Bash") {
+						state.backgroundShellInputs.set(id as string, block.input);
 					}
 					// If this tool_use is the parent agent kicking off a sub-agent,
 					// remember it so the eventual paired tool_result can pop a
@@ -978,7 +987,6 @@ const translate = (
 			// bubble, and skip the failed-result handling below.
 			if (state.interrupted) {
 				out.push({ _tag: "Interrupted" });
-				out.push({ _tag: "Completed", reason: "interrupted" });
 				state.interrupted = false;
 				state.emittedAuthError = false;
 				return out;
@@ -1003,6 +1011,37 @@ const translate = (
 		return out;
 	}
 	if (msg.type === "system" && msg.subtype === "task_started") {
+		if (msg.task_type === "local_bash") {
+			const itemId = `background_task_${msg.task_id}` as AgentItemId;
+			state.localBackgroundTasks.set(msg.task_id, itemId);
+			const originalInput =
+				msg.tool_use_id === undefined
+					? undefined
+					: state.backgroundShellInputs.get(msg.tool_use_id);
+			if (msg.tool_use_id !== undefined) {
+				state.backgroundShellInputs.delete(msg.tool_use_id);
+			}
+			const input =
+				originalInput !== null && typeof originalInput === "object"
+					? {
+							...(originalInput as Record<string, unknown>),
+							description: msg.description,
+							task_id: msg.task_id,
+						}
+					: {
+							description: msg.description,
+							task_id: msg.task_id,
+						};
+			return [
+				{
+					_tag: "ToolUse",
+					itemId,
+					tool: "Bash",
+					input,
+					backgroundTask: { taskId: msg.task_id },
+				},
+			];
+		}
 		if (msg.skip_transcript === true) return [];
 		const itemId = (msg.tool_use_id ?? `task_${msg.task_id}`) as AgentItemId;
 		const existing = state.pendingAgents.get(itemId as string);
@@ -1034,6 +1073,7 @@ const translate = (
 		];
 	}
 	if (msg.type === "system" && msg.subtype === "task_progress") {
+		if (state.localBackgroundTasks.has(msg.task_id)) return [];
 		const itemId =
 			(msg.tool_use_id as AgentItemId | undefined) ??
 			state.backgroundTaskParents.get(msg.task_id);
@@ -1050,12 +1090,24 @@ const translate = (
 		];
 	}
 	if (msg.type === "system" && msg.subtype === "task_notification") {
+		const backgroundTaskItemId = state.localBackgroundTasks.get(msg.task_id);
+		if (backgroundTaskItemId !== undefined) {
+			return [
+				{
+					_tag: "ToolResult",
+					itemId: backgroundTaskItemId,
+					output: msg.summary,
+					isError: msg.status !== "completed",
+				},
+			];
+		}
 		if (msg.skip_transcript === true) return [];
 		const itemId =
 			(msg.tool_use_id as AgentItemId | undefined) ??
 			state.backgroundTaskParents.get(msg.task_id) ??
 			(`task_${msg.task_id}` as AgentItemId);
 		const pending = state.pendingAgents.get(itemId as string);
+		if (pending === undefined) return [];
 		const summary = msg.summary.trim();
 		const out: AgentEvent[] = [];
 		if (summary.length > 0) {
@@ -1839,15 +1891,11 @@ export const startClaudeSession = (
 				Effect.sync(() => {
 					// If the SDK threw out of the `for await` because the user
 					// interrupted (rather than yielding an `error_during_execution`
-					// result), surface the muted interrupted badge, not an error. Emit a
-					// non-error completion too so the turn isn't left pinned at running.
+					// result), surface the muted interrupted badge, not an error. The
+					// shared turn protocol synthesizes the terminal completion.
 					if (translateState.interrupted) {
 						translateState.interrupted = false;
 						Queue.offerUnsafe(events, { _tag: "Interrupted" });
-						Queue.offerUnsafe(events, {
-							_tag: "Completed",
-							reason: "interrupted",
-						});
 						return;
 					}
 					Queue.offerUnsafe(events, {

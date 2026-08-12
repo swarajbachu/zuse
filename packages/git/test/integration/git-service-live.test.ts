@@ -131,6 +131,21 @@ describe("GitServiceLive", () => {
 		expect(untrackedDiff.patch).toContain("+++ b/new.txt");
 	});
 
+	test("distinguishes Git repositories from plain directories", async () => {
+		const plainDirectory = join(temporaryRoot, "plain-directory");
+		mkdirSync(plainDirectory);
+
+		await expect(
+			run((service) => service.isRepository(folderId)),
+		).resolves.toBe(true);
+		await expect(
+			run(
+				(service) => service.isRepository(folderId),
+				makeLayer({ root: plainDirectory }),
+			),
+		).resolves.toBe(false);
+	});
+
 	test("commits changes and pushes the current branch", async () => {
 		const remote = join(temporaryRoot, "remote.git");
 		git(temporaryRoot, "init", "--bare", remote);

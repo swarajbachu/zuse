@@ -1,5 +1,4 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon } from "@hugeicons-pro/core-solid-rounded";
+import { ChevronLeft } from "lucide-react";
 import type { Message, SessionId } from "@zuse/contracts";
 import { useMemo } from "react";
 
@@ -60,7 +59,7 @@ export function SubagentsPane({
 						onClick={() => selectSubagent(null)}
 						className="grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:outline focus-visible:outline-1"
 					>
-						<HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
+						<ChevronLeft className="size-4" />
 					</button>
 					<SubagentAvatar name={selected.agentName} size="sm" />
 					<span className="min-w-0 flex-1 truncate text-xs font-medium">

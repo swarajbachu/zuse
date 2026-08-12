@@ -628,6 +628,14 @@ export const GitServiceLive = Layer.effect(
 				]).pipe(Effect.map(parseLogOutput)),
 			);
 
+		const isRepository: GitService["Service"]["isRepository"] = (folderId) =>
+			Effect.flatMap(resolvePath(folderId), (cwd) =>
+				run(folderId, cwd, ["rev-parse", "--is-inside-work-tree"]).pipe(
+					Effect.map((output) => output.trim() === "true"),
+					Effect.catchTag("GitNotARepoError", () => Effect.succeed(false)),
+				),
+			);
+
 		const status: GitService["Service"]["status"] = (folderId, worktreeId) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				run(folderId, cwd, [
@@ -2428,6 +2436,7 @@ export const GitServiceLive = Layer.effect(
 				);
 
 		return {
+			isRepository,
 			log,
 			status,
 			branches,

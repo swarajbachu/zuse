@@ -2,7 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	CircleArrowUp01Icon,
 	Loading02Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type { UsageReport } from "@zuse/contracts";
 import { Effect } from "effect";
 import { useEffect, useState } from "react";

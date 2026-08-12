@@ -1,8 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	AlertCircleIcon,
-	ArrowDown01Icon,
-	ArrowRight01Icon,
 	Copy01Icon,
 	DashboardSpeedIcon,
 	LinkSquare01Icon,
@@ -10,7 +8,7 @@ import {
 	PlayIcon,
 	Settings01Icon,
 	Tick01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type {
 	AttachmentRef,
 	BrowserAnnotation,
@@ -25,7 +23,11 @@ import type {
 	SessionId,
 	SkillRef,
 } from "@zuse/contracts";
-import { RefreshCw as RefreshIcon } from "lucide-react";
+import {
+	ChevronDown,
+	ChevronRight,
+	RefreshCw as RefreshIcon,
+} from "lucide-react";
 import { memo, useEffect, useState } from "react";
 
 import { FileIcon } from "~/components/file-icon";
@@ -39,6 +41,7 @@ import {
 	effectiveSessionRuntimeState,
 	isSessionTurnActive,
 } from "~/lib/session-runtime-state";
+import { subagentTaskIdForBlockingWait } from "~/lib/subagent-wait";
 import { normalizeToolCallEnvelope } from "~/lib/tool-call-envelope";
 import {
 	openExternal,
@@ -89,6 +92,7 @@ import { MarkdownBody } from "./markdown-body.tsx";
 import {
 	ExitPlanModeRow,
 	OrchestrationThreadRow,
+	SubagentWaitRow,
 	ThinkingRow,
 	ToolRow,
 	UserInputRow,
@@ -219,7 +223,12 @@ function MessageRowImpl({
 				/>
 			);
 		case "tool_use":
-			return <ToolUseMessageRow content={message.content} />;
+			return (
+				<ToolUseMessageRow
+					content={message.content}
+					createdAt={message.createdAt}
+				/>
+			);
 		case "tool_result":
 			return <ToolResultMessageRow content={message.content} />;
 		case "user_question":
@@ -306,13 +315,29 @@ function ThinkingMessageRow({
 
 function ToolUseMessageRow({
 	content,
+	createdAt,
 }: {
 	content: MessageContent<"tool_use">;
+	createdAt: Date;
 }) {
-	const { resultsByItemId } = useChatLookups();
+	const { resultsByItemId, subagentsByTaskId } = useChatLookups();
 	const result = resultsByItemId.get(content.itemId);
 	if (content.tool === "ExitPlanMode") {
 		return <ExitPlanModeRow input={content.input} result={result} />;
+	}
+	if (content.tool === "TaskOutput") {
+		if (
+			subagentTaskIdForBlockingWait(content.input, subagentsByTaskId) !== null
+		) {
+			return (
+				<SubagentWaitRow
+					input={content.input}
+					result={result}
+					startedAt={createdAt}
+					subagentsByTaskId={subagentsByTaskId}
+				/>
+			);
+		}
 	}
 	const normalized = normalizeToolCallEnvelope(
 		content.tool,
@@ -346,6 +371,9 @@ function ToolUseMessageRow({
 			tool={orch ?? normalized.tool}
 			input={normalized.input}
 			result={normalized.result}
+			presentation={
+				content.backgroundTask === undefined ? undefined : "background-task"
+			}
 		/>
 	);
 }
@@ -693,7 +721,7 @@ function AssistantBubble({
 
 function ToolErrorRow({ output }: { output: unknown }) {
 	const [expanded, setExpanded] = useState(false);
-	const chevron = expanded ? ArrowDown01Icon : ArrowRight01Icon;
+	const Chevron = expanded ? ChevronDown : ChevronRight;
 	const text = typeof output === "string" ? output : stringifyJson(output);
 	const firstLine = text.split("\n", 1)[0] ?? "";
 	return (
@@ -713,8 +741,7 @@ function ToolErrorRow({ output }: { output: unknown }) {
 							"group-hover:opacity-0 motion-reduce:transition-none",
 						)}
 					/>
-					<HugeiconsIcon
-						icon={chevron}
+					<Chevron
 						aria-hidden="true"
 						className={cn(
 							"col-start-1 row-start-1 size-3.5 text-muted-foreground opacity-0 transition-opacity duration-150 ease-out",
@@ -789,6 +816,7 @@ const PROVIDER_LABEL_FOR_ERROR: Record<ProviderId, string> = {
 	gemini: "Gemini",
 	cursor: "Cursor",
 	opencode: "OpenCode",
+	kiro: "Kiro",
 };
 
 /**

@@ -4,6 +4,7 @@ import { startCodexSession } from "@zuse/agents/drivers/codex";
 import { startCursorSession } from "@zuse/agents/drivers/cursor";
 import { startGeminiSession } from "@zuse/agents/drivers/gemini";
 import { startGrokSession } from "@zuse/agents/drivers/grok";
+import { startKiroSession } from "@zuse/agents/drivers/kiro";
 import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import type {
@@ -367,6 +368,54 @@ export const ProviderServiceLive = Layer.effect(
 									browserBridge.send(sessionId, command),
 								),
 							geminiMcpCommand,
+							orchestrationTools,
+							resumeCursor,
+						).pipe(Effect.provideService(AttachmentService, attachmentService));
+					} else if (input.providerId === "kiro") {
+						// Kiro CLI exposes ACP via `kiro-cli acp`. Auth is out-of-band
+						// (`kiro-cli login`); we only need the binary on PATH.
+						const kiroPath = yield* resolveCliPath("kiro-cli").pipe(
+							Effect.provideService(
+								CommandExecutor.ChildProcessSpawner,
+								executor,
+							),
+						);
+						if (kiroPath === null) {
+							return yield* Effect.fail(
+								new AgentSessionStartError({
+									providerId: "kiro",
+									reason:
+										"Kiro CLI not found on PATH. Install from https://kiro.dev and ensure `kiro-cli` is available, then try again.",
+								}),
+							);
+						}
+						const kiroMcpCommand = yield* resolveCliPath("bun").pipe(
+							Effect.provideService(
+								CommandExecutor.ChildProcessSpawner,
+								executor,
+							),
+						);
+						if (kiroMcpCommand === null) {
+							return yield* Effect.fail(
+								new AgentSessionStartError({
+									providerId: "kiro",
+									reason:
+										"Bun was not found on PATH. It is required for the Kiro MCP stdio fallback.",
+								}),
+							);
+						}
+						providerHandle = yield* startKiroSession(
+							driverInput,
+							cwd,
+							kiroPath,
+							sessionId,
+							buildRequestPermission(input.folderId),
+							runtimeModeGetter,
+							(command) =>
+								Effect.runPromiseWith(runtime)(
+									browserBridge.send(sessionId, command),
+								),
+							kiroMcpCommand,
 							orchestrationTools,
 							resumeCursor,
 						).pipe(Effect.provideService(AttachmentService, attachmentService));

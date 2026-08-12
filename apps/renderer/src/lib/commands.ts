@@ -12,6 +12,7 @@ import { useUiStore } from "../store/ui";
 import { useWorkspaceStore } from "../store/workspace";
 import { captureAnalytics } from "./analytics";
 import { openNewChatLanding } from "./open-new-chat-landing.ts";
+import { openProjectSetupDialog } from "./project-setup-dialog-state.ts";
 import { getActiveEnvironment, getLocalEnvironmentId } from "./rpc-client.ts";
 import { switchToEnvironment } from "./switch-environment.ts";
 import { activeChatId, orderedChatTabs } from "./tab-order";
@@ -157,7 +158,7 @@ const HANDLERS: Record<Command, () => void> = {
 		openNewChatLanding(projectId);
 	},
 	"open-project": () => {
-		void useWorkspaceStore.getState().add();
+		openProjectSetupDialog();
 	},
 	settings: () => {
 		const ui = useUiStore.getState();

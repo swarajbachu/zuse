@@ -1,0 +1,21 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "@zuse/paid-icons-runtime",
+      "dependencies": {
+        "@hugeicons-pro/core-bulk-rounded": "4.2.1",
+        "@hugeicons-pro/core-solid-rounded": "4.2.1",
+        "@hugeicons-pro/core-stroke-rounded": "4.2.2",
+      },
+    },
+  },
+  "packages": {
+    "@hugeicons-pro/core-bulk-rounded": ["@hugeicons-pro/core-bulk-rounded@4.2.1", "https://npm.hugeicons.com/@hugeicons-pro/core-bulk-rounded/-/core-bulk-rounded-4.2.1.tgz", {}, "sha512-NaV2xmHovYsuGlb+JpGitUYZ10pN+z6YJo9RD1nh7Gu3oxFD4PYIFvOZ2e1zq+0Eo0IfLGArrPIyLltfXG5ESA=="],
+
+    "@hugeicons-pro/core-solid-rounded": ["@hugeicons-pro/core-solid-rounded@4.2.1", "https://npm.hugeicons.com/@hugeicons-pro/core-solid-rounded/-/core-solid-rounded-4.2.1.tgz", {}, "sha512-rODm75eQ4TH7DpGxngWKFCulMwr8BI+QaJ9ykngRsc3NWbbOnVq0M50LbmYVItNXG2meWxo9uRanmsF7YaYjGg=="],
+
+    "@hugeicons-pro/core-stroke-rounded": ["@hugeicons-pro/core-stroke-rounded@4.2.2", "https://npm.hugeicons.com/@hugeicons-pro/core-stroke-rounded/-/core-stroke-rounded-4.2.2.tgz", {}, "sha512-+TruczzkMDuo1PVTAQWNOkjzPhOkTE/mGsk3OU1kwGnm66c+pgSrLpSRpp0OWmKaHCDCnKfdufFroK7+gs8oWQ=="],
+  }
+}

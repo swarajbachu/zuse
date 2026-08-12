@@ -1,10 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronLeft } from "lucide-react";
 import {
 	ArchiveArrowUpIcon,
 	ArchiveIcon,
-	ArrowLeft01Icon,
 	Search01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type {
 	Chat,
 	ChatArchiveJob,
@@ -273,7 +273,7 @@ export function ArchivedChatsPage({
 					aria-label="Back to archived chats"
 					className="grid size-11 shrink-0 place-items-center rounded-md text-muted-foreground outline-none transition-colors duration-150 ease-out hover:bg-muted/45 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
 				>
-					<HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
+					<ChevronLeft className="size-4" />
 				</button>
 				<HugeiconsIcon
 					icon={ArchiveIcon}

@@ -9,6 +9,10 @@
 		"dev:turbo": "turbo run dev --filter=renderer --filter=desktop",
 		"dev:desktop": "node scripts/dev.mjs",
 		"test:dev-runner": "node --test scripts/dev-instance.test.mjs",
+		"test:icons": "node --test scripts/icon-runtime.test.mjs scripts/check-icons.test.mjs",
+		"icons:install-paid": "node scripts/install-paid-icons.mjs",
+		"icons:status": "node scripts/check-icons.mjs",
+		"postinstall": "node scripts/install-paid-icons.mjs",
 		"kill-port": "node scripts/kill-port.mjs",
 		"lint": "biome check .",
 		"format": "biome format --write .",
@@ -86,8 +90,6 @@
 		"react-dom": "19.2.3"
 	},
 	"dependencies": {
-		"@hugeicons-pro/core-bulk-rounded": "^4.2.1",
-		"@hugeicons-pro/core-solid-rounded": "^4.2.1",
 		"@openai/codex": "^0.144.5"
 	},
 	"patchedDependencies": {

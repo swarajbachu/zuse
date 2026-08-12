@@ -1,0 +1,52 @@
+name: community
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  free-icons:
+    name: Secret-free contributor build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
+
+      - name: Install without licensed credentials
+        env:
+          HUGEICONS_TOKEN: ""
+        run: bun install --frozen-lockfile
+
+      - name: Verify public icon contract
+        run: |
+          bun run icons:status --expect=free
+          bun run test:icons
+
+      - name: Test mobile app
+        run: bun --filter mobile test
+
+      - name: Check desktop and mobile types
+        run: |
+          bun --filter renderer check-types
+          bun --filter mobile check-types
+
+      - name: Build renderer with public icons
+        env:
+          ZUSE_ICON_MODE: free
+        run: bun --filter renderer build
+
+      - name: Bundle mobile app with public icons
+        env:
+          ZUSE_ICON_MODE: free
+        run: bun --cwd apps/mobile expo export --platform android --output-dir "$RUNNER_TEMP/mobile-export" --clear

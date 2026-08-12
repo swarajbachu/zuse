@@ -105,6 +105,44 @@ describe("anthropic-jsonl engine", () => {
 });
 
 describe("codex-jsonl engine", () => {
+	it("keeps the event loop responsive while reading large histories", async () => {
+		const root = makeDir();
+		const sessions = join(root, "sessions");
+		const file = join(sessions, "large.jsonl");
+		const event = {
+			timestamp: "2026-06-20T10:00:01.000Z",
+			type: "event_msg",
+			payload: {
+				type: "token_count",
+				info: {
+					last_token_usage: {
+						input_tokens: 50,
+						cached_input_tokens: 0,
+						output_tokens: 5,
+						total_tokens: 55,
+					},
+				},
+			},
+		};
+		writeLines(
+			file,
+			Array.from({ length: 10_000 }, () => event),
+		);
+
+		let heartbeatTicks = 0;
+		const heartbeat = setInterval(() => {
+			heartbeatTicks += 1;
+		}, 0);
+		await readCodexJsonl({
+			sourceId: "codex",
+			sourceLabel: "Codex",
+			sessionsDirs: [sessions],
+		});
+		clearInterval(heartbeat);
+
+		expect(heartbeatTicks).toBeGreaterThan(0);
+	});
+
 	it("prefers last_token_usage and subtracts cumulative totals", async () => {
 		const root = makeDir();
 		const sessions = join(root, "sessions");

@@ -160,6 +160,7 @@ describe("chats store selection", () => {
 			chatsByProject: { [projectId]: [chat] },
 			selectedChatId: null,
 			selectedChatByProject: {},
+			pendingCreationByChat: {},
 			archiveProgressByChat: {},
 			error: null,
 			archive: initialChatsState.archive,
@@ -446,6 +447,59 @@ describe("chats store selection", () => {
 		expect(
 			useChatsStore.getState().pendingCreationByChat[failedChatId ?? ""],
 		).toBeUndefined();
+	});
+
+	it.each([
+		"archive",
+		"remove",
+	] as const)("discards a failed provisional chat through %s without calling durable chat RPCs", async (action) => {
+		const discard = vi.fn(() => Effect.succeed({ discarded: true }));
+		const archive = vi.fn(() => Effect.fail(new Error("unexpected archive")));
+		const remove = vi.fn(() => Effect.fail(new Error("unexpected delete")));
+		rpcClientFactory.mockReturnValue({
+			"chat.create": () => Effect.fail(new Error("not a git repository")),
+			"chat.creation.discard": discard,
+			"chat.archive": archive,
+			"chat.delete": remove,
+		});
+
+		await useChatsStore
+			.getState()
+			.create(projectId, session.providerId, session.model, {
+				workspacePolicy: { _tag: "fresh" },
+				workspaceRequested: true,
+			});
+		const failedChatId = useChatsStore.getState().selectedChatId;
+		expect(failedChatId).not.toBeNull();
+
+		if (action === "archive") {
+			await expect(
+				useChatsStore.getState().archive(failedChatId as ChatId),
+			).resolves.toEqual({ ok: true });
+		} else {
+			await useChatsStore.getState().remove(failedChatId as ChatId);
+		}
+
+		await vi.waitFor(() => expect(discard).toHaveBeenCalledOnce());
+		expect(archive).not.toHaveBeenCalled();
+		expect(remove).not.toHaveBeenCalled();
+		expect(
+			useChatsStore.getState().pendingCreationByChat[failedChatId ?? ""],
+		).toBeUndefined();
+		expect(
+			useChatsStore
+				.getState()
+				.chatsByProject[projectId]?.some(
+					(candidate) => candidate.id === failedChatId,
+				),
+		).toBe(false);
+		expect(
+			useSessionsStore
+				.getState()
+				.sessionsByProject[projectId]?.some(
+					(candidate) => candidate.chatId === failedChatId,
+				),
+		).toBe(false);
 	});
 
 	it("restores a durable failed creation without changing navigation", async () => {

@@ -299,6 +299,7 @@ const makeRuntime = (
 	});
 
 	const StubGitLive = Layer.succeed(GitService, {
+		isRepository: () => Effect.succeed(true),
 		log: () => Effect.die("not used"),
 		status: () => Effect.die("not used"),
 		branches: () => Effect.die("not used"),

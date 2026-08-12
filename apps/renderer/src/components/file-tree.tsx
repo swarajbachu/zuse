@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronRight } from "lucide-react";
 import {
-	ArrowRight01Icon,
 	BubbleChatIcon,
 	Copy01Icon,
 	Delete02Icon,
@@ -9,7 +9,7 @@ import {
 	FolderOpenIcon,
 	PencilEdit01Icon,
 	Search01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type {
 	ContextMenuItem as FileTreeContextMenuItem,
 	ContextMenuOpenContext as FileTreeContextMenuOpenContext,
@@ -933,8 +933,7 @@ function OpenInSubmenu({
 			>
 				<HugeiconsIcon icon={FolderOpenIcon} className="size-4" />
 				<span>Open in</span>
-				<HugeiconsIcon
-					icon={ArrowRight01Icon}
+				<ChevronRight
 					className="ml-auto size-3.5 text-muted-foreground"
 				/>
 			</button>

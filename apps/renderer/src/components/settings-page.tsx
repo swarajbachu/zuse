@@ -1,8 +1,17 @@
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+	type AppearanceMode,
+	type BranchNamingStyle,
+	type CompletionSoundPreset,
+	type Folder,
+	type FolderId,
+	type ProviderId,
+	type RuntimeMode,
+	visibleModelsForProvider,
+} from "@zuse/contracts";
+import {
 	Alert01Icon,
-	ArrowLeft01Icon,
 	BrowserIcon,
 	ConnectIcon,
 	Delete02Icon,
@@ -19,20 +28,11 @@ import {
 	TestTubeIcon,
 	Tick01Icon,
 	VolumeHighIcon,
-} from "@hugeicons-pro/core-solid-rounded";
-import {
-	type AppearanceMode,
-	type BranchNamingStyle,
-	type CompletionSoundPreset,
-	type Folder,
-	type FolderId,
-	type ProviderId,
-	type RuntimeMode,
-	visibleModelsForProvider,
-} from "@zuse/contracts";
+} from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
-import { Plus, RefreshCw as RefreshIcon } from "lucide-react";
+import { ChevronLeft, Plus, RefreshCw as RefreshIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { cloudMachinesAvailable } from "~/lib/cloud-machines-availability.ts";
 import { displayPath } from "~/lib/display-path";
 import { hasHostCapability } from "~/lib/host-platform";
 import { rendererPlatformCapabilities } from "~/lib/platform-capabilities.ts";
@@ -171,9 +171,16 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
 	},
 ];
 
-const VISIBLE_RAIL: ReadonlyArray<RailItemBase> = import.meta.env.DEV
-	? TOP_RAIL
-	: TOP_RAIL.filter((i) => i.id !== "developer");
+const CLOUD_MACHINES_AVAILABLE = cloudMachinesAvailable({
+	desktop: rendererPlatformCapabilities().desktop,
+	development: import.meta.env.DEV,
+});
+
+const VISIBLE_RAIL: ReadonlyArray<RailItemBase> = TOP_RAIL.filter(
+	(item) =>
+		(item.id !== "developer" || import.meta.env.DEV) &&
+		(item.id !== "machines" || CLOUD_MACHINES_AVAILABLE),
+);
 
 /**
  * Two-pane settings surface. The left rail navigates between global
@@ -188,17 +195,19 @@ export function SettingsPage() {
 	const loadFolders = useWorkspaceStore((s) => s.load);
 	const desktop = rendererPlatformCapabilities().desktop;
 	const visibleSection: SettingsSection =
-		!desktop && section.kind === "machines" ? { kind: "general" } : section;
+		!CLOUD_MACHINES_AVAILABLE && section.kind === "machines"
+			? { kind: "general" }
+			: section;
 
 	useEffect(() => {
 		if (folders.length === 0) void loadFolders();
 	}, [folders.length, loadFolders]);
 
 	useEffect(() => {
-		if (!desktop && section.kind === "machines") {
+		if (!CLOUD_MACHINES_AVAILABLE && section.kind === "machines") {
 			setSection({ kind: "general" });
 		}
-	}, [desktop, section.kind, setSection]);
+	}, [section.kind, setSection]);
 
 	return (
 		<div className="settings-surface flex min-h-0 flex-1 flex-col bg-background [&_button[data-slot=button]:not([class*='size-'])]:h-7 [&_button[data-slot=button]:not([class*='size-'])]:text-[11px]">
@@ -210,7 +219,7 @@ export function SettingsPage() {
 					aria-label="Back to app"
 					className="flex items-center gap-1 rounded p-1 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground [-webkit-app-region:no-drag]"
 				>
-					<HugeiconsIcon icon={ArrowLeft01Icon} className="size-3.5" />
+					<ChevronLeft className="size-3.5" />
 					<span>Back to app</span>
 				</button>
 			</header>
@@ -221,7 +230,7 @@ export function SettingsPage() {
 					folders={folders}
 					desktop={desktop}
 				/>
-				<div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5">
+				<div className="flex min-h-0 flex-1 flex-col overflow-y-auto scroll-smooth overscroll-contain px-6 py-5">
 					<div
 						className={cn(
 							"mx-auto flex w-full flex-col gap-4",
@@ -1348,6 +1357,7 @@ function ProvidersPane() {
 		"gemini",
 		"cursor",
 		"opencode",
+		"kiro",
 	];
 	const [selectedProvider, setSelectedProvider] =
 		useState<ProviderId>("claude");
@@ -1416,7 +1426,7 @@ function ProvidersPane() {
 								>
 									<ProviderIcon providerId={pid} className="size-3.5" />
 									<span>{PROVIDER_LABEL[pid]}</span>
-									{pid === "opencode" && (
+									{(pid === "opencode" || pid === "kiro") && (
 										<span className="rounded border border-border/60 bg-muted/70 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
 											New
 										</span>
@@ -1439,8 +1449,8 @@ function ProvidersPane() {
 				<FrameFooter className="px-2 py-1 w-full">
 					<p className="text-xs leading-relaxed text-muted-foreground">
 						Zuse (Beta) uses your existing CLI credentials — Claude Code, Codex,
-						Grok, Gemini, Cursor, and OpenCode all sign in through their own
-						login flows.
+						Grok, Gemini, Cursor, OpenCode, and Kiro all sign in through their
+						own login flows.
 					</p>
 				</FrameFooter>
 			</Frame>

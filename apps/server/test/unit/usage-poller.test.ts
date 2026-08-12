@@ -36,7 +36,7 @@ describe("usage limits poller", () => {
 			now,
 		);
 
-		expect(providers).toEqual(["claude", "grok", "gemini"]);
+		expect(providers).toEqual(["claude", "grok", "gemini", "kiro"]);
 	});
 
 	it("suppresses repeated auth failures until a manual refresh", async () => {

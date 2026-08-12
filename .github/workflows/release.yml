@@ -40,6 +40,9 @@ jobs:
           HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
         run: bun install --frozen-lockfile "--cpu=*"
 
+      - name: Verify licensed icons
+        run: bun run icons:status --expect=paid
+
       - name: Build
         env:
           # Renderer bundling pulls in the Hugeicons Pro ESM package and can
@@ -122,6 +125,9 @@ jobs:
         env:
           HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
         run: bun install --frozen-lockfile
+
+      - name: Verify licensed icons
+        run: bun run icons:status --expect=paid
 
       - name: Build
         env:

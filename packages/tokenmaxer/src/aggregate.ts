@@ -40,14 +40,9 @@ const pad2 = (n: number): string => n.toString().padStart(2, "0");
 
 const dateParts = (
 	date: Date,
-	timezone: string,
+	formatter: Intl.DateTimeFormat,
 ): { year: number; month: number; day: number } => {
-	const parts = new Intl.DateTimeFormat("en-CA", {
-		timeZone: timezone,
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-	}).formatToParts(date);
+	const parts = formatter.formatToParts(date);
 	const get = (type: string) =>
 		Number(parts.find((p) => p.type === type)?.value ?? "0");
 	return { year: get("year"), month: get("month"), day: get("day") };
@@ -56,12 +51,12 @@ const dateParts = (
 const bucketKey = (
 	record: UsageRecord,
 	bucket: UsageBucket,
-	timezone: string,
+	dateFormatter: Intl.DateTimeFormat,
 ): string => {
 	if (bucket === "session") {
 		return record.sessionId ?? record.fingerprint;
 	}
-	const parts = dateParts(record.startedAt, timezone);
+	const parts = dateParts(record.startedAt, dateFormatter);
 	if (bucket === "monthly") return `${parts.year}-${pad2(parts.month)}`;
 	if (bucket === "weekly") {
 		const utc = Date.UTC(parts.year, parts.month - 1, parts.day);
@@ -95,10 +90,16 @@ export const groupUsageRecords = (
 			const sorted = rows
 				.slice()
 				.sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+			const first = sorted[0];
+			if (first === undefined) {
+				throw new Error(
+					`Usage bucket ${key} unexpectedly contained no records`,
+				);
+			}
 			return {
 				key,
-				label: labelFor(sorted[0]!, key),
-				startedAt: sorted[0]?.startedAt ?? null,
+				label: labelFor(first, key),
+				startedAt: first.startedAt,
 				endedAt: sorted[sorted.length - 1]?.endedAt ?? null,
 				sourceIds: Array.from(new Set(rows.map((r) => r.sourceId))).sort(),
 				...summarize(rows),
@@ -178,6 +179,12 @@ export const buildUsageReport = (input: {
 		filters.timezone ??
 		Intl.DateTimeFormat().resolvedOptions().timeZone ??
 		"UTC";
+	const dateFormatter = new Intl.DateTimeFormat("en-CA", {
+		timeZone: timezone,
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+	});
 	const records = filterUsageRecords(input.records, filters);
 	return {
 		bucket: input.bucket,
@@ -186,7 +193,7 @@ export const buildUsageReport = (input: {
 		summary: summarize(records),
 		groups: groupUsageRecords(
 			records,
-			(record) => bucketKey(record, input.bucket, timezone),
+			(record) => bucketKey(record, input.bucket, dateFormatter),
 			(record, key) =>
 				input.bucket === "session"
 					? (record.sessionId ?? `${record.sourceLabel} ${record.model}`)

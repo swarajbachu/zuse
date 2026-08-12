@@ -1,7 +1,11 @@
 import { Plus } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense } from "react";
 
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import {
+	openProjectSetupDialog,
+	useProjectSetupDialogStore,
+} from "../lib/project-setup-dialog-state.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { TooltipShortcut } from "./projects-sidebar.tsx";
 
@@ -13,7 +17,8 @@ const ProjectSetupDialog = lazy(() =>
 );
 
 export function ProjectAddMenu() {
-	const [open, setOpen] = useState(false);
+	const open = useProjectSetupDialogStore((state) => state.open);
+	const setOpen = useProjectSetupDialogStore((state) => state.setOpen);
 
 	return (
 		<>
@@ -24,7 +29,7 @@ export function ProjectAddMenu() {
 							type="button"
 							className="rounded p-1 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
 							aria-label="Add project"
-							onClick={() => setOpen(true)}
+							onClick={openProjectSetupDialog}
 							onFocus={() => void loadProjectSetupDialog()}
 							onPointerEnter={() => void loadProjectSetupDialog()}
 						>

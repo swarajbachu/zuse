@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { ArrowUpIcon, CloudOffIcon } from "@hugeicons-pro/core-solid-rounded";
+import { ArrowUpIcon, CloudOffIcon } from "@zuse/icons/solid-rounded";
 import {
 	orderedChatSessions,
 	resolveActiveChatSession,

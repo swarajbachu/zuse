@@ -4,7 +4,7 @@ import {
 	ArrowRight01Icon,
 	PinIcon,
 	PinOffIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import { Link } from "expo-router";
 import { useEffect, useMemo } from "react";
 import { Pressable, Text, View } from "react-native";

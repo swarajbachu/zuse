@@ -1,18 +1,18 @@
 ---
 title: Providers
-description: Connect and use Claude Code, Codex, Grok, Gemini, Cursor, and OpenCode.
+description: Connect and use Claude Code, Codex, Grok, Gemini, Cursor, OpenCode, and Kiro.
 section: providers
 order: 30
 platforms: [desktop, browser, mobile]
-providers: [claude, codex, grok, gemini, cursor, opencode]
+providers: [claude, codex, grok, gemini, cursor, opencode, kiro]
 prerequisites: [/start/install]
-related: [/providers/setup, /providers/claude-code, /providers/codex, /providers/grok, /providers/gemini, /providers/cursor, /providers/opencode, /composer/modes-permissions, /reference/diagnostics]
+related: [/providers/setup, /providers/claude-code, /providers/codex, /providers/grok, /providers/gemini, /providers/cursor, /providers/opencode, /providers/kiro, /composer/modes-permissions, /reference/diagnostics]
 next: /providers/setup
 lastVerified: latest
 ---
 
 
-Zuse presents six coding-agent providers through one persistent project interface:
+Zuse presents seven coding-agent providers through one persistent project interface:
 
 | Provider | Runtime | Notes |
 | --- | --- | --- |
@@ -22,6 +22,7 @@ Zuse presents six coding-agent providers through one persistent project interfac
 | Gemini | Local `gemini` CLI | ACP integration |
 | Cursor | Bundled SDK | App-managed API-key authentication |
 | OpenCode | Local `opencode` CLI | Local provider and model management |
+| Kiro | Local `kiro-cli` CLI | ACP integration |
 
 The common Zuse experience includes durable chat history, streaming responses, tool and edit presentation, model selection, project context, and session lifecycle controls. Exact models, slash commands, tool semantics, authentication, account limits, and optional features remain provider-specific.
 
@@ -37,3 +38,4 @@ For setup and recovery, continue to [Install, sign in, and update providers](/pr
 - [Gemini CLI](/providers/gemini)
 - [Cursor](/providers/cursor)
 - [OpenCode](/providers/opencode)
+- [Kiro CLI](/providers/kiro)

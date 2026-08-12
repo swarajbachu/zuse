@@ -87,6 +87,7 @@ export const ResumeStrategy = Schema.Literals([
 	"cursor-session-id",
 	"gemini-session-id",
 	"opencode-session-id",
+	"kiro-session-id",
 	"none",
 ]);
 export type ResumeStrategy = typeof ResumeStrategy.Type;
@@ -228,6 +229,11 @@ const ToolUseContent = Schema.TaggedStruct("tool_use", {
 	tool: Schema.String,
 	input: Schema.Unknown,
 	parentItemId: Schema.optional(AgentItemId),
+	backgroundTask: Schema.optional(
+		Schema.Struct({
+			taskId: Schema.String,
+		}),
+	),
 	subagent: Schema.optional(
 		Schema.Struct({
 			childSessionId: Schema.String,

@@ -15,6 +15,13 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { Area } from "~/components/dither-kit/area";
+import { AreaChart } from "~/components/dither-kit/area-chart";
+import { BlockLegend } from "~/components/dither-kit/block-legend";
+import { Grid } from "~/components/dither-kit/grid";
+import { Tooltip } from "~/components/dither-kit/tooltip";
+import { XAxis } from "~/components/dither-kit/x-axis";
+import { YAxis } from "~/components/dither-kit/y-axis";
 import { useUsageSessions } from "~/hooks/use-usage-sessions";
 import { PROVIDER_DISPLAY } from "~/lib/provider-status";
 import { usagePace } from "~/lib/usage-pace";
@@ -26,23 +33,11 @@ import {
 	useUsageStore,
 } from "~/store/usage.ts";
 import { useUsageLimitsStore } from "~/store/usage-limits";
-import {
-	cacheTokens,
-	formatTokens,
-	formatUsd,
-	type TokenRow,
-	totalTokens,
-} from "../lib/format-usage.ts";
+import { formatTokens, formatUsd, totalTokens } from "../lib/format-usage.ts";
 import { ProviderIcon } from "./provider-icons";
 import { Button } from "./ui/button.tsx";
-import {
-	Frame,
-	FrameFooter,
-	FrameHeader,
-	FramePanel,
-	FrameTitle,
-} from "./ui/frame.tsx";
-import { ShimmerText } from "./ui/shimmer-text.tsx";
+import { Card } from "./ui/card.tsx";
+import { Frame, FrameFooter, FrameHeader, FrameTitle } from "./ui/frame.tsx";
 import {
 	Table,
 	TableBody,
@@ -52,6 +47,13 @@ import {
 	TableRow,
 } from "./ui/table.tsx";
 import { resetLabel, StickMeter } from "./usage/usage-meter";
+
+const CHART_SERIES = [
+	{ key: "input", label: "Input", color: "blue" as const },
+	{ key: "output", label: "Output", color: "green" as const },
+	{ key: "cache", label: "Cache", color: "purple" as const },
+	{ key: "reasoning", label: "Reasoning", color: "orange" as const },
+] as const;
 
 const PERIODS: ReadonlyArray<{ value: UsagePeriod; label: string }> = [
 	{ value: "7d", label: "7D" },
@@ -70,43 +72,7 @@ const PROVIDER_ORDER: ReadonlyArray<ProviderId> = [
 	"codex",
 	"grok",
 	"gemini",
-];
-
-const SERIES: ReadonlyArray<{
-	readonly key: string;
-	readonly label: string;
-	readonly bar: string;
-	readonly dot: string;
-	readonly value: (row: TokenRow) => number;
-}> = [
-	{
-		key: "input",
-		label: "Input",
-		bar: "bg-primary",
-		dot: "bg-primary",
-		value: (row) => row.inputTokens,
-	},
-	{
-		key: "output",
-		label: "Output",
-		bar: "bg-primary/65",
-		dot: "bg-primary/65",
-		value: (row) => row.outputTokens,
-	},
-	{
-		key: "cache",
-		label: "Cache",
-		bar: "bg-primary/35",
-		dot: "bg-primary/35",
-		value: cacheTokens,
-	},
-	{
-		key: "reasoning",
-		label: "Reasoning",
-		bar: "bg-primary/20",
-		dot: "bg-primary/20",
-		value: (row) => row.reasoningTokens,
-	},
+	"kiro",
 ];
 
 export function UsageDashboard({
@@ -128,43 +94,39 @@ export function UsageDashboard({
 	const selectedRange = useUsageStore((state) => state.selectedRange);
 	const setRange = useUsageStore((state) => state.setRange);
 	const refreshLimits = useUsageLimitsStore((state) => state.refresh);
-	const loadLimitHistory = useUsageLimitsStore((state) => state.loadHistory);
 	const openUsage = useUiStore((state) => state.openUsage);
 
 	useEffect(() => {
 		void refresh(projectId);
 		void refreshLimits(false);
-		void loadLimitHistory();
-	}, [projectId, refresh, refreshLimits, loadLimitHistory]);
+	}, [projectId, refresh, refreshLimits]);
 
 	const forceRefresh = () => {
 		void Promise.all([
 			refresh(projectId, { forceRefresh: true }),
-			refreshLimits(true).then(loadLimitHistory),
+			refreshLimits(true),
 		]);
 	};
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col bg-background">
-			<header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border px-4">
-				<div className="min-w-0">
-					<h1 className="truncate text-sm font-medium">Usage</h1>
-					<p className="truncate text-[11px] text-muted-foreground">
-						{scopeLabel}
-					</p>
-				</div>
+			<header className="flex h-12 shrink-0 items-center border-b border-border px-5">
+				<h1 className="text-sm font-medium">Usage</h1>
+			</header>
+			<div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-6 pt-5">
+				<p className="text-xs text-muted-foreground">{scopeLabel}</p>
 				<div className="flex shrink-0 items-center gap-2">
 					<fieldset
-						className="flex rounded-md border border-border p-0.5"
+						className="flex rounded-md bg-muted/55 p-0.5"
 						aria-label="Usage scope"
 					>
 						<button
 							type="button"
 							onClick={() => openUsage("global")}
 							className={cn(
-								"min-h-7 rounded px-2 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-foreground/30",
+								"h-6 rounded-[5px] px-2 text-[10px] outline-none focus-visible:ring-2 focus-visible:ring-foreground/30",
 								projectId === null
-									? "bg-accent text-foreground"
+									? "bg-background text-foreground shadow-sm"
 									: "text-muted-foreground hover:text-foreground",
 							)}
 							aria-pressed={projectId === null}
@@ -176,9 +138,9 @@ export function UsageDashboard({
 							disabled={availableProjectId === null}
 							onClick={() => openUsage("project")}
 							className={cn(
-								"min-h-7 rounded px-2 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-foreground/30 disabled:opacity-50",
+								"h-6 rounded-[5px] px-2 text-[10px] outline-none focus-visible:ring-2 focus-visible:ring-foreground/30 disabled:opacity-50",
 								projectId !== null
-									? "bg-accent text-foreground"
+									? "bg-background text-foreground shadow-sm"
 									: "text-muted-foreground hover:text-foreground",
 							)}
 							aria-pressed={projectId !== null}
@@ -187,7 +149,7 @@ export function UsageDashboard({
 						</button>
 					</fieldset>
 					<fieldset
-						className="flex rounded-md border border-border p-0.5"
+						className="flex rounded-md bg-muted/55 p-0.5"
 						aria-label="Usage period"
 					>
 						{PERIODS.map((item) => (
@@ -196,9 +158,9 @@ export function UsageDashboard({
 								type="button"
 								onClick={() => void setPeriod(item.value, projectId)}
 								className={cn(
-									"min-h-7 rounded px-2 text-[11px] tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-foreground/30",
+									"h-6 rounded-[5px] px-2 text-[10px] tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-foreground/30",
 									period === item.value
-										? "bg-foreground text-background"
+										? "bg-background text-foreground shadow-sm"
 										: "text-muted-foreground hover:text-foreground",
 								)}
 								aria-pressed={period === item.value}
@@ -210,7 +172,7 @@ export function UsageDashboard({
 					<button
 						type="button"
 						onClick={forceRefresh}
-						className="inline-flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-foreground/30"
+						className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-foreground/30"
 						title="Refresh usage"
 						aria-label="Refresh usage"
 					>
@@ -222,7 +184,7 @@ export function UsageDashboard({
 						/>
 					</button>
 				</div>
-			</header>
+			</div>
 
 			{error !== null && report !== null ? (
 				<div className="mx-4 mt-3 rounded-md border border-amber-500/30 bg-amber-500/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
@@ -253,28 +215,32 @@ export function UsageDashboard({
 function UsageSkeleton() {
 	return (
 		<div
-			className="min-h-0 flex-1 space-y-4 overflow-hidden p-4"
+			className="mx-auto min-h-0 w-full max-w-6xl flex-1 space-y-6 overflow-hidden px-6 py-6"
 			role="status"
 			aria-label="Loading usage"
 		>
-			<ShimmerText className="h-4 w-36">Loading usage…</ShimmerText>
-			<div className="grid h-32 grid-cols-2 gap-3 lg:grid-cols-4">
+			<span className="sr-only">Loading usage…</span>
+			<div className="grid h-72 gap-8 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
+				<div className="space-y-5">
+					<div className="h-9 w-40 rounded bg-muted/55" />
+					{Array.from({ length: 4 }, (_, index) => (
+						<div key={index} className="space-y-2">
+							<div className="h-3 w-28 rounded bg-muted/45" />
+							<div className="h-1.5 rounded-full bg-muted/45" />
+						</div>
+					))}
+				</div>
+				<div className="rounded-md bg-muted/20" />
+			</div>
+			<div className="grid h-24 grid-cols-2 gap-px border-y border-border bg-border lg:grid-cols-4">
 				{Array.from({ length: 4 }, (_, index) => (
-					<div
-						key={index}
-						className="rounded-lg border border-border bg-muted/20"
-					/>
+					<div key={index} className="bg-background p-4">
+						<div className="h-3 w-20 rounded bg-muted/45" />
+						<div className="mt-3 h-5 w-24 rounded bg-muted/55" />
+					</div>
 				))}
 			</div>
-			<div className="grid h-28 grid-cols-3 gap-3">
-				{Array.from({ length: 3 }, (_, index) => (
-					<div
-						key={index}
-						className="rounded-lg border border-border bg-muted/20"
-					/>
-				))}
-			</div>
-			<div className="h-72 rounded-lg border border-border bg-muted/20" />
+			<div className="h-52 rounded-md bg-muted/20" />
 		</div>
 	);
 }
@@ -326,6 +292,15 @@ function UsageReportView({
 			),
 		},
 		{
+			label: "Cache reads",
+			value: formatTokens(summary.cacheReadTokens),
+			hint: `${Math.round((summary.cacheReadTokens / Math.max(1, summary.inputTokens + summary.cacheReadTokens)) * 100)}% of observed input`,
+			delta: metricDelta(
+				summary.cacheReadTokens,
+				previous?.cacheReadTokens ?? null,
+			),
+		},
+		{
 			label: "Active sessions",
 			value: report.sessionCount.toLocaleString(),
 			hint: `${summary.recordCount.toLocaleString()} usage records`,
@@ -334,42 +309,46 @@ function UsageReportView({
 	];
 
 	return (
-		<div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
-			<LimitStrip />
-			<div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-				{metrics.map((metric) => (
-					<Metric key={metric.label} {...metric} />
-				))}
-			</div>
-			<UsageChart
-				groups={report.groups}
-				selectedRange={selectedRange}
-				onSelectRange={onSelectRange}
-			/>
-			<Contributors
-				bySource={report.bySource}
-				byModel={report.byModel}
-				byProject={report.byProject}
-				previousBySource={report.previousBySource}
-				previousByModel={report.previousByModel}
-				previousByProject={report.previousByProject}
-			/>
-			<SessionsExplorer
-				projectId={projectId}
-				period={period}
-				sessionCount={report.sessionCount}
-				selectedRange={selectedRange}
-			/>
-			<div className="flex items-center justify-between text-[10px] text-muted-foreground">
-				<span>
-					{report.sources.filter((source) => source.detected).length} sources
-					detected
-				</span>
-				<span className="tabular-nums">
-					{refreshing
-						? "Updating…"
-						: `Updated ${report.generatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
-				</span>
+		<div className="min-h-0 flex-1 overflow-auto">
+			<div className="mx-auto w-full max-w-6xl space-y-6 px-6 py-6">
+				<UsageChart
+					groups={report.groups}
+					bySource={report.bySource}
+					summary={report.summary}
+					selectedRange={selectedRange}
+					onSelectRange={onSelectRange}
+				/>
+				<Frame className="grid grid-cols-2 gap-1 lg:grid-cols-4">
+					{metrics.map((metric) => (
+						<Metric key={metric.label} {...metric} />
+					))}
+				</Frame>
+				<LimitStrip />
+				<Contributors
+					bySource={report.bySource}
+					byModel={report.byModel}
+					byProject={report.byProject}
+					previousBySource={report.previousBySource}
+					previousByModel={report.previousByModel}
+					previousByProject={report.previousByProject}
+				/>
+				<SessionsExplorer
+					projectId={projectId}
+					period={period}
+					sessionCount={report.sessionCount}
+					selectedRange={selectedRange}
+				/>
+				<div className="flex items-center justify-between text-[10px] text-muted-foreground">
+					<span>
+						{report.sources.filter((source) => source.detected).length} sources
+						detected
+					</span>
+					<span className="tabular-nums">
+						{refreshing
+							? "Updating…"
+							: `Updated ${report.generatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+					</span>
+				</div>
 			</div>
 		</div>
 	);
@@ -377,71 +356,99 @@ function UsageReportView({
 
 function LimitStrip() {
 	const providers = useUsageLimitsStore((state) => state.providers);
-	const ordered = useMemo(() => {
-		const urgency = (provider: ProviderUsageLimits) =>
-			provider.windows.reduce(
-				(peak, window) => Math.max(peak, window.usedPercent ?? -1),
-				-1,
-			);
-		return providers
-			.slice()
-			.sort(
-				(a, b) =>
-					urgency(b) - urgency(a) ||
-					PROVIDER_ORDER.indexOf(a.providerId) -
-						PROVIDER_ORDER.indexOf(b.providerId),
-			);
+	const loading = useUsageLimitsStore((state) => state.loading);
+	// Always paint every limits-capable provider (incl. Kiro) in a stable
+	// order so a missing/empty API row cannot hide a card.
+	const cards = useMemo(() => {
+		const byId = new Map(
+			providers.map((provider) => [provider.providerId, provider] as const),
+		);
+		return PROVIDER_ORDER.map((id) => {
+			const provider = byId.get(id);
+			if (provider === undefined) {
+				return { id, kind: "placeholder" as const };
+			}
+			const hasData =
+				provider.windows.length > 0 || provider.creditsRemaining !== null;
+			if (!hasData && provider.unavailableReason !== undefined) {
+				return {
+					id,
+					kind: "placeholder" as const,
+					reason: provider.unavailableReason,
+				};
+			}
+			return { id, kind: "card" as const, provider };
+		});
 	}, [providers]);
 
 	return (
-		<section aria-labelledby="limits-title">
-			<h2
-				id="limits-title"
-				className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
-			>
-				Limits
-			</h2>
-			<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-				{ordered.map((provider) => (
-					<LimitCard key={provider.providerId} provider={provider} />
-				))}
-				{PROVIDER_ORDER.filter(
-					(id) => !providers.some((provider) => provider.providerId === id),
-				).map((id) => (
-					<LimitPlaceholder
-						key={id}
-						providerId={id}
-						unavailable={providers.length > 0}
-					/>
-				))}
+		<Frame aria-labelledby="limits-title">
+			<FrameHeader className="flex-row items-baseline justify-between px-3 py-2">
+				<FrameTitle id="limits-title">Plan limits</FrameTitle>
+				<span className="text-[11px] text-muted-foreground">
+					Live provider allowance
+				</span>
+			</FrameHeader>
+			<div className="grid gap-1 lg:grid-cols-2">
+				{cards.map((entry) =>
+					entry.kind === "card" ? (
+						<LimitCard key={entry.id} provider={entry.provider} />
+					) : (
+						<LimitPlaceholder
+							key={entry.id}
+							providerId={entry.id}
+							unavailable={providers.length > 0 || !loading}
+							reason={"reason" in entry ? entry.reason : undefined}
+						/>
+					),
+				)}
 			</div>
-		</section>
+		</Frame>
 	);
 }
 
 function LimitPlaceholder({
 	providerId,
 	unavailable = false,
+	reason,
 }: {
 	providerId: ProviderId;
 	unavailable?: boolean;
+	reason?: ProviderUsageLimits["unavailableReason"];
 }) {
+	const message = !unavailable
+		? "Checking limits…"
+		: reason === "no-credentials"
+			? providerId === "kiro"
+				? "Sign in with kiro-cli login"
+				: "Sign in to see limits"
+			: reason === "expired"
+				? providerId === "kiro"
+					? "Session expired — run kiro-cli login"
+					: "Session expired — sign in again"
+				: reason === "error"
+					? "Could not load limits"
+					: reason === "unsupported"
+						? "Not available for this account"
+						: "No usage data available";
 	return (
-		<div className="h-28 rounded-lg border border-border bg-card p-3">
-			<div className="flex items-center gap-2 text-xs">
+		<Card className="flex min-h-20 flex-row items-center gap-3 p-3">
+			<div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/45">
 				<ProviderIcon providerId={providerId} className="size-4" />
-				{PROVIDER_DISPLAY[providerId]}
 			</div>
-			<div className="mt-8 text-[11px] text-muted-foreground">
-				{unavailable ? "No usage data available" : "Checking limits…"}
+			<div className="min-w-0">
+				<div className="text-xs font-medium">
+					{PROVIDER_DISPLAY[providerId]}
+				</div>
+				<div className="mt-1 truncate text-[11px] text-muted-foreground">
+					{message}
+				</div>
 			</div>
-		</div>
+		</Card>
 	);
 }
 
 function LimitCard({ provider }: { provider: ProviderUsageLimits }) {
-	const history = useUsageLimitsStore((state) => state.history);
-	const [expanded, setExpanded] = useState(false);
 	const windows = useMemo(
 		() =>
 			provider.windows
@@ -459,134 +466,56 @@ function LimitCard({ provider }: { provider: ProviderUsageLimits }) {
 	const pace = primary
 		? usagePace(primary.usedPercent, primary.resetsAt, primary.windowMinutes)
 		: null;
-	const historyValues = useMemo(
-		() =>
-			history
-				.filter(
-					(point) =>
-						point.providerId === provider.providerId &&
-						point.windowId === primary?.id &&
-						point.usedPercent !== null,
-				)
-				.slice(-24)
-				.map((point) => point.usedPercent as number),
-		[history, primary?.id, provider.providerId],
-	);
 	return (
-		<button
-			type="button"
-			onClick={() => setExpanded((value) => !value)}
-			className={cn(
-				"min-h-28 rounded-lg border border-border bg-card p-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-foreground/30",
-				expanded && "col-span-2 lg:col-span-1",
-			)}
-			aria-expanded={expanded}
-		>
-			<div className="flex items-center gap-2">
+		<Card className="flex min-h-20 flex-row items-center gap-3 p-3">
+			<div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/45">
 				<ProviderIcon providerId={provider.providerId} className="size-4" />
-				<span className="min-w-0 flex-1 truncate text-xs font-medium">
-					{PROVIDER_DISPLAY[provider.providerId]}
-				</span>
-				<ChevronDown
-					className={cn(
-						"size-3.5 text-muted-foreground transition-transform motion-reduce:transition-none",
-						expanded && "rotate-180",
-					)}
-				/>
 			</div>
-			<div className="mt-1 h-4 truncate text-[10px] text-muted-foreground">
-				{provider.planLabel ?? primary?.label ?? "Usage limits"}
-			</div>
-			{primary ? (
-				<>
-					<div className="mt-2 flex items-end justify-between gap-2">
-						<span className="text-xl font-semibold tracking-tight tabular-nums">
-							{left == null ? "—" : `${left}%`}
-						</span>
-						<span className="mb-0.5 text-[10px] text-muted-foreground">
-							{resetLabel(primary.resetsAt) ?? "No reset"}
-						</span>
+			<div className="min-w-0 flex-1">
+				<div className="flex items-center justify-between gap-3">
+					<div className="min-w-0">
+						<div className="truncate text-xs font-medium">
+							{PROVIDER_DISPLAY[provider.providerId]}
+						</div>
+						<div className="truncate text-[10px] text-muted-foreground">
+							{provider.planLabel ?? primary?.label ?? "Usage limits"}
+						</div>
 					</div>
-					<StickMeter
-						percent={primary.usedPercent}
-						tone={(primary.usedPercent ?? 0) >= 80 ? "warning" : "default"}
-					/>
-					{historyValues.length > 1 ? (
-						<UsageSparkline values={historyValues} />
-					) : null}
-					{pace ? (
-						<div
-							className={cn(
-								"mt-1 text-[10px]",
-								pace.tone === "reserve"
-									? "text-emerald-600 dark:text-emerald-400"
-									: "text-amber-600 dark:text-amber-400",
-							)}
-						>
-							{pace.label}
+					<div className="shrink-0 text-right">
+						<div className="text-sm font-medium tabular-nums">
+							{left == null
+								? (provider.creditsRemaining?.toLocaleString(undefined, {
+										maximumFractionDigits: 1,
+									}) ?? "—")
+								: `${left}% left`}
 						</div>
-					) : null}
-				</>
-			) : (
-				<div className="mt-7 text-[11px] text-muted-foreground">
-					No usage data available
-				</div>
-			)}
-			{provider.creditsRemaining !== null ? (
-				<div className="mt-2 flex items-center justify-between border-t border-border/60 pt-2 text-[10px]">
-					<span className="text-muted-foreground">Credits remaining</span>
-					<span className="font-medium tabular-nums">
-						{provider.creditsRemaining.toLocaleString()}
-					</span>
-				</div>
-			) : null}
-			{expanded && windows.length > 1 ? (
-				<div className="mt-3 space-y-2 border-t border-border/60 pt-2">
-					{windows.slice(1).map((window) => (
-						<div key={window.id}>
-							<div className="mb-1 flex justify-between gap-2 text-[10px]">
-								<span className="truncate">{window.label}</span>
-								<span className="shrink-0 tabular-nums text-muted-foreground">
-									{window.usedPercent == null
-										? "—"
-										: `${Math.max(0, Math.round(100 - window.usedPercent))}% left`}
-								</span>
-							</div>
-							<StickMeter
-								percent={window.usedPercent}
-								tone={(window.usedPercent ?? 0) >= 80 ? "warning" : "default"}
-							/>
+						<div className="text-[10px] text-muted-foreground">
+							{primary
+								? (resetLabel(primary.resetsAt) ?? "No reset")
+								: "credits"}
 						</div>
-					))}
+					</div>
 				</div>
-			) : null}
-		</button>
-	);
-}
-
-function UsageSparkline({ values }: { values: ReadonlyArray<number> }) {
-	const points = values
-		.map((value, index) => {
-			const x = values.length === 1 ? 0 : (index / (values.length - 1)) * 100;
-			return `${x},${20 - (Math.min(100, Math.max(0, value)) / 100) * 20}`;
-		})
-		.join(" ");
-	return (
-		<svg
-			viewBox="0 0 100 20"
-			preserveAspectRatio="none"
-			className="mt-1.5 h-4 w-full overflow-visible text-primary/55"
-			aria-label="Recent usage trend"
-			role="img"
-		>
-			<polyline
-				points={points}
-				fill="none"
-				stroke="currentColor"
-				strokeWidth="1.5"
-				vectorEffect="non-scaling-stroke"
-			/>
-		</svg>
+				{primary ? (
+					<div className="mt-2">
+						<StickMeter
+							percent={primary.usedPercent}
+							tone={(primary.usedPercent ?? 0) >= 80 ? "warning" : "default"}
+						/>
+					</div>
+				) : null}
+				{pace ? (
+					<div
+						className={cn(
+							"mt-1 text-[10px]",
+							pace.tone === "reserve" ? "text-emerald-500" : "text-amber-500",
+						)}
+					>
+						{pace.label}
+					</div>
+				) : null}
+			</div>
+		</Card>
 	);
 }
 
@@ -602,32 +531,30 @@ function Metric({
 	delta: string | null;
 }) {
 	return (
-		<Frame>
-			<FramePanel className="h-28 p-4">
-				<div className="flex items-center justify-between gap-2">
-					<div className="text-[11px] font-medium text-muted-foreground">
-						{label}
+		<Card className="min-h-24 p-4">
+			<div className="flex items-center justify-between gap-2">
+				<div className="text-[11px] font-medium text-muted-foreground">
+					{label}
+				</div>
+				{delta ? (
+					<div className="text-[10px] tabular-nums text-muted-foreground">
+						{delta}
 					</div>
-					{delta ? (
-						<div className="text-[10px] tabular-nums text-muted-foreground">
-							{delta}
-						</div>
-					) : null}
-				</div>
-				<div
-					className="mt-2 truncate text-2xl font-semibold tracking-tight tabular-nums"
-					title={value}
-				>
-					{value}
-				</div>
-				<div
-					className="mt-2 truncate text-[10px] text-muted-foreground"
-					title={hint}
-				>
-					{hint}
-				</div>
-			</FramePanel>
-		</Frame>
+				) : null}
+			</div>
+			<div
+				className="mt-2 truncate text-xl font-medium tracking-tight tabular-nums"
+				title={value}
+			>
+				{value}
+			</div>
+			<div
+				className="mt-2 truncate text-[10px] text-muted-foreground"
+				title={hint}
+			>
+				{hint}
+			</div>
+		</Card>
 	);
 }
 
@@ -643,45 +570,90 @@ function metricDelta(
 type ChartMeasure = "tokens" | "cost";
 function UsageChart({
 	groups,
+	bySource,
+	summary,
 	selectedRange,
 	onSelectRange,
 }: {
 	groups: ReadonlyArray<UsageGroup>;
+	bySource: ReadonlyArray<UsageGroup>;
+	summary: UsageOverview["summary"];
 	selectedRange: UsageRange | null;
 	onSelectRange: (range: UsageRange | null) => void;
 }) {
-	const [measure, setMeasure] = useState<ChartMeasure>("tokens");
-	const [selected, setSelected] = useState<number | null>(null);
+	const [measure, setMeasure] = useState<ChartMeasure>("cost");
+	const [hovered, setHovered] = useState<number | null>(null);
 	const visible = useMemo(() => groups.slice(-90), [groups]);
-	const valueFor = (group: UsageGroup) =>
-		measure === "cost" ? (group.costUsd ?? 0) : totalTokens(group);
-	const peak = Math.max(1, ...visible.map(valueFor));
-	const detail = selected === null ? null : visible[selected];
+	const chartData = useMemo(
+		() =>
+			visible.map((group) => ({
+				label: group.label,
+				input: group.inputTokens,
+				output: group.outputTokens,
+				cache: group.cacheReadTokens + group.cacheCreationTokens,
+				reasoning: group.reasoningTokens,
+				cost: group.costUsd ?? 0,
+			})),
+		[visible],
+	);
+	const detail = hovered === null ? null : visible[hovered];
+	const chartConfig = useMemo(
+		() =>
+			measure === "cost"
+				? { cost: { label: "Estimated cost", color: "blue" as const } }
+				: Object.fromEntries(
+						CHART_SERIES.map((series) => [
+							series.key,
+							{ label: series.label, color: series.color },
+						]),
+					),
+		[measure],
+	);
+	const sourceRows = useMemo(
+		() =>
+			bySource
+				.slice()
+				.sort((a, b) =>
+					measure === "cost"
+						? (b.costUsd ?? 0) - (a.costUsd ?? 0)
+						: totalTokens(b) - totalTokens(a),
+				)
+				.slice(0, 5),
+		[bySource, measure],
+	);
+	const sourceTotal = Math.max(
+		1,
+		sourceRows.reduce(
+			(sum, row) =>
+				sum + (measure === "cost" ? (row.costUsd ?? 0) : totalTokens(row)),
+			0,
+		),
+	);
 	return (
 		<Frame>
-			<FrameHeader className="flex-row items-center justify-between px-4 py-3">
+			<FrameHeader className="flex-row items-center justify-between gap-3 px-3 py-2">
 				<div className="flex min-w-0 items-center gap-2">
-					<FrameTitle>Usage over time</FrameTitle>
+					<FrameTitle>Daily usage</FrameTitle>
 					{selectedRange ? (
 						<button
 							type="button"
 							onClick={() => onSelectRange(null)}
-							className="truncate rounded bg-accent px-2 py-1 text-[10px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-foreground/30"
+							className="truncate rounded bg-muted px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground"
 						>
 							{selectedRange.label} · Clear
 						</button>
 					) : null}
 				</div>
-				<div className="flex shrink-0 rounded-md border border-border p-0.5">
+				<div className="flex shrink-0 rounded-md bg-muted/60 p-0.5">
 					{(["tokens", "cost"] as const).map((value) => (
 						<button
 							key={value}
 							type="button"
 							onClick={() => setMeasure(value)}
 							className={cn(
-								"min-h-7 rounded px-2 text-[11px] capitalize outline-none focus-visible:ring-2 focus-visible:ring-foreground/30",
+								"h-6 rounded-[5px] px-2.5 text-[10px] capitalize outline-none focus-visible:ring-2 focus-visible:ring-foreground/30",
 								measure === value
-									? "bg-foreground text-background"
+									? "bg-background text-foreground shadow-sm"
 									: "text-muted-foreground hover:text-foreground",
 							)}
 							aria-pressed={measure === value}
@@ -691,98 +663,159 @@ function UsageChart({
 					))}
 				</div>
 			</FrameHeader>
-			<FramePanel>
-				{measure === "tokens" ? (
-					<div className="mb-3 flex flex-wrap gap-3">
-						{SERIES.map((series) => (
-							<span
-								key={series.key}
-								className="flex items-center gap-1.5 text-[10px] text-muted-foreground"
-							>
-								<span className={cn("size-2 rounded-[2px]", series.dot)} />
-								{series.label}
-							</span>
-						))}
-					</div>
-				) : (
-					<div className="mb-3 h-3 text-[10px] text-muted-foreground">
-						Estimated cost by day
-					</div>
-				)}
-				{visible.length === 0 ? (
-					<div className="flex h-44 items-center justify-center text-sm text-muted-foreground">
-						No usage in this period.
-					</div>
-				) : (
-					<>
-						<div className="flex h-44 items-end gap-[3px] border-b border-border/60">
-							{visible.map((group, index) => (
-								<button
-									key={group.key}
-									type="button"
-									className={cn(
-										"group relative flex h-full min-w-[4px] flex-1 flex-col-reverse overflow-hidden rounded-t-[3px] outline-none focus-visible:ring-2 focus-visible:ring-foreground/40",
-										selected === index && "ring-1 ring-foreground/40",
-									)}
-									onClick={() => {
-										setSelected(index);
-										const since = group.startedAt;
-										if (!since) return;
-										onSelectRange({
-											since,
-											until:
-												group.endedAt ?? new Date(since.getTime() + 86_400_000),
-											label: group.label,
-										});
-									}}
-									onFocus={() => setSelected(index)}
-									aria-label={`${group.label}: ${measure === "cost" ? formatUsd(group.costUsd) : formatTokens(totalTokens(group))}`}
-								>
-									{measure === "cost" ? (
-										<span
-											className="w-full bg-primary"
-											style={{ height: `${(valueFor(group) / peak) * 100}%` }}
-										/>
-									) : (
-										SERIES.map((series) => {
-											const value = series.value(group);
-											return value > 0 ? (
-												<span
-													key={series.key}
-													className={cn("w-full", series.bar)}
-													style={{ height: `${(value / peak) * 100}%` }}
-												/>
-											) : null;
-										})
-									)}
-								</button>
-							))}
-						</div>
-						<div className="mt-2 flex justify-between text-[10px] text-muted-foreground">
-							<span>{visible[0]?.label}</span>
-							<span>{visible.at(-1)?.label}</span>
-						</div>
-						<div
-							className="mt-3 h-9 rounded-md bg-muted/35 px-3 py-2 text-[11px]"
-							aria-live="polite"
-						>
-							{detail ? (
-								<div className="flex justify-between gap-3">
-									<span className="truncate font-medium">{detail.label}</span>
-									<span className="shrink-0 tabular-nums text-muted-foreground">
-										{formatTokens(totalTokens(detail))} ·{" "}
-										{formatUsd(detail.costUsd)}
-									</span>
-								</div>
-							) : (
-								<span className="text-muted-foreground">
-									Select a bar for details
+			<div className="grid gap-1">
+				<Card className="p-5">
+					<div className="grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:items-end">
+						<div>
+							<div className="flex items-center gap-2">
+								<span className="size-1.5 rounded-sm bg-primary" />
+								<span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+									{measure === "cost"
+										? "Estimated API cost"
+										: "Processed tokens"}
 								</span>
-							)}
+							</div>
+							<span className="mt-2 text-4xl font-semibold tracking-[-0.04em] tabular-nums">
+								{measure === "cost"
+									? formatUsd(summary.costUsd)
+									: formatTokens(totalTokens(summary))}
+							</span>
+							<p className="mt-1 max-w-xs text-[11px] leading-relaxed text-muted-foreground">
+								{measure === "cost"
+									? "Estimated from local usage at published provider rates. Actual billing may vary."
+									: `${summary.recordCount.toLocaleString()} locally observed usage records in this period.`}
+							</p>
 						</div>
-					</>
-				)}
-			</FramePanel>
+						<div>
+							<div className="mb-3 flex items-center justify-between gap-3 text-[10px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
+								<span>
+									{measure === "cost" ? "Cost by source" : "Tokens by source"}
+								</span>
+								<span className="shrink-0 normal-case tracking-normal">
+									{sourceRows.length} active{" "}
+									{sourceRows.length === 1 ? "source" : "sources"}
+								</span>
+							</div>
+							<div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+								{sourceRows.map((row) => {
+									const value =
+										measure === "cost" ? (row.costUsd ?? 0) : totalTokens(row);
+									const share = (value / sourceTotal) * 100;
+									return (
+										<div key={row.key} className="min-w-0 space-y-1.5">
+											<div className="flex items-baseline justify-between gap-3 text-xs">
+												<span className="truncate text-muted-foreground">
+													{row.label}
+												</span>
+												<span className="shrink-0 tabular-nums">
+													{measure === "cost"
+														? formatUsd(value)
+														: formatTokens(value)}
+												</span>
+											</div>
+											<div className="h-1 overflow-hidden rounded-full bg-muted">
+												<div
+													className="h-full rounded-full bg-foreground/70"
+													style={{ width: `${share}%` }}
+												/>
+											</div>
+										</div>
+									);
+								})}
+							</div>
+						</div>
+					</div>
+				</Card>
+				<Card className="min-w-0 p-4">
+					{visible.length === 0 ? (
+						<div className="flex h-64 items-center justify-center border-y border-border text-sm text-muted-foreground">
+							No usage in this period.
+						</div>
+					) : (
+						<>
+							<BlockLegend config={chartConfig} className="mb-3" />
+							<div className="h-64 w-full">
+								<AreaChart
+									data={chartData}
+									config={chartConfig}
+									margins={{ left: 72 }}
+									animate={false}
+									bloom="off"
+									onHoverChange={setHovered}
+								>
+									<Grid />
+									<XAxis dataKey="label" maxTicks={7} />
+									<YAxis
+										tickCount={4}
+										tickFormatter={
+											measure === "cost" ? formatUsd : formatTokens
+										}
+									/>
+									{measure === "cost" ? (
+										<Area dataKey="cost" variant="gradient" />
+									) : (
+										CHART_SERIES.map((series, index) => (
+											<Area
+												key={series.key}
+												dataKey={series.key}
+												variant={index % 2 === 0 ? "gradient" : "dotted"}
+											/>
+										))
+									)}
+									<Tooltip
+										labelKey="label"
+										valueFormatter={(value) =>
+											measure === "cost"
+												? formatUsd(value)
+												: formatTokens(value)
+										}
+									/>
+								</AreaChart>
+							</div>
+							<div
+								className="mt-2 flex h-10 items-center justify-between gap-3 border-t border-border px-1 text-[11px]"
+								aria-live="polite"
+							>
+								{detail ? (
+									<>
+										<span className="truncate font-medium">{detail.label}</span>
+										<div className="flex shrink-0 items-center gap-3">
+											<span className="tabular-nums text-muted-foreground">
+												{formatTokens(totalTokens(detail))} ·{" "}
+												{formatUsd(detail.costUsd)}
+											</span>
+											{detail.startedAt ? (
+												<button
+													type="button"
+													className="rounded px-1.5 py-1 font-medium text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-foreground/30"
+													onClick={() =>
+														onSelectRange({
+															since: detail.startedAt as Date,
+															until:
+																detail.endedAt ??
+																new Date(
+																	(detail.startedAt as Date).getTime() +
+																		86_400_000,
+																),
+															label: detail.label,
+														})
+													}
+												>
+													View day
+												</button>
+											) : null}
+										</div>
+									</>
+								) : (
+									<span className="text-muted-foreground">
+										Hover the chart for a daily breakdown
+									</span>
+								)}
+							</div>
+						</>
+					)}
+				</Card>
+			</div>
 		</Frame>
 	);
 }
@@ -825,9 +858,9 @@ function Contributors({
 	);
 	return (
 		<Frame>
-			<FrameHeader className="flex-row items-center justify-between px-4 py-3">
-				<FrameTitle>Top contributors</FrameTitle>
-				<div className="flex gap-1">
+			<FrameHeader className="flex-row items-center justify-between px-3 py-2">
+				<FrameTitle>Breakdown</FrameTitle>
+				<div className="flex rounded-md bg-muted/60 p-0.5">
 					{(["providers", "models", "projects"] as const).map((value) => (
 						<button
 							key={value}
@@ -837,9 +870,9 @@ function Contributors({
 								setExpanded(false);
 							}}
 							className={cn(
-								"rounded px-2 py-1 text-[11px] capitalize outline-none focus-visible:ring-2 focus-visible:ring-foreground/30",
+								"h-6 rounded-[5px] px-2 text-[10px] capitalize outline-none focus-visible:ring-2 focus-visible:ring-foreground/30",
 								tab === value
-									? "bg-accent text-foreground"
+									? "bg-background text-foreground shadow-sm"
 									: "text-muted-foreground hover:text-foreground",
 							)}
 							aria-pressed={tab === value}
@@ -849,52 +882,68 @@ function Contributors({
 					))}
 				</div>
 			</FrameHeader>
-			<FramePanel className="p-0">
-				{visible.length === 0 ? (
-					<div className="p-4 text-sm text-muted-foreground">
-						No contributors found.
-					</div>
-				) : (
-					visible.map((row) => {
-						const share = (totalTokens(row) / total) * 100;
-						const previous = previousRows.find((item) => item.key === row.key);
-						const delta = metricDelta(
-							totalTokens(row),
-							previous ? totalTokens(previous) : null,
-						);
-						return (
-							<div
-								key={row.key}
-								className="relative border-b border-border/50 last:border-0"
-							>
-								<div
-									className="absolute inset-y-0 left-0 bg-primary/[0.08]"
-									style={{ width: `${share}%` }}
-								/>
-								<div className="relative flex items-center gap-3 px-4 py-2.5">
-									<div className="min-w-0 flex-1">
-										<div className="truncate text-xs" title={row.label}>
+			<Card className="overflow-hidden">
+				<Table>
+					<TableHeader>
+						<TableRow>
+							<TableHead>
+								{tab === "providers"
+									? "Provider"
+									: tab === "models"
+										? "Model"
+										: "Project"}
+							</TableHead>
+							<TableHead>Share</TableHead>
+							<TableHead className="text-right">Tokens</TableHead>
+							<TableHead className="text-right">Cost</TableHead>
+						</TableRow>
+					</TableHeader>
+					<TableBody>
+						{visible.length === 0 ? (
+							<TableRow>
+								<TableCell
+									colSpan={4}
+									className="h-16 text-center text-muted-foreground"
+								>
+									No contributors found.
+								</TableCell>
+							</TableRow>
+						) : (
+							visible.map((row) => {
+								const share = (totalTokens(row) / total) * 100;
+								const previous = previousRows.find(
+									(item) => item.key === row.key,
+								);
+								const delta = metricDelta(
+									totalTokens(row),
+									previous ? totalTokens(previous) : null,
+								);
+								return (
+									<TableRow key={row.key}>
+										<TableCell
+											className="max-w-0 truncate font-medium"
+											title={row.label}
+										>
 											{row.label}
-										</div>
-										<div className="text-[10px] tabular-nums text-muted-foreground">
-											{share.toFixed(1)}% of usage
-											{delta ? ` · ${delta}` : ""}
-										</div>
-									</div>
-									<div className="shrink-0 text-right text-xs tabular-nums">
-										<div>{formatTokens(totalTokens(row))}</div>
-										<div className="text-[10px] text-muted-foreground">
+										</TableCell>
+										<TableCell className="tabular-nums text-muted-foreground">
+											{share.toFixed(1)}%{delta ? ` · ${delta}` : ""}
+										</TableCell>
+										<TableCell className="text-right tabular-nums">
+											{formatTokens(totalTokens(row))}
+										</TableCell>
+										<TableCell className="text-right tabular-nums text-muted-foreground">
 											{formatUsd(row.costUsd)}
-										</div>
-									</div>
-								</div>
-							</div>
-						);
-					})
-				)}
-			</FramePanel>
+										</TableCell>
+									</TableRow>
+								);
+							})
+						)}
+					</TableBody>
+				</Table>
+			</Card>
 			{rows.length > 5 ? (
-				<FrameFooter className="p-2">
+				<FrameFooter className="p-2 text-center">
 					<button
 						type="button"
 						onClick={() => setExpanded((value) => !value)}
@@ -920,7 +969,6 @@ function SessionsExplorer({
 	sessionCount: number;
 	selectedRange: UsageRange | null;
 }) {
-	const providers = useUsageLimitsStore((state) => state.providers);
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [sortKey, setSortKey] = useState<SortKey>("tokens");
@@ -996,9 +1044,9 @@ function SessionsExplorer({
 							aria-label="Filter sessions by provider"
 						>
 							<option value="">All providers</option>
-							{providers.map((provider) => (
-								<option key={provider.providerId} value={provider.providerId}>
-									{PROVIDER_DISPLAY[provider.providerId]}
+							{PROVIDER_ORDER.map((id) => (
+								<option key={id} value={id}>
+									{PROVIDER_DISPLAY[id]}
 								</option>
 							))}
 						</select>

@@ -1,3 +1,4 @@
+import { loadKiroInventory } from "@zuse/agents/drivers/kiro-inventory";
 import {
 	loadOpencodeInventory,
 	removeOpencodeProviderAuth,
@@ -22,6 +23,7 @@ import {
 	WorktreeId,
 } from "@zuse/contracts";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
 import { Effect, Layer, Result, Schedule, Stream } from "effect";
@@ -135,6 +137,45 @@ const OpencodeInventory = MemoizeRpcs.toLayerHandler(
 				opencodePath,
 				process.cwd(),
 				settings.opencodeCustomProviders,
+			);
+		}),
+);
+
+const requireKiroPath = (): Effect.Effect<
+	string,
+	AgentSessionStartError,
+	CommandExecutor.ChildProcessSpawner
+> =>
+	Effect.gen(function* () {
+		const kiroPath = yield* resolveCliPath("kiro-cli");
+		if (kiroPath === null) {
+			return yield* Effect.fail(
+				new AgentSessionStartError({
+					providerId: "kiro",
+					reason:
+						"Kiro CLI not found on PATH. Install from https://kiro.dev and ensure `kiro-cli` is available.",
+				}),
+			);
+		}
+		return kiroPath;
+	});
+
+// Renderer refreshes the Kiro model picker from the account's live catalog
+// (control-plane ListAvailableModels, with CLI list-models fallback).
+const KiroInventory = MemoizeRpcs.toLayerHandler(
+	"provider.kiro.inventory",
+	() =>
+		Effect.gen(function* () {
+			const kiroPath = yield* requireKiroPath();
+			return yield* loadKiroInventory(kiroPath).pipe(
+				Effect.mapError(
+					(cause) =>
+						new AgentSessionStartError({
+							providerId: "kiro",
+							reason:
+								cause instanceof Error ? cause.message : String(cause),
+						}),
+				),
 			);
 		}),
 );
@@ -455,11 +496,35 @@ const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
 			const svc = yield* ChatService;
 			const analytics = yield* AnalyticsService;
 			const sql = yield* SqlClient.SqlClient;
-			const policy =
+			const requestedPolicy =
 				input.workspacePolicy?._tag ??
 				(input.worktreeId === null || input.worktreeId === undefined
 					? "main"
 					: "existing");
+			const policy =
+				requestedPolicy === "fresh"
+					? yield* Effect.flatMap(GitService, (git) =>
+							git.isRepository(input.projectId),
+						).pipe(
+							Effect.map((isRepository) =>
+								isRepository ? ("fresh" as const) : ("main" as const),
+							),
+							Effect.catchTags({
+								GitNotARepoError: () => Effect.succeed("main" as const),
+								GitNotInstalledError: () => Effect.succeed("main" as const),
+							}),
+							Effect.mapError(
+								(error) =>
+									new SessionStartError({
+										providerId: input.providerId,
+										reason:
+											"reason" in error
+												? String(error.reason)
+												: "The Git repository could not be inspected.",
+									}),
+							),
+						)
+					: requestedPolicy;
 			if (
 				input.operationId !== undefined &&
 				input.chatId !== undefined &&
@@ -500,8 +565,16 @@ const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
 						LIMIT 1
 					`.pipe(Effect.orDie);
 			const durableWorktreeId = operationRows[0]?.worktree_id ?? null;
+			if (input.operationId !== undefined && policy === "main") {
+				yield* sql`
+					UPDATE chat_creation_operations
+					SET workspace_policy = 'main', worktree_id = NULL,
+					    updated_at = ${new Date().toISOString()}
+					WHERE operation_id = ${input.operationId}
+				`.pipe(Effect.orDie);
+			}
 			const worktreeId =
-				input.workspacePolicy?._tag === "fresh"
+				policy === "fresh"
 					? yield* Effect.gen(function* () {
 							const requestedId =
 								durableWorktreeId === null
@@ -552,9 +625,9 @@ const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
 							}
 							return created.id;
 						})
-					: input.workspacePolicy?._tag === "existing"
+					: policy === "existing" && input.workspacePolicy?._tag === "existing"
 						? input.workspacePolicy.worktreeId
-						: input.workspacePolicy?._tag === "main"
+						: policy === "main"
 							? null
 							: (input.worktreeId ?? null);
 			if (input.operationId !== undefined && policy !== "fresh") {
@@ -1206,6 +1279,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	StartLogin,
 	UpdateProvider,
 	OpencodeInventory,
+	KiroInventory,
 	OpencodeSetProviderAuth,
 	OpencodeRemoveProviderAuth,
 	OpencodeAddCustomProvider,

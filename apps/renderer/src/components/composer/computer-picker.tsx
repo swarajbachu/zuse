@@ -1,10 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	ArrowDown01Icon,
-	CloudIcon,
-	ComputerIcon,
-	Tick01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+import { CloudIcon, ComputerIcon, Tick01Icon } from "@zuse/icons/solid-rounded";
+import { ChevronDown } from "lucide-react";
 
 import {
 	Menu,
@@ -116,7 +112,7 @@ export function ComputerPicker({
 				<span className="truncate">
 					{cloudSelected ? "Cloud Sandbox" : (current?.label ?? "Run on")}
 				</span>
-				<HugeiconsIcon icon={ArrowDown01Icon} className="size-3 opacity-60" />
+				<ChevronDown className="size-3 opacity-60" />
 			</MenuTrigger>
 			<MenuPopup side="bottom" align="start" className="w-64 p-1">
 				{computerItems.map((item) => (

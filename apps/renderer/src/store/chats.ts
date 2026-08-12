@@ -1338,6 +1338,8 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 						: (s.selectedChatByProject[creation.projectId] ?? null),
 			},
 		}));
+		useTerminalsStore.getState().disposeChat(chatId);
+		useUiStore.getState().clearChatPanels(chatId);
 	},
 	rename: async (chatId, title) => {
 		set({ error: null });
@@ -1461,6 +1463,11 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 	},
 	archive: async (chatId, force = false) => {
 		set({ error: null });
+		const provisional = get().pendingCreationByChat[chatId];
+		if (provisional?.phase === "failed") {
+			get().discardCreation(chatId);
+			return { ok: true } as const;
+		}
 		const projectIdBeforeArchive = findChatProject(
 			get().chatsByProject,
 			chatId,
@@ -1781,6 +1788,10 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 	},
 	remove: async (chatId) => {
 		set({ error: null });
+		if (get().pendingCreationByChat[chatId]?.phase === "failed") {
+			get().discardCreation(chatId);
+			return;
+		}
 		try {
 			const client = await getRpcClient();
 			await Effect.runPromise(client["chat.delete"]({ chatId }));

@@ -522,9 +522,12 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		const runStartupRecovery = <E>(catchUp: Effect.Effect<void, E>) =>
 			catchUp.pipe(
 				Effect.andThen(recoverStaleSessions),
-				Effect.catch((error) =>
+				// Queue entries are durable work. Reconcile them after session catch-up
+				// instead of relying on a process-local enqueue/settlement wake-up.
+				Effect.andThen(queueRuntime.reconcileReadyQueues),
+				Effect.catchCause((cause) =>
 					Effect.logError(
-						`[ConversationServices] startup recovery failed: ${String(error)}`,
+						`[ConversationServices] startup recovery failed: ${String(cause)}`,
 					),
 				),
 				Effect.ensuring(Deferred.succeed(startupRecoveryDone, undefined)),

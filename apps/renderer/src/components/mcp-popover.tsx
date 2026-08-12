@@ -1,13 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronDown } from "lucide-react";
 import {
 	Alert02Icon,
-	ArrowDown01Icon,
 	Key01Icon,
 	Loading02Icon,
 	PlugSocketIcon,
 	RefreshIcon,
 	Tick02Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type {
 	FolderId,
 	McpServerDescriptor,
@@ -220,8 +220,7 @@ function AppGroup({
 				onClick={() => setExpanded((current) => !current)}
 				className="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-muted/50"
 			>
-				<HugeiconsIcon
-					icon={ArrowDown01Icon}
+				<ChevronDown
 					className={cn(
 						"size-3.5 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none",
 						!expanded && "-rotate-90",

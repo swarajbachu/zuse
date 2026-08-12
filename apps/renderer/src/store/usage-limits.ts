@@ -3,8 +3,8 @@ import type {
 	UsageLimitHistoryPoint,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { createAtomStore as create } from "../state/atom-store.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 let rpcClient = getRpcClient;
 let pendingLoad: Promise<void> | null = null;
@@ -34,14 +34,27 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 	lastLoadedAt: null,
 	load: async () => {
 		const lastLoadedAt = get().lastLoadedAt;
-		if (lastLoadedAt !== null && Date.now() - lastLoadedAt < STALE_AFTER_MS)
+		const kiro = get().providers.find((p) => p.providerId === "kiro");
+		const kiroNeedsRetry =
+			kiro !== undefined &&
+			kiro.windows.length === 0 &&
+			(kiro.unavailableReason === "no-credentials" ||
+				kiro.unavailableReason === "expired" ||
+				kiro.unavailableReason === "error");
+		// Soft-load when fresh — but never skip if Kiro previously missed; a
+		// sticky no-credentials cache is what made signed-in accounts look empty.
+		if (
+			!kiroNeedsRetry &&
+			lastLoadedAt !== null &&
+			Date.now() - lastLoadedAt < STALE_AFTER_MS
+		)
 			return;
 		if (pendingLoad !== null) {
 			await pendingLoad;
 			return;
 		}
 		const load = get()
-			.refresh(false)
+			.refresh(kiroNeedsRetry)
 			.finally(() => {
 				if (pendingLoad === load) pendingLoad = null;
 			});

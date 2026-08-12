@@ -8,7 +8,7 @@ const features = [
   },
   {
     title: "Use the right subscription for the job",
-    body: "Keep Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode available from one project surface.",
+    body: "Keep Claude Code, Codex, Cursor, Gemini, Grok, OpenCode, and Kiro available from one project surface.",
   },
   {
     title: "Keep every attempt reviewable",

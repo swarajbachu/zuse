@@ -28,6 +28,9 @@ jobs:
           HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
         run: bun install --frozen-lockfile
 
+      - name: Verify licensed icons
+        run: bun run icons:status --expect=paid
+
       - name: Run live agent smoke tests
         env:
           ZUSE_LIVE_AGENT_TESTS: "1"

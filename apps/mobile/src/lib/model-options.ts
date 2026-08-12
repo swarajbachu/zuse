@@ -16,6 +16,7 @@ export const PROVIDER_LABEL: Record<ProviderId, string> = {
 	cursor: "Cursor",
 	gemini: "Gemini",
 	opencode: "OpenCode",
+	kiro: "Kiro",
 };
 
 export type RuntimeOption = {

@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Message01Icon } from "@hugeicons-pro/core-solid-rounded";
+import { Message01Icon } from "@zuse/icons/solid-rounded";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import type { Message, SessionId } from "@zuse/contracts";
 import {
@@ -690,7 +690,7 @@ export function ChatView({
 								maintainVisibleContentPosition={{ data: true, size: true }}
 								contentInsetEndAdjustment={endInset}
 								onScroll={handleScroll}
-								className="h-full min-h-0 w-full flex-1 overflow-x-hidden outline-none [overflow-anchor:none]"
+								className="h-full min-h-0 w-full flex-1 overflow-x-hidden pr-4 outline-none [overflow-anchor:none]"
 								data-pane="chat"
 								tabIndex={-1}
 								ListHeaderComponent={TIMELINE_HEADER}

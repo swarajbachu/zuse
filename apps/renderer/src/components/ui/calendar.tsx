@@ -1,10 +1,5 @@
 "use client";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	ArrowLeft01Icon,
-	ArrowRight01Icon,
-	ArrowUpDownIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+import { ChevronLeft, ChevronRight, ChevronsUpDown } from "lucide-react";
 import type * as React from "react";
 import { DayPicker } from "react-day-picker";
 import { cn } from "~/lib/utils";
@@ -81,8 +76,7 @@ export function Calendar({
 		}): React.ReactElement => {
 			if (orientation === "left") {
 				return (
-					<HugeiconsIcon
-						icon={ArrowLeft01Icon}
+					<ChevronLeft
 						className={cn(className, "rtl:rotate-180")}
 						{...props}
 						aria-hidden="true"
@@ -92,8 +86,7 @@ export function Calendar({
 
 			if (orientation === "right") {
 				return (
-					<HugeiconsIcon
-						icon={ArrowRight01Icon}
+					<ChevronRight
 						className={cn(className, "rtl:rotate-180")}
 						{...props}
 						aria-hidden="true"
@@ -102,8 +95,7 @@ export function Calendar({
 			}
 
 			return (
-				<HugeiconsIcon
-					icon={ArrowUpDownIcon}
+				<ChevronsUpDown
 					className={className}
 					{...props}
 					aria-hidden="true"

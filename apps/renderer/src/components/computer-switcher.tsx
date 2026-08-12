@@ -1,8 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronDown } from "lucide-react";
 import {
-	ArrowDown01Icon,
 	ComputerIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import {
 	environmentRoute,
 	parseEnvironmentRoute,
@@ -158,9 +158,8 @@ function HostedComputerSwitcher() {
 									: `Offline · ${relativeTime(selected.lastHeartbeat)}`}
 						</span>
 					</span>
-					<HugeiconsIcon
+					<ChevronDown
 						aria-hidden="true"
-						icon={ArrowDown01Icon}
 						className="size-3.5 text-muted-foreground"
 					/>
 				</MenuTrigger>

@@ -1,10 +1,16 @@
 const { getDefaultConfig } = require("expo/metro-config");
 const { withUniwindConfig } = require("uniwind/metro");
 const path = require("node:path");
+const {
+	getPaidIconAliases,
+	resolveIconMode,
+} = require("../../scripts/icon-runtime.cjs");
 
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, "../..");
 const config = getDefaultConfig(projectRoot);
+const iconAliases =
+	resolveIconMode() === "paid" ? getPaidIconAliases() : Object.create(null);
 
 config.watchFolders = [monorepoRoot];
 config.resolver.nodeModulesPaths = [
@@ -18,6 +24,11 @@ config.resolver.extraNodeModules = {
 
 const defaultResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+	const paidIconModule = iconAliases[moduleName];
+	if (paidIconModule) {
+		return context.resolveRequest(context, paidIconModule, platform);
+	}
+
 	const isNobleCryptoCompatibilityImport =
 		moduleName === "@noble/hashes/crypto" ||
 		moduleName === "@noble/hashes/crypto.js" ||

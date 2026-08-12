@@ -1,10 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronDown } from "lucide-react";
 import {
-	ArrowDown01Icon,
 	Folder01Icon,
 	FolderAddIcon,
 	Tick01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import {
 	type ChatId,
 	type ChatWorkspacePolicy,
@@ -1640,7 +1640,7 @@ function ProjectPicker({
 			>
 				<HugeiconsIcon icon={Folder01Icon} className="size-3.5" />
 				<span className="truncate">{selectedName ?? "Pick a project"}</span>
-				<HugeiconsIcon icon={ArrowDown01Icon} className="size-3 opacity-60" />
+				<ChevronDown className="size-3 opacity-60" />
 			</MenuTrigger>
 			<MenuPopup side="bottom" align="start" className="w-64 p-1">
 				{groups.length === 0 ? (

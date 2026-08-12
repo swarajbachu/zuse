@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { Folder, FolderId, Message, WorktreeId } from "@zuse/contracts";
 import {
 	CheckListIcon,
 	ComputerTerminal01Icon,
@@ -8,8 +9,7 @@ import {
 	GitPullRequestIcon,
 	GlobeIcon,
 	MagicWand01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
-import type { Folder, FolderId, Message, WorktreeId } from "@zuse/contracts";
+} from "@zuse/icons/solid-rounded";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Plus, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useRef, useSyncExternalStore } from "react";

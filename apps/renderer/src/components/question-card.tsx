@@ -1,9 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
 import {
-	ArrowLeft01Icon,
-	ArrowRight01Icon,
-	ArrowUp01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type {
 	AgentItemId,
 	SessionId,
@@ -252,7 +250,7 @@ function InteractiveQuestionCard({
 							onClick={() => setActiveIdx((i) => Math.max(0, i - 1))}
 							className="rounded p-1 hover:text-foreground disabled:opacity-30"
 						>
-							<HugeiconsIcon icon={ArrowLeft01Icon} size={14} />
+							<ChevronLeft size={14} />
 						</button>
 						{questions.map((_, i) => {
 							const answered =
@@ -281,7 +279,7 @@ function InteractiveQuestionCard({
 							}
 							className="rounded p-1 hover:text-foreground disabled:opacity-30"
 						>
-							<HugeiconsIcon icon={ArrowRight01Icon} size={14} />
+							<ChevronRight size={14} />
 						</button>
 					</div>
 				) : (
@@ -299,7 +297,7 @@ function InteractiveQuestionCard({
 							: "bg-muted text-muted-foreground cursor-not-allowed",
 					)}
 				>
-					<HugeiconsIcon icon={ArrowUp01Icon} size={16} />
+					<ChevronUp size={16} />
 				</button>
 			</div>
 		</div>

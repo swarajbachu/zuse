@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Delete02Icon, GitBranchIcon } from "@hugeicons-pro/core-solid-rounded";
+import { Delete02Icon, GitBranchIcon } from "@zuse/icons/solid-rounded";
 import {
 	type FolderId,
 	MODELS_BY_PROVIDER,
@@ -180,7 +180,15 @@ function ProviderOverrideSection({
 	// Mirror the global "Default agent" filter: skip providers the user
 	// toggled off.
 	const availableProviders = (
-		["claude", "codex", "grok", "gemini", "cursor", "opencode"] as const
+		[
+			"claude",
+			"codex",
+			"grok",
+			"gemini",
+			"cursor",
+			"opencode",
+			"kiro",
+		] as const
 	).filter((pid) => {
 		if (providerEnabled[pid] === false) return false;
 		return true;

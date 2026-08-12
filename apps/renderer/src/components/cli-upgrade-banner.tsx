@@ -4,7 +4,7 @@ import {
 	Copy01Icon,
 	LinkSquare01Icon,
 	Tick01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type { ProviderId } from "@zuse/contracts";
 import { RefreshCw as RefreshIcon } from "lucide-react";
 import { useState } from "react";
@@ -22,6 +22,7 @@ const UPGRADE_DOCS_URL: Record<ProviderId, string> = {
 	cursor: "https://cursor.com/cli",
 	gemini: "https://github.com/google-gemini/gemini-cli#installation",
 	opencode: "https://opencode.ai/docs/install/",
+	kiro: "https://kiro.dev/docs/cli/setup/",
 };
 
 /**

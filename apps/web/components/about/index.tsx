@@ -7,7 +7,7 @@ const dream = [
   },
   {
     title: "Use every subscription like it is meant to be used",
-    body: "Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode all stay available. Pick the best tool for the run.",
+    body: "Claude Code, Codex, Cursor, Gemini, Grok, OpenCode, and Kiro all stay available. Pick the best tool for the run.",
   },
   {
     title: "Ship only the work that survives review",

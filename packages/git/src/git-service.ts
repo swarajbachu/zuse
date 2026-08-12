@@ -32,6 +32,14 @@ type GitFailure =
 	| GitFolderNotFoundError;
 
 export interface GitServiceShape {
+	/**
+	 * Cheap repository capability probe for workflows that can degrade to a
+	 * plain project directory. A missing Git repository resolves to `false`;
+	 * missing folders, Git itself, and other command failures stay typed errors.
+	 */
+	readonly isRepository: (
+		folderId: FolderId,
+	) => Effect.Effect<boolean, GitFailure>;
 	readonly log: (
 		folderId: FolderId,
 		limit: number,

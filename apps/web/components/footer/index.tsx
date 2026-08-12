@@ -25,7 +25,7 @@ const data = {
     { label: "Codex", href: "/#features" },
     { label: "Cursor", href: "/#features" },
     { label: "Gemini", href: "/#features" },
-    { label: "Grok & OpenCode", href: "/#features" },
+    { label: "Grok, OpenCode & Kiro", href: "/#features" },
   ],
   Resources: [
     { label: "Blog", href: "/blog" },

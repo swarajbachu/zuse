@@ -174,8 +174,10 @@ const SettingsPage = lazy(() =>
 		default: module.SettingsPage,
 	})),
 );
+
+const loadUsageDashboard = () => import("./components/usage-dashboard.tsx");
 const UsageDashboard = lazy(() =>
-	import("./components/usage-dashboard.tsx").then((module) => ({
+	loadUsageDashboard().then((module) => ({
 		default: module.UsageDashboard,
 	})),
 );
@@ -214,7 +216,7 @@ function useAnimatedPanelVisibility(
 		});
 		const timeout = window.setTimeout(() => {
 			element?.classList.remove("fz-sidebar-panel-motion");
-		}, 200);
+		}, 240);
 		return () => {
 			window.cancelAnimationFrame(frame);
 			window.clearTimeout(timeout);
@@ -292,6 +294,14 @@ export function App() {
 	// Mirror privacy-safe agent, terminal, browser, recording, and indexing
 	// counts to desktop services. The agent count also powers quit deferrals.
 	useReportRuntimeActivity();
+
+	// Warm the analytics surface after the shell settles so opening Usage never
+	// pauses on parsing the chart renderer. The data request still starts only
+	// when the user opens the surface.
+	useEffect(() => {
+		const timeout = window.setTimeout(() => void loadUsageDashboard(), 1_500);
+		return () => window.clearTimeout(timeout);
+	}, []);
 
 	// Hydrate settings + keybindings from the on-disk config store. Each call is
 	// idempotent; subsequent emits flow through the RPC streams maintained by the
@@ -580,6 +590,16 @@ function MainShell() {
 					panelRef={leftPanelRef}
 					elementRef={leftPanelElementRef}
 					onResize={(size) => {
+						// Programmatic open/close emits the same resize events as a drag.
+						// The store already owns that state, so reflecting an intermediate
+						// animated size would immediately undo a close.
+						if (
+							leftPanelElementRef.current?.classList.contains(
+								"fz-sidebar-panel-motion",
+							)
+						) {
+							return;
+						}
 						const open = size.asPercentage > 0;
 						if (open !== leftSidebarOpen) setLeftSidebarOpen(open);
 					}}
@@ -678,7 +698,7 @@ function MainShell() {
 									</div>
 									{environmentSummaryAvailable ? (
 										<div
-											className={`pointer-events-none absolute right-2 top-2 z-20 max-h-[calc(100%-1rem)] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
+											className={`pointer-events-none absolute right-2 -top-2 z-20 max-h-[calc(100%+1rem)] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
 												showEnvironmentSummary
 													? "translate-x-0 opacity-100"
 													: "translate-x-2 opacity-0"
@@ -783,6 +803,13 @@ function MainShell() {
 						// flip the sidebar open before the collapse effect runs.
 						if (prev === undefined) return;
 						if (selectedChatId === null) return;
+						if (
+							rightPanelElementRef.current?.classList.contains(
+								"fz-sidebar-panel-motion",
+							)
+						) {
+							return;
+						}
 						const open = size.asPercentage > 0;
 						if (open !== rightSidebarOpen) {
 							setRightSidebarOpenForChat(selectedChatId, open);

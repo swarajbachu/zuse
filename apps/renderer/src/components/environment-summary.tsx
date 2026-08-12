@@ -8,7 +8,7 @@ import {
 	GitPullRequestIcon,
 	Loading02Icon,
 	Tick02Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type { GitBranchInfo, GitPrCheckRun, Message } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Effect } from "effect";
@@ -315,10 +315,10 @@ export function EnvironmentSummary() {
 	return (
 		<aside
 			aria-label="Environment summary"
-			className="pointer-events-auto max-h-[calc(100dvh-7rem)] w-72 shrink-0 overflow-y-auto rounded-2xl border border-border/70 bg-card/95 p-1 shadow-overlay-sm backdrop-blur-xl"
+			className="pointer-events-auto max-h-[calc(100dvh-7rem)] w-64 shrink-0 overflow-y-auto rounded-3xl border border-border/70 bg-card/95 p-1 shadow-overlay-sm backdrop-blur-xl"
 		>
 			<h2 className="px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">
-				Environment
+				Summary
 			</h2>
 			<button
 				type="button"
@@ -353,25 +353,25 @@ export function EnvironmentSummary() {
 					side="left"
 					align="start"
 					sideOffset={8}
-					className="min-w-64 p-1"
+					className="min-w-72 rounded-2xl p-1.5"
 				>
-					<div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
+					<div className="px-2.5 py-1.5 text-xs font-medium text-muted-foreground">
 						Running on
 					</div>
-					<MenuItem className="gap-2 px-2 py-1.5 text-xs">
-						<EnvironmentIcon className="size-3.5" />
+					<MenuItem className="gap-2.5 px-2.5 py-2 text-[13px]">
+						<EnvironmentIcon className="size-4" />
 						<span className="flex-1">{environmentLocation.menuLabel}</span>
-						<span className="text-[10px] text-[var(--accent-green)]">
+						<span className="text-[11px] text-[var(--accent-green)]">
 							Active
 						</span>
 					</MenuItem>
 					<MenuSeparator />
-					<MenuItem onClick={openDevices} className="gap-2 px-2 py-1.5 text-xs">
-						<MonitorSmartphone className="size-3.5" />
+					<MenuItem onClick={openDevices} className="gap-2.5 px-2.5 py-2 text-[13px]">
+						<MonitorSmartphone className="size-4" />
 						<span className="flex-1">Connected devices</span>
 					</MenuItem>
-					<MenuItem onClick={openDevices} className="gap-2 px-2 py-1.5 text-xs">
-						<ArrowLeftRight className="size-3.5" />
+					<MenuItem onClick={openDevices} className="gap-2.5 px-2.5 py-2 text-[13px]">
+						<ArrowLeftRight className="size-4" />
 						<span className="flex-1">Worktree handoff</span>
 					</MenuItem>
 				</MenuPopup>

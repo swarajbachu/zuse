@@ -1,9 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ChevronRight } from "lucide-react";
 import {
-	ArrowRight01Icon,
 	Tick01Icon,
 	UserCircleIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import { BlurredEmail } from "~/components/blurred-email";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
@@ -80,7 +80,7 @@ export function SigninStep() {
 						) : (
 							<>
 								Sign in with WorkOS
-								<HugeiconsIcon icon={ArrowRight01Icon} />
+								<ChevronRight />
 							</>
 						)}
 					</Button>

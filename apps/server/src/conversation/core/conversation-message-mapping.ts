@@ -189,6 +189,7 @@ export const eventToContent = (event: AgentEvent): MessageContent | null => {
 				tool: event.tool,
 				input: event.input,
 				parentItemId: event.parentItemId,
+				backgroundTask: event.backgroundTask,
 				subagent: event.subagent,
 			};
 		case "ToolResult":

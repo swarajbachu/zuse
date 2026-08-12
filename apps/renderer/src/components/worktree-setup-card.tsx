@@ -1,11 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { CloudChatSummary } from "@zuse/contracts";
 import {
 	Alert01Icon,
 	CloudIcon,
 	GitBranchIcon,
 	Tick01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
-import type { CloudChatSummary } from "@zuse/contracts";
+} from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
 import { useState } from "react";
 import { getControlPlaneRpcClient } from "../lib/rpc-client.ts";

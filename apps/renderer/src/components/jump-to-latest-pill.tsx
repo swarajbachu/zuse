@@ -1,5 +1,4 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon } from "@hugeicons-pro/core-solid-rounded";
+import { ChevronDown } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 
@@ -45,7 +44,7 @@ export function JumpToLatestPill({
 						aria-hidden
 					/>
 				) : (
-					<HugeiconsIcon icon={ArrowDown01Icon} className="size-3" />
+					<ChevronDown className="size-3" />
 				)}
 				<span>Jump to latest</span>
 			</button>

@@ -5,7 +5,7 @@ import {
 	MinusSignIcon,
 	Tick02Icon,
 	Upload01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type {
 	CodeAnnotation,
 	FolderId,

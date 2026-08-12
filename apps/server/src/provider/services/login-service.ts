@@ -46,6 +46,16 @@ interface LoginSpawnSpec {
   readonly urlPolicy?: LoginUrlPolicy;
 }
 
+// Kiro login opens AWS Builder ID / IAM Identity Center / social IdP flows.
+const KIRO_URL_POLICY: LoginUrlPolicy = ({ hostname }) =>
+  hasDomain(hostname, "amazon.com") ||
+  hasDomain(hostname, "amazonaws.com") ||
+  hasDomain(hostname, "awsapps.com") ||
+  hasDomain(hostname, "aws.amazon.com") ||
+  hasDomain(hostname, "signin.aws") ||
+  hasDomain(hostname, "okta.com") ||
+  hasDomain(hostname, "kiro.dev");
+
 const LOGIN_SPECS: Partial<Record<ProviderId, LoginSpawnSpec>> = {
 	claude: {
     providerId: "claude",
@@ -61,6 +71,13 @@ const LOGIN_SPECS: Partial<Record<ProviderId, LoginSpawnSpec>> = {
     // Use the short-code browser approval flow. External providers still run
     // first, and enterprise OIDC falls back to its supported loopback flow.
     args: ["login", "--device-auth"],
+  },
+  kiro: {
+    providerId: "kiro",
+    command: "kiro-cli",
+    // Device flow is more reliable when Zuse can't handle browser redirects.
+    args: ["login", "--use-device-flow"],
+    urlPolicy: KIRO_URL_POLICY,
   },
 };
 

@@ -4,7 +4,7 @@ import {
 	FolderAddIcon,
 	Layers01Icon,
 	SourceCodeIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@zuse/icons/solid-rounded";
 import type { ProjectTemplate } from "@zuse/contracts";
 import { useEffect, useState } from "react";
 
