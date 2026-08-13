@@ -328,7 +328,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			titleProvenance: "pending",
 			providerId,
 			model,
-			status: "booting",
+			// Empty in-chat sessions are lazy; the provider starts on first send.
+			status: "idle",
 			archivedAt: null,
 			cursor: null,
 			resumeStrategy: "none",

@@ -1,11 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { CloudChatSummary } from "@zuse/contracts";
-import {
-	Alert01Icon,
-	CloudIcon,
-	GitBranchIcon,
-	Tick01Icon,
-} from "@zuse/icons/solid-rounded";
+import { Alert01Icon, CloudIcon, Tick01Icon } from "@zuse/icons/solid-rounded";
 import { useState } from "react";
 import {
 	refreshCloudChatCatalog,
@@ -124,14 +119,15 @@ export function WorktreeSetupCard({
 	// every additional session, but that must not replay chat setup UI after the
 	// shared worktree is ready.
 	const visible =
-		ctx.status === "worktree-pending" ||
-		agentStarting !== undefined ||
-		shouldShowSetupCard({
-			externalResume,
-			initialSession,
-			hasWorktree,
-			setupDone,
-		});
+		initialSession &&
+		(ctx.status === "worktree-pending" ||
+			agentStarting !== undefined ||
+			shouldShowSetupCard({
+				externalResume,
+				initialSession,
+				hasWorktree,
+				setupDone,
+			}));
 	if (
 		cloudSummary !== null &&
 		cloudSummary.startupPhase !== "running" &&
@@ -318,7 +314,6 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 		agentStarting,
 	} = data;
 
-	const failed = setupStatus === "failed";
 	// The worktree request is already canonical before its id/list row arrives.
 	// Treat that pending phase as a real worktree so the card body is populated
 	// from its first frame instead of briefly rendering an empty shell.
@@ -327,53 +322,11 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	// collapse them into the single `worktreePending` signal.
 	const wtReady = showsWorktreeSteps && !worktreePending;
 	const setupStarted = setupStatus !== null && setupStatus !== "pending";
-	const busy =
-		worktreePending ||
-		setupStatus === "running" ||
-		setupStatus === "pending" ||
-		agentStarting === true;
-	const activityState =
-		worktreePending || setupStatus === "running" || setupStatus === "pending"
-			? "shaping"
-			: "working";
-
 	const name = worktreeName ?? "your workspace";
 
 	return (
 		<div className="mx-auto w-full max-w-3xl px-4 pt-4">
 			<div className="overflow-hidden rounded-xl border border-border/60 bg-muted/15">
-				<header className="flex items-center gap-2 border-b border-border/40 px-3.5 py-2.5">
-					<HugeiconsIcon
-						icon={GitBranchIcon}
-						className="size-4 shrink-0 text-muted-foreground"
-					/>
-					<span className="flex-1 text-[13px] font-medium text-foreground/90">
-						{busy ? (
-							<ShimmerText tone="lime">
-								Creating a worktree and running setup
-							</ShimmerText>
-						) : (
-							"Creating a worktree and running setup"
-						)}
-					</span>
-					<span className="inline-grid size-5 shrink-0 place-items-center">
-						{busy ? (
-							<AgentActivityOrb
-								state={activityState}
-								label={
-									activityState === "shaping"
-										? "Preparing workspace"
-										: "Preparing workspace"
-								}
-							/>
-						) : failed ? (
-							<HugeiconsIcon
-								icon={Alert01Icon}
-								className="size-4 text-[var(--accent-red)]"
-							/>
-						) : null}
-					</span>
-				</header>
 				<div className="flex flex-col gap-1.5 px-3.5 py-2.5 text-[12px]">
 					{showsWorktreeSteps ? (
 						<>

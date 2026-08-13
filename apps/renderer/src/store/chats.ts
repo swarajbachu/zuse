@@ -160,6 +160,8 @@ type ChatsState = {
 	 * same truthful lifecycle without issuing session-scoped RPCs prematurely.
 	 */
 	readonly pendingCreationByChat: Record<string, PendingChatCreation>;
+	/** Archive tombstones prevent stale summary frames from reviving hidden rows. */
+	readonly hiddenArchivedChatIds: ReadonlySet<ChatId>;
 	readonly retryCreation: (
 		chatId: ChatId,
 		preserveFocus?: boolean,
@@ -405,6 +407,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 	loadingByProject: {},
 	creatingByProject: {},
 	pendingCreationByChat: {},
+	hiddenArchivedChatIds: new Set(),
 	archiveProgressByChat: {},
 	error: null,
 	hydrate: async (projectId) => {
@@ -1142,7 +1145,10 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 	},
 	archive: async (chatId, force = false) => {
 		const ref = activeChatRef(chatId);
-		set({ error: null });
+		set((state) => ({
+			error: null,
+			hiddenArchivedChatIds: new Set(state.hiddenArchivedChatIds).add(chatId),
+		}));
 		const provisional = get().pendingCreationByChat[chatId];
 		if (provisional?.phase === "failed") {
 			get().discardCreation(chatId);
@@ -1158,7 +1164,11 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				return { ok: true } as const;
 			} catch (cause) {
 				const reason = formatError(cause);
-				set({ error: reason });
+				set((state) => {
+					const hiddenArchivedChatIds = new Set(state.hiddenArchivedChatIds);
+					hiddenArchivedChatIds.delete(chatId);
+					return { error: reason, hiddenArchivedChatIds };
+				});
 				toastManager.add({
 					type: "error",
 					title: "Cloud chat could not be archived",
@@ -1260,6 +1270,11 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			if (reconciled !== null) {
 				result = reconciled;
 			} else {
+				set((state) => {
+					const hiddenArchivedChatIds = new Set(state.hiddenArchivedChatIds);
+					hiddenArchivedChatIds.delete(chatId);
+					return { hiddenArchivedChatIds };
+				});
 				const shouldRestoreSelection =
 					selectedAtStart && get().selectedChatId === fallbackChatId;
 				if (
@@ -1414,6 +1429,11 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					};
 					cloudChats.stageCloudChat(restoredSummary, projectId);
 					archives.removeChat(chatId, projectId);
+					set((state) => {
+						const hiddenArchivedChatIds = new Set(state.hiddenArchivedChatIds);
+						hiddenArchivedChatIds.delete(chatId);
+						return { hiddenArchivedChatIds };
+					});
 					get().select(chatId);
 					const shell = activeChatsByProject();
 					const chat = shell[projectId]?.find(
@@ -1439,8 +1459,11 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				const projectId = findChatProject(activeChatsByProject(), chatId);
 				const resolvedProjectId = projectId ?? result.chat.projectId;
 				set((s) => {
+					const hiddenArchivedChatIds = new Set(s.hiddenArchivedChatIds);
+					hiddenArchivedChatIds.delete(chatId);
 					return {
 						selectedChatId: result.chat.id,
+						hiddenArchivedChatIds,
 						selectedChatByProject: {
 							...s.selectedChatByProject,
 							[resolvedProjectId]: result.chat.id,

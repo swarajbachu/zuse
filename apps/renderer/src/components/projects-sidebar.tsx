@@ -966,6 +966,9 @@ function ProjectGroup({
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
 	const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
 	const openUsage = useUiStore((s) => s.openUsage);
+	const hiddenArchivedChatIds = useChatsStore(
+		(state) => state.hiddenArchivedChatIds,
+	);
 	const [menuOpen, setMenuOpen] = useState(false);
 	const anchorRef = useRef<{ getBoundingClientRect: () => DOMRect } | null>(
 		null,
@@ -999,9 +1002,12 @@ function ProjectGroup({
 	const visibleChats = useMemo(() => {
 		const cloudIds = new Set((cloudChats ?? []).map((row) => row.chatId));
 		return chats.filter(
-			(chat) => chat.archivedAt === null && !cloudIds.has(chat.id),
+			(chat) =>
+				chat.archivedAt === null &&
+				!cloudIds.has(chat.id) &&
+				!hiddenArchivedChatIds.has(chat.id),
 		);
-	}, [chats, cloudChats]);
+	}, [chats, cloudChats, hiddenArchivedChatIds]);
 
 	// One merged timeline inside the group: local chats and same-repo chats on
 	// other computers interleave by recency instead of forming sections.
@@ -1017,7 +1023,11 @@ function ProjectGroup({
 			updatedAt: row.ref.chat.updatedAt.getTime(),
 		}));
 		const cloud = (cloudChats ?? [])
-			.filter((summary) => summary.state !== "archived")
+			.filter(
+				(summary) =>
+					summary.state !== "archived" &&
+					!hiddenArchivedChatIds.has(summary.chatId),
+			)
 			.map((summary) => ({
 				kind: "cloud" as const,
 				summary,
@@ -1026,7 +1036,7 @@ function ProjectGroup({
 		return [...local, ...remote, ...cloud].sort(
 			(left, right) => right.updatedAt - left.updatedAt,
 		);
-	}, [visibleChats, remoteChats, cloudChats]);
+	}, [visibleChats, remoteChats, cloudChats, hiddenArchivedChatIds]);
 
 	// Surface the highest-priority attention hint on the collapsed project
 	// header when any session inside this project needs attention.
