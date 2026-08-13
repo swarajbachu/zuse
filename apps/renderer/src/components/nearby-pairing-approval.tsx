@@ -1,13 +1,8 @@
-import {
-	type CommandId,
-	EnvironmentId,
-	type NearbyPairingRequest,
-} from "@zuse/contracts";
+import type { NearbyPairingRequest } from "@zuse/contracts";
 import { Smartphone } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { recordDiagnosticEvent } from "../lib/diagnostics-recorder.ts";
-import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
-import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
+import { dispatchLocalDeviceCommand } from "../lib/local-device-client-bus.ts";
 import {
 	AlertDialog,
 	AlertDialogDescription,
@@ -37,9 +32,6 @@ const logPairingEvent = (message: string, requestId?: string): void => {
 };
 
 export function NearbyPairingApproval() {
-	const environmentId = useEnvironmentCatalogStore((state) =>
-		EnvironmentId.make(state.activeEnvironmentId),
-	);
 	const [request, setRequest] = useState<NearbyPairingRequest | null>(null);
 	const [busy, setBusy] = useState(false);
 	const refreshFailureLogged = useRef(false);
@@ -47,15 +39,10 @@ export function NearbyPairingApproval() {
 	const lastOpenedRequestId = useRef<string | null>(null);
 
 	const refresh = useCallback(async () => {
-		const { result: requests } = await dispatchEnvironmentShellCommand<
-			{},
+		const requests = await dispatchLocalDeviceCommand<
+			Record<string, never>,
 			ReadonlyArray<NearbyPairingRequest>
-		>({
-			environmentId,
-			kind: "pairing.listNearbyRequests",
-			commandId: crypto.randomUUID() as CommandId,
-			payload: {},
-		});
+		>("pairing.listNearbyRequests", {});
 		const next = requests[0];
 		if (
 			next !== undefined &&
@@ -72,7 +59,7 @@ export function NearbyPairingApproval() {
 			return null;
 		});
 		refreshFailureLogged.current = false;
-	}, [environmentId]);
+	}, []);
 
 	const refreshSafely = useCallback(async () => {
 		try {
@@ -118,20 +105,15 @@ export function NearbyPairingApproval() {
 			if (request === null || busy) return;
 			setBusy(true);
 			try {
-				await dispatchEnvironmentShellCommand<
+				await dispatchLocalDeviceCommand<
 					{
 						readonly requestId: string;
 						readonly decision: "allow" | "deny" | "block";
 					},
 					"approved" | "denied"
-				>({
-					environmentId,
-					kind: "pairing.resolveNearbyRequest",
-					commandId: crypto.randomUUID() as CommandId,
-					payload: {
-						requestId: request.requestId,
-						decision,
-					},
+				>("pairing.resolveNearbyRequest", {
+					requestId: request.requestId,
+					decision,
 				});
 				setRequest(null);
 			} catch (cause) {
@@ -145,7 +127,7 @@ export function NearbyPairingApproval() {
 				setBusy(false);
 			}
 		},
-		[busy, environmentId, request],
+		[busy, request],
 	);
 
 	return (
