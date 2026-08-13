@@ -37,7 +37,11 @@ const input = (
 	...overrides,
 });
 
-const installAppServer = (missingResume: boolean) => {
+const installAppServer = (
+	missingResume: boolean,
+	initialMissingMcpInventories = 0,
+) => {
+	let mcpInventoryReads = 0;
 	vi.spyOn(CodexAppServerClient, "start").mockImplementation(
 		async (options) =>
 			({
@@ -47,15 +51,19 @@ const installAppServer = (missingResume: boolean) => {
 						case "config/mcpServer/reload":
 							return {};
 						case "mcpServerStatus/list":
+							mcpInventoryReads += 1;
 							return {
 								data: [
 									{
 										name: "zuse",
-										tools: {
-											ask_user_question: {},
-											browser_status: {},
-											view_image: {},
-										},
+										tools:
+											mcpInventoryReads <= initialMissingMcpInventories
+												? {}
+												: {
+														ask_user_question: {},
+														browser_status: {},
+														view_image: {},
+													},
 									},
 								],
 							};
@@ -118,12 +126,16 @@ const withSession = async <A>(
 		readonly resumeCursor?: string | null;
 		readonly forkFromResume?: boolean;
 		readonly missingResume?: boolean;
+		readonly initialMissingMcpInventories?: number;
 	},
 	use: (handle: CodexSessionHandle) => Promise<A>,
 ): Promise<A> => {
 	const cwd = mkdtempSync(join(tmpdir(), "zuse-codex-lifecycle-"));
 	try {
-		installAppServer(options.missingResume ?? false);
+		installAppServer(
+			options.missingResume ?? false,
+			options.initialMissingMcpInventories ?? 0,
+		);
 		const handle = await Effect.runPromise(
 			startCodexSession(
 				input({ forkFromResume: options.forkFromResume }),
@@ -167,6 +179,13 @@ afterEach(() => {
 });
 
 describe("Codex session cursor persistence", () => {
+	it("waits for the process-scoped MCP inventory to finish loading", async () => {
+		await withSession({ initialMissingMcpInventories: 1 }, async (handle) => {
+			const events = await takeEvents(handle.events, 1);
+			expect(events).toMatchObject([{ _tag: "Started" }]);
+		});
+	});
+
 	it("does not publish a provisional cursor before the first turn", async () => {
 		await withSession({}, async (handle) => {
 			const events: Array<AgentEvent> = [];

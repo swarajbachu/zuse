@@ -1563,29 +1563,33 @@ export const startCodexSession = (
 			candidate: CodexAppServerClient,
 		): Promise<void> => {
 			await candidate.request("config/mcpServer/reload", undefined);
-			const status = await candidate.request<{
-				data?: ReadonlyArray<{
-					name: string;
-					tools?: Readonly<Record<string, unknown>>;
-					authStatus?: string;
-				}>;
-			}>("mcpServerStatus/list", { detail: "toolsAndAuthOnly" });
-			const found = Array.isArray(status.data)
-				? status.data.find((server) => server.name === "zuse")
-				: undefined;
-			const toolNames = Object.keys(found?.tools ?? {});
-			const missing = [
-				"ask_user_question",
-				"browser_status",
-				"view_image",
-			].filter((name) => !toolNames.includes(name));
-			if (found === undefined || missing.length > 0) {
-				throw new Error(
-					`Codex did not load the expected process-scoped zuse MCP inventory${
-						missing.length === 0 ? "" : ` (missing: ${missing.join(", ")})`
-					}.`,
+			const deadline = Date.now() + 5_000;
+			let missing: readonly string[] = [];
+			do {
+				const status = await candidate.request<{
+					data?: ReadonlyArray<{
+						name: string;
+						tools?: Readonly<Record<string, unknown>>;
+						authStatus?: string;
+					}>;
+				}>("mcpServerStatus/list", { detail: "toolsAndAuthOnly" });
+				const found = Array.isArray(status.data)
+					? status.data.find((server) => server.name === "zuse")
+					: undefined;
+				const toolNames = Object.keys(found?.tools ?? {});
+				missing = ["ask_user_question", "browser_status", "view_image"].filter(
+					(name) => !toolNames.includes(name),
 				);
-			}
+				if (found !== undefined && missing.length === 0) return;
+				if (Date.now() < deadline) {
+					await new Promise((resolve) => setTimeout(resolve, 50));
+				}
+			} while (Date.now() < deadline);
+			throw new Error(
+				`Codex did not load the expected process-scoped zuse MCP inventory${
+					missing.length === 0 ? "" : ` (missing: ${missing.join(", ")})`
+				}.`,
+			);
 		};
 
 		yield* Effect.tryPromise({
