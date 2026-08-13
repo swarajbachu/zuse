@@ -15,8 +15,6 @@ import {
 	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { runtimeOperationClient } from "../lib/runtime-operation-client.ts";
-import { overlayActiveEnvironmentShell } from "../lib/environment-entities.ts";
 import {
 	type EnvironmentShellData,
 	environmentShellSnapshot,
@@ -35,6 +33,7 @@ import {
 	removeRendererEnvironment,
 	setActiveEnvironment,
 } from "../lib/rpc-client.ts";
+import { runtimeOperationClient } from "../lib/runtime-operation-client.ts";
 import { getRendererClientBus } from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { activateAnnotationsEnvironment } from "./annotations.ts";
@@ -242,11 +241,11 @@ export const projectEnvironmentShell = (
 		loading: false,
 		error: null,
 	});
-	overlayActiveEnvironmentShell((shell) => ({
-		...shell,
-		chatsByProject,
-		sessionsByProject,
-	}));
+	// This function projects the canonical shell cell into compatibility stores.
+	// Never write the projection back into that same cell: ClientBus notifies its
+	// shell listener synchronously, so doing so recursively re-enters this
+	// projector until the JavaScript stack overflows. Optimistic mutations are
+	// applied at their command boundaries before this projection runs.
 	useChatsStore.setState({
 		selectedChatId,
 		selectedChatByProject:

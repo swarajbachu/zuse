@@ -23,14 +23,17 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 });
 
 import { createInitializationGate } from "../../src/lib/initialization-gate.ts";
+import { getRendererClientBus } from "../../src/lib/session-timeline-client-bus.ts";
 import { terminalRuntimeKey } from "../../src/lib/terminal-registry.ts";
 import {
 	cloudConnectionFailure,
 	createConnectionAttemptCoordinator,
 	type EnvironmentCatalogEntry,
 	orderEnvironmentCatalog,
+	projectEnvironmentShell,
 	validateSshTarget,
 } from "../../src/store/environment-catalog.ts";
+import { useWorkspaceStore } from "../../src/store/workspace.ts";
 
 const entry = (
 	label: string,
@@ -51,6 +54,21 @@ const entry = (
 });
 
 describe("environment catalog", () => {
+	it("projects shell data without recursively writing to the ClientBus cell", () => {
+		const overlay = vi.spyOn(getRendererClientBus(), "overlay");
+		projectEnvironmentShell({
+			folders: [],
+			originsByFolder: {},
+			chatsByProject: {},
+			sessionsByProject: {},
+			creationOperationsByProject: {},
+		});
+
+		expect(overlay).not.toHaveBeenCalled();
+		expect(useWorkspaceStore.getState().folders).toEqual([]);
+		overlay.mockRestore();
+	});
+
 	it("shares initialization and retries only after a failed attempt", async () => {
 		const gate = createInitializationGate();
 		let release: (() => void) | undefined;
