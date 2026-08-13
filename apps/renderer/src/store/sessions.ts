@@ -22,7 +22,11 @@ import { formatError } from "../lib/format-error.ts";
 import { upsertLatestEntity } from "../lib/latest-entity.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
 import { getActiveEnvironment } from "../lib/rpc-client.ts";
-import { dispatchSessionCommand } from "../lib/session-timeline-client-bus.ts";
+import {
+	dispatchSessionCommand,
+	getRendererClientBus,
+	sessionTimelineResourceKey,
+} from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { selectChatSession, upsertForkedChat } from "./chat-commands.ts";
 import { useWorkspaceStore } from "./workspace.ts";
@@ -359,15 +363,18 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			},
 		}));
 		markRendererInteraction(sessionId, "first-atom-commit");
+		const cloudSummary = cloudSummaryForChat(chatId);
+		const environmentId = EnvironmentId.make(
+			cloudSummary?.workspaceId ?? getActiveEnvironment(),
+		);
+		const commandId = nextCommandId("session-create");
 		try {
-			const cloudSummary = cloudSummaryForChat(chatId);
 			if (cloudSummary !== null) {
 				const { ensureCloudWorkspaceAttached } = await import(
 					"../lib/cloud-workspaces.ts"
 				);
 				await ensureCloudWorkspaceAttached(cloudSummary);
 			}
-			const commandId = nextCommandId("session-create");
 			const { result: session } = await dispatchTimelineCommand<
 				{
 					readonly sessionId: SessionId;
@@ -392,8 +399,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					permissionMode: opts?.permissionMode,
 					toolSearch: opts?.toolSearch,
 				},
-				"never",
-				EnvironmentId.make(cloudSummary?.workspaceId ?? getActiveEnvironment()),
+				"safe",
+				environmentId,
 			);
 			markRendererInteraction(sessionId, "entity-acknowledged");
 			overlayActiveEnvironmentShell((shell) => ({
@@ -418,6 +425,26 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			});
 			return session.id;
 		} catch (err) {
+			const retryable = getRendererClientBus()
+				.snapshot(
+					sessionTimelineResourceKey({
+						environmentId,
+						sessionId,
+					}),
+				)
+				.failedCommands.some(
+					(command) => command.commandId === commandId && command.retryable,
+				);
+			if (retryable) {
+				// The durable outbox still owns this command. Preserve the truthful
+				// booting shell and selection; the environment summary stream will
+				// reconcile it when replay observes the server receipt.
+				set((s) => ({
+					error: null,
+					creatingByChat: { ...s.creatingByChat, [chatId]: false },
+				}));
+				return sessionId;
+			}
 			overlayActiveEnvironmentShell((shell) => ({
 				...shell,
 				sessionsByProject: {

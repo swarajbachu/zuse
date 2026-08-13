@@ -17,7 +17,6 @@ import {
 	SessionId,
 	type WorktreeId,
 } from "@zuse/contracts";
-import { Effect } from "effect";
 import { toastManager } from "../components/ui/toast.tsx";
 import { cloudSummaryForChat } from "../lib/cloud-workspace-catalog.ts";
 import {
@@ -25,7 +24,10 @@ import {
 	activeSessionsByProject,
 	overlayActiveEnvironmentShell,
 } from "../lib/environment-entities.ts";
-import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
+import {
+	dispatchEnvironmentShellCommand,
+	environmentShellResourceKey,
+} from "../lib/environment-shell-client-bus.ts";
 import { formatError } from "../lib/format-error.ts";
 import { upsertLatestEntity } from "../lib/latest-entity.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
@@ -34,6 +36,7 @@ import {
 	dropQueuedMessage,
 	queueSessionMessage,
 } from "../lib/session-actions.ts";
+import { getRendererClientBus } from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { batchAtomUpdates } from "../state/registry.tsx";
 import { useArchivePreviewStore } from "./archive-preview.ts";
@@ -711,10 +714,13 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			}));
 		}
 		markRendererInteraction(initialSessionId, "first-atom-commit");
+		const environmentId = EnvironmentId.make(getActiveEnvironment());
+		const commandId = CommandId.make(`chat-create:${operationId}`);
+		let knownWorktreeId = optimisticWorktreeId;
 		try {
 			const workspacePolicy = await opts?.workspacePolicy;
 			const worktreeId = await (opts?.worktreeId ?? null);
-			const knownWorktreeId =
+			knownWorktreeId =
 				workspacePolicy?._tag === "existing"
 					? workspacePolicy.worktreeId
 					: worktreeId;
@@ -756,7 +762,6 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					),
 				},
 			}));
-			const commandId = CommandId.make(`chat-create:${operationId}`);
 			const { result } = await dispatchChatCommand<unknown, ChatCreateResult>({
 				kind: "chat.create",
 				commandId,
@@ -850,6 +855,33 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			};
 		} catch (err) {
 			const reason = formatError(err);
+			const retryable = getRendererClientBus()
+				.snapshot(
+					environmentShellResourceKey({
+						environmentId,
+					}),
+				)
+				.failedCommands.some(
+					(command) => command.commandId === commandId && command.retryable,
+				);
+			if (retryable) {
+				// Transport interruption does not reject a retry-safe creation. Keep
+				// its provisional shell and durable outbox entry until replay or the
+				// creation-status stream supplies an authoritative outcome.
+				set((s) => ({
+					error: null,
+					creatingByProject: {
+						...s.creatingByProject,
+						[projectId]: false,
+					},
+				}));
+				return {
+					chatId,
+					initialSessionId,
+					worktreeId: knownWorktreeId,
+					startupQueueId,
+				};
+			}
 			batchAtomUpdates(() => {
 				overlayActiveEnvironmentShell((shell) => ({
 					...shell,

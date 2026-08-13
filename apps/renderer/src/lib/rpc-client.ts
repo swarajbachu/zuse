@@ -286,10 +286,11 @@ const getRendererEntry = (
 
 export function isRpcClientTransportError(cause: unknown): boolean {
 	return (
-		typeof cause === "object" &&
-		cause !== null &&
-		"_tag" in cause &&
-		cause._tag === "RpcClientError"
+		isIgnorableRendererFailure(cause) ||
+		(typeof cause === "object" &&
+			cause !== null &&
+			"_tag" in cause &&
+			cause._tag === "RpcClientError")
 	);
 }
 

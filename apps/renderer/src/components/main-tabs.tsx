@@ -254,9 +254,11 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 							/>
 						);
 					})}
-					{projectId !== null && activeChatId !== null && (
-						<NewChatTabButton chatId={activeChatId} />
-					)}
+					{projectId !== null &&
+						activeChatId !== null &&
+						pendingCreationByChat[activeChatId] === undefined && (
+							<NewChatTabButton chatId={activeChatId} />
+						)}
 				</div>
 			</header>
 		</>

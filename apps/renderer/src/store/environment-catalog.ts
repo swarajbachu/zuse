@@ -2,6 +2,7 @@ import type { ResourceLease } from "@zuse/client-runtime/client-bus";
 import type { ResourceView } from "@zuse/client-runtime/resource-state";
 import {
 	type Chat,
+	type ChatId,
 	type EnvironmentDescriptor,
 	EnvironmentId,
 	type Folder,
@@ -108,6 +109,8 @@ const upsertChat = (
 			(left.updatedAt ?? left.createdAt).getTime(),
 	);
 
+const resumedCreationOperations = new Set<string>();
+
 export const projectEnvironmentShell = (
 	data: EnvironmentShellData,
 	options: EnvironmentProjectionOptions = {},
@@ -130,6 +133,19 @@ export const projectEnvironmentShell = (
 	const creationOperations = Object.values(
 		normalized.creationOperationsByProject,
 	).flat();
+	const recoverableCreationOperationIds = new Set(
+		creationOperations
+			.filter(
+				(operation) =>
+					operation.status !== "succeeded" && operation.status !== "failed",
+			)
+			.map((operation) => operation.operationId),
+	);
+	for (const operationId of resumedCreationOperations) {
+		if (!recoverableCreationOperationIds.has(operationId)) {
+			resumedCreationOperations.delete(operationId);
+		}
+	}
 	const durableChatIds = new Set(
 		Object.values(normalized.chatsByProject)
 			.flat()
@@ -273,6 +289,21 @@ export const projectEnvironmentShell = (
 		creatingByChat: {},
 		error: null,
 	});
+	// A creation can outlive the RPC scope that started it (app reload, HMR,
+	// laptop sleep, or a transport generation change). The canonical creation
+	// stream is therefore also the recovery trigger. `retryCreation` is keyed by
+	// operation id, so repeated snapshots cannot start competing attempts.
+	for (const [chatId, creation] of Object.entries(restoredPending)) {
+		if (
+			creation.phase !== "failed" &&
+			!resumedCreationOperations.has(creation.operationId)
+		) {
+			resumedCreationOperations.add(creation.operationId);
+			queueMicrotask(() => {
+				void useChatsStore.getState().retryCreation(chatId as ChatId, true);
+			});
+		}
+	}
 	return selectedFolderId;
 };
 

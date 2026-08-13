@@ -11,6 +11,7 @@ const {
 	acquireRendererRpcSession,
 	canReuseCloudWorkspaceTicket,
 	isIgnorableRendererFailure,
+	isRpcClientTransportError,
 	RENDERER_WEBSOCKET_OPEN_TIMEOUT,
 	resolveRendererRpcTransportForTest,
 	shouldReconnectRendererConnection,
@@ -19,11 +20,12 @@ const {
 
 describe("renderer RPC transport selection", () => {
 	it("does not poison a healthy connection when a suspended stream is interrupted", () => {
-		expect(
-			isIgnorableRendererFailure(
-				new Error("All fibers interrupted without error"),
-			),
-		).toBe(true);
+		const interruption = new Error("All fibers interrupted without error");
+		expect(isIgnorableRendererFailure(interruption)).toBe(true);
+		// A command interrupted with the transport scope has an ambiguous outcome.
+		// Keep retry-safe commands in the outbox instead of presenting a final
+		// provider rejection to the user.
+		expect(isRpcClientTransportError(interruption)).toBe(true);
 		expect(
 			isIgnorableRendererFailure(new Error("WebSocket closed (1006).")),
 		).toBe(false);
