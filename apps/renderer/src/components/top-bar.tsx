@@ -935,7 +935,9 @@ export function TopBarRightContent({
 
 	const canCreatePrWhenSynced = canCreatePrFromSyncedBranch(
 		status,
-		ctx.status === "cloud-unavailable" ? { status: "empty" } : ctx,
+		ctx.status === "cloud-unavailable" || ctx.status === "worktree-pending"
+			? { status: "empty" }
+			: ctx,
 	);
 	const workflow = deriveBranchWorkflow(status, pr, canCreatePrWhenSynced);
 	const agentReady = selectedSessionId !== null;
@@ -1095,7 +1097,9 @@ export function WorkflowActions({
 
 	const canCreatePrWhenSynced = canCreatePrFromSyncedBranch(
 		status,
-		ctx.status === "cloud-unavailable" ? { status: "empty" } : ctx,
+		ctx.status === "cloud-unavailable" || ctx.status === "worktree-pending"
+			? { status: "empty" }
+			: ctx,
 	);
 	const workflow = deriveBranchWorkflow(status, pr, canCreatePrWhenSynced);
 	const agentReady = selectedSessionId !== null;

@@ -8,6 +8,7 @@ import { useMemo } from "react";
 import { cloudSummaryForSession } from "../lib/cloud-workspace-catalog.ts";
 import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
+import { useChatsStore } from "./chats.ts";
 import { useEnvironmentCatalogStore } from "./environment-catalog.ts";
 import { useSessionsStore } from "./sessions.ts";
 import { useWorkspaceStore } from "./workspace.ts";
@@ -38,6 +39,14 @@ export type ActiveContext =
 			readonly projectId: FolderId;
 			readonly sessionId: SessionId;
 			readonly attachmentState: "detached" | "attaching" | "failed";
+	  }
+	| {
+			readonly status: "worktree-pending";
+			readonly environmentId: EnvironmentId;
+			readonly folderId: FolderId;
+			readonly folderPath: string;
+			readonly sessionId: SessionId;
+			readonly worktreeId: WorktreeId | null;
 	  }
 	| {
 			readonly status: "ready";
@@ -90,6 +99,12 @@ export const useActiveContext = (): ActiveContext => {
 			? (s.selectedSessionByProject[selectedFolderId] ?? null)
 			: null,
 	);
+	const pendingCreation = useChatsStore((state) => {
+		const chatId = state.selectedChatId;
+		return chatId === null
+			? null
+			: (state.pendingCreationByChat[chatId] ?? null);
+	});
 	const { sessionsByProject } = useActiveEnvironmentEntities();
 	const sessionWorktreeId =
 		selectedFolderId === null || sessionId === null
@@ -158,6 +173,20 @@ export const useActiveContext = (): ActiveContext => {
 				worktreePending: false,
 			};
 		}
+		if (
+			pendingCreation !== null &&
+			pendingCreation.workspaceRequested &&
+			pendingCreation.projectId === selectedFolderId
+		) {
+			return {
+				status: "worktree-pending",
+				environmentId: EnvironmentId.make(activeEnvironmentId),
+				folderId: selectedFolderId,
+				folderPath,
+				sessionId: pendingCreation.sessionId,
+				worktreeId: pendingCreation.worktreeId,
+			};
+		}
 		if (sessionWorktreeId !== null && worktreePath !== null) {
 			return {
 				status: "ready",
@@ -171,19 +200,21 @@ export const useActiveContext = (): ActiveContext => {
 				worktreePending: false,
 			};
 		}
-		if (sessionWorktreeId !== null && worktreePath === null) {
-			// Session is bound to a worktree we haven't hydrated yet. Surface this
-			// explicitly — do NOT silently fall back to folderPath.
+		if (
+			sessionWorktreeId !== null &&
+			worktreePath === null &&
+			sessionId !== null
+		) {
+			// Session is bound to a worktree we haven't hydrated yet. This is not a
+			// usable ExecutionRef: exposing folderPath here lets files/Git/terminals
+			// silently mount against the main checkout.
 			return {
-				status: "ready",
+				status: "worktree-pending",
 				environmentId: EnvironmentId.make(activeEnvironmentId),
 				folderId: selectedFolderId,
 				folderPath,
 				sessionId,
 				worktreeId: sessionWorktreeId,
-				rootPath: folderPath,
-				rootKind: "folder",
-				worktreePending: true,
 			};
 		}
 		return {
@@ -208,6 +239,7 @@ export const useActiveContext = (): ActiveContext => {
 		cloudShell.connection,
 		cloudFolder,
 		activeEnvironmentId,
+		pendingCreation,
 	]);
 };
 

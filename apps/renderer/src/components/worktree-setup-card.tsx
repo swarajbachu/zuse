@@ -11,8 +11,8 @@ import {
 	refreshCloudChatCatalog,
 	useCloudChatCatalogStore,
 } from "../lib/cloud-workspace-catalog.ts";
-import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { runControlPlane } from "../lib/control-plane-client.ts";
+import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { shouldShowSetupCard } from "../lib/setup-card-visibility.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
@@ -100,7 +100,9 @@ export function WorktreeSetupCard() {
 	});
 	const rerunSetup = useWorktreesStore((s) => s.rerunSetup);
 	const hasWorktree = ctx.status === "ready" && ctx.worktreeId !== null;
-	const worktreePending = ctx.status === "ready" && ctx.worktreePending;
+	const worktreePending =
+		ctx.status === "worktree-pending" ||
+		(ctx.status === "ready" && ctx.worktreePending);
 	const setupStatus = worktree?.setupStatus ?? null;
 	const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
 	const externalResume = session !== null && session.resumeStrategy !== "none";

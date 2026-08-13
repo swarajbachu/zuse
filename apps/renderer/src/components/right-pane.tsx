@@ -405,33 +405,42 @@ export function RightPane({
 					/>
 				) : null}
 				{/* Non-browser panels: mount on add, kept mounted while open. */}
-				{visiblePanels
-					.filter((panel) => panel.kind !== "browser")
-					.map((panel) => (
-						<div
-							key={panel.id}
-							hidden={panel.id !== effectiveActiveId}
-							className="flex min-h-0 min-w-0 flex-1 flex-col"
-						>
-							<PanelBody
-								panel={panel}
-								folderId={executionFolderId ?? selected.id}
-								projectId={selected.id}
-								environmentId={
-									executionRef?.environmentId ??
-									chatRef?.environmentId ??
-									catalogEnvironmentId
-								}
-								chatRef={chatRef}
-								rootPath={executionRootPath ?? selected.path}
-								worktreeId={worktreeId}
-								cloudUnavailable={ctx.status === "cloud-unavailable"}
-								sessionId={sessionId}
-								planMarkdown={planMarkdown}
-								directoryUnavailable={directoryUnavailable}
-							/>
-						</div>
-					))}
+				{ctx.status === "worktree-pending" && visiblePanels.length > 0 ? (
+					<div
+						className="flex min-h-0 flex-1 items-center justify-center px-4 text-xs text-muted-foreground"
+						aria-busy="true"
+					>
+						Preparing workspace…
+					</div>
+				) : null}
+				{ctx.status !== "worktree-pending" &&
+					visiblePanels
+						.filter((panel) => panel.kind !== "browser")
+						.map((panel) => (
+							<div
+								key={panel.id}
+								hidden={panel.id !== effectiveActiveId}
+								className="flex min-h-0 min-w-0 flex-1 flex-col"
+							>
+								<PanelBody
+									panel={panel}
+									folderId={executionFolderId ?? selected.id}
+									projectId={selected.id}
+									environmentId={
+										executionRef?.environmentId ??
+										chatRef?.environmentId ??
+										catalogEnvironmentId
+									}
+									chatRef={chatRef}
+									rootPath={executionRootPath ?? selected.path}
+									worktreeId={worktreeId}
+									cloudUnavailable={ctx.status === "cloud-unavailable"}
+									sessionId={sessionId}
+									planMarkdown={planMarkdown}
+									directoryUnavailable={directoryUnavailable}
+								/>
+							</div>
+						))}
 				{/* One host owns the command stream and keeps a webview mounted for
             every chat with a Browser panel. Only the selected chat is visible;
             background chats retain history and receive only their commands. */}

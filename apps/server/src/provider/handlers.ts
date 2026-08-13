@@ -659,8 +659,56 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 											if (input.operationId !== undefined) {
 												yield* sql`
 									UPDATE chat_creation_operations
-									SET worktree_id = ${created.id}, status = 'creating_chat',
-									    updated_at = ${new Date().toISOString()}
+									SET worktree_id = ${created.id}, updated_at = ${new Date().toISOString()}
+									WHERE operation_id = ${input.operationId}
+								`.pipe(Effect.orDie);
+											}
+											// A directory existing is not the same thing as an execution
+											// workspace being ready. The provider, startup queue, file tree,
+											// and terminal must all cross the same setup terminal edge.
+											const worktrees = yield* WorktreeService;
+											yield* worktrees.setupStream(created.id).pipe(
+												Stream.runDrain,
+												Effect.mapError(
+													(error) =>
+														new SessionStartError({
+															providerId: input.providerId,
+															reason: `The fresh worktree setup could not be observed: ${String(error)}`,
+														}),
+												),
+												Effect.tapError((error) =>
+													input.operationId === undefined
+														? Effect.void
+														: sql`
+											UPDATE chat_creation_operations
+											SET status = 'failed', error = ${error.reason},
+											    updated_at = ${new Date().toISOString()}
+											WHERE operation_id = ${input.operationId}
+										`.pipe(Effect.orDie),
+												),
+											);
+											const ready = yield* worktrees.get(created.id);
+											if (ready === null || ready.setupStatus === "failed") {
+												const error = new SessionStartError({
+													providerId: input.providerId,
+													reason:
+														ready?.setupOutput.trim() ||
+														"The fresh worktree setup failed.",
+												});
+												if (input.operationId !== undefined) {
+													yield* sql`
+											UPDATE chat_creation_operations
+											SET status = 'failed', error = ${error.reason},
+											    updated_at = ${new Date().toISOString()}
+											WHERE operation_id = ${input.operationId}
+										`.pipe(Effect.orDie);
+												}
+												return yield* error;
+											}
+											if (input.operationId !== undefined) {
+												yield* sql`
+									UPDATE chat_creation_operations
+									SET status = 'creating_chat', updated_at = ${new Date().toISOString()}
 									WHERE operation_id = ${input.operationId}
 								`.pipe(Effect.orDie);
 											}

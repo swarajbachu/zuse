@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { type PendingChatCreation, useChatsStore } from "../store/chats.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
@@ -29,6 +29,26 @@ export function PendingChatCreationSurface({
 					(candidate) => candidate.id === creation.worktreeId,
 				) ?? null),
 	);
+	const subscribeSetup = useWorktreesStore((s) => s.subscribeSetup);
+	const unsubscribeSetup = useWorktreesStore((s) => s.unsubscribeSetup);
+	const refreshWorktrees = useWorktreesStore((s) => s.refresh);
+	useEffect(() => {
+		const worktreeId = creation.worktreeId;
+		if (worktreeId === null || creation.phase === "failed") return;
+		// The creation-status stream learns the id before the general worktree list
+		// necessarily contains its row. Hydrate the row, while setupStream supplies
+		// all subsequent output/status changes.
+		void refreshWorktrees(creation.projectId);
+		subscribeSetup(creation.projectId, worktreeId);
+		return () => unsubscribeSetup(creation.projectId, worktreeId);
+	}, [
+		creation.phase,
+		creation.projectId,
+		creation.worktreeId,
+		refreshWorktrees,
+		subscribeSetup,
+		unsubscribeSetup,
+	]);
 	return (
 		<div className="flex min-h-0 flex-1 flex-col px-3">
 			<div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
