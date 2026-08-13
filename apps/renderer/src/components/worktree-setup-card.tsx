@@ -111,8 +111,8 @@ export function WorktreeSetupCard({
 	});
 	const rerunSetup = useWorktreesStore((s) => s.rerunSetup);
 	const hasWorktree =
-		(ctx.status === "ready" || ctx.status === "worktree-pending") &&
-		ctx.worktreeId !== null;
+		ctx.status === "worktree-pending" ||
+		(ctx.status === "ready" && ctx.worktreeId !== null);
 	const worktreePending =
 		ctx.status === "worktree-pending" ||
 		(ctx.status === "ready" && ctx.worktreePending);

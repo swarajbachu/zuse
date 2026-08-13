@@ -71,14 +71,6 @@ import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 
-const TIMELINE_HEADER = (
-	<>
-		<div className="px-[var(--chat-row-gutter,0.75rem)]">
-			<WorktreeSetupCard />
-		</div>
-		<div className="h-2" />
-	</>
-);
 const TIMELINE_FOOTER = <div className="h-2" />;
 
 interface TimelineEndState {
@@ -123,12 +115,13 @@ export function ChatView({
 	const localError = useSessionCommandErrors(
 		(state) => state.errorByResource[errorKey] ?? null,
 	);
+	const commandError = localError ?? pendingSessionCommandError(sessionRef);
 	const recoveredPreAckError =
-		localError !== null &&
-		isRecoveredPreAckSessionError(localError.message, timeline.view);
-	const error = recoveredPreAckError
-		? null
-		: (localError ?? pendingSessionCommandError(sessionRef));
+		commandError !== null &&
+		(isRecoveredPreAckSessionError(commandError.message, timeline.view) ||
+			(session !== null &&
+				commandError.message.includes("SessionNotFoundError")));
+	const error = recoveredPreAckError ? null : commandError;
 	useEffect(() => {
 		if (recoveredPreAckError) clearSessionCommandError(sessionRef);
 	}, [recoveredPreAckError, sessionRef]);
@@ -182,8 +175,11 @@ export function ChatView({
 		}
 		return false;
 	});
+	const providerOutputStarted = messages.some(
+		(message) => message.role !== "user",
+	);
 	const agentStarting =
-		messages.length === 0 &&
+		!providerOutputStarted &&
 		(session?.status === "booting" ||
 			inFlight ||
 			(timeline.projection?.queue.items.length ?? 0) > 0);
@@ -191,10 +187,23 @@ export function ChatView({
 		() =>
 			deriveChatTimelineRows({
 				messages,
-				inFlight,
+				// Agent startup is narrated inside the setup card. Avoid rendering a
+				// second detached "Starting Codex" row for the same lifecycle phase.
+				inFlight: inFlight && !agentStarting,
 				awaitingPlanApproval,
 			}),
-		[awaitingPlanApproval, inFlight, messages],
+		[agentStarting, awaitingPlanApproval, inFlight, messages],
+	);
+	const timelineHeader = useMemo(
+		() => (
+			<>
+				<div className="px-[var(--chat-row-gutter,0.75rem)]">
+					<WorktreeSetupCard agentStarting={agentStarting ? true : undefined} />
+				</div>
+				<div className="h-2" />
+			</>
+		),
+		[agentStarting],
 	);
 	const turns = useMemo(() => deriveChatTurnNavigationEntries(rows), [rows]);
 	const latestUserMessageId = useMemo(
@@ -701,7 +710,7 @@ export function ChatView({
 								className="h-full min-h-0 w-full flex-1 overflow-x-hidden pr-4 outline-none [overflow-anchor:none]"
 								data-pane="chat"
 								tabIndex={-1}
-								ListHeaderComponent={TIMELINE_HEADER}
+								ListHeaderComponent={timelineHeader}
 								ListFooterComponent={TIMELINE_FOOTER}
 							/>
 						</ChatLookupsProvider>
