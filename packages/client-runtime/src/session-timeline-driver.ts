@@ -8,6 +8,7 @@ import type { ResourceDriver } from "./client-bus";
 import type { ResourceKey, SessionRef } from "./resource-ref";
 import type { SyncPhase } from "./resource-state";
 import {
+	observeOptimisticTimelineProjection,
 	reduceSessionTimelineFrame,
 	restoreSessionTimelineState,
 	type SessionTimelineState,
@@ -133,7 +134,7 @@ export const makeSessionTimelineResourceDriver = <
 							!Object.is(current.data, state.projection) &&
 							sameCursor(current.cursor, state.cursor)
 						) {
-							state = { ...state, projection: current.data };
+							state = observeOptimisticTimelineProjection(state, current.data);
 						}
 						const previous = state;
 						state = reduceSessionTimelineFrame(state, frame);

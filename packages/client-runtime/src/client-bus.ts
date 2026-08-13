@@ -54,6 +54,8 @@ export type ResourceDataUpdate<Data> = Readonly<{
 }>;
 
 export type ResourceOverlayUpdate<Data> = Readonly<{
+	/** Seed for a new canonical cell before its first cache/runtime snapshot. */
+	initialData?: Data;
 	/** Returning undefined rejects the update without notifying subscribers. */
 	update: (data: Data) => Data | undefined;
 	persist?: boolean;
@@ -373,13 +375,16 @@ export class ClientBus<Client> {
 	): boolean {
 		if (this.disposed) return false;
 		const entry = this.entries.get(resourceKeyId(key));
-		if (entry === undefined || entry.view.data === null) return false;
-		const data = options.update(entry.view.data as ResourceData<Key>);
+		if (entry === undefined) return false;
+		const current = entry.view.data ?? options.initialData;
+		if (current === undefined) return false;
+		const data = options.update(current as ResourceData<Key>);
 		if (data === undefined) return false;
 		entry.runtimeUpdates += 1;
 		const next: ResourceView<unknown> = {
 			...entry.view,
 			data,
+			origin: "runtime",
 		};
 		this.setView(entry, next);
 		if (options.persist === true) this.persist(entry, next);

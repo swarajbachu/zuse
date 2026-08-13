@@ -11,6 +11,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
 	emptySessionTimelineState,
+	observeOptimisticTimelineProjection,
 	prependSessionTimelineMessages,
 	reduceSessionTimelineFrame,
 } from "../../src/session-timeline.ts";
@@ -33,6 +34,45 @@ const projection = SessionTimelineProjection.make({
 });
 
 describe("session timeline reducer", () => {
+	it("retains the first optimistic prompt until its durable snapshot arrives", () => {
+		const optimistic = Message.make({
+			id: MessageId.make("message-optimistic"),
+			sessionId,
+			role: "user",
+			content: { _tag: "user", text: "hello immediately" },
+			createdAt: new Date(1),
+		});
+		const observed = observeOptimisticTimelineProjection(
+			emptySessionTimelineState(),
+			SessionTimelineProjection.make({
+				...projection,
+				messages: [optimistic],
+			}),
+		);
+		const beforeAck = reduceSessionTimelineFrame(observed, {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 0,
+			cursor: cursor("epoch-a", 0),
+			projection: SessionTimelineProjection.make({
+				...projection,
+				messages: [],
+			}),
+		});
+		expect(beforeAck.projection?.messages).toEqual([optimistic]);
+
+		const durable = reduceSessionTimelineFrame(beforeAck, {
+			kind: "event",
+			sessionId,
+			streamVersion: 1,
+			cursor: cursor("epoch-a", 1),
+			eventId: "event-1",
+			event: { _tag: "MessagePersisted", message: optimistic },
+		});
+		expect(durable.projection?.messages).toEqual([optimistic]);
+		expect(durable.optimistic.messages).toEqual({});
+	});
+
 	it("prepends older messages with stable dedupe and no stream cursor regression", () => {
 		const existing = Message.make({
 			id: MessageId.make("message-existing"),

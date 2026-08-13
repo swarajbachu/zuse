@@ -30,6 +30,7 @@ import { makeSessionTimelineCacheEntry } from "@zuse/client-runtime/session-time
 import { makeSessionTimelineResourceDriver } from "@zuse/client-runtime/session-timeline-driver";
 import type { EnvironmentId, Message } from "@zuse/contracts";
 import { ComposerInput, SessionTimelineProjection } from "@zuse/contracts";
+import { emptyTimelineProjection } from "@zuse/domain/projectors/timeline-reducer";
 import { Effect } from "effect";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import {
@@ -1228,6 +1229,7 @@ export const addOptimisticSessionMessage = (
 	message: Message,
 ): boolean =>
 	rendererClientBus.overlay(sessionTimelineResourceKey(ref), {
+		initialData: emptyTimelineProjection(),
 		update: (projection) => {
 			const index = projection.messages.findIndex(
 				(candidate) => candidate.id === message.id,

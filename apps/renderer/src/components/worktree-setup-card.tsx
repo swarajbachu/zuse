@@ -370,14 +370,14 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 												: "Detecting setup script…"
 								}
 							/>
-							{agentStarting === undefined ? null : (
-								<StepRow
-									state={agentStarting ? "active" : "done"}
-									label={agentStarting ? "Starting agent…" : "Agent ready"}
-								/>
-							)}
 						</>
 					) : null}
+					{agentStarting === undefined ? null : (
+						<StepRow
+							state={agentStarting ? "active" : "done"}
+							label={agentStarting ? "Starting agent…" : "Agent ready"}
+						/>
+					)}
 				</div>
 				{setupOutput.trim().length > 0 ? (
 					<pre className="max-h-48 overflow-auto border-t border-border/40 bg-background/40 px-3.5 py-2.5 font-mono text-[11px] leading-5 whitespace-pre-wrap text-foreground/80">

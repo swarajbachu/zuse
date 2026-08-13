@@ -57,6 +57,58 @@ export const restoreSessionTimelineState = (
 
 export const applySessionTimelineEvent = applyTimelineEvent;
 
+/**
+ * Records message changes made directly to the canonical cell by optimistic
+ * command intent. The driver folds these back into its serialized reducer lane
+ * before applying the next durable frame.
+ */
+export const observeOptimisticTimelineProjection = (
+	state: SessionTimelineState,
+	projection: SessionTimelineProjection,
+): SessionTimelineState => {
+	const previousById = new Map(
+		(state.projection?.messages ?? []).map((message) => [message.id, message]),
+	);
+	const optimistic = { ...state.optimistic.messages };
+	for (const message of projection.messages) {
+		if (previousById.get(message.id) !== message)
+			optimistic[message.id] = message;
+	}
+	return {
+		...state,
+		projection,
+		optimistic: { messages: optimistic },
+	};
+};
+
+const reconcileOptimisticMessages = (
+	projection: SessionTimelineProjection,
+	optimistic: OptimisticOverlay,
+): Readonly<{
+	projection: SessionTimelineProjection;
+	optimistic: OptimisticOverlay;
+}> => {
+	const durableIds = new Set(projection.messages.map((message) => message.id));
+	const retained = Object.values(optimistic.messages).filter(
+		(message) => !durableIds.has(message.id),
+	);
+	const messages =
+		retained.length === 0
+			? projection.messages
+			: [...projection.messages, ...retained];
+	return {
+		projection:
+			messages === projection.messages
+				? projection
+				: SessionTimelineProjection.make({ ...projection, messages }),
+		optimistic: {
+			messages: Object.fromEntries(
+				retained.map((message) => [message.id, message]),
+			),
+		},
+	};
+};
+
 /** Prepends one older page without changing the durable event cursor. */
 export const prependSessionTimelineMessages = (
 	state: SessionTimelineState,
@@ -146,15 +198,20 @@ export const reduceSessionTimelineFrame = (
 		) {
 			return state;
 		}
-		return {
-			...state,
-			projection: SessionTimelineProjection.make({
+		const reconciled = reconcileOptimisticMessages(
+			SessionTimelineProjection.make({
 				...frame.projection,
 				olderMessageSequence:
 					frame.olderMessageSequence ??
 					frame.projection.olderMessageSequence ??
 					null,
 			}),
+			state.optimistic,
+		);
+		return {
+			...state,
+			projection: reconciled.projection,
+			optimistic: reconciled.optimistic,
 			cursor,
 			resetEpoch: null,
 			appliedVersion: cursor.version,
@@ -226,9 +283,23 @@ export const reduceSessionTimelineFrame = (
 			`Expected version ${expectedVersion}, received ${frame.streamVersion}`,
 		);
 	}
+	const projection = applyTimelineEvent(state.projection, frame.event);
+	const persistedMessageId =
+		frame.event._tag === "MessagePersisted" ? frame.event.message.id : null;
+	const optimistic =
+		persistedMessageId !== null
+			? {
+					messages: Object.fromEntries(
+						Object.entries(state.optimistic.messages).filter(
+							([id]) => id !== persistedMessageId,
+						),
+					),
+				}
+			: state.optimistic;
 	return {
 		...state,
-		projection: applyTimelineEvent(state.projection, frame.event),
+		projection,
+		optimistic,
 		cursor,
 		appliedVersion: cursor.version,
 		phase: state.phase === "live" ? "live" : "synchronizing",

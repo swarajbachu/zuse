@@ -513,6 +513,23 @@ describe("ClientBus", () => {
 		await bus.dispose();
 	});
 
+	it("seeds a new canonical cell from its first optimistic overlay", () => {
+		const bus = new ClientBus<Client>({ resolver: immediateResolver() });
+		bus.snapshot(timelineKey);
+
+		expect(
+			bus.overlay(timelineKey, {
+				initialData: { text: "" },
+				update: () => ({ text: "first prompt" }),
+			}),
+		).toBe(true);
+		expect(bus.snapshot(timelineKey)).toMatchObject({
+			data: { text: "first prompt" },
+			origin: "runtime",
+			cursor: null,
+		});
+	});
+
 	it("never lets delayed cache hydration overwrite runtime data", async () => {
 		const persistence = new MemoryPersistence();
 		const cacheGate = deferred<PersistedResource<unknown> | null>();
