@@ -38,6 +38,7 @@ import {
 } from "../conversation/core/chat-startup-intent.ts";
 import { messageFromRecord } from "../conversation/core/conversation-records.ts";
 import { timelineEventFromDomain } from "../conversation/core/conversation-timeline-projection.ts";
+import { handoffToServiceScope } from "../conversation/core/service-scope.ts";
 import {
 	ChatService,
 	MessageService,
@@ -493,57 +494,64 @@ const listChatCreationOperations = (projectId: string) =>
 		),
 	);
 
-const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
-	chatCreationWorker.run(
-		input.operationId ?? input.chatId ?? crypto.randomUUID(),
-		Effect.gen(function* () {
-			const creationStartedAt = Date.now();
-			const svc = yield* ChatService;
-			const queueTransaction = yield* QueueTransactionService;
-			const analytics = yield* AnalyticsService;
-			const sql = yield* SqlClient.SqlClient;
-			const requestedPolicy =
-				input.workspacePolicy?._tag ??
-				(input.worktreeId === null || input.worktreeId === undefined
-					? "main"
-					: "existing");
-			const policy =
-				requestedPolicy === "fresh"
-					? yield* Effect.flatMap(GitService, (git) =>
-							git.isRepository(input.projectId),
-						).pipe(
-							Effect.map((isRepository) =>
-								isRepository ? ("fresh" as const) : ("main" as const),
-							),
-							Effect.catchTags({
-								GitNotARepoError: () => Effect.succeed("main" as const),
-								GitNotInstalledError: () => Effect.succeed("main" as const),
-							}),
-							Effect.mapError(
-								(error) =>
-									new SessionStartError({
-										providerId: input.providerId,
-										reason:
-											"reason" in error
-												? String(error.reason)
-												: "The Git repository could not be inspected.",
-									}),
-							),
-						)
-					: requestedPolicy;
-			if (
-				input.operationId !== undefined &&
-				input.chatId !== undefined &&
-				input.initialSessionId !== undefined
-			) {
-				const now = new Date().toISOString();
-				const requestedWorktreeId =
-					policy === "existing"
-						? input.workspacePolicy?._tag === "existing"
-							? input.workspacePolicy.worktreeId
-							: (input.worktreeId ?? null)
-						: null;
-				yield* sql`
+const ChatCreate = MemoizeRpcs.toLayerHandler(
+	"chat.create",
+	Effect.gen(function* () {
+		const serviceScope = yield* Effect.scope;
+		return (input) =>
+			handoffToServiceScope(
+				Effect.void,
+				chatCreationWorker.run(
+					input.operationId ?? input.chatId ?? crypto.randomUUID(),
+					Effect.gen(function* () {
+						const creationStartedAt = Date.now();
+						const svc = yield* ChatService;
+						const queueTransaction = yield* QueueTransactionService;
+						const analytics = yield* AnalyticsService;
+						const sql = yield* SqlClient.SqlClient;
+						const requestedPolicy =
+							input.workspacePolicy?._tag ??
+							(input.worktreeId === null || input.worktreeId === undefined
+								? "main"
+								: "existing");
+						const policy =
+							requestedPolicy === "fresh"
+								? yield* Effect.flatMap(GitService, (git) =>
+										git.isRepository(input.projectId),
+									).pipe(
+										Effect.map((isRepository) =>
+											isRepository ? ("fresh" as const) : ("main" as const),
+										),
+										Effect.catchTags({
+											GitNotARepoError: () => Effect.succeed("main" as const),
+											GitNotInstalledError: () =>
+												Effect.succeed("main" as const),
+										}),
+										Effect.mapError(
+											(error) =>
+												new SessionStartError({
+													providerId: input.providerId,
+													reason:
+														"reason" in error
+															? String(error.reason)
+															: "The Git repository could not be inspected.",
+												}),
+										),
+									)
+								: requestedPolicy;
+						if (
+							input.operationId !== undefined &&
+							input.chatId !== undefined &&
+							input.initialSessionId !== undefined
+						) {
+							const now = new Date().toISOString();
+							const requestedWorktreeId =
+								policy === "existing"
+									? input.workspacePolicy?._tag === "existing"
+										? input.workspacePolicy.worktreeId
+										: (input.worktreeId ?? null)
+									: null;
+							yield* sql`
 				INSERT INTO chat_creation_operations (
 					operation_id, chat_id, initial_session_id, project_id,
 					provider_id, model, title, runtime_mode, permission_mode,
@@ -564,213 +572,221 @@ const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
 				)
 				ON CONFLICT(operation_id) DO NOTHING
 			`.pipe(Effect.orDie);
-			}
-			const operationRows =
-				input.operationId === undefined
-					? []
-					: yield* sql<{
-							readonly chat_id: string;
-							readonly initial_session_id: string;
-							readonly startup_input_json: string | null;
-							readonly startup_queue_id: string | null;
-							readonly startup_ready: number;
-							readonly workspace_policy: ChatCreationOperation["workspacePolicy"]["_tag"];
-							readonly worktree_id: string | null;
-							readonly status: ChatCreationOperation["status"];
-						}>`
+						}
+						const operationRows =
+							input.operationId === undefined
+								? []
+								: yield* sql<{
+										readonly chat_id: string;
+										readonly initial_session_id: string;
+										readonly startup_input_json: string | null;
+										readonly startup_queue_id: string | null;
+										readonly startup_ready: number;
+										readonly workspace_policy: ChatCreationOperation["workspacePolicy"]["_tag"];
+										readonly worktree_id: string | null;
+										readonly status: ChatCreationOperation["status"];
+									}>`
 						SELECT chat_id, initial_session_id, startup_input_json,
 						       startup_queue_id, startup_ready, workspace_policy, worktree_id, status
 						FROM chat_creation_operations
 						WHERE operation_id = ${input.operationId}
 						LIMIT 1
 					`.pipe(Effect.orDie);
-			const durableOperation = operationRows[0];
-			const durablePolicy = durableOperation?.workspace_policy ?? policy;
-			const durableWorktreeId = durableOperation?.worktree_id ?? null;
-			if (
-				input.operationId !== undefined &&
-				durablePolicy === "main" &&
-				durableOperation?.status !== "succeeded"
-			) {
-				yield* sql`
+						const durableOperation = operationRows[0];
+						const durablePolicy = durableOperation?.workspace_policy ?? policy;
+						const durableWorktreeId = durableOperation?.worktree_id ?? null;
+						if (
+							input.operationId !== undefined &&
+							durablePolicy === "main" &&
+							durableOperation?.status !== "succeeded"
+						) {
+							yield* sql`
 					UPDATE chat_creation_operations
 					SET workspace_policy = 'main', worktree_id = NULL,
 					    updated_at = ${new Date().toISOString()}
 					WHERE operation_id = ${input.operationId} AND status <> 'succeeded'
 				`.pipe(Effect.orDie);
-			}
-			const worktreeId =
-				durablePolicy === "fresh"
-					? durableOperation?.status === "succeeded" &&
-						durableWorktreeId !== null
-						? WorktreeId.make(durableWorktreeId)
-						: yield* Effect.gen(function* () {
-								const requestedId =
-									durableWorktreeId === null
-										? WorktreeId.make(crypto.randomUUID())
-										: WorktreeId.make(durableWorktreeId);
-								if (input.operationId !== undefined) {
-									yield* sql`
+						}
+						const worktreeId =
+							durablePolicy === "fresh"
+								? durableOperation?.status === "succeeded" &&
+									durableWorktreeId !== null
+									? WorktreeId.make(durableWorktreeId)
+									: yield* Effect.gen(function* () {
+											const requestedId =
+												durableWorktreeId === null
+													? WorktreeId.make(crypto.randomUUID())
+													: WorktreeId.make(durableWorktreeId);
+											if (input.operationId !== undefined) {
+												yield* sql`
 									UPDATE chat_creation_operations
 									SET worktree_id = ${requestedId},
 									    status = 'creating_workspace', error = NULL,
 									    updated_at = ${new Date().toISOString()}
 									WHERE operation_id = ${input.operationId}
 								`.pipe(Effect.orDie);
-								}
-								const created = yield* Effect.flatMap(
-									WorktreeService,
-									(worktrees) =>
-										worktrees.create(input.projectId, undefined, requestedId),
-								).pipe(
-									Effect.mapError(
-										(error) =>
-											new SessionStartError({
-												providerId: input.providerId,
-												reason:
-													"reason" in error
-														? String(error.reason)
-														: "The fresh worktree could not be created.",
-											}),
-									),
-									Effect.tapError((error) =>
-										input.operationId === undefined
-											? Effect.void
-											: sql`
+											}
+											const created = yield* Effect.flatMap(
+												WorktreeService,
+												(worktrees) =>
+													worktrees.create(
+														input.projectId,
+														undefined,
+														requestedId,
+													),
+											).pipe(
+												Effect.mapError(
+													(error) =>
+														new SessionStartError({
+															providerId: input.providerId,
+															reason:
+																"reason" in error
+																	? String(error.reason)
+																	: "The fresh worktree could not be created.",
+														}),
+												),
+												Effect.tapError((error) =>
+													input.operationId === undefined
+														? Effect.void
+														: sql`
 												UPDATE chat_creation_operations
 												SET status = 'failed', error = ${error.reason},
 												    updated_at = ${new Date().toISOString()}
 												WHERE operation_id = ${input.operationId}
 											`.pipe(Effect.orDie),
-									),
-								);
-								if (input.operationId !== undefined) {
-									yield* sql`
+												),
+											);
+											if (input.operationId !== undefined) {
+												yield* sql`
 									UPDATE chat_creation_operations
 									SET worktree_id = ${created.id}, status = 'creating_chat',
 									    updated_at = ${new Date().toISOString()}
 									WHERE operation_id = ${input.operationId}
 								`.pipe(Effect.orDie);
-								}
-								return created.id;
-							})
-					: durablePolicy === "existing"
-						? durableWorktreeId !== null
-							? WorktreeId.make(durableWorktreeId)
-							: input.workspacePolicy?._tag === "existing"
-								? input.workspacePolicy.worktreeId
-								: (input.worktreeId ?? null)
-						: durablePolicy === "main"
-							? null
-							: (input.worktreeId ?? null);
-			if (
-				input.operationId !== undefined &&
-				durablePolicy !== "fresh" &&
-				durableOperation?.status !== "succeeded"
-			) {
-				yield* sql`
+											}
+											return created.id;
+										})
+								: durablePolicy === "existing"
+									? durableWorktreeId !== null
+										? WorktreeId.make(durableWorktreeId)
+										: input.workspacePolicy?._tag === "existing"
+											? input.workspacePolicy.worktreeId
+											: (input.worktreeId ?? null)
+									: durablePolicy === "main"
+										? null
+										: (input.worktreeId ?? null);
+						if (
+							input.operationId !== undefined &&
+							durablePolicy !== "fresh" &&
+							durableOperation?.status !== "succeeded"
+						) {
+							yield* sql`
 					UPDATE chat_creation_operations
 					SET worktree_id = ${worktreeId}, status = 'creating_chat',
 					    updated_at = ${new Date().toISOString()}
 					WHERE operation_id = ${input.operationId} AND status <> 'succeeded'
 				`.pipe(Effect.orDie);
-			}
-			const result = yield* svc
-				.createChat({
-					chatId:
-						durableOperation === undefined
-							? input.chatId
-							: ChatId.make(durableOperation.chat_id),
-					initialSessionId:
-						durableOperation === undefined
-							? input.initialSessionId
-							: SessionId.make(durableOperation.initial_session_id),
-					projectId: input.projectId,
-					providerId: input.providerId,
-					model: input.model,
-					title: input.title,
-					initialPrompt: input.initialPrompt,
-					runtimeMode: input.runtimeMode,
-					worktreeId,
-					agents: input.agents,
-					enableSubagents: input.enableSubagents,
-					permissionMode: input.permissionMode,
-					modelOptions: input.modelOptions,
-					toolSearch: input.toolSearch,
-					originSessionId: input.originSessionId ?? null,
-					background: input.background,
-				})
-				.pipe(
-					Effect.tapError((error) =>
-						input.operationId === undefined
-							? Effect.void
-							: sql`
+						}
+						const result = yield* svc
+							.createChat({
+								chatId:
+									durableOperation === undefined
+										? input.chatId
+										: ChatId.make(durableOperation.chat_id),
+								initialSessionId:
+									durableOperation === undefined
+										? input.initialSessionId
+										: SessionId.make(durableOperation.initial_session_id),
+								projectId: input.projectId,
+								providerId: input.providerId,
+								model: input.model,
+								title: input.title,
+								initialPrompt: input.initialPrompt,
+								runtimeMode: input.runtimeMode,
+								worktreeId,
+								agents: input.agents,
+								enableSubagents: input.enableSubagents,
+								permissionMode: input.permissionMode,
+								modelOptions: input.modelOptions,
+								toolSearch: input.toolSearch,
+								originSessionId: input.originSessionId ?? null,
+								background: input.background,
+							})
+							.pipe(
+								Effect.tapError((error) =>
+									input.operationId === undefined
+										? Effect.void
+										: sql`
 								UPDATE chat_creation_operations
 								SET status = 'failed', error = ${error.reason},
 								    updated_at = ${new Date().toISOString()}
 								WHERE operation_id = ${input.operationId}
 							`.pipe(Effect.orDie),
-					),
-				);
-			const startupIntent =
-				durableOperation === undefined
-					? decodeChatStartupIntent(input)
-					: decodeChatStartupIntent({
-							operationId: input.operationId,
-							initialSessionId: SessionId.make(
-								durableOperation.initial_session_id,
-							),
-							startupInput:
-								durableOperation.startup_input_json === null
-									? undefined
-									: ComposerInput.make(
-											JSON.parse(durableOperation.startup_input_json),
+								),
+							);
+						const startupIntent =
+							durableOperation === undefined
+								? decodeChatStartupIntent(input)
+								: decodeChatStartupIntent({
+										operationId: input.operationId,
+										initialSessionId: SessionId.make(
+											durableOperation.initial_session_id,
 										),
-							startupQueueId: durableOperation.startup_queue_id ?? undefined,
-							startupReady: durableOperation.startup_ready !== 0,
-						});
-			if (startupIntent !== null) {
-				yield* persistChatStartupIntent(
-					queueTransaction,
-					sql,
-					startupIntent,
-				).pipe(
-					Effect.mapError(
-						(error) =>
-							new SessionStartError({
-								providerId: input.providerId,
-								reason: `Could not persist the startup prompt: ${String(error)}`,
-							}),
-					),
-					Effect.tapError((error) =>
-						sql`
+										startupInput:
+											durableOperation.startup_input_json === null
+												? undefined
+												: ComposerInput.make(
+														JSON.parse(durableOperation.startup_input_json),
+													),
+										startupQueueId:
+											durableOperation.startup_queue_id ?? undefined,
+										startupReady: durableOperation.startup_ready !== 0,
+									});
+						if (startupIntent !== null) {
+							yield* persistChatStartupIntent(
+								queueTransaction,
+								sql,
+								startupIntent,
+							).pipe(
+								Effect.mapError(
+									(error) =>
+										new SessionStartError({
+											providerId: input.providerId,
+											reason: `Could not persist the startup prompt: ${String(error)}`,
+										}),
+								),
+								Effect.tapError((error) =>
+									sql`
 							UPDATE chat_creation_operations
 							SET status = 'failed', error = ${error.reason},
 							    updated_at = ${new Date().toISOString()}
 							WHERE operation_id = ${startupIntent.operationId}
 						`.pipe(Effect.orDie),
-					),
-				);
-			}
-			if (input.operationId !== undefined && startupIntent === null) {
-				yield* sql`
+								),
+							);
+						}
+						if (input.operationId !== undefined && startupIntent === null) {
+							yield* sql`
 					UPDATE chat_creation_operations
 					SET status = 'succeeded', error = NULL,
 					    updated_at = ${new Date().toISOString()}
 					WHERE operation_id = ${input.operationId}
 				`.pipe(Effect.orDie);
-			}
-			yield* analytics.capture("chat created", {
-				provider: input.providerId,
-				model: safeModelId(input.providerId, input.model),
-				runtime_mode: input.runtimeMode ?? "unknown",
-			});
-			yield* Effect.logInfo(
-				`[chat-creation-timing] operation=${input.operationId ?? "legacy"} durable_chat_ack_ms=${Date.now() - creationStartedAt}`,
+						}
+						yield* analytics.capture("chat created", {
+							provider: input.providerId,
+							model: safeModelId(input.providerId, input.model),
+							runtime_mode: input.runtimeMode ?? "unknown",
+						});
+						yield* Effect.logInfo(
+							`[chat-creation-timing] operation=${input.operationId ?? "legacy"} durable_chat_ack_ms=${Date.now() - creationStartedAt}`,
+						);
+						return result;
+					}),
+				),
+				serviceScope,
 			);
-			return result;
-		}),
-	),
+	}),
 );
 
 const ChatCreationList = MemoizeRpcs.toLayerHandler(
