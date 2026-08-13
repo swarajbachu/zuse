@@ -319,9 +319,13 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	} = data;
 
 	const failed = setupStatus === "failed";
+	// The worktree request is already canonical before its id/list row arrives.
+	// Treat that pending phase as a real worktree so the card body is populated
+	// from its first frame instead of briefly rendering an empty shell.
+	const showsWorktreeSteps = hasWorktree || worktreePending;
 	// Worktree dir + branch + copy all land together when the row hydrates, so
 	// collapse them into the single `worktreePending` signal.
-	const wtReady = hasWorktree && !worktreePending;
+	const wtReady = showsWorktreeSteps && !worktreePending;
 	const setupStarted = setupStatus !== null && setupStatus !== "pending";
 	const busy =
 		worktreePending ||
@@ -371,14 +375,18 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 					</span>
 				</header>
 				<div className="flex flex-col gap-1.5 px-3.5 py-2.5 text-[12px]">
-					{hasWorktree ? (
+					{showsWorktreeSteps ? (
 						<>
 							<StepRow
 								state={wtReady ? "done" : "active"}
-								label={`You're in a new copy of ${repoName} called ${name}`}
+								label={
+									worktreeName === null
+										? `Creating a new copy of ${repoName}…`
+										: `Created a new copy of ${repoName} called ${name}`
+								}
 							/>
 							<StepRow
-								state={wtReady ? "done" : "active"}
+								state={branch !== null ? "done" : "pending"}
 								label={
 									branch !== null
 										? `Branched ${branch} from ${baseBranch ?? "origin/main"}`
