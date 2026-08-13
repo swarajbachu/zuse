@@ -1,4 +1,5 @@
 import { scopedCacheKey } from "@zuse/client-runtime/environment-scope";
+import { FolderId, ProviderId } from "@zuse/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 // The coordinator now kicks off chat hydration (which wires the change
@@ -33,6 +34,7 @@ import {
 	projectEnvironmentShell,
 	validateSshTarget,
 } from "../../src/store/environment-catalog.ts";
+import { useSessionsStore } from "../../src/store/sessions.ts";
 import { useWorkspaceStore } from "../../src/store/workspace.ts";
 
 const entry = (
@@ -67,6 +69,27 @@ describe("environment catalog", () => {
 		expect(overlay).not.toHaveBeenCalled();
 		expect(useWorkspaceStore.getState().folders).toEqual([]);
 		overlay.mockRestore();
+	});
+
+	it("does not clear the landing composer draft on a shell update", () => {
+		const sessions = useSessionsStore.getState();
+		sessions.beginDraft({
+			projectId: FolderId.make("draft-project"),
+			providerId: ProviderId.make("codex"),
+			model: "gpt-5",
+			runtimeMode: "approval-required",
+		});
+
+		projectEnvironmentShell({
+			folders: [],
+			originsByFolder: {},
+			chatsByProject: {},
+			sessionsByProject: {},
+			creationOperationsByProject: {},
+		});
+
+		expect(useSessionsStore.getState().draftSession).not.toBeNull();
+		useSessionsStore.getState().clearDraft();
 	});
 
 	it("shares initialization and retries only after a failed attempt", async () => {

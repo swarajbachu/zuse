@@ -271,7 +271,6 @@ export const projectEnvironmentShell = (
 				: { [selectedFolderId]: selectedSessionId },
 		loadingByProject: {},
 		creatingByChat: {},
-		draftSession: null,
 		error: null,
 	});
 	return selectedFolderId;

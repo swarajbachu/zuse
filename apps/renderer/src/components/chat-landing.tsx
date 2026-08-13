@@ -581,7 +581,7 @@ export function ChatLanding() {
 		});
 		return () => clearDraft();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [selectedFolderId, remoteAnchor]);
+	}, [activeEnvironmentId, selectedFolderId, remoteAnchor]);
 
 	useEffect(() => {
 		void hydrateExternalThreads();
