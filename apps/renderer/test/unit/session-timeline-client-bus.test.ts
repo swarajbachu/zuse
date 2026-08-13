@@ -4,6 +4,7 @@ import {
 	resourceKeyId,
 } from "@zuse/client-runtime/resource-ref";
 import {
+	ComposerInput,
 	EnvironmentId,
 	Message,
 	MessageId,
@@ -20,6 +21,7 @@ import {
 	registerEnvironmentWakeForTest,
 	registerRendererResourceDriver,
 	registerRendererResourcePersistence,
+	rehydrateRendererCommandPayload,
 	resetSessionTimelineClientBusForTest,
 	retainSessionTimeline,
 	setSessionTimelineRpcClientForTest,
@@ -41,6 +43,28 @@ const ref = { environmentId, sessionId } as const;
 describe("renderer session timeline ClientBus adapter", () => {
 	afterEach(() => {
 		resetSessionTimelineClientBusForTest();
+	});
+
+	it("rehydrates composer classes after durable outbox structured cloning", () => {
+		const plainInput = {
+			text: "hi",
+			attachments: [],
+			fileRefs: [],
+			skillRefs: [],
+			annotations: [],
+		};
+		const send = rehydrateRendererCommandPayload("messages.send", {
+			sessionId,
+			input: plainInput,
+		});
+		const create = rehydrateRendererCommandPayload("chat.create", {
+			projectId: "project-1",
+			startupInput: structuredClone(plainInput),
+		});
+
+		expect(send.input).toBeInstanceOf(ComposerInput);
+		expect(create.startupInput).toBeInstanceOf(ComposerInput);
+		expect(send.input).toMatchObject(plainInput);
 	});
 
 	it("atomically replaces resource registrations during hot reload", () => {

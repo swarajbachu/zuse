@@ -29,7 +29,7 @@ import {
 import { makeSessionTimelineCacheEntry } from "@zuse/client-runtime/session-timeline-cache";
 import { makeSessionTimelineResourceDriver } from "@zuse/client-runtime/session-timeline-driver";
 import type { EnvironmentId, Message } from "@zuse/contracts";
-import { SessionTimelineProjection } from "@zuse/contracts";
+import { ComposerInput, SessionTimelineProjection } from "@zuse/contracts";
 import { Effect } from "effect";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import {
@@ -144,9 +144,36 @@ const rendererResourcePersistence: ResourcePersistence = {
 		Promise.resolve(),
 };
 
+/**
+ * IndexedDB's structured clone deliberately strips class prototypes. Effect's
+ * RPC encoder validates `Schema.Class` identity, so nested composer payloads
+ * must be reconstructed at the single command-executor boundary. Doing this
+ * here keeps fresh dispatches and durable outbox replays wire-identical.
+ */
+export const rehydrateRendererCommandPayload = (
+	kind: string,
+	value: unknown,
+): Readonly<Record<string, unknown>> => {
+	const payload = value as Readonly<Record<string, unknown>>;
+	const inputKey = kind === "chat.create" ? "startupInput" : "input";
+	if (
+		kind !== "chat.create" &&
+		kind !== "messages.send" &&
+		kind !== "messages.queue.add" &&
+		kind !== "messages.queue.update"
+	)
+		return payload;
+	const input = payload[inputKey];
+	if (typeof input !== "object" || input === null) return payload;
+	return { ...payload, [inputKey]: ComposerInput.make(input as ComposerInput) };
+};
+
 const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 	execute: async (client, command) => {
-		const payload = command.payload as Readonly<Record<string, unknown>>;
+		const payload = rehydrateRendererCommandPayload(
+			command.kind,
+			command.payload,
+		);
 		let result: unknown;
 		switch (command.kind) {
 			case "workspace.setSelected":

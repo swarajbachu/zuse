@@ -49,13 +49,18 @@ export const classifyMessage = (
 	message: string,
 	providerId?: ProviderId,
 ): ChatError => {
-	if (AUTH_PATTERN.test(message)) {
+	const readable =
+		message.trim().length > 0
+			? message
+			: "The command was rejected without an error description.";
+	if (AUTH_PATTERN.test(readable)) {
 		return providerId === undefined
-			? { kind: "auth", message }
-			: { kind: "auth", providerId, message };
+			? { kind: "auth", message: readable }
+			: { kind: "auth", providerId, message: readable };
 	}
-	if (NETWORK_PATTERN.test(message)) return { kind: "network", message };
-	return { kind: "generic", message };
+	if (NETWORK_PATTERN.test(readable))
+		return { kind: "network", message: readable };
+	return { kind: "generic", message: readable };
 };
 
 const classifyError = (cause: unknown, providerId?: ProviderId): ChatError =>
@@ -90,8 +95,10 @@ const setSessionError = (ref: SessionRef, error: ChatError | null): void => {
 	}));
 };
 
-export const clearSessionCommandError = (ref: SessionRef): void =>
+export const clearSessionCommandError = (ref: SessionRef): void => {
 	setSessionError(ref, null);
+	getRendererClientBus().dismissFailedCommands(sessionTimelineResourceKey(ref));
+};
 
 export const isRecoveredPreAckSessionError = (
 	message: string,

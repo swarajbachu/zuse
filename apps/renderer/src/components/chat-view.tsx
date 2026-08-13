@@ -182,6 +182,11 @@ export function ChatView({
 		}
 		return false;
 	});
+	const agentStarting =
+		messages.length === 0 &&
+		(session?.status === "booting" ||
+			inFlight ||
+			(timeline.projection?.queue.items.length ?? 0) > 0);
 	const rows = useMemo(
 		() =>
 			deriveChatTimelineRows({
@@ -626,9 +631,11 @@ export function ChatView({
 							className="flex h-full min-h-0 w-full flex-1 flex-col overflow-y-auto outline-none"
 						>
 							<div className="px-[var(--chat-row-gutter,0.75rem)]">
-								<WorktreeSetupCard />
+								<WorktreeSetupCard
+									agentStarting={agentStarting ? true : undefined}
+								/>
 							</div>
-							{setupActive ? null : (
+							{setupActive || agentStarting ? null : (
 								<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
 									<HugeiconsIcon
 										icon={Message01Icon}

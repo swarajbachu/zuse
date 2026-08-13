@@ -386,6 +386,16 @@ export class ClientBus<Client> {
 		return true;
 	}
 
+	/** Clears acknowledged command failures without mutating canonical data. */
+	dismissFailedCommands(key: ResourceKey<unknown>): boolean {
+		if (this.disposed) return false;
+		const entry = this.entries.get(resourceKeyId(key));
+		if (entry === undefined || entry.view.failedCommands.length === 0)
+			return false;
+		this.setView(entry, { ...entry.view, failedCommands: [] });
+		return true;
+	}
+
 	connection(environmentId: EnvironmentId): ConnectionView {
 		return this.environment(environmentId).runtime.snapshot();
 	}

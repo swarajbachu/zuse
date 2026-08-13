@@ -53,6 +53,8 @@ export type SetupCardData = {
 		| "skipped"
 		| null;
 	readonly setupOutput: string;
+	/** Workspace is ready, but the initial provider turn has not started yet. */
+	readonly agentStarting?: boolean;
 	/** Rerun handler, present only when setup has failed and a row exists. */
 	readonly onRerun: (() => void) | null;
 };
@@ -64,7 +66,11 @@ export type SetupCardData = {
  * at the bottom. Replaces the old full-screen `ChatCreatingPanel` stepper.
  * Renders nothing once there's no setup work left and the provider is ready.
  */
-export function WorktreeSetupCard() {
+export function WorktreeSetupCard({
+	agentStarting,
+}: {
+	readonly agentStarting?: boolean;
+} = {}) {
 	const ctx = useActiveContext();
 	const selectedChatId = useChatsStore((state) => state.selectedChatId);
 	const cloudSummary = useCloudChatCatalogStore(
@@ -119,6 +125,7 @@ export function WorktreeSetupCard() {
 	// shared worktree is ready.
 	const visible =
 		ctx.status === "worktree-pending" ||
+		agentStarting !== undefined ||
 		shouldShowSetupCard({
 			externalResume,
 			initialSession,
@@ -146,6 +153,7 @@ export function WorktreeSetupCard() {
 				baseBranch: worktree?.baseBranch ?? null,
 				setupStatus,
 				setupOutput: worktree?.setupOutput ?? "",
+				agentStarting,
 				onRerun:
 					worktree !== null && setupStatus === "failed"
 						? () => void rerunSetup(worktree.projectId, worktree.id)
@@ -307,6 +315,7 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 		setupStatus,
 		setupOutput,
 		onRerun,
+		agentStarting,
 	} = data;
 
 	const failed = setupStatus === "failed";
@@ -315,7 +324,10 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	const wtReady = hasWorktree && !worktreePending;
 	const setupStarted = setupStatus !== null && setupStatus !== "pending";
 	const busy =
-		worktreePending || setupStatus === "running" || setupStatus === "pending";
+		worktreePending ||
+		setupStatus === "running" ||
+		setupStatus === "pending" ||
+		agentStarting === true;
 	const activityState =
 		worktreePending || setupStatus === "running" || setupStatus === "pending"
 			? "shaping"
@@ -397,6 +409,12 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 												: "Detecting setup script…"
 								}
 							/>
+							{agentStarting === undefined ? null : (
+								<StepRow
+									state={agentStarting ? "active" : "done"}
+									label={agentStarting ? "Starting agent…" : "Agent ready"}
+								/>
+							)}
 						</>
 					) : null}
 				</div>
