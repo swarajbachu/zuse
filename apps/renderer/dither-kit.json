@@ -26,24 +26,6 @@
 				}
 			]
 		},
-		"bar-chart": {
-			"version": "0.1.0",
-			"hash": "sha256:fb4a2e9bba84e3558e0e162de42eaf07a741557bfa43167c0e319cdfa75acd0d",
-			"files": [
-				{
-					"path": "components/dither-kit/bar-canvas.tsx",
-					"hash": "sha256:80ed40b87eb3dbf3d9f768cf42b3b55f4f738db8b193c1a616f7abf525d83f87"
-				},
-				{
-					"path": "components/dither-kit/bar-chart.tsx",
-					"hash": "sha256:e19ce3540f15756aba615eb19072aeec81d8ac71e51219691cc1d0be004c18bb"
-				},
-				{
-					"path": "components/dither-kit/bar.tsx",
-					"hash": "sha256:2904ff1b0813ae20b976f5a78d57a314729ea3e890b18ba762bbb46d2f550057"
-				}
-			]
-		},
 		"core": {
 			"version": "0.1.0",
 			"hash": "sha256:c2d71baa1313a822cbef24de39414e21df7029fc80ad297ab8471d3d727235e9",
@@ -69,16 +51,8 @@
 					"hash": "sha256:1bcd3d7de3ae3091caf63ed4c2c862d80d1899c9b55a70078acb12f7b44e51c7"
 				},
 				{
-					"path": "components/dither-kit/dot.tsx",
-					"hash": "sha256:207bf90662237064940d14a4d8411135d75027b97a9582c0e61c8af74ea5d65a"
-				},
-				{
 					"path": "components/dither-kit/grid.tsx",
 					"hash": "sha256:ad09d80b3898a4d3f588ff1f2f4f82984864c3918cb09d31350be6ac18d2446f"
-				},
-				{
-					"path": "components/dither-kit/legend.tsx",
-					"hash": "sha256:2a067ebdc484c7bd9efb2afc4e8a0aa6718a14ec44ccd7bb94c871d192e501e6"
 				},
 				{
 					"path": "components/dither-kit/lib.ts",
@@ -87,22 +61,6 @@
 				{
 					"path": "components/dither-kit/palette.ts",
 					"hash": "sha256:fd020c230ad818a5d9d6dfdfcb6ef50b0dba012c77f44f1a61449fc9a65947f7"
-				},
-				{
-					"path": "components/dither-kit/polar-context.tsx",
-					"hash": "sha256:514ac9a4984b036598a14ecd7acc29ee121e9259c8a85309d7ed3c1e22af6831"
-				},
-				{
-					"path": "components/dither-kit/polar-root.tsx",
-					"hash": "sha256:63cecb6193ce3cd296b93b018e2441ccdefcc055cdc31bf131c808f0cf0c0c52"
-				},
-				{
-					"path": "components/dither-kit/polar.ts",
-					"hash": "sha256:3ad3f99bac2ee21e6580abd6903720af11cedcb8d8c69a06c40690be6229672c"
-				},
-				{
-					"path": "components/dither-kit/reference-line.tsx",
-					"hash": "sha256:b0df8cf1144ab56fcce577bac4a39e06d9215a1fdf81bb112a4190a0445b138b"
 				},
 				{
 					"path": "components/dither-kit/scales.ts",

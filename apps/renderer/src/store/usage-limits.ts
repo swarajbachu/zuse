@@ -8,22 +8,21 @@ import {
 	EnvironmentId as EnvironmentIdSchema,
 } from "@zuse/contracts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
+import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
-import { useEnvironmentCatalogStore } from "./environment-catalog.ts";
 
 let pendingLoad: Promise<void> | null = null;
 const STALE_AFTER_MS = 60_000;
 type UsageCommand = <Result>(
+	environmentId: EnvironmentId,
 	kind: string,
 	payload: Readonly<Record<string, unknown>>,
 ) => Promise<Result>;
 let runUsageCommand: UsageCommand = async <Result>(
+	environmentId: EnvironmentId,
 	kind: string,
 	payload: Readonly<Record<string, unknown>>,
 ) => {
-	const environmentId: EnvironmentId = EnvironmentIdSchema.make(
-		useEnvironmentCatalogStore.getState().activeEnvironmentId,
-	);
 	return (
 		await dispatchEnvironmentShellCommand<
 			Readonly<Record<string, unknown>>,
@@ -92,7 +91,11 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 		try {
 			const response = await runUsageCommand<{
 				readonly points: ReadonlyArray<UsageLimitHistoryPoint>;
-			}>("usage.limits.history", {});
+			}>(
+				EnvironmentIdSchema.make(getLocalEnvironmentId()),
+				"usage.limits.history",
+				{},
+			);
 			set({ history: response.points });
 		} catch {
 			// History is supplementary; live limit cards remain useful without it.
@@ -101,9 +104,14 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 	refresh: async (force = false, providerId) => {
 		set({ loading: true, error: null });
 		try {
+			// Provider allowances come from credentials on this physical desktop,
+			// not from whichever local/SSH/cloud environment is currently selected.
 			const response = await runUsageCommand<{
 				readonly providers: ReadonlyArray<ProviderUsageLimits>;
-			}>("usage.limits", { forceRefresh: force, providerId });
+			}>(EnvironmentIdSchema.make(getLocalEnvironmentId()), "usage.limits", {
+				forceRefresh: force,
+				providerId,
+			});
 			set({
 				providers: providerId
 					? [
