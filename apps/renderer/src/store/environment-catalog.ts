@@ -237,9 +237,22 @@ export const projectEnvironmentShell = (
 			: (chatsByProject[selectedFolderId]?.find(
 					(chat) => chat.id === selectedChatId,
 				) ?? null);
+	const previousSessions = useSessionsStore.getState();
 	const selectedSessionId = (() => {
 		if (selectedFolderId === null || selectedChat === null) return null;
 		const sessions = sessionsByProject[selectedFolderId] ?? [];
+		const previousSelection = previousSessions.selectedSessionId;
+		if (
+			options.resetOptimisticState !== true &&
+			previousSelection !== null &&
+			sessions.some(
+				(session) =>
+					session.id === previousSelection &&
+					session.chatId === selectedChat.id,
+			)
+		) {
+			return previousSelection;
+		}
 		if (
 			selectedChat.activeSessionId !== null &&
 			sessions.some((session) => session.id === selectedChat.activeSessionId)

@@ -46,4 +46,13 @@ describe("context sources", () => {
 			).map((row) => row.id),
 		).toEqual([sameChat.id]);
 	});
+
+	it("does not offer an empty pending session as transcript context", () => {
+		const current = session("current");
+		const pending = session("pending", { titleProvenance: "pending" });
+
+		expect(
+			selectContextSources({ [projectId]: [pending, current] }, current.id),
+		).toEqual([]);
+	});
 });

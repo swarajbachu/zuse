@@ -13,6 +13,7 @@ export const selectContextSources = (
 			(row) =>
 				row.id !== sessionId &&
 				row.archivedAt === null &&
+				row.titleProvenance !== "pending" &&
 				row.chatId === current.chatId,
 		)
 		.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());

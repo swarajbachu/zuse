@@ -1,5 +1,13 @@
 import { scopedCacheKey } from "@zuse/client-runtime/environment-scope";
-import { FolderId, ProviderId } from "@zuse/contracts";
+import {
+	Chat,
+	ChatId,
+	Folder,
+	FolderId,
+	ProviderId,
+	Session,
+	SessionId,
+} from "@zuse/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 // The coordinator now kicks off chat hydration (which wires the change
@@ -90,6 +98,84 @@ describe("environment catalog", () => {
 
 		expect(useSessionsStore.getState().draftSession).not.toBeNull();
 		useSessionsStore.getState().clearDraft();
+	});
+
+	it("preserves a valid optimistic tab selection during shell synchronization", () => {
+		const folderId = FolderId.make("project-selection");
+		const chatId = ChatId.make("chat-selection");
+		const previousSessionId = SessionId.make("session-previous");
+		const optimisticSessionId = SessionId.make("session-optimistic");
+		const now = new Date("2026-08-14T00:00:00.000Z");
+		const makeSession = (id: typeof previousSessionId) =>
+			Session.make({
+				id,
+				projectId: folderId,
+				title: id === optimisticSessionId ? "New chat" : "Previous",
+				titleProvenance: id === optimisticSessionId ? "pending" : "manual",
+				providerId: "codex",
+				model: "gpt-5",
+				status: "idle",
+				archivedAt: null,
+				cursor: null,
+				resumeStrategy: "none",
+				runtimeMode: "approval-required",
+				worktreeId: null,
+				chatId,
+				forkedFromSessionId: null,
+				forkedFromMessageId: null,
+				permissionMode: "default",
+				toolSearch: false,
+				createdAt: now,
+				updatedAt: now,
+			});
+		useSessionsStore.setState({
+			selectedSessionId: optimisticSessionId,
+			selectedSessionByProject: { [folderId]: optimisticSessionId },
+		});
+
+		projectEnvironmentShell(
+			{
+				folders: [
+					Folder.make({
+						id: folderId,
+						name: "Project",
+						path: "/project",
+						addedAt: now,
+					}),
+				],
+				originsByFolder: {},
+				chatsByProject: {
+					[folderId]: [
+						Chat.make({
+							id: chatId,
+							projectId: folderId,
+							title: "Chat",
+							titleProvenance: "manual",
+							worktreeId: null,
+							activeSessionId: previousSessionId,
+							originSessionId: null,
+							archivedAt: null,
+							lastMessageAt: null,
+							lastReadAt: now,
+							createdAt: now,
+							updatedAt: now,
+						}),
+					],
+				},
+				sessionsByProject: {
+					[folderId]: [
+						makeSession(previousSessionId),
+						makeSession(optimisticSessionId),
+					],
+				},
+				creationOperationsByProject: {},
+			},
+			{ folderId, chatId },
+		);
+
+		expect(useSessionsStore.getState().selectedSessionId).toBe(
+			optimisticSessionId,
+		);
 	});
 
 	it("shares initialization and retries only after a failed attempt", async () => {

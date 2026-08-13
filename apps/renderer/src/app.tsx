@@ -32,7 +32,6 @@ import { installClientBusOnlineBridge } from "./lib/client-bus-online.ts";
 import { closeActiveChatTab } from "./lib/close-chat-tab.ts";
 import { useActiveSessionById } from "./lib/environment-entity-hooks.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
-import { useOptionalRendererSessionTimeline } from "./lib/session-timeline-hooks.ts";
 import { useSettingsStore } from "./lib/settings-client-bus.ts";
 import { shouldMountRightPane } from "./shell/right-pane-lifecycle.ts";
 import { useChatsStore } from "./store/chats.ts";
@@ -405,13 +404,6 @@ function MainShell() {
 			: (s.pendingCreationByChat[selectedChatId] ?? null),
 	);
 	const selectedSession = useActiveSessionById(selectedSessionId);
-	const selectedTimeline = useOptionalRendererSessionTimeline(
-		selectedSessionId,
-		selectedSessionId === null || pendingCreation !== null
-			? "cache-only"
-			: "connect",
-		EnvironmentId.make(activeEnvironmentId),
-	);
 	const directoryStatus = useChatDirectoryStatus(
 		EnvironmentId.make(activeEnvironmentId),
 		pendingCreation === null ? (selectedSession?.chatId ?? null) : null,
@@ -681,21 +673,17 @@ function MainShell() {
 														<DirectoryUnavailableBanner />
 													</Suspense>
 												) : null}
-												{selectedTimeline.view.data !== null ? (
-													<Suspense fallback={<ComposerFallback />}>
-														<ChatComposer
-															key={selectedSession.id}
-															session={selectedSession}
-															environmentId={EnvironmentId.make(
-																activeEnvironmentId,
-															)}
-															constrain={false}
-															directoryUnavailable={directoryUnavailable}
-														/>
-													</Suspense>
-												) : (
-													<ComposerFallback />
-												)}
+												<Suspense fallback={<ComposerFallback />}>
+													<ChatComposer
+														key={selectedSession.id}
+														session={selectedSession}
+														environmentId={EnvironmentId.make(
+															activeEnvironmentId,
+														)}
+														constrain={false}
+														directoryUnavailable={directoryUnavailable}
+													/>
+												</Suspense>
 											</div>
 										</div>
 									</div>
