@@ -194,11 +194,19 @@ export function TopBarMain() {
 	const executionRef = executionRefFor(ctx);
 	const environmentId =
 		executionRef?.environmentId ??
-		(ctx.status === "cloud-unavailable"
-			? EnvironmentId.make(ctx.workspaceId)
-			: null);
-	const folderId = ctx.status === "ready" ? ctx.folderId : null;
-	const worktreeId = ctx.status === "ready" ? ctx.worktreeId : null;
+		(ctx.status === "worktree-pending"
+			? ctx.environmentId
+			: ctx.status === "cloud-unavailable"
+				? EnvironmentId.make(ctx.workspaceId)
+				: null);
+	const folderId =
+		ctx.status === "ready" || ctx.status === "worktree-pending"
+			? ctx.folderId
+			: null;
+	const worktreeId =
+		ctx.status === "ready" || ctx.status === "worktree-pending"
+			? ctx.worktreeId
+			: null;
 	const status =
 		useGitWorkspaceResource(executionRef, "connect").data?.status ?? null;
 	const refreshWorktrees = useWorktreesStore((s) => s.refresh);
@@ -268,7 +276,9 @@ export function TopBarMain() {
 		originLabel ??
 		cachedCloudContext?.repositoryLabel ??
 		folder?.name ??
-		"No repository";
+		(ctx.status === "worktree-pending"
+			? "Preparing repository"
+			: "No repository");
 	const originOwner =
 		originLabel?.split("/", 1)[0] ?? cachedCloudContext?.owner ?? null;
 	const showLeftToggle = !leftSidebarOpen;

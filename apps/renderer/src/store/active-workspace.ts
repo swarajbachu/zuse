@@ -4,7 +4,7 @@ import {
 	type SessionId,
 	type WorktreeId,
 } from "@zuse/contracts";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { cloudSummaryForSession } from "../lib/cloud-workspace-catalog.ts";
 import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
@@ -117,6 +117,20 @@ export const useActiveContext = (): ActiveContext => {
 		const list = s.byProject[selectedFolderId] ?? EMPTY_WORKTREES;
 		return list.find((w) => w.id === sessionWorktreeId)?.path ?? null;
 	});
+	const refreshWorktrees = useWorktreesStore((s) => s.refresh);
+	useEffect(() => {
+		if (
+			selectedFolderId === null ||
+			sessionWorktreeId === null ||
+			worktreePath !== null
+		)
+			return;
+		// A session and its worktree are committed by the same server command, but
+		// their renderer projections are hydrated independently. Reconcile the
+		// worktree row as soon as the selected session names it so the canonical
+		// context cannot remain stuck in `worktree-pending` after creation settles.
+		void refreshWorktrees(selectedFolderId);
+	}, [selectedFolderId, sessionWorktreeId, worktreePath, refreshWorktrees]);
 	const cloudWorkspaceId =
 		sessionId === null
 			? null

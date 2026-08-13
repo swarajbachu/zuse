@@ -90,16 +90,23 @@ export function WorktreeSetupCard() {
 		return oldest?.id === session.id;
 	})();
 	const repoName = useWorkspaceStore((s) => {
-		if (ctx.status !== "ready") return null;
+		if (ctx.status !== "ready" && ctx.status !== "worktree-pending")
+			return null;
 		return s.folders.find((f) => f.id === ctx.folderId)?.name ?? null;
 	});
 	const worktree = useWorktreesStore((s) => {
-		if (ctx.status !== "ready" || ctx.worktreeId === null) return null;
+		if (
+			(ctx.status !== "ready" && ctx.status !== "worktree-pending") ||
+			ctx.worktreeId === null
+		)
+			return null;
 		const list = s.byProject[ctx.folderId] ?? EMPTY_WORKTREES;
 		return list.find((w) => w.id === ctx.worktreeId) ?? null;
 	});
 	const rerunSetup = useWorktreesStore((s) => s.rerunSetup);
-	const hasWorktree = ctx.status === "ready" && ctx.worktreeId !== null;
+	const hasWorktree =
+		(ctx.status === "ready" || ctx.status === "worktree-pending") &&
+		ctx.worktreeId !== null;
 	const worktreePending =
 		ctx.status === "worktree-pending" ||
 		(ctx.status === "ready" && ctx.worktreePending);
@@ -110,12 +117,14 @@ export function WorktreeSetupCard() {
 	// This card belongs to chat/worktree creation. A provider still boots for
 	// every additional session, but that must not replay chat setup UI after the
 	// shared worktree is ready.
-	const visible = shouldShowSetupCard({
-		externalResume,
-		initialSession,
-		hasWorktree,
-		setupDone,
-	});
+	const visible =
+		ctx.status === "worktree-pending" ||
+		shouldShowSetupCard({
+			externalResume,
+			initialSession,
+			hasWorktree,
+			setupDone,
+		});
 	if (
 		cloudSummary !== null &&
 		cloudSummary.startupPhase !== "running" &&
