@@ -413,7 +413,6 @@ const StubGitLive = Layer.succeed(GitService, {
 	revertFile: () => Effect.die("not used"),
 	revertAll: () => Effect.die("not used"),
 	restoreFileToBase: () => Effect.die("not used"),
-	diffStat: () => Effect.die("not used"),
 	fixFailingChecks: () => Effect.die("not used"),
 });
 

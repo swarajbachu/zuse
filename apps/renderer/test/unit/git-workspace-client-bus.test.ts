@@ -83,7 +83,6 @@ describe("renderer Git workspace ClientBus adapter", () => {
 							checksFailing: 0,
 							autoMergeEnabled: false,
 						}),
-					"git.diffStat": () => Effect.succeed({ additions: 4, deletions: 1 }),
 					"git.reviewSummary": () =>
 						Effect.succeed({
 							baseRef: "main",

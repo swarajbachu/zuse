@@ -219,14 +219,6 @@ const RestoreFileToBase = MemoizeRpcs.toLayerHandler(
 		),
 );
 
-const DiffStat = MemoizeRpcs.toLayerHandler(
-	"git.diffStat",
-	({ folderId, worktreeId }) =>
-		Effect.flatMap(GitService, (svc) =>
-			svc.diffStat(folderId, worktreeId ?? null),
-		),
-);
-
 const Init = MemoizeRpcs.toLayerHandler("git.init", ({ folderId }) =>
 	Effect.flatMap(GitService, (svc) => svc.init(folderId)),
 );
@@ -268,6 +260,5 @@ export const GitHandlersLayer = Layer.mergeAll(
 	RevertFile,
 	RestoreFileToBase,
 	RevertAll,
-	DiffStat,
 	FixFailingChecks,
 );

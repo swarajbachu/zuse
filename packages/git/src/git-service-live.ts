@@ -2224,39 +2224,6 @@ export const GitServiceLive = Layer.effect(
 			);
 
 		/**
-		 * Sum additions/deletions of the branch — including uncommitted edits —
-		 * vs the merge-base with the repo's default branch. Binary files (`-`
-		 * numstat columns) are skipped. Any git failure degrades to zeros so the
-		 * sidebar never breaks on an odd repo state.
-		 */
-		const diffStat: GitService["Service"]["diffStat"] = (
-			folderId,
-			worktreeId,
-		) =>
-			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
-				Effect.gen(function* () {
-					const { baseSha } = yield* resolveReviewRange(folderId, cwd);
-					if (baseSha.length === 0) return { additions: 0, deletions: 0 };
-					const out = yield* run(folderId, cwd, ["diff", "--numstat", baseSha]);
-					let additions = 0;
-					let deletions = 0;
-					for (const line of out.split("\n")) {
-						const cols = line.split("\t");
-						if (cols.length < 2) continue;
-						const [added, deleted] = cols;
-						if (added === undefined || deleted === undefined) continue;
-						const a = Number.parseInt(added, 10);
-						const d = Number.parseInt(deleted, 10);
-						if (!Number.isNaN(a)) additions += a;
-						if (!Number.isNaN(d)) deletions += d;
-					}
-					return { additions, deletions };
-				}).pipe(
-					Effect.catch(() => Effect.succeed({ additions: 0, deletions: 0 })),
-				),
-			);
-
-		/**
 		 * Capture logs from every failing GitHub Actions run on the current PR
 		 * and drop them in `<worktree>/.zuse/failing-checks-<ts>.txt` so the
 		 * renderer can attach the file to the composer (`@.zuse/...txt`) and
@@ -2490,7 +2457,6 @@ export const GitServiceLive = Layer.effect(
 			revertFile,
 			revertAll,
 			restoreFileToBase,
-			diffStat,
 			fixFailingChecks,
 		} as const;
 	}),

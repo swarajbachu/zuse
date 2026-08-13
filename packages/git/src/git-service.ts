@@ -201,13 +201,6 @@ export interface GitServiceShape {
 		oldPath?: string | null,
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<{ readonly restored: boolean }, GitFailure>;
-	readonly diffStat: (
-		folderId: FolderId,
-		worktreeId?: WorktreeId | null,
-	) => Effect.Effect<
-		{ readonly additions: number; readonly deletions: number },
-		GitFailure
-	>;
 	readonly fixFailingChecks: (
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,

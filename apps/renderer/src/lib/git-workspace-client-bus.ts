@@ -253,19 +253,16 @@ const makeWorkspaceDriver = (): ResourceDriver<
 				folderId: ref.folderId,
 				worktreeId: ref.worktreeId,
 			};
-			const [status, changes, pr, diffStat, summary, prDetails] =
-				await Promise.all([
-					classifyGit(client["git.status"](payload)),
-					classifyGit(client["git.changes"](payload)),
-					classifyGit(client["git.prState"](payload)),
-					classifyGit(client["git.diffStat"](payload)),
-					classifyGit(client["git.reviewSummary"](payload)),
-					classifyGit(client["git.prDetails"](payload)),
-				]);
+			const [status, changes, pr, summary, prDetails] = await Promise.all([
+				classifyGit(client["git.status"](payload)),
+				classifyGit(client["git.changes"](payload)),
+				classifyGit(client["git.prState"](payload)),
+				classifyGit(client["git.reviewSummary"](payload)),
+				classifyGit(client["git.prDetails"](payload)),
+			]);
 			throwTransportFailure(status);
 			throwTransportFailure(changes);
 			throwTransportFailure(pr);
-			throwTransportFailure(diffStat);
 			throwTransportFailure(summary);
 			throwTransportFailure(prDetails);
 			const noRepository =
@@ -305,8 +302,11 @@ const makeWorkspaceDriver = (): ResourceDriver<
 				pr: noRepository ? null : nextPr,
 				diffStat: noRepository
 					? null
-					: diffStat.ok
-						? diffStat.value
+					: summary.ok
+						? {
+								additions: summary.value.additions,
+								deletions: summary.value.deletions,
+							}
 						: (previous?.diffStat ?? null),
 				summary: noRepository
 					? null
@@ -326,8 +326,7 @@ const makeWorkspaceDriver = (): ResourceDriver<
 				noRepository,
 				error: noRepository
 					? { tag: "GitNotARepoError", message: "Not a git repository" }
-					: (patchError ??
-						firstError(status, changes, pr, diffStat, summary, prDetails)),
+					: (patchError ?? firstError(status, changes, pr, summary, prDetails)),
 				revision,
 			};
 		},
