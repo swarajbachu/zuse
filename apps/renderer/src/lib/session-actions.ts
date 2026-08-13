@@ -2,6 +2,7 @@ import {
 	resourceRefKey,
 	type SessionRef,
 } from "@zuse/client-runtime/resource-ref";
+import type { SyncPhase } from "@zuse/client-runtime/resource-state";
 import {
 	CommandId,
 	ComposerInput,
@@ -92,6 +93,14 @@ const setSessionError = (ref: SessionRef, error: ChatError | null): void => {
 export const clearSessionCommandError = (ref: SessionRef): void =>
 	setSessionError(ref, null);
 
+export const isRecoveredPreAckSessionError = (
+	message: string,
+	timeline: Readonly<{ data: unknown | null; sync: SyncPhase }>,
+): boolean =>
+	message.includes("SessionNotFoundError") &&
+	timeline.data !== null &&
+	timeline.sync === "live";
+
 /** Whether a persisted queue item may immediately participate in flushing. */
 export const queuedMessageShouldFlush = (options?: {
 	readonly flush?: boolean;
@@ -113,6 +122,13 @@ export const pendingSessionCommandError = (
 	const view = getRendererClientBus().snapshot(sessionTimelineResourceKey(ref));
 	const failed = view.failedCommands.at(-1);
 	if (failed === undefined) return null;
+	// A provisional chat can briefly receive a session-scoped command before its
+	// durable creation acknowledgement. Once the authoritative timeline is live,
+	// that earlier not-found result is obsolete and must not survive as a provider
+	// failure banner over a healthy, streaming turn.
+	if (isRecoveredPreAckSessionError(failed.error, view)) {
+		return null;
+	}
 	// Retriable failures remain in the durable outbox and are represented by the
 	// shared stale/connection phase. A destructive error bubble would imply the
 	// prompt was rejected even though reconnect will replay it.

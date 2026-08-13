@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	classifyMessage,
+	isRecoveredPreAckSessionError,
 	queuedMessageShouldFlush,
 } from "../../src/lib/session-actions.ts";
 
@@ -27,5 +28,26 @@ describe("session actions", () => {
 		expect(queuedMessageShouldFlush()).toBe(true);
 		expect(queuedMessageShouldFlush({ flush: true })).toBe(true);
 		expect(queuedMessageShouldFlush({ flush: false })).toBe(false);
+	});
+
+	it("drops a provisional session-not-found error after the timeline is live", () => {
+		expect(
+			isRecoveredPreAckSessionError("SessionNotFoundError", {
+				data: {},
+				sync: "live",
+			}),
+		).toBe(true);
+		expect(
+			isRecoveredPreAckSessionError("SessionNotFoundError", {
+				data: null,
+				sync: "synchronizing",
+			}),
+		).toBe(false);
+		expect(
+			isRecoveredPreAckSessionError("actual provider failure", {
+				data: {},
+				sync: "live",
+			}),
+		).toBe(false);
 	});
 });

@@ -407,7 +407,9 @@ function MainShell() {
 	const selectedSession = useActiveSessionById(selectedSessionId);
 	const selectedTimeline = useOptionalRendererSessionTimeline(
 		selectedSessionId,
-		selectedSessionId === null ? "cache-only" : "connect",
+		selectedSessionId === null || pendingCreation !== null
+			? "cache-only"
+			: "connect",
 		EnvironmentId.make(activeEnvironmentId),
 	);
 	const directoryStatus = useChatDirectoryStatus(

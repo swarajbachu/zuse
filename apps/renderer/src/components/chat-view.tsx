@@ -37,6 +37,7 @@ import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus
 import { markRendererInteraction } from "../lib/performance-marks.ts";
 import {
 	clearSessionCommandError,
+	isRecoveredPreAckSessionError,
 	pendingSessionCommandError,
 	sessionCommandErrorKey,
 	useSessionCommandErrors,
@@ -122,7 +123,15 @@ export function ChatView({
 	const localError = useSessionCommandErrors(
 		(state) => state.errorByResource[errorKey] ?? null,
 	);
-	const error = localError ?? pendingSessionCommandError(sessionRef);
+	const recoveredPreAckError =
+		localError !== null &&
+		isRecoveredPreAckSessionError(localError.message, timeline.view);
+	const error = recoveredPreAckError
+		? null
+		: (localError ?? pendingSessionCommandError(sessionRef));
+	useEffect(() => {
+		if (recoveredPreAckError) clearSessionCommandError(sessionRef);
+	}, [recoveredPreAckError, sessionRef]);
 	const messages = timeline.messages;
 	const timelineVersion = timeline.view.cursor?.version ?? 0;
 	const runtimeState = timeline.runtime;
