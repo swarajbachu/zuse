@@ -6,13 +6,16 @@ import {
 	GitBranchIcon,
 	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
-import { Effect } from "effect";
 import { useState } from "react";
-import { getControlPlaneRpcClient } from "../lib/rpc-client.ts";
+import {
+	refreshCloudChatCatalog,
+	useCloudChatCatalogStore,
+} from "../lib/cloud-workspace-catalog.ts";
+import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
+import { runControlPlane } from "../lib/control-plane-client.ts";
 import { shouldShowSetupCard } from "../lib/setup-card-visibility.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
-import { useCloudChatsStore } from "../store/cloud-chats.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
@@ -64,28 +67,28 @@ export type SetupCardData = {
 export function WorktreeSetupCard() {
 	const ctx = useActiveContext();
 	const selectedChatId = useChatsStore((state) => state.selectedChatId);
-	const cloudSummary = useCloudChatsStore(
+	const cloudSummary = useCloudChatCatalogStore(
 		(state) =>
 			state.summaries.find((row) => row.chatId === selectedChatId) ?? null,
 	);
-	const session = useSessionsStore((s) => {
-		if (s.selectedSessionId === null) return null;
-		for (const list of Object.values(s.sessionsByProject)) {
-			const match = list.find((sess) => sess.id === s.selectedSessionId);
-			if (match !== undefined) return match;
-		}
-		return null;
-	});
-	const initialSession = useSessionsStore((s) => {
+	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
+	const { sessionsByProject } = useActiveEnvironmentEntities();
+	const session =
+		selectedSessionId === null
+			? null
+			: (Object.values(sessionsByProject)
+					.flat()
+					.find((candidate) => candidate.id === selectedSessionId) ?? null);
+	const initialSession = (() => {
 		if (session === null) return false;
-		const chatSessions = s.sessionsByProject[session.projectId] ?? [];
+		const chatSessions = sessionsByProject[session.projectId] ?? [];
 		const oldest = chatSessions
 			.filter((candidate) => candidate.chatId === session.chatId)
 			.toSorted(
 				(left, right) => left.createdAt.getTime() - right.createdAt.getTime(),
 			)[0];
 		return oldest?.id === session.id;
-	});
+	})();
 	const repoName = useWorkspaceStore((s) => {
 		if (ctx.status !== "ready") return null;
 		return s.folders.find((f) => f.id === ctx.folderId)?.name ?? null;
@@ -183,20 +186,19 @@ export function CloudWorkspaceSetupCard({
 	const runAction = async (action: "resume" | "delete") => {
 		setBusy(action === "resume" ? "retry" : "delete");
 		try {
-			const control = await getControlPlaneRpcClient();
 			if (action === "resume")
-				await Effect.runPromise(
+				await runControlPlane((control) =>
 					control["cloud.workspaces.resume"]({
 						workspaceId: summary.workspaceId,
 					}),
 				);
 			else
-				await Effect.runPromise(
+				await runControlPlane((control) =>
 					control["cloud.workspaces.delete"]({
 						workspaceId: summary.workspaceId,
 					}),
 				);
-			await useCloudChatsStore.getState().hydrate();
+			await refreshCloudChatCatalog();
 		} catch {
 			toastManager.add({
 				type: "error",

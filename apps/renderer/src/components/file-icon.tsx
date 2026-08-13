@@ -1,8 +1,5 @@
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-import {
-	Folder01Icon,
-	FolderOpenIcon,
-} from "@zuse/icons/solid-rounded";
+import { Folder01Icon, FolderOpenIcon } from "@zuse/icons/solid-rounded";
 import {
 	createFileTreeIconResolver,
 	getBuiltInSpriteSheet,

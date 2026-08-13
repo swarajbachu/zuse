@@ -1,8 +1,10 @@
+import type { ResourceLease } from "@zuse/client-runtime/client-bus";
+import type { ResourceView } from "@zuse/client-runtime/resource-state";
 import {
 	type Chat,
 	type EnvironmentDescriptor,
+	EnvironmentId,
 	type Folder,
-	type GitOriginInfo,
 	type RelayConnectGrant,
 	type RelayEnvironmentRecord,
 	type RemoteEnvironmentProfile,
@@ -12,22 +14,33 @@ import {
 	type TailnetEnvironmentProfile,
 	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
-import { Effect, Fiber, Stream } from "effect";
-
-import { createCatalogRetryController } from "../lib/catalog-retry.ts";
+import { Effect } from "effect";
+import { runtimeOperationClient } from "../lib/runtime-operation-client.ts";
+import { overlayActiveEnvironmentShell } from "../lib/environment-entities.ts";
+import {
+	type EnvironmentShellData,
+	environmentShellSnapshot,
+	normalizeEnvironmentShellData,
+	retainEnvironmentShell,
+	subscribeEnvironmentShell,
+} from "../lib/environment-shell-client-bus.ts";
 import { formatError } from "../lib/format-error.ts";
 import { createInitializationGate } from "../lib/initialization-gate.ts";
+import { upsertLatestEntity } from "../lib/latest-entity.ts";
 import {
-	getRpcClient,
 	LOCAL_ENVIRONMENT_KEY,
 	registerLocalEnvironment,
 	registerRelayEnvironment,
 	registerWebSocketEnvironment,
 	removeRendererEnvironment,
 	setActiveEnvironment,
-	subscribeRendererRpcConnection,
 } from "../lib/rpc-client.ts";
+import { getRendererClientBus } from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
+import { activateAnnotationsEnvironment } from "./annotations.ts";
+import { restorePendingCreation, useChatsStore } from "./chats.ts";
+import { useSessionsStore } from "./sessions.ts";
+import { useUiStore } from "./ui.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 
 export type CatalogConnectionStatus =
@@ -45,12 +58,21 @@ export type EnvironmentCatalogEntry = {
 	readonly descriptor: EnvironmentDescriptor | null;
 	readonly status: CatalogConnectionStatus;
 	readonly error: string | null;
-	readonly folders: ReadonlyArray<Folder>;
-	/** Git origin per folder id (`null` = no origin / lookup failed). */
-	readonly originsByFolder: Readonly<Record<string, GitOriginInfo | null>>;
-	readonly chatsByProject: Readonly<Record<string, ReadonlyArray<Chat>>>;
-	readonly sessionsByProject: Readonly<Record<string, ReadonlyArray<Session>>>;
 };
+
+export type EnvironmentShellSeed = Readonly<{
+	chat: Chat;
+	initialSession: Session;
+}>;
+
+export type EnvironmentActivation = Readonly<{
+	folderId?: Folder["id"];
+	chatId?: Chat["id"];
+	seed?: EnvironmentShellSeed;
+}>;
+
+type EnvironmentProjectionOptions = EnvironmentActivation &
+	Readonly<{ resetOptimisticState?: boolean }>;
 
 export const orderEnvironmentCatalog = (
 	entries: ReadonlyArray<EnvironmentCatalogEntry>,
@@ -77,6 +99,185 @@ export const validateSshTarget = (
 	return null;
 };
 
+const upsertChat = (
+	chats: ReadonlyArray<Chat>,
+	chat: Chat,
+): ReadonlyArray<Chat> =>
+	[chat, ...chats.filter((candidate) => candidate.id !== chat.id)].sort(
+		(left, right) =>
+			(right.updatedAt ?? right.createdAt).getTime() -
+			(left.updatedAt ?? left.createdAt).getTime(),
+	);
+
+export const projectEnvironmentShell = (
+	data: EnvironmentShellData,
+	options: EnvironmentProjectionOptions = {},
+): Folder["id"] | null => {
+	const normalized = normalizeEnvironmentShellData(data);
+	const previousWorkspace = useWorkspaceStore.getState();
+	const selectedFolderId =
+		options.folderId !== undefined &&
+		normalized.folders.some((folder) => folder.id === options.folderId)
+			? options.folderId
+			: options.resetOptimisticState !== true &&
+					previousWorkspace.selectedFolderId !== null &&
+					normalized.folders.some(
+						(folder) => folder.id === previousWorkspace.selectedFolderId,
+					)
+				? previousWorkspace.selectedFolderId
+				: (normalized.folders[0]?.id ?? null);
+
+	const previousChats = useChatsStore.getState();
+	const creationOperations = Object.values(
+		normalized.creationOperationsByProject,
+	).flat();
+	const durableChatIds = new Set(
+		Object.values(normalized.chatsByProject)
+			.flat()
+			.map((chat) => chat.id),
+	);
+	const succeededOperationIds = new Set(
+		creationOperations
+			.filter((operation) => operation.status === "succeeded")
+			.map((operation) => operation.operationId),
+	);
+	const pendingByChat = Object.fromEntries(
+		Object.entries(
+			options.resetOptimisticState === true
+				? {}
+				: previousChats.pendingCreationByChat,
+		).filter(
+			([, creation]) =>
+				!durableChatIds.has(creation.chatId) &&
+				!succeededOperationIds.has(creation.operationId),
+		),
+	);
+	const restoredPending = Object.fromEntries(
+		creationOperations
+			.filter((operation) => operation.status !== "succeeded")
+			.map((operation) => {
+				const pending = restorePendingCreation(operation);
+				return [pending.chat.id, pending.creation] as const;
+			}),
+	);
+	const optimisticChats = new Map<string, Chat>();
+	const optimisticSessions = new Map<string, Session>();
+	for (const operation of creationOperations) {
+		if (operation.status === "succeeded") continue;
+		const pending = restorePendingCreation(operation);
+		optimisticChats.set(pending.chat.id, pending.chat);
+		optimisticSessions.set(pending.session.id, pending.session);
+	}
+	// ClientBus overlays already survive into `normalized`; pending metadata is
+	// retained below only to drive the creation progress surface.
+	if (options.seed !== undefined) {
+		optimisticChats.set(options.seed.chat.id, options.seed.chat);
+		optimisticSessions.set(
+			options.seed.initialSession.id,
+			options.seed.initialSession,
+		);
+	}
+
+	const chatsByProject = Object.fromEntries(
+		normalized.folders.map((folder) => {
+			let chats = normalized.chatsByProject[folder.id] ?? [];
+			for (const chat of optimisticChats.values()) {
+				if (chat.projectId === folder.id) chats = upsertChat(chats, chat);
+			}
+			return [folder.id, chats] as const;
+		}),
+	);
+	const sessionsByProject = Object.fromEntries(
+		normalized.folders.map((folder) => {
+			let sessions = normalized.sessionsByProject[folder.id] ?? [];
+			for (const session of optimisticSessions.values()) {
+				if (session.projectId === folder.id) {
+					sessions = upsertLatestEntity(sessions, session);
+				}
+			}
+			return [folder.id, sessions] as const;
+		}),
+	);
+	const selectedChatId = (() => {
+		if (selectedFolderId === null) return null;
+		const chats = chatsByProject[selectedFolderId] ?? [];
+		if (
+			options.chatId !== undefined &&
+			chats.some((chat) => chat.id === options.chatId)
+		) {
+			return options.chatId;
+		}
+		if (
+			options.resetOptimisticState !== true &&
+			previousChats.selectedChatId !== null &&
+			chats.some((chat) => chat.id === previousChats.selectedChatId)
+		) {
+			return previousChats.selectedChatId;
+		}
+		return null;
+	})();
+	const selectedChat =
+		selectedFolderId === null || selectedChatId === null
+			? null
+			: (chatsByProject[selectedFolderId]?.find(
+					(chat) => chat.id === selectedChatId,
+				) ?? null);
+	const selectedSessionId = (() => {
+		if (selectedFolderId === null || selectedChat === null) return null;
+		const sessions = sessionsByProject[selectedFolderId] ?? [];
+		if (
+			selectedChat.activeSessionId !== null &&
+			sessions.some((session) => session.id === selectedChat.activeSessionId)
+		) {
+			return selectedChat.activeSessionId;
+		}
+		return (
+			sessions.find((session) => session.chatId === selectedChat.id)?.id ?? null
+		);
+	})();
+
+	useWorkspaceStore.setState({
+		folders: normalized.folders,
+		selectedFolderId,
+		loading: false,
+		error: null,
+	});
+	overlayActiveEnvironmentShell((shell) => ({
+		...shell,
+		chatsByProject,
+		sessionsByProject,
+	}));
+	useChatsStore.setState({
+		selectedChatId,
+		selectedChatByProject:
+			selectedFolderId === null ? {} : { [selectedFolderId]: selectedChatId },
+		loadingByProject: {},
+		creatingByProject: Object.fromEntries(
+			creationOperations
+				.filter(
+					(operation) =>
+						operation.status !== "succeeded" && operation.status !== "failed",
+				)
+				.map((operation) => [operation.projectId, true] as const),
+		),
+		pendingCreationByChat: { ...pendingByChat, ...restoredPending },
+		archiveProgressByChat: {},
+		error: null,
+	});
+	useSessionsStore.setState({
+		selectedSessionId,
+		selectedSessionByProject:
+			selectedFolderId === null
+				? {}
+				: { [selectedFolderId]: selectedSessionId },
+		loadingByProject: {},
+		creatingByChat: {},
+		draftSession: null,
+		error: null,
+	});
+	return selectedFolderId;
+};
+
 type EnvironmentCatalogState = {
 	readonly entries: ReadonlyArray<EnvironmentCatalogEntry>;
 	readonly activeEnvironmentId: string;
@@ -90,13 +291,27 @@ type EnvironmentCatalogState = {
 	retry: (profileId: string) => Promise<void>;
 	retryEnvironment: (environmentId: string) => Promise<void>;
 	ensureEnvironmentConnected: (environmentId: string) => Promise<void>;
-	refreshEnvironment: (environmentId: string) => Promise<void>;
 	disconnect: (profileId: string) => Promise<void>;
 	remove: (profileId: string) => Promise<void>;
 	rename: (profileId: string, label: string) => Promise<void>;
 	hideRelayEnvironment: (environmentId: string) => Promise<void>;
 	unhideRelayEnvironments: () => Promise<void>;
-	activate: (environmentId: string) => Promise<void>;
+	activate: (
+		environmentId: string,
+		selection?: EnvironmentActivation,
+	) => Promise<Folder["id"] | null>;
+	activateTransient: (
+		environmentId: string,
+		fallback: EnvironmentShellData,
+		selection?: EnvironmentActivation,
+	) => Promise<Folder["id"] | null>;
+};
+
+type EnvironmentShellRuntime = {
+	readonly ref: { readonly environmentId: EnvironmentId };
+	readonly lease: ResourceLease;
+	readonly unsubscribe: () => void;
+	requestedActivation: "cache-only" | "connect";
 };
 
 const HIDDEN_RELAY_STORAGE_KEY = "zuse.catalog.hiddenRelayEnvironments";
@@ -144,10 +359,6 @@ const profileEntry = (
 	descriptor: null,
 	status: "connecting",
 	error: null,
-	folders: [],
-	originsByFolder: {},
-	chatsByProject: {},
-	sessionsByProject: {},
 });
 
 const tailnetProfileEntry = (
@@ -161,10 +372,6 @@ const tailnetProfileEntry = (
 	descriptor: null,
 	status: "connecting",
 	error: null,
-	folders: [],
-	originsByFolder: {},
-	chatsByProject: {},
-	sessionsByProject: {},
 });
 
 const relayEntry = (
@@ -178,22 +385,7 @@ const relayEntry = (
 	descriptor: null,
 	status: "connecting",
 	error: null,
-	folders: [],
-	originsByFolder: {},
-	chatsByProject: {},
-	sessionsByProject: {},
 });
-
-export const relayEnvironmentsNeedingConnection = (
-	environments: ReadonlyArray<RelayEnvironmentRecord>,
-	entries: ReadonlyArray<EnvironmentCatalogEntry>,
-): ReadonlyArray<RelayEnvironmentRecord> =>
-	environments.filter((environment) => {
-		const entry = entries.find(
-			(candidate) => candidate.environmentId === environment.environmentId,
-		);
-		return entry !== undefined && entry.status !== "connected";
-	});
 
 export const cloudConnectionFailure = (cause: unknown): Error => {
 	const detail = errorMessage(cause);
@@ -246,98 +438,13 @@ const relayGrantUrl = (grant: RelayConnectGrant): string => {
 	return url.toString();
 };
 
-const hydrateEntry = async (
-	environmentId: string,
-	previous?: Pick<EnvironmentCatalogEntry, "folders" | "originsByFolder">,
-): Promise<
-	Pick<
-		EnvironmentCatalogEntry,
-		"folders" | "originsByFolder" | "chatsByProject" | "sessionsByProject"
-	>
-> => {
-	const client = await getRpcClient(environmentId);
-	const folders = await Effect.runPromise(client["workspace.list"]({}));
-	const pairs = await Promise.all(
-		folders.map(async (folder) => {
-			const [chats, sessions] = await Promise.all([
-				Effect.runPromise(client["chat.list"]({ projectId: folder.id })),
-				Effect.runPromise(client["session.list"]({ projectId: folder.id })),
-			]);
-			return [folder.id, chats, sessions] as const;
-		}),
-	);
-	// Origins are effectively immutable per folder, so only re-fetch when the
-	// folder id set changed — the 15s poller would otherwise issue one extra
-	// RPC per folder per tick.
-	const folderSetUnchanged =
-		previous !== undefined &&
-		previous.folders.length === folders.length &&
-		folders.every((folder) =>
-			previous.folders.some((candidate) => candidate.id === folder.id),
-		);
-	const originsByFolder = folderSetUnchanged
-		? previous.originsByFolder
-		: await (async () => {
-				const results = await Promise.allSettled(
-					folders.map((folder) =>
-						Effect.runPromise(client["git.origin"]({ folderId: folder.id })),
-					),
-				);
-				return Object.fromEntries(
-					folders.map((folder, index) => {
-						const result = results[index];
-						return [
-							folder.id,
-							result?.status === "fulfilled" ? result.value : null,
-						];
-					}),
-				);
-			})();
-	return {
-		folders,
-		originsByFolder,
-		chatsByProject: Object.fromEntries(
-			pairs.map(([projectId, chats]) => [projectId, chats]),
-		),
-		sessionsByProject: Object.fromEntries(
-			pairs.map(([projectId, , sessions]) => [projectId, sessions]),
-		),
-	};
-};
-
 export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 	(set, get) => {
-		const recoverySubscriptions = new Map<string, () => void>();
 		const relayRecords = new Map<string, RelayEnvironmentRecord>();
 		const connectionAttempts = createConnectionAttemptCoordinator();
-		const fallbackPollers = new Map<string, number>();
-		const workspaceChangeFibers = new Map<
-			string,
-			Fiber.Fiber<unknown, unknown>
-		>();
-		const catalogPollsInFlight = new Set<string>();
-		const stoppedRuntimes = new Set<string>();
+		const shellRuntimes = new Map<string, EnvironmentShellRuntime>();
+		let activeShellKey: string | null = null;
 		const initializeOnce = createInitializationGate();
-		const automaticRetry = createCatalogRetryController((delayMs, run) => {
-			const timer = window.setTimeout(run, delayMs);
-			return () => window.clearTimeout(timer);
-		});
-		/**
-		 * Previous folders + origins for an entry so `hydrateEntry` can skip
-		 * re-resolving git origins when the folder set is unchanged.
-		 */
-		const previousCatalog = (
-			catalogKey: string,
-		):
-			| Pick<EnvironmentCatalogEntry, "folders" | "originsByFolder">
-			| undefined => {
-			const entry = get().entries.find(
-				(candidate) => entryKey(candidate) === catalogKey,
-			);
-			return entry === undefined
-				? undefined
-				: { folders: entry.folders, originsByFolder: entry.originsByFolder };
-		};
 		const patchEntry = (
 			key: string,
 			patch: Partial<EnvironmentCatalogEntry>,
@@ -349,109 +456,139 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					),
 				),
 			}));
-		const stopFallbackPoller = (key: string): void => {
-			const timer = fallbackPollers.get(key);
-			if (timer !== undefined) window.clearTimeout(timer);
-			fallbackPollers.delete(key);
-		};
-		const startFallbackPoller = (
-			key: string,
-			environmentId: string,
+		const applyShellView = (
 			catalogKey: string,
+			environmentId: string,
+			view: ResourceView<EnvironmentShellData>,
 		): void => {
-			if (fallbackPollers.has(key)) return;
-			fallbackPollers.set(
-				key,
-				window.setTimeout(() => {
-					fallbackPollers.delete(key);
-					if (stoppedRuntimes.has(key)) return;
-					if (workspaceChangeFibers.has(key)) return;
-					if (catalogPollsInFlight.has(key)) {
-						startFallbackPoller(key, environmentId, catalogKey);
-						return;
-					}
-					catalogPollsInFlight.add(key);
-					void hydrateEntry(environmentId, previousCatalog(catalogKey))
-						.then((catalog) => patchEntry(catalogKey, catalog))
-						.catch(() => undefined)
-						.finally(() => {
-							catalogPollsInFlight.delete(key);
-							if (!stoppedRuntimes.has(key)) {
-								startFallbackPoller(key, environmentId, catalogKey);
-							}
-						});
-				}, 15_000),
-			);
-		};
-		const startWorkspaceChangeStream = async (
-			key: string,
-			environmentId: string,
-			catalogKey: string,
-		): Promise<void> => {
-			stoppedRuntimes.delete(key);
-			const previous = workspaceChangeFibers.get(key);
-			if (previous !== undefined) {
-				await Effect.runPromise(Fiber.interrupt(previous)).catch(
-					() => undefined,
-				);
-			}
-			const client = await getRpcClient(environmentId).catch(() => null);
-			if (client === null) {
-				startFallbackPoller(key, environmentId, catalogKey);
-				return;
-			}
-			stopFallbackPoller(key);
-			const program = Stream.runForEach(
-				client["workspace.streamChanges"]({}),
-				(folders) =>
-					Effect.tryPromise({
-						try: async () => {
-							if (get().activeEnvironmentId === environmentId) {
-								useWorkspaceStore.setState((workspace) => ({
-									folders,
-									selectedFolderId:
-										workspace.selectedFolderId !== null &&
-										folders.some(
-											(folder) => folder.id === workspace.selectedFolderId,
-										)
-											? workspace.selectedFolderId
-											: (folders[0]?.id ?? null),
-								}));
-							}
-							const catalog = await hydrateEntry(
-								environmentId,
-								previousCatalog(catalogKey),
-							);
-							patchEntry(catalogKey, catalog);
-						},
-						catch: () => undefined,
-					}).pipe(Effect.ignore),
-			);
-			const fiber = Effect.runFork(program);
-			workspaceChangeFibers.set(key, fiber);
-			void Effect.runPromise(Fiber.await(fiber)).finally(() => {
-				if (workspaceChangeFibers.get(key) === fiber) {
-					workspaceChangeFibers.delete(key);
-					if (!stoppedRuntimes.has(key)) {
-						startFallbackPoller(key, environmentId, catalogKey);
-					}
-				}
+			const status: CatalogConnectionStatus =
+				view.connection === "connected"
+					? "connected"
+					: view.connection === "dormant" || view.connection === "offline"
+						? "offline"
+						: view.connection === "failed" ||
+								view.connection === "blocked-auth" ||
+								view.connection === "update-required" ||
+								view.connection === "revoked"
+							? "error"
+							: "connecting";
+			patchEntry(catalogKey, {
+				status,
+				error:
+					status === "error"
+						? getRendererClientBus().connection(
+								EnvironmentId.make(environmentId),
+							).error
+						: null,
 			});
+			if (view.data !== null && get().activeEnvironmentId === environmentId) {
+				projectEnvironmentShell(view.data);
+			}
+		};
+		const retainShell = (
+			catalogKey: string,
+			environmentId: string,
+			activation: "cache-only" | "connect",
+		): EnvironmentShellRuntime => {
+			const existing = shellRuntimes.get(catalogKey);
+			if (existing !== undefined) {
+				if (
+					activation === "connect" &&
+					existing.requestedActivation !== "connect"
+				) {
+					existing.requestedActivation = "connect";
+					existing.lease.activate("connect");
+				}
+				return existing;
+			}
+			const ref = { environmentId: EnvironmentId.make(environmentId) };
+			const retained = retainEnvironmentShell(ref, activation);
+			const runtime: EnvironmentShellRuntime = {
+				ref,
+				lease: retained.lease,
+				unsubscribe: subscribeEnvironmentShell(ref, (view) =>
+					applyShellView(catalogKey, environmentId, view),
+				),
+				requestedActivation: activation,
+			};
+			shellRuntimes.set(catalogKey, runtime);
+			applyShellView(catalogKey, environmentId, environmentShellSnapshot(ref));
+			return runtime;
 		};
 		const stopEntryRuntime = (catalogKey: string): void => {
-			stoppedRuntimes.add(catalogKey);
-			automaticRetry.stop(catalogKey);
-			recoverySubscriptions.get(catalogKey)?.();
-			recoverySubscriptions.delete(catalogKey);
-			stopFallbackPoller(catalogKey);
-			catalogPollsInFlight.delete(catalogKey);
-			const workspaceFiber = workspaceChangeFibers.get(catalogKey);
-			if (workspaceFiber !== undefined) {
-				workspaceChangeFibers.delete(catalogKey);
-				void Effect.runPromise(Fiber.interrupt(workspaceFiber)).catch(
-					() => undefined,
-				);
+			const runtime = shellRuntimes.get(catalogKey);
+			if (runtime === undefined) return;
+			if (activeShellKey === catalogKey) activeShellKey = null;
+			runtime.unsubscribe();
+			runtime.lease.release();
+			shellRuntimes.delete(catalogKey);
+		};
+		const waitForShellData = (
+			runtime: EnvironmentShellRuntime,
+		): Promise<EnvironmentShellData> => {
+			return new Promise((resolve, reject) => {
+				let settled = false;
+				let unsubscribe = (): void => undefined;
+				const finish = (view: ResourceView<EnvironmentShellData>): void => {
+					if (settled) return;
+					if (view.data !== null) {
+						settled = true;
+						unsubscribe();
+						resolve(normalizeEnvironmentShellData(view.data));
+						return;
+					}
+					if (
+						view.connection === "failed" ||
+						view.connection === "blocked-auth" ||
+						view.connection === "update-required" ||
+						view.connection === "revoked"
+					) {
+						settled = true;
+						unsubscribe();
+						reject(
+							new Error(
+								getRendererClientBus().connection(runtime.ref.environmentId)
+									.error ?? "Unable to synchronize environment.",
+							),
+						);
+					}
+				};
+				unsubscribe = subscribeEnvironmentShell(runtime.ref, (view) => {
+					finish(view);
+				});
+				finish(environmentShellSnapshot(runtime.ref));
+			});
+		};
+		const activateRuntime = async (
+			catalogKey: string,
+			runtime: EnvironmentShellRuntime,
+			environmentId: string,
+			selection: EnvironmentActivation | undefined,
+			fallback?: EnvironmentShellData,
+		): Promise<Folder["id"] | null> => {
+			if (activeShellKey !== null && activeShellKey !== catalogKey) {
+				const previous = shellRuntimes.get(activeShellKey);
+				if (previous !== undefined) {
+					previous.requestedActivation = "cache-only";
+					previous.lease.activate("cache-only");
+				}
 			}
+			activeShellKey = catalogKey;
+			runtime.requestedActivation = "connect";
+			await runtime.lease.activate("connect");
+			const data = await waitForShellData(runtime).catch((cause) => {
+				if (fallback !== undefined)
+					return normalizeEnvironmentShellData(fallback);
+				throw cause;
+			});
+			setActiveEnvironment(environmentId);
+			set({ activeEnvironmentId: environmentId });
+			activateAnnotationsEnvironment();
+			useUiStore.getState().clearRevealedAnnotation();
+			return projectEnvironmentShell(data, {
+				...selection,
+				resetOptimisticState: true,
+			});
 		};
 		const completeConnection = async (input: {
 			readonly catalogKey: string;
@@ -459,69 +596,24 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			readonly patch: Partial<EnvironmentCatalogEntry>;
 			readonly isCurrent?: () => boolean;
 		}): Promise<void> => {
-			// `getRpcClient` performs the WebSocket open and protocol handshake. Mark
-			// the environment connected at that boundary; catalog hydration is useful
-			// background work and must not block a fresh cloud agent.
-			await getRpcClient(input.environmentId);
 			if (input.isCurrent?.() === false) return;
 			patchEntry(input.catalogKey, {
 				...input.patch,
-				status: "connected",
+				status: "connecting",
 				error: null,
 			});
-			void hydrateEntry(input.environmentId, previousCatalog(input.catalogKey))
-				.then((catalog) => {
-					if (input.isCurrent?.() !== false)
-						patchEntry(input.catalogKey, catalog);
-				})
-				.catch(() => undefined);
-			automaticRetry.succeeded(input.catalogKey);
-			if (!recoverySubscriptions.has(input.catalogKey)) {
-				recoverySubscriptions.set(
-					input.catalogKey,
-					subscribeRendererRpcConnection((snapshot) => {
-						if (snapshot.status === "connected") {
-							patchEntry(input.catalogKey, {
-								status: "connected",
-								error: null,
-							});
-							return;
-						}
-						if (
-							snapshot.status === "connecting" ||
-							snapshot.status === "reconnecting"
-						) {
-							patchEntry(input.catalogKey, { status: "connecting" });
-						}
-						if (
-							snapshot.status === "error" ||
-							snapshot.status === "blockedAuth"
-						) {
-							patchEntry(input.catalogKey, {
-								status: "error",
-								error:
-									snapshot.error === null ? null : formatError(snapshot.error),
-							});
-						}
-					}, input.environmentId),
-				);
-			}
-			void startWorkspaceChangeStream(
+			const runtime = retainShell(
 				input.catalogKey,
 				input.environmentId,
-				input.catalogKey,
+				"connect",
 			);
+			await runtime.lease.activate("connect");
 		};
-		const failConnection = (
-			catalogKey: string,
-			cause: unknown,
-			reconnect: () => Promise<void>,
-		): void => {
+		const failConnection = (catalogKey: string, cause: unknown): void => {
 			patchEntry(catalogKey, {
 				status: "error",
 				error: errorMessage(cause),
 			});
-			automaticRetry.schedule(catalogKey, () => void reconnect());
 		};
 
 		const connectProfile = (profileId: string): Promise<void> => {
@@ -547,7 +639,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						},
 					});
 				} catch (cause) {
-					failConnection(catalogKey, cause, () => connectProfile(profileId));
+					failConnection(catalogKey, cause);
 				}
 			});
 		};
@@ -558,7 +650,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			const catalogKey = `tailnet:${profile.profileId}`;
 			registerWebSocketEnvironment(profile.environmentId, connection.wsUrl);
 			try {
-				const client = await getRpcClient(profile.environmentId);
+				const client = await runtimeOperationClient(profile.environmentId);
 				const descriptor = await Effect.runPromise(
 					client["connect.describe"](),
 				);
@@ -610,9 +702,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						throw cause;
 					}
 				} catch (cause) {
-					failConnection(catalogKey, cause, () =>
-						connectTailnetProfile(profileId),
-					);
+					failConnection(catalogKey, cause);
 				}
 			});
 		};
@@ -628,7 +718,8 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					try {
 						const { grant, localClient } = await (async () => {
 							try {
-								const localClient = await getRpcClient(localEnvironmentId);
+								const localClient =
+									await runtimeOperationClient(localEnvironmentId);
 								const grant = await Effect.runPromise(
 									localClient["environments.connect"]({
 										environmentId: environment.environmentId,
@@ -669,9 +760,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						}
 					} catch (cause) {
 						if (!isCurrent()) return;
-						failConnection(catalogKey, cause, () =>
-							connectRelay(environment, localEnvironmentId),
-						);
+						failConnection(catalogKey, cause);
 					}
 				},
 				replace,
@@ -685,7 +774,9 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			hiddenRelayEnvironmentIds: [],
 			initialize: () => {
 				return initializeOnce(get().initialized, async () => {
-					const localClient = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
+					const localClient = await runtimeOperationClient(
+						LOCAL_ENVIRONMENT_KEY,
+					);
 					const [descriptor, profiles, tailnetProfiles] = await Promise.all([
 						Effect.runPromise(localClient["connect.describe"]()),
 						window.zuse?.ssh?.listProfiles() ?? Promise.resolve([]),
@@ -693,7 +784,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					]);
 					registerLocalEnvironment(descriptor.environmentId);
 					setActiveEnvironment(descriptor.environmentId);
-					const localCatalog = await hydrateEntry(descriptor.environmentId);
 					const relayEnvironments = await Effect.runPromise(
 						localClient["environments.list"](),
 					).catch(() => ({ environments: [] as const }));
@@ -729,29 +819,33 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 								label: descriptor.label ?? "This computer",
 								target: null,
 								descriptor,
-								status: "connected",
+								status: "offline",
 								error: null,
-								...localCatalog,
 							},
 							...visibleRelayEnvironments.map(relayEntry),
 							...profiles.map(profileEntry),
 							...tailnetProfiles.map(tailnetProfileEntry),
 						]),
 					});
-					void startWorkspaceChangeStream(
-						`local:${descriptor.environmentId}`,
-						descriptor.environmentId,
-						`local:${descriptor.environmentId}`,
+					for (const entry of get().entries) {
+						retainShell(entryKey(entry), entry.environmentId, "cache-only");
+					}
+					const localEntry = get().entries.find(
+						(entry) => entry.connectionKind === "local",
 					);
-					await Promise.allSettled([
-						...profiles.map((profile) => connectProfile(profile.profileId)),
-						...tailnetProfiles.map((profile) =>
-							connectTailnetProfile(profile.profileId),
-						),
-						...visibleRelayEnvironments.map((environment) =>
-							connectRelay(environment, descriptor.environmentId),
-						),
-					]);
+					if (localEntry !== undefined) {
+						const runtime = retainShell(
+							entryKey(localEntry),
+							localEntry.environmentId,
+							"connect",
+						);
+						await activateRuntime(
+							entryKey(localEntry),
+							runtime,
+							localEntry.environmentId,
+							undefined,
+						);
+					}
 					set({ initialized: true });
 				});
 			},
@@ -764,7 +858,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					return;
 				}
 
-				const localClient = await getRpcClient(local.environmentId);
+				const localClient = await runtimeOperationClient(local.environmentId);
 				const result = await Effect.runPromise(
 					localClient["environments.list"](),
 				);
@@ -802,14 +896,13 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 							...added.map(relayEntry),
 						]),
 					}));
-				await Promise.allSettled(
-					relayEnvironmentsNeedingConnection(
-						accountEnvironments,
-						get().entries,
-					).map((environment) =>
-						connectRelay(environment, local.environmentId),
-					),
-				);
+				for (const environment of added) {
+					retainShell(
+						`relay:${environment.environmentId}`,
+						environment.environmentId,
+						"cache-only",
+					);
+				}
 			},
 			add: async (target, label) => {
 				const bridge = window.zuse?.ssh;
@@ -843,12 +936,9 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					connection.profile.environmentId,
 					connection.descriptor.endpoint.wsBaseUrl,
 				);
-				const catalog = await hydrateEntry(connection.profile.environmentId);
 				const next = {
 					...profileEntry(connection.profile),
 					descriptor: connection.descriptor,
-					status: "connected" as const,
-					...catalog,
 				};
 				set((state) => ({
 					entries: orderEnvironmentCatalog([
@@ -858,6 +948,11 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						next,
 					]),
 				}));
+				retainShell(
+					`ssh:${connection.profile.profileId}`,
+					connection.profile.environmentId,
+					"cache-only",
+				);
 				await connectProfile(connection.profile.profileId);
 			},
 			addTailnet: async (pairingLink, label) => {
@@ -910,6 +1005,11 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						next,
 					]),
 				}));
+				retainShell(
+					`tailnet:${connection.profile.profileId}`,
+					connection.profile.environmentId,
+					"cache-only",
+				);
 				try {
 					await connectTailnetConnection(connection);
 				} catch (cause) {
@@ -917,9 +1017,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					patchEntry(catalogKey, {
 						status: "error",
 						error: errorMessage(cause),
-					});
-					automaticRetry.schedule(catalogKey, () => {
-						void connectTailnetProfile(connection.profile.profileId);
 					});
 					throw cause;
 				}
@@ -929,21 +1026,10 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					)?.label ?? connection.profile.label
 				);
 			},
-			refreshEnvironment: async (environmentId) => {
-				const entry = get().entries.find(
-					(candidate) => candidate.environmentId === environmentId,
-				);
-				if (entry === undefined || entry.status !== "connected") return;
-				const key = entryKey(entry);
-				const catalog = await hydrateEntry(environmentId, previousCatalog(key));
-				patchEntry(key, catalog);
-			},
 			retry: async (profileId) => {
 				const entry = get().entries.find(
 					(item) => item.profileId === profileId,
 				);
-				const catalogKey = `${entry?.connectionKind ?? "ssh"}:${profileId}`;
-				automaticRetry.prepareManualRetry(catalogKey);
 				if (entry?.connectionKind === "tailnet") {
 					await connectTailnetProfile(profileId);
 					return;
@@ -956,7 +1042,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					(entry) => entry.connectionKind === "local",
 				);
 				if (environment === undefined || local === undefined) return;
-				automaticRetry.prepareManualRetry(`relay:${environmentId}`);
 				patchEntry(`relay:${environmentId}`, {
 					status: "connecting",
 					error: null,
@@ -977,7 +1062,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					throw new Error(
 						"Relay grant failed: local environment is unavailable.",
 					);
-				const localClient = await getRpcClient(local.environmentId);
+				const localClient = await runtimeOperationClient(local.environmentId);
 				const listed = await Effect.runPromise(
 					localClient["environments.list"](),
 				).catch((cause) => {
@@ -1005,7 +1090,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				} else {
 					patchEntry(catalogKey, { status: "connecting", error: null });
 				}
-				automaticRetry.prepareManualRetry(catalogKey);
 				await connectRelay(environment, local.environmentId, true);
 				const entry = get().entries.find(
 					(candidate) => candidate.environmentId === environmentId,
@@ -1110,17 +1194,56 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						...records.map(relayEntry),
 					]),
 				}));
-				await Promise.allSettled(
-					records.map((record) => connectRelay(record, local.environmentId)),
-				);
+				for (const record of records) {
+					retainShell(
+						`relay:${record.environmentId}`,
+						record.environmentId,
+						"cache-only",
+					);
+				}
 			},
-			activate: async (environmentId) => {
-				const entry = get().entries.find(
+			activate: async (environmentId, selection) => {
+				let entry = get().entries.find(
 					(item) => item.environmentId === environmentId,
 				);
-				if (entry?.status !== "connected") return;
-				setActiveEnvironment(environmentId);
-				set({ activeEnvironmentId: environmentId });
+				if (entry === undefined) return null;
+				if (entry.connectionKind === "ssh" && entry.profileId !== null) {
+					await connectProfile(entry.profileId);
+				} else if (
+					entry.connectionKind === "tailnet" &&
+					entry.profileId !== null
+				) {
+					await connectTailnetProfile(entry.profileId);
+				} else if (entry.connectionKind === "relay") {
+					const relay = relayRecords.get(environmentId);
+					const local = get().entries.find(
+						(candidate) => candidate.connectionKind === "local",
+					);
+					if (relay === undefined || local === undefined) {
+						throw new Error("Relay environment is unavailable.");
+					}
+					await connectRelay(relay, local.environmentId);
+				}
+				entry = get().entries.find(
+					(item) => item.environmentId === environmentId,
+				);
+				if (entry === undefined || entry.status === "error") {
+					throw new Error(entry?.error ?? "Unable to connect to environment.");
+				}
+				const catalogKey = entryKey(entry);
+				const runtime = retainShell(catalogKey, environmentId, "connect");
+				return activateRuntime(catalogKey, runtime, environmentId, selection);
+			},
+			activateTransient: async (environmentId, fallback, selection) => {
+				const catalogKey = `transient:${environmentId}`;
+				const runtime = retainShell(catalogKey, environmentId, "connect");
+				return activateRuntime(
+					catalogKey,
+					runtime,
+					environmentId,
+					selection,
+					fallback,
+				);
 			},
 		};
 	},

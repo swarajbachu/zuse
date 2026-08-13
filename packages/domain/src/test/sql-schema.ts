@@ -5,6 +5,12 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 	function* () {
 		const sql = yield* SqlClient.SqlClient;
 		yield* sql`
+		CREATE TABLE app_state (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)
+	`;
+		yield* sql`
 		CREATE TABLE chats (
 			id TEXT PRIMARY KEY,
 			project_id TEXT,
@@ -32,6 +38,7 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 			status TEXT NOT NULL,
 			archived_at TEXT,
 			cursor TEXT,
+			provider_event_cursor TEXT,
 			resume_strategy TEXT NOT NULL,
 			runtime_mode TEXT NOT NULL,
 			agents_json TEXT,
@@ -42,8 +49,21 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 			permission_mode TEXT NOT NULL,
 			tool_search INTEGER NOT NULL,
 			queue_paused INTEGER NOT NULL DEFAULT 0,
+			current_turn_id TEXT,
+			current_turn_phase TEXT,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
+		)
+	`;
+		yield* sql`
+		CREATE TABLE queued_messages (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			queue_order INTEGER NOT NULL,
+			input_json TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			ready INTEGER NOT NULL DEFAULT 1
 		)
 	`;
 		yield* sql`
@@ -56,7 +76,9 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 			content_json TEXT NOT NULL,
 			parent_item_id TEXT,
 			created_at TEXT NOT NULL,
-			sequence INTEGER NOT NULL
+			sequence INTEGER NOT NULL,
+			checkpoint_revision INTEGER,
+			checkpoint_final INTEGER
 		)
 	`;
 		yield* sql`

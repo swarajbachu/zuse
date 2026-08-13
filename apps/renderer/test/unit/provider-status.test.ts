@@ -11,8 +11,16 @@ const toast = vi.hoisted(() => ({
 }));
 
 vi.mock("../../src/lib/rpc-client.ts", () => ({
-	getRpcClient: async () => ({
-		"provider.availability": rpc.availability,
+	LOCAL_ENVIRONMENT_KEY: "local",
+	getActiveEnvironment: () => "local",
+}));
+
+vi.mock("../../src/lib/environment-shell-client-bus.ts", () => ({
+	dispatchEnvironmentShellCommand: async ({ kind, payload }: any) => ({
+		result:
+			kind === "provider.availability"
+				? await Effect.runPromise(rpc.availability(payload))
+				: undefined,
 	}),
 }));
 

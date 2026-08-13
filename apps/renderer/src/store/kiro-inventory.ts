@@ -1,10 +1,11 @@
 import type { KiroInventory } from "@zuse/contracts";
-import { Effect } from "effect";
+import { CommandId, EnvironmentId } from "@zuse/contracts";
 
 import { formatError } from "../lib/format-error.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
+import { useEnvironmentCatalogStore } from "./environment-catalog.ts";
 
 /**
  * Renderer cache of Kiro's live model catalog (control-plane
@@ -47,8 +48,17 @@ const sameInventory = (a: KiroInventory | null, b: KiroInventory): boolean => {
 };
 
 const fetchInventory = async (): Promise<KiroInventory> => {
-	const client = await getRpcClient();
-	return Effect.runPromise(client["provider.kiro.inventory"]({}));
+	const environmentId = EnvironmentId.make(
+		useEnvironmentCatalogStore.getState().activeEnvironmentId,
+	);
+	return (
+		await dispatchEnvironmentShellCommand<{}, KiroInventory>({
+			environmentId,
+			kind: "provider.kiro.inventory",
+			commandId: CommandId.make(`kiro-inventory:${crypto.randomUUID()}`),
+			payload: {},
+		})
+	).result;
 };
 
 export const useKiroInventory = create<State>((set, get) => ({

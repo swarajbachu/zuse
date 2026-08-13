@@ -20,6 +20,7 @@ export type SessionReadRecord = {
 	readonly providerId: string | null;
 	readonly model: string | null;
 	readonly cursor: string | null;
+	readonly providerEventCursor: string | null;
 	readonly resumeStrategy: string | null;
 	readonly runtimeMode: string | null;
 	readonly agentsJson: string | null;
@@ -45,6 +46,8 @@ export type MessageReadRecord = {
 	readonly parentItemId: string | null;
 	readonly createdAt: number;
 	readonly sequence: number;
+	readonly checkpointRevision: number | null;
+	readonly checkpointFinal: boolean | null;
 };
 
 export interface SessionProjectionWriter {
@@ -131,6 +134,7 @@ export class InMemorySessionReadModel
 						providerId: event.providerId ?? null,
 						model: event.model ?? null,
 						cursor: event.cursor ?? null,
+						providerEventCursor: null,
 						resumeStrategy: event.resumeStrategy ?? null,
 						runtimeMode: event.runtimeMode ?? null,
 						agentsJson: event.agentsJson ?? null,
@@ -175,6 +179,7 @@ export class InMemorySessionReadModel
 						providerId: event.providerId,
 						model: event.model,
 						cursor: null,
+						providerEventCursor: null,
 						resumeStrategy: "none",
 					};
 					break;
@@ -189,6 +194,7 @@ export class InMemorySessionReadModel
 						...next,
 						worktreeId: event.worktreeId,
 						cursor: null,
+						providerEventCursor: null,
 						resumeStrategy: "none",
 					};
 					break;
@@ -199,6 +205,10 @@ export class InMemorySessionReadModel
 					next = {
 						...next,
 						cursor: event.cursor,
+						providerEventCursor:
+							event.providerEventCursor === undefined
+								? next.providerEventCursor
+								: event.providerEventCursor,
 						resumeStrategy: event.resumeStrategy,
 					};
 					break;
@@ -221,22 +231,36 @@ export class InMemorySessionReadModel
 				case "TurnSettled":
 					next = { ...next, status: "idle" };
 					break;
-				case "MessagePersisted":
-					if (!this.messageRecords.has(event.messageId)) {
-						this.messageRecords.set(event.messageId, {
-							messageId: event.messageId,
-							sessionId: record.streamId,
-							turnId: event.turnId,
-							role: event.role,
-							kind: event.kind,
-							contentJson: event.contentJson,
-							parentItemId: event.parentItemId,
-							createdAt: event.createdAt,
-							sequence: record.sequence,
-						});
+				case "MessagePersisted": {
+					const existingMessage = this.messageRecords.get(event.messageId);
+					if (
+						existingMessage?.checkpointFinal === true ||
+						(event.checkpointRevision === undefined &&
+							existingMessage?.checkpointRevision !== null &&
+							existingMessage?.checkpointRevision !== undefined) ||
+						(event.checkpointRevision !== undefined &&
+							existingMessage?.checkpointRevision !== null &&
+							existingMessage?.checkpointRevision !== undefined &&
+							event.checkpointRevision <= existingMessage.checkpointRevision)
+					) {
+						break;
 					}
+					this.messageRecords.set(event.messageId, {
+						messageId: event.messageId,
+						sessionId: record.streamId,
+						turnId: event.turnId,
+						role: event.role,
+						kind: event.kind,
+						contentJson: event.contentJson,
+						parentItemId: event.parentItemId,
+						createdAt: existingMessage?.createdAt ?? event.createdAt,
+						sequence: existingMessage?.sequence ?? record.sequence,
+						checkpointRevision: event.checkpointRevision ?? null,
+						checkpointFinal: event.checkpointFinal ?? null,
+					});
 					next = { ...next, lastMessageAt: event.createdAt };
 					break;
+				}
 				case "ProviderAttached":
 					next = { ...next, providerId: event.providerId };
 					break;

@@ -1,6 +1,4 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Loading02Icon } from "@zuse/icons/solid-rounded";
-import { GitBranchIcon } from "@zuse/icons/stroke-rounded";
 import type {
 	FolderId,
 	ForkDestination,
@@ -8,9 +6,12 @@ import type {
 	SessionId,
 	Worktree,
 } from "@zuse/contracts";
+import { Loading02Icon } from "@zuse/icons/solid-rounded";
+import { GitBranchIcon } from "@zuse/icons/stroke-rounded";
 import { useState } from "react";
 
-import { getSessionById, useSessionsStore } from "../store/sessions.ts";
+import { activeSessionById } from "../lib/environment-entities.ts";
+import { useSessionsStore } from "../store/sessions.ts";
 import { useWorktreesStore } from "../store/worktrees.ts";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu.tsx";
 import { toastManager } from "./ui/toast.tsx";
@@ -82,7 +83,7 @@ export function ForkButton({
 		try {
 			if (destination === "chat") {
 				if (projectId === null) {
-					const source = getSessionById(sourceSessionId);
+					const source = activeSessionById(sourceSessionId);
 					projectId = source?.projectId ?? null;
 				}
 				if (projectId === null) {

@@ -1,21 +1,19 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { EnvironmentId } from "@zuse/contracts";
 import { CloudIcon, RefreshIcon } from "@zuse/icons/solid-rounded";
 import { deriveCloudChatActivity } from "../lib/cloud-chat-activity.ts";
 import {
 	type CloudConnectionPresentation,
 	cloudConnectionPresentation,
 } from "../lib/cloud-connection-presentation.ts";
-import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
-import { useChatsStore } from "../store/chats.ts";
 import {
 	cloudSummaryForChat,
-	useCloudExecutionStore,
-} from "../store/cloud-chat-registry.ts";
-import {
-	ensureCloudWorkspaceAttached,
-	useCloudChatsStore,
-} from "../store/cloud-chats.ts";
-import { useSessionRuntimeStore } from "../store/session-runtime.ts";
+	useCloudChatCatalogStore,
+} from "../lib/cloud-workspace-catalog.ts";
+import { ensureCloudWorkspaceAttached } from "../lib/cloud-workspaces.ts";
+import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
+import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
+import { useChatsStore } from "../store/chats.ts";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner.tsx";
 
@@ -35,10 +33,6 @@ const copy: Record<
 		title: "Reconnecting",
 		detail: "Compute is online; Zuse is attaching securely.",
 	},
-	queued: {
-		title: "Sending message",
-		detail: "Waiting for the connected workspace to accept it.",
-	},
 	updating: {
 		title: "Updating cloud runtime",
 		detail: "Zuse will reconnect after the compatible runtime starts.",
@@ -53,33 +47,27 @@ export function CloudConnectionNotice() {
 	const selectedChatId = useChatsStore((state) => state.selectedChatId);
 	const registered =
 		selectedChatId === null ? null : cloudSummaryForChat(selectedChatId);
-	const summary = useCloudChatsStore((state) =>
+	const summary = useCloudChatCatalogStore((state) =>
 		selectedChatId === null
 			? null
 			: (state.summaries.find((item) => item.chatId === selectedChatId) ??
 				registered),
 	);
-	const attachment = useCloudExecutionStore((state) =>
-		summary === null
-			? "detached"
-			: (state.stateByWorkspace[summary.workspaceId] ?? "detached"),
+	const shell = useEnvironmentShellResource(
+		summary === null ? null : EnvironmentId.make(summary.workspaceId),
+		"cache-only",
 	);
-	const command = useCloudChatsStore((state) =>
-		summary === null
-			? null
-			: (state.commandByWorkspace[summary.workspaceId]?.state ?? null),
+	const timeline = useOptionalRendererSessionTimeline(
+		summary?.initialSessionId ?? null,
+		"connect",
+		summary === null ? null : EnvironmentId.make(summary.workspaceId),
 	);
-	const runtime = useSessionRuntimeStore((state) =>
-		summary === null
-			? "idle"
-			: effectiveSessionRuntimeState(state.bySession[summary.initialSessionId]),
-	);
+	const runtime = timeline.runtime;
 	if (summary === null) return null;
 	const activity = deriveCloudChatActivity({
 		summary,
-		attachment,
+		connection: shell.connection,
 		runtime,
-		command,
 	});
 	const presentation = cloudConnectionPresentation(summary, activity);
 	if (presentation === "hidden") return null;
@@ -87,7 +75,6 @@ export function CloudConnectionNotice() {
 	const busy =
 		presentation === "resuming" ||
 		presentation === "reconnecting" ||
-		presentation === "queued" ||
 		presentation === "updating";
 	return (
 		<div

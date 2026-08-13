@@ -1,0 +1,383 @@
+import type { EnvironmentId } from "@zuse/contracts";
+import { Effect } from "effect";
+
+import type { ConnectionPhase, ConnectionView } from "./resource-state";
+
+export type ResourceActivation = "cache-only" | "connect" | "wake";
+type NetworkActivation = Exclude<ResourceActivation, "cache-only">;
+
+export type ResolvedEnvironment<Client> = Readonly<{
+	client: Client;
+	dispose: () => Promise<void>;
+	/** Bind transport callbacks only after this session becomes the generation. */
+	onActivated?: (generation: number) => void;
+}>;
+
+export type EnvironmentFault = Readonly<{
+	phase: Extract<
+		ConnectionPhase,
+		"offline" | "blocked-auth" | "update-required" | "revoked" | "failed"
+	>;
+	message: string;
+}>;
+
+export interface EnvironmentResolver<Client> {
+	readonly resolve: (
+		environmentId: EnvironmentId,
+		activation: NetworkActivation,
+	) => Effect.Effect<ResolvedEnvironment<Client>, EnvironmentFault>;
+}
+
+export type EnvironmentRuntimeOptions = Readonly<{
+	isOnline?: () => boolean;
+	schedule?: (delayMs: number, task: () => void) => () => void;
+	random?: () => number;
+}>;
+
+export type EnvironmentRuntimeLease<Client> = Readonly<{
+	activate: (activation: ResourceActivation) => Promise<Client | null>;
+	release: () => void;
+}>;
+
+const activationRank = (activation: ResourceActivation): number => {
+	switch (activation) {
+		case "cache-only":
+			return 0;
+		case "connect":
+			return 1;
+		case "wake":
+			return 2;
+	}
+};
+
+const strongestActivation = (
+	left: ResourceActivation,
+	right: ResourceActivation,
+): ResourceActivation =>
+	activationRank(left) >= activationRank(right) ? left : right;
+
+const failureMessage = (cause: unknown): string =>
+	cause instanceof Error ? cause.message : String(cause);
+
+export class EnvironmentRuntime<Client> {
+	private static readonly INITIAL_RETRY_MS = 500;
+	/**
+	 * A retained running environment must recover inside the reconnect SLO even
+	 * after a long outage. Cold-start backoff belongs to the environment
+	 * resolver/control plane; the disposable client transport never waits more
+	 * than two seconds before probing again.
+	 */
+	private static readonly MAX_RETRY_MS = 2_000;
+	private current: ResolvedEnvironment<Client> | null = null;
+	private achieved: ResourceActivation = "cache-only";
+	private desired: ResourceActivation = "cache-only";
+	private inFlight: Promise<Client | null> | null = null;
+	private disposeInFlight: Promise<void> = Promise.resolve();
+	private disposed = false;
+	private retryAttempt = 0;
+	private retryCancel: (() => void) | null = null;
+	private readonly listeners = new Set<(view: ConnectionView) => void>();
+	private readonly retainers = new Map<number, ResourceActivation>();
+	private nextRetainer = 0;
+	private state: ConnectionView;
+
+	constructor(
+		readonly environmentId: EnvironmentId,
+		private readonly resolver: EnvironmentResolver<Client>,
+		private readonly options: EnvironmentRuntimeOptions = {},
+	) {
+		this.state = {
+			environmentId,
+			phase: "dormant",
+			generation: 0,
+			error: null,
+		};
+	}
+
+	snapshot(): ConnectionView {
+		return this.state;
+	}
+
+	currentClient(): Client | null {
+		return this.current?.client ?? null;
+	}
+
+	subscribe(listener: (view: ConnectionView) => void): () => void {
+		this.listeners.add(listener);
+		listener(this.state);
+		return () => this.listeners.delete(listener);
+	}
+
+	retain(activation: ResourceActivation): EnvironmentRuntimeLease<Client> {
+		const id = ++this.nextRetainer;
+		this.retainers.set(id, activation);
+		let released = false;
+		void this.reconcileActivation().catch(() => undefined);
+		return {
+			activate: (next) => {
+				if (released) return Promise.resolve(null);
+				this.retainers.set(id, next);
+				return this.reconcileActivation();
+			},
+			release: () => {
+				if (released) return;
+				released = true;
+				this.retainers.delete(id);
+				void this.reconcileActivation().catch(() => undefined);
+			},
+		};
+	}
+
+	private reconcileActivation(): Promise<Client | null> {
+		if (this.disposed) return Promise.reject(new Error("runtime disposed"));
+		const previousDesired = this.desired;
+		this.desired = this.strongestRetainedActivation();
+		if (this.desired === "cache-only") {
+			this.clearRetry();
+			this.achieved = "cache-only";
+			this.closeCurrent();
+			this.emit({ phase: "dormant", error: null });
+			return Promise.resolve(null);
+		}
+		// Removing or weakening a retainer must not bypass the supervisor's
+		// scheduled backoff and manufacture a competing reconnect. A stronger
+		// activation is an explicit user demand and may retry immediately.
+		if (
+			this.retryCancel !== null &&
+			activationRank(this.desired) <= activationRank(previousDesired)
+		) {
+			return Promise.resolve(this.current?.client ?? null);
+		}
+		this.clearRetry();
+		if ((this.options.isOnline?.() ?? true) === false) {
+			this.emit({ phase: "offline", error: null });
+			this.scheduleRetry();
+			return Promise.reject(new Error("offline"));
+		}
+		if (this.current !== null) {
+			// A responsive runtime connection proves the environment is already
+			// awake. Escalating a retained surface from connect to wake must not
+			// tear down that connection and manufacture a new generation.
+			this.achieved = strongestActivation(this.achieved, this.desired);
+			return Promise.resolve(this.current.client);
+		}
+		if (this.inFlight !== null) return this.inFlight;
+		const pending = this.resolveDesired();
+		this.inFlight = pending;
+		void pending.then(
+			() => {
+				if (this.inFlight === pending) this.inFlight = null;
+			},
+			() => {
+				if (this.inFlight === pending) this.inFlight = null;
+			},
+		);
+		return pending;
+	}
+
+	reportFault(fault: EnvironmentFault, expectedGeneration: number): boolean {
+		if (this.disposed || expectedGeneration !== this.state.generation) {
+			return false;
+		}
+		this.achieved = "cache-only";
+		this.desired = this.strongestRetainedActivation();
+		this.closeCurrent();
+		this.emit({ phase: fault.phase, error: fault.message });
+		if (fault.phase === "offline" || fault.phase === "failed") {
+			this.scheduleRetry();
+		}
+		return true;
+	}
+
+	retryNow(): Promise<Client | null> {
+		this.retryAttempt = 0;
+		this.clearRetry();
+		return this.reconcileActivation();
+	}
+
+	async dispose(): Promise<void> {
+		if (this.disposed) return;
+		this.disposed = true;
+		this.desired = "cache-only";
+		this.clearRetry();
+		this.retainers.clear();
+		this.closeCurrent();
+		await this.disposeInFlight;
+		this.listeners.clear();
+	}
+
+	private async resolveDesired(): Promise<Client | null> {
+		while (
+			!this.disposed &&
+			activationRank(this.achieved) < activationRank(this.desired)
+		) {
+			if (this.current !== null) {
+				this.closeCurrent();
+				this.achieved = "cache-only";
+			}
+			await this.disposeInFlight;
+			const requested = this.desired as NetworkActivation;
+			this.emit({
+				phase:
+					requested === "wake"
+						? "waking"
+						: this.state.generation === 0
+							? "connecting"
+							: "reconnecting",
+				error: null,
+			});
+			const outcome = await Effect.runPromise(
+				this.resolver.resolve(this.environmentId, requested).pipe(
+					Effect.match({
+						onFailure: (fault) => ({ ok: false as const, fault }),
+						onSuccess: (resolved) => ({ ok: true as const, resolved }),
+					}),
+				),
+			);
+			if (this.disposed || this.desired === "cache-only") {
+				if (outcome.ok) {
+					await outcome.resolved.dispose().catch(() => undefined);
+				}
+				this.achieved = "cache-only";
+				if (!this.disposed) this.emit({ phase: "dormant", error: null });
+				return null;
+			}
+			if (!outcome.ok) {
+				this.achieved = "cache-only";
+				this.emit({ phase: outcome.fault.phase, error: outcome.fault.message });
+				if (
+					outcome.fault.phase === "offline" ||
+					outcome.fault.phase === "failed"
+				) {
+					this.scheduleRetry();
+				} else {
+					this.desired = "cache-only";
+				}
+				throw new Error(outcome.fault.message);
+			}
+			this.current = outcome.resolved;
+			// Credit only the resolver activation that actually completed. A wake
+			// retainer may arrive while a weaker connect is in flight; marking the
+			// weaker result as wake-capable would let clients run before the resolver's
+			// wake side effect ever executes.
+			this.achieved = requested;
+			if (activationRank(this.achieved) < activationRank(this.desired)) {
+				continue;
+			}
+			this.retryAttempt = 0;
+			this.emit({
+				phase: "connected",
+				generation: this.state.generation + 1,
+				error: null,
+			});
+			outcome.resolved.onActivated?.(this.state.generation);
+		}
+		return this.current?.client ?? null;
+	}
+
+	private closeCurrent(): void {
+		const current = this.current;
+		this.current = null;
+		if (current !== null) {
+			this.disposeInFlight = this.disposeInFlight
+				.then(current.dispose)
+				.catch(() => undefined);
+		}
+	}
+
+	private emit(patch: Partial<Omit<ConnectionView, "environmentId">>): void {
+		this.state = { ...this.state, ...patch };
+		for (const listener of this.listeners) listener(this.state);
+	}
+
+	private scheduleRetry(): void {
+		if (
+			this.disposed ||
+			this.desired === "cache-only" ||
+			this.retryCancel !== null
+		) {
+			return;
+		}
+		const schedule =
+			this.options.schedule ??
+			((delayMs: number, task: () => void) => {
+				const timer = setTimeout(task, delayMs);
+				return () => clearTimeout(timer);
+			});
+		const random = this.options.random ?? Math.random;
+		const baseDelay = Math.min(
+			EnvironmentRuntime.MAX_RETRY_MS,
+			EnvironmentRuntime.INITIAL_RETRY_MS * 2 ** this.retryAttempt,
+		);
+		this.retryAttempt += 1;
+		const delayMs = Math.round(baseDelay * (0.5 + random() * 0.5));
+		this.retryCancel = schedule(delayMs, () => {
+			this.retryCancel = null;
+			if (this.disposed || this.desired === "cache-only") return;
+			void this.reconcileActivation().catch(() => undefined);
+		});
+	}
+
+	private strongestRetainedActivation(): ResourceActivation {
+		let result: ResourceActivation = "cache-only";
+		for (const activation of this.retainers.values()) {
+			result = strongestActivation(result, activation);
+			if (result === "wake") return result;
+		}
+		return result;
+	}
+
+	private clearRetry(): void {
+		this.retryCancel?.();
+		this.retryCancel = null;
+	}
+}
+
+export class EnvironmentRuntimeRegistry<Client> {
+	private readonly runtimes = new Map<
+		EnvironmentId,
+		EnvironmentRuntime<Client>
+	>();
+
+	constructor(
+		private readonly resolver: EnvironmentResolver<Client>,
+		private readonly options: EnvironmentRuntimeOptions = {},
+	) {}
+
+	get(environmentId: EnvironmentId): EnvironmentRuntime<Client> {
+		let runtime = this.runtimes.get(environmentId);
+		if (runtime === undefined) {
+			runtime = new EnvironmentRuntime(
+				environmentId,
+				this.resolver,
+				this.options,
+			);
+			this.runtimes.set(environmentId, runtime);
+		}
+		return runtime;
+	}
+
+	snapshots(): readonly ConnectionView[] {
+		return [...this.runtimes.values()].map((runtime) => runtime.snapshot());
+	}
+
+	/** Immediately wake every retained runtime after an OS/network online edge. */
+	retryRetained(): void {
+		for (const runtime of this.runtimes.values()) {
+			if (runtime.snapshot().phase !== "dormant") {
+				void runtime.retryNow().catch(() => undefined);
+			}
+		}
+	}
+
+	async dispose(): Promise<void> {
+		const runtimes = [...this.runtimes.values()];
+		this.runtimes.clear();
+		await Promise.all(runtimes.map((runtime) => runtime.dispose()));
+	}
+}
+
+export const environmentFault = (
+	phase: EnvironmentFault["phase"],
+	cause: unknown,
+): EnvironmentFault => ({ phase, message: failureMessage(cause) });

@@ -4,14 +4,13 @@ import type {
 	RelayLinkStatus,
 	TailnetShareState,
 } from "@zuse/contracts";
-import { Effect } from "effect";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
 	openExternal,
 	rendererPlatformCapabilities,
 } from "../../lib/platform-capabilities.ts";
-import { getRpcClient, LOCAL_ENVIRONMENT_KEY } from "../../lib/rpc-client.ts";
+import { dispatchLocalDeviceCommand } from "../../lib/local-device-client-bus.ts";
 import { Spinner } from "../ui/spinner.tsx";
 import {
 	AccessConfirmDialogs,
@@ -47,13 +46,15 @@ export function DevicesPane() {
 
 	const refresh = useCallback(async () => {
 		const bridge = window.zuse ?? window.memoize;
-		const client = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
 		const [networkResult, tailnetResult, relayResult, tokenResult] =
 			await Promise.allSettled([
 				bridge?.network?.getAccessState() ?? Promise.resolve(null),
 				bridge?.network?.getTailnetShareState() ?? Promise.resolve(null),
-				Effect.runPromise(client["relay.status"]()),
-				Effect.runPromise(client["pairing.listTokens"]({})),
+				dispatchLocalDeviceCommand<{}, RelayLinkStatus>("relay.status", {}),
+				dispatchLocalDeviceCommand<{}, ReadonlyArray<AuthTokenSummary>>(
+					"pairing.listTokens",
+					{},
+				),
 			]);
 		if (networkResult.status === "fulfilled") setNetwork(networkResult.value);
 		if (tailnetResult.status === "fulfilled") setTailnet(tailnetResult.value);
@@ -131,13 +132,13 @@ export function DevicesPane() {
 		actionInFlightRef.current = true;
 		setBusy(true);
 		try {
-			const client = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
 			setStatus(
-				await Effect.runPromise(
-					client["relay.link"]({
-						relayUrl: DEFAULT_RELAY_URL.trim().replace(/\/$/, ""),
-					}),
-				),
+				await dispatchLocalDeviceCommand<
+					{ readonly relayUrl: string },
+					RelayLinkStatus
+				>("relay.link", {
+					relayUrl: DEFAULT_RELAY_URL.trim().replace(/\/$/, ""),
+				}),
 			);
 			return true;
 		} catch (cause) {
@@ -154,8 +155,7 @@ export function DevicesPane() {
 		actionInFlightRef.current = true;
 		setBusy(true);
 		try {
-			const client = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
-			await Effect.runPromise(client["relay.unlink"]());
+			await dispatchLocalDeviceCommand<{}, unknown>("relay.unlink", {});
 			setStatus(null);
 			return true;
 		} catch (cause) {

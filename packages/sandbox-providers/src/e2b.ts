@@ -646,6 +646,19 @@ export const makeE2bSandboxProvider = (
 				SnapshotResponse,
 				{ name },
 			).pipe(Effect.map((response) => response.snapshotID)),
+		inspectSnapshot: (snapshotId) =>
+			request(
+				"GET",
+				`/templates/${encodeURIComponent(snapshotId)}`,
+				Schema.Unknown,
+			).pipe(
+				Effect.as(true),
+				Effect.catchTag("SandboxProviderError", (error) =>
+					error.code === "not-found"
+						? Effect.succeed(false)
+						: Effect.fail(error),
+				),
+			),
 		kill: (providerSandboxId) =>
 			requestVoid(
 				"DELETE",

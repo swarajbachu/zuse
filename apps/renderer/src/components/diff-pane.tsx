@@ -1,11 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	ArrowTurnDownIcon,
-	Loading02Icon,
-	MinusSignIcon,
-	Tick02Icon,
-	Upload01Icon,
-} from "@zuse/icons/solid-rounded";
+import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import type {
 	CodeAnnotation,
 	FolderId,
@@ -16,7 +10,14 @@ import type {
 	GitReviewPatch,
 	WorktreeId,
 } from "@zuse/contracts";
-import { Effect } from "effect";
+import { CommandId } from "@zuse/contracts";
+import {
+	ArrowTurnDownIcon,
+	Loading02Icon,
+	MinusSignIcon,
+	Tick02Icon,
+	Upload01Icon,
+} from "@zuse/icons/solid-rounded";
 import {
 	FileWarning,
 	MessageSquareText,
@@ -25,13 +26,12 @@ import {
 	Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { getActiveEnvironment, getRpcClient } from "../lib/rpc-client.ts";
+import {
+	dispatchGitWorkspaceCommand,
+	refreshGitWorkspace,
+	useGitWorkspaceResource,
+} from "../lib/git-workspace-client-bus.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
-import { gitChangesKey, useGitChangesStore } from "../store/git-changes.ts";
-import { gitReviewKey, useGitReviewStore } from "../store/git-review.ts";
-import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
-import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
-import { usePrStateStore } from "../store/pr-state.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import {
@@ -75,43 +75,22 @@ type RevertRequest =
  * worktree sees its own branch's changes, not the main checkout.
  */
 export function DiffPane({
-	folderId,
-	worktreeId,
+	executionRef,
 }: {
-	folderId: FolderId | null;
-	worktreeId: WorktreeId | null;
+	executionRef: ExecutionRef | null;
 }) {
-	const status = useGitStatusStore((s) =>
-		folderId ? (s.byKey[gitStatusKey(folderId, worktreeId)] ?? null) : null,
-	);
-	const changes = useGitChangesStore((s) =>
-		folderId ? (s.byKey[gitChangesKey(folderId, worktreeId)] ?? null) : null,
-	);
-	const changesErrorTag = useGitChangesStore((s) =>
-		folderId
-			? (s.errorTagByKey[gitChangesKey(folderId, worktreeId)] ?? null)
-			: null,
-	);
-	const review = useGitReviewStore((s) =>
-		folderId ? (s.summaries[gitReviewKey(folderId, worktreeId)] ?? null) : null,
-	);
-	const reviewLoading = useGitReviewStore((s) =>
-		folderId ? s.loading[gitReviewKey(folderId, worktreeId)] === true : false,
-	);
-	const reviewPatchesByKey = useGitReviewStore((s) => s.patches);
-	const reviewPatches = folderId
-		? (reviewPatchesByKey[gitReviewKey(folderId, worktreeId)] ??
-			EMPTY_REVIEW_PATCHES)
-		: EMPTY_REVIEW_PATCHES;
-	const refreshReview = useGitReviewStore((s) => s.refresh);
-	const refreshChanges = useGitChangesStore((s) => s.refresh);
-	const refreshStatus = useGitStatusStore((s) => s.refresh);
-	const refreshPrState = usePrStateStore((s) => s.refresh);
-	const prDetails = usePrDetailsStore((s) =>
-		folderId ? (s.byKey[prDetailsKey(folderId, worktreeId)] ?? null) : null,
-	);
-	const hydratePrDetails = usePrDetailsStore((s) => s.hydrate);
-	const refreshPrDetails = usePrDetailsStore((s) => s.refresh);
+	const workspaceView = useGitWorkspaceResource(executionRef, "connect");
+	const workspace = workspaceView.data;
+	const reviewData = workspace;
+	const status = workspace?.status ?? null;
+	const changes = workspace?.changes ?? null;
+	const changesErrorTag = workspace?.error?.tag ?? null;
+	const review = reviewData?.summary ?? null;
+	const reviewLoading = workspaceView.sync === "synchronizing";
+	const reviewPatches = reviewData?.patches ?? EMPTY_REVIEW_PATCHES;
+	const prDetails = reviewData?.prDetails ?? null;
+	const folderId = executionRef?.folderId ?? null;
+	const worktreeId = executionRef?.worktreeId ?? null;
 	const openChanges = useUiStore((s) => s.openChanges);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const annotationsBySession = useAnnotationsStore((s) => s.bySession);
@@ -144,20 +123,7 @@ export function DiffPane({
 			window.removeEventListener("zuse-review-viewed", refreshViewed);
 	}, []);
 
-	// Poll the working tree on the same 5s cadence the top bar uses for
-	// `git status`, so the Changes tab stays in sync with the dirty-count badge.
-	useEffect(() => {
-		if (folderId === null) return;
-		void refreshChanges(folderId, worktreeId);
-		void refreshReview(folderId, worktreeId);
-		void hydratePrDetails(folderId, worktreeId);
-		const id = window.setInterval(() => {
-			void refreshChanges(folderId, worktreeId);
-		}, 5000);
-		return () => window.clearInterval(id);
-	}, [folderId, worktreeId, hydratePrDetails, refreshChanges, refreshReview]);
-
-	if (folderId === null) {
+	if (executionRef === null || folderId === null) {
 		return (
 			<Indicator
 				title="No project selected"
@@ -166,15 +132,7 @@ export function DiffPane({
 		);
 	}
 
-	const refreshAll = async () => {
-		await Promise.all([
-			refreshChanges(folderId, worktreeId),
-			refreshStatus(folderId, worktreeId),
-			refreshPrState(getActiveEnvironment(), folderId, worktreeId),
-			refreshPrDetails(folderId, worktreeId),
-			refreshReview(folderId, worktreeId),
-		]);
-	};
+	const refreshAll = () => refreshGitWorkspace(executionRef);
 
 	const tracked = (changes ?? []).filter(
 		(c) =>
@@ -189,21 +147,26 @@ export function DiffPane({
 		if (request === null || revertBusy) return;
 		setRevertBusy(true);
 		try {
-			const client = await getRpcClient();
 			if (request.type === "all") {
-				await Effect.runPromise(
-					client["git.revertAll"]({ folderId, worktreeId }),
-				);
+				await dispatchGitWorkspaceCommand({
+					ref: executionRef,
+					kind: "git.revertAll",
+					commandId: CommandId.make(`git-revert-all:${crypto.randomUUID()}`),
+					payload: { folderId, worktreeId },
+				});
 			} else {
-				await Effect.runPromise(
-					client["git.revertFile"]({
+				await dispatchGitWorkspaceCommand({
+					ref: executionRef,
+					kind: "git.revertFile",
+					commandId: CommandId.make(`git-revert:${crypto.randomUUID()}`),
+					payload: {
 						folderId,
 						worktreeId,
 						path: request.path,
 						oldPath: request.oldPath,
 						kind: request.kind,
-					}),
-				);
+					},
+				});
 			}
 			setRevertRequest(null);
 			await refreshAll();
@@ -216,7 +179,7 @@ export function DiffPane({
 
 	// Which files are included in the next commit. We track an *exclude* set
 	// (paths the user unchecked) so newly-appeared files default to selected and
-	// the selection survives the 5s poll without re-adding every path.
+	// the selection survives resource invalidations without re-adding every path.
 	const committable = [...tracked, ...untracked];
 	const committablePaths = committable.map((c) => c.path);
 	const selectedEntries = committable.filter((c) => !excluded.has(c.path));
@@ -248,7 +211,7 @@ export function DiffPane({
 			return {};
 		}
 	})();
-	const reviewKey = gitReviewKey(folderId, worktreeId);
+	const reviewKey = `${executionRef.environmentId}:${folderId}:${worktreeId ?? "main"}`;
 	const viewedPaths = new Set(
 		(review?.files ?? [])
 			.filter((file) => {
@@ -328,7 +291,7 @@ export function DiffPane({
 						<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
 							{changesErrorTag === "GitNotARepoError" ? (
 								<div className="py-3">
-									<GitInitCta folderId={folderId} worktreeId={worktreeId} />
+									<GitInitCta executionRef={executionRef} />
 								</div>
 							) : reviewLoading && review === null ? (
 								<Indicator title="Loading changes" loading />
@@ -493,8 +456,10 @@ export function DiffPane({
 			</div>
 
 			<CommitComposer
+				environmentId={executionRef.environmentId}
 				folderId={folderId}
 				worktreeId={worktreeId}
+				rootPath={executionRef.rootPath}
 				branch={status?.branch ?? null}
 				ahead={status?.ahead ?? 0}
 				paths={commitPaths}
@@ -809,8 +774,10 @@ function CheckBox({
  * user controls exactly what goes into each commit.
  */
 function CommitComposer({
+	environmentId,
 	folderId,
 	worktreeId,
+	rootPath,
 	branch,
 	ahead,
 	paths,
@@ -820,8 +787,10 @@ function CommitComposer({
 	onAfterCommit,
 	onAfterPush,
 }: {
+	environmentId: ExecutionRef["environmentId"];
 	folderId: FolderId;
 	worktreeId: WorktreeId | null;
+	rootPath: string;
 	branch: string | null;
 	ahead: number;
 	paths: ReadonlyArray<string>;
@@ -836,6 +805,10 @@ function CommitComposer({
 	const [error, setError] = useState<string | null>(null);
 
 	const canCommit = selectedCount > 0;
+	const executionRef = useMemo(
+		() => ({ environmentId, folderId, worktreeId, rootPath }),
+		[environmentId, folderId, rootPath, worktreeId],
+	);
 
 	const onCommit = async () => {
 		const trimmed = message.trim();
@@ -843,10 +816,12 @@ function CommitComposer({
 		setBusy("commit");
 		setError(null);
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["git.commit"]({ folderId, worktreeId, message: trimmed, paths }),
-			);
+			await dispatchGitWorkspaceCommand({
+				ref: executionRef,
+				kind: "git.commit",
+				commandId: CommandId.make(`git-commit:${crypto.randomUUID()}`),
+				payload: { folderId, worktreeId, message: trimmed, paths },
+			});
 			setMessage("");
 			await onAfterCommit();
 		} catch (err) {
@@ -861,8 +836,12 @@ function CommitComposer({
 		setBusy("push");
 		setError(null);
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(client["git.push"]({ folderId, worktreeId }));
+			await dispatchGitWorkspaceCommand({
+				ref: executionRef,
+				kind: "git.push",
+				commandId: CommandId.make(`git-push:${crypto.randomUUID()}`),
+				payload: { folderId, worktreeId },
+			});
 			await onAfterPush();
 		} catch (err) {
 			setError(formatErr(err));

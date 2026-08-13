@@ -23,6 +23,7 @@ import {
 	WorktreeId,
 } from "@zuse/contracts";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
@@ -32,13 +33,16 @@ import { SqlClient } from "effect/unstable/sql";
 import { AnalyticsService } from "../analytics/services/analytics-service.ts";
 import { ConfigStoreService } from "../config-store/services/config-store-service.ts";
 import {
-	timelineEventFromDomain,
-	timelineSnapshotFromEvents,
-} from "../conversation/core/conversation-timeline-projection.ts";
+	decodeChatStartupIntent,
+	persistChatStartupIntent,
+} from "../conversation/core/chat-startup-intent.ts";
+import { messageFromRecord } from "../conversation/core/conversation-records.ts";
+import { timelineEventFromDomain } from "../conversation/core/conversation-timeline-projection.ts";
 import {
 	ChatService,
 	MessageService,
 	QueueService,
+	QueueTransactionService,
 	SessionService,
 	TranscriptService,
 } from "../conversation/services/conversation-services.ts";
@@ -172,8 +176,7 @@ const KiroInventory = MemoizeRpcs.toLayerHandler(
 					(cause) =>
 						new AgentSessionStartError({
 							providerId: "kiro",
-							reason:
-								cause instanceof Error ? cause.message : String(cause),
+							reason: cause instanceof Error ? cause.message : String(cause),
 						}),
 				),
 			);
@@ -425,6 +428,7 @@ type ChatCreationOperationRow = {
 	readonly prompt: string | null;
 	readonly startup_input_json: string | null;
 	readonly startup_queue_id: string | null;
+	readonly startup_ready: number;
 	readonly workspace_policy: ChatCreationOperation["workspacePolicy"]["_tag"];
 	readonly worktree_id: string | null;
 	readonly status: ChatCreationOperation["status"];
@@ -453,6 +457,7 @@ const chatCreationOperationFromRow = (
 			? null
 			: ComposerInput.make(JSON.parse(row.startup_input_json)),
 	startupQueueId: row.startup_queue_id,
+	startupReady: row.startup_ready !== 0,
 	workspacePolicy:
 		row.workspace_policy === "fresh"
 			? { _tag: "fresh" }
@@ -472,7 +477,7 @@ const listChatCreationOperations = (projectId: string) =>
 		sql<ChatCreationOperationRow>`
 			SELECT operation_id, chat_id, initial_session_id, project_id,
 			       provider_id, model, title, runtime_mode, permission_mode,
-			       tool_search, prompt, startup_input_json, startup_queue_id,
+			       tool_search, prompt, startup_input_json, startup_queue_id, startup_ready,
 			       workspace_policy, worktree_id,
 			       status, error, created_at, updated_at
 			FROM chat_creation_operations
@@ -494,6 +499,7 @@ const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
 		Effect.gen(function* () {
 			const creationStartedAt = Date.now();
 			const svc = yield* ChatService;
+			const queueTransaction = yield* QueueTransactionService;
 			const analytics = yield* AnalyticsService;
 			const sql = yield* SqlClient.SqlClient;
 			const requestedPolicy =
@@ -531,11 +537,17 @@ const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
 				input.initialSessionId !== undefined
 			) {
 				const now = new Date().toISOString();
+				const requestedWorktreeId =
+					policy === "existing"
+						? input.workspacePolicy?._tag === "existing"
+							? input.workspacePolicy.worktreeId
+							: (input.worktreeId ?? null)
+						: null;
 				yield* sql`
 				INSERT INTO chat_creation_operations (
 					operation_id, chat_id, initial_session_id, project_id,
 					provider_id, model, title, runtime_mode, permission_mode,
-					tool_search, prompt, startup_input_json, startup_queue_id,
+					tool_search, prompt, startup_input_json, startup_queue_id, startup_ready,
 					workspace_policy, worktree_id,
 					status, error, created_at, updated_at
 				) VALUES (
@@ -546,7 +558,8 @@ const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
 					${input.startupInput?.text ?? null},
 					${input.startupInput === undefined ? null : JSON.stringify(input.startupInput)},
 					${input.startupQueueId ?? null},
-					${policy}, NULL,
+					${input.startupReady === false ? 0 : 1},
+					${policy}, ${requestedWorktreeId},
 					'pending', NULL, ${now}, ${now}
 				)
 				ON CONFLICT(operation_id) DO NOTHING
@@ -556,92 +569,122 @@ const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
 				input.operationId === undefined
 					? []
 					: yield* sql<{
+							readonly chat_id: string;
+							readonly initial_session_id: string;
+							readonly startup_input_json: string | null;
+							readonly startup_queue_id: string | null;
+							readonly startup_ready: number;
+							readonly workspace_policy: ChatCreationOperation["workspacePolicy"]["_tag"];
 							readonly worktree_id: string | null;
-							readonly status: string;
+							readonly status: ChatCreationOperation["status"];
 						}>`
-						SELECT worktree_id, status
+						SELECT chat_id, initial_session_id, startup_input_json,
+						       startup_queue_id, startup_ready, workspace_policy, worktree_id, status
 						FROM chat_creation_operations
 						WHERE operation_id = ${input.operationId}
 						LIMIT 1
 					`.pipe(Effect.orDie);
-			const durableWorktreeId = operationRows[0]?.worktree_id ?? null;
-			if (input.operationId !== undefined && policy === "main") {
+			const durableOperation = operationRows[0];
+			const durablePolicy = durableOperation?.workspace_policy ?? policy;
+			const durableWorktreeId = durableOperation?.worktree_id ?? null;
+			if (
+				input.operationId !== undefined &&
+				durablePolicy === "main" &&
+				durableOperation?.status !== "succeeded"
+			) {
 				yield* sql`
 					UPDATE chat_creation_operations
 					SET workspace_policy = 'main', worktree_id = NULL,
 					    updated_at = ${new Date().toISOString()}
-					WHERE operation_id = ${input.operationId}
+					WHERE operation_id = ${input.operationId} AND status <> 'succeeded'
 				`.pipe(Effect.orDie);
 			}
 			const worktreeId =
-				policy === "fresh"
-					? yield* Effect.gen(function* () {
-							const requestedId =
-								durableWorktreeId === null
-									? WorktreeId.make(crypto.randomUUID())
-									: WorktreeId.make(durableWorktreeId);
-							if (input.operationId !== undefined) {
-								yield* sql`
+				durablePolicy === "fresh"
+					? durableOperation?.status === "succeeded" &&
+						durableWorktreeId !== null
+						? WorktreeId.make(durableWorktreeId)
+						: yield* Effect.gen(function* () {
+								const requestedId =
+									durableWorktreeId === null
+										? WorktreeId.make(crypto.randomUUID())
+										: WorktreeId.make(durableWorktreeId);
+								if (input.operationId !== undefined) {
+									yield* sql`
 									UPDATE chat_creation_operations
 									SET worktree_id = ${requestedId},
 									    status = 'creating_workspace', error = NULL,
 									    updated_at = ${new Date().toISOString()}
 									WHERE operation_id = ${input.operationId}
 								`.pipe(Effect.orDie);
-							}
-							const created = yield* Effect.flatMap(
-								WorktreeService,
-								(worktrees) =>
-									worktrees.create(input.projectId, undefined, requestedId),
-							).pipe(
-								Effect.mapError(
-									(error) =>
-										new SessionStartError({
-											providerId: input.providerId,
-											reason:
-												"reason" in error
-													? String(error.reason)
-													: "The fresh worktree could not be created.",
-										}),
-								),
-								Effect.tapError((error) =>
-									input.operationId === undefined
-										? Effect.void
-										: sql`
+								}
+								const created = yield* Effect.flatMap(
+									WorktreeService,
+									(worktrees) =>
+										worktrees.create(input.projectId, undefined, requestedId),
+								).pipe(
+									Effect.mapError(
+										(error) =>
+											new SessionStartError({
+												providerId: input.providerId,
+												reason:
+													"reason" in error
+														? String(error.reason)
+														: "The fresh worktree could not be created.",
+											}),
+									),
+									Effect.tapError((error) =>
+										input.operationId === undefined
+											? Effect.void
+											: sql`
 												UPDATE chat_creation_operations
 												SET status = 'failed', error = ${error.reason},
 												    updated_at = ${new Date().toISOString()}
 												WHERE operation_id = ${input.operationId}
 											`.pipe(Effect.orDie),
-								),
-							);
-							if (input.operationId !== undefined) {
-								yield* sql`
+									),
+								);
+								if (input.operationId !== undefined) {
+									yield* sql`
 									UPDATE chat_creation_operations
 									SET worktree_id = ${created.id}, status = 'creating_chat',
 									    updated_at = ${new Date().toISOString()}
 									WHERE operation_id = ${input.operationId}
 								`.pipe(Effect.orDie);
-							}
-							return created.id;
-						})
-					: policy === "existing" && input.workspacePolicy?._tag === "existing"
-						? input.workspacePolicy.worktreeId
-						: policy === "main"
+								}
+								return created.id;
+							})
+					: durablePolicy === "existing"
+						? durableWorktreeId !== null
+							? WorktreeId.make(durableWorktreeId)
+							: input.workspacePolicy?._tag === "existing"
+								? input.workspacePolicy.worktreeId
+								: (input.worktreeId ?? null)
+						: durablePolicy === "main"
 							? null
 							: (input.worktreeId ?? null);
-			if (input.operationId !== undefined && policy !== "fresh") {
+			if (
+				input.operationId !== undefined &&
+				durablePolicy !== "fresh" &&
+				durableOperation?.status !== "succeeded"
+			) {
 				yield* sql`
-				UPDATE chat_creation_operations
-				SET worktree_id = ${worktreeId}, status = 'creating_chat',
-				    updated_at = ${new Date().toISOString()}
-				WHERE operation_id = ${input.operationId}
-			`.pipe(Effect.orDie);
+					UPDATE chat_creation_operations
+					SET worktree_id = ${worktreeId}, status = 'creating_chat',
+					    updated_at = ${new Date().toISOString()}
+					WHERE operation_id = ${input.operationId} AND status <> 'succeeded'
+				`.pipe(Effect.orDie);
 			}
 			const result = yield* svc
 				.createChat({
-					chatId: input.chatId,
-					initialSessionId: input.initialSessionId,
+					chatId:
+						durableOperation === undefined
+							? input.chatId
+							: ChatId.make(durableOperation.chat_id),
+					initialSessionId:
+						durableOperation === undefined
+							? input.initialSessionId
+							: SessionId.make(durableOperation.initial_session_id),
 					projectId: input.projectId,
 					providerId: input.providerId,
 					model: input.model,
@@ -668,17 +711,55 @@ const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
 								WHERE operation_id = ${input.operationId}
 							`.pipe(Effect.orDie),
 					),
-					Effect.tap(() =>
-						input.operationId === undefined
-							? Effect.void
-							: sql`
-									UPDATE chat_creation_operations
-									SET status = 'succeeded', error = NULL,
-									    updated_at = ${new Date().toISOString()}
-									WHERE operation_id = ${input.operationId}
-								`.pipe(Effect.orDie),
+				);
+			const startupIntent =
+				durableOperation === undefined
+					? decodeChatStartupIntent(input)
+					: decodeChatStartupIntent({
+							operationId: input.operationId,
+							initialSessionId: SessionId.make(
+								durableOperation.initial_session_id,
+							),
+							startupInput:
+								durableOperation.startup_input_json === null
+									? undefined
+									: ComposerInput.make(
+											JSON.parse(durableOperation.startup_input_json),
+										),
+							startupQueueId: durableOperation.startup_queue_id ?? undefined,
+							startupReady: durableOperation.startup_ready !== 0,
+						});
+			if (startupIntent !== null) {
+				yield* persistChatStartupIntent(
+					queueTransaction,
+					sql,
+					startupIntent,
+				).pipe(
+					Effect.mapError(
+						(error) =>
+							new SessionStartError({
+								providerId: input.providerId,
+								reason: `Could not persist the startup prompt: ${String(error)}`,
+							}),
+					),
+					Effect.tapError((error) =>
+						sql`
+							UPDATE chat_creation_operations
+							SET status = 'failed', error = ${error.reason},
+							    updated_at = ${new Date().toISOString()}
+							WHERE operation_id = ${startupIntent.operationId}
+						`.pipe(Effect.orDie),
 					),
 				);
+			}
+			if (input.operationId !== undefined && startupIntent === null) {
+				yield* sql`
+					UPDATE chat_creation_operations
+					SET status = 'succeeded', error = NULL,
+					    updated_at = ${new Date().toISOString()}
+					WHERE operation_id = ${input.operationId}
+				`.pipe(Effect.orDie);
+			}
 			yield* analytics.capture("chat created", {
 				provider: input.providerId,
 				model: safeModelId(input.providerId, input.model),
@@ -717,7 +798,10 @@ const ChatCreationStream = MemoizeRpcs.toLayerHandler(
 						);
 					}),
 			),
-			Stream.flatMap((operations) => Stream.fromIterable(operations)),
+			Stream.map((operations) => ({
+				_tag: "snapshot" as const,
+				operations,
+			})),
 		),
 );
 
@@ -822,9 +906,9 @@ const ChatDelete = MemoizeRpcs.toLayerHandler("chat.delete", ({ chatId }) =>
 
 const SessionRename = MemoizeRpcs.toLayerHandler(
 	"session.rename",
-	({ sessionId, title }) =>
+	({ commandId, sessionId, title }) =>
 		Effect.flatMap(SessionService, (svc) =>
-			svc.renameSession(sessionId, title),
+			svc.renameSession(sessionId, title, commandId),
 		),
 );
 
@@ -921,17 +1005,17 @@ const SessionLatestPlan = MemoizeRpcs.toLayerHandler(
 
 const SessionSetRuntimeMode = MemoizeRpcs.toLayerHandler(
 	"session.setRuntimeMode",
-	({ sessionId, runtimeMode }) =>
+	({ commandId, sessionId, runtimeMode }) =>
 		Effect.flatMap(SessionService, (svc) =>
-			svc.setRuntimeMode(sessionId, runtimeMode),
+			svc.setRuntimeMode(sessionId, runtimeMode, commandId),
 		),
 );
 
 const SessionSetPermissionMode = MemoizeRpcs.toLayerHandler(
 	"session.setPermissionMode",
-	({ sessionId, mode }) =>
+	({ commandId, sessionId, mode }) =>
 		Effect.flatMap(SessionService, (svc) =>
-			svc.setPermissionMode(sessionId, mode),
+			svc.setPermissionMode(sessionId, mode, commandId),
 		),
 );
 
@@ -995,7 +1079,7 @@ const MessagesList = MemoizeRpcs.toLayerHandler(
 
 const SessionEvents = MemoizeRpcs.toLayerHandler(
 	"session.events",
-	({ sessionId, afterVersion, hasProjection }) =>
+	({ sessionId, afterVersion, streamEpoch, hasProjection }) =>
 		Stream.unwrap(
 			Effect.gen(function* () {
 				const sessions = yield* SessionService;
@@ -1005,23 +1089,46 @@ const SessionEvents = MemoizeRpcs.toLayerHandler(
 					.synchronizedEvents({
 						streamId: sessionId,
 						afterVersion,
+						streamEpoch,
 						hasProjection,
 					})
 					.pipe(
 						Stream.map((frame): SessionTimelineFrame => {
+							if (frame.kind === "reset-required") {
+								return {
+									kind: "reset-required",
+									sessionId,
+									throughVersion: frame.throughVersion,
+									cursor: {
+										epoch: frame.streamEpoch,
+										version: frame.throughVersion,
+									},
+									reason: frame.reason,
+								};
+							}
 							if (frame.kind === "snapshot") {
 								return {
 									kind: "snapshot",
 									sessionId,
 									throughVersion: frame.throughVersion,
-									projection: timelineSnapshotFromEvents(
-										sessionId,
-										frame.events,
-									),
+									projection: frame.projection,
+									cursor: {
+										epoch: frame.streamEpoch,
+										version: frame.throughVersion,
+									},
+									olderMessageSequence: frame.olderMessageSequence,
 								};
 							}
 							if (frame.kind === "synchronized") {
-								return { ...frame, sessionId };
+								return {
+									kind: "synchronized",
+									sessionId,
+									throughVersion: frame.throughVersion,
+									cursor: {
+										epoch: frame.streamEpoch,
+										version: frame.throughVersion,
+									},
+								};
 							}
 							return {
 								kind: "event",
@@ -1029,6 +1136,10 @@ const SessionEvents = MemoizeRpcs.toLayerHandler(
 								streamVersion: frame.record.streamVersion,
 								eventId: frame.record.eventId,
 								event: timelineEventFromDomain(sessionId, frame.record.event),
+								cursor: {
+									epoch: frame.streamEpoch,
+									version: frame.record.streamVersion,
+								},
 							};
 						}),
 						Stream.orDie,
@@ -1048,6 +1159,26 @@ const SessionEventsHead = MemoizeRpcs.toLayerHandler(
 				throughVersion: yield* domain
 					.currentStreamVersion(sessionId)
 					.pipe(Effect.orDie),
+				streamEpoch: domain.streamEpoch,
+			};
+		}),
+);
+
+const SessionMessagesPage = MemoizeRpcs.toLayerHandler(
+	"session.messages.page",
+	({ sessionId, beforeSequence, limit }) =>
+		Effect.gen(function* () {
+			const queries = yield* SqlSessionQueries;
+			const page = yield* queries
+				.messagePage({
+					sessionId,
+					beforeSequence,
+					limit: Math.max(1, Math.min(200, Math.trunc(limit ?? 100))),
+				})
+				.pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+			return {
+				messages: page.items.map(messageFromRecord),
+				olderMessageSequence: page.olderSequence,
 			};
 		}),
 );
@@ -1080,7 +1211,7 @@ const SessionGoalStream = MemoizeRpcs.toLayerHandler(
 
 const MessagesSend = MemoizeRpcs.toLayerHandler(
 	"messages.send",
-	({ sessionId, text, input, asGoal, clientMessageId }) => {
+	({ commandId, sessionId, text, input, asGoal, clientMessageId }) => {
 		console.log(
 			`[rpc.messages.send] sessionId=${sessionId} hasInput=${input !== undefined} attachments=${
 				input?.attachments?.length ?? 0
@@ -1095,6 +1226,7 @@ const MessagesSend = MemoizeRpcs.toLayerHandler(
 		}
 		return Effect.flatMap(MessageService, (svc) =>
 			svc.sendMessage(
+				commandId,
 				sessionId,
 				input?.text ?? text ?? "",
 				input?.attachments,
@@ -1110,8 +1242,10 @@ const MessagesSend = MemoizeRpcs.toLayerHandler(
 
 const MessagesInterrupt = MemoizeRpcs.toLayerHandler(
 	"messages.interrupt",
-	({ sessionId }) =>
-		Effect.flatMap(MessageService, (svc) => svc.interruptSession(sessionId)),
+	({ commandId, sessionId, expectedTurnId }) =>
+		Effect.flatMap(MessageService, (svc) =>
+			svc.interruptSession(commandId, sessionId, expectedTurnId),
+		),
 );
 
 const MessagesQueueList = MemoizeRpcs.toLayerHandler(
@@ -1122,11 +1256,12 @@ const MessagesQueueList = MemoizeRpcs.toLayerHandler(
 
 const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
 	"messages.queue.add",
-	({ sessionId, queueId, input, ready, flush }) =>
+	({ commandId, sessionId, queueId, input, ready, flush }) =>
 		Effect.gen(function* () {
 			const svc = yield* QueueService;
 			const analytics = yield* AnalyticsService;
 			const result = yield* svc.addQueuedMessage(
+				commandId,
 				sessionId,
 				input,
 				queueId,
@@ -1140,46 +1275,50 @@ const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
 
 const MessagesQueueUpdate = MemoizeRpcs.toLayerHandler(
 	"messages.queue.update",
-	({ sessionId, queueId, input }) =>
+	({ commandId, sessionId, queueId, input }) =>
 		Effect.flatMap(QueueService, (svc) =>
-			svc.updateQueuedMessage(sessionId, queueId, input),
+			svc.updateQueuedMessage(commandId, sessionId, queueId, input),
 		),
 );
 
 const MessagesQueueDelete = MemoizeRpcs.toLayerHandler(
 	"messages.queue.delete",
-	({ sessionId, queueId }) =>
+	({ commandId, sessionId, queueId }) =>
 		Effect.flatMap(QueueService, (svc) =>
-			svc.deleteQueuedMessage(sessionId, queueId),
+			svc.deleteQueuedMessage(commandId, sessionId, queueId),
 		),
 );
 
 const MessagesQueueRunNext = MemoizeRpcs.toLayerHandler(
 	"messages.queue.runNext",
-	({ sessionId, queueId }) =>
+	({ commandId, sessionId, queueId }) =>
 		Effect.flatMap(QueueService, (svc) =>
-			svc.runQueuedMessageNext(sessionId, queueId),
+			svc.runQueuedMessageNext(commandId, sessionId, queueId),
 		),
 );
 
 const MessagesQueueReorder = MemoizeRpcs.toLayerHandler(
 	"messages.queue.reorder",
-	({ sessionId, queueIds }) =>
+	({ commandId, sessionId, queueIds }) =>
 		Effect.flatMap(QueueService, (svc) =>
-			svc.reorderQueuedMessages(sessionId, queueIds),
+			svc.reorderQueuedMessages(commandId, sessionId, queueIds),
 		),
 );
 
 const MessagesQueueFlush = MemoizeRpcs.toLayerHandler(
 	"messages.queue.flush",
-	({ sessionId }) =>
-		Effect.flatMap(QueueService, (svc) => svc.flushQueuedMessages(sessionId)),
+	({ commandId, sessionId }) =>
+		Effect.flatMap(QueueService, (svc) =>
+			svc.flushQueuedMessages(commandId, sessionId),
+		),
 );
 
 const MessagesQueueResume = MemoizeRpcs.toLayerHandler(
 	"messages.queue.resume",
-	({ sessionId }) =>
-		Effect.flatMap(QueueService, (svc) => svc.resumeQueuedMessages(sessionId)),
+	({ commandId, sessionId }) =>
+		Effect.flatMap(QueueService, (svc) =>
+			svc.resumeQueuedMessages(commandId, sessionId),
+		),
 );
 
 // ---------------------------------------------------------------------------
@@ -1324,6 +1463,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	SessionSetWorktree,
 	SessionEvents,
 	SessionEventsHead,
+	SessionMessagesPage,
 	SessionGoalGet,
 	SessionGoalSet,
 	SessionGoalClear,

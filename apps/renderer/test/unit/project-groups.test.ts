@@ -6,7 +6,7 @@ import type {
 	Session,
 } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
-
+import type { EnvironmentShellData } from "../../src/lib/environment-shell-client-bus.ts";
 import {
 	buildLogicalProjectGroups,
 	computerPickerItems,
@@ -14,6 +14,9 @@ import {
 	preferredGroupMember,
 } from "../../src/lib/project-groups.ts";
 import type { EnvironmentCatalogEntry } from "../../src/store/environment-catalog.ts";
+
+type CatalogFixtureEntry = EnvironmentCatalogEntry &
+	Partial<EnvironmentShellData>;
 
 const folder = (id: string, name: string): Folder =>
 	({ id: id as FolderId, name, path: `/repos/${name}` }) as unknown as Folder;
@@ -44,40 +47,55 @@ const session = (chatId: string, status: string): Session =>
 	({ id: `session-${chatId}`, chatId, status }) as unknown as Session;
 
 const entry = (
-	overrides: Partial<EnvironmentCatalogEntry> & {
+	overrides: Partial<CatalogFixtureEntry> & {
 		environmentId: string;
 		label: string;
 	},
-): EnvironmentCatalogEntry => ({
+): CatalogFixtureEntry => ({
 	connectionKind: "tailnet",
 	profileId: overrides.environmentId,
 	target: null,
 	descriptor: null,
 	status: "connected",
 	error: null,
-	folders: [],
-	originsByFolder: {},
-	chatsByProject: {},
-	sessionsByProject: {},
 	...overrides,
 });
 
 const build = (input: {
-	entries?: ReadonlyArray<EnvironmentCatalogEntry>;
+	entries?: ReadonlyArray<CatalogFixtureEntry>;
 	activeEnvironmentId?: string;
 	localEnvironmentId?: string;
 	activeFolders?: ReadonlyArray<Folder>;
 	activeOrigins?: Readonly<Record<string, GitOriginInfo | null>>;
 	activeChatsByProject?: Readonly<Record<string, ReadonlyArray<Chat>>>;
-}): ReadonlyArray<LogicalProjectGroup> =>
-	buildLogicalProjectGroups({
-		entries: input.entries ?? [],
+	shellsByEnvironment?: Parameters<
+		typeof buildLogicalProjectGroups
+	>[0]["shellsByEnvironment"];
+}): ReadonlyArray<LogicalProjectGroup> => {
+	const entries = input.entries ?? [];
+	return buildLogicalProjectGroups({
+		entries,
 		activeEnvironmentId: input.activeEnvironmentId ?? "env-local",
 		localEnvironmentId: input.localEnvironmentId ?? "env-local",
 		activeFolders: input.activeFolders ?? [],
 		activeOrigins: input.activeOrigins ?? {},
 		activeChatsByProject: input.activeChatsByProject ?? {},
+		shellsByEnvironment:
+			input.shellsByEnvironment ??
+			Object.fromEntries(
+				entries.map((entry) => [
+					entry.environmentId,
+					{
+						folders: entry.folders ?? [],
+						originsByFolder: entry.originsByFolder ?? {},
+						chatsByProject: entry.chatsByProject ?? {},
+						sessionsByProject: entry.sessionsByProject ?? {},
+						creationOperationsByProject: {},
+					},
+				]),
+			),
 	});
+};
 
 const remoteEntry = entry({
 	environmentId: "env-remote",

@@ -5,6 +5,7 @@ import {
 	PermissionDecision,
 	type PermissionKind,
 	PermissionRequest,
+	type PermissionRequestChange,
 	PermissionRequestNotFoundError,
 	SavedDecision,
 	type SessionId,
@@ -134,7 +135,7 @@ export const PermissionServiceLive = Layer.effect(
 		const sql = yield* SqlClient.SqlClient;
 		const sessionDomain = yield* SessionDomain;
 		const paths = yield* AppPaths;
-		const pubsub = yield* PubSub.unbounded<PermissionRequest>();
+		const pubsub = yield* PubSub.unbounded<PermissionRequestChange>();
 		const pending = yield* Ref.make<ReadonlyMap<string, PendingEntry>>(
 			new Map(),
 		);
@@ -222,7 +223,10 @@ export const PermissionServiceLive = Layer.effect(
 					const entry = entries.get(input.command.requestId);
 					if (entry === undefined) return;
 					if (input.command._tag === "PublishPermission") {
-						const published = yield* PubSub.publish(pubsub, entry.request);
+						const published = yield* PubSub.publish(pubsub, {
+							_tag: "change",
+							request: entry.request,
+						});
 						log("request.published", {
 							requestId: entry.request.id,
 							sessionId: entry.request.sessionId,
@@ -239,6 +243,10 @@ export const PermissionServiceLive = Layer.effect(
 						const next = new Map(current);
 						next.delete(input.command.requestId);
 						return next;
+					});
+					yield* PubSub.publish(pubsub, {
+						_tag: "remove",
+						requestId: input.command.requestId,
 					});
 					yield* Deferred.succeed(entry.deferred, decision);
 					log("decide.pending_removed", {
@@ -362,7 +370,10 @@ export const PermissionServiceLive = Layer.effect(
 					// A recovered request has no live provider callback until this
 					// matching request reattaches. Publish it only now so the renderer
 					// cannot resolve a prompt whose original turn is already gone.
-					yield* PubSub.publish(pubsub, recovered.request);
+					yield* PubSub.publish(pubsub, {
+						_tag: "change",
+						request: recovered.request,
+					});
 					return yield* Deferred.await(recovered.deferred);
 				}
 
@@ -494,7 +505,7 @@ export const PermissionServiceLive = Layer.effect(
 						requestIds: current.map((req) => req.id),
 					});
 					return Stream.concat(
-						Stream.fromIterable(current),
+						Stream.succeed({ _tag: "snapshot" as const, requests: current }),
 						Stream.fromSubscription(dequeue),
 					);
 				}),

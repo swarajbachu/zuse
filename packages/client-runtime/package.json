@@ -5,15 +5,22 @@
 	"type": "module",
 	"exports": {
 		"./chat-threads": "./src/chat-threads.ts",
+		"./client-bus": "./src/client-bus.ts",
+		"./client-persistence": "./src/client-persistence.ts",
 		"./command-dispatch": "./src/command-dispatch.ts",
 		"./connection": "./src/connection.ts",
 		"./endpoint-selection": "./src/endpoint-selection.ts",
+		"./environment-runtime": "./src/environment-runtime.ts",
 		"./environment-scope": "./src/environment-scope.ts",
 		"./plan-interactions": "./src/plan-interactions.ts",
+		"./resource-ref": "./src/resource-ref.ts",
+		"./resource-state": "./src/resource-state.ts",
 		"./session-timeline": "./src/session-timeline.ts",
+		"./session-timeline-driver": "./src/session-timeline-driver.ts",
 		"./session-timeline-cache": "./src/session-timeline-cache.ts",
 		"./timeline": "./src/timeline.ts",
 		"./supervisor": "./src/supervisor.ts",
+		"./terminal-resource": "./src/terminal-resource.ts",
 		"./ws-protocol": "./src/ws-protocol.ts"
 	},
 	"scripts": {
@@ -23,7 +30,9 @@
 		"test:integration": "vitest run test/integration --passWithNoTests"
 	},
 	"dependencies": {
+		"@noble/hashes": "^1.8.0",
 		"@zuse/contracts": "*",
+		"@zuse/domain": "*",
 		"@zuse/utils": "*",
 		"effect": "catalog:"
 	},

@@ -1,8 +1,9 @@
 import { Effect } from "effect";
-import { exportJWK, generateKeyPair } from "jose";
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, test } from "vitest";
 import {
 	signWorkspaceClientTicket,
+	verifyRuntimeRenewalProof,
 	verifyWorkspaceClientTicket,
 } from "../../src/crypto.ts";
 
@@ -14,8 +15,12 @@ const fixture = async () => {
 		mintPrivateJwk: await exportJWK(keys.privateKey),
 		issuer: "https://relay.example.test",
 		accountId: "account-1",
+		deviceId: "device-1",
 		workspaceId: "workspace-1",
-		ttlMs: 5 * 60_000,
+		protocol: "zuse-workspace-v2",
+		generation: 3,
+		gatewayEpoch: 4,
+		ttlMs: 60_000,
 		nowMs,
 	};
 	const token = await Effect.runPromise(signWorkspaceClientTicket(input));
@@ -32,17 +37,26 @@ describe("workspace client tickets", () => {
 					mintPublicJwk: publicJwk,
 					issuer: input.issuer,
 					expectedAccountId: input.accountId,
+					expectedDeviceId: input.deviceId,
 					expectedWorkspaceId: input.workspaceId,
+					expectedProtocol: input.protocol,
+					expectedGeneration: input.generation,
+					expectedGatewayEpoch: input.gatewayEpoch,
 					nowMs: at,
 				}),
 			);
 
 		await expect(verify(nowMs)).resolves.toMatchObject({
 			accountId: input.accountId,
+			deviceId: input.deviceId,
 			workspaceId: input.workspaceId,
 			scope: "workspace-client",
+			role: "client",
+			protocol: input.protocol,
+			generation: input.generation,
+			gatewayEpoch: input.gatewayEpoch,
 		});
-		await expect(verify(nowMs + 4 * 60_000)).resolves.toBeDefined();
+		await expect(verify(nowMs + 59_000)).resolves.toBeDefined();
 	});
 
 	test("rejects expiry, modification, wrong account, and wrong workspace", async () => {
@@ -63,19 +77,71 @@ describe("workspace client tickets", () => {
 					mintPublicJwk: publicJwk,
 					issuer: input.issuer,
 					expectedAccountId: input.accountId,
+					expectedDeviceId: input.deviceId,
 					expectedWorkspaceId: input.workspaceId,
+					expectedProtocol: input.protocol,
+					expectedGeneration: input.generation,
+					expectedGatewayEpoch: input.gatewayEpoch,
 					nowMs,
 					...overrides,
 				}),
 			);
 
-		await expect(verify({ nowMs: nowMs + 6 * 60_000 })).rejects.toBeDefined();
+		await expect(verify({ nowMs: nowMs + 61_000 })).rejects.toBeDefined();
 		await expect(verify({ token: modified })).rejects.toBeDefined();
 		await expect(
 			verify({ expectedAccountId: "account-2" }),
 		).rejects.toBeDefined();
 		await expect(
+			verify({ expectedDeviceId: "device-2" }),
+		).rejects.toBeDefined();
+		await expect(
 			verify({ expectedWorkspaceId: "workspace-2" }),
 		).rejects.toBeDefined();
+		await expect(
+			verify({ expectedGeneration: input.generation + 1 }),
+		).rejects.toBeDefined();
+		await expect(
+			verify({ expectedGatewayEpoch: input.gatewayEpoch + 1 }),
+		).rejects.toBeDefined();
+	});
+});
+
+describe("runtime renewal proof", () => {
+	test("binds proof to workspace, renewal id, generation, and gateway epoch", async () => {
+		const keys = await generateKeyPair("EdDSA", { extractable: true });
+		const publicJwk = await exportJWK(keys.publicKey);
+		const proof = await new SignJWT({
+			workspaceId: "workspace-1",
+			requestId: "renew-1",
+			generation: 3,
+			gatewayEpoch: 4,
+		})
+			.setProtectedHeader({
+				alg: "EdDSA",
+				typ: "workspace-runtime-renewal+jwt",
+			})
+			.setAudience("https://relay.example.test")
+			.setIssuedAt(Math.floor(nowMs / 1_000))
+			.setExpirationTime(Math.floor((nowMs + 60_000) / 1_000))
+			.sign(keys.privateKey);
+		const verify = (overrides = {}) =>
+			Effect.runPromise(
+				verifyRuntimeRenewalProof({
+					proof,
+					runtimeSigningPublicJwk: publicJwk,
+					relayIssuer: "https://relay.example.test",
+					workspaceId: "workspace-1",
+					requestId: "renew-1",
+					generation: 3,
+					gatewayEpoch: 4,
+					nowMs,
+					...overrides,
+				}),
+			);
+		await expect(verify()).resolves.toMatchObject({ requestId: "renew-1" });
+		await expect(verify({ requestId: "renew-2" })).rejects.toBeDefined();
+		await expect(verify({ generation: 4 })).rejects.toBeDefined();
+		await expect(verify({ gatewayEpoch: 5 })).rejects.toBeDefined();
 	});
 });

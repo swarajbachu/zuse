@@ -257,7 +257,11 @@ export const startGeminiSession = (
 		// Per-session translator coalesces agent_message_chunk deltas into
 		// one AssistantMessage per burst so the renderer doesn't show one
 		// bubble per token.
-		const translator = createAcpTranslator("gemini");
+		const translator = createAcpTranslator("gemini", {
+			onCheckpoint: (checkpointEvents) => {
+				for (const event of checkpointEvents) Queue.offerUnsafe(events, event);
+			},
+		});
 
 		let child: ChildProcessWithoutNullStreams;
 		try {

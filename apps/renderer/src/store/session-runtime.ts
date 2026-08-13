@@ -1,49 +1,10 @@
-import type {
-	AgentTurnId,
-	SessionId,
-	SessionStatus,
-	SessionTimelineProjection,
-} from "@zuse/contracts";
+import type { SessionId, SessionStatus } from "@zuse/contracts";
 import {
-	effectiveSessionRuntimeState,
 	isSessionTurnActive,
 	runtimeStateFromStatus,
 	type SessionRuntimeState,
 } from "../lib/session-runtime-state.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
-
-type CommandProjection =
-	| {
-			readonly kind: "send";
-			readonly phase: "pending";
-			readonly state: "starting";
-			readonly observedVersion: number;
-	  }
-	| {
-			readonly kind: "stop";
-			readonly phase: "pending";
-			readonly state: "stopping";
-			readonly observedVersion: number;
-			readonly turnId: AgentTurnId | null;
-	  }
-	| {
-			readonly kind: "send";
-			readonly phase: "acknowledged";
-			readonly state: "failed";
-			readonly observedVersion: number;
-	  }
-	| {
-			readonly kind: "stop";
-			readonly phase: "acknowledged";
-			readonly state: "idle";
-			readonly observedVersion: number;
-			readonly turnId: AgentTurnId | null;
-	  };
-
-type TimelineFact = {
-	readonly state: SessionRuntimeState;
-	readonly turnId: AgentTurnId | null;
-};
 
 type SessionTerminalListener = (
 	sessionId: SessionId,
@@ -51,7 +12,7 @@ type SessionTerminalListener = (
 ) => void;
 
 type SessionRuntimeStore = {
-	/** Effective lifecycle state. Private projector facts never reach UI code. */
+	/** Last-known catalog lifecycle, used only when no timeline resource is retained. */
 	readonly bySession: Readonly<Record<string, SessionRuntimeState>>;
 	readonly observeSummary: (
 		sessionId: SessionId,
@@ -63,52 +24,11 @@ type SessionRuntimeStore = {
 			readonly status: SessionStatus;
 		}>,
 	) => void;
-	readonly observeTimeline: (
-		sessionId: SessionId,
-		projection: SessionTimelineProjection,
-		version: number,
-	) => void;
-	readonly beginOptimisticTurn: (sessionId: SessionId) => void;
-	readonly beginOptimisticStop: (sessionId: SessionId) => void;
-	readonly rollbackOptimisticStop: (sessionId: SessionId) => void;
-	readonly settleOptimisticTurn: (
-		sessionId: SessionId,
-		outcome: "idle" | "failed",
-	) => void;
-	readonly releaseTimeline: (sessionId: SessionId) => void;
 	readonly remove: (sessionId: SessionId) => void;
 };
 
-const summaryBySession = new Map<SessionId, SessionRuntimeState>();
-const timelineBySession = new Map<SessionId, TimelineFact>();
-const timelineVersionBySession = new Map<SessionId, number>();
-const commandBySession = new Map<SessionId, CommandProjection>();
 const terminalListeners = new Set<SessionTerminalListener>();
 const completionArmedBySession = new Set<SessionId>();
-
-const stateFromTimeline = (
-	projection: SessionTimelineProjection,
-): SessionRuntimeState => {
-	if (projection.status === "error") return "failed";
-	if (projection.status === "booting") return "starting";
-	const phase = projection.currentTurn?.phase;
-	if (phase === "interrupt-requested" || phase === "interrupt-acknowledged") {
-		return "stopping";
-	}
-	if (projection.currentTurn !== null || projection.status === "running") {
-		return "running";
-	}
-	return "idle";
-};
-
-const effectiveState = (sessionId: SessionId): SessionRuntimeState =>
-	commandBySession.get(sessionId)?.state ??
-	timelineBySession.get(sessionId)?.state ??
-	summaryBySession.get(sessionId) ??
-	"idle";
-
-const currentTimelineVersion = (sessionId: SessionId): number =>
-	timelineVersionBySession.get(sessionId) ?? -1;
 
 const emitTerminal = (
 	sessionId: SessionId,
@@ -117,7 +37,7 @@ const emitTerminal = (
 	for (const listener of terminalListeners) listener(sessionId, outcome);
 };
 
-const observeDurableCompletionState = (
+const observeCompletion = (
 	sessionId: SessionId,
 	state: SessionRuntimeState,
 ): void => {
@@ -125,54 +45,12 @@ const observeDurableCompletionState = (
 		completionArmedBySession.add(sessionId);
 		return;
 	}
-	if (state === "failed") {
-		if (completionArmedBySession.delete(sessionId)) {
-			emitTerminal(sessionId, "failed");
-		}
-		return;
+	if (
+		(state === "idle" || state === "failed") &&
+		completionArmedBySession.delete(sessionId)
+	) {
+		emitTerminal(sessionId, state);
 	}
-	if (state !== "idle" || !completionArmedBySession.delete(sessionId)) return;
-	emitTerminal(sessionId, "idle");
-};
-
-const durableTimelineSupersedesCommand = (
-	command: CommandProjection,
-	timeline: TimelineFact,
-	version: number,
-): boolean => {
-	if (command.kind === "send") {
-		if (timeline.state === "failed") return true;
-		if (timeline.state === "idle") return false;
-		return version > command.observedVersion;
-	}
-	if (timeline.state === "idle" || timeline.state === "failed") return true;
-	if (command.phase === "pending") return false;
-	return (
-		version > command.observedVersion &&
-		timeline.state === "running" &&
-		timeline.turnId !== command.turnId
-	);
-};
-
-const publishChanged = (
-	sessionIds: ReadonlySet<SessionId>,
-	set: (
-		patch:
-			| Partial<SessionRuntimeStore>
-			| ((state: SessionRuntimeStore) => Partial<SessionRuntimeStore>),
-	) => void,
-	get: () => SessionRuntimeStore,
-): void => {
-	const current = get().bySession;
-	let next: Record<string, SessionRuntimeState> | null = null;
-	for (const sessionId of sessionIds) {
-		const effective = effectiveState(sessionId);
-		if (effectiveSessionRuntimeState(current[sessionId]) === effective)
-			continue;
-		next ??= { ...current };
-		next[sessionId] = effective;
-	}
-	if (next !== null) set({ bySession: next });
 };
 
 export const useSessionRuntimeStore = create<SessionRuntimeStore>(
@@ -183,113 +61,23 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>(
 		},
 		observeSummaries: (summaries) => {
 			if (summaries.length === 0) return;
-			const changed = new Set<SessionId>();
-			const completionStates = new Map<SessionId, SessionRuntimeState>();
+			const current = get().bySession;
+			let next: Record<string, SessionRuntimeState> | null = null;
+			const observed: Array<readonly [SessionId, SessionRuntimeState]> = [];
 			for (const { sessionId, status } of summaries) {
 				const state = runtimeStateFromStatus(status);
-				const previous = summaryBySession.get(sessionId);
-				const command = commandBySession.get(sessionId);
-				const acceptedOptimisticSend =
-					command?.kind === "send" && state === "running";
-				if (acceptedOptimisticSend) commandBySession.delete(sessionId);
-				if (previous === state && !acceptedOptimisticSend) continue;
-				if (previous !== state) summaryBySession.set(sessionId, state);
-				changed.add(sessionId);
-				if (
-					timelineBySession.get(sessionId) === undefined &&
-					(state === "running" || state === "idle" || state === "failed")
-				) {
-					completionStates.set(sessionId, state);
-				}
+				if (current[sessionId] === state) continue;
+				next ??= { ...current };
+				next[sessionId] = state;
+				observed.push([sessionId, state]);
 			}
-			publishChanged(changed, set, get);
-			for (const [sessionId, state] of completionStates) {
-				observeDurableCompletionState(sessionId, state);
-			}
-		},
-		observeTimeline: (sessionId, projection, version) => {
-			const highWater = timelineVersionBySession.get(sessionId);
-			if (highWater !== undefined && version <= highWater) return;
-			const timeline = {
-				state: stateFromTimeline(projection),
-				turnId: projection.currentTurn?.turnId ?? null,
-			} satisfies TimelineFact;
-			timelineVersionBySession.set(sessionId, version);
-			timelineBySession.set(sessionId, timeline);
-			const command = commandBySession.get(sessionId);
-			if (
-				command !== undefined &&
-				durableTimelineSupersedesCommand(command, timeline, version)
-			) {
-				commandBySession.delete(sessionId);
-			}
-			publishChanged(new Set([sessionId]), set, get);
-			observeDurableCompletionState(sessionId, timeline.state);
-		},
-		beginOptimisticTurn: (sessionId) => {
-			// User intent is visible before a provider handle exists; `starting` is
-			// the truthful optimistic state until durable timeline acknowledgement.
-			commandBySession.set(sessionId, {
-				kind: "send",
-				phase: "pending",
-				state: "starting",
-				observedVersion: currentTimelineVersion(sessionId),
-			});
-			publishChanged(new Set([sessionId]), set, get);
-		},
-		beginOptimisticStop: (sessionId) => {
-			commandBySession.set(sessionId, {
-				kind: "stop",
-				phase: "pending",
-				state: "stopping",
-				observedVersion: currentTimelineVersion(sessionId),
-				turnId: timelineBySession.get(sessionId)?.turnId ?? null,
-			});
-			publishChanged(new Set([sessionId]), set, get);
-		},
-		rollbackOptimisticStop: (sessionId) => {
-			const command = commandBySession.get(sessionId);
-			if (command?.phase !== "pending" || command.state !== "stopping") return;
-			commandBySession.delete(sessionId);
-			publishChanged(new Set([sessionId]), set, get);
-		},
-		settleOptimisticTurn: (sessionId, outcome) => {
-			const command = commandBySession.get(sessionId);
-			if (command?.phase !== "pending") return;
-			if (command.kind === "send" && outcome === "failed") {
-				commandBySession.set(sessionId, {
-					kind: "send",
-					phase: "acknowledged",
-					state: "failed",
-					observedVersion: currentTimelineVersion(sessionId),
-				});
-			} else if (command.kind === "stop" && outcome === "idle") {
-				commandBySession.set(sessionId, {
-					...command,
-					phase: "acknowledged",
-					state: "idle",
-					observedVersion: currentTimelineVersion(sessionId),
-				});
-			} else {
-				return;
-			}
-			publishChanged(new Set([sessionId]), set, get);
-		},
-		releaseTimeline: (sessionId) => {
-			timelineBySession.delete(sessionId);
-			const command = commandBySession.get(sessionId);
-			if (command?.phase === "pending") commandBySession.delete(sessionId);
-			publishChanged(new Set([sessionId]), set, get);
-			const summary = summaryBySession.get(sessionId);
-			if (summary === "idle" || summary === "failed") {
-				observeDurableCompletionState(sessionId, summary);
+			if (next === null) return;
+			set({ bySession: next });
+			for (const [sessionId, state] of observed) {
+				observeCompletion(sessionId, state);
 			}
 		},
 		remove: (sessionId) => {
-			summaryBySession.delete(sessionId);
-			timelineBySession.delete(sessionId);
-			timelineVersionBySession.delete(sessionId);
-			commandBySession.delete(sessionId);
 			completionArmedBySession.delete(sessionId);
 			if (get().bySession[sessionId] === undefined) return;
 			const bySession = { ...get().bySession };
@@ -300,11 +88,8 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>(
 );
 
 export const resetSessionRuntimeForTest = (): void => {
-	summaryBySession.clear();
-	timelineBySession.clear();
-	timelineVersionBySession.clear();
-	commandBySession.clear();
 	completionArmedBySession.clear();
+	terminalListeners.clear();
 	useSessionRuntimeStore.setState({ bySession: {} });
 };
 

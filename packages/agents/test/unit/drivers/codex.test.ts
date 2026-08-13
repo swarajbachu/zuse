@@ -2,9 +2,10 @@ import { execFileSync } from "node:child_process";
 import type { ThreadItem } from "@zuse/agents/codex-generated/v2/ThreadItem";
 import {
 	buildCodexTurnMode,
+	CodexTextCheckpointAccumulator,
 	codexApprovalPolicy,
-	codexDetachedAgentFromSubAgentActivity,
 	codexDetachedAgentFromRawSpawn,
+	codexDetachedAgentFromSubAgentActivity,
 	codexDetachedAgentToolUse,
 	codexFinishDetachedAgent,
 	codexReasoningEffort,
@@ -149,6 +150,116 @@ describe("Codex raw collaboration calls", () => {
 });
 
 describe("translateCodexItem", () => {
+	it("uses provider item ids for completed text and reasoning", () => {
+		expect(
+			only(
+				translateCodexItem(
+					{
+						type: "agentMessage",
+						id: "message-1",
+						text: "done",
+						phase: null,
+						memoryCitation: null,
+					},
+					"completed",
+				),
+				"AssistantMessage",
+			).itemId,
+		).toBe("message-1");
+	});
+
+	it("emits monotonic absolute checkpoints and idempotent final promotion", () => {
+		const checkpoints = new CodexTextCheckpointAccumulator();
+		const first = only(
+			checkpoints.apply({
+				method: "item/agentMessage/delta",
+				params: {
+					threadId: "thread-1",
+					turnId: "turn-1",
+					itemId: "message-1",
+					delta: "Hello ",
+				},
+			}),
+			"AssistantMessage",
+		);
+		const second = only(
+			checkpoints.apply({
+				method: "item/agentMessage/delta",
+				params: {
+					threadId: "thread-1",
+					turnId: "turn-1",
+					itemId: "message-1",
+					delta: "world",
+				},
+			}),
+			"AssistantMessage",
+		);
+		expect(first).toMatchObject({
+			itemId: "message-1",
+			text: "Hello ",
+			checkpoint: { revision: 1, final: false },
+		});
+		expect(second).toMatchObject({
+			itemId: "message-1",
+			text: "Hello world",
+			checkpoint: { revision: 2, final: false },
+		});
+		const completed = checkpoints.complete({
+			type: "agentMessage",
+			id: "message-1",
+			text: "Hello world",
+			phase: null,
+			memoryCitation: null,
+		});
+		expect(completed).toMatchObject([
+			{
+				itemId: "message-1",
+				text: "Hello world",
+				checkpoint: { revision: 3, final: true },
+			},
+		]);
+		expect(
+			checkpoints.complete({
+				type: "agentMessage",
+				id: "message-1",
+				text: "Hello world",
+				phase: null,
+				memoryCitation: null,
+			}),
+		).toEqual(completed);
+	});
+
+	it("accumulates reasoning summary and content under one provider item", () => {
+		const checkpoints = new CodexTextCheckpointAccumulator();
+		checkpoints.apply({
+			method: "item/reasoning/summaryTextDelta",
+			params: {
+				threadId: "thread-1",
+				turnId: "turn-1",
+				itemId: "reasoning-1",
+				delta: "Check ",
+				summaryIndex: 0,
+			},
+		});
+		const event = only(
+			checkpoints.apply({
+				method: "item/reasoning/textDelta",
+				params: {
+					threadId: "thread-1",
+					turnId: "turn-1",
+					itemId: "reasoning-1",
+					delta: "code",
+					contentIndex: 0,
+				},
+			}),
+			"Thinking",
+		);
+		expect(event).toMatchObject({
+			itemId: "reasoning-1",
+			text: "Check code",
+		});
+	});
+
 	it("preserves dedicated plan items as marked assistant messages", () => {
 		const item: ThreadItem = {
 			type: "plan",
@@ -156,7 +267,10 @@ describe("translateCodexItem", () => {
 			text: "# Proposed plan",
 		};
 
-		const event = only(translateCodexItem(item, "completed"), "AssistantMessage");
+		const event = only(
+			translateCodexItem(item, "completed"),
+			"AssistantMessage",
+		);
 		expect(event.text).toBe("# Proposed plan");
 		expect(event.isPlan).toBe(true);
 	});

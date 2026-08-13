@@ -1,16 +1,43 @@
 import type {
+	EnvironmentId,
 	ProviderUsageLimits,
 	UsageLimitHistoryPoint,
 } from "@zuse/contracts";
-import { Effect } from "effect";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import {
+	CommandId,
+	EnvironmentId as EnvironmentIdSchema,
+} from "@zuse/contracts";
+import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
+import { useEnvironmentCatalogStore } from "./environment-catalog.ts";
 
-let rpcClient = getRpcClient;
 let pendingLoad: Promise<void> | null = null;
 const STALE_AFTER_MS = 60_000;
-export const setUsageLimitsRpcClientForTest = (value: typeof getRpcClient) => {
-	rpcClient = value;
+type UsageCommand = <Result>(
+	kind: string,
+	payload: Readonly<Record<string, unknown>>,
+) => Promise<Result>;
+let runUsageCommand: UsageCommand = async <Result>(
+	kind: string,
+	payload: Readonly<Record<string, unknown>>,
+) => {
+	const environmentId: EnvironmentId = EnvironmentIdSchema.make(
+		useEnvironmentCatalogStore.getState().activeEnvironmentId,
+	);
+	return (
+		await dispatchEnvironmentShellCommand<
+			Readonly<Record<string, unknown>>,
+			Result
+		>({
+			environmentId,
+			kind,
+			commandId: CommandId.make(`usage:${crypto.randomUUID()}`),
+			payload,
+		})
+	).result;
+};
+export const setUsageCommandForTest = (command: UsageCommand): void => {
+	runUsageCommand = command;
 };
 
 type State = {
@@ -63,10 +90,9 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 	},
 	loadHistory: async () => {
 		try {
-			const client = await rpcClient();
-			const response = await Effect.runPromise(
-				client["usage.limits.history"]({}),
-			);
+			const response = await runUsageCommand<{
+				readonly points: ReadonlyArray<UsageLimitHistoryPoint>;
+			}>("usage.limits.history", {});
 			set({ history: response.points });
 		} catch {
 			// History is supplementary; live limit cards remain useful without it.
@@ -75,10 +101,9 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 	refresh: async (force = false, providerId) => {
 		set({ loading: true, error: null });
 		try {
-			const client = await rpcClient();
-			const response = await Effect.runPromise(
-				client["usage.limits"]({ forceRefresh: force, providerId }),
-			);
+			const response = await runUsageCommand<{
+				readonly providers: ReadonlyArray<ProviderUsageLimits>;
+			}>("usage.limits", { forceRefresh: force, providerId });
 			set({
 				providers: providerId
 					? [

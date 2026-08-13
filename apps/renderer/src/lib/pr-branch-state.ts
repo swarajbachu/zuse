@@ -1,7 +1,7 @@
 import type { GitPrInfo } from "@zuse/contracts";
 
 import type { BranchState } from "../components/branch-icon.tsx";
-import type { GitDiffStat } from "../store/git-diff-stat.ts";
+import type { GitDiffStat } from "./git-workspace-client-bus.ts";
 
 /**
  * Shared derivations for a sidebar chat row's branch icon and `+N −N` slot,

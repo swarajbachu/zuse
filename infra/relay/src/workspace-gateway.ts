@@ -3,23 +3,30 @@ import type {
 	DurableObjectState,
 } from "@cloudflare/workers-types";
 import {
+	decodeWorkspaceGatewayFrame,
+	encodeWorkspaceGatewayFrame,
+} from "@zuse/contracts";
+import {
 	decodeGatewayMessage,
-	encodeGatewayFrame,
 	encodeGatewayMessage,
+	WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE,
 	WORKSPACE_GATEWAY_PROTOCOL,
+	WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE,
+	WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE,
 } from "./workspace-gateway-protocol.ts";
 
+type GatewayFence = {
+	readonly workspaceId: string;
+	readonly generation: number;
+	readonly gatewayEpoch: number;
+};
+
 type GatewaySocketAttachment =
-	| { readonly role: "runtime" }
-	| {
+	| ({ readonly role: "runtime" } & GatewayFence)
+	| ({
 			readonly role: "client";
 			readonly connectionId: string;
-	  };
-
-type PendingFrame = Readonly<{
-	encoding: "text" | "base64";
-	payload: string;
-}>;
+	  } & GatewayFence);
 
 type WebSocketPairValue = {
 	readonly 0: CloudflareWebSocket;
@@ -45,26 +52,31 @@ const closeSocket = (
 const send = (
 	socket: CloudflareWebSocket,
 	value: string | ArrayBuffer,
-): void => {
+): boolean => {
 	try {
 		socket.send(value);
+		return true;
 	} catch {
-		closeSocket(socket, 1011, "gateway delivery failed");
+		closeSocket(
+			socket,
+			WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.code,
+			WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.reason,
+		);
+		return false;
 	}
 };
 
-const pendingFrames = (value: unknown): ReadonlyArray<PendingFrame> =>
-	Array.isArray(value)
-		? value.flatMap((frame) => {
-				if (typeof frame !== "object" || frame === null) return [];
-				const candidate = frame as Record<string, unknown>;
-				return (candidate.encoding === "text" ||
-					candidate.encoding === "base64") &&
-					typeof candidate.payload === "string"
-					? [{ encoding: candidate.encoding, payload: candidate.payload }]
-					: [];
-			})
-		: [];
+const sendControl = (
+	socket: CloudflareWebSocket,
+	value: string | ArrayBuffer,
+): boolean => {
+	try {
+		socket.send(value);
+		return true;
+	} catch {
+		return false;
+	}
+};
 
 const attachment = (
 	socket: CloudflareWebSocket,
@@ -72,13 +84,57 @@ const attachment = (
 	const value = socket.deserializeAttachment();
 	if (value === null || typeof value !== "object") return null;
 	const candidate = value as Record<string, unknown>;
-	if (candidate.role === "runtime") return { role: "runtime" };
+	const workspaceId = candidate.workspaceId;
+	const generation = candidate.generation;
+	const gatewayEpoch = candidate.gatewayEpoch;
+	if (
+		typeof workspaceId !== "string" ||
+		typeof generation !== "number" ||
+		typeof gatewayEpoch !== "number"
+	)
+		return null;
+	const fence = { workspaceId, generation, gatewayEpoch };
+	if (candidate.role === "runtime") return { role: "runtime", ...fence };
 	if (candidate.role === "client" && typeof candidate.connectionId === "string")
 		return {
 			role: "client",
 			connectionId: candidate.connectionId,
+			...fence,
 		};
 	return null;
+};
+
+const readFence = (headers: Headers): GatewayFence | null => {
+	const workspaceId = headers.get("x-zuse-gateway-workspace");
+	const generation = Number(headers.get("x-zuse-gateway-generation"));
+	const gatewayEpoch = Number(headers.get("x-zuse-gateway-epoch"));
+	return workspaceId === null ||
+		!Number.isSafeInteger(generation) ||
+		generation < 1 ||
+		!Number.isSafeInteger(gatewayEpoch) ||
+		gatewayEpoch < 1
+		? null
+		: { workspaceId, generation, gatewayEpoch };
+};
+
+const sameFence = (left: GatewayFence, right: GatewayFence): boolean =>
+	left.workspaceId === right.workspaceId &&
+	left.generation === right.generation &&
+	left.gatewayEpoch === right.gatewayEpoch;
+
+const sameGateway = (left: GatewayFence, right: GatewayFence): boolean =>
+	left.workspaceId === right.workspaceId &&
+	left.gatewayEpoch === right.gatewayEpoch;
+
+const detachSocket = (socket: CloudflareWebSocket): void => {
+	try {
+		// A replaced socket can remain visible to getWebSockets until its close
+		// callback. Clearing its recognized role fences it immediately and also
+		// makes that delayed callback a no-op after hibernation.
+		socket.serializeAttachment({ role: "detached" });
+	} catch {
+		// The peer may have disappeared between enumeration and detachment.
+	}
 };
 
 const websocketResponse = (client: CloudflareWebSocket): Response =>
@@ -96,19 +152,6 @@ const websocketResponse = (client: CloudflareWebSocket): Response =>
 export class WorkspaceGateway {
 	constructor(private readonly state: DurableObjectState) {}
 
-	private pendingKey(connectionId: string): string {
-		return `pending:${connectionId}`;
-	}
-
-	private async takePending(
-		connectionId: string,
-	): Promise<ReadonlyArray<PendingFrame>> {
-		const key = this.pendingKey(connectionId);
-		const frames = pendingFrames(await this.state.storage.get(key));
-		if (frames.length > 0) await this.state.storage.delete(key);
-		return frames;
-	}
-
 	private runtimeSockets(): ReadonlyArray<CloudflareWebSocket> {
 		return this.state.getWebSockets("runtime");
 	}
@@ -118,24 +161,6 @@ export class WorkspaceGateway {
 	}
 
 	async fetch(request: Request): Promise<Response> {
-		const url = new URL(request.url);
-		if (request.method === "POST" && url.pathname === "/notify") {
-			const raw = await request.text();
-			const message = decodeGatewayMessage(raw);
-			if (
-				message === null ||
-				(message.type !== "command.available" &&
-					message.type !== "event.available" &&
-					message.type !== "workspace.status")
-			)
-				return new Response("invalid notification", { status: 400 });
-			const encoded = encodeGatewayMessage(message);
-			if (message.type === "command.available") {
-				for (const socket of this.runtimeSockets()) send(socket, encoded);
-			}
-			return new Response(null, { status: 204 });
-		}
-
 		if (
 			request.method !== "GET" ||
 			request.headers.get("upgrade")?.toLowerCase() !== "websocket"
@@ -143,39 +168,75 @@ export class WorkspaceGateway {
 			return new Response("websocket upgrade required", { status: 426 });
 
 		const role = request.headers.get("x-zuse-gateway-role");
-		const workspaceId = request.headers.get("x-zuse-gateway-workspace");
-		if (workspaceId === null || (role !== "runtime" && role !== "client"))
+		const fence = readFence(request.headers);
+		if (fence === null || (role !== "runtime" && role !== "client"))
 			return new Response("unauthorized", { status: 401 });
 
 		const pair = new WebSocketPair();
 		const client = pair[0];
 		const server = pair[1];
 		if (role === "runtime") {
-			for (const existing of this.runtimeSockets())
-				closeSocket(existing, 4001, "runtime replaced");
+			const existingRuntimes = this.runtimeSockets();
+			const newerRuntimeExists = existingRuntimes.some((existing) => {
+				const metadata = attachment(existing);
+				return (
+					metadata?.role === "runtime" &&
+					sameGateway(metadata, fence) &&
+					metadata.generation > fence.generation
+				);
+			});
 			server.serializeAttachment({
 				role: "runtime",
+				...fence,
 			} satisfies GatewaySocketAttachment);
 			this.state.acceptWebSocket(server, ["runtime"]);
+			if (newerRuntimeExists) {
+				detachSocket(server);
+				closeSocket(
+					server,
+					WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE.code,
+					WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE.reason,
+				);
+				return websocketResponse(client);
+			}
+			for (const existing of existingRuntimes) {
+				const metadata = attachment(existing);
+				detachSocket(existing);
+				closeSocket(
+					existing,
+					metadata !== null && sameFence(metadata, fence)
+						? 4001
+						: WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE.code,
+					metadata !== null && sameFence(metadata, fence)
+						? "runtime replaced"
+						: WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE.reason,
+				);
+			}
 			for (const socket of this.clientSockets()) {
 				const metadata = attachment(socket);
-				if (metadata?.role === "client") {
-					send(
+				if (metadata?.role !== "client") continue;
+				if (!sameFence(metadata, fence)) {
+					closeSocket(
+						socket,
+						WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE.code,
+						WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE.reason,
+					);
+					continue;
+				}
+				if (
+					!send(
 						server,
 						encodeGatewayMessage({
 							type: "client.open",
 							connectionId: metadata.connectionId,
 						}),
+					)
+				) {
+					closeSocket(
+						socket,
+						WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.code,
+						WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.reason,
 					);
-					for (const frame of await this.takePending(metadata.connectionId))
-						send(
-							server,
-							encodeGatewayMessage({
-								type: "client.frame",
-								connectionId: metadata.connectionId,
-								...frame,
-							}),
-						);
 				}
 			}
 			return websocketResponse(client);
@@ -187,12 +248,40 @@ export class WorkspaceGateway {
 		server.serializeAttachment({
 			role: "client",
 			connectionId,
+			...fence,
 		} satisfies GatewaySocketAttachment);
 		this.state.acceptWebSocket(server, ["client"]);
-		for (const runtime of this.runtimeSockets())
-			send(
-				runtime,
+		const runtimes = this.runtimeSockets();
+		if (runtimes.length === 0) {
+			closeSocket(
+				server,
+				WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code,
+				WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.reason,
+			);
+			return websocketResponse(client);
+		}
+		const currentRuntime = runtimes.find((runtime) => {
+			const metadata = attachment(runtime);
+			return metadata?.role === "runtime" && sameFence(metadata, fence);
+		});
+		if (currentRuntime === undefined) {
+			closeSocket(
+				server,
+				WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE.code,
+				WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE.reason,
+			);
+			return websocketResponse(client);
+		}
+		if (
+			!send(
+				currentRuntime,
 				encodeGatewayMessage({ type: "client.open", connectionId }),
+			)
+		)
+			closeSocket(
+				server,
+				WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.code,
+				WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.reason,
 			);
 		return websocketResponse(client);
 	}
@@ -203,86 +292,147 @@ export class WorkspaceGateway {
 	): Promise<void> {
 		const metadata = attachment(socket);
 		if (metadata?.role === "client") {
-			const frame = encodeGatewayFrame(message);
 			const runtimes = this.runtimeSockets();
 			if (runtimes.length === 0) {
-				const key = this.pendingKey(metadata.connectionId);
-				const queued = pendingFrames(await this.state.storage.get(key));
-				const next = [...queued, frame].slice(-64);
-				const size = next.reduce(
-					(total, item) => total + item.payload.length,
-					0,
+				closeSocket(
+					socket,
+					WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code,
+					WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.reason,
 				);
-				if (size > 512 * 1_024) {
-					closeSocket(socket, 1009, "gateway startup buffer exceeded");
-					await this.state.storage.delete(key);
-					return;
-				}
-				await this.state.storage.put(key, next);
-				const connected = this.runtimeSockets();
-				if (connected.length > 0) {
-					for (const pending of await this.takePending(metadata.connectionId))
-						for (const runtime of connected)
-							send(
-								runtime,
-								encodeGatewayMessage({
-									type: "client.frame",
-									connectionId: metadata.connectionId,
-									...pending,
-								}),
-							);
-				}
 				return;
 			}
-			for (const runtime of runtimes)
-				send(
-					runtime,
-					encodeGatewayMessage({
-						type: "client.frame",
-						connectionId: metadata.connectionId,
-						...frame,
-					}),
+			const runtime = runtimes.find((candidate) => {
+				const candidateMetadata = attachment(candidate);
+				return (
+					candidateMetadata?.role === "runtime" &&
+					sameFence(candidateMetadata, metadata)
+				);
+			});
+			if (runtime === undefined) {
+				closeSocket(
+					socket,
+					WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE.code,
+					WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE.reason,
+				);
+				return;
+			}
+			let encoded: ArrayBuffer;
+			try {
+				encoded = encodeWorkspaceGatewayFrame({
+					direction: "client",
+					connectionId: metadata.connectionId,
+					payload: message,
+				});
+			} catch {
+				closeSocket(
+					socket,
+					WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.code,
+					WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.reason,
+				);
+				return;
+			}
+			if (!send(runtime, encoded))
+				closeSocket(
+					socket,
+					WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.code,
+					WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.reason,
 				);
 			return;
 		}
-		if (metadata?.role !== "runtime" || typeof message !== "string") return;
-		const decoded = decodeGatewayMessage(message);
+		if (metadata?.role !== "runtime") return;
+		const decoded =
+			typeof message === "string"
+				? decodeGatewayMessage(message)
+				: decodeWorkspaceGatewayFrame(message);
 		if (decoded === null) return;
-		if (decoded.type === "runtime.frame") {
+		if ("direction" in decoded && decoded.direction === "runtime") {
+			let delivered = false;
 			for (const client of this.clientSockets()) {
 				const clientMetadata = attachment(client);
 				if (
 					clientMetadata?.role === "client" &&
-					clientMetadata.connectionId === decoded.connectionId
-				)
-					send(
-						client,
-						decoded.encoding === "text"
-							? decoded.payload
-							: Uint8Array.from(Buffer.from(decoded.payload, "base64")).buffer,
-					);
+					clientMetadata.connectionId === decoded.connectionId &&
+					sameFence(clientMetadata, metadata)
+				) {
+					delivered = true;
+					send(client, decoded.payload);
+				}
 			}
+			if (
+				!delivered &&
+				!sendControl(
+					socket,
+					encodeGatewayMessage({
+						type: "client.close",
+						connectionId: decoded.connectionId,
+					}),
+				)
+			)
+				closeSocket(
+					socket,
+					WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.code,
+					WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE.reason,
+				);
 			return;
+		}
+		if ("type" in decoded && decoded.type === "client.close") {
+			for (const client of this.clientSockets()) {
+				const clientMetadata = attachment(client);
+				if (
+					clientMetadata?.role === "client" &&
+					clientMetadata.connectionId === decoded.connectionId &&
+					sameFence(clientMetadata, metadata)
+				) {
+					closeSocket(
+						client,
+						WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code,
+						WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.reason,
+					);
+				}
+			}
 		}
 	}
 
 	async webSocketClose(socket: CloudflareWebSocket): Promise<void> {
 		const metadata = attachment(socket);
 		if (metadata?.role === "client") {
-			await this.state.storage.delete(this.pendingKey(metadata.connectionId));
-			for (const runtime of this.runtimeSockets())
-				send(
-					runtime,
-					encodeGatewayMessage({
-						type: "client.close",
-						connectionId: metadata.connectionId,
-					}),
-				);
+			for (const runtime of this.runtimeSockets()) {
+				const runtimeMetadata = attachment(runtime);
+				if (
+					runtimeMetadata?.role === "runtime" &&
+					sameFence(runtimeMetadata, metadata)
+				)
+					send(
+						runtime,
+						encodeGatewayMessage({
+							type: "client.close",
+							connectionId: metadata.connectionId,
+						}),
+					);
+			}
 			return;
 		}
 		if (metadata?.role === "runtime") {
-			for (const client of this.clientSockets())
-				closeSocket(client, 1012, "workspace runtime disconnected");
+			const replacementExists = this.runtimeSockets().some((runtime) => {
+				const runtimeMetadata = attachment(runtime);
+				return (
+					runtimeMetadata?.role === "runtime" &&
+					sameFence(runtimeMetadata, metadata)
+				);
+			});
+			if (replacementExists) return;
+			for (const client of this.clientSockets()) {
+				const clientMetadata = attachment(client);
+				if (
+					clientMetadata?.role === "client" &&
+					sameFence(clientMetadata, metadata)
+				)
+					closeSocket(
+						client,
+						WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code,
+						WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.reason,
+					);
+			}
 		}
 	}
 

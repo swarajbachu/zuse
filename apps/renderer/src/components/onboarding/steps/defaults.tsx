@@ -4,7 +4,7 @@ import { MODE_META, MODES_ORDER } from "~/components/runtime-mode-meta";
 import { ModelSelect } from "~/components/settings-page";
 import { Switch } from "~/components/ui/switch";
 import { cn } from "~/lib/utils";
-import { useSettingsStore } from "../../../store/settings.ts";
+import { useSettingsStore } from "../../../lib/settings-client-bus.ts";
 import { StepHeader } from "./shared.tsx";
 
 export function DefaultsStep() {

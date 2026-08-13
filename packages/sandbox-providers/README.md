@@ -55,3 +55,12 @@ through the provider's template store, and recovery uses the deterministic
 label persisted in sandbox metadata. The quarantine capability this adapter
 relies on was verified live in
 `specs/cloud-platform/research/quarantined-fork-verification.md`.
+
+Cloud workspace archives currently use an E2B snapshot as their durable
+provider recovery artifact. The relay publishes that snapshot ID only after a
+quarantined fork has verified the archive manifest, bundle checksum, SQLite
+integrity/schema, and recorded stream heads. The recovery tar inside the
+sandbox is not, by itself, an independent durable backup: its durability is
+bounded by E2B snapshot retention and availability. An object-storage copy is
+not configured in this implementation, so recovery must not be described as
+cross-provider or provider-outage-safe until that storage adapter exists.

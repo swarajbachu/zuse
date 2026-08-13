@@ -1,3 +1,4 @@
+import { AgentTurnId, type TurnInterruptReceipt } from "@zuse/contracts";
 import { Result, Schema } from "effect";
 import { titleProvenanceOrManual } from "../naming.js";
 import type { SessionCommand } from "./commands.js";
@@ -56,6 +57,32 @@ export type DomainError =
 	| QueuedTurnNotFound
 	| SegmentNotOpen
 	| PermissionNotPending;
+
+/** Result persisted with an interrupt command receipt before any side effect. */
+export const turnInterruptReceipt = (
+	state: SessionState,
+	expectedTurnId: string | undefined,
+): TurnInterruptReceipt => {
+	const actualTurnId = state.currentTurnId;
+	if (actualTurnId === null) {
+		return {
+			_tag: "not-active",
+			reason: "no-active-turn",
+			expectedTurnId:
+				expectedTurnId === undefined ? null : AgentTurnId.make(expectedTurnId),
+			actualTurnId: null,
+		};
+	}
+	if (expectedTurnId !== undefined && actualTurnId !== expectedTurnId) {
+		return {
+			_tag: "not-active",
+			reason: "turn-mismatch",
+			expectedTurnId: AgentTurnId.make(expectedTurnId),
+			actualTurnId: AgentTurnId.make(actualTurnId),
+		};
+	}
+	return { _tag: "requested", turnId: AgentTurnId.make(actualTurnId) };
+};
 
 const success = (events: readonly SessionEvent[]) => Result.succeed(events);
 
@@ -161,9 +188,16 @@ export const decide = (
 				? success([])
 				: success([{ ...command, _tag: "SessionPermissionModeSet" }]);
 		case "SetWorktree":
-			return state.worktreeId === command.worktreeId
+			return state.worktreeId === command.worktreeId &&
+				command.forceProjection !== true
 				? success([])
-				: success([{ ...command, _tag: "SessionWorktreeSet" }]);
+				: success([
+						{
+							_tag: "SessionWorktreeSet",
+							worktreeId: command.worktreeId,
+							updatedAt: command.updatedAt,
+						},
+					]);
 		case "SetStatus":
 			return state.status === command.status
 				? success([])
@@ -174,7 +208,9 @@ export const decide = (
 				: success([{ ...command, _tag: "SessionQueuePausedSet" }]);
 		case "SetResume":
 			return state.cursor === command.cursor &&
-				state.resumeStrategy === command.resumeStrategy
+				state.resumeStrategy === command.resumeStrategy &&
+				(command.providerEventCursor === undefined ||
+					state.providerEventCursor === command.providerEventCursor)
 				? success([])
 				: success([{ ...command, _tag: "SessionResumeSet" }]);
 		case "ArchiveSession":
@@ -252,20 +288,20 @@ export const decide = (
 			}
 			return success(events);
 		}
-		case "RequestTurnInterrupt":
-			if (state.currentTurnId !== command.turnId) {
-				if (state.settledTurnIds.has(command.turnId)) return success([]);
-				return Result.fail(
-					new TurnConflict({
-						expectedTurnId: command.turnId,
-						actualTurnId: state.currentTurnId,
-					}),
-				);
-			}
+		case "RequestTurnInterrupt": {
+			const receipt = turnInterruptReceipt(state, command.expectedTurnId);
+			if (receipt._tag === "not-active") return success([]);
 			return state.currentTurnPhase === "interrupt-requested" ||
 				state.currentTurnPhase === "interrupt-acknowledged"
 				? success([])
-				: success([{ ...command, _tag: "TurnInterruptRequested" }]);
+				: success([
+						{
+							_tag: "TurnInterruptRequested",
+							turnId: receipt.turnId,
+							requestedAt: command.requestedAt,
+						},
+					]);
+		}
 		case "AcknowledgeTurnInterrupt":
 			if (state.currentTurnId !== command.turnId) {
 				if (state.settledTurnIds.has(command.turnId)) return success([]);
@@ -435,8 +471,41 @@ export const decide = (
 				},
 			]);
 		}
-		case "PersistMessage":
+		case "PersistMessage": {
+			const revision = command.checkpointRevision;
+			const final = command.checkpointFinal;
+			if ((revision === undefined) !== (final === undefined)) {
+				return Result.fail(
+					new ValidationFailed({
+						message: "checkpoint revision and final must be provided together",
+					}),
+				);
+			}
+			if (
+				revision !== undefined &&
+				(!Number.isSafeInteger(revision) || revision < 1)
+			) {
+				return Result.fail(
+					new ValidationFailed({
+						message: "checkpoint revision must be a positive safe integer",
+					}),
+				);
+			}
+			if (revision !== undefined) {
+				const current = state.messageCheckpoints.get(command.messageId);
+				if (
+					current !== undefined &&
+					(current.final || revision <= current.revision)
+				) {
+					return success([]);
+				}
+			} else if (state.messageCheckpoints.has(command.messageId)) {
+				// Once a stable message id enters the checkpoint protocol, an
+				// unversioned frame must not bypass its high-water mark.
+				return success([]);
+			}
 			return success([{ ...command, _tag: "MessagePersisted" }]);
+		}
 		case "OpenSegment":
 			if (state.currentTurnId !== command.turnId) {
 				return Result.fail(new TurnNotRunning({ turnId: command.turnId }));

@@ -1,13 +1,15 @@
-import { type EditorView } from "@codemirror/view";
-import type { ProviderId, Skill } from "@zuse/contracts";
+import type { EditorView } from "@codemirror/view";
+import { EnvironmentId, type ProviderId, type Skill } from "@zuse/contracts";
 import fuzzysort from "fuzzysort";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useComposerAnchor } from "~/components/composer/use-composer-anchor";
 import { overlaySurface } from "~/components/ui/overlay-surface";
 import { type ActiveTrigger, replaceWithChip } from "~/lib/codemirror/composer";
+import { useSessionSkills } from "~/lib/session-skills-client-bus.ts";
 import { cn } from "~/lib/utils";
-import { useSkillsStore } from "~/store/skills.ts";
+import { useEnvironmentCatalogStore } from "~/store/environment-catalog.ts";
+import { useSessionsStore } from "~/store/sessions.ts";
 import {
 	type BuiltinCommand,
 	filterBuiltins,
@@ -59,9 +61,20 @@ export function SlashCommandPopover({
 	providerId,
 	onClose,
 }: SlashCommandPopoverProps) {
-	const allSkills = useSkillsStore(
-		(s) => s.skillsBySession[sessionId] ?? EMPTY_SKILLS,
+	const environmentId = EnvironmentId.make(
+		useEnvironmentCatalogStore((state) => state.activeEnvironmentId),
 	);
+	const draftSkills = useSessionsStore((state) =>
+		state.draftSession?.id === sessionId ? state.draftSkills : null,
+	);
+	const skillsView = useSessionSkills(
+		{
+			environmentId,
+			sessionId: sessionId as import("@zuse/contracts").SessionId,
+		},
+		draftSkills === null ? "connect" : "cache-only",
+	);
+	const allSkills = draftSkills ?? skillsView.data?.skills ?? EMPTY_SKILLS;
 
 	const builtins = useMemo(
 		() => filterBuiltins(trigger.query, providerId),

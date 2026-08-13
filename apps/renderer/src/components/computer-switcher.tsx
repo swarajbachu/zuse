@@ -1,17 +1,19 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ChevronDown } from "lucide-react";
-import {
-	ComputerIcon,
-} from "@zuse/icons/solid-rounded";
+import { ComputerIcon } from "@zuse/icons/solid-rounded";
 import {
 	environmentRoute,
 	parseEnvironmentRoute,
 } from "@zuse/client-runtime/environment-scope";
-import { HOSTED_APP_URL, type RelayEnvironmentRecord } from "@zuse/contracts";
-import { Effect } from "effect";
+import {
+	type CommandId,
+	EnvironmentId,
+	HOSTED_APP_URL,
+	type RelayEnvironmentRecord,
+} from "@zuse/contracts";
 import { Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import {
 	AddComputerDialogHost,
@@ -103,10 +105,25 @@ function HostedComputerSwitcher() {
 		let cancelled = false;
 		const refresh = async (): Promise<void> => {
 			try {
-				const client = await getRpcClient();
+				const environmentId = EnvironmentId.make(
+					useEnvironmentCatalogStore.getState().activeEnvironmentId,
+				);
 				const [status, catalog] = await Promise.all([
-					Effect.runPromise(client["relay.status"]()),
-					Effect.runPromise(client["relay.environments"]()),
+					dispatchEnvironmentShellCommand<{}, { environmentId?: string }>({
+						environmentId,
+						kind: "relay.status",
+						commandId: crypto.randomUUID() as CommandId,
+						payload: {},
+					}).then(({ result }) => result),
+					dispatchEnvironmentShellCommand<
+						{},
+						{ environments: ReadonlyArray<RelayEnvironmentRecord> }
+					>({
+						environmentId,
+						kind: "relay.environments",
+						commandId: crypto.randomUUID() as CommandId,
+						payload: {},
+					}).then(({ result }) => result),
 				]);
 				if (!cancelled) {
 					setLocalEnvironmentId(status.environmentId ?? null);

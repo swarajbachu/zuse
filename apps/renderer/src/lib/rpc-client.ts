@@ -32,7 +32,7 @@ import {
 import { instrumentRendererRpcClient } from "./rpc-stall-instrumentation.ts";
 import { wsClientProtocolLayer } from "./ws-client-protocol.ts";
 
-type MemoizeClient = RpcClient.RpcClient<
+export type MemoizeClient = RpcClient.RpcClient<
 	RpcGroup.Rpcs<typeof MemoizeRpcs>,
 	RpcClientError
 >;
@@ -52,6 +52,21 @@ type RendererConnectionOptions =
 			readonly refreshConnection?: () => Promise<CloudWorkspaceConnection>;
 	  };
 
+export type RendererRpcSession = Readonly<{
+	client: MemoizeClient;
+	dispose: () => Promise<void>;
+}>;
+
+type PreparedRendererSession = Readonly<{
+	key: string;
+	create: (onClose: (code: number) => void) => Promise<RendererRpcSession>;
+}>;
+
+export type PassiveRendererSessionHooks = Readonly<{
+	prepare: (environmentId: string) => Promise<PreparedRendererSession>;
+	invalidateCloudTicket: (workspaceId: string) => void;
+}>;
+
 export const LOCAL_ENVIRONMENT_KEY = "local";
 
 const environmentConnections = new Map<string, RendererConnectionOptions>();
@@ -64,7 +79,9 @@ const cloudWorkspaceRegistrations = new Map<
 	string,
 	CloudWorkspaceRegistration
 >();
-const CLOUD_TICKET_REUSE_WINDOW_MS = 60_000;
+// Tickets last roughly a minute. Keep only a short safety margin so one live
+// activation can reuse its freshly issued ticket without minting a second one.
+const CLOUD_TICKET_REUSE_WINDOW_MS = 10_000;
 
 export const canReuseCloudWorkspaceTicket = (
 	connection: CloudWorkspaceConnection | null,
@@ -74,15 +91,6 @@ export const canReuseCloudWorkspaceTicket = (
 	connection.expiresAt - nowMs > CLOUD_TICKET_REUSE_WINDOW_MS;
 let activeEnvironmentId = LOCAL_ENVIRONMENT_KEY;
 let localEnvironmentId = LOCAL_ENVIRONMENT_KEY;
-let defaultEnvironmentResolver: (() => string | undefined) | null = null;
-const resolveDefaultEnvironment = (): string =>
-	defaultEnvironmentResolver?.() ?? activeEnvironmentId;
-
-export const setDefaultRpcEnvironmentResolver = (
-	resolver: (() => string | undefined) | null,
-): void => {
-	defaultEnvironmentResolver = resolver;
-};
 
 const rendererConnectionKey = (): string => {
 	if (typeof location === "undefined") return "environment:local";
@@ -130,84 +138,90 @@ const optionsForEnvironment = (
 	return connectionOptions();
 };
 
+const prepareRendererConnectionOptions = async (
+	options: RendererConnectionOptions,
+): Promise<RendererConnectionOptions> => {
+	if (options.kind !== "websocket") return options;
+	if (options.refreshConnection !== undefined) {
+		const connection = await options.refreshConnection();
+		return {
+			...options,
+			wsUrl: connection.wsUrl,
+			protocols: [connection.protocol, connection.credential],
+		};
+	}
+	return options.refreshWsUrl === undefined
+		? options
+		: { ...options, wsUrl: await options.refreshWsUrl() };
+};
+
 let online = globalThis.navigator?.onLine ?? true;
-export const RENDERER_MAX_AUTOMATIC_CONNECTION_ATTEMPTS = 3;
 export const RENDERER_WEBSOCKET_OPEN_TIMEOUT = "3 seconds" as const;
 
 export const isIgnorableRendererFailure = (cause: unknown): boolean =>
 	cause instanceof Error &&
 	cause.message === "All fibers interrupted without error";
 
+const makeRendererRpcSession = async (
+	options: RendererConnectionOptions,
+	onClose: (event: Readonly<{ code: number }>) => void,
+): Promise<RendererRpcSession> => {
+	const protocolLayer =
+		options.kind === "electron"
+			? electronClientProtocolLayer(options.bridge).pipe(
+					Layer.provide(RpcSerialization.layerJson),
+				)
+			: wsClientProtocolLayer(
+					withWireProtocolVersion(
+						options.wsUrl || (await requestBrowserWebSocketUrl()),
+						WIRE_PROTOCOL_VERSION,
+					),
+					{
+						openTimeout: RENDERER_WEBSOCKET_OPEN_TIMEOUT,
+						makeWebSocket:
+							options.protocols === undefined
+								? undefined
+								: (url) =>
+										new globalThis.WebSocket(url, [
+											...(options.protocols ?? []),
+										]),
+						onClose,
+					},
+				);
+	return instrumentRendererRpcClient(
+		await makeRpcClientSession(protocolLayer, MemoizeRpcs, {
+			protocolVersion: WIRE_PROTOCOL_VERSION,
+			perform: (client, hello) => client["connect.handshake"](hello),
+		}),
+	);
+};
+
 const supervisor = createConnectionSupervisor<
 	RendererConnectionOptions,
 	MemoizeClient
 >({
 	keyOf: (options) => options.key,
-	prepareOptions: async (options) => {
-		if (options.kind !== "websocket") return options;
-		if (options.refreshConnection !== undefined) {
-			const connection = await options.refreshConnection();
-			return {
-				...options,
-				wsUrl: connection.wsUrl,
-				protocols: [connection.protocol, connection.credential],
-			};
-		}
-		return options.refreshWsUrl === undefined
-			? options
-			: { ...options, wsUrl: await options.refreshWsUrl() };
-	},
+	prepareOptions: prepareRendererConnectionOptions,
 	isOnline: () => online,
 	isIgnorableFailure: isIgnorableRendererFailure,
 	schedule: (delayMs, reconnect) => {
 		const timer = setTimeout(reconnect, delayMs);
 		return () => clearTimeout(timer);
 	},
-	createClient: async (options) => {
-		const protocolLayer =
-			options.kind === "electron"
-				? electronClientProtocolLayer(options.bridge).pipe(
-						Layer.provide(RpcSerialization.layerJson),
-					)
-				: wsClientProtocolLayer(
-						withWireProtocolVersion(
-							options.wsUrl || (await requestBrowserWebSocketUrl()),
-							WIRE_PROTOCOL_VERSION,
-						),
-						{
-							openTimeout: RENDERER_WEBSOCKET_OPEN_TIMEOUT,
-							makeWebSocket:
-								options.protocols === undefined
-									? undefined
-									: (url) =>
-											new globalThis.WebSocket(url, [
-												...(options.protocols ?? []),
-											]),
-							onClose: (event) => {
-								if (options.key.startsWith("workspace:")) {
-									const workspaceId = options.key.slice("workspace:".length);
-									const registration =
-										cloudWorkspaceRegistrations.get(workspaceId);
-									if (registration !== undefined)
-										registration.connection = null;
-								}
-								reportRendererEntryFailure(
-									options.key,
-									new Error(`WebSocket closed (${event.code}).`),
-								);
-							},
-						},
-					);
-		return instrumentRendererRpcClient(
-			await makeRpcClientSession(protocolLayer, MemoizeRpcs, {
-				protocolVersion: WIRE_PROTOCOL_VERSION,
-				perform: (client, hello) => client["connect.handshake"](hello),
-			}),
-		);
-	},
-	isRetryableCommandError: isRpcClientError,
+	createClient: (options) =>
+		makeRendererRpcSession(options, (event) => {
+			if (options.key.startsWith("workspace:")) {
+				const workspaceId = options.key.slice("workspace:".length);
+				const registration = cloudWorkspaceRegistrations.get(workspaceId);
+				if (registration !== undefined) registration.connection = null;
+			}
+			reportRendererEntryFailure(
+				options.key,
+				new Error(`WebSocket closed (${event.code}).`),
+			);
+		}),
+	isRetryableCommandError: isRpcClientTransportError,
 	shouldReconnectOnOptionsChange: shouldReconnectRendererConnection,
-	maxAutomaticAttempts: RENDERER_MAX_AUTOMATIC_CONNECTION_ATTEMPTS,
 	onDiagnostic: ({ event, key, details }) => {
 		recordDiagnosticEvent({
 			level:
@@ -270,7 +284,7 @@ const getRendererEntry = (
 	return entry;
 };
 
-function isRpcClientError(cause: unknown): boolean {
+export function isRpcClientTransportError(cause: unknown): boolean {
 	return (
 		typeof cause === "object" &&
 		cause !== null &&
@@ -282,11 +296,65 @@ function isRpcClientError(cause: unknown): boolean {
 export const getRpcClient = (environmentId?: unknown): Promise<MemoizeClient> =>
 	Effect.runPromise(
 		getRendererEntry(
-			typeof environmentId === "string"
-				? environmentId
-				: resolveDefaultEnvironment(),
+			typeof environmentId === "string" ? environmentId : activeEnvironmentId,
 		).getClient(),
 	);
+
+/**
+ * Opens one passive physical RPC session for ClientBus. The session refreshes
+ * route credentials before every acquisition, but deliberately owns no retry
+ * timer or connection generation; EnvironmentRuntime is the sole lifecycle
+ * and retry owner for this path.
+ */
+export const acquireRendererRpcSession = async (
+	environmentId: string,
+	options: Readonly<{
+		onClose?: (cause: Error) => void;
+		hooks?: PassiveRendererSessionHooks;
+	}> = {},
+): Promise<RendererRpcSession> => {
+	const hooks =
+		options.hooks ??
+		({
+			prepare: async (id) => {
+				const prepared = await prepareRendererConnectionOptions(
+					optionsForEnvironment(id),
+				);
+				return {
+					key: prepared.key,
+					create: (onClose) =>
+						makeRendererRpcSession(prepared, (event) => onClose(event.code)),
+				};
+			},
+			invalidateCloudTicket: (workspaceId) => {
+				const registration = cloudWorkspaceRegistrations.get(workspaceId);
+				if (registration !== undefined) registration.connection = null;
+			},
+		} satisfies PassiveRendererSessionHooks);
+	const prepared = await hooks.prepare(environmentId);
+	let active = true;
+	return prepared
+		.create((code) => {
+			if (!active) return;
+			if (prepared.key.startsWith("workspace:")) {
+				const workspaceId = prepared.key.slice("workspace:".length);
+				hooks.invalidateCloudTicket(workspaceId);
+			}
+			options.onClose?.(new Error(`WebSocket closed (${code}).`));
+		})
+		.then((session) => {
+			let disposed = false;
+			return {
+				client: session.client,
+				dispose: async () => {
+					if (disposed) return;
+					disposed = true;
+					active = false;
+					await session.dispose();
+				},
+			};
+		});
+};
 
 /**
  * Acquire a client and prove its socket is responsive before sending a
@@ -294,7 +362,7 @@ export const getRpcClient = (environmentId?: unknown): Promise<MemoizeClient> =>
  * multi-minute browser authorization flows.
  */
 export const getVerifiedRpcClient = async (
-	environmentId = resolveDefaultEnvironment(),
+	environmentId = activeEnvironmentId,
 ): Promise<MemoizeClient> => {
 	let client = await getRpcClient(environmentId);
 	try {
@@ -454,7 +522,7 @@ export const removeRendererEnvironment = async (
 
 export const reportRendererRpcFailure = (
 	cause: unknown,
-	environmentId = resolveDefaultEnvironment(),
+	environmentId = activeEnvironmentId,
 ): void => {
 	getRendererEntry(environmentId).reportFailure(cause);
 };
@@ -463,7 +531,7 @@ export const reportRendererRpcFailure = (
 export const reportRendererRpcStreamFailure = (
 	generation: number,
 	cause: unknown,
-	environmentId = resolveDefaultEnvironment(),
+	environmentId = activeEnvironmentId,
 ): boolean => getRendererEntry(environmentId).reportFailure(cause, generation);
 
 /**
@@ -473,20 +541,18 @@ export const reportRendererRpcStreamFailure = (
  */
 export const subscribeRendererRpcConnection = (
 	listener: (snapshot: ConnectionSnapshot) => void,
-	environmentId = resolveDefaultEnvironment(),
+	environmentId = activeEnvironmentId,
 ): (() => void) => getRendererEntry(environmentId).subscribe(listener);
 
 export const retryRendererRpcConnection = (environmentId?: unknown): void =>
 	getRendererEntry(
-		typeof environmentId === "string"
-			? environmentId
-			: resolveDefaultEnvironment(),
+		typeof environmentId === "string" ? environmentId : activeEnvironmentId,
 	).retryNow();
 
 export const dispatchRetryableRpcCommand = <A>(
 	commandId: string,
 	operation: () => Promise<A>,
-	environmentId = resolveDefaultEnvironment(),
+	environmentId = activeEnvironmentId,
 ): Promise<A> =>
 	getRendererEntry(environmentId).dispatchCommand(commandId, () => operation());
 

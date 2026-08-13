@@ -4,7 +4,7 @@ import {
 	SandboxProviderError,
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
-import { Clock, Effect } from "effect";
+import { Clock, Data, Effect } from "effect";
 import { CloudCredentialVault } from "./cloud-credential-vault.ts";
 import {
 	type CloudProjectBuildRecord,
@@ -22,8 +22,19 @@ const PROJECT_BUILD_TIMEOUT_MS = 15 * 60 * 1_000;
 const WARM_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_RUNTIME_BOOT_TTL_MS = 30 * 60 * 1_000;
 const WARM_RUNTIME_RECONNECT_GRACE_MS = 5_000;
+const ARCHIVE_READY = "/var/lib/zuse/workspace-archive/ready";
+const RESTORE_READY = "/var/lib/zuse/workspace-restore/ready";
+const RESTORE_FAILED = "/var/lib/zuse/workspace-restore/failed";
 const WORKSPACE_RUNTIME_BOOT_TOKEN_FILE =
 	"/run/zuse-secrets/workspace-runtime-boot-token";
+
+class CloudWorkspaceLeaseLostError extends Data.TaggedError(
+	"CloudWorkspaceLeaseLostError",
+)<{ readonly workspaceId: string }> {}
+
+type SaveClaimedWorkspace = (
+	workspace: CloudWorkspaceRecord,
+) => Effect.Effect<void, CloudWorkspaceLeaseLostError>;
 export const WORKSPACE_RUNTIME_PROCESS_PATTERN =
 	"[z]use serve|[/]opt/zuse/current/bin.mjs serve";
 export const WORKSPACE_RUNTIME_RESUME_SCRIPT =
@@ -37,6 +48,54 @@ export const WORKSPACE_ARCHIVE_SCRIPT = `set -e; runtime_pid="$(pgrep -u zuse -f
 
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
+
+const recoverySnapshotId = (
+	workspace: CloudWorkspaceRecord,
+): string | undefined =>
+	workspace.recoveryBundleKey?.startsWith("provider-snapshot:")
+		? workspace.recoveryBundleKey.slice("provider-snapshot:".length)
+		: undefined;
+
+const recoveryVerificationLabel = (workspaceId: string): string =>
+	providerLabel("workspace", `${workspaceId}-archive-verify`);
+
+const recoveryRestoreLabel = (workspaceId: string): string =>
+	providerLabel("workspace", `${workspaceId}-restore-staging`);
+
+const nextStreamEpoch = (): string => crypto.randomUUID();
+
+const nextRuntimeFence = (
+	workspace: CloudWorkspaceRecord,
+): { readonly runtimeGeneration: number; readonly gatewayEpoch: number } => ({
+	runtimeGeneration:
+		(typeof workspace.requestConfig.runtimeGeneration === "number"
+			? workspace.requestConfig.runtimeGeneration
+			: 0) + 1,
+	gatewayEpoch:
+		(typeof workspace.requestConfig.gatewayEpoch === "number"
+			? workspace.requestConfig.gatewayEpoch
+			: 0) + 1,
+});
+
+const runtimeFenceForStart = (
+	workspace: CloudWorkspaceRecord,
+): { readonly runtimeGeneration: number; readonly gatewayEpoch: number } => {
+	const { runtimeGeneration, gatewayEpoch } = workspace.requestConfig;
+	if (
+		workspace.statusCode === "recovery-promoted-runtime-starting" &&
+		typeof runtimeGeneration === "number" &&
+		typeof gatewayEpoch === "number"
+	)
+		return { runtimeGeneration, gatewayEpoch };
+	return nextRuntimeFence(workspace);
+};
+
+const withoutRuntimeBootstrapReceipt = (
+	config: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> => {
+	const { runtimeBootstrapReceipt: _receipt, ...rest } = config;
+	return rest;
+};
 
 const workspaceStartupTimedOut = (
 	workspace: CloudWorkspaceRecord,
@@ -455,14 +514,14 @@ const pauseWorkspace = (
 	provider: SandboxProviderAdapter,
 	nowMs: number,
 	archived: boolean,
+	saveWorkspace: SaveClaimedWorkspace,
 ) =>
 	Effect.gen(function* () {
-		const store = yield* CloudWorkspaceStore;
 		if (workspace.providerSandboxId !== undefined)
 			yield* provider.pause(workspace.providerSandboxId);
 		yield* recordLifecycle(workspace, "runtime-seconds", nowMs);
 		yield* recordLifecycle(workspace, archived ? "archive" : "pause", nowMs);
-		yield* store.saveWorkspace({
+		yield* saveWorkspace({
 			...workspace,
 			state: archived ? "archived" : "paused",
 			desiredState: archived ? "archived" : "paused",
@@ -503,6 +562,7 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 		providerSandboxId: string,
 		provider: SandboxProviderAdapter,
 		nowMs: number,
+		saveWorkspace: SaveClaimedWorkspace,
 		providerAlreadyRunning = false,
 	) {
 		const store = yield* CloudWorkspaceStore;
@@ -555,10 +615,11 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 			(workspace.requestConfig.startupTimings as
 				| Readonly<Record<string, number>>
 				| undefined) ?? {};
+		const runtimeFence = runtimeFenceForStart(workspace);
 		// Authorize the exact token written above before the detached runtime can
 		// read it. Repeated resume requests are idempotent, so releasing the lease
 		// here cannot replace this token while startup is in flight.
-		yield* store.saveWorkspace({
+		yield* saveWorkspace({
 			...workspace,
 			runtimeBootTokenHash: boot.tokenHash,
 			runtimeBootTokenExpiresAtMs: boot.expiresAtMs,
@@ -568,7 +629,8 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 			statusCode: "resume-runtime-restarting",
 			warmRetentionDeadlineMs: undefined,
 			requestConfig: {
-				...workspace.requestConfig,
+				...withoutRuntimeBootstrapReceipt(workspace.requestConfig),
+				...runtimeFence,
 				startupTimings: { ...timings, allocatedAt: nowMs },
 			},
 			nextActionAtMs: nowMs + 30_000,
@@ -594,6 +656,8 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 				ZUSE_MACHINE_RUNTIME_ROLE: "cloud-environment",
 				ZUSE_SERVER_READY_STDOUT: "1",
 				ZUSE_USER_DATA: "/home/zuse/.zuse-data",
+				ZUSE_RUNTIME_GENERATION: String(runtimeFence.runtimeGeneration),
+				ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
 				...(config.runtimeManifestUrl === undefined
 					? {}
 					: {
@@ -609,7 +673,10 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 );
 
 const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
-	function* (workspace: CloudWorkspaceRecord) {
+	function* (
+		workspace: CloudWorkspaceRecord,
+		saveWorkspace: SaveClaimedWorkspace,
+	) {
 		const store = yield* CloudWorkspaceStore;
 		const provider = yield* (yield* SandboxProviders)
 			.get(workspace.provider)
@@ -620,7 +687,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 
 		if (workspace.desiredState === "deleted") {
 			if (!(yield* discardUnsafeWorkspaceSandbox(provider, workspace))) {
-				yield* store.saveWorkspace({
+				yield* saveWorkspace({
 					...workspace,
 					statusCode: "delete-retrying",
 					nextActionAtMs: nowMs + RETRY_MS,
@@ -632,7 +699,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			if (workspace.runningSinceMs !== undefined)
 				yield* recordLifecycle(workspace, "runtime-seconds", nowMs);
 			yield* recordLifecycle(workspace, "delete", nowMs);
-			yield* store.saveWorkspace({
+			yield* saveWorkspace({
 				...workspace,
 				state: "deleted",
 				statusCode: "deleted",
@@ -651,8 +718,40 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			return;
 		}
 
+		const recoveryWarmSourceSandboxId =
+			typeof workspace.requestConfig.recoveryWarmSourceSandboxId === "string"
+				? workspace.requestConfig.recoveryWarmSourceSandboxId
+				: undefined;
+		if (
+			workspace.state === "ready" &&
+			workspace.runtimeState === "online" &&
+			recoveryWarmSourceSandboxId !== undefined &&
+			recoveryWarmSourceSandboxId !== workspace.providerSandboxId
+		) {
+			// The promoted runtime is healthy. Only now may the warm pre-restore
+			// sandbox be removed; the verified provider snapshot remains available.
+			yield* provider.kill(recoveryWarmSourceSandboxId);
+			yield* saveWorkspace({
+				...workspace,
+				requestConfig: {
+					...workspace.requestConfig,
+					recoveryWarmSourceSandboxId: undefined,
+				},
+				nextActionAtMs: Number.MAX_SAFE_INTEGER,
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+			});
+			return;
+		}
+
 		if (workspace.desiredState === "paused" && workspace.state !== "paused")
-			return yield* pauseWorkspace(workspace, provider, nowMs, false);
+			return yield* pauseWorkspace(
+				workspace,
+				provider,
+				nowMs,
+				false,
+				saveWorkspace,
+			);
 
 		if (
 			workspace.desiredState === "archived" &&
@@ -673,9 +772,17 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					command: "/bin/bash",
 					args: ["-lc", WORKSPACE_ARCHIVE_SCRIPT],
 					cwd: "/home/zuse/workspace",
+					env: {
+						ZUSE_RUNTIME_GENERATION: String(
+							workspace.requestConfig.runtimeGeneration ?? 0,
+						),
+						ZUSE_GATEWAY_EPOCH: String(
+							workspace.requestConfig.gatewayEpoch ?? 0,
+						),
+					},
 					user: "zuse",
 				});
-				yield* store.saveWorkspace({
+				yield* saveWorkspace({
 					...workspace,
 					state: "archiving",
 					statusCode: "archive-hook-running",
@@ -720,7 +827,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				const failureCode = /^[a-z][a-z0-9-]{0,63}$/u.test(reportedCode ?? "")
 					? (reportedCode as string)
 					: "archive-failed";
-				yield* store.saveWorkspace({
+				yield* saveWorkspace({
 					...workspace,
 					state: "failed",
 					statusCode: failureCode,
@@ -739,18 +846,254 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			if (
 				!(yield* provider.pathExists(
 					workspace.providerSandboxId,
-					"/var/lib/zuse/workspace-archive/ready",
+					ARCHIVE_READY,
 					"zuse",
 				))
 			) {
-				yield* store.saveWorkspace({
+				yield* saveWorkspace({
 					...workspace,
 					nextActionAtMs: nowMs + RETRY_MS,
 					updatedAtMs: nowMs,
 				});
 				return;
 			}
-			return yield* pauseWorkspace(workspace, provider, nowMs, true);
+			const candidate =
+				typeof workspace.requestConfig.recoverySnapshotCandidate === "string"
+					? workspace.requestConfig.recoverySnapshotCandidate
+					: undefined;
+			if (workspace.statusCode === "archive-snapshot-verifying") {
+				const verifier = yield* provider.recoverByLabel(
+					recoveryVerificationLabel(workspace.workspaceId),
+				);
+				if (verifier === null || candidate === undefined) {
+					yield* saveWorkspace({
+						...workspace,
+						state: "failed",
+						statusCode: "archive-snapshot-validation-failed",
+						nextActionAtMs: Number.MAX_SAFE_INTEGER,
+						revision: workspace.revision + 1,
+						updatedAtMs: nowMs,
+					});
+					return;
+				}
+				if (
+					yield* provider.pathExists(
+						verifier.providerSandboxId,
+						RESTORE_FAILED,
+						"zuse",
+					)
+				) {
+					yield* provider.kill(verifier.providerSandboxId).pipe(Effect.ignore);
+					yield* provider.deleteSnapshot(candidate).pipe(Effect.ignore);
+					yield* saveWorkspace({
+						...workspace,
+						state: "failed",
+						statusCode: "archive-snapshot-validation-failed",
+						nextActionAtMs: Number.MAX_SAFE_INTEGER,
+						revision: workspace.revision + 1,
+						updatedAtMs: nowMs,
+					});
+					return;
+				}
+				if (
+					!(yield* provider.pathExists(
+						verifier.providerSandboxId,
+						RESTORE_READY,
+						"zuse",
+					))
+				) {
+					yield* saveWorkspace({
+						...workspace,
+						nextActionAtMs: nowMs + RETRY_MS,
+						updatedAtMs: nowMs,
+					});
+					return;
+				}
+				if (!(yield* provider.inspectSnapshot(candidate))) {
+					yield* saveWorkspace({
+						...workspace,
+						state: "failed",
+						statusCode: "archive-snapshot-missing",
+						nextActionAtMs: Number.MAX_SAFE_INTEGER,
+						revision: workspace.revision + 1,
+						updatedAtMs: nowMs,
+					});
+					return;
+				}
+				yield* provider.kill(verifier.providerSandboxId);
+				yield* saveWorkspace({
+					...workspace,
+					recoveryBundleKey: `provider-snapshot:${candidate}`,
+					statusCode: "archive-recovery-verified",
+					requestConfig: {
+						...workspace.requestConfig,
+						recoverySnapshotCandidate: undefined,
+					},
+					nextActionAtMs: nowMs,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
+			const publishedSnapshot = recoverySnapshotId(workspace);
+			if (
+				publishedSnapshot !== undefined &&
+				(yield* provider.inspectSnapshot(publishedSnapshot))
+			)
+				return yield* pauseWorkspace(
+					workspace,
+					provider,
+					nowMs,
+					true,
+					saveWorkspace,
+				);
+			const snapshotId = yield* provider.snapshot(
+				workspace.providerSandboxId,
+				`zuse-recovery-${workspace.workspaceId}-${workspace.revision}`,
+			);
+			if (!(yield* provider.inspectSnapshot(snapshotId))) {
+				yield* saveWorkspace({
+					...workspace,
+					state: "failed",
+					statusCode: "archive-snapshot-missing",
+					nextActionAtMs: Number.MAX_SAFE_INTEGER,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
+			const verifier = yield* provider.fork({
+				sandboxId: `${workspace.workspaceId}-archive-verify`,
+				providerLabel: recoveryVerificationLabel(workspace.workspaceId),
+				snapshotId,
+				timeoutSeconds: config.keepAliveTimeoutSeconds,
+				env: {},
+				onTimeout: "terminate",
+			});
+			yield* provider.startProcess(verifier.providerSandboxId, {
+				command: "/usr/local/bin/zuse-restore-workspace",
+				args: ["verify"],
+				cwd: "/home/zuse",
+				user: "zuse",
+			});
+			yield* saveWorkspace({
+				...workspace,
+				statusCode: "archive-snapshot-verifying",
+				requestConfig: {
+					...workspace.requestConfig,
+					recoverySnapshotCandidate: snapshotId,
+				},
+				nextActionAtMs: nowMs + RETRY_MS,
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+			});
+			return;
+		}
+
+		if (
+			workspace.desiredState === "ready" &&
+			(workspace.state === "archived" || workspace.state === "recovering") &&
+			workspace.recoveryBundleKey !== undefined
+		) {
+			const snapshotId = recoverySnapshotId(workspace);
+			if (
+				snapshotId === undefined ||
+				!(yield* provider.inspectSnapshot(snapshotId))
+			) {
+				yield* saveWorkspace({
+					...workspace,
+					state: "failed",
+					statusCode: "recovery-snapshot-missing",
+					nextActionAtMs: Number.MAX_SAFE_INTEGER,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
+			const label = recoveryRestoreLabel(workspace.workspaceId);
+			let staging = yield* provider.recoverByLabel(label);
+			if (staging === null) {
+				staging = yield* provider.fork({
+					sandboxId: `${workspace.workspaceId}-restore-staging`,
+					providerLabel: label,
+					snapshotId,
+					timeoutSeconds: config.keepAliveTimeoutSeconds,
+					env: {},
+					onTimeout: "pause",
+				});
+				const streamEpoch = nextStreamEpoch();
+				yield* provider.startProcess(staging.providerSandboxId, {
+					command: "/usr/local/bin/zuse-restore-workspace",
+					args: ["promote"],
+					cwd: "/home/zuse",
+					env: { ZUSE_RESTORE_STREAM_EPOCH: streamEpoch },
+					user: "zuse",
+				});
+				yield* saveWorkspace({
+					...workspace,
+					state: "recovering",
+					statusCode: "recovery-staging-validating",
+					requestConfig: {
+						...workspace.requestConfig,
+						restoreStreamEpoch: streamEpoch,
+					},
+					nextActionAtMs: nowMs + RETRY_MS,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
+			if (
+				yield* provider.pathExists(
+					staging.providerSandboxId,
+					RESTORE_FAILED,
+					"zuse",
+				)
+			) {
+				yield* provider.kill(staging.providerSandboxId).pipe(Effect.ignore);
+				yield* saveWorkspace({
+					...workspace,
+					state: "archived",
+					desiredState: "archived",
+					statusCode: "recovery-validation-failed",
+					nextActionAtMs: Number.MAX_SAFE_INTEGER,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
+			if (
+				!(yield* provider.pathExists(
+					staging.providerSandboxId,
+					RESTORE_READY,
+					"zuse",
+				))
+			) {
+				yield* saveWorkspace({
+					...workspace,
+					nextActionAtMs: nowMs + RETRY_MS,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
+			const runtimeFence = nextRuntimeFence(workspace);
+			yield* saveWorkspace({
+				...workspace,
+				providerSandboxId: staging.providerSandboxId,
+				state: "resuming",
+				statusCode: "recovery-promoted-runtime-starting",
+				runtimeState: "offline",
+				requestConfig: {
+					...withoutRuntimeBootstrapReceipt(workspace.requestConfig),
+					...runtimeFence,
+					streamEpoch: workspace.requestConfig.restoreStreamEpoch,
+					recoveryWarmSourceSandboxId: workspace.providerSandboxId,
+				},
+				nextActionAtMs: nowMs,
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+			});
+			return;
 		}
 
 		if (workspace.state === "queued") {
@@ -833,7 +1176,8 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				(workspace.requestConfig.startupTimings as
 					| Readonly<Record<string, number>>
 					| undefined) ?? {};
-			yield* store.saveWorkspace({
+			const runtimeFence = nextRuntimeFence(workspace);
+			yield* saveWorkspace({
 				...workspace,
 				providerSandboxId: sandbox.providerSandboxId,
 				runtimeBootTokenHash: boot.tokenHash,
@@ -842,7 +1186,8 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				state: "provisioning",
 				statusCode: "runtime-starting",
 				requestConfig: {
-					...workspace.requestConfig,
+					...withoutRuntimeBootstrapReceipt(workspace.requestConfig),
+					...runtimeFence,
 					startupTimings: { ...timings, allocatedAt: allocatedAtMs },
 				},
 				nextActionAtMs: allocatedAtMs + 30_000,
@@ -861,6 +1206,8 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					ZUSE_BRANCH: workspace.branch,
 					ZUSE_PROJECT_CACHE_ID: project.projectId,
 					ZUSE_REPOSITORY_URL: project.repositoryUrl,
+					ZUSE_RUNTIME_GENERATION: String(runtimeFence.runtimeGeneration),
+					ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
 					...(config.runtimeManifestUrl === undefined
 						? {}
 						: {
@@ -885,6 +1232,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				workspace.providerSandboxId,
 				provider,
 				nowMs,
+				saveWorkspace,
 				workspace.statusCode === "resume-runtime-waking",
 			);
 		}
@@ -913,7 +1261,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				const failureCode = /^[a-z][a-z0-9-]{0,63}$/.test(reportedFailurePhase)
 					? `${reportedFailurePhase}-failed`
 					: "setup-failed";
-				yield* store.saveWorkspace({
+				yield* saveWorkspace({
 					...workspace,
 					state: "failed",
 					statusCode: failureCode,
@@ -925,7 +1273,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				return;
 			}
 			if (workspaceStartupTimedOut(workspace, nowMs)) {
-				yield* store.saveWorkspace({
+				yield* saveWorkspace({
 					...workspace,
 					state: "failed",
 					statusCode: "runtime-connection-timeout",
@@ -937,7 +1285,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				return;
 			}
 			// Successful startup is advanced only by authenticated runtime callbacks.
-			yield* store.saveWorkspace({
+			yield* saveWorkspace({
 				...workspace,
 				nextActionAtMs: nowMs + 30_000,
 				updatedAtMs: nowMs,
@@ -950,7 +1298,13 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			nowMs >=
 				workspace.lastActivityAtMs + relayConfig.cloudWorkspaceIdleTimeoutMs
 		)
-			return yield* pauseWorkspace(workspace, provider, nowMs, false);
+			return yield* pauseWorkspace(
+				workspace,
+				provider,
+				nowMs,
+				false,
+				saveWorkspace,
+			);
 
 		if (
 			workspace.state === "paused" &&
@@ -973,7 +1327,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					revision: workspace.revision + 1,
 					updatedAtMs: nowMs,
 				};
-				yield* store.saveWorkspace(invalidated);
+				yield* saveWorkspace(invalidated);
 				yield* provider.setNetwork(workspace.providerSandboxId, {
 					kind: "restricted",
 					allowOut: [
@@ -1006,12 +1360,17 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 						config.runtimeSigningPublicJwk,
 						"zuse",
 					);
-				yield* store.saveWorkspace({
+				const runtimeFence = nextRuntimeFence(invalidated);
+				yield* saveWorkspace({
 					...invalidated,
 					runtimeBootTokenHash: boot.tokenHash,
 					runtimeBootTokenExpiresAtMs: boot.expiresAtMs,
 					credentialEpoch: currentCredentialEpoch,
 					state: "provisioning",
+					requestConfig: {
+						...withoutRuntimeBootstrapReceipt(invalidated.requestConfig),
+						...runtimeFence,
+					},
 					runningSinceMs: nowMs,
 					revision: invalidated.revision + 1,
 				});
@@ -1031,6 +1390,8 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 						ZUSE_BRANCH: workspace.branch,
 						ZUSE_PROJECT_CACHE_ID: project.projectId,
 						ZUSE_REPOSITORY_URL: project.repositoryUrl,
+						ZUSE_RUNTIME_GENERATION: String(runtimeFence.runtimeGeneration),
+						ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
 						...(config.runtimeManifestUrl === undefined
 							? {}
 							: {
@@ -1054,7 +1415,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				config.keepAliveTimeoutSeconds,
 				"pause",
 			);
-			return yield* store.saveWorkspace({
+			return yield* saveWorkspace({
 				...workspace,
 				runtimeState: "connecting",
 				state: "resuming",
@@ -1072,13 +1433,32 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			workspace.state === "archived" &&
 			workspace.warmRetentionDeadlineMs !== undefined &&
 			nowMs >= workspace.warmRetentionDeadlineMs
-		)
-			yield* store.saveWorkspace({
+		) {
+			const snapshotId = recoverySnapshotId(workspace);
+			if (
+				snapshotId === undefined ||
+				!(yield* provider.inspectSnapshot(snapshotId))
+			) {
+				yield* saveWorkspace({
+					...workspace,
+					statusCode: "recovery-snapshot-verification-required",
+					nextActionAtMs: nowMs + RETRY_MS,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
+			if (workspace.providerSandboxId !== undefined)
+				yield* provider.kill(workspace.providerSandboxId);
+			yield* saveWorkspace({
 				...workspace,
-				statusCode: "recovery-export-required",
-				nextActionAtMs: nowMs + 24 * 60 * 60 * 1_000,
+				providerSandboxId: undefined,
+				warmRetentionDeadlineMs: undefined,
+				statusCode: "archived-recovery-retained",
+				nextActionAtMs: Number.MAX_SAFE_INTEGER,
+				revision: workspace.revision + 1,
 				updatedAtMs: nowMs,
 			});
+		}
 	},
 );
 
@@ -1124,20 +1504,43 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 	Effect.gen(function* () {
 		const store = yield* CloudWorkspaceStore;
 		const nowMs = yield* Clock.currentTimeMillis;
+		const leaseOwner = crypto.randomUUID();
 		const workspace = yield* store.claimWorkspace(
 			workspaceId,
-			crypto.randomUUID(),
+			leaseOwner,
 			nowMs,
 			nowMs + RECONCILE_LEASE_MS,
 		);
 		if (workspace === null) return;
-		yield* reconcileWorkspaceRecord(workspace).pipe(
+		let expectedRevision = workspace.revision;
+		let expectedUpdatedAtMs = workspace.updatedAtMs;
+		let currentWorkspace = workspace;
+		const saveWorkspace: SaveClaimedWorkspace = (updated) =>
+			store
+				.saveClaimedWorkspace({
+					workspace: updated,
+					leaseOwner,
+					expectedRevision,
+					expectedUpdatedAtMs,
+				})
+				.pipe(
+					Effect.flatMap((saved) =>
+						saved
+							? Effect.sync(() => {
+									expectedRevision = updated.revision;
+									expectedUpdatedAtMs = updated.updatedAtMs;
+									currentWorkspace = updated;
+								})
+							: Effect.fail(new CloudWorkspaceLeaseLostError({ workspaceId })),
+					),
+				);
+		yield* reconcileWorkspaceRecord(workspace, saveWorkspace).pipe(
 			Effect.catchTag("SandboxProviderError", (error) =>
 				Effect.gen(function* () {
 					const failedAtMs = yield* Clock.currentTimeMillis;
 					if (error.code === "not-found") {
-						yield* store.saveWorkspace({
-							...workspace,
+						yield* saveWorkspace({
+							...currentWorkspace,
 							providerSandboxId: undefined,
 							runtimeBootTokenHash: undefined,
 							runtimeBootTokenExpiresAtMs: undefined,
@@ -1147,21 +1550,27 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 							statusCode: "provider-sandbox-replacing",
 							runtimeState: "offline",
 							nextActionAtMs: failedAtMs,
-							revision: workspace.revision + 1,
+							revision: currentWorkspace.revision + 1,
 							updatedAtMs: failedAtMs,
 						});
 						return;
 					}
-					yield* store.saveWorkspace({
-						...workspace,
+					yield* saveWorkspace({
+						...currentWorkspace,
 						state: "failed",
 						statusCode: "provider-unavailable",
 						runtimeState: "offline",
 						nextActionAtMs: Number.MAX_SAFE_INTEGER,
-						revision: workspace.revision + 1,
+						revision: currentWorkspace.revision + 1,
 						updatedAtMs: failedAtMs,
 					});
 				}),
+			),
+			Effect.catchTag("CloudWorkspaceLeaseLostError", () => Effect.void),
+			Effect.ensuring(
+				store
+					.releaseWorkspaceLease(workspaceId, leaseOwner)
+					.pipe(Effect.ignore),
 			),
 		);
 	});

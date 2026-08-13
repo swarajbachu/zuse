@@ -35,6 +35,7 @@ import { type Cause, Effect, Queue, Stream } from "effect";
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { GoalCapableSessionHandle } from "../kernel/driver.ts";
 import { getBashPolicy, getFsPolicy } from "../kernel/policy.ts";
+import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import type { BrowserSend } from "./browser-tools.ts";
@@ -825,14 +826,18 @@ export const translateCodexItem = (
 		case "agentMessage":
 			if (phase !== "completed") return [];
 			return [
-				{ _tag: "AssistantMessage", itemId: nextItemId(), text: item.text },
+				{
+					_tag: "AssistantMessage",
+					itemId: item.id as AgentItemId,
+					text: item.text,
+				},
 			];
 		case "plan":
 			if (phase !== "completed") return [];
 			return [
 				{
 					_tag: "AssistantMessage",
-					itemId: nextItemId(),
+					itemId: item.id as AgentItemId,
 					text: item.text,
 					isPlan: true,
 				},
@@ -842,7 +847,14 @@ export const translateCodexItem = (
 			const text = [...item.summary, ...item.content].join("\n").trim();
 			return text.length === 0
 				? []
-				: [{ _tag: "Thinking", itemId: nextItemId(), text, redacted: false }];
+				: [
+						{
+							_tag: "Thinking",
+							itemId: item.id as AgentItemId,
+							text,
+							redacted: false,
+						},
+					];
 		}
 		case "commandExecution":
 			if (phase === "started") {
@@ -962,6 +974,116 @@ export const translateCodexItem = (
 			return [];
 	}
 };
+
+type CodexTextCheckpoint = {
+	readonly itemId: AgentItemId;
+	readonly kind: "assistant" | "thinking";
+	readonly text: string;
+	readonly revision: number;
+	readonly final: boolean;
+};
+
+/**
+ * Accumulates Codex's delta protocol into absolute checkpoints. A checkpoint
+ * always carries the provider item id and all accepted text so downstream
+ * persistence can safely upsert it. Completing an item with the same content
+ * is therefore a no-op instead of a duplicate transcript row.
+ */
+export class CodexTextCheckpointAccumulator {
+	readonly #checkpoints = new Map<AgentItemId, CodexTextCheckpoint>();
+
+	apply(notification: ServerNotification): ReadonlyArray<AgentEvent> {
+		switch (notification.method) {
+			case "item/agentMessage/delta":
+				return this.#append(
+					notification.params.itemId as AgentItemId,
+					"assistant",
+					notification.params.delta,
+				);
+			case "item/reasoning/summaryTextDelta":
+			case "item/reasoning/textDelta":
+				return this.#append(
+					notification.params.itemId as AgentItemId,
+					"thinking",
+					notification.params.delta,
+				);
+			default:
+				return [];
+		}
+	}
+
+	complete(item: ThreadItem): ReadonlyArray<AgentEvent> | null {
+		if (
+			item.type !== "agentMessage" &&
+			item.type !== "plan" &&
+			item.type !== "reasoning"
+		) {
+			return null;
+		}
+		const translated = translateCodexItem(item, "completed");
+		const event = translated[0];
+		if (event === undefined) return [];
+		if (event._tag !== "AssistantMessage" && event._tag !== "Thinking") {
+			return translated;
+		}
+		const itemId = item.id as AgentItemId;
+		const previous = this.#checkpoints.get(itemId);
+		const kind = event._tag === "AssistantMessage" ? "assistant" : "thinking";
+		const revision =
+			previous?.final === true
+				? previous.revision
+				: (previous?.revision ?? 0) + 1;
+		const finalEvent = {
+			...event,
+			checkpoint: { revision, final: true },
+		};
+		this.#checkpoints.set(itemId, {
+			itemId,
+			kind,
+			text: event.text,
+			revision,
+			final: true,
+		});
+		return [finalEvent];
+	}
+
+	#append(
+		itemId: AgentItemId,
+		kind: CodexTextCheckpoint["kind"],
+		delta: string,
+	): ReadonlyArray<AgentEvent> {
+		if (delta.length === 0) return [];
+		const previous = this.#checkpoints.get(itemId);
+		if (previous?.final === true) return [];
+		const text = `${previous?.text ?? ""}${delta}`;
+		const revision = (previous?.revision ?? 0) + 1;
+		this.#checkpoints.set(itemId, {
+			itemId,
+			kind,
+			text,
+			revision,
+			final: false,
+		});
+		return kind === "assistant"
+			? [
+					{
+						_tag: "AssistantMessage",
+						itemId,
+						text,
+						checkpoint: { revision, final: false },
+					},
+				]
+			: [
+					{
+						_tag: "Thinking",
+						itemId,
+						text,
+						redacted: false,
+						checkpoint: { revision, final: false },
+					},
+				];
+	}
+}
 
 export const translateCodexCollabItem = (
 	item: Extract<ThreadItem, { readonly type: "collabAgentToolCall" }>,
@@ -1306,6 +1428,7 @@ export const startCodexSession = (
 			string,
 			{ readonly argumentsJson: string; readonly startedAt: number }
 		>();
+		const textCheckpoints = new CodexTextCheckpointAccumulator();
 
 		const handleSubAgentActivity = (
 			item: unknown,
@@ -1337,9 +1460,13 @@ export const startCodexSession = (
 			(answers: ReadonlyArray<UserQuestionAnswer> | null) => void
 		>();
 
-		const emit = (event: AgentEvent): void => {
+		const emitDirect = (event: AgentEvent): void => {
 			if (!closed) Queue.offerUnsafe(events, event);
 		};
+		const checkpointBatcher = new ProviderCheckpointBatcher({
+			emit: emitDirect,
+		});
+		const emit = (event: AgentEvent): void => checkpointBatcher.offer(event);
 
 		emit({
 			_tag: "Started",
@@ -1974,6 +2101,23 @@ export const startCodexSession = (
 			}
 
 			switch (notification.method) {
+				case "item/agentMessage/delta":
+				case "item/reasoning/summaryTextDelta":
+				case "item/reasoning/textDelta": {
+					const checkpoints = textCheckpoints.apply(notification);
+					const child = detachedAgentsByThread.get(
+						notification.params.threadId,
+					);
+					if (child !== undefined) {
+						return checkpoints.flatMap((event) => {
+							const nested = codexWithDetachedParent(event, child);
+							return nested === null ? [] : [nested];
+						});
+					}
+					return notification.params.threadId === activeThreadId
+						? checkpoints
+						: [];
+				}
 				case "thread/started":
 					{
 						const child = detachedAgentsByThread.get(
@@ -2113,10 +2257,13 @@ export const startCodexSession = (
 							notification.params.threadId,
 						);
 						if (child !== undefined) {
-							return translateCodexItem(
+							const checkpoint = textCheckpoints.complete(
 								notification.params.item,
-								"completed",
-							).flatMap((event) => {
+							);
+							const translated =
+								checkpoint ??
+								translateCodexItem(notification.params.item, "completed");
+							return translated.flatMap((event) => {
 								const nested = codexWithDetachedParent(event, child);
 								return nested === null ? [] : [nested];
 							});
@@ -2132,6 +2279,10 @@ export const startCodexSession = (
 						}
 					}
 					{
+						const checkpoint = textCheckpoints.complete(
+							notification.params.item,
+						);
+						if (checkpoint !== null) return checkpoint;
 						const compactMetadata =
 							notification.params.item.type === "contextCompaction"
 								? (() => {

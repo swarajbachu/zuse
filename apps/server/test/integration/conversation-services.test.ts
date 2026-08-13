@@ -92,16 +92,22 @@ import { Migration0038QueuedMessageReady } from "../../src/persistence/migration
 import { Migration0041ChatArchiveJobs } from "../../src/persistence/migrations/0041_chat_archive_jobs.ts";
 import { Migration0043NameProvenance } from "../../src/persistence/migrations/0043_name_provenance.ts";
 import { Migration0045ChatCatalogRevision } from "../../src/persistence/migrations/0045_chat_catalog_revision.ts";
+import { Migration0046SessionTimelineHead } from "../../src/persistence/migrations/0046_session_timeline_head.ts";
+import { Migration0047MessageCheckpoints } from "../../src/persistence/migrations/0047_message_checkpoints.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
 import { PtyService } from "../../src/pty/services/pty-service.ts";
 import { RelayActivityPublisher } from "../../src/relay/activity-publisher.ts";
+import { startCloudWorkspaceLaunchIntent } from "../../src/relay/cloud-workspace-runtime.ts";
 import { RepositorySettingsService } from "../../src/repository-settings/services/repository-settings-service.ts";
 
 const PROJECT_ID = "proj-test" as FolderId;
 const TEST_WORKTREE_ID = "wt-pikachu" as WorktreeId;
 const TEST_WORKTREE_PATH = "/tmp/project/.memo/pikachu";
+let testCommandSequence = 0;
+const testCommandId = (kind: string): string =>
+	`test:${kind}:${++testCommandSequence}`;
 
 class TestConversation extends Context.Service<
 	TestConversation,
@@ -150,6 +156,10 @@ let failProviderSend = false;
 let providerStartFailureReason = "scripted start failure";
 let providerStartBarrier: Promise<void> | null = null;
 let providerInterruptBarrier: Promise<void> | null = null;
+let providerInterruptCalls: Array<{
+	readonly sessionId: AgentSessionId;
+	readonly turnId: AgentTurnId;
+}> = [];
 let providerEventsBarrier: Promise<void> | null = null;
 let testAutonomyLevel: AutonomyLevel = "approval-gated";
 let createdWorktreeCount = 0;
@@ -218,10 +228,16 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 						}),
 			),
 		),
-	interrupt: () =>
-		providerInterruptBarrier === null
-			? Effect.void
-			: Effect.promise(() => providerInterruptBarrier as Promise<void>),
+	interrupt: (sessionId, turnId) =>
+		Effect.sync(() => {
+			providerInterruptCalls.push({ sessionId, turnId });
+		}).pipe(
+			Effect.andThen(
+				providerInterruptBarrier === null
+					? Effect.void
+					: Effect.promise(() => providerInterruptBarrier as Promise<void>),
+			),
+		),
 	close: (sessionId) =>
 		Effect.sync(() => {
 			activeProviderSessions.delete(sessionId);
@@ -374,7 +390,7 @@ const StubGitLive = Layer.succeed(GitService, {
 	switchBranch: () => Effect.die("not used"),
 	renameBranch: () => Effect.die("not used"),
 	getUserName: () => Effect.succeed(""),
-	subscribeHeadChanges: () => Stream.die("not used"),
+	workspaceChanges: () => Stream.die("not used"),
 	origin: () => Effect.die("not used"),
 	prState: () => Effect.die("not used"),
 	prDetails: () => Effect.die("not used"),
@@ -535,6 +551,8 @@ const runAllMigrations = Effect.all(
 		Migration0041ChatArchiveJobs,
 		Migration0043NameProvenance,
 		Migration0045ChatCatalogRevision,
+		Migration0046SessionTimelineHead,
+		Migration0047MessageCheckpoints,
 	],
 	{ discard: true },
 );
@@ -644,6 +662,7 @@ const withRuntime = async <A>(
 const store = TestConversation;
 
 beforeEach(() => {
+	testCommandSequence = 0;
 	providerStartInputs = [];
 	providerStartCursors = [];
 	providerSentTexts = [];
@@ -656,6 +675,7 @@ beforeEach(() => {
 	providerStartFailureReason = "scripted start failure";
 	providerStartBarrier = null;
 	providerInterruptBarrier = null;
+	providerInterruptCalls = [];
 	providerEventsBarrier = null;
 	testAutonomyLevel = "approval-gated";
 	createdWorktreeCount = 0;
@@ -856,7 +876,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const send = await run(
 				Effect.flatMap(store, (service) =>
 					Effect.exit(
-						service.sendMessage(initialSession.id, "must not overlap"),
+						service.sendMessage(
+							testCommandId("messages.send"),
+							initialSession.id,
+							"must not overlap",
+						),
 					),
 				),
 			);
@@ -963,6 +987,79 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(retried.chat.id).toBe(first.chat.id);
 			expect(retried.initialSession.id).toBe(first.initialSession.id);
 			expect(providerStartInputs).toHaveLength(0);
+		});
+	});
+
+	it("replays a cloud launch receipt without duplicating its prompt or turn", async () => {
+		await withRuntime(async (run) => {
+			const commandId = "launch:workspace-lost-ack";
+			const turnId = "turn:workspace-lost-ack";
+			const chatId = ChatId.make("chat-cloud-launch-lost-ack");
+			const sessionId = SessionId.make("session-cloud-launch-lost-ack");
+			const workspaces = {
+				list: () =>
+					Effect.succeed([{ id: PROJECT_ID, path: "/home/zuse/workspace" }]),
+				add: () => Effect.die("workspace already registered"),
+			} as never;
+			const chats = await run(Effect.flatMap(store, Effect.succeed));
+			const launch = startCloudWorkspaceLaunchIntent({
+				workspaces,
+				chats,
+				chatId,
+				sessionId,
+				launchIntent: {
+					commandId,
+					turnId,
+					title: "Durable cloud launch",
+					agent: "claude",
+					model: "claude-opus-4-8",
+					permissions: [],
+					firstMessage: "finish after the client closes",
+				},
+			});
+
+			await run(launch);
+			// Simulate Relay losing the first agent-started response and returning the
+			// encrypted launch intent again during the next runtime bootstrap.
+			await run(launch);
+			await expect.poll(() => providerStartInputs.length).toBe(1);
+
+			const evidence = await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const messages = yield* sql<{
+						readonly id: string;
+						readonly content_json: string;
+					}>`
+						SELECT id, content_json FROM messages
+						WHERE session_id = ${sessionId} AND role = 'user'
+					`;
+					const turns = yield* sql<{
+						readonly payload_json: string;
+					}>`
+						SELECT payload_json FROM events
+						WHERE stream_id = ${sessionId} AND type = 'TurnStarted'
+					`;
+					const receipts = yield* sql<{
+						readonly stream_id: string;
+					}>`
+						SELECT stream_id FROM command_receipts
+						WHERE command_id = ${commandId}
+					`;
+					return { messages, turns, receipts };
+				}),
+			);
+
+			expect(evidence.messages).toHaveLength(1);
+			expect(evidence.messages[0]?.id).toBe(`${commandId}:message`);
+			expect(
+				JSON.parse(evidence.messages[0]?.content_json ?? "null"),
+			).toMatchObject({ _tag: "user", text: "finish after the client closes" });
+			expect(evidence.turns).toHaveLength(1);
+			expect(
+				JSON.parse(evidence.turns[0]?.payload_json ?? "null"),
+			).toMatchObject({ turnId });
+			expect(evidence.receipts).toEqual([{ stream_id: sessionId }]);
 		});
 	});
 
@@ -2091,7 +2188,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(providerStartInputs).toEqual([]);
 			await run(
 				Effect.flatMap(store, (s) =>
-					s.sendMessage(result.initialSession.id, "start in the worktree"),
+					s.sendMessage(
+						testCommandId("messages.send"),
+						result.initialSession.id,
+						"start in the worktree",
+					),
 				),
 			);
 			await expect.poll(() => providerStartInputs.length).toBe(1);
@@ -2158,7 +2259,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(providerStartInputs).toEqual([]);
 			await run(
 				Effect.flatMap(store, (s) =>
-					s.sendMessage(nextSession.id, "start the second tab"),
+					s.sendMessage(
+						testCommandId("messages.send"),
+						nextSession.id,
+						"start the second tab",
+					),
 				),
 			);
 			await expect.poll(() => providerStartInputs.length).toBe(1);
@@ -2340,9 +2445,9 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (s) =>
 					Effect.all([
-						s.renameSession(id, "Renamed"),
-						s.setRuntimeMode(id, "full-access"),
-						s.setPermissionMode(id, "plan"),
+						s.renameSession(id, "Renamed", "rename-command"),
+						s.setRuntimeMode(id, "full-access", "runtime-command"),
+						s.setPermissionMode(id, "plan", "permission-command"),
 					]),
 				),
 			);
@@ -2367,7 +2472,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 			const id = initialSession.id;
 
-			await run(Effect.flatMap(store, (s) => s.sendMessage(id, "hello there")));
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.sendMessage(testCommandId("messages.send"), id, "hello there"),
+				),
+			);
 
 			const messages = await run(
 				Effect.flatMap(store, (s) => s.listMessages(id)),
@@ -2404,7 +2513,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await expect(
 				run(
 					Effect.flatMap(store, (s) =>
-						s.sendMessage(initialSession.id, "trigger provider recovery"),
+						s.sendMessage(
+							testCommandId("messages.send"),
+							initialSession.id,
+							"trigger provider recovery",
+						),
 					),
 				),
 			).rejects.toThrow("scripted start failure");
@@ -2478,7 +2591,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await expect(
 				run(
 					Effect.flatMap(store, (service) =>
-						service.sendMessage(initialSession.id, "archive failed turn"),
+						service.sendMessage(
+							testCommandId("messages.send"),
+							initialSession.id,
+							"archive failed turn",
+						),
 					),
 				),
 			).rejects.toThrow("scripted start failure");
@@ -2530,6 +2647,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (s) =>
 					s.sendMessage(
+						testCommandId("messages.send"),
 						initialSession.id,
 						"do the thing",
 						undefined,
@@ -2573,6 +2691,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (s) =>
 					s.sendMessage(
+						testCommandId("messages.send"),
 						id,
 						"with a client id",
 						undefined,
@@ -2621,6 +2740,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (s) =>
 					s.sendMessage(
+						testCommandId("messages.send"),
 						id,
 						"please handle this",
 						undefined,
@@ -2689,6 +2809,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (s) =>
 					s.sendMessage(
+						testCommandId("messages.send"),
 						id,
 						"",
 						[
@@ -2792,8 +2913,16 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const [a, b] = await run(
 				Effect.flatMap(store, (s) =>
 					Effect.all([
-						s.addQueuedMessage(initialSession.id, first),
-						s.addQueuedMessage(initialSession.id, second),
+						s.addQueuedMessage(
+							testCommandId("messages.queue.add"),
+							initialSession.id,
+							first,
+						),
+						s.addQueuedMessage(
+							testCommandId("messages.queue.add"),
+							initialSession.id,
+							second,
+						),
 					]),
 				),
 			);
@@ -2803,6 +2932,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (s) =>
 					s.updateQueuedMessage(
+						testCommandId("messages.queue.update"),
 						initialSession.id,
 						a.id,
 						new ComposerInput({
@@ -2816,7 +2946,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 			const reordered = await run(
 				Effect.flatMap(store, (s) =>
-					s.reorderQueuedMessages(initialSession.id, [b.id, a.id]),
+					s.reorderQueuedMessages(
+						testCommandId("messages.queue.reorder"),
+						initialSession.id,
+						[b.id, a.id],
+					),
 				),
 			);
 			expect(reordered.map((item) => item.input.text)).toEqual([
@@ -2826,7 +2960,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			await run(
 				Effect.flatMap(store, (s) =>
-					s.deleteQueuedMessage(initialSession.id, b.id),
+					s.deleteQueuedMessage(
+						testCommandId("messages.queue.delete"),
+						initialSession.id,
+						b.id,
+					),
 				),
 			);
 			const remaining = await run(
@@ -2863,11 +3001,13 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.flatMap(store, (service) =>
 					Effect.all([
 						service.addQueuedMessage(
+							testCommandId("messages.queue.add"),
 							initialSession.id,
 							input,
 							"q_client_optimistic",
 						),
 						service.addQueuedMessage(
+							testCommandId("messages.queue.add"),
 							initialSession.id,
 							input,
 							"q_client_optimistic",
@@ -2901,6 +3041,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const held = await run(
 				Effect.flatMap(store, (service) =>
 					service.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						initialSession.id,
 						ComposerInput.make({
 							text: "finalize me",
@@ -2928,7 +3069,12 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			await run(
 				Effect.flatMap(store, (service) =>
-					service.updateQueuedMessage(initialSession.id, held.id, held.input),
+					service.updateQueuedMessage(
+						testCommandId("messages.queue.update"),
+						initialSession.id,
+						held.id,
+						held.input,
+					),
 				),
 			);
 			await expect.poll(() => providerSentTexts).toEqual(["finalize me"]);
@@ -2949,6 +3095,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const held = await run(
 				Effect.flatMap(store, (service) =>
 					service.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						initialSession.id,
 						ComposerInput.make({
 							text: "delete me",
@@ -2964,9 +3111,18 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const result = await run(
 				Effect.gen(function* () {
 					const service = yield* store;
-					yield* service.deleteQueuedMessage(initialSession.id, held.id);
+					yield* service.deleteQueuedMessage(
+						testCommandId("messages.queue.delete"),
+						initialSession.id,
+						held.id,
+					);
 					return yield* Effect.result(
-						service.updateQueuedMessage(initialSession.id, held.id, held.input),
+						service.updateQueuedMessage(
+							testCommandId("messages.queue.update"),
+							initialSession.id,
+							held.id,
+							held.input,
+						),
 					);
 				}),
 			);
@@ -2988,6 +3144,50 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it("rejects a queue item that would make reconnect snapshots unbounded", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "keep the turn active",
+					}),
+				),
+			);
+			const result = await run(
+				Effect.flatMap(store, (service) =>
+					Effect.result(
+						service.addQueuedMessage(
+							testCommandId("messages.queue.add.large"),
+							initialSession.id,
+							new ComposerInput({
+								text: "x".repeat(129 * 1024),
+								attachments: [],
+								fileRefs: [],
+								skillRefs: [],
+							}),
+						),
+					),
+				),
+			);
+			expect(result).toMatchObject({
+				_tag: "Failure",
+				failure: {
+					_tag: "QueuedMessageCapacityError",
+					reason: "item-too-large",
+				},
+			});
+			const queue = await run(
+				Effect.flatMap(store, (service) =>
+					service.listQueuedMessages(initialSession.id),
+				),
+			);
+			expect(queue.items).toEqual([]);
+		});
+	});
+
 	it("preserves goal submission metadata while a startup prompt is queued", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
@@ -3002,6 +3202,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (service) =>
 					service.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						initialSession.id,
 						ComposerInput.make({
 							text: "goal from startup",
@@ -3054,6 +3255,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (service) =>
 					service.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						created.initialSession.id,
 						input,
 						"q_queue_first",
@@ -3123,6 +3325,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (service) =>
 					service.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						created.initialSession.id,
 						input,
 						"q_provider_first",
@@ -3153,6 +3356,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (service) =>
 					service.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						created.initialSession.id,
 						new ComposerInput({
 							text: "keep me",
@@ -3179,6 +3383,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (service) =>
 					service.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						created.initialSession.id,
 						new ComposerInput({
 							text: "keep me after failure",
@@ -3221,6 +3426,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (service) =>
 					service.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						created.initialSession.id,
 						new ComposerInput({
 							text: "send after authentication",
@@ -3253,7 +3459,10 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 			await run(
 				Effect.flatMap(store, (service) =>
-					service.resumeQueuedMessages(created.initialSession.id),
+					service.resumeQueuedMessages(
+						testCommandId("messages.queue.resume"),
+						created.initialSession.id,
+					),
 				),
 			);
 
@@ -3307,6 +3516,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (service) =>
 					service.sendMessage(
+						testCommandId("messages.send"),
 						created.initialSession.id,
 						"blocked by authentication",
 					),
@@ -3354,6 +3564,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (service) =>
 					service.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						created.initialSession.id,
 						new ComposerInput({
 							text: "restore after failure",
@@ -3380,7 +3591,10 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			failProviderSend = false;
 			await run(
 				Effect.flatMap(store, (service) =>
-					service.resumeQueuedMessages(created.initialSession.id),
+					service.resumeQueuedMessages(
+						testCommandId("messages.queue.resume"),
+						created.initialSession.id,
+					),
 				),
 			);
 			const messages = await run(
@@ -3425,14 +3639,23 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			const queued = await run(
 				Effect.flatMap(store, (s) =>
-					s.addQueuedMessage(initialSession.id, input),
+					s.addQueuedMessage(
+						testCommandId("messages.queue.add"),
+						initialSession.id,
+						input,
+					),
 				),
 			);
 			expect(queued.input.annotations).toEqual(input.annotations);
 
+			const runNextCommandId = testCommandId("messages.queue.runNext");
 			await run(
 				Effect.flatMap(store, (s) =>
-					s.runQueuedMessageNext(initialSession.id, queued.id),
+					s.runQueuedMessageNext(
+						runNextCommandId,
+						initialSession.id,
+						queued.id,
+					),
 				),
 			);
 
@@ -3491,15 +3714,24 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			const queued = await run(
 				Effect.flatMap(store, (s) =>
-					s.addQueuedMessage(initialSession.id, input),
+					s.addQueuedMessage(
+						testCommandId("messages.queue.add"),
+						initialSession.id,
+						input,
+					),
 				),
 			);
 			expect(queued.input.annotations).toEqual(input.annotations);
 			expect(queued.input.attachments).toEqual(input.attachments);
 
+			const runNextCommandId = testCommandId("messages.queue.runNext");
 			await run(
 				Effect.flatMap(store, (s) =>
-					s.runQueuedMessageNext(initialSession.id, queued.id),
+					s.runQueuedMessageNext(
+						runNextCommandId,
+						initialSession.id,
+						queued.id,
+					),
 				),
 			);
 
@@ -3524,6 +3756,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.flatMap(store, (s) =>
 					Effect.all([
 						s.addQueuedMessage(
+							testCommandId("messages.queue.add"),
 							initialSession.id,
 							new ComposerInput({
 								text: "queued one",
@@ -3533,6 +3766,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 							}),
 						),
 						s.addQueuedMessage(
+							testCommandId("messages.queue.add"),
 							initialSession.id,
 							new ComposerInput({
 								text: "queued two",
@@ -3546,7 +3780,12 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 
 			await run(
-				Effect.flatMap(store, (s) => s.flushQueuedMessages(initialSession.id)),
+				Effect.flatMap(store, (s) =>
+					s.flushQueuedMessages(
+						testCommandId("messages.queue.flush"),
+						initialSession.id,
+					),
+				),
 			);
 
 			const queue = await run(
@@ -3584,6 +3823,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				await run(
 					Effect.flatMap(store, (s) =>
 						s.addQueuedMessage(
+							testCommandId("messages.queue.add"),
 							initialSession.id,
 							new ComposerInput({
 								text: "send automatically",
@@ -3630,6 +3870,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				await run(
 					Effect.flatMap(store, (s) =>
 						s.addQueuedMessage(
+							testCommandId("messages.queue.add"),
 							initialSession.id,
 							new ComposerInput({
 								text: "queued during boot",
@@ -3687,6 +3928,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (s) =>
 					s.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						initialSession.id,
 						new ComposerInput({
 							text: "send despite stale status",
@@ -3726,6 +3968,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (s) =>
 					s.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						initialSession.id,
 						new ComposerInput({
 							text: "must remain queued",
@@ -3762,6 +4005,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (s) =>
 					s.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						initialSession.id,
 						new ComposerInput({
 							text: "keep editing later",
@@ -3802,6 +4046,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (s) =>
 					s.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						initialSession.id,
 						new ComposerInput({
 							text: "wait",
@@ -3814,7 +4059,12 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 
 			await run(
-				Effect.flatMap(store, (s) => s.flushQueuedMessages(initialSession.id)),
+				Effect.flatMap(store, (s) =>
+					s.flushQueuedMessages(
+						testCommandId("messages.queue.flush"),
+						initialSession.id,
+					),
+				),
 			);
 
 			const queue = await run(
@@ -3853,6 +4103,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (service) =>
 					service.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						initialSession.id,
 						new ComposerInput({
 							text: "send after resume",
@@ -3865,7 +4116,10 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 			await run(
 				Effect.flatMap(store, (service) =>
-					service.flushQueuedMessages(initialSession.id),
+					service.flushQueuedMessages(
+						testCommandId("messages.queue.flush"),
+						initialSession.id,
+					),
 				),
 			);
 			let queue = await run(
@@ -3879,7 +4133,10 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			await run(
 				Effect.flatMap(store, (service) =>
-					service.resumeQueuedMessages(initialSession.id),
+					service.resumeQueuedMessages(
+						testCommandId("messages.queue.resume"),
+						initialSession.id,
+					),
 				),
 			);
 			queue = await run(
@@ -3920,6 +4177,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await runFirst(
 				Effect.flatMap(store, (service) =>
 					service.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						initialSession.id,
 						new ComposerInput({
 							text: "recover idle queue",
@@ -3945,6 +4203,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await runFirst(
 				Effect.flatMap(store, (service) =>
 					service.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						corruptSession.id,
 						new ComposerInput({
 							text: "corrupt queue",
@@ -4110,6 +4369,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await runFirst(
 				Effect.flatMap(store, (service) =>
 					service.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						initialSession.id,
 						new ComposerInput({
 							text: "recover this queue",
@@ -4255,6 +4515,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (s) =>
 					s.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						initialSession.id,
 						new ComposerInput({
 							text: "resume me",
@@ -4267,15 +4528,30 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 
 			await run(
-				Effect.flatMap(store, (s) => s.interruptSession(initialSession.id)),
+				Effect.flatMap(store, (s) =>
+					s.interruptSession(
+						testCommandId("messages.interrupt"),
+						initialSession.id,
+					),
+				),
 			);
 			// A rapid second click can arrive after the first request has already
 			// settled the exact turn. It must remain an idempotent success.
 			await run(
-				Effect.flatMap(store, (s) => s.interruptSession(initialSession.id)),
+				Effect.flatMap(store, (s) =>
+					s.interruptSession(
+						testCommandId("messages.interrupt"),
+						initialSession.id,
+					),
+				),
 			);
 			await run(
-				Effect.flatMap(store, (s) => s.flushQueuedMessages(initialSession.id)),
+				Effect.flatMap(store, (s) =>
+					s.flushQueuedMessages(
+						testCommandId("messages.queue.flush"),
+						initialSession.id,
+					),
+				),
 			);
 
 			const queue = await run(
@@ -4310,6 +4586,84 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it("does not let a delayed exact-turn interrupt cancel its successor", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "first turn",
+					}),
+				),
+			);
+			const firstTurn = requireProviderTurnId(initialSession.id);
+			const successorTurn = AgentTurnId.make("turn-successor");
+			await run(
+				Effect.gen(function* () {
+					const domain = yield* SessionDomain;
+					const state = yield* ConversationState;
+					yield* domain.dispatch({
+						commandId: "test:settle-first",
+						streamId: initialSession.id,
+						command: {
+							_tag: "SettleTurn",
+							turnId: firstTurn,
+							outcome: "completed",
+							settledAt: Date.now(),
+						},
+					});
+					state.clearActiveTurn(initialSession.id);
+					yield* domain.dispatch({
+						commandId: "test:start-successor",
+						streamId: initialSession.id,
+						command: {
+							_tag: "StartTurn",
+							turnId: successorTurn,
+							startedAt: Date.now(),
+						},
+					});
+					state.rememberActiveTurn(initialSession.id, successorTurn);
+				}),
+			);
+
+			const stale = await run(
+				Effect.flatMap(store, (s) =>
+					s.interruptSession(
+						testCommandId("messages.interrupt"),
+						initialSession.id,
+						firstTurn,
+					),
+				),
+			);
+			expect(stale).toEqual({
+				_tag: "not-active",
+				reason: "turn-mismatch",
+				expectedTurnId: firstTurn,
+				actualTurnId: successorTurn,
+			});
+			expect(providerInterruptCalls).toEqual([]);
+
+			const accepted = await run(
+				Effect.flatMap(store, (s) =>
+					s.interruptSession(
+						testCommandId("messages.interrupt"),
+						initialSession.id,
+						successorTurn,
+					),
+				),
+			);
+			expect(accepted).toEqual({
+				_tag: "requested",
+				turnId: successorTurn,
+			});
+			expect(providerInterruptCalls).toEqual([
+				{ sessionId: initialSession.id, turnId: successorTurn },
+			]);
+		});
+	});
+
 	it("runs a queued message next before the client timeline knows the active turn", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
@@ -4325,6 +4679,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const queued = await run(
 				Effect.flatMap(store, (s) =>
 					s.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						initialSession.id,
 						new ComposerInput({
 							text: "run this next",
@@ -4336,16 +4691,25 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				),
 			);
 
+			const runNextCommandId = testCommandId("messages.queue.runNext");
 			await run(
 				Effect.flatMap(store, (s) =>
-					s.runQueuedMessageNext(initialSession.id, queued.id),
+					s.runQueuedMessageNext(
+						runNextCommandId,
+						initialSession.id,
+						queued.id,
+					),
 				),
 			);
 			// A transport retry reuses the durable queue identity and must not
 			// schedule or persist a second successor turn.
 			await run(
 				Effect.flatMap(store, (s) =>
-					s.runQueuedMessageNext(initialSession.id, queued.id),
+					s.runQueuedMessageNext(
+						runNextCommandId,
+						initialSession.id,
+						queued.id,
+					),
 				),
 			);
 
@@ -4380,6 +4744,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const queued = await run(
 				Effect.flatMap(store, (s) =>
 					s.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						initialSession.id,
 						new ComposerInput({
 							text: "steer here",
@@ -4396,7 +4761,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					const service = yield* store;
 					const sql = yield* SqlClient.SqlClient;
 					const requestFiber = yield* Effect.forkChild(
-						service.runQueuedMessageNext(initialSession.id, queued.id),
+						service.runQueuedMessageNext(
+							testCommandId("messages.queue.runNext"),
+							initialSession.id,
+							queued.id,
+						),
 					);
 					yield* Effect.gen(function* () {
 						const rows = yield* sql<{ readonly count: number }>`
@@ -4447,6 +4816,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.flatMap(store, (s) =>
 					Effect.all([
 						s.addQueuedMessage(
+							testCommandId("messages.queue.add"),
 							initialSession.id,
 							new ComposerInput({
 								text: "first redirect",
@@ -4456,6 +4826,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 							}),
 						),
 						s.addQueuedMessage(
+							testCommandId("messages.queue.add"),
 							initialSession.id,
 							new ComposerInput({
 								text: "second redirect",
@@ -4472,8 +4843,16 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.flatMap(store, (s) =>
 					Effect.all(
 						[
-							s.runQueuedMessageNext(initialSession.id, first.id),
-							s.runQueuedMessageNext(initialSession.id, second.id),
+							s.runQueuedMessageNext(
+								testCommandId("messages.queue.runNext"),
+								initialSession.id,
+								first.id,
+							),
+							s.runQueuedMessageNext(
+								testCommandId("messages.queue.runNext"),
+								initialSession.id,
+								second.id,
+							),
 						],
 						{ concurrency: "unbounded" },
 					),
@@ -4511,6 +4890,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.flatMap(store, (s) =>
 					Effect.all([
 						s.addQueuedMessage(
+							testCommandId("messages.queue.add"),
 							initialSession.id,
 							new ComposerInput({
 								text: "queued one",
@@ -4520,6 +4900,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 							}),
 						),
 						s.addQueuedMessage(
+							testCommandId("messages.queue.add"),
 							initialSession.id,
 							new ComposerInput({
 								text: "queued two",
@@ -4532,11 +4913,21 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				),
 			);
 			await run(
-				Effect.flatMap(store, (s) => s.interruptSession(initialSession.id)),
+				Effect.flatMap(store, (s) =>
+					s.interruptSession(
+						testCommandId("messages.interrupt"),
+						initialSession.id,
+					),
+				),
 			);
 
 			await run(
-				Effect.flatMap(store, (s) => s.resumeQueuedMessages(initialSession.id)),
+				Effect.flatMap(store, (s) =>
+					s.resumeQueuedMessages(
+						testCommandId("messages.queue.resume"),
+						initialSession.id,
+					),
+				),
 			);
 			const afterResume = await run(
 				Effect.flatMap(store, (s) => s.listQueuedMessages(initialSession.id)),
@@ -4569,6 +4960,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const item = await run(
 				Effect.flatMap(store, (s) =>
 					s.addQueuedMessage(
+						testCommandId("messages.queue.add"),
 						initialSession.id,
 						new ComposerInput({
 							text: "send me once",
@@ -4584,8 +4976,15 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.flatMap(store, (s) =>
 					Effect.all(
 						[
-							s.runQueuedMessageNext(initialSession.id, item.id),
-							s.flushQueuedMessages(initialSession.id),
+							s.runQueuedMessageNext(
+								testCommandId("messages.queue.runNext"),
+								initialSession.id,
+								item.id,
+							),
+							s.flushQueuedMessages(
+								testCommandId("messages.queue.flush"),
+								initialSession.id,
+							),
 						],
 						{ concurrency: "unbounded" },
 					),
@@ -5048,7 +5447,9 @@ describe("ConversationServices cursor streaming", () => {
 		text: string,
 	) => {
 		await run(
-			Effect.flatMap(store, (service) => service.sendMessage(sessionId, text)),
+			Effect.flatMap(store, (service) =>
+				service.sendMessage(testCommandId("messages.send"), sessionId, text),
+			),
 		);
 		const turnId = requireProviderTurnId(sessionId);
 		await run(
@@ -5114,6 +5515,130 @@ describe("ConversationServices cursor streaming", () => {
 		});
 	});
 
+	it("replays an accepted prompt after response loss without duplicating or disturbing a successor", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			const id = initialSession.id;
+			const commandId = testCommandId("messages.send.response-lost");
+			const clientMessageId = MessageId.make("message-response-lost");
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.sendMessage(
+						commandId,
+						id,
+						"accepted before disconnect",
+						undefined,
+						undefined,
+						undefined,
+						undefined,
+						undefined,
+						clientMessageId,
+					),
+				),
+			);
+			const acceptedTurn = requireProviderTurnId(id);
+			await run(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.dispatch({
+						commandId: "test:settle:response-lost",
+						streamId: id,
+						command: {
+							_tag: "SettleTurn",
+							turnId: acceptedTurn,
+							outcome: "completed",
+							settledAt: Date.now(),
+						},
+					}),
+				),
+			);
+
+			const successorTurn = AgentTurnId.make(
+				"turn-successor-after-response-loss",
+			);
+			await run(
+				Effect.gen(function* () {
+					const domain = yield* SessionDomain;
+					const state = yield* ConversationState;
+					yield* domain.dispatch({
+						commandId: "test:start:successor-after-response-loss",
+						streamId: id,
+						command: {
+							_tag: "StartTurn",
+							turnId: successorTurn,
+							startedAt: Date.now(),
+						},
+					});
+					state.rememberActiveTurn(id, successorTurn);
+				}),
+			);
+
+			// Simulate restarting the client/outbox after it never observed the first
+			// successful response. It retains the command id but has no memory of the
+			// server-minted turn, and may mint another optimistic message id.
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.sendMessage(
+						commandId,
+						id,
+						"accepted before disconnect",
+						undefined,
+						undefined,
+						undefined,
+						undefined,
+						undefined,
+						MessageId.make("message-retry-placeholder"),
+					),
+				),
+			);
+
+			const evidence = await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const state = yield* ConversationState;
+					const messages = yield* sql<{
+						readonly id: string;
+						readonly content_json: string;
+					}>`
+						SELECT id, content_json FROM messages
+						WHERE session_id = ${id} AND role = 'user'
+						ORDER BY sequence
+					`;
+					const receipts = yield* sql<{ readonly count: number }>`
+						SELECT COUNT(*) AS count FROM command_receipts
+						WHERE command_id = ${commandId}
+					`;
+					const head = yield* sql<{ readonly current_turn_id: string | null }>`
+						SELECT current_turn_id FROM sessions WHERE id = ${id}
+					`;
+					return {
+						messages,
+						receiptCount: receipts[0]?.count ?? 0,
+						durableTurn: head[0]?.current_turn_id ?? null,
+						cachedTurn: state.activeTurn(id),
+					};
+				}),
+			);
+			expect(evidence.messages).toEqual([
+				expect.objectContaining({
+					id: clientMessageId,
+					content_json: expect.stringContaining("accepted before disconnect"),
+				}),
+			]);
+			expect(evidence.receiptCount).toBe(1);
+			expect(evidence.durableTurn).toBe(successorTurn);
+			expect(evidence.cachedTurn).toBe(successorTurn);
+			expect(providerSentTexts).toEqual(["accepted before disconnect"]);
+		});
+	});
+
 	it("delivers a row persisted after subscribe exactly once (live tail)", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
@@ -5137,7 +5662,7 @@ describe("ConversationServices cursor streaming", () => {
 					const fiber = yield* Effect.forkChild(
 						Stream.runCollect(messageEvents(domain, id).pipe(Stream.take(3))),
 					);
-					yield* s.sendMessage(id, "m2");
+					yield* s.sendMessage(testCommandId("messages.send"), id, "m2");
 					const m2Turn = requireProviderTurnId(id);
 					yield* domain.dispatch({
 						commandId: "test:settle:m2",
@@ -5149,7 +5674,7 @@ describe("ConversationServices cursor streaming", () => {
 							settledAt: Date.now(),
 						},
 					});
-					yield* s.sendMessage(id, "m3");
+					yield* s.sendMessage(testCommandId("messages.send"), id, "m3");
 					return yield* Fiber.await(fiber).pipe(Effect.flatten);
 				}),
 			);
@@ -5417,7 +5942,9 @@ describe("ConversationServices — fork & transcript export", () => {
 			const sourceId = chat.initialSession.id;
 			// Add a user message so there is a tail to fork from.
 			await run(
-				Effect.flatMap(store, (s) => s.sendMessage(sourceId, "keep going")),
+				Effect.flatMap(store, (s) =>
+					s.sendMessage(testCommandId("messages.send"), sourceId, "keep going"),
+				),
 			);
 			const messages = await run(
 				Effect.flatMap(store, (s) => s.listMessages(sourceId)),
@@ -5442,7 +5969,11 @@ describe("ConversationServices — fork & transcript export", () => {
 			expect(providerStartInputs).toHaveLength(startsBeforeFork);
 			await run(
 				Effect.flatMap(store, (s) =>
-					s.sendMessage(result.session.id, "continue from this point"),
+					s.sendMessage(
+						testCommandId("messages.send"),
+						result.session.id,
+						"continue from this point",
+					),
 				),
 			);
 			await expect

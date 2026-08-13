@@ -1,27 +1,33 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { EnvironmentId, SessionId } from "@zuse/contracts";
 import { CheckListIcon } from "@zuse/icons/solid-rounded";
-
-import type { SessionId } from "@zuse/contracts";
-import { PLAN_APPROVAL_PROMPT } from "@zuse/utils/proposed-plan";
+import {
+	latestProposedPlanMarkdown,
+	PLAN_APPROVAL_PROMPT,
+} from "@zuse/utils/proposed-plan";
 import { useEffect, useMemo, useState } from "react";
 
 import {
 	attachFileWhenReady,
-	latestPlanText,
 	saveContextFile,
 } from "../../lib/context-handoff.ts";
+import { useActiveSessionById } from "../../lib/environment-entity-hooks.ts";
 import {
-	findPendingNativePlanApproval,
-	selectPlanApprovalMessages,
-} from "../../lib/plan-feedback-routing.ts";
+	decideEnvironmentPermission,
+	useEnvironmentPermissions,
+} from "../../lib/environment-permissions-client-bus.ts";
+import { findPendingNativePlanApproval } from "../../lib/plan-feedback-routing.ts";
+import { useRendererSessionTimeline } from "../../lib/session-timeline-hooks.ts";
 import { useComposerBridge } from "../../store/composer-bridge.ts";
-import { useMessagesStore } from "../../store/messages.ts";
-import { usePermissionsStore } from "../../store/permissions.ts";
 import { useSessionsStore } from "../../store/sessions.ts";
 import { toastManager } from "../ui/toast.tsx";
 import { TrayPill } from "./tray-pill.tsx";
 
 export const EMULATED_PLAN_APPROVAL_PROMPT = PLAN_APPROVAL_PROMPT;
+
+const latestPlanTextFromMessages = (
+	messages: ReturnType<typeof useRendererSessionTimeline>["messages"],
+): string | null => latestProposedPlanMarkdown(messages);
 
 /**
  * Pinned "Review plan" bar docked above the composer. The proposed plan still
@@ -34,27 +40,33 @@ export const EMULATED_PLAN_APPROVAL_PROMPT = PLAN_APPROVAL_PROMPT;
  */
 export function PlanApprovalTray({
 	sessionId,
+	environmentId,
 	emulatedPlanReady = false,
 	onApproveEmulatedPlan,
 	onCancelEmulatedPlan,
 }: {
 	sessionId: SessionId;
+	environmentId: EnvironmentId;
 	emulatedPlanReady?: boolean;
 	onApproveEmulatedPlan?: () => void;
 	onCancelEmulatedPlan?: () => void;
 }) {
-	const pendingRequest = usePermissionsStore((s) => {
-		for (const req of Object.values(s.requestsById)) {
+	const permissionRequests =
+		useEnvironmentPermissions().data?.requestsById ?? {};
+	const pendingRequest = (() => {
+		for (const req of Object.values(permissionRequests)) {
 			if (req.sessionId !== sessionId) continue;
 			if (req.kind._tag !== "Other") continue;
 			if (req.kind.tool !== "ExitPlanMode") continue;
 			return req;
 		}
 		return null;
-	});
-	const decide = usePermissionsStore((s) => s.decide);
-	const messages = useMessagesStore((s) =>
-		selectPlanApprovalMessages(s.messagesBySession, sessionId),
+	})();
+	const decide = decideEnvironmentPermission;
+	const { messages } = useRendererSessionTimeline(
+		sessionId,
+		"connect",
+		environmentId,
 	);
 	const nativeRequest = useMemo(
 		() =>
@@ -62,6 +74,7 @@ export function PlanApprovalTray({
 		[messages, pendingRequest],
 	);
 	const respondToPlan = useSessionsStore((s) => s.respondToPlan);
+	const sourceSession = useActiveSessionById(sessionId);
 	const [submitting, setSubmitting] = useState(false);
 
 	useEffect(() => {
@@ -88,11 +101,9 @@ export function PlanApprovalTray({
 	const handoff = async () => {
 		if (submitting) return;
 		setSubmitting(true);
-		const source = Object.values(useSessionsStore.getState().sessionsByProject)
-			.flat()
-			.find((row) => row.id === sessionId);
-		const planText = latestPlanText(sessionId);
-		if (source === undefined || planText === null) {
+		const source = sourceSession;
+		const planText = latestPlanTextFromMessages(messages);
+		if (source === null || planText === null) {
 			setSubmitting(false);
 			toastManager.add({
 				title: "Nothing to hand off",
@@ -116,7 +127,7 @@ export function PlanApprovalTray({
 			});
 			return;
 		}
-		const ref = await saveContextFile(created, planText);
+		const ref = await saveContextFile(environmentId, created, planText);
 		if (ref !== null) attachFileWhenReady(ref);
 		if (pendingRequest !== null) {
 			await decide(pendingRequest.id, { _tag: "Deny" });

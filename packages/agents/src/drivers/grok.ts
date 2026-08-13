@@ -324,14 +324,27 @@ export const startGrokSession = (
 		// Per-session translator coalesces agent_message_chunk deltas into
 		// one AssistantMessage per burst so the renderer doesn't show one
 		// bubble per token.
-		const translator = createAcpTranslator("grok");
+		const translator = createAcpTranslator("grok", {
+			onCheckpoint: (checkpointEvents) => {
+				for (const event of checkpointEvents) Queue.offerUnsafe(events, event);
+			},
+		});
 		const translatorsBySession = new Map<string, typeof translator>();
 		const subagentParentBySession = new Map<string, AgentItemId>();
 		const translatorFor = (providerSessionId: string) => {
 			if (providerSessionId === acpSessionId) return translator;
 			const existing = translatorsBySession.get(providerSessionId);
 			if (existing !== undefined) return existing;
-			const created = createAcpTranslator("grok");
+			const created = createAcpTranslator("grok", {
+				onCheckpoint: (checkpointEvents) => {
+					for (const event of checkpointEvents) {
+						Queue.offerUnsafe(
+							events,
+							routeSubagentEvent(event, providerSessionId),
+						);
+					}
+				},
+			});
 			translatorsBySession.set(providerSessionId, created);
 			return created;
 		};

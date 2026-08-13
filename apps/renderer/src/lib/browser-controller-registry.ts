@@ -1,3 +1,7 @@
+import {
+	type ChatRef,
+	resourceRefKey,
+} from "@zuse/client-runtime/resource-ref";
 import type {
 	BrowserCommandRequest,
 	ChatId,
@@ -16,38 +20,40 @@ const waiters = new Map<
 >();
 
 export const registerBrowserController = (
-	chatId: ChatId,
+	ref: ChatRef,
 	controller: BrowserController,
 ): (() => void) => {
-	controllers.set(chatId, controller);
-	const pending = waiters.get(chatId);
+	const key = resourceRefKey(ref);
+	controllers.set(key, controller);
+	const pending = waiters.get(key);
 	if (pending !== undefined) {
 		for (const resolve of pending) resolve(controller);
-		waiters.delete(chatId);
+		waiters.delete(key);
 	}
 	return () => {
-		if (controllers.get(chatId) === controller) controllers.delete(chatId);
+		if (controllers.get(key) === controller) controllers.delete(key);
 	};
 };
 
 export const waitForBrowserController = (
-	chatId: ChatId,
+	ref: ChatRef,
 	timeoutMs = 5_000,
 ): Promise<BrowserController | null> => {
-	const existing = controllers.get(chatId);
+	const key = resourceRefKey(ref);
+	const existing = controllers.get(key);
 	if (existing !== undefined) return Promise.resolve(existing);
 	return new Promise((resolve) => {
-		const pending = waiters.get(chatId) ?? new Set();
+		const pending = waiters.get(key) ?? new Set();
 		let timeout: ReturnType<typeof setTimeout>;
 		const wrappedResolve = (controller: BrowserController | null) => {
 			clearTimeout(timeout);
 			resolve(controller);
 		};
 		pending.add(wrappedResolve);
-		waiters.set(chatId, pending);
+		waiters.set(key, pending);
 		timeout = setTimeout(() => {
 			pending.delete(wrappedResolve);
-			if (pending.size === 0) waiters.delete(chatId);
+			if (pending.size === 0) waiters.delete(key);
 			resolve(null);
 		}, timeoutMs);
 	});

@@ -1,7 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
-import {
-} from "@zuse/icons/solid-rounded";
+import {} from "@zuse/icons/solid-rounded";
 import type {
 	AgentItemId,
 	SessionId,

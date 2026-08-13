@@ -2,9 +2,7 @@ import {
 	BillingCheckout,
 	type BillingCheckoutRequest,
 	BillingPortal,
-	CloudChatHistory,
 	CloudChatList,
-	CloudChatSummary,
 	CloudCredentialConnection,
 	type CloudCredentialConnectRequest,
 	type CloudCredentialKind,
@@ -20,7 +18,6 @@ import {
 	type CloudWorkspaceCreateRequest,
 	CloudWorkspaceLaunch,
 	CloudWorkspaceList,
-	type ComposerInput,
 	EntitlementList,
 	type EnvironmentId,
 	type MachineCreateRequest,
@@ -36,7 +33,15 @@ import {
 	RelayPaths,
 	STAGING_RELAY_URL,
 } from "@zuse/contracts";
-import { Context, Effect, Layer, Schema } from "effect";
+import {
+	Context,
+	Duration,
+	Effect,
+	Layer,
+	Schedule,
+	Schema,
+	Stream,
+} from "effect";
 import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose";
 
 import { AuthService } from "../auth/services/auth-service.ts";
@@ -64,30 +69,20 @@ export interface MachineControlServiceShape {
 	readonly cloudWorkspace: (
 		workspaceId: string,
 	) => Effect.Effect<CloudWorkspace, MachineControlError>;
+	readonly watchCloudWorkspace: (
+		workspaceId: string,
+		afterRevision?: number,
+	) => Stream.Stream<CloudWorkspace, MachineControlError>;
 	readonly createCloudWorkspace: (
 		input: CloudWorkspaceCreateRequest,
 	) => Effect.Effect<CloudWorkspaceLaunch, MachineControlError>;
 	readonly connectCloudWorkspace: (
 		workspaceId: string,
 	) => Effect.Effect<CloudWorkspaceConnection, MachineControlError>;
-	readonly cloudChatHistory: (
-		workspaceId: string,
-		after?: number,
-	) => Effect.Effect<CloudChatHistory, MachineControlError>;
 	readonly cloudChats: (
 		projectId?: string,
 		scope?: "active" | "archived" | "all",
 	) => Effect.Effect<CloudChatList, MachineControlError>;
-	readonly renameCloudChat: (
-		workspaceId: string,
-		title: string,
-	) => Effect.Effect<CloudChatSummary, MachineControlError>;
-	readonly sendCloudChatMessage: (input: {
-		readonly workspaceId: string;
-		readonly input: ComposerInput;
-		readonly clientMessageId: string;
-		readonly asGoal?: boolean;
-	}) => Effect.Effect<{ readonly sequence: number }, MachineControlError>;
 	readonly cloudWorkspaceAction: (
 		workspaceId: string,
 		action: "pause" | "resume" | "archive" | "unarchive" | "delete",
@@ -151,6 +146,36 @@ export class MachineControlService extends Context.Service<
 	MachineControlService,
 	MachineControlServiceShape
 >()("zuse/MachineControlService") {}
+
+/**
+ * Adapt Relay's REST workspace resource into a revision-ordered control-plane
+ * stream. Polling and retry live here once per RPC subscription, never in UI
+ * components or stores.
+ */
+export const streamCloudWorkspaceLifecycle = (
+	read: Effect.Effect<CloudWorkspace, MachineControlError>,
+	afterRevision?: number,
+): Stream.Stream<CloudWorkspace, MachineControlError> =>
+	Stream.fromEffect(read).pipe(
+		Stream.repeat(Schedule.spaced("500 millis")),
+		Stream.retry(
+			Schedule.exponential("250 millis").pipe(
+				Schedule.modifyDelay(({ duration }) =>
+					Effect.succeed(
+						Duration.millis(Math.min(Duration.toMillis(duration), 10_000)),
+					),
+				),
+				Schedule.jittered,
+			),
+		),
+		Stream.mapAccum(
+			() => afterRevision ?? -1,
+			(appliedRevision, workspace) => {
+				if (workspace.revision <= appliedRevision) return [appliedRevision, []];
+				return [workspace.revision, [workspace]];
+			},
+		),
+	);
 
 export const resolveMachineRelayUrl = (
 	env: Readonly<Record<string, string | undefined>> = process.env,
@@ -293,6 +318,11 @@ export const MachineControlServiceLive: Layer.Layer<
 				),
 			cloudWorkspace: (workspaceId) =>
 				request(RelayPaths.cloudWorkspace(workspaceId), CloudWorkspace),
+			watchCloudWorkspace: (workspaceId, afterRevision) =>
+				streamCloudWorkspaceLifecycle(
+					request(RelayPaths.cloudWorkspace(workspaceId), CloudWorkspace),
+					afterRevision,
+				),
 			createCloudWorkspace: (input) =>
 				request(
 					RelayPaths.cloudWorkspaces,
@@ -302,15 +332,10 @@ export const MachineControlServiceLive: Layer.Layer<
 				),
 			connectCloudWorkspace: (workspaceId) =>
 				request(
-					RelayPaths.cloudWorkspaceConnectionGrant(workspaceId),
+					RelayPaths.cloudWorkspaceConnectionTicket(workspaceId),
 					CloudWorkspaceConnection,
 					"POST",
 					{},
-				),
-			cloudChatHistory: (workspaceId, after) =>
-				request(
-					`${RelayPaths.cloudWorkspaceHistory(workspaceId)}${after === undefined ? "" : `?after=${after}`}`,
-					CloudChatHistory,
 				),
 			cloudChats: (projectId, scope) =>
 				request(
@@ -319,20 +344,6 @@ export const MachineControlServiceLive: Layer.Layer<
 						...(scope === undefined ? {} : { scope }),
 					}).toString()}`,
 					CloudChatList,
-				),
-			renameCloudChat: (workspaceId, title) =>
-				request(
-					RelayPaths.cloudWorkspaceChatRename(workspaceId),
-					CloudChatSummary,
-					"POST",
-					{ title },
-				),
-			sendCloudChatMessage: (input) =>
-				request(
-					RelayPaths.cloudWorkspaceMessages(input.workspaceId),
-					Schema.Struct({ sequence: Schema.Number }),
-					"POST",
-					input,
 				),
 			cloudWorkspaceAction: (workspaceId, action) =>
 				request(

@@ -4,4 +4,6 @@ import type { Message } from "@zuse/contracts";
 export interface PersistedMessage {
 	readonly message: Message;
 	readonly sequence: number;
+	/** False when an idempotency or checkpoint fence retained an existing row. */
+	readonly changed?: boolean;
 }

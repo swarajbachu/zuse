@@ -1,5 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { Folder, FolderId, Message, WorktreeId } from "@zuse/contracts";
+import type { ChatRef, ExecutionRef } from "@zuse/client-runtime/resource-ref";
+import {
+	EnvironmentId,
+	type Folder,
+	type FolderId,
+	type WorktreeId,
+} from "@zuse/contracts";
 import {
 	CheckListIcon,
 	ComputerTerminal01Icon,
@@ -12,25 +18,20 @@ import {
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Plus, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useRef, useSyncExternalStore } from "react";
+import { cloudSummaryForChat } from "../lib/cloud-workspace-catalog.ts";
+import { ensureCloudWorkspaceAttached } from "../lib/cloud-workspaces.ts";
+import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
+import { useGitWorkspaceResource } from "../lib/git-workspace-client-bus.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
-import { getActiveEnvironment } from "../lib/rpc-client.ts";
-import {
-	effectiveSessionRuntimeState,
-	isSessionTurnActive,
-} from "../lib/session-runtime-state.ts";
+import { isSessionTurnActive } from "../lib/session-runtime-state.ts";
+import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import * as terminalRegistry from "../lib/terminal-registry.ts";
 import { useAutoAnimate } from "../lib/use-auto-animate.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
-import { cloudSummaryForChat } from "../store/cloud-chat-registry.ts";
-import { ensureCloudWorkspaceAttached } from "../store/cloud-chats.ts";
-import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
-import { useMessagesStore } from "../store/messages.ts";
+import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
-import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
-import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
-import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import {
 	EMPTY_TERMINALS,
@@ -41,6 +42,7 @@ import {
 	EMPTY_PANELS,
 	type PanelInstance,
 	type PanelKind,
+	rightPaneKey,
 	SINGLETON_PANEL_KINDS,
 	useUiStore,
 } from "../store/ui.ts";
@@ -121,10 +123,8 @@ const PRIMARY_PANEL_ORDER: ReadonlyArray<PanelKind> = [
 	"browser",
 ];
 
-const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
-
 const latestAssistantText = (
-	messages: ReadonlyArray<Message>,
+	messages: ReadonlyArray<import("@zuse/contracts").Message>,
 ): string | null => {
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const content = messages[index]?.content;
@@ -169,50 +169,59 @@ export function RightPane({
 	const folders = useWorkspaceStore((s) => s.folders);
 	const logicalSelectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
 	const executionFolderId = ctx.status === "ready" ? ctx.folderId : null;
+	const executionRootPath = ctx.status === "ready" ? ctx.rootPath : null;
 	const worktreeId = ctx.status === "ready" ? ctx.worktreeId : null;
+	const executionRef = useMemo<ExecutionRef | null>(
+		() =>
+			ctx.status !== "ready"
+				? null
+				: {
+						environmentId: ctx.environmentId,
+						folderId: ctx.folderId,
+						worktreeId: ctx.worktreeId,
+						rootPath: ctx.rootPath,
+					},
+		[ctx],
+	);
 	const selected = logicalRightPaneProject(folders, logicalSelectedFolderId);
-	const status = useGitStatusStore((s) =>
-		executionFolderId
-			? (s.byKey[gitStatusKey(executionFolderId, worktreeId)] ?? null)
-			: null,
-	);
-	const pr = usePrStateStore((s) =>
-		executionFolderId
-			? (s.byKey[
-					prStateKey(getActiveEnvironment(), executionFolderId, worktreeId)
-				] ?? null)
-			: null,
-	);
-	const details = usePrDetailsStore((s) =>
-		executionFolderId
-			? (s.byKey[prDetailsKey(executionFolderId, worktreeId)] ?? null)
-			: null,
-	);
+	const workspaceView = useGitWorkspaceResource(executionRef, "connect");
+	const status = workspaceView.data?.status ?? null;
+	const pr = workspaceView.data?.pr ?? null;
+	const details = workspaceView.data?.prDetails ?? null;
 	// Dock layout + terminals are scoped to the selected sidebar chat, so each
 	// chat keeps its own open tabs and running shells.
 	const chatId = useChatsStore((s) => s.selectedChatId);
-	const cloudSummary = chatId === null ? null : cloudSummaryForChat(chatId);
+	const catalogEnvironmentId = EnvironmentId.make(
+		useEnvironmentCatalogStore((state) => state.activeEnvironmentId),
+	);
+	const cloudSummaryCandidate =
+		chatId === null ? null : cloudSummaryForChat(chatId);
+	const chatRef = useMemo<ChatRef | null>(() => {
+		if (chatId === null) return null;
+		return {
+			environmentId:
+				ctx.status === "ready"
+					? ctx.environmentId
+					: ctx.status === "cloud-unavailable"
+						? EnvironmentId.make(ctx.workspaceId)
+						: catalogEnvironmentId,
+			chatId,
+		};
+	}, [catalogEnvironmentId, chatId, ctx]);
+	const cloudSummary =
+		cloudSummaryCandidate?.workspaceId === chatRef?.environmentId
+			? cloudSummaryCandidate
+			: null;
+	const chatKey = chatRef === null ? null : rightPaneKey(chatRef);
 	const sessionId = useSessionsStore((s) => s.selectedSessionId);
-	const session = useSessionsStore((s) => {
-		if (sessionId === null) return null;
-		for (const list of Object.values(s.sessionsByProject)) {
-			const match = list.find((candidate) => candidate.id === sessionId);
-			if (match !== undefined) return match;
-		}
-		return null;
-	});
-	const messages = useMessagesStore((s) =>
-		sessionId === null
-			? EMPTY_MESSAGES
-			: (s.messagesBySession[sessionId] ?? EMPTY_MESSAGES),
+	const session = useActiveSessionById(sessionId);
+	const timeline = useOptionalRendererSessionTimeline(
+		sessionId,
+		"connect",
+		chatRef?.environmentId ?? null,
 	);
-	const isRunning = useSessionRuntimeStore((s) =>
-		session === null
-			? false
-			: isSessionTurnActive(
-					effectiveSessionRuntimeState(s.bySession[session.id]),
-				),
-	);
+	const messages = timeline.messages;
+	const isRunning = session !== null && isSessionTurnActive(timeline.runtime);
 	const planMarkdown = useMemo(
 		() =>
 			latestProposedPlanMarkdown(messages) ??
@@ -226,8 +235,8 @@ export function RightPane({
 	// Terminal tab titles are sourced from the chat's terminal list (slot →
 	// instance) so multiple terminal tabs read "zsh", "zsh 2".
 	const termList = useTerminalsStore((s) =>
-		chatId
-			? (s.byKey[terminalsKey(chatId)] ?? EMPTY_TERMINALS)
+		chatRef
+			? (s.byKey[terminalsKey(chatRef)] ?? EMPTY_TERMINALS)
 			: EMPTY_TERMINALS,
 	);
 	const terminalStatuses = useSyncExternalStore(
@@ -237,10 +246,10 @@ export function RightPane({
 	);
 
 	const panels = useUiStore((s) =>
-		chatId ? (s.rightPanelsByChat[chatId] ?? EMPTY_PANELS) : EMPTY_PANELS,
+		chatKey ? (s.rightPanelsByChat[chatKey] ?? EMPTY_PANELS) : EMPTY_PANELS,
 	);
 	const activeId = useUiStore((s) =>
-		chatId ? (s.activeRightPanelByChat[chatId] ?? null) : null,
+		chatKey ? (s.activeRightPanelByChat[chatKey] ?? null) : null,
 	);
 	const addPanel = useUiStore((s) => s.addPanel);
 	const closePanel = useUiStore((s) => s.closePanel);
@@ -251,7 +260,8 @@ export function RightPane({
 			void ensureCloudWorkspaceAttached(cloudSummary).catch(() => {});
 	};
 	const handleAddPanel = (kind: PanelKind) => {
-		addPanel(kind);
+		if (chatRef === null) return;
+		addPanel(chatRef, kind);
 		if (LIVE_PANEL_KINDS.has(kind)) requestCloudAttachment();
 	};
 	const addablePanels = addableKinds(panels).filter(
@@ -283,16 +293,16 @@ export function RightPane({
 	// key). `closePanel` then re-indexes remaining terminal slots, so panels
 	// and instances stay aligned.
 	const handleClose = (panel: PanelInstance) => {
-		if (panel.kind === "terminal" && chatId !== null) {
-			const key = terminalsKey(chatId);
+		if (panel.kind === "terminal" && chatRef !== null) {
+			const key = terminalsKey(chatRef);
 			const inst = (useTerminalsStore.getState().byKey[key] ?? EMPTY_TERMINALS)[
 				panel.slot
 			];
 			if (inst !== undefined) {
-				useTerminalsStore.getState().remove(key, inst.id);
+				useTerminalsStore.getState().remove(chatRef, inst.id);
 			}
 		}
-		closePanel(panel.id);
+		if (chatRef !== null) closePanel(chatRef, panel.id);
 	};
 
 	const tabLabel = (panel: PanelInstance): string =>
@@ -376,7 +386,7 @@ export function RightPane({
 							label={tabLabel(panel)}
 							badge={tabBadge(panel)}
 							onSelect={() => {
-								setActive(panel.id);
+								if (chatRef !== null) setActive(chatRef, panel.id);
 								if (LIVE_PANEL_KINDS.has(panel.kind)) requestCloudAttachment();
 								if (panel.kind === "changes") openChanges();
 							}}
@@ -407,9 +417,15 @@ export function RightPane({
 								panel={panel}
 								folderId={executionFolderId ?? selected.id}
 								projectId={selected.id}
-								environmentId={cloudSummary?.workspaceId}
-								cloudUnavailable={ctx.status === "cloud-unavailable"}
+								environmentId={
+									executionRef?.environmentId ??
+									chatRef?.environmentId ??
+									catalogEnvironmentId
+								}
+								chatRef={chatRef}
+								rootPath={executionRootPath ?? selected.path}
 								worktreeId={worktreeId}
+								cloudUnavailable={ctx.status === "cloud-unavailable"}
 								sessionId={sessionId}
 								planMarkdown={planMarkdown}
 								directoryUnavailable={directoryUnavailable}
@@ -424,7 +440,7 @@ export function RightPane({
 						fallback={<div className="min-h-0 flex-1" aria-busy="true" />}
 					>
 						<BrowserPaneHost
-							activeChatId={chatId}
+							activeChatRef={chatRef}
 							browserActive={browserActive}
 						/>
 					</Suspense>
@@ -456,6 +472,8 @@ function PanelBody({
 	folderId,
 	projectId,
 	environmentId,
+	chatRef,
+	rootPath,
 	worktreeId,
 	sessionId,
 	planMarkdown,
@@ -465,7 +483,9 @@ function PanelBody({
 	panel: PanelInstance;
 	folderId: FolderId;
 	projectId: FolderId;
-	environmentId?: string;
+	environmentId: EnvironmentId;
+	chatRef: ChatRef | null;
+	rootPath: string;
 	worktreeId: WorktreeId | null;
 	sessionId: import("@zuse/contracts").SessionId | null;
 	planMarkdown: string | null;
@@ -506,15 +526,31 @@ function PanelBody({
 						folderId={folderId}
 						projectId={projectId}
 						environmentId={environmentId}
+						rootPath={rootPath}
+						worktreeId={worktreeId}
 					/>
 				</div>
 			);
 		case "terminal":
-			return <TerminalSlotPane slot={panel.slot} />;
+			return chatRef === null ? null : (
+				<TerminalSlotPane
+					chatRef={chatRef}
+					rootPath={rootPath}
+					slot={panel.slot}
+				/>
+			);
 		case "changes":
-			return <DiffPane folderId={folderId} worktreeId={worktreeId} />;
+			return (
+				<DiffPane
+					executionRef={{ environmentId, folderId, worktreeId, rootPath }}
+				/>
+			);
 		case "pr":
-			return <PrPane folderId={folderId} worktreeId={worktreeId} />;
+			return (
+				<PrPane
+					executionRef={{ environmentId, folderId, worktreeId, rootPath }}
+				/>
+			);
 		case "plan":
 			return <PlanPane markdown={planMarkdown} />;
 		case "browser":
@@ -522,7 +558,7 @@ function PanelBody({
 			// command stream survives close/collapse) — never via this map.
 			return null;
 		case "subagents":
-			return <SubagentsPane sessionId={sessionId} />;
+			return <SubagentsPane chatRef={chatRef} sessionId={sessionId} />;
 	}
 }
 

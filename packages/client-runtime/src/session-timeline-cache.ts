@@ -1,12 +1,34 @@
-import { type SessionId, SessionTimelineProjection } from "@zuse/contracts";
-import { Schema } from "effect";
+import {
+	SessionStreamCursor,
+	SessionTimelineProjection,
+} from "@zuse/contracts";
+import { Result, Schema } from "effect";
+import { resourceRefKey, type SessionRef } from "./resource-ref.js";
 
-export const SESSION_TIMELINE_CACHE_SCHEMA_VERSION = 1;
+export const SESSION_TIMELINE_CACHE_SCHEMA_VERSION = 3;
+
+const EncodedSessionRef = Schema.Struct({
+	environmentId: Schema.String,
+	sessionId: Schema.String,
+});
+
+const EncodedSessionTimelineCacheEntryV2 = Schema.Struct({
+	schemaVersion: Schema.Literal(2),
+	sessionId: Schema.String,
+	ref: EncodedSessionRef,
+	appliedVersion: Schema.Number,
+	projection: SessionTimelineProjection,
+	savedAt: Schema.Number,
+	accessedAt: Schema.Number,
+	estimatedBytes: Schema.Number,
+});
 
 const EncodedSessionTimelineCacheEntry = Schema.Struct({
 	schemaVersion: Schema.Literal(SESSION_TIMELINE_CACHE_SCHEMA_VERSION),
+	/** IndexedDB keyPath retained across cache schema upgrades. */
 	sessionId: Schema.String,
-	appliedVersion: Schema.Number,
+	ref: EncodedSessionRef,
+	cursor: SessionStreamCursor,
 	projection: SessionTimelineProjection,
 	savedAt: Schema.Number,
 	accessedAt: Schema.Number,
@@ -15,8 +37,8 @@ const EncodedSessionTimelineCacheEntry = Schema.Struct({
 
 export type SessionTimelineCacheEntry = Readonly<{
 	schemaVersion: typeof SESSION_TIMELINE_CACHE_SCHEMA_VERSION;
-	sessionId: SessionId;
-	appliedVersion: number;
+	ref: SessionRef;
+	cursor: SessionStreamCursor;
 	projection: SessionTimelineProjection;
 	savedAt: number;
 	accessedAt: number;
@@ -24,11 +46,9 @@ export type SessionTimelineCacheEntry = Readonly<{
 }>;
 
 export interface SessionTimelineCache {
-	readonly load: (
-		sessionId: SessionId,
-	) => Promise<SessionTimelineCacheEntry | null>;
+	readonly load: (ref: SessionRef) => Promise<SessionTimelineCacheEntry | null>;
 	readonly save: (entry: SessionTimelineCacheEntry) => Promise<void>;
-	readonly remove: (sessionId: SessionId) => Promise<void>;
+	readonly remove: (ref: SessionRef) => Promise<void>;
 	readonly prune: (limits?: {
 		readonly maxEntries?: number;
 		readonly maxBytes?: number;
@@ -37,26 +57,45 @@ export interface SessionTimelineCache {
 
 export const encodeSessionTimelineCacheEntry = (
 	entry: SessionTimelineCacheEntry,
-): unknown => Schema.encodeSync(EncodedSessionTimelineCacheEntry)(entry);
+): unknown =>
+	Schema.encodeSync(EncodedSessionTimelineCacheEntry)({
+		...entry,
+		sessionId: resourceRefKey(entry.ref),
+	});
 
 export const decodeSessionTimelineCacheEntry = (
 	value: unknown,
-): SessionTimelineCacheEntry =>
-	Schema.decodeUnknownSync(EncodedSessionTimelineCacheEntry)(
+): SessionTimelineCacheEntry => {
+	const current = Schema.decodeUnknownResult(EncodedSessionTimelineCacheEntry)(
 		value,
-	) as SessionTimelineCacheEntry;
+	);
+	if (Result.isSuccess(current)) {
+		const { sessionId: _storageKey, ...entry } = current.success;
+		return entry as SessionTimelineCacheEntry;
+	}
+	const {
+		sessionId: _storageKey,
+		appliedVersion,
+		...legacy
+	} = Schema.decodeUnknownSync(EncodedSessionTimelineCacheEntryV2)(value);
+	return {
+		...legacy,
+		schemaVersion: SESSION_TIMELINE_CACHE_SCHEMA_VERSION,
+		cursor: { epoch: "legacy", version: appliedVersion },
+	} as SessionTimelineCacheEntry;
+};
 
 export const makeSessionTimelineCacheEntry = (input: {
-	readonly sessionId: SessionId;
-	readonly appliedVersion: number;
+	readonly ref: SessionRef;
+	readonly cursor: SessionStreamCursor;
 	readonly projection: SessionTimelineProjection;
 	readonly now?: number;
 }): SessionTimelineCacheEntry => {
 	const now = input.now ?? Date.now();
 	return {
 		schemaVersion: SESSION_TIMELINE_CACHE_SCHEMA_VERSION,
-		sessionId: input.sessionId,
-		appliedVersion: input.appliedVersion,
+		ref: input.ref,
+		cursor: input.cursor,
 		projection: input.projection,
 		savedAt: now,
 		accessedAt: now,

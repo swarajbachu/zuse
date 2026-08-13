@@ -60,10 +60,11 @@ interface MessageRow {
 	readonly parent_item_id: string | null;
 	readonly created_at: string;
 	readonly sequence: number;
+	readonly checkpoint_revision: number | null;
+	readonly checkpoint_final: number | null;
 }
 
 export type SqlSessionReadRecord = SessionReadRecord & {
-	readonly providerEventCursor: string | null;
 	readonly status: Exclude<SessionReadRecord["status"], "deleted">;
 	readonly title: string;
 	readonly titleProvenance: "pending" | "automatic" | "manual";
@@ -135,6 +136,9 @@ const messageRecord = Effect.fn("SqlSessionQueries.messageRecord")(function* (
 		parentItemId: row.parent_item_id,
 		createdAt: yield* timestamp(row.created_at, "message"),
 		sequence: row.sequence,
+		checkpointRevision: row.checkpoint_revision,
+		checkpointFinal:
+			row.checkpoint_final === null ? null : row.checkpoint_final === 1,
 	} satisfies MessageReadRecord;
 });
 
@@ -176,7 +180,7 @@ export const makeSqlSessionQueries = (
 		yield* get(sessionId);
 		const rows = yield* sql<MessageRow>`
 			SELECT id, session_id, role, kind, content_json, parent_item_id,
-				created_at, sequence
+				created_at, sequence, checkpoint_revision, checkpoint_final
 			FROM messages WHERE session_id = ${sessionId}
 			ORDER BY sequence ASC
 		`;
@@ -200,21 +204,21 @@ export const makeSqlSessionQueries = (
 		input: MessagePageInput,
 	) {
 		yield* get(input.sessionId);
-		const after = input.afterSequence ?? 0;
+		const before = input.beforeSequence ?? Number.MAX_SAFE_INTEGER;
 		const rows = yield* sql<MessageRow>`
 			SELECT id, session_id, role, kind, content_json, parent_item_id,
-				created_at, sequence
+				created_at, sequence, checkpoint_revision, checkpoint_final
 			FROM messages
-			WHERE session_id = ${input.sessionId} AND sequence > ${after}
-			ORDER BY sequence ASC
+			WHERE session_id = ${input.sessionId} AND sequence < ${before}
+			ORDER BY sequence DESC
 			LIMIT ${input.limit + 1}
 		`;
 		const records = yield* Effect.forEach(rows, messageRecord);
-		const items = records.slice(0, input.limit);
+		const items = records.slice(0, input.limit).reverse();
 		return {
 			items,
-			nextSequence:
-				records.length > items.length ? (items.at(-1)?.sequence ?? null) : null,
+			olderSequence:
+				records.length > input.limit ? (items[0]?.sequence ?? null) : null,
 		};
 	});
 

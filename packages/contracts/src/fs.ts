@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
-import { FolderId, WorktreeId } from "./ids.ts";
+import { CommandId, FolderId, WorktreeId } from "./ids.ts";
 
 /**
  * One entry in a directory listing — either a file or a subdirectory. The
@@ -64,6 +64,19 @@ export class FsConflictError extends Schema.TaggedErrorClass<FsConflictError>()(
 	},
 ) {}
 
+/**
+ * A command id is an idempotency key, so it may only ever describe one exact
+ * file write. Reusing it with a different target or payload is rejected
+ * instead of returning an unrelated prior receipt.
+ */
+export class FsCommandReuseError extends Schema.TaggedErrorClass<FsCommandReuseError>()(
+	"FsCommandReuseError",
+	{
+		commandId: CommandId,
+		reason: Schema.Literals(["target-mismatch", "payload-mismatch"]),
+	},
+) {}
+
 // External-file errors mirror the in-folder ones but key off an absolute
 // `path` instead of a `folderId` — the `fs.*ExternalFile` RPCs operate
 // outside any project folder, so there's no folder id to carry.
@@ -118,6 +131,7 @@ const FsWriteFileErrors = Schema.Union([
 	FsPathOutsideError,
 	FsReadError,
 	FsConflictError,
+	FsCommandReuseError,
 	FsTooLargeError,
 ]);
 
@@ -150,19 +164,37 @@ export const FsTreeRpc = Rpc.make("fs.tree", {
 	error: FsErrors,
 });
 
+export const FsTreeWatchEvent = Schema.Union([
+	Schema.TaggedStruct("ready", {
+		epoch: Schema.String,
+		sequence: Schema.Number,
+	}),
+	Schema.TaggedStruct("changed", {
+		epoch: Schema.String,
+		sequence: Schema.Number,
+		paths: Schema.Array(Schema.String),
+	}),
+	Schema.TaggedStruct("gap", {
+		epoch: Schema.String,
+		sequence: Schema.Number,
+		reason: Schema.String,
+	}),
+]);
+export type FsTreeWatchEvent = typeof FsTreeWatchEvent.Type;
+
 /**
  * Live stream of filesystem changes under the current project/worktree root.
- * Emits debounced batches of forward-slash, project-relative paths so the
- * renderer can refresh only the open tree branches affected by disk changes.
+ * `ready` proves the server watcher was attached before a client reads its
+ * snapshot. Subsequent `changed` frames carry a stream-local monotonic
+ * sequence. `gap` means the watcher can no longer prove continuity and the
+ * client must attach a replacement watcher and perform a full reconciliation.
  */
 export const FsWatchTreeRpc = Rpc.make("fs.watchTree", {
 	payload: Schema.Struct({
 		folderId: FolderId,
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 	}),
-	success: Schema.Struct({
-		paths: Schema.Array(Schema.String),
-	}),
+	success: FsTreeWatchEvent,
 	error: FsErrors,
 	stream: true,
 });
@@ -213,6 +245,8 @@ export const FsReadFileRpc = Rpc.make("fs.readFile", {
  */
 export const FsWriteFileRpc = Rpc.make("fs.writeFile", {
 	payload: Schema.Struct({
+		/** Stable identity makes a lost write response safe to retry. */
+		commandId: CommandId,
 		folderId: FolderId,
 		path: Schema.String,
 		content: Schema.String,

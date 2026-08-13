@@ -48,8 +48,8 @@ export const buttonVariants = cva(
 					"rounded-md border border-white/10 bg-neutral-primary-reverted-5 px-2.5 text-xs font-semibold text-foreground shadow-none backdrop-blur-[12px] hover:bg-white/8 active:bg-white/12 data-pressed:bg-white/12 *:data-[slot=button-loading-indicator]:text-foreground before:hidden",
 
 				/* Settings: flat translucent action button used on settings rows. */
-			settings:
-				"h-7 rounded-md border-white/8 bg-neutral-primary-reverted-20 px-2.5 text-xs text-foreground/90 shadow-none hover:bg-white/14 active:bg-white/16 data-pressed:bg-white/16 *:data-[slot=button-loading-indicator]:text-foreground before:hidden",
+				settings:
+					"h-7 rounded-md border-white/8 bg-neutral-primary-reverted-20 px-2.5 text-xs text-foreground/90 shadow-none hover:bg-white/14 active:bg-white/16 data-pressed:bg-white/16 *:data-[slot=button-loading-indicator]:text-foreground before:hidden",
 			},
 		},
 	},

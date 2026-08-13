@@ -27,6 +27,7 @@ import {
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { displayPath } from "~/lib/display-path";
+import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { parseOrchestrationResult } from "~/lib/orchestration-tools";
 import type { SubagentReference } from "~/lib/subagent-metadata";
 import {
@@ -1556,13 +1557,12 @@ export function OrchestrationThreadRow({
 		result !== undefined ? parseOrchestrationResult(result.output) : null;
 	const chatId = parsed?.chatId;
 	const sessionId = parsed?.sessionId;
-	const chatLoaded = useChatsStore((s) =>
-		chatId !== undefined
-			? Object.values(s.chatsByProject).some((list) =>
-					list.some((c) => c.id === chatId),
-				)
-			: false,
-	);
+	const { chatsByProject } = useActiveEnvironmentEntities();
+	const chatLoaded =
+		chatId !== undefined &&
+		Object.values(chatsByProject).some((list) =>
+			list.some((chat) => chat.id === chatId),
+		);
 
 	if (result === undefined) {
 		return (

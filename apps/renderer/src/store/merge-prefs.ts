@@ -1,22 +1,22 @@
 import type { GitMergeMethod } from "@zuse/contracts";
 
-import { useSettingsStore } from "./settings.ts";
+import { useSettingsStore } from "../lib/settings-client-bus.ts";
 
 type MergePrefsState = {
-  readonly method: GitMergeMethod;
-  readonly deleteBranch: boolean;
-  readonly setMethod: (method: GitMergeMethod) => void;
-  readonly setDeleteBranch: (deleteBranch: boolean) => void;
+	readonly method: GitMergeMethod;
+	readonly deleteBranch: boolean;
+	readonly setMethod: (method: GitMergeMethod) => void;
+	readonly setDeleteBranch: (deleteBranch: boolean) => void;
 };
 
 const setMethod = (method: GitMergeMethod): void => {
-  const settings = useSettingsStore.getState();
-  settings.setMergePrefs({ ...settings.mergePrefs, method });
+	const settings = useSettingsStore.getState();
+	settings.setMergePrefs({ ...settings.mergePrefs, method });
 };
 
 const setDeleteBranch = (deleteBranch: boolean): void => {
-  const settings = useSettingsStore.getState();
-  settings.setMergePrefs({ ...settings.mergePrefs, deleteBranch });
+	const settings = useSettingsStore.getState();
+	settings.setMergePrefs({ ...settings.mergePrefs, deleteBranch });
 };
 
 /**
@@ -24,12 +24,12 @@ const setDeleteBranch = (deleteBranch: boolean): void => {
  * `settings.json` through `useSettingsStore`.
  */
 export function useMergePrefs<T>(selector: (state: MergePrefsState) => T): T {
-  return useSettingsStore((settings) =>
-    selector({
-      method: settings.mergePrefs.method,
-      deleteBranch: settings.mergePrefs.deleteBranch,
-      setMethod,
-      setDeleteBranch,
-    }),
-  );
+	return useSettingsStore((settings) =>
+		selector({
+			method: settings.mergePrefs.method,
+			deleteBranch: settings.mergePrefs.deleteBranch,
+			setMethod,
+			setDeleteBranch,
+		}),
+	);
 }

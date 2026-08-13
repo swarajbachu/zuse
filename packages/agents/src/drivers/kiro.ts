@@ -201,7 +201,11 @@ export const startKiroSession = (
 			mode: "sdk",
 		});
 
-		const translator = createAcpTranslator("kiro");
+		const translator = createAcpTranslator("kiro", {
+			onCheckpoint: (checkpointEvents) => {
+				for (const event of checkpointEvents) Queue.offerUnsafe(events, event);
+			},
+		});
 
 		const modelId =
 			input.model !== undefined

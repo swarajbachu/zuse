@@ -1,19 +1,17 @@
-import { ChevronLeft } from "lucide-react";
+import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import type { Message, SessionId } from "@zuse/contracts";
+import { ChevronLeft } from "lucide-react";
 import { useMemo } from "react";
 
 import {
 	type DetachedSubagentGroup,
 	detachedSubagentGroups,
 } from "~/lib/group-messages";
-import { useChatsStore } from "~/store/chats";
-import { useMessagesStore } from "~/store/messages";
-import { useUiStore } from "~/store/ui";
+import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks";
+import { rightPaneKey, useUiStore } from "~/store/ui";
 
 import { MessageRow } from "./message-row";
 import { SubagentAvatar } from "./subagent-identity";
-
-const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
 
 const formatAge = (date: Date): string => {
 	const elapsed = Math.max(0, Date.now() - date.getTime());
@@ -24,20 +22,25 @@ const formatAge = (date: Date): string => {
 };
 
 export function SubagentsPane({
+	chatRef,
 	sessionId,
 }: {
+	readonly chatRef: ChatRef | null;
 	readonly sessionId: SessionId | null;
 }) {
-	const messages = useMessagesStore((state) =>
-		sessionId === null
-			? EMPTY_MESSAGES
-			: (state.messagesBySession[sessionId] ?? EMPTY_MESSAGES),
-	);
-	const chatId = useChatsStore((state) => state.selectedChatId);
+	const messages = useOptionalRendererSessionTimeline(
+		sessionId,
+		"connect",
+		chatRef?.environmentId ?? null,
+	).messages;
+	const chatKey = chatRef === null ? null : rightPaneKey(chatRef);
 	const selectedId = useUiStore((state) =>
-		chatId === null ? null : (state.selectedSubagentByChat[chatId] ?? null),
+		chatKey === null ? null : (state.selectedSubagentByChat[chatKey] ?? null),
 	);
 	const selectSubagent = useUiStore((state) => state.selectSubagent);
+	const handleSelect = (id: string | null) => {
+		if (chatRef !== null) selectSubagent(chatRef, id);
+	};
 	const groups = useMemo(() => detachedSubagentGroups(messages), [messages]);
 	const selected =
 		groups.find((group) => group.childSessionId === selectedId) ?? null;
@@ -56,7 +59,7 @@ export function SubagentsPane({
 					<button
 						type="button"
 						aria-label="Back to subagents"
-						onClick={() => selectSubagent(null)}
+						onClick={() => handleSelect(null)}
 						className="grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:outline focus-visible:outline-1"
 					>
 						<ChevronLeft className="size-4" />
@@ -86,11 +89,11 @@ export function SubagentsPane({
 	const done = groups.filter((group) => group.summary !== null);
 	return (
 		<div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
-			<AgentSection title="Active" groups={active} onSelect={selectSubagent} />
+			<AgentSection title="Active" groups={active} onSelect={handleSelect} />
 			<AgentSection
 				title={`Done · ${done.length}`}
 				groups={done}
-				onSelect={selectSubagent}
+				onSelect={handleSelect}
 			/>
 			{groups.length === 0 ? (
 				<p className="px-2 py-8 text-center text-xs text-muted-foreground">

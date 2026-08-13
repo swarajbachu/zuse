@@ -1,9 +1,11 @@
-import type { ChatId } from "@zuse/contracts";
-import { getActiveEnvironment } from "../lib/rpc-client.ts";
+import {
+	type ChatRef,
+	resourceRefKey,
+} from "@zuse/client-runtime/resource-ref";
+import { type EnvironmentId, PtyId } from "@zuse/contracts";
 import { createAtomStore as create } from "../state/atom-store.ts";
-import { cloudSummaryForChat } from "./cloud-chat-registry.ts";
 
-const disposeTerminal = (environmentId: string, id: string): void => {
+const disposeTerminal = (environmentId: EnvironmentId, id: PtyId): void => {
 	void import("../lib/terminal-registry.ts").then((registry) =>
 		registry.dispose(environmentId, id),
 	);
@@ -12,17 +14,16 @@ const disposeTerminal = (environmentId: string, id: string): void => {
 /**
  * Renderer-side terminal instances. The xterm + PTY themselves live in
  * `terminal-registry.ts` (kept alive across chat switches); this store only
- * tracks the list of slots each chat wants to see and which one is focused.
+ * tracks the list of slots each chat wants to see.
  * PTYs die with the renderer (no rehydration across reloads).
  *
- * Keyed by `chatId` so each sidebar chat gets its own terminal list — opening
- * a shell in one chat doesn't show up in (or get torn down by switching to)
- * another. Closing a terminal, or its owning chat, disposes the backing PTY
- * via the registry (`remove` / `disposeChat`).
+ * Keyed by an explicit `ChatRef` so equal chat ids on different computers can
+ * never share or tear down each other's shells. Closing a terminal, or its
+ * owning chat, disposes the backing PTY via the registry.
  */
 export type TerminalInstance = {
-	readonly environmentId: string;
-	readonly id: string;
+	readonly environmentId: EnvironmentId;
+	readonly id: PtyId;
 	readonly title: string;
 	readonly cwd: string;
 	readonly command?: {
@@ -34,8 +35,6 @@ export type TerminalInstance = {
 
 type TerminalsState = {
 	readonly byKey: Readonly<Record<string, ReadonlyArray<TerminalInstance>>>;
-	readonly activeByKey: Readonly<Record<string, string | null>>;
-	readonly ensureSeed: (key: string, cwd: string) => void;
 	/**
 	 * Resolve a 0-based slot index to a terminal instance for `key`, appending
 	 * fresh instances until the list is long enough. Used by the right-dock
@@ -44,42 +43,37 @@ type TerminalsState = {
 	 * `slot`.
 	 */
 	readonly ensureSlot: (
-		key: string,
+		ref: ChatRef,
 		slot: number,
 		cwd: string,
 	) => TerminalInstance;
-	readonly add: (key: string, cwd: string) => string;
 	/**
 	 * Append a command-bound terminal instance and return its 0-based LIST
 	 * INDEX (not its id), so the caller can pin a right-dock terminal panel to
 	 * exactly that slot (see `lib/run-terminal.ts`).
 	 */
 	readonly addCommand: (
-		key: string,
+		ref: ChatRef,
 		cwd: string,
 		title: string,
 		command: TerminalInstance["command"],
 	) => number;
-	readonly remove: (key: string, id: string) => void;
-	readonly setActive: (key: string, id: string) => void;
+	readonly remove: (ref: ChatRef, id: PtyId) => void;
 	/**
 	 * Dispose every terminal owned by a chat (closing each backing PTY) and drop
 	 * the chat's list. Called when a chat is archived or deleted so its shells
 	 * don't leak.
 	 */
-	readonly disposeChat: (chatId: ChatId) => void;
+	readonly disposeChat: (ref: ChatRef) => void;
 };
 
-export const terminalsKey = (chatId: ChatId): string => chatId;
+export const terminalsKey = (ref: ChatRef): string => resourceRefKey(ref);
 
-const environmentForTerminalKey = (key: string): string =>
-	cloudSummaryForChat(key)?.workspaceId ?? getActiveEnvironment();
-const cwdForTerminalKey = (key: string, cwd: string): string =>
-	cloudSummaryForChat(key) === null ? cwd : "/home/zuse/workspace";
-
-const newId = (): string =>
-	globalThis.crypto?.randomUUID?.() ??
-	`t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const newId = (): PtyId =>
+	PtyId.make(
+		globalThis.crypto?.randomUUID?.() ??
+			`t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+	);
 
 const nextTitle = (existing: ReadonlyArray<TerminalInstance>): string => {
 	if (existing.length === 0) return "zsh";
@@ -95,26 +89,12 @@ const nextTitle = (existing: ReadonlyArray<TerminalInstance>): string => {
 
 export const useTerminalsStore = create<TerminalsState>((set) => ({
 	byKey: {},
-	activeByKey: {},
-	ensureSeed: (key, cwd) =>
-		set((state) => {
-			if ((state.byKey[key]?.length ?? 0) > 0) return state;
-			const instance: TerminalInstance = {
-				environmentId: environmentForTerminalKey(key),
-				id: newId(),
-				title: "zsh",
-				cwd: cwdForTerminalKey(key, cwd),
-			};
-			return {
-				byKey: { ...state.byKey, [key]: [instance] },
-				activeByKey: { ...state.activeByKey, [key]: instance.id },
-			};
-		}),
-	ensureSlot: (key, slot, cwd) => {
+	ensureSlot: (ref, slot, cwd) => {
+		const key = terminalsKey(ref);
 		let result: TerminalInstance | undefined;
 		set((state) => {
 			const list = state.byKey[key] ?? [];
-			const expectedEnvironment = environmentForTerminalKey(key);
+			const expectedEnvironment = ref.environmentId;
 			if (list.length > slot) {
 				const existing = list[slot] as TerminalInstance;
 				if (existing.environmentId === expectedEnvironment) {
@@ -126,22 +106,13 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
 					environmentId: expectedEnvironment,
 					id: newId(),
 					title: existing.title,
-					cwd: cwdForTerminalKey(key, cwd),
+					cwd,
 					command: existing.command,
 				};
 				const next = [...list];
 				next[slot] = replacement;
 				result = replacement;
-				return {
-					byKey: { ...state.byKey, [key]: next },
-					activeByKey: {
-						...state.activeByKey,
-						[key]:
-							state.activeByKey[key] === existing.id
-								? replacement.id
-								: (state.activeByKey[key] ?? replacement.id),
-					},
-				};
+				return { byKey: { ...state.byKey, [key]: next } };
 			}
 			const next = [...list];
 			while (next.length <= slot) {
@@ -149,92 +120,53 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
 					environmentId: expectedEnvironment,
 					id: newId(),
 					title: nextTitle(next),
-					cwd: cwdForTerminalKey(key, cwd),
+					cwd,
 				});
 			}
 			const instance = next[slot] as TerminalInstance;
 			result = instance;
-			// Only claim focus when the key has none yet — the dock renders each
-			// slot independently, so `activeByKey` is only meaningful to the
-			// worktree `TerminalWorkspace` list path.
-			const active = state.activeByKey[key] ?? instance.id;
-			return {
-				byKey: { ...state.byKey, [key]: next },
-				activeByKey: { ...state.activeByKey, [key]: active },
-			};
+			return { byKey: { ...state.byKey, [key]: next } };
 		});
 		return result as TerminalInstance;
 	},
-	add: (key, cwd) => {
-		const id = newId();
-		set((state) => {
-			const list = state.byKey[key] ?? [];
-			const instance: TerminalInstance = {
-				environmentId: environmentForTerminalKey(key),
-				id,
-				title: nextTitle(list),
-				cwd: cwdForTerminalKey(key, cwd),
-			};
-			return {
-				byKey: { ...state.byKey, [key]: [...list, instance] },
-				activeByKey: { ...state.activeByKey, [key]: id },
-			};
-		});
-		return id;
-	},
-	addCommand: (key, cwd, title, command) => {
+	addCommand: (ref, cwd, title, command) => {
+		const key = terminalsKey(ref);
 		const id = newId();
 		let index = 0;
 		set((state) => {
 			const list = state.byKey[key] ?? [];
 			index = list.length;
 			const instance: TerminalInstance = {
-				environmentId: environmentForTerminalKey(key),
+				environmentId: ref.environmentId,
 				id,
 				title,
-				cwd: cwdForTerminalKey(key, cwd),
+				cwd,
 				command,
 			};
-			return {
-				byKey: { ...state.byKey, [key]: [...list, instance] },
-				activeByKey: { ...state.activeByKey, [key]: id },
-			};
+			return { byKey: { ...state.byKey, [key]: [...list, instance] } };
 		});
 		return index;
 	},
-	remove: (key, id) =>
+	remove: (ref, id) =>
 		set((state) => {
+			const key = terminalsKey(ref);
 			const list = state.byKey[key] ?? [];
 			const idx = list.findIndex((t) => t.id === id);
 			if (idx === -1) return state;
 			// Component unmount no longer kills the PTY (it only detaches), so an
 			// explicit close has to tear the backing shell down here.
-			disposeTerminal(list[idx]?.environmentId ?? getActiveEnvironment(), id);
+			disposeTerminal(list[idx]?.environmentId ?? ref.environmentId, id);
 			const next = list.filter((t) => t.id !== id);
-			const wasActive = state.activeByKey[key] === id;
-			// Pick the previous instance when closing the active one; if that
-			// doesn't exist, fall back to whatever now sits in the same slot.
-			const fallback = wasActive
-				? (next[Math.max(0, idx - 1)]?.id ?? null)
-				: (state.activeByKey[key] ?? null);
-			return {
-				byKey: { ...state.byKey, [key]: next },
-				activeByKey: { ...state.activeByKey, [key]: fallback },
-			};
+			return { byKey: { ...state.byKey, [key]: next } };
 		}),
-	setActive: (key, id) =>
-		set((state) => ({
-			activeByKey: { ...state.activeByKey, [key]: id },
-		})),
-	disposeChat: (chatId) =>
+	disposeChat: (ref) =>
 		set((state) => {
-			const key = terminalsKey(chatId);
+			const key = terminalsKey(ref);
 			const list = state.byKey[key];
 			if (list === undefined) return state;
 			for (const inst of list) disposeTerminal(inst.environmentId, inst.id);
 			const { [key]: _droppedList, ...byKey } = state.byKey;
-			const { [key]: _droppedActive, ...activeByKey } = state.activeByKey;
-			return { byKey, activeByKey };
+			return { byKey };
 		}),
 }));
 

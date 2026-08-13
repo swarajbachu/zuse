@@ -1,4 +1,7 @@
-import { scopedCacheKey } from "@zuse/client-runtime/environment-scope";
+import {
+	resourceRefKey,
+	type SessionRef,
+} from "@zuse/client-runtime/resource-ref";
 import {
 	decodeSessionTimelineCacheEntry,
 	encodeSessionTimelineCacheEntry,
@@ -6,7 +9,6 @@ import {
 	type SessionTimelineCacheEntry,
 } from "@zuse/client-runtime/session-timeline-cache";
 import type { SessionId } from "@zuse/contracts";
-import { getActiveEnvironmentStorageScope } from "./renderer-environment-scope.ts";
 import {
 	decodeTimelineReadingPosition,
 	encodeTimelineReadingPosition,
@@ -15,7 +17,7 @@ import {
 } from "./timeline-reading-position.ts";
 
 const DATABASE_NAME = "zuse-session-timelines";
-const DATABASE_VERSION = 3;
+const DATABASE_VERSION = 4;
 const STORE_NAME = "timelines";
 const METADATA_STORE_NAME = "timeline-metadata";
 const READING_POSITION_STORE_NAME = "reading-positions";
@@ -23,11 +25,15 @@ const DEFAULT_MAX_ENTRIES = 128;
 const DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
 const DEFAULT_MAX_READING_POSITIONS = 256;
 
-export const environmentSessionCacheKey = (
-	sessionId: SessionId,
-	environmentId = getActiveEnvironmentStorageScope(),
-): SessionId =>
-	scopedCacheKey(environmentId, "session", sessionId) as SessionId;
+export const environmentSessionCacheKey = (ref: SessionRef): SessionId =>
+	resourceRefKey(ref) as SessionId;
+
+export const shouldPersistTimelineCheckpoint = (
+	existing: SessionTimelineCacheEntry,
+	next: SessionTimelineCacheEntry,
+): boolean =>
+	existing.cursor.epoch !== next.cursor.epoch ||
+	existing.cursor.version <= next.cursor.version;
 
 export function resolveReadingPositionKeysToPrune(
 	values: ReadonlyArray<unknown>,
@@ -82,7 +88,7 @@ const transactionComplete = (transaction: IDBTransaction): Promise<void> =>
 const openDatabase = (): Promise<IDBDatabase> =>
 	new Promise((resolve, reject) => {
 		const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
-		request.onupgradeneeded = () => {
+		request.onupgradeneeded = (event) => {
 			const database = request.result;
 			if (!database.objectStoreNames.contains(STORE_NAME)) {
 				database.createObjectStore(STORE_NAME, { keyPath: "sessionId" });
@@ -96,6 +102,18 @@ const openDatabase = (): Promise<IDBDatabase> =>
 				database.createObjectStore(READING_POSITION_STORE_NAME, {
 					keyPath: "sessionId",
 				});
+			}
+			// Versions before 4 used an ambient active-environment value when
+			// reading/writing. Those keys cannot be migrated safely because a late
+			// async write may have been attributed to the wrong environment.
+			if (event.oldVersion > 0 && event.oldVersion < 4) {
+				for (const name of [
+					STORE_NAME,
+					METADATA_STORE_NAME,
+					READING_POSITION_STORE_NAME,
+				]) {
+					request.transaction?.objectStore(name).clear();
+				}
 			}
 		};
 		request.onsuccess = () => resolve(request.result);
@@ -111,8 +129,8 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 		return this.database;
 	}
 
-	async load(sessionId: SessionId): Promise<SessionTimelineCacheEntry | null> {
-		const storageKey = environmentSessionCacheKey(sessionId);
+	async load(ref: SessionRef): Promise<SessionTimelineCacheEntry | null> {
+		const storageKey = environmentSessionCacheKey(ref);
 		const database = await this.db();
 		const transaction = database.transaction(
 			[STORE_NAME, METADATA_STORE_NAME],
@@ -126,10 +144,8 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 		}
 		try {
 			const decoded = decodeSessionTimelineCacheEntry(raw);
-			const touched = { ...decoded, sessionId, accessedAt: Date.now() };
-			store.put(
-				encodeSessionTimelineCacheEntry({ ...touched, sessionId: storageKey }),
-			);
+			const touched = { ...decoded, ref, accessedAt: Date.now() };
+			store.put(encodeSessionTimelineCacheEntry(touched));
 			transaction.objectStore(METADATA_STORE_NAME).put({
 				sessionId: storageKey,
 				accessedAt: touched.accessedAt,
@@ -146,21 +162,34 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 	}
 
 	async save(entry: SessionTimelineCacheEntry): Promise<void> {
-		const storageKey = environmentSessionCacheKey(entry.sessionId);
+		const storageKey = environmentSessionCacheKey(entry.ref);
 		const database = await this.db();
 		const transaction = database.transaction(
 			[STORE_NAME, METADATA_STORE_NAME],
 			"readwrite",
 		);
-		const encoded = encodeSessionTimelineCacheEntry({
-			...entry,
-			sessionId: storageKey,
-		});
+		const store = transaction.objectStore(STORE_NAME);
+		const existingRaw = await requestResult(store.get(storageKey));
+		if (existingRaw !== undefined) {
+			try {
+				const existing = decodeSessionTimelineCacheEntry(existingRaw);
+				// Delayed checkpoint writes are serialized by ClientBus, but a second
+				// app surface or old process can still race this IndexedDB record. Only
+				// an explicit epoch reset may move the durable cursor backwards.
+				if (!shouldPersistTimelineCheckpoint(existing, entry)) {
+					await transactionComplete(transaction);
+					return;
+				}
+			} catch {
+				// Replace malformed cache data with the current validated checkpoint.
+			}
+		}
+		const encoded = encodeSessionTimelineCacheEntry(entry);
 		const persisted = {
 			...(encoded as Record<string, unknown>),
 			estimatedBytes: JSON.stringify(encoded).length,
 		};
-		transaction.objectStore(STORE_NAME).put(persisted);
+		store.put(persisted);
 		transaction.objectStore(METADATA_STORE_NAME).put({
 			sessionId: storageKey,
 			accessedAt: entry.accessedAt,
@@ -169,8 +198,8 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 		await transactionComplete(transaction);
 	}
 
-	async remove(sessionId: SessionId): Promise<void> {
-		const storageKey = environmentSessionCacheKey(sessionId);
+	async remove(ref: SessionRef): Promise<void> {
+		const storageKey = environmentSessionCacheKey(ref);
 		const database = await this.db();
 		const transaction = database.transaction(
 			[STORE_NAME, METADATA_STORE_NAME],
@@ -221,8 +250,8 @@ class IndexedDbTimelineReadingPositionStore
 		return this.database;
 	}
 
-	async load(sessionId: SessionId): Promise<TimelineReadingPosition | null> {
-		const storageKey = environmentSessionCacheKey(sessionId);
+	async load(ref: SessionRef): Promise<TimelineReadingPosition | null> {
+		const storageKey = environmentSessionCacheKey(ref);
 		const database = await this.db();
 		const transaction = database.transaction(
 			READING_POSITION_STORE_NAME,
@@ -233,11 +262,14 @@ class IndexedDbTimelineReadingPositionStore
 		const decoded = decodeTimelineReadingPosition(raw);
 		if (raw !== undefined && decoded === null) store.delete(storageKey);
 		await transactionComplete(transaction);
-		return decoded === null ? null : { ...decoded, sessionId };
+		return decoded === null ? null : { ...decoded, sessionId: ref.sessionId };
 	}
 
-	async save(position: TimelineReadingPosition): Promise<void> {
-		const storageKey = environmentSessionCacheKey(position.sessionId);
+	async save(
+		ref: SessionRef,
+		position: TimelineReadingPosition,
+	): Promise<void> {
+		const storageKey = environmentSessionCacheKey(ref);
 		const database = await this.db();
 		const transaction = database.transaction(
 			READING_POSITION_STORE_NAME,
@@ -254,8 +286,8 @@ class IndexedDbTimelineReadingPositionStore
 		await transactionComplete(transaction);
 	}
 
-	async remove(sessionId: SessionId): Promise<void> {
-		const storageKey = environmentSessionCacheKey(sessionId);
+	async remove(ref: SessionRef): Promise<void> {
+		const storageKey = environmentSessionCacheKey(ref);
 		const database = await this.db();
 		const transaction = database.transaction(
 			READING_POSITION_STORE_NAME,

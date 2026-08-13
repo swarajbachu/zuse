@@ -1,5 +1,5 @@
 import type { ClientSession } from "@zuse/client-runtime/connection";
-import { MessageId } from "@zuse/contracts";
+import { CommandId, MessageId } from "@zuse/contracts";
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -34,6 +34,7 @@ describe("conversation process reliability", () => {
 			await Effect.runPromise(
 				session.client["messages.send"]({
 					sessionId: conversation.initialSession.id,
+					commandId: CommandId.make("reconnect-send"),
 					text: "Hold this stream while the client reconnects.",
 					clientMessageId: MessageId.make("reconnect-user-message"),
 				}),
@@ -120,6 +121,7 @@ describe("conversation process reliability", () => {
 			await Effect.runPromise(
 				session.client["messages.send"]({
 					sessionId: conversation.initialSession.id,
+					commandId: CommandId.make("interrupt-send"),
 					text: "Wait for interruption.",
 				}),
 			);
@@ -128,6 +130,7 @@ describe("conversation process reliability", () => {
 			await Effect.runPromise(
 				session.client["messages.interrupt"]({
 					sessionId: conversation.initialSession.id,
+					commandId: CommandId.make("interrupt-live-turn"),
 				}),
 			);
 			await controller.waitFor("prompt.cancelled");
@@ -166,6 +169,7 @@ describe("conversation process reliability", () => {
 			await Effect.runPromise(
 				session.client["messages.send"]({
 					sessionId: conversation.initialSession.id,
+					commandId: CommandId.make("provider-crash-send"),
 					text: "Crash deterministically.",
 				}),
 			);
@@ -204,6 +208,7 @@ describe("conversation process reliability", () => {
 			await Effect.runPromise(
 				session.client["messages.send"]({
 					sessionId: conversation.initialSession.id,
+					commandId: CommandId.make("provider-crash-recovery-send"),
 					text: "Recover after the provider crash.",
 				}),
 			);
@@ -238,6 +243,7 @@ describe("conversation process reliability", () => {
 			await Effect.runPromise(
 				session.client["messages.send"]({
 					sessionId: conversation.initialSession.id,
+					commandId: CommandId.make("malformed-frame-send"),
 					text: "Emit a malformed provider frame.",
 				}),
 			);
@@ -279,6 +285,7 @@ describe("conversation process reliability", () => {
 			await Effect.runPromise(
 				session.client["messages.send"]({
 					sessionId: conversation.initialSession.id,
+					commandId: CommandId.make("stalled-provider-send"),
 					text: "Stall until cancelled.",
 				}),
 			);
@@ -287,6 +294,7 @@ describe("conversation process reliability", () => {
 			await Effect.runPromise(
 				session.client["messages.interrupt"]({
 					sessionId: conversation.initialSession.id,
+					commandId: CommandId.make("stalled-provider-interrupt"),
 				}),
 			);
 			await controller.waitFor("prompt.cancelled", undefined, 2_000);

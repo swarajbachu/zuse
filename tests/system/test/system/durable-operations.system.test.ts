@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { MessageId } from "@zuse/contracts";
+import { CommandId, MessageId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -29,17 +29,19 @@ describe("durable RPC operations", () => {
 			await Effect.runPromise(
 				session.client["messages.send"]({
 					sessionId: conversation.initialSession.id,
+					commandId: CommandId.make("durable-queue-running-send"),
 					text: "Keep the first turn running.",
 				}),
 			);
 			await controller.waitFor("prompt.held");
-			for (const text of [
+			for (const [index, text] of [
 				"Recovered queued turn 1",
 				"Recovered queued turn 2",
-			]) {
+			].entries()) {
 				await Effect.runPromise(
 					session.client["messages.queue.add"]({
 						sessionId: conversation.initialSession.id,
+						commandId: CommandId.make(`durable-queue-add-${index + 1}`),
 						input: {
 							text,
 							attachments: [],
@@ -146,6 +148,7 @@ describe("durable RPC operations", () => {
 
 			const payload = {
 				sessionId: conversation.initialSession.id,
+				commandId: CommandId.make("concurrent-idempotent-send"),
 				text: "Idempotent message",
 				clientMessageId: MessageId.make("same-client-message"),
 			};
@@ -199,12 +202,14 @@ describe("durable RPC operations", () => {
 				Effect.runPromise(
 					session.client["messages.send"]({
 						sessionId: first.initialSession.id,
+						commandId: CommandId.make("parallel-first-send"),
 						text: "first-only",
 					}),
 				),
 				Effect.runPromise(
 					session.client["messages.send"]({
 						sessionId: second.initialSession.id,
+						commandId: CommandId.make("parallel-second-send"),
 						text: "second-only",
 					}),
 				),

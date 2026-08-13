@@ -48,6 +48,7 @@ export const SessionEvent = Schema.Union([
 	Schema.TaggedStruct("SessionResumeSet", {
 		cursor: SessionConfigurationFields.cursor,
 		resumeStrategy: SessionConfigurationFields.resumeStrategy,
+		providerEventCursor: Schema.optional(Schema.NullOr(Schema.String)),
 		updatedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("SessionArchived", { archivedAt: Schema.Number }),
@@ -128,6 +129,8 @@ export const SessionEvent = Schema.Union([
 		kind: Schema.String,
 		contentJson: Schema.String,
 		parentItemId: Schema.NullOr(Schema.String),
+		checkpointRevision: Schema.optional(Schema.Number),
+		checkpointFinal: Schema.optional(Schema.Boolean),
 		createdAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("SegmentOpened", {

@@ -52,6 +52,8 @@ describe("lifecycle backfill", () => {
 				permission_mode TEXT NOT NULL DEFAULT 'default',
 				tool_search INTEGER NOT NULL DEFAULT 0,
 				queue_paused INTEGER NOT NULL DEFAULT 0,
+				current_turn_id TEXT,
+				current_turn_phase TEXT,
 				archived_at TEXT,
 				created_at TEXT NOT NULL,
 				updated_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00.000Z'
@@ -65,7 +67,9 @@ describe("lifecycle backfill", () => {
 				content_json TEXT NOT NULL,
 				parent_item_id TEXT,
 				created_at TEXT NOT NULL,
-				sequence INTEGER
+				sequence INTEGER,
+				checkpoint_revision INTEGER,
+				checkpoint_final INTEGER
 			);
 			CREATE TABLE events (
 				sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,7 +97,10 @@ describe("lifecycle backfill", () => {
 				'session-1', 'project-1', 'chat-1', 'Existing title',
 				'2026-01-03T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
 			);
-			INSERT INTO messages VALUES (
+			INSERT INTO messages (
+				id, session_id, turn_id, role, kind, content_json,
+				parent_item_id, created_at, sequence
+			) VALUES (
 				'message-1', 'session-1', NULL, 'user', 'text',
 				'{"spacing":  "preserved"}', NULL, '2026-01-02T00:00:00.000Z', 1
 			);

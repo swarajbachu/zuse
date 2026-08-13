@@ -1,6 +1,6 @@
 import type { CompletionSoundPreset } from "@zuse/contracts";
 
-import { useSettingsStore } from "../store/settings.ts";
+import { useSettingsStore } from "./settings-client-bus.ts";
 
 export const COMPLETION_SOUND_PRESETS: ReadonlyArray<{
 	readonly value: CompletionSoundPreset;

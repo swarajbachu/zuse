@@ -1,14 +1,19 @@
 import type {
+	CommandId,
 	DiagnosticEvent,
 	DiagnosticSeverity,
+	DiagnosticsCaptureResult,
+	DiagnosticsEventsResult,
+	DiagnosticsExportResult,
 	DiagnosticsOverviewResult,
 	DiagnosticsProcessesResult,
+	DiagnosticsSignalResult,
+	EnvironmentId,
 	LagSample,
 	PerformanceHistory,
 	PowerMonitorState,
 	PowerRecordingDurationMinutes,
 } from "@zuse/contracts";
-import { Effect } from "effect";
 import {
 	Activity,
 	AlertTriangle,
@@ -33,6 +38,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMediaQuery } from "../../hooks/use-media-query.ts";
 import { collectDiagnosticsClientContext } from "../../lib/diagnostics-client-context.ts";
+import { dispatchEnvironmentShellCommand } from "../../lib/environment-shell-client-bus.ts";
 import {
 	flushRendererDiagnostics,
 	getPowerInteractionMeasurements,
@@ -54,8 +60,8 @@ import {
 	parseDiagnosticsPreferences,
 	relatedDiagnosticEvents,
 } from "../../lib/diagnostics-view-model.ts";
-import { getRpcClient } from "../../lib/rpc-client.ts";
 import { cn } from "../../lib/utils.ts";
+import { useEnvironmentCatalogStore } from "../../store/environment-catalog.ts";
 import { Area } from "../dither-kit/area.tsx";
 import { AreaChart } from "../dither-kit/area-chart.tsx";
 import { Sparkline as DitherSparkline } from "../dither-kit/sparkline.tsx";
@@ -748,6 +754,19 @@ function StallWorkspace({
 }
 
 export function DiagnosticsPane() {
+	const environmentId = useEnvironmentCatalogStore(
+		(state) => state.activeEnvironmentId as EnvironmentId,
+	);
+	const command = useCallback(
+		<Result, Payload = unknown>(kind: string, payload: Payload) =>
+			dispatchEnvironmentShellCommand<Payload, Result>({
+				environmentId,
+				kind,
+				commandId: crypto.randomUUID() as CommandId,
+				payload,
+			}).then(({ result }) => result),
+		[environmentId],
+	);
 	const initialPreferences = useRef(readPreferences()).current;
 	const mainLogsIngestedRef = useRef(false);
 	const copyTimerRef = useRef<number | null>(null);
@@ -850,7 +869,6 @@ export function DiagnosticsPane() {
 		setRefreshing(true);
 		try {
 			await flushRendererDiagnostics();
-			const client = await getRpcClient();
 			if (!mainLogsIngestedRef.current) {
 				try {
 					const mainLogs =
@@ -860,23 +878,21 @@ export function DiagnosticsPane() {
 						(log) => log.source !== "main.previousRunUnclean",
 					);
 					if (unpublishedMainLogs.length > 0) {
-						await Effect.runPromise(
-							client["diagnostics.ingest"]({
-								events: unpublishedMainLogs.map((log, index) => ({
-									id: `main_${log.createdAt}_${index}`,
-									createdAt: log.createdAt,
-									severity: log.level,
-									source: log.source,
-									category: "desktop",
-									message: log.message,
-									...(log.detail ? { detail: log.detail } : {}),
-									fingerprint: `${log.source}:${log.message}`,
-									runId: "desktop-main",
-									recoveryStatus:
-										log.level === "error" ? "unresolved" : "not-needed",
-								})),
-							}),
-						);
+						await command("diagnostics.ingest", {
+							events: unpublishedMainLogs.map((log, index) => ({
+								id: `main_${log.createdAt}_${index}`,
+								createdAt: log.createdAt,
+								severity: log.level,
+								source: log.source,
+								category: "desktop",
+								message: log.message,
+								...(log.detail ? { detail: log.detail } : {}),
+								fingerprint: `${log.source}:${log.message}`,
+								runId: "desktop-main",
+								recoveryStatus:
+									log.level === "error" ? "unresolved" : "not-needed",
+							})),
+						});
 					}
 					mainLogsIngestedRef.current = true;
 				} catch {
@@ -889,19 +905,17 @@ export function DiagnosticsPane() {
 			const power = (window.zuse ?? window.memoize)?.power;
 			const [overviewResult, eventsResult, processesResult, performanceResult] =
 				await Promise.allSettled([
-					Effect.runPromise(client["diagnostics.overview"]({ since })),
-					Effect.runPromise(
-						client["diagnostics.events"]({
-							limit: 200,
-							since,
-							...(selectedSeverities === undefined
-								? {}
-								: { severities: selectedSeverities }),
-							...(querySource ? { source: querySource } : {}),
-							...(querySearch ? { search: querySearch } : {}),
-						}),
-					),
-					Effect.runPromise(client["diagnostics.processes"]()),
+					command<DiagnosticsOverviewResult>("diagnostics.overview", { since }),
+					command<DiagnosticsEventsResult>("diagnostics.events", {
+						limit: 200,
+						since,
+						...(selectedSeverities === undefined
+							? {}
+							: { severities: selectedSeverities }),
+						...(querySource ? { source: querySource } : {}),
+						...(querySearch ? { search: querySearch } : {}),
+					}),
+					command<DiagnosticsProcessesResult>("diagnostics.processes", {}),
 					power?.getHistory(Date.now() - rangeMs) ??
 						Promise.reject(new Error("Native performance bridge unavailable.")),
 				]);
@@ -959,7 +973,7 @@ export function DiagnosticsPane() {
 			setLoading(false);
 			setRefreshing(false);
 		}
-	}, [querySearch, querySource, rangeMs, severity, view]);
+	}, [command, querySearch, querySource, rangeMs, severity, view]);
 
 	useEffect(() => {
 		void refresh();
@@ -984,10 +998,10 @@ export function DiagnosticsPane() {
 	const loadMoreEvents = async () => {
 		if (!nextEventCursor) return;
 		try {
-			const client = await getRpcClient();
 			const selectedSeverities = diagnosticsSeveritySelection(view, severity);
-			const page = await Effect.runPromise(
-				client["diagnostics.events"]({
+			const page = await command<DiagnosticsEventsResult>(
+				"diagnostics.events",
+				{
 					cursor: nextEventCursor,
 					limit: 200,
 					since: diagnosticsSince(rangeMs),
@@ -996,7 +1010,7 @@ export function DiagnosticsPane() {
 						: { severities: selectedSeverities }),
 					...(querySource ? { source: querySource } : {}),
 					...(querySearch ? { search: querySearch } : {}),
-				}),
+				},
 			);
 			setEvents((current) => [...current, ...page.events]);
 			setNextEventCursor(page.nextCursor);
@@ -1014,14 +1028,14 @@ export function DiagnosticsPane() {
 	const exportBundle = async () => {
 		setExporting(true);
 		try {
-			const client = await getRpcClient();
 			const clientContext = await collectDiagnosticsClientContext();
-			const result = await Effect.runPromise(
-				client["diagnostics.export"]({
+			const result = await command<DiagnosticsExportResult>(
+				"diagnostics.export",
+				{
 					clientContext,
 					since: diagnosticsSince(rangeMs),
 					includeSessionEvents: false,
-				}),
+				},
 			);
 			await (window.zuse ?? window.memoize)?.app?.revealPath?.(
 				result.bundlePath,
@@ -1041,13 +1055,11 @@ export function DiagnosticsPane() {
 	const updateCapture = async () => {
 		setCaptureBusy(true);
 		try {
-			const client = await getRpcClient();
-			const result = await Effect.runPromise(
-				client["diagnostics.capture"](
-					diagnosticsCapturePayload(
-						overview?.captureMode ?? "incident",
-						captureDuration,
-					),
+			const result = await command<DiagnosticsCaptureResult>(
+				"diagnostics.capture",
+				diagnosticsCapturePayload(
+					overview?.captureMode ?? "incident",
+					captureDuration,
 				),
 			);
 			setCaptureNow(Date.now());
@@ -1074,9 +1086,9 @@ export function DiagnosticsPane() {
 		)
 			return;
 		try {
-			const client = await getRpcClient();
-			const result = await Effect.runPromise(
-				client["diagnostics.signalProcess"]({ pid, signal }),
+			const result = await command<DiagnosticsSignalResult>(
+				"diagnostics.signalProcess",
+				{ pid, signal },
 			);
 			if (!result.signaled) {
 				setError(result.message ?? "The process could not be signaled.");

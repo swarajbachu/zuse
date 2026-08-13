@@ -1,4 +1,4 @@
-import type { SessionStatus } from "@zuse/contracts";
+import type { SessionStatus, SessionTimelineProjection } from "@zuse/contracts";
 
 export type SessionRuntimeState =
 	| "starting"
@@ -32,3 +32,19 @@ export const isSessionRuntimeBusy = (state: SessionRuntimeState): boolean =>
 
 export const isSessionTurnActive = (state: SessionRuntimeState): boolean =>
 	state === "running" || state === "stopping";
+
+/** Canonical lifecycle selector shared by every timeline-backed surface. */
+export const runtimeStateFromTimeline = (
+	projection: SessionTimelineProjection,
+): SessionRuntimeState => {
+	if (projection.status === "error") return "failed";
+	if (projection.status === "booting") return "starting";
+	const phase = projection.currentTurn?.phase;
+	if (phase === "interrupt-requested" || phase === "interrupt-acknowledged") {
+		return "stopping";
+	}
+	if (projection.currentTurn !== null || projection.status === "running") {
+		return "running";
+	}
+	return "idle";
+};

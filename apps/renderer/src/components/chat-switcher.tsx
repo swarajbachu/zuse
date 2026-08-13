@@ -3,6 +3,7 @@ import fuzzysort from "fuzzysort";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { overlaySurface } from "~/components/ui/overlay-surface";
 import { cn } from "~/lib/utils";
+import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
@@ -36,7 +37,7 @@ const recencyOf = (chat: Chat): number =>
 
 function ChatSwitcherInner() {
 	const folders = useWorkspaceStore((s) => s.folders);
-	const chatsByProject = useChatsStore((s) => s.chatsByProject);
+	const { chatsByProject } = useActiveEnvironmentEntities();
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 
 	const close = () => useUiStore.getState().setChatSwitcherOpen(false);

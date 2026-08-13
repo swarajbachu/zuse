@@ -7,6 +7,7 @@ import type {
 	Session,
 	SessionId,
 } from "@zuse/contracts";
+import { EnvironmentId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -20,10 +21,14 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 	return { ...original, getRpcClient: async () => rpcClientFactory() };
 });
 
-import { useArchivePreviewStore } from "../../src/store/archive-preview.ts";
+import {
+	setArchiveCommandForTest,
+	useArchivePreviewStore,
+} from "../../src/store/archive-preview.ts";
 import { useUiStore } from "../../src/store/ui.ts";
 
 const projectId = "project-archive" as FolderId;
+const environmentId = EnvironmentId.make("local");
 const chatId = "chat-archive" as ChatId;
 const firstSessionId = "session-first" as SessionId;
 const secondSessionId = "session-second" as SessionId;
@@ -93,6 +98,10 @@ const deferred = <T>() => {
 describe("archive preview store", () => {
 	beforeEach(() => {
 		rpcClientFactory.mockReset();
+		setArchiveCommandForTest(async ({ kind, payload }) => {
+			const client = rpcClientFactory();
+			return Effect.runPromise(client[kind](payload));
+		});
 		useArchivePreviewStore.setState(useArchivePreviewStore.getInitialState());
 		useUiStore.setState({ activeMainTab: "chat" });
 	});
@@ -102,7 +111,9 @@ describe("archive preview store", () => {
 			"chat.list": () => Effect.succeed([liveChat, archivedChat]),
 		});
 
-		await useArchivePreviewStore.getState().loadProject(projectId);
+		await useArchivePreviewStore
+			.getState()
+			.loadProject(environmentId, projectId);
 
 		expect(useArchivePreviewStore.getState().chatsByProject[projectId]).toEqual(
 			[archivedChat],
@@ -112,7 +123,7 @@ describe("archive preview store", () => {
 		);
 	});
 
-	it("opens the original active session and loads its static transcript", async () => {
+	it("opens the original active session without owning transcript state", async () => {
 		const listMessages = vi.fn(() => Effect.succeed([message]));
 		const listChats = vi.fn(() => Effect.succeed([archivedChat]));
 		rpcClientFactory.mockReturnValue({
@@ -125,16 +136,17 @@ describe("archive preview store", () => {
 			"chat.list": listChats,
 		});
 
-		await useArchivePreviewStore.getState().openChat(archivedChat);
+		await useArchivePreviewStore
+			.getState()
+			.openChat(environmentId, archivedChat);
 
 		const state = useArchivePreviewStore.getState();
 		expect(useUiStore.getState().activeMainTab).toBe("archives");
 		expect(state.selectedChatByProject[projectId]).toBe(chatId);
 		expect(state.selectedSessionByChat[chatId]).toBe(secondSessionId);
-		expect(state.messagesBySession[secondSessionId]).toEqual([message]);
-		expect(listMessages).toHaveBeenCalledTimes(1);
+		expect(listMessages).not.toHaveBeenCalled();
 
-		await useArchivePreviewStore.getState().showList(projectId);
+		await useArchivePreviewStore.getState().showList(environmentId, projectId);
 		expect(
 			useArchivePreviewStore.getState().selectedChatByProject[projectId],
 		).toBeNull();
@@ -157,7 +169,9 @@ describe("archive preview store", () => {
 			.mockReturnValueOnce(Effect.promise(() => second.promise));
 		rpcClientFactory.mockReturnValue({ "chat.list": listChats });
 
-		const loading = useArchivePreviewStore.getState().loadProject(projectId);
+		const loading = useArchivePreviewStore
+			.getState()
+			.loadProject(environmentId, projectId);
 		await vi.waitFor(() => expect(listChats).toHaveBeenCalledTimes(1));
 		useArchivePreviewStore.getState().upsertChat(archivedChat);
 		first.resolve([]);
@@ -184,7 +198,7 @@ describe("archive preview store", () => {
 			selectedChatByProject: { [projectId]: chatId },
 		});
 
-		await useArchivePreviewStore.getState().showList(projectId);
+		await useArchivePreviewStore.getState().showList(environmentId, projectId);
 
 		expect(listChats).toHaveBeenCalledTimes(1);
 		expect(useArchivePreviewStore.getState().chatsByProject[projectId]).toEqual(
@@ -196,35 +210,33 @@ describe("archive preview store", () => {
 	});
 
 	it("does not resurrect preview data when restore wins an in-flight load", async () => {
-		const messages = deferred<ReadonlyArray<Message>>();
+		const preview = deferred<{
+			readonly chat: Chat;
+			readonly sessions: ReadonlyArray<Session>;
+		}>();
 		rpcClientFactory.mockReturnValue({
-			"chat.archivePreview": () =>
-				Effect.succeed({
-					chat: archivedChat,
-					sessions: [firstSession, secondSession],
-				}),
-			"messages.list": () => Effect.promise(() => messages.promise),
+			"chat.archivePreview": () => Effect.promise(() => preview.promise),
 		});
 		useArchivePreviewStore.getState().upsertChat(archivedChat);
 
-		const opening = useArchivePreviewStore.getState().openChat(archivedChat);
+		const opening = useArchivePreviewStore
+			.getState()
+			.openChat(environmentId, archivedChat);
 		await vi.waitFor(() =>
 			expect(
-				useArchivePreviewStore.getState().messagesLoadingBySession[
-					secondSessionId
-				],
+				useArchivePreviewStore.getState().previewLoadingByChat[chatId],
 			).toBe(true),
 		);
 		useArchivePreviewStore.getState().removeChat(chatId, projectId);
-		messages.resolve([message]);
+		preview.resolve({
+			chat: archivedChat,
+			sessions: [firstSession, secondSession],
+		});
 		await opening;
 
 		expect(useArchivePreviewStore.getState().previewsByChat[chatId]).toBe(
 			undefined,
 		);
-		expect(
-			useArchivePreviewStore.getState().messagesBySession[secondSessionId],
-		).toBeUndefined();
 		expect(useArchivePreviewStore.getState().chatsByProject[projectId]).toEqual(
 			[],
 		);

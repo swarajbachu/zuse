@@ -1,4 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { GitBranchInfo, GitPrCheckRun, Message } from "@zuse/contracts";
+import { CommandId } from "@zuse/contracts";
 import {
 	Alert01Icon,
 	CheckListIcon,
@@ -9,9 +11,7 @@ import {
 	Loading02Icon,
 	Tick02Icon,
 } from "@zuse/icons/solid-rounded";
-import type { GitBranchInfo, GitPrCheckRun, Message } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
-import { Effect } from "effect";
 import {
 	ArrowLeftRight,
 	Laptop,
@@ -24,24 +24,19 @@ import { deriveEnvironmentPrRows } from "../lib/branch-workflow.ts";
 import { displayPath } from "../lib/display-path.ts";
 import { deriveEnvironmentLocation } from "../lib/environment-location.ts";
 import { formatError } from "../lib/format-error.ts";
+import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
+import {
+	dispatchGitWorkspaceCommand,
+	refreshGitWorkspace,
+	useGitWorkspaceResource,
+} from "../lib/git-workspace-client-bus.ts";
 import { detachedSubagentGroups } from "../lib/group-messages.ts";
-import {
-	getActiveEnvironment,
-	getLocalEnvironmentId,
-	getRpcClient,
-} from "../lib/rpc-client.ts";
-import {
-	effectiveSessionRuntimeState,
-	isSessionTurnActive,
-} from "../lib/session-runtime-state.ts";
+import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
+import { sendSessionMessage } from "../lib/session-actions.ts";
+import { isSessionTurnActive } from "../lib/session-runtime-state.ts";
+import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
-import { gitDiffStatKey, useGitDiffStatStore } from "../store/git-diff-stat.ts";
-import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
-import { useMessagesStore } from "../store/messages.ts";
-import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
-import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
-import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
@@ -66,8 +61,6 @@ import {
 
 const rowClass =
 	"group flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-2.5 text-left text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
-const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
-
 const compactNumber = (value: number): string =>
 	new Intl.NumberFormat("en", { notation: "compact" }).format(value);
 
@@ -102,66 +95,46 @@ export function EnvironmentSummary() {
 		activeEntry: activeEnvironmentEntry,
 	});
 	const EnvironmentIcon = environmentLocation.isLocal ? Laptop : Server;
-	const status = useGitStatusStore((s) =>
-		folderId ? (s.byKey[gitStatusKey(folderId, worktreeId)] ?? null) : null,
-	);
-	const diffStat = useGitDiffStatStore((s) =>
-		folderId
-			? (s.byKey[
-					gitDiffStatKey(getActiveEnvironment(), folderId, worktreeId)
-				] ?? null)
-			: null,
-	);
-	const hydrateDiffStat = useGitDiffStatStore((s) => s.hydrate);
+	const executionRef =
+		ctx.status === "ready"
+			? {
+					environmentId: ctx.environmentId,
+					folderId: ctx.folderId,
+					worktreeId: ctx.worktreeId,
+					rootPath: ctx.rootPath,
+				}
+			: null;
+	const environmentId = executionRef?.environmentId ?? null;
+	const gitView = useGitWorkspaceResource(executionRef, "connect");
+	const status = gitView.data?.status ?? null;
+	const diffStat = gitView.data?.diffStat ?? null;
 	const [branches, setBranches] = useState<ReadonlyArray<GitBranchInfo>>([]);
 	const [branchesLoading, setBranchesLoading] = useState(false);
 	const [branchError, setBranchError] = useState<string | null>(null);
-	useEffect(() => {
-		if (folderId !== null)
-			void hydrateDiffStat(getActiveEnvironment(), folderId, worktreeId);
-	}, [folderId, hydrateDiffStat, worktreeId]);
-	const pr = usePrStateStore((s) =>
-		folderId
-			? (s.byKey[prStateKey(getActiveEnvironment(), folderId, worktreeId)] ??
-				null)
-			: null,
-	);
-	const prDetails = usePrDetailsStore((s) =>
-		folderId ? (s.byKey[prDetailsKey(folderId, worktreeId)] ?? null) : null,
-	);
-	const prDetailsLoading = usePrDetailsStore((s) =>
-		folderId
-			? s.loadingByKey[prDetailsKey(folderId, worktreeId)] === true
-			: false,
-	);
-	const hydratePrDetails = usePrDetailsStore((s) => s.hydrate);
-	const refreshPrDetails = usePrDetailsStore((s) => s.refresh);
+	const pr = gitView.data?.pr ?? null;
+	const prDetails = gitView.data?.prDetails ?? null;
+	const prDetailsLoading = gitView.sync === "synchronizing";
 	const [checksRequestedKey, setChecksRequestedKey] = useState<string | null>(
 		null,
 	);
-	const revealPanel = useUiStore((s) => s.revealPanel);
+	const revealPanelForChat = useUiStore((s) => s.revealPanelForChat);
 	const selectSubagent = useUiStore((s) => s.selectSubagent);
 	const sessionId = useSessionsStore((s) => s.selectedSessionId);
-	const session = useSessionsStore((s) => {
-		if (sessionId === null) return null;
-		for (const sessions of Object.values(s.sessionsByProject)) {
-			const match = sessions.find((candidate) => candidate.id === sessionId);
-			if (match !== undefined) return match;
-		}
-		return null;
-	});
-	const messages = useMessagesStore((s) =>
-		sessionId === null
-			? EMPTY_MESSAGES
-			: (s.messagesBySession[sessionId] ?? EMPTY_MESSAGES),
+	const session = useActiveSessionById(sessionId);
+	const chatRef =
+		environmentId === null || session === null
+			? null
+			: { environmentId, chatId: session.chatId };
+	const revealPanel = (kind: Parameters<typeof revealPanelForChat>[1]) => {
+		if (chatRef !== null) revealPanelForChat(chatRef, kind);
+	};
+	const timeline = useOptionalRendererSessionTimeline(
+		sessionId,
+		"connect",
+		environmentId,
 	);
-	const isRunning = useSessionRuntimeStore((s) =>
-		session === null
-			? false
-			: isSessionTurnActive(
-					effectiveSessionRuntimeState(s.bySession[session.id]),
-				),
-	);
+	const messages = timeline.messages;
+	const isRunning = session !== null && isSessionTurnActive(timeline.runtime);
 	const planAvailable = useMemo(
 		() =>
 			latestProposedPlanMarkdown(messages) !== null ||
@@ -185,16 +158,23 @@ export function EnvironmentSummary() {
 	});
 	const branchLabel = status?.branch ?? worktree?.branch ?? "Loading branch…";
 	const refreshBranches = async (): Promise<void> => {
-		if (folderId === null) return;
+		if (executionRef === null || folderId === null) return;
 		setBranchesLoading(true);
 		setBranchError(null);
 		try {
-			const client = await getRpcClient();
-			setBranches(
-				await Effect.runPromise(
-					client["git.branches"]({ folderId, worktreeId }),
-				),
-			);
+			const { result } = await dispatchGitWorkspaceCommand<
+				{
+					readonly folderId: typeof folderId;
+					readonly worktreeId: typeof worktreeId;
+				},
+				ReadonlyArray<GitBranchInfo>
+			>({
+				ref: executionRef,
+				kind: "git.branches",
+				commandId: CommandId.make(`git-branches:${crypto.randomUUID()}`),
+				payload: { folderId, worktreeId },
+			});
+			setBranches(result);
 		} catch (error) {
 			setBranchError(formatError(error));
 		} finally {
@@ -205,9 +185,9 @@ export function EnvironmentSummary() {
 		void refreshBranches();
 		// The active branch is the refresh boundary for this menu.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [branchLabel, folderId, worktreeId]);
+	}, [branchLabel, environmentId, folderId, worktreeId]);
 	const switchToBranch = async (branch: GitBranchInfo): Promise<void> => {
-		if (folderId === null || branch.current) return;
+		if (executionRef === null || folderId === null || branch.current) return;
 		if (
 			(status?.dirtyFiles ?? 0) > 0 &&
 			!window.confirm(
@@ -218,20 +198,18 @@ export function EnvironmentSummary() {
 		setBranchesLoading(true);
 		setBranchError(null);
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["git.switchBranch"]({
+			await dispatchGitWorkspaceCommand({
+				ref: executionRef,
+				kind: "git.switchBranch",
+				commandId: CommandId.make(`git-switch:${crypto.randomUUID()}`),
+				payload: {
 					folderId,
 					worktreeId,
 					branch: branch.name,
 					remote: branch.remote,
-				}),
-			);
-			void useGitStatusStore.getState().refresh(folderId, worktreeId);
-			void usePrStateStore
-				.getState()
-				.refresh(getActiveEnvironment(), folderId, worktreeId);
-			void hydrateDiffStat(getActiveEnvironment(), folderId, worktreeId);
+				},
+			});
+			void refreshGitWorkspace(executionRef);
 			await refreshBranches();
 		} catch (error) {
 			setBranchError(formatError(error));
@@ -296,20 +274,21 @@ export function EnvironmentSummary() {
 		};
 	})();
 	const openPullRequest = () => {
-		if (pr?.state === "none" && sessionId !== null) {
-			void useMessagesStore
-				.getState()
-				.send(sessionId, "create a pull request for this branch");
+		if (pr?.state === "none" && sessionId !== null && environmentId !== null) {
+			void sendSessionMessage(
+				{ environmentId, sessionId },
+				"create a pull request for this branch",
+				{ providerId: session?.providerId },
+			);
 			return;
 		}
 		revealPanel("pr");
 	};
 	const hydrateChecks = (open: boolean) => {
-		if (!open || folderId === null) return;
-		const key = prDetailsKey(folderId, worktreeId);
+		if (!open || executionRef === null) return;
+		const key = `${executionRef.environmentId}:${executionRef.folderId}:${executionRef.worktreeId ?? "main"}`;
 		setChecksRequestedKey(key);
-		const load = prDetails === null ? hydratePrDetails : refreshPrDetails;
-		void load(folderId, worktreeId);
+		void refreshGitWorkspace(executionRef);
 	};
 
 	return (
@@ -366,11 +345,17 @@ export function EnvironmentSummary() {
 						</span>
 					</MenuItem>
 					<MenuSeparator />
-					<MenuItem onClick={openDevices} className="gap-2.5 px-2.5 py-2 text-[13px]">
+					<MenuItem
+						onClick={openDevices}
+						className="gap-2.5 px-2.5 py-2 text-[13px]"
+					>
 						<MonitorSmartphone className="size-4" />
 						<span className="flex-1">Connected devices</span>
 					</MenuItem>
-					<MenuItem onClick={openDevices} className="gap-2.5 px-2.5 py-2 text-[13px]">
+					<MenuItem
+						onClick={openDevices}
+						className="gap-2.5 px-2.5 py-2 text-[13px]"
+					>
 						<ArrowLeftRight className="size-4" />
 						<span className="flex-1">Worktree handoff</span>
 					</MenuItem>
@@ -435,7 +420,7 @@ export function EnvironmentSummary() {
 								loading={
 									prDetailsLoading ||
 									checksRequestedKey !==
-										prDetailsKey(ctx.folderId, ctx.worktreeId)
+										`${ctx.environmentId}:${ctx.folderId}:${ctx.worktreeId ?? "main"}`
 								}
 							/>
 						</PreviewCardPopup>
@@ -495,7 +480,7 @@ export function EnvironmentSummary() {
 						type="button"
 						className="flex min-h-9 w-full items-center gap-2 rounded-lg px-1.5 text-left outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/60"
 						onClick={() => {
-							selectSubagent(null);
+							if (chatRef !== null) selectSubagent(chatRef, null);
 							revealPanel("subagents");
 						}}
 					>

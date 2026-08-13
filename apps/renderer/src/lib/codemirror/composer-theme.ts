@@ -8,36 +8,36 @@ import { EditorView } from "@codemirror/view";
  * editor only configures its own typography.
  */
 export const composerTheme: Extension = EditorView.theme(
-  {
-    "&": {
-      backgroundColor: "transparent",
-      color: "inherit",
-      fontSize: "12px",
-    },
-    "&.cm-focused": {
-      outline: "none",
-    },
-    ".cm-scroller": {
-      fontFamily:
-        "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif",
-      lineHeight: "1.5",
-      overflowX: "hidden",
-    },
-    ".cm-content": {
-      padding: "7px 4px",
-      caretColor: "currentColor",
-    },
-    ".cm-line": {
-      padding: "0",
-    },
-    ".cm-placeholder": {
-      color: "var(--muted-foreground, #71717a)",
-      fontStyle: "normal",
-    },
-    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
-      {
-        backgroundColor: "color-mix(in oklab, var(--primary) 22%, transparent)",
-      },
-  },
-  { dark: true },
+	{
+		"&": {
+			backgroundColor: "transparent",
+			color: "inherit",
+			fontSize: "12px",
+		},
+		"&.cm-focused": {
+			outline: "none",
+		},
+		".cm-scroller": {
+			fontFamily:
+				"ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif",
+			lineHeight: "1.5",
+			overflowX: "hidden",
+		},
+		".cm-content": {
+			padding: "7px 4px",
+			caretColor: "currentColor",
+		},
+		".cm-line": {
+			padding: "0",
+		},
+		".cm-placeholder": {
+			color: "var(--muted-foreground, #71717a)",
+			fontStyle: "normal",
+		},
+		"&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
+			{
+				backgroundColor: "color-mix(in oklab, var(--primary) 22%, transparent)",
+			},
+	},
+	{ dark: true },
 );

@@ -4,7 +4,6 @@ import type {
 	RelayLinkStatus,
 	TailnetShareState,
 } from "@zuse/contracts";
-import { Effect } from "effect";
 import { Copy, Link2, QrCode, RefreshCw } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -16,10 +15,7 @@ import {
 	pairingForMethod,
 	readyMethods,
 } from "../../../lib/remote-access.ts";
-import {
-	getRpcClient,
-	LOCAL_ENVIRONMENT_KEY,
-} from "../../../lib/rpc-client.ts";
+import { dispatchLocalDeviceCommand } from "../../../lib/local-device-client-bus.ts";
 import { Button } from "../../ui/button.tsx";
 import { Card } from "../../ui/card.tsx";
 import {
@@ -108,13 +104,15 @@ export function ConnectLinkCard({
 		setPairing(null);
 		setErrorMessage(null);
 		try {
-			const client = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
 			knownTokenIdsRef.current = new Set(
 				tokensRef.current
 					.filter((token) => token.revokedAt === undefined)
 					.map((token) => token.id),
 			);
-			const next = await Effect.runPromise(client["pairing.start"]({}));
+			const next = await dispatchLocalDeviceCommand<{}, PairingStartResult>(
+				"pairing.start",
+				{},
+			);
 			if (dialogOpenRef.current) setPairing(next);
 		} catch (cause) {
 			setErrorMessage(messageForError(cause));
@@ -162,8 +160,10 @@ export function ConnectLinkCard({
 		if (pairing === null) return;
 		const checkForPairedDevice = async () => {
 			try {
-				const client = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
-				const next = await Effect.runPromise(client["pairing.listTokens"]({}));
+				const next = await dispatchLocalDeviceCommand<
+					{},
+					ReadonlyArray<AuthTokenSummary>
+				>("pairing.listTokens", {});
 				onTokens(next);
 				const active = next.filter((token) => token.revokedAt === undefined);
 				const paired = active.find(

@@ -1,8 +1,16 @@
+import {
+	type TurnInterruptReceipt,
+	TurnInterruptReceipt as TurnInterruptReceiptSchema,
+} from "@zuse/contracts";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
 import { Effect, Result, Schema } from "effect";
 
 import type { SessionCommand } from "../core/commands.js";
-import { type DomainError, decide } from "../core/decider.js";
+import {
+	type DomainError,
+	decide,
+	turnInterruptReceipt,
+} from "../core/decider.js";
 import type { SessionEvent } from "../core/events.js";
 import { evolveAll, initialSessionState } from "../core/state.js";
 
@@ -21,6 +29,7 @@ export const CommandReceipt = Schema.Struct({
 	streamId: Schema.String,
 	streamVersion: Schema.Number,
 	eventIds: Schema.Array(Schema.String),
+	result: Schema.optional(TurnInterruptReceiptSchema),
 });
 export type CommandReceipt = typeof CommandReceipt.Type;
 
@@ -32,6 +41,15 @@ export type DispatchInput<Command = SessionCommand> = {
 	readonly command: Command;
 };
 
+export class CommandReceiptConflict extends Schema.TaggedErrorClass<CommandReceiptConflict>()(
+	"CommandReceiptConflict",
+	{
+		commandId: Schema.String,
+		expectedStreamId: Schema.String,
+		actualStreamId: Schema.String,
+	},
+) {}
+
 export type AppendInput<Event = SessionEvent> = {
 	readonly commandId: string;
 	readonly streamId: string;
@@ -42,6 +60,7 @@ export type AppendInput<Event = SessionEvent> = {
 		readonly eventId: string;
 		readonly event: Event;
 	}[];
+	readonly result?: TurnInterruptReceipt;
 };
 
 export interface DispatchStorage<StorageError = never, Event = SessionEvent> {
@@ -96,7 +115,16 @@ export class DispatchEngine<
 		input: DispatchInput,
 	) {
 		const existing = yield* this.storage.receipt(input.commandId);
-		if (existing !== null) return existing;
+		if (existing !== null) {
+			if (existing.streamId !== input.streamId) {
+				return yield* new CommandReceiptConflict({
+					commandId: input.commandId,
+					expectedStreamId: input.streamId,
+					actualStreamId: existing.streamId,
+				});
+			}
+			return existing;
+		}
 
 		const stored = yield* this.storage.events(input.streamId);
 		const state = evolveAll(
@@ -117,6 +145,11 @@ export class DispatchEngine<
 			causationEventId: input.causationEventId ?? null,
 			expectedVersion: state.version,
 			events,
+			...(input.command._tag === "RequestTurnInterrupt"
+				? {
+						result: turnInterruptReceipt(state, input.command.expectedTurnId),
+					}
+				: {}),
 		});
 	});
 }
@@ -173,6 +206,7 @@ export class InMemoryDispatchStorage
 			streamId: input.streamId,
 			streamVersion,
 			eventIds,
+			...(input.result === undefined ? {} : { result: input.result }),
 		};
 		this.receipts.set(input.commandId, receipt);
 		return receipt;
@@ -182,4 +216,5 @@ export class InMemoryDispatchStorage
 export type DispatchFailure<StorageError = never> =
 	| DomainError
 	| ConcurrencyConflict
+	| CommandReceiptConflict
 	| StorageError;

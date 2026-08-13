@@ -12,33 +12,26 @@ import type {
 	UserQuestionAnswer,
 	WorktreeId,
 } from "@zuse/contracts";
-import { Session, SessionId } from "@zuse/contracts";
-import { Effect } from "effect";
+import { CommandId, EnvironmentId, Session, SessionId } from "@zuse/contracts";
+import { cloudSummaryForChat } from "../lib/cloud-workspace-catalog.ts";
+import {
+	activeSessionsByProject,
+	overlayActiveEnvironmentShell,
+} from "../lib/environment-entities.ts";
 import { formatError } from "../lib/format-error.ts";
 import { upsertLatestEntity } from "../lib/latest-entity.ts";
-import {
-	markRendererInteraction,
-	trackRendererRpc,
-} from "../lib/performance-marks.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import { markRendererInteraction } from "../lib/performance-marks.ts";
+import { getActiveEnvironment } from "../lib/rpc-client.ts";
+import { dispatchSessionCommand } from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { selectChatSession, upsertForkedChat } from "./chat-commands.ts";
-import { cloudSummaryForChat } from "./cloud-chat-registry.ts";
-import {
-	markQueueHydrated,
-	notifySessionAcknowledged,
-} from "./queue-hydration.ts";
-import { useSessionRuntimeStore } from "./session-runtime.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 
 /**
- * Per-project session catalog. Sessions are scoped to a project, archived
- * sessions are hidden by default, and `selectedSessionId` drives which
- * session the chat surface (PR 4) renders. Live message streaming is owned
- * by the messages store — this one is a sidebar-only view-model.
+ * Ephemeral session UI state and commands. Durable session entities and live
+ * timelines are owned by qualified ClientBus resources.
  */
 type SessionsState = {
-	readonly sessionsByProject: Record<string, ReadonlyArray<Session>>;
 	/**
 	 * Mirror of `selectedSessionByProject[selectedFolderId]`. Kept as live state
 	 * (not a derived selector) so existing call sites can subscribe to it
@@ -65,13 +58,19 @@ type SessionsState = {
 	/**
 	 * Ephemeral, client-only session used to drive the real `ChatComposer` on
 	 * the new-chat landing before any chat/session/worktree exists. It is NOT
-	 * in `sessionsByProject`, so it never shows in the sidebar or tab strip —
+	 * is never inserted into the environment shell, so it cannot appear in the
+	 * sidebar or tab strip —
 	 * the composer's model/runtime/permission/provider setters route here (see
 	 * the setters below) so the picks carry into `create()` on first send. The
 	 * `ChatComposer` for it runs with `onDraftSubmit`; nothing else touches it.
 	 */
 	readonly draftSession: Session | null;
 	readonly error: string | null;
+	readonly draftSkills: ReadonlyArray<import("@zuse/contracts").Skill>;
+	readonly loadDraftSkills: (
+		projectId: FolderId,
+		providerId: ProviderId,
+	) => Promise<void>;
 	/** Spin up a fresh draft session for `ChatLanding`. Returns the row. */
 	readonly beginDraft: (params: {
 		projectId: FolderId;
@@ -179,31 +178,85 @@ type SessionsState = {
 export const DRAFT_SESSION_ID = "draft-session" as SessionId;
 export const DRAFT_CHAT_ID = "draft-chat" as ChatId;
 
-const sessionProjectIndex = new Map<SessionId, FolderId>();
-const sessionEntityIndex = new Map<SessionId, Session>();
+let commandCounter = 0;
+const nextCommandId = (kind: string): CommandId =>
+	CommandId.make(
+		`${kind}:${Date.now().toString(36)}:${(commandCounter++).toString(36)}`,
+	);
+
+const dispatchTimelineCommand = <Payload, Result>(
+	sessionId: SessionId,
+	kind: string,
+	commandId: CommandId,
+	payload: Payload,
+	retry: "safe" | "never" = "safe",
+	environmentId = EnvironmentId.make(getActiveEnvironment()),
+) =>
+	dispatchSessionCommand<Payload, Result>({
+		ref: {
+			environmentId,
+			sessionId,
+		},
+		kind,
+		commandId,
+		payload,
+		retry,
+	});
 
 const findSessionProject = (
-	sessionsByProject: SessionsState["sessionsByProject"],
+	sessionsByProject: Readonly<Record<string, ReadonlyArray<Session>>>,
 	sessionId: SessionId,
 ): FolderId | null => {
-	const indexed = sessionProjectIndex.get(sessionId);
-	if (indexed !== undefined) return indexed;
 	for (const [pid, sessions] of Object.entries(sessionsByProject)) {
 		if (sessions.some((s) => s.id === sessionId)) return pid as FolderId;
 	}
 	return null;
 };
 
-export const getSessionById = (sessionId: SessionId): Session | null =>
-	sessionEntityIndex.get(sessionId) ?? null;
+const patchActiveSession = (
+	sessionId: SessionId,
+	update: (session: Session) => Session,
+): void => {
+	overlayActiveEnvironmentShell((shell) => {
+		const projectId = findSessionProject(shell.sessionsByProject, sessionId);
+		if (projectId === null) return undefined;
+		return {
+			...shell,
+			sessionsByProject: {
+				...shell.sessionsByProject,
+				[projectId]: (shell.sessionsByProject[projectId] ?? []).map(
+					(session) => (session.id === sessionId ? update(session) : session),
+				),
+			},
+		};
+	});
+};
+
+const removeActiveSession = (sessionId: SessionId): FolderId | null => {
+	let owningProject: FolderId | null = null;
+	overlayActiveEnvironmentShell((shell) => {
+		owningProject = findSessionProject(shell.sessionsByProject, sessionId);
+		if (owningProject === null) return undefined;
+		return {
+			...shell,
+			sessionsByProject: {
+				...shell.sessionsByProject,
+				[owningProject]: (shell.sessionsByProject[owningProject] ?? []).filter(
+					(session) => session.id !== sessionId,
+				),
+			},
+		};
+	});
+	return owningProject;
+};
 
 export const useSessionsStore = create<SessionsState>((set, get) => ({
-	sessionsByProject: {},
 	selectedSessionId: null,
 	selectedSessionByProject: {},
 	loadingByProject: {},
 	creatingByChat: {},
 	draftSession: null,
+	draftSkills: [],
 	error: null,
 	beginDraft: ({ projectId, providerId, model, runtimeMode }) => {
 		const now = new Date();
@@ -230,33 +283,36 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		set({ draftSession: draft });
 		return draft;
 	},
-	clearDraft: () => set({ draftSession: null }),
+	clearDraft: () => set({ draftSession: null, draftSkills: [] }),
+	loadDraftSkills: async (projectId, providerId) => {
+		try {
+			const { result } = await dispatchTimelineCommand<
+				{ readonly projectId: FolderId; readonly providerId: ProviderId },
+				ReadonlyArray<import("@zuse/contracts").Skill>
+			>(
+				DRAFT_SESSION_ID,
+				"skill.listForProject",
+				nextCommandId("draft-skills"),
+				{ projectId, providerId },
+				"never",
+			);
+			set({ draftSkills: result });
+		} catch {
+			set({ draftSkills: [] });
+		}
+	},
 	hydrate: async (projectId) => {
+		// EnvironmentShellResource owns subscribe-before-snapshot hydration.
 		set((s) => ({
-			loadingByProject: { ...s.loadingByProject, [projectId]: true },
+			loadingByProject: { ...s.loadingByProject, [projectId]: false },
 			error: null,
 		}));
-		try {
-			const client = await getRpcClient();
-			const sessions = await Effect.runPromise(
-				client["session.list"]({ projectId }),
-			);
-			set((s) => ({
-				sessionsByProject: { ...s.sessionsByProject, [projectId]: sessions },
-				loadingByProject: { ...s.loadingByProject, [projectId]: false },
-			}));
-		} catch (err) {
-			set((s) => ({
-				error: formatError(err),
-				loadingByProject: { ...s.loadingByProject, [projectId]: false },
-			}));
-		}
 	},
 	create: async (chatId, providerId, model, opts) => {
 		const sessionId = SessionId.make(`s_${crypto.randomUUID()}`);
-		const source = Array.from(sessionEntityIndex.values()).find(
-			(session) => session.chatId === chatId,
-		);
+		const source = Object.values(activeSessionsByProject())
+			.flat()
+			.find((session) => session.chatId === chatId);
 		const projectId =
 			source?.projectId ?? useWorkspaceStore.getState().selectedFolderId;
 		if (projectId === null) return null;
@@ -283,13 +339,19 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			updatedAt: now,
 		});
 		markRendererInteraction(sessionId, "click");
+		overlayActiveEnvironmentShell((shell) => ({
+			...shell,
+			sessionsByProject: {
+				...shell.sessionsByProject,
+				[projectId]: [
+					optimistic,
+					...(shell.sessionsByProject[projectId] ?? []),
+				],
+			},
+		}));
 		set((s) => ({
 			error: null,
 			creatingByChat: { ...s.creatingByChat, [chatId]: true },
-			sessionsByProject: {
-				...s.sessionsByProject,
-				[projectId]: [optimistic, ...(s.sessionsByProject[projectId] ?? [])],
-			},
 			selectedSessionId: sessionId,
 			selectedSessionByProject: {
 				...s.selectedSessionByProject,
@@ -297,39 +359,55 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			},
 		}));
 		markRendererInteraction(sessionId, "first-atom-commit");
-		// This tab was minted locally and therefore has no recovered queue to wait for.
-		markQueueHydrated(sessionId);
 		try {
 			const cloudSummary = cloudSummaryForChat(chatId);
 			if (cloudSummary !== null) {
 				const { ensureCloudWorkspaceAttached } = await import(
-					"./cloud-chats.ts"
+					"../lib/cloud-workspaces.ts"
 				);
 				await ensureCloudWorkspaceAttached(cloudSummary);
 			}
-			const client = await getRpcClient(cloudSummary?.workspaceId);
-			const session = await trackRendererRpc("session.create", () =>
-				Effect.runPromise(
-					client["session.create"]({
-						sessionId,
-						chatId,
-						providerId,
-						model,
-						runtimeMode: opts?.runtimeMode,
-						permissionMode: opts?.permissionMode,
-						toolSearch: opts?.toolSearch,
-					}),
-				),
+			const commandId = nextCommandId("session-create");
+			const { result: session } = await dispatchTimelineCommand<
+				{
+					readonly sessionId: SessionId;
+					readonly chatId: ChatId;
+					readonly providerId: ProviderId;
+					readonly model: string;
+					readonly runtimeMode?: RuntimeMode;
+					readonly permissionMode?: PermissionMode;
+					readonly toolSearch?: boolean;
+				},
+				Session
+			>(
+				sessionId,
+				"session.create",
+				commandId,
+				{
+					sessionId,
+					chatId,
+					providerId,
+					model,
+					runtimeMode: opts?.runtimeMode,
+					permissionMode: opts?.permissionMode,
+					toolSearch: opts?.toolSearch,
+				},
+				"never",
+				EnvironmentId.make(cloudSummary?.workspaceId ?? getActiveEnvironment()),
 			);
 			markRendererInteraction(sessionId, "entity-acknowledged");
-			notifySessionAcknowledged(sessionId);
+			overlayActiveEnvironmentShell((shell) => ({
+				...shell,
+				sessionsByProject: {
+					...shell.sessionsByProject,
+					[projectId]: upsertLatestEntity(
+						shell.sessionsByProject[projectId] ?? [],
+						session,
+					),
+				},
+			}));
 			set((s) => {
-				const existing = s.sessionsByProject[projectId] ?? [];
 				return {
-					sessionsByProject: {
-						...s.sessionsByProject,
-						[projectId]: upsertLatestEntity(existing, session),
-					},
 					selectedSessionId: session.id,
 					selectedSessionByProject: {
 						...s.selectedSessionByProject,
@@ -340,17 +418,20 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			});
 			return session.id;
 		} catch (err) {
-			set((s) => ({
-				error: formatError(err),
-				creatingByChat: { ...s.creatingByChat, [chatId]: false },
+			overlayActiveEnvironmentShell((shell) => ({
+				...shell,
 				sessionsByProject: {
-					...s.sessionsByProject,
-					[projectId]: (s.sessionsByProject[projectId] ?? []).map((row) =>
+					...shell.sessionsByProject,
+					[projectId]: (shell.sessionsByProject[projectId] ?? []).map((row) =>
 						row.id === sessionId
 							? Session.make({ ...row, status: "error" })
 							: row,
 					),
 				},
+			}));
+			set((s) => ({
+				error: formatError(err),
+				creatingByChat: { ...s.creatingByChat, [chatId]: false },
 			}));
 			return null;
 		}
@@ -358,9 +439,27 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	fork: async (input) => {
 		set({ error: null });
 		try {
-			const client = await getRpcClient();
-			const { chat, session, forkMode } = await Effect.runPromise(
-				client["session.fork"]({
+			const commandId = nextCommandId("session-fork");
+			const { result } = await dispatchTimelineCommand<
+				{
+					readonly sourceSessionId: SessionId;
+					readonly fromMessageId: MessageId;
+					readonly destination: ForkDestination;
+					readonly providerId?: ProviderId;
+					readonly model?: string;
+					readonly worktreeId?: WorktreeId | null;
+					readonly title?: string;
+				},
+				{
+					readonly chat: import("@zuse/contracts").Chat;
+					readonly session: Session;
+					readonly forkMode: ForkMode;
+				}
+			>(
+				input.sourceSessionId,
+				"session.fork",
+				commandId,
+				{
 					sourceSessionId: input.sourceSessionId,
 					fromMessageId: input.fromMessageId,
 					destination: input.destination,
@@ -368,18 +467,27 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					model: input.model,
 					worktreeId: input.worktreeId,
 					title: input.title,
-				}),
+				},
+				"never",
 			);
+			const { chat, session, forkMode } = result;
 			const projectId = session.projectId;
 			// Insert + select the forked session.
-			set((s) => {
-				const existing = s.sessionsByProject[projectId] ?? [];
-				const withoutDup = existing.filter((row) => row.id !== session.id);
+			overlayActiveEnvironmentShell((shell) => {
+				const existing = shell.sessionsByProject[projectId] ?? [];
 				return {
+					...shell,
 					sessionsByProject: {
-						...s.sessionsByProject,
-						[projectId]: [session, ...withoutDup],
+						...shell.sessionsByProject,
+						[projectId]: [
+							session,
+							...existing.filter((row) => row.id !== session.id),
+						],
 					},
+				};
+			});
+			set((s) => {
+				return {
 					selectedSessionId: session.id,
 					selectedSessionByProject: {
 						...s.selectedSessionByProject,
@@ -396,21 +504,16 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		}
 	},
 	setSessionStatus: (sessionId, status) => {
-		set((s) => {
-			const projectId = findSessionProject(s.sessionsByProject, sessionId);
-			if (projectId === null) return s;
-			const list = s.sessionsByProject[projectId] ?? [];
-			let changed = false;
-			const next = list.map((row) => {
-				if (row.id !== sessionId || row.status === status) return row;
-				changed = true;
-				return { ...row, status } as Session;
-			});
-			if (!changed) return s;
+		overlayActiveEnvironmentShell((shell) => {
+			const projectId = findSessionProject(shell.sessionsByProject, sessionId);
+			if (projectId === null) return undefined;
 			return {
+				...shell,
 				sessionsByProject: {
-					...s.sessionsByProject,
-					[projectId]: next,
+					...shell.sessionsByProject,
+					[projectId]: (shell.sessionsByProject[projectId] ?? []).map((row) =>
+						row.id === sessionId ? ({ ...row, status } as Session) : row,
+					),
 				},
 			};
 		});
@@ -418,19 +521,31 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	rename: async (sessionId, title) => {
 		set({ error: null });
 		try {
-			const client = await getRpcClient();
-			const renamed = await Effect.runPromise(
-				client["session.rename"]({ sessionId, title }),
-			);
-			set((s) => {
-				const projectId = findSessionProject(s.sessionsByProject, sessionId);
-				if (projectId === null) return {};
-				const sessions = s.sessionsByProject[projectId] ?? [];
+			const commandId = nextCommandId("session-rename");
+			const { result: renamed } = await dispatchTimelineCommand<
+				{
+					readonly commandId: CommandId;
+					readonly sessionId: SessionId;
+					readonly title: string;
+				},
+				Session
+			>(sessionId, "session.rename", commandId, {
+				commandId,
+				sessionId,
+				title,
+			});
+			overlayActiveEnvironmentShell((shell) => {
+				const projectId = findSessionProject(
+					shell.sessionsByProject,
+					sessionId,
+				);
+				if (projectId === null) return undefined;
 				return {
+					...shell,
 					sessionsByProject: {
-						...s.sessionsByProject,
-						[projectId]: sessions.map((session) =>
-							session.id === sessionId ? renamed : session,
+						...shell.sessionsByProject,
+						[projectId]: (shell.sessionsByProject[projectId] ?? []).map(
+							(session) => (session.id === sessionId ? renamed : session),
 						),
 					},
 				};
@@ -448,21 +563,17 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		}
 		set({ error: null });
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(client["session.setModel"]({ sessionId, model }));
-			set((s) => {
-				const projectId = findSessionProject(s.sessionsByProject, sessionId);
-				if (projectId === null) return {};
-				const sessions = s.sessionsByProject[projectId] ?? [];
-				return {
-					sessionsByProject: {
-						...s.sessionsByProject,
-						[projectId]: sessions.map((session) =>
-							session.id === sessionId ? { ...session, model } : session,
-						),
-					},
-				};
-			});
+			const commandId = nextCommandId("session-model");
+			await dispatchTimelineCommand(
+				sessionId,
+				"session.setModel",
+				commandId,
+				{ sessionId, model },
+				"never",
+			);
+			patchActiveSession(sessionId, (session) =>
+				Session.make({ ...session, model }),
+			);
 		} catch (err) {
 			set({ error: formatError(err) });
 		}
@@ -476,29 +587,29 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		// Optimistic — patch the local row before the RPC settles so the toggle
 		// feels instant. Server-side update is also fast (single SQL UPDATE +
 		// in-memory cache poke), so the round-trip is invisible in practice.
-		set((s) => {
-			const projectId = findSessionProject(s.sessionsByProject, sessionId);
-			if (projectId === null) return { error: null };
-			const sessions = s.sessionsByProject[projectId] ?? [];
-			return {
-				error: null,
-				sessionsByProject: {
-					...s.sessionsByProject,
-					[projectId]: sessions.map((session) =>
-						session.id === sessionId ? { ...session, runtimeMode } : session,
-					),
-				},
-			};
-		});
+		set({ error: null });
+		patchActiveSession(sessionId, (session) =>
+			Session.make({ ...session, runtimeMode }),
+		);
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["session.setRuntimeMode"]({ sessionId, runtimeMode }),
+			const commandId = nextCommandId("session-runtime-mode");
+			await dispatchTimelineCommand(
+				sessionId,
+				"session.setRuntimeMode",
+				commandId,
+				{
+					commandId,
+					sessionId,
+					runtimeMode,
+				},
 			);
 		} catch (err) {
 			set({ error: formatError(err) });
 			// Best-effort revert via re-hydrate of the affected project.
-			const projectId = findSessionProject(get().sessionsByProject, sessionId);
+			const projectId = findSessionProject(
+				activeSessionsByProject(),
+				sessionId,
+			);
 			if (projectId !== null) await get().hydrate(projectId);
 		}
 	},
@@ -508,39 +619,37 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			set({ draftSession: Session.make({ ...draft, permissionMode: mode }) });
 			return;
 		}
-		set((s) => {
-			const projectId = findSessionProject(s.sessionsByProject, sessionId);
-			if (projectId === null) return { error: null };
-			const sessions = s.sessionsByProject[projectId] ?? [];
-			return {
-				error: null,
-				sessionsByProject: {
-					...s.sessionsByProject,
-					[projectId]: sessions.map((session) =>
-						session.id === sessionId
-							? { ...session, permissionMode: mode }
-							: session,
-					),
-				},
-			};
-		});
+		set({ error: null });
+		patchActiveSession(sessionId, (session) =>
+			Session.make({ ...session, permissionMode: mode }),
+		);
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["session.setPermissionMode"]({ sessionId, mode }),
+			const commandId = nextCommandId("session-permission-mode");
+			await dispatchTimelineCommand(
+				sessionId,
+				"session.setPermissionMode",
+				commandId,
+				{ commandId, sessionId, mode },
 			);
 		} catch (err) {
 			set({ error: formatError(err) });
-			const projectId = findSessionProject(get().sessionsByProject, sessionId);
+			const projectId = findSessionProject(
+				activeSessionsByProject(),
+				sessionId,
+			);
 			if (projectId !== null) await get().hydrate(projectId);
 		}
 	},
 	answerQuestion: async (sessionId, itemId, answers) => {
 		set({ error: null });
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["session.answerQuestion"]({ sessionId, itemId, answers }),
+			const commandId = nextCommandId("session-answer-question");
+			await dispatchTimelineCommand(
+				sessionId,
+				"session.answerQuestion",
+				commandId,
+				{ sessionId, itemId, answers },
+				"never",
 			);
 		} catch (err) {
 			set({ error: formatError(err) });
@@ -549,14 +658,18 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	respondToPlan: async (sessionId, toolCallId, outcome, feedback, options) => {
 		set({ error: null });
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["session.plan.respond"]({
+			const commandId = nextCommandId("session-plan-response");
+			await dispatchTimelineCommand(
+				sessionId,
+				"session.plan.respond",
+				commandId,
+				{
 					sessionId,
 					toolCallId,
 					outcome,
 					...(feedback === undefined ? {} : { feedback }),
-				}),
+				},
+				"never",
 			);
 			return "accepted";
 		} catch (error) {
@@ -577,25 +690,17 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		}
 		set({ error: null });
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["session.setProvider"]({ sessionId, providerId, model }),
+			const commandId = nextCommandId("session-provider");
+			await dispatchTimelineCommand(
+				sessionId,
+				"session.setProvider",
+				commandId,
+				{ sessionId, providerId, model },
+				"never",
 			);
-			set((s) => {
-				const projectId = findSessionProject(s.sessionsByProject, sessionId);
-				if (projectId === null) return {};
-				const sessions = s.sessionsByProject[projectId] ?? [];
-				return {
-					sessionsByProject: {
-						...s.sessionsByProject,
-						[projectId]: sessions.map((session) =>
-							session.id === sessionId
-								? { ...session, providerId, model }
-								: session,
-						),
-					},
-				};
-			});
+			patchActiveSession(sessionId, (session) =>
+				Session.make({ ...session, providerId, model }),
+			);
 			return { ok: true } as const;
 		} catch (err) {
 			const raw = formatError(err);
@@ -609,23 +714,30 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	},
 	archive: async (sessionId) => {
 		set({ error: null });
+		const projectId = findSessionProject(activeSessionsByProject(), sessionId);
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(client["session.archive"]({ sessionId }));
-			// Re-hydrate the affected project so visibility honors showArchived.
-			const projectId = findSessionProject(get().sessionsByProject, sessionId);
-			if (projectId !== null) await get().hydrate(projectId);
+			const commandId = nextCommandId("session-archive");
+			await dispatchTimelineCommand(
+				sessionId,
+				"session.archive",
+				commandId,
+				{ sessionId },
+				"never",
+			);
+			removeActiveSession(sessionId);
 			set((s) => {
 				const wasSelected = s.selectedSessionId === sessionId;
-				const clearPerProject =
+				const selectedSessionByProject =
 					projectId !== null &&
-					s.selectedSessionByProject[projectId] === sessionId;
+					s.selectedSessionByProject[projectId] === sessionId
+						? { ...s.selectedSessionByProject, [projectId]: null }
+						: s.selectedSessionByProject;
+				const clearPerProject =
+					selectedSessionByProject !== s.selectedSessionByProject;
 				if (!wasSelected && !clearPerProject) return s;
 				return {
 					selectedSessionId: wasSelected ? null : s.selectedSessionId,
-					selectedSessionByProject: clearPerProject
-						? { ...s.selectedSessionByProject, [projectId!]: null }
-						: s.selectedSessionByProject,
+					selectedSessionByProject,
 				};
 			});
 		} catch (err) {
@@ -635,10 +747,14 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	unarchive: async (sessionId) => {
 		set({ error: null });
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(client["session.unarchive"]({ sessionId }));
-			const projectId = findSessionProject(get().sessionsByProject, sessionId);
-			if (projectId !== null) await get().hydrate(projectId);
+			const commandId = nextCommandId("session-unarchive");
+			await dispatchTimelineCommand(
+				sessionId,
+				"session.unarchive",
+				commandId,
+				{ sessionId },
+				"never",
+			);
 		} catch (err) {
 			set({ error: formatError(err) });
 		}
@@ -646,21 +762,22 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	remove: async (sessionId) => {
 		set({ error: null });
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(client["session.delete"]({ sessionId }));
-			const projectId = findSessionProject(get().sessionsByProject, sessionId);
+			const commandId = nextCommandId("session-delete");
+			await dispatchTimelineCommand(
+				sessionId,
+				"session.delete",
+				commandId,
+				{ sessionId },
+				"never",
+			);
+			const projectId = removeActiveSession(sessionId);
 			set((s) => {
 				if (projectId === null) return {};
-				const sessions = s.sessionsByProject[projectId] ?? [];
 				const perProject =
 					s.selectedSessionByProject[projectId] === sessionId
 						? { ...s.selectedSessionByProject, [projectId]: null }
 						: s.selectedSessionByProject;
 				return {
-					sessionsByProject: {
-						...s.sessionsByProject,
-						[projectId]: sessions.filter((session) => session.id !== sessionId),
-					},
 					selectedSessionId:
 						s.selectedSessionId === sessionId ? null : s.selectedSessionId,
 					selectedSessionByProject: perProject,
@@ -673,26 +790,29 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	resume: async (sessionId) => {
 		set({ error: null });
 		try {
-			const client = await getRpcClient();
-			const session = await Effect.runPromise(
-				client["session.resume"]({ sessionId }),
-			);
-			set((s) => {
-				const projectId = findSessionProject(s.sessionsByProject, sessionId);
-				if (projectId === null) return {};
-				const sessions = s.sessionsByProject[projectId] ?? [];
-				return {
-					sessionsByProject: {
-						...s.sessionsByProject,
-						[projectId]: upsertLatestEntity(sessions, session),
-					},
-					selectedSessionId: session.id,
-					selectedSessionByProject: {
-						...s.selectedSessionByProject,
-						[projectId]: session.id,
-					},
-				};
-			});
+			const commandId = nextCommandId("session-resume");
+			const { result: session } = await dispatchTimelineCommand<
+				{ readonly sessionId: SessionId },
+				Session
+			>(sessionId, "session.resume", commandId, { sessionId }, "never");
+			const projectId = session.projectId;
+			overlayActiveEnvironmentShell((shell) => ({
+				...shell,
+				sessionsByProject: {
+					...shell.sessionsByProject,
+					[projectId]: upsertLatestEntity(
+						shell.sessionsByProject[projectId] ?? [],
+						session,
+					),
+				},
+			}));
+			set((s) => ({
+				selectedSessionId: session.id,
+				selectedSessionByProject: {
+					...s.selectedSessionByProject,
+					[projectId]: session.id,
+				},
+			}));
 			return true;
 		} catch (err) {
 			set({ error: formatError(err) });
@@ -701,23 +821,12 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	},
 	refreshOne: async (sessionId) => {
 		try {
-			const client = await getRpcClient();
-			const session = await Effect.runPromise(
-				client["session.get"]({ sessionId }),
-			);
-			set((s) => {
-				const projectId = findSessionProject(s.sessionsByProject, sessionId);
-				if (projectId === null) return {};
-				const sessions = s.sessionsByProject[projectId] ?? [];
-				return {
-					sessionsByProject: {
-						...s.sessionsByProject,
-						[projectId]: sessions.map((existing) =>
-							existing.id === sessionId ? session : existing,
-						),
-					},
-				};
-			});
+			const commandId = nextCommandId("session-get");
+			const { result: session } = await dispatchTimelineCommand<
+				{ readonly sessionId: SessionId },
+				Session
+			>(sessionId, "session.get", commandId, { sessionId }, "never");
+			patchActiveSession(sessionId, () => session);
 		} catch {
 			// Silent — refreshOne is a best-effort follow-up after send().
 		}
@@ -736,7 +845,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			});
 			return;
 		}
-		const projectId = findSessionProject(get().sessionsByProject, sessionId);
+		const sessionsByProject = activeSessionsByProject();
+		const projectId = findSessionProject(sessionsByProject, sessionId);
 		// Write the per-project slot FIRST so the workspace.select below sees
 		// the freshly-set slot when its subscriber fires — otherwise the
 		// subscriber would briefly mirror the stale slot value.
@@ -753,9 +863,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		// session whose hydrate is still in flight).
 		const sessionRow =
 			projectId !== null
-				? get().sessionsByProject[projectId]?.find(
-						(row) => row.id === sessionId,
-					)
+				? sessionsByProject[projectId]?.find((row) => row.id === sessionId)
 				: undefined;
 		if (sessionRow !== undefined) {
 			selectChatSession(sessionRow.chatId, sessionId);
@@ -772,48 +880,6 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		}
 	},
 }));
-
-useSessionsStore.subscribe((state, previous) => {
-	if (state.sessionsByProject === previous.sessionsByProject) return;
-	const previousIds = new Set<SessionId>();
-	const currentIds = new Set<SessionId>();
-	const summaries: Array<{
-		readonly sessionId: SessionId;
-		readonly status: Session["status"];
-	}> = [];
-	const projectIds = new Set([
-		...Object.keys(previous.sessionsByProject),
-		...Object.keys(state.sessionsByProject),
-	]);
-	for (const projectId of projectIds) {
-		const before = previous.sessionsByProject[projectId];
-		const after = state.sessionsByProject[projectId];
-		if (before === after) continue;
-		const previousStatus = new Map(
-			(before ?? []).map((session) => [session.id, session.status]),
-		);
-		for (const session of before ?? []) {
-			previousIds.add(session.id);
-			if (sessionProjectIndex.get(session.id) !== projectId) continue;
-			sessionProjectIndex.delete(session.id);
-			sessionEntityIndex.delete(session.id);
-		}
-		for (const session of after ?? []) {
-			currentIds.add(session.id);
-			sessionProjectIndex.set(session.id, projectId as FolderId);
-			sessionEntityIndex.set(session.id, session);
-			if (previousStatus.get(session.id) !== session.status) {
-				summaries.push({ sessionId: session.id, status: session.status });
-			}
-		}
-	}
-	useSessionRuntimeStore.getState().observeSummaries(summaries);
-	for (const sessionId of previousIds) {
-		if (!currentIds.has(sessionId) && !sessionEntityIndex.has(sessionId)) {
-			useSessionRuntimeStore.getState().remove(sessionId);
-		}
-	}
-});
 
 // Mirror `selectedSessionId` from the active project's per-project slot.
 // Switching projects automatically restores whichever session was last

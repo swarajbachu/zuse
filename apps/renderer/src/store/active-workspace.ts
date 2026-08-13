@@ -1,11 +1,14 @@
-import type { FolderId, SessionId, WorktreeId } from "@zuse/contracts";
-import { useMemo } from "react";
-
 import {
-	cloudExecutionTarget,
-	cloudSummaryForSession,
-	useCloudExecutionStore,
-} from "./cloud-chat-registry.ts";
+	EnvironmentId,
+	type FolderId,
+	type SessionId,
+	type WorktreeId,
+} from "@zuse/contracts";
+import { useMemo } from "react";
+import { cloudSummaryForSession } from "../lib/cloud-workspace-catalog.ts";
+import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
+import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
+import { useEnvironmentCatalogStore } from "./environment-catalog.ts";
 import { useSessionsStore } from "./sessions.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "./worktrees.ts";
@@ -38,6 +41,7 @@ export type ActiveContext =
 	  }
 	| {
 			readonly status: "ready";
+			readonly environmentId: EnvironmentId;
 			readonly folderId: FolderId;
 			readonly folderPath: string;
 			readonly sessionId: SessionId | null;
@@ -70,6 +74,9 @@ export type ActiveContext =
  * dependency arrays without re-firing on unrelated store updates.
  */
 export const useActiveContext = (): ActiveContext => {
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(state) => state.activeEnvironmentId,
+	);
 	const foldersLoaded = useWorkspaceStore(
 		(s) => !s.loading || s.folders.length > 0,
 	);
@@ -83,50 +90,70 @@ export const useActiveContext = (): ActiveContext => {
 			? (s.selectedSessionByProject[selectedFolderId] ?? null)
 			: null,
 	);
-	const sessionWorktreeId = useSessionsStore((s) => {
-		if (selectedFolderId === null || sessionId === null) return null;
-		const list = s.sessionsByProject[selectedFolderId] ?? null;
-		if (list === null) return null;
-		return list.find((sess) => sess.id === sessionId)?.worktreeId ?? null;
-	});
+	const { sessionsByProject } = useActiveEnvironmentEntities();
+	const sessionWorktreeId =
+		selectedFolderId === null || sessionId === null
+			? null
+			: (sessionsByProject[selectedFolderId]?.find(
+					(sess) => sess.id === sessionId,
+				)?.worktreeId ?? null);
 	const worktreePath = useWorktreesStore((s) => {
 		if (selectedFolderId === null || sessionWorktreeId === null) return null;
 		const list = s.byProject[selectedFolderId] ?? EMPTY_WORKTREES;
 		return list.find((w) => w.id === sessionWorktreeId)?.path ?? null;
 	});
-	const cloudExecution = useCloudExecutionStore((state) => state);
+	const cloudWorkspaceId =
+		sessionId === null
+			? null
+			: (cloudSummaryForSession(sessionId)?.workspaceId ?? null);
+	const cloudShell = useEnvironmentShellResource(
+		cloudWorkspaceId === null ? null : EnvironmentId.make(cloudWorkspaceId),
+		cloudWorkspaceId === null ? "cache-only" : "wake",
+	);
+	const cloudFolder =
+		cloudShell.data?.folders.find(
+			(candidate) => candidate.path === "/home/zuse/workspace",
+		) ?? null;
 
 	return useMemo<ActiveContext>(() => {
 		if (!foldersLoaded) return { status: "loading" };
 		if (selectedFolderId === null || folderPath === null) {
 			return { status: "empty" };
 		}
-		const cloudSummary =
-			sessionId === null ? null : cloudSummaryForSession(sessionId);
-		const cloudTarget =
-			cloudSummary === null
-				? null
-				: cloudExecutionTarget(cloudSummary.workspaceId);
-		if (cloudSummary !== null && cloudTarget === null && sessionId !== null) {
-			const attachmentState =
-				cloudExecution.stateByWorkspace[cloudSummary.workspaceId] ?? "detached";
+		if (
+			cloudWorkspaceId !== null &&
+			cloudFolder === null &&
+			sessionId !== null
+		) {
 			return {
 				status: "cloud-unavailable",
-				workspaceId: cloudSummary.workspaceId,
+				workspaceId: cloudWorkspaceId,
 				projectId: selectedFolderId,
 				sessionId,
 				attachmentState:
-					attachmentState === "ready" ? "detached" : attachmentState,
+					cloudShell.connection === "waking" ||
+					cloudShell.connection === "connecting" ||
+					cloudShell.connection === "reconnecting"
+						? "attaching"
+						: cloudShell.connection === "failed" ||
+								cloudShell.connection === "blocked-auth" ||
+								cloudShell.connection === "update-required" ||
+								cloudShell.connection === "revoked"
+							? "failed"
+							: "detached",
 			};
 		}
-		if (cloudTarget !== null) {
+		if (cloudFolder !== null) {
 			return {
 				status: "ready",
-				folderId: cloudTarget.folderId,
-				folderPath: cloudTarget.rootPath,
+				environmentId: EnvironmentId.make(
+					cloudWorkspaceId ?? activeEnvironmentId,
+				),
+				folderId: cloudFolder.id,
+				folderPath: cloudFolder.path,
 				sessionId,
 				worktreeId: null,
-				rootPath: cloudTarget.rootPath,
+				rootPath: cloudFolder.path,
 				rootKind: "folder",
 				worktreePending: false,
 			};
@@ -134,6 +161,7 @@ export const useActiveContext = (): ActiveContext => {
 		if (sessionWorktreeId !== null && worktreePath !== null) {
 			return {
 				status: "ready",
+				environmentId: EnvironmentId.make(activeEnvironmentId),
 				folderId: selectedFolderId,
 				folderPath,
 				sessionId,
@@ -148,6 +176,7 @@ export const useActiveContext = (): ActiveContext => {
 			// explicitly — do NOT silently fall back to folderPath.
 			return {
 				status: "ready",
+				environmentId: EnvironmentId.make(activeEnvironmentId),
 				folderId: selectedFolderId,
 				folderPath,
 				sessionId,
@@ -159,6 +188,7 @@ export const useActiveContext = (): ActiveContext => {
 		}
 		return {
 			status: "ready",
+			environmentId: EnvironmentId.make(activeEnvironmentId),
 			folderId: selectedFolderId,
 			folderPath,
 			sessionId,
@@ -174,7 +204,10 @@ export const useActiveContext = (): ActiveContext => {
 		sessionId,
 		sessionWorktreeId,
 		worktreePath,
-		cloudExecution,
+		cloudWorkspaceId,
+		cloudShell.connection,
+		cloudFolder,
+		activeEnvironmentId,
 	]);
 };
 
@@ -192,9 +225,9 @@ export const useActiveWorktreeId = (
 	const sessionId = useSessionsStore((s) =>
 		folderId !== null ? (s.selectedSessionByProject[folderId] ?? null) : null,
 	);
-	const sessions = useSessionsStore((s) =>
-		folderId !== null ? (s.sessionsByProject[folderId] ?? null) : null,
-	);
+	const { sessionsByProject } = useActiveEnvironmentEntities();
+	const sessions =
+		folderId !== null ? (sessionsByProject[folderId] ?? null) : null;
 	if (sessionId === null || sessions === null) return null;
 	const found = sessions.find((sess) => sess.id === sessionId);
 	return found?.worktreeId ?? null;

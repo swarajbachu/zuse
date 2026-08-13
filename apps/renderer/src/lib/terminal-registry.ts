@@ -1,17 +1,22 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
-import type { PtyId } from "@zuse/contracts";
-import { Effect, Fiber, Stream } from "effect";
+import type { ResourceLease } from "@zuse/client-runtime/client-bus";
+import type { ResourceView } from "@zuse/client-runtime/resource-state";
+import type { TerminalResourceState } from "@zuse/client-runtime/terminal-resource";
+import type { EnvironmentId, PtyId } from "@zuse/contracts";
+import { Effect } from "effect";
 import type { TerminalInstance } from "../store/terminals.ts";
 import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import { setPowerActiveTerminalCount } from "./power-runtime-activity.ts";
+import { getRendererClientBus } from "./session-timeline-client-bus.ts";
 import {
-	getRpcClient,
-	reportRendererRpcFailure,
-	reportRendererRpcStreamFailure,
-	subscribeRendererRpcConnection,
-} from "./rpc-client.ts";
+	dispatchTerminalClose,
+	dispatchTerminalInput,
+	dispatchTerminalOpen,
+	dispatchTerminalResize,
+	retainTerminalResource,
+} from "./terminal-client-bus.ts";
 import {
 	createTerminalInputPump,
 	retainPendingInitialInput,
@@ -26,8 +31,8 @@ export type TerminalRuntimeStatus =
 	| "failed";
 
 type LiveTerminal = {
-	readonly environmentId: string;
-	readonly instanceId: string;
+	readonly environmentId: EnvironmentId;
+	readonly instanceId: PtyId;
 	readonly term: Terminal;
 	readonly fit: FitAddon;
 	readonly host: HTMLDivElement;
@@ -35,17 +40,13 @@ type LiveTerminal = {
 	readonly refreshTheme: () => void;
 	ptyId: PtyId | null;
 	status: TerminalRuntimeStatus;
-	lastSequence: number;
-	connectedGeneration: number | null;
-	streamGeneration: number | null;
-	streamEpoch: number;
-	streamFiber: Fiber.Fiber<unknown, unknown> | null;
+	resourceLease: ResourceLease | null;
+	unsubscribeResource: (() => void) | null;
 	inputPump: TerminalInputPump | null;
 	pendingInitialInput: string;
 	initialInputInFlight: boolean;
 	onInitialInputWritten: (() => void) | null;
 	disposables: { dispose: () => void } | null;
-	unsubscribeConnection: (() => void) | null;
 	resizeTimer: ReturnType<typeof setTimeout> | null;
 	resizeInFlight: boolean;
 	resizePending: boolean;
@@ -83,8 +84,8 @@ const flushInitialInput = (live: LiveTerminal): void => {
 };
 
 export const terminalRuntimeKey = (
-	environmentId: string,
-	instanceId: string,
+	environmentId: EnvironmentId | string,
+	instanceId: PtyId | string,
 ): string => `${environmentId}:${instanceId}`;
 
 const publishPowerTerminalCount = (): void => {
@@ -126,7 +127,7 @@ function publishStatus(
 	for (const listener of statusListeners) listener();
 }
 
-function removeStatus(environmentId: string, instanceId: string): void {
+function removeStatus(environmentId: EnvironmentId, instanceId: PtyId): void {
 	const key = terminalRuntimeKey(environmentId, instanceId);
 	if (!(key in statusSnapshot)) return;
 	const { [key]: _removed, ...next } = statusSnapshot;
@@ -190,146 +191,56 @@ function markFailed(live: LiveTerminal, reason: string, detail?: string): void {
 	});
 }
 
-function hasErrorTag(cause: unknown, tag: string): boolean {
-	return (
-		typeof cause === "object" &&
-		cause !== null &&
-		"_tag" in cause &&
-		cause._tag === tag
-	);
-}
-
-function stopOutput(live: LiveTerminal): void {
-	live.streamEpoch += 1;
-	live.streamGeneration = null;
-	const fiber = live.streamFiber;
-	live.streamFiber = null;
-	if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
-}
-
-function acceptSequence(
+function observeTerminalResource(
 	live: LiveTerminal,
-	sequence: number,
-): "accepted" | "duplicate" | "gap" {
-	if (sequence <= live.lastSequence) return "duplicate";
-	if (sequence !== live.lastSequence + 1) {
-		return "gap";
-	}
-	live.lastSequence = sequence;
-	return "accepted";
-}
-
-function resumeOutputFromCursor(live: LiveTerminal, generation: number): void {
-	recordDiagnosticEvent({
-		level: "warn",
-		source: "terminal.reconnect",
-		message: "live sequence discontinuity; replaying from cursor",
-		detail: `terminal=${live.instanceId} sequence=${live.lastSequence}`,
-	});
-	stopOutput(live);
-	publishStatus(live, "reconnecting");
-	queueMicrotask(() => startOutput(live, generation));
-}
-
-function startOutput(live: LiveTerminal, generation: number): void {
-	if (
-		live.disposed ||
-		live.ptyId === null ||
-		live.status === "failed" ||
-		live.status === "exited" ||
-		live.streamGeneration === generation
-	) {
+	view: ResourceView<TerminalResourceState>,
+): void {
+	if (live.disposed) return;
+	if (view.data !== null) {
+		if (
+			view.connection !== "connected" &&
+			view.data.phase !== "exited" &&
+			view.data.phase !== "failed"
+		) {
+			publishStatus(live, "reconnecting");
+			return;
+		}
+		publishStatus(live, view.data.phase);
+		if (view.data.phase === "running") scheduleResize(live);
+		if (view.data.phase === "exited" || view.data.phase === "failed") {
+			live.inputPump?.dispose();
+			live.inputPump = null;
+		}
 		return;
 	}
-	stopOutput(live);
-	const epoch = live.streamEpoch;
-	const ptyId = live.ptyId;
-	live.streamGeneration = generation;
-	publishStatus(live, live.lastSequence === 0 ? "connecting" : "reconnecting");
+	if (view.connection === "connected") publishStatus(live, "connecting");
+	else if (view.connection !== "dormant") publishStatus(live, "reconnecting");
+}
 
-	const program = Effect.tryPromise(() =>
-		getRpcClient(live.environmentId),
-	).pipe(
-		Effect.flatMap((client) =>
-			Stream.runForEach(
-				client["pty.output"]({
-					ptyId,
-					afterSequence: live.lastSequence,
-				}),
-				(event) => {
-					if (live.disposed || epoch !== live.streamEpoch) return Effect.void;
-					if (event._tag === "gap") {
-						return Effect.sync(() => {
-							markFailed(
-								live,
-								"terminal output replay gap",
-								`requested=${event.requestedAfter} earliest=${event.earliestAvailable} latest=${event.latestAvailable}`,
-							);
-						});
-					}
-					if (event._tag === "cursor") {
-						return Effect.sync(() => {
-							if (event.sequence !== live.lastSequence) {
-								markFailed(
-									live,
-									"terminal replay cursor mismatch",
-									`expected=${live.lastSequence} received=${event.sequence}`,
-								);
-								return;
-							}
-							publishStatus(live, "running");
-							scheduleResize(live);
-						});
-					}
-					const sequenceResult = acceptSequence(live, event.sequence);
-					if (sequenceResult === "duplicate") return Effect.void;
-					if (sequenceResult === "gap") {
-						return Effect.sync(() => resumeOutputFromCursor(live, generation));
-					}
-					if (event._tag === "data") {
-						return writeToTerminal(live.term, event.bytes);
-					}
-					live.inputPump?.dispose();
-					live.inputPump = null;
-					publishStatus(live, "exited");
-					const note =
-						event.exitCode === null
-							? "[process exited]"
-							: `[process exited with code ${event.exitCode}]`;
-					return writeToTerminal(
-						live.term,
-						`\r\n\x1b[38;5;244m${note}\x1b[0m\r\n`,
-					);
-				},
-			),
-		),
-		Effect.match({
-			onFailure: (error) => {
-				if (live.disposed || epoch !== live.streamEpoch) return;
-				live.streamFiber = null;
-				live.streamGeneration = null;
-				if (hasErrorTag(error, "PtyNotFoundError")) {
-					markFailed(
-						live,
-						"terminal process is no longer available",
-						causeCategory(error),
-					);
-					return;
-				}
-				publishStatus(live, "reconnecting");
-				reportRendererRpcStreamFailure(generation, error, live.environmentId);
-			},
-			onSuccess: () => {
-				if (live.disposed || epoch !== live.streamEpoch) return;
-				live.streamFiber = null;
-				live.streamGeneration = null;
-				if (live.status !== "exited" && live.status !== "failed") {
-					markFailed(live, "terminal output stream ended unexpectedly");
-				}
-			},
-		}),
+function retainOutput(live: LiveTerminal): void {
+	if (live.ptyId === null || live.resourceLease !== null) return;
+	const ref = {
+		environmentId: live.environmentId,
+		terminalId: live.ptyId,
+	} as const;
+	const retained = retainTerminalResource(ref, {
+		write: (bytes) => Effect.runPromise(writeToTerminal(live.term, bytes)),
+		exited: (exitCode) => {
+			const note =
+				exitCode === null
+					? "[process exited]"
+					: `[process exited with code ${exitCode}]`;
+			return Effect.runPromise(
+				writeToTerminal(live.term, `\r\n\x1b[38;5;244m${note}\x1b[0m\r\n`),
+			);
+		},
+	});
+	live.resourceLease = retained.lease;
+	live.unsubscribeResource = getRendererClientBus().subscribe(
+		retained.key,
+		(view) => observeTerminalResource(live, view),
 	);
-	live.streamFiber = Effect.runFork(program);
+	observeTerminalResource(live, getRendererClientBus().snapshot(retained.key));
 }
 
 function sendResize(live: LiveTerminal): void {
@@ -353,18 +264,16 @@ function sendResize(live: LiveTerminal): void {
 	live.resizePending = false;
 	live.resizeInFlight = true;
 	const id = live.ptyId;
-	const generation = live.connectedGeneration;
 	let acknowledged = false;
-	void getRpcClient(live.environmentId)
-		.then((client) =>
-			Effect.runPromise(client["pty.resize"]({ ptyId: id, cols, rows })),
-		)
+	void dispatchTerminalResize(
+		{ environmentId: live.environmentId, terminalId: id },
+		cols,
+		rows,
+	)
 		.then(() => {
-			if (generation === live.connectedGeneration) {
-				acknowledged = true;
-				live.lastSentCols = cols;
-				live.lastSentRows = rows;
-			}
+			acknowledged = true;
+			live.lastSentCols = cols;
+			live.lastSentRows = rows;
 		})
 		.catch((cause) => {
 			recordDiagnosticEvent({
@@ -435,27 +344,6 @@ function configureRuntime(live: LiveTerminal): void {
 			resizeDisposable.dispose();
 		},
 	};
-	live.unsubscribeConnection = subscribeRendererRpcConnection((snapshot) => {
-		const previousGeneration = live.connectedGeneration;
-		live.connectedGeneration =
-			snapshot.status === "connected" ? snapshot.generation : null;
-		if (live.disposed || live.ptyId === null) return;
-		if (snapshot.status === "connected") {
-			if (previousGeneration !== snapshot.generation) {
-				live.lastSentCols = 0;
-				live.lastSentRows = 0;
-			}
-			startOutput(live, snapshot.generation);
-			return;
-		}
-		if (snapshot.status === "blockedAuth" || snapshot.status === "error") {
-			stopOutput(live);
-			markFailed(live, "terminal connection could not be restored");
-			return;
-		}
-		stopOutput(live);
-		publishStatus(live, "reconnecting");
-	}, live.environmentId);
 }
 
 async function openPty(
@@ -468,38 +356,36 @@ async function openPty(
 	},
 ): Promise<void> {
 	try {
-		const client = await getRpcClient(live.environmentId);
-		if (live.disposed) return;
-		const { ptyId } = await Effect.runPromise(
-			client["pty.open"]({
-				cwd: opts.cwd,
-				cols: live.term.cols,
-				rows: live.term.rows,
-				command:
-					opts.command === undefined
-						? undefined
-						: {
-								cmd: opts.command.cmd,
-								args: [...opts.command.args],
-								env: opts.command.env,
-							},
-			}),
-		);
+		const { ptyId } = await dispatchTerminalOpen(live.environmentId, {
+			cwd: opts.cwd,
+			cols: live.term.cols,
+			rows: live.term.rows,
+			command:
+				opts.command === undefined
+					? undefined
+					: {
+							cmd: opts.command.cmd,
+							args: [...opts.command.args],
+							env: opts.command.env,
+						},
+		});
 		if (live.disposed) {
-			void Effect.runPromise(client["pty.close"]({ ptyId }));
+			void dispatchTerminalClose({
+				environmentId: live.environmentId,
+				terminalId: ptyId,
+			});
 			return;
 		}
 		live.ptyId = ptyId;
 		live.inputPump = createTerminalInputPump({
 			timeoutMs: INPUT_ACK_TIMEOUT_MS,
 			write: async (data) => {
-				const currentClient = await getRpcClient(live.environmentId);
-				await Effect.runPromise(currentClient["pty.write"]({ ptyId, data }));
+				await dispatchTerminalInput(
+					{ environmentId: live.environmentId, terminalId: ptyId },
+					data,
+				);
 			},
 			onFailure: (reason, cause) => {
-				if (cause !== undefined && !hasErrorTag(cause, "PtyNotFoundError")) {
-					reportRendererRpcFailure(cause, live.environmentId);
-				}
 				markFailed(live, reason, causeCategory(cause));
 			},
 			onQueueHighWater: (characters) => {
@@ -517,9 +403,7 @@ async function openPty(
 		}
 		scheduleFit(live);
 		scheduleResize(live);
-		if (live.connectedGeneration !== null) {
-			startOutput(live, live.connectedGeneration);
-		}
+		retainOutput(live);
 	} catch (cause) {
 		if (!live.disposed) {
 			markFailed(live, "failed to open terminal", causeCategory(cause));
@@ -528,8 +412,8 @@ async function openPty(
 }
 
 function makeLive(
-	environmentId: string,
-	instanceId: string,
+	environmentId: EnvironmentId,
+	instanceId: PtyId,
 	container: HTMLElement,
 	opts: {
 		readonly cwd: string;
@@ -597,17 +481,13 @@ function makeLive(
 		},
 		ptyId: null,
 		status: "connecting",
-		lastSequence: 0,
-		connectedGeneration: null,
-		streamGeneration: null,
-		streamEpoch: 0,
-		streamFiber: null,
+		resourceLease: null,
+		unsubscribeResource: null,
 		inputPump: null,
 		pendingInitialInput: opts.initialInput ?? "",
 		initialInputInFlight: false,
 		onInitialInputWritten: opts.onInitialInputWritten ?? null,
 		disposables: null,
-		unsubscribeConnection: null,
 		resizeTimer: null,
 		resizeInFlight: false,
 		resizePending: false,
@@ -634,8 +514,8 @@ function makeLive(
 }
 
 export function attach(
-	environmentId: string,
-	instanceId: string,
+	environmentId: EnvironmentId,
+	instanceId: PtyId,
 	container: HTMLElement,
 	opts: {
 		readonly cwd: string;
@@ -670,32 +550,33 @@ export function attach(
 	registry.set(key, makeLive(environmentId, instanceId, container, opts));
 }
 
-export function detach(environmentId: string, instanceId: string): void {
+export function detach(environmentId: EnvironmentId, instanceId: PtyId): void {
 	const live = registry.get(terminalRuntimeKey(environmentId, instanceId));
 	if (live === undefined) return;
 	live.observer.disconnect();
 	if (live.host.parentElement !== null) live.host.remove();
 }
 
-export function dispose(environmentId: string, instanceId: string): void {
+export function dispose(environmentId: EnvironmentId, instanceId: PtyId): void {
 	const key = terminalRuntimeKey(environmentId, instanceId);
 	const live = registry.get(key);
 	if (live === undefined) return;
 	registry.delete(key);
 	live.disposed = true;
-	stopOutput(live);
+	live.unsubscribeResource?.();
+	live.resourceLease?.release();
 	live.inputPump?.dispose();
 	live.observer.disconnect();
-	live.unsubscribeConnection?.();
 	live.disposables?.dispose();
 	window.removeEventListener("zuse:appearance-change", live.refreshTheme);
 	if (live.resizeTimer !== null) clearTimeout(live.resizeTimer);
 	if (live.fitFrame !== null) window.cancelAnimationFrame(live.fitFrame);
 	if (live.ptyId !== null) {
 		const ptyId = live.ptyId;
-		void getRpcClient(live.environmentId)
-			.then((client) => Effect.runPromise(client["pty.close"]({ ptyId })))
-			.catch(() => undefined);
+		void dispatchTerminalClose({
+			environmentId: live.environmentId,
+			terminalId: ptyId,
+		}).catch(() => undefined);
 	}
 	live.host.remove();
 	live.term.dispose();

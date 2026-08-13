@@ -21,6 +21,7 @@ import {
 	RepositorySettingsFile,
 	resolveModelSlug,
 	Session,
+	SessionTimelineFrame,
 	SettingsFile,
 	visibleModelsForProvider,
 	Worktree,
@@ -322,6 +323,18 @@ describe("Session round-trip", () => {
 		expect(() =>
 			Schema.decodeUnknownSync(Session)({ ...encoded, status: "zombie" }),
 		).toThrow();
+	});
+});
+
+describe("Session timeline frame round-trip", () => {
+	it("keeps reset cursor and head version together", () => {
+		roundTrip(SessionTimelineFrame, {
+			kind: "reset-required",
+			sessionId: "session-restored",
+			throughVersion: 3,
+			cursor: { epoch: "restore-2", version: 3 },
+			reason: "restored" as const,
+		});
 	});
 });
 

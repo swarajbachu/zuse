@@ -1,10 +1,10 @@
 import {
 	type Message,
-	type SessionId,
-	type SessionTimelineEvent,
+	type SessionStreamCursor,
 	type SessionTimelineFrame,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
+import { applyTimelineEvent } from "@zuse/domain/projectors/timeline-reducer";
 
 export type SessionTimelinePhase =
 	| "empty"
@@ -20,6 +20,11 @@ export type OptimisticOverlay = Readonly<{
 
 export type SessionTimelineState = Readonly<{
 	projection: SessionTimelineProjection | null;
+	/** Cursor for the projection currently held in memory. */
+	cursor: SessionStreamCursor | null;
+	/** Epoch announced by reset-required while the prior projection stays visible. */
+	resetEpoch: string | null;
+	/** @deprecated Prefer cursor.version. Kept while renderer selectors migrate. */
 	appliedVersion: number;
 	phase: SessionTimelinePhase;
 	error: string | null;
@@ -28,124 +33,81 @@ export type SessionTimelineState = Readonly<{
 
 export const emptySessionTimelineState = (): SessionTimelineState => ({
 	projection: null,
+	cursor: null,
+	resetEpoch: null,
 	appliedVersion: 0,
 	phase: "empty",
 	error: null,
 	optimistic: { messages: {} },
 });
 
-export const applySessionTimelineEvent = (
-	projection: SessionTimelineProjection,
-	event: SessionTimelineEvent,
-): SessionTimelineProjection => {
-	switch (event._tag) {
-		case "MessagePersisted": {
-			const index = projection.messages.findIndex(
-				(message) => message.id === event.message.id,
-			);
-			const messages = [...projection.messages];
-			if (index === -1) messages.push(event.message);
-			else messages[index] = event.message;
-			return SessionTimelineProjection.make({ ...projection, messages });
-		}
-		case "StatusSet":
-			return SessionTimelineProjection.make({
-				...projection,
-				status: event.status,
-			});
-		case "TurnStarted":
-			return SessionTimelineProjection.make({
-				...projection,
-				currentTurn: { turnId: event.turnId, phase: event.phase },
-			});
-		case "TurnPhaseSet":
-			return projection.currentTurn?.turnId === event.turnId
-				? SessionTimelineProjection.make({
-						...projection,
-						currentTurn: { turnId: event.turnId, phase: event.phase },
-					})
-				: projection;
-		case "TurnSettled":
-			return projection.currentTurn?.turnId === event.turnId
-				? SessionTimelineProjection.make({
-						...projection,
-						currentTurn: null,
-					})
-				: projection;
-		case "PermissionModeSet":
-			return SessionTimelineProjection.make({
-				...projection,
-				permissionMode: event.permissionMode,
-			});
-		case "RuntimeModeSet":
-			return SessionTimelineProjection.make({
-				...projection,
-				runtimeMode: event.runtimeMode,
-			});
-		case "QueuePausedSet":
-			return SessionTimelineProjection.make({
-				...projection,
-				queue: { ...projection.queue, paused: event.paused },
-			});
-		case "QueueEnqueued": {
-			const existing = projection.queue.items.findIndex(
-				(item) => item.id === event.item.id,
-			);
-			const items = [...projection.queue.items];
-			if (existing === -1) items.push(event.item);
-			else items[existing] = event.item;
-			items.sort((left, right) => left.position - right.position);
-			return SessionTimelineProjection.make({
-				...projection,
-				queue: { ...projection.queue, items },
-			});
-		}
-		case "QueueUpdated":
-			return SessionTimelineProjection.make({
-				...projection,
-				queue: {
-					...projection.queue,
-					items: projection.queue.items.map((item) =>
-						item.id === event.queueId
-							? {
-									...item,
-									input: event.input,
-									updatedAt: event.updatedAt,
-									ready: event.ready,
-								}
-							: item,
-					),
-				},
-			});
-		case "QueueRemoved":
-			return SessionTimelineProjection.make({
-				...projection,
-				queue: {
-					...projection.queue,
-					items: projection.queue.items.filter(
-						(item) => item.id !== event.queueId,
-					),
-				},
-			});
-		case "QueueReordered": {
-			const positions = new Map(
-				event.queueIds.map((queueId, position) => [queueId, position]),
-			);
-			const items = projection.queue.items
-				.map((item) => ({
-					...item,
-					position: positions.get(item.id) ?? item.position,
-				}))
-				.sort((left, right) => left.position - right.position);
-			return SessionTimelineProjection.make({
-				...projection,
-				queue: { ...projection.queue, items },
-			});
-		}
-		case "Noop":
-			return projection;
+export const restoreSessionTimelineState = (
+	projection: SessionTimelineProjection | null,
+	cursor: SessionStreamCursor | null,
+): SessionTimelineState =>
+	projection === null || cursor === null
+		? emptySessionTimelineState()
+		: {
+				...emptySessionTimelineState(),
+				projection,
+				cursor,
+				appliedVersion: cursor.version,
+				phase: "cached",
+			};
+
+export const applySessionTimelineEvent = applyTimelineEvent;
+
+/** Prepends one older page without changing the durable event cursor. */
+export const prependSessionTimelineMessages = (
+	state: SessionTimelineState,
+	messages: readonly Message[],
+	olderMessageSequence: number | null,
+): SessionTimelineState => {
+	if (state.projection === null || messages.length === 0) {
+		return state.projection === null
+			? state
+			: {
+					...state,
+					projection: SessionTimelineProjection.make({
+						...state.projection,
+						olderMessageSequence,
+					}),
+				};
 	}
+	const byId = new Map(
+		[...messages, ...state.projection.messages].map((message) => [
+			message.id,
+			message,
+		]),
+	);
+	return {
+		...state,
+		projection: SessionTimelineProjection.make({
+			...state.projection,
+			messages: [...byId.values()],
+			olderMessageSequence,
+		}),
+	};
 };
+
+const cursorForFrame = (
+	state: SessionTimelineState,
+	version: number,
+	cursor: SessionStreamCursor | undefined,
+): SessionStreamCursor =>
+	cursor ?? {
+		epoch: state.cursor?.epoch ?? "legacy",
+		version,
+	};
+
+const invalidCursorState = (
+	state: SessionTimelineState,
+	message: string,
+): SessionTimelineState => ({
+	...state,
+	phase: "stale",
+	error: message,
+});
 
 /** Projection and replay version advance in this one synchronous operation. */
 export const reduceSessionTimelineFrame = (
@@ -154,161 +116,122 @@ export const reduceSessionTimelineFrame = (
 ): SessionTimelineState => {
 	if (state.phase === "deleted") return state;
 	if (frame.kind === "snapshot") {
+		const cursor = cursorForFrame(state, frame.throughVersion, frame.cursor);
+		if (cursor.version !== frame.throughVersion) {
+			return invalidCursorState(
+				state,
+				`Snapshot cursor ${cursor.version} does not match version ${frame.throughVersion}`,
+			);
+		}
+		if (state.resetEpoch !== null && cursor.epoch !== state.resetEpoch) {
+			return invalidCursorState(
+				state,
+				`Expected reset snapshot for epoch ${state.resetEpoch}, received ${cursor.epoch}`,
+			);
+		}
+		if (
+			state.resetEpoch === null &&
+			state.cursor !== null &&
+			cursor.epoch !== state.cursor.epoch
+		) {
+			return invalidCursorState(
+				state,
+				`Snapshot changed epoch from ${state.cursor.epoch} to ${cursor.epoch} without a reset`,
+			);
+		}
+		if (
+			state.resetEpoch === null &&
+			state.cursor?.epoch === cursor.epoch &&
+			cursor.version < state.cursor.version
+		) {
+			return state;
+		}
 		return {
 			...state,
-			projection: frame.projection,
-			appliedVersion: frame.throughVersion,
+			projection: SessionTimelineProjection.make({
+				...frame.projection,
+				olderMessageSequence:
+					frame.olderMessageSequence ??
+					frame.projection.olderMessageSequence ??
+					null,
+			}),
+			cursor,
+			resetEpoch: null,
+			appliedVersion: cursor.version,
 			phase: "synchronizing",
 			error: null,
 		};
 	}
 	if (frame.kind === "synchronized") {
+		const cursor = cursorForFrame(state, frame.throughVersion, frame.cursor);
 		if (
+			state.resetEpoch !== null ||
 			state.projection === null ||
-			state.appliedVersion < frame.throughVersion
+			state.cursor === null ||
+			state.cursor.epoch !== cursor.epoch ||
+			state.cursor.version < cursor.version ||
+			cursor.version !== frame.throughVersion
 		) {
-			return {
-				...state,
-				phase: "stale",
-				error: `Synchronization through version ${frame.throughVersion} arrived at ${state.appliedVersion}`,
-			};
+			return invalidCursorState(
+				state,
+				`Synchronization through ${cursor.epoch}:${frame.throughVersion} arrived at ${state.cursor?.epoch ?? "none"}:${state.cursor?.version ?? 0}`,
+			);
 		}
 		return { ...state, phase: "live", error: null };
 	}
-	if (frame.streamVersion <= state.appliedVersion) return state;
-	if (state.projection === null) {
+	if (frame.kind === "reset-required") {
+		if (state.resetEpoch === frame.cursor.epoch) return state;
 		return {
 			...state,
-			phase: "stale",
-			error: "Received an event without a retained projection",
+			resetEpoch: frame.cursor.epoch,
+			phase: "synchronizing",
+			error: null,
 		};
 	}
-	const expectedVersion = state.appliedVersion + 1;
+	const cursor = cursorForFrame(state, frame.streamVersion, frame.cursor);
+	if (cursor.version !== frame.streamVersion) {
+		return invalidCursorState(
+			state,
+			`Event cursor ${cursor.version} does not match version ${frame.streamVersion}`,
+		);
+	}
+	if (state.resetEpoch !== null) {
+		return invalidCursorState(
+			state,
+			"Received an event before the required reset snapshot",
+		);
+	}
+	if (state.cursor !== null && cursor.epoch !== state.cursor.epoch) {
+		return invalidCursorState(
+			state,
+			`Event changed epoch from ${state.cursor.epoch} to ${cursor.epoch} without a reset`,
+		);
+	}
+	if (
+		state.cursor?.epoch === cursor.epoch &&
+		cursor.version <= state.cursor.version
+	) {
+		return state;
+	}
+	if (state.projection === null) {
+		return invalidCursorState(
+			state,
+			"Received an event without a retained projection",
+		);
+	}
+	const expectedVersion = (state.cursor?.version ?? 0) + 1;
 	if (frame.streamVersion !== expectedVersion) {
-		return {
-			...state,
-			phase: "stale",
-			error: `Expected version ${expectedVersion}, received ${frame.streamVersion}`,
-		};
+		return invalidCursorState(
+			state,
+			`Expected version ${expectedVersion}, received ${frame.streamVersion}`,
+		);
 	}
 	return {
 		...state,
-		projection: applySessionTimelineEvent(state.projection, frame.event),
-		appliedVersion: frame.streamVersion,
+		projection: applyTimelineEvent(state.projection, frame.event),
+		cursor,
+		appliedVersion: cursor.version,
 		phase: state.phase === "live" ? "live" : "synchronizing",
 		error: null,
 	};
 };
-
-type Entry = {
-	state: SessionTimelineState;
-	retainers: number;
-	listeners: Set<(state: SessionTimelineState) => void>;
-	eviction: ReturnType<typeof setTimeout> | null;
-};
-
-/**
- * Keyed retained state independent of component mount lifetime. Transport
- * adapters feed frames with `accept`; React and native adapters only observe.
- */
-export class SessionTimelineRegistry {
-	private readonly entries = new Map<string, Entry>();
-
-	constructor(private readonly idleTtlMs = 5 * 60_000) {}
-
-	private entry(sessionId: SessionId): Entry {
-		const existing = this.entries.get(sessionId);
-		if (existing !== undefined) return existing;
-		const created: Entry = {
-			state: emptySessionTimelineState(),
-			retainers: 0,
-			listeners: new Set(),
-			eviction: null,
-		};
-		this.entries.set(sessionId, created);
-		return created;
-	}
-
-	retain(sessionId: SessionId): () => void {
-		const entry = this.entry(sessionId);
-		entry.retainers += 1;
-		if (entry.eviction !== null) clearTimeout(entry.eviction);
-		entry.eviction = null;
-		if (entry.state.phase === "cached" || entry.state.phase === "stale") {
-			entry.state = { ...entry.state, phase: "synchronizing" };
-		}
-		let released = false;
-		return () => {
-			if (released) return;
-			released = true;
-			entry.retainers = Math.max(0, entry.retainers - 1);
-			if (entry.retainers > 0 || entry.state.projection?.currentTurn != null) {
-				return;
-			}
-			entry.state = { ...entry.state, phase: "cached" };
-			entry.eviction = setTimeout(() => {
-				if (entry.retainers === 0) this.entries.delete(sessionId);
-			}, this.idleTtlMs);
-		};
-	}
-
-	state(sessionId: SessionId): SessionTimelineState {
-		return this.entry(sessionId).state;
-	}
-
-	restore(
-		sessionId: SessionId,
-		projection: SessionTimelineProjection,
-		appliedVersion: number,
-	): SessionTimelineState {
-		const entry = this.entry(sessionId);
-		if (entry.state.projection !== null) return entry.state;
-		entry.state = {
-			...entry.state,
-			projection,
-			appliedVersion,
-			phase: "cached",
-			error: null,
-		};
-		for (const listener of entry.listeners) listener(entry.state);
-		return entry.state;
-	}
-
-	accept(
-		sessionId: SessionId,
-		frame: SessionTimelineFrame,
-	): SessionTimelineState {
-		const entry = this.entry(sessionId);
-		const next = reduceSessionTimelineFrame(entry.state, frame);
-		if (next === entry.state) return entry.state;
-		entry.state = next;
-		for (const listener of entry.listeners) listener(next);
-		return next;
-	}
-
-	subscribe(
-		sessionId: SessionId,
-		listener: (state: SessionTimelineState) => void,
-	): () => void {
-		const entry = this.entry(sessionId);
-		entry.listeners.add(listener);
-		return () => entry.listeners.delete(listener);
-	}
-
-	delete(sessionId: SessionId): void {
-		const entry = this.entries.get(sessionId);
-		if (entry?.eviction != null) clearTimeout(entry.eviction);
-		if (entry !== undefined) {
-			entry.state = { ...emptySessionTimelineState(), phase: "deleted" };
-			for (const listener of entry.listeners) listener(entry.state);
-		}
-		this.entries.delete(sessionId);
-	}
-
-	shutdown(): void {
-		for (const entry of this.entries.values()) {
-			if (entry.eviction !== null) clearTimeout(entry.eviction);
-		}
-		this.entries.clear();
-	}
-}

@@ -1,5 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+	type AgentAvailability,
+	MODELS_BY_PROVIDER,
+	type ProviderId,
+	type ProviderUpdateEvent,
+	visibleModelsForProvider,
+} from "@zuse/contracts";
+import {
 	AlertCircleIcon,
 	CircleArrowUp01Icon,
 	Copy01Icon,
@@ -7,14 +14,6 @@ import {
 	Loading02Icon,
 	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
-import {
-	type AgentAvailability,
-	MODELS_BY_PROVIDER,
-	type ProviderId,
-	type ProviderUpdateEvent,
-	visibleModelsForProvider,
-} from "@zuse/contracts";
-import { Effect, Fiber, Stream } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiKeyRow } from "~/components/api-key-row";
@@ -37,7 +36,12 @@ import {
 	getProviderSummary,
 	PROVIDER_STATUS_STYLES,
 } from "~/lib/provider-status";
-import { getRpcClient } from "~/lib/rpc-client";
+import { runtimeOperationClient } from "~/lib/runtime-operation-client.ts";
+import { useSettingsStore } from "~/lib/settings-client-bus.ts";
+import {
+	runStreamOperation,
+	type StreamOperation,
+} from "~/lib/stream-operation.ts";
 import {
 	openExternal,
 	supportsProviderLogin,
@@ -48,7 +52,6 @@ import {
 	IDLE_PROVIDER_UPDATE_STATE,
 	useProvidersStore,
 } from "~/store/providers";
-import { useSettingsStore } from "~/store/settings";
 
 const PROVIDER_LABEL: Record<ProviderId, string> = {
 	claude: "Claude Code",
@@ -96,10 +99,12 @@ const SUBSCRIPTION_INFO: Partial<
 };
 
 export function ProviderCard({
+	environmentId,
 	providerId,
 	availability,
 	loading,
 }: {
+	environmentId: string;
 	providerId: ProviderId;
 	availability: AgentAvailability | undefined;
 	loading: boolean;
@@ -184,6 +189,7 @@ export function ProviderCard({
 						)}
 						{showUpdate && (
 							<UpdateAvailableButton
+								environmentId={environmentId}
 								providerId={providerId}
 								displayName={PROVIDER_LABEL[providerId]}
 								latestVersion={availability?.latestVersion}
@@ -591,7 +597,7 @@ function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
  * re-probe availability so the card reflects the new version. Interrupting the
  * fiber (unmount / cancel) closes the stream scope, which SIGTERMs the child.
  */
-function useProviderUpdate(providerId: ProviderId) {
+function useProviderUpdate(environmentId: string, providerId: ProviderId) {
 	const refresh = useProvidersStore((s) => s.refresh);
 	const state = useProvidersStore(
 		(s) => s.updateStateByProvider[providerId] ?? IDLE_PROVIDER_UPDATE_STATE,
@@ -599,13 +605,12 @@ function useProviderUpdate(providerId: ProviderId) {
 	const setProviderUpdateState = useProvidersStore(
 		(s) => s.setProviderUpdateState,
 	);
-	const fiberRef = useRef<Fiber.Fiber<unknown, unknown> | null>(null);
+	const operationRef = useRef<StreamOperation | null>(null);
 	const resetTimerRef = useRef<number | null>(null);
 
 	useEffect(
 		() => () => {
-			const fiber = fiberRef.current;
-			if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
+			operationRef.current?.cancel();
 			setProviderUpdateState(providerId, IDLE_PROVIDER_UPDATE_STATE);
 			if (resetTimerRef.current !== null)
 				window.clearTimeout(resetTimerRef.current);
@@ -620,9 +625,9 @@ function useProviderUpdate(providerId: ProviderId) {
 			resetTimerRef.current = null;
 		}
 		setProviderUpdateState(providerId, { kind: "running", line: null });
-		let client: Awaited<ReturnType<typeof getRpcClient>>;
+		let client: Awaited<ReturnType<typeof runtimeOperationClient>>;
 		try {
-			client = await getRpcClient();
+			client = await runtimeOperationClient(environmentId);
 		} catch (err) {
 			setProviderUpdateState(providerId, {
 				kind: "failed",
@@ -630,57 +635,48 @@ function useProviderUpdate(providerId: ProviderId) {
 			});
 			return;
 		}
-		const fiber = Effect.runFork(
-			Stream.runForEach(
-				client["provider.update"]({ providerId }),
-				(event: ProviderUpdateEvent) =>
-					Effect.sync(() => {
-						if (event._tag === "log") {
-							setProviderUpdateState(providerId, {
-								kind: "running",
-								line: event.text,
-							});
-						} else if (event._tag === "done") {
-							fiberRef.current = null;
-							if (event.ok) {
-								// Re-probe FIRST so the version label is fresh before we flip
-								// the badge to "Updated" — otherwise the badge and the old
-								// version show together for a beat. Stay on the spinner until
-								// the probe lands.
-								void refresh().finally(() => {
-									setProviderUpdateState(providerId, { kind: "success" });
-									// Re-probe hides the icon if now on latest; for
-									// version-unknown CLIs (Grok) drop the "Updated" badge after
-									// a moment so the control returns to idle.
-									resetTimerRef.current = window.setTimeout(() => {
-										setProviderUpdateState(
-											providerId,
-											IDLE_PROVIDER_UPDATE_STATE,
-										);
-										resetTimerRef.current = null;
-									}, 4_000);
-								});
-							} else {
-								setProviderUpdateState(providerId, {
-									kind: "failed",
-									reason: event.reason ?? "Update failed.",
-								});
-							}
-						}
-					}),
-			).pipe(
-				Effect.catch((err) =>
-					Effect.sync(() => {
-						fiberRef.current = null;
+		const operation = runStreamOperation(
+			client["provider.update"]({ providerId }),
+			(event: ProviderUpdateEvent) => {
+				if (event._tag === "log") {
+					setProviderUpdateState(providerId, {
+						kind: "running",
+						line: event.text,
+					});
+				} else if (event._tag === "done") {
+					operationRef.current = null;
+					if (event.ok) {
+						// Re-probe FIRST so the version label is fresh before we flip
+						// the badge to "Updated" — otherwise the badge and the old
+						// version show together for a beat. Stay on the spinner until
+						// the probe lands.
+						void refresh().finally(() => {
+							setProviderUpdateState(providerId, { kind: "success" });
+							// Re-probe hides the icon if now on latest; for
+							// version-unknown CLIs (Grok) drop the "Updated" badge after
+							// a moment so the control returns to idle.
+							resetTimerRef.current = window.setTimeout(() => {
+								setProviderUpdateState(providerId, IDLE_PROVIDER_UPDATE_STATE);
+								resetTimerRef.current = null;
+							}, 4_000);
+						});
+					} else {
 						setProviderUpdateState(providerId, {
 							kind: "failed",
-							reason: err instanceof Error ? err.message : String(err),
+							reason: event.reason ?? "Update failed.",
 						});
-					}),
-				),
-			),
+					}
+				}
+			},
 		);
-		fiberRef.current = fiber;
+		operationRef.current = operation;
+		void operation.done.catch((err) => {
+			operationRef.current = null;
+			setProviderUpdateState(providerId, {
+				kind: "failed",
+				reason: err instanceof Error ? err.message : String(err),
+			});
+		});
 	};
 
 	return { state, run };
@@ -695,17 +691,19 @@ function useProviderUpdate(providerId: ProviderId) {
  * `stopPropagation` keeps the click from toggling the card's expand.
  */
 function UpdateAvailableButton({
+	environmentId,
 	providerId,
 	displayName,
 	latestVersion,
 	behind,
 }: {
+	readonly environmentId: string;
 	readonly providerId: ProviderId;
 	readonly displayName: string;
 	readonly latestVersion: string | undefined;
 	readonly behind: boolean;
 }) {
-	const { state, run } = useProviderUpdate(providerId);
+	const { state, run } = useProviderUpdate(environmentId, providerId);
 
 	const idleLabel =
 		behind && latestVersion !== undefined

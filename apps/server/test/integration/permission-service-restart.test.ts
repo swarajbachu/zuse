@@ -11,6 +11,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { AppPaths } from "../../src/app-paths.ts";
 import { PermissionServiceLive } from "../../src/provider/layers/permission-service.ts";
 import { PermissionService } from "../../src/provider/services/permission-service.ts";
+import type { PermissionServiceShape } from "../../src/provider/services/permission-service.ts";
 
 const directories: string[] = [];
 
@@ -56,6 +57,7 @@ const createSchema = Effect.gen(function* () {
 			chat_id TEXT NOT NULL, forked_from_session_id TEXT,
 			forked_from_message_id TEXT, permission_mode TEXT NOT NULL,
 			tool_search INTEGER NOT NULL, queue_paused INTEGER NOT NULL DEFAULT 0,
+			current_turn_id TEXT, current_turn_phase TEXT,
 			created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 		)
 	`;
@@ -63,8 +65,12 @@ const createSchema = Effect.gen(function* () {
 		CREATE TABLE messages (
 			id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL,
 			kind TEXT NOT NULL, content_json TEXT NOT NULL, parent_item_id TEXT,
-			turn_id TEXT, created_at TEXT NOT NULL, sequence INTEGER NOT NULL
+			turn_id TEXT, created_at TEXT NOT NULL, sequence INTEGER NOT NULL,
+			checkpoint_revision INTEGER, checkpoint_final INTEGER
 		)
+	`;
+	yield* sql`
+		CREATE TABLE app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)
 	`;
 	yield* sql`
 		CREATE TABLE events (
@@ -133,6 +139,19 @@ const createSession = Effect.gen(function* () {
 });
 
 describe("PermissionService restart recovery", () => {
+	const permissionRequests = (
+		stream: ReturnType<PermissionServiceShape["requests"]>,
+	) =>
+		stream.pipe(
+			Stream.flatMap((change) =>
+				change._tag === "snapshot"
+					? Stream.fromIterable(change.requests)
+					: change._tag === "change"
+						? Stream.succeed(change.request)
+						: Stream.empty,
+			),
+		);
+
 	test("publishes a recovered request only after its provider reattaches", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-permission-restart-"));
 		directories.push(directory);
@@ -153,7 +172,10 @@ describe("PermissionService restart recovery", () => {
 		);
 		const [published] = await first.runPromise(
 			Effect.flatMap(PermissionService, (service) =>
-				service.requests().pipe(Stream.take(1), Stream.runCollect),
+				permissionRequests(service.requests()).pipe(
+					Stream.take(1),
+					Stream.runCollect,
+				),
 			),
 		);
 		expect(published).toBeInstanceOf(PermissionRequest);
@@ -170,7 +192,10 @@ describe("PermissionService restart recovery", () => {
 			expect(pending).toEqual([]);
 			const republished = restarted.runFork(
 				Effect.flatMap(PermissionService, (service) =>
-					service.requests().pipe(Stream.take(1), Stream.runCollect),
+					permissionRequests(service.requests()).pipe(
+						Stream.take(1),
+						Stream.runCollect,
+					),
 				),
 			);
 			await restarted.runPromise(Effect.yieldNow);

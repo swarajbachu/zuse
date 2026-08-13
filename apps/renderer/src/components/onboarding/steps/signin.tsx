@@ -1,9 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ChevronRight } from "lucide-react";
-import {
-	Tick01Icon,
-	UserCircleIcon,
-} from "@zuse/icons/solid-rounded";
+import { Tick01Icon, UserCircleIcon } from "@zuse/icons/solid-rounded";
 import { BlurredEmail } from "~/components/blurred-email";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";

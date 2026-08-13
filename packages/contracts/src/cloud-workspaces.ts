@@ -1,8 +1,7 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 import { ProviderId } from "./agent.ts";
-import { ComposerInput } from "./composer.ts";
-import { AgentSessionId, ChatId, MessageId } from "./ids.ts";
+import { AgentSessionId, ChatId } from "./ids.ts";
 
 export const CLOUD_WORKSPACE_OFFER_ID = "cloud-workspace-standard-v1" as const;
 
@@ -215,52 +214,27 @@ export class CloudWorkspaceConnection extends Schema.Class<CloudWorkspaceConnect
 	workspaceId: Schema.String,
 	wsUrl: Schema.String,
 	protocol: Schema.String,
+	role: Schema.Literal("client"),
+	generation: Schema.Number,
+	gatewayEpoch: Schema.Number,
 	credential: Schema.String,
 	expiresAt: Schema.Number,
 }) {}
 
-export class CloudChatEvent extends Schema.Class<CloudChatEvent>(
-	"CloudChatEvent",
+/**
+ * Last-known runtime metadata for catalog/sidebar rendering. This deliberately
+ * cannot carry transcript, queue, file, Git, or terminal payloads.
+ */
+export class CloudWorkspaceRuntimeSummary extends Schema.Class<CloudWorkspaceRuntimeSummary>(
+	"CloudWorkspaceRuntimeSummary",
 )({
-	sequence: Schema.Number,
-	eventId: Schema.String,
-	streamId: Schema.String,
-	streamVersion: Schema.Number,
-	type: Schema.String,
-	payloadJson: Schema.String,
-	createdAt: Schema.Number,
+	summaryRevision: Schema.Number,
+	title: Schema.String,
+	lastActivityAt: Schema.Number,
+	sessionHeadVersion: Schema.Number,
 }) {}
 
-export class CloudChatQueuedMessage extends Schema.Class<CloudChatQueuedMessage>(
-	"CloudChatQueuedMessage",
-)({
-	sequence: Schema.optional(Schema.Number),
-	clientMessageId: MessageId,
-	input: ComposerInput,
-	state: Schema.Literals(["queued", "claimed", "acknowledged", "failed"]),
-	asGoal: Schema.Boolean,
-	createdAt: Schema.Number,
-}) {}
-
-export class CloudChatHistory extends Schema.Class<CloudChatHistory>(
-	"CloudChatHistory",
-)({
-	workspaceId: Schema.String,
-	chatId: ChatId,
-	initialSessionId: AgentSessionId,
-	firstMessage: Schema.optional(Schema.String),
-	commandState: Schema.Literals([
-		"queued",
-		"claimed",
-		"acknowledged",
-		"failed",
-	]),
-	events: Schema.Array(CloudChatEvent),
-	queuedMessages: Schema.Array(CloudChatQueuedMessage),
-	cursor: Schema.Number,
-}) {}
-
-/** Durable cloud-chat metadata that is available without a live sandbox. */
+/** Last-known cloud workspace metadata available without a live runtime. */
 export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
 	"CloudChatSummary",
 )({
@@ -281,12 +255,21 @@ export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
 	statusCode: Schema.String,
 	startupPhase: CloudWorkspaceStartupPhase,
 	revision: Schema.Number,
+	/** Monotonic within the current runtime generation. */
+	summaryRevision: Schema.Number.pipe(
+		Schema.withConstructorDefault(Effect.succeed(0)),
+		Schema.withDecodingDefaultType(Effect.succeed(0)),
+	),
+	/** Authoritative runtime session head represented by this summary. */
+	sessionHeadVersion: Schema.Number.pipe(
+		Schema.withConstructorDefault(Effect.succeed(0)),
+		Schema.withDecodingDefaultType(Effect.succeed(0)),
+	),
 	unread: Schema.Boolean,
 	lastMessageAt: Schema.NullOr(Schema.Number),
 	archivedAt: Schema.optional(Schema.Number),
 	archivePhase: Schema.optional(Schema.String),
 	archiveErrorCode: Schema.optional(Schema.String),
-	archiveDiagnostic: Schema.optional(Schema.String),
 	createdAt: Schema.Number,
 	updatedAt: Schema.Number,
 }) {}
@@ -400,6 +383,19 @@ export const CloudWorkspacesGetRpc = Rpc.make("cloud.workspaces.get", {
 	success: CloudWorkspace,
 	error: CloudWorkspaceOpError,
 });
+/**
+ * One monotonic lifecycle control stream for a workspace. The server adapts
+ * Relay's current REST surface; clients never own lifecycle polling loops.
+ */
+export const CloudWorkspacesWatchRpc = Rpc.make("cloud.workspaces.watch", {
+	payload: Schema.Struct({
+		workspaceId: Schema.String,
+		afterRevision: Schema.optional(Schema.Number),
+	}),
+	success: CloudWorkspace,
+	error: CloudWorkspaceOpError,
+	stream: true,
+});
 export const CloudWorkspacesCreateRpc = Rpc.make("cloud.workspaces.create", {
 	payload: CloudWorkspaceCreateRequest,
 	success: CloudWorkspaceLaunch,
@@ -410,38 +406,12 @@ export const CloudWorkspacesConnectRpc = Rpc.make("cloud.workspaces.connect", {
 	success: CloudWorkspaceConnection,
 	error: CloudWorkspaceOpError,
 });
-export const CloudChatsHistoryRpc = Rpc.make("cloud.chats.history", {
-	payload: Schema.Struct({
-		workspaceId: Schema.String,
-		after: Schema.optional(Schema.Number),
-	}),
-	success: CloudChatHistory,
-	error: CloudWorkspaceOpError,
-});
 export const CloudChatsListRpc = Rpc.make("cloud.chats.list", {
 	payload: Schema.Struct({
 		projectId: Schema.optional(Schema.String),
 		scope: Schema.optional(Schema.Literals(["active", "archived", "all"])),
 	}),
 	success: CloudChatList,
-	error: CloudWorkspaceOpError,
-});
-export const CloudChatsRenameRpc = Rpc.make("cloud.chats.rename", {
-	payload: Schema.Struct({
-		workspaceId: Schema.String,
-		title: Schema.String,
-	}),
-	success: CloudChatSummary,
-	error: CloudWorkspaceOpError,
-});
-export const CloudChatsSendRpc = Rpc.make("cloud.chats.send", {
-	payload: Schema.Struct({
-		workspaceId: Schema.String,
-		input: ComposerInput,
-		clientMessageId: MessageId,
-		asGoal: Schema.optional(Schema.Boolean),
-	}),
-	success: Schema.Struct({ sequence: Schema.Number }),
 	error: CloudWorkspaceOpError,
 });
 export const CloudWorkspacesPauseRpc = Rpc.make("cloud.workspaces.pause", {

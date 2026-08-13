@@ -14,13 +14,13 @@ export type SessionListInput = {
 
 export type MessagePageInput = {
 	readonly sessionId: string;
-	readonly afterSequence?: number | null;
+	readonly beforeSequence?: number | null;
 	readonly limit: number;
 };
 
 export type MessagePage = {
 	readonly items: readonly MessageReadRecord[];
-	readonly nextSequence: number | null;
+	readonly olderSequence: number | null;
 };
 
 export type SessionTranscript = {
@@ -61,15 +61,13 @@ export class SessionQueries {
 	}
 
 	messagePage(input: MessagePageInput): Promise<MessagePage> {
-		const afterSequence = input.afterSequence ?? 0;
+		const beforeSequence = input.beforeSequence ?? Number.POSITIVE_INFINITY;
 		const eligible = this.repository
 			.messages(input.sessionId)
-			.filter((message) => message.sequence > afterSequence);
-		const items = eligible.slice(0, input.limit);
-		const nextSequence =
-			eligible.length > items.length && items.length > 0
-				? (items.at(-1)?.sequence ?? null)
-				: null;
-		return Promise.resolve({ items, nextSequence });
+			.filter((message) => message.sequence < beforeSequence);
+		const start = Math.max(0, eligible.length - input.limit);
+		const items = eligible.slice(start);
+		const olderSequence = start > 0 ? (items[0]?.sequence ?? null) : null;
+		return Promise.resolve({ items, olderSequence });
 	}
 }

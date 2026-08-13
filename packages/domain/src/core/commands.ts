@@ -57,6 +57,8 @@ export const SessionCommand = Schema.Union([
 	Schema.TaggedStruct("SetWorktree", {
 		worktreeId: SessionCreatedFields.worktreeId,
 		updatedAt: Schema.Number,
+		/** Re-emit the projection when an external FK cascade drifted from state. */
+		forceProjection: Schema.optional(Schema.Boolean),
 	}),
 	Schema.TaggedStruct("SetStatus", {
 		status: SessionCreatedFields.status,
@@ -69,6 +71,7 @@ export const SessionCommand = Schema.Union([
 	Schema.TaggedStruct("SetResume", {
 		cursor: SessionCreatedFields.cursor,
 		resumeStrategy: SessionCreatedFields.resumeStrategy,
+		providerEventCursor: Schema.optional(Schema.NullOr(Schema.String)),
 		updatedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("ArchiveSession", { archivedAt: Schema.Number }),
@@ -94,7 +97,7 @@ export const SessionCommand = Schema.Union([
 		settledAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("RequestTurnInterrupt", {
-		turnId: Schema.String,
+		expectedTurnId: Schema.optional(Schema.String),
 		requestedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("AcknowledgeTurnInterrupt", {
@@ -144,6 +147,8 @@ export const SessionCommand = Schema.Union([
 		kind: Schema.String,
 		contentJson: Schema.String,
 		parentItemId: Schema.NullOr(Schema.String),
+		checkpointRevision: Schema.optional(Schema.Number),
+		checkpointFinal: Schema.optional(Schema.Boolean),
 		createdAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("OpenSegment", {

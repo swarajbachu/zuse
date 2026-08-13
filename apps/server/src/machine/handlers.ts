@@ -4,7 +4,7 @@ import {
 	MachineOpError,
 	MemoizeRpcs,
 } from "@zuse/contracts";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Stream } from "effect";
 
 import { AccountAccessService } from "../account-access/service.ts";
 import {
@@ -15,6 +15,20 @@ import { MachineHostService } from "./machine-host-service.ts";
 
 const toError = (error: MachineControlError): MachineOpError =>
 	new MachineOpError({ code: error.code });
+
+const toCloudError = (error: MachineControlError): CloudWorkspaceOpError =>
+	new CloudWorkspaceOpError({
+		code:
+			error.code === "invalid-state"
+				? "project-not-ready"
+				: error.code === "machine-limit-reached" ||
+						error.code === "invalid-offer" ||
+						error.code === "billing-unavailable" ||
+						error.code === "enrollment-expired" ||
+						error.code === "enrollment-rejected"
+					? "invalid-request"
+					: error.code,
+	});
 
 const withControl = <A>(
 	run: (
@@ -34,23 +48,7 @@ const withCloudControl = <A>(
 	Effect.gen(function* () {
 		const service = yield* MachineControlService;
 		return yield* run(service);
-	}).pipe(
-		Effect.mapError(
-			(error) =>
-				new CloudWorkspaceOpError({
-					code:
-						error.code === "invalid-state"
-							? "project-not-ready"
-							: error.code === "machine-limit-reached" ||
-									error.code === "invalid-offer" ||
-									error.code === "billing-unavailable" ||
-									error.code === "enrollment-expired" ||
-									error.code === "enrollment-rejected"
-								? "invalid-request"
-								: error.code,
-				}),
-		),
-	);
+	}).pipe(Effect.mapError(toCloudError));
 
 const withHost = <A>(
 	run: (
@@ -89,6 +87,17 @@ const CloudWorkspace = MemoizeRpcs.toLayerHandler(
 	({ workspaceId }) =>
 		withCloudControl((service) => service.cloudWorkspace(workspaceId)),
 );
+const WatchCloudWorkspace = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.watch",
+	({ workspaceId, afterRevision }) =>
+		Stream.unwrap(
+			Effect.map(MachineControlService, (service) =>
+				service
+					.watchCloudWorkspace(workspaceId, afterRevision)
+					.pipe(Stream.mapError(toCloudError)),
+			),
+		),
+);
 const CreateCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.create",
 	(input) => withCloudControl((service) => service.createCloudWorkspace(input)),
@@ -98,24 +107,10 @@ const ConnectCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	({ workspaceId }) =>
 		withCloudControl((service) => service.connectCloudWorkspace(workspaceId)),
 );
-const CloudChatHistory = MemoizeRpcs.toLayerHandler(
-	"cloud.chats.history",
-	({ workspaceId, after }) =>
-		withCloudControl((service) => service.cloudChatHistory(workspaceId, after)),
-);
 const CloudChats = MemoizeRpcs.toLayerHandler(
 	"cloud.chats.list",
 	({ projectId, scope }) =>
 		withCloudControl((service) => service.cloudChats(projectId, scope)),
-);
-const RenameCloudChat = MemoizeRpcs.toLayerHandler(
-	"cloud.chats.rename",
-	({ workspaceId, title }) =>
-		withCloudControl((service) => service.renameCloudChat(workspaceId, title)),
-);
-const SendCloudChatMessage = MemoizeRpcs.toLayerHandler(
-	"cloud.chats.send",
-	(input) => withCloudControl((service) => service.sendCloudChatMessage(input)),
 );
 const PauseCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.pause",
@@ -274,12 +269,10 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	PrepareCloudProject,
 	CloudWorkspaces,
 	CloudWorkspace,
+	WatchCloudWorkspace,
 	CreateCloudWorkspace,
 	ConnectCloudWorkspace,
-	CloudChatHistory,
 	CloudChats,
-	RenameCloudChat,
-	SendCloudChatMessage,
 	PauseCloudWorkspace,
 	ResumeCloudWorkspace,
 	ArchiveCloudWorkspace,

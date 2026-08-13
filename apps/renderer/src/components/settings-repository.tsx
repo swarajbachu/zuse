@@ -1,17 +1,22 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Delete02Icon, GitBranchIcon } from "@zuse/icons/solid-rounded";
 import {
+	EnvironmentId,
 	type FolderId,
 	MODELS_BY_PROVIDER,
 	type ProviderId,
 	visibleModelsForProvider,
 } from "@zuse/contracts";
+import { Delete02Icon, GitBranchIcon } from "@zuse/icons/solid-rounded";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { displayPath } from "~/lib/display-path";
 import { cn } from "~/lib/utils";
-import { useRepositorySettingsStore } from "../store/repository-settings.ts";
-import { useSettingsStore } from "../store/settings.ts";
+import { useSettingsStore } from "../lib/settings-client-bus.ts";
+import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
+import {
+	repositorySettingsKey,
+	useRepositorySettingsStore,
+} from "../store/repository-settings.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { PermissionsInspector } from "./permissions-inspector.tsx";
@@ -33,19 +38,22 @@ import { Textarea } from "./ui/textarea.tsx";
  * through to the global default in `useSettingsStore`."
  */
 export function RepositorySettings({ projectId }: { projectId: FolderId }) {
+	const environmentId = EnvironmentId.make(
+		useEnvironmentCatalogStore((state) => state.activeEnvironmentId),
+	);
 	const folder = useWorkspaceStore((s) =>
 		s.folders.find((f) => f.id === projectId),
 	);
 	const settings = useRepositorySettingsStore(
-		(s) => s.byProject[projectId] ?? null,
+		(s) => s.byProject[repositorySettingsKey(environmentId, projectId)] ?? null,
 	);
 	const refresh = useRepositorySettingsStore((s) => s.refresh);
 	const update = useRepositorySettingsStore((s) => s.update);
 	const [permissionsOpen, setPermissionsOpen] = useState(false);
 
 	useEffect(() => {
-		if (settings === null) void refresh(projectId);
-	}, [projectId, refresh, settings]);
+		if (settings === null) void refresh(environmentId, projectId);
+	}, [environmentId, projectId, refresh, settings]);
 
 	if (folder === undefined) {
 		return (
@@ -69,7 +77,7 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
 					defaultProviderId={settings.defaultProviderId}
 					defaultModel={settings.defaultModel}
 					onProviderAndModelChange={(provider, model) =>
-						void update(projectId, {
+						void update(environmentId, projectId, {
 							defaultProviderId: provider,
 							defaultModel: model,
 						})
@@ -79,7 +87,7 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
 				<RuntimeModeOverrideSection
 					currentValue={settings.defaultRuntimeMode}
 					onChange={(value) =>
-						void update(projectId, { defaultRuntimeMode: value })
+						void update(environmentId, projectId, { defaultRuntimeMode: value })
 					}
 				/>
 
@@ -112,22 +120,22 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
 				environmentVariables={settings.environmentVariables}
 				fileIncludeGlobs={settings.fileIncludeGlobs}
 				onSetupScriptChange={(value) =>
-					void update(projectId, { setupScript: value })
+					void update(environmentId, projectId, { setupScript: value })
 				}
 				onRunScriptChange={(value) =>
-					void update(projectId, { runScript: value })
+					void update(environmentId, projectId, { runScript: value })
 				}
 				onArchiveScriptChange={(value) =>
-					void update(projectId, { archiveCleanupScript: value })
+					void update(environmentId, projectId, { archiveCleanupScript: value })
 				}
 				onAutoRunAfterSetupChange={(value) =>
-					void update(projectId, { autoRunAfterSetup: value })
+					void update(environmentId, projectId, { autoRunAfterSetup: value })
 				}
 				onEnvironmentVariablesChange={(value) =>
-					void update(projectId, { environmentVariables: value })
+					void update(environmentId, projectId, { environmentVariables: value })
 				}
 				onFileIncludeGlobsChange={(value) =>
-					void update(projectId, { fileIncludeGlobs: value })
+					void update(environmentId, projectId, { fileIncludeGlobs: value })
 				}
 			/>
 
@@ -135,7 +143,7 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
 				projectId={projectId}
 				autoCreate={settings.autoCreateWorktree}
 				onAutoCreateChange={(value) =>
-					void update(projectId, { autoCreateWorktree: value })
+					void update(environmentId, projectId, { autoCreateWorktree: value })
 				}
 			/>
 		</>
@@ -180,15 +188,7 @@ function ProviderOverrideSection({
 	// Mirror the global "Default agent" filter: skip providers the user
 	// toggled off.
 	const availableProviders = (
-		[
-			"claude",
-			"codex",
-			"grok",
-			"gemini",
-			"cursor",
-			"opencode",
-			"kiro",
-		] as const
+		["claude", "codex", "grok", "gemini", "cursor", "opencode", "kiro"] as const
 	).filter((pid) => {
 		if (providerEnabled[pid] === false) return false;
 		return true;

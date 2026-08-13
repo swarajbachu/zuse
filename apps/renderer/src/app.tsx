@@ -1,9 +1,11 @@
+import { EnvironmentId } from "@zuse/contracts";
 import { Effect } from "effect";
 import {
 	lazy,
 	type RefObject,
 	Suspense,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -26,20 +28,21 @@ import {
 	trackAnalyticsScreen,
 } from "./lib/analytics.ts";
 import { AppearanceController } from "./lib/appearance.tsx";
+import { installClientBusOnlineBridge } from "./lib/client-bus-online.ts";
 import { closeActiveChatTab } from "./lib/close-chat-tab.ts";
+import { useActiveSessionById } from "./lib/environment-entity-hooks.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
+import { useOptionalRendererSessionTimeline } from "./lib/session-timeline-hooks.ts";
+import { useSettingsStore } from "./lib/settings-client-bus.ts";
 import { shouldMountRightPane } from "./shell/right-pane-lifecycle.ts";
-import { useAuthStore } from "./store/auth.ts";
 import { useChatsStore } from "./store/chats.ts";
-import { useKeybindingsStore } from "./store/keybindings.ts";
-import { usePermissionsStore } from "./store/permissions.ts";
-import { useQueueHydrationStore } from "./store/queue-hydration.ts";
-import { getSessionById, useSessionsStore } from "./store/sessions.ts";
-import { useSettingsStore } from "./store/settings.ts";
+import { useEnvironmentCatalogStore } from "./store/environment-catalog.ts";
+import { useSessionsStore } from "./store/sessions.ts";
 import { useTerminalsStore } from "./store/terminals.ts";
 import {
 	DEFAULT_RIGHT_PANE_WIDTH_PERCENT,
 	openFileBelongsToProject,
+	rightPaneKey,
 	useUiStore,
 } from "./store/ui.ts";
 import { useWorkspaceStore } from "./store/workspace.ts";
@@ -262,6 +265,7 @@ function AmbientSurfaces() {
  * exit is what gives us a clean shell each time.
  */
 export function App() {
+	useEffect(() => installClientBusOnlineBridge(), []);
 	useEffect(() => {
 		let stop: (() => void) | undefined;
 		void startDesktopAnalytics().then((cleanup) => {
@@ -269,22 +273,6 @@ export function App() {
 		});
 		return () => stop?.();
 	}, []);
-	// Cross-cutting subscriptions that should run regardless of view.
-	const startPermissionsStream = usePermissionsStore((s) => s.start);
-	useEffect(() => {
-		startPermissionsStream();
-	}, [startPermissionsStream]);
-
-	// WorkOS auth: subscribe to session changes + cold-load the current session.
-	// Optional (no gate) — the sidebar account control, onboarding step, and
-	// settings panel all render off this state.
-	const startAuthStream = useAuthStore((s) => s.start);
-	const hydrateAuth = useAuthStore((s) => s.hydrate);
-	useEffect(() => {
-		startAuthStream();
-		void hydrateAuth();
-	}, [startAuthStream, hydrateAuth]);
-
 	// Native Application Menu → renderer action dispatcher. Lives on the
 	// root so the bindings work in every view (chat, settings, onboarding).
 	useMenuShortcuts();
@@ -306,16 +294,6 @@ export function App() {
 		const timeout = window.setTimeout(() => void loadUsageDashboard(), 1_500);
 		return () => window.clearTimeout(timeout);
 	}, []);
-
-	// Hydrate settings + keybindings from the on-disk config store. Each call is
-	// idempotent; subsequent emits flow through the RPC streams maintained by the
-	// stores themselves.
-	const hydrateSettings = useSettingsStore((s) => s.hydrate);
-	const hydrateKeybindings = useKeybindingsStore((s) => s.hydrate);
-	useEffect(() => {
-		void hydrateSettings();
-		void hydrateKeybindings();
-	}, [hydrateSettings, hydrateKeybindings]);
 
 	// Mirror Electron's fullscreen state into the ui store so the top bars
 	// can drop the macOS traffic-light gutter.
@@ -402,32 +380,46 @@ export function App() {
  * from a clean state.
  */
 function MainShell() {
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(state) => state.activeEnvironmentId,
+	);
 	const folders = useWorkspaceStore((s) => s.folders);
 	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
+	const selectedChatRef = useMemo(
+		() =>
+			selectedChatId === null
+				? null
+				: {
+						environmentId: EnvironmentId.make(activeEnvironmentId),
+						chatId: selectedChatId,
+					},
+		[activeEnvironmentId, selectedChatId],
+	);
+	const selectedChatKey =
+		selectedChatRef === null ? null : rightPaneKey(selectedChatRef);
 	const pendingCreation = useChatsStore((s) =>
 		selectedChatId === null
 			? null
 			: (s.pendingCreationByChat[selectedChatId] ?? null),
 	);
-	const selectedSession = useSessionsStore((s) => {
-		if (s.selectedSessionId === null) return null;
-		return getSessionById(s.selectedSessionId);
-	});
-	const selectedQueueHydrated = useQueueHydrationStore((state) =>
-		selectedSessionId === null
-			? false
-			: state.hydratedBySession[selectedSessionId] === true,
+	const selectedSession = useActiveSessionById(selectedSessionId);
+	const selectedTimeline = useOptionalRendererSessionTimeline(
+		selectedSessionId,
+		selectedSessionId === null ? "cache-only" : "connect",
+		EnvironmentId.make(activeEnvironmentId),
 	);
 	const directoryStatus = useChatDirectoryStatus(
+		EnvironmentId.make(activeEnvironmentId),
 		pendingCreation === null ? (selectedSession?.chatId ?? null) : null,
 	);
 	const directoryUnavailable = directoryStatus?._tag === "unavailable";
 	useEffect(() => {
 		if (!directoryUnavailable || selectedSession?.chatId === undefined) return;
-		useTerminalsStore.getState().disposeChat(selectedSession.chatId);
-	}, [directoryUnavailable, selectedSession?.chatId]);
+		if (selectedChatRef !== null)
+			useTerminalsStore.getState().disposeChat(selectedChatRef);
+	}, [directoryUnavailable, selectedChatRef, selectedSession?.chatId]);
 	const selectedFolder = selectedFolderId
 		? (folders.find((f) => f.id === selectedFolderId) ?? null)
 		: null;
@@ -441,14 +433,14 @@ function MainShell() {
 	const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
 	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
 	const rightSidebarOpen = useUiStore((s) =>
-		selectedChatId === null
+		selectedChatKey === null
 			? false
-			: (s.rightPaneLayoutByChat[selectedChatId]?.open ?? false),
+			: (s.rightPaneLayoutByChat[selectedChatKey]?.open ?? false),
 	);
 	const rightSidebarWidth = useUiStore((s) =>
-		selectedChatId === null
+		selectedChatKey === null
 			? DEFAULT_RIGHT_PANE_WIDTH_PERCENT
-			: (s.rightPaneLayoutByChat[selectedChatId]?.widthPercent ??
+			: (s.rightPaneLayoutByChat[selectedChatKey]?.widthPercent ??
 				DEFAULT_RIGHT_PANE_WIDTH_PERCENT),
 	);
 	const setRightSidebarOpenForChat = useUiStore(
@@ -634,6 +626,7 @@ function MainShell() {
 						{showMainTabs ? (
 							<Suspense fallback={<TabsFallback />}>
 								<MainTabs
+									environmentId={EnvironmentId.make(activeEnvironmentId)}
 									projectId={selectedFolderId}
 									emptyLabel={emptyTabLabel}
 								/>
@@ -656,6 +649,7 @@ function MainShell() {
 										<Suspense fallback={<SurfaceFallback />}>
 											<ChatView
 												sessionId={selectedSessionId}
+												environmentId={EnvironmentId.make(activeEnvironmentId)}
 												endInset={composerInset}
 											/>
 										</Suspense>
@@ -685,11 +679,14 @@ function MainShell() {
 														<DirectoryUnavailableBanner />
 													</Suspense>
 												) : null}
-												{selectedQueueHydrated ? (
+												{selectedTimeline.view.data !== null ? (
 													<Suspense fallback={<ComposerFallback />}>
 														<ChatComposer
 															key={selectedSession.id}
 															session={selectedSession}
+															environmentId={EnvironmentId.make(
+																activeEnvironmentId,
+															)}
 															constrain={false}
 															directoryUnavailable={directoryUnavailable}
 														/>
@@ -744,6 +741,7 @@ function MainShell() {
 							{activeMainTab === "usage" && (
 								<Suspense fallback={<SurfaceFallback />}>
 									<UsageDashboard
+										environmentId={EnvironmentId.make(activeEnvironmentId)}
 										projectId={
 											usageScope === "project" ? selectedFolderId : null
 										}
@@ -806,7 +804,7 @@ function MainShell() {
 						// persisted/default panel width would otherwise fire here and
 						// flip the sidebar open before the collapse effect runs.
 						if (prev === undefined) return;
-						if (selectedChatId === null) return;
+						if (selectedChatRef === null) return;
 						if (
 							rightPanelElementRef.current?.classList.contains(
 								"fz-sidebar-panel-motion",
@@ -816,10 +814,10 @@ function MainShell() {
 						}
 						const open = size.asPercentage > 0;
 						if (open !== rightSidebarOpen) {
-							setRightSidebarOpenForChat(selectedChatId, open);
+							setRightSidebarOpenForChat(selectedChatRef, open);
 						}
 						if (open && size.asPercentage !== rightSidebarWidth) {
-							setRightSidebarWidthForChat(selectedChatId, size.asPercentage);
+							setRightSidebarWidthForChat(selectedChatRef, size.asPercentage);
 						}
 					}}
 				>

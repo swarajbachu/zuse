@@ -1,4 +1,5 @@
 import type {
+	EnvironmentId,
 	FolderId,
 	ProviderId,
 	ProviderUsageLimits,
@@ -76,10 +77,12 @@ const PROVIDER_ORDER: ReadonlyArray<ProviderId> = [
 ];
 
 export function UsageDashboard({
+	environmentId,
 	projectId,
 	availableProjectId,
 	scopeLabel,
 }: {
+	environmentId: EnvironmentId;
 	projectId: FolderId | null;
 	availableProjectId: FolderId | null;
 	scopeLabel: string;
@@ -200,6 +203,7 @@ export function UsageDashboard({
 				)
 			) : (
 				<UsageReportView
+					environmentId={environmentId}
 					report={report}
 					refreshing={refreshing}
 					projectId={projectId}
@@ -254,6 +258,7 @@ function EmptyState({ error }: { error: string | null }) {
 }
 
 function UsageReportView({
+	environmentId,
 	report,
 	refreshing,
 	projectId,
@@ -261,6 +266,7 @@ function UsageReportView({
 	selectedRange,
 	onSelectRange,
 }: {
+	environmentId: EnvironmentId;
 	report: UsageOverview;
 	refreshing: boolean;
 	projectId: FolderId | null;
@@ -333,6 +339,7 @@ function UsageReportView({
 					previousByProject={report.previousByProject}
 				/>
 				<SessionsExplorer
+					environmentId={environmentId}
 					projectId={projectId}
 					period={period}
 					sessionCount={report.sessionCount}
@@ -959,11 +966,13 @@ function Contributors({
 
 type SortKey = "tokens" | "cost" | "last-active";
 function SessionsExplorer({
+	environmentId,
 	projectId,
 	period,
 	sessionCount,
 	selectedRange,
 }: {
+	environmentId: EnvironmentId;
 	projectId: FolderId | null;
 	period: UsagePeriod;
 	sessionCount: number;
@@ -980,6 +989,7 @@ function SessionsExplorer({
 		error,
 	} = useUsageSessions({
 		enabled: open,
+		environmentId,
 		projectId,
 		period,
 		since: selectedRange?.since,

@@ -6,6 +6,7 @@ import { SessionEvent } from "../core/events.js";
 import {
 	type AppendInput,
 	CommandReceipt,
+	CommandReceiptConflict,
 	ConcurrencyConflict,
 	type DispatchStorage,
 	type StoredEvent,
@@ -27,6 +28,7 @@ export class DispatchPersistenceDecodeError extends Schema.TaggedErrorClass<Disp
 export type SqlDispatchStorageError =
 	| SqlError
 	| ConcurrencyConflict
+	| CommandReceiptConflict
 	| DispatchPersistenceDecodeError;
 
 interface ReceiptRow {
@@ -198,7 +200,16 @@ export const makeSqlDispatchStorage = <
 		return yield* sql.withTransaction(
 			Effect.gen(function* () {
 				const existing = yield* receipt(input.commandId);
-				if (existing !== null) return existing;
+				if (existing !== null) {
+					if (existing.streamId !== input.streamId) {
+						return yield* new CommandReceiptConflict({
+							commandId: input.commandId,
+							expectedStreamId: input.streamId,
+							actualStreamId: existing.streamId,
+						});
+					}
+					return existing;
+				}
 
 				const versions = yield* sql<{ readonly version: number }>`
 					SELECT COALESCE(MAX(stream_version), 0) AS version
@@ -234,6 +245,7 @@ export const makeSqlDispatchStorage = <
 					streamId: input.streamId,
 					streamVersion,
 					eventIds: input.events.map((item) => item.eventId),
+					...(input.result === undefined ? {} : { result: input.result }),
 				};
 				yield* sql`
 					INSERT INTO command_receipts

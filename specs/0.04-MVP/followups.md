@@ -58,7 +58,7 @@ gap between "works in tests" and "useful in daily use."
   initial walker
 - File modification → `reindexFile` fires within debounce window;
   status stream emits `indexing → ready` so the renderer chip ticks
-- Git `HEAD` change (existing `subscribeHeadChanges` in
+- Git workspace invalidation (existing `workspaceChanges` in
   `apps/server/src/git/`) fires `swapBranchManifest` and re-publishes
   status — branch switch < 200 ms target from the spec
 - New test: write a file under a temp root, wait for the watcher to

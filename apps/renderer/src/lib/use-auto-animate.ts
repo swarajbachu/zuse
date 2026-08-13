@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import autoAnimate from "@formkit/auto-animate";
 import type {
-  AutoAnimateOptions,
-  AutoAnimationPlugin,
+	AutoAnimateOptions,
+	AutoAnimationPlugin,
 } from "@formkit/auto-animate";
 
 /**
@@ -17,13 +17,13 @@ import type {
  * animate on add / remove / reorder. Clean default ease, no spring.
  */
 export function useAutoAnimate<T extends HTMLElement = HTMLElement>(
-  config?: Partial<AutoAnimateOptions> | AutoAnimationPlugin,
+	config?: Partial<AutoAnimateOptions> | AutoAnimationPlugin,
 ) {
-  const ref = useRef<T>(null);
-  useEffect(() => {
-    if (ref.current === null) return;
-    const controller = autoAnimate(ref.current, config);
-    return () => controller.destroy?.();
-  }, [config]);
-  return ref;
+	const ref = useRef<T>(null);
+	useEffect(() => {
+		if (ref.current === null) return;
+		const controller = autoAnimate(ref.current, config);
+		return () => controller.destroy?.();
+	}, [config]);
+	return ref;
 }

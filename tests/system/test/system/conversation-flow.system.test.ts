@@ -1,4 +1,4 @@
-import { MessageId } from "@zuse/contracts";
+import { CommandId, MessageId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -23,6 +23,7 @@ describe("conversation flow through production RPC", () => {
 			await Effect.runPromise(
 				session.client["messages.send"]({
 					sessionId: created.initialSession.id,
+					commandId: CommandId.make("system-flow-send"),
 					text: "Respond through the real provider protocol.",
 					clientMessageId: MessageId.make("system-user-message"),
 				}),

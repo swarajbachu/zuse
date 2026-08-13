@@ -121,9 +121,18 @@ export const GitUserNameRpc = Rpc.make("git.userName", {
 	error: GitErrors,
 });
 
-export const GitHeadChangedRpc = Rpc.make("git.headChanged", {
-	payload: Schema.Struct({ folderId: FolderId }),
-	success: Schema.Struct({ sha: Schema.String }),
+/**
+ * Coalesced invalidation for one explicit repository checkout. The first
+ * frame is emitted immediately, then filesystem/index/HEAD changes advance a
+ * monotonic revision. Clients re-read their materialized Git resource after
+ * each revision; no transcript or patch payload is duplicated in this stream.
+ */
+export const GitWorkspaceChangesRpc = Rpc.make("git.workspaceChanges", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({ revision: Schema.Number }),
 	error: GitErrors,
 	stream: true,
 });

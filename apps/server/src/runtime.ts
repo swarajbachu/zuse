@@ -341,6 +341,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const FsLayer = FsServiceLive.pipe(
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(WorktreeLayer),
+		Layer.provide(MigratedSqlite),
 		Layer.provide(NodeServices.layer),
 	);
 
@@ -609,6 +610,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		ProviderLayer,
 		McpLayer,
 		SessionDomainLayer,
+		SessionQueriesLayer,
 		ConversationServicesLayer,
 		PermissionLayer,
 		AttachmentLayer,

@@ -26,7 +26,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
 	AccessibilityInfo,
 	Alert,
-	AppState,
 	type LayoutChangeEvent,
 	type NativeScrollEvent,
 	type NativeSyntheticEvent,
@@ -119,16 +118,15 @@ import {
 } from "~/store/messages";
 import {
 	cancelOutboxMessage,
-	flushOutbox,
 	hydrateOutbox,
 	queuedMessagesAtom,
+	submitOutboxDrafts,
 	updateOutboxMessage,
 } from "~/store/outbox";
 import {
 	decidePermission,
-	hydratePermissionConnection,
 	pendingPermissionsAtom,
-	reconcilePermissions,
+	retainPermissionConnection,
 } from "~/store/permissions";
 import {
 	hydratePinnedChats,
@@ -270,7 +268,6 @@ function ThreadScreen() {
 				? []
 				: [detail.session]
 			: orderedChatSessions(allConnectionSessions, chatId);
-	const threadIds = chatThreads.map((thread) => thread.id);
 	const currentThreadIndex = chatThreads.findIndex(
 		(thread) => thread.id === normalizedSessionId,
 	);
@@ -344,33 +341,9 @@ function ThreadScreen() {
 	}, [connKey, connectionSnapshot?.generation, normalizedSessionId, options]);
 
 	useEffect(() => {
-		void connectionSnapshot?.generation;
-		if (options === null || threadIds.length === 0) return;
-		void hydratePermissionConnection(connKey, options, threadIds);
-	}, [connKey, connectionSnapshot?.generation, options, threadIds]);
-
-	useEffect(() => {
-		if (options === null || (!sessionActive && pending.length === 0)) return;
-		const poll = () =>
-			void reconcilePermissions(connKey, options, normalizedSessionId);
-		const timer = setInterval(poll, pending.length > 0 ? 5_000 : 15_000);
-		return () => clearInterval(timer);
-	}, [connKey, normalizedSessionId, options, pending.length, sessionActive]);
-
-	useEffect(() => {
 		if (options === null) return;
-		void sessionStatus;
-		void reconcilePermissions(connKey, options, normalizedSessionId);
-	}, [connKey, normalizedSessionId, options, sessionStatus]);
-
-	useEffect(() => {
-		if (options === null) return;
-		const subscription = AppState.addEventListener("change", (state) => {
-			if (state === "active")
-				void reconcilePermissions(connKey, options, normalizedSessionId);
-		});
-		return () => subscription.remove();
-	}, [connKey, normalizedSessionId, options]);
+		return retainPermissionConnection(connKey, options);
+	}, [connKey, options]);
 
 	const pinnedHydrated = useAtomValue(pinnedChatsHydratedAtom);
 	const currentPinKey =
@@ -396,8 +369,8 @@ function ThreadScreen() {
 				: "Connection unavailable. Retry from the status above."
 			: null;
 
-	// Drain the outbox in order while the transport is online. This runs both
-	// when the connection wakes and when an item gets queued after a failed send.
+	// Transfer editable offline drafts once into the durable ClientBus outbox.
+	// ClientBus owns every retry after this handoff.
 	useEffect(() => {
 		if (
 			!transportOnline ||
@@ -407,17 +380,7 @@ function ThreadScreen() {
 		) {
 			return;
 		}
-		let cancelled = false;
-		const run = () => {
-			if (cancelled) return;
-			void flushOutbox(connKey, options, normalizedSessionId);
-		};
-		run();
-		const timer = setInterval(run, 2_000);
-		return () => {
-			cancelled = true;
-			clearInterval(timer);
-		};
+		void submitOutboxDrafts(connKey, options, normalizedSessionId);
 	}, [connKey, normalizedSessionId, transportOnline, options, queuedCount]);
 
 	// Cross-reference question rows so answered prompts collapse and the answer

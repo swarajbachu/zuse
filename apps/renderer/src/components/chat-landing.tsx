@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
 import {
 	type ChatId,
 	type ChatWorkspacePolicy,
@@ -6,8 +7,13 @@ import {
 	type CloudProviderOption,
 	ComposerInput,
 	defaultModelFor,
+	EnvironmentId,
 	type FolderId,
 	type LinearIssueSummary,
+	type LinearContextFile,
+	type LinearContextWarning,
+	type AttachmentRef,
+	CommandId,
 	type ProviderId,
 	type SessionId,
 	type WorktreeCreateSource,
@@ -18,7 +24,6 @@ import {
 	FolderAddIcon,
 	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
-import { Effect } from "effect";
 import { ChevronDown, X } from "lucide-react";
 import {
 	lazy,
@@ -54,10 +59,20 @@ import {
 	type PendingDraftContextFile,
 } from "~/composer/draft-attachments";
 import { applyPreparedLinearContext } from "~/composer/linear-context-input";
+import { uploadAttachment } from "~/lib/attachments";
 import { resolveChatWorkspacePolicy } from "~/lib/auto-worktree";
 import { chatLandingProgress } from "~/lib/chat-landing-progress";
 import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
-import { saveContextFile } from "~/lib/context-handoff";
+import {
+	ensureCloudWorkspaceAttached,
+	stageCloudChat,
+	summaryFromLaunch,
+} from "~/lib/cloud-workspaces.ts";
+import { saveContextFile, saveContextText } from "~/lib/context-handoff";
+import { dispatchEnvironmentShellCommand } from "~/lib/environment-shell-client-bus";
+import { dispatchGitWorkspaceCommand } from "~/lib/git-workspace-client-bus";
+import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
+import { useEnvironmentShellCatalog } from "~/lib/environment-shell-client-bus";
 import { formatError } from "~/lib/format-error";
 import {
 	buildLogicalProjectGroups,
@@ -67,20 +82,13 @@ import {
 	type NewChatTarget,
 	preferredGroupMember,
 } from "~/lib/project-groups";
-import {
-	getControlPlaneRpcClient,
-	getLocalEnvironmentId,
-	getRpcClient,
-} from "~/lib/rpc-client";
+import { getLocalEnvironmentId } from "~/lib/rpc-client";
+import { runControlPlane } from "~/lib/control-plane-client.ts";
+import { updateQueuedMessage } from "~/lib/session-actions";
+import { useSettingsStore } from "~/lib/settings-client-bus.ts";
 import { switchToEnvironment } from "~/lib/switch-environment";
 import { cn } from "~/lib/utils";
-import { useAttachmentsStore } from "~/store/attachments";
 import { useChatsStore } from "~/store/chats";
-import {
-	ensureCloudWorkspaceAttached,
-	stageCloudChat,
-	summaryFromLaunch,
-} from "~/store/cloud-chats";
 import { useComposerBridge } from "~/store/composer-bridge";
 import {
 	composerDraftKeyForLanding,
@@ -88,11 +96,11 @@ import {
 } from "~/store/composer-drafts";
 import { useEnvironmentCatalogStore } from "~/store/environment-catalog";
 import { useExternalThreadsStore } from "~/store/external-threads";
-import { useFolderOriginsStore } from "~/store/folder-origins";
-import { useMessagesStore } from "~/store/messages";
-import { useRepositorySettingsStore } from "~/store/repository-settings.ts";
+import {
+	repositorySettingsKey,
+	useRepositorySettingsStore,
+} from "~/store/repository-settings.ts";
 import { DRAFT_SESSION_ID, useSessionsStore } from "~/store/sessions";
-import { useSettingsStore } from "~/store/settings";
 import { useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
 import { EMPTY_WORKTREES, useWorktreesStore } from "~/store/worktrees";
@@ -125,9 +133,14 @@ const ProjectSetupDialog = lazy(() =>
  * real session id, so picks made on the landing carry into the first turn.
  * `ReasoningPicker`/`FastModeToggle` both key sessionStorage by sessionId.
  */
-const migrateModelOptions = (fromId: string, toId: string): void => {
+const migrateModelOptions = (
+	environmentId: EnvironmentId,
+	fromId: string,
+	toId: string,
+): void => {
 	if (typeof window === "undefined") return;
-	const prefix = `zuse.modelOptions.${fromId}.`;
+	const prefix = `zuse.modelOptions.${resourceRefKey({ environmentId, sessionId: fromId as SessionId })}.`;
+	const unqualifiedPrefix = `zuse.modelOptions.${fromId}.`;
 	const legacyPrefix = `memoize.modelOptions.${fromId}.`;
 	const moves: Array<[string, string]> = [];
 	for (let i = 0; i < window.sessionStorage.length; i++) {
@@ -135,12 +148,17 @@ const migrateModelOptions = (fromId: string, toId: string): void => {
 		if (key?.startsWith(prefix)) {
 			moves.push([
 				key,
-				`zuse.modelOptions.${toId}.${key.slice(prefix.length)}`,
+				`zuse.modelOptions.${resourceRefKey({ environmentId, sessionId: toId as SessionId })}.${key.slice(prefix.length)}`,
+			]);
+		} else if (key?.startsWith(unqualifiedPrefix)) {
+			moves.push([
+				key,
+				`zuse.modelOptions.${resourceRefKey({ environmentId, sessionId: toId as SessionId })}.${key.slice(unqualifiedPrefix.length)}`,
 			]);
 		} else if (key?.startsWith(legacyPrefix)) {
 			moves.push([
 				key,
-				`zuse.modelOptions.${toId}.${key.slice(legacyPrefix.length)}`,
+				`zuse.modelOptions.${resourceRefKey({ environmentId, sessionId: toId as SessionId })}.${key.slice(legacyPrefix.length)}`,
 			]);
 		}
 	}
@@ -183,6 +201,7 @@ const formatThreadRelative = (date: Date): string => {
  * render.
  */
 export function ChatLanding() {
+	const { originsByFolder: origins } = useActiveEnvironmentEntities();
 	const folders = useWorkspaceStore((s) => s.folders);
 	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
 	const selectFolder = useWorkspaceStore((s) => s.select);
@@ -208,13 +227,16 @@ export function ChatLanding() {
 	const repositoryAutoCreateWorktree = useRepositorySettingsStore((s) =>
 		selectedFolderId === null
 			? false
-			: s.byProject[selectedFolderId]?.autoCreateWorktree === true,
+			: s.byProject[
+					repositorySettingsKey(
+						EnvironmentId.make(activeEnvironmentId),
+						selectedFolderId,
+					)
+				]?.autoCreateWorktree === true,
 	);
 
 	const create = useChatsStore((s) => s.create);
-	const persistQueued = useMessagesStore((s) => s.persistQueued);
-	const updateQueued = useMessagesStore((s) => s.updateQueued);
-	const uploadOne = useAttachmentsStore((s) => s.uploadOne);
+	const uploadOne = uploadAttachment;
 	const beginDraft = useSessionsStore((s) => s.beginDraft);
 	const clearDraft = useSessionsStore((s) => s.clearDraft);
 	// The synthetic draft session that drives the real ChatComposer below. Its
@@ -280,6 +302,9 @@ export function ChatLanding() {
 	const activeEnvironmentId = useEnvironmentCatalogStore(
 		(s) => s.activeEnvironmentId,
 	);
+	const shellViews = useEnvironmentShellCatalog(
+		catalogEntries.map((entry) => entry.environmentId),
+	);
 	const retryProfile = useEnvironmentCatalogStore((s) => s.retry);
 	const retryEnvironment = useEnvironmentCatalogStore(
 		(s) => s.retryEnvironment,
@@ -287,8 +312,6 @@ export function ChatLanding() {
 	const [retryingEnvironmentId, setRetryingEnvironmentId] = useState<
 		string | null
 	>(null);
-	const origins = useFolderOriginsStore((s) => s.byFolder);
-	const hydrateOrigins = useFolderOriginsStore((s) => s.hydrate);
 	const desktopCatalogEnabled =
 		window.zuse?.ssh !== undefined || window.zuse?.tailnet !== undefined;
 	const unavailableComputers = catalogEntries.filter(
@@ -317,10 +340,6 @@ export function ChatLanding() {
 			.finally(() => setRetryingEnvironmentId(null));
 	};
 
-	useEffect(() => {
-		void hydrateOrigins(folders.map((folder) => folder.id));
-	}, [folders, hydrateOrigins]);
-
 	// One picker row per repo across machines. In hosted mode the catalog is
 	// empty, so groups degrade to exactly the active workspace's folders.
 	const projectGroups = useMemo(
@@ -332,8 +351,14 @@ export function ChatLanding() {
 				activeFolders: folders,
 				activeOrigins: origins,
 				activeChatsByProject: EMPTY_CHATS_BY_PROJECT,
+				shellsByEnvironment: Object.fromEntries(
+					Object.entries(shellViews).map(([environmentId, view]) => [
+						environmentId,
+						view.data,
+					]),
+				),
 			}),
-		[catalogEntries, activeEnvironmentId, folders, origins],
+		[catalogEntries, activeEnvironmentId, folders, origins, shellViews],
 	);
 	const selectedGroup = useMemo(
 		() =>
@@ -399,12 +424,11 @@ export function ChatLanding() {
 			return;
 		const loadCloudPlacement = async (): Promise<void> => {
 			try {
-				const client = await getControlPlaneRpcClient();
 				const [providerResult, projectResult, entitlementResult] =
 					await Promise.all([
-						Effect.runPromise(client["cloud.providers"]()),
-						Effect.runPromise(client["cloud.projects.list"]()),
-						Effect.runPromise(client["machines.entitlements"]()),
+						runControlPlane((client) => client["cloud.providers"]()),
+						runControlPlane((client) => client["cloud.projects.list"]()),
+						runControlPlane((client) => client["machines.entitlements"]()),
 					]);
 				if (cancelled) return;
 				const project =
@@ -444,7 +468,7 @@ export function ChatLanding() {
 					if (cloudCacheRefreshRequests.current.has(requestKey)) continue;
 					cloudCacheRefreshRequests.current.add(requestKey);
 					try {
-						await Effect.runPromise(
+						await runControlPlane((client) =>
 							client["cloud.projects.prepare"]({
 								projectId: project.projectId,
 								providerId: provider.providerId,
@@ -615,13 +639,23 @@ export function ChatLanding() {
 		}
 		if (sel.kind === "issue") {
 			try {
-				const client = await getRpcClient();
-				const res = await Effect.runPromise(
-					client["git.issueMarkdown"]({
+				const { result: res } = await dispatchGitWorkspaceCommand<
+					{ readonly folderId: FolderId; readonly number: number },
+					{ readonly markdown: string; readonly title: string }
+				>({
+					ref: {
+						environmentId: EnvironmentId.make(activeEnvironmentId),
+						folderId: selectedFolderId,
+						worktreeId: null,
+						rootPath: selectedFolder?.path ?? "",
+					},
+					kind: "git.issueMarkdown",
+					commandId: CommandId.make(`git-issue:${crypto.randomUUID()}`),
+					payload: {
 						folderId: selectedFolderId,
 						number: sel.number,
-					}),
-				);
+					},
+				});
 				setCreateSource({
 					kind: "issue",
 					worktreeId: null,
@@ -682,17 +716,33 @@ export function ChatLanding() {
 		issues: ReadonlyArray<LinearIssueSummary>,
 		input: ComposerInput,
 	): Promise<ComposerInput> => {
-		const client = await getRpcClient();
-		const prepared = await Effect.runPromise(
-			client["linear.prepareContext"]({
+		const { result: prepared } = await dispatchEnvironmentShellCommand<
+			{
+				readonly sessionId: SessionId;
+				readonly issues: ReadonlyArray<{
+					readonly workspaceId: string;
+					readonly issueId: string;
+					readonly identifier: string;
+				}>;
+			},
+			{
+				readonly files: ReadonlyArray<LinearContextFile>;
+				readonly attachments: ReadonlyArray<AttachmentRef>;
+				readonly warnings: ReadonlyArray<LinearContextWarning>;
+			}
+		>({
+			environmentId: EnvironmentId.make(activeEnvironmentId),
+			kind: "linear.prepareContext",
+			commandId: CommandId.make(`linear-context:${crypto.randomUUID()}`),
+			payload: {
 				sessionId,
 				issues: issues.map((issue) => ({
 					workspaceId: issue.workspaceId,
 					issueId: issue.issueId,
 					identifier: issue.identifier,
 				})),
-			}),
-		);
+			},
+		});
 		if (prepared.warnings.length > 0) {
 			toastManager.add({
 				type: "error",
@@ -751,15 +801,14 @@ export function ChatLanding() {
 			);
 			setPendingCloudStatus("Creating cloud workspace…");
 			try {
-				const control = await getControlPlaneRpcClient();
-				const launch = await Effect.runPromise(
+				const launch = await runControlPlane((control) =>
 					control["cloud.workspaces.create"]({
 						projectId: cloudProject.projectId,
 						providerId: selectedCloudProviderId,
 						baseRef: `origin/${cloudProject.defaultBranch}`,
 						agent: draft.providerId,
 						model: draft.model,
-						credentialKinds: [draft.providerId],
+						credentialKinds: [draft.providerId as "claude" | "codex"],
 						firstMessage: input.text,
 						idempotencyKey: crypto.randomUUID(),
 					}),
@@ -872,6 +921,10 @@ export function ChatLanding() {
 		}
 		if (selectedFolderId === null) return;
 		const startupInput = ComposerInput.make({ ...input, asGoal: opts.asGoal });
+		const startupNeedsPreparation =
+			createSource !== null ||
+			opts.pendingAttachments.length > 0 ||
+			opts.pendingContextFiles.length > 0;
 		setSubmitError(null);
 		setSubmitting(true);
 		setPendingPrompt(
@@ -897,26 +950,26 @@ export function ChatLanding() {
 						title: `${issue.identifier} ${issue.title}`,
 						runtimeMode: draft.runtimeMode,
 						permissionMode: draft.permissionMode,
-						workspacePolicy: resolveChatWorkspacePolicy(selectedFolderId),
+						workspacePolicy: resolveChatWorkspacePolicy(
+							EnvironmentId.make(activeEnvironmentId),
+							selectedFolderId,
+						),
 						workspaceRequested:
 							defaultAutoCreateWorktree || repositoryAutoCreateWorktree,
 						startupInput,
+						startupReady: false,
 					},
 				);
 				if (result === null) {
 					failures.push(`${issue.identifier}: couldn't create session`);
 					return;
 				}
-				migrateModelOptions(DRAFT_SESSION_ID, result.initialSessionId);
+				migrateModelOptions(
+					EnvironmentId.make(activeEnvironmentId),
+					DRAFT_SESSION_ID,
+					result.initialSessionId,
+				);
 				const startupQueueId = result.startupQueueId;
-				if (startupQueueId !== null) {
-					await persistQueued(
-						result.initialSessionId,
-						startupQueueId,
-						startupInput,
-						{ ready: false },
-					);
-				}
 				successes.push({
 					chatId: result.chatId,
 					sessionId: result.initialSessionId,
@@ -941,14 +994,13 @@ export function ChatLanding() {
 						ticketInput,
 						opts.pendingContextFiles,
 						async (pending) => {
-							const saved = await Effect.runPromise(
-								(await getRpcClient())["context.saveText"]({
-									sessionId: result.initialSessionId,
-									text: pending.text,
-									ext: pending.ext,
-									...(uploadRoot ? { rootPath: uploadRoot } : {}),
-								}),
-							);
+							const saved = await saveContextText({
+								environmentId: EnvironmentId.make(activeEnvironmentId),
+								sessionId: result.initialSessionId,
+								text: pending.text,
+								ext: pending.ext,
+								...(uploadRoot ? { rootPath: uploadRoot } : {}),
+							});
 							return { relPath: saved.relPath, absPath: saved.absPath };
 						},
 					);
@@ -963,8 +1015,11 @@ export function ChatLanding() {
 							),
 					);
 					if (startupQueueId !== null) {
-						await updateQueued(
-							result.initialSessionId,
+						await updateQueuedMessage(
+							{
+								environmentId: EnvironmentId.make(activeEnvironmentId),
+								sessionId: result.initialSessionId,
+							},
 							startupQueueId,
 							ticketInput,
 						);
@@ -1012,7 +1067,10 @@ export function ChatLanding() {
 		const workspacePolicy: ChatWorkspacePolicy | Promise<ChatWorkspacePolicy> =
 			createSource !== null && createSource.worktreeId !== null
 				? { _tag: "existing", worktreeId: createSource.worktreeId }
-				: resolveChatWorkspacePolicy(selectedFolderId);
+				: resolveChatWorkspacePolicy(
+						EnvironmentId.make(activeEnvironmentId),
+						selectedFolderId,
+					);
 		const result = await create(
 			selectedFolderId,
 			draft.providerId,
@@ -1026,6 +1084,7 @@ export function ChatLanding() {
 					defaultAutoCreateWorktree ||
 					repositoryAutoCreateWorktree,
 				startupInput,
+				startupReady: !startupNeedsPreparation,
 			},
 		);
 		if (result === null) {
@@ -1042,20 +1101,21 @@ export function ChatLanding() {
 		setPendingWorktreeId(worktreeId);
 		const sessionId = result.initialSessionId;
 		const startupQueueId = result.startupQueueId;
-		migrateModelOptions(DRAFT_SESSION_ID, sessionId);
-		if (startupQueueId !== null) {
-			// The session and startup item are now durable, but the item stays held
-			// until attachment/context preparation has produced its final payload.
-			await persistQueued(sessionId, startupQueueId, startupInput, {
-				ready: false,
-			});
-		}
+		migrateModelOptions(
+			EnvironmentId.make(activeEnvironmentId),
+			DRAFT_SESSION_ID,
+			sessionId,
+		);
 		// Issue source: write its Markdown into the chat's real worktree cwd and
 		// attach it as an `@`-file so the agent reads it from its own cwd (works
 		// for both the Claude `@relPath` and Codex `absPath` mention paths).
 		let finalInput = startupInput;
 		if (createSource?.issue != null) {
-			const ref = await saveContextFile(sessionId, createSource.issue.markdown);
+			const ref = await saveContextFile(
+				EnvironmentId.make(activeEnvironmentId),
+				sessionId,
+				createSource.issue.markdown,
+			);
 			if (ref !== null) {
 				finalInput = appendContextFileRef(startupInput, ref);
 			}
@@ -1085,19 +1145,17 @@ export function ChatLanding() {
 		})();
 		if (opts.pendingContextFiles.length > 0) {
 			try {
-				const client = await getRpcClient();
 				finalInput = await finalizeDraftContextFiles(
 					finalInput,
 					opts.pendingContextFiles,
 					async (pending) => {
-						const res = await Effect.runPromise(
-							client["context.saveText"]({
-								sessionId,
-								text: pending.text,
-								ext: pending.ext,
-								...(uploadRoot ? { rootPath: uploadRoot } : {}),
-							}),
-						);
+						const res = await saveContextText({
+							environmentId: EnvironmentId.make(activeEnvironmentId),
+							sessionId,
+							text: pending.text,
+							ext: pending.ext,
+							...(uploadRoot ? { rootPath: uploadRoot } : {}),
+						});
 						return { relPath: res.relPath, absPath: res.absPath };
 					},
 				);
@@ -1135,7 +1193,11 @@ export function ChatLanding() {
 			// Finalization is the release edge. If the provider became ready first,
 			// this update requests a drain; if the user deleted the item meanwhile,
 			// the server returns not-found and the item is never resurrected.
-			await updateQueued(sessionId, startupQueueId, finalInput);
+			await updateQueuedMessage(
+				{ environmentId: EnvironmentId.make(activeEnvironmentId), sessionId },
+				startupQueueId,
+				finalInput,
+			);
 		}
 		setCreateSource(null);
 		useSessionsStore.getState().clearDraft();
@@ -1282,13 +1344,19 @@ export function ChatLanding() {
 									: `${activeEnvironmentId}:${selectedFolderId ?? "none"}`
 							}
 							session={draftSession}
+							environmentId={EnvironmentId.make(
+								remoteAnchor?.member.environmentId ?? activeEnvironmentId,
+							)}
 							composerDraftKey={
 								remoteAnchor !== null
 									? composerDraftKeyForRemoteLanding(
-											remoteAnchor.member.environmentId,
+											EnvironmentId.make(remoteAnchor.member.environmentId),
 											remoteAnchor.member.folderId,
 										)
-									: composerDraftKeyForLanding(selectedFolderId)
+									: composerDraftKeyForLanding(
+											EnvironmentId.make(activeEnvironmentId),
+											selectedFolderId,
+										)
 							}
 							onDraftSubmit={(input, opts) =>
 								void handleDraftSubmit(input, opts)
@@ -1403,7 +1471,9 @@ export function ChatLanding() {
 										    branches — hidden for a remote-anchored draft. */}
 										{remoteAnchor === null ? (
 											<CreateFromMenu
+												environmentId={EnvironmentId.make(activeEnvironmentId)}
 												folderId={selectedFolderId}
+												rootPath={selectedFolder?.path ?? ""}
 												onSelect={(sel) => void handleCreateFromSelect(sel)}
 											/>
 										) : null}

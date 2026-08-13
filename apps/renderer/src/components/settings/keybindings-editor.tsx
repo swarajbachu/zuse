@@ -1,16 +1,16 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+	type Command,
+	type KeybindingRule,
+	keyStringFromEvent,
+} from "@zuse/contracts";
+import {
 	Alert01Icon,
 	MoreHorizontalIcon,
 	PencilIcon,
 	Search01Icon,
 	UndoIcon,
 } from "@zuse/icons/solid-rounded";
-import {
-	type Command,
-	type KeybindingRule,
-	keyStringFromEvent,
-} from "@zuse/contracts";
 import { Plus } from "lucide-react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
@@ -28,7 +28,7 @@ import {
 	COMMANDS_IN_ORDER,
 	DEFAULT_KEYBINDINGS,
 } from "../../lib/default-keybindings";
-import { useKeybindingsStore } from "../../store/keybindings";
+import { useKeybindings } from "../../lib/keybindings-client-bus.ts";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Frame, FrameFooter, FrameHeader } from "../ui/frame";
@@ -188,15 +188,10 @@ function RecordingSurface({
 /* ─────────────────────────── Editor entrypoint ───────────────────────────── */
 
 export function KeybindingsEditor() {
-	const resolved = useKeybindingsStore((s) => s.resolvedRules);
-	const userRules = useKeybindingsStore((s) => s.userRules);
-	const loaded = useKeybindingsStore((s) => s.loaded);
-	const hydrate = useKeybindingsStore((s) => s.hydrate);
-	const error = useKeybindingsStore((s) => s.error);
-
-	useEffect(() => {
-		void hydrate();
-	}, [hydrate]);
+	const resolved = useKeybindings((s) => s.resolvedRules);
+	const userRules = useKeybindings((s) => s.userRules);
+	const loaded = useKeybindings((s) => s.loaded);
+	const error = useKeybindings((s) => s.error);
 
 	const [query, setQuery] = useState("");
 	const [searchOpen, setSearchOpen] = useState(false);
@@ -338,10 +333,10 @@ function RowEditor({
 	readonly allRows: ReadonlyArray<EditorRow>;
 }) {
 	const [draft, dispatch] = useReducer(draftReducer, row, draftFromRow);
-	const addRule = useKeybindingsStore((s) => s.addRule);
-	const replaceUserRuleAt = useKeybindingsStore((s) => s.replaceUserRuleAt);
-	const removeUserRuleAt = useKeybindingsStore((s) => s.removeUserRuleAt);
-	const resetCommand = useKeybindingsStore((s) => s.resetCommand);
+	const addRule = useKeybindings((s) => s.addRule);
+	const replaceUserRuleAt = useKeybindings((s) => s.replaceUserRuleAt);
+	const removeUserRuleAt = useKeybindings((s) => s.removeUserRuleAt);
+	const resetCommand = useKeybindings((s) => s.resetCommand);
 
 	// When the upstream row changes (e.g. saved → echoed back through stream),
 	// reset the draft so the "dirty" indicator clears.
@@ -524,7 +519,7 @@ function NewRow({
 	readonly onCancel: () => void;
 	readonly onSaved: () => void;
 }) {
-	const addRule = useKeybindingsStore((s) => s.addRule);
+	const addRule = useKeybindings((s) => s.addRule);
 	const [command, setCommand] = useState<Command>(
 		COMMANDS_IN_ORDER[0] ?? "new-chat",
 	);
@@ -769,8 +764,8 @@ function ExpandableSearch({
 /* ─────────────────── Reset-all footer (only with overrides) ────────────── */
 
 function ResetAllFooter() {
-	const userRulesCount = useKeybindingsStore((s) => s.userRules.length);
-	const resetAll = useKeybindingsStore((s) => s.resetAll);
+	const userRulesCount = useKeybindings((s) => s.userRules.length);
+	const resetAll = useKeybindings((s) => s.resetAll);
 	if (userRulesCount === 0) return null;
 	return (
 		<div className="flex items-center justify-between rounded-md border border-border/40 bg-muted/20 px-3 py-2 text-xs">

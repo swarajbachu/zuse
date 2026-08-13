@@ -14,10 +14,6 @@ const entry = (
 	descriptor: null,
 	status: "connected",
 	error: null,
-	folders: [],
-	originsByFolder: {},
-	chatsByProject: {},
-	sessionsByProject: {},
 	...overrides,
 });
 

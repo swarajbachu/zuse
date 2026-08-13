@@ -1,13 +1,17 @@
 import type {
+	EnvironmentId,
 	Folder,
 	GithubRepoSummary,
 	ProjectTemplate,
 	WorkspaceDirectoryListing,
 } from "@zuse/contracts";
-import { Effect } from "effect";
+import {
+	CommandId,
+	EnvironmentId as EnvironmentIdSchema,
+} from "@zuse/contracts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { registerFolder, useWorkspaceStore } from "../store/workspace.ts";
-import { getRpcClient, getVerifiedRpcClient } from "./rpc-client.ts";
+import { dispatchEnvironmentShellCommand } from "./environment-shell-client-bus.ts";
 
 const messageOf = (cause: unknown): string => {
 	if (typeof cause === "object" && cause !== null) {
@@ -18,19 +22,20 @@ const messageOf = (cause: unknown): string => {
 	return String(cause);
 };
 
-const run = async <A>(
-	environmentId: string,
-	operation: (
-		client: Awaited<ReturnType<typeof getRpcClient>>,
-	) => Effect.Effect<A, unknown>,
-	options: { readonly preflight?: boolean } = {},
-): Promise<A> => {
+const run = async <Payload, Result>(
+	environmentId: EnvironmentId | string,
+	kind: string,
+	payload: Payload,
+): Promise<Result> => {
 	try {
-		const client =
-			options.preflight === true
-				? await getVerifiedRpcClient(environmentId)
-				: await getRpcClient(environmentId);
-		return await Effect.runPromise(operation(client));
+		return (
+			await dispatchEnvironmentShellCommand<Payload, Result>({
+				environmentId: EnvironmentIdSchema.make(environmentId),
+				kind,
+				commandId: CommandId.make(`environment-project:${crypto.randomUUID()}`),
+				payload,
+			})
+		).result;
 	} catch (cause) {
 		throw new Error(messageOf(cause));
 	}
@@ -43,32 +48,30 @@ const registerResult = async (
 	const catalog = useEnvironmentCatalogStore.getState();
 	if (catalog.activeEnvironmentId === environmentId) {
 		useWorkspaceStore.setState((state) => registerFolder(state, folder));
-		await run(environmentId, (client) =>
-			client["workspace.setSelected"]({ folderId: folder.id }),
-		).catch(() => undefined);
+		await run(environmentId, "workspace.setSelected", {
+			folderId: folder.id,
+		}).catch(() => undefined);
 	}
-	await catalog.refreshEnvironment(environmentId);
 };
 
 export const browseEnvironmentDirectory = (
 	environmentId: string,
 	path: string,
 ): Promise<WorkspaceDirectoryListing> =>
-	run(environmentId, (client) => client["workspace.browseDirectory"]({ path }));
+	run(environmentId, "workspace.browseDirectory", { path });
 
 export const pickEnvironmentFolder = async (
 	environmentId: string,
-): Promise<string | null> =>
-	run(environmentId, (client) => client["workspace.pickFolder"]({}));
+): Promise<string | null> => run(environmentId, "workspace.pickFolder", {});
 
 export const addEnvironmentFolder = async (
 	environmentId: string,
 	path: string,
 ): Promise<Folder> => {
-	const folder = await run(
+	const folder = await run<{ readonly path: string }, Folder>(
 		environmentId,
-		(client) => client["workspace.add"]({ path }),
-		{ preflight: true },
+		"workspace.add",
+		{ path },
 	);
 	await registerResult(environmentId, folder);
 	return folder;
@@ -79,11 +82,10 @@ export const cloneEnvironmentProject = async (
 	url: string,
 	parent: string,
 ): Promise<Folder> => {
-	const folder = await run(
-		environmentId,
-		(client) => client["workspace.cloneRepo"]({ url, parent }),
-		{ preflight: true },
-	);
+	const folder = await run<
+		{ readonly url: string; readonly parent: string },
+		Folder
+	>(environmentId, "workspace.cloneRepo", { url, parent });
 	await registerResult(environmentId, folder);
 	return folder;
 };
@@ -97,10 +99,10 @@ export const createEnvironmentProject = async (
 		readonly alsoCreateGithubRepo: boolean;
 	},
 ): Promise<Folder> => {
-	const folder = await run(
+	const folder = await run<typeof input, Folder>(
 		environmentId,
-		(client) => client["workspace.createProject"](input),
-		{ preflight: true },
+		"workspace.createProject",
+		input,
 	);
 	await registerResult(environmentId, folder);
 	return folder;
@@ -113,8 +115,14 @@ export const listEnvironmentGithubRepos = (
 	readonly authenticated: boolean;
 }> =>
 	Promise.all([
-		run(environmentId, (client) =>
-			client["workspace.listGithubRepos"]({ limit: 30 }),
+		run<{ readonly limit: number }, ReadonlyArray<GithubRepoSummary>>(
+			environmentId,
+			"workspace.listGithubRepos",
+			{ limit: 30 },
 		),
-		run(environmentId, (client) => client["workspace.ghAuthStatus"]({})),
+		run<Record<string, never>, { readonly authenticated: boolean }>(
+			environmentId,
+			"workspace.ghAuthStatus",
+			{},
+		),
 	]).then(([repos, auth]) => ({ repos, authenticated: auth.authenticated }));

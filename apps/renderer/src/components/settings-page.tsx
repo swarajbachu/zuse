@@ -3,7 +3,9 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	type AppearanceMode,
 	type BranchNamingStyle,
+	CommandId,
 	type CompletionSoundPreset,
+	EnvironmentId,
 	type Folder,
 	type FolderId,
 	type ProviderId,
@@ -29,7 +31,6 @@ import {
 	Tick01Icon,
 	VolumeHighIcon,
 } from "@zuse/icons/solid-rounded";
-import { Effect } from "effect";
 import { ChevronLeft, Plus, RefreshCw as RefreshIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
@@ -51,9 +52,10 @@ import {
 	prepareCompletionSound,
 } from "../lib/completion-sounds.ts";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
+import { useSettingsStore } from "../lib/settings-client-bus.ts";
 import { useProvidersStore } from "../store/providers.ts";
-import { useSettingsStore } from "../store/settings.ts";
+import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { type SettingsSection, useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { BlurredEmail } from "./blurred-email.tsx";
@@ -675,6 +677,9 @@ interface BrowserCredRow {
  * load-bearing: real credentials must never live here.
  */
 function BrowserTestLoginsPane() {
+	const environmentId = useEnvironmentCatalogStore((state) =>
+		EnvironmentId.make(state.activeEnvironmentId),
+	);
 	const [creds, setCreds] = useState<ReadonlyArray<BrowserCredRow>>([]);
 	const [origin, setOrigin] = useState("");
 	const [username, setUsername] = useState("");
@@ -682,8 +687,15 @@ function BrowserTestLoginsPane() {
 	const [busy, setBusy] = useState(false);
 
 	const load = async () => {
-		const client = await getRpcClient();
-		const list = await Effect.runPromise(client["browser.listCredentials"]({}));
+		const { result: list } = await dispatchEnvironmentShellCommand<
+			{},
+			ReadonlyArray<BrowserCredRow>
+		>({
+			environmentId,
+			kind: "browser.listCredentials",
+			commandId: CommandId.make(`browser-credentials:${crypto.randomUUID()}`),
+			payload: {},
+		});
 		setCreds(list.map((c) => ({ origin: c.origin, username: c.username })));
 	};
 
@@ -695,14 +707,25 @@ function BrowserTestLoginsPane() {
 		if (origin.trim() === "" || password === "") return;
 		setBusy(true);
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["browser.setCredential"]({
+			await dispatchEnvironmentShellCommand<
+				{
+					readonly origin: string;
+					readonly username: string;
+					readonly password: string;
+				},
+				unknown
+			>({
+				environmentId,
+				kind: "browser.setCredential",
+				commandId: CommandId.make(
+					`browser-credential-set:${crypto.randomUUID()}`,
+				),
+				payload: {
 					origin: origin.trim(),
 					username: username.trim(),
 					password,
-				}),
-			);
+				},
+			});
 			setOrigin("");
 			setUsername("");
 			setPassword("");
@@ -713,9 +736,15 @@ function BrowserTestLoginsPane() {
 	};
 
 	const remove = async (target: string) => {
-		const client = await getRpcClient();
-		await Effect.runPromise(
-			client["browser.removeCredential"]({ origin: target }),
+		await dispatchEnvironmentShellCommand<{ readonly origin: string }, unknown>(
+			{
+				environmentId,
+				kind: "browser.removeCredential",
+				commandId: CommandId.make(
+					`browser-credential-remove:${crypto.randomUUID()}`,
+				),
+				payload: { origin: target },
+			},
 		);
 		await load();
 	};
@@ -1316,6 +1345,9 @@ function GeneralPane() {
 }
 
 function ProvidersPane() {
+	const environmentId = useEnvironmentCatalogStore(
+		(state) => state.activeEnvironmentId,
+	);
 	const availability = useProvidersStore((s) => s.availability);
 	const loading = useProvidersStore((s) => s.loading);
 	const availabilityLoaded = useProvidersStore((s) => s.availabilityLoaded);
@@ -1434,6 +1466,7 @@ function ProvidersPane() {
 					</div>
 					<Card>
 						<ProviderCard
+							environmentId={environmentId}
 							providerId={selectedProvider}
 							availability={availabilityById.get(selectedProvider)}
 							loading={isInitialProviderAvailabilityLoading(

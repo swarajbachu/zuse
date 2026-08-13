@@ -1,7 +1,9 @@
 import type {
+	CommandId,
 	DirectoryUnavailableError,
 	FolderId,
 	FsAlreadyExistsError,
+	FsCommandReuseError,
 	FsConflictError,
 	FsEntry,
 	FsExternalConflictError,
@@ -12,6 +14,7 @@ import type {
 	FsPathOutsideError,
 	FsReadError,
 	FsTooLargeError,
+	FsTreeWatchEvent,
 	WorktreeId,
 } from "@zuse/contracts";
 import { Context, type Effect, type Stream } from "effect";
@@ -22,7 +25,7 @@ type TreeFailure =
 	| FsPathOutsideError
 	| FsReadError;
 type ReadFileFailure = TreeFailure | FsTooLargeError;
-type WriteFileFailure = ReadFileFailure | FsConflictError;
+type WriteFileFailure = ReadFileFailure | FsConflictError | FsCommandReuseError;
 type CreateFailure = TreeFailure | FsAlreadyExistsError;
 type ReadExternalFailure = FsExternalReadError | FsExternalTooLargeError;
 type WriteExternalFailure = ReadExternalFailure | FsExternalConflictError;
@@ -36,12 +39,15 @@ export interface FsServiceShape {
 	readonly watchTree: (
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
-	) => Stream.Stream<{ readonly paths: ReadonlyArray<string> }, TreeFailure>;
+	) => Stream.Stream<FsTreeWatchEvent, TreeFailure>;
 	readonly listPaths: (
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<
-		{ readonly paths: ReadonlyArray<string>; readonly truncated: boolean },
+		{
+			readonly paths: ReadonlyArray<string>;
+			readonly truncated: boolean;
+		},
 		TreeFailure
 	>;
 	readonly move: (
@@ -56,6 +62,7 @@ export interface FsServiceShape {
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<typeof FsFileContent.Type, ReadFileFailure>;
 	readonly writeFile: (
+		commandId: CommandId,
 		folderId: FolderId,
 		relPath: string,
 		content: string,

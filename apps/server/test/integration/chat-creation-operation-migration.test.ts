@@ -3,12 +3,14 @@ import { Effect, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
 import { Migration0044ChatCreationOperations } from "../../src/persistence/migrations/0044_chat_creation_operations.ts";
+import { Migration0049ChatCreationStartupReady } from "../../src/persistence/migrations/0049_chat_creation_startup_ready.ts";
 
 describe("chat creation operation migration", () => {
 	it("persists one resolved workspace per client operation", async () => {
 		const runtime = ManagedRuntime.make(sqliteLayer({ filename: ":memory:" }));
 		try {
 			await runtime.runPromise(Migration0044ChatCreationOperations);
+			await runtime.runPromise(Migration0049ChatCreationStartupReady);
 			const rows = await runtime.runPromise(
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
@@ -39,8 +41,9 @@ describe("chat creation operation migration", () => {
 						readonly operation_id: string;
 						readonly worktree_id: string | null;
 						readonly status: string;
+						readonly startup_ready: number;
 					}>`
-						SELECT operation_id, worktree_id, status
+						SELECT operation_id, worktree_id, status, startup_ready
 						FROM chat_creation_operations
 					`;
 				}),
@@ -50,6 +53,7 @@ describe("chat creation operation migration", () => {
 					operation_id: "op-1",
 					worktree_id: "worktree-1",
 					status: "creating_chat",
+					startup_ready: 1,
 				},
 			]);
 		} finally {

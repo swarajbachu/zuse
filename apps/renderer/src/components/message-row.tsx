@@ -1,4 +1,19 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type {
+	AttachmentRef,
+	BrowserAnnotation,
+	CodeAnnotation,
+	ComposerAnnotation,
+	EnvironmentId,
+	FileRef,
+	FolderId,
+	ForkDestination,
+	Message,
+	MessageOrigin,
+	ProviderId,
+	SessionId,
+	SkillRef,
+} from "@zuse/contracts";
 import {
 	AlertCircleIcon,
 	Copy01Icon,
@@ -9,20 +24,6 @@ import {
 	Settings01Icon,
 	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
-import type {
-	AttachmentRef,
-	BrowserAnnotation,
-	CodeAnnotation,
-	ComposerAnnotation,
-	FileRef,
-	FolderId,
-	ForkDestination,
-	Message,
-	MessageOrigin,
-	ProviderId,
-	SessionId,
-	SkillRef,
-} from "@zuse/contracts";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -36,11 +37,18 @@ import {
 	parseOrchestrationResult,
 } from "~/lib/orchestration-tools";
 import { attachmentUrl } from "~/lib/platform-capabilities";
+import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { resumeAfterProviderLogin } from "~/lib/provider-auth-recovery";
 import {
-	effectiveSessionRuntimeState,
-	isSessionTurnActive,
-} from "~/lib/session-runtime-state";
+	type ChatError,
+	classifyMessage,
+	clearSessionCommandError,
+	resumeSessionQueue,
+	retryLastSessionMessage,
+	sendSessionMessage,
+} from "~/lib/session-actions";
+import { isSessionTurnActive } from "~/lib/session-runtime-state";
+import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks.ts";
 import { subagentTaskIdForBlockingWait } from "~/lib/subagent-wait";
 import { normalizeToolCallEnvelope } from "~/lib/tool-call-envelope";
 import {
@@ -50,14 +58,7 @@ import {
 } from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
-import {
-	type ChatError,
-	classifyMessage,
-	lookupSessionProvider,
-	useMessagesStore,
-} from "~/store/messages";
 import { useProvidersStore } from "~/store/providers";
-import { useSessionRuntimeStore } from "~/store/session-runtime";
 import { useSessionsStore } from "~/store/sessions";
 import { useUiStore } from "~/store/ui";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
@@ -166,6 +167,7 @@ const formatCompactTokenDelta = (
 function MessageRowImpl({
 	message,
 	sessionId,
+	environmentId,
 	readOnly = false,
 	showAssistantCommands = false,
 	forkDestination,
@@ -173,6 +175,7 @@ function MessageRowImpl({
 }: {
 	message: Message;
 	sessionId?: SessionId;
+	environmentId?: EnvironmentId;
 	readOnly?: boolean;
 	showAssistantCommands?: boolean;
 	forkDestination?: ForkDestination;
@@ -218,6 +221,7 @@ function MessageRowImpl({
 				<ThinkingMessageRow
 					messageId={message.id}
 					sessionId={readOnly ? undefined : sessionId}
+					environmentId={environmentId}
 					text={message.content.text}
 					redacted={message.content.redacted}
 				/>
@@ -259,13 +263,9 @@ function MessageRowImpl({
 			// button rather than a bare generic error.
 			return (
 				<ErrorBubble
-					error={classifyMessage(
-						message.content.message,
-						sessionId !== undefined
-							? lookupSessionProvider(sessionId)
-							: undefined,
-					)}
+					error={classifyMessage(message.content.message)}
 					sessionId={sessionId}
+					environmentId={environmentId}
 				/>
 			);
 		case "interrupted":
@@ -287,29 +287,25 @@ MessageRow.displayName = "MessageRow";
 function ThinkingMessageRow({
 	messageId,
 	sessionId,
+	environmentId,
 	text,
 	redacted,
 }: {
 	messageId: Message["id"];
 	sessionId?: SessionId;
+	environmentId?: EnvironmentId;
 	text: string;
 	redacted: boolean;
 }) {
 	// Shimmer while this thinking block is the live tip of a running turn.
-	const turnActive = useSessionRuntimeStore((s) =>
-		sessionId === undefined
-			? false
-			: isSessionTurnActive(
-					effectiveSessionRuntimeState(s.bySession[sessionId]),
-				),
+	const timeline = useOptionalRendererSessionTimeline(
+		sessionId ?? null,
+		"cache-only",
+		environmentId ?? null,
 	);
-	const pending = useMessagesStore((s) => {
-		if (sessionId === undefined) return false;
-		if (!turnActive) return false;
-		const msgs = s.messagesBySession[sessionId] ?? [];
-		const last = msgs[msgs.length - 1];
-		return last?.id === messageId;
-	});
+	const turnActive = isSessionTurnActive(timeline.runtime);
+	const last = timeline.messages.at(-1);
+	const pending = turnActive && last?.id === messageId;
 	return <ThinkingRow text={text} redacted={redacted} pending={pending} />;
 }
 
@@ -506,13 +502,12 @@ function UserBubble({
 }) {
 	const hasAnnotations = annotations !== undefined && annotations.length > 0;
 	const revealAnnotation = useRevealAnnotation();
-	const originChatLoaded = useChatsStore((s) =>
-		origin === undefined
-			? false
-			: Object.values(s.chatsByProject).some((list) =>
-					list.some((c) => c.id === origin.chatId),
-				),
-	);
+	const { chatsByProject } = useActiveEnvironmentEntities();
+	const originChatLoaded =
+		origin !== undefined &&
+		Object.values(chatsByProject).some((list) =>
+			list.some((chat) => chat.id === origin.chatId),
+		);
 	const hasChips =
 		(attachments !== undefined && attachments.length > 0) ||
 		(fileRefs !== undefined && fileRefs.length > 0) ||
@@ -834,11 +829,13 @@ const PROVIDER_LABEL_FOR_ERROR: Record<ProviderId, string> = {
 function ProviderAuthCard({
 	providerId,
 	sessionId,
+	environmentId,
 	onOpenSettings,
 	onDismiss,
 }: {
 	providerId: ProviderId;
 	sessionId: SessionId | undefined;
+	environmentId: EnvironmentId | undefined;
 	onOpenSettings: () => void;
 	onDismiss?: () => void;
 }) {
@@ -846,8 +843,6 @@ function ProviderAuthCard({
 	const authStatus = useProvidersStore(
 		(s) => s.availability.find((a) => a.providerId === providerId)?.authStatus,
 	);
-	const clearError = useMessagesStore((s) => s.clearError);
-	const resumeQueue = useMessagesStore((s) => s.resumeQueue);
 	const reopenSession = useSessionsStore((s) => s.resume);
 	const { state, start, cancel } = useProviderLogin(providerId, {
 		onSuccess: () => {
@@ -857,12 +852,13 @@ function ProviderAuthCard({
 			// queued first message.
 			void (async () => {
 				await refreshProviders();
-				if (sessionId !== undefined) {
+				if (sessionId !== undefined && environmentId !== undefined) {
+					const ref = { environmentId, sessionId };
 					const resumed = await resumeAfterProviderLogin({
 						reopen: () => reopenSession(sessionId),
-						resumeQueue: () => resumeQueue(sessionId),
+						resumeQueue: () => resumeSessionQueue(ref, providerId),
 					});
-					if (resumed) clearError(sessionId);
+					if (resumed) clearSessionCommandError(ref);
 				}
 			})();
 		},
@@ -1061,22 +1057,30 @@ function GeminiUpgradeCard({ onDismiss }: { onDismiss?: () => void }) {
 export function ErrorBubble({
 	error,
 	sessionId,
+	environmentId,
+	providerId,
 	onDismiss,
 }: {
 	error: ChatError;
 	sessionId?: SessionId;
+	environmentId?: EnvironmentId;
+	providerId?: ProviderId;
 	onDismiss?: () => void;
 }) {
-	const retry = useMessagesStore((s) => s.retry);
-	const send = useMessagesStore((s) => s.send);
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
 
 	const onRetry = () => {
-		if (sessionId !== undefined) void retry(sessionId);
+		if (sessionId !== undefined && environmentId !== undefined) {
+			void retryLastSessionMessage({ environmentId, sessionId }, providerId);
+		}
 	};
 	const onKeepGoing = () => {
-		if (sessionId !== undefined) void send(sessionId, "keep going");
+		if (sessionId !== undefined && environmentId !== undefined) {
+			void sendSessionMessage({ environmentId, sessionId }, "keep going", {
+				providerId,
+			});
+		}
 	};
 	const onOpenSettings = () => {
 		setView("settings");
@@ -1162,6 +1166,7 @@ export function ErrorBubble({
 			<ProviderAuthCard
 				providerId={error.providerId}
 				sessionId={sessionId}
+				environmentId={environmentId}
 				onOpenSettings={onOpenSettings}
 				onDismiss={onDismiss}
 			/>

@@ -292,6 +292,70 @@ describe("translateAcpSessionUpdate — result normalization", () => {
 });
 
 describe("createAcpTranslator — assistant + thinking coalescing", () => {
+	it("emits cumulative stable checkpoints and does not duplicate final", () => {
+		const emitted: AgentEvent[] = [];
+		const t = createAcpTranslator("gemini", {
+			onCheckpoint: (events) => emitted.push(...events),
+			maxBytes: 5,
+		});
+		t.translate({
+			sessionUpdate: "agent_message_chunk",
+			content: "Hello",
+			itemId: "message-1",
+		});
+		t.translate({
+			sessionUpdate: "agent_message_chunk",
+			content: " world",
+			itemId: "message-1",
+		});
+		expect(emitted).toHaveLength(2);
+		expect(emitted).toMatchObject([
+			{
+				_tag: "AssistantMessage",
+				text: "Hello",
+				checkpoint: { revision: 1, final: false },
+			},
+			{
+				_tag: "AssistantMessage",
+				text: "Hello world",
+				checkpoint: { revision: 2, final: false },
+			},
+		]);
+		const [first, second] = emitted.filter(
+			(event): event is Extract<AgentEvent, { _tag: "AssistantMessage" }> =>
+				event._tag === "AssistantMessage",
+		);
+		expect(first?.itemId).toBe(second?.itemId);
+		expect(t.flush()).toMatchObject([
+			{
+				_tag: "AssistantMessage",
+				itemId: second?.itemId,
+				text: "Hello world",
+				checkpoint: { revision: 3, final: true },
+			},
+		]);
+	});
+
+	it("emits a time-bounded partial checkpoint", async () => {
+		const emitted: AgentEvent[] = [];
+		const t = createAcpTranslator("kiro", {
+			onCheckpoint: (events) => emitted.push(...events),
+			intervalMs: 5,
+		});
+		t.translate({ sessionUpdate: "agent_message_chunk", content: "partial" });
+		await new Promise((resolve) => setTimeout(resolve, 15));
+		expect(emitted).toMatchObject([
+			{ _tag: "AssistantMessage", text: "partial" },
+		]);
+		expect(t.flush()).toMatchObject([
+			{
+				_tag: "AssistantMessage",
+				text: "partial",
+				checkpoint: { revision: 2, final: true },
+			},
+		]);
+	});
+
 	it("buffers agent_message_chunk deltas and flushes one AssistantMessage", () => {
 		const t = createAcpTranslator("grok");
 		expect(

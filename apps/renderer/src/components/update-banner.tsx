@@ -1,18 +1,17 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { UpdateStatus } from "@zuse/contracts";
+import { EnvironmentId, type UpdateStatus } from "@zuse/contracts";
 import { Alert01Icon, CircleArrowUp01Icon } from "@zuse/icons/solid-rounded";
 import { X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Button } from "~/components/ui/button";
 import { overlaySurface } from "~/components/ui/overlay-surface";
-import {
-	effectiveSessionRuntimeState,
-	isSessionRuntimeBusy,
-} from "~/lib/session-runtime-state.ts";
+import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
+import { isSessionRuntimeBusy } from "~/lib/session-runtime-state.ts";
+import { useRendererSessionTimelines } from "~/lib/session-timeline-hooks.ts";
 import { cn } from "~/lib/utils";
-import { useSessionRuntimeStore } from "~/store/session-runtime.ts";
+import { useEnvironmentCatalogStore } from "~/store/environment-catalog.ts";
 
 /**
  * Bottom-right toast for the electron-updater lifecycle. Subscribes to the
@@ -42,15 +41,30 @@ export function UpdateBanner() {
 
 	// Global count of sessions with an in-flight turn. Primitive selector, so
 	// this only re-renders when the number actually changes.
-	const runningCount = useSessionRuntimeStore((s) => {
-		let count = 0;
-		for (const runtime of Object.values(s.bySession)) {
-			if (isSessionRuntimeBusy(effectiveSessionRuntimeState(runtime))) {
-				count += 1;
-			}
-		}
-		return count;
-	});
+	const { sessionsByProject } = useActiveEnvironmentEntities();
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(s) => s.activeEnvironmentId,
+	);
+	const timelineRefs = useMemo(
+		() =>
+			Object.values(sessionsByProject)
+				.flat()
+				.map((session) => ({
+					environmentId: EnvironmentId.make(activeEnvironmentId),
+					sessionId: session.id,
+				})),
+		[activeEnvironmentId, sessionsByProject],
+	);
+	const timelines = useRendererSessionTimelines(timelineRefs, "cache-only");
+	const runningCount = useMemo(
+		() =>
+			timelines.reduce(
+				(count, timeline) =>
+					count + (isSessionRuntimeBusy(timeline.runtime) ? 1 : 0),
+				0,
+			),
+		[timelines],
+	);
 
 	useEffect(() => {
 		const updates = window.zuse?.updates;

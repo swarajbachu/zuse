@@ -1,0 +1,1341 @@
+import {
+	ClientBus,
+	type ResourceDriver,
+	type ResourceLease,
+} from "@zuse/client-runtime/client-bus";
+import type {
+	ClientCommand,
+	ClientCommandExecutor,
+	CommandReceipt,
+	PersistedResource,
+	ResourcePersistence,
+} from "@zuse/client-runtime/client-persistence";
+import type {
+	EnvironmentFault,
+	EnvironmentResolver,
+	ResourceActivation,
+} from "@zuse/client-runtime/environment-runtime";
+import {
+	makeResourceKey,
+	type ResourceKey,
+	resourceKeyId,
+	type SessionRef,
+} from "@zuse/client-runtime/resource-ref";
+import type { ResourceView } from "@zuse/client-runtime/resource-state";
+import {
+	prependSessionTimelineMessages,
+	restoreSessionTimelineState,
+} from "@zuse/client-runtime/session-timeline";
+import { makeSessionTimelineCacheEntry } from "@zuse/client-runtime/session-timeline-cache";
+import { makeSessionTimelineResourceDriver } from "@zuse/client-runtime/session-timeline-driver";
+import type { EnvironmentId, Message } from "@zuse/contracts";
+import { SessionTimelineProjection } from "@zuse/contracts";
+import { Effect } from "effect";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import {
+	createClientCommandOutbox,
+	resetMemoryCommandOutboxForTest,
+} from "./client-command-outbox.ts";
+import {
+	acquireRendererRpcSession,
+	isRpcClientTransportError,
+	type MemoizeClient,
+	type RendererRpcSession,
+} from "./rpc-client.ts";
+import { sessionTimelineCache } from "./session-timeline-cache.ts";
+
+export type SessionTimelineResourceKey = ResourceKey<SessionTimelineProjection>;
+
+export const sessionTimelineResourceKey = (
+	ref: SessionRef,
+): SessionTimelineResourceKey =>
+	makeResourceKey<SessionTimelineProjection>("session-timeline", ref);
+
+const sessionRef = (key: ResourceKey<unknown>): SessionRef | null =>
+	key.kind === "session-timeline" && "sessionId" in key.ref ? key.ref : null;
+
+class RendererTimelinePersistence implements ResourcePersistence {
+	async loadResource<Data>(
+		key: ResourceKey<Data>,
+	): Promise<PersistedResource<Data> | null> {
+		const ref = sessionRef(key);
+		if (ref === null || sessionTimelineCache === null) return null;
+		const cached = await sessionTimelineCache.load(ref);
+		if (cached === null) return null;
+		return {
+			data: cached.projection as Data,
+			cursor: cached.cursor,
+			storedAt: cached.savedAt,
+		};
+	}
+
+	async saveResource<Data>(
+		key: ResourceKey<Data>,
+		value: PersistedResource<Data>,
+	): Promise<void> {
+		const ref = sessionRef(key);
+		if (
+			ref === null ||
+			sessionTimelineCache === null ||
+			value.cursor === null
+		) {
+			return;
+		}
+		await sessionTimelineCache.save(
+			makeSessionTimelineCacheEntry({
+				ref,
+				cursor: value.cursor,
+				projection: value.data as SessionTimelineProjection,
+				now: value.storedAt,
+			}),
+		);
+		void sessionTimelineCache.prune().catch(() => undefined);
+	}
+
+	async removeResource(key: ResourceKey<unknown>): Promise<void> {
+		const ref = sessionRef(key);
+		if (ref !== null) await sessionTimelineCache?.remove(ref);
+	}
+}
+
+export type RendererResourcePersistence = ResourcePersistence;
+
+const timelinePersistence = new RendererTimelinePersistence();
+const registeredPersistence = new Map<string, ResourcePersistence>([
+	["session-timeline", timelinePersistence],
+]);
+
+/**
+ * Routes persistence by resource kind while keeping one ClientBus. Register
+ * adapters during module/bootstrap setup, before retaining that resource kind.
+ */
+export const registerRendererResourcePersistence = (
+	kind: string,
+	persistence: RendererResourcePersistence,
+): (() => void) => {
+	const previous = registeredPersistence.get(kind);
+	if (previous !== undefined && previous !== persistence) {
+		throw new Error(
+			`Renderer ClientBus persistence already registered: ${kind}`,
+		);
+	}
+	registeredPersistence.set(kind, persistence);
+	return () => {
+		if (
+			kind !== "session-timeline" &&
+			registeredPersistence.get(kind) === persistence
+		) {
+			registeredPersistence.delete(kind);
+		}
+	};
+};
+
+const rendererResourcePersistence: ResourcePersistence = {
+	loadResource: <Data>(key: ResourceKey<Data>) =>
+		registeredPersistence.get(key.kind)?.loadResource(key) ??
+		Promise.resolve(null),
+	saveResource: <Data>(
+		key: ResourceKey<Data>,
+		value: PersistedResource<Data>,
+	) =>
+		registeredPersistence.get(key.kind)?.saveResource(key, value) ??
+		Promise.resolve(),
+	removeResource: (key) =>
+		registeredPersistence.get(key.kind)?.removeResource(key) ??
+		Promise.resolve(),
+};
+
+const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
+	execute: async (client, command) => {
+		const payload = command.payload as Readonly<Record<string, unknown>>;
+		let result: unknown;
+		switch (command.kind) {
+			case "workspace.setSelected":
+				result = await Effect.runPromise(
+					client["workspace.setSelected"](payload as never),
+				);
+				break;
+			case "workspace.getSelected":
+				result = await Effect.runPromise(
+					client["workspace.getSelected"](payload as never),
+				);
+				break;
+			case "workspace.remove":
+				result = await Effect.runPromise(
+					client["workspace.remove"](payload as never),
+				);
+				break;
+			case "workspace.add":
+				result = await Effect.runPromise(
+					client["workspace.add"](payload as never),
+				);
+				break;
+			case "workspace.pickFolder":
+				result = await Effect.runPromise(
+					client["workspace.pickFolder"](payload as never),
+				);
+				break;
+			case "workspace.listGithubRepos":
+				result = await Effect.runPromise(
+					client["workspace.listGithubRepos"](payload as never),
+				);
+				break;
+			case "workspace.ghAuthStatus":
+				result = await Effect.runPromise(
+					client["workspace.ghAuthStatus"](payload as never),
+				);
+				break;
+			case "workspace.cloneRepo":
+				result = await Effect.runPromise(
+					client["workspace.cloneRepo"](payload as never),
+				);
+				break;
+			case "workspace.createProject":
+				result = await Effect.runPromise(
+					client["workspace.createProject"](payload as never),
+				);
+				break;
+			case "workspace.browseDirectory":
+				result = await Effect.runPromise(
+					client["workspace.browseDirectory"](payload as never),
+				);
+				break;
+			case "attachments.upload":
+				result = await Effect.runPromise(
+					client["attachments.upload"](payload as never),
+				);
+				break;
+			case "externalThreads.list":
+				result = await Effect.runPromise(
+					client["externalThreads.list"](payload as never),
+				);
+				break;
+			case "externalThreads.continue":
+				result = await Effect.runPromise(
+					client["externalThreads.continue"](payload as never),
+				);
+				break;
+			case "usage.sessions":
+				result = await Effect.runPromise(
+					client["usage.sessions"](payload as never),
+				);
+				break;
+			case "usage.limits":
+				result = await Effect.runPromise(
+					client["usage.limits"](payload as never),
+				);
+				break;
+			case "usage.limits.history":
+				result = await Effect.runPromise(
+					client["usage.limits.history"](payload as never),
+				);
+				break;
+			case "session.rename":
+				result = await Effect.runPromise(
+					client["session.rename"](payload as never),
+				);
+				break;
+			case "session.setRuntimeMode":
+				result = await Effect.runPromise(
+					client["session.setRuntimeMode"](payload as never),
+				);
+				break;
+			case "session.setPermissionMode":
+				result = await Effect.runPromise(
+					client["session.setPermissionMode"](payload as never),
+				);
+				break;
+			case "session.create":
+				result = await Effect.runPromise(
+					client["session.create"](payload as never),
+				);
+				break;
+			case "session.fork":
+				result = await Effect.runPromise(
+					client["session.fork"](payload as never),
+				);
+				break;
+			case "session.setModel":
+				result = await Effect.runPromise(
+					client["session.setModel"](payload as never),
+				);
+				break;
+			case "session.setProvider":
+				result = await Effect.runPromise(
+					client["session.setProvider"](payload as never),
+				);
+				break;
+			case "session.answerQuestion":
+				result = await Effect.runPromise(
+					client["session.answerQuestion"](payload as never),
+				);
+				break;
+			case "session.plan.respond":
+				result = await Effect.runPromise(
+					client["session.plan.respond"](payload as never),
+				);
+				break;
+			case "session.archive":
+				result = await Effect.runPromise(
+					client["session.archive"](payload as never),
+				);
+				break;
+			case "session.unarchive":
+				result = await Effect.runPromise(
+					client["session.unarchive"](payload as never),
+				);
+				break;
+			case "session.delete":
+				result = await Effect.runPromise(
+					client["session.delete"](payload as never),
+				);
+				break;
+			case "session.resume":
+				result = await Effect.runPromise(
+					client["session.resume"](payload as never),
+				);
+				break;
+			case "session.get":
+				result = await Effect.runPromise(
+					client["session.get"](payload as never),
+				);
+				break;
+			case "context.saveText":
+				result = await Effect.runPromise(
+					client["context.saveText"](payload as never),
+				);
+				break;
+			case "session.latestPlan":
+				result = await Effect.runPromise(
+					client["session.latestPlan"](payload as never),
+				);
+				break;
+			case "session.exportTranscript":
+				result = await Effect.runPromise(
+					client["session.exportTranscript"](payload as never),
+				);
+				break;
+			case "chat.create":
+				result = await Effect.runPromise(
+					client["chat.create"](payload as never),
+				);
+				break;
+			case "chat.rename":
+				result = await Effect.runPromise(
+					client["chat.rename"](payload as never),
+				);
+				break;
+			case "chat.setWorktree":
+				result = await Effect.runPromise(
+					client["chat.setWorktree"](payload as never),
+				);
+				break;
+			case "chat.setActiveSession":
+				result = await Effect.runPromise(
+					client["chat.setActiveSession"](payload as never),
+				);
+				break;
+			case "chat.markRead":
+				result = await Effect.runPromise(
+					client["chat.markRead"](payload as never),
+				);
+				break;
+			case "chat.archive":
+				result = await Effect.runPromise(
+					client["chat.archive"](payload as never),
+				);
+				break;
+			case "chat.unarchive":
+				result = await Effect.runPromise(
+					client["chat.unarchive"](payload as never),
+				);
+				break;
+			case "chat.delete":
+				result = await Effect.runPromise(
+					client["chat.delete"](payload as never),
+				);
+				break;
+			case "chat.get":
+				result = await Effect.runPromise(client["chat.get"](payload as never));
+				break;
+			case "chat.list":
+				result = await Effect.runPromise(client["chat.list"](payload as never));
+				break;
+			case "chat.archivePreview":
+				result = await Effect.runPromise(
+					client["chat.archivePreview"](payload as never),
+				);
+				break;
+			case "chat.directoryStatus":
+				result = await Effect.runPromise(
+					client["chat.directoryStatus"](payload as never),
+				);
+				break;
+			case "chat.archiveStatus":
+				result = await Effect.runPromise(
+					client["chat.archiveStatus"](payload as never),
+				);
+				break;
+			case "chat.creation.discard":
+				result = await Effect.runPromise(
+					client["chat.creation.discard"](payload as never),
+				);
+				break;
+			case "chat.archiveJobs":
+				result = await Effect.runPromise(
+					client["chat.archiveJobs"](payload as never),
+				);
+				break;
+			case "chat.creation.list":
+				result = await Effect.runPromise(
+					client["chat.creation.list"](payload as never),
+				);
+				break;
+			case "skill.listForProject":
+				result = await Effect.runPromise(
+					client["skill.listForProject"](payload as never),
+				);
+				break;
+			case "permission.decide":
+				result = await Effect.runPromise(
+					client["permission.decide"](payload as never),
+				);
+				break;
+			case "permission.listDecisions":
+				result = await Effect.runPromise(
+					client["permission.listDecisions"](payload as never),
+				);
+				break;
+			case "permission.revokeDecision":
+				result = await Effect.runPromise(
+					client["permission.revokeDecision"](payload as never),
+				);
+				break;
+			case "browser.respond":
+				result = await Effect.runPromise(
+					client["browser.respond"](payload as never),
+				);
+				break;
+			case "auth.signIn":
+				result = await Effect.runPromise(
+					client["auth.signIn"](payload as never),
+				);
+				break;
+			case "auth.signOut":
+				result = await Effect.runPromise(
+					client["auth.signOut"](payload as never),
+				);
+				break;
+			case "keybindings.replace":
+				result = await Effect.runPromise(
+					client["keybindings.replace"](payload as never),
+				);
+				break;
+			case "settings.update":
+				result = await Effect.runPromise(
+					client["settings.update"](payload as never),
+				);
+				break;
+			case "repositorySettings.get":
+				result = await Effect.runPromise(
+					client["repositorySettings.get"](payload as never),
+				);
+				break;
+			case "repositorySettings.update":
+				result = await Effect.runPromise(
+					client["repositorySettings.update"](payload as never),
+				);
+				break;
+			case "provider.availability":
+				result = await Effect.runPromise(
+					client["provider.availability"](payload as never),
+				);
+				break;
+			case "provider.setCredential":
+				result = await Effect.runPromise(
+					client["provider.setCredential"](payload as never),
+				);
+				break;
+			case "provider.removeCredential":
+				result = await Effect.runPromise(
+					client["provider.removeCredential"](payload as never),
+				);
+				break;
+			case "provider.opencode.inventory":
+				result = await Effect.runPromise(
+					client["provider.opencode.inventory"](payload as never),
+				);
+				break;
+			case "provider.opencode.setAuth":
+				result = await Effect.runPromise(
+					client["provider.opencode.setAuth"](payload as never),
+				);
+				break;
+			case "provider.opencode.removeAuth":
+				result = await Effect.runPromise(
+					client["provider.opencode.removeAuth"](payload as never),
+				);
+				break;
+			case "provider.opencode.addCustom":
+				result = await Effect.runPromise(
+					client["provider.opencode.addCustom"](payload as never),
+				);
+				break;
+			case "provider.opencode.removeCustom":
+				result = await Effect.runPromise(
+					client["provider.opencode.removeCustom"](payload as never),
+				);
+				break;
+			case "provider.kiro.inventory":
+				result = await Effect.runPromise(
+					client["provider.kiro.inventory"](payload as never),
+				);
+				break;
+			case "pokemon.pokedex":
+				result = await Effect.runPromise(
+					client["pokemon.pokedex"](payload as never),
+				);
+				break;
+			case "pokemon.ensureSpriteCached":
+				result = await Effect.runPromise(
+					client["pokemon.ensureSpriteCached"](payload as never),
+				);
+				break;
+			case "mcp.list":
+				result = await Effect.runPromise(client["mcp.list"](payload as never));
+				break;
+			case "mcp.refresh":
+				result = await Effect.runPromise(
+					client["mcp.refresh"](payload as never),
+				);
+				break;
+			case "mcp.setEnabled":
+				result = await Effect.runPromise(
+					client["mcp.setEnabled"](payload as never),
+				);
+				break;
+			case "session.goal.set":
+				result = await Effect.runPromise(
+					client["session.goal.set"](payload as never),
+				);
+				break;
+			case "session.goal.clear":
+				result = await Effect.runPromise(
+					client["session.goal.clear"](payload as never),
+				);
+				break;
+			case "fs.writeFile":
+				result = await Effect.runPromise(
+					client["fs.writeFile"](payload as never),
+				);
+				break;
+			case "fs.readFile":
+				result = await Effect.runPromise(
+					client["fs.readFile"](payload as never),
+				);
+				break;
+			case "fs.move":
+				result = await Effect.runPromise(client["fs.move"](payload as never));
+				break;
+			case "fs.createFile":
+				result = await Effect.runPromise(
+					client["fs.createFile"](payload as never),
+				);
+				break;
+			case "fs.createDirectory":
+				result = await Effect.runPromise(
+					client["fs.createDirectory"](payload as never),
+				);
+				break;
+			case "fs.remove":
+				result = await Effect.runPromise(client["fs.remove"](payload as never));
+				break;
+			case "git.revertAll":
+				result = await Effect.runPromise(
+					client["git.revertAll"](payload as never),
+				);
+				break;
+			case "git.revertFile":
+				result = await Effect.runPromise(
+					client["git.revertFile"](payload as never),
+				);
+				break;
+			case "git.commit":
+				result = await Effect.runPromise(
+					client["git.commit"](payload as never),
+				);
+				break;
+			case "git.push":
+				result = await Effect.runPromise(client["git.push"](payload as never));
+				break;
+			case "git.reviewIdentity":
+				result = await Effect.runPromise(
+					client["git.reviewIdentity"](payload as never),
+				);
+				break;
+			case "git.reviewFileContents":
+				result = await Effect.runPromise(
+					client["git.reviewFileContents"](payload as never),
+				);
+				break;
+			case "git.restoreFileToBase":
+				result = await Effect.runPromise(
+					client["git.restoreFileToBase"](payload as never),
+				);
+				break;
+			case "git.createReviewComment":
+				result = await Effect.runPromise(
+					client["git.createReviewComment"](payload as never),
+				);
+				break;
+			case "git.resolveConflict":
+				result = await Effect.runPromise(
+					client["git.resolveConflict"](payload as never),
+				);
+				break;
+			case "git.branches":
+				result = await Effect.runPromise(
+					client["git.branches"](payload as never),
+				);
+				break;
+			case "git.switchBranch":
+				result = await Effect.runPromise(
+					client["git.switchBranch"](payload as never),
+				);
+				break;
+			case "worktree.renameBranch":
+				result = await Effect.runPromise(
+					client["worktree.renameBranch"](payload as never),
+				);
+				break;
+			case "worktree.rerunSetup":
+				result = await Effect.runPromise(
+					client["worktree.rerunSetup"](payload as never),
+				);
+				break;
+			case "worktree.startRun":
+				result = await Effect.runPromise(
+					client["worktree.startRun"](payload as never),
+				);
+				break;
+			case "worktree.remove":
+				result = await Effect.runPromise(
+					client["worktree.remove"](payload as never),
+				);
+				break;
+			case "worktree.list":
+				result = await Effect.runPromise(
+					client["worktree.list"](payload as never),
+				);
+				break;
+			case "worktree.create":
+				result = await Effect.runPromise(
+					client["worktree.create"](payload as never),
+				);
+				break;
+			case "git.markReady":
+				result = await Effect.runPromise(
+					client["git.markReady"](payload as never),
+				);
+				break;
+			case "git.mergePr":
+				result = await Effect.runPromise(
+					client["git.mergePr"](payload as never),
+				);
+				break;
+			case "git.fixFailingChecks":
+				result = await Effect.runPromise(
+					client["git.fixFailingChecks"](payload as never),
+				);
+				break;
+			case "git.diff":
+				result = await Effect.runPromise(client["git.diff"](payload as never));
+				break;
+			case "git.issueMarkdown":
+				result = await Effect.runPromise(
+					client["git.issueMarkdown"](payload as never),
+				);
+				break;
+			case "git.listPrs":
+				result = await Effect.runPromise(
+					client["git.listPrs"](payload as never),
+				);
+				break;
+			case "git.listIssues":
+				result = await Effect.runPromise(
+					client["git.listIssues"](payload as never),
+				);
+				break;
+			case "linear.listConnections":
+				result = await Effect.runPromise(
+					client["linear.listConnections"](payload as never),
+				);
+				break;
+			case "linear.listIssues":
+				result = await Effect.runPromise(
+					client["linear.listIssues"](payload as never),
+				);
+				break;
+			case "linear.connect":
+				result = await Effect.runPromise(
+					client["linear.connect"](payload as never),
+				);
+				break;
+			case "linear.disconnect":
+				result = await Effect.runPromise(
+					client["linear.disconnect"](payload as never),
+				);
+				break;
+			case "linear.prepareContext":
+				result = await Effect.runPromise(
+					client["linear.prepareContext"](payload as never),
+				);
+				break;
+			case "workspace.searchFiles":
+				result = await Effect.runPromise(
+					client["workspace.searchFiles"](payload as never),
+				);
+				break;
+			case "browser.listCredentials":
+				result = await Effect.runPromise(
+					client["browser.listCredentials"](payload as never),
+				);
+				break;
+			case "browser.setCredential":
+				result = await Effect.runPromise(
+					client["browser.setCredential"](payload as never),
+				);
+				break;
+			case "browser.removeCredential":
+				result = await Effect.runPromise(
+					client["browser.removeCredential"](payload as never),
+				);
+				break;
+			case "diagnostics.ingest":
+				result = await Effect.runPromise(
+					client["diagnostics.ingest"](payload as never),
+				);
+				break;
+			case "diagnostics.overview":
+				result = await Effect.runPromise(
+					client["diagnostics.overview"](payload as never),
+				);
+				break;
+			case "diagnostics.events":
+				result = await Effect.runPromise(
+					client["diagnostics.events"](payload as never),
+				);
+				break;
+			case "diagnostics.processes":
+				result = await Effect.runPromise(
+					client["diagnostics.processes"](payload as never),
+				);
+				break;
+			case "diagnostics.export":
+				result = await Effect.runPromise(
+					client["diagnostics.export"](payload as never),
+				);
+				break;
+			case "diagnostics.capture":
+				result = await Effect.runPromise(
+					client["diagnostics.capture"](payload as never),
+				);
+				break;
+			case "diagnostics.signalProcess":
+				result = await Effect.runPromise(
+					client["diagnostics.signalProcess"](payload as never),
+				);
+				break;
+			case "pairing.listNearbyRequests":
+				result = await Effect.runPromise(
+					client["pairing.listNearbyRequests"](payload as never),
+				);
+				break;
+			case "pairing.resolveNearbyRequest":
+				result = await Effect.runPromise(
+					client["pairing.resolveNearbyRequest"](payload as never),
+				);
+				break;
+			case "usage.report":
+				result = await Effect.runPromise(
+					client["usage.report"](payload as never),
+				);
+				break;
+			case "relay.status":
+				result = await Effect.runPromise(client["relay.status"]());
+				break;
+			case "relay.environments":
+				result = await Effect.runPromise(client["relay.environments"]());
+				break;
+			case "relay.link":
+				result = await Effect.runPromise(
+					client["relay.link"](payload as never),
+				);
+				break;
+			case "relay.unlink":
+				result = await Effect.runPromise(client["relay.unlink"]());
+				break;
+			case "pairing.start":
+				result = await Effect.runPromise(
+					client["pairing.start"](payload as never),
+				);
+				break;
+			case "pairing.listTokens":
+				result = await Effect.runPromise(
+					client["pairing.listTokens"](payload as never),
+				);
+				break;
+			case "pairing.revokeToken":
+				result = await Effect.runPromise(
+					client["pairing.revokeToken"](payload as never),
+				);
+				break;
+			case "fs.readExternalFile":
+				result = await Effect.runPromise(
+					client["fs.readExternalFile"](payload as never),
+				);
+				break;
+			case "fs.writeExternalFile":
+				result = await Effect.runPromise(
+					client["fs.writeExternalFile"](payload as never),
+				);
+				break;
+			case "machine.privateNetwork.status":
+				result = await Effect.runPromise(
+					client["machine.privateNetwork.status"](),
+				);
+				break;
+			case "machine.privateNetwork.enable":
+				result = await Effect.runPromise(
+					client["machine.privateNetwork.enable"](payload as never),
+				);
+				break;
+			case "machine.sshMode.set":
+				result = await Effect.runPromise(
+					client["machine.sshMode.set"](payload as never),
+				);
+				break;
+			case "machine.sshKeys.list":
+				result = await Effect.runPromise(client["machine.sshKeys.list"]());
+				break;
+			case "machine.sshKeys.add":
+				result = await Effect.runPromise(
+					client["machine.sshKeys.add"](payload as never),
+				);
+				break;
+			case "machine.sshKeys.remove":
+				result = await Effect.runPromise(
+					client["machine.sshKeys.remove"](payload as never),
+				);
+				break;
+			case "machine.runtime.status":
+				result = await Effect.runPromise(
+					client["machine.runtime.status"](payload as never),
+				);
+				break;
+			case "machine.runtime.update":
+				result = await Effect.runPromise(
+					client["machine.runtime.update"](payload as never),
+				);
+				break;
+			case "pty.open":
+				result = await Effect.runPromise(client["pty.open"](payload as never));
+				break;
+			case "pty.write":
+				result = await Effect.runPromise(client["pty.write"](payload as never));
+				break;
+			case "pty.resize":
+				result = await Effect.runPromise(
+					client["pty.resize"](payload as never),
+				);
+				break;
+			case "pty.close":
+				result = await Effect.runPromise(client["pty.close"](payload as never));
+				break;
+			case "messages.send":
+				result = await Effect.runPromise(
+					client["messages.send"](payload as never),
+				);
+				break;
+			case "messages.interrupt":
+				result = await Effect.runPromise(
+					client["messages.interrupt"](payload as never),
+				);
+				break;
+			case "messages.queue.add":
+				result = await Effect.runPromise(
+					client["messages.queue.add"](payload as never),
+				);
+				break;
+			case "messages.queue.update":
+				result = await Effect.runPromise(
+					client["messages.queue.update"](payload as never),
+				);
+				break;
+			case "messages.queue.delete":
+				result = await Effect.runPromise(
+					client["messages.queue.delete"](payload as never),
+				);
+				break;
+			case "messages.queue.reorder":
+				result = await Effect.runPromise(
+					client["messages.queue.reorder"](payload as never),
+				);
+				break;
+			case "messages.queue.flush":
+				result = await Effect.runPromise(
+					client["messages.queue.flush"](payload as never),
+				);
+				break;
+			case "messages.queue.resume":
+				result = await Effect.runPromise(
+					client["messages.queue.resume"](payload as never),
+				);
+				break;
+			case "messages.queue.runNext":
+				result = await Effect.runPromise(
+					client["messages.queue.runNext"](payload as never),
+				);
+				break;
+			default:
+				throw new Error(`Unsupported ClientBus command: ${command.kind}`);
+		}
+		return {
+			commandId: command.commandId,
+			receivedAt: Date.now(),
+			result,
+		};
+	},
+};
+
+let commandOutbox = createClientCommandOutbox();
+
+type EnvironmentWake = Readonly<{
+	wake: () => Promise<void>;
+	prepareClient?: (client: MemoizeClient) => Promise<void>;
+}>;
+const wakeByEnvironment = new Map<EnvironmentId, EnvironmentWake>();
+const environmentOf = (environmentId: EnvironmentId): EnvironmentId =>
+	environmentId;
+type ResolveRendererSession = (
+	environmentId: EnvironmentId,
+	onClose: (cause: Error) => void,
+) => Promise<RendererRpcSession>;
+const defaultResolveRendererSession: ResolveRendererSession = (
+	environmentId,
+	onClose,
+) => acquireRendererRpcSession(environmentOf(environmentId), { onClose });
+let resolveRendererSession = defaultResolveRendererSession;
+let reportPassiveSessionFault: (
+	environmentId: EnvironmentId,
+	fault: EnvironmentFault,
+	expectedGeneration: number,
+) => boolean = () => false;
+
+export const registerEnvironmentWake = (
+	environmentId: EnvironmentId,
+	wake: EnvironmentWake["wake"],
+	prepareClient?: EnvironmentWake["prepareClient"],
+): (() => void) => {
+	const registration = { wake, prepareClient };
+	wakeByEnvironment.set(environmentId, registration);
+	return () => {
+		if (wakeByEnvironment.get(environmentId) === registration) {
+			wakeByEnvironment.delete(environmentId);
+		}
+	};
+};
+
+const faultFor = (cause: unknown): EnvironmentFault => {
+	const message = cause instanceof Error ? cause.message : String(cause);
+	const lower = message.toLowerCase();
+	const phase: EnvironmentFault["phase"] =
+		globalThis.navigator?.onLine === false
+			? "offline"
+			: lower.includes("update required") || lower.includes("protocol")
+				? "update-required"
+				: lower.includes("revoked")
+					? "revoked"
+					: lower.includes("unauthorized") || lower.includes("authentication")
+						? "blocked-auth"
+						: "failed";
+	return { phase, message };
+};
+
+const environmentResolver: EnvironmentResolver<MemoizeClient> = {
+	resolve: (environmentId, activation) =>
+		Effect.tryPromise({
+			try: async () => {
+				const wake = wakeByEnvironment.get(environmentId);
+				if (activation === "wake") {
+					await wake?.wake();
+				}
+				let generation: number | null = null;
+				let pendingFault: Error | null = null;
+				const session = await resolveRendererSession(environmentId, (cause) => {
+					if (generation === null) {
+						pendingFault = cause;
+						return;
+					}
+					reportPassiveSessionFault(environmentId, faultFor(cause), generation);
+				});
+				try {
+					await wake?.prepareClient?.(session.client);
+				} catch (cause) {
+					await session.dispose();
+					throw cause;
+				}
+				return {
+					...session,
+					onActivated: (activeGeneration: number) => {
+						generation = activeGeneration;
+						if (pendingFault === null) return;
+						const fault = pendingFault;
+						pendingFault = null;
+						queueMicrotask(() => {
+							reportPassiveSessionFault(
+								environmentId,
+								faultFor(fault),
+								activeGeneration,
+							);
+						});
+					},
+				};
+			},
+			catch: faultFor,
+		}),
+};
+
+const makeTimelineDriver = (
+	reportFailure: (
+		environmentId: EnvironmentId,
+		generation: number,
+		cause: unknown,
+	) => void,
+): ResourceDriver<MemoizeClient, SessionTimelineProjection> =>
+	makeSessionTimelineResourceDriver<MemoizeClient>({
+		reportFailure,
+	});
+
+type RendererResourceDriverFactory = (
+	key: ResourceKey<unknown>,
+) => ResourceDriver<MemoizeClient, unknown> | null;
+
+const registeredDriverFactories = new Map<
+	string,
+	RendererResourceDriverFactory
+>();
+
+export const registerRendererResourceDriver = (
+	kind: string,
+	factory: RendererResourceDriverFactory,
+): (() => void) => {
+	const previous = registeredDriverFactories.get(kind);
+	if (previous !== undefined && previous !== factory) {
+		throw new Error(`Renderer ClientBus driver already registered: ${kind}`);
+	}
+	registeredDriverFactories.set(kind, factory);
+	return () => {
+		if (registeredDriverFactories.get(kind) === factory) {
+			registeredDriverFactories.delete(kind);
+		}
+	};
+};
+
+const createBus = (): ClientBus<MemoizeClient> => {
+	let bus: ClientBus<MemoizeClient>;
+	bus = new ClientBus<MemoizeClient>({
+		resolver: environmentResolver,
+		persistence: rendererResourcePersistence,
+		outbox: commandOutbox,
+		commandExecutor: executeSessionCommand,
+		commandFaultFor: (cause) =>
+			isRpcClientTransportError(cause) ? faultFor(cause) : null,
+		runtime: {
+			isOnline: () => globalThis.navigator?.onLine !== false,
+		},
+		driverFor: (key) => {
+			if (key.kind === "session-timeline") {
+				return makeTimelineDriver((environmentId, generation, cause) => {
+					bus.reportConnectionFault(
+						environmentId,
+						{ phase: "failed", message: faultFor(cause).message },
+						generation,
+					);
+				}) as ResourceDriver<MemoizeClient, unknown>;
+			}
+			return registeredDriverFactories.get(key.kind)?.(key) ?? null;
+		},
+	});
+	return bus;
+};
+
+let rendererClientBus = createBus();
+reportPassiveSessionFault = (environmentId, fault, expectedGeneration) =>
+	rendererClientBus.reportConnectionFault(
+		environmentId,
+		fault,
+		expectedGeneration,
+	);
+
+export type OlderSessionMessagesResult = Readonly<{
+	applied: boolean;
+	loaded: number;
+	hasMore: boolean;
+}>;
+
+const olderSessionMessageLoads = new Map<
+	string,
+	Promise<OlderSessionMessagesResult>
+>();
+
+export const getRendererClientBus = (): ClientBus<MemoizeClient> =>
+	rendererClientBus;
+
+/**
+ * Loads one bounded older page into the canonical timeline resource. Requests
+ * for the same qualified session key are single-flighted. A reconnect, stream
+ * advance, reset, or a newer page cursor fences the response before mutation;
+ * pagination never owns or advances the durable event cursor.
+ */
+export const loadOlderSessionMessages = (
+	ref: SessionRef,
+): Promise<OlderSessionMessagesResult> => {
+	const key = sessionTimelineResourceKey(ref);
+	const id = resourceKeyId(key);
+	const inFlight = olderSessionMessageLoads.get(id);
+	if (inFlight !== undefined) return inFlight;
+
+	const bus = rendererClientBus;
+	const initial = bus.snapshot(key);
+	const beforeSequence = initial.data?.olderMessageSequence ?? null;
+	if (
+		initial.data === null ||
+		beforeSequence === null ||
+		initial.connection !== "connected"
+	) {
+		return Promise.resolve({
+			applied: false,
+			loaded: 0,
+			hasMore: beforeSequence !== null,
+		});
+	}
+	const expectedGeneration = initial.generation;
+	const expectedCursor = initial.cursor;
+
+	const request = (async (): Promise<OlderSessionMessagesResult> => {
+		const client = bus.client(ref.environmentId);
+		if (client === null) {
+			return { applied: false, loaded: 0, hasMore: true };
+		}
+		const page = await Effect.runPromise(
+			client["session.messages.page"]({
+				sessionId: ref.sessionId,
+				beforeSequence,
+				limit: 100,
+			}),
+		);
+		if (bus !== rendererClientBus) {
+			return { applied: false, loaded: 0, hasMore: true };
+		}
+
+		let loaded = 0;
+		const applied = bus.update(key, {
+			expectedGeneration,
+			expectedCursor,
+			persist: true,
+			update: (projection) => {
+				// A prior page can change this cursor without changing the stream
+				// cursor. Never apply a response to a different pagination head.
+				if ((projection.olderMessageSequence ?? null) !== beforeSequence) {
+					return undefined;
+				}
+				const merged = prependSessionTimelineMessages(
+					restoreSessionTimelineState(projection, expectedCursor),
+					page.messages,
+					page.olderMessageSequence,
+				);
+				loaded = Math.max(
+					0,
+					(merged.projection?.messages.length ?? 0) -
+						projection.messages.length,
+				);
+				return merged.projection ?? undefined;
+			},
+		});
+		return {
+			applied,
+			loaded: applied ? loaded : 0,
+			hasMore: applied ? page.olderMessageSequence !== null : true,
+		};
+	})();
+	olderSessionMessageLoads.set(id, request);
+	const clear = (): void => {
+		if (olderSessionMessageLoads.get(id) === request) {
+			olderSessionMessageLoads.delete(id);
+		}
+	};
+	void request.then(clear, clear);
+	return request;
+};
+
+export const dispatchSessionCommand = <Payload, Result>(input: {
+	readonly ref: SessionRef;
+	readonly kind: string;
+	readonly commandId: ClientCommand["commandId"];
+	readonly payload: Payload;
+	readonly retry?: ClientCommand["retry"];
+}): Promise<CommandReceipt<Result>> =>
+	rendererClientBus.dispatch({
+		kind: input.kind,
+		commandId: input.commandId,
+		environmentId: input.ref.environmentId,
+		resource: sessionTimelineResourceKey(input.ref),
+		payload: input.payload,
+		retry: input.retry ?? "safe",
+		createdAt: Date.now(),
+	});
+
+/** Adds a stable-id optimistic message to the canonical timeline cell. */
+export const addOptimisticSessionMessage = (
+	ref: SessionRef,
+	message: Message,
+): boolean =>
+	rendererClientBus.overlay(sessionTimelineResourceKey(ref), {
+		update: (projection) => {
+			const index = projection.messages.findIndex(
+				(candidate) => candidate.id === message.id,
+			);
+			if (index === -1) {
+				return SessionTimelineProjection.make({
+					...projection,
+					messages: [...projection.messages, message],
+				});
+			}
+			const messages = [...projection.messages];
+			messages[index] = message;
+			return SessionTimelineProjection.make({ ...projection, messages });
+		},
+	});
+
+export const removeOptimisticSessionMessage = (
+	ref: SessionRef,
+	messageId: Message["id"],
+): boolean =>
+	rendererClientBus.overlay(sessionTimelineResourceKey(ref), {
+		update: (projection) =>
+			SessionTimelineProjection.make({
+				...projection,
+				messages: projection.messages.filter(
+					(message) => message.id !== messageId,
+				),
+			}),
+	});
+
+/** Applies an optimistic queue projection; durable events reconcile by queue id. */
+export const updateOptimisticSessionQueue = (
+	ref: SessionRef,
+	update: (
+		queue: SessionTimelineProjection["queue"],
+	) => SessionTimelineProjection["queue"],
+): boolean =>
+	rendererClientBus.overlay(sessionTimelineResourceKey(ref), {
+		update: (projection) =>
+			SessionTimelineProjection.make({
+				...projection,
+				queue: update(projection.queue),
+			}),
+	});
+
+export const retainSessionTimeline = (
+	ref: SessionRef,
+	activation: ResourceActivation,
+): Readonly<{
+	key: SessionTimelineResourceKey;
+	lease: ResourceLease;
+}> => {
+	const key = sessionTimelineResourceKey(ref);
+	return {
+		key,
+		lease: rendererClientBus.retain(key, { activation }),
+	};
+};
+
+const EMPTY_TIMELINE_VIEW: ResourceView<SessionTimelineProjection> = {
+	data: null,
+	origin: "none",
+	connection: "dormant",
+	sync: "empty",
+	generation: 0,
+	cursor: null,
+	pendingCommands: [],
+	failedCommands: [],
+};
+
+/**
+ * React selector for the canonical qualified timeline resource. Retaining is
+ * reference-counted by ClientBus, so chat, composer, sidebar, and dock readers
+ * share one stream and one cursor instead of copying server entities into
+ * feature stores.
+ */
+export const useSessionTimelineResource = (
+	ref: SessionRef | null,
+	activation: ResourceActivation = "connect",
+): ResourceView<SessionTimelineProjection> => {
+	const key = useMemo(
+		() => (ref === null ? null : sessionTimelineResourceKey(ref)),
+		[ref?.environmentId, ref?.sessionId],
+	);
+	const bus = getRendererClientBus();
+	useEffect(() => {
+		if (key === null) return;
+		const lease = bus.retain(key, { activation });
+		return lease.release;
+	}, [activation, bus, key]);
+	const subscribe = useCallback(
+		(listener: () => void) =>
+			key === null ? () => undefined : bus.subscribe(key, listener),
+		[bus, key],
+	);
+	const snapshot = useCallback(
+		() => (key === null ? EMPTY_TIMELINE_VIEW : bus.snapshot(key)),
+		[bus, key],
+	);
+	return useSyncExternalStore(subscribe, snapshot, snapshot);
+};
+
+export const setSessionTimelineRpcClientForTest = (
+	resolve: (environmentId: EnvironmentId) => Promise<MemoizeClient>,
+	release: (environmentId: EnvironmentId) => Promise<void> = async () =>
+		undefined,
+): void => {
+	resolveRendererSession = async (environmentId) => ({
+		client: await resolve(environmentId),
+		dispose: () => release(environmentId),
+	});
+};
+
+export const setSessionTimelineRpcSessionForTest = (
+	resolve: ResolveRendererSession,
+): void => {
+	resolveRendererSession = resolve;
+};
+
+export const registerEnvironmentWakeForTest = registerEnvironmentWake;
+
+export const resetSessionTimelineClientBus = async (): Promise<void> => {
+	await rendererClientBus.dispose();
+	rendererClientBus = createBus();
+	olderSessionMessageLoads.clear();
+	wakeByEnvironment.clear();
+};
+
+export const resetSessionTimelineClientBusForTest = (): void => {
+	void rendererClientBus?.dispose();
+	resetMemoryCommandOutboxForTest();
+	commandOutbox = createClientCommandOutbox();
+	rendererClientBus = createBus();
+	olderSessionMessageLoads.clear();
+	wakeByEnvironment.clear();
+	resolveRendererSession = defaultResolveRendererSession;
+};

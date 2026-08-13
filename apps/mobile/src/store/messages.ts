@@ -1,21 +1,26 @@
-import { SessionTimelineRegistry } from "@zuse/client-runtime/session-timeline";
 import {
+	CommandId,
 	type ComposerInput,
+	type EnvironmentId,
 	type Message,
 	type MessageId,
 	type QueuedMessage,
-	SessionId,
+	type SessionId,
 } from "@zuse/contracts";
-import { Effect, Fiber, Stream } from "effect";
 import { Atom } from "effect/unstable/reactivity";
-import { AppState } from "react-native";
 
 import { connectionSessionKey } from "~/lib/session-key";
-import { readMessagesSnapshot, writeMessagesSnapshot } from "~/offline/cache";
-import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
-import { ConnectionFailed } from "~/rpc/errors";
+import { reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
+import {
+	dispatchMobileSessionCommand,
+	mobileClientBus,
+	registerMobileEnvironment,
+	resetMobileClientBus,
+	sessionCommandContext,
+	sessionTimelineKey,
+} from "./mobile-client-bus";
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
 import {
 	resetSessionTurnActivity,
@@ -56,35 +61,55 @@ export const sessionMessagesErrorAtom = Atom.family((key: string) =>
 	Atom.make((get) => get(messagesErrorBySessionAtom)[key] ?? null),
 );
 
-const liveFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
-const timelineRegistry = new SessionTimelineRegistry();
-const retainedTimelines = new Set<string>();
-const evictionTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const reconnectAttempts = new Map<string, number>();
-const refreshes = new Map<string, Promise<void>>();
-const hydrationInputs = new Map<
-	string,
-	{
-		connKey: string;
-		options: WsProtocolOptions;
-		sessionId: SessionId;
-	}
->();
+type RetainedTimeline = Readonly<{
+	environmentId: EnvironmentId;
+	key: ReturnType<typeof sessionTimelineKey>;
+	lease: ReturnType<ReturnType<typeof mobileClientBus>["retain"]>;
+	unsubscribe: () => void;
+}>;
 
+const retainedTimelines = new Map<string, RetainedTimeline>();
 export const currentSessionTurnId = (connKey: string, sessionId: SessionId) =>
-	timelineRegistry.state(
-		SessionId.make(connectionSessionKey(connKey, sessionId)),
-	).projection?.currentTurn?.turnId;
+	(() => {
+		const retained = retainedTimelines.get(
+			connectionSessionKey(connKey, sessionId),
+		);
+		return retained === undefined
+			? undefined
+			: mobileClientBus().snapshot(retained.key).data?.currentTurn?.turnId;
+	})();
 const optimisticIds = new Set<MessageId>();
-const hydrationGeneration = new Map<string, number>();
-let appStateInstalled = false;
-
-const patchMessages = (key: string, messages: readonly Message[]): void => {
-	appAtomRegistry.update(messagesBySessionAtom, (state) => ({
-		...state,
-		[key]: messages,
-	}));
+let commandCounter = 0;
+const nextCommandId = (kind: string): CommandId =>
+	CommandId.make(
+		`${kind}:${Date.now().toString(36)}:${(commandCounter++).toString(36)}`,
+	);
+const dispatchSessionCommand = async <Result>(
+	connKey: string,
+	options: WsProtocolOptions,
+	sessionId: SessionId,
+	kind: string,
+	payload: unknown,
+	commandId = nextCommandId(kind),
+): Promise<Result> => {
+	const { environmentId, resource } = sessionCommandContext(
+		connKey,
+		options,
+		sessionId,
+	);
+	const receipt = await dispatchMobileSessionCommand<Result>({
+		kind,
+		commandId,
+		environmentId,
+		resource,
+		payload:
+			typeof payload === "object" && payload !== null
+				? { ...payload, commandId }
+				: payload,
+		retry: "safe",
+		createdAt: Date.now(),
+	});
+	return receipt.result;
 };
 
 const patchQueue = (key: string, items: readonly QueuedMessage[]): void => {
@@ -115,58 +140,57 @@ const patchError = (key: string, error: string | null): void => {
 	}));
 };
 
-const stopFiber = async (
-	key: string,
-	fibers: Map<string, Fiber.Fiber<unknown, unknown>>,
-) => {
-	const fiber = fibers.get(key);
-	if (fiber !== undefined) {
-		fibers.delete(key);
-		await Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {});
+const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
+	const view = mobileClientBus().snapshot(retained.key);
+	const projection = view.data;
+	if (projection !== null && projection !== undefined) {
+		const durable = projection.messages;
+		const durableIds = new Set(durable.map((message) => message.id));
+		for (const id of optimisticIds) {
+			if (durableIds.has(id)) optimisticIds.delete(id);
+		}
+		batchAtomUpdates(() => {
+			syncSessionTurnActivity(liveKey, projection.currentTurn !== null);
+			appAtomRegistry.update(messagesBySessionAtom, (state) => {
+				const current = state[liveKey] ?? [];
+				const pending = current.filter(
+					(message) =>
+						optimisticIds.has(message.id) && !durableIds.has(message.id),
+				);
+				return {
+					...state,
+					[liveKey]: [...durable, ...pending].slice(-500),
+				};
+			});
+			patchQueue(liveKey, projection.queue.items);
+			patchQueuePaused(liveKey, projection.queue.paused);
+		});
 	}
-};
-
-const stop = async (key: string) => {
-	const reconnect = reconnectTimers.get(key);
-	if (reconnect !== undefined) clearTimeout(reconnect);
-	reconnectTimers.delete(key);
-	reconnectAttempts.delete(key);
-	await stopFiber(key, liveFibers);
-};
-
-const scheduleReconnect = (key: string): void => {
-	if (!retainedTimelines.has(key) || reconnectTimers.has(key)) return;
-	const input = hydrationInputs.get(key);
-	if (input === undefined) return;
-	const attempt = (reconnectAttempts.get(key) ?? 0) + 1;
-	reconnectAttempts.set(key, attempt);
-	reconnectTimers.set(
-		key,
-		setTimeout(
-			() => {
-				reconnectTimers.delete(key);
-				if (!retainedTimelines.has(key) || liveFibers.has(key)) return;
-				void hydrateMessages(input.connKey, input.options, input.sessionId);
-			},
-			Math.min(100 * 2 ** (attempt - 1), 5_000),
-		),
-	);
+	const reconnecting =
+		view.connection === "connecting" ||
+		view.connection === "reconnecting" ||
+		view.connection === "waking";
+	batchAtomUpdates(() => {
+		patchReconnecting(liveKey, reconnecting);
+		patchError(
+			liveKey,
+			view.sync === "failed" || view.sync === "stale"
+				? "Transcript synchronization failed."
+				: view.connection === "failed" || view.connection === "offline"
+					? mobileClientBus().connection(retained.environmentId).error
+					: null,
+		);
+	});
 };
 
 export const resetMessagesRuntime = async (): Promise<void> => {
-	const keys = new Set(liveFibers.keys());
-	await Promise.all(Array.from(keys, stop));
 	optimisticIds.clear();
-	hydrationGeneration.clear();
-	for (const timer of evictionTimers.values()) clearTimeout(timer);
-	evictionTimers.clear();
-	for (const timer of reconnectTimers.values()) clearTimeout(timer);
-	reconnectTimers.clear();
-	reconnectAttempts.clear();
+	for (const retained of retainedTimelines.values()) {
+		retained.unsubscribe();
+		retained.lease.release();
+	}
 	retainedTimelines.clear();
-	hydrationInputs.clear();
-	refreshes.clear();
-	timelineRegistry.shutdown();
+	await resetMobileClientBus();
 	resetSessionTurnActivity();
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(messagesBySessionAtom, {});
@@ -187,24 +211,11 @@ export const releaseMessages = async (
 	sessionId: SessionId,
 ): Promise<void> => {
 	const key = connectionSessionKey(connKey, sessionId);
+	const retained = retainedTimelines.get(key);
+	if (retained === undefined) return;
+	retained.unsubscribe();
+	retained.lease.release();
 	retainedTimelines.delete(key);
-	if (
-		timelineRegistry.state(SessionId.make(key)).projection?.currentTurn != null
-	) {
-		return;
-	}
-	const previous = evictionTimers.get(key);
-	if (previous !== undefined) clearTimeout(previous);
-	evictionTimers.set(
-		key,
-		setTimeout(() => {
-			evictionTimers.delete(key);
-			if (retainedTimelines.has(key)) return;
-			void stop(key);
-			hydrationInputs.delete(key);
-			timelineRegistry.delete(SessionId.make(key));
-		}, 5 * 60_000),
-	);
 };
 
 export const hydrateMessages = async (
@@ -212,147 +223,27 @@ export const hydrateMessages = async (
 	options: WsProtocolOptions,
 	sessionId: SessionId,
 ): Promise<void> => {
-	installAppStateFlush();
 	const liveKey = connectionSessionKey(connKey, sessionId);
-	retainedTimelines.add(liveKey);
-	hydrationInputs.set(liveKey, { connKey, options, sessionId });
-	const eviction = evictionTimers.get(liveKey);
-	if (eviction !== undefined) clearTimeout(eviction);
-	evictionTimers.delete(liveKey);
-	if (liveFibers.has(liveKey)) return;
-	const generation = (hydrationGeneration.get(liveKey) ?? 0) + 1;
-	hydrationGeneration.set(liveKey, generation);
-
-	const cached = await Effect.runPromise(
-		readMessagesSnapshot(connKey, sessionId),
-	);
-	if (hydrationGeneration.get(liveKey) !== generation) return;
-	if (cached !== null) {
-		timelineRegistry.restore(
-			SessionId.make(liveKey),
-			cached.projection,
-			cached.appliedVersion,
-		);
-		batchAtomUpdates(() => {
-			const current = appAtomRegistry.get(messagesBySessionAtom)[liveKey] ?? [];
-			const durableIds = new Set(
-				cached.projection.messages.map((message) => message.id),
-			);
-			patchMessages(liveKey, [
-				...cached.projection.messages,
-				...current.filter(
-					(message) =>
-						optimisticIds.has(message.id) && !durableIds.has(message.id),
-				),
-			]);
-			syncSessionTurnActivity(liveKey, cached.projection.currentTurn !== null);
-			patchQueue(liveKey, cached.projection.queue.items);
-			patchQueuePaused(liveKey, cached.projection.queue.paused);
-		});
+	const existing = retainedTimelines.get(liveKey);
+	if (existing !== undefined) {
+		existing.lease.activate("connect");
+		publishTimeline(liveKey, existing);
+		return;
 	}
-
-	batchAtomUpdates(() => {
-		patchReconnecting(liveKey, false);
-		patchError(liveKey, null);
-	});
-
-	const run = async () => {
-		try {
-			const client = await Effect.runPromise(getConnectionClient(options));
-			if (hydrationGeneration.get(liveKey) !== generation) return;
-			const retained = timelineRegistry.state(SessionId.make(liveKey));
-			let fiber: Fiber.Fiber<unknown, unknown>;
-			const streamProgram = Stream.runForEach(
-				client["session.events"]({
-					sessionId,
-					afterVersion: retained.appliedVersion,
-					hasProjection: retained.projection !== null,
-				}),
-				(frame) =>
-					Effect.sync(() => {
-						if (hydrationGeneration.get(liveKey) !== generation) return;
-						timelineRegistry.accept(SessionId.make(liveKey), frame);
-						const next = timelineRegistry.state(SessionId.make(liveKey));
-						if (next.phase === "stale") {
-							timelineRegistry.delete(SessionId.make(liveKey));
-							throw new Error(
-								`Transcript continuity check failed: ${next.error ?? "unknown gap"}`,
-							);
-						}
-						if (next.projection === null) return;
-						const durable = next.projection.messages;
-						const durableIds = new Set(durable.map((message) => message.id));
-						for (const id of optimisticIds) {
-							if (durableIds.has(id)) optimisticIds.delete(id);
-						}
-						batchAtomUpdates(() => {
-							syncSessionTurnActivity(
-								liveKey,
-								next.projection?.currentTurn != null,
-							);
-							appAtomRegistry.update(messagesBySessionAtom, (state) => {
-								const current = state[liveKey] ?? [];
-								const pending = current.filter(
-									(message) =>
-										optimisticIds.has(message.id) &&
-										!durableIds.has(message.id),
-								);
-								return {
-									...state,
-									[liveKey]: [...durable, ...pending].slice(-500),
-								};
-							});
-							patchQueue(liveKey, next.projection?.queue.items ?? []);
-							patchQueuePaused(liveKey, next.projection?.queue.paused ?? false);
-						});
-						if (next.phase === "live") {
-							void flushMessages(connKey, sessionId);
-						}
-					}),
-			).pipe(
-				Effect.andThen(
-					Effect.fail(
-						new ConnectionFailed({
-							message: "Active transcript stream completed unexpectedly.",
-						}),
-					),
-				),
-				Effect.catch((cause) =>
-					Effect.sync(() => {
-						if (hydrationGeneration.get(liveKey) !== generation) return;
-						reportConnectionFailure(options, cause);
-						batchAtomUpdates(() => {
-							patchReconnecting(liveKey, true);
-							patchError(liveKey, messageOf(cause));
-						});
-					}),
-				),
-			);
-			const program = Effect.yieldNow.pipe(
-				Effect.andThen(streamProgram),
-				Effect.ensuring(
-					Effect.sync(() => {
-						if (liveFibers.get(liveKey) === fiber) {
-							liveFibers.delete(liveKey);
-							scheduleReconnect(liveKey);
-						}
-					}),
-				),
-			);
-			fiber = Effect.runFork(program);
-			liveFibers.set(liveKey, fiber);
-		} catch (cause) {
-			if (hydrationGeneration.get(liveKey) !== generation) return;
-			reportConnectionFailure(options, cause);
-			batchAtomUpdates(() => {
-				patchReconnecting(liveKey, true);
-				patchError(liveKey, messageOf(cause));
-			});
-			scheduleReconnect(liveKey);
-		}
+	const environmentId = registerMobileEnvironment(connKey, options);
+	const key = sessionTimelineKey(environmentId, sessionId);
+	const lease = mobileClientBus().retain(key, { activation: "connect" });
+	const retained: RetainedTimeline = {
+		environmentId,
+		key,
+		lease,
+		unsubscribe: () => undefined,
 	};
-
-	await run();
+	const unsubscribe = mobileClientBus().subscribe(key, () =>
+		publishTimeline(liveKey, retained),
+	);
+	retainedTimelines.set(liveKey, { ...retained, unsubscribe });
+	publishTimeline(liveKey, retainedTimelines.get(liveKey) as RetainedTimeline);
 };
 
 /**
@@ -368,20 +259,18 @@ export const refreshMessages = (
 	options: WsProtocolOptions,
 	sessionId: SessionId,
 ): Promise<void> => {
-	const key = connectionSessionKey(connKey, sessionId);
-	retainedTimelines.add(key);
-	hydrationInputs.set(key, { connKey, options, sessionId });
-	const existing = refreshes.get(key);
-	if (existing !== undefined) return existing;
-	const refresh = (async () => {
-		await stop(key);
-		timelineRegistry.delete(SessionId.make(key));
-		await hydrateMessages(connKey, options, sessionId);
-	})().finally(() => {
-		if (refreshes.get(key) === refresh) refreshes.delete(key);
-	});
-	refreshes.set(key, refresh);
-	return refresh;
+	const liveKey = connectionSessionKey(connKey, sessionId);
+	const existing = retainedTimelines.get(liveKey);
+	if (existing === undefined)
+		return hydrateMessages(connKey, options, sessionId);
+	const connection = mobileClientBus().connection(existing.environmentId);
+	mobileClientBus().reportConnectionFault(
+		existing.environmentId,
+		{ phase: "failed", message: "Transcript refresh requested." },
+		connection.generation,
+	);
+	existing.lease.activate("connect");
+	return Promise.resolve();
 };
 
 export const flushMessages = async (
@@ -389,22 +278,18 @@ export const flushMessages = async (
 	sessionId: SessionId,
 ): Promise<void> => {
 	const liveKey = connectionSessionKey(connKey, sessionId);
-	const timeline = timelineRegistry.state(SessionId.make(liveKey));
+	const retained = retainedTimelines.get(liveKey);
+	if (retained === undefined) return;
+	const view = mobileClientBus().snapshot(retained.key);
 	if (
-		timeline.phase !== "live" ||
-		timeline.projection === null ||
-		timeline.projection.currentTurn !== null
+		view.sync !== "live" ||
+		view.data === null ||
+		view.data.currentTurn !== null
 	) {
 		return;
 	}
-	await Effect.runPromise(
-		writeMessagesSnapshot(connKey, sessionId, {
-			schemaVersion: 1,
-			appliedVersion: timeline.appliedVersion,
-			projection: timeline.projection,
-			savedAt: Date.now(),
-		}),
-	).catch(() => {});
+	// Active timelines checkpoint continuously in the ClientBus persistence
+	// adapter; this compatibility action intentionally does not own another write.
 };
 
 export const deleteQueuedMessage = async (
@@ -420,9 +305,15 @@ export const deleteQueuedMessage = async (
 		previous.filter((item) => item.id !== queueId),
 	);
 	try {
-		const client = await Effect.runPromise(getConnectionClient(options));
-		await Effect.runPromise(
-			client["messages.queue.delete"]({ sessionId, queueId }),
+		await dispatchSessionCommand(
+			connKey,
+			options,
+			sessionId,
+			"messages.queue.delete",
+			{
+				sessionId,
+				queueId,
+			},
 		);
 	} catch (cause) {
 		reportConnectionFailure(options, cause);
@@ -440,9 +331,16 @@ export const updateQueuedMessage = async (
 	const key = connectionSessionKey(connKey, sessionId);
 	const previous = appAtomRegistry.get(queueBySessionAtom)[key] ?? [];
 	try {
-		const client = await Effect.runPromise(getConnectionClient(options));
-		const updated = await Effect.runPromise(
-			client["messages.queue.update"]({ sessionId, queueId, input }),
+		const updated = await dispatchSessionCommand<QueuedMessage>(
+			connKey,
+			options,
+			sessionId,
+			"messages.queue.update",
+			{
+				sessionId,
+				queueId,
+				input,
+			},
 		);
 		appAtomRegistry.update(queueBySessionAtom, (state) => ({
 			...state,
@@ -472,12 +370,15 @@ export const reorderQueuedMessages = async (
 	const optimistic = queueIds.flatMap((id) => byId.get(id) ?? []);
 	patchQueue(key, optimistic);
 	try {
-		const client = await Effect.runPromise(getConnectionClient(options));
-		const next = await Effect.runPromise(
-			client["messages.queue.reorder"]({
+		const next = await dispatchSessionCommand<readonly QueuedMessage[]>(
+			connKey,
+			options,
+			sessionId,
+			"messages.queue.reorder",
+			{
 				sessionId,
 				queueIds: [...queueIds],
-			}),
+			},
 		);
 		patchQueue(key, next);
 	} catch (cause) {
@@ -500,9 +401,15 @@ export const runQueuedMessageNext = async (
 		previous.filter((item) => item.id !== queueId),
 	);
 	try {
-		const client = await Effect.runPromise(getConnectionClient(options));
-		await Effect.runPromise(
-			client["messages.queue.runNext"]({ sessionId, queueId }),
+		await dispatchSessionCommand(
+			connKey,
+			options,
+			sessionId,
+			"messages.queue.runNext",
+			{
+				sessionId,
+				queueId,
+			},
 		);
 	} catch (cause) {
 		reportConnectionFailure(options, cause);
@@ -519,8 +426,13 @@ export const resumeQueue = async (
 	const key = connectionSessionKey(connKey, sessionId);
 	patchQueuePaused(key, false);
 	try {
-		const client = await Effect.runPromise(getConnectionClient(options));
-		await Effect.runPromise(client["messages.queue.resume"]({ sessionId }));
+		await dispatchSessionCommand(
+			connKey,
+			options,
+			sessionId,
+			"messages.queue.resume",
+			{ sessionId },
+		);
 	} catch (cause) {
 		reportConnectionFailure(options, cause);
 		patchQueuePaused(key, true);
@@ -548,37 +460,4 @@ export const removeOptimisticMessage = (
 		...state,
 		[key]: (state[key] ?? []).filter((message) => message.id !== messageId),
 	}));
-};
-
-const installAppStateFlush = () => {
-	if (appStateInstalled) return;
-	appStateInstalled = true;
-	AppState.addEventListener("change", (next) => {
-		if (next === "background") {
-			for (const key of liveFibers.keys()) {
-				const [connKey, sessionId] = parseLiveKey(key);
-				if (connKey !== undefined && sessionId !== undefined) {
-					void flushMessages(connKey, sessionId as SessionId);
-				}
-				void stop(key);
-			}
-			return;
-		}
-		if (next !== "active") return;
-		for (const key of retainedTimelines) {
-			const input = hydrationInputs.get(key);
-			if (input === undefined) continue;
-			void refreshMessages(input.connKey, input.options, input.sessionId);
-		}
-	});
-};
-
-const parseLiveKey = (
-	key: string,
-): [string | undefined, string | undefined] => {
-	try {
-		return JSON.parse(key) as [string, string];
-	} catch {
-		return [undefined, undefined];
-	}
 };

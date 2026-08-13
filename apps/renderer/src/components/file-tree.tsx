@@ -9,7 +9,14 @@ import type {
 	GitStatusEntry,
 } from "@pierre/trees";
 import { FileTree as PierreTree, useFileTree } from "@pierre/trees/react";
-import type { FolderId, GitChange, GitChangeKind } from "@zuse/contracts";
+import type {
+	EnvironmentId,
+	FolderId,
+	GitChange,
+	GitChangeKind,
+	WorktreeId,
+} from "@zuse/contracts";
+import { CommandId } from "@zuse/contracts";
 import {
 	BubbleChatIcon,
 	Copy01Icon,
@@ -20,22 +27,29 @@ import {
 	PencilEdit01Icon,
 	Search01Icon,
 } from "@zuse/icons/solid-rounded";
-import { Effect, Fiber, Stream } from "effect";
 import fuzzysort from "fuzzysort";
 import { ChevronRight } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
 
 import type { OpenTarget } from "../lib/bridge.ts";
-import { reconcileFileTreePaths } from "../lib/file-tree-reconciliation.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
-import { cn } from "../lib/utils.ts";
 import {
-	useActiveWorkspaceRoot,
-	useActiveWorktreeId,
-} from "../store/active-workspace.ts";
+	dispatchFileTreeCommand,
+	fileTreeResourceKey,
+	fileTreeResourceSnapshot,
+	retainFileTreeResource,
+	subscribeFileTreeResource,
+} from "../lib/file-tree-client-bus.ts";
+import { useGitWorkspaceResource } from "../lib/git-workspace-client-bus.ts";
+import { useSettingsStore } from "../lib/settings-client-bus.ts";
+import { cn } from "../lib/utils.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
-import { gitChangesKey, useGitChangesStore } from "../store/git-changes.ts";
-import { useSettingsStore } from "../store/settings.ts";
 import { useUiStore } from "../store/ui.ts";
 import { FileIcon } from "./file-icon.tsx";
 import { OpenTargetIcon } from "./open-target-icon.tsx";
@@ -52,11 +66,6 @@ import { Button } from "./ui/button.tsx";
 import { overlaySurface } from "./ui/overlay-surface.ts";
 import { Skeleton } from "./ui/skeleton.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
-
-type PathsState =
-	| { status: "loading" }
-	| { status: "ready"; paths: ReadonlyArray<string>; truncated: boolean }
-	| { status: "error"; reason: string };
 
 const formatError = (err: unknown): string => {
 	if (err instanceof Error) return err.message;
@@ -170,49 +179,48 @@ const toGitStatusEntries = (
 /**
  * Right-pane file tree, built on `@pierre/trees`. The tree is path-first — it
  * wants the whole path universe up front and virtualizes the visible window
- * itself — so we fetch the full list via `fs.listPaths`, then drive live disk
- * changes, git status, rename, drag-and-drop, and context-menu commands
- * through the model. Re-roots by remounting (`key`) when the folder/worktree
- * changes; incremental disk changes flow through `model.batch`.
+ * itself. The keyed ClientBus file resource owns its bounded snapshot, cache,
+ * watcher, reconciliation, and reconnect lifecycle; this component only
+ * renders the canonical view and sends one-shot filesystem mutations.
  */
 export function FileTree({
 	folderId,
 	projectId = folderId,
 	environmentId,
+	rootPath,
+	worktreeId,
 }: {
 	folderId: FolderId;
 	projectId?: FolderId;
-	environmentId?: string;
+	environmentId: EnvironmentId;
+	rootPath: string;
+	worktreeId: WorktreeId | null;
 }) {
-	const worktreeId = useActiveWorktreeId(folderId);
-	const [state, setState] = useState<PathsState>({ status: "loading" });
-
+	const key = useMemo(
+		() =>
+			fileTreeResourceKey({ environmentId, folderId, worktreeId, rootPath }),
+		[environmentId, folderId, rootPath, worktreeId],
+	);
 	useEffect(() => {
-		let cancelled = false;
-		setState({ status: "loading" });
-		void (async () => {
-			try {
-				const client = await getRpcClient(environmentId);
-				const result = await Effect.runPromise(
-					client["fs.listPaths"]({ folderId, worktreeId }),
-				);
-				if (cancelled) return;
-				setState({
-					status: "ready",
-					paths: result.paths,
-					truncated: result.truncated,
-				});
-			} catch (err) {
-				if (cancelled) return;
-				setState({ status: "error", reason: formatError(err) });
-			}
-		})();
+		const retained = retainFileTreeResource(key);
 		return () => {
-			cancelled = true;
+			retained.lease.release();
 		};
-	}, [environmentId, folderId, worktreeId]);
+	}, [key]);
+	const view = useSyncExternalStore(
+		(listener) => subscribeFileTreeResource(key, listener),
+		() => fileTreeResourceSnapshot(key),
+		() => fileTreeResourceSnapshot(key),
+	);
 
-	if (state.status === "loading") {
+	if (view.data === null) {
+		if (view.sync === "failed" || view.connection === "failed") {
+			return (
+				<p className="px-3 py-6 text-center text-xs text-muted-foreground">
+					Project files are unavailable.
+				</p>
+			);
+		}
 		return (
 			<ul
 				className="flex flex-col gap-1 px-2 py-1"
@@ -227,25 +235,18 @@ export function FileTree({
 			</ul>
 		);
 	}
-	if (state.status === "error") {
-		return (
-			<p className="px-3 py-6 text-center text-xs text-muted-foreground">
-				{state.reason}
-			</p>
-		);
-	}
-
 	return (
 		<TreeView
 			// Remount when the path universe is first known / re-rooted so the model
 			// is rebuilt from a clean presorted list.
-			key={`${folderId}:${worktreeId ?? "main"}`}
+			key={`${environmentId}:${folderId}:${worktreeId ?? "main"}:${rootPath}`}
 			folderId={folderId}
 			projectId={projectId}
 			environmentId={environmentId}
+			rootPath={rootPath}
 			worktreeId={worktreeId}
-			initialPaths={state.paths}
-			truncated={state.truncated}
+			paths={view.data.paths}
+			truncated={view.data.truncated}
 		/>
 	);
 }
@@ -256,24 +257,35 @@ function TreeView({
 	folderId,
 	projectId,
 	environmentId,
+	rootPath,
 	worktreeId,
-	initialPaths,
+	paths,
 	truncated,
 }: {
 	folderId: FolderId;
 	projectId: FolderId;
-	environmentId?: string;
-	worktreeId: ReturnType<typeof useActiveWorktreeId>;
-	initialPaths: ReadonlyArray<string>;
+	environmentId: EnvironmentId;
+	rootPath: string;
+	worktreeId: WorktreeId | null;
+	paths: ReadonlyArray<string>;
 	truncated: boolean;
 }) {
+	const gitChanges =
+		useGitWorkspaceResource(
+			{ environmentId, folderId, worktreeId, rootPath },
+			"connect",
+		).data?.changes ?? [];
 	const openFileInTab = useUiStore((s) => s.openFileInTab);
 	const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
-	const folderRoot = useActiveWorkspaceRoot(folderId);
+	const folderRoot = rootPath;
+	const executionRef = useMemo(
+		() => ({ environmentId, folderId, worktreeId, rootPath }),
+		[environmentId, folderId, rootPath, worktreeId],
+	);
 	const appearanceMode = useSettingsStore((s) => s.appearanceMode);
 
 	const modelRef = useRef<FileTreeModel | null>(null);
-	const knownPathsRef = useRef<Set<string>>(new Set(initialPaths));
+	const knownPathsRef = useRef<Set<string>>(new Set(paths));
 	const [deleteTarget, setDeleteTarget] = useState<DeleteState>(null);
 	const [deleting, setDeleting] = useState(false);
 	const [openTargets, setOpenTargets] = useState<ReadonlyArray<OpenTarget>>([]);
@@ -299,9 +311,7 @@ function TreeView({
 	// their canonical (slash-stripped) form so selection can tell files from
 	// folders without a model round-trip.
 	const dirPathsRef = useRef<Set<string>>(
-		new Set(
-			initialPaths.filter((p) => p.endsWith("/")).map((p) => stripSlash(p)),
-		),
+		new Set(paths.filter((p) => p.endsWith("/")).map((p) => stripSlash(p))),
 	);
 
 	const openFile = useCallback(
@@ -342,15 +352,17 @@ function TreeView({
 		({ sourcePath, destinationPath }: FileTreeRenameEvent) => {
 			void (async () => {
 				try {
-					const client = await getRpcClient(environmentId);
-					await Effect.runPromise(
-						client["fs.move"]({
+					await dispatchFileTreeCommand({
+						ref: executionRef,
+						kind: "fs.move",
+						commandId: CommandId.make(`fs-move:${crypto.randomUUID()}`),
+						payload: {
 							folderId,
 							fromPath: stripSlash(sourcePath),
 							toPath: stripSlash(destinationPath),
 							worktreeId,
-						}),
-					);
+						},
+					});
 				} catch (err) {
 					// Revert the optimistic model change on disk failure.
 					modelRef.current?.move(destinationPath, sourcePath);
@@ -358,7 +370,7 @@ function TreeView({
 				}
 			})();
 		},
-		[environmentId, folderId, worktreeId],
+		[executionRef, folderId, worktreeId],
 	);
 
 	const persistDrop = useCallback(
@@ -366,20 +378,22 @@ function TreeView({
 			const dir =
 				target.directoryPath === null ? "" : stripSlash(target.directoryPath);
 			void (async () => {
-				const client = await getRpcClient(environmentId);
 				for (const dragged of draggedPaths) {
 					const from = stripSlash(dragged);
 					const to = joinRelPath(dir, basename(from));
 					if (from === to) continue;
 					try {
-						await Effect.runPromise(
-							client["fs.move"]({
+						await dispatchFileTreeCommand({
+							ref: executionRef,
+							kind: "fs.move",
+							commandId: CommandId.make(`fs-move:${crypto.randomUUID()}`),
+							payload: {
 								folderId,
 								fromPath: from,
 								toPath: to,
 								worktreeId,
-							}),
-						);
+							},
+						});
 					} catch (err) {
 						modelRef.current?.move(to, from);
 						window.alert(
@@ -389,11 +403,11 @@ function TreeView({
 				}
 			})();
 		},
-		[environmentId, folderId, worktreeId],
+		[executionRef, folderId, worktreeId],
 	);
 
 	const { model } = useFileTree({
-		paths: initialPaths,
+		paths,
 		// Server already emits paths in dirs-first-then-name order; preserve it so
 		// the tree doesn't re-sort (and, unlike `presorted`, this never drops rows
 		// if the order isn't Pierre's exact canonical form).
@@ -407,11 +421,7 @@ function TreeView({
 		// Swap the bare folder chevron for a real folder glyph (open/closed) and
 		// drop the indent guides — see the `--fz-folder*` vars in styles.css.
 		unsafeCSS: FOLDER_ICON_CSS,
-		gitStatus: toGitStatusEntries(
-			useGitChangesStore.getState().byKey[
-				gitChangesKey(folderId, worktreeId)
-			] ?? [],
-		),
+		gitStatus: toGitStatusEntries(gitChanges),
 		onSelectionChange,
 		renaming: {
 			canRename: (item) => stripSlash(item.path) !== "",
@@ -436,112 +446,30 @@ function TreeView({
 
 	// Live git-status lane: push the current changes into the tree and keep it in
 	// sync as the working tree changes.
-	const changes = useGitChangesStore(
-		(s) => s.byKey[gitChangesKey(folderId, worktreeId)],
-	);
 	useEffect(() => {
-		model.setGitStatus(toGitStatusEntries(changes ?? []));
-	}, [model, changes]);
+		model.setGitStatus(toGitStatusEntries(gitChanges));
+	}, [model, gitChanges]);
 
-	// Live disk changes reconcile only touched directories. `model.batch`
-	// preserves expansion and selection without rescanning the whole project.
+	// Apply canonical ClientBus snapshots to the existing model in one batch so
+	// expansion and selection survive live filesystem updates.
 	useEffect(() => {
-		let fiber: Fiber.Fiber<unknown, unknown> | null = null;
-		let cancelled = false;
-		let reconciling = false;
-		let retryTimer: ReturnType<typeof setTimeout> | null = null;
-		let retryDelayMs = 500;
-		const pendingPaths = new Set<string>();
-
-		const reconcile = async (): Promise<void> => {
-			if (reconciling || pendingPaths.size === 0) return;
-			reconciling = true;
-			const changedPaths = [...pendingPaths];
-			pendingPaths.clear();
-			try {
-				const client = await getRpcClient(environmentId);
-				const result = await reconcileFileTreePaths({
-					changedPaths,
-					knownPaths: knownPathsRef.current,
-					listDirectory: (path) =>
-						Effect.runPromise(
-							client["fs.tree"]({ folderId, worktreeId, path }),
-						),
-				});
-				if (cancelled) return;
-				if (result.requiresFullReconciliation) {
-					const full = await Effect.runPromise(
-						client["fs.listPaths"]({ folderId, worktreeId }),
-					);
-					if (cancelled) return;
-					const next = new Set(full.paths);
-					const operations = [
-						...full.paths
-							.filter((path) => !knownPathsRef.current.has(path))
-							.map((path) => ({ type: "add" as const, path })),
-						...[...knownPathsRef.current]
-							.filter((path) => !next.has(path))
-							.map((path) => ({ type: "remove" as const, path })),
-					];
-					if (operations.length > 0) model.batch(operations);
-					knownPathsRef.current = next;
-				} else {
-					if (result.operations.length > 0) model.batch(result.operations);
-					knownPathsRef.current = new Set(result.paths);
-				}
-				dirPathsRef.current = new Set(
-					[...knownPathsRef.current]
-						.filter((path) => path.endsWith("/"))
-						.map((path) => stripSlash(path)),
-				);
-				retryDelayMs = 500;
-			} catch {
-				for (const path of changedPaths) pendingPaths.add(path);
-				if (!cancelled && retryTimer === null) {
-					retryTimer = setTimeout(() => {
-						retryTimer = null;
-						void reconcile();
-					}, retryDelayMs);
-					retryDelayMs = Math.min(retryDelayMs * 2, 5_000);
-				}
-			} finally {
-				reconciling = false;
-				if (!cancelled && pendingPaths.size > 0 && retryTimer === null) {
-					void reconcile();
-				}
-			}
-		};
-
-		const schedule = (paths: ReadonlyArray<string>) => {
-			for (const path of paths) pendingPaths.add(path);
-			retryDelayMs = 500;
-			if (!reconciling) {
-				if (retryTimer !== null) {
-					clearTimeout(retryTimer);
-					retryTimer = null;
-				}
-				void reconcile();
-			}
-		};
-
-		void (async () => {
-			const client = await getRpcClient(environmentId);
-			if (cancelled) return;
-			fiber = Effect.runFork(
-				Stream.runForEach(
-					client["fs.watchTree"]({ folderId, worktreeId }).pipe(
-						Stream.catch(() => Stream.empty),
-					),
-					(event) => Effect.sync(() => schedule(event.paths)),
-				),
-			);
-		})();
-		return () => {
-			cancelled = true;
-			if (retryTimer !== null) clearTimeout(retryTimer);
-			if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
-		};
-	}, [environmentId, folderId, worktreeId, model]);
+		const next = new Set(paths);
+		const operations = [
+			...paths
+				.filter((path) => !knownPathsRef.current.has(path))
+				.map((path) => ({ type: "add" as const, path })),
+			...[...knownPathsRef.current]
+				.filter((path) => !next.has(path))
+				.map((path) => ({ type: "remove" as const, path })),
+		];
+		if (operations.length > 0) model.batch(operations);
+		knownPathsRef.current = next;
+		dirPathsRef.current = new Set(
+			paths
+				.filter((path) => path.endsWith("/"))
+				.map((path) => stripSlash(path)),
+		);
+	}, [model, paths]);
 
 	const attach = useCallback(
 		(path: string, kind: "file" | "directory") => {
@@ -584,24 +512,29 @@ function TreeView({
 			if (name === null) return;
 			const path = joinRelPath(stripSlash(dirPath), name);
 			try {
-				const client = await getRpcClient(environmentId);
 				if (kind === "file") {
-					await Effect.runPromise(
-						client["fs.createFile"]({ folderId, path, worktreeId }),
-					);
+					await dispatchFileTreeCommand({
+						ref: executionRef,
+						kind: "fs.createFile",
+						commandId: CommandId.make(`fs-create:${crypto.randomUUID()}`),
+						payload: { folderId, path, worktreeId },
+					});
 					model.add(path);
 					openFile(path, name);
 				} else {
-					await Effect.runPromise(
-						client["fs.createDirectory"]({ folderId, path, worktreeId }),
-					);
+					await dispatchFileTreeCommand({
+						ref: executionRef,
+						kind: "fs.createDirectory",
+						commandId: CommandId.make(`fs-mkdir:${crypto.randomUUID()}`),
+						payload: { folderId, path, worktreeId },
+					});
 					model.add(`${path}/`);
 				}
 			} catch (err) {
 				window.alert(formatError(err));
 			}
 		},
-		[environmentId, folderId, model, openFile, worktreeId],
+		[executionRef, folderId, model, openFile, worktreeId],
 	);
 
 	const confirmDelete = useCallback(async () => {
@@ -609,14 +542,16 @@ function TreeView({
 		if (target === null) return;
 		setDeleting(true);
 		try {
-			const client = await getRpcClient(environmentId);
-			await Effect.runPromise(
-				client["fs.remove"]({
+			await dispatchFileTreeCommand({
+				ref: executionRef,
+				kind: "fs.remove",
+				commandId: CommandId.make(`fs-remove:${crypto.randomUUID()}`),
+				payload: {
 					folderId,
 					path: stripSlash(target.path),
 					worktreeId,
-				}),
-			);
+				},
+			});
 			model.remove(target.path, { recursive: true });
 			setDeleteTarget(null);
 		} catch (err) {
@@ -624,7 +559,7 @@ function TreeView({
 		} finally {
 			setDeleting(false);
 		}
-	}, [deleteTarget, environmentId, folderId, model, worktreeId]);
+	}, [deleteTarget, executionRef, folderId, model, worktreeId]);
 
 	const renderContextMenu = useCallback(
 		(

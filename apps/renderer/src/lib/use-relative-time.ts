@@ -5,12 +5,12 @@ import { useEffect, useState } from "react";
  * fresh without anyone having to manage a `setInterval`.
  */
 export function useRelativeTimeTick(intervalMs: number = 30_000): number {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => t + 1), intervalMs);
-    return () => window.clearInterval(id);
-  }, [intervalMs]);
-  return Date.now();
+	const [, setTick] = useState(0);
+	useEffect(() => {
+		const id = window.setInterval(() => setTick((t) => t + 1), intervalMs);
+		return () => window.clearInterval(id);
+	}, [intervalMs]);
+	return Date.now();
 }
 
 const SECOND = 1000;
@@ -24,21 +24,21 @@ const DAY = 24 * HOUR;
  * not to flicker.
  */
 export function formatRelativeTime(
-  date: Date | string | number | null | undefined,
-  now: number = Date.now(),
+	date: Date | string | number | null | undefined,
+	now: number = Date.now(),
 ): string | null {
-  if (date === null || date === undefined) return null;
-  const ts =
-    typeof date === "number"
-      ? date
-      : typeof date === "string"
-        ? new Date(date).getTime()
-        : date.getTime();
-  if (Number.isNaN(ts)) return null;
-  const diff = Math.max(0, now - ts);
-  if (diff < 10 * SECOND) return "just now";
-  if (diff < MINUTE) return `${Math.floor(diff / SECOND)}s ago`;
-  if (diff < HOUR) return `${Math.floor(diff / MINUTE)}m ago`;
-  if (diff < DAY) return `${Math.floor(diff / HOUR)}h ago`;
-  return `${Math.floor(diff / DAY)}d ago`;
+	if (date === null || date === undefined) return null;
+	const ts =
+		typeof date === "number"
+			? date
+			: typeof date === "string"
+				? new Date(date).getTime()
+				: date.getTime();
+	if (Number.isNaN(ts)) return null;
+	const diff = Math.max(0, now - ts);
+	if (diff < 10 * SECOND) return "just now";
+	if (diff < MINUTE) return `${Math.floor(diff / SECOND)}s ago`;
+	if (diff < HOUR) return `${Math.floor(diff / MINUTE)}m ago`;
+	if (diff < DAY) return `${Math.floor(diff / HOUR)}h ago`;
+	return `${Math.floor(diff / DAY)}d ago`;
 }

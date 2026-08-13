@@ -22,6 +22,14 @@ const cloudChatEncryptionMigrationUrl = new URL(
 	"../../drizzle/migrations/0006_cloud_chat_encryption.sql",
 	import.meta.url,
 );
+const launchIntentCutoverMigrationUrl = new URL(
+	"../../drizzle/migrations/0007_launch_intent_cutover.sql",
+	import.meta.url,
+);
+const runtimeSummaryMigrationUrl = new URL(
+	"../../drizzle/migrations/0008_runtime_summary_projection.sql",
+	import.meta.url,
+);
 
 describe("relay migration reconciliation", () => {
 	test("keeps the main migration history before managed cloud machines", async () => {
@@ -40,7 +48,50 @@ describe("relay migration reconciliation", () => {
 			{ idx: 4, tag: "0004_credential_cleanup_handshake" },
 			{ idx: 5, tag: "0005_thin_rawhide_kid" },
 			{ idx: 6, tag: "0006_cloud_chat_encryption" },
+			{ idx: 7, tag: "0007_launch_intent_cutover" },
+			{ idx: 8, tag: "0008_runtime_summary_projection" },
 		]);
+	});
+
+	test("stores only a metadata runtime summary projection", async () => {
+		const migration = await readFile(runtimeSummaryMigrationUrl, "utf8");
+		expect(migration).toContain(
+			'CREATE TABLE "relay_cloud_workspace_runtime_summaries"',
+		);
+		for (const column of [
+			"runtime_generation",
+			"summary_revision",
+			"title",
+			"last_activity_at",
+			"session_head_version",
+		])
+			expect(migration).toContain(`"${column}"`);
+		for (const forbidden of ["message", "content", "queue", "terminal"])
+			expect(migration.toLowerCase()).not.toContain(`"${forbidden}`);
+	});
+
+	test("cuts over to the sole encrypted one-shot launch intent", async () => {
+		const migration = await readFile(launchIntentCutoverMigrationUrl, "utf8");
+		expect(migration).toContain(
+			'CREATE TABLE "relay_cloud_workspace_launch_intents"',
+		);
+		expect(migration).toContain('"turn_id" text NOT NULL');
+		expect(migration).toContain('"command_id" text NOT NULL');
+		expect(migration).toContain('"ciphertext" text NOT NULL');
+		expect(
+			[...migration.matchAll(/DROP TABLE "([^"]+)"/gu)].map(
+				([, table]) => table,
+			),
+		).toEqual([
+			"relay_cloud_workspace_events",
+			"relay_cloud_workspace_commands",
+			"relay_cloud_workspace_connection_grants",
+		]);
+		expect(
+			[...migration.matchAll(/DROP COLUMN "([^"]+)"/gu)].map(
+				([, column]) => column,
+			),
+		).toEqual(["chat_metadata_ciphertext"]);
 	});
 
 	test("moves chat content into nullable encrypted envelopes", async () => {

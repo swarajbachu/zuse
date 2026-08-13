@@ -29,6 +29,7 @@ import { type Cause, Effect, Queue, Stream } from "effect";
 
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
+import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import type { ResolvedMcpServer } from "../user-mcp/types.ts";
 import type { BrowserSend } from "./browser-tools.ts";
@@ -257,9 +258,12 @@ const nextItemId = (): AgentItemId =>
  * message but resets per turn — `message_start` clears the map.
  */
 interface ThinkingAccumulator {
-	kind: "thinking" | "redacted_thinking";
+	kind: "text" | "thinking" | "redacted_thinking";
+	readonly itemId: AgentItemId;
 	text: string;
 	signatureLength: number;
+	revision: number;
+	readonly parentItemId: AgentItemId | undefined;
 }
 
 interface PendingAgent {
@@ -272,6 +276,8 @@ interface PendingAgent {
 
 interface TranslateState {
 	thinkingByIndex: Map<number, ThinkingAccumulator>;
+	currentMessageId: string | null;
+	readonly streamedTextThisTurn: string[];
 	emittedThinkingThisTurn: boolean;
 	/**
 	 * Tracks `Agent` / `Task` tool_uses awaiting their paired tool_result
@@ -336,6 +342,8 @@ interface TranslateState {
 
 const newTranslateState = (): TranslateState => ({
 	thinkingByIndex: new Map(),
+	currentMessageId: null,
+	streamedTextThisTurn: [],
 	emittedThinkingThisTurn: false,
 	pendingAgents: new Map(),
 	backgroundTaskParents: new Map(),
@@ -596,7 +604,7 @@ const translate = (
 			}
 		}
 		if (Array.isArray(content)) {
-			for (const block of content) {
+			for (const [blockIndex, block] of content.entries()) {
 				blockTypes.push(String((block as { type?: unknown }).type));
 				if (block.type === "text" && typeof block.text === "string") {
 					// An unauthenticated `claude` surfaces "Not logged in · Please run
@@ -612,9 +620,15 @@ const translate = (
 						state.emittedAuthError = true;
 						continue;
 					}
+					if (state.streamedTextThisTurn[blockIndex] === block.text) {
+						continue;
+					}
 					out.push({
 						_tag: "AssistantMessage",
-						itemId: nextItemId(),
+						itemId:
+							state.currentMessageId !== null
+								? (`${state.currentMessageId}:text:${blockIndex}` as AgentItemId)
+								: nextItemId(),
 						text: block.text,
 						parentItemId,
 					});
@@ -718,6 +732,8 @@ const translate = (
 			}
 		}
 		tlog("assistant.blocks", { types: blockTypes, emitted: out.length });
+		state.currentMessageId = null;
+		state.streamedTextThisTurn.length = 0;
 		return out;
 	}
 	if (msg.type === "stream_event") {
@@ -730,6 +746,10 @@ const translate = (
 		}
 		if (ev.type === "message_start") {
 			state.thinkingByIndex.clear();
+			state.streamedTextThisTurn.length = 0;
+			const message = ev.message as Record<string, unknown> | undefined;
+			state.currentMessageId =
+				typeof message?.id === "string" ? message.id : null;
 			state.emittedThinkingThisTurn = false;
 			tlog("stream_event.message_start");
 			return [];
@@ -743,17 +763,35 @@ const translate = (
 				block: summarize(block),
 			});
 			if (index === null || block === undefined) return [];
-			if (block.type === "thinking") {
+			if (block.type === "text") {
+				state.thinkingByIndex.set(index, {
+					kind: "text",
+					itemId:
+						`${state.currentMessageId ?? "message"}:text:${index}` as AgentItemId,
+					text: typeof block.text === "string" ? block.text : "",
+					signatureLength: 0,
+					revision: 0,
+					parentItemId,
+				});
+			} else if (block.type === "thinking") {
 				state.thinkingByIndex.set(index, {
 					kind: "thinking",
+					itemId:
+						`${state.currentMessageId ?? "message"}:thinking:${index}` as AgentItemId,
 					text: "",
 					signatureLength: 0,
+					revision: 0,
+					parentItemId,
 				});
 			} else if (block.type === "redacted_thinking") {
 				state.thinkingByIndex.set(index, {
 					kind: "redacted_thinking",
+					itemId:
+						`${state.currentMessageId ?? "message"}:redacted-thinking:${index}` as AgentItemId,
 					text: "",
 					signatureLength: 0,
+					revision: 0,
+					parentItemId,
 				});
 			}
 			return [];
@@ -769,6 +807,22 @@ const translate = (
 				return [];
 			}
 			const acc = state.thinkingByIndex.get(index);
+			if (delta.type === "text_delta") {
+				const chunk = typeof delta.text === "string" ? delta.text : "";
+				if (acc?.kind !== "text" || chunk.length === 0) return [];
+				acc.text += chunk;
+				acc.revision += 1;
+				state.streamedTextThisTurn[index] = acc.text;
+				return [
+					{
+						_tag: "AssistantMessage",
+						itemId: acc.itemId,
+						text: acc.text,
+						parentItemId: acc.parentItemId,
+						checkpoint: { revision: acc.revision, final: false },
+					},
+				];
+			}
 			if (delta.type === "thinking_delta") {
 				const chunk = typeof delta.thinking === "string" ? delta.thinking : "";
 				tlog("stream_event.thinking_delta", {
@@ -777,7 +831,20 @@ const translate = (
 					chunkPreview: summarize(chunk, 80),
 					haveAccumulator: acc !== undefined,
 				});
-				if (acc !== undefined) acc.text += chunk;
+				if (acc !== undefined && acc.kind === "thinking") {
+					acc.text += chunk;
+					acc.revision += 1;
+					return [
+						{
+							_tag: "Thinking",
+							itemId: acc.itemId,
+							text: acc.text,
+							redacted: false,
+							parentItemId: acc.parentItemId,
+							checkpoint: { revision: acc.revision, final: false },
+						},
+					];
+				}
 			} else if (delta.type === "signature_delta") {
 				// signatures confirm thinking happened even when text is empty
 				const sig = typeof delta.signature === "string" ? delta.signature : "";
@@ -812,6 +879,22 @@ const translate = (
 			// turn (rare ordering: full message arrives before trailing
 			// content_block_stop), skip — otherwise we render the same thought
 			// twice.
+			if (acc.kind === "text") {
+				return acc.text.length === 0
+					? []
+					: [
+							{
+								_tag: "AssistantMessage",
+								itemId: acc.itemId,
+								text: acc.text,
+								parentItemId: acc.parentItemId,
+								checkpoint: {
+									revision: acc.revision + 1,
+									final: true,
+								},
+							},
+						];
+			}
 			if (state.emittedThinkingThisTurn) return [];
 			if (acc.kind === "redacted_thinking") {
 				state.emittedThinkingThisTurn = true;
@@ -830,10 +913,11 @@ const translate = (
 				return [
 					{
 						_tag: "Thinking",
-						itemId: nextItemId(),
+						itemId: acc.itemId,
 						text: acc.text,
 						redacted: false,
-						parentItemId,
+						parentItemId: acc.parentItemId,
+						checkpoint: { revision: acc.revision + 1, final: true },
 					},
 				];
 			}
@@ -1603,6 +1687,10 @@ export const startClaudeSession = (
 		// pending Agent invocations and the same `latestParentItemId`. Built
 		// here, populated by `translate`, read by `canUseTool`.
 		const translateState = newTranslateState();
+		const emit = (event: AgentEvent): void => {
+			Queue.offerUnsafe(events, event);
+		};
+		const checkpointBatcher = new ProviderCheckpointBatcher({ emit });
 
 		/**
 		 * Outstanding `AskUserQuestion` calls. Keyed by the MCP tool's
@@ -1881,7 +1969,7 @@ export const startClaudeSession = (
 					}
 					const translated = translate(msg, translateState);
 					for (const ev of translated) {
-						Queue.offerUnsafe(events, ev);
+						checkpointBatcher.offer(ev);
 					}
 				}
 			},
@@ -1904,7 +1992,12 @@ export const startClaudeSession = (
 					});
 				}),
 			),
-			Effect.ensuring(Queue.end(events)),
+			Effect.ensuring(
+				Effect.sync(() => {
+					checkpointBatcher.flush();
+					Queue.endUnsafe(events);
+				}),
+			),
 		);
 
 		yield* Effect.forkDetach(pump);
@@ -1977,6 +2070,7 @@ export const startClaudeSession = (
 				),
 			close: () =>
 				Effect.sync(() => {
+					checkpointBatcher.flush();
 					// Unblock any in-flight AskUserQuestion calls so the SDK turn
 					// can unwind cleanly instead of leaking the MCP handler's
 					// pending Promise.

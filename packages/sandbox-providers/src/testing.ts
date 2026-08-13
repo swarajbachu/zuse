@@ -13,6 +13,7 @@ export interface FakeSandboxProviderControl {
 	readonly sandboxes: Ref.Ref<Map<string, ProviderSandbox>>;
 	readonly networkBySandbox: Ref.Ref<Map<string, SandboxNetworkPolicy>>;
 	readonly snapshots: Ref.Ref<Set<string>>;
+	readonly pathsBySandbox: Ref.Ref<Map<string, Set<string>>>;
 	readonly createCalls: Ref.Ref<number>;
 	readonly createInputs: Ref.Ref<
 		ReadonlyArray<{
@@ -28,6 +29,7 @@ export interface FakeSandboxProviderControl {
 	>;
 	readonly startProcessCalls: Ref.Ref<ReadonlyArray<string>>;
 	readonly failNextCreateAfterProvision: Ref.Ref<boolean>;
+	readonly failNextSnapshot: Ref.Ref<boolean>;
 }
 
 export class FakeSandboxProviderControlService extends Context.Service<
@@ -44,6 +46,7 @@ const FakeSandboxProviderControlLive = Layer.effect(
 				new Map<string, SandboxNetworkPolicy>(),
 			),
 			snapshots: yield* Ref.make(new Set<string>()),
+			pathsBySandbox: yield* Ref.make(new Map<string, Set<string>>()),
 			createCalls: yield* Ref.make(0),
 			createInputs: yield* Ref.make<
 				ReadonlyArray<{
@@ -59,6 +62,7 @@ const FakeSandboxProviderControlLive = Layer.effect(
 			>([]),
 			startProcessCalls: yield* Ref.make<ReadonlyArray<string>>([]),
 			failNextCreateAfterProvision: yield* Ref.make(false),
+			failNextSnapshot: yield* Ref.make(false),
 		});
 	}),
 );
@@ -147,7 +151,12 @@ const makeSandboxProvidersFakeFromControl = (
 						...calls,
 						providerSandboxId,
 					]),
-				pathExists: () => Effect.succeed(false),
+				pathExists: (providerSandboxId, path) =>
+					Ref.get(control.pathsBySandbox).pipe(
+						Effect.map(
+							(items) => items.get(providerSandboxId)?.has(path) ?? false,
+						),
+					),
 				readTextFile: () => Effect.succeed(""),
 				writeTextFile: () => Effect.void,
 				inspect: (providerSandboxId) =>
@@ -180,7 +189,12 @@ const makeSandboxProvidersFakeFromControl = (
 						new Map(items).set(providerSandboxId, network),
 					),
 				snapshot: (providerSandboxId, name) =>
-					Ref.get(control.sandboxes).pipe(
+					Ref.getAndSet(control.failNextSnapshot, false).pipe(
+						Effect.flatMap((fail) =>
+							fail
+								? Effect.fail(new SandboxProviderError({ code: "transient" }))
+								: Ref.get(control.sandboxes),
+						),
 						Effect.flatMap((items) =>
 							items.has(providerSandboxId)
 								? Effect.succeed(`fake-snapshot-${name}`)
@@ -191,6 +205,10 @@ const makeSandboxProvidersFakeFromControl = (
 								new Set(items).add(snapshotId),
 							),
 						),
+					),
+				inspectSnapshot: (snapshotId) =>
+					Ref.get(control.snapshots).pipe(
+						Effect.map((items) => items.has(snapshotId)),
 					),
 				kill: (providerSandboxId) =>
 					Ref.update(control.sandboxes, (items) => {

@@ -81,18 +81,18 @@ describe("SessionQueries", () => {
 			limit: 1,
 		});
 		expect(page.items.map((message) => message.messageId)).toEqual([
-			"message-1",
+			"message-2",
 		]);
-		expect(page.nextSequence).toBe(3);
+		expect(page.olderSequence).toBe(4);
 		expect(
 			await queries.messagePage({
 				sessionId: "session-1",
-				afterSequence: page.nextSequence,
+				beforeSequence: page.olderSequence,
 				limit: 1,
 			}),
 		).toMatchObject({
-			items: [expect.objectContaining({ messageId: "message-2" })],
-			nextSequence: null,
+			items: [expect.objectContaining({ messageId: "message-1" })],
+			olderSequence: null,
 		});
 	});
 

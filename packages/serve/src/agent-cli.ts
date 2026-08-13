@@ -14,6 +14,7 @@ import { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
 import {
 	type AttachmentRef,
 	type ChatId,
+	CommandId,
 	ComposerInput,
 	type FileRef,
 	type LinearIssueRef,
@@ -30,6 +31,9 @@ import {
 import { Effect } from "effect";
 
 type RpcClient = Awaited<ReturnType<typeof connect>>["client"];
+
+const commandId = (kind: string): CommandId =>
+	CommandId.make(`${kind}:${randomUUID()}`);
 
 const GROUPS = new Set([
 	"commands",
@@ -824,6 +828,7 @@ const execute = async (
 			if (prompt || context.attachments.length || context.fileRefs.length)
 				await rpc(
 					client["messages.send"]({
+						commandId: commandId("message-send"),
 						sessionId: created.id,
 						input: composer(prompt, context),
 					}),
@@ -910,6 +915,7 @@ const execute = async (
 			return {
 				session: await rpc(
 					client["session.rename"]({
+						commandId: commandId("session-rename"),
 						sessionId: selectedSessionId,
 						title: required(one(args, "title"), "--title"),
 					}),
@@ -943,6 +949,7 @@ const execute = async (
 			if (one(args, "permission"))
 				await rpc(
 					client["session.setPermissionMode"]({
+						commandId: commandId("session-permission-mode"),
 						sessionId: selectedSessionId,
 						mode: permission(args),
 					}),
@@ -950,12 +957,14 @@ const execute = async (
 			if (one(args, "runtime"))
 				await rpc(
 					client["session.setRuntimeMode"]({
+						commandId: commandId("session-runtime-mode"),
 						sessionId: selectedSessionId,
 						runtimeMode: runtime(args),
 					}),
 				);
 			await rpc(
 				client["messages.send"]({
+					commandId: commandId("message-send"),
 					sessionId: selectedSessionId,
 					input: composer(text, context),
 				}),
@@ -1023,6 +1032,7 @@ const execute = async (
 				return {
 					item: await rpc(
 						client["messages.queue.add"]({
+							commandId: commandId("queue-add"),
 							sessionId: selectedSessionId,
 							input,
 							...(one(args, "queue") ? { queueId: one(args, "queue") } : {}),
@@ -1035,6 +1045,7 @@ const execute = async (
 			return {
 				item: await rpc(
 					client["messages.queue.update"]({
+						commandId: commandId("queue-update"),
 						sessionId: selectedSessionId,
 						queueId: required(one(args, "queue"), "--queue"),
 						input,
@@ -1047,6 +1058,7 @@ const execute = async (
 			const queueId = required(one(args, "queue"), "--queue");
 			await rpc(
 				client["messages.queue.delete"]({
+					commandId: commandId("queue-delete"),
 					sessionId: selectedSessionId,
 					queueId,
 				}),
@@ -1057,6 +1069,7 @@ const execute = async (
 			return {
 				items: await rpc(
 					client["messages.queue.reorder"]({
+						commandId: commandId("queue-reorder"),
 						sessionId: selectedSessionId,
 						queueIds: many(args, "queue"),
 					}),
@@ -1066,6 +1079,7 @@ const execute = async (
 			const queueId = required(one(args, "queue"), "--queue");
 			await rpc(
 				client["messages.queue.runNext"]({
+					commandId: commandId("queue-run-next"),
 					sessionId: selectedSessionId,
 					queueId,
 				}),
@@ -1074,13 +1088,19 @@ const execute = async (
 		}
 		if (group === "session" && action === "queue-flush") {
 			await rpc(
-				client["messages.queue.flush"]({ sessionId: selectedSessionId }),
+				client["messages.queue.flush"]({
+					commandId: commandId("queue-flush"),
+					sessionId: selectedSessionId,
+				}),
 			);
 			return { sessionId: selectedSessionId, flushed: true };
 		}
 		if (group === "session" && action === "queue-resume") {
 			await rpc(
-				client["messages.queue.resume"]({ sessionId: selectedSessionId }),
+				client["messages.queue.resume"]({
+					commandId: commandId("queue-resume"),
+					sessionId: selectedSessionId,
+				}),
 			);
 			return { sessionId: selectedSessionId, resumed: true };
 		}
@@ -1093,6 +1113,7 @@ const execute = async (
 			if (one(args, "permission"))
 				await rpc(
 					client["session.setPermissionMode"]({
+						commandId: commandId("session-permission-mode"),
 						sessionId: selectedSessionId,
 						mode: permission(args),
 					}),
@@ -1100,6 +1121,7 @@ const execute = async (
 			if (one(args, "runtime"))
 				await rpc(
 					client["session.setRuntimeMode"]({
+						commandId: commandId("session-runtime-mode"),
 						sessionId: selectedSessionId,
 						runtimeMode: runtime(args),
 					}),
@@ -1111,7 +1133,12 @@ const execute = async (
 			};
 		}
 		if (group === "session" && action === "interrupt") {
-			await rpc(client["messages.interrupt"]({ sessionId: selectedSessionId }));
+			await rpc(
+				client["messages.interrupt"]({
+					commandId: commandId("message-interrupt"),
+					sessionId: selectedSessionId,
+				}),
+			);
 			return { sessionId: selectedSessionId, interrupted: true };
 		}
 		if (group === "session" && action === "resume")

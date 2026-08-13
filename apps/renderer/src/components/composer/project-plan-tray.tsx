@@ -1,16 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { EnvironmentId, Message, SessionId } from "@zuse/contracts";
+import { CheckListIcon, Tick02Icon } from "@zuse/icons/solid-rounded";
 import { ChevronDown } from "lucide-react";
-import {
-	CheckListIcon,
-	Tick02Icon,
-} from "@zuse/icons/solid-rounded";
-import type { Message, SessionId } from "@zuse/contracts";
 import { useMemo, useState } from "react";
 
 import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
 
-import { useMessagesStore } from "../../store/messages.ts";
+import { useRendererSessionTimeline } from "../../lib/session-timeline-hooks.ts";
 import { TrayPill } from "./tray-pill.tsx";
 
 const TODO_STATUS = {
@@ -34,8 +31,6 @@ interface Todo {
 	readonly text: string;
 	readonly status: TodoStatus;
 }
-
-const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
 
 const asString = (v: unknown): string | undefined =>
 	typeof v === "string" ? v : undefined;
@@ -228,11 +223,17 @@ const projectPlanFromMessages = (messages: ReadonlyArray<Message>): Todo[] => {
  * status icons. Renders nothing until a session has produced a TodoWrite list,
  * and persists after the turn ends.
  */
-export function ProjectPlanTray({ sessionId }: { sessionId: SessionId }) {
-	// Select the stable message-array reference and derive the latest plan with
-	// useMemo — selecting a freshly-built array would re-render on every store tick.
-	const messages = useMessagesStore(
-		(s) => s.messagesBySession[sessionId] ?? EMPTY_MESSAGES,
+export function ProjectPlanTray({
+	sessionId,
+	environmentId,
+}: {
+	sessionId: SessionId;
+	environmentId: EnvironmentId;
+}) {
+	const { messages } = useRendererSessionTimeline(
+		sessionId,
+		"connect",
+		environmentId,
 	);
 
 	// Collapsed by default; keyed per session so the expand state doesn't bleed

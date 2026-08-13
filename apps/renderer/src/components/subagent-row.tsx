@@ -1,7 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { ChatRef } from "@zuse/client-runtime/resource-ref";
+import type { AgentItemId, Message } from "@zuse/contracts";
 import { ClipboardIcon } from "@zuse/icons/solid-rounded";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { AgentItemId, Message } from "@zuse/contracts";
 import { memo, useEffect, useMemo, useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -58,6 +59,7 @@ function SubagentRowImpl({
 	children,
 	summary,
 	readOnly = false,
+	chatRef = null,
 }: {
 	readonly agentToolUseId: AgentItemId;
 	readonly agentName: string;
@@ -74,6 +76,7 @@ function SubagentRowImpl({
 		readonly isError: boolean;
 	} | null;
 	readonly readOnly?: boolean;
+	readonly chatRef?: ChatRef | null;
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const revealSubagent = useUiStore((state) => state.revealSubagent);
@@ -114,9 +117,10 @@ function SubagentRowImpl({
 					if (
 						!readOnly &&
 						presentation === "detached" &&
-						childSessionId !== undefined
+						childSessionId !== undefined &&
+						chatRef !== null
 					) {
-						revealSubagent(childSessionId);
+						revealSubagent(chatRef, childSessionId);
 						return;
 					}
 					setExpanded((e) => !e);

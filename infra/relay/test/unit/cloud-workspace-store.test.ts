@@ -39,13 +39,14 @@ const build = {
 };
 
 const startCommand = (workspaceId: string, accountId = "account-1") => ({
-	commandId: `start:${workspaceId}`,
 	workspaceId,
 	accountId,
-	sequence: 1,
-	kind: "start-agent" as const,
-	payload: {},
-	state: "queued" as const,
+	chatId: `chat:${workspaceId}`,
+	sessionId: `session:${workspaceId}`,
+	turnId: `turn:${workspaceId}`,
+	commandId: `launch:${workspaceId}`,
+	ciphertext: "encrypted-launch-intent",
+	expiresAtMs: 86_400_100,
 	createdAtMs: 100,
 });
 
@@ -89,6 +90,32 @@ describe("cloud workspace store", () => {
 				)
 			).kind,
 		).toBe("created");
+		expect(
+			await runtime.runPromise(
+				store.getLaunchIntent(workspace.workspaceId, 200),
+			),
+		).toMatchObject({
+			workspaceId: workspace.workspaceId,
+			commandId: `launch:${workspace.workspaceId}`,
+		});
+		expect(
+			await runtime.runPromise(
+				store.acknowledgeLaunchIntent(workspace.workspaceId, "launch:wrong"),
+			),
+		).toBe(false);
+		expect(
+			await runtime.runPromise(
+				store.acknowledgeLaunchIntent(
+					workspace.workspaceId,
+					`launch:${workspace.workspaceId}`,
+				),
+			),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(
+				store.getLaunchIntent(workspace.workspaceId, 200),
+			),
+		).toBeNull();
 		const claimed = await runtime.runPromise(
 			store.claimWorkspace(workspace.workspaceId, "worker-a", 100, 200),
 		);
@@ -104,6 +131,21 @@ describe("cloud workspace store", () => {
 				revision: workspace.revision + 1,
 			}),
 		);
+		expect(
+			await runtime.runPromise(
+				store.claimWorkspace(workspace.workspaceId, "worker-b", 150, 250),
+			),
+		).toBeNull();
+		expect(
+			await runtime.runPromise(
+				store.releaseWorkspaceLease(workspace.workspaceId, "worker-b"),
+			),
+		).toBe(false);
+		expect(
+			await runtime.runPromise(
+				store.releaseWorkspaceLease(workspace.workspaceId, "worker-a"),
+			),
+		).toBe(true);
 		expect(
 			await runtime.runPromise(
 				store.claimWorkspace(workspace.workspaceId, "worker-b", 150, 250),
@@ -165,7 +207,7 @@ describe("cloud workspace store", () => {
 		await runtime.dispose();
 	});
 
-	test("creates the first command atomically and consumes runtime boot once", async () => {
+	test("enrolls runtime boot idempotently and clears it only after fenced acknowledgement", async () => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
 		const store = await runtime.runPromise(CloudWorkspaceStore);
 		await runtime.runPromise(store.connectProject(project));
@@ -201,25 +243,258 @@ describe("cloud workspace store", () => {
 		);
 		expect(
 			await runtime.runPromise(
-				store.listCommands(workspace.workspaceId, 0, 150),
+				store.getLaunchIntent(workspace.workspaceId, 150),
 			),
-		).toHaveLength(1);
-		const consume = () =>
+		).toMatchObject({ commandId: `launch:${workspace.workspaceId}` });
+		const enroll = (
+			overrides: Partial<Parameters<typeof store.enrollRuntimeBoot>[0]> = {},
+		) =>
 			runtime.runPromise(
-				store.consumeRuntimeBoot({
+				store.enrollRuntimeBoot({
 					workspaceId: workspace.workspaceId,
 					bootTokenHash: "boot-hash",
+					credentialKeyThumbprint: "credential-key",
+					signingKeyThumbprint: "signing-key",
+					signingPublicJwk: '{"kty":"OKP"}',
 					runtimeCredentialHash: "runtime-hash",
 					runtimeCredentialExpiresAtMs: 10_000,
+					generation: 1,
+					gatewayEpoch: 1,
+					cloudCredentials: [
+						{
+							kind: "github",
+							credentialType: "repository-token",
+							sealedSecret: "sealed",
+							version: 1,
+						},
+					],
 					nowMs: 200,
+					...overrides,
 				}),
 			);
-		expect(await consume()).toMatchObject({
-			runtimeBootTokenHash: undefined,
-			runtimeCredentialHash: "runtime-hash",
-			state: "setup",
+		const first = await enroll();
+		expect(first).toMatchObject({
+			kind: "created",
+			workspace: {
+				runtimeBootTokenHash: "boot-hash",
+				runtimeCredentialHash: "runtime-hash",
+				state: "setup",
+			},
+			receipt: { cloudCredentials: [{ sealedSecret: "sealed" }] },
 		});
-		expect(await consume()).toBeNull();
+		const replay = await enroll({ nowMs: 201 });
+		expect(replay).toMatchObject({
+			kind: "replay",
+			receipt: first?.receipt,
+		});
+		expect(replay?.workspace.revision).toBe(first?.workspace.revision);
+		expect(
+			await enroll({ credentialKeyThumbprint: "changed-credential-key" }),
+		).toBeNull();
+		expect(
+			await enroll({ signingKeyThumbprint: "changed-signing-key" }),
+		).toBeNull();
+		expect(await enroll({ generation: 2 })).toBeNull();
+		expect(await enroll({ gatewayEpoch: 2 })).toBeNull();
+		expect(
+			await runtime.runPromise(
+				store.acknowledgeRuntimeBoot({
+					workspaceId: workspace.workspaceId,
+					currentCredentialHash: "wrong-runtime-hash",
+					generation: 1,
+					gatewayEpoch: 1,
+					nowMs: 300,
+				}),
+			),
+		).toBe(false);
+		expect(
+			await runtime.runPromise(
+				store.acknowledgeRuntimeBoot({
+					workspaceId: workspace.workspaceId,
+					currentCredentialHash: "runtime-hash",
+					generation: 1,
+					gatewayEpoch: 1,
+					nowMs: 300,
+				}),
+			),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(
+				store.acknowledgeRuntimeBoot({
+					workspaceId: workspace.workspaceId,
+					currentCredentialHash: "runtime-hash",
+					generation: 1,
+					gatewayEpoch: 1,
+					nowMs: 301,
+				}),
+			),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(store.getWorkspace(workspace.workspaceId)),
+		).toMatchObject({
+			runtimeBootTokenHash: undefined,
+			requestConfig: {
+				runtimeBootstrapReceipt: {
+					acknowledgedAtMs: 300,
+					cloudCredentials: [],
+				},
+			},
+		});
+		expect(
+			await runtime.runPromise(
+				store.getLaunchIntent(workspace.workspaceId, 301),
+			),
+		).toMatchObject({ commandId: `launch:${workspace.workspaceId}` });
+		await runtime.dispose();
+	});
+
+	test("runtime credential renewal is atomic and response-loss safe", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(store.connectProject(project));
+		await runtime.runPromise(store.createBuild(build));
+		const workspace = {
+			workspaceId: "workspace-renew",
+			accountId: "account-1",
+			projectId: project.projectId,
+			buildId: build.buildId,
+			provider: build.provider,
+			providerSandboxId: "sandbox-renew",
+			runtimeCredentialHash: "credential-old",
+			runtimeState: "online" as const,
+			chatId: "chat-renew",
+			initialSessionId: "session-renew",
+			branch: "task/renew",
+			baseRef: "origin/main",
+			state: "ready" as const,
+			desiredState: "ready" as const,
+			statusCode: "agent-running",
+			credentialEpoch: 1,
+			idempotencyKey: "workspace-renew-key",
+			requestConfig: { runtimeCredentialExpiresAtMs: 2_000 },
+			nextActionAtMs: 2_000,
+			revision: 1,
+			createdAtMs: 100,
+			updatedAtMs: 100,
+			lastActivityAtMs: 100,
+		};
+		await runtime.runPromise(
+			store.createWorkspace(workspace, startCommand(workspace.workspaceId)),
+		);
+		const renew = (overrides = {}) =>
+			runtime.runPromise(
+				store.renewRuntimeCredential({
+					workspaceId: workspace.workspaceId,
+					currentCredentialHash: "credential-old",
+					requestId: "renew-1",
+					nextCredentialHash: "credential-new",
+					expiresAtMs: 10_000,
+					generation: 2,
+					gatewayEpoch: 2,
+					nowMs: 500,
+					...overrides,
+				}),
+			);
+		expect(await renew({ nowMs: 2_500 })).toBeNull();
+		const first = await renew();
+		expect(first).toMatchObject({
+			requestId: "renew-1",
+			credentialHash: "credential-new",
+			expiresAtMs: 10_000,
+		});
+		// Simulate losing the first HTTP response: the same old bearer/request id
+		// returns the same receipt after the atomic hash swap.
+		expect(await renew()).toEqual(first);
+		expect(
+			await renew({
+				requestId: "renew-2",
+				nextCredentialHash: "credential-other",
+			}),
+		).toBeNull();
+		expect(
+			await runtime.runPromise(store.getWorkspace(workspace.workspaceId)),
+		).toMatchObject({ runtimeCredentialHash: "credential-new" });
+		await runtime.dispose();
+	});
+
+	test("fences runtime summaries by generation and monotonic revision", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(store.connectProject(project));
+		await runtime.runPromise(store.createBuild(build));
+		const workspace = {
+			workspaceId: "workspace-summary",
+			accountId: "account-1",
+			projectId: project.projectId,
+			buildId: build.buildId,
+			provider: build.provider,
+			runtimeState: "online" as const,
+			chatId: "chat-summary",
+			initialSessionId: "session-summary",
+			branch: "task/summary",
+			baseRef: "origin/main",
+			state: "ready" as const,
+			desiredState: "ready" as const,
+			statusCode: "agent-running",
+			credentialEpoch: 1,
+			idempotencyKey: "workspace-summary-key",
+			requestConfig: { runtimeGeneration: 4 },
+			nextActionAtMs: 10_000,
+			revision: 1,
+			createdAtMs: 100,
+			updatedAtMs: 100,
+			lastActivityAtMs: 100,
+		};
+		await runtime.runPromise(
+			store.createWorkspace(workspace, startCommand(workspace.workspaceId)),
+		);
+		const save = (overrides = {}) =>
+			runtime.runPromise(
+				store.saveRuntimeSummary({
+					workspaceId: workspace.workspaceId,
+					runtimeGeneration: 4,
+					summaryRevision: 1,
+					title: "Fresh title",
+					lastActivityAtMs: 1_000,
+					sessionHeadVersion: 8,
+					updatedAtMs: 1_000,
+					...overrides,
+				}),
+			);
+
+		expect(await save({ runtimeGeneration: 3 })).toEqual({
+			kind: "rejected-generation",
+		});
+		expect(await save()).toMatchObject({ kind: "applied" });
+		expect(
+			await save({
+				title: "Regressed",
+				lastActivityAtMs: 900,
+				sessionHeadVersion: 7,
+			}),
+		).toMatchObject({
+			kind: "stale",
+			summary: { title: "Fresh title", sessionHeadVersion: 8 },
+		});
+		expect(
+			await save({
+				summaryRevision: 2,
+				title: "Newest title",
+				lastActivityAtMs: 800,
+				sessionHeadVersion: 6,
+				updatedAtMs: 1_100,
+			}),
+		).toMatchObject({
+			kind: "applied",
+			summary: {
+				title: "Newest title",
+				lastActivityAtMs: 1_000,
+				sessionHeadVersion: 8,
+			},
+		});
+		expect(
+			await runtime.runPromise(store.getRuntimeSummary(workspace.workspaceId)),
+		).toMatchObject({ summaryRevision: 2, title: "Newest title" });
 		await runtime.dispose();
 	});
 
@@ -254,20 +529,86 @@ describe("cloud workspace store", () => {
 		await runtime.runPromise(
 			store.createWorkspace(original, startCommand(original.workspaceId)),
 		);
-		await runtime.runPromise(
-			store.saveWorkspace({
-				...original,
-				runtimeCredentialHash: "credential-new",
-				runtimeState: "online",
-				revision: 3,
-				updatedAtMs: 200,
-			}),
+		const claimed = await runtime.runPromise(
+			store.claimWorkspace(original.workspaceId, "reconciler-a", 100, 1_000),
 		);
+		expect(claimed).not.toBeNull();
+		expect(
+			await runtime.runPromise(
+				store.saveClaimedWorkspace({
+					workspace: {
+						...(claimed ?? original),
+						statusCode: "reconcile-waiting",
+						updatedAtMs: 150,
+					},
+					leaseOwner: "reconciler-b",
+					expectedRevision: 2,
+					expectedUpdatedAtMs: 100,
+				}),
+			),
+		).toBe(false);
+		expect(
+			await runtime.runPromise(
+				store.saveClaimedWorkspace({
+					workspace: {
+						...(claimed ?? original),
+						statusCode: "reconcile-waiting",
+						updatedAtMs: 150,
+					},
+					leaseOwner: "reconciler-a",
+					expectedRevision: 1,
+					expectedUpdatedAtMs: 100,
+				}),
+			),
+		).toBe(false);
+		expect(
+			await runtime.runPromise(
+				store.saveClaimedWorkspace({
+					workspace: {
+						...(claimed ?? original),
+						statusCode: "reconcile-waiting",
+						updatedAtMs: 150,
+					},
+					leaseOwner: "reconciler-a",
+					expectedRevision: 2,
+					expectedUpdatedAtMs: 100,
+				}),
+			),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(store.getWorkspace(original.workspaceId)),
+		).toMatchObject({
+			leaseOwner: "reconciler-a",
+			statusCode: "reconcile-waiting",
+			updatedAtMs: 150,
+		});
+
+		const routeUpdate = {
+			...original,
+			runtimeCredentialHash: "credential-new",
+			runtimeState: "online" as const,
+			revision: 3,
+			updatedAtMs: 200,
+		};
+		await runtime.runPromise(store.saveWorkspace(routeUpdate));
+		expect(
+			await runtime.runPromise(
+				store.saveClaimedWorkspace({
+					workspace: {
+						...original,
+						statusCode: "stale-retry",
+						updatedAtMs: 175,
+					},
+					leaseOwner: "reconciler-a",
+					expectedRevision: 2,
+					expectedUpdatedAtMs: 150,
+				}),
+			),
+		).toBe(false);
 		await runtime.runPromise(
 			store.saveWorkspace({
-				...original,
-				statusCode: "stale-retry",
-				updatedAtMs: 150,
+				...routeUpdate,
+				statusCode: "same-version-race",
 			}),
 		);
 
@@ -278,7 +619,18 @@ describe("cloud workspace store", () => {
 			runtimeState: "online",
 			revision: 3,
 			statusCode: "enrollment-pending",
+			leaseOwner: "reconciler-a",
 		});
+		expect(
+			await runtime.runPromise(
+				store.releaseWorkspaceLease(original.workspaceId, "reconciler-a"),
+			),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(
+				store.claimWorkspace(original.workspaceId, "reconciler-b", 200, 300),
+			),
+		).not.toBeNull();
 		await runtime.dispose();
 	});
 
@@ -332,152 +684,62 @@ describe("cloud workspace store", () => {
 		await runtime.dispose();
 	});
 
-	test("delivers commands and stores runtime events idempotently", async () => {
+	test("consumes a launch intent only after its matching receipt", async () => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
 		const store = await runtime.runPromise(CloudWorkspaceStore);
-		const command = {
-			commandId: "start:workspace-1",
-			workspaceId: "workspace-1",
-			accountId: "account-1",
-			sequence: 1,
-			kind: "start-agent" as const,
-			payload: { firstMessage: "hello" },
-			state: "queued" as const,
-			createdAtMs: 100,
-		};
-		await runtime.runPromise(store.createCommand(command));
-		expect(
-			await runtime.runPromise(store.listCommands("workspace-1", 0, 200)),
-		).toMatchObject([{ state: "claimed", sequence: 1 }]);
 		expect(
 			await runtime.runPromise(
-				store.acknowledgeCommand("workspace-1", command.commandId, 300),
-			),
-		).toBe(true);
-		const failedCommand = {
-			...command,
-			commandId: "message:workspace-1",
-			sequence: 2,
-			kind: "send-message" as const,
-			state: "queued" as const,
-		};
-		await runtime.runPromise(store.createCommand(failedCommand));
-		await runtime.runPromise(store.listCommands("workspace-1", 1, 350));
-		expect(
-			await runtime.runPromise(
-				store.failCommand("workspace-1", failedCommand.commandId, 400),
-			),
-		).toBe(true);
-		expect(
-			await runtime.runPromise(store.listCommands("workspace-1", 0, 450)),
-		).toEqual([]);
-
-		const event = {
-			workspaceId: "workspace-1",
-			runtimeSequence: 1,
-			eventId: "event-1",
-			streamId: "session-1",
-			streamVersion: 1,
-			type: "MessagePersisted",
-			payloadJson: '{"_tag":"MessagePersisted"}',
-			createdAtMs: 300,
-		};
-		expect(
-			await runtime.runPromise(store.appendEvents("workspace-1", [event])),
-		).toBe(1);
-		expect(
-			await runtime.runPromise(store.appendEvents("workspace-1", [event])),
-		).toBe(0);
-		const batchedEvents = [2, 3, 4].map((sequence) => ({
-			...event,
-			runtimeSequence: sequence,
-			eventId: `event-${sequence}`,
-			streamVersion: sequence,
-			createdAtMs: 300 + sequence,
-		}));
-		expect(
-			await runtime.runPromise(
-				store.appendEvents("workspace-1", [event, ...batchedEvents]),
-			),
-		).toBe(3);
-		const replacementEvent = {
-			...event,
-			eventId: "event-after-replacement",
-			streamVersion: 5,
-			type: "SessionStatusSet",
-			createdAtMs: 400,
-		};
-		expect(
-			await runtime.runPromise(
-				store.appendEvents("workspace-1", [replacementEvent]),
-			),
-		).toBe(1);
-		expect(
-			await runtime.runPromise(store.listEvents("workspace-1", 0)),
-		).toEqual([
-			event,
-			...batchedEvents,
-			{ ...replacementEvent, runtimeSequence: 5 },
-		]);
-		expect(await runtime.runPromise(store.latestMessageAt("workspace-1"))).toBe(
-			304,
-		);
-		await runtime.runPromise(
-			store.createConnectionGrant({
-				grantHash: "grant-1",
-				workspaceId: "workspace-1",
-				accountId: "account-1",
-				expiresAtMs: 1_000,
-				createdAtMs: 500,
-			}),
-		);
-		expect(
-			await runtime.runPromise(
-				store.consumeConnectionGrant("grant-1", "workspace-1", 600),
-			),
-		).toBe(true);
-		// The RPC socket owns transparent reconnects, so the same scoped grant
-		// remains usable until its short lease expires.
-		expect(
-			await runtime.runPromise(
-				store.consumeConnectionGrant("grant-1", "workspace-1", 700),
-			),
-		).toBe(true);
-		expect(
-			await runtime.runPromise(
-				store.consumeConnectionGrant("grant-1", "workspace-1", 1_000),
+				store.acknowledgeLaunchIntent("workspace-1", "launch:wrong"),
 			),
 		).toBe(false);
 		await runtime.dispose();
 	});
 
-	test("queues durable cloud messages in strict workspace order", async () => {
+	test("expires an unconsumed launch intent into a visible failure", async () => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
 		const store = await runtime.runPromise(CloudWorkspaceStore);
-		const message = (id: string, text: string) => ({
-			commandId: `message:${id}`,
-			workspaceId: "workspace-1",
+		await runtime.runPromise(store.connectProject(project));
+		await runtime.runPromise(store.createBuild(build));
+		const workspace = {
+			workspaceId: "workspace-expired-launch",
 			accountId: "account-1",
-			kind: "send-message" as const,
-			payload: { clientMessageId: id, input: { text } },
+			projectId: project.projectId,
+			buildId: build.buildId,
+			provider: build.provider,
+			runtimeState: "offline" as const,
+			chatId: "chat-expired-launch",
+			initialSessionId: "session-expired-launch",
+			branch: "task/expired-launch",
+			baseRef: "origin/main",
 			state: "queued" as const,
-			createdAtMs: 400,
-		});
-		const first = await runtime.runPromise(
-			store.createNextCommand(message("message-1", "first")),
+			desiredState: "ready" as const,
+			statusCode: "provisioning-queued",
+			credentialEpoch: 0,
+			idempotencyKey: "workspace-expired-launch-key",
+			requestConfig: {},
+			nextActionAtMs: 100,
+			revision: 0,
+			createdAtMs: 100,
+			updatedAtMs: 100,
+			lastActivityAtMs: 100,
+		};
+		await runtime.runPromise(
+			store.createWorkspace(workspace, {
+				...startCommand(workspace.workspaceId),
+				expiresAtMs: 200,
+			}),
 		);
-		const duplicate = await runtime.runPromise(
-			store.createNextCommand(message("message-1", "first")),
-		);
-		const second = await runtime.runPromise(
-			store.createNextCommand(message("message-2", "second")),
-		);
-
-		expect(duplicate).toEqual(first);
-		expect(second.sequence).toBe(first.sequence + 1);
 		expect(
-			await runtime.runPromise(store.listMessageCommands("workspace-1")),
-		).toEqual([first, second]);
+			await runtime.runPromise(
+				store.getLaunchIntent(workspace.workspaceId, 200),
+			),
+		).toBeNull();
+		expect(
+			await runtime.runPromise(store.getWorkspace(workspace.workspaceId)),
+		).toMatchObject({
+			state: "failed",
+			statusCode: "launch-intent-expired",
+		});
 		await runtime.dispose();
 	});
 

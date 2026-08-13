@@ -17,6 +17,7 @@ import { readSessionsSnapshot, writeSessionsSnapshot } from "~/offline/cache";
 import {
 	markChatRead as markChatReadRpc,
 	renameChat as renameChatRpc,
+	renameSession as renameSessionRpc,
 	setSessionPermissionMode as setSessionPermissionModeRpc,
 	setSessionRuntimeMode as setSessionRuntimeModeRpc,
 } from "~/rpc/actions";
@@ -248,9 +249,12 @@ export const renameSession = async (
 		}),
 	);
 	try {
-		const client = await Effect.runPromise(getConnectionClient(options));
 		const renamed = await Effect.runPromise(
-			client["session.rename"]({ sessionId, title: trimmed }),
+			renameSessionRpc({
+				connection: options,
+				sessionId,
+				title: trimmed,
+			}),
 		);
 		setConnectionBundles(
 			connKey,

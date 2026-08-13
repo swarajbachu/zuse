@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { createServer, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { NodeSocket } from "@effect/platform-node";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import { makeRpcClientSession } from "@zuse/client-runtime/connection";
 import { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
@@ -478,10 +479,21 @@ describe("WS LAN auth", () => {
 		try {
 			await runtime.runPromise(Effect.void);
 			const clientSession = await makeRpcClientSession(
-				wsClientProtocolLayer({
-					host: "127.0.0.1",
-					port,
-				}),
+				wsClientProtocolLayer(
+					{
+						host: "127.0.0.1",
+						port,
+					},
+					{
+						// Keep this transport test on Effect's Node WebSocket implementation.
+						// Node's built-in Undici client currently aborts this valid compressed frame.
+						makeWebSocket: (url, protocols) =>
+							new NodeSocket.NodeWS.WebSocket(
+								url,
+								protocols,
+							) as unknown as WebSocket,
+					},
+				),
 				TestRpcs,
 			);
 			try {

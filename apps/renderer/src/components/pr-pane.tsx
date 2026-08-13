@@ -1,4 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
+import type {
+	GitPrCheckRun,
+	GitPrComment,
+	GitPrDetails,
+	GitPrReview,
+	GitPrReviewState,
+} from "@zuse/contracts";
+import { GitPrInfo } from "@zuse/contracts";
 import {
 	CircleIcon,
 	GitPullRequestIcon,
@@ -6,33 +15,20 @@ import {
 	MinusSignCircleIcon,
 	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
-import type {
-	FolderId,
-	GitPrCheckRun,
-	GitPrComment,
-	GitPrDetails,
-	GitPrReview,
-	GitPrReviewState,
-	WorktreeId,
-} from "@zuse/contracts";
-import { GitPrInfo } from "@zuse/contracts";
 import { ArrowUpRight, Plus, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import {
 	attachFileWhenReady,
 	saveContextFile,
 } from "../lib/context-handoff.ts";
-import { getActiveEnvironment } from "../lib/rpc-client.ts";
+import { useGitWorkspaceResource } from "../lib/git-workspace-client-bus.ts";
 import { softTone, type Tone } from "../lib/tones.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import {
 	composerDraftKeyForSession,
 	useComposerDraftsStore,
 } from "../store/composer-drafts.ts";
-import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
-import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
-import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { GitInitCta } from "./git-init-cta.tsx";
@@ -178,47 +174,24 @@ const markdownToPlainText = (value: string): string =>
  * lookups + the lazy details fetch are keyed by `(folderId, worktreeId)`.
  */
 export function PrPane({
-	folderId,
-	worktreeId,
+	executionRef,
 }: {
-	folderId: FolderId | null;
-	worktreeId: WorktreeId | null;
+	executionRef: ExecutionRef | null;
 }) {
-	const status = useGitStatusStore((s) =>
-		folderId ? (s.byKey[gitStatusKey(folderId, worktreeId)] ?? null) : null,
-	);
-	const noRepo = useGitStatusStore((s) =>
-		folderId
-			? s.noRepoByKey[gitStatusKey(folderId, worktreeId)] === true
-			: false,
-	);
-	const pr = usePrStateStore((s) =>
-		folderId
-			? (s.byKey[prStateKey(getActiveEnvironment(), folderId, worktreeId)] ??
-				null)
-			: null,
-	);
-	const details = usePrDetailsStore((s) =>
-		folderId ? (s.byKey[prDetailsKey(folderId, worktreeId)] ?? null) : null,
-	);
-	const detailsLoading = usePrDetailsStore((s) =>
-		folderId
-			? s.loadingByKey[prDetailsKey(folderId, worktreeId)] === true
-			: false,
-	);
-	const hydrateDetails = usePrDetailsStore((s) => s.hydrate);
+	const workspaceView = useGitWorkspaceResource(executionRef, "connect");
+	const status = workspaceView.data?.status ?? null;
+	const noRepo = workspaceView.data?.noRepository === true;
+	const pr = workspaceView.data?.pr ?? null;
+	const details = workspaceView.data?.prDetails ?? null;
+	const detailsLoading = workspaceView.sync === "synchronizing";
 
-	useEffect(() => {
-		if (folderId !== null) void hydrateDetails(folderId, worktreeId);
-	}, [folderId, worktreeId, hydrateDetails]);
-
-	if (folderId === null) {
+	if (executionRef === null) {
 		return <Empty>Select a project to see its PR here.</Empty>;
 	}
 	if (noRepo) {
 		return (
 			<div className="flex min-h-0 flex-1 flex-col px-3 py-3 text-xs">
-				<GitInitCta folderId={folderId} worktreeId={worktreeId} />
+				<GitInitCta executionRef={executionRef} />
 			</div>
 		);
 	}
@@ -242,6 +215,7 @@ export function PrPane({
 				/>
 			) : (
 				<PrBody
+					executionRef={executionRef}
 					pr={effectivePr}
 					details={details}
 					detailsLoading={detailsLoading}
@@ -295,10 +269,12 @@ function NoPrState({
 }
 
 function PrBody({
+	executionRef,
 	pr,
 	details,
 	detailsLoading,
 }: {
+	executionRef: ExecutionRef;
 	pr: GitPrInfo;
 	details: GitPrDetails | null;
 	detailsLoading: boolean;
@@ -316,7 +292,12 @@ function PrBody({
 	const composerDraft = useComposerDraftsStore((s) =>
 		selectedSessionId === null
 			? null
-			: (s.draftsByKey[composerDraftKeyForSession(selectedSessionId)] ?? null),
+			: (s.draftsByKey[
+					composerDraftKeyForSession({
+						environmentId: executionRef.environmentId,
+						sessionId: selectedSessionId,
+					})
+				] ?? null),
 	);
 	const composerFilePaths = useMemo(() => {
 		const paths = new Set<string>();
@@ -353,7 +334,11 @@ function PrBody({
 			});
 			return null;
 		}
-		const ref = await saveContextFile(selectedSessionId, markdown);
+		const ref = await saveContextFile(
+			executionRef.environmentId,
+			selectedSessionId,
+			markdown,
+		);
 		if (ref === null) {
 			toastManager.add({
 				type: "error",

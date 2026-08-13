@@ -1,6 +1,7 @@
-import type { ChatId, SessionId } from "@zuse/contracts";
+import { type ChatId, EnvironmentId, type SessionId } from "@zuse/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
-
+import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
+import { useEnvironmentPermissions } from "~/lib/environment-permissions-client-bus.ts";
 import {
 	buildNotchItems,
 	deriveRunningSessions,
@@ -8,12 +9,11 @@ import {
 	pruneRecentCompletions,
 	type RecentCompletion,
 } from "~/lib/notch-items.ts";
+import { useRendererSessionTimelines } from "~/lib/session-timeline-hooks.ts";
+import { useSettingsStore } from "~/lib/settings-client-bus.ts";
 import { useChatsStore } from "~/store/chats.ts";
-import { useMessagesStore } from "~/store/messages.ts";
-import { usePermissionsStore } from "~/store/permissions.ts";
-import { useSessionRuntimeStore } from "~/store/session-runtime.ts";
+import { useEnvironmentCatalogStore } from "~/store/environment-catalog.ts";
 import { useSessionsStore } from "~/store/sessions.ts";
-import { useSettingsStore } from "~/store/settings.ts";
 import { useUiStore } from "~/store/ui.ts";
 import { useWorkspaceStore } from "~/store/workspace.ts";
 
@@ -22,15 +22,43 @@ export function NotchTrayBridge(): null {
 	const enabled = useSettingsStore((s) => s.notchTrayEnabled);
 	const pinned = useSettingsStore((s) => s.notchTrayPinned);
 	const folders = useWorkspaceStore((s) => s.folders);
-	const chatsByProject = useChatsStore((s) => s.chatsByProject);
-	const sessionsByProject = useSessionsStore((s) => s.sessionsByProject);
-	const messagesBySession = useMessagesStore((s) => s.messagesBySession);
-	const runtimeBySession = useSessionRuntimeStore((s) => s.bySession);
+	const { chatsByProject, sessionsByProject } = useActiveEnvironmentEntities();
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(s) => s.activeEnvironmentId,
+	);
+	const timelineRefs = useMemo(
+		() =>
+			Object.values(sessionsByProject)
+				.flat()
+				.map((session) => ({
+					environmentId: EnvironmentId.make(activeEnvironmentId),
+					sessionId: session.id,
+				})),
+		[activeEnvironmentId, sessionsByProject],
+	);
+	const timelines = useRendererSessionTimelines(timelineRefs, "cache-only");
+	const messagesBySession = useMemo(
+		() =>
+			Object.fromEntries(
+				timelines.map((timeline) => [
+					timeline.ref.sessionId,
+					timeline.messages,
+				]),
+			),
+		[timelines],
+	);
+	const runtimeBySession = useMemo(
+		() =>
+			Object.fromEntries(
+				timelines.map((timeline) => [timeline.ref.sessionId, timeline.runtime]),
+			),
+		[timelines],
+	);
 	const reconciledRunningBySession = useMemo(
 		() => deriveRunningSessions(sessionsByProject, runtimeBySession),
 		[sessionsByProject, runtimeBySession],
 	);
-	const requestsById = usePermissionsStore((s) => s.requestsById);
+	const requestsById = useEnvironmentPermissions().data?.requestsById ?? {};
 	const permissionRequests = useMemo(
 		() => Object.values(requestsById),
 		[requestsById],

@@ -15,17 +15,17 @@ import { usePrefersReducedMotion } from "~/hooks/use-media-query";
 type ShimmerTone = "muted" | "lime";
 
 const TONE_STOPS: Record<ShimmerTone, GradientStop[]> = {
-  muted: [{ position: 0.5, color: "oklch(0.97 0.004 260)" }],
-  lime: [{ position: 0.5, color: "hsl(72 98% 54%)" }],
+	muted: [{ position: 0.5, color: "oklch(0.97 0.004 260)" }],
+	lime: [{ position: 0.5, color: "hsl(72 98% 54%)" }],
 };
 
 type ShimmerTextProps = {
-  /** Plain string only — the gradient sweeps over it. */
-  children: string;
-  tone?: ShimmerTone;
-  className?: string;
-  as?: React.ElementType;
-  style?: React.CSSProperties;
+	/** Plain string only — the gradient sweeps over it. */
+	children: string;
+	tone?: ShimmerTone;
+	className?: string;
+	as?: React.ElementType;
+	style?: React.CSSProperties;
 };
 
 /**
@@ -38,35 +38,35 @@ type ShimmerTextProps = {
  * static gradient) so the resting color is identical to what it replaced.
  */
 export function ShimmerText({
-  children,
-  tone = "muted",
-  className,
-  as: As = "span",
-  style,
+	children,
+	tone = "muted",
+	className,
+	as: As = "span",
+	style,
 }: ShimmerTextProps): React.ReactElement {
-  const reduced = usePrefersReducedMotion();
+	const reduced = usePrefersReducedMotion();
 
-  if (reduced) {
-    return (
-      <As className={className} style={style}>
-        {children}
-      </As>
-    );
-  }
+	if (reduced) {
+		return (
+			<As className={className} style={style}>
+				{children}
+			</As>
+		);
+	}
 
-  return (
-    <GradientShimmer
-      gradient={TONE_STOPS[tone]}
-      easing="smooth"
-      duration={1.5}
-      spread={5}
-      angle={105}
-      pauseBetween={350}
-      as={As}
-      className={className}
-      style={style}
-    >
-      {children}
-    </GradientShimmer>
-  );
+	return (
+		<GradientShimmer
+			gradient={TONE_STOPS[tone]}
+			easing="smooth"
+			duration={1.5}
+			spread={5}
+			angle={105}
+			pauseBetween={350}
+			as={As}
+			className={className}
+			style={style}
+		>
+			{children}
+		</GradientShimmer>
+	);
 }

@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import type { Message, SessionId } from "@zuse/contracts";
+import type { EnvironmentId, SessionId } from "@zuse/contracts";
 import { Message01Icon } from "@zuse/icons/solid-rounded";
 import {
 	type ReactNode,
@@ -30,9 +30,20 @@ import {
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
+import { useCloudChatSummaryForSession } from "../lib/cloud-workspaces.ts";
+import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
+import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
+import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
-import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
+import {
+	clearSessionCommandError,
+	pendingSessionCommandError,
+	sessionCommandErrorKey,
+	useSessionCommandErrors,
+} from "../lib/session-actions.ts";
 import { timelineReadingPositionStore } from "../lib/session-timeline-cache.ts";
+import { loadOlderSessionMessages } from "../lib/session-timeline-client-bus.ts";
+import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import {
 	resolveInitialTimelineTarget,
 	resolveTimelineReadingPosition,
@@ -46,21 +57,7 @@ import {
 	TranscriptScrollCoordinator,
 	type TranscriptScrollSnapshot,
 } from "../lib/transcript-scroll-coordinator.ts";
-import { useCloudExecutionStore } from "../store/cloud-chat-registry.ts";
-import {
-	useCloudChatSummaryForSession,
-	useCloudChatsStore,
-} from "../store/cloud-chats.ts";
-import {
-	acknowledgeTimelineRendered,
-	teardownLiveStreams,
-	useMessagesStore,
-} from "../store/messages.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
-import { usePermissionsStore } from "../store/permissions.ts";
-import { useSessionRuntimeStore } from "../store/session-runtime.ts";
-import { getSessionById, useSessionsStore } from "../store/sessions.ts";
-import { useSkillsStore } from "../store/skills.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
 import { ChatTurnNavigator } from "./chat-turn-navigator.tsx";
@@ -71,10 +68,8 @@ import { ErrorBubble, MessageRow } from "./message-row.tsx";
 import { NextUnreadButton } from "./next-unread-button.tsx";
 import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
-import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 
-const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
 const TIMELINE_HEADER = (
 	<>
 		<div className="px-[var(--chat-row-gutter,0.75rem)]">
@@ -103,9 +98,11 @@ function resolveTimelineIsAtEnd(
  */
 export function ChatView({
 	sessionId,
+	environmentId,
 	endInset = 0,
 }: {
 	readonly sessionId: SessionId;
+	readonly environmentId: EnvironmentId;
 	/** Height of the floating composer overlay; padded into the scroll range. */
 	readonly endInset?: number;
 }) {
@@ -113,37 +110,33 @@ export function ChatView({
 		markRendererInteraction(sessionId, "first-react-commit");
 	}, [sessionId]);
 	const prefersReducedMotion = usePrefersReducedMotion();
-	const messages = useMessagesStore(
-		(state) => state.messagesBySession[sessionId] ?? EMPTY_MESSAGES,
-	);
-	const timelineVersion = useMessagesStore(
-		(state) => state.timelineVersionBySession[sessionId] ?? 0,
-	);
-	const renderRecovery = useMessagesStore(
-		(state) => state.renderRecoveryBySession[sessionId] ?? 0,
-	);
-	const runtimeState = useSessionRuntimeStore((state) =>
-		effectiveSessionRuntimeState(state.bySession[sessionId]),
-	);
 	const cloudSummary = useCloudChatSummaryForSession(sessionId);
-	const cloudAttachment = useCloudExecutionStore((state) =>
-		cloudSummary === null
-			? "detached"
-			: (state.stateByWorkspace[cloudSummary.workspaceId] ?? "detached"),
+	const session = useActiveSessionById(sessionId);
+	const timeline = useRendererSessionTimeline(
+		sessionId,
+		cloudSummary === null ? "connect" : "wake",
+		environmentId,
 	);
-	const cloudCommand = useCloudChatsStore((state) =>
-		cloudSummary === null
-			? null
-			: (state.commandByWorkspace[cloudSummary.workspaceId]?.state ?? null),
+	const sessionRef = timeline.ref;
+	const errorKey = sessionCommandErrorKey(sessionRef);
+	const localError = useSessionCommandErrors(
+		(state) => state.errorByResource[errorKey] ?? null,
+	);
+	const error = localError ?? pendingSessionCommandError(sessionRef);
+	const messages = timeline.messages;
+	const timelineVersion = timeline.view.cursor?.version ?? 0;
+	const runtimeState = timeline.runtime;
+	const cloudShell = useEnvironmentShellResource(
+		cloudSummary === null ? null : environmentId,
+		"cache-only",
 	);
 	const cloudActivity =
 		cloudSummary === null
 			? null
 			: deriveCloudChatActivity({
 					summary: cloudSummary,
-					attachment: cloudAttachment,
+					connection: cloudShell.connection,
 					runtime: runtimeState,
-					command: cloudCommand,
 				});
 	const inFlight =
 		cloudActivity === null
@@ -151,33 +144,19 @@ export function ChatView({
 				runtimeState === "running" ||
 				runtimeState === "stopping"
 			: cloudChatShowsWorking(cloudActivity);
-	const awaitingPermissionPlanApproval = usePermissionsStore((state) => {
-		for (const request of Object.values(state.requestsById)) {
+	const permissionRequests =
+		useEnvironmentPermissions().data?.requestsById ?? {};
+	const awaitingPermissionPlanApproval = (() => {
+		for (const request of Object.values(permissionRequests)) {
 			if (request.sessionId !== sessionId) continue;
 			if (request.kind._tag !== "Other") continue;
 			if (request.kind.tool === "ExitPlanMode") return true;
 		}
 		return false;
-	});
+	})();
 	const awaitingPlanApproval =
 		awaitingPermissionPlanApproval ||
 		deriveChatAttentionState(messages, inFlight) === "planReady";
-	const error = useMessagesStore(
-		(state) => state.errorBySession[sessionId] ?? null,
-	);
-	const clearError = useMessagesStore((state) => state.clearError);
-	const hydrate = useMessagesStore((state) => state.hydrate);
-	const hydrateSkills = useSkillsStore((state) => state.hydrate);
-	const session = useSessionsStore((state) => {
-		void state.sessionsByProject;
-		return getSessionById(sessionId);
-	});
-	const cloudHistoryLoading = useCloudChatsStore((state) =>
-		cloudSummary === null
-			? false
-			: state.historyLoadingByChat[cloudSummary.chatId] === true,
-	);
-
 	const worktreeId = session?.worktreeId ?? null;
 	const setupActive = useWorktreesStore((state) => {
 		if (worktreeId === null) return false;
@@ -277,9 +256,11 @@ export function ChatView({
 	const persistReadingPosition = useCallback(() => {
 		const position = captureReadingPosition();
 		if (position !== null) {
-			void timelineReadingPositionStore?.save(position).catch(() => {});
+			void timelineReadingPositionStore
+				?.save(sessionRef, position)
+				.catch(() => {});
 		}
-	}, [captureReadingPosition]);
+	}, [captureReadingPosition, sessionRef]);
 	const persistReadingPositionRef = useRef(persistReadingPosition);
 	persistReadingPositionRef.current = persistReadingPosition;
 
@@ -319,16 +300,9 @@ export function ChatView({
 			setHasOutOfViewUpdates(true);
 		}
 	}, [endInset]);
-
-	useEffect(() => {
-		if (cloudSummary === null) {
-			void hydrate(sessionId);
-			void hydrateSkills(sessionId);
-		}
-		return () => {
-			void teardownLiveStreams(sessionId);
-		};
-	}, [cloudSummary, hydrate, hydrateSkills, sessionId]);
+	const loadOlderMessages = useCallback(() => {
+		void loadOlderSessionMessages(sessionRef).catch(() => undefined);
+	}, [sessionRef]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -339,14 +313,14 @@ export function ChatView({
 		void (async () => {
 			const position =
 				(await timelineReadingPositionStore
-					?.load(sessionId)
+					?.load(sessionRef)
 					.catch(() => null)) ?? null;
 			if (!cancelled) setReadingState({ sessionId, position });
 		})();
 		return () => {
 			cancelled = true;
 		};
-	}, [sessionId]);
+	}, [sessionId, sessionRef]);
 
 	useEffect(() => {
 		coordinator.attach({
@@ -382,11 +356,13 @@ export function ChatView({
 			}
 			const position = currentReadingPositionRef.current;
 			if (position?.sessionId === sessionId) {
-				void timelineReadingPositionStore?.save(position).catch(() => {});
+				void timelineReadingPositionStore
+					?.save(sessionRef, position)
+					.catch(() => {});
 			}
 			coordinator.dispose();
 		},
-		[coordinator, sessionId],
+		[coordinator, sessionId, sessionRef],
 	);
 
 	useEffect(() => {
@@ -401,20 +377,6 @@ export function ChatView({
 	}, []);
 
 	useLayoutEffect(() => {
-		const frame = requestAnimationFrame(() => {
-			const renderedData = listRef.current?.getState()?.data;
-			if (
-				renderedData !== undefined &&
-				renderedData.length === rows.length &&
-				renderedData.at(-1) === rows.at(-1)
-			) {
-				acknowledgeTimelineRendered(sessionId, timelineVersion);
-			}
-		});
-		return () => cancelAnimationFrame(frame);
-	}, [renderRecovery, rows, sessionId, timelineVersion]);
-
-	useLayoutEffect(() => {
 		const node = listRef.current?.getScrollableNode() ?? null;
 		if (node instanceof HTMLDivElement) {
 			node.dataset.pane = "chat";
@@ -423,7 +385,7 @@ export function ChatView({
 		} else {
 			scrollElementRef.current = null;
 		}
-	}, [renderRecovery, rows.length, sessionId]);
+	}, [rows.length, sessionId]);
 
 	useEffect(() => {
 		if (
@@ -558,7 +520,7 @@ export function ChatView({
 			if (frame !== null) cancelAnimationFrame(frame);
 			removeListeners?.();
 		};
-	}, [coordinator, handleScroll, renderRecovery, sessionId]);
+	}, [coordinator, handleScroll, sessionId]);
 
 	useEffect(() => {
 		if (latestUserMessageId === null) return;
@@ -578,14 +540,14 @@ export function ChatView({
 		if (anchoredEndSpace === undefined || timelineAnchorMessageId === null) {
 			return;
 		}
-		const requestKey = `${timelineAnchorMessageId}:${renderRecovery}`;
+		const requestKey = timelineAnchorMessageId;
 		if (anchorRequestKeyRef.current === requestKey) return;
 		anchorRequestKeyRef.current = requestKey;
 		const frame = requestAnimationFrame(() => {
 			coordinator.positionAnchoredTurn({ animated: false });
 		});
 		return () => cancelAnimationFrame(frame);
-	}, [anchoredEndSpace, coordinator, renderRecovery, timelineAnchorMessageId]);
+	}, [anchoredEndSpace, coordinator, timelineAnchorMessageId]);
 
 	useEffect(() => {
 		let frame: number | null = null;
@@ -612,9 +574,14 @@ export function ChatView({
 	const chatLookups = useMemo(() => deriveChatLookups(messages), [messages]);
 	const renderTimelineRow = useCallback(
 		({ item }: { item: ChatTimelineRow }) => (
-			<TimelineRow row={item} sessionId={sessionId} />
+			<TimelineRow
+				chatId={session?.chatId ?? null}
+				environmentId={timeline.ref.environmentId}
+				row={item}
+				sessionId={sessionId}
+			/>
 		),
-		[sessionId],
+		[session?.chatId, sessionId, timeline.ref.environmentId],
 	);
 	const readingReady = readingState?.sessionId === sessionId;
 	const effectiveReadingPosition =
@@ -624,8 +591,7 @@ export function ChatView({
 	const initialTarget = resolveInitialTimelineTarget({
 		rows,
 		position: effectiveReadingPosition,
-		recoverAtLiveEdge:
-			renderRecovery > 0 && scrollSnapshot.mode === "following",
+		recoverAtLiveEdge: false,
 	});
 	const showPill =
 		(scrollSnapshot.mode === "detached" ||
@@ -653,11 +619,7 @@ export function ChatView({
 							<div className="px-[var(--chat-row-gutter,0.75rem)]">
 								<WorktreeSetupCard />
 							</div>
-							{setupActive ? null : cloudHistoryLoading ? (
-								<div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-									<ShimmerText>Loading chat history…</ShimmerText>
-								</div>
-							) : (
+							{setupActive ? null : (
 								<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
 									<HugeiconsIcon
 										icon={Message01Icon}
@@ -682,7 +644,7 @@ export function ChatView({
 					) : (
 						<ChatLookupsProvider value={chatLookups}>
 							<LegendList<ChatTimelineRow>
-								key={`${sessionId}:${renderRecovery}`}
+								key={sessionId}
 								ref={listRef}
 								data={rows}
 								dataVersion={timelineVersion}
@@ -718,6 +680,8 @@ export function ChatView({
 								maintainVisibleContentPosition={{ data: true, size: true }}
 								contentInsetEndAdjustment={endInset}
 								onScroll={handleScroll}
+								onStartReached={loadOlderMessages}
+								onStartReachedThreshold={0.25}
 								className="h-full min-h-0 w-full flex-1 overflow-x-hidden pr-4 outline-none [overflow-anchor:none]"
 								data-pane="chat"
 								tabIndex={-1}
@@ -750,7 +714,9 @@ export function ChatView({
 								<ErrorBubble
 									error={error}
 									sessionId={sessionId}
-									onDismiss={() => clearError(sessionId)}
+									environmentId={environmentId}
+									providerId={session?.providerId}
+									onDismiss={() => clearSessionCommandError(sessionRef)}
 								/>
 							</div>
 						</div>
@@ -787,11 +753,15 @@ export function ChatView({
 }
 
 function TimelineRow({
+	chatId,
 	row,
 	sessionId,
+	environmentId,
 }: {
+	readonly chatId: import("@zuse/contracts").ChatId | null;
 	readonly row: ChatTimelineRow;
 	readonly sessionId: SessionId;
+	readonly environmentId: EnvironmentId;
 }) {
 	let content: ReactNode;
 	switch (row.kind) {
@@ -800,6 +770,7 @@ function TimelineRow({
 				<MessageRow
 					message={row.message}
 					sessionId={sessionId}
+					environmentId={environmentId}
 					showAssistantCommands={row.showAssistantCommands}
 				/>
 			);
@@ -808,6 +779,7 @@ function TimelineRow({
 			content = (
 				<div>
 					<SubagentRow
+						chatRef={chatId === null ? null : { environmentId, chatId }}
 						agentToolUseId={row.parentItemId}
 						agentName={row.agentName}
 						prompt={row.prompt}
@@ -825,7 +797,9 @@ function TimelineRow({
 				<div>
 					<TurnSummary
 						body={row.body}
+						chatId={chatId ?? undefined}
 						sessionId={sessionId}
+						environmentId={environmentId}
 						showAssistantCommands={row.showAssistantCommands}
 					/>
 				</div>
@@ -833,7 +807,11 @@ function TimelineRow({
 			break;
 		case "working":
 			content = (
-				<ChatWorkingRow messages={row.messages} sessionId={sessionId} />
+				<ChatWorkingRow
+					environmentId={environmentId}
+					messages={row.messages}
+					sessionId={sessionId}
+				/>
 			);
 	}
 	return (

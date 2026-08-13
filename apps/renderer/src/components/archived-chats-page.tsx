@@ -1,25 +1,26 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronLeft } from "lucide-react";
-import {
-	ArchiveArrowUpIcon,
-	ArchiveIcon,
-	Search01Icon,
-} from "@zuse/icons/solid-rounded";
 import type {
 	Chat,
 	ChatArchiveJob,
 	ChatDirectoryStatus,
 	FolderId,
-	Message,
 	Session,
 } from "@zuse/contracts";
-import { Effect } from "effect";
+import { CommandId, EnvironmentId } from "@zuse/contracts";
+import {
+	ArchiveArrowUpIcon,
+	ArchiveIcon,
+	Search01Icon,
+} from "@zuse/icons/solid-rounded";
+import { ChevronLeft } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { getRpcClient } from "../lib/rpc-client.ts";
+import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
+import { useSessionTimelineResource } from "../lib/session-timeline-client-bus.ts";
 import { cn } from "../lib/utils.ts";
 import { useArchivePreviewStore } from "../store/archive-preview.ts";
 import { useChatsStore } from "../store/chats.ts";
+import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { ArchivedChatTimeline } from "./archived-chat-timeline.tsx";
 import { DirectoryUnavailableBanner } from "./directory-unavailable-banner.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
@@ -29,7 +30,6 @@ import { Spinner } from "./ui/spinner.tsx";
 
 const EMPTY_CHATS: ReadonlyArray<Chat> = [];
 const EMPTY_SESSIONS: ReadonlyArray<Session> = [];
-const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
 
 const formatDate = (date: Date): string =>
 	date.toLocaleDateString(undefined, {
@@ -96,21 +96,22 @@ export function ArchivedChatsPage({
 		() => sessions.find((session) => session.id === selectedSessionId) ?? null,
 		[sessions, selectedSessionId],
 	);
-	const messages = useArchivePreviewStore((state) =>
-		selectedSessionId === null
-			? EMPTY_MESSAGES
-			: (state.messagesBySession[selectedSessionId] ?? EMPTY_MESSAGES),
+	const environmentId = useEnvironmentCatalogStore(
+		(state) => state.activeEnvironmentId,
 	);
-	const messagesLoading = useArchivePreviewStore((state) =>
-		selectedSessionId === null
-			? false
-			: state.messagesLoadingBySession[selectedSessionId] === true,
-	);
-	const messagesError = useArchivePreviewStore((state) =>
+	const timeline = useSessionTimelineResource(
 		selectedSessionId === null
 			? null
-			: (state.errorBySession[selectedSessionId] ?? null),
+			: {
+					environmentId: EnvironmentId.make(environmentId),
+					sessionId: selectedSessionId,
+				},
+		"connect",
 	);
+	const messages = timeline.data?.messages ?? [];
+	const messagesLoading = timeline.data === null && timeline.sync !== "failed";
+	const messagesError =
+		timeline.sync === "failed" ? "Could not load transcript." : null;
 	const restoring = useArchivePreviewStore((state) =>
 		selectedChatId === null
 			? false
@@ -129,8 +130,9 @@ export function ArchivedChatsPage({
 	const forceArchive = useChatsStore((state) => state.archive);
 
 	useEffect(() => {
-		if (projectId !== null) void loadProject(projectId);
-	}, [loadProject, projectId]);
+		if (projectId !== null)
+			void loadProject(EnvironmentId.make(environmentId), projectId);
+	}, [environmentId, loadProject, projectId]);
 
 	useEffect(() => setQuery(""), [projectId]);
 
@@ -146,18 +148,32 @@ export function ArchivedChatsPage({
 		let timer: number | null = null;
 		const refresh = async () => {
 			try {
-				const client = await getRpcClient();
-				const [job, status] = await Promise.all([
-					Effect.runPromise(
-						client["chat.archiveStatus"]({ chatId: selectedChatId }),
-					),
-					Effect.runPromise(
-						client["chat.directoryStatus"]({ chatId: selectedChatId }),
-					),
+				const qualifiedEnvironmentId = EnvironmentId.make(environmentId);
+				const [jobReceipt, statusReceipt] = await Promise.all([
+					dispatchEnvironmentShellCommand<
+						{ readonly chatId: typeof selectedChatId },
+						ChatArchiveJob | null
+					>({
+						environmentId: qualifiedEnvironmentId,
+						kind: "chat.archiveStatus",
+						commandId: CommandId.make(`archive-status:${crypto.randomUUID()}`),
+						payload: { chatId: selectedChatId },
+					}),
+					dispatchEnvironmentShellCommand<
+						{ readonly chatId: typeof selectedChatId },
+						ChatDirectoryStatus
+					>({
+						environmentId: qualifiedEnvironmentId,
+						kind: "chat.directoryStatus",
+						commandId: CommandId.make(
+							`archive-directory:${crypto.randomUUID()}`,
+						),
+						payload: { chatId: selectedChatId },
+					}),
 				]);
 				if (!cancelled) {
-					setArchiveJob(job);
-					setDirectoryStatus(status);
+					setArchiveJob(jobReceipt.result);
+					setDirectoryStatus(statusReceipt.result);
 				}
 			} catch {
 				// The preview remains readable while the connection recovers.
@@ -174,7 +190,7 @@ export function ArchivedChatsPage({
 			cancelled = true;
 			if (timer !== null) window.clearTimeout(timer);
 		};
-	}, [selectedChatId]);
+	}, [environmentId, selectedChatId]);
 
 	if (projectId === null) {
 		return <CenteredState text="Select a project to view archived chats." />;
@@ -223,7 +239,13 @@ export function ArchivedChatsPage({
 						<CenteredState
 							text={projectError}
 							action="Retry"
-							onAction={() => void loadProject(projectId, true)}
+							onAction={() =>
+								void loadProject(
+									EnvironmentId.make(environmentId),
+									projectId,
+									true,
+								)
+							}
 						/>
 					) : projectLoading || !projectLoaded ? (
 						<CenteredState text="Loading archived chats…" loading />
@@ -241,7 +263,9 @@ export function ArchivedChatsPage({
 								<li key={chat.id}>
 									<button
 										type="button"
-										onClick={() => void openChat(chat)}
+										onClick={() =>
+											void openChat(EnvironmentId.make(environmentId), chat)
+										}
 										className="flex min-h-11 w-full items-center gap-3 rounded-md px-2 text-left outline-none transition-colors duration-150 ease-out hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset motion-reduce:transition-none"
 									>
 										<HugeiconsIcon
@@ -269,7 +293,9 @@ export function ArchivedChatsPage({
 			<header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-border/50 px-5">
 				<button
 					type="button"
-					onClick={() => void showList(projectId)}
+					onClick={() =>
+						void showList(EnvironmentId.make(environmentId), projectId)
+					}
 					aria-label="Back to archived chats"
 					className="grid size-11 shrink-0 place-items-center rounded-md text-muted-foreground outline-none transition-colors duration-150 ease-out hover:bg-muted/45 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
 				>
@@ -333,7 +359,9 @@ export function ArchivedChatsPage({
 						<CenteredState
 							text={previewError}
 							action="Retry"
-							onAction={() => void openChat(selectedChat)}
+							onAction={() =>
+								void openChat(EnvironmentId.make(environmentId), selectedChat)
+							}
 						/>
 					) : selectedSession === null ? (
 						<CenteredState text="This archived chat has no sessions to preview." />

@@ -7,14 +7,13 @@ import {
 	CloudWorkspaceOpError,
 	type LocalAccountDescriptor,
 } from "@zuse/contracts";
-import { Effect } from "effect";
 import { ExternalLink, Plus } from "lucide-react";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../hooks/use-auth.ts";
 import { cloudWorkspaceAccessPresentation } from "../../lib/cloud-workspace-access.ts";
+import { runControlPlane } from "../../lib/control-plane-client.ts";
 import { formatError } from "../../lib/format-error.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
-import { getControlPlaneRpcClient } from "../../lib/rpc-client.ts";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
@@ -74,9 +73,8 @@ export function CloudWorkspacePool() {
 		if (!isSignedIn) return;
 		let loadedSubscribed = false;
 		try {
-			const client = await getControlPlaneRpcClient();
 			try {
-				const entitlements = await Effect.runPromise(
+				const entitlements = await runControlPlane((client) =>
 					client["machines.entitlements"](),
 				);
 				loadedSubscribed =
@@ -104,11 +102,11 @@ export function CloudWorkspacePool() {
 				credentialResult,
 				localAccountResult,
 			] = await Promise.allSettled([
-				Effect.runPromise(client["cloud.providers"]()),
-				Effect.runPromise(client["cloud.projects.list"]()),
-				Effect.runPromise(client["cloud.workspaces.list"]({})),
-				Effect.runPromise(client["cloud.credentials.list"]()),
-				Effect.runPromise(client["accountAccess.detectLocal"]()),
+				runControlPlane((client) => client["cloud.providers"]()),
+				runControlPlane((client) => client["cloud.projects.list"]()),
+				runControlPlane((client) => client["cloud.workspaces.list"]({})),
+				runControlPlane((client) => client["cloud.credentials.list"]()),
+				runControlPlane((client) => client["accountAccess.detectLocal"]()),
 			]);
 			const relayResults = [
 				providerResult,
@@ -199,8 +197,7 @@ export function CloudWorkspacePool() {
 
 	const checkout = () =>
 		run("checkout", async () => {
-			const client = await getControlPlaneRpcClient();
-			const result = await Effect.runPromise(
+			const result = await runControlPlane((client) =>
 				client["machines.checkout"]({ offerId: CLOUD_WORKSPACE_OFFER_ID }),
 			);
 			await openExternal(result.checkoutUrl);
@@ -211,8 +208,7 @@ export function CloudWorkspacePool() {
 		return run(
 			"connect",
 			async () => {
-				const client = await getControlPlaneRpcClient();
-				const project = await Effect.runPromise(
+				const project = await runControlPlane((client) =>
 					client["cloud.projects.connect"]({
 						repositoryUrl: repositoryUrl.trim(),
 						defaultBranch: defaultBranch.trim(),
@@ -232,8 +228,7 @@ export function CloudWorkspacePool() {
 
 	const connectCredential = (kind: "github" | "claude" | "codex") =>
 		run(`credential:${kind}`, async () => {
-			const client = await getControlPlaneRpcClient();
-			const connected = await Effect.runPromise(
+			const connected = await runControlPlane((client) =>
 				client["cloud.credentials.importLocal"]({ kind }),
 			);
 			setCredentials((current) => [
@@ -244,8 +239,7 @@ export function CloudWorkspacePool() {
 
 	const disconnectCredential = (kind: "github" | "claude" | "codex") =>
 		run(`credential:${kind}`, async () => {
-			const client = await getControlPlaneRpcClient();
-			const disconnected = await Effect.runPromise(
+			const disconnected = await runControlPlane((client) =>
 				client["cloud.credentials.disconnect"]({ kind }),
 			);
 			setCredentials((current) => [
@@ -501,9 +495,7 @@ export function CloudWorkspacePool() {
 																void run(
 																	`pause:${workspace.workspaceId}`,
 																	async () => {
-																		const client =
-																			await getControlPlaneRpcClient();
-																		await Effect.runPromise(
+																		await runControlPlane((client) =>
 																			client["cloud.workspaces.pause"]({
 																				workspaceId: workspace.workspaceId,
 																			}),
@@ -522,9 +514,7 @@ export function CloudWorkspacePool() {
 																void run(
 																	`resume:${workspace.workspaceId}`,
 																	async () => {
-																		const client =
-																			await getControlPlaneRpcClient();
-																		await Effect.runPromise(
+																		await runControlPlane((client) =>
 																			client["cloud.workspaces.resume"]({
 																				workspaceId: workspace.workspaceId,
 																			}),

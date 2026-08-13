@@ -1,16 +1,21 @@
 import type { EditorView } from "@codemirror/view";
-import type { FolderId, WorktreeId } from "@zuse/contracts";
-import { Effect } from "effect";
+import type {
+	CommandId,
+	EnvironmentId,
+	FolderId,
+	WorktreeId,
+} from "@zuse/contracts";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { FileIcon } from "~/components/file-icon";
 import { overlaySurface } from "~/components/ui/overlay-surface";
 import { useComposerAnchor } from "~/components/composer/use-composer-anchor";
 import { type ActiveTrigger, replaceWithChip } from "~/lib/codemirror/composer";
-import { getRpcClient } from "~/lib/rpc-client";
+import { dispatchEnvironmentShellCommand } from "~/lib/environment-shell-client-bus.ts";
 import { cn } from "~/lib/utils";
 
 export interface FileTagPopoverProps {
+	readonly environmentId: EnvironmentId;
 	readonly trigger: ActiveTrigger;
 	readonly view: EditorView;
 	readonly projectId: FolderId;
@@ -43,6 +48,7 @@ const dirname = (p: string): string | null => {
 };
 
 export function FileTagPopover({
+	environmentId,
 	trigger,
 	view,
 	projectId,
@@ -59,15 +65,25 @@ export function FileTagPopover({
 		let cancelled = false;
 		const run = async () => {
 			try {
-				const client = await getRpcClient();
-				const results = await Effect.runPromise(
-					client["workspace.searchFiles"]({
+				const { result: results } = await dispatchEnvironmentShellCommand<
+					{
+						readonly projectId: FolderId;
+						readonly query: string;
+						readonly limit: number;
+						readonly worktreeId: WorktreeId | null;
+					},
+					ReadonlyArray<SearchHit>
+				>({
+					environmentId,
+					kind: "workspace.searchFiles",
+					commandId: crypto.randomUUID() as CommandId,
+					payload: {
 						projectId,
 						query,
 						limit: 20,
 						worktreeId,
-					}),
-				);
+					},
+				});
 				if (cancelled) return;
 				// Belt-and-braces: drop any hit whose absPath isn't under the
 				// current workspace root. The server already reroots correctly
@@ -91,7 +107,7 @@ export function FileTagPopover({
 			cancelled = true;
 			window.clearTimeout(id);
 		};
-	}, [projectId, worktreeId, workspaceRoot, query]);
+	}, [environmentId, projectId, worktreeId, workspaceRoot, query]);
 
 	const confirm = (hit: SearchHit) => {
 		const token = `@${hit.relPath}`;

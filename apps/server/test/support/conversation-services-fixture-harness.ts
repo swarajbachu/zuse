@@ -74,7 +74,11 @@ import { Migration0038QueuedMessageReady } from "../../src/persistence/migration
 import { Migration0039AuthTokenDevices } from "../../src/persistence/migrations/0039_auth_token_devices.ts";
 import { Migration0041ChatArchiveJobs } from "../../src/persistence/migrations/0041_chat_archive_jobs.ts";
 import { Migration0043NameProvenance } from "../../src/persistence/migrations/0043_name_provenance.ts";
+import { Migration0044ChatCreationOperations } from "../../src/persistence/migrations/0044_chat_creation_operations.ts";
 import { Migration0045ChatCatalogRevision } from "../../src/persistence/migrations/0045_chat_catalog_revision.ts";
+import { Migration0046SessionTimelineHead } from "../../src/persistence/migrations/0046_session_timeline_head.ts";
+import { Migration0047MessageCheckpoints } from "../../src/persistence/migrations/0047_message_checkpoints.ts";
+import { Migration0049ChatCreationStartupReady } from "../../src/persistence/migrations/0049_chat_creation_startup_ready.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -83,11 +87,11 @@ import { RelayActivityPublisher } from "../../src/relay/activity-publisher.ts";
 import { RepositorySettingsService } from "../../src/repository-settings/services/repository-settings-service.ts";
 
 export const FIXTURE_PROJECT_ID = "fixture-project" as FolderId;
+export const FIXTURE_PROJECT_PATH = "/tmp/zuse-fixture-project";
 const FIXTURE_WORKTREE_ID = "fixture-worktree" as WorktreeId;
-const FIXTURE_PROJECT_PATH = "/tmp/zuse-fixture-project";
 const FIXTURE_WORKTREE_PATH = "/tmp/zuse-fixture-project/.memo/worktree";
 
-class TestConversation extends Context.Service<
+export class TestConversation extends Context.Service<
 	TestConversation,
 	ConversationOperations
 >()("test/FixtureConversation") {}
@@ -151,7 +155,11 @@ const runAllMigrations = Effect.all(
 		Migration0039AuthTokenDevices,
 		Migration0041ChatArchiveJobs,
 		Migration0043NameProvenance,
+		Migration0044ChatCreationOperations,
 		Migration0045ChatCatalogRevision,
+		Migration0046SessionTimelineHead,
+		Migration0047MessageCheckpoints,
+		Migration0049ChatCreationStartupReady,
 	],
 	{ discard: true },
 );
@@ -172,7 +180,7 @@ const makeTestWorktree = () =>
 		pokemon: null,
 	});
 
-const makeRuntime = (
+export const makeConversationFixtureRuntime = (
 	dbPath: string,
 	scriptedEvents: ReadonlyArray<AgentEvent>,
 ) => {
@@ -306,7 +314,7 @@ const makeRuntime = (
 		switchBranch: () => Effect.die("not used"),
 		renameBranch: () => Effect.die("not used"),
 		getUserName: () => Effect.succeed(""),
-		subscribeHeadChanges: () => Stream.die("not used"),
+		workspaceChanges: () => Stream.die("not used"),
 		origin: () => Effect.die("not used"),
 		prState: () => Effect.die("not used"),
 		prDetails: () => Effect.die("not used"),
@@ -395,7 +403,10 @@ export const assertEventsAcceptedByConversationServices = async (
 	events: ReadonlyArray<AgentEvent>,
 ): Promise<void> => {
 	const dir = mkdtempSync(join(tmpdir(), "zuse-provider-fixture-"));
-	const runtime = makeRuntime(join(dir, "fixture.sqlite"), events);
+	const runtime = makeConversationFixtureRuntime(
+		join(dir, "fixture.sqlite"),
+		events,
+	);
 	const run = <A>(
 		effect: Effect.Effect<A, unknown, TestConversation | SqlClient.SqlClient>,
 	): Promise<A> =>

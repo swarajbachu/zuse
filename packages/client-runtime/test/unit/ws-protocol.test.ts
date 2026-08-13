@@ -12,7 +12,7 @@ describe("WebSocket client protocol", () => {
 				port: 8787,
 				token: " token-value ",
 			}),
-		).toBe("ws://127.0.0.1:8787/?token=token-value&wireVersion=4");
+		).toBe("ws://127.0.0.1:8787/?token=token-value&wireVersion=5");
 	});
 
 	it("prefers a managed base URL", () => {
@@ -22,7 +22,7 @@ describe("WebSocket client protocol", () => {
 				port: 1,
 				wsBaseUrl: "wss://environment.example/rpc",
 			}),
-		).toBe("wss://environment.example/rpc?wireVersion=4");
+		).toBe("wss://environment.example/rpc?wireVersion=5");
 	});
 
 	it("reports an established socket closing to the connection owner", () => {

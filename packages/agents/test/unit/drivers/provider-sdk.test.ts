@@ -58,16 +58,17 @@ describe("bundled provider SDK translation", () => {
 			expect.objectContaining({ _tag: "AssistantMessage", text: "Hi" }),
 		]);
 
+		const thinkingEvents = translate(
+			{
+				type: "thinking",
+				agent_id: "agent-1",
+				run_id: "run-1",
+				text: "Checking",
+			},
+			current,
+		);
 		expect(
-			translate(
-				{
-					type: "thinking",
-					agent_id: "agent-1",
-					run_id: "run-1",
-					text: "Checking",
-				},
-				current,
-			)[0],
+			thinkingEvents.find((event) => event._tag === "Thinking"),
 		).toMatchObject({ _tag: "Thinking", text: "Checking" });
 
 		const statusEvents = translate(
@@ -79,7 +80,7 @@ describe("bundled provider SDK translation", () => {
 			},
 			current,
 		);
-		expect(statusEvents).toEqual([{ _tag: "Status", status: "idle" }]);
+		expect(statusEvents.at(-1)).toEqual({ _tag: "Status", status: "idle" });
 	});
 
 	it("translates usage", () => {
@@ -126,6 +127,7 @@ describe("bundled provider SDK translation", () => {
 		expect(firstThinking).toMatchObject({
 			_tag: "Thinking",
 			text: "The user sent a casual",
+			checkpoint: { revision: 1, final: false },
 		});
 		expect(
 			translate(
@@ -143,8 +145,11 @@ describe("bundled provider SDK translation", () => {
 			_tag: "Thinking",
 			itemId: eventItemId(firstThinking),
 			text: "The user sent a casual greeting.",
+			checkpoint: { revision: 2, final: false },
 		});
-		const [firstAssistant] = translate(assistant("Hey — what"), current);
+		const firstAssistant = translate(assistant("Hey — what"), current).find(
+			(event) => event._tag === "AssistantMessage",
+		);
 		expect(firstAssistant).toMatchObject({
 			_tag: "AssistantMessage",
 			text: "Hey — what",
@@ -157,8 +162,15 @@ describe("bundled provider SDK translation", () => {
 			_tag: "AssistantMessage",
 			itemId: eventItemId(firstAssistant),
 			text: "Hey — what do you want to work on?",
+			checkpoint: { revision: 2, final: false },
 		});
-		expect(flushCursorSdkMessages(current)).toEqual([]);
+		expect(flushCursorSdkMessages(current)).toMatchObject([
+			{
+				_tag: "AssistantMessage",
+				itemId: eventItemId(firstAssistant),
+				checkpoint: { revision: 3, final: true },
+			},
+		]);
 
 		const tokenSplit = state();
 		const [firstToken] = translate(assistant("pack"), tokenSplit);

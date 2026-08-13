@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import chatLandingSource from "../../src/components/chat-landing.tsx?raw";
 import { chatLandingProgress } from "../../src/lib/chat-landing-progress.ts";
+import cloudChatsSource from "../../src/lib/cloud-workspaces.ts?raw";
 
 describe("chat landing progress", () => {
 	test("stages the durable chat before attaching the workspace gateway", () => {
@@ -19,6 +20,12 @@ describe("chat landing progress", () => {
 		expect(chatLandingSource).not.toContain(
 			'control["cloud.workspaces.agentStarted"]',
 		);
+	});
+
+	test("owns lifecycle polling behind the control-plane stream", () => {
+		expect(cloudChatsSource).toContain('control["cloud.workspaces.watch"]');
+		expect(cloudChatsSource).not.toContain("setTimeout");
+		expect(cloudChatsSource).not.toContain("while (");
 	});
 
 	test("shows only cloud progress while a cloud workspace is starting", () => {

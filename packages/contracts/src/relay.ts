@@ -73,24 +73,20 @@ export const RelayPaths = {
 	cloudWorkspaces: "/v1/cloud/workspaces",
 	cloudWorkspace: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}`,
-	cloudWorkspaceConnectionGrant: (workspaceId: string) =>
-		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/connection-grant`,
+	cloudWorkspaceConnectionTicket: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/gateway/ticket`,
 	cloudWorkspaceGateway: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/gateway`,
 	cloudWorkspaceBootstrap: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/bootstrap`,
-	cloudWorkspaceCommands: (workspaceId: string) =>
-		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/commands`,
-	cloudWorkspaceEvents: (workspaceId: string) =>
-		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/events`,
+	cloudWorkspaceBootstrapAck: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/bootstrap/ack`,
+	cloudWorkspaceRuntimeCredentialsRenew: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/credentials/renew`,
 	cloudWorkspaceActivity: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/activity`,
-	cloudWorkspaceHistory: (workspaceId: string) =>
-		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/chat`,
-	cloudWorkspaceMessages: (workspaceId: string) =>
-		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/messages`,
-	cloudWorkspaceChatRename: (workspaceId: string) =>
-		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/chat/rename`,
+	cloudWorkspaceSummary: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/summary`,
 	cloudChats: "/v1/cloud/chats",
 	cloudWorkspaceAction: (workspaceId: string, action: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/${encodeURIComponent(action)}`,

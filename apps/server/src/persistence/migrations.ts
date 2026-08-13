@@ -46,6 +46,10 @@ import { Migration0042AnalyticsOutbox } from "./migrations/0042_analytics_outbox
 import { Migration0043NameProvenance } from "./migrations/0043_name_provenance.ts";
 import { Migration0044ChatCreationOperations } from "./migrations/0044_chat_creation_operations.ts";
 import { Migration0045ChatCatalogRevision } from "./migrations/0045_chat_catalog_revision.ts";
+import { Migration0046SessionTimelineHead } from "./migrations/0046_session_timeline_head.ts";
+import { Migration0047MessageCheckpoints } from "./migrations/0047_message_checkpoints.ts";
+import { Migration0048FsWriteReceipts } from "./migrations/0048_fs_write_receipts.ts";
+import { Migration0049ChatCreationStartupReady } from "./migrations/0049_chat_creation_startup_ready.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -108,6 +112,10 @@ const MigrationDefinitions = {
 	"0043_name_provenance": Migration0043NameProvenance,
 	"0044_chat_creation_operations": Migration0044ChatCreationOperations,
 	"0045_chat_catalog_revision": Migration0045ChatCatalogRevision,
+	"0046_session_timeline_head": Migration0046SessionTimelineHead,
+	"0047_message_checkpoints": Migration0047MessageCheckpoints,
+	"0048_fs_write_receipts": Migration0048FsWriteReceipts,
+	"0049_chat_creation_startup_ready": Migration0049ChatCreationStartupReady,
 } as const;
 
 export const MigrationsLive = Layer.effectDiscard(

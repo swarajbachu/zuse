@@ -24,10 +24,10 @@ import * as Config from "../../src/config.ts";
 import type { RelayContext } from "../../src/handler.ts";
 import {
 	AccountIdentity,
-	CloudChatCipher,
-	CloudChatCipherLive,
 	CloudCredentialVault,
 	CloudCredentialVaultLive,
+	CloudWorkspaceLaunchIntentCipher,
+	CloudWorkspaceLaunchIntentCipherLive,
 	CloudWorkspaceStoreMemory,
 	type MachineControlConfig,
 	MachineControlConfiguration,
@@ -113,6 +113,7 @@ const placementAdapter = (providerId: string): SandboxProviderAdapter => ({
 	extendTimeout: () => Effect.void,
 	setNetwork: () => Effect.void,
 	snapshot: () => Effect.die("unused"),
+	inspectSnapshot: () => Effect.die("unused"),
 	kill: () => Effect.void,
 	deleteSnapshot: () => Effect.void,
 });
@@ -143,10 +144,9 @@ const makeLayer = async (
 			JSON.stringify(await exportJWK(mintKey.privateKey)),
 		),
 		mintPublicKey: JSON.stringify(await exportJWK(mintKey.publicKey)),
-		cloudChatEncryptionKeys: {
-			test: Redacted.make("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
-		},
-		cloudChatEncryptionActiveKeyId: "test",
+		cloudCredentialVaultKey: Redacted.make(
+			"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		),
 		managedTunnel,
 		maxEnvironmentsPerAccount,
 	});
@@ -178,10 +178,10 @@ const makeLayer = async (
 			Layer.provide(configLayer),
 			Layer.orDie,
 		),
-		Layer.effect(CloudChatCipher, CloudChatCipherLive).pipe(
-			Layer.provide(configLayer),
-			Layer.orDie,
-		),
+		Layer.effect(
+			CloudWorkspaceLaunchIntentCipher,
+			CloudWorkspaceLaunchIntentCipherLive,
+		).pipe(Layer.provide(configLayer), Layer.orDie),
 		MachineProvidersFake,
 		sandboxProvidersLayer,
 		Layer.succeed(SandboxOfferConfiguration, {

@@ -1,18 +1,10 @@
+import type { ConnectionPhase } from "@zuse/client-runtime/resource-state";
 import type { CloudChatSummary } from "@zuse/contracts";
-import type { CloudAttachmentState } from "../store/cloud-chat-registry.ts";
 import type { SessionRuntimeState } from "./session-runtime-state.ts";
-
-export type CloudCommandState =
-	| "queued"
-	| "claimed"
-	| "acknowledged"
-	| "failed"
-	| null;
 
 export type CloudChatActivity =
 	| "idle"
 	| "paused"
-	| "queued"
 	| "resuming"
 	| "attaching"
 	| "starting-agent"
@@ -22,9 +14,8 @@ export type CloudChatActivity =
 
 export type CloudChatActivityInput = {
 	readonly summary: CloudChatSummary;
-	readonly attachment: CloudAttachmentState;
+	readonly connection: ConnectionPhase;
 	readonly runtime: SessionRuntimeState;
-	readonly command: CloudCommandState;
 };
 
 /** True only after a live runtime owns the turn. Resume, attachment, and
@@ -39,30 +30,25 @@ export const cloudChatShowsWorking = (activity: CloudChatActivity): boolean =>
  * The only cloud-chat activity projection used by renderer surfaces.
  *
  * It intentionally contains no mutable lifecycle of its own: compute comes
- * from the durable workspace summary, delivery from the durable command, the
- * socket from the shared supervisor, and agent work from the session timeline.
+ * from the durable workspace summary, the socket from the shared supervisor,
+ * and agent work from the session timeline.
  */
 export const deriveCloudChatActivity = ({
 	summary,
-	attachment,
+	connection,
 	runtime,
-	command,
 }: CloudChatActivityInput): CloudChatActivity => {
 	if (
 		summary.state === "failed" ||
-		attachment === "failed" ||
-		command === "failed"
+		connection === "failed" ||
+		connection === "blocked-auth" ||
+		connection === "update-required" ||
+		connection === "revoked"
 	)
 		return "failed";
 
-	const pendingCommand = command === "queued" || command === "claimed";
 	const computeReady =
 		summary.state === "ready" && summary.runtimeState === "online";
-	if (pendingCommand) {
-		if (!computeReady) return "resuming";
-		if (attachment !== "ready") return "attaching";
-		return "queued";
-	}
 	// A paused durable workspace cannot still be executing. Cached session state
 	// may describe the turn that completed before the sandbox paused, so the
 	// durable compute lifecycle must win once there is no command waiting.
@@ -70,7 +56,7 @@ export const deriveCloudChatActivity = ({
 	if (runtime === "failed") return "failed";
 	if (
 		!computeReady &&
-		attachment !== "ready" &&
+		connection !== "connected" &&
 		(summary.state === "resuming" ||
 			summary.runtimeState === "connecting" ||
 			summary.statusCode.startsWith("resume-"))
@@ -84,7 +70,11 @@ export const deriveCloudChatActivity = ({
 			? "starting-agent"
 			: "running";
 
-	if (attachment === "attaching")
+	if (
+		connection === "waking" ||
+		connection === "connecting" ||
+		connection === "reconnecting"
+	)
 		return computeReady ? "attaching" : "resuming";
 	if (
 		summary.state === "resuming" ||
@@ -92,7 +82,6 @@ export const deriveCloudChatActivity = ({
 		summary.statusCode.startsWith("resume-")
 	)
 		return computeReady ? "idle" : "resuming";
-	if (summary.startupPhase === "starting-agent" && command !== "acknowledged")
-		return "starting-agent";
+	if (summary.startupPhase === "starting-agent") return "starting-agent";
 	return "idle";
 };

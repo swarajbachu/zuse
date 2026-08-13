@@ -4,11 +4,30 @@ import type {
 	McpServerStatus,
 	ProviderId,
 } from "@zuse/contracts";
-import { Effect, Stream } from "effect";
+import { CommandId, EnvironmentId } from "@zuse/contracts";
 
 import { formatError } from "../lib/format-error.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
+import { runtimeOperationClient } from "../lib/runtime-operation-client.ts";
+import { runStreamOperation } from "../lib/stream-operation.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
+import { useEnvironmentCatalogStore } from "./environment-catalog.ts";
+
+const activeEnvironmentId = (): EnvironmentId =>
+	EnvironmentId.make(useEnvironmentCatalogStore.getState().activeEnvironmentId);
+
+const mcpCommand = async <Payload, Result>(
+	kind: string,
+	payload: Payload,
+): Promise<Result> => {
+	const receipt = await dispatchEnvironmentShellCommand<Payload, Result>({
+		environmentId: activeEnvironmentId(),
+		kind,
+		commandId: CommandId.make(`mcp:${crypto.randomUUID()}`),
+		payload,
+	});
+	return receipt.result;
+};
 
 export interface McpScope {
 	readonly projectId?: FolderId;
@@ -67,13 +86,21 @@ export const useMcpStore = create<State>((set, get) => ({
 
 	load: async (scope) => {
 		try {
-			const client = await getRpcClient();
-			const result = await Effect.runPromise(
-				client["mcp.list"]({
-					projectId: scope.projectId,
-					provider: scope.provider,
-				}),
-			);
+			const environmentId = activeEnvironmentId();
+			const result = await mcpCommand<
+				{
+					readonly projectId: FolderId | undefined;
+					readonly provider: ProviderId | undefined;
+				},
+				{
+					readonly servers: ReadonlyArray<McpServerDescriptor>;
+					readonly statuses: ReadonlyArray<McpServerStatus>;
+				}
+			>("mcp.list", {
+				projectId: scope.projectId,
+				provider: scope.provider,
+			});
+			if (environmentId !== activeEnvironmentId()) return;
 			set({
 				servers: result.servers,
 				statuses: statusMap(result.statuses),
@@ -90,13 +117,21 @@ export const useMcpStore = create<State>((set, get) => ({
 	refresh: async (scope) => {
 		set({ refreshing: true });
 		try {
-			const client = await getRpcClient();
-			const result = await Effect.runPromise(
-				client["mcp.refresh"]({
-					projectId: scope.projectId,
-					provider: scope.provider,
-				}),
-			);
+			const environmentId = activeEnvironmentId();
+			const result = await mcpCommand<
+				{
+					readonly projectId: FolderId | undefined;
+					readonly provider: ProviderId | undefined;
+				},
+				{
+					readonly servers: ReadonlyArray<McpServerDescriptor>;
+					readonly statuses: ReadonlyArray<McpServerStatus>;
+				}
+			>("mcp.refresh", {
+				projectId: scope.projectId,
+				provider: scope.provider,
+			});
+			if (environmentId !== activeEnvironmentId()) return;
 			set({
 				servers: result.servers,
 				statuses: statusMap(result.statuses),
@@ -120,10 +155,7 @@ export const useMcpStore = create<State>((set, get) => ({
 			),
 		});
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["mcp.setEnabled"]({ key, enabled, projectId }),
-			);
+			await mcpCommand("mcp.setEnabled", { key, enabled, projectId });
 			await get().load({ projectId });
 		} catch (err) {
 			set({ error: formatError(err) });
@@ -134,17 +166,14 @@ export const useMcpStore = create<State>((set, get) => ({
 	authenticate: async (key, projectId, provider) => {
 		set({ authenticating: new Set([...get().authenticating, key]) });
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				Stream.runForEach(
-					client["mcp.authenticate"]({ key, projectId }),
-					(event) =>
-						Effect.sync(() => {
-							if (event._tag === "browser-opened") openExternal(event.url);
-							if (event._tag === "failed") set({ error: event.error });
-						}),
-				),
-			);
+			const client = await runtimeOperationClient(activeEnvironmentId());
+			await runStreamOperation(
+				client["mcp.authenticate"]({ key, projectId }),
+				(event) => {
+					if (event._tag === "browser-opened") openExternal(event.url);
+					if (event._tag === "failed") set({ error: event.error });
+				},
+			).done;
 		} catch (err) {
 			set({ error: formatError(err) });
 		} finally {

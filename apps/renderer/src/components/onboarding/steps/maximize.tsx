@@ -1,14 +1,15 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { CircleArrowUp01Icon, Loading02Icon } from "@zuse/icons/solid-rounded";
 import {
-	CircleArrowUp01Icon,
-	Loading02Icon,
-} from "@zuse/icons/solid-rounded";
-import type { UsageReport } from "@zuse/contracts";
-import { Effect } from "effect";
+	type CommandId,
+	EnvironmentId,
+	type UsageReport,
+} from "@zuse/contracts";
 import { useEffect, useState } from "react";
 
 import { formatTokens, formatUsd, totalTokens } from "~/lib/format-usage.ts";
-import { getRpcClient } from "../../../lib/rpc-client.ts";
+import { dispatchEnvironmentShellCommand } from "../../../lib/environment-shell-client-bus.ts";
+import { useEnvironmentCatalogStore } from "../../../store/environment-catalog.ts";
 import { StepHeader } from "./shared.tsx";
 
 /**
@@ -42,22 +43,28 @@ const currentMonthRange = () => {
  * can potentially produce.
  */
 export function MaximizeStep() {
+	const environmentId = useEnvironmentCatalogStore((state) =>
+		EnvironmentId.make(state.activeEnvironmentId),
+	);
 	const [report, setReport] = useState<UsageReport | null>(null);
 	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
 		let cancelled = false;
 		setLoading(true);
-		void getRpcClient()
-			.then((client) =>
-				Effect.runPromise(
-					client["usage.report"]({
-						bucket: "monthly",
-						...currentMonthRange(),
-					}),
-				),
-			)
-			.then((nextReport) => {
+		void dispatchEnvironmentShellCommand<
+			ReturnType<typeof currentMonthRange> & { readonly bucket: "monthly" },
+			UsageReport
+		>({
+			environmentId,
+			kind: "usage.report",
+			commandId: crypto.randomUUID() as CommandId,
+			payload: {
+				bucket: "monthly",
+				...currentMonthRange(),
+			},
+		})
+			.then(({ result: nextReport }) => {
 				if (cancelled) return;
 				setReport(nextReport);
 				setLoading(false);
@@ -70,7 +77,7 @@ export function MaximizeStep() {
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [environmentId]);
 
 	const summary = report?.summary ?? null;
 	const tokens = summary !== null ? totalTokens(summary) : 0;

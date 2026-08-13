@@ -1,5 +1,16 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronDown } from "lucide-react";
+import type {
+	CommandId,
+	EnvironmentId,
+	FolderId,
+	GitBranchInfo,
+	GitIssueSummary,
+	GitPrSummary,
+	LinearConnection,
+	LinearIssueSummary,
+	Worktree,
+	WorktreeId,
+} from "@zuse/contracts";
 import {
 	CancelCircleIcon,
 	CheckmarkCircle01Icon,
@@ -10,16 +21,7 @@ import {
 	RecordIcon,
 	Search01Icon,
 } from "@zuse/icons/solid-rounded";
-import type {
-	FolderId,
-	GitBranchInfo,
-	GitIssueSummary,
-	GitPrSummary,
-	LinearConnection,
-	LinearIssueSummary,
-	WorktreeId,
-} from "@zuse/contracts";
-import { Effect } from "effect";
+import { ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -30,8 +32,9 @@ import {
 import { Button } from "~/components/ui/button.tsx";
 import { overlaySurface } from "~/components/ui/overlay-surface";
 import { PopoverPrimitive } from "~/components/ui/popover";
+import { dispatchEnvironmentShellCommand } from "~/lib/environment-shell-client-bus.ts";
 import { errorMessage } from "~/lib/error-message.ts";
-import { getRpcClient } from "~/lib/rpc-client.ts";
+import { dispatchGitWorkspaceCommand } from "~/lib/git-workspace-client-bus.ts";
 import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui.ts";
 
@@ -111,7 +114,9 @@ const assigneeInitials = (name: string): string =>
 		.toUpperCase();
 
 export interface CreateFromMenuProps {
+	readonly environmentId: EnvironmentId;
 	readonly folderId: FolderId | null;
+	readonly rootPath: string;
 	readonly onSelect: (selection: CreateFromSelection) => void;
 }
 
@@ -121,7 +126,12 @@ export interface CreateFromMenuProps {
  * `git`. Selecting a row reports it up to the Chat Lander, which starts the
  * chat against that PR/branch (checkout) or issue (attach + prefill).
  */
-export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
+export function CreateFromMenu({
+	environmentId,
+	folderId,
+	rootPath,
+	onSelect,
+}: CreateFromMenuProps) {
 	const setView = useUiStore((state) => state.setView);
 	const setSettingsSection = useUiStore((state) => state.setSettingsSection);
 	const [open, setOpen] = useState(false);
@@ -177,21 +187,39 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
 			() => {
 				void (async () => {
 					try {
-						const client = await getRpcClient();
 						if (linearConnections === null) {
-							const connections = await Effect.runPromise(
-								client["linear.listConnections"]({}),
-							);
+							const { result: connections } =
+								await dispatchEnvironmentShellCommand<
+									Record<string, never>,
+									ReadonlyArray<LinearConnection>
+								>({
+									environmentId,
+									kind: "linear.listConnections",
+									commandId: crypto.randomUUID() as CommandId,
+									payload: {},
+								});
 							if (!cancelled) setLinearConnections(connections);
 						}
-						const result = await Effect.runPromise(
-							client["linear.listIssues"]({
+						const { result } = await dispatchEnvironmentShellCommand<
+							{
+								readonly query?: string;
+								readonly workspaceIds?: ReadonlyArray<string>;
+							},
+							{
+								readonly issues: ReadonlyArray<LinearIssueSummary>;
+								readonly nextCursor: string | null;
+							}
+						>({
+							environmentId,
+							kind: "linear.listIssues",
+							commandId: crypto.randomUUID() as CommandId,
+							payload: {
 								...(query.trim() === "" ? {} : { query: query.trim() }),
 								...(linearWorkspaceId === ""
 									? {}
 									: { workspaceIds: [linearWorkspaceId] }),
-							}),
-						);
+							},
+						});
 						if (!cancelled) {
 							setLinearIssues(result.issues);
 							setLinearError(null);
@@ -212,7 +240,7 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
 			cancelled = true;
 			window.clearTimeout(timer);
 		};
-	}, [open, tab, query, linearWorkspaceId, linearConnections]);
+	}, [environmentId, open, tab, query, linearWorkspaceId, linearConnections]);
 
 	useEffect(() => {
 		if (!open) {
@@ -229,31 +257,68 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
 		let cancelled = false;
 		void (async () => {
 			try {
-				const client = await getRpcClient();
 				if (!worktreesLoadedForOpen) {
-					const wts = await Effect.runPromise(
-						client["worktree.list"]({ projectId: folderId }),
-					).catch(() => []);
+					const wts = await dispatchEnvironmentShellCommand<
+						{ readonly projectId: FolderId },
+						ReadonlyArray<Worktree>
+					>({
+						environmentId,
+						kind: "worktree.list",
+						commandId: crypto.randomUUID() as CommandId,
+						payload: { projectId: folderId },
+					})
+						.then(({ result }) => result)
+						.catch(() => []);
 					if (cancelled) return;
 					const map = new Map<string, WorktreeId>();
 					for (const wt of wts) map.set(wt.branch, wt.id);
 					setWorktreeByBranch(map);
 					setWorktreesLoadedForOpen(true);
 				}
+				const ref = {
+					environmentId,
+					folderId,
+					worktreeId: null,
+					rootPath,
+				} as const;
 				if (tab === "prs" && prs === null) {
-					const rows = await Effect.runPromise(
-						client["git.listPrs"]({ folderId }),
-					).catch(() => []);
+					const rows = await dispatchGitWorkspaceCommand<
+						{ readonly folderId: FolderId },
+						ReadonlyArray<GitPrSummary>
+					>({
+						ref,
+						kind: "git.listPrs",
+						commandId: crypto.randomUUID() as CommandId,
+						payload: { folderId },
+					})
+						.then(({ result }) => result)
+						.catch(() => []);
 					if (!cancelled) setPrs(rows);
 				} else if (tab === "branches" && branches === null) {
-					const rows = await Effect.runPromise(
-						client["git.branches"]({ folderId }),
-					).catch(() => []);
+					const rows = await dispatchGitWorkspaceCommand<
+						{ readonly folderId: FolderId },
+						ReadonlyArray<GitBranchInfo>
+					>({
+						ref,
+						kind: "git.branches",
+						commandId: crypto.randomUUID() as CommandId,
+						payload: { folderId },
+					})
+						.then(({ result }) => result)
+						.catch(() => []);
 					if (!cancelled) setBranches(rows);
 				} else if (tab === "issues" && issues === null) {
-					const rows = await Effect.runPromise(
-						client["git.listIssues"]({ folderId }),
-					).catch(() => []);
+					const rows = await dispatchGitWorkspaceCommand<
+						{ readonly folderId: FolderId },
+						ReadonlyArray<GitIssueSummary>
+					>({
+						ref,
+						kind: "git.listIssues",
+						commandId: crypto.randomUUID() as CommandId,
+						payload: { folderId },
+					})
+						.then(({ result }) => result)
+						.catch(() => []);
 					if (!cancelled) setIssues(rows);
 				}
 			} catch {
@@ -263,7 +328,17 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
 		return () => {
 			cancelled = true;
 		};
-	}, [open, tab, folderId, prs, branches, issues, worktreesLoadedForOpen]);
+	}, [
+		environmentId,
+		open,
+		tab,
+		folderId,
+		rootPath,
+		prs,
+		branches,
+		issues,
+		worktreesLoadedForOpen,
+	]);
 
 	const loading =
 		(tab === "prs" && prs === null) ||

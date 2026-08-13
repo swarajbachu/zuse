@@ -1,9 +1,13 @@
-import type { LinearConnection } from "@zuse/contracts";
-import { Effect } from "effect";
+import {
+	type CommandId,
+	EnvironmentId,
+	type LinearConnection,
+} from "@zuse/contracts";
 import { Info } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { dispatchEnvironmentShellCommand } from "~/lib/environment-shell-client-bus.ts";
 import { errorMessage } from "~/lib/error-message.ts";
-import { getRpcClient } from "~/lib/rpc-client.ts";
+import { useEnvironmentCatalogStore } from "~/store/environment-catalog.ts";
 import { Button } from "../ui/button.tsx";
 import { Card } from "../ui/card.tsx";
 import { Frame, FrameHeader, FrameTitle } from "../ui/frame.tsx";
@@ -11,6 +15,9 @@ import { Spinner } from "../ui/spinner.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip.tsx";
 
 export function LinearIntegrationsPane() {
+	const environmentId = useEnvironmentCatalogStore((state) =>
+		EnvironmentId.make(state.activeEnvironmentId),
+	);
 	const [connections, setConnections] =
 		useState<ReadonlyArray<LinearConnection> | null>(null);
 	const [busy, setBusy] = useState<string | null>(null);
@@ -18,16 +25,22 @@ export function LinearIntegrationsPane() {
 
 	const load = useCallback(async () => {
 		try {
-			const client = await getRpcClient();
-			setConnections(
-				await Effect.runPromise(client["linear.listConnections"]({})),
-			);
+			const { result } = await dispatchEnvironmentShellCommand<
+				Record<string, never>,
+				ReadonlyArray<LinearConnection>
+			>({
+				environmentId,
+				kind: "linear.listConnections",
+				commandId: crypto.randomUUID() as CommandId,
+				payload: {},
+			});
+			setConnections(result);
 			setError(null);
 		} catch (cause) {
 			setConnections([]);
 			setError(errorMessage(cause, "Could not load connected workspaces."));
 		}
-	}, []);
+	}, [environmentId]);
 
 	useEffect(() => {
 		void load();
@@ -38,8 +51,12 @@ export function LinearIntegrationsPane() {
 		setBusy("connect");
 		setError(null);
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(client["linear.connect"]({}));
+			await dispatchEnvironmentShellCommand<Record<string, never>, unknown>({
+				environmentId,
+				kind: "linear.connect",
+				commandId: crypto.randomUUID() as CommandId,
+				payload: {},
+			});
 			await load();
 		} catch (cause) {
 			setError(errorMessage(cause, "Could not connect the workspace."));
@@ -58,10 +75,15 @@ export function LinearIntegrationsPane() {
 		setBusy(connection.workspaceId);
 		setError(null);
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["linear.disconnect"]({ workspaceId: connection.workspaceId }),
-			);
+			await dispatchEnvironmentShellCommand<
+				{ readonly workspaceId: string },
+				unknown
+			>({
+				environmentId,
+				kind: "linear.disconnect",
+				commandId: crypto.randomUUID() as CommandId,
+				payload: { workspaceId: connection.workspaceId },
+			});
 			await load();
 		} catch (cause) {
 			setError(errorMessage(cause, "Could not disconnect the workspace."));

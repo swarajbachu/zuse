@@ -374,9 +374,20 @@ const CapabilitiesEvent = Schema.TaggedStruct("Capabilities", {
   capabilities: Schema.Array(Schema.String),
 });
 
+/** Absolute, monotonically revised text emitted for one stable provider item. */
+export const ProviderMessageCheckpoint = Schema.Struct({
+  /** Revisions start at 1 and increase for every accepted cumulative value. */
+  revision: Schema.Number,
+  /** Final promotion is itself a strictly newer revision. */
+  final: Schema.Boolean,
+});
+export type ProviderMessageCheckpoint =
+  typeof ProviderMessageCheckpoint.Type;
+
 const AssistantMessageEvent = Schema.TaggedStruct("AssistantMessage", {
   itemId: AgentItemId,
   text: Schema.String,
+  checkpoint: Schema.optional(ProviderMessageCheckpoint),
   /** True when the provider emitted a dedicated final plan item. */
   isPlan: Schema.optional(Schema.Boolean),
   // `parentItemId` is set when this message originated inside a sub-agent —
@@ -389,6 +400,7 @@ const ThinkingEvent = Schema.TaggedStruct("Thinking", {
   itemId: AgentItemId,
   text: Schema.String,
   redacted: Schema.Boolean,
+  checkpoint: Schema.optional(ProviderMessageCheckpoint),
   parentItemId: Schema.optional(AgentItemId),
 });
 

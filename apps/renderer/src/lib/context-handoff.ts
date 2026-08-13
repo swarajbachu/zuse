@@ -1,37 +1,61 @@
-import type { SessionId } from "@zuse/contracts";
-import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
-import { Effect } from "effect";
+import type { EnvironmentId, SessionId } from "@zuse/contracts";
+import { CommandId } from "@zuse/contracts";
 
 import { useComposerBridge } from "../store/composer-bridge.ts";
-import { useMessagesStore } from "../store/messages.ts";
-import { getRpcClient } from "./rpc-client.ts";
+import { dispatchSessionCommand } from "./session-timeline-client-bus.ts";
 
 type ContextRef = { readonly relPath: string; readonly absPath: string };
 
-/**
- * Pull the most recent `ExitPlanMode` plan text out of a session's message
- * log, if any. Used by the plan-handoff button and the "Attach plan" action.
- */
-export const latestPlanText = (sessionId: SessionId): string | null => {
-  const messages = useMessagesStore.getState().messagesBySession[sessionId];
-  if (messages === undefined) return null;
-  return latestProposedPlanMarkdown(messages);
-};
+export const saveContextText = async (input: {
+	readonly environmentId: EnvironmentId;
+	readonly sessionId: SessionId;
+	readonly text: string;
+	readonly ext: string;
+	readonly rootPath?: string;
+}): Promise<ContextRef> =>
+	(
+		await dispatchSessionCommand<
+			{
+				readonly sessionId: SessionId;
+				readonly text: string;
+				readonly ext: string;
+				readonly rootPath?: string;
+			},
+			ContextRef
+		>({
+			ref: {
+				environmentId: input.environmentId,
+				sessionId: input.sessionId,
+			},
+			kind: "context.saveText",
+			commandId: CommandId.make(`context-save:${crypto.randomUUID()}`),
+			payload: {
+				sessionId: input.sessionId,
+				text: input.text,
+				ext: input.ext,
+				...(input.rootPath === undefined ? {} : { rootPath: input.rootPath }),
+			},
+			retry: "never",
+		})
+	).result;
 
 /** Write text into the session workspace's `.context/files/` as a `.md` file. */
 export const saveContextFile = async (
-  sessionId: SessionId,
-  text: string,
+	environmentId: EnvironmentId,
+	sessionId: SessionId,
+	text: string,
 ): Promise<ContextRef | null> => {
-  try {
-    const client = await getRpcClient();
-    const res = await Effect.runPromise(
-      client["context.saveText"]({ sessionId, text, ext: "md" }),
-    );
-    return { relPath: res.relPath, absPath: res.absPath };
-  } catch {
-    return null;
-  }
+	try {
+		const res = await saveContextText({
+			environmentId,
+			sessionId,
+			text,
+			ext: "md",
+		});
+		return { relPath: res.relPath, absPath: res.absPath };
+	} catch {
+		return null;
+	}
 };
 
 /**
@@ -39,40 +63,54 @@ export const saveContextFile = async (
  * or `null` if that session never proposed a plan.
  */
 export const fetchLatestPlan = async (
-  sessionId: SessionId,
+	environmentId: EnvironmentId,
+	sessionId: SessionId,
 ): Promise<string | null> => {
-  try {
-    const client = await getRpcClient();
-    const res = await Effect.runPromise(
-      client["session.latestPlan"]({ sessionId }),
-    );
-    return res.plan;
-  } catch {
-    return null;
-  }
+	try {
+		const { result: res } = await dispatchSessionCommand<
+			{ readonly sessionId: SessionId },
+			{ readonly plan: string | null }
+		>({
+			ref: { environmentId, sessionId },
+			kind: "session.latestPlan",
+			commandId: CommandId.make(`session-plan:${crypto.randomUUID()}`),
+			payload: { sessionId },
+			retry: "never",
+		});
+		return res.plan;
+	} catch {
+		return null;
+	}
 };
 
 /** Serialise a source session's transcript to Markdown via the server. */
 export const fetchTranscriptMarkdown = async (
-  sourceSessionId: SessionId,
+	environmentId: EnvironmentId,
+	sourceSessionId: SessionId,
 ): Promise<string | null> => {
-  try {
-    const client = await getRpcClient();
-    const res = await Effect.runPromise(
-      client["session.exportTranscript"]({ sessionId: sourceSessionId }),
-    );
-    return res.markdown;
-  } catch {
-    return null;
-  }
+	try {
+		const { result: res } = await dispatchSessionCommand<
+			{ readonly sessionId: SessionId },
+			{ readonly markdown: string }
+		>({
+			ref: { environmentId, sessionId: sourceSessionId },
+			kind: "session.exportTranscript",
+			commandId: CommandId.make(`session-transcript:${crypto.randomUUID()}`),
+			payload: { sessionId: sourceSessionId },
+			retry: "never",
+		});
+		return res.markdown;
+	} catch {
+		return null;
+	}
 };
 
 /** Drop a file chip into the CURRENTLY mounted composer (bridge-backed). */
 export const attachToCurrentComposer = (ref: ContextRef): boolean => {
-  const attach = useComposerBridge.getState().attachFile;
-  if (attach === null) return false;
-  attach({ relPath: ref.relPath, absPath: ref.absPath, kind: "file" });
-  return true;
+	const attach = useComposerBridge.getState().attachFile;
+	if (attach === null) return false;
+	attach({ relPath: ref.relPath, absPath: ref.absPath, kind: "file" });
+	return true;
 };
 
 /**
@@ -82,11 +120,11 @@ export const attachToCurrentComposer = (ref: ContextRef): boolean => {
  * new composer is ready.
  */
 export const attachFileWhenReady = (
-  ref: ContextRef,
-  tries = 20,
-  delayMs = 50,
+	ref: ContextRef,
+	tries = 20,
+	delayMs = 50,
 ): void => {
-  if (attachToCurrentComposer(ref)) return;
-  if (tries <= 0) return;
-  setTimeout(() => attachFileWhenReady(ref, tries - 1, delayMs), delayMs);
+	if (attachToCurrentComposer(ref)) return;
+	if (tries <= 0) return;
+	setTimeout(() => attachFileWhenReady(ref, tries - 1, delayMs), delayMs);
 };

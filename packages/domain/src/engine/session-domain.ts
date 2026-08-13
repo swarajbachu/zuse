@@ -1,3 +1,4 @@
+import type { SessionId, SessionTimelineProjection } from "@zuse/contracts";
 import {
 	Context,
 	Crypto,
@@ -17,6 +18,11 @@ import {
 	type SqlSessionProjectorError,
 } from "../projectors/sql-session-projector.js";
 import {
+	MAX_TIMELINE_SNAPSHOT_PROJECTION_BYTES,
+	readSessionTimelineSnapshot,
+} from "../queries/session-timeline-snapshot.js";
+import type { SqlSessionQueryError } from "../queries/sql-session-queries.js";
+import {
 	type CommandReceipt,
 	DispatchEngine,
 	type DispatchFailure,
@@ -29,6 +35,7 @@ import {
 	type SqlConsumerStorageError,
 } from "./sql-consumer-storage.js";
 import {
+	DispatchPersistenceDecodeError,
 	makeSqlDispatchStorage,
 	type SqlDispatchStorageError,
 } from "./sql-dispatch-storage.js";
@@ -37,21 +44,42 @@ export type SessionDomainError =
 	| DispatchFailure<SqlDispatchStorageError>
 	| SqlConsumerStorageError
 	| SqlSessionProjectorError
+	| SqlSessionQueryError
 	| PlatformError;
 
 export type SessionSynchronizationRecord =
 	| {
 			readonly kind: "snapshot";
+			readonly streamEpoch: string;
 			readonly throughVersion: number;
-			readonly events: readonly StoredEvent[];
+			readonly projection: SessionTimelineProjection;
+			readonly olderMessageSequence: number | null;
 	  }
-	| { readonly kind: "event"; readonly record: StoredEvent }
-	| { readonly kind: "synchronized"; readonly throughVersion: number };
+	| {
+			readonly kind: "event";
+			readonly streamEpoch: string;
+			readonly record: StoredEvent;
+	  }
+	| {
+			readonly kind: "synchronized";
+			readonly streamEpoch: string;
+			readonly throughVersion: number;
+	  }
+	| {
+			readonly kind: "reset-required";
+			readonly streamEpoch: string;
+			readonly throughVersion: number;
+			readonly reason: "restored" | "compacted" | "cursor-invalid";
+	  };
 
 export interface SessionDomainApi {
 	readonly dispatch: (
 		input: DispatchInput,
 	) => Effect.Effect<CommandReceipt, SessionDomainError>;
+	readonly dispatchTransactionally: <A, E, R>(
+		input: DispatchInput,
+		onCommitted: (receipt: CommandReceipt) => Effect.Effect<A, E, R>,
+	) => Effect.Effect<A, SessionDomainError | E, R>;
 	readonly catchUp: Effect.Effect<number, SessionDomainError>;
 	readonly events: (input: {
 		readonly streamId: string;
@@ -60,13 +88,16 @@ export interface SessionDomainApi {
 	readonly synchronizedEvents: (input: {
 		readonly streamId: string;
 		readonly afterVersion?: number;
+		readonly streamEpoch?: string;
 		readonly hasProjection?: boolean;
-		readonly snapshotGap?: number;
+		readonly maxDeltaEvents?: number;
+		readonly maxDeltaBytes?: number;
 	}) => Stream.Stream<SessionSynchronizationRecord, SessionDomainError>;
 	readonly allEvents: (input: {
 		readonly afterSequence?: number;
 	}) => Stream.Stream<StoredEvent, SessionDomainError>;
 	readonly currentSequence: Effect.Effect<number, SessionDomainError>;
+	readonly streamEpoch: string;
 	readonly currentStreamVersion: (
 		streamId: string,
 	) => Effect.Effect<number, SessionDomainError>;
@@ -117,6 +148,7 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 	);
 	const durableEventHub =
 		yield* PubSub.unbounded<Result.Result<StoredEvent, SessionDomainError>>();
+	const publisherLock = yield* Semaphore.make(1);
 	let durableSubscriberCount = 0;
 	const registerDurableSubscriber = Effect.acquireRelease(
 		Effect.sync(() => {
@@ -145,7 +177,7 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 		FROM events WHERE stream_kind = 'session'
 	`.pipe(Effect.map((rows) => rows[0]?.sequence ?? 0));
 	let durableCursor = yield* readCurrentSequence.pipe(Effect.orDie);
-	const reconcileDurableEvents = Effect.fn(
+	const reconcileDurableEventsUnlocked = Effect.fn(
 		"SessionDomain.reconcileDurableEvents",
 	)(function* () {
 		if (durableSubscriberCount === 0) return;
@@ -169,11 +201,17 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 			durableCursor = record.sequence;
 		}
 	});
+	const reconcileDurableEvents = () =>
+		Semaphore.withPermits(publisherLock, 1, reconcileDurableEventsUnlocked());
+	const streamEpochRows = yield* sql<{ readonly value: string }>`
+		SELECT value FROM app_state WHERE key = 'session_stream_epoch' LIMIT 1
+	`.pipe(Effect.orDie);
+	const streamEpoch = streamEpochRows[0]?.value ?? "legacy";
 	yield* Stream.merge(
 		Stream.fromSubscription(reconciliationWakeSubscription),
 		Stream.fromEffectSchedule(Effect.void, Schedule.spaced("100 millis")),
 	).pipe(
-		Stream.runForEach(() => reconcileDurableEvents()),
+		Stream.runForEach(reconcileDurableEvents),
 		Effect.forkScoped({ startImmediately: true }),
 	);
 
@@ -229,8 +267,10 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 	const synchronizedEvents: SessionDomainApi["synchronizedEvents"] = ({
 		streamId,
 		afterVersion,
+		streamEpoch: retainedEpoch,
 		hasProjection = false,
-		snapshotGap = 1_000,
+		maxDeltaEvents = 512,
+		maxDeltaBytes = MAX_TIMELINE_SNAPSHOT_PROJECTION_BYTES,
 	}) =>
 		Stream.unwrap(
 			Effect.gen(function* () {
@@ -238,92 +278,152 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 				// commit during snapshot/replay are retained by this subscription.
 				yield* registerDurableSubscriber;
 				const durableSubscription = yield* PubSub.subscribe(durableEventHub);
-				const throughVersion =
-					yield* dispatchStorage.currentStreamVersion(streamId);
-				const retainedVersion = afterVersion ?? 0;
-				const needsSnapshot =
-					!hasProjection ||
-					afterVersion === undefined ||
-					retainedVersion > throughVersion ||
-					throughVersion - retainedVersion > snapshotGap;
-				const captured = needsSnapshot
-					? yield* dispatchStorage.eventsInVersionRange(
-							streamId,
-							0,
+				// `durableEventHub` is process-local. Reconcile after subscribing so
+				// commits from another runtime that landed just before this attach are
+				// either in the durable prefix below or buffered by this subscription.
+				yield* reconcileDurableEvents();
+				// The advertised head and its materialized projection must come from
+				// one SQLite read snapshot. Otherwise a commit between the version read
+				// and projection read could put version N+1 data in a version N frame;
+				// the buffered N+1 event would then be applied twice by the client.
+				const { prefix, throughVersion } = yield* sql.withTransaction(
+					Effect.gen(function* () {
+						const throughVersion =
+							yield* dispatchStorage.currentStreamVersion(streamId);
+						const retainedVersion = afterVersion ?? 0;
+						const epochMismatch =
+							retainedEpoch !== undefined && retainedEpoch !== streamEpoch;
+						let needsSnapshot =
+							!hasProjection ||
+							afterVersion === undefined ||
+							epochMismatch ||
+							retainedVersion > throughVersion ||
+							throughVersion - retainedVersion > maxDeltaEvents;
+						let captured: readonly StoredEvent[] = [];
+						if (!needsSnapshot) {
+							captured = yield* dispatchStorage.eventsInVersionRange(
+								streamId,
+								retainedVersion,
+								throughVersion,
+							);
+							needsSnapshot =
+								captured.reduce(
+									(total, record) =>
+										total +
+										new TextEncoder().encode(
+											JSON.stringify({
+												kind: "event",
+												streamEpoch,
+												record,
+											}),
+										).byteLength,
+									0,
+								) > maxDeltaBytes;
+						}
+						const prefix: SessionSynchronizationRecord[] = [];
+						if (epochMismatch || retainedVersion > throughVersion) {
+							prefix.push({
+								kind: "reset-required",
+								streamEpoch,
+								throughVersion,
+								reason: epochMismatch ? "restored" : "cursor-invalid",
+							});
+						}
+						if (needsSnapshot) {
+							const snapshot = yield* readSessionTimelineSnapshot(
+								sql,
+								streamId as SessionId,
+							);
+							prefix.push({
+								kind: "snapshot",
+								streamEpoch,
+								throughVersion,
+								...snapshot,
+							});
+						} else {
+							prefix.push(
+								...captured
+									.filter((record) => record.streamVersion > retainedVersion)
+									.map((record) => ({
+										kind: "event" as const,
+										streamEpoch,
+										record,
+									})),
+							);
+						}
+						prefix.push({
+							kind: "synchronized",
+							streamEpoch,
 							throughVersion,
-						)
-					: yield* dispatchStorage.eventsInVersionRange(
-							streamId,
-							retainedVersion,
-							throughVersion,
-						);
-				const prefix: SessionSynchronizationRecord[] = needsSnapshot
-					? [{ kind: "snapshot", throughVersion, events: captured }]
-					: captured
-							.filter((record) => record.streamVersion > retainedVersion)
-							.map((record) => ({ kind: "event" as const, record }));
-				prefix.push({ kind: "synchronized", throughVersion });
+						});
+						return { prefix, throughVersion };
+					}),
+				);
 				let liveVersion = throughVersion;
 				const tail = decodeDurableNotifications(
 					Stream.fromSubscription(durableSubscription),
 				).pipe(
-					Stream.filter((record) => {
-						if (
-							record.streamId !== streamId ||
-							record.streamVersion <= liveVersion
-						) {
-							return false;
+					Stream.filter((record) => record.streamId === streamId),
+					Stream.mapEffect((record) => {
+						if (record.streamVersion <= liveVersion) {
+							return Effect.succeed<StoredEvent | null>(null);
+						}
+						if (record.streamVersion !== liveVersion + 1) {
+							return Effect.fail(
+								new DispatchPersistenceDecodeError({
+									recordKind: "event",
+									recordId: record.eventId,
+									reason: `Session stream gap after ${liveVersion}; received ${record.streamVersion}`,
+								}),
+							);
 						}
 						liveVersion = record.streamVersion;
-						return true;
+						return Effect.succeed<StoredEvent | null>(record);
 					}),
-					Stream.map((record) => ({ kind: "event" as const, record })),
+					Stream.filter((record): record is StoredEvent => record !== null),
+					Stream.map((record) => ({
+						kind: "event" as const,
+						streamEpoch,
+						record,
+					})),
 				);
 				return Stream.concat(Stream.fromIterable(prefix), tail);
 			}),
 		);
 
-	return SessionDomain.of({
-		catchUp,
-		events,
-		allEvents,
-		synchronizedEvents,
-		currentSequence: readCurrentSequence,
-		currentStreamVersion: (streamId) =>
-			dispatchStorage.currentStreamVersion(streamId),
-		dispatch: Effect.fn("SessionDomain.dispatch")(function* (
-			input: DispatchInput,
-		) {
-			const { receipt, appended } = yield* Semaphore.withPermits(
-				commandLock(input.streamId),
-				1,
-				sql.withTransaction(
-					Effect.gen(function* () {
-						const receipt = yield* dispatch.dispatch(input).pipe(
-							Effect.retry({
-								while: (error) => error._tag === "ConcurrencyConflict",
-								schedule: Schedule.recurs(8),
-							}),
-						);
-						const appended =
-							receipt.eventIds.length === 0
-								? []
-								: yield* dispatchStorage.eventsInVersionRange(
-										input.streamId,
-										receipt.streamVersion - receipt.eventIds.length,
-										receipt.streamVersion,
-									);
-						const cursorRows = yield* sql<{ readonly last_sequence: number }>`
+	const dispatchTransactionally: SessionDomainApi["dispatchTransactionally"] =
+		Effect.fn("SessionDomain.dispatchTransactionally")(
+			function* (input, onCommitted) {
+				const { result, appended } = yield* Semaphore.withPermits(
+					commandLock(input.streamId),
+					1,
+					sql.withTransaction(
+						Effect.gen(function* () {
+							const receipt = yield* dispatch.dispatch(input).pipe(
+								Effect.retry({
+									while: (error) => error._tag === "ConcurrencyConflict",
+									schedule: Schedule.recurs(8),
+								}),
+							);
+							const appended =
+								receipt.eventIds.length === 0
+									? []
+									: yield* dispatchStorage.eventsInVersionRange(
+											input.streamId,
+											receipt.streamVersion - receipt.eventIds.length,
+											receipt.streamVersion,
+										);
+							const cursorRows = yield* sql<{ readonly last_sequence: number }>`
 							SELECT last_sequence FROM projector_cursors
 							WHERE projector_name = ${transactionalProjector.name}
 							LIMIT 1
 						`;
-						let cursor = cursorRows[0]?.last_sequence ?? 0;
-						for (const record of appended) {
-							if (record.sequence <= cursor) continue;
-							yield* transactionalProjector.apply(record);
-							cursor = record.sequence;
-							yield* sql`
+							let cursor = cursorRows[0]?.last_sequence ?? 0;
+							for (const record of appended) {
+								if (record.sequence <= cursor) continue;
+								yield* transactionalProjector.apply(record);
+								cursor = record.sequence;
+								yield* sql`
 								INSERT INTO projector_cursors
 									(projector_name, last_sequence, updated_at)
 								VALUES
@@ -332,15 +432,27 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 									last_sequence = MAX(projector_cursors.last_sequence, excluded.last_sequence),
 									updated_at = excluded.updated_at
 							`;
-						}
-						return { receipt, appended };
-					}),
-				),
-			);
-			if (appended.length > 0) {
-				yield* PubSub.publish(reconciliationWakeHub, undefined);
-			}
-			return receipt;
-		}),
+							}
+							const result = yield* onCommitted(receipt);
+							return { result, appended };
+						}),
+					),
+				);
+				if (appended.length > 0) yield* reconcileDurableEvents();
+				return result;
+			},
+		);
+
+	return SessionDomain.of({
+		catchUp,
+		events,
+		allEvents,
+		synchronizedEvents,
+		currentSequence: readCurrentSequence,
+		streamEpoch,
+		currentStreamVersion: (streamId) =>
+			dispatchStorage.currentStreamVersion(streamId),
+		dispatch: (input) => dispatchTransactionally(input, Effect.succeed),
+		dispatchTransactionally,
 	});
 });

@@ -2,9 +2,9 @@ import type { QueuedMessage } from "@zuse/contracts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 
 export type AttachableFile = {
-  readonly relPath: string;
-  readonly absPath: string;
-  readonly kind: "file" | "directory";
+	readonly relPath: string;
+	readonly absPath: string;
+	readonly kind: "file" | "directory";
 };
 
 type AttachFile = (ref: AttachableFile) => void;
@@ -13,23 +13,23 @@ type FocusComposer = () => void;
 type EditQueuedMessage = (item: QueuedMessage) => void;
 
 type Bridge = {
-  readonly attachFile: AttachFile | null;
-  readonly insertText: InsertText | null;
-  readonly focus: FocusComposer | null;
-  readonly editQueuedMessage: EditQueuedMessage | null;
-  readonly setAttachFile: (fn: AttachFile | null) => void;
-  readonly setInsertText: (fn: InsertText | null) => void;
-  readonly setFocus: (fn: FocusComposer | null) => void;
-  readonly setEditQueuedMessage: (fn: EditQueuedMessage | null) => void;
+	readonly attachFile: AttachFile | null;
+	readonly insertText: InsertText | null;
+	readonly focus: FocusComposer | null;
+	readonly editQueuedMessage: EditQueuedMessage | null;
+	readonly setAttachFile: (fn: AttachFile | null) => void;
+	readonly setInsertText: (fn: InsertText | null) => void;
+	readonly setFocus: (fn: FocusComposer | null) => void;
+	readonly setEditQueuedMessage: (fn: EditQueuedMessage | null) => void;
 };
 
 export const useComposerBridge = create<Bridge>((set) => ({
-  attachFile: null,
-  insertText: null,
-  focus: null,
-  editQueuedMessage: null,
-  setAttachFile: (fn) => set({ attachFile: fn }),
-  setInsertText: (fn) => set({ insertText: fn }),
-  setFocus: (fn) => set({ focus: fn }),
-  setEditQueuedMessage: (fn) => set({ editQueuedMessage: fn }),
+	attachFile: null,
+	insertText: null,
+	focus: null,
+	editQueuedMessage: null,
+	setAttachFile: (fn) => set({ attachFile: fn }),
+	setInsertText: (fn) => set({ insertText: fn }),
+	setFocus: (fn) => set({ focus: fn }),
+	setEditQueuedMessage: (fn) => set({ editQueuedMessage: fn }),
 }));

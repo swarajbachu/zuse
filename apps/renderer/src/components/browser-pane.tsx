@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { StarIcon } from "@zuse/icons/solid-rounded";
+import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import {
 	type BrowserAnnotationElement,
 	type BrowserAnnotationPoint,
@@ -11,10 +11,9 @@ import {
 	type BrowserOverlayShape,
 	type BrowserTarget,
 	type BrowserViewportMode,
-	type ChatId,
 	type SessionId,
 } from "@zuse/contracts";
-import { Effect, Fiber, Schedule, Stream } from "effect";
+import { StarIcon } from "@zuse/icons/solid-rounded";
 import {
 	Camera,
 	ChevronLeft,
@@ -37,7 +36,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-
+import { uploadAttachment } from "../lib/attachments.ts";
 import type {
 	BrowserCookieImportStatus,
 	BrowserInputAction,
@@ -46,21 +45,19 @@ import type {
 	NetworkQueryResult,
 } from "../lib/bridge.ts";
 import {
-	browserChatIdForSession,
-	registerBrowserController,
-	waitForBrowserController,
-} from "../lib/browser-controller-registry.ts";
+	respondToBrowserCommand,
+	useBrowserCommandBridge,
+} from "../lib/browser-command-client-bus.ts";
+import { registerBrowserController } from "../lib/browser-controller-registry.ts";
 import {
 	type BrowserRecordingArtifact,
 	BrowserRecordingController,
 } from "../lib/browser-recording.ts";
+import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { reportPowerBrowserSession } from "../lib/power-runtime-activity.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
-import { useAttachmentsStore } from "../store/attachments.ts";
-import { useChatsStore } from "../store/chats.ts";
 import { useSessionsStore } from "../store/sessions.ts";
-import { useUiStore } from "../store/ui.ts";
+import { rightPaneRefFromKey, useUiStore } from "../store/ui.ts";
 import { AgentCursor, type AgentCursorIntent } from "./agent-cursor.tsx";
 import { BrowserSettingsMenu } from "./browser-settings-menu.tsx";
 import { BrowserShutter } from "./browser-shutter.tsx";
@@ -322,24 +319,6 @@ const compositeBrowserImage = async (
  * Reloading the renderer resets the URL to blank — persistence is out of
  * scope for v1.
  */
-const respondBrowserUnavailable = async (
-	request: BrowserCommandRequest,
-	error: string,
-): Promise<void> => {
-	try {
-		const client = await getRpcClient();
-		await Effect.runPromise(
-			client["browser.respond"]({
-				result: BrowserCommandResult.make({
-					id: request.id,
-					ok: false,
-					error,
-				}),
-			}),
-		);
-	} catch {}
-};
-
 /**
  * Owns the single browser command subscription and the lazily-created
  * browser controller for every chat that has a Browser panel. Hidden
@@ -347,75 +326,41 @@ const respondBrowserUnavailable = async (
  * background agents continue against their owning chat.
  */
 export function BrowserPaneHost({
-	activeChatId,
+	activeChatRef,
 	browserActive,
 }: {
-	readonly activeChatId: ChatId | null;
+	readonly activeChatRef: ChatRef | null;
 	readonly browserActive: boolean;
 }) {
 	const panelsByChat = useUiStore((state) => state.rightPanelsByChat);
-	const chatsByProject = useChatsStore((state) => state.chatsByProject);
+	const { chatsByProject } = useActiveEnvironmentEntities();
 	const selectedSessionId = useSessionsStore(
 		(state) => state.selectedSessionId,
 	);
-	const browserChatIds = Object.entries(panelsByChat)
+	useBrowserCommandBridge();
+	const browserChatRefs = Object.entries(panelsByChat)
 		.filter(([, panels]) => panels.some((panel) => panel.kind === "browser"))
-		.map(([chatId]) => chatId as ChatId);
+		.flatMap(([key]) => {
+			const ref = rightPaneRefFromKey(key);
+			return ref === null ? [] : [ref];
+		});
 
-	useEffect(() => {
-		let fiber: Fiber.Fiber<unknown, unknown> | null = null;
-		let cancelled = false;
-		const subscribe = Effect.suspend(() =>
-			Effect.promise(getRpcClient).pipe(
-				Effect.flatMap((client) =>
-					Stream.runForEach(client["browser.commands"]({}), (request) =>
-						Effect.promise(async () => {
-							const chatId = browserChatIdForSession(
-								useSessionsStore.getState().sessionsByProject,
-								request.sessionId,
-							);
-							if (chatId === null) {
-								await respondBrowserUnavailable(
-									request,
-									"The browser command belongs to a session that is not available in this renderer.",
-								);
-								return;
-							}
-							useUiStore.getState().revealPanelForChat(chatId, "browser");
-							const controller = await waitForBrowserController(chatId);
-							if (controller === null) {
-								await respondBrowserUnavailable(
-									request,
-									"The browser for this chat could not be started.",
-								);
-								return;
-							}
-							await controller(request);
-						}),
-					),
-				),
-			),
-		).pipe(Effect.retry(Schedule.spaced("500 millis")));
-		if (!cancelled) fiber = Effect.runFork(subscribe);
-		return () => {
-			cancelled = true;
-			if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
-		};
-	}, []);
-
-	return browserChatIds.map((chatId) => {
+	return browserChatRefs.map((chatRef) => {
+		const { chatId } = chatRef;
 		const chat =
 			Object.values(chatsByProject)
 				.flat()
 				.find((candidate) => candidate.id === chatId) ?? null;
-		const visible = chatId === activeChatId && browserActive;
-		const sessionId =
-			chatId === activeChatId
-				? selectedSessionId
-				: (chat?.activeSessionId ?? null);
+		const visible =
+			chatId === activeChatRef?.chatId &&
+			chatRef.environmentId === activeChatRef.environmentId &&
+			browserActive;
+		const sessionId = visible
+			? selectedSessionId
+			: (chat?.activeSessionId ?? null);
 		return (
 			<div
-				key={chatId}
+				key={`${chatRef.environmentId}:${chatId}`}
 				aria-hidden={!visible}
 				inert={!visible}
 				className={
@@ -424,21 +369,26 @@ export function BrowserPaneHost({
 						: "pointer-events-none fixed -left-[10000px] top-0 flex h-[900px] w-[1440px] flex-col opacity-0"
 				}
 			>
-				<BrowserPane chatId={chatId} sessionId={sessionId} visible={visible} />
+				<BrowserPane
+					chatRef={chatRef}
+					sessionId={sessionId}
+					visible={visible}
+				/>
 			</div>
 		);
 	});
 }
 
 export function BrowserPane({
-	chatId,
+	chatRef,
 	sessionId: selectedSessionId,
 	visible,
 }: {
-	readonly chatId: ChatId;
+	readonly chatRef: ChatRef;
 	readonly sessionId: SessionId | null;
 	readonly visible: boolean;
 }) {
+	const { chatId } = chatRef;
 	useEffect(() => {
 		reportPowerBrowserSession(chatId, false);
 		return () => reportPowerBrowserSession(chatId, null);
@@ -531,7 +481,6 @@ export function BrowserPane({
 	const cursorIntentRef = useRef<AgentCursorIntent | null>(null);
 	const visibleRef = useRef(visible);
 	const addBrowserAnnotation = useAnnotationsStore((s) => s.addBrowser);
-	const uploadAttachment = useAttachmentsStore((s) => s.uploadOne);
 	const [annotating, setAnnotating] = useState(false);
 	const [annotationTool, setAnnotationTool] =
 		useState<AnnotationTool>("select");
@@ -948,8 +897,7 @@ export function BrowserPane({
 						"Access to this imported authenticated domain was not approved. Open this chat's Browser panel and retry.",
 				});
 				try {
-					const client = await getRpcClient();
-					await Effect.runPromise(client["browser.respond"]({ result }));
+					await respondToBrowserCommand(chatRef.environmentId, result);
 				} catch {}
 				return;
 			}
@@ -1066,15 +1014,14 @@ export function BrowserPane({
 			action.finishedAt = new Date().toISOString();
 			if (!result.ok) action.error = result.error;
 			try {
-				const client = await getRpcClient();
-				await Effect.runPromise(client["browser.respond"]({ result }));
+				await respondToBrowserCommand(chatRef.environmentId, result);
 			} catch {
 				// A failed respond just means this command times out server-side;
 				// the agent gets a clean "browser didn't respond" tool result.
 			}
 		};
 
-		return registerBrowserController(chatId, executeBrowserCommand);
+		return registerBrowserController(chatRef, executeBrowserCommand);
 	}, [chatId]);
 
 	const navigate = (next: string) => {

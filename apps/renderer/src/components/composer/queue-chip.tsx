@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { EnvironmentId, QueuedMessage, SessionId } from "@zuse/contracts";
 import {
 	ArrowTurnDownIcon,
 	Chat01Icon,
@@ -6,15 +7,17 @@ import {
 	DragDropVerticalIcon,
 	MoreHorizontalIcon,
 } from "@zuse/icons/solid-rounded";
-import type { QueuedMessage, SessionId } from "@zuse/contracts";
 import { ChevronDown, ChevronUp, Pencil } from "lucide-react";
 import { useState } from "react";
 
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
+import {
+	dropQueuedMessage,
+	runQueuedMessageNext,
+} from "../../lib/session-actions.ts";
 import { useComposerBridge } from "../../store/composer-bridge.ts";
-import { useMessagesStore } from "../../store/messages.ts";
 import { TrayPill, trayPillActionClass } from "./tray-pill.tsx";
 
 const previewText = (q: QueuedMessage): string => {
@@ -39,6 +42,7 @@ const refSubtitle = (q: QueuedMessage): string | undefined => {
 
 export function QueueChip({
 	sessionId,
+	environmentId,
 	item,
 	index,
 	count,
@@ -50,6 +54,7 @@ export function QueueChip({
 	onDrop,
 }: {
 	sessionId: SessionId;
+	environmentId: EnvironmentId;
 	item: QueuedMessage;
 	index: number;
 	count: number;
@@ -60,8 +65,7 @@ export function QueueChip({
 	onDragOver: () => void;
 	onDrop: () => void;
 }) {
-	const runQueuedMessageNext = useMessagesStore((s) => s.runQueuedMessageNext);
-	const drop = useMessagesStore((s) => s.dropFromQueue);
+	const ref = { environmentId, sessionId };
 	const [runningNow, setRunningNow] = useState(false);
 	const text = previewText(item);
 	const subtitle = item.ready ? refSubtitle(item) : "Preparing attachments…";
@@ -69,7 +73,7 @@ export function QueueChip({
 	const runNext = async () => {
 		if (runningNow || !item.ready) return;
 		setRunningNow(true);
-		await runQueuedMessageNext(sessionId, item.id);
+		await runQueuedMessageNext(ref, item.id);
 		setRunningNow(false);
 	};
 
@@ -165,7 +169,7 @@ export function QueueChip({
 							render={
 								<button
 									type="button"
-									onClick={() => drop(sessionId, item.id)}
+									onClick={() => dropQueuedMessage(ref, item.id)}
 									className={cn(trayPillActionClass, "hover:text-destructive")}
 									aria-label="Remove queued message"
 								>

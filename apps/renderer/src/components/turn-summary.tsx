@@ -1,15 +1,14 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronDown, ChevronRight } from "lucide-react";
-import {
-	BubbleChatIcon,
-	Wrench01Icon,
-} from "@zuse/icons/solid-rounded";
 import type {
+	ChatId,
+	EnvironmentId,
 	FolderId,
 	ForkDestination,
 	Message,
 	SessionId,
 } from "@zuse/contracts";
+import { BubbleChatIcon, Wrench01Icon } from "@zuse/icons/solid-rounded";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { memo, useMemo, useState } from "react";
 import { cn } from "~/lib/utils";
 import { isForkableAssistantMessage } from "../lib/chat-timeline-rows.ts";
@@ -96,12 +95,16 @@ const MAX_FILE_CHIPS = 4;
 function TurnSummaryImpl({
 	body,
 	sessionId,
+	chatId,
+	environmentId,
 	showAssistantCommands = false,
 	forkDestination,
 	sourceProjectId,
 }: {
 	body: ReadonlyArray<Message>;
 	sessionId?: SessionId;
+	chatId?: ChatId;
+	environmentId?: EnvironmentId;
 	showAssistantCommands?: boolean;
 	forkDestination?: ForkDestination;
 	sourceProjectId?: FolderId;
@@ -237,6 +240,8 @@ function TurnSummaryImpl({
 								key={group.message.id}
 								message={group.message}
 								sessionId={sessionId}
+								environmentId={environmentId}
+								readOnly={environmentId === undefined}
 								forkDestination={forkDestination}
 								sourceProjectId={sourceProjectId}
 								showAssistantCommands={
@@ -246,6 +251,14 @@ function TurnSummaryImpl({
 							/>
 						) : (
 							<SubagentRow
+								chatRef={
+									environmentId === undefined || chatId === undefined
+										? null
+										: {
+												environmentId,
+												chatId,
+											}
+								}
 								key={group.parent.id}
 								agentToolUseId={group.parentItemId}
 								agentName={group.agentName}

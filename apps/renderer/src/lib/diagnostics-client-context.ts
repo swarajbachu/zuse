@@ -1,6 +1,8 @@
+import { EnvironmentId } from "@zuse/contracts";
 import { useChatsStore } from "../store/chats.ts";
+import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { useSessionsStore } from "../store/sessions.ts";
-import { type OpenFile, useUiStore } from "../store/ui.ts";
+import { type OpenFile, rightPaneKey, useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import {
 	type DiagnosticLogEntry,
@@ -36,6 +38,9 @@ export async function collectDiagnosticsClientContext(): Promise<DiagnosticsClie
 	const workspace = useWorkspaceStore.getState();
 	const chats = useChatsStore.getState();
 	const sessions = useSessionsStore.getState();
+	const environmentId = EnvironmentId.make(
+		useEnvironmentCatalogStore.getState().activeEnvironmentId,
+	);
 	const mainProcessLogs =
 		(await window.zuse?.app?.getMainDiagnostics?.().catch(() => [])) ?? [];
 
@@ -50,7 +55,9 @@ export async function collectDiagnosticsClientContext(): Promise<DiagnosticsClie
 		rightSidebarOpen:
 			chats.selectedChatId === null
 				? false
-				: ui.rightPaneLayoutByChat[chats.selectedChatId]?.open === true,
+				: ui.rightPaneLayoutByChat[
+						rightPaneKey({ environmentId, chatId: chats.selectedChatId })
+					]?.open === true,
 		leftSidebarOpen: ui.leftSidebarOpen,
 		recentUiActions: getDiagnosticUiActions(),
 		rendererLogs: getRendererDiagnosticLogs(),

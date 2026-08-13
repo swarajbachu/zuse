@@ -1,4 +1,17 @@
-import { MessageEnvelope, SessionTimelineProjection } from "@zuse/contracts";
+import type {
+	ClientCommand,
+	CommandFingerprint,
+	CommandReceipt,
+	OutboxEntry,
+} from "@zuse/client-runtime/client-persistence";
+import { commandFingerprint } from "@zuse/client-runtime/client-persistence";
+import {
+	CommandId,
+	EnvironmentId,
+	MessageEnvelope,
+	SessionStreamCursor,
+	SessionTimelineProjection,
+} from "@zuse/contracts";
 import { Effect, Schema } from "effect";
 import * as FileSystem from "expo-file-system/legacy";
 
@@ -63,6 +76,7 @@ export type SessionsSnapshot = {
 export type MessagesSnapshot = {
 	schemaVersion: 1;
 	appliedVersion: number;
+	cursor?: typeof SessionStreamCursor.Type;
 	projection: SessionTimelineProjection;
 	savedAt: number;
 };
@@ -77,6 +91,11 @@ export type QueuedMessage = {
 
 export type OutboxSnapshot = {
 	items: readonly QueuedMessage[];
+};
+
+export type ClientCommandOutboxSnapshot = {
+	entries: readonly OutboxEntry[];
+	receipts: readonly CommandReceipt[];
 };
 
 const ensureDir = (path: string) =>
@@ -120,6 +139,8 @@ export const messagesPath = (connKey: string, sessionId: string) =>
 export const outboxPath = (connKey: string, sessionId: string) =>
 	`${ROOT}/${slugConnectionKey(connKey)}/outbox/${slugConnectionKey(sessionId)}.json`;
 
+const clientCommandOutboxPath = () => `${ROOT}/client-command-outbox.json`;
+
 export const readSessionsSnapshot = (connKey: string) =>
 	readJson(sessionsPath(connKey), (u) => u as SessionsSnapshot).pipe(
 		Effect.catchTag("CacheCorrupt", (error) =>
@@ -138,6 +159,7 @@ export const writeSessionsSnapshot = (
 const EncodedMessagesSnapshot = Schema.Struct({
 	schemaVersion: Schema.Literal(1),
 	appliedVersion: Schema.Number,
+	cursor: Schema.optional(SessionStreamCursor),
 	projection: SessionTimelineProjection,
 	savedAt: Schema.Number,
 });
@@ -211,6 +233,94 @@ export const writeOutboxSnapshot = (
 	const dir = path.slice(0, path.lastIndexOf("/"));
 	return ensureDir(dir).pipe(Effect.andThen(writeJson(path, snapshot)));
 };
+
+const decodeClientCommand = (value: unknown): ClientCommand | null => {
+	if (typeof value !== "object" || value === null) return null;
+	const commandId = Reflect.get(value, "commandId");
+	const environmentId = Reflect.get(value, "environmentId");
+	const kind = Reflect.get(value, "kind");
+	const retry = Reflect.get(value, "retry");
+	const createdAt = Reflect.get(value, "createdAt");
+	if (
+		typeof commandId !== "string" ||
+		typeof environmentId !== "string" ||
+		typeof kind !== "string" ||
+		(retry !== "safe" && retry !== "never") ||
+		typeof createdAt !== "number"
+	)
+		return null;
+	return {
+		kind,
+		commandId: CommandId.make(commandId),
+		environmentId: EnvironmentId.make(environmentId),
+		resource: (Reflect.get(value, "resource") ??
+			null) as ClientCommand["resource"],
+		payload: Reflect.get(value, "payload"),
+		retry,
+		createdAt,
+	};
+};
+
+export const readClientCommandOutbox = () =>
+	readJson(clientCommandOutboxPath(), (value): ClientCommandOutboxSnapshot => {
+		if (typeof value !== "object" || value === null) {
+			return { entries: [], receipts: [] };
+		}
+		const entries = Reflect.get(value, "entries");
+		const receipts = Reflect.get(value, "receipts");
+		return {
+			entries: Array.isArray(entries)
+				? entries.flatMap((entry) => {
+						if (typeof entry !== "object" || entry === null) return [];
+						const command = decodeClientCommand(Reflect.get(entry, "command"));
+						const attempts = Reflect.get(entry, "attempts");
+						const lastAttemptAt = Reflect.get(entry, "lastAttemptAt");
+						const fingerprint = Reflect.get(entry, "fingerprint");
+						return command !== null && typeof attempts === "number"
+							? [
+									{
+										command,
+										fingerprint:
+											typeof fingerprint === "string"
+												? (fingerprint as CommandFingerprint)
+												: commandFingerprint(command),
+										attempts,
+										lastAttemptAt:
+											typeof lastAttemptAt === "number" ? lastAttemptAt : null,
+									},
+								]
+							: [];
+					})
+				: [],
+			receipts: Array.isArray(receipts)
+				? receipts.flatMap((receipt) => {
+						if (typeof receipt !== "object" || receipt === null) return [];
+						const commandId = Reflect.get(receipt, "commandId");
+						const fingerprint = Reflect.get(receipt, "fingerprint");
+						const receivedAt = Reflect.get(receipt, "receivedAt");
+						return typeof commandId === "string" &&
+							typeof fingerprint === "string" &&
+							typeof receivedAt === "number"
+							? [
+									{
+										commandId: CommandId.make(commandId),
+										fingerprint: fingerprint as CommandFingerprint,
+										receivedAt,
+										result: Reflect.get(receipt, "result"),
+									},
+								]
+							: [];
+					})
+				: [],
+		};
+	}).pipe(Effect.catchTag("CacheCorrupt", () => Effect.succeed(null)));
+
+export const writeClientCommandOutbox = (
+	snapshot: ClientCommandOutboxSnapshot,
+) =>
+	ensureDir(ROOT).pipe(
+		Effect.andThen(writeJson(clientCommandOutboxPath(), snapshot)),
+	);
 
 export const decodeEnvelopeFixture = (value: unknown): MessageEnvelope =>
 	Schema.decodeUnknownSync(MessageEnvelope)(value);

@@ -1,18 +1,19 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-	GitCompareIcon,
-	PencilEdit01Icon,
-	SquareLock01Icon,
-	TaskDone01Icon,
-} from "@zuse/icons/solid-rounded";
-import {
 	defaultModelFor,
+	type EnvironmentId,
 	type FolderId,
 	MODELS_BY_PROVIDER,
 	type ProviderId,
 	type Session,
 	type SessionId,
 } from "@zuse/contracts";
+import {
+	GitCompareIcon,
+	PencilEdit01Icon,
+	SquareLock01Icon,
+	TaskDone01Icon,
+} from "@zuse/icons/solid-rounded";
 import { Plus, X } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import {
@@ -21,18 +22,20 @@ import {
 } from "../lib/agent-activity-state.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import { closeChatTab } from "../lib/close-chat-tab.ts";
-import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
+import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
+import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
+import {
+	type RendererSessionTimeline,
+	useRendererSessionTimelines,
+} from "../lib/session-timeline-hooks.ts";
+import { useSettingsStore } from "../lib/settings-client-bus.ts";
 import {
 	activeChatId as deriveActiveChatId,
 	orderedChatTabs,
 } from "../lib/tab-order.ts";
 import { useChatsStore } from "../store/chats.ts";
-import { useMessagesStore } from "../store/messages.ts";
-import { usePermissionsStore } from "../store/permissions.ts";
 import { useProvidersStore } from "../store/providers.ts";
-import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { useSessionsStore } from "../store/sessions.ts";
-import { useSettingsStore } from "../store/settings.ts";
 import { useUiStore } from "../store/ui.ts";
 import { FileIcon } from "./file-icon.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
@@ -43,6 +46,7 @@ import { Spinner } from "./ui/spinner";
 
 type Props = {
 	readonly projectId: FolderId | null;
+	readonly environmentId: EnvironmentId;
 	/** Fallback label when no chat is selected yet. */
 	readonly emptyLabel: string;
 };
@@ -79,7 +83,7 @@ const EMPTY_SESSIONS: ReadonlyArray<Session> = [];
  * "+" creates a new session in the active chat. The server enforces that
  * the new session inherits the chat's worktree.
  */
-export function MainTabs({ projectId, emptyLabel }: Props) {
+export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 	const activeMainTab = useUiStore((s) => s.activeMainTab);
 	const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
 	const openFile = useUiStore((s) => s.openFile);
@@ -89,23 +93,21 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 	const closeChangesTab = useUiStore((s) => s.closeChangesTab);
 
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
-	const projectSessions = useSessionsStore((s) =>
+	const { sessionsByProject } = useActiveEnvironmentEntities();
+	const projectSessions =
 		projectId !== null
-			? (s.sessionsByProject[projectId] ?? EMPTY_SESSIONS)
-			: EMPTY_SESSIONS,
-	);
+			? (sessionsByProject[projectId] ?? EMPTY_SESSIONS)
+			: EMPTY_SESSIONS;
 	const selectSession = useSessionsStore((s) => s.select);
 	const renameSession = useSessionsStore((s) => s.rename);
 	const [renamingSession, setRenamingSession] = useState<Session | null>(null);
-	const runtimeBySession = useSessionRuntimeStore((s) => s.bySession);
 	// Creation progress is chat-owned and can predate a durable session status.
 	// Keep it separate from provider `starting` so an empty chat stays dormant.
 	const pendingCreationByChat = useChatsStore((s) => s.pendingCreationByChat);
-	const sidebarMessagesBySession = useMessagesStore((s) => s.messagesBySession);
 	// Sessions with a pending permission prompt. Surfaced on the tab as a lock
 	// so a supervised-mode request is visible without opening the session.
 	// ExitPlanMode is excluded — plan mode owns its own inline approval card.
-	const requestsById = usePermissionsStore((s) => s.requestsById);
+	const requestsById = useEnvironmentPermissions().data?.requestsById ?? {};
 	const awaitingPermission = useMemo(() => {
 		const ids = new Set<SessionId>();
 		for (const req of Object.values(requestsById)) {
@@ -142,6 +144,18 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 	const tabs = useMemo(
 		() => orderedChatTabs(projectSessions, activeChatId),
 		[projectSessions, activeChatId],
+	);
+	const timelineRefs = useMemo(
+		() => tabs.map((session) => ({ environmentId, sessionId: session.id })),
+		[environmentId, tabs],
+	);
+	const timelines = useRendererSessionTimelines(timelineRefs, "cache-only");
+	const timelineBySession = useMemo(
+		() =>
+			new Map<SessionId, RendererSessionTimeline>(
+				timelines.map((timeline) => [timeline.ref.sessionId, timeline]),
+			),
+		[timelines],
 	);
 
 	return (
@@ -196,9 +210,9 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 						/>
 					)}
 					{tabs.map((session) => {
-						const runtimeState = effectiveSessionRuntimeState(
-							runtimeBySession[session.id],
-						);
+						const timeline = timelineBySession.get(session.id);
+						const runtimeState = timeline?.runtime ?? "idle";
+						const messages = timeline?.messages ?? [];
 						const creationPending =
 							pendingCreationByChat[session.chatId] !== undefined;
 						const isActive =
@@ -221,16 +235,11 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 								running={
 									runtimeState === "running" || runtimeState === "stopping"
 								}
-								activityState={deriveAgentActivityState(
-									sidebarMessagesBySession[session.id] ?? [],
-								)}
+								activityState={deriveAgentActivityState(messages)}
 								awaitingPermission={awaitingPermission.has(session.id)}
 								awaitingPlanApproval={
 									awaitingPlanApproval.has(session.id) ||
-									deriveChatAttentionState(
-										sidebarMessagesBySession[session.id] ?? [],
-										false,
-									) === "planReady"
+									deriveChatAttentionState(messages, false) === "planReady"
 								}
 								onClick={() => {
 									if (selectedSessionId !== session.id) {

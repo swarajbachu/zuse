@@ -1,8 +1,13 @@
-import type { FolderId, ProviderId, UsageSessionsPage } from "@zuse/contracts";
-import { Effect } from "effect";
+import type {
+	EnvironmentId,
+	FolderId,
+	ProviderId,
+	UsageSessionsPage,
+} from "@zuse/contracts";
+import { CommandId } from "@zuse/contracts";
 import { useEffect, useState } from "react";
 
-import { getRpcClient } from "~/lib/rpc-client";
+import { dispatchEnvironmentShellCommand } from "~/lib/environment-shell-client-bus";
 import { sinceForUsagePeriod } from "~/lib/usage-period";
 import type { UsagePeriod } from "~/store/usage";
 
@@ -10,6 +15,7 @@ export type UsageSessionSort = "tokens" | "cost" | "last-active";
 
 export function useUsageSessions(options: {
 	readonly enabled: boolean;
+	readonly environmentId: EnvironmentId;
 	readonly projectId: FolderId | null;
 	readonly period: UsagePeriod;
 	readonly since?: Date;
@@ -30,23 +36,36 @@ export function useUsageSessions(options: {
 		const timeout = window.setTimeout(() => {
 			setLoading(true);
 			setError(null);
-			void getRpcClient()
-				.then((client) =>
-					Effect.runPromise(
-						client["usage.sessions"]({
-							since: options.since ?? sinceForUsagePeriod(options.period),
-							until: options.until,
-							projectId: options.projectId ?? undefined,
-							query: options.query.trim() || undefined,
-							providerId: options.providerId ?? undefined,
-							sort: options.sort,
-							offset: options.offset,
-							limit: options.limit,
-						}),
-					),
-				)
-				.then((value) => {
-					if (active) setPage(value);
+			void dispatchEnvironmentShellCommand<
+				{
+					readonly since: Date;
+					readonly until: Date | undefined;
+					readonly projectId: FolderId | undefined;
+					readonly query: string | undefined;
+					readonly providerId: ProviderId | undefined;
+					readonly sort: UsageSessionSort;
+					readonly offset: number;
+					readonly limit: number;
+				},
+				UsageSessionsPage
+			>({
+				environmentId: options.environmentId,
+				kind: "usage.sessions",
+				commandId: CommandId.make(`usage-sessions:${crypto.randomUUID()}`),
+				payload: {
+					since: options.since ?? sinceForUsagePeriod(options.period),
+					until: options.until,
+					projectId: options.projectId ?? undefined,
+					query: options.query.trim() || undefined,
+					providerId: options.providerId ?? undefined,
+					sort: options.sort,
+					offset: options.offset,
+					limit: options.limit,
+				},
+				retry: "never",
+			})
+				.then((receipt) => {
+					if (active) setPage(receipt.result);
 				})
 				.catch((cause: unknown) => {
 					if (active)
@@ -63,6 +82,7 @@ export function useUsageSessions(options: {
 		};
 	}, [
 		options.enabled,
+		options.environmentId,
 		options.limit,
 		options.offset,
 		options.period,

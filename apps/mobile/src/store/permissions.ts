@@ -1,164 +1,37 @@
-import type {
-	PermissionDecision,
-	PermissionRequest,
-	SessionId,
+import {
+	CommandId,
+	type PermissionDecision,
+	type PermissionRequest,
+	type SessionId,
 } from "@zuse/contracts";
-import { Effect, Fiber, Stream } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 
 import { connectionSessionKey } from "~/lib/session-key";
-import { decidePermission as decidePermissionRpc } from "~/rpc/actions";
-import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
+import {
+	dispatchMobileSessionCommand,
+	mobileClientBus,
+	mobilePermissionsKey,
+	registerMobileEnvironment,
+} from "./mobile-client-bus";
 import { appAtomRegistry } from "./registry";
 
-/**
- * Pending tool-permission prompts, surfaced as inline approval cards. These
- * arrive on the global `permission.requests` stream (not the message log), so
- * this module cold-loads via `permission.listPending` and shares one live
- * stream across every thread on a connection. Transcript streams remain
- * session-local; permission observation is intentionally connection-scoped.
- */
+/** Canonical permission projection exposed to the existing mobile atom UI. */
 export const pendingBySessionAtom = Atom.make<
 	Record<string, readonly PermissionRequest[]>
 >({}).pipe(Atom.keepAlive);
 
 const EMPTY_PENDING: readonly PermissionRequest[] = [];
 
-/** Per-session pending prompts; notifies only when this session's change. */
 export const pendingPermissionsAtom = Atom.family((key: string) =>
 	Atom.make((get) => get(pendingBySessionAtom)[key] ?? EMPTY_PENDING),
 );
 
-const liveFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
-const startingConnections = new Set<string>();
-
-const stop = async (connKey: string) => {
-	const fiber = liveFibers.get(connKey);
-	if (fiber !== undefined) {
-		liveFibers.delete(connKey);
-		await Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {});
-	}
-};
-
-export const resetPermissionsRuntime = async (): Promise<void> => {
-	startingConnections.clear();
-	await Promise.all(Array.from(liveFibers.keys(), stop));
-	appAtomRegistry.set(pendingBySessionAtom, {});
-};
-
-export const hydratePermissionConnection = async (
-	connKey: string,
-	options: WsProtocolOptions,
-	sessionIds: readonly SessionId[],
-): Promise<void> => {
-	const shouldStartStream =
-		!liveFibers.has(connKey) && !startingConnections.has(connKey);
-	if (shouldStartStream) startingConnections.add(connKey);
-	try {
-		const client = await Effect.runPromise(getConnectionClient(options));
-		const snapshots = await Promise.all(
-			sessionIds.map(async (sessionId) => ({
-				sessionId,
-				requests: await Effect.runPromise(
-					client["permission.listPending"]({ sessionId }),
-				),
-			})),
-		);
-		appAtomRegistry.update(pendingBySessionAtom, (state) => {
-			const next = { ...state };
-			for (const snapshot of snapshots) {
-				next[connectionSessionKey(connKey, snapshot.sessionId)] =
-					normalizeRequests(snapshot.requests);
-			}
-			return next;
-		});
-
-		if (shouldStartStream && !liveFibers.has(connKey)) {
-			let fiber: Fiber.Fiber<unknown, unknown>;
-			const program = Stream.runForEach(
-				client["permission.requests"]({}),
-				(request) =>
-					Effect.sync(() => {
-						const key = connectionSessionKey(connKey, request.sessionId);
-						appAtomRegistry.update(pendingBySessionAtom, (state) => {
-							const current = state[key] ?? [];
-							if (current.some((entry) => entry.id === request.id))
-								return state;
-							return {
-								...state,
-								[key]: normalizeRequests([...current, request]),
-							};
-						});
-					}),
-			).pipe(
-				Effect.catch(() => Effect.void),
-				Effect.ensuring(
-					Effect.sync(() => {
-						if (liveFibers.get(connKey) === fiber) liveFibers.delete(connKey);
-					}),
-				),
-			);
-			fiber = Effect.runFork(program);
-			liveFibers.set(connKey, fiber);
-		}
-	} catch (cause) {
-		reportConnectionFailure(options, cause);
-	} finally {
-		if (shouldStartStream) startingConnections.delete(connKey);
-	}
-};
-
-export const hydratePermissions = async (
-	connKey: string,
-	options: WsProtocolOptions,
-	sessionId: SessionId,
-): Promise<void> => {
-	await hydratePermissionConnection(connKey, options, [sessionId]);
-};
-
-export const reconcilePermissions = async (
-	connKey: string,
-	options: WsProtocolOptions,
-	sessionId: SessionId,
-): Promise<void> => {
-	const key = connectionSessionKey(connKey, sessionId);
-	try {
-		const client = await Effect.runPromise(getConnectionClient(options));
-		const listed = await Effect.runPromise(
-			client["permission.listPending"]({ sessionId }),
-		);
-		appAtomRegistry.update(pendingBySessionAtom, (state) => ({
-			...state,
-			[key]: normalizeRequests(listed),
-		}));
-	} catch (cause) {
-		reportConnectionFailure(options, cause);
-	}
-};
-
-export const decidePermission = async (
-	connKey: string,
-	options: WsProtocolOptions,
-	sessionId: SessionId,
-	requestId: string,
-	decision: PermissionDecision,
-): Promise<void> => {
-	const key = connectionSessionKey(connKey, sessionId);
-	try {
-		await Effect.runPromise(
-			decidePermissionRpc({ connection: options, requestId, decision }),
-		);
-		appAtomRegistry.update(pendingBySessionAtom, (state) => ({
-			...state,
-			[key]: (state[key] ?? []).filter((entry) => entry.id !== requestId),
-		}));
-	} catch (cause) {
-		reportConnectionFailure(options, cause);
-		throw cause;
-	}
-};
+const connections = new Map<
+	string,
+	Readonly<{ release: () => void; unsubscribe: () => void }>
+>();
 
 const normalizeRequests = (
 	requests: readonly PermissionRequest[],
@@ -166,3 +39,88 @@ const normalizeRequests = (
 	Array.from(
 		new Map(requests.map((request) => [request.id, request])).values(),
 	).sort((a, b) => a.requestedAt.getTime() - b.requestedAt.getTime());
+
+const project = (
+	connKey: string,
+	requests: readonly PermissionRequest[],
+): void => {
+	appAtomRegistry.update(pendingBySessionAtom, (state) => {
+		const next = Object.fromEntries(
+			Object.entries(state).filter(([key]) => !key.startsWith(`${connKey}:`)),
+		);
+		const grouped = new Map<string, PermissionRequest[]>();
+		for (const request of requests) {
+			const key = connectionSessionKey(connKey, request.sessionId);
+			const entries = grouped.get(key) ?? [];
+			entries.push(request);
+			grouped.set(key, entries);
+		}
+		for (const [key, entries] of grouped)
+			next[key] = normalizeRequests(entries);
+		return next;
+	});
+};
+
+/**
+ * Retain the one environment-scoped ClientBus stream. Multiple session screens
+ * on the same connection share this subscription and connection generation.
+ */
+export const retainPermissionConnection = (
+	connKey: string,
+	options: WsProtocolOptions,
+): (() => void) => {
+	const existing = connections.get(connKey);
+	if (existing !== undefined) return () => undefined;
+	const environmentId = registerMobileEnvironment(connKey, options);
+	const key = mobilePermissionsKey(environmentId);
+	const bus = mobileClientBus();
+	const lease = bus.retain(key, { activation: "connect" });
+	const publish = () => {
+		const requests = Object.values(bus.snapshot(key)?.data?.requestsById ?? {});
+		project(connKey, requests);
+	};
+	const unsubscribe = bus.subscribe(key, publish);
+	connections.set(connKey, { release: lease.release, unsubscribe });
+	publish();
+	return () => {
+		// Connection resources intentionally remain warm while the account is
+		// active; resetPermissionsRuntime owns their deterministic teardown.
+	};
+};
+
+export const resetPermissionsRuntime = async (): Promise<void> => {
+	for (const connection of connections.values()) {
+		connection.unsubscribe();
+		connection.release();
+	}
+	connections.clear();
+	appAtomRegistry.set(pendingBySessionAtom, {});
+};
+
+export const decidePermission = async (
+	connKey: string,
+	options: WsProtocolOptions,
+	_sessionId: SessionId,
+	requestId: string,
+	decision: PermissionDecision,
+): Promise<void> => {
+	const environmentId = registerMobileEnvironment(connKey, options);
+	const key = mobilePermissionsKey(environmentId);
+	const bus = mobileClientBus();
+	await dispatchMobileSessionCommand({
+		kind: "permission.decide",
+		commandId: CommandId.make(`permission-decide:${requestId}`),
+		environmentId,
+		resource: key,
+		payload: { requestId, decision },
+		retry: "never",
+		createdAt: Date.now(),
+	});
+	bus.overlay(key, {
+		update: (data) => {
+			const requestsById = { ...data.requestsById };
+			delete requestsById[requestId];
+			return { requestsById };
+		},
+	});
+};

@@ -34,6 +34,7 @@ import {
 } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
 import { normalizeNativeToolName } from "../kernel/native-tool-name.ts";
+import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { appendStreamText } from "../kernel/stream-text.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
 import type { ResolvedMcpServer } from "../user-mcp/types.ts";
@@ -57,11 +58,13 @@ export interface CursorSdkTranslationState {
 		readonly itemId: AgentItemId;
 		text: string;
 		emittedText: string;
+		revision: number;
 	} | null;
 	thinkingBuffer: {
 		readonly itemId: AgentItemId;
 		text: string;
 		emittedText: string;
+		revision: number;
 	} | null;
 	model: string;
 }
@@ -160,13 +163,15 @@ const emitAssistant = (
 	const pending = state.assistantBuffer;
 	if (pending === null) return [];
 	if (clear) state.assistantBuffer = null;
-	if (pending.text === pending.emittedText) return [];
+	if (!clear && pending.text === pending.emittedText) return [];
 	pending.emittedText = pending.text;
+	pending.revision += 1;
 	return [
 		{
 			_tag: "AssistantMessage",
 			itemId: pending.itemId,
 			text: pending.text,
+			checkpoint: { revision: pending.revision, final: clear },
 		},
 	];
 };
@@ -178,14 +183,16 @@ const emitThinking = (
 	const pending = state.thinkingBuffer;
 	if (pending === null) return [];
 	if (clear) state.thinkingBuffer = null;
-	if (pending.text === pending.emittedText) return [];
+	if (!clear && pending.text === pending.emittedText) return [];
 	pending.emittedText = pending.text;
+	pending.revision += 1;
 	return [
 		{
 			_tag: "Thinking",
 			itemId: pending.itemId,
 			text: pending.text,
 			redacted: false,
+			checkpoint: { revision: pending.revision, final: clear },
 		},
 	];
 };
@@ -226,6 +233,7 @@ export const translateCursorSdkMessage = (
 						),
 						text: "",
 						emittedText: "",
+						revision: 0,
 					};
 					state.assistantBuffer.text = appendStreamText(
 						state.assistantBuffer.text,
@@ -282,6 +290,7 @@ export const translateCursorSdkMessage = (
 				),
 				text: "",
 				emittedText: "",
+				revision: 0,
 			};
 			state.thinkingBuffer.text = appendStreamText(
 				state.thinkingBuffer.text,
@@ -544,6 +553,12 @@ export const startCursorSession = (
 		let workspaceInstructions = input.workspaceInstructions;
 		let mcpServers = normalizeCursorMcpServers(initialMcpServers);
 		let inflight = Promise.resolve();
+		const emit = (event: AgentEvent): void => {
+			if (!closed) Queue.offerUnsafe(events, event);
+		};
+		const checkpointBatcher = new ProviderCheckpointBatcher({ emit });
+		const emitProviderEvent = (event: AgentEvent): void =>
+			checkpointBatcher.offer(event);
 		const translationState: CursorSdkTranslationState = {
 			seenToolCalls: new Set(),
 			messageSequence: 0,
@@ -611,11 +626,11 @@ export const startCursorSession = (
 							message,
 							translationState,
 						)) {
-							Queue.offerUnsafe(events, event);
+							emitProviderEvent(event);
 						}
 					}
 					for (const event of flushCursorSdkMessages(translationState)) {
-						Queue.offerUnsafe(events, event);
+						emitProviderEvent(event);
 					}
 					const result = await run.wait();
 					activeRun = null;
@@ -643,7 +658,7 @@ export const startCursorSession = (
 					activeRun = null;
 					if (closed) return;
 					for (const event of flushCursorSdkMessages(translationState)) {
-						Queue.offerUnsafe(events, event);
+						emitProviderEvent(event);
 					}
 					if (interrupted) {
 						Queue.offerUnsafe(events, { _tag: "Interrupted" });
@@ -688,6 +703,9 @@ export const startCursorSession = (
 			close: () =>
 				Effect.promise(async () => {
 					if (closed) return;
+					for (const event of flushCursorSdkMessages(translationState)) {
+						emitProviderEvent(event);
+					}
 					closed = true;
 					cancellationGeneration += 1;
 					await activeRun?.cancel().catch(() => undefined);

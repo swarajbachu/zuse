@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { FolderId, PermissionKind, SavedDecision } from "@zuse/contracts";
 import {
 	Delete02Icon,
 	GlobeIcon,
@@ -7,7 +8,6 @@ import {
 	TerminalIcon,
 	Wrench01Icon,
 } from "@zuse/icons/solid-rounded";
-import type { FolderId, PermissionKind, SavedDecision } from "@zuse/contracts";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -18,7 +18,11 @@ import {
 	DialogTitle,
 } from "~/components/ui/dialog";
 import { ShimmerText } from "~/components/ui/shimmer-text";
-import { usePermissionsStore } from "../store/permissions.ts";
+import {
+	loadEnvironmentPermissionDecisions,
+	revokeEnvironmentPermissionDecision,
+	useEnvironmentPermissions,
+} from "../lib/environment-permissions-client-bus.ts";
 
 const kindIcon = (kind: PermissionKind) => {
 	switch (kind._tag) {
@@ -101,12 +105,9 @@ export function PermissionsInspector({
 	projectId,
 	projectName,
 }: PermissionsInspectorProps) {
-	const decisionsByProject = usePermissionsStore((s) => s.decisionsByProject);
-	const loadingByProject = usePermissionsStore(
-		(s) => s.loadingDecisionsByProject,
-	);
-	const loadDecisions = usePermissionsStore((s) => s.loadDecisions);
-	const revoke = usePermissionsStore((s) => s.revoke);
+	const permissions = useEnvironmentPermissions();
+	const decisionsByProject = permissions.data?.decisionsByProject ?? {};
+	const loadingByProject = permissions.data?.loadingDecisionsByProject ?? {};
 
 	const decisions = decisionsByProject[projectId] ?? [];
 	const loading = loadingByProject[projectId] === true;
@@ -114,8 +115,8 @@ export function PermissionsInspector({
 	// Reload every time the modal opens — the user may have hit a prompt
 	// outside this surface and we want fresh state.
 	useEffect(() => {
-		if (open) void loadDecisions(projectId);
-	}, [open, projectId, loadDecisions]);
+		if (open) void loadEnvironmentPermissionDecisions(projectId);
+	}, [open, projectId]);
 
 	const grouped = useMemo(() => {
 		const folder: SavedDecision[] = [];
@@ -163,7 +164,9 @@ export function PermissionsInspector({
 							<Section
 								title="Always allowed in this project"
 								decisions={grouped.folder}
-								onRevoke={(id) => void revoke(projectId, id)}
+								onRevoke={(id) =>
+									void revokeEnvironmentPermissionDecision(projectId, id)
+								}
 								emptyHint="No project-wide allowances yet."
 							/>
 							<button
@@ -178,7 +181,9 @@ export function PermissionsInspector({
 								<Section
 									title=""
 									decisions={grouped.session}
-									onRevoke={(id) => void revoke(projectId, id)}
+									onRevoke={(id) =>
+										void revokeEnvironmentPermissionDecision(projectId, id)
+									}
 									emptyHint="No session-scoped allowances."
 								/>
 							)}
@@ -194,7 +199,9 @@ export function PermissionsInspector({
 								<Section
 									title=""
 									decisions={grouped.recent}
-									onRevoke={(id) => void revoke(projectId, id)}
+									onRevoke={(id) =>
+										void revokeEnvironmentPermissionDecision(projectId, id)
+									}
 									emptyHint="No recent prompts."
 								/>
 							)}

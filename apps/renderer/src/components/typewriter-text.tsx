@@ -9,42 +9,42 @@ const CHAR_MS = 28;
  * first mount and when the user prefers reduced motion.
  */
 export function TypewriterText({
-  text,
-  className,
+	text,
+	className,
 }: {
-  text: string;
-  className?: string;
+	text: string;
+	className?: string;
 }) {
-  const mountedRef = useRef(false);
-  const prevTextRef = useRef(text);
-  const [displayed, setDisplayed] = useState(text);
+	const mountedRef = useRef(false);
+	const prevTextRef = useRef(text);
+	const [displayed, setDisplayed] = useState(text);
 
-  useEffect(() => {
-    if (!mountedRef.current) {
-      mountedRef.current = true;
-      prevTextRef.current = text;
-      setDisplayed(text);
-      return;
-    }
-    if (text === prevTextRef.current) return;
-    prevTextRef.current = text;
+	useEffect(() => {
+		if (!mountedRef.current) {
+			mountedRef.current = true;
+			prevTextRef.current = text;
+			setDisplayed(text);
+			return;
+		}
+		if (text === prevTextRef.current) return;
+		prevTextRef.current = text;
 
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setDisplayed(text);
-      return;
-    }
+		if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+			setDisplayed(text);
+			return;
+		}
 
-    let index = 0;
-    setDisplayed("");
-    const timer = window.setInterval(() => {
-      index += 1;
-      setDisplayed(text.slice(0, index));
-      if (index >= text.length) {
-        window.clearInterval(timer);
-      }
-    }, CHAR_MS);
-    return () => window.clearInterval(timer);
-  }, [text]);
+		let index = 0;
+		setDisplayed("");
+		const timer = window.setInterval(() => {
+			index += 1;
+			setDisplayed(text.slice(0, index));
+			if (index >= text.length) {
+				window.clearInterval(timer);
+			}
+		}, CHAR_MS);
+		return () => window.clearInterval(timer);
+	}, [text]);
 
-  return <span className={cn(className)}>{displayed}</span>;
+	return <span className={cn(className)}>{displayed}</span>;
 }

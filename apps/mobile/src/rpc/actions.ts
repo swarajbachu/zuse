@@ -2,6 +2,7 @@ import {
 	type AgentAvailability,
 	type AttachmentRef,
 	type Chat,
+	CommandId,
 	ComposerInput,
 	type ComposerInput as ComposerInputType,
 	type Folder,
@@ -18,6 +19,7 @@ import {
 	type PlanApprovalOutcome,
 	type ProviderId,
 	type RuntimeMode,
+	type Session,
 	type SessionId,
 	type Worktree,
 	type WorktreeCreateSource,
@@ -27,11 +29,48 @@ import { Effect, Stream } from "effect";
 
 import { reviewScopeRequestValue } from "~/lib/review-scope";
 import {
-	dispatchRetryableConnectionCommand,
-	getConnectionClient,
-	reportConnectionFailure,
-} from "./connection";
+	dispatchMobileSessionCommand,
+	sessionCommandContext,
+} from "~/store/mobile-client-bus";
+import { getConnectionClient, reportConnectionFailure } from "./connection";
 import type { WsProtocolOptions } from "./ws-protocol";
+
+let commandCounter = 0;
+const nextCommandId = (kind: string): CommandId =>
+	CommandId.make(
+		`${kind}:${Date.now().toString(36)}:${(commandCounter++).toString(36)}`,
+	);
+
+const dispatchSessionCommand = <Result>(
+	options: { connection: WsProtocolOptions; sessionId: SessionId },
+	kind: string,
+	payload: unknown,
+	commandId: CommandId,
+) => {
+	const connKey =
+		options.connection.key ??
+		options.connection.environmentId ??
+		options.connection.wsBaseUrl ??
+		`${options.connection.host}:${options.connection.port}`;
+	const { environmentId, resource } = sessionCommandContext(
+		connKey,
+		options.connection,
+		options.sessionId,
+	);
+	return Effect.tryPromise({
+		try: () =>
+			dispatchMobileSessionCommand<Result>({
+				kind,
+				commandId,
+				environmentId,
+				resource,
+				payload,
+				retry: "safe",
+				createdAt: Date.now(),
+			}).then((receipt) => receipt.result),
+		catch: (cause) => cause,
+	});
+};
 
 export const makeTextInput = (
 	text: string,
@@ -81,35 +120,27 @@ export const sendMessage = (options: {
 	clientMessageId?: MessageId;
 }) => {
 	if (options.clientMessageId !== undefined) {
+		const commandId = CommandId.make(options.clientMessageId);
 		const payload = {
 			sessionId: options.sessionId,
+			commandId,
 			input: options.input,
 			...(options.asGoal === undefined ? {} : { asGoal: options.asGoal }),
 			clientMessageId: options.clientMessageId,
 		};
-		return dispatchRetryableConnectionCommand(
-			options.connection,
-			options.clientMessageId,
-			(client) => client["messages.send"](payload),
-		);
+		return dispatchSessionCommand(options, "messages.send", payload, commandId);
 	}
-	const program = Effect.gen(function* () {
-		const client = yield* getConnectionClient(options.connection);
-		const payload = {
-			sessionId: options.sessionId,
-			input: options.input,
-			...(options.asGoal === undefined ? {} : { asGoal: options.asGoal }),
-			...(options.clientMessageId === undefined
-				? {}
-				: { clientMessageId: options.clientMessageId }),
-		};
-		yield* client["messages.send"](payload);
-	});
-	return program.pipe(
-		Effect.tapError((cause) =>
-			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
-		),
-	);
+	const commandId = nextCommandId("message-send");
+	const payload = {
+		sessionId: options.sessionId,
+		commandId,
+		input: options.input,
+		...(options.asGoal === undefined ? {} : { asGoal: options.asGoal }),
+		...(options.clientMessageId === undefined
+			? {}
+			: { clientMessageId: options.clientMessageId }),
+	};
+	return dispatchSessionCommand(options, "messages.send", payload, commandId);
 };
 
 export const queueMessage = (options: {
@@ -118,18 +149,19 @@ export const queueMessage = (options: {
 	input: ComposerInputType;
 	queueId?: string;
 }) => {
-	const program = Effect.gen(function* () {
-		const client = yield* getConnectionClient(options.connection);
-		yield* client["messages.queue.add"]({
+	const commandId = CommandId.make(
+		options.queueId ?? nextCommandId("queue-add"),
+	);
+	return dispatchSessionCommand(
+		options,
+		"messages.queue.add",
+		{
 			sessionId: options.sessionId,
+			commandId,
 			input: options.input,
 			queueId: options.queueId,
-		});
-	});
-	return program.pipe(
-		Effect.tapError((cause) =>
-			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
-		),
+		},
+		commandId,
 	);
 };
 
@@ -137,14 +169,15 @@ export const flushServerQueue = (options: {
 	connection: WsProtocolOptions;
 	sessionId: SessionId;
 }) => {
-	const program = Effect.gen(function* () {
-		const client = yield* getConnectionClient(options.connection);
-		yield* client["messages.queue.flush"]({ sessionId: options.sessionId });
-	});
-	return program.pipe(
-		Effect.tapError((cause) =>
-			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
-		),
+	const commandId = nextCommandId("queue-flush");
+	return dispatchSessionCommand(
+		options,
+		"messages.queue.flush",
+		{
+			sessionId: options.sessionId,
+			commandId,
+		},
+		commandId,
 	);
 };
 
@@ -152,16 +185,33 @@ export const interruptSession = (options: {
 	connection: WsProtocolOptions;
 	sessionId: SessionId;
 }) => {
-	const program = Effect.gen(function* () {
-		const client = yield* getConnectionClient(options.connection);
-		yield* client["messages.interrupt"]({
+	const commandId = nextCommandId("message-interrupt");
+	return dispatchSessionCommand(
+		options,
+		"messages.interrupt",
+		{
 			sessionId: options.sessionId,
-		});
-	});
-	return program.pipe(
-		Effect.tapError((cause) =>
-			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
-		),
+			commandId,
+		},
+		commandId,
+	);
+};
+
+export const renameSession = (options: {
+	connection: WsProtocolOptions;
+	sessionId: SessionId;
+	title: string;
+}): Effect.Effect<Session, unknown> => {
+	const commandId = nextCommandId("session-rename");
+	return dispatchSessionCommand<Session>(
+		options,
+		"session.rename",
+		{
+			commandId,
+			sessionId: options.sessionId,
+			title: options.title,
+		},
+		commandId,
 	);
 };
 
@@ -333,13 +383,17 @@ export const setSessionRuntimeMode = (options: {
 	sessionId: SessionId;
 	runtimeMode: RuntimeMode;
 }) => {
-	const program = Effect.gen(function* () {
-		const client = yield* getConnectionClient(options.connection);
-		yield* client["session.setRuntimeMode"]({
+	const commandId = nextCommandId("session-runtime-mode");
+	const program = dispatchSessionCommand(
+		options,
+		"session.setRuntimeMode",
+		{
+			commandId,
 			sessionId: options.sessionId,
 			runtimeMode: options.runtimeMode,
-		});
-	});
+		},
+		commandId,
+	);
 	return program.pipe(
 		Effect.tapError((cause) =>
 			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
@@ -352,13 +406,17 @@ export const setSessionPermissionMode = (options: {
 	sessionId: SessionId;
 	mode: PermissionMode;
 }) => {
-	const program = Effect.gen(function* () {
-		const client = yield* getConnectionClient(options.connection);
-		yield* client["session.setPermissionMode"]({
+	const commandId = nextCommandId("session-permission-mode");
+	const program = dispatchSessionCommand(
+		options,
+		"session.setPermissionMode",
+		{
+			commandId,
 			sessionId: options.sessionId,
 			mode: options.mode,
-		});
-	});
+		},
+		commandId,
+	);
 	return program.pipe(
 		Effect.tapError((cause) =>
 			Effect.sync(() => reportConnectionFailure(options.connection, cause)),

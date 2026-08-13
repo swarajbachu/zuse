@@ -1,5 +1,4 @@
 import type { PermissionRequest } from "@zuse/contracts";
-import { Effect } from "effect";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { connectionSessionKey } from "../../../src/lib/session-key";
 import {
@@ -9,26 +8,41 @@ import {
 } from "../../../src/store/permissions";
 import { appAtomRegistry } from "../../../src/store/registry";
 
-const rpc = vi.hoisted(() => ({
-	resolve: undefined as (() => void) | undefined,
-	shouldFail: false,
-}));
-
-vi.mock("~/rpc/actions", () => ({
-	decidePermission: () =>
-		Effect.tryPromise({
-			try: () =>
-				new Promise<void>((resolve, reject) => {
-					rpc.resolve = () =>
-						rpc.shouldFail ? reject(new Error("decision failed")) : resolve();
+const harness = vi.hoisted(() => {
+	const data = {
+		requestsById: {} as Record<string, PermissionRequest>,
+	};
+	return {
+		data,
+		resolve: undefined as (() => void) | undefined,
+		reject: undefined as ((cause: Error) => void) | undefined,
+		dispatch: vi.fn(
+			() =>
+				new Promise((resolve, reject) => {
+					harness.resolve = () => resolve({ result: undefined });
+					harness.reject = reject;
 				}),
-			catch: (cause) => cause,
-		}),
-}));
+		),
+	};
+});
 
-vi.mock("~/rpc/connection", () => ({
-	getConnectionClient: vi.fn(),
-	reportConnectionFailure: vi.fn(),
+vi.mock("../../../src/store/mobile-client-bus", () => ({
+	dispatchMobileSessionCommand: harness.dispatch,
+	mobileClientBus: () => ({
+		snapshot: () => ({ data: harness.data }),
+		overlay: (
+			_key: unknown,
+			overlay: {
+				update: (data: typeof harness.data) => typeof harness.data;
+			},
+		) => {
+			const next = overlay.update(harness.data);
+			harness.data.requestsById = { ...next.requestsById };
+			return true;
+		},
+	}),
+	mobilePermissionsKey: () => ({ kind: "environment-permissions" }),
+	registerMobileEnvironment: () => "environment-1",
 }));
 
 const options = { host: "127.0.0.1", port: 4000, token: null } as never;
@@ -45,12 +59,14 @@ const request = {
 describe("permission decisions", () => {
 	beforeEach(async () => {
 		await resetPermissionsRuntime();
-		rpc.resolve = undefined;
-		rpc.shouldFail = false;
+		harness.resolve = undefined;
+		harness.reject = undefined;
+		harness.dispatch.mockClear();
+		harness.data.requestsById = { [request.id]: request };
 		appAtomRegistry.set(pendingBySessionAtom, { [key]: [request] });
 	});
 
-	test("keeps the request visible and disabled until the decision is acknowledged", async () => {
+	test("keeps the request visible until the decision is acknowledged", async () => {
 		const pendingDecision = decidePermission(
 			"conn",
 			options,
@@ -60,13 +76,12 @@ describe("permission decisions", () => {
 		);
 
 		expect(appAtomRegistry.get(pendingBySessionAtom)[key]).toEqual([request]);
-		rpc.resolve?.();
+		harness.resolve?.();
 		await pendingDecision;
-		expect(appAtomRegistry.get(pendingBySessionAtom)[key]).toEqual([]);
+		expect(harness.data.requestsById).toEqual({});
 	});
 
 	test("keeps the request available when the decision fails", async () => {
-		rpc.shouldFail = true;
 		const pendingDecision = decidePermission(
 			"conn",
 			options,
@@ -75,8 +90,8 @@ describe("permission decisions", () => {
 			{ _tag: "AllowOnce" },
 		);
 
-		rpc.resolve?.();
+		harness.reject?.(new Error("decision failed"));
 		await expect(pendingDecision).rejects.toThrow("decision failed");
-		expect(appAtomRegistry.get(pendingBySessionAtom)[key]).toEqual([request]);
+		expect(harness.data.requestsById).toEqual({ [request.id]: request });
 	});
 });

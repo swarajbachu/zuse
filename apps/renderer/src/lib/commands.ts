@@ -1,19 +1,25 @@
+import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import type { ChatId, Command, Session } from "@zuse/contracts";
-import { defaultModelFor } from "@zuse/contracts";
+import { defaultModelFor, EnvironmentId } from "@zuse/contracts";
 
 import { useChatsStore } from "../store/chats";
-import { localProjectForCloudChat } from "../store/cloud-chat-registry.ts";
 import { useComposerBridge } from "../store/composer-bridge";
+import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { usePaneFocus } from "../store/pane-focus";
 import { useProvidersStore } from "../store/providers";
 import { useSessionsStore } from "../store/sessions";
-import { useSettingsStore } from "../store/settings";
-import { useUiStore } from "../store/ui";
+import { rightPaneKey, useUiStore } from "../store/ui";
 import { useWorkspaceStore } from "../store/workspace";
 import { captureAnalytics } from "./analytics";
+import { localProjectForCloudChat } from "./cloud-workspace-catalog.ts";
+import {
+	activeChatsByProject,
+	activeSessionsByProject,
+} from "./environment-entities.ts";
 import { openNewChatLanding } from "./open-new-chat-landing.ts";
 import { openProjectSetupDialog } from "./project-setup-dialog-state.ts";
-import { getActiveEnvironment, getLocalEnvironmentId } from "./rpc-client.ts";
+import { getLocalEnvironmentId } from "./rpc-client.ts";
+import { useSettingsStore } from "./settings-client-bus.ts";
 import { switchToEnvironment } from "./switch-environment.ts";
 import { activeChatId, orderedChatTabs } from "./tab-order";
 
@@ -27,7 +33,7 @@ import { activeChatId, orderedChatTabs } from "./tab-order";
 function currentProjectSessions(): ReadonlyArray<Session> {
 	const projectId = useWorkspaceStore.getState().selectedFolderId;
 	if (projectId === null) return [];
-	return useSessionsStore.getState().sessionsByProject[projectId] ?? [];
+	return activeSessionsByProject()[projectId] ?? [];
 }
 
 /** The chat whose sessions fill the tab strip right now. */
@@ -37,6 +43,18 @@ function currentChatId(): ChatId | null {
 		useSessionsStore.getState().selectedSessionId,
 		useChatsStore.getState().selectedChatId,
 	);
+}
+
+function currentChatRef(): ChatRef | null {
+	const chatId = currentChatId();
+	return chatId === null
+		? null
+		: {
+				environmentId: EnvironmentId.make(
+					useEnvironmentCatalogStore.getState().activeEnvironmentId,
+				),
+				chatId,
+			};
 }
 
 /** Move the active tab by `delta` within the active chat, wrapping around. */
@@ -89,7 +107,7 @@ function stepChat(delta: 1 | -1): void {
 	const projectId = useWorkspaceStore.getState().selectedFolderId;
 	if (projectId === null) return;
 	const chats = useChatsStore.getState();
-	const list = (chats.chatsByProject[projectId] ?? []).filter(
+	const list = (activeChatsByProject()[projectId] ?? []).filter(
 		(c) => c.archivedAt === null,
 	);
 	if (list.length === 0) return;
@@ -104,19 +122,20 @@ function stepChat(delta: 1 | -1): void {
  *  right sidebar first if it's collapsed. */
 function stepPanel(delta: 1 | -1): void {
 	const ui = useUiStore.getState();
-	const chatId = currentChatId();
-	if (chatId === null) return;
-	const panels = ui.rightPanelsByChat[chatId] ?? [];
+	const ref = currentChatRef();
+	if (ref === null) return;
+	const key = rightPaneKey(ref);
+	const panels = ui.rightPanelsByChat[key] ?? [];
 	if (panels.length === 0) return;
-	if (ui.rightPaneLayoutByChat[chatId]?.open !== true) {
-		ui.setRightSidebarOpenForChat(chatId, true);
+	if (ui.rightPaneLayoutByChat[key]?.open !== true) {
+		ui.setRightSidebarOpenForChat(ref, true);
 	}
-	const activeId = ui.activeRightPanelByChat[chatId] ?? null;
+	const activeId = ui.activeRightPanelByChat[key] ?? null;
 	const idx = panels.findIndex((p) => p.id === activeId);
 	const base = idx === -1 ? 0 : idx;
 	const next = (base + delta + panels.length) % panels.length;
 	const target = panels[next];
-	if (target !== undefined) ui.setActiveRightPanel(target.id);
+	if (target !== undefined) ui.setActiveRightPanel(ref, target.id);
 }
 
 /**
@@ -140,7 +159,10 @@ const HANDLERS: Record<Command, () => void> = {
 		const cloudProjectId =
 			selectedChatId === null ? null : localProjectForCloudChat(selectedChatId);
 		if (cloudProjectId !== null) {
-			if (getActiveEnvironment() === getLocalEnvironmentId()) {
+			if (
+				useEnvironmentCatalogStore.getState().activeEnvironmentId ===
+				getLocalEnvironmentId()
+			) {
 				openNewChatLanding(cloudProjectId);
 				return;
 			}
@@ -176,17 +198,19 @@ const HANDLERS: Record<Command, () => void> = {
 	},
 	"toggle-right-sidebar": () => {
 		const ui = useUiStore.getState();
-		const chatId = currentChatId();
-		if (chatId === null) return;
+		const ref = currentChatRef();
+		if (ref === null) return;
+		const key = rightPaneKey(ref);
 		ui.setRightSidebarOpenForChat(
-			chatId,
-			ui.rightPaneLayoutByChat[chatId]?.open !== true,
+			ref,
+			ui.rightPaneLayoutByChat[key]?.open !== true,
 		);
 	},
 	"toggle-terminal": () => {
 		// Open the sidebar (if closed) and reveal a terminal panel — focus an
 		// existing one or add a fresh terminal tab.
-		useUiStore.getState().revealPanel("terminal");
+		const ref = currentChatRef();
+		if (ref !== null) useUiStore.getState().revealPanelForChat(ref, "terminal");
 	},
 	"focus-composer": () => {
 		useComposerBridge.getState().focus?.();

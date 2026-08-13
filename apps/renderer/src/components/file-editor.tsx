@@ -7,20 +7,36 @@ import type {
 } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/edit";
 import { EditProvider, File, PatchDiff } from "@pierre/diffs/react";
-import type { CodeAnnotation, GitDiffResult } from "@zuse/contracts";
-import { Effect } from "effect";
+import {
+	CommandId,
+	type CodeAnnotation,
+	EnvironmentId,
+	FsFileContent,
+	type GitDiffResult,
+} from "@zuse/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { cn } from "~/lib/utils";
 import { useAuth } from "../hooks/use-auth.ts";
 import { useZuseDiffTheme } from "../lib/diffs-theme.ts";
-import { classifyGit } from "../lib/git-rpc.ts";
+import { dispatchGitWorkspaceCommand } from "../lib/git-workspace-client-bus.ts";
+import {
+	dispatchFileTreeCommand,
+	fileWriteCommandId,
+} from "../lib/file-tree-client-bus.ts";
 import {
 	bytesForImageContent,
 	imageMimeForFile,
 } from "../lib/image-preview.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import {
+	readLocalExternalFile,
+	writeLocalExternalFile,
+} from "../lib/local-device-client-bus.ts";
+import {
+	getLocalEnvironmentId,
+	type MemoizeClient,
+} from "../lib/rpc-client.ts";
 import { useActiveWorkspaceRoot } from "../store/active-workspace.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { useSessionsStore } from "../store/sessions.ts";
@@ -220,21 +236,33 @@ function FileImageBody({ openFile }: { openFile: EditableFile }) {
 
 		void (async () => {
 			try {
-				const client = await getRpcClient(
-					openFile.kind === "text" ? openFile.environmentId : undefined,
-				);
 				const result =
 					openFile.kind === "external"
-						? await Effect.runPromise(
-								client["fs.readExternalFile"]({ path: openFile.absPath }),
+						? await readLocalExternalFile<typeof FsFileContent.Type>(
+								openFile.absPath,
 							)
-						: await Effect.runPromise(
-								client["fs.readFile"]({
-									folderId: openFile.folderId,
-									path: openFile.path,
-									worktreeId: openFile.worktreeId,
-								}),
-							);
+						: (
+								await dispatchFileTreeCommand<
+									Parameters<MemoizeClient["fs.readFile"]>[0],
+									typeof FsFileContent.Type
+								>({
+									ref: {
+										environmentId: EnvironmentId.make(
+											openFile.environmentId ?? getLocalEnvironmentId(),
+										),
+										folderId: openFile.folderId,
+										worktreeId: openFile.worktreeId,
+										rootPath: "",
+									},
+									kind: "fs.readFile",
+									commandId: CommandId.make(`fs-read:${crypto.randomUUID()}`),
+									payload: {
+										folderId: openFile.folderId,
+										path: openFile.path,
+										worktreeId: openFile.worktreeId,
+									},
+								})
+							).result;
 				if (cancelled) return;
 				const mimeType = imageMimeForFile(openFile.name);
 				if (mimeType === null) return;
@@ -393,29 +421,59 @@ function PierreEditBody({
 		setSaving(true);
 		setSaveError(null);
 		try {
-			const client = await getRpcClient(
-				file.kind === "text" ? file.environmentId : undefined,
-			);
-			const result =
-				file.kind === "external"
-					? await Effect.runPromise(
-							client["fs.writeExternalFile"]({
-								path: file.absPath,
-								content: docRef.current,
-								expectedMtime: mtimeRef.current,
-							}),
-						)
-					: await Effect.runPromise(
-							client["fs.writeFile"]({
-								folderId: file.folderId,
-								path: file.path,
-								content: docRef.current,
-								expectedMtime: mtimeRef.current,
-								worktreeId: file.worktreeId,
-							}),
-						);
+			const content = docRef.current;
+			const executionRef =
+				file.kind === "text"
+					? {
+							environmentId: EnvironmentId.make(
+								file.environmentId ?? getLocalEnvironmentId(),
+							),
+							folderId: file.folderId,
+							worktreeId: file.worktreeId,
+							rootPath: workspaceRoot ?? "",
+						}
+					: null;
+			const commandId =
+				file.kind === "text" && executionRef !== null
+					? await fileWriteCommandId({
+							ref: executionRef,
+							path: file.path,
+							content,
+							expectedMtime: mtimeRef.current,
+						})
+					: null;
+			const result = await (async () => {
+				if (file.kind === "external") {
+					return writeLocalExternalFile<{ readonly mtime: string }>({
+						path: file.absPath,
+						content,
+						expectedMtime: mtimeRef.current,
+					});
+				}
+				if (executionRef === null || commandId === null) {
+					throw new Error("Project file write is missing its execution scope.");
+				}
+				return (
+					await dispatchFileTreeCommand<
+						Parameters<MemoizeClient["fs.writeFile"]>[0],
+						{ readonly mtime: string }
+					>({
+						ref: executionRef,
+						kind: "fs.writeFile",
+						commandId,
+						payload: {
+							commandId,
+							folderId: file.folderId,
+							path: file.path,
+							content,
+							expectedMtime: mtimeRef.current,
+							worktreeId: file.worktreeId,
+						},
+					})
+				).result;
+			})();
 			mtimeRef.current = result.mtime;
-			baselineRef.current = docRef.current;
+			baselineRef.current = content;
 			setFileDirty(false);
 			setConflict(null);
 		} catch (err) {
@@ -443,21 +501,33 @@ function PierreEditBody({
 		setSaveError(null);
 		void (async () => {
 			try {
-				const client = await getRpcClient(
-					openFile.kind === "text" ? openFile.environmentId : undefined,
-				);
 				const result =
 					openFile.kind === "external"
-						? await Effect.runPromise(
-								client["fs.readExternalFile"]({ path: openFile.absPath }),
+						? await readLocalExternalFile<typeof FsFileContent.Type>(
+								openFile.absPath,
 							)
-						: await Effect.runPromise(
-								client["fs.readFile"]({
-									folderId: openFile.folderId,
-									path: openFile.path,
-									worktreeId: openFile.worktreeId,
-								}),
-							);
+						: (
+								await dispatchFileTreeCommand<
+									Parameters<MemoizeClient["fs.readFile"]>[0],
+									typeof FsFileContent.Type
+								>({
+									ref: {
+										environmentId: EnvironmentId.make(
+											openFile.environmentId ?? getLocalEnvironmentId(),
+										),
+										folderId: openFile.folderId,
+										worktreeId: openFile.worktreeId,
+										rootPath: workspaceRoot ?? "",
+									},
+									kind: "fs.readFile",
+									commandId: CommandId.make(`fs-read:${crypto.randomUUID()}`),
+									payload: {
+										folderId: openFile.folderId,
+										path: openFile.path,
+										worktreeId: openFile.worktreeId,
+									},
+								})
+							).result;
 				if (cancelled) return;
 				if (result.kind === "binary") {
 					setState({ status: "binary", size: result.size });
@@ -838,29 +908,49 @@ function DiffViewBody({
 		let cancelled = false;
 		setState({ status: "loading" });
 		void (async () => {
-			const client = await getRpcClient(openFile.environmentId);
-			const result = await classifyGit(
-				client["git.diff"]({
-					folderId: openFile.folderId,
-					worktreeId: openFile.worktreeId,
-					path: openFile.path,
-				}),
-			);
-			if (cancelled) return;
-			if (result.ok) {
-				setState({ status: "ready", result: result.value });
-			} else {
+			const executionRef = {
+				environmentId: EnvironmentId.make(
+					openFile.environmentId ?? getLocalEnvironmentId(),
+				),
+				folderId: openFile.folderId,
+				worktreeId: openFile.worktreeId,
+				rootPath: workspaceRoot ?? "",
+			};
+			try {
+				const { result } = await dispatchGitWorkspaceCommand<
+					Parameters<MemoizeClient["git.diff"]>[0],
+					GitDiffResult
+				>({
+					ref: executionRef,
+					kind: "git.diff",
+					commandId: CommandId.make(`git-diff:${crypto.randomUUID()}`),
+					payload: {
+						folderId: openFile.folderId,
+						worktreeId: openFile.worktreeId,
+						path: openFile.path,
+					},
+				});
+				if (!cancelled) setState({ status: "ready", result });
+			} catch (cause) {
+				if (cancelled) return;
+				const tag =
+					typeof cause === "object" && cause !== null && "_tag" in cause
+						? String((cause as { readonly _tag: unknown })._tag)
+						: null;
 				setState({
 					status: "error",
-					reason: result.message,
-					noRepo: result.tag === "GitNotARepoError",
+					reason:
+						tag === "GitNotARepoError"
+							? "Not a git repository"
+							: formatError(cause),
+					noRepo: tag === "GitNotARepoError",
 				});
 			}
 		})();
 		return () => {
 			cancelled = true;
 		};
-	}, [openFile.folderId, openFile.worktreeId, openFile.path, reload]);
+	}, [openFile, reload, workspaceRoot]);
 
 	if (state.status === "loading") {
 		return (
@@ -875,8 +965,14 @@ function DiffViewBody({
 				<Placeholder>
 					<GitInitCta
 						compact
-						folderId={openFile.folderId}
-						worktreeId={openFile.worktreeId}
+						executionRef={{
+							environmentId: EnvironmentId.make(
+								openFile.environmentId ?? getLocalEnvironmentId(),
+							),
+							folderId: openFile.folderId,
+							worktreeId: openFile.worktreeId,
+							rootPath: workspaceRoot ?? "",
+						}}
 						onInitialized={() => setReload((n) => n + 1)}
 					/>
 				</Placeholder>
@@ -949,21 +1045,33 @@ function PreviewViewBody({ openFile }: { openFile: EditableFile }) {
 					return;
 				}
 
-				const client = await getRpcClient(
-					openFile.kind === "text" ? openFile.environmentId : undefined,
-				);
 				const result =
 					openFile.kind === "external"
-						? await Effect.runPromise(
-								client["fs.readExternalFile"]({ path: openFile.absPath }),
+						? await readLocalExternalFile<typeof FsFileContent.Type>(
+								openFile.absPath,
 							)
-						: await Effect.runPromise(
-								client["fs.readFile"]({
-									folderId: openFile.folderId,
-									path: openFile.path,
-									worktreeId: openFile.worktreeId,
-								}),
-							);
+						: (
+								await dispatchFileTreeCommand<
+									Parameters<MemoizeClient["fs.readFile"]>[0],
+									typeof FsFileContent.Type
+								>({
+									ref: {
+										environmentId: EnvironmentId.make(
+											openFile.environmentId ?? getLocalEnvironmentId(),
+										),
+										folderId: openFile.folderId,
+										worktreeId: openFile.worktreeId,
+										rootPath: workspaceRoot ?? "",
+									},
+									kind: "fs.readFile",
+									commandId: CommandId.make(`fs-read:${crypto.randomUUID()}`),
+									payload: {
+										folderId: openFile.folderId,
+										path: openFile.path,
+										worktreeId: openFile.worktreeId,
+									},
+								})
+							).result;
 				if (cancelled) return;
 				if (result.kind === "binary") {
 					setState({ status: "binary", size: result.size });

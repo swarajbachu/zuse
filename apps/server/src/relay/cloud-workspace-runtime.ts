@@ -1,43 +1,58 @@
+import { randomUUID } from "node:crypto";
 import { watch } from "node:fs";
 import { access, mkdir, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
 	AgentSessionId,
+	AgentTurnId,
 	ChatId,
 	CloudRuntimeCredential,
-	ComposerInput,
+	CloudWorkspaceRuntimeSummary,
+	decodeWorkspaceGatewayFrame,
+	encodeWorkspaceGatewayFrame,
 	FolderId,
 	MessageId,
 	ProviderId,
 	RelayPaths,
 	WIRE_PROTOCOL_VERSION,
+	workspaceGatewayArrayBuffer,
 } from "@zuse/contracts";
-import type { StoredEvent } from "@zuse/domain/engine/dispatch";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import {
+	Clock,
+	Duration,
 	Effect,
 	Layer,
-	Queue,
 	Redacted,
 	Schedule,
 	Schema,
+	Semaphore,
 	Stream,
 } from "effect";
-import { compactDecrypt, exportJWK, generateKeyPair } from "jose";
+import {
+	type CryptoKey,
+	compactDecrypt,
+	exportJWK,
+	generateKeyPair,
+	SignJWT,
+} from "jose";
 import {
 	ChatService,
-	MessageService,
+	type ChatServiceShape,
 } from "../conversation/services/conversation-services.ts";
 import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
 import type { CredentialsService } from "../provider/services/credentials-service.ts";
-import { WorkspaceService } from "../workspace/services/workspace-service.ts";
+import {
+	WorkspaceService,
+	type WorkspaceServiceShape,
+} from "../workspace/services/workspace-service.ts";
 import { installCloudCredentials } from "./cloud-enrollment.ts";
 
 const CREDENTIALS_READY_MARKER = "/var/lib/zuse/workspace/credentials-ready";
 const CREDENTIALS_READY_EVENT =
 	"/var/lib/zuse/workspace/credentials-ready-event";
 const REPOSITORY_READY_MARKER = "/var/lib/zuse/workspace/repository-ready";
-const WORKSPACE_PATH = "/home/zuse/workspace";
+export const CLOUD_WORKSPACE_ROOT = "/home/zuse/workspace";
 
 export interface CloudWorkspaceRuntimeConfig {
 	readonly workspaceId: string;
@@ -54,73 +69,27 @@ export class CloudWorkspaceRuntimeError extends Schema.TaggedErrorClass<CloudWor
 
 const fail = (reason: string) => new CloudWorkspaceRuntimeError({ reason });
 
-/**
- * The gateway notification is an acceleration signal, not the durable command
- * transport. Polling guarantees that commands accepted while the gateway is
- * reconnecting are still observed after the one-time startup fetch.
- */
-export const pollCloudWorkspaceCommands = <A, E, R>(
-	fetchCommands: Effect.Effect<A, E, R>,
-	notifications?: Queue.Dequeue<number>,
-): Effect.Effect<void, E, R> =>
-	Effect.forever(
-		fetchCommands.pipe(
-			Effect.retry(Schedule.spaced("1 second")),
-			Effect.andThen(
-				notifications === undefined
-					? Effect.sleep("30 seconds")
-					: Queue.take(notifications).pipe(
-							Effect.timeoutOrElse({
-								duration: "30 seconds",
-								orElse: () => Effect.succeed(0),
-							}),
-						),
-			),
-		),
-	).pipe(Effect.asVoid);
-
-/**
- * The local event log is the runtime outbox. A resumed runtime can contain a
- * large acknowledged history, so replication must catch up in bounded batches
- * instead of putting every new live event behind one network round trip per
- * historical event.
- */
-export const replicateCloudWorkspaceEvents = <A, E, R, E2, R2>(
-	events: Stream.Stream<A, E, R>,
-	replicateBatch: (batch: ReadonlyArray<A>) => Effect.Effect<void, E2, R2>,
-	eventSizeBytes: (event: A) => number = () => 0,
-): Effect.Effect<void, E | E2, R | R2> =>
-	events.pipe(
-		Stream.groupedWithin(500, "25 millis"),
-		Stream.flatMap((batch) => {
-			const batches: Array<Array<A>> = [];
-			let current: Array<A> = [];
-			let currentBytes = 0;
-			for (const event of batch) {
-				const eventBytes = eventSizeBytes(event);
-				if (current.length > 0 && currentBytes + eventBytes > 8_000_000) {
-					batches.push(current);
-					current = [];
-					currentBytes = 0;
-				}
-				current.push(event);
-				currentBytes += eventBytes;
-			}
-			if (current.length > 0) batches.push(current);
-			return Stream.fromIterable(batches);
+/** A capped, jittered retry policy shared by enrollment and gateway recovery. */
+export const cloudRuntimeRetrySchedule = Schedule.exponential(
+	"250 millis",
+).pipe(
+	Schedule.modifyDelay(({ duration }) =>
+		Effect.sync(() => {
+			const capped = Math.min(Duration.toMillis(duration), 16_000);
+			return capped * (0.75 + Math.random() * 0.5);
 		}),
-		Stream.runForEach(replicateBatch),
-	);
+	),
+);
 
 /**
  * Runtime enrollment depends on a workspace row written immediately before
- * the sandbox starts. A single transient relay or database read failure must
- * not leave an otherwise healthy sandbox permanently detached.
+ * the sandbox starts. A transient relay/database error must not strand a
+ * healthy runtime, and retry has one supervised policy instead of fixed loops.
  */
 export const retryCloudWorkspaceBootstrap = <A, E, R>(
 	bootstrap: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E, R> =>
-	bootstrap.pipe(Effect.retry(Schedule.spaced("1 second")));
+	bootstrap.pipe(Effect.retry(cloudRuntimeRetrySchedule));
 
 export const runtimeReadyPhaseOnGatewayOpen = (
 	repositoryReady: boolean,
@@ -129,10 +98,25 @@ export const runtimeReadyPhaseOnGatewayOpen = (
 const BootstrapResponse = Schema.Struct({
 	workspaceId: Schema.String,
 	runtimeCredential: Schema.String,
+	runtimeCredentialExpiresAt: Schema.Number,
+	runtimeGeneration: Schema.Number,
+	gatewayEpoch: Schema.Number,
 	gatewayUrl: Schema.String,
 	gatewayProtocol: Schema.String,
 	chatId: Schema.String,
 	initialSessionId: Schema.String,
+	launchIntent: Schema.optional(
+		Schema.Struct({
+			commandId: Schema.String,
+			turnId: Schema.String,
+			title: Schema.String,
+			agent: Schema.String,
+			model: Schema.String,
+			permissions: Schema.Array(Schema.String),
+			firstMessage: Schema.optional(Schema.String),
+			pendingRename: Schema.optional(Schema.String),
+		}),
+	),
 	cloudCredentials: Schema.Array(
 		Schema.Struct({
 			kind: Schema.Literals(["github", "claude", "codex"]),
@@ -148,15 +132,222 @@ const BootstrapResponse = Schema.Struct({
 	),
 });
 
-const Command = Schema.Struct({
-	commandId: Schema.String,
-	sequence: Schema.Number,
-	kind: Schema.Literals(["start-agent", "send-message", "rename-chat"]),
-	payload: Schema.Record(Schema.String, Schema.Unknown),
+const RuntimeCredentialRenewalResponse = Schema.Struct({
+	workspaceId: Schema.String,
+	requestId: Schema.String,
+	runtimeCredential: Schema.String,
+	expiresAt: Schema.Number,
+	generation: Schema.Number,
+	gatewayEpoch: Schema.Number,
 });
 
-const CommandsResponse = Schema.Struct({ commands: Schema.Array(Command) });
-const EventsResponse = Schema.Struct({ appendedThrough: Schema.Number });
+const RuntimeBootstrapAckResponse = Schema.Struct({
+	acknowledged: Schema.Literal(true),
+});
+
+const RuntimeSummaryResponse = Schema.Struct({
+	applied: Schema.Boolean,
+	summaryRevision: Schema.Number,
+	sessionHeadVersion: Schema.Number,
+});
+
+interface RuntimeCredentialState {
+	credential: string;
+	expiresAt: number;
+	generation: number;
+	gatewayEpoch: number;
+}
+
+type RuntimeSummaryReason = "initial" | "activity" | "title" | "settled";
+
+interface CloudRuntimeSummaryPublisher {
+	readonly publish: (
+		reason: RuntimeSummaryReason,
+	) => Effect.Effect<boolean, CloudWorkspaceRuntimeError>;
+}
+
+/**
+ * Serializes summary writes and retries a failed revision instead of skipping
+ * it. Activity checkpoints are bounded to one write every 30 seconds; title
+ * and settlement changes bypass the throttle so the catalog converges at turn
+ * boundaries without carrying transcript content through Relay.
+ */
+export const makeCloudRuntimeSummaryPublisher = Effect.fn(
+	"CloudWorkspaceRuntime.makeSummaryPublisher",
+)(function* (input: {
+	readonly now: Effect.Effect<number>;
+	readonly read: Effect.Effect<
+		{
+			readonly title: string;
+			readonly lastActivityAt: number;
+			readonly sessionHeadVersion: number;
+		},
+		CloudWorkspaceRuntimeError
+	>;
+	readonly write: (
+		summary: CloudWorkspaceRuntimeSummary,
+	) => Effect.Effect<
+		{ readonly applied: boolean; readonly summaryRevision: number },
+		CloudWorkspaceRuntimeError
+	>;
+	readonly activityThrottleMs?: number;
+}) {
+	const lock = yield* Semaphore.make(1);
+	let acceptedRevision = 0;
+	let lastActivityPublishedAt = Number.NEGATIVE_INFINITY;
+	const throttleMs = input.activityThrottleMs ?? 30_000;
+	const summary = (
+		snapshot: {
+			readonly title: string;
+			readonly lastActivityAt: number;
+			readonly sessionHeadVersion: number;
+		},
+		summaryRevision: number,
+	) => new CloudWorkspaceRuntimeSummary({ ...snapshot, summaryRevision });
+	const publish: CloudRuntimeSummaryPublisher["publish"] = (reason) =>
+		lock.withPermits(1)(
+			Effect.gen(function* () {
+				const now = yield* input.now;
+				if (reason === "activity" && now - lastActivityPublishedAt < throttleMs)
+					return false;
+				const snapshot = yield* input.read;
+				let nextRevision = acceptedRevision + 1;
+				let response = yield* input.write(summary(snapshot, nextRevision));
+				// A preserved process can reconnect after Relay already accepted a
+				// higher revision. Rebase once and apply the current snapshot instead
+				// of waiting for another user action to correct stale catalog metadata.
+				if (!response.applied && response.summaryRevision >= nextRevision) {
+					nextRevision = response.summaryRevision + 1;
+					response = yield* input.write(summary(snapshot, nextRevision));
+				}
+				acceptedRevision = Math.max(nextRevision, response.summaryRevision);
+				if (!response.applied)
+					return yield* Effect.fail(fail("workspace_summary_rejected"));
+				if (reason === "activity") lastActivityPublishedAt = now;
+				return true;
+			}),
+		);
+	return { publish } satisfies CloudRuntimeSummaryPublisher;
+});
+
+export const signRuntimeRenewalProof = (input: {
+	readonly privateKey: CryptoKey;
+	readonly relayIssuer: string;
+	readonly workspaceId: string;
+	readonly requestId: string;
+	readonly generation: number;
+	readonly gatewayEpoch: number;
+	readonly nowMs: number;
+}): Effect.Effect<string, CloudWorkspaceRuntimeError> =>
+	Effect.tryPromise({
+		try: () =>
+			new SignJWT({
+				workspaceId: input.workspaceId,
+				requestId: input.requestId,
+				generation: input.generation,
+				gatewayEpoch: input.gatewayEpoch,
+			})
+				.setProtectedHeader({
+					alg: "EdDSA",
+					typ: "workspace-runtime-renewal+jwt",
+				})
+				.setAudience(input.relayIssuer)
+				.setIssuedAt(Math.floor(input.nowMs / 1_000))
+				.setExpirationTime(Math.floor(input.nowMs / 1_000) + 120)
+				.sign(input.privateKey),
+		catch: () => fail("workspace_runtime_renewal_proof_failed"),
+	});
+
+export const runtimeCredentialRenewalDelayMs = (
+	expiresAt: number,
+	nowMs: number,
+): number => Math.max(0, Math.floor((expiresAt - nowMs) / 2));
+
+const renewRuntimeCredential = (input: {
+	readonly config: CloudWorkspaceRuntimeConfig;
+	readonly signingPrivateKey: CryptoKey;
+	readonly state: RuntimeCredentialState;
+	readonly requestId: string;
+}): Effect.Effect<void, CloudWorkspaceRuntimeError> =>
+	Effect.gen(function* () {
+		const current = { ...input.state };
+		while (true) {
+			const nowMs = yield* Clock.currentTimeMillis;
+			if (nowMs >= current.expiresAt)
+				return yield* Effect.fail(fail("workspace_runtime_credential_expired"));
+			const proof = yield* signRuntimeRenewalProof({
+				privateKey: input.signingPrivateKey,
+				relayIssuer: input.config.relayUrl,
+				workspaceId: input.config.workspaceId,
+				requestId: input.requestId,
+				generation: current.generation,
+				gatewayEpoch: current.gatewayEpoch,
+				nowMs,
+			});
+			const result = yield* requestJson({
+				schema: RuntimeCredentialRenewalResponse,
+				url: `${input.config.relayUrl}${RelayPaths.cloudWorkspaceRuntimeCredentialsRenew(
+					input.config.workspaceId,
+				)}`,
+				token: current.credential,
+				method: "POST",
+				body: { requestId: input.requestId, proof },
+			}).pipe(Effect.result);
+			if (result._tag === "Success") {
+				if (
+					result.success.workspaceId !== input.config.workspaceId ||
+					result.success.generation !== current.generation ||
+					result.success.gatewayEpoch !== current.gatewayEpoch
+				)
+					return yield* Effect.fail(
+						fail("workspace_runtime_renewal_fence_changed"),
+					);
+				input.state.credential = result.success.runtimeCredential;
+				input.state.expiresAt = result.success.expiresAt;
+				return;
+			}
+			const afterFailureMs = yield* Clock.currentTimeMillis;
+			const remaining = current.expiresAt - afterFailureMs;
+			if (remaining <= 0)
+				return yield* Effect.fail(fail("workspace_runtime_credential_expired"));
+			const retryDelay = Math.min(
+				remaining,
+				1_000 + Math.floor(Math.random() * 1_000),
+			);
+			yield* Effect.sleep(Duration.millis(retryDelay));
+		}
+	});
+
+/**
+ * Renew at half-life and keep a single request id across response-loss retries.
+ * If the lease actually expires, terminate this fenced runtime so the cloud
+ * reconciler can issue a fresh generation instead of leaving a zombie gateway.
+ */
+const superviseRuntimeCredential = (input: {
+	readonly config: CloudWorkspaceRuntimeConfig;
+	readonly signingPrivateKey: CryptoKey;
+	readonly state: RuntimeCredentialState;
+}): Effect.Effect<never, never> =>
+	Effect.forever(
+		Effect.gen(function* () {
+			const nowMs = yield* Clock.currentTimeMillis;
+			yield* Effect.sleep(
+				Duration.millis(
+					runtimeCredentialRenewalDelayMs(input.state.expiresAt, nowMs),
+				),
+			);
+			const result = yield* renewRuntimeCredential({
+				...input,
+				requestId: randomUUID(),
+			}).pipe(Effect.result);
+			if (result._tag === "Failure") {
+				yield* Effect.logError("cloud runtime credential renewal failed", {
+					reason: result.failure.reason,
+				});
+				yield* Effect.sync(() => process.kill(process.pid, "SIGTERM"));
+			}
+		}),
+	);
 
 const requestJson = <A, I>(input: {
 	readonly schema: Schema.Codec<A, I>;
@@ -194,20 +385,17 @@ const requestJson = <A, I>(input: {
 const postReady = (
 	config: CloudWorkspaceRuntimeConfig,
 	runtimeCredential: string,
-	phase:
-		| "repository-ready"
-		| "agent-started"
-		| "command-acknowledged"
-		| "command-failed",
-	commandId?: string,
+	phase: "repository-ready" | "agent-started" | "launch-failed",
+	launchCommandId?: string,
 	errorCode?: string,
+	sessionHeadVersion?: number,
 ): Effect.Effect<void, CloudWorkspaceRuntimeError> =>
 	requestJson({
 		schema: Schema.Unknown,
 		url: `${config.relayUrl}${RelayPaths.cloudWorkspaceReady(config.workspaceId)}`,
 		token: runtimeCredential,
 		method: "POST",
-		body: { phase, commandId, errorCode },
+		body: { phase, launchCommandId, errorCode, sessionHeadVersion },
 	}).pipe(Effect.asVoid);
 
 const writeCredentialsReady = Effect.tryPromise({
@@ -248,8 +436,6 @@ const waitForRepository = Effect.callback<void, CloudWorkspaceRuntimeError>(
 		watcher.once("error", () =>
 			finish(Effect.fail(fail("workspace_repository_ready_failed"))),
 		);
-		// Check after installing the watcher so creation cannot occur between the
-		// existence check and subscription.
 		check();
 		return Effect.sync(() => {
 			settled = true;
@@ -257,17 +443,6 @@ const waitForRepository = Effect.callback<void, CloudWorkspaceRuntimeError>(
 		});
 	},
 );
-
-type RuntimeCommand = typeof Command.Type;
-
-const eventPayload = (record: StoredEvent) => ({
-	runtimeSequence: record.sequence,
-	eventId: record.eventId,
-	streamId: record.streamId,
-	streamVersion: record.streamVersion,
-	type: record.event._tag,
-	payloadJson: JSON.stringify(record.event),
-});
 
 const removeBootToken = (path: string | undefined) =>
 	path === undefined
@@ -277,9 +452,50 @@ const removeBootToken = (path: string | undefined) =>
 				catch: () => fail("workspace_boot_token_cleanup_failed"),
 			}).pipe(Effect.ignore);
 
+export const startCloudWorkspaceLaunchIntent = (input: {
+	readonly workspaces: WorkspaceServiceShape;
+	readonly chats: ChatServiceShape;
+	readonly chatId: string;
+	readonly sessionId: string;
+	readonly launchIntent: Exclude<
+		typeof BootstrapResponse.Type.launchIntent,
+		undefined
+	>;
+}) =>
+	Effect.gen(function* () {
+		const provider = Schema.decodeUnknownOption(ProviderId)(
+			input.launchIntent.agent,
+		);
+		if (provider._tag === "None" || input.launchIntent.model.length === 0)
+			return yield* Effect.fail(fail("workspace_agent_config_invalid"));
+		const folders = yield* input.workspaces.list();
+		const folder =
+			folders.find((candidate) => candidate.path === CLOUD_WORKSPACE_ROOT) ??
+			(yield* input.workspaces
+				.add(CLOUD_WORKSPACE_ROOT)
+				.pipe(Effect.mapError(() => fail("workspace_registration_failed"))));
+		const title = input.launchIntent.pendingRename ?? input.launchIntent.title;
+		const commandId = input.launchIntent.commandId;
+		yield* input.chats
+			.createChat({
+				chatId: ChatId.make(input.chatId),
+				initialSessionId: AgentSessionId.make(input.sessionId),
+				commandId,
+				initialTurnId: AgentTurnId.make(input.launchIntent.turnId),
+				initialMessageId: MessageId.make(`${commandId}:message`),
+				projectId: FolderId.make(folder.id),
+				title,
+				providerId: provider.value,
+				model: input.launchIntent.model,
+				initialPrompt: input.launchIntent.firstMessage,
+				background: false,
+			})
+			.pipe(Effect.mapError(() => fail("workspace_agent_start_failed")));
+	});
+
 const websocketClosed = (
 	url: string,
-	protocols: ReadonlyArray<string>,
+	protocols: () => ReadonlyArray<string>,
 	onSocket: (socket: WebSocket) => void,
 ): Effect.Effect<void, CloudWorkspaceRuntimeError> =>
 	Effect.callback<void, CloudWorkspaceRuntimeError>((resume) => {
@@ -291,7 +507,7 @@ const websocketClosed = (
 			settled = true;
 			resume(effect);
 		};
-		const socket = new WebSocket(url, [...protocols]);
+		const socket = new WebSocket(url, [...protocols()]);
 		socket.binaryType = "arraybuffer";
 		socket.addEventListener("open", () => onSocket(socket), { once: true });
 		socket.addEventListener(
@@ -308,9 +524,9 @@ const websocketClosed = (
 	});
 
 /**
- * Cloud-only runtime link. It never registers an environment or advertises an
- * inbound endpoint: the sandbox authenticates once, opens the workspace
- * gateway, mirrors durable events, and reverse-bridges existing RPC frames.
+ * Cloud-only runtime link. The workspace runtime owns all chat state and keeps
+ * consuming providers independently of client sockets. Relay is used only for
+ * bootstrap/auth/lifecycle and as an opaque hibernatable WebSocket router.
  */
 export const makeCloudWorkspaceRuntimeLayer = (
 	config: CloudWorkspaceRuntimeConfig | undefined,
@@ -321,7 +537,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 	| LanAuthService
 	| WorkspaceService
 	| ChatService
-	| MessageService
 	| SessionDomain
 > =>
 	config === undefined
@@ -331,29 +546,44 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const auth = yield* LanAuthService;
 					const workspaces = yield* WorkspaceService;
 					const chats = yield* ChatService;
-					const messages = yield* MessageService;
-					const sessions = yield* SessionDomain;
-					const credentialKeyPair = yield* Effect.tryPromise({
+					const sessionDomain = yield* SessionDomain;
+					const [credentialKeyPair, signingKeyPair] = yield* Effect.tryPromise({
 						try: () =>
-							generateKeyPair("RSA-OAEP-256", {
-								extractable: true,
-							}),
+							Promise.all([
+								generateKeyPair("RSA-OAEP-256", { extractable: true }),
+								generateKeyPair("EdDSA", { extractable: true }),
+							]),
 						catch: () => fail("workspace_credential_key_failed"),
 					});
-					const credentialPublicJwk = yield* Effect.tryPromise({
-						try: async () =>
-							JSON.stringify(await exportJWK(credentialKeyPair.publicKey)),
-						catch: () => fail("workspace_credential_key_failed"),
-					});
+					const [credentialPublicJwk, signingPublicJwk] =
+						yield* Effect.tryPromise({
+							try: async () =>
+								Promise.all([
+									JSON.stringify(await exportJWK(credentialKeyPair.publicKey)),
+									JSON.stringify(await exportJWK(signingKeyPair.publicKey)),
+								]),
+							catch: () => fail("workspace_credential_key_failed"),
+						});
 					const bootstrap = yield* retryCloudWorkspaceBootstrap(
 						requestJson({
 							schema: BootstrapResponse,
 							url: `${config.relayUrl}${RelayPaths.cloudWorkspaceBootstrap(config.workspaceId)}`,
 							token: Redacted.value(config.bootToken),
 							method: "POST",
-							body: { credentialPublicJwk },
+							body: { credentialPublicJwk, signingPublicJwk },
 						}),
 					);
+					const runtimeCredential: RuntimeCredentialState = {
+						credential: bootstrap.runtimeCredential,
+						expiresAt: bootstrap.runtimeCredentialExpiresAt,
+						generation: bootstrap.runtimeGeneration,
+						gatewayEpoch: bootstrap.gatewayEpoch,
+					};
+					yield* superviseRuntimeCredential({
+						config,
+						signingPrivateKey: signingKeyPair.privateKey,
+						state: runtimeCredential,
+					}).pipe(Effect.forkScoped({ startImmediately: true }));
 					const cloudCredentials = yield* Effect.forEach(
 						bootstrap.cloudCredentials,
 						(credential) =>
@@ -377,6 +607,18 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						Effect.mapError(() => fail("workspace_credential_install_failed")),
 					);
 					yield* writeCredentialsReady;
+					yield* retryCloudWorkspaceBootstrap(
+						requestJson({
+							schema: RuntimeBootstrapAckResponse,
+							url: `${config.relayUrl}${RelayPaths.cloudWorkspaceBootstrapAck(config.workspaceId)}`,
+							token: runtimeCredential.credential,
+							method: "POST",
+							body: {
+								runtimeGeneration: runtimeCredential.generation,
+								gatewayEpoch: runtimeCredential.gatewayEpoch,
+							},
+						}),
+					);
 					yield* removeBootToken(config.bootTokenFile);
 					const localCredential = yield* auth
 						.mintToken("cloud workspace gateway")
@@ -384,228 +626,86 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							Effect.mapError(() => fail("workspace_local_rpc_auth_failed")),
 						);
 
-					let commandCursor = 0;
-					const processedCommands = new Set<string>();
-					const processCommand = (command: RuntimeCommand) =>
-						Effect.gen(function* () {
-							if (processedCommands.has(command.commandId)) return;
-							if (command.kind === "rename-chat") {
-								if (typeof command.payload.title !== "string")
-									return yield* Effect.fail(fail("workspace_rename_invalid"));
-								yield* chats
-									.renameChat(
-										ChatId.make(bootstrap.chatId),
-										command.payload.title,
-									)
-									.pipe(Effect.mapError(() => fail("workspace_rename_failed")));
-								yield* postReady(
-									config,
-									bootstrap.runtimeCredential,
-									"command-acknowledged",
-									command.commandId,
-								).pipe(Effect.retry(Schedule.spaced("1 second")));
-								processedCommands.add(command.commandId);
-								commandCursor = Math.max(commandCursor, command.sequence);
-								return;
-							}
-							if (command.kind === "send-message") {
-								const input = Schema.decodeUnknownOption(ComposerInput)(
-									command.payload.input,
-								);
-								if (
-									input._tag === "None" ||
-									typeof command.payload.clientMessageId !== "string"
-								)
-									return yield* Effect.fail(
-										fail("workspace_message_command_invalid"),
-									);
-								const sessionId = AgentSessionId.make(
-									bootstrap.initialSessionId,
-								);
-								const clientMessageId = MessageId.make(
-									command.payload.clientMessageId,
-								);
-								const alreadyDelivered = yield* messages
-									.listMessages(sessionId)
-									.pipe(
-										Effect.map((rows) =>
-											rows.some((message) => message.id === clientMessageId),
-										),
-										Effect.mapError(() =>
-											fail("workspace_message_delivery_failed"),
-										),
-									);
-								if (!alreadyDelivered)
-									yield* messages
-										.sendMessage(
-											sessionId,
-											input.value.text,
-											input.value.attachments,
-											input.value.fileRefs,
-											input.value.skillRefs,
-											input.value.annotations,
-											command.payload.asGoal === true,
-											clientMessageId,
-										)
+					const readRuntimeSummary = Effect.gen(function* () {
+						const [chat, sessionHeadVersion, lastActivityAt] =
+							yield* Effect.all(
+								[
+									chats
+										.getChat(ChatId.make(bootstrap.chatId))
 										.pipe(
 											Effect.mapError(() =>
-												fail("workspace_message_delivery_failed"),
+												fail("workspace_summary_chat_unavailable"),
 											),
-										);
-								yield* postReady(
-									config,
-									bootstrap.runtimeCredential,
-									"command-acknowledged",
-									command.commandId,
-								).pipe(Effect.retry(Schedule.spaced("1 second")));
-								processedCommands.add(command.commandId);
-								commandCursor = Math.max(commandCursor, command.sequence);
-								return;
-							}
-							const provider = Schema.decodeUnknownOption(ProviderId)(
-								command.payload.agent,
-							);
-							if (
-								provider._tag === "None" ||
-								typeof command.payload.model !== "string"
-							)
-								return yield* Effect.fail(
-									fail("workspace_agent_config_invalid"),
-								);
-							const folders = yield* workspaces.list();
-							const folder =
-								folders.find(
-									(candidate) => candidate.path === WORKSPACE_PATH,
-								) ??
-								(yield* workspaces
-									.add(WORKSPACE_PATH)
-									.pipe(
-										Effect.mapError(() =>
-											fail("workspace_registration_failed"),
 										),
-									));
-							yield* chats
-								.createChat({
-									chatId: ChatId.make(bootstrap.chatId),
-									initialSessionId: AgentSessionId.make(
-										bootstrap.initialSessionId,
-									),
-									projectId: FolderId.make(folder.id),
-									title:
-										typeof command.payload.title === "string"
-											? command.payload.title
-											: undefined,
-									providerId: provider.value,
-									model: command.payload.model,
-									initialPrompt:
-										typeof command.payload.firstMessage === "string"
-											? command.payload.firstMessage
-											: undefined,
-									background: false,
-								})
-								.pipe(
-									Effect.mapError(() => fail("workspace_agent_start_failed")),
-								);
-							yield* postReady(
-								config,
-								bootstrap.runtimeCredential,
-								"agent-started",
-								command.commandId,
-							).pipe(Effect.retry(Schedule.spaced("1 second")));
-							processedCommands.add(command.commandId);
-							commandCursor = Math.max(commandCursor, command.sequence);
-						}).pipe(
-							Effect.catch((error) => {
-								if (command.kind === "start-agent") return Effect.fail(error);
-								return Effect.gen(function* () {
-									yield* Effect.logError(
-										`[CloudWorkspaceRuntime] ${command.kind} failed: ${error.reason}`,
-									);
-									yield* postReady(
-										config,
-										bootstrap.runtimeCredential,
-										"command-failed",
-										command.commandId,
-										error.reason,
-									).pipe(Effect.retry(Schedule.spaced("1 second")));
-									processedCommands.add(command.commandId);
-									commandCursor = Math.max(commandCursor, command.sequence);
-								});
-							}),
-						);
-
-					const fetchCommands = () =>
-						requestJson({
-							schema: CommandsResponse,
-							url: `${config.relayUrl}${RelayPaths.cloudWorkspaceCommands(config.workspaceId)}?after=${commandCursor}`,
-							token: bootstrap.runtimeCredential,
-						}).pipe(
-							Effect.flatMap((response) =>
-								Effect.forEach(response.commands, processCommand, {
-									concurrency: 1,
-									discard: true,
-								}),
-							),
-						);
-
-					let lastActivityPublishedAt = 0;
-					const publishActivity = () => {
-						const now = Date.now();
-						if (now - lastActivityPublishedAt < 30_000) return;
-						lastActivityPublishedAt = now;
-						void Effect.runPromise(
+									sessionDomain
+										.currentStreamVersion(bootstrap.initialSessionId)
+										.pipe(
+											Effect.mapError(() =>
+												fail("workspace_summary_head_unavailable"),
+											),
+										),
+									Clock.currentTimeMillis,
+								],
+								{ concurrency: "unbounded" },
+							);
+						return { title: chat.title, lastActivityAt, sessionHeadVersion };
+					});
+					const summaryPublisher = yield* makeCloudRuntimeSummaryPublisher({
+						now: Clock.currentTimeMillis,
+						read: readRuntimeSummary,
+						write: (summary) =>
 							requestJson({
-								schema: Schema.Unknown,
-								url: `${config.relayUrl}${RelayPaths.cloudWorkspaceActivity(config.workspaceId)}`,
-								token: bootstrap.runtimeCredential,
+								schema: RuntimeSummaryResponse,
+								url: `${config.relayUrl}${RelayPaths.cloudWorkspaceSummary(config.workspaceId)}`,
+								token: runtimeCredential.credential,
 								method: "POST",
-							}).pipe(Effect.ignore),
-						);
-					};
-					type EventPayload = ReturnType<typeof eventPayload>;
-					const replicateEventBatch = (events: ReadonlyArray<EventPayload>) => {
-						const firstSequence = events[0]?.runtimeSequence;
-						const lastSequence = events.at(-1)?.runtimeSequence;
-						return requestJson({
-							schema: EventsResponse,
-							url: `${config.relayUrl}${RelayPaths.cloudWorkspaceEvents(config.workspaceId)}`,
-							token: bootstrap.runtimeCredential,
-							method: "POST",
-							body: { events },
-						}).pipe(
-							Effect.tap(() => Effect.sync(publishActivity)),
-							Effect.tap(() =>
-								Effect.logDebug(
-									`[CloudWorkspaceRuntime] replicated ${events.length} event(s) (${firstSequence ?? "?"}-${lastSequence ?? "?"})`,
-								),
+								body: summary,
+							}).pipe(
+								Effect.mapError(() => fail("workspace_summary_publish_failed")),
 							),
-							Effect.asVoid,
+					});
+					const publishActivity = () => {
+						void Effect.runPromise(
+							summaryPublisher.publish("activity").pipe(Effect.ignore),
 						);
 					};
-					yield* replicateCloudWorkspaceEvents(
-						sessions
-							.allEvents({ afterSequence: 0 })
-							.pipe(Stream.map(eventPayload)),
-						replicateEventBatch,
-						(event) => Buffer.byteLength(event.payloadJson, "utf8") + 512,
-					).pipe(
-						// The local event log is the runtime outbox. Keep replaying after
-						// transient relay failures; the control plane deduplicates event IDs.
-						Effect.retry(Schedule.spaced("1 second")),
-						Effect.forkScoped({ startImmediately: true }),
+					const sessionEventCursor = yield* sessionDomain.currentSequence.pipe(
+						Effect.mapError(() => fail("workspace_summary_cursor_unavailable")),
 					);
+					yield* sessionDomain
+						.allEvents({ afterSequence: sessionEventCursor })
+						.pipe(
+							Stream.filter(
+								(record) => record.streamId === bootstrap.initialSessionId,
+							),
+							Stream.runForEach((record) => {
+								const reason: RuntimeSummaryReason | null =
+									record.event._tag === "SessionTitleSet"
+										? "title"
+										: record.event._tag === "TurnSettled"
+											? "settled"
+											: record.event._tag === "MessagePersisted"
+												? "activity"
+												: null;
+								return reason === null
+									? Effect.void
+									: summaryPublisher
+											.publish(reason)
+											.pipe(Effect.retry(cloudRuntimeRetrySchedule));
+							}),
+							Effect.forkScoped({ startImmediately: true }),
+						);
 
 					const localSockets = new Map<string, WebSocket>();
-					const pendingFrames = new Map<string, Array<string | ArrayBuffer>>();
 					let gateway: WebSocket | null = null;
 					let repositoryReady = false;
-					// A fetch drains every command after the durable cursor, so only the
-					// newest wake-up matters. Sliding capacity one coalesces bursts and
-					// remains bounded while the relay or local runtime is unavailable.
-					const commandSignals = yield* Queue.sliding<number>(1);
 					const sendGateway = (message: unknown) => {
 						if (gateway?.readyState === WebSocket.OPEN)
-							gateway.send(JSON.stringify(message));
+							gateway.send(
+								typeof message === "string" || message instanceof ArrayBuffer
+									? message
+									: JSON.stringify(message),
+							);
 					};
 					const openLocal = (connectionId: string) => {
 						if (localSockets.has(connectionId)) return;
@@ -615,36 +715,45 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						const socket = new WebSocket(url);
 						socket.binaryType = "arraybuffer";
 						localSockets.set(connectionId, socket);
-						socket.addEventListener("open", () => {
-							for (const frame of pendingFrames.get(connectionId) ?? [])
-								socket.send(frame);
-							pendingFrames.delete(connectionId);
-						});
 						socket.addEventListener("message", (event) => {
 							publishActivity();
-							if (typeof event.data === "string")
-								sendGateway({
-									type: "runtime.frame",
-									connectionId,
-									encoding: "text",
-									payload: event.data,
-								});
-							else if (event.data instanceof ArrayBuffer)
-								sendGateway({
-									type: "runtime.frame",
-									connectionId,
-									encoding: "base64",
-									payload: Buffer.from(event.data).toString("base64"),
-								});
+							if (
+								typeof event.data === "string" ||
+								event.data instanceof ArrayBuffer ||
+								ArrayBuffer.isView(event.data)
+							) {
+								try {
+									sendGateway(
+										encodeWorkspaceGatewayFrame({
+											direction: "runtime",
+											connectionId,
+											payload:
+												typeof event.data === "string"
+													? event.data
+													: workspaceGatewayArrayBuffer(event.data),
+										}),
+									);
+								} catch {
+									socket.close(1009, "local RPC frame too large");
+								}
+							}
 						});
-						socket.addEventListener("close", () =>
-							localSockets.delete(connectionId),
-						);
+						socket.addEventListener("close", () => {
+							// Only the socket still owned by this connection may tear the
+							// route down. A delayed close from a replaced local socket must
+							// not terminate its successor.
+							if (localSockets.get(connectionId) !== socket) return;
+							localSockets.delete(connectionId);
+							// The gateway deliberately has no replay buffer. Closing the
+							// disposable client makes its one supervisor reconnect and
+							// resume every retained resource from a durable cursor.
+							sendGateway({ type: "client.close", connectionId });
+						});
 					};
 
 					const connectGateway = websocketClosed(
 						bootstrap.gatewayUrl,
-						[bootstrap.gatewayProtocol, bootstrap.runtimeCredential],
+						() => [bootstrap.gatewayProtocol, runtimeCredential.credential],
 						(socket) => {
 							gateway = socket;
 							const reconnectPhase =
@@ -653,23 +762,41 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								void Effect.runPromise(
 									postReady(
 										config,
-										bootstrap.runtimeCredential,
+										runtimeCredential.credential,
 										reconnectPhase,
 									).pipe(Effect.ignore),
 								);
 							socket.addEventListener("message", (event) => {
+								if (
+									event.data instanceof ArrayBuffer ||
+									ArrayBuffer.isView(event.data)
+								) {
+									const frame = decodeWorkspaceGatewayFrame(
+										workspaceGatewayArrayBuffer(event.data),
+									);
+									if (frame?.direction !== "client") return;
+									publishActivity();
+									const local = localSockets.get(frame.connectionId);
+									// No frame buffer lives in either gateway. A client that wins
+									// the local-open race reconnects and resumes from its cursor.
+									if (local?.readyState === WebSocket.OPEN) {
+										local.send(frame.payload);
+									} else {
+										local?.close(1013, "local runtime synchronizing");
+										localSockets.delete(frame.connectionId);
+										sendGateway({
+											type: "client.close",
+											connectionId: frame.connectionId,
+										});
+									}
+									return;
+								}
 								if (typeof event.data !== "string") return;
 								let message: Record<string, unknown>;
 								try {
 									message = JSON.parse(event.data) as Record<string, unknown>;
 								} catch {
 									return;
-								}
-								if (
-									message.type === "command.available" &&
-									typeof message.throughSequence === "number"
-								) {
-									Queue.offerUnsafe(commandSignals, message.throughSequence);
 								}
 								if (
 									message.type === "client.open" &&
@@ -683,31 +810,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 									localSockets.get(message.connectionId)?.close();
 									localSockets.delete(message.connectionId);
 								}
-								if (
-									message.type === "client.frame" &&
-									typeof message.connectionId === "string" &&
-									typeof message.payload === "string"
-								) {
-									publishActivity();
-									const frame =
-										message.encoding === "base64"
-											? Uint8Array.from(Buffer.from(message.payload, "base64"))
-													.buffer
-											: message.payload;
-									const local = localSockets.get(message.connectionId);
-									if (local?.readyState === WebSocket.OPEN) local.send(frame);
-									else {
-										const queued =
-											pendingFrames.get(message.connectionId) ?? [];
-										queued.push(frame);
-										pendingFrames.set(message.connectionId, queued);
-										openLocal(message.connectionId);
-									}
-								}
 							});
 						},
 					).pipe(
-						Effect.retry(Schedule.exponential("100 millis")),
+						Effect.retry(cloudRuntimeRetrySchedule),
 						Effect.ensuring(
 							Effect.sync(() => {
 								gateway = null;
@@ -719,16 +825,68 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					yield* connectGateway.pipe(
 						Effect.forkScoped({ startImmediately: true }),
 					);
+
 					yield* waitForRepository;
 					repositoryReady = true;
 					yield* postReady(
 						config,
-						bootstrap.runtimeCredential,
+						runtimeCredential.credential,
 						"repository-ready",
+					).pipe(Effect.retry(cloudRuntimeRetrySchedule));
+					const launchIntent = bootstrap.launchIntent;
+					if (launchIntent !== undefined) {
+						const started = yield* startCloudWorkspaceLaunchIntent({
+							workspaces,
+							chats,
+							chatId: bootstrap.chatId,
+							sessionId: bootstrap.initialSessionId,
+							launchIntent,
+						}).pipe(Effect.result);
+						if (started._tag === "Failure") {
+							yield* postReady(
+								config,
+								runtimeCredential.credential,
+								"launch-failed",
+								launchIntent.commandId,
+								started.failure.reason,
+							).pipe(Effect.retry(cloudRuntimeRetrySchedule));
+							return yield* Effect.fail(started.failure);
+						}
+						yield* postReady(
+							config,
+							runtimeCredential.credential,
+							"agent-started",
+							launchIntent.commandId,
+							undefined,
+							yield* sessionDomain
+								.currentStreamVersion(bootstrap.initialSessionId)
+								.pipe(
+									Effect.mapError(() =>
+										fail("workspace_launch_receipt_unavailable"),
+									),
+								),
+						).pipe(Effect.retry(cloudRuntimeRetrySchedule));
+					}
+					yield* summaryPublisher
+						.publish("initial")
+						.pipe(Effect.retry(cloudRuntimeRetrySchedule));
+					const runtimeChat = yield* chats
+						.getChat(ChatId.make(bootstrap.chatId))
+						.pipe(
+							Effect.mapError(() => fail("workspace_summary_chat_unavailable")),
+						);
+					yield* chats.streamChatChanges(runtimeChat.projectId).pipe(
+						Stream.filter((change) =>
+							change._tag === "snapshot"
+								? change.chats.some((chat) => chat.id === runtimeChat.id)
+								: change.chat.id === runtimeChat.id,
+						),
+						Stream.runForEach(() =>
+							summaryPublisher
+								.publish("title")
+								.pipe(Effect.retry(cloudRuntimeRetrySchedule)),
+						),
+						Effect.forkScoped({ startImmediately: true }),
 					);
-					yield* pollCloudWorkspaceCommands(
-						fetchCommands(),
-						commandSignals,
-					).pipe(Effect.forkScoped({ startImmediately: true }));
 				}),
 			);

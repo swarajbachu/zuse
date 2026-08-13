@@ -4,6 +4,8 @@ import {
 	type AgentItemId,
 	isRedundantShellDescription,
 } from "@zuse/contracts";
+import { CheckpointFlushScheduler } from "../../kernel/provider-checkpoint-batcher.ts";
+import { appendStreamText } from "../../kernel/stream-text.ts";
 
 /**
  * Shared translator for Agent Client Protocol (ACP) `session/update` frames.
@@ -84,15 +86,17 @@ const extractMessageText = (content: unknown): string | null => {
 
 const extractCallId = (u: Record<string, unknown>): AgentItemId => {
 	const raw =
-		typeof u["toolCallId"] === "string"
-			? u["toolCallId"]
-			: typeof u["call_id"] === "string"
-				? u["call_id"]
-				: typeof u["callId"] === "string"
-					? u["callId"]
-					: typeof u["id"] === "string"
-						? u["id"]
-						: null;
+		typeof u["itemId"] === "string"
+			? u["itemId"]
+			: typeof u["toolCallId"] === "string"
+				? u["toolCallId"]
+				: typeof u["call_id"] === "string"
+					? u["call_id"]
+					: typeof u["callId"] === "string"
+						? u["callId"]
+						: typeof u["id"] === "string"
+							? u["id"]
+							: null;
 	return raw !== null ? (raw as AgentItemId) : nextItemId();
 };
 
@@ -973,6 +977,12 @@ interface AcpTranslator {
 	flush(): ReadonlyArray<AgentEvent>;
 }
 
+export interface AcpTranslatorCheckpointOptions {
+	readonly onCheckpoint: (events: ReadonlyArray<AgentEvent>) => void;
+	readonly intervalMs?: number;
+	readonly maxBytes?: number;
+}
+
 /**
  * Per-tool-call state we keep so we can dedupe events. ACP servers re-send
  * `tool_call_update` frames for the same id as a call progresses (pending →
@@ -1131,18 +1141,6 @@ const scoreGrokTaskMatch = (task: GrokCursorTaskRun, text: string): number => {
 	return score;
 };
 
-const appendStreamText = (buffer: string, text: string): string => {
-	if (
-		buffer.length > 0 &&
-		text.length > 0 &&
-		/[A-Za-z0-9]$/.test(buffer) &&
-		/^[A-Z][a-z]/.test(text)
-	) {
-		return `${buffer} ${text}`;
-	}
-	return `${buffer}${text}`;
-};
-
 /**
  * Create a per-session translator. Stateful because:
  *   1. ACP's `agent_message_chunk` is a delta protocol — we buffer
@@ -1152,11 +1150,14 @@ const appendStreamText = (buffer: string, text: string): string => {
  */
 export const createAcpTranslator = (
 	provider: AcpProviderTag,
+	checkpointOptions?: AcpTranslatorCheckpointOptions,
 ): AcpTranslator => {
-	// Buffer for the in-flight assistant message text. Reset to "" after
-	// each flush.
+	// Buffers are cumulative for the lifetime of one logical provider item.
+	// Checkpoint emission never clears them; only a final/order boundary does.
 	let assistantBuffer = "";
 	let assistantItemId: AgentItemId | null = null;
+	let assistantCheckpointLength = 0;
+	let assistantRevision = 0;
 
 	// Parallel buffer for thinking/reasoning chunks (Grok agent streams these
 	// one token at a time). We coalesce them into a single Thinking event so
@@ -1164,6 +1165,8 @@ export const createAcpTranslator = (
 	// rows.
 	let thinkingBuffer = "";
 	let thinkingItemId: AgentItemId | null = null;
+	let thinkingCheckpointLength = 0;
+	let thinkingRevision = 0;
 
 	const toolStates = new Map<string, ToolCallState>();
 	const collabAgentsByThread = new Map<string, CollabAgentRun>();
@@ -1172,15 +1175,18 @@ export const createAcpTranslator = (
 	const grokPrefixToTask = new Map<string, AgentItemId>();
 	const grokTaskLaunchPrefixes = new Set<string>();
 	let lastGrokCursorTextParentItemId: AgentItemId | undefined;
+	let checkpointScheduler: CheckpointFlushScheduler | null = null;
 
 	const flushAssistant = (): ReadonlyArray<AgentEvent> => {
 		if (assistantBuffer.length === 0) return [];
 		const parentItemId = grokCursorTextParentFor(assistantBuffer);
+		assistantRevision += 1;
 		const ev: AgentEvent = {
 			_tag: "AssistantMessage",
 			itemId: assistantItemId ?? nextItemId(),
 			text: assistantBuffer,
 			parentItemId,
+			checkpoint: { revision: assistantRevision, final: true },
 		};
 		noteGrokCursorTaskChild(parentItemId, assistantBuffer);
 		trace(
@@ -1189,18 +1195,22 @@ export const createAcpTranslator = (
 		);
 		assistantBuffer = "";
 		assistantItemId = null;
+		assistantCheckpointLength = 0;
+		assistantRevision = 0;
 		return [ev];
 	};
 
 	const flushThinking = (): ReadonlyArray<AgentEvent> => {
 		if (thinkingBuffer.length === 0) return [];
 		const parentItemId = grokCursorTextParentFor(thinkingBuffer);
+		thinkingRevision += 1;
 		const ev: AgentEvent = {
 			_tag: "Thinking",
 			itemId: thinkingItemId ?? nextItemId(),
 			text: thinkingBuffer,
 			redacted: false,
 			parentItemId,
+			checkpoint: { revision: thinkingRevision, final: true },
 		};
 		noteGrokCursorTaskChild(parentItemId);
 		trace(
@@ -1209,6 +1219,8 @@ export const createAcpTranslator = (
 		);
 		thinkingBuffer = "";
 		thinkingItemId = null;
+		thinkingCheckpointLength = 0;
+		thinkingRevision = 0;
 		return [ev];
 	};
 
@@ -1222,6 +1234,66 @@ export const createAcpTranslator = (
 		const t = flushThinking();
 		const a = flushAssistant();
 		return t.length === 0 ? a : a.length === 0 ? t : [...t, ...a];
+	};
+
+	const checkpointPending = (): ReadonlyArray<AgentEvent> => {
+		const out: AgentEvent[] = [];
+		if (
+			thinkingItemId !== null &&
+			thinkingBuffer.length > thinkingCheckpointLength
+		) {
+			const parentItemId = grokCursorTextParentFor(thinkingBuffer);
+			thinkingRevision += 1;
+			out.push({
+				_tag: "Thinking",
+				itemId: thinkingItemId,
+				text: thinkingBuffer,
+				redacted: false,
+				parentItemId,
+				checkpoint: { revision: thinkingRevision, final: false },
+			});
+			noteGrokCursorTaskChild(parentItemId);
+			thinkingCheckpointLength = thinkingBuffer.length;
+		}
+		if (
+			assistantItemId !== null &&
+			assistantBuffer.length > assistantCheckpointLength
+		) {
+			const parentItemId = grokCursorTextParentFor(assistantBuffer);
+			assistantRevision += 1;
+			out.push({
+				_tag: "AssistantMessage",
+				itemId: assistantItemId,
+				text: assistantBuffer,
+				parentItemId,
+				checkpoint: { revision: assistantRevision, final: false },
+			});
+			noteGrokCursorTaskChild(parentItemId, assistantBuffer);
+			assistantCheckpointLength = assistantBuffer.length;
+		}
+		return out;
+	};
+
+	const emitCheckpoint = (): void => {
+		const events = checkpointPending();
+		if (events.length > 0) checkpointOptions?.onCheckpoint(events);
+	};
+
+	if (checkpointOptions !== undefined) {
+		checkpointScheduler = new CheckpointFlushScheduler({
+			onFlush: emitCheckpoint,
+			intervalMs: checkpointOptions.intervalMs,
+			maxBytes: checkpointOptions.maxBytes,
+		});
+	}
+
+	const scheduleCheckpoint = (): void => {
+		if (checkpointScheduler === null) return;
+		const bufferedBytes = Buffer.byteLength(
+			assistantBuffer.slice(assistantCheckpointLength) +
+				thinkingBuffer.slice(thinkingCheckpointLength),
+		);
+		checkpointScheduler.update(bufferedBytes);
 	};
 
 	const getOrInitToolState = (id: string): ToolCallState => {
@@ -1450,8 +1522,8 @@ export const createAcpTranslator = (
 					text = cleaned;
 				}
 			}
-			if (thinkingItemId === null) thinkingItemId = nextItemId();
-			thinkingBuffer = appendStreamText(thinkingBuffer, text);
+			if (thinkingItemId === null) thinkingItemId = extractCallId(u);
+			thinkingBuffer = appendStreamText(thinkingBuffer, text, "sentence-start");
 			trace(
 				provider,
 				`buffer thinking chunk len=${text.length} totalLen=${thinkingBuffer.length}`,
@@ -1467,8 +1539,12 @@ export const createAcpTranslator = (
 					? extractMessageText(u["content"])
 					: asText(u["content"]);
 			if (text === null || text.length === 0) return flushed;
-			if (assistantItemId === null) assistantItemId = nextItemId();
-			assistantBuffer = appendStreamText(assistantBuffer, text);
+			if (assistantItemId === null) assistantItemId = extractCallId(u);
+			assistantBuffer = appendStreamText(
+				assistantBuffer,
+				text,
+				"sentence-start",
+			);
 			trace(
 				provider,
 				`buffer message chunk len=${text.length} totalLen=${assistantBuffer.length}`,
@@ -2100,8 +2176,13 @@ export const createAcpTranslator = (
 	};
 
 	return {
-		translate: translateOne,
+		translate: (update) => {
+			const events = translateOne(update);
+			scheduleCheckpoint();
+			return events;
+		},
 		flush: () => {
+			checkpointScheduler?.cancel();
 			const pending = flushPending();
 			const finishedTasks = finishGrokCursorTasks();
 			return finishedTasks.length === 0

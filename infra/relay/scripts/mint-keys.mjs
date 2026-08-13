@@ -3,10 +3,10 @@
 //
 // - PUBLIC  -> wrangler.jsonc `RELAY_MINT_PUBLIC_JWK`
 // - PRIVATE -> `bunx wrangler secret put RELAY_MINT_PRIVATE_JWK` (paste when prompted)
-import { generateKeyPair, exportJWK } from "jose";
+import { exportJWK, generateKeyPair } from "jose";
 
 const { privateKey, publicKey } = await generateKeyPair("EdDSA", {
-  extractable: true,
+	extractable: true,
 });
 
 console.log("PUBLIC (RELAY_MINT_PUBLIC_JWK):");

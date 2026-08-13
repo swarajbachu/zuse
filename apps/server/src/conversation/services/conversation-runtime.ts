@@ -3,6 +3,7 @@ import type {
 	ChatServiceShape,
 	MessageServiceShape,
 	QueueServiceShape,
+	QueueTransactionServiceShape,
 	SessionServiceShape,
 	TranscriptServiceShape,
 } from "../services/conversation-services.ts";
@@ -14,6 +15,7 @@ export interface ConversationRuntimeShape {
 	readonly transcript: TranscriptServiceShape;
 	readonly message: MessageServiceShape;
 	readonly queue: QueueServiceShape;
+	readonly queueTransaction: QueueTransactionServiceShape;
 }
 
 export class ConversationRuntime extends Context.Service<

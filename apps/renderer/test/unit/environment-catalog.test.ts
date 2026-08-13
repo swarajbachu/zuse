@@ -1,12 +1,4 @@
 import { scopedCacheKey } from "@zuse/client-runtime/environment-scope";
-import {
-	type Chat,
-	EnvironmentId,
-	type Folder,
-	type FolderId,
-	type Message,
-	type Session,
-} from "@zuse/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 // The coordinator now kicks off chat hydration (which wires the change
@@ -32,21 +24,13 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 
 import { createInitializationGate } from "../../src/lib/initialization-gate.ts";
 import { terminalRuntimeKey } from "../../src/lib/terminal-registry.ts";
-import { useChatsStore } from "../../src/store/chats.ts";
 import {
 	cloudConnectionFailure,
 	createConnectionAttemptCoordinator,
 	type EnvironmentCatalogEntry,
 	orderEnvironmentCatalog,
-	relayEnvironmentsNeedingConnection,
 	validateSshTarget,
 } from "../../src/store/environment-catalog.ts";
-import {
-	activateEnvironmentState,
-	createEnvironmentStateRegistry,
-} from "../../src/store/environment-state-coordinator.ts";
-import { useMessagesStore } from "../../src/store/messages.ts";
-import { useSessionsStore } from "../../src/store/sessions.ts";
 
 const entry = (
 	label: string,
@@ -64,10 +48,6 @@ const entry = (
 	descriptor: null,
 	status,
 	error: null,
-	folders: [],
-	originsByFolder: {},
-	chatsByProject: {},
-	sessionsByProject: {},
 });
 
 describe("environment catalog", () => {
@@ -105,28 +85,6 @@ describe("environment catalog", () => {
 				entry("Remote", "remote", "connected"),
 			]).map(({ label }) => label),
 		).toEqual(["Local", "Relay", "Remote", "Offline"]);
-	});
-
-	it("retries an already-known relay environment stuck while connecting", () => {
-		const connecting = entry("Cloud", null, "connecting", "relay");
-		const connected = entry("Ready", null, "connected", "relay");
-		const records = [
-			{
-				environmentId: EnvironmentId.make(connecting.environmentId),
-				providerKind: "cloud" as const,
-				linkedAt: 1,
-			},
-			{
-				environmentId: EnvironmentId.make(connected.environmentId),
-				providerKind: "cloud" as const,
-				linkedAt: 1,
-			},
-		] satisfies Parameters<typeof relayEnvironmentsNeedingConnection>[0];
-		expect(
-			relayEnvironmentsNeedingConnection(records, [connecting, connected]).map(
-				(environment) => environment.environmentId,
-			),
-		).toEqual([connecting.environmentId]);
 	});
 
 	it("replaces an in-flight connection attempt that never became ready", async () => {
@@ -203,70 +161,5 @@ describe("environment catalog", () => {
 		expect(terminalRuntimeKey("env-a", "terminal-1")).not.toBe(
 			terminalRuntimeKey("env-b", "terminal-1"),
 		);
-	});
-
-	it("seeds a freshly created chat during activation and restarts chat hydration", async () => {
-		const folderId = "folder-remote" as FolderId;
-		const folder = { id: folderId, name: "Remote folder" } as unknown as Folder;
-		const catalogEntry: EnvironmentCatalogEntry = {
-			...entry("Remote", "remote", "connected"),
-			folders: [folder],
-		};
-		const chat = {
-			id: "chat-seeded",
-			projectId: folderId,
-			title: "Seeded",
-			archivedAt: null,
-		} as unknown as Chat;
-		const initialSession = {
-			id: "session-seeded",
-			projectId: folderId,
-			chatId: "chat-seeded",
-		} as unknown as Session;
-		const initialMessage = { id: "message-seeded" } as unknown as Message;
-		const selectedFolderId = await activateEnvironmentState({
-			fromEnvironmentId: "env-local",
-			entry: catalogEntry,
-			seed: { chat, initialSession, initialMessage },
-			activateConnection: async () => undefined,
-			resolveEntry: () => catalogEntry,
-		});
-		expect(selectedFolderId).toBe(folderId);
-		expect(useChatsStore.getState().chatsByProject[folderId]?.[0]?.id).toBe(
-			"chat-seeded",
-		);
-		expect(
-			useSessionsStore.getState().sessionsByProject[folderId]?.[0]?.id,
-		).toBe("session-seeded");
-		expect(
-			useMessagesStore.getState().messagesBySession["session-seeded"]?.[0]?.id,
-		).toBe("message-seeded");
-		// Stream-restart regression: the coordinator pre-populates
-		// `chatsByProject`, which defeats the sidebar's lazy-hydrate guard, so
-		// activation itself must kick off `hydrate` (the only path that
-		// re-establishes `chat.streamChanges`) for every restored folder.
-		expect(useChatsStore.getState().loadingByProject[folderId]).toBe(true);
-	});
-
-	it("restores isolated state when server IDs collide", () => {
-		let state: unknown = { chatId: "same-id", environment: "local" };
-		const registry = createEnvironmentStateRegistry([
-			{
-				getState: () => state,
-				getInitialState: () => ({ chatId: null, environment: null }),
-				setState: (next) => {
-					state = next;
-				},
-			},
-		]);
-
-		registry.capture("env-local");
-		state = { chatId: "same-id", environment: "remote" };
-		registry.capture("env-remote");
-
-		registry.restore("env-local");
-		expect(state).toEqual({ chatId: "same-id", environment: "local" });
-		registry.restore("env-remote");
-		expect(state).toEqual({ chatId: "same-id", environment: "remote" });
 	});
 });

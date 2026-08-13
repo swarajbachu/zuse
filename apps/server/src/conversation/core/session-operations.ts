@@ -19,6 +19,7 @@ import {
 	type WorktreeId,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
+import type { CommandReceipt } from "@zuse/domain/engine/dispatch";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
 import type { SqlSessionQueriesApi } from "@zuse/domain/queries/sql-session-queries";
 import { Effect, Schema, type Scope } from "effect";
@@ -56,6 +57,11 @@ export interface SessionOperationsOptions
 		sessionId: SessionId,
 		command: SessionCommand,
 	) => Effect.Effect<void>;
+	readonly dispatchSessionCommandWithId: (
+		sessionId: SessionId,
+		commandId: string,
+		command: SessionCommand,
+	) => Effect.Effect<CommandReceipt>;
 	readonly ndjsonAppend: (
 		sessionId: SessionId,
 		persisted: PersistedMessage,
@@ -121,6 +127,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		persistMessage,
 		runSessionReactors,
 		dispatchSessionCommand,
+		dispatchSessionCommandWithId,
 		ndjsonAppend,
 		closeProvider,
 		interruptProviderFiber,
@@ -264,10 +271,11 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				}
 			}
 			const initialTurnId = hasInitial
-				? AgentTurnId.make(`turn_${crypto.randomUUID()}`)
+				? (input.initialTurnId ??
+					AgentTurnId.make(`turn_${crypto.randomUUID()}`))
 				: null;
 			const initialMessageId = hasInitial
-				? MessageId.make(crypto.randomUUID())
+				? (input.initialMessageId ?? MessageId.make(crypto.randomUUID()))
 				: null;
 			const resumeCursor = input.resumeCursor ?? null;
 			const resumeStrategy: ResumeStrategy =
@@ -296,7 +304,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			const rowStatus: Session["status"] = hasInitial ? "booting" : "idle";
 			const createSessionRecord = sessionDomain
 				.dispatch({
-					commandId: `session:create:${sessionId}`,
+					commandId: input.commandId ?? `session:create:${sessionId}`,
 					streamId: sessionId,
 					command: {
 						_tag: hasInitial ? "CreateSessionWithInitialTurn" : "CreateSession",
@@ -395,10 +403,11 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 	const renameSession: ConversationOperations["renameSession"] = (
 		sessionId,
 		title,
+		commandId,
 	) =>
 		Effect.gen(function* () {
 			yield* lookupSession(sessionId);
-			yield* dispatchSessionCommand(sessionId, {
+			yield* dispatchSessionCommandWithId(sessionId, commandId, {
 				_tag: "SetTitle",
 				title,
 				titleProvenance: "manual",
@@ -415,10 +424,11 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 	const setRuntimeMode: ConversationOperations["setRuntimeMode"] = (
 		sessionId,
 		runtimeMode,
+		commandId,
 	) =>
 		Effect.gen(function* () {
 			yield* lookupSession(sessionId);
-			yield* dispatchSessionCommand(sessionId, {
+			yield* dispatchSessionCommandWithId(sessionId, commandId, {
 				_tag: "SetRuntimeMode",
 				runtimeMode,
 				updatedAt: yield* currentTimestamp,
@@ -437,10 +447,11 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 	const setPermissionMode: ConversationOperations["setPermissionMode"] = (
 		sessionId,
 		mode,
+		commandId,
 	) =>
 		Effect.gen(function* () {
 			yield* lookupSession(sessionId);
-			yield* dispatchSessionCommand(sessionId, {
+			yield* dispatchSessionCommandWithId(sessionId, commandId, {
 				_tag: "SetPermissionMode",
 				permissionMode: mode,
 				updatedAt: yield* currentTimestamp,

@@ -8,6 +8,8 @@ Object.defineProperty(globalThis, "location", {
 });
 
 const {
+	acquireRendererRpcSession,
+	canReuseCloudWorkspaceTicket,
 	isIgnorableRendererFailure,
 	RENDERER_WEBSOCKET_OPEN_TIMEOUT,
 	resolveRendererRpcTransportForTest,
@@ -59,11 +61,32 @@ describe("renderer RPC transport selection", () => {
 		expect(shouldRestartCloudWorkspaceConnection("connected")).toBe(false);
 	});
 
+	it("reuses a short-lived gateway ticket only outside its safety margin", () => {
+		const now = 1_000;
+		const ticket = {
+			workspaceId: "workspace-1",
+			wsUrl: "wss://cloud.example/workspaces/workspace-1",
+			protocol: "zuse-workspace-v1",
+			role: "client" as const,
+			generation: 1,
+			gatewayEpoch: 1,
+			credential: "ticket",
+			expiresAt: now + 60_000,
+		};
+		expect(canReuseCloudWorkspaceTicket(ticket, now)).toBe(true);
+		expect(
+			canReuseCloudWorkspaceTicket({ ...ticket, expiresAt: now + 10_000 }, now),
+		).toBe(false);
+	});
+
 	it("reconnects when a stable cloud gateway explicitly receives a new ticket", () => {
 		const refresh = async () => ({
 			workspaceId: "workspace-1",
 			wsUrl: "wss://cloud.example/workspaces/workspace-1",
 			protocol: "zuse-workspace-v1",
+			role: "client" as const,
+			generation: 1,
+			gatewayEpoch: 1,
 			credential: "new-ticket",
 			expiresAt: Date.now() + 60_000,
 		});
@@ -85,5 +108,58 @@ describe("renderer RPC transport selection", () => {
 				},
 			),
 		).toBe(true);
+	});
+
+	it("acquires a passive Bus session with refreshed credentials and no retry owner", async () => {
+		const events: string[] = [];
+		let close: (code: number) => void = () => undefined;
+		const hooks = {
+			prepare: async (environmentId: string) => {
+				events.push(`refresh:${environmentId}`);
+				return {
+					key: `workspace:${environmentId}`,
+					create: async (onClose: (code: number) => void) => {
+						events.push("create");
+						close = onClose;
+						return {
+							client: { id: "passive" } as never,
+							dispose: async () => {
+								events.push("dispose");
+							},
+						};
+					},
+				};
+			},
+			invalidateCloudTicket: (workspaceId: string) =>
+				events.push(`invalidate:${workspaceId}`),
+		};
+		const session = await acquireRendererRpcSession("workspace-1", {
+			onClose: (cause) => events.push(cause.message),
+			hooks,
+		});
+
+		expect(session.client).toEqual({ id: "passive" });
+		expect(events).toEqual(["refresh:workspace-1", "create"]);
+		close(1006);
+		expect(events).toEqual([
+			"refresh:workspace-1",
+			"create",
+			"invalidate:workspace-1",
+			"WebSocket closed (1006).",
+		]);
+		await session.dispose();
+		await session.dispose();
+		close(1006);
+		expect(events).toEqual([
+			"refresh:workspace-1",
+			"create",
+			"invalidate:workspace-1",
+			"WebSocket closed (1006).",
+			"dispose",
+		]);
+
+		const next = await acquireRendererRpcSession("workspace-1", { hooks });
+		expect(events.slice(-2)).toEqual(["refresh:workspace-1", "create"]);
+		await next.dispose();
 	});
 });

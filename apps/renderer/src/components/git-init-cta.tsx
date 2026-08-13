@@ -1,40 +1,33 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	GitBranchIcon,
-	Loading02Icon,
-} from "@zuse/icons/solid-rounded";
-import type { FolderId, WorktreeId } from "@zuse/contracts";
+import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
+import { GitBranchIcon, Loading02Icon } from "@zuse/icons/solid-rounded";
 import { useState } from "react";
 
 import { formatError } from "../lib/format-error.ts";
-import { useGitChangesStore } from "../store/git-changes.ts";
+import { initializeGitRepository } from "../lib/git-workspace-client-bus.ts";
 
 /**
  * Shared empty state shown wherever a git operation fails because the folder
  * isn't a Git repository (`GitNotARepoError`) — the Changes tab, the PR tab,
  * and the file Diff view all render this instead of dumping a raw error.
- * Clicking the button runs `git init` (via the git-changes store, which then
- * refreshes the status + PR stores too) so every pane recovers at once.
+ * Clicking the button runs `git init` and refreshes the canonical Git workspace
+ * resource so every retained surface recovers from the same snapshot.
  *
  * `compact` drops the explanatory line for tight spots like the Diff pane.
  */
 export function GitInitCta({
-	folderId,
-	worktreeId,
+	executionRef,
 	compact = false,
 	onInitialized,
 }: {
-	folderId: FolderId;
-	worktreeId: WorktreeId | null;
+	executionRef: ExecutionRef;
 	compact?: boolean;
 	/**
 	 * Fired after `git init` succeeds. Surfaces for callers (e.g. the Diff
-	 * view) that fetch their own data in a local effect and need to re-run it —
-	 * the store-backed tabs update reactively and don't need this.
+	 * view) that fetch their own data in a local effect and need to re-run it.
 	 */
 	onInitialized?: () => void;
 }) {
-	const initRepo = useGitChangesStore((s) => s.initRepo);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -43,7 +36,7 @@ export function GitInitCta({
 		setBusy(true);
 		setError(null);
 		try {
-			await initRepo(folderId, worktreeId);
+			await initializeGitRepository(executionRef);
 			onInitialized?.();
 		} catch (err) {
 			setError(formatError(err));

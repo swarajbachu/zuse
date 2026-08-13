@@ -1,14 +1,13 @@
 import {
 	type AgentItemId,
+	type EnvironmentId,
 	type Message,
 	MODEL_PRICING,
 	type SessionId,
 } from "@zuse/contracts";
 import { useMemo } from "react";
 
-import { useMessagesStore } from "../store/messages.ts";
-
-const EMPTY: ReadonlyArray<Message> = [];
+import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 
 const MODEL_LABEL: Record<string, string> = {
 	"claude-sonnet-5": "Sonnet",
@@ -93,9 +92,17 @@ interface AgentSlot {
  * Compact token-usage chip for the composer footer — same summary as
  * `CostFooter`, styled to sit beside the session timer.
  */
-export function CostChip({ sessionId }: { sessionId: SessionId }) {
-	const messages = useMessagesStore(
-		(s) => s.messagesBySession[sessionId] ?? EMPTY,
+export function CostChip({
+	sessionId,
+	environmentId,
+}: {
+	sessionId: SessionId;
+	environmentId: EnvironmentId;
+}) {
+	const { messages } = useRendererSessionTimeline(
+		sessionId,
+		"connect",
+		environmentId,
 	);
 	const summary = useCostSummary(messages);
 	if (summary === null || summary.lines.length === 0) return null;

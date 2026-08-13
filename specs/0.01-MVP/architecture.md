@@ -137,7 +137,7 @@ ServerLayer = Layer.mergeAll(
 
 ## Streaming
 
-Streaming RPCs (`pty.output`, `git.headChanged`, `agent.events`) follow a uniform pattern in the server: per-subscription `Mailbox<Event, Error>` + `Stream.unwrapScoped(Effect.gen { forkScoped pump; return Mailbox.toStream(mb) })`. The forked fiber dies when the renderer interrupts the subscription — clean teardown, no leaks. See `apps/server/src/pty/layers/pty-service.ts` and `apps/server/src/git/layers/git-service.ts` for the canonical shape.
+Streaming RPCs (`pty.output`, `git.workspaceChanges`, `agent.events`) follow a uniform pattern in the server: per-subscription scoped queue + stream. The forked producer dies when ClientBus releases the final keyed resource lease — clean teardown, no leaks. See the PTY and Git server handlers for the canonical shape.
 
 ## Persistence
 

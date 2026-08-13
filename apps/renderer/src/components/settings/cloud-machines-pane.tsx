@@ -28,10 +28,9 @@ import {
 import { selectActiveCloudMachine } from "../../lib/cloud-machine-selection.ts";
 import { hostedAccountId } from "../../lib/hosted-connect.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
-import {
-	getControlPlaneRpcClient,
-	getRpcClient,
-} from "../../lib/rpc-client.ts";
+import { runControlPlane } from "../../lib/control-plane-client.ts";
+import { dispatchEnvironmentShellCommand } from "../../lib/environment-shell-client-bus.ts";
+import { getRpcClient } from "../../lib/rpc-client.ts";
 import { switchToEnvironment } from "../../lib/switch-environment.ts";
 import { useEnvironmentCatalogStore } from "../../store/environment-catalog.ts";
 import { useUiStore } from "../../store/ui.ts";
@@ -150,6 +149,19 @@ export function CloudMachinesPane() {
 	const [runtimeUpdateBusy, setRuntimeUpdateBusy] = useState(false);
 	const [runtimeUpdateDialogOpen, setRuntimeUpdateDialogOpen] = useState(false);
 	const machineEnvironmentId = machine?.environmentId;
+	const machineCommand = useCallback(
+		<Result, Payload = unknown>(kind: string, payload: Payload) => {
+			if (machineEnvironmentId === undefined)
+				return Promise.reject(new Error("Cloud machine is unavailable."));
+			return dispatchEnvironmentShellCommand<Payload, Result>({
+				environmentId: machineEnvironmentId as never,
+				kind,
+				commandId: crypto.randomUUID() as never,
+				payload,
+			}).then(({ result }) => result);
+		},
+		[machineEnvironmentId],
+	);
 	const machineEnvironment = useEnvironmentCatalogStore((state) =>
 		machineEnvironmentId === undefined
 			? undefined
@@ -167,10 +179,9 @@ export function CloudMachinesPane() {
 
 	const load = useCallback(async () => {
 		try {
-			const client = await getControlPlaneRpcClient();
 			const [offers, machines] = await Promise.all([
-				Effect.runPromise(client["machines.offers"]()),
-				Effect.runPromise(client["machines.list"]()),
+				runControlPlane((client) => client["machines.offers"]()),
+				runControlPlane((client) => client["machines.list"]()),
 			]);
 			const nextOffer =
 				offers.offers.find((candidate) => candidate.kind === "persistent") ??
@@ -243,9 +254,8 @@ export function CloudMachinesPane() {
 				await openExternal(checkoutUrl);
 				return;
 			}
-			const client = await getControlPlaneRpcClient();
 			try {
-				const checkout = await Effect.runPromise(
+				const checkout = await runControlPlane((client) =>
 					client["machines.checkout"]({ offerId: offer.offerId }),
 				);
 				setCheckoutUrl(checkout.checkoutUrl);
@@ -263,7 +273,7 @@ export function CloudMachinesPane() {
 				) {
 					throw cause;
 				}
-				const created = await Effect.runPromise(
+				const created = await runControlPlane((client) =>
 					client["machines.create"]({
 						offerId: offer.offerId,
 						label: "Cloud machine",
@@ -303,10 +313,15 @@ export function CloudMachinesPane() {
 			return;
 		}
 		try {
-			const client = await getRpcClient(machineEnvironmentId);
 			const [status, keys] = await Promise.all([
-				Effect.runPromise(client["machine.privateNetwork.status"]()),
-				Effect.runPromise(client["machine.sshKeys.list"]()),
+				machineCommand<MachinePrivateNetworkStatus>(
+					"machine.privateNetwork.status",
+					{},
+				),
+				machineCommand<{ keys: ReadonlyArray<MachineSshKey> }>(
+					"machine.sshKeys.list",
+					{},
+				),
 			]);
 			setNetwork(status);
 			setSshMode(status.sshMode);
@@ -314,7 +329,7 @@ export function CloudMachinesPane() {
 		} catch {
 			// Connection recovery remains owned by the environment catalog.
 		}
-	}, [machineEnvironment?.status, machineEnvironmentId]);
+	}, [machineCommand, machineEnvironment?.status, machineEnvironmentId]);
 
 	useEffect(() => {
 		void refreshHostSettings();
@@ -328,18 +343,15 @@ export function CloudMachinesPane() {
 			return;
 		}
 		try {
-			const [environment, control] = await Promise.all([
-				getRpcClient(machineEnvironmentId),
-				getControlPlaneRpcClient(),
-			]);
-			const target = await Effect.runPromise(
+			const target = await runControlPlane((control) =>
 				control["machine.runtime.target"](),
 			);
 			setRuntimeTargetVersion(target.appVersion);
-			const next = await Effect.runPromise(
-				environment["machine.runtime.status"]({
+			const next = await machineCommand<MachineRuntimeStatus>(
+				"machine.runtime.status",
+				{
 					targetAppVersion: target.appVersion,
-				}),
+				},
 			);
 			setRuntimeStatus(next);
 			if (next.state === "current" || next.state === "updating") {
@@ -355,7 +367,7 @@ export function CloudMachinesPane() {
 			setRuntimeStatusUnavailable(true);
 			// Keep any last durable progress visible while the runtime reconnects.
 		}
-	}, [machineEnvironment?.status, machineEnvironmentId]);
+	}, [machineCommand, machineEnvironment?.status, machineEnvironmentId]);
 
 	useEffect(() => {
 		void refreshRuntimeStatus();
@@ -377,11 +389,11 @@ export function CloudMachinesPane() {
 		setRuntimeUpdateBusy(true);
 		setActionError(null);
 		try {
-			const environment = await getRpcClient(machineEnvironmentId);
-			const next = await Effect.runPromise(
-				environment["machine.runtime.update"]({
+			const next = await machineCommand<MachineRuntimeStatus>(
+				"machine.runtime.update",
+				{
 					targetAppVersion: runtimeTargetVersion,
-				}),
+				},
 			);
 			setRuntimeStatus(next);
 			setRuntimeUpdateDialogOpen(false);
@@ -441,12 +453,12 @@ export function CloudMachinesPane() {
 		setAction("network");
 		setActionError(null);
 		try {
-			const client = await getRpcClient(machineEnvironmentId);
-			const status = await Effect.runPromise(
-				client["machine.privateNetwork.enable"]({
+			const status = await machineCommand<MachinePrivateNetworkStatus>(
+				"machine.privateNetwork.enable",
+				{
 					authKey: networkKey,
 					sshMode,
-				}),
+				},
 			);
 			setNetwork(status);
 			setNetworkDialogOpen(false);
@@ -464,9 +476,13 @@ export function CloudMachinesPane() {
 		setAction("ssh-mode");
 		setActionError(null);
 		try {
-			const client = await getRpcClient(machineEnvironmentId);
 			setNetwork(
-				await Effect.runPromise(client["machine.sshMode.set"]({ mode })),
+				await machineCommand<MachinePrivateNetworkStatus>(
+					"machine.sshMode.set",
+					{
+						mode,
+					},
+				),
 			);
 		} catch {
 			setActionError("The SSH mode could not be updated.");
@@ -482,10 +498,9 @@ export function CloudMachinesPane() {
 		setAction("ssh-key");
 		setActionError(null);
 		try {
-			const client = await getRpcClient(machineEnvironmentId);
-			await Effect.runPromise(
-				client["machine.sshKeys.add"]({ publicKey: sshPublicKey.trim() }),
-			);
+			await machineCommand("machine.sshKeys.add", {
+				publicKey: sshPublicKey.trim(),
+			});
 			setSshPublicKey("");
 			await refreshHostSettings();
 		} catch {
@@ -500,10 +515,7 @@ export function CloudMachinesPane() {
 		setAction(`remove-key:${fingerprint}`);
 		setActionError(null);
 		try {
-			const client = await getRpcClient(machineEnvironmentId);
-			await Effect.runPromise(
-				client["machine.sshKeys.remove"]({ fingerprint }),
-			);
+			await machineCommand("machine.sshKeys.remove", { fingerprint });
 			await refreshHostSettings();
 		} catch {
 			setActionError("The SSH key could not be removed.");
@@ -881,8 +893,7 @@ export function CloudMachinesPane() {
 											setAction("billing");
 											setActionError(null);
 											try {
-												const client = await getControlPlaneRpcClient();
-												const portal = await Effect.runPromise(
+												const portal = await runControlPlane((client) =>
 													client["machines.billingPortal"](),
 												);
 												await openExternal(portal.portalUrl);
@@ -912,8 +923,7 @@ export function CloudMachinesPane() {
 										disabled={action !== null}
 										onClick={() =>
 											void machineAction("recover", async () => {
-												const client = await getControlPlaneRpcClient();
-												return Effect.runPromise(
+												return runControlPlane((client) =>
 													client["machines.recover"]({
 														machineId: machine.machineId,
 													}),
@@ -937,8 +947,7 @@ export function CloudMachinesPane() {
 										disabled={action !== null}
 										onClick={() =>
 											void machineAction("cancel", async () => {
-												const client = await getControlPlaneRpcClient();
-												return Effect.runPromise(
+												return runControlPlane((client) =>
 													client["machines.cancel"]({
 														machineId: machine.machineId,
 													}),
@@ -1178,8 +1187,7 @@ export function CloudMachinesPane() {
 									disabled={action !== null}
 									onClick={() => {
 										void machineAction("destroy", async () => {
-											const client = await getControlPlaneRpcClient();
-											const destroyed = await Effect.runPromise(
+											const destroyed = await runControlPlane((client) =>
 												client["machines.destroy"]({
 													machineId: machine.machineId,
 													confirmation: "destroy",

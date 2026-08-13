@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { OpencodeInventoryProvider } from "@zuse/contracts";
 import {
 	Add01Icon,
 	ArrowUpRight01Icon,
@@ -12,8 +13,6 @@ import {
 	ViewIcon,
 	ViewOffIcon,
 } from "@zuse/icons/solid-rounded";
-import type { OpencodeInventoryProvider } from "@zuse/contracts";
-import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -38,11 +37,13 @@ import {
 } from "~/components/ui/select";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { Switch } from "~/components/ui/switch";
-import { getRpcClient } from "~/lib/rpc-client";
+import { useSettingsStore } from "~/lib/settings-client-bus.ts";
 import { openExternal } from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
-import { useOpencodeInventory } from "~/store/opencode-inventory";
-import { useSettingsStore } from "~/store/settings";
+import {
+	dispatchOpencodeProviderCommand,
+	useOpencodeInventory,
+} from "~/store/opencode-inventory";
 
 /**
  * OpenCode is a meta-harness fronting ~150 model providers (models.dev) plus
@@ -90,14 +91,6 @@ export function OpencodeProviderManager() {
 		</div>
 	);
 }
-
-/** Fire an opencode provider-management RPC (caller refreshes inventory). */
-const rpc = async (
-	fn: (client: Awaited<ReturnType<typeof getRpcClient>>) => Promise<unknown>,
-): Promise<void> => {
-	const client = await getRpcClient();
-	await fn(client);
-};
 
 /* ─────────────────────────────── Logo ────────────────────────────────── */
 
@@ -291,17 +284,13 @@ function ConnectedProviderRow({
 	const remove = async () => {
 		setBusy(true);
 		try {
-			await rpc((client) =>
-				provider.custom
-					? Effect.runPromise(
-							client["provider.opencode.removeCustom"]({ id: provider.id }),
-						)
-					: Effect.runPromise(
-							client["provider.opencode.removeAuth"]({
-								providerId: provider.id,
-							}),
-						),
-			);
+			await (provider.custom
+				? dispatchOpencodeProviderCommand("provider.opencode.removeCustom", {
+						id: provider.id,
+					})
+				: dispatchOpencodeProviderCommand("provider.opencode.removeAuth", {
+						providerId: provider.id,
+					}));
 			onChanged();
 		} finally {
 			setBusy(false);
@@ -606,14 +595,10 @@ function ConnectKeyForm({
 		setBusy(true);
 		setStatus(null);
 		try {
-			await rpc((client) =>
-				Effect.runPromise(
-					client["provider.opencode.setAuth"]({
-						providerId,
-						apiKey: value.trim(),
-					}),
-				),
-			);
+			await dispatchOpencodeProviderCommand("provider.opencode.setAuth", {
+				providerId,
+				apiKey: value.trim(),
+			});
 			setValue("");
 			onChanged();
 			// Collapse the row — the refreshed inventory now shows it Connected.
@@ -629,11 +614,9 @@ function ConnectKeyForm({
 		setBusy(true);
 		setStatus(null);
 		try {
-			await rpc((client) =>
-				Effect.runPromise(
-					client["provider.opencode.removeAuth"]({ providerId }),
-				),
-			);
+			await dispatchOpencodeProviderCommand("provider.opencode.removeAuth", {
+				providerId,
+			});
 			onChanged();
 		} catch (err) {
 			setStatus(err instanceof Error ? err.message : String(err));
@@ -768,21 +751,17 @@ function CustomProviderDialog({
 		setBusy(true);
 		setError(null);
 		try {
-			await rpc((client) =>
-				Effect.runPromise(
-					client["provider.opencode.addCustom"]({
-						id,
-						name: name.trim(),
-						baseURL: baseURL.trim(),
-						npm,
-						apiKey: apiKey.trim(),
-						models: validModels.map((m) => ({
-							id: m.id.trim(),
-							name: m.name.trim().length > 0 ? m.name.trim() : m.id.trim(),
-						})),
-					}),
-				),
-			);
+			await dispatchOpencodeProviderCommand("provider.opencode.addCustom", {
+				id,
+				name: name.trim(),
+				baseURL: baseURL.trim(),
+				npm,
+				apiKey: apiKey.trim(),
+				models: validModels.map((m) => ({
+					id: m.id.trim(),
+					name: m.name.trim().length > 0 ? m.name.trim() : m.id.trim(),
+				})),
+			});
 			onChanged();
 			reset();
 			setOpen(false);

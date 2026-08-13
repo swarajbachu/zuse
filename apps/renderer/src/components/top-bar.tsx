@@ -1,8 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { ChatRef, ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import {
+	CommandId,
 	ComposerInput,
+	EnvironmentId,
 	type FolderId,
 	type GitBranchInfo,
+	type GitFailingChecksArtifact,
 	type GitMergeMethod,
 	type WorktreeId,
 } from "@zuse/contracts";
@@ -28,7 +32,6 @@ import {
 	Upload01Icon,
 	Wrench01Icon,
 } from "@zuse/icons/solid-rounded";
-import { Effect } from "effect";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
 	type CSSProperties,
@@ -46,10 +49,20 @@ import {
 } from "../lib/branch-workflow.ts";
 import type { OpenTarget } from "../lib/bridge.ts";
 import { cloudTopBarContext } from "../lib/cloud-top-bar-context.ts";
+import {
+	cloudSummaryForChat,
+	useCloudChatCatalogStore,
+} from "../lib/cloud-workspace-catalog.ts";
+import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
+import {
+	dispatchGitWorkspaceCommand,
+	refreshGitWorkspace,
+	useGitWorkspaceResource,
+} from "../lib/git-workspace-client-bus.ts";
 import { isMacHost } from "../lib/host-platform.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
-import { getActiveEnvironment, getRpcClient } from "../lib/rpc-client.ts";
 import { openTerminalCommand } from "../lib/run-terminal.ts";
+import { sendSessionMessage } from "../lib/session-actions.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import {
@@ -57,15 +70,13 @@ import {
 	chatArchiveProgressLabel,
 	useChatsStore,
 } from "../store/chats.ts";
-import { cloudSummaryForChat } from "../store/cloud-chat-registry.ts";
-import { useCloudChatsStore } from "../store/cloud-chats.ts";
-import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { useMergePrefs } from "../store/merge-prefs.ts";
-import { useMessagesStore } from "../store/messages.ts";
-import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
-import { useRepositorySettingsStore } from "../store/repository-settings.ts";
+import {
+	repositorySettingsKey,
+	useRepositorySettingsStore,
+} from "../store/repository-settings.ts";
 import { useSessionsStore } from "../store/sessions.ts";
-import { useUiStore } from "../store/ui.ts";
+import { rightPaneKey, useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { useWorktreesStore } from "../store/worktrees.ts";
 import {
@@ -113,6 +124,18 @@ const ACTION_CLASS = "[-webkit-app-region:no-drag]";
 const ICON_BUTTON_CLASS = `${ACTION_CLASS} flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground`;
 const NATIVE_CONTROLS_INSET_CLASS =
 	"pr-[calc(var(--zuse-window-controls-right-inset)+0.25rem)]";
+
+const executionRefFor = (
+	context: ReturnType<typeof useActiveContext>,
+): ExecutionRef | null =>
+	context.status === "ready"
+		? {
+				environmentId: context.environmentId,
+				folderId: context.folderId,
+				worktreeId: context.worktreeId,
+				rootPath: context.rootPath,
+			}
+		: null;
 
 /**
  * Top bar over the projects panel: product name on the left + a left-pane
@@ -168,32 +191,51 @@ export function TopBarMain() {
 	// branch label can never disagree with the terminal cwd, file tree root,
 	// or composer chip — they all read from the same hook.
 	const ctx = useActiveContext();
+	const executionRef = executionRefFor(ctx);
+	const environmentId =
+		executionRef?.environmentId ??
+		(ctx.status === "cloud-unavailable"
+			? EnvironmentId.make(ctx.workspaceId)
+			: null);
 	const folderId = ctx.status === "ready" ? ctx.folderId : null;
 	const worktreeId = ctx.status === "ready" ? ctx.worktreeId : null;
-	const status = useGitStatusStore((s) =>
-		folderId ? (s.byKey[gitStatusKey(folderId, worktreeId)] ?? null) : null,
-	);
-	const refresh = useGitStatusStore((s) => s.refresh);
+	const status =
+		useGitWorkspaceResource(executionRef, "connect").data?.status ?? null;
 	const refreshWorktrees = useWorktreesStore((s) => s.refresh);
-	const refreshPr = usePrStateStore((s) => s.refresh);
 	const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
 	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
-	const registeredCloudSummary =
-		selectedChatId === null ? null : cloudSummaryForChat(selectedChatId);
-	const cloudSummary = useCloudChatsStore((state) =>
-		selectedChatId === null
+	const selectedChatRef: ChatRef | null =
+		selectedChatId === null || environmentId === null
 			? null
-			: (state.summaries.find((item) => item.chatId === selectedChatId) ??
-				registeredCloudSummary),
+			: { environmentId, chatId: selectedChatId };
+	const selectedChatKey =
+		selectedChatRef === null ? null : rightPaneKey(selectedChatRef);
+	const registeredCloudSummaryCandidate =
+		selectedChatId === null ? null : cloudSummaryForChat(selectedChatId);
+	const registeredCloudSummary =
+		registeredCloudSummaryCandidate?.workspaceId ===
+		selectedChatRef?.environmentId
+			? registeredCloudSummaryCandidate
+			: null;
+	const cloudSummary = useCloudChatCatalogStore((state) =>
+		selectedChatRef === null
+			? null
+			: (state.summaries.find(
+					(item) =>
+						item.chatId === selectedChatRef.chatId &&
+						item.workspaceId === selectedChatRef.environmentId,
+				) ?? registeredCloudSummary),
 	);
 	const cachedCloudContext = cloudTopBarContext(cloudSummary);
 	const rightSidebarOpen = useUiStore((s) =>
-		selectedChatId === null
+		selectedChatKey === null
 			? false
-			: (s.rightPaneLayoutByChat[selectedChatId]?.open ?? false),
+			: (s.rightPaneLayoutByChat[selectedChatKey]?.open ?? false),
 	);
-	const setRightSidebarOpen = useUiStore((s) => s.setRightSidebarOpen);
+	const setRightSidebarOpenForChat = useUiStore(
+		(s) => s.setRightSidebarOpenForChat,
+	);
 	const isFullScreen = useUiStore((s) => s.isFullScreen);
 	const environmentSummaryOpen = useUiStore((s) => s.environmentSummaryOpen);
 	const toggleEnvironmentSummary = useUiStore(
@@ -206,25 +248,15 @@ export function TopBarMain() {
 	const folder = useWorkspaceStore((s) =>
 		folderId ? (s.folders.find((f) => f.id === folderId) ?? null) : null,
 	);
-	const [originLabel, setOriginLabel] = useState<string | null>(null);
+	const origin = useActiveEnvironmentEntities().originsByFolder[folderId ?? ""];
+	const originLabel =
+		origin !== null && origin !== undefined
+			? `${origin.owner}/${origin.repo}`
+			: null;
 	const [branches, setBranches] = useState<ReadonlyArray<GitBranchInfo>>([]);
 	const [branchesLoading, setBranchesLoading] = useState(false);
 	const [branchError, setBranchError] = useState<string | null>(null);
 	const [renameOpen, setRenameOpen] = useState(false);
-
-	// Poll both `git status` (branch / dirty / ahead) and the PR state (CI
-	// rollup, mergeable, auto-merge) on the same 5s tick so the top-bar PR
-	// cluster shows live "N checks running" without the PR pane being open.
-	useEffect(() => {
-		if (folderId === null) return;
-		const tick = () => {
-			void refresh(folderId, worktreeId);
-			void refreshPr(getActiveEnvironment(), folderId, worktreeId);
-		};
-		tick();
-		const id = window.setInterval(tick, 5000);
-		return () => window.clearInterval(id);
-	}, [folderId, refresh, refreshPr, worktreeId]);
 
 	// After a worktree/project switch the status row in `byKey` is keyed by
 	// the *new* (folderId, worktreeId), so reading `status` returns null
@@ -248,41 +280,21 @@ export function TopBarMain() {
 	const leftPad =
 		showLeftToggle && isMacHost() && !isFullScreen ? "pl-20" : "pl-2";
 
-	useEffect(() => {
-		if (folderId === null) {
-			setOriginLabel(null);
-			return;
-		}
-		let cancelled = false;
-		void (async () => {
-			try {
-				const client = await getRpcClient();
-				const origin = await Effect.runPromise(
-					client["git.origin"]({ folderId }),
-				);
-				if (cancelled) return;
-				setOriginLabel(
-					origin !== null ? `${origin.owner}/${origin.repo}` : null,
-				);
-			} catch {
-				if (!cancelled) setOriginLabel(null);
-			}
-		})();
-		return () => {
-			cancelled = true;
-		};
-	}, [folderId]);
-
 	const refreshBranches = async (): Promise<void> => {
-		if (folderId === null) return;
+		if (executionRef === null || folderId === null) return;
 		setBranchesLoading(true);
 		setBranchError(null);
 		try {
-			const client = await getRpcClient();
-			const list = await Effect.runPromise(
-				client["git.branches"]({ folderId, worktreeId }),
-			);
-			setBranches(list);
+			const { result } = await dispatchGitWorkspaceCommand<
+				{ readonly folderId: FolderId; readonly worktreeId: WorktreeId | null },
+				ReadonlyArray<GitBranchInfo>
+			>({
+				ref: executionRef,
+				kind: "git.branches",
+				commandId: CommandId.make(`git-branches:${crypto.randomUUID()}`),
+				payload: { folderId, worktreeId },
+			});
+			setBranches(result);
 		} catch (err) {
 			setBranchError(errorMessage(err));
 		} finally {
@@ -296,7 +308,7 @@ export function TopBarMain() {
 	}, [folderId, worktreeId, branchLabel]);
 
 	const switchToBranch = async (branch: GitBranchInfo): Promise<void> => {
-		if (folderId === null || branch.current) return;
+		if (executionRef === null || folderId === null || branch.current) return;
 		if (
 			status !== null &&
 			status.dirtyFiles > 0 &&
@@ -311,16 +323,18 @@ export function TopBarMain() {
 		setBranchesLoading(true);
 		setBranchError(null);
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["git.switchBranch"]({
+			await dispatchGitWorkspaceCommand({
+				ref: executionRef,
+				kind: "git.switchBranch",
+				commandId: CommandId.make(`git-switch:${crypto.randomUUID()}`),
+				payload: {
 					folderId,
 					worktreeId,
 					branch: branch.name,
 					remote: branch.remote,
-				}),
-			);
-			refreshAfterAction(folderId, worktreeId);
+				},
+			});
+			void refreshGitWorkspace(executionRef);
 			await refreshBranches();
 		} catch (err) {
 			setBranchError(errorMessage(err));
@@ -411,16 +425,19 @@ export function TopBarMain() {
 				) : null}
 			</div>
 			{renameOpen &&
+			executionRef !== null &&
 			folderId !== null &&
 			worktreeId !== null &&
 			branchLabel !== null ? (
 				<Suspense fallback={null}>
 					<RenameBranchDialog
+						executionRef={executionRef}
 						branchLabel={branchLabel}
 						open
 						onOpenChange={setRenameOpen}
 						onRenamed={async () => {
-							refreshAfterAction(folderId, worktreeId);
+							if (executionRef !== null)
+								await refreshGitWorkspace(executionRef);
 							await refreshWorktrees(folderId);
 							await refreshBranches();
 						}}
@@ -458,7 +475,13 @@ export function TopBarMain() {
 					render={
 						<button
 							type="button"
-							onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
+							onClick={() => {
+								if (selectedChatRef !== null)
+									setRightSidebarOpenForChat(
+										selectedChatRef,
+										!rightSidebarOpen,
+									);
+							}}
 							className={ICON_BUTTON_CLASS}
 							aria-label={
 								rightSidebarOpen ? "Hide files panel" : "Show files panel"
@@ -660,22 +683,26 @@ function MenuSectionLabel({ children }: { children: ReactNode }) {
 
 function RenameBranchDialog({
 	branchLabel,
+	executionRef,
 	open,
 	onOpenChange,
 	onRenamed,
 	worktreeId,
 }: {
 	branchLabel: string;
+	executionRef: ExecutionRef;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	onRenamed: () => Promise<void>;
 	worktreeId: WorktreeId;
 }) {
 	const rename = async (next: string) => {
-		const client = await getRpcClient();
-		await Effect.runPromise(
-			client["worktree.renameBranch"]({ worktreeId, name: next }),
-		);
+		await dispatchGitWorkspaceCommand({
+			ref: executionRef,
+			kind: "worktree.renameBranch",
+			commandId: CommandId.make(`worktree-rename:${crypto.randomUUID()}`),
+			payload: { worktreeId, name: next },
+		});
 		await onRenamed();
 	};
 
@@ -796,21 +823,6 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 }
 
 /**
- * Refresh both git status and PR state after a direct git/gh action so the
- * top-bar workflow re-derives immediately rather than waiting for the next
- * 5s poll.
- */
-const refreshAfterAction = (
-	folderId: FolderId,
-	worktreeId: WorktreeId | null,
-): void => {
-	void useGitStatusStore.getState().refresh(folderId, worktreeId);
-	void usePrStateStore
-		.getState()
-		.refresh(getActiveEnvironment(), folderId, worktreeId);
-};
-
-/**
  * Top bar over the files panel: a PR-integration cluster on the left
  * (clickable hash + live CI status) and the primary action(s) on the right.
  *
@@ -828,14 +840,18 @@ function RunButton() {
 	const ctx = useActiveContext();
 	const folderId = ctx.status === "ready" ? ctx.folderId : null;
 	const settings = useRepositorySettingsStore((s) =>
-		folderId ? (s.byProject[folderId] ?? null) : null,
+		folderId && ctx.status === "ready"
+			? (s.byProject[repositorySettingsKey(ctx.environmentId, folderId)] ??
+				null)
+			: null,
 	);
 	const refreshSettings = useRepositorySettingsStore((s) => s.refresh);
 	const startRun = useWorktreesStore((s) => s.startRun);
 
 	useEffect(() => {
-		if (folderId !== null && settings === null) void refreshSettings(folderId);
-	}, [folderId, settings, refreshSettings]);
+		if (folderId !== null && settings === null && ctx.status === "ready")
+			void refreshSettings(ctx.environmentId, folderId);
+	}, [ctx, folderId, settings, refreshSettings]);
 
 	if (
 		ctx.status !== "ready" ||
@@ -856,7 +872,7 @@ function RunButton() {
 		const run = await startRun(worktreeId);
 		if (run === null) return;
 		openTerminalCommand({
-			chatId,
+			chatRef: { environmentId: ctx.environmentId, chatId },
 			cwd: run.cwd,
 			title: "Run",
 			command: { cmd: "/bin/zsh", args: ["-lc", run.script], env: run.env },
@@ -878,7 +894,7 @@ export function TopBarRight() {
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 	const resetKey =
 		ctx.status === "ready"
-			? `${ctx.folderId}:${ctx.worktreeId ?? "main"}:${selectedChatId ?? "none"}`
+			? `${ctx.environmentId}:${ctx.folderId}:${ctx.worktreeId ?? "main"}:${selectedChatId ?? "none"}`
 			: `empty:${selectedChatId ?? "none"}`;
 
 	return (
@@ -911,17 +927,10 @@ export function TopBarRightContent({
 	compact?: boolean;
 } = {}) {
 	const ctx = useActiveContext();
-	const folderId = ctx.status === "ready" ? ctx.folderId : null;
-	const worktreeId = ctx.status === "ready" ? ctx.worktreeId : null;
-	const status = useGitStatusStore((s) =>
-		folderId ? (s.byKey[gitStatusKey(folderId, worktreeId)] ?? null) : null,
-	);
-	const pr = usePrStateStore((s) =>
-		folderId
-			? (s.byKey[prStateKey(getActiveEnvironment(), folderId, worktreeId)] ??
-				null)
-			: null,
-	);
+	const executionRef = executionRefFor(ctx);
+	const git = useGitWorkspaceResource(executionRef, "connect").data;
+	const status = git?.status ?? null;
+	const pr = git?.pr ?? null;
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 
 	const canCreatePrWhenSynced = canCreatePrFromSyncedBranch(
@@ -1020,6 +1029,7 @@ export function ResolveConflictsButton({
 	presentation?: WorkflowActionPresentation;
 }) {
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
+	const ctx = useActiveContext();
 	const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
 
 	return (
@@ -1034,14 +1044,12 @@ export function ResolveConflictsButton({
 			label={presentation === "inline" ? "Fix" : "Resolve conflicts"}
 			disabled={selectedSessionId === null}
 			onClick={() => {
-				if (selectedSessionId === null) return;
+				if (selectedSessionId === null || ctx.status !== "ready") return;
 				setActiveMainTab("chat");
-				void useMessagesStore
-					.getState()
-					.send(
-						selectedSessionId,
-						"this pull request has merge conflicts — help me resolve them",
-					);
+				void sendSessionMessage(
+					{ environmentId: ctx.environmentId, sessionId: selectedSessionId },
+					"this pull request has merge conflicts — help me resolve them",
+				);
 			}}
 		/>
 	);
@@ -1061,17 +1069,12 @@ export function WorkflowActions({
 	className?: string;
 }) {
 	const ctx = useActiveContext();
+	const executionRef = executionRefFor(ctx);
 	const folderId = ctx.status === "ready" ? ctx.folderId : null;
 	const worktreeId = ctx.status === "ready" ? ctx.worktreeId : null;
-	const status = useGitStatusStore((s) =>
-		folderId ? (s.byKey[gitStatusKey(folderId, worktreeId)] ?? null) : null,
-	);
-	const pr = usePrStateStore((s) =>
-		folderId
-			? (s.byKey[prStateKey(getActiveEnvironment(), folderId, worktreeId)] ??
-				null)
-			: null,
-	);
+	const git = useGitWorkspaceResource(executionRef, "connect").data;
+	const status = git?.status ?? null;
+	const pr = git?.pr ?? null;
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 	const archiveProgress = useChatsStore((s) =>
@@ -1082,9 +1085,12 @@ export function WorkflowActions({
 	const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
 
 	const sendToAgent = (text: string) => {
-		if (selectedSessionId === null) return;
+		if (selectedSessionId === null || ctx.status !== "ready") return;
 		setActiveMainTab("chat");
-		void useMessagesStore.getState().send(selectedSessionId, text);
+		void sendSessionMessage(
+			{ environmentId: ctx.environmentId, sessionId: selectedSessionId },
+			text,
+		);
 	};
 
 	const canCreatePrWhenSynced = canCreatePrFromSyncedBranch(
@@ -1120,12 +1126,17 @@ export function WorkflowActions({
 					label={presentation === "inline" ? "Push" : "Push commits"}
 					loadingLabel="Pushing…"
 					run={async () => {
-						const client = await getRpcClient();
-						await Effect.runPromise(
-							client["git.push"]({ folderId, worktreeId }),
-						);
+						if (executionRef === null) return;
+						await dispatchGitWorkspaceCommand({
+							ref: executionRef,
+							kind: "git.push",
+							commandId: CommandId.make(`git-push:${crypto.randomUUID()}`),
+							payload: { folderId, worktreeId },
+						});
 					}}
-					onSuccess={() => refreshAfterAction(folderId, worktreeId)}
+					onSuccess={() => {
+						if (executionRef !== null) void refreshGitWorkspace(executionRef);
+					}}
 				/>
 			) : null}
 			{workflow.kind === "ready-for-pr" ? (
@@ -1188,12 +1199,19 @@ export function WorkflowActions({
 					label="Mark ready"
 					loadingLabel="Marking…"
 					run={async () => {
-						const client = await getRpcClient();
-						await Effect.runPromise(
-							client["git.markReady"]({ folderId, worktreeId }),
-						);
+						if (executionRef === null) return;
+						await dispatchGitWorkspaceCommand({
+							ref: executionRef,
+							kind: "git.markReady",
+							commandId: CommandId.make(
+								`git-mark-ready:${crypto.randomUUID()}`,
+							),
+							payload: { folderId, worktreeId },
+						});
 					}}
-					onSuccess={() => refreshAfterAction(folderId, worktreeId)}
+					onSuccess={() => {
+						if (executionRef !== null) void refreshGitWorkspace(executionRef);
+					}}
 				/>
 			) : null}
 			{workflow.kind === "open-pr" &&
@@ -1273,7 +1291,7 @@ function PrHashChip({ workflow }: { workflow: OpenPrWorkflow }) {
 }
 
 /**
- * Live CI rollup readout. Polled via the top-bar's 5s pr-state refresh.
+ * Live CI rollup readout sourced from the canonical Git workspace snapshot.
  *   running → spinner + "N checks running"
  *   failing → "N checks failing" (red)
  *   passing → "Checks passed" (green)
@@ -1376,6 +1394,7 @@ function MergeButton({
 	folderId: FolderId;
 	worktreeId: WorktreeId | null;
 }) {
+	const executionRef = executionRefFor(useActiveContext());
 	const method = useMergePrefs((s) => s.method);
 	const deleteBranch = useMergePrefs((s) => s.deleteBranch);
 	const setMethod = useMergePrefs((s) => s.setMethod);
@@ -1389,18 +1408,23 @@ function MergeButton({
 				label="Merge"
 				loadingLabel="Merging…"
 				run={async () => {
-					const client = await getRpcClient();
-					await Effect.runPromise(
-						client["git.mergePr"]({
+					if (executionRef === null) return;
+					await dispatchGitWorkspaceCommand({
+						ref: executionRef,
+						kind: "git.mergePr",
+						commandId: CommandId.make(`git-merge:${crypto.randomUUID()}`),
+						payload: {
 							folderId,
 							worktreeId,
 							action: "merge",
 							method,
 							deleteBranch,
-						}),
-					);
+						},
+					});
 				}}
-				onSuccess={() => refreshAfterAction(folderId, worktreeId)}
+				onSuccess={() => {
+					if (executionRef !== null) void refreshGitWorkspace(executionRef);
+				}}
 			/>
 			<Menu>
 				<Tooltip>
@@ -1439,7 +1463,7 @@ function MergeButton({
 /**
  * Auto-merge toggle. Arms / disarms GitHub-native auto-merge via
  * `gh pr merge --auto` / `--disable-auto`. The enabled state is sourced from
- * polled PR state (`autoMergeEnabled`), so it reflects GitHub's truth even
+ * canonical PR state (`autoMergeEnabled`), so it reflects GitHub's truth even
  * across app restarts. If the repo doesn't allow auto-merge, gh's error
  * surfaces in the warning tooltip.
  */
@@ -1454,6 +1478,7 @@ function AutoMergeToggle({
 	worktreeId: WorktreeId | null;
 	enabled: boolean;
 }) {
+	const executionRef = executionRefFor(useActiveContext());
 	const method = useMergePrefs((s) => s.method);
 	const deleteBranch = useMergePrefs((s) => s.deleteBranch);
 	const [loading, setLoading] = useState(false);
@@ -1462,17 +1487,20 @@ function AutoMergeToggle({
 		if (loading) return;
 		setLoading(true);
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["git.mergePr"]({
+			if (executionRef === null) return;
+			await dispatchGitWorkspaceCommand({
+				ref: executionRef,
+				kind: "git.mergePr",
+				commandId: CommandId.make(`git-auto-merge:${crypto.randomUUID()}`),
+				payload: {
 					folderId,
 					worktreeId,
 					action: enabled ? "disable-auto" : "enable-auto",
 					method,
 					deleteBranch,
-				}),
-			);
-			refreshAfterAction(folderId, worktreeId);
+				},
+			});
+			if (executionRef !== null) await refreshGitWorkspace(executionRef);
 		} catch (err) {
 			toastManager.add({
 				type: "error",
@@ -1579,18 +1607,24 @@ export function FixActionsButton({
 	worktreeId: WorktreeId | null;
 	disabled: boolean;
 }) {
+	const executionRef = executionRefFor(useActiveContext());
 	const [loading, setLoading] = useState(false);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
 
 	const onClick = async () => {
-		if (loading || selectedSessionId === null) return;
+		if (loading || selectedSessionId === null || executionRef === null) return;
 		setLoading(true);
 		try {
-			const client = await getRpcClient();
-			const artifact = await Effect.runPromise(
-				client["git.fixFailingChecks"]({ folderId, worktreeId }),
-			);
+			const { result: artifact } = await dispatchGitWorkspaceCommand<
+				{ readonly folderId: FolderId; readonly worktreeId: WorktreeId | null },
+				GitFailingChecksArtifact
+			>({
+				ref: executionRef,
+				kind: "git.fixFailingChecks",
+				commandId: CommandId.make(`git-fix-checks:${crypto.randomUUID()}`),
+				payload: { folderId, worktreeId },
+			});
 			setActiveMainTab("chat");
 			const input = new ComposerInput({
 				text: "Please look at the failing CI checks captured in this log and fix them.",
@@ -1604,7 +1638,13 @@ export function FixActionsButton({
 				],
 				skillRefs: [],
 			});
-			await useMessagesStore.getState().send(selectedSessionId, input);
+			await sendSessionMessage(
+				{
+					environmentId: executionRef.environmentId,
+					sessionId: selectedSessionId,
+				},
+				input,
+			);
 		} catch {
 			// Server already surfaces a GitCommandError; nothing useful to render
 			// in-place. The user can retry — leave the button enabled.

@@ -5,6 +5,7 @@ import {
 	type BrowserAnnotation,
 	type ComposerAnnotation,
 	ComposerInput,
+	type EnvironmentId,
 	findModelDescriptor,
 	type Message,
 	type PermissionMode,
@@ -29,7 +30,6 @@ import {
 	SquareIcon,
 	Upload01Icon,
 } from "@zuse/icons/solid-rounded";
-import { Effect } from "effect";
 import { ChevronDown } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { CostChip } from "~/components/cost-footer";
@@ -81,7 +81,6 @@ import {
 	removeImageChipEffect,
 	updateImageChipEffect,
 } from "~/lib/codemirror/composer-chips";
-import { makeComposerMessageSignalSelector } from "~/lib/composer-message-signal";
 import {
 	chooseComposerSubmitRoute,
 	deliverNativePlanFeedback,
@@ -92,7 +91,7 @@ import {
 	shouldSendPlanFeedbackNow,
 } from "~/lib/plan-feedback-routing";
 import { attachmentUrl } from "~/lib/platform-capabilities";
-import { getRpcClient } from "~/lib/rpc-client";
+import { saveContextText } from "~/lib/context-handoff.ts";
 import { readStorageWithLegacy } from "~/lib/storage-keys";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import {
@@ -105,36 +104,44 @@ import type {
 } from "../composer/draft-attachments.ts";
 import { composerSnapshotFromInput } from "../composer/input-snapshot.ts";
 import { parseComposerInput } from "../composer/segment-parser.ts";
+import { uploadAttachment } from "../lib/attachments.ts";
 import {
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
-import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
+import { useCloudChatSummaryForSession } from "../lib/cloud-workspaces.ts";
+import {
+	decideEnvironmentPermission,
+	useEnvironmentPermissions,
+} from "../lib/environment-permissions-client-bus.ts";
+import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
+import { subscribeKeybindings } from "../lib/keybindings-client-bus.ts";
+import {
+	interruptSession,
+	queueSessionMessage,
+	sendSessionMessage,
+	sessionModelOptionStorageKey,
+	takeQueuedMessageForEdit,
+} from "../lib/session-actions.ts";
+import {
+	clearSessionGoal,
+	setSessionGoal,
+	useSessionGoalResource,
+} from "../lib/session-goal-client-bus.ts";
+import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { useActiveWorkspaceRoot } from "../store/active-workspace.ts";
 import {
 	annotationsForSession,
 	useAnnotationsStore,
 } from "../store/annotations.ts";
-import { useAttachmentsStore } from "../store/attachments.ts";
-import { useCloudExecutionStore } from "../store/cloud-chat-registry.ts";
-import {
-	shouldUseLocalMessageQueue,
-	useCloudChatSummaryForSession,
-	useCloudChatsStore,
-} from "../store/cloud-chats.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import {
 	composerDraftKeyForSession,
 	useComposerDraftsStore,
 } from "../store/composer-drafts.ts";
-import { useKeybindingsStore } from "../store/keybindings";
-import { useMessagesStore } from "../store/messages.ts";
 import { useOpencodeInventory } from "../store/opencode-inventory.ts";
 import { usePaneFocus } from "../store/pane-focus.ts";
-import { usePermissionsStore } from "../store/permissions.ts";
 import { useProvidersStore } from "../store/providers.ts";
-import { useSessionRuntimeStore } from "../store/session-runtime.ts";
-import { useSkillsStore } from "../store/skills.ts";
 import { AnnotationTray } from "./composer/annotation-tray.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
 import { ContextTray } from "./composer/context-tray.tsx";
@@ -147,6 +154,10 @@ import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { QueueTray } from "./composer/queue-tray.tsx";
 import { SlashCommandPopover } from "./composer/slash-command-popover.tsx";
 import { TrayPill, trayPillActionClass } from "./composer/tray-pill.tsx";
+
+const EMPTY_PERMISSION_REQUESTS: Readonly<Record<string, PermissionRequest>> =
+	{};
+
 import { McpPopover } from "./mcp-popover.tsx";
 import { ModelPicker } from "./model-picker.tsx";
 import { resetLabel, StickMeter } from "./usage/usage-meter.tsx";
@@ -189,8 +200,10 @@ export function ChatComposer({
 	constrain = true,
 	directoryUnavailable = false,
 	submitDisabled = false,
+	environmentId,
 }: {
 	session: Session;
+	environmentId: EnvironmentId;
 	composerDraftKey?: string;
 	constrain?: boolean;
 	directoryUnavailable?: boolean;
@@ -222,32 +235,50 @@ export function ChatComposer({
 	) => void;
 }) {
 	const sessionId: SessionId = session.id;
-	const draftKey = composerDraftKey ?? composerDraftKeyForSession(sessionId);
+	const qualifiedEnvironmentId = environmentId;
+	const draftKey =
+		composerDraftKey ??
+		composerDraftKeyForSession({
+			environmentId: qualifiedEnvironmentId,
+			sessionId,
+		});
 	const isDraft = onDraftSubmit !== undefined;
 	const [reasoningLevel, setReasoningLevel] = useState<string | null>(null);
-	const runtimeState = useSessionRuntimeStore((s) =>
-		effectiveSessionRuntimeState(s.bySession[sessionId]),
+	// Provider features the installed CLI supports (from the availability
+	// probe). Codex goal mode is version-gated; Grok advertises it natively.
+	const capabilities = useProvidersStore((s) =>
+		s.capabilitiesFor(session.providerId),
 	);
+	const goalCapable =
+		session.providerId === "grok" ||
+		(session.providerId === "codex" && capabilities.includes("goalMode"));
+	const timeline = useRendererSessionTimeline(
+		sessionId,
+		isDraft ? "cache-only" : "connect",
+		qualifiedEnvironmentId,
+	);
+	const goalRef = useMemo(
+		() => ({ environmentId: qualifiedEnvironmentId, sessionId }),
+		[qualifiedEnvironmentId, sessionId],
+	);
+	const goalView = useSessionGoalResource(
+		isDraft || !goalCapable ? null : goalRef,
+		isDraft ? "cache-only" : "connect",
+	);
+	const runtimeState = timeline.runtime;
 	const cloudSummary = useCloudChatSummaryForSession(sessionId);
 	const isCloudSession = cloudSummary !== null;
-	const cloudAttachment = useCloudExecutionStore((state) =>
-		cloudSummary === null
-			? "detached"
-			: (state.stateByWorkspace[cloudSummary.workspaceId] ?? "detached"),
-	);
-	const cloudCommand = useCloudChatsStore((state) =>
-		cloudSummary === null
-			? null
-			: (state.commandByWorkspace[cloudSummary.workspaceId]?.state ?? null),
+	const cloudShell = useEnvironmentShellResource(
+		cloudSummary === null ? null : qualifiedEnvironmentId,
+		"cache-only",
 	);
 	const cloudActivity =
 		cloudSummary === null
 			? null
 			: deriveCloudChatActivity({
 					summary: cloudSummary,
-					attachment: cloudAttachment,
+					connection: cloudShell.connection,
 					runtime: runtimeState,
-					command: cloudCommand,
 				});
 	const interrupting =
 		cloudActivity === null
@@ -268,17 +299,20 @@ export function ChatComposer({
 	// Hold messages only while the provider is unavailable or an earlier message
 	// is already queued. Worktree setup is independent background work and must
 	// not delay an agent that has finished booting.
-	const hasQueued = useMessagesStore(
-		(s) => (s.queueBySession[sessionId]?.length ?? 0) > 0,
-	);
+	const hasQueued = (timeline.projection?.queue.items.length ?? 0) > 0;
 	const holdForAgent = hasQueued || runtimeState === "starting";
-	const goal = useMessagesStore((s) => s.goalBySession[sessionId] ?? null);
-	const send = useMessagesStore((s) => s.send);
+	const goal = goalView.data?.goal ?? null;
 	const respondToPlan = useSessionsStore((s) => s.respondToPlan);
-	const interrupt = useMessagesStore((s) => s.interrupt);
-	const queue = useMessagesStore((s) => s.queue);
-	const setGoal = useMessagesStore((s) => s.setGoal);
-	const clearGoal = useMessagesStore((s) => s.clearGoal);
+	const send = (
+		input: string | ComposerInput,
+		options?: { readonly asGoal?: boolean },
+	) =>
+		sendSessionMessage(goalRef, input, {
+			...options,
+			providerId: session.providerId,
+		});
+	const queue = (input: ComposerInput) =>
+		queueSessionMessage(goalRef, input, { providerId: session.providerId });
 	const saveComposerDraft = useComposerDraftsStore((s) => s.save);
 	const clearComposerDraft = useComposerDraftsStore((s) => s.clear);
 
@@ -287,27 +321,7 @@ export function ChatComposer({
 	// crowded the timeline. Swap to QuestionCard while one is unanswered;
 	// otherwise render the normal editor.
 	//
-	// Select the stable message-list reference (the atom store interns the array
-	// — same identity until a new message arrives) and derive the
-	// pending-question shape with `useMemo`. Returning a freshly-built
-	// object directly from an external-store selector breaks
-	// `useSyncExternalStore`'s snapshot-equality check and infinite-loops
-	// the renderer.
-	const selectComposerMessageSignal = useMemo(
-		() => makeComposerMessageSignalSelector(sessionId),
-		[sessionId],
-	);
-	const composerMessageSignal = useMessagesStore((s) =>
-		selectComposerMessageSignal(s.messagesBySession),
-	);
-	// Read the full transcript only when a composer-relevant interaction lands
-	// or the running edge changes. Regular stream rows still render in the
-	// timeline, but they no longer re-run this large controller while the user
-	// is typing.
-	const sessionMessages = useMemo(
-		() => useMessagesStore.getState().messagesBySession[sessionId],
-		[composerMessageSignal, inFlight, sessionId],
-	);
+	const sessionMessages = timeline.messages;
 	const pendingQuestion = useMemo(() => {
 		const list = sessionMessages ?? [];
 		const answered = new Set<string>();
@@ -335,9 +349,9 @@ export function ChatComposer({
 	// motivation as AskUserQuestion: the user's eyes are already on the
 	// composer, so put the decision there. Permissions outrank questions
 	// because the agent is already mid-tool-call.
-	const requestsById = usePermissionsStore((s) => s.requestsById);
-	const hydratePermissions = usePermissionsStore((s) => s.hydrate);
-	const decidePermission = usePermissionsStore((s) => s.decide);
+	const requestsById =
+		useEnvironmentPermissions().data?.requestsById ?? EMPTY_PERMISSION_REQUESTS;
+	const decidePermission = decideEnvironmentPermission;
 	const pendingPermissions = useMemo(() => {
 		const out: PermissionRequest[] = [];
 		for (const req of Object.values(requestsById)) {
@@ -400,44 +414,7 @@ export function ChatComposer({
 			inFlight,
 		],
 	);
-	useEffect(() => {
-		if (isDraft) return;
-		void hydratePermissions(sessionId);
-	}, [isDraft, sessionId, hydratePermissions]);
-	// Reconcile permission requests whenever the running flag transitions
-	// true → false. A turn that ended (or aborted) sometimes leaves a stale
-	// pending-permission row in the client cache — the row's UI then takes
-	// over the composer slot and looks like the input is disabled. Re-asking
-	// the server clears anything it already resolved.
-	useEffect(() => {
-		if (isDraft || inFlight) return;
-		void hydratePermissions(sessionId);
-	}, [isDraft, inFlight, sessionId, hydratePermissions]);
-	// Deterministic fallback delivery. The reconcile hydrate above is gated off
-	// while a turn is in flight, yet that's exactly when the agent blocks on a
-	// permission request. If the live `permission.requests` stream ever drops
-	// the request (subscribe race / stream death), the card would never appear
-	// and the agent hangs invisibly. Poll `listPending` (the server's durable
-	// truth) while running so the card always surfaces within ~2s. Idempotent —
-	// `requestsById` is keyed by id, so it's a no-op merge when the stream is
-	// healthy. The interval is cleared the instant the turn ends or the session
-	// changes.
-	useEffect(() => {
-		if (isDraft || !inFlight) return;
-		const id = window.setInterval(() => {
-			void hydratePermissions(sessionId);
-		}, 2000);
-		return () => window.clearInterval(id);
-	}, [isDraft, inFlight, sessionId, hydratePermissions]);
 	const headPermission = pendingPermissions[0];
-	useEffect(() => {
-		if (isDraft || !inFlight || headPermission !== undefined) return;
-		void hydratePermissions(sessionId);
-		const id = window.setInterval(() => {
-			void hydratePermissions(sessionId);
-		}, 1_000);
-		return () => window.clearInterval(id);
-	}, [isDraft, inFlight, headPermission, sessionId, hydratePermissions]);
 
 	const [hasText, setHasText] = useState(false);
 	const hasTextRef = useRef(false);
@@ -447,19 +424,6 @@ export function ChatComposer({
 		useState<QueuedMessage | null>(null);
 	const editingQueuedItemRef = useRef<QueuedMessage | null>(null);
 	const pickingQueuedItemRef = useRef(false);
-	// Provider features the installed CLI supports (from the availability
-	// probe). Drives whether goal/fast controls render at all. Codex resolves
-	// these from its CLI version; Grok advertises `goalMode` unconditionally.
-	const capabilities = useProvidersStore((s) =>
-		s.capabilitiesFor(session.providerId),
-	);
-	// Goal mode is supported by Codex (native `thread/goal/*`, version-gated via
-	// the `goalMode` capability) and Grok (native `/goal`, forwarded by the
-	// driver). Grok has no version floor, so it's always goal-capable and
-	// doesn't depend on the availability probe.
-	const goalCapable =
-		session.providerId === "grok" ||
-		(session.providerId === "codex" && capabilities.includes("goalMode"));
 	const [trigger, setTrigger] = useState<ActiveTrigger | null>(null);
 	const [modelPickerOpen, setModelPickerOpen] = useState(false);
 	const [isDragging, setIsDragging] = useState(false);
@@ -467,8 +431,8 @@ export function ChatComposer({
 	const editorViewRef = useRef<EditorView | null>(null);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const dragDepthRef = useRef(0);
-	const uploadOne = useAttachmentsStore((s) => s.uploadOne);
-	const hydrateDraftSkills = useSkillsStore((s) => s.hydrateForDraft);
+	const uploadOne = uploadAttachment;
+	const hydrateDraftSkills = useSessionsStore((s) => s.loadDraftSkills);
 	const pendingDraftAttachmentsRef = useRef<PendingDraftAttachment[]>([]);
 	const pendingDraftContextFilesRef = useRef<PendingDraftContextFile[]>([]);
 	// Submit reads through a ref so the keymap, captured at editor creation
@@ -491,7 +455,7 @@ export function ChatComposer({
 	const setModel = useSessionsStore((s) => s.setModel);
 	const setRuntimeMode = useSessionsStore((s) => s.setRuntimeMode);
 	const setPermissionMode = useSessionsStore((s) => s.setPermissionMode);
-	const revealPanel = useUiStore((s) => s.revealPanel);
+	const revealPanelForChat = useUiStore((s) => s.revealPanelForChat);
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
 	const workspaceRoot = useActiveWorkspaceRoot(session.projectId);
@@ -507,14 +471,8 @@ export function ChatComposer({
 
 	useEffect(() => {
 		if (!isDraft) return;
-		void hydrateDraftSkills(sessionId, session.projectId, session.providerId);
-	}, [
-		hydrateDraftSkills,
-		isDraft,
-		sessionId,
-		session.projectId,
-		session.providerId,
-	]);
+		void hydrateDraftSkills(session.projectId, session.providerId);
+	}, [hydrateDraftSkills, isDraft, session.projectId, session.providerId]);
 
 	// Stacked annotations are a valid message on their own, so they enable Send
 	// even with an empty text box.
@@ -607,7 +565,7 @@ export function ChatComposer({
 		// Live-reconfigure the composer keymap when the user edits keybindings.
 		// The compartment swap is a single CodeMirror transaction, so the
 		// cursor / selection / pending text are preserved.
-		const unsubKeybindings = useKeybindingsStore.subscribe(() => {
+		const unsubKeybindings = subscribeKeybindings(() => {
 			reconfigureComposerKeymap(view, callbacks);
 		});
 
@@ -661,15 +619,18 @@ export function ChatComposer({
 			pickingQueuedItemRef.current = true;
 			void (async () => {
 				try {
-					const taken = await useMessagesStore
-						.getState()
-						.takeQueuedForEdit(sessionId, item.id);
+					const taken = await takeQueuedMessageForEdit(
+						goalRef,
+						item.id,
+						session.providerId,
+					);
 					if (taken === null) return;
 					const activeView = editorViewRef.current;
 					if (activeView === null) {
-						useMessagesStore.getState().queue(sessionId, taken.input, {
+						queueSessionMessage(goalRef, taken.input, {
 							queueId: taken.id,
 							flush: false,
+							providerId: session.providerId,
 						});
 						return;
 					}
@@ -678,9 +639,10 @@ export function ChatComposer({
 						allChips(activeView.state).length > 0 ||
 						annotationsForSession(sessionId).length > 0;
 					if (becameBusy) {
-						useMessagesStore.getState().queue(sessionId, taken.input, {
+						queueSessionMessage(goalRef, taken.input, {
 							queueId: taken.id,
 							flush: false,
+							providerId: session.providerId,
 						});
 						toastManager.add({
 							type: "info",
@@ -774,9 +736,11 @@ export function ChatComposer({
 		clearComposerDraft(draftKey);
 		useAnnotationsStore.getState().clear(sessionId);
 		setGoalSendMode(false);
-		useMessagesStore
-			.getState()
-			.queue(sessionId, item.input, { queueId: item.id, flush: false });
+		queueSessionMessage(goalRef, item.input, {
+			queueId: item.id,
+			flush: false,
+			providerId: session.providerId,
+		});
 		editingQueuedItemRef.current = null;
 		setEditingQueuedItem(null);
 		view.focus();
@@ -819,18 +783,19 @@ export function ChatComposer({
 				break;
 			case "goal":
 				if (parsed.args.length > 0) {
-					void send(sessionId, parsed.args, { asGoal: true });
+					void send(parsed.args, { asGoal: true });
 				} else {
 					setGoalSendMode(true);
 				}
 				break;
 			case "diff":
-				revealPanel("changes");
+				revealPanelForChat(
+					{ environmentId: qualifiedEnvironmentId, chatId: session.chatId },
+					"changes",
+				);
 				break;
 			case "copy": {
-				const latest = [
-					...(useMessagesStore.getState().messagesBySession[sessionId] ?? []),
-				]
+				const latest = [...sessionMessages]
 					.reverse()
 					.find(
 						(m) =>
@@ -994,15 +959,13 @@ export function ChatComposer({
 			return;
 		}
 		try {
-			const client = await getRpcClient();
-			const res = await Effect.runPromise(
-				client["context.saveText"]({
-					sessionId,
-					text,
-					ext: "md",
-					...(workspaceRoot ? { rootPath: workspaceRoot } : {}),
-				}),
-			);
+			const res = await saveContextText({
+				environmentId: qualifiedEnvironmentId,
+				sessionId,
+				text,
+				ext: "md",
+				...(workspaceRoot ? { rootPath: workspaceRoot } : {}),
+			});
 			const view = editorViewRef.current;
 			if (view === null) return;
 			const sel = view.state.selection.main;
@@ -1119,10 +1082,7 @@ export function ChatComposer({
 				? chooseComposerSubmitRoute({
 						sendPlanFeedbackNow,
 						goalSendMode,
-						shouldQueue: shouldUseLocalMessageQueue({
-							queueRequested: inFlight || holdForAgent,
-							isCloudSession,
-						}),
+						shouldQueue: inFlight || holdForAgent,
 					})
 				: null;
 		clearComposer(view, {
@@ -1162,7 +1122,7 @@ export function ChatComposer({
 									docText,
 									{ silent: true },
 								),
-							fallbackSend: () => send(sessionId, input),
+							fallbackSend: () => send(input),
 						});
 						return;
 					}
@@ -1171,23 +1131,22 @@ export function ChatComposer({
 							_tag: "Deny",
 						});
 					}
-					await send(sessionId, input);
+					await send(input);
 				})();
 				break;
 			case "goal":
-				void send(sessionId, input, { asGoal: true });
+				void send(input, { asGoal: true });
 				break;
 			case "queue":
 				// Mid-turn submit — or a submit while the provider is still coming up
 				// — becomes a queue chip; auto-flushed when the turn ends or steered
 				// manually.
 				queue(
-					sessionId,
 					goalSendMode ? ComposerInput.make({ ...input, asGoal: true }) : input,
 				);
 				break;
 			case "send":
-				void send(sessionId, input);
+				void send(input);
 				break;
 		}
 		return true;
@@ -1220,7 +1179,7 @@ export function ChatComposer({
 	const approveEmulatedPlan = () => {
 		void (async () => {
 			await setPermissionMode(sessionId, "default");
-			await send(sessionId, EMULATED_PLAN_APPROVAL_PROMPT);
+			await send(EMULATED_PLAN_APPROVAL_PROMPT);
 		})();
 	};
 	const cancelEmulatedPlan = () => {
@@ -1229,7 +1188,7 @@ export function ChatComposer({
 	const inUltracodeMode = reasoningLevel === "ultracode";
 	const requestInterrupt = async () => {
 		if (interrupting) return;
-		await interrupt(sessionId);
+		await interruptSession(goalRef, session.providerId);
 	};
 	// Keep the editor mounted at all times. Permissions / questions render as
 	// a sibling above it, and we hide the editor block with `display: none`
@@ -1285,6 +1244,7 @@ export function ChatComposer({
 						{!isDraft ? (
 							<div className="mb-1 overflow-hidden rounded-md border border-border/50 bg-muted/30 empty:hidden empty:mb-0">
 								<PlanApprovalTray
+									environmentId={qualifiedEnvironmentId}
 									sessionId={sessionId}
 									emulatedPlanReady={emulatedPlanReady}
 									onApproveEmulatedPlan={approveEmulatedPlan}
@@ -1295,25 +1255,46 @@ export function ChatComposer({
 										goal={goal}
 										inPlanMode={inPlanMode}
 										onPause={() =>
-											void setGoal(sessionId, {
-												status: goal.status === "active" ? "paused" : "active",
-											})
+											void setSessionGoal({
+												ref: goalRef,
+												goal: {
+													status:
+														goal.status === "active" ? "paused" : "active",
+												},
+											}).catch(() => undefined)
 										}
 										onSave={(objective, tokenBudget) =>
-											void setGoal(sessionId, {
-												objective,
-												status: "active",
-												tokenBudget,
-											})
+											void setSessionGoal({
+												ref: goalRef,
+												goal: {
+													objective,
+													status: "active",
+													tokenBudget,
+												},
+											}).catch(() => undefined)
 										}
-										onClear={() => void clearGoal(sessionId)}
+										onClear={() =>
+											void clearSessionGoal({ ref: goalRef }).catch(
+												() => undefined,
+											)
+										}
 									/>
 								) : null}
-								<ContextTray sessionId={sessionId} />
+								<ContextTray
+									environmentId={qualifiedEnvironmentId}
+									sessionId={sessionId}
+								/>
 								{!inPlanMode ? (
-									<ProjectPlanTray key={sessionId} sessionId={sessionId} />
+									<ProjectPlanTray
+										environmentId={qualifiedEnvironmentId}
+										key={sessionId}
+										sessionId={sessionId}
+									/>
 								) : null}
-								<QueueTray sessionId={sessionId} />
+								<QueueTray
+									environmentId={qualifiedEnvironmentId}
+									sessionId={sessionId}
+								/>
 							</div>
 						) : null}
 						{editingQueuedItem !== null ? (
@@ -1375,6 +1356,7 @@ export function ChatComposer({
 										/>
 									) : (
 										<FileTagPopover
+											environmentId={qualifiedEnvironmentId}
 											trigger={trigger}
 											view={editorViewRef.current}
 											projectId={session.projectId}
@@ -1429,6 +1411,7 @@ export function ChatComposer({
 									</TooltipPopup>
 								</Tooltip>
 								<ModelPicker
+									environmentId={qualifiedEnvironmentId}
 									mode="session"
 									sessionId={sessionId}
 									chatId={session.chatId}
@@ -1438,6 +1421,7 @@ export function ChatComposer({
 									onOpenChange={setModelPickerOpen}
 								/>
 								<ReasoningPicker
+									environmentId={qualifiedEnvironmentId}
 									sessionId={sessionId}
 									providerId={session.providerId}
 									model={session.model}
@@ -1456,7 +1440,10 @@ export function ChatComposer({
 									// filter when the provider gates it.
 									(session.providerId !== "codex" ||
 										capabilities.includes("fastMode")) && (
-										<FastModeToggle sessionId={sessionId} />
+										<FastModeToggle
+											environmentId={qualifiedEnvironmentId}
+											sessionId={sessionId}
+										/>
 									)}
 								{goalCapable ? (
 									<GoalModeToggle
@@ -1479,10 +1466,21 @@ export function ChatComposer({
 								/>
 							</div>
 							<div className="flex items-center gap-2">
-								{!isDraft ? <ContextStatusPopover session={session} /> : null}
-								{!isDraft ? <CostChip sessionId={sessionId} /> : null}
+								{!isDraft ? (
+									<ContextStatusPopover
+										environmentId={qualifiedEnvironmentId}
+										session={session}
+									/>
+								) : null}
+								{!isDraft ? (
+									<CostChip
+										environmentId={qualifiedEnvironmentId}
+										sessionId={sessionId}
+									/>
+								) : null}
 								{!isDraft ? (
 									<SessionTimer
+										environmentId={qualifiedEnvironmentId}
 										sessionId={sessionId}
 										inFlight={showActiveTimer}
 									/>
@@ -1578,8 +1576,17 @@ export function ChatComposer({
  * Claude Fast Mode is a boolean model option, persisted in the same
  * per-session sessionStorage namespace the send path already reads.
  */
-function FastModeToggle({ sessionId }: { sessionId: SessionId }) {
-	const storageKey = `zuse.modelOptions.${sessionId}.fastMode`;
+function FastModeToggle({
+	sessionId,
+	environmentId,
+}: {
+	sessionId: SessionId;
+	environmentId: EnvironmentId;
+}) {
+	const storageKey = sessionModelOptionStorageKey(
+		{ environmentId, sessionId },
+		"fastMode",
+	);
 	const legacyStorageKey = `memoize.modelOptions.${sessionId}.fastMode`;
 	const [enabled, setEnabled] = useState(() => {
 		if (typeof window === "undefined") return false;
@@ -1949,11 +1956,13 @@ function GoalEditorDialog({
  * opencode driver in turn translates into the prompt body's `model.variant`.
  */
 function ReasoningPicker({
+	environmentId,
 	sessionId,
 	providerId,
 	model,
 	onLevelChange,
 }: {
+	environmentId: EnvironmentId;
 	sessionId: SessionId;
 	providerId: ProviderId;
 	model: string;
@@ -2008,7 +2017,10 @@ function ReasoningPicker({
 
 	const defaultId = resolved?.defaultId ?? "medium";
 	const descriptorId = resolved?.descriptorId ?? "reasoning";
-	const storageKey = `zuse.modelOptions.${sessionId}.${descriptorId}`;
+	const storageKey = sessionModelOptionStorageKey(
+		{ environmentId, sessionId },
+		descriptorId,
+	);
 	const legacyStorageKey = `memoize.modelOptions.${sessionId}.${descriptorId}`;
 	const [level, setLevel] = useState<string>(() => {
 		if (typeof window === "undefined") return defaultId;
@@ -2130,6 +2142,7 @@ const descriptorContextWindowTokens = (
  * control can stay visible from the first message.
  */
 const selectedContextWindowTokens = (
+	environmentId: EnvironmentId,
 	sessionId: SessionId,
 	providerId: ProviderId,
 	model: string,
@@ -2139,8 +2152,11 @@ const selectedContextWindowTokens = (
 	}
 	const stored = readStorageWithLegacy(
 		window.sessionStorage,
-		`zuse.modelOptions.${sessionId}.contextWindow`,
-		[`memoize.modelOptions.${sessionId}.contextWindow`],
+		sessionModelOptionStorageKey({ environmentId, sessionId }, "contextWindow"),
+		[
+			`zuse.modelOptions.${sessionId}.contextWindow`,
+			`memoize.modelOptions.${sessionId}.contextWindow`,
+		],
 	);
 	return (
 		contextWindowTokensFromId(stored ?? undefined) ??
@@ -2197,9 +2213,17 @@ function ContextRing({ percent }: { percent: number | null }) {
 	);
 }
 
-function ContextStatusPopover({ session }: { session: Session }) {
-	const messages = useMessagesStore(
-		(s) => s.messagesBySession[session.id] ?? EMPTY_MESSAGES,
+function ContextStatusPopover({
+	session,
+	environmentId,
+}: {
+	session: Session;
+	environmentId: EnvironmentId;
+}) {
+	const { messages } = useRendererSessionTimeline(
+		session.id,
+		"connect",
+		environmentId,
 	);
 
 	const latestContext = useMemo(() => {
@@ -2276,6 +2300,7 @@ function ContextStatusPopover({ session }: { session: Session }) {
 	const usedTokens = latestContext?.usedTokens ?? null;
 	const reportedWindowTokens = latestContext?.windowTokens ?? null;
 	const fallbackWindowTokens = selectedContextWindowTokens(
+		environmentId,
 		session.id,
 		session.providerId,
 		session.model,
@@ -2437,13 +2462,17 @@ const formatCoarse = (ms: number): string => {
  */
 function SessionTimer({
 	sessionId,
+	environmentId,
 	inFlight,
 }: {
 	sessionId: SessionId;
+	environmentId: EnvironmentId;
 	inFlight: boolean;
 }) {
-	const messages = useMessagesStore(
-		(s) => s.messagesBySession[sessionId] ?? EMPTY_MESSAGES,
+	const { messages } = useRendererSessionTimeline(
+		sessionId,
+		"connect",
+		environmentId,
 	);
 
 	const [now, setNow] = useState(() => Date.now());
@@ -2496,5 +2525,3 @@ function SessionTimer({
 		</span>
 	);
 }
-
-const EMPTY_MESSAGES: ReadonlyArray<Message> = [];

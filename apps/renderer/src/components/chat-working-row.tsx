@@ -1,16 +1,15 @@
-import type { Message, SessionId } from "@zuse/contracts";
+import type { EnvironmentId, Message, SessionId } from "@zuse/contracts";
 import { useEffect, useMemo, useState } from "react";
 
 import { deriveAgentActivityState } from "../lib/agent-activity-state.ts";
+import { cloudSummaryForSession } from "../lib/cloud-workspace-catalog.ts";
+import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import {
 	providerStartupLabel,
 	useProviderStartupDelay,
 } from "../lib/provider-startup-delay.ts";
-import { effectiveSessionRuntimeState } from "../lib/session-runtime-state.ts";
-import { cloudSummaryForSession } from "../store/cloud-chat-registry.ts";
-import { useSessionRuntimeStore } from "../store/session-runtime.ts";
-import { getSessionById, useSessionsStore } from "../store/sessions.ts";
+import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 
@@ -25,17 +24,18 @@ const formatElapsed = (ms: number): string => {
 export function ChatWorkingRow({
 	messages,
 	sessionId,
+	environmentId,
 }: {
 	readonly messages: ReadonlyArray<Message>;
 	readonly sessionId: SessionId;
+	readonly environmentId: EnvironmentId;
 }) {
-	const runtimeState = useSessionRuntimeStore((state) =>
-		effectiveSessionRuntimeState(state.bySession[sessionId]),
+	const { runtime: runtimeState } = useRendererSessionTimeline(
+		sessionId,
+		"connect",
+		environmentId,
 	);
-	const session = useSessionsStore((state) => {
-		void state.sessionsByProject;
-		return getSessionById(sessionId);
-	});
+	const session = useActiveSessionById(sessionId);
 	const providerLabel =
 		session === null || session === undefined
 			? "Agent"

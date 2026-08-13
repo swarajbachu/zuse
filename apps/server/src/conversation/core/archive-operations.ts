@@ -1315,15 +1315,8 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 								_tag: "SetWorktree",
 								worktreeId: restoredWorktreeId,
 								updatedAt: unarchivedAt,
+								forceProjection: true,
 							});
-							// Worktree removal clears the read-model FK directly, outside the
-							// event stream. If domain state already remembers this same id, the
-							// idempotent command above emits no event, so explicitly repair the
-							// projection to the value a full event replay would produce.
-							yield* sql`
-              UPDATE sessions SET worktree_id = ${restoredWorktreeId}
-              WHERE id = ${sessionId}
-            `.pipe(Effect.orDie);
 						}
 						if (chatRow.archived_at !== null) {
 							yield* dispatchSessionCommand(sessionId, {

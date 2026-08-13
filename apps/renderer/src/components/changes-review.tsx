@@ -23,14 +23,16 @@ import {
 	WorkerPoolContextProvider,
 	type WorkerPoolOptions,
 } from "@pierre/diffs/react";
+import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import type {
 	CodeAnnotation,
 	FolderId,
 	GitReviewFile,
+	GitReviewFileContents,
 	GitReviewPatch,
 	WorktreeId,
 } from "@zuse/contracts";
-import { Effect } from "effect";
+import { CommandId } from "@zuse/contracts";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -52,7 +54,17 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/use-auth.ts";
 import { useZuseDiffTheme, ZUSE_DIFF_THEMES } from "../lib/diffs-theme.ts";
+import {
+	dispatchFileTreeCommand,
+	fileWriteCommandId,
+} from "../lib/file-tree-client-bus.ts";
 import { formatError } from "../lib/format-error.ts";
+import {
+	dispatchGitWorkspaceCommand,
+	ensureGitReviewPatch,
+	refreshGitReview,
+	useGitWorkspaceResource,
+} from "../lib/git-workspace-client-bus.ts";
 import {
 	getReviewAnnotationAnchor,
 	getReviewItemVersion,
@@ -61,10 +73,8 @@ import {
 	configureReviewEditGuard,
 	requestReviewLeave,
 } from "../lib/review-edit-guard.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
-import { gitReviewKey, useGitReviewStore } from "../store/git-review.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { FileIcon } from "./file-icon.tsx";
@@ -224,10 +234,13 @@ export function ChangesReview() {
 		>
 			<EditProvider createEditor={(options) => new Editor(options)}>
 				<ChangesReviewReady
-					key={`${context.folderId}:${context.worktreeId ?? "main"}`}
-					folderId={context.folderId}
-					worktreeId={context.worktreeId}
-					rootPath={context.rootPath}
+					key={`${context.environmentId}:${context.folderId}:${context.worktreeId ?? "main"}`}
+					executionRef={{
+						environmentId: context.environmentId,
+						folderId: context.folderId,
+						worktreeId: context.worktreeId,
+						rootPath: context.rootPath,
+					}}
 				/>
 			</EditProvider>
 		</WorkerPoolContextProvider>
@@ -235,23 +248,21 @@ export function ChangesReview() {
 }
 
 function ChangesReviewReady({
-	folderId,
-	worktreeId,
-	rootPath,
+	executionRef,
 }: {
-	readonly folderId: FolderId;
-	readonly worktreeId: WorktreeId | null;
-	readonly rootPath: string;
+	readonly executionRef: ExecutionRef;
 }) {
-	const key = gitReviewKey(folderId, worktreeId);
-	const summary = useGitReviewStore((state) => state.summaries[key] ?? null);
-	const patches = useGitReviewStore(
-		(state) => state.patches[key] ?? EMPTY_REVIEW_PATCHES,
+	const { folderId, worktreeId, rootPath } = executionRef;
+	const reviewView = useGitWorkspaceResource(executionRef, "connect");
+	const summary = reviewView.data?.summary ?? null;
+	const patches = reviewView.data?.patches ?? EMPTY_REVIEW_PATCHES;
+	const loading = reviewView.sync === "synchronizing";
+	const error = reviewView.data?.error?.message ?? null;
+	const key = `${executionRef.environmentId}:${folderId}:${worktreeId ?? "main"}:${rootPath}`;
+	const refresh = useCallback(
+		() => refreshGitReview(executionRef),
+		[executionRef],
 	);
-	const loading = useGitReviewStore((state) => state.loading[key] === true);
-	const error = useGitReviewStore((state) => state.errors[key] ?? null);
-	const refresh = useGitReviewStore((state) => state.refresh);
-	const ensurePatch = useGitReviewStore((state) => state.ensurePatch);
 	const navigation = useUiStore((state) => state.reviewNavigation);
 	const viewerRef = useRef<CodeViewHandle<AnnotationMetadata>>(null);
 	const lastNavigationTokenRef = useRef<number | null>(null);
@@ -280,16 +291,16 @@ function ChangesReviewReady({
 	useEffect(() => {
 		let active = true;
 		setRepositoryAuthor(null);
-		void getRpcClient()
-			.then((client) =>
-				Effect.runPromise(
-					client["git.reviewIdentity"]({
-						folderId,
-						worktreeId,
-					}),
-				),
-			)
-			.then((identity) => {
+		void dispatchGitWorkspaceCommand<
+			{ readonly folderId: FolderId; readonly worktreeId: WorktreeId | null },
+			{ readonly name: string; readonly avatarUrl: string | null } | null
+		>({
+			ref: executionRef,
+			kind: "git.reviewIdentity",
+			commandId: CommandId.make(`git-review-identity:${crypto.randomUUID()}`),
+			payload: { folderId, worktreeId },
+		})
+			.then(({ result: identity }) => {
 				if (!active || identity === null) return;
 				setRepositoryAuthor({
 					name: identity.name,
@@ -301,7 +312,7 @@ function ChangesReviewReady({
 		return () => {
 			active = false;
 		};
-	}, [folderId, worktreeId]);
+	}, [executionRef, folderId, worktreeId]);
 	const annotationAuthor = useMemo<AnnotationAuthor>(() => {
 		const name = authName.trim() || repositoryAuthor?.name || "You";
 		return {
@@ -328,15 +339,11 @@ function ChangesReviewReady({
 	);
 
 	useEffect(() => {
-		void refresh(folderId, worktreeId);
-	}, [folderId, worktreeId, refresh]);
-
-	useEffect(() => {
 		const path = navigation?.path;
 		if (path === null || path === undefined || patches[path] !== undefined)
 			return;
-		void ensurePatch(folderId, worktreeId, path);
-	}, [ensurePatch, folderId, navigation?.path, patches, worktreeId]);
+		void ensureGitReviewPatch(executionRef, path);
+	}, [executionRef, navigation?.path, patches]);
 
 	useEffect(() => {
 		localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
@@ -511,15 +518,25 @@ function ChangesReviewReady({
 				setEditDraft(null);
 				setEditError(null);
 				try {
-					const client = await getRpcClient();
-					const content = await Effect.runPromise(
-						client["git.reviewFileContents"]({
+					const { result: content } = await dispatchGitWorkspaceCommand<
+						{
+							readonly folderId: FolderId;
+							readonly worktreeId: WorktreeId | null;
+							readonly path: string;
+							readonly oldPath: string | null;
+						},
+						GitReviewFileContents
+					>({
+						ref: executionRef,
+						kind: "git.reviewFileContents",
+						commandId: CommandId.make(`git-review-file:${crypto.randomUUID()}`),
+						payload: {
 							folderId,
 							worktreeId,
 							path: file.path,
 							oldPath: file.oldPath,
-						}),
-					);
+						},
+					});
 					if (content.newContent === null || content.mtime === null) {
 						setEditError("This file cannot be edited in its current state.");
 						return;
@@ -542,7 +559,7 @@ function ChangesReviewReady({
 			}
 			void loadEditor();
 		},
-		[editingPath, editDraft, folderId, worktreeId],
+		[editingPath, editDraft, executionRef, folderId, worktreeId],
 	);
 
 	const leaveEdit = useCallback(() => {
@@ -563,25 +580,42 @@ function ChangesReviewReady({
 		if (metadata?.mtime === null || metadata?.mtime === undefined) return false;
 		setEditError(null);
 		try {
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["fs.writeFile"]({
+			const commandId = await fileWriteCommandId({
+				ref: executionRef,
+				path: editingPath,
+				content: editDraft.contents,
+				expectedMtime: metadata.mtime,
+			});
+			await dispatchFileTreeCommand({
+				ref: executionRef,
+				kind: "fs.writeFile",
+				commandId,
+				payload: {
+					commandId,
 					folderId,
 					worktreeId,
 					path: editingPath,
 					content: editDraft.contents,
 					expectedMtime: metadata.mtime,
-				}),
-			);
+				},
+			});
 			setEditingPath(null);
 			setEditDraft(null);
-			await refresh(folderId, worktreeId);
+			await refresh();
 			return true;
 		} catch (cause) {
 			setEditError(`Save failed. Your draft is preserved. ${String(cause)}`);
 			return false;
 		}
-	}, [editDraft, editingPath, folderId, hydrated, refresh, worktreeId]);
+	}, [
+		editDraft,
+		editingPath,
+		executionRef,
+		folderId,
+		hydrated,
+		refresh,
+		worktreeId,
+	]);
 
 	useEffect(() => {
 		configureReviewEditGuard(
@@ -607,36 +641,40 @@ function ChangesReviewReady({
 		async (file: GitReviewFile) => {
 			if (!window.confirm(`Restore ${file.path} to the comparison base?`))
 				return;
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["git.restoreFileToBase"]({
+			await dispatchGitWorkspaceCommand({
+				ref: executionRef,
+				kind: "git.restoreFileToBase",
+				commandId: CommandId.make(`git-restore-base:${crypto.randomUUID()}`),
+				payload: {
 					folderId,
 					worktreeId,
 					path: file.path,
 					oldPath: file.oldPath,
-				}),
-			);
-			await refresh(folderId, worktreeId);
+				},
+			});
+			await refresh();
 		},
-		[folderId, refresh, worktreeId],
+		[executionRef, folderId, refresh, worktreeId],
 	);
 
 	const discardUncommitted = useCallback(
 		async (file: GitReviewFile) => {
 			if (!window.confirm(`Discard uncommitted edits in ${file.path}?`)) return;
-			const client = await getRpcClient();
-			await Effect.runPromise(
-				client["git.revertFile"]({
+			await dispatchGitWorkspaceCommand({
+				ref: executionRef,
+				kind: "git.revertFile",
+				commandId: CommandId.make(`git-revert:${crypto.randomUUID()}`),
+				payload: {
 					folderId,
 					worktreeId,
 					path: file.path,
 					oldPath: file.oldPath,
 					kind: file.kind,
-				}),
-			);
-			await refresh(folderId, worktreeId);
+				},
+			});
+			await refresh();
 		},
-		[folderId, refresh, worktreeId],
+		[executionRef, folderId, refresh, worktreeId],
 	);
 
 	const renderHeaderPrefix = useCallback(
@@ -759,17 +797,21 @@ function ChangesReviewReady({
 			const file = fileByPath.get(selection.id);
 			if (destination === "github") {
 				try {
-					const client = await getRpcClient();
-					await Effect.runPromise(
-						client["git.createReviewComment"]({
+					await dispatchGitWorkspaceCommand({
+						ref: executionRef,
+						kind: "git.createReviewComment",
+						commandId: CommandId.make(
+							`git-review-comment:${crypto.randomUUID()}`,
+						),
+						payload: {
 							folderId,
 							worktreeId,
 							path: selection.id,
 							line: anchor.lineNumber,
 							side: anchor.side,
 							body: trimmedMessage,
-						}),
-					);
+						},
+					});
 				} catch (cause) {
 					setAnnotationError(
 						`Could not post the review comment. ${formatError(cause)}`,
@@ -800,6 +842,7 @@ function ChangesReviewReady({
 		},
 		[
 			fileByPath,
+			executionRef,
 			folderId,
 			rootPath,
 			selectedSessionId,
@@ -1019,10 +1062,9 @@ function ChangesReviewReady({
 				{selectedConflict !== null ? (
 					<ConflictReview
 						key={selectedConflict.path}
-						folderId={folderId}
-						worktreeId={worktreeId}
+						executionRef={executionRef}
 						file={selectedConflict}
-						onResolved={() => refresh(folderId, worktreeId)}
+						onResolved={refresh}
 						onClose={() => useUiStore.getState().openChanges()}
 					/>
 				) : null}
@@ -1032,18 +1074,17 @@ function ChangesReviewReady({
 }
 
 function ConflictReview({
-	folderId,
-	worktreeId,
+	executionRef,
 	file,
 	onResolved,
 	onClose,
 }: {
-	readonly folderId: FolderId;
-	readonly worktreeId: WorktreeId | null;
+	readonly executionRef: ExecutionRef;
 	readonly file: GitReviewFile;
 	readonly onResolved: () => Promise<void>;
 	readonly onClose: () => void;
 }) {
+	const { folderId, worktreeId } = executionRef;
 	const diffTheme = useZuseDiffTheme();
 	const [contents, setContents] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -1059,14 +1100,23 @@ function ConflictReview({
 		let cancelled = false;
 		void (async () => {
 			try {
-				const client = await getRpcClient();
-				const result = await Effect.runPromise(
-					client["fs.readFile"]({
+				const { result } = await dispatchFileTreeCommand<
+					{
+						readonly folderId: FolderId;
+						readonly worktreeId: WorktreeId | null;
+						readonly path: string;
+					},
+					{ readonly kind: string; readonly content?: string }
+				>({
+					ref: executionRef,
+					kind: "fs.readFile",
+					commandId: CommandId.make(`fs-read:${crypto.randomUUID()}`),
+					payload: {
 						folderId,
 						worktreeId,
 						path: file.path,
-					}),
-				);
+					},
+				});
 				if (cancelled) return;
 				if (result.kind !== "text") {
 					setError(
@@ -1074,10 +1124,11 @@ function ConflictReview({
 					);
 					return;
 				}
-				contentsRef.current = result.content;
+				const content = result.content ?? "";
+				contentsRef.current = content;
 				resolvingConflictIndexesRef.current.clear();
-				setContents(result.content);
-				setRemaining(countConflicts(result.content));
+				setContents(content);
+				setRemaining(countConflicts(content));
 			} catch (cause) {
 				if (!cancelled) setError(String(cause));
 			}
@@ -1086,22 +1137,24 @@ function ConflictReview({
 			cancelled = true;
 			contentsRef.current = null;
 		};
-	}, [countConflicts, file.path, folderId, worktreeId]);
+	}, [countConflicts, executionRef, file.path, folderId, worktreeId]);
 
 	const persistResolution = useCallback(
 		async (resolvedContents: string) => {
 			setSaving(true);
 			setError(null);
 			try {
-				const client = await getRpcClient();
-				await Effect.runPromise(
-					client["git.resolveConflict"]({
+				await dispatchGitWorkspaceCommand({
+					ref: executionRef,
+					kind: "git.resolveConflict",
+					commandId: CommandId.make(`git-resolve:${crypto.randomUUID()}`),
+					payload: {
 						folderId,
 						worktreeId,
 						path: file.path,
 						contents: resolvedContents,
-					}),
-				);
+					},
+				});
 				await onResolved();
 				onClose();
 			} catch (cause) {
@@ -1109,7 +1162,7 @@ function ConflictReview({
 				setSaving(false);
 			}
 		},
-		[file.path, folderId, onClose, onResolved, worktreeId],
+		[executionRef, file.path, folderId, onClose, onResolved, worktreeId],
 	);
 	const conflictOptions = useMemo<UnresolvedFileReactOptions<undefined>>(
 		() => ({

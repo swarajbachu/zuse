@@ -13,6 +13,7 @@ import {
 	type SessionNotFoundError,
 	type SessionStartError,
 	type SkillRef,
+	type TurnInterruptReceipt,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
 import { Deferred, Effect, type FileSystem, type Scope } from "effect";
@@ -56,6 +57,7 @@ export interface MessageOperationsOptions {
 		content: MessageContent,
 		providerInputJson: string,
 		idOverride?: MessageId,
+		commandId?: string,
 	) => Effect.Effect<PersistedMessage>;
 	readonly ndjsonAppend: (
 		sessionId: SessionId,
@@ -70,7 +72,15 @@ export interface MessageOperationsOptions {
 		sessionId: SessionId,
 		commandId: string,
 		command: SessionCommand,
-	) => Effect.Effect<void>;
+	) => Effect.Effect<import("@zuse/domain/engine/dispatch").CommandReceipt>;
+	readonly dispatchSessionCommandWithIdTransactionally: <A, R>(
+		sessionId: SessionId,
+		commandId: string,
+		command: SessionCommand,
+		onCommitted: (
+			receipt: import("@zuse/domain/engine/dispatch").CommandReceipt,
+		) => Effect.Effect<A, never, R>,
+	) => Effect.Effect<A, never, R>;
 	readonly beginTurn: (
 		sessionId: SessionId,
 		turnIdOverride?: AgentTurnId,
@@ -225,6 +235,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			});
 
 		const submitUserMessage = (
+			commandId: string,
 			sessionId: SessionId,
 			text: string,
 			attachments?: ReadonlyArray<AttachmentRef>,
@@ -359,6 +370,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 								content,
 								JSON.stringify(providerInput),
 								clientMessageId,
+								commandId,
 							);
 				// Pin the attachments so the GC sweep treats them as referenced —
 				// a separate row per (message, attachment) keeps the existing
@@ -415,6 +427,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			});
 
 		const sendMessage: ConversationOperations["sendMessage"] = (
+			commandId,
 			sessionId,
 			text,
 			attachments,
@@ -427,6 +440,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		) =>
 			Effect.gen(function* () {
 				const accepted = yield* submitUserMessage(
+					commandId,
 					sessionId,
 					text,
 					attachments,
@@ -448,8 +462,9 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			serviceScope,
 			sql,
 			lookupSession,
-			submitUserMessage: (sessionId, input, clientMessageId) =>
+			submitUserMessage: (commandId, sessionId, input, clientMessageId) =>
 				submitUserMessage(
+					commandId,
 					sessionId,
 					input.text,
 					input.attachments,
@@ -459,15 +474,33 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					input.asGoal,
 					clientMessageId,
 				),
-			setQueuePaused: (sessionId, paused) =>
-				dispatchSessionCommand(sessionId, {
-					_tag: "SetQueuePaused",
+			setQueuePaused: (sessionId, paused, commandId) => {
+				const command = {
+					_tag: "SetQueuePaused" as const,
 					paused,
 					updatedAt: Date.now(),
-				}),
+				};
+				return commandId === undefined
+					? dispatchSessionCommand(sessionId, command)
+					: options
+							.dispatchSessionCommandWithId(sessionId, commandId, command)
+							.pipe(Effect.asVoid);
+			},
 			dispatchSessionCommand,
 			dispatchSessionCommandWithId: (sessionId, commandId, command) =>
 				options.dispatchSessionCommandWithId(sessionId, commandId, command),
+			dispatchSessionCommandWithIdTransactionally: (
+				sessionId,
+				commandId,
+				command,
+				onCommitted,
+			) =>
+				options.dispatchSessionCommandWithIdTransactionally(
+					sessionId,
+					commandId,
+					command,
+					onCommitted,
+				),
 			runSessionReactors,
 			resolveActiveTurn,
 		});
@@ -549,19 +582,34 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 				return yield* restartSession(sessionId);
 			});
 		const interruptSession: ConversationOperations["interruptSession"] = (
+			commandId,
 			sessionId,
+			expectedTurnId,
 		) =>
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
-				const resolvedTurnId = yield* resolveActiveTurn(sessionId);
-				if (resolvedTurnId === undefined) return;
-				yield* dispatchSessionCommand(sessionId, {
-					_tag: "RequestTurnInterrupt",
-					turnId: resolvedTurnId,
-					requestedAt: Date.now(),
-				});
+				const receipt = yield* options.dispatchSessionCommandWithId(
+					sessionId,
+					commandId,
+					{
+						_tag: "RequestTurnInterrupt",
+						...(expectedTurnId === undefined ? {} : { expectedTurnId }),
+						requestedAt: Date.now(),
+					},
+				);
+				const outcome = receipt.result;
+				if (outcome === undefined) {
+					return {
+						_tag: "not-active",
+						reason: "no-active-turn",
+						expectedTurnId: expectedTurnId ?? null,
+						actualTurnId: null,
+					} satisfies TurnInterruptReceipt;
+				}
+				if (outcome._tag === "not-active") return outcome;
 				yield* queueRuntime.pauseAfterInterrupt(sessionId);
 				yield* runSessionReactors;
+				return outcome;
 			});
 
 		return {

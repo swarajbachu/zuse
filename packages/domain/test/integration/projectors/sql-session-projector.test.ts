@@ -110,4 +110,62 @@ describe("SqlSessionProjector", () => {
 		);
 		expect(queuePaused).toBe(0);
 	});
+
+	test("conditionally upserts only newer checkpoints and seals final rows", async () => {
+		const rows = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`
+					INSERT INTO chats (id, updated_at)
+					VALUES ('chat-1', '1970-01-01T00:00:00.000Z')
+				`;
+				const projector = makeSqlSessionProjector(sql);
+				yield* projector.apply(
+					stored(1, { _tag: "SessionCreated", ...sessionCreation }),
+				);
+				const checkpoint = (
+					sequence: number,
+					revision: number,
+					text: string,
+					final = false,
+				) =>
+					projector.apply(
+						stored(sequence, {
+							_tag: "MessagePersisted",
+							messageId: "provider-message-1",
+							turnId: "turn-1",
+							role: "assistant",
+							kind: "assistant",
+							contentJson: JSON.stringify({ _tag: "assistant", text }),
+							parentItemId: null,
+							checkpointRevision: revision,
+							checkpointFinal: final,
+							createdAt: sequence,
+						}),
+					);
+				yield* checkpoint(2, 2, "new");
+				yield* checkpoint(3, 1, "old");
+				yield* checkpoint(4, 2, "duplicate");
+				yield* checkpoint(5, 3, "final", true);
+				yield* checkpoint(6, 4, "after-final");
+				return yield* sql<{
+					readonly content_json: string;
+					readonly checkpoint_revision: number;
+					readonly checkpoint_final: number;
+				}>`
+					SELECT content_json, checkpoint_revision, checkpoint_final
+					FROM messages WHERE id = 'provider-message-1'
+				`;
+			}),
+		);
+
+		expect(rows).toEqual([
+			{
+				content_json: '{"_tag":"assistant","text":"final"}',
+				checkpoint_revision: 3,
+				checkpoint_final: 1,
+			},
+		]);
+	});
 });

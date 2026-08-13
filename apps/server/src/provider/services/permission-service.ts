@@ -1,14 +1,14 @@
-import { Context, type Effect, type Stream } from "effect";
-
 import type {
-  FolderId,
-  PermissionDecision,
-  PermissionKind,
-  PermissionRequest,
-  PermissionRequestNotFoundError,
-  SavedDecision,
-  SessionId,
+	FolderId,
+	PermissionDecision,
+	PermissionKind,
+	PermissionRequest,
+	PermissionRequestChange,
+	PermissionRequestNotFoundError,
+	SavedDecision,
+	SessionId,
 } from "@zuse/contracts";
+import { Context, type Effect, type Stream } from "effect";
 
 /**
  * Bridge between provider drivers (which call `request` from inside their
@@ -35,40 +35,41 @@ import type {
  * `AlwaysAllow` decisions can't silence them.
  */
 export interface RequestOptions {
-  readonly projectId: FolderId;
-  readonly forcePrompt?: boolean;
+	readonly projectId: FolderId;
+	readonly forcePrompt?: boolean;
 }
 
 export interface PermissionServiceShape {
-  readonly request: (
-    sessionId: SessionId,
-    kind: PermissionKind,
-    options: RequestOptions,
-  ) => Effect.Effect<PermissionDecision>;
+	readonly request: (
+		sessionId: SessionId,
+		kind: PermissionKind,
+		options: RequestOptions,
+	) => Effect.Effect<PermissionDecision>;
 
-  readonly decide: (
-    requestId: string,
-    decision: PermissionDecision,
-  ) => Effect.Effect<void, PermissionRequestNotFoundError>;
+	readonly decide: (
+		requestId: string,
+		decision: PermissionDecision,
+	) => Effect.Effect<void, PermissionRequestNotFoundError>;
 
-  readonly listPending: (
-    sessionId: SessionId,
-  ) => Effect.Effect<ReadonlyArray<PermissionRequest>>;
+	readonly listPending: (
+		sessionId: SessionId,
+	) => Effect.Effect<ReadonlyArray<PermissionRequest>>;
 
-  readonly requests: () => Stream.Stream<PermissionRequest>;
+	readonly requests: () => Stream.Stream<PermissionRequestChange>;
 
-  /**
-   * Inspector queries. `listDecisions` returns persisted decisions filtered
-   * by project (or all when no filter is given). `revokeDecision` deletes a
-   * single row by `requestId` so the next matching tool call re-prompts.
-   */
-  readonly listDecisions: (filter: {
-    readonly projectId?: FolderId;
-  }) => Effect.Effect<ReadonlyArray<SavedDecision>>;
+	/**
+	 * Inspector queries. `listDecisions` returns persisted decisions filtered
+	 * by project (or all when no filter is given). `revokeDecision` deletes a
+	 * single row by `requestId` so the next matching tool call re-prompts.
+	 */
+	readonly listDecisions: (filter: {
+		readonly projectId?: FolderId;
+	}) => Effect.Effect<ReadonlyArray<SavedDecision>>;
 
-  readonly revokeDecision: (requestId: string) => Effect.Effect<void>;
+	readonly revokeDecision: (requestId: string) => Effect.Effect<void>;
 }
 
-export class PermissionService extends Context.Service<PermissionService, PermissionServiceShape>()(
-  "memoize/PermissionService",
-) {}
+export class PermissionService extends Context.Service<
+	PermissionService,
+	PermissionServiceShape
+>()("memoize/PermissionService") {}

@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { EnvironmentId, Session, SessionId } from "@zuse/contracts";
 import { CheckListIcon } from "@zuse/icons/solid-rounded";
-import type { Session, SessionId } from "@zuse/contracts";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -10,8 +10,8 @@ import {
 	saveContextFile,
 } from "../../lib/context-handoff.ts";
 import { selectContextSources } from "../../lib/context-sources.ts";
-import { useMessagesStore } from "../../store/messages.ts";
-import { useSessionsStore } from "../../store/sessions.ts";
+import { useActiveEnvironmentEntities } from "../../lib/environment-entity-hooks.ts";
+import { useRendererSessionTimeline } from "../../lib/session-timeline-hooks.ts";
 import { ProviderIcon } from "../provider-icons.tsx";
 import { toastManager } from "../ui/toast.tsx";
 
@@ -23,11 +23,17 @@ import { toastManager } from "../ui/toast.tsx";
  * surfaces unrelated context. Hidden once the session has a message, or when
  * there's nothing to pull from.
  */
-export function ContextTray({ sessionId }: { sessionId: SessionId }) {
-	const sessionsByProject = useSessionsStore((s) => s.sessionsByProject);
-	const hasMessages = useMessagesStore(
-		(s) => (s.messagesBySession[sessionId]?.length ?? 0) > 0,
-	);
+export function ContextTray({
+	sessionId,
+	environmentId,
+}: {
+	sessionId: SessionId;
+	environmentId: EnvironmentId;
+}) {
+	const { sessionsByProject } = useActiveEnvironmentEntities();
+	const hasMessages =
+		useRendererSessionTimeline(sessionId, "connect", environmentId).messages
+			.length > 0;
 	const [plans, setPlans] = useState<Record<string, string>>({});
 	const [busy, setBusy] = useState<string | null>(null);
 
@@ -39,7 +45,10 @@ export function ContextTray({ sessionId }: { sessionId: SessionId }) {
 	useEffect(() => {
 		let cancelled = false;
 		void Promise.all(
-			sources.map(async (s) => [s.id, await fetchLatestPlan(s.id)] as const),
+			sources.map(
+				async (s) =>
+					[s.id, await fetchLatestPlan(environmentId, s.id)] as const,
+			),
 		).then((entries) => {
 			if (cancelled) return;
 			const next: Record<string, string> = {};
@@ -49,7 +58,7 @@ export function ContextTray({ sessionId }: { sessionId: SessionId }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [sources]);
+	}, [environmentId, sources]);
 
 	if (hasMessages || sources.length === 0) return null;
 
@@ -64,12 +73,12 @@ export function ContextTray({ sessionId }: { sessionId: SessionId }) {
 			const text =
 				kind === "plan"
 					? (plans[source.id] ?? null)
-					: await fetchTranscriptMarkdown(source.id);
+					: await fetchTranscriptMarkdown(environmentId, source.id);
 			if (text === null || text.trim().length === 0) {
 				toastManager.add({ title: "Nothing to attach", type: "error" });
 				return;
 			}
-			const ref = await saveContextFile(sessionId, text);
+			const ref = await saveContextFile(environmentId, sessionId, text);
 			if (ref === null) {
 				toastManager.add({ title: "Attach failed", type: "error" });
 				return;

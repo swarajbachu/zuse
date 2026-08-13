@@ -1,5 +1,5 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
 import { FolderId } from "./ids.ts";
 import { SessionId } from "./session.ts";
@@ -11,16 +11,16 @@ import { SessionId } from "./session.ts";
  * (cwd, args, etc.) that the toast renders for context.
  */
 export const PermissionKind = Schema.Union([
-  Schema.TaggedStruct("FileWrite", { path: Schema.String }),
-  Schema.TaggedStruct("Bash", { command: Schema.String }),
-  Schema.TaggedStruct("Network", { url: Schema.String }),
-  // Catch-all for tools we don't classify yet (`Read`, `Glob`, MCP, …). The
-  // server defaults these to AllowOnce auto-pass for now; surfacing the union
-  // member keeps the protocol open without a separate "unknown" path.
-  Schema.TaggedStruct("Other", {
-    tool: Schema.String,
-    summary: Schema.String,
-  }),
+	Schema.TaggedStruct("FileWrite", { path: Schema.String }),
+	Schema.TaggedStruct("Bash", { command: Schema.String }),
+	Schema.TaggedStruct("Network", { url: Schema.String }),
+	// Catch-all for tools we don't classify yet (`Read`, `Glob`, MCP, …). The
+	// server defaults these to AllowOnce auto-pass for now; surfacing the union
+	// member keeps the protocol open without a separate "unknown" path.
+	Schema.TaggedStruct("Other", {
+		tool: Schema.String,
+		summary: Schema.String,
+	}),
 ]);
 export type PermissionKind = typeof PermissionKind.Type;
 
@@ -31,12 +31,12 @@ export type PermissionKind = typeof PermissionKind.Type;
  * global allow-list UI — Phase 4 never produces it.
  */
 export const PermissionDecision = Schema.Union([
-  Schema.TaggedStruct("AllowOnce", {}),
-  Schema.TaggedStruct("AllowForSession", {}),
-  Schema.TaggedStruct("Deny", {}),
-  Schema.TaggedStruct("AlwaysAllow", {
-    scope: Schema.Literals(["folder", "global"]),
-  }),
+	Schema.TaggedStruct("AllowOnce", {}),
+	Schema.TaggedStruct("AllowForSession", {}),
+	Schema.TaggedStruct("Deny", {}),
+	Schema.TaggedStruct("AlwaysAllow", {
+		scope: Schema.Literals(["folder", "global"]),
+	}),
 ]);
 export type PermissionDecision = typeof PermissionDecision.Type;
 
@@ -46,25 +46,25 @@ export type PermissionDecision = typeof PermissionDecision.Type;
  * same session; the toast shows them one at a time.
  */
 export class PermissionRequest extends Schema.Class<PermissionRequest>(
-  "PermissionRequest",
+	"PermissionRequest",
 )({
-  id: Schema.String,
-  sessionId: SessionId,
-  kind: PermissionKind,
-  requestedAt: Schema.DateFromString,
-  /**
-   * When true, the renderer disables `AllowForSession` and `AlwaysAllow` so
-   * the user can't silence future matching prompts by accident.
-   *
-   * Set server-side for more than just credential files:
-   *  - sensitive paths (`.env`, `.ssh`, keys, etc.) on file ops
-   *  - plan mode (every bash / mutating / network gate)
-   *  - a few always-prompt tools (e.g. browser login, ExitPlanMode)
-   *
-   * Do not treat `forcePrompt` as "this path is sensitive" in the UI —
-   * bash/network prompts almost never are; they usually mean plan mode.
-   */
-  forcePrompt: Schema.Boolean,
+	id: Schema.String,
+	sessionId: SessionId,
+	kind: PermissionKind,
+	requestedAt: Schema.DateFromString,
+	/**
+	 * When true, the renderer disables `AllowForSession` and `AlwaysAllow` so
+	 * the user can't silence future matching prompts by accident.
+	 *
+	 * Set server-side for more than just credential files:
+	 *  - sensitive paths (`.env`, `.ssh`, keys, etc.) on file ops
+	 *  - plan mode (every bash / mutating / network gate)
+	 *  - a few always-prompt tools (e.g. browser login, ExitPlanMode)
+	 *
+	 * Do not treat `forcePrompt` as "this path is sensitive" in the UI —
+	 * bash/network prompts almost never are; they usually mean plan mode.
+	 */
+	forcePrompt: Schema.Boolean,
 }) {}
 
 /**
@@ -73,26 +73,42 @@ export class PermissionRequest extends Schema.Class<PermissionRequest>(
  * so the renderer doesn't re-parse JSON.
  */
 export class SavedDecision extends Schema.Class<SavedDecision>("SavedDecision")(
-  {
-    requestId: Schema.String,
-    sessionId: SessionId,
-    projectId: Schema.NullOr(FolderId),
-    kind: PermissionKind,
-    decision: Schema.Literals([
-      "AllowOnce",
-      "AllowForSession",
-      "AlwaysAllow",
-      "Deny",
-    ]),
-    scope: Schema.Literals(["session", "folder", "global"]),
-    decidedAt: Schema.DateFromString,
-  },
+	{
+		requestId: Schema.String,
+		sessionId: SessionId,
+		projectId: Schema.NullOr(FolderId),
+		kind: PermissionKind,
+		decision: Schema.Literals([
+			"AllowOnce",
+			"AllowForSession",
+			"AlwaysAllow",
+			"Deny",
+		]),
+		scope: Schema.Literals(["session", "folder", "global"]),
+		decidedAt: Schema.DateFromString,
+	},
 ) {}
 
 export class PermissionRequestNotFoundError extends Schema.TaggedErrorClass<PermissionRequestNotFoundError>()(
-  "PermissionRequestNotFoundError",
-  { requestId: Schema.String },
+	"PermissionRequestNotFoundError",
+	{ requestId: Schema.String },
 ) {}
+
+export const PermissionRequestChange = Schema.Union([
+	Schema.Struct({
+		_tag: Schema.Literal("snapshot"),
+		requests: Schema.Array(PermissionRequest),
+	}),
+	Schema.Struct({
+		_tag: Schema.Literal("change"),
+		request: PermissionRequest,
+	}),
+	Schema.Struct({
+		_tag: Schema.Literal("remove"),
+		requestId: Schema.String,
+	}),
+]);
+export type PermissionRequestChange = typeof PermissionRequestChange.Type;
 
 // ---------------------------------------------------------------------------
 // RPCs
@@ -105,18 +121,18 @@ export class PermissionRequestNotFoundError extends Schema.TaggedErrorClass<Perm
  * switch doesn't have to tear anything down on the server.
  */
 export const PermissionRequestsRpc = Rpc.make("permission.requests", {
-  payload: Schema.Struct({}),
-  success: PermissionRequest,
-  stream: true,
+	payload: Schema.Struct({}),
+	success: PermissionRequestChange,
+	stream: true,
 });
 
 export const PermissionDecideRpc = Rpc.make("permission.decide", {
-  payload: Schema.Struct({
-    requestId: Schema.String,
-    decision: PermissionDecision,
-  }),
-  success: Schema.Void,
-  error: PermissionRequestNotFoundError,
+	payload: Schema.Struct({
+		requestId: Schema.String,
+		decision: PermissionDecision,
+	}),
+	success: Schema.Void,
+	error: PermissionRequestNotFoundError,
 });
 
 /**
@@ -126,8 +142,8 @@ export const PermissionDecideRpc = Rpc.make("permission.decide", {
  * the next stream message.
  */
 export const PermissionListPendingRpc = Rpc.make("permission.listPending", {
-  payload: Schema.Struct({ sessionId: SessionId }),
-  success: Schema.Array(PermissionRequest),
+	payload: Schema.Struct({ sessionId: SessionId }),
+	success: Schema.Array(PermissionRequest),
 });
 
 /**
@@ -135,20 +151,17 @@ export const PermissionListPendingRpc = Rpc.make("permission.listPending", {
  * by project (typical use is per-project from the projects sidebar). `revoke`
  * deletes a single row by `requestId` so the next matching request re-prompts.
  */
-export const PermissionListDecisionsRpc = Rpc.make(
-  "permission.listDecisions",
-  {
-    payload: Schema.Struct({
-      projectId: Schema.optional(FolderId),
-    }),
-    success: Schema.Array(SavedDecision),
-  },
-);
+export const PermissionListDecisionsRpc = Rpc.make("permission.listDecisions", {
+	payload: Schema.Struct({
+		projectId: Schema.optional(FolderId),
+	}),
+	success: Schema.Array(SavedDecision),
+});
 
 export const PermissionRevokeDecisionRpc = Rpc.make(
-  "permission.revokeDecision",
-  {
-    payload: Schema.Struct({ requestId: Schema.String }),
-    success: Schema.Void,
-  },
+	"permission.revokeDecision",
+	{
+		payload: Schema.Struct({ requestId: Schema.String }),
+		success: Schema.Void,
+	},
 );

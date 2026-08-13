@@ -93,6 +93,7 @@ export interface ConversationStoreRuntime {
 		content: MessageContent,
 		providerInputJson: string,
 		idOverride?: MessageId,
+		commandId?: string,
 	) => Effect.Effect<PersistedMessage>;
 	readonly setStatus: (
 		sessionId: SessionId,
@@ -369,7 +370,11 @@ export const makeConversationStoreRuntime = Effect.fn(
 			const role = roleForContent(content);
 			const now = new Date();
 			const parentItemId = parentItemIdOfContent(content);
-			yield* sessionDomain
+			const checkpoint =
+				content._tag === "assistant" || content._tag === "thinking"
+					? content.checkpoint
+					: undefined;
+			const receipt = yield* sessionDomain
 				.dispatch({
 					commandId:
 						commandIdentityOverride === undefined
@@ -384,28 +389,38 @@ export const makeConversationStoreRuntime = Effect.fn(
 						kind: content._tag,
 						contentJson: JSON.stringify(content),
 						parentItemId,
+						checkpointRevision: checkpoint?.revision,
+						checkpointFinal: checkpoint?.final,
 						createdAt: now.getTime(),
 					},
 				})
 				.pipe(Effect.orDie);
-			const projected = yield* sql<{ readonly sequence: number }>`
-          SELECT sequence FROM messages WHERE id = ${id} LIMIT 1
-        `.pipe(Effect.orDie);
-			const sequence = projected[0]?.sequence;
-			if (sequence === undefined) {
+			const projected = yield* sql<{
+				readonly sequence: number;
+				readonly role: typeof role;
+				readonly content_json: string;
+				readonly created_at: string;
+			}>`
+							SELECT sequence, role, content_json, created_at
+							FROM messages WHERE id = ${id} LIMIT 1
+						`.pipe(Effect.orDie);
+			const row = projected[0];
+			if (row === undefined) {
 				return yield* Effect.die(
 					new Error(`message projection missing after dispatch: ${id}`),
 				);
 			}
+			const projectedContent = JSON.parse(row.content_json) as MessageContent;
 			return {
 				message: Message.make({
 					id,
 					sessionId,
-					role,
-					content,
-					createdAt: now,
+					role: row.role,
+					content: projectedContent,
+					createdAt: new Date(row.created_at),
 				}),
-				sequence,
+				sequence: row.sequence,
+				changed: receipt.eventIds.length > 0,
 			};
 		});
 
@@ -415,14 +430,15 @@ export const makeConversationStoreRuntime = Effect.fn(
 		content: MessageContent,
 		providerInputJson: string,
 		idOverride?: MessageId,
+		commandId?: string,
 	): Effect.Effect<PersistedMessage> =>
 		Effect.gen(function* () {
 			const id = idOverride ?? MessageId.make(crypto.randomUUID());
 			const role = roleForContent(content);
 			const now = new Date();
-			yield* sessionDomain
+			const receipt = yield* sessionDomain
 				.dispatch({
-					commandId: `turn:submit:${id}`,
+					commandId: commandId ?? `turn:submit:${id}`,
 					streamId: sessionId,
 					command: {
 						_tag: "SubmitTurn",
@@ -437,36 +453,87 @@ export const makeConversationStoreRuntime = Effect.fn(
 					},
 				})
 				.pipe(Effect.orDie);
-			// An idempotent retry can return the original SubmitTurn result for the
-			// same client message id. Rehydrate the durable turn instead of caching
-			// this attempt's fresh placeholder id, which has no event to back it.
-			state.clearActiveTurn(sessionId);
-			const activeTurnId = yield* resolveActiveTurn(sessionId);
-			if (activeTurnId === undefined) {
+			if (receipt.streamId !== sessionId) {
 				return yield* Effect.die(
-					new Error(`active turn missing after submit: ${id}`),
+					new Error(
+						`command receipt ${receipt.commandId} belongs to ${receipt.streamId}, not ${sessionId}`,
+					),
 				);
 			}
-			state.rememberActiveTurn(sessionId, activeTurnId);
-			yield* runSessionReactors;
-			const projected = yield* sql<{ readonly sequence: number }>`
-				SELECT sequence FROM messages WHERE id = ${id} LIMIT 1
+			const messageEventId = receipt.eventIds[0];
+			if (messageEventId === undefined) {
+				return yield* Effect.die(
+					new Error(
+						`turn submit receipt ${receipt.commandId} has no message event`,
+					),
+				);
+			}
+			// The transport may lose the first successful response. A retry carries
+			// the same command id but can mint a different local message/turn id, and
+			// can arrive after the original turn settled or a successor started. Read
+			// the original result from the receipt's events instead of assuming this
+			// attempt's ids were appended.
+			const projected = yield* sql<{
+				readonly id: string;
+				readonly turn_id: string | null;
+				readonly sequence: number;
+				readonly role: Message["role"];
+				readonly content_json: string;
+				readonly created_at: string;
+			}>`
+				SELECT m.id, m.turn_id, m.sequence, m.role, m.content_json,
+					m.created_at
+				FROM events e
+				JOIN messages m
+					ON m.id = json_extract(e.payload_json, '$.messageId')
+				WHERE e.stream_kind = 'session'
+					AND e.stream_id = ${sessionId}
+					AND e.event_id = ${messageEventId}
+					AND e.type = 'MessagePersisted'
+					AND e.stream_version <= ${receipt.streamVersion}
+				ORDER BY e.stream_version ASC
+				LIMIT 1
 			`.pipe(Effect.orDie);
-			const sequence = projected[0]?.sequence;
-			if (sequence === undefined) {
+			const row = projected[0];
+			if (row === undefined || row.turn_id === null) {
 				return yield* Effect.die(
-					new Error(`message projection missing after turn submit: ${id}`),
+					new Error(
+						`message projection missing after turn submit: ${receipt.commandId}`,
+					),
 				);
 			}
+
+			// Keep the synchronous provider callback cache aligned to the durable
+			// head, but only if another task has not changed it while this query was
+			// in flight. In particular, replaying an old receipt must never clear or
+			// replace a successor turn.
+			const cachedTurnBeforeHeadRead = state.activeTurn(sessionId);
+			const heads = yield* sql<{ readonly current_turn_id: string | null }>`
+				SELECT current_turn_id FROM sessions WHERE id = ${sessionId} LIMIT 1
+			`.pipe(Effect.orDie);
+			const durableActiveTurn = heads[0]?.current_turn_id ?? null;
+			yield* Effect.sync(() => {
+				if (state.activeTurn(sessionId) !== cachedTurnBeforeHeadRead) return;
+				if (durableActiveTurn !== null) {
+					state.rememberActiveTurn(sessionId, durableActiveTurn);
+				} else if (cachedTurnBeforeHeadRead === row.turn_id) {
+					state.clearActiveTurn(sessionId);
+				}
+			});
+
+			// Reactor effects are receipt-backed as well. Running reconciliation on
+			// every retry closes the crash window between accepting the prompt and
+			// starting the provider without duplicating already-completed effects.
+			yield* runSessionReactors;
 			return {
 				message: Message.make({
-					id,
+					id: MessageId.make(row.id),
 					sessionId,
-					role,
-					content,
-					createdAt: now,
+					role: row.role,
+					content: JSON.parse(row.content_json) as MessageContent,
+					createdAt: new Date(row.created_at),
 				}),
-				sequence,
+				sequence: row.sequence,
 			};
 		});
 
@@ -527,12 +594,10 @@ export const makeConversationStoreRuntime = Effect.fn(
 					_tag: "SetResume",
 					cursor,
 					resumeStrategy: strategy,
+					...(providerEventCursor === undefined ? {} : { providerEventCursor }),
 					updatedAt: yield* currentTimestamp,
 				});
 				if (providerEventCursor !== undefined) {
-					yield* options.sql`UPDATE sessions
-						SET provider_event_cursor = ${providerEventCursor}
-						WHERE id = ${sessionId}`.pipe(Effect.orDie);
 					yield* (
 						provider.acknowledgeProviderEventCursor?.(
 							sessionId,
@@ -563,6 +628,10 @@ export const makeConversationStoreRuntime = Effect.fn(
 		isDuplicateToolUse,
 		persist: (sessionId, turnId, content, providerItemIdentity) =>
 			Effect.gen(function* () {
+				const checkpoint =
+					content._tag === "assistant" || content._tag === "thinking"
+						? content.checkpoint
+						: undefined;
 				const serialized = JSON.stringify(content);
 				let fingerprint = 2166136261;
 				for (let index = 0; index < serialized.length; index += 1) {
@@ -580,9 +649,12 @@ export const makeConversationStoreRuntime = Effect.fn(
 					turnId,
 					providerItemIdentity === undefined
 						? undefined
-						: (fingerprint >>> 0).toString(16),
+						: checkpoint === undefined
+							? (fingerprint >>> 0).toString(16)
+							: `checkpoint:${checkpoint.revision}`,
 				);
-				yield* ndjsonAppend(sessionId, persisted);
+				if (persisted.changed !== false)
+					yield* ndjsonAppend(sessionId, persisted);
 			}),
 	});
 	const startSubscription = eventRuntime.start;

@@ -5,11 +5,11 @@ import type {
 	GitOriginInfo,
 	Session,
 } from "@zuse/contracts";
-
 import type {
 	CatalogConnectionStatus,
 	EnvironmentCatalogEntry,
 } from "../store/environment-catalog.ts";
+import type { EnvironmentShellData } from "./environment-shell-client-bus.ts";
 
 /**
  * Display-only grouping of the environment catalog: the same repository
@@ -110,6 +110,10 @@ export const buildLogicalProjectGroups = (input: {
 	readonly activeFolders: ReadonlyArray<Folder>;
 	readonly activeOrigins: Readonly<Record<string, GitOriginInfo | null>>;
 	readonly activeChatsByProject: Readonly<Record<string, ReadonlyArray<Chat>>>;
+	/** Qualified ClientBus shell data; the connection catalog owns no entities. */
+	readonly shellsByEnvironment: Readonly<
+		Record<string, EnvironmentShellData | null>
+	>;
 }): ReadonlyArray<LogicalProjectGroup> => {
 	const groups: MutableGroup[] = [];
 	const groupsByOrigin = new Map<string, MutableGroup[]>();
@@ -202,7 +206,9 @@ export const buildLogicalProjectGroups = (input: {
 	});
 	for (const entry of input.entries) {
 		if (entry.environmentId === input.activeEnvironmentId) continue;
-		for (const folder of entry.folders) {
+		const shell = input.shellsByEnvironment[entry.environmentId];
+		if (shell === null || shell === undefined) continue;
+		for (const folder of shell.folders) {
 			addMember({
 				environmentId: entry.environmentId,
 				environmentLabel: entry.label,
@@ -210,9 +216,9 @@ export const buildLogicalProjectGroups = (input: {
 				status: entry.status,
 				isActive: false,
 				folder,
-				origin: entry.originsByFolder[folder.id] ?? null,
-				chats: entry.chatsByProject[folder.id] ?? [],
-				sessions: entry.sessionsByProject[folder.id] ?? [],
+				origin: shell.originsByFolder[folder.id] ?? null,
+				chats: shell.chatsByProject[folder.id] ?? [],
+				sessions: shell.sessionsByProject[folder.id] ?? [],
 				activeOrder: null,
 			});
 		}

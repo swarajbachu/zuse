@@ -50,6 +50,20 @@
 			"when": 1786521587993,
 			"tag": "0006_cloud_chat_encryption",
 			"breakpoints": true
+		},
+		{
+			"idx": 7,
+			"version": "7",
+			"when": 1786590000000,
+			"tag": "0007_launch_intent_cutover",
+			"breakpoints": true
+		},
+		{
+			"idx": 8,
+			"version": "7",
+			"when": 1786600000000,
+			"tag": "0008_runtime_summary_projection",
+			"breakpoints": true
 		}
 	]
 }

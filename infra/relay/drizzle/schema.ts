@@ -7,7 +7,6 @@ import {
 	index,
 	jsonb,
 	pgTable,
-	primaryKey,
 	text,
 	uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -370,7 +369,6 @@ export const relayCloudWorkspaces = pgTable(
 			mode: "number",
 		}),
 		idempotencyKey: text("idempotency_key").notNull(),
-		chatMetadataCiphertext: text("chat_metadata_ciphertext"),
 		requestConfig: jsonb("request_config").notNull().default({}),
 		nextActionAt: bigint("next_action_at", { mode: "number" }).notNull(),
 		leaseOwner: text("lease_owner"),
@@ -424,84 +422,58 @@ export const relayCloudWorkspaces = pgTable(
 	],
 );
 
-export const relayCloudWorkspaceConnectionGrants = pgTable(
-	"relay_cloud_workspace_connection_grants",
+export const relayCloudWorkspaceLaunchIntents = pgTable(
+	"relay_cloud_workspace_launch_intents",
 	{
-		grantHash: text("grant_hash").primaryKey(),
 		workspaceId: text("workspace_id")
+			.primaryKey()
 			.notNull()
 			.references(() => relayCloudWorkspaces.workspaceId, {
 				onDelete: "cascade",
 			}),
 		accountId: text("account_id").notNull(),
+		chatId: text("chat_id").notNull(),
+		sessionId: text("session_id").notNull(),
+		turnId: text("turn_id").notNull(),
+		commandId: text("command_id").notNull().unique(),
+		ciphertext: text("ciphertext").notNull(),
 		expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
-		consumedAt: bigint("consumed_at", { mode: "number" }),
 		createdAt: bigint("created_at", { mode: "number" }).notNull(),
 	},
 	(table) => [
-		index("relay_cloud_workspace_grants_workspace_idx").on(table.workspaceId),
-	],
-);
-
-export const relayCloudWorkspaceCommands = pgTable(
-	"relay_cloud_workspace_commands",
-	{
-		commandId: text("command_id").primaryKey(),
-		workspaceId: text("workspace_id")
-			.notNull()
-			.references(() => relayCloudWorkspaces.workspaceId, {
-				onDelete: "cascade",
-			}),
-		accountId: text("account_id").notNull(),
-		sequence: bigint("sequence", { mode: "number" }).notNull(),
-		kind: text("kind").notNull(),
-		payload: jsonb("payload"),
-		encryptedPayload: text("encrypted_payload"),
-		state: text("state").notNull(),
-		createdAt: bigint("created_at", { mode: "number" }).notNull(),
-		claimedAt: bigint("claimed_at", { mode: "number" }),
-		acknowledgedAt: bigint("acknowledged_at", { mode: "number" }),
-		failedAt: bigint("failed_at", { mode: "number" }),
-	},
-	(table) => [
-		uniqueIndex("relay_cloud_workspace_commands_sequence_idx").on(
-			table.workspaceId,
-			table.sequence,
-		),
-		check(
-			"relay_cloud_workspace_commands_state_check",
-			sql`${table.state} IN ('queued', 'claimed', 'acknowledged', 'failed')`,
+		index("relay_cloud_workspace_launch_intents_expiry_idx").on(
+			table.expiresAt,
 		),
 	],
 );
 
-export const relayCloudWorkspaceEvents = pgTable(
-	"relay_cloud_workspace_events",
+/**
+ * Monotonic metadata-only projection published by the authoritative runtime.
+ * Transcript content remains exclusively in runtime SQLite.
+ */
+export const relayCloudWorkspaceRuntimeSummaries = pgTable(
+	"relay_cloud_workspace_runtime_summaries",
 	{
 		workspaceId: text("workspace_id")
+			.primaryKey()
 			.notNull()
 			.references(() => relayCloudWorkspaces.workspaceId, {
 				onDelete: "cascade",
 			}),
-		runtimeSequence: bigint("runtime_sequence", { mode: "number" }).notNull(),
-		eventId: text("event_id").notNull(),
-		streamId: text("stream_id").notNull(),
-		streamVersion: bigint("stream_version", { mode: "number" }).notNull(),
-		type: text("type").notNull(),
-		payloadJson: text("payload_json"),
-		encryptedPayload: text("encrypted_payload"),
-		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		runtimeGeneration: bigint("runtime_generation", {
+			mode: "number",
+		}).notNull(),
+		summaryRevision: bigint("summary_revision", { mode: "number" }).notNull(),
+		title: text("title").notNull(),
+		lastActivityAt: bigint("last_activity_at", { mode: "number" }).notNull(),
+		sessionHeadVersion: bigint("session_head_version", {
+			mode: "number",
+		}).notNull(),
+		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 	},
 	(table) => [
-		primaryKey({ columns: [table.workspaceId, table.runtimeSequence] }),
-		uniqueIndex("relay_cloud_workspace_events_id_idx").on(
-			table.workspaceId,
-			table.eventId,
-		),
-		index("relay_cloud_workspace_events_stream_idx").on(
-			table.workspaceId,
-			table.streamId,
-			table.streamVersion,
+		index("relay_cloud_runtime_summaries_activity_idx").on(
+			table.lastActivityAt,
 		),
 	],
 );

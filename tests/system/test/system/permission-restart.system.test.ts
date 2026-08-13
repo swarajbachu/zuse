@@ -1,3 +1,4 @@
+import { CommandId } from "@zuse/contracts";
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -25,6 +26,13 @@ describe("permission recovery through production RPC", () => {
 			);
 			const pendingRequest = Effect.runPromise(
 				session.client["permission.requests"]({}).pipe(
+					Stream.flatMap((change) =>
+						change._tag === "snapshot"
+							? Stream.fromIterable(change.requests)
+							: change._tag === "change"
+								? Stream.succeed(change.request)
+								: Stream.empty,
+					),
 					Stream.take(1),
 					Stream.runCollect,
 				),
@@ -32,6 +40,7 @@ describe("permission recovery through production RPC", () => {
 			await Effect.runPromise(
 				session.client["messages.send"]({
 					sessionId: conversation.initialSession.id,
+					commandId: CommandId.make("permission-restart-send"),
 					text: "Request a file permission.",
 				}),
 			);

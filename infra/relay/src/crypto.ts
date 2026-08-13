@@ -126,6 +126,7 @@ export const verifyDpopProof = (input: {
 		if (header.jwk === undefined) {
 			return yield* Effect.fail(unauthorized("dpop_missing_jwk"));
 		}
+		const proofJwk = header.jwk;
 		if (
 			typeof payload.jti !== "string" ||
 			typeof payload.iat !== "number" ||
@@ -140,7 +141,7 @@ export const verifyDpopProof = (input: {
 			return yield* Effect.fail(unauthorized("dpop_stale"));
 		}
 		const thumbprint = yield* Effect.tryPromise({
-			try: () => calculateJwkThumbprint(header.jwk!),
+			try: () => calculateJwkThumbprint(proofJwk),
 			catch: () => unauthorized("dpop_bad_jwk"),
 		});
 		return { thumbprint, jti: payload.jti, issuedAtMs };
@@ -236,8 +237,13 @@ export interface MintedTokenClaims {
 
 export interface WorkspaceClientTicketClaims {
 	readonly accountId: string;
+	readonly deviceId: string;
 	readonly workspaceId: string;
 	readonly scope: "workspace-client";
+	readonly role: "client";
+	readonly protocol: string;
+	readonly generation: number;
+	readonly gatewayEpoch: number;
 }
 
 /** Mint a reusable, short-lived client ticket for one cloud workspace. */
@@ -245,7 +251,11 @@ export const signWorkspaceClientTicket = (input: {
 	readonly mintPrivateJwk: JWK;
 	readonly issuer: string;
 	readonly accountId: string;
+	readonly deviceId: string;
 	readonly workspaceId: string;
+	readonly protocol: string;
+	readonly generation: number;
+	readonly gatewayEpoch: number;
 	readonly ttlMs: number;
 	readonly nowMs: number;
 }): Effect.Effect<string, RelayError> =>
@@ -255,7 +265,12 @@ export const signWorkspaceClientTicket = (input: {
 			try: () =>
 				new SignJWT({
 					workspaceId: input.workspaceId,
+					deviceId: input.deviceId,
 					scope: "workspace-client",
+					role: "client",
+					protocol: input.protocol,
+					generation: input.generation,
+					gatewayEpoch: input.gatewayEpoch,
 				})
 					.setProtectedHeader({
 						alg: "EdDSA",
@@ -277,7 +292,11 @@ export const verifyWorkspaceClientTicket = (input: {
 	readonly mintPublicJwk: JWK;
 	readonly issuer: string;
 	readonly expectedAccountId: string;
+	readonly expectedDeviceId?: string;
 	readonly expectedWorkspaceId: string;
+	readonly expectedProtocol: string;
+	readonly expectedGeneration: number;
+	readonly expectedGatewayEpoch: number;
 	readonly nowMs: number;
 }): Effect.Effect<WorkspaceClientTicketClaims, RelayError> =>
 	Effect.gen(function* () {
@@ -295,20 +314,132 @@ export const verifyWorkspaceClientTicket = (input: {
 		const payload = verified.payload as {
 			readonly sub?: unknown;
 			readonly workspaceId?: unknown;
+			readonly deviceId?: unknown;
 			readonly scope?: unknown;
+			readonly role?: unknown;
+			readonly protocol?: unknown;
+			readonly generation?: unknown;
+			readonly gatewayEpoch?: unknown;
 		};
 		if (
 			payload.sub !== input.expectedAccountId ||
+			typeof payload.deviceId !== "string" ||
+			payload.deviceId.length === 0 ||
+			(input.expectedDeviceId !== undefined &&
+				payload.deviceId !== input.expectedDeviceId) ||
 			payload.workspaceId !== input.expectedWorkspaceId ||
-			payload.scope !== "workspace-client"
+			payload.scope !== "workspace-client" ||
+			payload.role !== "client" ||
+			payload.protocol !== input.expectedProtocol ||
+			payload.generation !== input.expectedGeneration ||
+			payload.gatewayEpoch !== input.expectedGatewayEpoch
 		)
 			return yield* Effect.fail(
 				unauthorized("workspace_ticket_binding_mismatch"),
 			);
 		return {
 			accountId: input.expectedAccountId,
+			deviceId: payload.deviceId,
 			workspaceId: input.expectedWorkspaceId,
 			scope: "workspace-client",
+			role: "client",
+			protocol: input.expectedProtocol,
+			generation: input.expectedGeneration,
+			gatewayEpoch: input.expectedGatewayEpoch,
+		};
+	});
+
+export interface RuntimeRenewalProofClaims {
+	readonly workspaceId: string;
+	readonly requestId: string;
+	readonly generation: number;
+	readonly gatewayEpoch: number;
+}
+
+export const runtimeSigningKeyThumbprint = (
+	jwk: JWK,
+): Effect.Effect<string, RelayError> =>
+	Effect.gen(function* () {
+		yield* importEd25519(jwk, "verify");
+		return yield* Effect.tryPromise({
+			try: () => calculateJwkThumbprint(jwk),
+			catch: () => badRequest("invalid_runtime_signing_key"),
+		});
+	});
+
+export const runtimeCredentialKeyThumbprint = (
+	jwk: JWK,
+): Effect.Effect<string, RelayError> =>
+	Effect.gen(function* () {
+		if (
+			jwk.kty !== "RSA" ||
+			jwk.d !== undefined ||
+			jwk.p !== undefined ||
+			jwk.q !== undefined ||
+			jwk.dp !== undefined ||
+			jwk.dq !== undefined ||
+			jwk.qi !== undefined
+		)
+			return yield* Effect.fail(badRequest("invalid_workspace_key"));
+		yield* Effect.tryPromise({
+			try: () => importJWK(jwk, "RSA-OAEP-256"),
+			catch: () => badRequest("invalid_workspace_key"),
+		});
+		return yield* Effect.tryPromise({
+			try: () => calculateJwkThumbprint(jwk),
+			catch: () => badRequest("invalid_workspace_key"),
+		});
+	});
+
+export const verifyRuntimeRenewalProof = (input: {
+	readonly proof: string;
+	readonly runtimeSigningPublicJwk: JWK;
+	readonly relayIssuer: string;
+	readonly workspaceId: string;
+	readonly requestId: string;
+	readonly generation: number;
+	readonly gatewayEpoch: number;
+	readonly nowMs: number;
+}): Effect.Effect<RuntimeRenewalProofClaims, RelayError> =>
+	Effect.gen(function* () {
+		const key = yield* importEd25519(input.runtimeSigningPublicJwk, "verify");
+		const verified = yield* Effect.tryPromise({
+			try: () =>
+				jwtVerify(input.proof, key, {
+					audience: input.relayIssuer,
+					typ: "workspace-runtime-renewal+jwt",
+					currentDate: new Date(input.nowMs),
+				}),
+			catch: () => unauthorized("invalid_runtime_renewal_proof"),
+		});
+		const payload = verified.payload as {
+			readonly workspaceId?: unknown;
+			readonly requestId?: unknown;
+			readonly generation?: unknown;
+			readonly gatewayEpoch?: unknown;
+			readonly iat?: unknown;
+			readonly exp?: unknown;
+		};
+		const nowSeconds = Math.floor(input.nowMs / 1_000);
+		if (
+			payload.workspaceId !== input.workspaceId ||
+			payload.requestId !== input.requestId ||
+			payload.generation !== input.generation ||
+			payload.gatewayEpoch !== input.gatewayEpoch ||
+			typeof payload.iat !== "number" ||
+			typeof payload.exp !== "number" ||
+			payload.iat > nowSeconds + 30 ||
+			payload.iat < nowSeconds - 120 ||
+			payload.exp <= nowSeconds
+		)
+			return yield* Effect.fail(
+				unauthorized("runtime_renewal_proof_binding_mismatch"),
+			);
+		return {
+			workspaceId: input.workspaceId,
+			requestId: input.requestId,
+			generation: input.generation,
+			gatewayEpoch: input.gatewayEpoch,
 		};
 	});
 

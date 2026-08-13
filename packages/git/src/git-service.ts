@@ -70,9 +70,15 @@ export interface GitServiceShape {
 	readonly getUserName: (
 		folderId: FolderId,
 	) => Effect.Effect<string, GitFailure>;
-	readonly subscribeHeadChanges: (
+	/**
+	 * Coalesced repository invalidations for one explicit checkout. Emits an
+	 * initial revision before observing changes so consumers can subscribe
+	 * before reading their materialized snapshot without a race.
+	 */
+	readonly workspaceChanges: (
 		folderId: FolderId,
-	) => Stream.Stream<{ readonly sha: string }, GitFailure>;
+		worktreeId?: WorktreeId | null,
+	) => Stream.Stream<{ readonly revision: number }, GitFailure>;
 	readonly origin: (
 		folderId: FolderId,
 	) => Effect.Effect<GitOriginInfo | null, GitFailure>;

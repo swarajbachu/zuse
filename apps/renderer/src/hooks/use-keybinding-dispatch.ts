@@ -8,7 +8,10 @@ import { useEffect } from "react";
 
 import { APPLICATION_COMMANDS, dispatchCommand } from "../lib/commands";
 import { isMacHost } from "../lib/host-platform";
-import { useKeybindingsStore } from "../store/keybindings";
+import {
+	keybindingsSnapshot,
+	useKeybindings,
+} from "../lib/keybindings-client-bus.ts";
 
 const IS_MAC = isMacHost();
 /**
@@ -25,6 +28,7 @@ const IS_MAC = isMacHost();
  * just fires unconditionally.
  */
 export function useKeybindingDispatch(): void {
+	useKeybindings((state) => state.loaded);
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
 			const base = normalizeEventKey(event.key);
@@ -37,7 +41,7 @@ export function useKeybindingDispatch(): void {
 				return;
 			}
 
-			const rules = useKeybindingsStore.getState().resolvedRules;
+			const rules = keybindingsSnapshot().resolvedRules;
 
 			for (let i = rules.length - 1; i >= 0; i--) {
 				const r = rules[i];

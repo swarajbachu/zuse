@@ -806,7 +806,7 @@ describe("telemetry store", () => {
 			logsDirectory,
 			`diagnostics.events.${telemetryFileIdentity("desktop", "local")}.ndjson`,
 		);
-		const start = Date.parse("2026-08-03T00:00:00.000Z");
+		const start = Date.now() - 25_100;
 		writeFileSync(
 			path,
 			Array.from({ length: 25_100 }, (_, index) =>

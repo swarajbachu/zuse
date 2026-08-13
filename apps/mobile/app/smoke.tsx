@@ -193,7 +193,11 @@ const runLiveProbe = async (
 				);
 				streamDetail = `session ${firstSession.id}; versions ${envelopes
 					.map((frame) =>
-						frame.kind === "event" ? frame.streamVersion : frame.throughVersion,
+						frame.kind === "event"
+							? frame.streamVersion
+							: frame.kind === "reset-required"
+								? frame.cursor.version
+								: frame.throughVersion,
 					)
 					.join(", ")}`;
 			}

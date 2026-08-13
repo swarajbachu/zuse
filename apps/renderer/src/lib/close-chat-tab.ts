@@ -7,7 +7,8 @@ import {
 
 import { useProvidersStore } from "../store/providers.ts";
 import { useSessionsStore } from "../store/sessions.ts";
-import { useSettingsStore } from "../store/settings.ts";
+import { activeSessionsByProject } from "./environment-entities.ts";
+import { useSettingsStore } from "./settings-client-bus.ts";
 
 const EMPTY_SESSIONS: ReadonlyArray<Session> = [];
 
@@ -19,9 +20,10 @@ export const closeActiveChatTab = async (): Promise<void> => {
 
 export const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 	const sessions = useSessionsStore.getState();
+	const sessionsByProject = activeSessionsByProject();
 	let projectId: FolderId | null = null;
 	let session: Session | null = null;
-	for (const [pid, list] of Object.entries(sessions.sessionsByProject)) {
+	for (const [pid, list] of Object.entries(sessionsByProject)) {
 		const match = list.find((row) => row.id === sessionId);
 		if (match !== undefined) {
 			projectId = pid as FolderId;
@@ -31,7 +33,7 @@ export const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 	}
 	if (projectId === null || session === null) return;
 	const currentSession = session;
-	const projectRows = sessions.sessionsByProject[projectId] ?? EMPTY_SESSIONS;
+	const projectRows = sessionsByProject[projectId] ?? EMPTY_SESSIONS;
 	const siblings = projectRows
 		.filter(
 			(row) =>

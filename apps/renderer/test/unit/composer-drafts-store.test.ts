@@ -1,4 +1,4 @@
-import type { SessionId } from "@zuse/contracts";
+import { EnvironmentId, type SessionId } from "@zuse/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { ChipRange } from "../../src/lib/codemirror/composer-chips.ts";
@@ -7,8 +7,15 @@ import {
 	useComposerDraftsStore,
 } from "../../src/store/composer-drafts.ts";
 
-const firstKey = composerDraftKeyForSession("sess1" as SessionId);
-const secondKey = composerDraftKeyForSession("sess2" as SessionId);
+const localEnvironmentId = EnvironmentId.make("local");
+const firstKey = composerDraftKeyForSession({
+	environmentId: localEnvironmentId,
+	sessionId: "sess1" as SessionId,
+});
+const secondKey = composerDraftKeyForSession({
+	environmentId: localEnvironmentId,
+	sessionId: "sess2" as SessionId,
+});
 
 describe("composer drafts store", () => {
 	beforeEach(() => {
@@ -30,6 +37,26 @@ describe("composer drafts store", () => {
 		);
 		expect(useComposerDraftsStore.getState().draftsByKey[secondKey]?.doc).toBe(
 			"draft two",
+		);
+	});
+
+	it("isolates equal session ids across environments", () => {
+		const sessionId = "same-session" as SessionId;
+		const first = composerDraftKeyForSession({
+			environmentId: EnvironmentId.make("computer-a"),
+			sessionId,
+		});
+		const second = composerDraftKeyForSession({
+			environmentId: EnvironmentId.make("computer-b"),
+			sessionId,
+		});
+		useComposerDraftsStore.getState().save(first, { doc: "A", chips: [] });
+		useComposerDraftsStore.getState().save(second, { doc: "B", chips: [] });
+
+		expect(first).not.toBe(second);
+		expect(useComposerDraftsStore.getState().draftsByKey[first]?.doc).toBe("A");
+		expect(useComposerDraftsStore.getState().draftsByKey[second]?.doc).toBe(
+			"B",
 		);
 	});
 

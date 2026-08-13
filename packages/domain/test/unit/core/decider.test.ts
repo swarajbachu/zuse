@@ -1,6 +1,6 @@
 import { Result } from "effect";
 import { describe, expect, test } from "vitest";
-import { decide } from "../../../src/core/decider.js";
+import { decide, turnInterruptReceipt } from "../../../src/core/decider.js";
 import { evolveAll, initialSessionState } from "../../../src/core/state.js";
 import {
 	createSessionCommand,
@@ -66,6 +66,63 @@ describe("session decider", () => {
 				}),
 			),
 		).toEqual([]);
+	});
+
+	test("can explicitly re-emit an idempotent worktree projection repair", () => {
+		const state = evolveAll(created(), [
+			{
+				_tag: "SessionWorktreeSet",
+				worktreeId: "worktree-1",
+				updatedAt: 2,
+			},
+		]);
+		expect(
+			Result.getOrThrow(
+				decide(state, {
+					_tag: "SetWorktree",
+					worktreeId: "worktree-1",
+					updatedAt: 3,
+					forceProjection: true,
+				}),
+			),
+		).toEqual([
+			{
+				_tag: "SessionWorktreeSet",
+				worktreeId: "worktree-1",
+				updatedAt: 3,
+			},
+		]);
+	});
+
+	test("treats the provider replay cursor as resume identity", () => {
+		const resumed = evolveAll(created(), [
+			{
+				_tag: "SessionResumeSet",
+				cursor: "provider-session",
+				resumeStrategy: "grok-session-id",
+				providerEventCursor: "event-7",
+				updatedAt: 2,
+			},
+		]);
+		expect(
+			Result.getOrThrow(
+				decide(resumed, {
+					_tag: "SetResume",
+					cursor: "provider-session",
+					resumeStrategy: "grok-session-id",
+					providerEventCursor: "event-8",
+					updatedAt: 3,
+				}),
+			),
+		).toEqual([
+			{
+				_tag: "SessionResumeSet",
+				cursor: "provider-session",
+				resumeStrategy: "grok-session-id",
+				providerEventCursor: "event-8",
+				updatedAt: 3,
+			},
+		]);
 	});
 
 	test("creates a session exactly once", () => {
@@ -263,7 +320,7 @@ describe("session decider", () => {
 			Result.getOrThrow(
 				decide(running, {
 					_tag: "RequestTurnInterrupt",
-					turnId: "turn-1",
+					expectedTurnId: "turn-1",
 					requestedAt: 3,
 				}),
 			),
@@ -279,7 +336,7 @@ describe("session decider", () => {
 			Result.getOrThrow(
 				decide(requested, {
 					_tag: "RequestTurnInterrupt",
-					turnId: "turn-1",
+					expectedTurnId: "turn-1",
 					requestedAt: 4,
 				}),
 			),
@@ -300,7 +357,7 @@ describe("session decider", () => {
 			Result.getOrThrow(
 				decide(settled, {
 					_tag: "RequestTurnInterrupt",
-					turnId: "turn-1",
+					expectedTurnId: "turn-1",
 					requestedAt: 4,
 				}),
 			),
@@ -338,19 +395,19 @@ describe("session decider", () => {
 		).toEqual([]);
 	});
 
-	test("rejects stale interrupt and terminal commands", () => {
+	test("treats a stale interrupt as a no-op but rejects stale terminal commands", () => {
 		const running = evolveAll(created(), [
 			{ _tag: "TurnStarted", turnId: "turn-2", startedAt: 2 },
 		]);
 		expect(
-			failure(
+			Result.getOrThrow(
 				decide(running, {
 					_tag: "RequestTurnInterrupt",
-					turnId: "turn-1",
+					expectedTurnId: "turn-1",
 					requestedAt: 3,
 				}),
-			)?._tag,
-		).toBe("TurnConflict");
+			),
+		).toEqual([]);
 		expect(
 			failure(
 				decide(running, {
@@ -362,6 +419,28 @@ describe("session decider", () => {
 			)?._tag,
 		).toBe("TurnConflict");
 		expect(running.currentTurnId).toBe("turn-2");
+		expect(turnInterruptReceipt(running, "turn-1")).toEqual({
+			_tag: "not-active",
+			reason: "turn-mismatch",
+			expectedTurnId: "turn-1",
+			actualTurnId: "turn-2",
+		});
+	});
+
+	test("resolves an unfenced interrupt to the current durable turn", () => {
+		const running = evolveAll(created(), [
+			{ _tag: "TurnStarted", turnId: "turn-current", startedAt: 2 },
+		]);
+		expect(turnInterruptReceipt(running, undefined)).toEqual({
+			_tag: "requested",
+			turnId: "turn-current",
+		});
+		expect(turnInterruptReceipt(created(), "turn-old")).toEqual({
+			_tag: "not-active",
+			reason: "no-active-turn",
+			expectedTurnId: "turn-old",
+			actualTurnId: null,
+		});
 	});
 
 	test("treats terminal interrupt replay for a settled turn as idempotent", () => {
@@ -514,5 +593,92 @@ describe("session decider", () => {
 			"SessionStatusSet",
 			"ProviderTurnRequested",
 		]);
+	});
+
+	test("accepts only monotonic provider checkpoints and seals final content", () => {
+		const first = {
+			_tag: "PersistMessage" as const,
+			messageId: "provider-message-1",
+			turnId: "turn-1",
+			role: "assistant",
+			kind: "assistant",
+			contentJson: '{"_tag":"assistant","text":"new"}',
+			parentItemId: null,
+			checkpointRevision: 2,
+			checkpointFinal: false,
+			createdAt: 2,
+		};
+		const accepted = Result.getOrThrow(decide(created(), first));
+		expect(accepted).toHaveLength(1);
+		const checkpointed = evolveAll(created(), accepted);
+
+		expect(
+			Result.getOrThrow(
+				decide(checkpointed, {
+					...first,
+					checkpointRevision: 1,
+					contentJson: '{"_tag":"assistant","text":"old"}',
+				}),
+			),
+		).toEqual([]);
+		expect(Result.getOrThrow(decide(checkpointed, first))).toEqual([]);
+		expect(
+			Result.getOrThrow(
+				decide(checkpointed, {
+					...first,
+					checkpointRevision: undefined,
+					checkpointFinal: undefined,
+					contentJson: '{"_tag":"assistant","text":"unversioned"}',
+				}),
+			),
+		).toEqual([]);
+
+		const final = Result.getOrThrow(
+			decide(checkpointed, {
+				...first,
+				checkpointRevision: 3,
+				checkpointFinal: true,
+			}),
+		);
+		expect(final).toHaveLength(1);
+		const sealed = evolveAll(checkpointed, final);
+		expect(
+			Result.getOrThrow(
+				decide(sealed, {
+					...first,
+					checkpointRevision: 4,
+					contentJson: '{"_tag":"assistant","text":"regressed"}',
+				}),
+			),
+		).toEqual([]);
+		expect(sealed.messageCheckpoints.get(first.messageId)).toEqual({
+			revision: 3,
+			final: true,
+		});
+	});
+
+	test("rejects incomplete and non-positive checkpoint metadata", () => {
+		const base = {
+			_tag: "PersistMessage" as const,
+			messageId: "provider-message-1",
+			turnId: "turn-1",
+			role: "assistant",
+			kind: "assistant",
+			contentJson: "{}",
+			parentItemId: null,
+			createdAt: 2,
+		};
+		expect(
+			failure(decide(created(), { ...base, checkpointRevision: 1 }))?._tag,
+		).toBe("ValidationFailed");
+		expect(
+			failure(
+				decide(created(), {
+					...base,
+					checkpointRevision: 0,
+					checkpointFinal: false,
+				}),
+			)?._tag,
+		).toBe("ValidationFailed");
 	});
 });

@@ -1,6 +1,7 @@
 import type {
 	AgentDefinition,
 	AgentItemId,
+	AgentTurnId,
 	AttachmentRef,
 	Chat,
 	ChatAlreadyStartedError,
@@ -32,6 +33,7 @@ import type {
 	PlanApprovalOutcome,
 	ProviderId,
 	QueuedMessage,
+	QueuedMessageCapacityError,
 	QueuedMessageNotFoundError,
 	QueueState,
 	ResumeStrategy,
@@ -44,6 +46,7 @@ import type {
 	SkillRef,
 	ThreadGoal,
 	ThreadGoalSetInput,
+	TurnInterruptReceipt,
 	UserQuestionAnswer,
 	WorktreeId,
 } from "@zuse/contracts";
@@ -64,6 +67,11 @@ import { Context, type Effect, type Stream } from "effect";
 export interface CreateSessionInput {
 	/** Stable identity minted by an optimistic client. */
 	readonly sessionId?: SessionId;
+	/** Stable receipt identity for a retry-safe session bootstrap. */
+	readonly commandId?: string;
+	/** Stable identities for an atomic initial prompt, when supplied. */
+	readonly initialTurnId?: AgentTurnId;
+	readonly initialMessageId?: MessageId;
 	/**
 	 * The chat (sidebar container) this session belongs to. Project +
 	 * worktree are derived from the chat — clients no longer pass either
@@ -133,6 +141,10 @@ export interface CreateChatInput {
 	/** Stable identities minted by an optimistic client. */
 	readonly chatId?: ChatId;
 	readonly initialSessionId?: SessionId;
+	/** Stable receipt identity forwarded to the initial SessionDomain command. */
+	readonly commandId?: string;
+	readonly initialTurnId?: AgentTurnId;
+	readonly initialMessageId?: MessageId;
 	readonly projectId: FolderId;
 	readonly providerId: ProviderId;
 	readonly model: string;
@@ -197,6 +209,7 @@ export interface ConversationOperations {
 	readonly renameSession: (
 		sessionId: SessionId,
 		title: string,
+		commandId: string,
 	) => Effect.Effect<Session, SessionNotFoundError>;
 
 	readonly setModel: (
@@ -224,6 +237,7 @@ export interface ConversationOperations {
 	readonly setRuntimeMode: (
 		sessionId: SessionId,
 		runtimeMode: RuntimeMode,
+		commandId: string,
 	) => Effect.Effect<void, SessionNotFoundError>;
 
 	/**
@@ -234,6 +248,7 @@ export interface ConversationOperations {
 	readonly setPermissionMode: (
 		sessionId: SessionId,
 		mode: PermissionMode,
+		commandId: string,
 	) => Effect.Effect<void, SessionNotFoundError>;
 
 	/**
@@ -476,6 +491,7 @@ export interface ConversationOperations {
 	>;
 
 	readonly sendMessage: (
+		commandId: string,
 		sessionId: SessionId,
 		text: string,
 		attachments?: ReadonlyArray<AttachmentRef>,
@@ -488,50 +504,64 @@ export interface ConversationOperations {
 	) => Effect.Effect<void, SessionNotFoundError | DirectoryUnavailableError>;
 
 	readonly interruptSession: (
+		commandId: string,
 		sessionId: SessionId,
-	) => Effect.Effect<void, SessionNotFoundError>;
+		expectedTurnId?: AgentTurnId,
+	) => Effect.Effect<TurnInterruptReceipt, SessionNotFoundError>;
 
 	readonly listQueuedMessages: (
 		sessionId: SessionId,
 	) => Effect.Effect<QueueState, SessionNotFoundError>;
 
 	readonly addQueuedMessage: (
+		commandId: string,
 		sessionId: SessionId,
 		input: ComposerInput,
 		queueId?: string,
 		ready?: boolean,
 		flush?: boolean,
-	) => Effect.Effect<QueuedMessage, SessionNotFoundError>;
+	) => Effect.Effect<
+		QueuedMessage,
+		SessionNotFoundError | QueuedMessageCapacityError
+	>;
 
 	readonly updateQueuedMessage: (
+		commandId: string,
 		sessionId: SessionId,
 		queueId: string,
 		input: ComposerInput,
 	) => Effect.Effect<
 		QueuedMessage,
-		SessionNotFoundError | QueuedMessageNotFoundError
+		| SessionNotFoundError
+		| QueuedMessageNotFoundError
+		| QueuedMessageCapacityError
 	>;
 
 	readonly deleteQueuedMessage: (
+		commandId: string,
 		sessionId: SessionId,
 		queueId: string,
 	) => Effect.Effect<void, SessionNotFoundError>;
 
 	readonly runQueuedMessageNext: (
+		commandId: string,
 		sessionId: SessionId,
 		queueId: string,
 	) => Effect.Effect<void, SessionNotFoundError>;
 
 	readonly reorderQueuedMessages: (
+		commandId: string,
 		sessionId: SessionId,
 		queueIds: ReadonlyArray<string>,
 	) => Effect.Effect<ReadonlyArray<QueuedMessage>, SessionNotFoundError>;
 
 	readonly flushQueuedMessages: (
+		commandId: string,
 		sessionId: SessionId,
 	) => Effect.Effect<void, SessionNotFoundError>;
 
 	readonly resumeQueuedMessages: (
+		commandId: string,
 		sessionId: SessionId,
 	) => Effect.Effect<void, SessionNotFoundError>;
 }
@@ -605,6 +635,17 @@ export type QueueServiceShape = Pick<
 	| "resumeQueuedMessages"
 >;
 
+export interface QueueTransactionServiceShape {
+	readonly addQueuedMessageTransactionally: (
+		commandId: string,
+		sessionId: SessionId,
+		input: ComposerInput,
+		queueId: string,
+		ready: boolean,
+		onCommitted: (item: QueuedMessage) => Effect.Effect<void>,
+	) => Effect.Effect<void, SessionNotFoundError | QueuedMessageCapacityError>;
+}
+
 export class SessionService extends Context.Service<
 	SessionService,
 	SessionServiceShape
@@ -629,3 +670,9 @@ export class QueueService extends Context.Service<
 	QueueService,
 	QueueServiceShape
 >()("zuse/QueueService") {}
+
+/** Internal cross-projection transaction boundary; never exposed over RPC. */
+export class QueueTransactionService extends Context.Service<
+	QueueTransactionService,
+	QueueTransactionServiceShape
+>()("zuse/QueueTransactionService") {}

@@ -28,6 +28,11 @@ export type ScheduledSuccessor = {
 	readonly inputJson: string;
 };
 
+export type MessageCheckpointState = {
+	readonly revision: number;
+	readonly final: boolean;
+};
+
 export type SessionState = {
 	readonly exists: boolean;
 	readonly sessionId: string | null;
@@ -39,6 +44,7 @@ export type SessionState = {
 	readonly status: SessionStatus | null;
 	readonly queuePaused: boolean;
 	readonly cursor: string | null;
+	readonly providerEventCursor: string | null;
 	readonly resumeStrategy: ResumeStrategy | null;
 	readonly runtimeMode: RuntimeMode | null;
 	readonly worktreeId: string | null;
@@ -55,6 +61,7 @@ export type SessionState = {
 	readonly scheduledSuccessor: ScheduledSuccessor | null;
 	readonly openSegments: ReadonlyMap<string, OpenSegment>;
 	readonly messageIds: ReadonlySet<string>;
+	readonly messageCheckpoints: ReadonlyMap<string, MessageCheckpointState>;
 	readonly pendingPermissionIds: ReadonlySet<string>;
 	readonly providerId: string | null;
 	readonly attachedProviderId: string | null;
@@ -72,6 +79,7 @@ export const initialSessionState: SessionState = {
 	status: null,
 	queuePaused: false,
 	cursor: null,
+	providerEventCursor: null,
 	resumeStrategy: null,
 	runtimeMode: null,
 	worktreeId: null,
@@ -88,6 +96,7 @@ export const initialSessionState: SessionState = {
 	scheduledSuccessor: null,
 	openSegments: new Map(),
 	messageIds: new Set(),
+	messageCheckpoints: new Map(),
 	pendingPermissionIds: new Set(),
 	providerId: null,
 	attachedProviderId: null,
@@ -148,6 +157,7 @@ export const evolve = (
 				providerId: event.providerId,
 				model: event.model,
 				cursor: null,
+				providerEventCursor: null,
 				resumeStrategy: "none",
 				attachedProviderId: null,
 				version,
@@ -161,6 +171,7 @@ export const evolve = (
 				...state,
 				worktreeId: event.worktreeId,
 				cursor: null,
+				providerEventCursor: null,
 				resumeStrategy: "none",
 				version,
 			};
@@ -172,6 +183,10 @@ export const evolve = (
 			return {
 				...state,
 				cursor: event.cursor,
+				providerEventCursor:
+					event.providerEventCursor === undefined
+						? state.providerEventCursor
+						: event.providerEventCursor,
 				resumeStrategy: event.resumeStrategy,
 				version,
 			};
@@ -253,12 +268,21 @@ export const evolve = (
 			};
 		case "ScheduledSuccessorReady":
 			return { ...state, scheduledSuccessor: null, version };
-		case "MessagePersisted":
+		case "MessagePersisted": {
+			const messageCheckpoints = new Map(state.messageCheckpoints);
+			if (event.checkpointRevision !== undefined) {
+				messageCheckpoints.set(event.messageId, {
+					revision: event.checkpointRevision,
+					final: event.checkpointFinal === true,
+				});
+			}
 			return {
 				...state,
 				messageIds: added(state.messageIds, event.messageId),
+				messageCheckpoints,
 				version,
 			};
+		}
 		case "SegmentOpened": {
 			const openSegments = new Map(state.openSegments);
 			openSegments.set(event.segmentId, {

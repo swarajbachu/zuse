@@ -9,15 +9,15 @@ import type { FileView } from "~/store/ui";
  * on the side-by-side diff instead of the CodeMirror editor.
  */
 export function FileBadge({
-  path,
-  view,
-  diffStats,
+	path,
+	view,
+	diffStats,
 }: {
-  path: string;
-  view?: FileView;
-  diffStats?: { readonly added: number; readonly removed: number };
+	path: string;
+	view?: FileView;
+	diffStats?: { readonly added: number; readonly removed: number };
 }) {
-  return (
-    <FileChip relPath={path} absPath={path} view={view} diffStats={diffStats} />
-  );
+	return (
+		<FileChip relPath={path} absPath={path} view={view} diffStats={diffStats} />
+	);
 }

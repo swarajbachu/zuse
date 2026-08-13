@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { formatError } from "../../src/lib/format-error.ts";
 import {
-	setWorktreesRpcClientForTest,
+	setWorktreeCommandForTest,
 	useWorktreesStore,
 } from "../../src/store/worktrees.ts";
 
@@ -41,17 +41,11 @@ const setRemoveClient = (
 		readonly worktreeId: WorktreeId;
 	}) => Effect.Effect<void, unknown>,
 ) => {
-	setWorktreesRpcClientForTest(
-		async () =>
-			({
-				"worktree.remove": (payload: { readonly worktreeId: WorktreeId }) => {
-					removeCalls.push(payload);
-					return remove(payload);
-				},
-			}) as Awaited<
-				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
-			>,
-	);
+	setWorktreeCommandForTest(async ({ payload }) => {
+		const typed = payload as { readonly worktreeId: WorktreeId };
+		removeCalls.push(typed);
+		return (await Effect.runPromise(remove(typed))) as never;
+	});
 };
 
 describe("worktrees store removal", () => {

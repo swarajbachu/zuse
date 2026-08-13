@@ -1,14 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronDown } from "lucide-react";
-import {
-	ArrowUpRight01Icon,
-	Search01Icon,
-	StarIcon,
-	Tick01Icon,
-} from "@zuse/icons/solid-rounded";
 import type {
 	AgentAvailability,
 	ChatId,
+	EnvironmentId,
 	ProviderId,
 	RuntimeMode,
 	SessionId,
@@ -16,11 +10,17 @@ import type {
 import {
 	findModelDescriptor,
 	isModelVisible,
-	type Message,
 	MODELS_BY_PROVIDER,
 	type ModelOption,
 	type SelectOptionDescriptor,
 } from "@zuse/contracts";
+import {
+	ArrowUpRight01Icon,
+	Search01Icon,
+	StarIcon,
+	Tick01Icon,
+} from "@zuse/icons/solid-rounded";
+import { ChevronDown } from "lucide-react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
@@ -42,13 +42,13 @@ import {
 	readModelPickerEvents,
 	topRecents,
 } from "~/lib/model-picker-recents";
+import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks.ts";
+import { useSettingsStore } from "~/lib/settings-client-bus.ts";
 import { cn } from "~/lib/utils";
 import { useKiroInventory } from "~/store/kiro-inventory";
-import { useMessagesStore } from "~/store/messages";
 import { useOpencodeInventory } from "~/store/opencode-inventory";
 import { useProvidersStore } from "~/store/providers";
 import { useSessionsStore } from "~/store/sessions";
-import { useSettingsStore } from "~/store/settings";
 import { ProviderIcon } from "./provider-icons";
 import { Popover, PopoverPrimitive, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -91,6 +91,7 @@ type Scope = ProviderId | "all";
 type ModelPickerProps =
 	| {
 			mode: "session";
+			environmentId: EnvironmentId;
 			sessionId: SessionId;
 			chatId: ChatId;
 			runtimeMode: RuntimeMode;
@@ -105,6 +106,12 @@ type ModelPickerProps =
 
 export function ModelPicker(props: ModelPickerProps) {
 	const isDefault = props.mode === "default";
+	const sessionId = props.mode === "session" ? props.sessionId : null;
+	const timeline = useOptionalRendererSessionTimeline(
+		sessionId,
+		sessionId === null ? "cache-only" : "connect",
+		props.mode === "session" ? props.environmentId : null,
+	);
 
 	// Live values
 	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
@@ -144,16 +151,12 @@ export function ModelPicker(props: ModelPickerProps) {
 	const kiroInventory = useKiroInventory((s) => s.inventory);
 	const ensureKiroInventory = useKiroInventory((s) => s.ensureLoaded);
 
-	const userMessageCount = useMessagesStore((s) => {
-		if (isDefault) return 0;
-		const sid = (props as any).sessionId as SessionId;
-		const list = s.messagesBySession[sid] ?? [];
-		let count = 0;
-		for (const m of list) {
-			if ((m as Message).role === "user") count += 1;
+	let userMessageCount = 0;
+	if (!isDefault) {
+		for (const message of timeline.messages) {
+			if (message.role === "user") userMessageCount += 1;
 		}
-		return count;
-	});
+	}
 	const isFresh = isDefault ? true : userMessageCount === 0;
 
 	useEffect(() => {
@@ -388,9 +391,8 @@ export function ModelPicker(props: ModelPickerProps) {
 			return;
 		}
 
-		const sessionId = (props as any).sessionId as SessionId;
-		const chatId = (props as any).chatId as ChatId | undefined;
-		const runtimeMode = (props as any).runtimeMode as RuntimeMode | undefined;
+		if (props.mode !== "session") return;
+		const { sessionId, chatId, runtimeMode } = props;
 
 		const isCross = pid !== providerId;
 		// Await whatever store call we kick off so we can keep the popover

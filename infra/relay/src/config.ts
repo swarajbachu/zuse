@@ -39,11 +39,6 @@ export interface RelayConfig {
 	readonly mintPublicKey: string;
 	/** 32-byte base64url AES key for account-level cloud credential envelopes. */
 	readonly cloudCredentialVaultKey?: Redacted.Redacted<string>;
-	/** Versioned 32-byte AES keys used only for durable cloud-chat content. */
-	readonly cloudChatEncryptionKeys?: Readonly<
-		Record<string, Redacted.Redacted<string>>
-	>;
-	readonly cloudChatEncryptionActiveKeyId?: string;
 	readonly challengeTtlMs: number;
 	readonly connectTokenTtlMs: number;
 	readonly accessTokenTtlMs: number;

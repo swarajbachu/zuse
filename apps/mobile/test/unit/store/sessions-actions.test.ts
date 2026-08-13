@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
+import { appAtomRegistry } from "../../../src/store/registry";
 import {
 	archiveChat,
 	bundlesByConnectionAtom,
@@ -10,7 +10,6 @@ import {
 	setPermissionMode,
 	statusBySessionAtom,
 } from "../../../src/store/sessions";
-import { appAtomRegistry } from "../../../src/store/registry";
 
 const rpc = vi.hoisted(() => ({
 	archiveShouldFail: false,
@@ -19,6 +18,7 @@ const rpc = vi.hoisted(() => ({
 }));
 
 vi.mock("~/rpc/connection", () => ({
+	isConnectionOnline: () => true,
 	getConnectionClient: () =>
 		Effect.sync(() => ({
 			"chat.archive": () =>

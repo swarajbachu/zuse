@@ -46,7 +46,9 @@ describe("cloud runtime assets", () => {
 		);
 		expect(bootstrap).not.toContain("workspace-ready.ts");
 		expect(runtime).toContain("bootstrap.gatewayUrl");
-		expect(runtime).toContain("client.frame");
+		expect(runtime).toContain("decodeWorkspaceGatewayFrame");
+		expect(runtime).toContain("encodeWorkspaceGatewayFrame");
+		expect(runtime).not.toContain('encoding: "base64"');
 		expect(runtime).not.toContain("setTimeout(resolve");
 	});
 

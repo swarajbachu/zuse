@@ -1,5 +1,4 @@
 import type { AuthTokenSummary } from "@zuse/contracts";
-import { Effect } from "effect";
 import { Monitor, Smartphone } from "lucide-react";
 import { useCallback, useState } from "react";
 
@@ -8,10 +7,7 @@ import {
 	deviceAccessCopy,
 	groupPairedDeviceTokens,
 } from "../../../lib/paired-phones.ts";
-import {
-	getRpcClient,
-	LOCAL_ENVIRONMENT_KEY,
-} from "../../../lib/rpc-client.ts";
+import { dispatchLocalDeviceCommand } from "../../../lib/local-device-client-bus.ts";
 import {
 	AlertDialog,
 	AlertDialogClose,
@@ -48,10 +44,9 @@ export function ConnectedDevicesCard({
 	const revokeToken = useCallback(
 		async (token: AuthTokenSummary) => {
 			try {
-				const client = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
-				await Effect.runPromise(
-					client["pairing.revokeToken"]({ tokenId: token.id }),
-				);
+				await dispatchLocalDeviceCommand("pairing.revokeToken", {
+					tokenId: token.id,
+				});
 				onTokens(
 					tokens.map((item) =>
 						item.id === token.id ? { ...item, revokedAt: new Date() } : item,
@@ -69,12 +64,11 @@ export function ConnectedDevicesCard({
 			if (legacyRevokeBusy) return;
 			setLegacyRevokeBusy(true);
 			try {
-				const client = await getRpcClient(LOCAL_ENVIRONMENT_KEY);
 				const results = await Promise.allSettled(
 					items.map((token) =>
-						Effect.runPromise(
-							client["pairing.revokeToken"]({ tokenId: token.id }),
-						),
+						dispatchLocalDeviceCommand("pairing.revokeToken", {
+							tokenId: token.id,
+						}),
 					),
 				);
 				await refresh();

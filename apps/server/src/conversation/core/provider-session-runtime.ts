@@ -130,6 +130,7 @@ export const makeProviderSessionRuntime = (
 					getSession: lookupSession,
 					sendToSession: (sessionId, text, origin) =>
 						sendMessage(
+							`orchestration-send:${sessionId}:${crypto.randomUUID()}`,
 							sessionId,
 							text,
 							undefined,

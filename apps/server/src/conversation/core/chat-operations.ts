@@ -65,6 +65,11 @@ const sameChatCatalog = (
 	});
 };
 
+interface BootstrapReceiptRow {
+	readonly stream_id: string;
+	readonly payload_json: string;
+}
+
 const chatsByProject = (
 	chats: ReadonlyArray<Chat>,
 ): ReadonlyMap<FolderId, ReadonlyArray<Chat>> => {
@@ -285,6 +290,78 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 				`.pipe(Effect.orDie);
 				const [existingSessionRow] = existingSessions;
 				if (existingSessionRow !== undefined) {
+					if (input.commandId !== undefined) {
+						const receipts = yield* sql<BootstrapReceiptRow>`
+							SELECT receipt.stream_id, event.payload_json
+							FROM command_receipts receipt
+							INNER JOIN events event
+								ON event.event_id = json_extract(receipt.event_ids_json, '$[0]')
+							WHERE receipt.command_id = ${input.commandId}
+							LIMIT 1
+						`.pipe(Effect.orDie);
+						const receipt = receipts[0];
+						let receiptMatches = false;
+						if (receipt !== undefined) {
+							try {
+								const created = JSON.parse(receipt.payload_json) as Record<
+									string,
+									unknown
+								>;
+								receiptMatches =
+									receipt.stream_id === input.initialSessionId &&
+									created._tag === "SessionCreated" &&
+									created.sessionId === input.initialSessionId &&
+									created.chatId === input.chatId &&
+									created.providerId === input.providerId &&
+									created.model === input.model;
+							} catch {
+								receiptMatches = false;
+							}
+						}
+						if (!receiptMatches) {
+							return yield* Effect.die(
+								new Error(
+									`chat bootstrap command ${input.commandId} conflicts with its durable receipt`,
+								),
+							);
+						}
+						if (
+							input.initialPrompt !== undefined &&
+							input.initialPrompt.trim().length > 0
+						) {
+							const messages = yield* sql<{
+								readonly id: string;
+								readonly content_json: string;
+							}>`
+								SELECT id, content_json FROM messages
+								WHERE session_id = ${input.initialSessionId} AND role = 'user'
+								ORDER BY sequence ASC LIMIT 1
+							`.pipe(Effect.orDie);
+							const message = messages[0];
+							let messageMatches = false;
+							if (message !== undefined) {
+								try {
+									const content = JSON.parse(message.content_json) as Record<
+										string,
+										unknown
+									>;
+									messageMatches =
+										(input.initialMessageId === undefined ||
+											message.id === input.initialMessageId) &&
+										content.text === input.initialPrompt;
+								} catch {
+									messageMatches = false;
+								}
+							}
+							if (!messageMatches) {
+								return yield* Effect.die(
+									new Error(
+										`chat bootstrap command ${input.commandId} conflicts with its durable prompt`,
+									),
+								);
+							}
+						}
+					}
 					const existingChat = yield* lookupChat(input.chatId).pipe(
 						Effect.orDie,
 					);
@@ -314,6 +391,9 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 			});
 			const initialSession = yield* createSession({
 				sessionId: input.initialSessionId,
+				commandId: input.commandId,
+				initialTurnId: input.initialTurnId,
+				initialMessageId: input.initialMessageId,
 				chatId,
 				providerId: input.providerId,
 				model: input.model,

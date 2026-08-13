@@ -24,8 +24,6 @@ export const cloudChatRowPresentation = (
 			return { label: "Needs attention", busy: false };
 		case "paused":
 			return { label: "Paused", busy: false };
-		case "queued":
-			return { label: "Queued", busy: true };
 		case "resuming":
 			return { label: "Resuming", busy: true };
 		case "attaching":

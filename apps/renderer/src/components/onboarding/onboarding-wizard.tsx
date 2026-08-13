@@ -1,14 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import {} from "@zuse/icons/solid-rounded";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import {
-} from "@zuse/icons/solid-rounded";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { captureAnalytics } from "~/lib/analytics";
 import { cn } from "~/lib/utils";
+import { useSettingsStore } from "../../lib/settings-client-bus.ts";
 import { useProvidersStore } from "../../store/providers.ts";
-import { useSettingsStore } from "../../store/settings.ts";
 import { useWorkspaceStore } from "../../store/workspace.ts";
 import { AppearanceStep } from "./steps/appearance.tsx";
 import { DefaultsStep } from "./steps/defaults.tsx";

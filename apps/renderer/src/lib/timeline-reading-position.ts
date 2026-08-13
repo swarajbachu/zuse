@@ -1,3 +1,4 @@
+import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type { SessionId } from "@zuse/contracts";
 
 import { CHAT_LIST_ANCHOR_OFFSET } from "./chat-list-anchor.ts";
@@ -19,11 +20,12 @@ export interface TimelineReadingPosition {
 }
 
 export interface TimelineReadingPositionStore {
-	readonly load: (
-		sessionId: SessionId,
-	) => Promise<TimelineReadingPosition | null>;
-	readonly save: (position: TimelineReadingPosition) => Promise<void>;
-	readonly remove: (sessionId: SessionId) => Promise<void>;
+	readonly load: (ref: SessionRef) => Promise<TimelineReadingPosition | null>;
+	readonly save: (
+		ref: SessionRef,
+		position: TimelineReadingPosition,
+	) => Promise<void>;
+	readonly remove: (ref: SessionRef) => Promise<void>;
 }
 
 export function encodeTimelineReadingPosition(

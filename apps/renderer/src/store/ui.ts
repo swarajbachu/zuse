@@ -1,8 +1,13 @@
-import type {
+import {
+	type ChatRef,
+	resourceRefKey,
+} from "@zuse/client-runtime/resource-ref";
+import {
 	ChatId,
-	CodeAnnotation,
-	FolderId,
-	WorktreeId,
+	type CodeAnnotation,
+	EnvironmentId,
+	type FolderId,
+	type WorktreeId,
 } from "@zuse/contracts";
 import {
 	defaultFileViewForName,
@@ -10,8 +15,6 @@ import {
 } from "~/lib/file-preview";
 import { requestReviewLeave } from "../lib/review-edit-guard.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
-
-import { useChatsStore } from "./chats.ts";
 
 export { isPreviewableFileName } from "~/lib/file-preview";
 
@@ -238,11 +241,10 @@ type UiState = {
 	readonly setFileDirty: (dirty: boolean) => void;
 	readonly setLeftSidebarOpen: (open: boolean) => void;
 	readonly setLeftSidebarPeek: (peek: boolean) => void;
-	/** Set visibility for the selected chat. */
-	readonly setRightSidebarOpen: (open: boolean) => void;
-	readonly setRightSidebarOpenForChat: (chatId: ChatId, open: boolean) => void;
+	/** Set visibility for one explicitly qualified chat. */
+	readonly setRightSidebarOpenForChat: (ref: ChatRef, open: boolean) => void;
 	readonly setRightSidebarWidthForChat: (
-		chatId: ChatId,
+		ref: ChatRef,
 		widthPercent: number,
 	) => void;
 	readonly setChatSwitcherOpen: (open: boolean) => void;
@@ -252,28 +254,30 @@ type UiState = {
 	readonly toggleEnvironmentSummary: () => void;
 	/** Add a panel to the dock. Singletons that are already open are focused
 	 * instead of duplicated; terminals always append a new slot. */
-	readonly addPanel: (kind: PanelKind) => void;
+	readonly addPanel: (ref: ChatRef, kind: PanelKind) => void;
 	/** Add a terminal panel to a SPECIFIC chat's dock, pinned to a known
 	 * terminal-list slot (rather than the auto-computed next slot), and activate
 	 * it. Used to surface a command terminal (e.g. Run) whose instance lives at a
 	 * known list index — possibly in a chat that isn't currently selected. */
-	readonly addTerminalPanelForSlot: (chatId: ChatId, slot: number) => void;
+	readonly addTerminalPanelForSlot: (ref: ChatRef, slot: number) => void;
 	/** Remove a dock panel by id from the active chat's layout. Layout-only:
 	 * callers that close a terminal panel must also drop its backing PTY
 	 * instance (`useTerminalsStore.remove`). Re-indexes remaining terminal
 	 * slots. */
-	readonly closePanel: (id: string) => void;
-	readonly setActiveRightPanel: (id: string) => void;
+	readonly closePanel: (ref: ChatRef, id: string) => void;
+	readonly setActiveRightPanel: (ref: ChatRef, id: string) => void;
 	/** Drop a chat's entire dock layout (on archive/delete). Terminal PTYs are
 	 * disposed separately via `useTerminalsStore.disposeChat`. */
-	readonly clearChatPanels: (chatId: ChatId) => void;
+	readonly clearChatPanels: (ref: ChatRef) => void;
 	/** Open the sidebar and ensure a panel of `kind` is present + active.
 	 * Replaces the old `setRightSidebarOpen(true) + setActiveRightTab(kind)`
 	 * pairs. For terminals, focuses an existing one or adds a new slot. */
-	readonly revealPanel: (kind: PanelKind) => void;
-	readonly revealPanelForChat: (chatId: ChatId, kind: PanelKind) => void;
-	readonly revealSubagent: (childSessionId: string) => void;
-	readonly selectSubagent: (childSessionId: string | null) => void;
+	readonly revealPanelForChat: (ref: ChatRef, kind: PanelKind) => void;
+	readonly revealSubagent: (ref: ChatRef, childSessionId: string) => void;
+	readonly selectSubagent: (
+		ref: ChatRef,
+		childSessionId: string | null,
+	) => void;
 	readonly revealAnnotation: (annotation: CodeAnnotation) => void;
 	readonly clearRevealedAnnotation: () => void;
 };
@@ -284,7 +288,9 @@ const newPanelId = (): string =>
 
 export const ENVIRONMENT_SUMMARY_STORAGE_KEY =
 	"zuse.environmentSummary.open.v1";
-export const RIGHT_PANE_WIDTHS_STORAGE_KEY = "zuse.rightPane.widths.v1";
+// v1 used unqualified chat ids, so it is intentionally not loaded: equal ids
+// from two environments could otherwise inherit each other's layout.
+export const RIGHT_PANE_WIDTHS_STORAGE_KEY = "zuse.rightPane.widths.v2";
 export const DEFAULT_RIGHT_PANE_WIDTH_PERCENT = 22;
 
 export type RightPaneLayout = {
@@ -296,13 +302,37 @@ export const closedRightPaneLayout = (
 	widthPercent = DEFAULT_RIGHT_PANE_WIDTH_PERCENT,
 ): RightPaneLayout => ({ open: false, widthPercent });
 
+export const rightPaneKey = (ref: ChatRef): string => resourceRefKey(ref);
+
+/** Decode only keys produced by `rightPaneKey`; malformed persisted input is ignored. */
+export const rightPaneRefFromKey = (key: string): ChatRef | null => {
+	const [kind, encodedEnvironment, encodedChat, ...extra] = key.split(":");
+	if (
+		kind !== "chat" ||
+		encodedEnvironment === undefined ||
+		encodedChat === undefined ||
+		extra.length > 0
+	) {
+		return null;
+	}
+	try {
+		return {
+			environmentId: EnvironmentId.make(decodeURIComponent(encodedEnvironment)),
+			chatId: ChatId.make(decodeURIComponent(encodedChat)),
+		};
+	} catch {
+		return null;
+	}
+};
+
 export const rightPaneLayoutForChat = (
 	state: Pick<UiState, "rightPaneLayoutByChat">,
-	chatId: ChatId | null,
+	ref: ChatRef | null,
 ): RightPaneLayout =>
-	chatId === null
+	ref === null
 		? closedRightPaneLayout()
-		: (state.rightPaneLayoutByChat[chatId] ?? closedRightPaneLayout());
+		: (state.rightPaneLayoutByChat[rightPaneKey(ref)] ??
+			closedRightPaneLayout());
 
 const initialEnvironmentSummaryOpen = (): boolean => {
 	if (typeof window === "undefined") return true;
@@ -383,25 +413,20 @@ const reindexTerminalSlots = (
 	);
 };
 
-/** Stable empty reference so `rightPanelsByChat[chatId] ?? EMPTY_PANELS`
+/** Stable empty reference so `rightPanelsByChat[rightPaneKey(ref)] ?? EMPTY_PANELS`
  * doesn't churn selectors for chats with no dock layout yet. */
 export const EMPTY_PANELS: ReadonlyArray<PanelInstance> = [];
 
-/** The chat that owns the dock layout being mutated — always the selected
- * one, since the dock only ever renders/edits the active chat. */
-const activeChatId = (): string | null =>
-	useChatsStore.getState().selectedChatId;
-
 const writePanels = (
 	state: UiState,
-	chatId: string,
+	key: string,
 	panels: ReadonlyArray<PanelInstance>,
 	activeId: string | null,
 ): Pick<UiState, "rightPanelsByChat" | "activeRightPanelByChat"> => ({
-	rightPanelsByChat: { ...state.rightPanelsByChat, [chatId]: panels },
+	rightPanelsByChat: { ...state.rightPanelsByChat, [key]: panels },
 	activeRightPanelByChat: {
 		...state.activeRightPanelByChat,
-		[chatId]: activeId,
+		[key]: activeId,
 	},
 });
 
@@ -499,28 +524,27 @@ export const useUiStore = create<UiState>((set, get) => ({
 	setLeftSidebarOpen: (open) =>
 		set({ leftSidebarOpen: open, leftSidebarPeek: false }),
 	setLeftSidebarPeek: (peek) => set({ leftSidebarPeek: peek }),
-	setRightSidebarOpen: (open) => {
-		const chatId = activeChatId();
-		if (chatId === null) return;
-		get().setRightSidebarOpenForChat(chatId as ChatId, open);
-	},
-	setRightSidebarOpenForChat: (chatId, open) =>
-		set((s) => ({
-			rightPaneLayoutByChat: {
-				...s.rightPaneLayoutByChat,
-				[chatId]: {
-					...(s.rightPaneLayoutByChat[chatId] ?? closedRightPaneLayout()),
-					open,
+	setRightSidebarOpenForChat: (ref, open) =>
+		set((s) => {
+			const key = rightPaneKey(ref);
+			return {
+				rightPaneLayoutByChat: {
+					...s.rightPaneLayoutByChat,
+					[key]: {
+						...(s.rightPaneLayoutByChat[key] ?? closedRightPaneLayout()),
+						open,
+					},
 				},
-			},
-		})),
-	setRightSidebarWidthForChat: (chatId, widthPercent) =>
+			};
+		}),
+	setRightSidebarWidthForChat: (ref, widthPercent) =>
 		set((s) => {
 			if (!Number.isFinite(widthPercent) || widthPercent <= 0) return s;
+			const key = rightPaneKey(ref);
 			const rightPaneLayoutByChat = {
 				...s.rightPaneLayoutByChat,
-				[chatId]: {
-					...(s.rightPaneLayoutByChat[chatId] ?? closedRightPaneLayout()),
+				[key]: {
+					...(s.rightPaneLayoutByChat[key] ?? closedRightPaneLayout()),
 					widthPercent,
 				},
 			};
@@ -541,66 +565,65 @@ export const useUiStore = create<UiState>((set, get) => ({
 			persistEnvironmentSummaryOpen(open);
 			return { environmentSummaryOpen: open };
 		}),
-	addPanel: (kind) =>
+	addPanel: (ref, kind) =>
 		set((s) => {
-			const chatId = activeChatId();
-			if (chatId === null) return s;
-			const panels = s.rightPanelsByChat[chatId] ?? EMPTY_PANELS;
+			const key = rightPaneKey(ref);
+			const panels = s.rightPanelsByChat[key] ?? EMPTY_PANELS;
 			if (SINGLETON_PANEL_KINDS.has(kind)) {
 				const existing = panels.find((p) => p.kind === kind);
 				if (existing !== undefined) {
 					return {
 						activeRightPanelByChat: {
 							...s.activeRightPanelByChat,
-							[chatId]: existing.id,
+							[key]: existing.id,
 						},
 					};
 				}
 				const panel = { id: newPanelId(), kind } as PanelInstance;
-				return writePanels(s, chatId, [...panels, panel], panel.id);
+				return writePanels(s, key, [...panels, panel], panel.id);
 			}
 			// terminal: append a new slot at the next contiguous index.
 			const slot = panels.filter((p) => p.kind === "terminal").length;
 			const panel: PanelInstance = { id: newPanelId(), kind: "terminal", slot };
-			return writePanels(s, chatId, [...panels, panel], panel.id);
+			return writePanels(s, key, [...panels, panel], panel.id);
 		}),
-	addTerminalPanelForSlot: (chatId, slot) =>
+	addTerminalPanelForSlot: (ref, slot) =>
 		set((s) => {
-			const panels = s.rightPanelsByChat[chatId] ?? EMPTY_PANELS;
+			const key = rightPaneKey(ref);
+			const panels = s.rightPanelsByChat[key] ?? EMPTY_PANELS;
 			const panel: PanelInstance = { id: newPanelId(), kind: "terminal", slot };
-			return writePanels(s, chatId, [...panels, panel], panel.id);
+			return writePanels(s, key, [...panels, panel], panel.id);
 		}),
-	closePanel: (id) =>
+	closePanel: (ref, id) =>
 		set((s) => {
-			const chatId = activeChatId();
-			if (chatId === null) return s;
-			const panels = s.rightPanelsByChat[chatId] ?? EMPTY_PANELS;
+			const key = rightPaneKey(ref);
+			const panels = s.rightPanelsByChat[key] ?? EMPTY_PANELS;
 			const idx = panels.findIndex((p) => p.id === id);
 			if (idx === -1) return s;
 			const next = reindexTerminalSlots(panels.filter((p) => p.id !== id));
-			const wasActive = s.activeRightPanelByChat[chatId] === id;
+			const wasActive = s.activeRightPanelByChat[key] === id;
 			const activeId = wasActive
 				? (next[Math.max(0, idx - 1)]?.id ?? next[0]?.id ?? null)
-				: (s.activeRightPanelByChat[chatId] ?? null);
-			return writePanels(s, chatId, next, activeId);
+				: (s.activeRightPanelByChat[key] ?? null);
+			return writePanels(s, key, next, activeId);
 		}),
-	setActiveRightPanel: (id) =>
+	setActiveRightPanel: (ref, id) =>
+		set((s) => ({
+			activeRightPanelByChat: {
+				...s.activeRightPanelByChat,
+				[rightPaneKey(ref)]: id,
+			},
+		})),
+	clearChatPanels: (ref) =>
 		set((s) => {
-			const chatId = activeChatId();
-			if (chatId === null) return s;
-			return {
-				activeRightPanelByChat: { ...s.activeRightPanelByChat, [chatId]: id },
-			};
-		}),
-	clearChatPanels: (chatId) =>
-		set((s) => {
-			const { [chatId]: _droppedPanels, ...rightPanelsByChat } =
+			const key = rightPaneKey(ref);
+			const { [key]: _droppedPanels, ...rightPanelsByChat } =
 				s.rightPanelsByChat;
-			const { [chatId]: _droppedActive, ...activeRightPanelByChat } =
+			const { [key]: _droppedActive, ...activeRightPanelByChat } =
 				s.activeRightPanelByChat;
-			const { [chatId]: _droppedSubagent, ...selectedSubagentByChat } =
+			const { [key]: _droppedSubagent, ...selectedSubagentByChat } =
 				s.selectedSubagentByChat;
-			const { [chatId]: _droppedLayout, ...rightPaneLayoutByChat } =
+			const { [key]: _droppedLayout, ...rightPaneLayoutByChat } =
 				s.rightPaneLayoutByChat;
 			persistRightPaneWidths(rightPaneLayoutByChat);
 			return {
@@ -610,21 +633,17 @@ export const useUiStore = create<UiState>((set, get) => ({
 				rightPaneLayoutByChat,
 			};
 		}),
-	revealPanel: (kind) => {
-		const chatId = activeChatId();
-		if (chatId === null) return;
-		get().revealPanelForChat(chatId as ChatId, kind);
-	},
-	revealPanelForChat: (chatId, kind) => {
-		get().setRightSidebarOpenForChat(chatId, true);
+	revealPanelForChat: (ref, kind) => {
+		const key = rightPaneKey(ref);
+		get().setRightSidebarOpenForChat(ref, true);
 		const s = get();
-		const panels = s.rightPanelsByChat[chatId] ?? EMPTY_PANELS;
+		const panels = s.rightPanelsByChat[key] ?? EMPTY_PANELS;
 		const existing = panels.find((p) => p.kind === kind);
 		if (existing !== undefined) {
 			set((st) => ({
 				activeRightPanelByChat: {
 					...st.activeRightPanelByChat,
-					[chatId]: existing.id,
+					[key]: existing.id,
 				},
 			}));
 			return;
@@ -634,33 +653,31 @@ export const useUiStore = create<UiState>((set, get) => ({
 			kind === "terminal"
 				? ({ id: newPanelId(), kind, slot } satisfies PanelInstance)
 				: ({ id: newPanelId(), kind } as PanelInstance);
-		set((st) => writePanels(st, chatId, [...panels, panel], panel.id));
+		set((st) => writePanels(st, key, [...panels, panel], panel.id));
 	},
-	revealSubagent: (childSessionId) => {
-		const chatId = activeChatId();
-		if (chatId === null) return;
+	revealSubagent: (ref, childSessionId) => {
+		const key = rightPaneKey(ref);
 		set((s) => ({
 			rightPaneLayoutByChat: {
 				...s.rightPaneLayoutByChat,
-				[chatId]: {
-					...(s.rightPaneLayoutByChat[chatId] ?? closedRightPaneLayout()),
+				[key]: {
+					...(s.rightPaneLayoutByChat[key] ?? closedRightPaneLayout()),
 					open: true,
 				},
 			},
 			selectedSubagentByChat: {
 				...s.selectedSubagentByChat,
-				[chatId]: childSessionId,
+				[key]: childSessionId,
 			},
 		}));
-		get().revealPanel("subagents");
+		get().revealPanelForChat(ref, "subagents");
 	},
-	selectSubagent: (childSessionId) => {
-		const chatId = activeChatId();
-		if (chatId === null) return;
+	selectSubagent: (ref, childSessionId) => {
+		const key = rightPaneKey(ref);
 		set((s) => ({
 			selectedSubagentByChat: {
 				...s.selectedSubagentByChat,
-				[chatId]: childSessionId,
+				[key]: childSessionId,
 			},
 		}));
 	},

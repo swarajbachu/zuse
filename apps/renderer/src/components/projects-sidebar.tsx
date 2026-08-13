@@ -1,13 +1,13 @@
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-import type {
-	Chat,
-	ChatId,
-	CloudChatSummary,
-	FolderId,
-	GitOriginInfo,
-	Session,
-	SessionId,
-	SessionStatus,
+import {
+	type Chat,
+	type ChatId,
+	type CloudChatSummary,
+	EnvironmentId,
+	type FolderId,
+	type GitOriginInfo,
+	type SessionId,
+	type SessionStatus,
 } from "@zuse/contracts";
 import {
 	Analytics01Icon,
@@ -28,7 +28,6 @@ import {
 	TaskDone01Icon,
 	UserCircleIcon,
 } from "@zuse/icons/solid-rounded";
-import { Effect, Fiber, Stream } from "effect";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
 	Fragment,
@@ -61,14 +60,28 @@ import {
 	mergeChatAttentionStates,
 } from "~/lib/chat-attention-state";
 import { displayPath } from "~/lib/display-path";
+import { activeSessionById } from "~/lib/environment-entities.ts";
+import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
+import { useEnvironmentPermissions } from "~/lib/environment-permissions-client-bus.ts";
 import { formatError } from "~/lib/format-error.ts";
 import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import { deriveCloudChatActivity } from "../lib/cloud-chat-activity.ts";
 import { cloudChatRowPresentation } from "../lib/cloud-chat-row-presentation.ts";
 import { cloudWorkspaceBetaAvailable } from "../lib/cloud-machines-availability.ts";
+import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
+import {
+	openCloudChat,
+	repositoryIdentityForOrigin,
+	useCloudChatsStore,
+} from "../lib/cloud-workspaces.ts";
 import { dispatchCommand } from "../lib/commands.ts";
 import { noteSessionRuntimeCompletion } from "../lib/completion-sounds.ts";
+import {
+	useEnvironmentShellCatalog,
+	useEnvironmentShellResource,
+} from "../lib/environment-shell-client-bus.ts";
+import { useGitWorkspaceResource } from "../lib/git-workspace-client-bus.ts";
 import { openNewChatLanding } from "../lib/open-new-chat-landing.ts";
 import { branchStateFor, diffStatsFor } from "../lib/pr-branch-state.ts";
 import {
@@ -77,16 +90,12 @@ import {
 	type LogicalProjectGroup,
 	preferredGroupMember,
 } from "../lib/project-groups.ts";
+import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
+import { isSessionRuntimeBusy } from "../lib/session-runtime-state.ts";
 import {
-	getLocalEnvironmentId,
-	getRpcClient,
-	reportRendererRpcStreamFailure,
-	subscribeRendererRpcConnection,
-} from "../lib/rpc-client.ts";
-import {
-	effectiveSessionRuntimeState,
-	isSessionRuntimeBusy,
-} from "../lib/session-runtime-state.ts";
+	useRendererSessionTimeline,
+	useRendererSessionTimelines,
+} from "../lib/session-timeline-hooks.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { switchToEnvironment } from "../lib/switch-environment.ts";
 import { useArchivePreviewStore } from "../store/archive-preview.ts";
@@ -96,27 +105,13 @@ import {
 	isChatUnread,
 	useChatsStore,
 } from "../store/chats.ts";
-import { useCloudExecutionStore } from "../store/cloud-chat-registry.ts";
-import {
-	openCloudChat,
-	repositoryIdentityForOrigin,
-	useCloudChatsStore,
-} from "../store/cloud-chats.ts";
 import {
 	type EnvironmentCatalogEntry,
 	useEnvironmentCatalogStore,
 } from "../store/environment-catalog.ts";
-import { useFolderOriginsStore } from "../store/folder-origins.ts";
-import { gitDiffStatKey, useGitDiffStatStore } from "../store/git-diff-stat.ts";
-import { useMessagesStore } from "../store/messages.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
-import { usePermissionsStore } from "../store/permissions.ts";
-import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
-import {
-	subscribeSessionTerminals,
-	useSessionRuntimeStore,
-} from "../store/session-runtime.ts";
-import { getSessionById, useSessionsStore } from "../store/sessions.ts";
+import { subscribeSessionTerminals } from "../store/session-runtime.ts";
+import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useUsageLimitsStore } from "../store/usage-limits.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
@@ -216,174 +211,12 @@ const environmentProjectKey = (
 	projectId: FolderId,
 ): string => `${environmentId}\u0001${projectId}`;
 
-/** One summary feed per project replaces a transport stream for every row. */
-function applySessionSummary(
-	projectId: FolderId,
-	change:
-		| {
-				readonly _tag: "snapshot";
-				readonly cursor: number;
-				readonly sessions: ReadonlyArray<Session>;
-		  }
-		| {
-				readonly _tag: "change";
-				readonly sequence: number;
-				readonly session: Session;
-		  }
-		| {
-				readonly _tag: "remove";
-				readonly sequence: number;
-				readonly sessionId: SessionId;
-		  },
-): void {
-	if (change._tag === "remove") {
-		useSessionRuntimeStore.getState().remove(change.sessionId);
-	}
-	useSessionsStore.setState((state) => {
-		const current = state.sessionsByProject[projectId] ?? [];
-		if (change._tag === "snapshot") {
-			const incoming = new Set(change.sessions.map((session) => session.id));
-			const unacknowledged = current.filter(
-				(session) => session.status === "booting" && !incoming.has(session.id),
-			);
-			return {
-				sessionsByProject: {
-					...state.sessionsByProject,
-					[projectId]: [...unacknowledged, ...change.sessions],
-				},
-			};
-		}
-		if (change._tag === "remove") {
-			return {
-				sessionsByProject: {
-					...state.sessionsByProject,
-					[projectId]: current.filter(
-						(session) => session.id !== change.sessionId,
-					),
-				},
-			};
-		}
-		const found = current.some((session) => session.id === change.session.id);
-		return {
-			sessionsByProject: {
-				...state.sessionsByProject,
-				[projectId]: found
-					? current.map((session) =>
-							session.id === change.session.id ? change.session : session,
-						)
-					: [change.session, ...current],
-			},
-		};
-	});
-}
-
-function useProjectSessionSummarySubscriptions(
-	projectIds: ReadonlyArray<FolderId>,
-	environmentId: string,
-) {
-	const fibersRef = useRef(new Map<FolderId, Fiber.Fiber<unknown, unknown>>());
-	const generationsRef = useRef(new Map<FolderId, number>());
-	const cursorsRef = useRef(new Map<FolderId, number>());
-	const idsKey = `${environmentId}\u0001${projectIds.join("\u0000")}`;
-
-	useEffect(() => {
-		const wanted = new Set(projectIds);
-		for (const [projectId, fiber] of fibersRef.current) {
-			if (wanted.has(projectId)) continue;
-			fibersRef.current.delete(projectId);
-			generationsRef.current.delete(projectId);
-			cursorsRef.current.delete(projectId);
-			void Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {});
-		}
-		const unsubscribe = subscribeRendererRpcConnection((snapshot) => {
-			if (snapshot.status !== "connected") return;
-			for (const projectId of projectIds) {
-				if (generationsRef.current.get(projectId) === snapshot.generation) {
-					continue;
-				}
-				generationsRef.current.set(projectId, snapshot.generation);
-				const previous = fibersRef.current.get(projectId);
-				if (previous !== undefined) {
-					void Effect.runPromise(Fiber.interrupt(previous)).catch(() => {});
-				}
-				const generation = snapshot.generation;
-				const fiber = Effect.runFork(
-					Effect.tryPromise(() => getRpcClient(environmentId)).pipe(
-						Effect.flatMap((client) =>
-							Stream.runForEach(
-								client["session.streamChanges"]({
-									projectId,
-								}),
-								(change) =>
-									Effect.sync(() => {
-										const sequence =
-											change._tag === "snapshot"
-												? change.cursor
-												: change.sequence;
-										if (change._tag === "snapshot") {
-											cursorsRef.current.set(
-												projectId,
-												Math.max(
-													cursorsRef.current.get(projectId) ?? -1,
-													sequence,
-												),
-											);
-											applySessionSummary(projectId, change);
-											return;
-										}
-										if ((cursorsRef.current.get(projectId) ?? -1) >= sequence) {
-											return;
-										}
-										cursorsRef.current.set(projectId, sequence);
-										applySessionSummary(projectId, change);
-									}),
-							),
-						),
-						Effect.match({
-							onFailure: (cause) => {
-								if (generationsRef.current.get(projectId) === generation) {
-									reportRendererRpcStreamFailure(
-										generation,
-										cause,
-										environmentId,
-									);
-								}
-							},
-							onSuccess: () => {
-								if (generationsRef.current.get(projectId) === generation) {
-									reportRendererRpcStreamFailure(
-										generation,
-										new Error("session summary stream completed unexpectedly"),
-										environmentId,
-									);
-								}
-							},
-						}),
-					),
-				);
-				fibersRef.current.set(projectId, fiber);
-			}
-		}, environmentId);
-		return unsubscribe;
-	}, [idsKey]);
-
-	useEffect(
-		() => () => {
-			for (const fiber of fibersRef.current.values()) {
-				void Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {});
-			}
-			fibersRef.current.clear();
-		},
-		[],
-	);
-}
-
 function useSessionRuntimeEffects(): void {
 	useEffect(
 		() =>
 			subscribeSessionTerminals((sessionId) => {
 				noteSessionRuntimeCompletion();
-				const session = getSessionById(sessionId);
+				const session = activeSessionById(sessionId);
 				if (session === null) return;
 				const chats = useChatsStore.getState();
 				if (chats.selectedChatId === session.chatId) {
@@ -403,64 +236,43 @@ export function ProjectsSidebar() {
 	const folders = useWorkspaceStore((s) => s.folders);
 	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
 	const loading = useWorkspaceStore((s) => s.loading);
-	const load = useWorkspaceStore((s) => s.load);
 	const remove = useWorkspaceStore((s) => s.remove);
 	const select = useWorkspaceStore((s) => s.select);
 	const catalogEntries = useEnvironmentCatalogStore((s) => s.entries);
 	const activeEnvironmentId = useEnvironmentCatalogStore(
 		(s) => s.activeEnvironmentId,
 	);
+	const shellViews = useEnvironmentShellCatalog(
+		catalogEntries.map((entry) => entry.environmentId),
+	);
 	const initializeEnvironmentCatalog = useEnvironmentCatalogStore(
 		(s) => s.initialize,
 	);
 
-	const sessionsByProject = useSessionsStore((s) => s.sessionsByProject);
-
-	const chatsByProject = useChatsStore((s) => s.chatsByProject);
-	const hydrateChats = useChatsStore((s) => s.hydrate);
-	const storedCloudChats = useCloudChatsStore((s) => s.summaries);
+	const {
+		chatsByProject,
+		originsByFolder: origins,
+		sessionsByProject,
+	} = useActiveEnvironmentEntities();
+	const storedCloudChats = useCloudChatCatalogStore((s) => s.summaries);
 	const cloudChats = CLOUD_WORKSPACE_BETA_AVAILABLE
 		? storedCloudChats
 		: EMPTY_CLOUD_CHATS;
 	const hydrateCloudChats = useCloudChatsStore((s) => s.hydrate);
 
-	const origins = useFolderOriginsStore((s) => s.byFolder);
-	const hydrateOrigins = useFolderOriginsStore((s) => s.hydrate);
 	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
 	useEffect(() => {
-		void load();
 		if (CLOUD_WORKSPACE_BETA_AVAILABLE) void hydrateCloudChats();
-	}, [load, hydrateCloudChats]);
-
-	useEffect(() => {
-		if (!CLOUD_WORKSPACE_BETA_AVAILABLE) return;
-		const hasTransitioningWorkspace = cloudChats.some(
-			(chat) =>
-				chat.state === "queued" ||
-				chat.state === "provisioning" ||
-				chat.state === "setup" ||
-				chat.state === "pausing" ||
-				chat.state === "resuming" ||
-				chat.state === "archiving" ||
-				chat.desiredState === "archived" ||
-				chat.runtimeState === "connecting",
-		);
-		const interval = window.setInterval(
-			() => void hydrateCloudChats(),
-			hasTransitioningWorkspace ? 2_000 : 30_000,
-		);
-		return () => window.clearInterval(interval);
-	}, [cloudChats, hydrateCloudChats]);
+	}, [hydrateCloudChats]);
 
 	const desktopCatalogEnabled = window.zuse?.ssh !== undefined;
 
 	useEffect(() => {
-		if (!desktopCatalogEnabled) return;
 		void initializeEnvironmentCatalog().catch((cause) =>
 			console.error("[zuse] environment catalog initialize failed", cause),
 		);
-	}, [desktopCatalogEnabled, initializeEnvironmentCatalog]);
+	}, [initializeEnvironmentCatalog]);
 
 	// Auto-expand the selected project so newly opened workspaces immediately
 	// reveal their session list.
@@ -470,42 +282,10 @@ export function ProjectsSidebar() {
 		setExpanded((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
 	}, [activeEnvironmentId, selectedFolderId]);
 
-	// Chat streams hydrate expanded projects. Session summary streams below own
-	// their snapshot and live continuation, so a second list request is unnecessary.
-	useEffect(() => {
-		for (const folder of folders) {
-			if (!expanded[environmentProjectKey(activeEnvironmentId, folder.id)])
-				continue;
-			if (!(folder.id in chatsByProject)) void hydrateChats(folder.id);
-		}
-	}, [activeEnvironmentId, expanded, folders, chatsByProject, hydrateChats]);
-
-	// Eagerly hydrate the (lightweight) chat list for EVERY project, regardless
-	// of expansion. This is what lets read/unread — and the cross-project "Next
-	// unread" button — see chats in collapsed/unvisited projects on startup.
-	// Sessions stay lazy (above); the live unread signal only needs them for
-	// projects the user actually opens.
-	useEffect(() => {
-		for (const folder of folders) {
-			if (!(folder.id in chatsByProject)) void hydrateChats(folder.id);
-		}
-	}, [folders, chatsByProject, hydrateChats]);
-
 	// PR state is keyed per-session by `(folderId, worktreeId)` because each
 	// worktree has its own branch and therefore its own PR. Hydration happens
 	// inside `SessionRow` so each row pulls the entry that matches its
 	// session — no per-project bulk hydrate.
-
-	// Resolve git origin for avatar rendering + logical grouping. Lookups that
-	// fail stay `null` and the row falls back to initials.
-	useEffect(() => {
-		void hydrateOrigins(folders.map((folder) => folder.id));
-	}, [folders, hydrateOrigins]);
-
-	useProjectSessionSummarySubscriptions(
-		folders.map((folder) => folder.id),
-		activeEnvironmentId,
-	);
 
 	const onToggleKey = (key: string) => {
 		setExpanded((previous) => ({ ...previous, [key]: !previous[key] }));
@@ -530,6 +310,12 @@ export function ProjectsSidebar() {
 						activeFolders: folders,
 						activeOrigins: origins,
 						activeChatsByProject: chatsByProject,
+						shellsByEnvironment: Object.fromEntries(
+							Object.entries(shellViews).map(([environmentId, view]) => [
+								environmentId,
+								view.data,
+							]),
+						),
 					})
 				: [],
 		[
@@ -539,6 +325,7 @@ export function ProjectsSidebar() {
 			folders,
 			origins,
 			chatsByProject,
+			shellViews,
 		],
 	);
 
@@ -613,6 +400,7 @@ export function ProjectsSidebar() {
 												chat.repositoryIdentity ===
 												repositoryIdentityForOrigin(origins[folder.id]),
 										)}
+										environmentId={EnvironmentId.make(activeEnvironmentId)}
 										onSelect={() => void select(folder.id)}
 										onToggleExpanded={() =>
 											onToggleExpanded(activeEnvironmentId, folder.id)
@@ -657,6 +445,7 @@ export function ProjectsSidebar() {
 										chat.repositoryIdentity ===
 										repositoryIdentityForOrigin(origins[folder.id]),
 								)}
+								environmentId={EnvironmentId.make(activeEnvironmentId)}
 								onSelect={() => void select(folder.id)}
 								onToggleExpanded={() =>
 									onToggleExpanded(activeEnvironmentId, folder.id)
@@ -1074,32 +863,10 @@ function CatalogChatRow({
 }) {
 	const { chat, environmentId, environmentLabel, remote, busy } = chatRef;
 	const isArchived = chat.archivedAt !== null;
-	const prInfo = usePrStateStore(
-		(s) =>
-			s.byKey[prStateKey(environmentId, chat.projectId, chat.worktreeId)] ??
-			null,
-	);
-	const hydratePrState = usePrStateStore((s) => s.hydrate);
-	const diffStat = useGitDiffStatStore(
-		(s) =>
-			s.byKey[gitDiffStatKey(environmentId, chat.projectId, chat.worktreeId)] ??
-			null,
-	);
-	const hydrateDiffStat = useGitDiffStatStore((s) => s.hydrate);
-	useEffect(() => {
-		// Only reachable computers get asked — never hammer an offline env.
-		if (!connected) return;
-		void hydratePrState(environmentId, chat.projectId, chat.worktreeId);
-		void hydrateDiffStat(environmentId, chat.projectId, chat.worktreeId);
-	}, [
-		connected,
-		environmentId,
-		chat.projectId,
-		chat.worktreeId,
-		hydratePrState,
-		hydrateDiffStat,
-	]);
-	const stats = diffStatsFor(diffStat, prInfo);
+	// Sidebar discovery is cache-only and must never wake a remote environment.
+	// Runtime Git state is retained only after selecting the environment, so a
+	// catalog placeholder uses its monotonic metadata and relative activity.
+	const prInfo = null;
 	return (
 		<li>
 			<button
@@ -1148,18 +915,7 @@ function CatalogChatRow({
 						/>
 					) : null}
 					<span className="tabular-nums text-[10px] text-muted-foreground">
-						{stats !== null ? (
-							<>
-								<span className="text-success">
-									+{formatCompactNumber(stats.additions)}
-								</span>{" "}
-								<span className="text-destructive">
-									−{formatCompactNumber(stats.deletions)}
-								</span>
-							</>
-						) : (
-							formatRelative(chat.updatedAt)
-						)}
+						{formatRelative(chat.updatedAt)}
 					</span>
 				</div>
 			</button>
@@ -1177,6 +933,7 @@ function ProjectGroup({
 	projectSessions,
 	remoteChats,
 	cloudChats,
+	environmentId,
 	onSelect,
 	onToggleExpanded,
 	onRemove,
@@ -1197,6 +954,7 @@ function ProjectGroup({
 	remoteChats?: ReadonlyArray<RemoteChatRow>;
 	/** Durable cloud chats remain visible independently of sandbox state. */
 	cloudChats?: ReadonlyArray<CloudChatSummary>;
+	environmentId: EnvironmentId;
 	onSelect: () => void;
 	onToggleExpanded: () => void;
 	onRemove: () => void;
@@ -1220,7 +978,7 @@ function ProjectGroup({
 
 	const openArchives = () => {
 		onSelect();
-		void useArchivePreviewStore.getState().showList(id);
+		void useArchivePreviewStore.getState().showList(environmentId, id);
 		setView("chat");
 		setActiveMainTab("archives");
 	};
@@ -1280,23 +1038,31 @@ function ProjectGroup({
 		() => liveSessions.map((session) => session.id),
 		[liveSessions],
 	);
-	const headerRunning = useSessionRuntimeStore((s) =>
-		mergeChatAttentionStates(
-			liveSessions.map((session) =>
-				isSessionRuntimeBusy(
-					effectiveSessionRuntimeState(s.bySession[session.id]),
-				)
-					? "running"
-					: "idle",
-			),
-		),
+	const liveTimelineRefs = useMemo(
+		() => liveSessionIds.map((sessionId) => ({ environmentId, sessionId })),
+		[environmentId, liveSessionIds],
 	);
-	const headerMessageAttention = useMessagesStore((s) =>
-		mergeChatAttentionStates(
-			liveSessionIds.map((id) =>
-				deriveChatAttentionState(s.messagesBySession[id] ?? [], false),
+	const liveTimelines = useRendererSessionTimelines(
+		liveTimelineRefs,
+		"cache-only",
+	);
+	const headerRunning = useMemo(
+		() =>
+			mergeChatAttentionStates(
+				liveTimelines.map((timeline) =>
+					isSessionRuntimeBusy(timeline.runtime) ? "running" : "idle",
+				),
 			),
-		),
+		[liveTimelines],
+	);
+	const headerMessageAttention = useMemo(
+		() =>
+			mergeChatAttentionStates(
+				liveTimelines.map((timeline) =>
+					deriveChatAttentionState(timeline.messages, false),
+				),
+			),
+		[liveTimelines],
 	);
 	const liveSessionIdSet = useMemo(
 		() => new Set(liveSessionIds),
@@ -1304,8 +1070,11 @@ function ProjectGroup({
 	);
 	// Pending permission prompts never become messages, so they bypass
 	// `headerMessageAttention`. Pull them straight from the permissions store.
-	const headerPermissionAttention = usePermissionsStore((s) =>
-		derivePermissionAttention(Object.values(s.requestsById), liveSessionIdSet),
+	const permissionRequests =
+		useEnvironmentPermissions().data?.requestsById ?? {};
+	const headerPermissionAttention = derivePermissionAttention(
+		Object.values(permissionRequests),
+		liveSessionIdSet,
 	);
 	const headerAttention = mergeChatAttentionStates([
 		headerRunning,
@@ -1424,7 +1193,11 @@ function ProjectGroup({
 					)}
 					{chatRows.map((entry) =>
 						entry.kind === "local" ? (
-							<ChatRow key={entry.chat.id} chat={entry.chat} />
+							<ChatRow
+								key={entry.chat.id}
+								chat={entry.chat}
+								projectRoot={path}
+							/>
 						) : entry.kind === "remote" ? (
 							<CatalogChatRow
 								key={`${entry.row.ref.environmentId}:${entry.row.ref.chat.id}`}
@@ -1453,25 +1226,21 @@ function CloudChatRow({
 	readonly projectId: FolderId;
 }) {
 	const selectedChatId = useChatsStore((state) => state.selectedChatId);
-	const historyLoading = useCloudChatsStore(
-		(state) => state.historyLoadingByChat[summary.chatId] === true,
-	);
 	const archive = useCloudChatsStore((state) => state.archive);
 	const [archiving, setArchiving] = useState(false);
-	const runtimeState = useSessionRuntimeStore((state) =>
-		effectiveSessionRuntimeState(state.bySession[summary.initialSessionId]),
+	const timeline = useRendererSessionTimeline(
+		summary.initialSessionId,
+		"cache-only",
+		EnvironmentId.make(summary.workspaceId),
 	);
-	const attachment = useCloudExecutionStore(
-		(state) => state.stateByWorkspace[summary.workspaceId] ?? "detached",
-	);
-	const command = useCloudChatsStore(
-		(state) => state.commandByWorkspace[summary.workspaceId]?.state ?? null,
+	const shell = useEnvironmentShellResource(
+		EnvironmentId.make(summary.workspaceId),
+		"cache-only",
 	);
 	const activity = deriveCloudChatActivity({
 		summary,
-		attachment,
-		runtime: runtimeState,
-		command,
+		connection: shell.connection,
+		runtime: timeline.runtime,
 	});
 	const presentation = cloudChatRowPresentation(summary, activity);
 	const label = presentation.label;
@@ -1508,7 +1277,7 @@ function CloudChatRow({
 				role="button"
 				tabIndex={0}
 				aria-label={`${summary.title}. ${label}`}
-				aria-busy={cloudWorkspaceLoading || historyLoading || undefined}
+				aria-busy={cloudWorkspaceLoading || undefined}
 				className={cn(
 					"group flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/40 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
 					selected && "bg-sidebar-accent text-sidebar-accent-foreground",
@@ -1550,7 +1319,7 @@ function CloudChatRow({
 							<HugeiconsIcon icon={ArchiveArrowDownIcon} className="size-3.5" />
 						)}
 					</button>
-					{cloudWorkspaceLoading || historyLoading ? (
+					{cloudWorkspaceLoading ? (
 						<Spinner className="size-3 shrink-0 motion-reduce:animate-none" />
 					) : null}
 					<HugeiconsIcon
@@ -1701,10 +1470,10 @@ export function TooltipShortcut({
 	);
 }
 
-function ChatRow({ chat }: { chat: Chat }) {
+function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
+	const { sessionsByProject } = useActiveEnvironmentEntities();
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
-	const sessionsByProject = useSessionsStore((s) => s.sessionsByProject);
 
 	const selectChat = useChatsStore((s) => s.select);
 	const renameChat = useChatsStore((s) => s.rename);
@@ -1729,46 +1498,22 @@ function ChatRow({ chat }: { chat: Chat }) {
 	);
 	const onRemoteEnvironment = activeEnvironmentId !== getLocalEnvironmentId();
 
-	// PR state is keyed by (environment, project, worktree). A chat owns its
-	// worktree, so all its sessions share the same PR row — hydrate once per
-	// chat.
-	const prInfo = usePrStateStore(
-		(s) =>
-			s.byKey[
-				prStateKey(activeEnvironmentId, chat.projectId, chat.worktreeId)
-			] ?? null,
+	const gitView = useGitWorkspaceResource(
+		creationPending
+			? null
+			: {
+					environmentId: EnvironmentId.make(activeEnvironmentId),
+					folderId: chat.projectId,
+					worktreeId: chat.worktreeId,
+					// Catalog rows do not carry the resolved worktree path. The qualified
+					// identity still includes the known project root; the selected chat
+					// re-keys to its canonical worktree path when ActiveContext resolves.
+					rootPath: projectRoot,
+				},
+		"cache-only",
 	);
-	const hydratePrState = usePrStateStore((s) => s.hydrate);
-	useEffect(() => {
-		if (creationPending) return;
-		void hydratePrState(activeEnvironmentId, chat.projectId, chat.worktreeId);
-	}, [
-		creationPending,
-		hydratePrState,
-		activeEnvironmentId,
-		chat.projectId,
-		chat.worktreeId,
-	]);
-
-	// Per-branch diff stats (additions/deletions vs base), shown even when no
-	// PR exists yet — so a working branch surfaces its size in the sidebar.
-	const diffStat = useGitDiffStatStore(
-		(s) =>
-			s.byKey[
-				gitDiffStatKey(activeEnvironmentId, chat.projectId, chat.worktreeId)
-			] ?? null,
-	);
-	const hydrateDiffStat = useGitDiffStatStore((s) => s.hydrate);
-	useEffect(() => {
-		if (creationPending) return;
-		void hydrateDiffStat(activeEnvironmentId, chat.projectId, chat.worktreeId);
-	}, [
-		creationPending,
-		hydrateDiffStat,
-		activeEnvironmentId,
-		chat.projectId,
-		chat.worktreeId,
-	]);
+	const prInfo = gitView.data?.pr ?? null;
+	const diffStat = gitView.data?.diffStat ?? null;
 
 	// Ids of this chat's non-archived sessions — so the sidebar busy
 	// indicator reflects ANY tab being active, not just the currently
@@ -1784,30 +1529,41 @@ function ChatRow({ chat }: { chat: Chat }) {
 		() => chatSessions.map((session) => session.id),
 		[chatSessions],
 	);
-
-	const runningAttention = useSessionRuntimeStore((s) =>
-		mergeChatAttentionStates(
-			chatSessions.map((session) =>
-				isSessionRuntimeBusy(
-					effectiveSessionRuntimeState(s.bySession[session.id]),
-				)
-					? "running"
-					: "idle",
-			),
-		),
+	const timelineRefs = useMemo(
+		() =>
+			sessionIds.map((sessionId) => ({
+				environmentId: EnvironmentId.make(activeEnvironmentId),
+				sessionId,
+			})),
+		[activeEnvironmentId, sessionIds],
 	);
-	const messageAttention = useMessagesStore((s) =>
-		mergeChatAttentionStates(
-			sessionIds.map((id) =>
-				deriveChatAttentionState(s.messagesBySession[id] ?? [], false),
+	const timelines = useRendererSessionTimelines(timelineRefs, "cache-only");
+	const runningAttention = useMemo(
+		() =>
+			mergeChatAttentionStates(
+				timelines.map((timeline) =>
+					isSessionRuntimeBusy(timeline.runtime) ? "running" : "idle",
+				),
 			),
-		),
+		[timelines],
+	);
+	const messageAttention = useMemo(
+		() =>
+			mergeChatAttentionStates(
+				timelines.map((timeline) =>
+					deriveChatAttentionState(timeline.messages, false),
+				),
+			),
+		[timelines],
 	);
 	const sessionIdSet = useMemo(() => new Set(sessionIds), [sessionIds]);
 	// Supervised-mode permission prompts live only in the permissions store —
 	// they never arrive as messages, so they'd otherwise leave the row dark.
-	const permissionAttention = usePermissionsStore((s) =>
-		derivePermissionAttention(Object.values(s.requestsById), sessionIdSet),
+	const permissionRequests =
+		useEnvironmentPermissions().data?.requestsById ?? {};
+	const permissionAttention = derivePermissionAttention(
+		Object.values(permissionRequests),
+		sessionIdSet,
 	);
 	const attentionState = mergeChatAttentionStates([
 		creationPending ? "running" : "idle",

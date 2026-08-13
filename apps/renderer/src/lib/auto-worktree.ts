@@ -1,7 +1,14 @@
-import type { ChatWorkspacePolicy, FolderId } from "@zuse/contracts";
+import type {
+	ChatWorkspacePolicy,
+	EnvironmentId,
+	FolderId,
+} from "@zuse/contracts";
 
-import { useRepositorySettingsStore } from "../store/repository-settings.ts";
-import { useSettingsStore } from "../store/settings.ts";
+import {
+	repositorySettingsKey,
+	useRepositorySettingsStore,
+} from "../store/repository-settings.ts";
+import { useSettingsStore } from "./settings-client-bus.ts";
 
 /**
  * Resolve the worktree a freshly-created chat should run in. When per-repo
@@ -15,13 +22,15 @@ import { useSettingsStore } from "../store/settings.ts";
  * promised a fresh worktree.
  */
 export async function resolveChatWorkspacePolicy(
+	environmentId: EnvironmentId,
 	projectId: FolderId,
 ): Promise<ChatWorkspacePolicy> {
 	const settings = useSettingsStore.getState();
 	const repositorySettings = useRepositorySettingsStore.getState();
 	const repoSettings =
-		repositorySettings.byProject[projectId] ??
-		(await repositorySettings.refresh(projectId));
+		repositorySettings.byProject[
+			repositorySettingsKey(environmentId, projectId)
+		] ?? (await repositorySettings.refresh(environmentId, projectId));
 	const shouldAutoCreate =
 		repoSettings?.autoCreateWorktree === true ||
 		settings.defaultAutoCreateWorktree === true;

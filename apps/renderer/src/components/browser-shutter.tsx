@@ -9,19 +9,19 @@
  * dim instead of a white flash + scale for users who opt out of motion.
  */
 export function BrowserShutter({ nonce }: { nonce: number }) {
-  // nonce === 0 is the initial mount — nothing has been captured yet, so
-  // render nothing (avoids a stray flash on first paint).
-  if (nonce === 0) return null;
-  return (
-    <>
-      <style>{SHUTTER_CSS}</style>
-      <div
-        key={nonce}
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 z-10 memoize-browser-shutter"
-      />
-    </>
-  );
+	// nonce === 0 is the initial mount — nothing has been captured yet, so
+	// render nothing (avoids a stray flash on first paint).
+	if (nonce === 0) return null;
+	return (
+		<>
+			<style>{SHUTTER_CSS}</style>
+			<div
+				key={nonce}
+				aria-hidden="true"
+				className="pointer-events-none absolute inset-0 z-10 memoize-browser-shutter"
+			/>
+		</>
+	);
 }
 
 const SHUTTER_CSS = `

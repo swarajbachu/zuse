@@ -49,8 +49,6 @@ import {
 	Option,
 	Path,
 	Queue,
-	Ref,
-	Schedule,
 	Stream,
 } from "effect";
 import {
@@ -749,13 +747,6 @@ export const GitServiceLive = Layer.effect(
 				run(folderId, cwd, ["config", "user.name"]).pipe(
 					Effect.map((s) => s.trim()),
 					Effect.catchTag("GitCommandError", () => Effect.succeed("")),
-				),
-			);
-
-		const headSha = (folderId: FolderId) =>
-			Effect.flatMap(resolvePath(folderId), (cwd) =>
-				run(folderId, cwd, ["rev-parse", "HEAD"]).pipe(
-					Effect.map((s) => s.trim()),
 				),
 			);
 
@@ -2398,42 +2389,55 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		// Per-subscription stream: a forked fiber polls HEAD every 2s and pushes
-		// into a Queue only when the SHA changes. The fiber is scoped to the
-		// stream's lifetime, so interrupting the renderer's subscription stops
-		// the polling.
-		const subscribeHeadChanges: GitService["Service"]["subscribeHeadChanges"] =
-			(folderId) =>
-				Stream.unwrap(
-					Effect.gen(function* () {
-						const mailbox = yield* Queue.make<
-							{ readonly sha: string },
-							GitFailure
-						>();
-						const lastSha = yield* Ref.make<string | null>(null);
+		// One filesystem-backed invalidation stream per retained Git resource.
+		// The watcher is forked before revision zero is offered: receiving the
+		// initial frame is the client's barrier that it may safely read a snapshot.
+		const workspaceChanges: GitService["Service"]["workspaceChanges"] = (
+			folderId,
+			worktreeId,
+		) =>
+			Stream.unwrap(
+				Effect.gen(function* () {
+					const mailbox = yield* Queue.make<
+						{ readonly revision: number },
+						GitFailure
+					>();
+					const cwd = yield* resolvePathForWorktree(folderId, worktreeId);
+					let revision = 0;
+					const watch = fs.watch(cwd).pipe(
+						Stream.debounce(Duration.millis(100)),
+						Stream.runForEach(() =>
+							Effect.sync(() => {
+								revision += 1;
+								Queue.offerUnsafe(mailbox, { revision });
+							}),
+						),
+					);
 
-						const tick = Effect.gen(function* () {
-							const sha = yield* headSha(folderId);
-							const prev = yield* Ref.get(lastSha);
-							if (sha !== prev) {
-								yield* Ref.set(lastSha, sha);
-								Queue.offerUnsafe(mailbox, { sha });
-							}
-						});
-
-						yield* Effect.forkScoped(
-							Effect.repeat(tick, Schedule.spaced(Duration.seconds(2))).pipe(
-								Effect.catch((err) =>
-									Effect.sync(() =>
-										Queue.failCauseUnsafe(mailbox, Cause.fail(err)),
+					yield* Effect.forkScoped(
+						watch.pipe(
+							Effect.catch((error) =>
+								Effect.sync(() =>
+									Queue.failCauseUnsafe(
+										mailbox,
+										Cause.fail(
+											new GitCommandError({
+												folderId,
+												reason: `failed to watch repository: ${String(error)}`,
+											}),
+										),
 									),
 								),
 							),
-						);
+						),
+					);
+					// Let the scoped watcher install before publishing the initial barrier.
+					yield* Effect.yieldNow;
+					Queue.offerUnsafe(mailbox, { revision });
 
-						return Stream.fromQueue(mailbox);
-					}),
-				);
+					return Stream.fromQueue(mailbox);
+				}),
+			);
 
 		return {
 			isRepository,
@@ -2443,7 +2447,7 @@ export const GitServiceLive = Layer.effect(
 			switchBranch,
 			renameBranch,
 			getUserName,
-			subscribeHeadChanges,
+			workspaceChanges,
 			origin,
 			prState,
 			prDetails,

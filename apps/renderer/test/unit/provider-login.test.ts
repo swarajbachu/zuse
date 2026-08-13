@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { resumeAfterProviderLogin } from "../../src/lib/provider-auth-recovery.ts";
+import { classifyMessage } from "../../src/lib/session-actions.ts";
 import { supportsProviderLogin } from "../../src/lib/use-provider-login.ts";
-import { classifyMessage } from "../../src/store/messages.ts";
 
 describe("provider inline login", () => {
 	it("supports only providers with a server-side login handler", () => {

@@ -7,6 +7,7 @@ import {
 	PermissionMode,
 	PlanApprovalOutcome,
 	ProviderId,
+	ProviderMessageCheckpoint,
 	RuntimeMode,
 	UserQuestion,
 } from "./agent.ts";
@@ -23,6 +24,7 @@ import {
 	AgentSessionId,
 	AgentTurnId,
 	ChatId,
+	CommandId,
 	FolderId,
 	MessageId,
 	WorktreeId,
@@ -206,6 +208,7 @@ const UserRichContent = Schema.TaggedStruct("user_rich", {
 const AssistantContent = Schema.TaggedStruct("assistant", {
 	itemId: Schema.optional(AgentItemId),
 	text: Schema.String,
+	checkpoint: Schema.optional(ProviderMessageCheckpoint),
 	/** Preserves a provider's dedicated final-plan item through persistence. */
 	isPlan: Schema.optional(Schema.Boolean),
 	parentItemId: Schema.optional(AgentItemId),
@@ -221,6 +224,7 @@ const ThinkingContent = Schema.TaggedStruct("thinking", {
 	itemId: AgentItemId,
 	text: Schema.String,
 	redacted: Schema.Boolean,
+	checkpoint: Schema.optional(ProviderMessageCheckpoint),
 	parentItemId: Schema.optional(AgentItemId),
 });
 
@@ -435,6 +439,25 @@ export class QueuedMessageNotFoundError extends Schema.TaggedErrorClass<QueuedMe
 	{ sessionId: SessionId, queueId: Schema.String },
 ) {}
 
+/** Queue bounds keep the canonical reconnect snapshot below its wire budget. */
+export const MAX_SESSION_QUEUE_ITEMS = 100;
+export const MAX_SESSION_QUEUE_INPUT_BYTES = 128 * 1024;
+export const MAX_SESSION_QUEUE_TOTAL_BYTES = 384 * 1024;
+
+export class QueuedMessageCapacityError extends Schema.TaggedErrorClass<QueuedMessageCapacityError>()(
+	"QueuedMessageCapacityError",
+	{
+		sessionId: SessionId,
+		reason: Schema.Literals([
+			"too-many-items",
+			"item-too-large",
+			"queue-too-large",
+		]),
+		limit: Schema.Number,
+		actual: Schema.Number,
+	},
+) {}
+
 export class QueueState extends Schema.Class<QueueState>("QueueState")({
 	items: Schema.Array(QueuedMessage),
 	paused: Schema.Boolean,
@@ -459,6 +482,8 @@ export class SessionTimelineProjection extends Schema.Class<SessionTimelineProje
 	"SessionTimelineProjection",
 )({
 	messages: Schema.Array(Message),
+	/** Sequence immediately before the oldest materialized message, if any. */
+	olderMessageSequence: Schema.optional(Schema.NullOr(Schema.Number)),
 	status: SessionStatus,
 	currentTurn: Schema.NullOr(SessionTimelineTurn),
 	queue: QueueState,
@@ -499,12 +524,23 @@ export const SessionTimelineEvent = Schema.Union([
 ]);
 export type SessionTimelineEvent = typeof SessionTimelineEvent.Type;
 
+/** Durable cursor for one database epoch and one session stream. */
+export const SessionStreamCursor = Schema.Struct({
+	epoch: Schema.String,
+	version: Schema.Number,
+});
+export type SessionStreamCursor = typeof SessionStreamCursor.Type;
+
 export const SessionTimelineFrame = Schema.Union([
 	Schema.Struct({
 		kind: Schema.Literal("snapshot"),
 		sessionId: SessionId,
 		throughVersion: Schema.Number,
 		projection: SessionTimelineProjection,
+		/** Present on new runtimes; omitted by older peers during protocol rollout. */
+		cursor: Schema.optional(SessionStreamCursor),
+		/** Sequence immediately before the oldest included message, if any. */
+		olderMessageSequence: Schema.optional(Schema.NullOr(Schema.Number)),
 	}),
 	Schema.Struct({
 		kind: Schema.Literal("event"),
@@ -512,11 +548,20 @@ export const SessionTimelineFrame = Schema.Union([
 		streamVersion: Schema.Number,
 		eventId: Schema.String,
 		event: SessionTimelineEvent,
+		cursor: Schema.optional(SessionStreamCursor),
 	}),
 	Schema.Struct({
 		kind: Schema.Literal("synchronized"),
 		sessionId: SessionId,
 		throughVersion: Schema.Number,
+		cursor: Schema.optional(SessionStreamCursor),
+	}),
+	Schema.Struct({
+		kind: Schema.Literal("reset-required"),
+		sessionId: SessionId,
+		throughVersion: Schema.Number,
+		cursor: SessionStreamCursor,
+		reason: Schema.Literals(["restored", "compacted", "cursor-invalid"]),
 	}),
 ]);
 export type SessionTimelineFrame = typeof SessionTimelineFrame.Type;
@@ -670,7 +715,11 @@ export const SessionSetWorktreeRpc = Rpc.make("session.setWorktree", {
 });
 
 export const SessionRenameRpc = Rpc.make("session.rename", {
-	payload: Schema.Struct({ sessionId: SessionId, title: Schema.String }),
+	payload: Schema.Struct({
+		commandId: CommandId,
+		sessionId: SessionId,
+		title: Schema.String,
+	}),
 	success: Session,
 	error: SessionNotFoundError,
 });
@@ -975,6 +1024,7 @@ export const ChatCreationOperation = Schema.Struct({
 	prompt: Schema.NullOr(Schema.String),
 	startupInput: Schema.NullOr(ComposerInput),
 	startupQueueId: Schema.NullOr(Schema.String),
+	startupReady: Schema.Boolean,
 	workspacePolicy: ChatWorkspacePolicy,
 	worktreeId: Schema.NullOr(WorktreeId),
 	status: ChatCreationOperationStatus,
@@ -989,9 +1039,21 @@ export const ChatCreationListRpc = Rpc.make("chat.creation.list", {
 	success: Schema.Array(ChatCreationOperation),
 });
 
+export const ChatCreationSummaryChange = Schema.Union([
+	Schema.Struct({
+		_tag: Schema.Literal("snapshot"),
+		operations: Schema.Array(ChatCreationOperation),
+	}),
+	Schema.Struct({
+		_tag: Schema.Literal("change"),
+		operation: ChatCreationOperation,
+	}),
+]);
+export type ChatCreationSummaryChange = typeof ChatCreationSummaryChange.Type;
+
 export const ChatCreationStreamRpc = Rpc.make("chat.creation.stream", {
 	payload: Schema.Struct({ projectId: FolderId }),
-	success: ChatCreationOperation,
+	success: ChatCreationSummaryChange,
 	stream: true,
 });
 
@@ -1017,6 +1079,8 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
 		workspacePolicy: Schema.optional(ChatWorkspacePolicy),
 		startupInput: Schema.optional(ComposerInput),
 		startupQueueId: Schema.optional(Schema.String),
+		/** False while attachment or generated context preparation is pending. */
+		startupReady: Schema.optional(Schema.Boolean),
 		agents: Schema.optional(Schema.Record(Schema.String, AgentDefinition)),
 		enableSubagents: Schema.optional(Schema.Boolean),
 		permissionMode: Schema.optional(PermissionMode),
@@ -1189,10 +1253,12 @@ export const MessagesListRpc = Rpc.make("messages.list", {
  */
 export const MessagesSendRpc = Rpc.make("messages.send", {
 	payload: Schema.Struct({
+		commandId: CommandId,
 		sessionId: SessionId,
 		text: Schema.optional(Schema.String),
 		input: Schema.optional(ComposerInput),
 		asGoal: Schema.optional(Schema.Boolean),
+		modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 		// Optional renderer-minted id for the user message. When present the
 		// server persists the row under this id instead of generating one, so the
 		// renderer can insert the message optimistically and have the live-stream
@@ -1204,9 +1270,27 @@ export const MessagesSendRpc = Rpc.make("messages.send", {
 	error: Schema.Union([SessionNotFoundError, DirectoryUnavailableError]),
 });
 
+/** Durable outcome of an exact-turn interrupt request. */
+export const TurnInterruptReceipt = Schema.Union([
+	Schema.TaggedStruct("requested", {
+		turnId: AgentTurnId,
+	}),
+	Schema.TaggedStruct("not-active", {
+		reason: Schema.Literals(["no-active-turn", "turn-mismatch"]),
+		expectedTurnId: Schema.NullOr(AgentTurnId),
+		actualTurnId: Schema.NullOr(AgentTurnId),
+	}),
+]);
+export type TurnInterruptReceipt = typeof TurnInterruptReceipt.Type;
+
 export const MessagesInterruptRpc = Rpc.make("messages.interrupt", {
-	payload: Schema.Struct({ sessionId: SessionId }),
-	success: Schema.Void,
+	payload: Schema.Struct({
+		commandId: CommandId,
+		sessionId: SessionId,
+		/** Fences retries to the turn visible when the user pressed Stop. */
+		expectedTurnId: Schema.optional(AgentTurnId),
+	}),
+	success: TurnInterruptReceipt,
 	error: SessionNotFoundError,
 });
 
@@ -1218,6 +1302,7 @@ export const MessagesQueueListRpc = Rpc.make("messages.queue.list", {
 
 export const MessagesQueueAddRpc = Rpc.make("messages.queue.add", {
 	payload: Schema.Struct({
+		commandId: CommandId,
 		sessionId: SessionId,
 		/** Stable identity used to make persistence retries idempotent. */
 		queueId: Schema.optional(Schema.String),
@@ -1228,21 +1313,27 @@ export const MessagesQueueAddRpc = Rpc.make("messages.queue.add", {
 		flush: Schema.optional(Schema.Boolean),
 	}),
 	success: QueuedMessage,
-	error: SessionNotFoundError,
+	error: Schema.Union([SessionNotFoundError, QueuedMessageCapacityError]),
 });
 
 export const MessagesQueueUpdateRpc = Rpc.make("messages.queue.update", {
 	payload: Schema.Struct({
+		commandId: CommandId,
 		sessionId: SessionId,
 		queueId: Schema.String,
 		input: ComposerInput,
 	}),
 	success: QueuedMessage,
-	error: Schema.Union([SessionNotFoundError, QueuedMessageNotFoundError]),
+	error: Schema.Union([
+		SessionNotFoundError,
+		QueuedMessageNotFoundError,
+		QueuedMessageCapacityError,
+	]),
 });
 
 export const MessagesQueueDeleteRpc = Rpc.make("messages.queue.delete", {
 	payload: Schema.Struct({
+		commandId: CommandId,
 		sessionId: SessionId,
 		queueId: Schema.String,
 	}),
@@ -1256,6 +1347,7 @@ export const MessagesQueueDeleteRpc = Rpc.make("messages.queue.delete", {
  */
 export const MessagesQueueRunNextRpc = Rpc.make("messages.queue.runNext", {
 	payload: Schema.Struct({
+		commandId: CommandId,
 		sessionId: SessionId,
 		queueId: Schema.String,
 	}),
@@ -1265,6 +1357,7 @@ export const MessagesQueueRunNextRpc = Rpc.make("messages.queue.runNext", {
 
 export const MessagesQueueReorderRpc = Rpc.make("messages.queue.reorder", {
 	payload: Schema.Struct({
+		commandId: CommandId,
 		sessionId: SessionId,
 		queueIds: Schema.Array(Schema.String),
 	}),
@@ -1273,13 +1366,13 @@ export const MessagesQueueReorderRpc = Rpc.make("messages.queue.reorder", {
 });
 
 export const MessagesQueueFlushRpc = Rpc.make("messages.queue.flush", {
-	payload: Schema.Struct({ sessionId: SessionId }),
+	payload: Schema.Struct({ commandId: CommandId, sessionId: SessionId }),
 	success: Schema.Void,
 	error: SessionNotFoundError,
 });
 
 export const MessagesQueueResumeRpc = Rpc.make("messages.queue.resume", {
-	payload: Schema.Struct({ sessionId: SessionId }),
+	payload: Schema.Struct({ commandId: CommandId, sessionId: SessionId }),
 	success: Schema.Void,
 	error: SessionNotFoundError,
 });
@@ -1302,6 +1395,7 @@ export const SessionResumeRpc = Rpc.make("session.resume", {
  */
 export const SessionSetRuntimeModeRpc = Rpc.make("session.setRuntimeMode", {
 	payload: Schema.Struct({
+		commandId: CommandId,
 		sessionId: SessionId,
 		runtimeMode: RuntimeMode,
 	}),
@@ -1319,6 +1413,7 @@ export const SessionSetPermissionModeRpc = Rpc.make(
 	"session.setPermissionMode",
 	{
 		payload: Schema.Struct({
+			commandId: CommandId,
 			sessionId: SessionId,
 			mode: PermissionMode,
 		}),
@@ -1373,6 +1468,7 @@ export const SessionEventsRpc = Rpc.make("session.events", {
 	payload: Schema.Struct({
 		sessionId: SessionId,
 		afterVersion: Schema.optional(Schema.Number),
+		streamEpoch: Schema.optional(Schema.String),
 		hasProjection: Schema.optional(Schema.Boolean),
 	}),
 	success: SessionTimelineFrame,
@@ -1383,7 +1479,24 @@ export const SessionEventsRpc = Rpc.make("session.events", {
 /** Lightweight durable cursor used to detect an open-but-stalled event stream. */
 export const SessionEventsHeadRpc = Rpc.make("session.events.head", {
 	payload: Schema.Struct({ sessionId: SessionId }),
-	success: Schema.Struct({ throughVersion: Schema.Number }),
+	success: Schema.Struct({
+		throughVersion: Schema.Number,
+		streamEpoch: Schema.optional(Schema.String),
+	}),
+	error: SessionNotFoundError,
+});
+
+/** Older timeline messages, newest page first on the wire then rendered ascending. */
+export const SessionMessagesPageRpc = Rpc.make("session.messages.page", {
+	payload: Schema.Struct({
+		sessionId: SessionId,
+		beforeSequence: Schema.optional(Schema.Number),
+		limit: Schema.optional(Schema.Number),
+	}),
+	success: Schema.Struct({
+		messages: Schema.Array(Message),
+		olderMessageSequence: Schema.NullOr(Schema.Number),
+	}),
 	error: SessionNotFoundError,
 });
 

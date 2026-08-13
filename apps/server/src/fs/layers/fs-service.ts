@@ -1,9 +1,11 @@
+import { createHash, randomUUID } from "node:crypto";
 import { watch } from "node:fs";
 import * as path from "node:path";
 import {
 	DirectoryUnavailableError,
 	type FolderId,
 	FsAlreadyExistsError,
+	FsCommandReuseError,
 	FsConflictError,
 	FsEntry,
 	FsExternalConflictError,
@@ -13,10 +15,13 @@ import {
 	FsPathOutsideError,
 	FsReadError,
 	FsTooLargeError,
+	FsTreeWatchEvent,
 	type WorktreeId,
 } from "@zuse/contracts";
 import { WorktreeService } from "@zuse/git/worktree-service";
+import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
 import { Effect, FileSystem, Layer, Option, Path, Queue, Stream } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { FsService } from "../services/fs-service.ts";
 
@@ -48,6 +53,25 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
 // path-first tree wants the whole universe up front; this keeps a pathological
 // monorepo from streaming hundreds of thousands of entries across the RPC.
 const MAX_TREE_PATHS = 50_000;
+// Leave framing/schema overhead under the 1 MiB initial-sync budget.
+const MAX_TREE_PATH_BYTES = 900 * 1024;
+const FS_WRITE_RECEIPT_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
+const MAX_APPLIED_FS_WRITE_RECEIPTS = 10_000;
+
+type FsWriteReceipt = {
+	readonly folder_id: string;
+	readonly worktree_id: string | null;
+	readonly path: string;
+	readonly expected_mtime: string;
+	readonly content_hash: string;
+	readonly state: "prepared" | "applied";
+	readonly mtime: string | null;
+};
+
+type TreeWatchState = {
+	readonly epoch: string;
+	sequence: number;
+};
 
 const toForwardSlash = (p: string): string =>
 	path.sep === "/" ? p : p.split(path.sep).join("/");
@@ -63,13 +87,18 @@ const mtimeToString = (mtime: Option.Option<Date>): string =>
 		onSome: (d) => d.toISOString(),
 	});
 
+const sha256 = (value: string | Uint8Array): string =>
+	createHash("sha256").update(value).digest("hex");
+
 export const FsServiceLive = Layer.effect(
 	FsService,
 	Effect.gen(function* () {
 		const workspace = yield* WorkspaceService;
 		const worktrees = yield* WorktreeService;
+		const sql = yield* SqlClient.SqlClient;
 		const fs = yield* FileSystem.FileSystem;
 		const pathSvc = yield* Path.Path;
+		const writeSerial = new KeyedEffectSerialWorker<string>();
 
 		// Resolve a project-root-relative request path to an absolute path,
 		// failing with the appropriate wire error if the folder is unknown or
@@ -194,20 +223,32 @@ export const FsServiceLive = Layer.effect(
 						"",
 						worktreeId,
 					);
-					const queue = yield* Queue.unbounded<{
-						paths: ReadonlyArray<string>;
-					}>();
+					const queue = yield* Queue.unbounded<FsTreeWatchEvent>();
+					const state: TreeWatchState = { epoch: randomUUID(), sequence: 0 };
+					const publish = (event: FsTreeWatchEvent): void => {
+						Queue.offerUnsafe(queue, event);
+					};
 
 					let timer: ReturnType<typeof setTimeout> | null = null;
 					const pending = new Set<string>();
 					let handle: ReturnType<typeof watch> | null = null;
+					let attached = false;
+					let failedToAttach: Error | null = null;
 
 					const flush = () => {
 						timer = null;
 						if (pending.size === 0) return;
 						const paths = Array.from(pending);
 						pending.clear();
-						void Effect.runPromise(Queue.offer(queue, { paths }));
+						state.sequence += 1;
+						publish(
+							FsTreeWatchEvent.make({
+								_tag: "changed",
+								epoch: state.epoch,
+								sequence: state.sequence,
+								paths,
+							}),
+						);
 					};
 
 					const schedule = () => {
@@ -223,16 +264,56 @@ export const FsServiceLive = Layer.effect(
 							pending.add(rel);
 							schedule();
 						});
+						attached = true;
 						handle.on("error", (err) => {
 							// eslint-disable-next-line no-console
 							console.warn("[fs.watchTree] fs.watch error:", err.message);
+							state.sequence += 1;
+							publish(
+								FsTreeWatchEvent.make({
+									_tag: "gap",
+									epoch: state.epoch,
+									sequence: state.sequence,
+									reason: err.message,
+								}),
+							);
 						});
 					} catch (err) {
-						// Some paths cannot be watched. Keep the stream open but empty so
-						// the UI still works with manual/local refreshes.
+						failedToAttach =
+							err instanceof Error ? err : new Error(String(err));
+						// An unwatched tree cannot claim live continuity.
 						// eslint-disable-next-line no-console
 						console.warn(
 							`[fs.watchTree] could not watch ${rootAbs}: ${(err as Error).message}`,
+						);
+						state.sequence += 1;
+						publish(
+							FsTreeWatchEvent.make({
+								_tag: "gap",
+								epoch: state.epoch,
+								sequence: state.sequence,
+								reason: (err as Error).message,
+							}),
+						);
+					}
+
+					if (attached) {
+						Queue.offerUnsafe(
+							queue,
+							FsTreeWatchEvent.make({
+								_tag: "ready",
+								epoch: state.epoch,
+								sequence: state.sequence,
+							}),
+						);
+					}
+					if (failedToAttach !== null) {
+						return yield* Effect.fail(
+							new FsReadError({
+								folderId,
+								path: "",
+								reason: failedToAttach.message,
+							}),
 						);
 					}
 
@@ -270,6 +351,7 @@ export const FsServiceLive = Layer.effect(
 				);
 				const out: string[] = [];
 				let truncated = false;
+				let estimatedBytes = 0;
 
 				const walk = (
 					absDir: string,
@@ -316,18 +398,31 @@ export const FsServiceLive = Layer.effect(
 								truncated = true;
 								return;
 							}
+							const renderedPath =
+								row.kind === "directory"
+									? `${toForwardSlash(row.rel)}/`
+									: toForwardSlash(row.rel);
+							const renderedBytes = Buffer.byteLength(renderedPath) + 3;
+							if (estimatedBytes + renderedBytes > MAX_TREE_PATH_BYTES) {
+								truncated = true;
+								return;
+							}
+							estimatedBytes += renderedBytes;
 							if (row.kind === "directory") {
-								out.push(`${toForwardSlash(row.rel)}/`);
+								out.push(renderedPath);
 								yield* walk(row.abs, row.rel);
 								if (truncated) return;
 							} else {
-								out.push(toForwardSlash(row.rel));
+								out.push(renderedPath);
 							}
 						}
 					});
 
 				yield* walk(rootAbs, "");
-				return { paths: out, truncated };
+				return {
+					paths: out,
+					truncated,
+				};
 			});
 
 		// Rename/move for the file tree's inline rename + drag-and-drop. Both
@@ -423,6 +518,7 @@ export const FsServiceLive = Layer.effect(
 			});
 
 		const writeFile: FsService["Service"]["writeFile"] = (
+			commandId,
 			folderId,
 			relPath,
 			content,
@@ -430,12 +526,6 @@ export const FsServiceLive = Layer.effect(
 			worktreeId,
 		) =>
 			Effect.gen(function* () {
-				const { requestedAbs } = yield* resolveInsideFolder(
-					folderId,
-					relPath,
-					worktreeId,
-				);
-
 				const byteLen = new TextEncoder().encode(content).byteLength;
 				if (byteLen > MAX_FILE_BYTES) {
 					return yield* Effect.fail(
@@ -447,54 +537,191 @@ export const FsServiceLive = Layer.effect(
 						}),
 					);
 				}
+				const normalizedPath = toForwardSlash(path.normalize(relPath));
+				const contentHash = sha256(content);
+				const worktreeIdentity = worktreeId ?? null;
+				const logicalTarget = `${folderId}\0${worktreeIdentity ?? ""}\0${normalizedPath}`;
 
-				// Optimistic concurrency: the renderer holds the mtime from its
-				// most recent read. If disk has moved since, refuse the write so
-				// the user can decide whether to discard their edits and reload.
-				const beforeStat = yield* fs.stat(requestedAbs).pipe(
-					Effect.mapError(
-						(cause) =>
-							new FsReadError({
-								folderId,
-								path: relPath,
-								reason: cause.message ?? String(cause),
+				return yield* writeSerial.run(
+					logicalTarget,
+					Effect.gen(function* () {
+						const now = Date.now();
+						const receipt = yield* sql.withTransaction(
+							Effect.gen(function* () {
+								yield* sql`
+									DELETE FROM fs_write_receipts
+									WHERE updated_at < ${now - FS_WRITE_RECEIPT_RETENTION_MS}
+								`.pipe(Effect.orDie);
+								yield* sql`
+									DELETE FROM fs_write_receipts
+									WHERE command_id IN (
+										SELECT command_id FROM fs_write_receipts
+										WHERE state = 'applied'
+										ORDER BY updated_at DESC
+										LIMIT -1 OFFSET ${MAX_APPLIED_FS_WRITE_RECEIPTS}
+									)
+								`.pipe(Effect.orDie);
+								yield* sql`
+									INSERT OR IGNORE INTO fs_write_receipts
+										(command_id, folder_id, worktree_id, path, expected_mtime,
+										 content_hash, state, mtime, created_at, updated_at)
+									VALUES
+										(${commandId}, ${folderId}, ${worktreeIdentity},
+										 ${normalizedPath}, ${expectedMtime}, ${contentHash},
+										 'prepared', NULL, ${now}, ${now})
+								`.pipe(Effect.orDie);
+								const rows = yield* sql<FsWriteReceipt>`
+									SELECT folder_id, worktree_id, path, expected_mtime,
+										content_hash, state, mtime
+									FROM fs_write_receipts
+									WHERE command_id = ${commandId}
+									LIMIT 1
+								`.pipe(Effect.orDie);
+								return rows[0];
 							}),
-					),
-				);
-				const actualMtime = mtimeToString(beforeStat.mtime);
-				if (actualMtime !== expectedMtime) {
-					return yield* Effect.fail(
-						new FsConflictError({
+						);
+						if (receipt === undefined) {
+							return yield* Effect.die(
+								`File command ${commandId} was not persisted`,
+							);
+						}
+						const targetMatches =
+							receipt.folder_id === folderId &&
+							receipt.worktree_id === worktreeIdentity &&
+							receipt.path === normalizedPath;
+						if (!targetMatches) {
+							return yield* Effect.fail(
+								new FsCommandReuseError({
+									commandId,
+									reason: "target-mismatch",
+								}),
+							);
+						}
+						if (
+							receipt.expected_mtime !== expectedMtime ||
+							receipt.content_hash !== contentHash
+						) {
+							return yield* Effect.fail(
+								new FsCommandReuseError({
+									commandId,
+									reason: "payload-mismatch",
+								}),
+							);
+						}
+						if (receipt.state === "applied") {
+							if (receipt.mtime === null) {
+								return yield* Effect.die(
+									`Applied file command ${commandId} has no mtime`,
+								);
+							}
+							return { mtime: receipt.mtime };
+						}
+						const { requestedAbs } = yield* resolveInsideFolder(
 							folderId,
-							path: relPath,
-							expectedMtime,
-							actualMtime,
-						}),
-					);
-				}
+							relPath,
+							worktreeId,
+						);
 
-				yield* fs.writeFileString(requestedAbs, content).pipe(
-					Effect.mapError(
-						(cause) =>
-							new FsReadError({
-								folderId,
-								path: relPath,
-								reason: cause.message ?? String(cause),
-							}),
-					),
-				);
+						const beforeStat = yield* fs.stat(requestedAbs).pipe(
+							Effect.mapError(
+								(cause) =>
+									new FsReadError({
+										folderId,
+										path: relPath,
+										reason: cause.message ?? String(cause),
+									}),
+							),
+						);
+						const actualMtime = mtimeToString(beforeStat.mtime);
+						let contentAlreadyApplied = false;
+						if (Number(beforeStat.size) === byteLen) {
+							const bytes = yield* fs.readFile(requestedAbs).pipe(
+								Effect.mapError(
+									(cause) =>
+										new FsReadError({
+											folderId,
+											path: relPath,
+											reason: cause.message ?? String(cause),
+										}),
+								),
+							);
+							contentAlreadyApplied = sha256(bytes) === contentHash;
+						}
 
-				const afterStat = yield* fs.stat(requestedAbs).pipe(
-					Effect.mapError(
-						(cause) =>
-							new FsReadError({
-								folderId,
-								path: relPath,
-								reason: cause.message ?? String(cause),
+						if (!contentAlreadyApplied && actualMtime !== expectedMtime) {
+							return yield* Effect.fail(
+								new FsConflictError({
+									folderId,
+									path: relPath,
+									expectedMtime,
+									actualMtime,
+								}),
+							);
+						}
+
+						let appliedMtime = actualMtime;
+						if (!contentAlreadyApplied) {
+							const temporary = pathSvc.join(
+								pathSvc.dirname(requestedAbs),
+								`.${pathSvc.basename(requestedAbs)}.zuse-write-${sha256(commandId).slice(0, 16)}`,
+							);
+							yield* Effect.acquireUseRelease(
+								Effect.succeed(temporary),
+								(tempPath) =>
+									Effect.gen(function* () {
+										yield* fs.writeFileString(tempPath, content);
+										yield* fs.chmod(tempPath, beforeStat.mode);
+										yield* fs.rename(tempPath, requestedAbs);
+									}).pipe(
+										Effect.mapError(
+											(cause) =>
+												new FsReadError({
+													folderId,
+													path: relPath,
+													reason: cause.message ?? String(cause),
+												}),
+										),
+									),
+								(tempPath) =>
+									fs.remove(tempPath, { force: true }).pipe(Effect.ignore),
+							);
+							const afterStat = yield* fs.stat(requestedAbs).pipe(
+								Effect.mapError(
+									(cause) =>
+										new FsReadError({
+											folderId,
+											path: relPath,
+											reason: cause.message ?? String(cause),
+										}),
+								),
+							);
+							appliedMtime = mtimeToString(afterStat.mtime);
+						}
+
+						return yield* sql.withTransaction(
+							Effect.gen(function* () {
+								yield* sql`
+									UPDATE fs_write_receipts
+									SET state = 'applied', mtime = ${appliedMtime},
+										updated_at = ${Date.now()}
+									WHERE command_id = ${commandId} AND state = 'prepared'
+								`.pipe(Effect.orDie);
+								const finalized = yield* sql<{ readonly mtime: string | null }>`
+									SELECT mtime FROM fs_write_receipts
+									WHERE command_id = ${commandId} AND state = 'applied'
+									LIMIT 1
+								`.pipe(Effect.orDie);
+								const mtime = finalized[0]?.mtime;
+								if (mtime === undefined || mtime === null) {
+									return yield* Effect.die(
+										`File command ${commandId} could not be finalized`,
+									);
+								}
+								return { mtime };
 							}),
-					),
+						);
+					}).pipe(Effect.catchTag("SqlError", Effect.die)),
 				);
-				return { mtime: mtimeToString(afterStat.mtime) };
 			});
 
 		const createFile: FsService["Service"]["createFile"] = (

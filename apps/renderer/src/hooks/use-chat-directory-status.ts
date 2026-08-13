@@ -1,13 +1,17 @@
-import type { ChatDirectoryStatus, ChatId } from "@zuse/contracts";
-import { Effect } from "effect";
+import type {
+	ChatDirectoryStatus,
+	ChatId,
+	EnvironmentId,
+} from "@zuse/contracts";
+import { CommandId } from "@zuse/contracts";
 import { useEffect, useState } from "react";
-import {
-	getRpcClient,
-	subscribeRendererRpcConnection,
-} from "../lib/rpc-client.ts";
+import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 
 /** Foreground-only availability probe for the selected conversation directory. */
-export function useChatDirectoryStatus(chatId: ChatId | null) {
+export function useChatDirectoryStatus(
+	environmentId: EnvironmentId,
+	chatId: ChatId | null,
+) {
 	const [status, setStatus] = useState<ChatDirectoryStatus | null>(null);
 
 	useEffect(() => {
@@ -23,10 +27,15 @@ export function useChatDirectoryStatus(chatId: ChatId | null) {
 			if (cancelled || inFlight) return;
 			inFlight = true;
 			try {
-				const client = await getRpcClient();
-				const next = await Effect.runPromise(
-					client["chat.directoryStatus"]({ chatId }),
-				);
+				const { result: next } = await dispatchEnvironmentShellCommand<
+					{ readonly chatId: ChatId },
+					ChatDirectoryStatus
+				>({
+					environmentId,
+					kind: "chat.directoryStatus",
+					commandId: CommandId.make(`chat-directory:${crypto.randomUUID()}`),
+					payload: { chatId },
+				});
 				if (!cancelled) setStatus(next);
 			} catch {
 				// Existing data remains usable during a transient transport failure.
@@ -39,18 +48,14 @@ export function useChatDirectoryStatus(chatId: ChatId | null) {
 			if (document.visibilityState === "visible") void refresh();
 			else schedule();
 		};
-		const unsubscribe = subscribeRendererRpcConnection((snapshot) => {
-			if (snapshot.status === "connected") void refresh();
-		});
 		void refresh();
 		window.addEventListener("focus", refresh);
 		return () => {
 			cancelled = true;
 			if (timer !== null) window.clearTimeout(timer);
-			unsubscribe();
 			window.removeEventListener("focus", refresh);
 		};
-	}, [chatId]);
+	}, [chatId, environmentId]);
 
 	return status;
 }

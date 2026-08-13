@@ -1,19 +1,26 @@
-import { type ChatId, Folder, FolderId } from "@zuse/contracts";
+import { type ChatId, EnvironmentId, Folder, FolderId } from "@zuse/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { logicalRightPaneProject } from "../../src/components/right-pane.tsx";
-import { useChatsStore } from "../../src/store/chats.ts";
 import {
 	DEFAULT_RIGHT_PANE_WIDTH_PERCENT,
+	rightPaneKey,
 	useUiStore,
 } from "../../src/store/ui.ts";
 
-const chatA = "chat-a" as ChatId;
-const chatB = "chat-b" as ChatId;
+const chatA = {
+	environmentId: EnvironmentId.make("computer-a"),
+	chatId: "chat-a" as ChatId,
+};
+const chatB = {
+	environmentId: EnvironmentId.make("computer-b"),
+	chatId: "chat-b" as ChatId,
+};
+const keyA = rightPaneKey(chatA);
+const keyB = rightPaneKey(chatB);
 
 describe("chat-scoped right pane state", () => {
 	beforeEach(() => {
-		useChatsStore.setState({ selectedChatId: chatA });
 		useUiStore.setState({
 			rightPaneLayoutByChat: {},
 			rightPanelsByChat: {},
@@ -24,14 +31,14 @@ describe("chat-scoped right pane state", () => {
 
 	it("keeps visibility and width independent between chats", () => {
 		const ui = useUiStore.getState();
-		ui.setRightSidebarOpen(true);
+		ui.setRightSidebarOpenForChat(chatA, true);
 		ui.setRightSidebarWidthForChat(chatA, 31);
 		ui.setRightSidebarOpenForChat(chatB, false);
 		ui.setRightSidebarWidthForChat(chatB, 44);
 
 		expect(useUiStore.getState().rightPaneLayoutByChat).toMatchObject({
-			[chatA]: { open: true, widthPercent: 31 },
-			[chatB]: { open: false, widthPercent: 44 },
+			[keyA]: { open: true, widthPercent: 31 },
+			[keyB]: { open: false, widthPercent: 44 },
 		});
 	});
 
@@ -39,17 +46,17 @@ describe("chat-scoped right pane state", () => {
 		useUiStore.getState().revealPanelForChat(chatB, "browser");
 
 		const state = useUiStore.getState();
-		expect(state.rightPaneLayoutByChat[chatA]).toBeUndefined();
-		expect(state.rightPaneLayoutByChat[chatB]).toEqual({
+		expect(state.rightPaneLayoutByChat[keyA]).toBeUndefined();
+		expect(state.rightPaneLayoutByChat[keyB]).toEqual({
 			open: true,
 			widthPercent: DEFAULT_RIGHT_PANE_WIDTH_PERCENT,
 		});
-		expect(state.rightPanelsByChat[chatA]).toBeUndefined();
-		expect(state.rightPanelsByChat[chatB]?.map((panel) => panel.kind)).toEqual([
+		expect(state.rightPanelsByChat[keyA]).toBeUndefined();
+		expect(state.rightPanelsByChat[keyB]?.map((panel) => panel.kind)).toEqual([
 			"browser",
 		]);
-		expect(state.activeRightPanelByChat[chatB]).toBe(
-			state.rightPanelsByChat[chatB]?.[0]?.id,
+		expect(state.activeRightPanelByChat[keyB]).toBe(
+			state.rightPanelsByChat[keyB]?.[0]?.id,
 		);
 	});
 
@@ -57,15 +64,31 @@ describe("chat-scoped right pane state", () => {
 		const ui = useUiStore.getState();
 		ui.revealPanelForChat(chatB, "browser");
 		ui.setRightSidebarWidthForChat(chatB, 37);
-		ui.selectSubagent("session-child");
+		ui.selectSubagent(chatB, "session-child");
 
 		ui.clearChatPanels(chatB);
 
 		const state = useUiStore.getState();
-		expect(state.rightPaneLayoutByChat[chatB]).toBeUndefined();
-		expect(state.rightPanelsByChat[chatB]).toBeUndefined();
-		expect(state.activeRightPanelByChat[chatB]).toBeUndefined();
-		expect(state.selectedSubagentByChat[chatB]).toBeUndefined();
+		expect(state.rightPaneLayoutByChat[keyB]).toBeUndefined();
+		expect(state.rightPanelsByChat[keyB]).toBeUndefined();
+		expect(state.activeRightPanelByChat[keyB]).toBeUndefined();
+		expect(state.selectedSubagentByChat[keyB]).toBeUndefined();
+	});
+
+	it("isolates equal chat ids across environments", () => {
+		const chatId = "same-chat" as ChatId;
+		const first = { environmentId: EnvironmentId.make("a"), chatId };
+		const second = { environmentId: EnvironmentId.make("b"), chatId };
+		const ui = useUiStore.getState();
+		ui.revealPanelForChat(first, "files");
+		ui.revealPanelForChat(second, "browser");
+
+		expect(
+			useUiStore.getState().rightPanelsByChat[rightPaneKey(first)]?.[0]?.kind,
+		).toBe("files");
+		expect(
+			useUiStore.getState().rightPanelsByChat[rightPaneKey(second)]?.[0]?.kind,
+		).toBe("browser");
 	});
 
 	it("keeps the logical project selected when cloud execution uses a sandbox folder", () => {

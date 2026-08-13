@@ -1,7 +1,12 @@
+import { MAX_SESSION_QUEUE_TOTAL_BYTES, SessionId } from "@zuse/contracts";
 import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, test } from "vitest";
+import {
+	MAX_TIMELINE_SNAPSHOT_PROJECTION_BYTES,
+	readSessionTimelineSnapshot,
+} from "../../../src/queries/session-timeline-snapshot.js";
 import {
 	makeSqlSessionQueries,
 	SessionQueryDecodeError,
@@ -59,8 +64,8 @@ describe("SqlSessionQueries", () => {
 			}),
 		]);
 		expect(result.page).toMatchObject({
-			items: [expect.objectContaining({ messageId: "message-1", sequence: 5 })],
-			nextSequence: 5,
+			items: [expect.objectContaining({ messageId: "message-2", sequence: 6 })],
+			olderSequence: 6,
 		});
 	});
 
@@ -84,6 +89,104 @@ describe("SqlSessionQueries", () => {
 		expect(exit._tag).toBe("Failure");
 		if (exit._tag === "Failure") {
 			expect(String(exit.cause)).toContain(SessionQueryDecodeError.name);
+		}
+	});
+
+	test("bounds the materialized latest-message snapshot below the sync budget", async () => {
+		const snapshot = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`
+					INSERT INTO sessions
+						(id, project_id, title, provider_id, model, status, resume_strategy,
+						 runtime_mode, chat_id, permission_mode, tool_search, created_at, updated_at)
+					VALUES
+						('large', 'project-1', 'Large', 'claude', 'model', 'idle', 'none',
+						 'approval-required', 'chat-1', 'default', 0,
+						 '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
+				`;
+				yield* Effect.forEach(
+					[1, 2, 3, 4, 5, 6],
+					(sequence) => {
+						const content = JSON.stringify({
+							_tag: "assistant",
+							text: `${sequence}:${"x".repeat(220 * 1024)}`,
+						});
+						return sql`
+						INSERT INTO messages
+							(id, session_id, role, kind, content_json, parent_item_id,
+							 created_at, sequence)
+						VALUES (${`message-${sequence}`}, 'large', 'assistant', 'assistant',
+							${content}, NULL, '2026-01-01T00:00:00.000Z', ${sequence})
+					`;
+					},
+					{ discard: true },
+				);
+				return yield* readSessionTimelineSnapshot(sql, SessionId.make("large"));
+			}),
+		);
+
+		expect(
+			new TextEncoder().encode(JSON.stringify(snapshot.projection)).byteLength,
+		).toBeLessThanOrEqual(MAX_TIMELINE_SNAPSHOT_PROJECTION_BYTES);
+		expect(
+			new TextEncoder().encode(
+				JSON.stringify({
+					kind: "snapshot",
+					sessionId: "large",
+					throughVersion: Number.MAX_SAFE_INTEGER,
+					projection: snapshot.projection,
+					cursor: {
+						epoch: "00000000-0000-0000-0000-000000000000",
+						version: Number.MAX_SAFE_INTEGER,
+					},
+					olderMessageSequence: snapshot.olderMessageSequence,
+				}),
+			).byteLength,
+		).toBeLessThan(1024 * 1024);
+		expect(snapshot.projection.messages.length).toBeLessThan(6);
+		expect(snapshot.projection.messages.at(-1)?.id).toBe("message-6");
+		expect(snapshot.olderMessageSequence).not.toBeNull();
+	});
+
+	test("fails closed when legacy queue data exceeds the snapshot budget", async () => {
+		const exit = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`
+					INSERT INTO sessions
+						(id, project_id, title, provider_id, model, status, resume_strategy,
+						 runtime_mode, chat_id, permission_mode, tool_search, created_at, updated_at)
+					VALUES
+						('large-queue', 'project-1', 'Large queue', 'claude', 'model',
+						 'running', 'none', 'approval-required', 'chat-1', 'default', 0,
+						 '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
+				`;
+				const inputJson = JSON.stringify({
+					text: "x".repeat(MAX_SESSION_QUEUE_TOTAL_BYTES),
+					attachments: [],
+					fileRefs: [],
+					skillRefs: [],
+					annotations: [],
+				});
+				yield* sql`
+					INSERT INTO queued_messages
+						(id, session_id, queue_order, input_json, created_at, updated_at, ready)
+					VALUES
+						('large-item', 'large-queue', 0, ${inputJson},
+						 '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 1)
+				`;
+				return yield* Effect.exit(
+					readSessionTimelineSnapshot(sql, SessionId.make("large-queue")),
+				);
+			}),
+		);
+
+		expect(exit._tag).toBe("Failure");
+		if (exit._tag === "Failure") {
+			expect(String(exit.cause)).toContain("bounded queue byte limit");
 		}
 	});
 });

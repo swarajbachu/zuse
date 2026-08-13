@@ -30,6 +30,7 @@ import { type Cause, Effect, Queue, Stream } from "effect";
 
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
+import { CheckpointFlushScheduler } from "../kernel/provider-checkpoint-batcher.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
 import {
 	finishCompactEvent,
@@ -613,6 +614,9 @@ const translatePart = (
 interface DeltaState {
 	readonly textByPartId: Map<string, string>;
 	readonly reasoningByPartId: Map<string, string>;
+	readonly checkpointRevisionByPartId: Map<string, number>;
+	readonly checkpointLengthByPartId: Map<string, number>;
+	readonly snapshotPartIds: Set<string>;
 	/** PartIDs we've already emitted as full AssistantMessage / Thinking
 	 *  via the prompt-response fallback — skip the SSE flush for these
 	 *  so we don't duplicate rows. */
@@ -632,41 +636,81 @@ interface DeltaState {
 	readonly userMessageIds: Set<string>;
 }
 
-const makeDeltaState = (): DeltaState => ({
+export const makeOpencodeDeltaState = (): DeltaState => ({
 	textByPartId: new Map(),
 	reasoningByPartId: new Map(),
+	checkpointRevisionByPartId: new Map(),
+	checkpointLengthByPartId: new Map(),
+	snapshotPartIds: new Set(),
 	flushedPartIds: new Set(),
 	emittedToolUseIds: new Set(),
 	userMessageIds: new Set(),
 });
 
-const flushDeltaState = (state: DeltaState): ReadonlyArray<AgentEvent> => {
+const checkpointDeltaState = (
+	state: DeltaState,
+	final: boolean,
+): ReadonlyArray<AgentEvent> => {
 	const out: AgentEvent[] = [];
-	for (const [partId, text] of state.textByPartId.entries()) {
-		if (state.flushedPartIds.has(partId)) continue;
-		if (text.length === 0) continue;
-		out.push({
-			_tag: "AssistantMessage",
-			itemId: partId as AgentItemId,
-			text,
-		});
-		state.flushedPartIds.add(partId);
+	for (const [parts, tag] of [
+		[state.textByPartId, "AssistantMessage"],
+		[state.reasoningByPartId, "Thinking"],
+	] as const) {
+		for (const [partId, text] of parts) {
+			if (state.flushedPartIds.has(partId)) continue;
+			if (text.length === 0) continue;
+			if (
+				!final &&
+				(state.checkpointLengthByPartId.get(partId) ?? 0) === text.length
+			)
+				continue;
+			const revision = (state.checkpointRevisionByPartId.get(partId) ?? 0) + 1;
+			out.push(
+				tag === "AssistantMessage"
+					? {
+							_tag: tag,
+							itemId: partId as AgentItemId,
+							text,
+							checkpoint: { revision, final },
+						}
+					: {
+							_tag: tag,
+							itemId: partId as AgentItemId,
+							text,
+							redacted: false,
+							checkpoint: { revision, final },
+						},
+			);
+			state.checkpointRevisionByPartId.set(partId, revision);
+			state.checkpointLengthByPartId.set(partId, text.length);
+			if (final) state.flushedPartIds.add(partId);
+		}
 	}
-	for (const [partId, text] of state.reasoningByPartId.entries()) {
-		if (state.flushedPartIds.has(partId)) continue;
-		if (text.length === 0) continue;
-		out.push({
-			_tag: "Thinking",
-			itemId: partId as AgentItemId,
-			text,
-			redacted: false,
-		});
-		state.flushedPartIds.add(partId);
+	if (final) {
+		state.textByPartId.clear();
+		state.reasoningByPartId.clear();
 	}
-	state.textByPartId.clear();
-	state.reasoningByPartId.clear();
 	return out;
 };
+
+export const flushOpencodeDeltaState = (
+	state: DeltaState,
+): ReadonlyArray<AgentEvent> => checkpointDeltaState(state, true);
+
+const pendingDeltaBytes = (state: DeltaState): number => {
+	let bytes = 0;
+	for (const parts of [state.textByPartId, state.reasoningByPartId]) {
+		for (const [partId, text] of parts) {
+			const checkpointLength = state.checkpointLengthByPartId.get(partId) ?? 0;
+			bytes += Buffer.byteLength(text.slice(checkpointLength));
+		}
+	}
+	return bytes;
+};
+
+export const checkpointOpencodeDeltaState = (
+	state: DeltaState,
+): ReadonlyArray<AgentEvent> => checkpointDeltaState(state, false);
 
 /**
  * Translate one SDK event into zero-or-more worcester `AgentEvent`s.
@@ -676,7 +720,7 @@ const flushDeltaState = (state: DeltaState): ReadonlyArray<AgentEvent> => {
  *
  * The `state` carries cross-event accumulators (text/reasoning deltas).
  */
-const translateEvent = (
+export const translateOpencodeEvent = (
 	ev: SdkEvent,
 	sessionID: string,
 	state: DeltaState,
@@ -696,13 +740,27 @@ const translateEvent = (
 				return [];
 			}
 			const partId = (part as { id?: string }).id;
-			if (partId !== undefined) state.flushedPartIds.add(partId);
+			const partType = (part as { type?: string }).type;
+			const text = (part as { text?: string }).text;
+			if (partId !== undefined && typeof text === "string") {
+				if (partType === "text") {
+					state.textByPartId.set(partId, text);
+					state.snapshotPartIds.add(partId);
+					return [];
+				}
+				if (partType === "reasoning") {
+					state.reasoningByPartId.set(partId, text);
+					state.snapshotPartIds.add(partId);
+					return [];
+				}
+			}
 			return translatePart(part, state);
 		}
 		// SDK 1.15.1's typed `Event` union is missing this case, but the
 		// opencode server emits it as the canonical streaming-text frame
-		// (one event per token). We accumulate by `partID` and flush on
-		// turn end, so the renderer sees one assistant bubble per part.
+		// (one event per token). We accumulate absolute text by `partID`; the
+		// session scheduler persists bounded partial checkpoints and finalizes
+		// them at the turn boundary.
 		case "message.part.delta" as SdkEvent["type"]: {
 			const props = (
 				ev as unknown as {
@@ -725,6 +783,7 @@ const translateEvent = (
 				return [];
 			}
 			if (state.flushedPartIds.has(props.partID)) return [];
+			if (state.snapshotPartIds.has(props.partID)) return [];
 			if (props.field === "text") {
 				const prev = state.textByPartId.get(props.partID) ?? "";
 				state.textByPartId.set(props.partID, prev + props.delta);
@@ -761,7 +820,7 @@ const translateEvent = (
 			if (ev.properties.sessionID !== sessionID) return [];
 			// Flush buffered text/reasoning deltas before signalling turn end so
 			// the renderer sees the full assistant bubble before the spinner stops.
-			const flushed = flushDeltaState(state);
+			const flushed = flushOpencodeDeltaState(state);
 			return [
 				...flushed,
 				{ _tag: "Status", status: "idle" },
@@ -834,7 +893,16 @@ export const startOpencodeSession = (
 
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 		let closed = false;
-		const deltaState = makeDeltaState();
+		const deltaState = makeOpencodeDeltaState();
+		const emit = (event: AgentEvent): void => {
+			if (!closed) Queue.offerUnsafe(events, event);
+		};
+		const checkpointScheduler = new CheckpointFlushScheduler({
+			onFlush: () => {
+				for (const event of checkpointDeltaState(deltaState, false))
+					emit(event);
+			},
+		});
 
 		Queue.offerUnsafe(events, {
 			_tag: "Started",
@@ -945,11 +1013,17 @@ export const startOpencodeSession = (
 					) {
 						void respondToPermission(sdkEvent.properties.id);
 					}
-					const translated = translateEvent(
+					const translated = translateOpencodeEvent(
 						sdkEvent,
 						opencodeSessionId,
 						deltaState,
 					);
+					checkpointScheduler.update(pendingDeltaBytes(deltaState));
+					if (translated.length > 0 && pendingDeltaBytes(deltaState) > 0) {
+						checkpointScheduler.cancel();
+						for (const event of checkpointDeltaState(deltaState, false))
+							emit(event);
+					}
 					if (translated.length > 0) {
 						dlog(
 							`  → emit ${translated.length}: ${translated.map((e) => e._tag).join(", ")}`,
@@ -960,9 +1034,7 @@ export const startOpencodeSession = (
 						// bus, or a part.type we don't translate yet).
 						dlog(`  (translator dropped this frame)`);
 					}
-					for (const out of translated) {
-						Queue.offerUnsafe(events, out);
-					}
+					for (const out of translated) emit(out);
 				}
 				dlog(`event stream ended after ${eventCount} events`);
 			} catch (cause) {
@@ -1098,6 +1170,18 @@ export const startOpencodeSession = (
 							) {
 								continue;
 							}
+							const partType = (part as { type?: string }).type;
+							const partText = (part as { text?: string }).text;
+							if (partId !== undefined && typeof partText === "string") {
+								if (partType === "text") {
+									deltaState.textByPartId.set(partId, partText);
+									continue;
+								}
+								if (partType === "reasoning") {
+									deltaState.reasoningByPartId.set(partId, partText);
+									continue;
+								}
+							}
 							ddump(`  prompt.part`, part);
 							const out = translatePart(part as SdkPart, deltaState);
 							if (out.length > 0) {
@@ -1110,9 +1194,8 @@ export const startOpencodeSession = (
 						}
 						// Catch-all flush in case session.idle never fired (e.g. the
 						// prompt resolved before the SSE got there).
-						for (const evt of flushDeltaState(deltaState)) {
-							Queue.offerUnsafe(events, evt);
-						}
+						checkpointScheduler.cancel();
+						for (const evt of flushOpencodeDeltaState(deltaState)) emit(evt);
 						if (compactSnapshot !== null && !closed) {
 							Queue.offerUnsafe(
 								events,
@@ -1178,6 +1261,8 @@ export const startOpencodeSession = (
 				}),
 			close: () =>
 				Effect.gen(function* () {
+					checkpointScheduler.cancel();
+					for (const event of flushOpencodeDeltaState(deltaState)) emit(event);
 					closed = true;
 					try {
 						eventAbort.abort();

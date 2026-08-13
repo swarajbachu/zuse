@@ -1,7 +1,8 @@
-import { ChevronRight } from "lucide-react";
 import type { Chat } from "@zuse/contracts";
+import { ChevronRight } from "lucide-react";
 import { useMemo } from "react";
 
+import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { isChatUnread, useChatsStore } from "../store/chats.ts";
 import { Button } from "./ui/button";
 
@@ -14,7 +15,7 @@ import { Button } from "./ui/button";
  * unread.
  */
 export function NextUnreadButton() {
-	const chatsByProject = useChatsStore((s) => s.chatsByProject);
+	const { chatsByProject } = useActiveEnvironmentEntities();
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 	const selectChat = useChatsStore((s) => s.select);
 

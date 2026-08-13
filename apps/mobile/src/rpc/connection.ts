@@ -22,7 +22,7 @@ import { makeMobileWebSocket } from "./mobile-websocket";
 import { connectEnvironment } from "./relay-client";
 import { type WsProtocolOptions, wsClientProtocolLayer } from "./ws-protocol";
 
-type MemoizeClient = RpcClient.RpcClient<
+export type MemoizeClient = RpcClient.RpcClient<
 	RpcGroup.Rpcs<typeof MemoizeRpcs>,
 	RpcClientError
 >;
@@ -112,7 +112,6 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 			previous.token !== next.token ||
 			previous.environmentId !== next.environmentId ||
 			previous.routeGeneration !== next.routeGeneration,
-		maxAutomaticAttempts: 6,
 		schedule: (delayMs, fn) => {
 			const timer = setTimeout(fn, delayMs);
 			return () => clearTimeout(timer);
@@ -126,6 +125,8 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 );
 
 let currentOnline = true;
+
+export const isConnectionOnline = (): boolean => currentOnline;
 
 const connectionEntry = (
 	options: WsProtocolOptions,
@@ -190,21 +191,3 @@ export const setConnectionOnline = (online: boolean): void => {
 export const getConnectionSnapshot = (
 	options: WsProtocolOptions,
 ): ConnectionSnapshot => connectionEntry(options).snapshot();
-
-export const dispatchRetryableConnectionCommand = <A>(
-	options: WsProtocolOptions,
-	commandId: string,
-	operation: (client: MemoizeClient) => Effect.Effect<A, unknown>,
-): Effect.Effect<A, ConnectionFailed> =>
-	Effect.tryPromise({
-		try: () =>
-			connectionEntry(options).dispatchCommand(commandId, (client) =>
-				Effect.runPromise(operation(client)),
-			),
-		catch: (cause) =>
-			cause instanceof ConnectionFailed
-				? cause
-				: new ConnectionFailed({
-						message: cause instanceof Error ? cause.message : String(cause),
-					}),
-	});

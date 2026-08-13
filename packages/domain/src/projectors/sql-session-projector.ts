@@ -87,7 +87,8 @@ export const makeSqlSessionProjector = (
 				yield* sql`
 					UPDATE sessions
 					SET provider_id = ${event.providerId}, model = ${event.model},
-						cursor = NULL, resume_strategy = 'none', updated_at = ${updatedAt}
+						cursor = NULL, provider_event_cursor = NULL,
+						resume_strategy = 'none', updated_at = ${updatedAt}
 					WHERE id = ${record.streamId}
 				`;
 				return;
@@ -115,6 +116,7 @@ export const makeSqlSessionProjector = (
 				yield* sql`
 					UPDATE sessions
 					SET worktree_id = ${event.worktreeId}, cursor = NULL,
+						provider_event_cursor = NULL,
 						resume_strategy = 'none', updated_at = ${updatedAt}
 					WHERE id = ${record.streamId}
 				`;
@@ -179,12 +181,24 @@ export const makeSqlSessionProjector = (
 			}
 			case "SessionResumeSet": {
 				const updatedAt = new Date(event.updatedAt).toISOString();
-				yield* sql`
-					UPDATE sessions
-					SET cursor = ${event.cursor}, resume_strategy = ${event.resumeStrategy},
-						updated_at = ${updatedAt}
-					WHERE id = ${record.streamId}
-				`;
+				if (event.providerEventCursor === undefined) {
+					yield* sql`
+						UPDATE sessions
+						SET cursor = ${event.cursor},
+							resume_strategy = ${event.resumeStrategy},
+							updated_at = ${updatedAt}
+						WHERE id = ${record.streamId}
+					`;
+				} else {
+					yield* sql`
+						UPDATE sessions
+						SET cursor = ${event.cursor},
+							resume_strategy = ${event.resumeStrategy},
+							provider_event_cursor = ${event.providerEventCursor},
+							updated_at = ${updatedAt}
+						WHERE id = ${record.streamId}
+					`;
+				}
 				return;
 			}
 			case "SessionArchived": {
@@ -210,15 +224,45 @@ export const makeSqlSessionProjector = (
 			case "TurnStarted": {
 				const startedAt = new Date(event.startedAt).toISOString();
 				yield* sql`
-					UPDATE sessions SET status = 'running', updated_at = ${startedAt}
+					UPDATE sessions SET status = 'running',
+						current_turn_id = ${event.turnId}, current_turn_phase = 'running',
+						updated_at = ${startedAt}
 					WHERE id = ${record.streamId}
+				`;
+				return;
+			}
+			case "TurnInterruptRequested": {
+				const requestedAt = new Date(event.requestedAt).toISOString();
+				yield* sql`
+					UPDATE sessions SET current_turn_phase = 'interrupt-requested',
+						updated_at = ${requestedAt}
+					WHERE id = ${record.streamId} AND current_turn_id = ${event.turnId}
+				`;
+				return;
+			}
+			case "TurnInterruptAcknowledged": {
+				const acknowledgedAt = new Date(event.acknowledgedAt).toISOString();
+				yield* sql`
+					UPDATE sessions SET current_turn_phase = 'interrupt-acknowledged',
+						updated_at = ${acknowledgedAt}
+					WHERE id = ${record.streamId} AND current_turn_id = ${event.turnId}
+				`;
+				return;
+			}
+			case "TurnInterruptFailed": {
+				const failedAt = new Date(event.failedAt).toISOString();
+				yield* sql`
+					UPDATE sessions SET current_turn_phase = 'running',
+						updated_at = ${failedAt}
+					WHERE id = ${record.streamId} AND current_turn_id = ${event.turnId}
 				`;
 				return;
 			}
 			case "TurnSettled": {
 				const settledAt = new Date(event.settledAt).toISOString();
 				yield* sql`
-					UPDATE sessions SET status = 'idle', updated_at = ${settledAt}
+					UPDATE sessions SET status = 'idle', current_turn_id = NULL,
+						current_turn_phase = NULL, updated_at = ${settledAt}
 					WHERE id = ${record.streamId}
 				`;
 				return;
@@ -228,17 +272,26 @@ export const makeSqlSessionProjector = (
 				yield* sql`
 					INSERT INTO messages
 						(id, session_id, turn_id, role, kind, content_json, parent_item_id,
-						 created_at, sequence)
+						 created_at, sequence, checkpoint_revision, checkpoint_final)
 					VALUES
 						(${event.messageId}, ${record.streamId}, ${event.turnId}, ${event.role},
 						 ${event.kind}, ${event.contentJson}, ${event.parentItemId},
-						 ${createdAt}, ${record.sequence})
+						 ${createdAt}, ${record.sequence}, ${event.checkpointRevision ?? null},
+						 ${event.checkpointFinal === undefined ? null : event.checkpointFinal ? 1 : 0})
 					ON CONFLICT(id) DO UPDATE SET
 						turn_id = excluded.turn_id,
 						role = excluded.role,
 						kind = excluded.kind,
 						content_json = excluded.content_json,
-						parent_item_id = excluded.parent_item_id
+						parent_item_id = excluded.parent_item_id,
+						checkpoint_revision = excluded.checkpoint_revision,
+						checkpoint_final = excluded.checkpoint_final
+					WHERE messages.checkpoint_final IS NOT 1
+						AND ((excluded.checkpoint_revision IS NULL
+								AND messages.checkpoint_revision IS NULL)
+							OR (excluded.checkpoint_revision IS NOT NULL
+								AND (messages.checkpoint_revision IS NULL
+									OR excluded.checkpoint_revision > messages.checkpoint_revision)))
 				`;
 				yield* sql`
 					UPDATE sessions SET updated_at = ${createdAt}
@@ -258,6 +311,9 @@ export const makeSqlSessionProjector = (
 			case "SegmentSettled":
 			case "PermissionRequested":
 			case "PermissionResolved":
+			case "ProviderTurnRequested":
+			case "SuccessorTurnScheduled":
+			case "ScheduledSuccessorReady":
 				return;
 		}
 	}),

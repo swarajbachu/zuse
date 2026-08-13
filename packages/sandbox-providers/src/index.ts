@@ -113,6 +113,14 @@ export interface SandboxProviderAdapter {
 		providerSandboxId: string,
 		name: string,
 	) => Effect.Effect<string, SandboxProviderError>;
+	/**
+	 * Verify that a provider snapshot still exists and can be used as a fork
+	 * source. This does not validate the guest filesystem; callers verify that
+	 * separately inside a quarantined fork before publishing recovery metadata.
+	 */
+	readonly inspectSnapshot: (
+		snapshotId: string,
+	) => Effect.Effect<boolean, SandboxProviderError>;
 	readonly kill: (
 		providerSandboxId: string,
 	) => Effect.Effect<void, SandboxProviderError>;

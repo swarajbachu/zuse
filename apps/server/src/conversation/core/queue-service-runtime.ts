@@ -2,8 +2,12 @@ import {
 	AgentTurnId,
 	ComposerInput,
 	type DirectoryUnavailableError,
+	MAX_SESSION_QUEUE_INPUT_BYTES,
+	MAX_SESSION_QUEUE_ITEMS,
+	MAX_SESSION_QUEUE_TOTAL_BYTES,
 	MessageId,
 	QueuedMessage,
+	QueuedMessageCapacityError,
 	QueuedMessageNotFoundError,
 	QueueState,
 	type Session,
@@ -11,9 +15,13 @@ import {
 	type SessionNotFoundError,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
+import type { CommandReceipt } from "@zuse/domain/engine/dispatch";
 import { Cause, Effect, Queue, type Scope, Semaphore } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
-import type { QueueServiceShape } from "../services/conversation-services.ts";
+import type {
+	QueueServiceShape,
+	QueueTransactionServiceShape,
+} from "../services/conversation-services.ts";
 import { handoffToServiceScope } from "./service-scope.ts";
 
 interface QueuedMessageRow {
@@ -33,6 +41,7 @@ export interface QueueServiceRuntimeDeps {
 		sessionId: SessionId,
 	) => Effect.Effect<Session, SessionNotFoundError>;
 	readonly submitUserMessage: (
+		commandId: string,
 		sessionId: SessionId,
 		input: ComposerInput,
 		clientMessageId: MessageId,
@@ -40,6 +49,7 @@ export interface QueueServiceRuntimeDeps {
 	readonly setQueuePaused: (
 		sessionId: SessionId,
 		paused: boolean,
+		commandId?: string,
 	) => Effect.Effect<void>;
 	readonly dispatchSessionCommand: (
 		sessionId: SessionId,
@@ -49,7 +59,13 @@ export interface QueueServiceRuntimeDeps {
 		sessionId: SessionId,
 		commandId: string,
 		command: SessionCommand,
-	) => Effect.Effect<void>;
+	) => Effect.Effect<CommandReceipt>;
+	readonly dispatchSessionCommandWithIdTransactionally: <A, R>(
+		sessionId: SessionId,
+		commandId: string,
+		command: SessionCommand,
+		onCommitted: (receipt: CommandReceipt) => Effect.Effect<A, never, R>,
+	) => Effect.Effect<A, never, R>;
 	readonly runSessionReactors: Effect.Effect<void>;
 	readonly resolveActiveTurn: (
 		sessionId: SessionId,
@@ -58,6 +74,7 @@ export interface QueueServiceRuntimeDeps {
 
 export interface QueueServiceRuntime {
 	readonly service: QueueServiceShape;
+	readonly transactionService: QueueTransactionServiceShape;
 	readonly flushAfterIdle: (sessionId: SessionId) => Effect.Effect<void>;
 	/** Reconcile durable ready work once startup catch-up has settled session state. */
 	readonly reconcileReadyQueues: Effect.Effect<void>;
@@ -76,6 +93,9 @@ const queuedMessageFromRow = (row: QueuedMessageRow): QueuedMessage =>
 		ready: row.ready !== 0,
 	});
 
+const utf8Bytes = (value: string): number =>
+	new TextEncoder().encode(value).byteLength;
+
 export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 	function* (deps: QueueServiceRuntimeDeps) {
 		const {
@@ -86,10 +106,12 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			setQueuePaused,
 			dispatchSessionCommand,
 			dispatchSessionCommandWithId,
+			dispatchSessionCommandWithIdTransactionally,
 			runSessionReactors,
 			resolveActiveTurn,
 		} = deps;
 		const flushLocks = new Map<SessionId, Semaphore.Semaphore>();
+		const capacityLocks = new Map<SessionId, Semaphore.Semaphore>();
 		const drainRequests = yield* Queue.unbounded<SessionId>();
 		const retryAttempts = new Map<SessionId, number>();
 		const scheduledRetries = new Set<SessionId>();
@@ -98,6 +120,13 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			if (existing !== undefined) return existing;
 			const created = Semaphore.makeUnsafe(1);
 			flushLocks.set(sessionId, created);
+			return created;
+		};
+		const capacityLock = (sessionId: SessionId): Semaphore.Semaphore => {
+			const existing = capacityLocks.get(sessionId);
+			if (existing !== undefined) return existing;
+			const created = Semaphore.makeUnsafe(1);
+			capacityLocks.set(sessionId, created);
 			return created;
 		};
 		let requestFlush: (sessionId: SessionId) => Effect.Effect<void> = () =>
@@ -127,9 +156,58 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 				Effect.map(([items, paused]) => QueueState.make({ items, paused })),
 			);
 
-		const setPaused = (sessionId: SessionId, paused: boolean) =>
+		const assertQueueCapacity = Effect.fn("QueueService.assertCapacity")(
+			function* (
+				sessionId: SessionId,
+				items: ReadonlyArray<QueuedMessage>,
+				candidate: QueuedMessage,
+			) {
+				const inputJson = JSON.stringify(candidate.input);
+				const inputBytes = utf8Bytes(inputJson);
+				if (inputBytes > MAX_SESSION_QUEUE_INPUT_BYTES) {
+					return yield* new QueuedMessageCapacityError({
+						sessionId,
+						reason: "item-too-large",
+						limit: MAX_SESSION_QUEUE_INPUT_BYTES,
+						actual: inputBytes,
+					});
+				}
+				const retained = items.filter((item) => item.id !== candidate.id);
+				const itemCount = retained.length + 1;
+				if (itemCount > MAX_SESSION_QUEUE_ITEMS) {
+					return yield* new QueuedMessageCapacityError({
+						sessionId,
+						reason: "too-many-items",
+						limit: MAX_SESSION_QUEUE_ITEMS,
+						actual: itemCount,
+					});
+				}
+				const totalBytes = utf8Bytes(
+					JSON.stringify(
+						QueueState.make({
+							items: [...retained, candidate],
+							paused: false,
+						}),
+					),
+				);
+				if (totalBytes > MAX_SESSION_QUEUE_TOTAL_BYTES) {
+					return yield* new QueuedMessageCapacityError({
+						sessionId,
+						reason: "queue-too-large",
+						limit: MAX_SESSION_QUEUE_TOTAL_BYTES,
+						actual: totalBytes,
+					});
+				}
+			},
+		);
+
+		const setPaused = (
+			sessionId: SessionId,
+			paused: boolean,
+			commandId?: string,
+		) =>
 			Effect.gen(function* () {
-				yield* setQueuePaused(sessionId, paused);
+				yield* setQueuePaused(sessionId, paused, commandId);
 			});
 
 		const normalizePositions = (sessionId: SessionId) =>
@@ -146,7 +224,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 				});
 			});
 
-		const clearPauseIfEmpty = (sessionId: SessionId) =>
+		const clearPauseIfEmpty = (sessionId: SessionId, commandId?: string) =>
 			Effect.gen(function* () {
 				if (
 					(yield* listRows(sessionId)).length > 0 ||
@@ -154,66 +232,124 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 				) {
 					return;
 				}
-				yield* setPaused(sessionId, false);
+				yield* setPaused(
+					sessionId,
+					false,
+					commandId === undefined ? undefined : `${commandId}:unpause`,
+				);
 			});
 
 		const addQueuedMessage: QueueServiceShape["addQueuedMessage"] = (
+			commandId,
 			sessionId,
 			input,
 			queueId,
 			ready = true,
 			flush = true,
 		) =>
-			Effect.gen(function* () {
-				yield* lookupSession(sessionId);
-				if (queueId !== undefined) {
-					const existing = yield* sql<QueuedMessageRow>`
-        SELECT id, session_id, queue_order, input_json, created_at, updated_at, ready
-        FROM queued_messages
-        WHERE session_id = ${sessionId} AND id = ${queueId}
-        LIMIT 1
-      `.pipe(Effect.orDie);
-					if (existing[0] !== undefined) {
-						const item = queuedMessageFromRow(existing[0]);
-						if (item.ready && flush) {
-							yield* requestFlush(sessionId);
+			capacityLock(sessionId).withPermits(1)(
+				Effect.gen(function* () {
+					yield* lookupSession(sessionId);
+					const existingItems = yield* listRows(sessionId);
+					if (queueId !== undefined) {
+						const existing = existingItems.find((item) => item.id === queueId);
+						if (existing !== undefined) {
+							const item = existing;
+							if (item.ready && flush) {
+								yield* requestFlush(sessionId);
+							}
+							return item;
 						}
-						return item;
 					}
-				}
-				const maxRows = yield* sql<{ readonly max_position: number | null }>`
-        SELECT MAX(queue_order) AS max_position
-        FROM queued_messages WHERE session_id = ${sessionId}
-      `.pipe(Effect.orDie);
-				const position = (maxRows[0]?.max_position ?? -1) + 1;
-				const now = new Date();
-				const id = queueId ?? `q_${crypto.randomUUID()}`;
-				yield* dispatchSessionCommand(sessionId, {
-					_tag: "EnqueueTurn",
-					queueId: id,
-					inputJson: JSON.stringify(input),
-					position,
-					createdAt: now.getTime(),
-					ready,
-				});
-				const persisted = yield* sql<QueuedMessageRow>`
+					const position =
+						Math.max(-1, ...existingItems.map((item) => item.position)) + 1;
+					const now = new Date();
+					const id = queueId ?? `q_${crypto.randomUUID()}`;
+					const inputJson = JSON.stringify(input);
+					yield* assertQueueCapacity(
+						sessionId,
+						existingItems,
+						QueuedMessage.make({
+							id,
+							sessionId,
+							input,
+							position,
+							createdAt: now,
+							updatedAt: now,
+							ready,
+						}),
+					);
+					yield* dispatchSessionCommandWithId(sessionId, commandId, {
+						_tag: "EnqueueTurn",
+						queueId: id,
+						inputJson,
+						position,
+						createdAt: now.getTime(),
+						ready,
+					});
+					const persisted = yield* sql<QueuedMessageRow>`
         SELECT id, session_id, queue_order, input_json, created_at, updated_at, ready
         FROM queued_messages
         WHERE session_id = ${sessionId} AND id = ${id}
         LIMIT 1
       `.pipe(Effect.orDie);
-				const row = persisted[0];
-				if (row === undefined) {
-					return yield* Effect.die(
-						new Error(`queue id ${id} belongs to another session`),
-					);
-				}
-				const item = queuedMessageFromRow(row);
-				if (item.ready && flush) {
-					yield* requestFlush(sessionId);
-				}
-				return item;
-			});
+					const row = persisted[0];
+					if (row === undefined) {
+						return yield* Effect.die(
+							new Error(`queue id ${id} belongs to another session`),
+						);
+					}
+					const item = queuedMessageFromRow(row);
+					if (item.ready && flush) {
+						yield* requestFlush(sessionId);
+					}
+					return item;
+				}),
+			);
+
+		const addQueuedMessageTransactionally: QueueTransactionServiceShape["addQueuedMessageTransactionally"] =
+			(commandId, sessionId, input, queueId, ready, onCommitted) =>
+				capacityLock(sessionId).withPermits(1)(
+					Effect.gen(function* () {
+						yield* lookupSession(sessionId);
+						const existingItems = yield* listRows(sessionId);
+						const existing = existingItems.find((item) => item.id === queueId);
+						if (existing !== undefined) {
+							yield* onCommitted(existing);
+							return;
+						}
+						const position =
+							Math.max(-1, ...existingItems.map((item) => item.position)) + 1;
+						const now = new Date();
+						const candidate = QueuedMessage.make({
+							id: queueId,
+							sessionId,
+							input,
+							position,
+							createdAt: now,
+							updatedAt: now,
+							ready,
+						});
+						yield* assertQueueCapacity(sessionId, existingItems, candidate);
+						yield* Effect.uninterruptible(
+							dispatchSessionCommandWithIdTransactionally(
+								sessionId,
+								commandId,
+								{
+									_tag: "EnqueueTurn",
+									queueId,
+									inputJson: JSON.stringify(input),
+									position,
+									createdAt: now.getTime(),
+									ready,
+								},
+								() => onCommitted(candidate),
+							).pipe(
+								Effect.andThen(ready ? requestFlush(sessionId) : Effect.void),
+							),
+						);
+					}),
+				);
 
 		const listQueuedMessages: QueueServiceShape["listQueuedMessages"] = (
 			sessionId,
@@ -224,58 +360,78 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			});
 
 		const updateQueuedMessage: QueueServiceShape["updateQueuedMessage"] = (
+			commandId,
 			sessionId,
 			queueId,
 			input,
 		) =>
-			Effect.gen(function* () {
-				yield* lookupSession(sessionId);
-				const existing = yield* sql<{ readonly id: string }>`
-					SELECT id FROM queued_messages
-					WHERE session_id = ${sessionId} AND id = ${queueId}
-					LIMIT 1
-				`.pipe(Effect.orDie);
-				if (existing[0] === undefined) {
-					return yield* new QueuedMessageNotFoundError({ sessionId, queueId });
-				}
-				yield* dispatchSessionCommand(sessionId, {
-					_tag: "UpdateQueuedTurn",
-					queueId,
-					inputJson: JSON.stringify(input),
-					updatedAt: Date.now(),
-					ready: true,
-				});
-				const rows = yield* sql<QueuedMessageRow>`
+			capacityLock(sessionId).withPermits(1)(
+				Effect.gen(function* () {
+					yield* lookupSession(sessionId);
+					const existingItems = yield* listRows(sessionId);
+					const existing = existingItems.find((item) => item.id === queueId);
+					if (existing === undefined) {
+						return yield* new QueuedMessageNotFoundError({
+							sessionId,
+							queueId,
+						});
+					}
+					const updatedAt = new Date();
+					const inputJson = JSON.stringify(input);
+					yield* assertQueueCapacity(
+						sessionId,
+						existingItems,
+						QueuedMessage.make({
+							...existing,
+							input,
+							updatedAt,
+							ready: true,
+						}),
+					);
+					yield* dispatchSessionCommandWithId(sessionId, commandId, {
+						_tag: "UpdateQueuedTurn",
+						queueId,
+						inputJson,
+						updatedAt: updatedAt.getTime(),
+						ready: true,
+					});
+					const rows = yield* sql<QueuedMessageRow>`
         SELECT id, session_id, queue_order, input_json, created_at, updated_at, ready
         FROM queued_messages
         WHERE session_id = ${sessionId} AND id = ${queueId}
         LIMIT 1
       `.pipe(Effect.orDie);
-				const row = rows[0];
-				if (row === undefined) {
-					return yield* new QueuedMessageNotFoundError({ sessionId, queueId });
-				}
-				const item = queuedMessageFromRow(row);
-				yield* requestFlush(sessionId);
-				return item;
-			});
+					const row = rows[0];
+					if (row === undefined) {
+						return yield* new QueuedMessageNotFoundError({
+							sessionId,
+							queueId,
+						});
+					}
+					const item = queuedMessageFromRow(row);
+					yield* requestFlush(sessionId);
+					return item;
+				}),
+			);
 
 		const deleteQueuedMessage: QueueServiceShape["deleteQueuedMessage"] = (
+			commandId,
 			sessionId,
 			queueId,
 		) =>
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
-				yield* dispatchSessionCommand(sessionId, {
+				yield* dispatchSessionCommandWithId(sessionId, commandId, {
 					_tag: "RemoveQueuedTurn",
 					queueId,
 					removedAt: Date.now(),
 				});
 				yield* normalizePositions(sessionId);
-				yield* clearPauseIfEmpty(sessionId);
+				yield* clearPauseIfEmpty(sessionId, commandId);
 			});
 
 		const reorderQueuedMessages: QueueServiceShape["reorderQueuedMessages"] = (
+			commandId,
 			sessionId,
 			queueIds,
 		) =>
@@ -292,7 +448,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 					}),
 					...existing.filter((item) => byId.has(item.id)),
 				];
-				yield* dispatchSessionCommand(sessionId, {
+				yield* dispatchSessionCommandWithId(sessionId, commandId, {
 					_tag: "ReorderQueuedTurns",
 					queueIds: ordered.map((item) => item.id),
 					reorderedAt: Date.now(),
@@ -336,6 +492,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 
 		const sendClaimed = (item: QueuedMessage) =>
 			submitUserMessage(
+				`queue-submit:${item.id}`,
 				item.sessionId,
 				item.input,
 				MessageId.make(`queued_${item.id}`),
@@ -352,15 +509,17 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 		const runQueuedMessageWhileIdle = (
 			sessionId: SessionId,
 			queueId: string,
+			commandId: string,
 		): Effect.Effect<void, SessionNotFoundError> =>
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
-				yield* setPaused(sessionId, false);
+				yield* setPaused(sessionId, false, `${commandId}:unpause`);
 				const item = yield* claim(sessionId, queueId);
 				if (item !== null) yield* sendClaimed(item);
 			});
 
 		const runQueuedMessageNext: QueueServiceShape["runQueuedMessageNext"] = (
+			commandId,
 			sessionId,
 			queueId,
 		) =>
@@ -369,21 +528,17 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 					yield* lookupSession(sessionId);
 					const resolvedTurnId = yield* resolveActiveTurn(sessionId);
 					if (resolvedTurnId === undefined) {
-						yield* runQueuedMessageWhileIdle(sessionId, queueId);
+						yield* runQueuedMessageWhileIdle(sessionId, queueId, commandId);
 						return;
 					}
 					yield* handoffToServiceScope(
-						dispatchSessionCommandWithId(
-							sessionId,
-							`queue-run-next:${queueId}`,
-							{
-								_tag: "SteerQueuedTurn",
-								expectedTurnId: resolvedTurnId,
-								queueId,
-								successorTurnId: AgentTurnId.make(`turn_queued_${queueId}`),
-								requestedAt: Date.now(),
-							},
-						),
+						dispatchSessionCommandWithId(sessionId, commandId, {
+							_tag: "SteerQueuedTurn",
+							expectedTurnId: resolvedTurnId,
+							queueId,
+							successorTurnId: AgentTurnId.make(`turn_queued_${queueId}`),
+							requestedAt: Date.now(),
+						}),
 						runSessionReactors,
 						serviceScope,
 					);
@@ -402,6 +557,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			});
 
 		const flushQueuedMessages: QueueServiceShape["flushQueuedMessages"] = (
+			_commandId,
 			sessionId,
 		) =>
 			flushLock(sessionId).withPermits(1)(
@@ -426,6 +582,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			);
 
 		const resumeQueuedMessages: QueueServiceShape["resumeQueuedMessages"] = (
+			commandId,
 			sessionId,
 		) =>
 			Effect.gen(function* () {
@@ -437,8 +594,8 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 						updatedAt: Date.now(),
 					});
 				}
-				yield* setPaused(sessionId, false);
-				yield* flushQueuedMessages(sessionId);
+				yield* setPaused(sessionId, false, `${commandId}:unpause`);
+				yield* flushQueuedMessages(`${commandId}:flush`, sessionId);
 			});
 
 		requestFlush = (sessionId) =>
@@ -551,6 +708,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 
 		return {
 			service,
+			transactionService: { addQueuedMessageTransactionally },
 			flushAfterIdle: requestFlush,
 			reconcileReadyQueues,
 			pauseAfterInterrupt,

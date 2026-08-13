@@ -1,23 +1,12 @@
-import type { ChatId } from "@zuse/contracts";
-import {
-	type ReactNode,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-} from "react";
-import * as terminalRegistry from "../lib/terminal-registry.ts";
-import { useActiveContext } from "../store/active-workspace.ts";
-import { useChatsStore } from "../store/chats.ts";
+import type { ChatRef } from "@zuse/client-runtime/resource-ref";
+import type { EnvironmentId, PtyId } from "@zuse/contracts";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
 	cloudSummaryForChat,
-	localProjectForCloudChat,
-	useCloudExecutionStore,
-} from "../store/cloud-chat-registry.ts";
-import {
-	ensureCloudWorkspaceAttached,
-	useCloudChatsStore,
-} from "../store/cloud-chats.ts";
+	useCloudChatCatalogStore,
+} from "../lib/cloud-workspace-catalog.ts";
+import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
+import * as terminalRegistry from "../lib/terminal-registry.ts";
 import {
 	EMPTY_TERMINALS,
 	type TerminalInstance,
@@ -48,113 +37,79 @@ function TerminalPlaceholder({ children }: { children: ReactNode }) {
  * cwd is the active workspace root, but the terminal LIST is owned by the
  * chat, so each chat keeps its own shells.
  */
-export function TerminalSlotPane({ slot }: { slot: number }) {
-	const ctx = useActiveContext();
-	const chatId = useChatsStore((s) => s.selectedChatId);
-	const ready = ctx.status === "ready" && !ctx.worktreePending;
-
-	if (ctx.status === "loading") {
-		return (
-			<TerminalPlaceholder>
-				<ShimmerText>Loading workspace…</ShimmerText>
-			</TerminalPlaceholder>
-		);
-	}
-	if (ctx.status === "empty") {
-		return (
-			<TerminalPlaceholder>
-				No folder selected. Add or pick a folder on the left.
-			</TerminalPlaceholder>
-		);
-	}
-	if (ctx.status === "cloud-unavailable") {
-		if (chatId !== null && cloudSummaryForChat(chatId) !== null)
-			return (
-				<PlainTerminalSlot
-					chatId={chatId}
-					rootPath="/home/zuse/workspace"
-					slot={slot}
-				/>
-			);
-		return (
-			<TerminalPlaceholder>
-				{ctx.attachmentState === "failed" ? (
-					"Cloud connection failed."
-				) : (
-					<ShimmerText>
-						{ctx.attachmentState === "attaching"
-							? "Reconnecting cloud terminal…"
-							: "Open Terminal to resume this cloud workspace"}
-					</ShimmerText>
-				)}
-			</TerminalPlaceholder>
-		);
-	}
-	if (ctx.worktreePending) {
-		return (
-			<TerminalPlaceholder>
-				<ShimmerText>Preparing worktree…</ShimmerText>
-			</TerminalPlaceholder>
-		);
-	}
-	if (!ready || chatId === null) return null;
+export function TerminalSlotPane({
+	chatRef,
+	rootPath,
+	slot,
+}: {
+	chatRef: ChatRef;
+	rootPath: string;
+	slot: number;
+}) {
 	return (
-		<PlainTerminalSlot chatId={chatId} rootPath={ctx.rootPath} slot={slot} />
+		<PlainTerminalSlot chatRef={chatRef} rootPath={rootPath} slot={slot} />
 	);
 }
 
 function PlainTerminalSlot({
-	chatId,
+	chatRef,
 	rootPath,
 	slot,
 }: {
-	chatId: ChatId;
+	chatRef: ChatRef;
 	rootPath: string;
 	slot: number;
 }) {
-	const key = terminalsKey(chatId);
-	const registeredCloudSummary = cloudSummaryForChat(chatId);
-	const cloudSummary = useCloudChatsStore(
+	const key = terminalsKey(chatRef);
+	const registeredCloudSummaryCandidate = cloudSummaryForChat(chatRef.chatId);
+	const registeredCloudSummary =
+		registeredCloudSummaryCandidate?.workspaceId === chatRef.environmentId
+			? registeredCloudSummaryCandidate
+			: null;
+	const cloudSummary = useCloudChatCatalogStore(
 		(state) =>
-			state.summaries.find((summary) => summary.chatId === chatId) ??
-			registeredCloudSummary,
+			state.summaries.find(
+				(summary) =>
+					summary.chatId === chatRef.chatId &&
+					summary.workspaceId === chatRef.environmentId,
+			) ?? registeredCloudSummary,
 	);
-	const cloudProjectId = localProjectForCloudChat(chatId);
-	const cloudAttachment = useCloudExecutionStore((state) =>
-		cloudSummary === null
+	const cloudShell = useEnvironmentShellResource(
+		cloudSummary === null ? null : chatRef.environmentId,
+		cloudSummary === null ? "cache-only" : "wake",
+	);
+	const cloudAttachment =
+		cloudSummary === null || cloudShell.connection === "connected"
 			? "ready"
-			: (state.stateByWorkspace[cloudSummary.workspaceId] ?? "detached"),
-	);
+			: cloudShell.connection === "waking" ||
+					cloudShell.connection === "connecting" ||
+					cloudShell.connection === "reconnecting"
+				? "attaching"
+				: cloudShell.connection === "failed" ||
+						cloudShell.connection === "blocked-auth" ||
+						cloudShell.connection === "update-required" ||
+						cloudShell.connection === "revoked"
+					? "failed"
+					: "detached";
 	const [pendingTerminalInput, setPendingTerminalInput] = useState("");
 	const list = useTerminalsStore((s) => s.byKey[key] ?? EMPTY_TERMINALS);
 	const ensureSlot = useTerminalsStore((s) => s.ensureSlot);
 	const resolvedRootPath =
 		cloudSummary === null ? rootPath : "/home/zuse/workspace";
 
-	const connectCloudTerminal = useCallback(() => {
-		if (
-			cloudSummary === null ||
-			cloudProjectId === null ||
-			cloudAttachment === "attaching"
-		)
-			return;
-		void ensureCloudWorkspaceAttached(cloudSummary).catch(() => undefined);
-	}, [cloudAttachment, cloudProjectId, cloudSummary]);
-
 	useEffect(() => {
 		if (cloudAttachment !== "ready") return;
 		const instance = list[slot];
 		if (
 			instance === undefined ||
-			(cloudSummary !== null &&
-				instance.environmentId !== cloudSummary.workspaceId)
+			instance.environmentId !== chatRef.environmentId
 		)
-			ensureSlot(key, slot, resolvedRootPath);
+			ensureSlot(chatRef, slot, resolvedRootPath);
 	}, [
+		chatRef,
 		cloudAttachment,
 		cloudSummary,
 		ensureSlot,
-		key,
 		list,
 		resolvedRootPath,
 		slot,
@@ -206,14 +161,12 @@ function PlainTerminalSlot({
 						if (input.length === 0 || event.metaKey || event.ctrlKey) return;
 						event.preventDefault();
 						setPendingTerminalInput(input);
-						connectCloudTerminal();
 					}}
 					onPaste={(event) => {
 						const input = event.clipboardData.getData("text");
 						if (input.length === 0) return;
 						event.preventDefault();
 						setPendingTerminalInput(input);
-						connectCloudTerminal();
 					}}
 				/>
 			</TerminalPlaceholder>
@@ -250,8 +203,8 @@ export function PtyTerminal({
 	onInitialInputWritten,
 }: {
 	cwd: string;
-	environmentId: string;
-	instanceId: string;
+	environmentId: EnvironmentId;
+	instanceId: PtyId;
 	command?: TerminalInstance["command"];
 	initialInput?: string;
 	onInitialInputWritten?: () => void;

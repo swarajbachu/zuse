@@ -179,9 +179,16 @@ describe("bundled provider SDK sessions", () => {
 			}),
 		);
 		expect(events.some((event) => event._tag === "SessionCursor")).toBe(true);
+		const assistantEvents = events.filter(
+			(event) => event._tag === "AssistantMessage",
+		);
 		expect(
-			events.filter((event) => event._tag === "AssistantMessage"),
+			assistantEvents.filter((event) => event.checkpoint?.final === true),
 		).toHaveLength(2);
+		expect(assistantEvents.at(-1)?.checkpoint).toEqual({
+			revision: 2,
+			final: true,
+		});
 	});
 
 	it("publishes assistant progress before the SDK run finishes", async () => {
@@ -221,7 +228,7 @@ describe("bundled provider SDK sessions", () => {
 				).pipe(Effect.forkChild);
 				yield* handle.send("make progress visible");
 				yield* Effect.promise(() => firstChunkYielded.promise);
-				yield* Effect.sleep("10 millis");
+				yield* Effect.sleep("75 millis");
 
 				expect(
 					events.some(

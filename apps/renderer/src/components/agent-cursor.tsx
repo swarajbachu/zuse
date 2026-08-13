@@ -17,98 +17,98 @@ import { useEffect, useState } from "react";
  * how the user knows *where* on the page the agent just touched.
  */
 export type AgentCursorIntent = {
-  /** Monotonic — bump on every new intent so React re-runs the click effect. */
-  readonly nonce: number;
-  /** Webview-relative CSS pixels. */
-  readonly x: number;
-  readonly y: number;
-  /** Show a click pulse at this position once the glide settles. */
-  readonly click?: boolean;
-  /** Show the cursor in a "pressed" state for the entire move (drag-style). */
-  readonly pressed?: boolean;
+	/** Monotonic — bump on every new intent so React re-runs the click effect. */
+	readonly nonce: number;
+	/** Webview-relative CSS pixels. */
+	readonly x: number;
+	readonly y: number;
+	/** Show a click pulse at this position once the glide settles. */
+	readonly click?: boolean;
+	/** Show the cursor in a "pressed" state for the entire move (drag-style). */
+	readonly pressed?: boolean;
 };
 
 export function AgentCursor({
-  intent,
-  visible,
+	intent,
+	visible,
 }: {
-  intent: AgentCursorIntent | null;
-  visible: boolean;
+	intent: AgentCursorIntent | null;
+	visible: boolean;
 }) {
-  const [pulseKey, setPulseKey] = useState(0);
-  const [pulseAt, setPulseAt] = useState<{ x: number; y: number } | null>(null);
+	const [pulseKey, setPulseKey] = useState(0);
+	const [pulseAt, setPulseAt] = useState<{ x: number; y: number } | null>(null);
 
-  // Fire the click pulse after the glide settles. We schedule it a hair after
-  // the transition duration so the ripple radiates from the *destination*, not
-  // somewhere along the path. If the user has reduced motion on, snap+pulse
-  // immediately.
-  useEffect(() => {
-    if (intent === null || intent.click !== true) return;
-    const reduced =
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const delay = reduced ? 0 : GLIDE_MS;
-    const t = window.setTimeout(() => {
-      setPulseAt({ x: intent.x, y: intent.y });
-      setPulseKey((n) => n + 1);
-    }, delay);
-    return () => window.clearTimeout(t);
-  }, [intent]);
+	// Fire the click pulse after the glide settles. We schedule it a hair after
+	// the transition duration so the ripple radiates from the *destination*, not
+	// somewhere along the path. If the user has reduced motion on, snap+pulse
+	// immediately.
+	useEffect(() => {
+		if (intent === null || intent.click !== true) return;
+		const reduced =
+			typeof window !== "undefined" &&
+			window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+		const delay = reduced ? 0 : GLIDE_MS;
+		const t = window.setTimeout(() => {
+			setPulseAt({ x: intent.x, y: intent.y });
+			setPulseKey((n) => n + 1);
+		}, delay);
+		return () => window.clearTimeout(t);
+	}, [intent]);
 
-  if (!visible || intent === null) return null;
+	if (!visible || intent === null) return null;
 
-  return (
-    <>
-      <style>{CURSOR_CSS}</style>
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 z-[9] overflow-hidden"
-      >
-        <div
-          className="memoize-agent-cursor"
-          data-pressed={intent.pressed === true ? "true" : "false"}
-          style={{
-            transform: `translate(${intent.x}px, ${intent.y}px)`,
-          }}
-        >
-          <CursorArrow />
-        </div>
-        {pulseAt !== null ? (
-          <div
-            key={pulseKey}
-            className="memoize-agent-cursor-pulse"
-            style={{ transform: `translate(${pulseAt.x}px, ${pulseAt.y}px)` }}
-          />
-        ) : null}
-      </div>
-    </>
-  );
+	return (
+		<>
+			<style>{CURSOR_CSS}</style>
+			<div
+				aria-hidden="true"
+				className="pointer-events-none absolute inset-0 z-[9] overflow-hidden"
+			>
+				<div
+					className="memoize-agent-cursor"
+					data-pressed={intent.pressed === true ? "true" : "false"}
+					style={{
+						transform: `translate(${intent.x}px, ${intent.y}px)`,
+					}}
+				>
+					<CursorArrow />
+				</div>
+				{pulseAt !== null ? (
+					<div
+						key={pulseKey}
+						className="memoize-agent-cursor-pulse"
+						style={{ transform: `translate(${pulseAt.x}px, ${pulseAt.y}px)` }}
+					/>
+				) : null}
+			</div>
+		</>
+	);
 }
 
 function CursorArrow() {
-  // Clean modern pointer — single triangle with a soft concave underside, no
-  // legacy "tail" line. White fill + dark outline reads on dark and light
-  // pages equally. Tip sits at (1.5, 1.5) of the viewBox so the parent's
-  // `translate(x, y)` lands the click point right at the tip with a ~2px
-  // optical offset that matches what users expect from an OS cursor.
-  return (
-    <svg
-      width="20"
-      height="22"
-      viewBox="0 0 20 22"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M2 2 L2 16.5 L6.5 13 L12 11.5 Z"
-        fill="white"
-        stroke="#0b0b0c"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
+	// Clean modern pointer — single triangle with a soft concave underside, no
+	// legacy "tail" line. White fill + dark outline reads on dark and light
+	// pages equally. Tip sits at (1.5, 1.5) of the viewBox so the parent's
+	// `translate(x, y)` lands the click point right at the tip with a ~2px
+	// optical offset that matches what users expect from an OS cursor.
+	return (
+		<svg
+			width="20"
+			height="22"
+			viewBox="0 0 20 22"
+			fill="none"
+			xmlns="http://www.w3.org/2000/svg"
+		>
+			<path
+				d="M2 2 L2 16.5 L6.5 13 L12 11.5 Z"
+				fill="white"
+				stroke="#0b0b0c"
+				strokeWidth="1.4"
+				strokeLinejoin="round"
+				strokeLinecap="round"
+			/>
+		</svg>
+	);
 }
 
 const GLIDE_MS = 350;

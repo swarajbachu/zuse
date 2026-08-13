@@ -171,6 +171,7 @@ export const eventToContent = (event: AgentEvent): MessageContent | null => {
 				_tag: "assistant",
 				itemId: event.itemId,
 				text: event.text,
+				checkpoint: event.checkpoint,
 				isPlan: event.isPlan,
 				parentItemId: event.parentItemId,
 			};
@@ -180,6 +181,7 @@ export const eventToContent = (event: AgentEvent): MessageContent | null => {
 				itemId: event.itemId,
 				text: event.text,
 				redacted: event.redacted,
+				checkpoint: event.checkpoint,
 				parentItemId: event.parentItemId,
 			};
 		case "ToolUse":

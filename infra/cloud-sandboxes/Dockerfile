@@ -17,6 +17,7 @@ RUN apt-get update \
         python3-pip \
         python3-venv \
         ripgrep \
+		sqlite3 \
         tmux \
         util-linux \
     && rm -rf /var/lib/apt/lists/*
@@ -51,6 +52,7 @@ COPY --chmod=0755 git-askpass.sh /usr/local/bin/zuse-git-askpass
 COPY repository-script.ts /usr/local/lib/zuse/repository-script.ts
 COPY artifacts/runtime-updater.mjs /usr/local/lib/zuse/runtime-updater.mjs
 COPY --chmod=0755 archive-workspace.sh /usr/local/bin/zuse-archive-workspace
+COPY --chmod=0755 restore-workspace.sh /usr/local/bin/zuse-restore-workspace
 
 RUN mkdir -p /var/lib/zuse/project-build /var/lib/zuse/workspace \
 	&& mkdir -p /opt/zuse/releases \

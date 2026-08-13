@@ -3,9 +3,9 @@ import {
 	type ChatId,
 	type FolderId,
 	type ProviderId,
-	type SessionId,
+	SessionId,
 	SessionNotFoundError,
-	type WorktreeId,
+	WorktreeId,
 } from "@zuse/contracts";
 import type { ChatCommand } from "@zuse/domain/chat/commands";
 import type { SessionCommand } from "@zuse/domain/core/commands";
@@ -56,7 +56,10 @@ import type {
 } from "../services/conversation-services.ts";
 import { ChatServiceLive } from "./chat-service.ts";
 import { MessageServiceLive } from "./message-service.ts";
-import { QueueServiceLive } from "./queue-service.ts";
+import {
+	QueueServiceLive,
+	QueueTransactionServiceLive,
+} from "./queue-service.ts";
 import { SessionServiceLive } from "./session-service.ts";
 import { TranscriptServiceLive } from "./transcript-service.ts";
 
@@ -182,29 +185,35 @@ const ConversationRuntimeLive = Layer.effect(
       `.pipe(Effect.orDie);
 		}
 
-		// Worktree deletion can null the sessions read-model FK without emitting
-		// a session-domain event. Reconcile live members from their owning chat at
-		// startup so records affected by an interrupted or older restore heal on
-		// the next launch instead of silently starting providers in main.
-		yield* sql`
-      UPDATE sessions
-      SET worktree_id = (
-        SELECT c.worktree_id
-        FROM chats c
-        INNER JOIN worktrees w ON w.id = c.worktree_id
-        WHERE c.id = sessions.chat_id
-          AND c.archived_at IS NULL
-      )
-      WHERE archived_at IS NULL
-        AND EXISTS (
-          SELECT 1
-          FROM chats c
-          INNER JOIN worktrees w ON w.id = c.worktree_id
-          WHERE c.id = sessions.chat_id
-            AND c.archived_at IS NULL
-            AND sessions.worktree_id IS NOT c.worktree_id
-        )
-    `.pipe(Effect.orDie);
+		// Worktree deletion can null the sessions read-model FK without changing
+		// domain state. Repair live projection drift through SessionDomain so the
+		// event log, read model, cursor reset, and subscribers stay coherent.
+		const driftedWorktreeSessions = yield* sql<{
+			readonly id: string;
+			readonly worktree_id: string;
+		}>`
+			SELECT s.id, c.worktree_id
+			FROM sessions s
+			INNER JOIN chats c ON c.id = s.chat_id
+			INNER JOIN worktrees w ON w.id = c.worktree_id
+			WHERE s.archived_at IS NULL
+			  AND c.archived_at IS NULL
+			  AND s.worktree_id IS NOT c.worktree_id
+		`.pipe(Effect.orDie);
+		if (driftedWorktreeSessions.length > 0) {
+			const repairedAt = yield* currentTimestamp;
+			yield* Effect.forEach(
+				driftedWorktreeSessions,
+				(row) =>
+					appendSessionCommand(SessionId.make(row.id), {
+						_tag: "SetWorktree",
+						worktreeId: WorktreeId.make(row.worktree_id),
+						updatedAt: repairedAt,
+						forceProjection: true,
+					}),
+				{ discard: true },
+			);
+		}
 
 		/**
 		 * Resolve the cwd a session should run in. NULL `worktreeId` falls
@@ -291,6 +300,10 @@ const ConversationRuntimeLive = Layer.effect(
 			persistMessage,
 			runSessionReactors: Effect.suspend(() => reactorRuntime.runSession),
 			dispatchSessionCommand: appendSessionCommand,
+			dispatchSessionCommandWithId: (sessionId, commandId, command) =>
+				sessionDomain
+					.dispatch({ commandId, streamId: sessionId, command })
+					.pipe(Effect.orDie),
 			ndjsonAppend,
 			closeProvider,
 			interruptProviderFiber,
@@ -495,7 +508,19 @@ const ConversationRuntimeLive = Layer.effect(
 			dispatchSessionCommandWithId: (sessionId, commandId, command) =>
 				sessionDomain
 					.dispatch({ commandId, streamId: sessionId, command })
-					.pipe(Effect.asVoid, Effect.orDie),
+					.pipe(Effect.orDie),
+			dispatchSessionCommandWithIdTransactionally: (
+				sessionId,
+				commandId,
+				command,
+				onCommitted,
+			) =>
+				sessionDomain
+					.dispatchTransactionally(
+						{ commandId, streamId: sessionId, command },
+						onCommitted,
+					)
+					.pipe(Effect.orDie),
 			beginTurn,
 			settleTurn,
 			resolveActiveTurn,
@@ -588,6 +613,7 @@ const ConversationRuntimeLive = Layer.effect(
 			transcript: transcriptService,
 			message: messageService,
 			queue: queueService,
+			queueTransaction: queueRuntime.transactionService,
 		});
 	}),
 );
@@ -599,4 +625,5 @@ export const ConversationServicesLive = Layer.mergeAll(
 	TranscriptServiceLive,
 	MessageServiceLive,
 	QueueServiceLive,
+	QueueTransactionServiceLive,
 ).pipe(Layer.provide(ConversationRuntimeLive));

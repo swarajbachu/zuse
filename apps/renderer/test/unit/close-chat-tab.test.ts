@@ -1,13 +1,33 @@
 import type { ChatId, FolderId, Session, SessionId } from "@zuse/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const canonical = vi.hoisted(() => ({
+	sessionsByProject: {} as Record<string, ReadonlyArray<Session>>,
+}));
+
+vi.mock("../../src/lib/settings-client-bus.ts", () => ({
+	useSettingsStore: {
+		getState: () => ({
+			defaultProviderId: "codex",
+			defaultModelByProvider: { codex: "gpt-5.4" },
+			defaultRuntimeMode: "full-access",
+		}),
+	},
+}));
+
+vi.mock("../../src/lib/environment-entities.ts", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("../../src/lib/environment-entities.ts")
+	>()),
+	activeSessionsByProject: () => canonical.sessionsByProject,
+}));
+
 import {
 	closeActiveChatTab,
 	closeChatTab,
 } from "../../src/lib/close-chat-tab.ts";
 import { useProvidersStore } from "../../src/store/providers.ts";
 import { useSessionsStore } from "../../src/store/sessions.ts";
-import { useSettingsStore } from "../../src/store/settings.ts";
 
 const projectId = "project-close-tabs" as FolderId;
 const chatId = "chat-close-tabs" as ChatId;
@@ -37,13 +57,12 @@ const session = (id: string, minute: number): Session => ({
 
 const initialSessionsState = useSessionsStore.getInitialState();
 const initialProvidersState = useProvidersStore.getInitialState();
-const initialSettingsState = useSettingsStore.getInitialState();
 
 describe("closing chat tabs", () => {
 	beforeEach(() => {
+		canonical.sessionsByProject = {};
 		useSessionsStore.setState(initialSessionsState, true);
 		useProvidersStore.setState(initialProvidersState, true);
-		useSettingsStore.setState(initialSettingsState, true);
 	});
 
 	afterEach(() => {
@@ -56,8 +75,8 @@ describe("closing chat tabs", () => {
 		const right = session("session-right", 2);
 		const archive = vi.fn(async () => undefined);
 		const select = vi.fn();
+		canonical.sessionsByProject = { [projectId]: [right, active, left] };
 		useSessionsStore.setState({
-			sessionsByProject: { [projectId]: [right, active, left] },
 			selectedSessionId: active.id,
 			archive,
 			select,
@@ -74,20 +93,12 @@ describe("closing chat tabs", () => {
 		const archive = vi.fn(async () => undefined);
 		const create = vi.fn(async () => null);
 		const refresh = vi.fn(async () => undefined);
+		canonical.sessionsByProject = { [projectId]: [active] };
 		useSessionsStore.setState({
-			sessionsByProject: { [projectId]: [active] },
 			archive,
 			create,
 		});
 		useProvidersStore.setState({ refresh });
-		useSettingsStore.setState({
-			defaultProviderId: "codex",
-			defaultModelByProvider: {
-				...initialSettingsState.defaultModelByProvider,
-				codex: "gpt-5.4",
-			},
-			defaultRuntimeMode: "full-access",
-		});
 
 		await closeChatTab(active.id);
 

@@ -13,6 +13,7 @@ import {
 	WORKSPACE_RUNTIME_RESUME_SCRIPT,
 } from "../../src/cloud-workspace-reconciler.ts";
 import {
+	type CloudWorkspaceRecord,
 	CloudWorkspaceStore,
 	CloudWorkspaceStoreMemory,
 } from "../../src/cloud-workspace-store.ts";
@@ -40,6 +41,100 @@ const testLayer = Layer.mergeAll(
 		decrypt: () => Effect.die("unused"),
 	}),
 );
+
+const seedWorkspace = Effect.fn("seedArchiveWorkspace")(function* (
+	input: Pick<
+		CloudWorkspaceRecord,
+		"workspaceId" | "state" | "desiredState" | "statusCode" | "requestConfig"
+	> &
+		Partial<CloudWorkspaceRecord>,
+) {
+	const store = yield* CloudWorkspaceStore;
+	const control = yield* FakeSandboxProviderControlService;
+	const nowMs = Date.now();
+	const workspaceId = input.workspaceId;
+	const accountId = `account-${workspaceId}`;
+	const projectId = `project-${workspaceId}`;
+	const buildId = `build-${workspaceId}`;
+	const providerSandboxId = input.providerSandboxId ?? `source-${workspaceId}`;
+	yield* store.connectProject({
+		projectId,
+		accountId,
+		repositoryIdentity: `github.com/acme/${workspaceId}`,
+		repositoryUrl: `https://github.com/acme/${workspaceId}.git`,
+		displayName: workspaceId,
+		defaultBranch: "main",
+		visibility: "public",
+		gitConnectionKind: "github-app",
+		cloudEnvironment: {},
+		secretBindings: [],
+		configurationDigest: "digest",
+		state: "ready",
+		idempotencyKey: `connect-${workspaceId}`,
+		createdAtMs: nowMs,
+		updatedAtMs: nowMs,
+	});
+	yield* store.createBuild({
+		buildId,
+		projectId,
+		accountId,
+		provider: "fake",
+		snapshotId: `base-${workspaceId}`,
+		templateVersion: "test-template",
+		configurationDigest: "digest",
+		state: "ready",
+		idempotencyKey: `build-key-${workspaceId}`,
+		nextActionAtMs: Number.MAX_SAFE_INTEGER,
+		revision: 1,
+		createdAtMs: nowMs,
+		updatedAtMs: nowMs,
+	});
+	const workspace: CloudWorkspaceRecord = {
+		workspaceId,
+		accountId,
+		projectId,
+		buildId,
+		provider: "fake",
+		providerSandboxId,
+		runtimeState: input.runtimeState ?? "offline",
+		chatId: `chat-${workspaceId}`,
+		initialSessionId: `session-${workspaceId}`,
+		branch: `task/${workspaceId}`,
+		baseRef: "origin/main",
+		state: input.state,
+		desiredState: input.desiredState,
+		statusCode: input.statusCode,
+		credentialEpoch: 0,
+		recoveryBundleKey: input.recoveryBundleKey,
+		warmRetentionDeadlineMs: input.warmRetentionDeadlineMs,
+		idempotencyKey: `workspace-key-${workspaceId}`,
+		requestConfig: input.requestConfig,
+		nextActionAtMs: nowMs,
+		revision: 1,
+		createdAtMs: nowMs,
+		updatedAtMs: nowMs,
+		lastActivityAtMs: nowMs,
+	};
+	yield* store.createWorkspace(workspace, {
+		workspaceId,
+		accountId,
+		chatId: workspace.chatId,
+		sessionId: workspace.initialSessionId,
+		turnId: `turn:${workspaceId}`,
+		commandId: `launch:${workspaceId}`,
+		ciphertext: "encrypted-launch-intent",
+		expiresAtMs: nowMs + 86_400_000,
+		createdAtMs: nowMs,
+	});
+	yield* Ref.update(control.sandboxes, (sandboxes) =>
+		new Map(sandboxes).set(providerSandboxId, {
+			providerSandboxId,
+			providerLabel: `zuse-cloud-workspace-${workspaceId}`,
+			state: "running",
+		}),
+	);
+	return workspace;
+});
 
 describe("cloud workspace reconciler", () => {
 	test("archive quiesces the current versioned runtime before bundling", () => {
@@ -73,6 +168,195 @@ describe("cloud workspace reconciler", () => {
 
 	test("resume starts the installed runtime without blocking on an update", () => {
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain("runtime-updater");
+	});
+
+	test("publishes archive recovery only after a quarantined fork validates it", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "archive-recovery",
+					state: "archiving",
+					desiredState: "archived",
+					statusCode: "archive-hook-running",
+					requestConfig: { runtimeGeneration: 7, gatewayEpoch: 11 },
+				});
+				yield* Ref.update(control.pathsBySandbox, (paths) =>
+					new Map(paths).set(
+						workspace.providerSandboxId as string,
+						new Set(["/var/lib/zuse/workspace-archive/ready"]),
+					),
+				);
+
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const verifying = yield* store.getWorkspace(workspace.workspaceId);
+				const verifierId = `fake-${workspace.workspaceId}-archive-verify`;
+				yield* Ref.update(control.pathsBySandbox, (paths) =>
+					new Map(paths).set(
+						verifierId,
+						new Set(["/var/lib/zuse/workspace-restore/ready"]),
+					),
+				);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const published = yield* store.getWorkspace(workspace.workspaceId);
+				const sandboxesBeforeArchive = yield* Ref.get(control.sandboxes);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					verifying,
+					published,
+					archived: yield* store.getWorkspace(workspace.workspaceId),
+					sandboxesBeforeArchive,
+					sandboxes: yield* Ref.get(control.sandboxes),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.verifying).toMatchObject({
+			statusCode: "archive-snapshot-verifying",
+			recoveryBundleKey: undefined,
+		});
+		expect(result.published?.recoveryBundleKey).toMatch(/^provider-snapshot:/u);
+		expect(result.sandboxesBeforeArchive.has("source-archive-recovery")).toBe(
+			true,
+		);
+		expect(result.archived).toMatchObject({
+			state: "archived",
+			statusCode: "archived",
+		});
+		expect(result.sandboxes.has("source-archive-recovery")).toBe(true);
+	});
+
+	test("failed staging restore keeps both the verified snapshot and warm source", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const snapshotId = "snapshot-restore-rollback";
+				const workspace = yield* seedWorkspace({
+					workspaceId: "restore-rollback",
+					state: "archived",
+					desiredState: "ready",
+					statusCode: "archived",
+					recoveryBundleKey: `provider-snapshot:${snapshotId}`,
+					requestConfig: { runtimeGeneration: 4, gatewayEpoch: 8 },
+				});
+				yield* Ref.update(control.snapshots, (snapshots) =>
+					new Set(snapshots).add(snapshotId),
+				);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const stagingId = `fake-${workspace.workspaceId}-restore-staging`;
+				yield* Ref.update(control.pathsBySandbox, (paths) =>
+					new Map(paths).set(
+						stagingId,
+						new Set(["/var/lib/zuse/workspace-restore/failed"]),
+					),
+				);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					sandboxes: yield* Ref.get(control.sandboxes),
+					snapshots: yield* Ref.get(control.snapshots),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.workspace).toMatchObject({
+			state: "archived",
+			desiredState: "archived",
+			statusCode: "recovery-validation-failed",
+			providerSandboxId: "source-restore-rollback",
+			recoveryBundleKey: "provider-snapshot:snapshot-restore-rollback",
+		});
+		expect(result.sandboxes.has("source-restore-rollback")).toBe(true);
+		expect(result.snapshots.has("snapshot-restore-rollback")).toBe(true);
+	});
+
+	test("promotes a verified restore with a new fence and deletes warm source only after health", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const snapshotId = "snapshot-restore-promote";
+				const workspace = yield* seedWorkspace({
+					workspaceId: "restore-promote",
+					state: "archived",
+					desiredState: "ready",
+					statusCode: "archived",
+					recoveryBundleKey: `provider-snapshot:${snapshotId}`,
+					requestConfig: { runtimeGeneration: 4, gatewayEpoch: 8 },
+				});
+				yield* Ref.update(control.snapshots, (snapshots) =>
+					new Set(snapshots).add(snapshotId),
+				);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const stagingId = `fake-${workspace.workspaceId}-restore-staging`;
+				yield* Ref.update(control.pathsBySandbox, (paths) =>
+					new Map(paths).set(
+						stagingId,
+						new Set(["/var/lib/zuse/workspace-restore/ready"]),
+					),
+				);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const promoted = yield* store.getWorkspace(workspace.workspaceId);
+				if (promoted === null)
+					return yield* Effect.die("workspace disappeared");
+				const beforeHealth = yield* Ref.get(control.sandboxes);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const starting = yield* store.getWorkspace(workspace.workspaceId);
+				if (starting === null)
+					return yield* Effect.die("workspace disappeared during start");
+				yield* store.saveWorkspace({
+					...starting,
+					state: "ready",
+					runtimeState: "online",
+					statusCode: "ready",
+					nextActionAtMs: Date.now(),
+					revision: starting.revision + 1,
+					updatedAtMs: starting.updatedAtMs + 1,
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					promoted,
+					starting,
+					beforeHealth,
+					healthy: yield* store.getWorkspace(workspace.workspaceId),
+					afterHealth: yield* Ref.get(control.sandboxes),
+					snapshots: yield* Ref.get(control.snapshots),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.promoted).toMatchObject({
+			providerSandboxId: "fake-restore-promote-restore-staging",
+			state: "resuming",
+			statusCode: "recovery-promoted-runtime-starting",
+			recoveryBundleKey: "provider-snapshot:snapshot-restore-promote",
+			requestConfig: {
+				runtimeGeneration: 5,
+				gatewayEpoch: 9,
+				recoveryWarmSourceSandboxId: "source-restore-promote",
+			},
+		});
+		expect(result.promoted?.requestConfig.streamEpoch).toEqual(
+			result.promoted?.requestConfig.restoreStreamEpoch,
+		);
+		expect(result.starting).toMatchObject({
+			state: "provisioning",
+			requestConfig: { runtimeGeneration: 5, gatewayEpoch: 9 },
+		});
+		expect(result.beforeHealth.has("source-restore-promote")).toBe(true);
+		expect(result.afterHealth.has("source-restore-promote")).toBe(false);
+		expect(result.afterHealth.has("fake-restore-promote-restore-staging")).toBe(
+			true,
+		);
+		expect(result.healthy?.recoveryBundleKey).toBe(
+			"provider-snapshot:snapshot-restore-promote",
+		);
+		expect(result.healthy?.requestConfig.recoveryWarmSourceSandboxId).toBe(
+			undefined,
+		);
+		expect(result.snapshots.has("snapshot-restore-promote")).toBe(true);
 	});
 
 	test("preserves a paused runtime before falling back to a restart", async () => {
@@ -141,13 +425,14 @@ describe("cloud workspace reconciler", () => {
 				yield* store.connectProject(project);
 				yield* store.createBuild(build);
 				yield* store.createWorkspace(workspace, {
-					commandId: "start:workspace-resume",
 					workspaceId: workspace.workspaceId,
 					accountId: workspace.accountId,
-					sequence: 1,
-					kind: "start-agent",
-					payload: {},
-					state: "queued",
+					chatId: workspace.chatId,
+					sessionId: workspace.initialSessionId,
+					turnId: "turn:workspace-resume",
+					commandId: "launch:workspace-resume",
+					ciphertext: "encrypted-launch-intent",
+					expiresAtMs: nowMs + 86_400_000,
 					createdAtMs: nowMs,
 				});
 				yield* Ref.update(control.sandboxes, (sandboxes) =>
@@ -210,6 +495,7 @@ describe("cloud workspace reconciler", () => {
 			statusCode: "paused",
 			runtimeState: "offline",
 		});
+		expect(result.paused?.leaseOwner).toBeUndefined();
 		expect(result.resumeBeforeMissing).toHaveLength(1);
 		expect(result.callsBeforeFallback).toHaveLength(0);
 		expect(result.warming).toMatchObject({
@@ -232,5 +518,6 @@ describe("cloud workspace reconciler", () => {
 			statusCode: "provider-sandbox-replacing",
 			runtimeState: "offline",
 		});
+		expect(result.missing?.leaseOwner).toBeUndefined();
 	});
 });

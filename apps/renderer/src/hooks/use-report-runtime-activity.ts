@@ -1,65 +1,71 @@
-import type { PowerWorkloadState } from "@zuse/contracts";
-import { useEffect } from "react";
-
+import { EnvironmentId, type PowerWorkloadState } from "@zuse/contracts";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import {
 	getPowerRuntimeActivity,
 	setPowerActiveAgentCount,
 	subscribePowerRuntimeActivity,
 } from "../lib/power-runtime-activity.ts";
-import {
-	effectiveSessionRuntimeState,
-	isSessionRuntimeBusy,
-} from "../lib/session-runtime-state.ts";
-import { useSessionRuntimeStore } from "../store/session-runtime.ts";
+import { isSessionRuntimeBusy } from "../lib/session-runtime-state.ts";
+import { useRendererSessionTimelines } from "../lib/session-timeline-hooks.ts";
+import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 
 /** Mirror privacy-safe active workload counts to desktop-owned services. */
 export function useReportRuntimeActivity(): void {
+	const { sessionsByProject } = useActiveEnvironmentEntities();
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(state) => state.activeEnvironmentId,
+	);
+	const timelineRefs = useMemo(
+		() =>
+			Object.values(sessionsByProject)
+				.flat()
+				.map((session) => ({
+					environmentId: EnvironmentId.make(activeEnvironmentId),
+					sessionId: session.id,
+				})),
+		[activeEnvironmentId, sessionsByProject],
+	);
+	const timelines = useRendererSessionTimelines(timelineRefs, "cache-only");
+	const runningCount = useMemo(
+		() =>
+			timelines.reduce(
+				(count, timeline) =>
+					count + (isSessionRuntimeBusy(timeline.runtime) ? 1 : 0),
+				0,
+			),
+		[timelines],
+	);
+	const lastWorkload = useRef("");
+	const lastRunningCount = useRef(-1);
+	const report = useCallback(() => {
+		if (runningCount !== lastRunningCount.current) {
+			lastRunningCount.current = runningCount;
+			setPowerActiveAgentCount(runningCount);
+			window.zuse?.updates?.reportRunningCount(runningCount);
+		}
+		const runtimeActivity = getPowerRuntimeActivity();
+		const workload: PowerWorkloadState = {
+			activeAgents: runningCount,
+			activeTerminals: runtimeActivity.activeTerminals,
+			browserSessions: runtimeActivity.browserSessions,
+			activeBrowserSessions: runtimeActivity.activeBrowserSessions,
+			browserRecordings: runtimeActivity.browserRecordings,
+			indexing: runtimeActivity.indexing,
+		};
+		const serialized = JSON.stringify(workload);
+		if (serialized === lastWorkload.current) return;
+		lastWorkload.current = serialized;
+		window.zuse?.power?.reportWorkload(workload);
+	}, [runningCount]);
+
 	useEffect(() => {
-		let lastWorkload = "";
-		let lastRunningCount = -1;
-
-		const countRunning = (
-			state: ReturnType<typeof useSessionRuntimeStore.getState>,
-		): number => {
-			let count = 0;
-			for (const runtime of Object.values(state.bySession)) {
-				if (isSessionRuntimeBusy(effectiveSessionRuntimeState(runtime))) {
-					count += 1;
-				}
-			}
-			return count;
-		};
-
-		const report = () => {
-			const count = countRunning(useSessionRuntimeStore.getState());
-			if (count !== lastRunningCount) {
-				lastRunningCount = count;
-				setPowerActiveAgentCount(count);
-				window.zuse?.updates?.reportRunningCount(count);
-			}
-			const runtimeActivity = getPowerRuntimeActivity();
-			const workload: PowerWorkloadState = {
-				activeAgents: count,
-				activeTerminals: runtimeActivity.activeTerminals,
-				browserSessions: runtimeActivity.browserSessions,
-				activeBrowserSessions: runtimeActivity.activeBrowserSessions,
-				browserRecordings: runtimeActivity.browserRecordings,
-				indexing: runtimeActivity.indexing,
-			};
-			const serialized = JSON.stringify(workload);
-			if (serialized === lastWorkload) return;
-			lastWorkload = serialized;
-			window.zuse?.power?.reportWorkload(workload);
-		};
-
 		report();
-		const unsubscribers = [
-			useSessionRuntimeStore.subscribe(report),
-			subscribePowerRuntimeActivity(report),
-		];
+		return subscribePowerRuntimeActivity(report);
+	}, [report]);
 
-		return () => {
-			for (const unsubscribe of unsubscribers) unsubscribe();
+	useEffect(
+		() => () => {
 			window.zuse?.power?.reportWorkload({
 				activeAgents: 0,
 				activeTerminals: 0,
@@ -68,6 +74,7 @@ export function useReportRuntimeActivity(): void {
 				browserRecordings: 0,
 				indexing: false,
 			});
-		};
-	}, []);
+		},
+		[],
+	);
 }

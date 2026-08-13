@@ -1,30 +1,31 @@
-import type { SessionId } from "@zuse/contracts";
+import type { EnvironmentId, SessionId } from "@zuse/contracts";
 import { useState } from "react";
-
 import {
-	effectiveSessionRuntimeState,
-	isSessionTurnActive,
-} from "../../lib/session-runtime-state.ts";
+	reorderSessionQueue,
+	resumeSessionQueue,
+} from "../../lib/session-actions.ts";
+import { isSessionTurnActive } from "../../lib/session-runtime-state.ts";
+import { useRendererSessionTimeline } from "../../lib/session-timeline-hooks.ts";
 import { useAutoAnimate } from "../../lib/use-auto-animate.ts";
-import { useMessagesStore } from "../../store/messages.ts";
-import { useSessionRuntimeStore } from "../../store/session-runtime.ts";
 import { QueueChip } from "./queue-chip.tsx";
 import { TrayPill } from "./tray-pill.tsx";
 
-const EMPTY_QUEUE: ReadonlyArray<never> = [];
-
-export function QueueTray({ sessionId }: { sessionId: SessionId }) {
-	const items = useMessagesStore(
-		(s) => s.queueBySession[sessionId] ?? EMPTY_QUEUE,
+export function QueueTray({
+	sessionId,
+	environmentId,
+}: {
+	sessionId: SessionId;
+	environmentId: EnvironmentId;
+}) {
+	const timeline = useRendererSessionTimeline(
+		sessionId,
+		"connect",
+		environmentId,
 	);
-	const paused = useMessagesStore(
-		(s) => s.queuePausedBySession[sessionId] === true,
-	);
-	const running = useSessionRuntimeStore((s) =>
-		isSessionTurnActive(effectiveSessionRuntimeState(s.bySession[sessionId])),
-	);
-	const reorder = useMessagesStore((s) => s.reorderQueue);
-	const resume = useMessagesStore((s) => s.resumeQueue);
+	const items = timeline.projection?.queue.items ?? [];
+	const paused = timeline.projection?.queue.paused === true;
+	const running = isSessionTurnActive(timeline.runtime);
+	const ref = { environmentId, sessionId };
 	const [dragIndex, setDragIndex] = useState<number | null>(null);
 	// Animate add / remove / reorder of queued rows. Clean default ease, no
 	// spring — keeps the tray feeling crisp rather than bouncy.
@@ -37,8 +38,8 @@ export function QueueTray({ sessionId }: { sessionId: SessionId }) {
 		const [item] = next.splice(from, 1);
 		if (item === undefined) return;
 		next.splice(to, 0, item);
-		reorder(
-			sessionId,
+		reorderSessionQueue(
+			ref,
 			next.map((q) => q.id),
 		);
 	};
@@ -54,7 +55,7 @@ export function QueueTray({ sessionId }: { sessionId: SessionId }) {
 					actions={
 						<button
 							type="button"
-							onClick={() => void resume(sessionId)}
+							onClick={() => void resumeSessionQueue(ref)}
 							className="rounded px-1.5 py-0.5 text-[12px] text-muted-foreground hover:text-foreground"
 							aria-label="Resume queued messages"
 						>
@@ -67,6 +68,7 @@ export function QueueTray({ sessionId }: { sessionId: SessionId }) {
 				<QueueChip
 					key={item.id}
 					sessionId={sessionId}
+					environmentId={environmentId}
 					item={item}
 					index={index}
 					count={items.length}

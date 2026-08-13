@@ -187,7 +187,7 @@ export const createComposerView = ({
 /**
  * Re-derive the composer's user-bindable keymap from the current
  * keybindings store and dispatch a compartment reconfigure on the view.
- * Call this after every emit from `useKeybindingsStore` — keybinding
+ * Call this after every keybindings ClientBus emit — keybinding
  * edits take effect immediately, no re-mount, no lost cursor.
  */
 export const reconfigureComposerKeymap = (

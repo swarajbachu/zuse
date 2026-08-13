@@ -1,14 +1,14 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { AppearanceMode } from "@zuse/contracts";
 import {
 	ComputerIcon,
 	Moon02Icon,
 	Sun03Icon,
 	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
-import type { AppearanceMode } from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
-import { useSettingsStore } from "../../../store/settings.ts";
+import { useSettingsStore } from "../../../lib/settings-client-bus.ts";
 import { StepHeader } from "./shared.tsx";
 
 const APPEARANCE_OPTIONS: ReadonlyArray<{

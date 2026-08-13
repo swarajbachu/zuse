@@ -9,16 +9,20 @@ import {
 	type AccountAccessTransferEvent,
 	type LocalAccountDescriptor,
 } from "@zuse/contracts";
-import { Effect, Stream } from "effect";
+import { Effect } from "effect";
 import { Copy, ExternalLink, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { copyText, openExternal } from "../../lib/platform-capabilities.ts";
 import {
-	getControlPlaneRpcClient,
-	getRpcClient,
+	controlPlaneClient,
+	runControlPlane,
+} from "../../lib/control-plane-client.ts";
+import {
 	getVerifiedRpcClient,
 	reportRendererRpcFailure,
 } from "../../lib/rpc-client.ts";
+import { runtimeOperationClient } from "../../lib/runtime-operation-client.ts";
+import { runStreamOperation } from "../../lib/stream-operation.ts";
 import {
 	AlertDialog,
 	AlertDialogClose,
@@ -165,13 +169,10 @@ export function CloudAccountAccess({
 	const refresh = useCallback(async () => {
 		setLoading(true);
 		try {
-			const [environment, control] = await Promise.all([
-				getRpcClient(environmentId),
-				getControlPlaneRpcClient(),
-			]);
+			const environment = await runtimeOperationClient(environmentId);
 			const [remote, local] = await Promise.all([
 				Effect.runPromise(environment["accountAccess.status"]()),
-				Effect.runPromise(control["accountAccess.detectLocal"]()),
+				runControlPlane((control) => control["accountAccess.detectLocal"]()),
 			]);
 			setStatuses(remote.providers);
 			setLocalAccounts(local.accounts);
@@ -244,12 +245,12 @@ export function CloudAccountAccess({
 		setError(null);
 		claudeLoginCancelled.current = false;
 		try {
-			const [environment, control] = await Promise.all([
-				getRpcClient(environmentId),
-				getControlPlaneRpcClient(),
-			]);
+			const environment = await runtimeOperationClient(environmentId);
 			if (providerId === "claude") {
-				const session = await Effect.runPromise(control["auth.getSession"]({}));
+				const control = await controlPlaneClient();
+				const session = await runControlPlane((control) =>
+					control["auth.getSession"]({}),
+				);
 				if (session._tag !== "SignedIn") throw new Error("not-signed-in");
 				const prepared = await Effect.runPromise(
 					environment["accountAccess.prepareImport"]({
@@ -268,40 +269,37 @@ export function CloudAccountAccess({
 					message: "Sign in to Claude. The code field will unlock when ready.",
 				});
 				let sealed: AccountAccessSealedCredential | null = null;
-				await Effect.runPromise(
-					Stream.runForEach(
-						control["accountAccess.createClaudeTransfer"](
-							new AccountAccessCreateClaudeTransferRequest({ prepared }),
-						),
-						(event: AccountAccessTransferEvent) =>
-							Effect.promise(async () => {
-								if (event._tag === "input-ready") {
-									setClaudeCodeReady(true);
-									setProgress({
-										providerId,
-										message: "Paste the full authorization code from Claude.",
-									});
-								} else if (event._tag === "verification") {
-									setProgress({
-										providerId,
-										message:
-											"Finish authorization. Waiting for Claude's code prompt…",
-										code: event.code,
-										url: event.url,
-									});
-									await openExternal(event.url);
-								} else if (event._tag === "sealed") {
-									setProgress({
-										providerId,
-										message: "Saving Claude access on this machine…",
-									});
-									sealed = event.sealed;
-								} else if (event._tag === "done" && !event.ok) {
-									throw new Error(event.reason ?? "login-failed");
-								}
-							}),
+				await runStreamOperation(
+					control["accountAccess.createClaudeTransfer"](
+						new AccountAccessCreateClaudeTransferRequest({ prepared }),
 					),
-				);
+					async (event: AccountAccessTransferEvent) => {
+						if (event._tag === "input-ready") {
+							setClaudeCodeReady(true);
+							setProgress({
+								providerId,
+								message: "Paste the full authorization code from Claude.",
+							});
+						} else if (event._tag === "verification") {
+							setProgress({
+								providerId,
+								message:
+									"Finish authorization. Waiting for Claude's code prompt…",
+								code: event.code,
+								url: event.url,
+							});
+							await openExternal(event.url);
+						} else if (event._tag === "sealed") {
+							setProgress({
+								providerId,
+								message: "Saving Claude access on this machine…",
+							});
+							sealed = event.sealed;
+						} else if (event._tag === "done" && !event.ok) {
+							throw new Error(event.reason ?? "login-failed");
+						}
+					},
+				).done;
 				if (sealed === null) throw new Error("transfer-rejected");
 				const importRequest = new AccountAccessImportRequest({
 					transferId: prepared.transferId,
@@ -330,36 +328,33 @@ export function CloudAccountAccess({
 					}
 				}
 			} else {
-				await Effect.runPromise(
-					Stream.runForEach(
-						environment["accountAccess.startLogin"]({ providerId }),
-						(event: AccountAccessTransferEvent) =>
-							Effect.promise(async () => {
-								if (event._tag === "verification") {
-									let codeCopied = false;
-									if (event.code !== undefined) {
-										try {
-											await copyText(event.code);
-											codeCopied = true;
-										} catch {
-											// The code remains visible in the row for manual copying.
-										}
-									}
-									setProgress({
-										providerId,
-										message: codeCopied
-											? "Code copied. Paste it in your browser."
-											: "Enter the code in your browser.",
-										code: event.code,
-										url: event.url,
-									});
-									await openExternal(event.url);
-								} else if (event._tag === "done" && !event.ok) {
-									throw new Error(event.reason ?? "login-failed");
+				await runStreamOperation(
+					environment["accountAccess.startLogin"]({ providerId }),
+					async (event: AccountAccessTransferEvent) => {
+						if (event._tag === "verification") {
+							let codeCopied = false;
+							if (event.code !== undefined) {
+								try {
+									await copyText(event.code);
+									codeCopied = true;
+								} catch {
+									// The code remains visible in the row for manual copying.
 								}
-							}),
-					),
-				);
+							}
+							setProgress({
+								providerId,
+								message: codeCopied
+									? "Code copied. Paste it in your browser."
+									: "Enter the code in your browser.",
+								code: event.code,
+								url: event.url,
+							});
+							await openExternal(event.url);
+						} else if (event._tag === "done" && !event.ok) {
+							throw new Error(event.reason ?? "login-failed");
+						}
+					},
+				).done;
 			}
 			setProgress({ providerId, message: "Connected." });
 			setClaudeTransferId(null);
@@ -402,8 +397,7 @@ export function CloudAccountAccess({
 			message: "Submitting the authorization code…",
 		});
 		try {
-			const control = await getControlPlaneRpcClient();
-			await Effect.runPromise(
+			await runControlPlane((control) =>
 				control["accountAccess.continueClaudeTransfer"]({
 					_tag: "code",
 					transferId: claudeTransferId,
@@ -431,8 +425,7 @@ export function CloudAccountAccess({
 		setSubmittingClaudeCode(false);
 		setProgress(null);
 		try {
-			const control = await getControlPlaneRpcClient();
-			await Effect.runPromise(
+			await runControlPlane((control) =>
 				control["accountAccess.continueClaudeTransfer"]({
 					_tag: "cancel",
 					transferId,
@@ -447,7 +440,7 @@ export function CloudAccountAccess({
 		setBusyProvider(providerId);
 		setError(null);
 		try {
-			const environment = await getRpcClient(environmentId);
+			const environment = await runtimeOperationClient(environmentId);
 			await Effect.runPromise(
 				environment["accountAccess.disconnect"]({ providerId }),
 			);

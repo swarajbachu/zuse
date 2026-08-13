@@ -1,7 +1,7 @@
 import { formatKeyForDisplay } from "@zuse/contracts";
-import { useKeybindingsStore } from "../store/keybindings";
 import type { MenuAction } from "./bridge";
 import { isMacHost } from "./host-platform";
+import { keybindingsSnapshot } from "./keybindings-client-bus.ts";
 
 const IS_MAC = isMacHost();
 /**
@@ -16,7 +16,7 @@ const IS_MAC = isMacHost();
  * it in a hook would require every caller to subscribe.
  */
 export function formatShortcut(id: MenuAction): string {
-	const rules = useKeybindingsStore.getState().resolvedRules;
+	const rules = keybindingsSnapshot().resolvedRules;
 	// Prefer an unconditional rule (matches menu accelerator semantics).
 	for (let i = rules.length - 1; i >= 0; i--) {
 		const r = rules[i];

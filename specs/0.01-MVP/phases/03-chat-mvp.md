@@ -112,7 +112,7 @@ New methods (added to `MemoizeRpcs` in `packages/contracts`):
 - `apps/renderer/src/components/agent-panel.tsx` — replaced by the chat surface.
 - `apps/renderer/src/components/agent-event-row.tsx` — replaced by per-role chat rows.
 - `apps/renderer/src/components/git-history-pane.tsx` — git history is no longer in the v1 UI. (Code lives in git history if we want to bring it back as a tab later.)
-- `git.log` / `git.status` / `git.headChanged` / `git.origin` RPCs — kept in `packages/contracts` for now (cheap to keep) but unwired from the UI.
+- `git.log` / `git.status` / `git.workspaceChanges` / `git.origin` RPCs — the workspace invalidation stream now feeds the keyed Git ClientBus resource.
 
 ## Sub-PR breakdown
 
