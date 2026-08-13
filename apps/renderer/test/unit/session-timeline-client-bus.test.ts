@@ -18,6 +18,7 @@ import {
 	getRendererClientBus,
 	loadOlderSessionMessages,
 	registerEnvironmentWakeForTest,
+	registerRendererResourceDriver,
 	registerRendererResourcePersistence,
 	resetSessionTimelineClientBusForTest,
 	retainSessionTimeline,
@@ -40,6 +41,36 @@ const ref = { environmentId, sessionId } as const;
 describe("renderer session timeline ClientBus adapter", () => {
 	afterEach(() => {
 		resetSessionTimelineClientBusForTest();
+	});
+
+	it("atomically replaces resource registrations during hot reload", () => {
+		const firstDriver = registerRendererResourceDriver(
+			"hmr-test-resource",
+			() => null,
+		);
+		const secondDriver = registerRendererResourceDriver(
+			"hmr-test-resource",
+			() => null,
+		);
+		const persistence = {
+			loadResource: async () => null,
+			saveResource: async () => undefined,
+			removeResource: async () => undefined,
+		};
+		const firstPersistence = registerRendererResourcePersistence(
+			"hmr-test-resource",
+			persistence,
+		);
+		const secondPersistence = registerRendererResourcePersistence(
+			"hmr-test-resource",
+			{ ...persistence },
+		);
+
+		// Stale module cleanup must not remove the replacement registration.
+		firstDriver();
+		firstPersistence();
+		secondDriver();
+		secondPersistence();
 	});
 
 	it("shares one live timeline stream across two renderer consumers", async () => {

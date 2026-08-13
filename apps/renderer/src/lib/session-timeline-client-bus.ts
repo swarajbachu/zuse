@@ -113,12 +113,11 @@ export const registerRendererResourcePersistence = (
 	kind: string,
 	persistence: RendererResourcePersistence,
 ): (() => void) => {
-	const previous = registeredPersistence.get(kind);
-	if (previous !== undefined && previous !== persistence) {
-		throw new Error(
-			`Renderer ClientBus persistence already registered: ${kind}`,
-		);
-	}
+	// Registration is a single replaceable slot per resource kind. Vite HMR
+	// evaluates the replacement module before disposing the previous instance, so
+	// rejecting a new object here crashes the renderer during development. The
+	// identity-checked cleanup below prevents the old module from deleting the
+	// replacement when its dispose callback eventually runs.
 	registeredPersistence.set(kind, persistence);
 	return () => {
 		if (
@@ -1030,10 +1029,10 @@ export const registerRendererResourceDriver = (
 	kind: string,
 	factory: RendererResourceDriverFactory,
 ): (() => void) => {
-	const previous = registeredDriverFactories.get(kind);
-	if (previous !== undefined && previous !== factory) {
-		throw new Error(`Renderer ClientBus driver already registered: ${kind}`);
-	}
+	// One slot still means one owner: replacement changes which factory future
+	// resource activations use; it never starts a second driver for an existing
+	// resource. Identity-checked cleanup makes this safe when HMR installs the new
+	// module before disposing the old one.
 	registeredDriverFactories.set(kind, factory);
 	return () => {
 		if (registeredDriverFactories.get(kind) === factory) {
