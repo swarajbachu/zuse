@@ -68,7 +68,7 @@ export function QueueChip({
 	const ref = { environmentId, sessionId };
 	const [runningNow, setRunningNow] = useState(false);
 	const text = previewText(item);
-	const subtitle = item.ready ? refSubtitle(item) : "Preparing attachments…";
+	const subtitle = item.ready ? refSubtitle(item) : "Saving message…";
 
 	const runNext = async () => {
 		if (runningNow || !item.ready) return;

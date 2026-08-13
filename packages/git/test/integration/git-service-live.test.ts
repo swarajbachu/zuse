@@ -327,6 +327,25 @@ describe("GitServiceLive", () => {
 		]);
 	});
 
+	test("invalidates a linked worktree when its Git metadata changes", async () => {
+		const worktreeRoot = join(temporaryRoot, "watched-worktree");
+		git(repositoryRoot, "worktree", "add", "-b", "before-rename", worktreeRoot);
+		const framesPromise = run(
+			(service) =>
+				service
+					.workspaceChanges(folderId, worktreeId)
+					.pipe(Stream.take(2), Stream.runCollect),
+			makeLayer({ worktreePath: worktreeRoot }),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 25));
+		git(worktreeRoot, "branch", "-m", "after-rename");
+
+		await expect(framesPromise).resolves.toEqual([
+			{ revision: 0 },
+			{ revision: 1 },
+		]);
+	});
+
 	test("maps a missing git executable to GitNotInstalledError", async () => {
 		const MissingSpawnerLive = Layer.succeed(
 			ChildProcessSpawner.ChildProcessSpawner,

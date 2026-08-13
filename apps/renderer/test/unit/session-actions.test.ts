@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	classifyMessage,
 	isRecoveredPreAckSessionError,
+	optimisticQueuedMessageReady,
 	queuedMessageShouldFlush,
 } from "../../src/lib/session-actions.ts";
 
@@ -28,6 +29,15 @@ describe("session actions", () => {
 		expect(queuedMessageShouldFlush()).toBe(true);
 		expect(queuedMessageShouldFlush({ flush: true })).toBe(true);
 		expect(queuedMessageShouldFlush({ flush: false })).toBe(false);
+	});
+
+	it("does not expose a queued message as runnable before its add receipt", () => {
+		expect(optimisticQueuedMessageReady()).toBe(false);
+		expect(optimisticQueuedMessageReady({ ready: true })).toBe(false);
+		expect(optimisticQueuedMessageReady({ persist: false })).toBe(true);
+		expect(optimisticQueuedMessageReady({ persist: false, ready: false })).toBe(
+			false,
+		);
 	});
 
 	it("drops a provisional session-not-found error after the timeline is live", () => {

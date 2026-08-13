@@ -115,6 +115,7 @@ import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useUsageLimitsStore } from "../store/usage-limits.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
+import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { openAddComputerDialog } from "./add-computer-dialog.tsx";
 import { BranchIcon, type BranchState } from "./branch-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
@@ -1507,18 +1508,23 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 				?.label ?? "another computer",
 	);
 	const onRemoteEnvironment = activeEnvironmentId !== getLocalEnvironmentId();
+	const worktreePath = useWorktreesStore((state) => {
+		if (chat.worktreeId === null) return projectRoot;
+		return (
+			(state.byProject[chat.projectId] ?? EMPTY_WORKTREES).find(
+				(worktree) => worktree.id === chat.worktreeId,
+			)?.path ?? null
+		);
+	});
 
 	const gitView = useGitWorkspaceResource(
-		creationPending
+		creationPending || worktreePath === null
 			? null
 			: {
 					environmentId: EnvironmentId.make(activeEnvironmentId),
 					folderId: chat.projectId,
 					worktreeId: chat.worktreeId,
-					// Catalog rows do not carry the resolved worktree path. The qualified
-					// identity still includes the known project root; the selected chat
-					// re-keys to its canonical worktree path when ActiveContext resolves.
-					rootPath: projectRoot,
+					rootPath: worktreePath,
 				},
 		"cache-only",
 	);

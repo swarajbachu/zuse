@@ -2403,9 +2403,29 @@ export const GitServiceLive = Layer.effect(
 						GitFailure
 					>();
 					const cwd = yield* resolvePathForWorktree(folderId, worktreeId);
+					const [gitDirectoryOutput, commonDirectoryOutput] = yield* Effect.all(
+						[
+							run(folderId, cwd, ["rev-parse", "--absolute-git-dir"]),
+							run(folderId, cwd, ["rev-parse", "--git-common-dir"]),
+						],
+					);
+					const absoluteMetadataPath = (value: string): string => {
+						const trimmed = value.trim();
+						return path.isAbsolute(trimmed)
+							? trimmed
+							: path.resolve(cwd, trimmed);
+					};
+					const watchPaths = [
+						cwd,
+						absoluteMetadataPath(gitDirectoryOutput),
+						absoluteMetadataPath(commonDirectoryOutput),
+					].filter((value, index, values) => values.indexOf(value) === index);
 					let revision = 0;
-					const watch = fs.watch(cwd).pipe(
-						Stream.debounce(Duration.millis(100)),
+					const watch = Stream.mergeAll(
+						watchPaths.map((watchPath) => fs.watch(watchPath)),
+						{ concurrency: "unbounded" },
+					).pipe(
+						Stream.debounce(Duration.millis(50)),
 						Stream.runForEach(() =>
 							Effect.sync(() => {
 								revision += 1;

@@ -113,6 +113,12 @@ export const queuedMessageShouldFlush = (options?: {
 	readonly flush?: boolean;
 }): boolean => options?.flush !== false;
 
+/** A persisted optimistic row is runnable only after its durable add receipt. */
+export const optimisticQueuedMessageReady = (options?: {
+	readonly persist?: boolean;
+	readonly ready?: boolean;
+}): boolean => (options?.persist === false ? (options.ready ?? true) : false);
+
 const projectionFor = (ref: SessionRef): SessionTimelineProjection | null =>
 	getRendererClientBus().snapshot(sessionTimelineResourceKey(ref)).data;
 
@@ -374,7 +380,7 @@ export const queueSessionMessage = (
 			position: current.length,
 			createdAt: now,
 			updatedAt: now,
-			ready: options?.ready ?? true,
+			ready: optimisticQueuedMessageReady(options),
 		});
 		updateQueue(ref, (items) => [...items, item]);
 	}

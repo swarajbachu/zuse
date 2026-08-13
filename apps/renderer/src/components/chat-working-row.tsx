@@ -93,7 +93,7 @@ export function ChatWorkingRow({
 						})
 					: `${providerLabel} is working`}
 			</span>
-			<ShimmerText tone="lime" className="ml-auto tabular-nums">
+			<ShimmerText tone="lime" className="tabular-nums">
 				{formatElapsed(elapsed)}
 			</ShimmerText>
 		</div>
