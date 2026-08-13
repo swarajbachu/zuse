@@ -178,6 +178,12 @@ const cloudFailureRank = (statusCode: string): number => {
 
 export const cloudFailureMessage = (statusCode: string): string => {
 	switch (statusCode) {
+		case "updating-runtime-failed":
+			return "The secure runtime is incompatible with the cloud control plane. Retry after the cloud service finishes updating.";
+		case "starting-runtime-failed":
+			return "The secure runtime could not start. Retry will create a clean sandbox.";
+		case "syncing-repository-failed":
+			return "The sandbox started, but the repository could not be prepared. Retry will create a clean sandbox.";
 		case "runtime-connection-timeout":
 			return "The sandbox started, but its secure runtime did not connect in time.";
 		case "provider-sandbox-missing":

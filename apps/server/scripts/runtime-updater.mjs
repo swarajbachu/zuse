@@ -466,12 +466,20 @@ try {
 			targetRuntimeVersion: manifest.version,
 		});
 	}
-} catch {
+} catch (cause) {
+	const diagnostic =
+		cause instanceof Error ? cause.message : "Unknown runtime update failure";
+	// The workspace bootstrap redirects stderr into its durable status directory.
+	// Keep this deliberately compact and secret-free: fetch errors and validation
+	// failures do not contain the boot token or provider credentials, while the
+	// message is essential for distinguishing a rollout mismatch from bad bytes.
+	console.error(`Runtime update failed: ${diagnostic}`);
 	await writeStatus({
 		...lastStatus,
 		state: "failed",
 		phase: "failed",
 		failureCode,
+		diagnostic,
 	});
 	process.exitCode = 1;
 } finally {

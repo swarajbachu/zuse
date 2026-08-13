@@ -256,6 +256,11 @@ describe("cloud runtime assets", () => {
 		expect(updater).toContain("const fetchWithRetry");
 		expect(updater).toContain("AbortSignal.timeout");
 		expect(updater).toContain("Runtime hash is invalid");
+		expect(updater).toContain("Runtime update failed:");
+		expect(updater).toContain("diagnostic,");
+		expect(updater).toContain(
+			'cause instanceof Error ? cause.message : "Unknown runtime update failure"',
+		);
 		expect(updater).toContain("signal: AbortSignal.timeout(2_000)");
 		expect(updater).toContain("const expectedWireProtocol = Number(");
 		expect(updater).toContain("wireProtocol.min > expectedWireProtocol");

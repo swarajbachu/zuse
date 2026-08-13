@@ -51,4 +51,19 @@ describe("failed cloud workspace resume policy", () => {
 			}),
 		).toEqual({ state: "queued", providerSandboxId: undefined });
 	});
+
+	test("replaces an incomplete sandbox after bootstrap fails before the repository is ready", () => {
+		for (const statusCode of [
+			"initializing-failed",
+			"updating-runtime-failed",
+			"starting-runtime-failed",
+			"syncing-repository-failed",
+		] as const)
+			expect(
+				failedWorkspaceResumeTarget({
+					providerSandboxId: "sandbox-incomplete",
+					statusCode,
+				}),
+			).toEqual({ state: "queued", providerSandboxId: undefined });
+	});
 });

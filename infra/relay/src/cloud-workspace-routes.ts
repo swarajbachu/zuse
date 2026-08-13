@@ -324,7 +324,10 @@ export const failedWorkspaceResumeTarget = (
 	workspace: Pick<CloudWorkspaceRecord, "providerSandboxId" | "statusCode">,
 ) =>
 	workspace.providerSandboxId === undefined ||
-	workspace.statusCode === "provider-sandbox-missing"
+	workspace.statusCode === "provider-sandbox-missing" ||
+	/^(?:initializing|updating-runtime|starting-runtime|syncing-repository|setup)-failed$/u.test(
+		workspace.statusCode,
+	)
 		? ({ state: "queued", providerSandboxId: undefined } as const)
 		: ({
 				state: "resuming",
