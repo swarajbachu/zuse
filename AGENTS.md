@@ -24,9 +24,6 @@ If a tradeoff is required, choose correctness and robustness over short-term con
 - Do not duplicate logic. One behavior should have one source of truth. If the same or very similar logic exists in multiple places, extract it into shared code and use the shared code everywhere.
 - Do not take shortcuts by adding isolated local logic for a problem that belongs in an existing shared module. Change existing code when that is the clean solution.
 
-## Design Decisions
-
-- When making UI or UX decisions, explicitly use the `emil-design-engineering` skill. It helps keep the product fast, accessible, consistent, and polished.
 
 ## Agent skills
 
