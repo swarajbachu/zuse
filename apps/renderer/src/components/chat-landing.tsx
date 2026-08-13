@@ -1099,6 +1099,18 @@ export function ChatLanding() {
 			setSubmitting(false);
 			return;
 		}
+		if (
+			useChatsStore.getState().pendingCreationByChat[result.chatId] !==
+			undefined
+		) {
+			// An ambiguous transport interruption leaves the retry-safe chat command
+			// in the outbox. The pending-creation surface owns the UI until replay
+			// produces the durable chat/session; never issue session-scoped follow-up
+			// commands against its provisional id.
+			useSessionsStore.getState().clearDraft();
+			setSubmitting(false);
+			return;
+		}
 		const worktreeId = result.worktreeId;
 		setPendingWorktreeId(worktreeId);
 		const sessionId = result.initialSessionId;
