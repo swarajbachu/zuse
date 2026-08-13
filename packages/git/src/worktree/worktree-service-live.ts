@@ -1856,10 +1856,6 @@ export const WorktreeServiceLive = Layer.effect(
 		) =>
 			Stream.unwrap(
 				Effect.gen(function* () {
-					const wt = yield* get(worktreeId);
-					if (wt === null) {
-						return Stream.fail(new WorktreeNotFoundError({ worktreeId }));
-					}
 					const mailbox = yield* Queue.make<WorktreeSetupEvent, Cause.Done>();
 					const set = subscribers.get(worktreeId) ?? new Set();
 					set.add(mailbox);
@@ -1872,6 +1868,16 @@ export const WorktreeServiceLive = Layer.effect(
 							if (s.size === 0) subscribers.delete(worktreeId);
 						}),
 					);
+					// Attach before reading the persisted snapshot. A terminal update that
+					// commits during this read is then queued instead of disappearing into
+					// a subscribe-after-snapshot gap.
+					const wt = yield* get(worktreeId);
+					if (wt === null) {
+						return Stream.fail(new WorktreeNotFoundError({ worktreeId }));
+					}
+					// Do not seed a stale snapshot over an event already received after the
+					// subscription was attached.
+					if (Queue.sizeUnsafe(mailbox) > 0) return Stream.fromQueue(mailbox);
 					// Seed the current snapshot so a late subscriber (after a fast setup
 					// already finished) still sees the latest output + terminal status.
 					Queue.offerUnsafe(
