@@ -4,6 +4,20 @@ import { chatLandingProgress } from "../../src/lib/chat-landing-progress.ts";
 import cloudChatsSource from "../../src/lib/cloud-workspaces.ts?raw";
 
 describe("chat landing progress", () => {
+	test("initializes the active environment before selectors consume it", () => {
+		const environmentSubscription = chatLandingSource.indexOf(
+			"const activeEnvironmentId = useEnvironmentCatalogStore(",
+		);
+		const repositorySettingsSubscription = chatLandingSource.indexOf(
+			"const repositoryAutoCreateWorktree = useRepositorySettingsStore(",
+		);
+
+		expect(environmentSubscription).toBeGreaterThan(-1);
+		expect(repositorySettingsSubscription).toBeGreaterThan(
+			environmentSubscription,
+		);
+	});
+
 	test("stages the durable chat before attaching the workspace gateway", () => {
 		expect(chatLandingSource).toContain("stageCloudChat(");
 		expect(chatLandingSource).toContain("ensureCloudWorkspaceAttached(");

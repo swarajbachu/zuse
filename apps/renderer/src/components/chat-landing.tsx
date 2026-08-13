@@ -1,19 +1,19 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
 import {
+	type AttachmentRef,
 	type ChatId,
 	type ChatWorkspacePolicy,
 	type CloudProject,
 	type CloudProviderOption,
+	CommandId,
 	ComposerInput,
 	defaultModelFor,
 	EnvironmentId,
 	type FolderId,
-	type LinearIssueSummary,
 	type LinearContextFile,
 	type LinearContextWarning,
-	type AttachmentRef,
-	CommandId,
+	type LinearIssueSummary,
 	type ProviderId,
 	type SessionId,
 	type WorktreeCreateSource,
@@ -69,11 +69,14 @@ import {
 	summaryFromLaunch,
 } from "~/lib/cloud-workspaces.ts";
 import { saveContextFile, saveContextText } from "~/lib/context-handoff";
-import { dispatchEnvironmentShellCommand } from "~/lib/environment-shell-client-bus";
-import { dispatchGitWorkspaceCommand } from "~/lib/git-workspace-client-bus";
+import { runControlPlane } from "~/lib/control-plane-client.ts";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
-import { useEnvironmentShellCatalog } from "~/lib/environment-shell-client-bus";
+import {
+	dispatchEnvironmentShellCommand,
+	useEnvironmentShellCatalog,
+} from "~/lib/environment-shell-client-bus";
 import { formatError } from "~/lib/format-error";
+import { dispatchGitWorkspaceCommand } from "~/lib/git-workspace-client-bus";
 import {
 	buildLogicalProjectGroups,
 	defaultNewChatTarget,
@@ -83,7 +86,6 @@ import {
 	preferredGroupMember,
 } from "~/lib/project-groups";
 import { getLocalEnvironmentId } from "~/lib/rpc-client";
-import { runControlPlane } from "~/lib/control-plane-client.ts";
 import { updateQueuedMessage } from "~/lib/session-actions";
 import { useSettingsStore } from "~/lib/settings-client-bus.ts";
 import { switchToEnvironment } from "~/lib/switch-environment";
@@ -224,6 +226,9 @@ export function ChatLanding() {
 	const defaultAutoCreateWorktree = useSettingsStore(
 		(s) => s.defaultAutoCreateWorktree,
 	);
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(s) => s.activeEnvironmentId,
+	);
 	const repositoryAutoCreateWorktree = useRepositorySettingsStore((s) =>
 		selectedFolderId === null
 			? false
@@ -299,9 +304,6 @@ export function ChatLanding() {
 	);
 
 	const catalogEntries = useEnvironmentCatalogStore((s) => s.entries);
-	const activeEnvironmentId = useEnvironmentCatalogStore(
-		(s) => s.activeEnvironmentId,
-	);
 	const shellViews = useEnvironmentShellCatalog(
 		catalogEntries.map((entry) => entry.environmentId),
 	);
