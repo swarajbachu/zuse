@@ -9,7 +9,6 @@ import {
 	type LocalAccountDescriptor,
 } from "@zuse/contracts";
 import {
-	Check,
 	ChevronDown,
 	Cloud,
 	GitBranch,
@@ -17,19 +16,22 @@ import {
 	RefreshCw,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../hooks/use-auth.ts";
 import { cloudWorkspaceAccessPresentation } from "../../lib/cloud-workspace-access.ts";
 import { runControlPlane } from "../../lib/control-plane-client.ts";
 import { listEnvironmentGithubRepos } from "../../lib/environment-projects.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
 import { getLocalEnvironmentId } from "../../lib/rpc-client.ts";
-import { cn } from "../../lib/utils.ts";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
-import { Input } from "../ui/input.tsx";
-import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover.tsx";
-import { CloudSettingsGroup, CloudSettingsRow } from "./cloud-settings-ui.tsx";
+import {
+	Select,
+	SelectItem,
+	SelectPopup,
+	SelectTrigger,
+} from "../ui/select.tsx";
+import { CloudSettingsRow } from "./cloud-settings-ui.tsx";
 
 const stateVariant = (
 	state: CloudWorkspace["state"],
@@ -64,6 +66,7 @@ function CredentialRow({
 	const connected = credential?.state === "connected";
 	return (
 		<CloudSettingsRow
+			className="px-0"
 			title={label}
 			description={
 				connected
@@ -96,20 +99,16 @@ function CredentialRow({
 			}
 		>
 			{connected ? null : (
-				<div className="grid gap-1.5 rounded-md border border-border/40 bg-muted/25 p-2 sm:grid-cols-2">
-					<div className="flex items-center gap-2 text-[11px]">
-						<span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-muted text-[9px]">
-							1
-						</span>
+				<ol className="mt-2 grid gap-1.5 text-[11px] sm:grid-cols-2">
+					<li className="flex items-center gap-2">
+						<span className="text-muted-foreground">1.</span>
 						<span>
 							Run{" "}
 							<code className="rounded bg-muted px-1 py-0.5">{command}</code>
 						</span>
-					</div>
-					<div className="flex items-center gap-2 text-[11px]">
-						<span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-muted text-[9px]">
-							2
-						</span>
+					</li>
+					<li className="flex items-center gap-2">
+						<span className="text-muted-foreground">2.</span>
 						<span
 							className={localAccount?.detected ? "text-success" : undefined}
 						>
@@ -117,10 +116,37 @@ function CredentialRow({
 								? `${localAccount.accountLabel ?? "Account"} found — transfer it.`
 								: "Return here after sign-in; Zuse detects it automatically."}
 						</span>
-					</div>
-				</div>
+					</li>
+				</ol>
 			)}
 		</CloudSettingsRow>
+	);
+}
+
+function SetupSection({
+	title,
+	description,
+	action,
+	children,
+}: {
+	readonly title: string;
+	readonly description: string;
+	readonly action?: ReactNode;
+	readonly children: ReactNode;
+}) {
+	return (
+		<section className="border-border border-t py-5 first:border-t-0 first:pt-1">
+			<div className="flex items-start gap-4">
+				<div className="min-w-0 flex-1">
+					<h3 className="text-sm font-medium">{title}</h3>
+					<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+						{description}
+					</p>
+				</div>
+				{action}
+			</div>
+			<div className="mt-3">{children}</div>
+		</section>
 	);
 }
 
@@ -147,8 +173,6 @@ export function CloudWorkspacePool() {
 	const [githubAuthenticated, setGithubAuthenticated] = useState(false);
 	const [reposLoading, setReposLoading] = useState(false);
 	const [selectedRepos, setSelectedRepos] = useState<ReadonlyArray<string>>([]);
-	const [repoSearch, setRepoSearch] = useState("");
-	const [repoPickerOpen, setRepoPickerOpen] = useState(false);
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [projectError, setProjectError] = useState<string | null>(null);
@@ -319,7 +343,7 @@ export function CloudWorkspacePool() {
 								defaultBranch: repo.defaultBranch,
 								visibility: repo.isPrivate ? "private" : "public",
 								displayName: repo.nameWithOwner,
-								idempotencyKey: crypto.randomUUID(),
+								idempotencyKey: `settings-connect:${repo.nameWithOwner}:${repo.defaultBranch}`,
 							}),
 						),
 					),
@@ -358,24 +382,37 @@ export function CloudWorkspacePool() {
 				disconnected,
 			]);
 		});
+	const prepareProject = (project: CloudProject) =>
+		run(`build:${project.projectId}`, async () => {
+			await Promise.all(
+				providers.map((provider) =>
+					runControlPlane((client) =>
+						client["cloud.projects.prepare"]({
+							projectId: project.projectId,
+							providerId: provider.providerId,
+							idempotencyKey: `settings-build:${project.projectId}:${provider.providerId}:${project.updatedAt}`,
+						}),
+					),
+				),
+			);
+		});
 
 	if (authLoading) return null;
 	if (!isSignedIn) {
 		return (
-			<CloudSettingsGroup
+			<SetupSection
 				title="Cloud Workspace · Beta"
 				description="Your saved chats remain available on this device. Sign in again to access cloud compute and billing."
+				action={
+					<Button size="xs" loading={signingIn} onClick={() => void signIn()}>
+						Sign in
+					</Button>
+				}
 			>
-				<CloudSettingsRow
-					title="Session expired"
-					description="Your account session could not be renewed. You do not need to sign out first."
-					action={
-						<Button size="xs" loading={signingIn} onClick={() => void signIn()}>
-							Sign in
-						</Button>
-					}
-				/>
-			</CloudSettingsGroup>
+				<p className="text-[11px] text-muted-foreground">
+					Your account session expired. You do not need to sign out first.
+				</p>
+			</SetupSection>
 		);
 	}
 	const credentialFor = (kind: "github" | "claude" | "codex") =>
@@ -389,23 +426,9 @@ export function CloudWorkspacePool() {
 	const availableRepos = githubRepos.filter(
 		(repo) => !connectedIdentities.has(repo.nameWithOwner.toLowerCase()),
 	);
-	const filteredRepos = availableRepos.filter((repo) => {
-		const query = repoSearch.trim().toLowerCase();
-		return (
-			query.length === 0 ||
-			repo.nameWithOwner.toLowerCase().includes(query) ||
-			repo.description?.toLowerCase().includes(query) === true
-		);
-	});
-	const agentsConnected = (["claude", "codex"] as const).filter(
-		(kind) => credentialFor(kind)?.state === "connected",
-	).length;
-	const setupSteps = [
-		{ label: "Cloud access", complete: subscribed && serviceAvailable },
-		{ label: "GitHub", complete: githubConnected },
-		{ label: "Repositories", complete: projects.length > 0 },
-		{ label: "Agents", complete: agentsConnected > 0 },
-	] as const;
+	const unfinishedProjects = projects.filter(
+		(project) => project.state !== "ready",
+	);
 
 	return (
 		<>
@@ -417,78 +440,35 @@ export function CloudWorkspacePool() {
 					{error}
 				</div>
 			)}
-			<div className="grid grid-cols-4 gap-1 rounded-lg border border-border/50 bg-muted/20 p-1.5">
-				{setupSteps.map((step, index) => (
-					<div
-						key={step.label}
-						className={cn(
-							"flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-[10px]",
-							step.complete ? "text-foreground" : "text-muted-foreground",
-						)}
-					>
-						<span
-							className={cn(
-								"flex size-4 shrink-0 items-center justify-center rounded-full border text-[9px]",
-								step.complete &&
-									"border-success/40 bg-alert-success-bg text-success",
-							)}
-						>
-							{step.complete ? <Check className="size-2.5" /> : index + 1}
-						</span>
-						<span className="truncate">{step.label}</span>
-					</div>
-				))}
-			</div>
-
-			<CloudSettingsGroup
-				title="1 · Cloud access"
+			<SetupSection
+				title="Cloud access"
 				description="Cloud workspaces keep agents running when this app or your laptop is offline."
 				action={
-					<Badge
-						variant={
-							subscribed
-								? serviceAvailable
-									? "success"
-									: "warning"
-								: "outline"
-						}
-					>
-						{subscribed
-							? serviceAvailable
-								? "Ready"
-								: "Update required"
-							: "$20 / month"}
-					</Badge>
+					subscribed ? (
+						<Badge variant={serviceAvailable ? "success" : "warning"}>
+							{serviceAvailable ? "Ready" : "Update required"}
+						</Badge>
+					) : (
+						<Button
+							size="xs"
+							loading={busy === "checkout"}
+							onClick={() => void checkout()}
+						>
+							Subscribe · $20/month
+						</Button>
+					)
 				}
 			>
-				<CloudSettingsRow
-					title={
-						subscribed ? "Cloud workspace is ready" : "Enable Cloud Workspace"
-					}
-					description={
-						subscribed
-							? "Each chat gets an isolated workspace. Compute pauses when it is not needed."
-							: "Subscribe once, then connect GitHub and the coding agents you already use."
-					}
-					action={
-						subscribed ? (
-							<Cloud className="size-4 text-success" aria-hidden />
-						) : (
-							<Button
-								size="xs"
-								loading={busy === "checkout"}
-								onClick={() => void checkout()}
-							>
-								Subscribe
-							</Button>
-						)
-					}
-				/>
-			</CloudSettingsGroup>
+				<p className="flex items-center gap-2 text-[11px] text-muted-foreground">
+					<Cloud className="size-3.5" aria-hidden />
+					Each chat gets an isolated workspace. Compute pauses when it is not
+					needed.
+				</p>
+			</SetupSection>
 
 			{subscribed && serviceAvailable ? (
-				<CloudSettingsGroup
-					title="2 · Connect GitHub"
+				<SetupSection
+					title="Connect GitHub"
 					description="Use your existing GitHub CLI login; no repository URLs or access tokens to paste."
 				>
 					<CredentialRow
@@ -503,28 +483,30 @@ export function CloudWorkspacePool() {
 						onConnect={connectCredential}
 						onDisconnect={disconnectCredential}
 					/>
-				</CloudSettingsGroup>
+				</SetupSection>
 			) : null}
 
 			{subscribed && serviceAvailable ? (
-				<CloudSettingsGroup
-					title="3 · Choose repositories"
-					description="Pick from GitHub. Zuse uses each repository's visibility and default branch automatically."
+				<SetupSection
+					title="Repositories"
+					description="Choose repositories from GitHub, then build the cloud images used to start new workspaces."
 				>
-					<CloudSettingsRow
-						title="Repositories available to cloud chats"
-						description={
-							githubAuthenticated
-								? "Select one or more repositories, then connect them together."
-								: "Run gh auth login on this Mac, then refresh."
-						}
-					>
+					<div className="space-y-2.5">
+						<p className="text-[11px] text-muted-foreground">
+							{githubAuthenticated
+								? "Select one or more repositories. Existing agents keep running while new images build."
+								: "Run gh auth login on this Mac, then refresh."}
+						</p>
 						<div className="flex items-center gap-2">
-							<Popover open={repoPickerOpen} onOpenChange={setRepoPickerOpen}>
-								<PopoverTrigger
-									disabled={!githubConnected || !githubAuthenticated}
-									className="flex h-8 min-w-52 flex-1 items-center justify-between rounded-md border border-border/50 bg-muted/40 px-2.5 text-xs text-foreground outline-none hover:bg-muted/70 disabled:opacity-50"
-								>
+							<Select
+								value=""
+								disabled={!githubConnected || !githubAuthenticated}
+								onValueChange={(value) => {
+									if (value !== null && !selectedRepos.includes(value))
+										setSelectedRepos((current) => [...current, value]);
+								}}
+							>
+								<SelectTrigger className="min-h-8 flex-1 border-border">
 									<span>
 										{reposLoading
 											? "Loading repositories…"
@@ -532,64 +514,24 @@ export function CloudWorkspacePool() {
 												? "Select repositories"
 												: `${selectedRepos.length} selected`}
 									</span>
-									<ChevronDown className="size-3.5 text-muted-foreground" />
-								</PopoverTrigger>
-								<PopoverPopup
-									align="start"
-									className="w-96 p-1 [&_[data-slot=popover-viewport]]:p-0"
-								>
-									<div className="border-border/40 border-b p-2">
-										<Input
-											value={repoSearch}
-											onChange={(event) =>
-												setRepoSearch(event.currentTarget.value)
-											}
-											placeholder="Search your repositories"
-											autoFocus
-										/>
-									</div>
-									<div className="max-h-64 overflow-y-auto p-1">
-										{filteredRepos.length === 0 ? (
-											<p className="px-2 py-6 text-center text-[11px] text-muted-foreground">
-												No unconnected repositories found.
-											</p>
-										) : (
-											filteredRepos.map((repo) => {
-												const selected = selectedRepos.includes(
-													repo.nameWithOwner,
-												);
-												return (
-													<button
-														key={repo.nameWithOwner}
-														type="button"
-														className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-muted/60"
-														onClick={() =>
-															setSelectedRepos((current) =>
-																selected
-																	? current.filter(
-																			(name) => name !== repo.nameWithOwner,
-																		)
-																	: [...current, repo.nameWithOwner],
-															)
-														}
-													>
-														<GitBranch className="size-3.5 shrink-0" />
-														<span className="min-w-0 flex-1 truncate text-xs">
-															{repo.nameWithOwner}
-														</span>
-														{repo.isPrivate ? (
-															<Lock className="size-3 text-muted-foreground" />
-														) : null}
-														{selected ? (
-															<Check className="size-3.5 text-success" />
-														) : null}
-													</button>
-												);
-											})
-										)}
-									</div>
-								</PopoverPopup>
-							</Popover>
+								</SelectTrigger>
+								<SelectPopup>
+									{availableRepos.map((repo) => (
+										<SelectItem
+											key={repo.nameWithOwner}
+											value={repo.nameWithOwner}
+										>
+											<GitBranch aria-hidden />
+											<span className="flex min-w-0 items-center gap-2">
+												<span className="truncate">{repo.nameWithOwner}</span>
+												{repo.isPrivate ? (
+													<Lock className="ml-auto" aria-label="Private" />
+												) : null}
+											</span>
+										</SelectItem>
+									))}
+								</SelectPopup>
+							</Select>
 							<Button
 								size="icon-lg"
 								variant="ghost"
@@ -599,19 +541,11 @@ export function CloudWorkspacePool() {
 							>
 								<RefreshCw aria-hidden />
 							</Button>
-							<Button
-								size="sm"
-								loading={busy === "connect"}
-								disabled={selectedRepos.length === 0}
-								onClick={() => void connectProjects()}
-							>
-								Connect
-							</Button>
 						</div>
 						{selectedRepos.length === 0 ? null : (
 							<div className="flex flex-wrap gap-1.5">
 								{selectedRepos.map((name) => (
-									<Badge key={name} variant="outline" size="lg">
+									<Badge key={name} variant="secondary" size="lg">
 										<GitBranch aria-hidden />
 										{name}
 										<button
@@ -629,28 +563,96 @@ export function CloudWorkspacePool() {
 								))}
 							</div>
 						)}
+						<div className="flex items-center gap-3">
+							<Button
+								size="sm"
+								loading={busy === "connect"}
+								disabled={selectedRepos.length === 0}
+								onClick={() => void connectProjects()}
+							>
+								{selectedRepos.length === 0
+									? "Build repositories"
+									: `Build ${selectedRepos.length} ${selectedRepos.length === 1 ? "repository" : "repositories"}`}
+							</Button>
+							<p className="text-[11px] text-muted-foreground">
+								{selectedRepos.length === 0
+									? "Select repositories to create their cloud images."
+									: "Creates a clean image for every repository and available compute provider. You can leave while it builds."}
+							</p>
+						</div>
 						{projects.length === 0 ? null : (
-							<div className="flex flex-wrap gap-1.5 border-border/40 border-t pt-2">
+							<div className="flex flex-wrap gap-1.5 pt-1">
 								{projects.map((project) => (
-									<Badge key={project.projectId} variant="success" size="lg">
-										<Check aria-hidden />
+									<Badge key={project.projectId} variant="secondary" size="lg">
+										<GitBranch aria-hidden />
 										{project.displayName}
 									</Badge>
 								))}
 							</div>
 						)}
-					</CloudSettingsRow>
+						{unfinishedProjects.length === 0 ? null : (
+							<div className="overflow-hidden rounded-lg border border-border">
+								<div className="px-3 py-2 text-xs font-medium">
+									{unfinishedProjects.some(
+										(project) => project.state === "preparing",
+									)
+										? "Building cloud images…"
+										: "Cloud image build needs attention"}
+								</div>
+								<div className="divide-y divide-border border-border border-t">
+									{unfinishedProjects.map((project) => (
+										<div
+											key={project.projectId}
+											className="flex items-center gap-3 px-3 py-2 text-[11px]"
+										>
+											<span className="min-w-0 flex-1 truncate">
+												{project.displayName}
+											</span>
+											<Badge
+												variant={
+													project.state === "failed"
+														? "error"
+														: project.state === "preparing"
+															? "warning"
+															: "outline"
+												}
+											>
+												{project.state === "failed"
+													? "Failed"
+													: project.state === "preparing"
+														? "Building"
+														: "Not built"}
+											</Badge>
+											{project.state !== "preparing" ? (
+												<Button
+													size="xs"
+													variant="ghost"
+													loading={busy === `build:${project.projectId}`}
+													disabled={providers.length === 0}
+													onClick={() => void prepareProject(project)}
+												>
+													{project.state === "failed"
+														? "Retry build"
+														: "Build now"}
+												</Button>
+											) : null}
+										</div>
+									))}
+								</div>
+							</div>
+						)}
+					</div>
 					{projectError === null ? null : (
-						<p role="alert" className="px-3 pb-3 text-xs text-destructive">
+						<p role="alert" className="mt-2 text-xs text-destructive">
 							{projectError}
 						</p>
 					)}
-				</CloudSettingsGroup>
+				</SetupSection>
 			) : null}
 
 			{subscribed && serviceAvailable ? (
-				<CloudSettingsGroup
-					title="4 · Connect your agents"
+				<SetupSection
+					title="Agents"
 					description="Prepare the provider locally, then transfer only its credential to cloud workspaces."
 				>
 					<CredentialRow
@@ -677,17 +679,17 @@ export function CloudWorkspacePool() {
 						onConnect={connectCredential}
 						onDisconnect={disconnectCredential}
 					/>
-				</CloudSettingsGroup>
+				</SetupSection>
 			) : null}
 
 			{subscribed && serviceAvailable && workspaces.length > 0 ? (
-				<details className="group rounded-lg border border-border/40 bg-muted/10">
+				<details className="group rounded-lg border border-border">
 					<summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground">
 						<ChevronDown className="size-3 transition-transform group-open:rotate-180" />
 						Workspace activity
 						<Badge variant="outline">{workspaces.length}</Badge>
 					</summary>
-					<div className="divide-y divide-border/40 border-border/40 border-t">
+					<div className="divide-y divide-border border-border border-t">
 						{workspaces.map((workspace) => (
 							<CloudSettingsRow
 								key={workspace.workspaceId}
