@@ -87,6 +87,25 @@ const CloudWorkspace = MemoizeRpcs.toLayerHandler(
 	({ workspaceId }) =>
 		withCloudControl((service) => service.cloudWorkspace(workspaceId)),
 );
+const CloudTranscriptCheckpoint = MemoizeRpcs.toLayerHandler(
+	"cloud.transcript.get",
+	({ workspaceId, sessionId, cursor }) =>
+		withCloudControl((service) =>
+			service.cloudTranscriptCheckpoint(workspaceId, sessionId, cursor),
+		),
+);
+const CloudTranscriptMessagePage = MemoizeRpcs.toLayerHandler(
+	"cloud.transcript.messages.page",
+	({ workspaceId, sessionId, cursor, beforeSequence }) =>
+		withCloudControl((service) =>
+			service.cloudTranscriptMessagePage(
+				workspaceId,
+				sessionId,
+				cursor,
+				beforeSequence,
+			),
+		),
+);
 const WatchCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.watch",
 	({ workspaceId, afterRevision }) =>
@@ -114,37 +133,40 @@ const CloudChats = MemoizeRpcs.toLayerHandler(
 );
 const PauseCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.pause",
-	({ workspaceId }) =>
+	({ workspaceId, commandId }) =>
 		withCloudControl((service) =>
-			service.cloudWorkspaceAction(workspaceId, "pause"),
+			service.cloudWorkspaceAction(workspaceId, "pause", { commandId }),
 		),
 );
 const ResumeCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.resume",
-	({ workspaceId, recoverRuntime }) =>
+	({ workspaceId, recoverRuntime, commandId }) =>
 		withCloudControl((service) =>
-			service.cloudWorkspaceAction(workspaceId, "resume", { recoverRuntime }),
+			service.cloudWorkspaceAction(workspaceId, "resume", {
+				recoverRuntime,
+				commandId,
+			}),
 		),
 );
 const ArchiveCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.archive",
-	({ workspaceId }) =>
+	({ workspaceId, commandId }) =>
 		withCloudControl((service) =>
-			service.cloudWorkspaceAction(workspaceId, "archive"),
+			service.cloudWorkspaceAction(workspaceId, "archive", { commandId }),
 		),
 );
 const UnarchiveCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.unarchive",
-	({ workspaceId }) =>
+	({ workspaceId, commandId }) =>
 		withCloudControl((service) =>
-			service.cloudWorkspaceAction(workspaceId, "unarchive"),
+			service.cloudWorkspaceAction(workspaceId, "unarchive", { commandId }),
 		),
 );
 const DeleteCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.delete",
-	({ workspaceId }) =>
+	({ workspaceId, commandId }) =>
 		withCloudControl((service) =>
-			service.cloudWorkspaceAction(workspaceId, "delete"),
+			service.cloudWorkspaceAction(workspaceId, "delete", { commandId }),
 		),
 );
 const CloudCredentials = MemoizeRpcs.toLayerHandler(
@@ -269,6 +291,8 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	PrepareCloudProject,
 	CloudWorkspaces,
 	CloudWorkspace,
+	CloudTranscriptCheckpoint,
+	CloudTranscriptMessagePage,
 	WatchCloudWorkspace,
 	CreateCloudWorkspace,
 	ConnectCloudWorkspace,

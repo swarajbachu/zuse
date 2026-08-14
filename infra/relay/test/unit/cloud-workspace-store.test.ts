@@ -98,6 +98,22 @@ describe("cloud workspace store", () => {
 			workspaceId: workspace.workspaceId,
 			commandId: `launch:${workspace.workspaceId}`,
 		});
+		await runtime.runPromise(
+			store.saveWorkspaceLifecycleCommand({
+				workspace,
+				commandId: "archive-command-1",
+				action: "archive",
+				createdAtMs: 200,
+			}),
+		);
+		expect(
+			await runtime.runPromise(
+				store.getWorkspaceLifecycleCommand(
+					workspace.workspaceId,
+					"archive-command-1",
+				),
+			),
+		).toBe("archive");
 		const claimed = await runtime.runPromise(
 			store.claimWorkspace(workspace.workspaceId, "worker-a", 100, 200),
 		);
@@ -250,6 +266,7 @@ describe("cloud workspace store", () => {
 							version: 1,
 						},
 					],
+					sealedTranscriptKey: "sealed-transcript-key",
 					nowMs: 200,
 					...overrides,
 				}),
@@ -278,6 +295,55 @@ describe("cloud workspace store", () => {
 		).toBeNull();
 		expect(await enroll({ generation: 2 })).toBeNull();
 		expect(await enroll({ gatewayEpoch: 2 })).toBeNull();
+		const checkpoint = {
+			workspaceId: workspace.workspaceId,
+			sessionId: workspace.initialSessionId,
+			runtimeGeneration: 1,
+			streamEpoch: "epoch-1",
+			streamVersion: 5,
+			objectKey: "checkpoint-5",
+			ciphertextSha256: "hash-5",
+			ciphertextBytes: 100,
+			createdAtMs: 250,
+		};
+		expect(
+			await runtime.runPromise(store.saveTranscriptCheckpoint(checkpoint)),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(
+				store.saveTranscriptCheckpoint({
+					...checkpoint,
+					streamVersion: 4,
+					objectKey: "checkpoint-4",
+				}),
+			),
+		).toBe(false);
+		expect(
+			await runtime.runPromise(
+				store.saveTranscriptCheckpoint({
+					...checkpoint,
+					streamEpoch: "stale-epoch",
+					streamVersion: 6,
+				}),
+			),
+		).toBe(false);
+		expect(
+			await runtime.runPromise(
+				store.saveTranscriptCheckpoint({
+					...checkpoint,
+					runtimeGeneration: 2,
+					streamVersion: 6,
+				}),
+			),
+		).toBe(false);
+		expect(
+			await runtime.runPromise(
+				store.getTranscriptCheckpoint(
+					workspace.workspaceId,
+					workspace.initialSessionId,
+				),
+			),
+		).toMatchObject({ streamVersion: 5, objectKey: "checkpoint-5" });
 		expect(
 			await runtime.runPromise(
 				store.acknowledgeRuntimeBoot({

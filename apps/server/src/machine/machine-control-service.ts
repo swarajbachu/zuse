@@ -13,6 +13,8 @@ import {
 	CloudProjectList,
 	type CloudProjectPrepareRequest,
 	CloudProviderList,
+	CloudTranscriptCheckpointResult,
+	CloudTranscriptMessagePageResult,
 	CloudWorkspace,
 	CloudWorkspaceConnection,
 	type CloudWorkspaceCreateRequest,
@@ -69,6 +71,17 @@ export interface MachineControlServiceShape {
 	readonly cloudWorkspace: (
 		workspaceId: string,
 	) => Effect.Effect<CloudWorkspace, MachineControlError>;
+	readonly cloudTranscriptCheckpoint: (
+		workspaceId: string,
+		sessionId: string,
+		cursor?: { readonly epoch: string; readonly version: number },
+	) => Effect.Effect<CloudTranscriptCheckpointResult, MachineControlError>;
+	readonly cloudTranscriptMessagePage: (
+		workspaceId: string,
+		sessionId: string,
+		cursor: { readonly epoch: string; readonly version: number },
+		beforeSequence: number,
+	) => Effect.Effect<CloudTranscriptMessagePageResult, MachineControlError>;
 	readonly watchCloudWorkspace: (
 		workspaceId: string,
 		afterRevision?: number,
@@ -86,7 +99,7 @@ export interface MachineControlServiceShape {
 	readonly cloudWorkspaceAction: (
 		workspaceId: string,
 		action: "pause" | "resume" | "archive" | "unarchive" | "delete",
-		options?: Readonly<{ recoverRuntime?: boolean }>,
+		options?: Readonly<{ recoverRuntime?: boolean; commandId?: string }>,
 	) => Effect.Effect<CloudWorkspace, MachineControlError>;
 	readonly cloudCredentials: () => Effect.Effect<
 		CloudCredentialList,
@@ -319,6 +332,25 @@ export const MachineControlServiceLive: Layer.Layer<
 				),
 			cloudWorkspace: (workspaceId) =>
 				request(RelayPaths.cloudWorkspace(workspaceId), CloudWorkspace),
+			cloudTranscriptCheckpoint: (workspaceId, sessionId, cursor) =>
+				request(
+					`${RelayPaths.cloudWorkspaceTranscriptCheckpoint(workspaceId, sessionId)}${
+						cursor === undefined
+							? ""
+							: `?epoch=${encodeURIComponent(cursor.epoch)}&version=${cursor.version}`
+					}`,
+					CloudTranscriptCheckpointResult,
+				),
+			cloudTranscriptMessagePage: (
+				workspaceId,
+				sessionId,
+				cursor,
+				beforeSequence,
+			) =>
+				request(
+					`${RelayPaths.cloudWorkspaceTranscriptMessagePage(workspaceId, sessionId)}?epoch=${encodeURIComponent(cursor.epoch)}&version=${cursor.version}&beforeSequence=${beforeSequence}`,
+					CloudTranscriptMessagePageResult,
+				),
 			watchCloudWorkspace: (workspaceId, afterRevision) =>
 				streamCloudWorkspaceLifecycle(
 					request(RelayPaths.cloudWorkspace(workspaceId), CloudWorkspace),

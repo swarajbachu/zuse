@@ -21,6 +21,8 @@ import {
 	registerEnvironmentWakeForTest,
 	registerRendererResourceDriver,
 	registerRendererResourcePersistence,
+	registerSessionTimelineCheckpointSynchronizer,
+	registerSessionTimelineOlderPageSynchronizer,
 	rehydrateRendererCommandPayload,
 	resetSessionTimelineClientBusForTest,
 	retainSessionTimeline,
@@ -399,6 +401,56 @@ describe("renderer session timeline ClientBus adapter", () => {
 			loaded: 0,
 			hasMore: true,
 		});
+	});
+
+	it("loads an older checkpoint page without connecting a paused environment", async () => {
+		const older = Message.make({
+			id: MessageId.make("offline-older"),
+			sessionId,
+			role: "assistant",
+			content: { _tag: "assistant", text: "from R2" },
+			createdAt: new Date(1),
+		});
+		registerSessionTimelineCheckpointSynchronizer(environmentId, async () => ({
+			data: SessionTimelineProjection.make({
+				messages: [],
+				olderMessageSequence: 20,
+				status: "idle",
+				currentTurn: null,
+				queue: QueueState.make({ items: [], paused: false }),
+				permissionMode: "default",
+				runtimeMode: "approval-required",
+			}),
+			cursor: { epoch: "r2-page", version: 8 },
+			origin: "checkpoint",
+		}));
+		let pageCalls = 0;
+		registerSessionTimelineOlderPageSynchronizer(
+			environmentId,
+			async (_ref, cursor, beforeSequence) => {
+				pageCalls += 1;
+				expect(cursor).toEqual({ epoch: "r2-page", version: 8 });
+				expect(beforeSequence).toBe(20);
+				return { messages: [older], olderMessageSequence: null };
+			},
+		);
+		const retained = retainSessionTimeline(ref, "sync");
+		await waitUntil(
+			() =>
+				getRendererClientBus().snapshot(retained.key).origin === "checkpoint",
+		);
+
+		await expect(loadOlderSessionMessages(ref)).resolves.toEqual({
+			applied: true,
+			loaded: 1,
+			hasMore: false,
+		});
+		expect(pageCalls).toBe(1);
+		expect(getRendererClientBus().snapshot(retained.key)).toMatchObject({
+			connection: "dormant",
+			data: { messages: [older], olderMessageSequence: null },
+		});
+		retained.lease.release();
 	});
 
 	it("routes resource persistence by kind without creating another bus", async () => {

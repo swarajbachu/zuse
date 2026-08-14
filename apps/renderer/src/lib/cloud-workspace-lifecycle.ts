@@ -5,10 +5,10 @@ import type { CloudWorkspace } from "@zuse/contracts";
  * in the background to refresh an already-rendered local checkpoint. */
 export const cloudTranscriptActivation = (
 	summary: Pick<CloudWorkspace, "state" | "runtimeState">,
-): "cache-only" | "connect" =>
+): "sync" | "connect" =>
 	summary.state === "ready" && summary.runtimeState === "online"
 		? "connect"
-		: "cache-only";
+		: "sync";
 
 import { Effect, Option, Stream } from "effect";
 

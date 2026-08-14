@@ -24,6 +24,26 @@ const waitUntil = async (predicate: () => boolean): Promise<void> => {
 };
 
 describe("EnvironmentRuntimeRegistry", () => {
+	it("retains sync activation without resolving a transport", async () => {
+		let resolves = 0;
+		const registry = new EnvironmentRuntimeRegistry<{ id: number }>({
+			resolve: () => {
+				resolves += 1;
+				return Effect.succeed({
+					client: { id: resolves },
+					dispose: async () => undefined,
+				});
+			},
+		});
+		const runtime = registry.get(EnvironmentId.make("environment-sync"));
+		const lease = runtime.retain("sync");
+		expect(await lease.activate("sync")).toBeNull();
+		expect(resolves).toBe(0);
+		expect(runtime.snapshot().phase).toBe("dormant");
+		lease.release();
+		await registry.dispose();
+	});
+
 	it("owns one runtime and single-flights connection activation", async () => {
 		const gate = deferred<{
 			client: { id: number };

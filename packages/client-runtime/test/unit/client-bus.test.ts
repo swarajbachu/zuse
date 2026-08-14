@@ -2,7 +2,11 @@ import { CommandId, EnvironmentId, SessionId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { ClientBus, type ResourceDriverContext } from "../../src/client-bus.ts";
+import {
+	ClientBus,
+	type ResourceDriverContext,
+	type ResourceSynchronization,
+} from "../../src/client-bus.ts";
 import type {
 	ClientPersistence,
 	CommandFingerprint,
@@ -299,6 +303,60 @@ describe("ClientBus", () => {
 		lease.activate("cache-only");
 		expect(bus.snapshot(timelineKey).sync).toBe("cached");
 		lease.release();
+		await bus.dispose();
+	});
+
+	it("shares one checkpoint synchronization without waking the environment", async () => {
+		const persistence = new MemoryPersistence();
+		persistence.resources.set(resourceKeyId(timelineKey), {
+			data: { text: "local" },
+			cursor: { epoch: "epoch-1", version: 4 },
+			storedAt: 1,
+		});
+		const checkpoint = deferred<{
+			data: Timeline;
+			cursor: { epoch: string; version: number };
+		}>();
+		let synchronizations = 0;
+		let resolves = 0;
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(() => {
+				resolves += 1;
+			}),
+			persistence,
+			synchronizer: {
+				synchronize: async <Data>() => {
+					synchronizations += 1;
+					return checkpoint.promise as Promise<ResourceSynchronization<Data>>;
+				},
+			},
+		});
+
+		const first = bus.retain(timelineKey, { activation: "sync" });
+		const second = bus.retain(timelineKey, { activation: "sync" });
+		await waitUntil(() => synchronizations === 1);
+		expect(resolves).toBe(0);
+		expect(bus.snapshot(timelineKey).data).toEqual({ text: "local" });
+
+		checkpoint.resolve({
+			data: { text: "cloud checkpoint" },
+			cursor: { epoch: "epoch-1", version: 9 },
+		});
+		await waitUntil(() => bus.snapshot(timelineKey).origin === "checkpoint");
+		expect(bus.snapshot(timelineKey)).toMatchObject({
+			data: { text: "cloud checkpoint" },
+			cursor: { epoch: "epoch-1", version: 9 },
+			connection: "dormant",
+			sync: "cached",
+		});
+		expect(persistence.resources.get(resourceKeyId(timelineKey))).toMatchObject(
+			{
+				data: { text: "cloud checkpoint" },
+				cursor: { epoch: "epoch-1", version: 9 },
+			},
+		);
+		first.release();
+		second.release();
 		await bus.dispose();
 	});
 

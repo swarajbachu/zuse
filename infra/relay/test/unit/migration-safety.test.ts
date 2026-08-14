@@ -30,6 +30,10 @@ const runtimeSummaryMigrationUrl = new URL(
 	"../../drizzle/migrations/0008_runtime_summary_projection.sql",
 	import.meta.url,
 );
+const transcriptCheckpointMigrationUrl = new URL(
+	"../../drizzle/migrations/0009_cloud_transcript_checkpoints.sql",
+	import.meta.url,
+);
 
 describe("relay migration reconciliation", () => {
 	test("keeps the main migration history before managed cloud machines", async () => {
@@ -50,7 +54,22 @@ describe("relay migration reconciliation", () => {
 			{ idx: 6, tag: "0006_cloud_chat_encryption" },
 			{ idx: 7, tag: "0007_launch_intent_cutover" },
 			{ idx: 8, tag: "0008_runtime_summary_projection" },
+			{ idx: 9, tag: "0009_cloud_transcript_checkpoints" },
 		]);
+	});
+
+	test("adds encrypted transcript pointers and removes archive recovery state", async () => {
+		const migration = await readFile(transcriptCheckpointMigrationUrl, "utf8");
+		expect(migration).toContain(
+			'CREATE TABLE "relay_cloud_transcript_checkpoints"',
+		);
+		expect(migration).toContain(
+			'CREATE TABLE "relay_cloud_workspace_command_receipts"',
+		);
+		expect(migration).toContain('ADD COLUMN "wrapped_transcript_key" text');
+		expect(migration).toContain('DROP COLUMN "recovery_bundle_key"');
+		expect(migration).toContain('DROP COLUMN "warm_retention_deadline"');
+		expect(migration).not.toContain("'recovering'");
 	});
 
 	test("stores only a metadata runtime summary projection", async () => {

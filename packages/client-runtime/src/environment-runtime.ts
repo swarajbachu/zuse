@@ -3,8 +3,8 @@ import { Effect } from "effect";
 
 import type { ConnectionPhase, ConnectionView } from "./resource-state";
 
-export type ResourceActivation = "cache-only" | "connect" | "wake";
-type NetworkActivation = Exclude<ResourceActivation, "cache-only">;
+export type ResourceActivation = "cache-only" | "sync" | "connect" | "wake";
+type NetworkActivation = Exclude<ResourceActivation, "cache-only" | "sync">;
 
 export type ResolvedEnvironment<Client> = Readonly<{
 	client: Client;
@@ -43,10 +43,12 @@ const activationRank = (activation: ResourceActivation): number => {
 	switch (activation) {
 		case "cache-only":
 			return 0;
-		case "connect":
+		case "sync":
 			return 1;
-		case "wake":
+		case "connect":
 			return 2;
+		case "wake":
+			return 3;
 	}
 };
 
@@ -60,14 +62,9 @@ const failureMessage = (cause: unknown): string =>
 	cause instanceof Error ? cause.message : String(cause);
 
 export class EnvironmentRuntime<Client> {
-	private static readonly INITIAL_RETRY_MS = 500;
-	/**
-	 * A retained running environment must recover inside the reconnect SLO even
-	 * after a long outage. Cold-start backoff belongs to the environment
-	 * resolver/control plane; the disposable client transport never waits more
-	 * than two seconds before probing again.
-	 */
-	private static readonly MAX_RETRY_MS = 2_000;
+	private static readonly RETRY_DELAYS_MS = [
+		250, 500, 1_000, 2_000, 5_000, 10_000,
+	] as const;
 	private current: ResolvedEnvironment<Client> | null = null;
 	private achieved: ResourceActivation = "cache-only";
 	private desired: ResourceActivation = "cache-only";
@@ -132,9 +129,9 @@ export class EnvironmentRuntime<Client> {
 		if (this.disposed) return Promise.reject(new Error("runtime disposed"));
 		const previousDesired = this.desired;
 		this.desired = this.strongestRetainedActivation();
-		if (this.desired === "cache-only") {
+		if (this.desired === "cache-only" || this.desired === "sync") {
 			this.clearRetry();
-			this.achieved = "cache-only";
+			this.achieved = this.desired;
 			this.closeCurrent();
 			this.emit({ phase: "dormant", error: null });
 			return Promise.resolve(null);
@@ -234,7 +231,11 @@ export class EnvironmentRuntime<Client> {
 					}),
 				),
 			);
-			if (this.disposed || this.desired === "cache-only") {
+			if (
+				this.disposed ||
+				this.desired === "cache-only" ||
+				this.desired === "sync"
+			) {
 				if (outcome.ok) {
 					await outcome.resolved.dispose().catch(() => undefined);
 				}
@@ -294,6 +295,7 @@ export class EnvironmentRuntime<Client> {
 		if (
 			this.disposed ||
 			this.desired === "cache-only" ||
+			this.desired === "sync" ||
 			this.retryCancel !== null
 		) {
 			return;
@@ -305,15 +307,23 @@ export class EnvironmentRuntime<Client> {
 				return () => clearTimeout(timer);
 			});
 		const random = this.options.random ?? Math.random;
-		const baseDelay = Math.min(
-			EnvironmentRuntime.MAX_RETRY_MS,
-			EnvironmentRuntime.INITIAL_RETRY_MS * 2 ** this.retryAttempt,
-		);
+		const baseDelay =
+			EnvironmentRuntime.RETRY_DELAYS_MS[
+				Math.min(
+					this.retryAttempt,
+					EnvironmentRuntime.RETRY_DELAYS_MS.length - 1,
+				)
+			] ?? 10_000;
 		this.retryAttempt += 1;
-		const delayMs = Math.round(baseDelay * (0.5 + random() * 0.5));
+		const delayMs = Math.round(baseDelay * (0.75 + random() * 0.5));
 		this.retryCancel = schedule(delayMs, () => {
 			this.retryCancel = null;
-			if (this.disposed || this.desired === "cache-only") return;
+			if (
+				this.disposed ||
+				this.desired === "cache-only" ||
+				this.desired === "sync"
+			)
+				return;
 			void this.reconcileActivation().catch(() => undefined);
 		});
 	}

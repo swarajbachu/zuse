@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./cloud-transcript-crypto": "./src/cloud-transcript-crypto.ts",
 		"./drainable-worker": "./src/drainable-worker.ts",
 		"./keyed-worker": "./src/keyed-worker.ts",
 		"./proposed-plan": "./src/proposed-plan.ts",

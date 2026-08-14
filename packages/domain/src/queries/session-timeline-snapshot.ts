@@ -48,6 +48,14 @@ export type SessionTimelineSnapshot = {
 	readonly olderMessageSequence: number | null;
 };
 
+export type SessionTimelineMessagePage = {
+	readonly items: ReadonlyArray<{
+		readonly message: Message;
+		readonly sequence: number;
+	}>;
+	readonly olderMessageSequence: number | null;
+};
+
 const decodeContent = Schema.decodeUnknownResult(
 	Schema.fromJsonString(MessageContent),
 );
@@ -55,6 +63,41 @@ const decodeRole = Schema.decodeUnknownResult(MessageRole);
 const decodeComposer = Schema.decodeUnknownResult(
 	Schema.fromJsonString(ComposerInput),
 );
+
+export const readSessionTimelineMessagePage = Effect.fn(
+	"readSessionTimelineMessagePage",
+)(function* (
+	sql: SqlClient.SqlClient,
+	sessionId: SessionId,
+	beforeSequence?: number,
+	limit = LATEST_TIMELINE_MESSAGE_LIMIT,
+): Effect.fn.Return<SessionTimelineMessagePage, SqlSessionQueryError> {
+	const page = yield* makeSqlSessionQueries(sql).messagePage({
+		sessionId,
+		beforeSequence,
+		limit,
+	});
+	const items: Array<{
+		readonly message: Message;
+		readonly sequence: number;
+	}> = [];
+	for (const record of page.items) {
+		const content = decodeContent(record.contentJson);
+		const role = decodeRole(record.role);
+		if (Result.isFailure(content) || Result.isFailure(role)) continue;
+		items.push({
+			message: Message.make({
+				id: MessageId.make(record.messageId),
+				sessionId,
+				role: role.success,
+				content: content.success,
+				createdAt: new Date(record.createdAt),
+			}),
+			sequence: record.sequence,
+		});
+	}
+	return { items, olderMessageSequence: page.olderSequence };
+});
 
 /** Read a bounded, fully materialized timeline without folding event history. */
 export const readSessionTimelineSnapshot = Effect.fn(
@@ -75,29 +118,8 @@ export const readSessionTimelineSnapshot = Effect.fn(
 		yield* queries.get(sessionId);
 		return yield* Effect.die("Session query existed without a timeline head");
 	}
-	const messagePage = yield* queries.messagePage({
-		sessionId,
-		limit: LATEST_TIMELINE_MESSAGE_LIMIT,
-	});
-	const messages: Array<{
-		readonly message: Message;
-		readonly sequence: number;
-	}> = [];
-	for (const record of messagePage.items) {
-		const content = decodeContent(record.contentJson);
-		const role = decodeRole(record.role);
-		if (Result.isFailure(content) || Result.isFailure(role)) continue;
-		messages.push({
-			message: Message.make({
-				id: MessageId.make(record.messageId),
-				sessionId,
-				role: role.success,
-				content: content.success,
-				createdAt: new Date(record.createdAt),
-			}),
-			sequence: record.sequence,
-		});
-	}
+	const messagePage = yield* readSessionTimelineMessagePage(sql, sessionId);
+	const messages = [...messagePage.items];
 	const queueRows = yield* sql<QueueRow>`
 		SELECT id, input_json, queue_order, created_at, updated_at, ready
 		FROM queued_messages WHERE session_id = ${sessionId}
@@ -178,7 +200,7 @@ export const readSessionTimelineSnapshot = Effect.fn(
 		});
 	let projection = makeProjection();
 	let omittedForBudget = false;
-	let budgetPageCursor = messagePage.olderSequence;
+	let budgetPageCursor = messagePage.olderMessageSequence;
 	const projectionBytes = () =>
 		new TextEncoder().encode(JSON.stringify(projection)).byteLength;
 	while (
@@ -201,7 +223,7 @@ export const readSessionTimelineSnapshot = Effect.fn(
 	}
 	const olderMessageSequence = omittedForBudget
 		? budgetPageCursor
-		: messagePage.olderSequence;
+		: messagePage.olderMessageSequence;
 	return {
 		projection: SessionTimelineProjection.make({
 			...projection,

@@ -3,6 +3,9 @@ import {
 	CloudCredentialKind,
 	CloudProjectConnectRequest,
 	CloudProjectPrepareRequest,
+	CloudTranscriptCheckpointUpload,
+	CloudTranscriptMessagePageUpload,
+	CloudWorkspaceActionRequest,
 	CloudWorkspaceCreateRequest,
 	CloudWorkspaceResumeRequest,
 	CloudWorkspaceRuntimeSummary,
@@ -10,11 +13,22 @@ import {
 	RelayPaths,
 } from "@zuse/contracts";
 import { SandboxProviders } from "@zuse/sandbox-providers";
+import { sha256Base64Url } from "@zuse/utils/cloud-transcript-crypto";
 import { Clock, Effect, Redacted, Schema } from "effect";
 import { CompactEncrypt, importJWK, type JWK } from "jose";
 import { requireWorkos } from "./auth.ts";
 import { CloudCredentialVault } from "./cloud-credential-vault.ts";
 import { hasUsableCloudWorkspaceEntitlement } from "./cloud-entitlement.ts";
+import {
+	cloudTranscriptMessagePageObjectKey,
+	cloudTranscriptObjectKey,
+	createCloudTranscriptKey,
+	getCloudTranscriptObject,
+	MAX_CLOUD_TRANSCRIPT_CIPHERTEXT_BYTES,
+	MAX_CLOUD_TRANSCRIPT_PAGE_CIPHERTEXT_BYTES,
+	openCloudTranscriptKey,
+	putCloudTranscriptObject,
+} from "./cloud-transcript.ts";
 import {
 	CloudWorkspaceLaunchIntentCipher,
 	makeCloudWorkspaceLaunchIntent,
@@ -67,6 +81,7 @@ export type CloudWorkspaceRouteContext =
 // reusable during this short lease; expiry affects only new connections.
 const WORKSPACE_CLIENT_TICKET_TTL_MS = 60_000;
 const RUNTIME_CREDENTIAL_TTL_MS = 15 * 60_000;
+const ARCHIVED_WORKSPACE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 
 const json = (body: unknown, status = 200): Response =>
 	new Response(JSON.stringify(body), {
@@ -369,9 +384,6 @@ const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 	createdAt: workspace.createdAtMs,
 	updatedAt: workspace.updatedAtMs,
 	lastActivityAt: workspace.lastActivityAtMs,
-	warmRetentionDeadline: workspace.warmRetentionDeadlineMs,
-	recoveryAvailable:
-		workspace.recoveryBundleKey !== undefined || workspace.state === "archived",
 });
 
 export const publicCloudWorkspaceSummary = (
@@ -416,14 +428,10 @@ export const publicCloudWorkspaceSummary = (
 			: 0),
 	unread,
 	lastMessageAt: runtimeSummary?.lastActivityAtMs ?? lastMessageAt,
-	...(workspace.state === "archived"
-		? { archivedAt: workspace.updatedAtMs }
-		: {}),
-	...(typeof workspace.requestConfig.archivePhase === "string"
-		? { archivePhase: workspace.requestConfig.archivePhase }
-		: {}),
-	...(typeof workspace.requestConfig.archiveErrorCode === "string"
-		? { archiveErrorCode: workspace.requestConfig.archiveErrorCode }
+	...(workspace.state === "archived" || workspace.desiredState === "archived"
+		? {
+				archivedAt: workspace.archiveRequestedAtMs ?? workspace.updatedAtMs,
+			}
 		: {}),
 	createdAt: workspace.createdAtMs,
 	updatedAt: Math.max(workspace.updatedAtMs, runtimeSummary?.updatedAtMs ?? 0),
@@ -504,18 +512,37 @@ const requestedCredentials = (
 			})
 		: [];
 
+const runtimeEncryptionKey = Effect.fn("runtimeEncryptionKey")(function* (
+	credentialPublicJwk: string,
+) {
+	return yield* Effect.tryPromise({
+		try: async () => {
+			const parsed = JSON.parse(credentialPublicJwk) as JWK;
+			if (parsed.kty !== "RSA") throw new Error("invalid_workspace_key");
+			return importJWK(parsed, "RSA-OAEP-256");
+		},
+		catch: () => badRequest("invalid_workspace_key"),
+	});
+});
+
+const sealRuntimeSecret = Effect.fn("sealRuntimeSecret")(function* (
+	credentialPublicJwk: string,
+	secret: string,
+) {
+	const publicKey = yield* runtimeEncryptionKey(credentialPublicJwk);
+	return yield* Effect.tryPromise({
+		try: () =>
+			new CompactEncrypt(new TextEncoder().encode(secret))
+				.setProtectedHeader({ alg: "RSA-OAEP-256", enc: "A256GCM" })
+				.encrypt(publicKey),
+		catch: () => serviceUnavailable("cloud_credential_delivery_failed"),
+	});
+});
+
 const deliverCredentials = Effect.fn("deliverCloudWorkspaceCredentials")(
 	function* (workspace: CloudWorkspaceRecord, credentialPublicJwk: string) {
 		const store = yield* CloudWorkspaceStore;
 		const vault = yield* CloudCredentialVault;
-		const publicKey = yield* Effect.tryPromise({
-			try: async () => {
-				const parsed = JSON.parse(credentialPublicJwk) as JWK;
-				if (parsed.kty !== "RSA") throw new Error("invalid_workspace_key");
-				return importJWK(parsed, "RSA-OAEP-256");
-			},
-			catch: () => badRequest("invalid_workspace_key"),
-		});
 		return yield* Effect.forEach(requestedCredentials(workspace), (kind) =>
 			Effect.gen(function* () {
 				const connection = yield* store.getCredential(
@@ -541,16 +568,10 @@ const deliverCredentials = Effect.fn("deliverCloudWorkspaceCredentials")(
 							serviceUnavailable("cloud_credential_delivery_failed"),
 						),
 					);
-				const sealedSecret = yield* Effect.tryPromise({
-					try: () =>
-						new CompactEncrypt(new TextEncoder().encode(payload.secret))
-							.setProtectedHeader({
-								alg: "RSA-OAEP-256",
-								enc: "A256GCM",
-							})
-							.encrypt(publicKey),
-					catch: () => serviceUnavailable("cloud_credential_delivery_failed"),
-				});
+				const sealedSecret = yield* sealRuntimeSecret(
+					credentialPublicJwk,
+					payload.secret,
+				);
 				return {
 					kind,
 					credentialType: payload.credentialType,
@@ -754,6 +775,20 @@ export const routeCloudWorkspaceRequest = (
 				prior === null
 					? yield* deliverCredentials(workspace, body.credentialPublicJwk)
 					: prior.cloudCredentials;
+			const sealedTranscriptKey =
+				prior?.sealedTranscriptKey ??
+				(yield* openCloudTranscriptKey(
+					workspace.accountId,
+					workspaceId,
+					workspace.wrappedTranscriptKey ?? "",
+				).pipe(
+					Effect.flatMap((key) =>
+						sealRuntimeSecret(body.credentialPublicJwk, key),
+					),
+					Effect.mapError(() =>
+						serviceUnavailable("cloud_transcript_key_unavailable"),
+					),
+				));
 			const enrolled = yield* store.enrollRuntimeBoot({
 				workspaceId,
 				bootTokenHash,
@@ -765,6 +800,7 @@ export const routeCloudWorkspaceRequest = (
 				generation,
 				gatewayEpoch: epoch,
 				cloudCredentials: credentials,
+				sealedTranscriptKey,
 				nowMs,
 			});
 			if (enrolled === null)
@@ -822,6 +858,7 @@ export const routeCloudWorkspaceRequest = (
 					enrolled.receipt.runtimeCredentialExpiresAtMs,
 				...(launchIntent === undefined ? {} : { launchIntent }),
 				cloudCredentials: enrolled.receipt.cloudCredentials,
+				sealedTranscriptKey: enrolled.receipt.sealedTranscriptKey,
 			});
 		}
 
@@ -985,6 +1022,104 @@ export const routeCloudWorkspaceRequest = (
 					updatedAtMs: nowMs,
 				});
 			return json({ ok: true });
+		}
+
+		const runtimeTranscriptMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/transcript-checkpoint$/u.exec(
+				path,
+			);
+		if (method === "POST" && runtimeTranscriptMatch !== null) {
+			const workspaceId = decodeURIComponent(runtimeTranscriptMatch[1] ?? "");
+			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
+			const body = yield* decodeBody(CloudTranscriptCheckpointUpload, request);
+			const ciphertextBytes = new TextEncoder().encode(
+				body.ciphertext,
+			).byteLength;
+			if (
+				!Number.isSafeInteger(body.cursor.version) ||
+				body.cursor.version < 0 ||
+				body.cursor.epoch.length === 0 ||
+				ciphertextBytes > MAX_CLOUD_TRANSCRIPT_CIPHERTEXT_BYTES ||
+				(yield* Effect.promise(() => sha256Base64Url(body.ciphertext))) !==
+					body.ciphertextSha256
+			)
+				return yield* Effect.fail(badRequest("invalid_transcript_checkpoint"));
+			const generation = runtimeGeneration(workspace);
+			const objectKey = cloudTranscriptObjectKey({
+				workspaceId,
+				sessionId: body.sessionId,
+				runtimeGeneration: generation,
+				epoch: body.cursor.epoch,
+				version: body.cursor.version,
+			});
+			yield* putCloudTranscriptObject(objectKey, body.ciphertext).pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("cloud_transcript_store_unavailable"),
+				),
+			);
+			const applied = yield* store.saveTranscriptCheckpoint({
+				workspaceId,
+				sessionId: body.sessionId,
+				runtimeGeneration: generation,
+				streamEpoch: body.cursor.epoch,
+				streamVersion: body.cursor.version,
+				objectKey,
+				ciphertextSha256: body.ciphertextSha256,
+				ciphertextBytes,
+				createdAtMs: nowMs,
+			});
+			return json({
+				applied,
+				cursor: body.cursor,
+				archiveRequested: workspace.desiredState === "archived",
+			});
+		}
+
+		const runtimeTranscriptPageMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/transcript-message-page$/u.exec(
+				path,
+			);
+		if (method === "POST" && runtimeTranscriptPageMatch !== null) {
+			const workspaceId = decodeURIComponent(
+				runtimeTranscriptPageMatch[1] ?? "",
+			);
+			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
+			const body = yield* decodeBody(CloudTranscriptMessagePageUpload, request);
+			const checkpoint = yield* store.getTranscriptCheckpoint(
+				workspaceId,
+				body.sessionId,
+			);
+			const ciphertextBytes = new TextEncoder().encode(
+				body.ciphertext,
+			).byteLength;
+			if (
+				checkpoint === null ||
+				checkpoint.runtimeGeneration !== runtimeGeneration(workspace) ||
+				checkpoint.streamEpoch !== body.cursor.epoch ||
+				checkpoint.streamVersion !== body.cursor.version ||
+				!Number.isSafeInteger(body.beforeSequence) ||
+				body.beforeSequence < 1 ||
+				ciphertextBytes > MAX_CLOUD_TRANSCRIPT_PAGE_CIPHERTEXT_BYTES ||
+				(yield* Effect.promise(() => sha256Base64Url(body.ciphertext))) !==
+					body.ciphertextSha256
+			)
+				return yield* Effect.fail(
+					badRequest("invalid_transcript_message_page"),
+				);
+			const objectKey = cloudTranscriptMessagePageObjectKey({
+				workspaceId,
+				sessionId: body.sessionId,
+				runtimeGeneration: checkpoint.runtimeGeneration,
+				epoch: body.cursor.epoch,
+				version: body.cursor.version,
+				beforeSequence: body.beforeSequence,
+			});
+			yield* putCloudTranscriptObject(objectKey, body.ciphertext).pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("cloud_transcript_store_unavailable"),
+				),
+			);
+			return json({ applied: true });
 		}
 
 		const readyMatch = /^\/v1\/cloud\/workspaces\/([^/]+)\/ready$/u.exec(path);
@@ -1158,6 +1293,139 @@ export const routeCloudWorkspaceRequest = (
 
 		const principal = yield* requireWorkos(request);
 
+		const transcriptMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/sessions\/([^/]+)\/transcript-checkpoint$/u.exec(
+				path,
+			);
+		if (method === "GET" && transcriptMatch !== null) {
+			const workspaceId = decodeURIComponent(transcriptMatch[1] ?? "");
+			const sessionId = decodeURIComponent(transcriptMatch[2] ?? "");
+			const workspace = yield* store.getWorkspace(workspaceId);
+			if (
+				workspace === null ||
+				workspace.accountId !== principal.accountId ||
+				workspace.state === "deleted"
+			)
+				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
+			const checkpoint = yield* store.getTranscriptCheckpoint(
+				workspaceId,
+				sessionId,
+			);
+			if (checkpoint === null) return json({ checkpoint: null });
+			const localEpoch = url.searchParams.get("epoch");
+			const localVersion = Number(url.searchParams.get("version"));
+			if (
+				localEpoch === checkpoint.streamEpoch &&
+				Number.isSafeInteger(localVersion) &&
+				localVersion >= checkpoint.streamVersion
+			)
+				return json({ checkpoint: null });
+			const ciphertext = yield* getCloudTranscriptObject(
+				checkpoint.objectKey,
+			).pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("cloud_transcript_store_unavailable"),
+				),
+			);
+			if (ciphertext === null)
+				return yield* Effect.fail(
+					serviceUnavailable("cloud_transcript_checkpoint_missing"),
+				);
+			const transcriptKey = yield* openCloudTranscriptKey(
+				workspace.accountId,
+				workspaceId,
+				workspace.wrappedTranscriptKey ?? "",
+			).pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("cloud_transcript_key_unavailable"),
+				),
+			);
+			return json({
+				checkpoint: {
+					metadata: {
+						workspaceId,
+						sessionId,
+						runtimeGeneration: checkpoint.runtimeGeneration,
+						cursor: {
+							epoch: checkpoint.streamEpoch,
+							version: checkpoint.streamVersion,
+						},
+						objectKey: checkpoint.objectKey,
+						ciphertextSha256: checkpoint.ciphertextSha256,
+						ciphertextBytes: checkpoint.ciphertextBytes,
+						createdAt: checkpoint.createdAtMs,
+					},
+					ciphertext,
+					transcriptKey,
+				},
+			});
+		}
+
+		const transcriptPageMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/sessions\/([^/]+)\/transcript-message-page$/u.exec(
+				path,
+			);
+		if (method === "GET" && transcriptPageMatch !== null) {
+			const workspaceId = decodeURIComponent(transcriptPageMatch[1] ?? "");
+			const sessionId = decodeURIComponent(transcriptPageMatch[2] ?? "");
+			const workspace = yield* store.getWorkspace(workspaceId);
+			if (
+				workspace === null ||
+				workspace.accountId !== principal.accountId ||
+				workspace.state === "deleted"
+			)
+				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
+			const checkpoint = yield* store.getTranscriptCheckpoint(
+				workspaceId,
+				sessionId,
+			);
+			const epoch = url.searchParams.get("epoch") ?? "";
+			const version = Number(url.searchParams.get("version"));
+			const beforeSequence = Number(url.searchParams.get("beforeSequence"));
+			if (
+				checkpoint === null ||
+				checkpoint.streamEpoch !== epoch ||
+				checkpoint.streamVersion !== version ||
+				!Number.isSafeInteger(beforeSequence) ||
+				beforeSequence < 1
+			)
+				return json({ page: null });
+			const objectKey = cloudTranscriptMessagePageObjectKey({
+				workspaceId,
+				sessionId,
+				runtimeGeneration: checkpoint.runtimeGeneration,
+				epoch,
+				version,
+				beforeSequence,
+			});
+			const ciphertext = yield* getCloudTranscriptObject(objectKey).pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("cloud_transcript_store_unavailable"),
+				),
+			);
+			if (ciphertext === null) return json({ page: null });
+			const transcriptKey = yield* openCloudTranscriptKey(
+				workspace.accountId,
+				workspaceId,
+				workspace.wrappedTranscriptKey ?? "",
+			).pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("cloud_transcript_key_unavailable"),
+				),
+			);
+			return json({
+				page: {
+					cursor: { epoch, version },
+					beforeSequence,
+					ciphertext,
+					ciphertextSha256: yield* Effect.promise(() =>
+						sha256Base64Url(ciphertext),
+					),
+					transcriptKey,
+				},
+			});
+		}
+
 		if (method === "GET" && path === RelayPaths.cloudProviders) {
 			const providers = yield* SandboxProviders;
 			const config = yield* MachineControlConfiguration;
@@ -1206,9 +1474,10 @@ export const routeCloudWorkspaceRequest = (
 				workspaces.filter((workspace) => {
 					if (workspace.state === "deleted") return false;
 					if (scope === "all") return true;
-					return scope === "archived"
-						? workspace.state === "archived"
-						: workspace.state !== "archived";
+					const archived =
+						workspace.state === "archived" ||
+						workspace.desiredState === "archived";
+					return scope === "archived" ? archived : !archived;
 				}),
 				(workspace) =>
 					Effect.gen(function* () {
@@ -1501,6 +1770,14 @@ export const routeCloudWorkspaceRequest = (
 				request: body,
 			});
 			const { commandId, turnId, title } = launchIntent;
+			const transcriptKey = yield* createCloudTranscriptKey(
+				principal.accountId,
+				workspaceId,
+			).pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("cloud_transcript_key_unavailable"),
+				),
+			);
 			const workspace: CloudWorkspaceRecord = {
 				workspaceId,
 				accountId: principal.accountId,
@@ -1516,6 +1793,7 @@ export const routeCloudWorkspaceRequest = (
 				desiredState: "ready",
 				statusCode: "provisioning-queued",
 				credentialEpoch: yield* store.credentialEpoch(principal.accountId),
+				wrappedTranscriptKey: transcriptKey.envelope,
 				idempotencyKey: body.idempotencyKey,
 				requestConfig: {
 					title,
@@ -1591,11 +1869,29 @@ export const routeCloudWorkspaceRequest = (
 				| "archive"
 				| "unarchive"
 				| "delete";
-			const recoverRuntime =
+			const actionRequest =
 				action === "resume"
-					? (yield* decodeBody(CloudWorkspaceResumeRequest, request))
-							.recoverRuntime === true
-					: false;
+					? yield* decodeBody(CloudWorkspaceResumeRequest, request)
+					: yield* decodeBody(CloudWorkspaceActionRequest, request);
+			const recoverRuntime =
+				action === "resume" &&
+				"recoverRuntime" in actionRequest &&
+				actionRequest.recoverRuntime === true;
+			const commandId =
+				"commandId" in actionRequest && actionRequest.commandId !== undefined
+					? actionRequest.commandId
+					: `${action}:${workspace.workspaceId}:${nowMs}`;
+			const receivedAction = yield* store.getWorkspaceLifecycleCommand(
+				workspace.workspaceId,
+				commandId,
+			);
+			if (receivedAction !== null) {
+				if (receivedAction !== action)
+					return yield* Effect.fail(
+						badRequest("cloud_workspace_command_id_reused"),
+					);
+				return json(publicWorkspace(workspace));
+			}
 			// Sending while a workspace is waking can issue resume more than once.
 			// Treat those requests as one operation: rewriting the workspace here can
 			// release the reconciler lease and replace its freshly staged boot token.
@@ -1621,13 +1917,6 @@ export const routeCloudWorkspaceRequest = (
 							: action === "archive"
 								? "archived"
 								: "paused";
-			const {
-				archivePhase: _archivePhase,
-				archiveErrorCode: _archiveErrorCode,
-				archiveDiagnostic: _archiveDiagnostic,
-				archiveDeleteAtMs: _archiveDeleteAtMs,
-				...requestConfigWithoutArchiveFailure
-			} = workspace.requestConfig;
 			const updated: CloudWorkspaceRecord = {
 				...workspace,
 				...(action === "resume" && recoverRuntime
@@ -1647,11 +1936,7 @@ export const routeCloudWorkspaceRequest = (
 					? {
 							state: "paused" as const,
 							runtimeState: "offline" as const,
-							requestConfig: requestConfigWithoutArchiveFailure,
 						}
-					: {}),
-				...(action === "archive"
-					? { requestConfig: requestConfigWithoutArchiveFailure }
 					: {}),
 				...(action === "resume" &&
 				!recoverRuntime &&
@@ -1673,8 +1958,27 @@ export const routeCloudWorkspaceRequest = (
 				revision: workspace.revision + 1,
 				updatedAtMs: nowMs,
 			};
-			yield* store.saveWorkspace(updated);
-			const response = json(publicWorkspace(updated));
+			const received: CloudWorkspaceRecord = {
+				...updated,
+				...(action === "archive"
+					? {
+							archiveRequestedAtMs: nowMs,
+							archiveDeleteAtMs: nowMs + ARCHIVED_WORKSPACE_RETENTION_MS,
+						}
+					: action === "unarchive"
+						? {
+								archiveRequestedAtMs: undefined,
+								archiveDeleteAtMs: undefined,
+							}
+						: {}),
+			};
+			yield* store.saveWorkspaceLifecycleCommand({
+				workspace: received,
+				commandId,
+				action,
+				createdAtMs: nowMs,
+			});
+			const response = json(publicWorkspace(received));
 			response.headers.set(
 				"x-zuse-reconcile-cloud-workspace",
 				workspace.workspaceId,

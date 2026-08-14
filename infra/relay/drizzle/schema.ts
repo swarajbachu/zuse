@@ -7,6 +7,7 @@ import {
 	index,
 	jsonb,
 	pgTable,
+	primaryKey,
 	text,
 	uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -364,8 +365,10 @@ export const relayCloudWorkspaces = pgTable(
 		credentialEpoch: bigint("credential_epoch", { mode: "number" })
 			.notNull()
 			.default(0),
-		recoveryBundleKey: text("recovery_bundle_key"),
-		warmRetentionDeadline: bigint("warm_retention_deadline", {
+		wrappedTranscriptKey: text("wrapped_transcript_key"),
+		archiveRequestedAt: bigint("archive_requested_at", { mode: "number" }),
+		archiveDeleteAt: bigint("archive_delete_at", { mode: "number" }),
+		deletionTombstoneExpiresAt: bigint("deletion_tombstone_expires_at", {
 			mode: "number",
 		}),
 		idempotencyKey: text("idempotency_key").notNull(),
@@ -409,7 +412,7 @@ export const relayCloudWorkspaces = pgTable(
 		),
 		check(
 			"relay_cloud_workspaces_state_check",
-			sql`${table.state} IN ('queued', 'provisioning', 'setup', 'ready', 'pausing', 'paused', 'resuming', 'archiving', 'archived', 'recovering', 'deleting', 'deleted', 'failed')`,
+			sql`${table.state} IN ('queued', 'provisioning', 'setup', 'ready', 'pausing', 'paused', 'resuming', 'archiving', 'archived', 'deleting', 'deleted', 'failed')`,
 		),
 		check(
 			"relay_cloud_workspaces_desired_state_check",
@@ -420,6 +423,24 @@ export const relayCloudWorkspaces = pgTable(
 			sql`${table.runtimeState} IN ('offline', 'connecting', 'online')`,
 		),
 	],
+);
+
+export const relayCloudWorkspaceCommandReceipts = pgTable(
+	"relay_cloud_workspace_command_receipts",
+	{
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => relayCloudWorkspaces.workspaceId, {
+				onDelete: "cascade",
+			}),
+		commandId: text("command_id").notNull(),
+		action: text("action").notNull(),
+		workspaceRevision: bigint("workspace_revision", {
+			mode: "number",
+		}).notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [primaryKey({ columns: [table.workspaceId, table.commandId] })],
 );
 
 export const relayCloudWorkspaceLaunchIntents = pgTable(
@@ -475,6 +496,32 @@ export const relayCloudWorkspaceRuntimeSummaries = pgTable(
 		index("relay_cloud_runtime_summaries_activity_idx").on(
 			table.lastActivityAt,
 		),
+	],
+);
+
+/** Opaque R2 pointer for the latest encrypted runtime transcript projection. */
+export const relayCloudTranscriptCheckpoints = pgTable(
+	"relay_cloud_transcript_checkpoints",
+	{
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => relayCloudWorkspaces.workspaceId, {
+				onDelete: "cascade",
+			}),
+		sessionId: text("session_id").notNull(),
+		runtimeGeneration: bigint("runtime_generation", {
+			mode: "number",
+		}).notNull(),
+		streamEpoch: text("stream_epoch").notNull(),
+		streamVersion: bigint("stream_version", { mode: "number" }).notNull(),
+		objectKey: text("object_key").notNull(),
+		ciphertextSha256: text("ciphertext_sha256").notNull(),
+		ciphertextBytes: bigint("ciphertext_bytes", { mode: "number" }).notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.workspaceId, table.sessionId] }),
+		index("relay_cloud_transcript_checkpoint_created_idx").on(table.createdAt),
 	],
 );
 

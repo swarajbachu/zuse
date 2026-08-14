@@ -48,19 +48,9 @@ for every registered adapter.
 
 `@zuse/sandbox-providers/e2b` provides the `e2b` adapter. It talks to the
 E2B REST API directly over `fetch` (no vendor SDK, so it runs in workerd) and
-authenticates with the `x-api-key` header. Forks are creates from a snapshot
+authenticates with the `x-api-key` header. Forks are created from a snapshot
 ID and always pass `allow_internet_access: false`; the network is opened by
 `setNetwork` after enrollment re-keys the fork. Snapshot deletion goes
-through the provider's template store, and recovery uses the deterministic
-label persisted in sandbox metadata. The quarantine capability this adapter
+through the provider's template store. The quarantine capability this adapter
 relies on was verified live in
 `specs/cloud-platform/research/quarantined-fork-verification.md`.
-
-Cloud workspace archives currently use an E2B snapshot as their durable
-provider recovery artifact. The relay publishes that snapshot ID only after a
-quarantined fork has verified the archive manifest, bundle checksum, SQLite
-integrity/schema, and recorded stream heads. The recovery tar inside the
-sandbox is not, by itself, an independent durable backup: its durability is
-bounded by E2B snapshot retention and availability. An object-storage copy is
-not configured in this implementation, so recovery must not be described as
-cross-provider or provider-outage-safe until that storage adapter exists.

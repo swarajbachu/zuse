@@ -206,10 +206,6 @@ const makeSandboxProvidersFakeFromControl = (
 							),
 						),
 					),
-				inspectSnapshot: (snapshotId) =>
-					Ref.get(control.snapshots).pipe(
-						Effect.map((items) => items.has(snapshotId)),
-					),
 				kill: (providerSandboxId) =>
 					Ref.update(control.sandboxes, (items) => {
 						const next = new Map(items);

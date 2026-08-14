@@ -87,6 +87,19 @@ export type ResourceDriverFactory<Client> = (
 	key: ResourceKey<unknown>,
 ) => ResourceDriver<Client, unknown> | null;
 
+export type ResourceSynchronization<Data> = Readonly<{
+	data: Data;
+	cursor: ResourceCursor;
+	resetEpoch?: boolean;
+}>;
+
+export interface ResourceSynchronizer {
+	readonly synchronize: <Data>(
+		key: ResourceKey<Data>,
+		current: ResourceView<Data>,
+	) => Promise<ResourceSynchronization<Data> | null>;
+}
+
 export type ResourceLease = Readonly<{
 	release: () => void;
 	activate: (activation: ResourceActivation) => void;
@@ -100,6 +113,7 @@ export type ClientBusOptions<Client> = Readonly<{
 	/** Maps transport-level command failures into the shared connection state. */
 	commandFaultFor?: (cause: unknown) => EnvironmentFault | null;
 	driverFor?: ResourceDriverFactory<Client>;
+	synchronizer?: ResourceSynchronizer;
 	runtime?: EnvironmentRuntimeOptions;
 }>;
 
@@ -118,6 +132,8 @@ type ResourceEntry = {
 	hydration: Promise<void> | null;
 	hydrated: boolean;
 	runtimeUpdates: number;
+	synchronization: Promise<void> | null;
+	synchronizationEpoch: number;
 };
 
 type EnvironmentBinding<Client> = {
@@ -149,11 +165,17 @@ const strongestActivation = (
 	for (const activation of activations) {
 		if (activation === "wake") return "wake";
 		if (activation === "connect") result = "connect";
+		else if (activation === "sync" && result === "cache-only") result = "sync";
 	}
 	return result;
 };
 
-const requestsNetwork = (entry: ResourceEntry): boolean =>
+const requestsRuntime = (entry: ResourceEntry): boolean => {
+	const activation = strongestActivation(entry.activations.values());
+	return activation === "connect" || activation === "wake";
+};
+
+const requestsSynchronization = (entry: ResourceEntry): boolean =>
 	strongestActivation(entry.activations.values()) !== "cache-only";
 
 const messageOf = (cause: unknown): string => {
@@ -265,12 +287,13 @@ export class ClientBus<Client> {
 		void runtimeLease
 			.activate(requestedActivation)
 			.then(() => {
-				if (entry.activations.size > 0 && requestsNetwork(entry)) {
+				if (entry.activations.size > 0 && requestsRuntime(entry)) {
 					this.startDriver(entry, binding);
 				}
 			})
 			.catch(() => undefined);
 		this.hydrate(entry);
+		this.startSynchronizationAfterHydration(entry);
 
 		let released = false;
 		return {
@@ -278,20 +301,22 @@ export class ClientBus<Client> {
 				if (released) return;
 				entry.activations.set(leaseId, activation);
 				const strongest = strongestActivation(entry.activations.values());
-				if (strongest === "cache-only") {
+				if (strongest === "cache-only" || strongest === "sync") {
 					this.stopDriver(entry);
+					if (strongest === "cache-only") entry.synchronizationEpoch += 1;
 					if (entry.view.data !== null) {
 						this.setView(entry, { ...entry.view, sync: "cached" });
 					}
 				}
 				void entry.runtimeLease?.activate(strongest).then(
 					() => {
-						if (entry.activations.size > 0 && requestsNetwork(entry)) {
+						if (entry.activations.size > 0 && requestsRuntime(entry)) {
 							this.startDriver(entry, binding);
 						}
 					},
 					() => undefined,
 				);
+				this.startSynchronizationAfterHydration(entry);
 			},
 			release: () => {
 				if (released) return;
@@ -299,14 +324,17 @@ export class ClientBus<Client> {
 				entry.activations.delete(leaseId);
 				if (entry.activations.size > 0) {
 					const strongest = strongestActivation(entry.activations.values());
-					if (strongest === "cache-only") {
+					if (strongest === "cache-only" || strongest === "sync") {
 						this.stopDriver(entry);
+						if (strongest === "cache-only") entry.synchronizationEpoch += 1;
 						if (entry.view.data !== null) {
 							this.setView(entry, { ...entry.view, sync: "cached" });
 						}
 					}
 					void entry.runtimeLease?.activate(strongest).then(
-						() => this.startDriver(entry, binding),
+						() => {
+							if (requestsRuntime(entry)) this.startDriver(entry, binding);
+						},
 						() => undefined,
 					);
 					return;
@@ -315,6 +343,7 @@ export class ClientBus<Client> {
 				entry.runtimeLease = null;
 				binding.resourceIds.delete(entry.id);
 				this.stopDriver(entry);
+				entry.synchronizationEpoch += 1;
 				if (entry.view.data !== null) {
 					this.setView(entry, {
 						...entry.view,
@@ -611,6 +640,8 @@ export class ClientBus<Client> {
 				hydration: null,
 				hydrated: this.options.persistence === undefined,
 				runtimeUpdates: 0,
+				synchronization: null,
+				synchronizationEpoch: 0,
 			};
 			this.entries.set(id, entry);
 		}
@@ -651,7 +682,7 @@ export class ClientBus<Client> {
 				connection: connection.phase,
 				generation: connection.generation,
 			});
-			if (connection.phase === "connected" && requestsNetwork(entry)) {
+			if (connection.phase === "connected" && requestsRuntime(entry)) {
 				this.startDriver(entry, binding);
 			} else if (entry.driverGeneration !== 0) this.stopDriver(entry);
 		}
@@ -721,7 +752,9 @@ export class ClientBus<Client> {
 			.then(() => {
 				entry.hydrated = true;
 				entry.hydration = null;
-				if (entry.activations.size === 0 || !requestsNetwork(entry)) return;
+				if (entry.activations.size === 0) return;
+				this.startSynchronization(entry);
+				if (!requestsRuntime(entry)) return;
 				const binding = this.environments.get(entry.key.ref.environmentId);
 				if (binding !== undefined) {
 					if (restartDriverFromCache) this.stopDriver(entry);
@@ -731,13 +764,105 @@ export class ClientBus<Client> {
 		entry.hydration = hydration;
 	}
 
+	private startSynchronizationAfterHydration(entry: ResourceEntry): void {
+		if (!requestsSynchronization(entry)) return;
+		if (entry.hydrated) {
+			this.startSynchronization(entry);
+			return;
+		}
+		void entry.hydration?.then(() => this.startSynchronization(entry));
+	}
+
+	private startSynchronization(entry: ResourceEntry): void {
+		const synchronizer = this.options.synchronizer;
+		if (
+			synchronizer === undefined ||
+			entry.synchronization !== null ||
+			!requestsSynchronization(entry)
+		)
+			return;
+		const epoch = ++entry.synchronizationEpoch;
+		const runtimeUpdates = entry.runtimeUpdates;
+		const initial = entry.view;
+		if (initial.data === null || initial.sync === "cached") {
+			this.setView(entry, { ...initial, sync: "synchronizing" });
+		}
+		const pending = synchronizer
+			.synchronize(entry.key, entry.view)
+			.then(async (result) => {
+				if (result === null) {
+					if (epoch === entry.synchronizationEpoch) {
+						this.setView(entry, {
+							...entry.view,
+							sync: entry.view.data === null ? "empty" : "cached",
+						});
+					}
+					return;
+				}
+				if (
+					epoch !== entry.synchronizationEpoch ||
+					entry.runtimeUpdates !== runtimeUpdates ||
+					!requestsSynchronization(entry) ||
+					!cursorIsAccepted(
+						entry.view.cursor,
+						result.cursor,
+						result.resetEpoch === true,
+						true,
+					)
+				) {
+					if (
+						epoch === entry.synchronizationEpoch &&
+						entry.view.sync === "synchronizing" &&
+						!requestsRuntime(entry)
+					) {
+						this.setView(entry, {
+							...entry.view,
+							sync: entry.view.data === null ? "empty" : "cached",
+						});
+					}
+					return;
+				}
+				const next: ResourceView<unknown> = {
+					...entry.view,
+					data: result.data,
+					origin: "checkpoint",
+					cursor: result.cursor,
+					sync: requestsRuntime(entry) ? "synchronizing" : "cached",
+				};
+				if (this.options.persistence !== undefined) {
+					await this.options.persistence.saveResource(entry.key, {
+						data: next.data,
+						cursor: next.cursor,
+						storedAt: Date.now(),
+					});
+				}
+				if (
+					epoch === entry.synchronizationEpoch &&
+					entry.runtimeUpdates === runtimeUpdates
+				) {
+					this.setView(entry, next);
+				}
+			})
+			.catch(() => {
+				if (epoch !== entry.synchronizationEpoch) return;
+				this.setView(entry, {
+					...entry.view,
+					sync: entry.view.data === null ? "failed" : "stale",
+				});
+			})
+			.then(() => {
+				if (entry.synchronization === pending) entry.synchronization = null;
+			});
+		entry.synchronization = pending;
+	}
+
 	private startDriver(
 		entry: ResourceEntry,
 		binding: EnvironmentBinding<Client>,
 	): void {
 		if (
 			entry.activations.size === 0 ||
-			!requestsNetwork(entry) ||
+			!requestsRuntime(entry) ||
 			entry.driverGeneration === binding.runtime.snapshot().generation
 		) {
 			return;

@@ -39,6 +39,7 @@ export interface RelayConfig {
 	readonly mintPublicKey: string;
 	/** 32-byte base64url AES key for account-level cloud credential envelopes. */
 	readonly cloudCredentialVaultKey?: Redacted.Redacted<string>;
+	readonly cloudTranscriptObjects?: CloudTranscriptObjectStore;
 	readonly challengeTtlMs: number;
 	readonly connectTokenTtlMs: number;
 	readonly accessTokenTtlMs: number;
@@ -49,6 +50,12 @@ export interface RelayConfig {
 	readonly maxEnvironmentsPerAccount: number | null;
 	readonly allowedBrowserOrigins: ReadonlyArray<string>;
 	readonly managedTunnel?: ManagedTunnelConfig;
+}
+
+export interface CloudTranscriptObjectStore {
+	readonly put: (key: string, value: string) => Promise<"created" | "exists">;
+	readonly get: (key: string) => Promise<string | null>;
+	readonly deletePrefix: (prefix: string) => Promise<void>;
 }
 
 export class RelayConfiguration extends Context.Service<

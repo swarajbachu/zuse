@@ -67,8 +67,10 @@ export interface CloudWorkspaceRecord {
 	readonly desiredState: CloudWorkspaceDesiredState;
 	readonly statusCode: string;
 	readonly credentialEpoch: number;
-	readonly recoveryBundleKey?: string;
-	readonly warmRetentionDeadlineMs?: number;
+	readonly wrappedTranscriptKey?: string;
+	readonly archiveRequestedAtMs?: number;
+	readonly archiveDeleteAtMs?: number;
+	readonly deletionTombstoneExpiresAtMs?: number;
 	readonly idempotencyKey: string;
 	readonly requestConfig: Readonly<Record<string, unknown>>;
 	readonly nextActionAtMs: number;
@@ -107,6 +109,18 @@ export interface CloudWorkspaceRuntimeSummaryRecord {
 	readonly lastActivityAtMs: number;
 	readonly sessionHeadVersion: number;
 	readonly updatedAtMs: number;
+}
+
+export interface CloudTranscriptCheckpointRecord {
+	readonly workspaceId: string;
+	readonly sessionId: string;
+	readonly runtimeGeneration: number;
+	readonly streamEpoch: string;
+	readonly streamVersion: number;
+	readonly objectKey: string;
+	readonly ciphertextSha256: string;
+	readonly ciphertextBytes: number;
+	readonly createdAtMs: number;
 }
 
 export type RuntimeSummaryWriteOutcome =
@@ -170,6 +184,7 @@ const RuntimeBootstrapReceiptSchema = Schema.Struct({
 	generation: Schema.Number,
 	gatewayEpoch: Schema.Number,
 	cloudCredentials: Schema.Array(RuntimeBootstrapCredentialEnvelopeSchema),
+	sealedTranscriptKey: Schema.String,
 	enrolledAtMs: Schema.Number,
 	acknowledgedAtMs: Schema.optional(Schema.Number),
 });
@@ -202,6 +217,7 @@ export interface RuntimeBootstrapEnrollmentInput {
 	readonly generation: number;
 	readonly gatewayEpoch: number;
 	readonly cloudCredentials: ReadonlyArray<RuntimeBootstrapCredentialEnvelope>;
+	readonly sealedTranscriptKey: string;
 	readonly nowMs: number;
 }
 
@@ -313,6 +329,16 @@ export interface CloudWorkspaceStoreApi {
 	readonly saveWorkspace: (
 		workspace: CloudWorkspaceRecord,
 	) => Effect.Effect<void>;
+	readonly getWorkspaceLifecycleCommand: (
+		workspaceId: string,
+		commandId: string,
+	) => Effect.Effect<string | null>;
+	readonly saveWorkspaceLifecycleCommand: (input: {
+		readonly workspace: CloudWorkspaceRecord;
+		readonly commandId: string;
+		readonly action: string;
+		readonly createdAtMs: number;
+	}) => Effect.Effect<void>;
 	readonly saveClaimedWorkspace: (input: {
 		readonly workspace: CloudWorkspaceRecord;
 		readonly leaseOwner: string;
@@ -327,6 +353,7 @@ export interface CloudWorkspaceStoreApi {
 		workspaceId: string,
 		nowMs: number,
 	) => Effect.Effect<CloudWorkspaceLaunchIntentRecord | null>;
+	readonly deleteLaunchIntent: (workspaceId: string) => Effect.Effect<void>;
 	readonly completeLaunchIntent: (
 		input: CompleteLaunchIntentInput,
 	) => Effect.Effect<CompleteLaunchIntentOutcome>;
@@ -368,6 +395,16 @@ export interface CloudWorkspaceStoreApi {
 		readonly sessionHeadVersion: number;
 		readonly updatedAtMs: number;
 	}) => Effect.Effect<RuntimeSummaryWriteOutcome>;
+	readonly getTranscriptCheckpoint: (
+		workspaceId: string,
+		sessionId: string,
+	) => Effect.Effect<CloudTranscriptCheckpointRecord | null>;
+	readonly saveTranscriptCheckpoint: (
+		checkpoint: CloudTranscriptCheckpointRecord,
+	) => Effect.Effect<boolean>;
+	readonly deleteTranscriptCheckpoints: (
+		workspaceId: string,
+	) => Effect.Effect<void>;
 	readonly listCredentials: (
 		accountId: string,
 	) => Effect.Effect<ReadonlyArray<CloudCredentialRecord>>;
@@ -411,6 +448,8 @@ interface MemoryState {
 	readonly launchIntents: Map<string, CloudWorkspaceLaunchIntentRecord>;
 	readonly runtimeRenewals: Map<string, RuntimeCredentialRenewalReceipt>;
 	readonly runtimeSummaries: Map<string, CloudWorkspaceRuntimeSummaryRecord>;
+	readonly transcriptCheckpoints: Map<string, CloudTranscriptCheckpointRecord>;
+	readonly lifecycleCommands: Map<string, string>;
 }
 
 const activeBranch = (workspace: CloudWorkspaceRecord): boolean =>
@@ -420,6 +459,11 @@ const workspaceRuntimeGeneration = (workspace: CloudWorkspaceRecord): number =>
 	typeof workspace.requestConfig.runtimeGeneration === "number"
 		? workspace.requestConfig.runtimeGeneration
 		: Math.max(1, workspace.credentialEpoch + 1);
+
+const transcriptCheckpointKey = (
+	workspaceId: string,
+	sessionId: string,
+): string => `${workspaceId}\u0000${sessionId}`;
 
 const recordOrEmpty = (value: unknown): Readonly<Record<string, unknown>> =>
 	typeof value === "object" && value !== null && !Array.isArray(value)
@@ -489,6 +533,8 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 			launchIntents: new Map(),
 			runtimeRenewals: new Map(),
 			runtimeSummaries: new Map(),
+			transcriptCheckpoints: new Map(),
+			lifecycleCommands: new Map(),
 		});
 		return CloudWorkspaceStore.of({
 			connectProject: (project) =>
@@ -760,6 +806,12 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						] as const;
 					},
 				),
+			deleteLaunchIntent: (workspaceId) =>
+				Ref.update(state, (current) => {
+					const launchIntents = new Map(current.launchIntents);
+					launchIntents.delete(workspaceId);
+					return { ...current, launchIntents };
+				}),
 			claimWorkspace: (workspaceId, leaseOwner, nowMs, leaseExpiresAtMs) =>
 				Ref.modify(state, (current) => {
 					const workspace = current.workspaces.get(workspaceId);
@@ -847,6 +899,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							generation: input.generation,
 							gatewayEpoch: input.gatewayEpoch,
 							cloudCredentials: input.cloudCredentials,
+							sealedTranscriptKey: input.sealedTranscriptKey,
 							enrolledAtMs: input.nowMs,
 						};
 						const updated: CloudWorkspaceRecord = {
@@ -1012,6 +1065,29 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						}),
 					};
 				}),
+			getWorkspaceLifecycleCommand: (workspaceId, commandId) =>
+				Ref.get(state).pipe(
+					Effect.map(
+						(current) =>
+							current.lifecycleCommands.get(`${workspaceId}:${commandId}`) ??
+							null,
+					),
+				),
+			saveWorkspaceLifecycleCommand: ({ workspace, commandId, action }) =>
+				Ref.update(state, (current) => ({
+					...current,
+					workspaces: new Map(current.workspaces).set(workspace.workspaceId, {
+						...workspace,
+						leaseOwner: current.workspaces.get(workspace.workspaceId)
+							?.leaseOwner,
+						leaseExpiresAtMs: current.workspaces.get(workspace.workspaceId)
+							?.leaseExpiresAtMs,
+					}),
+					lifecycleCommands: new Map(current.lifecycleCommands).set(
+						`${workspace.workspaceId}:${commandId}`,
+						action,
+					),
+				})),
 			saveClaimedWorkspace: ({
 				workspace,
 				leaseOwner,
@@ -1165,6 +1241,57 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						] as const;
 					},
 				),
+			getTranscriptCheckpoint: (workspaceId, sessionId) =>
+				Ref.get(state).pipe(
+					Effect.map(
+						(current) =>
+							current.transcriptCheckpoints.get(
+								transcriptCheckpointKey(workspaceId, sessionId),
+							) ?? null,
+					),
+				),
+			saveTranscriptCheckpoint: (checkpoint) =>
+				Ref.modify(state, (current) => {
+					const workspace = current.workspaces.get(checkpoint.workspaceId);
+					if (
+						workspace === undefined ||
+						workspaceRuntimeGeneration(workspace) !==
+							checkpoint.runtimeGeneration
+					)
+						return [false, current] as const;
+					const key = transcriptCheckpointKey(
+						checkpoint.workspaceId,
+						checkpoint.sessionId,
+					);
+					const previous = current.transcriptCheckpoints.get(key);
+					if (
+						previous !== undefined &&
+						(previous.runtimeGeneration > checkpoint.runtimeGeneration ||
+							(previous.runtimeGeneration === checkpoint.runtimeGeneration &&
+								(previous.streamEpoch !== checkpoint.streamEpoch ||
+									previous.streamVersion >= checkpoint.streamVersion)))
+					)
+						return [false, current] as const;
+					return [
+						true,
+						{
+							...current,
+							transcriptCheckpoints: new Map(current.transcriptCheckpoints).set(
+								key,
+								checkpoint,
+							),
+						},
+					] as const;
+				}),
+			deleteTranscriptCheckpoints: (workspaceId) =>
+				Ref.update(state, (current) => ({
+					...current,
+					transcriptCheckpoints: new Map(
+						[...current.transcriptCheckpoints].filter(
+							([, checkpoint]) => checkpoint.workspaceId !== workspaceId,
+						),
+					),
+				})),
 			listCredentials: (accountId) =>
 				Ref.get(state).pipe(
 					Effect.map((current) =>
@@ -1257,6 +1384,11 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							workspaces.has(workspaceId),
 						),
 					);
+					const transcriptCheckpoints = new Map(
+						[...current.transcriptCheckpoints].filter(([, checkpoint]) =>
+							workspaces.has(checkpoint.workspaceId),
+						),
+					);
 					return {
 						...current,
 						projects,
@@ -1265,6 +1397,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						credentials,
 						launchIntents,
 						runtimeSummaries,
+						transcriptCheckpoints,
 					};
 				}),
 			recordUsage: (event) =>
@@ -1345,8 +1478,12 @@ const workspaceFromRow = (row: Row): CloudWorkspaceRecord => ({
 	desiredState: row.desired_state as CloudWorkspaceDesiredState,
 	statusCode: String(row.status_code),
 	credentialEpoch: numberValue(row.credential_epoch),
-	recoveryBundleKey: optionalString(row.recovery_bundle_key),
-	warmRetentionDeadlineMs: optionalNumber(row.warm_retention_deadline),
+	wrappedTranscriptKey: optionalString(row.wrapped_transcript_key),
+	archiveRequestedAtMs: optionalNumber(row.archive_requested_at),
+	archiveDeleteAtMs: optionalNumber(row.archive_delete_at),
+	deletionTombstoneExpiresAtMs: optionalNumber(
+		row.deletion_tombstone_expires_at,
+	),
 	idempotencyKey: String(row.idempotency_key),
 	requestConfig: (row.request_config ?? {}) as Record<string, unknown>,
 	nextActionAtMs: numberValue(row.next_action_at),
@@ -1370,6 +1507,20 @@ const runtimeSummaryFromRow = (
 	lastActivityAtMs: numberValue(row.last_activity_at),
 	sessionHeadVersion: numberValue(row.session_head_version),
 	updatedAtMs: numberValue(row.updated_at),
+});
+
+const transcriptCheckpointFromRow = (
+	row: Row,
+): CloudTranscriptCheckpointRecord => ({
+	workspaceId: String(row.workspace_id),
+	sessionId: String(row.session_id),
+	runtimeGeneration: numberValue(row.runtime_generation),
+	streamEpoch: String(row.stream_epoch),
+	streamVersion: numberValue(row.stream_version),
+	objectKey: String(row.object_key),
+	ciphertextSha256: String(row.ciphertext_sha256),
+	ciphertextBytes: numberValue(row.ciphertext_bytes),
+	createdAtMs: numberValue(row.created_at),
 });
 
 export const CloudWorkspaceStorePg: Layer.Layer<
@@ -1396,7 +1547,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			);
 		const saveWorkspace = (w: CloudWorkspaceRecord) =>
 			orDie(
-				sql`UPDATE relay_cloud_workspaces SET provider_sandbox_id=${w.providerSandboxId ?? null}, runtime_boot_token_hash=${w.runtimeBootTokenHash ?? null}, runtime_boot_token_expires_at=${w.runtimeBootTokenExpiresAtMs ?? null}, runtime_credential_hash=${w.runtimeCredentialHash ?? null}, runtime_state=${w.runtimeState}, state=${w.state}, desired_state=${w.desiredState}, status_code=${w.statusCode}, credential_epoch=${w.credentialEpoch}, recovery_bundle_key=${w.recoveryBundleKey ?? null}, warm_retention_deadline=${w.warmRetentionDeadlineMs ?? null}, request_config=${JSON.stringify(w.requestConfig)}::jsonb, next_action_at=${w.nextActionAtMs}, revision=${w.revision}, updated_at=${w.updatedAtMs}, last_activity_at=${w.lastActivityAtMs}, running_since=${w.runningSinceMs ?? null}, deleted_at=${w.deletedAtMs ?? null} WHERE workspace_id=${w.workspaceId} AND (revision < ${w.revision} OR (revision = ${w.revision} AND updated_at < ${w.updatedAtMs}))`.pipe(
+				sql`UPDATE relay_cloud_workspaces SET provider_sandbox_id=${w.providerSandboxId ?? null}, runtime_boot_token_hash=${w.runtimeBootTokenHash ?? null}, runtime_boot_token_expires_at=${w.runtimeBootTokenExpiresAtMs ?? null}, runtime_credential_hash=${w.runtimeCredentialHash ?? null}, runtime_state=${w.runtimeState}, state=${w.state}, desired_state=${w.desiredState}, status_code=${w.statusCode}, credential_epoch=${w.credentialEpoch}, wrapped_transcript_key=${w.wrappedTranscriptKey ?? null}, archive_requested_at=${w.archiveRequestedAtMs ?? null}, archive_delete_at=${w.archiveDeleteAtMs ?? null}, deletion_tombstone_expires_at=${w.deletionTombstoneExpiresAtMs ?? null}, request_config=${JSON.stringify(w.requestConfig)}::jsonb, next_action_at=${w.nextActionAtMs}, revision=${w.revision}, updated_at=${w.updatedAtMs}, last_activity_at=${w.lastActivityAtMs}, running_since=${w.runningSinceMs ?? null}, deleted_at=${w.deletedAtMs ?? null} WHERE workspace_id=${w.workspaceId} AND (revision < ${w.revision} OR (revision = ${w.revision} AND updated_at < ${w.updatedAtMs}))`.pipe(
 					Effect.asVoid,
 				),
 			);
@@ -1408,7 +1559,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 		}) => {
 			const w = input.workspace;
 			return orDie(
-				sql`UPDATE relay_cloud_workspaces SET provider_sandbox_id=${w.providerSandboxId ?? null}, runtime_boot_token_hash=${w.runtimeBootTokenHash ?? null}, runtime_boot_token_expires_at=${w.runtimeBootTokenExpiresAtMs ?? null}, runtime_credential_hash=${w.runtimeCredentialHash ?? null}, runtime_state=${w.runtimeState}, state=${w.state}, desired_state=${w.desiredState}, status_code=${w.statusCode}, credential_epoch=${w.credentialEpoch}, recovery_bundle_key=${w.recoveryBundleKey ?? null}, warm_retention_deadline=${w.warmRetentionDeadlineMs ?? null}, request_config=${JSON.stringify(w.requestConfig)}::jsonb, next_action_at=${w.nextActionAtMs}, revision=${w.revision}, updated_at=${w.updatedAtMs}, last_activity_at=${w.lastActivityAtMs}, running_since=${w.runningSinceMs ?? null}, deleted_at=${w.deletedAtMs ?? null} WHERE workspace_id=${w.workspaceId} AND lease_owner=${input.leaseOwner} AND revision=${input.expectedRevision} AND updated_at=${input.expectedUpdatedAtMs} RETURNING workspace_id`.pipe(
+				sql`UPDATE relay_cloud_workspaces SET provider_sandbox_id=${w.providerSandboxId ?? null}, runtime_boot_token_hash=${w.runtimeBootTokenHash ?? null}, runtime_boot_token_expires_at=${w.runtimeBootTokenExpiresAtMs ?? null}, runtime_credential_hash=${w.runtimeCredentialHash ?? null}, runtime_state=${w.runtimeState}, state=${w.state}, desired_state=${w.desiredState}, status_code=${w.statusCode}, credential_epoch=${w.credentialEpoch}, wrapped_transcript_key=${w.wrappedTranscriptKey ?? null}, archive_requested_at=${w.archiveRequestedAtMs ?? null}, archive_delete_at=${w.archiveDeleteAtMs ?? null}, deletion_tombstone_expires_at=${w.deletionTombstoneExpiresAtMs ?? null}, request_config=${JSON.stringify(w.requestConfig)}::jsonb, next_action_at=${w.nextActionAtMs}, revision=${w.revision}, updated_at=${w.updatedAtMs}, last_activity_at=${w.lastActivityAtMs}, running_since=${w.runningSinceMs ?? null}, deleted_at=${w.deletedAtMs ?? null} WHERE workspace_id=${w.workspaceId} AND lease_owner=${input.leaseOwner} AND revision=${input.expectedRevision} AND updated_at=${input.expectedUpdatedAtMs} RETURNING workspace_id`.pipe(
 					Effect.map((rows) => rows.length === 1),
 				),
 			);
@@ -1525,7 +1676,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							} satisfies CreateCloudWorkspaceOutcome;
 						}
 						const created =
-							yield* sql`INSERT INTO relay_cloud_workspaces (workspace_id, account_id, project_id, build_id, provider, runtime_state, chat_id, initial_session_id, branch, base_ref, state, desired_state, status_code, credential_epoch, idempotency_key, request_config, next_action_at, revision, created_at, updated_at, last_activity_at) VALUES (${w.workspaceId}, ${w.accountId}, ${w.projectId}, ${w.buildId}, ${w.provider}, ${w.runtimeState}, ${w.chatId}, ${w.initialSessionId}, ${w.branch}, ${w.baseRef}, ${w.state}, ${w.desiredState}, ${w.statusCode}, ${w.credentialEpoch}, ${w.idempotencyKey}, ${JSON.stringify(w.requestConfig)}::jsonb, ${w.nextActionAtMs}, ${w.revision}, ${w.createdAtMs}, ${w.updatedAtMs}, ${w.lastActivityAtMs}) RETURNING *`;
+							yield* sql`INSERT INTO relay_cloud_workspaces (workspace_id, account_id, project_id, build_id, provider, runtime_state, chat_id, initial_session_id, branch, base_ref, state, desired_state, status_code, credential_epoch, wrapped_transcript_key, idempotency_key, request_config, next_action_at, revision, created_at, updated_at, last_activity_at) VALUES (${w.workspaceId}, ${w.accountId}, ${w.projectId}, ${w.buildId}, ${w.provider}, ${w.runtimeState}, ${w.chatId}, ${w.initialSessionId}, ${w.branch}, ${w.baseRef}, ${w.state}, ${w.desiredState}, ${w.statusCode}, ${w.credentialEpoch}, ${w.wrappedTranscriptKey ?? null}, ${w.idempotencyKey}, ${JSON.stringify(w.requestConfig)}::jsonb, ${w.nextActionAtMs}, ${w.revision}, ${w.createdAtMs}, ${w.updatedAtMs}, ${w.lastActivityAtMs}) RETURNING *`;
 						yield* sql`INSERT INTO relay_cloud_workspace_launch_intents (workspace_id, account_id, chat_id, session_id, turn_id, command_id, ciphertext, expires_at, created_at) VALUES (${launchIntent.workspaceId}, ${launchIntent.accountId}, ${launchIntent.chatId}, ${launchIntent.sessionId}, ${launchIntent.turnId}, ${launchIntent.commandId}, ${launchIntent.ciphertext}, ${launchIntent.expiresAtMs}, ${launchIntent.createdAtMs})`;
 						return {
 							kind: "created",
@@ -1561,6 +1712,21 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 					),
 				),
 			saveWorkspace,
+			getWorkspaceLifecycleCommand: (workspaceId, commandId) =>
+				orDie(
+					sql`SELECT action FROM relay_cloud_workspace_command_receipts WHERE workspace_id=${workspaceId} AND command_id=${commandId}`.pipe(
+						Effect.map((rows) =>
+							rows[0] === undefined ? null : String(rows[0].action),
+						),
+					),
+				),
+			saveWorkspaceLifecycleCommand: (input) =>
+				orDie(
+					Effect.gen(function* () {
+						yield* saveWorkspace(input.workspace);
+						yield* sql`INSERT INTO relay_cloud_workspace_command_receipts (workspace_id, command_id, action, workspace_revision, created_at) VALUES (${input.workspace.workspaceId}, ${input.commandId}, ${input.action}, ${input.workspace.revision}, ${input.createdAtMs}) ON CONFLICT (workspace_id, command_id) DO NOTHING`;
+					}).pipe(sql.withTransaction),
+				),
 			saveClaimedWorkspace,
 			releaseWorkspaceLease: (workspaceId, leaseOwner) =>
 				orDie(
@@ -1594,6 +1760,12 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 									createdAtMs: numberValue(row.created_at),
 								};
 					}).pipe(sql.withTransaction),
+				),
+			deleteLaunchIntent: (workspaceId) =>
+				orDie(
+					sql`DELETE FROM relay_cloud_workspace_launch_intents WHERE workspace_id=${workspaceId}`.pipe(
+						Effect.asVoid,
+					),
 				),
 			completeLaunchIntent: (input) =>
 				orDie(
@@ -1682,6 +1854,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							generation: input.generation,
 							gatewayEpoch: input.gatewayEpoch,
 							cloudCredentials: input.cloudCredentials,
+							sealedTranscriptKey: input.sealedTranscriptKey,
 							enrolledAtMs: input.nowMs,
 						};
 						const nextConfig = {
@@ -1874,6 +2047,51 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							summary: runtimeSummaryFromRow(existing),
 						};
 					}).pipe(sql.withTransaction),
+				),
+			getTranscriptCheckpoint: (workspaceId, sessionId) =>
+				orDie(
+					sql`SELECT * FROM relay_cloud_transcript_checkpoints WHERE workspace_id=${workspaceId} AND session_id=${sessionId} LIMIT 1`.pipe(
+						Effect.map((rows) =>
+							rows[0] ? transcriptCheckpointFromRow(rows[0] as Row) : null,
+						),
+					),
+				),
+			saveTranscriptCheckpoint: (checkpoint) =>
+				orDie(
+					sql`
+						INSERT INTO relay_cloud_transcript_checkpoints
+							(workspace_id, session_id, runtime_generation, stream_epoch,
+							 stream_version, object_key, ciphertext_sha256,
+							 ciphertext_bytes, created_at)
+						SELECT ${checkpoint.workspaceId}, ${checkpoint.sessionId},
+							${checkpoint.runtimeGeneration}, ${checkpoint.streamEpoch},
+							${checkpoint.streamVersion}, ${checkpoint.objectKey},
+							${checkpoint.ciphertextSha256}, ${checkpoint.ciphertextBytes},
+							${checkpoint.createdAtMs}
+						FROM relay_cloud_workspaces AS workspace
+						WHERE workspace.workspace_id=${checkpoint.workspaceId}
+							AND COALESCE((workspace.request_config->>'runtimeGeneration')::bigint,
+								GREATEST(1, workspace.credential_epoch + 1))=${checkpoint.runtimeGeneration}
+						ON CONFLICT (workspace_id, session_id) DO UPDATE SET
+							runtime_generation=EXCLUDED.runtime_generation,
+							stream_epoch=EXCLUDED.stream_epoch,
+							stream_version=EXCLUDED.stream_version,
+							object_key=EXCLUDED.object_key,
+							ciphertext_sha256=EXCLUDED.ciphertext_sha256,
+							ciphertext_bytes=EXCLUDED.ciphertext_bytes,
+							created_at=EXCLUDED.created_at
+						WHERE EXCLUDED.runtime_generation > relay_cloud_transcript_checkpoints.runtime_generation
+							OR (EXCLUDED.runtime_generation = relay_cloud_transcript_checkpoints.runtime_generation
+								AND EXCLUDED.stream_epoch = relay_cloud_transcript_checkpoints.stream_epoch
+								AND EXCLUDED.stream_version > relay_cloud_transcript_checkpoints.stream_version)
+						RETURNING workspace_id
+					`.pipe(Effect.map((rows) => rows.length === 1)),
+				),
+			deleteTranscriptCheckpoints: (workspaceId) =>
+				orDie(
+					sql`DELETE FROM relay_cloud_transcript_checkpoints WHERE workspace_id=${workspaceId}`.pipe(
+						Effect.asVoid,
+					),
 				),
 			listCredentials: (accountId) =>
 				orDie(

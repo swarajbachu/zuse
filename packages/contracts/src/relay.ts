@@ -87,6 +87,20 @@ export const RelayPaths = {
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/activity`,
 	cloudWorkspaceSummary: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/summary`,
+	cloudWorkspaceRuntimeTranscriptCheckpoint: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/transcript-checkpoint`,
+	cloudWorkspaceRuntimeTranscriptMessagePage: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/transcript-message-page`,
+	cloudWorkspaceTranscriptCheckpoint: (
+		workspaceId: string,
+		sessionId: string,
+	) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/transcript-checkpoint`,
+	cloudWorkspaceTranscriptMessagePage: (
+		workspaceId: string,
+		sessionId: string,
+	) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/transcript-message-page`,
 	cloudChats: "/v1/cloud/chats",
 	cloudWorkspaceAction: (workspaceId: string, action: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/${encodeURIComponent(action)}`,

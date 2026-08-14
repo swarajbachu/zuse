@@ -13,6 +13,7 @@ import {
 	CloudCredentialVault,
 	CloudCredentialVaultLive,
 } from "../../src/cloud-credential-vault.ts";
+import { createCloudTranscriptKey } from "../../src/cloud-transcript.ts";
 import {
 	CloudWorkspaceLaunchIntentCipher,
 	CloudWorkspaceLaunchIntentCipherLive,
@@ -132,6 +133,9 @@ describe("cloud workspace runtime bootstrap", () => {
 				});
 			}),
 		);
+		const transcriptKey = await runtime.runPromise(
+			createCloudTranscriptKey("account-1", workspaceId),
+		);
 		await runtime.runPromise(
 			store.createWorkspace(
 				{
@@ -152,6 +156,7 @@ describe("cloud workspace runtime bootstrap", () => {
 					desiredState: "ready",
 					statusCode: "runtime-starting",
 					credentialEpoch: 0,
+					wrappedTranscriptKey: transcriptKey.envelope,
 					idempotencyKey: "bootstrap-key",
 					requestConfig: {
 						runtimeGeneration: 4,

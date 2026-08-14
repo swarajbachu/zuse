@@ -1,6 +1,11 @@
+import type { ResourceView } from "@zuse/client-runtime/resource-state";
+import type { SessionTimelineProjection } from "@zuse/contracts";
 import {
 	Chat,
+	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
 	type CloudChatSummary,
+	CloudTranscriptCheckpointPayload,
+	CloudTranscriptMessagePagePayload,
 	type CloudWorkspace,
 	EnvironmentId,
 	type FolderId,
@@ -9,7 +14,12 @@ import {
 	Session,
 	type SessionId,
 } from "@zuse/contracts";
-import { Effect } from "effect";
+import {
+	cloudTranscriptAdditionalData,
+	decryptCloudTranscript,
+	sha256Base64Url,
+} from "@zuse/utils/cloud-transcript-crypto";
+import { Effect, Schema } from "effect";
 import {
 	cloudWorkspaceStartupError,
 	isCloudWorkspaceReady,
@@ -23,7 +33,15 @@ import {
 	getControlPlaneRpcClient,
 	registerCloudWorkspace,
 } from "../lib/rpc-client.ts";
-import { registerEnvironmentWake } from "../lib/session-timeline-client-bus.ts";
+import {
+	sessionTimelineCache,
+	timelineReadingPositionStore,
+} from "../lib/session-timeline-cache.ts";
+import {
+	registerEnvironmentWake,
+	registerSessionTimelineCheckpointSynchronizer,
+	registerSessionTimelineOlderPageSynchronizer,
+} from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { useSessionsStore } from "../store/sessions.ts";
@@ -34,13 +52,14 @@ import {
 	cloudSummaryForEnvironment,
 	cloudSummaryForSession,
 	compareCloudChatSummaryVersion,
+	completeCloudArchiveIntent,
+	hydrateCloudChatCatalogPersistence,
 	localProjectForCloudChat,
 	localProjectForCloudEnvironment,
 	optimisticallyArchiveCloudChat,
 	reconcileCloudChatCatalog,
 	registerCloudChat,
 	registerCloudChatCatalogRefresh,
-	rollbackOptimisticCloudArchive,
 	useCloudChatCatalogStore,
 } from "./cloud-workspace-catalog.ts";
 
@@ -70,6 +89,107 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 	}
 	registeredWakeByEnvironment.set(summary.workspaceId, summary);
 	let rootPrepared = false;
+	registerSessionTimelineCheckpointSynchronizer(
+		EnvironmentId.make(summary.workspaceId),
+		async (ref, current: ResourceView<SessionTimelineProjection>) => {
+			const control = await getControlPlaneRpcClient();
+			const result = await Effect.runPromise(
+				control["cloud.transcript.get"]({
+					workspaceId: summary.workspaceId,
+					sessionId: ref.sessionId,
+					cursor: current.cursor ?? undefined,
+				}),
+			);
+			const checkpoint = result.checkpoint;
+			if (checkpoint === null) return null;
+			if (
+				checkpoint.metadata.workspaceId !== summary.workspaceId ||
+				checkpoint.metadata.sessionId !== ref.sessionId ||
+				(await sha256Base64Url(checkpoint.ciphertext)) !==
+					checkpoint.metadata.ciphertextSha256
+			)
+				throw new Error("Cloud transcript checkpoint failed integrity checks");
+			const plaintext = await decryptCloudTranscript({
+				encodedKey: checkpoint.transcriptKey,
+				additionalData: cloudTranscriptAdditionalData({
+					workspaceId: summary.workspaceId,
+					sessionId: ref.sessionId,
+					epoch: checkpoint.metadata.cursor.epoch,
+					version: checkpoint.metadata.cursor.version,
+					schemaVersion: CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
+				}),
+				ciphertext: checkpoint.ciphertext,
+			});
+			const payload = Schema.decodeUnknownSync(
+				CloudTranscriptCheckpointPayload,
+			)(JSON.parse(new TextDecoder().decode(plaintext)));
+			if (
+				payload.workspaceId !== summary.workspaceId ||
+				payload.sessionId !== ref.sessionId ||
+				payload.cursor.epoch !== checkpoint.metadata.cursor.epoch ||
+				payload.cursor.version !== checkpoint.metadata.cursor.version
+			)
+				throw new Error("Cloud transcript checkpoint metadata mismatch");
+			return {
+				data: payload.projection,
+				cursor: payload.cursor,
+				resetEpoch:
+					current.cursor !== null &&
+					current.cursor.epoch !== payload.cursor.epoch,
+			};
+		},
+	);
+	registerSessionTimelineOlderPageSynchronizer(
+		EnvironmentId.make(summary.workspaceId),
+		async (ref, cursor, beforeSequence) => {
+			const control = await getControlPlaneRpcClient();
+			const result = await Effect.runPromise(
+				control["cloud.transcript.messages.page"]({
+					workspaceId: summary.workspaceId,
+					sessionId: ref.sessionId,
+					cursor,
+					beforeSequence,
+				}),
+			);
+			const encrypted = result.page;
+			if (encrypted === null) return null;
+			if (
+				encrypted.beforeSequence !== beforeSequence ||
+				encrypted.cursor.epoch !== cursor.epoch ||
+				encrypted.cursor.version !== cursor.version ||
+				(await sha256Base64Url(encrypted.ciphertext)) !==
+					encrypted.ciphertextSha256
+			)
+				throw new Error("Cloud transcript page failed integrity checks");
+			const plaintext = await decryptCloudTranscript({
+				encodedKey: encrypted.transcriptKey,
+				additionalData: cloudTranscriptAdditionalData({
+					workspaceId: summary.workspaceId,
+					sessionId: ref.sessionId,
+					epoch: cursor.epoch,
+					version: cursor.version,
+					schemaVersion: CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
+					pageBeforeSequence: beforeSequence,
+				}),
+				ciphertext: encrypted.ciphertext,
+			});
+			const page = Schema.decodeUnknownSync(CloudTranscriptMessagePagePayload)(
+				JSON.parse(new TextDecoder().decode(plaintext)) as unknown,
+			);
+			if (
+				page.workspaceId !== summary.workspaceId ||
+				page.sessionId !== ref.sessionId ||
+				page.beforeSequence !== beforeSequence ||
+				page.cursor.epoch !== cursor.epoch ||
+				page.cursor.version !== cursor.version
+			)
+				throw new Error("Cloud transcript page belongs to another resource");
+			return {
+				messages: page.messages,
+				olderMessageSequence: page.olderMessageSequence,
+			};
+		},
+	);
 	registerEnvironmentWake(
 		EnvironmentId.make(summary.workspaceId),
 		async () => {
@@ -366,6 +486,16 @@ const removeDeletedCloudPlaceholders = (
 	removed: ReadonlyArray<CloudChatSummary>,
 ): void => {
 	if (removed.length === 0) return;
+	for (const summary of removed) {
+		const ref = {
+			environmentId: EnvironmentId.make(summary.workspaceId),
+			sessionId: summary.initialSessionId,
+		};
+		void Promise.all([
+			sessionTimelineCache?.remove(ref),
+			timelineReadingPositionStore?.remove(ref),
+		]).catch(() => undefined);
+	}
 	const chatIds = new Set(removed.map((summary) => summary.chatId));
 	const sessionIds = new Set(
 		removed.map((summary) => summary.initialSessionId),
@@ -422,7 +552,36 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 		hydration = (async () => {
 			set({ loading: true, error: null });
 			try {
+				await hydrateCloudChatCatalogPersistence();
+				for (const cached of useCloudChatCatalogStore.getState().summaries) {
+					registerCloudEnvironmentResolver(cached);
+					const cachedProject = localProjectForCloudEnvironment(
+						cached.workspaceId,
+					);
+					if (cachedProject !== null) stageCloudChat(cached, cachedProject);
+				}
 				const client = await getControlPlaneRpcClient();
+				for (const [workspaceId, intent] of Object.entries(
+					useCloudChatCatalogStore.getState().archiveIntents,
+				)) {
+					const cached = cloudSummaryForEnvironment(workspaceId);
+					if (cached === null) continue;
+					try {
+						const archived = await Effect.runPromise(
+							client["cloud.workspaces.archive"]({
+								workspaceId,
+								commandId: intent.commandId,
+							}),
+						);
+						updateSummary({
+							...refreshSummaryFromWorkspace(cached, archived),
+							archivedAt: intent.requestedAt,
+						});
+						completeCloudArchiveIntent(workspaceId, intent.commandId);
+					} catch {
+						// The persisted intent remains hidden and retries on the next hydrate.
+					}
+				}
 				const result = await Effect.runPromise(
 					client["cloud.chats.list"]({ scope: "all" }),
 				);
@@ -448,20 +607,29 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 	},
 	archive: async (summary) => {
 		const archivedAt = Date.now();
-		optimisticallyArchiveCloudChat(summary, archivedAt);
+		const commandId = crypto.randomUUID();
+		const optimistic = optimisticallyArchiveCloudChat(
+			summary,
+			archivedAt,
+			commandId,
+		);
+		const projectId = localProjectForCloudEnvironment(summary.workspaceId);
+		if (projectId !== null) stageCloudChat(optimistic, projectId);
 		try {
 			const client = await getControlPlaneRpcClient();
 			const workspace = await Effect.runPromise(
 				client["cloud.workspaces.archive"]({
 					workspaceId: summary.workspaceId,
+					commandId,
 				}),
 			);
 			updateSummary({
 				...refreshSummaryFromWorkspace(summary, workspace),
 				archivedAt,
 			});
+			completeCloudArchiveIntent(summary.workspaceId, commandId);
 		} catch (cause) {
-			rollbackOptimisticCloudArchive(summary, archivedAt);
+			set({ error: formatError(cause) });
 			throw cause;
 		}
 	},

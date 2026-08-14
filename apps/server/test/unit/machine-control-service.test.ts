@@ -31,7 +31,6 @@ const workspace = (
 		createdAt: 1,
 		updatedAt: revision,
 		lastActivityAt: revision,
-		recoveryAvailable: false,
 	});
 
 describe("machine control relay URL", () => {

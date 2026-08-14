@@ -217,6 +217,7 @@ export function CloudWorkspaceSetupCard({
 				await runControlPlane((control) =>
 					control["cloud.workspaces.delete"]({
 						workspaceId: summary.workspaceId,
+						commandId: crypto.randomUUID(),
 					}),
 				);
 			await refreshCloudChatCatalog();

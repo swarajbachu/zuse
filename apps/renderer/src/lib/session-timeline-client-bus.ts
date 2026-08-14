@@ -2,6 +2,7 @@ import {
 	ClientBus,
 	type ResourceDriver,
 	type ResourceLease,
+	type ResourceSynchronization,
 } from "@zuse/client-runtime/client-bus";
 import type {
 	ClientCommand,
@@ -51,6 +52,53 @@ export const sessionTimelineResourceKey = (
 	ref: SessionRef,
 ): SessionTimelineResourceKey =>
 	makeResourceKey<SessionTimelineProjection>("session-timeline", ref);
+
+type TimelineCheckpointSynchronizer = (
+	ref: SessionRef,
+	current: ResourceView<SessionTimelineProjection>,
+) => Promise<ResourceSynchronization<SessionTimelineProjection> | null>;
+
+type TimelineOlderPageSynchronizer = (
+	ref: SessionRef,
+	cursor: NonNullable<ResourceView<SessionTimelineProjection>["cursor"]>,
+	beforeSequence: number,
+) => Promise<{
+	readonly messages: readonly Message[];
+	readonly olderMessageSequence: number | null;
+} | null>;
+
+const checkpointSynchronizers = new Map<
+	EnvironmentId,
+	TimelineCheckpointSynchronizer
+>();
+const olderPageSynchronizers = new Map<
+	EnvironmentId,
+	TimelineOlderPageSynchronizer
+>();
+
+export const registerSessionTimelineCheckpointSynchronizer = (
+	environmentId: EnvironmentId,
+	synchronize: TimelineCheckpointSynchronizer,
+): (() => void) => {
+	checkpointSynchronizers.set(environmentId, synchronize);
+	return () => {
+		if (checkpointSynchronizers.get(environmentId) === synchronize) {
+			checkpointSynchronizers.delete(environmentId);
+		}
+	};
+};
+
+export const registerSessionTimelineOlderPageSynchronizer = (
+	environmentId: EnvironmentId,
+	synchronize: TimelineOlderPageSynchronizer,
+): (() => void) => {
+	olderPageSynchronizers.set(environmentId, synchronize);
+	return () => {
+		if (olderPageSynchronizers.get(environmentId) === synchronize) {
+			olderPageSynchronizers.delete(environmentId);
+		}
+	};
+};
 
 const sessionRef = (key: ResourceKey<unknown>): SessionRef | null =>
 	key.kind === "session-timeline" && "sessionId" in key.ref ? key.ref : null;
@@ -1081,6 +1129,21 @@ const createBus = (): ClientBus<MemoizeClient> => {
 		runtime: {
 			isOnline: () => globalThis.navigator?.onLine !== false,
 		},
+		synchronizer: {
+			synchronize: async <Data>(
+				key: ResourceKey<Data>,
+				current: ResourceView<Data>,
+			) => {
+				const ref = sessionRef(key);
+				if (ref === null) return null;
+				const synchronize = checkpointSynchronizers.get(ref.environmentId);
+				if (synchronize === undefined) return null;
+				return (await synchronize(
+					ref,
+					current as ResourceView<SessionTimelineProjection>,
+				)) as ResourceSynchronization<Data> | null;
+			},
+		},
 		driverFor: (key) => {
 			if (key.kind === "session-timeline") {
 				return makeTimelineDriver((environmentId, generation, cause) => {
@@ -1136,11 +1199,7 @@ export const loadOlderSessionMessages = (
 	const bus = rendererClientBus;
 	const initial = bus.snapshot(key);
 	const beforeSequence = initial.data?.olderMessageSequence ?? null;
-	if (
-		initial.data === null ||
-		beforeSequence === null ||
-		initial.connection !== "connected"
-	) {
+	if (initial.data === null || beforeSequence === null) {
 		return Promise.resolve({
 			applied: false,
 			loaded: 0,
@@ -1152,16 +1211,25 @@ export const loadOlderSessionMessages = (
 
 	const request = (async (): Promise<OlderSessionMessagesResult> => {
 		const client = bus.client(ref.environmentId);
-		if (client === null) {
+		const page =
+			client === null
+				? expectedCursor === null
+					? null
+					: await olderPageSynchronizers.get(ref.environmentId)?.(
+							ref,
+							expectedCursor,
+							beforeSequence,
+						)
+				: await Effect.runPromise(
+						client["session.messages.page"]({
+							sessionId: ref.sessionId,
+							beforeSequence,
+							limit: 100,
+						}),
+					);
+		if (page === null || page === undefined) {
 			return { applied: false, loaded: 0, hasMore: true };
 		}
-		const page = await Effect.runPromise(
-			client["session.messages.page"]({
-				sessionId: ref.sessionId,
-				beforeSequence,
-				limit: 100,
-			}),
-		);
 		if (bus !== rendererClientBus) {
 			return { applied: false, loaded: 0, hasMore: true };
 		}
@@ -1355,6 +1423,8 @@ export const resetSessionTimelineClientBus = async (): Promise<void> => {
 	await rendererClientBus.dispose();
 	rendererClientBus = createBus();
 	olderSessionMessageLoads.clear();
+	checkpointSynchronizers.clear();
+	olderPageSynchronizers.clear();
 	wakeByEnvironment.clear();
 };
 

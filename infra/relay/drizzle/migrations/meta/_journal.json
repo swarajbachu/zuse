@@ -64,6 +64,13 @@
 			"when": 1786600000000,
 			"tag": "0008_runtime_summary_projection",
 			"breakpoints": true
+		},
+		{
+			"idx": 9,
+			"version": "7",
+			"when": 1786726800000,
+			"tag": "0009_cloud_transcript_checkpoints",
+			"breakpoints": true
 		}
 	]
 }

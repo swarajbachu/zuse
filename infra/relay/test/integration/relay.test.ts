@@ -113,7 +113,6 @@ const placementAdapter = (providerId: string): SandboxProviderAdapter => ({
 	extendTimeout: () => Effect.void,
 	setNetwork: () => Effect.void,
 	snapshot: () => Effect.die("unused"),
-	inspectSnapshot: () => Effect.die("unused"),
 	kill: () => Effect.void,
 	deleteSnapshot: () => Effect.void,
 });

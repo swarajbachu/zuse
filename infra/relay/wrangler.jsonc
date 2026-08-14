@@ -63,6 +63,12 @@
 			"id": "dfc67e0586ff4c288cb645ed63c65d9a"
 		}
 	],
+	"r2_buckets": [
+		{
+			"binding": "CLOUD_TRANSCRIPTS",
+			"bucket_name": "zuse-cloud-transcripts-staging"
+		}
+	],
 	"durable_objects": {
 		"bindings": [
 			{

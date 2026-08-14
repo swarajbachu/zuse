@@ -1,4 +1,8 @@
-import type { SessionId, SessionTimelineProjection } from "@zuse/contracts";
+import type {
+	AgentSessionId,
+	SessionId,
+	SessionTimelineProjection,
+} from "@zuse/contracts";
 import {
 	Context,
 	Crypto,
@@ -19,7 +23,10 @@ import {
 } from "../projectors/sql-session-projector.js";
 import {
 	MAX_TIMELINE_SNAPSHOT_PROJECTION_BYTES,
+	readSessionTimelineMessagePage,
 	readSessionTimelineSnapshot,
+	type SessionTimelineMessagePage,
+	type SessionTimelineSnapshot,
 } from "../queries/session-timeline-snapshot.js";
 import type { SqlSessionQueryError } from "../queries/sql-session-queries.js";
 import {
@@ -101,6 +108,14 @@ export interface SessionDomainApi {
 	readonly currentStreamVersion: (
 		streamId: string,
 	) => Effect.Effect<number, SessionDomainError>;
+	readonly timelineSnapshot: (
+		streamId: SessionId,
+	) => Effect.Effect<SessionTimelineSnapshot, SessionDomainError>;
+	readonly timelineMessagePage: (
+		streamId: AgentSessionId,
+		beforeSequence: number,
+		limit?: number,
+	) => Effect.Effect<SessionTimelineMessagePage, SessionDomainError>;
 }
 
 export class SessionDomain extends Context.Service<
@@ -452,6 +467,9 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 		streamEpoch,
 		currentStreamVersion: (streamId) =>
 			dispatchStorage.currentStreamVersion(streamId),
+		timelineSnapshot: (streamId) => readSessionTimelineSnapshot(sql, streamId),
+		timelineMessagePage: (streamId, beforeSequence, limit) =>
+			readSessionTimelineMessagePage(sql, streamId, beforeSequence, limit),
 		dispatch: (input) => dispatchTransactionally(input, Effect.succeed),
 		dispatchTransactionally,
 	});

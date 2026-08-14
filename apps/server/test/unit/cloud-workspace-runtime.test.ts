@@ -1,9 +1,18 @@
+import {
+	AgentSessionId,
+	Message,
+	MessageId,
+	QueueState,
+	SessionTimelineProjection,
+} from "@zuse/contracts";
+import { bytesToBase64Url } from "@zuse/utils/cloud-transcript-crypto";
 import { Effect, Fiber, Ref } from "effect";
 import { TestClock } from "effect/testing";
 import { generateKeyPair, jwtVerify } from "jose";
 import { describe, expect, it, vi } from "vitest";
 import {
 	bufferWorkspaceLocalFrame,
+	makeCloudRuntimeCheckpointPublisher,
 	makeCloudRuntimeSummaryPublisher,
 	retryCloudWorkspaceBootstrap,
 	runtimeCredentialRenewalDelayMs,
@@ -13,6 +22,59 @@ import {
 } from "../../src/relay/cloud-workspace-runtime.ts";
 
 describe("cloud workspace bootstrap", () => {
+	it("publishes bounded older transcript pages only for an urgent checkpoint", async () => {
+		const sessionId = AgentSessionId.make("session-pages");
+		const older = Message.make({
+			id: MessageId.make("message-older"),
+			sessionId,
+			role: "assistant",
+			content: { _tag: "assistant", text: "older durable output" },
+			createdAt: new Date(1),
+		});
+		const headWrites: unknown[] = [];
+		const pageWrites: Array<{ readonly beforeSequence: number }> = [];
+		const publisher = await Effect.runPromise(
+			makeCloudRuntimeCheckpointPublisher({
+				workspaceId: "workspace-pages",
+				sessionId,
+				transcriptKey: bytesToBase64Url(new Uint8Array(32).fill(7)),
+				read: Effect.succeed({
+					cursor: { epoch: "epoch-pages", version: 9 },
+					projection: SessionTimelineProjection.make({
+						messages: [],
+						olderMessageSequence: 20,
+						status: "idle",
+						currentTurn: null,
+						queue: QueueState.make({ items: [], paused: false }),
+						permissionMode: "default",
+						runtimeMode: "approval-required",
+					}),
+				}),
+				readPage: () =>
+					Effect.succeed({
+						messages: [older],
+						olderMessageSequence: null,
+					}),
+				write: (checkpoint) =>
+					Effect.sync(() => {
+						headWrites.push(checkpoint);
+					}),
+				writePage: (page) =>
+					Effect.sync(() => {
+						pageWrites.push(page);
+					}),
+			}),
+		);
+
+		publisher.mark(true);
+		expect(await Effect.runPromise(publisher.flush)).toBe(true);
+		expect(headWrites).toHaveLength(1);
+		expect(pageWrites).toEqual([
+			expect.objectContaining({ beforeSequence: 20 }),
+		]);
+		expect(await Effect.runPromise(publisher.flush)).toBe(false);
+	});
+
 	it("publishes monotonic metadata and throttles only activity checkpoints", async () => {
 		let now = 1_000;
 		let title = "Initial title";

@@ -564,24 +564,6 @@ describe("E2B sandbox provider", () => {
 		});
 	});
 
-	test("verifies that a snapshot remains recoverable", async () => {
-		const http = makeHttp([
-			{ status: 200, body: { templateID: "snap_1:default" } },
-			{ status: 404 },
-		]);
-		const adapter = makeAdapter(http.client);
-
-		await expect(
-			Effect.runPromise(adapter.inspectSnapshot("snap_1:default")),
-		).resolves.toBe(true);
-		await expect(
-			Effect.runPromise(adapter.inspectSnapshot("snap_missing:default")),
-		).resolves.toBe(false);
-		expect(http.calls[0]?.url).toBe(
-			"https://sandbox.test/templates/snap_1%3Adefault",
-		);
-	});
-
 	test("treats killing an already-gone sandbox as success", async () => {
 		const http = makeHttp([{ status: 404 }]);
 		const adapter = makeAdapter(http.client);

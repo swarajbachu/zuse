@@ -2,6 +2,11 @@ import { Effect, Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 import { ProviderId } from "./agent.ts";
 import { AgentSessionId, ChatId } from "./ids.ts";
+import {
+	Message,
+	SessionStreamCursor,
+	SessionTimelineProjection,
+} from "./session.ts";
 
 export const CLOUD_WORKSPACE_OFFER_ID = "cloud-workspace-standard-v1" as const;
 
@@ -32,7 +37,6 @@ export const CloudWorkspaceState = Schema.Literals([
 	"resuming",
 	"archiving",
 	"archived",
-	"recovering",
 	"deleting",
 	"deleted",
 	"failed",
@@ -196,8 +200,6 @@ export class CloudWorkspace extends Schema.Class<CloudWorkspace>(
 	createdAt: Schema.Number,
 	updatedAt: Schema.Number,
 	lastActivityAt: Schema.Number,
-	warmRetentionDeadline: Schema.optional(Schema.Number),
-	recoveryAvailable: Schema.Boolean,
 }) {}
 
 export class CloudWorkspaceLaunch extends Schema.Class<CloudWorkspaceLaunch>(
@@ -268,8 +270,6 @@ export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
 	unread: Schema.Boolean,
 	lastMessageAt: Schema.NullOr(Schema.Number),
 	archivedAt: Schema.optional(Schema.Number),
-	archivePhase: Schema.optional(Schema.String),
-	archiveErrorCode: Schema.optional(Schema.String),
 	createdAt: Schema.Number,
 	updatedAt: Schema.Number,
 }) {}
@@ -279,6 +279,90 @@ export class CloudChatList extends Schema.Class<CloudChatList>("CloudChatList")(
 		chats: Schema.Array(CloudChatSummary),
 	},
 ) {}
+
+export const CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION = 1 as const;
+
+export class CloudTranscriptCheckpointPayload extends Schema.Class<CloudTranscriptCheckpointPayload>(
+	"CloudTranscriptCheckpointPayload",
+)({
+	schemaVersion: Schema.Literal(CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION),
+	workspaceId: Schema.String,
+	sessionId: AgentSessionId,
+	cursor: SessionStreamCursor,
+	projection: SessionTimelineProjection,
+}) {}
+
+export class CloudTranscriptCheckpointMetadata extends Schema.Class<CloudTranscriptCheckpointMetadata>(
+	"CloudTranscriptCheckpointMetadata",
+)({
+	workspaceId: Schema.String,
+	sessionId: AgentSessionId,
+	runtimeGeneration: Schema.Number,
+	cursor: SessionStreamCursor,
+	objectKey: Schema.String,
+	ciphertextSha256: Schema.String,
+	ciphertextBytes: Schema.Number,
+	createdAt: Schema.Number,
+}) {}
+
+export class CloudTranscriptCheckpointUpload extends Schema.Class<CloudTranscriptCheckpointUpload>(
+	"CloudTranscriptCheckpointUpload",
+)({
+	sessionId: AgentSessionId,
+	cursor: SessionStreamCursor,
+	ciphertext: Schema.String,
+	ciphertextSha256: Schema.String,
+}) {}
+
+export class CloudTranscriptCheckpointAccess extends Schema.Class<CloudTranscriptCheckpointAccess>(
+	"CloudTranscriptCheckpointAccess",
+)({
+	metadata: CloudTranscriptCheckpointMetadata,
+	ciphertext: Schema.String,
+	transcriptKey: Schema.String,
+}) {}
+
+export class CloudTranscriptCheckpointResult extends Schema.Class<CloudTranscriptCheckpointResult>(
+	"CloudTranscriptCheckpointResult",
+)({
+	checkpoint: Schema.NullOr(CloudTranscriptCheckpointAccess),
+}) {}
+
+export class CloudTranscriptMessagePagePayload extends Schema.Class<CloudTranscriptMessagePagePayload>(
+	"CloudTranscriptMessagePagePayload",
+)({
+	schemaVersion: Schema.Literal(CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION),
+	workspaceId: Schema.String,
+	sessionId: AgentSessionId,
+	cursor: SessionStreamCursor,
+	beforeSequence: Schema.Number,
+	messages: Schema.Array(Message),
+	olderMessageSequence: Schema.NullOr(Schema.Number),
+}) {}
+
+export class CloudTranscriptMessagePageUpload extends Schema.Class<CloudTranscriptMessagePageUpload>(
+	"CloudTranscriptMessagePageUpload",
+)({
+	sessionId: AgentSessionId,
+	cursor: SessionStreamCursor,
+	beforeSequence: Schema.Number,
+	ciphertext: Schema.String,
+	ciphertextSha256: Schema.String,
+}) {}
+
+export class CloudTranscriptMessagePageResult extends Schema.Class<CloudTranscriptMessagePageResult>(
+	"CloudTranscriptMessagePageResult",
+)({
+	page: Schema.NullOr(
+		Schema.Struct({
+			cursor: SessionStreamCursor,
+			beforeSequence: Schema.Number,
+			ciphertext: Schema.String,
+			ciphertextSha256: Schema.String,
+			transcriptKey: Schema.String,
+		}),
+	),
+}) {}
 
 export class CloudWorkspaceList extends Schema.Class<CloudWorkspaceList>(
 	"CloudWorkspaceList",
@@ -302,12 +386,16 @@ export class CloudWorkspaceCreateRequest extends Schema.Class<CloudWorkspaceCrea
 
 export class CloudWorkspaceActionRequest extends Schema.Class<CloudWorkspaceActionRequest>(
 	"CloudWorkspaceActionRequest",
-)({ workspaceId: Schema.String }) {}
+)({
+	workspaceId: Schema.String,
+	commandId: Schema.optional(Schema.String),
+}) {}
 
 export class CloudWorkspaceResumeRequest extends Schema.Class<CloudWorkspaceResumeRequest>(
 	"CloudWorkspaceResumeRequest",
 )({
 	workspaceId: Schema.String,
+	commandId: Schema.optional(Schema.String),
 	/** The gateway proved that Relay's online projection has no runtime socket. */
 	recoverRuntime: Schema.optional(Schema.Boolean),
 }) {}
@@ -450,6 +538,33 @@ export const CloudWorkspacesDeleteRpc = Rpc.make("cloud.workspaces.delete", {
 	success: CloudWorkspace,
 	error: CloudWorkspaceOpError,
 });
+
+export const CloudTranscriptCheckpointGetRpc = Rpc.make(
+	"cloud.transcript.get",
+	{
+		payload: Schema.Struct({
+			workspaceId: Schema.String,
+			sessionId: AgentSessionId,
+			cursor: Schema.optional(SessionStreamCursor),
+		}),
+		success: CloudTranscriptCheckpointResult,
+		error: CloudWorkspaceOpError,
+	},
+);
+
+export const CloudTranscriptMessagePageGetRpc = Rpc.make(
+	"cloud.transcript.messages.page",
+	{
+		payload: Schema.Struct({
+			workspaceId: Schema.String,
+			sessionId: AgentSessionId,
+			cursor: SessionStreamCursor,
+			beforeSequence: Schema.Number,
+		}),
+		success: CloudTranscriptMessagePageResult,
+		error: CloudWorkspaceOpError,
+	},
+);
 export const CloudCredentialsListRpc = Rpc.make("cloud.credentials.list", {
 	payload: Schema.Void,
 	success: CloudCredentialList,

@@ -15,9 +15,9 @@ import {
 	compareCloudChatSummaryVersion,
 	localProjectForCloudChat,
 	optimisticallyArchiveCloudChat,
+	optimisticallyUnarchiveCloudChat,
 	reconcileCloudChatCatalog,
 	registerCloudChat,
-	rollbackOptimisticCloudArchive,
 	useCloudChatCatalogStore,
 } from "../../src/lib/cloud-workspace-catalog.ts";
 
@@ -62,6 +62,7 @@ describe("cloud chat catalog", () => {
 		useCloudChatCatalogStore.setState({
 			summaries: [],
 			localProjectByEnvironment: {},
+			archiveIntents: {},
 		});
 	});
 
@@ -203,7 +204,7 @@ describe("cloud chat catalog", () => {
 		expect(localProjectForCloudChat("chat-b")).toBeNull();
 	});
 
-	it("hides archive intent immediately and rolls it back after failure", () => {
+	it("keeps a failed archive intent hidden for durable retry", () => {
 		const current = summary({
 			workspaceId: "environment-a",
 			chatId: "chat-a",
@@ -211,13 +212,43 @@ describe("cloud chat catalog", () => {
 			revision: 2,
 		});
 		registerCloudChat(current);
-		optimisticallyArchiveCloudChat(current, 123);
+		optimisticallyArchiveCloudChat(current, 123, "archive-command");
 
 		expect(cloudSummaryForChat("chat-a")).toMatchObject({
 			desiredState: "archived",
 			archivedAt: 123,
 		});
-		rollbackOptimisticCloudArchive(current, 123);
-		expect(cloudSummaryForChat("chat-a")).toBe(current);
+		expect(useCloudChatCatalogStore.getState().archiveIntents).toEqual({
+			"environment-a": {
+				commandId: "archive-command",
+				requestedAt: 123,
+			},
+		});
+	});
+
+	it("moves an archived chat back immediately without waking compute", () => {
+		const archived = {
+			...summary({
+				workspaceId: "environment-a",
+				chatId: "chat-a",
+				sessionId: "session-a",
+				revision: 2,
+			}),
+			state: "archived" as const,
+			desiredState: "archived" as const,
+			archivedAt: 123,
+		};
+		registerCloudChat(archived);
+
+		expect(optimisticallyUnarchiveCloudChat(archived)).toMatchObject({
+			state: "paused",
+			desiredState: "paused",
+			runtimeState: "offline",
+			archivedAt: undefined,
+		});
+		expect(cloudSummaryForChat("chat-a")).toMatchObject({
+			state: "paused",
+			desiredState: "paused",
+		});
 	});
 });

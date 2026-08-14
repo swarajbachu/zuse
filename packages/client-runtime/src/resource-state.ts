@@ -33,7 +33,7 @@ export type SurfacePhase =
 	| "update-required"
 	| "error";
 
-export type ResourceOrigin = "none" | "cache" | "runtime";
+export type ResourceOrigin = "none" | "cache" | "checkpoint" | "runtime";
 
 export type ResourceCursor = Readonly<{
 	epoch: string;

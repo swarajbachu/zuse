@@ -6,7 +6,10 @@ import {
 	AgentSessionId,
 	AgentTurnId,
 	ChatId,
+	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
 	CloudRuntimeCredential,
+	CloudTranscriptCheckpointPayload,
+	CloudTranscriptMessagePagePayload,
 	CloudWorkspaceRuntimeSummary,
 	decodeWorkspaceGatewayFrame,
 	encodeWorkspaceGatewayFrame,
@@ -14,10 +17,16 @@ import {
 	MessageId,
 	ProviderId,
 	RelayPaths,
+	SessionId,
 	WIRE_PROTOCOL_VERSION,
 	workspaceGatewayArrayBuffer,
 } from "@zuse/contracts";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import {
+	cloudTranscriptAdditionalData,
+	encryptCloudTranscript,
+	sha256Base64Url,
+} from "@zuse/utils/cloud-transcript-crypto";
 import {
 	Clock,
 	Duration,
@@ -39,6 +48,7 @@ import {
 import {
 	ChatService,
 	type ChatServiceShape,
+	MessageService,
 } from "../conversation/services/conversation-services.ts";
 import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
 import type { CredentialsService } from "../provider/services/credentials-service.ts";
@@ -161,6 +171,7 @@ const BootstrapResponse = Schema.Struct({
 			version: Schema.Number,
 		}),
 	),
+	sealedTranscriptKey: Schema.String,
 });
 
 const RuntimeCredentialRenewalResponse = Schema.Struct({
@@ -182,6 +193,15 @@ const RuntimeSummaryResponse = Schema.Struct({
 	sessionHeadVersion: Schema.Number,
 });
 
+const RuntimeTranscriptCheckpointResponse = Schema.Struct({
+	applied: Schema.Boolean,
+	cursor: Schema.Struct({ epoch: Schema.String, version: Schema.Number }),
+	archiveRequested: Schema.Boolean,
+});
+const RuntimeTranscriptMessagePageResponse = Schema.Struct({
+	applied: Schema.Boolean,
+});
+
 interface RuntimeCredentialState {
 	credential: string;
 	expiresAt: number;
@@ -196,6 +216,165 @@ interface CloudRuntimeSummaryPublisher {
 		reason: RuntimeSummaryReason,
 	) => Effect.Effect<boolean, CloudWorkspaceRuntimeError>;
 }
+
+interface CloudRuntimeCheckpointPublisher {
+	readonly mark: (urgent?: boolean) => void;
+	readonly flush: Effect.Effect<boolean, CloudWorkspaceRuntimeError>;
+}
+
+export const makeCloudRuntimeCheckpointPublisher = Effect.fn(
+	"CloudWorkspaceRuntime.makeCheckpointPublisher",
+)(function* (input: {
+	readonly read: Effect.Effect<
+		{
+			readonly cursor: { readonly epoch: string; readonly version: number };
+			readonly projection: CloudTranscriptCheckpointPayload["projection"];
+		},
+		CloudWorkspaceRuntimeError
+	>;
+	readonly write: (checkpoint: {
+		readonly cursor: { readonly epoch: string; readonly version: number };
+		readonly ciphertext: string;
+		readonly ciphertextSha256: string;
+	}) => Effect.Effect<void, CloudWorkspaceRuntimeError>;
+	readonly readPage: (beforeSequence: number) => Effect.Effect<
+		{
+			readonly messages: CloudTranscriptMessagePagePayload["messages"];
+			readonly olderMessageSequence: number | null;
+		},
+		CloudWorkspaceRuntimeError
+	>;
+	readonly writePage: (page: {
+		readonly cursor: { readonly epoch: string; readonly version: number };
+		readonly beforeSequence: number;
+		readonly ciphertext: string;
+		readonly ciphertextSha256: string;
+	}) => Effect.Effect<void, CloudWorkspaceRuntimeError>;
+	readonly workspaceId: string;
+	readonly sessionId: string;
+	readonly transcriptKey: string;
+}) {
+	const lock = yield* Semaphore.make(1);
+	let dirtyRevision = 1;
+	let acceptedVersion = -1;
+	// A restarted runtime may already own a long settled transcript. Publish its
+	// immutable older pages once even if no new turn event arrives after boot.
+	let historyRequested = true;
+	let historyVersion = -1;
+	const mark = (urgent = false) => {
+		dirtyRevision += 1;
+		if (urgent) historyRequested = true;
+	};
+	const flush = lock.withPermits(1)(
+		Effect.gen(function* () {
+			const pendingRevision = dirtyRevision;
+			const snapshot = yield* input.read;
+			const publishHead = snapshot.cursor.version > acceptedVersion;
+			const publishHistory =
+				historyRequested && snapshot.cursor.version > historyVersion;
+			if (!publishHead && !publishHistory) {
+				if (dirtyRevision === pendingRevision) dirtyRevision = 0;
+				return false;
+			}
+			if (publishHead) {
+				const payload = new CloudTranscriptCheckpointPayload({
+					schemaVersion: CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
+					workspaceId: input.workspaceId,
+					sessionId: AgentSessionId.make(input.sessionId),
+					cursor: snapshot.cursor,
+					projection: snapshot.projection,
+				});
+				const plaintext = new TextEncoder().encode(
+					JSON.stringify(
+						Schema.encodeSync(CloudTranscriptCheckpointPayload)(payload),
+					),
+				);
+				const ciphertext = yield* Effect.tryPromise({
+					try: () =>
+						encryptCloudTranscript({
+							encodedKey: input.transcriptKey,
+							additionalData: cloudTranscriptAdditionalData({
+								workspaceId: input.workspaceId,
+								sessionId: input.sessionId,
+								epoch: snapshot.cursor.epoch,
+								version: snapshot.cursor.version,
+								schemaVersion: CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
+							}),
+							plaintext,
+						}),
+					catch: () => fail("workspace_transcript_encryption_failed"),
+				});
+				yield* input.write({
+					cursor: snapshot.cursor,
+					ciphertext,
+					ciphertextSha256: yield* Effect.promise(() =>
+						sha256Base64Url(ciphertext),
+					),
+				});
+				acceptedVersion = snapshot.cursor.version;
+			}
+			if (publishHistory) {
+				let beforeSequence = snapshot.projection.olderMessageSequence ?? null;
+				while (beforeSequence !== null) {
+					const pageBeforeSequence = beforeSequence;
+					const page = yield* input.readPage(pageBeforeSequence);
+					const payload = new CloudTranscriptMessagePagePayload({
+						schemaVersion: CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
+						workspaceId: input.workspaceId,
+						sessionId: AgentSessionId.make(input.sessionId),
+						cursor: snapshot.cursor,
+						beforeSequence: pageBeforeSequence,
+						messages: page.messages,
+						olderMessageSequence: page.olderMessageSequence,
+					});
+					const ciphertext = yield* Effect.tryPromise({
+						try: () =>
+							encryptCloudTranscript({
+								encodedKey: input.transcriptKey,
+								additionalData: cloudTranscriptAdditionalData({
+									workspaceId: input.workspaceId,
+									sessionId: input.sessionId,
+									epoch: snapshot.cursor.epoch,
+									version: snapshot.cursor.version,
+									schemaVersion: CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
+									pageBeforeSequence,
+								}),
+								plaintext: new TextEncoder().encode(
+									JSON.stringify(
+										Schema.encodeSync(CloudTranscriptMessagePagePayload)(
+											payload,
+										),
+									),
+								),
+							}),
+						catch: () => fail("workspace_transcript_encryption_failed"),
+					});
+					yield* input.writePage({
+						cursor: snapshot.cursor,
+						beforeSequence: pageBeforeSequence,
+						ciphertext,
+						ciphertextSha256: yield* Effect.promise(() =>
+							sha256Base64Url(ciphertext),
+						),
+					});
+					if (
+						page.olderMessageSequence !== null &&
+						page.olderMessageSequence >= pageBeforeSequence
+					)
+						return yield* Effect.fail(
+							fail("workspace_transcript_page_cursor_invalid"),
+						);
+					beforeSequence = page.olderMessageSequence;
+				}
+				historyVersion = snapshot.cursor.version;
+				if (dirtyRevision === pendingRevision) historyRequested = false;
+			}
+			if (dirtyRevision === pendingRevision) dirtyRevision = 0;
+			return true;
+		}),
+	);
+	return { mark, flush } satisfies CloudRuntimeCheckpointPublisher;
+});
 
 /**
  * Serializes summary writes and retries a failed revision instead of skipping
@@ -568,6 +747,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 	| LanAuthService
 	| WorkspaceService
 	| ChatService
+	| MessageService
 	| SessionDomain
 > =>
 	config === undefined
@@ -577,6 +757,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const auth = yield* LanAuthService;
 					const workspaces = yield* WorkspaceService;
 					const chats = yield* ChatService;
+					const messages = yield* MessageService;
 					const sessionDomain = yield* SessionDomain;
 					const [credentialKeyPair, signingKeyPair] = yield* Effect.tryPromise({
 						try: () =>
@@ -634,6 +815,16 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								catch: () => fail("workspace_credential_decryption_failed"),
 							}),
 					);
+					const transcriptKey = yield* Effect.tryPromise({
+						try: async () => {
+							const decrypted = await compactDecrypt(
+								bootstrap.sealedTranscriptKey,
+								credentialKeyPair.privateKey,
+							);
+							return new TextDecoder().decode(decrypted.plaintext);
+						},
+						catch: () => fail("workspace_transcript_key_decryption_failed"),
+					});
 					yield* installCloudCredentials(cloudCredentials).pipe(
 						Effect.mapError(() => fail("workspace_credential_install_failed")),
 					);
@@ -695,6 +886,100 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								Effect.mapError(() => fail("workspace_summary_publish_failed")),
 							),
 					});
+					const checkpointPublishers = new Map<
+						string,
+						CloudRuntimeCheckpointPublisher
+					>();
+					const checkpointPublisherFor = Effect.fn(
+						"CloudWorkspaceRuntime.checkpointPublisherFor",
+					)(function* (sessionId: string) {
+						const existing = checkpointPublishers.get(sessionId);
+						if (existing !== undefined) return existing;
+						const publisher = yield* makeCloudRuntimeCheckpointPublisher({
+							workspaceId: config.workspaceId,
+							sessionId,
+							transcriptKey,
+							read: Effect.gen(function* () {
+								const [snapshot, version] = yield* Effect.all(
+									[
+										sessionDomain.timelineSnapshot(
+											AgentSessionId.make(sessionId),
+										),
+										sessionDomain.currentStreamVersion(sessionId),
+									],
+									{ concurrency: "unbounded" },
+								).pipe(
+									Effect.mapError(() =>
+										fail("workspace_transcript_snapshot_unavailable"),
+									),
+								);
+								return {
+									cursor: { epoch: sessionDomain.streamEpoch, version },
+									projection: snapshot.projection,
+								};
+							}),
+							readPage: (beforeSequence) =>
+								sessionDomain
+									.timelineMessagePage(
+										AgentSessionId.make(sessionId),
+										beforeSequence,
+										100,
+									)
+									.pipe(
+										Effect.map((page) => ({
+											messages: page.items.map((item) => item.message),
+											olderMessageSequence: page.olderMessageSequence,
+										})),
+										Effect.mapError(() =>
+											fail("workspace_transcript_page_unavailable"),
+										),
+									),
+							write: (checkpoint) =>
+								requestJson({
+									schema: RuntimeTranscriptCheckpointResponse,
+									url: `${config.relayUrl}${RelayPaths.cloudWorkspaceRuntimeTranscriptCheckpoint(config.workspaceId)}`,
+									token: runtimeCredential.credential,
+									method: "POST",
+									body: { sessionId, ...checkpoint },
+								}).pipe(
+									Effect.tap((response) =>
+										response.archiveRequested
+											? messages
+													.interruptSession(
+														`archive:${config.workspaceId}:${sessionId}`,
+														SessionId.make(sessionId),
+													)
+													.pipe(Effect.ignore)
+											: Effect.void,
+									),
+									Effect.asVoid,
+								),
+							writePage: (page) =>
+								requestJson({
+									schema: RuntimeTranscriptMessagePageResponse,
+									url: `${config.relayUrl}${RelayPaths.cloudWorkspaceRuntimeTranscriptMessagePage(config.workspaceId)}`,
+									token: runtimeCredential.credential,
+									method: "POST",
+									body: { sessionId, ...page },
+								}).pipe(
+									Effect.mapError(() =>
+										fail("workspace_transcript_page_publish_failed"),
+									),
+									Effect.asVoid,
+								),
+						});
+						checkpointPublishers.set(sessionId, publisher);
+						yield* Effect.forever(
+							publisher.flush.pipe(
+								Effect.retry(cloudRuntimeRetrySchedule),
+								Effect.ignore,
+								Effect.andThen(Effect.sleep("1 second")),
+							),
+						).pipe(Effect.forkScoped({ startImmediately: true }));
+						return publisher;
+					});
+					yield* checkpointPublisherFor(bootstrap.initialSessionId);
+
 					const publishActivity = () => {
 						void Effect.runPromise(
 							summaryPublisher.publish("activity").pipe(Effect.ignore),
@@ -706,24 +991,33 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					yield* sessionDomain
 						.allEvents({ afterSequence: sessionEventCursor })
 						.pipe(
-							Stream.filter(
-								(record) => record.streamId === bootstrap.initialSessionId,
-							),
-							Stream.runForEach((record) => {
-								const reason: RuntimeSummaryReason | null =
-									record.event._tag === "SessionTitleSet"
-										? "title"
-										: record.event._tag === "TurnSettled"
-											? "settled"
-											: record.event._tag === "MessagePersisted"
-												? "activity"
-												: null;
-								return reason === null
-									? Effect.void
-									: summaryPublisher
+							Stream.runForEach((record) =>
+								Effect.gen(function* () {
+									const reason: RuntimeSummaryReason | null =
+										record.event._tag === "SessionTitleSet"
+											? "title"
+											: record.event._tag === "TurnSettled"
+												? "settled"
+												: record.event._tag === "MessagePersisted"
+													? "activity"
+													: null;
+									if (reason === null) return;
+									const checkpointPublisher = yield* checkpointPublisherFor(
+										record.streamId,
+									);
+									checkpointPublisher.mark(reason === "settled");
+									if (reason === "settled") {
+										void Effect.runPromise(
+											checkpointPublisher.flush.pipe(Effect.ignore),
+										);
+									}
+									if (record.streamId === bootstrap.initialSessionId) {
+										yield* summaryPublisher
 											.publish(reason)
 											.pipe(Effect.retry(cloudRuntimeRetrySchedule));
-							}),
+									}
+								}),
+							),
 							Effect.forkScoped({ startImmediately: true }),
 						);
 

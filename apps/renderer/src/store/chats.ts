@@ -18,7 +18,10 @@ import {
 	type WorktreeId,
 } from "@zuse/contracts";
 import { toastManager } from "../components/ui/toast.tsx";
-import { cloudSummaryForChat } from "../lib/cloud-workspace-catalog.ts";
+import {
+	cloudSummaryForChat,
+	optimisticallyUnarchiveCloudChat,
+} from "../lib/cloud-workspace-catalog.ts";
 import {
 	activeChatsByProject,
 	activeSessionsByProject,
@@ -36,6 +39,10 @@ import {
 	dropQueuedMessage,
 	queueSessionMessage,
 } from "../lib/session-actions.ts";
+import {
+	sessionTimelineCache,
+	timelineReadingPositionStore,
+} from "../lib/session-timeline-cache.ts";
 import { getRendererClientBus } from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { batchAtomUpdates } from "../state/registry.tsx";
@@ -1404,6 +1411,22 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			try {
 				const cloud = cloudSummaryForChat(chatId);
 				if (cloud !== null) {
+					const cloudWorkspaceModule = await import(
+						"../lib/cloud-workspaces.ts"
+					);
+					const projectId =
+						cloudWorkspaceModule.localProjectForCloudChat(chatId);
+					if (projectId === null)
+						throw new Error("Cloud chat project is not available.");
+					const optimisticSummary = optimisticallyUnarchiveCloudChat(cloud);
+					cloudWorkspaceModule.stageCloudChat(optimisticSummary, projectId);
+					archives.removeChat(chatId, projectId);
+					set((state) => {
+						const hiddenArchivedChatIds = new Set(state.hiddenArchivedChatIds);
+						hiddenArchivedChatIds.delete(chatId);
+						return { hiddenArchivedChatIds };
+					});
+					get().select(chatId);
 					const [{ runControlPlane }, cloudChats] = await Promise.all([
 						import("../lib/control-plane-client.ts"),
 						import("../lib/cloud-workspaces.ts"),
@@ -1411,11 +1434,9 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					const workspace = await runControlPlane((control) =>
 						control["cloud.workspaces.unarchive"]({
 							workspaceId: cloud.workspaceId,
+							commandId: crypto.randomUUID(),
 						}),
 					);
-					const projectId = cloudChats.localProjectForCloudChat(chatId);
-					if (projectId === null)
-						throw new Error("Cloud chat project is not available.");
 					const restoredSummary = {
 						...cloud,
 						state: workspace.state,
@@ -1428,13 +1449,6 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 						archivedAt: undefined,
 					};
 					cloudChats.stageCloudChat(restoredSummary, projectId);
-					archives.removeChat(chatId, projectId);
-					set((state) => {
-						const hiddenArchivedChatIds = new Set(state.hiddenArchivedChatIds);
-						hiddenArchivedChatIds.delete(chatId);
-						return { hiddenArchivedChatIds };
-					});
-					get().select(chatId);
 					const shell = activeChatsByProject();
 					const chat = shell[projectId]?.find(
 						(candidate) => candidate.id === chatId,
@@ -1527,16 +1541,31 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 	},
 	remove: async (chatId) => {
 		const ref = activeChatRef(chatId);
+		const cloud = cloudSummaryForChat(chatId);
 		set({ error: null });
 		if (get().pendingCreationByChat[chatId]?.phase === "failed") {
 			get().discardCreation(chatId);
 			return;
 		}
 		try {
-			await dispatchChatCommand({
-				kind: "chat.delete",
-				payload: { chatId },
-			});
+			if (cloud === null) {
+				await dispatchChatCommand({
+					kind: "chat.delete",
+					payload: { chatId },
+				});
+			} else {
+				const [{ runControlPlane }, catalog] = await Promise.all([
+					import("../lib/control-plane-client.ts"),
+					import("../lib/cloud-workspace-catalog.ts"),
+				]);
+				await runControlPlane((control) =>
+					control["cloud.workspaces.delete"]({
+						workspaceId: cloud.workspaceId,
+						commandId: crypto.randomUUID(),
+					}),
+				);
+				catalog.forgetCloudChat(cloud.workspaceId);
+			}
 			const projectId = findChatProject(activeChatsByProject(), chatId);
 			set((s) => {
 				if (projectId === null) return {};
@@ -1554,6 +1583,25 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			// re-hydrate round-trip.
 			const projectSessions =
 				projectId === null ? [] : (activeSessionsByProject()[projectId] ?? []);
+			const deletedSessions = projectSessions.filter(
+				(session) => session.chatId === chatId,
+			);
+			const cacheEnvironmentId =
+				cloud === null
+					? ref.environmentId
+					: EnvironmentId.make(cloud.workspaceId);
+			await Promise.all(
+				deletedSessions.flatMap((session) => {
+					const sessionRef = {
+						environmentId: cacheEnvironmentId,
+						sessionId: session.id,
+					};
+					return [
+						sessionTimelineCache?.remove(sessionRef),
+						timelineReadingPositionStore?.remove(sessionRef),
+					];
+				}),
+			);
 			overlayActiveEnvironmentShell((shell) =>
 				projectId === null
 					? undefined

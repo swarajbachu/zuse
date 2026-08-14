@@ -17,10 +17,12 @@ import {
 } from "./timeline-reading-position.ts";
 
 const DATABASE_NAME = "zuse-session-timelines";
-const DATABASE_VERSION = 4;
+const DATABASE_VERSION = 5;
 const STORE_NAME = "timelines";
 const METADATA_STORE_NAME = "timeline-metadata";
 const READING_POSITION_STORE_NAME = "reading-positions";
+const CLOUD_CATALOG_STORE_NAME = "cloud-catalog";
+const CLOUD_CATALOG_KEY = "catalog";
 const DEFAULT_MAX_ENTRIES = 128;
 const DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
 const DEFAULT_MAX_READING_POSITIONS = 256;
@@ -102,6 +104,9 @@ const openDatabase = (): Promise<IDBDatabase> =>
 				database.createObjectStore(READING_POSITION_STORE_NAME, {
 					keyPath: "sessionId",
 				});
+			}
+			if (!database.objectStoreNames.contains(CLOUD_CATALOG_STORE_NAME)) {
+				database.createObjectStore(CLOUD_CATALOG_STORE_NAME);
 			}
 			// Versions before 4 used an ambient active-environment value when
 			// reading/writing. Those keys cannot be migrated safely because a late
@@ -305,3 +310,34 @@ export const timelineReadingPositionStore: TimelineReadingPositionStore | null =
 	typeof indexedDB === "undefined"
 		? null
 		: new IndexedDbTimelineReadingPositionStore();
+
+export const cloudChatCatalogPersistence =
+	typeof indexedDB === "undefined"
+		? null
+		: {
+				load: async (): Promise<unknown | null> => {
+					const database = await openDatabase();
+					const transaction = database.transaction(
+						CLOUD_CATALOG_STORE_NAME,
+						"readonly",
+					);
+					const value = await requestResult(
+						transaction
+							.objectStore(CLOUD_CATALOG_STORE_NAME)
+							.get(CLOUD_CATALOG_KEY),
+					);
+					await transactionComplete(transaction);
+					return value ?? null;
+				},
+				save: async (value: unknown): Promise<void> => {
+					const database = await openDatabase();
+					const transaction = database.transaction(
+						CLOUD_CATALOG_STORE_NAME,
+						"readwrite",
+					);
+					transaction
+						.objectStore(CLOUD_CATALOG_STORE_NAME)
+						.put(value, CLOUD_CATALOG_KEY);
+					await transactionComplete(transaction);
+				},
+			};

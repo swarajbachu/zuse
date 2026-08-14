@@ -53,6 +53,25 @@ interface Env {
 			readonly fetch: (request: Request) => Promise<Response>;
 		};
 	};
+	readonly CLOUD_TRANSCRIPTS?: {
+		readonly put: (
+			key: string,
+			value: string,
+			options?: { readonly onlyIf?: { readonly etagDoesNotMatch: string } },
+		) => Promise<unknown | null>;
+		readonly get: (
+			key: string,
+		) => Promise<{ readonly text: () => Promise<string> } | null>;
+		readonly delete: (keys: string | ReadonlyArray<string>) => Promise<unknown>;
+		readonly list: (options: {
+			readonly prefix: string;
+			readonly cursor?: string;
+		}) => Promise<{
+			readonly objects: ReadonlyArray<{ readonly key: string }>;
+			readonly truncated: boolean;
+			readonly cursor?: string;
+		}>;
+	};
 	readonly RELAY_ISSUER: string;
 	readonly WORKOS_JWKS_URL: string;
 	readonly WORKOS_ISSUER: string;
@@ -123,6 +142,7 @@ const managedTunnelConfig = (
 };
 
 const build = (env: Env): ReturnType<typeof makeRelay> => {
+	const cloudTranscriptBucket = env.CLOUD_TRANSCRIPTS;
 	const billing = resolveBillingRuntime(env);
 	const machineProvider = resolveMachineProviderRuntime(env, {
 		cloudInitTemplate,
@@ -179,6 +199,33 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		cloudCredentialVaultKey: isConfigured(env.CLOUD_CREDENTIAL_VAULT_KEY)
 			? Redacted.make(env.CLOUD_CREDENTIAL_VAULT_KEY)
 			: undefined,
+		cloudTranscriptObjects:
+			cloudTranscriptBucket === undefined
+				? undefined
+				: {
+						put: async (key, value) =>
+							(await cloudTranscriptBucket.put(key, value, {
+								onlyIf: { etagDoesNotMatch: "*" },
+							})) === null
+								? "exists"
+								: "created",
+						get: async (key) =>
+							(await cloudTranscriptBucket.get(key))?.text() ?? null,
+						deletePrefix: async (prefix) => {
+							let cursor: string | undefined;
+							do {
+								const page = await cloudTranscriptBucket.list({
+									prefix,
+									...(cursor === undefined ? {} : { cursor }),
+								});
+								if (page.objects.length > 0)
+									await cloudTranscriptBucket.delete(
+										page.objects.map((object) => object.key),
+									);
+								cursor = page.truncated ? page.cursor : undefined;
+							} while (cursor !== undefined);
+						},
+					},
 		cloudWorkspaceIdleTimeoutMs:
 			Number.isSafeInteger(configuredIdleTimeout) &&
 			configuredIdleTimeout >= 60_000

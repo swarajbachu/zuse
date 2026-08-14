@@ -34,17 +34,16 @@ const workspace = (
 		createdAt: 1,
 		updatedAt: revision,
 		lastActivityAt: revision,
-		recoveryAvailable: false,
 	});
 
 describe("cloud workspace lifecycle", () => {
 	it("renders paused compute from cache without waking it", () => {
 		expect(cloudTranscriptActivation(workspace(1, "paused", "offline"))).toBe(
-			"cache-only",
+			"sync",
 		);
 		expect(
 			cloudTranscriptActivation(workspace(2, "resuming", "connecting")),
-		).toBe("cache-only");
+		).toBe("sync");
 		expect(cloudTranscriptActivation(workspace(3, "ready", "online"))).toBe(
 			"connect",
 		);

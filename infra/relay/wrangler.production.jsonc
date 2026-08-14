@@ -56,6 +56,12 @@
 			"id": "c49c02e939494a958fb5fe6805e7b0f2"
 		}
 	],
+	"r2_buckets": [
+		{
+			"binding": "CLOUD_TRANSCRIPTS",
+			"bucket_name": "zuse-cloud-transcripts"
+		}
+	],
 	"durable_objects": {
 		"bindings": [
 			{

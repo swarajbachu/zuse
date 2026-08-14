@@ -67,9 +67,6 @@ describe("cloud workspace runtime ready status", () => {
 					title: "Public title",
 					agent: "codex",
 					model: "gpt-5",
-					archivePhase: "upload",
-					archiveErrorCode: "archive-failed",
-					archiveDiagnostic: "private command output",
 					firstMessage: "private prompt",
 				},
 				nextActionAtMs: 1,
@@ -101,10 +98,7 @@ describe("cloud workspace runtime ready status", () => {
 		expect(summary).toMatchObject({
 			workspaceId: "workspace-1",
 			title: "Public title",
-			archivePhase: "upload",
-			archiveErrorCode: "archive-failed",
 		});
-		expect(summary).not.toHaveProperty("archiveDiagnostic");
 		expect(summary).not.toHaveProperty("firstMessage");
 		expect(JSON.stringify(summary)).not.toContain("private");
 	});

@@ -32,6 +32,7 @@
 		"@zuse/contracts": "*",
 		"@zuse/machine-providers": "*",
 		"@zuse/sandbox-providers": "*",
+		"@zuse/utils": "*",
 		"@effect/sql-pg": "catalog:",
 		"effect": "catalog:",
 		"jose": "^6.2.3"
