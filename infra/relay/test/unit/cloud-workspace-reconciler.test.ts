@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { CloudCredentialVault } from "../../src/cloud-credential-vault.ts";
 import {
 	reconcileCloudWorkspace,
+	reusableAccountBuildSnapshot,
 	sanitizeProjectBuildDiagnostic,
 	WORKSPACE_ARCHIVE_SCRIPT,
 	WORKSPACE_RUNTIME_PROCESS_PATTERN,
@@ -14,6 +15,7 @@ import {
 	WORKSPACE_RUNTIME_RESUME_SCRIPT,
 } from "../../src/cloud-workspace-reconciler.ts";
 import {
+	type CloudProjectBuildRecord,
 	type CloudWorkspaceRecord,
 	CloudWorkspaceStore,
 	CloudWorkspaceStoreMemory,
@@ -148,6 +150,18 @@ describe("cloud workspace reconciler", () => {
 		expect(diagnostic).not.toContain("ghp_");
 		expect(diagnostic).not.toContain("github.com/acme/private");
 		expect(diagnostic.length).toBeLessThanOrEqual(2_048);
+	});
+
+	test("reuses account snapshots only from the current template", () => {
+		const build = {
+			templateVersion: "old-template",
+			snapshotId: "old-snapshot",
+		} as CloudProjectBuildRecord;
+
+		expect(reusableAccountBuildSnapshot(build, "new-template")).toBeUndefined();
+		expect(reusableAccountBuildSnapshot(build, "old-template")).toBe(
+			"old-snapshot",
+		);
 	});
 
 	test("archive quiesces the current versioned runtime before bundling", () => {

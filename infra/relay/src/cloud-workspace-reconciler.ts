@@ -46,6 +46,12 @@ export const sanitizeProjectBuildDiagnostic = (value: string): string => {
 	return sanitized.slice(-PROJECT_BUILD_DIAGNOSTIC_MAX_LENGTH);
 };
 
+export const reusableAccountBuildSnapshot = (
+	build: CloudProjectBuildRecord | null,
+	templateVersion: string,
+): string | undefined =>
+	build?.templateVersion === templateVersion ? build.snapshotId : undefined;
+
 class CloudWorkspaceLeaseLostError extends Data.TaggedError(
 	"CloudWorkspaceLeaseLostError",
 )<{ readonly workspaceId: string }> {}
@@ -250,9 +256,13 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 			build.accountId,
 			build.provider,
 		);
+		const reusableSnapshotId = reusableAccountBuildSnapshot(
+			previousAccountBuild,
+			build.templateVersion,
+		);
 		const sandbox =
 			existing ??
-			(previousAccountBuild?.snapshotId === undefined
+			(reusableSnapshotId === undefined
 				? yield* provider
 						.create({
 							sandboxId: build.buildId,
@@ -267,12 +277,15 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 						.fork({
 							sandboxId: build.buildId,
 							providerLabel: label,
-							snapshotId: previousAccountBuild.snapshotId,
+							snapshotId: reusableSnapshotId,
 							timeoutSeconds: config.createTimeoutSeconds,
 							env: {},
 							onTimeout: "terminate",
 						})
 						.pipe(Effect.orDie));
+		yield* provider
+			.setNetwork(sandbox.providerSandboxId, { kind: "open" })
+			.pipe(Effect.orDie);
 		if (gitPayload !== null) {
 			yield* provider.writeTextFile(
 				sandbox.providerSandboxId,
