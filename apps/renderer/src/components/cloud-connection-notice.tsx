@@ -1,6 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { EnvironmentId } from "@zuse/contracts";
 import { CloudIcon, RefreshIcon } from "@zuse/icons/solid-rounded";
+import { useAuth } from "../hooks/use-auth.ts";
 import { deriveCloudChatActivity } from "../lib/cloud-chat-activity.ts";
 import {
 	type CloudConnectionPresentation,
@@ -41,6 +42,7 @@ const copy: Record<
 };
 
 export function CloudConnectionNotice() {
+	const { signIn, signingIn } = useAuth();
 	const selectedChatId = useChatsStore((state) => state.selectedChatId);
 	const registered =
 		selectedChatId === null ? null : cloudSummaryForChat(selectedChatId);
@@ -68,7 +70,13 @@ export function CloudConnectionNotice() {
 	});
 	const presentation = cloudConnectionPresentation(summary, activity);
 	if (presentation === "hidden") return null;
-	const value = copy[presentation];
+	const blockedAuth = shell.connection === "blocked-auth";
+	const value = blockedAuth
+		? {
+				title: "Sign in required",
+				detail: "Sign in to reconnect this cloud workspace.",
+			}
+		: copy[presentation];
 	const busy = presentation === "resuming" || presentation === "updating";
 	return (
 		<div
@@ -95,15 +103,23 @@ export function CloudConnectionNotice() {
 			{presentation === "failed" ? (
 				<button
 					type="button"
+					disabled={signingIn}
 					className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-					onClick={() =>
-						retryRendererEnvironmentConnection(
-							EnvironmentId.make(summary.workspaceId),
-						)
-					}
+					onClick={() => {
+						if (blockedAuth)
+							void signIn().then(() =>
+								retryRendererEnvironmentConnection(
+									EnvironmentId.make(summary.workspaceId),
+								),
+							);
+						else
+							retryRendererEnvironmentConnection(
+								EnvironmentId.make(summary.workspaceId),
+							);
+					}}
 				>
 					<HugeiconsIcon icon={RefreshIcon} className="size-3.5" />
-					Retry
+					{blockedAuth ? (signingIn ? "Signing in…" : "Sign in") : "Retry"}
 				</button>
 			) : null}
 		</div>

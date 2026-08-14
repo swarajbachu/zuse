@@ -4,6 +4,7 @@ import {
 	resourceKeyId,
 } from "@zuse/client-runtime/resource-ref";
 import {
+	CloudWorkspaceOpError,
 	ComposerInput,
 	EnvironmentId,
 	Message,
@@ -219,6 +220,23 @@ describe("renderer session timeline ClientBus adapter", () => {
 		expect(getRendererClientBus().connection(environmentId).phase).toBe(
 			"dormant",
 		);
+	});
+
+	it("classifies a rejected cloud account as blocked auth", async () => {
+		registerEnvironmentActivationForTest(environmentId, async () => {
+			throw new CloudWorkspaceOpError({ code: "not-allowed" });
+		});
+
+		const retained = retainSessionTimeline(ref, "connect");
+		await waitUntil(
+			() =>
+				getRendererClientBus().connection(environmentId).phase ===
+				"blocked-auth",
+		);
+		expect(getRendererClientBus().connection(environmentId).error).toBe(
+			"not-allowed",
+		);
+		retained.lease.release();
 	});
 
 	it("keeps application stream errors resource-local", async () => {

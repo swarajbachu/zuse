@@ -137,7 +137,7 @@ export const useActiveContext = (): ActiveContext => {
 			: (cloudSummaryForSession(sessionId)?.workspaceId ?? null);
 	const cloudShell = useEnvironmentShellResource(
 		cloudWorkspaceId === null ? null : EnvironmentId.make(cloudWorkspaceId),
-		cloudWorkspaceId === null ? "cache-only" : "wake",
+		cloudWorkspaceId === null ? "cache-only" : "connect",
 	);
 	const cloudFolder =
 		cloudShell.data?.folders.find(

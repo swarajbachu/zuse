@@ -1022,7 +1022,17 @@ export const registerEnvironmentActivation = (
 };
 
 const faultFor = (cause: unknown): EnvironmentFault => {
-	const message = cause instanceof Error ? cause.message : String(cause);
+	const code =
+		typeof cause === "object" &&
+		cause !== null &&
+		"code" in cause &&
+		typeof cause.code === "string"
+			? cause.code
+			: null;
+	const message =
+		cause instanceof Error && cause.message !== ""
+			? cause.message
+			: (code ?? String(cause));
 	const lower = message.toLowerCase();
 	const phase: EnvironmentFault["phase"] =
 		globalThis.navigator?.onLine === false
@@ -1031,7 +1041,9 @@ const faultFor = (cause: unknown): EnvironmentFault => {
 				? "update-required"
 				: lower.includes("revoked")
 					? "revoked"
-					: lower.includes("unauthorized") || lower.includes("authentication")
+					: code === "not-allowed" ||
+							lower.includes("unauthorized") ||
+							lower.includes("authentication")
 						? "blocked-auth"
 						: "failed";
 	return { phase, message };

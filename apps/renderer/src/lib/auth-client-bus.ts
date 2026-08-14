@@ -12,6 +12,7 @@ import { Cause, Effect, Fiber, Stream } from "effect";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import type { MemoizeClient } from "./rpc-client.ts";
+import { LOCAL_ENVIRONMENT_KEY } from "./rpc-client.ts";
 import {
 	getRendererClientBus,
 	registerRendererResourceDriver,
@@ -90,7 +91,11 @@ const EMPTY = emptyResourceView<EnvironmentAuthData>();
 
 export const useEnvironmentAuth = (): ResourceView<EnvironmentAuthData> => {
 	const environmentId = EnvironmentId.make(
-		useEnvironmentCatalogStore((state) => state.activeEnvironmentId),
+		useEnvironmentCatalogStore(
+			(state) =>
+				state.entries.find((entry) => entry.connectionKind === "local")
+					?.environmentId ?? LOCAL_ENVIRONMENT_KEY,
+		),
 	);
 	const key = useMemo(
 		() => environmentAuthResourceKey(environmentId),
