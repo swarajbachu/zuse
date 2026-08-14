@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import type { EnvironmentId, SessionId } from "@zuse/contracts";
+import type { EnvironmentId, Session, SessionId } from "@zuse/contracts";
 import { Message01Icon } from "@zuse/icons/solid-rounded";
 import {
 	type ReactNode,
@@ -31,7 +31,6 @@ import {
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
 import { useCloudChatSummaryForSession } from "../lib/cloud-workspaces.ts";
-import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
@@ -92,10 +91,12 @@ function resolveTimelineIsAtEnd(
 export function ChatView({
 	sessionId,
 	environmentId,
+	session,
 	endInset = 0,
 }: {
 	readonly sessionId: SessionId;
 	readonly environmentId: EnvironmentId;
+	readonly session: Session;
 	/** Height of the floating composer overlay; padded into the scroll range. */
 	readonly endInset?: number;
 }) {
@@ -104,7 +105,6 @@ export function ChatView({
 	}, [sessionId]);
 	const prefersReducedMotion = usePrefersReducedMotion();
 	const cloudSummary = useCloudChatSummaryForSession(sessionId);
-	const session = useActiveSessionById(sessionId);
 	const timeline = useRendererSessionTimeline(
 		sessionId,
 		cloudSummary === null ? "connect" : "wake",

@@ -302,6 +302,40 @@ describe("ClientBus", () => {
 		await bus.dispose();
 	});
 
+	it("keeps a cached resource readable when wake fails", async () => {
+		const persistence = new MemoryPersistence();
+		persistence.resources.set(resourceKeyId(timelineKey), {
+			data: { text: "offline transcript" },
+			cursor: { epoch: "cache", version: 9 },
+			storedAt: 1,
+		});
+		const bus = new ClientBus<Client>({
+			resolver: {
+				resolve: () =>
+					Effect.fail({
+						phase: "failed" as const,
+						message: "sandbox is paused",
+					}),
+			},
+			persistence,
+			runtime: {
+				schedule: () => () => undefined,
+			},
+		});
+
+		const lease = bus.retain(timelineKey, { activation: "wake" });
+		await waitUntil(() => bus.snapshot(timelineKey).data !== null);
+		await waitUntil(() => bus.connection(environmentId).phase === "failed");
+		expect(bus.snapshot(timelineKey)).toMatchObject({
+			data: { text: "offline transcript" },
+			origin: "cache",
+			connection: "failed",
+		});
+
+		lease.release();
+		await bus.dispose();
+	});
+
 	it("downgrades shared runtime demand and stops only the released resource streams", async () => {
 		let resolves = 0;
 		let disposals = 0;

@@ -25,6 +25,8 @@ import { registerEnvironmentWake } from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { useSessionsStore } from "../store/sessions.ts";
+import { useUiStore } from "../store/ui.ts";
+import { useWorkspaceStore } from "../store/workspace.ts";
 import {
 	cloudSummaryForChat,
 	cloudSummaryForEnvironment,
@@ -129,6 +131,35 @@ export const repositoryIdentityForOrigin = (
 const sessionStatus = (summary: CloudChatSummary): Session["status"] =>
 	summary.state === "failed" ? "error" : "idle";
 
+/** Metadata fallback for rendering a cached transcript without a live shell. */
+export const cloudSessionPlaceholder = (
+	summary: CloudChatSummary,
+	projectId: FolderId,
+): Session => {
+	const now = new Date(summary.createdAt);
+	return Session.make({
+		id: summary.initialSessionId,
+		projectId,
+		title: summary.title,
+		titleProvenance: "manual",
+		providerId: summary.agent,
+		model: summary.model,
+		status: sessionStatus(summary),
+		archivedAt: null,
+		cursor: null,
+		resumeStrategy: "none",
+		runtimeMode: "approval-required",
+		worktreeId: null,
+		chatId: summary.chatId,
+		forkedFromSessionId: null,
+		forkedFromMessageId: null,
+		permissionMode: "default",
+		toolSearch: false,
+		createdAt: now,
+		updatedAt: new Date(summary.updatedAt),
+	});
+};
+
 /**
  * Relay catalog rows are placeholders only. The environment runtime timeline
  * replaces this shell as soon as the user retains the chat resource.
@@ -165,27 +196,7 @@ export const stageCloudChat = (
 		createdAt: now,
 		updatedAt: new Date(accepted.updatedAt),
 	});
-	const session = Session.make({
-		id: accepted.initialSessionId,
-		projectId,
-		title: accepted.title,
-		titleProvenance: "manual",
-		providerId: accepted.agent,
-		model: accepted.model,
-		status: sessionStatus(accepted),
-		archivedAt: null,
-		cursor: null,
-		resumeStrategy: "none",
-		runtimeMode: "approval-required",
-		worktreeId: null,
-		chatId: accepted.chatId,
-		forkedFromSessionId: null,
-		forkedFromMessageId: null,
-		permissionMode: "default",
-		toolSearch: false,
-		createdAt: now,
-		updatedAt: new Date(accepted.updatedAt),
-	});
+	const session = cloudSessionPlaceholder(accepted, projectId);
 	overlayActiveEnvironmentShell((shell) => ({
 		...shell,
 		chatsByProject: {
@@ -218,7 +229,26 @@ export const openCloudChat = (
 	if (existing !== undefined) return existing;
 	const operation = Promise.resolve().then(() => {
 		stageCloudChat(summary, projectId);
-		useChatsStore.getState().select(summary.chatId);
+		// Catalog selection must not depend on a paused runtime shell. Select the
+		// durable ids now so the qualified timeline cache can hydrate immediately.
+		useUiStore.getState().setActiveMainTab("chat");
+		useChatsStore.setState((state) => ({
+			selectedChatId: summary.chatId,
+			selectedChatByProject: {
+				...state.selectedChatByProject,
+				[projectId]: summary.chatId,
+			},
+		}));
+		useSessionsStore.setState((state) => ({
+			selectedSessionId: summary.initialSessionId,
+			selectedSessionByProject: {
+				...state.selectedSessionByProject,
+				[projectId]: summary.initialSessionId,
+			},
+		}));
+		if (useWorkspaceStore.getState().selectedFolderId !== projectId) {
+			void useWorkspaceStore.getState().select(projectId);
+		}
 		// The timeline retain is cache-first. An already-running workspace can be
 		// attached in the background; paused compute is woken only by a live action.
 		if (summary.state === "ready" && summary.runtimeState === "online")

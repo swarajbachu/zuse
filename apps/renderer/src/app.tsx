@@ -1,4 +1,4 @@
-import { EnvironmentId } from "@zuse/contracts";
+import { EnvironmentId, type Session } from "@zuse/contracts";
 import { Effect } from "effect";
 import {
 	lazy,
@@ -30,7 +30,10 @@ import {
 import { AppearanceController } from "./lib/appearance.tsx";
 import { installClientBusOnlineBridge } from "./lib/client-bus-online.ts";
 import { closeActiveChatTab } from "./lib/close-chat-tab.ts";
-import { useCloudChatSummaryForSession } from "./lib/cloud-workspaces.ts";
+import {
+	cloudSessionPlaceholder,
+	useCloudChatSummaryForSession,
+} from "./lib/cloud-workspaces.ts";
 import { useActiveSessionById } from "./lib/environment-entity-hooks.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
 import { useSettingsStore } from "./lib/settings-client-bus.ts";
@@ -408,7 +411,12 @@ function MainShell() {
 			? null
 			: (s.pendingCreationByChat[selectedChatId] ?? null),
 	);
-	const selectedSession = useActiveSessionById(selectedSessionId);
+	const activeSelectedSession = useActiveSessionById(selectedSessionId);
+	const selectedSession = useMemo<Session | null>(() => {
+		if (activeSelectedSession !== null) return activeSelectedSession;
+		if (selectedCloudSummary === null || selectedFolderId === null) return null;
+		return cloudSessionPlaceholder(selectedCloudSummary, selectedFolderId);
+	}, [activeSelectedSession, selectedCloudSummary, selectedFolderId]);
 	const directoryStatus = useChatDirectoryStatus(
 		selectedEnvironmentId,
 		pendingCreation === null ? (selectedSession?.chatId ?? null) : null,
@@ -649,6 +657,7 @@ function MainShell() {
 											<ChatView
 												sessionId={selectedSessionId}
 												environmentId={selectedEnvironmentId}
+												session={selectedSession}
 												endInset={composerInset}
 											/>
 										</Suspense>
