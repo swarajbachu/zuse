@@ -466,6 +466,14 @@ export class ClientBus<Client> {
 		if (!this.disposed) this.runtimes.retryRetained();
 	}
 
+	retryConnection(environmentId: EnvironmentId): void {
+		if (this.disposed) return;
+		void this.runtimes
+			.get(environmentId)
+			.retryNow()
+			.catch(() => undefined);
+	}
+
 	/** Current generation-fenced client for bounded side requests. */
 	client(environmentId: EnvironmentId): Client | null {
 		return this.environment(environmentId).runtime.currentClient();

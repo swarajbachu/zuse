@@ -38,7 +38,7 @@ import {
 	timelineReadingPositionStore,
 } from "../lib/session-timeline-cache.ts";
 import {
-	registerEnvironmentWake,
+	registerEnvironmentActivation,
 	registerSessionTimelineCheckpointSynchronizer,
 	registerSessionTimelineOlderPageSynchronizer,
 } from "../lib/session-timeline-client-bus.ts";
@@ -71,7 +71,7 @@ type CloudChatsState = {
 
 const opening = new Map<string, Promise<void>>();
 const attaching = new Map<string, Promise<void>>();
-const registeredWakeByEnvironment = new Map<string, CloudChatSummary>();
+const registeredCloudEnvironments = new Map<string, CloudChatSummary>();
 let hydration: Promise<void> | null = null;
 
 /**
@@ -80,13 +80,13 @@ let hydration: Promise<void> | null = null;
  * teaching feature stores how to resume a workspace.
  */
 const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
-	const previous = registeredWakeByEnvironment.get(summary.workspaceId);
+	const previous = registeredCloudEnvironments.get(summary.workspaceId);
 	if (previous !== undefined) {
 		if (compareCloudChatSummaryVersion(summary, previous) < 0) return;
-		registeredWakeByEnvironment.set(summary.workspaceId, summary);
+		registeredCloudEnvironments.set(summary.workspaceId, summary);
 		return;
 	}
-	registeredWakeByEnvironment.set(summary.workspaceId, summary);
+	registeredCloudEnvironments.set(summary.workspaceId, summary);
 	let rootPrepared = false;
 	registerSessionTimelineCheckpointSynchronizer(
 		EnvironmentId.make(summary.workspaceId),
@@ -189,11 +189,11 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 			};
 		},
 	);
-	registerEnvironmentWake(
+	registerEnvironmentActivation(
 		EnvironmentId.make(summary.workspaceId),
-		async () => {
+		async (activation) => {
 			const fallback =
-				registeredWakeByEnvironment.get(summary.workspaceId) ?? summary;
+				registeredCloudEnvironments.get(summary.workspaceId) ?? summary;
 			const current =
 				useCloudChatCatalogStore
 					.getState()
@@ -202,7 +202,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 					) ??
 				cloudSummaryForChat(fallback.chatId) ??
 				fallback;
-			await ensureCloudWorkspaceEnvironment(current);
+			await ensureCloudWorkspaceEnvironment(current, activation);
 		},
 		async (client) => {
 			if (rootPrepared) return;
@@ -372,10 +372,8 @@ export const openCloudChat = (
 		if (useWorkspaceStore.getState().selectedFolderId !== projectId) {
 			void useWorkspaceStore.getState().select(projectId);
 		}
-		// The timeline retain is cache-first. An already-running workspace can be
-		// attached in the background; paused compute is woken only by a live action.
-		if (summary.state === "ready" && summary.runtimeState === "online")
-			void ensureCloudWorkspaceAttached(summary).catch(() => undefined);
+		// The retained timeline hydrates cache first. EnvironmentRuntime then
+		// prepares the gateway and attaches in one ordered background operation.
 	});
 	const tracked = operation.finally(() => opening.delete(summary.workspaceId));
 	opening.set(summary.workspaceId, tracked);
@@ -392,6 +390,7 @@ const workspaceNeedsWake = (
 /** Cloud is an EnvironmentResolver capability, not a second message path. */
 export const ensureCloudWorkspaceAttached = (
 	summary: CloudChatSummary,
+	activation: "connect" | "wake" = "wake",
 ): Promise<void> => {
 	const existing = attaching.get(summary.workspaceId);
 	if (existing !== undefined) return existing;
@@ -403,18 +402,32 @@ export const ensureCloudWorkspaceAttached = (
 		const recoverRuntime = cloudWorkspaceRequiresRuntimeRecovery(
 			summary.workspaceId,
 		);
-		if (workspaceNeedsWake(workspace) || recoverRuntime) {
+		const recoverOnlineRuntime =
+			recoverRuntime &&
+			workspace.state === "ready" &&
+			workspace.runtimeState === "online";
+		if (
+			(workspaceNeedsWake(workspace) && activation === "wake") ||
+			recoverOnlineRuntime
+		) {
 			workspace = await Effect.runPromise(
 				control["cloud.workspaces.resume"]({
 					workspaceId: summary.workspaceId,
-					recoverRuntime: recoverRuntime || undefined,
+					recoverRuntime: recoverOnlineRuntime || undefined,
 				}),
 			);
-			if (recoverRuntime) {
+			if (recoverOnlineRuntime) {
 				clearCloudWorkspaceRuntimeRecovery(summary.workspaceId);
 			}
 		}
 		updateSummary(refreshSummaryFromWorkspace(summary, workspace));
+		if (activation === "connect" && !isCloudWorkspaceReady(workspace)) {
+			throw new Error(
+				workspace.state === "paused"
+					? "Cloud workspace is paused."
+					: "Cloud workspace is not currently available for passive attachment.",
+			);
+		}
 		if (!isCloudWorkspaceReady(workspace)) {
 			const error = cloudWorkspaceStartupError(workspace);
 			if (error !== null) throw error;
@@ -442,9 +455,10 @@ export const ensureCloudWorkspaceAttached = (
 	return operation;
 };
 
-export const ensureCloudWorkspaceEnvironment = (
+const ensureCloudWorkspaceEnvironment = (
 	summary: CloudChatSummary,
-): Promise<void> => ensureCloudWorkspaceAttached(summary);
+	activation: "connect" | "wake",
+): Promise<void> => ensureCloudWorkspaceAttached(summary, activation);
 
 export { cloudSummaryForChat, localProjectForCloudChat };
 

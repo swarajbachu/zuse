@@ -11,8 +11,8 @@ import {
 	useCloudChatCatalogStore,
 } from "../lib/cloud-workspace-catalog.ts";
 import { cloudTranscriptActivation } from "../lib/cloud-workspace-lifecycle.ts";
-import { ensureCloudWorkspaceAttached } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
+import { retryRendererEnvironmentConnection } from "../lib/session-timeline-client-bus.ts";
 import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
@@ -97,7 +97,9 @@ export function CloudConnectionNotice() {
 					type="button"
 					className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 					onClick={() =>
-						void ensureCloudWorkspaceAttached(summary).catch(() => {})
+						retryRendererEnvironmentConnection(
+							EnvironmentId.make(summary.workspaceId),
+						)
 					}
 				>
 					<HugeiconsIcon icon={RefreshIcon} className="size-3.5" />

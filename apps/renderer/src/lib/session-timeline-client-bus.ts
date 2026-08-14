@@ -985,11 +985,11 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 
 let commandOutbox = createClientCommandOutbox();
 
-type EnvironmentWake = Readonly<{
-	wake: () => Promise<void>;
+type EnvironmentActivation = Readonly<{
+	prepare: (activation: "connect" | "wake") => Promise<void>;
 	prepareClient?: (client: MemoizeClient) => Promise<void>;
 }>;
-const wakeByEnvironment = new Map<EnvironmentId, EnvironmentWake>();
+const activationByEnvironment = new Map<EnvironmentId, EnvironmentActivation>();
 const environmentOf = (environmentId: EnvironmentId): EnvironmentId =>
 	environmentId;
 type ResolveRendererSession = (
@@ -1007,16 +1007,16 @@ let reportPassiveSessionFault: (
 	expectedGeneration: number,
 ) => boolean = () => false;
 
-export const registerEnvironmentWake = (
+export const registerEnvironmentActivation = (
 	environmentId: EnvironmentId,
-	wake: EnvironmentWake["wake"],
-	prepareClient?: EnvironmentWake["prepareClient"],
+	prepare: EnvironmentActivation["prepare"],
+	prepareClient?: EnvironmentActivation["prepareClient"],
 ): (() => void) => {
-	const registration = { wake, prepareClient };
-	wakeByEnvironment.set(environmentId, registration);
+	const registration = { prepare, prepareClient };
+	activationByEnvironment.set(environmentId, registration);
 	return () => {
-		if (wakeByEnvironment.get(environmentId) === registration) {
-			wakeByEnvironment.delete(environmentId);
+		if (activationByEnvironment.get(environmentId) === registration) {
+			activationByEnvironment.delete(environmentId);
 		}
 	};
 };
@@ -1041,10 +1041,11 @@ const environmentResolver: EnvironmentResolver<MemoizeClient> = {
 	resolve: (environmentId, activation) =>
 		Effect.tryPromise({
 			try: async () => {
-				const wake = wakeByEnvironment.get(environmentId);
-				if (activation === "wake") {
-					await wake?.wake();
-				}
+				const registered = activationByEnvironment.get(environmentId);
+				// Cloud gateway discovery/ticket issuance must finish before socket
+				// acquisition. Keeping this inside the EnvironmentRuntime resolver
+				// prevents chat navigation and ClientBus from racing two attach paths.
+				await registered?.prepare(activation);
 				let generation: number | null = null;
 				let pendingFault: Error | null = null;
 				const session = await resolveRendererSession(environmentId, (cause) => {
@@ -1055,7 +1056,7 @@ const environmentResolver: EnvironmentResolver<MemoizeClient> = {
 					reportPassiveSessionFault(environmentId, faultFor(cause), generation);
 				});
 				try {
-					await wake?.prepareClient?.(session.client);
+					await registered?.prepareClient?.(session.client);
 				} catch (cause) {
 					await session.dispose();
 					throw cause;
@@ -1417,7 +1418,14 @@ export const setSessionTimelineRpcSessionForTest = (
 	resolveRendererSession = resolve;
 };
 
-export const registerEnvironmentWakeForTest = registerEnvironmentWake;
+export const registerEnvironmentActivationForTest =
+	registerEnvironmentActivation;
+
+export const retryRendererEnvironmentConnection = (
+	environmentId: EnvironmentId,
+): void => {
+	getRendererClientBus().retryConnection(environmentId);
+};
 
 export const resetSessionTimelineClientBus = async (): Promise<void> => {
 	await rendererClientBus.dispose();
@@ -1425,7 +1433,7 @@ export const resetSessionTimelineClientBus = async (): Promise<void> => {
 	olderSessionMessageLoads.clear();
 	checkpointSynchronizers.clear();
 	olderPageSynchronizers.clear();
-	wakeByEnvironment.clear();
+	activationByEnvironment.clear();
 };
 
 export const resetSessionTimelineClientBusForTest = (): void => {
@@ -1434,6 +1442,6 @@ export const resetSessionTimelineClientBusForTest = (): void => {
 	commandOutbox = createClientCommandOutbox();
 	rendererClientBus = createBus();
 	olderSessionMessageLoads.clear();
-	wakeByEnvironment.clear();
+	activationByEnvironment.clear();
 	resolveRendererSession = defaultResolveRendererSession;
 };

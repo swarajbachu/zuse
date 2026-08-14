@@ -1045,12 +1045,6 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		set({ error: null });
 		try {
 			const cloud = cloudSummaryForChat(chatId);
-			if (cloud !== null) {
-				const { ensureCloudWorkspaceEnvironment } = await import(
-					"../lib/cloud-workspaces.ts"
-				);
-				await ensureCloudWorkspaceEnvironment(cloud);
-			}
 			const { result: renamed } = await dispatchChatCommand<
 				{ readonly chatId: ChatId; readonly title: string },
 				Chat

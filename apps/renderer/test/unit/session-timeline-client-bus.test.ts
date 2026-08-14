@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	getRendererClientBus,
 	loadOlderSessionMessages,
-	registerEnvironmentWakeForTest,
+	registerEnvironmentActivationForTest,
 	registerRendererResourceDriver,
 	registerRendererResourcePersistence,
 	registerSessionTimelineCheckpointSynchronizer,
@@ -231,7 +231,7 @@ describe("renderer session timeline ClientBus adapter", () => {
 			sessions += 1;
 			return { client, dispose: async () => undefined };
 		});
-		registerEnvironmentWakeForTest(
+		registerEnvironmentActivationForTest(
 			environmentId,
 			async () => undefined,
 			async (resolved) => {
@@ -246,6 +246,31 @@ describe("renderer session timeline ClientBus adapter", () => {
 		);
 		expect(sessions).toBe(1);
 		expect(preparedClient).toBe(client);
+		retained.lease.release();
+	});
+
+	it("prepares a connected environment before acquiring its socket", async () => {
+		const order: string[] = [];
+		const frames = Effect.runSync(Queue.unbounded());
+		setSessionTimelineRpcSessionForTest(async () => {
+			order.push("socket");
+			return {
+				client: {
+					"session.events": () => Stream.fromQueue(frames),
+				} as never,
+				dispose: async () => undefined,
+			};
+		});
+		registerEnvironmentActivationForTest(environmentId, async (activation) => {
+			order.push(`prepare:${activation}`);
+		});
+
+		const retained = retainSessionTimeline(ref, "connect");
+		await waitUntil(
+			() =>
+				getRendererClientBus().connection(environmentId).phase === "connected",
+		);
+		expect(order).toEqual(["prepare:connect", "socket"]);
 		retained.lease.release();
 	});
 
