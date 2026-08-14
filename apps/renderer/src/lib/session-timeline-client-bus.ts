@@ -38,6 +38,7 @@ import {
 	createClientCommandOutbox,
 	resetMemoryCommandOutboxForTest,
 } from "./client-command-outbox.ts";
+import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import {
 	acquireRendererRpcSession,
 	isRpcClientTransportError,
@@ -1037,6 +1038,18 @@ const faultFor = (cause: unknown): EnvironmentFault => {
 	return { phase, message };
 };
 
+const diagnosticCause = (cause: unknown): string => {
+	if (cause instanceof Error && cause.message.length > 0) return cause.message;
+	if (typeof cause === "object" && cause !== null) {
+		try {
+			return JSON.stringify(cause);
+		} catch {
+			return Object.prototype.toString.call(cause);
+		}
+	}
+	return String(cause);
+};
+
 const environmentResolver: EnvironmentResolver<MemoizeClient> = {
 	resolve: (environmentId, activation) =>
 		Effect.tryPromise({
@@ -1045,16 +1058,49 @@ const environmentResolver: EnvironmentResolver<MemoizeClient> = {
 				// Cloud gateway discovery/ticket issuance must finish before socket
 				// acquisition. Keeping this inside the EnvironmentRuntime resolver
 				// prevents chat navigation and ClientBus from racing two attach paths.
-				await registered?.prepare(activation);
+				try {
+					await registered?.prepare(activation);
+				} catch (cause) {
+					recordDiagnosticEvent({
+						level: "warn",
+						source: "cloud.environment-resolver",
+						message: "environment.prepare.failed",
+						detail: JSON.stringify({
+							environmentId,
+							activation,
+							reason: cause instanceof Error ? cause.message : String(cause),
+						}),
+					});
+					throw cause;
+				}
 				let generation: number | null = null;
 				let pendingFault: Error | null = null;
-				const session = await resolveRendererSession(environmentId, (cause) => {
-					if (generation === null) {
-						pendingFault = cause;
-						return;
-					}
-					reportPassiveSessionFault(environmentId, faultFor(cause), generation);
-				});
+				let session: RendererRpcSession;
+				try {
+					session = await resolveRendererSession(environmentId, (cause) => {
+						if (generation === null) {
+							pendingFault = cause;
+							return;
+						}
+						reportPassiveSessionFault(
+							environmentId,
+							faultFor(cause),
+							generation,
+						);
+					});
+				} catch (cause) {
+					recordDiagnosticEvent({
+						level: "warn",
+						source: "cloud.environment-resolver",
+						message: "environment.socket.failed",
+						detail: JSON.stringify({
+							environmentId,
+							activation,
+							reason: cause instanceof Error ? cause.message : String(cause),
+						}),
+					});
+					throw cause;
+				}
 				try {
 					await registered?.prepareClient?.(session.client);
 				} catch (cause) {
@@ -1148,11 +1194,23 @@ const createBus = (): ClientBus<MemoizeClient> => {
 		driverFor: (key) => {
 			if (key.kind === "session-timeline") {
 				return makeTimelineDriver((environmentId, generation, cause) => {
-					bus.reportConnectionFault(
-						environmentId,
-						{ phase: "failed", message: faultFor(cause).message },
-						generation,
-					);
+					recordDiagnosticEvent({
+						level: "warn",
+						source: "client-bus.session-timeline",
+						message: "session.events.failed",
+						detail: JSON.stringify({
+							environmentId,
+							generation,
+							reason: diagnosticCause(cause),
+						}),
+					});
+					if (isRpcClientTransportError(cause)) {
+						bus.reportConnectionFault(
+							environmentId,
+							{ phase: "failed", message: faultFor(cause).message },
+							generation,
+						);
+					}
 				}) as ResourceDriver<MemoizeClient, unknown>;
 			}
 			return registeredDriverFactories.get(key.kind)?.(key) ?? null;

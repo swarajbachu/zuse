@@ -112,24 +112,30 @@ export const mergeCloudChatSummaries = (
 	);
 	for (const summary of incoming) {
 		const previous = byEnvironment.get(summary.workspaceId);
+		const acceptedSummary =
+			previous !== undefined &&
+			previous.initialSessionId !== "draft-session" &&
+			summary.initialSessionId === "draft-session"
+				? { ...summary, initialSessionId: previous.initialSessionId }
+				: summary;
 		const comparison =
 			previous === undefined
 				? 1
-				: compareCloudChatSummaryVersion(summary, previous);
+				: compareCloudChatSummaryVersion(acceptedSummary, previous);
 		if (previous === undefined || comparison > 0) {
-			byEnvironment.set(summary.workspaceId, summary);
+			byEnvironment.set(summary.workspaceId, acceptedSummary);
 			continue;
 		}
 		if (comparison === 0) {
-			byEnvironment.set(summary.workspaceId, {
+			byEnvironment.set(acceptedSummary.workspaceId, {
 				...previous,
-				unread: previous.unread || summary.unread,
+				unread: previous.unread || acceptedSummary.unread,
 				lastMessageAt:
 					previous.lastMessageAt === null
-						? summary.lastMessageAt
-						: summary.lastMessageAt === null
+						? acceptedSummary.lastMessageAt
+						: acceptedSummary.lastMessageAt === null
 							? previous.lastMessageAt
-							: Math.max(previous.lastMessageAt, summary.lastMessageAt),
+							: Math.max(previous.lastMessageAt, acceptedSummary.lastMessageAt),
 			});
 		}
 	}
@@ -236,6 +242,27 @@ export const optimisticallyUnarchiveCloudChat = (
 		};
 	});
 	return optimistic;
+};
+
+export const repairCloudChatInitialSession = (
+	workspaceId: string,
+	expectedSessionId: SessionId,
+	initialSessionId: SessionId,
+): CloudChatSummary | null => {
+	let repaired: CloudChatSummary | null = null;
+	useCloudChatCatalogStore.setState((state) => ({
+		...state,
+		summaries: state.summaries.map((summary) => {
+			if (
+				summary.workspaceId !== workspaceId ||
+				summary.initialSessionId !== expectedSessionId
+			)
+				return summary;
+			repaired = { ...summary, initialSessionId };
+			return repaired;
+		}),
+	}));
+	return repaired;
 };
 
 export const registerCloudChat = (

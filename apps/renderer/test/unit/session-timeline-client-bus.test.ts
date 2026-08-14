@@ -11,6 +11,7 @@ import {
 	PtyId,
 	QueueState,
 	SessionId,
+	SessionNotFoundError,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
 import { Effect, Queue, Stream } from "effect";
@@ -218,6 +219,30 @@ describe("renderer session timeline ClientBus adapter", () => {
 		expect(getRendererClientBus().connection(environmentId).phase).toBe(
 			"dormant",
 		);
+	});
+
+	it("keeps a healthy environment connected when one resource is missing", async () => {
+		let sessions = 0;
+		setSessionTimelineRpcSessionForTest(async () => {
+			sessions += 1;
+			return {
+				client: {
+					"session.events": () =>
+						Stream.fail(new SessionNotFoundError({ sessionId })),
+				} as never,
+				dispose: async () => undefined,
+			};
+		});
+
+		const retained = retainSessionTimeline(ref, "connect");
+		await waitUntil(
+			() => getRendererClientBus().snapshot(retained.key).sync === "failed",
+		);
+		expect(getRendererClientBus().connection(environmentId).phase).toBe(
+			"connected",
+		);
+		expect(sessions).toBe(1);
+		retained.lease.release();
 	});
 
 	it("prepares a woken environment on the same passive session", async () => {
