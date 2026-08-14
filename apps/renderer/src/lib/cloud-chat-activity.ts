@@ -38,17 +38,20 @@ export const deriveCloudChatActivity = ({
 	connection,
 	runtime,
 }: CloudChatActivityInput): CloudChatActivity => {
+	const computeReady =
+		summary.state === "ready" && summary.runtimeState === "online";
 	if (
 		summary.state === "failed" ||
-		connection === "failed" ||
 		connection === "blocked-auth" ||
 		connection === "update-required" ||
 		connection === "revoked"
 	)
 		return "failed";
+	// A failed socket attach does not mean already-online compute or its cached
+	// transcript failed. Keep it in the passive attachment state while the one
+	// supervisor retries; only lifecycle/auth failures are user-actionable here.
+	if (connection === "failed") return computeReady ? "attaching" : "failed";
 
-	const computeReady =
-		summary.state === "ready" && summary.runtimeState === "online";
 	// A paused durable workspace cannot still be executing. Cached session state
 	// may describe the turn that completed before the sandbox paused, so the
 	// durable compute lifecycle must win once there is no command waiting.

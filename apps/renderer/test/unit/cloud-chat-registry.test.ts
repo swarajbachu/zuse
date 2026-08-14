@@ -122,6 +122,13 @@ describe("cloud chat catalog", () => {
 				connection: "failed",
 				runtime: "idle",
 			}),
+		).toBe("attaching");
+		expect(
+			deriveCloudChatActivity({
+				summary: { ...row, state: "failed" },
+				connection: "failed",
+				runtime: "idle",
+			}),
 		).toBe("failed");
 		expect(
 			deriveCloudChatActivity({
