@@ -98,24 +98,6 @@ describe("cloud workspace store", () => {
 			workspaceId: workspace.workspaceId,
 			commandId: `launch:${workspace.workspaceId}`,
 		});
-		expect(
-			await runtime.runPromise(
-				store.acknowledgeLaunchIntent(workspace.workspaceId, "launch:wrong"),
-			),
-		).toBe(false);
-		expect(
-			await runtime.runPromise(
-				store.acknowledgeLaunchIntent(
-					workspace.workspaceId,
-					`launch:${workspace.workspaceId}`,
-				),
-			),
-		).toBe(true);
-		expect(
-			await runtime.runPromise(
-				store.getLaunchIntent(workspace.workspaceId, 200),
-			),
-		).toBeNull();
 		const claimed = await runtime.runPromise(
 			store.claimWorkspace(workspace.workspaceId, "worker-a", 100, 200),
 		);
@@ -687,11 +669,79 @@ describe("cloud workspace store", () => {
 	test("consumes a launch intent only after its matching receipt", async () => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
 		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(store.connectProject(project));
+		await runtime.runPromise(store.createBuild(build));
+		const workspace = {
+			workspaceId: "workspace-launch-completion",
+			accountId: "account-1",
+			projectId: project.projectId,
+			buildId: build.buildId,
+			provider: build.provider,
+			runtimeState: "online" as const,
+			chatId: "chat-launch-completion",
+			initialSessionId: "session-launch-completion",
+			branch: "task/launch-completion",
+			baseRef: "origin/main",
+			state: "ready" as const,
+			desiredState: "ready" as const,
+			statusCode: "agent-starting",
+			credentialEpoch: 0,
+			idempotencyKey: "workspace-launch-completion-key",
+			requestConfig: { startupTimings: { requestedAt: 100 } },
+			nextActionAtMs: 100,
+			revision: 2,
+			createdAtMs: 100,
+			updatedAtMs: 200,
+			lastActivityAtMs: 200,
+		};
+		await runtime.runPromise(
+			store.createWorkspace(workspace, startCommand(workspace.workspaceId)),
+		);
 		expect(
 			await runtime.runPromise(
-				store.acknowledgeLaunchIntent("workspace-1", "launch:wrong"),
+				store.completeLaunchIntent({
+					workspaceId: workspace.workspaceId,
+					commandId: "launch:wrong",
+					sessionHeadVersion: 15,
+					nowMs: 300,
+					nextActionAtMs: 10_000,
+				}),
 			),
-		).toBe(false);
+		).toEqual({ kind: "rejected" });
+		const completed = await runtime.runPromise(
+			store.completeLaunchIntent({
+				workspaceId: workspace.workspaceId,
+				commandId: `launch:${workspace.workspaceId}`,
+				sessionHeadVersion: 15,
+				nowMs: 300,
+				nextActionAtMs: 10_000,
+			}),
+		);
+		expect(completed).toMatchObject({
+			kind: "completed",
+			workspace: {
+				statusCode: "agent-running",
+				requestConfig: { sessionHeadVersion: 15 },
+			},
+		});
+		expect(
+			await runtime.runPromise(
+				store.getLaunchIntent(workspace.workspaceId, 400),
+			),
+		).toBeNull();
+		const replay = await runtime.runPromise(
+			store.completeLaunchIntent({
+				workspaceId: workspace.workspaceId,
+				commandId: `launch:${workspace.workspaceId}`,
+				sessionHeadVersion: 15,
+				nowMs: 400,
+				nextActionAtMs: 10_000,
+			}),
+		);
+		expect(replay).toMatchObject({
+			kind: "completed",
+			workspace: { statusCode: "agent-running" },
+		});
 		await runtime.dispose();
 	});
 

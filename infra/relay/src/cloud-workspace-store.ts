@@ -121,6 +121,19 @@ export type RuntimeSummaryWriteOutcome =
 	| { readonly kind: "rejected-generation" }
 	| { readonly kind: "workspace-missing" };
 
+export type CompleteLaunchIntentOutcome =
+	| { readonly kind: "completed"; readonly workspace: CloudWorkspaceRecord }
+	| { readonly kind: "rejected" }
+	| { readonly kind: "workspace-missing" };
+
+export interface CompleteLaunchIntentInput {
+	readonly workspaceId: string;
+	readonly commandId: string;
+	readonly sessionHeadVersion: number;
+	readonly nowMs: number;
+	readonly nextActionAtMs: number;
+}
+
 export interface RuntimeCredentialRenewalReceipt {
 	readonly workspaceId: string;
 	readonly requestId: string;
@@ -314,10 +327,9 @@ export interface CloudWorkspaceStoreApi {
 		workspaceId: string,
 		nowMs: number,
 	) => Effect.Effect<CloudWorkspaceLaunchIntentRecord | null>;
-	readonly acknowledgeLaunchIntent: (
-		workspaceId: string,
-		commandId: string,
-	) => Effect.Effect<boolean>;
+	readonly completeLaunchIntent: (
+		input: CompleteLaunchIntentInput,
+	) => Effect.Effect<CompleteLaunchIntentOutcome>;
 	readonly enrollRuntimeBoot: (
 		input: RuntimeBootstrapEnrollmentInput,
 	) => Effect.Effect<RuntimeBootstrapEnrollmentOutcome | null>;
@@ -408,6 +420,62 @@ const workspaceRuntimeGeneration = (workspace: CloudWorkspaceRecord): number =>
 	typeof workspace.requestConfig.runtimeGeneration === "number"
 		? workspace.requestConfig.runtimeGeneration
 		: Math.max(1, workspace.credentialEpoch + 1);
+
+const recordOrEmpty = (value: unknown): Readonly<Record<string, unknown>> =>
+	typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Readonly<Record<string, unknown>>)
+		: {};
+
+const completeLaunchWorkspace = (
+	workspace: CloudWorkspaceRecord,
+	input: CompleteLaunchIntentInput,
+): CloudWorkspaceRecord => {
+	const startupTimings = recordOrEmpty(workspace.requestConfig.startupTimings);
+	const requestedAt =
+		typeof startupTimings.requestedAt === "number"
+			? startupTimings.requestedAt
+			: undefined;
+	return {
+		...workspace,
+		runtimeState: "online",
+		state: "ready",
+		statusCode: "agent-running",
+		requestConfig: {
+			...workspace.requestConfig,
+			sessionHeadVersion: Math.max(
+				typeof workspace.requestConfig.sessionHeadVersion === "number"
+					? workspace.requestConfig.sessionHeadVersion
+					: 0,
+				input.sessionHeadVersion,
+			),
+			startupTimings: {
+				...startupTimings,
+				connectedAt: startupTimings.connectedAt ?? input.nowMs,
+				repositoryReadyAt: startupTimings.repositoryReadyAt ?? input.nowMs,
+				agentStartedAt: startupTimings.agentStartedAt ?? input.nowMs,
+				...(requestedAt === undefined
+					? {}
+					: {
+							launchDurationMs:
+								startupTimings.launchDurationMs ?? input.nowMs - requestedAt,
+						}),
+			},
+		},
+		nextActionAtMs: input.nextActionAtMs,
+		runningSinceMs: workspace.runningSinceMs ?? input.nowMs,
+		revision: workspace.revision + 1,
+		updatedAtMs: input.nowMs,
+		lastActivityAtMs: input.nowMs,
+	};
+};
+
+const canRecoverMissingLaunchIntent = (
+	workspace: CloudWorkspaceRecord,
+	input: CompleteLaunchIntentInput,
+): boolean =>
+	input.commandId === `launch:${workspace.workspaceId}` &&
+	(workspace.statusCode === "agent-starting" ||
+		typeof workspace.requestConfig.sessionHeadVersion === "number");
 
 export const CloudWorkspaceStoreMemory = Layer.effect(
 	CloudWorkspaceStore,
@@ -660,14 +728,38 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						},
 					] as const;
 				}),
-			acknowledgeLaunchIntent: (workspaceId, commandId) =>
-				Ref.modify(state, (current) => {
-					const intent = current.launchIntents.get(workspaceId);
-					if (intent?.commandId !== commandId) return [false, current] as const;
-					const launchIntents = new Map(current.launchIntents);
-					launchIntents.delete(workspaceId);
-					return [true, { ...current, launchIntents }] as const;
-				}),
+			completeLaunchIntent: (input) =>
+				Ref.modify<MemoryState, CompleteLaunchIntentOutcome>(
+					state,
+					(current) => {
+						const workspace = current.workspaces.get(input.workspaceId);
+						if (workspace === undefined)
+							return [{ kind: "workspace-missing" }, current] as const;
+						const intent = current.launchIntents.get(input.workspaceId);
+						if (
+							intent?.commandId !== input.commandId &&
+							!(
+								intent === undefined &&
+								canRecoverMissingLaunchIntent(workspace, input)
+							)
+						)
+							return [{ kind: "rejected" }, current] as const;
+						const completed = completeLaunchWorkspace(workspace, input);
+						const launchIntents = new Map(current.launchIntents);
+						launchIntents.delete(input.workspaceId);
+						return [
+							{ kind: "completed", workspace: completed },
+							{
+								...current,
+								workspaces: new Map(current.workspaces).set(
+									input.workspaceId,
+									completed,
+								),
+								launchIntents,
+							},
+						] as const;
+					},
+				),
 			claimWorkspace: (workspaceId, leaseOwner, nowMs, leaseExpiresAtMs) =>
 				Ref.modify(state, (current) => {
 					const workspace = current.workspaces.get(workspaceId);
@@ -1503,11 +1595,31 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 								};
 					}).pipe(sql.withTransaction),
 				),
-			acknowledgeLaunchIntent: (workspaceId, commandId) =>
+			completeLaunchIntent: (input) =>
 				orDie(
-					sql`DELETE FROM relay_cloud_workspace_launch_intents WHERE workspace_id=${workspaceId} AND command_id=${commandId} RETURNING workspace_id`.pipe(
-						Effect.map((rows) => rows.length === 1),
-					),
+					Effect.gen(function* () {
+						const rows =
+							yield* sql`SELECT * FROM relay_cloud_workspaces WHERE workspace_id=${input.workspaceId} FOR UPDATE`;
+						const row = rows[0];
+						if (row === undefined)
+							return { kind: "workspace-missing" as const };
+						const workspace = workspaceFromRow(row as Row);
+						const intents =
+							yield* sql`SELECT command_id FROM relay_cloud_workspace_launch_intents WHERE workspace_id=${input.workspaceId} FOR UPDATE`;
+						const intentCommandId = intents[0]?.command_id;
+						if (
+							intentCommandId !== input.commandId &&
+							!(
+								intentCommandId === undefined &&
+								canRecoverMissingLaunchIntent(workspace, input)
+							)
+						)
+							return { kind: "rejected" as const };
+						const completed = completeLaunchWorkspace(workspace, input);
+						yield* sql`UPDATE relay_cloud_workspaces SET runtime_state=${completed.runtimeState}, state=${completed.state}, status_code=${completed.statusCode}, request_config=${JSON.stringify(completed.requestConfig)}::jsonb, next_action_at=${completed.nextActionAtMs}, running_since=${completed.runningSinceMs ?? null}, revision=${completed.revision}, updated_at=${completed.updatedAtMs}, last_activity_at=${completed.lastActivityAtMs} WHERE workspace_id=${input.workspaceId}`;
+						yield* sql`DELETE FROM relay_cloud_workspace_launch_intents WHERE workspace_id=${input.workspaceId}`;
+						return { kind: "completed" as const, workspace: completed };
+					}).pipe(sql.withTransaction),
 				),
 			enrollRuntimeBoot: (input) =>
 				orDie(

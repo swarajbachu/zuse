@@ -744,7 +744,8 @@ export const routeCloudWorkspaceRequest = (
 				nowMs,
 			);
 			const alreadyLaunched =
-				typeof enrolled.workspace.requestConfig.sessionHeadVersion === "number";
+				typeof enrolled.workspace.requestConfig.sessionHeadVersion ===
+					"number" || enrolled.workspace.statusCode === "agent-starting";
 			if (launchIntentRecord === null && !alreadyLaunched)
 				return yield* Effect.fail(conflict("cloud_workspace_launch_failed"));
 			const launchIntent =
@@ -909,6 +910,18 @@ export const routeCloudWorkspaceRequest = (
 			if (outcome.kind === "workspace-missing")
 				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
 			if (outcome.kind === "applied") {
+				if (
+					workspace.statusCode === "agent-starting" &&
+					outcome.summary.sessionHeadVersion > 0
+				) {
+					yield* store.completeLaunchIntent({
+						workspaceId,
+						commandId: `launch:${workspaceId}`,
+						sessionHeadVersion: outcome.summary.sessionHeadVersion,
+						nowMs,
+						nextActionAtMs: nowMs + idlePauseMs,
+					});
+				}
 				const active = yield* recordWorkspaceActivity(workspace);
 				if (
 					active !== null &&
@@ -980,14 +993,21 @@ export const routeCloudWorkspaceRequest = (
 			if (agentStarted) {
 				if (
 					body.launchCommandId === undefined ||
+					typeof body.sessionHeadVersion !== "number" ||
 					!Number.isSafeInteger(body.sessionHeadVersion) ||
-					(body.sessionHeadVersion ?? -1) < 0 ||
-					!(yield* store.acknowledgeLaunchIntent(
-						workspaceId,
-						body.launchCommandId,
-					))
+					body.sessionHeadVersion < 0
 				)
 					return yield* Effect.fail(conflict("launch_intent_receipt_rejected"));
+				const completion = yield* store.completeLaunchIntent({
+					workspaceId,
+					commandId: body.launchCommandId,
+					sessionHeadVersion: body.sessionHeadVersion,
+					nowMs,
+					nextActionAtMs: nowMs + idlePauseMs,
+				});
+				if (completion.kind !== "completed")
+					return yield* Effect.fail(conflict("launch_intent_receipt_rejected"));
+				return json(publicWorkspace(completion.workspace));
 			}
 			const updated: CloudWorkspaceRecord = {
 				...workspace,
