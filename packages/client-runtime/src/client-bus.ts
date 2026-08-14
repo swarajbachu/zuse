@@ -41,6 +41,8 @@ export type ResourceDriverUpdate<Data> = Readonly<{
 	sync?: SyncPhase;
 	persist?: boolean;
 	resetEpoch?: boolean;
+	/** Advance the canonical cell without rendering an intermediate replay frame. */
+	notify?: boolean;
 }>;
 
 export type ResourceDataUpdate<Data> = Readonly<{
@@ -825,7 +827,8 @@ export class ClientBus<Client> {
 			cursor: update.cursor ?? entry.view.cursor,
 			sync: update.sync ?? entry.view.sync,
 		};
-		this.setView(entry, next);
+		if (update.notify === false) entry.view = next;
+		else this.setView(entry, next);
 		if (update.persist === true && next.data !== null) {
 			this.persist(entry, next);
 		}

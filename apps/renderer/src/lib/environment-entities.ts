@@ -93,7 +93,17 @@ export const updateEnvironmentShell = (
 export const overlayActiveEnvironmentShell = (
 	update: (data: EnvironmentShellData) => EnvironmentShellData | undefined,
 ): boolean => {
-	const environmentId = EnvironmentId.make(getActiveEnvironment());
+	return overlayEnvironmentShell(
+		EnvironmentId.make(getActiveEnvironment()),
+		update,
+	);
+};
+
+/** Apply optimistic entity intent to one explicitly qualified environment. */
+export const overlayEnvironmentShell = (
+	environmentId: EnvironmentId,
+	update: (data: EnvironmentShellData) => EnvironmentShellData | undefined,
+): boolean => {
 	return getRendererClientBus().overlay(
 		environmentShellResourceKey({ environmentId }),
 		{ update },

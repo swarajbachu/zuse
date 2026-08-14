@@ -32,12 +32,12 @@ import {
 import { memo, useEffect, useState } from "react";
 
 import { FileIcon } from "~/components/file-icon";
+import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import {
 	orchestrationToolName,
 	parseOrchestrationResult,
 } from "~/lib/orchestration-tools";
 import { attachmentUrl } from "~/lib/platform-capabilities";
-import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { resumeAfterProviderLogin } from "~/lib/provider-auth-recovery";
 import {
 	type ChatError,
@@ -855,7 +855,7 @@ function ProviderAuthCard({
 				if (sessionId !== undefined && environmentId !== undefined) {
 					const ref = { environmentId, sessionId };
 					const resumed = await resumeAfterProviderLogin({
-						reopen: () => reopenSession(sessionId),
+						reopen: () => reopenSession(sessionId, environmentId),
 						resumeQueue: () => resumeSessionQueue(ref, providerId),
 					});
 					if (resumed) clearSessionCommandError(ref);

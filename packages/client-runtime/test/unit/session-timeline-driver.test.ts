@@ -77,7 +77,7 @@ const harness = <Data>(input: {
 		snapshot: () => view,
 		isCurrent: () => true,
 		emit: (update) => {
-			updates.push(update);
+			if (update.notify !== false) updates.push(update);
 			view = {
 				...view,
 				data: update.data ?? view.data,
@@ -152,6 +152,9 @@ describe("shared session timeline resource driver", () => {
 			},
 		]);
 		expect(failures).toEqual([]);
+		// Snapshot + replay deltas publish atomically at the synchronization
+		// barrier, so reconnect never animates historical output token-by-token.
+		expect(test.updates).toHaveLength(1);
 		expect(test.updates.at(-1)).toMatchObject({
 			sync: "live",
 			persist: true,
@@ -187,6 +190,13 @@ describe("shared session timeline resource driver", () => {
 			cursor: { epoch: "checkpoint", version: 0 },
 			projection,
 		});
+		Queue.offerUnsafe(frames, {
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 0,
+			cursor: { epoch: "checkpoint", version: 0 },
+		});
+		await waitUntil(() => test.view().sync === "live");
 		for (let version = 1; version <= 2; version += 1) {
 			Queue.offerUnsafe(frames, {
 				kind: "event",
@@ -240,12 +250,8 @@ describe("shared session timeline resource driver", () => {
 		await waitUntil(() => test.view().sync === "live");
 
 		expect(test.view().cursor).toEqual({ epoch: "reset", version: 3 });
-		expect(test.updates).toContainEqual(
-			expect.objectContaining({
-				cursor: { epoch: "reset", version: 3 },
-				resetEpoch: true,
-			}),
-		);
+		expect(test.updates).toHaveLength(1);
+		expect(test.updates[0]).toMatchObject({ sync: "live", persist: true });
 		driver.stop();
 	});
 

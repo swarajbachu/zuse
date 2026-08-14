@@ -3,6 +3,7 @@ import type {
 	Folder,
 	FolderId,
 	GitOriginInfo,
+	ProviderId,
 	Session,
 } from "@zuse/contracts";
 import type {
@@ -46,6 +47,9 @@ export type LogicalChatRef = {
 	 * catalog refs — active-environment rows derive activity from live stores.
 	 */
 	readonly busy: boolean;
+	/** Provider/model for the selected (or newest) session, when known. */
+	readonly providerId: ProviderId | null;
+	readonly model: string | null;
 };
 
 export type LogicalProjectGroup = {
@@ -74,6 +78,20 @@ const isChatBusy = (chat: Chat, sessions: ReadonlyArray<Session>): boolean =>
 			session.chatId === chat.id &&
 			(session.status === "booting" || session.status === "running"),
 	);
+
+const representativeSession = (
+	chat: Chat,
+	sessions: ReadonlyArray<Session>,
+): Session | null => {
+	const candidates = sessions.filter((session) => session.chatId === chat.id);
+	return (
+		candidates.find((session) => session.id === chat.activeSessionId) ??
+		candidates.toSorted(
+			(left, right) => right.updatedAt.getTime() - left.updatedAt.getTime(),
+		)[0] ??
+		null
+	);
+};
 
 type MutableGroup = {
 	key: string;
@@ -133,14 +151,19 @@ export const buildLogicalProjectGroups = (input: {
 		};
 		const chatRefs: LogicalChatRef[] = source.chats
 			.filter((chat) => chat.archivedAt === null)
-			.map((chat) => ({
-				chat,
-				environmentId: source.environmentId,
-				environmentLabel: source.environmentLabel,
-				remote: !local,
-				live: source.isActive,
-				busy: source.isActive ? false : isChatBusy(chat, source.sessions),
-			}));
+			.map((chat) => {
+				const session = representativeSession(chat, source.sessions);
+				return {
+					chat,
+					environmentId: source.environmentId,
+					environmentLabel: source.environmentLabel,
+					remote: !local,
+					live: source.isActive,
+					busy: source.isActive ? false : isChatBusy(chat, source.sessions),
+					providerId: session?.providerId ?? null,
+					model: session?.model ?? null,
+				};
+			});
 		const originKey = originKeyOf(source.origin);
 		if (originKey !== null) {
 			const candidates = groupsByOrigin.get(originKey) ?? [];

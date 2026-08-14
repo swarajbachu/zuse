@@ -205,6 +205,17 @@ describe("ClientBus", () => {
 		});
 		expect(observed).toEqual(["live"]);
 
+		activeContext.emit({
+			data: { text: "caught up" },
+			cursor: { epoch: "epoch-1", version: 2 },
+			sync: "synchronizing",
+			notify: false,
+		});
+		expect(bus.snapshot(timelineKey).data).toEqual({ text: "caught up" });
+		expect(observed).toEqual(["live"]);
+		activeContext.emit({ sync: "live" });
+		expect(observed).toEqual(["live", "caught up"]);
+
 		first.release();
 		expect(cleanup).toBe(0);
 		second.release();

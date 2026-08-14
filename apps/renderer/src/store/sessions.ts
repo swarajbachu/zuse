@@ -17,6 +17,7 @@ import { cloudSummaryForChat } from "../lib/cloud-workspace-catalog.ts";
 import {
 	activeSessionsByProject,
 	overlayActiveEnvironmentShell,
+	overlayEnvironmentShell,
 } from "../lib/environment-entities.ts";
 import { formatError } from "../lib/format-error.ts";
 import { upsertLatestEntity } from "../lib/latest-entity.ts";
@@ -170,7 +171,10 @@ type SessionsState = {
 	readonly archive: (sessionId: SessionId) => Promise<void>;
 	readonly unarchive: (sessionId: SessionId) => Promise<void>;
 	readonly remove: (sessionId: SessionId) => Promise<void>;
-	readonly resume: (sessionId: SessionId) => Promise<boolean>;
+	readonly resume: (
+		sessionId: SessionId,
+		environmentId?: EnvironmentId,
+	) => Promise<boolean>;
 	readonly select: (sessionId: SessionId | null) => void;
 };
 
@@ -815,16 +819,26 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			set({ error: formatError(err) });
 		}
 	},
-	resume: async (sessionId) => {
+	resume: async (
+		sessionId,
+		environmentId = EnvironmentId.make(getActiveEnvironment()),
+	) => {
 		set({ error: null });
 		try {
 			const commandId = nextCommandId("session-resume");
 			const { result: session } = await dispatchTimelineCommand<
 				{ readonly sessionId: SessionId },
 				Session
-			>(sessionId, "session.resume", commandId, { sessionId }, "never");
+			>(
+				sessionId,
+				"session.resume",
+				commandId,
+				{ sessionId },
+				"never",
+				environmentId,
+			);
 			const projectId = session.projectId;
-			overlayActiveEnvironmentShell((shell) => ({
+			overlayEnvironmentShell(environmentId, (shell) => ({
 				...shell,
 				sessionsByProject: {
 					...shell.sessionsByProject,

@@ -44,7 +44,14 @@ const chat = (
 	}) as unknown as Chat;
 
 const session = (chatId: string, status: string): Session =>
-	({ id: `session-${chatId}`, chatId, status }) as unknown as Session;
+	({
+		id: `session-${chatId}`,
+		chatId,
+		status,
+		providerId: "claude",
+		model: "claude-sonnet-4-5",
+		updatedAt: new Date("2026-08-07T00:00:00Z"),
+	}) as unknown as Session;
 
 const entry = (
 	overrides: Partial<CatalogFixtureEntry> & {
@@ -237,6 +244,12 @@ describe("buildLogicalProjectGroups", () => {
 		);
 		expect(byId.get("remote-new")).toBe(true);
 		expect(byId.get("remote-old")).toBe(false);
+		expect(
+			groups[0]?.chats.find((ref) => ref.chat.id === "remote-new"),
+		).toMatchObject({
+			providerId: "claude",
+			model: "claude-sonnet-4-5",
+		});
 	});
 
 	it("reports local-only, remote-only, and mixed presence", () => {

@@ -88,6 +88,7 @@ export const makeSessionTimelineResourceDriver = <
 			active = true;
 			const ref = context.key.ref;
 			let state = restoreSessionTimelineState(context.data, context.cursor);
+			let catchingUp = true;
 			let eventsSinceCheckpoint = 0;
 			const clearCheckpoint = (): void => {
 				checkpointCancel?.();
@@ -139,6 +140,11 @@ export const makeSessionTimelineResourceDriver = <
 						const previous = state;
 						state = reduceSessionTimelineFrame(state, frame);
 						if (state === previous) return;
+						const silentCatchUp =
+							catchingUp &&
+							frame.kind !== "synchronized" &&
+							state.phase !== "stale";
+						if (frame.kind === "synchronized") catchingUp = false;
 						const dataChanged = !Object.is(
 							previous.projection,
 							state.projection,
@@ -157,7 +163,8 @@ export const makeSessionTimelineResourceDriver = <
 								: {}),
 							sync: syncPhase(state),
 							resetEpoch,
-							persist,
+							persist: silentCatchUp ? false : persist,
+							notify: !silentCatchUp,
 						});
 						if (!accepted) return;
 						if (state.phase === "stale") {
@@ -165,6 +172,7 @@ export const makeSessionTimelineResourceDriver = <
 								state.error ?? "Session timeline continuity check failed",
 							);
 						}
+						if (silentCatchUp) return;
 						if (frame.kind === "event") eventsSinceCheckpoint += 1;
 						if (persist) {
 							clearCheckpoint();

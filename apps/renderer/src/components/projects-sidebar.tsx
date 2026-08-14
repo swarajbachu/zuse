@@ -6,6 +6,7 @@ import {
 	EnvironmentId,
 	type FolderId,
 	type GitOriginInfo,
+	type ProviderId,
 	type SessionId,
 	type SessionStatus,
 } from "@zuse/contracts";
@@ -14,10 +15,11 @@ import {
 	ArchiveArrowDownIcon,
 	ArchiveArrowUpIcon,
 	ArchiveIcon,
-	CloudIcon,
 	Delete02Icon,
 	Edit01Icon,
+	Folder01Icon,
 	FolderAddIcon,
+	GitBranchIcon,
 	HelpCircleIcon,
 	Login03Icon,
 	Logout01Icon,
@@ -119,6 +121,7 @@ import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { openAddComputerDialog } from "./add-computer-dialog.tsx";
 import { BranchIcon, type BranchState } from "./branch-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
+import { ProviderIcon } from "./provider-icons.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { Spinner } from "./ui/spinner";
 
@@ -723,32 +726,80 @@ function CatalogConnectionNotice({
 function RemoteComputerIndicator({
 	label,
 	className,
+	tooltip = true,
 }: {
 	readonly label: string;
 	readonly className?: string;
+	readonly tooltip?: boolean;
 }) {
 	const context = `Runs on ${label}`;
+	const indicator = (
+		<span
+			className={cn("inline-flex shrink-0 text-muted-foreground/70", className)}
+		>
+			<HugeiconsIcon
+				icon={ServerStack01Icon}
+				aria-hidden
+				className="size-3.5"
+			/>
+			<span className="sr-only">{context}</span>
+		</span>
+	);
+	if (!tooltip) return indicator;
 	return (
 		<Tooltip>
-			<TooltipTrigger
-				render={
-					<span
-						className={cn(
-							"inline-flex shrink-0 text-muted-foreground/70",
-							className,
-						)}
-					>
-						<HugeiconsIcon
-							icon={ServerStack01Icon}
-							aria-hidden
-							className="size-3.5"
-						/>
-						<span className="sr-only">{context}</span>
-					</span>
-				}
-			/>
+			<TooltipTrigger render={indicator} />
 			<TooltipPopup>{context}</TooltipPopup>
 		</Tooltip>
+	);
+}
+
+function SidebarChatHoverCard({
+	title,
+	repository,
+	location,
+	branch,
+	providerId,
+	model,
+	status,
+}: {
+	readonly title: string;
+	readonly repository: string;
+	readonly location: string;
+	readonly branch?: string | null;
+	readonly providerId?: ProviderId | null;
+	readonly model?: string | null;
+	readonly status: string;
+}) {
+	return (
+		<div className="min-w-48 max-w-72 space-y-1 px-1 py-0.5 text-[12px]">
+			<div className="mb-1.5 truncate text-[13px] font-medium text-foreground">
+				{title || "New chat"}
+			</div>
+			<div className="flex items-center gap-2 text-muted-foreground">
+				<HugeiconsIcon icon={Folder01Icon} className="size-3.5" />
+				<span className="truncate">{repository}</span>
+			</div>
+			<div className="flex items-center gap-2 text-muted-foreground">
+				<HugeiconsIcon icon={ServerStack01Icon} className="size-3.5" />
+				<span className="truncate">{location}</span>
+			</div>
+			{branch ? (
+				<div className="flex items-center gap-2 text-muted-foreground">
+					<HugeiconsIcon icon={GitBranchIcon} className="size-3.5" />
+					<span className="truncate">{branch}</span>
+				</div>
+			) : null}
+			{providerId !== null && providerId !== undefined ? (
+				<div className="flex items-center gap-2 text-muted-foreground">
+					<ProviderIcon providerId={providerId} className="size-3.5" />
+					<span className="truncate">{model || providerId}</span>
+				</div>
+			) : null}
+			<div className="pt-0.5 text-[11px] text-muted-foreground/80">
+				{status}
+			</div>
+		</div>
 	);
 }
 
@@ -840,6 +891,7 @@ function LogicalCatalogGroup({
 							key={`${row.ref.environmentId}:${row.ref.chat.id}`}
 							chatRef={row.ref}
 							connected={row.connected}
+							repositoryName={group.displayName}
 						/>
 					))}
 				</ul>
@@ -858,9 +910,11 @@ function LogicalCatalogGroup({
 function CatalogChatRow({
 	chatRef,
 	connected,
+	repositoryName,
 }: {
 	chatRef: LogicalChatRef;
 	connected: boolean;
+	repositoryName: string;
 }) {
 	const { chat, environmentId, environmentLabel, remote, busy } = chatRef;
 	const isArchived = chat.archivedAt !== null;
@@ -870,56 +924,78 @@ function CatalogChatRow({
 	const prInfo = null;
 	return (
 		<li>
-			<button
-				type="button"
-				aria-disabled={!connected}
-				onClick={() => {
-					if (!connected) return;
-					void switchToEnvironment({
-						environmentId,
-						folderId: chat.projectId,
-						chatId: chat.id,
-					});
-				}}
-				title={chat.title}
-				className={cn(
-					"group flex min-h-6 w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12px] text-muted-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-					connected
-						? "cursor-pointer hover:bg-sidebar-accent/40"
-						: "cursor-default opacity-60",
-				)}
-			>
-				<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
-					{busy ? (
-						<>
-							<span
-								aria-hidden="true"
-								className="size-1.5 rounded-full bg-emerald-500"
-							/>
-							<span className="sr-only">Agent running</span>
-						</>
-					) : (
-						<BranchIcon
-							state={branchStateFor(prInfo, isArchived)}
-							selected={false}
-						/>
-					)}
-				</span>
-				<span className="min-w-0 flex-1 truncate">
-					{chat.title || "New chat"}
-				</span>
-				<div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
-					{remote ? (
-						<RemoteComputerIndicator
-							label={environmentLabel}
-							className="mr-1"
-						/>
-					) : null}
-					<span className="tabular-nums text-[10px] text-muted-foreground">
-						{formatRelative(chat.updatedAt)}
-					</span>
-				</div>
-			</button>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<button
+							type="button"
+							aria-disabled={!connected}
+							onClick={() => {
+								if (!connected) return;
+								void switchToEnvironment({
+									environmentId,
+									folderId: chat.projectId,
+									chatId: chat.id,
+								});
+							}}
+							className={cn(
+								"group flex min-h-6 w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12px] text-muted-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+								connected
+									? "cursor-pointer hover:bg-sidebar-accent/40"
+									: "cursor-default opacity-60",
+							)}
+						>
+							<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
+								{busy ? (
+									<>
+										<span
+											aria-hidden="true"
+											className="size-1.5 rounded-full bg-emerald-500"
+										/>
+										<span className="sr-only">Agent running</span>
+									</>
+								) : (
+									<BranchIcon
+										state={branchStateFor(prInfo, isArchived)}
+										selected={false}
+									/>
+								)}
+							</span>
+							<span className="min-w-0 flex-1 truncate">
+								{chat.title || "New chat"}
+							</span>
+							<div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
+								{remote ? (
+									<RemoteComputerIndicator
+										label={environmentLabel}
+										className="mr-1"
+										tooltip={false}
+									/>
+								) : null}
+								<span className="tabular-nums text-[10px] text-muted-foreground">
+									{formatRelative(chat.updatedAt)}
+								</span>
+							</div>
+						</button>
+					}
+				/>
+				<TooltipPopup side="right" align="start" sideOffset={8}>
+					<SidebarChatHoverCard
+						title={chat.title}
+						repository={repositoryName}
+						location={environmentLabel}
+						providerId={chatRef.providerId}
+						model={chatRef.model}
+						status={
+							!connected
+								? "Computer offline"
+								: busy
+									? "Agent active"
+									: "Inactive"
+						}
+					/>
+				</TooltipPopup>
+			</Tooltip>
 		</li>
 	);
 }
@@ -1214,6 +1290,7 @@ function ProjectGroup({
 								key={`${entry.row.ref.environmentId}:${entry.row.ref.chat.id}`}
 								chatRef={entry.row.ref}
 								connected={entry.row.connected}
+								repositoryName={displayName}
 							/>
 						) : (
 							<CloudChatRow
@@ -1258,6 +1335,14 @@ function CloudChatRow({
 	const archivePending =
 		summary.desiredState === "archived" && summary.state !== "failed";
 	const cloudWorkspaceLoading = presentation.busy;
+	const providerTone =
+		activity === "failed"
+			? "text-destructive"
+			: activity === "paused"
+				? "text-muted-foreground/45"
+				: activity === "idle"
+					? "text-emerald-500"
+					: "text-amber-400";
 	const selected = selectedChatId === summary.chatId;
 	const open = () => {
 		void openCloudChat(summary, projectId).catch((cause) =>
@@ -1283,66 +1368,83 @@ function CloudChatRow({
 	};
 	return (
 		<li>
-			{/* biome-ignore lint/a11y/useSemanticElements: the row contains a nested archive action. */}
-			<div
-				role="button"
-				tabIndex={0}
-				aria-label={`${summary.title}. ${label}`}
-				aria-busy={cloudWorkspaceLoading || undefined}
-				className={cn(
-					"group flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/40 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
-					selected && "bg-sidebar-accent text-sidebar-accent-foreground",
-				)}
-				onClick={open}
-				onKeyDown={(event) => {
-					if (event.key === "Enter" || event.key === " ") {
-						event.preventDefault();
-						open();
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						/* biome-ignore lint/a11y/useSemanticElements: the row contains a nested archive action. */
+						<div
+							role="button"
+							tabIndex={0}
+							aria-label={`${summary.title}. ${label}`}
+							aria-busy={cloudWorkspaceLoading || undefined}
+							className={cn(
+								"group flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/40 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
+								selected && "bg-sidebar-accent text-sidebar-accent-foreground",
+							)}
+							onClick={open}
+							onKeyDown={(event) => {
+								if (event.key === "Enter" || event.key === " ") {
+									event.preventDefault();
+									open();
+								}
+							}}
+						>
+							<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
+								<BranchIcon state="default" selected={selected} />
+							</span>
+							<span className="min-w-0 flex-1 truncate">{summary.title}</span>
+							<div className="flex h-4 w-16 shrink-0 items-center justify-end gap-1">
+								<button
+									type="button"
+									disabled={archiving || archivePending}
+									onClick={(event) => {
+										event.stopPropagation();
+										archiveChat();
+									}}
+									className="hidden rounded-md p-0.5 text-muted-foreground hover:text-sidebar-accent-foreground group-hover:flex group-focus-within:flex"
+									aria-label={`${summary.state === "failed" && summary.desiredState === "archived" ? "Retry archiving" : "Archive"} ${summary.title}`}
+									title={
+										summary.state === "failed" &&
+										summary.desiredState === "archived"
+											? "Retry archive"
+											: "Archive"
+									}
+								>
+									{archiving ? (
+										<Spinner className="size-3.5" />
+									) : (
+										<HugeiconsIcon
+											icon={ArchiveArrowDownIcon}
+											className="size-3.5"
+										/>
+									)}
+								</button>
+								<span
+									className={cn("inline-flex shrink-0", providerTone)}
+									role="img"
+									aria-label={label}
+								>
+									<ProviderIcon
+										providerId={summary.agent}
+										className="size-3.5"
+									/>
+								</span>
+							</div>
+						</div>
 					}
-				}}
-			>
-				<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
-					<BranchIcon state="default" selected={selected} />
-				</span>
-				<span className="min-w-0 flex-1 truncate">{summary.title}</span>
-				<div className="flex h-4 shrink-0 items-center justify-end gap-1">
-					<span className="text-[9px] text-muted-foreground/70 group-hover:hidden group-focus-within:hidden">
-						{label}
-					</span>
-					<button
-						type="button"
-						disabled={archiving || archivePending}
-						onClick={(event) => {
-							event.stopPropagation();
-							archiveChat();
-						}}
-						className="hidden rounded-md p-0.5 text-muted-foreground hover:text-sidebar-accent-foreground group-hover:flex group-focus-within:flex"
-						aria-label={`${summary.state === "failed" && summary.desiredState === "archived" ? "Retry archiving" : "Archive"} ${summary.title}`}
-						title={
-							summary.state === "failed" && summary.desiredState === "archived"
-								? "Retry archive"
-								: "Archive"
-						}
-					>
-						{archiving ? (
-							<Spinner className="size-3.5" />
-						) : (
-							<HugeiconsIcon icon={ArchiveArrowDownIcon} className="size-3.5" />
-						)}
-					</button>
-					{cloudWorkspaceLoading ? (
-						<Spinner className="size-3 shrink-0 motion-reduce:animate-none" />
-					) : null}
-					<HugeiconsIcon
-						icon={CloudIcon}
-						aria-hidden
-						className={cn(
-							"size-3 shrink-0",
-							summary.state === "paused" && "opacity-55",
-						)}
+				/>
+				<TooltipPopup side="right" align="start" sideOffset={8}>
+					<SidebarChatHoverCard
+						title={summary.title}
+						repository={summary.repositoryDisplayName}
+						location="Cloud workspace"
+						branch={summary.branch}
+						providerId={summary.agent}
+						model={summary.model}
+						status={label}
 					/>
-				</div>
-			</div>
+				</TooltipPopup>
+			</Tooltip>
 		</li>
 	);
 }
@@ -1694,7 +1796,11 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 							isUnread &&
 							"font-semibold text-sidebar-foreground hover:bg-sidebar-accent/40",
 					)}
-					title={chat.title}
+					title={
+						onRemoteEnvironment
+							? `${chat.title}\nRuns on ${environmentLabel}`
+							: chat.title
+					}
 				>
 					<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
 						{attentionState !== "idle" ? (
@@ -1712,6 +1818,7 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 							<RemoteComputerIndicator
 								label={environmentLabel}
 								className="mr-1"
+								tooltip={false}
 							/>
 						) : null}
 						<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
