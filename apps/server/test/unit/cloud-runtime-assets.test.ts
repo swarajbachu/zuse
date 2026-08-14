@@ -336,9 +336,7 @@ describe("cloud runtime assets", () => {
 			'"$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main"',
 		);
 		expect(workflow).toContain("publish_staging:");
-		expect(workflow).toContain(
-			"refs/heads/swarajbachu/e2b-integration-feasibility",
-		);
+		expect(workflow).toContain("refs/heads/swarajbachu/untitled-v1");
 		expect(workflow.match(/id: publication/gu)).toHaveLength(1);
 		expect(
 			workflow.match(/steps\.publication\.outputs\.enabled == 'true'/gu),

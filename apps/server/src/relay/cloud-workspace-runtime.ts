@@ -95,6 +95,37 @@ export const runtimeReadyPhaseOnGatewayOpen = (
 	repositoryReady: boolean,
 ): "repository-ready" | null => (repositoryReady ? "repository-ready" : null);
 
+const LOCAL_RPC_HANDOFF_MAX_FRAMES = 32;
+const LOCAL_RPC_HANDOFF_MAX_BYTES = 256 * 1024;
+
+export type WorkspaceLocalFrameQueue = {
+	readonly frames: Array<string | ArrayBuffer>;
+	bytes: number;
+};
+
+/**
+ * The gateway owns no replay buffer, but a newly announced client can send its
+ * RPC handshake before the runtime's localhost socket reaches OPEN. Keep only
+ * that short, bounded handoff window in the authoritative runtime process.
+ */
+export const bufferWorkspaceLocalFrame = (
+	queue: WorkspaceLocalFrameQueue,
+	payload: string | ArrayBuffer,
+): boolean => {
+	const bytes =
+		typeof payload === "string"
+			? new TextEncoder().encode(payload).byteLength
+			: payload.byteLength;
+	if (
+		queue.frames.length >= LOCAL_RPC_HANDOFF_MAX_FRAMES ||
+		queue.bytes + bytes > LOCAL_RPC_HANDOFF_MAX_BYTES
+	)
+		return false;
+	queue.frames.push(payload);
+	queue.bytes += bytes;
+	return true;
+};
+
 const BootstrapResponse = Schema.Struct({
 	workspaceId: Schema.String,
 	runtimeCredential: Schema.String,
@@ -697,6 +728,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						);
 
 					const localSockets = new Map<string, WebSocket>();
+					const pendingLocalFrames = new Map<
+						string,
+						WorkspaceLocalFrameQueue
+					>();
 					let gateway: WebSocket | null = null;
 					let repositoryReady = false;
 					const sendGateway = (message: unknown) => {
@@ -709,12 +744,24 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					};
 					const openLocal = (connectionId: string) => {
 						if (localSockets.has(connectionId)) return;
+						pendingLocalFrames.set(connectionId, { frames: [], bytes: 0 });
 						const url = new URL(`ws://127.0.0.1:${config.localPort}`);
 						url.searchParams.set("token", localCredential.token);
 						url.searchParams.set("wireVersion", String(WIRE_PROTOCOL_VERSION));
 						const socket = new WebSocket(url);
 						socket.binaryType = "arraybuffer";
 						localSockets.set(connectionId, socket);
+						socket.addEventListener(
+							"open",
+							() => {
+								if (localSockets.get(connectionId) !== socket) return;
+								const pending = pendingLocalFrames.get(connectionId);
+								pendingLocalFrames.delete(connectionId);
+								if (pending === undefined) return;
+								for (const payload of pending.frames) socket.send(payload);
+							},
+							{ once: true },
+						);
 						socket.addEventListener("message", (event) => {
 							publishActivity();
 							if (
@@ -744,6 +791,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							// not terminate its successor.
 							if (localSockets.get(connectionId) !== socket) return;
 							localSockets.delete(connectionId);
+							pendingLocalFrames.delete(connectionId);
 							// The gateway deliberately has no replay buffer. Closing the
 							// disposable client makes its one supervisor reconnect and
 							// resume every retained resource from a durable cursor.
@@ -777,13 +825,21 @@ export const makeCloudWorkspaceRuntimeLayer = (
 									if (frame?.direction !== "client") return;
 									publishActivity();
 									const local = localSockets.get(frame.connectionId);
-									// No frame buffer lives in either gateway. A client that wins
-									// the local-open race reconnects and resumes from its cursor.
+									const pending = pendingLocalFrames.get(frame.connectionId);
+									// No frame buffer lives in the gateway. The runtime holds only
+									// the bounded localhost-open handoff for this connection.
 									if (local?.readyState === WebSocket.OPEN) {
 										local.send(frame.payload);
+									} else if (
+										local?.readyState === WebSocket.CONNECTING &&
+										pending !== undefined &&
+										bufferWorkspaceLocalFrame(pending, frame.payload)
+									) {
+										// The localhost socket will flush this frame in order on OPEN.
 									} else {
 										local?.close(1013, "local runtime synchronizing");
 										localSockets.delete(frame.connectionId);
+										pendingLocalFrames.delete(frame.connectionId);
 										sendGateway({
 											type: "client.close",
 											connectionId: frame.connectionId,
@@ -809,6 +865,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								) {
 									localSockets.get(message.connectionId)?.close();
 									localSockets.delete(message.connectionId);
+									pendingLocalFrames.delete(message.connectionId);
 								}
 							});
 						},
@@ -819,6 +876,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								gateway = null;
 								for (const socket of localSockets.values()) socket.close();
 								localSockets.clear();
+								pendingLocalFrames.clear();
 							}),
 						),
 					);

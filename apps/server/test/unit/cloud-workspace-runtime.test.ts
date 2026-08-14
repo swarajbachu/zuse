@@ -3,6 +3,7 @@ import { TestClock } from "effect/testing";
 import { generateKeyPair, jwtVerify } from "jose";
 import { describe, expect, it, vi } from "vitest";
 import {
+	bufferWorkspaceLocalFrame,
 	makeCloudRuntimeSummaryPublisher,
 	retryCloudWorkspaceBootstrap,
 	runtimeCredentialRenewalDelayMs,
@@ -97,6 +98,20 @@ describe("cloud workspace bootstrap", () => {
 	it("announces readiness when a preserved runtime reconnects", () => {
 		expect(runtimeReadyPhaseOnGatewayOpen(false)).toBeNull();
 		expect(runtimeReadyPhaseOnGatewayOpen(true)).toBe("repository-ready");
+	});
+
+	it("buffers the localhost RPC handshake only within a bounded handoff", () => {
+		const queue = { frames: [] as Array<string | ArrayBuffer>, bytes: 0 };
+		expect(bufferWorkspaceLocalFrame(queue, "handshake")).toBe(true);
+		expect(
+			bufferWorkspaceLocalFrame(queue, new Uint8Array([1, 2]).buffer),
+		).toBe(true);
+		expect(queue.frames).toEqual(["handshake", new Uint8Array([1, 2]).buffer]);
+		expect(queue.bytes).toBe(11);
+		expect(bufferWorkspaceLocalFrame(queue, new ArrayBuffer(256 * 1024))).toBe(
+			false,
+		);
+		expect(queue.frames).toHaveLength(2);
 	});
 
 	it("renews a runtime credential at half-life", () => {
