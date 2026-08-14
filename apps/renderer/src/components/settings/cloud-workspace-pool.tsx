@@ -9,6 +9,7 @@ import {
 	type LocalAccountDescriptor,
 } from "@zuse/contracts";
 import {
+	Check,
 	ChevronDown,
 	Cloud,
 	GitBranch,
@@ -16,7 +17,7 @@ import {
 	RefreshCw,
 	X,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../hooks/use-auth.ts";
 import { cloudWorkspaceAccessPresentation } from "../../lib/cloud-workspace-access.ts";
 import { runControlPlane } from "../../lib/control-plane-client.ts";
@@ -25,13 +26,9 @@ import { openExternal } from "../../lib/platform-capabilities.ts";
 import { getLocalEnvironmentId } from "../../lib/rpc-client.ts";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
-import {
-	Select,
-	SelectItem,
-	SelectPopup,
-	SelectTrigger,
-} from "../ui/select.tsx";
-import { CloudSettingsRow } from "./cloud-settings-ui.tsx";
+import { Input } from "../ui/input.tsx";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover.tsx";
+import { CloudSettingsGroup, CloudSettingsRow } from "./cloud-settings-ui.tsx";
 
 const stateVariant = (
 	state: CloudWorkspace["state"],
@@ -66,7 +63,6 @@ function CredentialRow({
 	const connected = credential?.state === "connected";
 	return (
 		<CloudSettingsRow
-			className="px-0"
 			title={label}
 			description={
 				connected
@@ -122,34 +118,6 @@ function CredentialRow({
 		</CloudSettingsRow>
 	);
 }
-
-function SetupSection({
-	title,
-	description,
-	action,
-	children,
-}: {
-	readonly title: string;
-	readonly description: string;
-	readonly action?: ReactNode;
-	readonly children: ReactNode;
-}) {
-	return (
-		<section className="border-border border-t py-5 first:border-t-0 first:pt-1">
-			<div className="flex items-start gap-4">
-				<div className="min-w-0 flex-1">
-					<h3 className="text-sm font-medium">{title}</h3>
-					<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-						{description}
-					</p>
-				</div>
-				{action}
-			</div>
-			<div className="mt-3">{children}</div>
-		</section>
-	);
-}
-
 export function CloudWorkspacePool() {
 	const { isLoading: authLoading, isSignedIn, signIn, signingIn } = useAuth();
 	const [entitlementSubscribed, setEntitlementSubscribed] = useState(false);
@@ -173,6 +141,7 @@ export function CloudWorkspacePool() {
 	const [githubAuthenticated, setGithubAuthenticated] = useState(false);
 	const [reposLoading, setReposLoading] = useState(false);
 	const [selectedRepos, setSelectedRepos] = useState<ReadonlyArray<string>>([]);
+	const [repoSearch, setRepoSearch] = useState("");
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [projectError, setProjectError] = useState<string | null>(null);
@@ -400,7 +369,7 @@ export function CloudWorkspacePool() {
 	if (authLoading) return null;
 	if (!isSignedIn) {
 		return (
-			<SetupSection
+			<CloudSettingsGroup
 				title="Cloud Workspace · Beta"
 				description="Your saved chats remain available on this device. Sign in again to access cloud compute and billing."
 				action={
@@ -409,10 +378,11 @@ export function CloudWorkspacePool() {
 					</Button>
 				}
 			>
-				<p className="text-[11px] text-muted-foreground">
-					Your account session expired. You do not need to sign out first.
-				</p>
-			</SetupSection>
+				<CloudSettingsRow
+					title="Sign in to continue"
+					description="Your account session expired. You do not need to sign out first."
+				/>
+			</CloudSettingsGroup>
 		);
 	}
 	const credentialFor = (kind: "github" | "claude" | "codex") =>
@@ -426,6 +396,15 @@ export function CloudWorkspacePool() {
 	const availableRepos = githubRepos.filter(
 		(repo) => !connectedIdentities.has(repo.nameWithOwner.toLowerCase()),
 	);
+	const normalizedRepoSearch = repoSearch.trim().toLowerCase();
+	const filteredRepos =
+		normalizedRepoSearch.length === 0
+			? availableRepos
+			: availableRepos.filter(
+					(repo) =>
+						repo.nameWithOwner.toLowerCase().includes(normalizedRepoSearch) ||
+						repo.description?.toLowerCase().includes(normalizedRepoSearch),
+				);
 	const unfinishedProjects = projects.filter(
 		(project) => project.state !== "ready",
 	);
@@ -440,7 +419,7 @@ export function CloudWorkspacePool() {
 					{error}
 				</div>
 			)}
-			<SetupSection
+			<CloudSettingsGroup
 				title="Cloud access"
 				description="Cloud workspaces keep agents running when this app or your laptop is offline."
 				action={
@@ -459,15 +438,19 @@ export function CloudWorkspacePool() {
 					)
 				}
 			>
-				<p className="flex items-center gap-2 text-[11px] text-muted-foreground">
-					<Cloud className="size-3.5" aria-hidden />
-					Each chat gets an isolated workspace. Compute pauses when it is not
-					needed.
-				</p>
-			</SetupSection>
+				<CloudSettingsRow
+					title={
+						subscribed ? "Cloud workspace is ready" : "Enable Cloud Workspace"
+					}
+					description="Each chat gets an isolated workspace. Compute pauses when it is not needed."
+					action={
+						<Cloud className="size-4 text-muted-foreground" aria-hidden />
+					}
+				/>
+			</CloudSettingsGroup>
 
 			{subscribed && serviceAvailable ? (
-				<SetupSection
+				<CloudSettingsGroup
 					title="Connect GitHub"
 					description="Use your existing GitHub CLI login; no repository URLs or access tokens to paste."
 				>
@@ -483,57 +466,96 @@ export function CloudWorkspacePool() {
 						onConnect={connectCredential}
 						onDisconnect={disconnectCredential}
 					/>
-				</SetupSection>
+				</CloudSettingsGroup>
 			) : null}
 
 			{subscribed && serviceAvailable ? (
-				<SetupSection
+				<CloudSettingsGroup
 					title="Repositories"
 					description="Choose repositories from GitHub, then build the cloud images used to start new workspaces."
 				>
-					<div className="space-y-2.5">
+					<div className="space-y-2.5 px-3 py-2.5">
 						<p className="text-[11px] text-muted-foreground">
 							{githubAuthenticated
-								? "Select one or more repositories. Existing agents keep running while new images build."
+								? "Select repositories, then build their cloud images."
 								: "Run gh auth login on this Mac, then refresh."}
 						</p>
-						<div className="flex items-center gap-2">
-							<Select
-								value=""
-								disabled={!githubConnected || !githubAuthenticated}
-								onValueChange={(value) => {
-									if (value !== null && !selectedRepos.includes(value))
-										setSelectedRepos((current) => [...current, value]);
-								}}
-							>
-								<SelectTrigger className="min-h-8 flex-1 border-border">
-									<span>
+						<div className="flex items-center gap-1.5">
+							<Popover>
+								<PopoverTrigger
+									disabled={!githubConnected || !githubAuthenticated}
+									className="flex h-7 w-64 max-w-full items-center justify-between rounded-md border border-input bg-background px-2.5 text-xs text-foreground outline-none hover:bg-muted disabled:opacity-50"
+								>
+									<span className="truncate">
 										{reposLoading
 											? "Loading repositories…"
 											: selectedRepos.length === 0
 												? "Select repositories"
 												: `${selectedRepos.length} selected`}
 									</span>
-								</SelectTrigger>
-								<SelectPopup>
-									{availableRepos.map((repo) => (
-										<SelectItem
-											key={repo.nameWithOwner}
-											value={repo.nameWithOwner}
-										>
-											<GitBranch aria-hidden />
-											<span className="flex min-w-0 items-center gap-2">
-												<span className="truncate">{repo.nameWithOwner}</span>
-												{repo.isPrivate ? (
-													<Lock className="ml-auto" aria-label="Private" />
-												) : null}
-											</span>
-										</SelectItem>
-									))}
-								</SelectPopup>
-							</Select>
+									<ChevronDown className="size-3.5 text-muted-foreground" />
+								</PopoverTrigger>
+								<PopoverPopup
+									align="start"
+									className="w-80 [&_[data-slot=popover-viewport]]:p-1"
+								>
+									<Input
+										size="sm"
+										type="search"
+										value={repoSearch}
+										onChange={(event) =>
+											setRepoSearch(event.currentTarget.value)
+										}
+										placeholder="Search repositories"
+										autoFocus
+									/>
+									<div className="mt-1 max-h-48 overflow-y-auto">
+										{filteredRepos.length === 0 ? (
+											<p className="px-2 py-4 text-center text-[11px] text-muted-foreground">
+												No repositories found.
+											</p>
+										) : (
+											filteredRepos.map((repo) => {
+												const selected = selectedRepos.includes(
+													repo.nameWithOwner,
+												);
+												return (
+													<button
+														key={repo.nameWithOwner}
+														type="button"
+														className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-xs hover:bg-muted"
+														onClick={() =>
+															setSelectedRepos((current) =>
+																selected
+																	? current.filter(
+																			(name) => name !== repo.nameWithOwner,
+																		)
+																	: [...current, repo.nameWithOwner],
+															)
+														}
+													>
+														<GitBranch className="size-3.5 shrink-0" />
+														<span className="min-w-0 flex-1 truncate">
+															{repo.nameWithOwner}
+														</span>
+														{repo.isPrivate ? (
+															<Lock
+																className="size-3 text-muted-foreground"
+																aria-label="Private"
+															/>
+														) : null}
+														{selected ? (
+															<Check className="size-3.5 text-success" />
+														) : null}
+													</button>
+												);
+											})
+										)}
+									</div>
+								</PopoverPopup>
+							</Popover>
 							<Button
-								size="icon-lg"
+								size="icon"
 								variant="ghost"
 								aria-label="Refresh GitHub repositories"
 								loading={reposLoading}
@@ -545,7 +567,7 @@ export function CloudWorkspacePool() {
 						{selectedRepos.length === 0 ? null : (
 							<div className="flex flex-wrap gap-1.5">
 								{selectedRepos.map((name) => (
-									<Badge key={name} variant="secondary" size="lg">
+									<Badge key={name} variant="secondary">
 										<GitBranch aria-hidden />
 										{name}
 										<button
@@ -583,7 +605,7 @@ export function CloudWorkspacePool() {
 						{projects.length === 0 ? null : (
 							<div className="flex flex-wrap gap-1.5 pt-1">
 								{projects.map((project) => (
-									<Badge key={project.projectId} variant="secondary" size="lg">
+									<Badge key={project.projectId} variant="secondary">
 										<GitBranch aria-hidden />
 										{project.displayName}
 									</Badge>
@@ -641,17 +663,17 @@ export function CloudWorkspacePool() {
 								</div>
 							</div>
 						)}
+						{projectError === null ? null : (
+							<p role="alert" className="mt-2 text-xs text-destructive">
+								{projectError}
+							</p>
+						)}
 					</div>
-					{projectError === null ? null : (
-						<p role="alert" className="mt-2 text-xs text-destructive">
-							{projectError}
-						</p>
-					)}
-				</SetupSection>
+				</CloudSettingsGroup>
 			) : null}
 
 			{subscribed && serviceAvailable ? (
-				<SetupSection
+				<CloudSettingsGroup
 					title="Agents"
 					description="Prepare the provider locally, then transfer only its credential to cloud workspaces."
 				>
@@ -679,7 +701,7 @@ export function CloudWorkspacePool() {
 						onConnect={connectCredential}
 						onDisconnect={disconnectCredential}
 					/>
-				</SetupSection>
+				</CloudSettingsGroup>
 			) : null}
 
 			{subscribed && serviceAvailable && workspaces.length > 0 ? (
