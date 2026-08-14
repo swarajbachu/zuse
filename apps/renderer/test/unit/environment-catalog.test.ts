@@ -1,7 +1,9 @@
 import { scopedCacheKey } from "@zuse/client-runtime/environment-scope";
 import {
+	AgentSessionId,
 	Chat,
 	ChatId,
+	CloudChatSummary,
 	Folder,
 	FolderId,
 	ProviderId,
@@ -31,9 +33,14 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 	};
 });
 
+import {
+	registerCloudChat,
+	useCloudChatCatalogStore,
+} from "../../src/lib/cloud-workspace-catalog.ts";
 import { createInitializationGate } from "../../src/lib/initialization-gate.ts";
 import { getRendererClientBus } from "../../src/lib/session-timeline-client-bus.ts";
 import { terminalRuntimeKey } from "../../src/lib/terminal-registry.ts";
+import { useChatsStore } from "../../src/store/chats.ts";
 import {
 	cloudConnectionFailure,
 	createConnectionAttemptCoordinator,
@@ -176,6 +183,75 @@ describe("environment catalog", () => {
 		expect(useSessionsStore.getState().selectedSessionId).toBe(
 			optimisticSessionId,
 		);
+	});
+
+	it("keeps a selected cloud chat open while its runtime shell is resuming", () => {
+		const folderId = FolderId.make("cloud-project-selection");
+		const chatId = ChatId.make("cloud-chat-selection");
+		const sessionId = AgentSessionId.make("cloud-session-selection");
+		const now = new Date("2026-08-14T00:00:00.000Z");
+		registerCloudChat(
+			CloudChatSummary.make({
+				workspaceId: "workspace-resuming",
+				projectId: "relay-project",
+				repositoryIdentity: "github.com/zuse/repository",
+				repositoryDisplayName: "repository",
+				chatId,
+				initialSessionId: sessionId,
+				title: "Cloud chat",
+				branch: "zuse/cloud",
+				providerId: "e2b",
+				agent: "codex",
+				model: "gpt-5.6",
+				state: "resuming",
+				desiredState: "ready",
+				runtimeState: "connecting",
+				statusCode: "resume-runtime-waking",
+				startupPhase: "running",
+				revision: 2,
+				summaryRevision: 1,
+				sessionHeadVersion: 4,
+				unread: false,
+				lastMessageAt: now.getTime(),
+				createdAt: now.getTime(),
+				updatedAt: now.getTime(),
+			}),
+			folderId,
+		);
+		useWorkspaceStore.setState({
+			folders: [
+				Folder.make({
+					id: folderId,
+					name: "Cloud project",
+					path: "/project",
+					addedAt: now,
+				}),
+			],
+			selectedFolderId: folderId,
+		});
+		useChatsStore.setState({
+			selectedChatId: chatId,
+			selectedChatByProject: { [folderId]: chatId },
+		});
+		useSessionsStore.setState({
+			selectedSessionId: sessionId,
+			selectedSessionByProject: { [folderId]: sessionId },
+		});
+
+		projectEnvironmentShell({
+			folders: useWorkspaceStore.getState().folders,
+			originsByFolder: {},
+			chatsByProject: {},
+			sessionsByProject: {},
+			creationOperationsByProject: {},
+		});
+
+		expect(useChatsStore.getState().selectedChatId).toBe(chatId);
+		expect(useSessionsStore.getState().selectedSessionId).toBe(sessionId);
+		useCloudChatCatalogStore.setState({
+			summaries: [],
+			localProjectByEnvironment: {},
+		});
 	});
 
 	it("shares initialization and retries only after a failed attempt", async () => {

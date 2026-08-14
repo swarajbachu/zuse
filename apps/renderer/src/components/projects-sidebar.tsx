@@ -1340,7 +1340,10 @@ function CloudChatRow({
 			? "text-destructive"
 			: activity === "paused"
 				? "text-muted-foreground/45"
-				: activity === "idle"
+				: activity === "idle" ||
+						activity === "running" ||
+						activity === "starting-agent" ||
+						activity === "stopping"
 					? "text-emerald-500"
 					: "text-amber-400";
 	const selected = selectedChatId === summary.chatId;

@@ -17,6 +17,10 @@ import {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import {
+	cloudSummaryForChat,
+	localProjectForCloudChat,
+} from "../lib/cloud-workspace-catalog.ts";
+import {
 	type EnvironmentShellData,
 	environmentShellSnapshot,
 	normalizeEnvironmentShellData,
@@ -216,16 +220,26 @@ export const projectEnvironmentShell = (
 	const selectedChatId = (() => {
 		if (selectedFolderId === null) return null;
 		const chats = chatsByProject[selectedFolderId] ?? [];
+		const isRetainedCloudChat = (chatId: ChatId): boolean => {
+			const summary = cloudSummaryForChat(chatId);
+			return (
+				summary !== null &&
+				summary.archivedAt === undefined &&
+				localProjectForCloudChat(chatId) === selectedFolderId
+			);
+		};
 		if (
 			options.chatId !== undefined &&
-			chats.some((chat) => chat.id === options.chatId)
+			(chats.some((chat) => chat.id === options.chatId) ||
+				isRetainedCloudChat(options.chatId))
 		) {
 			return options.chatId;
 		}
 		if (
 			options.resetOptimisticState !== true &&
 			previousChats.selectedChatId !== null &&
-			chats.some((chat) => chat.id === previousChats.selectedChatId)
+			(chats.some((chat) => chat.id === previousChats.selectedChatId) ||
+				isRetainedCloudChat(previousChats.selectedChatId))
 		) {
 			return previousChats.selectedChatId;
 		}
@@ -237,9 +251,20 @@ export const projectEnvironmentShell = (
 			: (chatsByProject[selectedFolderId]?.find(
 					(chat) => chat.id === selectedChatId,
 				) ?? null);
+	const selectedCloudSummary =
+		selectedChatId === null ? null : cloudSummaryForChat(selectedChatId);
 	const previousSessions = useSessionsStore.getState();
 	const selectedSessionId = (() => {
-		if (selectedFolderId === null || selectedChat === null) return null;
+		if (selectedFolderId === null) return null;
+		if (
+			selectedChat === null &&
+			selectedCloudSummary !== null &&
+			selectedCloudSummary.archivedAt === undefined &&
+			localProjectForCloudChat(selectedCloudSummary.chatId) === selectedFolderId
+		) {
+			return selectedCloudSummary.initialSessionId;
+		}
+		if (selectedChat === null) return null;
 		const sessions = sessionsByProject[selectedFolderId] ?? [];
 		const previousSelection = previousSessions.selectedSessionId;
 		if (
