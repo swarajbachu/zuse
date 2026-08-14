@@ -94,6 +94,7 @@ export class GithubRepoSummary extends Schema.Class<GithubRepoSummary>(
 	sshUrl: Schema.String,
 	httpsUrl: Schema.String,
 	isPrivate: Schema.Boolean,
+	defaultBranch: Schema.String,
 	updatedAt: Schema.DateFromString,
 }) {}
 

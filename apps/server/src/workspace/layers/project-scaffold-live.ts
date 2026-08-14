@@ -428,7 +428,7 @@ export const ProjectScaffoldLive = Layer.effect(
 						"repo",
 						"list",
 						"--json",
-						"nameWithOwner,description,sshUrl,url,isPrivate,updatedAt",
+						"nameWithOwner,description,sshUrl,url,isPrivate,defaultBranchRef,updatedAt",
 						"--limit",
 						String(safeLimit),
 					],
@@ -456,10 +456,15 @@ export const ProjectScaffoldLive = Layer.effect(
 						typeof r.sshUrl !== "string" ||
 						typeof r.url !== "string" ||
 						typeof r.isPrivate !== "boolean" ||
+						r.defaultBranchRef === null ||
+						typeof r.defaultBranchRef !== "object" ||
 						typeof r.updatedAt !== "string"
 					) {
 						continue;
 					}
+					const defaultBranch = (r.defaultBranchRef as Record<string, unknown>)
+						.name;
+					if (typeof defaultBranch !== "string") continue;
 					out.push(
 						GithubRepoSummary.make({
 							nameWithOwner: r.nameWithOwner,
@@ -470,6 +475,7 @@ export const ProjectScaffoldLive = Layer.effect(
 							sshUrl: r.sshUrl,
 							httpsUrl: r.url,
 							isPrivate: r.isPrivate,
+							defaultBranch,
 							updatedAt: new Date(r.updatedAt),
 						}),
 					);

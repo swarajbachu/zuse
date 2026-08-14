@@ -51,11 +51,11 @@ import {
 	playCompletionSound,
 	prepareCompletionSound,
 } from "../lib/completion-sounds.ts";
-import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
+import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import { useSettingsStore } from "../lib/settings-client-bus.ts";
-import { useProvidersStore } from "../store/providers.ts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
+import { useProvidersStore } from "../store/providers.ts";
 import { type SettingsSection, useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { BlurredEmail } from "./blurred-email.tsx";
@@ -135,7 +135,7 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
 	},
 	{
 		id: "machines",
-		label: "Cloud Sandbox · Beta",
+		label: "Cloud workspaces · Beta",
 		Icon: ConnectIcon,
 		section: { kind: "machines" },
 	},
@@ -391,9 +391,9 @@ function SectionTitle({
 		}
 		if (section.kind === "machines") {
 			return {
-				title: "Cloud Sandbox · Beta",
+				title: "Cloud workspaces · Beta",
 				subtitle:
-					"Connect repositories and run isolated cloud workspaces while this desktop beta is enabled.",
+					"Connect GitHub and your coding agents, then keep work running when this app is closed.",
 			};
 		}
 		if (section.kind === "browser") {
@@ -688,7 +688,7 @@ function BrowserTestLoginsPane() {
 
 	const load = async () => {
 		const { result: list } = await dispatchEnvironmentShellCommand<
-			{},
+			Record<string, never>,
 			ReadonlyArray<BrowserCredRow>
 		>({
 			environmentId,

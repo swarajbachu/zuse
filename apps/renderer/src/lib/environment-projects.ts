@@ -110,6 +110,7 @@ export const createEnvironmentProject = async (
 
 export const listEnvironmentGithubRepos = (
 	environmentId: string,
+	limit = 30,
 ): Promise<{
 	readonly repos: ReadonlyArray<GithubRepoSummary>;
 	readonly authenticated: boolean;
@@ -118,7 +119,7 @@ export const listEnvironmentGithubRepos = (
 		run<{ readonly limit: number }, ReadonlyArray<GithubRepoSummary>>(
 			environmentId,
 			"workspace.listGithubRepos",
-			{ limit: 30 },
+			{ limit },
 		),
 		run<Record<string, never>, { readonly authenticated: boolean }>(
 			environmentId,
