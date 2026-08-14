@@ -885,12 +885,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					);
 
 					yield* waitForRepository;
-					repositoryReady = true;
-					yield* postReady(
-						config,
-						runtimeCredential.credential,
-						"repository-ready",
-					).pipe(Effect.retry(cloudRuntimeRetrySchedule));
 					const launchIntent = bootstrap.launchIntent;
 					if (launchIntent !== undefined) {
 						const started = yield* startCloudWorkspaceLaunchIntent({
@@ -924,7 +918,20 @@ export const makeCloudWorkspaceRuntimeLayer = (
 									),
 								),
 						).pipe(Effect.retry(cloudRuntimeRetrySchedule));
+					} else {
+						// A resumed workspace already has its durable chat/session. A newly
+						// launched workspace does not become attachable until the launch
+						// intent above has created them and Relay has atomically recorded its
+						// receipt. Advertising repository-ready before that point lets the
+						// client timeline race the session transaction and reconnect-loop on
+						// SessionNotFoundError.
+						yield* postReady(
+							config,
+							runtimeCredential.credential,
+							"repository-ready",
+						).pipe(Effect.retry(cloudRuntimeRetrySchedule));
 					}
+					repositoryReady = true;
 					yield* summaryPublisher
 						.publish("initial")
 						.pipe(Effect.retry(cloudRuntimeRetrySchedule));

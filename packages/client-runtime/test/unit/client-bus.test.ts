@@ -1037,4 +1037,38 @@ describe("ClientBus", () => {
 		);
 		await bus.dispose();
 	});
+
+	it("preserves tagged command failures whose Error message is empty", async () => {
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			commandExecutor: {
+				execute: async () => {
+					const failure = new Error("") as Error & {
+						readonly _tag: string;
+						readonly sessionId: string;
+					};
+					Object.assign(failure, {
+						_tag: "SessionNotFoundError",
+						sessionId: "session-1",
+					});
+					throw failure;
+				},
+			},
+		});
+		await expect(
+			bus.dispatch({
+				kind: "test.mutate",
+				commandId: CommandId.make("tagged-failure"),
+				environmentId,
+				resource: timelineKey,
+				payload: {},
+				retry: "never",
+				createdAt: Date.now(),
+			}),
+		).rejects.toMatchObject({ _tag: "SessionNotFoundError" });
+		expect(bus.snapshot(timelineKey).failedCommands.at(-1)?.error).toBe(
+			"SessionNotFoundError",
+		);
+		await bus.dispose();
+	});
 });

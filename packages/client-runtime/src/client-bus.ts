@@ -154,8 +154,29 @@ const strongestActivation = (
 const requestsNetwork = (entry: ResourceEntry): boolean =>
 	strongestActivation(entry.activations.values()) !== "cache-only";
 
-const messageOf = (cause: unknown): string =>
-	cause instanceof Error ? cause.message : String(cause);
+const messageOf = (cause: unknown): string => {
+	if (cause instanceof Error && cause.message.trim().length > 0) {
+		return cause.message;
+	}
+	if (typeof cause === "object" && cause !== null) {
+		const record = cause as Readonly<Record<string, unknown>>;
+		const tag = typeof record._tag === "string" ? record._tag : null;
+		const reason = typeof record.reason === "string" ? record.reason : null;
+		if (tag !== null) {
+			return reason !== null && reason.trim().length > 0
+				? `${tag}: ${reason}`
+				: tag;
+		}
+		try {
+			const encoded = JSON.stringify(cause);
+			if (encoded !== undefined && encoded !== "{}") return encoded;
+		} catch {
+			// Fall through to the generic representation below.
+		}
+	}
+	const fallback = String(cause);
+	return fallback.trim().length > 0 ? fallback : "Unknown command failure";
+};
 
 const cursorEquals = (
 	left: ResourceCursor | null,
