@@ -4,6 +4,31 @@ const FRAME_HEADER_BYTES = 9;
 const MAX_CONNECTION_ID_BYTES = 512;
 export const MAX_WORKSPACE_GATEWAY_PAYLOAD_BYTES = 8 * 1_024 * 1_024;
 
+export const WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE = {
+	code: 4100,
+	reason: "workspace runtime unavailable",
+} as const;
+
+export const WORKSPACE_GATEWAY_STALE_GENERATION_CLOSE = {
+	code: 4101,
+	reason: "workspace generation changed",
+} as const;
+
+export const WORKSPACE_GATEWAY_AUTH_EXPIRED_CLOSE = {
+	code: 4102,
+	reason: "workspace authorization expired",
+} as const;
+
+export const WORKSPACE_GATEWAY_UPDATE_REQUIRED_CLOSE = {
+	code: 4103,
+	reason: "client update required",
+} as const;
+
+export const WORKSPACE_GATEWAY_BACKPRESSURE_CLOSE = {
+	code: 4104,
+	reason: "workspace gateway backpressure",
+} as const;
+
 export type WorkspaceGatewayFrameDirection = "client" | "runtime";
 
 export type WorkspaceGatewayFrame = Readonly<{

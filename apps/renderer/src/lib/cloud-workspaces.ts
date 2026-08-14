@@ -18,6 +18,8 @@ import {
 import { overlayActiveEnvironmentShell } from "../lib/environment-entities.ts";
 import { formatError } from "../lib/format-error.ts";
 import {
+	clearCloudWorkspaceRuntimeRecovery,
+	cloudWorkspaceRequiresRuntimeRecovery,
 	getControlPlaneRpcClient,
 	registerCloudWorkspace,
 } from "../lib/rpc-client.ts";
@@ -277,12 +279,19 @@ export const ensureCloudWorkspaceAttached = (
 		let workspace = await Effect.runPromise(
 			control["cloud.workspaces.get"]({ workspaceId: summary.workspaceId }),
 		);
-		if (workspaceNeedsWake(workspace)) {
+		const recoverRuntime = cloudWorkspaceRequiresRuntimeRecovery(
+			summary.workspaceId,
+		);
+		if (workspaceNeedsWake(workspace) || recoverRuntime) {
 			workspace = await Effect.runPromise(
 				control["cloud.workspaces.resume"]({
 					workspaceId: summary.workspaceId,
+					recoverRuntime: recoverRuntime || undefined,
 				}),
 			);
+			if (recoverRuntime) {
+				clearCloudWorkspaceRuntimeRecovery(summary.workspaceId);
+			}
 		}
 		updateSummary(refreshSummaryFromWorkspace(summary, workspace));
 		if (!isCloudWorkspaceReady(workspace)) {

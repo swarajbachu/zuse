@@ -4,6 +4,7 @@ import {
 	CloudProjectConnectRequest,
 	CloudProjectPrepareRequest,
 	CloudWorkspaceCreateRequest,
+	CloudWorkspaceResumeRequest,
 	CloudWorkspaceRuntimeSummary,
 	CloudWorkspaceStartupTimings,
 	RelayPaths,
@@ -338,6 +339,16 @@ export const cloudWorkspaceResumeIsAlreadyRequested = (
 	workspace: Pick<CloudWorkspaceRecord, "desiredState" | "state">,
 ): boolean =>
 	workspace.desiredState === "ready" && workspace.state !== "failed";
+
+export const runtimeUnavailableResumeTarget = (
+	workspace: Pick<CloudWorkspaceRecord, "providerSandboxId">,
+) =>
+	workspace.providerSandboxId === undefined
+		? ({ state: "queued", providerSandboxId: undefined } as const)
+		: ({
+				state: "resuming",
+				providerSandboxId: workspace.providerSandboxId,
+			} as const);
 
 const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 	workspaceId: workspace.workspaceId,
@@ -1580,11 +1591,17 @@ export const routeCloudWorkspaceRequest = (
 				| "archive"
 				| "unarchive"
 				| "delete";
+			const recoverRuntime =
+				action === "resume"
+					? (yield* decodeBody(CloudWorkspaceResumeRequest, request))
+							.recoverRuntime === true
+					: false;
 			// Sending while a workspace is waking can issue resume more than once.
 			// Treat those requests as one operation: rewriting the workspace here can
 			// release the reconciler lease and replace its freshly staged boot token.
 			if (
 				action === "resume" &&
+				!recoverRuntime &&
 				cloudWorkspaceResumeIsAlreadyRequested(workspace)
 			) {
 				const response = json(publicWorkspace(workspace));
@@ -1612,13 +1629,28 @@ export const routeCloudWorkspaceRequest = (
 			} = workspace.requestConfig;
 			const updated: CloudWorkspaceRecord = {
 				...workspace,
+				...(action === "resume" && recoverRuntime
+					? {
+							...runtimeUnavailableResumeTarget(workspace),
+							runtimeState: "offline" as const,
+							requestConfig: {
+								...workspace.requestConfig,
+								startupTimings: {
+									requestedAt: nowMs,
+									resumeRequestedAt: nowMs,
+								},
+							},
+						}
+					: {}),
 				...(action === "unarchive"
 					? { state: "paused" as const, runtimeState: "offline" as const }
 					: {}),
 				...(action === "archive"
 					? { requestConfig: requestConfigWithoutArchiveFailure }
 					: {}),
-				...(action === "resume" && workspace.state === "failed"
+				...(action === "resume" &&
+				!recoverRuntime &&
+				workspace.state === "failed"
 					? {
 							...failedWorkspaceResumeTarget(workspace),
 							runtimeState: "offline" as const,
@@ -1629,7 +1661,9 @@ export const routeCloudWorkspaceRequest = (
 						}
 					: {}),
 				desiredState,
-				statusCode: `${action}-queued`,
+				statusCode: recoverRuntime
+					? "resume-runtime-recovery-queued"
+					: `${action}-queued`,
 				nextActionAtMs: nowMs,
 				revision: workspace.revision + 1,
 				updatedAtMs: nowMs,

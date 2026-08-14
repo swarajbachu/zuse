@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
 	cloudWorkspaceResumeIsAlreadyRequested,
 	failedWorkspaceResumeTarget,
+	runtimeUnavailableResumeTarget,
 } from "../../src/cloud-workspace-routes.ts";
 
 describe("failed cloud workspace resume policy", () => {
@@ -41,6 +42,20 @@ describe("failed cloud workspace resume policy", () => {
 				statusCode: "runtime-connection-timeout",
 			}),
 		).toEqual({ state: "resuming", providerSandboxId: "sandbox-preserve" });
+	});
+
+	test("forces a fenced runtime restart when the gateway has no runtime socket", () => {
+		expect(
+			runtimeUnavailableResumeTarget({
+				providerSandboxId: "sandbox-stale-runtime",
+			}),
+		).toEqual({
+			state: "resuming",
+			providerSandboxId: "sandbox-stale-runtime",
+		});
+		expect(
+			runtimeUnavailableResumeTarget({ providerSandboxId: undefined }),
+		).toEqual({ state: "queued", providerSandboxId: undefined });
 	});
 
 	test("replaces compute only after the provider confirms the sandbox is missing", () => {

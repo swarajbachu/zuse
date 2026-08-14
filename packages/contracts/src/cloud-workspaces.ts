@@ -304,6 +304,14 @@ export class CloudWorkspaceActionRequest extends Schema.Class<CloudWorkspaceActi
 	"CloudWorkspaceActionRequest",
 )({ workspaceId: Schema.String }) {}
 
+export class CloudWorkspaceResumeRequest extends Schema.Class<CloudWorkspaceResumeRequest>(
+	"CloudWorkspaceResumeRequest",
+)({
+	workspaceId: Schema.String,
+	/** The gateway proved that Relay's online projection has no runtime socket. */
+	recoverRuntime: Schema.optional(Schema.Boolean),
+}) {}
+
 export class CloudCredentialConnection extends Schema.Class<CloudCredentialConnection>(
 	"CloudCredentialConnection",
 )({
@@ -420,7 +428,7 @@ export const CloudWorkspacesPauseRpc = Rpc.make("cloud.workspaces.pause", {
 	error: CloudWorkspaceOpError,
 });
 export const CloudWorkspacesResumeRpc = Rpc.make("cloud.workspaces.resume", {
-	payload: CloudWorkspaceActionRequest,
+	payload: CloudWorkspaceResumeRequest,
 	success: CloudWorkspace,
 	error: CloudWorkspaceOpError,
 });

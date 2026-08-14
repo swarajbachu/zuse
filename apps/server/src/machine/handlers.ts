@@ -121,9 +121,9 @@ const PauseCloudWorkspace = MemoizeRpcs.toLayerHandler(
 );
 const ResumeCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.resume",
-	({ workspaceId }) =>
+	({ workspaceId, recoverRuntime }) =>
 		withCloudControl((service) =>
-			service.cloudWorkspaceAction(workspaceId, "resume"),
+			service.cloudWorkspaceAction(workspaceId, "resume", { recoverRuntime }),
 		),
 );
 const ArchiveCloudWorkspace = MemoizeRpcs.toLayerHandler(

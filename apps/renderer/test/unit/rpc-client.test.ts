@@ -10,6 +10,8 @@ Object.defineProperty(globalThis, "location", {
 const {
 	acquireRendererRpcSession,
 	canReuseCloudWorkspaceTicket,
+	clearCloudWorkspaceRuntimeRecovery,
+	cloudWorkspaceRequiresRuntimeRecovery,
 	isIgnorableRendererFailure,
 	isRpcClientTransportError,
 	RENDERER_WEBSOCKET_OPEN_TIMEOUT,
@@ -114,13 +116,17 @@ describe("renderer RPC transport selection", () => {
 
 	it("acquires a passive Bus session with refreshed credentials and no retry owner", async () => {
 		const events: string[] = [];
-		let close: (code: number) => void = () => undefined;
+		let close: (event: {
+			code: number;
+			reason: string;
+			wasClean: boolean;
+		}) => void = () => undefined;
 		const hooks = {
 			prepare: async (environmentId: string) => {
 				events.push(`refresh:${environmentId}`);
 				return {
 					key: `workspace:${environmentId}`,
-					create: async (onClose: (code: number) => void) => {
+					create: async (onClose: typeof close) => {
 						events.push("create");
 						close = onClose;
 						return {
@@ -142,7 +148,7 @@ describe("renderer RPC transport selection", () => {
 
 		expect(session.client).toEqual({ id: "passive" });
 		expect(events).toEqual(["refresh:workspace-1", "create"]);
-		close(1006);
+		close({ code: 1006, reason: "", wasClean: false });
 		expect(events).toEqual([
 			"refresh:workspace-1",
 			"create",
@@ -151,7 +157,7 @@ describe("renderer RPC transport selection", () => {
 		]);
 		await session.dispose();
 		await session.dispose();
-		close(1006);
+		close({ code: 1006, reason: "", wasClean: false });
 		expect(events).toEqual([
 			"refresh:workspace-1",
 			"create",
@@ -163,5 +169,43 @@ describe("renderer RPC transport selection", () => {
 		const next = await acquireRendererRpcSession("workspace-1", { hooks });
 		expect(events.slice(-2)).toEqual(["refresh:workspace-1", "create"]);
 		await next.dispose();
+	});
+
+	it("marks a cloud runtime for recovery after the gateway proves it is absent", async () => {
+		let close: (event: {
+			code: number;
+			reason: string;
+			wasClean: boolean;
+		}) => void = () => undefined;
+		const hooks = {
+			prepare: async (environmentId: string) => ({
+				key: `workspace:${environmentId}`,
+				create: async (onClose: typeof close) => {
+					close = onClose;
+					return { client: {} as never, dispose: async () => undefined };
+				},
+			}),
+			invalidateCloudTicket: () => undefined,
+		};
+		const failures: string[] = [];
+		const session = await acquireRendererRpcSession("workspace-recover", {
+			hooks,
+			onClose: (cause) => failures.push(cause.message),
+		});
+
+		close({
+			code: 4100,
+			reason: "workspace runtime unavailable",
+			wasClean: true,
+		});
+
+		expect(cloudWorkspaceRequiresRuntimeRecovery("workspace-recover")).toBe(
+			true,
+		);
+		expect(failures).toEqual([
+			"WebSocket closed (4100: workspace runtime unavailable).",
+		]);
+		clearCloudWorkspaceRuntimeRecovery("workspace-recover");
+		await session.dispose();
 	});
 });

@@ -86,6 +86,7 @@ export interface MachineControlServiceShape {
 	readonly cloudWorkspaceAction: (
 		workspaceId: string,
 		action: "pause" | "resume" | "archive" | "unarchive" | "delete",
+		options?: Readonly<{ recoverRuntime?: boolean }>,
 	) => Effect.Effect<CloudWorkspace, MachineControlError>;
 	readonly cloudCredentials: () => Effect.Effect<
 		CloudCredentialList,
@@ -345,12 +346,12 @@ export const MachineControlServiceLive: Layer.Layer<
 					}).toString()}`,
 					CloudChatList,
 				),
-			cloudWorkspaceAction: (workspaceId, action) =>
+			cloudWorkspaceAction: (workspaceId, action, options) =>
 				request(
 					RelayPaths.cloudWorkspaceAction(workspaceId, action),
 					CloudWorkspace,
 					"POST",
-					{},
+					{ workspaceId, ...options },
 				),
 			cloudCredentials: () =>
 				request(RelayPaths.cloudCredentials, CloudCredentialList),

@@ -8,10 +8,12 @@ import {
 	type ConnectionSupervisorEntry,
 	createConnectionSupervisor,
 } from "@zuse/client-runtime/supervisor";
+import type { WebSocketCloseInfo } from "@zuse/client-runtime/ws-protocol";
 import {
 	type CloudWorkspaceConnection,
 	MemoizeRpcs,
 	WIRE_PROTOCOL_VERSION,
+	WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE,
 } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 import {
@@ -59,7 +61,9 @@ export type RendererRpcSession = Readonly<{
 
 type PreparedRendererSession = Readonly<{
 	key: string;
-	create: (onClose: (code: number) => void) => Promise<RendererRpcSession>;
+	create: (
+		onClose: (close: WebSocketCloseInfo) => void,
+	) => Promise<RendererRpcSession>;
 }>;
 
 export type PassiveRendererSessionHooks = Readonly<{
@@ -79,6 +83,26 @@ const cloudWorkspaceRegistrations = new Map<
 	string,
 	CloudWorkspaceRegistration
 >();
+const cloudWorkspacesRequiringRuntimeRecovery = new Set<string>();
+
+const recordCloudWorkspaceGatewayClose = (
+	workspaceId: string,
+	close: Pick<WebSocketCloseInfo, "code">,
+): void => {
+	if (close.code === WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code) {
+		cloudWorkspacesRequiringRuntimeRecovery.add(workspaceId);
+	}
+};
+
+export const cloudWorkspaceRequiresRuntimeRecovery = (
+	workspaceId: string,
+): boolean => cloudWorkspacesRequiringRuntimeRecovery.has(workspaceId);
+
+export const clearCloudWorkspaceRuntimeRecovery = (
+	workspaceId: string,
+): void => {
+	cloudWorkspacesRequiringRuntimeRecovery.delete(workspaceId);
+};
 // Tickets last roughly a minute. Keep only a short safety margin so one live
 // activation can reuse its freshly issued ticket without minting a second one.
 const CLOUD_TICKET_REUSE_WINDOW_MS = 10_000;
@@ -164,7 +188,7 @@ export const isIgnorableRendererFailure = (cause: unknown): boolean =>
 
 const makeRendererRpcSession = async (
 	options: RendererConnectionOptions,
-	onClose: (event: Readonly<{ code: number }>) => void,
+	onClose: (event: WebSocketCloseInfo) => void,
 ): Promise<RendererRpcSession> => {
 	const protocolLayer =
 		options.kind === "electron"
@@ -214,10 +238,13 @@ const supervisor = createConnectionSupervisor<
 				const workspaceId = options.key.slice("workspace:".length);
 				const registration = cloudWorkspaceRegistrations.get(workspaceId);
 				if (registration !== undefined) registration.connection = null;
+				recordCloudWorkspaceGatewayClose(workspaceId, event);
 			}
 			reportRendererEntryFailure(
 				options.key,
-				new Error(`WebSocket closed (${event.code}).`),
+				new Error(
+					`WebSocket closed (${event.code}${event.reason ? `: ${event.reason}` : ""}).`,
+				),
 			);
 		}),
 	isRetryableCommandError: isRpcClientTransportError,
@@ -323,8 +350,7 @@ export const acquireRendererRpcSession = async (
 				);
 				return {
 					key: prepared.key,
-					create: (onClose) =>
-						makeRendererRpcSession(prepared, (event) => onClose(event.code)),
+					create: (onClose) => makeRendererRpcSession(prepared, onClose),
 				};
 			},
 			invalidateCloudTicket: (workspaceId) => {
@@ -335,13 +361,18 @@ export const acquireRendererRpcSession = async (
 	const prepared = await hooks.prepare(environmentId);
 	let active = true;
 	return prepared
-		.create((code) => {
+		.create((close) => {
 			if (!active) return;
 			if (prepared.key.startsWith("workspace:")) {
 				const workspaceId = prepared.key.slice("workspace:".length);
 				hooks.invalidateCloudTicket(workspaceId);
+				recordCloudWorkspaceGatewayClose(workspaceId, close);
 			}
-			options.onClose?.(new Error(`WebSocket closed (${code}).`));
+			options.onClose?.(
+				new Error(
+					`WebSocket closed (${close.code}${close.reason ? `: ${close.reason}` : ""}).`,
+				),
+			);
 		})
 		.then((session) => {
 			let disposed = false;
@@ -561,6 +592,7 @@ export const disposeRpcClient = async (): Promise<void> => {
 	rendererEntries.clear();
 	environmentConnections.clear();
 	cloudWorkspaceRegistrations.clear();
+	cloudWorkspacesRequiringRuntimeRecovery.clear();
 	localEnvironmentId = LOCAL_ENVIRONMENT_KEY;
 	setActiveEnvironmentStorageScope(LOCAL_RENDERER_STORAGE_SCOPE);
 	await supervisor.dispose();
