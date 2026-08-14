@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { CloudCredentialVault } from "../../src/cloud-credential-vault.ts";
 import {
 	reconcileCloudWorkspace,
+	sanitizeProjectBuildDiagnostic,
 	WORKSPACE_ARCHIVE_SCRIPT,
 	WORKSPACE_RUNTIME_PROCESS_PATTERN,
 	WORKSPACE_RUNTIME_RESUME_COMMAND,
@@ -137,6 +138,18 @@ const seedWorkspace = Effect.fn("seedArchiveWorkspace")(function* (
 });
 
 describe("cloud workspace reconciler", () => {
+	test("bounds and redacts project builder diagnostics", () => {
+		const diagnostic = sanitizeProjectBuildDiagnostic(
+			`clone https://user:password@github.com/acme/private.git\nAuthorization: Bearer secret-token\nGITHUB_TOKEN=ghp_${"x".repeat(40)}\n${"a".repeat(3_000)}`,
+		);
+
+		expect(diagnostic).not.toContain("password");
+		expect(diagnostic).not.toContain("secret-token");
+		expect(diagnostic).not.toContain("ghp_");
+		expect(diagnostic).not.toContain("github.com/acme/private");
+		expect(diagnostic.length).toBeLessThanOrEqual(2_048);
+	});
+
 	test("archive quiesces the current versioned runtime before bundling", () => {
 		expect(WORKSPACE_ARCHIVE_SCRIPT).toContain(
 			WORKSPACE_RUNTIME_PROCESS_PATTERN,

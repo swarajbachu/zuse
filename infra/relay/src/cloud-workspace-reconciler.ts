@@ -27,6 +27,24 @@ const RESTORE_READY = "/var/lib/zuse/workspace-restore/ready";
 const RESTORE_FAILED = "/var/lib/zuse/workspace-restore/failed";
 const WORKSPACE_RUNTIME_BOOT_TOKEN_FILE =
 	"/run/zuse-secrets/workspace-runtime-boot-token";
+const PROJECT_BUILD_DIAGNOSTIC_FILE = "/tmp/zuse-project-builder-diagnostic";
+const PROJECT_BUILD_DIAGNOSTIC_MAX_LENGTH = 2_048;
+
+export const sanitizeProjectBuildDiagnostic = (value: string): string => {
+	const sanitized = value
+		.replaceAll(/\b(?:https?|ssh):\/\/\S+/giu, "[redacted-url]")
+		.replaceAll(/\bBearer\s+\S+/giu, "Bearer [redacted]")
+		.replaceAll(
+			/\b(?:gh[oprsu]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/gu,
+			"[redacted-token]",
+		)
+		.replaceAll(
+			/\b((?:api[_-]?key|access[_-]?token|auth[_-]?token|password|secret|token)\s*[=:]\s*)\S+/giu,
+			"$1[redacted]",
+		)
+		.trim();
+	return sanitized.slice(-PROJECT_BUILD_DIAGNOSTIC_MAX_LENGTH);
+};
 
 class CloudWorkspaceLeaseLostError extends Data.TaggedError(
 	"CloudWorkspaceLeaseLostError",
@@ -273,7 +291,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 				command: "/bin/bash",
 				args: [
 					"-lc",
-					'set +e; /usr/local/bin/zuse-project-builder >/var/lib/zuse/project-build/build.log 2>&1; code=$?; printf \'%s\\n\' "$code" >/tmp/zuse-project-builder-exit-code; touch /tmp/zuse-project-builder-exited; exit "$code"',
+					`set +e; /usr/local/bin/zuse-project-builder >/var/lib/zuse/project-build/build.log 2>&1; code=$?; tail -c 4096 /var/lib/zuse/project-build/build.log >${PROJECT_BUILD_DIAGNOSTIC_FILE} 2>/dev/null || true; printf '%s\\n' "$code" >/tmp/zuse-project-builder-exit-code; touch /tmp/zuse-project-builder-exited; exit "$code"`,
 				],
 				env: {
 					ZUSE_REPOSITORY_URL: project.repositoryUrl,
@@ -342,6 +360,27 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 				: /^[a-z][a-z0-9-]{0,63}$/.test(reportedFailurePhase)
 					? `project-${reportedFailurePhase}-failed`
 					: "project-setup-failed";
+			const diagnostic = buildTimedOut
+				? "Project build timed out before completion."
+				: yield* provider
+						.readTextFile(
+							build.providerSandboxId,
+							PROJECT_BUILD_DIAGNOSTIC_FILE,
+							"zuse",
+						)
+						.pipe(
+							Effect.map(sanitizeProjectBuildDiagnostic),
+							Effect.catchTag("SandboxProviderError", () =>
+								Effect.succeed("Project builder exited without a diagnostic."),
+							),
+						);
+			yield* Effect.sync(() =>
+				console.warn("[cloud-workspace] project build failed", {
+					buildId: build.buildId,
+					failureCode,
+					diagnostic,
+				}),
+			);
 			yield* provider.kill(build.providerSandboxId).pipe(Effect.ignore);
 			const previous = yield* store.getActiveBuild(
 				build.projectId,
