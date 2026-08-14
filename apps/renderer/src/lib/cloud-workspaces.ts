@@ -36,9 +36,11 @@ import {
 	compareCloudChatSummaryVersion,
 	localProjectForCloudChat,
 	localProjectForCloudEnvironment,
+	optimisticallyArchiveCloudChat,
 	reconcileCloudChatCatalog,
 	registerCloudChat,
 	registerCloudChatCatalogRefresh,
+	rollbackOptimisticCloudArchive,
 	useCloudChatCatalogStore,
 } from "./cloud-workspace-catalog.ts";
 
@@ -445,13 +447,23 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 		return hydration;
 	},
 	archive: async (summary) => {
-		const client = await getControlPlaneRpcClient();
-		const workspace = await Effect.runPromise(
-			client["cloud.workspaces.archive"]({
-				workspaceId: summary.workspaceId,
-			}),
-		);
-		updateSummary(refreshSummaryFromWorkspace(summary, workspace));
+		const archivedAt = Date.now();
+		optimisticallyArchiveCloudChat(summary, archivedAt);
+		try {
+			const client = await getControlPlaneRpcClient();
+			const workspace = await Effect.runPromise(
+				client["cloud.workspaces.archive"]({
+					workspaceId: summary.workspaceId,
+				}),
+			);
+			updateSummary({
+				...refreshSummaryFromWorkspace(summary, workspace),
+				archivedAt,
+			});
+		} catch (cause) {
+			rollbackOptimisticCloudArchive(summary, archivedAt);
+			throw cause;
+		}
 	},
 }));
 

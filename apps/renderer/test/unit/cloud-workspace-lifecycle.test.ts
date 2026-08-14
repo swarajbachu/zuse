@@ -3,6 +3,7 @@ import { Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+	cloudTranscriptActivation,
 	cloudWorkspaceStartupError,
 	isCloudWorkspaceReady,
 	waitForCloudWorkspaceReady,
@@ -37,6 +38,18 @@ const workspace = (
 	});
 
 describe("cloud workspace lifecycle", () => {
+	it("renders paused compute from cache without waking it", () => {
+		expect(cloudTranscriptActivation(workspace(1, "paused", "offline"))).toBe(
+			"cache-only",
+		);
+		expect(
+			cloudTranscriptActivation(workspace(2, "resuming", "connecting")),
+		).toBe("cache-only");
+		expect(cloudTranscriptActivation(workspace(3, "ready", "online"))).toBe(
+			"connect",
+		);
+	});
+
 	it("waits through lifecycle changes and returns the first online-ready frame", async () => {
 		const seen: number[] = [];
 		const ready = await waitForCloudWorkspaceReady(

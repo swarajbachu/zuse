@@ -10,6 +10,7 @@ import {
 	cloudSummaryForChat,
 	useCloudChatCatalogStore,
 } from "../lib/cloud-workspace-catalog.ts";
+import { cloudTranscriptActivation } from "../lib/cloud-workspace-lifecycle.ts";
 import { ensureCloudWorkspaceAttached } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
@@ -59,7 +60,7 @@ export function CloudConnectionNotice() {
 	);
 	const timeline = useOptionalRendererSessionTimeline(
 		summary?.initialSessionId ?? null,
-		"connect",
+		summary === null ? "cache-only" : cloudTranscriptActivation(summary),
 		summary === null ? null : EnvironmentId.make(summary.workspaceId),
 	);
 	const runtime = timeline.runtime;

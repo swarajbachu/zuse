@@ -15,6 +15,7 @@ import {
 	ArchiveArrowDownIcon,
 	ArchiveArrowUpIcon,
 	ArchiveIcon,
+	CloudIcon,
 	Delete02Icon,
 	Edit01Icon,
 	Folder01Icon,
@@ -1102,7 +1103,8 @@ function ProjectGroup({
 		const cloud = (cloudChats ?? [])
 			.filter(
 				(summary) =>
-					summary.state !== "archived" &&
+					summary.archivedAt === undefined &&
+					summary.desiredState !== "archived" &&
 					!hiddenArchivedChatIds.has(summary.chatId),
 			)
 			.map((summary) => ({
@@ -1427,10 +1429,7 @@ function CloudChatRow({
 									role="img"
 									aria-label={label}
 								>
-									<ProviderIcon
-										providerId={summary.agent}
-										className="size-3.5"
-									/>
+									<HugeiconsIcon icon={CloudIcon} className="size-3.5" />
 								</span>
 							</div>
 						</div>

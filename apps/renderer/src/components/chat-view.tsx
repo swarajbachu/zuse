@@ -30,6 +30,7 @@ import {
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
+import { cloudTranscriptActivation } from "../lib/cloud-workspace-lifecycle.ts";
 import { useCloudChatSummaryForSession } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
@@ -107,7 +108,7 @@ export function ChatView({
 	const cloudSummary = useCloudChatSummaryForSession(sessionId);
 	const timeline = useRendererSessionTimeline(
 		sessionId,
-		cloudSummary === null ? "connect" : "wake",
+		cloudSummary === null ? "connect" : cloudTranscriptActivation(cloudSummary),
 		environmentId,
 	);
 	const sessionRef = timeline.ref;

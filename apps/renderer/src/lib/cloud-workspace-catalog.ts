@@ -1,9 +1,10 @@
-import type {
+import {
 	CloudChatSummary,
-	EnvironmentId,
-	FolderId,
-	SessionId,
+	type EnvironmentId,
+	type FolderId,
+	type SessionId,
 } from "@zuse/contracts";
+import { Schema } from "effect";
 
 import { createAtomStore as create } from "../state/atom-store.ts";
 
@@ -11,6 +12,40 @@ type CloudChatCatalogState = Readonly<{
 	summaries: ReadonlyArray<CloudChatSummary>;
 	localProjectByEnvironment: Readonly<Record<string, FolderId>>;
 }>;
+
+const CLOUD_CATALOG_STORAGE_KEY = "zuse:cloud-chat-catalog:v1";
+
+const loadPersistedCatalog = (): CloudChatCatalogState => {
+	if (typeof window === "undefined")
+		return { summaries: [], localProjectByEnvironment: {} };
+	try {
+		const raw = window.localStorage.getItem(CLOUD_CATALOG_STORAGE_KEY);
+		if (raw === null) return { summaries: [], localProjectByEnvironment: {} };
+		const parsed = JSON.parse(raw) as Readonly<Record<string, unknown>>;
+		const summaries = Array.isArray(parsed.summaries)
+			? parsed.summaries.flatMap((value) => {
+					try {
+						return [Schema.decodeUnknownSync(CloudChatSummary)(value)];
+					} catch {
+						return [];
+					}
+				})
+			: [];
+		const projects =
+			typeof parsed.localProjectByEnvironment === "object" &&
+			parsed.localProjectByEnvironment !== null
+				? Object.fromEntries(
+						Object.entries(parsed.localProjectByEnvironment).filter(
+							(entry): entry is [string, FolderId] =>
+								typeof entry[1] === "string",
+						),
+					)
+				: {};
+		return { summaries, localProjectByEnvironment: projects };
+	} catch {
+		return { summaries: [], localProjectByEnvironment: {} };
+	}
+};
 
 const sortSummaries = (
 	summaries: ReadonlyArray<CloudChatSummary>,
@@ -70,10 +105,57 @@ export const mergeCloudChatSummaries = (
 	return sortSummaries([...byEnvironment.values()]);
 };
 
-export const useCloudChatCatalogStore = create<CloudChatCatalogState>(() => ({
-	summaries: [],
-	localProjectByEnvironment: {},
-}));
+export const useCloudChatCatalogStore = create<CloudChatCatalogState>(() =>
+	loadPersistedCatalog(),
+);
+
+if (typeof window !== "undefined") {
+	useCloudChatCatalogStore.subscribe((state) => {
+		try {
+			window.localStorage.setItem(
+				CLOUD_CATALOG_STORAGE_KEY,
+				JSON.stringify(state),
+			);
+		} catch {
+			// Storage can be unavailable in hardened/private contexts. The durable
+			// IndexedDB transcript checkpoint remains the primary local snapshot.
+		}
+	});
+}
+
+export const optimisticallyArchiveCloudChat = (
+	summary: CloudChatSummary,
+	archivedAt: number,
+): CloudChatSummary => {
+	const optimistic = {
+		...summary,
+		desiredState: "archived" as const,
+		archivedAt,
+	};
+	useCloudChatCatalogStore.setState((state) => ({
+		...state,
+		summaries: state.summaries.map((candidate) =>
+			candidate.workspaceId === summary.workspaceId ? optimistic : candidate,
+		),
+	}));
+	return optimistic;
+};
+
+export const rollbackOptimisticCloudArchive = (
+	previous: CloudChatSummary,
+	archivedAt: number,
+): void => {
+	useCloudChatCatalogStore.setState((state) => ({
+		...state,
+		summaries: state.summaries.map((candidate) =>
+			candidate.workspaceId === previous.workspaceId &&
+			candidate.revision === previous.revision &&
+			candidate.archivedAt === archivedAt
+				? previous
+				: candidate,
+		),
+	}));
+};
 
 export const registerCloudChat = (
 	summary: CloudChatSummary,

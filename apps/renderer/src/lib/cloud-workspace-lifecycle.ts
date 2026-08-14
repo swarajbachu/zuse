@@ -1,4 +1,15 @@
 import type { CloudWorkspace } from "@zuse/contracts";
+
+/** Reading a cloud transcript must never wake paused compute. Commands and
+ * live tools acquire `wake` through ClientBus; a ready runtime may be attached
+ * in the background to refresh an already-rendered local checkpoint. */
+export const cloudTranscriptActivation = (
+	summary: Pick<CloudWorkspace, "state" | "runtimeState">,
+): "cache-only" | "connect" =>
+	summary.state === "ready" && summary.runtimeState === "online"
+		? "connect"
+		: "cache-only";
+
 import { Effect, Option, Stream } from "effect";
 
 export const isCloudWorkspaceReady = (

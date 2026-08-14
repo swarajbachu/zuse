@@ -20,6 +20,7 @@ const WORKSPACE_START_TIMEOUT_MS = 5 * 60 * 1_000;
 const RECONCILE_LEASE_MS = 2 * 60 * 1_000;
 const PROJECT_BUILD_TIMEOUT_MS = 15 * 60 * 1_000;
 const WARM_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
+export const ARCHIVED_WORKSPACE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_RUNTIME_BOOT_TTL_MS = 30 * 60 * 1_000;
 const WARM_RUNTIME_RECONNECT_GRACE_MS = 5_000;
 const ARCHIVE_READY = "/var/lib/zuse/workspace-archive/ready";
@@ -582,6 +583,12 @@ const pauseWorkspace = (
 			warmRetentionDeadlineMs: archived
 				? nowMs + WARM_RETENTION_MS
 				: workspace.warmRetentionDeadlineMs,
+			requestConfig: archived
+				? {
+						...workspace.requestConfig,
+						archiveDeleteAtMs: nowMs + ARCHIVED_WORKSPACE_RETENTION_MS,
+					}
+				: workspace.requestConfig,
 			nextActionAtMs: archived
 				? nowMs + WARM_RETENTION_MS
 				: Number.MAX_SAFE_INTEGER,
@@ -736,6 +743,27 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		const config = yield* SandboxOfferConfiguration;
 		const relayConfig = yield* RelayConfiguration;
 		const nowMs = yield* Clock.currentTimeMillis;
+		const archiveDeleteAtMs =
+			typeof workspace.requestConfig.archiveDeleteAtMs === "number"
+				? workspace.requestConfig.archiveDeleteAtMs
+				: undefined;
+
+		if (
+			workspace.state === "archived" &&
+			archiveDeleteAtMs !== undefined &&
+			nowMs >= archiveDeleteAtMs &&
+			workspace.desiredState !== "deleted"
+		) {
+			yield* saveWorkspace({
+				...workspace,
+				desiredState: "deleted",
+				statusCode: "archive-retention-expired",
+				nextActionAtMs: nowMs,
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+			});
+			return;
+		}
 
 		if (workspace.desiredState === "deleted") {
 			if (!(yield* discardUnsafeWorkspaceSandbox(provider, workspace))) {
@@ -750,6 +778,9 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			}
 			if (workspace.runningSinceMs !== undefined)
 				yield* recordLifecycle(workspace, "runtime-seconds", nowMs);
+			const recoverySnapshot = recoverySnapshotId(workspace);
+			if (recoverySnapshot !== undefined)
+				yield* provider.deleteSnapshot(recoverySnapshot);
 			yield* recordLifecycle(workspace, "delete", nowMs);
 			yield* saveWorkspace({
 				...workspace,
@@ -1506,7 +1537,10 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				providerSandboxId: undefined,
 				warmRetentionDeadlineMs: undefined,
 				statusCode: "archived-recovery-retained",
-				nextActionAtMs: Number.MAX_SAFE_INTEGER,
+				nextActionAtMs:
+					typeof workspace.requestConfig.archiveDeleteAtMs === "number"
+						? workspace.requestConfig.archiveDeleteAtMs
+						: Number.MAX_SAFE_INTEGER,
 				revision: workspace.revision + 1,
 				updatedAtMs: nowMs,
 			});

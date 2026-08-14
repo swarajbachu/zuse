@@ -14,8 +14,10 @@ import {
 	cloudSummaryForSession,
 	compareCloudChatSummaryVersion,
 	localProjectForCloudChat,
+	optimisticallyArchiveCloudChat,
 	reconcileCloudChatCatalog,
 	registerCloudChat,
+	rollbackOptimisticCloudArchive,
 	useCloudChatCatalogStore,
 } from "../../src/lib/cloud-workspace-catalog.ts";
 
@@ -199,5 +201,23 @@ describe("cloud chat catalog", () => {
 		expect(cloudSummaryForEnvironment("environment-a")).toBe(retained);
 		expect(cloudSummaryForEnvironment("environment-b")).toBeNull();
 		expect(localProjectForCloudChat("chat-b")).toBeNull();
+	});
+
+	it("hides archive intent immediately and rolls it back after failure", () => {
+		const current = summary({
+			workspaceId: "environment-a",
+			chatId: "chat-a",
+			sessionId: "session-a",
+			revision: 2,
+		});
+		registerCloudChat(current);
+		optimisticallyArchiveCloudChat(current, 123);
+
+		expect(cloudSummaryForChat("chat-a")).toMatchObject({
+			desiredState: "archived",
+			archivedAt: 123,
+		});
+		rollbackOptimisticCloudArchive(current, 123);
+		expect(cloudSummaryForChat("chat-a")).toBe(current);
 	});
 });

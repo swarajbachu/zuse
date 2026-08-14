@@ -6,6 +6,7 @@ import { Effect, Layer, Redacted, Ref } from "effect";
 import { describe, expect, test } from "vitest";
 import { CloudCredentialVault } from "../../src/cloud-credential-vault.ts";
 import {
+	ARCHIVED_WORKSPACE_RETENTION_MS,
 	reconcileCloudWorkspace,
 	reusableAccountBuildSnapshot,
 	sanitizeProjectBuildDiagnostic,
@@ -171,6 +172,47 @@ describe("cloud workspace reconciler", () => {
 		expect(WORKSPACE_ARCHIVE_SCRIPT).toContain(
 			"exec /usr/local/bin/zuse-archive-workspace",
 		);
+	});
+
+	test("deletes an archived recovery snapshot after the 30 day retention", async () => {
+		const snapshotId = "snapshot-expired-archive";
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "expired-archive",
+					state: "archived",
+					desiredState: "archived",
+					statusCode: "archived-recovery-retained",
+					recoveryBundleKey: `provider-snapshot:${snapshotId}`,
+					providerSandboxId: undefined,
+					requestConfig: { archiveDeleteAtMs: Date.now() - 1 },
+				});
+				yield* Ref.update(control.snapshots, (snapshots) =>
+					new Set(snapshots).add(snapshotId),
+				);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const expiring = yield* store.getWorkspace(workspace.workspaceId);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					expiring,
+					deleted: yield* store.getWorkspace(workspace.workspaceId),
+					snapshots: yield* Ref.get(control.snapshots),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(ARCHIVED_WORKSPACE_RETENTION_MS).toBe(30 * 24 * 60 * 60 * 1_000);
+		expect(result.expiring).toMatchObject({
+			desiredState: "deleted",
+			statusCode: "archive-retention-expired",
+		});
+		expect(result.deleted).toMatchObject({
+			state: "deleted",
+			recoveryBundleKey: undefined,
+		});
+		expect(result.snapshots.has(snapshotId)).toBe(false);
 	});
 
 	test("the resume launcher does not match its own stale-runtime kill pattern", () => {

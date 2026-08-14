@@ -1625,6 +1625,7 @@ export const routeCloudWorkspaceRequest = (
 				archivePhase: _archivePhase,
 				archiveErrorCode: _archiveErrorCode,
 				archiveDiagnostic: _archiveDiagnostic,
+				archiveDeleteAtMs: _archiveDeleteAtMs,
 				...requestConfigWithoutArchiveFailure
 			} = workspace.requestConfig;
 			const updated: CloudWorkspaceRecord = {
@@ -1643,7 +1644,11 @@ export const routeCloudWorkspaceRequest = (
 						}
 					: {}),
 				...(action === "unarchive"
-					? { state: "paused" as const, runtimeState: "offline" as const }
+					? {
+							state: "paused" as const,
+							runtimeState: "offline" as const,
+							requestConfig: requestConfigWithoutArchiveFailure,
+						}
 					: {}),
 				...(action === "archive"
 					? { requestConfig: requestConfigWithoutArchiveFailure }
