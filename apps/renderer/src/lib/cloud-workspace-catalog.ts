@@ -213,19 +213,6 @@ export const optimisticallyArchiveCloudChat = (
 	return optimistic;
 };
 
-export const completeCloudArchiveIntent = (
-	workspaceId: string,
-	commandId: string,
-): void => {
-	useCloudChatCatalogStore.setState((state) => {
-		if (state.archiveIntents[workspaceId]?.commandId !== commandId)
-			return state;
-		const archiveIntents = { ...state.archiveIntents };
-		delete archiveIntents[workspaceId];
-		return { ...state, archiveIntents };
-	});
-};
-
 export const optimisticallyUnarchiveCloudChat = (
 	summary: CloudChatSummary,
 ): CloudChatSummary => {
@@ -302,7 +289,7 @@ export const reconcileCloudChatCatalog = (
 	const summaries = incoming.flatMap((summary) => {
 		const intent = previous.archiveIntents[summary.workspaceId];
 		const protectedSummary =
-			intent === undefined
+			intent === undefined || summary.state === "archived"
 				? summary
 				: {
 						...summary,
@@ -324,9 +311,20 @@ export const reconcileCloudChatCatalog = (
 			),
 		),
 		archiveIntents: Object.fromEntries(
-			Object.entries(previous.archiveIntents).filter(([environmentId]) =>
-				incomingIds.has(environmentId),
-			),
+			Object.entries(previous.archiveIntents).filter(([environmentId]) => {
+				if (!incomingIds.has(environmentId)) return false;
+				const authoritative = incoming.find(
+					(summary) => summary.workspaceId === environmentId,
+				);
+				if (authoritative?.state !== "archived") return true;
+				const current = previous.summaries.find(
+					(summary) => summary.workspaceId === environmentId,
+				);
+				return (
+					current !== undefined &&
+					compareCloudChatSummaryVersion(authoritative, current) < 0
+				);
+			}),
 		),
 	});
 	return removed;

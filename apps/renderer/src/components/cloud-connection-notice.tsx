@@ -30,10 +30,6 @@ const copy: Record<
 		title: "Resuming cloud workspace",
 		detail: "The sandbox compute is waking up.",
 	},
-	reconnecting: {
-		title: "Reconnecting",
-		detail: "Compute is online; Zuse is attaching securely.",
-	},
 	updating: {
 		title: "Updating cloud runtime",
 		detail: "Zuse will reconnect after the compatible runtime starts.",
@@ -73,10 +69,7 @@ export function CloudConnectionNotice() {
 	const presentation = cloudConnectionPresentation(summary, activity);
 	if (presentation === "hidden") return null;
 	const value = copy[presentation];
-	const busy =
-		presentation === "resuming" ||
-		presentation === "reconnecting" ||
-		presentation === "updating";
+	const busy = presentation === "resuming" || presentation === "updating";
 	return (
 		<div
 			role="status"

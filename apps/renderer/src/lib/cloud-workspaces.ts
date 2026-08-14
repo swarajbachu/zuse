@@ -52,7 +52,6 @@ import {
 	cloudSummaryForEnvironment,
 	cloudSummaryForSession,
 	compareCloudChatSummaryVersion,
-	completeCloudArchiveIntent,
 	hydrateCloudChatCatalogPersistence,
 	localProjectForCloudChat,
 	localProjectForCloudEnvironment,
@@ -577,7 +576,6 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 							...refreshSummaryFromWorkspace(cached, archived),
 							archivedAt: intent.requestedAt,
 						});
-						completeCloudArchiveIntent(workspaceId, intent.commandId);
 					} catch {
 						// The persisted intent remains hidden and retries on the next hydrate.
 					}
@@ -627,10 +625,13 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 				...refreshSummaryFromWorkspace(summary, workspace),
 				archivedAt,
 			});
-			completeCloudArchiveIntent(summary.workspaceId, commandId);
 		} catch (cause) {
 			set({ error: formatError(cause) });
-			throw cause;
+			// A response can be lost after Relay durably accepts the command. Keep
+			// the persisted intent as the authoritative optimistic fence and retry
+			// it during catalog hydration instead of flashing the row back into the
+			// active list. Reconciliation clears it only after Relay publishes the
+			// archived lifecycle state.
 		}
 	},
 }));

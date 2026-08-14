@@ -5,7 +5,6 @@ export type CloudConnectionPresentation =
 	| "hidden"
 	| "paused"
 	| "resuming"
-	| "reconnecting"
 	| "updating"
 	| "failed";
 
@@ -16,7 +15,9 @@ export const cloudConnectionPresentation = (
 	if (activity === "failed") return "failed";
 	if (summary.statusCode.includes("runtime-update")) return "updating";
 	if (activity === "resuming") return "resuming";
-	if (activity === "attaching") return "reconnecting";
+	// Attaching already-online compute is a passive refresh over cached data,
+	// not a user-blocking lifecycle state.
+	if (activity === "attaching") return "hidden";
 	if (activity === "paused") return "paused";
 	return "hidden";
 };

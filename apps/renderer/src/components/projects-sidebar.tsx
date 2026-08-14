@@ -69,7 +69,10 @@ import { useEnvironmentPermissions } from "~/lib/environment-permissions-client-
 import { formatError } from "~/lib/format-error.ts";
 import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
-import { deriveCloudChatActivity } from "../lib/cloud-chat-activity.ts";
+import {
+	cloudChatShowsWorking,
+	deriveCloudChatActivity,
+} from "../lib/cloud-chat-activity.ts";
 import { cloudChatRowPresentation } from "../lib/cloud-chat-row-presentation.ts";
 import { cloudWorkspaceBetaAvailable } from "../lib/cloud-machines-availability.ts";
 import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
@@ -1337,6 +1340,10 @@ function CloudChatRow({
 	const archivePending =
 		summary.desiredState === "archived" && summary.state !== "failed";
 	const cloudWorkspaceLoading = presentation.busy;
+	const attentionState = deriveChatAttentionState(
+		timeline.messages,
+		cloudChatShowsWorking(activity),
+	);
 	const providerTone =
 		activity === "failed"
 			? "text-destructive"
@@ -1383,7 +1390,7 @@ function CloudChatRow({
 							aria-label={`${summary.title}. ${label}`}
 							aria-busy={cloudWorkspaceLoading || undefined}
 							className={cn(
-								"group flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/40 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
+								"group flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-2 pl-1 text-left text-[12px] text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/40 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
 								selected && "bg-sidebar-accent text-sidebar-accent-foreground",
 							)}
 							onClick={open}
@@ -1395,10 +1402,29 @@ function CloudChatRow({
 							}}
 						>
 							<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
-								<BranchIcon state="default" selected={selected} />
+								{attentionState !== "idle" ? (
+									<ChatAttentionIcon
+										state={attentionState}
+										selected={selected}
+									/>
+								) : (
+									<BranchIcon state="default" selected={selected} />
+								)}
 							</span>
 							<span className="min-w-0 flex-1 truncate">{summary.title}</span>
-							<div className="flex h-4 w-16 shrink-0 items-center justify-end gap-1">
+							<div className="flex h-4 w-20 shrink-0 items-center justify-end gap-1">
+								<span
+									className={cn("inline-flex shrink-0", providerTone)}
+									role="img"
+									aria-label={label}
+								>
+									<HugeiconsIcon icon={CloudIcon} className="size-3.5" />
+								</span>
+								<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
+									{formatRelative(
+										new Date(summary.lastMessageAt ?? summary.updatedAt),
+									)}
+								</span>
 								<button
 									type="button"
 									disabled={archiving || archivePending}
@@ -1406,7 +1432,10 @@ function CloudChatRow({
 										event.stopPropagation();
 										archiveChat();
 									}}
-									className="hidden rounded-md p-0.5 text-muted-foreground hover:text-sidebar-accent-foreground group-hover:flex group-focus-within:flex"
+									className={cn(
+										"items-center rounded-md p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground motion-reduce:transition-none group-focus-within:flex",
+										archiving ? "flex" : "hidden group-hover:flex",
+									)}
 									aria-label={`${summary.state === "failed" && summary.desiredState === "archived" ? "Retry archiving" : "Archive"} ${summary.title}`}
 									title={
 										summary.state === "failed" &&
@@ -1424,13 +1453,6 @@ function CloudChatRow({
 										/>
 									)}
 								</button>
-								<span
-									className={cn("inline-flex shrink-0", providerTone)}
-									role="img"
-									aria-label={label}
-								>
-									<HugeiconsIcon icon={CloudIcon} className="size-3.5" />
-								</span>
 							</div>
 						</div>
 					}

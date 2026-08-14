@@ -8,6 +8,7 @@ import {
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { deriveCloudChatActivity } from "../../src/lib/cloud-chat-activity.ts";
+import { cloudConnectionPresentation } from "../../src/lib/cloud-connection-presentation.ts";
 import {
 	cloudSummaryForChat,
 	cloudSummaryForEnvironment,
@@ -129,6 +130,7 @@ describe("cloud chat catalog", () => {
 				runtime: "running",
 			}),
 		).toBe("running");
+		expect(cloudConnectionPresentation(row, "attaching")).toBe("hidden");
 	});
 
 	it("accepts newer runtime metadata within one lifecycle revision", () => {
@@ -224,6 +226,50 @@ describe("cloud chat catalog", () => {
 				requestedAt: 123,
 			},
 		});
+	});
+
+	it("keeps archive intent fenced until the authoritative archived state", () => {
+		const current = summary({
+			workspaceId: "environment-a",
+			chatId: "chat-a",
+			sessionId: "session-a",
+			revision: 2,
+		});
+		registerCloudChat(current);
+		optimisticallyArchiveCloudChat(current, 123, "archive-command");
+
+		reconcileCloudChatCatalog([{ ...current, revision: 3 }]);
+		expect(cloudSummaryForChat("chat-a")).toMatchObject({
+			desiredState: "archived",
+			archivedAt: 123,
+		});
+		expect(useCloudChatCatalogStore.getState().archiveIntents).toHaveProperty(
+			"environment-a",
+		);
+		reconcileCloudChatCatalog([
+			{
+				...current,
+				state: "archived",
+				desiredState: "archived",
+				archivedAt: 100,
+				revision: 1,
+			},
+		]);
+		expect(useCloudChatCatalogStore.getState().archiveIntents).toHaveProperty(
+			"environment-a",
+		);
+
+		reconcileCloudChatCatalog([
+			{
+				...current,
+				state: "archived",
+				desiredState: "archived",
+				archivedAt: 123,
+				revision: 4,
+			},
+		]);
+		expect(useCloudChatCatalogStore.getState().archiveIntents).toEqual({});
+		expect(cloudSummaryForChat("chat-a")?.state).toBe("archived");
 	});
 
 	it("moves an archived chat back immediately without waking compute", () => {
