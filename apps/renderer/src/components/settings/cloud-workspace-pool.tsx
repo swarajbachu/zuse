@@ -304,7 +304,7 @@ export function CloudWorkspacePool() {
 				const chosen = githubRepos.filter((repo) =>
 					selectedRepos.includes(repo.nameWithOwner),
 				);
-				const connected = await Promise.all(
+				const results = await Promise.allSettled(
 					chosen.map((repo) =>
 						runControlPlane((client) =>
 							client["cloud.projects.connect"]({
@@ -314,17 +314,27 @@ export function CloudWorkspacePool() {
 								displayName: repo.nameWithOwner,
 								idempotencyKey: `settings-connect:${repo.nameWithOwner}:${repo.defaultBranch}`,
 							}),
-						),
+						).then((project) => ({ project, repo: repo.nameWithOwner })),
 					),
 				);
+				const connected = results.flatMap((result) =>
+					result.status === "fulfilled" ? [result.value] : [],
+				);
 				setProjects((current) => {
-					const ids = new Set(connected.map((project) => project.projectId));
+					const ids = new Set(
+						connected.map(({ project }) => project.projectId),
+					);
 					return [
 						...current.filter((project) => !ids.has(project.projectId)),
-						...connected,
+						...connected.map(({ project }) => project),
 					];
 				});
-				setSelectedRepos([]);
+				const connectedRepos = new Set(connected.map(({ repo }) => repo));
+				setSelectedRepos((current) =>
+					current.filter((repo) => !connectedRepos.has(repo)),
+				);
+				const failure = results.find((result) => result.status === "rejected");
+				if (failure?.status === "rejected") throw failure.reason;
 			},
 			setProjectError,
 		);
