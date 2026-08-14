@@ -44,7 +44,7 @@ import {
 } from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useChatsStore } from "../store/chats.ts";
-import { DRAFT_SESSION_ID, useSessionsStore } from "../store/sessions.ts";
+import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import {
@@ -59,7 +59,6 @@ import {
 	reconcileCloudChatCatalog,
 	registerCloudChat,
 	registerCloudChatCatalogRefresh,
-	repairCloudChatInitialSession,
 	useCloudChatCatalogStore,
 } from "./cloud-workspace-catalog.ts";
 
@@ -89,7 +88,6 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 	}
 	registeredCloudEnvironments.set(summary.workspaceId, summary);
 	let rootPrepared = false;
-	let identityPrepared = false;
 	registerSessionTimelineCheckpointSynchronizer(
 		EnvironmentId.make(summary.workspaceId),
 		async (ref, current: ResourceView<SessionTimelineProjection>) => {
@@ -207,61 +205,6 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 			await ensureCloudWorkspaceEnvironment(current, activation);
 		},
 		async (client) => {
-			const latest =
-				registeredCloudEnvironments.get(summary.workspaceId) ?? summary;
-			if (!identityPrepared && latest.initialSessionId === DRAFT_SESSION_ID) {
-				const runtimeChat = await Effect.runPromise(
-					client["chat.get"]({ chatId: latest.chatId }),
-				);
-				const sessions = await Effect.runPromise(
-					client["session.list"]({
-						projectId: runtimeChat.projectId,
-						includeArchived: true,
-					}),
-				);
-				const canonicalSessionId =
-					runtimeChat.activeSessionId ??
-					sessions.find((candidate) => candidate.chatId === runtimeChat.id)
-						?.id ??
-					null;
-				if (
-					canonicalSessionId !== null &&
-					canonicalSessionId !== DRAFT_SESSION_ID
-				) {
-					const repaired = repairCloudChatInitialSession(
-						summary.workspaceId,
-						latest.initialSessionId,
-						canonicalSessionId,
-					);
-					if (repaired !== null) {
-						registeredCloudEnvironments.set(summary.workspaceId, repaired);
-						const projectId = localProjectForCloudEnvironment(
-							summary.workspaceId,
-						);
-						if (projectId !== null) {
-							stageCloudChat(repaired, projectId);
-							const isSelectedProject =
-								useWorkspaceStore.getState().selectedFolderId === projectId;
-							useSessionsStore.setState((state) => ({
-								selectedSessionId:
-									isSelectedProject &&
-									state.selectedSessionId === DRAFT_SESSION_ID
-										? canonicalSessionId
-										: state.selectedSessionId,
-								selectedSessionByProject: {
-									...state.selectedSessionByProject,
-									[projectId]:
-										state.selectedSessionByProject[projectId] ===
-										DRAFT_SESSION_ID
-											? canonicalSessionId
-											: (state.selectedSessionByProject[projectId] ?? null),
-								},
-							}));
-						}
-					}
-				}
-				identityPrepared = true;
-			}
 			if (rootPrepared) return;
 			const folders = await Effect.runPromise(client["workspace.list"]({}));
 			if (
@@ -393,8 +336,7 @@ export const stageCloudChat = (
 			[projectId]: [
 				session,
 				...(shell.sessionsByProject[projectId] ?? []).filter(
-					(candidate) =>
-						candidate.id !== session.id && candidate.id !== DRAFT_SESSION_ID,
+					(candidate) => candidate.id !== session.id,
 				),
 			],
 		},

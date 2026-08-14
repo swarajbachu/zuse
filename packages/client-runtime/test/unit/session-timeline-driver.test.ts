@@ -296,7 +296,7 @@ describe("shared session timeline resource driver", () => {
 		});
 		await waitUntil(() => failures.length === 1);
 		expect(test.view()).toMatchObject({
-			sync: "failed",
+			sync: "stale",
 			cursor: { epoch: "gap", version: 2 },
 		});
 		expect(failures[0]).toMatchObject({

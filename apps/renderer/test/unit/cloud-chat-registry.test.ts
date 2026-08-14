@@ -19,7 +19,6 @@ import {
 	optimisticallyUnarchiveCloudChat,
 	reconcileCloudChatCatalog,
 	registerCloudChat,
-	repairCloudChatInitialSession,
 	useCloudChatCatalogStore,
 } from "../../src/lib/cloud-workspace-catalog.ts";
 
@@ -100,42 +99,6 @@ describe("cloud chat catalog", () => {
 		expect(cloudSummaryForSession(current.initialSessionId)).toBe(current);
 		expect(localProjectForCloudChat("chat-a")).toBe("local-project-a");
 		expect(localProjectForCloudChat("chat-b")).toBe("local-project-b");
-	});
-
-	it("repairs a legacy draft session identity without allowing catalog regression", () => {
-		const draft = summary({
-			workspaceId: "environment-draft",
-			chatId: "chat-draft",
-			sessionId: "draft-session",
-			revision: 1,
-		});
-		registerCloudChat(draft);
-
-		const repaired = repairCloudChatInitialSession(
-			draft.workspaceId,
-			draft.initialSessionId,
-			AgentSessionId.make("session-canonical"),
-		);
-		expect(repaired?.initialSessionId).toBe("session-canonical");
-
-		registerCloudChat(
-			summary({
-				workspaceId: draft.workspaceId,
-				chatId: draft.chatId,
-				sessionId: "draft-session",
-				revision: 2,
-			}),
-		);
-		expect(
-			cloudSummaryForEnvironment(draft.workspaceId)?.initialSessionId,
-		).toBe("session-canonical");
-		expect(
-			repairCloudChatInitialSession(
-				draft.workspaceId,
-				AgentSessionId.make("some-stale-session"),
-				AgentSessionId.make("wrong-session"),
-			),
-		).toBeNull();
 	});
 
 	it("derives attachment activity from the shared connection supervisor", () => {

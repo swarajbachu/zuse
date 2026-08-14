@@ -192,7 +192,6 @@ export const makeSessionTimelineResourceDriver = <
 				Effect.catchCause((cause) =>
 					Effect.sync(() => {
 						if (active && !Cause.hasInterruptsOnly(cause)) {
-							context.emit({ sync: "failed" });
 							options.reportFailure(
 								ref.environmentId,
 								context.generation,
