@@ -382,10 +382,7 @@ export const openCloudChat = (
 
 const workspaceNeedsWake = (
 	workspace: Pick<CloudWorkspace, "state">,
-): boolean =>
-	workspace.state === "paused" ||
-	workspace.state === "failed" ||
-	workspace.state === "resuming";
+): boolean => workspace.state === "paused" || workspace.state === "failed";
 
 /** Cloud is an EnvironmentResolver capability, not a second message path. */
 export const ensureCloudWorkspaceAttached = (

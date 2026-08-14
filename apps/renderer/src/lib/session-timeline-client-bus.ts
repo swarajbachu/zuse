@@ -1148,6 +1148,7 @@ const createBus = (): ClientBus<MemoizeClient> => {
 		driverFor: (key) => {
 			if (key.kind === "session-timeline") {
 				return makeTimelineDriver((environmentId, generation, cause) => {
+					if (!isRpcClientTransportError(cause)) return;
 					bus.reportConnectionFault(
 						environmentId,
 						{ phase: "failed", message: faultFor(cause).message },
@@ -1380,7 +1381,10 @@ export const useSessionTimelineResource = (
 	activation: ResourceActivation = "connect",
 ): ResourceView<SessionTimelineProjection> => {
 	const key = useMemo(
-		() => (ref === null ? null : sessionTimelineResourceKey(ref)),
+		() =>
+			ref === null || ref.sessionId === "draft-session"
+				? null
+				: sessionTimelineResourceKey(ref),
 		[ref?.environmentId, ref?.sessionId],
 	);
 	const bus = getRendererClientBus();
