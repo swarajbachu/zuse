@@ -81,6 +81,7 @@ import {
 	removeImageChipEffect,
 	updateImageChipEffect,
 } from "~/lib/codemirror/composer-chips";
+import { saveContextText } from "~/lib/context-handoff.ts";
 import {
 	chooseComposerSubmitRoute,
 	deliverNativePlanFeedback,
@@ -91,7 +92,6 @@ import {
 	shouldSendPlanFeedbackNow,
 } from "~/lib/plan-feedback-routing";
 import { attachmentUrl } from "~/lib/platform-capabilities";
-import { saveContextText } from "~/lib/context-handoff.ts";
 import { readStorageWithLegacy } from "~/lib/storage-keys";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import {
@@ -1082,7 +1082,8 @@ export function ChatComposer({
 				? chooseComposerSubmitRoute({
 						sendPlanFeedbackNow,
 						goalSendMode,
-						shouldQueue: inFlight || holdForAgent,
+						shouldQueue:
+							inFlight || holdForAgent || timeline.view.sync !== "live",
 					})
 				: null;
 		clearComposer(view, {

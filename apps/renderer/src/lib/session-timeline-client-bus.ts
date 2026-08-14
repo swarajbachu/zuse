@@ -1023,16 +1023,13 @@ export const registerEnvironmentActivation = (
 
 const faultFor = (cause: unknown): EnvironmentFault => {
 	const code =
-		typeof cause === "object" &&
-		cause !== null &&
-		"code" in cause &&
-		typeof cause.code === "string"
-			? cause.code
-			: null;
+		typeof cause === "object" && cause !== null && "code" in cause
+			? String(cause.code)
+			: "";
 	const message =
 		cause instanceof Error && cause.message !== ""
 			? cause.message
-			: (code ?? String(cause));
+			: code || String(cause);
 	const lower = message.toLowerCase();
 	const phase: EnvironmentFault["phase"] =
 		globalThis.navigator?.onLine === false

@@ -71,6 +71,8 @@ export function CloudConnectionNotice() {
 	const presentation = cloudConnectionPresentation(summary, activity);
 	if (presentation === "hidden") return null;
 	const blockedAuth = shell.connection === "blocked-auth";
+	const retry = () =>
+		retryRendererEnvironmentConnection(EnvironmentId.make(summary.workspaceId));
 	const value = blockedAuth
 		? {
 				title: "Sign in required",
@@ -106,16 +108,8 @@ export function CloudConnectionNotice() {
 					disabled={signingIn}
 					className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 					onClick={() => {
-						if (blockedAuth)
-							void signIn().then(() =>
-								retryRendererEnvironmentConnection(
-									EnvironmentId.make(summary.workspaceId),
-								),
-							);
-						else
-							retryRendererEnvironmentConnection(
-								EnvironmentId.make(summary.workspaceId),
-							);
+						if (blockedAuth) void signIn().then(retry);
+						else retry();
 					}}
 				>
 					<HugeiconsIcon icon={RefreshIcon} className="size-3.5" />

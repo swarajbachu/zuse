@@ -108,11 +108,6 @@ export const isRecoveredPreAckSessionError = (
 	timeline.data !== null &&
 	timeline.sync === "live";
 
-/** Whether a persisted queue item may immediately participate in flushing. */
-export const queuedMessageShouldFlush = (options?: {
-	readonly flush?: boolean;
-}): boolean => options?.flush !== false;
-
 /** A persisted optimistic row is runnable only after its durable add receipt. */
 export const optimisticQueuedMessageReady = (options?: {
 	readonly persist?: boolean;
@@ -348,9 +343,6 @@ export const persistQueuedMessage = async (
 		);
 		markRendererInteraction(ref.sessionId, "queue-persisted");
 		setSessionError(ref, null);
-		if (queuedMessageShouldFlush(options)) {
-			flushSessionQueue(ref, options?.providerId);
-		}
 	} catch (cause) {
 		if (!retryableFailure(ref, commandId)) {
 			setSessionError(ref, classifyError(cause, options?.providerId));

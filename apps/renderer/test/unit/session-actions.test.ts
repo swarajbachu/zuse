@@ -4,7 +4,6 @@ import {
 	classifyMessage,
 	isRecoveredPreAckSessionError,
 	optimisticQueuedMessageReady,
-	queuedMessageShouldFlush,
 } from "../../src/lib/session-actions.ts";
 
 describe("session actions", () => {
@@ -23,12 +22,6 @@ describe("session actions", () => {
 			kind: "network",
 			message: "WebSocket closed while the laptop was offline",
 		});
-	});
-
-	it("does not flush a held queue item before its startup context is ready", () => {
-		expect(queuedMessageShouldFlush()).toBe(true);
-		expect(queuedMessageShouldFlush({ flush: true })).toBe(true);
-		expect(queuedMessageShouldFlush({ flush: false })).toBe(false);
 	});
 
 	it("does not expose a queued message as runnable before its add receipt", () => {
