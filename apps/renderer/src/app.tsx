@@ -30,6 +30,7 @@ import {
 import { AppearanceController } from "./lib/appearance.tsx";
 import { installClientBusOnlineBridge } from "./lib/client-bus-online.ts";
 import { closeActiveChatTab } from "./lib/close-chat-tab.ts";
+import { useCloudChatSummaryForSession } from "./lib/cloud-workspaces.ts";
 import { useActiveSessionById } from "./lib/environment-entity-hooks.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
 import { useSettingsStore } from "./lib/settings-client-bus.ts";
@@ -386,15 +387,19 @@ function MainShell() {
 	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
+	const selectedCloudSummary = useCloudChatSummaryForSession(selectedSessionId);
+	const selectedEnvironmentId = EnvironmentId.make(
+		selectedCloudSummary?.workspaceId ?? activeEnvironmentId,
+	);
 	const selectedChatRef = useMemo(
 		() =>
 			selectedChatId === null
 				? null
 				: {
-						environmentId: EnvironmentId.make(activeEnvironmentId),
+						environmentId: selectedEnvironmentId,
 						chatId: selectedChatId,
 					},
-		[activeEnvironmentId, selectedChatId],
+		[selectedChatId, selectedEnvironmentId],
 	);
 	const selectedChatKey =
 		selectedChatRef === null ? null : rightPaneKey(selectedChatRef);
@@ -405,7 +410,7 @@ function MainShell() {
 	);
 	const selectedSession = useActiveSessionById(selectedSessionId);
 	const directoryStatus = useChatDirectoryStatus(
-		EnvironmentId.make(activeEnvironmentId),
+		selectedEnvironmentId,
 		pendingCreation === null ? (selectedSession?.chatId ?? null) : null,
 	);
 	const directoryUnavailable = directoryStatus?._tag === "unavailable";
@@ -620,7 +625,7 @@ function MainShell() {
 						{showMainTabs ? (
 							<Suspense fallback={<TabsFallback />}>
 								<MainTabs
-									environmentId={EnvironmentId.make(activeEnvironmentId)}
+									environmentId={selectedEnvironmentId}
 									projectId={selectedFolderId}
 									emptyLabel={emptyTabLabel}
 								/>
@@ -643,7 +648,7 @@ function MainShell() {
 										<Suspense fallback={<SurfaceFallback />}>
 											<ChatView
 												sessionId={selectedSessionId}
-												environmentId={EnvironmentId.make(activeEnvironmentId)}
+												environmentId={selectedEnvironmentId}
 												endInset={composerInset}
 											/>
 										</Suspense>
@@ -677,9 +682,7 @@ function MainShell() {
 													<ChatComposer
 														key={selectedSession.id}
 														session={selectedSession}
-														environmentId={EnvironmentId.make(
-															activeEnvironmentId,
-														)}
+														environmentId={selectedEnvironmentId}
 														constrain={false}
 														directoryUnavailable={directoryUnavailable}
 													/>

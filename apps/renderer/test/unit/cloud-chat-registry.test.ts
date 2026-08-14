@@ -14,6 +14,7 @@ import {
 	cloudSummaryForSession,
 	compareCloudChatSummaryVersion,
 	localProjectForCloudChat,
+	reconcileCloudChatCatalog,
 	registerCloudChat,
 	useCloudChatCatalogStore,
 } from "../../src/lib/cloud-workspace-catalog.ts";
@@ -167,5 +168,36 @@ describe("cloud chat catalog", () => {
 			summaryRevision: 4,
 			sessionHeadVersion: 8,
 		});
+	});
+
+	it("removes deleted workspaces during authoritative reconciliation", () => {
+		const retained = summary({
+			workspaceId: "environment-a",
+			chatId: "chat-a",
+			sessionId: "session-a",
+			revision: 2,
+		});
+		const deleted = summary({
+			workspaceId: "environment-b",
+			chatId: "chat-b",
+			sessionId: "session-b",
+			revision: 1,
+		});
+		registerCloudChat(retained, FolderId.make("local-project-a"));
+		registerCloudChat(deleted, FolderId.make("local-project-b"));
+
+		const removed = reconcileCloudChatCatalog([
+			summary({
+				workspaceId: "environment-a",
+				chatId: "chat-a",
+				sessionId: "session-a",
+				revision: 1,
+			}),
+		]);
+
+		expect(removed).toEqual([deleted]);
+		expect(cloudSummaryForEnvironment("environment-a")).toBe(retained);
+		expect(cloudSummaryForEnvironment("environment-b")).toBeNull();
+		expect(localProjectForCloudChat("chat-b")).toBeNull();
 	});
 });

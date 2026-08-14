@@ -24,6 +24,7 @@ import {
 import { registerEnvironmentWake } from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useChatsStore } from "../store/chats.ts";
+import { useSessionsStore } from "../store/sessions.ts";
 import {
 	cloudSummaryForChat,
 	cloudSummaryForEnvironment,
@@ -31,6 +32,7 @@ import {
 	compareCloudChatSummaryVersion,
 	localProjectForCloudChat,
 	localProjectForCloudEnvironment,
+	reconcileCloudChatCatalog,
 	registerCloudChat,
 	registerCloudChatCatalogRefresh,
 	useCloudChatCatalogStore,
@@ -319,6 +321,58 @@ export const summaryFromLaunch = (input: {
 	updatedAt: input.workspace.updatedAt,
 });
 
+const removeDeletedCloudPlaceholders = (
+	removed: ReadonlyArray<CloudChatSummary>,
+): void => {
+	if (removed.length === 0) return;
+	const chatIds = new Set(removed.map((summary) => summary.chatId));
+	const sessionIds = new Set(
+		removed.map((summary) => summary.initialSessionId),
+	);
+	overlayActiveEnvironmentShell((shell) => ({
+		...shell,
+		chatsByProject: Object.fromEntries(
+			Object.entries(shell.chatsByProject).map(([projectId, chats]) => [
+				projectId,
+				chats.filter((chat) => !chatIds.has(chat.id)),
+			]),
+		),
+		sessionsByProject: Object.fromEntries(
+			Object.entries(shell.sessionsByProject).map(([projectId, sessions]) => [
+				projectId,
+				sessions.filter((session) => !sessionIds.has(session.id)),
+			]),
+		),
+	}));
+	useChatsStore.setState((state) => ({
+		selectedChatId:
+			state.selectedChatId !== null && chatIds.has(state.selectedChatId)
+				? null
+				: state.selectedChatId,
+		selectedChatByProject: Object.fromEntries(
+			Object.entries(state.selectedChatByProject).map(([projectId, chatId]) => [
+				projectId,
+				chatId !== null && chatIds.has(chatId) ? null : chatId,
+			]),
+		),
+	}));
+	useSessionsStore.setState((state) => ({
+		selectedSessionId:
+			state.selectedSessionId !== null &&
+			sessionIds.has(state.selectedSessionId)
+				? null
+				: state.selectedSessionId,
+		selectedSessionByProject: Object.fromEntries(
+			Object.entries(state.selectedSessionByProject).map(
+				([projectId, sessionId]) => [
+					projectId,
+					sessionId !== null && sessionIds.has(sessionId) ? null : sessionId,
+				],
+			),
+		),
+	}));
+};
+
 export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 	loading: false,
 	error: null,
@@ -331,6 +385,7 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 				const result = await Effect.runPromise(
 					client["cloud.chats.list"]({ scope: "all" }),
 				);
+				removeDeletedCloudPlaceholders(reconcileCloudChatCatalog(result.chats));
 				for (const summary of result.chats) {
 					registerCloudChat(summary);
 					const accepted =
@@ -364,13 +419,15 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 registerCloudChatCatalogRefresh(() => useCloudChatsStore.getState().hydrate());
 
 export const useCloudChatSummaryForSession = (
-	sessionId: SessionId,
+	sessionId: SessionId | null,
 ): CloudChatSummary | null => {
-	const registered = cloudSummaryForSession(sessionId);
-	return useCloudChatCatalogStore(
-		(state) =>
-			state.summaries.find(
-				(summary) => summary.initialSessionId === sessionId,
-			) ?? registered,
+	const registered =
+		sessionId === null ? null : cloudSummaryForSession(sessionId);
+	return useCloudChatCatalogStore((state) =>
+		sessionId === null
+			? null
+			: (state.summaries.find(
+					(summary) => summary.initialSessionId === sessionId,
+				) ?? registered),
 	);
 };

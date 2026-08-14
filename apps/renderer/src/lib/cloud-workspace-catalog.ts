@@ -91,6 +91,39 @@ export const registerCloudChat = (
 	}));
 };
 
+/**
+ * Reconciles a successful `scope=all` response. Relay owns catalog membership,
+ * so a workspace omitted from that authoritative response was deleted and must
+ * not survive as a renderer-only history row. Versions for workspaces which
+ * are still present remain monotonic.
+ */
+export const reconcileCloudChatCatalog = (
+	incoming: ReadonlyArray<CloudChatSummary>,
+): ReadonlyArray<CloudChatSummary> => {
+	const incomingIds = new Set(incoming.map((summary) => summary.workspaceId));
+	const previous = useCloudChatCatalogStore.getState();
+	const removed = previous.summaries.filter(
+		(summary) => !incomingIds.has(summary.workspaceId),
+	);
+	const summaries = incoming.flatMap((summary) => {
+		const current = previous.summaries.find(
+			(candidate) => candidate.workspaceId === summary.workspaceId,
+		);
+		return mergeCloudChatSummaries(current === undefined ? [] : [current], [
+			summary,
+		]);
+	});
+	useCloudChatCatalogStore.setState({
+		summaries: sortSummaries(summaries),
+		localProjectByEnvironment: Object.fromEntries(
+			Object.entries(previous.localProjectByEnvironment).filter(
+				([environmentId]) => incomingIds.has(environmentId),
+			),
+		),
+	});
+	return removed;
+};
+
 export const cloudSummaryForChat = (chatId: string): CloudChatSummary | null =>
 	useCloudChatCatalogStore
 		.getState()
