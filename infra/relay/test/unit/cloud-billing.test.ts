@@ -132,14 +132,15 @@ describe("cloud billing", () => {
 				receivedAtMs: 10,
 				expiresAtMs: 20,
 			});
-			const usage = (periodId: string) => ({
-				entryId: `e2b:event-1:${periodId}`,
+			const usage = (eventId: string, periodId: string) => ({
+				entryId: `e2b:${eventId}:${periodId}`,
 				periodId,
 				accountId: "account-1",
 				resourceKind: "workspace" as const,
 				resourceId: "workspace-1",
 				provider: "e2b",
-				providerEventId: `event-1:${periodId}`,
+				providerEventId: `${eventId}:${periodId}`,
+				providerExecutionId: "execution-1",
 				startedAt: 0,
 				endedAt: 10,
 				vcpuCount: 2,
@@ -151,22 +152,44 @@ describe("cloud billing", () => {
 			const first = yield* store.recordProviderExecutionBatch({
 				provider: "e2b",
 				eventId: "event-1",
+				providerExecutionId: "execution-1",
 				finalizedAtMs: 10,
-				usage: [usage("period-1")],
+				usage: [usage("event-1", "period-1")],
 			});
 			const afterNewPeriod = yield* store.recordProviderExecutionBatch({
 				provider: "e2b",
 				eventId: "event-1",
+				providerExecutionId: "execution-1",
 				finalizedAtMs: 20,
-				usage: [usage("period-1"), usage("period-2")],
+				usage: [usage("event-1", "period-1"), usage("event-1", "period-2")],
 			});
-			const finalized = yield* store.isProviderEventFinalized("e2b", "event-1");
-			return { first, afterNewPeriod, finalized };
+			yield* store.recordProviderEvent({
+				provider: "e2b",
+				eventId: "event-2",
+				type: "killed",
+				payload: {},
+				receivedAtMs: 20,
+				expiresAtMs: 30,
+			});
+			const sameExecution = yield* store.recordProviderExecutionBatch({
+				provider: "e2b",
+				eventId: "event-2",
+				providerExecutionId: "execution-1",
+				finalizedAtMs: 20,
+				usage: [usage("event-2", "period-2")],
+			});
+			const finalized = yield* store.isProviderEventFinalized(
+				"e2b",
+				"event-2",
+				"execution-1",
+			);
+			return { first, afterNewPeriod, sameExecution, finalized };
 		}).pipe(Effect.provide(CloudBillingStoreMemory), Effect.runPromise);
 
 		expect(result).toEqual({
 			first: true,
 			afterNewPeriod: false,
+			sameExecution: false,
 			finalized: true,
 		});
 	});

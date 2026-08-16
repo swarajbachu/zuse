@@ -44,6 +44,7 @@ export interface CloudBillingStoreApi {
 	readonly isProviderEventFinalized: (
 		provider: string,
 		eventId: string,
+		providerExecutionId?: string,
 	) => Effect.Effect<boolean>;
 	readonly priceWindows: (
 		provider: string,
@@ -120,6 +121,7 @@ export interface CloudBillingStoreApi {
 	readonly recordProviderExecutionBatch: (input: {
 		readonly provider: string;
 		readonly eventId: string;
+		readonly providerExecutionId?: string;
 		readonly finalizedAtMs: number;
 		readonly usage: ReadonlyArray<CloudBillingUsageRecord>;
 	}) => Effect.Effect<boolean>;
@@ -348,10 +350,10 @@ export const CloudBillingStorePg = Layer.effect(
 					Effect.map((rows) => rows[0]?.present ?? false),
 					Effect.orDie,
 				),
-			isProviderEventFinalized: (provider, eventId) =>
+			isProviderEventFinalized: (provider, eventId, providerExecutionId) =>
 				sql<{
 					readonly finalized: boolean;
-				}>`SELECT EXISTS(SELECT 1 FROM relay_provider_event_finalizations WHERE provider = ${provider} AND event_id = ${eventId}) AS finalized`.pipe(
+				}>`SELECT EXISTS(SELECT 1 FROM relay_provider_event_finalizations WHERE provider = ${provider} AND (event_id = ${eventId} OR (${providerExecutionId ?? null}::text IS NOT NULL AND provider_execution_id = ${providerExecutionId ?? null}))) AS finalized`.pipe(
 					Effect.map((rows) => rows[0]?.finalized ?? false),
 					Effect.orDie,
 				),
@@ -469,7 +471,11 @@ export const CloudBillingStorePg = Layer.effect(
 				Effect.gen(function* () {
 					if (
 						batch.usage.length === 0 ||
-						batch.usage.some((item) => item.provider !== batch.provider)
+						batch.usage.some(
+							(item) =>
+								item.provider !== batch.provider ||
+								item.providerExecutionId !== batch.providerExecutionId,
+						)
 					)
 						throw new Error("invalid provider execution batch");
 					const eventRows = yield* sql<{
@@ -479,7 +485,7 @@ export const CloudBillingStorePg = Layer.effect(
 						throw new Error("provider usage event missing");
 					const finalizedRows = yield* sql<{
 						readonly finalized: boolean;
-					}>`SELECT EXISTS(SELECT 1 FROM relay_provider_event_finalizations WHERE provider = ${batch.provider} AND event_id = ${batch.eventId}) AS finalized`;
+					}>`SELECT EXISTS(SELECT 1 FROM relay_provider_event_finalizations WHERE provider = ${batch.provider} AND (event_id = ${batch.eventId} OR (${batch.providerExecutionId ?? null}::text IS NOT NULL AND provider_execution_id = ${batch.providerExecutionId ?? null}))) AS finalized`;
 					if (finalizedRows[0]?.finalized === true) return false;
 					let metered = false;
 					for (const input of batch.usage) {
@@ -567,8 +573,8 @@ export const CloudBillingStorePg = Layer.effect(
 						}
 						metered = true;
 					}
-					yield* sql`INSERT INTO relay_provider_event_finalizations (provider, event_id, finalized_at, expires_at)
-					VALUES (${batch.provider}, ${batch.eventId}, ${batch.finalizedAtMs}, ${batch.finalizedAtMs + 7 * 365 * 24 * 60 * 60 * 1_000}) ON CONFLICT DO NOTHING`;
+					yield* sql`INSERT INTO relay_provider_event_finalizations (provider, event_id, provider_execution_id, finalized_at, expires_at)
+					VALUES (${batch.provider}, ${batch.eventId}, ${batch.providerExecutionId ?? null}, ${batch.finalizedAtMs}, ${batch.finalizedAtMs + 7 * 365 * 24 * 60 * 60 * 1_000}) ON CONFLICT DO NOTHING`;
 					return metered;
 				}).pipe(sql.withTransaction, Effect.orDie),
 			reserveCost: (input) =>

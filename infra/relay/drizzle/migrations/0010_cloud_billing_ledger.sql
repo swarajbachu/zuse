@@ -24,10 +24,11 @@ CREATE TABLE IF NOT EXISTS "relay_provider_usage_events" (
 );
 CREATE INDEX IF NOT EXISTS "relay_provider_usage_events_expiry_idx" ON "relay_provider_usage_events" ("expires_at");
 CREATE TABLE IF NOT EXISTS "relay_provider_event_finalizations" (
- "provider" text NOT NULL, "event_id" text NOT NULL, "finalized_at" bigint NOT NULL,
+ "provider" text NOT NULL, "event_id" text NOT NULL, "provider_execution_id" text, "finalized_at" bigint NOT NULL,
  "expires_at" bigint NOT NULL, PRIMARY KEY ("provider","event_id")
 );
 CREATE INDEX IF NOT EXISTS "relay_provider_event_finalizations_expiry_idx" ON "relay_provider_event_finalizations" ("expires_at");
+CREATE UNIQUE INDEX IF NOT EXISTS "relay_provider_event_finalizations_execution_idx" ON "relay_provider_event_finalizations" ("provider","provider_execution_id");
 CREATE TABLE IF NOT EXISTS "relay_provider_event_deliveries" (
  "provider" text NOT NULL, "delivery_id" text NOT NULL, "event_id" text NOT NULL,
  "source" text NOT NULL, "status" text NOT NULL, "received_at" bigint NOT NULL,
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS "relay_cloud_billing_usage" (
  "provider_cost_micros" bigint NOT NULL, "status" text NOT NULL, "created_at" bigint NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "relay_cloud_billing_usage_provider_event_idx" ON "relay_cloud_billing_usage" ("provider","provider_event_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "relay_cloud_billing_usage_provider_execution_idx" ON "relay_cloud_billing_usage" ("provider","provider_execution_id","period_id");
 CREATE INDEX IF NOT EXISTS "relay_cloud_billing_usage_period_idx" ON "relay_cloud_billing_usage" ("period_id","started_at");
 CREATE TABLE IF NOT EXISTS "relay_cloud_billing_reservations" (
  "period_id" text NOT NULL, "account_id" text NOT NULL, "resource_kind" text NOT NULL,

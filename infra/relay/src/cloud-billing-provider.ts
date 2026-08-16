@@ -81,6 +81,7 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 			yield* billingStore.isProviderEventFinalized(
 				evidence.provider,
 				evidence.eventId,
+				evidence.providerExecutionId,
 			)
 		)
 			return { metered: false };
@@ -131,6 +132,7 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 			console.warn("[cloud-billing] provider execution has no period", {
 				provider: evidence.provider,
 				eventId: evidence.eventId,
+				providerExecutionId: evidence.providerExecutionId,
 				accountId: resource.accountId,
 				startedAt,
 				endedAt: evidence.endedAtMs,

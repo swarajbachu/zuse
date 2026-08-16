@@ -681,12 +681,17 @@ export const relayProviderEventFinalizations = pgTable(
 	{
 		provider: text("provider").notNull(),
 		eventId: text("event_id").notNull(),
+		providerExecutionId: text("provider_execution_id"),
 		finalizedAt: bigint("finalized_at", { mode: "number" }).notNull(),
 		expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
 	},
 	(table) => [
 		primaryKey({ columns: [table.provider, table.eventId] }),
 		index("relay_provider_event_finalizations_expiry_idx").on(table.expiresAt),
+		uniqueIndex("relay_provider_event_finalizations_execution_idx").on(
+			table.provider,
+			table.providerExecutionId,
+		),
 	],
 );
 
@@ -734,6 +739,11 @@ export const relayCloudBillingUsage = pgTable(
 		uniqueIndex("relay_cloud_billing_usage_provider_event_idx").on(
 			table.provider,
 			table.providerEventId,
+		),
+		uniqueIndex("relay_cloud_billing_usage_provider_execution_idx").on(
+			table.provider,
+			table.providerExecutionId,
+			table.periodId,
 		),
 		index("relay_cloud_billing_usage_period_idx").on(
 			table.periodId,

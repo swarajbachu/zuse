@@ -78,8 +78,14 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 	return CloudBillingStore.of({
 		hasProviderEvent: (provider, eventId) =>
 			Effect.succeed(events.has(`${provider}:${eventId}`)),
-		isProviderEventFinalized: (provider, eventId) =>
-			Effect.succeed(finalizedEvents.has(`${provider}:${eventId}`)),
+		isProviderEventFinalized: (provider, eventId, providerExecutionId) =>
+			Effect.succeed(
+				finalizedEvents.has(`${provider}:event:${eventId}`) ||
+					(providerExecutionId !== undefined &&
+						finalizedEvents.has(
+							`${provider}:execution:${providerExecutionId}`,
+						)),
+			),
 		priceWindows: (_provider, startedAtMs, endedAtMs) =>
 			Effect.succeed([
 				{
@@ -167,13 +173,26 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 			Effect.sync(() => {
 				if (
 					batch.usage.length === 0 ||
-					batch.usage.some((item) => item.provider !== batch.provider)
+					batch.usage.some(
+						(item) =>
+							item.provider !== batch.provider ||
+							item.providerExecutionId !== batch.providerExecutionId,
+					)
 				)
 					throw new Error("invalid provider execution batch");
-				const eventKey = `${batch.provider}:${batch.eventId}`;
-				if (!events.has(eventKey))
+				const rawEventKey = `${batch.provider}:${batch.eventId}`;
+				const eventKey = `${batch.provider}:event:${batch.eventId}`;
+				const executionKey =
+					batch.providerExecutionId === undefined
+						? undefined
+						: `${batch.provider}:execution:${batch.providerExecutionId}`;
+				if (!events.has(rawEventKey))
 					throw new Error("provider usage event missing");
-				if (finalizedEvents.has(eventKey)) return false;
+				if (
+					finalizedEvents.has(eventKey) ||
+					(executionKey !== undefined && finalizedEvents.has(executionKey))
+				)
+					return false;
 				let metered = false;
 				for (const input of batch.usage) {
 					if (usage.has(input.entryId)) continue;
@@ -184,6 +203,7 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 					metered = true;
 				}
 				finalizedEvents.add(eventKey);
+				if (executionKey !== undefined) finalizedEvents.add(executionKey);
 				return metered;
 			}),
 		reserveCost: (input) =>
