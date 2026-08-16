@@ -32,6 +32,14 @@ const PERIODIC_FALLBACK_MS = 60_000;
 const ERROR_BACKOFF_MIN_MS = 5_000;
 const ERROR_BACKOFF_MAX_MS = 60_000;
 const TICKET_STALE_MARGIN_MS = 10 * 60_000;
+const GENERATED_SYNC_EXCLUDES = [
+	"node_modules",
+	".cache",
+	".turbo",
+	".next/cache",
+	"__pycache__",
+	".pytest_cache",
+] as const;
 
 export type CloudSyncState = "idle" | "syncing" | "in-sync" | "error";
 
@@ -72,6 +80,7 @@ export const rsyncArgs = (input: {
 	"--delete",
 	"--exclude=.git/",
 	`--exclude=${SYNC_MARKER_FILE}`,
+	...GENERATED_SYNC_EXCLUDES.map((path) => `--exclude=${path}/`),
 	...(input.gitignoreFilter ? ["--filter=:- .gitignore"] : []),
 	...(!input.gitignoreFilter
 		? ["--rsync-path=rsync --filter=':- .gitignore'"]
@@ -356,6 +365,7 @@ const streamTarArchive = (
 				"--exclude=.git",
 				"--exclude-vcs-ignores",
 				`--exclude=${SYNC_MARKER_FILE}`,
+				...GENERATED_SYNC_EXCLUDES.map((path) => `--exclude=${path}`),
 				"-czf",
 				"-",
 				".",
