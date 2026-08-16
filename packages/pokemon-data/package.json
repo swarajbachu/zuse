@@ -10,6 +10,16 @@
 			"types": "./src/index.ts",
 			"import": "./src/index.ts",
 			"require": "./src/index.ts"
+		},
+		"./name-allocator": {
+			"types": "./src/name-allocator.ts",
+			"import": "./src/name-allocator.ts",
+			"require": "./src/name-allocator.ts"
+		},
+		"./branch-catalog": {
+			"types": "./src/branch-catalog.ts",
+			"import": "./src/branch-catalog.ts",
+			"require": "./src/branch-catalog.ts"
 		}
 	},
 	"scripts": {

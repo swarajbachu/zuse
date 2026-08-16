@@ -84,6 +84,25 @@ const sshConfigPath = (): string => join(homedir(), ".zuse", "ssh", "config");
 const ticketPath = (workspaceId: string): string =>
 	join(homedir(), ".zuse", "ssh", "tickets", `${workspaceId}.json`);
 
+export const cloudSyncDefaultPath = (
+	home: string,
+	repository: unknown,
+	branch: unknown,
+): string | null => {
+	if (typeof repository !== "string" || typeof branch !== "string") return null;
+	const repositoryName = repository
+		.split(/[\\/]/u)
+		.at(-1)
+		?.replace(/\.git$/u, "");
+	if (repositoryName === undefined) return null;
+	const segments = [repositoryName, ...branch.split("/")];
+	return segments.some(
+		(segment) => !/^(?!\.{1,2}$)[A-Za-z0-9._-]+$/u.test(segment),
+	)
+		? null
+		: join(home, ".zuse", "cloud", ...segments);
+};
+
 const ticketFresh = async (workspaceId: string): Promise<boolean> => {
 	try {
 		const parsed = JSON.parse(

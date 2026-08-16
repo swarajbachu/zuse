@@ -7,12 +7,20 @@ import { describe, expect, test } from "vitest";
 import {
 	CloudSyncManager,
 	type CloudSyncStatus,
+	cloudSyncDefaultPath,
 	rsyncArgs,
 	SYNC_MARKER_FILE,
 	supportsGitignoreFilter,
 } from "../../src/sync/cloud-sync-service.ts";
 
 describe("cloud sync service", () => {
+	test("uses the managed repository and branch path", () => {
+		expect(cloudSyncDefaultPath("/Users/me", "owner/zuse.git", "pikachu")).toBe(
+			"/Users/me/.zuse/cloud/zuse/pikachu",
+		);
+		expect(cloudSyncDefaultPath("/Users/me", "zuse", "../escape")).toBeNull();
+	});
+
 	test("rsync arguments mirror one-way with .git and marker excluded", () => {
 		const args = rsyncArgs({
 			hostAlias: "zuse-workspace_abc",

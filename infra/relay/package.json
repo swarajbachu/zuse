@@ -31,6 +31,7 @@
 		"@zuse/billing-providers": "*",
 		"@zuse/contracts": "*",
 		"@zuse/machine-providers": "*",
+		"@zuse/pokemon-data": "*",
 		"@zuse/sandbox-providers": "*",
 		"@zuse/utils": "*",
 		"@effect/sql-pg": "catalog:",

@@ -12,9 +12,9 @@ import {
 	pokemonSpriteSourcesFor,
 	pokemonSpriteStem,
 } from "@zuse/pokemon-data";
+import { allocatePokemonName } from "@zuse/pokemon-data/name-allocator";
 import { Effect, Layer } from "effect";
 
-import { allocatePokemonName } from "../pokemon/allocator.ts";
 import { PokemonService } from "../pokemon/services/pokemon-service.ts";
 import { RepositorySettingsService } from "../repository-settings/services/repository-settings-service.ts";
 import { WorkspaceService } from "../workspace/services/workspace-service.ts";

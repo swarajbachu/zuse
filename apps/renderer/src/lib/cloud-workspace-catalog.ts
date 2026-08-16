@@ -11,7 +11,6 @@ import { cloudChatCatalogPersistence } from "./session-timeline-cache.ts";
 
 export type CloudSyncPrefs = Readonly<{
 	enabled: boolean;
-	localPath: string;
 }>;
 
 type CloudChatCatalogState = Readonly<{
@@ -86,15 +85,8 @@ const decodePersistedCatalog = (value: unknown): CloudChatCatalogState => {
 							typeof entry === "object" &&
 							entry !== null &&
 							"enabled" in entry &&
-							typeof entry.enabled === "boolean" &&
-							"localPath" in entry &&
-							typeof entry.localPath === "string"
-								? [
-										[
-											workspaceId,
-											{ enabled: entry.enabled, localPath: entry.localPath },
-										],
-									]
+							typeof entry.enabled === "boolean"
+								? [[workspaceId, { enabled: entry.enabled }]]
 								: [],
 						),
 					)

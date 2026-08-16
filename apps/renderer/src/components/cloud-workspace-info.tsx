@@ -22,7 +22,6 @@ import {
 	cloudSyncSupported,
 	disableCloudSync,
 	enableCloudSync,
-	pickCloudSyncFolder,
 	useCloudSyncStatus,
 } from "../lib/cloud-sync-client-bus.ts";
 import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
@@ -177,10 +176,7 @@ export function CloudWorkspaceOpenSshMenu({
 				await disableCloudSync(workspaceId);
 				return;
 			}
-			const localPath =
-				syncPrefs?.localPath ?? (await pickCloudSyncFolder()) ?? null;
-			if (localPath === null) return;
-			await enableCloudSync(workspaceId, localPath);
+			await enableCloudSync(workspaceId);
 		} catch (cause) {
 			toastManager.add({
 				type: "error",
@@ -296,9 +292,9 @@ export function CloudWorkspaceOpenSshMenu({
 									className={`size-1.5 shrink-0 rounded-full ${syncDotClass}`}
 								/>
 								<span className="shrink-0">{syncStateLabel}</span>
-								{syncPrefs !== null ? (
+								{syncStatus?.localPath != null ? (
 									<span className="min-w-0 flex-1 truncate text-right font-mono text-[10px]">
-										{displayPath(syncPrefs.localPath)}
+										{displayPath(syncStatus.localPath)}
 									</span>
 								) : null}
 							</div>

@@ -181,7 +181,10 @@ import {
 	sshTargetLaunch,
 } from "./ssh/cloud-ssh-service.ts";
 import { SshEnvironmentManager } from "./ssh/environment-service.ts";
-import { CloudSyncManager } from "./sync/cloud-sync-service.ts";
+import {
+	CloudSyncManager,
+	cloudSyncDefaultPath,
+} from "./sync/cloud-sync-service.ts";
 import { TailnetEnvironmentManager } from "./tailnet/environment-service.ts";
 import {
 	getIsInstallingUpdate,
@@ -2069,13 +2072,11 @@ async function createMainWindow() {
 		cloudSyncManager.requestSync(rawWorkspaceId);
 	});
 
-	ipcMain.handle("app:cloudSyncPickFolder", async () => {
-		const result = await dialog.showOpenDialog({
-			defaultPath: app.getPath("home"),
-			properties: ["openDirectory", "createDirectory", "showHiddenFiles"],
-		});
-		return result.canceled ? null : (result.filePaths[0] ?? null);
-	});
+	ipcMain.handle(
+		"app:cloudSyncDefaultPath",
+		(_event, repository: unknown, branch: unknown) =>
+			cloudSyncDefaultPath(app.getPath("home"), repository, branch),
+	);
 
 	ipcMain.handle("app:getMainDiagnostics", () => mainDiagnosticLogs.slice());
 	ipcMain.on("app:recordFatalDiagnostic", (event, payload: unknown) => {

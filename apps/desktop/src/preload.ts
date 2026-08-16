@@ -340,8 +340,12 @@ const bridge = {
 			ipcRenderer.invoke("app:cloudSyncConfigure", input) as Promise<unknown>,
 		cloudSyncRequest: (workspaceId: string) =>
 			ipcRenderer.invoke("app:cloudSyncRequest", workspaceId) as Promise<void>,
-		cloudSyncPickFolder: () =>
-			ipcRenderer.invoke("app:cloudSyncPickFolder") as Promise<string | null>,
+		cloudSyncDefaultPath: (repositoryName: string, branch: string) =>
+			ipcRenderer.invoke(
+				"app:cloudSyncDefaultPath",
+				repositoryName,
+				branch,
+			) as Promise<string | null>,
 		onCloudSyncStatus: (handler: (status: unknown) => void) => {
 			const wrapped = (_event: Electron.IpcRendererEvent, status: unknown) =>
 				handler(status);

@@ -5,6 +5,7 @@ import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { type CloudSyncStatus, getAppBridge } from "./bridge.ts";
 import { prepareCloudWorkspaceSsh } from "./cloud-ssh-client-bus.ts";
 import {
+	cloudSummaryForEnvironment,
 	cloudSyncPrefsFor,
 	setCloudSyncPrefs,
 } from "./cloud-workspace-catalog.ts";
@@ -98,10 +99,7 @@ const startWatcher = (workspaceId: string, entry: ActiveSync): void => {
 	entry.fiber = Effect.runFork(program);
 };
 
-const startSync = async (
-	workspaceId: string,
-	localPath: string,
-): Promise<void> => {
+const startSync = async (workspaceId: string): Promise<void> => {
 	if (active.has(workspaceId)) return;
 	const entry: ActiveSync = { fiber: null, stopped: false };
 	active.set(workspaceId, entry);
@@ -111,6 +109,16 @@ const startSync = async (
 		return;
 	}
 	try {
+		const summary = cloudSummaryForEnvironment(workspaceId);
+		const localPath =
+			summary === null
+				? null
+				: await app.cloudSyncDefaultPath?.(
+						summary.repositoryDisplayName,
+						summary.branch,
+					);
+		if (localPath == null)
+			throw new Error("Could not resolve the local cloud workspace path.");
 		setLocalStatus(workspaceId, {
 			enabled: true,
 			state: "syncing",
@@ -165,26 +173,16 @@ const stopSync = async (workspaceId: string): Promise<void> => {
 	}
 };
 
-export const enableCloudSync = async (
-	workspaceId: string,
-	localPath: string,
-): Promise<void> => {
-	setCloudSyncPrefs(workspaceId, { enabled: true, localPath });
-	await startSync(workspaceId, localPath);
+export const enableCloudSync = async (workspaceId: string): Promise<void> => {
+	setCloudSyncPrefs(workspaceId, { enabled: true });
+	await startSync(workspaceId);
 };
 
 export const disableCloudSync = async (workspaceId: string): Promise<void> => {
 	const prefs = cloudSyncPrefsFor(workspaceId);
-	// Remember the chosen folder so re-enabling doesn't re-prompt.
-	setCloudSyncPrefs(
-		workspaceId,
-		prefs === null ? null : { ...prefs, enabled: false },
-	);
+	setCloudSyncPrefs(workspaceId, prefs === null ? null : { enabled: false });
 	await stopSync(workspaceId);
 };
-
-export const pickCloudSyncFolder = (): Promise<string | null> =>
-	getAppBridge()?.cloudSyncPickFolder?.() ?? Promise.resolve(null);
 
 let wired = false;
 const wire = (): void => {
@@ -205,7 +203,7 @@ const wire = (): void => {
 				continue;
 			const prefs = cloudSyncPrefsFor(entry.environmentId);
 			if (prefs?.enabled === true && !active.has(entry.environmentId)) {
-				void startSync(entry.environmentId, prefs.localPath);
+				void startSync(entry.environmentId);
 			}
 		}
 	});

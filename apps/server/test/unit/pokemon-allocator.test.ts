@@ -1,9 +1,9 @@
 import type { PokemonCatalogEntry } from "@zuse/pokemon-data";
-import { describe, expect, it } from "vitest";
 import {
 	allocatePokemonName,
 	type PokemonNameAllocatorInput,
-} from "../../src/pokemon/allocator.ts";
+} from "@zuse/pokemon-data/name-allocator";
+import { describe, expect, it } from "vitest";
 
 const catalog = [
 	{

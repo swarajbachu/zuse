@@ -12,6 +12,8 @@ import {
 	CloudWorkspaceStartupTimings,
 	RelayPaths,
 } from "@zuse/contracts";
+import { POKEMON_BRANCH_CATALOG } from "@zuse/pokemon-data/branch-catalog";
+import { allocatePokemonName } from "@zuse/pokemon-data/name-allocator";
 import { SandboxProviders } from "@zuse/sandbox-providers";
 import { sha256Base64Url } from "@zuse/utils/cloud-transcript-crypto";
 import { Clock, Effect, Redacted, Schema } from "effect";
@@ -1876,7 +1878,20 @@ export const routeCloudWorkspaceRequest = (
 			const workspaceId = yield* randomToken("workspace", 12);
 			const chatId = `chat_${crypto.randomUUID()}`;
 			const initialSessionId = `s_${crypto.randomUUID()}`;
-			const branch = body.branch ?? `zuse/${workspaceId.slice(-8)}`;
+			const unavailableBranches = new Set(
+				(yield* store.listWorkspaces(
+					principal.accountId,
+					project.projectId,
+				)).map((workspace) => workspace.branch),
+			);
+			const branch =
+				body.branch ??
+				allocatePokemonName({
+					catalog: POKEMON_BRANCH_CATALOG,
+					unavailableNames: unavailableBranches,
+					usedPokemonNumbers: new Set(),
+				})?.name ??
+				workspaceId.slice(-8);
 			if (
 				!/^[A-Za-z0-9._/-]+$/u.test(branch) ||
 				!/^[A-Za-z0-9._/#-]+$/u.test(body.baseRef)
