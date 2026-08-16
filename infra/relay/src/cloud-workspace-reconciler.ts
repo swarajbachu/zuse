@@ -61,15 +61,15 @@ const WORKSPACE_RUNTIME_PROCESS = {
 	tag: "zuse-runtime",
 	legacyCommandMarkers: [
 		"zuse-workspace-bootstrap",
-		"/opt/zuse/current/bin.mjs",
-		"/usr/local/bin/zuse",
+		"/opt/zuse/current/bin.mjs serve",
+		"/usr/local/bin/zuse serve",
 	],
 } as const;
 const workspaceRuntimeProcessSelector = (workspace: CloudWorkspaceRecord) => ({
 	...WORKSPACE_RUNTIME_PROCESS,
 	...(workspace.requestConfig.runtimeProcessManaged === true
 		? {}
-		: { legacyCleanup: "same-user" as const }),
+		: { legacyCleanup: "matching-command" as const }),
 });
 export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; rm -f /var/lib/zuse/workspace/failed; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 ZUSE_RUNTIME_WIRE_PROTOCOL="\${ZUSE_RUNTIME_WIRE_PROTOCOL:?}" node /usr/local/lib/zuse/runtime-updater.mjs >/var/lib/zuse/workspace/runtime-update.log 2>&1; fi; if [ -f "$runtime" ]; then exec node "$runtime" serve; else exec "$fallback" serve; fi`;
 const providerLabel = (kind: "build" | "workspace", id: string): string =>

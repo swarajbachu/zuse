@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import {
 	CloudSyncManager,
@@ -145,6 +145,43 @@ describe("cloud sync service", () => {
 		expect(fallbackRuns).toBe(1);
 		expect(manager.status("workspace_old").state).toBe("in-sync");
 		manager.dispose();
+	});
+
+	test("preserves a pending change debounce when a sync completes", async () => {
+		vi.useFakeTimers();
+		try {
+			const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
+			let finishFirst = () => {};
+			let runs = 0;
+			const manager = new CloudSyncManager(
+				() => {},
+				async () => {
+					runs += 1;
+					if (runs > 1) return { code: 0, stderr: "" };
+					return new Promise((resolve) => {
+						finishFirst = () => resolve({ code: 0, stderr: "" });
+					});
+				},
+			);
+			await manager.configure({
+				workspaceId: "workspace_debounce",
+				enabled: true,
+				localPath: dir,
+				hostAlias: "zuse-workspace_debounce",
+				remotePath: "/home/zuse/workspace",
+			});
+			await vi.waitFor(() => expect(runs).toBe(1));
+			manager.requestSync("workspace_debounce");
+			finishFirst();
+			await vi.waitFor(() =>
+				expect(manager.status("workspace_debounce").state).toBe("in-sync"),
+			);
+			await vi.advanceTimersByTimeAsync(1_600);
+			await vi.waitFor(() => expect(runs).toBe(2));
+			manager.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	test("reports rsync failures with stderr tail and recovers on disable", async () => {

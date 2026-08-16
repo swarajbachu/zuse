@@ -506,16 +506,20 @@ export const makeE2bSandboxProvider = (
 					),
 				{ concurrency: "unbounded" },
 			);
-			const cleanupLegacyUserProcesses =
-				selector.legacyCleanup === "same-user" && !taggedProcessFound;
-			const replacement = cleanupLegacyUserProcesses
+			const cleanupLegacyCommands =
+				selector.legacyCleanup === "matching-command" &&
+				!taggedProcessFound &&
+				legacyMarkers.length > 0;
+			const replacement = cleanupLegacyCommands
 				? {
 						...input,
 						command: "/bin/bash",
 						args: [
 							"-lc",
-							'uid=$(id -u); for proc in /proc/[0-9]*; do pid=$(basename -- "$proc"); if [ "$pid" = "$$" ] || [ "$pid" = "$PPID" ]; then continue; fi; proc_uid=; while read -r key value _; do if [ "$key" = "Uid:" ]; then proc_uid=$value; break; fi; done < "$proc/status" 2>/dev/null || continue; if [ "$proc_uid" = "$uid" ]; then kill -KILL "$pid" 2>/dev/null || true; fi; done; exec "$@"',
+							'marker_count=$1; shift; for ((i=0; i<marker_count; i++)); do marker=$1; shift; for proc in /proc/[0-9]*; do pid=$(basename -- "$proc"); if [ "$pid" = "$$" ] || [ "$pid" = "$PPID" ]; then continue; fi; command=$(tr "\\0" " " < "$proc/cmdline" 2>/dev/null) || continue; if [[ "$command" == *"$marker"* ]]; then kill -KILL "$pid" 2>/dev/null || true; fi; done; done; exec "$@"',
 							"zuse-runtime-legacy-cleanup",
+							String(legacyMarkers.length),
+							...legacyMarkers,
 							input.command,
 							...(input.args ?? []),
 						],

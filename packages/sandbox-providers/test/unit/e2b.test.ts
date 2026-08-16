@@ -460,7 +460,7 @@ describe("E2B sandbox provider", () => {
 		});
 	});
 
-	test("cleans an unmanaged legacy runtime before its first tagged start", async () => {
+	test("cleans only matching legacy runtimes before the first tagged start", async () => {
 		const detail = {
 			sandboxID: "sbx_1",
 			state: "running",
@@ -488,7 +488,7 @@ describe("E2B sandbox provider", () => {
 				{
 					tag: "zuse-runtime",
 					legacyCommandMarkers: ["/opt/zuse/current/bin.mjs"],
-					legacyCleanup: "same-user",
+					legacyCleanup: "matching-command",
 				},
 				{ command: "/opt/zuse/current/bin.mjs", args: ["serve"] },
 			),
@@ -499,13 +499,18 @@ describe("E2B sandbox provider", () => {
 				cmd: "/bin/bash",
 				args: [
 					"-lc",
-					expect.stringContaining("for proc in /proc/[0-9]*"),
+					expect.stringContaining('[[ "$command" == *"$marker"* ]]'),
 					"zuse-runtime-legacy-cleanup",
+					"1",
+					"/opt/zuse/current/bin.mjs",
 					"/opt/zuse/current/bin.mjs",
 					"serve",
 				],
 			},
 		});
+		expect(
+			JSON.stringify(decodeConnectJsonBody(http.calls[4]?.init?.body)),
+		).not.toContain("proc_uid");
 	});
 
 	test("rejects a process stream that does not confirm the process started", async () => {

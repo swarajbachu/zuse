@@ -307,7 +307,9 @@ export class CloudSyncManager {
 				if (entry.rerunRequested) {
 					entry.rerunRequested = false;
 					void this.sync(workspaceId);
-				} else this.schedule(workspaceId, entry, nextDelay);
+				} else if (entry.timer === null) {
+					this.schedule(workspaceId, entry, nextDelay);
+				}
 			}
 		}
 	}

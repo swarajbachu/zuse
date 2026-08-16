@@ -47,7 +47,7 @@ export interface SandboxProcessInput {
 export interface SandboxProcessSelector {
 	readonly tag: string;
 	readonly legacyCommandMarkers?: ReadonlyArray<string>;
-	readonly legacyCleanup?: "same-user";
+	readonly legacyCleanup?: "matching-command";
 }
 
 export interface SandboxProviderAdapter {
