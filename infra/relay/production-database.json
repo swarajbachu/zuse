@@ -1,4 +1,4 @@
 {
-	"host": "REPLACE_WITH_PRODUCTION_DATABASE_HOST",
-	"name": "REPLACE_WITH_PRODUCTION_DATABASE_NAME"
+	"host": "us-east-5.pg.psdb.cloud",
+	"name": "postgres"
 }

@@ -242,7 +242,7 @@ describe("relay deployment safety", () => {
 		expect(result.status).toBe(1);
 		expect(result.stderr).toContain("Refusing to migrate production");
 
-		const unconfiguredIdentity = spawnSync(
+		const mismatchedIdentity = spawnSync(
 			"node",
 			["scripts/migrate-database.mjs", "production"],
 			{
@@ -256,9 +256,9 @@ describe("relay deployment safety", () => {
 				},
 			},
 		);
-		expect(unconfiguredIdentity.status).toBe(1);
-		expect(unconfiguredIdentity.stderr).toContain(
-			"approved production database identity has not been configured",
+		expect(mismatchedIdentity.status).toBe(1);
+		expect(mismatchedIdentity.stderr).toContain(
+			"DATABASE_URL does not match the approved production database identity",
 		);
 	});
 });
