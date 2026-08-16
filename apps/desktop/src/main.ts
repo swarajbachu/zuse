@@ -184,6 +184,7 @@ import { SshEnvironmentManager } from "./ssh/environment-service.ts";
 import {
 	CloudSyncManager,
 	cloudSyncDefaultPath,
+	SYNC_MARKER_FILE,
 } from "./sync/cloud-sync-service.ts";
 import { TailnetEnvironmentManager } from "./tailnet/environment-service.ts";
 import {
@@ -2074,8 +2075,30 @@ async function createMainWindow() {
 
 	ipcMain.handle(
 		"app:cloudSyncDefaultPath",
-		(_event, repository: unknown, branch: unknown) =>
-			cloudSyncDefaultPath(app.getPath("home"), repository, branch),
+		async (
+			_event,
+			workspaceId: unknown,
+			repository: unknown,
+			branch: unknown,
+		) => {
+			if (
+				typeof workspaceId !== "string" ||
+				!/^[A-Za-z0-9_-]+$/u.test(workspaceId)
+			)
+				return null;
+			const path = cloudSyncDefaultPath(
+				app.getPath("home"),
+				repository,
+				branch,
+			);
+			if (path === null) return null;
+			await fs.mkdir(path, { recursive: true });
+			const marker = Path.join(path, SYNC_MARKER_FILE);
+			if ((await fs.readdir(path)).length > 0 && !fsSync.existsSync(marker))
+				return null;
+			await fs.writeFile(marker, `${JSON.stringify({ workspaceId })}\n`);
+			return path;
+		},
 	);
 
 	ipcMain.handle("app:getMainDiagnostics", () => mainDiagnosticLogs.slice());

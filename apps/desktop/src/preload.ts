@@ -340,9 +340,14 @@ const bridge = {
 			ipcRenderer.invoke("app:cloudSyncConfigure", input) as Promise<unknown>,
 		cloudSyncRequest: (workspaceId: string) =>
 			ipcRenderer.invoke("app:cloudSyncRequest", workspaceId) as Promise<void>,
-		cloudSyncDefaultPath: (repositoryName: string, branch: string) =>
+		cloudSyncDefaultPath: (
+			workspaceId: string,
+			repositoryName: string,
+			branch: string,
+		) =>
 			ipcRenderer.invoke(
 				"app:cloudSyncDefaultPath",
+				workspaceId,
 				repositoryName,
 				branch,
 			) as Promise<string | null>,

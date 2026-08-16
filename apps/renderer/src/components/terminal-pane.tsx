@@ -122,17 +122,6 @@ function PlainTerminalSlot({
 		slot,
 	]);
 
-	if (localTerminal && syncStatus?.state !== "in-sync")
-		return (
-			<TerminalPlaceholder>
-				{syncStatus?.state === "error" ? (
-					<span>{syncStatus.error ?? "Local file sync failed."}</span>
-				) : (
-					<ShimmerText>Syncing files to local…</ShimmerText>
-				)}
-			</TerminalPlaceholder>
-		);
-
 	if (cloudAttachment === "attaching")
 		return (
 			<TerminalPlaceholder>
@@ -192,12 +181,25 @@ function PlainTerminalSlot({
 
 	const inst = instance;
 	if (inst === undefined) return null;
+	const localSyncState = syncStatus?.state ?? "idle";
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			{localTerminal ? (
 				<div className="flex h-7 shrink-0 items-center gap-2 px-3 text-[11px] text-muted-foreground">
-					<span className="size-1.5 rounded-full bg-emerald-400" />
-					File changes synced to local
+					<span
+						className={`size-1.5 rounded-full ${
+							localSyncState === "in-sync"
+								? "bg-emerald-400"
+								: localSyncState === "error"
+									? "bg-rose-400"
+									: "animate-pulse bg-amber-400"
+						}`}
+					/>
+					{localSyncState === "in-sync"
+						? "File changes synced to local"
+						: localSyncState === "error"
+							? "Local file sync failed"
+							: "Syncing files to local…"}
 				</div>
 			) : null}
 			<div className="min-h-0 flex-1">

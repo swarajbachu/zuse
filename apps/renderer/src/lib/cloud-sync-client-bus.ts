@@ -8,6 +8,7 @@ import {
 	cloudSummaryForEnvironment,
 	cloudSyncPrefsFor,
 	setCloudSyncPrefs,
+	useCloudChatCatalogStore,
 } from "./cloud-workspace-catalog.ts";
 import { errorMessage } from "./error-message.ts";
 import { getRendererClientBus } from "./session-timeline-client-bus.ts";
@@ -148,6 +149,7 @@ export const cloudSyncLocalPath = async (
 	return summary === null
 		? null
 		: ((await getAppBridge()?.cloudSyncDefaultPath?.(
+				workspaceId,
 				summary.repositoryDisplayName,
 				summary.branch,
 			)) ?? null);
@@ -201,17 +203,39 @@ const wire = (): void => {
 		if (status.enabled && status.ticketStale && active.has(status.workspaceId))
 			void prepareCloudWorkspaceSsh(status.workspaceId).catch(() => undefined);
 	});
-	// Resume enabled syncs whenever their cloud environment (re)connects.
-	useEnvironmentCatalogStore.subscribe((state) => {
-		for (const entry of state.entries) {
-			if (entry.connectionKind !== "relay" || entry.status !== "connected")
-				continue;
-			const prefs = cloudSyncPrefsFor(entry.environmentId);
-			if (prefs?.enabled === true && !active.has(entry.environmentId)) {
-				void startSync(entry.environmentId);
-			}
+	const startAutomaticSyncs = () => {
+		const summaries = useCloudChatCatalogStore.getState().summaries;
+		for (const workspaceId of active.keys()) {
+			if (
+				!summaries.some(
+					(summary) =>
+						summary.workspaceId === workspaceId && summary.state !== "archived",
+				)
+			)
+				void stopSync(workspaceId);
 		}
-	});
+		const connected = new Set(
+			useEnvironmentCatalogStore
+				.getState()
+				.entries.filter(
+					(entry) =>
+						entry.connectionKind === "relay" && entry.status === "connected",
+				)
+				.map((entry) => entry.environmentId),
+		);
+		for (const summary of summaries) {
+			if (
+				summary.state !== "archived" &&
+				connected.has(summary.workspaceId) &&
+				cloudSyncPrefsFor(summary.workspaceId)?.enabled !== false &&
+				!active.has(summary.workspaceId)
+			)
+				void startSync(summary.workspaceId);
+		}
+	};
+	useEnvironmentCatalogStore.subscribe(startAutomaticSyncs);
+	useCloudChatCatalogStore.subscribe(startAutomaticSyncs);
+	startAutomaticSyncs();
 };
 wire();
 

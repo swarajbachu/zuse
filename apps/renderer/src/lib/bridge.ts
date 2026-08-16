@@ -83,6 +83,7 @@ export interface AppBridge {
 	/** Debounced change-driven sync request. */
 	readonly cloudSyncRequest?: (workspaceId: string) => Promise<void>;
 	readonly cloudSyncDefaultPath?: (
+		workspaceId: string,
 		repositoryName: string,
 		branch: string,
 	) => Promise<string | null>;
