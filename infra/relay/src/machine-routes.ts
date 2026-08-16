@@ -1,4 +1,7 @@
-import { BillingProviders } from "@zuse/billing-providers";
+import {
+	BillingProviders,
+	type CheckoutSummary,
+} from "@zuse/billing-providers";
 import {
 	BillingCheckoutRequest,
 	CLOUD_WORKSPACE_OFFER_ID,
@@ -11,10 +14,12 @@ import {
 	RelayPaths,
 } from "@zuse/contracts";
 import { MachineProviders } from "@zuse/machine-providers";
-import { Clock, Effect, Schema } from "effect";
+import { BROWSER_PAGE_HEADERS } from "@zuse/utils/browser-page";
+import { Clock, Effect, Redacted, Schema } from "effect";
 
 import { requireWorkos } from "./auth.ts";
 import { cancelProviderSubscription } from "./billing-operations.ts";
+import { renderCheckoutCompletePage } from "./checkout-complete-page.ts";
 import { ensureCloudBillingPeriod } from "./cloud-billing-period.ts";
 import type { CloudBillingStore } from "./cloud-billing-store.ts";
 import { RelayConfiguration } from "./config.ts";
@@ -22,6 +27,8 @@ import {
 	parseJwk,
 	randomToken,
 	sha256Hex,
+	signCheckoutReceiptTicket,
+	verifyCheckoutReceiptTicket,
 	verifyEnvironmentLinkProof,
 } from "./crypto.ts";
 import {
@@ -78,31 +85,107 @@ const json = (body: unknown, status = 200): Response =>
 		headers: { "content-type": "application/json" },
 	});
 
-const checkoutComplete = (): Response =>
-	new Response(
-		`<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Checkout submitted - Zuse</title>
-<style>
-:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0d0d0d;color:#f2f2f2;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.card{width:min(30rem,calc(100% - 2rem));padding:2rem;border:1px solid #303030;border-radius:1rem;background:#191919}h1{margin:0;font-size:1.5rem;line-height:1.25}p{margin:1rem 0 0;color:#aaa;line-height:1.5}.status{color:#caff00}
-</style>
-</head>
-<body><main class="card"><h1><span class="status">Checkout submitted.</span> Return to Zuse.</h1><p>We are waiting for payment confirmation. Your cloud machine will appear automatically when provisioning begins. You can close this tab.</p></main></body>
-</html>`,
-		{
-			status: 200,
-			headers: {
-				"cache-control": "no-store",
-				"content-security-policy":
-					"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
-				"content-type": "text/html; charset=utf-8",
-				"x-content-type-options": "nosniff",
-			},
-		},
+/** Polar substitutes this in the success URL; treat an unsubstituted one as absent. */
+const CHECKOUT_ID_PLACEHOLDER = "{CHECKOUT_ID}";
+const CHECKOUT_ID_MAX_LENGTH = 128;
+
+/** How long the completion page will still show a real order. */
+const CHECKOUT_RECEIPT_TICKET_TTL_MS = 24 * 60 * 60 * 1_000;
+
+/**
+ * Where the provider sends the customer after payment. `ticket` is the
+ * relay-signed proof of which account started this checkout — the completion
+ * page is unauthenticated, so it is the only thing that authorizes an order
+ * lookup. `{CHECKOUT_ID}` is interpolated by the provider and must not be
+ * URL-encoded.
+ */
+export const checkoutSuccessUrl = (
+	issuer: string,
+	offerId: string,
+	ticket: string,
+): string => {
+	const target = new URL(RelayPaths.billingCheckoutComplete, issuer);
+	target.searchParams.set("offer", offerId);
+	target.searchParams.set("t", ticket);
+	return `${target.toString()}&checkout_id=${CHECKOUT_ID_PLACEHOLDER}`;
+};
+
+/** Offers the checkout-complete page will name. Anything else renders generic. */
+const knownOfferId = (offerId: string | null): string | null =>
+	offerId !== null &&
+	(offerId === CLOUD_WORKSPACE_OFFER_ID ||
+		findMachineOffer(offerId) !== undefined)
+		? offerId
+		: null;
+
+const catalogProductName = (offerId: string | null): string =>
+	offerId === CLOUD_WORKSPACE_OFFER_ID
+		? "Zuse Cloud Workspace"
+		: (findMachineOffer(offerId ?? "")?.displayName ?? "Zuse subscription");
+
+const orderReference = (checkoutId: string): string =>
+	`ZS-${checkoutId
+		.replaceAll(/[^A-Za-z0-9]/gu, "")
+		.slice(-8)
+		.toUpperCase()}`;
+
+/**
+ * Best-effort order lookup for the post-purchase page. The account comes from
+ * the verified receipt ticket, never from the query string, and the adapter
+ * drops checkouts owned by anyone else. The page is a courtesy surface, so a
+ * slow or unavailable billing provider degrades to the offer catalog instead of
+ * failing the response.
+ */
+const lookupCheckoutSummary = (input: {
+	readonly checkoutId: string;
+	readonly accountId: string;
+}): Effect.Effect<CheckoutSummary | null, never, BillingProviders> =>
+	Effect.gen(function* () {
+		const billingProviders = yield* BillingProviders;
+		const billing = yield* billingProviders.getDefault;
+		return yield* billing.getCheckout(input);
+	}).pipe(
+		Effect.timeout("2 seconds"),
+		Effect.orElseSucceed(() => null),
 	);
+
+const checkoutComplete = (input: {
+	readonly offerId: string | null;
+	readonly summary: CheckoutSummary | null;
+}): Response => {
+	const offer = findMachineOffer(input.offerId ?? "");
+	const catalogAmount =
+		offer === undefined
+			? undefined
+			: { cents: offer.monthlyPriceCents, currency: offer.currency };
+	// Only an order the ticket holder owns gets a reference printed on it.
+	const orderRef =
+		input.summary === null
+			? undefined
+			: orderReference(input.summary.checkoutId);
+	return new Response(
+		renderCheckoutCompletePage({
+			...(input.summary?.amountCents === undefined
+				? catalogAmount === undefined
+					? {}
+					: { amount: catalogAmount }
+				: {
+						amount: {
+							cents: input.summary.amountCents,
+							currency: input.summary.currency,
+						},
+					}),
+			...(orderRef === undefined ? {} : { orderRef }),
+			...(input.summary === null
+				? {}
+				: { purchasedAtMs: input.summary.createdAtMs }),
+			productName:
+				input.summary?.productName ?? catalogProductName(input.offerId),
+			status: input.summary?.status ?? "pending",
+		}),
+		{ status: 200, headers: { ...BROWSER_PAGE_HEADERS } },
+	);
+};
 
 const matchBillingWebhookPath = (
 	path: string,
@@ -451,7 +534,44 @@ export const routeMachineRequest = (
 		const store = yield* MachineStore;
 
 		if (method === "GET" && path === RelayPaths.billingCheckoutComplete) {
-			return checkoutComplete();
+			// Anyone can open this URL, so the page is rendered from the relay's own
+			// signed ticket: without it (or with an expired one) the visitor gets the
+			// generic catalog receipt and no provider lookup happens at all.
+			const relayConfig = yield* RelayConfiguration;
+			const ticketParam = url.searchParams.get("t");
+			const ticket =
+				ticketParam === null
+					? null
+					: yield* parseJwk(relayConfig.mintPublicKey).pipe(
+							Effect.flatMap((mintPublicJwk) =>
+								verifyCheckoutReceiptTicket({
+									issuer: relayConfig.relayIssuer,
+									mintPublicJwk,
+									nowMs,
+									token: ticketParam,
+								}),
+							),
+							Effect.orElseSucceed(() => null),
+						);
+			const checkoutParam = url.searchParams.get("checkout_id");
+			const checkoutId =
+				checkoutParam === null ||
+				checkoutParam === CHECKOUT_ID_PLACEHOLDER ||
+				checkoutParam.length === 0 ||
+				checkoutParam.length > CHECKOUT_ID_MAX_LENGTH
+					? null
+					: checkoutParam;
+			const summary =
+				ticket === null || checkoutId === null
+					? null
+					: yield* lookupCheckoutSummary({
+							accountId: ticket.accountId,
+							checkoutId,
+						});
+			return checkoutComplete({
+				offerId: knownOfferId(ticket?.offerId ?? url.searchParams.get("offer")),
+				summary,
+			});
 		}
 
 		const billingWebhookMatch = matchBillingWebhookPath(path);
@@ -922,14 +1042,25 @@ export const routeMachineRequest = (
 					serviceUnavailable("billing_provider_unavailable"),
 				),
 			);
+			const receiptTicket = yield* signCheckoutReceiptTicket({
+				accountId: principal.accountId,
+				issuer: relayConfig.relayIssuer,
+				mintPrivateJwk: yield* parseJwk(
+					Redacted.value(relayConfig.mintPrivateKey),
+				),
+				nowMs,
+				offerId: body.offerId,
+				ttlMs: CHECKOUT_RECEIPT_TICKET_TTL_MS,
+			});
 			const checkoutUrl = yield* billing
 				.checkout({
 					accountId: principal.accountId,
 					offerId: body.offerId,
-					successUrl: new URL(
-						RelayPaths.billingCheckoutComplete,
+					successUrl: checkoutSuccessUrl(
 						relayConfig.relayIssuer,
-					).toString(),
+						body.offerId,
+						receiptTicket,
+					),
 				})
 				.pipe(
 					Effect.mapError(() =>

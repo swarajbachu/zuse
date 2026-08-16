@@ -4,6 +4,7 @@ import { Effect, Predicate, Redacted } from "effect";
 import {
 	type BillingProviderAdapter,
 	BillingProviderError,
+	type CheckoutSummary,
 	type ReconciledSubscription,
 } from "./index.ts";
 
@@ -37,6 +38,23 @@ export interface PolarSubscription {
 	};
 }
 
+export interface PolarCheckout {
+	readonly id: string;
+	readonly status:
+		| "open"
+		| "expired"
+		| "confirmed"
+		| "succeeded"
+		| "failed"
+		| (string & {});
+	readonly totalAmount: number;
+	readonly currency: string;
+	readonly createdAt: Date;
+	readonly product: { readonly name: string } | null;
+	readonly externalCustomerId?: string | null;
+	readonly customer?: { readonly externalId?: string | null } | null;
+}
+
 export interface PolarBillingClient {
 	readonly createCheckout: (input: {
 		readonly products: ReadonlyArray<string>;
@@ -45,6 +63,7 @@ export interface PolarBillingClient {
 		readonly metadata: Readonly<Record<string, string>>;
 		readonly allowTrial: false;
 	}) => Promise<{ readonly url: string }>;
+	readonly getCheckout: (checkoutId: string) => Promise<PolarCheckout | null>;
 	readonly getSubscription: (
 		subscriptionId: string,
 	) => Promise<PolarSubscription | null>;
@@ -93,6 +112,14 @@ const makeSdkClient = (config: PolarBillingConfig): PolarBillingClient => {
 				metadata: { ...input.metadata },
 				allowTrial: input.allowTrial,
 			}),
+		getCheckout: async (checkoutId) => {
+			try {
+				return await polar.checkouts.get({ id: checkoutId });
+			} catch (error) {
+				if (isNotFound(error)) return null;
+				throw error;
+			}
+		},
 		getSubscription: async (subscriptionId) => {
 			try {
 				return await polar.subscriptions.get({ id: subscriptionId });
@@ -165,6 +192,28 @@ const normalizeStatus = (
 	}
 };
 
+/**
+ * A checkout id travels through the buyer's browser, so a lookup is only ever
+ * answered for the account Polar recorded as the checkout's customer.
+ */
+const isOwnedBy = (checkout: PolarCheckout, accountId: string): boolean =>
+	(checkout.externalCustomerId ?? checkout.customer?.externalId ?? null) ===
+	accountId;
+
+const normalizeCheckoutStatus = (
+	status: PolarCheckout["status"],
+): CheckoutSummary["status"] => {
+	switch (status) {
+		case "succeeded":
+			return "paid";
+		case "open":
+		case "confirmed":
+			return "pending";
+		default:
+			return "failed";
+	}
+};
+
 const makeOfferProductIndex = (
 	offerProducts: PolarBillingConfig["offerProducts"],
 ): ReadonlyMap<string, string> => {
@@ -219,6 +268,26 @@ export const makePolarBillingProvider = (
 				catch: providerFailure,
 			});
 		},
+		getCheckout: (input) =>
+			Effect.tryPromise({
+				try: () => client.getCheckout(input.checkoutId),
+				catch: providerFailure,
+			}).pipe(
+				Effect.map((checkout) =>
+					checkout === null || !isOwnedBy(checkout, input.accountId)
+						? null
+						: ({
+								amountCents: checkout.totalAmount,
+								checkoutId: checkout.id,
+								createdAtMs: checkout.createdAt.getTime(),
+								currency: checkout.currency,
+								status: normalizeCheckoutStatus(checkout.status),
+								...(checkout.product === null
+									? {}
+									: { productName: checkout.product.name }),
+							} satisfies CheckoutSummary),
+				),
+			),
 		verifyEvent: (request) =>
 			Effect.gen(function* () {
 				const eventId = request.headers.get("webhook-id");

@@ -26,6 +26,20 @@ export interface ReconciledSubscription {
 	readonly paidThrough?: number;
 }
 
+/**
+ * Display-only view of a checkout session, used by the post-purchase page.
+ * Deliberately free of customer identity: it is rendered on an unauthenticated
+ * page keyed by the provider's checkout id.
+ */
+export interface CheckoutSummary {
+	readonly checkoutId: string;
+	readonly productName?: string;
+	readonly amountCents: number;
+	readonly currency: string;
+	readonly status: "paid" | "pending" | "failed";
+	readonly createdAtMs: number;
+}
+
 export interface BillingProviderAdapter {
 	readonly providerId: string;
 	readonly checkout: (input: {
@@ -34,6 +48,16 @@ export interface BillingProviderAdapter {
 		readonly successUrl: string;
 		readonly fulfillmentMetadata?: Readonly<Record<string, string>>;
 	}) => Effect.Effect<string, BillingProviderError>;
+	/**
+	 * Look up one checkout session **owned by `accountId`**. Resolves `null`
+	 * when the provider has no such session or it belongs to another account —
+	 * a checkout id is browser-visible, so ownership is enforced here rather
+	 * than trusted from the caller.
+	 */
+	readonly getCheckout: (input: {
+		readonly checkoutId: string;
+		readonly accountId: string;
+	}) => Effect.Effect<CheckoutSummary | null, BillingProviderError>;
 	readonly verifyEvent: (
 		request: Request,
 	) => Effect.Effect<
@@ -82,6 +106,9 @@ export class BillingProviders extends Context.Service<
 export const BillingProviderManual: BillingProviderAdapter = {
 	providerId: "manual",
 	checkout: () => new BillingProviderError({ code: "checkout-disabled" }),
+	// Manual billing never creates checkout sessions, so there is nothing to
+	// look up — the post-purchase page falls back to the offer catalog.
+	getCheckout: () => Effect.succeed(null),
 	verifyEvent: () => new BillingProviderError({ code: "checkout-disabled" }),
 	reconcileSubscription: () =>
 		new BillingProviderError({ code: "checkout-disabled" }),

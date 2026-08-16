@@ -10,7 +10,10 @@ import type {
 	OAuthClientMetadata,
 	OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { BROWSER_PAGE_HEADERS } from "@zuse/utils/browser-page";
 import { Effect } from "effect";
+
+import { renderMcpCallbackPage } from "./mcp-callback-page.ts";
 
 /**
  * Everything the MCP SDK's OAuthClientProvider needs to persist between
@@ -84,16 +87,15 @@ const makeProvider = (options: {
 });
 
 const CALLBACK_PATH = "/callback";
-const CALLBACK_PAGE = `<!doctype html><meta charset="utf-8"><title>Zuse</title>
-<body style="font-family:system-ui;display:grid;place-items:center;height:100vh;margin:0">
-<p>You're connected. You can close this tab and return to Zuse.</p></body>`;
 
 /**
  * One loopback HTTP listener per flow, on an ephemeral 127.0.0.1 port —
  * the same shape the WorkOS dev flow uses. Resolves with the `code` query
  * param of the first `/callback` hit.
  */
-const listenForCallback = (): Promise<{
+const listenForCallback = (
+	serverLabel: string | undefined,
+): Promise<{
 	redirectUrl: string;
 	waitForCode: Promise<string>;
 	close: () => void;
@@ -111,9 +113,23 @@ const listenForCallback = (): Promise<{
 				res.writeHead(404).end();
 				return;
 			}
-			res.writeHead(200, { "content-type": "text/html" }).end(CALLBACK_PAGE);
+			// Classify before responding: a denied authorization must not be shown
+			// the "connected" page.
 			const code = url.searchParams.get("code");
 			const error = url.searchParams.get("error");
+			const failure =
+				code === null
+					? (url.searchParams.get("error_description") ??
+						error ??
+						"The authorization response had no code.")
+					: null;
+			res.writeHead(200, BROWSER_PAGE_HEADERS).end(
+				renderMcpCallbackPage({
+					detail: failure ?? undefined,
+					outcome: failure === null ? "success" : "error",
+					serverLabel,
+				}),
+			);
 			if (code !== null) resolveCode(code);
 			else {
 				rejectCode(
@@ -138,6 +154,17 @@ const listenForCallback = (): Promise<{
 
 const CODE_TIMEOUT_MS = 300_000;
 
+/** Host of the MCP server, for the callback page. Falls back to the raw URL. */
+const mcpServerLabel = (serverUrl: string): string | undefined => {
+	const trimmed = serverUrl.trim();
+	if (trimmed.length === 0) return undefined;
+	try {
+		return new URL(trimmed).host || trimmed;
+	} catch {
+		return trimmed;
+	}
+};
+
 /**
  * Full OAuth 2.1 flow for a claude-source http server: metadata discovery,
  * dynamic client registration, PKCE, loopback redirect. The SDK's `auth()`
@@ -153,7 +180,9 @@ export const runMcpOauthFlow = (options: {
 	Effect.tryPromise({
 		try: async () => {
 			const bundle = parseBundle(await options.store.load());
-			const listener = await listenForCallback();
+			const listener = await listenForCallback(
+				mcpServerLabel(options.serverUrl),
+			);
 			try {
 				const provider = makeProvider({
 					bundle,

@@ -1,5 +1,6 @@
 import {
 	type BillingProviderAdapter,
+	BillingProviderError,
 	BillingProviders,
 	BillingProvidersManual,
 } from "@zuse/billing-providers";
@@ -434,11 +435,31 @@ describe("@zuse/relay", () => {
 					readonly successUrl: string;
 			  }
 			| undefined;
+		let checkoutLookups: ReadonlyArray<{
+			readonly checkoutId: string;
+			readonly accountId: string;
+		}> = [];
 		const billing: BillingProviderAdapter = {
 			providerId: "billing-test",
 			checkout: (input) => {
 				checkoutInput = input;
 				return Effect.succeed("https://billing.test/checkout");
+			},
+			// Mirrors a real adapter: the checkout belongs to `user_a` only.
+			getCheckout: (input) => {
+				checkoutLookups = [...checkoutLookups, input];
+				return Effect.succeed(
+					input.accountId === "user_a"
+						? {
+								amountCents: 1_900,
+								checkoutId: input.checkoutId,
+								createdAtMs: Date.parse("2026-08-14T10:11:12.000Z"),
+								currency: "usd",
+								productName: "Persistent Standard",
+								status: "paid" as const,
+							}
+						: null,
+				);
 			},
 			verifyEvent: () => Effect.die("unused"),
 			reconcileSubscription: () => Effect.die("unused"),
@@ -472,18 +493,150 @@ describe("@zuse/relay", () => {
 			expect(await response.json()).toEqual({
 				checkoutUrl: "https://billing.test/checkout",
 			});
-			expect(checkoutInput).toEqual({
+			expect(checkoutInput).toMatchObject({
 				accountId: "user_a",
 				offerId: "persistent-standard-v1",
-				successUrl: `${RELAY_ISSUER}${RelayPaths.billingCheckoutComplete}`,
 			});
+			const successUrl = new URL(checkoutInput?.successUrl ?? "");
+			expect(`${successUrl.origin}${successUrl.pathname}`).toBe(
+				`${RELAY_ISSUER}${RelayPaths.billingCheckoutComplete}`,
+			);
+			expect(successUrl.searchParams.get("offer")).toBe(
+				"persistent-standard-v1",
+			);
+			// The provider interpolates this itself, so it must not be encoded.
+			expect(checkoutInput?.successUrl).toContain("&checkout_id={CHECKOUT_ID}");
+			const receiptTicket = successUrl.searchParams.get("t") ?? "";
+			expect(receiptTicket.length).toBeGreaterThan(0);
+
+			const completeUrl = (params: Record<string, string>): string => {
+				const target = new URL(
+					`${RELAY_ISSUER}${RelayPaths.billingCheckoutComplete}`,
+				);
+				for (const [key, value] of Object.entries(params)) {
+					target.searchParams.set(key, value);
+				}
+				return target.toString();
+			};
 
 			const completion = await billingRelay.fetch(
-				new Request(`${RELAY_ISSUER}${RelayPaths.billingCheckoutComplete}`),
+				new Request(
+					completeUrl({
+						checkout_id: "checkout_abcdef123456",
+						t: receiptTicket,
+					}),
+				),
 			);
+			const completionPage = await completion.text();
 			expect(completion.status).toBe(200);
 			expect(completion.headers.get("content-type")).toContain("text/html");
-			expect(await completion.text()).toContain("Return to Zuse");
+			expect(completion.headers.get("cache-control")).toBe("no-store");
+			expect(checkoutLookups).toEqual([
+				{ accountId: "user_a", checkoutId: "checkout_abcdef123456" },
+			]);
+			expect(completionPage).toContain("Persistent Standard");
+			expect(completionPage).toContain("$19.00");
+			expect(completionPage).toContain("Paid");
+
+			// Without the relay-signed ticket nothing is looked up at all, so a
+			// stolen checkout id discloses nothing.
+			const unticketed = await billingRelay.fetch(
+				new Request(completeUrl({ checkout_id: "checkout_abcdef123456" })),
+			);
+			const unticketedPage = await unticketed.text();
+			expect(unticketed.status).toBe(200);
+			expect(checkoutLookups).toHaveLength(1);
+			expect(unticketedPage).toContain("Awaiting confirmation");
+			expect(unticketedPage).not.toContain("ZS-EF123456");
+
+			// A forged or expired ticket is treated the same as none.
+			const forged = await billingRelay.fetch(
+				new Request(
+					completeUrl({
+						checkout_id: "checkout_abcdef123456",
+						t: `${receiptTicket.slice(0, -4)}AAAA`,
+					}),
+				),
+			);
+			expect(forged.status).toBe(200);
+			expect(checkoutLookups).toHaveLength(1);
+			expect(await forged.text()).toContain("Awaiting confirmation");
+
+			// An unsubstituted placeholder must not be looked up, and the page still
+			// names the purchase from the ticket's offer.
+			const placeholderCompletion = await billingRelay.fetch(
+				new Request(
+					completeUrl({ checkout_id: "{CHECKOUT_ID}", t: receiptTicket }),
+				),
+			);
+			const placeholderPage = await placeholderCompletion.text();
+			expect(placeholderCompletion.status).toBe(200);
+			expect(checkoutLookups).toHaveLength(1);
+			expect(placeholderPage).toContain("Persistent Standard");
+			expect(placeholderPage).toContain("Awaiting confirmation");
+		} finally {
+			await billingRelay.dispose();
+		}
+	});
+
+	test("keeps the completion page useful when the billing lookup fails", async () => {
+		let successUrl = "";
+		const billing: BillingProviderAdapter = {
+			providerId: "billing-test",
+			checkout: (input) => {
+				successUrl = input.successUrl;
+				return Effect.succeed("https://billing.test/checkout");
+			},
+			getCheckout: () =>
+				new BillingProviderError({ code: "provider-unavailable" }),
+			verifyEvent: () => Effect.die("unused"),
+			reconcileSubscription: () => Effect.die("unused"),
+			cancel: () => Effect.void,
+			customerPortal: () => Effect.succeed("https://billing.test/portal"),
+		};
+		const billingRelay = makeRelay(
+			await makeLayer(
+				undefined,
+				BillingProviders.layer({
+					adapters: [billing],
+					defaultProviderId: billing.providerId,
+				}).pipe(Layer.orDie),
+				true,
+			),
+		);
+
+		try {
+			await billingRelay.fetch(
+				new Request(`${RELAY_ISSUER}${RelayPaths.billingCheckout}`, {
+					method: "POST",
+					headers: {
+						authorization: "Bearer test-token:user_a",
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({ offerId: "persistent-standard-v1" }),
+				}),
+			);
+			const ticket = new URL(successUrl).searchParams.get("t") ?? "";
+			const completion = await billingRelay.fetch(
+				new Request(
+					`${RELAY_ISSUER}${RelayPaths.billingCheckoutComplete}?checkout_id=checkout_abcdef123456&t=${encodeURIComponent(ticket)}`,
+				),
+			);
+			const page = await completion.text();
+			expect(completion.status).toBe(200);
+			expect(page).toContain("Persistent Standard");
+			expect(page).toContain("Awaiting confirmation");
+
+			// Unknown offers are never echoed back into the page.
+			const hostile = await billingRelay.fetch(
+				new Request(
+					`${RELAY_ISSUER}${RelayPaths.billingCheckoutComplete}?offer=${encodeURIComponent("<script>alert(1)</script>")}`,
+				),
+			);
+			const hostilePage = await hostile.text();
+			expect(hostile.status).toBe(200);
+			expect(hostilePage).not.toContain("<script>alert");
+			expect(hostilePage).toContain("Zuse subscription");
 		} finally {
 			await billingRelay.dispose();
 		}
@@ -499,6 +652,7 @@ describe("@zuse/relay", () => {
 				checkoutInput = input;
 				return Effect.succeed("https://billing.test/sandbox-checkout");
 			},
+			getCheckout: () => Effect.succeed(null),
 			verifyEvent: () => Effect.die("unused"),
 			reconcileSubscription: () => Effect.die("unused"),
 			cancel: () => Effect.void,
@@ -545,6 +699,7 @@ describe("@zuse/relay", () => {
 		const billing: BillingProviderAdapter = {
 			providerId: "billing-test",
 			checkout: () => Effect.succeed("https://billing.test/replacement"),
+			getCheckout: () => Effect.succeed(null),
 			verifyEvent: (request) =>
 				Effect.promise(async () => {
 					const body = (await request.json()) as {
@@ -644,6 +799,7 @@ describe("@zuse/relay", () => {
 		const billing: BillingProviderAdapter = {
 			providerId: "billing-test",
 			checkout: () => Effect.succeed("https://billing.test/checkout"),
+			getCheckout: () => Effect.succeed(null),
 			verifyEvent: (request) =>
 				Effect.promise(async () => {
 					const body = (await request.json()) as {

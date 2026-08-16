@@ -1,8 +1,8 @@
 # Billing provider adapters
 
-This package owns the billing-provider seam and registry. Checkout, webhook
-verification, subscription reconciliation, cancellation, and customer portals
-are implemented by `BillingProviderAdapter`s.
+This package owns the billing-provider seam and registry. Checkout, checkout
+lookup, webhook verification, subscription reconciliation, cancellation, and
+customer portals are implemented by `BillingProviderAdapter`s.
 
 Each adapter must:
 
@@ -10,6 +10,10 @@ Each adapter must:
 - keep product/price mapping private to the adapter;
 - verify webhook signatures before decoding provider events;
 - normalize subscriptions to `ReconciledSubscription`;
+- normalize checkout sessions to `CheckoutSummary`, resolving `null` for
+  unknown ids **and for checkouts owned by another account**, and omitting
+  customer identity — a checkout id is browser-visible and it feeds the
+  unauthenticated post-purchase page;
 - make cancellation idempotent;
 - keep credentials and raw provider payloads inside the adapter.
 

@@ -8,6 +8,7 @@ import {
 const adapter = (providerId: string): BillingProviderAdapter => ({
 	providerId,
 	checkout: () => Effect.succeed(`${providerId}:checkout`),
+	getCheckout: () => Effect.succeed(null),
 	verifyEvent: () => Effect.die("unused"),
 	reconcileSubscription: () => Effect.die("unused"),
 	cancel: () => Effect.void,

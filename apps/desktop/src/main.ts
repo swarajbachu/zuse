@@ -68,6 +68,7 @@ import {
 	type TailnetDiagnosticEvent,
 	type TailnetShareOptions,
 } from "@zuse/tailnet";
+import { BROWSER_PAGE_HEADERS } from "@zuse/utils/browser-page";
 import {
 	CredentialsServiceLive,
 	makeMainLayer,
@@ -94,6 +95,11 @@ import {
 import fixPath from "fix-path";
 import selfsigned from "selfsigned";
 import { ZUSE_APP_VERSION } from "./app-version.ts";
+import {
+	type AuthCallbackFlow,
+	renderAuthCallbackPage,
+	renderNotFoundPage,
+} from "./auth-callback-page.ts";
 import {
 	createTitleBarOverlay,
 	createWindowTitleBarOptions,
@@ -403,8 +409,8 @@ app.setAsDefaultProtocolClient("zuse");
 const AUTH_LOOPBACK_PORTS = [8976, 8977, 8978, 8979] as const;
 // Both dev and packaged use the loopback as the WorkOS redirect_uri. It's the
 // RFC 8252 native-app pattern and gives a strictly better sign-in finish:
-//   - the browser lands on a real HTML page ("Signed in, you can close this
-//     tab") instead of a dead `zuse://` URL that leaves the tab hanging, and
+//   - the browser lands on a real HTML page (see `auth-callback-page.ts`)
+//     instead of a dead `zuse://` URL that leaves the tab hanging, and
 //   - no OS "Open in Zuse (Beta)?" prompt — the browser hits localhost and the
 //     already-running app answers directly, no deep-link handoff needed.
 // The `zuse://auth/callback` scheme handler stays registered below as a
@@ -439,16 +445,24 @@ let pendingAuthUrls: string[] = [];
 let deliverLinearUrl: ((url: string) => void) | null = null;
 let pendingLinearUrls: string[] = [];
 
-const handleAuthCallback = (url: string): void => {
-	let isLinear = false;
+// Single source of truth for callback routing: both the loopback server and the
+// deep-link handler classify a callback the same way.
+const authCallbackFlowOf = (parsed: URL): AuthCallbackFlow =>
+	parsed.pathname === "/linear/callback" || parsed.hostname === "linear"
+		? "linear"
+		: "account";
+
+const authCallbackFlow = (url: string): AuthCallbackFlow => {
 	try {
-		const parsed = new URL(url);
-		isLinear =
-			parsed.pathname === "/linear/callback" || parsed.hostname === "linear";
+		return authCallbackFlowOf(new URL(url));
 	} catch {
 		// Invalid callback URLs are delivered to the account flow and rejected there.
+		return "account";
 	}
-	if (isLinear) {
+};
+
+const handleAuthCallback = (url: string): void => {
+	if (authCallbackFlow(url) === "linear") {
 		if (deliverLinearUrl !== null) deliverLinearUrl(url);
 		else pendingLinearUrls.push(url);
 		return;
@@ -511,17 +525,23 @@ const startAuthLoopback = async (): Promise<void> => {
 			parsed.pathname !== "/callback" &&
 			parsed.pathname !== "/linear/callback"
 		) {
-			res.writeHead(404);
-			res.end("Not found");
+			res.writeHead(404, BROWSER_PAGE_HEADERS);
+			res.end(renderNotFoundPage());
 			return;
 		}
+		// The provider reports failures on the callback itself (`error=...`). The
+		// URL is still delivered to the app either way — the flow's own validation
+		// owns the rejection; the page only mirrors what the browser was told.
+		const failure = parsed.searchParams.get("error");
 		handleAuthCallback(parsed.toString());
-		res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+		res.writeHead(200, BROWSER_PAGE_HEADERS);
 		res.end(
-			`<!doctype html><meta charset="utf-8"><title>Zuse (Beta)</title>` +
-				`<body style="font-family:-apple-system,system-ui,sans-serif;background:#0b0b0c;color:#e5e5e5;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">` +
-				`<div style="text-align:center"><h2 style="font-weight:600">Signed in</h2>` +
-				`<p style="color:#a3a3a3">You can close this tab and return to Zuse (Beta).</p></div>`,
+			renderAuthCallbackPage({
+				detail:
+					parsed.searchParams.get("error_description") ?? failure ?? undefined,
+				flow: authCallbackFlowOf(parsed),
+				outcome: failure === null ? "success" : "error",
+			}),
 		);
 		focusMainWindow();
 	});

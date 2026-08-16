@@ -474,6 +474,76 @@ export const verifyAccessToken = (input: {
 		};
 	});
 
+export interface CheckoutReceiptTicketClaims {
+	readonly accountId: string;
+	readonly offerId: string;
+}
+
+/**
+ * Mint the ticket carried on a checkout success URL. The buyer's browser is the
+ * only party that ever holds it, so the completion page can prove which account
+ * a checkout belongs to without an authenticated session.
+ */
+export const signCheckoutReceiptTicket = (input: {
+	readonly mintPrivateJwk: JWK;
+	readonly issuer: string;
+	readonly accountId: string;
+	readonly offerId: string;
+	readonly ttlMs: number;
+	readonly nowMs: number;
+}): Effect.Effect<string, RelayError> =>
+	Effect.gen(function* () {
+		const key = yield* importEd25519(input.mintPrivateJwk, "sign");
+		return yield* Effect.tryPromise({
+			try: () =>
+				new SignJWT({ offerId: input.offerId })
+					.setProtectedHeader({ alg: "EdDSA", typ: "checkout-receipt+jwt" })
+					.setIssuer(input.issuer)
+					.setAudience(CHECKOUT_RECEIPT_AUDIENCE)
+					.setSubject(input.accountId)
+					.setIssuedAt(Math.floor(input.nowMs / 1000))
+					.setExpirationTime(Math.floor((input.nowMs + input.ttlMs) / 1000))
+					.sign(key),
+			catch: () => badRequest("checkout_ticket_sign_failed"),
+		});
+	});
+
+const CHECKOUT_RECEIPT_AUDIENCE = "zuse-checkout-receipt";
+
+/** Verify signature, issuer, and expiry of a checkout receipt ticket. */
+export const verifyCheckoutReceiptTicket = (input: {
+	readonly token: string;
+	readonly mintPublicJwk: JWK;
+	readonly issuer: string;
+	readonly nowMs: number;
+}): Effect.Effect<CheckoutReceiptTicketClaims, RelayError> =>
+	Effect.gen(function* () {
+		const key = yield* importEd25519(input.mintPublicJwk, "verify");
+		const verified = yield* Effect.tryPromise({
+			try: () =>
+				jwtVerify(input.token, key, {
+					issuer: input.issuer,
+					audience: CHECKOUT_RECEIPT_AUDIENCE,
+					typ: "checkout-receipt+jwt",
+					currentDate: new Date(input.nowMs),
+				}),
+			catch: () => unauthorized("invalid_checkout_ticket"),
+		});
+		const payload = verified.payload as {
+			readonly sub?: unknown;
+			readonly offerId?: unknown;
+		};
+		if (
+			typeof payload.sub !== "string" ||
+			payload.sub.length === 0 ||
+			typeof payload.offerId !== "string" ||
+			payload.offerId.length === 0
+		) {
+			return yield* Effect.fail(unauthorized("checkout_ticket_malformed"));
+		}
+		return { accountId: payload.sub, offerId: payload.offerId };
+	});
+
 export const parseJwk = (value: string): Effect.Effect<JWK, RelayError> =>
 	Effect.try({
 		try: () => JSON.parse(value) as JWK,

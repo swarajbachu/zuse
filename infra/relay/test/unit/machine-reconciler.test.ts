@@ -247,6 +247,7 @@ describe("machine reconciler", () => {
 		const billing: BillingProviderAdapter = {
 			providerId: "billing-test",
 			checkout: () => new BillingProviderError({ code: "checkout-disabled" }),
+			getCheckout: () => Effect.succeed(null),
 			verifyEvent: () =>
 				new BillingProviderError({ code: "checkout-disabled" }),
 			reconcileSubscription: () =>
@@ -319,6 +320,7 @@ describe("machine reconciler", () => {
 		const billing: BillingProviderAdapter = {
 			providerId: "billing-test",
 			checkout: () => new BillingProviderError({ code: "checkout-disabled" }),
+			getCheckout: () => Effect.succeed(null),
 			verifyEvent: () =>
 				new BillingProviderError({ code: "checkout-disabled" }),
 			reconcileSubscription: () =>
