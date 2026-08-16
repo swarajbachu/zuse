@@ -2,11 +2,17 @@
 
 Thin control-plane relay for the account-based device-discovery model. It links a
 WorkOS account to the computers ("environments") that account controls, brokers
-short-lived DPoP-bound connect tokens, and tracks presence. **It is never in the
-data path** — chat traffic goes directly phone ↔ laptop.
+short-lived DPoP-bound connect tokens, and tracks presence. Ordinary paired
+environment traffic goes directly phone ↔ laptop. For Zuse Cloud, Relay also
+owns lifecycle and a thin Durable Object gateway that forwards opaque live
+frames; it does not store or project normal chat content.
+
+The cloud documentation starts at [Zuse Cloud](../../docs/cloud/README.md).
+Billing and production procedures remain in [cloud billing](CLOUD_BILLING.md)
+and the [private beta production runbook](PRIVATE_BETA_PRODUCTION.md).
 
 - Runtime: **Cloudflare Workers** (`src/worker.ts`).
-- Store: **PlanetScale Postgres via Cloudflare Hyperdrive** (`@effect/sql-pg`).
+- Store: **Postgres via Cloudflare Hyperdrive** (`@effect/sql-pg`).
 - Identity: **WorkOS** access tokens (verified against WorkOS JWKS).
 - Everything is **Effect**; every record is scoped by the WorkOS account id.
 
@@ -90,8 +96,9 @@ binding requires separate, explicit approval.
    bun run db:migrate
    ```
    This is staging-only and validates the configured Neon host and database name
-   before Drizzle runs. Production migrations are intentionally not scripted
-   until an approved production database identity can be pinned and reviewed.
+   before Drizzle runs. Production uses the separately guarded
+   `db:migrate:production` command after its approved identity is pinned in
+   `production-database.json`; see the private beta production runbook.
 3. **Hyperdrive**: create the binding with SQL response caching disabled, then
    paste the id into `wrangler.jsonc`:
    ```sh

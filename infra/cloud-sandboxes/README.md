@@ -1,5 +1,8 @@
 # Cloud sandbox template
 
+For the surrounding control plane, lifecycle, cache, and security model, start
+with the [Zuse Cloud documentation](../../docs/cloud/README.md).
+
 This credential-free image contains the Zuse runtime and supported developer
 toolchain. Its inert `sleep infinity` command is deliberate. Project builders
 start `zuse-project-builder`; workspace forks start `zuse-workspace-bootstrap`

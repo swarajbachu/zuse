@@ -152,6 +152,15 @@ specs/
   sub-agents/  Sub-agent delegation
 ```
 
+## Architecture documentation
+
+- [Zuse Cloud](docs/cloud/README.md) — cloud architecture, lifecycle, storage,
+  security, operations, and user guide
+- [Realtime runtime](docs/architecture/realtime-runtime.md) — the durable
+  session and ClientBus path shared by local, SSH, and cloud environments
+- [Unified computers](docs/specs/unified-computers.md) — environment and sandbox
+  domain model
+
 ---
 
 ## Dev setup

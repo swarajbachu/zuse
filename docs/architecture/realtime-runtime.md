@@ -64,9 +64,11 @@ from the persisted cursor.
   messages load through cursor pagination.
 - Active client checkpoints persist every 100–250 ms or 16 accepted events,
   plus immediately at synchronization and turn settlement.
-- Archives quiesce writers, use SQLite's backup API, integrity-check the copied
-  database, and include stream heads and checksums in a manifest before the
-  sandbox may be removed.
+- Archive quiesces new work, requests a final encrypted R2 transcript
+  checkpoint, and pauses the same cloud sandbox for 30 days. R2 is a read-only
+  transcript projection; the paused sandbox remains the complete filesystem
+  until unarchive or permanent deletion. Recovery images and staging restores
+  are intentionally deferred.
 
 ## Architectural enforcement
 
