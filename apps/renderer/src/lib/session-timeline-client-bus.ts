@@ -1027,16 +1027,17 @@ const faultFor = (cause: unknown): EnvironmentFault => {
 			? String(cause.code)
 			: "";
 	const message =
-		cause instanceof Error && cause.message !== ""
+		code ||
+		(cause instanceof Error && cause.message !== ""
 			? cause.message
-			: code || String(cause);
+			: String(cause));
 	const lower = message.toLowerCase();
 	const phase: EnvironmentFault["phase"] =
 		globalThis.navigator?.onLine === false
 			? "offline"
 			: lower.includes("update required") || lower.includes("protocol")
 				? "update-required"
-				: lower.includes("revoked")
+				: code === "beta-access-required" || lower.includes("revoked")
 					? "revoked"
 					: code === "not-allowed" ||
 							lower.includes("unauthorized") ||

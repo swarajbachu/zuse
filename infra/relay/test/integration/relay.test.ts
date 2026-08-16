@@ -24,6 +24,9 @@ import * as Config from "../../src/config.ts";
 import type { RelayContext } from "../../src/handler.ts";
 import {
 	AccountIdentity,
+	BetaAccess,
+	BetaAccessAllowAll,
+	BetaAccessDenied,
 	CloudBillingStoreMemory,
 	CloudCredentialVault,
 	CloudCredentialVaultLive,
@@ -127,6 +130,7 @@ const makeLayer = async (
 	liveCheckoutEnabled = false,
 	machineControlOverrides: Partial<MachineControlConfig> = {},
 	sandboxProvidersLayer: Layer.Layer<SandboxProviders> = SandboxProvidersFake,
+	betaAccessLayer: Layer.Layer<BetaAccess> = BetaAccessAllowAll,
 ): Promise<Layer.Layer<RelayContext>> => {
 	const billingLayer =
 		typeof billingLayerOrMaxEnvironments === "number"
@@ -171,6 +175,7 @@ const makeLayer = async (
 	);
 	return Layer.mergeAll(
 		configLayer,
+		betaAccessLayer,
 		WorkosVerifierTest,
 		RelayStoreMemory,
 		MachineStoreMemory,
@@ -336,6 +341,39 @@ beforeEach(async () => {
 });
 
 describe("@zuse/relay", () => {
+	test("gates hosted operations without blocking local environment linking", async () => {
+		const gatedRelay = makeRelay(
+			await makeLayer(
+				undefined,
+				BillingProvidersManual,
+				false,
+				{},
+				SandboxProvidersFake,
+				Layer.succeed(
+					BetaAccess,
+					BetaAccess.of({ check: () => Effect.fail(new BetaAccessDenied()) }),
+				),
+			),
+		);
+		const headers = { authorization: "Bearer test-token:user_a" };
+		const hosted = await gatedRelay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/machine-offers`, { headers }),
+		);
+		expect(hosted.status).toBe(403);
+		expect(await hosted.json()).toEqual({
+			error: "cloud_beta_access_required",
+		});
+
+		const local = await gatedRelay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/client/environment-link-challenges`, {
+				method: "POST",
+				headers,
+			}),
+		);
+		expect(local.status).toBe(200);
+		await gatedRelay.dispose();
+	});
+
 	test("offers each server-owned cloud machine and makes creation idempotent", async () => {
 		const headers = {
 			authorization: "Bearer test-token:user_a",

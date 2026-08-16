@@ -13,7 +13,10 @@ import {
 } from "../lib/cloud-workspace-catalog.ts";
 import { cloudTranscriptActivation } from "../lib/cloud-workspace-lifecycle.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
-import { retryRendererEnvironmentConnection } from "../lib/session-timeline-client-bus.ts";
+import {
+	getRendererClientBus,
+	retryRendererEnvironmentConnection,
+} from "../lib/session-timeline-client-bus.ts";
 import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
@@ -71,14 +74,31 @@ export function CloudConnectionNotice() {
 	const presentation = cloudConnectionPresentation(summary, activity);
 	if (presentation === "hidden") return null;
 	const blockedAuth = shell.connection === "blocked-auth";
+	const connectionError = getRendererClientBus().connection(
+		EnvironmentId.make(summary.workspaceId),
+	).error;
+	const inviteRequired =
+		connectionError?.includes("beta-access-required") === true;
+	const betaCheckUnavailable =
+		connectionError?.includes("beta-access-unavailable") === true;
 	const retry = () =>
 		retryRendererEnvironmentConnection(EnvironmentId.make(summary.workspaceId));
-	const value = blockedAuth
+	const value = inviteRequired
 		? {
-				title: "Sign in required",
-				detail: "Sign in to reconnect this cloud workspace.",
+				title: "Zuse Cloud is invite-only",
+				detail: "This account does not currently have cloud beta access.",
 			}
-		: copy[presentation];
+		: betaCheckUnavailable
+			? {
+					title: "Cloud access could not be verified",
+					detail: "Try again shortly. Your cached chat is still available.",
+				}
+			: blockedAuth
+				? {
+						title: "Sign in required",
+						detail: "Sign in to reconnect this cloud workspace.",
+					}
+				: copy[presentation];
 	const busy = presentation === "resuming" || presentation === "updating";
 	return (
 		<div
@@ -102,7 +122,7 @@ export function CloudConnectionNotice() {
 				)}
 				<p className="truncate text-muted-foreground">{value.detail}</p>
 			</div>
-			{presentation === "failed" ? (
+			{presentation === "failed" && !inviteRequired ? (
 				<button
 					type="button"
 					disabled={signingIn}

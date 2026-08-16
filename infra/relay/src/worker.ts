@@ -3,12 +3,14 @@ import {
 	CLOUD_WORKSPACE_OFFER_ID,
 	HOSTED_APP_URL,
 	PERSISTENT_STANDARD_OFFER_ID,
+	PRODUCTION_RELAY_URL,
 } from "@zuse/contracts";
 import { Effect, Layer, Redacted } from "effect";
 import { Pool } from "pg";
 import runtimeInstallerSource from "../../../apps/server/scripts/runtime-updater.mjs";
 import cloudInitTemplate from "../../cloud-machines/bootstrap/cloud-init.yaml.tmpl";
 import { AccountIdentityLive } from "./account-identity.ts";
+import { BetaAccessAllowAll, PostHogBetaAccessLayer } from "./beta-access.ts";
 import { resolveBillingRuntime } from "./billing-config.ts";
 import { CloudBillingStorePg } from "./cloud-billing-store.ts";
 import {
@@ -101,6 +103,9 @@ interface Env {
 	readonly POLAR_PRODUCT_SANDBOX_STANDARD_V1?: string;
 	readonly POLAR_VPS_SALES_APPROVED?: string;
 	readonly POLAR_WEBHOOK_SECRET?: string;
+	readonly POSTHOG_HOST?: string;
+	readonly POSTHOG_PROJECT_TOKEN?: string;
+	readonly POSTHOG_CLOUD_BETA_FLAG_KEY?: string;
 	readonly POLAR_CLOUD_OVERAGE_METER_ID?: string;
 	readonly MACHINE_PROVIDER?: string;
 	readonly HETZNER_ADAPTER_ENABLED?: string;
@@ -231,6 +236,19 @@ const managedTunnelConfig = (
 const build = (env: Env): ReturnType<typeof makeRelay> => {
 	const cloudTranscriptBucket = env.CLOUD_TRANSCRIPTS;
 	const billing = resolveBillingRuntime(env);
+	const postHogConfigured =
+		isConfigured(env.POSTHOG_HOST) &&
+		isConfigured(env.POSTHOG_PROJECT_TOKEN) &&
+		isConfigured(env.POSTHOG_CLOUD_BETA_FLAG_KEY);
+	if (env.RELAY_ISSUER === PRODUCTION_RELAY_URL && !postHogConfigured)
+		throw new Error("Production cloud beta access requires PostHog");
+	const betaAccessLayer = postHogConfigured
+		? PostHogBetaAccessLayer({
+				host: env.POSTHOG_HOST as string,
+				projectToken: env.POSTHOG_PROJECT_TOKEN as string,
+				flagKey: env.POSTHOG_CLOUD_BETA_FLAG_KEY as string,
+			})
+		: BetaAccessAllowAll;
 	const machineProvider = resolveMachineProviderRuntime(env, {
 		cloudInitTemplate,
 		relayIssuer: env.RELAY_ISSUER,
@@ -410,6 +428,7 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 	};
 	const appLayer = Layer.mergeAll(
 		configLayer,
+		betaAccessLayer,
 		WorkosVerifierLive.pipe(Layer.provide(configLayer)),
 		AccountIdentityLive.pipe(Layer.provide(configLayer)),
 		RelayStorePg.pipe(Layer.provide(dbLayer)),

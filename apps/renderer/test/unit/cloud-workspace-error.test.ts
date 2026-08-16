@@ -18,4 +18,15 @@ describe("cloud workspace errors", () => {
 			"This cloud project needs to be prepared again before starting a workspace.",
 		);
 	});
+
+	test("distinguishes invite denial from an unavailable access check", () => {
+		expect(
+			formatError(new CloudWorkspaceOpError({ code: "beta-access-required" })),
+		).toBe("Zuse Cloud is currently invite-only.");
+		expect(
+			formatError(
+				new CloudWorkspaceOpError({ code: "beta-access-unavailable" }),
+			),
+		).toBe("Cloud access could not be verified. Try again shortly.");
+	});
 });

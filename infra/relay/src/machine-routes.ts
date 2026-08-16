@@ -14,6 +14,7 @@ import { MachineProviders } from "@zuse/machine-providers";
 import { Clock, Effect, Schema } from "effect";
 
 import { requireWorkos } from "./auth.ts";
+import { type BetaAccess, requireCloudBetaAccess } from "./beta-access.ts";
 import { cancelProviderSubscription } from "./billing-operations.ts";
 import { ensureCloudBillingPeriod } from "./cloud-billing-period.ts";
 import type { CloudBillingStore } from "./cloud-billing-store.ts";
@@ -53,6 +54,7 @@ import type { WorkosVerifier } from "./workos.ts";
 
 export type MachineRouteContext =
 	| WorkosVerifier
+	| BetaAccess
 	| MachineStore
 	| MachineProviders
 	| BillingProviders
@@ -330,23 +332,13 @@ const reconcileCheckoutEntitlements = (
 		);
 	});
 
-const requireAlphaAccess = (
-	accountId: string,
-): Effect.Effect<void, RelayError> =>
-	Effect.gen(function* () {
-		const config = yield* MachineControlConfiguration;
-		if (!config.allowlistedAccountIds.has(accountId)) {
-			return yield* Effect.fail(forbidden("machine_alpha_not_allowed"));
-		}
-	});
-
-const requireMachineAlphaPrincipal = Effect.fn("requireMachineAlphaPrincipal")(
-	function* (request: Request) {
-		const principal = yield* requireWorkos(request);
-		yield* requireAlphaAccess(principal.accountId);
-		return principal;
-	},
-);
+const requireHostedPrincipal = Effect.fn("requireHostedPrincipal")(function* (
+	request: Request,
+) {
+	const principal = yield* requireWorkos(request);
+	yield* requireCloudBetaAccess(principal.accountId);
+	return principal;
+});
 
 const getOwnedMachine = (
 	machineId: string,
@@ -780,7 +772,7 @@ export const routeMachineRequest = (
 		}
 
 		if (method === "GET" && path === RelayPaths.machineOffers) {
-			yield* requireMachineAlphaPrincipal(request);
+			yield* requireHostedPrincipal(request);
 			const machineConfig = yield* MachineControlConfiguration;
 			return json({
 				offers: MACHINE_OFFERS.map((offer) => ({
@@ -791,13 +783,13 @@ export const routeMachineRequest = (
 		}
 
 		if (method === "GET" && path === RelayPaths.machines) {
-			const principal = yield* requireMachineAlphaPrincipal(request);
+			const principal = yield* requireHostedPrincipal(request);
 			const machines = yield* store.listMachines(principal.accountId);
 			return json({ machines: machines.map(toPublicMachine) });
 		}
 
 		if (method === "POST" && path === RelayPaths.machines) {
-			const principal = yield* requireMachineAlphaPrincipal(request);
+			const principal = yield* requireHostedPrincipal(request);
 			const body = yield* decodeBody(MachineCreateRequest, request);
 			const offer = findMachineOffer(body.offerId);
 			const machineConfig = yield* MachineControlConfiguration;
@@ -845,7 +837,7 @@ export const routeMachineRequest = (
 		}
 
 		if (method === "GET" && path === RelayPaths.billingEntitlements) {
-			const principal = yield* requireMachineAlphaPrincipal(request);
+			const principal = yield* requireHostedPrincipal(request);
 			const entitlements = yield* store.listEntitlements(principal.accountId);
 			const machines = yield* store.listMachines(principal.accountId);
 			return json({
@@ -861,7 +853,7 @@ export const routeMachineRequest = (
 		}
 
 		if (method === "POST" && path === RelayPaths.billingCheckout) {
-			const principal = yield* requireMachineAlphaPrincipal(request);
+			const principal = yield* requireHostedPrincipal(request);
 			const body = yield* decodeBody(BillingCheckoutRequest, request);
 			const machineConfig = yield* MachineControlConfiguration;
 			const isCloudWorkspace = body.offerId === CLOUD_WORKSPACE_OFFER_ID;
@@ -940,7 +932,7 @@ export const routeMachineRequest = (
 		}
 
 		if (method === "POST" && path === RelayPaths.billingPortal) {
-			const principal = yield* requireMachineAlphaPrincipal(request);
+			const principal = yield* requireHostedPrincipal(request);
 			const entitlements = yield* store.listEntitlements(principal.accountId);
 			const portalProviderIds = [
 				...new Set(
@@ -976,7 +968,7 @@ export const routeMachineRequest = (
 
 		const machineMatch = /^\/v1\/machines\/([^/]+)$/.exec(path);
 		if (method === "GET" && machineMatch !== null) {
-			const principal = yield* requireMachineAlphaPrincipal(request);
+			const principal = yield* requireHostedPrincipal(request);
 			const machine = yield* getOwnedMachine(
 				decodeURIComponent(machineMatch[1] ?? ""),
 				principal.accountId,
@@ -986,7 +978,7 @@ export const routeMachineRequest = (
 
 		const cancelMatch = /^\/v1\/machines\/([^/]+)\/cancel$/.exec(path);
 		if (method === "POST" && cancelMatch !== null) {
-			const principal = yield* requireMachineAlphaPrincipal(request);
+			const principal = yield* requireHostedPrincipal(request);
 			const machine = yield* getOwnedMachine(
 				decodeURIComponent(cancelMatch[1] ?? ""),
 				principal.accountId,
@@ -1018,7 +1010,7 @@ export const routeMachineRequest = (
 
 		const recoverMatch = /^\/v1\/machines\/([^/]+)\/recover$/.exec(path);
 		if (method === "POST" && recoverMatch !== null) {
-			const principal = yield* requireMachineAlphaPrincipal(request);
+			const principal = yield* requireHostedPrincipal(request);
 			const machine = yield* getOwnedMachine(
 				decodeURIComponent(recoverMatch[1] ?? ""),
 				principal.accountId,
@@ -1066,7 +1058,7 @@ export const routeMachineRequest = (
 
 		const destroyMatch = /^\/v1\/machines\/([^/]+)\/destroy$/.exec(path);
 		if (method === "POST" && destroyMatch !== null) {
-			const principal = yield* requireMachineAlphaPrincipal(request);
+			const principal = yield* requireHostedPrincipal(request);
 			const body = yield* decodeBody(MachineDestroyRequest, request);
 			const pathMachineId = decodeURIComponent(destroyMatch[1] ?? "");
 			if (body.machineId !== pathMachineId) {

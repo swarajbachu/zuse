@@ -239,6 +239,26 @@ describe("renderer session timeline ClientBus adapter", () => {
 		retained.lease.release();
 	});
 
+	it("keeps revoked private-beta access cached without retrying", async () => {
+		let attempts = 0;
+		registerEnvironmentActivationForTest(environmentId, async () => {
+			attempts += 1;
+			throw new CloudWorkspaceOpError({ code: "beta-access-required" });
+		});
+
+		const retained = retainSessionTimeline(ref, "connect");
+		await waitUntil(
+			() =>
+				getRendererClientBus().connection(environmentId).phase === "revoked",
+		);
+		expect(getRendererClientBus().connection(environmentId).error).toBe(
+			"beta-access-required",
+		);
+		await new Promise((resolve) => setTimeout(resolve, 650));
+		expect(attempts).toBe(1);
+		retained.lease.release();
+	});
+
 	it("keeps application stream errors resource-local", async () => {
 		setSessionTimelineRpcSessionForTest(async () => ({
 			client: {

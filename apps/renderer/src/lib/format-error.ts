@@ -40,6 +40,9 @@ const TAG_MESSAGES: Record<string, string> = {
 const CLOUD_WORKSPACE_CODE_MESSAGES: Readonly<Record<string, string>> = {
 	"not-found": "This cloud workspace could not be found.",
 	"not-allowed": "Cloud workspace access is not available for this account.",
+	"beta-access-required": "Zuse Cloud is currently invite-only.",
+	"beta-access-unavailable":
+		"Cloud access could not be verified. Try again shortly.",
 	"invalid-request": "The cloud workspace request is invalid.",
 	"entitlement-required": "A Cloud Sandbox subscription is required.",
 	"provider-unavailable":

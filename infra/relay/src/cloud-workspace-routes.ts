@@ -19,6 +19,7 @@ import { sha256Base64Url } from "@zuse/utils/cloud-transcript-crypto";
 import { Clock, Effect, Redacted, Schema } from "effect";
 import { CompactEncrypt, importJWK, type JWK } from "jose";
 import { requireWorkos } from "./auth.ts";
+import { type BetaAccess, requireCloudBetaAccess } from "./beta-access.ts";
 import { ensureAccountCloudBillingPeriod } from "./cloud-billing-period.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { CloudCredentialVault } from "./cloud-credential-vault.ts";
@@ -79,6 +80,7 @@ export type CloudWorkspaceRouteContext =
 	| SandboxProviders
 	| SandboxOfferConfiguration
 	| RelayConfiguration
+	| BetaAccess
 	| WorkosVerifier
 	| CloudBillingStore;
 
@@ -1376,6 +1378,7 @@ export const routeCloudWorkspaceRequest = (
 		}
 
 		const principal = yield* requireWorkos(request);
+		yield* requireCloudBetaAccess(principal.accountId);
 		const requireBillingCapacity = Effect.fn("requireCloudBillingCapacity")(
 			function* () {
 				if (!(yield* RelayConfiguration).cloudBillingEnforcementEnabled) return;

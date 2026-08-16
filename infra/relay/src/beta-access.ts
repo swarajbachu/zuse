@@ -1,0 +1,106 @@
+import { Context, Effect, Layer, Schema } from "effect";
+import { forbidden, type RelayError, serviceUnavailable } from "./errors.ts";
+
+export class BetaAccessDenied extends Schema.TaggedErrorClass<BetaAccessDenied>()(
+	"BetaAccessDenied",
+	{},
+) {}
+
+export class BetaAccessUnavailable extends Schema.TaggedErrorClass<BetaAccessUnavailable>()(
+	"BetaAccessUnavailable",
+	{},
+) {}
+
+export interface BetaAccessApi {
+	readonly check: (
+		accountId: string,
+	) => Effect.Effect<void, BetaAccessDenied | BetaAccessUnavailable>;
+}
+
+export class BetaAccess extends Context.Service<BetaAccess, BetaAccessApi>()(
+	"@zuse/relay/BetaAccess",
+) {}
+
+export interface PostHogBetaAccessConfig {
+	readonly host: string;
+	readonly projectToken: string;
+	readonly flagKey: string;
+	readonly timeoutMs?: number;
+}
+
+const FlagResponse = Schema.Struct({
+	flags: Schema.Record(
+		Schema.String,
+		Schema.Struct({
+			enabled: Schema.Boolean,
+			failed: Schema.optional(Schema.Boolean),
+		}),
+	),
+	errorsWhileComputingFlags: Schema.optional(Schema.Boolean),
+	quotaLimited: Schema.optional(Schema.Array(Schema.String)),
+});
+
+export const makePostHogBetaAccess = (
+	config: PostHogBetaAccessConfig,
+	fetcher: typeof fetch = globalThis.fetch,
+): BetaAccessApi => ({
+	check: Effect.fn("BetaAccess.check")(function* (accountId: string) {
+		const response = yield* Effect.tryPromise({
+			try: () =>
+				fetcher(`${config.host.replace(/\/+$/u, "")}/flags/?v=2`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						token: config.projectToken,
+						distinct_id: accountId,
+						groups: {},
+						person_properties: { workos_account_id: accountId },
+						group_properties: {},
+						geoip_disable: true,
+						flag_keys_to_evaluate: [config.flagKey],
+					}),
+					signal: AbortSignal.timeout(config.timeoutMs ?? 1_500),
+				}),
+			catch: () => new BetaAccessUnavailable(),
+		});
+		if (!response.ok) return yield* new BetaAccessUnavailable();
+		const payload = yield* Effect.tryPromise({
+			try: () => response.json(),
+			catch: () => new BetaAccessUnavailable(),
+		}).pipe(
+			Effect.flatMap(Schema.decodeUnknownEffect(FlagResponse)),
+			Effect.mapError(() => new BetaAccessUnavailable()),
+		);
+		if (
+			payload.errorsWhileComputingFlags === true ||
+			(payload.quotaLimited?.length ?? 0) > 0 ||
+			payload.flags[config.flagKey]?.failed === true
+		)
+			return yield* new BetaAccessUnavailable();
+		if (payload.flags[config.flagKey]?.enabled !== true)
+			return yield* new BetaAccessDenied();
+	}),
+});
+
+export const PostHogBetaAccessLayer = (
+	config: PostHogBetaAccessConfig,
+): Layer.Layer<BetaAccess> =>
+	Layer.succeed(BetaAccess, makePostHogBetaAccess(config));
+
+export const BetaAccessAllowAll = Layer.succeed(
+	BetaAccess,
+	BetaAccess.of({ check: () => Effect.void }),
+);
+
+export const requireCloudBetaAccess = Effect.fn("requireCloudBetaAccess")(
+	function* (accountId: string): Effect.fn.Return<void, RelayError, BetaAccess> {
+		return yield* (yield* BetaAccess).check(accountId).pipe(
+			Effect.catchTags({
+				BetaAccessDenied: () =>
+					Effect.fail(forbidden("cloud_beta_access_required")),
+				BetaAccessUnavailable: () =>
+					Effect.fail(serviceUnavailable("cloud_beta_access_unavailable")),
+			}),
+		);
+	},
+);

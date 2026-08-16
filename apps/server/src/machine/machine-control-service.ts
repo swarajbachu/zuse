@@ -224,6 +224,12 @@ export const mapRelayErrorCode = (
 	if (code === "machine_alpha_not_allowed") {
 		return new MachineControlError("not-allowed");
 	}
+	if (code === "cloud_beta_access_required") {
+		return new MachineControlError("beta-access-required");
+	}
+	if (code === "cloud_beta_access_unavailable") {
+		return new MachineControlError("beta-access-unavailable");
+	}
 	if (code === "invalid_machine_offer") {
 		return new MachineControlError("invalid-offer");
 	}

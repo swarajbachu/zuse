@@ -5,6 +5,7 @@ import {
 } from "@zuse/contracts";
 import { Clock, Effect, Redacted, Schema } from "effect";
 import { requireWorkos } from "./auth.ts";
+import { type BetaAccess, requireCloudBetaAccess } from "./beta-access.ts";
 import {
 	E2bLifecycleEvent,
 	ingestE2bLifecycleEvent,
@@ -62,6 +63,7 @@ export type CloudBillingRouteContext =
 	| MachineStore
 	| RelayConfiguration
 	| WorkosVerifier
+	| BetaAccess
 	| CloudBillingStore;
 
 export const routeCloudBillingRequest = (
@@ -119,6 +121,7 @@ export const routeCloudBillingRequest = (
 		)
 			return null;
 		const principal = yield* requireWorkos(request);
+		yield* requireCloudBetaAccess(principal.accountId);
 		const period = yield* ensureAccountCloudBillingPeriod(
 			principal.accountId,
 			nowMs,
