@@ -13,10 +13,12 @@ RUN apt-get update \
         gh \
         jq \
         openssh-client \
+        openssh-server \
         python3 \
         python3-pip \
         python3-venv \
         ripgrep \
+        rsync \
 		sqlite3 \
         tmux \
         util-linux \
@@ -33,7 +35,7 @@ RUN npm install --global \
 # is intentionally not fetched from npm: the sandbox external-bind behavior
 # must ship atomically with the relay that depends on it.
 COPY artifacts/zusehq-server-0.1.2.tgz /tmp/zusehq-server.tgz
-COPY artifacts/zusehq-serve-0.1.2.tgz /tmp/zusehq-serve.tgz
+COPY artifacts/zusehq-serve-0.1.3.tgz /tmp/zusehq-serve.tgz
 RUN npm install --global /tmp/zusehq-server.tgz \
 	&& mkdir -p /usr/local/lib/zuse-serve \
 	&& tar -xzf /tmp/zusehq-serve.tgz --strip-components=2 -C /usr/local/lib/zuse-serve package/dist \
@@ -43,8 +45,13 @@ RUN npm install --global /tmp/zusehq-server.tgz \
 	&& npm cache clean --force
 
 RUN useradd --create-home --shell /bin/bash zuse \
-    && mkdir -p /home/zuse/.zuse-data /var/cache/zuse/repositories \
+    && mkdir -p /home/zuse/.zuse-data /home/zuse/.ssh /var/cache/zuse/repositories \
+    && chmod 700 /home/zuse/.ssh \
     && chown -R zuse:zuse /home/zuse /var/cache/zuse
+
+# Single-connection sshd config used by the runtime's WebSocket SSH bridge
+# (`sshd -i`, spawned per connection as user zuse — no listening daemon).
+COPY --chown=zuse:zuse --chmod=0600 sshd_config /home/zuse/.ssh/sshd_config
 
 COPY --chmod=0755 project-builder.sh /usr/local/bin/zuse-project-builder
 COPY --chmod=0755 workspace-bootstrap.sh /usr/local/bin/zuse-workspace-bootstrap

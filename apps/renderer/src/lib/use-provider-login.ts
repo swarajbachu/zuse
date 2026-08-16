@@ -1,7 +1,6 @@
+import type { LoginEvent, ProviderId } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { useEffect, useRef, useState } from "react";
-
-import type { LoginEvent, ProviderId } from "@zuse/contracts";
 
 import { getRpcClient } from "./rpc-client";
 

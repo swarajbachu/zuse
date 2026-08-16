@@ -151,6 +151,11 @@ const makeSandboxProvidersFakeFromControl = (
 						...calls,
 						providerSandboxId,
 					]),
+				replaceProcess: (providerSandboxId) =>
+					Ref.update(control.startProcessCalls, (calls) => [
+						...calls,
+						providerSandboxId,
+					]),
 				pathExists: (providerSandboxId, path) =>
 					Ref.get(control.pathsBySandbox).pipe(
 						Effect.map(

@@ -1,5 +1,5 @@
-import { SqlClient } from "effect/unstable/sql";
 import { Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 /**
  * Adds `chats.origin_session_id` — lineage for agent-spawned threads. When a
@@ -12,9 +12,9 @@ import { Effect } from "effect";
  * session just clears the link, it doesn't cascade-delete the child chat).
  */
 export const Migration0023ChatLineage = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+	const sql = yield* SqlClient.SqlClient;
 
-  yield* sql`
+	yield* sql`
     ALTER TABLE chats
     ADD COLUMN origin_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL
   `;

@@ -21,10 +21,11 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import { deriveEnvironmentPrRows } from "../lib/branch-workflow.ts";
+import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
 import { displayPath } from "../lib/display-path.ts";
+import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
 import { deriveEnvironmentLocation } from "../lib/environment-location.ts";
 import { formatError } from "../lib/format-error.ts";
-import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
 import {
 	dispatchGitWorkspaceCommand,
 	refreshGitWorkspace,
@@ -40,6 +41,10 @@ import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
+import {
+	CloudWorkspaceInfo,
+	summaryRowClass as rowClass,
+} from "./cloud-workspace-info.tsx";
 import { SubagentAvatar } from "./subagent-identity.tsx";
 import {
 	BranchMenuButton,
@@ -59,8 +64,6 @@ import {
 	PreviewCardTrigger,
 } from "./ui/preview-card.tsx";
 
-const rowClass =
-	"group flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-2.5 text-left text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
 const compactNumber = (value: number): string =>
 	new Intl.NumberFormat("en", { notation: "compact" }).format(value);
 
@@ -105,6 +108,12 @@ export function EnvironmentSummary() {
 				}
 			: null;
 	const environmentId = executionRef?.environmentId ?? null;
+	const cloudWorkspaceId = useCloudChatCatalogStore((state) =>
+		environmentId !== null &&
+		state.summaries.some((candidate) => candidate.workspaceId === environmentId)
+			? environmentId
+			: null,
+	);
 	const gitView = useGitWorkspaceResource(executionRef, "connect");
 	const status = gitView.data?.status ?? null;
 	const diffStat = gitView.data?.diffStat ?? null;
@@ -361,6 +370,9 @@ export function EnvironmentSummary() {
 					</MenuItem>
 				</MenuPopup>
 			</Menu>
+			{cloudWorkspaceId !== null ? (
+				<CloudWorkspaceInfo workspaceId={cloudWorkspaceId} />
+			) : null}
 			<BranchMenuButton
 				branchLabel={branchLabel}
 				branches={branches}

@@ -27,6 +27,14 @@ rm -rf /home/zuse/.zuse-data /home/zuse/.config/gh /home/zuse/.claude /home/zuse
 mkdir -p /home/zuse/.zuse-data
 chmod 700 /home/zuse/.zuse-data
 
+# The SSH host identity is per-workspace: never inherit it (or authorized
+# keys) from the snapshot this sandbox was forked from.
+mkdir -p /home/zuse/.ssh
+chmod 700 /home/zuse/.ssh
+rm -f /home/zuse/.ssh/host_ed25519_key /home/zuse/.ssh/host_ed25519_key.pub \
+  /home/zuse/.ssh/authorized_keys
+ssh-keygen -q -t ed25519 -N "" -f /home/zuse/.ssh/host_ed25519_key
+
 # The relay restricts egress to itself before launching this process. Start the
 # real runtime once: it creates a fresh identity, enrolls, installs credentials,
 # and then remains available for the desktop connection.

@@ -3,6 +3,7 @@ import {
 	type ProviderSandbox,
 	type SandboxNetworkPolicy,
 	type SandboxProcessInput,
+	type SandboxProcessSelector,
 	type SandboxProviderAdapter,
 	SandboxProviderError,
 } from "./index.ts";
@@ -31,6 +32,18 @@ const SandboxListResponse = Schema.Array(SandboxDetail);
 
 const SnapshotResponse = Schema.Struct({
 	snapshotID: Schema.String,
+});
+
+const ProcessInfo = Schema.Struct({
+	config: Schema.Struct({
+		cmd: Schema.String,
+		args: Schema.optional(Schema.Array(Schema.String)),
+	}),
+	pid: Schema.Number,
+	tag: Schema.optional(Schema.NullOr(Schema.String)),
+});
+const ProcessListResponse = Schema.Struct({
+	processes: Schema.Array(ProcessInfo),
 });
 
 type SandboxDetail = Schema.Schema.Type<typeof SandboxDetail>;
@@ -336,29 +349,34 @@ export const makeE2bSandboxProvider = (
 			SandboxDetail,
 		);
 
+	const processConnection = Effect.fn("E2bSandboxProvider.processConnection")(
+		function* (providerSandboxId: string) {
+			const detail = yield* sandboxDetail(providerSandboxId);
+			let accessToken = controlTokens.get(providerSandboxId);
+			if (accessToken === undefined) {
+				const connected = yield* request(
+					"POST",
+					`/sandboxes/${encodeURIComponent(providerSandboxId)}/connect`,
+					CreateResponse,
+					{ timeout: 300 },
+				);
+				accessToken = connected.envdAccessToken ?? undefined;
+				if (accessToken !== undefined)
+					controlTokens.set(providerSandboxId, accessToken);
+			}
+			if (accessToken === undefined) return yield* providerError("rejected");
+			return {
+				accessToken,
+				host: `49983-${providerSandboxId}.${endpointDomain(detail.domain)}`,
+			};
+		},
+	);
+
 	const startProcess = Effect.fn("E2bSandboxProvider.startProcess")(function* (
 		providerSandboxId: string,
 		input: SandboxProcessInput,
 	) {
-		const detail = yield* sandboxDetail(providerSandboxId);
-		let accessToken = controlTokens.get(providerSandboxId);
-		if (accessToken === undefined) {
-			const connected = yield* request(
-				"POST",
-				`/sandboxes/${encodeURIComponent(providerSandboxId)}/connect`,
-				CreateResponse,
-				{ timeout: 300 },
-			);
-			accessToken = connected.envdAccessToken ?? undefined;
-			if (accessToken !== undefined) {
-				controlTokens.set(providerSandboxId, accessToken);
-			}
-		}
-		if (accessToken === undefined) {
-			return yield* providerError("rejected");
-		}
-		const port = 49_983;
-		const host = `${port}-${providerSandboxId}.${endpointDomain(detail.domain)}`;
+		const { accessToken, host } = yield* processConnection(providerSandboxId);
 		const response = yield* Effect.tryPromise({
 			try: () =>
 				http.fetch(`https://${host}/process.Process/Start`, {
@@ -367,7 +385,7 @@ export const makeE2bSandboxProvider = (
 						"Connect-Protocol-Version": "1",
 						"Content-Type": "application/connect+json",
 						"E2b-Sandbox-Id": providerSandboxId,
-						"E2b-Sandbox-Port": String(port),
+						"E2b-Sandbox-Port": "49983",
 						"X-Access-Token": accessToken,
 						...(input.user === undefined
 							? {}
@@ -382,11 +400,13 @@ export const makeE2bSandboxProvider = (
 							cwd: input.cwd,
 							envs: input.env ?? {},
 						},
+						tag: input.tag,
 						stdin: false,
 					}),
 				}),
 			catch: () => providerError("transient"),
 		});
+
 		if (!response.ok) return yield* errorForStatus(response.status);
 		// Process.Start is a server stream. Wait for envd's first process event so
 		// cancelling the response cannot race process creation, then release the
@@ -409,6 +429,99 @@ export const makeE2bSandboxProvider = (
 			catch: () => providerError("transient"),
 		});
 	});
+
+	const replaceProcess = Effect.fn("E2bSandboxProvider.replaceProcess")(
+		function* (
+			providerSandboxId: string,
+			selector: SandboxProcessSelector,
+			input: SandboxProcessInput,
+		) {
+			const { accessToken, host } = yield* processConnection(providerSandboxId);
+			const listResponse = yield* Effect.tryPromise({
+				try: () =>
+					http.fetch(`https://${host}/process.Process/List`, {
+						method: "POST",
+						headers: {
+							"Connect-Protocol-Version": "1",
+							"Content-Type": "application/json",
+							"X-Access-Token": accessToken,
+						},
+						body: "{}",
+					}),
+				catch: () => providerError("transient"),
+			});
+			if (!listResponse.ok) return yield* errorForStatus(listResponse.status);
+			const listed = yield* Effect.tryPromise({
+				try: () => listResponse.json(),
+				catch: () => providerError("transient"),
+			}).pipe(
+				Effect.flatMap(Schema.decodeUnknownEffect(ProcessListResponse)),
+				Effect.mapError(() => providerError("transient")),
+			);
+			const legacyMarkers = selector.legacyCommandMarkers ?? [];
+			let taggedProcessFound = false;
+			const replaced = listed.processes.filter((process) => {
+				if (process.tag === selector.tag) {
+					taggedProcessFound = true;
+					return true;
+				}
+				const command = [
+					process.config.cmd,
+					...(process.config.args ?? []),
+				].join(" ");
+				const matches = legacyMarkers.some((marker) =>
+					command.includes(marker),
+				);
+				return matches;
+			});
+			yield* Effect.forEach(
+				replaced,
+				(process) =>
+					Effect.tryPromise({
+						try: () =>
+							http.fetch(`https://${host}/process.Process/SendSignal`, {
+								method: "POST",
+								headers: {
+									"Connect-Protocol-Version": "1",
+									"Content-Type": "application/json",
+									"X-Access-Token": accessToken,
+								},
+								body: JSON.stringify({
+									process: { pid: process.pid },
+									signal: "SIGNAL_SIGKILL",
+								}),
+							}),
+						catch: () => providerError("transient"),
+					}).pipe(
+						Effect.flatMap((response) =>
+							response.ok
+								? Effect.void
+								: Effect.fail(errorForStatus(response.status)),
+						),
+					),
+				{ concurrency: "unbounded" },
+			);
+			const cleanupLegacyUserProcesses =
+				selector.legacyCleanup === "same-user" && !taggedProcessFound;
+			const replacement = cleanupLegacyUserProcesses
+				? {
+						...input,
+						command: "/bin/bash",
+						args: [
+							"-lc",
+							'uid=$(id -u); for proc in /proc/[0-9]*; do pid=$(basename -- "$proc"); if [ "$pid" = "$$" ] || [ "$pid" = "$PPID" ]; then continue; fi; proc_uid=; while read -r key value _; do if [ "$key" = "Uid:" ]; then proc_uid=$value; break; fi; done < "$proc/status" 2>/dev/null || continue; if [ "$proc_uid" = "$uid" ]; then kill -KILL "$pid" 2>/dev/null || true; fi; done; exec "$@"',
+							"zuse-runtime-legacy-cleanup",
+							input.command,
+							...(input.args ?? []),
+						],
+					}
+				: input;
+			yield* startProcess(providerSandboxId, {
+				...replacement,
+				tag: selector.tag,
+			});
+		},
+	);
 
 	const pathExists = Effect.fn("E2bSandboxProvider.pathExists")(function* (
 		providerSandboxId: string,
@@ -598,6 +711,7 @@ export const makeE2bSandboxProvider = (
 				}),
 			),
 		startProcess,
+		replaceProcess,
 		pathExists,
 		readTextFile,
 		writeTextFile,

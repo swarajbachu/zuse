@@ -1,5 +1,5 @@
-import { SqlClient } from "effect/unstable/sql";
 import { Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 /**
  * Completes the chat-container backfill 0011 deferred. Two responsibilities:
@@ -24,12 +24,12 @@ import { Effect } from "effect";
  * radius small.
  */
 export const Migration0012ChatIdNotNull = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+	const sql = yield* SqlClient.SqlClient;
 
-  // Heal: propagate each session's top-level ancestor's chat_id down its
-  // parent chain. Sessions whose ancestor chain reaches a top-level row are
-  // covered here.
-  yield* sql`
+	// Heal: propagate each session's top-level ancestor's chat_id down its
+	// parent chain. Sessions whose ancestor chain reaches a top-level row are
+	// covered here.
+	yield* sql`
     WITH RECURSIVE ancestor(id, chat_id) AS (
       SELECT id, chat_id FROM sessions WHERE parent_session_id IS NULL
       UNION ALL
@@ -45,10 +45,10 @@ export const Migration0012ChatIdNotNull = Effect.gen(function* () {
       AND id IN (SELECT id FROM ancestor)
   `;
 
-  // Orphan heal: anything still NULL is a session whose parent chain never
-  // resolves to a top-level row. Mint a chat per orphan (mirroring 0011's
-  // seed shape) and point the session at it.
-  yield* sql`
+	// Orphan heal: anything still NULL is a session whose parent chain never
+	// resolves to a top-level row. Mint a chat per orphan (mirroring 0011's
+	// seed shape) and point the session at it.
+	yield* sql`
     INSERT INTO chats (
       id, project_id, worktree_id, title, active_session_id,
       archived_at, created_at, updated_at
@@ -66,7 +66,7 @@ export const Migration0012ChatIdNotNull = Effect.gen(function* () {
     WHERE chat_id IS NULL
   `;
 
-  yield* sql`
+	yield* sql`
     UPDATE sessions
     SET chat_id = (
       SELECT id FROM chats WHERE chats.active_session_id = sessions.id
@@ -74,9 +74,9 @@ export const Migration0012ChatIdNotNull = Effect.gen(function* () {
     WHERE chat_id IS NULL
   `;
 
-  // Rebuild `sessions` to enforce `chat_id NOT NULL`. SQLite's table-rebuild
-  // idiom: create the replacement, copy rows, drop the original, rename.
-  yield* sql`
+	// Rebuild `sessions` to enforce `chat_id NOT NULL`. SQLite's table-rebuild
+	// idiom: create the replacement, copy rows, drop the original, rename.
+	yield* sql`
     CREATE TABLE sessions_new (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -101,7 +101,7 @@ export const Migration0012ChatIdNotNull = Effect.gen(function* () {
     )
   `;
 
-  yield* sql`
+	yield* sql`
     INSERT INTO sessions_new (
       id, project_id, title, provider_id, model, status,
       archived_at, created_at, updated_at,
@@ -118,13 +118,13 @@ export const Migration0012ChatIdNotNull = Effect.gen(function* () {
     FROM sessions
   `;
 
-  yield* sql`DROP TABLE sessions`;
-  yield* sql`ALTER TABLE sessions_new RENAME TO sessions`;
+	yield* sql`DROP TABLE sessions`;
+	yield* sql`ALTER TABLE sessions_new RENAME TO sessions`;
 
-  yield* sql`
+	yield* sql`
     CREATE INDEX idx_sessions_project
       ON sessions(project_id, archived_at, updated_at DESC)
   `;
-  yield* sql`CREATE INDEX idx_sessions_parent ON sessions(parent_session_id)`;
-  yield* sql`CREATE INDEX idx_sessions_chat ON sessions(chat_id)`;
+	yield* sql`CREATE INDEX idx_sessions_parent ON sessions(parent_session_id)`;
+	yield* sql`CREATE INDEX idx_sessions_chat ON sessions(chat_id)`;
 });

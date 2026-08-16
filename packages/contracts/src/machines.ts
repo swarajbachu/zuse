@@ -473,6 +473,27 @@ export const MachineRuntimeUpdateRpc = Rpc.make("machine.runtime.update", {
 	error: MachineOpError,
 });
 
+export class MachineResourceSample extends Schema.Class<MachineResourceSample>(
+	"MachineResourceSample",
+)({
+	sampledAt: Schema.Number,
+	cpuCores: Schema.Number,
+	cpuPercent: Schema.Number,
+	memTotalBytes: Schema.Number,
+	memUsedBytes: Schema.Number,
+	diskTotalBytes: Schema.Number,
+	diskUsedBytes: Schema.Number,
+	/** Filesystem the disk numbers describe (the workspace root when present). */
+	diskPath: Schema.String,
+}) {}
+
+export const MachineResourcesWatchRpc = Rpc.make("machine.resources.watch", {
+	payload: Schema.Struct({ intervalMs: Schema.optional(Schema.Number) }),
+	success: MachineResourceSample,
+	error: MachineOpError,
+	stream: true,
+});
+
 // ---------------------------------------------------------------------------
 // Cloud-machine account access
 // ---------------------------------------------------------------------------

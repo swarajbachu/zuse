@@ -41,6 +41,13 @@ export interface SandboxProcessInput {
 	readonly cwd?: string;
 	readonly env?: Readonly<Record<string, string>>;
 	readonly user?: string;
+	readonly tag?: string;
+}
+
+export interface SandboxProcessSelector {
+	readonly tag: string;
+	readonly legacyCommandMarkers?: ReadonlyArray<string>;
+	readonly legacyCleanup?: "same-user";
 }
 
 export interface SandboxProviderAdapter {
@@ -68,6 +75,11 @@ export interface SandboxProviderAdapter {
 	) => Effect.Effect<ProviderSandbox | null, SandboxProviderError>;
 	readonly startProcess: (
 		providerSandboxId: string,
+		input: SandboxProcessInput,
+	) => Effect.Effect<void, SandboxProviderError>;
+	readonly replaceProcess: (
+		providerSandboxId: string,
+		selector: SandboxProcessSelector,
 		input: SandboxProcessInput,
 	) => Effect.Effect<void, SandboxProviderError>;
 	readonly pathExists: (

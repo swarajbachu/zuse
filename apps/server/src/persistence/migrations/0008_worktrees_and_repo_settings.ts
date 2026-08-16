@@ -1,5 +1,5 @@
-import { SqlClient } from "effect/unstable/sql";
 import { Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 /**
  * Worktrees + per-repository settings.
@@ -17,9 +17,9 @@ import { Effect } from "effect";
  *    nullable so the renderer can fall through to the global default.
  */
 export const Migration0008WorktreesAndRepoSettings = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+	const sql = yield* SqlClient.SqlClient;
 
-  yield* sql`
+	yield* sql`
     CREATE TABLE worktrees (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -32,17 +32,17 @@ export const Migration0008WorktreesAndRepoSettings = Effect.gen(function* () {
     )
   `;
 
-  yield* sql`
+	yield* sql`
     CREATE INDEX idx_worktrees_project
       ON worktrees(project_id, created_at DESC)
   `;
 
-  yield* sql`
+	yield* sql`
     ALTER TABLE sessions
       ADD COLUMN worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL
   `;
 
-  yield* sql`
+	yield* sql`
     CREATE TABLE repository_settings (
       project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
       default_provider_id TEXT,

@@ -1,17 +1,16 @@
+import type { UpdateStatus } from "@zuse/contracts";
 import {
-  app,
-  BrowserWindow,
-  Menu,
-  shell,
-  type MenuItemConstructorOptions,
+	app,
+	type BrowserWindow,
+	Menu,
+	type MenuItemConstructorOptions,
+	shell,
 } from "electron";
 
-import type { UpdateStatus } from "@zuse/contracts";
-
 import {
-  triggerUpdateCheck,
-  triggerUpdateDownload,
-  triggerUpdateInstall,
+	triggerUpdateCheck,
+	triggerUpdateDownload,
+	triggerUpdateInstall,
 } from "./updater.ts";
 
 /**
@@ -21,15 +20,15 @@ import {
  * subset of `Command` in `@zuse/contracts/keybindings`.
  */
 export type MenuCommand =
-  | "new-chat"
-  | "open-project"
-  | "settings"
-  | "export-diagnostics"
-  | "close-tab"
-  | "toggle-left-sidebar"
-  | "toggle-right-sidebar"
-  | "toggle-terminal"
-  | "focus-composer";
+	| "new-chat"
+	| "open-project"
+	| "settings"
+	| "export-diagnostics"
+	| "close-tab"
+	| "toggle-left-sidebar"
+	| "toggle-right-sidebar"
+	| "toggle-terminal"
+	| "focus-composer";
 
 /**
  * Accelerator strings to attach to each menu item, keyed by command. A
@@ -47,15 +46,15 @@ export type MenuAccelerators = Readonly<Record<MenuCommand, string | null>>;
  * paint before the Effect runtime is up.
  */
 export const DEFAULT_MENU_ACCELERATORS: MenuAccelerators = {
-  "new-chat": "CmdOrCtrl+N",
-  "open-project": "CmdOrCtrl+O",
-  settings: "CmdOrCtrl+,",
-  "export-diagnostics": null,
-  "close-tab": "CmdOrCtrl+W",
-  "toggle-left-sidebar": "CmdOrCtrl+B",
-  "toggle-right-sidebar": "CmdOrCtrl+Alt+B",
-  "toggle-terminal": "CmdOrCtrl+J",
-  "focus-composer": "CmdOrCtrl+L",
+	"new-chat": "CmdOrCtrl+N",
+	"open-project": "CmdOrCtrl+O",
+	settings: "CmdOrCtrl+,",
+	"export-diagnostics": null,
+	"close-tab": "CmdOrCtrl+W",
+	"toggle-left-sidebar": "CmdOrCtrl+B",
+	"toggle-right-sidebar": "CmdOrCtrl+Alt+B",
+	"toggle-terminal": "CmdOrCtrl+J",
+	"focus-composer": "CmdOrCtrl+L",
 };
 
 const GITHUB_REPO_URL = "https://github.com/swarajbachu/zuse";
@@ -68,41 +67,41 @@ const GITHUB_ISSUE_NEW_URL = `${GITHUB_REPO_URL}/issues/new?template=bug_report.
  * menu is a complete fallback path even when the in-app toast is missing.
  */
 function buildUpdateMenuItem(status: UpdateStatus): MenuItemConstructorOptions {
-  switch (status.kind) {
-    case "checking":
-      return { label: "Checking for Updates…", enabled: false };
-    case "available":
-      return {
-        label: `Download Update (v${status.version})…`,
-        click: () => triggerUpdateDownload(),
-      };
-    case "downloading":
-      return {
-        label: `Downloading Update… ${Math.round(status.percent)}%`,
-        enabled: false,
-      };
-    case "ready":
-      return {
-        label: `Install Update & Restart (v${status.version})`,
-        click: () => triggerUpdateInstall(),
-      };
-    case "error":
-      return {
-        label: "Retry Update Check",
-        click: () => triggerUpdateCheck(),
-      };
-    case "not-available":
-      return {
-        label: "Check for Updates… (Up to date)",
-        click: () => triggerUpdateCheck(),
-      };
-    case "idle":
-    default:
-      return {
-        label: "Check for Updates…",
-        click: () => triggerUpdateCheck(),
-      };
-  }
+	switch (status.kind) {
+		case "checking":
+			return { label: "Checking for Updates…", enabled: false };
+		case "available":
+			return {
+				label: `Download Update (v${status.version})…`,
+				click: () => triggerUpdateDownload(),
+			};
+		case "downloading":
+			return {
+				label: `Downloading Update… ${Math.round(status.percent)}%`,
+				enabled: false,
+			};
+		case "ready":
+			return {
+				label: `Install Update & Restart (v${status.version})`,
+				click: () => triggerUpdateInstall(),
+			};
+		case "error":
+			return {
+				label: "Retry Update Check",
+				click: () => triggerUpdateCheck(),
+			};
+		case "not-available":
+			return {
+				label: "Check for Updates… (Up to date)",
+				click: () => triggerUpdateCheck(),
+			};
+		case "idle":
+		default:
+			return {
+				label: "Check for Updates…",
+				click: () => triggerUpdateCheck(),
+			};
+	}
 }
 
 /**
@@ -120,247 +119,247 @@ function buildUpdateMenuItem(status: UpdateStatus): MenuItemConstructorOptions {
  *  - the macOS/Windows fork stays the same per-platform.
  */
 export function installAppMenu(
-  getWindow: () => BrowserWindow | null,
-  accelerators: MenuAccelerators = DEFAULT_MENU_ACCELERATORS,
-  updateStatus: UpdateStatus = { kind: "idle" },
+	getWindow: () => BrowserWindow | null,
+	accelerators: MenuAccelerators = DEFAULT_MENU_ACCELERATORS,
+	updateStatus: UpdateStatus = { kind: "idle" },
 ): void {
-  const isMac = process.platform === "darwin";
-  const sendAction = (action: Exclude<MenuCommand, "close-tab">) => () => {
-    const win = getWindow();
-    if (win === null) return;
-    win.webContents.send("menu:action", action);
-  };
+	const isMac = process.platform === "darwin";
+	const sendAction = (action: Exclude<MenuCommand, "close-tab">) => () => {
+		const win = getWindow();
+		if (win === null) return;
+		win.webContents.send("menu:action", action);
+	};
 
-  const reloadWindow = () => {
-    const win = getWindow();
-    if (win === null) return;
-    win.webContents.reload();
-  };
+	const reloadWindow = () => {
+		const win = getWindow();
+		if (win === null) return;
+		win.webContents.reload();
+	};
 
-  const forceReloadWindow = () => {
-    const win = getWindow();
-    if (win === null) return;
-    win.webContents.reloadIgnoringCache();
-  };
+	const forceReloadWindow = () => {
+		const win = getWindow();
+		if (win === null) return;
+		win.webContents.reloadIgnoringCache();
+	};
 
-  const toggleDevTools = () => {
-    const win = getWindow();
-    if (win === null) return;
-    win.webContents.toggleDevTools();
-  };
+	const toggleDevTools = () => {
+		const win = getWindow();
+		if (win === null) return;
+		win.webContents.toggleDevTools();
+	};
 
-  const sendCloseTab = () => {
-    const win = getWindow();
-    if (win === null) return;
-    win.webContents.send("menu:close-tab");
-  };
+	const sendCloseTab = () => {
+		const win = getWindow();
+		if (win === null) return;
+		win.webContents.send("menu:close-tab");
+	};
 
-  /** undefined when unbound, so Electron drops the accelerator entirely. */
-  const accelOrUndefined = (cmd: MenuCommand): string | undefined =>
-    accelerators[cmd] ?? undefined;
+	/** undefined when unbound, so Electron drops the accelerator entirely. */
+	const accelOrUndefined = (cmd: MenuCommand): string | undefined =>
+		accelerators[cmd] ?? undefined;
 
-  const updateItem = buildUpdateMenuItem(updateStatus);
+	const updateItem = buildUpdateMenuItem(updateStatus);
 
-  const fileMenu: MenuItemConstructorOptions = {
-    label: "File",
-    submenu: [
-      {
-        label: "New Chat",
-        accelerator: accelOrUndefined("new-chat"),
-        click: sendAction("new-chat"),
-      },
-      {
-        label: "Open Project…",
-        accelerator: accelOrUndefined("open-project"),
-        click: sendAction("open-project"),
-      },
-      { type: "separator" },
-      {
-        // Closes the active CHAT tab, not the OS window. The renderer owns
-        // the close-tab logic (it knows which tab is active); we just hand
-        // the signal across IPC.
-        label: "Close Tab",
-        accelerator: accelOrUndefined("close-tab"),
-        click: sendCloseTab,
-      },
-      ...(isMac
-        ? []
-        : ([
-            { type: "separator" },
-            {
-              label: "Settings…",
-              accelerator: accelOrUndefined("settings"),
-              click: sendAction("settings"),
-            },
-            { type: "separator" },
-            { role: "quit" },
-          ] satisfies MenuItemConstructorOptions[])),
-    ],
-  };
+	const fileMenu: MenuItemConstructorOptions = {
+		label: "File",
+		submenu: [
+			{
+				label: "New Chat",
+				accelerator: accelOrUndefined("new-chat"),
+				click: sendAction("new-chat"),
+			},
+			{
+				label: "Open Project…",
+				accelerator: accelOrUndefined("open-project"),
+				click: sendAction("open-project"),
+			},
+			{ type: "separator" },
+			{
+				// Closes the active CHAT tab, not the OS window. The renderer owns
+				// the close-tab logic (it knows which tab is active); we just hand
+				// the signal across IPC.
+				label: "Close Tab",
+				accelerator: accelOrUndefined("close-tab"),
+				click: sendCloseTab,
+			},
+			...(isMac
+				? []
+				: ([
+						{ type: "separator" },
+						{
+							label: "Settings…",
+							accelerator: accelOrUndefined("settings"),
+							click: sendAction("settings"),
+						},
+						{ type: "separator" },
+						{ role: "quit" },
+					] satisfies MenuItemConstructorOptions[])),
+		],
+	};
 
-  const editMenu: MenuItemConstructorOptions = {
-    label: "Edit",
-    submenu: [
-      { role: "undo" },
-      { role: "redo" },
-      { type: "separator" },
-      { role: "cut" },
-      { role: "copy" },
-      { role: "paste" },
-      ...(isMac
-        ? ([
-            { role: "pasteAndMatchStyle" },
-            { role: "selectAll" },
-          ] satisfies MenuItemConstructorOptions[])
-        : ([
-            { role: "delete" },
-            { type: "separator" },
-            { role: "selectAll" },
-          ] satisfies MenuItemConstructorOptions[])),
-    ],
-  };
+	const editMenu: MenuItemConstructorOptions = {
+		label: "Edit",
+		submenu: [
+			{ role: "undo" },
+			{ role: "redo" },
+			{ type: "separator" },
+			{ role: "cut" },
+			{ role: "copy" },
+			{ role: "paste" },
+			...(isMac
+				? ([
+						{ role: "pasteAndMatchStyle" },
+						{ role: "selectAll" },
+					] satisfies MenuItemConstructorOptions[])
+				: ([
+						{ role: "delete" },
+						{ type: "separator" },
+						{ role: "selectAll" },
+					] satisfies MenuItemConstructorOptions[])),
+		],
+	};
 
-  const viewMenu: MenuItemConstructorOptions = {
-    label: "View",
-    submenu: [
-      {
-        label: "Toggle Sidebar",
-        accelerator: accelOrUndefined("toggle-left-sidebar"),
-        click: sendAction("toggle-left-sidebar"),
-      },
-      {
-        label: "Toggle Files Pane",
-        accelerator: accelOrUndefined("toggle-right-sidebar"),
-        click: sendAction("toggle-right-sidebar"),
-      },
-      {
-        label: "Toggle Terminal",
-        accelerator: accelOrUndefined("toggle-terminal"),
-        click: sendAction("toggle-terminal"),
-      },
-      { type: "separator" },
-      {
-        label: "Focus Composer",
-        accelerator: accelOrUndefined("focus-composer"),
-        click: sendAction("focus-composer"),
-      },
-      { type: "separator" },
-      { role: "togglefullscreen" },
-      { type: "separator" },
-      {
-        label: "Developer",
-        submenu: [
-          {
-            label: "Reload",
-            accelerator: "CmdOrCtrl+R",
-            click: reloadWindow,
-          },
-          {
-            label: "Force Reload",
-            accelerator: "CmdOrCtrl+Shift+R",
-            click: forceReloadWindow,
-          },
-          {
-            label: "Toggle Developer Tools",
-            accelerator: "CmdOrCtrl+Shift+I",
-            click: toggleDevTools,
-          },
-        ],
-      },
-    ],
-  };
+	const viewMenu: MenuItemConstructorOptions = {
+		label: "View",
+		submenu: [
+			{
+				label: "Toggle Sidebar",
+				accelerator: accelOrUndefined("toggle-left-sidebar"),
+				click: sendAction("toggle-left-sidebar"),
+			},
+			{
+				label: "Toggle Files Pane",
+				accelerator: accelOrUndefined("toggle-right-sidebar"),
+				click: sendAction("toggle-right-sidebar"),
+			},
+			{
+				label: "Toggle Terminal",
+				accelerator: accelOrUndefined("toggle-terminal"),
+				click: sendAction("toggle-terminal"),
+			},
+			{ type: "separator" },
+			{
+				label: "Focus Composer",
+				accelerator: accelOrUndefined("focus-composer"),
+				click: sendAction("focus-composer"),
+			},
+			{ type: "separator" },
+			{ role: "togglefullscreen" },
+			{ type: "separator" },
+			{
+				label: "Developer",
+				submenu: [
+					{
+						label: "Reload",
+						accelerator: "CmdOrCtrl+R",
+						click: reloadWindow,
+					},
+					{
+						label: "Force Reload",
+						accelerator: "CmdOrCtrl+Shift+R",
+						click: forceReloadWindow,
+					},
+					{
+						label: "Toggle Developer Tools",
+						accelerator: "CmdOrCtrl+Shift+I",
+						click: toggleDevTools,
+					},
+				],
+			},
+		],
+	};
 
-  const windowMenu: MenuItemConstructorOptions = {
-    label: "Window",
-    // Intentionally omits `role: "close"`. Electron's default close-window
-    // accelerator is also Cmd+W, which would shadow the File → Close Tab
-    // item — and the user wants Cmd+W to close the active chat tab, not
-    // the OS window. Window close is still reachable via the traffic light.
-    submenu: isMac
-      ? [
-          { role: "minimize" },
-          { role: "zoom" },
-          { type: "separator" },
-          { role: "front" },
-        ]
-      : [{ role: "minimize" }, { role: "zoom" }],
-  };
+	const windowMenu: MenuItemConstructorOptions = {
+		label: "Window",
+		// Intentionally omits `role: "close"`. Electron's default close-window
+		// accelerator is also Cmd+W, which would shadow the File → Close Tab
+		// item — and the user wants Cmd+W to close the active chat tab, not
+		// the OS window. Window close is still reachable via the traffic light.
+		submenu: isMac
+			? [
+					{ role: "minimize" },
+					{ role: "zoom" },
+					{ type: "separator" },
+					{ role: "front" },
+				]
+			: [{ role: "minimize" }, { role: "zoom" }],
+	};
 
-  const helpMenu: MenuItemConstructorOptions = {
-    role: "help",
-    submenu: [
-      {
-        label: "View Changelog",
-        click: () => {
-          void shell.openExternal(GITHUB_RELEASES_URL);
-        },
-      },
-      {
-        label: "Report a Bug",
-        click: () => {
-          void shell.openExternal(GITHUB_ISSUE_NEW_URL);
-        },
-      },
-      {
-        label: "Export Diagnostics for Bug Report...",
-        click: sendAction("export-diagnostics"),
-      },
-      { type: "separator" },
-      {
-        label: "Zuse on GitHub",
-        click: () => {
-          void shell.openExternal(GITHUB_REPO_URL);
-        },
-      },
-    ],
-  };
+	const helpMenu: MenuItemConstructorOptions = {
+		role: "help",
+		submenu: [
+			{
+				label: "View Changelog",
+				click: () => {
+					void shell.openExternal(GITHUB_RELEASES_URL);
+				},
+			},
+			{
+				label: "Report a Bug",
+				click: () => {
+					void shell.openExternal(GITHUB_ISSUE_NEW_URL);
+				},
+			},
+			{
+				label: "Export Diagnostics for Bug Report...",
+				click: sendAction("export-diagnostics"),
+			},
+			{ type: "separator" },
+			{
+				label: "Zuse on GitHub",
+				click: () => {
+					void shell.openExternal(GITHUB_REPO_URL);
+				},
+			},
+		],
+	};
 
-  const template: MenuItemConstructorOptions[] = [
-    ...(isMac
-      ? ([
-          {
-            label: app.name,
-            submenu: [
-              { role: "about" },
-              updateItem,
-              { type: "separator" },
-              {
-                label: "Settings…",
-                accelerator: accelOrUndefined("settings"),
-                click: sendAction("settings"),
-              },
-              { type: "separator" },
-              { role: "services" },
-              { type: "separator" },
-              { role: "hide" },
-              { role: "hideOthers" },
-              { role: "unhide" },
-              { type: "separator" },
-              { role: "quit" },
-            ],
-          } satisfies MenuItemConstructorOptions,
-        ] satisfies MenuItemConstructorOptions[])
-      : []),
-    fileMenu,
-    editMenu,
-    viewMenu,
-    windowMenu,
-    // On Windows/Linux the macOS app menu doesn't exist, so surface the
-    // update item at the top of Help instead. (Help is the conventional
-    // fallback location for "Check for Updates" on those platforms.)
-    ...(isMac
-      ? [helpMenu]
-      : ([
-          {
-            ...helpMenu,
-            submenu: [
-              updateItem,
-              { type: "separator" },
-              ...(helpMenu.submenu as MenuItemConstructorOptions[]),
-            ],
-          } satisfies MenuItemConstructorOptions,
-        ] satisfies MenuItemConstructorOptions[])),
-  ];
+	const template: MenuItemConstructorOptions[] = [
+		...(isMac
+			? ([
+					{
+						label: app.name,
+						submenu: [
+							{ role: "about" },
+							updateItem,
+							{ type: "separator" },
+							{
+								label: "Settings…",
+								accelerator: accelOrUndefined("settings"),
+								click: sendAction("settings"),
+							},
+							{ type: "separator" },
+							{ role: "services" },
+							{ type: "separator" },
+							{ role: "hide" },
+							{ role: "hideOthers" },
+							{ role: "unhide" },
+							{ type: "separator" },
+							{ role: "quit" },
+						],
+					} satisfies MenuItemConstructorOptions,
+				] satisfies MenuItemConstructorOptions[])
+			: []),
+		fileMenu,
+		editMenu,
+		viewMenu,
+		windowMenu,
+		// On Windows/Linux the macOS app menu doesn't exist, so surface the
+		// update item at the top of Help instead. (Help is the conventional
+		// fallback location for "Check for Updates" on those platforms.)
+		...(isMac
+			? [helpMenu]
+			: ([
+					{
+						...helpMenu,
+						submenu: [
+							updateItem,
+							{ type: "separator" },
+							...(helpMenu.submenu as MenuItemConstructorOptions[]),
+						],
+					} satisfies MenuItemConstructorOptions,
+				] satisfies MenuItemConstructorOptions[])),
+	];
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+	Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }

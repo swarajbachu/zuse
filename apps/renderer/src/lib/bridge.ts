@@ -65,6 +65,29 @@ export interface AppBridge {
 	readonly revealPath?: (path: string) => Promise<void>;
 	readonly copyPath?: (path: string) => Promise<void>;
 	readonly copyFileContents?: (path: string) => Promise<boolean>;
+	/** Stages SSH key material, managed ssh config, and a workspace ticket. */
+	readonly cloudSshPrepare?: (
+		access: CloudSshAccess,
+	) => Promise<CloudSshPrepared | null>;
+	/** Launches an editor/terminal against a prepared `zuse-*` ssh alias. */
+	readonly openSshTarget?: (
+		target: string,
+		hostAlias: string,
+		remotePath: string,
+	) => Promise<boolean>;
+	/** Configure the one-way cloud→local mirror for a workspace. */
+	readonly cloudSyncConfigure?: (
+		input: CloudSyncConfigure,
+	) => Promise<CloudSyncStatus | null>;
+	/** Debounced change-driven sync request. */
+	readonly cloudSyncRequest?: (workspaceId: string) => Promise<void>;
+	readonly cloudSyncStatus?: (
+		workspaceId: string,
+	) => Promise<CloudSyncStatus | null>;
+	readonly cloudSyncPickFolder?: () => Promise<string | null>;
+	readonly onCloudSyncStatus?: (
+		handler: (status: CloudSyncStatus) => void,
+	) => () => void;
 	readonly getMainDiagnostics?: () => Promise<
 		ReadonlyArray<DiagnosticLogEntry>
 	>;
@@ -98,6 +121,40 @@ export interface OpenTarget {
 	readonly label: string;
 	readonly available: boolean;
 	readonly iconDataUrl?: string | null;
+}
+
+export interface CloudSshAccess {
+	readonly workspaceId: string;
+	readonly wsUrl: string;
+	readonly ticket: string;
+	readonly expiresAt: number;
+	readonly user: string;
+	readonly workspacePath: string;
+}
+
+export interface CloudSshPrepared {
+	readonly hostAlias: string;
+	readonly sshCommand: string;
+	readonly publicKey: string;
+	readonly remotePath: string;
+}
+
+export interface CloudSyncConfigure {
+	readonly workspaceId: string;
+	readonly enabled: boolean;
+	readonly localPath: string;
+	readonly hostAlias: string;
+	readonly remotePath: string;
+}
+
+export interface CloudSyncStatus {
+	readonly workspaceId: string;
+	readonly enabled: boolean;
+	readonly state: "idle" | "syncing" | "in-sync" | "error";
+	readonly localPath: string | null;
+	readonly lastSyncedAt: number | null;
+	readonly error: string | null;
+	readonly ticketStale: boolean;
 }
 
 export interface UpdatesBridge {

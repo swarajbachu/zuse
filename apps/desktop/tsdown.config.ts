@@ -168,6 +168,16 @@ export default defineConfig([
 	},
 	{
 		...shared,
+		// The ssh ProxyCommand bridge that ssh clients (Terminal, Cursor, Zed)
+		// spawn via `ELECTRON_RUN_AS_NODE=1`. It runs OUTSIDE Electron and the
+		// asar, is dependency-free (node builtins + global WebSocket), and is
+		// resolved next to the main bundle by cloud-ssh-service.ts.
+		entry: {
+			"ssh-bridge-child": "src/ssh/ssh-bridge-child.ts",
+		},
+	},
+	{
+		...shared,
 		entry: {
 			"linear-mcp-child":
 				"../../packages/agents/src/drivers/acp/linear-mcp-child.ts",

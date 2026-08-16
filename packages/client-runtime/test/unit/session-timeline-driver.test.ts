@@ -91,6 +91,33 @@ const harness = <Data>(input: {
 };
 
 describe("shared session timeline resource driver", () => {
+	it("requests an authoritative snapshot for a cached active turn", async () => {
+		const requests: unknown[] = [];
+		const driver = makeSessionTimelineResourceDriver({
+			reportFailure: () => undefined,
+		});
+		const test = harness({
+			key,
+			client: {
+				"session.events": (input) => {
+					requests.push(input);
+					return Stream.never;
+				},
+			},
+			data: projection,
+			cursor: { epoch: "cached", version: 454 },
+		});
+
+		driver.start(test.context);
+		await waitUntil(() => requests.length === 1);
+		expect(requests[0]).toMatchObject({
+			afterVersion: 454,
+			streamEpoch: "cached",
+			hasProjection: false,
+		});
+		driver.stop();
+	});
+
 	it("owns projection, cursor, synchronization, and persistence", async () => {
 		const frames = Effect.runSync(Queue.unbounded<SessionTimelineFrame>());
 		const requests: unknown[] = [];

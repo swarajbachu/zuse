@@ -1,5 +1,5 @@
-import { SqlClient } from "effect/unstable/sql";
 import { Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 /**
  * Sub-agents support.
@@ -15,16 +15,16 @@ import { Effect } from "effect";
  *    the sub-agent set across reloads.
  */
 export const Migration0007Subagents = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+	const sql = yield* SqlClient.SqlClient;
 
-  yield* sql`
+	yield* sql`
     ALTER TABLE messages ADD COLUMN parent_item_id TEXT
   `;
-  yield* sql`
+	yield* sql`
     CREATE INDEX idx_messages_parent_item
       ON messages(session_id, parent_item_id)
   `;
-  yield* sql`
+	yield* sql`
     ALTER TABLE sessions ADD COLUMN agents_json TEXT
   `;
 });

@@ -1,5 +1,5 @@
-import { SqlClient } from "effect/unstable/sql";
 import { Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 /**
  * Adds the attachment tables for MVP 0.03's image-input pipeline.
@@ -17,9 +17,9 @@ import { Effect } from "effect";
  * worker can land additively without touching message history.
  */
 export const Migration0006Attachments = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+	const sql = yield* SqlClient.SqlClient;
 
-  yield* sql`
+	yield* sql`
     CREATE TABLE attachments (
       id            TEXT PRIMARY KEY,
       session_id    TEXT NOT NULL,
@@ -33,12 +33,12 @@ export const Migration0006Attachments = Effect.gen(function* () {
     )
   `;
 
-  yield* sql`
+	yield* sql`
     CREATE INDEX idx_attachments_session
       ON attachments(session_id, created_at)
   `;
 
-  yield* sql`
+	yield* sql`
     CREATE TABLE message_attachments (
       message_id    TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
       attachment_id TEXT NOT NULL REFERENCES attachments(id),
@@ -46,7 +46,7 @@ export const Migration0006Attachments = Effect.gen(function* () {
     )
   `;
 
-  yield* sql`
+	yield* sql`
     CREATE INDEX idx_message_attachments_attachment
       ON message_attachments(attachment_id)
   `;

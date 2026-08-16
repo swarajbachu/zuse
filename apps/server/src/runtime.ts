@@ -40,6 +40,7 @@ import {
 	MachineHostServiceLive,
 	MachinePrivateEndpointPublisherLive,
 } from "./machine/machine-host-service.ts";
+import { MachineResourceServiceLive } from "./machine/machine-resource-service.ts";
 import { MachineRuntimeRole } from "./machine/machine-runtime-role.ts";
 import { McpServiceLive } from "./mcp/layers/mcp-service.ts";
 import { RuntimePerformanceMonitorLive } from "./observability/runtime-performance-monitor.ts";
@@ -625,6 +626,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		LinearLayer,
 		MachineControlLayer,
 		MachineHostLayer,
+		MachineResourceServiceLive,
 		AccountAccessLayer,
 		FolderPickerLayer,
 	);

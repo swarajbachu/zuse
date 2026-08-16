@@ -2,8 +2,8 @@ import { Effect, Redacted } from "effect";
 import { describe, expect, test } from "vitest";
 
 import {
-	cloudTranscriptObjectKey,
 	cloudTranscriptMessagePageObjectKey,
+	cloudTranscriptObjectKey,
 	createCloudTranscriptKey,
 	openCloudTranscriptKey,
 	putCloudTranscriptObject,

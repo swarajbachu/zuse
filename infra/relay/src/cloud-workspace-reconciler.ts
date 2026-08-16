@@ -57,13 +57,21 @@ class CloudWorkspaceLeaseLostError extends Data.TaggedError(
 type SaveClaimedWorkspace = (
 	workspace: CloudWorkspaceRecord,
 ) => Effect.Effect<void, CloudWorkspaceLeaseLostError>;
-export const WORKSPACE_RUNTIME_RESUME_SCRIPT =
-	'set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; pkill -KILL -u zuse -f \'[z]use serve|[/]opt/zuse/current/bin.mjs serve\' 2>/dev/null || true; rm -f /var/lib/zuse/workspace/failed; if [ -f "$runtime" ]; then exec node "$runtime" serve; else exec "$fallback" serve; fi';
-const shellSingleQuote = (value: string): string =>
-	`'${value.replaceAll("'", `'"'"'`)}'`;
-export const WORKSPACE_RUNTIME_RESUME_COMMAND = `nohup /bin/bash -lc ${shellSingleQuote(
-	WORKSPACE_RUNTIME_RESUME_SCRIPT,
-)} >/var/lib/zuse/workspace/runtime-launch.log 2>&1 </dev/null &`;
+const WORKSPACE_RUNTIME_PROCESS = {
+	tag: "zuse-runtime",
+	legacyCommandMarkers: [
+		"zuse-workspace-bootstrap",
+		"/opt/zuse/current/bin.mjs",
+		"/usr/local/bin/zuse",
+	],
+} as const;
+const workspaceRuntimeProcessSelector = (workspace: CloudWorkspaceRecord) => ({
+	...WORKSPACE_RUNTIME_PROCESS,
+	...(workspace.requestConfig.runtimeProcessManaged === true
+		? {}
+		: { legacyCleanup: "same-user" as const }),
+});
+export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; rm -f /var/lib/zuse/workspace/failed; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 ZUSE_RUNTIME_WIRE_PROTOCOL="\${ZUSE_RUNTIME_WIRE_PROTOCOL:?}" node /usr/local/lib/zuse/runtime-updater.mjs >/var/lib/zuse/workspace/runtime-update.log 2>&1; fi; if [ -f "$runtime" ]; then exec node "$runtime" serve; else exec "$fallback" serve; fi`;
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
 
@@ -656,36 +664,40 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 			revision: workspace.revision + 1,
 			updatedAtMs: nowMs,
 		});
-		yield* provider.startProcess(providerSandboxId, {
-			command: "/bin/bash",
-			args: ["-lc", WORKSPACE_RUNTIME_RESUME_COMMAND],
-			cwd: "/home/zuse/workspace",
-			env: {
-				...project.cloudEnvironment,
-				ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
-				ZUSE_RUNTIME_BOOT_TOKEN_FILE: WORKSPACE_RUNTIME_BOOT_TOKEN_FILE,
-				ZUSE_RELAY_URL: relay.relayIssuer,
-				ZUSE_RUNTIME_KIND: "cloud-workspace",
-				ZUSE_HOST: "127.0.0.1",
-				ZUSE_PORT: "47837",
-				ZUSE_AUTH_POLICY: "protected",
-				ZUSE_ENABLE_PAIRING: "0",
-				ZUSE_MACHINE_RUNTIME_ROLE: "cloud-environment",
-				ZUSE_SERVER_READY_STDOUT: "1",
-				ZUSE_USER_DATA: "/home/zuse/.zuse-data",
-				ZUSE_RUNTIME_GENERATION: String(runtimeFence.runtimeGeneration),
-				ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
-				...(config.runtimeManifestUrl === undefined
-					? {}
-					: {
-							ZUSE_RUNTIME_MANIFEST_URL: config.runtimeManifestUrl,
-							ZUSE_RUNTIME_PUBLIC_KEY_FILE:
-								"/home/zuse/.zuse-runtime-signing-public.jwk",
-							ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
-						}),
+		yield* provider.replaceProcess(
+			providerSandboxId,
+			workspaceRuntimeProcessSelector(workspace),
+			{
+				command: "/bin/bash",
+				args: ["-lc", WORKSPACE_RUNTIME_RESUME_SCRIPT],
+				cwd: "/home/zuse/workspace",
+				env: {
+					...project.cloudEnvironment,
+					ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
+					ZUSE_RUNTIME_BOOT_TOKEN_FILE: WORKSPACE_RUNTIME_BOOT_TOKEN_FILE,
+					ZUSE_RELAY_URL: relay.relayIssuer,
+					ZUSE_RUNTIME_KIND: "cloud-workspace",
+					ZUSE_HOST: "127.0.0.1",
+					ZUSE_PORT: "47837",
+					ZUSE_AUTH_POLICY: "protected",
+					ZUSE_ENABLE_PAIRING: "0",
+					ZUSE_MACHINE_RUNTIME_ROLE: "cloud-environment",
+					ZUSE_SERVER_READY_STDOUT: "1",
+					ZUSE_USER_DATA: "/home/zuse/.zuse-data",
+					ZUSE_RUNTIME_GENERATION: String(runtimeFence.runtimeGeneration),
+					ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
+					...(config.runtimeManifestUrl === undefined
+						? {}
+						: {
+								ZUSE_RUNTIME_MANIFEST_URL: config.runtimeManifestUrl,
+								ZUSE_RUNTIME_PUBLIC_KEY_FILE:
+									"/home/zuse/.zuse-runtime-signing-public.jwk",
+								ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
+							}),
+				},
+				user: "zuse",
 			},
-			user: "zuse",
-		});
+		);
 	},
 );
 
@@ -886,6 +898,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			});
 			yield* provider.startProcess(sandbox.providerSandboxId, {
 				command: "/usr/local/bin/zuse-workspace-bootstrap",
+				tag: WORKSPACE_RUNTIME_PROCESS.tag,
 				cwd: "/home/zuse",
 				env: {
 					...project.cloudEnvironment,
@@ -923,7 +936,8 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				provider,
 				nowMs,
 				saveWorkspace,
-				workspace.statusCode === "resume-runtime-waking",
+				workspace.statusCode === "resume-runtime-waking" ||
+					workspace.statusCode === "restart-queued",
 			);
 		}
 
@@ -1064,35 +1078,36 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					runningSinceMs: nowMs,
 					revision: invalidated.revision + 1,
 				});
-				yield* provider.startProcess(workspace.providerSandboxId, {
-					command: "/bin/bash",
-					args: [
-						"-lc",
-						"pkill -KILL -u zuse -f '[z]use serve' 2>/dev/null || true; exec /usr/local/bin/zuse-workspace-bootstrap",
-					],
-					cwd: "/home/zuse",
-					env: {
-						...project.cloudEnvironment,
-						ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
-						ZUSE_RUNTIME_BOOT_TOKEN_FILE: WORKSPACE_RUNTIME_BOOT_TOKEN_FILE,
-						ZUSE_RELAY_URL: relay.relayIssuer,
-						ZUSE_BASE_REF: workspace.baseRef,
-						ZUSE_BRANCH: workspace.branch,
-						ZUSE_PROJECT_CACHE_ID: project.projectId,
-						ZUSE_REPOSITORY_URL: project.repositoryUrl,
-						ZUSE_RUNTIME_GENERATION: String(runtimeFence.runtimeGeneration),
-						ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
-						...(config.runtimeManifestUrl === undefined
-							? {}
-							: {
-									ZUSE_RUNTIME_MANIFEST_URL: config.runtimeManifestUrl,
-									ZUSE_RUNTIME_PUBLIC_KEY_FILE:
-										"/home/zuse/.zuse-runtime-signing-public.jwk",
-									ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
-								}),
+				yield* provider.replaceProcess(
+					workspace.providerSandboxId,
+					workspaceRuntimeProcessSelector(workspace),
+					{
+						command: "/bin/bash",
+						args: ["-lc", "exec /usr/local/bin/zuse-workspace-bootstrap"],
+						cwd: "/home/zuse",
+						env: {
+							...project.cloudEnvironment,
+							ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
+							ZUSE_RUNTIME_BOOT_TOKEN_FILE: WORKSPACE_RUNTIME_BOOT_TOKEN_FILE,
+							ZUSE_RELAY_URL: relay.relayIssuer,
+							ZUSE_BASE_REF: workspace.baseRef,
+							ZUSE_BRANCH: workspace.branch,
+							ZUSE_PROJECT_CACHE_ID: project.projectId,
+							ZUSE_REPOSITORY_URL: project.repositoryUrl,
+							ZUSE_RUNTIME_GENERATION: String(runtimeFence.runtimeGeneration),
+							ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
+							...(config.runtimeManifestUrl === undefined
+								? {}
+								: {
+										ZUSE_RUNTIME_MANIFEST_URL: config.runtimeManifestUrl,
+										ZUSE_RUNTIME_PUBLIC_KEY_FILE:
+											"/home/zuse/.zuse-runtime-signing-public.jwk",
+										ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
+									}),
+						},
+						user: "zuse",
 					},
-					user: "zuse",
-				});
+				);
 				return;
 			}
 			yield* recordLifecycle(workspace, "resume", nowMs);

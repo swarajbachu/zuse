@@ -6,9 +6,8 @@ import {
 } from "@zuse/analytics";
 import type { AnalyticsContext } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
-
-import { hostDescriptor } from "./host-platform.ts";
 import { createDeferredRuntime } from "./deferred-runtime.ts";
+import { hostDescriptor } from "./host-platform.ts";
 import { sanitizePostHogEvent } from "./posthog-event.ts";
 import { getRpcClient } from "./rpc-client.ts";
 

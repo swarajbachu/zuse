@@ -63,7 +63,7 @@ import {
 } from "./errors.ts";
 import { MachineControlConfiguration } from "./machine-config.ts";
 import { MachineStore } from "./machine-store.ts";
-import type { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
+import { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
 import type { WorkosVerifier } from "./workos.ts";
 import { WORKSPACE_GATEWAY_PROTOCOL } from "./workspace-gateway-protocol.ts";
 
@@ -82,6 +82,36 @@ export type CloudWorkspaceRouteContext =
 const WORKSPACE_CLIENT_TICKET_TTL_MS = 60_000;
 const RUNTIME_CREDENTIAL_TTL_MS = 15 * 60_000;
 const ARCHIVED_WORKSPACE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+// SSH bridge access: the hashed ticket is staged inside the sandbox (like the
+// runtime boot token) and verified by the runtime's /ssh WebSocket route.
+const WORKSPACE_SSH_TICKET_TTL_MS = 12 * 60 * 60_000;
+const WORKSPACE_SSH_TICKET_FILE = "/home/zuse/.zuse-ssh-ticket";
+const LEGACY_WORKSPACE_SSH_BOOTSTRAP = `set -eu
+export DEBIAN_FRONTEND=noninteractive
+if [ ! -x /usr/sbin/sshd ]; then
+  apt-get update >/dev/null
+  apt-get install -y --no-install-recommends openssh-server >/dev/null
+fi
+install -d -o zuse -g zuse -m 700 /home/zuse/.ssh
+cat >/home/zuse/.ssh/sshd_config <<'ZUSE_SSHD_CONFIG'
+HostKey /home/zuse/.ssh/host_ed25519_key
+AuthorizedKeysFile /home/zuse/.ssh/authorized_keys
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+AllowUsers zuse
+UsePAM no
+StrictModes no
+PidFile none
+Subsystem sftp internal-sftp
+ZUSE_SSHD_CONFIG
+chown zuse:zuse /home/zuse/.ssh/sshd_config
+chmod 600 /home/zuse/.ssh/sshd_config
+if [ ! -f /home/zuse/.ssh/host_ed25519_key ]; then
+  ssh-keygen -q -t ed25519 -N '' -f /home/zuse/.ssh/host_ed25519_key
+  chown zuse:zuse /home/zuse/.ssh/host_ed25519_key*
+fi
+install -d -m 755 /run/sshd`;
 
 const json = (body: unknown, status = 200): Response =>
 	new Response(JSON.stringify(body), {
@@ -750,8 +780,25 @@ export const routeCloudWorkspaceRequest = (
 				(workspace.runtimeBootTokenExpiresAtMs ?? 0) <= nowMs ||
 				workspace.desiredState !== "ready" ||
 				workspace.providerSandboxId === undefined
-			)
+			) {
+				console.warn("[cloud-workspace] runtime bootstrap rejected", {
+					workspaceId,
+					workspaceFound: workspace !== null,
+					tokenPresent: token !== undefined,
+					tokenMatches:
+						workspace !== null &&
+						bootTokenHash !== undefined &&
+						workspace.runtimeBootTokenHash === bootTokenHash,
+					tokenFresh:
+						workspace !== null &&
+						(workspace.runtimeBootTokenExpiresAtMs ?? 0) > nowMs,
+					desiredState: workspace?.desiredState,
+					state: workspace?.state,
+					generation:
+						workspace === null ? undefined : runtimeGeneration(workspace),
+				});
 				return yield* Effect.fail(unauthorized("workspace_bootstrap_rejected"));
+			}
 			const generation = runtimeGeneration(workspace);
 			const epoch = gatewayEpoch(workspace);
 			const prior = runtimeBootstrapReceiptFromConfig(workspace.requestConfig);
@@ -775,12 +822,35 @@ export const routeCloudWorkspaceRequest = (
 				prior === null
 					? yield* deliverCredentials(workspace, body.credentialPublicJwk)
 					: prior.cloudCredentials;
+			let transcriptKeyEnvelope = workspace.wrappedTranscriptKey;
+			if (transcriptKeyEnvelope === undefined) {
+				const created = yield* createCloudTranscriptKey(
+					workspace.accountId,
+					workspaceId,
+				).pipe(
+					Effect.mapError(() =>
+						serviceUnavailable("cloud_transcript_key_unavailable"),
+					),
+				);
+				yield* store.saveWorkspace({
+					...workspace,
+					wrappedTranscriptKey: created.envelope,
+					revision: workspace.revision + 1,
+					updatedAtMs: Math.max(nowMs, workspace.updatedAtMs + 1),
+				});
+				transcriptKeyEnvelope = (yield* store.getWorkspace(workspaceId))
+					?.wrappedTranscriptKey;
+			}
+			if (transcriptKeyEnvelope === undefined)
+				return yield* Effect.fail(
+					serviceUnavailable("cloud_transcript_key_unavailable"),
+				);
 			const sealedTranscriptKey =
 				prior?.sealedTranscriptKey ??
 				(yield* openCloudTranscriptKey(
 					workspace.accountId,
 					workspaceId,
-					workspace.wrappedTranscriptKey ?? "",
+					transcriptKeyEnvelope,
 				).pipe(
 					Effect.flatMap((key) =>
 						sealRuntimeSecret(body.credentialPublicJwk, key),
@@ -844,6 +914,31 @@ export const routeCloudWorkspaceRequest = (
 						serviceUnavailable("workspace_network_release_failed"),
 					),
 				);
+			const sshBridgeReady = yield* provider
+				.pathExists(
+					workspace.providerSandboxId,
+					"/home/zuse/.ssh/sshd_config",
+					"zuse",
+				)
+				.pipe(
+					Effect.mapError(() =>
+						serviceUnavailable("cloud_workspace_ssh_unavailable"),
+					),
+				);
+			if (!sshBridgeReady) {
+				yield* provider
+					.startProcess(workspace.providerSandboxId, {
+						command: "/bin/bash",
+						args: ["-lc", LEGACY_WORKSPACE_SSH_BOOTSTRAP],
+						tag: "zuse-legacy-ssh-bootstrap",
+						user: "root",
+					})
+					.pipe(
+						Effect.mapError(() =>
+							serviceUnavailable("cloud_workspace_ssh_unavailable"),
+						),
+					);
+			}
 			const relay = yield* RelayConfiguration;
 			return json({
 				workspaceId,
@@ -1184,6 +1279,7 @@ export const routeCloudWorkspaceRequest = (
 				),
 				requestConfig: {
 					...workspace.requestConfig,
+					runtimeProcessManaged: true,
 					...(agentStarted
 						? { sessionHeadVersion: body.sessionHeadVersion }
 						: {}),
@@ -1710,6 +1806,65 @@ export const routeCloudWorkspaceRequest = (
 			return response;
 		}
 
+		const sshAccessMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/ssh-access$/u.exec(path);
+		if (method === "POST" && sshAccessMatch !== null) {
+			const workspaceId = decodeURIComponent(sshAccessMatch[1] ?? "");
+			const workspace = yield* store.getWorkspace(workspaceId);
+			if (workspace === null || workspace.accountId !== principal.accountId)
+				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
+			if (
+				workspace.state !== "ready" ||
+				workspace.providerSandboxId === undefined
+			)
+				return yield* Effect.fail(conflict("cloud_workspace_unavailable"));
+			const provider = yield* (yield* SandboxProviders)
+				.get(workspace.provider)
+				.pipe(
+					Effect.mapError(() =>
+						serviceUnavailable("cloud_provider_unavailable"),
+					),
+				);
+			const ticket = yield* randomToken("workspace_ssh", 32);
+			const ticketExpiresAtMs = nowMs + WORKSPACE_SSH_TICKET_TTL_MS;
+			yield* provider
+				.writeTextFile(
+					workspace.providerSandboxId,
+					WORKSPACE_SSH_TICKET_FILE,
+					JSON.stringify({
+						tokenHash: yield* sha256Hex(ticket),
+						expiresAtMs: ticketExpiresAtMs,
+					}),
+					"zuse",
+				)
+				.pipe(
+					Effect.mapError(() =>
+						serviceUnavailable("cloud_workspace_ssh_unavailable"),
+					),
+				);
+			const offer = yield* SandboxOfferConfiguration;
+			const endpoint = yield* provider
+				.resolveEndpoint(workspace.providerSandboxId, offer.port)
+				.pipe(
+					Effect.mapError(() =>
+						serviceUnavailable("cloud_workspace_ssh_unavailable"),
+					),
+				);
+			yield* recordWorkspaceActivity(workspace);
+			console.info("[cloud-workspace] ssh access issued", {
+				workspaceId,
+				expiresAt: ticketExpiresAtMs,
+			});
+			return json({
+				workspaceId,
+				wsUrl: `${endpoint.wsBaseUrl}/ssh`,
+				ticket,
+				expiresAt: ticketExpiresAtMs,
+				user: "zuse",
+				workspacePath: "/home/zuse/workspace",
+			});
+		}
+
 		if (method === "POST" && path === RelayPaths.cloudWorkspaces) {
 			if (!(yield* hasEntitlement(principal.accountId, nowMs)))
 				return yield* Effect.fail(forbidden("cloud_entitlement_required"));
@@ -1854,7 +2009,7 @@ export const routeCloudWorkspaceRequest = (
 		}
 
 		const actionMatch =
-			/^\/v1\/cloud\/workspaces\/([^/]+)\/(pause|resume|archive|unarchive|delete)$/u.exec(
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/(pause|resume|restart|archive|unarchive|delete)$/u.exec(
 				path,
 			);
 		if (method === "POST" && actionMatch !== null) {
@@ -1866,9 +2021,16 @@ export const routeCloudWorkspaceRequest = (
 			const action = actionMatch[2] as
 				| "pause"
 				| "resume"
+				| "restart"
 				| "archive"
 				| "unarchive"
 				| "delete";
+			if (
+				action === "restart" &&
+				(workspace.state !== "ready" ||
+					workspace.providerSandboxId === undefined)
+			)
+				return yield* Effect.fail(badRequest("cloud_workspace_not_running"));
 			const actionRequest =
 				action === "resume"
 					? yield* decodeBody(CloudWorkspaceResumeRequest, request)
@@ -1908,7 +2070,7 @@ export const routeCloudWorkspaceRequest = (
 				return response;
 			}
 			const desiredState =
-				action === "resume"
+				action === "resume" || action === "restart"
 					? "ready"
 					: action === "unarchive"
 						? "paused"
@@ -1919,6 +2081,19 @@ export const routeCloudWorkspaceRequest = (
 								: "paused";
 			const updated: CloudWorkspaceRecord = {
 				...workspace,
+				...(action === "restart"
+					? {
+							state: "resuming" as const,
+							runtimeState: "offline" as const,
+							requestConfig: {
+								...workspace.requestConfig,
+								startupTimings: {
+									requestedAt: nowMs,
+									resumeRequestedAt: nowMs,
+								},
+							},
+						}
+					: {}),
 				...(action === "resume" && recoverRuntime
 					? {
 							...runtimeUnavailableResumeTarget(workspace),

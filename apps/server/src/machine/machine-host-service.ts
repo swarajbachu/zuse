@@ -11,12 +11,12 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type {
-	MachinePrivateNetworkStatus,
+import type { MachinePrivateNetworkStatus, SshMode } from "@zuse/contracts";
+import {
+	MachineRuntimeStatus,
 	MachineSshKey,
-	SshMode,
+	RelayPaths,
 } from "@zuse/contracts";
-import { MachineRuntimeStatus, RelayPaths } from "@zuse/contracts";
 import { Context, Effect, Layer, Schema } from "effect";
 
 import { AppPaths } from "../app-paths.ts";
@@ -151,11 +151,11 @@ const fingerprint = (publicKey: string): string => {
 
 const sshKey = (publicKey: string): MachineSshKey => {
 	const fields = publicKey.split(/\s+/u);
-	return {
+	return MachineSshKey.make({
 		fingerprint: fingerprint(publicKey),
 		publicKey,
 		label: fields.slice(2).join(" ") || undefined,
-	};
+	});
 };
 
 const run = (

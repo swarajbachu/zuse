@@ -13,6 +13,7 @@ const adapter = (providerId: string): SandboxProviderAdapter => ({
 	fork: () => Effect.die("unused"),
 	recoverByLabel: () => Effect.succeed(null),
 	startProcess: () => Effect.void,
+	replaceProcess: () => Effect.void,
 	pathExists: () => Effect.succeed(false),
 	readTextFile: () => Effect.succeed(""),
 	writeTextFile: () => Effect.void,

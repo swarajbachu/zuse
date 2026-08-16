@@ -1,5 +1,5 @@
-import { SqlClient } from "effect/unstable/sql";
 import { Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 /**
  * Adds resume metadata to the `sessions` table:
@@ -16,10 +16,10 @@ import { Effect } from "effect";
  * the cursor populated lazily once the first SDK message is observed.
  */
 export const Migration0003ResumeAndExport = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+	const sql = yield* SqlClient.SqlClient;
 
-  yield* sql`ALTER TABLE sessions ADD COLUMN cursor TEXT`;
-  yield* sql`
+	yield* sql`ALTER TABLE sessions ADD COLUMN cursor TEXT`;
+	yield* sql`
     ALTER TABLE sessions
       ADD COLUMN resume_strategy TEXT NOT NULL DEFAULT 'none'
   `;

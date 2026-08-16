@@ -67,10 +67,10 @@
 			}
 		},
 		{
-      "_tag": "AssistantMessage",
-      "itemId": "grok-child-msg-1",
-      "text": "Found the fixture files.",
-      "parentItemId": "grok-spawn-1"
+			"_tag": "AssistantMessage",
+			"itemId": "grok-child-msg-1",
+			"text": "Found the fixture files.",
+			"parentItemId": "grok-spawn-1"
 		},
 		{
 			"_tag": "ToolUse",

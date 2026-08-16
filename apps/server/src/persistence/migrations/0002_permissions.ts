@@ -1,5 +1,5 @@
-import { SqlClient } from "effect/unstable/sql";
 import { Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 /**
  * Per-session permission decisions. Rows are append-only — one row per
@@ -9,9 +9,9 @@ import { Effect } from "effect";
  * reads from this table on lookup so re-prompts don't survive a crash.
  */
 export const Migration0002Permissions = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+	const sql = yield* SqlClient.SqlClient;
 
-  yield* sql`
+	yield* sql`
     CREATE TABLE permission_decisions (
       request_id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -23,7 +23,7 @@ export const Migration0002Permissions = Effect.gen(function* () {
     )
   `;
 
-  yield* sql`
+	yield* sql`
     CREATE INDEX idx_permission_decisions_session
       ON permission_decisions(session_id, kind_tag, kind_key)
   `;

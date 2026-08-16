@@ -30,6 +30,7 @@ import { formatError } from "../lib/format-error.ts";
 import {
 	clearCloudWorkspaceRuntimeRecovery,
 	cloudWorkspaceRequiresRuntimeRecovery,
+	cloudWorkspaceRuntimeRecoveryCommandId,
 	getControlPlaneRpcClient,
 	registerCloudWorkspace,
 } from "../lib/rpc-client.ts";
@@ -411,11 +412,11 @@ export const ensureCloudWorkspaceAttached = (
 				control["cloud.workspaces.resume"]({
 					workspaceId: summary.workspaceId,
 					recoverRuntime: recoverOnlineRuntime || undefined,
+					commandId: recoverOnlineRuntime
+						? cloudWorkspaceRuntimeRecoveryCommandId(summary.workspaceId)
+						: undefined,
 				}),
 			);
-			if (recoverOnlineRuntime) {
-				clearCloudWorkspaceRuntimeRecovery(summary.workspaceId);
-			}
 		}
 		updateSummary(refreshSummaryFromWorkspace(summary, workspace));
 		if (activation === "connect" && !isCloudWorkspaceReady(workspace)) {
@@ -447,6 +448,9 @@ export const ensureCloudWorkspaceAttached = (
 			await connectionForWorkspace(),
 			connectionForWorkspace,
 		);
+		if (recoverRuntime) {
+			clearCloudWorkspaceRuntimeRecovery(summary.workspaceId);
+		}
 	})().finally(() => attaching.delete(summary.workspaceId));
 	attaching.set(summary.workspaceId, operation);
 	return operation;

@@ -1,20 +1,20 @@
+import type {
+	ContinueExternalThreadInput,
+	ContinueExternalThreadResult,
+	ExternalThread,
+} from "@zuse/contracts";
 import { Context, type Effect } from "effect";
 
-import type {
-  ContinueExternalThreadInput,
-  ContinueExternalThreadResult,
-  ExternalThread,
-} from "@zuse/contracts";
-
 export interface ExternalThreadServiceShape {
-  readonly list: (
-    limit: number,
-  ) => Effect.Effect<ReadonlyArray<ExternalThread>>;
-  readonly continueThread: (
-    input: ContinueExternalThreadInput,
-  ) => Effect.Effect<ContinueExternalThreadResult>;
+	readonly list: (
+		limit: number,
+	) => Effect.Effect<ReadonlyArray<ExternalThread>>;
+	readonly continueThread: (
+		input: ContinueExternalThreadInput,
+	) => Effect.Effect<ContinueExternalThreadResult>;
 }
 
-export class ExternalThreadService extends Context.Service<ExternalThreadService, ExternalThreadServiceShape>()(
-  "memoize/ExternalThreadService",
-) {}
+export class ExternalThreadService extends Context.Service<
+	ExternalThreadService,
+	ExternalThreadServiceShape
+>()("memoize/ExternalThreadService") {}

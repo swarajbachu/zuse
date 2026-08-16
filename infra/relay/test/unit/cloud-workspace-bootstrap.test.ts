@@ -13,7 +13,6 @@ import {
 	CloudCredentialVault,
 	CloudCredentialVaultLive,
 } from "../../src/cloud-credential-vault.ts";
-import { createCloudTranscriptKey } from "../../src/cloud-transcript.ts";
 import {
 	CloudWorkspaceLaunchIntentCipher,
 	CloudWorkspaceLaunchIntentCipherLive,
@@ -93,7 +92,7 @@ const makeRuntime = async () => {
 };
 
 describe("cloud workspace runtime bootstrap", () => {
-	test("replays byte-stable credentials until an authenticated acknowledgement", async () => {
+	test("backfills legacy transcript keys and replays byte-stable credentials", async () => {
 		const runtime = await makeRuntime();
 		const store = await runtime.runPromise(CloudWorkspaceStore);
 		const vault = await runtime.runPromise(CloudCredentialVault);
@@ -133,9 +132,6 @@ describe("cloud workspace runtime bootstrap", () => {
 				});
 			}),
 		);
-		const transcriptKey = await runtime.runPromise(
-			createCloudTranscriptKey("account-1", workspaceId),
-		);
 		await runtime.runPromise(
 			store.createWorkspace(
 				{
@@ -156,7 +152,6 @@ describe("cloud workspace runtime bootstrap", () => {
 					desiredState: "ready",
 					statusCode: "runtime-starting",
 					credentialEpoch: 0,
-					wrappedTranscriptKey: transcriptKey.envelope,
 					idempotencyKey: "bootstrap-key",
 					requestConfig: {
 						runtimeGeneration: 4,
@@ -234,6 +229,9 @@ describe("cloud workspace runtime bootstrap", () => {
 			);
 		const firstResponse = await bootstrap();
 		expect(firstResponse.status).toBe(200);
+		expect(
+			await runtime.runPromise(store.getWorkspace(workspaceId)),
+		).toMatchObject({ wrappedTranscriptKey: expect.any(String) });
 		const first = (await firstResponse.json()) as Record<string, unknown>;
 		expect(first.cloudCredentials).toMatchObject([
 			{ kind: "github", credentialType: "repository-token", version: 1 },

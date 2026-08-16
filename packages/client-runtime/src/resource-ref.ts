@@ -98,6 +98,7 @@ export type ResourceKind =
 	| "session-skills"
 	| "file-tree"
 	| "git-workspace"
+	| "machine-resources"
 	| "terminal";
 
 /**

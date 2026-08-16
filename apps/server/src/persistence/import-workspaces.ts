@@ -6,12 +6,12 @@ import { SqlClient } from "effect/unstable/sql";
 import { AppPaths } from "../app-paths.ts";
 
 const WorkspaceFile = Schema.fromJsonString(
-  Schema.Struct({
-    folders: Schema.Array(Folder),
-    selectedFolderId: Schema.NullOr(FolderId).pipe(
-      Schema.withDecodingDefaultType(Effect.succeed(null)),
-    ),
-  }),
+	Schema.Struct({
+		folders: Schema.Array(Folder),
+		selectedFolderId: Schema.NullOr(FolderId).pipe(
+			Schema.withDecodingDefaultType(Effect.succeed(null)),
+		),
+	}),
 );
 
 const SELECTED_KEY = "selectedProjectId";
@@ -28,50 +28,50 @@ const SELECTED_KEY = "selectedProjectId";
  * projects table — same outcome as a fresh install.
  */
 export const importWorkspacesJson = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
-  const fs = yield* FileSystem.FileSystem;
-  const paths = yield* AppPaths;
+	const sql = yield* SqlClient.SqlClient;
+	const fs = yield* FileSystem.FileSystem;
+	const paths = yield* AppPaths;
 
-  const filePath = Path.join(paths.userData, "workspaces.json");
-  const exists = yield* fs
-    .exists(filePath)
-    .pipe(Effect.orElseSucceed(() => false));
-  if (!exists) return;
+	const filePath = Path.join(paths.userData, "workspaces.json");
+	const exists = yield* fs
+		.exists(filePath)
+		.pipe(Effect.orElseSucceed(() => false));
+	if (!exists) return;
 
-  const existingProjects = yield* sql<{ count: number }>`
+	const existingProjects = yield* sql<{ count: number }>`
     SELECT COUNT(*) AS count FROM projects
   `.pipe(Effect.orDie);
-  if ((existingProjects[0]?.count ?? 0) > 0) return;
+	if ((existingProjects[0]?.count ?? 0) > 0) return;
 
-  const decoded = yield* fs.readFileString(filePath).pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(WorkspaceFile)),
-    Effect.catchCause((cause) =>
-      Effect.logWarning(
-        "[zuse] workspaces.json present but unreadable; skipping import",
-      ).pipe(Effect.andThen(Effect.logDebug(cause)), Effect.as(null)),
-    ),
-  );
-  if (decoded === null) return;
+	const decoded = yield* fs.readFileString(filePath).pipe(
+		Effect.flatMap(Schema.decodeUnknownEffect(WorkspaceFile)),
+		Effect.catchCause((cause) =>
+			Effect.logWarning(
+				"[zuse] workspaces.json present but unreadable; skipping import",
+			).pipe(Effect.andThen(Effect.logDebug(cause)), Effect.as(null)),
+		),
+	);
+	if (decoded === null) return;
 
-  for (const folder of decoded.folders) {
-    const createdAt = folder.addedAt.toISOString();
-    yield* sql`
+	for (const folder of decoded.folders) {
+		const createdAt = folder.addedAt.toISOString();
+		yield* sql`
       INSERT INTO projects (id, path, name, created_at, updated_at)
       VALUES (${folder.id}, ${folder.path}, ${folder.name}, ${createdAt}, ${createdAt})
     `.pipe(Effect.orDie);
-  }
+	}
 
-  if (decoded.selectedFolderId !== null) {
-    yield* sql`
+	if (decoded.selectedFolderId !== null) {
+		yield* sql`
       INSERT INTO app_state (key, value) VALUES (${SELECTED_KEY}, ${decoded.selectedFolderId})
     `.pipe(Effect.orDie);
-  }
+	}
 
-  yield* fs
-    .rename(filePath, `${filePath}.bak`)
-    .pipe(Effect.catch(() => Effect.void));
+	yield* fs
+		.rename(filePath, `${filePath}.bak`)
+		.pipe(Effect.catch(() => Effect.void));
 
-  yield* Effect.logInfo(
-    `[zuse] imported ${decoded.folders.length} project(s) from workspaces.json`,
-  );
+	yield* Effect.logInfo(
+		`[zuse] imported ${decoded.folders.length} project(s) from workspaces.json`,
+	);
 });

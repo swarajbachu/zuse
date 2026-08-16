@@ -7,6 +7,13 @@ with a one-time workspace boot token. The runtime binds only to loopback and
 opens an authenticated outbound connection to the workspace gateway, so no
 provider endpoint is exposed to clients.
 
+SSH access does not run a listening daemon. The runtime's `/ssh` WebSocket
+route (ticket-gated, cloud-environment role only) spawns `sshd -i` per
+connection with `/home/zuse/.ssh/sshd_config`; `workspace-bootstrap.sh`
+generates a per-workspace host key and clears inherited authorized keys, so
+neither survives a fork. `openssh-server` and `rsync` in the image exist for
+this bridge and the desktop's cloud-to-local file sync.
+
 Node 22 is intentional. It satisfies the server's runtime floor and remains
 compatible with the native tree-sitter dependency; Node 24 currently forces an
 incompatible source rebuild of that dependency on Linux.

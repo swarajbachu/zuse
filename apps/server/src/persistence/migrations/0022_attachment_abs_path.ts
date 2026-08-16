@@ -1,5 +1,5 @@
-import { SqlClient } from "effect/unstable/sql";
 import { Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 /**
  * Records the absolute on-disk path of each attachment blob.
@@ -13,9 +13,9 @@ import { Effect } from "effect";
  * resolve.
  */
 export const Migration0022AttachmentAbsPath = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+	const sql = yield* SqlClient.SqlClient;
 
-  yield* sql`
+	yield* sql`
     ALTER TABLE attachments ADD COLUMN abs_path TEXT
   `;
 });

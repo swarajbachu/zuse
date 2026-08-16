@@ -9,7 +9,7 @@ import { Effect, Layer } from "effect";
  * compose without one needing to know about every other RPC in the group.
  */
 const PingPing = MemoizeRpcs.toLayerHandler("ping.ping", () =>
-  Effect.succeed(PingResult.make({ message: "pong", receivedAt: new Date() })),
+	Effect.succeed(PingResult.make({ message: "pong", receivedAt: new Date() })),
 );
 
 export const PingHandlersLayer = Layer.mergeAll(PingPing);

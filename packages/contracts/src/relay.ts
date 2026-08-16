@@ -75,6 +75,8 @@ export const RelayPaths = {
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}`,
 	cloudWorkspaceConnectionTicket: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/gateway/ticket`,
+	cloudWorkspaceSshAccess: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/ssh-access`,
 	cloudWorkspaceGateway: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/gateway`,
 	cloudWorkspaceBootstrap: (workspaceId: string) =>

@@ -1,5 +1,5 @@
-import { SqlClient } from "effect/unstable/sql";
 import { Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 /**
  * Read/unread tracking for chats.
@@ -13,18 +13,18 @@ import { Effect } from "effect";
  * `updated_at` (and therefore sidebar ordering) is intentionally left alone.
  */
 export const Migration0017ChatReadState = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+	const sql = yield* SqlClient.SqlClient;
 
-  const chatColumns = yield* sql<{ readonly name: string }>`
+	const chatColumns = yield* sql<{ readonly name: string }>`
     PRAGMA table_info(chats)
   `;
-  const hasChatColumn = (name: string): boolean =>
-    chatColumns.some((column) => column.name === name);
+	const hasChatColumn = (name: string): boolean =>
+		chatColumns.some((column) => column.name === name);
 
-  if (!hasChatColumn("last_message_at")) {
-    yield* sql`ALTER TABLE chats ADD COLUMN last_message_at TEXT`;
-  }
-  if (!hasChatColumn("last_read_at")) {
-    yield* sql`ALTER TABLE chats ADD COLUMN last_read_at TEXT`;
-  }
+	if (!hasChatColumn("last_message_at")) {
+		yield* sql`ALTER TABLE chats ADD COLUMN last_message_at TEXT`;
+	}
+	if (!hasChatColumn("last_read_at")) {
+		yield* sql`ALTER TABLE chats ADD COLUMN last_read_at TEXT`;
+	}
 });

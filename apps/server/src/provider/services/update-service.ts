@@ -1,14 +1,13 @@
-import { type Cause, Effect, Queue, type Scope, Stream } from "effect";
-import { spawn, type ChildProcessByStdio } from "node:child_process";
-import * as readline from "node:readline";
+import { type ChildProcessByStdio, spawn } from "node:child_process";
 import { homedir } from "node:os";
+import * as readline from "node:readline";
 import type { Readable } from "node:stream";
-
 import {
-  AgentSessionStartError,
-  type ProviderId,
-  type ProviderUpdateEvent,
+	AgentSessionStartError,
+	type ProviderId,
+	type ProviderUpdateEvent,
 } from "@zuse/contracts";
+import { type Cause, Effect, Queue, type Scope, Stream } from "effect";
 
 const ANSI_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 
@@ -31,129 +30,129 @@ const UPDATE_TIMEOUT_MS = 5 * 60_000;
  * the child (SIGTERM → SIGKILL).
  */
 export const startProviderUpdate = (
-  providerId: ProviderId,
-  command: string | null,
+	providerId: ProviderId,
+	command: string | null,
 ): Stream.Stream<ProviderUpdateEvent, AgentSessionStartError> => {
-  if (command === null) {
-    const event: ProviderUpdateEvent = {
-      _tag: "done",
-      ok: false,
-      reason: `No update command is available for ${providerId}.`,
-    };
-    return Stream.succeed(event);
-  }
-  return Stream.unwrap(spawnUpdate(providerId, command));
+	if (command === null) {
+		const event: ProviderUpdateEvent = {
+			_tag: "done",
+			ok: false,
+			reason: `No update command is available for ${providerId}.`,
+		};
+		return Stream.succeed(event);
+	}
+	return Stream.unwrap(spawnUpdate(providerId, command));
 };
 
 const spawnUpdate = (
-  providerId: ProviderId,
-  command: string,
+	providerId: ProviderId,
+	command: string,
 ): Effect.Effect<
-  Stream.Stream<ProviderUpdateEvent>,
-  AgentSessionStartError,
-  Scope.Scope
+	Stream.Stream<ProviderUpdateEvent>,
+	AgentSessionStartError,
+	Scope.Scope
 > =>
-  Effect.gen(function* () {
-    const events = yield* Queue.make<ProviderUpdateEvent, Cause.Done>();
+	Effect.gen(function* () {
+		const events = yield* Queue.make<ProviderUpdateEvent, Cause.Done>();
 
-    // stdin closed (`ignore`) so an installer never blocks waiting on input.
-    let child: ChildProcessByStdio<null, Readable, Readable>;
-    try {
-      // `-l` (login) loads the user's profile so version managers (nvm, fnm,
-      // volta, asdf) put the right npm/binary on PATH; `-c` runs the command.
-      child = spawn("bash", ["-lc", command], {
-        cwd: homedir(),
-        env: process.env,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    } catch (cause) {
-      yield* Queue.end(events);
-      return yield* Effect.fail(
-        new AgentSessionStartError({
-          providerId,
-          reason: cause instanceof Error ? cause.message : String(cause),
-        }),
-      );
-    }
+		// stdin closed (`ignore`) so an installer never blocks waiting on input.
+		let child: ChildProcessByStdio<null, Readable, Readable>;
+		try {
+			// `-l` (login) loads the user's profile so version managers (nvm, fnm,
+			// volta, asdf) put the right npm/binary on PATH; `-c` runs the command.
+			child = spawn("bash", ["-lc", command], {
+				cwd: homedir(),
+				env: process.env,
+				stdio: ["ignore", "pipe", "pipe"],
+			});
+		} catch (cause) {
+			yield* Queue.end(events);
+			return yield* Effect.fail(
+				new AgentSessionStartError({
+					providerId,
+					reason: cause instanceof Error ? cause.message : String(cause),
+				}),
+			);
+		}
 
-    child.stdout.setEncoding("utf-8");
-    child.stderr.setEncoding("utf-8");
+		child.stdout.setEncoding("utf-8");
+		child.stderr.setEncoding("utf-8");
 
-    let exited = false;
-    let lastLine = "";
+		let exited = false;
+		let lastLine = "";
 
-    const handleLine = (raw: string): void => {
-      const cleaned = raw.replace(ANSI_PATTERN, "").trim();
-      if (cleaned.length === 0) return;
-      lastLine = cleaned;
-      Queue.offerUnsafe(events, { _tag: "log", text: cleaned });
-    };
+		const handleLine = (raw: string): void => {
+			const cleaned = raw.replace(ANSI_PATTERN, "").trim();
+			if (cleaned.length === 0) return;
+			lastLine = cleaned;
+			Queue.offerUnsafe(events, { _tag: "log", text: cleaned });
+		};
 
-    const rlOut = readline.createInterface({ input: child.stdout });
-    const rlErr = readline.createInterface({ input: child.stderr });
-    rlOut.on("line", handleLine);
-    rlErr.on("line", handleLine);
+		const rlOut = readline.createInterface({ input: child.stdout });
+		const rlErr = readline.createInterface({ input: child.stderr });
+		rlOut.on("line", handleLine);
+		rlErr.on("line", handleLine);
 
-    const finish = (ok: boolean, reason?: string): void => {
-      if (exited) return;
-      exited = true;
-      Queue.offerUnsafe(events, {
-        _tag: "done",
-        ok,
-        ...(reason !== undefined ? { reason } : {}),
-      });
-      Queue.endUnsafe(events);
-    };
+		const finish = (ok: boolean, reason?: string): void => {
+			if (exited) return;
+			exited = true;
+			Queue.offerUnsafe(events, {
+				_tag: "done",
+				ok,
+				...(reason !== undefined ? { reason } : {}),
+			});
+			Queue.endUnsafe(events);
+		};
 
-    const timer = setTimeout(() => {
-      try {
-        child.kill("SIGTERM");
-      } catch {
-        /* ignore */
-      }
-      finish(false, "Update timed out after 5 minutes.");
-    }, UPDATE_TIMEOUT_MS);
+		const timer = setTimeout(() => {
+			try {
+				child.kill("SIGTERM");
+			} catch {
+				/* ignore */
+			}
+			finish(false, "Update timed out after 5 minutes.");
+		}, UPDATE_TIMEOUT_MS);
 
-    child.once("exit", (code, signal) => {
-      clearTimeout(timer);
-      const ok = code === 0;
-      const reason = ok
-        ? undefined
-        : signal !== null
-          ? `Update was terminated (${signal}).`
-          : `Update failed (exit ${code ?? "?"})${
-              lastLine.length > 0 ? `: ${lastLine}` : "."
-            }`;
-      finish(ok, reason);
-    });
+		child.once("exit", (code, signal) => {
+			clearTimeout(timer);
+			const ok = code === 0;
+			const reason = ok
+				? undefined
+				: signal !== null
+					? `Update was terminated (${signal}).`
+					: `Update failed (exit ${code ?? "?"})${
+							lastLine.length > 0 ? `: ${lastLine}` : "."
+						}`;
+			finish(ok, reason);
+		});
 
-    child.once("error", (err) => {
-      clearTimeout(timer);
-      finish(false, err.message);
-    });
+		child.once("error", (err) => {
+			clearTimeout(timer);
+			finish(false, err.message);
+		});
 
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        clearTimeout(timer);
-        rlOut.close();
-        rlErr.close();
-        if (exited) return;
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          /* ignore */
-        }
-        setTimeout(() => {
-          if (!exited) {
-            try {
-              child.kill("SIGKILL");
-            } catch {
-              /* ignore */
-            }
-          }
-        }, 1_000);
-      }),
-    );
+		yield* Effect.addFinalizer(() =>
+			Effect.sync(() => {
+				clearTimeout(timer);
+				rlOut.close();
+				rlErr.close();
+				if (exited) return;
+				try {
+					child.kill("SIGTERM");
+				} catch {
+					/* ignore */
+				}
+				setTimeout(() => {
+					if (!exited) {
+						try {
+							child.kill("SIGKILL");
+						} catch {
+							/* ignore */
+						}
+					}
+				}, 1_000);
+			}),
+		);
 
-    return Stream.fromQueue(events);
-  });
+		return Stream.fromQueue(events);
+	});

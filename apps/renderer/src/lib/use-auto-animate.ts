@@ -1,9 +1,9 @@
-import { useEffect, useRef } from "react";
-import autoAnimate from "@formkit/auto-animate";
 import type {
 	AutoAnimateOptions,
 	AutoAnimationPlugin,
 } from "@formkit/auto-animate";
+import autoAnimate from "@formkit/auto-animate";
+import { useEffect, useRef } from "react";
 
 /**
  * Thin local wrapper around auto-animate's framework-agnostic core.

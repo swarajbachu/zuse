@@ -88,6 +88,11 @@ export const makeSessionTimelineResourceDriver = <
 			active = true;
 			const ref = context.key.ref;
 			let state = restoreSessionTimelineState(context.data, context.cursor);
+			const cachedTurnMayBeStale =
+				state.projection !== null &&
+				(state.projection.currentTurn !== null ||
+					state.projection.status === "running" ||
+					state.projection.status === "booting");
 			let catchingUp = true;
 			let eventsSinceCheckpoint = 0;
 			const clearCheckpoint = (): void => {
@@ -123,7 +128,7 @@ export const makeSessionTimelineResourceDriver = <
 					sessionId: ref.sessionId,
 					afterVersion: state.cursor?.version,
 					streamEpoch: state.cursor?.epoch,
-					hasProjection: state.projection !== null,
+					hasProjection: state.projection !== null && !cachedTurnMayBeStale,
 				}),
 				(frame) =>
 					Effect.sync(() => {

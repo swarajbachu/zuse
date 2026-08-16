@@ -6,9 +6,9 @@ import { SqlClient } from "effect/unstable/sql";
  * sharing an item id instead of the entire session transcript.
  */
 export const Migration0034ToolEventLookup = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+	const sql = yield* SqlClient.SqlClient;
 
-  yield* sql`
+	yield* sql`
     CREATE INDEX idx_messages_tool_item
       ON messages(session_id, kind, json_extract(content_json, '$.itemId'))
       WHERE kind = 'tool_use' AND json_valid(content_json)

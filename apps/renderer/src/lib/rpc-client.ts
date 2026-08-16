@@ -83,25 +83,34 @@ const cloudWorkspaceRegistrations = new Map<
 	string,
 	CloudWorkspaceRegistration
 >();
-const cloudWorkspacesRequiringRuntimeRecovery = new Set<string>();
+const cloudWorkspaceRuntimeRecoveryCommands = new Map<string, string>();
 
 const recordCloudWorkspaceGatewayClose = (
 	workspaceId: string,
 	close: Pick<WebSocketCloseInfo, "code">,
 ): void => {
 	if (close.code === WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code) {
-		cloudWorkspacesRequiringRuntimeRecovery.add(workspaceId);
+		if (!cloudWorkspaceRuntimeRecoveryCommands.has(workspaceId)) {
+			cloudWorkspaceRuntimeRecoveryCommands.set(
+				workspaceId,
+				crypto.randomUUID(),
+			);
+		}
 	}
 };
 
 export const cloudWorkspaceRequiresRuntimeRecovery = (
 	workspaceId: string,
-): boolean => cloudWorkspacesRequiringRuntimeRecovery.has(workspaceId);
+): boolean => cloudWorkspaceRuntimeRecoveryCommands.has(workspaceId);
+
+export const cloudWorkspaceRuntimeRecoveryCommandId = (
+	workspaceId: string,
+): string | undefined => cloudWorkspaceRuntimeRecoveryCommands.get(workspaceId);
 
 export const clearCloudWorkspaceRuntimeRecovery = (
 	workspaceId: string,
 ): void => {
-	cloudWorkspacesRequiringRuntimeRecovery.delete(workspaceId);
+	cloudWorkspaceRuntimeRecoveryCommands.delete(workspaceId);
 };
 // Tickets last roughly a minute. Keep only a short safety margin so one live
 // activation can reuse its freshly issued ticket without minting a second one.
@@ -592,7 +601,7 @@ export const disposeRpcClient = async (): Promise<void> => {
 	rendererEntries.clear();
 	environmentConnections.clear();
 	cloudWorkspaceRegistrations.clear();
-	cloudWorkspacesRequiringRuntimeRecovery.clear();
+	cloudWorkspaceRuntimeRecoveryCommands.clear();
 	localEnvironmentId = LOCAL_ENVIRONMENT_KEY;
 	setActiveEnvironmentStorageScope(LOCAL_RENDERER_STORAGE_SCOPE);
 	await supervisor.dispose();

@@ -1,5 +1,5 @@
-import { SqlClient } from "effect/unstable/sql";
 import { Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 /**
  * Account-relay linking upgrades the environment identity from a symmetric
@@ -8,25 +8,25 @@ import { Effect } from "effect";
  * public key. Also carries a friendly `label` on the relay link. Idempotent.
  */
 export const Migration0025RelayEnvironmentKeys = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+	const sql = yield* SqlClient.SqlClient;
 
-  const identityColumns = yield* sql<{ readonly name: string }>`
+	const identityColumns = yield* sql<{ readonly name: string }>`
     PRAGMA table_info(environment_identity)
   `;
-  const hasIdentityColumn = (name: string): boolean =>
-    identityColumns.some((column) => column.name === name);
+	const hasIdentityColumn = (name: string): boolean =>
+		identityColumns.some((column) => column.name === name);
 
-  if (!hasIdentityColumn("private_key_jwk")) {
-    yield* sql`ALTER TABLE environment_identity ADD COLUMN private_key_jwk TEXT`;
-  }
-  if (!hasIdentityColumn("public_key_jwk")) {
-    yield* sql`ALTER TABLE environment_identity ADD COLUMN public_key_jwk TEXT`;
-  }
+	if (!hasIdentityColumn("private_key_jwk")) {
+		yield* sql`ALTER TABLE environment_identity ADD COLUMN private_key_jwk TEXT`;
+	}
+	if (!hasIdentityColumn("public_key_jwk")) {
+		yield* sql`ALTER TABLE environment_identity ADD COLUMN public_key_jwk TEXT`;
+	}
 
-  const relayColumns = yield* sql<{ readonly name: string }>`
+	const relayColumns = yield* sql<{ readonly name: string }>`
     PRAGMA table_info(relay_config)
   `;
-  if (!relayColumns.some((column) => column.name === "label")) {
-    yield* sql`ALTER TABLE relay_config ADD COLUMN label TEXT`;
-  }
+	if (!relayColumns.some((column) => column.name === "label")) {
+		yield* sql`ALTER TABLE relay_config ADD COLUMN label TEXT`;
+	}
 });

@@ -10,6 +10,7 @@ import {
 	reconcileCloudWorkspace,
 	reusableAccountBuildSnapshot,
 	sanitizeProjectBuildDiagnostic,
+	WORKSPACE_RUNTIME_RESUME_SCRIPT,
 } from "../../src/cloud-workspace-reconciler.ts";
 import {
 	type CloudProjectBuildRecord,
@@ -137,6 +138,15 @@ const seedWorkspace = Effect.fn("seedArchiveWorkspace")(function* (
 });
 
 describe("cloud workspace reconciler", () => {
+	test("updates the signed runtime before a resumed launch", () => {
+		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
+			"ZUSE_RUNTIME_INSTALL_ONLY=1",
+		);
+		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
+			"/usr/local/lib/zuse/runtime-updater.mjs",
+		);
+	});
+
 	test("bounds and redacts project builder diagnostics", () => {
 		const diagnostic = sanitizeProjectBuildDiagnostic(
 			`clone https://user:password@github.com/acme/private.git\nAuthorization: Bearer secret-token\nGITHUB_TOKEN=ghp_${"x".repeat(40)}\n${"a".repeat(3_000)}`,
@@ -391,5 +401,38 @@ describe("cloud workspace reconciler", () => {
 			runtimeState: "offline",
 		});
 		expect(result.missing?.leaseOwner).toBeUndefined();
+	});
+
+	test("restart of a running workspace relaunches the runtime in place", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-restart",
+					state: "resuming",
+					desiredState: "ready",
+					statusCode: "restart-queued",
+					requestConfig: {},
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					resumeInputs: yield* Ref.get(control.resumeInputs),
+					startProcessCalls: yield* Ref.get(control.startProcessCalls),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		// The sandbox is already running, so restart must not call provider
+		// resume — only stage a boot token and relaunch the runtime process.
+		expect(result.resumeInputs).toHaveLength(0);
+		expect(result.startProcessCalls).toHaveLength(2);
+		expect(result.workspace).toMatchObject({
+			state: "provisioning",
+			statusCode: "resume-runtime-restarting",
+			runtimeState: "offline",
+		});
+		expect(result.workspace?.runtimeBootTokenHash).toBeTruthy();
 	});
 });

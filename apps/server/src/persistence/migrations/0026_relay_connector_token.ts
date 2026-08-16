@@ -1,5 +1,5 @@
-import { SqlClient } from "effect/unstable/sql";
 import { Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 /**
  * Managed Cloudflare tunnels: the relay hands the desktop a `cloudflared`
@@ -8,12 +8,12 @@ import { Effect } from "effect";
  * Idempotent.
  */
 export const Migration0026RelayConnectorToken = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+	const sql = yield* SqlClient.SqlClient;
 
-  const columns = yield* sql<{ readonly name: string }>`
+	const columns = yield* sql<{ readonly name: string }>`
     PRAGMA table_info(relay_config)
   `;
-  if (!columns.some((column) => column.name === "connector_token")) {
-    yield* sql`ALTER TABLE relay_config ADD COLUMN connector_token TEXT`;
-  }
+	if (!columns.some((column) => column.name === "connector_token")) {
+		yield* sql`ALTER TABLE relay_config ADD COLUMN connector_token TEXT`;
+	}
 });

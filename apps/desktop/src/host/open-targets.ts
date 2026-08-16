@@ -88,7 +88,7 @@ const windowsTargets: ReadonlyArray<PortableOpenTarget> = [
 	},
 ];
 
-const executableOnPath = async (command: string): Promise<boolean> => {
+export const executableOnPath = async (command: string): Promise<boolean> => {
 	const path = process.env.PATH;
 	if (path === undefined) return false;
 	const extensions =

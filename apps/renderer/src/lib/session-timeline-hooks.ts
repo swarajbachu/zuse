@@ -73,12 +73,19 @@ const runtimeFromResource = (
 	) {
 		return "stopping";
 	}
+	const runtime =
+		view.data === null ? fallback : runtimeStateFromTimeline(view.data);
+	if (runtime !== "idle") return runtime;
 	if (
-		view.pendingCommands.some((command) => command.kind === "messages.send")
+		view.pendingCommands.some((command) => command.kind === "messages.send") &&
+		(view.data === null ||
+			view.data.messages.findLast(
+				(message) => message.role === "user" || message.role === "assistant",
+			)?.role === "user")
 	) {
 		return "starting";
 	}
-	return view.data === null ? fallback : runtimeStateFromTimeline(view.data);
+	return "idle";
 };
 
 /** One qualified timeline selector shared by chat, composer, queue, and dock. */

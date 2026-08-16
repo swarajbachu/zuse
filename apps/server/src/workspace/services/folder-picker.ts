@@ -9,8 +9,8 @@ import { Context, type Effect } from "effect";
  * Returns the chosen absolute path, or null if the user cancelled.
  */
 export class FolderPicker extends Context.Service<
-  FolderPicker,
-  {
-    readonly pick: () => Effect.Effect<string | null>;
-  }
+	FolderPicker,
+	{
+		readonly pick: () => Effect.Effect<string | null>;
+	}
 >()("memoize/FolderPicker") {}

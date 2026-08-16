@@ -1,5 +1,5 @@
-import { SqlClient } from "effect/unstable/sql";
 import { Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 /**
  * Replaces the v3 `parent_session_id` self-reference with a dedicated
@@ -24,9 +24,9 @@ import { Effect } from "effect";
  * fork-from-message feature drops in without another migration.
  */
 export const Migration0011ChatsTable = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+	const sql = yield* SqlClient.SqlClient;
 
-  yield* sql`
+	yield* sql`
     CREATE TABLE chats (
       id                 TEXT PRIMARY KEY,
       project_id         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -39,9 +39,9 @@ export const Migration0011ChatsTable = Effect.gen(function* () {
     )
   `;
 
-  yield* sql`CREATE INDEX idx_chats_project ON chats(project_id)`;
+	yield* sql`CREATE INDEX idx_chats_project ON chats(project_id)`;
 
-  yield* sql`
+	yield* sql`
     INSERT INTO chats (
       id, project_id, worktree_id, title, active_session_id,
       archived_at, created_at, updated_at
@@ -59,12 +59,12 @@ export const Migration0011ChatsTable = Effect.gen(function* () {
     WHERE parent_session_id IS NULL
   `;
 
-  yield* sql`
+	yield* sql`
     ALTER TABLE sessions
     ADD COLUMN chat_id TEXT REFERENCES chats(id) ON DELETE CASCADE
   `;
 
-  yield* sql`
+	yield* sql`
     UPDATE sessions
     SET chat_id = (
       SELECT id FROM chats WHERE chats.active_session_id = sessions.id
@@ -72,7 +72,7 @@ export const Migration0011ChatsTable = Effect.gen(function* () {
     WHERE parent_session_id IS NULL
   `;
 
-  yield* sql`
+	yield* sql`
     UPDATE sessions
     SET chat_id = (
       SELECT chat_id FROM sessions AS s2 WHERE s2.id = sessions.parent_session_id
@@ -80,14 +80,14 @@ export const Migration0011ChatsTable = Effect.gen(function* () {
     WHERE parent_session_id IS NOT NULL
   `;
 
-  yield* sql`CREATE INDEX idx_sessions_chat ON sessions(chat_id)`;
+	yield* sql`CREATE INDEX idx_sessions_chat ON sessions(chat_id)`;
 
-  yield* sql`
+	yield* sql`
     ALTER TABLE sessions
     ADD COLUMN forked_from_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL
   `;
 
-  yield* sql`
+	yield* sql`
     ALTER TABLE sessions
     ADD COLUMN forked_from_message_id TEXT
   `;

@@ -1,5 +1,5 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
 import { SessionId } from "./session.ts";
 
@@ -8,11 +8,11 @@ import { SessionId } from "./session.ts";
  * e.g. the session row is gone and no fallback workspace root was supplied.
  */
 export class ContextWriteError extends Schema.TaggedErrorClass<ContextWriteError>()(
-  "ContextWriteError",
-  {
-    sessionId: SessionId,
-    reason: Schema.String,
-  },
+	"ContextWriteError",
+	{
+		sessionId: SessionId,
+		reason: Schema.String,
+	},
 ) {}
 
 /**
@@ -29,15 +29,15 @@ export class ContextWriteError extends Schema.TaggedErrorClass<ContextWriteError
  * exist yet the fallback keeps paste-to-file working.
  */
 export const ContextSaveTextRpc = Rpc.make("context.saveText", {
-  payload: Schema.Struct({
-    sessionId: SessionId,
-    text: Schema.String,
-    ext: Schema.String,
-    rootPath: Schema.optional(Schema.String),
-  }),
-  success: Schema.Struct({
-    relPath: Schema.String,
-    absPath: Schema.String,
-  }),
-  error: ContextWriteError,
+	payload: Schema.Struct({
+		sessionId: SessionId,
+		text: Schema.String,
+		ext: Schema.String,
+		rootPath: Schema.optional(Schema.String),
+	}),
+	success: Schema.Struct({
+		relPath: Schema.String,
+		absPath: Schema.String,
+	}),
+	error: ContextWriteError,
 });

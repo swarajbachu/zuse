@@ -12,6 +12,7 @@ import {
 	MachineControlService,
 } from "./machine-control-service.ts";
 import { MachineHostService } from "./machine-host-service.ts";
+import { MachineResourceService } from "./machine-resource-service.ts";
 
 const toError = (error: MachineControlError): MachineOpError =>
 	new MachineOpError({ code: error.code });
@@ -148,6 +149,18 @@ const ResumeCloudWorkspace = MemoizeRpcs.toLayerHandler(
 			}),
 		),
 );
+const RestartCloudWorkspace = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.restart",
+	({ workspaceId, commandId }) =>
+		withCloudControl((service) =>
+			service.cloudWorkspaceAction(workspaceId, "restart", { commandId }),
+		),
+);
+const CloudWorkspaceSshAccess = MemoizeRpcs.toLayerHandler(
+	"cloud.workspaces.sshAccess",
+	({ workspaceId }) =>
+		withCloudControl((service) => service.cloudWorkspaceSshAccess(workspaceId)),
+);
 const ArchiveCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.archive",
 	({ workspaceId, commandId }) =>
@@ -283,6 +296,15 @@ const RuntimeUpdate = MemoizeRpcs.toLayerHandler(
 	({ targetAppVersion }) =>
 		withHost((service) => service.requestRuntimeUpdate(targetAppVersion)),
 );
+const ResourcesWatch = MemoizeRpcs.toLayerHandler(
+	"machine.resources.watch",
+	({ intervalMs }) =>
+		Stream.unwrap(
+			Effect.map(MachineResourceService, (service) =>
+				service.watch(intervalMs),
+			),
+		),
+);
 
 export const MachineHandlersLayer = Layer.mergeAll(
 	CloudProviders,
@@ -299,6 +321,8 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	CloudChats,
 	PauseCloudWorkspace,
 	ResumeCloudWorkspace,
+	RestartCloudWorkspace,
+	CloudWorkspaceSshAccess,
 	ArchiveCloudWorkspace,
 	UnarchiveCloudWorkspace,
 	DeleteCloudWorkspace,
@@ -326,4 +350,5 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	RuntimeTarget,
 	RuntimeStatus,
 	RuntimeUpdate,
+	ResourcesWatch,
 );

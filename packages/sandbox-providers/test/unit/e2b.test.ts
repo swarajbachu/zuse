@@ -396,6 +396,118 @@ describe("E2B sandbox provider", () => {
 		});
 	});
 
+	test("replaces a legacy runtime through the envd process API", async () => {
+		const detail = {
+			sandboxID: "sbx_1",
+			state: "running",
+			domain: "custom.e2b.app",
+			metadata: { "zuse-label": "zuse-sandbox-1" },
+			envdAccessToken: "envd-secret",
+		};
+		const http = makeHttp([
+			{ status: 200, body: detail },
+			{
+				status: 201,
+				body: { sandboxID: "sbx_1", envdAccessToken: "envd-secret" },
+			},
+			{
+				status: 200,
+				body: {
+					processes: [
+						{
+							config: {
+								cmd: "/usr/local/bin/zuse-workspace-bootstrap",
+								args: [],
+							},
+							pid: 41,
+							tag: null,
+						},
+					],
+				},
+			},
+			{ status: 200, body: {} },
+			{ status: 200, body: detail },
+			{
+				status: 200,
+				rawBody: connectJsonResponse({ event: { start: { pid: 42 } } }),
+			},
+		]);
+		const adapter = makeAdapter(http.client);
+
+		await Effect.runPromise(
+			adapter.replaceProcess(
+				"sbx_1",
+				{
+					tag: "zuse-runtime",
+					legacyCommandMarkers: ["zuse-workspace-bootstrap"],
+				},
+				{ command: "/opt/zuse/current/bin.mjs", args: ["serve"] },
+			),
+		);
+
+		expect(http.calls[2]?.url).toContain("/process.Process/List");
+		expect(http.calls[3]?.url).toContain("/process.Process/SendSignal");
+		expect(JSON.parse(String(http.calls[3]?.init?.body))).toEqual({
+			process: { pid: 41 },
+			signal: "SIGNAL_SIGKILL",
+		});
+		expect(decodeConnectJsonBody(http.calls[5]?.init?.body)).toMatchObject({
+			process: {
+				cmd: "/opt/zuse/current/bin.mjs",
+				args: ["serve"],
+			},
+			tag: "zuse-runtime",
+		});
+	});
+
+	test("cleans an unmanaged legacy runtime before its first tagged start", async () => {
+		const detail = {
+			sandboxID: "sbx_1",
+			state: "running",
+			domain: "custom.e2b.app",
+			envdAccessToken: "envd-secret",
+		};
+		const http = makeHttp([
+			{ status: 200, body: detail },
+			{
+				status: 201,
+				body: { sandboxID: "sbx_1", envdAccessToken: "envd-secret" },
+			},
+			{ status: 200, body: { processes: [] } },
+			{ status: 200, body: detail },
+			{
+				status: 200,
+				rawBody: connectJsonResponse({ event: { start: { pid: 42 } } }),
+			},
+		]);
+		const adapter = makeAdapter(http.client);
+
+		await Effect.runPromise(
+			adapter.replaceProcess(
+				"sbx_1",
+				{
+					tag: "zuse-runtime",
+					legacyCommandMarkers: ["/opt/zuse/current/bin.mjs"],
+					legacyCleanup: "same-user",
+				},
+				{ command: "/opt/zuse/current/bin.mjs", args: ["serve"] },
+			),
+		);
+
+		expect(decodeConnectJsonBody(http.calls[4]?.init?.body)).toMatchObject({
+			process: {
+				cmd: "/bin/bash",
+				args: [
+					"-lc",
+					expect.stringContaining("for proc in /proc/[0-9]*"),
+					"zuse-runtime-legacy-cleanup",
+					"/opt/zuse/current/bin.mjs",
+					"serve",
+				],
+			},
+		});
+	});
+
 	test("rejects a process stream that does not confirm the process started", async () => {
 		const http = makeHttp([
 			{

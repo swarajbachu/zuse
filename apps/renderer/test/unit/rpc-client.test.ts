@@ -12,6 +12,7 @@ const {
 	canReuseCloudWorkspaceTicket,
 	clearCloudWorkspaceRuntimeRecovery,
 	cloudWorkspaceRequiresRuntimeRecovery,
+	cloudWorkspaceRuntimeRecoveryCommandId,
 	isIgnorableRendererFailure,
 	isRpcClientTransportError,
 	RENDERER_WEBSOCKET_OPEN_TIMEOUT,
@@ -202,10 +203,25 @@ describe("renderer RPC transport selection", () => {
 		expect(cloudWorkspaceRequiresRuntimeRecovery("workspace-recover")).toBe(
 			true,
 		);
+		const commandId =
+			cloudWorkspaceRuntimeRecoveryCommandId("workspace-recover");
+		expect(commandId).toBeTypeOf("string");
+		close({
+			code: 4100,
+			reason: "workspace runtime unavailable",
+			wasClean: true,
+		});
+		expect(cloudWorkspaceRuntimeRecoveryCommandId("workspace-recover")).toBe(
+			commandId,
+		);
 		expect(failures).toEqual([
+			"WebSocket closed (4100: workspace runtime unavailable).",
 			"WebSocket closed (4100: workspace runtime unavailable).",
 		]);
 		clearCloudWorkspaceRuntimeRecovery("workspace-recover");
+		expect(cloudWorkspaceRuntimeRecoveryCommandId("workspace-recover")).toBe(
+			undefined,
+		);
 		await session.dispose();
 	});
 });

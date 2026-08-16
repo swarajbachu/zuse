@@ -19,29 +19,29 @@ export const UPDATE_INSTALL_CHANNEL = "zuse:update-install" as const;
  * "quit/restart when idle" deferrals know when the count reaches zero.
  */
 export const AGENTS_RUNNING_COUNT_CHANNEL =
-  "zuse:agents-running-count" as const;
+	"zuse:agents-running-count" as const;
 
 export type UpdateStatus =
-  | { readonly kind: "idle" }
-  | { readonly kind: "checking" }
-  | {
-      readonly kind: "available";
-      readonly version: string;
-      readonly releaseNotes?: string;
-      readonly releaseDate?: string;
-    }
-  | { readonly kind: "not-available" }
-  | {
-      readonly kind: "downloading";
-      readonly percent: number;
-      readonly bytesPerSecond: number;
-    }
-  | { readonly kind: "ready"; readonly version: string }
-  | {
-      readonly kind: "error";
-      readonly message: string;
-      // Stalls + transient network errors are retryable; signature/integrity
-      // failures are not. Absent means retryable — banner and menu treat
-      // `undefined` as "show Try Again". Set explicit `false` to suppress.
-      readonly retryable?: boolean;
-    };
+	| { readonly kind: "idle" }
+	| { readonly kind: "checking" }
+	| {
+			readonly kind: "available";
+			readonly version: string;
+			readonly releaseNotes?: string;
+			readonly releaseDate?: string;
+	  }
+	| { readonly kind: "not-available" }
+	| {
+			readonly kind: "downloading";
+			readonly percent: number;
+			readonly bytesPerSecond: number;
+	  }
+	| { readonly kind: "ready"; readonly version: string }
+	| {
+			readonly kind: "error";
+			readonly message: string;
+			// Stalls + transient network errors are retryable; signature/integrity
+			// failures are not. Absent means retryable — banner and menu treat
+			// `undefined` as "show Try Again". Set explicit `false` to suppress.
+			readonly retryable?: boolean;
+	  };

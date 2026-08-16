@@ -1,6 +1,5 @@
-import { Context, type Effect } from "effect";
-
 import type { ProviderId, Skill } from "@zuse/contracts";
+import { Context, type Effect } from "effect";
 
 /**
  * Per-provider skill discovery on disk.
@@ -15,12 +14,13 @@ import type { ProviderId, Skill } from "@zuse/contracts";
  * precedence): project skills shadow globals with the same name.
  */
 export interface SkillDiscoveryServiceShape {
-  readonly discover: (
-    providerId: ProviderId,
-    projectCwd: string,
-  ) => Effect.Effect<ReadonlyArray<Skill>>;
+	readonly discover: (
+		providerId: ProviderId,
+		projectCwd: string,
+	) => Effect.Effect<ReadonlyArray<Skill>>;
 }
 
-export class SkillDiscoveryService extends Context.Service<SkillDiscoveryService, SkillDiscoveryServiceShape>()(
-  "memoize/SkillDiscoveryService",
-) {}
+export class SkillDiscoveryService extends Context.Service<
+	SkillDiscoveryService,
+	SkillDiscoveryServiceShape
+>()("memoize/SkillDiscoveryService") {}

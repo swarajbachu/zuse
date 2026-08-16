@@ -65,6 +65,9 @@ asarUnpack:
   - "**/*.node"
   - "dist-electron/browser-mcp-child.cjs"
   - "dist-electron/orchestration-mcp-child.cjs"
+  # ssh spawns this ProxyCommand bridge outside Electron, so it must exist as
+  # a real file on disk.
+  - "dist-electron/ssh-bridge-child.cjs"
   - "node_modules/node-pty/**"
   - "node_modules/keytar/**"
   # The bundled local runtime resolves executable helpers relative to its

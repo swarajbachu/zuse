@@ -80,6 +80,10 @@ import { rightPaneKey, useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { useWorktreesStore } from "../store/worktrees.ts";
 import {
+	CloudWorkspaceOpenSshMenu,
+	useIsCloudWorkspace,
+} from "./cloud-workspace-info.tsx";
+import {
 	GlassActionButton,
 	GlassChip,
 	type GlassTone,
@@ -253,6 +257,9 @@ export function TopBarMain() {
 	// label + open-in menu so the surface reads as a clean blank chat. The
 	// sidebar toggle buttons stay.
 	const hasSession = useSessionsStore((s) => s.selectedSessionId !== null);
+	const isCloudWorkspace = useIsCloudWorkspace(
+		ctx.status === "ready" ? ctx.environmentId : null,
+	);
 	const folder = useWorkspaceStore((s) =>
 		folderId ? (s.folders.find((f) => f.id === folderId) ?? null) : null,
 	);
@@ -456,7 +463,14 @@ export function TopBarMain() {
 				</Suspense>
 			) : null}
 			{hasSession ? (
-				<OpenInMenu rootPath={ctx.status === "ready" ? ctx.rootPath : null} />
+				isCloudWorkspace && ctx.status === "ready" ? (
+					<CloudWorkspaceOpenSshMenu
+						workspaceId={ctx.environmentId}
+						className={ACTION_CLASS}
+					/>
+				) : (
+					<OpenInMenu rootPath={ctx.status === "ready" ? ctx.rootPath : null} />
+				)
 			) : null}
 			{hasSession ? (
 				<Tooltip>
