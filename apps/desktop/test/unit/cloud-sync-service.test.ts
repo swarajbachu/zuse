@@ -49,7 +49,7 @@ describe("cloud sync service", () => {
 				sshConfigPath: "/c",
 				gitignoreFilter: false,
 			}),
-		).not.toContain("--filter=:- .gitignore");
+		).toContain("--rsync-path=rsync --filter=':- .gitignore'");
 	});
 
 	test("gitignore filter only with GNU rsync", () => {

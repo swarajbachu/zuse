@@ -73,6 +73,9 @@ export const rsyncArgs = (input: {
 	"--exclude=.git/",
 	`--exclude=${SYNC_MARKER_FILE}`,
 	...(input.gitignoreFilter ? ["--filter=:- .gitignore"] : []),
+	...(!input.gitignoreFilter
+		? ["--rsync-path=rsync --filter=':- .gitignore'"]
+		: []),
 	"-e",
 	`ssh -F "${input.sshConfigPath}"`,
 	`${input.hostAlias}:${input.remotePath.replace(/\/$/u, "")}/`,
@@ -351,6 +354,7 @@ const streamTarArchive = (
 				"-C",
 				input.remotePath,
 				"--exclude=.git",
+				"--exclude-vcs-ignores",
 				`--exclude=${SYNC_MARKER_FILE}`,
 				"-czf",
 				"-",
