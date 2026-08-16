@@ -1,14 +1,16 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+	allocatedComputeCostMicros,
 	calculateCloudBillingLedgerDeltas,
 	calculateCloudBillingTotals,
 	cloudBillingStatus,
 	customerOverageCents,
-	e2bExecutionCostMicros,
 } from "../../src/cloud-billing.ts";
-import { priceE2bExecutionPeriod } from "../../src/cloud-billing-e2b.ts";
+import { priceProviderExecutionPeriod } from "../../src/cloud-billing-provider.ts";
 import { verifyE2bSignature } from "../../src/cloud-billing-routes.ts";
+import { CloudBillingStore } from "../../src/cloud-billing-store.ts";
+import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 
 describe("cloud billing", () => {
 	it("includes the first $35 of provider cost and marks up only overage", () => {
@@ -31,26 +33,38 @@ describe("cloud billing", () => {
 		});
 	});
 
-	it("prices allocated E2B resources in integer micro-USD", () => {
+	it("prices allocated compute resources in integer micro-USD", () => {
 		// 2 vCPU + 1 GiB for one hour = $0.117
 		expect(
-			e2bExecutionCostMicros({
+			allocatedComputeCostMicros({
 				durationMs: 3_600_000,
 				vcpuCount: 2,
 				memoryMib: 1024,
+				cpuNanoUsdPerSecond: 14_000,
+				memoryNanoUsdPerGibSecond: 4_500,
 			}),
 		).toBe(117_000);
+		expect(
+			allocatedComputeCostMicros({
+				durationMs: 1_000,
+				vcpuCount: 0,
+				memoryMib: 0,
+				baseNanoUsdPerSecond: 1_000_000,
+				cpuNanoUsdPerSecond: 0,
+				memoryNanoUsdPerGibSecond: 0,
+			}),
+		).toBe(1_000);
 	});
 
 	it("splits price changes without changing duration or using floats", () => {
-		const firstHalf = e2bExecutionCostMicros({
+		const firstHalf = allocatedComputeCostMicros({
 			durationMs: 30 * 60_000,
 			vcpuCount: 2,
 			memoryMib: 1024,
 			cpuNanoUsdPerSecond: 14_000,
 			memoryNanoUsdPerGibSecond: 4_500,
 		});
-		const secondHalf = e2bExecutionCostMicros({
+		const secondHalf = allocatedComputeCostMicros({
 			durationMs: 30 * 60_000,
 			vcpuCount: 2,
 			memoryMib: 1024,
@@ -60,7 +74,7 @@ describe("cloud billing", () => {
 		expect(firstHalf + secondHalf).toBe(175_500);
 	});
 
-	it("keeps E2B financial identity stable when the price catalog changes", () => {
+	it("keeps provider identity stable when the price catalog changes", () => {
 		const common = {
 			eventId: "event-1",
 			periodId: "period-1",
@@ -69,8 +83,9 @@ describe("cloud billing", () => {
 			vcpuCount: 2,
 			memoryMib: 1_024,
 		};
-		const original = priceE2bExecutionPeriod({
+		const original = priceProviderExecutionPeriod({
 			...common,
+			provider: "e2b",
 			prices: [
 				{
 					startedAtMs: 0,
@@ -80,8 +95,9 @@ describe("cloud billing", () => {
 				},
 			],
 		});
-		const catalogExtended = priceE2bExecutionPeriod({
+		const catalogExtended = priceProviderExecutionPeriod({
 			...common,
+			provider: "e2b",
 			prices: [
 				{
 					startedAtMs: 0,
@@ -103,6 +119,56 @@ describe("cloud billing", () => {
 		);
 		expect(catalogExtended.entryId).toBe(original.entryId);
 		expect(catalogExtended.providerEventId).toBe(original.providerEventId);
+	});
+
+	it("finalizes a provider event across all periods atomically", async () => {
+		const result = await Effect.gen(function* () {
+			const store = yield* CloudBillingStore;
+			yield* store.recordProviderEvent({
+				provider: "e2b",
+				eventId: "event-1",
+				type: "paused",
+				payload: {},
+				receivedAtMs: 10,
+				expiresAtMs: 20,
+			});
+			const usage = (periodId: string) => ({
+				entryId: `e2b:event-1:${periodId}`,
+				periodId,
+				accountId: "account-1",
+				resourceKind: "workspace" as const,
+				resourceId: "workspace-1",
+				provider: "e2b",
+				providerEventId: `event-1:${periodId}`,
+				startedAt: 0,
+				endedAt: 10,
+				vcpuCount: 2,
+				memoryMib: 1_024,
+				providerCostMicros: 100,
+				status: "confirmed" as const,
+				nowMs: 10,
+			});
+			const first = yield* store.recordProviderExecutionBatch({
+				provider: "e2b",
+				eventId: "event-1",
+				finalizedAtMs: 10,
+				usage: [usage("period-1")],
+			});
+			const afterNewPeriod = yield* store.recordProviderExecutionBatch({
+				provider: "e2b",
+				eventId: "event-1",
+				finalizedAtMs: 20,
+				usage: [usage("period-1"), usage("period-2")],
+			});
+			const finalized = yield* store.isProviderEventFinalized("e2b", "event-1");
+			return { first, afterNewPeriod, finalized };
+		}).pipe(Effect.provide(CloudBillingStoreMemory), Effect.runPromise);
+
+		expect(result).toEqual({
+			first: true,
+			afterNewPeriod: false,
+			finalized: true,
+		});
 	});
 
 	it("rounds only cumulative overage to Polar cents", () => {

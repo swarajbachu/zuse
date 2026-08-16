@@ -1,10 +1,6 @@
 import { Effect, Schema } from "effect";
-import { e2bExecutionCostMicros } from "./cloud-billing.ts";
-import { ensureAccountCloudBillingPeriod } from "./cloud-billing-period.ts";
+import { meterProviderExecution } from "./cloud-billing-provider.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
-import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
-import { RelayConfiguration } from "./config.ts";
-import { conflict } from "./errors.ts";
 
 const E2bExecution = Schema.Struct({
 	started_at: Schema.String,
@@ -80,48 +76,6 @@ export interface E2bIngestionResult {
 		| "pre-cutover";
 }
 
-export interface E2bPriceWindow {
-	readonly startedAtMs: number;
-	readonly endedAtMs: number;
-	readonly cpuNanoUsdPerSecond: number;
-	readonly memoryNanoUsdPerGibSecond: number;
-}
-
-/**
- * Price windows affect the cost, never the financial identity. Catalog entries
- * may be appended after an execution was first ingested, so using a window
- * boundary in the identity would let a redelivery create additional rows.
- */
-export const priceE2bExecutionPeriod = (input: {
-	readonly eventId: string;
-	readonly periodId: string;
-	readonly startedAtMs: number;
-	readonly endedAtMs: number;
-	readonly vcpuCount: number;
-	readonly memoryMib: number;
-	readonly prices: ReadonlyArray<E2bPriceWindow>;
-}) => {
-	const providerEventId = `${input.eventId}:${input.periodId}`;
-	return {
-		entryId: `e2b:${providerEventId}`,
-		providerEventId,
-		startedAt: input.startedAtMs,
-		endedAt: input.endedAtMs,
-		providerCostMicros: input.prices.reduce(
-			(total, price) =>
-				total +
-				e2bExecutionCostMicros({
-					durationMs: price.endedAtMs - price.startedAtMs,
-					vcpuCount: input.vcpuCount,
-					memoryMib: input.memoryMib,
-					cpuNanoUsdPerSecond: price.cpuNanoUsdPerSecond,
-					memoryNanoUsdPerGibSecond: price.memoryNanoUsdPerGibSecond,
-				}),
-			0,
-		),
-	};
-};
-
 export const ingestE2bLifecycleEvent = Effect.fn("ingestE2bLifecycleEvent")(
 	function* (input: {
 		readonly event: E2bLifecycleEvent;
@@ -175,88 +129,22 @@ export const ingestE2bLifecycleEvent = Effect.fn("ingestE2bLifecycleEvent")(
 			});
 			return { eventInserted, metered: false, reason: "unmatched" };
 		}
-		const workspaces = yield* CloudWorkspaceStore;
-		const workspace = yield* workspaces.getWorkspace(internalId);
-		const build =
-			workspace === null ? yield* workspaces.getBuild(internalId) : null;
-		const resource = workspace ?? build;
-		if (resource === null)
-			return { eventInserted, metered: false, reason: "unmatched" };
-		const period = yield* ensureAccountCloudBillingPeriod(
-			resource.accountId,
-			input.nowMs,
-		);
-		if (period === null)
-			return { eventInserted, metered: false, reason: "no-period" };
 		const execution = event.event_data.execution;
 		const providerStartedAt = Date.parse(execution.started_at);
 		const endedAt = providerStartedAt + execution.execution_time;
-		if (
-			!Number.isFinite(providerStartedAt) ||
-			!Number.isSafeInteger(execution.execution_time) ||
-			execution.execution_time <= 0 ||
-			endedAt > input.nowMs + 5 * 60_000
-		)
-			return yield* Effect.fail(conflict("invalid_e2b_execution"));
-		const cutoverAt = (yield* RelayConfiguration).cloudBillingCutoverAtMs;
-		if (cutoverAt === undefined)
-			return {
-				eventInserted,
-				metered: false,
-				reason: "cutover-not-configured",
-			};
-		if (endedAt <= cutoverAt)
-			return { eventInserted, metered: false, reason: "pre-cutover" };
-		const startedAt = Math.max(providerStartedAt, cutoverAt);
-		const periods = yield* billingStore.periodsOverlapping(
-			resource.accountId,
-			startedAt,
-			endedAt,
-		);
-		if (periods.length === 0) {
-			console.warn("[cloud-billing] E2B execution has no overlapping period", {
+		const result = yield* meterProviderExecution({
+			evidence: {
+				provider: "e2b",
 				eventId: event.id,
-				accountId: resource.accountId,
-				startedAt,
-				endedAt,
-			});
-			return { eventInserted, metered: false, reason: "no-period" };
-		}
-		let metered = false;
-		for (const executionPeriod of periods) {
-			const segmentStart = Math.max(startedAt, executionPeriod.periodStartMs);
-			const segmentEnd = Math.min(endedAt, executionPeriod.periodEndMs);
-			const prices = yield* billingStore.priceWindows(
-				"e2b",
-				segmentStart,
-				segmentEnd,
-			);
-			if (prices.length === 0)
-				return yield* Effect.fail(conflict("cloud_billing_price_missing"));
-			const priced = priceE2bExecutionPeriod({
-				eventId: event.id,
-				periodId: executionPeriod.periodId,
-				startedAtMs: segmentStart,
-				endedAtMs: segmentEnd,
+				providerExecutionId: event.sandbox_execution_id,
+				internalResourceId: internalId,
+				startedAtMs: providerStartedAt,
+				endedAtMs: endedAt,
 				vcpuCount: execution.vcpu_count,
 				memoryMib: execution.memory_mb,
-				prices,
-			});
-			metered =
-				(yield* billingStore.recordExecution({
-					...priced,
-					periodId: executionPeriod.periodId,
-					accountId: resource.accountId,
-					resourceKind: workspace === null ? "build" : "workspace",
-					resourceId: internalId,
-					provider: "e2b",
-					providerExecutionId: event.sandbox_execution_id,
-					vcpuCount: execution.vcpu_count,
-					memoryMib: execution.memory_mb,
-					status: "confirmed",
-					nowMs: input.nowMs,
-				})) || metered;
-		}
-		return { eventInserted, metered };
+			},
+			nowMs: input.nowMs,
+		});
+		return { eventInserted, ...result };
 	},
 );

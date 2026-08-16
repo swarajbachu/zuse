@@ -18,6 +18,7 @@ import {
 export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 	const periods = new Map<string, CloudBillingPeriodRecord>();
 	const events = new Set<string>();
+	const finalizedEvents = new Set<string>();
 	const usage = new Map<string, CloudBillingUsageItem & { periodId: string }>();
 	const reservations = new Map<
 		string,
@@ -77,12 +78,15 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 	return CloudBillingStore.of({
 		hasProviderEvent: (provider, eventId) =>
 			Effect.succeed(events.has(`${provider}:${eventId}`)),
+		isProviderEventFinalized: (provider, eventId) =>
+			Effect.succeed(finalizedEvents.has(`${provider}:${eventId}`)),
 		priceWindows: (_provider, startedAtMs, endedAtMs) =>
 			Effect.succeed([
 				{
 					version: "test",
 					startedAtMs,
 					endedAtMs,
+					baseNanoUsdPerSecond: 0,
 					cpuNanoUsdPerSecond: 14_000,
 					memoryNanoUsdPerGibSecond: 4_500,
 				},
@@ -159,14 +163,28 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 				].slice(0, limit);
 				return { items };
 			}),
-		recordExecution: (input) =>
+		recordProviderExecutionBatch: (batch) =>
 			Effect.sync(() => {
-				if (usage.has(input.entryId)) return false;
-				usage.set(input.entryId, input);
-				reservations.delete(
-					`${input.periodId}:${input.resourceKind}:${input.resourceId}`,
-				);
-				return true;
+				if (
+					batch.usage.length === 0 ||
+					batch.usage.some((item) => item.provider !== batch.provider)
+				)
+					throw new Error("invalid provider execution batch");
+				const eventKey = `${batch.provider}:${batch.eventId}`;
+				if (!events.has(eventKey))
+					throw new Error("provider usage event missing");
+				if (finalizedEvents.has(eventKey)) return false;
+				let metered = false;
+				for (const input of batch.usage) {
+					if (usage.has(input.entryId)) continue;
+					usage.set(input.entryId, input);
+					reservations.delete(
+						`${input.periodId}:${input.resourceKind}:${input.resourceId}`,
+					);
+					metered = true;
+				}
+				finalizedEvents.add(eventKey);
+				return metered;
 			}),
 		reserveCost: (input) =>
 			Effect.sync(() => {
@@ -181,7 +199,7 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 							entryId: `reservation:${input.resourceKind}:${input.resourceId}`,
 							resourceKind: input.resourceKind,
 							resourceId: input.resourceId,
-							provider: "e2b",
+							provider: input.provider,
 							startedAt: input.startedAtMs,
 							endedAt: input.nowMs,
 							vcpuCount: input.vcpuCount,

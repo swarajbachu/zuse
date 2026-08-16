@@ -5,6 +5,7 @@ export const CLOUD_BASE_PRICE_MICROS = 40 * USD_MICROS;
 export const CLOUD_INCLUDED_COST_MICROS = 35 * USD_MICROS;
 export const CLOUD_DEFAULT_OVERAGE_CAP_MICROS = 25 * USD_MICROS;
 export const CLOUD_MARKUP_BASIS_POINTS = 500;
+export const CLOUD_PRICE_CATALOG_VERSION = "provider-compute-v1";
 
 export interface CloudBillingPolicy {
 	readonly basePriceMicros: number;
@@ -129,22 +130,22 @@ export const cloudBillingStatus = (input: {
 	return "active";
 };
 
-export const e2bExecutionCostMicros = (input: {
+export const allocatedComputeCostMicros = (input: {
 	readonly durationMs: number;
 	readonly vcpuCount: number;
 	readonly memoryMib: number;
-	readonly cpuNanoUsdPerSecond?: number;
-	readonly memoryNanoUsdPerGibSecond?: number;
+	readonly baseNanoUsdPerSecond?: number;
+	readonly cpuNanoUsdPerSecond: number;
+	readonly memoryNanoUsdPerGibSecond: number;
 }): number => {
 	const durationMs = Math.max(0, Math.trunc(input.durationMs));
 	const vcpus = Math.max(0, Math.trunc(input.vcpuCount));
 	const memoryMib = Math.max(0, Math.trunc(input.memoryMib));
-	// Current public E2B rates: $0.000014/vCPU-second and
-	// $0.0000045/GiB-second. Expressed in micro-USD to avoid floating money.
-	const cpuRate = input.cpuNanoUsdPerSecond ?? 14_000;
-	const memoryRate = input.memoryNanoUsdPerGibSecond ?? 4_500;
 	return Math.floor(
-		(durationMs * (vcpus * cpuRate * 1024 + memoryMib * memoryRate)) /
+		(durationMs *
+			((input.baseNanoUsdPerSecond ?? 0) * 1024 +
+				vcpus * input.cpuNanoUsdPerSecond * 1024 +
+				memoryMib * input.memoryNanoUsdPerGibSecond)) /
 			(1_000_000 * 1024),
 	);
 };

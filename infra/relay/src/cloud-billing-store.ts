@@ -7,6 +7,7 @@ import { Clock, Context, Effect, Layer } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import {
 	CLOUD_DEFAULT_OVERAGE_CAP_MICROS,
+	CLOUD_PRICE_CATALOG_VERSION,
 	calculateCloudBillingLedgerDeltas,
 	calculateCloudBillingTotals,
 	cloudBillingStatus,
@@ -28,8 +29,19 @@ export interface CloudBillingPeriodRecord {
 	readonly overageCapMicros: number;
 }
 
+export type CloudBillingUsageRecord = CloudBillingUsageItem & {
+	readonly periodId: string;
+	readonly accountId: string;
+	readonly providerEventId?: string;
+	readonly nowMs: number;
+};
+
 export interface CloudBillingStoreApi {
 	readonly hasProviderEvent: (
+		provider: string,
+		eventId: string,
+	) => Effect.Effect<boolean>;
+	readonly isProviderEventFinalized: (
 		provider: string,
 		eventId: string,
 	) => Effect.Effect<boolean>;
@@ -42,6 +54,7 @@ export interface CloudBillingStoreApi {
 			readonly version: string;
 			readonly startedAtMs: number;
 			readonly endedAtMs: number;
+			readonly baseNanoUsdPerSecond: number;
 			readonly cpuNanoUsdPerSecond: number;
 			readonly memoryNanoUsdPerGibSecond: number;
 		}>
@@ -104,19 +117,18 @@ export interface CloudBillingStoreApi {
 		readonly items: ReadonlyArray<CloudBillingUsageItem>;
 		readonly nextCursor?: string;
 	}>;
-	readonly recordExecution: (
-		input: CloudBillingUsageItem & {
-			readonly periodId: string;
-			readonly accountId: string;
-			readonly providerEventId?: string;
-			readonly nowMs: number;
-		},
-	) => Effect.Effect<boolean>;
+	readonly recordProviderExecutionBatch: (input: {
+		readonly provider: string;
+		readonly eventId: string;
+		readonly finalizedAtMs: number;
+		readonly usage: ReadonlyArray<CloudBillingUsageRecord>;
+	}) => Effect.Effect<boolean>;
 	readonly reserveCost: (input: {
 		readonly periodId: string;
 		readonly accountId: string;
 		readonly resourceKind: "workspace" | "build";
 		readonly resourceId: string;
+		readonly provider: string;
 		readonly providerCostMicros: number;
 		readonly startedAtMs: number;
 		readonly vcpuCount: number;
@@ -336,13 +348,21 @@ export const CloudBillingStorePg = Layer.effect(
 					Effect.map((rows) => rows[0]?.present ?? false),
 					Effect.orDie,
 				),
+			isProviderEventFinalized: (provider, eventId) =>
+				sql<{
+					readonly finalized: boolean;
+				}>`SELECT EXISTS(SELECT 1 FROM relay_provider_event_finalizations WHERE provider = ${provider} AND event_id = ${eventId}) AS finalized`.pipe(
+					Effect.map((rows) => rows[0]?.finalized ?? false),
+					Effect.orDie,
+				),
 			priceWindows: (provider, startedAtMs, endedAtMs) =>
 				sql<{
 					readonly version: string;
 					readonly effective_at: number;
+					readonly base_nano_usd_per_second: number;
 					readonly cpu_nano_usd_per_second: number;
 					readonly memory_nano_usd_per_gib_second: number;
-				}>`SELECT version, effective_at, cpu_nano_usd_per_second, memory_nano_usd_per_gib_second FROM relay_provider_price_schedule WHERE provider = ${provider} AND effective_at < ${endedAtMs} ORDER BY effective_at ASC`.pipe(
+				}>`SELECT version, effective_at, base_nano_usd_per_second, cpu_nano_usd_per_second, memory_nano_usd_per_gib_second FROM relay_provider_price_schedule WHERE provider = ${provider} AND effective_at < ${endedAtMs} ORDER BY effective_at ASC`.pipe(
 					Effect.map((rows) => {
 						const firstAfterStart = rows.findIndex(
 							(row) => Number(row.effective_at) > startedAtMs,
@@ -362,6 +382,7 @@ export const CloudBillingStorePg = Layer.effect(
 								endedAtMs,
 								Number(applicable[index + 1]?.effective_at ?? endedAtMs),
 							),
+							baseNanoUsdPerSecond: Number(row.base_nano_usd_per_second),
 							cpuNanoUsdPerSecond: Number(row.cpu_nano_usd_per_second),
 							memoryNanoUsdPerGibSecond: Number(
 								row.memory_nano_usd_per_gib_second,
@@ -395,7 +416,7 @@ export const CloudBillingStorePg = Layer.effect(
 				created_at, updated_at
 			) VALUES (${period.periodId}, ${period.accountId}, ${period.providerSubscriptionId ?? null}, ${period.status}, 'USD',
 				${period.periodStartMs}, ${period.periodEndMs}, ${DEFAULT_CLOUD_BILLING_POLICY.basePriceMicros},
-				${DEFAULT_CLOUD_BILLING_POLICY.includedProviderCostMicros}, ${DEFAULT_CLOUD_BILLING_POLICY.markupBasisPoints}, 'e2b-public-2026-08-14',
+				${DEFAULT_CLOUD_BILLING_POLICY.includedProviderCostMicros}, ${DEFAULT_CLOUD_BILLING_POLICY.markupBasisPoints}, ${CLOUD_PRICE_CATALOG_VERSION},
 				${period.overageCapMicros ?? CLOUD_DEFAULT_OVERAGE_CAP_MICROS}, ${period.nowMs}, ${period.nowMs})
 				ON CONFLICT (account_id, period_start) DO UPDATE SET status = EXCLUDED.status, period_end = EXCLUDED.period_end,
 				provider_subscription_id = EXCLUDED.provider_subscription_id, updated_at = EXCLUDED.updated_at
@@ -432,7 +453,7 @@ export const CloudBillingStorePg = Layer.effect(
 					SELECT entry_id, resource_kind, resource_id, provider, provider_execution_id, started_at, ended_at, vcpu_count, memory_mib, provider_cost_micros, status
 					FROM relay_cloud_billing_usage WHERE period_id = ${periodId}
 					UNION ALL
-					SELECT 'reservation:' || resource_kind || ':' || resource_id AS entry_id, resource_kind, resource_id, 'e2b' AS provider, NULL AS provider_execution_id,
+					SELECT 'reservation:' || resource_kind || ':' || resource_id AS entry_id, resource_kind, resource_id, provider, NULL AS provider_execution_id,
 						started_at, updated_at AS ended_at, vcpu_count, memory_mib, provider_cost_micros, 'provisional' AS status
 					FROM relay_cloud_billing_reservations WHERE period_id = ${periodId} AND expires_at > EXTRACT(EPOCH FROM clock_timestamp()) * 1000
 				) AS usage_items WHERE (${cursor ?? null}::text IS NULL OR entry_id < ${cursor ?? null}) ORDER BY entry_id DESC LIMIT ${limit + 1}`.pipe(
@@ -444,96 +465,119 @@ export const CloudBillingStorePg = Layer.effect(
 					})),
 					Effect.orDie,
 				),
-			recordExecution: (input) =>
+			recordProviderExecutionBatch: (batch) =>
 				Effect.gen(function* () {
-					const periodRows =
-						yield* sql<PeriodRow>`SELECT * FROM relay_cloud_billing_periods WHERE period_id = ${input.periodId} FOR UPDATE`;
-					const period = toPeriod(periodRows[0] as PeriodRow);
-					const beforeRows = yield* sql<{
-						readonly provider_cost: number;
-						readonly overage_charge: number;
-					}>`SELECT
+					if (
+						batch.usage.length === 0 ||
+						batch.usage.some((item) => item.provider !== batch.provider)
+					)
+						throw new Error("invalid provider execution batch");
+					const eventRows = yield* sql<{
+						readonly event_id: string;
+					}>`SELECT event_id FROM relay_provider_usage_events WHERE provider = ${batch.provider} AND event_id = ${batch.eventId} FOR UPDATE`;
+					if (eventRows[0] === undefined)
+						throw new Error("provider usage event missing");
+					const finalizedRows = yield* sql<{
+						readonly finalized: boolean;
+					}>`SELECT EXISTS(SELECT 1 FROM relay_provider_event_finalizations WHERE provider = ${batch.provider} AND event_id = ${batch.eventId}) AS finalized`;
+					if (finalizedRows[0]?.finalized === true) return false;
+					let metered = false;
+					for (const input of batch.usage) {
+						const periodRows =
+							yield* sql<PeriodRow>`SELECT * FROM relay_cloud_billing_periods WHERE period_id = ${input.periodId} FOR UPDATE`;
+						const period = toPeriod(periodRows[0] as PeriodRow);
+						const beforeRows = yield* sql<{
+							readonly provider_cost: number;
+							readonly overage_charge: number;
+						}>`SELECT
 						COALESCE(SUM(amount_micros) FILTER (WHERE kind = 'provider-cost'), 0) AS provider_cost,
 						COALESCE(SUM(amount_micros) FILTER (WHERE kind = 'overage-charge'), 0) AS overage_charge
 						FROM relay_cloud_billing_ledger WHERE period_id = ${input.periodId}`;
-					const inserted = yield* sql<{
-						readonly entry_id: string;
-					}>`INSERT INTO relay_cloud_billing_usage (
+						const inserted = yield* sql<{
+							readonly entry_id: string;
+						}>`INSERT INTO relay_cloud_billing_usage (
 					entry_id, period_id, account_id, resource_kind, resource_id, provider, provider_event_id,
 					provider_execution_id, started_at, ended_at, vcpu_count, memory_mib, provider_cost_micros, status, created_at
 				) VALUES (${input.entryId}, ${input.periodId}, ${input.accountId}, ${input.resourceKind}, ${input.resourceId}, ${input.provider},
 					${input.providerEventId ?? null}, ${input.providerExecutionId ?? null}, ${input.startedAt}, ${input.endedAt}, ${input.vcpuCount},
 					${input.memoryMib}, ${input.providerCostMicros}, ${input.status}, ${input.nowMs}) ON CONFLICT DO NOTHING RETURNING entry_id`;
-					if (inserted.length === 0) return false;
-					yield* sql`DELETE FROM relay_cloud_billing_reservations WHERE period_id = ${input.periodId} AND resource_kind = ${input.resourceKind} AND resource_id = ${input.resourceId}`;
-					yield* sql`INSERT INTO relay_cloud_billing_ledger (entry_id, period_id, account_id, kind, amount_micros, source_id, metadata, occurred_at, created_at)
-					VALUES (${`ledger:${input.entryId}`}, ${input.periodId}, ${input.accountId}, 'provider-cost', ${input.providerCostMicros}, ${input.entryId}, ${JSON.stringify({ provider: input.provider, resourceKind: input.resourceKind, resourceId: input.resourceId })}, ${input.endedAt}, ${input.nowMs}) ON CONFLICT DO NOTHING`;
-					const policy = {
-						basePriceMicros: period.basePriceMicros,
-						includedProviderCostMicros: period.includedProviderCostMicros,
-						markupBasisPoints: period.markupBasisPoints,
-					};
-					const beforeProviderCost = Number(beforeRows[0]?.provider_cost ?? 0);
-					const beforeCharge = Number(beforeRows[0]?.overage_charge ?? 0);
-					const deltas = calculateCloudBillingLedgerDeltas({
-						beforeProviderCostMicros: beforeProviderCost,
-						beforeChargedMicros: beforeCharge,
-						providerCostDeltaMicros: input.providerCostMicros,
-						overageCapMicros: period.overageCapMicros,
-						manual: period.status === "manual",
-						policy,
-					});
-					const financialEntries = [
-						{
-							kind: "included-allowance",
-							amount: deltas.includedAllowanceMicros,
-						},
-						{
-							kind: "overage-provider-cost",
-							amount: deltas.overageProviderCostMicros,
-						},
-						{ kind: "overage-charge", amount: deltas.overageChargeMicros },
-						{ kind: "markup", amount: deltas.markupMicros },
-						{
-							kind:
-								period.status === "manual"
-									? "manual-entitlement-credit"
-									: "overshoot-absorbed",
-							amount: deltas.absorbedMicros,
-						},
-					];
-					for (const entry of financialEntries) {
-						if (entry.amount === 0) continue;
+						if (inserted.length === 0) continue;
+						yield* sql`DELETE FROM relay_cloud_billing_reservations WHERE period_id = ${input.periodId} AND resource_kind = ${input.resourceKind} AND resource_id = ${input.resourceId}`;
 						yield* sql`INSERT INTO relay_cloud_billing_ledger (entry_id, period_id, account_id, kind, amount_micros, source_id, metadata, occurred_at, created_at)
+					VALUES (${`ledger:${input.entryId}`}, ${input.periodId}, ${input.accountId}, 'provider-cost', ${input.providerCostMicros}, ${input.entryId}, ${JSON.stringify({ provider: input.provider, resourceKind: input.resourceKind, resourceId: input.resourceId })}, ${input.endedAt}, ${input.nowMs}) ON CONFLICT DO NOTHING`;
+						const policy = {
+							basePriceMicros: period.basePriceMicros,
+							includedProviderCostMicros: period.includedProviderCostMicros,
+							markupBasisPoints: period.markupBasisPoints,
+						};
+						const beforeProviderCost = Number(
+							beforeRows[0]?.provider_cost ?? 0,
+						);
+						const beforeCharge = Number(beforeRows[0]?.overage_charge ?? 0);
+						const deltas = calculateCloudBillingLedgerDeltas({
+							beforeProviderCostMicros: beforeProviderCost,
+							beforeChargedMicros: beforeCharge,
+							providerCostDeltaMicros: input.providerCostMicros,
+							overageCapMicros: period.overageCapMicros,
+							manual: period.status === "manual",
+							policy,
+						});
+						const financialEntries = [
+							{
+								kind: "included-allowance",
+								amount: deltas.includedAllowanceMicros,
+							},
+							{
+								kind: "overage-provider-cost",
+								amount: deltas.overageProviderCostMicros,
+							},
+							{ kind: "overage-charge", amount: deltas.overageChargeMicros },
+							{ kind: "markup", amount: deltas.markupMicros },
+							{
+								kind:
+									period.status === "manual"
+										? "manual-entitlement-credit"
+										: "overshoot-absorbed",
+								amount: deltas.absorbedMicros,
+							},
+						];
+						for (const entry of financialEntries) {
+							if (entry.amount === 0) continue;
+							yield* sql`INSERT INTO relay_cloud_billing_ledger (entry_id, period_id, account_id, kind, amount_micros, source_id, metadata, occurred_at, created_at)
 						VALUES (${`ledger:${entry.kind}:${input.entryId}`}, ${input.periodId}, ${input.accountId}, ${entry.kind}, ${entry.amount}, ${input.entryId}, '{}', ${input.endedAt}, ${input.nowMs}) ON CONFLICT DO NOTHING`;
-					}
-					const totalRows = yield* sql<{
-						readonly total: number;
-					}>`SELECT COALESCE(SUM(amount_micros), 0) AS total FROM relay_cloud_billing_ledger WHERE period_id = ${input.periodId} AND kind = 'overage-charge'`;
-					const exportedRows = yield* sql<{
-						readonly total: number;
-					}>`SELECT COALESCE(SUM(amount_cents), 0) AS total FROM relay_cloud_billing_outbox WHERE period_id = ${input.periodId}`;
-					const targetCents = customerOverageCents(
-						Number(totalRows[0]?.total ?? 0),
-					);
-					const deltaCents = targetCents - Number(exportedRows[0]?.total ?? 0);
-					if (deltaCents !== 0) {
-						const sequenceRows = yield* sql<{
-							readonly count: number;
-						}>`SELECT COUNT(*) AS count FROM relay_cloud_billing_outbox WHERE period_id = ${input.periodId}`;
-						const sequence = Number(sequenceRows[0]?.count ?? 0) + 1;
-						yield* sql`INSERT INTO relay_cloud_billing_outbox (outbox_id, period_id, account_id, provider, amount_cents, idempotency_key, attempt_count, next_attempt_at, created_at)
+						}
+						const totalRows = yield* sql<{
+							readonly total: number;
+						}>`SELECT COALESCE(SUM(amount_micros), 0) AS total FROM relay_cloud_billing_ledger WHERE period_id = ${input.periodId} AND kind = 'overage-charge'`;
+						const exportedRows = yield* sql<{
+							readonly total: number;
+						}>`SELECT COALESCE(SUM(amount_cents), 0) AS total FROM relay_cloud_billing_outbox WHERE period_id = ${input.periodId}`;
+						const targetCents = customerOverageCents(
+							Number(totalRows[0]?.total ?? 0),
+						);
+						const deltaCents =
+							targetCents - Number(exportedRows[0]?.total ?? 0);
+						if (deltaCents !== 0) {
+							const sequenceRows = yield* sql<{
+								readonly count: number;
+							}>`SELECT COUNT(*) AS count FROM relay_cloud_billing_outbox WHERE period_id = ${input.periodId}`;
+							const sequence = Number(sequenceRows[0]?.count ?? 0) + 1;
+							yield* sql`INSERT INTO relay_cloud_billing_outbox (outbox_id, period_id, account_id, provider, amount_cents, idempotency_key, attempt_count, next_attempt_at, created_at)
 						VALUES (${`outbox:${input.periodId}:${sequence}`}, ${input.periodId}, ${input.accountId}, 'polar', ${deltaCents}, ${`${input.periodId}:${sequence}`}, 0, ${input.nowMs}, ${input.nowMs}) ON CONFLICT DO NOTHING`;
+						}
+						metered = true;
 					}
-					return true;
+					yield* sql`INSERT INTO relay_provider_event_finalizations (provider, event_id, finalized_at, expires_at)
+					VALUES (${batch.provider}, ${batch.eventId}, ${batch.finalizedAtMs}, ${batch.finalizedAtMs + 7 * 365 * 24 * 60 * 60 * 1_000}) ON CONFLICT DO NOTHING`;
+					return metered;
 				}).pipe(sql.withTransaction, Effect.orDie),
 			reserveCost: (input) =>
 				Effect.gen(function* () {
 					const rows =
 						yield* sql<PeriodRow>`SELECT * FROM relay_cloud_billing_periods WHERE period_id = ${input.periodId} FOR UPDATE`;
-					yield* sql`INSERT INTO relay_cloud_billing_reservations (period_id, account_id, resource_kind, resource_id, provider_cost_micros, started_at, vcpu_count, memory_mib, expires_at, updated_at)
-					VALUES (${input.periodId}, ${input.accountId}, ${input.resourceKind}, ${input.resourceId}, ${input.providerCostMicros}, ${input.startedAtMs}, ${input.vcpuCount}, ${input.memoryMib}, ${input.expiresAtMs}, ${input.nowMs})
-					ON CONFLICT (period_id, resource_kind, resource_id) DO UPDATE SET provider_cost_micros = EXCLUDED.provider_cost_micros, started_at = EXCLUDED.started_at, vcpu_count = EXCLUDED.vcpu_count, memory_mib = EXCLUDED.memory_mib, expires_at = EXCLUDED.expires_at, updated_at = EXCLUDED.updated_at`;
+					yield* sql`INSERT INTO relay_cloud_billing_reservations (period_id, account_id, resource_kind, resource_id, provider, provider_cost_micros, started_at, vcpu_count, memory_mib, expires_at, updated_at)
+					VALUES (${input.periodId}, ${input.accountId}, ${input.resourceKind}, ${input.resourceId}, ${input.provider}, ${input.providerCostMicros}, ${input.startedAtMs}, ${input.vcpuCount}, ${input.memoryMib}, ${input.expiresAtMs}, ${input.nowMs})
+					ON CONFLICT (period_id, resource_kind, resource_id) DO UPDATE SET provider = EXCLUDED.provider, provider_cost_micros = EXCLUDED.provider_cost_micros, started_at = EXCLUDED.started_at, vcpu_count = EXCLUDED.vcpu_count, memory_mib = EXCLUDED.memory_mib, expires_at = EXCLUDED.expires_at, updated_at = EXCLUDED.updated_at`;
 					const period = toPeriod(rows[0] as PeriodRow);
 					const updatedSummary = yield* summary(period);
 					const rawProjectedCharge = calculateCloudBillingTotals(
@@ -613,6 +657,7 @@ export const CloudBillingStorePg = Layer.effect(
 			purgeExpiredRawEvents: (nowMs) =>
 				Effect.gen(function* () {
 					yield* sql`DELETE FROM relay_provider_event_deliveries WHERE received_at <= ${nowMs - 90 * 24 * 60 * 60 * 1_000}`;
+					yield* sql`DELETE FROM relay_provider_event_finalizations WHERE expires_at <= ${nowMs}`;
 					const rows = yield* sql<{
 						readonly event_id: string;
 					}>`DELETE FROM relay_provider_usage_events WHERE expires_at <= ${nowMs} RETURNING event_id`;

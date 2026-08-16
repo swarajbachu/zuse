@@ -17,6 +17,7 @@ export * from "./account-identity.ts";
 export { RELAY_SCOPES } from "./auth.ts";
 export * from "./cloud-billing.ts";
 export * from "./cloud-billing-outbox.ts";
+export * from "./cloud-billing-provider.ts";
 export * from "./cloud-billing-store.ts";
 export * from "./cloud-billing-store-memory.ts";
 export * from "./cloud-credential-vault.ts";

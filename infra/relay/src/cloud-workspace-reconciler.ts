@@ -4,7 +4,7 @@ import {
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
 import { Clock, Data, Duration, Effect } from "effect";
-import { e2bExecutionCostMicros } from "./cloud-billing.ts";
+import { allocatedComputeCostMicros } from "./cloud-billing.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { CloudCredentialVault } from "./cloud-credential-vault.ts";
 import { deleteCloudTranscriptObjects } from "./cloud-transcript.ts";
@@ -31,7 +31,7 @@ const WORKSPACE_RUNTIME_BOOT_TOKEN_FILE =
 const PROJECT_BUILD_DIAGNOSTIC_FILE = "/tmp/zuse-project-builder-diagnostic";
 const PROJECT_BUILD_DIAGNOSTIC_MAX_LENGTH = 2_048;
 
-const reserveE2bCost = Effect.fn("reserveE2bCost")(function* (input: {
+const reserveProviderCost = Effect.fn("reserveProviderCost")(function* (input: {
 	readonly accountId: string;
 	readonly resourceKind: "workspace" | "build";
 	readonly resourceId: string;
@@ -41,7 +41,6 @@ const reserveE2bCost = Effect.fn("reserveE2bCost")(function* (input: {
 	readonly vcpuCount: number;
 	readonly memoryMib: number;
 }) {
-	if (input.provider !== "e2b") return false;
 	const billingStore = yield* CloudBillingStore;
 	const config = yield* RelayConfiguration;
 	const period = yield* billingStore.currentPeriod(
@@ -50,8 +49,9 @@ const reserveE2bCost = Effect.fn("reserveE2bCost")(function* (input: {
 	);
 	if (period === null) {
 		console.warn(
-			"[cloud-billing] E2B resource has no billing reservation period",
+			"[cloud-billing] provider resource has no reservation period",
 			{
+				provider: input.provider,
 				resourceKind: input.resourceKind,
 				resourceId: input.resourceId,
 				accountId: input.accountId,
@@ -59,17 +59,48 @@ const reserveE2bCost = Effect.fn("reserveE2bCost")(function* (input: {
 		);
 		return config.cloudBillingEnforcementEnabled;
 	}
+	const startedAtMs = Math.max(
+		input.runningSinceMs,
+		period.periodStartMs,
+		config.cloudBillingCutoverAtMs ?? input.runningSinceMs,
+	);
+	const endedAtMs = Math.min(
+		Math.max(startedAtMs + 60_000, input.nowMs + 60_000),
+		period.periodEndMs,
+	);
+	const prices = yield* billingStore.priceWindows(
+		input.provider,
+		startedAtMs,
+		endedAtMs,
+	);
+	if (prices.length === 0) {
+		console.warn("[cloud-billing] provider reservation price missing", {
+			provider: input.provider,
+			resourceKind: input.resourceKind,
+			resourceId: input.resourceId,
+		});
+		return config.cloudBillingEnforcementEnabled;
+	}
 	const reservation = yield* billingStore.reserveCost({
 		periodId: period.periodId,
 		accountId: input.accountId,
 		resourceKind: input.resourceKind,
 		resourceId: input.resourceId,
-		providerCostMicros: e2bExecutionCostMicros({
-			durationMs: Math.max(60_000, input.nowMs - input.runningSinceMs + 60_000),
-			vcpuCount: input.vcpuCount,
-			memoryMib: input.memoryMib,
-		}),
-		startedAtMs: input.runningSinceMs,
+		provider: input.provider,
+		providerCostMicros: prices.reduce(
+			(total, price) =>
+				total +
+				allocatedComputeCostMicros({
+					durationMs: price.endedAtMs - price.startedAtMs,
+					vcpuCount: input.vcpuCount,
+					memoryMib: input.memoryMib,
+					baseNanoUsdPerSecond: price.baseNanoUsdPerSecond,
+					cpuNanoUsdPerSecond: price.cpuNanoUsdPerSecond,
+					memoryNanoUsdPerGibSecond: price.memoryNanoUsdPerGibSecond,
+				}),
+			0,
+		),
+		startedAtMs,
 		vcpuCount: input.vcpuCount,
 		memoryMib: input.memoryMib,
 		nowMs: input.nowMs,
@@ -200,7 +231,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 		.pipe(Effect.orDie);
 	const config = yield* SandboxOfferConfiguration;
 	const nowMs = yield* Clock.currentTimeMillis;
-	const buildBillingHold = yield* reserveE2bCost({
+	const buildBillingHold = yield* reserveProviderCost({
 		accountId: build.accountId,
 		resourceKind: "build",
 		resourceId: build.buildId,
@@ -800,7 +831,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		const relayConfig = yield* RelayConfiguration;
 		const nowMs = yield* Clock.currentTimeMillis;
 		const archiveDeleteAtMs = workspace.archiveDeleteAtMs;
-		const workspaceBillingHold = yield* reserveE2bCost({
+		const workspaceBillingHold = yield* reserveProviderCost({
 			accountId: workspace.accountId,
 			resourceKind: "workspace",
 			resourceId: workspace.workspaceId,

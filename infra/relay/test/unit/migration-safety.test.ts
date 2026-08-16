@@ -69,6 +69,7 @@ describe("relay migration reconciliation", () => {
 			"relay_cloud_billing_periods",
 			"relay_provider_price_schedule",
 			"relay_provider_usage_events",
+			"relay_provider_event_finalizations",
 			"relay_provider_event_deliveries",
 			"relay_cloud_billing_usage",
 			"relay_cloud_billing_reservations",

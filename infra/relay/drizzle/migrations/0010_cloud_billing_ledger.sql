@@ -11,18 +11,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS "relay_cloud_billing_period_account_start_idx"
 CREATE INDEX IF NOT EXISTS "relay_cloud_billing_period_active_idx" ON "relay_cloud_billing_periods" ("account_id","period_end");
 CREATE TABLE IF NOT EXISTS "relay_provider_price_schedule" (
  "provider" text NOT NULL, "version" text NOT NULL, "effective_at" bigint NOT NULL,
- "cpu_nano_usd_per_second" bigint NOT NULL, "memory_nano_usd_per_gib_second" bigint NOT NULL,
+ "base_nano_usd_per_second" bigint DEFAULT 0 NOT NULL, "cpu_nano_usd_per_second" bigint NOT NULL, "memory_nano_usd_per_gib_second" bigint NOT NULL,
  "storage_nano_usd_per_gib_second" bigint DEFAULT 0 NOT NULL, "created_at" bigint NOT NULL,
  PRIMARY KEY ("provider","version")
 );
-CREATE INDEX IF NOT EXISTS "relay_provider_price_schedule_effective_idx" ON "relay_provider_price_schedule" ("provider","effective_at");
-INSERT INTO "relay_provider_price_schedule" ("provider","version","effective_at","cpu_nano_usd_per_second","memory_nano_usd_per_gib_second","storage_nano_usd_per_gib_second","created_at") VALUES ('e2b','e2b-public-2026-08-14',0,14000,4500,0,0) ON CONFLICT DO NOTHING;
+CREATE UNIQUE INDEX IF NOT EXISTS "relay_provider_price_schedule_effective_idx" ON "relay_provider_price_schedule" ("provider","effective_at");
+INSERT INTO "relay_provider_price_schedule" ("provider","version","effective_at","base_nano_usd_per_second","cpu_nano_usd_per_second","memory_nano_usd_per_gib_second","storage_nano_usd_per_gib_second","created_at") VALUES ('e2b','e2b-public-2026-08-14',0,0,14000,4500,0,0) ON CONFLICT DO NOTHING;
 CREATE TABLE IF NOT EXISTS "relay_provider_usage_events" (
  "event_id" text NOT NULL, "provider" text NOT NULL, "type" text NOT NULL,
  "provider_resource_id" text, "payload" jsonb NOT NULL, "received_at" bigint NOT NULL,
  "expires_at" bigint NOT NULL, PRIMARY KEY ("provider","event_id")
 );
 CREATE INDEX IF NOT EXISTS "relay_provider_usage_events_expiry_idx" ON "relay_provider_usage_events" ("expires_at");
+CREATE TABLE IF NOT EXISTS "relay_provider_event_finalizations" (
+ "provider" text NOT NULL, "event_id" text NOT NULL, "finalized_at" bigint NOT NULL,
+ "expires_at" bigint NOT NULL, PRIMARY KEY ("provider","event_id")
+);
+CREATE INDEX IF NOT EXISTS "relay_provider_event_finalizations_expiry_idx" ON "relay_provider_event_finalizations" ("expires_at");
 CREATE TABLE IF NOT EXISTS "relay_provider_event_deliveries" (
  "provider" text NOT NULL, "delivery_id" text NOT NULL, "event_id" text NOT NULL,
  "source" text NOT NULL, "status" text NOT NULL, "received_at" bigint NOT NULL,
@@ -40,7 +45,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "relay_cloud_billing_usage_provider_event_idx"
 CREATE INDEX IF NOT EXISTS "relay_cloud_billing_usage_period_idx" ON "relay_cloud_billing_usage" ("period_id","started_at");
 CREATE TABLE IF NOT EXISTS "relay_cloud_billing_reservations" (
  "period_id" text NOT NULL, "account_id" text NOT NULL, "resource_kind" text NOT NULL,
- "resource_id" text NOT NULL, "provider_cost_micros" bigint NOT NULL,
+ "resource_id" text NOT NULL, "provider" text NOT NULL, "provider_cost_micros" bigint NOT NULL,
  "started_at" bigint NOT NULL, "vcpu_count" bigint NOT NULL, "memory_mib" bigint NOT NULL,
  "expires_at" bigint NOT NULL, "updated_at" bigint NOT NULL,
  PRIMARY KEY ("period_id","resource_kind","resource_id")

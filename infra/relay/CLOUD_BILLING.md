@@ -1,8 +1,21 @@
 # Cloud billing operations
 
 Cloud billing is deliberately fail-safe. Without `CLOUD_BILLING_CUTOVER_AT`,
-E2B evidence is retained but no execution is charged. Enforcement and Polar
+provider evidence is retained but no execution is charged. Enforcement and Polar
 export default to disabled independently.
+
+## Provider boundary
+
+The ledger, billing periods, reservations, cap enforcement, and Polar export are
+provider-neutral. Each sandbox provider owns an adapter that verifies its
+webhooks and normalizes lifecycle data into `ProviderExecutionEvidence`. The
+shared metering pipeline attributes the internal resource, applies that
+provider's immutable price schedule, and atomically finalizes the provider event
+with all usage, ledger, and outbox records. E2B is the first adapter; Daytona,
+Morph, Box, or another provider should integrate at this boundary rather than
+adding a separate billing pipeline. Raw payloads expire after 90 days; the
+pseudonymous finalization key remains for seven years so old redeliveries cannot
+be billed again.
 
 ## Provider setup
 

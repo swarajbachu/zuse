@@ -531,7 +531,7 @@ export function CloudWorkspacePool() {
 			{subscribed && serviceAvailable && billing !== null ? (
 				<CloudSettingsGroup
 					title="Usage and billing"
-					description="$40/month includes the first $35 of actual E2B compute. Additional compute is billed at E2B cost + 5%; unused allowance does not roll over."
+					description="$40/month includes the first $35 of actual sandbox compute. Additional compute is billed at provider cost + 5%; unused allowance does not roll over."
 					action={
 						<Badge
 							variant={
@@ -584,7 +584,7 @@ export function CloudWorkspacePool() {
 						title="Recent usage"
 						description={
 							billingUsage.length === 0
-								? "No completed E2B executions in this billing period yet."
+								? "No completed sandbox executions in this billing period yet."
 								: billingUsage
 										.slice(0, 3)
 										.map(

@@ -632,6 +632,11 @@ export const relayProviderPriceSchedule = pgTable(
 		provider: text("provider").notNull(),
 		version: text("version").notNull(),
 		effectiveAt: bigint("effective_at", { mode: "number" }).notNull(),
+		baseNanoUsdPerSecond: bigint("base_nano_usd_per_second", {
+			mode: "number",
+		})
+			.notNull()
+			.default(0),
 		cpuNanoUsdPerSecond: bigint("cpu_nano_usd_per_second", {
 			mode: "number",
 		}).notNull(),
@@ -647,7 +652,7 @@ export const relayProviderPriceSchedule = pgTable(
 	},
 	(table) => [
 		primaryKey({ columns: [table.provider, table.version] }),
-		index("relay_provider_price_schedule_effective_idx").on(
+		uniqueIndex("relay_provider_price_schedule_effective_idx").on(
 			table.provider,
 			table.effectiveAt,
 		),
@@ -668,6 +673,20 @@ export const relayProviderUsageEvents = pgTable(
 	(table) => [
 		primaryKey({ columns: [table.provider, table.eventId] }),
 		index("relay_provider_usage_events_expiry_idx").on(table.expiresAt),
+	],
+);
+
+export const relayProviderEventFinalizations = pgTable(
+	"relay_provider_event_finalizations",
+	{
+		provider: text("provider").notNull(),
+		eventId: text("event_id").notNull(),
+		finalizedAt: bigint("finalized_at", { mode: "number" }).notNull(),
+		expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.provider, table.eventId] }),
+		index("relay_provider_event_finalizations_expiry_idx").on(table.expiresAt),
 	],
 );
 
@@ -730,6 +749,7 @@ export const relayCloudBillingReservations = pgTable(
 		accountId: text("account_id").notNull(),
 		resourceKind: text("resource_kind").notNull(),
 		resourceId: text("resource_id").notNull(),
+		provider: text("provider").notNull(),
 		providerCostMicros: bigint("provider_cost_micros", {
 			mode: "number",
 		}).notNull(),
