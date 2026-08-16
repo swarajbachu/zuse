@@ -67,7 +67,10 @@ export const makeRelay = (
 		readonly meterReconciled: number;
 		readonly purgedRawEvents: number;
 	}>;
-	readonly hasE2bBillingEvent: (eventId: string) => Promise<boolean>;
+	readonly hasFinalizedE2bBillingEvent: (
+		eventId: string,
+		providerExecutionId?: string,
+	) => Promise<boolean>;
 	readonly ingestE2bBillingEvents: (
 		events: ReadonlyArray<unknown>,
 		nowMs: number,
@@ -87,12 +90,13 @@ export const makeRelay = (
 			runtime.runPromise(reconcileCloudWorkspace(workspaceId)),
 		maintainCloudBilling: (nowMs) =>
 			runtime.runPromise(maintainCloudBilling(nowMs)),
-		hasE2bBillingEvent: (eventId) =>
+		hasFinalizedE2bBillingEvent: (eventId, providerExecutionId) =>
 			runtime.runPromise(
 				Effect.gen(function* () {
-					return yield* (yield* CloudBillingStore).hasProviderEvent(
+					return yield* (yield* CloudBillingStore).isProviderEventFinalized(
 						"e2b",
 						eventId,
+						providerExecutionId,
 					);
 				}),
 			),

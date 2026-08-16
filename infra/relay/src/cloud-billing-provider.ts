@@ -34,6 +34,24 @@ export type ProviderMeteringReason =
 	| "cutover-not-configured"
 	| "pre-cutover";
 
+export const billingPeriodsCoverInterval = (
+	periods: ReadonlyArray<{
+		readonly periodStartMs: number;
+		readonly periodEndMs: number;
+	}>,
+	startedAtMs: number,
+	endedAtMs: number,
+): boolean => {
+	let coveredUntil = startedAtMs;
+	for (const period of periods) {
+		if (period.periodEndMs <= coveredUntil) continue;
+		if (period.periodStartMs > coveredUntil) return false;
+		coveredUntil = Math.max(coveredUntil, period.periodEndMs);
+		if (coveredUntil >= endedAtMs) return true;
+	}
+	return false;
+};
+
 /**
  * Price windows affect cost, never financial identity. Provider adapters map
  * their lifecycle evidence into this provider-neutral period record.
@@ -128,15 +146,18 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 			startedAt,
 			evidence.endedAtMs,
 		);
-		if (periods.length === 0) {
-			console.warn("[cloud-billing] provider execution has no period", {
-				provider: evidence.provider,
-				eventId: evidence.eventId,
-				providerExecutionId: evidence.providerExecutionId,
-				accountId: resource.accountId,
-				startedAt,
-				endedAt: evidence.endedAtMs,
-			});
+		if (!billingPeriodsCoverInterval(periods, startedAt, evidence.endedAtMs)) {
+			console.warn(
+				"[cloud-billing] provider execution period coverage pending",
+				{
+					provider: evidence.provider,
+					eventId: evidence.eventId,
+					providerExecutionId: evidence.providerExecutionId,
+					accountId: resource.accountId,
+					startedAt,
+					endedAt: evidence.endedAtMs,
+				},
+			);
 			return { metered: false, reason: "no-period" as const };
 		}
 

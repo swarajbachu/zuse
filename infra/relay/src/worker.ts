@@ -132,19 +132,24 @@ const pollE2bLifecycleEvents = async (
 	env: Env,
 	relay: Pick<
 		ReturnType<typeof makeRelay>,
-		"hasE2bBillingEvent" | "ingestE2bBillingEvents"
+		"hasFinalizedE2bBillingEvent" | "ingestE2bBillingEvents"
 	>,
 	nowMs: number,
 ): Promise<number> => {
-	if (!isConfigured(env.E2B_API_KEY)) return 0;
+	if (
+		!isConfigured(env.E2B_API_KEY) ||
+		!isConfigured(env.CLOUD_BILLING_CUTOVER_AT)
+	)
+		return 0;
+	const cutoverAtMs = Date.parse(env.CLOUD_BILLING_CUTOVER_AT);
 	const apiBaseUrl = (env.E2B_API_BASE_URL ?? "https://api.e2b.app").replace(
 		/\/+$/u,
 		"",
 	);
 	const recovered: Array<unknown> = [];
 	let offset = 0;
-	let reachedKnownEvent = false;
-	while (!reachedKnownEvent && offset < 10_000) {
+	let reachedCutover = false;
+	while (!reachedCutover && offset < 10_000) {
 		const query = new URLSearchParams({
 			limit: "100",
 			offset: String(offset),
@@ -162,18 +167,31 @@ const pollE2bLifecycleEvents = async (
 			throw new Error("E2B lifecycle poll was not an array");
 		for (const event of payload) {
 			if (typeof event !== "object" || event === null) continue;
-			const eventId = (event as Record<string, unknown>).id;
+			const eventRecord = event as Record<string, unknown>;
+			const eventId = eventRecord.id;
 			if (typeof eventId !== "string") continue;
-			if (await relay.hasE2bBillingEvent(eventId)) {
-				reachedKnownEvent = true;
+			const timestamp =
+				typeof eventRecord.timestamp === "string"
+					? Date.parse(eventRecord.timestamp)
+					: Number.NaN;
+			if (Number.isFinite(timestamp) && timestamp < cutoverAtMs) {
+				reachedCutover = true;
 				break;
 			}
+			const providerExecutionId =
+				typeof eventRecord.sandbox_execution_id === "string"
+					? eventRecord.sandbox_execution_id
+					: typeof eventRecord.sandboxExecutionId === "string"
+						? eventRecord.sandboxExecutionId
+						: undefined;
+			if (await relay.hasFinalizedE2bBillingEvent(eventId, providerExecutionId))
+				continue;
 			recovered.push(event);
 		}
-		if (reachedKnownEvent || payload.length < 100) break;
+		if (reachedCutover || payload.length < 100) break;
 		offset += payload.length;
 	}
-	if (!reachedKnownEvent && offset >= 10_000)
+	if (!reachedCutover && offset >= 10_000)
 		console.error("[cloud-billing] E2B recovery exceeded 10,000 events");
 	return relay.ingestE2bBillingEvents(recovered.reverse(), nowMs);
 };

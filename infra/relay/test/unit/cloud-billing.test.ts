@@ -7,7 +7,10 @@ import {
 	cloudBillingStatus,
 	customerOverageCents,
 } from "../../src/cloud-billing.ts";
-import { priceProviderExecutionPeriod } from "../../src/cloud-billing-provider.ts";
+import {
+	billingPeriodsCoverInterval,
+	priceProviderExecutionPeriod,
+} from "../../src/cloud-billing-provider.ts";
 import { verifyE2bSignature } from "../../src/cloud-billing-routes.ts";
 import { CloudBillingStore } from "../../src/cloud-billing-store.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
@@ -192,6 +195,26 @@ describe("cloud billing", () => {
 			sameExecution: false,
 			finalized: true,
 		});
+	});
+
+	it("waits for complete billing-period coverage before finalization", () => {
+		expect(
+			billingPeriodsCoverInterval(
+				[{ periodStartMs: 0, periodEndMs: 50 }],
+				0,
+				100,
+			),
+		).toBe(false);
+		expect(
+			billingPeriodsCoverInterval(
+				[
+					{ periodStartMs: 0, periodEndMs: 50 },
+					{ periodStartMs: 50, periodEndMs: 100 },
+				],
+				0,
+				100,
+			),
+		).toBe(true);
 	});
 
 	it("rounds only cumulative overage to Polar cents", () => {
