@@ -1,7 +1,13 @@
+import { readFile } from "node:fs/promises";
+
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
 	allocatedComputeCostMicros,
+	CLOUD_BASE_PRICE_MICROS,
+	CLOUD_DEFAULT_OVERAGE_CAP_MICROS,
+	CLOUD_INCLUDED_COST_MICROS,
+	CLOUD_MARKUP_BASIS_POINTS,
 	calculateCloudBillingLedgerDeltas,
 	calculateCloudBillingTotals,
 	cloudBillingStatus,
@@ -16,6 +22,28 @@ import { CloudBillingStore } from "../../src/cloud-billing-store.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 
 describe("cloud billing", () => {
+	it("keeps the public pricing contract aligned with operator guidance", async () => {
+		expect({
+			base: CLOUD_BASE_PRICE_MICROS,
+			included: CLOUD_INCLUDED_COST_MICROS,
+			markupBasisPoints: CLOUD_MARKUP_BASIS_POINTS,
+			defaultCap: CLOUD_DEFAULT_OVERAGE_CAP_MICROS,
+		}).toEqual({
+			base: 40_000_000,
+			included: 35_000_000,
+			markupBasisPoints: 500,
+			defaultCap: 25_000_000,
+		});
+		const operations = await readFile(
+			new URL("../../CLOUD_BILLING.md", import.meta.url),
+			"utf8",
+		);
+		expect(operations).toContain("$40");
+		expect(operations).toContain("$35");
+		expect(operations).toContain("5% markup");
+		expect(operations).toContain("$25");
+	});
+
 	it("includes the first $35 of provider cost and marks up only overage", () => {
 		expect(calculateCloudBillingTotals(40_000_000)).toEqual({
 			providerCostMicros: 40_000_000,

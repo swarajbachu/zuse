@@ -1,13 +1,14 @@
-name: staging cloud runtime
+name: cloud runtime
 
 on:
   workflow_dispatch:
     inputs:
-      publish_staging:
-        description: Publish this ref to the staging runtime channel
+      publish_target:
+        description: Runtime channel to publish
         required: true
-        default: false
-        type: boolean
+        default: verify
+        type: choice
+        options: [verify, staging, production]
   pull_request:
     paths:
       - ".github/workflows/cloud-runtime-staging.yml"
@@ -17,6 +18,7 @@ on:
       - "bun.lock"
   push:
     branches: [main]
+    tags: ["v*"]
     paths:
       - ".github/workflows/cloud-runtime-staging.yml"
       - "apps/server/**"
@@ -28,7 +30,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: staging-cloud-runtime
+  group: cloud-runtime-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -37,26 +39,38 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
-      publish_staging: ${{ steps.publication.outputs.enabled }}
-    env:
-      RELEASE_TAG: cloud-runtime-staging
+      publish: ${{ steps.publication.outputs.enabled }}
+      target: ${{ steps.publication.outputs.target }}
+      release_tag: ${{ steps.publication.outputs.release_tag }}
     steps:
-      - name: Determine staging publication mode
+      - name: Determine publication mode
         id: publication
         env:
-          REQUESTED_PUBLICATION: ${{ inputs.publish_staging }}
+          REQUESTED_TARGET: ${{ inputs.publish_target }}
         run: |
           enabled=false
+          target=verify
           if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main" ]]; then
             enabled=true
-          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$REQUESTED_PUBLICATION" == "true" ]]; then
-            if [[ "$GITHUB_REF" != "refs/heads/swarajbachu/untitled-v1" ]]; then
-              echo "Ref $GITHUB_REF is not authorized to publish the staging runtime" >&2
+            target=staging
+          elif [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == refs/tags/v* ]]; then
+            enabled=true
+            target=production
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$REQUESTED_TARGET" != "verify" ]]; then
+            if [[ "$REQUESTED_TARGET" == "staging" && "$GITHUB_REF" != "refs/heads/main" ]]; then
+              echo "Staging publication requires main" >&2
+              exit 1
+            fi
+            if [[ "$REQUESTED_TARGET" == "production" && "$GITHUB_REF" != refs/tags/v* ]]; then
+              echo "Production publication requires a version tag" >&2
               exit 1
             fi
             enabled=true
+            target="$REQUESTED_TARGET"
           fi
           echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "release_tag=cloud-runtime-$target" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -92,16 +106,23 @@ jobs:
       - name: Load trusted signing key
         if: steps.publication.outputs.enabled == 'true'
         env:
-          ZUSE_RUNTIME_SIGNING_PRIVATE_JWK_SECRET: ${{ secrets.ZUSE_RUNTIME_SIGNING_PRIVATE_JWK }}
+          STAGING_SIGNING_KEY: ${{ secrets.ZUSE_RUNTIME_SIGNING_PRIVATE_JWK }}
+          PRODUCTION_SIGNING_KEY: ${{ secrets.ZUSE_PRODUCTION_RUNTIME_SIGNING_PRIVATE_JWK }}
+          TARGET: ${{ steps.publication.outputs.target }}
         run: |
-          test -n "$ZUSE_RUNTIME_SIGNING_PRIVATE_JWK_SECRET"
-          printf '%s' "$ZUSE_RUNTIME_SIGNING_PRIVATE_JWK_SECRET" > "$RUNNER_TEMP/runtime-signing-private.jwk"
+          if [[ "$TARGET" == "production" ]]; then
+            signing_key="$PRODUCTION_SIGNING_KEY"
+          else
+            signing_key="$STAGING_SIGNING_KEY"
+          fi
+          test -n "$signing_key"
+          printf '%s' "$signing_key" > "$RUNNER_TEMP/runtime-signing-private.jwk"
           chmod 0600 "$RUNNER_TEMP/runtime-signing-private.jwk"
 
       - name: Build signed runtime
         env:
           ZUSE_RUNTIME_ASSET_NAME: zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
-          ZUSE_RUNTIME_URL: https://github.com/${{ github.repository }}/releases/download/cloud-runtime-staging/zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
+          ZUSE_RUNTIME_URL: https://github.com/${{ github.repository }}/releases/download/${{ steps.publication.outputs.release_tag }}/zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
           ZUSE_RUNTIME_VERSION: ${{ github.sha }}
         run: |
           export ZUSE_RUNTIME_SIGNING_PRIVATE_JWK="$(< "$RUNNER_TEMP/runtime-signing-private.jwk")"
@@ -110,7 +131,7 @@ jobs:
       - name: Verify signed manifest and archive
         env:
           ZUSE_RUNTIME_ASSET_NAME: zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
-          ZUSE_RUNTIME_URL: https://github.com/${{ github.repository }}/releases/download/cloud-runtime-staging/zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
+          ZUSE_RUNTIME_URL: https://github.com/${{ github.repository }}/releases/download/${{ steps.publication.outputs.release_tag }}/zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
         run: |
           node --input-type=module <<'NODE'
           import { createHash, createPrivateKey, createPublicKey, verify } from "node:crypto";
@@ -179,7 +200,7 @@ jobs:
         if: steps.publication.outputs.enabled == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: staging-cloud-runtime-${{ github.sha }}
+          name: ${{ steps.publication.outputs.target }}-cloud-runtime-${{ github.sha }}
           path: |
             apps/server/dist-cloud/zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
             apps/server/dist-cloud/stable-manifest.json
@@ -187,21 +208,22 @@ jobs:
           retention-days: 1
 
   publish:
-    name: Publish staging channel
-    if: needs.build.outputs.publish_staging == 'true'
+    name: Publish signed channel
+    if: needs.build.outputs.publish == 'true'
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
     env:
-      RELEASE_TAG: cloud-runtime-staging
+      RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+      RELEASE_TARGET: ${{ needs.build.outputs.target }}
       ZUSE_RUNTIME_ASSET_NAME: zuse-runtime-linux-x64-${{ github.sha }}.tar.gz
     steps:
       - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
-          name: staging-cloud-runtime-${{ github.sha }}
+          name: ${{ needs.build.outputs.target }}-cloud-runtime-${{ github.sha }}
           path: dist-cloud
 
       - name: Publish archive before stable manifest
@@ -213,8 +235,8 @@ jobs:
             gh release create "$RELEASE_TAG" \
               --prerelease \
               --target "$GITHUB_SHA" \
-              --title "Staging cloud runtime" \
-              --notes "Automatically published signed staging runtime."
+              --title "${RELEASE_TARGET^} cloud runtime" \
+              --notes "Signed immutable $RELEASE_TARGET runtime from $GITHUB_SHA."
           fi
           gh release upload "$RELEASE_TAG" \
             "dist-cloud/$ZUSE_RUNTIME_ASSET_NAME" \

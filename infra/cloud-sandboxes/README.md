@@ -32,13 +32,13 @@ Authenticate the provider CLI with a team access token, then create the current
 Dockerfile-based template:
 
 ```sh
-npx --yes @e2b/cli@latest template create zuse-cloud-sandbox \
-  --path infra/cloud-sandboxes \
-  --cmd "sleep infinity" \
-  --ready-cmd "true" \
-  --cpu-count 2 \
-  --memory-mb 4096
+node infra/cloud-sandboxes/publish-template.mjs staging
 ```
+
+Use `production` instead of `staging` only from the exact release commit. The
+reviewed resource shape is recorded in `template-resources.json`; both the
+publisher and Relay's billing reservation use it, and deployment tests reject
+drift.
 
 The current CLI's `template create` command is used instead of the legacy
 `e2b.toml` workflow. This provider's template ID stays inside its adapter

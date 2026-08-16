@@ -4,6 +4,10 @@ Cloud billing is deliberately fail-safe. Without `CLOUD_BILLING_CUTOVER_AT`,
 provider evidence is retained but no execution is charged. Enforcement and Polar
 export default to disabled independently.
 
+The Cloud Workspace subscription is $40 monthly and includes $35 of attributable
+provider compute. Additional provider cost receives a 5% markup, subject to a
+$25 default pre-tax overage cap selected by the user.
+
 ## Provider boundary
 
 The ledger, billing periods, reservations, cap enforcement, and Polar export are

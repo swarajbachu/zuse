@@ -16,6 +16,14 @@ const productionDeployScriptUrl = new URL(
 	"../../scripts/deploy-production.mjs",
 	import.meta.url,
 );
+const templateResourcesUrl = new URL(
+	"../../../cloud-sandboxes/template-resources.json",
+	import.meta.url,
+);
+const runtimeWorkflowUrl = new URL(
+	"../../../../.github/workflows/cloud-runtime-staging.yml",
+	import.meta.url,
+);
 const relayDirectory = fileURLToPath(new URL("../..", import.meta.url));
 
 interface WranglerTarget {
@@ -43,7 +51,11 @@ describe("relay deployment safety", () => {
 		);
 		for (const [name, command] of Object.entries(packageJson.scripts)) {
 			if (!name.startsWith("secret")) continue;
-			expect(command).toMatch(/ --env=$/);
+			if (name.endsWith(":production")) {
+				expect(command).toContain("--config wrangler.production.jsonc");
+			} else {
+				expect(command).toMatch(/ --env=$/);
+			}
 		}
 	});
 
@@ -87,6 +99,8 @@ describe("relay deployment safety", () => {
 		expect(config.vars.E2B_TEMPLATE_VERSION).toBe(
 			"4dae42be-6c3b-4d78-ab63-cfa406d3d70d",
 		);
+		expect(config.vars.E2B_VCPU_COUNT).toBe("2");
+		expect(config.vars.E2B_MEMORY_MIB).toBe("4096");
 		expect(config.vars.POLAR_PRODUCT_PERSISTENT_STANDARD_V1).toBe(
 			"810223ea-94f2-47e7-9c09-af9a0fd86174",
 		);
@@ -124,6 +138,13 @@ describe("relay deployment safety", () => {
 		expect(production.vars.E2B_ADAPTER_ENABLED).toBe("false");
 		expect(production.vars.E2B_TEMPLATE_ID).toBe("");
 		expect(production.vars.E2B_TEMPLATE_VERSION).toBe("");
+		expect(production.vars.E2B_VCPU_COUNT).toBe("2");
+		expect(production.vars.E2B_MEMORY_MIB).toBe("4096");
+		expect(production.vars.POSTHOG_HOST).toBe("https://us.i.posthog.com");
+		expect(production.vars.POSTHOG_CLOUD_BETA_FLAG_KEY).toBe(
+			"zuse-cloud-beta-access",
+		);
+		expect(production.vars).not.toHaveProperty("MACHINE_ALPHA_ALLOWLIST");
 		expect(production.vars.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1).toBe("");
 		expect(production.hyperdrive).toEqual([
 			{
@@ -131,9 +152,11 @@ describe("relay deployment safety", () => {
 				id: "c49c02e939494a958fb5fe6805e7b0f2",
 			},
 		]);
-		expect(await readFile(productionDeployScriptUrl, "utf8")).toContain(
-			'["wrangler", "deploy", "--config", "wrangler.production.jsonc"]',
+		const deploymentScript = await readFile(productionDeployScriptUrl, "utf8");
+		expect(deploymentScript).toContain(
+			'["wrangler", "deploy", "--config", configPath]',
 		);
+		expect(deploymentScript).toContain('"wrangler.production.jsonc"');
 
 		const result = spawnSync("node", ["scripts/deploy-production.mjs"], {
 			cwd: relayDirectory,
@@ -145,6 +168,40 @@ describe("relay deployment safety", () => {
 		});
 		expect(result.status).toBe(1);
 		expect(result.stderr).toContain("Refusing to deploy the production relay");
+
+		const incomplete = spawnSync("node", ["scripts/deploy-production.mjs"], {
+			cwd: relayDirectory,
+			encoding: "utf8",
+			env: {
+				...process.env,
+				ZUSE_CONFIRM_PRODUCTION_RELAY_DEPLOY: "deploy-relay.stuff.md",
+			},
+		});
+		expect(incomplete.status).toBe(1);
+		expect(incomplete.stderr).toContain(
+			"Production configuration is incomplete",
+		);
+	});
+
+	test("keeps E2B template and billing reservation resources aligned", async () => {
+		const template = JSON.parse(
+			await readFile(templateResourcesUrl, "utf8"),
+		) as { readonly vcpuCount: number; readonly memoryMib: number };
+		for (const configUrl of [wranglerConfigUrl, productionWranglerConfigUrl]) {
+			const config = parse(await readFile(configUrl, "utf8")) as WranglerTarget;
+			expect(Number(config.vars.E2B_VCPU_COUNT)).toBe(template.vcpuCount);
+			expect(Number(config.vars.E2B_MEMORY_MIB)).toBe(template.memoryMib);
+		}
+	});
+
+	test("publishes production runtimes only from a version tag with a separate key", async () => {
+		const workflow = await readFile(runtimeWorkflowUrl, "utf8");
+		expect(workflow).toContain('tags: ["v*"]');
+		expect(workflow).toContain("release_tag=cloud-runtime-$target");
+		expect(workflow).toContain("ZUSE_PRODUCTION_RUNTIME_SIGNING_PRIVATE_JWK");
+		expect(
+			workflow.indexOf('"dist-cloud/$ZUSE_RUNTIME_ASSET_NAME"'),
+		).toBeLessThan(workflow.indexOf('"dist-cloud/stable-manifest.json"'));
 	});
 
 	test("rejects a non-staging database from the default migration command", () => {
@@ -168,7 +225,7 @@ describe("relay deployment safety", () => {
 		);
 	});
 
-	test("has no generic production migration target", () => {
+	test("requires explicit production database identity and confirmation", () => {
 		const result = spawnSync(
 			"node",
 			["scripts/migrate-database.mjs", "production"],
@@ -183,8 +240,25 @@ describe("relay deployment safety", () => {
 		);
 
 		expect(result.status).toBe(1);
-		expect(result.stderr).toContain(
-			"Only the staging database has a configured migration target",
+		expect(result.stderr).toContain("Refusing to migrate production");
+
+		const unconfiguredIdentity = spawnSync(
+			"node",
+			["scripts/migrate-database.mjs", "production"],
+			{
+				cwd: relayDirectory,
+				encoding: "utf8",
+				env: {
+					...process.env,
+					DATABASE_URL:
+						"postgresql://example.invalid/production?sslmode=require",
+					ZUSE_CONFIRM_PRODUCTION_DATABASE_MIGRATION: "migrate-relay.stuff.md",
+				},
+			},
+		);
+		expect(unconfiguredIdentity.status).toBe(1);
+		expect(unconfiguredIdentity.stderr).toContain(
+			"approved production database identity has not been configured",
 		);
 	});
 });
