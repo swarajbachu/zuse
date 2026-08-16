@@ -1,15 +1,14 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { CloudChatSummary } from "@zuse/contracts";
-import { Copy01Icon } from "@zuse/icons/solid-rounded";
 import {
-	Activity,
-	ChevronDown,
-	Cpu,
-	HardDrive,
-	MemoryStick,
-	RefreshCw,
-	SquareTerminal,
-} from "lucide-react";
+	Activity01Icon,
+	Copy01Icon,
+	CpuIcon,
+	HardDriveIcon,
+	RamMemoryIcon,
+	Refresh01Icon,
+} from "@zuse/icons/solid-rounded";
+import { ChevronDown, SquareTerminal } from "lucide-react";
 import { useState } from "react";
 
 import type { OpenTarget } from "../lib/bridge.ts";
@@ -363,14 +362,14 @@ export function CloudWorkspaceInfo({
 	};
 
 	const statRow = (
-		icon: React.ReactNode,
+		icon: React.ComponentProps<typeof HugeiconsIcon>["icon"],
 		label: string,
 		value: string | null,
 	) => (
-		<div className="flex items-center gap-2.5 px-2.5 py-2 text-[13px]">
-			{icon}
+		<div className="flex min-h-7 items-center gap-2 px-2 py-1 text-xs">
+			<HugeiconsIcon icon={icon} className="size-3.5 text-muted-foreground" />
 			<span className="flex-1">{label}</span>
-			<span className="text-xs tabular-nums text-muted-foreground">
+			<span className="truncate text-right text-[11px] tabular-nums text-muted-foreground">
 				{value ?? "—"}
 			</span>
 		</div>
@@ -382,7 +381,10 @@ export function CloudWorkspaceInfo({
 				<MenuTrigger
 					className={`${summaryRowClass} hover:bg-muted/60 data-[popup-open]:bg-muted/60`}
 				>
-					<Activity className="size-4 shrink-0 text-muted-foreground" />
+					<HugeiconsIcon
+						icon={Activity01Icon}
+						className="size-4 shrink-0 text-muted-foreground"
+					/>
 					<span className="min-w-0 flex-1 truncate">Performance</span>
 					<span className="shrink-0 text-[10px] text-muted-foreground">
 						{workspaceStateLabel(summary)}
@@ -392,29 +394,32 @@ export function CloudWorkspaceInfo({
 					side="left"
 					align="start"
 					sideOffset={8}
-					className="min-w-80 rounded-2xl p-1.5"
+					className="w-72 rounded-2xl p-1.5"
 				>
-					<div className="px-2.5 py-1.5 text-xs font-medium text-muted-foreground">
+					<div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
 						Performance
 					</div>
-					<div className="flex items-center gap-2.5 px-2.5 py-2 text-[13px]">
-						<Activity className="size-4 text-muted-foreground" />
+					<div className="flex min-h-7 items-center gap-2 px-2 py-1 text-xs">
+						<HugeiconsIcon
+							icon={Activity01Icon}
+							className="size-3.5 text-muted-foreground"
+						/>
 						<span className="flex-1">Status</span>
 						<span
-							className={`text-xs ${running ? "text-[var(--accent-green)]" : "text-muted-foreground"}`}
+							className={`text-[11px] ${running ? "text-[var(--accent-green)]" : "text-muted-foreground"}`}
 						>
 							{workspaceStateLabel(summary)}
 						</span>
 					</div>
 					{statRow(
-						<Cpu className="size-4 text-muted-foreground" />,
+						CpuIcon,
 						"CPU",
 						sample === null
 							? null
 							: `${sample.cpuCores} cores · ${formatPercent(sample.cpuPercent)} used`,
 					)}
 					{statRow(
-						<MemoryStick className="size-4 text-muted-foreground" />,
+						RamMemoryIcon,
 						"Memory",
 						sample === null
 							? null
@@ -425,7 +430,7 @@ export function CloudWorkspaceInfo({
 								)} used`,
 					)}
 					{statRow(
-						<HardDrive className="size-4 text-muted-foreground" />,
+						HardDriveIcon,
 						"Disk",
 						sample === null
 							? null
@@ -436,7 +441,7 @@ export function CloudWorkspaceInfo({
 								)} used`,
 					)}
 					{sample === null && running ? (
-						<div className="px-2.5 pb-1 pt-0.5 text-[11px] text-muted-foreground/70">
+						<div className="px-2 py-1 text-[10px] leading-4 text-muted-foreground/70">
 							Live usage needs the updated workspace runtime.
 						</div>
 					) : null}
@@ -444,9 +449,9 @@ export function CloudWorkspaceInfo({
 					<MenuItem
 						disabled={!running}
 						onClick={() => setRestartOpen(true)}
-						className="gap-2.5 px-2.5 py-2 text-[13px]"
+						className="gap-2 px-2 py-1 text-xs"
 					>
-						<RefreshCw className="size-4" />
+						<HugeiconsIcon icon={Refresh01Icon} className="size-3.5" />
 						<span className="flex-1">Restart workspace</span>
 					</MenuItem>
 				</MenuPopup>
