@@ -121,7 +121,7 @@ export interface CloudBillingStoreApi {
 	readonly recordProviderExecutionBatch: (input: {
 		readonly provider: string;
 		readonly eventId: string;
-		readonly providerExecutionId?: string;
+		readonly providerExecutionId: string | undefined;
 		readonly finalizedAtMs: number;
 		readonly usage: ReadonlyArray<CloudBillingUsageRecord>;
 	}) => Effect.Effect<boolean>;

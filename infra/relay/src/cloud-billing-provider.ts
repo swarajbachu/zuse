@@ -204,6 +204,7 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 			metered: yield* billingStore.recordProviderExecutionBatch({
 				provider: evidence.provider,
 				eventId: evidence.eventId,
+				providerExecutionId: evidence.providerExecutionId,
 				finalizedAtMs: input.nowMs,
 				usage,
 			}),
