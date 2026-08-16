@@ -57,6 +57,7 @@ export interface EntitlementPersistenceRecord {
 	readonly provider: string;
 	readonly providerSubscriptionId?: string;
 	readonly status: EntitlementStatus;
+	readonly periodStartMs?: number;
 	readonly paidThroughMs?: number;
 	readonly endedAtMs?: number;
 	readonly creditBalance?: number;
@@ -677,6 +678,7 @@ interface EntitlementRow {
 	readonly provider: string;
 	readonly provider_subscription_id: string | null;
 	readonly status: EntitlementStatus;
+	readonly period_start: number | null;
 	readonly paid_through: number | null;
 	readonly ended_at: number | null;
 	readonly credit_balance: number | null;
@@ -742,6 +744,7 @@ const toEntitlement = (row: EntitlementRow): EntitlementPersistenceRecord => ({
 	provider: row.provider,
 	providerSubscriptionId: row.provider_subscription_id ?? undefined,
 	status: row.status,
+	periodStartMs: optionalNumber(row.period_start),
 	paidThroughMs: optionalNumber(row.paid_through),
 	endedAtMs: optionalNumber(row.ended_at),
 	creditBalance: optionalNumber(row.credit_balance),
@@ -820,14 +823,14 @@ export const MachineStorePg: Layer.Layer<
 					sql`
 						INSERT INTO relay_entitlements (
 							entitlement_id, account_id, kind, offer_id, provider,
-							provider_subscription_id, status, paid_through, ended_at,
+							provider_subscription_id, status, period_start, paid_through, ended_at,
 							credit_balance, created_at, updated_at
 						) VALUES (
 							${entitlement.entitlementId}, ${entitlement.accountId},
 							${entitlement.kind}, ${entitlement.offerId ?? null},
 							${entitlement.provider},
 							${entitlement.providerSubscriptionId ?? null},
-							${entitlement.status}, ${entitlement.paidThroughMs ?? null},
+							${entitlement.status}, ${entitlement.periodStartMs ?? null}, ${entitlement.paidThroughMs ?? null},
 							${entitlement.endedAtMs ?? null},
 							${entitlement.creditBalance ?? null},
 							${entitlement.createdAtMs}, ${entitlement.updatedAtMs}
@@ -836,6 +839,7 @@ export const MachineStorePg: Layer.Layer<
 							kind = EXCLUDED.kind,
 							offer_id = EXCLUDED.offer_id,
 							status = EXCLUDED.status,
+							period_start = EXCLUDED.period_start,
 							paid_through = EXCLUDED.paid_through,
 							ended_at = EXCLUDED.ended_at,
 							credit_balance = EXCLUDED.credit_balance,
@@ -1065,7 +1069,7 @@ export const MachineStorePg: Layer.Layer<
 						yield* sql`
 							INSERT INTO relay_entitlements (
 								entitlement_id, account_id, kind, offer_id, provider,
-								provider_subscription_id, status, paid_through, ended_at,
+								provider_subscription_id, status, period_start, paid_through, ended_at,
 								credit_balance, created_at, updated_at
 							) VALUES (
 								${input.entitlement.entitlementId},
@@ -1075,6 +1079,7 @@ export const MachineStorePg: Layer.Layer<
 								${input.entitlement.provider},
 								${input.entitlement.providerSubscriptionId ?? null},
 								${input.entitlement.status},
+								${input.entitlement.periodStartMs ?? null},
 								${input.entitlement.paidThroughMs ?? null},
 								${input.entitlement.endedAtMs ?? null},
 								${input.entitlement.creditBalance ?? null},
@@ -1085,6 +1090,7 @@ export const MachineStorePg: Layer.Layer<
 								kind = EXCLUDED.kind,
 								offer_id = EXCLUDED.offer_id,
 								status = EXCLUDED.status,
+								period_start = EXCLUDED.period_start,
 								paid_through = EXCLUDED.paid_through,
 								ended_at = EXCLUDED.ended_at,
 								credit_balance = EXCLUDED.credit_balance,

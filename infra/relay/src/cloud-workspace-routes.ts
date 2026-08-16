@@ -19,6 +19,8 @@ import { sha256Base64Url } from "@zuse/utils/cloud-transcript-crypto";
 import { Clock, Effect, Redacted, Schema } from "effect";
 import { CompactEncrypt, importJWK, type JWK } from "jose";
 import { requireWorkos } from "./auth.ts";
+import { ensureAccountCloudBillingPeriod } from "./cloud-billing-period.ts";
+import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { CloudCredentialVault } from "./cloud-credential-vault.ts";
 import { hasUsableCloudWorkspaceEntitlement } from "./cloud-entitlement.ts";
 import {
@@ -77,7 +79,8 @@ export type CloudWorkspaceRouteContext =
 	| SandboxProviders
 	| SandboxOfferConfiguration
 	| RelayConfiguration
-	| WorkosVerifier;
+	| WorkosVerifier
+	| CloudBillingStore;
 
 // The RPC socket may reconnect without another user action. A signed ticket is
 // reusable during this short lease; expiry affects only new connections.
@@ -1373,6 +1376,21 @@ export const routeCloudWorkspaceRequest = (
 		}
 
 		const principal = yield* requireWorkos(request);
+		const requireBillingCapacity = Effect.fn("requireCloudBillingCapacity")(
+			function* () {
+				if (!(yield* RelayConfiguration).cloudBillingEnforcementEnabled) return;
+				const billingStore = yield* CloudBillingStore;
+				const period = yield* ensureAccountCloudBillingPeriod(
+					principal.accountId,
+					nowMs,
+				).pipe(Effect.provideService(CloudBillingStore, billingStore));
+				if (period === null)
+					return yield* Effect.fail(forbidden("cloud_billing_period_missing"));
+				const summary = yield* billingStore.summary(period);
+				if (summary.status === "billing-hold" || summary.status === "ended")
+					return yield* Effect.fail(forbidden("cloud_billing_hold"));
+			},
+		);
 
 		const transcriptMatch =
 			/^\/v1\/cloud\/workspaces\/([^/]+)\/sessions\/([^/]+)\/transcript-checkpoint$/u.exec(
@@ -1595,6 +1613,7 @@ export const routeCloudWorkspaceRequest = (
 		if (method === "POST" && path === RelayPaths.cloudProjects) {
 			if (!(yield* hasEntitlement(principal.accountId, nowMs)))
 				return yield* Effect.fail(forbidden("cloud_entitlement_required"));
+			yield* requireBillingCapacity();
 			const body = yield* decodeBody(CloudProjectConnectRequest, request);
 			const repository = normalizeRepository(body.repositoryUrl);
 			if (
@@ -1691,6 +1710,7 @@ export const routeCloudWorkspaceRequest = (
 		if (method === "POST" && prepareMatch !== null) {
 			if (!(yield* hasEntitlement(principal.accountId, nowMs)))
 				return yield* Effect.fail(forbidden("cloud_entitlement_required"));
+			yield* requireBillingCapacity();
 			const projectId = decodeURIComponent(prepareMatch[1] ?? "");
 			const body = yield* decodeBody(CloudProjectPrepareRequest, request);
 			if (body.projectId !== projectId)
@@ -1853,6 +1873,7 @@ export const routeCloudWorkspaceRequest = (
 		if (method === "POST" && path === RelayPaths.cloudWorkspaces) {
 			if (!(yield* hasEntitlement(principal.accountId, nowMs)))
 				return yield* Effect.fail(forbidden("cloud_entitlement_required"));
+			yield* requireBillingCapacity();
 			const body = yield* decodeBody(CloudWorkspaceCreateRequest, request);
 			const project = yield* store.getProject(body.projectId);
 			if (project === null || project.accountId !== principal.accountId)
@@ -2029,6 +2050,7 @@ export const routeCloudWorkspaceRequest = (
 					workspace.providerSandboxId === undefined)
 			)
 				return yield* Effect.fail(badRequest("cloud_workspace_not_running"));
+			if (action === "resume") yield* requireBillingCapacity();
 			const actionRequest =
 				action === "resume"
 					? yield* decodeBody(CloudWorkspaceResumeRequest, request)

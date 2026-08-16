@@ -4,6 +4,8 @@ import {
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
 import { Clock, Data, Duration, Effect } from "effect";
+import { e2bExecutionCostMicros } from "./cloud-billing.ts";
+import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { CloudCredentialVault } from "./cloud-credential-vault.ts";
 import { deleteCloudTranscriptObjects } from "./cloud-transcript.ts";
 import {
@@ -23,10 +25,58 @@ export const ARCHIVED_WORKSPACE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_RUNTIME_BOOT_TTL_MS = 30 * 60 * 1_000;
 const WARM_RUNTIME_RECONNECT_GRACE_MS = 5_000;
 const ARCHIVE_QUIESCE_GRACE_MS = 1_500;
+const BILLING_RESERVATION_REFRESH_MS = 60_000;
 const WORKSPACE_RUNTIME_BOOT_TOKEN_FILE =
 	"/run/zuse-secrets/workspace-runtime-boot-token";
 const PROJECT_BUILD_DIAGNOSTIC_FILE = "/tmp/zuse-project-builder-diagnostic";
 const PROJECT_BUILD_DIAGNOSTIC_MAX_LENGTH = 2_048;
+
+const reserveE2bCost = Effect.fn("reserveE2bCost")(function* (input: {
+	readonly accountId: string;
+	readonly resourceKind: "workspace" | "build";
+	readonly resourceId: string;
+	readonly provider: string;
+	readonly runningSinceMs: number;
+	readonly nowMs: number;
+	readonly vcpuCount: number;
+	readonly memoryMib: number;
+}) {
+	if (input.provider !== "e2b") return false;
+	const billingStore = yield* CloudBillingStore;
+	const config = yield* RelayConfiguration;
+	const period = yield* billingStore.currentPeriod(
+		input.accountId,
+		input.nowMs,
+	);
+	if (period === null) {
+		console.warn(
+			"[cloud-billing] E2B resource has no billing reservation period",
+			{
+				resourceKind: input.resourceKind,
+				resourceId: input.resourceId,
+				accountId: input.accountId,
+			},
+		);
+		return config.cloudBillingEnforcementEnabled;
+	}
+	const reservation = yield* billingStore.reserveCost({
+		periodId: period.periodId,
+		accountId: input.accountId,
+		resourceKind: input.resourceKind,
+		resourceId: input.resourceId,
+		providerCostMicros: e2bExecutionCostMicros({
+			durationMs: Math.max(60_000, input.nowMs - input.runningSinceMs + 60_000),
+			vcpuCount: input.vcpuCount,
+			memoryMib: input.memoryMib,
+		}),
+		startedAtMs: input.runningSinceMs,
+		vcpuCount: input.vcpuCount,
+		memoryMib: input.memoryMib,
+		nowMs: input.nowMs,
+		expiresAtMs: input.nowMs + 2 * 60_000,
+	});
+	return config.cloudBillingEnforcementEnabled && !reservation.accepted;
+});
 
 export const sanitizeProjectBuildDiagnostic = (value: string): string => {
 	const sanitized = value
@@ -150,6 +200,30 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 		.pipe(Effect.orDie);
 	const config = yield* SandboxOfferConfiguration;
 	const nowMs = yield* Clock.currentTimeMillis;
+	const buildBillingHold = yield* reserveE2bCost({
+		accountId: build.accountId,
+		resourceKind: "build",
+		resourceId: build.buildId,
+		provider: build.provider,
+		runningSinceMs: build.state === "queued" ? nowMs : build.updatedAtMs,
+		nowMs,
+		vcpuCount: config.vcpuCount,
+		memoryMib: config.memoryMib,
+	});
+	if (buildBillingHold) {
+		if (build.providerSandboxId !== undefined)
+			yield* provider.kill(build.providerSandboxId).pipe(Effect.ignore);
+		yield* store.saveBuild({
+			...build,
+			providerSandboxId: undefined,
+			state: "failed",
+			lastErrorCode: "billing-hold",
+			nextActionAtMs: Number.MAX_SAFE_INTEGER,
+			revision: build.revision + 1,
+			updatedAtMs: nowMs,
+		});
+		return;
+	}
 	if (
 		(build.state === "building" || build.state === "sanitizing") &&
 		(build.providerSandboxId === undefined ||
@@ -241,6 +315,12 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 						.create({
 							sandboxId: build.buildId,
 							providerLabel: label,
+							metadata: {
+								"zuse-account-id": build.accountId,
+								"zuse-resource-kind": "build",
+								"zuse-project-id": build.projectId,
+								"zuse-build-id": build.buildId,
+							},
 							timeoutSeconds: config.createTimeoutSeconds,
 							env: {},
 							network: { kind: "open" },
@@ -251,6 +331,12 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudProjectBuild")(function* (
 						.fork({
 							sandboxId: build.buildId,
 							providerLabel: label,
+							metadata: {
+								"zuse-account-id": build.accountId,
+								"zuse-resource-kind": "build",
+								"zuse-project-id": build.projectId,
+								"zuse-build-id": build.buildId,
+							},
 							snapshotId: reusableSnapshotId,
 							timeoutSeconds: config.createTimeoutSeconds,
 							env: {},
@@ -714,6 +800,35 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		const relayConfig = yield* RelayConfiguration;
 		const nowMs = yield* Clock.currentTimeMillis;
 		const archiveDeleteAtMs = workspace.archiveDeleteAtMs;
+		const workspaceBillingHold = yield* reserveE2bCost({
+			accountId: workspace.accountId,
+			resourceKind: "workspace",
+			resourceId: workspace.workspaceId,
+			provider: workspace.provider,
+			runningSinceMs: workspace.runningSinceMs ?? nowMs,
+			nowMs,
+			vcpuCount: config.vcpuCount,
+			memoryMib: config.memoryMib,
+		});
+		if (
+			workspaceBillingHold &&
+			workspace.providerSandboxId !== undefined &&
+			workspace.runningSinceMs !== undefined
+		) {
+			yield* provider.pause(workspace.providerSandboxId).pipe(Effect.ignore);
+			yield* saveWorkspace({
+				...workspace,
+				state: "paused",
+				desiredState: "paused",
+				runtimeState: "offline",
+				statusCode: "billing-hold",
+				runningSinceMs: undefined,
+				nextActionAtMs: Number.MAX_SAFE_INTEGER,
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+			});
+			return;
+		}
 
 		if (
 			workspace.state === "archived" &&
@@ -819,6 +934,13 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					? yield* provider.fork({
 							sandboxId: workspace.workspaceId,
 							providerLabel: label,
+							metadata: {
+								"zuse-account-id": workspace.accountId,
+								"zuse-resource-kind": "workspace",
+								"zuse-project-id": workspace.projectId,
+								"zuse-build-id": workspace.buildId,
+								"zuse-workspace-id": workspace.workspaceId,
+							},
 							snapshotId: build.snapshotId as string,
 							timeoutSeconds: config.keepAliveTimeoutSeconds,
 							env: {},
@@ -827,6 +949,13 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					: yield* provider.create({
 							sandboxId: workspace.workspaceId,
 							providerLabel: label,
+							metadata: {
+								"zuse-account-id": workspace.accountId,
+								"zuse-resource-kind": "workspace",
+								"zuse-project-id": workspace.projectId,
+								"zuse-build-id": workspace.buildId,
+								"zuse-workspace-id": workspace.workspaceId,
+							},
 							timeoutSeconds: config.keepAliveTimeoutSeconds,
 							env: {},
 							network: { kind: "quarantined" },
@@ -1009,6 +1138,18 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				false,
 				saveWorkspace,
 			);
+
+		if (workspace.state === "ready" && workspace.runningSinceMs !== undefined) {
+			yield* saveWorkspace({
+				...workspace,
+				nextActionAtMs: Math.min(
+					nowMs + BILLING_RESERVATION_REFRESH_MS,
+					workspace.lastActivityAtMs + relayConfig.cloudWorkspaceIdleTimeoutMs,
+				),
+				updatedAtMs: nowMs,
+			});
+			return;
+		}
 
 		if (
 			workspace.state === "paused" &&

@@ -24,6 +24,7 @@ import * as Config from "../../src/config.ts";
 import type { RelayContext } from "../../src/handler.ts";
 import {
 	AccountIdentity,
+	CloudBillingStoreMemory,
 	CloudCredentialVault,
 	CloudCredentialVaultLive,
 	CloudWorkspaceLaunchIntentCipher,
@@ -174,6 +175,7 @@ const makeLayer = async (
 		RelayStoreMemory,
 		MachineStoreMemory,
 		CloudWorkspaceStoreMemory,
+		CloudBillingStoreMemory,
 		Layer.effect(CloudCredentialVault, CloudCredentialVaultLive).pipe(
 			Layer.provide(configLayer),
 			Layer.orDie,
@@ -186,6 +188,8 @@ const makeLayer = async (
 		sandboxProvidersLayer,
 		Layer.succeed(SandboxOfferConfiguration, {
 			port: 47_837,
+			vcpuCount: 2,
+			memoryMib: 1_024,
 			createTimeoutSeconds: 86_400,
 			keepAliveTimeoutSeconds: 86_400,
 		}),

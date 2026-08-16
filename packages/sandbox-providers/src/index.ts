@@ -57,6 +57,7 @@ export interface SandboxProviderAdapter {
 	readonly create: (input: {
 		readonly sandboxId: string;
 		readonly providerLabel: string;
+		readonly metadata?: Readonly<Record<string, string>>;
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;
 		readonly network: SandboxNetworkPolicy;
@@ -65,6 +66,7 @@ export interface SandboxProviderAdapter {
 	readonly fork: (input: {
 		readonly sandboxId: string;
 		readonly providerLabel: string;
+		readonly metadata?: Readonly<Record<string, string>>;
 		readonly snapshotId: string;
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;

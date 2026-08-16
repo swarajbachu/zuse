@@ -9,6 +9,7 @@ import {
 	AccountIdentity,
 	type AccountIdentityApi,
 } from "../../src/account-identity.ts";
+import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 import {
 	CloudCredentialVault,
 	CloudCredentialVaultLive,
@@ -53,6 +54,7 @@ const makeRuntime = async () => {
 		WorkosVerifierTest,
 		RelayStoreMemory,
 		CloudWorkspaceStoreMemory,
+		CloudBillingStoreMemory,
 		MachineStoreMemory,
 		MachineProvidersFake,
 		BillingProvidersManual,
@@ -67,6 +69,8 @@ const makeRuntime = async () => {
 		).pipe(Layer.provide(config), Layer.orDie),
 		Layer.succeed(SandboxOfferConfiguration, {
 			port: 47_837,
+			vcpuCount: 2,
+			memoryMib: 1_024,
 			createTimeoutSeconds: 86_400,
 			keepAliveTimeoutSeconds: 86_400,
 		}),

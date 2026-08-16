@@ -93,6 +93,9 @@ describe("relay deployment safety", () => {
 		expect(config.vars.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1).toBe(
 			"31616352-13b0-48dd-a9cd-11724f358199",
 		);
+		expect(config.vars.POLAR_CLOUD_OVERAGE_METER_ID).toBe(
+			"c74994e7-b555-4715-a34a-9dd54a006539",
+		);
 		expect(config.vars.POLAR_VPS_SALES_APPROVED).toBe("false");
 		expect(config.hyperdrive).toEqual([
 			{

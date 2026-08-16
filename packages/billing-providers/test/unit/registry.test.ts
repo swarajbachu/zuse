@@ -12,6 +12,8 @@ const adapter = (providerId: string): BillingProviderAdapter => ({
 	reconcileSubscription: () => Effect.die("unused"),
 	cancel: () => Effect.void,
 	customerPortal: () => Effect.succeed(`${providerId}:portal`),
+	reportMeterEvent: () => Effect.void,
+	reconcileMeter: () => Effect.succeed(0),
 });
 
 describe("billing provider registry", () => {

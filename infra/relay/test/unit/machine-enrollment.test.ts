@@ -4,7 +4,7 @@ import { SandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, Redacted, Ref } from "effect";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, test } from "vitest";
-
+import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 import * as Config from "../../src/config.ts";
 import { sha256Hex } from "../../src/crypto.ts";
 import { routeMachineRequest } from "../../src/machine-routes.ts";
@@ -50,6 +50,7 @@ const makeTestLayer = (
 		MachineProvidersFake,
 		SandboxProvidersFake,
 		BillingProvidersManual,
+		CloudBillingStoreMemory,
 		RelayStoreMemory,
 		Layer.succeed(ManagedTunnelProvider, tunnel),
 	);

@@ -10,6 +10,7 @@ import runtimeInstallerSource from "../../../apps/server/scripts/runtime-updater
 import cloudInitTemplate from "../../cloud-machines/bootstrap/cloud-init.yaml.tmpl";
 import { AccountIdentityLive } from "./account-identity.ts";
 import { resolveBillingRuntime } from "./billing-config.ts";
+import { CloudBillingStorePg } from "./cloud-billing-store.ts";
 import {
 	CloudCredentialVault,
 	CloudCredentialVaultLive,
@@ -100,6 +101,7 @@ interface Env {
 	readonly POLAR_PRODUCT_SANDBOX_STANDARD_V1?: string;
 	readonly POLAR_VPS_SALES_APPROVED?: string;
 	readonly POLAR_WEBHOOK_SECRET?: string;
+	readonly POLAR_CLOUD_OVERAGE_METER_ID?: string;
 	readonly MACHINE_PROVIDER?: string;
 	readonly HETZNER_ADAPTER_ENABLED?: string;
 	readonly HETZNER_API_TOKEN?: string;
@@ -118,7 +120,74 @@ interface Env {
 	readonly E2B_SANDBOX_DOMAIN?: string;
 	readonly E2B_TEMPLATE_ID?: string;
 	readonly E2B_TEMPLATE_VERSION?: string;
+	readonly E2B_VCPU_COUNT?: string;
+	readonly E2B_MEMORY_MIB?: string;
+	readonly E2B_WEBHOOK_SECRET?: string;
+	readonly CLOUD_BILLING_ENFORCEMENT_ENABLED?: string;
+	readonly CLOUD_BILLING_EXPORT_ENABLED?: string;
+	readonly CLOUD_BILLING_CUTOVER_AT?: string;
 }
+
+const pollE2bLifecycleEvents = async (
+	env: Env,
+	relay: Pick<
+		ReturnType<typeof makeRelay>,
+		"hasE2bBillingEvent" | "ingestE2bBillingEvents"
+	>,
+	nowMs: number,
+): Promise<number> => {
+	if (!isConfigured(env.E2B_API_KEY)) return 0;
+	const apiBaseUrl = (env.E2B_API_BASE_URL ?? "https://api.e2b.app").replace(
+		/\/+$/u,
+		"",
+	);
+	const recovered: Array<unknown> = [];
+	let offset = 0;
+	let reachedKnownEvent = false;
+	while (!reachedKnownEvent && offset < 10_000) {
+		const query = new URLSearchParams({
+			limit: "100",
+			offset: String(offset),
+			orderAsc: "false",
+		});
+		query.append("types", "sandbox.lifecycle.paused");
+		query.append("types", "sandbox.lifecycle.killed");
+		const response = await fetch(`${apiBaseUrl}/events/sandboxes?${query}`, {
+			headers: { "x-api-key": env.E2B_API_KEY },
+		});
+		if (!response.ok)
+			throw new Error(`E2B lifecycle poll failed: ${response.status}`);
+		const payload: unknown = await response.json();
+		if (!Array.isArray(payload))
+			throw new Error("E2B lifecycle poll was not an array");
+		for (const event of payload) {
+			if (typeof event !== "object" || event === null) continue;
+			const eventId = (event as Record<string, unknown>).id;
+			if (typeof eventId !== "string") continue;
+			if (await relay.hasE2bBillingEvent(eventId)) {
+				reachedKnownEvent = true;
+				break;
+			}
+			recovered.push(event);
+		}
+		if (reachedKnownEvent || payload.length < 100) break;
+		offset += payload.length;
+	}
+	if (!reachedKnownEvent && offset >= 10_000)
+		console.error("[cloud-billing] E2B recovery exceeded 10,000 events");
+	return relay.ingestE2bBillingEvents(recovered.reverse(), nowMs);
+};
+
+const positiveInteger = (
+	value: string | undefined,
+	fallback: number,
+	name: string,
+) => {
+	const parsed = value === undefined ? fallback : Number(value);
+	if (!Number.isSafeInteger(parsed) || parsed <= 0)
+		throw new Error(`${name} must be a positive integer`);
+	return parsed;
+};
 
 const managedTunnelConfig = (
 	env: Env,
@@ -152,6 +221,16 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 	const sandboxProvider = resolveSandboxProviderRuntime(env);
 	const sandboxOffer = {
 		...sandboxProvider.offer,
+		vcpuCount: positiveInteger(
+			env.E2B_VCPU_COUNT,
+			sandboxProvider.offer.vcpuCount,
+			"E2B_VCPU_COUNT",
+		),
+		memoryMib: positiveInteger(
+			env.E2B_MEMORY_MIB,
+			sandboxProvider.offer.memoryMib,
+			"E2B_MEMORY_MIB",
+		),
 		...(isConfigured(env.CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL) &&
 		isConfigured(env.CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK)
 			? {
@@ -187,6 +266,32 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 	const configuredCacheMaxBytes = Number(
 		env.CLOUD_REPOSITORY_CACHE_MAX_BYTES ?? 8 * 1024 * 1024 * 1024,
 	);
+	const cloudBillingEnforcementEnabled =
+		env.CLOUD_BILLING_ENFORCEMENT_ENABLED === "true";
+	const cloudBillingExportEnabled = env.CLOUD_BILLING_EXPORT_ENABLED === "true";
+	const cloudBillingCutoverAtMs = isConfigured(env.CLOUD_BILLING_CUTOVER_AT)
+		? Date.parse(env.CLOUD_BILLING_CUTOVER_AT)
+		: undefined;
+	if (
+		cloudBillingCutoverAtMs !== undefined &&
+		!Number.isFinite(cloudBillingCutoverAtMs)
+	)
+		throw new Error("CLOUD_BILLING_CUTOVER_AT must be an ISO timestamp");
+	if (
+		(cloudBillingEnforcementEnabled || cloudBillingExportEnabled) &&
+		cloudBillingCutoverAtMs === undefined
+	)
+		throw new Error(
+			"CLOUD_BILLING_CUTOVER_AT is required before enforcement or export",
+		);
+	if (
+		cloudBillingExportEnabled &&
+		(!billing.polarConfigured ||
+			!isConfigured(env.POLAR_CLOUD_OVERAGE_METER_ID))
+	)
+		throw new Error(
+			"Polar and POLAR_CLOUD_OVERAGE_METER_ID are required for billing export",
+		);
 	const configLayer = Config.layer({
 		relayIssuer: env.RELAY_ISSUER,
 		workosJwksUrl: env.WORKOS_JWKS_URL,
@@ -198,6 +303,15 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		mintPublicKey: env.RELAY_MINT_PUBLIC_JWK,
 		cloudCredentialVaultKey: isConfigured(env.CLOUD_CREDENTIAL_VAULT_KEY)
 			? Redacted.make(env.CLOUD_CREDENTIAL_VAULT_KEY)
+			: undefined,
+		e2bWebhookSecret: isConfigured(env.E2B_WEBHOOK_SECRET)
+			? Redacted.make(env.E2B_WEBHOOK_SECRET)
+			: undefined,
+		cloudBillingEnforcementEnabled,
+		cloudBillingExportEnabled,
+		cloudBillingCutoverAtMs,
+		cloudBillingPolarMeterId: isConfigured(env.POLAR_CLOUD_OVERAGE_METER_ID)
+			? env.POLAR_CLOUD_OVERAGE_METER_ID
 			: undefined,
 		cloudTranscriptObjects:
 			cloudTranscriptBucket === undefined
@@ -283,6 +397,7 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		RelayStorePg.pipe(Layer.provide(dbLayer)),
 		MachineStorePg.pipe(Layer.provide(dbLayer)),
 		CloudWorkspaceStorePg.pipe(Layer.provide(dbLayer)),
+		CloudBillingStorePg.pipe(Layer.provide(dbLayer)),
 		Layer.effect(CloudCredentialVault, CloudCredentialVaultLive).pipe(
 			Layer.provide(configLayer),
 		),
@@ -389,6 +504,16 @@ export default {
 			Promise.all([
 				relay.reconcile(`cron-${controller.scheduledTime}`),
 				relay.reconcileCloud(),
+				relay.maintainCloudBilling(controller.scheduledTime),
+				pollE2bLifecycleEvents(env, relay, controller.scheduledTime).catch(
+					(error) => {
+						console.error(
+							"[cloud-billing] E2B lifecycle recovery failed",
+							error,
+						);
+						return 0;
+					},
+				),
 			]).finally(() => relay.dispose()),
 		);
 	},

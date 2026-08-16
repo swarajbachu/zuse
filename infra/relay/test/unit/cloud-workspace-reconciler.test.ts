@@ -4,6 +4,7 @@ import {
 } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, Redacted, Ref } from "effect";
 import { describe, expect, test } from "vitest";
+import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 import { CloudCredentialVault } from "../../src/cloud-credential-vault.ts";
 import {
 	ARCHIVED_WORKSPACE_RETENTION_MS,
@@ -30,9 +31,12 @@ const testLayer = Layer.mergeAll(
 		mintPublicKey: '{"kty":"OKP"}',
 	}),
 	CloudWorkspaceStoreMemory,
+	CloudBillingStoreMemory,
 	SandboxProvidersFake,
 	Layer.succeed(SandboxOfferConfiguration, {
 		port: 47_837,
+		vcpuCount: 2,
+		memoryMib: 1_024,
 		createTimeoutSeconds: 3_600,
 		keepAliveTimeoutSeconds: 600,
 	}),

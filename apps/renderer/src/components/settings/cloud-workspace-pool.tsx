@@ -1,5 +1,7 @@
 import {
 	CLOUD_WORKSPACE_OFFER_ID,
+	type CloudBillingSummary,
+	type CloudBillingUsageItem,
 	type CloudCredentialConnection,
 	type CloudProject,
 	type CloudProviderOption,
@@ -40,6 +42,14 @@ const stateVariant = (
 			: state === "paused" || state === "archived"
 				? "outline"
 				: "warning";
+
+const formatUsdMicros = (micros: number): string =>
+	new Intl.NumberFormat(undefined, {
+		style: "currency",
+		currency: "USD",
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2,
+	}).format(micros / 1_000_000);
 
 function CredentialRow({
 	kind,
@@ -129,6 +139,11 @@ export function CloudWorkspacePool() {
 	const [workspaces, setWorkspaces] = useState<ReadonlyArray<CloudWorkspace>>(
 		[],
 	);
+	const [billing, setBilling] = useState<CloudBillingSummary | null>(null);
+	const [billingUsage, setBillingUsage] = useState<
+		ReadonlyArray<CloudBillingUsageItem>
+	>([]);
+	const [capDollars, setCapDollars] = useState("25");
 	const [credentials, setCredentials] = useState<
 		ReadonlyArray<CloudCredentialConnection>
 	>([]);
@@ -187,6 +202,17 @@ export function CloudWorkspacePool() {
 									item.paidThrough > Date.now())),
 					);
 				setEntitlementSubscribed(loadedSubscribed);
+				if (loadedSubscribed) {
+					const [summary, usage] = await Promise.all([
+						runControlPlane((client) => client["cloud.billing.summary"]()),
+						runControlPlane((client) =>
+							client["cloud.billing.usage"]({ limit: 20 }),
+						),
+					]);
+					setBilling(summary);
+					setBillingUsage(usage.items);
+					setCapDollars(String(summary.overageCapMicros / 1_000_000));
+				}
 			} catch {
 				if (!loadedSubscribed) {
 					setError("Your Cloud Workspace subscription could not be verified.");
@@ -294,6 +320,28 @@ export function CloudWorkspacePool() {
 				client["machines.checkout"]({ offerId: CLOUD_WORKSPACE_OFFER_ID }),
 			);
 			await openExternal(result.checkoutUrl);
+		});
+
+	const saveOverageCap = () =>
+		run("billing-cap", async () => {
+			const micros = Math.round(Number(capDollars) * 1_000_000);
+			if (!Number.isSafeInteger(micros) || micros < 0)
+				throw new Error("invalid cap");
+			const summary = await runControlPlane((client) =>
+				client["cloud.billing.setCap"]({
+					overageCapMicros: micros,
+					idempotencyKey: `settings-cap:${crypto.randomUUID()}`,
+				}),
+			);
+			setBilling(summary);
+		});
+
+	const openBillingPortal = () =>
+		run("billing-portal", async () => {
+			const portal = await runControlPlane((client) =>
+				client["machines.billingPortal"](),
+			);
+			await openExternal(portal.portalUrl);
 		});
 
 	const connectProjects = () => {
@@ -418,6 +466,27 @@ export function CloudWorkspacePool() {
 	const unfinishedProjects = projects.filter(
 		(project) => project.state !== "ready",
 	);
+	const overageCapPercent =
+		billing === null
+			? 0
+			: billing.overageCapMicros <= 0
+				? billing.overageProviderCostMicros > 0
+					? 100
+					: 0
+				: Math.min(
+						100,
+						Math.floor(
+							(billing.overageChargeMicros / billing.overageCapMicros) * 100,
+						),
+					);
+	const overageWarning =
+		overageCapPercent >= 100
+			? "The overage cap is exhausted. New billable operations are blocked and running compute is being paused."
+			: overageCapPercent >= 80
+				? `You have used ${overageCapPercent}% of this period's overage cap.`
+				: overageCapPercent >= 50
+					? `You have used ${overageCapPercent}% of this period's overage cap.`
+					: null;
 
 	return (
 		<>
@@ -443,7 +512,7 @@ export function CloudWorkspacePool() {
 							loading={busy === "checkout"}
 							onClick={() => void checkout()}
 						>
-							Subscribe · $20/month
+							Subscribe · $40/month
 						</Button>
 					)
 				}
@@ -458,6 +527,90 @@ export function CloudWorkspacePool() {
 					}
 				/>
 			</CloudSettingsGroup>
+
+			{subscribed && serviceAvailable && billing !== null ? (
+				<CloudSettingsGroup
+					title="Usage and billing"
+					description="$40/month includes the first $35 of actual E2B compute. Additional compute is billed at E2B cost + 5%; unused allowance does not roll over."
+					action={
+						<Badge
+							variant={
+								billing.status === "billing-hold" ? "warning" : "success"
+							}
+						>
+							{billing.status === "billing-hold" ? "Usage paused" : "Active"}
+						</Badge>
+					}
+				>
+					{overageWarning === null ? null : (
+						<CloudSettingsRow
+							title={
+								overageCapPercent >= 100 ? "Billing hold" : "Usage warning"
+							}
+							description={overageWarning}
+							action={<Badge variant="warning">{overageCapPercent}%</Badge>}
+						/>
+					)}
+					<CloudSettingsRow
+						title={`${formatUsdMicros(billing.includedUsedMicros)} of $35.00 included used`}
+						description={`${formatUsdMicros(billing.includedRemainingMicros)} included remaining · ${formatUsdMicros(billing.overageChargeMicros)} current overage · ${formatUsdMicros(billing.currentInvoiceEstimateMicros)} current invoice estimate before tax.`}
+					/>
+					<CloudSettingsRow
+						title="Monthly overage cap"
+						description="Running workspaces and builds pause at this pre-tax overage amount. The cap cannot be set below usage already incurred."
+						action={
+							<>
+								<Input
+									size="sm"
+									type="number"
+									min="0"
+									step="1"
+									value={capDollars}
+									onChange={(event) => setCapDollars(event.currentTarget.value)}
+									className="w-20"
+									aria-label="Monthly overage cap in dollars"
+								/>
+								<Button
+									size="xs"
+									loading={busy === "billing-cap"}
+									onClick={() => void saveOverageCap()}
+								>
+									Save
+								</Button>
+							</>
+						}
+					/>
+					<CloudSettingsRow
+						title="Recent usage"
+						description={
+							billingUsage.length === 0
+								? "No completed E2B executions in this billing period yet."
+								: billingUsage
+										.slice(0, 3)
+										.map(
+											(item) =>
+												`${item.resourceKind} ${item.resourceId}: ${formatUsdMicros(item.providerCostMicros)}${item.status === "provisional" ? " (provisional)" : ""}`,
+										)
+										.join(" · ")
+						}
+						action={
+							<Button
+								size="xs"
+								variant="ghost"
+								loading={busy === "billing-portal"}
+								onClick={() => void openBillingPortal()}
+							>
+								Invoices
+							</Button>
+						}
+					/>
+					<p className="px-3 py-2 text-[10px] text-muted-foreground">
+						The fixed platform reserve covers billing, Cloudflare, and operating
+						costs; it is not guaranteed margin. Taxes are handled separately at
+						checkout.
+					</p>
+				</CloudSettingsGroup>
+			) : null}
 
 			{subscribed && serviceAvailable ? (
 				<CloudSettingsGroup

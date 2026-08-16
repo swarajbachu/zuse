@@ -12,6 +12,7 @@ const subscription = (
 	id: "subscription_1",
 	status,
 	currentPeriodEnd: new Date("2026-08-24T00:00:00.000Z"),
+	currentPeriodStart: new Date("2026-07-24T00:00:00.000Z"),
 	productId: "product_machine",
 	cancelAtPeriodEnd: false,
 	customer: { externalId: "account_1" },
@@ -20,6 +21,8 @@ const subscription = (
 const makeClient = () => {
 	const calls = {
 		checkouts: [] as ReadonlyArray<unknown>,
+		meterEvents: [] as ReadonlyArray<unknown>,
+		meterReads: [] as ReadonlyArray<unknown>,
 		revocations: [] as ReadonlyArray<string>,
 		sessions: [] as ReadonlyArray<string>,
 	};
@@ -40,6 +43,14 @@ const makeClient = () => {
 				customerPortalUrl: "https://sandbox.example/portal",
 			});
 		},
+		ingestMeterEvent: (input) => {
+			calls.meterEvents = [...calls.meterEvents, input];
+			return Promise.resolve();
+		},
+		getCustomerMeterUnits: (input) => {
+			calls.meterReads = [...calls.meterReads, input];
+			return Promise.resolve(125);
+		},
 	};
 	return {
 		calls,
@@ -57,6 +68,7 @@ const config = {
 	offerProducts: {
 		"persistent-standard-v1": "product_machine",
 	},
+	overageMeterId: "meter_overage",
 };
 
 describe("Polar billing provider", () => {
@@ -98,6 +110,51 @@ describe("Polar billing provider", () => {
 		expect(fake.calls.sessions).toEqual(["account_1"]);
 	});
 
+	test("reports idempotent overage-cent meter events", async () => {
+		const fake = makeClient();
+		const provider = makePolarBillingProvider(config, { client: fake.client });
+		await Effect.runPromise(
+			provider.reportMeterEvent?.({
+				accountId: "account_1",
+				eventName: "zuse_cloud_overage_cent",
+				units: 125,
+				idempotencyKey: "period_1:1",
+				metadata: { billing_period_id: "period_1" },
+			}) ?? Effect.void,
+		);
+		expect(fake.calls.meterEvents).toEqual([
+			{
+				externalCustomerId: "account_1",
+				eventName: "zuse_cloud_overage_cent",
+				units: 125,
+				idempotencyKey: "period_1:1",
+				metadata: {
+					billing_period_id: "period_1",
+					idempotency_key: "period_1:1",
+				},
+			},
+		]);
+	});
+
+	test("reads Polar's authoritative customer meter", async () => {
+		const fake = makeClient();
+		const provider = makePolarBillingProvider(config, { client: fake.client });
+		await expect(
+			Effect.runPromise(
+				provider.reconcileMeter?.({
+					accountId: "account_1",
+					meterId: "meter_overage",
+				}) ?? Effect.succeed(-1),
+			),
+		).resolves.toBe(125);
+		expect(fake.calls.meterReads).toEqual([
+			{
+				externalCustomerId: "account_1",
+				meterId: "meter_overage",
+			},
+		]);
+	});
+
 	test("verifies subscription webhooks and reconciles authoritative state", async () => {
 		const fake = makeClient();
 		const provider = makePolarBillingProvider(config, {
@@ -130,6 +187,7 @@ describe("Polar billing provider", () => {
 			providerSubscriptionId: "subscription_1",
 			status: "active",
 			offerId: "persistent-standard-v1",
+			periodStart: Date.parse("2026-07-24T00:00:00.000Z"),
 			paidThrough: Date.parse("2026-08-24T00:00:00.000Z"),
 		});
 	});

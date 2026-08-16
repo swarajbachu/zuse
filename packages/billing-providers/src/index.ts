@@ -22,6 +22,7 @@ export interface ReconciledSubscription {
 	readonly status: "pending" | "active" | "grace" | "ended";
 	readonly offerId: string;
 	readonly fulfillmentMetadata?: Readonly<Record<string, string>>;
+	readonly periodStart?: number;
 	readonly paidThrough?: number;
 }
 
@@ -48,6 +49,17 @@ export interface BillingProviderAdapter {
 	readonly customerPortal: (
 		accountId: string,
 	) => Effect.Effect<string, BillingProviderError>;
+	readonly reportMeterEvent?: (input: {
+		readonly accountId: string;
+		readonly eventName: string;
+		readonly units: number;
+		readonly idempotencyKey: string;
+		readonly metadata?: Readonly<Record<string, string>>;
+	}) => Effect.Effect<void, BillingProviderError>;
+	readonly reconcileMeter?: (input: {
+		readonly accountId: string;
+		readonly meterId: string;
+	}) => Effect.Effect<number, BillingProviderError>;
 }
 
 export interface BillingProvidersApi
@@ -75,6 +87,9 @@ export const BillingProviderManual: BillingProviderAdapter = {
 		new BillingProviderError({ code: "checkout-disabled" }),
 	cancel: () => Effect.void,
 	customerPortal: () => new BillingProviderError({ code: "checkout-disabled" }),
+	reportMeterEvent: () =>
+		new BillingProviderError({ code: "checkout-disabled" }),
+	reconcileMeter: () => new BillingProviderError({ code: "checkout-disabled" }),
 };
 
 export const BillingProvidersManual = BillingProviders.layer({

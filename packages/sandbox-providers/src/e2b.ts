@@ -292,6 +292,7 @@ export const makeE2bSandboxProvider = (
 	const createSandbox = (input: {
 		readonly sandboxId: string;
 		readonly providerLabel: string;
+		readonly metadata?: Readonly<Record<string, string>>;
 		readonly templateId: string;
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;
@@ -303,6 +304,7 @@ export const makeE2bSandboxProvider = (
 			timeout: input.timeoutSeconds,
 			secure: true,
 			metadata: {
+				...input.metadata,
 				[SANDBOX_ID_METADATA_KEY]: input.sandboxId,
 				[LABEL_METADATA_KEY]: input.providerLabel,
 			},
@@ -641,6 +643,7 @@ export const makeE2bSandboxProvider = (
 			createSandbox({
 				sandboxId: input.sandboxId,
 				providerLabel: input.providerLabel,
+				metadata: input.metadata,
 				templateId: input.snapshotId,
 				timeoutSeconds: input.timeoutSeconds,
 				env: input.env,

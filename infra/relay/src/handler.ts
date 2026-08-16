@@ -11,6 +11,10 @@ import {
 	requireWorkos,
 } from "./auth.ts";
 import {
+	type CloudBillingRouteContext,
+	routeCloudBillingRequest,
+} from "./cloud-billing-routes.ts";
+import {
 	type CloudWorkspaceRouteContext,
 	routeCloudWorkspaceRequest,
 } from "./cloud-workspace-routes.ts";
@@ -58,6 +62,7 @@ export type RelayContext =
 	| PushDelivery
 	| SandboxOfferConfiguration
 	| CloudWorkspaceRouteContext
+	| CloudBillingRouteContext
 	| MachineRouteContext;
 
 const json = (body: unknown, status = 200): Response =>
@@ -301,6 +306,8 @@ const route = (
 		const nowMs = yield* Clock.currentTimeMillis;
 		const machineResponse = yield* routeMachineRequest(request);
 		if (machineResponse !== null) return machineResponse;
+		const cloudBillingResponse = yield* routeCloudBillingRequest(request);
+		if (cloudBillingResponse !== null) return cloudBillingResponse;
 		const cloudWorkspaceResponse = yield* routeCloudWorkspaceRequest(request);
 		if (cloudWorkspaceResponse !== null) return cloudWorkspaceResponse;
 

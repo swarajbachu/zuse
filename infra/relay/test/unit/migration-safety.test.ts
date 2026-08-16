@@ -34,6 +34,10 @@ const transcriptCheckpointMigrationUrl = new URL(
 	"../../drizzle/migrations/0009_cloud_transcript_checkpoints.sql",
 	import.meta.url,
 );
+const cloudBillingMigrationUrl = new URL(
+	"../../drizzle/migrations/0010_cloud_billing_ledger.sql",
+	import.meta.url,
+);
 
 describe("relay migration reconciliation", () => {
 	test("keeps the main migration history before managed cloud machines", async () => {
@@ -55,7 +59,28 @@ describe("relay migration reconciliation", () => {
 			{ idx: 7, tag: "0007_launch_intent_cutover" },
 			{ idx: 8, tag: "0008_runtime_summary_projection" },
 			{ idx: 9, tag: "0009_cloud_transcript_checkpoints" },
+			{ idx: 10, tag: "0010_cloud_billing_ledger" },
 		]);
+	});
+
+	test("adds immutable cloud billing evidence and financial ledgers", async () => {
+		const migration = await readFile(cloudBillingMigrationUrl, "utf8");
+		for (const table of [
+			"relay_cloud_billing_periods",
+			"relay_provider_price_schedule",
+			"relay_provider_usage_events",
+			"relay_provider_event_deliveries",
+			"relay_cloud_billing_usage",
+			"relay_cloud_billing_reservations",
+			"relay_cloud_billing_ledger",
+			"relay_cloud_billing_outbox",
+			"relay_platform_costs",
+			"relay_provider_statement_totals",
+		])
+			expect(migration).toContain(`CREATE TABLE IF NOT EXISTS "${table}"`);
+		expect(migration).toContain("price_catalog_version");
+		expect(migration).toContain("included_provider_cost_micros");
+		expect(migration).toContain("idempotency_key");
 	});
 
 	test("adds encrypted transcript pointers and removes archive recovery state", async () => {

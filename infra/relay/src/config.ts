@@ -39,6 +39,11 @@ export interface RelayConfig {
 	readonly mintPublicKey: string;
 	/** 32-byte base64url AES key for account-level cloud credential envelopes. */
 	readonly cloudCredentialVaultKey?: Redacted.Redacted<string>;
+	readonly e2bWebhookSecret?: Redacted.Redacted<string>;
+	readonly cloudBillingEnforcementEnabled: boolean;
+	readonly cloudBillingExportEnabled: boolean;
+	readonly cloudBillingCutoverAtMs?: number;
+	readonly cloudBillingPolarMeterId?: string;
 	readonly cloudTranscriptObjects?: CloudTranscriptObjectStore;
 	readonly challengeTtlMs: number;
 	readonly connectTokenTtlMs: number;
@@ -72,6 +77,8 @@ const DEFAULTS = {
 	cloudRepositoryCacheMaxBytes: 8 * 1024 * 1024 * 1024,
 	maxEnvironmentsPerAccount: 5 as number | null,
 	allowedBrowserOrigins: [HOSTED_APP_URL] as ReadonlyArray<string>,
+	cloudBillingEnforcementEnabled: false,
+	cloudBillingExportEnabled: false,
 } as const;
 
 export const layer = (

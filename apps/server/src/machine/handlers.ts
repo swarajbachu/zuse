@@ -67,6 +67,22 @@ const Offers = MemoizeRpcs.toLayerHandler("machines.offers", () =>
 const CloudProviders = MemoizeRpcs.toLayerHandler("cloud.providers", () =>
 	withCloudControl((service) => service.cloudProviders()),
 );
+const CloudBillingSummaryHandler = MemoizeRpcs.toLayerHandler(
+	"cloud.billing.summary",
+	() => withCloudControl((service) => service.cloudBillingSummary()),
+);
+const CloudBillingUsageHandler = MemoizeRpcs.toLayerHandler(
+	"cloud.billing.usage",
+	({ cursor, limit }) =>
+		withCloudControl((service) => service.cloudBillingUsage(cursor, limit)),
+);
+const CloudBillingSetCapHandler = MemoizeRpcs.toLayerHandler(
+	"cloud.billing.setCap",
+	({ overageCapMicros, idempotencyKey }) =>
+		withCloudControl((service) =>
+			service.setCloudBillingCap(overageCapMicros, idempotencyKey),
+		),
+);
 const CloudProjects = MemoizeRpcs.toLayerHandler("cloud.projects.list", () =>
 	withCloudControl((service) => service.cloudProjects()),
 );
@@ -307,6 +323,9 @@ const ResourcesWatch = MemoizeRpcs.toLayerHandler(
 );
 
 export const MachineHandlersLayer = Layer.mergeAll(
+	CloudBillingSummaryHandler,
+	CloudBillingUsageHandler,
+	CloudBillingSetCapHandler,
 	CloudProviders,
 	CloudProjects,
 	ConnectCloudProject,

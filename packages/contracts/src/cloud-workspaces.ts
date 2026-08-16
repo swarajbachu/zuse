@@ -461,6 +461,7 @@ export class CloudWorkspaceOpError extends Schema.TaggedErrorClass<CloudWorkspac
 			"credential-required",
 			"branch-in-use",
 			"conflict",
+			"billing-hold",
 		]),
 	},
 ) {}

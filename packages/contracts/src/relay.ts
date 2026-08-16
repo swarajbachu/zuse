@@ -66,6 +66,9 @@ export const RelayPaths = {
 	billingWebhook: "/v1/billing/webhook",
 	billingProviderWebhook: (providerId: string) =>
 		`/v1/billing/webhook/${encodeURIComponent(providerId)}`,
+	cloudBillingSummary: "/v1/cloud/billing/summary",
+	cloudBillingUsage: "/v1/cloud/billing/usage",
+	cloudBillingCap: "/v1/cloud/billing/cap",
 	cloudProviders: "/v1/cloud/providers",
 	cloudProjects: "/v1/cloud/projects",
 	cloudProjectPrepare: (projectId: string) =>

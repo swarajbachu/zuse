@@ -224,6 +224,7 @@ export const relayEntitlements = pgTable(
 		provider: text("provider").notNull(),
 		providerSubscriptionId: text("provider_subscription_id"),
 		status: text("status").notNull(),
+		periodStart: bigint("period_start", { mode: "number" }),
 		paidThrough: bigint("paid_through", { mode: "number" }),
 		endedAt: bigint("ended_at", { mode: "number" }),
 		creditBalance: bigint("credit_balance", { mode: "number" }),
@@ -585,6 +586,287 @@ export const relayCloudWorkspaceUsage = pgTable(
 		check(
 			"relay_cloud_usage_kind_check",
 			sql`${table.kind} IN ('runtime-seconds', 'pause', 'resume', 'snapshot-bytes', 'storage-byte-seconds', 'archive', 'restore', 'delete')`,
+		),
+	],
+);
+
+export const relayCloudBillingPeriods = pgTable(
+	"relay_cloud_billing_periods",
+	{
+		periodId: text("period_id").primaryKey(),
+		accountId: text("account_id").notNull(),
+		providerSubscriptionId: text("provider_subscription_id"),
+		status: text("status").notNull(),
+		currency: text("currency").notNull().default("USD"),
+		periodStart: bigint("period_start", { mode: "number" }).notNull(),
+		periodEnd: bigint("period_end", { mode: "number" }).notNull(),
+		basePriceMicros: bigint("base_price_micros", { mode: "number" }).notNull(),
+		includedProviderCostMicros: bigint("included_provider_cost_micros", {
+			mode: "number",
+		}).notNull(),
+		markupBasisPoints: bigint("markup_basis_points", {
+			mode: "number",
+		}).notNull(),
+		priceCatalogVersion: text("price_catalog_version").notNull(),
+		overageCapMicros: bigint("overage_cap_micros", {
+			mode: "number",
+		}).notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		uniqueIndex("relay_cloud_billing_period_account_start_idx").on(
+			table.accountId,
+			table.periodStart,
+		),
+		index("relay_cloud_billing_period_active_idx").on(
+			table.accountId,
+			table.periodEnd,
+		),
+	],
+);
+
+export const relayProviderPriceSchedule = pgTable(
+	"relay_provider_price_schedule",
+	{
+		provider: text("provider").notNull(),
+		version: text("version").notNull(),
+		effectiveAt: bigint("effective_at", { mode: "number" }).notNull(),
+		cpuNanoUsdPerSecond: bigint("cpu_nano_usd_per_second", {
+			mode: "number",
+		}).notNull(),
+		memoryNanoUsdPerGibSecond: bigint("memory_nano_usd_per_gib_second", {
+			mode: "number",
+		}).notNull(),
+		storageNanoUsdPerGibSecond: bigint("storage_nano_usd_per_gib_second", {
+			mode: "number",
+		})
+			.notNull()
+			.default(0),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.provider, table.version] }),
+		index("relay_provider_price_schedule_effective_idx").on(
+			table.provider,
+			table.effectiveAt,
+		),
+	],
+);
+
+export const relayProviderUsageEvents = pgTable(
+	"relay_provider_usage_events",
+	{
+		eventId: text("event_id").notNull(),
+		provider: text("provider").notNull(),
+		type: text("type").notNull(),
+		providerResourceId: text("provider_resource_id"),
+		payload: jsonb("payload").notNull(),
+		receivedAt: bigint("received_at", { mode: "number" }).notNull(),
+		expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.provider, table.eventId] }),
+		index("relay_provider_usage_events_expiry_idx").on(table.expiresAt),
+	],
+);
+
+export const relayProviderEventDeliveries = pgTable(
+	"relay_provider_event_deliveries",
+	{
+		provider: text("provider").notNull(),
+		deliveryId: text("delivery_id").notNull(),
+		eventId: text("event_id").notNull(),
+		source: text("source").notNull(),
+		status: text("status").notNull(),
+		receivedAt: bigint("received_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.provider, table.deliveryId] }),
+		index("relay_provider_event_deliveries_event_idx").on(
+			table.provider,
+			table.eventId,
+		),
+	],
+);
+
+export const relayCloudBillingUsage = pgTable(
+	"relay_cloud_billing_usage",
+	{
+		entryId: text("entry_id").primaryKey(),
+		periodId: text("period_id").notNull(),
+		accountId: text("account_id").notNull(),
+		resourceKind: text("resource_kind").notNull(),
+		resourceId: text("resource_id").notNull(),
+		provider: text("provider").notNull(),
+		providerEventId: text("provider_event_id"),
+		providerExecutionId: text("provider_execution_id"),
+		startedAt: bigint("started_at", { mode: "number" }).notNull(),
+		endedAt: bigint("ended_at", { mode: "number" }).notNull(),
+		vcpuCount: bigint("vcpu_count", { mode: "number" }).notNull(),
+		memoryMib: bigint("memory_mib", { mode: "number" }).notNull(),
+		providerCostMicros: bigint("provider_cost_micros", {
+			mode: "number",
+		}).notNull(),
+		status: text("status").notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		uniqueIndex("relay_cloud_billing_usage_provider_event_idx").on(
+			table.provider,
+			table.providerEventId,
+		),
+		index("relay_cloud_billing_usage_period_idx").on(
+			table.periodId,
+			table.startedAt,
+		),
+	],
+);
+
+export const relayCloudBillingReservations = pgTable(
+	"relay_cloud_billing_reservations",
+	{
+		periodId: text("period_id").notNull(),
+		accountId: text("account_id").notNull(),
+		resourceKind: text("resource_kind").notNull(),
+		resourceId: text("resource_id").notNull(),
+		providerCostMicros: bigint("provider_cost_micros", {
+			mode: "number",
+		}).notNull(),
+		startedAt: bigint("started_at", { mode: "number" }).notNull(),
+		vcpuCount: bigint("vcpu_count", { mode: "number" }).notNull(),
+		memoryMib: bigint("memory_mib", { mode: "number" }).notNull(),
+		expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.periodId, table.resourceKind, table.resourceId],
+		}),
+		index("relay_cloud_billing_reservations_expiry_idx").on(table.expiresAt),
+	],
+);
+
+export const relayCloudBillingLedger = pgTable(
+	"relay_cloud_billing_ledger",
+	{
+		entryId: text("entry_id").primaryKey(),
+		periodId: text("period_id").notNull(),
+		accountId: text("account_id").notNull(),
+		kind: text("kind").notNull(),
+		amountMicros: bigint("amount_micros", { mode: "number" }).notNull(),
+		sourceId: text("source_id").notNull(),
+		metadata: jsonb("metadata").notNull().default({}),
+		occurredAt: bigint("occurred_at", { mode: "number" }).notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		uniqueIndex("relay_cloud_billing_ledger_source_idx").on(
+			table.kind,
+			table.sourceId,
+		),
+		index("relay_cloud_billing_ledger_period_idx").on(
+			table.periodId,
+			table.occurredAt,
+		),
+	],
+);
+
+export const relayCloudBillingCapCommands = pgTable(
+	"relay_cloud_billing_cap_commands",
+	{
+		periodId: text("period_id").notNull(),
+		idempotencyKey: text("idempotency_key").notNull(),
+		overageCapMicros: bigint("overage_cap_micros", {
+			mode: "number",
+		}).notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [primaryKey({ columns: [table.periodId, table.idempotencyKey] })],
+);
+
+export const relayCloudBillingOutbox = pgTable(
+	"relay_cloud_billing_outbox",
+	{
+		outboxId: text("outbox_id").primaryKey(),
+		periodId: text("period_id").notNull(),
+		accountId: text("account_id").notNull(),
+		provider: text("provider").notNull(),
+		amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+		idempotencyKey: text("idempotency_key").notNull(),
+		attemptCount: bigint("attempt_count", { mode: "number" })
+			.notNull()
+			.default(0),
+		nextAttemptAt: bigint("next_attempt_at", { mode: "number" }).notNull(),
+		acknowledgedAt: bigint("acknowledged_at", { mode: "number" }),
+		lastError: text("last_error"),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		uniqueIndex("relay_cloud_billing_outbox_idempotency_idx").on(
+			table.provider,
+			table.idempotencyKey,
+		),
+	],
+);
+
+export const relayCloudBillingMeterReconciliations = pgTable(
+	"relay_cloud_billing_meter_reconciliations",
+	{
+		reconciliationId: text("reconciliation_id").primaryKey(),
+		periodId: text("period_id").notNull(),
+		provider: text("provider").notNull(),
+		expectedUnits: bigint("expected_units", { mode: "number" }).notNull(),
+		observedUnits: bigint("observed_units", { mode: "number" }).notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		index("relay_cloud_billing_meter_reconciliation_period_idx").on(
+			table.periodId,
+			table.createdAt,
+		),
+	],
+);
+
+export const relayPlatformCosts = pgTable(
+	"relay_platform_costs",
+	{
+		costId: text("cost_id").primaryKey(),
+		vendor: text("vendor").notNull(),
+		kind: text("kind").notNull(),
+		amountMicros: bigint("amount_micros", { mode: "number" }).notNull(),
+		currency: text("currency").notNull().default("USD"),
+		externalId: text("external_id"),
+		periodStart: bigint("period_start", { mode: "number" }).notNull(),
+		periodEnd: bigint("period_end", { mode: "number" }).notNull(),
+		metadata: jsonb("metadata").notNull().default({}),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		uniqueIndex("relay_platform_cost_vendor_external_idx").on(
+			table.vendor,
+			table.externalId,
+		),
+	],
+);
+
+export const relayProviderStatementTotals = pgTable(
+	"relay_provider_statement_totals",
+	{
+		statementId: text("statement_id").primaryKey(),
+		provider: text("provider").notNull(),
+		externalId: text("external_id").notNull(),
+		amountMicros: bigint("amount_micros", { mode: "number" }).notNull(),
+		currency: text("currency").notNull().default("USD"),
+		periodStart: bigint("period_start", { mode: "number" }).notNull(),
+		periodEnd: bigint("period_end", { mode: "number" }).notNull(),
+		metadata: jsonb("metadata").notNull().default({}),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		uniqueIndex("relay_provider_statement_external_idx").on(
+			table.provider,
+			table.externalId,
 		),
 	],
 );

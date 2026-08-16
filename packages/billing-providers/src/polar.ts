@@ -12,6 +12,7 @@ export interface PolarBillingConfig {
 	readonly webhookSecret: Redacted.Redacted<string>;
 	readonly environment: "sandbox" | "production";
 	readonly offerProducts: Readonly<Record<string, string>>;
+	readonly overageMeterId?: string;
 }
 
 export interface PolarSubscription {
@@ -27,6 +28,7 @@ export interface PolarSubscription {
 		| "paused"
 		| (string & {});
 	readonly currentPeriodEnd: Date;
+	readonly currentPeriodStart: Date;
 	readonly productId: string;
 	readonly cancelAtPeriodEnd: boolean;
 	readonly metadata?: Readonly<Record<string, unknown>>;
@@ -50,6 +52,17 @@ export interface PolarBillingClient {
 	readonly createCustomerSession: (
 		externalCustomerId: string,
 	) => Promise<{ readonly customerPortalUrl: string }>;
+	readonly ingestMeterEvent: (input: {
+		readonly externalCustomerId: string;
+		readonly eventName: string;
+		readonly units: number;
+		readonly idempotencyKey: string;
+		readonly metadata: Readonly<Record<string, string>>;
+	}) => Promise<void>;
+	readonly getCustomerMeterUnits: (input: {
+		readonly externalCustomerId: string;
+		readonly meterId: string;
+	}) => Promise<number>;
 }
 
 export interface PolarBillingDependencies {
@@ -93,6 +106,26 @@ const makeSdkClient = (config: PolarBillingConfig): PolarBillingClient => {
 		},
 		createCustomerSession: (externalCustomerId) =>
 			polar.customerSessions.create({ externalCustomerId }),
+		ingestMeterEvent: async (input) => {
+			await polar.events.ingest({
+				events: [
+					{
+						name: input.eventName,
+						externalId: input.idempotencyKey,
+						externalCustomerId: input.externalCustomerId,
+						metadata: { ...input.metadata, units: input.units },
+					},
+				],
+			});
+		},
+		getCustomerMeterUnits: async (input) => {
+			const page = await polar.customerMeters.list({
+				externalCustomerId: input.externalCustomerId,
+				meterId: input.meterId,
+				limit: 1,
+			});
+			return page.result.items[0]?.consumedUnits ?? 0;
+		},
 	};
 };
 
@@ -257,6 +290,7 @@ export const makePolarBillingProvider = (
 					...(Object.keys(fulfillmentMetadata).length === 0
 						? {}
 						: { fulfillmentMetadata }),
+					periodStart: subscription.currentPeriodStart.getTime(),
 					paidThrough: subscription.currentPeriodEnd.getTime(),
 				};
 			}),
@@ -285,5 +319,36 @@ export const makePolarBillingProvider = (
 						.then((session) => session.customerPortalUrl),
 				catch: providerFailure,
 			}),
+		reportMeterEvent: (input) =>
+			Effect.tryPromise({
+				try: () =>
+					client.ingestMeterEvent({
+						externalCustomerId: input.accountId,
+						eventName: input.eventName,
+						units: input.units,
+						idempotencyKey: input.idempotencyKey,
+						metadata: {
+							...input.metadata,
+							idempotency_key: input.idempotencyKey,
+						},
+					}),
+				catch: providerFailure,
+			}),
+		...(config.overageMeterId === undefined
+			? {}
+			: {
+					reconcileMeter: (input: {
+						readonly accountId: string;
+						readonly meterId: string;
+					}) =>
+						Effect.tryPromise({
+							try: () =>
+								client.getCustomerMeterUnits({
+									externalCustomerId: input.accountId,
+									meterId: input.meterId,
+								}),
+							catch: providerFailure,
+						}),
+				}),
 	};
 };

@@ -20,6 +20,7 @@ export interface BillingEnvironment {
 	readonly POLAR_PRODUCT_SANDBOX_STANDARD_V1?: string;
 	readonly POLAR_VPS_SALES_APPROVED?: string;
 	readonly POLAR_WEBHOOK_SECRET?: string;
+	readonly POLAR_CLOUD_OVERAGE_METER_ID?: string;
 }
 
 export interface BillingRuntime {
@@ -57,6 +58,9 @@ const polarConfig = (
 					}
 				: {}),
 		},
+		...(isConfigured(env.POLAR_CLOUD_OVERAGE_METER_ID)
+			? { overageMeterId: env.POLAR_CLOUD_OVERAGE_METER_ID }
+			: {}),
 	};
 };
 

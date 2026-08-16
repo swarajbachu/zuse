@@ -1,5 +1,4 @@
 import { RpcGroup } from "effect/unstable/rpc";
-
 import {
 	ProviderAvailabilityRpc,
 	ProviderKiroInventoryRpc,
@@ -31,6 +30,11 @@ import {
 	BrowserRespondRpc,
 	BrowserSetCredentialRpc,
 } from "./browser.ts";
+import {
+	CloudBillingSetCapRpc,
+	CloudBillingSummaryRpc,
+	CloudBillingUsageRpc,
+} from "./cloud-billing.ts";
 import {
 	CloudChatsListRpc,
 	CloudCredentialsDisconnectRpc,
@@ -335,6 +339,9 @@ export const MemoizeRpcs = RpcGroup.make(
 	RelayUnlinkRpc,
 	EnvironmentsListRpc,
 	EnvironmentConnectRpc,
+	CloudBillingSummaryRpc,
+	CloudBillingUsageRpc,
+	CloudBillingSetCapRpc,
 	CloudProvidersRpc,
 	CloudProjectsListRpc,
 	CloudProjectsConnectRpc,

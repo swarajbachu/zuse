@@ -15,6 +15,8 @@ import { Clock, Effect, Schema } from "effect";
 
 import { requireWorkos } from "./auth.ts";
 import { cancelProviderSubscription } from "./billing-operations.ts";
+import { ensureCloudBillingPeriod } from "./cloud-billing-period.ts";
+import type { CloudBillingStore } from "./cloud-billing-store.ts";
 import { RelayConfiguration } from "./config.ts";
 import {
 	parseJwk,
@@ -56,7 +58,8 @@ export type MachineRouteContext =
 	| BillingProviders
 	| RelayConfiguration
 	| RelayStore
-	| ManagedTunnelProvider;
+	| ManagedTunnelProvider
+	| CloudBillingStore;
 
 const persistentProviderId = Effect.fn("persistentProviderId")(function* () {
 	return (yield* (yield* MachineProviders).getDefault).providerId;
@@ -260,7 +263,6 @@ const toPublicEntitlement = (entitlement: EntitlementPersistenceRecord) => ({
 	status: entitlement.status,
 	offerId: entitlement.offerId,
 	paidThrough: entitlement.paidThroughMs,
-	creditBalance: entitlement.creditBalance,
 });
 
 const reconcileCheckoutEntitlements = (
@@ -314,7 +316,8 @@ const reconcileCheckoutEntitlements = (
 						status: subscription.status,
 						paidThroughMs: subscription.paidThrough,
 						endedAtMs:
-							subscription.status === "ended"
+							subscription.status === "ended" &&
+							(subscription.paidThrough ?? 0) <= nowMs
 								? (entitlement.endedAtMs ?? nowMs)
 								: undefined,
 						updatedAtMs: nowMs,
@@ -502,8 +505,14 @@ export const routeMachineRequest = (
 				provider: billing.providerId,
 				providerSubscriptionId: subscription.providerSubscriptionId,
 				status: subscription.status,
+				periodStartMs: subscription.periodStart,
 				paidThroughMs: subscription.paidThrough,
-				endedAtMs: subscription.status === "ended" ? nowMs : undefined,
+				endedAtMs:
+					subscription.status === "ended" &&
+					(subscription.paidThrough === undefined ||
+						subscription.paidThrough <= nowMs)
+						? nowMs
+						: undefined,
 				createdAtMs: nowMs,
 				updatedAtMs: nowMs,
 			};
@@ -542,6 +551,21 @@ export const routeMachineRequest = (
 							},
 				recoveryWindowMs: machineConfig.recoveryWindowMs,
 			});
+			if (
+				subscription.offerId === CLOUD_WORKSPACE_OFFER_ID &&
+				subscription.periodStart !== undefined &&
+				subscription.paidThrough !== undefined
+			) {
+				yield* ensureCloudBillingPeriod({
+					accountId: subscription.accountId,
+					provider: billing.providerId,
+					providerSubscriptionId: subscription.providerSubscriptionId,
+					subscriptionStatus: subscription.status,
+					periodStartMs: subscription.periodStart,
+					periodEndMs: subscription.paidThrough,
+					nowMs,
+				});
+			}
 			const response = json({
 				ok: true,
 				duplicate: outcome.duplicate,

@@ -2,6 +2,8 @@ import {
 	BillingCheckout,
 	type BillingCheckoutRequest,
 	BillingPortal,
+	CloudBillingSummary,
+	CloudBillingUsagePage,
 	CloudChatList,
 	CloudCredentialConnection,
 	type CloudCredentialConnectRequest,
@@ -51,6 +53,18 @@ import { AuthService } from "../auth/services/auth-service.ts";
 import { MachineRuntimeRole } from "./machine-runtime-role.ts";
 
 export interface MachineControlServiceShape {
+	readonly cloudBillingSummary: () => Effect.Effect<
+		CloudBillingSummary,
+		MachineControlError
+	>;
+	readonly cloudBillingUsage: (
+		cursor?: string,
+		limit?: number,
+	) => Effect.Effect<CloudBillingUsagePage, MachineControlError>;
+	readonly setCloudBillingCap: (
+		overageCapMicros: number,
+		idempotencyKey: string,
+	) => Effect.Effect<CloudBillingSummary, MachineControlError>;
 	readonly offers: () => Effect.Effect<MachineOfferList, MachineControlError>;
 	readonly cloudProviders: () => Effect.Effect<
 		CloudProviderList,
@@ -315,6 +329,23 @@ export const MachineControlServiceLive: Layer.Layer<
 			});
 
 		return MachineControlService.of({
+			cloudBillingSummary: () =>
+				request(RelayPaths.cloudBillingSummary, CloudBillingSummary),
+			cloudBillingUsage: (cursor, limit) => {
+				const query = new URLSearchParams();
+				if (cursor !== undefined) query.set("cursor", cursor);
+				if (limit !== undefined) query.set("limit", String(limit));
+				const suffix = query.size === 0 ? "" : `?${query.toString()}`;
+				return request(
+					`${RelayPaths.cloudBillingUsage}${suffix}`,
+					CloudBillingUsagePage,
+				);
+			},
+			setCloudBillingCap: (overageCapMicros, idempotencyKey) =>
+				request(RelayPaths.cloudBillingCap, CloudBillingSummary, "POST", {
+					overageCapMicros,
+					idempotencyKey,
+				}),
 			cloudProviders: () =>
 				request(RelayPaths.cloudProviders, CloudProviderList),
 			cloudProjects: () => request(RelayPaths.cloudProjects, CloudProjectList),
