@@ -108,9 +108,9 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 			!Number.isSafeInteger(evidence.endedAtMs) ||
 			evidence.endedAtMs <= evidence.startedAtMs ||
 			!Number.isSafeInteger(evidence.vcpuCount) ||
-			evidence.vcpuCount <= 0 ||
+			evidence.vcpuCount < 0 ||
 			!Number.isSafeInteger(evidence.memoryMib) ||
-			evidence.memoryMib <= 0 ||
+			evidence.memoryMib < 0 ||
 			evidence.endedAtMs > input.nowMs + 5 * 60_000
 		)
 			return yield* Effect.fail(conflict("invalid_provider_execution"));
