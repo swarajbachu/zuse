@@ -26,7 +26,13 @@ export function openTerminalCommand(args: {
 }): void {
 	const index = useTerminalsStore
 		.getState()
-		.addCommand(args.chatRef, args.cwd, args.title, args.command);
+		.add(
+			args.chatRef,
+			args.chatRef.environmentId,
+			args.cwd,
+			args.title,
+			args.command,
+		);
 	const ui = useUiStore.getState();
 	ui.addTerminalPanelForSlot(args.chatRef, index);
 	ui.setRightSidebarOpenForChat(args.chatRef, true);

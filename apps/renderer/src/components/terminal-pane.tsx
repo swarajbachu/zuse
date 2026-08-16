@@ -1,11 +1,13 @@
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import type { EnvironmentId, PtyId } from "@zuse/contracts";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useCloudSyncStatus } from "../lib/cloud-sync-client-bus.ts";
 import {
 	cloudSummaryForChat,
 	useCloudChatCatalogStore,
 } from "../lib/cloud-workspace-catalog.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
+import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
 import * as terminalRegistry from "../lib/terminal-registry.ts";
 import {
 	EMPTY_TERMINALS,
@@ -74,12 +76,22 @@ function PlainTerminalSlot({
 					summary.workspaceId === chatRef.environmentId,
 			) ?? registeredCloudSummary,
 	);
+	const list = useTerminalsStore((s) => s.byKey[key] ?? EMPTY_TERMINALS);
+	const instance = list[slot];
+	const localTerminal =
+		cloudSummary !== null &&
+		instance?.environmentId === getLocalEnvironmentId();
+	const syncStatus = useCloudSyncStatus(
+		localTerminal ? (cloudSummary?.workspaceId ?? null) : null,
+	);
 	const cloudShell = useEnvironmentShellResource(
-		cloudSummary === null ? null : chatRef.environmentId,
-		cloudSummary === null ? "cache-only" : "wake",
+		cloudSummary === null || localTerminal ? null : chatRef.environmentId,
+		cloudSummary === null || localTerminal ? "cache-only" : "wake",
 	);
 	const cloudAttachment =
-		cloudSummary === null || cloudShell.connection === "connected"
+		cloudSummary === null ||
+		localTerminal ||
+		cloudShell.connection === "connected"
 			? "ready"
 			: cloudShell.connection === "waking" ||
 					cloudShell.connection === "connecting" ||
@@ -92,7 +104,6 @@ function PlainTerminalSlot({
 					? "failed"
 					: "detached";
 	const [pendingTerminalInput, setPendingTerminalInput] = useState("");
-	const list = useTerminalsStore((s) => s.byKey[key] ?? EMPTY_TERMINALS);
 	const ensureSlot = useTerminalsStore((s) => s.ensureSlot);
 	const resolvedRootPath =
 		cloudSummary === null ? rootPath : "/home/zuse/workspace";
@@ -100,11 +111,7 @@ function PlainTerminalSlot({
 	useEffect(() => {
 		if (cloudAttachment !== "ready") return;
 		const instance = list[slot];
-		if (
-			instance === undefined ||
-			instance.environmentId !== chatRef.environmentId
-		)
-			ensureSlot(chatRef, slot, resolvedRootPath);
+		if (instance === undefined) ensureSlot(chatRef, slot, resolvedRootPath);
 	}, [
 		chatRef,
 		cloudAttachment,
@@ -114,6 +121,17 @@ function PlainTerminalSlot({
 		resolvedRootPath,
 		slot,
 	]);
+
+	if (localTerminal && syncStatus?.state !== "in-sync")
+		return (
+			<TerminalPlaceholder>
+				{syncStatus?.state === "error" ? (
+					<span>{syncStatus.error ?? "Local file sync failed."}</span>
+				) : (
+					<ShimmerText>Syncing files to local…</ShimmerText>
+				)}
+			</TerminalPlaceholder>
+		);
 
 	if (cloudAttachment === "attaching")
 		return (
@@ -172,17 +190,27 @@ function PlainTerminalSlot({
 			</TerminalPlaceholder>
 		);
 
-	const inst = list[slot];
+	const inst = instance;
 	if (inst === undefined) return null;
 	return (
-		<PtyTerminal
-			cwd={inst.cwd}
-			environmentId={inst.environmentId}
-			instanceId={inst.id}
-			command={inst.command}
-			initialInput={pendingTerminalInput}
-			onInitialInputWritten={() => setPendingTerminalInput("")}
-		/>
+		<div className="flex min-h-0 flex-1 flex-col">
+			{localTerminal ? (
+				<div className="flex h-7 shrink-0 items-center gap-2 px-3 text-[11px] text-muted-foreground">
+					<span className="size-1.5 rounded-full bg-emerald-400" />
+					File changes synced to local
+				</div>
+			) : null}
+			<div className="min-h-0 flex-1">
+				<PtyTerminal
+					cwd={inst.cwd}
+					environmentId={inst.environmentId}
+					instanceId={inst.id}
+					command={inst.command}
+					initialInput={pendingTerminalInput}
+					onInitialInputWritten={() => setPendingTerminalInput("")}
+				/>
+			</div>
+		</div>
 	);
 }
 

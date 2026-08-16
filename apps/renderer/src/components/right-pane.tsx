@@ -8,6 +8,8 @@ import {
 } from "@zuse/contracts";
 import {
 	CheckListIcon,
+	CloudIcon,
+	ComputerIcon,
 	ComputerTerminal01Icon,
 	Folder01Icon,
 	GitCompareIcon,
@@ -18,11 +20,16 @@ import {
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Plus, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useRef, useSyncExternalStore } from "react";
+import {
+	cloudSyncLocalPath,
+	enableCloudSync,
+} from "../lib/cloud-sync-client-bus.ts";
 import { cloudSummaryForChat } from "../lib/cloud-workspace-catalog.ts";
 import { ensureCloudWorkspaceAttached } from "../lib/cloud-workspaces.ts";
 import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
 import { useGitWorkspaceResource } from "../lib/git-workspace-client-bus.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
+import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
 import { isSessionTurnActive } from "../lib/session-runtime-state.ts";
 import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
@@ -150,6 +157,42 @@ function addableKinds(
 	);
 }
 
+type CloudTerminalActions = Readonly<{
+	onAddCloud: () => void;
+	onAddLocal: () => void;
+}>;
+
+const panelChoices = (
+	kind: PanelKind,
+	cloudTerminals: CloudTerminalActions | null,
+	onAdd: (kind: PanelKind) => void,
+) => {
+	if (kind === "terminal" && cloudTerminals !== null)
+		return [
+			{
+				key: "cloud-terminal",
+				label: "Cloud terminal",
+				icon: CloudIcon,
+				onClick: cloudTerminals.onAddCloud,
+			},
+			{
+				key: "local-terminal",
+				label: "Local terminal",
+				icon: ComputerIcon,
+				onClick: cloudTerminals.onAddLocal,
+			},
+		];
+	const meta = PANEL_META[kind];
+	return [
+		{
+			key: kind,
+			label: meta.label,
+			icon: meta.icon,
+			onClick: () => onAdd(kind),
+		},
+	];
+};
+
 /**
  * Right-pane dock. The panel set is user-managed: nothing is shown until the
  * user adds a panel from the launcher (empty state) or the trailing "+" menu.
@@ -259,15 +302,44 @@ export function RightPane({
 		if (cloudSummary !== null)
 			void ensureCloudWorkspaceAttached(cloudSummary).catch(() => {});
 	};
+	const addPanelForTerminal = (ref: ChatRef, slot: number) => {
+		useUiStore.getState().addTerminalPanelForSlot(ref, slot);
+		useUiStore.getState().setRightSidebarOpenForChat(ref, true);
+	};
 	const handleAddPanel = (kind: PanelKind) => {
 		if (chatRef === null) return;
 		addPanel(chatRef, kind);
 		if (LIVE_PANEL_KINDS.has(kind)) requestCloudAttachment();
 	};
+	const handleAddCloudTerminal = () => {
+		if (chatRef === null) return;
+		const slot = useTerminalsStore
+			.getState()
+			.add(chatRef, chatRef.environmentId, "/home/zuse/workspace", "Cloud");
+		addPanelForTerminal(chatRef, slot);
+		requestCloudAttachment();
+	};
+	const handleAddLocalTerminal = async () => {
+		if (chatRef === null || cloudSummary === null) return;
+		const localPath = await cloudSyncLocalPath(cloudSummary.workspaceId);
+		if (localPath === null) return;
+		const slot = useTerminalsStore
+			.getState()
+			.add(
+				chatRef,
+				EnvironmentId.make(getLocalEnvironmentId()),
+				localPath,
+				"Local",
+			);
+		addPanelForTerminal(chatRef, slot);
+		void enableCloudSync(cloudSummary.workspaceId);
+	};
 	const addablePanels = addableKinds(panels).filter(
 		(kind) =>
 			!directoryUnavailable ||
-			(kind !== "files" && kind !== "terminal" && kind !== "changes"),
+			(kind !== "files" &&
+				(kind !== "terminal" || cloudSummary !== null) &&
+				kind !== "changes"),
 	);
 
 	// Glide dock tabs when panels are opened or closed. Declared with the other
@@ -362,8 +434,19 @@ export function RightPane({
 		visiblePanels.find((p) => p.id === effectiveActiveId) ?? null;
 	const browserActive = activePanel?.kind === "browser";
 	const browserAvailable = rendererPlatformCapabilities().integratedBrowser;
+	const cloudTerminalActions =
+		cloudSummary === null
+			? null
+			: {
+					onAddCloud: handleAddCloudTerminal,
+					onAddLocal: () => void handleAddLocalTerminal(),
+				};
 	const addPanelMenu = (
-		<AddPanelMenu addable={addablePanels} onAdd={handleAddPanel} />
+		<AddPanelMenu
+			addable={addablePanels}
+			onAdd={handleAddPanel}
+			cloudTerminals={cloudTerminalActions}
+		/>
 	);
 
 	return (
@@ -402,6 +485,7 @@ export function RightPane({
 						actions={addPanelMenu}
 						addable={addablePanels}
 						onAdd={handleAddPanel}
+						cloudTerminals={cloudTerminalActions}
 					/>
 				) : null}
 				{/* Non-browser panels: mount on add, kept mounted while open. */}
@@ -435,6 +519,11 @@ export function RightPane({
 									rootPath={executionRootPath ?? selected.path}
 									worktreeId={worktreeId}
 									cloudUnavailable={ctx.status === "cloud-unavailable"}
+									localTerminal={
+										panel.kind === "terminal" &&
+										termList[panel.slot]?.environmentId ===
+											getLocalEnvironmentId()
+									}
 									sessionId={sessionId}
 									planMarkdown={planMarkdown}
 									directoryUnavailable={directoryUnavailable}
@@ -488,6 +577,7 @@ function PanelBody({
 	planMarkdown,
 	directoryUnavailable,
 	cloudUnavailable,
+	localTerminal,
 }: {
 	panel: PanelInstance;
 	folderId: FolderId;
@@ -500,8 +590,9 @@ function PanelBody({
 	planMarkdown: string | null;
 	directoryUnavailable: boolean;
 	cloudUnavailable: boolean;
+	localTerminal: boolean;
 }) {
-	if (cloudUnavailable && LIVE_PANEL_KINDS.has(panel.kind)) {
+	if (cloudUnavailable && LIVE_PANEL_KINDS.has(panel.kind) && !localTerminal) {
 		return (
 			<div
 				role="status"
@@ -514,7 +605,7 @@ function PanelBody({
 	if (
 		directoryUnavailable &&
 		(panel.kind === "files" ||
-			panel.kind === "terminal" ||
+			(panel.kind === "terminal" && !localTerminal) ||
 			panel.kind === "changes")
 	) {
 		return (
@@ -589,36 +680,38 @@ function PanelLauncher({
 	actions,
 	addable,
 	onAdd,
+	cloudTerminals,
 }: {
 	actions: React.ReactNode;
 	addable: ReadonlyArray<PanelKind>;
 	onAdd: (kind: PanelKind) => void;
+	cloudTerminals: CloudTerminalActions | null;
 }) {
 	return (
 		<div className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-3">
 			<div className="absolute right-3 top-3">{actions}</div>
 			<div className="flex w-full max-w-md flex-col gap-1.5">
-				{addable.map((kind) => {
+				{addable.flatMap((kind) => {
 					const meta = PANEL_META[kind];
-					return (
+					return panelChoices(kind, cloudTerminals, onAdd).map((choice) => (
 						<button
-							key={kind}
+							key={choice.key}
 							type="button"
-							onClick={() => onAdd(kind)}
+							onClick={choice.onClick}
 							className="flex w-full items-center gap-3 rounded-lg bg-card/80 px-3 py-3 text-left text-sm text-foreground/90 transition-colors hover:bg-card/60"
 						>
 							<HugeiconsIcon
-								icon={meta.icon}
+								icon={choice.icon}
 								className="size-4 shrink-0 text-muted-foreground"
 							/>
-							<span className="flex-1 truncate">{meta.label}</span>
+							<span className="flex-1 truncate">{choice.label}</span>
 							{meta.shortcut !== undefined && meta.shortcut !== "" ? (
 								<kbd className="font-sans text-[11px] text-muted-foreground/70">
 									{meta.shortcut}
 								</kbd>
 							) : null}
 						</button>
-					);
+					));
 				})}
 			</div>
 		</div>
@@ -629,9 +722,11 @@ function PanelLauncher({
 function AddPanelMenu({
 	addable,
 	onAdd,
+	cloudTerminals,
 }: {
 	addable: ReadonlyArray<PanelKind>;
 	onAdd: (kind: PanelKind) => void;
+	cloudTerminals: CloudTerminalActions | null;
 }) {
 	if (addable.length === 0) return null;
 	return (
@@ -651,24 +746,26 @@ function AddPanelMenu({
 			</Tooltip>
 			<MenuPopup align="end" className="w-72 p-1">
 				{addable.length > 0
-					? addable.map((kind) => {
+					? addable.flatMap((kind) => {
 							const meta = PANEL_META[kind];
-							return (
+							return panelChoices(kind, cloudTerminals, onAdd).map((choice) => (
 								<MenuItem
-									key={kind}
-									onClick={() => onAdd(kind)}
+									key={choice.key}
+									onClick={choice.onClick}
 									className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-sm hover:bg-sidebar-accent"
 								>
 									<HugeiconsIcon
-										icon={meta.icon}
+										icon={choice.icon}
 										className="size-3.5 opacity-80"
 									/>
-									<span className="min-w-0 flex-1 truncate">{meta.label}</span>
+									<span className="min-w-0 flex-1 truncate">
+										{choice.label}
+									</span>
 									{meta.shortcut !== undefined && meta.shortcut !== "" ? (
 										<MenuShortcut>{meta.shortcut}</MenuShortcut>
 									) : null}
 								</MenuItem>
-							);
+							));
 						})
 					: null}
 			</MenuPopup>

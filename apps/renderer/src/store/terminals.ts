@@ -52,11 +52,12 @@ type TerminalsState = {
 	 * INDEX (not its id), so the caller can pin a right-dock terminal panel to
 	 * exactly that slot (see `lib/run-terminal.ts`).
 	 */
-	readonly addCommand: (
+	readonly add: (
 		ref: ChatRef,
+		environmentId: EnvironmentId,
 		cwd: string,
 		title: string,
-		command: TerminalInstance["command"],
+		command?: TerminalInstance["command"],
 	) => number;
 	readonly remove: (ref: ChatRef, id: PtyId) => void;
 	/**
@@ -94,30 +95,15 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
 		let result: TerminalInstance | undefined;
 		set((state) => {
 			const list = state.byKey[key] ?? [];
-			const expectedEnvironment = ref.environmentId;
 			if (list.length > slot) {
 				const existing = list[slot] as TerminalInstance;
-				if (existing.environmentId === expectedEnvironment) {
-					result = existing;
-					return state;
-				}
-				disposeTerminal(existing.environmentId, existing.id);
-				const replacement: TerminalInstance = {
-					environmentId: expectedEnvironment,
-					id: newId(),
-					title: existing.title,
-					cwd,
-					command: existing.command,
-				};
-				const next = [...list];
-				next[slot] = replacement;
-				result = replacement;
-				return { byKey: { ...state.byKey, [key]: next } };
+				result = existing;
+				return state;
 			}
 			const next = [...list];
 			while (next.length <= slot) {
 				next.push({
-					environmentId: expectedEnvironment,
+					environmentId: ref.environmentId,
 					id: newId(),
 					title: nextTitle(next),
 					cwd,
@@ -129,7 +115,7 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
 		});
 		return result as TerminalInstance;
 	},
-	addCommand: (ref, cwd, title, command) => {
+	add: (ref, environmentId, cwd, title, command) => {
 		const key = terminalsKey(ref);
 		const id = newId();
 		let index = 0;
@@ -137,7 +123,7 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
 			const list = state.byKey[key] ?? [];
 			index = list.length;
 			const instance: TerminalInstance = {
-				environmentId: ref.environmentId,
+				environmentId,
 				id,
 				title,
 				cwd,

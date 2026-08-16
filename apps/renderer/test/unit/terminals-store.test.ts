@@ -28,4 +28,26 @@ describe("qualified terminals store", () => {
 			terminalB,
 		]);
 	});
+
+	it("keeps a local shell owned by its cloud chat", () => {
+		const ref = {
+			environmentId: EnvironmentId.make("cloud-workspace"),
+			chatId: "cloud-chat" as ChatId,
+		};
+		const localEnvironmentId = EnvironmentId.make("desktop");
+		const store = useTerminalsStore.getState();
+
+		const slot = store.add(
+			ref,
+			localEnvironmentId,
+			"/Users/me/.zuse/cloud/repo/branch",
+			"Local",
+		);
+		const terminal =
+			useTerminalsStore.getState().byKey[terminalsKey(ref)]?.[slot];
+
+		expect(terminal?.environmentId).toBe(localEnvironmentId);
+		expect(terminal?.cwd).toBe("/Users/me/.zuse/cloud/repo/branch");
+		expect(store.ensureSlot(ref, slot, "/home/zuse/workspace")).toBe(terminal);
+	});
 });

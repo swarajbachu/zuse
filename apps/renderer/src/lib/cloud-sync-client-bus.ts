@@ -109,14 +109,7 @@ const startSync = async (workspaceId: string): Promise<void> => {
 		return;
 	}
 	try {
-		const summary = cloudSummaryForEnvironment(workspaceId);
-		const localPath =
-			summary === null
-				? null
-				: await app.cloudSyncDefaultPath?.(
-						summary.repositoryDisplayName,
-						summary.branch,
-					);
+		const localPath = await cloudSyncLocalPath(workspaceId);
 		if (localPath == null)
 			throw new Error("Could not resolve the local cloud workspace path.");
 		setLocalStatus(workspaceId, {
@@ -146,6 +139,18 @@ const startSync = async (workspaceId: string): Promise<void> => {
 			error: errorMessage(cause, "Cloud sync failed."),
 		});
 	}
+};
+
+export const cloudSyncLocalPath = async (
+	workspaceId: string,
+): Promise<string | null> => {
+	const summary = cloudSummaryForEnvironment(workspaceId);
+	return summary === null
+		? null
+		: ((await getAppBridge()?.cloudSyncDefaultPath?.(
+				summary.repositoryDisplayName,
+				summary.branch,
+			)) ?? null);
 };
 
 const stopSync = async (workspaceId: string): Promise<void> => {
