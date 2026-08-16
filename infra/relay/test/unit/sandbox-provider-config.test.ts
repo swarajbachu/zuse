@@ -39,7 +39,7 @@ describe("sandbox provider configuration", () => {
 		).toThrow(SandboxProviderConfigurationError);
 	});
 
-	test("loads a complete live provider without marking it production ready", async () => {
+	test("loads a complete production-ready provider", async () => {
 		const runtime = resolveSandboxProviderRuntime(configuredEnvironment);
 		const providers = await Effect.runPromise(
 			Effect.gen(function* () {
@@ -55,7 +55,7 @@ describe("sandbox provider configuration", () => {
 		);
 
 		expect(runtime.configuredProviders).toEqual([
-			{ providerId: "e2b", productionReady: false },
+			{ providerId: "e2b", productionReady: true },
 		]);
 		expect(providers).toEqual({
 			defaultProviderId: "fake",

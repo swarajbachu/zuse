@@ -47,7 +47,7 @@ export class SandboxProviderConfigurationError extends Schema.TaggedErrorClass<S
 const offerConfiguration = (): SandboxOfferConfig => ({
 	port: 47_837,
 	vcpuCount: 2,
-	memoryMib: 1_024,
+	memoryMib: 4_096,
 	createTimeoutSeconds: 60 * 60,
 	keepAliveTimeoutSeconds: 10 * 60,
 });
