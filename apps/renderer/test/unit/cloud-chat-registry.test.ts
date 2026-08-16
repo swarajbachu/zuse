@@ -133,6 +133,33 @@ describe("cloud chat catalog", () => {
 		expect(cloudConnectionPresentation(row, "attaching")).toBe("hidden");
 	});
 
+	it("does not keep a settled turn working from stale bootstrap metadata", () => {
+		const row = CloudChatSummary.make({
+			...summary({
+				workspaceId: "environment-a",
+				chatId: "chat-a",
+				sessionId: "session-a",
+				revision: 1,
+			}),
+			startupPhase: "starting-agent",
+		});
+
+		expect(
+			deriveCloudChatActivity({
+				summary: row,
+				connection: "connected",
+				runtime: "idle",
+			}),
+		).toBe("idle");
+		expect(
+			deriveCloudChatActivity({
+				summary: row,
+				connection: "connected",
+				runtime: "starting",
+			}),
+		).toBe("starting-agent");
+	});
+
 	it("accepts newer runtime metadata within one lifecycle revision", () => {
 		const old = summary({
 			workspaceId: "environment-a",

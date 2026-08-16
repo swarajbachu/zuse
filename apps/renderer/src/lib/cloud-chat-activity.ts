@@ -83,6 +83,5 @@ export const deriveCloudChatActivity = ({
 		summary.statusCode.startsWith("resume-")
 	)
 		return computeReady ? "idle" : "resuming";
-	if (summary.startupPhase === "starting-agent") return "starting-agent";
 	return "idle";
 };
