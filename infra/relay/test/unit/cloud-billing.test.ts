@@ -7,6 +7,7 @@ import {
 	customerOverageCents,
 	e2bExecutionCostMicros,
 } from "../../src/cloud-billing.ts";
+import { priceE2bExecutionPeriod } from "../../src/cloud-billing-e2b.ts";
 import { verifyE2bSignature } from "../../src/cloud-billing-routes.ts";
 
 describe("cloud billing", () => {
@@ -57,6 +58,51 @@ describe("cloud billing", () => {
 			memoryNanoUsdPerGibSecond: 9_000,
 		});
 		expect(firstHalf + secondHalf).toBe(175_500);
+	});
+
+	it("keeps E2B financial identity stable when the price catalog changes", () => {
+		const common = {
+			eventId: "event-1",
+			periodId: "period-1",
+			startedAtMs: 0,
+			endedAtMs: 60_000,
+			vcpuCount: 2,
+			memoryMib: 1_024,
+		};
+		const original = priceE2bExecutionPeriod({
+			...common,
+			prices: [
+				{
+					startedAtMs: 0,
+					endedAtMs: 60_000,
+					cpuNanoUsdPerSecond: 14_000,
+					memoryNanoUsdPerGibSecond: 4_500,
+				},
+			],
+		});
+		const catalogExtended = priceE2bExecutionPeriod({
+			...common,
+			prices: [
+				{
+					startedAtMs: 0,
+					endedAtMs: 30_000,
+					cpuNanoUsdPerSecond: 14_000,
+					memoryNanoUsdPerGibSecond: 4_500,
+				},
+				{
+					startedAtMs: 30_000,
+					endedAtMs: 60_000,
+					cpuNanoUsdPerSecond: 28_000,
+					memoryNanoUsdPerGibSecond: 9_000,
+				},
+			],
+		});
+
+		expect(catalogExtended.providerCostMicros).not.toBe(
+			original.providerCostMicros,
+		);
+		expect(catalogExtended.entryId).toBe(original.entryId);
+		expect(catalogExtended.providerEventId).toBe(original.providerEventId);
 	});
 
 	it("rounds only cumulative overage to Polar cents", () => {

@@ -80,6 +80,48 @@ export interface E2bIngestionResult {
 		| "pre-cutover";
 }
 
+export interface E2bPriceWindow {
+	readonly startedAtMs: number;
+	readonly endedAtMs: number;
+	readonly cpuNanoUsdPerSecond: number;
+	readonly memoryNanoUsdPerGibSecond: number;
+}
+
+/**
+ * Price windows affect the cost, never the financial identity. Catalog entries
+ * may be appended after an execution was first ingested, so using a window
+ * boundary in the identity would let a redelivery create additional rows.
+ */
+export const priceE2bExecutionPeriod = (input: {
+	readonly eventId: string;
+	readonly periodId: string;
+	readonly startedAtMs: number;
+	readonly endedAtMs: number;
+	readonly vcpuCount: number;
+	readonly memoryMib: number;
+	readonly prices: ReadonlyArray<E2bPriceWindow>;
+}) => {
+	const providerEventId = `${input.eventId}:${input.periodId}`;
+	return {
+		entryId: `e2b:${providerEventId}`,
+		providerEventId,
+		startedAt: input.startedAtMs,
+		endedAt: input.endedAtMs,
+		providerCostMicros: input.prices.reduce(
+			(total, price) =>
+				total +
+				e2bExecutionCostMicros({
+					durationMs: price.endedAtMs - price.startedAtMs,
+					vcpuCount: input.vcpuCount,
+					memoryMib: input.memoryMib,
+					cpuNanoUsdPerSecond: price.cpuNanoUsdPerSecond,
+					memoryNanoUsdPerGibSecond: price.memoryNanoUsdPerGibSecond,
+				}),
+			0,
+		),
+	};
+};
+
 export const ingestE2bLifecycleEvent = Effect.fn("ingestE2bLifecycleEvent")(
 	function* (input: {
 		readonly event: E2bLifecycleEvent;
@@ -191,32 +233,29 @@ export const ingestE2bLifecycleEvent = Effect.fn("ingestE2bLifecycleEvent")(
 			);
 			if (prices.length === 0)
 				return yield* Effect.fail(conflict("cloud_billing_price_missing"));
-			for (const price of prices) {
-				metered =
-					(yield* billingStore.recordExecution({
-						entryId: `e2b:${event.id}:${price.startedAtMs}`,
-						periodId: executionPeriod.periodId,
-						accountId: resource.accountId,
-						resourceKind: workspace === null ? "build" : "workspace",
-						resourceId: internalId,
-						provider: "e2b",
-						providerEventId: `${event.id}:${price.startedAtMs}`,
-						providerExecutionId: event.sandbox_execution_id,
-						startedAt: price.startedAtMs,
-						endedAt: price.endedAtMs,
-						vcpuCount: execution.vcpu_count,
-						memoryMib: execution.memory_mb,
-						providerCostMicros: e2bExecutionCostMicros({
-							durationMs: price.endedAtMs - price.startedAtMs,
-							vcpuCount: execution.vcpu_count,
-							memoryMib: execution.memory_mb,
-							cpuNanoUsdPerSecond: price.cpuNanoUsdPerSecond,
-							memoryNanoUsdPerGibSecond: price.memoryNanoUsdPerGibSecond,
-						}),
-						status: "confirmed",
-						nowMs: input.nowMs,
-					})) || metered;
-			}
+			const priced = priceE2bExecutionPeriod({
+				eventId: event.id,
+				periodId: executionPeriod.periodId,
+				startedAtMs: segmentStart,
+				endedAtMs: segmentEnd,
+				vcpuCount: execution.vcpu_count,
+				memoryMib: execution.memory_mb,
+				prices,
+			});
+			metered =
+				(yield* billingStore.recordExecution({
+					...priced,
+					periodId: executionPeriod.periodId,
+					accountId: resource.accountId,
+					resourceKind: workspace === null ? "build" : "workspace",
+					resourceId: internalId,
+					provider: "e2b",
+					providerExecutionId: event.sandbox_execution_id,
+					vcpuCount: execution.vcpu_count,
+					memoryMib: execution.memory_mb,
+					status: "confirmed",
+					nowMs: input.nowMs,
+				})) || metered;
 		}
 		return { eventInserted, metered };
 	},
