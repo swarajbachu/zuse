@@ -400,6 +400,22 @@ export class CloudWorkspaceResumeRequest extends Schema.Class<CloudWorkspaceResu
 	recoverRuntime: Schema.optional(Schema.Boolean),
 }) {}
 
+/**
+ * A short-lived grant for the workspace runtime's WebSocket SSH bridge. The
+ * relay stages the hashed ticket inside the sandbox; the desktop's
+ * ProxyCommand bridge presents the plain ticket when it connects to `wsUrl`.
+ */
+export class CloudWorkspaceSshAccess extends Schema.Class<CloudWorkspaceSshAccess>(
+	"CloudWorkspaceSshAccess",
+)({
+	workspaceId: Schema.String,
+	wsUrl: Schema.String,
+	ticket: Schema.String,
+	expiresAt: Schema.Number,
+	user: Schema.String,
+	workspacePath: Schema.String,
+}) {}
+
 export class CloudCredentialConnection extends Schema.Class<CloudCredentialConnection>(
 	"CloudCredentialConnection",
 )({
@@ -520,6 +536,20 @@ export const CloudWorkspacesResumeRpc = Rpc.make("cloud.workspaces.resume", {
 	success: CloudWorkspace,
 	error: CloudWorkspaceOpError,
 });
+/** Restart the runtime of a running workspace in place (same sandbox). */
+export const CloudWorkspacesRestartRpc = Rpc.make("cloud.workspaces.restart", {
+	payload: CloudWorkspaceActionRequest,
+	success: CloudWorkspace,
+	error: CloudWorkspaceOpError,
+});
+export const CloudWorkspacesSshAccessRpc = Rpc.make(
+	"cloud.workspaces.sshAccess",
+	{
+		payload: CloudWorkspaceActionRequest,
+		success: CloudWorkspaceSshAccess,
+		error: CloudWorkspaceOpError,
+	},
+);
 export const CloudWorkspacesArchiveRpc = Rpc.make("cloud.workspaces.archive", {
 	payload: CloudWorkspaceActionRequest,
 	success: CloudWorkspace,

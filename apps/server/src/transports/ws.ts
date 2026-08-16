@@ -35,6 +35,7 @@ import {
 	requestRequiresAuthentication,
 	WebSocketTicketStore,
 } from "./browser-http.ts";
+import { sshBridgeApp } from "./ssh-bridge.ts";
 
 const PairRequest = Schema.Struct({
 	code: Schema.String,
@@ -95,6 +96,11 @@ export type WsServerProtocolOptions = {
 		readonly key: string | Buffer;
 		readonly cert: string | Buffer;
 	};
+	/**
+	 * Mounts the ticket-gated `/ssh` WebSocket↔sshd bridge. Enabled only for
+	 * cloud-environment runtimes; the relay stages the ticket hash in-sandbox.
+	 */
+	readonly sshBridge?: boolean;
 };
 
 const json = (body: unknown, status: number) =>
@@ -616,6 +622,9 @@ export const wsServerProtocolLayer = (
 				"/auth/logout",
 				browserLogoutApp(cookieName, browserSecurity),
 			);
+			if (opts.sshBridge === true) {
+				yield* router.add("GET", "/ssh", sshBridgeApp(log));
+			}
 			yield* router.add("GET", "/assets/attachments/*", (request) =>
 				Effect.gen(function* () {
 					const credential = sessionCredential(request, cookieName);

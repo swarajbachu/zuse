@@ -210,6 +210,7 @@ export const runHeadlessServer = (
 			port,
 			host,
 			staticDir: options.staticDir,
+			sshBridge: process.env.ZUSE_MACHINE_RUNTIME_ROLE === "cloud-environment",
 			pairingPublicBaseUrl: options.pairingPublicBaseUrl,
 			onPairing: options.open
 				? ({ browserUrl }) => openBrowser(browserUrl)

@@ -20,6 +20,7 @@ import {
 	type CloudWorkspaceCreateRequest,
 	CloudWorkspaceLaunch,
 	CloudWorkspaceList,
+	CloudWorkspaceSshAccess,
 	EntitlementList,
 	type EnvironmentId,
 	type MachineCreateRequest,
@@ -98,9 +99,12 @@ export interface MachineControlServiceShape {
 	) => Effect.Effect<CloudChatList, MachineControlError>;
 	readonly cloudWorkspaceAction: (
 		workspaceId: string,
-		action: "pause" | "resume" | "archive" | "unarchive" | "delete",
+		action: "pause" | "resume" | "restart" | "archive" | "unarchive" | "delete",
 		options?: Readonly<{ recoverRuntime?: boolean; commandId?: string }>,
 	) => Effect.Effect<CloudWorkspace, MachineControlError>;
+	readonly cloudWorkspaceSshAccess: (
+		workspaceId: string,
+	) => Effect.Effect<CloudWorkspaceSshAccess, MachineControlError>;
 	readonly cloudCredentials: () => Effect.Effect<
 		CloudCredentialList,
 		MachineControlError
@@ -384,6 +388,13 @@ export const MachineControlServiceLive: Layer.Layer<
 					CloudWorkspace,
 					"POST",
 					{ workspaceId, ...options },
+				),
+			cloudWorkspaceSshAccess: (workspaceId) =>
+				request(
+					RelayPaths.cloudWorkspaceSshAccess(workspaceId),
+					CloudWorkspaceSshAccess,
+					"POST",
+					{ workspaceId },
 				),
 			cloudCredentials: () =>
 				request(RelayPaths.cloudCredentials, CloudCredentialList),
