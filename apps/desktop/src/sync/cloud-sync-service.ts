@@ -1,6 +1,14 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -49,6 +57,9 @@ export interface CloudSyncConfigureInput {
 /** openrsync (macOS) rejects `--filter`; GNU rsync supports it. */
 export const supportsGitignoreFilter = (versionOutput: string): boolean =>
 	!versionOutput.includes("openrsync") && versionOutput.includes("version 3");
+
+export const remoteRsyncMissing = (stderr: string): boolean =>
+	/(?:rsync: )?command not found/u.test(stderr);
 
 export const rsyncArgs = (input: {
 	readonly hostAlias: string;
@@ -126,6 +137,9 @@ export class CloudSyncManager {
 		private readonly runRsync: (
 			args: ReadonlyArray<string>,
 		) => Promise<{ code: number; stderr: string }> = defaultRunRsync,
+		private readonly runLegacySync: (
+			input: CloudSyncConfigureInput,
+		) => Promise<{ code: number; stderr: string }> = defaultRunLegacySync,
 	) {}
 
 	status(workspaceId: string): CloudSyncStatus {
@@ -254,7 +268,9 @@ export class CloudSyncManager {
 				sshConfigPath: sshConfigPath(),
 				gitignoreFilter: await this.resolveGitignoreFilter(),
 			});
-			const result = await this.runRsync(args);
+			let result = await this.runRsync(args);
+			if (result.code !== 0 && remoteRsyncMissing(result.stderr))
+				result = await this.runLegacySync(entry.config);
 			if (this.entries.get(workspaceId) !== entry) return;
 			if (result.code === 0) {
 				entry.state = "in-sync";
@@ -298,4 +314,77 @@ const defaultRunRsync = (
 		});
 		child.once("error", reject);
 		child.once("close", (code) => resolve({ code: code ?? 1, stderr }));
+	});
+
+/** Compatibility path for workspaces created before rsync entered the image. */
+const defaultRunLegacySync = async (
+	input: CloudSyncConfigureInput,
+): Promise<{ code: number; stderr: string }> => {
+	const staging = await mkdtemp(`${input.localPath}.incoming-`);
+	try {
+		const result = await streamTarArchive(input, staging);
+		if (result.code !== 0) return result;
+		for (const name of await readdir(input.localPath)) {
+			if (name !== SYNC_MARKER_FILE)
+				await rm(join(input.localPath, name), { recursive: true, force: true });
+		}
+		for (const name of await readdir(staging))
+			await rename(join(staging, name), join(input.localPath, name));
+		return result;
+	} finally {
+		await rm(staging, { recursive: true, force: true });
+	}
+};
+
+const streamTarArchive = (
+	input: CloudSyncConfigureInput,
+	staging: string,
+): Promise<{ code: number; stderr: string }> =>
+	new Promise((resolve, reject) => {
+		const remote = spawn(
+			"ssh",
+			[
+				"-F",
+				sshConfigPath(),
+				input.hostAlias,
+				"tar",
+				"-C",
+				input.remotePath,
+				"--exclude=.git",
+				`--exclude=${SYNC_MARKER_FILE}`,
+				"-czf",
+				"-",
+				".",
+			],
+			{ stdio: ["ignore", "pipe", "pipe"] },
+		);
+		const local = spawn("tar", ["-xzf", "-", "-C", staging], {
+			stdio: ["pipe", "ignore", "pipe"],
+		});
+		let stderr = "";
+		const appendError = (chunk: Buffer) => {
+			stderr = `${stderr}${chunk.toString()}`.slice(-4_096);
+		};
+		remote.stderr.on("data", appendError);
+		local.stderr.on("data", appendError);
+		remote.stdout.pipe(local.stdin);
+		let remoteCode: number | null = null;
+		let localCode: number | null = null;
+		const finish = () => {
+			if (remoteCode === null || localCode === null) return;
+			resolve({
+				code: remoteCode === 0 && localCode === 0 ? 0 : 1,
+				stderr,
+			});
+		};
+		remote.once("error", reject);
+		local.once("error", reject);
+		remote.once("close", (code) => {
+			remoteCode = code ?? 1;
+			finish();
+		});
+		local.once("close", (code) => {
+			localCode = code ?? 1;
+			finish();
+		});
 	});

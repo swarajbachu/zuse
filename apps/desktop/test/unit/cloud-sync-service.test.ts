@@ -8,6 +8,7 @@ import {
 	CloudSyncManager,
 	type CloudSyncStatus,
 	cloudSyncDefaultPath,
+	remoteRsyncMissing,
 	rsyncArgs,
 	SYNC_MARKER_FILE,
 	supportsGitignoreFilter,
@@ -60,6 +61,15 @@ describe("cloud sync service", () => {
 		);
 	});
 
+	test("recognizes an old sandbox without remote rsync", () => {
+		expect(remoteRsyncMissing("bash: line 1: rsync: command not found")).toBe(
+			true,
+		);
+		expect(remoteRsyncMissing("rsync: connection unexpectedly closed")).toBe(
+			false,
+		);
+	});
+
 	test("refuses a non-empty local directory without the sync marker", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
 		await writeFile(join(dir, "precious.txt"), "do not clobber");
@@ -101,6 +111,33 @@ describe("cloud sync service", () => {
 		expect(runs.length).toBe(1);
 		expect(manager.status("workspace_abc").state).toBe("in-sync");
 		expect(manager.status("workspace_abc").lastSyncedAt).not.toBeNull();
+		manager.dispose();
+	});
+
+	test("falls back for old sandboxes without rsync", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
+		let fallbackRuns = 0;
+		const manager = new CloudSyncManager(
+			() => {},
+			async () => ({
+				code: 127,
+				stderr: "bash: line 1: rsync: command not found",
+			}),
+			async () => {
+				fallbackRuns += 1;
+				return { code: 0, stderr: "" };
+			},
+		);
+		await manager.configure({
+			workspaceId: "workspace_old",
+			enabled: true,
+			localPath: dir,
+			hostAlias: "zuse-workspace_old",
+			remotePath: "/home/zuse/workspace",
+		});
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(fallbackRuns).toBe(1);
+		expect(manager.status("workspace_old").state).toBe("in-sync");
 		manager.dispose();
 	});
 
