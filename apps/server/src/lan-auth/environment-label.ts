@@ -14,43 +14,43 @@ import { Effect } from "effect";
  * errors.
  */
 export const defaultEnvironmentLabel = (): Effect.Effect<string> =>
-	Effect.gen(function* () {
-		if (process.platform === "darwin") {
-			const computerName = yield* computerNameDarwin;
-			if (computerName !== null) return computerName;
-		}
+  Effect.gen(function* () {
+    if (process.platform === "darwin") {
+      const computerName = yield* computerNameDarwin;
+      if (computerName !== null) return computerName;
+    }
 
-		const hostname = yield* hostnameLabel;
-		if (hostname !== null) return hostname;
+    const hostname = yield* hostnameLabel;
+    if (hostname !== null) return hostname;
 
-		const username = yield* usernameLabel;
-		if (username !== null) return username;
+    const username = yield* usernameLabel;
+    if (username !== null) return username;
 
-		return "Computer";
-	});
+    return "Computer";
+  });
 
 const cleaned = (value: string | null | undefined): string | null => {
-	const trimmed = value?.trim();
-	return trimmed !== undefined && trimmed.length > 0 ? trimmed : null;
+  const trimmed = value?.trim();
+  return trimmed !== undefined && trimmed.length > 0 ? trimmed : null;
 };
 
 const computerNameDarwin = Effect.try({
-	try: () =>
-		cleaned(
-			execFileSync("scutil", ["--get", "ComputerName"], {
-				encoding: "utf8",
-				timeout: 2_000,
-			}),
-		),
-	catch: () => null,
+  try: () =>
+    cleaned(
+      execFileSync("scutil", ["--get", "ComputerName"], {
+        encoding: "utf8",
+        timeout: 2_000,
+      }),
+    ),
+  catch: () => null,
 }).pipe(Effect.orElseSucceed(() => null));
 
 const hostnameLabel = Effect.try({
-	try: () => cleaned(os.hostname().replace(/\.local$/i, "")),
-	catch: () => null,
+  try: () => cleaned(os.hostname().replace(/\.local$/i, "")),
+  catch: () => null,
 }).pipe(Effect.orElseSucceed(() => null));
 
 const usernameLabel = Effect.try({
-	try: () => cleaned(os.userInfo().username),
-	catch: () => null,
+  try: () => cleaned(os.userInfo().username),
+  catch: () => null,
 }).pipe(Effect.orElseSucceed(() => null));

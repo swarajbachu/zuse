@@ -32,106 +32,106 @@ export type ProviderKind = typeof ProviderKind.Type;
 
 /** The reachable URLs for an environment's RPC surface. */
 export class EnvironmentEndpoint extends Schema.Class<EnvironmentEndpoint>(
-	"EnvironmentEndpoint",
+  "EnvironmentEndpoint",
 )({
-	httpBaseUrl: Schema.String,
-	wsBaseUrl: Schema.String,
+  httpBaseUrl: Schema.String,
+  wsBaseUrl: Schema.String,
 }) {}
 
 export const AdvertisedEndpointProviderKind = Schema.Literals([
-	"core",
-	"tunnel",
-	"manual",
-	"private-network",
+  "core",
+  "tunnel",
+  "manual",
+  "private-network",
 ]);
 export type AdvertisedEndpointProviderKind =
-	typeof AdvertisedEndpointProviderKind.Type;
+  typeof AdvertisedEndpointProviderKind.Type;
 
 export const AdvertisedEndpointReachability = Schema.Literals([
-	"loopback",
-	"lan",
-	"public",
-	"tunnel",
-	"private-network",
+  "loopback",
+  "lan",
+  "public",
+  "tunnel",
+  "private-network",
 ]);
 export type AdvertisedEndpointReachability =
-	typeof AdvertisedEndpointReachability.Type;
+  typeof AdvertisedEndpointReachability.Type;
 
 export const AdvertisedEndpointHostedHttpsCompatibility = Schema.Literals([
-	"compatible",
-	"mixed-content-blocked",
-	"unknown",
+  "compatible",
+  "mixed-content-blocked",
+  "unknown",
 ]);
 export type AdvertisedEndpointHostedHttpsCompatibility =
-	typeof AdvertisedEndpointHostedHttpsCompatibility.Type;
+  typeof AdvertisedEndpointHostedHttpsCompatibility.Type;
 
 export const AdvertisedEndpointStatus = Schema.Literals([
-	"available",
-	"unavailable",
-	"unknown",
+  "available",
+  "unavailable",
+  "unknown",
 ]);
 export type AdvertisedEndpointStatus = typeof AdvertisedEndpointStatus.Type;
 
 export const AdvertisedEndpointCompatibility = Schema.Struct({
-	hostedHttpsApp: AdvertisedEndpointHostedHttpsCompatibility,
+  hostedHttpsApp: AdvertisedEndpointHostedHttpsCompatibility,
 });
 export type AdvertisedEndpointCompatibility =
-	typeof AdvertisedEndpointCompatibility.Type;
+  typeof AdvertisedEndpointCompatibility.Type;
 
 export class AdvertisedEndpoint extends Schema.Class<AdvertisedEndpoint>(
-	"AdvertisedEndpoint",
+  "AdvertisedEndpoint",
 )({
-	id: Schema.String,
-	label: Schema.String,
-	providerKind: AdvertisedEndpointProviderKind,
-	httpBaseUrl: Schema.String,
-	wsBaseUrl: Schema.String,
-	reachability: AdvertisedEndpointReachability,
-	compatibility: AdvertisedEndpointCompatibility,
-	status: AdvertisedEndpointStatus,
-	isDefault: Schema.Boolean,
+  id: Schema.String,
+  label: Schema.String,
+  providerKind: AdvertisedEndpointProviderKind,
+  httpBaseUrl: Schema.String,
+  wsBaseUrl: Schema.String,
+  reachability: AdvertisedEndpointReachability,
+  compatibility: AdvertisedEndpointCompatibility,
+  status: AdvertisedEndpointStatus,
+  isDefault: Schema.Boolean,
 }) {}
 
 export const CapabilityFeature = Schema.Literals([
-	"agents",
-	"chats",
-	"files",
-	"diffs",
-	"terminals",
-	"approvals",
-	"questions",
-	"previews",
-	"notifications",
-	"runtime-update",
+  "agents",
+  "chats",
+  "files",
+  "diffs",
+  "terminals",
+  "approvals",
+  "questions",
+  "previews",
+  "notifications",
+  "runtime-update",
 ]);
 export type CapabilityFeature = typeof CapabilityFeature.Type;
 
 export class CapabilityManifest extends Schema.Class<CapabilityManifest>(
-	"CapabilityManifest",
+  "CapabilityManifest",
 )({
-	version: Schema.Literal(1),
-	features: Schema.Array(CapabilityFeature),
+  version: Schema.Literal(1),
+  features: Schema.Array(CapabilityFeature),
 }) {}
 
 export const EnvironmentServiceState = Schema.Literals([
-	"starting",
-	"healthy",
-	"degraded",
-	"stopped",
-	"updating",
+  "starting",
+  "healthy",
+  "degraded",
+  "stopped",
+  "updating",
 ]);
 export type EnvironmentServiceState = typeof EnvironmentServiceState.Type;
 
 export class EnvironmentEndpointHealth extends Schema.Class<EnvironmentEndpointHealth>(
-	"EnvironmentEndpointHealth",
+  "EnvironmentEndpointHealth",
 )({
-	lan: Schema.optional(
-		Schema.Literals(["available", "unavailable", "unknown"]),
-	),
-	managed: Schema.optional(
-		Schema.Literals(["available", "unavailable", "unknown"]),
-	),
-	checkedAt: Schema.Number,
+  lan: Schema.optional(
+    Schema.Literals(["available", "unavailable", "unknown"]),
+  ),
+  managed: Schema.optional(
+    Schema.Literals(["available", "unavailable", "unknown"]),
+  ),
+  checkedAt: Schema.Number,
 }) {}
 
 /**
@@ -140,19 +140,19 @@ export class EnvironmentEndpointHealth extends Schema.Class<EnvironmentEndpointH
  * desktop / ssh / cloud uniformly.
  */
 export class EnvironmentDescriptor extends Schema.Class<EnvironmentDescriptor>(
-	"EnvironmentDescriptor",
+  "EnvironmentDescriptor",
 )({
-	environmentId: EnvironmentId,
-	providerKind: ProviderKind,
-	endpoint: EnvironmentEndpoint,
-	advertisedEndpoints: Schema.optional(Schema.Array(AdvertisedEndpoint)),
-	label: Schema.optional(Schema.String),
-	runtimeVersion: Schema.optional(Schema.String),
-	wireProtocolVersion: Schema.optional(Schema.Number),
-	capabilities: Schema.optional(CapabilityManifest),
-	serviceState: Schema.optional(EnvironmentServiceState),
-	endpointHealth: Schema.optional(EnvironmentEndpointHealth),
-	lastHeartbeat: Schema.optional(Schema.Number),
+  environmentId: EnvironmentId,
+  providerKind: ProviderKind,
+  endpoint: EnvironmentEndpoint,
+  advertisedEndpoints: Schema.optional(Schema.Array(AdvertisedEndpoint)),
+  label: Schema.optional(Schema.String),
+  runtimeVersion: Schema.optional(Schema.String),
+  wireProtocolVersion: Schema.optional(Schema.Number),
+  capabilities: Schema.optional(CapabilityManifest),
+  serviceState: Schema.optional(EnvironmentServiceState),
+  endpointHealth: Schema.optional(EnvironmentEndpointHealth),
+  lastHeartbeat: Schema.optional(Schema.Number),
 }) {}
 
 // ---------------------------------------------------------------------------
@@ -160,8 +160,8 @@ export class EnvironmentDescriptor extends Schema.Class<EnvironmentDescriptor>(
 // ---------------------------------------------------------------------------
 
 export class ConnectAuthError extends Schema.TaggedErrorClass<ConnectAuthError>()(
-	"ConnectAuthError",
-	{ reason: Schema.String },
+  "ConnectAuthError",
+  { reason: Schema.String },
 ) {}
 
 // ---------------------------------------------------------------------------
@@ -174,9 +174,9 @@ export class ConnectAuthError extends Schema.TaggedErrorClass<ConnectAuthError>(
  * connection catalog.
  */
 export const ConnectDescribeRpc = Rpc.make("connect.describe", {
-	payload: Schema.Void,
-	success: EnvironmentDescriptor,
-	error: ConnectAuthError,
+  payload: Schema.Void,
+  success: EnvironmentDescriptor,
+  error: ConnectAuthError,
 });
 
 /**
@@ -185,13 +185,13 @@ export const ConnectDescribeRpc = Rpc.make("connect.describe", {
  * submitted to the relay by the client to complete linking.
  */
 export const ConnectLinkProofRpc = Rpc.make("connect.linkProof", {
-	payload: Schema.Struct({
-		challenge: Schema.String,
-		relayIssuer: Schema.String,
-		endpoint: EnvironmentEndpoint,
-	}),
-	success: Schema.Struct({ proof: Schema.String }),
-	error: ConnectAuthError,
+  payload: Schema.Struct({
+    challenge: Schema.String,
+    relayIssuer: Schema.String,
+    endpoint: EnvironmentEndpoint,
+  }),
+  success: Schema.Struct({ proof: Schema.String }),
+  error: ConnectAuthError,
 });
 
 /**
@@ -199,15 +199,15 @@ export const ConnectLinkProofRpc = Rpc.make("connect.linkProof", {
  * future connections route through the managed endpoint without re-pairing.
  */
 export const ConnectRelayConfigRpc = Rpc.make("connect.relayConfig", {
-	payload: Schema.Struct({
-		relayUrl: Schema.String,
-		relayIssuer: Schema.String,
-		environmentId: EnvironmentId,
-		environmentCredential: Schema.String,
-		mintPublicKey: Schema.optional(Schema.String),
-	}),
-	success: Schema.Void,
-	error: ConnectAuthError,
+  payload: Schema.Struct({
+    relayUrl: Schema.String,
+    relayIssuer: Schema.String,
+    environmentId: EnvironmentId,
+    environmentCredential: Schema.String,
+    mintPublicKey: Schema.optional(Schema.String),
+  }),
+  success: Schema.Void,
+  error: ConnectAuthError,
 });
 
 // ---------------------------------------------------------------------------
@@ -221,36 +221,36 @@ export const ConnectRelayConfigRpc = Rpc.make("connect.relayConfig", {
 
 /** Whether this environment is linked to a relay, plus how to describe it. */
 export class RelayLinkStatus extends Schema.Class<RelayLinkStatus>(
-	"RelayLinkStatus",
+  "RelayLinkStatus",
 )({
-	linked: Schema.Boolean,
-	relayUrl: Schema.optional(Schema.String),
-	environmentId: Schema.optional(EnvironmentId),
-	label: Schema.optional(Schema.String),
-	heartbeatActive: Schema.Boolean,
-	advertisedEndpoints: Schema.optional(Schema.Array(AdvertisedEndpoint)),
+  linked: Schema.Boolean,
+  relayUrl: Schema.optional(Schema.String),
+  environmentId: Schema.optional(EnvironmentId),
+  label: Schema.optional(Schema.String),
+  heartbeatActive: Schema.Boolean,
+  advertisedEndpoints: Schema.optional(Schema.Array(AdvertisedEndpoint)),
 }) {}
 
 /** Link this environment to a relay under the signed-in WorkOS account. */
 export const RelayLinkRpc = Rpc.make("relay.link", {
-	payload: Schema.Struct({
-		relayUrl: Schema.String,
-		label: Schema.optional(Schema.String),
-	}),
-	success: RelayLinkStatus,
-	error: ConnectAuthError,
+  payload: Schema.Struct({
+    relayUrl: Schema.String,
+    label: Schema.optional(Schema.String),
+  }),
+  success: RelayLinkStatus,
+  error: ConnectAuthError,
 });
 
 /** Current relay link status. */
 export const RelayStatusRpc = Rpc.make("relay.status", {
-	payload: Schema.Void,
-	success: RelayLinkStatus,
-	error: ConnectAuthError,
+  payload: Schema.Void,
+  success: RelayLinkStatus,
+  error: ConnectAuthError,
 });
 
 /** Remove this environment's relay link. */
 export const RelayUnlinkRpc = Rpc.make("relay.unlink", {
-	payload: Schema.Void,
-	success: Schema.Void,
-	error: ConnectAuthError,
+  payload: Schema.Void,
+  success: Schema.Void,
+  error: ConnectAuthError,
 });

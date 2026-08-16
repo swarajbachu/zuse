@@ -10,8 +10,8 @@ import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, test } from "vitest";
 import { AppPaths } from "../../src/app-paths.ts";
 import { PermissionServiceLive } from "../../src/provider/layers/permission-service.ts";
-import type { PermissionServiceShape } from "../../src/provider/services/permission-service.ts";
 import { PermissionService } from "../../src/provider/services/permission-service.ts";
+import type { PermissionServiceShape } from "../../src/provider/services/permission-service.ts";
 
 const directories: string[] = [];
 

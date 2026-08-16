@@ -19,9 +19,9 @@ import { Schema } from "effect";
  *                        until then `autonomous` behaves like `approval-gated`.
  */
 export const AutonomyLevel = Schema.Literals([
-	"off",
-	"approval-gated",
-	"autonomous",
+  "off",
+  "approval-gated",
+  "autonomous",
 ]);
 export type AutonomyLevel = typeof AutonomyLevel.Type;
 
@@ -32,4 +32,4 @@ export const DEFAULT_AUTONOMY_LEVEL: AutonomyLevel = "approval-gated";
  * current runtimes expose the built-in tools for every managed session.
  */
 export const autonomyEnablesOrchestration = (_level: AutonomyLevel): boolean =>
-	true;
+  true;

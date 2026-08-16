@@ -77,9 +77,7 @@ interface SyncEntry {
 	running: boolean;
 	rerunRequested: boolean;
 	backoffMs: number;
-	debounceTimer: NodeJS.Timeout | null;
-	periodicTimer: NodeJS.Timeout | null;
-	retryTimer: NodeJS.Timeout | null;
+	timer: NodeJS.Timeout | null;
 }
 
 const sshConfigPath = (): string => join(homedir(), ".zuse", "ssh", "config");
@@ -142,9 +140,7 @@ export class CloudSyncManager {
 			running: false,
 			rerunRequested: false,
 			backoffMs: ERROR_BACKOFF_MIN_MS,
-			debounceTimer: null,
-			periodicTimer: null,
-			retryTimer: null,
+			timer: null,
 		};
 		this.entries.set(input.workspaceId, entry);
 		const guard = await this.guardLocalPath(input);
@@ -154,10 +150,6 @@ export class CloudSyncManager {
 			this.publish(input.workspaceId);
 			return this.status(input.workspaceId);
 		}
-		entry.periodicTimer = setInterval(() => {
-			void this.sync(input.workspaceId);
-		}, PERIODIC_FALLBACK_MS);
-		entry.periodicTimer.unref?.();
 		void this.sync(input.workspaceId);
 		return this.status(input.workspaceId);
 	}
@@ -166,11 +158,7 @@ export class CloudSyncManager {
 	requestSync(workspaceId: string): void {
 		const entry = this.entries.get(workspaceId);
 		if (entry === undefined || !entry.config.enabled) return;
-		if (entry.debounceTimer !== null) clearTimeout(entry.debounceTimer);
-		entry.debounceTimer = setTimeout(() => {
-			entry.debounceTimer = null;
-			void this.sync(workspaceId);
-		}, DEBOUNCE_MS);
+		this.schedule(workspaceId, entry, DEBOUNCE_MS);
 	}
 
 	dispose(): void {
@@ -179,12 +167,17 @@ export class CloudSyncManager {
 	}
 
 	private clearTimers(entry: SyncEntry): void {
-		if (entry.debounceTimer !== null) clearTimeout(entry.debounceTimer);
-		if (entry.periodicTimer !== null) clearInterval(entry.periodicTimer);
-		if (entry.retryTimer !== null) clearTimeout(entry.retryTimer);
-		entry.debounceTimer = null;
-		entry.periodicTimer = null;
-		entry.retryTimer = null;
+		if (entry.timer !== null) clearTimeout(entry.timer);
+		entry.timer = null;
+	}
+
+	private schedule(workspaceId: string, entry: SyncEntry, delay: number): void {
+		this.clearTimers(entry);
+		entry.timer = setTimeout(() => {
+			entry.timer = null;
+			void this.sync(workspaceId);
+		}, delay);
+		entry.timer.unref?.();
 	}
 
 	private async guardLocalPath(
@@ -233,6 +226,7 @@ export class CloudSyncManager {
 		entry.state = "syncing";
 		entry.ticketStale = !(await ticketFresh(workspaceId));
 		this.publish(workspaceId);
+		let nextDelay = PERIODIC_FALLBACK_MS;
 		try {
 			const args = rsyncArgs({
 				hostAlias: entry.config.hostAlias,
@@ -251,30 +245,24 @@ export class CloudSyncManager {
 			} else {
 				entry.state = "error";
 				entry.error = result.stderr.trim().split("\n").slice(-3).join("\n");
-				this.scheduleRetry(workspaceId, entry);
+				nextDelay = entry.backoffMs;
+				entry.backoffMs = Math.min(entry.backoffMs * 2, ERROR_BACKOFF_MAX_MS);
 			}
 		} catch (cause) {
 			entry.state = "error";
 			entry.error = cause instanceof Error ? cause.message : String(cause);
-			this.scheduleRetry(workspaceId, entry);
+			nextDelay = entry.backoffMs;
+			entry.backoffMs = Math.min(entry.backoffMs * 2, ERROR_BACKOFF_MAX_MS);
 		} finally {
 			entry.running = false;
-			this.publish(workspaceId);
-			if (entry.rerunRequested) {
-				entry.rerunRequested = false;
-				void this.sync(workspaceId);
+			if (this.entries.get(workspaceId) === entry) {
+				this.publish(workspaceId);
+				if (entry.rerunRequested) {
+					entry.rerunRequested = false;
+					void this.sync(workspaceId);
+				} else this.schedule(workspaceId, entry, nextDelay);
 			}
 		}
-	}
-
-	private scheduleRetry(workspaceId: string, entry: SyncEntry): void {
-		if (entry.retryTimer !== null) clearTimeout(entry.retryTimer);
-		entry.retryTimer = setTimeout(() => {
-			entry.retryTimer = null;
-			void this.sync(workspaceId);
-		}, entry.backoffMs);
-		entry.retryTimer.unref?.();
-		entry.backoffMs = Math.min(entry.backoffMs * 2, ERROR_BACKOFF_MAX_MS);
 	}
 }
 

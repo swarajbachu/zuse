@@ -9,13 +9,14 @@ import {
 } from "@zuse/client-runtime/resource-state";
 import { type AuthState, EnvironmentId } from "@zuse/contracts";
 import { Cause, Effect, Fiber, Stream } from "effect";
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
 import type { MemoizeClient } from "./rpc-client.ts";
 import { LOCAL_ENVIRONMENT_KEY } from "./rpc-client.ts";
 import {
 	getRendererClientBus,
 	registerRendererResourceDriver,
 } from "./session-timeline-client-bus.ts";
+import { useClientBusResource } from "./use-client-bus-resource.ts";
 
 export type EnvironmentAuthData = Readonly<{ state: AuthState }>;
 
@@ -94,15 +95,5 @@ export const useEnvironmentAuth = (): ResourceView<EnvironmentAuthData> => {
 		() => environmentAuthResourceKey(environmentId),
 		[environmentId],
 	);
-	const bus = getRendererClientBus();
-	useEffect(
-		() => bus.retain(key, { activation: "connect" }).release,
-		[bus, key],
-	);
-	const subscribe = useCallback(
-		(listener: () => void) => bus.subscribe(key, listener),
-		[bus, key],
-	);
-	const snapshot = useCallback(() => bus.snapshot(key) ?? EMPTY, [bus, key]);
-	return useSyncExternalStore(subscribe, snapshot, snapshot);
+	return useClientBusResource(key, EMPTY, "connect");
 };

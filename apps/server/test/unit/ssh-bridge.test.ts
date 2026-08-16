@@ -22,29 +22,14 @@ describe("ssh bridge ticket verification", () => {
 		expect(verifySshTicket(TICKET, ticketFile(), NOW)).toBe(true);
 	});
 
-	test("rejects a wrong ticket", () => {
-		expect(verifySshTicket("workspace_ssh_other", ticketFile(), NOW)).toBe(
-			false,
-		);
-	});
-
-	test("rejects an expired ticket", () => {
-		expect(
-			verifySshTicket(TICKET, ticketFile({ expiresAtMs: NOW - 1 }), NOW),
-		).toBe(false);
-		expect(verifySshTicket(TICKET, ticketFile({ expiresAtMs: NOW }), NOW)).toBe(
-			false,
-		);
-	});
-
-	test("rejects malformed ticket files", () => {
-		expect(verifySshTicket(TICKET, "not json", NOW)).toBe(false);
-		expect(verifySshTicket(TICKET, "{}", NOW)).toBe(false);
-		expect(verifySshTicket(TICKET, ticketFile({ tokenHash: 42 }), NOW)).toBe(
-			false,
-		);
-		expect(
-			verifySshTicket(TICKET, ticketFile({ tokenHash: "zz-not-hex" }), NOW),
-		).toBe(false);
+	test.each([
+		["wrong ticket", "workspace_ssh_other", ticketFile()],
+		["expired ticket", TICKET, ticketFile({ expiresAtMs: NOW })],
+		["invalid JSON", TICKET, "not json"],
+		["missing fields", TICKET, "{}"],
+		["invalid hash type", TICKET, ticketFile({ tokenHash: 42 })],
+		["invalid hash", TICKET, ticketFile({ tokenHash: "zz-not-hex" })],
+	])("rejects %s", (_case, ticket, contents) => {
+		expect(verifySshTicket(ticket, contents, NOW)).toBe(false);
 	});
 });

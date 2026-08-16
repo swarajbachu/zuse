@@ -371,6 +371,18 @@ export const makeE2bSandboxProvider = (
 			};
 		},
 	);
+	const envdHeaders = (
+		providerSandboxId: string,
+		accessToken: string,
+		user?: string,
+	): Record<string, string> => ({
+		"E2b-Sandbox-Id": providerSandboxId,
+		"E2b-Sandbox-Port": "49983",
+		"X-Access-Token": accessToken,
+		...(user === undefined
+			? {}
+			: { Authorization: `Basic ${btoa(`${user}:`)}` }),
+	});
 
 	const startProcess = Effect.fn("E2bSandboxProvider.startProcess")(function* (
 		providerSandboxId: string,
@@ -384,14 +396,7 @@ export const makeE2bSandboxProvider = (
 					headers: {
 						"Connect-Protocol-Version": "1",
 						"Content-Type": "application/connect+json",
-						"E2b-Sandbox-Id": providerSandboxId,
-						"E2b-Sandbox-Port": "49983",
-						"X-Access-Token": accessToken,
-						...(input.user === undefined
-							? {}
-							: {
-									Authorization: `Basic ${btoa(`${input.user}:`)}`,
-								}),
+						...envdHeaders(providerSandboxId, accessToken, input.user),
 					},
 					body: connectJsonEnvelope({
 						process: {
@@ -444,7 +449,7 @@ export const makeE2bSandboxProvider = (
 						headers: {
 							"Connect-Protocol-Version": "1",
 							"Content-Type": "application/json",
-							"X-Access-Token": accessToken,
+							...envdHeaders(providerSandboxId, accessToken),
 						},
 						body: "{}",
 					}),
@@ -484,7 +489,7 @@ export const makeE2bSandboxProvider = (
 								headers: {
 									"Connect-Protocol-Version": "1",
 									"Content-Type": "application/json",
-									"X-Access-Token": accessToken,
+									...envdHeaders(providerSandboxId, accessToken),
 								},
 								body: JSON.stringify({
 									process: { pid: process.pid },
@@ -528,22 +533,7 @@ export const makeE2bSandboxProvider = (
 		path: string,
 		user?: string,
 	) {
-		const detail = yield* sandboxDetail(providerSandboxId);
-		let accessToken = controlTokens.get(providerSandboxId);
-		if (accessToken === undefined) {
-			const connected = yield* request(
-				"POST",
-				`/sandboxes/${encodeURIComponent(providerSandboxId)}/connect`,
-				CreateResponse,
-				{ timeout: 300 },
-			);
-			accessToken = connected.envdAccessToken ?? undefined;
-			if (accessToken !== undefined)
-				controlTokens.set(providerSandboxId, accessToken);
-		}
-		if (accessToken === undefined) return yield* providerError("rejected");
-		const port = 49_983;
-		const host = `${port}-${providerSandboxId}.${endpointDomain(detail.domain)}`;
+		const { accessToken, host } = yield* processConnection(providerSandboxId);
 		const response = yield* Effect.tryPromise({
 			try: () =>
 				http.fetch(`https://${host}/filesystem.Filesystem/Stat`, {
@@ -551,12 +541,7 @@ export const makeE2bSandboxProvider = (
 					headers: {
 						"Connect-Protocol-Version": "1",
 						"Content-Type": "application/json",
-						"E2b-Sandbox-Id": providerSandboxId,
-						"E2b-Sandbox-Port": String(port),
-						"X-Access-Token": accessToken,
-						...(user === undefined
-							? {}
-							: { Authorization: `Basic ${btoa(`${user}:`)}` }),
+						...envdHeaders(providerSandboxId, accessToken, user),
 					},
 					body: JSON.stringify({ path }),
 				}),
@@ -572,31 +557,14 @@ export const makeE2bSandboxProvider = (
 		path: string,
 		user?: string,
 	) {
-		const detail = yield* sandboxDetail(providerSandboxId);
-		let accessToken = controlTokens.get(providerSandboxId);
-		if (accessToken === undefined) {
-			const connected = yield* request(
-				"POST",
-				`/sandboxes/${encodeURIComponent(providerSandboxId)}/connect`,
-				CreateResponse,
-				{ timeout: 300 },
-			);
-			accessToken = connected.envdAccessToken ?? undefined;
-			if (accessToken !== undefined)
-				controlTokens.set(providerSandboxId, accessToken);
-		}
-		if (accessToken === undefined) return yield* providerError("rejected");
-		const port = 49_983;
-		const host = `${port}-${providerSandboxId}.${endpointDomain(detail.domain)}`;
+		const { accessToken, host } = yield* processConnection(providerSandboxId);
 		const query = new URLSearchParams({ path });
 		if (user !== undefined) query.set("username", user);
 		const response = yield* Effect.tryPromise({
 			try: () =>
 				http.fetch(`https://${host}/files?${query.toString()}`, {
 					headers: {
-						"E2b-Sandbox-Id": providerSandboxId,
-						"E2b-Sandbox-Port": String(port),
-						"X-Access-Token": accessToken,
+						...envdHeaders(providerSandboxId, accessToken),
 					},
 				}),
 			catch: () => providerError("transient"),
@@ -622,22 +590,7 @@ export const makeE2bSandboxProvider = (
 		) {
 			if (new TextEncoder().encode(contents).byteLength > 65_536)
 				return yield* providerError("rejected");
-			const detail = yield* sandboxDetail(providerSandboxId);
-			let accessToken = controlTokens.get(providerSandboxId);
-			if (accessToken === undefined) {
-				const connected = yield* request(
-					"POST",
-					`/sandboxes/${encodeURIComponent(providerSandboxId)}/connect`,
-					CreateResponse,
-					{ timeout: 300 },
-				);
-				accessToken = connected.envdAccessToken ?? undefined;
-				if (accessToken !== undefined)
-					controlTokens.set(providerSandboxId, accessToken);
-			}
-			if (accessToken === undefined) return yield* providerError("rejected");
-			const port = 49_983;
-			const host = `${port}-${providerSandboxId}.${endpointDomain(detail.domain)}`;
+			const { accessToken, host } = yield* processConnection(providerSandboxId);
 			const query = new URLSearchParams({ path });
 			if (user !== undefined) query.set("username", user);
 			const form = new FormData();
@@ -651,9 +604,7 @@ export const makeE2bSandboxProvider = (
 					http.fetch(`https://${host}/files?${query.toString()}`, {
 						method: "POST",
 						headers: {
-							"E2b-Sandbox-Id": providerSandboxId,
-							"E2b-Sandbox-Port": String(port),
-							"X-Access-Token": accessToken,
+							...envdHeaders(providerSandboxId, accessToken),
 						},
 						body: form,
 					}),

@@ -1,5 +1,5 @@
-import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { Effect } from "effect";
 
 /**
  * Initial schema for the chat-MVP. Four tables — projects (formerly the
@@ -19,9 +19,9 @@ import { SqlClient } from "effect/unstable/sql";
  *   ordered by recency" and "list messages for session Y in order".
  */
 export const Migration0001Initial = Effect.gen(function* () {
-	const sql = yield* SqlClient.SqlClient;
+  const sql = yield* SqlClient.SqlClient;
 
-	yield* sql`
+  yield* sql`
     CREATE TABLE projects (
       id TEXT PRIMARY KEY,
       path TEXT NOT NULL,
@@ -32,7 +32,7 @@ export const Migration0001Initial = Effect.gen(function* () {
     )
   `;
 
-	yield* sql`
+  yield* sql`
     CREATE TABLE sessions (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -46,12 +46,12 @@ export const Migration0001Initial = Effect.gen(function* () {
     )
   `;
 
-	yield* sql`
+  yield* sql`
     CREATE INDEX idx_sessions_project
       ON sessions(project_id, archived_at, updated_at DESC)
   `;
 
-	yield* sql`
+  yield* sql`
     CREATE TABLE messages (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -62,12 +62,12 @@ export const Migration0001Initial = Effect.gen(function* () {
     )
   `;
 
-	yield* sql`
+  yield* sql`
     CREATE INDEX idx_messages_session
       ON messages(session_id, created_at)
   `;
 
-	yield* sql`
+  yield* sql`
     CREATE TABLE app_state (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL

@@ -1,4 +1,5 @@
 import type {
+	CloudWorkspaceSshAccess,
 	DiscoveredSshHost,
 	EnsureSshEnvironmentInput,
 	EnsureTailnetEnvironmentInput,
@@ -67,7 +68,7 @@ export interface AppBridge {
 	readonly copyFileContents?: (path: string) => Promise<boolean>;
 	/** Stages SSH key material, managed ssh config, and a workspace ticket. */
 	readonly cloudSshPrepare?: (
-		access: CloudSshAccess,
+		access: CloudWorkspaceSshAccess,
 	) => Promise<CloudSshPrepared | null>;
 	/** Launches an editor/terminal against a prepared `zuse-*` ssh alias. */
 	readonly openSshTarget?: (
@@ -81,9 +82,6 @@ export interface AppBridge {
 	) => Promise<CloudSyncStatus | null>;
 	/** Debounced change-driven sync request. */
 	readonly cloudSyncRequest?: (workspaceId: string) => Promise<void>;
-	readonly cloudSyncStatus?: (
-		workspaceId: string,
-	) => Promise<CloudSyncStatus | null>;
 	readonly cloudSyncPickFolder?: () => Promise<string | null>;
 	readonly onCloudSyncStatus?: (
 		handler: (status: CloudSyncStatus) => void,
@@ -121,15 +119,6 @@ export interface OpenTarget {
 	readonly label: string;
 	readonly available: boolean;
 	readonly iconDataUrl?: string | null;
-}
-
-export interface CloudSshAccess {
-	readonly workspaceId: string;
-	readonly wsUrl: string;
-	readonly ticket: string;
-	readonly expiresAt: number;
-	readonly user: string;
-	readonly workspacePath: string;
 }
 
 export interface CloudSshPrepared {
@@ -493,3 +482,6 @@ export function getBridge(): ZuseBridge {
 	}
 	return bridge;
 }
+
+export const getAppBridge = (): AppBridge | undefined =>
+	(globalThis.window?.zuse ?? globalThis.window?.memoize)?.app;

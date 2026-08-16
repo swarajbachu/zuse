@@ -1,5 +1,5 @@
-import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { Effect } from "effect";
 
 /**
  * Adds `runtime_mode` to `sessions`. Default is `approval-required` — the
@@ -9,9 +9,9 @@ import { SqlClient } from "effect/unstable/sql";
  * `full-access` once they trust the agent.
  */
 export const Migration0005RuntimeMode = Effect.gen(function* () {
-	const sql = yield* SqlClient.SqlClient;
+  const sql = yield* SqlClient.SqlClient;
 
-	yield* sql`
+  yield* sql`
     ALTER TABLE sessions
     ADD COLUMN runtime_mode TEXT NOT NULL DEFAULT 'approval-required'
   `;

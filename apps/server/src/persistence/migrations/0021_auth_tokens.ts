@@ -1,5 +1,5 @@
-import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { Effect } from "effect";
 
 /**
  * LAN authentication state for the headless WebSocket server.
@@ -10,9 +10,9 @@ import { SqlClient } from "effect/unstable/sql";
  * memory and expire quickly.
  */
 export const Migration0021AuthTokens = Effect.gen(function* () {
-	const sql = yield* SqlClient.SqlClient;
+  const sql = yield* SqlClient.SqlClient;
 
-	yield* sql`
+  yield* sql`
     CREATE TABLE auth_tokens (
       id           TEXT PRIMARY KEY,
       token_hash   TEXT NOT NULL UNIQUE,
@@ -23,12 +23,12 @@ export const Migration0021AuthTokens = Effect.gen(function* () {
     )
   `;
 
-	yield* sql`
+  yield* sql`
     CREATE INDEX idx_auth_tokens_active_hash
       ON auth_tokens(token_hash, revoked_at)
   `;
 
-	yield* sql`
+  yield* sql`
     CREATE TABLE environment_identity (
       id         TEXT PRIMARY KEY,
       created_at TEXT NOT NULL

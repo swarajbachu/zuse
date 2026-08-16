@@ -8,41 +8,41 @@ import { PtyId } from "./ids.ts";
  * renderers should treat that as a terminal-closed signal.
  */
 export const PtyDataEvent = Schema.TaggedStruct("data", {
-	sequence: Schema.Number,
-	bytes: Schema.String,
+  sequence: Schema.Number,
+  bytes: Schema.String,
 });
 
 export const PtyExitEvent = Schema.TaggedStruct("exit", {
-	sequence: Schema.Number,
-	exitCode: Schema.NullOr(Schema.Number),
-	signal: Schema.NullOr(Schema.Number),
+  sequence: Schema.Number,
+  exitCode: Schema.NullOr(Schema.Number),
+  signal: Schema.NullOr(Schema.Number),
 });
 
 export const PtyCursorEvent = Schema.TaggedStruct("cursor", {
-	sequence: Schema.Number,
+  sequence: Schema.Number,
 });
 
 export const PtyGapEvent = Schema.TaggedStruct("gap", {
-	requestedAfter: Schema.Number,
-	earliestAvailable: Schema.Number,
-	latestAvailable: Schema.Number,
+  requestedAfter: Schema.Number,
+  earliestAvailable: Schema.Number,
+  latestAvailable: Schema.Number,
 });
 
 export const PtyEvent = Schema.Union([
-	PtyDataEvent,
-	PtyExitEvent,
-	PtyCursorEvent,
-	PtyGapEvent,
+  PtyDataEvent,
+  PtyExitEvent,
+  PtyCursorEvent,
+  PtyGapEvent,
 ]);
 
 export class PtyNotFoundError extends Schema.TaggedErrorClass<PtyNotFoundError>()(
-	"PtyNotFoundError",
-	{ ptyId: PtyId },
+  "PtyNotFoundError",
+  { ptyId: PtyId },
 ) {}
 
 export class PtySpawnError extends Schema.TaggedErrorClass<PtySpawnError>()(
-	"PtySpawnError",
-	{ reason: Schema.String },
+  "PtySpawnError",
+  { reason: Schema.String },
 ) {}
 
 /**
@@ -52,51 +52,51 @@ export class PtySpawnError extends Schema.TaggedErrorClass<PtySpawnError>()(
  * the pane terminates the agent rather than just one shell among many.
  */
 export const PtyCommand = Schema.Struct({
-	cmd: Schema.String,
-	args: Schema.Array(Schema.String),
-	env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  cmd: Schema.String,
+  args: Schema.Array(Schema.String),
+  env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 });
 export type PtyCommand = typeof PtyCommand.Type;
 
 export const PtyOpenRpc = Rpc.make("pty.open", {
-	payload: Schema.Struct({
-		cwd: Schema.String,
-		cols: Schema.Number,
-		rows: Schema.Number,
-		command: Schema.optional(PtyCommand),
-	}),
-	success: Schema.Struct({ ptyId: PtyId }),
-	error: PtySpawnError,
+  payload: Schema.Struct({
+    cwd: Schema.String,
+    cols: Schema.Number,
+    rows: Schema.Number,
+    command: Schema.optional(PtyCommand),
+  }),
+  success: Schema.Struct({ ptyId: PtyId }),
+  error: PtySpawnError,
 });
 
 export const PtyWriteRpc = Rpc.make("pty.write", {
-	payload: Schema.Struct({ ptyId: PtyId, data: Schema.String }),
-	success: Schema.Void,
-	error: PtyNotFoundError,
+  payload: Schema.Struct({ ptyId: PtyId, data: Schema.String }),
+  success: Schema.Void,
+  error: PtyNotFoundError,
 });
 
 export const PtyResizeRpc = Rpc.make("pty.resize", {
-	payload: Schema.Struct({
-		ptyId: PtyId,
-		cols: Schema.Number,
-		rows: Schema.Number,
-	}),
-	success: Schema.Void,
-	error: PtyNotFoundError,
+  payload: Schema.Struct({
+    ptyId: PtyId,
+    cols: Schema.Number,
+    rows: Schema.Number,
+  }),
+  success: Schema.Void,
+  error: PtyNotFoundError,
 });
 
 export const PtyCloseRpc = Rpc.make("pty.close", {
-	payload: Schema.Struct({ ptyId: PtyId }),
-	success: Schema.Void,
-	error: PtyNotFoundError,
+  payload: Schema.Struct({ ptyId: PtyId }),
+  success: Schema.Void,
+  error: PtyNotFoundError,
 });
 
 export const PtyOutputRpc = Rpc.make("pty.output", {
-	payload: Schema.Struct({
-		ptyId: PtyId,
-		afterSequence: Schema.optional(Schema.Number),
-	}),
-	success: PtyEvent,
-	error: PtyNotFoundError,
-	stream: true,
+  payload: Schema.Struct({
+    ptyId: PtyId,
+    afterSequence: Schema.optional(Schema.Number),
+  }),
+  success: PtyEvent,
+  error: PtyNotFoundError,
+  stream: true,
 });

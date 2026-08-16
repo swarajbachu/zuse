@@ -1,5 +1,5 @@
 import type { EditorState } from "@codemirror/state";
-import { type EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 
 import { allChips } from "./composer-chips.ts";
 

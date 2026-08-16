@@ -1,5 +1,5 @@
-import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { Effect } from "effect";
 
 /**
  * Event-sourcing core: an append-only `events` table becomes the source of
@@ -20,9 +20,9 @@ import { SqlClient } from "effect/unstable/sql";
  *   re-project deleted history on the next boot.
  */
 export const Migration0020Events = Effect.gen(function* () {
-	const sql = yield* SqlClient.SqlClient;
+  const sql = yield* SqlClient.SqlClient;
 
-	yield* sql`
+  yield* sql`
     CREATE TABLE events (
       sequence       INTEGER PRIMARY KEY AUTOINCREMENT,
       event_id       TEXT NOT NULL UNIQUE,
@@ -36,18 +36,18 @@ export const Migration0020Events = Effect.gen(function* () {
       UNIQUE (stream_kind, stream_id, stream_version)
     )
   `;
-	yield* sql`
+  yield* sql`
     CREATE INDEX idx_events_stream
       ON events(stream_kind, stream_id, sequence)
   `;
 
-	yield* sql`ALTER TABLE messages ADD COLUMN sequence INTEGER`;
-	yield* sql`
+  yield* sql`ALTER TABLE messages ADD COLUMN sequence INTEGER`;
+  yield* sql`
     CREATE INDEX idx_messages_session_sequence
       ON messages(session_id, sequence)
   `;
 
-	yield* sql`
+  yield* sql`
     INSERT INTO events
       (event_id, stream_kind, stream_id, stream_version, type, occurred_at, actor, payload_json)
     SELECT
@@ -70,7 +70,7 @@ export const Migration0020Events = Effect.gen(function* () {
     FROM messages m
     ORDER BY m.created_at, m.rowid
   `;
-	yield* sql`
+  yield* sql`
     UPDATE messages
     SET sequence = (
       SELECT e.sequence FROM events e
@@ -78,7 +78,7 @@ export const Migration0020Events = Effect.gen(function* () {
     )
   `;
 
-	yield* sql`
+  yield* sql`
     INSERT OR REPLACE INTO app_state (key, value)
     VALUES (
       'projector_watermark',

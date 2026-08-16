@@ -2,12 +2,13 @@ import { Cause, Effect, Fiber, Stream } from "effect";
 import { useCallback, useSyncExternalStore } from "react";
 
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
-import type { CloudSyncStatus } from "./bridge.ts";
+import { type CloudSyncStatus, getAppBridge } from "./bridge.ts";
 import { prepareCloudWorkspaceSsh } from "./cloud-ssh-client-bus.ts";
 import {
 	cloudSyncPrefsFor,
 	setCloudSyncPrefs,
 } from "./cloud-workspace-catalog.ts";
+import { errorMessage } from "./error-message.ts";
 import { getRendererClientBus } from "./session-timeline-client-bus.ts";
 
 /**
@@ -22,11 +23,8 @@ import { getRendererClientBus } from "./session-timeline-client-bus.ts";
 
 const CLOUD_WORKSPACE_ROOT = "/home/zuse/workspace";
 
-const appBridge = () =>
-	(globalThis.window?.zuse ?? globalThis.window?.memoize)?.app;
-
 export const cloudSyncSupported = (): boolean =>
-	appBridge()?.cloudSyncConfigure !== undefined;
+	getAppBridge()?.cloudSyncConfigure !== undefined;
 
 const statuses = new Map<string, CloudSyncStatus>();
 const listeners = new Set<() => void>();
@@ -73,7 +71,7 @@ const resolveWorkspaceFolderId = async (
 
 const startWatcher = (workspaceId: string, entry: ActiveSync): void => {
 	const client = getRendererClientBus().client(workspaceId as never);
-	const app = appBridge();
+	const app = getAppBridge();
 	if (client === null || app?.cloudSyncRequest === undefined) return;
 	const program = Effect.gen(function* () {
 		const folderId = yield* Effect.promise(() =>
@@ -107,7 +105,7 @@ const startSync = async (
 	if (active.has(workspaceId)) return;
 	const entry: ActiveSync = { fiber: null, stopped: false };
 	active.set(workspaceId, entry);
-	const app = appBridge();
+	const app = getAppBridge();
 	if (app?.cloudSyncConfigure === undefined) {
 		active.delete(workspaceId);
 		return;
@@ -137,7 +135,7 @@ const startSync = async (
 		setLocalStatus(workspaceId, {
 			enabled: true,
 			state: "error",
-			error: cause instanceof Error ? cause.message : String(cause),
+			error: errorMessage(cause, "Cloud sync failed."),
 		});
 	}
 };
@@ -151,7 +149,7 @@ const stopSync = async (workspaceId: string): Promise<void> => {
 		entry.fiber = null;
 		if (fiber !== null) await Effect.runPromise(Fiber.interrupt(fiber));
 	}
-	const app = appBridge();
+	const app = getAppBridge();
 	const status = await app?.cloudSyncConfigure?.({
 		workspaceId,
 		enabled: false,
@@ -186,13 +184,13 @@ export const disableCloudSync = async (workspaceId: string): Promise<void> => {
 };
 
 export const pickCloudSyncFolder = (): Promise<string | null> =>
-	appBridge()?.cloudSyncPickFolder?.() ?? Promise.resolve(null);
+	getAppBridge()?.cloudSyncPickFolder?.() ?? Promise.resolve(null);
 
 let wired = false;
 const wire = (): void => {
 	if (wired || typeof window === "undefined") return;
 	wired = true;
-	appBridge()?.onCloudSyncStatus?.((status) => {
+	getAppBridge()?.onCloudSyncStatus?.((status) => {
 		statuses.set(status.workspaceId, status);
 		emit();
 		// A stale ticket means rsync will soon fail auth: refresh it through the

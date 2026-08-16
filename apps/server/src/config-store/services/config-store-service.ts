@@ -1,10 +1,11 @@
-import type {
-	KeybindingRule,
-	KeybindingsFile,
-	SettingsFile,
-	SettingsPatch,
-} from "@zuse/contracts";
 import { Context, type Effect, type Stream } from "effect";
+
+import {
+  type KeybindingRule,
+  type KeybindingsFile,
+  type SettingsFile,
+  type SettingsPatch,
+} from "@zuse/contracts";
 
 /**
  * The on-disk source of truth for global settings and user-overridden
@@ -31,33 +32,32 @@ import { Context, type Effect, type Stream } from "effect";
  * state intentionally stay under `userData`.
  */
 export interface ConfigStoreServiceShape {
-	readonly getSettings: () => Effect.Effect<SettingsFile>;
-	readonly updateSettings: (
-		patch: SettingsPatch,
-	) => Effect.Effect<SettingsFile>;
-	/** Emits the current settings once, then on every change. */
-	readonly settingsChanges: () => Stream.Stream<SettingsFile>;
-	/**
-	 * One-shot migration entry-point. Accepts the raw strings the renderer
-	 * lifted out of localStorage; merges them into the on-disk settings the
-	 * *first* time only — if the file already has more than a freshly-defaulted
-	 * shape, the migration is a no-op so multiple renderer reloads can't
-	 * clobber later changes.
-	 */
-	readonly migrateLocalStorage: (payload: {
-		readonly settingsV1Raw?: string;
-		readonly subagentsRaw?: string;
-	}) => Effect.Effect<SettingsFile>;
+  readonly getSettings: () => Effect.Effect<SettingsFile>;
+  readonly updateSettings: (
+    patch: SettingsPatch,
+  ) => Effect.Effect<SettingsFile>;
+  /** Emits the current settings once, then on every change. */
+  readonly settingsChanges: () => Stream.Stream<SettingsFile>;
+  /**
+   * One-shot migration entry-point. Accepts the raw strings the renderer
+   * lifted out of localStorage; merges them into the on-disk settings the
+   * *first* time only — if the file already has more than a freshly-defaulted
+   * shape, the migration is a no-op so multiple renderer reloads can't
+   * clobber later changes.
+   */
+  readonly migrateLocalStorage: (payload: {
+    readonly settingsV1Raw?: string;
+    readonly subagentsRaw?: string;
+  }) => Effect.Effect<SettingsFile>;
 
-	readonly getKeybindings: () => Effect.Effect<KeybindingsFile>;
-	readonly replaceKeybindings: (
-		rules: ReadonlyArray<KeybindingRule>,
-	) => Effect.Effect<KeybindingsFile>;
-	/** Emits the current keybindings once, then on every change. */
-	readonly keybindingsChanges: () => Stream.Stream<KeybindingsFile>;
+  readonly getKeybindings: () => Effect.Effect<KeybindingsFile>;
+  readonly replaceKeybindings: (
+    rules: ReadonlyArray<KeybindingRule>,
+  ) => Effect.Effect<KeybindingsFile>;
+  /** Emits the current keybindings once, then on every change. */
+  readonly keybindingsChanges: () => Stream.Stream<KeybindingsFile>;
 }
 
-export class ConfigStoreService extends Context.Service<
-	ConfigStoreService,
-	ConfigStoreServiceShape
->()("memoize/ConfigStoreService") {}
+export class ConfigStoreService extends Context.Service<ConfigStoreService, ConfigStoreServiceShape>()(
+  "memoize/ConfigStoreService",
+) {}

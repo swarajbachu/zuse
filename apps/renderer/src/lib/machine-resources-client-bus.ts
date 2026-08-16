@@ -11,12 +11,10 @@ import {
 } from "@zuse/client-runtime/resource-state";
 import type { MachineResourceSample } from "@zuse/contracts";
 import { Cause, Effect, Fiber, Stream } from "effect";
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
 import type { MemoizeClient } from "./rpc-client.ts";
-import {
-	getRendererClientBus,
-	registerRendererResourceDriver,
-} from "./session-timeline-client-bus.ts";
+import { registerRendererResourceDriver } from "./session-timeline-client-bus.ts";
+import { useClientBusResource } from "./use-client-bus-resource.ts";
 
 export type MachineResourcesData = Readonly<{
 	sample: MachineResourceSample;
@@ -96,19 +94,5 @@ export const useMachineResources = (
 		() => (ref === null ? null : keyFor(ref)),
 		[ref?.environmentId],
 	);
-	const bus = getRendererClientBus();
-	useEffect(() => {
-		if (key === null) return;
-		return bus.retain(key, { activation }).release;
-	}, [activation, bus, key]);
-	const subscribe = useCallback(
-		(listener: () => void) =>
-			key === null ? () => undefined : bus.subscribe(key, listener),
-		[bus, key],
-	);
-	const snapshot = useCallback(
-		() => (key === null ? EMPTY : (bus.snapshot(key) ?? EMPTY)),
-		[bus, key],
-	);
-	return useSyncExternalStore(subscribe, snapshot, snapshot);
+	return useClientBusResource(key, EMPTY, activation);
 };

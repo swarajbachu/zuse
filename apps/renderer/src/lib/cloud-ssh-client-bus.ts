@@ -1,6 +1,6 @@
 import type { MachineSshKey } from "@zuse/contracts";
 
-import type { CloudSshPrepared } from "./bridge.ts";
+import { type CloudSshPrepared, getAppBridge } from "./bridge.ts";
 import { runControlPlane } from "./control-plane-client.ts";
 import { dispatchEnvironmentShellCommand } from "./environment-shell-client-bus.ts";
 
@@ -14,11 +14,8 @@ import { dispatchEnvironmentShellCommand } from "./environment-shell-client-bus.
  *    desktop's public key inside the sandbox — reusing the machine-host RPC.
  */
 
-const appBridge = () =>
-	(globalThis.window?.zuse ?? globalThis.window?.memoize)?.app;
-
 export const cloudSshSupported = (): boolean =>
-	appBridge()?.cloudSshPrepare !== undefined;
+	getAppBridge()?.cloudSshPrepare !== undefined;
 
 const requestSshAccess = (workspaceId: string) =>
 	runControlPlane((client) =>
@@ -28,7 +25,7 @@ const requestSshAccess = (workspaceId: string) =>
 export const prepareCloudWorkspaceSsh = async (
 	workspaceId: string,
 ): Promise<CloudSshPrepared> => {
-	const app = appBridge();
+	const app = getAppBridge();
 	if (app?.cloudSshPrepare === undefined || app.openSshTarget === undefined)
 		throw new Error("SSH access requires the Zuse desktop app.");
 	let access: Awaited<ReturnType<typeof requestSshAccess>>;
@@ -67,7 +64,7 @@ export const prepareCloudWorkspaceSsh = async (
 	return prepared;
 };
 
-export type CloudSshTarget = "cursor" | "vscode" | "zed" | "terminal";
+export type CloudSshTarget = "cursor" | "zed" | "terminal";
 
 /** Prepare access, then launch the chosen editor/terminal over SSH. */
 export const openCloudWorkspaceSsh = async (
@@ -75,7 +72,7 @@ export const openCloudWorkspaceSsh = async (
 	target: CloudSshTarget,
 ): Promise<void> => {
 	const prepared = await prepareCloudWorkspaceSsh(workspaceId);
-	const app = appBridge();
+	const app = getAppBridge();
 	const opened = await app?.openSshTarget?.(
 		target,
 		prepared.hostAlias,

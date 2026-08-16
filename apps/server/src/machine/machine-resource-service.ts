@@ -1,4 +1,4 @@
-import { readFile, statfs } from "node:fs/promises";
+import { statfs } from "node:fs/promises";
 import { cpus, freemem, totalmem } from "node:os";
 
 import { MachineResourceSample } from "@zuse/contracts";
@@ -40,61 +40,9 @@ const cpuCountersFromOs = (): CpuCounters => {
 	return { idle, total, cores: Math.max(all.length, 1) };
 };
 
-/** Aggregate jiffy counters from the first `cpu ` line of /proc/stat. */
-export const parseProcStatCounters = (
-	text: string,
-	cores: number,
-): CpuCounters | null => {
-	const line = text.split("\n", 1)[0];
-	if (line === undefined || !line.startsWith("cpu ")) return null;
-	const fields = line.trim().split(/\s+/u).slice(1).map(Number);
-	if (fields.length < 5 || fields.some(Number.isNaN)) return null;
-	// idle + iowait both count as not-busy time.
-	const idle = (fields[3] ?? 0) + (fields[4] ?? 0);
-	const total = fields.reduce((sum, value) => sum + value, 0);
-	return { idle, total, cores };
-};
-
-export const parseMeminfo = (
-	text: string,
-): { readonly totalBytes: number; readonly usedBytes: number } | null => {
-	const kibibytes = (name: string): number | null => {
-		const match = new RegExp(`^${name}:\\s+(\\d+) kB`, "mu").exec(text);
-		return match?.[1] === undefined ? null : Number(match[1]);
-	};
-	const total = kibibytes("MemTotal");
-	const available = kibibytes("MemAvailable");
-	if (total === null || available === null) return null;
-	return {
-		totalBytes: total * 1024,
-		usedBytes: Math.max(total - available, 0) * 1024,
-	};
-};
-
-/**
- * One point-in-time reading. CPU values are cumulative counters; the watch
- * stream turns consecutive counters into a busy percentage. Every source has
- * an in-process fallback so sampling never fails the stream.
- */
+/** One point-in-time reading; the stream derives CPU use from two snapshots. */
 const readSnapshot = Effect.promise(async (): Promise<ResourceSnapshot> => {
-	const cores = Math.max(cpus().length, 1);
-	let counters = cpuCountersFromOs();
-	let memTotalBytes = totalmem();
-	let memUsedBytes = Math.max(memTotalBytes - freemem(), 0);
-	if (process.platform === "linux") {
-		const [stat, meminfo] = await Promise.all([
-			readFile("/proc/stat", "utf8").catch(() => null),
-			readFile("/proc/meminfo", "utf8").catch(() => null),
-		]);
-		const procCounters =
-			stat === null ? null : parseProcStatCounters(stat, cores);
-		if (procCounters !== null) counters = procCounters;
-		const procMemory = meminfo === null ? null : parseMeminfo(meminfo);
-		if (procMemory !== null) {
-			memTotalBytes = procMemory.totalBytes;
-			memUsedBytes = procMemory.usedBytes;
-		}
-	}
+	const memTotalBytes = totalmem();
 	const diskPath = process.cwd();
 	const disk = await statfs(diskPath).catch(() => null);
 	const diskTotalBytes = disk === null ? 0 : disk.bsize * disk.blocks;
@@ -102,9 +50,9 @@ const readSnapshot = Effect.promise(async (): Promise<ResourceSnapshot> => {
 		disk === null ? 0 : disk.bsize * Math.max(disk.blocks - disk.bfree, 0);
 	return {
 		sampledAt: Date.now(),
-		counters,
+		counters: cpuCountersFromOs(),
 		memTotalBytes,
-		memUsedBytes,
+		memUsedBytes: Math.max(memTotalBytes - freemem(), 0),
 		diskTotalBytes,
 		diskUsedBytes,
 		diskPath,

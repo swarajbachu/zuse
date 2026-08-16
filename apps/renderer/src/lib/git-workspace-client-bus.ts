@@ -28,7 +28,7 @@ import type {
 	GitStatusSummary,
 } from "@zuse/contracts";
 import { Cause, Effect, Fiber, Stream } from "effect";
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
 import { toastManager } from "../components/ui/toast.tsx";
 import { classifyGit, type GitErrorTag } from "./git-rpc.ts";
 import type { MemoizeClient } from "./rpc-client.ts";
@@ -37,6 +37,7 @@ import {
 	registerRendererResourceDriver,
 	registerRendererResourcePersistence,
 } from "./session-timeline-client-bus.ts";
+import { useClientBusResource } from "./use-client-bus-resource.ts";
 
 export type GitResourceError = Readonly<{
 	tag: GitErrorTag | null;
@@ -433,29 +434,6 @@ if (typeof indexedDB !== "undefined") {
 
 const EMPTY_WORKSPACE_VIEW = emptyResourceView<GitWorkspaceData>();
 
-const useResource = <Data>(
-	key: ResourceKey<Data> | null,
-	empty: ResourceView<Data>,
-	activation: ResourceActivation,
-): ResourceView<Data> => {
-	const bus = getRendererClientBus();
-	useEffect(() => {
-		if (key === null) return;
-		const lease = bus.retain(key, { activation });
-		return lease.release;
-	}, [activation, bus, key]);
-	const subscribe = useCallback(
-		(listener: () => void) =>
-			key === null ? () => undefined : bus.subscribe(key, listener),
-		[bus, key],
-	);
-	const snapshot = useCallback(
-		() => (key === null ? empty : bus.snapshot(key)),
-		[bus, empty, key],
-	);
-	return useSyncExternalStore(subscribe, snapshot, snapshot);
-};
-
 const useKey = <Data>(
 	ref: ExecutionRef | null,
 	makeKey: (value: ExecutionRef) => ResourceKey<Data>,
@@ -475,7 +453,7 @@ export const useGitWorkspaceResource = (
 	ref: ExecutionRef | null,
 	activation: ResourceActivation = "connect",
 ): ResourceView<GitWorkspaceData> =>
-	useResource(
+	useClientBusResource(
 		useKey(ref, gitWorkspaceResourceKey),
 		EMPTY_WORKSPACE_VIEW,
 		activation,

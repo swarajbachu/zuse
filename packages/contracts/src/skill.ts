@@ -1,5 +1,5 @@
-import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
+import { Schema } from "effect";
 
 import { ProviderId } from "./agent.ts";
 import { FolderId } from "./ids.ts";
@@ -11,18 +11,18 @@ import { SessionId, SessionNotFoundError } from "./session.ts";
  * shape so the renderer is provider-agnostic.
  */
 export class Skill extends Schema.Class<Skill>("Skill")({
-	name: Schema.String,
-	scope: Schema.Literals(["global", "project"]),
-	description: Schema.String,
-	arguments: Schema.Array(
-		Schema.Struct({
-			name: Schema.String,
-			description: Schema.String,
-			optional: Schema.Boolean,
-		}),
-	),
-	filePath: Schema.NullOr(Schema.String),
-	providerId: ProviderId,
+  name: Schema.String,
+  scope: Schema.Literals(["global", "project"]),
+  description: Schema.String,
+  arguments: Schema.Array(
+    Schema.Struct({
+      name: Schema.String,
+      description: Schema.String,
+      optional: Schema.Boolean,
+    }),
+  ),
+  filePath: Schema.NullOr(Schema.String),
+  providerId: ProviderId,
 }) {}
 
 /**
@@ -30,9 +30,9 @@ export class Skill extends Schema.Class<Skill>("Skill")({
  * live updates use `skill.stream`.
  */
 export const SkillListRpc = Rpc.make("skill.list", {
-	payload: Schema.Struct({ sessionId: SessionId }),
-	success: Schema.Array(Skill),
-	error: SessionNotFoundError,
+  payload: Schema.Struct({ sessionId: SessionId }),
+  success: Schema.Array(Skill),
+  error: SessionNotFoundError,
 });
 
 /**
@@ -42,11 +42,11 @@ export const SkillListRpc = Rpc.make("skill.list", {
  * temporary server session.
  */
 export const SkillListForProjectRpc = Rpc.make("skill.listForProject", {
-	payload: Schema.Struct({
-		projectId: FolderId,
-		providerId: ProviderId,
-	}),
-	success: Schema.Array(Skill),
+  payload: Schema.Struct({
+    projectId: FolderId,
+    providerId: ProviderId,
+  }),
+  success: Schema.Array(Skill),
 });
 
 /**
@@ -54,8 +54,8 @@ export const SkillListForProjectRpc = Rpc.make("skill.listForProject", {
  * change notification. Same pattern as `messages.stream`.
  */
 export const SkillStreamRpc = Rpc.make("skill.stream", {
-	payload: Schema.Struct({ sessionId: SessionId }),
-	success: Schema.Array(Skill),
-	error: SessionNotFoundError,
-	stream: true,
+  payload: Schema.Struct({ sessionId: SessionId }),
+  success: Schema.Array(Skill),
+  error: SessionNotFoundError,
+  stream: true,
 });

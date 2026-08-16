@@ -32,7 +32,7 @@ import type {
 } from "@zuse/contracts";
 import { EnvironmentId as EnvironmentIdSchema } from "@zuse/contracts";
 import { Cause, Effect, Fiber, Stream } from "effect";
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { upsertLatestEntity } from "./latest-entity.ts";
 import type { MemoizeClient } from "./rpc-client.ts";
@@ -41,6 +41,7 @@ import {
 	registerRendererResourceDriver,
 	registerRendererResourcePersistence,
 } from "./session-timeline-client-bus.ts";
+import { useClientBusResource } from "./use-client-bus-resource.ts";
 
 export type EnvironmentShellData = Readonly<{
 	folders: ReadonlyArray<Folder>;
@@ -692,20 +693,5 @@ export const useEnvironmentShellResource = (
 		() => (ref === null ? null : environmentShellResourceKey(ref)),
 		[ref],
 	);
-	const bus = getRendererClientBus();
-	useEffect(() => {
-		if (key === null) return;
-		const lease = bus.retain(key, { activation });
-		return lease.release;
-	}, [activation, bus, key]);
-	const subscribe = useCallback(
-		(listener: () => void) =>
-			key === null ? () => undefined : bus.subscribe(key, listener),
-		[bus, key],
-	);
-	const snapshot = useCallback(
-		() => (key === null ? EMPTY_ENVIRONMENT_SHELL_VIEW : bus.snapshot(key)),
-		[bus, key],
-	);
-	return useSyncExternalStore(subscribe, snapshot, snapshot);
+	return useClientBusResource(key, EMPTY_ENVIRONMENT_SHELL_VIEW, activation);
 };

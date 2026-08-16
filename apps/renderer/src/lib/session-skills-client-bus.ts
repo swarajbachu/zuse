@@ -11,12 +11,13 @@ import {
 } from "@zuse/client-runtime/resource-state";
 import type { Skill } from "@zuse/contracts";
 import { Cause, Effect, Fiber, Stream } from "effect";
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
 import type { MemoizeClient } from "./rpc-client.ts";
 import {
 	getRendererClientBus,
 	registerRendererResourceDriver,
 } from "./session-timeline-client-bus.ts";
+import { useClientBusResource } from "./use-client-bus-resource.ts";
 
 type SessionSkillsData = Readonly<{ skills: ReadonlyArray<Skill> }>;
 type SessionSkillsKey = ResourceKey<SessionSkillsData>;
@@ -105,15 +106,5 @@ export const useSessionSkills = (
 	activation: ResourceActivation = "connect",
 ): ResourceView<SessionSkillsData> => {
 	const key = useMemo(() => keyFor(ref), [ref.environmentId, ref.sessionId]);
-	const bus = getRendererClientBus();
-	useEffect(
-		() => bus.retain(key, { activation }).release,
-		[activation, bus, key],
-	);
-	const subscribe = useCallback(
-		(listener: () => void) => bus.subscribe(key, listener),
-		[bus, key],
-	);
-	const snapshot = useCallback(() => bus.snapshot(key) ?? EMPTY, [bus, key]);
-	return useSyncExternalStore(subscribe, snapshot, snapshot);
+	return useClientBusResource(key, EMPTY, activation);
 };

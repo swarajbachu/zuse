@@ -6,6 +6,8 @@ import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import type { CloudWorkspaceSshAccess } from "@zuse/contracts";
+
 /**
  * Desktop-side SSH access to cloud workspaces.
  *
@@ -17,15 +19,6 @@ import { promisify } from "node:util";
  */
 
 const execFileAsync = promisify(execFile);
-
-export interface CloudSshAccessInput {
-	readonly workspaceId: string;
-	readonly wsUrl: string;
-	readonly ticket: string;
-	readonly expiresAt: number;
-	readonly user: string;
-	readonly workspacePath: string;
-}
 
 export interface CloudSshPrepared {
 	readonly hostAlias: string;
@@ -113,7 +106,7 @@ const ensureUserConfigInclude = async (): Promise<void> => {
  * editors or copy the ssh command.
  */
 export const prepareCloudSshAccess = async (
-	access: CloudSshAccessInput,
+	access: CloudWorkspaceSshAccess,
 ): Promise<CloudSshPrepared> => {
 	const publicKey = await ensureCloudSshKeypair();
 	const bridgeCommand = `env ELECTRON_RUN_AS_NODE=1 "${process.execPath}" "${resolveBridgeScript()}"`;
@@ -142,11 +135,6 @@ export const prepareCloudSshAccess = async (
 
 export type SshTargetLaunch =
 	| { readonly kind: "uri"; readonly uri: string }
-	| {
-			readonly kind: "spawn";
-			readonly command: string;
-			readonly args: ReadonlyArray<string>;
-	  }
 	| { readonly kind: "terminal"; readonly command: string };
 
 /** How to launch each editor/terminal against a `zuse-*` ssh host alias. */
@@ -161,18 +149,12 @@ export const sshTargetLaunch = (
 				kind: "uri",
 				uri: `cursor://vscode-remote/ssh-remote+${hostAlias}${remotePath}`,
 			};
-		case "vscode":
-			return {
-				kind: "uri",
-				uri: `vscode://vscode-remote/ssh-remote+${hostAlias}${remotePath}`,
-			};
 		case "zed":
 			return {
 				kind: "uri",
 				uri: `zed://ssh/zuse@${hostAlias}${remotePath}`,
 			};
 		case "terminal":
-		case "ghostty":
 			return { kind: "terminal", command: `ssh ${hostAlias}` };
 		default:
 			return null;

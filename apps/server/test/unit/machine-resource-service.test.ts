@@ -1,24 +1,9 @@
 import { describe, expect, test } from "vitest";
 
 import {
-	parseMeminfo,
-	parseProcStatCounters,
 	type ResourceSnapshot,
 	toSample,
 } from "../../src/machine/machine-resource-service.ts";
-
-const PROC_STAT = [
-	"cpu  2000 100 900 6000 1000 0 50 0 0 0",
-	"cpu0 1000 50 450 3000 500 0 25 0 0 0",
-	"intr 12345",
-].join("\n");
-
-const MEMINFO = [
-	"MemTotal:       16384000 kB",
-	"MemFree:         2048000 kB",
-	"MemAvailable:   12288000 kB",
-	"Buffers:          512000 kB",
-].join("\n");
 
 const snapshot = (
 	counters: ResourceSnapshot["counters"],
@@ -33,25 +18,6 @@ const snapshot = (
 });
 
 describe("machine resource sampling", () => {
-	test("parses aggregate cpu counters from /proc/stat", () => {
-		const counters = parseProcStatCounters(PROC_STAT, 8);
-		// idle (6000) + iowait (1000); total is the sum of all jiffy fields.
-		expect(counters).toEqual({ idle: 7000, total: 10_050, cores: 8 });
-	});
-
-	test("rejects malformed /proc/stat content", () => {
-		expect(parseProcStatCounters("bogus", 4)).toBeNull();
-		expect(parseProcStatCounters("cpu  12 abc", 4)).toBeNull();
-	});
-
-	test("parses used memory from /proc/meminfo as total minus available", () => {
-		expect(parseMeminfo(MEMINFO)).toEqual({
-			totalBytes: 16_384_000 * 1024,
-			usedBytes: 4_096_000 * 1024,
-		});
-		expect(parseMeminfo("MemTotal: 1 kB")).toBeNull();
-	});
-
 	test("computes busy percentage from consecutive counter deltas", () => {
 		const first = toSample(
 			undefined,

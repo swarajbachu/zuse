@@ -2011,15 +2011,6 @@ async function createMainWindow() {
 					await shell.openExternal(launch.uri);
 					return true;
 				}
-				if (launch.kind === "spawn") {
-					if (!(await executableOnPath(launch.command))) return false;
-					const child = spawn(launch.command, [...launch.args], {
-						detached: true,
-						stdio: "ignore",
-					});
-					child.unref();
-					return true;
-				}
 				// Terminals cannot be handed a command via `open`; a temporary
 				// .command script is the supported macOS path.
 				if (process.platform === "darwin") {
@@ -2029,10 +2020,7 @@ async function createMainWindow() {
 						`#!/bin/sh\nexec ${launch.command}\n`,
 						{ mode: 0o755 },
 					);
-					await openWithApp(
-						rawTarget === "ghostty" ? "Ghostty" : "Terminal",
-						scriptPath,
-					);
+					await openWithApp("Terminal", scriptPath);
 					return true;
 				}
 				if (!(await executableOnPath("x-terminal-emulator"))) return false;
@@ -2080,12 +2068,6 @@ async function createMainWindow() {
 		if (typeof rawWorkspaceId !== "string") return;
 		cloudSyncManager.requestSync(rawWorkspaceId);
 	});
-
-	ipcMain.handle("app:cloudSyncStatus", (_event, rawWorkspaceId: unknown) =>
-		typeof rawWorkspaceId === "string"
-			? cloudSyncManager.status(rawWorkspaceId)
-			: null,
-	);
 
 	ipcMain.handle("app:cloudSyncPickFolder", async () => {
 		const result = await dialog.showOpenDialog({

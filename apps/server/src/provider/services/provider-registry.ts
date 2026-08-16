@@ -1,5 +1,6 @@
-import type { ProviderId } from "@zuse/contracts";
 import { Context, type Effect } from "effect";
+
+import type { ProviderId } from "@zuse/contracts";
 
 import type { ProviderRegistryError } from "../errors.ts";
 import type { ProviderAdapterShape } from "./provider-adapter.ts";
@@ -11,13 +12,13 @@ import type { ProviderAdapterShape } from "./provider-adapter.ts";
  * RPCs to the right adapter.
  */
 export interface ProviderRegistryShape {
-	readonly get: (
-		providerId: ProviderId,
-	) => Effect.Effect<ProviderAdapterShape, ProviderRegistryError>;
-	readonly list: () => Effect.Effect<ReadonlyArray<ProviderAdapterShape>>;
+  readonly get: (
+    providerId: ProviderId,
+  ) => Effect.Effect<ProviderAdapterShape, ProviderRegistryError>;
+  readonly list: () => Effect.Effect<ReadonlyArray<ProviderAdapterShape>>;
 }
 
 export class ProviderRegistry extends Context.Service<
-	ProviderRegistry,
-	ProviderRegistryShape
+  ProviderRegistry,
+  ProviderRegistryShape
 >()("memoize/ProviderRegistry") {}

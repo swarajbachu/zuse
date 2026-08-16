@@ -1,5 +1,5 @@
-import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { Effect } from "effect";
 
 /**
  * Adds two SDK-lifecycle fields to `sessions`:
@@ -15,17 +15,15 @@ import { SqlClient } from "effect/unstable/sql";
  *
  * Existing rows default to `'default'` / `0` — same behavior as before.
  */
-export const Migration0009PermissionModeAndToolSearch = Effect.gen(
-	function* () {
-		const sql = yield* SqlClient.SqlClient;
+export const Migration0009PermissionModeAndToolSearch = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
 
-		yield* sql`
+  yield* sql`
     ALTER TABLE sessions
     ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'default'
   `;
-		yield* sql`
+  yield* sql`
     ALTER TABLE sessions
     ADD COLUMN tool_search INTEGER NOT NULL DEFAULT 0
   `;
-	},
-);
+});

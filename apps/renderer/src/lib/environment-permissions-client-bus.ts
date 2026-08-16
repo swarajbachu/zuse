@@ -16,13 +16,14 @@ import {
 	type SavedDecision,
 } from "@zuse/contracts";
 import { Cause, Effect, Fiber, Stream } from "effect";
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import type { MemoizeClient } from "./rpc-client.ts";
 import {
 	getRendererClientBus,
 	registerRendererResourceDriver,
 } from "./session-timeline-client-bus.ts";
+import { useClientBusResource } from "./use-client-bus-resource.ts";
 
 export type EnvironmentPermissionsData = Readonly<{
 	requestsById: Readonly<Record<string, PermissionRequest>>;
@@ -137,17 +138,7 @@ export const useEnvironmentPermissions =
 			useEnvironmentCatalogStore((state) => state.activeEnvironmentId),
 		);
 		const key = useMemo(() => keyFor(environmentId), [environmentId]);
-		const bus = getRendererClientBus();
-		useEffect(
-			() => bus.retain(key, { activation: "connect" }).release,
-			[bus, key],
-		);
-		const subscribe = useCallback(
-			(listener: () => void) => bus.subscribe(key, listener),
-			[bus, key],
-		);
-		const snapshot = useCallback(() => bus.snapshot(key) ?? EMPTY, [bus, key]);
-		return useSyncExternalStore(subscribe, snapshot, snapshot);
+		return useClientBusResource(key, EMPTY, "connect");
 	};
 
 export const decideEnvironmentPermission = async (

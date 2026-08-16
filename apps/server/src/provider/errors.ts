@@ -7,22 +7,22 @@ import { Data } from "effect";
  */
 
 export class ProviderRegistryError extends Data.TaggedError(
-	"ProviderRegistryError",
+  "ProviderRegistryError",
 )<{
-	readonly reason: string;
-	readonly cause?: unknown;
+  readonly reason: string;
+  readonly cause?: unknown;
 }> {}
 
 export class ProviderAdapterError extends Data.TaggedError(
-	"ProviderAdapterError",
+  "ProviderAdapterError",
 )<{
-	readonly providerId: string;
-	readonly reason: string;
-	readonly cause?: unknown;
+  readonly providerId: string;
+  readonly reason: string;
+  readonly cause?: unknown;
 }> {}
 
 export class CredentialsError extends Data.TaggedError("CredentialsError")<{
-	readonly providerId: string;
-	readonly reason: string;
-	readonly cause?: unknown;
+  readonly providerId: string;
+  readonly reason: string;
+  readonly cause?: unknown;
 }> {}

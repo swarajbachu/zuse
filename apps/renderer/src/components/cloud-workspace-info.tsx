@@ -11,7 +11,7 @@ import {
 import { ChevronDown, SquareTerminal } from "lucide-react";
 import { useState } from "react";
 
-import type { OpenTarget } from "../lib/bridge.ts";
+import { getAppBridge, type OpenTarget } from "../lib/bridge.ts";
 import {
 	type CloudSshTarget,
 	cloudSshSupported,
@@ -28,6 +28,7 @@ import {
 import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
 import { runControlPlane } from "../lib/control-plane-client.ts";
 import { displayPath } from "../lib/display-path.ts";
+import { errorMessage } from "../lib/error-message.ts";
 import { useMachineResources } from "../lib/machine-resources-client-bus.ts";
 import { copyText } from "../lib/platform-capabilities.ts";
 import { OpenTargetIcon } from "./open-target-icon.tsx";
@@ -83,9 +84,6 @@ const workspaceStateLabel = (summary: CloudChatSummary): string => {
 	}
 };
 
-const errorMessage = (cause: unknown): string =>
-	cause instanceof Error ? cause.message : String(cause);
-
 const useCloudSummary = (workspaceId: string): CloudChatSummary | null =>
 	useCloudChatCatalogStore(
 		(state) =>
@@ -114,7 +112,7 @@ const launchSsh = async (
 		toastManager.add({
 			type: "error",
 			title: "Could not open via SSH",
-			description: errorMessage(cause),
+			description: errorMessage(cause, "SSH access failed."),
 		});
 	}
 };
@@ -132,7 +130,7 @@ const copySshCommand = async (workspaceId: string): Promise<void> => {
 		toastManager.add({
 			type: "error",
 			title: "Could not prepare SSH access",
-			description: errorMessage(cause),
+			description: errorMessage(cause, "SSH access failed."),
 		});
 	}
 };
@@ -187,7 +185,7 @@ export function CloudWorkspaceOpenSshMenu({
 			toastManager.add({
 				type: "error",
 				title: "Could not sync this workspace",
-				description: errorMessage(cause),
+				description: errorMessage(cause, "Cloud sync failed."),
 			});
 		} finally {
 			setSyncBusy(false);
@@ -213,9 +211,7 @@ export function CloudWorkspaceOpenSshMenu({
 					: "Waiting";
 
 	const refreshTargets = async (): Promise<void> => {
-		const list = await (
-			globalThis.window?.zuse ?? globalThis.window?.memoize
-		)?.app?.listOpenTargets?.("");
+		const list = await getAppBridge()?.listOpenTargets?.("");
 		if (list !== undefined) setInstalledTargets(list);
 	};
 
@@ -354,7 +350,7 @@ export function CloudWorkspaceInfo({
 			toastManager.add({
 				type: "error",
 				title: "Could not restart the workspace",
-				description: errorMessage(cause),
+				description: errorMessage(cause, "Workspace restart failed."),
 			});
 		} finally {
 			setRestarting(false);

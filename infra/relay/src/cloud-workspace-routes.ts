@@ -780,25 +780,8 @@ export const routeCloudWorkspaceRequest = (
 				(workspace.runtimeBootTokenExpiresAtMs ?? 0) <= nowMs ||
 				workspace.desiredState !== "ready" ||
 				workspace.providerSandboxId === undefined
-			) {
-				console.warn("[cloud-workspace] runtime bootstrap rejected", {
-					workspaceId,
-					workspaceFound: workspace !== null,
-					tokenPresent: token !== undefined,
-					tokenMatches:
-						workspace !== null &&
-						bootTokenHash !== undefined &&
-						workspace.runtimeBootTokenHash === bootTokenHash,
-					tokenFresh:
-						workspace !== null &&
-						(workspace.runtimeBootTokenExpiresAtMs ?? 0) > nowMs,
-					desiredState: workspace?.desiredState,
-					state: workspace?.state,
-					generation:
-						workspace === null ? undefined : runtimeGeneration(workspace),
-				});
+			)
 				return yield* Effect.fail(unauthorized("workspace_bootstrap_rejected"));
-			}
 			const generation = runtimeGeneration(workspace);
 			const epoch = gatewayEpoch(workspace);
 			const prior = runtimeBootstrapReceiptFromConfig(workspace.requestConfig);

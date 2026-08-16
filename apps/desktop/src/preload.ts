@@ -1,5 +1,6 @@
 import {
 	AGENTS_RUNNING_COUNT_CHANNEL,
+	type CloudWorkspaceSshAccess,
 	IPC_CHANNEL,
 	type LagSample,
 	type PerformanceHistory,
@@ -315,14 +316,7 @@ const bridge = {
 			ipcRenderer.invoke("app:copyPath", path) as Promise<void>,
 		copyFileContents: (path: string) =>
 			ipcRenderer.invoke("app:copyFileContents", path) as Promise<boolean>,
-		cloudSshPrepare: (access: {
-			readonly workspaceId: string;
-			readonly wsUrl: string;
-			readonly ticket: string;
-			readonly expiresAt: number;
-			readonly user: string;
-			readonly workspacePath: string;
-		}) =>
+		cloudSshPrepare: (access: CloudWorkspaceSshAccess) =>
 			ipcRenderer.invoke("app:cloudSshPrepare", access) as Promise<{
 				readonly hostAlias: string;
 				readonly sshCommand: string;
@@ -346,11 +340,6 @@ const bridge = {
 			ipcRenderer.invoke("app:cloudSyncConfigure", input) as Promise<unknown>,
 		cloudSyncRequest: (workspaceId: string) =>
 			ipcRenderer.invoke("app:cloudSyncRequest", workspaceId) as Promise<void>,
-		cloudSyncStatus: (workspaceId: string) =>
-			ipcRenderer.invoke(
-				"app:cloudSyncStatus",
-				workspaceId,
-			) as Promise<unknown>,
 		cloudSyncPickFolder: () =>
 			ipcRenderer.invoke("app:cloudSyncPickFolder") as Promise<string | null>,
 		onCloudSyncStatus: (handler: (status: unknown) => void) => {
