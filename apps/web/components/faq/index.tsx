@@ -35,7 +35,7 @@ const data = [
 	{
 		question: "Is my code or data sent anywhere?",
 		answer:
-			"Your chats, project data, and keys stay local, and model requests go only to the providers you configure. Default-on pseudonymous usage analytics measure features, model choices, active time, and reliability with standard geographic enrichment; they never include prompts, responses, code, paths, commands, account details, or error stacks. You can turn analytics off immediately in desktop or mobile Settings.",
+			"Local and SSH chats stay on the computers you choose. When you use the optional Zuse Cloud private beta, its workspace runs in E2B and encrypted transcript checkpoints are stored for fast reconnects. Model requests go only to the providers you configure. Pseudonymous usage analytics never include prompts, responses, code, paths, commands, account details, or error stacks, and you can turn them off in Settings.",
 	},
 	{
 		question: "Which operating systems are supported?",
@@ -45,7 +45,7 @@ const data = [
   {
     question: "How much does it cost?",
     answer:
-      "Zuse (Beta) is free while it is in public beta. You only pay for the agent usage on your own keys. Paid Pro and Team plans are planned for later, but the beta is free.",
+      "The Zuse desktop beta is available now and uses your own agent subscriptions or API keys. Zuse Cloud is a private, invite-only beta: Cloud Workspace costs $40/month, includes $35 of attributable E2B compute, and bills additional provider cost plus 5% up to your overage cap.",
   },
   {
     question: "Can I run multiple agents at once?",
