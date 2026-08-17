@@ -135,9 +135,21 @@ describe("relay deployment safety", () => {
 		expect(production.vars.MACHINE_RUNTIME_MANIFEST_URL).toBe("");
 		expect(production.vars.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK).toBe("");
 		expect(production.vars).not.toHaveProperty("SANDBOX_DEFAULT_PROVIDER");
-		expect(production.vars.E2B_ADAPTER_ENABLED).toBe("false");
-		expect(production.vars.E2B_TEMPLATE_ID).toBe("");
-		expect(production.vars.E2B_TEMPLATE_VERSION).toBe("");
+		expect(production.vars.CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL).toBe(
+			"https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-production/stable-manifest.json",
+		);
+		expect(() =>
+			JSON.parse(
+				production.vars.CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK ?? "",
+			),
+		).not.toThrow();
+		expect(production.vars.E2B_ADAPTER_ENABLED).toBe("true");
+		expect(production.vars.E2B_TEMPLATE_ID).toBe(
+			"zuse-cloud-sandbox-production",
+		);
+		expect(production.vars.E2B_TEMPLATE_VERSION).toBe(
+			"3d0c4a5a-d2fa-414b-9167-08b838c8f3bf",
+		);
 		expect(production.vars.E2B_VCPU_COUNT).toBe("2");
 		expect(production.vars.E2B_MEMORY_MIB).toBe("4096");
 		expect(production.vars.POSTHOG_HOST).toBe("https://us.i.posthog.com");
@@ -151,6 +163,9 @@ describe("relay deployment safety", () => {
 		);
 		expect(production.vars.POLAR_CLOUD_OVERAGE_METER_ID).toBe(
 			"30037005-05ba-4bbb-8e6c-f6cab58826b7",
+		);
+		expect(production.vars.CLOUD_BILLING_CUTOVER_AT).toBe(
+			"2026-08-17T18:30:00.000Z",
 		);
 		expect(production.hyperdrive).toEqual([
 			{
@@ -174,19 +189,6 @@ describe("relay deployment safety", () => {
 		});
 		expect(result.status).toBe(1);
 		expect(result.stderr).toContain("Refusing to deploy the production relay");
-
-		const incomplete = spawnSync("node", ["scripts/deploy-production.mjs"], {
-			cwd: relayDirectory,
-			encoding: "utf8",
-			env: {
-				...process.env,
-				ZUSE_CONFIRM_PRODUCTION_RELAY_DEPLOY: "deploy-relay.zuse.sh",
-			},
-		});
-		expect(incomplete.status).toBe(1);
-		expect(incomplete.stderr).toContain(
-			"Production configuration is incomplete",
-		);
 	});
 
 	test("keeps E2B template and billing reservation resources aligned", async () => {
