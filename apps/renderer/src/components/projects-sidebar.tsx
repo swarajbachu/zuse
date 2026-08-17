@@ -113,6 +113,7 @@ import {
 } from "../store/chats.ts";
 import {
 	type EnvironmentCatalogEntry,
+	environmentCatalogViewState,
 	useEnvironmentCatalogStore,
 } from "../store/environment-catalog.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
@@ -256,6 +257,11 @@ export function ProjectsSidebar() {
 	const initializeEnvironmentCatalog = useEnvironmentCatalogStore(
 		(s) => s.initialize,
 	);
+	const catalogInitialized = useEnvironmentCatalogStore((s) => s.initialized);
+	const catalogInitializing = useEnvironmentCatalogStore((s) => s.initializing);
+	const catalogInitializationError = useEnvironmentCatalogStore(
+		(s) => s.initializationError,
+	);
 
 	const {
 		chatsByProject,
@@ -336,6 +342,13 @@ export function ProjectsSidebar() {
 			shellViews,
 		],
 	);
+	const catalogViewState = environmentCatalogViewState({
+		initialized: catalogInitialized,
+		initializing: catalogInitializing,
+		initializationError: catalogInitializationError,
+		projectCount: logicalGroups.length,
+		projectsLoading: loading,
+	});
 
 	return (
 		<aside
@@ -374,7 +387,31 @@ export function ProjectsSidebar() {
 			<ul className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5">
 				{desktopCatalogEnabled ? (
 					<>
-						{logicalGroups.length === 0 && !loading ? (
+						{catalogViewState === "loading" ? (
+							<li
+								className="flex items-center justify-center gap-2 px-3 py-4 text-[13px] text-muted-foreground"
+								aria-busy="true"
+							>
+								<Spinner className="size-3.5" />
+								Loading projects…
+							</li>
+						) : null}
+						{catalogViewState === "unavailable" ? (
+							<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
+								<p role="alert">This computer couldn’t load its projects.</p>
+								<p className="mt-1 text-[12px]">{catalogInitializationError}</p>
+								<button
+									type="button"
+									className="mt-2 rounded-md border border-sidebar-border px-2.5 py-1 text-[12px] text-sidebar-foreground hover:bg-sidebar-accent"
+									onClick={() => {
+										void initializeEnvironmentCatalog().catch(() => undefined);
+									}}
+								>
+									Retry
+								</button>
+							</li>
+						) : null}
+						{catalogViewState === "empty" ? (
 							<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
 								No projects yet. Click + to add one.
 							</li>

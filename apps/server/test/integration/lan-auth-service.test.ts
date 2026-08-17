@@ -5,7 +5,10 @@ import { TestClock } from "effect/testing";
 import { SqlClient } from "effect/unstable/sql";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
-import { buildAdvertisedEndpoints } from "../../src/lan-auth/advertised-endpoints.ts";
+import {
+	buildAdvertisedEndpoints,
+	resolveDefaultEnvironmentEndpoint,
+} from "../../src/lan-auth/advertised-endpoints.ts";
 import { LanAuthServiceLive } from "../../src/lan-auth/layers/lan-auth-service.ts";
 import { resolveAuthPolicy } from "../../src/lan-auth/policy.ts";
 import {
@@ -121,7 +124,7 @@ describe("LanAuthService", () => {
 				}),
 			);
 			expect(rows).toHaveLength(1);
-			expect(rows[0]!.token_hash).not.toBe(minted.token);
+			expect(rows[0]?.token_hash).not.toBe(minted.token);
 			expect(JSON.stringify(rows)).not.toContain(minted.token);
 		});
 	});
@@ -153,7 +156,7 @@ describe("LanAuthService", () => {
 			).toBe(false);
 			expect(JSON.stringify(summaries)).not.toContain("token_hash");
 			expect(JSON.stringify(summaries)).not.toContain(minted.token);
-			expect(summaries[0]!.revokedAt).toBeInstanceOf(Date);
+			expect(summaries[0]?.revokedAt).toBeInstanceOf(Date);
 		});
 	});
 
@@ -671,6 +674,39 @@ describe("LanAuthService", () => {
 		expect(endpoints.find((endpoint) => endpoint.isDefault)?.id).toBe(
 			"core:lan",
 		);
+	});
+
+	it("describes a local-only runtime through its loopback endpoint", () => {
+		const endpoint = resolveDefaultEnvironmentEndpoint(
+			buildAdvertisedEndpoints({
+				lan: {
+					policy: "protected",
+					advertisedHost: null,
+					port: 8787,
+					pairingBootstrap: false,
+				},
+			}),
+		);
+
+		expect(endpoint).toMatchObject({
+			httpBaseUrl: "http://127.0.0.1:8787",
+			wsBaseUrl: "ws://127.0.0.1:8787",
+		});
+	});
+
+	it("keeps truly unconfigured runtimes undescribable", () => {
+		expect(
+			resolveDefaultEnvironmentEndpoint(
+				buildAdvertisedEndpoints({
+					lan: {
+						policy: "protected",
+						advertisedHost: null,
+						port: null,
+						pairingBootstrap: false,
+					},
+				}),
+			),
+		).toBeNull();
 	});
 });
 

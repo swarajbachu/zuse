@@ -64,7 +64,7 @@ import { Migration0049ChatCreationStartupReady } from "./migrations/0049_chat_cr
  * Add new migrations by appending entries. Never edit a shipped migration —
  * supersede it with a new id.
  */
-const MigrationDefinitions = {
+const MigrationDefinitionsThrough0045 = {
 	"0001_initial": Migration0001Initial,
 	"0002_permissions": Migration0002Permissions,
 	"0003_resume_and_export": Migration0003ResumeAndExport,
@@ -112,11 +112,22 @@ const MigrationDefinitions = {
 	"0043_name_provenance": Migration0043NameProvenance,
 	"0044_chat_creation_operations": Migration0044ChatCreationOperations,
 	"0045_chat_catalog_revision": Migration0045ChatCatalogRevision,
+} as const;
+
+const MigrationDefinitions = {
+	...MigrationDefinitionsThrough0045,
 	"0046_session_timeline_head": Migration0046SessionTimelineHead,
 	"0047_message_checkpoints": Migration0047MessageCheckpoints,
 	"0048_fs_write_receipts": Migration0048FsWriteReceipts,
 	"0049_chat_creation_startup_ready": Migration0049ChatCreationStartupReady,
 } as const;
+
+/** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */
+export const MigrationsThrough0045Live = Layer.effectDiscard(
+	Migrator.make({})({
+		loader: Migrator.fromRecord(MigrationDefinitionsThrough0045),
+	}),
+);
 
 export const MigrationsLive = Layer.effectDiscard(
 	Migrator.make({})({

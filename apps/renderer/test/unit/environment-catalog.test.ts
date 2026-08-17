@@ -45,6 +45,8 @@ import {
 	cloudConnectionFailure,
 	createConnectionAttemptCoordinator,
 	type EnvironmentCatalogEntry,
+	environmentCatalogViewState,
+	loadOptionalEnvironmentSources,
 	orderEnvironmentCatalog,
 	projectEnvironmentShell,
 	validateSshTarget,
@@ -288,6 +290,50 @@ describe("environment catalog", () => {
 				entry("Remote", "remote", "connected"),
 			]).map(({ label }) => label),
 		).toEqual(["Local", "Relay", "Remote", "Offline"]);
+	});
+
+	it("isolates optional computer discovery failures", async () => {
+		const sources = await loadOptionalEnvironmentSources({
+			sshProfiles: Promise.reject(new Error("corrupt SSH profiles")),
+			tailnetProfiles: Promise.resolve([]),
+			relayEnvironments: Promise.reject(new Error("account unavailable")),
+		});
+
+		expect(sources).toEqual({
+			profiles: [],
+			tailnetProfiles: [],
+			relayEnvironments: [],
+		});
+	});
+
+	it("never presents initialization failures as an empty project catalog", () => {
+		expect(
+			environmentCatalogViewState({
+				initialized: false,
+				initializing: false,
+				initializationError: "Local connection failed",
+				projectCount: 0,
+				projectsLoading: false,
+			}),
+		).toBe("unavailable");
+		expect(
+			environmentCatalogViewState({
+				initialized: false,
+				initializing: true,
+				initializationError: null,
+				projectCount: 0,
+				projectsLoading: false,
+			}),
+		).toBe("loading");
+		expect(
+			environmentCatalogViewState({
+				initialized: true,
+				initializing: false,
+				initializationError: null,
+				projectCount: 0,
+				projectsLoading: false,
+			}),
+		).toBe("empty");
 	});
 
 	it("replaces an in-flight connection attempt that never became ready", async () => {

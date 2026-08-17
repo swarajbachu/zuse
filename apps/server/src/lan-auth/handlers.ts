@@ -1,7 +1,6 @@
 import {
 	ConnectAuthError,
 	EnvironmentDescriptor,
-	EnvironmentEndpoint,
 	MemoizeRpcs,
 	NearbyPairingRequest,
 	PairingError,
@@ -12,7 +11,10 @@ import {
 } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 
-import { buildAdvertisedEndpoints } from "./advertised-endpoints.ts";
+import {
+	buildAdvertisedEndpoints,
+	resolveDefaultEnvironmentEndpoint,
+} from "./advertised-endpoints.ts";
 import { defaultEnvironmentLabel } from "./environment-label.ts";
 import { LanAuthConfig, LanAuthService } from "./services/lan-auth-service.ts";
 
@@ -95,18 +97,19 @@ const ConnectDescribe = MemoizeRpcs.toLayerHandler("connect.describe", () =>
 		const auth = yield* LanAuthService;
 		const config = yield* LanAuthConfig;
 		const relayConfig = yield* auth.getRelayConfig();
-		const endpoint =
-			relayConfig?.tunnelHostname !== undefined
-				? EnvironmentEndpoint.make({
-						httpBaseUrl: `https://${relayConfig.tunnelHostname}`,
-						wsBaseUrl: `wss://${relayConfig.tunnelHostname}`,
-					})
-				: config.advertisedHost !== null && config.port !== null
-					? EnvironmentEndpoint.make({
-							httpBaseUrl: `http://${config.advertisedHost}:${config.port}`,
-							wsBaseUrl: `ws://${config.advertisedHost}:${config.port}`,
-						})
-					: null;
+		const relay =
+			relayConfig === null
+				? null
+				: {
+						linked: true,
+						heartbeatActive: true,
+						tunnelHostname: relayConfig.tunnelHostname,
+					};
+		const advertisedEndpoints = buildAdvertisedEndpoints({
+			lan: config,
+			relay,
+		});
+		const endpoint = resolveDefaultEnvironmentEndpoint(advertisedEndpoints);
 
 		if (endpoint === null) {
 			return yield* Effect.fail(
@@ -119,17 +122,7 @@ const ConnectDescribe = MemoizeRpcs.toLayerHandler("connect.describe", () =>
 			providerKind: "desktop",
 			endpoint,
 			label: yield* defaultEnvironmentLabel(),
-			advertisedEndpoints: buildAdvertisedEndpoints({
-				lan: config,
-				relay:
-					relayConfig === null
-						? null
-						: {
-								linked: true,
-								heartbeatActive: true,
-								tunnelHostname: relayConfig.tunnelHostname,
-							},
-			}),
+			advertisedEndpoints,
 		});
 	}).pipe(
 		Effect.mapError((error) =>
