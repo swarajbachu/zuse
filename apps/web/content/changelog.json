@@ -1,5 +1,33 @@
 [
   {
+    "version": "0.20.0",
+    "sections": [
+      {
+        "title": "Added",
+        "items": [
+          "Run coding agents in invite-only Zuse Cloud workspaces, with guided GitHub repository setup, encrypted credentials and transcripts, secure reconnects, pause/resume/archive controls, SSH access, and one-way local file sync",
+          "View Cloud usage and control overage spending under the `$40/month` plan, including `$35` of attributable E2B compute and additional provider cost plus 5%",
+          "Control installed desktop chats from the Zuse CLI through secure local credential discovery"
+        ]
+      },
+      {
+        "title": "Changed",
+        "items": [
+          "Chats now use one durable, environment-scoped realtime state path, so agents continue after the client closes and cached transcripts appear immediately before bounded live catch-up",
+          "Sign-in, integration, and purchase callbacks now use polished, accessible status pages with accurate success and failure states"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "items": [
+          "Cloud workspaces now recover reliably across bootstrap failures, stale runtime registrations, paused chats, reconnects, and runtime upgrades",
+          "Cloud repository onboarding preserves successful connections when another repository fails, making retries targeted and idempotent",
+          "Published CLI packages now install cleanly and can authenticate to packaged desktop builds"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.19.0",
     "sections": [
       {
@@ -12,7 +40,7 @@
       {
         "title": "Fixed",
         "items": [
-        "macOS now installs the newest downloaded update on quit instead of potentially staging an older cached release first"
+          "macOS now installs the newest downloaded update on quit instead of potentially staging an older cached release first"
         ]
       }
     ]
