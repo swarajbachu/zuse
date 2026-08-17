@@ -41,7 +41,7 @@ export {
 	ServeTunnelState,
 } from "@zuse/contracts";
 
-const DEFAULT_RELAY_URL = "https://relay.stuff.md";
+const DEFAULT_RELAY_URL = "https://relay.zuse.sh";
 export const SERVE_HELP = `Zuse Serve
 
 Run and manage Zuse on this computer.

@@ -15,10 +15,10 @@
 			"fallthrough": true
 		}
 	],
-	"routes": [{ "pattern": "relay-staging.stuff.md", "custom_domain": true }],
+	"routes": [{ "pattern": "relay-staging.zuse.sh", "custom_domain": true }],
 	"triggers": { "crons": ["* * * * *"] },
 	"vars": {
-		"RELAY_ISSUER": "https://relay-staging.stuff.md",
+		"RELAY_ISSUER": "https://relay-staging.zuse.sh",
 		"WORKOS_ISSUER": "https://api.workos.com",
 		"WORKOS_JWKS_URL": "https://api.workos.com/sso/jwks/client_01KW6ZEZKVMZ0G429A89XZD83Q",
 		"RELAY_MINT_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"rLuckqLkdtwPKtradClTam6ovMItDJZ3SNbBQXFjJWw\",\"kty\":\"OKP\"}",

@@ -12,7 +12,7 @@ Staging and production are isolated deployments:
 
 | Resource | Staging | Production |
 | --- | --- | --- |
-| Relay | `zuse-relay-staging`, `relay-staging.stuff.md` | guarded production Worker, `relay.stuff.md` |
+| Relay | `zuse-relay-staging`, `relay-staging.zuse.sh` | guarded production Worker, `relay.zuse.sh` |
 | Wrangler config | default `infra/relay/wrangler.jsonc` | `infra/relay/wrangler.production.jsonc` |
 | Database | approved staging Neon identity | separately approved production identity |
 | Runtime channel | `cloud-runtime-staging` | signed `cloud-runtime-production` |
@@ -77,8 +77,10 @@ stable error codes.
 ## Private-beta rollout
 
 The production gate is the PostHog boolean flag `zuse-cloud-beta-access`,
-targeted by exact WorkOS account ID and evaluated by Relay. There is no second
-production allowlist.
+targeted by the exact `workos_account_id` person property and evaluated by Relay
+with a verified WorkOS identity. Email targeting does not apply because Relay
+does not send email to the flag evaluator. There is no second production
+allowlist.
 
 Roll out in this order:
 

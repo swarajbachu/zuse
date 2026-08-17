@@ -66,9 +66,9 @@ describe("relay deployment safety", () => {
 
 		expect(config.name).toBe("zuse-relay-staging");
 		expect(config.routes).toEqual([
-			{ pattern: "relay-staging.stuff.md", custom_domain: true },
+			{ pattern: "relay-staging.zuse.sh", custom_domain: true },
 		]);
-		expect(config.vars.RELAY_ISSUER).toBe("https://relay-staging.stuff.md");
+		expect(config.vars.RELAY_ISSUER).toBe("https://relay-staging.zuse.sh");
 		expect(config.vars.MANAGED_TUNNEL_NAMESPACE).toBe("zenv-staging");
 		expect(config.vars.WORKOS_JWKS_URL).toBe(
 			`https://api.workos.com/sso/jwks/${WORKOS_STAGING_PUBLIC_CLIENT_ID}`,
@@ -127,7 +127,7 @@ describe("relay deployment safety", () => {
 
 		expect(production.name).toBe("zuse-relay");
 		expect(production.routes).toEqual([
-			{ pattern: "relay.stuff.md", custom_domain: true },
+			{ pattern: "relay.zuse.sh", custom_domain: true },
 		]);
 		expect(production.vars.MACHINE_PROVIDER).toBe("fake");
 		expect(production.vars.HETZNER_ADAPTER_ENABLED).toBe("false");
@@ -180,7 +180,7 @@ describe("relay deployment safety", () => {
 			encoding: "utf8",
 			env: {
 				...process.env,
-				ZUSE_CONFIRM_PRODUCTION_RELAY_DEPLOY: "deploy-relay.stuff.md",
+				ZUSE_CONFIRM_PRODUCTION_RELAY_DEPLOY: "deploy-relay.zuse.sh",
 			},
 		});
 		expect(incomplete.status).toBe(1);
@@ -258,7 +258,7 @@ describe("relay deployment safety", () => {
 					...process.env,
 					DATABASE_URL:
 						"postgresql://example.invalid/production?sslmode=require",
-					ZUSE_CONFIRM_PRODUCTION_DATABASE_MIGRATION: "migrate-relay.stuff.md",
+					ZUSE_CONFIRM_PRODUCTION_DATABASE_MIGRATION: "migrate-relay.zuse.sh",
 				},
 			},
 		);

@@ -54,13 +54,13 @@ describe("machine control relay URL", () => {
 
 	it("uses staging outside packaged production", () => {
 		expect(resolveMachineRelayUrl({ NODE_ENV: "development" })).toBe(
-			"https://relay-staging.stuff.md",
+			"https://relay-staging.zuse.sh",
 		);
 	});
 
 	it("uses production only for production or an explicit override", () => {
 		expect(resolveMachineRelayUrl({ NODE_ENV: "production" })).toBe(
-			"https://relay.stuff.md",
+			"https://relay.zuse.sh",
 		);
 		expect(
 			resolveMachineRelayUrl({

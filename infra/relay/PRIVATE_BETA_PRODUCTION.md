@@ -7,13 +7,16 @@ not use this gate.
 ## External resources
 
 1. In PostHog production, create the boolean flag
-   `zuse-cloud-beta-access`, default false. Target invited people by the exact
-   `workos_account_id`. Relay evaluates it with the WorkOS-verified account ID;
-   clients cannot supply or override that identity.
+   `zuse-cloud-beta-access`. Leave its default rollout at 0%. For each invited
+   account, add a person-property condition where `workos_account_id` exactly
+   equals the WorkOS user ID and set that condition to 100%. Do not target Email:
+   Relay intentionally sends only the WorkOS-verified account ID as evaluation
+   context, so the person does not need to exist in PostHog first and clients
+   cannot supply or override the identity.
 2. In Polar production, create Cloud Workspace with a $40 monthly price. Create
    meter `zuse_cloud_overage_cent`, summing numeric metadata field `units`, and
    attach a recurring $0.01-per-unit price. Register
-   `https://relay.stuff.md/v1/billing/webhook/polar` for the subscription events
+   `https://relay.zuse.sh/v1/billing/webhook/polar` for the subscription events
    supported by the Polar adapter.
 3. In E2B production, build artifacts from the release commit, then publish the
    isolated production template:
@@ -25,7 +28,7 @@ not use this gate.
 
    Record the immutable build identifier from the CLI in
    `E2B_TEMPLATE_VERSION`. Register
-   `https://relay.stuff.md/v1/cloud/billing/webhook/e2b` and verify a signed real
+   `https://relay.zuse.sh/v1/cloud/billing/webhook/e2b` and verify a signed real
    delivery.
 4. A version tag publishes a separately signed runtime to
    `cloud-runtime-production`. Record that manifest URL and its production
@@ -61,7 +64,7 @@ guarded command requires the approved database identity in
 `production-database.json` and rejects staging:
 
 ```sh
-ZUSE_CONFIRM_PRODUCTION_DATABASE_MIGRATION=migrate-relay.stuff.md \
+ZUSE_CONFIRM_PRODUCTION_DATABASE_MIGRATION=migrate-relay.zuse.sh \
 DATABASE_URL=... \
 bun --cwd infra/relay db:migrate:production
 ```
@@ -70,7 +73,7 @@ The production deploy independently validates nonempty runtime, E2B, PostHog,
 Polar, R2, Hyperdrive, cutover, and secret configuration:
 
 ```sh
-ZUSE_CONFIRM_PRODUCTION_RELAY_DEPLOY=deploy-relay.stuff.md \
+ZUSE_CONFIRM_PRODUCTION_RELAY_DEPLOY=deploy-relay.zuse.sh \
 bun --cwd infra/relay deploy:production
 ```
 

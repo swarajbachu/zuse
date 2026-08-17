@@ -5,12 +5,11 @@ import type {
 	TailnetShareState,
 } from "@zuse/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
-
+import { dispatchLocalDeviceCommand } from "../../lib/local-device-client-bus.ts";
 import {
 	openExternal,
 	rendererPlatformCapabilities,
 } from "../../lib/platform-capabilities.ts";
-import { dispatchLocalDeviceCommand } from "../../lib/local-device-client-bus.ts";
 import { Spinner } from "../ui/spinner.tsx";
 import {
 	AccessConfirmDialogs,
@@ -24,7 +23,7 @@ import { UsingComputersCard } from "./remote-access/using-computers-card.tsx";
 
 const DEFAULT_RELAY_URL =
 	(import.meta.env.VITE_ZUSE_RELAY_URL as string | undefined) ??
-	"https://relay.stuff.md";
+	"https://relay.zuse.sh";
 
 /**
  * Remote-access settings data and mutations. Presentation is composed from

@@ -61,7 +61,7 @@ bun run deploy
 
 Staging is the unnamed Wrangler default, so these commands and even an
 unqualified `wrangler deploy` use the `zuse-relay-staging` Worker,
-`relay-staging.stuff.md`, a separate Hyperdrive binding, the `zenv-staging`
+`relay-staging.zuse.sh`, a separate Hyperdrive binding, the `zenv-staging`
 tunnel namespace, sandbox billing, the allowlisted Hetzner adapter, and live
 sandbox checkout. The secret scripts in this package also target staging by
 default. Production remains separately configured and disabled.
@@ -70,7 +70,7 @@ An intentional production deployment is guarded and requires both the explicit
 script and confirmation value:
 
 ```sh
-ZUSE_CONFIRM_PRODUCTION_RELAY_DEPLOY=deploy-relay.stuff.md \
+ZUSE_CONFIRM_PRODUCTION_RELAY_DEPLOY=deploy-relay.zuse.sh \
 	bun run deploy:production
 ```
 
@@ -164,7 +164,7 @@ binding requires separate, explicit approval.
      valid JSON. Production checkout remains disabled while the fake adapter is
      selected.
 8. Deploy staging with `bun run deploy`. Development desktop and renderer
-   builds default to `https://relay-staging.stuff.md` and the staging WorkOS
+   builds default to `https://relay-staging.zuse.sh` and the staging WorkOS
    client; explicit `ZUSE_RELAY_URL`, `VITE_ZUSE_RELAY_URL`,
    `WORKOS_CLIENT_ID`, and `VITE_WORKOS_CLIENT_ID` values still override those
    defaults. Mobile development and preview profiles pin the same staging pair.

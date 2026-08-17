@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 import { parse } from "jsonc-parser";
 
-const confirmation = "deploy-relay.stuff.md";
+const confirmation = "deploy-relay.zuse.sh";
 const configPath = "wrangler.production.jsonc";
 
 if (process.env.ZUSE_CONFIRM_PRODUCTION_RELAY_DEPLOY !== confirmation) {

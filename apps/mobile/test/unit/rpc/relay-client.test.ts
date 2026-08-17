@@ -16,7 +16,7 @@ describe("relay client errors", () => {
 		expect(
 			normalizeRelayError(
 				500,
-				"Worker threw exception | relay.stuff.md | Cloudflare body{margin:0}",
+				"Worker threw exception | relay.zuse.sh | Cloudflare body{margin:0}",
 				"relay_connect",
 			),
 		).toBe("relay_connect_500");
