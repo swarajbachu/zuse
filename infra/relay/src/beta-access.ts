@@ -1,3 +1,4 @@
+import { analyticsAccountId } from "@zuse/analytics/identity";
 import { Context, Effect, Layer, Schema } from "effect";
 import { forbidden, type RelayError, serviceUnavailable } from "./errors.ts";
 
@@ -52,7 +53,7 @@ export const makePostHogBetaAccess = (
 					headers: { "content-type": "application/json" },
 					body: JSON.stringify({
 						token: config.projectToken,
-						distinct_id: accountId,
+						distinct_id: analyticsAccountId(accountId),
 						groups: {},
 						person_properties: { workos_account_id: accountId },
 						group_properties: {},
@@ -93,7 +94,9 @@ export const BetaAccessAllowAll = Layer.succeed(
 );
 
 export const requireCloudBetaAccess = Effect.fn("requireCloudBetaAccess")(
-	function* (accountId: string): Effect.fn.Return<void, RelayError, BetaAccess> {
+	function* (
+		accountId: string,
+	): Effect.fn.Return<void, RelayError, BetaAccess> {
 		return yield* (yield* BetaAccess).check(accountId).pipe(
 			Effect.catchTags({
 				BetaAccessDenied: () =>

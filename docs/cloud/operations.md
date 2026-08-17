@@ -77,10 +77,10 @@ stable error codes.
 ## Private-beta rollout
 
 The production gate is the PostHog boolean flag `zuse-cloud-beta-access`,
-targeted by the exact `workos_account_id` person property and evaluated by Relay
-with a verified WorkOS identity. Email targeting does not apply because Relay
-does not send email to the flag evaluator. There is no second production
-allowlist.
+targeted by the privacy-preserving `account_…` Distinct ID that Relay derives
+from the verified WorkOS identity using the shared analytics identity function.
+Email and `anonymous_…` installation IDs do not apply. There is no second
+production allowlist.
 
 Roll out in this order:
 

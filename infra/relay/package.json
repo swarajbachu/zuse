@@ -40,6 +40,7 @@
 		"deploy:production": "node scripts/deploy-production.mjs"
 	},
 	"dependencies": {
+		"@zuse/analytics": "*",
 		"@zuse/billing-providers": "*",
 		"@zuse/contracts": "*",
 		"@zuse/machine-providers": "*",

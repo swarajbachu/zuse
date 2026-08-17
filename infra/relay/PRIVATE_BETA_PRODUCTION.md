@@ -8,11 +8,11 @@ not use this gate.
 
 1. In PostHog production, create the boolean flag
    `zuse-cloud-beta-access`. Leave its default rollout at 0%. For each invited
-   account, add a person-property condition where `workos_account_id` exactly
-   equals the WorkOS user ID and set that condition to 100%. Do not target Email:
-   Relay intentionally sends only the WorkOS-verified account ID as evaluation
-   context, so the person does not need to exist in PostHog first and clients
-   cannot supply or override the identity.
+   account, target its `account_…` Distinct ID and set that condition to 100%.
+   Relay derives that privacy-preserving ID from the verified WorkOS user ID
+   with the same shared identity function as product analytics. Do not target
+   Email or an `anonymous_…` installation ID; clients cannot supply or override
+   the authenticated identity.
 2. In Polar production, create Cloud Workspace with a $40 monthly price. Create
    meter `zuse_cloud_overage_cent`, summing numeric metadata field `units`, and
    attach a recurring $0.01-per-unit price. Register

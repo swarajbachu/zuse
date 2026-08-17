@@ -1,3 +1,4 @@
+import { analyticsAccountId } from "@zuse/analytics/identity";
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 import {
@@ -34,11 +35,11 @@ describe("cloud beta access", () => {
 			});
 		});
 
-		await expect(Effect.runPromise(access.check("user_verified"))).resolves.toBe(
-			undefined,
-		);
+		await expect(
+			Effect.runPromise(access.check("user_verified")),
+		).resolves.toBe(undefined);
 		expect(body).toMatchObject({
-			distinct_id: "user_verified",
+			distinct_id: analyticsAccountId("user_verified"),
 			person_properties: { workos_account_id: "user_verified" },
 			flag_keys_to_evaluate: ["zuse-cloud-beta-access"],
 			geoip_disable: true,
@@ -51,9 +52,9 @@ describe("cloud beta access", () => {
 			{ "zuse-cloud-beta-access": { enabled: false } },
 		]) {
 			const access = makePostHogBetaAccess(config, () => response({ flags }));
-			await expect(Effect.runPromise(access.check("user_denied"))).rejects.toBeInstanceOf(
-				BetaAccessDenied,
-			);
+			await expect(
+				Effect.runPromise(access.check("user_denied")),
+			).rejects.toBeInstanceOf(BetaAccessDenied);
 		}
 	});
 
@@ -83,7 +84,9 @@ describe("cloud beta access", () => {
 			{ ...config, timeoutMs: 1 },
 			(_url, init) =>
 				new Promise<Response>((_resolve, reject) => {
-					init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+					init?.signal?.addEventListener("abort", () =>
+						reject(init.signal?.reason),
+					);
 				}),
 		);
 		await expect(
