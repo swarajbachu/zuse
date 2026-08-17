@@ -932,7 +932,7 @@ export const routeMachineRequest = (
 		}
 
 		if (method === "POST" && path === RelayPaths.billingPortal) {
-			const principal = yield* requireHostedPrincipal(request);
+			const principal = yield* requireWorkos(request);
 			const entitlements = yield* store.listEntitlements(principal.accountId);
 			const portalProviderIds = [
 				...new Set(
@@ -978,7 +978,7 @@ export const routeMachineRequest = (
 
 		const cancelMatch = /^\/v1\/machines\/([^/]+)\/cancel$/.exec(path);
 		if (method === "POST" && cancelMatch !== null) {
-			const principal = yield* requireHostedPrincipal(request);
+			const principal = yield* requireWorkos(request);
 			const machine = yield* getOwnedMachine(
 				decodeURIComponent(cancelMatch[1] ?? ""),
 				principal.accountId,
@@ -1058,7 +1058,7 @@ export const routeMachineRequest = (
 
 		const destroyMatch = /^\/v1\/machines\/([^/]+)\/destroy$/.exec(path);
 		if (method === "POST" && destroyMatch !== null) {
-			const principal = yield* requireHostedPrincipal(request);
+			const principal = yield* requireWorkos(request);
 			const body = yield* decodeBody(MachineDestroyRequest, request);
 			const pathMachineId = decodeURIComponent(destroyMatch[1] ?? "");
 			if (body.machineId !== pathMachineId) {

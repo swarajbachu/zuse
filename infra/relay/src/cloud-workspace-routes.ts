@@ -1377,8 +1377,17 @@ export const routeCloudWorkspaceRequest = (
 			return response;
 		}
 
+		const actionMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/(pause|resume|restart|archive|unarchive|delete)$/u.exec(
+				path,
+			);
+		const isCleanupAction =
+			method === "POST" &&
+			(actionMatch?.[2] === "pause" ||
+				actionMatch?.[2] === "archive" ||
+				actionMatch?.[2] === "delete");
 		const principal = yield* requireWorkos(request);
-		yield* requireCloudBetaAccess(principal.accountId);
+		if (!isCleanupAction) yield* requireCloudBetaAccess(principal.accountId);
 		const requireBillingCapacity = Effect.fn("requireCloudBillingCapacity")(
 			function* () {
 				if (!(yield* RelayConfiguration).cloudBillingEnforcementEnabled) return;
@@ -2030,10 +2039,6 @@ export const routeCloudWorkspaceRequest = (
 			return response;
 		}
 
-		const actionMatch =
-			/^\/v1\/cloud\/workspaces\/([^/]+)\/(pause|resume|restart|archive|unarchive|delete)$/u.exec(
-				path,
-			);
 		if (method === "POST" && actionMatch !== null) {
 			const workspace = yield* store.getWorkspace(
 				decodeURIComponent(actionMatch[1] ?? ""),

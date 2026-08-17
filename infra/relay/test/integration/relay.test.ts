@@ -341,7 +341,7 @@ beforeEach(async () => {
 });
 
 describe("@zuse/relay", () => {
-	test("gates hosted operations without blocking local environment linking", async () => {
+	test("gates hosted operations without blocking local links or resource cleanup", async () => {
 		const gatedRelay = makeRelay(
 			await makeLayer(
 				undefined,
@@ -363,6 +363,53 @@ describe("@zuse/relay", () => {
 		expect(await hosted.json()).toEqual({
 			error: "cloud_beta_access_required",
 		});
+		const resume = await gatedRelay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/cloud/workspaces/missing/resume`, {
+				method: "POST",
+				headers,
+			}),
+		);
+		expect(resume.status).toBe(403);
+
+		const portal = await gatedRelay.fetch(
+			new Request(`${RELAY_ISSUER}${RelayPaths.billingPortal}`, {
+				method: "POST",
+				headers,
+			}),
+		);
+		expect(portal.status).toBe(503);
+		expect(await portal.json()).toEqual({
+			error: "billing_provider_unavailable",
+		});
+
+		for (const action of ["pause", "archive", "delete"] as const) {
+			const cleanup = await gatedRelay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/cloud/workspaces/missing/${action}`, {
+					method: "POST",
+					headers,
+				}),
+			);
+			expect(cleanup.status).toBe(404);
+			expect(await cleanup.json()).toEqual({
+				error: "cloud_workspace_not_found",
+			});
+		}
+
+		const cancel = await gatedRelay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/machines/missing/cancel`, {
+				method: "POST",
+				headers,
+			}),
+		);
+		expect(cancel.status).toBe(404);
+		const destroy = await gatedRelay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/machines/missing/destroy`, {
+				method: "POST",
+				headers: { ...headers, "content-type": "application/json" },
+				body: JSON.stringify({ machineId: "missing", confirmation: "destroy" }),
+			}),
+		);
+		expect(destroy.status).toBe(404);
 
 		const local = await gatedRelay.fetch(
 			new Request(`${RELAY_ISSUER}/v1/client/environment-link-challenges`, {
