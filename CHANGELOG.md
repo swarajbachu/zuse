@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1]
+
+### Fixed
+- Cloud Workspace now appears in production desktop builds for invited beta users, while Relay continues enforcing private-beta access server-side
+
 ## [0.20.0]
 
 ### Added

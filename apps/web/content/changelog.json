@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.20.1",
+    "sections": [
+      {
+        "title": "Fixed",
+        "items": [
+          "Cloud Workspace now appears in production desktop builds for invited beta users, while Relay continues enforcing private-beta access server-side"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.20.0",
     "sections": [
       {
