@@ -2,7 +2,7 @@
 	"name": "desktop",
 	"type": "module",
 	"productName": "Zuse (Beta)",
-	"version": "0.20.1",
+	"version": "0.20.2",
 	"description": "Zuse (Beta) desktop app",
 	"private": true,
 	"author": {

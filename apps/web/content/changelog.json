@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.20.2",
+    "sections": [
+      {
+        "title": "Fixed",
+        "items": [
+          "Restored Zuse Cloud connectivity by routing production clients through the active Relay endpoint"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.20.1",
     "sections": [
       {
