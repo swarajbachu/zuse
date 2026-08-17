@@ -1,6 +1,7 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { describe, expect, test } from "vitest";
 import { __testing, isAgentCliCommand } from "../src/agent-cli.ts";
 
@@ -107,7 +108,9 @@ describe("agent CLI", () => {
 				ZUSE_DEV_CLI_ACCESS_FILE: accessFile,
 			}),
 		);
-		expect(endpoint.searchParams.get("wireVersion")).toBe("4");
+		expect(endpoint.searchParams.get("wireVersion")).toBe(
+			String(WIRE_PROTOCOL_VERSION),
+		);
 		expect(endpoint.searchParams.get("token")).toBe("zt_development");
 	});
 });
