@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.20.3",
+    "sections": [
+      {
+        "title": "Fixed",
+        "items": [
+          "Restored local projects and chats after upgrading when Local network access is disabled, and made project loading recoverable without deleting or replacing the local database"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.20.2",
     "sections": [
       {

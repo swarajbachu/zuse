@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.3]
+
+### Fixed
+- Restored local projects and chats after upgrading when Local network access is disabled, and made project loading recoverable without deleting or replacing the local database
+
 ## [0.20.2]
 
 ### Fixed
