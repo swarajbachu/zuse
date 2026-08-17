@@ -32,10 +32,23 @@ export interface BillingRuntime {
 const polarConfig = (
 	env: BillingEnvironment,
 ): PolarBillingConfig | undefined => {
+	const cloudProduct =
+		env.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1 ??
+		env.POLAR_PRODUCT_SANDBOX_STANDARD_V1;
+	const offerProducts = {
+		...(isConfigured(env.POLAR_PRODUCT_PERSISTENT_STANDARD_V1)
+			? {
+					"persistent-standard-v1": env.POLAR_PRODUCT_PERSISTENT_STANDARD_V1,
+				}
+			: {}),
+		...(isConfigured(cloudProduct)
+			? { "cloud-workspace-standard-v1": cloudProduct }
+			: {}),
+	};
 	if (
 		!isConfigured(env.POLAR_ACCESS_TOKEN) ||
 		!isConfigured(env.POLAR_WEBHOOK_SECRET) ||
-		!isConfigured(env.POLAR_PRODUCT_PERSISTENT_STANDARD_V1) ||
+		Object.keys(offerProducts).length === 0 ||
 		(env.POLAR_ENVIRONMENT !== "sandbox" &&
 			env.POLAR_ENVIRONMENT !== "production")
 	) {
@@ -45,19 +58,7 @@ const polarConfig = (
 		accessToken: Redacted.make(env.POLAR_ACCESS_TOKEN),
 		webhookSecret: Redacted.make(env.POLAR_WEBHOOK_SECRET),
 		environment: env.POLAR_ENVIRONMENT,
-		offerProducts: {
-			"persistent-standard-v1": env.POLAR_PRODUCT_PERSISTENT_STANDARD_V1,
-			...(isConfigured(
-				env.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1 ??
-					env.POLAR_PRODUCT_SANDBOX_STANDARD_V1,
-			)
-				? {
-						"cloud-workspace-standard-v1":
-							env.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1 ??
-							env.POLAR_PRODUCT_SANDBOX_STANDARD_V1,
-					}
-				: {}),
-		},
+		offerProducts,
 		...(isConfigured(env.POLAR_CLOUD_OVERAGE_METER_ID)
 			? { overageMeterId: env.POLAR_CLOUD_OVERAGE_METER_ID }
 			: {}),

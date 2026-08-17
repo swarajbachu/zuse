@@ -82,6 +82,15 @@ describe("relay billing configuration", () => {
 		).rejects.not.toMatchObject({ code: "invalid-offer" });
 	});
 
+	test("configures cloud billing without the unrelated machine product", () => {
+		const runtime = resolveBillingRuntime({
+			...configuredEnvironment,
+			POLAR_PRODUCT_PERSISTENT_STANDARD_V1: undefined,
+		});
+
+		expect(runtime.polarConfigured).toBe(true);
+	});
+
 	test("accepts the legacy cloud workspace product variable during rollout", async () => {
 		const {
 			POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1: _,

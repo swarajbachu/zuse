@@ -145,7 +145,13 @@ describe("relay deployment safety", () => {
 			"zuse-cloud-beta-access",
 		);
 		expect(production.vars).not.toHaveProperty("MACHINE_ALPHA_ALLOWLIST");
-		expect(production.vars.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1).toBe("");
+		expect(production.vars.POLAR_ENVIRONMENT).toBe("production");
+		expect(production.vars.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1).toBe(
+			"80f89e4a-dc3a-44db-8523-b4863168437f",
+		);
+		expect(production.vars.POLAR_CLOUD_OVERAGE_METER_ID).toBe(
+			"30037005-05ba-4bbb-8e6c-f6cab58826b7",
+		);
 		expect(production.hyperdrive).toEqual([
 			{
 				binding: "HYPERDRIVE",
