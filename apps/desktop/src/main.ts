@@ -3238,14 +3238,13 @@ async function createMainWindow() {
 						}
 					},
 				},
-				...(isDevelopment && process.env.ZUSE_DEV_CLI_ACCESS_FILE
-					? {
-							devCliAccess: {
-								path: process.env.ZUSE_DEV_CLI_ACCESS_FILE,
-								wsUrl: `ws://127.0.0.1:${relayWsPort}/rpc`,
-							},
-						}
-					: {}),
+				cliAccess: {
+					path:
+						isDevelopment && process.env.ZUSE_DEV_CLI_ACCESS_FILE
+							? process.env.ZUSE_DEV_CLI_ACCESS_FILE
+							: Path.join(app.getPath("userData"), "cli-access.json"),
+					wsUrl: `ws://127.0.0.1:${relayWsPort}/rpc`,
+				},
 			}),
 		).pipe(
 			Effect.catchCause((cause) =>

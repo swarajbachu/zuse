@@ -1,6 +1,6 @@
 {
 	"name": "zusehq",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"description": "Run and manage Zuse remote workspaces",
 	"license": "AGPL-3.0-only",
 	"type": "module",
@@ -24,7 +24,7 @@
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@zusehq/serve": "0.1.4"
+		"@zusehq/serve": "0.1.5"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",

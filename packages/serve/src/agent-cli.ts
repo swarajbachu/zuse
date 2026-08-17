@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import {
 	basename,
 	dirname,
@@ -173,16 +174,39 @@ const promptFor = async (args: Args, message = false): Promise<string> => {
 	return file === "-" ? readStdin() : readFile(resolve(file), "utf8");
 };
 
-type DevCliAccess = {
+type LocalCliAccess = {
 	readonly schemaVersion: 1;
 	readonly wsUrl: string;
 	readonly token: string;
 };
-const devCliAccess = async (
+const installedCliAccessCandidates = (
 	env: NodeJS.ProcessEnv,
-): Promise<DevCliAccess | null> => {
+	platform = process.platform,
+): ReadonlyArray<string> => {
+	const configured = env.ZUSE_USER_DATA_DIR?.trim();
+	if (configured) return [join(resolve(configured), "cli-access.json")];
+	if (platform === "darwin")
+		return [
+			join(
+				homedir(),
+				"Library",
+				"Application Support",
+				"Zuse Alpha",
+				"cli-access.json",
+			),
+		];
+	if (platform === "win32" && env.APPDATA?.trim())
+		return [join(resolve(env.APPDATA), "Zuse Alpha", "cli-access.json")];
+	const config = env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+	return [join(resolve(config), "Zuse Alpha", "cli-access.json")];
+};
+const localCliAccess = async (
+	env: NodeJS.ProcessEnv,
+): Promise<LocalCliAccess | null> => {
 	const explicit = env.ZUSE_DEV_CLI_ACCESS_FILE?.trim();
-	const candidates: string[] = explicit ? [resolve(explicit)] : [];
+	const candidates: string[] = explicit
+		? [resolve(explicit)]
+		: [...installedCliAccessCandidates(env)];
 	let cursor = resolve(process.cwd());
 	while (true) {
 		const instance = env.ZUSE_DEV_INSTANCE?.trim() || "default";
@@ -197,13 +221,13 @@ const devCliAccess = async (
 		try {
 			const parsed = JSON.parse(
 				await readFile(candidate, "utf8"),
-			) as Partial<DevCliAccess>;
+			) as Partial<LocalCliAccess>;
 			if (
 				parsed.schemaVersion === 1 &&
 				typeof parsed.wsUrl === "string" &&
 				typeof parsed.token === "string"
 			)
-				return parsed as DevCliAccess;
+				return parsed as LocalCliAccess;
 		} catch {
 			// Continue to the next repository ancestor.
 		}
@@ -225,7 +249,7 @@ const endpoint = async (
 	}
 	const access =
 		one(args, "ws-url") === undefined && env.ZUSE_WS_URL === undefined
-			? await devCliAccess(env)
+			? await localCliAccess(env)
 			: null;
 	const raw =
 		one(args, "ws-url") ??
@@ -1172,6 +1196,6 @@ export const __testing = {
 	execute,
 	commandManifest,
 	expandInputJson,
-	devCliAccess,
+	localCliAccess,
 	endpoint,
 };

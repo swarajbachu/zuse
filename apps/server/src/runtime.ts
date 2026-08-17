@@ -142,7 +142,7 @@ export interface MainLayerDeps {
 		readonly relayUrl: string;
 		readonly label?: string;
 	};
-	readonly devCliAccess?: {
+	readonly cliAccess?: {
 		readonly path: string;
 		readonly wsUrl: string;
 	};
@@ -212,9 +212,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(LanAuthConfigLayer),
 	);
-	const devCliAccess = deps.devCliAccess;
-	const DevCliAccessLayer =
-		devCliAccess === undefined
+	const cliAccess = deps.cliAccess;
+	const CliAccessLayer =
+		cliAccess === undefined
 			? Layer.empty
 			: Layer.effectDiscard(
 					Effect.gen(function* () {
@@ -222,13 +222,14 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 						const existing = yield* auth.listTokens();
 						for (const token of existing) {
 							if (
-								token.label === "Development CLI" &&
+								(token.label === "Local CLI" ||
+									token.label === "Development CLI") &&
 								token.revokedAt === undefined
 							)
 								yield* auth.revokeToken(token.id);
 						}
-						const minted = yield* auth.mintToken("Development CLI");
-						const { path: target, wsUrl } = devCliAccess;
+						const minted = yield* auth.mintToken("Local CLI");
+						const { path: target, wsUrl } = cliAccess;
 						const temporary = `${target}.${process.pid}.tmp`;
 						yield* Effect.promise(async () => {
 							await mkdir(dirname(target), { recursive: true });
@@ -676,6 +677,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		AutoRelayLinkLayer,
 		CloudWorkspaceRuntimeLayer,
 		RuntimePerformanceLayer,
-		DevCliAccessLayer,
+		CliAccessLayer,
 	).pipe(Layer.provide(TelemetryLayer));
 };

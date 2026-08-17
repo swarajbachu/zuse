@@ -84,12 +84,40 @@ describe("agent CLI", () => {
 			}),
 		);
 		await expect(
-			__testing.devCliAccess({ ZUSE_DEV_CLI_ACCESS_FILE: accessFile }),
+			__testing.localCliAccess({ ZUSE_DEV_CLI_ACCESS_FILE: accessFile }),
 		).resolves.toEqual({
 			schemaVersion: 1,
 			wsUrl: "ws://127.0.0.1:8788/rpc",
 			token: "zt_development",
 		});
+	});
+
+	test("discovers the protected installed desktop RPC descriptor", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "zuse-cli-user-data-"));
+		const accessFile = join(directory, "cli-access.json");
+		await writeFile(
+			accessFile,
+			JSON.stringify({
+				schemaVersion: 1,
+				wsUrl: "ws://127.0.0.1:47837/rpc",
+				token: "zt_installed",
+			}),
+		);
+		await expect(
+			__testing.localCliAccess({ ZUSE_USER_DATA_DIR: directory }),
+		).resolves.toEqual({
+			schemaVersion: 1,
+			wsUrl: "ws://127.0.0.1:47837/rpc",
+			token: "zt_installed",
+		});
+		const endpoint = new URL(
+			await __testing.endpoint(__testing.parse(["chat", "list"]), {
+				ZUSE_USER_DATA_DIR: directory,
+			}),
+		);
+		expect(endpoint.origin).toBe("ws://127.0.0.1:47837");
+		expect(endpoint.pathname).toBe("/rpc");
+		expect(endpoint.searchParams.get("token")).toBe("zt_installed");
 	});
 
 	test("negotiates the current wire protocol with local dev RPC", async () => {
