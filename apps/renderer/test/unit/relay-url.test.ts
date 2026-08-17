@@ -8,7 +8,7 @@ describe("renderer relay URL", () => {
 			"https://relay-staging.zuse.sh",
 		);
 		expect(resolveRendererRelayUrl(undefined, false)).toBe(
-			"https://relay.zuse.sh",
+			"https://relay.stuff.md",
 		);
 	});
 

@@ -60,7 +60,7 @@ describe("machine control relay URL", () => {
 
 	it("uses production only for production or an explicit override", () => {
 		expect(resolveMachineRelayUrl({ NODE_ENV: "production" })).toBe(
-			"https://relay.zuse.sh",
+			"https://relay.stuff.md",
 		);
 		expect(
 			resolveMachineRelayUrl({

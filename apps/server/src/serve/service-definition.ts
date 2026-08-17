@@ -33,7 +33,7 @@ export const launchAgentDefinition = (
 	input: ServeServiceDefinitionInput,
 ): LaunchAgentDefinition => {
 	const logDir = input.logDir ?? `${input.dataDir}/logs`;
-	const relayUrl = input.relayUrl ?? "https://relay.zuse.sh";
+	const relayUrl = input.relayUrl ?? "https://relay.stuff.md";
 	return {
 		label: "sh.zuse.serve",
 		contents: `<?xml version="1.0" encoding="UTF-8"?>
@@ -81,7 +81,7 @@ export const launchAgentDefinition = (
 export const systemdUserDefinition = (
 	input: ServeServiceDefinitionInput,
 ): SystemdUserDefinition => {
-	const relayUrl = input.relayUrl ?? "https://relay.zuse.sh";
+	const relayUrl = input.relayUrl ?? "https://relay.stuff.md";
 	return {
 		unitName: "zuse-serve.service",
 		contents: `[Unit]

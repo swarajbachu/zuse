@@ -356,6 +356,6 @@ describe("cloud runtime assets", () => {
 		expect(workflow).toContain("--clobber");
 		expect(workflow).not.toContain("if: github.event_name != 'pull_request'");
 		expect(workflow).not.toContain("wrangler deploy");
-		expect(workflow).not.toContain("relay.zuse.sh");
+		expect(workflow).not.toContain("relay.stuff.md");
 	});
 });

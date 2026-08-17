@@ -70,7 +70,7 @@ An intentional production deployment is guarded and requires both the explicit
 script and confirmation value:
 
 ```sh
-ZUSE_CONFIRM_PRODUCTION_RELAY_DEPLOY=deploy-relay.zuse.sh \
+ZUSE_CONFIRM_PRODUCTION_RELAY_DEPLOY=deploy-relay.stuff.md \
 	bun run deploy:production
 ```
 

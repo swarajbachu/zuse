@@ -23,7 +23,7 @@ import { UsingComputersCard } from "./remote-access/using-computers-card.tsx";
 
 const DEFAULT_RELAY_URL =
 	(import.meta.env.VITE_ZUSE_RELAY_URL as string | undefined) ??
-	"https://relay.zuse.sh";
+	"https://relay.stuff.md";
 
 /**
  * Remote-access settings data and mutations. Presentation is composed from

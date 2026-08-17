@@ -256,7 +256,7 @@ export const runHeadlessServer = (
 		autoRelayLink:
 			process.env.ZUSE_SERVE_AUTO_LINK === "1"
 				? {
-						relayUrl: process.env.ZUSE_RELAY_URL ?? "https://relay.zuse.sh",
+						relayUrl: process.env.ZUSE_RELAY_URL ?? "https://relay.stuff.md",
 						label: process.env.ZUSE_COMPUTER_NAME,
 					}
 				: undefined,

@@ -18,7 +18,7 @@ describe("mobile relay configuration", () => {
 			"client_01KWGQ818571ARFATQ3G9AR2Y2",
 		);
 		expect(defaultRelayBaseUrl(true)).toBe("https://relay-staging.zuse.sh");
-		expect(defaultRelayBaseUrl(false)).toBe("https://relay.zuse.sh");
+		expect(defaultRelayBaseUrl(false)).toBe("https://relay.stuff.md");
 	});
 
 	it("pins internal builds to the staging identity and relay", async () => {

@@ -12,7 +12,7 @@ Staging and production are isolated deployments:
 
 | Resource | Staging | Production |
 | --- | --- | --- |
-| Relay | `zuse-relay-staging`, `relay-staging.zuse.sh` | guarded production Worker, `relay.zuse.sh` |
+| Relay | `zuse-relay-staging`, `relay-staging.zuse.sh` | guarded production Worker, `relay.stuff.md` |
 | Wrangler config | default `infra/relay/wrangler.jsonc` | `infra/relay/wrangler.production.jsonc` |
 | Database | approved staging Neon identity | separately approved production identity |
 | Runtime channel | `cloud-runtime-staging` | signed `cloud-runtime-production` |
