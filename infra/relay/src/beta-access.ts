@@ -27,7 +27,6 @@ export interface PostHogBetaAccessConfig {
 	readonly projectToken: string;
 	readonly flagKey: string;
 	readonly timeoutMs?: number;
-	readonly allowCacheMs?: number;
 }
 
 const FlagResponse = Schema.Struct({
@@ -45,12 +44,8 @@ const FlagResponse = Schema.Struct({
 export const makePostHogBetaAccess = (
 	config: PostHogBetaAccessConfig,
 	fetcher: typeof fetch = globalThis.fetch,
-): BetaAccessApi => {
-	const allowedUntil = new Map<string, number>();
-	const inFlight = new Map<string, Promise<void>>();
-	const evaluate = Effect.fn("BetaAccess.evaluate")(function* (
-		accountId: string,
-	) {
+): BetaAccessApi => ({
+	check: Effect.fn("BetaAccess.check")(function* (accountId: string) {
 		const response = yield* Effect.tryPromise({
 			try: () =>
 				fetcher(`${config.host.replace(/\/+$/u, "")}/flags/?v=2`, {
@@ -65,7 +60,7 @@ export const makePostHogBetaAccess = (
 						geoip_disable: true,
 						flag_keys_to_evaluate: [config.flagKey],
 					}),
-					signal: AbortSignal.timeout(config.timeoutMs ?? 1_500),
+					signal: AbortSignal.timeout(config.timeoutMs ?? 5_000),
 				}),
 			catch: () => new BetaAccessUnavailable(),
 		});
@@ -85,40 +80,8 @@ export const makePostHogBetaAccess = (
 			return yield* new BetaAccessUnavailable();
 		if (payload.flags[config.flagKey]?.enabled !== true)
 			return yield* new BetaAccessDenied();
-	});
-	return {
-		check: Effect.fn("BetaAccess.check")(function* (accountId: string) {
-			const now = yield* Effect.clockWith((clock) => clock.currentTimeMillis);
-			if ((allowedUntil.get(accountId) ?? 0) > now) return;
-			let pending = inFlight.get(accountId);
-			if (pending === undefined) {
-				pending = Effect.runPromise(
-					evaluate(accountId).pipe(
-						Effect.retry({
-							times: 1,
-							while: (cause) => cause instanceof BetaAccessUnavailable,
-						}),
-					),
-				).then(() => {
-					allowedUntil.set(accountId, now + (config.allowCacheMs ?? 60_000));
-				});
-				inFlight.set(accountId, pending);
-				const clearPending = () => {
-					if (inFlight.get(accountId) === pending) inFlight.delete(accountId);
-				};
-				void pending.then(clearPending, clearPending);
-			}
-			yield* Effect.tryPromise({
-				try: () => pending,
-				catch: (cause) =>
-					cause instanceof BetaAccessDenied ||
-					cause instanceof BetaAccessUnavailable
-						? cause
-						: new BetaAccessUnavailable(),
-			});
-		}),
-	};
-};
+	}),
+});
 
 export const PostHogBetaAccessLayer = (
 	config: PostHogBetaAccessConfig,
