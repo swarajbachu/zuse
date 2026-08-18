@@ -327,6 +327,17 @@ describe("Session round-trip", () => {
 });
 
 describe("Session timeline frame round-trip", () => {
+	it("round-trips an automatic historical snapshot chunk", () => {
+		roundTrip(SessionTimelineFrame, {
+			kind: "snapshot-chunk",
+			sessionId: "session-restored",
+			throughVersion: 3,
+			cursor: { epoch: "restore-2", version: 3 },
+			messages: [],
+			olderMessageSequence: null,
+		});
+	});
+
 	it("keeps reset cursor and head version together", () => {
 		roundTrip(SessionTimelineFrame, {
 			kind: "reset-required",

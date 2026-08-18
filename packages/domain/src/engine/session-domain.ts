@@ -1,5 +1,6 @@
 import type {
 	AgentSessionId,
+	Message,
 	SessionId,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
@@ -8,6 +9,7 @@ import {
 	Crypto,
 	Effect,
 	Layer,
+	Option,
 	PubSub,
 	Result,
 	Schedule,
@@ -60,6 +62,14 @@ export type SessionSynchronizationRecord =
 			readonly streamEpoch: string;
 			readonly throughVersion: number;
 			readonly projection: SessionTimelineProjection;
+			readonly olderMessageSequence: number | null;
+			readonly totalMessageCount: number;
+	  }
+	| {
+			readonly kind: "snapshot-chunk";
+			readonly streamEpoch: string;
+			readonly throughVersion: number;
+			readonly messages: readonly Message[];
 			readonly olderMessageSequence: number | null;
 	  }
 	| {
@@ -301,79 +311,119 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 				// one SQLite read snapshot. Otherwise a commit between the version read
 				// and projection read could put version N+1 data in a version N frame;
 				// the buffered N+1 event would then be applied twice by the client.
-				const { prefix, throughVersion } = yield* sql.withTransaction(
-					Effect.gen(function* () {
-						const throughVersion =
-							yield* dispatchStorage.currentStreamVersion(streamId);
-						const retainedVersion = afterVersion ?? 0;
-						const epochMismatch =
-							retainedEpoch !== undefined && retainedEpoch !== streamEpoch;
-						let needsSnapshot =
-							!hasProjection ||
-							afterVersion === undefined ||
-							epochMismatch ||
-							retainedVersion > throughVersion ||
-							throughVersion - retainedVersion > maxDeltaEvents;
-						let captured: readonly StoredEvent[] = [];
-						if (!needsSnapshot) {
-							captured = yield* dispatchStorage.eventsInVersionRange(
-								streamId,
-								retainedVersion,
-								throughVersion,
+				const { prefix, throughVersion, historyCursor } =
+					yield* sql.withTransaction(
+						Effect.gen(function* () {
+							const throughVersion =
+								yield* dispatchStorage.currentStreamVersion(streamId);
+							const retainedVersion = afterVersion ?? 0;
+							const epochMismatch =
+								retainedEpoch !== undefined && retainedEpoch !== streamEpoch;
+							let needsSnapshot =
+								!hasProjection ||
+								afterVersion === undefined ||
+								epochMismatch ||
+								retainedVersion > throughVersion ||
+								throughVersion - retainedVersion > maxDeltaEvents;
+							let captured: readonly StoredEvent[] = [];
+							if (!needsSnapshot) {
+								captured = yield* dispatchStorage.eventsInVersionRange(
+									streamId,
+									retainedVersion,
+									throughVersion,
+								);
+								needsSnapshot =
+									captured.reduce(
+										(total, record) =>
+											total +
+											new TextEncoder().encode(
+												JSON.stringify({
+													kind: "event",
+													streamEpoch,
+													record,
+												}),
+											).byteLength,
+										0,
+									) > maxDeltaBytes;
+							}
+							const prefix: SessionSynchronizationRecord[] = [];
+							let historyCursor: number | null = null;
+							if (epochMismatch || retainedVersion > throughVersion) {
+								prefix.push({
+									kind: "reset-required",
+									streamEpoch,
+									throughVersion,
+									reason: epochMismatch ? "restored" : "cursor-invalid",
+								});
+							}
+							if (needsSnapshot) {
+								const snapshot = yield* readSessionTimelineSnapshot(
+									sql,
+									streamId as SessionId,
+								);
+								prefix.push({
+									kind: "snapshot",
+									streamEpoch,
+									throughVersion,
+									...snapshot,
+								});
+								historyCursor = snapshot.olderMessageSequence;
+							} else {
+								prefix.push(
+									...captured
+										.filter((record) => record.streamVersion > retainedVersion)
+										.map((record) => ({
+											kind: "event" as const,
+											streamEpoch,
+											record,
+										})),
+								);
+							}
+							return { prefix, throughVersion, historyCursor };
+						}),
+					);
+				// Emit the newest bounded projection immediately. Older immutable rows
+				// follow page-by-page so long local and cloud transcripts keep a fast
+				// first paint without coupling correctness to viewport scrolling.
+				const history =
+					historyCursor === null
+						? Stream.empty
+						: Stream.paginate(historyCursor, (pageBeforeSequence) =>
+								readSessionTimelineMessagePage(
+									sql,
+									streamId as SessionId,
+									pageBeforeSequence,
+								).pipe(
+									Effect.flatMap((page) => {
+										if (
+											page.olderMessageSequence !== null &&
+											page.olderMessageSequence >= pageBeforeSequence
+										) {
+											return Effect.die(
+												new Error(
+													`Session ${streamId} history cursor did not advance`,
+												),
+											);
+										}
+										const record: SessionSynchronizationRecord = {
+											kind: "snapshot-chunk",
+											streamEpoch,
+											throughVersion,
+											messages: page.items.map(({ message }) => message),
+											olderMessageSequence: page.olderMessageSequence,
+										};
+										return Effect.succeed([
+											[record],
+											Option.fromNullOr(page.olderMessageSequence),
+										] as const);
+									}),
+								),
 							);
-							needsSnapshot =
-								captured.reduce(
-									(total, record) =>
-										total +
-										new TextEncoder().encode(
-											JSON.stringify({
-												kind: "event",
-												streamEpoch,
-												record,
-											}),
-										).byteLength,
-									0,
-								) > maxDeltaBytes;
-						}
-						const prefix: SessionSynchronizationRecord[] = [];
-						if (epochMismatch || retainedVersion > throughVersion) {
-							prefix.push({
-								kind: "reset-required",
-								streamEpoch,
-								throughVersion,
-								reason: epochMismatch ? "restored" : "cursor-invalid",
-							});
-						}
-						if (needsSnapshot) {
-							const snapshot = yield* readSessionTimelineSnapshot(
-								sql,
-								streamId as SessionId,
-							);
-							prefix.push({
-								kind: "snapshot",
-								streamEpoch,
-								throughVersion,
-								...snapshot,
-							});
-						} else {
-							prefix.push(
-								...captured
-									.filter((record) => record.streamVersion > retainedVersion)
-									.map((record) => ({
-										kind: "event" as const,
-										streamEpoch,
-										record,
-									})),
-							);
-						}
-						prefix.push({
-							kind: "synchronized",
-							streamEpoch,
-							throughVersion,
-						});
-						return { prefix, throughVersion };
-					}),
-				);
+				const synchronized = Stream.succeed<SessionSynchronizationRecord>({
+					kind: "synchronized",
+					streamEpoch,
+					throughVersion,
+				});
 				let liveVersion = throughVersion;
 				const tail = decodeDurableNotifications(
 					Stream.fromSubscription(durableSubscription),
@@ -402,7 +452,10 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 						record,
 					})),
 				);
-				return Stream.concat(Stream.fromIterable(prefix), tail);
+				return Stream.concat(
+					Stream.fromIterable(prefix),
+					Stream.concat(history, Stream.concat(synchronized, tail)),
+				);
 			}),
 		);
 

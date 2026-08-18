@@ -159,7 +159,7 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 				);
 				return {
 					...state,
-					[liveKey]: [...durable, ...pending].slice(-500),
+					[liveKey]: [...durable, ...pending],
 				};
 			});
 			patchQueue(liveKey, projection.queue.items);

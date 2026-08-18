@@ -18,6 +18,7 @@ import {
 import { Effect, Queue, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	completeOlderSessionMessages,
 	getRendererClientBus,
 	loadOlderSessionMessages,
 	registerEnvironmentActivationForTest,
@@ -514,6 +515,7 @@ describe("renderer session timeline ClientBus adapter", () => {
 				pageCalls += 1;
 				expect(cursor).toEqual({ epoch: "r2-page", version: 8 });
 				expect(beforeSequence).toBe(20);
+				if (pageCalls === 1) return null;
 				return { messages: [older], olderMessageSequence: null };
 			},
 		);
@@ -523,12 +525,12 @@ describe("renderer session timeline ClientBus adapter", () => {
 				getRendererClientBus().snapshot(retained.key).origin === "checkpoint",
 		);
 
-		await expect(loadOlderSessionMessages(ref)).resolves.toEqual({
-			applied: true,
-			loaded: 1,
-			hasMore: false,
-		});
-		expect(pageCalls).toBe(1);
+		await expect(
+			completeOlderSessionMessages(ref, {
+				retryDelay: async () => undefined,
+			}),
+		).resolves.toBeUndefined();
+		expect(pageCalls).toBe(2);
 		expect(getRendererClientBus().snapshot(retained.key)).toMatchObject({
 			connection: "dormant",
 			data: { messages: [older], olderMessageSequence: null },

@@ -91,6 +91,66 @@ const harness = <Data>(input: {
 };
 
 describe("shared session timeline resource driver", () => {
+	it("renders the recent tail immediately while automatic history chunks complete", async () => {
+		const frames = Effect.runSync(Queue.unbounded<SessionTimelineFrame>());
+		const test = harness({
+			key,
+			client: { "session.events": () => Stream.fromQueue(frames) },
+			data: null,
+			cursor: null,
+		});
+		const driver = makeSessionTimelineResourceDriver({
+			reportFailure: () => undefined,
+		});
+		driver.start(test.context);
+		const recent = Message.make({
+			id: MessageId.make("message-recent"),
+			sessionId,
+			role: "assistant",
+			content: { _tag: "assistant", text: "recent" },
+			createdAt: new Date(2),
+		});
+		const older = Message.make({
+			id: MessageId.make("message-older"),
+			sessionId,
+			role: "user",
+			content: { _tag: "user", text: "older" },
+			createdAt: new Date(1),
+		});
+		Queue.offerUnsafe(frames, {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 2,
+			cursor: { epoch: "progressive", version: 2 },
+			projection: {
+				...projection,
+				messages: [recent],
+				olderMessageSequence: 2,
+			},
+			totalMessageCount: 2,
+		});
+		await waitUntil(() => test.view().data?.messages.length === 1);
+		expect(test.updates.at(-1)).toMatchObject({ persist: false });
+		Queue.offerUnsafe(frames, {
+			kind: "snapshot-chunk",
+			sessionId,
+			throughVersion: 2,
+			cursor: { epoch: "progressive", version: 2 },
+			messages: [older],
+			olderMessageSequence: null,
+		});
+		Queue.offerUnsafe(frames, {
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 2,
+			cursor: { epoch: "progressive", version: 2 },
+		});
+		await waitUntil(() => test.view().sync === "live");
+		expect(test.view().data?.messages).toEqual([older, recent]);
+		expect(test.updates.at(-1)).toMatchObject({ persist: true });
+		driver.stop();
+	});
+
 	it("requests an authoritative snapshot for a cached active turn", async () => {
 		const requests: unknown[] = [];
 		const driver = makeSessionTimelineResourceDriver({
@@ -113,6 +173,33 @@ describe("shared session timeline resource driver", () => {
 		expect(requests[0]).toMatchObject({
 			afterVersion: 454,
 			streamEpoch: "cached",
+			hasProjection: false,
+		});
+		driver.stop();
+	});
+
+	it("requests an authoritative snapshot for an incomplete cached transcript", async () => {
+		const requests: unknown[] = [];
+		const driver = makeSessionTimelineResourceDriver({
+			reportFailure: () => undefined,
+		});
+		const test = harness({
+			key,
+			client: {
+				"session.events": (input) => {
+					requests.push(input);
+					return Stream.never;
+				},
+			},
+			data: { ...projection, olderMessageSequence: 20 },
+			cursor: { epoch: "cached-partial", version: 454 },
+		});
+
+		driver.start(test.context);
+		await waitUntil(() => requests.length === 1);
+		expect(requests[0]).toMatchObject({
+			afterVersion: 454,
+			streamEpoch: "cached-partial",
 			hasProjection: false,
 		});
 		driver.stop();

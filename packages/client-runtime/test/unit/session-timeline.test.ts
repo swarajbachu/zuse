@@ -164,6 +164,86 @@ describe("session timeline reducer", () => {
 		expect(live.phase).toBe("live");
 	});
 
+	it("completes a transcript from automatic snapshot chunks before going live", () => {
+		const newest = Message.make({
+			id: MessageId.make("message-262"),
+			sessionId,
+			role: "assistant",
+			content: { _tag: "assistant", text: "latest" },
+			createdAt: new Date(262),
+		});
+		const original = Message.make({
+			id: MessageId.make("message-1"),
+			sessionId,
+			role: "user",
+			content: { _tag: "user", text: "original prompt" },
+			createdAt: new Date(1),
+		});
+		const snap = reduceSessionTimelineFrame(emptySessionTimelineState(), {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 300,
+			cursor: cursor("epoch-complete", 300),
+			totalMessageCount: 262,
+			olderMessageSequence: 262,
+			projection: SessionTimelineProjection.make({
+				...projection,
+				messages: [newest],
+			}),
+		});
+		const complete = reduceSessionTimelineFrame(snap, {
+			kind: "snapshot-chunk",
+			sessionId,
+			throughVersion: 300,
+			cursor: cursor("epoch-complete", 300),
+			messages: [
+				original,
+				...Array.from({ length: 260 }, (_, index) =>
+					Message.make({
+						id: MessageId.make(`message-${index + 2}`),
+						sessionId,
+						role: "assistant",
+						content: { _tag: "assistant", text: `message ${index + 2}` },
+						createdAt: new Date(index + 2),
+					}),
+				),
+			],
+			olderMessageSequence: null,
+		});
+		const live = reduceSessionTimelineFrame(complete, {
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 300,
+			cursor: cursor("epoch-complete", 300),
+		});
+
+		expect(live.phase).toBe("live");
+		expect(live.projection?.messages).toHaveLength(262);
+		expect(live.projection?.messages.at(0)?.id).toBe("message-1");
+		expect(live.projection?.messages.at(-1)?.id).toBe("message-262");
+		expect(live.projection?.olderMessageSequence).toBeNull();
+	});
+
+	it("rejects a synchronization barrier before every declared message arrives", () => {
+		const snapshot = reduceSessionTimelineFrame(emptySessionTimelineState(), {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 2,
+			cursor: { epoch: "epoch-incomplete", version: 2 },
+			projection,
+			totalMessageCount: 2,
+		});
+		const incomplete = reduceSessionTimelineFrame(snapshot, {
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 2,
+			cursor: { epoch: "epoch-incomplete", version: 2 },
+		});
+
+		expect(incomplete.phase).toBe("stale");
+		expect(incomplete.error).toMatch(/declared 2 messages/i);
+	});
+
 	it("rejects gaps without advancing past missing durable state", () => {
 		const snap = reduceSessionTimelineFrame(emptySessionTimelineState(), {
 			kind: "snapshot",
@@ -454,9 +534,40 @@ describe("session timeline cache", () => {
 			estimatedBytes: 42,
 		});
 
-		expect(decoded.schemaVersion).toBe(3);
+		expect(decoded.schemaVersion).toBe(4);
 		expect(decoded.cursor).toEqual(cursor("legacy", 7));
 		expect(decoded.ref).toEqual({ environmentId: "local", sessionId });
+	});
+
+	it("rejects an incomplete legacy cache projection", () => {
+		expect(() =>
+			decodeSessionTimelineCacheEntry({
+				schemaVersion: 3,
+				sessionId: "session:local:session-1",
+				ref: { environmentId: "local", sessionId },
+				cursor: cursor("legacy-partial", 7),
+				projection: { ...projection, olderMessageSequence: 20 },
+				savedAt: 40,
+				accessedAt: 41,
+				estimatedBytes: 42,
+			}),
+		).toThrow(/incomplete/i);
+	});
+
+	it("rejects an incomplete current cache projection", () => {
+		const entry = makeSessionTimelineCacheEntry({
+			ref: { environmentId: EnvironmentId.make("local"), sessionId },
+			cursor: cursor("current-partial", 8),
+			projection: SessionTimelineProjection.make({
+				...projection,
+				olderMessageSequence: 20,
+			}),
+			now: 42,
+		});
+
+		expect(() =>
+			decodeSessionTimelineCacheEntry(encodeSessionTimelineCacheEntry(entry)),
+		).toThrow(/incomplete/i);
 	});
 
 	it("rejects entries from an unsupported schema", () => {

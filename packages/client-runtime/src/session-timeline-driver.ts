@@ -88,6 +88,7 @@ export const makeSessionTimelineResourceDriver = <
 			active = true;
 			const ref = context.key.ref;
 			let state = restoreSessionTimelineState(context.data, context.cursor);
+			let showingProgressiveSnapshot = false;
 			const cachedTurnMayBeStale =
 				state.projection !== null &&
 				(state.projection.currentTurn !== null ||
@@ -128,7 +129,10 @@ export const makeSessionTimelineResourceDriver = <
 					sessionId: ref.sessionId,
 					afterVersion: state.cursor?.version,
 					streamEpoch: state.cursor?.epoch,
-					hasProjection: state.projection !== null && !cachedTurnMayBeStale,
+					hasProjection:
+						state.projection !== null &&
+						state.projection.olderMessageSequence == null &&
+						!cachedTurnMayBeStale,
 				}),
 				(frame) =>
 					Effect.sync(() => {
@@ -145,8 +149,16 @@ export const makeSessionTimelineResourceDriver = <
 						const previous = state;
 						state = reduceSessionTimelineFrame(state, frame);
 						if (state === previous) return;
+						if (
+							frame.kind === "snapshot" &&
+							frame.totalMessageCount !== undefined &&
+							frame.totalMessageCount > frame.projection.messages.length
+						) {
+							showingProgressiveSnapshot = true;
+						}
 						const silentCatchUp =
 							catchingUp &&
+							!showingProgressiveSnapshot &&
 							frame.kind !== "synchronized" &&
 							state.phase !== "stale";
 						if (frame.kind === "synchronized") catchingUp = false;
@@ -158,7 +170,8 @@ export const makeSessionTimelineResourceDriver = <
 						const resetEpoch =
 							frame.kind === "snapshot" && previous.resetEpoch !== null;
 						const persist =
-							frame.kind === "synchronized" || isSettlement(frame);
+							(frame.kind === "synchronized" && state.phase === "live") ||
+							isSettlement(frame);
 						const accepted = context.emit({
 							...(dataChanged && state.projection !== null
 								? { data: state.projection }

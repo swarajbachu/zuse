@@ -541,6 +541,17 @@ export const SessionTimelineFrame = Schema.Union([
 		cursor: Schema.optional(SessionStreamCursor),
 		/** Sequence immediately before the oldest included message, if any. */
 		olderMessageSequence: Schema.optional(Schema.NullOr(Schema.Number)),
+		/** Complete durable message count represented by this snapshot series. */
+		totalMessageCount: Schema.optional(Schema.Number),
+	}),
+	Schema.Struct({
+		kind: Schema.Literal("snapshot-chunk"),
+		sessionId: SessionId,
+		throughVersion: Schema.Number,
+		messages: Schema.Array(Message),
+		/** Sequence immediately before the oldest included message, if any. */
+		olderMessageSequence: Schema.NullOr(Schema.Number),
+		cursor: Schema.optional(SessionStreamCursor),
 	}),
 	Schema.Struct({
 		kind: Schema.Literal("event"),

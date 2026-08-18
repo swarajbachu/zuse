@@ -43,6 +43,7 @@ import {
 } from "../lib/session-timeline-cache.ts";
 import {
 	addOptimisticSessionMessage,
+	completeOlderSessionMessages,
 	registerEnvironmentActivation,
 	registerSessionTimelineCheckpointSynchronizer,
 	registerSessionTimelineOlderPageSynchronizer,
@@ -134,6 +135,18 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 				payload.cursor.version !== checkpoint.metadata.cursor.version
 			)
 				throw new Error("Cloud transcript checkpoint metadata mismatch");
+			if (
+				current.connection === "dormant" &&
+				payload.projection.olderMessageSequence != null
+			) {
+				// Let ClientBus publish the recent checkpoint first, then complete its
+				// canonical projection automatically from encrypted storage pages.
+				setTimeout(() => {
+					void completeOlderSessionMessages(ref).catch((cause) => {
+						useCloudChatsStore.setState({ error: formatError(cause) });
+					});
+				}, 0);
+			}
 			return {
 				data: payload.projection,
 				cursor: payload.cursor,

@@ -1181,6 +1181,20 @@ const SessionEvents = MemoizeRpcs.toLayerHandler(
 										version: frame.throughVersion,
 									},
 									olderMessageSequence: frame.olderMessageSequence,
+									totalMessageCount: frame.totalMessageCount,
+								};
+							}
+							if (frame.kind === "snapshot-chunk") {
+								return {
+									kind: "snapshot-chunk",
+									sessionId,
+									throughVersion: frame.throughVersion,
+									messages: frame.messages,
+									olderMessageSequence: frame.olderMessageSequence,
+									cursor: {
+										epoch: frame.streamEpoch,
+										version: frame.throughVersion,
+									},
 								};
 							}
 							if (frame.kind === "synchronized") {

@@ -126,7 +126,8 @@ class RendererTimelinePersistence implements ResourcePersistence {
 		if (
 			ref === null ||
 			sessionTimelineCache === null ||
-			value.cursor === null
+			value.cursor === null ||
+			(value.data as SessionTimelineProjection).olderMessageSequence != null
 		) {
 			return;
 		}
@@ -1250,7 +1251,7 @@ export const loadOlderSessionMessages = (
 		const applied = bus.update(key, {
 			expectedGeneration,
 			expectedCursor,
-			persist: true,
+			persist: page.olderMessageSequence === null,
 			update: (projection) => {
 				// A prior page can change this cursor without changing the stream
 				// cursor. Never apply a response to a different pagination head.
@@ -1284,6 +1285,40 @@ export const loadOlderSessionMessages = (
 	};
 	void request.then(clear, clear);
 	return request;
+};
+
+export const completeOlderSessionMessages = async (
+	ref: SessionRef,
+	options?: {
+		readonly maxAttempts?: number;
+		readonly retryDelay?: (attempt: number) => Promise<void>;
+	},
+): Promise<void> => {
+	const maxAttempts = options?.maxAttempts ?? 10;
+	const retryDelay =
+		options?.retryDelay ??
+		((attempt: number) =>
+			new Promise<void>((resolve) => {
+				setTimeout(resolve, Math.min(4_000, 100 * 2 ** attempt));
+			}));
+	let attempt = 0;
+	for (;;) {
+		try {
+			const result = await loadOlderSessionMessages(ref);
+			if (result.applied) {
+				attempt = 0;
+				if (!result.hasMore) return;
+				continue;
+			}
+		} catch (cause) {
+			if (attempt + 1 >= maxAttempts) throw cause;
+		}
+		if (attempt + 1 >= maxAttempts) {
+			throw new Error("Cloud transcript history remained unavailable");
+		}
+		await retryDelay(attempt);
+		attempt += 1;
+	}
 };
 
 export const dispatchSessionCommand = <Payload, Result>(input: {

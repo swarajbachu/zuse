@@ -5,7 +5,7 @@ import {
 import { Result, Schema } from "effect";
 import { resourceRefKey, type SessionRef } from "./resource-ref.js";
 
-export const SESSION_TIMELINE_CACHE_SCHEMA_VERSION = 3;
+export const SESSION_TIMELINE_CACHE_SCHEMA_VERSION = 4;
 
 const EncodedSessionRef = Schema.Struct({
 	environmentId: Schema.String,
@@ -17,6 +17,18 @@ const EncodedSessionTimelineCacheEntryV2 = Schema.Struct({
 	sessionId: Schema.String,
 	ref: EncodedSessionRef,
 	appliedVersion: Schema.Number,
+	projection: SessionTimelineProjection,
+	savedAt: Schema.Number,
+	accessedAt: Schema.Number,
+	estimatedBytes: Schema.Number,
+});
+
+const EncodedSessionTimelineCacheEntryV3 = Schema.Struct({
+	schemaVersion: Schema.Literal(3),
+	/** IndexedDB keyPath retained across cache schema upgrades. */
+	sessionId: Schema.String,
+	ref: EncodedSessionRef,
+	cursor: SessionStreamCursor,
 	projection: SessionTimelineProjection,
 	savedAt: Schema.Number,
 	accessedAt: Schema.Number,
@@ -70,19 +82,39 @@ export const decodeSessionTimelineCacheEntry = (
 		value,
 	);
 	if (Result.isSuccess(current)) {
+		if (current.success.projection.olderMessageSequence != null) {
+			throw new Error("Incomplete session timeline cache entry");
+		}
 		const { sessionId: _storageKey, ...entry } = current.success;
 		return entry as SessionTimelineCacheEntry;
+	}
+	const previous = Schema.decodeUnknownResult(
+		EncodedSessionTimelineCacheEntryV3,
+	)(value);
+	if (Result.isSuccess(previous)) {
+		if (previous.success.projection.olderMessageSequence != null) {
+			throw new Error("Incomplete session timeline cache entry");
+		}
+		const { sessionId: _storageKey, ...entry } = previous.success;
+		return {
+			...entry,
+			schemaVersion: SESSION_TIMELINE_CACHE_SCHEMA_VERSION,
+		} as SessionTimelineCacheEntry;
 	}
 	const {
 		sessionId: _storageKey,
 		appliedVersion,
 		...legacy
 	} = Schema.decodeUnknownSync(EncodedSessionTimelineCacheEntryV2)(value);
-	return {
+	const migrated = {
 		...legacy,
 		schemaVersion: SESSION_TIMELINE_CACHE_SCHEMA_VERSION,
 		cursor: { epoch: "legacy", version: appliedVersion },
 	} as SessionTimelineCacheEntry;
+	if (migrated.projection.olderMessageSequence != null) {
+		throw new Error("Incomplete session timeline cache entry");
+	}
+	return migrated;
 };
 
 export const makeSessionTimelineCacheEntry = (input: {

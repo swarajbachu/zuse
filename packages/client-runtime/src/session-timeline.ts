@@ -29,6 +29,8 @@ export type SessionTimelineState = Readonly<{
 	phase: SessionTimelinePhase;
 	error: string | null;
 	optimistic: OptimisticOverlay;
+	/** Declared full-history count while a snapshot series is assembling. */
+	snapshotMessageCount: number | null;
 }>;
 
 export const emptySessionTimelineState = (): SessionTimelineState => ({
@@ -39,6 +41,7 @@ export const emptySessionTimelineState = (): SessionTimelineState => ({
 	phase: "empty",
 	error: null,
 	optimistic: { messages: {} },
+	snapshotMessageCount: null,
 });
 
 export const restoreSessionTimelineState = (
@@ -217,7 +220,28 @@ export const reduceSessionTimelineFrame = (
 			appliedVersion: cursor.version,
 			phase: "synchronizing",
 			error: null,
+			snapshotMessageCount: frame.totalMessageCount ?? null,
 		};
+	}
+	if (frame.kind === "snapshot-chunk") {
+		const cursor = cursorForFrame(state, frame.throughVersion, frame.cursor);
+		if (
+			state.projection === null ||
+			state.cursor === null ||
+			state.cursor.epoch !== cursor.epoch ||
+			state.cursor.version !== cursor.version ||
+			cursor.version !== frame.throughVersion
+		) {
+			return invalidCursorState(
+				state,
+				`Snapshot chunk for ${cursor.epoch}:${frame.throughVersion} arrived without its snapshot`,
+			);
+		}
+		return prependSessionTimelineMessages(
+			state,
+			frame.messages,
+			frame.olderMessageSequence,
+		);
 	}
 	if (frame.kind === "synchronized") {
 		const cursor = cursorForFrame(state, frame.throughVersion, frame.cursor);
@@ -234,7 +258,21 @@ export const reduceSessionTimelineFrame = (
 				`Synchronization through ${cursor.epoch}:${frame.throughVersion} arrived at ${state.cursor?.epoch ?? "none"}:${state.cursor?.version ?? 0}`,
 			);
 		}
-		return { ...state, phase: "live", error: null };
+		if (
+			state.snapshotMessageCount !== null &&
+			state.projection.messages.length !== state.snapshotMessageCount
+		) {
+			return invalidCursorState(
+				state,
+				`Snapshot declared ${state.snapshotMessageCount} messages but assembled ${state.projection.messages.length}`,
+			);
+		}
+		return {
+			...state,
+			phase: "live",
+			error: null,
+			snapshotMessageCount: null,
+		};
 	}
 	if (frame.kind === "reset-required") {
 		if (state.resetEpoch === frame.cursor.epoch) return state;

@@ -46,6 +46,7 @@ interface QueueRow {
 export type SessionTimelineSnapshot = {
 	readonly projection: SessionTimelineProjection;
 	readonly olderMessageSequence: number | null;
+	readonly totalMessageCount: number;
 };
 
 export type SessionTimelineMessagePage = {
@@ -119,6 +120,10 @@ export const readSessionTimelineSnapshot = Effect.fn(
 		return yield* Effect.die("Session query existed without a timeline head");
 	}
 	const messagePage = yield* readSessionTimelineMessagePage(sql, sessionId);
+	const messageCountRows = yield* sql<{ readonly count: number }>`
+		SELECT COUNT(*) AS count FROM messages WHERE session_id = ${sessionId}
+	`;
+	const totalMessageCount = messageCountRows[0]?.count ?? 0;
 	const messages = [...messagePage.items];
 	const queueRows = yield* sql<QueueRow>`
 		SELECT id, input_json, queue_order, created_at, updated_at, ready
@@ -230,6 +235,7 @@ export const readSessionTimelineSnapshot = Effect.fn(
 			olderMessageSequence,
 		}),
 		olderMessageSequence,
+		totalMessageCount,
 	};
 });
 

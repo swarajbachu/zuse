@@ -43,7 +43,6 @@ import {
 	useSessionCommandErrors,
 } from "../lib/session-actions.ts";
 import { timelineReadingPositionStore } from "../lib/session-timeline-cache.ts";
-import { loadOlderSessionMessages } from "../lib/session-timeline-client-bus.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import {
 	resolveInitialTimelineTarget,
@@ -327,10 +326,6 @@ export function ChatView({
 			setHasOutOfViewUpdates(true);
 		}
 	}, [endInset]);
-	const loadOlderMessages = useCallback(() => {
-		void loadOlderSessionMessages(sessionRef).catch(() => undefined);
-	}, [sessionRef]);
-
 	useEffect(() => {
 		let cancelled = false;
 		initializedSessionRef.current = null;
@@ -709,8 +704,6 @@ export function ChatView({
 								maintainVisibleContentPosition={{ data: true, size: true }}
 								contentInsetEndAdjustment={endInset}
 								onScroll={handleScroll}
-								onStartReached={loadOlderMessages}
-								onStartReachedThreshold={0.25}
 								className="h-full min-h-0 w-full flex-1 overflow-x-hidden pr-4 outline-none [overflow-anchor:none]"
 								data-pane="chat"
 								tabIndex={-1}

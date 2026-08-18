@@ -510,6 +510,66 @@ describe("SessionDomain", () => {
 		).toEqual([1, 2]);
 	});
 
+	test("streams complete local history before the synchronization barrier", async () => {
+		const frames = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`
+					INSERT INTO chats (id, updated_at)
+					VALUES ('chat-1', '1970-01-01T00:00:00.000Z')
+				`;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed("event-complete-history"),
+				);
+				yield* domain.dispatch({
+					commandId: "command-create-history",
+					streamId: "session-1",
+					command: createSessionCommand,
+				});
+				yield* Effect.forEach(
+					Array.from({ length: 262 }, (_, index) => index + 1),
+					(sequence) => sql`
+						INSERT INTO messages
+							(id, session_id, role, kind, content_json, parent_item_id,
+							 created_at, sequence)
+						VALUES
+							(${`message-${sequence}`}, 'session-1', 'assistant', 'assistant',
+							 ${JSON.stringify({ _tag: "assistant", text: `message ${sequence}` })},
+							 NULL, '2026-01-01T00:00:00.000Z', ${sequence})
+					`,
+					{ discard: true },
+				);
+				return [
+					...(yield* domain
+						.synchronizedEvents({
+							streamId: "session-1",
+							hasProjection: false,
+						})
+						.pipe(
+							Stream.takeUntil((frame) => frame.kind === "synchronized"),
+							Stream.runCollect,
+						)),
+				];
+			}),
+		);
+		const snapshot = frames[0];
+		expect(snapshot).toMatchObject({
+			kind: "snapshot",
+			totalMessageCount: 262,
+		});
+		const messages = frames.flatMap((frame) =>
+			frame.kind === "snapshot"
+				? frame.projection.messages
+				: frame.kind === "snapshot-chunk"
+					? frame.messages
+					: [],
+		);
+		expect(messages).toHaveLength(262);
+		expect(messages.at(-1)?.id).toBe("message-62");
+		expect(frames.at(-1)).toMatchObject({ kind: "synchronized" });
+	});
+
 	test("tails durable session events dispatched by another runtime", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-session-domain-sync-"));
 		const filename = join(directory, "shared.sqlite");
