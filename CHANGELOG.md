@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.6]
+
+### Fixed
+- Complete local, archived, cloud, and mobile chat histories now load automatically instead of stopping at a recent subset or depending on scroll-triggered pagination
+- New chats keep their queued prompt and workspace-creation progress visible, and explicit retries no longer collide with the original command identity
+- Consumed queued messages no longer reappear as false provider errors
+- Archiving dirty worktrees no longer advances the checked-out Git branch, and unarchive can recover from the retained archive-job snapshot
+- Switching chats restores each chat's sidebar state without an unwanted transition
+
 ## [0.20.5]
 
 ### Fixed
