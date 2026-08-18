@@ -247,6 +247,7 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 				host: env.POSTHOG_HOST as string,
 				projectToken: env.POSTHOG_PROJECT_TOKEN as string,
 				flagKey: env.POSTHOG_CLOUD_BETA_FLAG_KEY as string,
+				cache: (caches as CacheStorage & { readonly default: Cache }).default,
 			})
 		: BetaAccessAllowAll;
 	const machineProvider = resolveMachineProviderRuntime(env, {

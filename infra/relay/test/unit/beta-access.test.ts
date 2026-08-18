@@ -23,6 +23,18 @@ const response = (body: unknown, status = 200) =>
 		}),
 	);
 
+const decisionCache = () => {
+	const values = new Map<string, Response>();
+	return {
+		match: (request: RequestInfo | URL) =>
+			Promise.resolve(values.get(String(request))?.clone()),
+		put: (request: RequestInfo | URL, response: Response) => {
+			values.set(String(request), response.clone());
+			return Promise.resolve();
+		},
+	};
+};
+
 describe("cloud beta access", () => {
 	test("evaluates only the configured flag with the verified account id", async () => {
 		let body: unknown;
@@ -56,6 +68,24 @@ describe("cloud beta access", () => {
 				Effect.runPromise(access.check("user_denied")),
 			).rejects.toBeInstanceOf(BetaAccessDenied);
 		}
+	});
+
+	test("shares one short-lived decision across relay requests", async () => {
+		const cache = decisionCache();
+		let evaluations = 0;
+		const fetcher = () => {
+			evaluations += 1;
+			return response({
+				flags: { "zuse-cloud-beta-access": { enabled: true } },
+			});
+		};
+		await Effect.runPromise(
+			makePostHogBetaAccess({ ...config, cache }, fetcher).check("user_cached"),
+		);
+		await Effect.runPromise(
+			makePostHogBetaAccess({ ...config, cache }, fetcher).check("user_cached"),
+		);
+		expect(evaluations).toBe(1);
 	});
 
 	test("fails closed when evaluation is unavailable or invalid", async () => {

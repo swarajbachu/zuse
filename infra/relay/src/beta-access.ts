@@ -27,6 +27,7 @@ export interface PostHogBetaAccessConfig {
 	readonly projectToken: string;
 	readonly flagKey: string;
 	readonly timeoutMs?: number;
+	readonly cache?: Pick<Cache, "match" | "put">;
 }
 
 const FlagResponse = Schema.Struct({
@@ -44,8 +45,34 @@ const FlagResponse = Schema.Struct({
 export const makePostHogBetaAccess = (
 	config: PostHogBetaAccessConfig,
 	fetcher: typeof fetch = globalThis.fetch,
-): BetaAccessApi => ({
-	check: Effect.fn("BetaAccess.check")(function* (accountId: string) {
+): BetaAccessApi => {
+	const cacheKey = (accountId: string) =>
+		new Request(
+			`https://beta-access.zuse.internal/${encodeURIComponent(config.flagKey)}/${analyticsAccountId(accountId)}`,
+		);
+	const readCache = async (accountId: string) => {
+		try {
+			const response = await config.cache?.match(cacheKey(accountId));
+			return response === undefined
+				? undefined
+				: (await response.text()) === "1";
+		} catch {
+			return undefined;
+		}
+	};
+	const writeCache = async (accountId: string, allowed: boolean) => {
+		try {
+			await config.cache?.put(
+				cacheKey(accountId),
+				new Response(allowed ? "1" : "0", {
+					headers: { "cache-control": "max-age=60" },
+				}),
+			);
+		} catch {}
+	};
+	const evaluate = Effect.fn("BetaAccess.evaluate")(function* (
+		accountId: string,
+	) {
 		const response = yield* Effect.tryPromise({
 			try: () =>
 				fetcher(`${config.host.replace(/\/+$/u, "")}/flags/?v=2`, {
@@ -78,10 +105,29 @@ export const makePostHogBetaAccess = (
 			payload.flags[config.flagKey]?.failed === true
 		)
 			return yield* new BetaAccessUnavailable();
-		if (payload.flags[config.flagKey]?.enabled !== true)
-			return yield* new BetaAccessDenied();
-	}),
-});
+		const allowed = payload.flags[config.flagKey]?.enabled === true;
+		yield* Effect.promise(() => writeCache(accountId, allowed));
+		if (!allowed) return yield* new BetaAccessDenied();
+	});
+	return {
+		check: Effect.fn("BetaAccess.check")(function* (accountId: string) {
+			const cached = yield* Effect.promise(() => readCache(accountId));
+			if (cached !== undefined)
+				return cached ? undefined : yield* new BetaAccessDenied();
+			return yield* evaluate(accountId).pipe(
+				Effect.catchTag("BetaAccessUnavailable", () =>
+					Effect.promise(() => readCache(accountId)).pipe(
+						Effect.flatMap((decision) =>
+							decision === true
+								? Effect.void
+								: Effect.fail(new BetaAccessUnavailable()),
+						),
+					),
+				),
+			);
+		}),
+	};
+};
 
 export const PostHogBetaAccessLayer = (
 	config: PostHogBetaAccessConfig,
