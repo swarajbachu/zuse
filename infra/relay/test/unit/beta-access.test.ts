@@ -46,6 +46,50 @@ describe("cloud beta access", () => {
 		});
 	});
 
+	test("shares concurrent evaluations and briefly caches an allowed account", async () => {
+		let calls = 0;
+		let resolveResponse: ((value: Response) => void) | undefined;
+		const access = makePostHogBetaAccess(
+			{ ...config, allowCacheMs: 60_000 },
+			() => {
+				calls += 1;
+				return new Promise<Response>((resolve) => {
+					resolveResponse = resolve;
+				});
+			},
+		);
+		const checks = Array.from({ length: 8 }, () =>
+			Effect.runPromise(access.check("user_allowed")),
+		);
+		expect(calls).toBe(1);
+		resolveResponse?.(
+			new Response(
+				JSON.stringify({
+					flags: { "zuse-cloud-beta-access": { enabled: true } },
+				}),
+			),
+		);
+		await Promise.all(checks);
+		await Effect.runPromise(access.check("user_allowed"));
+		expect(calls).toBe(1);
+	});
+
+	test("retries one unavailable evaluation before failing closed", async () => {
+		let calls = 0;
+		const access = makePostHogBetaAccess(config, () => {
+			calls += 1;
+			return calls === 1
+				? response({ flags: {} }, 503)
+				: response({
+						flags: { "zuse-cloud-beta-access": { enabled: true } },
+					});
+		});
+		await expect(Effect.runPromise(access.check("user_retry"))).resolves.toBe(
+			undefined,
+		);
+		expect(calls).toBe(2);
+	});
+
 	test("denies an absent or disabled flag", async () => {
 		for (const flags of [
 			{},
