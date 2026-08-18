@@ -1,3 +1,4 @@
+import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type { ResourceView } from "@zuse/client-runtime/resource-state";
 import type { SessionTimelineProjection } from "@zuse/contracts";
 import {
@@ -10,6 +11,8 @@ import {
 	EnvironmentId,
 	type FolderId,
 	type GitOriginInfo,
+	Message,
+	MessageId,
 	type ProviderId,
 	Session,
 	type SessionId,
@@ -39,6 +42,7 @@ import {
 	timelineReadingPositionStore,
 } from "../lib/session-timeline-cache.ts";
 import {
+	addOptimisticSessionMessage,
 	registerEnvironmentActivation,
 	registerSessionTimelineCheckpointSynchronizer,
 	registerSessionTimelineOlderPageSynchronizer,
@@ -291,7 +295,7 @@ export const cloudSessionPlaceholder = (
 export const stageCloudChat = (
 	summary: CloudChatSummary,
 	projectId: FolderId,
-	_firstMessage?: string,
+	firstMessage?: string,
 ): void => {
 	const previous = cloudSummaryForEnvironment(summary.workspaceId);
 	if (
@@ -342,6 +346,21 @@ export const stageCloudChat = (
 			],
 		},
 	}));
+	if (firstMessage !== undefined) {
+		addOptimisticSessionMessage(
+			{
+				environmentId: EnvironmentId.make(accepted.workspaceId),
+				sessionId: accepted.initialSessionId,
+			} satisfies SessionRef,
+			Message.make({
+				id: MessageId.make(`launch:${accepted.workspaceId}:message`),
+				sessionId: accepted.initialSessionId,
+				role: "user",
+				content: { _tag: "user", text: firstMessage, goal: false },
+				createdAt: now,
+			}),
+		);
+	}
 	useChatsStore.setState({ error: null });
 };
 
