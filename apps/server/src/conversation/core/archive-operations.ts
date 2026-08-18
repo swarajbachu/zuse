@@ -1164,8 +1164,12 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					const archivedRows = yield* sql<{
 						readonly archived_worktree_json: string | null;
 					}>`
-            SELECT archived_worktree_json FROM chats WHERE id = ${chatId} LIMIT 1
-          `.pipe(Effect.orDie);
+			SELECT COALESCE(c.archived_worktree_json, j.snapshot_json) AS archived_worktree_json
+			FROM chats c
+			LEFT JOIN chat_archive_jobs j ON j.chat_id = c.id
+			WHERE c.id = ${chatId}
+			LIMIT 1
+		  `.pipe(Effect.orDie);
 					const archivedSnapshot = parseArchivedWorktreeSnapshot(
 						archivedRows[0]?.archived_worktree_json ?? null,
 					);
@@ -1235,9 +1239,9 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 						return yield* Effect.fail(new ChatNotFoundError({ chatId }));
 					}
 
-					const snapshot = parseArchivedWorktreeSnapshot(
-						chatRow.archived_worktree_json,
-					);
+					const retainedSnapshotJson =
+						chatRow.archived_worktree_json ?? pendingJob?.snapshot_json ?? null;
+					const snapshot = parseArchivedWorktreeSnapshot(retainedSnapshotJson);
 					let restoredWorktree: Worktree | null = null;
 					let restorationUnavailable = false;
 					let restoredWorktreeId: WorktreeId | null =
@@ -1295,9 +1299,9 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					});
 					if (restorationUnavailable) {
 						yield* sql`
-            UPDATE chats SET archived_worktree_json = ${chatRow.archived_worktree_json}
-            WHERE id = ${chatId}
-          `.pipe(Effect.orDie);
+			UPDATE chats SET archived_worktree_json = ${retainedSnapshotJson}
+			WHERE id = ${chatId}
+		  `.pipe(Effect.orDie);
 					}
 					const archivedSessions = yield* sql<{
 						readonly id: string;

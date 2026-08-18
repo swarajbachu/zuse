@@ -355,13 +355,21 @@ describe("WorktreeServiceLive", () => {
 		const created = await run((service) => service.create(projectId));
 		writeFileSync(join(created.path, "dirty.txt"), "dirty\n");
 		const beforeArchive = git(created.path, "rev-parse", "HEAD");
+		const branchBeforeArchive = git(
+			repositoryRoot,
+			"rev-parse",
+			`refs/heads/${created.branch}`,
+		);
 
 		const checkpoint = await run((service) => service.archive(created.id));
 		expect(checkpoint).toMatchObject({
 			checkpointCreated: true,
-			archiveRef: null,
+			archiveRef: `refs/zuse/archive/${created.id}`,
 			branch: created.branch,
 		});
+		expect(
+			git(repositoryRoot, "rev-parse", `refs/heads/${created.branch}`),
+		).toBe(branchBeforeArchive);
 		expect(existsSync(created.path)).toBe(false);
 		expect(await run((service) => service.get(created.id))).toBeNull();
 		expect(
@@ -397,6 +405,21 @@ describe("WorktreeServiceLive", () => {
 				.filter((event) => event._tag === "status")
 				.map((event) => event.status),
 		).toContain("skipped");
+	});
+
+	test("archive checkpoint never moves an externally switched branch", async () => {
+		const created = await run((service) => service.create(projectId));
+		git(created.path, "switch", "-c", "externally-switched");
+		const branchHead = git(created.path, "rev-parse", "HEAD");
+		writeFileSync(join(created.path, "dirty-after-switch.txt"), "dirty\n");
+
+		const outcome = await run((service) => service.archive(created.id));
+
+		expect(outcome.archiveRef).toBe(`refs/zuse/archive/${created.id}`);
+		expect(
+			git(repositoryRoot, "rev-parse", "refs/heads/externally-switched"),
+		).toBe(branchHead);
+		expect(outcome.archiveCommit).not.toBe(branchHead);
 	});
 
 	test("archives a clean worktree without creating a checkpoint commit", async () => {
@@ -594,7 +617,7 @@ describe("WorktreeServiceLive", () => {
 		).toBe("Zuse <zuse@localhost>");
 	});
 
-	test("keeps a checkpoint committed when its branch advances while archived", async () => {
+	test("restores the checkpoint without overwriting a branch that advanced", async () => {
 		const created = await run((service) => service.create(projectId));
 		await run((service) =>
 			service.setupStream(created.id).pipe(Stream.runCollect),
@@ -620,8 +643,13 @@ describe("WorktreeServiceLive", () => {
 				createdAt: created.createdAt,
 			}),
 		);
-		expect(git(created.path, "rev-parse", "HEAD")).toBe(advancedCommit);
-		expect(git(created.path, "status", "--short")).toBe("");
+		expect(git(created.path, "rev-parse", "HEAD")).not.toBe(advancedCommit);
+		expect(git(created.path, "status", "--short")).toContain(
+			"?? checkpoint.txt",
+		);
+		expect(
+			git(repositoryRoot, "rev-parse", `refs/heads/${created.branch}`),
+		).toBe(advancedCommit);
 	});
 
 	test("manual removal checkpoints dirty work instead of rejecting it", async () => {
@@ -635,7 +663,13 @@ describe("WorktreeServiceLive", () => {
 
 		expect(await run((service) => service.get(created.id))).toBeNull();
 		expect(
-			git(repositoryRoot, "show", "-s", "--format=%B", created.branch),
+			git(
+				repositoryRoot,
+				"show",
+				"-s",
+				"--format=%B",
+				`refs/zuse/archive/${created.id}`,
+			),
 		).toContain(`Zuse-Archive-Checkpoint: ${created.id}`);
 	});
 

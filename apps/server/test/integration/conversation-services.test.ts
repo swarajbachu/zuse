@@ -1580,6 +1580,60 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it("restores from the archive job when the chat snapshot projection is missing", async () => {
+		await withRuntime(async (run) => {
+			const archived = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						worktreeId: TEST_WORKTREE_ID,
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(archived.chat.id),
+				),
+			);
+			await expect
+				.poll(() =>
+					run(
+						Effect.flatMap(store, (service) =>
+							service.getArchiveStatus(archived.chat.id),
+						),
+					),
+				)
+				.toMatchObject({ status: "completed" });
+			await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`
+						UPDATE chats SET archived_worktree_json = NULL
+						WHERE id = ${archived.chat.id}
+					`;
+				}),
+			);
+
+			const restorable = await run(
+				Effect.flatMap(store, (service) =>
+					service.getChatDirectoryStatus(archived.chat.id),
+				),
+			);
+			const restored = await run(
+				Effect.flatMap(store, (service) =>
+					service.unarchiveChat(archived.chat.id),
+				),
+			);
+
+			expect(restorable).toEqual({ _tag: "restorable" });
+			expect(restored.worktree?.id).toBe(TEST_WORKTREE_ID);
+			expect(restored.chat.worktreeId).toBe(TEST_WORKTREE_ID);
+			expect(restored.directoryStatus).toEqual({ _tag: "available" });
+		});
+	});
+
 	it("returns the archived chat with only its original sessions for preview", async () => {
 		await withRuntime(async (run) => {
 			const created = await run(

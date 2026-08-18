@@ -18,6 +18,7 @@ import {
 	type WorktreeId,
 } from "@zuse/contracts";
 import { toastManager } from "../components/ui/toast.tsx";
+import { nextChatCreateCommandId } from "../lib/chat-create-command-id.ts";
 import {
 	cloudSummaryForChat,
 	optimisticallyUnarchiveCloudChat,
@@ -43,7 +44,10 @@ import {
 	sessionTimelineCache,
 	timelineReadingPositionStore,
 } from "../lib/session-timeline-cache.ts";
-import { getRendererClientBus } from "../lib/session-timeline-client-bus.ts";
+import {
+	getRendererClientBus,
+	restartSessionTimeline,
+} from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { batchAtomUpdates } from "../state/registry.tsx";
 import { useArchivePreviewStore } from "./archive-preview.ts";
@@ -522,7 +526,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				opts?.operationId ?? `create_${crypto.randomUUID()}`;
 			const initialPrompt = opts?.startupInput?.text.trim();
 			try {
-				const commandId = CommandId.make(`chat-create:${remoteOperationId}`);
+				const commandId = nextChatCreateCommandId(remoteOperationId);
 				const { result } = await dispatchChatCommand<unknown, ChatCreateResult>(
 					{
 						environmentId: targetEnvironmentId,
@@ -725,7 +729,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		}
 		markRendererInteraction(initialSessionId, "first-atom-commit");
 		const environmentId = EnvironmentId.make(getActiveEnvironment());
-		const commandId = CommandId.make(`chat-create:${operationId}`);
+		const commandId = nextChatCreateCommandId(operationId);
 		let knownWorktreeId = optimisticWorktreeId;
 		try {
 			const workspacePolicy = await opts?.workspacePolicy;
@@ -811,6 +815,13 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					),
 				},
 			}));
+			// Keep the pre-ack workspace card mounted until the worktree projection is
+			// hydrated. Clearing it first briefly exposes ChatView with an authoritative
+			// session but no worktree row, which mislabels the handoff as "Starting
+			// agent" even though workspace setup has only just completed.
+			if (chat.worktreeId !== null) {
+				await useWorktreesStore.getState().refresh(projectId);
+			}
 			// Land the new chat in front of the project's existing list and
 			// mark it active so the renderer immediately swaps to it.
 			set((s) => {
@@ -854,9 +865,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 						: s.selectedSessionByProject,
 				};
 			});
-			if (chat.worktreeId !== null) {
-				void useWorktreesStore.getState().refresh(projectId);
-			}
+			restartSessionTimeline({ environmentId, sessionId: initialSession.id });
 			return {
 				chatId: chat.id,
 				initialSessionId: initialSession.id,

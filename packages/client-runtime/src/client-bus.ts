@@ -474,6 +474,29 @@ export class ClientBus<Client> {
 			.catch(() => undefined);
 	}
 
+	/**
+	 * Restarts one retained resource driver without reconnecting its environment.
+	 * This is used when a provisional resource becomes durable after an earlier
+	 * subscription was rejected by the server.
+	 */
+	restart<Key extends ResourceKey<unknown>>(key: Key): boolean {
+		if (this.disposed) return false;
+		const entry = this.entries.get(resourceKeyId(key));
+		const binding = this.environments.get(key.ref.environmentId);
+		if (
+			entry === undefined ||
+			binding === undefined ||
+			entry.activations.size === 0 ||
+			!requestsRuntime(entry) ||
+			binding.runtime.currentClient() === null
+		) {
+			return false;
+		}
+		this.stopDriver(entry);
+		this.startDriver(entry, binding);
+		return true;
+	}
+
 	/** Current generation-fenced client for bounded side requests. */
 	client(environmentId: EnvironmentId): Client | null {
 		return this.environment(environmentId).runtime.currentClient();

@@ -228,6 +228,31 @@ describe("ClientBus", () => {
 		await bus.dispose();
 	});
 
+	it("restarts a retained resource after its provisional subscription fails", async () => {
+		let starts = 0;
+		let stops = 0;
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			driverFor: () => ({
+				start: () => {
+					starts += 1;
+				},
+				stop: () => {
+					stops += 1;
+				},
+			}),
+		});
+		const lease = bus.retain(timelineKey, { activation: "connect" });
+		await waitUntil(() => starts === 1);
+
+		expect(bus.restart(timelineKey)).toBe(true);
+		expect(stops).toBe(1);
+		expect(starts).toBe(2);
+
+		lease.release();
+		await bus.dispose();
+	});
+
 	it("does not let a later cache-only lease weaken a live shared resource", async () => {
 		let resolves = 0;
 		let disposals = 0;

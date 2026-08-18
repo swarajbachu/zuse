@@ -426,14 +426,12 @@ export const updateQueuedMessage = async (
 		);
 	} catch (cause) {
 		if (retryableFailure(ref, commandId)) return;
-		if (
-			isQueuedMessageNotFound(cause) &&
-			projectionFor(ref)?.queue.items.some((item) => item.id === queueId)
-		) {
-			await persistQueuedMessage(ref, queueId, input, {
-				ready: true,
-				providerId,
-			});
+		if (isQueuedMessageNotFound(cause)) {
+			// The queue stream may lag behind the server consuming or deleting this
+			// item. Not-found is authoritative convergence, not a provider failure:
+			// drop any stale optimistic row and never resurrect an already-run prompt.
+			updateQueue(ref, (items) => items.filter((item) => item.id !== queueId));
+			clearSessionCommandError(ref);
 			return;
 		}
 		if (previous !== undefined) {

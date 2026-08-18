@@ -384,10 +384,17 @@ export const WorktreeServiceLive = Layer.effect(
 		 * error. Mirrors `GitServiceLive.run` but stays self-contained so
 		 * domains remain independent.
 		 */
-		const runGit = (cwd: string, args: ReadonlyArray<string>) =>
+		const runGit = (
+			cwd: string,
+			args: ReadonlyArray<string>,
+			env?: Readonly<Record<string, string>>,
+		) =>
 			Effect.scoped(
 				Effect.gen(function* () {
-					const cmd = Command.make("git", args, { cwd });
+					const cmd = Command.make("git", args, {
+						cwd,
+						...(env === undefined ? {} : { env, extendEnv: true }),
+					});
 					const proc = yield* executor.spawn(cmd);
 					const stdout = yield* collectText(proc.stdout);
 					const stderr = yield* collectText(proc.stderr);
@@ -1109,14 +1116,15 @@ export const WorktreeServiceLive = Layer.effect(
 				return yield* Deferred.await(acquired.deferred);
 			});
 
-		const checkpointCommitArgs = (worktreeId: WorktreeId) => [
-			"commit",
+		const checkpointCommitTreeArgs = (tree: string, worktreeId: WorktreeId) => [
+			"commit-tree",
+			tree,
+			"-p",
+			"HEAD",
 			"-m",
 			"zuse: archive checkpoint",
 			"-m",
 			`Zuse-Archive-Checkpoint: ${worktreeId}`,
-			"--no-verify",
-			"--no-gpg-sign",
 		];
 
 		const isMissingIdentity = (reason: string): boolean => {
@@ -1233,7 +1241,81 @@ export const WorktreeServiceLive = Layer.effect(
 				),
 			);
 			let checkpointCreated = status.trim().length > 0;
-			if (!checkpointCreated) {
+			let archiveRef: string | null = null;
+			let archiveCommit: string;
+			if (checkpointCreated) {
+				const checkpointRef = `refs/zuse/archive/${worktreeId}`;
+				archiveRef = checkpointRef;
+				const temporaryIndex = Path.join(
+					os.tmpdir(),
+					`zuse-archive-index-${worktreeId}-${crypto.randomUUID()}`,
+				);
+				const indexEnv = { GIT_INDEX_FILE: temporaryIndex };
+				archiveCommit = yield* Effect.gen(function* () {
+					yield* runGit(row.path, ["read-tree", "HEAD"], indexEnv);
+					yield* runGit(row.path, ["add", "-A"], indexEnv);
+					const tree = (yield* runGit(
+						row.path,
+						["write-tree"],
+						indexEnv,
+					)).trim();
+					const existingCommit = yield* runGit(folder.path, [
+						"rev-parse",
+						"--verify",
+						"--quiet",
+						checkpointRef,
+					]).pipe(Effect.result);
+					if (existingCommit._tag === "Success") {
+						const existing = existingCommit.success.trim();
+						const [existingTree, existingParent, head, body] =
+							yield* Effect.all([
+								runGit(folder.path, ["rev-parse", `${existing}^{tree}`]),
+								runGit(folder.path, ["rev-parse", `${existing}^`]),
+								runGit(row.path, ["rev-parse", "HEAD"]),
+								runGit(folder.path, ["show", "-s", "--format=%B", existing]),
+							]);
+						if (
+							existingTree.trim() === tree &&
+							existingParent.trim() === head.trim() &&
+							body.includes(`Zuse-Archive-Checkpoint: ${worktreeId}`)
+						) {
+							return existing;
+						}
+					}
+					const commitArgs = checkpointCommitTreeArgs(tree, worktreeId);
+					let committed = yield* runGit(row.path, commitArgs).pipe(
+						Effect.result,
+					);
+					if (
+						committed._tag === "Failure" &&
+						isMissingIdentity(committed.failure)
+					) {
+						committed = yield* runGit(row.path, [
+							"-c",
+							"user.name=Zuse",
+							"-c",
+							"user.email=zuse@localhost",
+							...commitArgs,
+						]).pipe(Effect.result);
+					}
+					if (committed._tag === "Failure") {
+						return yield* Effect.fail(committed.failure);
+					}
+					const commit = committed.success.trim();
+					yield* runGit(folder.path, ["update-ref", checkpointRef, commit]);
+					return commit;
+				}).pipe(
+					Effect.mapError(
+						(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
+					),
+					Effect.ensuring(
+						Effect.sync(() => {
+							fsSync.rmSync(temporaryIndex, { force: true });
+							fsSync.rmSync(`${temporaryIndex}.lock`, { force: true });
+						}),
+					),
+				);
+			} else {
 				const currentBody = yield* runGit(row.path, [
 					"show",
 					"-s",
@@ -1245,57 +1327,20 @@ export const WorktreeServiceLive = Layer.effect(
 					currentBody.success.includes(
 						`Zuse-Archive-Checkpoint: ${worktreeId}`,
 					);
-			}
-			if (status.trim().length > 0) {
-				yield* ensureRemovalAllowed;
-				yield* runGit(row.path, ["add", "-A"]).pipe(
+				archiveCommit = (yield* runGit(row.path, ["rev-parse", "HEAD"]).pipe(
 					Effect.mapError(
 						(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
 					),
-				);
-				const committed = yield* runGit(
-					row.path,
-					checkpointCommitArgs(worktreeId),
-				).pipe(Effect.result);
-				if (committed._tag === "Failure") {
-					if (!isMissingIdentity(committed.failure)) {
-						return yield* Effect.fail(
-							new WorktreeCheckpointError({
-								worktreeId,
-								reason: committed.failure,
-							}),
-						);
-					}
-					yield* runGit(row.path, [
-						"-c",
-						"user.name=Zuse",
-						"-c",
-						"user.email=zuse@localhost",
-						...checkpointCommitArgs(worktreeId),
-					]).pipe(
-						Effect.mapError(
-							(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
-						),
-					);
-				}
+				)).trim();
 			}
-
-			const archiveCommit = (yield* runGit(row.path, [
-				"rev-parse",
-				"HEAD",
-			]).pipe(
-				Effect.mapError(
-					(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
-				),
-			)).trim();
+			yield* ensureRemovalAllowed;
 			const symbolicBranch = yield* runGit(row.path, [
 				"symbolic-ref",
 				"--quiet",
 				"--short",
 				"HEAD",
 			]).pipe(Effect.result);
-			let archiveRef: string | null = null;
-			if (symbolicBranch._tag === "Success") {
+			if (archiveRef === null && symbolicBranch._tag === "Success") {
 				const branch = symbolicBranch.success.trim();
 				const branchCommit = (yield* runGit(folder.path, [
 					"rev-parse",
@@ -1313,7 +1358,7 @@ export const WorktreeServiceLive = Layer.effect(
 						}),
 					);
 				}
-			} else {
+			} else if (archiveRef === null) {
 				archiveRef = `refs/zuse/archive/${worktreeId}`;
 				yield* ensureRemovalAllowed;
 				yield* runGit(folder.path, [

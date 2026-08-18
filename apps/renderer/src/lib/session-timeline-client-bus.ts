@@ -1383,12 +1383,17 @@ export const updateOptimisticSessionQueue = (
 	) => SessionTimelineProjection["queue"],
 ): boolean =>
 	rendererClientBus.overlay(sessionTimelineResourceKey(ref), {
+		initialData: emptyTimelineProjection(),
 		update: (projection) =>
 			SessionTimelineProjection.make({
 				...projection,
 				queue: update(projection.queue),
 			}),
 	});
+
+/** Restarts a retained provisional timeline after its session is acknowledged. */
+export const restartSessionTimeline = (ref: SessionRef): boolean =>
+	rendererClientBus.restart(sessionTimelineResourceKey(ref));
 
 export const retainSessionTimeline = (
 	ref: SessionRef,

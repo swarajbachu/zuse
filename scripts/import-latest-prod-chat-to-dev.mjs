@@ -6,50 +6,53 @@ import { dirname, join } from "node:path";
 
 const appSupport = join(homedir(), "Library", "Application Support");
 const prodDb =
-  process.env.ZUSE_PROD_SQLITE ?? join(appSupport, "Zuse Alpha", "zuse.sqlite");
+	process.env.ZUSE_PROD_SQLITE ?? join(appSupport, "Zuse Alpha", "zuse.sqlite");
 const devDb =
-  process.env.ZUSE_DEV_SQLITE ??
-  join(appSupport, "Zuse Alpha (Dev)", "zuse.sqlite");
+	process.env.ZUSE_DEV_SQLITE ??
+	join(appSupport, "Zuse Alpha (Dev)", "zuse.sqlite");
 
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const backupDir = join(dirname(devDb), `debug-import-backup-${timestamp}`);
 
 function runSql(dbPath, sql) {
-  return execFileSync("sqlite3", ["-batch", dbPath, sql], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+	return execFileSync("sqlite3", ["-batch", dbPath, sql], {
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "pipe"],
+	}).trim();
 }
 
 function quoteSql(value) {
-  return `'${value.replaceAll("'", "''")}'`;
+	return `'${value.replaceAll("'", "''")}'`;
 }
 
 function requireFile(path, label) {
-  if (!existsSync(path)) {
-    throw new Error(`${label} does not exist: ${path}`);
-  }
+	if (!existsSync(path)) {
+		throw new Error(`${label} does not exist: ${path}`);
+	}
 }
 
 function backupDevDatabase() {
-  mkdirSync(backupDir, { recursive: true });
-  for (const suffix of ["", "-wal", "-shm"]) {
-    const from = `${devDb}${suffix}`;
-    if (!existsSync(from)) continue;
-    copyFileSync(from, join(backupDir, `zuse.sqlite${suffix}`));
-  }
+	mkdirSync(backupDir, { recursive: true });
+	for (const suffix of ["", "-wal", "-shm"]) {
+		const from = `${devDb}${suffix}`;
+		if (!existsSync(from)) continue;
+		copyFileSync(from, join(backupDir, `zuse.sqlite${suffix}`));
+	}
 }
 
 function tableCount(dbPath, table, where) {
-  return runSql(dbPath, `SELECT count(*) FROM ${table} WHERE ${where};`);
+	return runSql(dbPath, `SELECT count(*) FROM ${table} WHERE ${where};`);
 }
 
 requireFile(prodDb, "Production SQLite database");
 requireFile(devDb, "Dev SQLite database");
 
-const chatId = runSql(
-  prodDb,
-  `
+const requestedChatId = process.env.ZUSE_IMPORT_CHAT_ID?.trim();
+const chatId =
+	requestedChatId ||
+	runSql(
+		prodDb,
+		`
   SELECT c.id
   FROM chats c
   JOIN sessions s ON s.chat_id = c.id
@@ -60,29 +63,65 @@ const chatId = runSql(
   ORDER BY c.updated_at DESC
   LIMIT 1;
   `,
-);
+	);
 
 if (!chatId) {
-  throw new Error(
-    "Could not find a production chat with codex and fable sessions.",
-  );
+	throw new Error(
+		"Could not find a production chat with codex and fable sessions.",
+	);
+}
+
+if (
+	runSql(
+		prodDb,
+		`SELECT count(*) FROM chats WHERE id = ${quoteSql(chatId)};`,
+	) !== "1"
+) {
+	throw new Error(`Production chat does not exist: ${chatId}`);
+}
+
+if (
+	runSql(
+		devDb,
+		`SELECT count(*) FROM chats WHERE id = ${quoteSql(chatId)};`,
+	) !== "0"
+) {
+	throw new Error(`Dev already contains chat: ${chatId}`);
 }
 
 const sessionIds = runSql(
-  prodDb,
-  `SELECT group_concat(id, ',') FROM sessions WHERE chat_id = ${quoteSql(chatId)};`,
+	prodDb,
+	`SELECT group_concat(id, ',') FROM sessions WHERE chat_id = ${quoteSql(chatId)};`,
 )
-  .split(",")
-  .filter(Boolean);
+	.split(",")
+	.filter(Boolean);
 
 if (sessionIds.length === 0) {
-  throw new Error(`Selected chat has no sessions: ${chatId}`);
+	throw new Error(`Selected chat has no sessions: ${chatId}`);
 }
+
+const sourceProject = JSON.parse(
+	runSql(
+		prodDb,
+		`SELECT json_object('id', p.id, 'path', p.path)
+		 FROM projects p
+		 JOIN chats c ON c.project_id = p.id
+		 WHERE c.id = ${quoteSql(chatId)};`,
+	),
+);
+const existingDevProjectId = runSql(
+	devDb,
+	`SELECT id FROM projects WHERE path = ${quoteSql(sourceProject.path)} LIMIT 1;`,
+);
+const targetProjectId = existingDevProjectId || sourceProject.id;
+const reusesDevProject = targetProjectId !== sourceProject.id;
 
 backupDevDatabase();
 
 const prodDbSql = quoteSql(prodDb);
 const chatIdSql = quoteSql(chatId);
+const sourceProjectIdSql = quoteSql(sourceProject.id);
+const targetProjectIdSql = quoteSql(targetProjectId);
 const importSql = `
 PRAGMA foreign_keys = ON;
 ATTACH DATABASE ${prodDbSql} AS prod;
@@ -105,22 +144,24 @@ SELECT attachment_id
 FROM prod.message_attachments
 WHERE message_id IN (SELECT id FROM selected_messages);
 
-INSERT OR REPLACE INTO projects
+INSERT OR IGNORE INTO projects
 SELECT p.*
 FROM prod.projects p
 JOIN prod.chats c ON c.project_id = p.id
-WHERE c.id = ${chatIdSql};
+WHERE c.id = ${chatIdSql}
+  AND p.id = ${targetProjectIdSql};
 
-INSERT OR REPLACE INTO worktrees
+INSERT OR IGNORE INTO worktrees
 SELECT DISTINCT w.*
 FROM prod.worktrees w
 WHERE w.id IN (
   SELECT worktree_id FROM prod.chats WHERE id = ${chatIdSql} AND worktree_id IS NOT NULL
   UNION
   SELECT worktree_id FROM prod.sessions WHERE id IN (SELECT id FROM selected_sessions) AND worktree_id IS NOT NULL
-);
+)
+  AND ${sourceProjectIdSql} = ${targetProjectIdSql};
 
-INSERT OR REPLACE INTO chats (
+INSERT INTO chats (
   id,
   project_id,
   worktree_id,
@@ -136,8 +177,8 @@ INSERT OR REPLACE INTO chats (
 )
 SELECT
   id,
-  project_id,
-  worktree_id,
+  ${targetProjectIdSql},
+  ${reusesDevProject ? "NULL" : "worktree_id"},
   title,
   NULL,
   archived_at,
@@ -150,7 +191,7 @@ SELECT
 FROM prod.chats
 WHERE id = ${chatIdSql};
 
-INSERT OR REPLACE INTO sessions (
+INSERT INTO sessions (
   id,
   project_id,
   title,
@@ -175,7 +216,7 @@ INSERT OR REPLACE INTO sessions (
 )
 SELECT
   id,
-  project_id,
+  ${targetProjectIdSql},
   title,
   provider_id,
   model,
@@ -187,7 +228,7 @@ SELECT
   resume_strategy,
   runtime_mode,
   agents_json,
-  worktree_id,
+  ${reusesDevProject ? "NULL" : "worktree_id"},
   permission_mode,
   tool_search,
   NULL,
@@ -281,16 +322,16 @@ runSql(devDb, importSql);
 const sessionWhere = `chat_id = ${quoteSql(chatId)}`;
 const importedSessions = Number(tableCount(devDb, "sessions", sessionWhere));
 const importedMessages = Number(
-  runSql(
-    devDb,
-    `SELECT count(*) FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE chat_id = ${chatIdSql});`,
-  ),
+	runSql(
+		devDb,
+		`SELECT count(*) FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE chat_id = ${chatIdSql});`,
+	),
 );
 const importedEvents = Number(
-  runSql(
-    devDb,
-    `SELECT count(*) FROM events WHERE stream_kind = 'session' AND stream_id IN (SELECT id FROM sessions WHERE chat_id = ${chatIdSql});`,
-  ),
+	runSql(
+		devDb,
+		`SELECT count(*) FROM events WHERE stream_kind = 'session' AND stream_id IN (SELECT id FROM sessions WHERE chat_id = ${chatIdSql});`,
+	),
 );
 
 console.log(`Imported production chat ${chatId}`);

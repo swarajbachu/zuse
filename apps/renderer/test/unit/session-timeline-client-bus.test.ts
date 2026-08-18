@@ -10,6 +10,7 @@ import {
 	Message,
 	MessageId,
 	PtyId,
+	QueuedMessage,
 	QueueState,
 	SessionId,
 	SessionNotFoundError,
@@ -28,9 +29,12 @@ import {
 	registerSessionTimelineOlderPageSynchronizer,
 	rehydrateRendererCommandPayload,
 	resetSessionTimelineClientBusForTest,
+	restartSessionTimeline,
 	retainSessionTimeline,
+	sessionTimelineResourceKey,
 	setSessionTimelineRpcClientForTest,
 	setSessionTimelineRpcSessionForTest,
+	updateOptimisticSessionQueue,
 } from "../../src/lib/session-timeline-client-bus.ts";
 
 const waitUntil = async (predicate: () => boolean): Promise<void> => {
@@ -260,11 +264,17 @@ describe("renderer session timeline ClientBus adapter", () => {
 		retained.lease.release();
 	});
 
-	it("keeps application stream errors resource-local", async () => {
+	it("restarts a provisional session timeline after its creation is acknowledged", async () => {
+		let streamStarts = 0;
+		const frames = Effect.runSync(Queue.unbounded());
 		setSessionTimelineRpcSessionForTest(async () => ({
 			client: {
-				"session.events": () =>
-					Stream.fail(new SessionNotFoundError({ sessionId })),
+				"session.events": () => {
+					streamStarts += 1;
+					return streamStarts === 1
+						? Stream.fail(new SessionNotFoundError({ sessionId }))
+						: Stream.fromQueue(frames);
+				},
 			} as never,
 			dispose: async () => undefined,
 		}));
@@ -276,7 +286,61 @@ describe("renderer session timeline ClientBus adapter", () => {
 		expect(getRendererClientBus().connection(environmentId).phase).toBe(
 			"connected",
 		);
+		expect(restartSessionTimeline(ref)).toBe(true);
+		await waitUntil(() => streamStarts === 2);
+		Queue.offerUnsafe(frames, {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 0,
+			cursor: { epoch: "created", version: 0 },
+			projection: SessionTimelineProjection.make({
+				messages: [],
+				status: "idle",
+				currentTurn: null,
+				queue: QueueState.make({ items: [], paused: false }),
+				permissionMode: "default",
+				runtimeMode: "approval-required",
+			}),
+		});
+		Queue.offerUnsafe(frames, {
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 0,
+			cursor: { epoch: "created", version: 0 },
+		});
+		await waitUntil(
+			() => getRendererClientBus().snapshot(retained.key).sync === "live",
+		);
 		retained.lease.release();
+	});
+
+	it("seeds an empty provisional timeline with its startup queue item", () => {
+		const key = sessionTimelineResourceKey(ref);
+		getRendererClientBus().snapshot(key);
+		const queued = QueuedMessage.make({
+			id: "queue-startup",
+			sessionId,
+			input: ComposerInput.make({
+				text: "visible immediately",
+				attachments: [],
+				fileRefs: [],
+				skillRefs: [],
+				annotations: [],
+			}),
+			position: 0,
+			createdAt: new Date(1),
+			updatedAt: new Date(1),
+			ready: true,
+		});
+
+		expect(
+			updateOptimisticSessionQueue(ref, () =>
+				QueueState.make({ items: [queued], paused: false }),
+			),
+		).toBe(true);
+		expect(getRendererClientBus().snapshot(key).data?.queue.items).toEqual([
+			queued,
+		]);
 	});
 
 	it("prepares a woken environment on the same passive session", async () => {

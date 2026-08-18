@@ -38,8 +38,10 @@ describe("chat landing progress", () => {
 
 	test("owns lifecycle polling behind the control-plane stream", () => {
 		expect(cloudChatsSource).toContain('control["cloud.workspaces.watch"]');
-		expect(cloudChatsSource).not.toContain("setTimeout");
 		expect(cloudChatsSource).not.toContain("while (");
+		// Deferred transcript pagination may schedule a task, but workspace
+		// lifecycle progress itself must remain stream-driven rather than polling.
+		expect(cloudChatsSource).toContain("completeOlderSessionMessages(ref)");
 	});
 
 	test("shows only cloud progress while a cloud workspace is starting", () => {
