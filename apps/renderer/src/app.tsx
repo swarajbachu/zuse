@@ -37,6 +37,10 @@ import {
 import { useActiveSessionById } from "./lib/environment-entity-hooks.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
 import { useSettingsStore } from "./lib/settings-client-bus.ts";
+import {
+	type SidebarVisibilitySnapshot,
+	shouldAnimateSidebarVisibility,
+} from "./lib/sidebar-panel-motion.ts";
 import { shouldMountRightPane } from "./shell/right-pane-lifecycle.ts";
 import { useChatsStore } from "./store/chats.ts";
 import { useEnvironmentCatalogStore } from "./store/environment-catalog.ts";
@@ -201,10 +205,18 @@ function useAnimatedPanelVisibility(
 	elementRef: RefObject<HTMLDivElement | null>,
 	open: boolean,
 	expandedSize?: string,
+	contextKey = "global",
 ) {
 	const expandedSizeRef = useRef(expandedSize);
+	const previousVisibilityRef = useRef<SidebarVisibilitySnapshot>(undefined);
 	expandedSizeRef.current = expandedSize;
 	useEffect(() => {
+		const nextVisibility = { contextKey, open };
+		const animate = shouldAnimateSidebarVisibility(
+			previousVisibilityRef.current,
+			nextVisibility,
+		);
+		previousVisibilityRef.current = nextVisibility;
 		const panel = panelRef.current;
 		if (panel === null) return;
 		const element = elementRef.current;
@@ -213,7 +225,7 @@ function useAnimatedPanelVisibility(
 			return;
 		}
 
-		element?.classList.add("fz-sidebar-panel-motion");
+		if (animate) element?.classList.add("fz-sidebar-panel-motion");
 		const frame = window.requestAnimationFrame(() => {
 			if (open) {
 				panel.expand();
@@ -224,15 +236,17 @@ function useAnimatedPanelVisibility(
 				panel.collapse();
 			}
 		});
-		const timeout = window.setTimeout(() => {
-			element?.classList.remove("fz-sidebar-panel-motion");
-		}, 240);
+		const timeout = animate
+			? window.setTimeout(() => {
+					element?.classList.remove("fz-sidebar-panel-motion");
+				}, 240)
+			: undefined;
 		return () => {
 			window.cancelAnimationFrame(frame);
-			window.clearTimeout(timeout);
+			if (timeout !== undefined) window.clearTimeout(timeout);
 			element?.classList.remove("fz-sidebar-panel-motion");
 		};
-	}, [elementRef, panelRef, open]);
+	}, [contextKey, elementRef, panelRef, open]);
 }
 
 function SurfaceFallback() {
@@ -569,6 +583,7 @@ function MainShell() {
 		rightPanelElementRef,
 		rightSidebarOpen,
 		`${rightSidebarWidth}%`,
+		selectedChatKey ?? "no-chat",
 	);
 
 	return (
