@@ -1000,6 +1000,8 @@ function GeneralPane() {
 	const {
 		user,
 		isSignedIn,
+		isLoading,
+		isUnavailable,
 		signIn,
 		signOut,
 		signingIn,
@@ -1101,6 +1103,15 @@ function GeneralPane() {
 							Sign out
 						</Button>
 					</div>
+				) : isLoading ? (
+					<SettingsRow
+						title={isUnavailable ? "Account unavailable" : "Checking account…"}
+						description={
+							isUnavailable
+								? "Reconnect this computer to load the existing WorkOS session."
+								: "Loading the saved WorkOS session from this computer."
+						}
+					/>
 				) : (
 					<SettingsRow
 						title="Not signed in"

@@ -96,6 +96,9 @@ export function ProjectSetupDialog({
 	const initializeCatalog = useEnvironmentCatalogStore(
 		(state) => state.initialize,
 	);
+	const retryEnvironment = useEnvironmentCatalogStore(
+		(state) => state.retryEnvironment,
+	);
 	const [mode, setMode] = useState<ProjectSetupMode>(initialMode);
 	const [environmentId, setEnvironmentId] = useState(
 		initialEnvironmentId ?? getLocalEnvironmentId(),
@@ -109,7 +112,11 @@ export function ProjectSetupDialog({
 	const [repos, setRepos] = useState<ReadonlyArray<GithubRepoSummary>>([]);
 	const [ghAuthenticated, setGhAuthenticated] = useState(false);
 	const [loadingRepos, setLoadingRepos] = useState(false);
+	const [reposError, setReposError] = useState(false);
+	const [reposRequest, setReposRequest] = useState(0);
 	const [submitting, setSubmitting] = useState(false);
+	const [retryingConnection, setRetryingConnection] = useState(false);
+	const [retryFailure, setRetryFailure] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
@@ -122,6 +129,9 @@ export function ProjectSetupDialog({
 		setName("");
 		setError(null);
 		setSubmitting(false);
+		setRetryingConnection(false);
+		setRetryFailure(null);
+		setReposError(false);
 	}, [open, initialMode, initialEnvironmentId, sourceUrl]);
 
 	useEffect(() => {
@@ -133,6 +143,7 @@ export function ProjectSetupDialog({
 			return;
 		let cancelled = false;
 		setLoadingRepos(true);
+		setReposError(false);
 		void listEnvironmentGithubRepos(environmentId)
 			.then((result) => {
 				if (cancelled) return;
@@ -142,7 +153,7 @@ export function ProjectSetupDialog({
 			.catch(() => {
 				if (!cancelled) {
 					setRepos([]);
-					setGhAuthenticated(false);
+					setReposError(true);
 				}
 			})
 			.finally(() => {
@@ -151,7 +162,7 @@ export function ProjectSetupDialog({
 		return () => {
 			cancelled = true;
 		};
-	}, [open, mode, environmentId, sourceUrl, connected.length]);
+	}, [open, mode, environmentId, sourceUrl, connected.length, reposRequest]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -167,6 +178,14 @@ export function ProjectSetupDialog({
 	const selectedEnvironment = connected.find(
 		(entry) => entry.environmentId === environmentId,
 	);
+	const localEnvironment = entries.find(
+		(entry) => entry.connectionKind === "local",
+	);
+	const unavailableMessage =
+		retryFailure ??
+		localEnvironment?.error ??
+		catalogInitializationError ??
+		"Wait for the local workspace to finish loading.";
 	const local = environmentId === getLocalEnvironmentId();
 	const projectName =
 		mode === "clone" ? (sourceName ?? cloneName(url)) : name.trim();
@@ -213,6 +232,20 @@ export function ProjectSetupDialog({
 	const handleOpenChange = (next: boolean): void => {
 		if (!next && submitting) return;
 		onOpenChange(next);
+	};
+
+	const retryConnection = async (): Promise<void> => {
+		if (retryingConnection) return;
+		setRetryingConnection(true);
+		setRetryFailure(null);
+		try {
+			if (localEnvironment === undefined) await initializeCatalog();
+			else await retryEnvironment(localEnvironment.environmentId);
+		} catch (cause) {
+			setRetryFailure(cause instanceof Error ? cause.message : String(cause));
+		} finally {
+			setRetryingConnection(false);
+		}
 	};
 
 	return (
@@ -279,20 +312,21 @@ export function ProjectSetupDialog({
 									This computer is unavailable.
 								</p>
 								<p className="mt-1 text-muted-foreground">
-									{catalogInitializationError ??
-										"Wait for the local workspace to finish loading."}
+									{unavailableMessage}
 								</p>
 								<Button
 									type="button"
 									variant="outline"
 									size="sm"
-									className="mt-2"
-									disabled={catalogInitializing}
+									className="mt-2 min-w-28"
+									disabled={catalogInitializing || retryingConnection}
 									onClick={() => {
-										void initializeCatalog().catch(() => undefined);
+										void retryConnection();
 									}}
 								>
-									{catalogInitializing ? "Retrying…" : "Retry connection"}
+									{catalogInitializing || retryingConnection
+										? "Retrying…"
+										: "Retry connection"}
 								</Button>
 							</div>
 						) : null}
@@ -353,12 +387,30 @@ export function ProjectSetupDialog({
 									</div>
 								)}
 								{sourceUrl === undefined &&
-								(loadingRepos || repos.length > 0 || !ghAuthenticated) ? (
-									<div className="max-h-28 overflow-y-auto rounded-lg border border-border">
+								(loadingRepos ||
+									reposError ||
+									repos.length > 0 ||
+									!ghAuthenticated) ? (
+									<div className="max-h-28 min-h-11 overflow-y-auto rounded-lg border border-border">
 										{loadingRepos ? (
 											<p className="p-3 text-xs text-muted-foreground">
 												Loading repositories…
 											</p>
+										) : reposError ? (
+											<div className="flex min-h-11 items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+												<span className="min-w-0 flex-1">
+													GitHub is unavailable. You can still paste a
+													repository URL.
+												</span>
+												<Button
+													type="button"
+													variant="outline"
+													size="sm"
+													onClick={() => setReposRequest((value) => value + 1)}
+												>
+													Retry
+												</Button>
+											</div>
 										) : repos.length > 0 ? (
 											repos.map((repo) => (
 												<button

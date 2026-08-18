@@ -571,7 +571,16 @@ function SidebarFooter() {
  * optional, so this is the primary place to discover sign-in after onboarding.
  */
 function SidebarAccount() {
-	const { isSignedIn, user, name, signingIn, signIn, signOut } = useAuth();
+	const {
+		isSignedIn,
+		isLoading,
+		isUnavailable,
+		user,
+		name,
+		signingIn,
+		signIn,
+		signOut,
+	} = useAuth();
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
 	const refreshUsageLimits = useUsageLimitsStore((s) => s.refresh);
@@ -641,10 +650,16 @@ function SidebarAccount() {
 									{initial}
 								</AvatarFallback>
 							</Avatar>
+						) : isLoading ? (
+							<HugeiconsIcon icon={UserCircleIcon} className="size-3.5" />
 						) : (
 							<HugeiconsIcon icon={Login03Icon} className="size-3.5" />
 						)}
-						{!isSignedIn ? (
+						{isUnavailable ? (
+							<span>Account unavailable</span>
+						) : isLoading ? (
+							<span>Loading account…</span>
+						) : !isSignedIn ? (
 							<span>{signingIn ? "Signing in…" : "Sign in"}</span>
 						) : nameIsEmail && user?.email ? (
 							<BlurredEmail email={user.email} />
@@ -655,7 +670,7 @@ function SidebarAccount() {
 				}
 			/>
 			<MenuPopup side="top" align="start" className="w-64">
-				{!isSignedIn ? (
+				{!isSignedIn && !isLoading ? (
 					<>
 						<MenuItem disabled={signingIn} onClick={() => void signIn()}>
 							<HugeiconsIcon icon={Login03Icon} />

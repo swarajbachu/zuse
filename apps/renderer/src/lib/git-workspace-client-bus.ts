@@ -211,7 +211,23 @@ const makeInvalidatedDriver = <Data>(options: {
 				context.client["git.workspaceChanges"]({
 					folderId: ref.folderId,
 					worktreeId: ref.worktreeId,
-				}),
+				}).pipe(
+					// A plain folder, a removed checkout, or a missing Git binary is a
+					// resource-level capability failure. Materialize that state through
+					// the normal snapshot loader and keep the invalidation stream alive;
+					// escalating a typed Git error would disconnect every resource on the
+					// computer (including auth and the project catalog).
+					Stream.catchTags({
+						GitNotARepoError: () =>
+							Stream.concat(Stream.make({ revision: 0 }), Stream.never),
+						GitNotInstalledError: () =>
+							Stream.concat(Stream.make({ revision: 0 }), Stream.never),
+						GitCommandError: () =>
+							Stream.concat(Stream.make({ revision: 0 }), Stream.never),
+						GitFolderNotFoundError: () =>
+							Stream.concat(Stream.make({ revision: 0 }), Stream.never),
+					}),
+				),
 				() => Effect.sync(() => void schedule()),
 			).pipe(
 				Effect.andThen(

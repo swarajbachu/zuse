@@ -1177,6 +1177,19 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				await connectProfile(profileId);
 			},
 			retryEnvironment: async (environmentId) => {
+				const entry = get().entries.find(
+					(candidate) => candidate.environmentId === environmentId,
+				);
+				if (entry?.connectionKind === "local") {
+					const catalogKey = entryKey(entry);
+					const runtime = retainShell(catalogKey, environmentId, "connect");
+					patchEntry(catalogKey, { status: "connecting", error: null });
+					getRendererClientBus().retryConnection(
+						EnvironmentId.make(environmentId),
+					);
+					await runtime.lease.activate("connect");
+					return;
+				}
 				const environment = relayRecords.get(environmentId);
 				const local = get().entries.find(
 					(entry) => entry.connectionKind === "local",

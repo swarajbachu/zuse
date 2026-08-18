@@ -12,6 +12,8 @@ export interface UseAuth {
 	readonly user: AuthUser | null;
 	readonly isSignedIn: boolean;
 	readonly isLoading: boolean;
+	/** The local computer failed before canonical WorkOS state could load. */
+	readonly isUnavailable: boolean;
 	readonly signingIn: boolean;
 	readonly error: string | null;
 	/** Effective display name (override → WorkOS name → email). */
@@ -42,11 +44,19 @@ export function useAuth(): UseAuth {
 	const signOut = useAuthStore((s) => s.signOut);
 
 	const user = state?._tag === "SignedIn" ? state.session.user : null;
+	const isUnavailable =
+		state === null &&
+		(auth.connection === "offline" ||
+			auth.connection === "failed" ||
+			auth.connection === "blocked-auth" ||
+			auth.connection === "update-required" ||
+			auth.connection === "revoked");
 
 	return {
 		user,
 		isSignedIn: state?._tag === "SignedIn",
 		isLoading: state === null,
+		isUnavailable,
 		signingIn,
 		error,
 		name: displayName.trim() || profileName(user),

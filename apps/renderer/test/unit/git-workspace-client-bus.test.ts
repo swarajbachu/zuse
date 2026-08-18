@@ -1,4 +1,9 @@
-import { EnvironmentId, FolderId, WorktreeId } from "@zuse/contracts";
+import {
+	EnvironmentId,
+	FolderId,
+	GitNotARepoError,
+	WorktreeId,
+} from "@zuse/contracts";
 import { Effect, Queue, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -153,5 +158,38 @@ describe("renderer Git workspace ClientBus adapter", () => {
 
 		expect(first).not.toEqual(otherEnvironment);
 		expect(first).not.toEqual(otherRoot);
+	});
+
+	it("keeps a non-Git folder failure scoped to its Git resource", async () => {
+		const notARepository = () =>
+			Effect.fail(new GitNotARepoError({ folderId }));
+		setSessionTimelineRpcClientForTest(
+			async () =>
+				({
+					"git.workspaceChanges": () =>
+						Stream.fail(new GitNotARepoError({ folderId })),
+					"git.status": notARepository,
+					"git.changes": notARepository,
+					"git.prState": notARepository,
+					"git.reviewSummary": notARepository,
+					"git.reviewPatches": () => Stream.never,
+					"git.prDetails": notARepository,
+				}) as never,
+		);
+
+		const retained = retainGitWorkspace(ref);
+		await waitUntil(
+			() => getRendererClientBus().snapshot(retained.key).data !== null,
+		);
+
+		expect(getRendererClientBus().snapshot(retained.key)).toMatchObject({
+			connection: "connected",
+			sync: "live",
+			data: {
+				noRepository: true,
+				error: { tag: "GitNotARepoError" },
+			},
+		});
+		retained.lease.release();
 	});
 });
