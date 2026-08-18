@@ -51,7 +51,10 @@ const makeTestLayer = (billing?: BillingProviderAdapter) =>
 		Layer.succeed(ManagedTunnelProvider, noTunnel),
 		Layer.succeed(
 			AccountIdentity,
-			AccountIdentity.of({ deleteUser: () => Effect.void }),
+			AccountIdentity.of({
+				deleteUser: () => Effect.void,
+				verifiedEmail: () => Effect.succeed(null),
+			}),
 		),
 		Layer.succeed(MachineControlConfiguration, {
 			allowlistedAccountIds: new Set(["user_a"]),

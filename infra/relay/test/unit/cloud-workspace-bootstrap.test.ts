@@ -91,6 +91,7 @@ const makeRuntime = async () => {
 			AccountIdentity,
 			AccountIdentity.of({
 				deleteUser: () => Effect.void,
+				verifiedEmail: () => Effect.succeed(null),
 			} satisfies AccountIdentityApi),
 		),
 	);

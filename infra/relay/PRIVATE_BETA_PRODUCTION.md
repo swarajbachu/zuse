@@ -17,7 +17,10 @@ not use this gate.
    meter `zuse_cloud_overage_cent`, summing numeric metadata field `units`, and
    attach a recurring $0.01-per-unit price. Register
    `https://relay.stuff.md/v1/billing/webhook/polar` for the subscription events
-   supported by the Polar adapter.
+   supported by the Polar adapter: created, updated, active, past due, canceled,
+   uncanceled, and revoked. A checkout link purchase has no Zuse account yet;
+   after the buyer signs in with the same verified WorkOS email, Relay claims
+   the unowned Polar customer once and reconciles its existing subscription.
 3. In E2B production, build artifacts from the release commit, then publish the
    isolated production template:
 
@@ -29,12 +32,17 @@ not use this gate.
    Record the immutable build identifier from the CLI in
    `E2B_TEMPLATE_VERSION`. Register
    `https://relay.stuff.md/v1/cloud/billing/webhook/e2b` and verify a signed real
-   delivery.
+   delivery. Subscribe to created, resumed, paused, checkpointed, updated, and
+   killed lifecycle events.
 4. A version tag publishes a separately signed runtime to
    `cloud-runtime-production`. Record that manifest URL and its production
    public signing key in Relay. The workflow uploads the archive before the
    manifest and verifies its checksum, signature, native modules, metadata, and
    startup first.
+
+When the production Relay hostname changes, update and verify both the Polar
+and E2B endpoints above. They are provider-owned configuration and cannot be
+changed by a Relay deployment.
 
 ## Production configuration
 

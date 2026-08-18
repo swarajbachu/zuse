@@ -1,6 +1,7 @@
 import {
 	BillingProviders,
 	type CheckoutSummary,
+	type ReconciledSubscription,
 } from "@zuse/billing-providers";
 import {
 	BillingCheckoutRequest,
@@ -16,7 +17,7 @@ import {
 import { MachineProviders } from "@zuse/machine-providers";
 import { BROWSER_PAGE_HEADERS } from "@zuse/utils/browser-page";
 import { Clock, Effect, Redacted, Schema } from "effect";
-
+import { AccountIdentity } from "./account-identity.ts";
 import { requireWorkos } from "./auth.ts";
 import { type BetaAccess, requireCloudBetaAccess } from "./beta-access.ts";
 import { cancelProviderSubscription } from "./billing-operations.ts";
@@ -61,6 +62,7 @@ import type { WorkosVerifier } from "./workos.ts";
 
 export type MachineRouteContext =
 	| WorkosVerifier
+	| AccountIdentity
 	| BetaAccess
 	| MachineStore
 	| MachineProviders
@@ -415,6 +417,135 @@ const reconcileCheckoutEntitlements = (
 		);
 	});
 
+const applyBillingSubscription = Effect.fn("applyBillingSubscription")(
+	function* (input: {
+		readonly billingProviderId: string;
+		readonly eventId: string;
+		readonly nowMs: number;
+		readonly subscription: ReconciledSubscription;
+	}) {
+		const store = yield* MachineStore;
+		const machineConfig = yield* MachineControlConfiguration;
+		const { subscription } = input;
+		const entitlementId = `ent_${(
+			yield* sha256Hex(
+				`${input.billingProviderId}:${subscription.providerSubscriptionId}`,
+			)
+		).slice(0, 24)}`;
+		const offer =
+			subscription.offerId === CLOUD_WORKSPACE_OFFER_ID
+				? undefined
+				: findMachineOffer(subscription.offerId);
+		const shouldProvision =
+			subscription.status === "active" &&
+			offer !== undefined &&
+			machineConfig.allowlistedAccountIds.has(subscription.accountId);
+		const machineId = shouldProvision
+			? yield* randomToken("machine", 12)
+			: undefined;
+		const computeProviderId = shouldProvision
+			? yield* persistentProviderId().pipe(
+					Effect.mapError(() =>
+						serviceUnavailable("machine_provider_unavailable"),
+					),
+				)
+			: undefined;
+		const outcome = yield* store.applyBillingEvent({
+			sameKindOfferIds: offer === undefined ? [] : offerIdsOfKind(offer.kind),
+			event: {
+				provider: input.billingProviderId,
+				eventId: input.eventId,
+				nowMs: input.nowMs,
+			},
+			entitlement: {
+				entitlementId,
+				accountId: subscription.accountId,
+				kind:
+					subscription.offerId === CLOUD_WORKSPACE_OFFER_ID
+						? "cloud-workspace"
+						: "persistent-machine",
+				offerId: subscription.offerId,
+				provider: input.billingProviderId,
+				providerSubscriptionId: subscription.providerSubscriptionId,
+				status: subscription.status,
+				periodStartMs: subscription.periodStart,
+				paidThroughMs: subscription.paidThrough,
+				endedAtMs:
+					subscription.status === "ended" &&
+					(subscription.paidThrough === undefined ||
+						subscription.paidThrough <= input.nowMs)
+						? input.nowMs
+						: undefined,
+				createdAtMs: input.nowMs,
+				updatedAtMs: input.nowMs,
+			},
+			provisioning:
+				machineId === undefined || computeProviderId === undefined
+					? undefined
+					: {
+							machineId,
+							idempotencyKey: `billing:${entitlementId}`,
+							provider: computeProviderId,
+							providerLabel: machineProviderLabel(machineId),
+						},
+			recoveryWindowMs: machineConfig.recoveryWindowMs,
+		});
+		if (
+			subscription.offerId === CLOUD_WORKSPACE_OFFER_ID &&
+			subscription.periodStart !== undefined &&
+			subscription.paidThrough !== undefined
+		) {
+			yield* ensureCloudBillingPeriod({
+				accountId: subscription.accountId,
+				provider: input.billingProviderId,
+				providerSubscriptionId: subscription.providerSubscriptionId,
+				subscriptionStatus: subscription.status,
+				periodStartMs: subscription.periodStart,
+				periodEndMs: subscription.paidThrough,
+				nowMs: input.nowMs,
+			});
+		}
+		return outcome;
+	},
+);
+
+const claimCheckoutLinkSubscriptions = Effect.fn(
+	"claimCheckoutLinkSubscriptions",
+)(function* (accountId: string, nowMs: number) {
+	const identity = yield* AccountIdentity;
+	const email = yield* identity.verifiedEmail(accountId);
+	if (email === null) return;
+	const billing = yield* (yield* BillingProviders).getDefault.pipe(
+		Effect.mapError(() => serviceUnavailable("billing_provider_unavailable")),
+	);
+	if (billing.claimSubscriptions === undefined) return;
+	const subscriptionIds = yield* billing
+		.claimSubscriptions({ accountId, verifiedEmail: email })
+		.pipe(
+			Effect.mapError(() => serviceUnavailable("billing_provider_unavailable")),
+		);
+	for (const subscriptionId of subscriptionIds) {
+		const subscription = yield* billing
+			.reconcileSubscription(subscriptionId)
+			.pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("billing_provider_unavailable"),
+				),
+			);
+		if (
+			subscription.accountId !== accountId ||
+			subscription.offerId !== CLOUD_WORKSPACE_OFFER_ID
+		)
+			continue;
+		yield* applyBillingSubscription({
+			billingProviderId: billing.providerId,
+			eventId: `claim:${accountId}:${subscriptionId}`,
+			nowMs,
+			subscription,
+		});
+	}
+});
+
 const requireHostedPrincipal = Effect.fn("requireHostedPrincipal")(function* (
 	request: Request,
 ) {
@@ -595,89 +726,12 @@ export const routeMachineRequest = (
 						serviceUnavailable("billing_provider_unavailable"),
 					),
 				);
-			const entitlementId = `ent_${(
-				yield* sha256Hex(
-					`${billing.providerId}:${subscription.providerSubscriptionId}`,
-				)
-			).slice(0, 24)}`;
-			const subscriptionOffer =
-				subscription.offerId === CLOUD_WORKSPACE_OFFER_ID
-					? undefined
-					: subscription.offerId === undefined
-						? undefined
-						: findMachineOffer(subscription.offerId);
-			const entitlement: EntitlementPersistenceRecord = {
-				entitlementId,
-				accountId: subscription.accountId,
-				kind:
-					subscription.offerId === CLOUD_WORKSPACE_OFFER_ID
-						? "cloud-workspace"
-						: "persistent-machine",
-				offerId: subscription.offerId,
-				provider: billing.providerId,
-				providerSubscriptionId: subscription.providerSubscriptionId,
-				status: subscription.status,
-				periodStartMs: subscription.periodStart,
-				paidThroughMs: subscription.paidThrough,
-				endedAtMs:
-					subscription.status === "ended" &&
-					(subscription.paidThrough === undefined ||
-						subscription.paidThrough <= nowMs)
-						? nowMs
-						: undefined,
-				createdAtMs: nowMs,
-				updatedAtMs: nowMs,
-			};
-			const machineConfig = yield* MachineControlConfiguration;
-			const offer = subscriptionOffer;
-			const shouldProvision =
-				subscription.status === "active" &&
-				offer !== undefined &&
-				machineConfig.allowlistedAccountIds.has(subscription.accountId);
-			const machineId = shouldProvision
-				? yield* randomToken("machine", 12)
-				: undefined;
-			const computeProviderId = shouldProvision
-				? yield* persistentProviderId().pipe(
-						Effect.mapError(() =>
-							serviceUnavailable("machine_provider_unavailable"),
-						),
-					)
-				: undefined;
-			const outcome = yield* store.applyBillingEvent({
-				sameKindOfferIds: offer === undefined ? [] : offerIdsOfKind(offer.kind),
-				event: {
-					provider: billing.providerId,
-					eventId: event.eventId,
-					nowMs,
-				},
-				entitlement,
-				provisioning:
-					machineId === undefined || computeProviderId === undefined
-						? undefined
-						: {
-								machineId,
-								idempotencyKey: `billing:${entitlementId}`,
-								provider: computeProviderId,
-								providerLabel: machineProviderLabel(machineId),
-							},
-				recoveryWindowMs: machineConfig.recoveryWindowMs,
+			const outcome = yield* applyBillingSubscription({
+				billingProviderId: billing.providerId,
+				eventId: event.eventId,
+				nowMs,
+				subscription,
 			});
-			if (
-				subscription.offerId === CLOUD_WORKSPACE_OFFER_ID &&
-				subscription.periodStart !== undefined &&
-				subscription.paidThrough !== undefined
-			) {
-				yield* ensureCloudBillingPeriod({
-					accountId: subscription.accountId,
-					provider: billing.providerId,
-					providerSubscriptionId: subscription.providerSubscriptionId,
-					subscriptionStatus: subscription.status,
-					periodStartMs: subscription.periodStart,
-					periodEndMs: subscription.paidThrough,
-					nowMs,
-				});
-			}
 			const response = json({
 				ok: true,
 				duplicate: outcome.duplicate,
@@ -958,7 +1012,17 @@ export const routeMachineRequest = (
 
 		if (method === "GET" && path === RelayPaths.billingEntitlements) {
 			const principal = yield* requireHostedPrincipal(request);
-			const entitlements = yield* store.listEntitlements(principal.accountId);
+			let entitlements = yield* store.listEntitlements(principal.accountId);
+			if (
+				!entitlements.some(
+					(entitlement) =>
+						entitlement.offerId === CLOUD_WORKSPACE_OFFER_ID &&
+						entitlement.status !== "ended",
+				)
+			) {
+				yield* claimCheckoutLinkSubscriptions(principal.accountId, nowMs);
+				entitlements = yield* store.listEntitlements(principal.accountId);
+			}
 			const machines = yield* store.listMachines(principal.accountId);
 			return json({
 				entitlements: entitlements.map((entitlement) => ({

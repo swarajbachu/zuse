@@ -33,6 +33,7 @@ const checkout = (
 
 const makeClient = () => {
 	const calls = {
+		claims: [] as ReadonlyArray<unknown>,
 		checkouts: [] as ReadonlyArray<unknown>,
 		meterEvents: [] as ReadonlyArray<unknown>,
 		meterReads: [] as ReadonlyArray<unknown>,
@@ -40,6 +41,7 @@ const makeClient = () => {
 		sessions: [] as ReadonlyArray<string>,
 	};
 	let current: PolarSubscription | null = subscription();
+	let claimedSubscriptions: ReadonlyArray<string> = [];
 	let currentCheckout: PolarCheckout | null = checkout();
 	let checkoutFailure: Error | null = null;
 	const client: PolarBillingClient = {
@@ -52,6 +54,10 @@ const makeClient = () => {
 				? Promise.resolve(currentCheckout)
 				: Promise.reject(checkoutFailure),
 		getSubscription: () => Promise.resolve(current),
+		claimSubscriptions: (input) => {
+			calls.claims = [...calls.claims, input];
+			return Promise.resolve(claimedSubscriptions);
+		},
 		revokeSubscription: (subscriptionId) => {
 			calls.revocations = [...calls.revocations, subscriptionId];
 			return Promise.resolve();
@@ -82,6 +88,9 @@ const makeClient = () => {
 		},
 		setSubscription: (value: PolarSubscription | null) => {
 			current = value;
+		},
+		setClaimedSubscriptions: (value: ReadonlyArray<string>) => {
+			claimedSubscriptions = value;
 		},
 	};
 };
@@ -215,6 +224,28 @@ describe("Polar billing provider", () => {
 			periodStart: Date.parse("2026-07-24T00:00:00.000Z"),
 			paidThrough: Date.parse("2026-08-24T00:00:00.000Z"),
 		});
+	});
+
+	test("claims checkout-link subscriptions with a verified account email", async () => {
+		const fake = makeClient();
+		fake.setClaimedSubscriptions(["subscription_1"]);
+		const provider = makePolarBillingProvider(config, { client: fake.client });
+
+		await expect(
+			Effect.runPromise(
+				provider.claimSubscriptions?.({
+					accountId: "account_1",
+					verifiedEmail: "buyer@example.com",
+				}) ?? Effect.succeed([]),
+			),
+		).resolves.toEqual(["subscription_1"]);
+		expect(fake.calls.claims).toEqual([
+			{
+				accountId: "account_1",
+				email: "buyer@example.com",
+				productIds: ["product_machine"],
+			},
+		]);
 	});
 
 	test("reconciles from provider checkout metadata when customer identity is absent", async () => {

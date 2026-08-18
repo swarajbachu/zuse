@@ -67,6 +67,11 @@ export interface PolarBillingClient {
 	readonly getSubscription: (
 		subscriptionId: string,
 	) => Promise<PolarSubscription | null>;
+	readonly claimSubscriptions?: (input: {
+		readonly accountId: string;
+		readonly email: string;
+		readonly productIds: ReadonlyArray<string>;
+	}) => Promise<ReadonlyArray<string>>;
 	readonly revokeSubscription: (subscriptionId: string) => Promise<void>;
 	readonly createCustomerSession: (
 		externalCustomerId: string,
@@ -127,6 +132,33 @@ const makeSdkClient = (config: PolarBillingConfig): PolarBillingClient => {
 				if (isNotFound(error)) return null;
 				throw error;
 			}
+		},
+		claimSubscriptions: async ({ accountId, email, productIds }) => {
+			const customers = await polar.customers.list({
+				email,
+				active: true,
+				limit: 2,
+			});
+			const customer = customers.result.items[0];
+			if (
+				customer === undefined ||
+				customers.result.items.length !== 1 ||
+				(customer.externalId !== null && customer.externalId !== accountId)
+			)
+				return [];
+			if (customer.externalId === null) {
+				await polar.customers.update({
+					id: customer.id,
+					customerUpdate: { externalId: accountId },
+				});
+			}
+			const subscriptions = await polar.subscriptions.list({
+				customerId: customer.id,
+				productId: [...productIds],
+				active: true,
+				limit: 100,
+			});
+			return subscriptions.result.items.map((subscription) => subscription.id);
 		},
 		revokeSubscription: async (subscriptionId) => {
 			await polar.subscriptions.revoke({ id: subscriptionId });
@@ -363,6 +395,18 @@ export const makePolarBillingProvider = (
 					paidThrough: subscription.currentPeriodEnd.getTime(),
 				};
 			}),
+		claimSubscriptions: (input) =>
+			client.claimSubscriptions === undefined
+				? providerFailure()
+				: Effect.tryPromise({
+						try: () =>
+							client.claimSubscriptions?.({
+								accountId: input.accountId,
+								email: input.verifiedEmail,
+								productIds: [...offersByProduct.keys()],
+							}) ?? Promise.resolve([]),
+						catch: providerFailure,
+					}),
 		cancel: (subscriptionId) =>
 			Effect.gen(function* () {
 				const subscription = yield* Effect.tryPromise({

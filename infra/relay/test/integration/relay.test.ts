@@ -99,6 +99,7 @@ let pushCalls: ReadonlyArray<{
 	readonly target: string;
 }>[];
 let identityDeletes: string[];
+let verifiedIdentityEmail: string | null;
 
 const placementAdapter = (providerId: string): SandboxProviderAdapter => ({
 	providerId,
@@ -168,6 +169,7 @@ const makeLayer = async (
 	const accountIdentityLayer = Layer.succeed(
 		AccountIdentity,
 		AccountIdentity.of({
+			verifiedEmail: () => Effect.succeed(verifiedIdentityEmail),
 			deleteUser: (accountId) =>
 				Effect.sync(() => {
 					identityDeletes.push(accountId);
@@ -338,6 +340,7 @@ const mintAccess = async (
 beforeEach(async () => {
 	pushCalls = [];
 	identityDeletes = [];
+	verifiedIdentityEmail = null;
 	relay = makeRelay(await makeLayer());
 });
 
@@ -659,6 +662,64 @@ describe("@zuse/relay", () => {
 			expect(checkoutLookups).toHaveLength(1);
 			expect(placeholderPage).toContain("Persistent Standard");
 			expect(placeholderPage).toContain("Awaiting confirmation");
+		} finally {
+			await billingRelay.dispose();
+		}
+	});
+
+	test("claims a checkout-link subscription by verified WorkOS email", async () => {
+		verifiedIdentityEmail = "buyer@example.com";
+		const billing: BillingProviderAdapter = {
+			providerId: "billing-test",
+			checkout: () => Effect.die("unused"),
+			getCheckout: () => Effect.succeed(null),
+			verifyEvent: () => Effect.die("unused"),
+			claimSubscriptions: ({ accountId, verifiedEmail }) => {
+				expect({ accountId, verifiedEmail }).toEqual({
+					accountId: "user_a",
+					verifiedEmail: "buyer@example.com",
+				});
+				return Effect.succeed(["subscription_link"]);
+			},
+			reconcileSubscription: () =>
+				Effect.succeed({
+					accountId: "user_a",
+					providerSubscriptionId: "subscription_link",
+					status: "active",
+					offerId: "cloud-workspace-standard-v1",
+					periodStart: Date.parse("2026-08-01T00:00:00.000Z"),
+					paidThrough: Date.parse("2026-09-01T00:00:00.000Z"),
+				}),
+			cancel: () => Effect.void,
+			customerPortal: () => Effect.die("unused"),
+		};
+		const billingRelay = makeRelay(
+			await makeLayer(
+				undefined,
+				BillingProviders.layer({
+					adapters: [billing],
+					defaultProviderId: billing.providerId,
+				}).pipe(Layer.orDie),
+			),
+		);
+
+		try {
+			const response = await billingRelay.fetch(
+				new Request(`${RELAY_ISSUER}${RelayPaths.billingEntitlements}`, {
+					headers: { authorization: "Bearer test-token:user_a" },
+				}),
+			);
+
+			expect(response.status).toBe(200);
+			expect(await response.json()).toMatchObject({
+				entitlements: [
+					{
+						kind: "cloud-workspace",
+						offerId: "cloud-workspace-standard-v1",
+						status: "active",
+					},
+				],
+			});
 		} finally {
 			await billingRelay.dispose();
 		}

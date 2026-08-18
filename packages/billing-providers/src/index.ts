@@ -67,6 +67,11 @@ export interface BillingProviderAdapter {
 	readonly reconcileSubscription: (
 		subscriptionId: string,
 	) => Effect.Effect<ReconciledSubscription, BillingProviderError>;
+	/** Bind active checkout-link purchases to a newly authenticated account. */
+	readonly claimSubscriptions?: (input: {
+		readonly accountId: string;
+		readonly verifiedEmail: string;
+	}) => Effect.Effect<ReadonlyArray<string>, BillingProviderError>;
 	readonly cancel: (
 		subscriptionId: string,
 	) => Effect.Effect<void, BillingProviderError>;
