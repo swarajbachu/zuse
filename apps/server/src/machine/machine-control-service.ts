@@ -36,7 +36,6 @@ import {
 	RelayConnectGrant,
 	RelayEnvironmentList,
 	RelayPaths,
-	STAGING_RELAY_URL,
 } from "@zuse/contracts";
 import {
 	Context,
@@ -211,11 +210,7 @@ export const streamCloudWorkspaceLifecycle = (
 
 export const resolveMachineRelayUrl = (
 	env: Readonly<Record<string, string | undefined>> = process.env,
-): string =>
-	(
-		env.ZUSE_RELAY_URL ??
-		(env.NODE_ENV === "production" ? PRODUCTION_RELAY_URL : STAGING_RELAY_URL)
-	).replace(/\/+$/u, "");
+): string => (env.ZUSE_RELAY_URL ?? PRODUCTION_RELAY_URL).replace(/\/+$/u, "");
 
 export const mapRelayErrorCode = (
 	status: number,

@@ -7,7 +7,6 @@ import {
 	type MachineSshKey,
 	type SshMode,
 } from "@zuse/contracts";
-import { Effect } from "effect";
 import { ExternalLink, KeyRound, LoaderCircle, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../hooks/use-auth.ts";
@@ -26,11 +25,10 @@ import {
 	cloudMachineProgressSteps,
 } from "../../lib/cloud-machine-progress.ts";
 import { selectActiveCloudMachine } from "../../lib/cloud-machine-selection.ts";
-import { hostedAccountId } from "../../lib/hosted-connect.ts";
-import { openExternal } from "../../lib/platform-capabilities.ts";
 import { runControlPlane } from "../../lib/control-plane-client.ts";
 import { dispatchEnvironmentShellCommand } from "../../lib/environment-shell-client-bus.ts";
-import { getRpcClient } from "../../lib/rpc-client.ts";
+import { hostedAccountId } from "../../lib/hosted-connect.ts";
+import { openExternal } from "../../lib/platform-capabilities.ts";
 import { switchToEnvironment } from "../../lib/switch-environment.ts";
 import { useEnvironmentCatalogStore } from "../../store/environment-catalog.ts";
 import { useUiStore } from "../../store/ui.ts";
@@ -236,13 +234,9 @@ export function CloudMachinesPane() {
 			return;
 		}
 		void load();
-		const timer = window.setInterval(() => void load(), 5_000);
 		const handleFocus = () => void load();
 		window.addEventListener("focus", handleFocus);
-		return () => {
-			window.clearInterval(timer);
-			window.removeEventListener("focus", handleFocus);
-		};
+		return () => window.removeEventListener("focus", handleFocus);
 	}, [authLoading, isSignedIn, load]);
 
 	const beginPurchase = async () => {
@@ -371,9 +365,10 @@ export function CloudMachinesPane() {
 
 	useEffect(() => {
 		void refreshRuntimeStatus();
+		if (runtimeStatus?.state !== "updating") return;
 		const interval = window.setInterval(
 			() => void refreshRuntimeStatus(),
-			runtimeStatus?.state === "updating" ? 2_000 : 30_000,
+			2_000,
 		);
 		return () => window.clearInterval(interval);
 	}, [refreshRuntimeStatus, runtimeStatus?.state]);

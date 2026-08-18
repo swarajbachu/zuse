@@ -278,8 +278,9 @@ export function CloudWorkspacePool() {
 		if (authLoading || !isSignedIn) return;
 		void load();
 		void loadGithubRepos();
-		const timer = window.setInterval(() => void load(), 5_000);
-		return () => window.clearInterval(timer);
+		const handleFocus = () => void load();
+		window.addEventListener("focus", handleFocus);
+		return () => window.removeEventListener("focus", handleFocus);
 	}, [authLoading, isSignedIn, load, loadGithubRepos]);
 
 	const run = async (
