@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.5]
+
+### Fixed
+- Cloud Workspace checkout now activates subscriptions reliably and automatically grants access to signed-in accounts that purchased through a checkout link
+- Cloud workspaces no longer stop during startup when Codex usage lookup times out
+- Local projects, chats, and saved WorkOS account state no longer disappear when an individual project has a Git error; the local computer remains connected
+- Add Project stays visually stable during GitHub outages, explains that GitHub is unavailable, preserves manual repository URLs, and provides scoped Retry actions
+- The notch tray now detects scaled MacBook displays and aligns with the physical camera housing
+
 ## [0.20.4]
 
 ### Changed
