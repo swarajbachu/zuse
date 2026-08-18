@@ -287,7 +287,9 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 	);
 	const persistentCheckoutReady =
 		billing.liveCheckoutEnabled &&
-		(env.POLAR_ENVIRONMENT === "sandbox" || machineProvider.productionReady);
+		(env.POLAR_ENVIRONMENT === "sandbox" ||
+			(env.POLAR_VPS_SALES_APPROVED === "true" &&
+				machineProvider.productionReady));
 	const sandboxOperational =
 		availableSandboxProviderIds.size > 0 &&
 		isConfigured(

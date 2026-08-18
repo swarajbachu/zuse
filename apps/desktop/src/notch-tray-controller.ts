@@ -188,8 +188,9 @@ export class NotchTrayController {
   }
 
   private targetTop(display: Display): number {
-    const menuBarInset = Math.max(0, display.workArea.y - display.bounds.y);
-    return display.bounds.y - menuBarInset;
+    // Anchor to the display top so the cap fills the notch. Subtracting
+    // workArea.y (the menu-bar inset) hid the tray behind the camera housing.
+    return display.bounds.y;
   }
 
   private resizeAndPosition(): void {

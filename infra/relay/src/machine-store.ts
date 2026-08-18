@@ -562,7 +562,8 @@ export const MachineStoreMemory = Layer.effect(
 						if (
 							machine === undefined &&
 							input.entitlement.status === "active" &&
-							input.entitlement.offerId !== undefined
+							input.entitlement.offerId !== undefined &&
+							input.sameKindOfferIds.length > 0
 						) {
 							const recoverable = [...machines.values()].find(
 								(item) =>
@@ -1112,7 +1113,8 @@ export const MachineStorePg: Layer.Layer<
 						if (
 							machine === undefined &&
 							input.entitlement.status === "active" &&
-							input.entitlement.offerId !== undefined
+							input.entitlement.offerId !== undefined &&
+							input.sameKindOfferIds.length > 0
 						) {
 							const recoverableRows = yield* sql<MachineRow>`
 								SELECT * FROM relay_machines

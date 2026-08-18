@@ -199,12 +199,15 @@ export function ChatView({
 		() => (
 			<>
 				<div className="px-[var(--chat-row-gutter,0.75rem)]">
-					<WorktreeSetupCard agentStarting={agentStarting ? true : undefined} />
+					<WorktreeSetupCard
+						agentStarting={agentStarting ? true : undefined}
+						providerOutputStarted={providerOutputStarted}
+					/>
 				</div>
 				<div className="h-2" />
 			</>
 		),
-		[agentStarting],
+		[agentStarting, providerOutputStarted],
 	);
 	const turns = useMemo(() => deriveChatTurnNavigationEntries(rows), [rows]);
 	const latestUserMessageId = useMemo(

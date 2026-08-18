@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.4]
+
+### Changed
+- Cloud workspace settings now refresh when opened, focused, or after an action instead of continuously polling in the background
+
+### Fixed
+- Packaged desktop builds now connect to the production cloud service by default, preventing false subscription and invite-only errors caused by an unavailable staging endpoint
+- Cloud beta access remains reliable when several workspace requests start together, avoiding contradictory availability errors for an invited account
+
 ## [0.20.3]
 
 ### Fixed

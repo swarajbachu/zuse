@@ -131,7 +131,7 @@ describe("relay deployment safety", () => {
 		]);
 		expect(production.vars.MACHINE_PROVIDER).toBe("fake");
 		expect(production.vars.HETZNER_ADAPTER_ENABLED).toBe("false");
-		expect(production.vars.MACHINE_LIVE_CHECKOUT_ENABLED).toBe("false");
+		expect(production.vars.MACHINE_LIVE_CHECKOUT_ENABLED).toBe("true");
 		expect(production.vars.MACHINE_RUNTIME_MANIFEST_URL).toBe("");
 		expect(production.vars.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK).toBe("");
 		expect(production.vars).not.toHaveProperty("SANDBOX_DEFAULT_PROVIDER");
