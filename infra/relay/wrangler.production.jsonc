@@ -32,7 +32,7 @@
 		"CF_ZONE_ID": "1ebb00c5fd61050e9f48ce1c791a29da",
 
 		"MACHINE_MANUAL_ENTITLEMENTS": "false",
-		"MACHINE_LIVE_CHECKOUT_ENABLED": "false",
+		"MACHINE_LIVE_CHECKOUT_ENABLED": "true",
 		"MACHINE_PROVIDER": "fake",
 		"HETZNER_ADAPTER_ENABLED": "false",
 		"HETZNER_API_BASE_URL": "https://api.hetzner.cloud/v1",

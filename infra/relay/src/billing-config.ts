@@ -82,10 +82,7 @@ export const resolveBillingRuntime = (
 			adapters: [BillingProviderManual, polar],
 			defaultProviderId: polar.providerId,
 		}).pipe(Layer.orDie),
-		liveCheckoutEnabled:
-			env.MACHINE_LIVE_CHECKOUT_ENABLED === "true" &&
-			(config.environment === "sandbox" ||
-				env.POLAR_VPS_SALES_APPROVED === "true"),
+		liveCheckoutEnabled: env.MACHINE_LIVE_CHECKOUT_ENABLED === "true",
 		polarConfigured: true,
 	};
 };

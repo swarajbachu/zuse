@@ -44,7 +44,7 @@ describe("relay billing configuration", () => {
 		expect(providers.defaultProviderId).toBe("polar");
 	});
 
-	test("allows sandbox checkout while production requires sales approval", () => {
+	test("enables configured checkout independently of VPS sales approval", () => {
 		expect(
 			resolveBillingRuntime(configuredEnvironment).liveCheckoutEnabled,
 		).toBe(true);
@@ -53,14 +53,14 @@ describe("relay billing configuration", () => {
 				...configuredEnvironment,
 				POLAR_ENVIRONMENT: "production",
 			}).liveCheckoutEnabled,
-		).toBe(false);
+		).toBe(true);
 		expect(
 			resolveBillingRuntime({
 				...configuredEnvironment,
 				POLAR_ENVIRONMENT: "production",
-				POLAR_VPS_SALES_APPROVED: "true",
+				MACHINE_LIVE_CHECKOUT_ENABLED: "false",
 			}).liveCheckoutEnabled,
-		).toBe(true);
+		).toBe(false);
 	});
 
 	test("maps the optional cloud workspace subscription product", async () => {
