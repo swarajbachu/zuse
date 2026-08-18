@@ -7,12 +7,12 @@ not use this gate.
 ## External resources
 
 1. In PostHog production, create the boolean flag
-   `zuse-cloud-beta-access`. Leave its default rollout at 0%. For each invited
-   account, target its `account_…` Distinct ID and set that condition to 100%.
-   Relay derives that privacy-preserving ID from the verified WorkOS user ID
-   with the same shared identity function as product analytics. Do not target
-   Email or an `anonymous_…` installation ID; clients cannot supply or override
-   the authenticated identity.
+   `zuse-cloud-beta-access`. Leave its default rollout at 0% and add one 100%
+   condition for the person property `zuse_cloud_beta_access = true`. Relay sets
+   that property using the privacy-preserving `account_…` Distinct ID only after
+   it verifies an active Polar subscription for the WorkOS account. Do not
+   target Email or an `anonymous_…` installation ID; clients cannot supply or
+   override the authenticated identity.
 2. In Polar production, create Cloud Workspace with a $40 monthly price. Create
    meter `zuse_cloud_overage_cent`, summing numeric metadata field `units`, and
    attach a recurring $0.01-per-unit price. Register
@@ -97,7 +97,8 @@ Import the matching E2B statement and require variance of at most 1% and $1.
 Then enable enforcement while export stays off, verify reservations stop new
 compute at the cap, enable export for the internal account, and confirm stable
 external IDs deduplicate retries and Relay, Polar, and the operator report have
-equal totals. Only then expand the PostHog cohort and checkout eligibility.
+equal totals. Only then enroll more PostHog identities and expand checkout
+eligibility.
 
 Rollback switches are independent: disable the PostHog flag, checkout, Polar
 export, or enforcement as needed. A Worker rollback must preserve sandboxes,

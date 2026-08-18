@@ -77,10 +77,11 @@ stable error codes.
 ## Private-beta rollout
 
 The production gate is the PostHog boolean flag `zuse-cloud-beta-access`,
-targeted by the privacy-preserving `account_…` Distinct ID that Relay derives
-from the verified WorkOS identity using the shared analytics identity function.
-Email and `anonymous_…` installation IDs do not apply. There is no second
-production allowlist.
+targeted by `zuse_cloud_beta_access=true` on the privacy-preserving `account_…`
+identity that Relay derives from verified WorkOS identity. Relay sets this
+property after an active checkout-link subscription is claimed; operators may
+also set it for selected invitees. Email and `anonymous_…` installation IDs do
+not apply. There is no second production allowlist.
 
 Roll out in this order:
 
@@ -89,7 +90,7 @@ Roll out in this order:
 3. Reconcile an E2B provider statement; require variance at or below 1% and $1.
 4. Enable enforcement with export still disabled and validate cap behavior.
 5. Enable Polar export and prove Relay outbox totals equal Polar meter totals.
-6. Expand the PostHog cohort gradually.
+6. Enroll additional PostHog identities gradually.
 
 The independent rollback switches are beta access, checkout, billing export,
 and enforcement. Disabling any of them must preserve sandboxes, encrypted

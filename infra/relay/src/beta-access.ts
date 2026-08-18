@@ -16,6 +16,9 @@ export interface BetaAccessApi {
 	readonly check: (
 		accountId: string,
 	) => Effect.Effect<void, BetaAccessDenied | BetaAccessUnavailable>;
+	readonly grant: (
+		accountId: string,
+	) => Effect.Effect<void, BetaAccessUnavailable>;
 }
 
 export class BetaAccess extends Context.Service<BetaAccess, BetaAccessApi>()(
@@ -109,7 +112,32 @@ export const makePostHogBetaAccess = (
 		yield* Effect.promise(() => writeCache(accountId, allowed));
 		if (!allowed) return yield* new BetaAccessDenied();
 	});
+	const grant = Effect.fn("BetaAccess.grant")(function* (accountId: string) {
+		const response = yield* Effect.tryPromise({
+			try: () =>
+				fetcher(`${config.host.replace(/\/+$/u, "")}/capture/`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						api_key: config.projectToken,
+						event: "$identify",
+						properties: {
+							distinct_id: analyticsAccountId(accountId),
+							$set: {
+								workos_account_id: accountId,
+								zuse_cloud_beta_access: true,
+							},
+						},
+					}),
+					signal: AbortSignal.timeout(config.timeoutMs ?? 5_000),
+				}),
+			catch: () => new BetaAccessUnavailable(),
+		});
+		if (!response.ok) return yield* new BetaAccessUnavailable();
+		yield* Effect.promise(() => writeCache(accountId, true));
+	});
 	return {
+		grant,
 		check: Effect.fn("BetaAccess.check")(function* (accountId: string) {
 			const cached = yield* Effect.promise(() => readCache(accountId));
 			if (cached !== undefined)
@@ -136,7 +164,23 @@ export const PostHogBetaAccessLayer = (
 
 export const BetaAccessAllowAll = Layer.succeed(
 	BetaAccess,
-	BetaAccess.of({ check: () => Effect.void }),
+	BetaAccess.of({ check: () => Effect.void, grant: () => Effect.void }),
+);
+
+export const ensureCloudBetaAccess = Effect.fn("ensureCloudBetaAccess")(
+	function* (
+		accountId: string,
+	): Effect.fn.Return<void, RelayError, BetaAccess> {
+		const access = yield* BetaAccess;
+		return yield* access.check(accountId).pipe(
+			Effect.catchTag(["BetaAccessDenied", "BetaAccessUnavailable"], () =>
+				access.grant(accountId),
+			),
+			Effect.mapError(() =>
+				serviceUnavailable("cloud_beta_access_unavailable"),
+			),
+		);
+	},
 );
 
 export const requireCloudBetaAccess = Effect.fn("requireCloudBetaAccess")(

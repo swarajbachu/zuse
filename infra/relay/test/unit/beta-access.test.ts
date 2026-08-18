@@ -5,6 +5,7 @@ import {
 	BetaAccess,
 	BetaAccessDenied,
 	BetaAccessUnavailable,
+	ensureCloudBetaAccess,
 	makePostHogBetaAccess,
 	requireCloudBetaAccess,
 } from "../../src/beta-access.ts";
@@ -88,6 +89,56 @@ describe("cloud beta access", () => {
 		expect(evaluations).toBe(1);
 	});
 
+	test("enrolls a verified account and makes access immediate", async () => {
+		const cache = decisionCache();
+		let request: { readonly url: string; readonly body: unknown } | undefined;
+		const access = makePostHogBetaAccess({ ...config, cache }, (url, init) => {
+			request = {
+				url: String(url),
+				body: JSON.parse(String(init?.body)),
+			};
+			return response({ status: 1 });
+		});
+
+		await Effect.runPromise(access.grant("user_paid"));
+		await expect(Effect.runPromise(access.check("user_paid"))).resolves.toBe(
+			undefined,
+		);
+		expect(request).toEqual({
+			url: "https://us.i.posthog.com/capture/",
+			body: {
+				api_key: "phc_test",
+				event: "$identify",
+				properties: {
+					distinct_id: analyticsAccountId("user_paid"),
+					$set: {
+						workos_account_id: "user_paid",
+						zuse_cloud_beta_access: true,
+					},
+				},
+			},
+		});
+	});
+
+	test("does not re-enroll an account that already has access", async () => {
+		let grants = 0;
+		await Effect.runPromise(
+			ensureCloudBetaAccess("user_allowed").pipe(
+				Effect.provideService(
+					BetaAccess,
+					BetaAccess.of({
+						check: () => Effect.void,
+						grant: () =>
+							Effect.sync(() => {
+								grants += 1;
+							}),
+					}),
+				),
+			),
+		);
+		expect(grants).toBe(0);
+	});
+
 	test("fails closed when evaluation is unavailable or invalid", async () => {
 		const fetchers: Array<typeof fetch> = [
 			() => Promise.reject(new Error("offline")),
@@ -132,6 +183,7 @@ describe("cloud beta access", () => {
 					BetaAccess,
 					BetaAccess.of({
 						check: () => Effect.fail(new BetaAccessUnavailable()),
+						grant: () => Effect.fail(new BetaAccessUnavailable()),
 					}),
 				),
 			),

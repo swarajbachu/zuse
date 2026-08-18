@@ -19,7 +19,11 @@ import { BROWSER_PAGE_HEADERS } from "@zuse/utils/browser-page";
 import { Clock, Effect, Redacted, Schema } from "effect";
 import { AccountIdentity } from "./account-identity.ts";
 import { requireWorkos } from "./auth.ts";
-import { type BetaAccess, requireCloudBetaAccess } from "./beta-access.ts";
+import {
+	type BetaAccess,
+	ensureCloudBetaAccess,
+	requireCloudBetaAccess,
+} from "./beta-access.ts";
 import { cancelProviderSubscription } from "./billing-operations.ts";
 import { renderCheckoutCompletePage } from "./checkout-complete-page.ts";
 import { ensureCloudBillingPeriod } from "./cloud-billing-period.ts";
@@ -1011,7 +1015,7 @@ export const routeMachineRequest = (
 		}
 
 		if (method === "GET" && path === RelayPaths.billingEntitlements) {
-			const principal = yield* requireHostedPrincipal(request);
+			const principal = yield* requireWorkos(request);
 			let entitlements = yield* store.listEntitlements(principal.accountId);
 			if (
 				!entitlements.some(
@@ -1022,6 +1026,15 @@ export const routeMachineRequest = (
 			) {
 				yield* claimCheckoutLinkSubscriptions(principal.accountId, nowMs);
 				entitlements = yield* store.listEntitlements(principal.accountId);
+			}
+			if (
+				entitlements.some(
+					(entitlement) =>
+						entitlement.offerId === CLOUD_WORKSPACE_OFFER_ID &&
+						entitlement.status === "active",
+				)
+			) {
+				yield* ensureCloudBetaAccess(principal.accountId);
 			}
 			const machines = yield* store.listMachines(principal.accountId);
 			return json({

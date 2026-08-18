@@ -355,7 +355,10 @@ describe("@zuse/relay", () => {
 				SandboxProvidersFake,
 				Layer.succeed(
 					BetaAccess,
-					BetaAccess.of({ check: () => Effect.fail(new BetaAccessDenied()) }),
+					BetaAccess.of({
+						check: () => Effect.fail(new BetaAccessDenied()),
+						grant: () => Effect.void,
+					}),
 				),
 			),
 		);
@@ -669,6 +672,7 @@ describe("@zuse/relay", () => {
 
 	test("claims a checkout-link subscription by verified WorkOS email", async () => {
 		verifiedIdentityEmail = "buyer@example.com";
+		const grantedAccounts: string[] = [];
 		const billing: BillingProviderAdapter = {
 			providerId: "billing-test",
 			checkout: () => Effect.die("unused"),
@@ -700,6 +704,19 @@ describe("@zuse/relay", () => {
 					adapters: [billing],
 					defaultProviderId: billing.providerId,
 				}).pipe(Layer.orDie),
+				false,
+				{},
+				SandboxProvidersFake,
+				Layer.succeed(
+					BetaAccess,
+					BetaAccess.of({
+						check: () => Effect.fail(new BetaAccessDenied()),
+						grant: (accountId) =>
+							Effect.sync(() => {
+								grantedAccounts.push(accountId);
+							}),
+					}),
+				),
 			),
 		);
 
@@ -720,6 +737,7 @@ describe("@zuse/relay", () => {
 					},
 				],
 			});
+			expect(grantedAccounts).toEqual(["user_a"]);
 		} finally {
 			await billingRelay.dispose();
 		}

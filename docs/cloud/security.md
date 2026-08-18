@@ -18,7 +18,11 @@ signed runtime callbacks, checkpoint uploads, lifecycle callbacks, or provider
 webhooks. This lets an already accepted turn settle after access is removed
 without granting another user operation.
 
-PostHog deny returns `cloud_beta_access_required`. Evaluation timeout, malformed
+The WorkOS-authenticated entitlement lookup is the sole bootstrap exception:
+after Relay verifies an active Polar subscription, it sets
+`zuse_cloud_beta_access=true` for the account's privacy-preserving PostHog
+identity. It cannot create or resume compute itself. PostHog deny returns
+`cloud_beta_access_required`. Evaluation timeout, malformed
 data, or outage returns `cloud_beta_access_unavailable`; production fails closed
 for new hosted operations. Neither result signs the user out or removes cached
 transcripts. Local, SSH, pairing, and ordinary remote-server paths are outside
