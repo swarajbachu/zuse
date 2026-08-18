@@ -63,8 +63,10 @@ export type SetupCardData = {
  */
 export function WorktreeSetupCard({
 	agentStarting,
+	providerOutputStarted = false,
 }: {
 	readonly agentStarting?: boolean;
+	readonly providerOutputStarted?: boolean;
 } = {}) {
 	const ctx = useActiveContext();
 	const selectedChatId = useChatsStore((state) => state.selectedChatId);
@@ -130,6 +132,7 @@ export function WorktreeSetupCard({
 			}));
 	if (
 		cloudSummary !== null &&
+		!providerOutputStarted &&
 		cloudSummary.startupPhase !== "running" &&
 		cloudSummary.state !== "paused" &&
 		cloudSummary.state !== "resuming" &&
