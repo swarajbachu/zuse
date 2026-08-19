@@ -138,20 +138,18 @@ class CloudWorkspaceLeaseLostError extends Data.TaggedError(
 type SaveClaimedWorkspace = (
 	workspace: CloudWorkspaceRecord,
 ) => Effect.Effect<void, CloudWorkspaceLeaseLostError>;
-const WORKSPACE_RUNTIME_PROCESS = {
+export const WORKSPACE_RUNTIME_PROCESS_SELECTOR = {
 	tag: "zuse-runtime",
 	legacyCommandMarkers: [
 		"zuse-workspace-bootstrap",
 		"/opt/zuse/current/bin.mjs serve",
 		"/usr/local/bin/zuse serve",
 	],
+	// E2B tags the process started through envd, but the bootstrap process can
+	// leave an untagged runtime child behind when it is killed. Always sweep the
+	// matching command tree before binding the replacement gateway port.
+	legacyCleanup: "matching-command",
 } as const;
-const workspaceRuntimeProcessSelector = (workspace: CloudWorkspaceRecord) => ({
-	...WORKSPACE_RUNTIME_PROCESS,
-	...(workspace.requestConfig.runtimeProcessManaged === true
-		? {}
-		: { legacyCleanup: "matching-command" as const }),
-});
 export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; rm -f /var/lib/zuse/workspace/failed; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 ZUSE_RUNTIME_WIRE_PROTOCOL="\${ZUSE_RUNTIME_WIRE_PROTOCOL:?}" node /usr/local/lib/zuse/runtime-updater.mjs >/var/lib/zuse/workspace/runtime-update.log 2>&1; fi; if [ -f "$runtime" ]; then exec node "$runtime" serve; else exec "$fallback" serve; fi`;
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
@@ -783,7 +781,7 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 		});
 		yield* provider.replaceProcess(
 			providerSandboxId,
-			workspaceRuntimeProcessSelector(workspace),
+			WORKSPACE_RUNTIME_PROCESS_SELECTOR,
 			{
 				command: "/bin/bash",
 				args: ["-lc", WORKSPACE_RUNTIME_RESUME_SCRIPT],
@@ -1058,7 +1056,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			});
 			yield* provider.startProcess(sandbox.providerSandboxId, {
 				command: "/usr/local/bin/zuse-workspace-bootstrap",
-				tag: WORKSPACE_RUNTIME_PROCESS.tag,
+				tag: WORKSPACE_RUNTIME_PROCESS_SELECTOR.tag,
 				cwd: "/home/zuse",
 				env: {
 					...project.cloudEnvironment,
@@ -1252,7 +1250,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				});
 				yield* provider.replaceProcess(
 					workspace.providerSandboxId,
-					workspaceRuntimeProcessSelector(workspace),
+					WORKSPACE_RUNTIME_PROCESS_SELECTOR,
 					{
 						command: "/bin/bash",
 						args: ["-lc", "exec /usr/local/bin/zuse-workspace-bootstrap"],

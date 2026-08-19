@@ -466,10 +466,8 @@ export const makeE2bSandboxProvider = (
 				Effect.mapError(() => providerError("transient")),
 			);
 			const legacyMarkers = selector.legacyCommandMarkers ?? [];
-			let taggedProcessFound = false;
 			const replaced = listed.processes.filter((process) => {
 				if (process.tag === selector.tag) {
-					taggedProcessFound = true;
 					return true;
 				}
 				const command = [
@@ -510,7 +508,6 @@ export const makeE2bSandboxProvider = (
 			);
 			const cleanupLegacyCommands =
 				selector.legacyCleanup === "matching-command" &&
-				!taggedProcessFound &&
 				legacyMarkers.length > 0;
 			const replacement = cleanupLegacyCommands
 				? {

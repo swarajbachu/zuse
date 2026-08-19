@@ -25,6 +25,7 @@ import {
 	useCloudSyncStatus,
 } from "../lib/cloud-sync-client-bus.ts";
 import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
+import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import { runControlPlane } from "../lib/control-plane-client.ts";
 import { displayPath } from "../lib/display-path.ts";
 import { errorMessage } from "../lib/error-message.ts";
@@ -165,7 +166,7 @@ export function CloudWorkspaceOpenSshMenu({
 		ReadonlyArray<OpenTarget>
 	>([]);
 	if (!cloudSshSupported() || summary === null) return null;
-	const running = summary.state === "ready";
+	const running = isCloudWorkspaceReady(summary);
 	const syncEnabled = syncPrefs?.enabled !== false;
 
 	const toggleSync = async (): Promise<void> => {

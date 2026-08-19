@@ -513,6 +513,77 @@ describe("E2B sandbox provider", () => {
 		).not.toContain("proc_uid");
 	});
 
+	test("cleans untagged runtime children after killing a tagged parent", async () => {
+		const detail = {
+			sandboxID: "sbx_1",
+			state: "running",
+			domain: "custom.e2b.app",
+			envdAccessToken: "envd-secret",
+		};
+		const http = makeHttp([
+			{ status: 200, body: detail },
+			{
+				status: 201,
+				body: { sandboxID: "sbx_1", envdAccessToken: "envd-secret" },
+			},
+			{
+				status: 200,
+				body: {
+					processes: [
+						{
+							config: {
+								cmd: "/usr/local/bin/zuse-workspace-bootstrap",
+								args: [],
+							},
+							pid: 41,
+							tag: "zuse-runtime",
+						},
+					],
+				},
+			},
+			{ status: 200, body: {} },
+			{ status: 200, body: detail },
+			{
+				status: 200,
+				rawBody: connectJsonResponse({ event: { start: { pid: 42 } } }),
+			},
+		]);
+		const adapter = makeAdapter(http.client);
+
+		await Effect.runPromise(
+			adapter.replaceProcess(
+				"sbx_1",
+				{
+					tag: "zuse-runtime",
+					legacyCommandMarkers: [
+						"zuse-workspace-bootstrap",
+						"/opt/zuse/current/bin.mjs serve",
+					],
+					legacyCleanup: "matching-command",
+				},
+				{ command: "/opt/zuse/current/bin.mjs", args: ["serve"] },
+			),
+		);
+
+		expect(http.calls[3]?.url).toContain("/process.Process/SendSignal");
+		expect(decodeConnectJsonBody(http.calls[5]?.init?.body)).toMatchObject({
+			process: {
+				cmd: "/bin/bash",
+				args: [
+					"-lc",
+					expect.stringContaining('[[ "$command" == *"$marker"* ]]'),
+					"zuse-runtime-legacy-cleanup",
+					"2",
+					"zuse-workspace-bootstrap",
+					"/opt/zuse/current/bin.mjs serve",
+					"/opt/zuse/current/bin.mjs",
+					"serve",
+				],
+			},
+			tag: "zuse-runtime",
+		});
+	});
+
 	test("rejects a process stream that does not confirm the process started", async () => {
 		const http = makeHttp([
 			{

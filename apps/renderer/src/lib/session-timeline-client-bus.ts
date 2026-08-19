@@ -1342,8 +1342,13 @@ export const dispatchSessionCommand = <Payload, Result>(input: {
 export const addOptimisticSessionMessage = (
 	ref: SessionRef,
 	message: Message,
-): boolean =>
-	rendererClientBus.overlay(sessionTimelineResourceKey(ref), {
+): boolean => {
+	const key = sessionTimelineResourceKey(ref);
+	// Cloud launches stage their durable chat before any transcript consumer is
+	// mounted. Materialize the canonical cell so their first optimistic message
+	// is not discarded during that handoff.
+	rendererClientBus.snapshot(key);
+	return rendererClientBus.overlay(key, {
 		initialData: emptyTimelineProjection(),
 		update: (projection) => {
 			const index = projection.messages.findIndex(
@@ -1360,6 +1365,7 @@ export const addOptimisticSessionMessage = (
 			return SessionTimelineProjection.make({ ...projection, messages });
 		},
 	});
+};
 
 export const removeOptimisticSessionMessage = (
 	ref: SessionRef,

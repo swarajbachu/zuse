@@ -83,7 +83,7 @@ export const rsyncArgs = (input: {
 	...GENERATED_SYNC_EXCLUDES.map((path) => `--exclude=${path}/`),
 	...(input.gitignoreFilter ? ["--filter=:- .gitignore"] : []),
 	...(!input.gitignoreFilter
-		? ["--rsync-path=rsync --filter=':- .gitignore'"]
+		? ["--rsync-path=rsync --filter=:-_.gitignore"]
 		: []),
 	"-e",
 	`ssh -F "${input.sshConfigPath}"`,

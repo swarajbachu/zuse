@@ -815,12 +815,12 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					),
 				},
 			}));
-			// Keep the pre-ack workspace card mounted until the worktree projection is
-			// hydrated. Clearing it first briefly exposes ChatView with an authoritative
-			// session but no worktree row, which mislabels the handoff as "Starting
-			// agent" even though workspace setup has only just completed.
+			// Refresh the worktree projection without gating the acknowledged chat.
+			// This side request can be delayed independently of chat creation; awaiting
+			// it leaves the provisional setup surface mounted while the real turn runs
+			// behind it, so the transcript only appears after a navigation remount.
 			if (chat.worktreeId !== null) {
-				await useWorktreesStore.getState().refresh(projectId);
+				void useWorktreesStore.getState().refresh(projectId);
 			}
 			// Land the new chat in front of the project's existing list and
 			// mark it active so the renderer immediately swaps to it.

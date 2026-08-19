@@ -19,6 +19,7 @@ import {
 import { Effect, Queue, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	addOptimisticSessionMessage,
 	completeOlderSessionMessages,
 	getRendererClientBus,
 	loadOlderSessionMessages,
@@ -340,6 +341,22 @@ describe("renderer session timeline ClientBus adapter", () => {
 		).toBe(true);
 		expect(getRendererClientBus().snapshot(key).data?.queue.items).toEqual([
 			queued,
+		]);
+	});
+
+	it("seeds a cloud launch message before its first timeline consumer mounts", () => {
+		const key = sessionTimelineResourceKey(ref);
+		const message = Message.make({
+			id: MessageId.make("cloud-launch-message"),
+			sessionId,
+			role: "user",
+			content: { _tag: "user", text: "visible during startup", goal: false },
+			createdAt: new Date(1),
+		});
+
+		expect(addOptimisticSessionMessage(ref, message)).toBe(true);
+		expect(getRendererClientBus().snapshot(key).data?.messages).toEqual([
+			message,
 		]);
 	});
 

@@ -11,6 +11,7 @@ import {
 	reconcileCloudWorkspace,
 	reusableAccountBuildSnapshot,
 	sanitizeProjectBuildDiagnostic,
+	WORKSPACE_RUNTIME_PROCESS_SELECTOR,
 	WORKSPACE_RUNTIME_RESUME_SCRIPT,
 } from "../../src/cloud-workspace-reconciler.ts";
 import {
@@ -149,6 +150,13 @@ describe("cloud workspace reconciler", () => {
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
 			"/usr/local/lib/zuse/runtime-updater.mjs",
 		);
+	});
+
+	test("cleans matching runtime children on every replacement", () => {
+		expect(WORKSPACE_RUNTIME_PROCESS_SELECTOR).toMatchObject({
+			tag: "zuse-runtime",
+			legacyCleanup: "matching-command",
+		});
 	});
 
 	test("bounds and redacts project builder diagnostics", () => {
