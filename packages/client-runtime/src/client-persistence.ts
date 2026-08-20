@@ -99,6 +99,16 @@ const canonicalJson = (value: unknown): string => {
 				if (ancestors.has(input)) {
 					throw new TypeError("Client command payloads cannot contain cycles");
 				}
+				// Binary RPC payloads (most notably attachment uploads) arrive here as
+				// Uint8Array instances. Object.keys() exposes one property per byte, so
+				// treating them as ordinary records creates an enormous intermediate JSON
+				// string before the command can even reach the transport. Hash the bytes
+				// directly so even the maximum-size attachment contributes a fixed-size
+				// value, and tag it so it cannot collide with an ordinary numeric-keyed
+				// object. The outer command fingerprint remains a SHA-256 identity.
+				if (input instanceof Uint8Array) {
+					return `Uint8Array(sha256:${bytesToHex(sha256(input))})`;
+				}
 				ancestors.add(input);
 				try {
 					const toJson = Reflect.get(input, "toJSON");

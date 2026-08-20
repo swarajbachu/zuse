@@ -5,7 +5,8 @@ import {
 	WorktreeId,
 } from "@zuse/contracts";
 import { Effect, Queue, Stream } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { toastManager } from "../../src/components/ui/toast.tsx";
 import {
 	gitWorkspaceDriverStartsForTest,
 	gitWorkspaceResourceKey,
@@ -38,6 +39,7 @@ const ref = {
 
 describe("renderer Git workspace ClientBus adapter", () => {
 	afterEach(() => {
+		vi.restoreAllMocks();
 		resetGitWorkspaceClientBusForTest();
 		resetSessionTimelineClientBusForTest();
 	});
@@ -158,6 +160,99 @@ describe("renderer Git workspace ClientBus adapter", () => {
 
 		expect(first).not.toEqual(otherEnvironment);
 		expect(first).not.toEqual(otherRoot);
+	});
+
+	it("announces one PR terminal transition across multiple workspaces", async () => {
+		const queues = new Map<string, Queue.Queue<{ revision: number }>>();
+		let prState: "open" | "merged" = "open";
+		const prInfo = () => ({
+			state: prState,
+			branch: "feature",
+			baseBranch: "main",
+			additions: 1,
+			deletions: 0,
+			number: 2050,
+			url: "https://github.com/example/repo/pull/2050",
+			isDraft: false,
+			checks: "success" as const,
+			mergeable: "clean" as const,
+			checksTotal: 1,
+			checksRunning: 0,
+			checksPassing: 1,
+			checksFailing: 0,
+			autoMergeEnabled: false,
+		});
+		setSessionTimelineRpcClientForTest(
+			async () =>
+				({
+					"git.workspaceChanges": ({
+						worktreeId: requestedId,
+					}: {
+						readonly worktreeId?: WorktreeId | null;
+					}) => {
+						const queue = Effect.runSync(
+							Queue.unbounded<{ revision: number }>(),
+						);
+						queues.set(requestedId ?? "main", queue);
+						return Stream.fromQueue(queue);
+					},
+					"git.status": () =>
+						Effect.succeed({
+							branch: "feature",
+							ahead: 0,
+							behind: 0,
+							dirtyFiles: 0,
+						}),
+					"git.changes": () => Effect.succeed([]),
+					"git.prState": () => Effect.succeed(prInfo()),
+					"git.reviewSummary": () =>
+						Effect.succeed({
+							baseRef: "main",
+							headRef: "feature",
+							scope: "branch",
+							baseSha: "base",
+							headSha: "head",
+							files: [],
+							additions: 1,
+							deletions: 0,
+						}),
+					"git.reviewPatches": () => Stream.empty,
+					"git.prDetails": () =>
+						Effect.fail(new GitNotARepoError({ folderId })),
+				}) as never,
+		);
+		const addToast = vi.spyOn(toastManager, "add");
+		const otherRef = {
+			...ref,
+			worktreeId: WorktreeId.make("git-worktree-2"),
+			rootPath: "/project/worktree-2",
+		};
+		const first = retainGitWorkspace(ref);
+		const second = retainGitWorkspace(otherRef);
+		await waitUntil(() => queues.size === 2);
+		for (const queue of queues.values()) {
+			Queue.offerUnsafe(queue, { revision: 0 });
+		}
+		await waitUntil(
+			() =>
+				getRendererClientBus().snapshot(first.key).data?.pr?.state === "open" &&
+				getRendererClientBus().snapshot(second.key).data?.pr?.state === "open",
+		);
+
+		prState = "merged";
+		for (const queue of queues.values()) {
+			Queue.offerUnsafe(queue, { revision: 1 });
+		}
+		await waitUntil(
+			() =>
+				getRendererClientBus().snapshot(first.key).data?.pr?.state ===
+					"merged" &&
+				getRendererClientBus().snapshot(second.key).data?.pr?.state ===
+					"merged",
+		);
+		expect(addToast).toHaveBeenCalledTimes(1);
+		first.lease.release();
+		second.lease.release();
 	});
 
 	it("keeps a non-Git folder failure scoped to its Git resource", async () => {

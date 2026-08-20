@@ -94,6 +94,10 @@ export const decideChat = (
 			return state.archived
 				? success([])
 				: success([{ ...command, _tag: "ChatArchived" }]);
+		case "RecordArchiveCheckpoint":
+			return state.archived
+				? success([{ ...command, _tag: "ChatArchiveCheckpointRecorded" }])
+				: success([]);
 		case "UnarchiveChat":
 			return state.archived
 				? success([{ ...command, _tag: "ChatUnarchived" }])

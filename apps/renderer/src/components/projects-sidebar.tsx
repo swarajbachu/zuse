@@ -1671,6 +1671,9 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 	const archiveProgress = useChatsStore(
 		(s) => s.archiveProgressByChat[chat.id] ?? null,
 	);
+	const isRestoring = useArchivePreviewStore(
+		(s) => s.restoringByChat[chat.id] === true,
+	);
 	const creationPending = useChatsStore(
 		(s) => s.pendingCreationByChat[chat.id] !== undefined,
 	);
@@ -1827,6 +1830,18 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 		if (isArchiving) return;
 		void archiveChatWithConfirm(chat.id);
 	};
+	const restoreChat = () => {
+		if (isRestoring) return;
+		void unarchiveChat(chat.id).then((outcome) => {
+			if (!outcome.ok) {
+				toastManager.add({
+					type: "error",
+					title: "Chat could not be restored",
+					description: outcome.reason,
+				});
+			}
+		});
+	};
 
 	return (
 		<>
@@ -1913,11 +1928,11 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 						</span>
 						<button
 							type="button"
-							disabled={isArchiving}
+							disabled={isArchiving || isRestoring}
 							onClick={(e) => {
 								e.stopPropagation();
 								if (isArchived) {
-									void unarchiveChat(chat.id);
+									restoreChat();
 								} else {
 									archiveChat();
 								}
@@ -1929,7 +1944,7 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 							aria-label={`${primaryActionLabel} ${chat.title}`}
 							title={primaryActionLabel}
 						>
-							{isArchiving ? (
+							{isArchiving || isRestoring ? (
 								<Spinner className="size-3.5" />
 							) : (
 								<HugeiconsIcon icon={primaryActionIcon} className="size-3.5" />
@@ -1954,10 +1969,15 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 					</MenuItem>
 					{isArchived ? (
 						<MenuItem
-							onClick={() => void unarchiveChat(chat.id)}
+							disabled={isRestoring}
+							onClick={restoreChat}
 							className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 						>
-							<HugeiconsIcon icon={ArchiveArrowUpIcon} className="size-3.5" />
+							{isRestoring ? (
+								<Spinner className="size-3.5" />
+							) : (
+								<HugeiconsIcon icon={ArchiveArrowUpIcon} className="size-3.5" />
+							)}
 							Unarchive
 						</MenuItem>
 					) : (

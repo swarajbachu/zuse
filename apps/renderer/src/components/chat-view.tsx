@@ -43,6 +43,7 @@ import {
 	useSessionCommandErrors,
 } from "../lib/session-actions.ts";
 import { timelineReadingPositionStore } from "../lib/session-timeline-cache.ts";
+import { restartProvisionalSessionTimeline } from "../lib/session-timeline-client-bus.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import {
 	resolveInitialTimelineTarget,
@@ -111,6 +112,10 @@ export function ChatView({
 		environmentId,
 	);
 	const sessionRef = timeline.ref;
+	useEffect(() => {
+		if (cloudSummary !== null) return;
+		restartProvisionalSessionTimeline(sessionRef, timeline.view);
+	}, [cloudSummary, sessionRef, timeline.view.cursor, timeline.view.data]);
 	const errorKey = sessionCommandErrorKey(sessionRef);
 	const localError = useSessionCommandErrors(
 		(state) => state.errorByResource[errorKey] ?? null,

@@ -23,6 +23,7 @@ import {
 	SessionId,
 	Worktree,
 	WorktreeCheckpointError,
+	WorktreeRestoreError,
 } from "@zuse/contracts";
 import type { SessionEvent } from "@zuse/domain/core/events";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
@@ -166,6 +167,7 @@ let createdWorktreeCount = 0;
 let createdWorktrees = new Map<string, Worktree>();
 let archivedWorktreeIds = new Set<string>();
 let restoredWorktreeCount = 0;
+let restoreWorktreeFailure = false;
 let archiveWorktreeBarrier: Promise<void> | null = null;
 let archiveWorktreeStarts = 0;
 let archiveWorktreeFailure: "git-missing" | null = null;
@@ -353,6 +355,9 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 				archivedContextPath: null,
 				branch:
 					worktreeId === TEST_WORKTREE_ID ? testWorktree.branch : "fixture",
+				detachedHead: false,
+				branchProvenance: "manual" as const,
+				pokemonNumber: null,
 			};
 			const markRemoved = Effect.gen(function* () {
 				if (allowRemoval !== undefined && !(yield* allowRemoval())) return;
@@ -365,18 +370,25 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 						Effect.as(outcome),
 					);
 		}),
-	finishArchiveRemoval: () => Effect.void,
 	remove: () => Effect.void,
 	rerunSetup: () => Effect.die("not used"),
 	setupStream: () => Stream.die("not used"),
 	startRun: () => Effect.die("not used"),
 	restore: (snapshot) =>
-		Effect.sync(() => {
+		Effect.gen(function* () {
 			restoredWorktreeCount += 1;
+			if (restoreWorktreeFailure) {
+				return yield* new WorktreeRestoreError({
+					worktreeId: snapshot.id,
+					reason: "simulated restore failure",
+				});
+			}
 			archivedWorktreeIds.delete(snapshot.id as string);
-			return snapshot.id === TEST_WORKTREE_ID
-				? testWorktree
-				: (createdWorktrees.get(snapshot.id as string) ?? testWorktree);
+			const worktree =
+				snapshot.id === TEST_WORKTREE_ID
+					? testWorktree
+					: (createdWorktrees.get(snapshot.id as string) ?? testWorktree);
+			return { worktree, checkpoint: "applied" as const };
 		}),
 });
 
@@ -681,6 +693,7 @@ beforeEach(() => {
 	createdWorktrees = new Map();
 	archivedWorktreeIds = new Set();
 	restoredWorktreeCount = 0;
+	restoreWorktreeFailure = false;
 	archiveWorktreeBarrier = null;
 	archiveWorktreeStarts = 0;
 	archiveWorktreeFailure = null;
@@ -1225,8 +1238,8 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					error: null,
 				});
 
-			// Older workers reported a missing cwd as missing Git. Reading archive
-			// jobs repairs that durable state so clients stop offering Force archive.
+			// Read paths do not mutate failed jobs. Legacy normalization runs once
+			// during service startup instead.
 			await run(
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
@@ -1243,7 +1256,13 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						service.listArchiveJobs(PROJECT_ID),
 					),
 				),
-			).resolves.toEqual([]);
+			).resolves.toEqual([
+				expect.objectContaining({
+					status: "failed",
+					phase: "failed",
+					error: "git is not installed",
+				}),
+			]);
 			await expect(
 				run(
 					Effect.flatMap(store, (service) =>
@@ -1251,9 +1270,9 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					),
 				),
 			).resolves.toMatchObject({
-				status: "completed",
-				phase: "directory-missing",
-				error: null,
+				status: "failed",
+				phase: "failed",
+				error: "git is not installed",
 			});
 		});
 	});
@@ -1627,10 +1646,62 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				),
 			);
 
-			expect(restorable).toEqual({ _tag: "restorable" });
+			expect(restorable).toEqual({ _tag: "available" });
 			expect(restored.worktree?.id).toBe(TEST_WORKTREE_ID);
 			expect(restored.chat.worktreeId).toBe(TEST_WORKTREE_ID);
 			expect(restored.directoryStatus).toEqual({ _tag: "available" });
+		});
+	});
+
+	it("keeps a chat archived when restore fails and allows retry", async () => {
+		await withRuntime(async (run) => {
+			const archived = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						worktreeId: TEST_WORKTREE_ID,
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(archived.chat.id),
+				),
+			);
+			await expect
+				.poll(() => archivedWorktreeIds.has(TEST_WORKTREE_ID))
+				.toBe(true);
+
+			restoreWorktreeFailure = true;
+			await expect(
+				run(
+					Effect.flatMap(store, (service) =>
+						service.unarchiveChat(archived.chat.id),
+					),
+				),
+			).rejects.toMatchObject({
+				_tag: "ChatArchiveWorktreeError",
+				reason: "simulated restore failure",
+			});
+			await expect(
+				run(
+					Effect.flatMap(store, (service) => service.getChat(archived.chat.id)),
+				),
+			).resolves.toMatchObject({ archivedAt: expect.any(Date) });
+
+			restoreWorktreeFailure = false;
+			await expect(
+				run(
+					Effect.flatMap(store, (service) =>
+						service.unarchiveChat(archived.chat.id),
+					),
+				),
+			).resolves.toMatchObject({
+				chat: { archivedAt: null },
+				worktree: { id: TEST_WORKTREE_ID },
+			});
 		});
 	});
 

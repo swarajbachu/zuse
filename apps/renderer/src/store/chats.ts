@@ -1269,7 +1269,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				const chat = chatReceipt.result;
 				const job = jobReceipt.result;
 				if (chat.archivedAt !== null) {
-					reconciled = { chat, cleanup: null, checkpoint: null, job };
+					reconciled = { chat, checkpoint: null, job };
 				} else {
 					definitiveFailure = true;
 				}
@@ -1527,6 +1527,17 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				useUiStore.getState().setActiveMainTab("chat");
 				if (result.worktree !== null) {
 					void useWorktreesStore.getState().refresh(resolvedProjectId);
+					useWorktreesStore
+						.getState()
+						.subscribeSetup(resolvedProjectId, result.worktree.id);
+				}
+				if (result.restoreNotice === "branch-advanced") {
+					toastManager.add({
+						type: "warning",
+						title: "Branch changed while archived",
+						description:
+							"The worktree was restored at the latest branch tip. Archived changes remain safely stored for recovery.",
+					});
 				}
 				return { ok: true, ...result } as const;
 			} catch (err) {

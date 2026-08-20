@@ -80,6 +80,12 @@ export const evolveChat = (state: ChatState, event: ChatEvent): ChatState => {
 				archivedWorktreeJson: event.archivedWorktreeJson,
 				version,
 			};
+		case "ChatArchiveCheckpointRecorded":
+			return {
+				...state,
+				archivedWorktreeJson: event.archivedWorktreeJson,
+				version,
+			};
 		case "ChatUnarchived":
 			return {
 				...state,

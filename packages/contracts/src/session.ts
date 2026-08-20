@@ -922,28 +922,16 @@ export type ChatArchiveJob = typeof ChatArchiveJob.Type;
 
 export const ChatDirectoryStatus = Schema.Union([
 	Schema.TaggedStruct("available", {}),
-	Schema.TaggedStruct("restorable", {}),
 	Schema.TaggedStruct("unavailable", {
-		reason: Schema.Literals([
-			"project-missing",
-			"worktree-missing",
-			"restore-unavailable",
-		]),
+		reason: Schema.Literals(["project-missing", "worktree-missing"]),
 	}),
 ]);
 export type ChatDirectoryStatus = typeof ChatDirectoryStatus.Type;
 
 const ChatArchiveErrors = Schema.Union([
 	ChatNotFoundError,
-	ChatArchiveScriptError,
-	ChatArchiveTimeoutError,
 	ChatArchiveWorktreeError,
 ]);
-
-const ArchiveCleanupSummary = Schema.Struct({
-	ran: Schema.Boolean,
-	output: Schema.String,
-});
 
 const WorktreeCheckpointSummary = Schema.Struct({
 	archiveCommit: Schema.String,
@@ -954,7 +942,6 @@ const WorktreeCheckpointSummary = Schema.Struct({
 
 export const ChatArchiveResult = Schema.Struct({
 	chat: Chat,
-	cleanup: Schema.NullOr(ArchiveCleanupSummary),
 	checkpoint: Schema.NullOr(WorktreeCheckpointSummary),
 	job: Schema.NullOr(ChatArchiveJob),
 });
@@ -965,6 +952,7 @@ export const ChatUnarchiveResult = Schema.Struct({
 	sessions: Schema.Array(Session),
 	worktree: Schema.NullOr(Worktree),
 	directoryStatus: ChatDirectoryStatus,
+	restoreNotice: Schema.optional(Schema.Literal("branch-advanced")),
 });
 export type ChatUnarchiveResult = typeof ChatUnarchiveResult.Type;
 

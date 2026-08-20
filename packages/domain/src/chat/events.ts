@@ -37,6 +37,10 @@ export const ChatEvent = Schema.Union([
 		archivedAt: Schema.Number,
 		archivedWorktreeJson: Schema.NullOr(Schema.String),
 	}),
+	Schema.TaggedStruct("ChatArchiveCheckpointRecorded", {
+		archivedWorktreeJson: Schema.String,
+		recordedAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("ChatUnarchived", {
 		unarchivedAt: Schema.Number,
 		worktreeId: Schema.NullOr(Schema.String),

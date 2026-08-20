@@ -141,6 +141,35 @@ describe("chat decider", () => {
 		expect(Result.getOrThrow(decideChat(state, unarchive))).toEqual([]);
 	});
 
+	test("records checkpoint metadata only while archived", () => {
+		const first = Result.getOrThrow(decideChat(initialChatState, created));
+		let state = evolveChats(initialChatState, first);
+		const command: ChatCommand = {
+			_tag: "RecordArchiveCheckpoint",
+			archivedWorktreeJson: '{"archiveCommit":"checkpoint"}',
+			recordedAt: 25,
+		};
+		expect(Result.getOrThrow(decideChat(state, command))).toEqual([]);
+
+		state = evolveChats(
+			state,
+			Result.getOrThrow(
+				decideChat(state, {
+					_tag: "ArchiveChat",
+					archivedAt: 20,
+					archivedWorktreeJson: null,
+				}),
+			),
+		);
+		const recorded = Result.getOrThrow(decideChat(state, command));
+		expect(recorded).toEqual([
+			{ ...command, _tag: "ChatArchiveCheckpointRecorded" },
+		]);
+		expect(evolveChats(state, recorded).archivedWorktreeJson).toBe(
+			command.archivedWorktreeJson,
+		);
+	});
+
 	test("emits one durable archive request until the archive settles", () => {
 		const first = decideChat(initialChatState, created);
 		if (Result.isFailure(first)) throw first.failure;

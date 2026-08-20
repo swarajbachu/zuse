@@ -97,6 +97,16 @@ export const makeSqlChatProjector = (
 				`;
 				return;
 			}
+			case "ChatArchiveCheckpointRecorded": {
+				const recordedAt = new Date(event.recordedAt).toISOString();
+				yield* sql`
+					UPDATE chats
+					SET archived_worktree_json = ${event.archivedWorktreeJson},
+						updated_at = ${recordedAt}
+					WHERE id = ${record.streamId} AND archived_at IS NOT NULL
+				`;
+				return;
+			}
 			case "ChatUnarchived": {
 				const unarchivedAt = new Date(event.unarchivedAt).toISOString();
 				yield* sql`

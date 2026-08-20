@@ -7,6 +7,7 @@ import {
 import { safeModelId } from "@zuse/analytics";
 import {
 	AgentSessionStartError,
+	ChatArchiveWorktreeError,
 	type ChatCreationOperation,
 	ChatId,
 	ComposerInput,
@@ -928,7 +929,24 @@ const ChatArchive = MemoizeRpcs.toLayerHandler(
 		Effect.gen(function* () {
 			const svc = yield* ChatService;
 			const analytics = yield* AnalyticsService;
-			const result = yield* svc.archiveChat(chatId, force ?? false);
+			const result = yield* svc.archiveChat(chatId, force ?? false).pipe(
+				Effect.catchTags({
+					ChatArchiveScriptError: (error) =>
+						Effect.fail(
+							new ChatArchiveWorktreeError({
+								chatId,
+								reason: error.output || "Archive cleanup script failed.",
+							}),
+						),
+					ChatArchiveTimeoutError: (error) =>
+						Effect.fail(
+							new ChatArchiveWorktreeError({
+								chatId,
+								reason: error.output || "Archive cleanup script timed out.",
+							}),
+						),
+				}),
+			);
 			yield* analytics.capture("chat archived", { outcome: "completed" });
 			return result;
 		}),

@@ -15,6 +15,7 @@ import {
 	RuntimeMode,
 	Session,
 	SessionId,
+	WorktreeArchiveSnapshot,
 	type WorktreeId,
 } from "@zuse/contracts";
 import type { MessageReadRecord } from "@zuse/domain/projectors/read-model";
@@ -66,35 +67,9 @@ export interface MessageRow {
 	readonly created_at: string;
 }
 
-export interface ArchivedWorktreeSnapshot {
-	readonly id: string;
-	readonly projectId: string;
-	readonly path: string;
-	readonly name: string;
-	readonly branch: string;
-	readonly baseBranch: string;
-	readonly createdAt: string;
-	readonly archiveCommit?: string;
-	readonly checkpointCreated?: boolean;
-	readonly archiveRef?: string | null;
-	readonly archivedContextPath?: string | null;
-}
-
-const ArchivedWorktreeSnapshotSchema = Schema.Struct({
-	id: Schema.String,
-	projectId: Schema.String,
-	path: Schema.String,
-	name: Schema.String,
-	branch: Schema.String,
-	baseBranch: Schema.String,
-	createdAt: Schema.String,
-	archiveCommit: Schema.optional(Schema.String),
-	checkpointCreated: Schema.optional(Schema.Boolean),
-	archiveRef: Schema.optional(Schema.NullOr(Schema.String)),
-	archivedContextPath: Schema.optional(Schema.NullOr(Schema.String)),
-});
+export type ArchivedWorktreeSnapshot = typeof WorktreeArchiveSnapshot.Type;
 const decodeArchivedWorktreeSnapshot = Schema.decodeUnknownOption(
-	Schema.fromJsonString(ArchivedWorktreeSnapshotSchema),
+	Schema.fromJsonString(WorktreeArchiveSnapshot),
 );
 const decodeAgents = Schema.decodeUnknownOption(
 	Schema.fromJsonString(Schema.Record(Schema.String, AgentDefinition)),

@@ -53,7 +53,6 @@ const makeRuntime = (root: string) => {
 		get: () => Effect.succeed(null),
 		renameBranch: () => Effect.die("not used"),
 		archive: () => Effect.die("not used"),
-		finishArchiveRemoval: () => Effect.die("not used"),
 		remove: () => Effect.die("not used"),
 		rerunSetup: () => Effect.die("not used"),
 		setupStream: () => Stream.die("not used"),

@@ -1401,6 +1401,21 @@ export const updateOptimisticSessionQueue = (
 export const restartSessionTimeline = (ref: SessionRef): boolean =>
 	rendererClientBus.restart(sessionTimelineResourceKey(ref));
 
+/**
+ * Repairs the creation race where an optimistic timeline exists before the
+ * durable session, but the creation acknowledgement tries to restart it before
+ * ChatView has retained a live driver. Calling this from the mounted consumer
+ * guarantees the resource has an owner; a real snapshot cursor makes the
+ * operation a no-op on ordinary chat mounts.
+ */
+export const restartProvisionalSessionTimeline = (
+	ref: SessionRef,
+	view: ResourceView<SessionTimelineProjection>,
+): boolean => {
+	if (view.data === null || view.cursor !== null) return false;
+	return restartSessionTimeline(ref);
+};
+
 export const retainSessionTimeline = (
 	ref: SessionRef,
 	activation: ResourceActivation,

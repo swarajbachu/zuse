@@ -169,7 +169,6 @@ type SessionsState = {
 	) => Promise<{ readonly ok: true } | { readonly ok: false; reason: string }>;
 	readonly refreshOne: (sessionId: SessionId) => Promise<void>;
 	readonly archive: (sessionId: SessionId) => Promise<void>;
-	readonly unarchive: (sessionId: SessionId) => Promise<void>;
 	readonly remove: (sessionId: SessionId) => Promise<void>;
 	readonly resume: (
 		sessionId: SessionId,
@@ -772,21 +771,6 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					selectedSessionByProject,
 				};
 			});
-		} catch (err) {
-			set({ error: formatError(err) });
-		}
-	},
-	unarchive: async (sessionId) => {
-		set({ error: null });
-		try {
-			const commandId = nextCommandId("session-unarchive");
-			await dispatchTimelineCommand(
-				sessionId,
-				"session.unarchive",
-				commandId,
-				{ sessionId },
-				"never",
-			);
 		} catch (err) {
 			set({ error: formatError(err) });
 		}

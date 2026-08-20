@@ -238,12 +238,14 @@ export const makeConversationFixtureRuntime = (
 				archiveRef: null,
 				archivedContextPath: null,
 				branch: "fixture",
+				detachedHead: false,
+				branchProvenance: "manual" as const,
+				pokemonNumber: null,
 			};
 			return recordCheckpoint === undefined
 				? Effect.succeed(outcome)
 				: recordCheckpoint(outcome).pipe(Effect.as(outcome));
 		},
-		finishArchiveRemoval: () => Effect.void,
 		remove: () => Effect.void,
 		rerunSetup: () => Effect.die("not used"),
 		setupStream: () => Stream.die("not used"),

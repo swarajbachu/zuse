@@ -115,9 +115,10 @@ export const makeSqlSessionProjector = (
 				const updatedAt = new Date(event.updatedAt).toISOString();
 				yield* sql`
 					UPDATE sessions
-					SET worktree_id = ${event.worktreeId}, cursor = NULL,
-						provider_event_cursor = NULL,
-						resume_strategy = 'none', updated_at = ${updatedAt}
+					SET cursor = CASE WHEN worktree_id IS ${event.worktreeId} THEN cursor ELSE NULL END,
+						provider_event_cursor = CASE WHEN worktree_id IS ${event.worktreeId} THEN provider_event_cursor ELSE NULL END,
+						resume_strategy = CASE WHEN worktree_id IS ${event.worktreeId} THEN resume_strategy ELSE 'none' END,
+						worktree_id = ${event.worktreeId}, updated_at = ${updatedAt}
 					WHERE id = ${record.streamId}
 				`;
 				return;

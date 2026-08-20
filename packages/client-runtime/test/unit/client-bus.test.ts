@@ -162,6 +162,39 @@ class MemoryPersistence implements ClientPersistence {
 }
 
 describe("ClientBus", () => {
+	it("fingerprints binary payloads by bytes instead of enumerable indices", () => {
+		const binary = {
+			kind: "attachments.upload",
+			commandId: CommandId.make("command-binary"),
+			environmentId,
+			resource: timelineKey,
+			payload: { bytes: new Uint8Array([1, 2, 3]) },
+			retry: "never" as const,
+			createdAt: 1,
+		};
+
+		expect(
+			commandFingerprint({
+				...binary,
+				payload: { bytes: new Uint8Array([1, 2, 3]) },
+			}),
+		).toBe(commandFingerprint(binary));
+		expect(
+			commandFingerprint({
+				...binary,
+				payload: { bytes: new Uint8Array([1, 2, 4]) },
+			}),
+		).not.toBe(commandFingerprint(binary));
+		// Uint8Array's enumerable shape is { "0": 1, ... }. It must retain a
+		// distinct identity from a real application object with those keys.
+		expect(
+			commandFingerprint({
+				...binary,
+				payload: { bytes: { 0: 1, 1: 2, 2: 3 } },
+			}),
+		).not.toBe(commandFingerprint(binary));
+	});
+
 	it("shares one environment resolution and one keyed driver across retainers", async () => {
 		let resolves = 0;
 		let starts = 0;

@@ -1,6 +1,7 @@
 import type {
 	FolderId,
 	Worktree,
+	WorktreeArchiveSnapshot,
 	WorktreeBranchRenameError,
 	WorktreeCheckpointError,
 	WorktreeCreateError,
@@ -8,24 +9,13 @@ import type {
 	WorktreeId,
 	WorktreeNotFoundError,
 	WorktreeRemoveError,
+	WorktreeRestoreError,
 	WorktreeSetupError,
 	WorktreeSetupEvent,
 } from "@zuse/contracts";
 import { Context, type Effect, type Stream } from "effect";
 
-export interface WorktreeRestoreSnapshot {
-	readonly id: WorktreeId;
-	readonly projectId: FolderId;
-	readonly path: string;
-	readonly name: string;
-	readonly branch: string;
-	readonly baseBranch: string;
-	readonly createdAt: Date;
-	readonly archiveCommit?: string;
-	readonly checkpointCreated?: boolean;
-	readonly archiveRef?: string | null;
-	readonly archivedContextPath?: string | null;
-}
+export type WorktreeRestoreSnapshot = WorktreeArchiveSnapshot;
 
 export interface WorktreeArchiveOutcome {
 	readonly archiveCommit: string;
@@ -33,6 +23,18 @@ export interface WorktreeArchiveOutcome {
 	readonly archiveRef: string | null;
 	readonly archivedContextPath: string | null;
 	readonly branch: string;
+	readonly detachedHead: boolean;
+	readonly branchProvenance: "pending" | "automatic" | "manual";
+	readonly pokemonNumber: number | null;
+}
+
+export interface WorktreeRestoreOutcome {
+	readonly worktree: Worktree;
+	readonly checkpoint:
+		| "applied"
+		| "none"
+		| "branch-advanced"
+		| "already-present";
 }
 
 export interface WorktreeServiceShape {
@@ -63,9 +65,6 @@ export interface WorktreeServiceShape {
 		WorktreeArchiveOutcome,
 		WorktreeNotFoundError | WorktreeCheckpointError | WorktreeRemoveError
 	>;
-	readonly finishArchiveRemoval: (
-		worktreeId: WorktreeId,
-	) => Effect.Effect<void, WorktreeRemoveError>;
 	readonly remove: (
 		worktreeId: WorktreeId,
 	) => Effect.Effect<
@@ -96,7 +95,7 @@ export interface WorktreeServiceShape {
 	>;
 	readonly restore: (
 		snapshot: WorktreeRestoreSnapshot,
-	) => Effect.Effect<Worktree, WorktreeRemoveError>;
+	) => Effect.Effect<WorktreeRestoreOutcome, WorktreeRestoreError>;
 }
 
 export class WorktreeService extends Context.Service<

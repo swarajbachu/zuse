@@ -77,6 +77,29 @@ export class WorktreeRemoveError extends Schema.TaggedErrorClass<WorktreeRemoveE
 	{ worktreeId: WorktreeId, reason: Schema.String },
 ) {}
 
+export class WorktreeRestoreError extends Schema.TaggedErrorClass<WorktreeRestoreError>()(
+	"WorktreeRestoreError",
+	{ worktreeId: WorktreeId, reason: Schema.String },
+) {}
+
+export const WorktreeArchiveSnapshot = Schema.Struct({
+	id: WorktreeId,
+	projectId: FolderId,
+	path: Schema.String,
+	name: Schema.String,
+	branch: Schema.String,
+	baseBranch: Schema.String,
+	createdAt: Schema.DateFromString,
+	archiveCommit: Schema.optional(Schema.String),
+	checkpointCreated: Schema.optional(Schema.Boolean),
+	archiveRef: Schema.optional(Schema.NullOr(Schema.String)),
+	archivedContextPath: Schema.optional(Schema.NullOr(Schema.String)),
+	detachedHead: Schema.optional(Schema.Boolean),
+	branchProvenance: Schema.optional(NameProvenanceField),
+	pokemonNumber: Schema.optional(Schema.NullOr(Schema.Number)),
+});
+export type WorktreeArchiveSnapshot = typeof WorktreeArchiveSnapshot.Type;
+
 export class WorktreeCheckpointError extends Schema.TaggedErrorClass<WorktreeCheckpointError>()(
 	"WorktreeCheckpointError",
 	{ worktreeId: WorktreeId, reason: Schema.String },

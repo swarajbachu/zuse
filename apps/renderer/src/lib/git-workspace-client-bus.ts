@@ -96,24 +96,37 @@ const prDescription = (info: GitPrInfo): string => {
 	return info.branch ?? "";
 };
 
+const notifiedPrTerminalStates = new Set<string>();
+
+const prTerminalStateKey = (ref: ExecutionRef, info: GitPrInfo): string => {
+	const identity =
+		info.url ??
+		`${ref.environmentId}:${ref.folderId}:${info.number ?? "unknown"}:${info.branch ?? "unknown"}:${info.baseBranch ?? "unknown"}`;
+	return `${identity}:${info.state}`;
+};
+
 const notifyPrStateTransition = (
+	ref: ExecutionRef,
 	previous: GitPrInfo | null | undefined,
 	next: GitPrInfo | null,
 ): void => {
 	if (
 		previous?.state !== "open" ||
 		next === null ||
-		next.state === previous.state
+		(next.state !== "merged" && next.state !== "closed")
 	) {
 		return;
 	}
+	const transitionKey = prTerminalStateKey(ref, next);
+	if (notifiedPrTerminalStates.has(transitionKey)) return;
+	notifiedPrTerminalStates.add(transitionKey);
 	if (next.state === "merged") {
 		toastManager.add({
 			type: "success",
 			title: `${prLabel(next)} merged`,
 			description: prDescription(next),
 		});
-	} else if (next.state === "closed") {
+	} else {
 		toastManager.add({
 			type: "info",
 			title: `${prLabel(next)} closed`,
@@ -304,7 +317,7 @@ const makeWorkspaceDriver = (): ResourceDriver<
 				}
 			}
 			const nextPr = pr.ok ? pr.value : (previous?.pr ?? null);
-			notifyPrStateTransition(previous?.pr, nextPr);
+			notifyPrStateTransition(ref, previous?.pr, nextPr);
 			return {
 				status: noRepository
 					? null
@@ -593,4 +606,5 @@ export const resetGitWorkspaceClientBusForTest = (): void => {
 	workspaceDriverStarts = 0;
 	workspaceRefreshers.clear();
 	patchRequests.clear();
+	notifiedPrTerminalStates.clear();
 };

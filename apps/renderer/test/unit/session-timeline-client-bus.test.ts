@@ -30,7 +30,7 @@ import {
 	registerSessionTimelineOlderPageSynchronizer,
 	rehydrateRendererCommandPayload,
 	resetSessionTimelineClientBusForTest,
-	restartSessionTimeline,
+	restartProvisionalSessionTimeline,
 	retainSessionTimeline,
 	sessionTimelineResourceKey,
 	setSessionTimelineRpcClientForTest,
@@ -287,7 +287,13 @@ describe("renderer session timeline ClientBus adapter", () => {
 		expect(getRendererClientBus().connection(environmentId).phase).toBe(
 			"connected",
 		);
-		expect(restartSessionTimeline(ref)).toBe(true);
+		// New-chat creation installs its optimistic queue before ChatView owns the
+		// stream. Reproduce that cursorless runtime projection here.
+		expect(updateOptimisticSessionQueue(ref, (queue) => queue)).toBe(true);
+		const provisional = getRendererClientBus().snapshot(retained.key);
+		expect(provisional.cursor).toBeNull();
+		expect(provisional.data).not.toBeNull();
+		expect(restartProvisionalSessionTimeline(ref, provisional)).toBe(true);
 		await waitUntil(() => streamStarts === 2);
 		Queue.offerUnsafe(frames, {
 			kind: "snapshot",
@@ -312,6 +318,12 @@ describe("renderer session timeline ClientBus adapter", () => {
 		await waitUntil(
 			() => getRendererClientBus().snapshot(retained.key).sync === "live",
 		);
+		expect(
+			restartProvisionalSessionTimeline(
+				ref,
+				getRendererClientBus().snapshot(retained.key),
+			),
+		).toBe(false);
 		retained.lease.release();
 	});
 
