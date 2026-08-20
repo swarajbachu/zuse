@@ -1,10 +1,18 @@
 import Link from "next/link";
+import { getSEO } from "@/lib/seo";
+
+export const metadata = getSEO({
+	title: "Privacy Policy",
+	description:
+		"How Zuse handles local project data, product analytics, identity, and retention.",
+	path: "/privacy",
+});
 
 export default function PrivacyPage() {
 	return (
 		<main className="mx-auto min-h-screen max-w-3xl px-6 py-20 text-foreground">
 			<Link href="/" className="text-sm text-primary">
-				← Back to Zuse (Beta)
+				← Back to Zuse
 			</Link>
 			<h1 className="mt-8 text-4xl font-semibold">Privacy policy</h1>
 			<p className="mt-3 text-sm text-muted-foreground">
@@ -18,7 +26,7 @@ export default function PrivacyPage() {
 					</h2>
 					<p className="mt-2">
 						Chats, project data, and settings remain on your devices. Model
-						requests go to the provider you choose. Zuse (Beta) does not upload
+						requests go to the provider you choose. Zuse does not upload
 						prompts, responses, reasoning, source code, commands, tool contents,
 						file or repository names, paths, URLs, branches, titles, diagnostics
 						contents, account details, credentials, tokens, or error stacks for

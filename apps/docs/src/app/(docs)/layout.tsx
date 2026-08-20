@@ -5,15 +5,17 @@ import { CleanSearchTrigger } from "@/components/clean-search-trigger";
 import { baseOptions } from "@/lib/layout.shared";
 import { documentationTree } from "@/lib/source";
 
-export default function DocumentationLayout({
+export default async function DocumentationLayout({
 	children,
 }: {
 	children: ReactNode;
 }) {
+	const options = await baseOptions();
+
 	return (
 		<DocsLayout
 			tree={documentationTree}
-			{...baseOptions()}
+			{...options}
 			tabMode="auto"
 			tabs={{ transform: (option) => ({ ...option, icon: undefined }) }}
 			sidebar={{ collapsible: true }}

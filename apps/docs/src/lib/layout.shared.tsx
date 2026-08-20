@@ -1,11 +1,14 @@
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
 import { ArrowUpRight, Download } from "lucide-react";
 import Image from "next/image";
+import { getGitHubStars } from "@/lib/github";
 
 export const SITE_URL = "https://docs.zuse.sh";
 export const GITHUB_URL = "https://github.com/swarajbachu/zuse";
 
-export function baseOptions(): BaseLayoutProps {
+export async function baseOptions(): Promise<BaseLayoutProps> {
+	const githubStars = await getGitHubStars();
+
 	return {
 		nav: {
 			url: "/start",
@@ -40,12 +43,20 @@ export function baseOptions(): BaseLayoutProps {
 				icon: <Download />,
 			},
 			{
-				type: "icon",
-				label: "GitHub",
-				text: "GitHub",
+				type: "button",
+				text: (
+					<span key="github-stars" className="flex w-full items-center gap-2">
+						<span>Star on GitHub</span>
+						{githubStars === null ? null : (
+							<span className="ms-auto rounded-md border px-1.5 py-0.5 font-mono text-xs tabular-nums">
+								{githubStars.toLocaleString("en-US")}
+							</span>
+						)}
+					</span>
+				),
 				url: GITHUB_URL,
 				external: true,
-				icon: <GitHubIcon />,
+				icon: <GitHubIcon key="github-icon" />,
 			},
 		],
 	};
