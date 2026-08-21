@@ -541,10 +541,6 @@ describe("E2B sandbox provider", () => {
 		const http = makeHttp([
 			{ status: 200, body: detail },
 			{
-				status: 201,
-				body: { sandboxID: "sbx_1", envdAccessToken: "envd-secret" },
-			},
-			{
 				status: 200,
 				body: {
 					processes: [
@@ -560,7 +556,6 @@ describe("E2B sandbox provider", () => {
 				},
 			},
 			{ status: 200, body: {} },
-			{ status: 200, body: detail },
 			{
 				status: 200,
 				rawBody: connectJsonResponse({ event: { start: { pid: 42 } } }),
@@ -583,8 +578,8 @@ describe("E2B sandbox provider", () => {
 			),
 		);
 
-		expect(http.calls[3]?.url).toContain("/process.Process/SendSignal");
-		expect(decodeConnectJsonBody(http.calls[5]?.init?.body)).toMatchObject({
+		expect(http.calls[2]?.url).toContain("/process.Process/SendSignal");
+		expect(decodeConnectJsonBody(http.calls[3]?.init?.body)).toMatchObject({
 			process: {
 				cmd: "/bin/bash",
 				args: [
@@ -696,6 +691,57 @@ describe("E2B sandbox provider", () => {
 			autoPause: true,
 		});
 		expect(http.calls[1]?.url).toBe("https://sandbox.test/sandboxes/sbx_1");
+	});
+
+	test("refreshes the envd control token after a memory pause", async () => {
+		const http = makeHttp([
+			{
+				status: 201,
+				body: {
+					sandboxID: "sbx_1",
+					state: "running",
+					domain: "custom.e2b.app",
+					envdAccessToken: "before-pause",
+				},
+			},
+			{ status: 204 },
+			{ status: 201, body: { sandboxID: "sbx_1" } },
+			{
+				status: 200,
+				body: {
+					sandboxID: "sbx_1",
+					state: "running",
+					domain: "custom.e2b.app",
+					envdAccessToken: "after-resume",
+				},
+			},
+			{
+				status: 200,
+				rawBody: connectJsonResponse({ event: { start: { pid: 42 } } }),
+			},
+		]);
+		const adapter = makeAdapter(http.client);
+		const created = await Effect.runPromise(
+			adapter.create({
+				sandboxId: "sandbox_1",
+				providerLabel: "zuse-sandbox-1",
+				timeoutSeconds: 300,
+				env: {},
+				network: { kind: "open" },
+				onTimeout: "pause",
+			}),
+		);
+		await Effect.runPromise(adapter.pause(created.providerSandboxId));
+		await Effect.runPromise(
+			adapter.resume(created.providerSandboxId, 300, "pause"),
+		);
+		await Effect.runPromise(
+			adapter.startProcess(created.providerSandboxId, { command: "true" }),
+		);
+
+		expect(http.calls[4]?.init?.headers).toMatchObject({
+			"X-Access-Token": "after-resume",
+		});
 	});
 
 	test("extends the sandbox timeout", async () => {

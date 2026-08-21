@@ -131,6 +131,7 @@ import {
 	setSessionGoal,
 	useSessionGoalResource,
 } from "../lib/session-goal-client-bus.ts";
+import { hasPendingTurnStart } from "../lib/session-runtime-state.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { useActiveWorkspaceRoot } from "../store/active-workspace.ts";
 import {
@@ -283,6 +284,7 @@ export function ChatComposer({
 					connection: cloudShell.connection,
 					runtime: runtimeState,
 				});
+	const turnStartPending = hasPendingTurnStart(timeline.view.pendingCommands);
 	const interrupting =
 		cloudActivity === null
 			? runtimeState === "stopping"
@@ -291,8 +293,9 @@ export function ChatComposer({
 		cloudActivity === null
 			? runtimeState === "running" ||
 				runtimeState === "stopping" ||
-				(isCloudSession && runtimeState === "starting")
-			: cloudChatShowsWorking(cloudActivity);
+				(isCloudSession && runtimeState === "starting") ||
+				turnStartPending
+			: cloudChatShowsWorking(cloudActivity) || turnStartPending;
 	const showActiveTimer =
 		cloudActivity === null
 			? inFlight

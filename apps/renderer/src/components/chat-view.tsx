@@ -48,6 +48,7 @@ import {
 	sessionCommandErrorKey,
 	useSessionCommandErrors,
 } from "../lib/session-actions.ts";
+import { hasPendingTurnStart } from "../lib/session-runtime-state.ts";
 import { timelineReadingPositionStore } from "../lib/session-timeline-cache.ts";
 import { restartProvisionalSessionTimeline } from "../lib/session-timeline-client-bus.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
@@ -168,12 +169,14 @@ export function ChatView({
 					connection: cloudShell.connection,
 					runtime: runtimeState,
 				});
+	const turnStartPending = hasPendingTurnStart(timeline.view.pendingCommands);
 	const inFlight =
 		cloudActivity === null
 			? runtimeState === "starting" ||
 				runtimeState === "running" ||
-				runtimeState === "stopping"
-			: cloudChatShowsWorking(cloudActivity);
+				runtimeState === "stopping" ||
+				turnStartPending
+			: cloudChatShowsWorking(cloudActivity) || turnStartPending;
 	const permissionRequests =
 		useEnvironmentPermissions().data?.requestsById ?? {};
 	const awaitingPermissionPlanApproval = (() => {

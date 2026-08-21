@@ -708,9 +708,16 @@ export const makeE2bSandboxProvider = (
 				{ memory: true },
 				// 409 means the sandbox is already paused.
 				[409],
+			).pipe(
+				Effect.tap(() =>
+					Effect.sync(() => controlConnections.delete(providerSandboxId)),
+				),
 			),
 		resume: Effect.fn("E2bSandboxProvider.resume")(
 			function* (providerSandboxId, timeoutSeconds, onTimeout) {
+				// envd access tokens are scoped to one running allocation. A memory
+				// pause preserves the filesystem, not the old control credential.
+				controlConnections.delete(providerSandboxId);
 				yield* requestVoid(
 					"POST",
 					`/sandboxes/${encodeURIComponent(providerSandboxId)}/connect`,
@@ -719,11 +726,8 @@ export const makeE2bSandboxProvider = (
 						autoPause: onTimeout === "pause",
 					},
 				);
-				const sandbox = yield* inspect(providerSandboxId);
-				if (sandbox === null) {
-					return yield* providerError("not-found");
-				}
-				return sandbox;
+				const detail = yield* sandboxDetail(providerSandboxId);
+				return toProviderSandbox(detail);
 			},
 		),
 		extendTimeout: (providerSandboxId, timeoutSeconds) =>

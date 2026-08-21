@@ -1,3 +1,4 @@
+import type { PendingCommand } from "@zuse/client-runtime/resource-state";
 import type { SessionStatus, SessionTimelineProjection } from "@zuse/contracts";
 
 export type SessionRuntimeState =
@@ -32,6 +33,18 @@ export const isSessionRuntimeBusy = (state: SessionRuntimeState): boolean =>
 
 export const isSessionTurnActive = (state: SessionRuntimeState): boolean =>
 	state === "running" || state === "stopping";
+
+/** Optimistic bridge between composer submission and the first durable turn. */
+export const hasPendingTurnStart = (
+	pendingCommands: readonly PendingCommand[],
+): boolean =>
+	pendingCommands.some(
+		(command) =>
+			command.kind === "messages.send" ||
+			command.kind === "messages.queue.add" ||
+			command.kind === "messages.queue.runNext" ||
+			command.kind === "messages.queue.resume",
+	);
 
 /** Canonical lifecycle selector shared by every timeline-backed surface. */
 export const runtimeStateFromTimeline = (

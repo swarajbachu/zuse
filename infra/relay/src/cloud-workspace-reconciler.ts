@@ -239,11 +239,13 @@ const WORKSPACE_RUNTIME_PROCESS = {
 		"/usr/local/bin/zuse serve",
 	],
 } as const;
-const workspaceRuntimeProcessSelector = (workspace: CloudWorkspaceRecord) => ({
+export const workspaceRuntimeProcessSelector = () => ({
 	...WORKSPACE_RUNTIME_PROCESS,
-	...(workspace.requestConfig.runtimeProcessManaged === true
-		? {}
-		: { legacyCleanup: "matching-command" as const }),
+	// E2B preserves processes across a memory pause but does not preserve their
+	// envd process tags. Always scan the narrow legacy markers before replacement
+	// so a live untagged runtime cannot retain the control port and make resume
+	// fail with EADDRINUSE.
+	legacyCleanup: "matching-command" as const,
 });
 export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then installed_wire=$(node -e 'try { process.stdout.write(String(require("/opt/zuse/current/runtime-metadata.json").wireProtocolVersion ?? "")) } catch {}'); if [ "$installed_wire" != "$ZUSE_RUNTIME_WIRE_PROTOCOL" ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >> "$log" 2>&1; fi; fi; if [ -f "$runtime" ]; then exec node "$runtime" serve >> "$log" 2>&1; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
@@ -1039,7 +1041,7 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 				provider.setNetwork(providerSandboxId, { kind: "open" }),
 				provider.replaceProcess(
 					providerSandboxId,
-					workspaceRuntimeProcessSelector(workspace),
+					workspaceRuntimeProcessSelector(),
 					{
 						command: "/bin/bash",
 						args: ["-lc", WORKSPACE_RUNTIME_RESUME_SCRIPT],

@@ -279,27 +279,56 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 							ready,
 						}),
 					);
-					yield* dispatchSessionCommandWithId(sessionId, commandId, {
-						_tag: "EnqueueTurn",
-						queueId: id,
-						inputJson,
-						position,
-						createdAt: now.getTime(),
-						ready,
-					});
-					const persisted = yield* sql<QueuedMessageRow>`
-        SELECT id, session_id, queue_order, input_json, created_at, updated_at, ready
-        FROM queued_messages
-        WHERE session_id = ${sessionId} AND id = ${id}
-        LIMIT 1
-      `.pipe(Effect.orDie);
-					const row = persisted[0];
-					if (row === undefined) {
-						return yield* Effect.die(
-							new Error(`queue id ${id} belongs to another session`),
-						);
-					}
-					const item = queuedMessageFromRow(row);
+					const item = yield* dispatchSessionCommandWithIdTransactionally(
+						sessionId,
+						commandId,
+						{
+							_tag: "EnqueueTurn",
+							queueId: id,
+							inputJson,
+							position,
+							createdAt: now.getTime(),
+							ready,
+						},
+						(receipt) =>
+							sql<QueuedMessageRow>`
+                SELECT id, session_id, queue_order, input_json, created_at, updated_at, ready
+                FROM queued_messages
+                WHERE id = ${id}
+                LIMIT 1
+              `.pipe(
+								Effect.flatMap((rows) => {
+									const row = rows[0];
+									if (row !== undefined && row.session_id !== sessionId) {
+										return Effect.die(
+											new Error(`queue id ${id} belongs to another session`),
+										);
+									}
+									if (row === undefined && receipt.eventIds.length > 0) {
+										return Effect.die(
+											new Error(`queue id ${id} was not projected`),
+										);
+									}
+									// An idempotent replay can arrive after the ready item was
+									// already claimed. The original command still succeeded, so
+									// return its convergent representation instead of a false error.
+									return Effect.succeed(
+										row === undefined
+											? QueuedMessage.make({
+													id,
+													sessionId,
+													input,
+													position,
+													createdAt: now,
+													updatedAt: now,
+													ready,
+												})
+											: queuedMessageFromRow(row),
+									);
+								}),
+								Effect.orDie,
+							),
+					);
 					if (item.ready && flush) {
 						yield* requestFlush(sessionId);
 					}

@@ -119,7 +119,13 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 				control["cloud.transcript.get"]({
 					workspaceId: summary.workspaceId,
 					sessionId: ref.sessionId,
-					cursor: current.cursor ?? undefined,
+					// A local IndexedDB entry is only a rendering accelerator. Relay's
+					// encrypted checkpoint is authoritative, so initial hydration requests
+					// the full checkpoint even when the cache claims the same cursor.
+					cursor:
+						current.origin === "cache"
+							? undefined
+							: (current.cursor ?? undefined),
 				}),
 			);
 			const checkpoint = result.checkpoint;

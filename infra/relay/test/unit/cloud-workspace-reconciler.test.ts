@@ -16,6 +16,7 @@ import {
 	sanitizeProjectBuildLog,
 	snapshotSanitizationFailures,
 	WORKSPACE_RUNTIME_RESUME_SCRIPT,
+	workspaceRuntimeProcessSelector,
 } from "../../src/cloud-workspace-reconciler.ts";
 import {
 	type CloudProjectBuildRecord,
@@ -147,6 +148,17 @@ describe("cloud workspace reconciler", () => {
 		expect(() =>
 			cloudRepositoryWorkspacePath("github.com/owner/../escape"),
 		).toThrow("Unsupported repository identity");
+	});
+
+	test("cleans untagged runtimes when replacing after a memory pause", () => {
+		expect(workspaceRuntimeProcessSelector()).toMatchObject({
+			tag: "zuse-runtime",
+			legacyCleanup: "matching-command",
+			legacyCommandMarkers: expect.arrayContaining([
+				"zuse-workspace-bootstrap",
+				"/usr/local/bin/zuse serve",
+			]),
+		});
 	});
 	test("updates only an incompatible baked runtime when resuming", () => {
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
