@@ -123,7 +123,7 @@ describe("external thread discovery", () => {
 					type: "session_meta",
 					payload: {
 						id: threadId,
-						metadata: `embedded \\"cwd\\":\"/wrong\" ${"x".repeat(20_000)}`,
+						metadata: `embedded \\"cwd\\":"/wrong" ${"x".repeat(20_000)}`,
 						cwd: "/Users/dev/Developer/correct",
 					},
 				})}\n`,
