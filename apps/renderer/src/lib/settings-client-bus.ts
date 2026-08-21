@@ -129,6 +129,16 @@ const seedProviderEnabled = (): Record<ProviderId, boolean> =>
 		boolean
 	>;
 
+const copyCustomModelIds = (
+	input?: Partial<Record<ProviderId, ReadonlyArray<string>>>,
+): Record<ProviderId, ReadonlyArray<string>> => {
+	const result = {} as Record<ProviderId, ReadonlyArray<string>>;
+	for (const provider of PROVIDERS) {
+		result[provider] = [...(input?.[provider] ?? [])];
+	}
+	return result;
+};
+
 const mergeModelEnabled = (
 	input: Partial<Record<ProviderId, Partial<Record<string, boolean>>>>,
 ): ModelEnabledByProvider => {
@@ -153,9 +163,7 @@ const FALLBACK: SettingsSlice = {
 	onboardingCompleted: false,
 	providerEnabled: seedProviderEnabled(),
 	modelEnabledByProvider: defaultModelEnabledByProvider(),
-	customModelIdsByProvider: Object.fromEntries(
-		PROVIDERS.map((provider) => [provider, []]),
-	) as Record<ProviderId, ReadonlyArray<string>>,
+	customModelIdsByProvider: copyCustomModelIds(),
 	opencodeProviderVisible: {},
 	opencodeModelVisibleByProvider: {},
 	opencodeCustomProviders: [],
@@ -183,12 +191,7 @@ const fromFile = (file: SettingsFile): SettingsSlice => {
 		onboardingCompleted: file.onboardingCompleted,
 		providerEnabled: { ...seedProviderEnabled(), ...file.providerEnabled },
 		modelEnabledByProvider: mergeModelEnabled(file.modelEnabledByProvider),
-		customModelIdsByProvider: Object.fromEntries(
-			PROVIDERS.map((provider) => [
-				provider,
-				[...file.customModelIdsByProvider[provider]],
-			]),
-		) as Record<ProviderId, ReadonlyArray<string>>,
+		customModelIdsByProvider: copyCustomModelIds(file.customModelIdsByProvider),
 		opencodeProviderVisible: { ...file.opencodeProviderVisible },
 		opencodeModelVisibleByProvider: Object.fromEntries(
 			Object.entries(file.opencodeModelVisibleByProvider).map(
