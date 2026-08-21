@@ -6,9 +6,11 @@ import {
 	type ProviderUpdateEvent,
 } from "@zuse/contracts";
 import {
+	Add01Icon,
 	AlertCircleIcon,
 	CircleArrowUp01Icon,
 	Copy01Icon,
+	Delete02Icon,
 	LinkSquare01Icon,
 	Loading02Icon,
 	Tick01Icon,
@@ -20,6 +22,7 @@ import { BlurredEmail } from "~/components/blurred-email";
 import { OpencodeProviderManager } from "~/components/opencode-provider-manager";
 import { ProviderIcon } from "~/components/provider-icons";
 import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { Switch } from "~/components/ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -305,32 +308,46 @@ export function ProviderCard({
 }
 
 function ModelVisibilitySettings({ providerId }: { providerId: ProviderId }) {
+	const [customModelId, setCustomModelId] = useState("");
 	const modelEnabledByProvider = useSettingsStore(
 		(s) => s.modelEnabledByProvider,
 	);
+	const customModelIds = useSettingsStore(
+		(s) => s.customModelIdsByProvider[providerId],
+	);
 	const setModelEnabled = useSettingsStore((s) => s.setModelEnabled);
+	const addCustomModelId = useSettingsStore((s) => s.addCustomModelId);
+	const removeCustomModelId = useSettingsStore((s) => s.removeCustomModelId);
 	const models = MODELS_BY_PROVIDER[providerId] ?? [];
-	if (models.length <= 1) return null;
+	const normalizedCustomModelId = customModelId.trim();
+	const modelIdAlreadyExists =
+		models.some((model) => model.id === normalizedCustomModelId) ||
+		customModelIds.includes(normalizedCustomModelId);
+	const canAddCustomModel =
+		normalizedCustomModelId.length > 0 &&
+		normalizedCustomModelId.length <= 200 &&
+		!modelIdAlreadyExists;
 
 	const visibleCount = models.filter(
 		(m) => modelEnabledByProvider[providerId]?.[m.id] !== false,
 	).length;
 
 	return (
-		<div className="flex flex-col gap-1.5">
+		<div className="flex flex-col gap-2.5">
 			<div className="flex items-baseline justify-between">
 				<span className="text-[11px] font-medium text-muted-foreground">
 					Models
 				</span>
 				<span className="text-[10px] text-muted-foreground/70">
-					{visibleCount} shown
+					{visibleCount + customModelIds.length} shown
 				</span>
 			</div>
 			<div className="overflow-hidden rounded-md border border-border/50 bg-background/45">
 				{models.map((model) => {
 					const checked =
 						modelEnabledByProvider[providerId]?.[model.id] !== false;
-					const onlyVisible = checked && visibleCount <= 1;
+					const onlyVisible =
+						checked && visibleCount + customModelIds.length <= 1;
 					return (
 						<div
 							key={model.id}
@@ -339,11 +356,6 @@ function ModelVisibilitySettings({ providerId }: { providerId: ProviderId }) {
 							<span className="min-w-0 flex-1 truncate text-xs text-foreground">
 								{model.label}
 							</span>
-							{model.defaultVisible === false && (
-								<span className="rounded bg-muted/70 px-1.5 py-px text-[9px] font-medium text-muted-foreground uppercase tracking-wide">
-									older
-								</span>
-							)}
 							<Switch
 								checked={checked}
 								disabled={onlyVisible}
@@ -360,7 +372,52 @@ function ModelVisibilitySettings({ providerId }: { providerId: ProviderId }) {
 						</div>
 					);
 				})}
+				{customModelIds.map((modelId) => (
+					<div
+						key={modelId}
+						className="flex min-h-9 items-center gap-2 border-b border-border/40 px-2.5 py-1.5 last:border-b-0"
+					>
+						<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">
+							{modelId}
+						</span>
+						<span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide">
+							custom
+						</span>
+						<Button
+							size="icon-xs"
+							variant="ghost"
+							onClick={() => removeCustomModelId(providerId, modelId)}
+							aria-label={`Remove custom model ${modelId}`}
+						>
+							<HugeiconsIcon icon={Delete02Icon} className="size-3" />
+						</Button>
+					</div>
+				))}
 			</div>
+			<form
+				className="flex gap-2"
+				onSubmit={(event) => {
+					event.preventDefault();
+					if (!canAddCustomModel) return;
+					addCustomModelId(providerId, normalizedCustomModelId);
+					setCustomModelId("");
+				}}
+			>
+				<Input
+					value={customModelId}
+					onChange={(event) => setCustomModelId(event.target.value)}
+					placeholder="Enter a model ID"
+					aria-label={`Custom ${PROVIDER_LABEL[providerId]} model ID`}
+					aria-invalid={normalizedCustomModelId.length > 200 || undefined}
+				/>
+				<Button type="submit" size="default" disabled={!canAddCustomModel}>
+					<HugeiconsIcon icon={Add01Icon} className="size-3.5" />
+					Add
+				</Button>
+			</form>
+			<p className="text-[10px] leading-snug text-muted-foreground/70">
+				Custom IDs are passed directly to {PROVIDER_LABEL[providerId]}.
+			</p>
 		</div>
 	);
 }

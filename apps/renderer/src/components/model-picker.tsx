@@ -78,6 +78,19 @@ interface ModelPickerEntry {
 
 type Scope = ProviderId | "all";
 
+const RETIRED_KIRO_MODEL_IDS = new Set([
+	"claude-opus-4.8",
+	"claude-opus-4.7",
+	"claude-opus-4.6",
+	"claude-sonnet-4.6",
+	"claude-sonnet-4.5",
+	"claude-haiku-4.5",
+	"minimax-m2.5",
+	"glm-5",
+	"deepseek-3.2",
+	"qwen3-coder-next",
+]);
+
 type ModelPickerProps =
 	| {
 			mode: "session";
@@ -113,6 +126,9 @@ export function ModelPicker(props: ModelPickerProps) {
 	const providerEnabled = useSettingsStore((s) => s.providerEnabled);
 	const modelEnabledByProvider = useSettingsStore(
 		(s) => s.modelEnabledByProvider,
+	);
+	const customModelIdsByProvider = useSettingsStore(
+		(s) => s.customModelIdsByProvider,
 	);
 	const opencodeProviderVisible = useSettingsStore(
 		(s) => s.opencodeProviderVisible,
@@ -195,6 +211,21 @@ export function ModelPicker(props: ModelPickerProps) {
 				contextWindowLabel?: string;
 			}
 		> => {
+			const appendCustomModels = (
+				models: ReadonlyArray<
+					Pick<ModelOption, "id" | "label" | "badgeLabel"> & {
+						contextWindowLabel?: string;
+					}
+				>,
+			) => {
+				const existingIds = new Set(models.map((model) => model.id));
+				return [
+					...models,
+					...customModelIdsByProvider[pid]
+						.filter((modelId) => !existingIds.has(modelId))
+						.map((modelId) => ({ id: modelId, label: modelId })),
+				];
+			};
 			if (pid === "kiro" && kiroInventory !== null) {
 				// Live Kiro catalog from control-plane / CLI. Prefer it over the
 				// static seed so tier/region-gated models appear correctly.
@@ -203,29 +234,36 @@ export function ModelPicker(props: ModelPickerProps) {
 				const seedById = new Map(
 					(MODELS_BY_PROVIDER.kiro ?? []).map((m) => [m.id, m] as const),
 				);
-				return kiroInventory.models.map((m) => {
-					const seed = seedById.get(m.id);
-					const contextWindowLabel =
-						typeof m.contextWindow === "number" && m.contextWindow >= 1_000_000
-							? "1M"
-							: undefined;
-					// Live inventory owns the badge column: credit multipliers only.
-					// Do not fall back to seed "Experimental" — that mixed badge types
-					// (2.4× next to EXPERIMENTAL) when a model had a 1× / missing rate.
-					const badgeLabel =
-						m.rateMultiplier !== null && m.rateMultiplier !== 1
-							? `${m.rateMultiplier}×`
-							: undefined;
-					return {
-						id: m.id,
-						label: seed?.label ?? m.label,
-						...(badgeLabel !== undefined ? { badgeLabel } : {}),
-						...(contextWindowLabel !== undefined ? { contextWindowLabel } : {}),
-					};
-				});
+				return appendCustomModels(
+					kiroInventory.models
+						.filter((model) => !RETIRED_KIRO_MODEL_IDS.has(model.id))
+						.map((m) => {
+							const seed = seedById.get(m.id);
+							const contextWindowLabel =
+								typeof m.contextWindow === "number" &&
+								m.contextWindow >= 1_000_000
+									? "1M"
+									: undefined;
+							// Live inventory owns the badge column: credit multipliers only.
+							// Do not fall back to seed "Experimental" — that mixed badge types
+							// (2.4× next to EXPERIMENTAL) when a model had a 1× / missing rate.
+							const badgeLabel =
+								m.rateMultiplier !== null && m.rateMultiplier !== 1
+									? `${m.rateMultiplier}×`
+									: undefined;
+							return {
+								id: m.id,
+								label: seed?.label ?? m.label,
+								...(badgeLabel !== undefined ? { badgeLabel } : {}),
+								...(contextWindowLabel !== undefined
+									? { contextWindowLabel }
+									: {}),
+							};
+						}),
+				);
 			}
 			if (pid !== "opencode" || opencodeInventory === null) {
-				return MODELS_BY_PROVIDER[pid] ?? [];
+				return appendCustomModels(MODELS_BY_PROVIDER[pid] ?? []);
 			}
 			const seedById = new Map(
 				MODELS_BY_PROVIDER.opencode.map((m) => [m.id, m] as const),
@@ -254,6 +292,7 @@ export function ModelPicker(props: ModelPickerProps) {
 				);
 		},
 		[
+			customModelIdsByProvider,
 			kiroInventory,
 			opencodeInventory,
 			opencodeProviderVisible,

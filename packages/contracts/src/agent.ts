@@ -381,8 +381,7 @@ export const ProviderMessageCheckpoint = Schema.Struct({
   /** Final promotion is itself a strictly newer revision. */
   final: Schema.Boolean,
 });
-export type ProviderMessageCheckpoint =
-  typeof ProviderMessageCheckpoint.Type;
+export type ProviderMessageCheckpoint = typeof ProviderMessageCheckpoint.Type;
 
 const AssistantMessageEvent = Schema.TaggedStruct("AssistantMessage", {
   itemId: AgentItemId,
@@ -919,9 +918,14 @@ const gpt56ExtendedReasoningOptions = [
   { id: "ultra", label: "Ultra" },
 ] as const;
 
-const gpt56Model = (id: string, label: string): ModelOption => ({
+const gpt56Model = (
+	id: string,
+	label: string,
+	defaultModel = false,
+): ModelOption => ({
   id,
   label,
+	...(defaultModel ? { defaultModel: true } : {}),
   optionDescriptors: [
     reasoningSelectDescriptor("medium", gpt56ExtendedReasoningOptions),
   ],
@@ -1066,149 +1070,11 @@ export const MODELS_BY_PROVIDER: Record<
       supportsPlanMode: true,
       supportsWebSearch: "native",
     },
-    {
-      id: "claude-opus-4-8",
-      label: "Opus 4.8",
-      optionDescriptors: [
-        claudeEffortDescriptor({
-          options: [
-            { id: "low", label: "Low" },
-            { id: "medium", label: "Medium" },
-            { id: "high", label: "High" },
-            { id: "xhigh", label: "Extra High" },
-            { id: "max", label: "Max" },
-            { id: "ultracode", label: "Ultracode" },
-          ],
-          defaultId: "high",
-        }),
-        booleanDescriptor("fastMode", "Fast Mode"),
-        claudeContextWindowDescriptor(),
-      ],
-      supportsPlanMode: true,
-      supportsWebSearch: "native",
-    },
-    {
-      id: "claude-opus-4-7",
-      label: "Opus 4.7",
-      optionDescriptors: [
-        claudeEffortDescriptor({
-          options: [
-            { id: "low", label: "Low" },
-            { id: "medium", label: "Medium" },
-            { id: "high", label: "High" },
-            { id: "xhigh", label: "Extra High" },
-            { id: "max", label: "Max" },
-            { id: "ultracode", label: "Ultracode" },
-          ],
-          defaultId: "xhigh",
-        }),
-        booleanDescriptor("fastMode", "Fast Mode"),
-        claudeContextWindowDescriptor(),
-      ],
-      supportsPlanMode: true,
-      supportsWebSearch: "native",
-    },
-    {
-      id: "claude-opus-4-6",
-      label: "Opus 4.6",
-      optionDescriptors: [
-        claudeEffortDescriptor({
-          options: [
-            { id: "low", label: "Low" },
-            { id: "medium", label: "Medium" },
-            { id: "high", label: "High" },
-            { id: "max", label: "Max" },
-            { id: "ultracode", label: "Ultracode" },
-          ],
-          defaultId: "high",
-        }),
-        booleanDescriptor("fastMode", "Fast Mode"),
-        claudeContextWindowDescriptor(),
-      ],
-      supportsPlanMode: true,
-      supportsWebSearch: "native",
-    },
-    {
-      id: "claude-sonnet-4-6",
-      label: "Sonnet 4.6",
-      defaultVisible: false,
-      optionDescriptors: [
-        claudeEffortDescriptor({
-          options: [
-            { id: "low", label: "Low" },
-            { id: "medium", label: "Medium" },
-            { id: "high", label: "High" },
-            { id: "max", label: "Max" },
-            { id: "ultracode", label: "Ultracode" },
-          ],
-          defaultId: "high",
-        }),
-        claudeContextWindowDescriptor(),
-      ],
-      supportsPlanMode: true,
-      supportsWebSearch: "native",
-    },
-    {
-      id: "claude-haiku-4-5",
-      label: "Haiku 4.5",
-      optionDescriptors: [booleanDescriptor("thinking", "Thinking")],
-      supportsPlanMode: true,
-      supportsWebSearch: "native",
-    },
   ],
   codex: [
-    gpt56Model("gpt-5.6-sol", "GPT-5.6 Sol"),
+		gpt56Model("gpt-5.6-sol", "GPT-5.6 Sol", true),
     gpt56Model("gpt-5.6-terra", "GPT-5.6 Terra"),
     gpt56Model("gpt-5.6-luna", "GPT-5.6 Luna"),
-    {
-      id: "gpt-5.5",
-      label: "GPT-5.5",
-      defaultModel: true,
-      // Fast tier supported — see gpt-5.4 note above.
-      optionDescriptors: [
-        reasoningSelectDescriptor("medium", [extraHighReasoningOption]),
-        booleanDescriptor("fastMode", "Fast"),
-      ],
-      supportsPlanMode: true,
-      supportsWebSearch: "native",
-    },
-    {
-      id: "gpt-5.4",
-      label: "GPT-5.4",
-      // `fastMode` → `serviceTier: "fast"`. OpenAI only offers the fast tier on
-      // the latest models (GPT-5.4 / GPT-5.5); older Codex CLIs don't accept
-      // the field, so the toggle is additionally gated on the `fastMode`
-      // capability (CLI version) + the live model's `serviceTiers`.
-      optionDescriptors: [
-        reasoningSelectDescriptor("medium"),
-        booleanDescriptor("fastMode", "Fast"),
-      ],
-      supportsPlanMode: true,
-      supportsWebSearch: "native",
-    },
-    {
-      id: "gpt-5.4-mini",
-      label: "GPT-5.4 mini",
-      optionDescriptors: [reasoningSelectDescriptor("medium")],
-      supportsPlanMode: true,
-      supportsWebSearch: "native",
-    },
-    {
-      id: "gpt-5.3-codex",
-      label: "GPT-5.3 Codex",
-      defaultVisible: false,
-      optionDescriptors: [reasoningSelectDescriptor("medium")],
-      supportsPlanMode: true,
-      supportsWebSearch: "native",
-    },
-    {
-      id: "gpt-5.3-codex-spark",
-      label: "GPT-5.3 Codex Spark",
-      defaultVisible: false,
-      optionDescriptors: [reasoningSelectDescriptor("medium")],
-      supportsPlanMode: true,
-      supportsWebSearch: "native",
-    },
   ],
   // Seed list — Grok CLI's `-m` flag accepts any model id it knows, so a
   // custom slug typed by the user still works; this list is just what the
@@ -1231,34 +1097,8 @@ export const MODELS_BY_PROVIDER: Record<
       supportsWebSearch: "queryOnly",
     },
     {
-      id: "grok-4.5",
-      label: "Grok 4.5",
-      supportsPlanMode: true,
-      supportsWebSearch: "queryOnly",
-    },
-    {
       id: "grok-composer-2.5-fast",
       label: "Grok Composer 2.5 Fast",
-      supportsPlanMode: true,
-      supportsWebSearch: "queryOnly",
-    },
-    {
-      id: "grok-4",
-      label: "Grok 4",
-      defaultVisible: false,
-      supportsPlanMode: true,
-      supportsWebSearch: "queryOnly",
-    },
-    {
-      id: "grok-4-fast",
-      label: "Grok 4 Fast",
-      supportsPlanMode: true,
-      supportsWebSearch: "queryOnly",
-    },
-    {
-      id: "grok-code-fast-1",
-      label: "Grok Code Fast",
-      defaultVisible: false,
       supportsPlanMode: true,
       supportsWebSearch: "queryOnly",
     },
@@ -1278,20 +1118,6 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "gemini-3-flash-preview",
       label: "Gemini 3 Flash",
-      supportsPlanMode: true,
-      supportsWebSearch: "queryOnly",
-    },
-    {
-      id: "gemini-2.5-pro",
-      label: "Gemini 2.5 Pro",
-      defaultVisible: false,
-      supportsPlanMode: true,
-      supportsWebSearch: "queryOnly",
-    },
-    {
-      id: "gemini-2.5-flash",
-      label: "Gemini 2.5 Flash",
-      defaultVisible: false,
       supportsPlanMode: true,
       supportsWebSearch: "queryOnly",
     },
@@ -1321,12 +1147,6 @@ export const MODELS_BY_PROVIDER: Record<
       supportsPlanMode: true,
     },
     {
-      id: "claude-opus-4.8",
-      label: "Claude Opus 4.8",
-      optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-      supportsPlanMode: true,
-    },
-    {
       id: "gpt-5.6-sol",
       label: "GPT-5.6 Sol",
       badgeLabel: "Experimental",
@@ -1342,65 +1162,6 @@ export const MODELS_BY_PROVIDER: Record<
       id: "gpt-5.6-luna",
       label: "GPT-5.6 Luna",
       badgeLabel: "Experimental",
-      supportsPlanMode: true,
-    },
-    {
-      id: "claude-opus-4.7",
-      label: "Claude Opus 4.7",
-      defaultVisible: false,
-      optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-      supportsPlanMode: true,
-    },
-    {
-      id: "claude-opus-4.6",
-      label: "Claude Opus 4.6",
-      defaultVisible: false,
-      optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-      supportsPlanMode: true,
-    },
-    {
-      id: "claude-sonnet-4.6",
-      label: "Claude Sonnet 4.6",
-      defaultVisible: false,
-      optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-      supportsPlanMode: true,
-    },
-    {
-      id: "claude-sonnet-4.5",
-      label: "Claude Sonnet 4.5",
-      defaultVisible: false,
-      supportsPlanMode: true,
-    },
-    {
-      id: "claude-haiku-4.5",
-      label: "Claude Haiku 4.5",
-      defaultVisible: false,
-      supportsPlanMode: true,
-    },
-    {
-      id: "minimax-m2.5",
-      label: "MiniMax M2.5",
-      defaultVisible: false,
-      supportsPlanMode: true,
-    },
-    {
-      id: "glm-5",
-      label: "GLM-5",
-      defaultVisible: false,
-      supportsPlanMode: true,
-    },
-    {
-      id: "deepseek-3.2",
-      label: "DeepSeek 3.2",
-      badgeLabel: "Experimental",
-      defaultVisible: false,
-      supportsPlanMode: true,
-    },
-    {
-      id: "qwen3-coder-next",
-      label: "Qwen3 Coder Next",
-      badgeLabel: "Experimental",
-      defaultVisible: false,
       supportsPlanMode: true,
     },
   ],
@@ -1439,7 +1200,6 @@ export const MODELS_BY_PROVIDER: Record<
       supportsPlanMode: true,
     },
     { id: "grok-4.6", label: "Grok 4.6", supportsPlanMode: true },
-    { id: "grok-4.5", label: "Grok 4.5", supportsPlanMode: true },
   ],
   // OpenCode is a meta-provider: it spawns a local `opencode serve` and
   // forwards prompts to whichever underlying provider (anthropic, openai,

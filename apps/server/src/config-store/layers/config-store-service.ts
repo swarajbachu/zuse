@@ -76,6 +76,12 @@ const seedProviderEnabled = (): Record<ProviderId, boolean> => {
 
 const seedModelEnabledByProvider = defaultModelEnabledByProvider;
 
+const seedCustomModelIdsByProvider = (): Record<ProviderId, string[]> => {
+	const out = {} as Record<ProviderId, string[]>;
+	for (const id of PROVIDER_IDS) out[id] = [];
+	return out;
+};
+
 const freshSettings = (): SettingsFile =>
 	SettingsFile.make({
 		schemaVersion: 1,
@@ -92,6 +98,7 @@ const freshSettings = (): SettingsFile =>
 		completionSoundPreset: "chime",
 		providerEnabled: seedProviderEnabled(),
 		modelEnabledByProvider: seedModelEnabledByProvider(),
+		customModelIdsByProvider: seedCustomModelIdsByProvider(),
 		opencodeProviderVisible: {},
 		opencodeModelVisibleByProvider: {},
 		opencodeCustomProviders: [],
@@ -288,6 +295,34 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 		}
 	}
 
+	const customModelIdsByProvider = seedCustomModelIdsByProvider();
+	if (
+		typeof obj.customModelIdsByProvider === "object" &&
+		obj.customModelIdsByProvider !== null
+	) {
+		const byProvider = obj.customModelIdsByProvider as Record<string, unknown>;
+		for (const id of PROVIDER_IDS) {
+			const values = byProvider[id];
+			if (!Array.isArray(values)) continue;
+			const knownModelIds = new Set(
+				MODELS_BY_PROVIDER[id].map((model) => model.id),
+			);
+			customModelIdsByProvider[id] = [
+				...new Set(
+					values
+						.filter((value): value is string => typeof value === "string")
+						.map((value) => value.trim())
+						.filter(
+							(value) =>
+								value.length > 0 &&
+								value.length <= 200 &&
+								!knownModelIds.has(value),
+						),
+				),
+			].slice(0, 100);
+		}
+	}
+
 	// OpenCode provider-manager fields. Keyed by opencode sub-provider id
 	// (free-form strings), so unlike the maps above we don't restrict to a
 	// known key set — just validate value shapes and drop anything malformed.
@@ -448,6 +483,7 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 		completionSoundPreset,
 		providerEnabled,
 		modelEnabledByProvider,
+		customModelIdsByProvider,
 		opencodeProviderVisible,
 		opencodeModelVisibleByProvider,
 		opencodeCustomProviders,
@@ -724,6 +760,8 @@ export const ConfigStoreServiceLive = Layer.effect(
 					providerEnabled: patch.providerEnabled ?? cur.providerEnabled,
 					modelEnabledByProvider:
 						patch.modelEnabledByProvider ?? cur.modelEnabledByProvider,
+					customModelIdsByProvider:
+						patch.customModelIdsByProvider ?? cur.customModelIdsByProvider,
 					opencodeProviderVisible:
 						patch.opencodeProviderVisible ?? cur.opencodeProviderVisible,
 					opencodeModelVisibleByProvider:
@@ -861,6 +899,7 @@ export const ConfigStoreServiceLive = Layer.effect(
 						completionSoundPreset,
 						providerEnabled,
 						modelEnabledByProvider,
+						customModelIdsByProvider: cur.customModelIdsByProvider,
 						opencodeProviderVisible: cur.opencodeProviderVisible,
 						opencodeModelVisibleByProvider: cur.opencodeModelVisibleByProvider,
 						opencodeCustomProviders: cur.opencodeCustomProviders,
