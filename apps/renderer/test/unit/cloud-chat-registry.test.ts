@@ -160,6 +160,27 @@ describe("cloud chat catalog", () => {
 		).toBe("starting-agent");
 	});
 
+	it("bridges durable agent startup into the regular working row", () => {
+		const row = CloudChatSummary.make({
+			...summary({
+				workspaceId: "environment-a",
+				chatId: "chat-a",
+				sessionId: "session-a",
+				revision: 1,
+			}),
+			startupPhase: "starting-agent",
+			statusCode: "agent-starting",
+		});
+
+		expect(
+			deriveCloudChatActivity({
+				summary: row,
+				connection: "connected",
+				runtime: "idle",
+			}),
+		).toBe("starting-agent");
+	});
+
 	it("accepts newer runtime metadata within one lifecycle revision", () => {
 		const old = summary({
 			workspaceId: "environment-a",

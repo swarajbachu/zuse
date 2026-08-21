@@ -196,11 +196,13 @@ describe("environment shell ClientBus driver", () => {
 		const lease = bus.retain(key, { activation: "cache-only" });
 		await vi.waitFor(() => expect(bus.snapshot(key).origin).toBe("cache"));
 		lease.activate("connect");
-		await vi.waitFor(() => expect(bus.snapshot(key).connection).toBe("failed"));
+		await vi.waitFor(() =>
+			expect(bus.snapshot(key).connection).toBe("reconnecting"),
+		);
 		expect(bus.snapshot(key)).toMatchObject({
 			data: cached,
 			origin: "cache",
-			connection: "failed",
+			connection: "reconnecting",
 		});
 		lease.release();
 		await bus.dispose();

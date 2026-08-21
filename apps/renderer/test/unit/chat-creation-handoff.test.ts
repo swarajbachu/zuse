@@ -171,6 +171,7 @@ describe("chat creation handoff", () => {
 		expect(preparing).not.toContain("<details open");
 		expect(preparing).toContain("Preparing repository…");
 		expect(preparing).not.toContain("Fetching the latest Git changes");
-		expect(startingAgent.match(/Starting agent/g)).toHaveLength(2);
+		expect(startingAgent).toContain("Cloud workspace ready");
+		expect(startingAgent).not.toContain("Starting agent");
 	});
 });

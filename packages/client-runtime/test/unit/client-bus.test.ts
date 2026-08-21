@@ -441,11 +441,13 @@ describe("ClientBus", () => {
 
 		const lease = bus.retain(timelineKey, { activation: "wake" });
 		await waitUntil(() => bus.snapshot(timelineKey).data !== null);
-		await waitUntil(() => bus.connection(environmentId).phase === "failed");
+		await waitUntil(
+			() => bus.connection(environmentId).phase === "reconnecting",
+		);
 		expect(bus.snapshot(timelineKey)).toMatchObject({
 			data: { text: "offline transcript" },
 			origin: "cache",
-			connection: "failed",
+			connection: "reconnecting",
 		});
 
 		lease.release();

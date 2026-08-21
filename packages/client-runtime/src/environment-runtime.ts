@@ -181,13 +181,29 @@ export class EnvironmentRuntime<Client> {
 		if (this.disposed || expectedGeneration !== this.state.generation) {
 			return false;
 		}
+		// One physical socket backs several resource streams. Its close can be
+		// reported by each driver in the same generation; the first report already
+		// owns disposal and retry, so later reports must not overwrite the stable
+		// reconnecting state with a false terminal failure.
+		if (
+			this.current === null &&
+			this.retryCancel !== null &&
+			(fault.phase === "offline" || fault.phase === "failed")
+		) {
+			return true;
+		}
 		this.achieved = "cache-only";
 		this.desired = this.strongestRetainedActivation();
 		this.closeCurrent();
-		this.emit({ phase: fault.phase, error: fault.message });
-		if (fault.phase === "offline" || fault.phase === "failed") {
-			this.scheduleRetry();
-		}
+		const retrying =
+			fault.phase === "offline" || fault.phase === "failed"
+				? this.scheduleRetry(fault.phase)
+				: false;
+		this.emit({
+			phase:
+				fault.phase === "failed" && retrying ? "reconnecting" : fault.phase,
+			error: fault.phase === "failed" && retrying ? null : fault.message,
+		});
 		return true;
 	}
 
@@ -219,13 +235,11 @@ export class EnvironmentRuntime<Client> {
 			}
 			await this.disposeInFlight;
 			const requested = this.desired as NetworkActivation;
-			// Automatic retries after a failure stay quiet: flipping the surface
-			// back to a progress phase every backoff tick reads as an endless
-			// failed↔connecting loop. The state moves again on success or when
-			// the user explicitly retries (which resets the attempt counter).
+			// Automatic retries remain in one reconnecting state. The surface moves
+			// again only on success, terminal exhaustion, or an explicit retry.
 			const quietRetry =
 				this.retryAttempt > 0 &&
-				(this.state.phase === "failed" || this.state.phase === "offline");
+				(this.state.phase === "reconnecting" || this.state.phase === "offline");
 			if (!quietRetry) {
 				this.emit({
 					phase:
@@ -259,13 +273,21 @@ export class EnvironmentRuntime<Client> {
 			}
 			if (!outcome.ok) {
 				this.achieved = "cache-only";
-				this.emit({ phase: outcome.fault.phase, error: outcome.fault.message });
-				if (
-					outcome.fault.phase === "offline" ||
-					outcome.fault.phase === "failed"
-				) {
-					this.scheduleRetry();
-				} else {
+				const retrying =
+					outcome.fault.phase === "offline" || outcome.fault.phase === "failed"
+						? this.scheduleRetry(outcome.fault.phase)
+						: false;
+				this.emit({
+					phase:
+						outcome.fault.phase === "failed" && retrying
+							? "reconnecting"
+							: outcome.fault.phase,
+					error:
+						outcome.fault.phase === "failed" && retrying
+							? null
+							: outcome.fault.message,
+				});
+				if (!retrying) {
 					this.desired = "cache-only";
 				}
 				throw new Error(outcome.fault.message);
@@ -305,14 +327,17 @@ export class EnvironmentRuntime<Client> {
 		for (const listener of this.listeners) listener(this.state);
 	}
 
-	private scheduleRetry(): void {
+	private scheduleRetry(
+		faultPhase: EnvironmentFault["phase"] | ConnectionView["phase"] = this.state
+			.phase,
+	): boolean {
 		if (
 			this.disposed ||
 			this.desired === "cache-only" ||
 			this.desired === "sync" ||
 			this.retryCancel !== null
 		) {
-			return;
+			return false;
 		}
 		// A failure that survives the whole backoff ladder is not transient —
 		// keep the terminal failed state instead of retrying (and re-waking the
@@ -320,10 +345,10 @@ export class EnvironmentRuntime<Client> {
 		// platform online edge starts a fresh episode. Offline stays unbounded:
 		// it emits no oscillating phases and clears on the online edge anyway.
 		if (
-			this.state.phase === "failed" &&
+			faultPhase === "failed" &&
 			this.retryAttempt >= EnvironmentRuntime.RETRY_DELAYS_MS.length
 		) {
-			return;
+			return false;
 		}
 		const schedule =
 			this.options.schedule ??
@@ -351,6 +376,7 @@ export class EnvironmentRuntime<Client> {
 				return;
 			void this.reconcileActivation().catch(() => undefined);
 		});
+		return true;
 	}
 
 	private strongestRetainedActivation(): ResourceActivation {

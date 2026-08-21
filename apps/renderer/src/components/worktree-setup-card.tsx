@@ -138,15 +138,24 @@ export function WorktreeSetupCard({
 				hasWorktree,
 				setupDone,
 			}));
-	if (
-		cloudSummary !== null &&
-		!providerOutputStarted &&
-		cloudWorkspaceIsStarting(cloudSummary) &&
-		cloudSummary.state !== "paused" &&
-		cloudSummary.state !== "resuming" &&
-		!cloudSummary.statusCode.includes("resume")
-	)
-		return <CloudWorkspaceSetupCard summary={cloudSummary} />;
+	if (cloudSummary !== null) {
+		const resumeLifecycle =
+			cloudSummary.state === "paused" ||
+			cloudSummary.state === "resuming" ||
+			cloudSummary.statusCode.includes("resume");
+		if (
+			!providerOutputStarted &&
+			!resumeLifecycle &&
+			(cloudWorkspaceIsStarting(cloudSummary) ||
+				cloudSummary.startupPhase === "failed")
+		) {
+			return <CloudWorkspaceSetupCard summary={cloudSummary} />;
+		}
+		// Cloud setup ends when the repository is ready. Provider startup belongs
+		// to the normal transcript working row; the local worktree card must never
+		// become a second cloud lifecycle surface.
+		return null;
+	}
 	if (!visible) return null;
 
 	return (
@@ -177,7 +186,7 @@ const cloudPhaseRank: Record<CloudChatSummary["startupPhase"], number> = {
 	"authenticating-runtime": 1,
 	"syncing-repository": 2,
 	"starting-agent": 3,
-	running: 4,
+	running: 3,
 	failed: -1,
 };
 
@@ -289,7 +298,7 @@ const cloudPhaseLabel = (
 		case "syncing-repository":
 			return "Preparing repository…";
 		case "starting-agent":
-			return "Starting agent…";
+			return "Cloud workspace ready";
 		case "running":
 			return "Cloud workspace ready";
 	}
@@ -359,7 +368,6 @@ export function CloudWorkspaceSetupView({
 					<StepRow state={step(0)} label="Preparing cloud workspace" />
 					<StepRow state={step(1)} label="Starting secure cloud runtime" />
 					<StepRow state={step(2)} label="Preparing repository" />
-					<StepRow state={step(3)} label="Starting agent" />
 				</div>
 				{failureDiagnostic === undefined ? null : (
 					<p className="mt-2 font-mono text-[10px] text-muted-foreground">

@@ -74,9 +74,28 @@ type CloudChatsState = {
 };
 
 const opening = new Map<string, Promise<void>>();
-const attaching = new Map<string, Promise<void>>();
+type CloudAttachment = {
+	activation: "connect" | "wake";
+	promise: Promise<void>;
+};
+const attaching = new Map<string, CloudAttachment>();
 const registeredCloudEnvironments = new Map<string, CloudChatSummary>();
 let hydration: Promise<void> | null = null;
+
+const trackCloudAttachment = (
+	workspaceId: string,
+	activation: CloudAttachment["activation"],
+	operation: Promise<void>,
+): Promise<void> => {
+	let tracked: Promise<void>;
+	tracked = operation.finally(() => {
+		if (attaching.get(workspaceId)?.promise === tracked) {
+			attaching.delete(workspaceId);
+		}
+	});
+	attaching.set(workspaceId, { activation, promise: tracked });
+	return tracked;
+};
 
 /**
  * Cloud wakeup is an environment capability. Register it when catalog metadata
@@ -417,78 +436,95 @@ export const ensureCloudWorkspaceAttached = (
 	activation: "connect" | "wake" = "wake",
 ): Promise<void> => {
 	const existing = attaching.get(summary.workspaceId);
-	if (existing !== undefined) return existing;
-	const operation = (async () => {
-		const control = await getControlPlaneRpcClient();
-		let workspace = await Effect.runPromise(
-			control["cloud.workspaces.get"]({ workspaceId: summary.workspaceId }),
+	if (existing !== undefined) {
+		if (existing.activation === "wake" || activation === "connect") {
+			return existing.promise;
+		}
+		// A live command can arrive while a passive transcript attachment is still
+		// resolving. Wake is a stronger side effect: never let it inherit the
+		// passive request's failure (for example when Relay has just paused compute).
+		const escalated = existing.promise
+			.catch(() => undefined)
+			.then(() => attachCloudWorkspace(summary, "wake"));
+		return trackCloudAttachment(summary.workspaceId, "wake", escalated);
+	}
+	return trackCloudAttachment(
+		summary.workspaceId,
+		activation,
+		attachCloudWorkspace(summary, activation),
+	);
+};
+
+const attachCloudWorkspace = async (
+	summary: CloudChatSummary,
+	activation: "connect" | "wake",
+): Promise<void> => {
+	const control = await getControlPlaneRpcClient();
+	let workspace = await Effect.runPromise(
+		control["cloud.workspaces.get"]({ workspaceId: summary.workspaceId }),
+	);
+	if (workspaceNeedsWake(workspace) && activation === "wake") {
+		workspace = await Effect.runPromise(
+			control["cloud.workspaces.resume"]({
+				workspaceId: summary.workspaceId,
+			}),
 		);
-		if (workspaceNeedsWake(workspace) && activation === "wake") {
-			workspace = await Effect.runPromise(
-				control["cloud.workspaces.resume"]({
-					workspaceId: summary.workspaceId,
-				}),
-			);
-		}
-		updateSummary(refreshSummaryFromWorkspace(summary, workspace));
-		if (activation === "connect" && !isCloudWorkspaceReady(workspace)) {
-			throw new Error(
-				workspace.state === "paused"
-					? "Cloud workspace is paused."
-					: "Cloud workspace is not currently available for passive attachment.",
-			);
-		}
-		if (!isCloudWorkspaceReady(workspace)) {
-			const error = cloudWorkspaceStartupError(workspace);
-			if (error !== null) throw error;
-			workspace = await waitForCloudWorkspaceReady(
-				control["cloud.workspaces.watch"]({
-					workspaceId: summary.workspaceId,
-					afterRevision: workspace.revision,
-				}),
-				(next) => updateSummary(refreshSummaryFromWorkspace(summary, next)),
-			);
-		}
-		const connectionForWorkspace = () =>
-			refreshCloudWorkspaceConnectionWithRecovery(
-				summary.workspaceId,
-				async (recoveryCommandId) => {
-					let recovered = await Effect.runPromise(
-						control["cloud.workspaces.resume"]({
-							workspaceId: summary.workspaceId,
-							recoverRuntime: true,
-							commandId: recoveryCommandId,
-						}),
-					);
-					updateSummary(refreshSummaryFromWorkspace(summary, recovered));
-					if (!isCloudWorkspaceReady(recovered)) {
-						const error = cloudWorkspaceStartupError(recovered);
-						if (error !== null) throw error;
-						recovered = await waitForCloudWorkspaceReady(
-							control["cloud.workspaces.watch"]({
-								workspaceId: summary.workspaceId,
-								afterRevision: recovered.revision,
-							}),
-							(next) =>
-								updateSummary(refreshSummaryFromWorkspace(summary, next)),
-						);
-					}
-				},
-				() =>
-					Effect.runPromise(
-						control["cloud.workspaces.connect"]({
-							workspaceId: summary.workspaceId,
-						}),
-					),
-			);
-		registerCloudWorkspace(
+	}
+	updateSummary(refreshSummaryFromWorkspace(summary, workspace));
+	if (activation === "connect" && !isCloudWorkspaceReady(workspace)) {
+		throw new Error(
+			workspace.state === "paused"
+				? "Cloud workspace is paused."
+				: "Cloud workspace is not currently available for passive attachment.",
+		);
+	}
+	if (!isCloudWorkspaceReady(workspace)) {
+		const error = cloudWorkspaceStartupError(workspace);
+		if (error !== null) throw error;
+		workspace = await waitForCloudWorkspaceReady(
+			control["cloud.workspaces.watch"]({
+				workspaceId: summary.workspaceId,
+				afterRevision: workspace.revision,
+			}),
+			(next) => updateSummary(refreshSummaryFromWorkspace(summary, next)),
+		);
+	}
+	const connectionForWorkspace = () =>
+		refreshCloudWorkspaceConnectionWithRecovery(
 			summary.workspaceId,
-			await connectionForWorkspace(),
-			connectionForWorkspace,
+			async (recoveryCommandId) => {
+				let recovered = await Effect.runPromise(
+					control["cloud.workspaces.resume"]({
+						workspaceId: summary.workspaceId,
+						recoverRuntime: true,
+						commandId: recoveryCommandId,
+					}),
+				);
+				updateSummary(refreshSummaryFromWorkspace(summary, recovered));
+				if (!isCloudWorkspaceReady(recovered)) {
+					const error = cloudWorkspaceStartupError(recovered);
+					if (error !== null) throw error;
+					recovered = await waitForCloudWorkspaceReady(
+						control["cloud.workspaces.watch"]({
+							workspaceId: summary.workspaceId,
+							afterRevision: recovered.revision,
+						}),
+						(next) => updateSummary(refreshSummaryFromWorkspace(summary, next)),
+					);
+				}
+			},
+			() =>
+				Effect.runPromise(
+					control["cloud.workspaces.connect"]({
+						workspaceId: summary.workspaceId,
+					}),
+				),
 		);
-	})().finally(() => attaching.delete(summary.workspaceId));
-	attaching.set(summary.workspaceId, operation);
-	return operation;
+	registerCloudWorkspace(
+		summary.workspaceId,
+		await connectionForWorkspace(),
+		connectionForWorkspace,
+	);
 };
 
 const ensureCloudWorkspaceEnvironment = (

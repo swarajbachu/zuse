@@ -205,7 +205,7 @@ describe("renderer session timeline ClientBus adapter", () => {
 		await waitUntil(() => disposals === 1);
 		expect(sessions).toBe(1);
 		expect(getRendererClientBus().connection(environmentId)).toMatchObject({
-			phase: "failed",
+			phase: "reconnecting",
 			generation: 1,
 		});
 

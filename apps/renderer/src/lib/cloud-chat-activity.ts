@@ -20,7 +20,10 @@ export type CloudChatActivityInput = {
 
 /** Whether the durable cloud lifecycle still owns the initial chat setup UI. */
 export const cloudWorkspaceIsStarting = (summary: CloudChatSummary): boolean =>
-	summary.startupPhase !== "running" && summary.startupPhase !== "failed";
+	summary.startupPhase === "allocating" ||
+	summary.startupPhase === "booting" ||
+	summary.startupPhase === "authenticating-runtime" ||
+	summary.startupPhase === "syncing-repository";
 
 /** True only after a live runtime owns the turn. Resume, attachment, and
  * durable queueing have their own connection notice and must not render the
@@ -74,6 +77,11 @@ export const deriveCloudChatActivity = ({
 		return summary.startupPhase === "starting-agent"
 			? "starting-agent"
 			: "running";
+	if (
+		summary.startupPhase === "starting-agent" &&
+		summary.statusCode === "agent-starting"
+	)
+		return "starting-agent";
 
 	if (
 		connection === "waking" ||
