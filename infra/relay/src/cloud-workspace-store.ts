@@ -1431,6 +1431,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					if (
 						previous !== undefined &&
 						(previous.runtimeGeneration > checkpoint.runtimeGeneration ||
+							previous.streamVersion > checkpoint.streamVersion ||
 							(previous.runtimeGeneration === checkpoint.runtimeGeneration &&
 								(previous.streamEpoch !== checkpoint.streamEpoch ||
 									previous.streamVersion >= checkpoint.streamVersion)))
@@ -2324,7 +2325,8 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							ciphertext_sha256=EXCLUDED.ciphertext_sha256,
 							ciphertext_bytes=EXCLUDED.ciphertext_bytes,
 							created_at=EXCLUDED.created_at
-						WHERE EXCLUDED.runtime_generation > relay_cloud_transcript_checkpoints.runtime_generation
+						WHERE (EXCLUDED.runtime_generation > relay_cloud_transcript_checkpoints.runtime_generation
+							AND EXCLUDED.stream_version >= relay_cloud_transcript_checkpoints.stream_version)
 							OR (EXCLUDED.runtime_generation = relay_cloud_transcript_checkpoints.runtime_generation
 								AND EXCLUDED.stream_epoch = relay_cloud_transcript_checkpoints.stream_epoch
 								AND EXCLUDED.stream_version > relay_cloud_transcript_checkpoints.stream_version)

@@ -210,7 +210,7 @@ describe("cloud workspace runtime bootstrap", () => {
 			await runtime.runPromise(store.getWorkspace(workspaceId)),
 		).toMatchObject({ wrappedTranscriptKey: expect.any(String) });
 		const first = (await firstResponse.json()) as Record<string, unknown>;
-		expect(first).not.toHaveProperty("cloudCredentials");
+		expect(first.cloudCredentials).toEqual([]);
 		const replayResponse = await bootstrap();
 		expect(replayResponse.status).toBe(200);
 		expect(await replayResponse.json()).toEqual(first);

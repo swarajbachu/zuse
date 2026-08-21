@@ -213,23 +213,14 @@ const installImageProviderSecrets = Effect.fn("installImageProviderSecrets")(
 		if (raw === null) return;
 		const decoded = yield* decodeImageProviderSecrets(raw);
 		for (const [providerId, entry] of Object.entries(decoded)) {
-			yield* credentials
-				.setProviderCredential(
-					providerId as "claude" | "codex" | "cursor" | "grok",
-					{
-						kind:
-							providerId === "claude" && entry.method === "subscription"
-								? "oauth-token"
-								: "api-key",
-						secret: entry.secret,
-					},
-				)
-				.pipe(
-					Effect.mapError(() =>
-						fail("workspace_provider_credential_store_failed"),
-					),
-				);
-			if (providerId === "codex") yield* installCodexApiKey(entry.secret);
+			yield* ensureProviderCredential(credentials, {
+				providerId: providerId as "claude" | "codex" | "cursor" | "grok",
+				kind:
+					providerId === "claude" && entry.method === "subscription"
+						? "oauth-token"
+						: "api-key",
+				secret: entry.secret,
+			});
 		}
 		// The account image retains the source file. A chat fork removes its copy
 		// after importing it into the runtime's encrypted local credential store.
@@ -323,6 +314,38 @@ const installCodexApiKey = (
 		child.stdin.end(`${secret}\n`);
 		return Effect.sync(() => child.kill("SIGTERM"));
 	});
+
+const ensureProviderCredential = Effect.fn("ensureCloudProviderCredential")(
+	function* (
+		credentials: CredentialsService["Service"],
+		input: {
+			readonly providerId: "claude" | "codex" | "cursor" | "grok";
+			readonly kind: "oauth-token" | "api-key";
+			readonly secret: string;
+		},
+	) {
+		const existing = yield* credentials
+			.getProviderCredential(input.providerId)
+			.pipe(
+				Effect.mapError(() =>
+					fail("workspace_provider_credential_store_failed"),
+				),
+			);
+		if (existing?.kind === input.kind && existing.secret === input.secret)
+			return;
+		yield* credentials
+			.setProviderCredential(input.providerId, {
+				kind: input.kind,
+				secret: input.secret,
+			})
+			.pipe(
+				Effect.mapError(() =>
+					fail("workspace_provider_credential_store_failed"),
+				),
+			);
+		if (input.providerId === "codex") yield* installCodexApiKey(input.secret);
+	},
+);
 
 const RuntimeCredentialRenewalResponse = Schema.Struct({
 	workspaceId: Schema.String,
@@ -1001,23 +1024,14 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							return yield* Effect.fail(
 								fail("workspace_provider_grant_invalid"),
 							);
-						yield* credentials
-							.setProviderCredential(grant.providerId, {
-								kind:
-									grant.providerId === "claude" &&
-									grant.method === "subscription"
-										? "oauth-token"
-										: "api-key",
-								secret,
-							})
-							.pipe(
-								Effect.mapError(() =>
-									fail("workspace_provider_credential_store_failed"),
-								),
-							);
-						if (grant.providerId === "codex") {
-							yield* installCodexApiKey(secret);
-						}
+						yield* ensureProviderCredential(credentials, {
+							providerId: grant.providerId,
+							kind:
+								grant.providerId === "claude" && grant.method === "subscription"
+									? "oauth-token"
+									: "api-key",
+							secret,
+						});
 					}
 					yield* writeCredentialsReady;
 					const acknowledgeBootstrap = retryCloudWorkspaceBootstrap(

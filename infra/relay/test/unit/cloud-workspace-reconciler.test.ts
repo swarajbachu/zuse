@@ -148,16 +148,24 @@ describe("cloud workspace reconciler", () => {
 			cloudRepositoryWorkspacePath("github.com/owner/../escape"),
 		).toThrow("Unsupported repository identity");
 	});
-	test("starts the baked runtime directly when resuming", () => {
+	test("updates only an incompatible baked runtime when resuming", () => {
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
 			"/opt/zuse/current/bin.mjs",
 		);
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain("serve --foreground");
+		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain("wireProtocolVersion");
+		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
+			'if [ "$installed_wire" != "$ZUSE_RUNTIME_WIRE_PROTOCOL" ]',
+		);
+		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain("runtime-updater.mjs");
+		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
+			"ZUSE_RUNTIME_INSTALL_ONLY=1",
+		);
+		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
+			'exec node "$runtime" serve >> "$log" 2>&1',
+		);
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain("nohup");
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain("</dev/null &");
-		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain(
-			"runtime-updater.mjs",
-		);
 	});
 
 	test("actively observes startup and the bounded warm-resume window", () => {

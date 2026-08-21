@@ -42,8 +42,35 @@ const PROJECT_BUILD_LOG_MAX_LENGTH = 256 * 1_024;
 const PROJECT_BUILDER_FILE = "/var/lib/zuse/project-build/builder.sh";
 const WORKSPACE_BOOTSTRAP_FILE =
 	"/var/lib/zuse/project-build/workspace-bootstrap.sh";
+const WORKSPACE_REPOSITORY_READY_MARKER =
+	"/var/lib/zuse/workspace/repository-ready";
 const WORKSPACE_START_OBSERVATION_MS = 10_000;
 const WORKSPACE_START_OBSERVATION_INTERVAL_MS = 250;
+
+const ensureWorkspaceRepositoryReadyMarker = Effect.fn(
+	"ensureWorkspaceRepositoryReadyMarker",
+)(function* (
+	provider: SandboxProviderAdapter,
+	providerSandboxId: string,
+	workspaceRoot: string,
+) {
+	if (
+		yield* provider.pathExists(
+			providerSandboxId,
+			WORKSPACE_REPOSITORY_READY_MARKER,
+			"zuse",
+		)
+	)
+		return;
+	if (!(yield* provider.pathExists(providerSandboxId, workspaceRoot, "zuse")))
+		return;
+	yield* provider.writeTextFile(
+		providerSandboxId,
+		WORKSPACE_REPOSITORY_READY_MARKER,
+		"ready\n",
+		"zuse",
+	);
+});
 
 const reserveProviderCost = Effect.fn("reserveProviderCost")(function* (input: {
 	readonly accountId: string;
@@ -218,7 +245,7 @@ const workspaceRuntimeProcessSelector = (workspace: CloudWorkspaceRecord) => ({
 		? {}
 		: { legacyCleanup: "matching-command" as const }),
 });
-export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed; if [ -f "$runtime" ]; then exec node "$runtime" serve; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
+export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then installed_wire=$(node -e 'try { process.stdout.write(String(require("/opt/zuse/current/runtime-metadata.json").wireProtocolVersion ?? "")) } catch {}'); if [ "$installed_wire" != "$ZUSE_RUNTIME_WIRE_PROTOCOL" ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >> "$log" 2>&1; fi; fi; if [ -f "$runtime" ]; then exec node "$runtime" serve >> "$log" 2>&1; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
 
@@ -961,13 +988,24 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 				"pause",
 			);
 		const boot = yield* issueWorkspaceRuntimeBoot(nowMs);
-		if (config.runtimeSigningPublicJwk !== undefined)
-			yield* provider.writeTextFile(
-				providerSandboxId,
-				RUNTIME_SIGNING_PUBLIC_JWK_FILE,
-				config.runtimeSigningPublicJwk,
-				"zuse",
-			);
+		yield* Effect.all(
+			[
+				config.runtimeSigningPublicJwk === undefined
+					? Effect.void
+					: provider.writeTextFile(
+							providerSandboxId,
+							RUNTIME_SIGNING_PUBLIC_JWK_FILE,
+							config.runtimeSigningPublicJwk,
+							"zuse",
+						),
+				ensureWorkspaceRepositoryReadyMarker(
+					provider,
+					providerSandboxId,
+					workspaceRoot,
+				),
+			],
+			{ concurrency: "unbounded", discard: true },
+		);
 		const timings =
 			(workspace.requestConfig.startupTimings as
 				| Readonly<Record<string, number>>

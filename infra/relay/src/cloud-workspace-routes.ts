@@ -841,36 +841,6 @@ const RuntimeCredentialRenewRequest = Schema.Struct({
 	proof: Schema.String,
 });
 
-/**
- * Stable metadata-only replay used to prove that a resumed runtime still owns
- * the workspace chat/session. Replaying it is idempotent. If E2B has lost the
- * original filesystem, it recreates an empty runnable session instead of
- * advertising a healthy runtime that rejects queued messages as not found.
- */
-export const recoveredWorkspaceLaunchIntent = (
-	workspace: Pick<CloudWorkspaceRecord, "workspaceId" | "requestConfig">,
-) => {
-	if (typeof workspace.requestConfig.sessionHeadVersion !== "number")
-		return undefined;
-	const { agent, model, permissions, title } = workspace.requestConfig;
-	if (
-		typeof agent !== "string" ||
-		typeof model !== "string" ||
-		typeof title !== "string" ||
-		!Array.isArray(permissions) ||
-		!permissions.every((permission) => typeof permission === "string")
-	)
-		return undefined;
-	return {
-		commandId: `launch:${workspace.workspaceId}`,
-		turnId: `turn:${workspace.workspaceId}`,
-		title,
-		agent,
-		model,
-		permissions: permissions as ReadonlyArray<string>,
-	};
-};
-
 const runtimeGeneration = (workspace: CloudWorkspaceRecord): number =>
 	typeof workspace.requestConfig.runtimeGeneration === "number"
 		? workspace.requestConfig.runtimeGeneration
@@ -1106,7 +1076,7 @@ export const routeCloudWorkspaceRequest = (
 				return yield* Effect.fail(conflict("cloud_workspace_launch_failed"));
 			const launchIntent =
 				launchIntentRecord === null
-					? recoveredWorkspaceLaunchIntent(enrolled.workspace)
+					? undefined
 					: yield* launchIntentCipher
 							.decrypt(
 								launchIntentRecord.accountId,
@@ -1138,6 +1108,11 @@ export const routeCloudWorkspaceRequest = (
 				workspaceId,
 				runtimeCredential,
 				runtimeGatewayCredential,
+				// Wire-v5 runtimes published before machine-owned sandbox auth require
+				// this field during bootstrap decoding. Credentials are no longer sent
+				// here, but retaining the empty additive field keeps retained sandboxes
+				// resumable while newer v5 runtimes use runtimeGatewayCredential.
+				cloudCredentials: [],
 				gatewayUrl: gatewayUrl(relay.relayIssuer, workspaceId),
 				gatewayProtocol: WORKSPACE_GATEWAY_PROTOCOL,
 				chatId: workspace.chatId,

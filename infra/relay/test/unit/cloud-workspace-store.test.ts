@@ -486,6 +486,41 @@ describe("cloud workspace store", () => {
 				store.getLaunchIntent(workspace.workspaceId, 301),
 			),
 		).toMatchObject({ commandId: `launch:${workspace.workspaceId}` });
+		const currentWorkspace = await runtime.runPromise(
+			store.getWorkspace(workspace.workspaceId),
+		);
+		expect(currentWorkspace).not.toBeNull();
+		if (currentWorkspace === null) throw new Error("Workspace disappeared");
+		await runtime.runPromise(
+			store.saveWorkspace({
+				...currentWorkspace,
+				requestConfig: {
+					...currentWorkspace.requestConfig,
+					runtimeGeneration: 2,
+				},
+				revision: currentWorkspace.revision + 1,
+				updatedAtMs: currentWorkspace.updatedAtMs + 1,
+			}),
+		);
+		expect(
+			await runtime.runPromise(
+				store.saveTranscriptCheckpoint({
+					...checkpoint,
+					runtimeGeneration: 2,
+					streamEpoch: "epoch-2",
+					streamVersion: 1,
+					objectKey: "empty-recovery-checkpoint",
+				}),
+			),
+		).toBe(false);
+		expect(
+			await runtime.runPromise(
+				store.getTranscriptCheckpoint(
+					workspace.workspaceId,
+					workspace.initialSessionId,
+				),
+			),
+		).toMatchObject({ streamVersion: 5, objectKey: "checkpoint-5" });
 		await runtime.dispose();
 	});
 

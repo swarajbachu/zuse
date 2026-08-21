@@ -25,12 +25,12 @@ would instead turn an ordinary desktop or Relay release into a reconnect loop.
    sandbox only after the provider confirms that the recorded sandbox no longer
    exists. A timeout, stale gateway socket, protocol difference, or outdated
    account image is not proof that the sandbox is gone.
-3. **Relay owns a bounded protocol bridge.** Runtime enrollment advertises an
-   exact gateway protocol and capability set. Relay accepts the current and
-   immediately preceding protocol and translates at the gateway boundary. The
-   initial compatibility window is `zuse-workspace-v2` plus legacy
-   `zuse-workspace-v1`. Unsupported versions fail once with `update-required`;
-   they do not enter transport reconnect or provider resume loops.
+3. **Gateway framing and runtime RPC compatibility are distinct.** Relay accepts
+   `zuse-workspace-v2` plus legacy `zuse-workspace-v1` gateway envelopes, but it
+   does not translate Effect RPC schemas. When a retained sandbox has an
+   incompatible runtime wire version, resume installs the signed compatible
+   runtime in place before attaching the desktop. Normal resumes read local
+   runtime metadata and skip the updater entirely.
 4. **Compatible runtime updates are transactional.** Before an in-place update,
    the runtime commits SQLite and attempts an encrypted transcript checkpoint.
    It downloads a signed, checksummed artifact into a versioned release

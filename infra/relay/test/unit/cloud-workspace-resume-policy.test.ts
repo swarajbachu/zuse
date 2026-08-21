@@ -2,43 +2,10 @@ import { describe, expect, test } from "vitest";
 import {
 	cloudWorkspaceResumeIsAlreadyRequested,
 	failedWorkspaceResumeTarget,
-	recoveredWorkspaceLaunchIntent,
 	runtimeUnavailableResumeTarget,
 } from "../../src/cloud-workspace-routes.ts";
 
 describe("failed cloud workspace resume policy", () => {
-	test("replays stable launch metadata when a resumed runtime lost its session", () => {
-		expect(
-			recoveredWorkspaceLaunchIntent({
-				workspaceId: "workspace-recover",
-				requestConfig: {
-					sessionHeadVersion: 5,
-					title: "yo",
-					agent: "codex",
-					model: "gpt-5.6-sol",
-					permissions: [],
-				},
-			}),
-		).toEqual({
-			commandId: "launch:workspace-recover",
-			turnId: "turn:workspace-recover",
-			title: "yo",
-			agent: "codex",
-			model: "gpt-5.6-sol",
-			permissions: [],
-		});
-		expect(
-			recoveredWorkspaceLaunchIntent({
-				workspaceId: "workspace-new",
-				requestConfig: {
-					title: "new",
-					agent: "codex",
-					model: "gpt-5.6-sol",
-					permissions: [],
-				},
-			}),
-		).toBeUndefined();
-	});
 	test("does not rewrite a workspace whose resume is already in flight", () => {
 		for (const state of [
 			"paused",

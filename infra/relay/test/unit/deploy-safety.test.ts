@@ -92,8 +92,12 @@ describe("relay deployment safety", () => {
 			JSON.parse(config.vars.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK ?? ""),
 		).not.toThrow();
 		expect(config.vars.MACHINE_LIVE_CHECKOUT_ENABLED).toBe("true");
-		expect(config.vars.CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL).toBe("");
-		expect(config.vars.CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK).toBe("");
+		expect(config.vars.CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL).toBe(
+			"https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-staging/stable-manifest.json",
+		);
+		expect(() =>
+			JSON.parse(config.vars.CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK ?? ""),
+		).not.toThrow();
 		expect(config.vars).not.toHaveProperty("SANDBOX_DEFAULT_PROVIDER");
 		expect(config.vars.E2B_ADAPTER_ENABLED).toBe("true");
 		expect(config.vars.E2B_TEMPLATE_ID).toBe("zuse-cloud-sandbox");

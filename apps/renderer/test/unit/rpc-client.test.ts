@@ -292,6 +292,57 @@ describe("renderer RPC transport selection", () => {
 		await session.dispose();
 	});
 
+	it("allows a fresh command after a terminal runtime recovery failure", async () => {
+		let close: (event: {
+			code: number;
+			reason: string;
+			wasClean: boolean;
+		}) => void = () => undefined;
+		const workspaceId = "workspace-recovery-retry";
+		const session = await acquireRendererRpcSession(workspaceId, {
+			hooks: {
+				prepare: async () => ({
+					key: `workspace:${workspaceId}`,
+					create: async (onClose: typeof close) => {
+						close = onClose;
+						return { client: {} as never, dispose: async () => undefined };
+					},
+				}),
+				invalidateCloudTicket: () => undefined,
+			},
+			onClose: () => undefined,
+		});
+		close({
+			code: 4100,
+			reason: "workspace runtime unavailable",
+			wasClean: true,
+		});
+		const failedCommand = cloudWorkspaceRuntimeRecoveryCommandId(workspaceId);
+		expect(failedCommand).toBeTypeOf("string");
+		await expect(
+			refreshCloudWorkspaceConnectionWithRecovery(
+				workspaceId,
+				async () => {
+					throw new Error("runtime-connection-timeout");
+				},
+				async () => {
+					throw new Error("connect should not run");
+				},
+			),
+		).rejects.toThrow("runtime-connection-timeout");
+		expect(cloudWorkspaceRuntimeRecoveryCommandId(workspaceId)).toBeUndefined();
+
+		close({
+			code: 4100,
+			reason: "workspace runtime unavailable",
+			wasClean: true,
+		});
+		expect(cloudWorkspaceRuntimeRecoveryCommandId(workspaceId)).not.toBe(
+			failedCommand,
+		);
+		await session.dispose();
+	});
+
 	it("recovers the first pre-handshake browser-abnormal gateway close", async () => {
 		let close: (event: {
 			code: number;

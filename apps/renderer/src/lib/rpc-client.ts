@@ -157,7 +157,22 @@ export const refreshCloudWorkspaceConnectionWithRecovery = async (
 	connect: () => Promise<CloudWorkspaceConnection>,
 ): Promise<CloudWorkspaceConnection> => {
 	const recoveryCommandId = cloudWorkspaceRuntimeRecoveryCommandId(workspaceId);
-	if (recoveryCommandId !== undefined) await recover(recoveryCommandId);
+	if (recoveryCommandId !== undefined) {
+		try {
+			await recover(recoveryCommandId);
+		} catch (cause) {
+			// A completed recovery can still end in a terminal startup failure. Its
+			// command id remains a valid idempotency receipt, so replaying it can only
+			// return that same failed workspace forever. Let the next missing-runtime
+			// close mint one fresh recovery command.
+			if (
+				cloudWorkspaceRuntimeRecoveryCommandId(workspaceId) ===
+				recoveryCommandId
+			)
+				clearCloudWorkspaceRuntimeRecovery(workspaceId);
+			throw cause;
+		}
+	}
 	const connection = await connect();
 	if (
 		recoveryCommandId !== undefined &&
