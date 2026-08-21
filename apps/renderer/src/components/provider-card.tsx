@@ -4,12 +4,13 @@ import {
 	MODELS_BY_PROVIDER,
 	type ProviderId,
 	type ProviderUpdateEvent,
-	visibleModelsForProvider,
 } from "@zuse/contracts";
 import {
+	Add01Icon,
 	AlertCircleIcon,
 	CircleArrowUp01Icon,
 	Copy01Icon,
+	Delete02Icon,
 	LinkSquare01Icon,
 	Loading02Icon,
 	Tick01Icon,
@@ -21,13 +22,7 @@ import { BlurredEmail } from "~/components/blurred-email";
 import { OpencodeProviderManager } from "~/components/opencode-provider-manager";
 import { ProviderIcon } from "~/components/provider-icons";
 import { Button } from "~/components/ui/button";
-import {
-	Select,
-	SelectItem,
-	SelectPopup,
-	SelectTrigger,
-	SelectValue,
-} from "~/components/ui/select";
+import { Input } from "~/components/ui/input";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { Switch } from "~/components/ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -103,11 +98,13 @@ export function ProviderCard({
 	providerId,
 	availability,
 	loading,
+	layout = "card",
 }: {
 	environmentId: string;
 	providerId: ProviderId;
 	availability: AgentAvailability | undefined;
 	loading: boolean;
+	layout?: "card" | "page";
 }) {
 	const subscription = SUBSCRIPTION_INFO[providerId];
 	const persistedEnabled =
@@ -165,11 +162,19 @@ export function ProviderCard({
 	return (
 		<div
 			className={cn(
-				"group flex flex-col bg-card transition-colors first:rounded-t-xl last:rounded-b-xl",
+				"group flex flex-col transition-colors",
+				layout === "card"
+					? "bg-card first:rounded-t-xl last:rounded-b-xl"
+					: "bg-transparent",
 				!enabled && !unmetSubscriptionRequirement && "opacity-70",
 			)}
 		>
-			<div className="flex w-full items-center gap-3 px-3.5 py-3 text-left group-first:rounded-t-xl">
+			<div
+				className={cn(
+					"flex w-full items-center gap-3 text-left group-first:rounded-t-xl",
+					layout === "card" ? "px-3.5 py-3" : "px-0 py-4",
+				)}
+			>
 				<span className="flex size-7 shrink-0 items-center justify-center">
 					<ProviderIcon providerId={providerId} className="size-5" />
 				</span>
@@ -230,7 +235,8 @@ export function ProviderCard({
 
 			<div
 				className={cn(
-					"flex flex-col gap-4 border-t border-border/40 px-3.5 py-3 text-xs",
+					"flex flex-col gap-5 border-t border-border/50 text-xs",
+					layout === "card" ? "px-3.5 py-3" : "px-0 py-5",
 					!enabled && "pointer-events-none",
 				)}
 			>
@@ -268,7 +274,6 @@ export function ProviderCard({
 					<OpencodeProviderManager />
 				) : (
 					<>
-						<ModelDefault providerId={providerId} />
 						<ModelVisibilitySettings providerId={providerId} />
 
 						{providerId === "cursor" && (
@@ -302,74 +307,47 @@ export function ProviderCard({
 	);
 }
 
-function ModelDefault({ providerId }: { providerId: ProviderId }) {
-	const value = useSettingsStore(
-		(s) => s.defaultModelByProvider[providerId] ?? "",
-	);
-	const setDefaultModel = useSettingsStore((s) => s.setDefaultModel);
-	const modelEnabledByProvider = useSettingsStore(
-		(s) => s.modelEnabledByProvider,
-	);
-	const models = visibleModelsForProvider(providerId, modelEnabledByProvider, {
-		includeModelId: value,
-	});
-	const items = useMemo(
-		() => models.map((m) => ({ value: m.id, label: m.label })),
-		[models],
-	);
-	if (models.length === 0) return null;
-	return (
-		<div className="flex flex-col gap-1.5">
-			<span className="text-[11px] font-medium text-muted-foreground">
-				Default model
-			</span>
-			<Select
-				value={value}
-				onValueChange={(next) => setDefaultModel(providerId, next as string)}
-				items={items}
-			>
-				<SelectTrigger size="sm">
-					<SelectValue />
-				</SelectTrigger>
-				<SelectPopup>
-					{models.map((m) => (
-						<SelectItem key={m.id} value={m.id}>
-							{m.label}
-						</SelectItem>
-					))}
-				</SelectPopup>
-			</Select>
-		</div>
-	);
-}
-
 function ModelVisibilitySettings({ providerId }: { providerId: ProviderId }) {
+	const [customModelId, setCustomModelId] = useState("");
 	const modelEnabledByProvider = useSettingsStore(
 		(s) => s.modelEnabledByProvider,
+	);
+	const customModelIds = useSettingsStore(
+		(s) => s.customModelIdsByProvider[providerId],
 	);
 	const setModelEnabled = useSettingsStore((s) => s.setModelEnabled);
+	const addCustomModelId = useSettingsStore((s) => s.addCustomModelId);
+	const removeCustomModelId = useSettingsStore((s) => s.removeCustomModelId);
 	const models = MODELS_BY_PROVIDER[providerId] ?? [];
-	if (models.length <= 1) return null;
+	const normalizedCustomModelId = customModelId.trim();
+	const modelIdAlreadyExists =
+		models.some((model) => model.id === normalizedCustomModelId) ||
+		customModelIds.includes(normalizedCustomModelId);
+	const canAddCustomModel =
+		normalizedCustomModelId.length > 0 &&
+		normalizedCustomModelId.length <= 200 &&
+		!modelIdAlreadyExists;
 
 	const visibleCount = models.filter(
 		(m) => modelEnabledByProvider[providerId]?.[m.id] !== false,
 	).length;
 
 	return (
-		<div className="flex flex-col gap-1.5">
+		<div className="flex flex-col gap-2.5">
 			<div className="flex items-baseline justify-between">
 				<span className="text-[11px] font-medium text-muted-foreground">
 					Models
 				</span>
 				<span className="text-[10px] text-muted-foreground/70">
-					{visibleCount} shown
+					{visibleCount + customModelIds.length} shown
 				</span>
 			</div>
 			<div className="overflow-hidden rounded-md border border-border/50 bg-background/45">
 				{models.map((model) => {
 					const checked =
 						modelEnabledByProvider[providerId]?.[model.id] !== false;
-					const onlyVisible = checked && visibleCount <= 1;
+					const onlyVisible =
+						checked && visibleCount + customModelIds.length <= 1;
 					return (
 						<div
 							key={model.id}
@@ -378,11 +356,6 @@ function ModelVisibilitySettings({ providerId }: { providerId: ProviderId }) {
 							<span className="min-w-0 flex-1 truncate text-xs text-foreground">
 								{model.label}
 							</span>
-							{model.defaultVisible === false && (
-								<span className="rounded bg-muted/70 px-1.5 py-px text-[9px] font-medium text-muted-foreground uppercase tracking-wide">
-									older
-								</span>
-							)}
 							<Switch
 								checked={checked}
 								disabled={onlyVisible}
@@ -399,7 +372,52 @@ function ModelVisibilitySettings({ providerId }: { providerId: ProviderId }) {
 						</div>
 					);
 				})}
+				{customModelIds.map((modelId) => (
+					<div
+						key={modelId}
+						className="flex min-h-9 items-center gap-2 border-b border-border/40 px-2.5 py-1.5 last:border-b-0"
+					>
+						<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">
+							{modelId}
+						</span>
+						<span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide">
+							custom
+						</span>
+						<Button
+							size="icon-xs"
+							variant="ghost"
+							onClick={() => removeCustomModelId(providerId, modelId)}
+							aria-label={`Remove custom model ${modelId}`}
+						>
+							<HugeiconsIcon icon={Delete02Icon} className="size-3" />
+						</Button>
+					</div>
+				))}
 			</div>
+			<form
+				className="flex gap-2"
+				onSubmit={(event) => {
+					event.preventDefault();
+					if (!canAddCustomModel) return;
+					addCustomModelId(providerId, normalizedCustomModelId);
+					setCustomModelId("");
+				}}
+			>
+				<Input
+					value={customModelId}
+					onChange={(event) => setCustomModelId(event.target.value)}
+					placeholder="Enter a model ID"
+					aria-label={`Custom ${PROVIDER_LABEL[providerId]} model ID`}
+					aria-invalid={normalizedCustomModelId.length > 200 || undefined}
+				/>
+				<Button type="submit" size="default" disabled={!canAddCustomModel}>
+					<HugeiconsIcon icon={Add01Icon} className="size-3.5" />
+					Add
+				</Button>
+			</form>
+			<p className="text-[10px] leading-snug text-muted-foreground/70">
+				Custom IDs are passed directly to {PROVIDER_LABEL[providerId]}.
+			</p>
 		</div>
 	);
 }

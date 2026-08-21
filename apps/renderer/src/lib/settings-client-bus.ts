@@ -44,6 +44,7 @@ export interface SettingsSlice {
 	readonly onboardingCompleted: boolean;
 	readonly providerEnabled: Record<ProviderId, boolean>;
 	readonly modelEnabledByProvider: ModelEnabledByProvider;
+	readonly customModelIdsByProvider: Record<ProviderId, ReadonlyArray<string>>;
 	readonly opencodeProviderVisible: Record<string, boolean>;
 	readonly opencodeModelVisibleByProvider: Record<
 		string,
@@ -77,6 +78,11 @@ type SettingsState = SettingsSlice & {
 		providerId: ProviderId,
 		modelId: string,
 		value: boolean,
+	) => void;
+	readonly addCustomModelId: (providerId: ProviderId, modelId: string) => void;
+	readonly removeCustomModelId: (
+		providerId: ProviderId,
+		modelId: string,
 	) => void;
 	readonly setOpencodeProviderVisible: (
 		providerId: string,
@@ -123,6 +129,16 @@ const seedProviderEnabled = (): Record<ProviderId, boolean> =>
 		boolean
 	>;
 
+const copyCustomModelIds = (
+	input?: Partial<Record<ProviderId, ReadonlyArray<string>>>,
+): Record<ProviderId, ReadonlyArray<string>> => {
+	const result = {} as Record<ProviderId, ReadonlyArray<string>>;
+	for (const provider of PROVIDERS) {
+		result[provider] = [...(input?.[provider] ?? [])];
+	}
+	return result;
+};
+
 const mergeModelEnabled = (
 	input: Partial<Record<ProviderId, Partial<Record<string, boolean>>>>,
 ): ModelEnabledByProvider => {
@@ -147,6 +163,7 @@ const FALLBACK: SettingsSlice = {
 	onboardingCompleted: false,
 	providerEnabled: seedProviderEnabled(),
 	modelEnabledByProvider: defaultModelEnabledByProvider(),
+	customModelIdsByProvider: copyCustomModelIds(),
 	opencodeProviderVisible: {},
 	opencodeModelVisibleByProvider: {},
 	opencodeCustomProviders: [],
@@ -174,6 +191,7 @@ const fromFile = (file: SettingsFile): SettingsSlice => {
 		onboardingCompleted: file.onboardingCompleted,
 		providerEnabled: { ...seedProviderEnabled(), ...file.providerEnabled },
 		modelEnabledByProvider: mergeModelEnabled(file.modelEnabledByProvider),
+		customModelIdsByProvider: copyCustomModelIds(file.customModelIdsByProvider),
 		opencodeProviderVisible: { ...file.opencodeProviderVisible },
 		opencodeModelVisibleByProvider: Object.fromEntries(
 			Object.entries(file.opencodeModelVisibleByProvider).map(
@@ -443,6 +461,24 @@ const ACTIONS = {
 					...state.modelEnabledByProvider[providerId],
 					[modelId]: value,
 				},
+			},
+		})),
+	addCustomModelId: (providerId: ProviderId, modelId: string) =>
+		update((state) => ({
+			customModelIdsByProvider: {
+				...state.customModelIdsByProvider,
+				[providerId]: [
+					...new Set([...state.customModelIdsByProvider[providerId], modelId]),
+				],
+			},
+		})),
+	removeCustomModelId: (providerId: ProviderId, modelId: string) =>
+		update((state) => ({
+			customModelIdsByProvider: {
+				...state.customModelIdsByProvider,
+				[providerId]: state.customModelIdsByProvider[providerId].filter(
+					(id) => id !== modelId,
+				),
 			},
 		})),
 	setOpencodeProviderVisible: (providerId: string, value: boolean) =>

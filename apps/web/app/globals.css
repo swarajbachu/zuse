@@ -1,36 +1,35 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-  /* ---- memoize dark theme ----
-     The source components were authored light. We keep the original token NAMES (the
-     components reference them directly) but remap the values to memoize's
-     dark + lime palette. `natural-black`/`natural-white` stay true ink/paper
-     so the already-dark hero/footer keep light text; the surface tokens
-     (background, secondary, card) go dark and `primary` becomes lime. */
+  /* Color tokens resolve to switchable CSS vars defined in :root (light) and
+     .dark (dark) below, so components written against these tokens work in both
+     modes. `natural-black`/`natural-white` stay literal ink/paper. */
 
-  --color-background: oklch(0.17 0.004 260);
-  --color-foreground: oklch(0.955 0.004 260);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
 
-  /* True ink/paper — used for text-on-dark and intentional dark bands. */
   --color-natural-black: #0a0a0c;
   --color-natural-white: #f5f5f7;
 
-  --color-muted-foreground: oklch(0.72 0.006 260);
+  --color-muted-foreground: var(--muted-foreground);
 
-  /* Lime accent — memoize's signature (matches the desktop app). */
-  --color-primary: oklch(0.92 0.19 122);
-  --color-primary-foreground: oklch(0.2 0.03 122);
+  /* Lime accent — Zuse's signature (matches the desktop app). */
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
 
-  /* Elevated dark surfaces (cards, chips). Was #f7f7f7. */
-  --color-secondary: oklch(0.225 0.005 260);
-  --color-card: oklch(0.225 0.005 260);
-  --color-elevated: oklch(0.275 0.006 260);
+  --color-secondary: var(--secondary);
+  --color-card: var(--card);
+  --color-elevated: var(--elevated);
+  --color-border: var(--border);
 
-  --color-heading: oklch(0.96 0.004 260);
-  --color-charcoal: oklch(0.9 0.004 260);
-  --color-offwhite: oklch(0.2 0.004 260);
+  --color-heading: var(--heading);
+  --color-charcoal: var(--charcoal);
+  --color-offwhite: var(--offwhite);
 
   --color-dusty-red: #ff6464;
   --color-dusty-green: #5bd6a0;
@@ -57,60 +56,127 @@
   --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
   --font-dm-mono: var(--font-dm-mono);
+
+  /* Font aliases the design-development-studio components reference directly. */
+  --font-display: var(--font-geist);
+  --font-body: var(--font-inter);
+  --font-alternative: var(--font-schibsted-grotesk);
+
+  /* The template uses secondary/tertiary as accent shades; on our dark+lime
+     brand they resolve to the lime primary so ported components stay on-brand. */
+  --color-tertiary: var(--color-primary);
+
+  /* Accent + structural tokens the saas/agenforce/nodus templates reference so
+     their copied components render on-brand instead of uncolored. */
+  --color-brand: var(--primary);
+  --color-brand-primary: var(--primary);
+  --color-brand-secondary: var(--primary);
+  --color-divide: var(--border);
+  --color-dots: var(--border);
+  --color-canvas: var(--card);
+
+  --animate-cell-ripple: cell-ripple var(--duration, 200ms) ease-out none 1
+    var(--delay, 0ms);
+}
+
+@keyframes cell-ripple {
+	0% {
+		opacity: 0.4;
+	}
+	50% {
+		opacity: 0.8;
+	}
+	100% {
+		opacity: 0.4;
+	}
+}
+
+/* ---- Light theme ---- (also scopable via [data-theme="light"]) */
+:root,
+[data-theme="light"] {
+	--background: oklch(0.985 0.002 260);
+	--foreground: oklch(0.22 0.004 260);
+	--muted-foreground: oklch(0.52 0.006 260);
+	--primary: oklch(0.86 0.2 122);
+	--primary-foreground: oklch(0.24 0.05 122);
+	--secondary: oklch(0.955 0.003 260);
+	--card: oklch(1 0 0);
+	--elevated: oklch(0.97 0.003 260);
+	--border: oklch(0.9 0.004 260);
+	--heading: oklch(0.16 0.004 260);
+	--charcoal: oklch(0.28 0.004 260);
+	--offwhite: oklch(0.96 0.003 260);
+}
+
+/* ---- Dark theme (Zuse's default identity) ---- */
+.dark,
+[data-theme="dark"] {
+	--background: oklch(0.17 0.004 260);
+	--foreground: oklch(0.955 0.004 260);
+	--muted-foreground: oklch(0.72 0.006 260);
+	--primary: oklch(0.92 0.19 122);
+	--primary-foreground: oklch(0.2 0.03 122);
+	--secondary: oklch(0.225 0.005 260);
+	--card: oklch(0.225 0.005 260);
+	--elevated: oklch(0.275 0.006 260);
+	--border: oklch(1 0 0 / 0.1);
+	--heading: oklch(0.96 0.004 260);
+	--charcoal: oklch(0.9 0.004 260);
+	--offwhite: oklch(0.2 0.004 260);
 }
 
 body {
-  background: var(--color-background);
-  color: var(--color-foreground);
+	background: var(--color-background);
+	color: var(--color-foreground);
 }
 
 html {
-  scroll-behavior: smooth;
+	scroll-behavior: smooth;
 }
 
 @keyframes toc-label-change {
-  0% {
-    opacity: 0;
-    transform: translateY(4px);
-  }
+	0% {
+		opacity: 0;
+		transform: translateY(4px);
+	}
 
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
+	100% {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }
 
 @keyframes toc-popup-enter {
-  0% {
-    opacity: 0;
-    transform: translateY(14px) scale(0.98);
-  }
+	0% {
+		opacity: 0;
+		transform: translateY(14px) scale(0.98);
+	}
 
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+	100% {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
 }
 
 .animate-toc-label-change {
-  animation: toc-label-change 150ms ease-out both;
+	animation: toc-label-change 150ms ease-out both;
 }
 
 .animate-toc-popup-enter {
-  animation: toc-popup-enter 180ms ease-out both;
-  transform-origin: bottom center;
+	animation: toc-popup-enter 180ms ease-out both;
+	transform-origin: bottom center;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
+	html {
+		scroll-behavior: auto;
+	}
 
-  .animate-toc-popup-enter {
-    animation: none;
-  }
+	.animate-toc-popup-enter {
+		animation: none;
+	}
 
-  .animate-toc-label-change {
-    animation: none;
-  }
+	.animate-toc-label-change {
+		animation: none;
+	}
 }

@@ -31,6 +31,7 @@ export type View = "chat" | "settings";
  */
 export type SettingsSection =
 	| { readonly kind: "general" }
+	| { readonly kind: "defaults" }
 	| { readonly kind: "providers" }
 	| { readonly kind: "integrations" }
 	| { readonly kind: "mcp" }

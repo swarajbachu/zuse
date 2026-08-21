@@ -53,7 +53,9 @@ describe("availableProviderIds", () => {
 describe("reasoningValueForModel", () => {
 	test("falls back to the model default when a stored effort is unsupported", () => {
 		expect(
-			reasoningValueForModel("codex", "gpt-5.5", { reasoning: "ultra" }),
+			reasoningValueForModel("codex", "gpt-5.6-sol", {
+				reasoning: "unsupported",
+			}),
 		).toMatchObject({ value: "medium", label: "Medium" });
 	});
 });

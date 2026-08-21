@@ -98,30 +98,29 @@ describe("config-store settings coercion", () => {
 		);
 		expect(settings.modelEnabledByProvider.claude["claude-fable-5"]).toBe(true);
 		expect(settings.modelEnabledByProvider.claude["claude-opus-5"]).toBe(true);
-		expect(settings.modelEnabledByProvider.claude["claude-sonnet-4-6"]).toBe(
-			false,
-		);
 		expect(settings.modelEnabledByProvider.codex["gpt-5.6-sol"]).toBe(true);
 		expect(settings.modelEnabledByProvider.codex["gpt-5.6-terra"]).toBe(true);
 		expect(settings.modelEnabledByProvider.codex["gpt-5.6-luna"]).toBe(true);
-		expect(settings.modelEnabledByProvider.codex["gpt-5.5"]).toBe(true);
-		expect(settings.modelEnabledByProvider.codex["gpt-5.3-codex"]).toBe(false);
 		expect(settings.modelEnabledByProvider.grok["grok-4.6"]).toBe(true);
-		expect(settings.modelEnabledByProvider.grok["grok-4.5"]).toBe(true);
+		expect(settings.customModelIdsByProvider.claude).toEqual([]);
 	});
 
-	it("keeps valid model visibility overrides and drops unknown model ids", () => {
+	it("keeps valid visibility overrides and stores explicit custom ids", () => {
 		const settings = coerceSettings({
 			modelEnabledByProvider: {
 				codex: {
-					"gpt-5.3-codex": true,
+					"gpt-5.6-luna": false,
 					"not-real": true,
 				},
 			},
+			customModelIdsByProvider: {
+				codex: [" gpt-future ", "gpt-future", "gpt-5.6-sol", ""],
+			},
 		});
 
-		expect(settings.modelEnabledByProvider.codex["gpt-5.3-codex"]).toBe(true);
+		expect(settings.modelEnabledByProvider.codex["gpt-5.6-luna"]).toBe(false);
 		expect(settings.modelEnabledByProvider.codex["not-real"]).toBeUndefined();
+		expect(settings.customModelIdsByProvider.codex).toEqual(["gpt-future"]);
 	});
 
 	it("preserves valid appearance modes and drops invalid ones", () => {

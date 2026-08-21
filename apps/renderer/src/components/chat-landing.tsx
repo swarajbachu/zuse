@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { DitherWaveBackground } from "@repo/ui/dither";
 import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
 import {
 	type AttachmentRef,
@@ -1262,8 +1263,17 @@ export function ChatLanding() {
 	}
 
 	return (
-		<div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-10">
-			<div className="flex w-full max-w-3xl flex-col gap-4">
+		<div className="relative isolate flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-6 py-10">
+			<DitherWaveBackground
+				className="pointer-events-none absolute inset-x-0 bottom-0 h-[52%] opacity-90 dark:opacity-75"
+				color={[165, 205, 65]}
+				pixelSize={3}
+				waveAmplitude={0.25}
+				waveFrequency={2.6}
+				disableAnimation
+				enableMouseInteraction={false}
+			/>
+			<div className="relative z-10 flex w-full max-w-3xl flex-col gap-4">
 				<h1 className="text-center text-xl font-medium text-foreground/90">
 					{headline}
 				</h1>

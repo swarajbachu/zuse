@@ -1,5 +1,6 @@
 import type { EditorView } from "@codemirror/view";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { DitherButton } from "@repo/ui/dither";
 import {
 	type BooleanOptionDescriptor,
 	type BrowserAnnotation,
@@ -55,6 +56,7 @@ import {
 	MenuRadioItem,
 	MenuTrigger,
 } from "~/components/ui/menu";
+import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast.tsx";
 import {
@@ -1541,20 +1543,29 @@ export function ChatComposer({
 									<Tooltip>
 										<TooltipTrigger
 											render={
-												<Button
-													variant="default"
-													size="icon-sm"
+												<DitherButton
+													variant="gradient"
+													className="size-6 border border-primary/40 text-white"
 													onClick={() => void submit()}
-													disabled={!canSend}
-													loading={uploadingAttachmentCount > 0}
+													disabled={!canSend || uploadingAttachmentCount > 0}
+													aria-disabled={
+														uploadingAttachmentCount > 0 || undefined
+													}
 													aria-label={
 														uploadingAttachmentCount > 0
 															? "Uploading image"
 															: "Send"
 													}
 												>
-													<HugeiconsIcon icon={SentIcon} className="size-3.5" />
-												</Button>
+													{uploadingAttachmentCount > 0 ? (
+														<Spinner className="size-3.5" />
+													) : (
+														<HugeiconsIcon
+															icon={SentIcon}
+															className="size-3.5"
+														/>
+													)}
+												</DitherButton>
 											}
 										/>
 										<TooltipPopup>

@@ -1,4 +1,4 @@
-import { Schema, Struct } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
 import {
@@ -98,6 +98,27 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 		Schema.Record(Schema.String, Schema.Boolean),
 	),
 	/**
+	 * Unlisted model ids explicitly added by the user. These stay separate from
+	 * catalog visibility so removing a retired built-in cannot turn it into a
+	 * custom model on the next launch.
+	 */
+	customModelIdsByProvider: Schema.Record(
+		ProviderId,
+		Schema.Array(Schema.String),
+	).pipe(
+		Schema.withDecodingDefaultType(
+			Effect.succeed({
+				claude: [],
+				codex: [],
+				grok: [],
+				gemini: [],
+				cursor: [],
+				opencode: [],
+				kiro: [],
+			}),
+		),
+	),
+	/**
 	 * OpenCode is a meta-harness fronting ~150 model providers. These four
 	 * fields drive the in-app OpenCode provider manager. They are keyed by
 	 * opencode's own *sub-provider* id (e.g. `"openai"`, `"openrouter"`, or a
@@ -174,6 +195,9 @@ export const SettingsPatch = Schema.Struct({
 	providerEnabled: Schema.optional(Schema.Record(ProviderId, Schema.Boolean)),
 	modelEnabledByProvider: Schema.optional(
 		Schema.Record(ProviderId, Schema.Record(Schema.String, Schema.Boolean)),
+	),
+	customModelIdsByProvider: Schema.optional(
+		Schema.Record(ProviderId, Schema.Array(Schema.String)),
 	),
 	opencodeProviderVisible: Schema.optional(
 		Schema.Record(Schema.String, Schema.Boolean),

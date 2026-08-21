@@ -1,31 +1,35 @@
-import { getSEO } from "@/lib/seo";
-import { AboutSection } from "@/components/about";
-import { BentoOne } from "@/components/bento-one";
-import { Comparison } from "@/components/comparison";
-import { DownloadShortcut } from "@/components/download-shortcut";
 import { FAQ } from "@/components/faq";
-import { Hero } from "@/components/hero";
-import { LogoCloud } from "@/components/logo-cloud";
-import { Projects } from "@/components/projects";
+import { Hero } from "@/components/landing/hero";
+import { HorizontalLine } from "@/components/landing/line";
+import { ProductShowcase } from "@/components/landing/product-showcase";
+import { HomepageStructuredData } from "@/components/seo/homepage-structured-data";
+import { getSEO } from "@/lib/seo";
 
 export const metadata = getSEO({
-  title: "Token max every coding agent",
-  description:
-    "Zuse (Beta) is a local-first desktop workspace for macOS and Linux developers who want to code all day, max out their AI subscriptions, and ship more parallel attempts safely.",
-  path: "/",
+	absoluteTitle: "Zuse — Open-source autonomous coding workspace",
+	description:
+		"Run autonomous coding agents locally or in live cloud workspaces with Zuse. Plan, code, test, review diffs, and prepare pull requests using your existing AI subscriptions.",
+	path: "/",
+	keywords: [
+		"open source coding agent",
+		"autonomous coding workspace",
+		"AI coding agents",
+		"cloud coding agents",
+		"Claude Code GUI",
+		"Codex desktop app",
+		"coding agent orchestration",
+		"Git worktree management",
+	],
 });
 
 export default function Home() {
-  return (
-    <section className="flex max-w-screen overflow-x-hidden flex-col items-center justify-center">
-      <DownloadShortcut />
-      <Hero />
-      <LogoCloud />
-      <BentoOne />
-      <Projects />
-      <Comparison />
-      <AboutSection />
-      <FAQ />
-    </section>
-  );
+	return (
+		<main>
+			<HomepageStructuredData />
+			<Hero />
+			<ProductShowcase />
+			<HorizontalLine />
+			<FAQ />
+		</main>
+	);
 }

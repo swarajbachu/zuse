@@ -60,6 +60,7 @@ import { type SettingsSection, useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { BlurredEmail } from "./blurred-email.tsx";
 import { BrowserProfileSelect } from "./browser-profile-select.tsx";
+import { ModelPicker } from "./model-picker.tsx";
 import { ProviderCard } from "./provider-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
@@ -84,7 +85,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar.tsx";
 import { Button } from "./ui/button.tsx";
 import { Card } from "./ui/card.tsx";
-import { Frame, FrameFooter, FrameHeader } from "./ui/frame.tsx";
+import { Frame, FrameHeader } from "./ui/frame.tsx";
 import {
 	Select,
 	SelectItem,
@@ -114,6 +115,12 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
 		label: "Providers",
 		Icon: PackageIcon,
 		section: { kind: "providers" },
+	},
+	{
+		id: "defaults",
+		label: "Default models",
+		Icon: TaskDone01Icon,
+		section: { kind: "defaults" },
 	},
 	{
 		id: "mcp",
@@ -233,7 +240,9 @@ export function SettingsPage() {
 					<div
 						className={cn(
 							"mx-auto flex w-full flex-col gap-4",
-							visibleSection.kind === "diagnostics"
+							visibleSection.kind === "diagnostics" ||
+								visibleSection.kind === "providers" ||
+								visibleSection.kind === "defaults"
 								? "max-w-6xl"
 								: visibleSection.kind === "pokedex"
 									? "max-w-5xl"
@@ -368,6 +377,12 @@ function SectionTitle({
 					"Verify what's installed, signed in, and which subscription each provider runs on.",
 			};
 		}
+		if (section.kind === "defaults") {
+			return {
+				title: "Default models",
+				subtitle: "Choose how new chats start.",
+			};
+		}
 		if (section.kind === "integrations") {
 			return {
 				title: "Integrations",
@@ -470,6 +485,7 @@ function InfoTip({ content }: { content: React.ReactNode }) {
 
 function Pane({ section }: { section: SettingsSection }) {
 	if (section.kind === "general") return <GeneralPane />;
+	if (section.kind === "defaults") return <DefaultModelsPane />;
 	if (section.kind === "providers") return <ProvidersPane />;
 	if (section.kind === "integrations") return <LinearIntegrationsPane />;
 	if (section.kind === "mcp") return <McpServersPane />;
@@ -970,10 +986,6 @@ const APPEARANCE_OPTIONS: ReadonlyArray<{
 function GeneralPane() {
 	const appearanceMode = useSettingsStore((s) => s.appearanceMode);
 	const setAppearanceMode = useSettingsStore((s) => s.setAppearanceMode);
-	const defaultRuntimeMode = useSettingsStore((s) => s.defaultRuntimeMode);
-	const setDefaultRuntimeMode = useSettingsStore(
-		(s) => s.setDefaultRuntimeMode,
-	);
 	const completionSoundEnabled = useSettingsStore(
 		(s) => s.completionSoundEnabled,
 	);
@@ -1163,44 +1175,7 @@ function GeneralPane() {
 				/>
 			</SettingsGroup>
 
-			<SettingsGroup
-				title="Agent defaults"
-				description="Defaults used when a new chat or background agent starts."
-			>
-				<SettingsRow
-					title="Default permission mode"
-					description="How the agent handles tool calls in new sessions. Each session can override this from its composer."
-					action={
-						<Select
-							value={defaultRuntimeMode}
-							onValueChange={(v) => setDefaultRuntimeMode(v as RuntimeMode)}
-							items={MODES_ORDER.map((m) => ({
-								label: MODE_META[m].label,
-								value: m,
-							}))}
-						>
-							<SelectTrigger size="sm" className="w-[180px]">
-								<SelectValue />
-							</SelectTrigger>
-							<SelectPopup>
-								{MODES_ORDER.map((mode) => {
-									const m = MODE_META[mode];
-									return (
-										<SelectItem key={mode} value={mode}>
-											<div className="flex flex-col">
-												<span>{m.label}</span>
-												<span className="text-[10px] text-muted-foreground">
-													{m.description}
-												</span>
-											</div>
-										</SelectItem>
-									);
-								})}
-							</SelectPopup>
-						</Select>
-					}
-				/>
-
+			<SettingsGroup title="Notifications">
 				<SettingsRow
 					title="Agent completion sound"
 					description="Play a short sound when any agent turn finishes, including agents working in background chats."
@@ -1355,6 +1330,58 @@ function GeneralPane() {
 	);
 }
 
+function DefaultModelsPane() {
+	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
+	const defaultRuntimeMode = useSettingsStore((s) => s.defaultRuntimeMode);
+	const setDefaultRuntimeMode = useSettingsStore(
+		(s) => s.setDefaultRuntimeMode,
+	);
+
+	return (
+		<SettingsCard className="divide-y divide-border/60 bg-transparent">
+			<SettingsRow
+				title="Default model"
+				description={`Model for new chats · ${PROVIDER_LABEL[defaultProviderId]}`}
+				action={
+					<ModelPicker
+						mode="default"
+						triggerClassName="h-9 min-w-72 justify-between rounded-lg border border-border/70 bg-background px-3 text-sm hover:bg-muted/40"
+					/>
+				}
+				className="min-h-24 justify-center px-5 py-5"
+			/>
+			<SettingsRow
+				title="Default permission mode"
+				description="How new chats handle tool calls. Each chat can override this from the composer."
+				action={
+					<Select
+						value={defaultRuntimeMode}
+						onValueChange={(value) =>
+							setDefaultRuntimeMode(value as RuntimeMode)
+						}
+						items={MODES_ORDER.map((mode) => ({
+							label: MODE_META[mode].label,
+							value: mode,
+						}))}
+					>
+						<SelectTrigger size="sm" className="h-9 w-72 rounded-lg px-3">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectPopup>
+							{MODES_ORDER.map((mode) => (
+								<SelectItem key={mode} value={mode}>
+									{MODE_META[mode].label}
+								</SelectItem>
+							))}
+						</SelectPopup>
+					</Select>
+				}
+				className="min-h-24 justify-center px-5 py-5"
+			/>
+		</SettingsCard>
+	);
+}
+
 function ProvidersPane() {
 	const environmentId = useEnvironmentCatalogStore(
 		(state) => state.activeEnvironmentId,
@@ -1365,9 +1392,6 @@ function ProvidersPane() {
 	const error = useProvidersStore((s) => s.error);
 	const load = useProvidersStore((s) => s.load);
 	const refresh = useProvidersStore((s) => s.refresh);
-	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
-	const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider);
-	const providerEnabled = useSettingsStore((s) => s.providerEnabled);
 
 	// Refresh once when the pane opens. We deliberately do NOT re-poll on every
 	// window focus: `refresh()` → `agent.availability` reads the OS keychain
@@ -1418,124 +1442,67 @@ function ProvidersPane() {
 					: "Not checked yet";
 
 	return (
-		<>
-			<Frame>
-				<FrameHeader className="flex flex-row items-center justify-between px-2 py-2 w-full">
-					<p className="text-sm font-semibold text-foreground">
-						Installed providers
-					</p>
-					<div className="flex items-center gap-2">
-						<span className="text-[11px] text-muted-foreground/80">
-							{statusLabel}
-						</span>
-						<Button
-							variant="ghost"
-							size="icon-xs"
-							onClick={() => void refresh()}
-							disabled={loading}
-							aria-label="Refresh provider status"
-						>
-							<RefreshIcon
-								className={cn("size-3.5", loading && "animate-spin")}
-								aria-hidden
-							/>
-						</Button>
-					</div>
-				</FrameHeader>
-				<div className="flex flex-col gap-2 px-2 pb-2">
-					<div
-						role="tablist"
-						aria-label="Provider settings"
-						className="flex min-w-0 gap-1 overflow-x-auto border-b border-border/50"
-					>
-						{providers.map((pid) => {
-							const selected = selectedProvider === pid;
-							return (
-								<button
-									key={pid}
-									type="button"
-									role="tab"
-									aria-selected={selected}
-									onClick={() => setSelectedProvider(pid)}
-									className={cn(
-										"flex min-h-7 shrink-0 items-center gap-1.5 border-b px-2 text-xs transition-colors",
-										selected
-											? "border-primary text-foreground"
-											: "border-transparent text-muted-foreground hover:text-foreground",
-									)}
-								>
-									<ProviderIcon providerId={pid} className="size-3.5" />
-									<span>{PROVIDER_LABEL[pid]}</span>
-									{(pid === "opencode" || pid === "kiro") && (
-										<span className="rounded border border-border/60 bg-muted/70 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-											New
-										</span>
-									)}
-								</button>
-							);
-						})}
-					</div>
-					<Card>
-						<ProviderCard
-							environmentId={environmentId}
-							providerId={selectedProvider}
-							availability={availabilityById.get(selectedProvider)}
-							loading={isInitialProviderAvailabilityLoading(
-								loading,
-								availabilityLoaded,
-							)}
-						/>
-					</Card>
-				</div>
-				<FrameFooter className="px-2 py-1 w-full">
-					<p className="text-xs leading-relaxed text-muted-foreground">
-						Zuse (Beta) uses your existing CLI credentials — Claude Code, Codex,
-						Grok, Gemini, Cursor, OpenCode, and Kiro all sign in through their
-						own login flows.
-					</p>
-				</FrameFooter>
-			</Frame>
-
-			<SettingsFrame
-				title="Default agent"
-				description="Which provider new chats start in. Change per session from the composer."
-				flush
-			>
+		<div className="flex min-h-0 flex-col">
+			<div className="flex min-h-10 items-center justify-between border-b border-border/60">
 				<div
-					role="radiogroup"
-					aria-label="Default agent"
-					className="flex flex-col divide-y divide-border/40"
+					role="tablist"
+					aria-label="Provider settings"
+					className="flex min-w-0 flex-1 gap-5 overflow-x-auto"
 				>
-					{providers
-						.filter((pid) => {
-							// Hide providers the user has toggled off. Grok is allowed once
-							// the probe confirms a usable paid tier, including X Premium+.
-							if (providerEnabled[pid] === false) return false;
-							return true;
-						})
-						.map((pid) => {
-							const selected = pid === defaultProviderId;
-							return (
-								// biome-ignore lint/a11y/useSemanticElements: custom radio remains a native focusable button.
-								<button
-									key={pid}
-									type="button"
-									role="radio"
-									aria-checked={selected}
-									onClick={() => setDefaultProvider(pid)}
-									className="group flex min-h-9 w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/40"
-								>
-									<ProviderIcon providerId={pid} className="size-4 shrink-0" />
-									<span className="flex-1 truncate text-xs font-medium text-foreground">
-										{PROVIDER_LABEL[pid]}
-									</span>
-									<RadioCheck active={selected} />
-								</button>
-							);
-						})}
+					{providers.map((pid) => {
+						const selected = selectedProvider === pid;
+						return (
+							<button
+								key={pid}
+								type="button"
+								role="tab"
+								aria-selected={selected}
+								onClick={() => setSelectedProvider(pid)}
+								className={cn(
+									"flex min-h-10 shrink-0 items-center gap-2 border-b-2 px-0.5 text-sm transition-colors",
+									selected
+										? "border-primary text-foreground"
+										: "border-transparent text-muted-foreground hover:text-foreground",
+								)}
+							>
+								<ProviderIcon providerId={pid} className="size-4" />
+								<span>{PROVIDER_LABEL[pid]}</span>
+							</button>
+						);
+					})}
 				</div>
-			</SettingsFrame>
-		</>
+				<div className="ml-4 flex shrink-0 items-center gap-2">
+					<span className="text-[11px] text-muted-foreground/80">
+						{statusLabel}
+					</span>
+					<Button
+						variant="ghost"
+						size="icon-xs"
+						onClick={() => void refresh()}
+						disabled={loading}
+						aria-label="Refresh provider status"
+					>
+						<RefreshIcon
+							className={cn("size-3.5", loading && "animate-spin")}
+							aria-hidden
+						/>
+					</Button>
+				</div>
+			</div>
+
+			<div className="min-h-0 py-5">
+				<ProviderCard
+					environmentId={environmentId}
+					providerId={selectedProvider}
+					availability={availabilityById.get(selectedProvider)}
+					loading={isInitialProviderAvailabilityLoading(
+						loading,
+						availabilityLoaded,
+					)}
+					layout="page"
+				/>
+			</div>
+		</div>
 	);
 }
 

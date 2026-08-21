@@ -661,10 +661,15 @@ describe("SettingsFile round-trip", () => {
 			},
 			modelEnabledByProvider: {
 				...defaultModelEnabledByProvider(),
-				codex: {
-					...defaultModelEnabledByProvider().codex,
-					"gpt-5.3-codex": true,
-				},
+			},
+			customModelIdsByProvider: {
+				claude: ["claude-haiku-4-5"],
+				codex: [],
+				grok: [],
+				cursor: [],
+				gemini: [],
+				opencode: [],
+				kiro: [],
 			},
 			opencodeProviderVisible: { openai: true, openrouter: false },
 			opencodeModelVisibleByProvider: {
@@ -772,10 +777,12 @@ describe("SettingsFile round-trip", () => {
 
 describe("model visibility helpers", () => {
 	it("exposes GPT-5.6 variants in quality order with their supported reasoning efforts", () => {
-		expect(
-			MODELS_BY_PROVIDER.codex.slice(0, 4).map((model) => model.id),
-		).toEqual(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"]);
-		expect(defaultModelFor("codex")).toBe("gpt-5.5");
+		expect(MODELS_BY_PROVIDER.codex.map((model) => model.id)).toEqual([
+			"gpt-5.6-sol",
+			"gpt-5.6-terra",
+			"gpt-5.6-luna",
+		]);
+		expect(defaultModelFor("codex")).toBe("gpt-5.6-sol");
 
 		const reasoningOptions = (modelId: string) => {
 			const descriptor = MODELS_BY_PROVIDER.codex
@@ -787,13 +794,6 @@ describe("model visibility helpers", () => {
 				? descriptor.options.map(({ id, label }) => ({ id, label }))
 				: [];
 		};
-
-		expect(reasoningOptions("gpt-5.5")).toEqual([
-			{ id: "low", label: "Low" },
-			{ id: "medium", label: "Medium" },
-			{ id: "high", label: "High" },
-			{ id: "xhigh", label: "Extra High" },
-		]);
 
 		const gpt56Options = [
 			{ id: "low", label: "Low" },
@@ -830,26 +830,27 @@ describe("model visibility helpers", () => {
 			MODELS_BY_PROVIDER.claude.find((m) => m.id === "claude-opus-5")
 				?.badgeLabel,
 		).toBe("New");
-		expect(isModelVisible("claude", "claude-sonnet-4-6")).toBe(false);
+		expect(MODELS_BY_PROVIDER.claude.map((model) => model.id)).toEqual([
+			"claude-fable-5",
+			"claude-opus-5",
+			"claude-sonnet-5",
+		]);
 	});
 
-	it("filters hidden models unless they are explicitly enabled", () => {
-		expect(isModelVisible("codex", "gpt-5.3-codex")).toBe(false);
-		expect(
-			visibleModelsForProvider("codex").some(
-				(model) => model.id === "gpt-5.3-codex",
-			),
-		).toBe(false);
-
-		const overrides = defaultModelEnabledByProvider();
-		overrides.codex["gpt-5.3-codex"] = true;
-
-		expect(isModelVisible("codex", "gpt-5.3-codex", overrides)).toBe(true);
-		expect(
-			visibleModelsForProvider("codex", overrides).some(
-				(model) => model.id === "gpt-5.3-codex",
-			),
-		).toBe(true);
+	it("keeps retired models out of every built-in catalog", () => {
+		for (const models of Object.values(MODELS_BY_PROVIDER)) {
+			expect(models.every((model) => model.defaultVisible !== false)).toBe(
+				true,
+			);
+		}
+		expect(MODELS_BY_PROVIDER.kiro.map((model) => model.id)).toEqual([
+			"auto",
+			"claude-opus-5",
+			"claude-sonnet-5",
+			"gpt-5.6-sol",
+			"gpt-5.6-terra",
+			"gpt-5.6-luna",
+		]);
 	});
 
 	it("surfaces current Grok models without changing the Grok default", () => {
@@ -858,23 +859,49 @@ describe("model visibility helpers", () => {
 		expect(
 			visibleModelsForProvider("grok").some((m) => m.id === "grok-4.6"),
 		).toBe(true);
-		expect(MODELS_BY_PROVIDER.grok.some((m) => m.id === "grok-4.5")).toBe(true);
-		expect(
-			visibleModelsForProvider("grok").some((m) => m.id === "grok-4.5"),
-		).toBe(true);
+		expect(MODELS_BY_PROVIDER.grok.some((m) => m.id === "grok-4.5")).toBe(
+			false,
+		);
 		expect(resolveModelSlug("grok", "grok-4.6-latest")).toBe("grok-4.6");
-		expect(resolveModelSlug("grok", "grok-4.5-latest")).toBe("grok-4.5");
 		expect(resolveModelSlug("grok", "grok-build-latest")).toBe("grok-4.6");
 	});
 
-	it("can include a hidden selected model without making all hidden models visible", () => {
-		const models = visibleModelsForProvider("codex", undefined, {
-			includeModelId: "gpt-5.3-codex",
-		});
-		expect(models.some((model) => model.id === "gpt-5.3-codex")).toBe(true);
-		expect(models.some((model) => model.id === "gpt-5.3-codex-spark")).toBe(
-			false,
+	it("promotes Ox Alpha alongside the current OpenCode default", () => {
+		expect(defaultModelFor("opencode")).toBe("opencode/claude-sonnet-5");
+		const oxAlpha = MODELS_BY_PROVIDER.opencode.find(
+			(model) => model.id === "opencode/x-preview-f-free",
 		);
+		expect(oxAlpha).toMatchObject({
+			label: "OpenCode · Ox Alpha Free",
+			badgeLabel: "Free",
+			supportsPlanMode: true,
+		});
+		expect(oxAlpha?.optionDescriptors).toEqual([
+			{
+				kind: "select",
+				id: "contextWindow",
+				label: "Context Window",
+				options: [{ id: "1m", label: "1M" }],
+				defaultId: "1m",
+			},
+		]);
+	});
+
+	it("uses the current Cursor catalog and Composer 2.5 default", () => {
+		expect(defaultModelFor("cursor")).toBe("composer-2.5");
+		expect(MODELS_BY_PROVIDER.cursor.map((model) => model.id)).toEqual([
+			"default",
+			"composer-2.5",
+			"claude-fable-5",
+			"claude-opus-5",
+			"claude-sonnet-5",
+			"gpt-5.6-sol",
+			"gpt-5.6-terra",
+			"gpt-5.6-luna",
+			"gemini-3.1-pro",
+			"gemini-3.7-flash",
+			"grok-4.6",
+		]);
 	});
 });
 

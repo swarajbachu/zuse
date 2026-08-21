@@ -31,17 +31,7 @@ import {
 	useState,
 } from "react";
 import { overlaySurface } from "~/components/ui/overlay-surface";
-import {
-	filterModelPickerRecents,
-	isModelPickerProviderVisible,
-} from "~/lib/model-picker-availability";
-import {
-	type ModelPickerEvent,
-	type ModelPickerRecent,
-	pushModelPickerEvent,
-	readModelPickerEvents,
-	topRecents,
-} from "~/lib/model-picker-recents";
+import { isModelPickerProviderVisible } from "~/lib/model-picker-availability";
 import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks.ts";
 import { useSettingsStore } from "~/lib/settings-client-bus.ts";
 import { cn } from "~/lib/utils";
@@ -88,6 +78,19 @@ interface ModelPickerEntry {
 
 type Scope = ProviderId | "all";
 
+const RETIRED_KIRO_MODEL_IDS = new Set([
+	"claude-opus-4.8",
+	"claude-opus-4.7",
+	"claude-opus-4.6",
+	"claude-sonnet-4.6",
+	"claude-sonnet-4.5",
+	"claude-haiku-4.5",
+	"minimax-m2.5",
+	"glm-5",
+	"deepseek-3.2",
+	"qwen3-coder-next",
+]);
+
 type ModelPickerProps =
 	| {
 			mode: "session";
@@ -97,10 +100,12 @@ type ModelPickerProps =
 			runtimeMode: RuntimeMode;
 			providerId: ProviderId;
 			currentModel: string;
+			triggerClassName?: string;
 			onOpenChange?: (open: boolean) => void;
 	  }
 	| {
 			mode: "default";
+			triggerClassName?: string;
 			onOpenChange?: (open: boolean) => void;
 	  };
 
@@ -121,6 +126,9 @@ export function ModelPicker(props: ModelPickerProps) {
 	const providerEnabled = useSettingsStore((s) => s.providerEnabled);
 	const modelEnabledByProvider = useSettingsStore(
 		(s) => s.modelEnabledByProvider,
+	);
+	const customModelIdsByProvider = useSettingsStore(
+		(s) => s.customModelIdsByProvider,
 	);
 	const opencodeProviderVisible = useSettingsStore(
 		(s) => s.opencodeProviderVisible,
@@ -167,7 +175,6 @@ export function ModelPicker(props: ModelPickerProps) {
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [scope, setScope] = useState<Scope>("all");
-	const [events, setEvents] = useState<ModelPickerEvent[]>([]);
 	// Inline feedback for failed picks. The session-mode handlers
 	// (createSession / setSessionProvider / setSessionModel) used to fire-
 	// and-forget, so a failed provider startup just closed the popover with no
@@ -187,7 +194,6 @@ export function ModelPicker(props: ModelPickerProps) {
 	useEffect(() => {
 		if (open) {
 			setQuery("");
-			setEvents(readModelPickerEvents());
 			setScope("all");
 			setPickError(null);
 			setPicking(false);
@@ -205,6 +211,21 @@ export function ModelPicker(props: ModelPickerProps) {
 				contextWindowLabel?: string;
 			}
 		> => {
+			const appendCustomModels = (
+				models: ReadonlyArray<
+					Pick<ModelOption, "id" | "label" | "badgeLabel"> & {
+						contextWindowLabel?: string;
+					}
+				>,
+			) => {
+				const existingIds = new Set(models.map((model) => model.id));
+				return [
+					...models,
+					...customModelIdsByProvider[pid]
+						.filter((modelId) => !existingIds.has(modelId))
+						.map((modelId) => ({ id: modelId, label: modelId })),
+				];
+			};
 			if (pid === "kiro" && kiroInventory !== null) {
 				// Live Kiro catalog from control-plane / CLI. Prefer it over the
 				// static seed so tier/region-gated models appear correctly.
@@ -213,33 +234,44 @@ export function ModelPicker(props: ModelPickerProps) {
 				const seedById = new Map(
 					(MODELS_BY_PROVIDER.kiro ?? []).map((m) => [m.id, m] as const),
 				);
-				return kiroInventory.models.map((m) => {
-					const seed = seedById.get(m.id);
-					const contextWindowLabel =
-						typeof m.contextWindow === "number" && m.contextWindow >= 1_000_000
-							? "1M"
-							: undefined;
-					// Live inventory owns the badge column: credit multipliers only.
-					// Do not fall back to seed "Experimental" — that mixed badge types
-					// (2.4× next to EXPERIMENTAL) when a model had a 1× / missing rate.
-					const badgeLabel =
-						m.rateMultiplier !== null && m.rateMultiplier !== 1
-							? `${m.rateMultiplier}×`
-							: undefined;
-					return {
-						id: m.id,
-						label: seed?.label ?? m.label,
-						...(badgeLabel !== undefined ? { badgeLabel } : {}),
-						...(contextWindowLabel !== undefined ? { contextWindowLabel } : {}),
-					};
-				});
+				return appendCustomModels(
+					kiroInventory.models
+						.filter((model) => !RETIRED_KIRO_MODEL_IDS.has(model.id))
+						.map((m) => {
+							const seed = seedById.get(m.id);
+							const contextWindowLabel =
+								typeof m.contextWindow === "number" &&
+								m.contextWindow >= 1_000_000
+									? "1M"
+									: undefined;
+							// Live inventory owns the badge column: credit multipliers only.
+							// Do not fall back to seed "Experimental" — that mixed badge types
+							// (2.4× next to EXPERIMENTAL) when a model had a 1× / missing rate.
+							const badgeLabel =
+								m.rateMultiplier !== null && m.rateMultiplier !== 1
+									? `${m.rateMultiplier}×`
+									: undefined;
+							return {
+								id: m.id,
+								label: seed?.label ?? m.label,
+								...(badgeLabel !== undefined ? { badgeLabel } : {}),
+								...(contextWindowLabel !== undefined
+									? { contextWindowLabel }
+									: {}),
+							};
+						}),
+				);
 			}
 			if (pid !== "opencode" || opencodeInventory === null) {
-				return MODELS_BY_PROVIDER[pid] ?? [];
+				return appendCustomModels(MODELS_BY_PROVIDER[pid] ?? []);
 			}
+			const seedById = new Map(
+				MODELS_BY_PROVIDER.opencode.map((m) => [m.id, m] as const),
+			);
 			// Only connected providers carry usable models, and the OpenCode
 			// provider manager lets the user hide connected providers / individual
-			// models from the picker. Respect both here (missing entry ⇒ visible).
+			// models from the picker. Respect both here (missing entry ⇒ visible),
+			// while retaining curated launch labels and badges for known live models.
 			return opencodeInventory.providers
 				.filter((p) => p.connected && opencodeProviderVisible[p.id] !== false)
 				.flatMap((p) =>
@@ -247,10 +279,20 @@ export function ModelPicker(props: ModelPickerProps) {
 						.filter(
 							(m) => opencodeModelVisibleByProvider[p.id]?.[m.id] !== false,
 						)
-						.map((m) => ({ id: m.id, label: m.label })),
+						.map((m) => {
+							const seed = seedById.get(m.id);
+							return {
+								id: m.id,
+								label: seed?.label ?? m.label,
+								...(seed?.badgeLabel !== undefined
+									? { badgeLabel: seed.badgeLabel }
+									: {}),
+							};
+						}),
 				);
 		},
 		[
+			customModelIdsByProvider,
 			kiroInventory,
 			opencodeInventory,
 			opencodeProviderVisible,
@@ -267,20 +309,25 @@ export function ModelPicker(props: ModelPickerProps) {
 	const pickableProviders = useMemo<ReadonlyArray<ProviderId>>(() => {
 		return (
 			Object.keys(MODELS_BY_PROVIDER) as ReadonlyArray<ProviderId>
-		).filter((pid) =>
-			isModelPickerProviderVisible({
+		).filter((pid) => {
+			// Settings must keep the selected provider's catalog editable even when
+			// its local runtime is signed out. Session pickers remain restricted to
+			// providers that can actually start a session.
+			if (isDefault && pid === providerId) return true;
+			return isModelPickerProviderVisible({
 				providerId: pid,
 				availability: availabilityById.get(pid),
 				providerEnabled,
 				availabilityLoaded,
-			}),
-		);
-	}, [providerEnabled, availabilityById, availabilityLoaded]);
-	const visibleProviderSet = useMemo(
-		() => new Set<ProviderId>(pickableProviders),
-		[pickableProviders],
-	);
-
+			});
+		});
+	}, [
+		isDefault,
+		providerId,
+		providerEnabled,
+		availabilityById,
+		availabilityLoaded,
+	]);
 	const allModels = useMemo<ModelPickerEntry[]>(() => {
 		const out: ModelPickerEntry[] = [];
 		for (const pid of pickableProviders) {
@@ -346,29 +393,6 @@ export function ModelPicker(props: ModelPickerProps) {
 		});
 	}, [allModels, scope, query]);
 
-	const scopedRecents = useMemo<
-		Array<ModelPickerEntry & { count: number }>
-	>(() => {
-		const top: ModelPickerRecent[] = filterModelPickerRecents(
-			topRecents(events, scope, 4),
-			visibleProviderSet,
-		);
-		const out: Array<ModelPickerEntry & { count: number }> = [];
-		for (const r of top) {
-			const match = allModels.find(
-				(m) => m.providerId === r.providerId && m.modelId === r.modelId,
-			);
-			if (match === undefined) continue;
-			if (
-				!isModelVisible(match.providerId, match.modelId, modelEnabledByProvider)
-			) {
-				continue;
-			}
-			out.push({ ...match, count: r.count });
-		}
-		return out;
-	}, [events, scope, allModels, modelEnabledByProvider, visibleProviderSet]);
-
 	const modelGroups = useMemo(() => {
 		if (scope !== "all") return [];
 		const order: ProviderId[] = [
@@ -386,7 +410,6 @@ export function ModelPicker(props: ModelPickerProps) {
 	const handlePick = async (pid: ProviderId, modelId: string) => {
 		if (isDefault) {
 			setDefaultProviderAndModel(pid, modelId);
-			pushModelPickerEvent({ providerId: pid, modelId });
 			setOpen(false);
 			return;
 		}
@@ -427,7 +450,6 @@ export function ModelPicker(props: ModelPickerProps) {
 					return;
 				}
 			}
-			pushModelPickerEvent({ providerId: pid, modelId });
 			setOpen(false);
 		} finally {
 			setPicking(false);
@@ -438,33 +460,19 @@ export function ModelPicker(props: ModelPickerProps) {
 		modelsForProvider(providerId).find((m) => m.id === currentModel)?.label ??
 		currentModel;
 
-	const showEmpty =
-		flatMatches.length === 0 &&
-		scopedRecents.length === 0 &&
-		modelGroups.length === 0;
+	const showEmpty = flatMatches.length === 0 && modelGroups.length === 0;
 
 	const inGroupedView = scope === "all" && query.trim() === "";
 
 	const shortcutTargets = useMemo<ModelPickerEntry[]>(() => {
 		const out: ModelPickerEntry[] = [];
-		for (const r of scopedRecents) {
-			out.push({
-				providerId: r.providerId,
-				modelId: r.modelId,
-				label: r.label,
-				...(r.badgeLabel !== undefined ? { badgeLabel: r.badgeLabel } : {}),
-				...(r.contextWindowLabel !== undefined
-					? { contextWindowLabel: r.contextWindowLabel }
-					: {}),
-			});
-		}
 		if (inGroupedView) {
 			for (const group of modelGroups) out.push(...group.models);
 		} else {
 			out.push(...flatMatches);
 		}
 		return out;
-	}, [scopedRecents, inGroupedView, modelGroups, flatMatches]);
+	}, [inGroupedView, modelGroups, flatMatches]);
 
 	// STABLE REFS — this is the fix so shortcuts actually work while the
 	// composer editor is focused and causing re-renders.
@@ -505,9 +513,16 @@ export function ModelPicker(props: ModelPickerProps) {
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger
-				className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs text-foreground hover:bg-muted/60 data-[popup-open]:bg-muted/60"
+				className={cn(
+					"flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs text-foreground hover:bg-muted/60 data-[popup-open]:bg-muted/60",
+					props.triggerClassName,
+				)}
 				aria-label="Change model"
-				title="Change model — applies to next message"
+				title={
+					isDefault
+						? "Change default model for new chats"
+						: "Change model — applies to next message"
+				}
 			>
 				<ProviderIcon providerId={providerId} className="size-3" />
 				<span>{currentLabel}</span>
@@ -583,38 +598,6 @@ export function ModelPicker(props: ModelPickerProps) {
 									<div className="px-3 py-6 text-center text-muted-foreground text-xs">
 										No models match.
 									</div>
-								)}
-
-								{scopedRecents.length > 0 && (
-									<>
-										<SectionLabel
-											title={
-												scope === "all"
-													? "recents"
-													: `recents in ${PROVIDER_CHIP_LABEL[scope]}`
-											}
-											meta="last 30 days"
-										/>
-										<div className="flex flex-col gap-0.5">
-											{scopedRecents.map((m) => (
-												<ModelRow
-													key={`recent-${m.providerId}-${m.modelId}`}
-													entry={m}
-													currentProviderId={providerId}
-													currentModelId={currentModel}
-													isFresh={isFresh}
-													onSelect={handlePick}
-													defaultProviderId={defaultProviderId}
-													defaultModelByProvider={defaultModelByProvider}
-													onSetDefault={setDefaultProviderAndModel}
-													countSuffix={`${m.count}×`}
-													showNowBadge
-													shortcut={shortcutFor(m.providerId, m.modelId)}
-													showProvider
-												/>
-											))}
-										</div>
-									</>
 								)}
 
 								{inGroupedView ? (
@@ -793,15 +776,10 @@ function ProviderSectionHeader({
 	);
 }
 
-function SectionLabel({ title, meta }: { title: string; meta?: string }) {
+function SectionLabel({ title }: { title: string }) {
 	return (
-		<div className="flex items-baseline justify-between px-2 pt-3 pb-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wider">
+		<div className="px-2 pt-3 pb-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wider">
 			<span>{title}</span>
-			{meta !== undefined && (
-				<span className="text-[9px] text-muted-foreground/70 normal-case tracking-normal">
-					{meta}
-				</span>
-			)}
 		</div>
 	);
 }
@@ -816,8 +794,6 @@ function ModelRow({
 	onSelect,
 	onSetDefault,
 	dense = false,
-	countSuffix,
-	showNowBadge = false,
 	shortcut,
 	showProvider = false,
 }: {
@@ -830,8 +806,6 @@ function ModelRow({
 	onSelect: (providerId: ProviderId, modelId: string) => void;
 	onSetDefault: (providerId: ProviderId, modelId: string) => void;
 	dense?: boolean;
-	countSuffix?: string;
-	showNowBadge?: boolean;
 	shortcut?: number | null;
 	showProvider?: boolean;
 }) {
@@ -948,16 +922,6 @@ function ModelRow({
 					className="size-3.5 shrink-0 text-primary"
 					aria-label="Selected"
 				/>
-			)}
-			{countSuffix !== undefined && (
-				<span className="text-[11px] text-muted-foreground tabular-nums">
-					{countSuffix}
-				</span>
-			)}
-			{showNowBadge && isActive && (
-				<span className="rounded-[0.25rem] bg-primary/40 px-1.5 py-px font-semibold text-[9px] text-primary-foreground uppercase tracking-wide dark:bg-primary dark:font-medium dark:text-primary-foreground dark:tracking-wider">
-					now
-				</span>
 			)}
 			{shortcut !== undefined && shortcut !== null && (
 				<kbd className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-[0.25rem] bg-muted px-1 font-medium text-[10px] text-foreground/70 tabular-nums dark:h-auto dark:min-w-0 dark:bg-muted/70 dark:text-muted-foreground">
