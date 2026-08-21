@@ -152,8 +152,8 @@ const withTimeout = async <A>(
 };
 
 const modelSelection = (model: string | undefined): ModelSelection => {
-	const resolved = resolveModelSlug("cursor", model ?? "composer-2");
-	return { id: resolved === "default" ? "composer-2" : resolved };
+	const resolved = resolveModelSlug("cursor", model ?? "composer-2.5");
+	return { id: resolved === "default" ? "composer-2.5" : resolved };
 };
 
 const emitAssistant = (

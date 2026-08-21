@@ -1,10 +1,7 @@
 import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
-import {
-	filterModelPickerRecents,
-	isModelPickerProviderVisible,
-} from "../../src/lib/model-picker-availability.ts";
+import { isModelPickerProviderVisible } from "../../src/lib/model-picker-availability.ts";
 
 const availabilityFor = (
 	providerId: ProviderId,
@@ -134,23 +131,5 @@ describe("model picker provider visibility", () => {
 				providerEnabled: { cursor: true },
 			}),
 		).toBe(true);
-	});
-
-	it("filters recents from hidden providers", () => {
-		const recents = [
-			{ providerId: "claude" as const, modelId: "a" },
-			{ providerId: "codex" as const, modelId: "b" },
-			{ providerId: "gemini" as const, modelId: "c" },
-		];
-
-		expect(
-			filterModelPickerRecents(
-				recents,
-				new Set<ProviderId>(["claude", "gemini"]),
-			),
-		).toEqual([
-			{ providerId: "claude", modelId: "a" },
-			{ providerId: "gemini", modelId: "c" },
-		]);
 	});
 });

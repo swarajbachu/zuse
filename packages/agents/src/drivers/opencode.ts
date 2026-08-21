@@ -1362,7 +1362,12 @@ const fetchModelsDevDocs = async (): Promise<Map<string, string>> => {
 // that support tool calls; everything else just clutters the picker (and
 // would fail mid-session). Mirrors what the SDK type declares on `Model`
 // (status + capabilities.toolcall).
-const isUsableInventoryModel = (m: InventoryProviderModel): boolean => {
+const RETIRED_OPENCODE_MODEL_IDS = new Set(["claude-opus-4-5"]);
+
+export const isUsableOpencodeInventoryModel = (
+	m: InventoryProviderModel,
+): boolean => {
+	if (RETIRED_OPENCODE_MODEL_IDS.has(m.id)) return false;
 	if (m.status !== undefined && m.status !== "active") return false;
 	if (m.capabilities?.toolcall === false) return false;
 	return true;
@@ -1394,7 +1399,7 @@ const collectInventoryProviders = (
 					// that fills them in.
 					models: isConnected
 						? Object.values(p.models)
-								.filter(isUsableInventoryModel)
+								.filter(isUsableOpencodeInventoryModel)
 								.map((m) => ({
 									id: `${p.id}/${m.id}`,
 									label: m.name,

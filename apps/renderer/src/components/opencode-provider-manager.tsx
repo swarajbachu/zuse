@@ -1121,25 +1121,6 @@ function AdvancedSection({
 	const setProviderVisible = useSettingsStore(
 		(s) => s.setOpencodeProviderVisible,
 	);
-	const modelVisible = useSettingsStore(
-		(s) => s.opencodeModelVisibleByProvider,
-	);
-	const defaultModel = useSettingsStore(
-		(s) => s.defaultModelByProvider.opencode ?? "",
-	);
-	const setDefaultModel = useSettingsStore((s) => s.setDefaultModel);
-
-	const modelItems = useMemo(() => {
-		const items: { value: string; label: string }[] = [];
-		for (const p of connected) {
-			if (providerVisible[p.id] === false) continue;
-			for (const m of p.models) {
-				if (modelVisible[p.id]?.[m.id] === false) continue;
-				items.push({ value: m.id, label: `${p.name} · ${m.label}` });
-			}
-		}
-		return items;
-	}, [connected, providerVisible, modelVisible]);
 
 	return (
 		<Collapsible>
@@ -1156,29 +1137,6 @@ function AdvancedSection({
 			/>
 			<CollapsibleContent>
 				<div className="mt-2 flex flex-col gap-4">
-					{modelItems.length > 0 && (
-						<Field label="Default model">
-							<Select
-								value={defaultModel}
-								onValueChange={(next) =>
-									setDefaultModel("opencode", next as string)
-								}
-								items={modelItems}
-							>
-								<SelectTrigger size="sm">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectPopup>
-									{modelItems.map((it) => (
-										<SelectItem key={it.value} value={it.value}>
-											{it.label}
-										</SelectItem>
-									))}
-								</SelectPopup>
-							</Select>
-						</Field>
-					)}
-
 					<div className="flex flex-col gap-1.5">
 						<span className="text-[11px] font-medium text-muted-foreground">
 							Show in picker

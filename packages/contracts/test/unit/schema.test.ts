@@ -867,6 +867,45 @@ describe("model visibility helpers", () => {
 		expect(resolveModelSlug("grok", "grok-build-latest")).toBe("grok-4.6");
 	});
 
+	it("promotes Ox Alpha alongside the current OpenCode default", () => {
+		expect(defaultModelFor("opencode")).toBe("opencode/claude-sonnet-5");
+		const oxAlpha = MODELS_BY_PROVIDER.opencode.find(
+			(model) => model.id === "opencode/x-preview-f-free",
+		);
+		expect(oxAlpha).toMatchObject({
+			label: "OpenCode · Ox Alpha Free",
+			badgeLabel: "Free",
+			supportsPlanMode: true,
+		});
+		expect(oxAlpha?.optionDescriptors).toEqual([
+			{
+				kind: "select",
+				id: "contextWindow",
+				label: "Context Window",
+				options: [{ id: "1m", label: "1M" }],
+				defaultId: "1m",
+			},
+		]);
+	});
+
+	it("uses the current Cursor catalog and Composer 2.5 default", () => {
+		expect(defaultModelFor("cursor")).toBe("composer-2.5");
+		expect(MODELS_BY_PROVIDER.cursor.map((model) => model.id)).toEqual([
+			"default",
+			"composer-2.5",
+			"claude-fable-5",
+			"claude-opus-5",
+			"claude-sonnet-5",
+			"gpt-5.6-sol",
+			"gpt-5.6-terra",
+			"gpt-5.6-luna",
+			"gemini-3.1-pro",
+			"gemini-3.7-flash",
+			"grok-4.6",
+			"grok-4.5",
+		]);
+	});
+
 	it("can include a hidden selected model without making all hidden models visible", () => {
 		const models = visibleModelsForProvider("codex", undefined, {
 			includeModelId: "gpt-5.3-codex",

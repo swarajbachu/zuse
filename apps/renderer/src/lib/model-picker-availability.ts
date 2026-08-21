@@ -27,10 +27,3 @@ export function isModelPickerProviderVisible({
 	if (availability.authStatus === "unauthenticated") return false;
 	return availability.cliLoggedIn || availability.hasApiKey;
 }
-
-export function filterModelPickerRecents<T extends { providerId: ProviderId }>(
-	recents: ReadonlyArray<T>,
-	visibleProviders: ReadonlySet<ProviderId>,
-): T[] {
-	return recents.filter((recent) => visibleProviders.has(recent.providerId));
-}
