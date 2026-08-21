@@ -1,9 +1,67 @@
+import { ExternalThread } from "@zuse/contracts";
 import { describe, expect, test } from "vitest";
+import { filterImportThreads } from "../../src/components/chat-landing.tsx";
 import chatLandingSource from "../../src/components/chat-landing.tsx?raw";
 import { chatLandingProgress } from "../../src/lib/chat-landing-progress.ts";
 import cloudChatsSource from "../../src/lib/cloud-workspaces.ts?raw";
+import externalThreadsSource from "../../src/store/external-threads.ts?raw";
 
 describe("chat landing progress", () => {
+	test("keeps provider thread imports out of the landing-page content", () => {
+		expect(chatLandingSource).not.toContain("ContinueThreadsSection");
+		expect(chatLandingSource).not.toContain("Continue Threads");
+		expect(chatLandingSource).toContain("ImportChatMenu");
+		expect(chatLandingSource).toContain('aria-label="Import an existing chat"');
+		expect(chatLandingSource).toContain('aria-label="Search imported chats"');
+		expect(chatLandingSource).toContain("max-h-64 overflow-y-auto");
+	});
+
+	test("searches imported chats across conversation and provider metadata", () => {
+		const threads = [
+			ExternalThread.make({
+				id: "thread-1",
+				providerId: "codex",
+				title: "Repair git lifecycle",
+				preview: "Track pull request state",
+				projectPath: "/work/zuse",
+				projectName: "Zuse",
+				updatedAt: new Date("2026-08-21T00:00:00Z"),
+				sourcePath: null,
+				cursor: "cursor-1",
+				resumeStrategy: "codex-thread-id",
+				available: true,
+			}),
+			ExternalThread.make({
+				id: "thread-2",
+				providerId: "claude",
+				title: "Polish settings",
+				preview: "Tighten the account page",
+				projectPath: "/work/console",
+				projectName: "Console",
+				updatedAt: new Date("2026-08-20T00:00:00Z"),
+				sourcePath: null,
+				cursor: "cursor-2",
+				resumeStrategy: "claude-session-id",
+				available: true,
+			}),
+		];
+
+		expect(filterImportThreads(threads, "pull request")).toEqual([threads[0]]);
+		expect(filterImportThreads(threads, "claude code")).toEqual([threads[1]]);
+		expect(filterImportThreads(threads, "console")).toEqual([threads[1]]);
+	});
+
+	test("routes thread discovery through the computer selected in the composer", () => {
+		expect(chatLandingSource).toContain(
+			"hydrateExternalThreads(importEnvironmentId)",
+		);
+		expect(chatLandingSource).toContain(
+			"continueExternalThread(thread, importEnvironmentId)",
+		);
+		expect(externalThreadsSource).not.toContain("getActiveEnvironment");
+		expect(externalThreadsSource).toContain("environmentId: EnvironmentId");
+	});
+
 	test("initializes the active environment before selectors consume it", () => {
 		const environmentSubscription = chatLandingSource.indexOf(
 			"const activeEnvironmentId = useEnvironmentCatalogStore(",

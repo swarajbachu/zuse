@@ -300,7 +300,16 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 							LIMIT 1
 						`.pipe(Effect.orDie);
 						const receipt = receipts[0];
-						let receiptMatches = false;
+						const hasDurableReceipt = receipt !== undefined;
+						// Compatibility for sessions created before chat bootstrap receipts
+						// existed. Exact entity identity and configuration are sufficient to
+						// prove this replay cannot create a second session. A present receipt
+						// remains authoritative and must match in full.
+						let receiptMatches =
+							receipt === undefined &&
+							existingSessionRow.project_id === input.projectId &&
+							existingSessionRow.provider_id === input.providerId &&
+							existingSessionRow.model === input.model;
 						if (receipt !== undefined) {
 							try {
 								const created = JSON.parse(receipt.payload_json) as Record<
@@ -347,6 +356,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 									>;
 									messageMatches =
 										(input.initialMessageId === undefined ||
+											!hasDurableReceipt ||
 											message.id === input.initialMessageId) &&
 										content.text === input.initialPrompt;
 								} catch {
@@ -405,6 +415,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 				permissionMode: input.permissionMode,
 				modelOptions: input.modelOptions,
 				toolSearch: input.toolSearch,
+				queuePaused: input.queuePaused,
 				resumeCursor: input.resumeCursor,
 				resumeStrategy: input.resumeStrategy,
 				forkedFromSessionId: input.forkedFromSessionId,

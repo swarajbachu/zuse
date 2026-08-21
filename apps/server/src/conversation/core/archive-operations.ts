@@ -189,6 +189,7 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 		const setChatWorktree: ConversationOperations["setChatWorktree"] = (
 			chatId,
 			worktreeId,
+			allowPausedInitialTurn = false,
 		) =>
 			Effect.gen(function* () {
 				yield* lookupChat(chatId);
@@ -198,7 +199,16 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
           WHERE s.chat_id = ${chatId} AND m.role = 'user'
           LIMIT 1
         `.pipe(Effect.orDie);
-				if (existing.length > 0) {
+				const pausedStartup = allowPausedInitialTurn
+					? yield* sql<{ readonly unpaused: number }>`
+						SELECT COUNT(*) AS unpaused FROM sessions
+						WHERE chat_id = ${chatId} AND queue_paused = 0
+					`.pipe(
+							Effect.orDie,
+							Effect.map((rows) => (rows[0]?.unpaused ?? 1) === 0),
+						)
+					: false;
+				if (existing.length > 0 && !pausedStartup) {
 					return yield* Effect.fail(new ChatAlreadyStartedError({ chatId }));
 				}
 				const updatedAt = yield* currentTimestamp;

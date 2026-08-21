@@ -322,9 +322,25 @@ describe("built Electron application", () => {
 					.last();
 				await composer.fill("Keep this creation in the background");
 				await electron.page.getByRole("button", { name: "Send" }).click();
-				await electron.page
-					.getByText("Creating a worktree and running setup", { exact: true })
-					.waitFor({ state: "visible", timeout: 10_000 });
+				const optimisticMessage = electron.page.getByText(
+					"Keep this creation in the background",
+					{ exact: true },
+				);
+				await optimisticMessage.waitFor({ state: "visible", timeout: 2_000 });
+				const lifecycle = electron.page.getByText(/Creating a new copy of .+…/);
+				await lifecycle.waitFor({ state: "visible", timeout: 10_000 });
+				const [messageBox, lifecycleBox] = await Promise.all([
+					optimisticMessage.boundingBox(),
+					lifecycle.boundingBox(),
+				]);
+				expect(messageBox).not.toBeNull();
+				expect(lifecycleBox).not.toBeNull();
+				if (messageBox === null || lifecycleBox === null) {
+					throw new Error(
+						"Expected message and lifecycle rows to have layout boxes",
+					);
+				}
+				expect(messageBox.y).toBeLessThan(lifecycleBox.y);
 
 				await existingTitle.click();
 				const existingRow = existingTitle.locator(

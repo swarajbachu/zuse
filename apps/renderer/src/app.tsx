@@ -28,6 +28,7 @@ import {
 	trackAnalyticsScreen,
 } from "./lib/analytics.ts";
 import { AppearanceController } from "./lib/appearance.tsx";
+import { selectChatSurface } from "./lib/chat-surface-selection.ts";
 import { installClientBusOnlineBridge } from "./lib/client-bus-online.ts";
 import { closeActiveChatTab } from "./lib/close-chat-tab.ts";
 import {
@@ -35,6 +36,7 @@ import {
 	useCloudChatSummaryForSession,
 } from "./lib/cloud-workspaces.ts";
 import { useActiveSessionById } from "./lib/environment-entity-hooks.ts";
+import { useGitWorkspaceResource } from "./lib/git-workspace-client-bus.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
 import { useSettingsStore } from "./lib/settings-client-bus.ts";
 import {
@@ -42,6 +44,7 @@ import {
 	shouldAnimateSidebarVisibility,
 } from "./lib/sidebar-panel-motion.ts";
 import { shouldMountRightPane } from "./shell/right-pane-lifecycle.ts";
+import { useActiveContext } from "./store/active-workspace.ts";
 import { useChatsStore } from "./store/chats.ts";
 import { useEnvironmentCatalogStore } from "./store/environment-catalog.ts";
 import { useSessionsStore } from "./store/sessions.ts";
@@ -57,6 +60,25 @@ import { useWorktreesStore } from "./store/worktrees.ts";
 
 const PANEL_GROUP_ID = "zuse.shell.v3";
 const PANEL_IDS = ["projects", "main", "files"];
+
+/** Keeps the selected checkout live even when no Git-specific panel is open. */
+function ActiveGitWorkspaceLease() {
+	const context = useActiveContext();
+	const ref = useMemo(
+		() =>
+			context.status === "ready"
+				? {
+						environmentId: context.environmentId,
+						folderId: context.folderId,
+						worktreeId: context.worktreeId,
+						rootPath: context.rootPath,
+					}
+				: null,
+		[context],
+	);
+	useGitWorkspaceResource(ref, "connect");
+	return null;
+}
 
 const MainTabs = lazy(() =>
 	import("./components/main-tabs.tsx").then((module) => ({
@@ -436,6 +458,10 @@ function MainShell() {
 		pendingCreation === null ? (selectedSession?.chatId ?? null) : null,
 	);
 	const directoryUnavailable = directoryStatus?._tag === "unavailable";
+	const chatSurface = selectChatSurface({
+		hasSession: selectedSessionId !== null && selectedSession !== null,
+		hasPendingCreation: pendingCreation !== null,
+	});
 	useEffect(() => {
 		if (!directoryUnavailable || selectedSession?.chatId === undefined) return;
 		if (selectedChatRef !== null)
@@ -588,6 +614,7 @@ function MainShell() {
 
 	return (
 		<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden text-foreground">
+			<ActiveGitWorkspaceLease />
 			<Group
 				id={PANEL_GROUP_ID}
 				orientation="horizontal"
@@ -658,9 +685,9 @@ function MainShell() {
 							hidden={activeMainTab !== "chat"}
 							className="flex min-h-0 flex-1 flex-col"
 						>
-							{pendingCreation !== null ? (
-								<PendingChatCreationSurface creation={pendingCreation} />
-							) : selectedSessionId !== null && selectedSession !== null ? (
+							{chatSurface === "session" &&
+							selectedSessionId !== null &&
+							selectedSession !== null ? (
 								// Render the chat as soon as the session exists — even while
 								// its worktree is still branching or the provider is booting.
 								// All that progress is surfaced inline by `WorktreeSetupCard`
@@ -730,6 +757,8 @@ function MainShell() {
 										</div>
 									) : null}
 								</div>
+							) : chatSurface === "pending" && pendingCreation !== null ? (
+								<PendingChatCreationSurface creation={pendingCreation} />
 							) : (
 								<Suspense fallback={<SurfaceFallback />}>
 									<ChatLanding />

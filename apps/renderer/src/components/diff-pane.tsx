@@ -28,7 +28,13 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import {
 	dispatchGitWorkspaceCommand,
+	refreshGitChanges,
+	refreshGitPrDetails,
+	refreshGitReview,
 	refreshGitWorkspace,
+	useGitChangesResource,
+	useGitPrDetailsResource,
+	useGitReviewResource,
 	useGitWorkspaceResource,
 } from "../lib/git-workspace-client-bus.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
@@ -81,14 +87,16 @@ export function DiffPane({
 }) {
 	const workspaceView = useGitWorkspaceResource(executionRef, "connect");
 	const workspace = workspaceView.data;
-	const reviewData = workspace;
+	const changesView = useGitChangesResource(executionRef, "connect");
+	const reviewView = useGitReviewResource(executionRef, "connect");
+	const prDetailsView = useGitPrDetailsResource(executionRef, "connect");
 	const status = workspace?.status ?? null;
-	const changes = workspace?.changes ?? null;
-	const changesErrorTag = workspace?.error?.tag ?? null;
-	const review = reviewData?.summary ?? null;
-	const reviewLoading = workspaceView.sync === "synchronizing";
-	const reviewPatches = reviewData?.patches ?? EMPTY_REVIEW_PATCHES;
-	const prDetails = reviewData?.prDetails ?? null;
+	const changes = changesView.data?.changes ?? null;
+	const changesErrorTag = changesView.data?.error?.tag ?? null;
+	const review = reviewView.data?.summary ?? null;
+	const reviewLoading = reviewView.sync === "synchronizing";
+	const reviewPatches = reviewView.data?.patches ?? EMPTY_REVIEW_PATCHES;
+	const prDetails = prDetailsView.data?.details ?? null;
 	const folderId = executionRef?.folderId ?? null;
 	const worktreeId = executionRef?.worktreeId ?? null;
 	const openChanges = useUiStore((s) => s.openChanges);
@@ -132,7 +140,13 @@ export function DiffPane({
 		);
 	}
 
-	const refreshAll = () => refreshGitWorkspace(executionRef);
+	const refreshAll = () =>
+		Promise.all([
+			refreshGitWorkspace(executionRef),
+			refreshGitChanges(executionRef),
+			refreshGitReview(executionRef),
+			refreshGitPrDetails(executionRef),
+		]).then(() => undefined);
 
 	const tracked = (changes ?? []).filter(
 		(c) =>

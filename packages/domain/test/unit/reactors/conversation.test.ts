@@ -40,6 +40,23 @@ describe("conversation reactor definitions", () => {
 		]);
 	});
 
+	test("does not start a provider while initial workspace setup is paused", async () => {
+		const commands = await Effect.runPromise(
+			providerStartReactorDefinition.react(
+				record({
+					_tag: "SessionCreated",
+					sessionId: "session-1",
+					chatId: "chat-1",
+					projectId: "project-1",
+					createdAt: 1,
+					queuePaused: true,
+					providerStartJson: "{}",
+				}),
+			),
+		);
+		expect(commands).toEqual([]);
+	});
+
 	test("maps a chat archive request", async () => {
 		const commands = await Effect.runPromise(
 			chatArchiveReactorDefinition.react({

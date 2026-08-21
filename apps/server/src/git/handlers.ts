@@ -1,6 +1,8 @@
-import { MemoizeRpcs } from "@zuse/contracts";
+import { GitPrInfo, MemoizeRpcs } from "@zuse/contracts";
 import { GitService } from "@zuse/git/git-service";
-import { Effect, Layer, Stream } from "effect";
+import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
+import { Effect, Layer, Semaphore, Stream } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 const Log = MemoizeRpcs.toLayerHandler("git.log", ({ folderId, limit }) =>
 	Effect.flatMap(GitService, (svc) => svc.log(folderId, limit)),
@@ -46,6 +48,115 @@ const WorkspaceChanges = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const snapshotVersions = new Map<string, number>();
+const snapshotWorker = new KeyedEffectSerialWorker<string>();
+const prSnapshotCache = new Map<
+	string,
+	{ readonly value: GitPrInfo; readonly nextPollAt: number }
+>();
+const localGitPermits = Semaphore.makeUnsafe(4);
+const githubPermits = Semaphore.makeUnsafe(2);
+const emptyPrSnapshot = (branch: string | null): GitPrInfo =>
+	GitPrInfo.make({
+		nodeId: null,
+		state: "none",
+		branch,
+		baseBranch: null,
+		additions: 0,
+		deletions: 0,
+		number: null,
+		url: null,
+		isDraft: false,
+		checks: "none",
+		mergeable: "unknown",
+		checksTotal: 0,
+		checksRunning: 0,
+		checksPassing: 0,
+		checksFailing: 0,
+		autoMergeEnabled: false,
+		prCapability: "available",
+		stale: false,
+	});
+const prPollDelay = (pr: GitPrInfo): number => {
+	const base =
+		pr.checks === "pending"
+			? 5_000
+			: pr.state === "none"
+				? 10_000
+				: pr.state === "open"
+					? 7_000
+					: 60_000;
+	return Math.round(base * (0.9 + Math.random() * 0.2));
+};
+const WorkspaceSnapshot = MemoizeRpcs.toLayerHandler(
+	"git.workspaceSnapshot",
+	({ folderId, worktreeId }) => {
+		const selectedWorktree = worktreeId ?? null;
+		const identity = `${folderId}:${selectedWorktree ?? "main"}`;
+		return snapshotWorker.run(
+			identity,
+			Effect.gen(function* () {
+				const svc = yield* GitService;
+				const now = Date.now();
+				const [status, summary] = yield* Effect.all(
+					[
+						localGitPermits.withPermits(1)(
+							svc.status(folderId, selectedWorktree),
+						),
+						localGitPermits.withPermits(1)(
+							svc.reviewSummary(folderId, selectedWorktree, "branch"),
+						),
+					],
+					{ concurrency: 2 },
+				);
+				const cachedPr = prSnapshotCache.get(identity);
+				const pr = cachedPr?.value ?? emptyPrSnapshot(status.branch);
+				const shouldPollPr =
+					cachedPr === undefined || cachedPr.nextPollAt <= now;
+				if (shouldPollPr) {
+					// Claim the next polling slot before forking so concurrent local
+					// snapshots cannot launch duplicate `gh` processes. GitHub is never
+					// on the local-status critical path; the next reconciliation observes
+					// the completed cached value.
+					prSnapshotCache.set(identity, {
+						value: pr,
+						nextPollAt: now + 10_000,
+					});
+					yield* Effect.sync(() => {
+						Effect.runFork(
+							githubPermits
+								.withPermits(1)(svc.prState(folderId, selectedWorktree))
+								.pipe(
+									Effect.tap((observed) =>
+										Effect.sync(() => {
+											prSnapshotCache.set(identity, {
+												value: observed,
+												nextPollAt: Date.now() + prPollDelay(observed),
+											});
+										}),
+									),
+									Effect.catchCause(() => Effect.void),
+								),
+						);
+					});
+				}
+				const projectionVersion = (snapshotVersions.get(identity) ?? 0) + 1;
+				snapshotVersions.set(identity, projectionVersion);
+				return {
+					status,
+					pr,
+					diffStat: {
+						additions: summary.additions,
+						deletions: summary.deletions,
+					},
+					projectionVersion,
+					observedAt: new Date(),
+				};
+			}),
+		);
+	},
+);
+
 const Origin = MemoizeRpcs.toLayerHandler("git.origin", ({ folderId }) =>
 	Effect.flatMap(GitService, (svc) => svc.origin(folderId)),
 );
@@ -56,6 +167,21 @@ const PrState = MemoizeRpcs.toLayerHandler(
 		Effect.flatMap(GitService, (svc) =>
 			svc.prState(folderId, worktreeId ?? null),
 		),
+);
+
+const PrNotificationClaim = MemoizeRpcs.toLayerHandler(
+	"git.prNotification.claim",
+	({ identity }) =>
+		Effect.gen(function* () {
+			const sql = yield* SqlClient.SqlClient;
+			const rows = yield* sql<{ readonly identity: string }>`
+				INSERT INTO git_pr_notification_claims (identity, claimed_at)
+				VALUES (${identity}, ${new Date().toISOString()})
+				ON CONFLICT(identity) DO NOTHING
+				RETURNING identity
+			`.pipe(Effect.orDie);
+			return { claimed: rows.length === 1 };
+		}),
 );
 
 const PrDetails = MemoizeRpcs.toLayerHandler(
@@ -238,8 +364,10 @@ export const GitHandlersLayer = Layer.mergeAll(
 	SwitchBranch,
 	UserName,
 	WorkspaceChanges,
+	WorkspaceSnapshot,
 	Origin,
 	PrState,
+	PrNotificationClaim,
 	PrDetails,
 	CreateReviewComment,
 	ReviewIdentity,

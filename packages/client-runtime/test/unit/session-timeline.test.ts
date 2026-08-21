@@ -34,6 +34,30 @@ const projection = SessionTimelineProjection.make({
 });
 
 describe("session timeline reducer", () => {
+	it("settles live runtime state without requiring a remount snapshot", () => {
+		const running = reduceSessionTimelineFrame(emptySessionTimelineState(), {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 1,
+			cursor: cursor("epoch-a", 1),
+			projection,
+		});
+
+		const settled = reduceSessionTimelineFrame(running, {
+			kind: "event",
+			sessionId,
+			streamVersion: 2,
+			cursor: cursor("epoch-a", 2),
+			eventId: "event-settled",
+			event: { _tag: "TurnSettled", turnId, outcome: "completed" },
+		});
+
+		expect(settled.projection).toMatchObject({
+			status: "idle",
+			currentTurn: null,
+		});
+	});
+
 	it("retains the first optimistic prompt until its durable snapshot arrives", () => {
 		const optimistic = Message.make({
 			id: MessageId.make("message-optimistic"),

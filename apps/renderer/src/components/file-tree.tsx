@@ -46,7 +46,7 @@ import {
 	retainFileTreeResource,
 	subscribeFileTreeResource,
 } from "../lib/file-tree-client-bus.ts";
-import { useGitWorkspaceResource } from "../lib/git-workspace-client-bus.ts";
+import { useGitChangesResource } from "../lib/git-workspace-client-bus.ts";
 import { useSettingsStore } from "../lib/settings-client-bus.ts";
 import { cn } from "../lib/utils.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
@@ -271,7 +271,7 @@ function TreeView({
 	truncated: boolean;
 }) {
 	const gitChanges =
-		useGitWorkspaceResource(
+		useGitChangesResource(
 			{ environmentId, folderId, worktreeId, rootPath },
 			"connect",
 		).data?.changes ?? [];

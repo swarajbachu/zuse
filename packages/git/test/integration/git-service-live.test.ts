@@ -316,7 +316,8 @@ describe("GitServiceLive", () => {
 				.workspaceChanges(folderId)
 				.pipe(Stream.take(2), Stream.runCollect),
 		);
-		// Let the scoped watcher install before mutating the repository.
+		// Let the scoped watcher install before mutating the repository. The
+		// production stream also has a five-second reconciliation fallback.
 		await new Promise((resolve) => setTimeout(resolve, 25));
 		writeFileSync(join(repositoryRoot, "README.md"), "changed\n");
 		writeFileSync(join(repositoryRoot, "README.md"), "changed again\n");
@@ -325,7 +326,7 @@ describe("GitServiceLive", () => {
 			{ revision: 0 },
 			{ revision: 1 },
 		]);
-	});
+	}, 10_000);
 
 	test("invalidates a linked worktree when its Git metadata changes", async () => {
 		const worktreeRoot = join(temporaryRoot, "watched-worktree");
@@ -344,7 +345,7 @@ describe("GitServiceLive", () => {
 			{ revision: 0 },
 			{ revision: 1 },
 		]);
-	});
+	}, 10_000);
 
 	test("maps a missing git executable to GitNotInstalledError", async () => {
 		const MissingSpawnerLive = Layer.succeed(

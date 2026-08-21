@@ -27,7 +27,10 @@ import {
 import { cloudSummaryForChat } from "../lib/cloud-workspace-catalog.ts";
 import { ensureCloudWorkspaceAttached } from "../lib/cloud-workspaces.ts";
 import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
-import { useGitWorkspaceResource } from "../lib/git-workspace-client-bus.ts";
+import {
+	useGitPrDetailsResource,
+	useGitWorkspaceResource,
+} from "../lib/git-workspace-client-bus.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
 import { isSessionTurnActive } from "../lib/session-runtime-state.ts";
@@ -228,9 +231,10 @@ export function RightPane({
 	);
 	const selected = logicalRightPaneProject(folders, logicalSelectedFolderId);
 	const workspaceView = useGitWorkspaceResource(executionRef, "connect");
+	const prDetailsView = useGitPrDetailsResource(executionRef, "cache-only");
 	const status = workspaceView.data?.status ?? null;
 	const pr = workspaceView.data?.pr ?? null;
-	const details = workspaceView.data?.prDetails ?? null;
+	const details = prDetailsView.data?.details ?? null;
 	// Dock layout + terminals are scoped to the selected sidebar chat, so each
 	// chat keeps its own open tabs and running shells.
 	const chatId = useChatsStore((s) => s.selectedChatId);

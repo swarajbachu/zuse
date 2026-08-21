@@ -1,9 +1,12 @@
 import type { ExternalThread } from "@zuse/contracts";
-import { CommandId, EnvironmentId } from "@zuse/contracts";
+import { CommandId, type EnvironmentId } from "@zuse/contracts";
 import { overlayActiveEnvironmentShell } from "../lib/environment-entities.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { formatError } from "../lib/format-error.ts";
-import { getActiveEnvironment } from "../lib/rpc-client.ts";
+import {
+	isIgnorableRendererFailure,
+	isRpcClientTransportError,
+} from "../lib/rpc-client.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useChatsStore } from "./chats.ts";
 import { useSessionsStore } from "./sessions.ts";
@@ -13,19 +16,25 @@ import { useWorktreesStore } from "./worktrees.ts";
 type ExternalThreadsState = {
 	readonly threads: ReadonlyArray<ExternalThread>;
 	readonly loading: boolean;
+	readonly environmentId: EnvironmentId | null;
 	readonly continuingId: string | null;
 	readonly error: string | null;
-	readonly hydrate: () => Promise<void>;
-	readonly continueThread: (thread: ExternalThread) => Promise<boolean>;
+	readonly hydrate: (environmentId: EnvironmentId) => Promise<void>;
+	readonly continueThread: (
+		thread: ExternalThread,
+		environmentId: EnvironmentId,
+	) => Promise<boolean>;
 };
 
 let commandCounter = 0;
+let hydrationEpoch = 0;
 const dispatchExternalThreadsCommand = <Result>(
+	environmentId: EnvironmentId,
 	kind: string,
 	payload: unknown,
 ) =>
 	dispatchEnvironmentShellCommand<unknown, Result>({
-		environmentId: EnvironmentId.make(getActiveEnvironment()),
+		environmentId,
 		kind,
 		commandId: CommandId.make(
 			`${kind}:${Date.now().toString(36)}:${(commandCounter++).toString(36)}`,
@@ -33,28 +42,57 @@ const dispatchExternalThreadsCommand = <Result>(
 		payload,
 	});
 
+const listExternalThreads = async (
+	environmentId: EnvironmentId,
+): Promise<ReadonlyArray<ExternalThread>> => {
+	let lastFailure: unknown = null;
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		try {
+			return (
+				await dispatchExternalThreadsCommand<ReadonlyArray<ExternalThread>>(
+					environmentId,
+					"externalThreads.list",
+					{ limit: 50 },
+				)
+			).result;
+		} catch (cause) {
+			lastFailure = cause;
+			if (!isRpcClientTransportError(cause)) throw cause;
+		}
+	}
+	throw lastFailure;
+};
+
 export const useExternalThreadsStore = create<ExternalThreadsState>(
 	(set, get) => ({
 		threads: [],
 		loading: false,
+		environmentId: null,
 		continuingId: null,
 		error: null,
-		hydrate: async () => {
-			if (get().loading) return;
-			set({ loading: true, error: null });
+		hydrate: async (environmentId) => {
+			const current = get();
+			if (current.loading && current.environmentId === environmentId) return;
+			const epoch = ++hydrationEpoch;
+			set({
+				threads: current.environmentId === environmentId ? current.threads : [],
+				loading: true,
+				environmentId,
+				error: null,
+			});
 			try {
-				const threads = (
-					await dispatchExternalThreadsCommand<ReadonlyArray<ExternalThread>>(
-						"externalThreads.list",
-						{ limit: 12 },
-					)
-				).result;
-				set({ threads, loading: false });
+				const threads = await listExternalThreads(environmentId);
+				if (epoch !== hydrationEpoch) return;
+				set({ threads, loading: false, error: null });
 			} catch (err) {
-				set({ error: formatError(err), loading: false });
+				if (epoch !== hydrationEpoch) return;
+				set({
+					error: isIgnorableRendererFailure(err) ? null : formatError(err),
+					loading: false,
+				});
 			}
 		},
-		continueThread: async (thread) => {
+		continueThread: async (thread, environmentId) => {
 			if (!thread.available || get().continuingId !== null) return false;
 			set({ continuingId: thread.id, error: null });
 			try {
@@ -64,7 +102,7 @@ export const useExternalThreadsStore = create<ExternalThreadsState>(
 						readonly chat: import("@zuse/contracts").Chat;
 						readonly session: import("@zuse/contracts").Session;
 						readonly worktree: import("@zuse/contracts").Worktree | null;
-					}>("externalThreads.continue", {
+					}>(environmentId, "externalThreads.continue", {
 						providerId: thread.providerId,
 						cursor: thread.cursor,
 						projectPath: thread.projectPath,

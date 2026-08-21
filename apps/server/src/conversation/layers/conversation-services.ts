@@ -296,6 +296,7 @@ const ConversationRuntimeLive = Layer.effect(
 			archiveSession,
 			unarchiveSession,
 			deleteSession,
+			releaseInitialTurn,
 		} = sessionOperations;
 
 		// -------------------------------------------------------------------------
@@ -534,6 +535,7 @@ const ConversationRuntimeLive = Layer.effect(
 			archiveSession,
 			unarchiveSession,
 			deleteSession,
+			releaseInitialTurn,
 			resumeSession,
 			getGoal,
 			setGoal,

@@ -50,6 +50,8 @@ import { Migration0046SessionTimelineHead } from "./migrations/0046_session_time
 import { Migration0047MessageCheckpoints } from "./migrations/0047_message_checkpoints.ts";
 import { Migration0048FsWriteReceipts } from "./migrations/0048_fs_write_receipts.ts";
 import { Migration0049ChatCreationStartupReady } from "./migrations/0049_chat_creation_startup_ready.ts";
+import { Migration0050DurableChatCreation } from "./migrations/0050_durable_chat_creation.ts";
+import { Migration0051LegacyChatCreationPhaseRepair } from "./migrations/0051_legacy_chat_creation_phase_repair.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -120,6 +122,9 @@ const MigrationDefinitions = {
 	"0047_message_checkpoints": Migration0047MessageCheckpoints,
 	"0048_fs_write_receipts": Migration0048FsWriteReceipts,
 	"0049_chat_creation_startup_ready": Migration0049ChatCreationStartupReady,
+	"0050_durable_chat_creation": Migration0050DurableChatCreation,
+	"0051_legacy_chat_creation_phase_repair":
+		Migration0051LegacyChatCreationPhaseRepair,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */

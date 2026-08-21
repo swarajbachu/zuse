@@ -46,6 +46,7 @@ import {
 	canCreatePrFromSyncedBranch,
 	deriveBranchWorkflow,
 	type OpenPrWorkflow,
+	resolveBranchLabel,
 } from "../lib/branch-workflow.ts";
 import type { OpenTarget } from "../lib/bridge.ts";
 import { cloudTopBarContext } from "../lib/cloud-top-bar-context.ts";
@@ -272,13 +273,25 @@ export function TopBarMain() {
 	const [branchesLoading, setBranchesLoading] = useState(false);
 	const [branchError, setBranchError] = useState<string | null>(null);
 	const [renameOpen, setRenameOpen] = useState(false);
+	const projectedWorktreeBranch = useWorktreesStore((state) =>
+		folderId === null || worktreeId === null
+			? null
+			: ((state.byProject[folderId] ?? []).find(
+					(worktree) => worktree.id === worktreeId,
+				)?.branch ?? null),
+	);
 
 	// After a worktree/project switch the status row in `byKey` is keyed by
 	// the *new* (folderId, worktreeId), so reading `status` returns null
 	// until the first refresh lands — which is the correct behavior. No
 	// stale-branch flash during the swap.
-	const branchLabel = status?.branch ?? cachedCloudContext?.branch ?? null;
-	const branchIsCached = status?.branch == null && cachedCloudContext !== null;
+	const resolvedBranch = resolveBranchLabel(
+		status?.branch ?? null,
+		projectedWorktreeBranch,
+		cachedCloudContext?.branch ?? null,
+	);
+	const branchLabel = resolvedBranch.label;
+	const branchIsCached = resolvedBranch.cached;
 	const repoLabel =
 		originLabel ??
 		cachedCloudContext?.repositoryLabel ??

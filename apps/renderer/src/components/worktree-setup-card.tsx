@@ -36,6 +36,8 @@ export type SetupCardData = {
 	readonly hasWorktree: boolean;
 	/** Worktree row not hydrated yet — branch/copy still in flight. */
 	readonly worktreePending: boolean;
+	/** Durable chat exists, but the server has not started checkout creation. */
+	readonly workspacePreparing?: boolean;
 	readonly worktreeName: string | null;
 	readonly branch: string | null;
 	readonly baseBranch: string | null;
@@ -70,6 +72,11 @@ export function WorktreeSetupCard({
 } = {}) {
 	const ctx = useActiveContext();
 	const selectedChatId = useChatsStore((state) => state.selectedChatId);
+	const pendingCreation = useChatsStore((state) =>
+		selectedChatId === null
+			? null
+			: (state.pendingCreationByChat[selectedChatId] ?? null),
+	);
 	const cloudSummary = useCloudChatCatalogStore(
 		(state) =>
 			state.summaries.find((row) => row.chatId === selectedChatId) ?? null,
@@ -147,6 +154,7 @@ export function WorktreeSetupCard({
 				repoName: repoName ?? "this repo",
 				hasWorktree,
 				worktreePending,
+				workspacePreparing: pendingCreation?.phase === "persisted",
 				worktreeName: worktree?.name ?? null,
 				branch: worktree?.branch ?? null,
 				baseBranch: worktree?.baseBranch ?? null,
@@ -315,6 +323,7 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 		repoName,
 		hasWorktree,
 		worktreePending,
+		workspacePreparing = false,
 		worktreeName,
 		branch,
 		baseBranch,
@@ -333,19 +342,76 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	const wtReady = showsWorktreeSteps && !worktreePending;
 	const setupStarted = setupStatus !== null && setupStatus !== "pending";
 	const name = worktreeName ?? "your workspace";
+	const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
+	const summaryState: StepState =
+		setupStatus === "failed"
+			? "failed"
+			: agentStarting === true || !setupDone
+				? "active"
+				: "done";
+	const summaryLabel =
+		setupStatus === "failed"
+			? "Environment setup failed"
+			: agentStarting === true
+				? "Starting agent…"
+				: setupStatus === "running"
+					? "Running environment setup…"
+					: setupDone
+						? "Workspace ready"
+						: workspacePreparing
+							? "Preparing workspace…"
+							: worktreePending
+								? `Creating a new copy of ${repoName}…`
+								: "Detecting setup script…";
 
 	return (
-		<div className="mx-auto w-full max-w-3xl px-4 pt-4">
-			<div className="overflow-hidden rounded-xl border border-border/60 bg-muted/15">
-				<div className="flex flex-col gap-1.5 px-3.5 py-2.5 text-[12px]">
+		<details className="group mx-auto w-full max-w-3xl px-4 pt-3 text-[12px]">
+			<summary className="flex cursor-pointer list-none items-center gap-2 py-1.5 text-foreground/80 select-none marker:content-none">
+				<span className="inline-flex min-w-0 flex-1 items-center gap-2">
+					{summaryState === "active" ? (
+						<Spinner className="size-3 shrink-0 text-muted-foreground" />
+					) : summaryState === "failed" ? (
+						<HugeiconsIcon
+							icon={Alert01Icon}
+							className="size-3.5 shrink-0 text-[var(--accent-red)]"
+						/>
+					) : (
+						<HugeiconsIcon
+							icon={Tick01Icon}
+							className="size-3.5 shrink-0 text-foreground/60"
+						/>
+					)}
+					<span
+						className={
+							summaryState === "failed" ? "text-[var(--accent-red)]" : ""
+						}
+					>
+						{summaryState === "active" ? (
+							<ShimmerText tone="lime">{summaryLabel}</ShimmerText>
+						) : (
+							summaryLabel
+						)}
+					</span>
+				</span>
+				<span
+					aria-hidden="true"
+					className="text-sm text-muted-foreground transition-transform group-open:rotate-90"
+				>
+					›
+				</span>
+			</summary>
+			<div className="ml-1.5 border-l border-border/50 py-1.5 pl-4">
+				<div className="flex flex-col gap-1.5 text-[12px]">
 					{showsWorktreeSteps ? (
 						<>
 							<StepRow
 								state={wtReady ? "done" : "active"}
 								label={
-									worktreeName === null
-										? `Creating a new copy of ${repoName}…`
-										: `Created a new copy of ${repoName} called ${name}`
+									workspacePreparing
+										? "Preparing workspace…"
+										: worktreeName === null
+											? `Creating a new copy of ${repoName}…`
+											: `Created a new copy of ${repoName} called ${name}`
 								}
 							/>
 							<StepRow
@@ -382,27 +448,26 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 							/>
 						</>
 					) : null}
-					{agentStarting === undefined ? null : (
-						<StepRow
-							state={agentStarting ? "active" : "done"}
-							label={agentStarting ? "Starting agent…" : "Agent ready"}
-						/>
-					)}
 				</div>
 				{setupOutput.trim().length > 0 ? (
-					<pre className="max-h-48 overflow-auto border-t border-border/40 bg-background/40 px-3.5 py-2.5 font-mono text-[11px] leading-5 whitespace-pre-wrap text-foreground/80">
-						{setupOutput}
-					</pre>
+					<div className="mt-2">
+						<p className="mb-1 text-[11px] text-muted-foreground">
+							Setup output
+						</p>
+						<pre className="max-h-48 overflow-auto font-mono text-[11px] leading-5 whitespace-pre-wrap text-foreground/70">
+							{setupOutput}
+						</pre>
+					</div>
 				) : null}
 				{onRerun !== null ? (
-					<div className="flex justify-end border-t border-border/40 px-3.5 py-2">
+					<div className="mt-2 flex justify-end">
 						<Button variant="settings" size="sm" onClick={onRerun}>
 							Rerun setup
 						</Button>
 					</div>
 				) : null}
 			</div>
-		</div>
+		</details>
 	);
 }
 

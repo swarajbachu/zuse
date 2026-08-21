@@ -55,12 +55,14 @@ export const applyTimelineEvent = (
 					})
 				: projection;
 		case "TurnSettled":
-			return projection.currentTurn?.turnId === event.turnId
-				? SessionTimelineProjection.make({
-						...projection,
-						currentTurn: null,
-					})
-				: projection;
+			// Settlement is the authoritative terminal transition for a turn. Keep
+			// the live reducer identical to the SQLite projector: otherwise a client
+			// can clear currentTurn while retaining status="running" until remount.
+			return SessionTimelineProjection.make({
+				...projection,
+				status: "idle",
+				currentTurn: null,
+			});
 		case "PermissionModeSet":
 			return SessionTimelineProjection.make({
 				...projection,

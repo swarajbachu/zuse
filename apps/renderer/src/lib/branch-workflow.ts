@@ -20,6 +20,16 @@ export type BranchWorkflow =
 	| { kind: "ready-for-pr" }
 	| OpenPrWorkflow;
 
+export const resolveBranchLabel = (
+	statusBranch: string | null,
+	worktreeBranch: string | null,
+	cloudBranch: string | null,
+): { readonly label: string | null; readonly cached: boolean } => ({
+	label: statusBranch ?? worktreeBranch ?? cloudBranch,
+	cached:
+		statusBranch === null && (worktreeBranch !== null || cloudBranch !== null),
+});
+
 type WorkflowStatus = {
 	branch: string | null;
 	dirtyFiles: number;

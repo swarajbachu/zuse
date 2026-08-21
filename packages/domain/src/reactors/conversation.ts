@@ -55,6 +55,7 @@ export const providerStartReactorDefinition: ReactorDefinition<
 	react: (record) =>
 		Effect.succeed(
 			record.event._tag === "SessionCreated" &&
+				record.event.queuePaused !== true &&
 				record.event.providerStartJson !== undefined
 				? [
 						{

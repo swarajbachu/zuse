@@ -112,16 +112,19 @@ export const useActiveContext = (): ActiveContext => {
 			: (sessionsByProject[selectedFolderId]?.find(
 					(sess) => sess.id === sessionId,
 				)?.worktreeId ?? null);
+	const activeWorktreeId = pendingCreation?.workspaceRequested
+		? (pendingCreation.worktreeId ?? sessionWorktreeId)
+		: sessionWorktreeId;
 	const worktreePath = useWorktreesStore((s) => {
-		if (selectedFolderId === null || sessionWorktreeId === null) return null;
+		if (selectedFolderId === null || activeWorktreeId === null) return null;
 		const list = s.byProject[selectedFolderId] ?? EMPTY_WORKTREES;
-		return list.find((w) => w.id === sessionWorktreeId)?.path ?? null;
+		return list.find((w) => w.id === activeWorktreeId)?.path ?? null;
 	});
 	const refreshWorktrees = useWorktreesStore((s) => s.refresh);
 	useEffect(() => {
 		if (
 			selectedFolderId === null ||
-			sessionWorktreeId === null ||
+			activeWorktreeId === null ||
 			worktreePath !== null
 		)
 			return;
@@ -130,7 +133,7 @@ export const useActiveContext = (): ActiveContext => {
 		// worktree row as soon as the selected session names it so the canonical
 		// context cannot remain stuck in `worktree-pending` after creation settles.
 		void refreshWorktrees(selectedFolderId);
-	}, [selectedFolderId, sessionWorktreeId, worktreePath, refreshWorktrees]);
+	}, [selectedFolderId, activeWorktreeId, worktreePath, refreshWorktrees]);
 	const cloudWorkspaceId =
 		sessionId === null
 			? null
@@ -188,9 +191,9 @@ export const useActiveContext = (): ActiveContext => {
 			};
 		}
 		if (
-			pendingCreation !== null &&
-			pendingCreation.workspaceRequested &&
-			pendingCreation.projectId === selectedFolderId
+			pendingCreation?.workspaceRequested &&
+			pendingCreation.projectId === selectedFolderId &&
+			(activeWorktreeId === null || worktreePath === null)
 		) {
 			return {
 				status: "worktree-pending",
@@ -201,21 +204,21 @@ export const useActiveContext = (): ActiveContext => {
 				worktreeId: pendingCreation.worktreeId,
 			};
 		}
-		if (sessionWorktreeId !== null && worktreePath !== null) {
+		if (activeWorktreeId !== null && worktreePath !== null) {
 			return {
 				status: "ready",
 				environmentId: EnvironmentId.make(activeEnvironmentId),
 				folderId: selectedFolderId,
 				folderPath,
 				sessionId,
-				worktreeId: sessionWorktreeId,
+				worktreeId: activeWorktreeId,
 				rootPath: worktreePath,
 				rootKind: "worktree",
 				worktreePending: false,
 			};
 		}
 		if (
-			sessionWorktreeId !== null &&
+			activeWorktreeId !== null &&
 			worktreePath === null &&
 			sessionId !== null
 		) {
@@ -228,7 +231,7 @@ export const useActiveContext = (): ActiveContext => {
 				folderId: selectedFolderId,
 				folderPath,
 				sessionId,
-				worktreeId: sessionWorktreeId,
+				worktreeId: activeWorktreeId,
 			};
 		}
 		return {
@@ -247,7 +250,7 @@ export const useActiveContext = (): ActiveContext => {
 		selectedFolderId,
 		folderPath,
 		sessionId,
-		sessionWorktreeId,
+		activeWorktreeId,
 		worktreePath,
 		cloudWorkspaceId,
 		cloudShell.connection,

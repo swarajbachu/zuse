@@ -276,6 +276,50 @@ describe("shared session timeline resource driver", () => {
 		driver.stop();
 	});
 
+	it("publishes a settled turn as idle on the retained live stream", async () => {
+		const frames = Effect.runSync(Queue.unbounded<SessionTimelineFrame>());
+		const test = harness({
+			key,
+			client: { "session.events": () => Stream.fromQueue(frames) },
+			data: null,
+			cursor: null,
+		});
+		const driver = makeSessionTimelineResourceDriver({
+			reportFailure: () => undefined,
+		});
+		driver.start(test.context);
+		Queue.offerUnsafe(frames, {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 1,
+			cursor: { epoch: "settlement", version: 1 },
+			projection,
+		});
+		Queue.offerUnsafe(frames, {
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 1,
+			cursor: { epoch: "settlement", version: 1 },
+		});
+		await waitUntil(() => test.view().sync === "live");
+		Queue.offerUnsafe(frames, {
+			kind: "event",
+			sessionId,
+			streamVersion: 2,
+			cursor: { epoch: "settlement", version: 2 },
+			eventId: "event-settled",
+			event: { _tag: "TurnSettled", turnId, outcome: "completed" },
+		});
+
+		await waitUntil(() => test.view().cursor?.version === 2);
+		expect(test.view().data).toMatchObject({
+			status: "idle",
+			currentTurn: null,
+		});
+		expect(test.updates.at(-1)).toMatchObject({ persist: true });
+		driver.stop();
+	});
+
 	it("checkpoints at one bounded timer without resetting on each delta", async () => {
 		const frames = Effect.runSync(Queue.unbounded<SessionTimelineFrame>());
 		const scheduled: Array<{ task: () => void; cancelled: boolean }> = [];

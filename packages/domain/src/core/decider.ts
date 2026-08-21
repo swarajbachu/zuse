@@ -132,13 +132,17 @@ export const decide = (
 				status: "booting",
 				updatedAt: command.createdAt,
 			},
-			{
-				_tag: "ProviderTurnRequested",
-				turnId: command.turnId,
-				providerInputJson,
-				...(providerStartJson === undefined ? {} : { providerStartJson }),
-				requestedAt: command.createdAt,
-			},
+			...(command.queuePaused
+				? []
+				: [
+						{
+							_tag: "ProviderTurnRequested",
+							turnId: command.turnId,
+							providerInputJson,
+							...(providerStartJson === undefined ? {} : { providerStartJson }),
+							requestedAt: command.createdAt,
+						} as const,
+					]),
 		]);
 	}
 	if (!state.exists) return Result.fail(new SessionNotFound());
@@ -219,6 +223,34 @@ export const decide = (
 				: success([
 						{ _tag: "SessionArchived", archivedAt: command.archivedAt },
 					]);
+		case "ReleaseInitialTurn":
+			if (
+				!state.queuePaused ||
+				state.currentTurnId !== command.expectedTurnId ||
+				state.currentTurnPhase !== "running"
+			) {
+				return Result.fail(
+					new ValidationFailed({
+						message: "initial turn is not paused at the expected turn",
+					}),
+				);
+			}
+			return success([
+				{
+					_tag: "SessionQueuePausedSet",
+					paused: false,
+					updatedAt: command.requestedAt,
+				},
+				{
+					_tag: "ProviderTurnRequested",
+					turnId: command.expectedTurnId,
+					providerInputJson: command.providerInputJson,
+					...(command.providerStartJson === undefined
+						? {}
+						: { providerStartJson: command.providerStartJson }),
+					requestedAt: command.requestedAt,
+				},
+			]);
 		case "UnarchiveSession":
 			return state.archived
 				? success([

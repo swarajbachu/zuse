@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- New chats now show the submitted message immediately and use one recoverable workspace/setup/agent startup lifecycle
+- Active workspaces now share one lightweight Git and pull-request projection, with lazy detail loading and cross-window terminal notification deduplication
+
+### Fixed
+- Chat creation now survives retries, reconnects, and restarts without duplicate turns, transient navigation resets, or stale loading state
+- Branch, change, check, and pull-request summaries now refresh while their panels are closed and retain useful cached state when GitHub is unavailable
+- Imported chat history is searchable, bounded, scrollable, and resilient to interrupted discovery or unreadable transcript files
+
 ## [0.20.6]
 
 ### Fixed

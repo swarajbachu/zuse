@@ -51,13 +51,28 @@ export type GitDiffStat = Readonly<{
 
 export type GitWorkspaceData = Readonly<{
 	status: GitStatusSummary | null;
-	changes: readonly GitChange[];
 	pr: GitPrInfo | null;
 	diffStat: GitDiffStat | null;
+	noRepository: boolean;
+	error: GitResourceError | null;
+	revision: number;
+}>;
+
+export type GitReviewData = Readonly<{
 	summary: GitReviewSummary | null;
 	patches: Readonly<Record<string, GitReviewPatch>>;
-	prDetails: GitPrDetails | null;
-	noRepository: boolean;
+	error: GitResourceError | null;
+	revision: number;
+}>;
+
+export type GitChangesData = Readonly<{
+	changes: ReadonlyArray<GitChange>;
+	error: GitResourceError | null;
+	revision: number;
+}>;
+
+export type GitPrDetailsData = Readonly<{
+	details: GitPrDetails | null;
 	error: GitResourceError | null;
 	revision: number;
 }>;
@@ -68,8 +83,26 @@ export const gitWorkspaceResourceKey = (
 	ref: ExecutionRef,
 ): GitWorkspaceResourceKey => makeResourceKey("git-workspace", ref);
 
+export const gitChangesResourceKey = (
+	ref: ExecutionRef,
+): ResourceKey<GitChangesData> => makeResourceKey("git-changes", ref);
+
+export const gitReviewResourceKey = (
+	ref: ExecutionRef,
+): ResourceKey<GitReviewData> => makeResourceKey("git-review", ref);
+
+export const gitPrDetailsResourceKey = (
+	ref: ExecutionRef,
+): ResourceKey<GitPrDetailsData> => makeResourceKey("git-pr-details", ref);
+
 const executionRef = (key: ResourceKey<unknown>): ExecutionRef | null =>
-	key.kind === "git-workspace" && "folderId" in key.ref ? key.ref : null;
+	(key.kind === "git-workspace" ||
+		key.kind === "git-changes" ||
+		key.kind === "git-review" ||
+		key.kind === "git-pr-details") &&
+	"folderId" in key.ref
+		? key.ref
+		: null;
 
 const throwTransportFailure = <A>(
 	result: Awaited<ReturnType<typeof classifyGit<A>>>,
@@ -96,20 +129,32 @@ const prDescription = (info: GitPrInfo): string => {
 	return info.branch ?? "";
 };
 
-const notifiedPrTerminalStates = new Set<string>();
-
-const prTerminalStateKey = (ref: ExecutionRef, info: GitPrInfo): string => {
-	const identity =
-		info.url ??
-		`${ref.environmentId}:${ref.folderId}:${info.number ?? "unknown"}:${info.branch ?? "unknown"}:${info.baseBranch ?? "unknown"}`;
-	return `${identity}:${info.state}`;
+const prTerminalStateKey = async (
+	ref: ExecutionRef,
+	info: GitPrInfo,
+): Promise<string> => {
+	const identity = JSON.stringify([
+		"git-pr-terminal-v1",
+		info.nodeId ??
+			info.url ??
+			`${ref.environmentId}:${ref.folderId}:${info.number ?? "unknown"}`,
+		info.state,
+	]);
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(identity),
+	);
+	return Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("");
 };
 
-const notifyPrStateTransition = (
+const notifyPrStateTransition = async (
+	client: MemoizeClient,
 	ref: ExecutionRef,
 	previous: GitPrInfo | null | undefined,
 	next: GitPrInfo | null,
-): void => {
+): Promise<void> => {
 	if (
 		previous?.state !== "open" ||
 		next === null ||
@@ -117,9 +162,11 @@ const notifyPrStateTransition = (
 	) {
 		return;
 	}
-	const transitionKey = prTerminalStateKey(ref, next);
-	if (notifiedPrTerminalStates.has(transitionKey)) return;
-	notifiedPrTerminalStates.add(transitionKey);
+	const transitionKey = await prTerminalStateKey(ref, next);
+	const claim = await Effect.runPromise(
+		client["git.prNotification.claim"]({ identity: transitionKey }),
+	).catch(() => ({ claimed: false }));
+	if (!claim.claimed) return;
 	if (next.state === "merged") {
 		toastManager.add({
 			type: "success",
@@ -140,10 +187,14 @@ type RefreshController = Readonly<{
 }>;
 
 const workspaceRefreshers = new Map<string, RefreshController>();
+const changesRefreshers = new Map<string, RefreshController>();
+const reviewRefreshers = new Map<string, RefreshController>();
+const prDetailsRefreshers = new Map<string, RefreshController>();
 let workspaceDriverStarts = 0;
 
 const makeInvalidatedDriver = <Data>(options: {
 	readonly refreshers: Map<string, RefreshController>;
+	readonly reconcileEveryMs?: number;
 	readonly load: (
 		client: MemoizeClient,
 		ref: ExecutionRef,
@@ -157,6 +208,7 @@ const makeInvalidatedDriver = <Data>(options: {
 	let appliedRevision = -1;
 	let refreshLoop: Promise<void> | null = null;
 	let id: string | null = null;
+	let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 
 	return {
 		start: (context) => {
@@ -166,6 +218,14 @@ const makeInvalidatedDriver = <Data>(options: {
 			workspaceDriverStarts += 1;
 			id = resourceKeyId(context.key);
 			const epoch = `git-workspace:${context.generation}`;
+			const armReconciliation = () => {
+				if (options.reconcileEveryMs === undefined || !active) return;
+				if (reconcileTimer !== null) clearTimeout(reconcileTimer);
+				reconcileTimer = setTimeout(() => {
+					reconcileTimer = null;
+					void schedule();
+				}, options.reconcileEveryMs);
+			};
 
 			const schedule = (): Promise<void> => {
 				latestRevision += 1;
@@ -193,6 +253,7 @@ const makeInvalidatedDriver = <Data>(options: {
 							persist: true,
 						});
 						if (accepted) appliedRevision = targetRevision;
+						armReconciliation();
 					}
 				})()
 					.catch((cause) => {
@@ -263,6 +324,8 @@ const makeInvalidatedDriver = <Data>(options: {
 		},
 		stop: () => {
 			active = false;
+			if (reconcileTimer !== null) clearTimeout(reconcileTimer);
+			reconcileTimer = null;
 			if (id !== null) options.refreshers.delete(id);
 			id = null;
 			const running = fiber;
@@ -278,87 +341,129 @@ const makeWorkspaceDriver = (): ResourceDriver<
 > =>
 	makeInvalidatedDriver({
 		refreshers: workspaceRefreshers,
+		reconcileEveryMs: 5_000,
 		load: async (client, ref, previous, revision) => {
 			const payload = {
 				folderId: ref.folderId,
 				worktreeId: ref.worktreeId,
 			};
-			const [status, changes, pr, summary, prDetails] = await Promise.all([
-				classifyGit(client["git.status"](payload)),
-				classifyGit(client["git.changes"](payload)),
-				classifyGit(client["git.prState"](payload)),
-				classifyGit(client["git.reviewSummary"](payload)),
-				classifyGit(client["git.prDetails"](payload)),
-			]);
-			throwTransportFailure(status);
-			throwTransportFailure(changes);
-			throwTransportFailure(pr);
-			throwTransportFailure(summary);
-			throwTransportFailure(prDetails);
-			const noRepository =
-				(!status.ok && status.tag === "GitNotARepoError") ||
-				(!changes.ok && changes.tag === "GitNotARepoError");
-			let patches: Readonly<Record<string, GitReviewPatch>> = {};
-			let patchError: GitResourceError | null = null;
-			if (summary.ok) {
-				const patchResult = await classifyGit(
-					Stream.runCollect(client["git.reviewPatches"](payload)),
-				);
-				throwTransportFailure(patchResult);
-				if (patchResult.ok) {
-					patches = Object.fromEntries(
-						patchResult.value.map((patch) => [patch.path, patch]),
-					);
-				} else {
-					patchError = {
-						tag: patchResult.tag,
-						message: patchResult.message,
-					};
-				}
-			}
-			const nextPr = pr.ok ? pr.value : (previous?.pr ?? null);
-			notifyPrStateTransition(ref, previous?.pr, nextPr);
+			const snapshot = await classifyGit(
+				client["git.workspaceSnapshot"](payload),
+			);
+			throwTransportFailure(snapshot);
+			const noRepository = !snapshot.ok && snapshot.tag === "GitNotARepoError";
+			const observedPr = snapshot.ok ? snapshot.value.pr : null;
+			const nextPr =
+				observedPr !== null &&
+				observedPr.prCapability !== undefined &&
+				observedPr.prCapability !== "available" &&
+				previous?.pr !== null &&
+				previous?.pr !== undefined &&
+				previous.pr.state !== "none"
+					? {
+							...previous.pr,
+							prCapability: observedPr.prCapability,
+							stale: true,
+						}
+					: (observedPr ?? previous?.pr ?? null);
+			await notifyPrStateTransition(client, ref, previous?.pr, nextPr);
 			return {
 				status: noRepository
 					? null
-					: status.ok
-						? status.value
+					: snapshot.ok
+						? snapshot.value.status
 						: (previous?.status ?? null),
-				changes: noRepository
-					? []
-					: changes.ok
-						? changes.value
-						: (previous?.changes ?? []),
 				pr: noRepository ? null : nextPr,
 				diffStat: noRepository
 					? null
-					: summary.ok
-						? {
-								additions: summary.value.additions,
-								deletions: summary.value.deletions,
-							}
+					: snapshot.ok
+						? snapshot.value.diffStat
 						: (previous?.diffStat ?? null),
-				summary: noRepository
-					? null
-					: summary.ok
-						? summary.value
-						: (previous?.summary ?? null),
-				patches: noRepository
-					? {}
-					: summary.ok
-						? patches
-						: (previous?.patches ?? {}),
-				prDetails: noRepository
-					? null
-					: prDetails.ok
-						? prDetails.value
-						: (previous?.prDetails ?? null),
 				noRepository,
 				error: noRepository
 					? { tag: "GitNotARepoError", message: "Not a git repository" }
-					: (patchError ?? firstError(status, changes, pr, summary, prDetails)),
+					: firstError(snapshot),
 				revision,
 			};
+		},
+	});
+
+const makeReviewDriver = (): ResourceDriver<MemoizeClient, GitReviewData> =>
+	makeInvalidatedDriver({
+		refreshers: reviewRefreshers,
+		load: async (client, ref, previous, revision) => {
+			const payload = { folderId: ref.folderId, worktreeId: ref.worktreeId };
+			const summary = await classifyGit(client["git.reviewSummary"](payload));
+			throwTransportFailure(summary);
+			if (!summary.ok) {
+				return {
+					summary: previous?.summary ?? null,
+					patches: previous?.patches ?? {},
+					error: { tag: summary.tag, message: summary.message },
+					revision,
+				};
+			}
+			const patchResult = await classifyGit(
+				Stream.runCollect(client["git.reviewPatches"](payload)),
+			);
+			throwTransportFailure(patchResult);
+			return {
+				summary: summary.value,
+				patches: patchResult.ok
+					? Object.fromEntries(
+							patchResult.value.map((patch) => [patch.path, patch]),
+						)
+					: (previous?.patches ?? {}),
+				error: patchResult.ok
+					? null
+					: { tag: patchResult.tag, message: patchResult.message },
+				revision,
+			};
+		},
+	});
+
+const makeChangesDriver = (): ResourceDriver<MemoizeClient, GitChangesData> =>
+	makeInvalidatedDriver({
+		refreshers: changesRefreshers,
+		load: async (client, ref, previous, revision) => {
+			const result = await classifyGit(
+				client["git.changes"]({
+					folderId: ref.folderId,
+					worktreeId: ref.worktreeId,
+				}),
+			);
+			throwTransportFailure(result);
+			return result.ok
+				? { changes: result.value, error: null, revision }
+				: {
+						changes: previous?.changes ?? [],
+						error: { tag: result.tag, message: result.message },
+						revision,
+					};
+		},
+	});
+
+const makePrDetailsDriver = (): ResourceDriver<
+	MemoizeClient,
+	GitPrDetailsData
+> =>
+	makeInvalidatedDriver({
+		refreshers: prDetailsRefreshers,
+		load: async (client, ref, previous, revision) => {
+			const result = await classifyGit(
+				client["git.prDetails"]({
+					folderId: ref.folderId,
+					worktreeId: ref.worktreeId,
+				}),
+			);
+			throwTransportFailure(result);
+			return result.ok
+				? { details: result.value, error: null, revision }
+				: {
+						details: previous?.details ?? null,
+						error: { tag: result.tag, message: result.message },
+						revision,
+					};
 		},
 	});
 
@@ -366,6 +471,21 @@ registerRendererResourceDriver("git-workspace", (key) =>
 	executionRef(key) === null
 		? null
 		: (makeWorkspaceDriver() as ResourceDriver<MemoizeClient, unknown>),
+);
+registerRendererResourceDriver("git-changes", (key) =>
+	executionRef(key) === null
+		? null
+		: (makeChangesDriver() as ResourceDriver<MemoizeClient, unknown>),
+);
+registerRendererResourceDriver("git-review", (key) =>
+	executionRef(key) === null
+		? null
+		: (makeReviewDriver() as ResourceDriver<MemoizeClient, unknown>),
+);
+registerRendererResourceDriver("git-pr-details", (key) =>
+	executionRef(key) === null
+		? null
+		: (makePrDetailsDriver() as ResourceDriver<MemoizeClient, unknown>),
 );
 
 const DATABASE_NAME = "zuse-git-workspace-resources";
@@ -421,7 +541,6 @@ class IndexedDbGitWorkspacePersistence implements ResourcePersistence {
 			row === undefined ||
 			typeof row.data !== "object" ||
 			row.data === null ||
-			!Array.isArray(row.data.changes) ||
 			typeof row.data.revision !== "number"
 		) {
 			return null;
@@ -462,6 +581,9 @@ if (typeof indexedDB !== "undefined") {
 }
 
 const EMPTY_WORKSPACE_VIEW = emptyResourceView<GitWorkspaceData>();
+const EMPTY_CHANGES_VIEW = emptyResourceView<GitChangesData>();
+const EMPTY_REVIEW_VIEW = emptyResourceView<GitReviewData>();
+const EMPTY_PR_DETAILS_VIEW = emptyResourceView<GitPrDetailsData>();
 
 const useKey = <Data>(
 	ref: ExecutionRef | null,
@@ -488,6 +610,36 @@ export const useGitWorkspaceResource = (
 		activation,
 	);
 
+export const useGitChangesResource = (
+	ref: ExecutionRef | null,
+	activation: ResourceActivation = "connect",
+): ResourceView<GitChangesData> =>
+	useClientBusResource(
+		useKey(ref, gitChangesResourceKey),
+		EMPTY_CHANGES_VIEW,
+		activation,
+	);
+
+export const useGitReviewResource = (
+	ref: ExecutionRef | null,
+	activation: ResourceActivation = "connect",
+): ResourceView<GitReviewData> =>
+	useClientBusResource(
+		useKey(ref, gitReviewResourceKey),
+		EMPTY_REVIEW_VIEW,
+		activation,
+	);
+
+export const useGitPrDetailsResource = (
+	ref: ExecutionRef | null,
+	activation: ResourceActivation = "connect",
+): ResourceView<GitPrDetailsData> =>
+	useClientBusResource(
+		useKey(ref, gitPrDetailsResourceKey),
+		EMPTY_PR_DETAILS_VIEW,
+		activation,
+	);
+
 const refresh = (
 	key: ResourceKey<unknown>,
 	refreshers: Map<string, RefreshController>,
@@ -499,8 +651,14 @@ const refresh = (
 export const refreshGitWorkspace = (ref: ExecutionRef): Promise<void> =>
 	refresh(gitWorkspaceResourceKey(ref), workspaceRefreshers);
 
+export const refreshGitChanges = (ref: ExecutionRef): Promise<void> =>
+	refresh(gitChangesResourceKey(ref), changesRefreshers);
+
 export const refreshGitReview = (ref: ExecutionRef): Promise<void> =>
-	refreshGitWorkspace(ref);
+	refresh(gitReviewResourceKey(ref), reviewRefreshers);
+
+export const refreshGitPrDetails = (ref: ExecutionRef): Promise<void> =>
+	refresh(gitPrDetailsResourceKey(ref), prDetailsRefreshers);
 
 export const dispatchGitWorkspaceCommand = <Payload, Result>(input: {
 	readonly ref: ExecutionRef;
@@ -527,8 +685,8 @@ export const dispatchGitWorkspaceCommand = <Payload, Result>(input: {
 	readonly retry?: ClientCommand["retry"];
 	readonly commandId: ClientCommand["commandId"];
 	readonly payload: Payload;
-}): Promise<CommandReceipt<Result>> =>
-	getRendererClientBus().dispatch({
+}): Promise<CommandReceipt<Result>> => {
+	const dispatched = getRendererClientBus().dispatch<Result>({
 		kind: input.kind,
 		commandId: input.commandId,
 		environmentId: input.ref.environmentId,
@@ -537,6 +695,18 @@ export const dispatchGitWorkspaceCommand = <Payload, Result>(input: {
 		retry: input.retry ?? "never",
 		createdAt: Date.now(),
 	});
+	void dispatched
+		.then(() =>
+			Promise.all([
+				refreshGitWorkspace(input.ref),
+				refreshGitChanges(input.ref),
+				refreshGitReview(input.ref),
+				refreshGitPrDetails(input.ref),
+			]),
+		)
+		.catch(() => undefined);
+	return dispatched;
+};
 
 const patchRequests = new Map<string, Promise<void>>();
 
@@ -544,7 +714,7 @@ export const ensureGitReviewPatch = (
 	ref: ExecutionRef,
 	path: string,
 ): Promise<void> => {
-	const key = gitWorkspaceResourceKey(ref);
+	const key = gitReviewResourceKey(ref);
 	const id = `${resourceKeyId(key)}:${encodeURIComponent(path)}`;
 	const existing = patchRequests.get(id);
 	if (existing !== undefined) return existing;
@@ -605,6 +775,8 @@ export const gitWorkspaceDriverStartsForTest = (): number =>
 export const resetGitWorkspaceClientBusForTest = (): void => {
 	workspaceDriverStarts = 0;
 	workspaceRefreshers.clear();
+	changesRefreshers.clear();
+	reviewRefreshers.clear();
+	prDetailsRefreshers.clear();
 	patchRequests.clear();
-	notifiedPrTerminalStates.clear();
 };

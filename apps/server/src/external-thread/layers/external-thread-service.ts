@@ -174,25 +174,41 @@ const parseJsonLines = (
   }
 };
 
+const readDirectoryEntries = (directory: string): ReadonlyArray<Dirent> => {
+  try {
+    return readdirSync(directory, { withFileTypes: true });
+  } catch {
+    // Provider history is a live, optional data source. A directory may be
+    // rotated or lose access while discovery is running; keep the other
+    // providers and projects usable instead of failing the whole menu.
+    return [];
+  }
+};
+
 export const discoverClaudeThreads = (
   root = path.join(homedir(), ".claude", "projects"),
 ): ReadonlyArray<DiscoveredThread> => {
   if (!existsSync(root)) return [];
   const out: DiscoveredThread[] = [];
-  for (const projectDir of readdirSync(root, { withFileTypes: true })) {
+  for (const projectDir of readDirectoryEntries(root)) {
     if (!projectDir.isDirectory()) continue;
     const dirPath = path.join(root, projectDir.name);
-    for (const entry of readdirSync(dirPath, { withFileTypes: true })) {
+    for (const entry of readDirectoryEntries(dirPath)) {
       if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
       const sourcePath = path.join(dirPath, entry.name);
       const rows = parseJsonLines(sourcePath);
       if (rows.length === 0) continue;
-      const stat = statSync(sourcePath);
+      let updatedAt: Date;
+      try {
+        updatedAt = statSync(sourcePath).mtime;
+      } catch {
+        // The transcript was removed between directory enumeration and read.
+        continue;
+      }
       let sessionId = entry.name.replace(/\.jsonl$/, "");
       let title: string | null = null;
       let preview: string | null = null;
       let projectPath: string | null = null;
-      let updatedAt = stat.mtime;
 
       for (const row of rows) {
         sessionId = firstString(row["sessionId"], sessionId) ?? sessionId;
@@ -846,8 +862,16 @@ export const ExternalThreadServiceLive = Layer.effect(
         );
         const codexRows =
           codex.length > 0 ? codex : yield* discoverCodexFallback();
+        const claudeRows = yield* Effect.try({
+          try: () => discoverClaudeThreads(),
+          catch: (cause) => cause,
+        }).pipe(
+          Effect.catch(() =>
+            Effect.succeed([] as ReadonlyArray<DiscoveredThread>),
+          ),
+        );
         const rows = dedupeExternalThreads(
-          [...discoverClaudeThreads(), ...codexRows].map(toExternalThread),
+          [...claudeRows, ...codexRows].map(toExternalThread),
         );
         return rows.slice(0, limit);
       });

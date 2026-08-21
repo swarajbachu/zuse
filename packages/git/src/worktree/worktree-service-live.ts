@@ -560,7 +560,18 @@ export const WorktreeServiceLive = Layer.effect(
 				"--json",
 				"number",
 			]).pipe(
-				Effect.map(() => true),
+				Effect.map((output) => {
+					try {
+						const decoded = JSON.parse(output) as { readonly number?: unknown };
+						return (
+							typeof decoded.number === "number" &&
+							Number.isInteger(decoded.number) &&
+							decoded.number > 0
+						);
+					} catch {
+						return false;
+					}
+				}),
 				Effect.catch(() => Effect.succeed(false)),
 			);
 			// A fresh worktree branch is created from origin/<base> and Git may

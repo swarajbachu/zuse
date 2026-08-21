@@ -28,7 +28,9 @@ import { deriveEnvironmentLocation } from "../lib/environment-location.ts";
 import { formatError } from "../lib/format-error.ts";
 import {
 	dispatchGitWorkspaceCommand,
+	refreshGitPrDetails,
 	refreshGitWorkspace,
+	useGitPrDetailsResource,
 	useGitWorkspaceResource,
 } from "../lib/git-workspace-client-bus.ts";
 import { detachedSubagentGroups } from "../lib/group-messages.ts";
@@ -114,18 +116,22 @@ export function EnvironmentSummary() {
 			? environmentId
 			: null,
 	);
+	const [checksRequestedKey, setChecksRequestedKey] = useState<string | null>(
+		null,
+	);
 	const gitView = useGitWorkspaceResource(executionRef, "connect");
+	const prDetailsView = useGitPrDetailsResource(
+		executionRef,
+		checksRequestedKey === null ? "cache-only" : "connect",
+	);
 	const status = gitView.data?.status ?? null;
 	const diffStat = gitView.data?.diffStat ?? null;
 	const [branches, setBranches] = useState<ReadonlyArray<GitBranchInfo>>([]);
 	const [branchesLoading, setBranchesLoading] = useState(false);
 	const [branchError, setBranchError] = useState<string | null>(null);
 	const pr = gitView.data?.pr ?? null;
-	const prDetails = gitView.data?.prDetails ?? null;
-	const prDetailsLoading = gitView.sync === "synchronizing";
-	const [checksRequestedKey, setChecksRequestedKey] = useState<string | null>(
-		null,
-	);
+	const prDetails = prDetailsView.data?.details ?? null;
+	const prDetailsLoading = prDetailsView.sync === "synchronizing";
 	const revealPanelForChat = useUiStore((s) => s.revealPanelForChat);
 	const selectSubagent = useUiStore((s) => s.selectSubagent);
 	const sessionId = useSessionsStore((s) => s.selectedSessionId);
@@ -297,7 +303,7 @@ export function EnvironmentSummary() {
 		if (!open || executionRef === null) return;
 		const key = `${executionRef.environmentId}:${executionRef.folderId}:${executionRef.worktreeId ?? "main"}`;
 		setChecksRequestedKey(key);
-		void refreshGitWorkspace(executionRef);
+		void refreshGitPrDetails(executionRef);
 	};
 
 	return (

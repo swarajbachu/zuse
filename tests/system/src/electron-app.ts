@@ -84,6 +84,9 @@ export const launchElectronApp = async (options: {
 		env: makeHermeticEnvironment({
 			HOME: join(options.root, "home"),
 			PATH: options.providerBinDirectory,
+			...(process.env.DISPLAY === undefined
+				? {}
+				: { DISPLAY: process.env.DISPLAY }),
 			...options.providerEnvironment,
 			VITE_DEV_SERVER_URL: "",
 			ZUSE_DESKTOP_WS_PORT: "0",

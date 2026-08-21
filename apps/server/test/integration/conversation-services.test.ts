@@ -983,9 +983,13 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const input = {
 				chatId: retryChatId,
 				initialSessionId: retrySessionId,
+				commandId: "chat-create:retry-after-lost-ack:bootstrap",
+				initialTurnId: AgentTurnId.make("turn-retry-after-lost-ack"),
+				initialMessageId: MessageId.make("message-retry-after-lost-ack"),
 				projectId: PROJECT_ID,
 				providerId: "claude" as const,
 				model: "claude-opus-4-8",
+				initialPrompt: "retry exactly once",
 				background: true,
 			};
 
@@ -998,7 +1002,47 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			expect(retried.chat.id).toBe(first.chat.id);
 			expect(retried.initialSession.id).toBe(first.initialSession.id);
-			expect(providerStartInputs).toHaveLength(0);
+			expect(providerStartInputs).toHaveLength(1);
+		});
+	});
+
+	it("accepts a stable bootstrap replay for a matching legacy session", async () => {
+		await withRuntime(async (run) => {
+			const chatId = ChatId.make("chat-legacy-bootstrap-replay");
+			const sessionId = SessionId.make("session-legacy-bootstrap-replay");
+			const legacy = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						chatId,
+						initialSessionId: sessionId,
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "resume the legacy operation",
+						background: true,
+					}),
+				),
+			);
+
+			const replayed = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						chatId,
+						initialSessionId: sessionId,
+						commandId: "chat-create:legacy-bootstrap-replay:bootstrap",
+						initialTurnId: AgentTurnId.make("turn_legacy-bootstrap-replay"),
+						initialMessageId: MessageId.make("message_legacy-bootstrap-replay"),
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "resume the legacy operation",
+						background: true,
+					}),
+				),
+			);
+
+			expect(replayed.chat.id).toBe(legacy.chat.id);
+			expect(replayed.initialSession.id).toBe(legacy.initialSession.id);
 		});
 	});
 
@@ -1895,6 +1939,63 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.flatMap(store, (service) => service.listMessages(sessionId)),
 			);
 			expect(messages).toEqual([]);
+		});
+	});
+
+	it("keeps a durable initial turn paused until workspace startup releases it", async () => {
+		await withRuntime(async (run) => {
+			const sessionId = SessionId.make("s_paused_workspace_startup");
+			const turnId = AgentTurnId.make("turn_paused_workspace_startup");
+			const result = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						chatId: ChatId.make("chat_paused_workspace_startup"),
+						initialSessionId: sessionId,
+						initialTurnId: turnId,
+						initialMessageId: MessageId.make(
+							"message_paused_workspace_startup",
+						),
+						commandId: "chat-create:paused:bootstrap",
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "wait for setup",
+						queuePaused: true,
+						background: true,
+					}),
+				),
+			);
+
+			expect(result.initialMessage?.content).toMatchObject({
+				_tag: "user",
+				text: "wait for setup",
+			});
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(
+				providerStartInputs.some((input) => input.sessionId === sessionId),
+			).toBe(false);
+
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.releaseInitialTurn(
+						"chat-create:paused:release",
+						sessionId,
+						turnId,
+						JSON.stringify({
+							text: "wait for setup",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+							annotations: [],
+						}),
+					),
+				),
+			);
+			await expect
+				.poll(() =>
+					providerStartInputs.some((input) => input.sessionId === sessionId),
+				)
+				.toBe(true);
 		});
 	});
 

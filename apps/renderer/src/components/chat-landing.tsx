@@ -10,6 +10,7 @@ import {
 	ComposerInput,
 	defaultModelFor,
 	EnvironmentId,
+	type ExternalThread,
 	type FolderId,
 	type LinearContextFile,
 	type LinearContextWarning,
@@ -20,11 +21,12 @@ import {
 	type WorktreeId,
 } from "@zuse/contracts";
 import {
+	ChatDownload01Icon,
 	Folder01Icon,
 	FolderAddIcon,
 	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown, Search, X } from "lucide-react";
 import {
 	lazy,
 	Suspense,
@@ -35,20 +37,12 @@ import {
 	useState,
 } from "react";
 import {
-	Frame,
-	FrameFooter,
-	FrameHeader,
-	FramePanel,
-	FrameTitle,
-} from "~/components/ui/frame";
-import {
 	Menu,
 	MenuItem,
 	MenuPopup,
 	MenuSeparator,
 	MenuTrigger,
 } from "~/components/ui/menu";
-import { Skeleton } from "~/components/ui/skeleton";
 import { Spinner } from "~/components/ui/spinner";
 import { toastManager } from "~/components/ui/toast.tsx";
 import {
@@ -210,6 +204,7 @@ export function ChatLanding() {
 	const addFolder = useWorkspaceStore((s) => s.add);
 	const externalThreads = useExternalThreadsStore((s) => s.threads);
 	const externalThreadsLoading = useExternalThreadsStore((s) => s.loading);
+	const externalThreadsError = useExternalThreadsStore((s) => s.error);
 	const continuingExternalThreadId = useExternalThreadsStore(
 		(s) => s.continuingId,
 	);
@@ -555,6 +550,9 @@ export function ChatLanding() {
 					name: pickerGroup.displayName,
 				}
 			: null;
+	const importEnvironmentId = EnvironmentId.make(
+		resolvedTarget?.environmentId ?? getLocalEnvironmentId(),
+	);
 
 	// Spin up (or re-spin, on project switch) the draft session that backs the
 	// composer. Re-runs only when the project changes — model/provider/runtime
@@ -582,10 +580,6 @@ export function ChatLanding() {
 		return () => clearDraft();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [activeEnvironmentId, selectedFolderId, remoteAnchor]);
-
-	useEffect(() => {
-		void hydrateExternalThreads();
-	}, [hydrateExternalThreads]);
 
 	const headline =
 		anchoredGroup !== null
@@ -1412,6 +1406,18 @@ export function ChatLanding() {
 												onRetryEnvironment={retryComputer}
 											/>
 										) : null}
+										<ImportChatMenu
+											threads={externalThreads}
+											loading={externalThreadsLoading}
+											error={externalThreadsError}
+											continuingId={continuingExternalThreadId}
+											onOpen={() =>
+												void hydrateExternalThreads(importEnvironmentId)
+											}
+											onImport={(thread) =>
+												void continueExternalThread(thread, importEnvironmentId)
+											}
+										/>
 									</div>
 									<div className="flex min-w-0 items-center gap-1.5">
 										{createSource !== null && (
@@ -1501,13 +1507,6 @@ export function ChatLanding() {
 						Pick a project below to start a new chat.
 					</p>
 				)}
-
-				<ContinueThreadsSection
-					threads={externalThreads}
-					loading={externalThreadsLoading}
-					continuingId={continuingExternalThreadId}
-					onContinue={(thread) => void continueExternalThread(thread)}
-				/>
 			</div>
 			{projectSetupOpen && pendingProjectSetup !== null ? (
 				<Suspense fallback={null}>
@@ -1529,122 +1528,140 @@ export function ChatLanding() {
 	);
 }
 
-function ContinueThreadsSection({
+export function ImportChatMenu({
 	threads,
 	loading,
+	error,
 	continuingId,
-	onContinue,
+	onOpen,
+	onImport,
 }: {
 	threads: ReturnType<typeof useExternalThreadsStore.getState>["threads"];
 	loading: boolean;
+	error: string | null;
 	continuingId: string | null;
-	onContinue: (
+	onOpen: () => void;
+	onImport: (
 		thread: ReturnType<
 			typeof useExternalThreadsStore.getState
 		>["threads"][number],
 	) => void;
 }) {
-	if (!loading && threads.length === 0) return null;
+	const [query, setQuery] = useState("");
+	const visibleThreads = useMemo(
+		() => filterImportThreads(threads, query),
+		[query, threads],
+	);
 	return (
-		<section className="mt-2 min-w-0">
-			<div className="mb-2 flex items-center justify-between gap-3 px-1">
-				<div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-					<span>Continue Threads</span>
-					<span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] tracking-normal text-muted-foreground">
-						{loading && threads.length === 0 ? "..." : threads.length}
-					</span>
+		<Menu
+			onOpenChange={(open) => {
+				if (open) onOpen();
+				else setQuery("");
+			}}
+		>
+			<MenuTrigger
+				className="flex min-w-0 items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent data-[popup-open]:bg-accent"
+				aria-label="Import an existing chat"
+			>
+				<HugeiconsIcon icon={ChatDownload01Icon} className="size-3.5" />
+				<span>Import chat</span>
+				<ChevronDown className="size-3 opacity-60" />
+			</MenuTrigger>
+			<MenuPopup side="bottom" align="start" className="w-80 p-1">
+				<div className="px-2 pb-1 pt-1.5 text-[11px] font-medium text-muted-foreground">
+					Recent provider chats
 				</div>
-			</div>
-			<div className="flex gap-3 overflow-x-auto pb-1">
-				{loading && threads.length === 0
-					? Array.from({ length: 3 }).map((_, index) => (
-							<ContinueThreadSkeleton
-								// eslint-disable-next-line react/no-array-index-key
-								key={index}
-							/>
-						))
-					: threads.map((thread) => {
-							const disabled = !thread.available || continuingId !== null;
+				<div className="px-1 pb-1.5">
+					<div className="flex h-8 items-center gap-2 rounded-md border border-border bg-background/50 px-2 focus-within:border-ring">
+						<Search className="size-3.5 shrink-0 text-muted-foreground" />
+						<input
+							type="search"
+							value={query}
+							onChange={(event) => setQuery(event.target.value)}
+							onKeyDown={(event) => event.stopPropagation()}
+							placeholder="Search chats…"
+							aria-label="Search imported chats"
+							className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+						/>
+					</div>
+				</div>
+				<div className="max-h-64 overflow-y-auto overscroll-contain">
+					{loading && threads.length === 0 ? (
+						<div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
+							<Spinner className="size-3.5" />
+							Finding chats…
+						</div>
+					) : error !== null && threads.length === 0 ? (
+						<div className="px-2 py-2 text-xs text-destructive">
+							Couldn’t load chats. Close and reopen this menu to retry.
+						</div>
+					) : threads.length === 0 ? (
+						<div className="px-2 py-2 text-xs text-muted-foreground">
+							No recent chats found.
+						</div>
+					) : visibleThreads.length === 0 ? (
+						<div className="px-2 py-3 text-xs text-muted-foreground">
+							No chats match “{query.trim()}”.
+						</div>
+					) : (
+						visibleThreads.map((thread) => {
 							const active = continuingId === thread.id;
 							return (
-								<button
-									type="button"
+								<MenuItem
 									key={thread.id}
-									disabled={disabled}
-									onClick={() => onContinue(thread)}
+									disabled={!thread.available || continuingId !== null}
+									onClick={() => onImport(thread)}
+									className="grid min-h-11 grid-cols-[auto_1fr_auto] gap-x-2 px-2 py-1.5"
 									title={
 										thread.available
 											? thread.projectPath
 											: `${thread.projectPath || "Project folder"} is missing`
 									}
-									className={cn(
-										"group min-w-[17.5rem] max-w-[19rem] text-left outline-none transition-transform focus-visible:rounded-lg focus-visible:ring-2 focus-visible:ring-ring",
-										!disabled && "hover:-translate-y-px",
-										disabled && "cursor-default hover:translate-y-0",
-									)}
 								>
-									<Frame
-										className={cn(
-											"h-40 min-w-[17.5rem] overflow-hidden bg-muted/50 p-1 transition-colors",
-											!thread.available && "opacity-55",
-										)}
-									>
-										<FrameHeader className="flex-row items-center justify-between gap-2 px-3 py-1.5">
-											<div className="flex min-w-0 items-center gap-1.5">
-												<span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground shadow-xs/5">
-													<ProviderIcon
-														providerId={thread.providerId}
-														className="size-4"
-													/>
-												</span>
-												<FrameTitle className="truncate text-[11px] font-medium text-muted-foreground">
-													{providerThreadLabel(thread.providerId)}
-												</FrameTitle>
-											</div>
-											{active ? (
-												<Spinner className="size-3.5 shrink-0 text-muted-foreground" />
-											) : (
-												<span className="shrink-0 text-[11px] text-muted-foreground">
-													{formatThreadRelative(thread.updatedAt)}
-												</span>
-											)}
-										</FrameHeader>
-										<FramePanel
-											className={cn(
-												"min-h-0 flex-1 overflow-hidden px-3 py-2 transition-colors",
-												!disabled &&
-													"group-hover:border-border group-hover:bg-muted/20",
-											)}
-										>
-											<div className="min-w-0">
-												<div className="line-clamp-2 text-[13px] font-medium leading-snug text-foreground">
-													{thread.title}
-												</div>
-												<div className="mt-1.5 line-clamp-2 text-[12px] leading-snug text-muted-foreground">
-													{thread.preview}
-												</div>
-											</div>
-										</FramePanel>
-										<FrameFooter className="flex min-w-0 items-center justify-between gap-2 px-3 py-2 text-[11px] text-muted-foreground">
-											<span className="flex min-w-0 items-center gap-1.5">
-												<HugeiconsIcon
-													icon={Folder01Icon}
-													className="size-3.5 shrink-0"
-												/>
-												<span className="truncate">{thread.projectName}</span>
-											</span>
-											{!thread.available && (
-												<span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] text-destructive">
-													Missing
-												</span>
-											)}
-										</FrameFooter>
-									</Frame>
-								</button>
+									<ProviderIcon
+										providerId={thread.providerId}
+										className="col-start-1 row-span-2 size-4 self-center"
+									/>
+									<span className="col-start-2 row-start-1 truncate text-xs font-medium">
+										{thread.title}
+									</span>
+									<span className="col-start-2 row-start-2 truncate text-[10px] text-muted-foreground">
+										{providerThreadLabel(thread.providerId)} ·{" "}
+										{thread.projectName}
+									</span>
+									{active ? (
+										<Spinner className="col-start-3 row-span-2 size-3.5 self-center" />
+									) : (
+										<span className="col-start-3 row-span-2 self-center text-[10px] text-muted-foreground">
+											{thread.available
+												? formatThreadRelative(thread.updatedAt)
+												: "Missing"}
+										</span>
+									)}
+								</MenuItem>
 							);
-						})}
-			</div>
-		</section>
+						})
+					)}
+				</div>
+			</MenuPopup>
+		</Menu>
+	);
+}
+
+export function filterImportThreads(
+	threads: ReadonlyArray<ExternalThread>,
+	query: string,
+): ReadonlyArray<ExternalThread> {
+	const normalized = query.trim().toLocaleLowerCase();
+	if (normalized.length === 0) return threads;
+	return threads.filter((thread) =>
+		[
+			thread.title,
+			thread.preview,
+			thread.projectName,
+			thread.projectPath,
+			providerThreadLabel(thread.providerId),
+		].some((value) => value.toLocaleLowerCase().includes(normalized)),
 	);
 }
 
@@ -1652,32 +1669,6 @@ function providerThreadLabel(providerId: ProviderId): string {
 	if (providerId === "claude") return "Claude Code";
 	if (providerId === "codex") return "Codex";
 	return PROVIDER_LABEL[providerId] ?? providerId;
-}
-
-function ContinueThreadSkeleton() {
-	return (
-		<Frame className="h-40 min-w-[17.5rem] bg-muted/50 p-1">
-			<FrameHeader className="flex-row items-center justify-between gap-2 px-3 py-1.5">
-				<div className="flex items-center gap-1.5">
-					<Skeleton className="size-7 rounded-md" />
-					<Skeleton className="h-3 w-14" />
-				</div>
-				<Skeleton className="h-3 w-8" />
-			</FrameHeader>
-			<FramePanel className="min-h-0 flex-1 px-3 py-2">
-				<div>
-					<Skeleton className="h-4 w-48" />
-					<Skeleton className="mt-2 h-4 w-36" />
-					<Skeleton className="mt-3 h-3 w-52" />
-					<Skeleton className="mt-1.5 h-3 w-40" />
-				</div>
-			</FramePanel>
-			<FrameFooter className="flex items-center gap-1.5 px-3 py-2">
-				<Skeleton className="size-3.5" />
-				<Skeleton className="h-3 w-24" />
-			</FrameFooter>
-		</Frame>
-	);
 }
 
 /**

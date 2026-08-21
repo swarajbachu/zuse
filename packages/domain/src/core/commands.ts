@@ -68,6 +68,12 @@ export const SessionCommand = Schema.Union([
 		paused: Schema.Boolean,
 		updatedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("ReleaseInitialTurn", {
+		expectedTurnId: Schema.String,
+		providerInputJson: Schema.String,
+		providerStartJson: Schema.optional(Schema.String),
+		requestedAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("SetResume", {
 		cursor: SessionCreatedFields.cursor,
 		resumeStrategy: SessionCreatedFields.resumeStrategy,

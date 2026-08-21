@@ -158,6 +158,45 @@ describe("session decider", () => {
 		]);
 	});
 
+	test("persists a paused initial turn without requesting the provider", () => {
+		const result = decide(initialSessionState, {
+			...createSessionCommand,
+			_tag: "CreateSessionWithInitialTurn",
+			queuePaused: true,
+			providerStartJson: '{"initialPrompt":"hello"}',
+			turnId: "turn-initial",
+			messageId: "message-initial",
+			messageContentJson: '{"_tag":"user","text":"hello"}',
+			providerInputJson:
+				'{"text":"hello","attachments":[],"fileRefs":[],"skillRefs":[]}',
+		});
+		expect(Result.getOrThrow(result).map((event) => event._tag)).toEqual([
+			"SessionCreated",
+			"MessagePersisted",
+			"TurnStarted",
+			"SessionStatusSet",
+		]);
+	});
+
+	test("releases the same paused turn to the provider once", () => {
+		const paused = evolveAll(initialSessionState, [
+			{ ...sessionCreation, queuePaused: true, _tag: "SessionCreated" },
+			{ _tag: "TurnStarted", turnId: "turn-initial", startedAt: 1 },
+		]);
+		const result = decide(paused, {
+			_tag: "ReleaseInitialTurn",
+			expectedTurnId: "turn-initial",
+			providerInputJson:
+				'{"text":"hello","attachments":[],"fileRefs":[],"skillRefs":[]}',
+			providerStartJson: '{"initialPrompt":null}',
+			requestedAt: 2,
+		});
+		expect(Result.getOrThrow(result).map((event) => event._tag)).toEqual([
+			"SessionQueuePausedSet",
+			"ProviderTurnRequested",
+		]);
+	});
+
 	test("prevents mutation before creation and after deletion", () => {
 		expect(
 			failure(

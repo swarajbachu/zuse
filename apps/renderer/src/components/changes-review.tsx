@@ -63,7 +63,7 @@ import {
 	dispatchGitWorkspaceCommand,
 	ensureGitReviewPatch,
 	refreshGitReview,
-	useGitWorkspaceResource,
+	useGitReviewResource,
 } from "../lib/git-workspace-client-bus.ts";
 import {
 	getReviewAnnotationAnchor,
@@ -253,7 +253,7 @@ function ChangesReviewReady({
 	readonly executionRef: ExecutionRef;
 }) {
 	const { folderId, worktreeId, rootPath } = executionRef;
-	const reviewView = useGitWorkspaceResource(executionRef, "connect");
+	const reviewView = useGitReviewResource(executionRef, "connect");
 	const summary = reviewView.data?.summary ?? null;
 	const patches = reviewView.data?.patches ?? EMPTY_REVIEW_PATCHES;
 	const loading = reviewView.sync === "synchronizing";

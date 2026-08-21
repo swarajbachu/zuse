@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ExternalThread } from "@zuse/contracts";
@@ -326,6 +332,33 @@ describe("external thread discovery", () => {
 				resumeStrategy: "claude-session-id",
 			});
 		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps healthy Claude threads when one project directory is unreadable", () => {
+		const root = mkdtempSync(path.join(tmpdir(), "zuse-claude-threads-"));
+		const unreadableDir = path.join(root, "-Users-whizzy-projects-unreadable");
+		try {
+			const healthyDir = path.join(root, "-Users-whizzy-projects-healthy");
+			mkdirSync(healthyDir, { recursive: true });
+			mkdirSync(unreadableDir, { recursive: true });
+			writeFileSync(
+				path.join(healthyDir, "session-healthy.jsonl"),
+				JSON.stringify({
+					type: "user",
+					sessionId: "session-healthy",
+					cwd: "/tmp/healthy",
+					content: "Keep this chat",
+				}),
+			);
+			chmodSync(unreadableDir, 0o000);
+
+			expect(discoverClaudeThreads(root)).toEqual([
+				expect.objectContaining({ cursor: "session-healthy" }),
+			]);
+		} finally {
+			chmodSync(unreadableDir, 0o700);
 			rmSync(root, { recursive: true, force: true });
 		}
 	});

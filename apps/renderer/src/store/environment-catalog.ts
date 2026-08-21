@@ -42,7 +42,11 @@ import { runtimeOperationClient } from "../lib/runtime-operation-client.ts";
 import { getRendererClientBus } from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { activateAnnotationsEnvironment } from "./annotations.ts";
-import { restorePendingCreation, useChatsStore } from "./chats.ts";
+import {
+	pendingCreationEntities,
+	restorePendingCreation,
+	useChatsStore,
+} from "./chats.ts";
 import { useSessionsStore } from "./sessions.ts";
 import { useUiStore } from "./ui.ts";
 import { useWorkspaceStore } from "./workspace.ts";
@@ -141,7 +145,9 @@ export const projectEnvironmentShell = (
 		creationOperations
 			.filter(
 				(operation) =>
-					operation.status !== "succeeded" && operation.status !== "failed",
+					operation.phase !== "running" &&
+					operation.phase !== "failed" &&
+					operation.phase !== "cancelled",
 			)
 			.map((operation) => operation.operationId),
 	);
@@ -150,14 +156,12 @@ export const projectEnvironmentShell = (
 			resumedCreationOperations.delete(operationId);
 		}
 	}
-	const durableChatIds = new Set(
-		Object.values(normalized.chatsByProject)
-			.flat()
-			.map((chat) => chat.id),
-	);
 	const succeededOperationIds = new Set(
 		creationOperations
-			.filter((operation) => operation.status === "succeeded")
+			.filter(
+				(operation) =>
+					operation.phase === "running" || operation.phase === "cancelled",
+			)
 			.map((operation) => operation.operationId),
 	);
 	const pendingByChat = Object.fromEntries(
@@ -166,14 +170,15 @@ export const projectEnvironmentShell = (
 				? {}
 				: previousChats.pendingCreationByChat,
 		).filter(
-			([, creation]) =>
-				!durableChatIds.has(creation.chatId) &&
-				!succeededOperationIds.has(creation.operationId),
+			([, creation]) => !succeededOperationIds.has(creation.operationId),
 		),
 	);
 	const restoredPending = Object.fromEntries(
 		creationOperations
-			.filter((operation) => operation.status !== "succeeded")
+			.filter(
+				(operation) =>
+					operation.phase !== "running" && operation.phase !== "cancelled",
+			)
 			.map((operation) => {
 				const pending = restorePendingCreation(operation);
 				return [pending.chat.id, pending.creation] as const;
@@ -181,8 +186,14 @@ export const projectEnvironmentShell = (
 	);
 	const optimisticChats = new Map<string, Chat>();
 	const optimisticSessions = new Map<string, Session>();
+	for (const creation of Object.values(pendingByChat)) {
+		const optimistic = pendingCreationEntities(creation);
+		optimisticChats.set(optimistic.chat.id, optimistic.chat);
+		optimisticSessions.set(optimistic.session.id, optimistic.session);
+	}
 	for (const operation of creationOperations) {
-		if (operation.status === "succeeded") continue;
+		if (operation.phase === "running" || operation.phase === "cancelled")
+			continue;
 		const pending = restorePendingCreation(operation);
 		optimisticChats.set(pending.chat.id, pending.chat);
 		optimisticSessions.set(pending.session.id, pending.session);
@@ -309,7 +320,9 @@ export const projectEnvironmentShell = (
 			creationOperations
 				.filter(
 					(operation) =>
-						operation.status !== "succeeded" && operation.status !== "failed",
+						operation.phase !== "running" &&
+						operation.phase !== "failed" &&
+						operation.phase !== "cancelled",
 				)
 				.map((operation) => [operation.projectId, true] as const),
 		),

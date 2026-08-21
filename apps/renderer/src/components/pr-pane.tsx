@@ -22,7 +22,10 @@ import {
 	attachFileWhenReady,
 	saveContextFile,
 } from "../lib/context-handoff.ts";
-import { useGitWorkspaceResource } from "../lib/git-workspace-client-bus.ts";
+import {
+	useGitPrDetailsResource,
+	useGitWorkspaceResource,
+} from "../lib/git-workspace-client-bus.ts";
 import { softTone, type Tone } from "../lib/tones.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import {
@@ -179,11 +182,12 @@ export function PrPane({
 	executionRef: ExecutionRef | null;
 }) {
 	const workspaceView = useGitWorkspaceResource(executionRef, "connect");
+	const detailsView = useGitPrDetailsResource(executionRef, "connect");
 	const status = workspaceView.data?.status ?? null;
 	const noRepo = workspaceView.data?.noRepository === true;
 	const pr = workspaceView.data?.pr ?? null;
-	const details = workspaceView.data?.prDetails ?? null;
-	const detailsLoading = workspaceView.sync === "synchronizing";
+	const details = detailsView.data?.details ?? null;
+	const detailsLoading = detailsView.sync === "synchronizing";
 
 	if (executionRef === null) {
 		return <Empty>Select a project to see its PR here.</Empty>;

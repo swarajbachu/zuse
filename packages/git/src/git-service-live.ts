@@ -785,6 +785,15 @@ export const GitServiceLive = Layer.effect(
 					);
 				}),
 			).pipe(
+				Effect.timeout("5 seconds"),
+				Effect.catchTag("TimeoutError", () =>
+					Effect.fail(
+						new GitCommandError({
+							folderId,
+							reason: "GitHub CLI timed out after 5 seconds",
+						}),
+					),
+				),
 				Effect.catchTag("PlatformError", (error) =>
 					Effect.fail(
 						error.reason._tag === "NotFound"
@@ -798,6 +807,7 @@ export const GitServiceLive = Layer.effect(
 			folderId: FolderId,
 			cwd: string,
 			fields: string,
+			strict = false,
 		): Effect.Effect<string, GitNotInstalledError | GitCommandError> =>
 			Effect.gen(function* () {
 				const read = (candidate: string | null) =>
@@ -807,7 +817,18 @@ export const GitServiceLive = Layer.effect(
 						candidate === null
 							? ["pr", "view", "--json", fields]
 							: ["pr", "view", candidate, "--json", fields],
-					).pipe(Effect.catchTag("GitCommandError", () => Effect.succeed("")));
+					).pipe(
+						Effect.catchTag("GitCommandError", (error) => {
+							const reason = error.reason.toLowerCase();
+							const noPullRequest =
+								reason.includes("no pull requests found") ||
+								reason.includes("no pull request found") ||
+								reason.includes("could not resolve to a pullrequest");
+							return !strict || noPullRequest
+								? Effect.succeed("")
+								: Effect.fail(error);
+						}),
+					);
 
 				const direct = yield* read(null);
 				if (direct.trim().length > 0) return direct;
@@ -866,38 +887,59 @@ export const GitServiceLive = Layer.effect(
 		const prState: GitService["Service"]["prState"] = (folderId, worktreeId) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
-					const empty: GitPrInfo = GitPrInfo.make({
-						state: "none",
-						branch: null,
-						baseBranch: null,
-						additions: 0,
-						deletions: 0,
-						number: null,
-						url: null,
-						isDraft: false,
-						checks: "none",
-						mergeable: "unknown",
-						checksTotal: 0,
-						checksRunning: 0,
-						checksPassing: 0,
-						checksFailing: 0,
-						autoMergeEnabled: false,
-					});
+					const empty = (
+						prCapability: GitPrInfo["prCapability"] = "available",
+					): GitPrInfo =>
+						GitPrInfo.make({
+							nodeId: null,
+							state: "none",
+							branch: null,
+							baseBranch: null,
+							additions: 0,
+							deletions: 0,
+							number: null,
+							url: null,
+							isDraft: false,
+							checks: "none",
+							mergeable: "unknown",
+							checksTotal: 0,
+							checksRunning: 0,
+							checksPassing: 0,
+							checksFailing: 0,
+							autoMergeEnabled: false,
+							prCapability,
+							stale: false,
+						});
 
-					const stdout = yield* currentPrView(
+					const prView = yield* currentPrView(
 						folderId,
 						cwd,
-						"state,additions,deletions,number,url,headRefName,baseRefName,isDraft,statusCheckRollup,mergeable,autoMergeRequest",
-					).pipe(
-						Effect.catchTags({
-							GitNotInstalledError: () => Effect.succeed(""),
-							GitCommandError: () => Effect.succeed(""),
-						}),
-					);
+						"id,state,additions,deletions,number,url,headRefName,baseRefName,isDraft,statusCheckRollup,mergeable,autoMergeRequest",
+						true,
+					).pipe(Effect.result);
+					if (prView._tag === "Failure") {
+						if (prView.failure._tag === "GitNotInstalledError") {
+							return empty("missing_cli");
+						}
+						const reason = prView.failure.reason.toLowerCase();
+						return empty(
+							reason.includes("auth") || reason.includes("login")
+								? "authentication"
+								: reason.includes("rate limit")
+									? "rate_limited"
+									: reason.includes("timed out") || reason.includes("timeout")
+										? "timeout"
+										: reason.includes("network") || reason.includes("connect")
+											? "offline"
+											: "unknown",
+						);
+					}
+					const stdout = prView.success;
 
-					if (stdout.trim().length === 0) return empty;
+					if (stdout.trim().length === 0) return empty();
 
 					let parsed: {
+						id?: string;
 						state?: string;
 						additions?: number;
 						deletions?: number;
@@ -917,7 +959,7 @@ export const GitServiceLive = Layer.effect(
 					try {
 						parsed = JSON.parse(stdout) as typeof parsed;
 					} catch {
-						return empty;
+						return empty("unknown");
 					}
 
 					// gh returns "OPEN" / "CLOSED" / "MERGED"; map to the wire literal.
@@ -939,6 +981,7 @@ export const GitServiceLive = Layer.effect(
 					const counts = countChecks(rollup);
 
 					return GitPrInfo.make({
+						nodeId: parsed.id ?? null,
 						state,
 						branch: parsed.headRefName ?? null,
 						baseBranch: parsed.baseRefName ?? null,
@@ -960,6 +1003,8 @@ export const GitServiceLive = Layer.effect(
 						autoMergeEnabled:
 							parsed.autoMergeRequest !== null &&
 							parsed.autoMergeRequest !== undefined,
+						prCapability: "available",
+						stale: false,
 					});
 				}),
 			);
@@ -1982,6 +2027,10 @@ export const GitServiceLive = Layer.effect(
 		const push: GitService["Service"]["push"] = (folderId, worktreeId) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
+					// Fail deterministically before spawning a push when the checkout has no
+					// destination. Some Git/process combinations can otherwise report an
+					// empty successful result for this invalid operation.
+					yield* run(folderId, cwd, ["remote", "get-url", "origin"]);
 					const branch = (yield* run(folderId, cwd, [
 						"rev-parse",
 						"--abbrev-ref",
@@ -2414,6 +2463,18 @@ export const GitServiceLive = Layer.effect(
 											}),
 										),
 									),
+								),
+							),
+						),
+					);
+					yield* Effect.forkScoped(
+						Effect.forever(
+							Effect.sleep(Duration.seconds(5)).pipe(
+								Effect.andThen(
+									Effect.sync(() => {
+										revision += 1;
+										Queue.offerUnsafe(mailbox, { revision });
+									}),
 								),
 							),
 						),

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	deriveBranchWorkflow,
 	deriveEnvironmentPrRows,
+	resolveBranchLabel,
 } from "../../src/lib/branch-workflow.ts";
 
 const cleanStatus = { branch: "feature", dirtyFiles: 0, ahead: 0 };
@@ -21,6 +22,19 @@ const openPr = {
 };
 
 describe("branch workflow", () => {
+	it("shows the persisted worktree branch while the Git snapshot is settling", () => {
+		expect(resolveBranchLabel(null, "feature/worktree", null)).toEqual({
+			label: "feature/worktree",
+			cached: true,
+		});
+		expect(
+			resolveBranchLabel("feature/live", "feature/worktree", null),
+		).toEqual({
+			label: "feature/live",
+			cached: false,
+		});
+	});
+
 	it("keeps the primary action independent from PR health rows", () => {
 		const workflow = deriveBranchWorkflow(
 			cleanStatus,

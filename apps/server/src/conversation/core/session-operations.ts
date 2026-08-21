@@ -325,7 +325,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						forkedFromMessageId,
 						permissionMode: initialPermissionMode,
 						toolSearch: initialToolSearch,
-						queuePaused: false,
+						queuePaused: input.queuePaused ?? false,
 						providerStartJson: JSON.stringify(providerStart),
 						...(hasInitial &&
 						initialTurnId !== null &&
@@ -649,6 +649,22 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			});
 		});
 
+	const releaseInitialTurn: ConversationOperations["releaseInitialTurn"] = (
+		commandId,
+		sessionId,
+		turnId,
+		providerInputJson,
+	) =>
+		Effect.gen(function* () {
+			yield* dispatchSessionCommandWithId(sessionId, commandId, {
+				_tag: "ReleaseInitialTurn",
+				expectedTurnId: turnId,
+				providerInputJson,
+				requestedAt: yield* currentTimestamp,
+			});
+			yield* runSessionReactors;
+		});
+
 	const unarchiveSession: ConversationOperations["unarchiveSession"] = (
 		sessionId,
 	) =>
@@ -690,5 +706,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		archiveSession,
 		unarchiveSession,
 		deleteSession,
+		releaseInitialTurn,
 	};
 };

@@ -7,13 +7,16 @@ import {
 import { safeModelId } from "@zuse/analytics";
 import {
 	AgentSessionStartError,
+	AgentTurnId,
 	ChatArchiveWorktreeError,
+	ChatCreationConflictError,
 	type ChatCreationOperation,
 	ChatId,
 	ComposerInput,
 	CredentialStoreError,
 	FolderId,
 	MemoizeRpcs,
+	MessageId,
 	type ProviderId,
 	SessionAlreadyStartedError,
 	SessionId,
@@ -433,7 +436,17 @@ type ChatCreationOperationRow = {
 	readonly startup_ready: number;
 	readonly workspace_policy: ChatCreationOperation["workspacePolicy"]["_tag"];
 	readonly worktree_id: string | null;
-	readonly status: ChatCreationOperation["status"];
+	readonly phase: ChatCreationOperation["phase"];
+	readonly failure_stage: ChatCreationOperation["failureStage"];
+	readonly retryable: number;
+	readonly workspace_attempt: number;
+	readonly setup_attempt: number;
+	readonly provider_attempt: number;
+	readonly setup_bypassed: number;
+	readonly lease_epoch: number;
+	readonly fingerprint_version: number;
+	readonly request_fingerprint: string | null;
+	readonly phase_started_at: string;
 	readonly error: string | null;
 	readonly created_at: string;
 	readonly updated_at: string;
@@ -468,7 +481,18 @@ const chatCreationOperationFromRow = (
 				: { _tag: "main" },
 	worktreeId:
 		row.worktree_id === null ? null : WorktreeId.make(row.worktree_id),
-	status: row.status,
+	phase: row.phase,
+	failureStage: row.failure_stage,
+	retryable: row.retryable !== 0,
+	attempts: {
+		workspace: row.workspace_attempt,
+		setup: row.setup_attempt,
+		provider: row.provider_attempt,
+	},
+	setupBypassed: row.setup_bypassed !== 0,
+	leaseEpoch: row.lease_epoch,
+	fingerprintVersion: row.fingerprint_version,
+	phaseStartedAt: new Date(row.phase_started_at),
 	error: row.error,
 	createdAt: new Date(row.created_at),
 	updatedAt: new Date(row.updated_at),
@@ -481,11 +505,15 @@ const listChatCreationOperations = (projectId: string) =>
 			       provider_id, model, title, runtime_mode, permission_mode,
 			       tool_search, prompt, startup_input_json, startup_queue_id, startup_ready,
 			       workspace_policy, worktree_id,
-			       status, error, created_at, updated_at
+			       phase, failure_stage, retryable,
+			       workspace_attempt, setup_attempt, provider_attempt,
+			       setup_bypassed, lease_epoch, fingerprint_version,
+			       request_fingerprint, phase_started_at,
+			       error, created_at, updated_at
 			FROM chat_creation_operations
 			WHERE project_id = ${projectId}
 			  AND (
-			    status <> 'succeeded'
+			    phase NOT IN ('running', 'cancelled')
 			    OR updated_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes')
 			  )
 			ORDER BY created_at ASC
@@ -494,6 +522,105 @@ const listChatCreationOperations = (projectId: string) =>
 			Effect.map((rows) => rows.map(chatCreationOperationFromRow)),
 		),
 	);
+
+const getChatCreationOperation = (operationId: string) =>
+	Effect.flatMap(SqlClient.SqlClient, (sql) =>
+		sql<ChatCreationOperationRow>`
+			SELECT operation_id, chat_id, initial_session_id, project_id,
+			       provider_id, model, title, runtime_mode, permission_mode,
+			       tool_search, prompt, startup_input_json, startup_queue_id, startup_ready,
+			       workspace_policy, worktree_id,
+			       phase, failure_stage, retryable,
+			       workspace_attempt, setup_attempt, provider_attempt,
+			       setup_bypassed, lease_epoch, fingerprint_version,
+			       request_fingerprint, phase_started_at,
+			       error, created_at, updated_at
+			FROM chat_creation_operations
+			WHERE operation_id = ${operationId}
+			LIMIT 1
+		`.pipe(
+			Effect.orDie,
+			Effect.map((rows) => {
+				const row = rows[0];
+				return row === undefined ? null : chatCreationOperationFromRow(row);
+			}),
+		),
+	);
+
+const canonicalJson = (value: unknown): string => {
+	if (value === null || typeof value !== "object") return JSON.stringify(value);
+	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+	return `{${Object.entries(value as Readonly<Record<string, unknown>>)
+		.sort(([left], [right]) => left.localeCompare(right))
+		.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+		.join(",")}}`;
+};
+
+const sha256 = (value: string): Effect.Effect<string> =>
+	Effect.promise(async () => {
+		const bytes = await crypto.subtle.digest(
+			"SHA-256",
+			new TextEncoder().encode(value),
+		);
+		return Array.from(new Uint8Array(bytes), (byte) =>
+			byte.toString(16).padStart(2, "0"),
+		).join("");
+	});
+
+const directStartupInput = (input: ComposerInput | undefined): boolean =>
+	input !== undefined &&
+	input.text.trim().length > 0 &&
+	input.attachments.length === 0 &&
+	input.fileRefs.length === 0 &&
+	input.skillRefs.length === 0 &&
+	input.annotations.length === 0;
+
+const creationPhaseStatus = (
+	phase: ChatCreationOperation["phase"],
+):
+	| "pending"
+	| "creating_workspace"
+	| "creating_chat"
+	| "succeeded"
+	| "failed" => {
+	switch (phase) {
+		case "persisted":
+		case "cancelling":
+		case "cancelled":
+			return "pending";
+		case "creating_workspace":
+		case "running_setup":
+			return "creating_workspace";
+		case "starting_agent":
+			return "creating_chat";
+		case "running":
+			return "succeeded";
+		case "failed":
+			return "failed";
+	}
+};
+
+const updateCreationPhase = (
+	sql: SqlClient.SqlClient,
+	operationId: string,
+	phase: ChatCreationOperation["phase"],
+	options?: {
+		readonly failureStage?: ChatCreationOperation["failureStage"];
+		readonly retryable?: boolean;
+		readonly error?: string | null;
+	},
+) => {
+	const now = new Date().toISOString();
+	return sql`
+		UPDATE chat_creation_operations
+		SET phase = ${phase}, status = ${creationPhaseStatus(phase)},
+		    failure_stage = ${options?.failureStage ?? null},
+		    retryable = ${options?.retryable === false ? 0 : 1},
+		    error = ${options?.error ?? null}, phase_started_at = ${now},
+		    updated_at = ${now}
+		WHERE operation_id = ${operationId}
+	`.pipe(Effect.asVoid, Effect.orDie);
+};
 
 const ChatCreate = MemoizeRpcs.toLayerHandler(
 	"chat.create",
@@ -515,31 +642,32 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 							(input.worktreeId === null || input.worktreeId === undefined
 								? "main"
 								: "existing");
-						const policy =
-							requestedPolicy === "fresh"
-								? yield* Effect.flatMap(GitService, (git) =>
-										git.isRepository(input.projectId),
-									).pipe(
-										Effect.map((isRepository) =>
-											isRepository ? ("fresh" as const) : ("main" as const),
-										),
-										Effect.catchTags({
-											GitNotARepoError: () => Effect.succeed("main" as const),
-											GitNotInstalledError: () =>
-												Effect.succeed("main" as const),
+						// Repository inspection is part of workspace preparation. Keeping it
+						// after the durable acknowledgement is what makes Send responsive even
+						// when Git or the remote is slow.
+						const policy = requestedPolicy;
+						const requestFingerprint =
+							input.operationId === undefined
+								? null
+								: yield* sha256(
+										canonicalJson({
+											version: 1,
+											operationId: input.operationId,
+											chatId: input.chatId ?? null,
+											initialSessionId: input.initialSessionId ?? null,
+											projectId: input.projectId,
+											providerId: input.providerId,
+											model: input.model,
+											title: input.title ?? null,
+											runtimeMode: input.runtimeMode ?? "approval-required",
+											permissionMode: input.permissionMode ?? "default",
+											toolSearch: input.toolSearch === true,
+											workspacePolicy: input.workspacePolicy ?? null,
+											worktreeId: input.worktreeId ?? null,
+											initialPrompt: input.initialPrompt ?? null,
+											startupInput: input.startupInput ?? null,
 										}),
-										Effect.mapError(
-											(error) =>
-												new SessionStartError({
-													providerId: input.providerId,
-													reason:
-														"reason" in error
-															? String(error.reason)
-															: "The Git repository could not be inspected.",
-												}),
-										),
-									)
-								: requestedPolicy;
+									);
 						if (
 							input.operationId !== undefined &&
 							input.chatId !== undefined &&
@@ -547,18 +675,21 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 						) {
 							const now = new Date().toISOString();
 							const requestedWorktreeId =
-								policy === "existing"
-									? input.workspacePolicy?._tag === "existing"
-										? input.workspacePolicy.worktreeId
-										: (input.worktreeId ?? null)
-									: null;
+								policy === "fresh"
+									? WorktreeId.make(crypto.randomUUID())
+									: policy === "existing"
+										? input.workspacePolicy?._tag === "existing"
+											? input.workspacePolicy.worktreeId
+											: (input.worktreeId ?? null)
+										: null;
 							yield* sql`
 				INSERT INTO chat_creation_operations (
 					operation_id, chat_id, initial_session_id, project_id,
 					provider_id, model, title, runtime_mode, permission_mode,
 					tool_search, prompt, startup_input_json, startup_queue_id, startup_ready,
 					workspace_policy, worktree_id,
-					status, error, created_at, updated_at
+					status, phase, fingerprint_version, request_fingerprint,
+					phase_started_at, error, created_at, updated_at
 				) VALUES (
 					${input.operationId}, ${input.chatId}, ${input.initialSessionId},
 					${input.projectId}, ${input.providerId}, ${input.model},
@@ -569,7 +700,8 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 					${input.startupQueueId ?? null},
 					${input.startupReady === false ? 0 : 1},
 					${policy}, ${requestedWorktreeId},
-					'pending', NULL, ${now}, ${now}
+					'pending', 'persisted', 1, ${requestFingerprint},
+					${now}, NULL, ${now}, ${now}
 				)
 				ON CONFLICT(operation_id) DO NOTHING
 			`.pipe(Effect.orDie);
@@ -585,10 +717,20 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 										readonly startup_ready: number;
 										readonly workspace_policy: ChatCreationOperation["workspacePolicy"]["_tag"];
 										readonly worktree_id: string | null;
-										readonly status: ChatCreationOperation["status"];
+										readonly status:
+											| "pending"
+											| "creating_workspace"
+											| "creating_chat"
+											| "succeeded"
+											| "failed";
+										readonly phase: ChatCreationOperation["phase"];
+										readonly request_fingerprint: string | null;
+										readonly setup_bypassed: number;
 									}>`
 						SELECT chat_id, initial_session_id, startup_input_json,
-						       startup_queue_id, startup_ready, workspace_policy, worktree_id, status
+						       startup_queue_id, startup_ready, workspace_policy, worktree_id,
+						       status, phase, request_fingerprint
+						       , setup_bypassed
 						FROM chat_creation_operations
 						WHERE operation_id = ${input.operationId}
 						LIMIT 1
@@ -596,6 +738,335 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 						const durableOperation = operationRows[0];
 						const durablePolicy = durableOperation?.workspace_policy ?? policy;
 						const durableWorktreeId = durableOperation?.worktree_id ?? null;
+						if (
+							requestFingerprint !== null &&
+							durableOperation?.request_fingerprint !== null &&
+							durableOperation?.request_fingerprint !== requestFingerprint
+						) {
+							return yield* new ChatCreationConflictError({
+								operationId: input.operationId ?? "legacy",
+								reason:
+									"The operation id is already bound to different chat creation input.",
+							});
+						}
+						if (
+							input.operationId !== undefined &&
+							input.chatId !== undefined &&
+							input.initialSessionId !== undefined &&
+							durableOperation !== undefined
+						) {
+							const operationId = input.operationId;
+							const sessionId = SessionId.make(
+								durableOperation.initial_session_id,
+							);
+							const chatId = ChatId.make(durableOperation.chat_id);
+							const requestedId =
+								durablePolicy === "main"
+									? null
+									: WorktreeId.make(durableWorktreeId ?? crypto.randomUUID());
+							const storedInput =
+								durableOperation.startup_input_json === null
+									? input.initialPrompt === undefined
+										? undefined
+										: ComposerInput.make({
+												text: input.initialPrompt,
+												attachments: [],
+												fileRefs: [],
+												skillRefs: [],
+												annotations: [],
+											})
+									: ComposerInput.make(
+											JSON.parse(durableOperation.startup_input_json),
+										);
+							const useDirectTurn =
+								durableOperation.startup_ready !== 0 &&
+								directStartupInput(storedInput);
+							const initialPrompt = useDirectTurn
+								? storedInput?.text.trim()
+								: input.initialPrompt;
+							const result = yield* svc.createChat({
+								chatId,
+								initialSessionId: sessionId,
+								commandId: `chat-create:${operationId}:bootstrap`,
+								initialTurnId:
+									initialPrompt === undefined
+										? undefined
+										: AgentTurnId.make(`turn_${operationId}`),
+								initialMessageId:
+									initialPrompt === undefined
+										? undefined
+										: MessageId.make(`message_${operationId}`),
+								projectId: input.projectId,
+								providerId: input.providerId,
+								model: input.model,
+								title: input.title,
+								initialPrompt,
+								runtimeMode: input.runtimeMode,
+								worktreeId: null,
+								agents: input.agents,
+								enableSubagents: input.enableSubagents,
+								permissionMode: input.permissionMode,
+								modelOptions: input.modelOptions,
+								toolSearch: input.toolSearch,
+								originSessionId: input.originSessionId ?? null,
+								background: true,
+								queuePaused: true,
+							});
+							const lifecycle = chatCreationWorker.run(
+								operationId,
+								Effect.gen(function* () {
+									const worktrees = yield* WorktreeService;
+									const queue = yield* QueueService;
+									const sessions = yield* SessionService;
+									const sessionDomain = yield* SessionDomain;
+									const lifecycleOperation =
+										yield* getChatCreationOperation(operationId);
+									// Replayed create commands acknowledge the already-durable entities.
+									// Recovery is explicit, so a duplicate must never regress a terminal
+									// phase or repeat an external side effect after a recorded failure.
+									if (
+										lifecycleOperation === null ||
+										lifecycleOperation.phase === "running" ||
+										lifecycleOperation.phase === "failed" ||
+										lifecycleOperation.phase === "cancelling" ||
+										lifecycleOperation.phase === "cancelled"
+									) {
+										return;
+									}
+									const cancellationRequested = sql<{
+										readonly phase: ChatCreationOperation["phase"];
+									}>`
+										SELECT phase FROM chat_creation_operations
+										WHERE operation_id = ${operationId} LIMIT 1
+									`.pipe(
+										Effect.orDie,
+										Effect.map(
+											(rows) =>
+												rows[0]?.phase === "cancelling" ||
+												rows[0]?.phase === "cancelled",
+										),
+									);
+									let worktree =
+										requestedId === null
+											? null
+											: yield* worktrees.get(requestedId);
+									if (durablePolicy === "fresh" && worktree === null) {
+										yield* sql`
+											UPDATE chat_creation_operations
+											SET phase = 'creating_workspace', status = 'creating_workspace',
+											    workspace_attempt = workspace_attempt + 1,
+											    failure_stage = NULL, error = NULL,
+											    phase_started_at = ${new Date().toISOString()},
+											    updated_at = ${new Date().toISOString()}
+											WHERE operation_id = ${operationId}
+										`.pipe(Effect.orDie);
+										const isRepository = yield* Effect.flatMap(
+											GitService,
+											(git) => git.isRepository(input.projectId),
+										).pipe(Effect.orElseSucceed(() => false));
+										if (!isRepository) {
+											yield* updateCreationPhase(sql, operationId, "failed", {
+												failureStage: "configuration",
+												retryable: false,
+												error: "This project is not a Git repository.",
+											});
+											return;
+										}
+										if (requestedId === null) {
+											return yield* Effect.die(
+												"fresh workspace lifecycle lost its reserved identity",
+											);
+										}
+										const created = yield* worktrees
+											.create(input.projectId, undefined, requestedId)
+											.pipe(Effect.result);
+										if (created._tag === "Failure") {
+											yield* updateCreationPhase(sql, operationId, "failed", {
+												failureStage: "workspace",
+												error: created.failure.reason,
+											});
+											return;
+										}
+										worktree = created.success;
+									}
+									if (yield* cancellationRequested) return;
+									if (durablePolicy === "existing" && worktree === null) {
+										yield* updateCreationPhase(sql, operationId, "failed", {
+											failureStage: "configuration",
+											retryable: false,
+											error: "The selected workspace no longer exists.",
+										});
+										return;
+									}
+									if (worktree !== null) {
+										yield* svc
+											.setChatWorktree(chatId, worktree.id, true)
+											.pipe(Effect.orDie);
+									}
+									if (
+										worktree !== null &&
+										durableOperation.setup_bypassed === 0 &&
+										worktree.setupStatus !== "succeeded" &&
+										worktree.setupStatus !== "skipped"
+									) {
+										yield* updateCreationPhase(
+											sql,
+											operationId,
+											"running_setup",
+										);
+										yield* worktrees.setupStream(worktree.id).pipe(
+											Stream.runDrain,
+											Effect.catch(() => Effect.void),
+										);
+									}
+									const ready =
+										worktree === null
+											? null
+											: yield* worktrees.get(worktree.id);
+									if (
+										worktree !== null &&
+										durableOperation.setup_bypassed === 0 &&
+										(ready === null || ready.setupStatus === "failed")
+									) {
+										yield* updateCreationPhase(sql, operationId, "failed", {
+											failureStage: "setup",
+											error:
+												ready?.setupOutput.trim() ||
+												"The workspace setup failed.",
+										});
+										return;
+									}
+									if (yield* cancellationRequested) return;
+									yield* updateCreationPhase(
+										sql,
+										operationId,
+										"starting_agent",
+									);
+									const pauseRows = yield* sql<{
+										readonly queue_paused: number;
+									}>`
+										SELECT queue_paused FROM sessions WHERE id = ${sessionId} LIMIT 1
+									`.pipe(Effect.orDie);
+									const needsRelease = pauseRows[0]?.queue_paused === 1;
+									if (
+										needsRelease &&
+										useDirectTurn &&
+										storedInput !== undefined
+									) {
+										yield* sessions.releaseInitialTurn(
+											`chat-create:${operationId}:release`,
+											sessionId,
+											AgentTurnId.make(`turn_${operationId}`),
+											JSON.stringify(storedInput),
+										);
+									} else if (needsRelease) {
+										const startupIntent = decodeChatStartupIntent({
+											operationId,
+											initialSessionId: sessionId,
+											startupInput: storedInput,
+											startupQueueId:
+												durableOperation.startup_queue_id ?? undefined,
+											startupReady: durableOperation.startup_ready !== 0,
+										});
+										if (startupIntent !== null) {
+											yield* persistChatStartupIntent(
+												queueTransaction,
+												sql,
+												startupIntent,
+											).pipe(Effect.orDie);
+											yield* queue
+												.resumeQueuedMessages(
+													`chat-create:${operationId}:resume`,
+													sessionId,
+												)
+												.pipe(Effect.orDie);
+										} else {
+											yield* sessionDomain
+												.dispatch({
+													commandId: `chat-create:${operationId}:unpause`,
+													streamId: sessionId,
+													command: {
+														_tag: "SetQueuePaused",
+														paused: false,
+														updatedAt: Date.now(),
+													},
+												})
+												.pipe(Effect.orDie);
+										}
+									}
+									for (let attempt = 0; attempt < 240; attempt += 1) {
+										if (attempt % 4 === 0 && (yield* cancellationRequested))
+											return;
+										const session = yield* sessions
+											.getSession(sessionId)
+											.pipe(Effect.catch(() => Effect.succeed(null)));
+										if (session?.status === "error") {
+											yield* sql`
+												UPDATE chat_creation_operations
+												SET provider_attempt = provider_attempt + 1
+												WHERE operation_id = ${operationId}
+											`.pipe(Effect.orDie);
+											yield* updateCreationPhase(sql, operationId, "failed", {
+												failureStage: "provider",
+												error: "The agent could not be started.",
+											});
+											return;
+										}
+										if (
+											session?.status === "running" ||
+											session?.status === "idle"
+										) {
+											yield* updateCreationPhase(sql, operationId, "running");
+											return;
+										}
+										yield* Effect.sleep("250 millis");
+									}
+									yield* updateCreationPhase(sql, operationId, "failed", {
+										failureStage: "provider",
+										error:
+											"The agent did not accept the durable turn within 60 seconds.",
+									});
+								}).pipe(
+									Effect.catchCause((cause) =>
+										Effect.gen(function* () {
+											const current =
+												yield* getChatCreationOperation(operationId);
+											if (
+												current === null ||
+												current.phase === "failed" ||
+												current.phase === "running" ||
+												current.phase === "cancelling" ||
+												current.phase === "cancelled"
+											) {
+												return;
+											}
+											const failureStage =
+												current.phase === "creating_workspace"
+													? "workspace"
+													: current.phase === "running_setup"
+														? "setup"
+														: "provider";
+											yield* updateCreationPhase(sql, operationId, "failed", {
+												failureStage,
+												error: `Startup interrupted: ${String(cause)}`,
+											});
+										}),
+									),
+								),
+							);
+							yield* Effect.forkIn(lifecycle, serviceScope, {
+								startImmediately: true,
+							});
+							yield* analytics.capture("chat created", {
+								provider: input.providerId,
+								model: safeModelId(input.providerId, input.model),
+								runtime_mode: input.runtimeMode ?? "unknown",
+							});
+							yield* Effect.logInfo(
+								`[chat-creation-timing] operation=${operationId} durable_chat_ack_ms=${Date.now() - creationStartedAt}`,
+							);
+							return result;
+						}
 						if (
 							input.operationId !== undefined &&
 							durablePolicy === "main" &&
@@ -856,7 +1327,12 @@ const ChatCreationStream = MemoizeRpcs.toLayerHandler(
 						return (
 							candidate !== undefined &&
 							operation.operationId === candidate.operationId &&
-							operation.status === candidate.status &&
+							operation.phase === candidate.phase &&
+							operation.failureStage === candidate.failureStage &&
+							operation.attempts.workspace === candidate.attempts.workspace &&
+							operation.attempts.setup === candidate.attempts.setup &&
+							operation.attempts.provider === candidate.attempts.provider &&
+							operation.setupBypassed === candidate.setupBypassed &&
 							operation.worktreeId === candidate.worktreeId &&
 							operation.error === candidate.error &&
 							operation.updatedAt.getTime() === candidate.updatedAt.getTime()
@@ -870,22 +1346,121 @@ const ChatCreationStream = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const ChatCreationRecover = MemoizeRpcs.toLayerHandler(
+	"chat.creation.recover",
+	({
+		operationId,
+		action,
+		expectedPhase,
+		expectedFailureStage,
+		expectedAttempt,
+	}) =>
+		Effect.gen(function* () {
+			const sql = yield* SqlClient.SqlClient;
+			const operation = yield* getChatCreationOperation(operationId);
+			if (operation === null) return yield* Effect.die("creation not found");
+			const currentAttempt =
+				expectedFailureStage === "workspace"
+					? operation.attempts.workspace
+					: expectedFailureStage === "setup"
+						? operation.attempts.setup
+						: operation.attempts.provider;
+			if (
+				operation.phase !== expectedPhase ||
+				operation.failureStage !== expectedFailureStage ||
+				currentAttempt !== expectedAttempt ||
+				operation.phase !== "failed"
+			) {
+				return operation;
+			}
+			const legal =
+				(action === "retry_workspace" &&
+					operation.failureStage === "workspace") ||
+				((action === "retry_setup" || action === "continue_anyway") &&
+					operation.failureStage === "setup") ||
+				(action === "retry_agent" && operation.failureStage === "provider");
+			if (!legal || !operation.retryable) return operation;
+			const nextPhase =
+				action === "retry_workspace"
+					? "persisted"
+					: action === "retry_setup"
+						? "running_setup"
+						: "starting_agent";
+			const updatedAt = new Date().toISOString();
+			const updated = yield* sql<{ readonly operation_id: string }>`
+				UPDATE chat_creation_operations
+				SET phase = ${nextPhase}, status = ${creationPhaseStatus(nextPhase)},
+				    failure_stage = NULL, error = NULL,
+				    workspace_attempt = workspace_attempt + ${action === "retry_workspace" ? 1 : 0},
+				    setup_attempt = setup_attempt + ${action === "retry_setup" ? 1 : 0},
+				    provider_attempt = provider_attempt + ${action === "retry_agent" ? 1 : 0},
+				    setup_bypassed = ${action === "continue_anyway" ? 1 : operation.setupBypassed ? 1 : 0},
+				    lease_epoch = lease_epoch + 1,
+				    phase_started_at = ${updatedAt}, updated_at = ${updatedAt}
+				WHERE operation_id = ${operationId}
+				  AND phase = ${expectedPhase}
+				  AND COALESCE(failure_stage, '') = ${expectedFailureStage ?? ""}
+				  AND lease_epoch = ${operation.leaseEpoch}
+				RETURNING operation_id
+			`.pipe(Effect.orDie);
+			if (updated.length === 0) {
+				return (yield* getChatCreationOperation(operationId)) ?? operation;
+			}
+			if (action === "retry_setup" && operation.worktreeId !== null) {
+				const worktrees = yield* WorktreeService;
+				const rerun = yield* worktrees
+					.rerunSetup(operation.worktreeId)
+					.pipe(Effect.result);
+				if (rerun._tag === "Failure") {
+					yield* updateCreationPhase(sql, operationId, "failed", {
+						failureStage: "setup",
+						error:
+							"reason" in rerun.failure
+								? rerun.failure.reason
+								: String(rerun.failure),
+					});
+				}
+			}
+			if (action === "retry_agent") {
+				yield* Effect.flatMap(SessionService, (sessions) =>
+					sessions.resumeSession(operation.initialSessionId),
+				).pipe(Effect.catch(() => Effect.void));
+			}
+			return (yield* getChatCreationOperation(operationId)) ?? operation;
+		}),
+);
+
 const ChatCreationDiscard = MemoizeRpcs.toLayerHandler(
 	"chat.creation.discard",
 	({ operationId }) =>
 		Effect.gen(function* () {
 			const sql = yield* SqlClient.SqlClient;
-			const rows = yield* sql<{ readonly operation_id: string }>`
-				SELECT operation_id FROM chat_creation_operations
-				WHERE operation_id = ${operationId} AND status <> 'succeeded'
+			const rows = yield* sql<{
+				readonly operation_id: string;
+				readonly chat_id: string;
+			}>`
+				SELECT operation_id, chat_id FROM chat_creation_operations
+				WHERE operation_id = ${operationId} AND phase NOT IN ('running', 'cancelled')
 				LIMIT 1
 			`.pipe(Effect.orDie);
 			if (rows.length === 0) return { discarded: false };
-			yield* sql`
-				DELETE FROM chat_creation_operations
-				WHERE operation_id = ${operationId} AND status <> 'succeeded'
-			`.pipe(Effect.orDie);
-			return { discarded: true };
+			yield* updateCreationPhase(sql, operationId, "cancelling");
+			const chatId = ChatId.make(rows[0]?.chat_id ?? "");
+			return yield* chatCreationWorker.run(
+				operationId,
+				Effect.gen(function* () {
+					yield* Effect.flatMap(ChatService, (chats) =>
+						chats.deleteChat(chatId),
+					).pipe(Effect.catch(() => Effect.void));
+					yield* sql`
+						UPDATE chat_creation_operations
+						SET phase = 'cancelled', status = 'pending', error = NULL,
+						    updated_at = ${new Date().toISOString()}
+						WHERE operation_id = ${operationId} AND phase = 'cancelling'
+					`.pipe(Effect.orDie);
+					return { discarded: true };
+				}),
+			);
 		}),
 );
 
@@ -1535,6 +2110,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	ChatCreate,
 	ChatCreationList,
 	ChatCreationStream,
+	ChatCreationRecover,
 	ChatCreationDiscard,
 	ChatRename,
 	ChatMarkRead,

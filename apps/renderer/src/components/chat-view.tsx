@@ -1,6 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import type { EnvironmentId, Session, SessionId } from "@zuse/contracts";
+import type {
+	ChatCreationPhase,
+	EnvironmentId,
+	Session,
+	SessionId,
+} from "@zuse/contracts";
 import { Message01Icon } from "@zuse/icons/solid-rounded";
 import {
 	type ReactNode,
@@ -58,6 +63,7 @@ import {
 	TranscriptScrollCoordinator,
 	type TranscriptScrollSnapshot,
 } from "../lib/transcript-scroll-coordinator.ts";
+import { useChatsStore } from "../store/chats.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
@@ -67,16 +73,32 @@ import { FileChipProvider } from "./file-chip.tsx";
 import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
 import { ErrorBubble, MessageRow } from "./message-row.tsx";
 import { NextUnreadButton } from "./next-unread-button.tsx";
+import { ChatCreationFailureActions } from "./pending-chat-creation.tsx";
 import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
-
-const TIMELINE_FOOTER = <div className="h-2" />;
 
 interface TimelineEndState {
 	readonly isAtEnd?: boolean;
 	readonly isNearEnd?: boolean;
 }
+
+export const resolveAgentStarting = (input: {
+	readonly providerOutputStarted: boolean;
+	readonly creationPhase: ChatCreationPhase | null;
+	readonly sessionBooting: boolean;
+	readonly inFlight: boolean;
+	readonly queuedItems: number;
+}): boolean =>
+	!input.providerOutputStarted &&
+	(input.creationPhase !== null
+		? input.creationPhase === "starting_agent"
+		: input.sessionBooting || input.inFlight || input.queuedItems > 0);
+
+export const shouldRenderGenericAgentStartup = (input: {
+	readonly inFlight: boolean;
+	readonly hasPendingCreation: boolean;
+}): boolean => input.inFlight && !input.hasPendingCreation;
 
 function resolveTimelineIsAtEnd(
 	state: TimelineEndState | undefined,
@@ -183,23 +205,33 @@ export function ChatView({
 	const providerOutputStarted = messages.some(
 		(message) => message.role !== "user",
 	);
-	const agentStarting =
-		!providerOutputStarted &&
-		(session?.status === "booting" ||
-			inFlight ||
-			(timeline.projection?.queue.items.length ?? 0) > 0);
+	const pendingCreation = useChatsStore((state) =>
+		session.chatId === null
+			? null
+			: (state.pendingCreationByChat[session.chatId] ?? null),
+	);
+	const agentStarting = resolveAgentStarting({
+		providerOutputStarted,
+		creationPhase: pendingCreation?.phase ?? null,
+		sessionBooting: session?.status === "booting",
+		inFlight,
+		queuedItems: timeline.projection?.queue.items.length ?? 0,
+	});
 	const rows = useMemo(
 		() =>
 			deriveChatTimelineRows({
 				messages,
-				// Agent startup is narrated inside the setup card. Avoid rendering a
-				// second detached "Starting Codex" row for the same lifecycle phase.
-				inFlight: inFlight && !agentStarting,
+				// The durable creation accordion exclusively narrates startup. Generic
+				// in-flight UI resumes only after that lifecycle projection is gone.
+				inFlight: shouldRenderGenericAgentStartup({
+					inFlight,
+					hasPendingCreation: pendingCreation !== null,
+				}),
 				awaitingPlanApproval,
 			}),
-		[agentStarting, awaitingPlanApproval, inFlight, messages],
+		[awaitingPlanApproval, inFlight, messages, pendingCreation],
 	);
-	const timelineHeader = useMemo(
+	const timelineFooter = useMemo(
 		() => (
 			<>
 				<div className="px-[var(--chat-row-gutter,0.75rem)]">
@@ -207,11 +239,14 @@ export function ChatView({
 						agentStarting={agentStarting ? true : undefined}
 						providerOutputStarted={providerOutputStarted}
 					/>
+					{pendingCreation?.phase === "failed" ? (
+						<ChatCreationFailureActions creation={pendingCreation} />
+					) : null}
 				</div>
 				<div className="h-2" />
 			</>
 		),
-		[agentStarting, providerOutputStarted],
+		[agentStarting, pendingCreation, providerOutputStarted],
 	);
 	const turns = useMemo(() => deriveChatTurnNavigationEntries(rows), [rows]);
 	const latestUserMessageId = useMemo(
@@ -712,8 +747,7 @@ export function ChatView({
 								className="h-full min-h-0 w-full flex-1 overflow-x-hidden pr-4 outline-none [overflow-anchor:none]"
 								data-pane="chat"
 								tabIndex={-1}
-								ListHeaderComponent={timelineHeader}
-								ListFooterComponent={TIMELINE_FOOTER}
+								ListFooterComponent={timelineFooter}
 							/>
 						</ChatLookupsProvider>
 					)}

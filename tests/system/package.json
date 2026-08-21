@@ -9,7 +9,7 @@
 		"test:unit": "vitest run test/unit --passWithNoTests",
 		"test:integration": "vitest run test/integration --passWithNoTests",
 		"test:system": "vitest run test/system",
-		"test:desktop": "vitest run test/desktop --passWithNoTests"
+		"test:desktop": "NODE_OPTIONS=--require=./src/vitest-sourcemap-guard.cjs vitest run test/desktop --passWithNoTests"
 	},
 	"dependencies": {
 		"@effect/platform-node": "catalog:",

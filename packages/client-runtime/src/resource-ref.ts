@@ -98,6 +98,9 @@ export type ResourceKind =
 	| "session-skills"
 	| "file-tree"
 	| "git-workspace"
+	| "git-changes"
+	| "git-review"
+	| "git-pr-details"
 	| "machine-resources"
 	| "terminal";
 
@@ -119,5 +122,17 @@ export const makeResourceKey = <Data>(
 	ref: ResourceRef,
 ): ResourceKey<Data> => ({ kind, ref });
 
-export const resourceKeyId = (key: ResourceKey<unknown>): string =>
-	`${key.kind}:${resourceRefKey(key.ref)}`;
+export const resourceKeyId = (key: ResourceKey<unknown>): string => {
+	if (
+		(key.kind === "git-workspace" ||
+			key.kind === "git-changes" ||
+			key.kind === "git-review" ||
+			key.kind === "git-pr-details") &&
+		"folderId" in key.ref
+	) {
+		const worktree =
+			key.ref.worktreeId === null ? "none" : `some-${part(key.ref.worktreeId)}`;
+		return `${key.kind}:execution:${part(key.ref.environmentId)}:${part(key.ref.folderId)}:${worktree}`;
+	}
+	return `${key.kind}:${resourceRefKey(key.ref)}`;
+};

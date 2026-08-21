@@ -1,3 +1,4 @@
+import { resourceKeyId } from "@zuse/client-runtime/resource-ref";
 import {
 	EnvironmentId,
 	FolderId,
@@ -49,6 +50,9 @@ describe("renderer Git workspace ClientBus adapter", () => {
 			Queue.unbounded<{ revision: number }>(),
 		);
 		let streamStarts = 0;
+		let changeLoads = 0;
+		let reviewPatchLoads = 0;
+		let prDetailsLoads = 0;
 		setSessionTimelineRpcClientForTest(
 			async () =>
 				({
@@ -56,6 +60,30 @@ describe("renderer Git workspace ClientBus adapter", () => {
 						streamStarts += 1;
 						return Stream.fromQueue(invalidations);
 					},
+					"git.workspaceSnapshot": () =>
+						Effect.succeed({
+							status: { branch: "feature", ahead: 1, behind: 0, dirtyFiles: 2 },
+							pr: {
+								state: "none",
+								branch: "feature",
+								baseBranch: "main",
+								additions: 0,
+								deletions: 0,
+								number: null,
+								url: null,
+								isDraft: false,
+								checks: "none",
+								mergeable: "unknown",
+								checksTotal: 0,
+								checksRunning: 0,
+								checksPassing: 0,
+								checksFailing: 0,
+								autoMergeEnabled: false,
+							},
+							diffStat: { additions: 4, deletions: 1 },
+							projectionVersion: 1,
+							observedAt: new Date(),
+						}),
 					"git.status": () =>
 						Effect.succeed({
 							branch: "feature",
@@ -63,15 +91,17 @@ describe("renderer Git workspace ClientBus adapter", () => {
 							behind: 0,
 							dirtyFiles: 2,
 						}),
-					"git.changes": () =>
-						Effect.succeed([
+					"git.changes": () => {
+						changeLoads += 1;
+						return Effect.succeed([
 							{
 								path: "README.md",
 								oldPath: null,
 								staged: false,
 								kind: "modified",
 							},
-						]),
+						]);
+					},
 					"git.prState": () =>
 						Effect.succeed({
 							state: "none",
@@ -101,9 +131,13 @@ describe("renderer Git workspace ClientBus adapter", () => {
 							additions: 4,
 							deletions: 1,
 						}),
-					"git.reviewPatches": () => Stream.empty,
-					"git.prDetails": () =>
-						Effect.succeed({
+					"git.reviewPatches": () => {
+						reviewPatchLoads += 1;
+						return Stream.empty;
+					},
+					"git.prDetails": () => {
+						prDetailsLoads += 1;
+						return Effect.succeed({
 							state: "none",
 							number: null,
 							url: null,
@@ -121,7 +155,8 @@ describe("renderer Git workspace ClientBus adapter", () => {
 							reviews: [],
 							files: [],
 							checkRuns: [],
-						}),
+						});
+					},
 				}) as never,
 		);
 
@@ -135,12 +170,14 @@ describe("renderer Git workspace ClientBus adapter", () => {
 
 		expect(streamStarts).toBe(1);
 		expect(gitWorkspaceDriverStartsForTest()).toBe(1);
+		expect(reviewPatchLoads).toBe(0);
+		expect(prDetailsLoads).toBe(0);
+		expect(changeLoads).toBe(0);
 		expect(getRendererClientBus().snapshot(second.key)).toMatchObject({
 			connection: "connected",
 			sync: "live",
 			data: {
 				status: { branch: "feature", dirtyFiles: 2 },
-				changes: [{ path: "README.md" }],
 				diffStat: { additions: 4, deletions: 1 },
 				revision: 0,
 			},
@@ -150,7 +187,7 @@ describe("renderer Git workspace ClientBus adapter", () => {
 		second.lease.release();
 	});
 
-	it("qualifies identical checkouts by environment and root path", () => {
+	it("qualifies checkouts by environment and canonical folder/worktree identity", () => {
 		const first = gitWorkspaceResourceKey(ref);
 		const otherEnvironment = gitWorkspaceResourceKey({
 			...ref,
@@ -158,13 +195,14 @@ describe("renderer Git workspace ClientBus adapter", () => {
 		});
 		const otherRoot = gitWorkspaceResourceKey({ ...ref, rootPath: "/other" });
 
-		expect(first).not.toEqual(otherEnvironment);
-		expect(first).not.toEqual(otherRoot);
+		expect(resourceKeyId(first)).not.toBe(resourceKeyId(otherEnvironment));
+		expect(resourceKeyId(first)).toBe(resourceKeyId(otherRoot));
 	});
 
 	it("announces one PR terminal transition across multiple workspaces", async () => {
 		const queues = new Map<string, Queue.Queue<{ revision: number }>>();
 		let prState: "open" | "merged" = "open";
+		let notificationClaimed = false;
 		const prInfo = () => ({
 			state: prState,
 			branch: "feature",
@@ -173,6 +211,7 @@ describe("renderer Git workspace ClientBus adapter", () => {
 			deletions: 0,
 			number: 2050,
 			url: "https://github.com/example/repo/pull/2050",
+			nodeId: "PR_kwDO2050",
 			isDraft: false,
 			checks: "success" as const,
 			mergeable: "clean" as const,
@@ -196,6 +235,14 @@ describe("renderer Git workspace ClientBus adapter", () => {
 						queues.set(requestedId ?? "main", queue);
 						return Stream.fromQueue(queue);
 					},
+					"git.workspaceSnapshot": () =>
+						Effect.succeed({
+							status: { branch: "feature", ahead: 0, behind: 0, dirtyFiles: 0 },
+							pr: prInfo(),
+							diffStat: { additions: 1, deletions: 0 },
+							projectionVersion: 1,
+							observedAt: new Date(),
+						}),
 					"git.status": () =>
 						Effect.succeed({
 							branch: "feature",
@@ -219,6 +266,12 @@ describe("renderer Git workspace ClientBus adapter", () => {
 					"git.reviewPatches": () => Stream.empty,
 					"git.prDetails": () =>
 						Effect.fail(new GitNotARepoError({ folderId })),
+					"git.prNotification.claim": () =>
+						Effect.sync(() => {
+							if (notificationClaimed) return { claimed: false };
+							notificationClaimed = true;
+							return { claimed: true };
+						}),
 				}) as never,
 		);
 		const addToast = vi.spyOn(toastManager, "add");
@@ -263,6 +316,7 @@ describe("renderer Git workspace ClientBus adapter", () => {
 				({
 					"git.workspaceChanges": () =>
 						Stream.fail(new GitNotARepoError({ folderId })),
+					"git.workspaceSnapshot": notARepository,
 					"git.status": notARepository,
 					"git.changes": notARepository,
 					"git.prState": notARepository,

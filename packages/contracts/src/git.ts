@@ -177,6 +177,17 @@ export const GitPrChecks = Schema.Literals([
 ]);
 export type GitPrChecks = typeof GitPrChecks.Type;
 
+export const GitPrCapability = Schema.Literals([
+	"available",
+	"missing_cli",
+	"authentication",
+	"offline",
+	"timeout",
+	"rate_limited",
+	"unknown",
+]);
+export type GitPrCapability = typeof GitPrCapability.Type;
+
 /**
  * Merge-conflict state from `gh pr view --json mergeable`.
  *   clean       — GitHub says the PR is mergeable.
@@ -191,6 +202,8 @@ export const GitPrMergeable = Schema.Literals([
 export type GitPrMergeable = typeof GitPrMergeable.Type;
 
 export class GitPrInfo extends Schema.Class<GitPrInfo>("GitPrInfo")({
+	/** Stable GraphQL identity used for cross-window terminal notification claims. */
+	nodeId: Schema.optional(Schema.NullOr(Schema.String)),
 	state: GitPrState,
 	branch: Schema.NullOr(Schema.String),
 	baseBranch: Schema.NullOr(Schema.String),
@@ -216,6 +229,8 @@ export class GitPrInfo extends Schema.Class<GitPrInfo>("GitPrInfo")({
 	 * toggle's real, server-side state.
 	 */
 	autoMergeEnabled: Schema.Boolean,
+	prCapability: Schema.optional(GitPrCapability),
+	stale: Schema.optional(Schema.Boolean),
 }) {}
 
 export const GitPrStateRpc = Rpc.make("git.prState", {
@@ -230,6 +245,34 @@ export const GitPrStateRpc = Rpc.make("git.prState", {
 	}),
 	success: GitPrInfo,
 	error: GitErrors,
+});
+
+export class GitWorkspaceSnapshot extends Schema.Class<GitWorkspaceSnapshot>(
+	"GitWorkspaceSnapshot",
+)({
+	status: GitStatusSummary,
+	pr: GitPrInfo,
+	diffStat: Schema.Struct({
+		additions: Schema.Number,
+		deletions: Schema.Number,
+	}),
+	projectionVersion: Schema.Number,
+	observedAt: Schema.DateFromString,
+}) {}
+
+/** One lightweight, server-owned projection for the selected checkout shell. */
+export const GitWorkspaceSnapshotRpc = Rpc.make("git.workspaceSnapshot", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: GitWorkspaceSnapshot,
+	error: GitErrors,
+});
+
+export const GitPrNotificationClaimRpc = Rpc.make("git.prNotification.claim", {
+	payload: Schema.Struct({ identity: Schema.String }),
+	success: Schema.Struct({ claimed: Schema.Boolean }),
 });
 
 export class GitPrComment extends Schema.Class<GitPrComment>("GitPrComment")({

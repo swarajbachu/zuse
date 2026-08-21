@@ -108,6 +108,8 @@ export interface CreateSessionInput {
 	 * the flag is here so 0.04's code-index MCP servers can ride on it.
 	 */
 	readonly toolSearch?: boolean;
+	/** Persist the initial turn without releasing it to provider reactors yet. */
+	readonly queuePaused?: boolean;
 	/**
 	 * Defer `provider.start` to a background fiber and return as soon as the
 	 * row is inserted. The returned `Session` has `status = "booting"`; a
@@ -157,6 +159,8 @@ export interface CreateChatInput {
 	readonly permissionMode?: PermissionMode;
 	readonly modelOptions?: Readonly<Record<string, string>>;
 	readonly toolSearch?: boolean;
+	/** Persist the initial turn while workspace/setup is still preparing. */
+	readonly queuePaused?: boolean;
 	/** Return after rows are durable and start the provider in the background. */
 	readonly background?: boolean;
 	/**
@@ -411,6 +415,7 @@ export interface ConversationOperations {
 	readonly setChatWorktree: (
 		chatId: ChatId,
 		worktreeId: WorktreeId | null,
+		allowPausedInitialTurn?: boolean,
 	) => Effect.Effect<Chat, ChatNotFoundError | ChatAlreadyStartedError>;
 
 	/**
@@ -459,6 +464,14 @@ export interface ConversationOperations {
 	readonly resumeSession: (
 		sessionId: SessionId,
 	) => Effect.Effect<Session, SessionNotFoundError | SessionStartError>;
+
+	/** Releases the durable initial turn after its workspace is ready. */
+	readonly releaseInitialTurn: (
+		commandId: string,
+		sessionId: SessionId,
+		turnId: AgentTurnId,
+		providerInputJson: string,
+	) => Effect.Effect<void>;
 
 	readonly listMessages: (
 		sessionId: SessionId,
@@ -584,6 +597,7 @@ export type SessionServiceShape = Pick<
 	| "unarchiveSession"
 	| "deleteSession"
 	| "resumeSession"
+	| "releaseInitialTurn"
 	| "getGoal"
 	| "setGoal"
 	| "clearGoal"
