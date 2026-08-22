@@ -24,7 +24,10 @@ import {
 	enableCloudSync,
 	useCloudSyncStatus,
 } from "../lib/cloud-sync-client-bus.ts";
-import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
+import {
+	cloudSyncPreferenceEnabled,
+	useCloudChatCatalogStore,
+} from "../lib/cloud-workspace-catalog.ts";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import { runControlPlane } from "../lib/control-plane-client.ts";
 import { displayPath } from "../lib/display-path.ts";
@@ -167,7 +170,7 @@ export function CloudWorkspaceOpenSshMenu({
 	>([]);
 	if (!cloudSshSupported() || summary === null) return null;
 	const running = isCloudWorkspaceReady(summary);
-	const syncEnabled = syncPrefs?.enabled !== false;
+	const syncEnabled = cloudSyncPreferenceEnabled(syncPrefs);
 
 	const toggleSync = async (): Promise<void> => {
 		if (syncBusy) return;

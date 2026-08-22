@@ -38,21 +38,7 @@ const data = {
 export const Footer = () => {
 	return (
 		<footer className="bg-background relative overflow-hidden">
-			<Container className="flex flex-col gap-30 pt-20 pb-28 md:pb-32">
-				<div className="border-border bg-card shadow-card-xl relative overflow-hidden rounded-4xl border">
-					<div
-						aria-hidden="true"
-						className="-tracking-xl text-heading pointer-events-none absolute top-51 -left-3.25 select-none justify-start text-[132px] leading-75 font-medium opacity-[0.06] md:text-[240px] lg:text-[300px] dark:opacity-10"
-					>
-						Zuse
-					</div>
-					<div className="relative z-10 flex flex-col items-start gap-8 px-6 py-14 md:px-15 md:py-20">
-						<div className="text-heading -tracking-lg w-full max-w-160 justify-center text-[32px] font-medium md:text-5xl md:leading-14 lg:text-[56px] lg:leading-16">
-							Every coding agent. One desktop.
-						</div>
-						<Button />
-					</div>
-				</div>
+			<Container className="flex flex-col pt-20">
 				<div className="relative z-10 flex flex-col items-center justify-center gap-18">
 					<div className="grid w-full grid-cols-1 gap-15 lg:grid-cols-2 lg:gap-0">
 						<div className="flex flex-col gap-4">
@@ -130,6 +116,12 @@ export const Footer = () => {
 							</Link>
 						</div>
 					</div>
+				</div>
+				<div
+					aria-hidden="true"
+					className="-tracking-xl text-heading pointer-events-none mt-20 -mb-[0.09em] w-full select-none overflow-hidden text-center text-[clamp(9rem,40vw,29rem)] leading-[0.72] font-medium whitespace-nowrap"
+				>
+					Zuse
 				</div>
 			</Container>
 		</footer>

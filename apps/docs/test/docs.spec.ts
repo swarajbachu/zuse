@@ -1,6 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
+type SearchResult = {
+	type: "page" | "heading" | "text";
+	url: string;
+};
+
 test("how-to guide deep links render", async ({ page }) => {
 	await page.goto("/how-to/local-parallel-worktrees");
 	await expect(
@@ -74,7 +79,10 @@ test("reference and how-to guides use separate navigation modes", async ({
 	await expect(sidebar.getByText("Start here", { exact: true })).toHaveCount(0);
 });
 
-test("full-text search supports the keyboard", async ({ page, isMobile }) => {
+test("documentation search supports the keyboard", async ({
+	page,
+	isMobile,
+}) => {
 	test.skip(isMobile, "Mobile uses the navigation-sheet search trigger");
 	await page.goto("/start/first-chat");
 	await page.keyboard.press("Control+k");
@@ -88,6 +96,40 @@ test("full-text search supports the keyboard", async ({ page, isMobile }) => {
 		.first()
 		.click();
 	await expect(page).toHaveURL(/\/serve\/status-json/u);
+});
+
+test("documentation search indexes only pages and headings", async ({
+	request,
+}) => {
+	const shortQuery = await request.get("/api/search?query=n");
+	expect(shortQuery.ok()).toBeTruthy();
+	const shortResults = (await shortQuery.json()) as SearchResult[];
+	expect(shortResults.length).toBeGreaterThan(0);
+	expect(shortResults.every((result) => result.type !== "text")).toBeTruthy();
+
+	const pageQuery = await request.get("/api/search?query=status%20json");
+	expect(pageQuery.ok()).toBeTruthy();
+	const pageResults = (await pageQuery.json()) as SearchResult[];
+	expect(pageResults).toContainEqual(
+		expect.objectContaining({
+			type: "page",
+			url: "/serve/status-json",
+		}),
+	);
+
+	const headingQuery = await request.get("/api/search?query=JSON%20contract");
+	expect(headingQuery.ok()).toBeTruthy();
+	const headingResults = (await headingQuery.json()) as SearchResult[];
+	expect(headingResults).toContainEqual(
+		expect.objectContaining({
+			type: "heading",
+			url: "/serve/agent-cli#json-contract",
+		}),
+	);
+
+	const bodyQuery = await request.get("/api/search?query=modification%20time");
+	expect(bodyQuery.ok()).toBeTruthy();
+	expect(await bodyQuery.json()).toEqual([]);
 });
 
 test("navigation uses disclosure headings and native active states", async ({

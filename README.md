@@ -89,6 +89,12 @@ settings.
 - Per-repo settings
 - Scoped `@`-mentions within a worktree
 
+### Cloud workspaces
+- Run invited coding-agent sessions in hosted E2B workspaces that continue when the desktop app closes
+- Open a workspace through its managed `ssh zuse-<workspace>` alias without exposing a public SSH listener
+- Keep a one-way, remote-authoritative Mac mirror under `~/.zuse/cloud/` that pauses on disconnect and resumes with fresh access
+- Open dev servers privately on Mac `localhost`; public E2B preview URLs remain an explicit copy action
+
 ### PR & Changes pane
 - PR tab with markdown rendering
 - Changes tab with diff view
@@ -142,7 +148,7 @@ apps/
   server/      All backend logic — Effect Layers
   web/         Next.js marketing site
 packages/
-  wire/        @zuse/contracts — typed RPC contracts + branded IDs
+  contracts/   @zuse/contracts — typed RPC contracts + branded IDs
   ui/          Shared React components
 specs/
   0.01-MVP/    Foundation
@@ -160,6 +166,7 @@ specs/
   session and ClientBus path shared by local, SSH, and cloud environments
 - [Unified computers](docs/specs/unified-computers.md) — environment and sandbox
   domain model
+- [Context map](CONTEXT-MAP.md) — domain contexts and their ownership relationships
 
 ---
 

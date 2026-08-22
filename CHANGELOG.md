@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.7]
+
+### Fixed
+- Cloud workspace SSH now survives app updates and restarts, times out cleanly, and distinguishes expired access, denied access, missing workspaces, and network failures
+- One-way E2B file sync now stops cleanly across disconnects and shutdowns, renews access before retrying, and updates Mac mirrors without exposing partial transfers
+- Private localhost previews now reuse live forwards, recover from local port collisions, and close in-flight tunnels when environments disconnect
+- Mac relay connections no longer multiply after an unclean restart; Zuse reclaims only the Cloudflare connectors it owns
+
 ## [0.20.6]
 
 ### Fixed

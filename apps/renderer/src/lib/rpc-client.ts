@@ -93,6 +93,16 @@ const invalidateCloudWorkspaceTicket = (workspaceId: string): void => {
 	if (registration !== undefined) registration.connection = null;
 };
 
+/** Queue one idempotent resume/reconcile when the provider confirms runtime loss. */
+export const requestCloudWorkspaceRuntimeRecovery = (
+	workspaceId: string,
+): void => {
+	invalidateCloudWorkspaceTicket(workspaceId);
+	if (!cloudWorkspaceRuntimeRecoveryCommands.has(workspaceId)) {
+		cloudWorkspaceRuntimeRecoveryCommands.set(workspaceId, crypto.randomUUID());
+	}
+};
+
 const recordCloudWorkspaceGatewayClose = (
 	workspaceId: string,
 	close: Pick<WebSocketCloseInfo, "code">,
@@ -118,12 +128,7 @@ const recordCloudWorkspaceGatewayClose = (
 		missingBeforeFirstHandshake ||
 		abnormalCloseCount >= 2
 	) {
-		if (!cloudWorkspaceRuntimeRecoveryCommands.has(workspaceId)) {
-			cloudWorkspaceRuntimeRecoveryCommands.set(
-				workspaceId,
-				crypto.randomUUID(),
-			);
-		}
+		requestCloudWorkspaceRuntimeRecovery(workspaceId);
 	}
 };
 

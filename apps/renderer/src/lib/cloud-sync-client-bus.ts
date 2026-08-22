@@ -5,7 +5,12 @@ import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { type CloudSyncStatus, getAppBridge } from "./bridge.ts";
 import { prepareCloudWorkspaceSsh } from "./cloud-ssh-client-bus.ts";
 import {
+	CloudSyncLifecycleQueue,
+	reconcileAutomaticCloudSyncs,
+} from "./cloud-sync-lifecycle.ts";
+import {
 	cloudSummaryForEnvironment,
+	cloudSyncPreferenceEnabled,
 	cloudSyncPrefsFor,
 	setCloudSyncPrefs,
 	useCloudChatCatalogStore,
@@ -44,7 +49,7 @@ const setLocalStatus = (
 		localPath: previous?.localPath ?? null,
 		lastSyncedAt: previous?.lastSyncedAt ?? null,
 		error: previous?.error ?? null,
-		ticketStale: previous?.ticketStale ?? false,
+		accessRefreshRequired: previous?.accessRefreshRequired ?? false,
 		...patch,
 	});
 	emit();
@@ -55,6 +60,26 @@ interface ActiveSync {
 	stopped: boolean;
 }
 const active = new Map<string, ActiveSync>();
+const lifecycleQueue = new CloudSyncLifecycleQueue();
+const ACCESS_REFRESH_BACKOFF_MS = 1_000;
+const accessRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+const cancelAccessRefresh = (workspaceId: string): void => {
+	const timer = accessRefreshTimers.get(workspaceId);
+	if (timer !== undefined) clearTimeout(timer);
+	accessRefreshTimers.delete(workspaceId);
+};
+
+const scheduleAccessRefresh = (workspaceId: string): void => {
+	if (accessRefreshTimers.has(workspaceId) || !active.has(workspaceId)) return;
+	const timer = setTimeout(() => {
+		accessRefreshTimers.delete(workspaceId);
+		void prepareCloudWorkspaceSsh(workspaceId)
+			.then(() => getAppBridge()?.cloudSyncRequest?.(workspaceId))
+			.catch(() => undefined);
+	}, ACCESS_REFRESH_BACKOFF_MS);
+	accessRefreshTimers.set(workspaceId, timer);
+};
 
 const resolveWorkspaceFolderId = async (
 	workspaceId: string,
@@ -94,7 +119,7 @@ const startWatcher = (workspaceId: string, entry: ActiveSync): void => {
 	entry.fiber = Effect.runFork(program);
 };
 
-const startSync = async (workspaceId: string): Promise<void> => {
+const startSyncNow = async (workspaceId: string): Promise<void> => {
 	if (active.has(workspaceId)) return;
 	const entry: ActiveSync = { fiber: null, stopped: false };
 	active.set(workspaceId, entry);
@@ -136,6 +161,9 @@ const startSync = async (workspaceId: string): Promise<void> => {
 	}
 };
 
+const startSync = (workspaceId: string): Promise<void> =>
+	lifecycleQueue.run(workspaceId, () => startSyncNow(workspaceId));
+
 export const cloudSyncLocalPath = async (
 	workspaceId: string,
 ): Promise<string | null> => {
@@ -149,7 +177,8 @@ export const cloudSyncLocalPath = async (
 			)) ?? null);
 };
 
-const stopSync = async (workspaceId: string): Promise<void> => {
+const stopSyncNow = async (workspaceId: string): Promise<void> => {
+	cancelAccessRefresh(workspaceId);
 	const entry = active.get(workspaceId);
 	active.delete(workspaceId);
 	if (entry !== undefined) {
@@ -174,6 +203,9 @@ const stopSync = async (workspaceId: string): Promise<void> => {
 	}
 };
 
+const stopSync = (workspaceId: string): Promise<void> =>
+	lifecycleQueue.run(workspaceId, () => stopSyncNow(workspaceId));
+
 export const enableCloudSync = async (workspaceId: string): Promise<void> => {
 	setCloudSyncPrefs(workspaceId, { enabled: true });
 	await startSync(workspaceId);
@@ -192,22 +224,15 @@ const wire = (): void => {
 	getAppBridge()?.onCloudSyncStatus?.((status) => {
 		statuses.set(status.workspaceId, status);
 		emit();
-		// A stale ticket means rsync will soon fail auth: refresh it through the
-		// normal prepare flow, which re-stages the ticket file for the bridge.
-		if (status.enabled && status.ticketStale && active.has(status.workspaceId))
-			void prepareCloudWorkspaceSsh(status.workspaceId).catch(() => undefined);
+		if (
+			status.enabled &&
+			status.accessRefreshRequired &&
+			active.has(status.workspaceId)
+		)
+			scheduleAccessRefresh(status.workspaceId);
 	});
 	const startAutomaticSyncs = () => {
 		const summaries = useCloudChatCatalogStore.getState().summaries;
-		for (const workspaceId of active.keys()) {
-			if (
-				!summaries.some(
-					(summary) =>
-						summary.workspaceId === workspaceId && summary.state !== "archived",
-				)
-			)
-				void stopSync(workspaceId);
-		}
 		const connected = new Set(
 			useEnvironmentCatalogStore
 				.getState()
@@ -217,15 +242,15 @@ const wire = (): void => {
 				)
 				.map((entry) => entry.environmentId),
 		);
-		for (const summary of summaries) {
-			if (
-				summary.state !== "archived" &&
-				connected.has(summary.workspaceId) &&
-				cloudSyncPrefsFor(summary.workspaceId)?.enabled !== false &&
-				!active.has(summary.workspaceId)
-			)
-				void startSync(summary.workspaceId);
-		}
+		reconcileAutomaticCloudSyncs({
+			summaries,
+			connectedWorkspaceIds: connected,
+			activeWorkspaceIds: new Set(active.keys()),
+			enabled: (workspaceId) =>
+				cloudSyncPreferenceEnabled(cloudSyncPrefsFor(workspaceId)),
+			start: (workspaceId) => void startSync(workspaceId),
+			stop: (workspaceId) => void stopSync(workspaceId),
+		});
 	};
 	useEnvironmentCatalogStore.subscribe(startAutomaticSyncs);
 	useCloudChatCatalogStore.subscribe(startAutomaticSyncs);

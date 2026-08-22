@@ -34,6 +34,8 @@ const PERIODIC_FALLBACK_MS = 60_000;
 const ERROR_BACKOFF_MIN_MS = 5_000;
 const ERROR_BACKOFF_MAX_MS = 60_000;
 const TICKET_STALE_MARGIN_MS = 10 * 60_000;
+const TRANSFER_INACTIVITY_TIMEOUT_MS = 30_000;
+const TRANSFER_TERMINATE_GRACE_MS = 2_000;
 const GENERATED_SYNC_EXCLUDES = [
 	"node_modules",
 	".cache",
@@ -41,6 +43,7 @@ const GENERATED_SYNC_EXCLUDES = [
 	".next/cache",
 	"__pycache__",
 	".pytest_cache",
+	".zuse-rsync-partial",
 ] as const;
 
 export type CloudSyncState = "idle" | "syncing" | "in-sync" | "error";
@@ -52,8 +55,8 @@ export interface CloudSyncStatus {
 	readonly localPath: string | null;
 	readonly lastSyncedAt: number | null;
 	readonly error: string | null;
-	/** The SSH ticket is missing or near expiry; the renderer should refresh it. */
-	readonly ticketStale: boolean;
+	/** Access is near expiry or the SSH transport failed and must be refreshed. */
+	readonly accessRefreshRequired: boolean;
 }
 
 export interface CloudSyncConfigureInput {
@@ -79,7 +82,10 @@ export const rsyncArgs = (input: {
 	readonly gitignoreFilter: boolean;
 }): ReadonlyArray<string> => [
 	"-az",
-	"--delete",
+	"--delay-updates",
+	"--delete-delay",
+	"--partial-dir=.zuse-rsync-partial",
+	"--timeout=30",
 	"--exclude=.git/",
 	`--exclude=${SYNC_MARKER_FILE}`,
 	...GENERATED_SYNC_EXCLUDES.map((path) => `--exclude=${path}/`),
@@ -98,11 +104,13 @@ interface SyncEntry {
 	state: CloudSyncState;
 	lastSyncedAt: number | null;
 	error: string | null;
-	ticketStale: boolean;
+	accessRefreshRequired: boolean;
 	running: boolean;
 	rerunRequested: boolean;
 	backoffMs: number;
 	timer: NodeJS.Timeout | null;
+	abortController: AbortController | null;
+	completion: Promise<void> | null;
 }
 
 const ticketPath = (workspaceId: string): string =>
@@ -149,9 +157,11 @@ export class CloudSyncManager {
 		private readonly notify: (status: CloudSyncStatus) => void,
 		private readonly runRsync: (
 			args: ReadonlyArray<string>,
+			signal?: AbortSignal,
 		) => Promise<{ code: number; stderr: string }> = defaultRunRsync,
 		private readonly runLegacySync: (
 			input: CloudSyncConfigureInput,
+			signal?: AbortSignal,
 		) => Promise<{ code: number; stderr: string }> = defaultRunLegacySync,
 	) {}
 
@@ -164,15 +174,18 @@ export class CloudSyncManager {
 			localPath: entry?.config.localPath ?? null,
 			lastSyncedAt: entry?.lastSyncedAt ?? null,
 			error: entry?.error ?? null,
-			ticketStale: entry?.ticketStale ?? false,
+			accessRefreshRequired: entry?.accessRefreshRequired ?? false,
 		};
 	}
 
 	async configure(input: CloudSyncConfigureInput): Promise<CloudSyncStatus> {
 		const existing = this.entries.get(input.workspaceId);
-		if (existing !== undefined) this.clearTimers(existing);
-		if (!input.enabled) {
+		if (existing !== undefined) {
 			this.entries.delete(input.workspaceId);
+			this.cancelEntry(existing);
+			await existing.completion;
+		}
+		if (!input.enabled) {
 			const status = this.status(input.workspaceId);
 			this.notify(status);
 			return status;
@@ -182,11 +195,13 @@ export class CloudSyncManager {
 			state: existing?.state === "in-sync" ? "in-sync" : "idle",
 			lastSyncedAt: existing?.lastSyncedAt ?? null,
 			error: null,
-			ticketStale: false,
+			accessRefreshRequired: false,
 			running: false,
 			rerunRequested: false,
 			backoffMs: ERROR_BACKOFF_MIN_MS,
 			timer: null,
+			abortController: null,
+			completion: null,
 		};
 		this.entries.set(input.workspaceId, entry);
 		const guard = await this.guardLocalPath(input);
@@ -196,7 +211,7 @@ export class CloudSyncManager {
 			this.publish(input.workspaceId);
 			return this.status(input.workspaceId);
 		}
-		void this.sync(input.workspaceId);
+		this.launchSync(input.workspaceId);
 		return this.status(input.workspaceId);
 	}
 
@@ -207,9 +222,17 @@ export class CloudSyncManager {
 		this.schedule(workspaceId, entry, DEBOUNCE_MS);
 	}
 
-	dispose(): void {
-		for (const entry of this.entries.values()) this.clearTimers(entry);
+	async dispose(): Promise<void> {
+		const entries = [...this.entries.values()];
+		for (const entry of entries) this.cancelEntry(entry);
 		this.entries.clear();
+		await Promise.all(entries.map((entry) => entry.completion));
+	}
+
+	private cancelEntry(entry: SyncEntry): void {
+		this.clearTimers(entry);
+		entry.abortController?.abort();
+		entry.abortController = null;
 	}
 
 	private clearTimers(entry: SyncEntry): void {
@@ -221,9 +244,22 @@ export class CloudSyncManager {
 		this.clearTimers(entry);
 		entry.timer = setTimeout(() => {
 			entry.timer = null;
-			void this.sync(workspaceId);
+			this.launchSync(workspaceId);
 		}, delay);
 		entry.timer.unref?.();
+	}
+
+	private launchSync(workspaceId: string): void {
+		const entry = this.entries.get(workspaceId);
+		if (entry === undefined || !entry.config.enabled) return;
+		if (entry.running) {
+			entry.rerunRequested = true;
+			return;
+		}
+		const operation = this.sync(workspaceId).finally(() => {
+			if (entry.completion === operation) entry.completion = null;
+		});
+		entry.completion = operation;
 	}
 
 	private async guardLocalPath(
@@ -264,13 +300,16 @@ export class CloudSyncManager {
 	private async sync(workspaceId: string): Promise<void> {
 		const entry = this.entries.get(workspaceId);
 		if (entry === undefined || !entry.config.enabled) return;
-		if (entry.running) {
-			entry.rerunRequested = true;
-			return;
-		}
 		entry.running = true;
 		entry.state = "syncing";
-		entry.ticketStale = !(await ticketFresh(workspaceId));
+		const abortController = new AbortController();
+		entry.abortController = abortController;
+		entry.accessRefreshRequired = !(await ticketFresh(workspaceId));
+		if (
+			abortController.signal.aborted ||
+			this.entries.get(workspaceId) !== entry
+		)
+			return;
 		this.publish(workspaceId);
 		let nextDelay = PERIODIC_FALLBACK_MS;
 		try {
@@ -281,33 +320,44 @@ export class CloudSyncManager {
 				sshConfigPath: cloudSshConfigPath(),
 				gitignoreFilter: await this.resolveGitignoreFilter(),
 			});
-			let result = await this.runRsync(args);
-			if (result.code !== 0 && remoteRsyncMissing(result.stderr))
-				result = await this.runLegacySync(entry.config);
+			if (abortController.signal.aborted) return;
+			let result = await this.runRsync(args, abortController.signal);
+			if (
+				!abortController.signal.aborted &&
+				result.code !== 0 &&
+				remoteRsyncMissing(result.stderr)
+			)
+				result = await this.runLegacySync(entry.config, abortController.signal);
 			if (this.entries.get(workspaceId) !== entry) return;
 			if (result.code === 0) {
 				entry.state = "in-sync";
 				entry.error = null;
 				entry.lastSyncedAt = Date.now();
 				entry.backoffMs = ERROR_BACKOFF_MIN_MS;
+				entry.accessRefreshRequired = false;
 			} else {
 				entry.state = "error";
 				entry.error = result.stderr.trim().split("\n").slice(-3).join("\n");
+				if (sshTransportFailed(result.stderr))
+					entry.accessRefreshRequired = true;
 				nextDelay = entry.backoffMs;
 				entry.backoffMs = Math.min(entry.backoffMs * 2, ERROR_BACKOFF_MAX_MS);
 			}
 		} catch (cause) {
+			if (abortController.signal.aborted) return;
 			entry.state = "error";
 			entry.error = cause instanceof Error ? cause.message : String(cause);
 			nextDelay = entry.backoffMs;
 			entry.backoffMs = Math.min(entry.backoffMs * 2, ERROR_BACKOFF_MAX_MS);
 		} finally {
+			if (entry.abortController === abortController)
+				entry.abortController = null;
 			entry.running = false;
 			if (this.entries.get(workspaceId) === entry) {
 				this.publish(workspaceId);
 				if (entry.rerunRequested) {
 					entry.rerunRequested = false;
-					void this.sync(workspaceId);
+					this.launchSync(workspaceId);
 				} else if (entry.timer === null) {
 					this.schedule(workspaceId, entry, nextDelay);
 				}
@@ -318,27 +368,64 @@ export class CloudSyncManager {
 
 const defaultRunRsync = (
 	args: ReadonlyArray<string>,
+	signal?: AbortSignal,
 ): Promise<{ code: number; stderr: string }> =>
 	new Promise((resolve, reject) => {
 		const child = spawn("rsync", [...args], {
 			stdio: ["ignore", "ignore", "pipe"],
 		});
 		let stderr = "";
+		let settled = false;
+		let forcedTermination: NodeJS.Timeout | null = null;
+		const finish = (result: { code: number; stderr: string }): void => {
+			if (settled) return;
+			settled = true;
+			if (forcedTermination !== null) clearTimeout(forcedTermination);
+			signal?.removeEventListener("abort", abort);
+			resolve(result);
+		};
+		const fail = (cause: Error): void => {
+			if (settled) return;
+			settled = true;
+			if (forcedTermination !== null) clearTimeout(forcedTermination);
+			signal?.removeEventListener("abort", abort);
+			reject(cause);
+		};
+		const abort = (): void => {
+			child.kill("SIGTERM");
+			forcedTermination = setTimeout(
+				() => child.kill("SIGKILL"),
+				TRANSFER_TERMINATE_GRACE_MS,
+			);
+			forcedTermination.unref?.();
+		};
 		child.stderr.on("data", (chunk: Buffer) => {
 			stderr = `${stderr}${chunk.toString()}`.slice(-4_096);
 		});
-		child.once("error", reject);
-		child.once("close", (code) => resolve({ code: code ?? 1, stderr }));
+		child.once("error", (cause) => {
+			if (signal?.aborted) finish({ code: 1, stderr: "Sync cancelled." });
+			else fail(cause);
+		});
+		child.once("close", (code) =>
+			finish({
+				code: signal?.aborted ? 1 : (code ?? 1),
+				stderr: signal?.aborted ? "Sync cancelled." : stderr,
+			}),
+		);
+		if (signal?.aborted) abort();
+		else signal?.addEventListener("abort", abort, { once: true });
 	});
 
 /** Compatibility path for workspaces created before rsync entered the image. */
 const defaultRunLegacySync = async (
 	input: CloudSyncConfigureInput,
+	signal?: AbortSignal,
 ): Promise<{ code: number; stderr: string }> => {
 	const staging = await mkdtemp(`${input.localPath}.incoming-`);
 	try {
-		const result = await streamTarArchive(input, staging);
+		const result = await streamTarArchive(input, staging, signal);
 		if (result.code !== 0) return result;
+		if (signal?.aborted) return { code: 1, stderr: "Sync cancelled." };
 		for (const name of await readdir(input.localPath)) {
 			if (name !== SYNC_MARKER_FILE)
 				await rm(join(input.localPath, name), { recursive: true, force: true });
@@ -354,8 +441,9 @@ const defaultRunLegacySync = async (
 const streamTarArchive = (
 	input: CloudSyncConfigureInput,
 	staging: string,
+	signal?: AbortSignal,
 ): Promise<{ code: number; stderr: string }> =>
-	new Promise((resolve, reject) => {
+	new Promise((resolve) => {
 		const remote = spawn(
 			"ssh",
 			[
@@ -379,23 +467,56 @@ const streamTarArchive = (
 			stdio: ["pipe", "ignore", "pipe"],
 		});
 		let stderr = "";
+		let settled = false;
+		let inactivityTimer: NodeJS.Timeout;
+		const terminate = (reason?: string): void => {
+			if (reason !== undefined) stderr = reason;
+			remote.kill("SIGTERM");
+			local.kill("SIGTERM");
+			const forced = setTimeout(() => {
+				remote.kill("SIGKILL");
+				local.kill("SIGKILL");
+			}, TRANSFER_TERMINATE_GRACE_MS);
+			forced.unref?.();
+		};
+		const abort = (): void => terminate();
+		const resetInactivity = (): void => {
+			clearTimeout(inactivityTimer);
+			inactivityTimer = setTimeout(
+				() =>
+					terminate(
+						"Sync timed out after 30 seconds without transferred data.",
+					),
+				TRANSFER_INACTIVITY_TIMEOUT_MS,
+			);
+			inactivityTimer.unref?.();
+		};
 		const appendError = (chunk: Buffer) => {
 			stderr = `${stderr}${chunk.toString()}`.slice(-4_096);
+			resetInactivity();
 		};
 		remote.stderr.on("data", appendError);
 		local.stderr.on("data", appendError);
+		remote.stdout.on("data", resetInactivity);
 		remote.stdout.pipe(local.stdin);
 		let remoteCode: number | null = null;
 		let localCode: number | null = null;
 		const finish = () => {
-			if (remoteCode === null || localCode === null) return;
+			if (settled || remoteCode === null || localCode === null) return;
+			settled = true;
+			clearTimeout(inactivityTimer);
+			signal?.removeEventListener("abort", abort);
 			resolve({
-				code: remoteCode === 0 && localCode === 0 ? 0 : 1,
-				stderr,
+				code: !signal?.aborted && remoteCode === 0 && localCode === 0 ? 0 : 1,
+				stderr: signal?.aborted ? "Sync cancelled." : stderr,
 			});
 		};
-		remote.once("error", reject);
-		local.once("error", reject);
+		remote.once("error", (cause) => {
+			terminate(cause.message);
+		});
+		local.once("error", (cause) => {
+			terminate(cause.message);
+		});
 		remote.once("close", (code) => {
 			remoteCode = code ?? 1;
 			finish();
@@ -404,4 +525,12 @@ const streamTarArchive = (
 			localCode = code ?? 1;
 			finish();
 		});
+		resetInactivity();
+		if (signal?.aborted) abort();
+		else signal?.addEventListener("abort", abort, { once: true });
 	});
+
+export const sshTransportFailed = (stderr: string): boolean =>
+	/(?:zuse ssh bridge:|permission denied|connection (?:unexpectedly )?(?:closed|reset|timed out)|kex_exchange_identification|broken pipe|no route to host|could not resolve hostname)/iu.test(
+		stderr,
+	);

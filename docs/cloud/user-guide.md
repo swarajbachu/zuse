@@ -68,6 +68,15 @@ local synced checkout, normally under `~/.zuse/cloud/<repository>/<branch>`.
 Generated dependency and cache directories such as `node_modules` are not
 copied from cloud; install or generate them locally when needed.
 
+The local checkout is a one-way, remote-authoritative mirror. Local edits are
+not uploaded and may be overwritten by the next sync. Zuse stops the transfer
+when the environment disconnects, keeps the enabled preference, and prepares
+fresh access before syncing again after reconnect.
+
+Open via SSH uses the managed `ssh zuse-<workspace>` host alias and does not
+publish an SSH listener. Dev-server previews open through a private forward on
+Mac `localhost`; copying a public E2B preview URL remains a separate action.
+
 Transcript checkpoints do not back up the repository filesystem. While a chat
 is active or archived, the E2B sandbox holds its complete workspace. R2 holds
 only the encrypted transcript projection.

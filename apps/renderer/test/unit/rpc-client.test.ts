@@ -17,6 +17,7 @@ const {
 	clearCloudWorkspaceRuntimeRecovery,
 	cloudWorkspaceRequiresRuntimeRecovery,
 	cloudWorkspaceRuntimeRecoveryCommandId,
+	requestCloudWorkspaceRuntimeRecovery,
 	isAuthCodedConnectionError,
 	isIgnorableRendererFailure,
 	isRpcClientTransportError,
@@ -249,6 +250,16 @@ describe("renderer RPC transport selection", () => {
 			acquireRendererRpcSession("workspace-expired", { hooks }),
 		).rejects.toThrow("HTTP 401");
 		expect(events).toEqual(["create-rejected", "invalidate:workspace-expired"]);
+	});
+
+	it("queues one recovery command for an explicit missing provider runtime", () => {
+		const workspaceId = "workspace-provider-missing";
+		requestCloudWorkspaceRuntimeRecovery(workspaceId);
+		const commandId = cloudWorkspaceRuntimeRecoveryCommandId(workspaceId);
+		expect(commandId).toBeTypeOf("string");
+		requestCloudWorkspaceRuntimeRecovery(workspaceId);
+		expect(cloudWorkspaceRuntimeRecoveryCommandId(workspaceId)).toBe(commandId);
+		clearCloudWorkspaceRuntimeRecovery(workspaceId);
 	});
 
 	it("marks a cloud runtime for recovery after the gateway proves it is absent", async () => {
