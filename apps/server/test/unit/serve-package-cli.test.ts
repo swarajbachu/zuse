@@ -33,7 +33,7 @@ describe("serve data directory", () => {
 			resolveServeDataDir({ XDG_CONFIG_HOME: "/home/dev/.config" }, undefined, {
 				platform: "linux",
 				homeDir: "/home/dev",
-				cwd: "/home/dev/zuse",
+				cwd: "/home/dev/zuse/packages/serve",
 				pathExists: (path) =>
 					path === "/home/dev/zuse/apps/desktop/package.json" ||
 					path === "/home/dev/zuse/packages/serve/package.json",

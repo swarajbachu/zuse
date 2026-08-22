@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir, hostname } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
@@ -170,6 +170,24 @@ export const foregroundServeOptions = (
 	relayEnabled: !command.sshManaged && command.noAccount !== true,
 });
 
+const isZuseSourceCheckout = (
+	cwd: string,
+	pathExists: (path: string) => boolean,
+): boolean => {
+	let cursor = resolve(cwd);
+	while (true) {
+		if (
+			pathExists(join(cursor, "apps", "desktop", "package.json")) &&
+			pathExists(join(cursor, "packages", "serve", "package.json"))
+		) {
+			return true;
+		}
+		const parent = dirname(cursor);
+		if (parent === cursor) return false;
+		cursor = parent;
+	}
+};
+
 export const resolveServeDataDir = (
 	env: NodeJS.ProcessEnv,
 	override?: string,
@@ -188,14 +206,11 @@ export const resolveServeDataDir = (
 	const homeDir = runtime.homeDir ?? homedir();
 	const cwd = runtime.cwd ?? process.cwd();
 	const pathExists = runtime.pathExists ?? existsSync;
-	const sourceCheckout =
-		pathExists(join(cwd, "apps", "desktop", "package.json")) &&
-		pathExists(join(cwd, "packages", "serve", "package.json"));
 	return resolveZuseDesktopUserData({
 		platform,
 		homeDir,
 		env,
-		development: sourceCheckout,
+		development: isZuseSourceCheckout(cwd, pathExists),
 	});
 };
 

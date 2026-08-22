@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `zuse serve` now prints stable browser pairing links and short typed codes for LAN, Tailscale Serve, and account-managed remote access
+- Browsers can pair directly from the access screen, and Add Computer accepts the same browser URL used by QR codes
+
+### Changed
+- Source-checkout and installed Serve runtimes now share the matching Electron data profile, keeping projects and chats in one local database
+- Remote-access dialogs use compact, consistent controls and clearer account-discovery, connection, and pairing states
+
+### Fixed
+- Browser RPC registration and authenticated reloads now recover cleanly instead of remaining stuck while connecting
+- LAN browser access works without secure-context `crypto.randomUUID`, and `--no-account` no longer restores or advertises a persisted managed tunnel
+
 ## [0.20.7]
 
 ### Fixed
