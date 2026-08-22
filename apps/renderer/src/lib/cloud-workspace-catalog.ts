@@ -13,6 +13,11 @@ export type CloudSyncPrefs = Readonly<{
 	enabled: boolean;
 }>;
 
+/** Preserve the existing default-on behavior until a user explicitly disables sync. */
+export const cloudSyncPreferenceEnabled = (
+	prefs: CloudSyncPrefs | null | undefined,
+): boolean => prefs?.enabled !== false;
+
 type CloudChatCatalogState = Readonly<{
 	summaries: ReadonlyArray<CloudChatSummary>;
 	localProjectByEnvironment: Readonly<Record<string, FolderId>>;

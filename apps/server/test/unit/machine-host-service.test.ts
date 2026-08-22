@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { MachineRuntimeStatus } from "@zuse/contracts";
+import { MachineRuntimeStatus, MachineSshKey } from "@zuse/contracts";
 import { Effect, Layer, Schema } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -62,8 +62,8 @@ describe("machine host SSH keys", () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const host = yield* MachineHostService;
-				const added = yield* host.addSshKey(publicKey);
-				yield* host.addSshKey(publicKey);
+				const added = yield* host.addSshKey(publicKey, "zuse-desktop");
+				yield* host.addSshKey(publicKey, "zuse-desktop");
 				const listed = yield* host.listSshKeys();
 				yield* host.removeSshKey(added.fingerprint);
 				return {
@@ -75,6 +75,8 @@ describe("machine host SSH keys", () => {
 		);
 
 		expect(result.added.fingerprint).toMatch(/^SHA256:/u);
+		expect(result.added.label).toBe("zuse-desktop");
+		expect(() => Schema.encodeSync(MachineSshKey)(result.added)).not.toThrow();
 		expect(result.listed).toHaveLength(1);
 		expect(result.afterRemove).toEqual([]);
 		expect((await stat(authorizedKeys)).mode & 0o777).toBe(0o600);

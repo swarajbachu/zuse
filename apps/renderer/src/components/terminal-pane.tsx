@@ -261,7 +261,7 @@ export function PtyTerminal({
 	return (
 		<div
 			ref={containerRef}
-			className="h-full w-full min-w-0 overflow-hidden bg-background px-2 py-1.5"
+			className="h-full w-full min-w-0 overflow-hidden bg-background px-2 pb-1.5"
 		/>
 	);
 }

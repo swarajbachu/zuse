@@ -1,8 +1,17 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdir,
+	readdir,
+	readFile,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, sep } from "node:path";
+import { dirname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -32,6 +41,11 @@ const INCLUDE_MARKER = "# Zuse cloud workspaces (managed include)";
 const sshRoot = (): string => join(homedir(), ".zuse", "ssh");
 const keyPath = (): string => join(sshRoot(), "id_ed25519");
 const ticketsDir = (): string => join(sshRoot(), "tickets");
+const bridgeDir = (): string => join(sshRoot(), "bridge");
+const installedBridgePath = (): string =>
+	join(bridgeDir(), "ssh-bridge-child.cjs");
+const bridgeLauncherPath = (): string => join(bridgeDir(), "launch");
+let infrastructureSetup: Promise<string> | null = null;
 
 /** The managed ssh config that declares every `zuse-*` cloud host alias. */
 export const cloudSshConfigPath = (): string => join(sshRoot(), "config");
@@ -48,6 +62,85 @@ const resolveBridgeScript = (): string => {
 		`${sep}app.asar.unpacked${sep}`,
 	);
 	return existsSync(unpacked) ? unpacked : bundled;
+};
+
+const shellQuote = (value: string): string =>
+	`'${value.replaceAll("'", `'"'"'`)}'`;
+
+export interface CloudSshBridgeRuntime {
+	readonly executable: string;
+	readonly electronRunAsNode: boolean;
+}
+
+export const cloudSshBridgeLauncher = (
+	runtime: CloudSshBridgeRuntime,
+	bridgePath: string,
+): string => {
+	const environment = runtime.electronRunAsNode
+		? "env ELECTRON_RUN_AS_NODE=1 "
+		: "";
+	return `#!/bin/sh\nexec ${environment}${shellQuote(runtime.executable)} ${shellQuote(bridgePath)} "$@"\n`;
+};
+
+export const resolveCloudSshBridgeRuntime = async (
+	isPackaged: boolean,
+): Promise<CloudSshBridgeRuntime> => {
+	if (isPackaged) {
+		return { executable: process.execPath, electronRunAsNode: true };
+	}
+	const { stdout } = await execFileAsync("node", ["-p", "process.execPath"]);
+	const executable = stdout.trim();
+	if (!isAbsolute(executable) || !existsSync(executable)) {
+		throw new Error("Could not resolve a stable Node.js executable for SSH");
+	}
+	return { executable, electronRunAsNode: false };
+};
+
+/** Replace a private file without exposing a partially-written credential. */
+export const atomicWritePrivateFile = async (
+	path: string,
+	contents: string | Buffer,
+	mode: number,
+): Promise<void> => {
+	await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+	const temporaryPath = `${path}.tmp-${process.pid}-${randomUUID()}`;
+	try {
+		await writeFile(temporaryPath, contents, { mode, flag: "wx" });
+		await chmod(temporaryPath, mode);
+		await rename(temporaryPath, path);
+		await chmod(path, mode);
+	} finally {
+		await rm(temporaryPath, { force: true }).catch(() => undefined);
+	}
+};
+
+export const pruneExpiredCloudSshTickets = async (
+	directory = ticketsDir(),
+	now = Date.now(),
+): Promise<void> => {
+	let names: string[];
+	try {
+		names = await readdir(directory);
+	} catch {
+		return;
+	}
+	await Promise.all(
+		names
+			.filter((name) => name.endsWith(".json"))
+			.map(async (name) => {
+				const path = join(directory, name);
+				try {
+					const ticket = JSON.parse(await readFile(path, "utf8")) as {
+						expiresAt?: unknown;
+					};
+					if (typeof ticket.expiresAt === "number" && ticket.expiresAt > now)
+						return;
+				} catch {
+					// Invalid managed tickets cannot be used and are safe to prune.
+				}
+				await rm(path, { force: true });
+			}),
+	);
 };
 
 export const ensureCloudSshKeypair = async (): Promise<string> => {
@@ -76,6 +169,7 @@ export const managedSshConfig = (bridgeCommand: string): string =>
 		"\tUser zuse",
 		`\tIdentityFile ${keyPath()}`,
 		"\tIdentitiesOnly yes",
+		"\tConnectTimeout 15",
 		"\tStrictHostKeyChecking accept-new",
 		`\tUserKnownHostsFile ${join(sshRoot(), "known_hosts")}`,
 		`\tProxyCommand ${bridgeCommand} %n`,
@@ -99,7 +193,8 @@ const ensureUserConfigInclude = async (): Promise<void> => {
 		? await readFile(configPath, "utf8")
 		: "";
 	const updated = withUserConfigInclude(existing, cloudSshConfigPath());
-	if (updated !== null) await writeFile(configPath, updated, { mode: 0o600 });
+	if (updated !== null)
+		await atomicWritePrivateFile(configPath, updated, 0o600);
 };
 
 /**
@@ -109,22 +204,53 @@ const ensureUserConfigInclude = async (): Promise<void> => {
  */
 export const prepareCloudSshAccess = async (
 	access: CloudWorkspaceSshAccess,
+	options: {
+		readonly isPackaged?: boolean;
+		readonly runtime?: CloudSshBridgeRuntime;
+		readonly bridgeSourcePath?: string;
+	} = {},
 ): Promise<CloudSshPrepared> => {
-	const publicKey = await ensureCloudSshKeypair();
-	const bridgeCommand = `env ELECTRON_RUN_AS_NODE=1 "${process.execPath}" "${resolveBridgeScript()}"`;
-	await writeFile(cloudSshConfigPath(), managedSshConfig(bridgeCommand), {
-		mode: 0o600,
-	});
-	await ensureUserConfigInclude();
-	await mkdir(ticketsDir(), { recursive: true, mode: 0o700 });
-	await writeFile(
+	if (!/^[A-Za-z0-9_-]+$/u.test(access.workspaceId))
+		throw new Error("Invalid cloud workspace identifier");
+	if (infrastructureSetup === null) {
+		const setup = (async () => {
+			const publicKey = await ensureCloudSshKeypair();
+			const runtime =
+				options.runtime ??
+				(await resolveCloudSshBridgeRuntime(options.isPackaged ?? false));
+			const bridgeSource = await readFile(
+				options.bridgeSourcePath ?? resolveBridgeScript(),
+			);
+			await atomicWritePrivateFile(installedBridgePath(), bridgeSource, 0o700);
+			await atomicWritePrivateFile(
+				bridgeLauncherPath(),
+				cloudSshBridgeLauncher(runtime, installedBridgePath()),
+				0o700,
+			);
+			await atomicWritePrivateFile(
+				cloudSshConfigPath(),
+				managedSshConfig(shellQuote(bridgeLauncherPath())),
+				0o600,
+			);
+			await ensureUserConfigInclude();
+			await mkdir(ticketsDir(), { recursive: true, mode: 0o700 });
+			await pruneExpiredCloudSshTickets();
+			return publicKey;
+		})().catch((cause) => {
+			infrastructureSetup = null;
+			throw cause;
+		});
+		infrastructureSetup = setup;
+	}
+	const publicKey = await infrastructureSetup;
+	await atomicWritePrivateFile(
 		join(ticketsDir(), `${access.workspaceId}.json`),
 		JSON.stringify({
 			wsUrl: access.wsUrl,
 			ticket: access.ticket,
 			expiresAt: access.expiresAt,
 		}),
-		{ mode: 0o600 },
+		0o600,
 	);
 	const hostAlias = cloudSshHostAlias(access.workspaceId);
 	return {

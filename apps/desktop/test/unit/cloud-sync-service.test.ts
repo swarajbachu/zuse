@@ -11,6 +11,7 @@ import {
 	remoteRsyncMissing,
 	rsyncArgs,
 	SYNC_MARKER_FILE,
+	sshTransportFailed,
 	supportsGitignoreFilter,
 } from "../../src/sync/cloud-sync-service.ts";
 
@@ -32,7 +33,10 @@ describe("cloud sync service", () => {
 		});
 		expect(args).toEqual([
 			"-az",
-			"--delete",
+			"--delay-updates",
+			"--delete-delay",
+			"--partial-dir=.zuse-rsync-partial",
+			"--timeout=30",
 			"--exclude=.git/",
 			`--exclude=${SYNC_MARKER_FILE}`,
 			"--exclude=node_modules/",
@@ -41,6 +45,7 @@ describe("cloud sync service", () => {
 			"--exclude=.next/cache/",
 			"--exclude=__pycache__/",
 			"--exclude=.pytest_cache/",
+			"--exclude=.zuse-rsync-partial/",
 			"--filter=:- .gitignore",
 			"-e",
 			'ssh -F "/home/u/.zuse/ssh/config"',
@@ -56,6 +61,12 @@ describe("cloud sync service", () => {
 				gitignoreFilter: false,
 			}),
 		).toContain("--rsync-path=rsync --filter=:-_.gitignore");
+	});
+
+	test("recognizes SSH transport failures that require fresh access", () => {
+		expect(sshTransportFailed("zuse ssh bridge: access rejected")).toBe(true);
+		expect(sshTransportFailed("kex_exchange_identification failed")).toBe(true);
+		expect(sshTransportFailed("repository file vanished")).toBe(false);
 	});
 
 	test("gitignore filter only with GNU rsync", () => {
@@ -93,7 +104,7 @@ describe("cloud sync service", () => {
 		});
 		expect(status.state).toBe("error");
 		expect(status.error).toContain("not empty");
-		manager.dispose();
+		await manager.dispose();
 	});
 
 	test("syncs an empty directory and reaches in-sync", async () => {
@@ -117,7 +128,7 @@ describe("cloud sync service", () => {
 		expect(runs.length).toBe(1);
 		expect(manager.status("workspace_abc").state).toBe("in-sync");
 		expect(manager.status("workspace_abc").lastSyncedAt).not.toBeNull();
-		manager.dispose();
+		await manager.dispose();
 	});
 
 	test("falls back for old sandboxes without rsync", async () => {
@@ -144,7 +155,7 @@ describe("cloud sync service", () => {
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect(fallbackRuns).toBe(1);
 		expect(manager.status("workspace_old").state).toBe("in-sync");
-		manager.dispose();
+		await manager.dispose();
 	});
 
 	test("preserves a pending change debounce when a sync completes", async () => {
@@ -178,7 +189,7 @@ describe("cloud sync service", () => {
 			);
 			await vi.advanceTimersByTimeAsync(1_600);
 			await vi.waitFor(() => expect(runs).toBe(2));
-			manager.dispose();
+			await manager.dispose();
 		} finally {
 			vi.useRealTimers();
 		}
@@ -205,6 +216,7 @@ describe("cloud sync service", () => {
 		expect(manager.status("workspace_abc").error).toContain(
 			"connection unexpectedly closed",
 		);
+		expect(manager.status("workspace_abc").accessRefreshRequired).toBe(true);
 		await manager.configure({
 			workspaceId: "workspace_abc",
 			enabled: false,
@@ -214,6 +226,41 @@ describe("cloud sync service", () => {
 		});
 		expect(manager.status("workspace_abc").enabled).toBe(false);
 		expect(manager.status("workspace_abc").state).toBe("idle");
-		manager.dispose();
+		await manager.dispose();
+	});
+
+	test("cancels an in-flight transfer when sync is disabled", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
+		let observedSignal: AbortSignal | undefined;
+		const manager = new CloudSyncManager(
+			() => {},
+			async (_args, signal) => {
+				observedSignal = signal;
+				return new Promise((resolve) => {
+					signal?.addEventListener(
+						"abort",
+						() => resolve({ code: 1, stderr: "cancelled" }),
+						{ once: true },
+					);
+				});
+			},
+		);
+		await manager.configure({
+			workspaceId: "workspace_cancel",
+			enabled: true,
+			localPath: dir,
+			hostAlias: "zuse-workspace_cancel",
+			remotePath: "/home/zuse/workspace",
+		});
+		await vi.waitFor(() => expect(observedSignal).toBeDefined());
+		await manager.configure({
+			workspaceId: "workspace_cancel",
+			enabled: false,
+			localPath: dir,
+			hostAlias: "zuse-workspace_cancel",
+			remotePath: "/home/zuse/workspace",
+		});
+		expect(observedSignal?.aborted).toBe(true);
+		expect(manager.status("workspace_cancel").enabled).toBe(false);
 	});
 });

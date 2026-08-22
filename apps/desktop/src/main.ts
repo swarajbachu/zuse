@@ -2004,14 +2004,17 @@ async function createMainWindow() {
 		)
 			return null;
 		try {
-			return await prepareCloudSshAccess({
-				workspaceId: access.workspaceId,
-				wsUrl: access.wsUrl,
-				ticket: access.ticket,
-				expiresAt: access.expiresAt,
-				user: access.user,
-				workspacePath: access.workspacePath,
-			});
+			return await prepareCloudSshAccess(
+				{
+					workspaceId: access.workspaceId,
+					wsUrl: access.wsUrl,
+					ticket: access.ticket,
+					expiresAt: access.expiresAt,
+					user: access.user,
+					workspacePath: access.workspacePath,
+				},
+				{ isPackaged: app.isPackaged },
+			);
 		} catch (cause) {
 			recordMainDiagnostic("error", "cloud-ssh.prepare", [cause]);
 			return null;
@@ -3839,9 +3842,15 @@ const finishQuitAfterSshCleanup = (event: {
 	if (sshQuitCleanupInProgress) return;
 	sshQuitCleanupInProgress = true;
 	const manager = sshEnvironmentManager;
+	const runtime = runtimeFiber;
+	runtimeFiber = null;
 	void Promise.allSettled([
+		cloudSyncManager.dispose(),
 		portForwardManager.closeAll(),
 		manager?.close() ?? Promise.resolve(),
+		runtime === null
+			? Promise.resolve()
+			: Effect.runPromise(Fiber.interrupt(runtime)),
 	]).finally(() => {
 		if (sshEnvironmentManager === manager) sshEnvironmentManager = null;
 		sshQuitCleanupComplete = true;

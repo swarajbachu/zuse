@@ -2208,16 +2208,20 @@ export const routeCloudWorkspaceRequest = (
 					"zuse",
 				)
 				.pipe(
-					Effect.mapError(() =>
-						serviceUnavailable("cloud_workspace_ssh_unavailable"),
+					Effect.mapError((error) =>
+						error.code === "not-found"
+							? notFound("cloud_workspace_sandbox_not_found")
+							: serviceUnavailable("cloud_workspace_ssh_unavailable"),
 					),
 				);
 			const offer = yield* SandboxOfferConfiguration;
 			const endpoint = yield* provider
 				.resolveEndpoint(workspace.providerSandboxId, offer.port)
 				.pipe(
-					Effect.mapError(() =>
-						serviceUnavailable("cloud_workspace_ssh_unavailable"),
+					Effect.mapError((error) =>
+						error.code === "not-found"
+							? notFound("cloud_workspace_sandbox_not_found")
+							: serviceUnavailable("cloud_workspace_ssh_unavailable"),
 					),
 				);
 			yield* recordWorkspaceActivity(workspace);

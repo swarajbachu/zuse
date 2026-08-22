@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import {
 	Context,
 	Data,
@@ -52,9 +54,22 @@ const CLOUDFLARED_CANDIDATES = [
 	"/opt/homebrew/bin/cloudflared",
 	"/usr/local/bin/cloudflared",
 ] as const;
+const execFileAsync = promisify(execFile);
+const CONNECTOR_TERMINATE_GRACE_MS = 2_000;
 
 export const managedTunnelTokenPath = (userData: string): string =>
 	join(userData, "relay", "cloudflared-token");
+
+export const managedTunnelOwnershipPath = (userData: string): string =>
+	join(userData, "relay", "cloudflared-owner.json");
+
+export interface ManagedTunnelOwnership {
+	readonly pid: number;
+	readonly binary: string;
+	readonly tokenPath: string;
+	readonly launchId: string;
+	readonly startedAt: number;
+}
 
 export const managedTunnelRunArgs = (
 	tokenPath: string,
@@ -86,6 +101,145 @@ export const writeManagedTunnelToken = async (
 	}
 };
 
+const atomicWritePrivateJson = async (
+	path: string,
+	value: unknown,
+): Promise<void> => {
+	const directory = dirname(path);
+	await fs.promises.mkdir(directory, { recursive: true, mode: 0o700 });
+	await fs.promises.chmod(directory, 0o700);
+	const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+	try {
+		await fs.promises.writeFile(temporaryPath, JSON.stringify(value), {
+			flag: "wx",
+			mode: 0o600,
+		});
+		await fs.promises.rename(temporaryPath, path);
+		await fs.promises.chmod(path, 0o600);
+	} finally {
+		await fs.promises.rm(temporaryPath, { force: true });
+	}
+};
+
+export const commandMatchesManagedTunnel = (
+	command: string,
+	tokenPath: string,
+): boolean => {
+	const marker = "--token-file";
+	const markerIndex = command.lastIndexOf(marker);
+	if (markerIndex < 0) return false;
+	const commandPrefix = command.slice(0, markerIndex).trim();
+	if (!/(?:^|\/)cloudflared\s/u.test(`${commandPrefix} `)) return false;
+	const argument = command.slice(markerIndex + marker.length).trim();
+	return (
+		argument === tokenPath ||
+		argument === `'${tokenPath}'` ||
+		argument === `"${tokenPath}"`
+	);
+};
+
+export const managedTunnelProcessIds = async (
+	tokenPath: string,
+): Promise<ReadonlyArray<number>> => {
+	const { stdout } = await execFileAsync(
+		"ps",
+		["-ww", "-axo", "pid=,command="],
+		{
+			maxBuffer: 10 * 1024 * 1024,
+		},
+	);
+	return stdout
+		.split("\n")
+		.map((line) => /^(\s*\d+)\s+(.+)$/u.exec(line))
+		.filter((match): match is RegExpExecArray => match !== null)
+		.filter((match) => commandMatchesManagedTunnel(match[2] ?? "", tokenPath))
+		.map((match) => Number.parseInt(match[1] ?? "", 10))
+		.filter((pid) => Number.isSafeInteger(pid) && pid > 0);
+};
+
+const processRunning = (pid: number): boolean => {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (cause) {
+		return (cause as NodeJS.ErrnoException).code === "EPERM";
+	}
+};
+
+const waitForProcessExit = async (
+	pid: number,
+	timeoutMs: number,
+	isRunning = processRunning,
+) => {
+	const deadline = Date.now() + timeoutMs;
+	while (isRunning(pid) && Date.now() < deadline) {
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+	return !isRunning(pid);
+};
+
+/** Terminate only connectors whose final token-file argument exactly matches. */
+export const terminateManagedTunnelProcesses = async (
+	tokenPath: string,
+	options: {
+		readonly processIds?: (tokenPath: string) => Promise<ReadonlyArray<number>>;
+		readonly kill?: (pid: number, signal: NodeJS.Signals) => void;
+		readonly isRunning?: (pid: number) => boolean;
+		readonly graceMs?: number;
+	} = {},
+): Promise<ReadonlyArray<number>> => {
+	const pids = await (options.processIds ?? managedTunnelProcessIds)(tokenPath);
+	const kill = options.kill ?? process.kill;
+	const isRunning = options.isRunning ?? processRunning;
+	for (const pid of pids) {
+		try {
+			kill(pid, "SIGTERM");
+		} catch (cause) {
+			if ((cause as NodeJS.ErrnoException).code !== "ESRCH") throw cause;
+		}
+	}
+	await Promise.all(
+		pids.map(async (pid) => {
+			if (
+				await waitForProcessExit(
+					pid,
+					options.graceMs ?? CONNECTOR_TERMINATE_GRACE_MS,
+					isRunning,
+				)
+			)
+				return;
+			try {
+				kill(pid, "SIGKILL");
+			} catch (cause) {
+				if ((cause as NodeJS.ErrnoException).code !== "ESRCH") throw cause;
+			}
+		}),
+	);
+	return pids;
+};
+
+export const writeManagedTunnelOwnership = async (
+	path: string,
+	ownership: ManagedTunnelOwnership,
+): Promise<void> => atomicWritePrivateJson(path, ownership);
+
+const clearManagedTunnelOwnership = async (
+	path: string,
+	launchId?: string,
+): Promise<void> => {
+	if (launchId !== undefined) {
+		try {
+			const current = JSON.parse(await fs.promises.readFile(path, "utf8")) as {
+				launchId?: unknown;
+			};
+			if (current.launchId !== launchId) return;
+		} catch {
+			// A missing or invalid ownership file is already unowned.
+		}
+	}
+	await fs.promises.rm(path, { force: true });
+};
+
 export const ManagedTunnelRuntimeLive: Layer.Layer<
 	ManagedTunnelRuntime,
 	never,
@@ -97,6 +251,7 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
 		const paths = yield* AppPaths;
 		const telemetry = yield* TelemetryStore;
 		const tokenPath = managedTunnelTokenPath(paths.userData);
+		const ownershipPath = managedTunnelOwnershipPath(paths.userData);
 		const fiberRef = yield* Ref.make<Fiber.Fiber<void> | null>(null);
 		const binaryRef = yield* Ref.make<string | null>(null);
 		const lifecycleLock = yield* Semaphore.make(1);
@@ -176,7 +331,31 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
 						{ stdout: "inherit", stderr: "inherit" },
 					);
 					const proc = yield* executor.spawn(command);
-					yield* log("cloudflared.process.started", { binary });
+					const launchId = randomUUID();
+					yield* Effect.tryPromise({
+						try: () =>
+							writeManagedTunnelOwnership(ownershipPath, {
+								pid: proc.pid,
+								binary,
+								tokenPath,
+								launchId,
+								startedAt: Date.now(),
+							}),
+						catch: () =>
+							new ManagedTunnelError({
+								reason: "cloudflared_ownership_write_failed",
+							}),
+					});
+					yield* Effect.addFinalizer(() =>
+						Effect.promise(() =>
+							clearManagedTunnelOwnership(ownershipPath, launchId),
+						).pipe(Effect.ignore),
+					);
+					yield* log("cloudflared.process.started", {
+						binary,
+						pid: proc.pid,
+						launchId,
+					});
 					const exitCode = yield* proc.exitCode;
 					yield* log("cloudflared.process.exited", { binary, exitCode });
 				}),
@@ -186,6 +365,20 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
 			const existing = yield* Ref.get(fiberRef);
 			if (existing !== null) yield* Fiber.interrupt(existing);
 			yield* Ref.set(fiberRef, null);
+			yield* Effect.tryPromise({
+				try: () => terminateManagedTunnelProcesses(tokenPath),
+				catch: () =>
+					new ManagedTunnelError({
+						reason: "cloudflared_process_cleanup_failed",
+					}),
+			});
+			yield* Effect.tryPromise({
+				try: () => clearManagedTunnelOwnership(ownershipPath),
+				catch: () =>
+					new ManagedTunnelError({
+						reason: "cloudflared_ownership_cleanup_failed",
+					}),
+			});
 			yield* Effect.tryPromise({
 				try: () => fs.promises.rm(tokenPath, { force: true }),
 				catch: () =>
@@ -224,6 +417,24 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
 					yield* log("cloudflared.start.ok");
 				}),
 			);
+
+		// Recover connectors left behind when the previous app process could not
+		// run its finalizers. Exact token-path matching leaves all other tunnels alone.
+		const recovered = yield* Effect.tryPromise(async () => {
+			const terminated = await terminateManagedTunnelProcesses(tokenPath);
+			await clearManagedTunnelOwnership(ownershipPath);
+			return terminated;
+		}).pipe(
+			Effect.catch((cause) =>
+				log("cloudflared.startup.recovery_failed", {
+					reason: cause instanceof Error ? cause.message : String(cause),
+				}).pipe(Effect.as([] as ReadonlyArray<number>)),
+			),
+		);
+		if (recovered.length > 0)
+			yield* log("cloudflared.startup.recovered", {
+				processCount: recovered.length,
+			});
 
 		// Ensure the connector is torn down when the runtime scope closes.
 		yield* Effect.addFinalizer(() =>

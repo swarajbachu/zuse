@@ -1,6 +1,7 @@
 import { CommandId, EnvironmentId, type MachineSshKey } from "@zuse/contracts";
 
 import { type CloudSshPrepared, getAppBridge } from "./bridge.ts";
+import { cloudSummaryForEnvironment } from "./cloud-workspace-catalog.ts";
 import { runControlPlane } from "./control-plane-client.ts";
 import {
 	dispatchEnvironmentShellCommand,
@@ -27,6 +28,36 @@ const requestSshAccess = (workspaceId: string) =>
 	);
 
 const SSH_GATEWAY_READY_TIMEOUT_MS = 30_000;
+const preparing = new Map<string, Promise<CloudSshPrepared>>();
+
+export const cloudSshMissingSandboxFailure = (cause: unknown): boolean => {
+	if (
+		typeof cause === "object" &&
+		cause !== null &&
+		"code" in cause &&
+		cause.code === "not-found"
+	)
+		return true;
+	const detail = cause instanceof Error ? cause.message : String(cause);
+	return /(?:sandbox|workspace) (?:was )?not found|missing sandbox/iu.test(
+		detail,
+	);
+};
+
+/**
+ * Runtimes predating the MachineSshKey constructor fix authorize and persist
+ * the key, then fail while encoding the otherwise-valid response. Accept only
+ * that exact rolling-upgrade failure; all transport and authorization errors
+ * must still fail preparation.
+ */
+export const legacyMachineSshKeyEncodingFailure = (cause: unknown): boolean => {
+	const detail = cause instanceof Error ? cause.message : String(cause);
+	return (
+		detail.includes("Expected MachineSshKey") &&
+		detail.includes('"fingerprint"') &&
+		detail.includes('"publicKey"')
+	);
+};
 
 const waitForWorkspaceGateway = (
 	environmentId: EnvironmentId,
@@ -78,13 +109,22 @@ const waitForWorkspaceGateway = (
 	});
 };
 
-export const prepareCloudWorkspaceSsh = async (
+const prepareCloudWorkspaceSshOnce = async (
 	workspaceId: string,
 ): Promise<CloudSshPrepared> => {
 	const app = getAppBridge();
 	if (app?.cloudSshPrepare === undefined || app.openSshTarget === undefined)
 		throw new Error("SSH access requires the Zuse desktop app.");
 	const environmentId = EnvironmentId.make(workspaceId);
+	if (getRendererClientBus().client(environmentId) === null) {
+		const summary = cloudSummaryForEnvironment(workspaceId);
+		if (summary !== null) {
+			const { ensureCloudWorkspaceAttached } = await import(
+				"./cloud-workspaces.ts"
+			);
+			await ensureCloudWorkspaceAttached(summary, "wake");
+		}
+	}
 	const retained = retainEnvironmentShell({ environmentId }, "wake");
 	try {
 		// A relay workspace can report ready before its renderer gateway lease has
@@ -95,14 +135,31 @@ export const prepareCloudWorkspaceSsh = async (
 		try {
 			access = await requestSshAccess(workspaceId);
 		} catch (cause) {
-			// The relay rejects unknown routes while SSH support is still rolling
-			// out; surface that as a capability gap instead of a raw RPC error.
-			const detail = cause instanceof Error ? cause.message : String(cause);
-			throw new Error(
-				`SSH access is not available for this workspace yet — the cloud service and workspace image need the SSH update.${
-					detail.length > 0 && detail !== "{}" ? ` (${detail})` : ""
-				}`,
-			);
+			if (cloudSshMissingSandboxFailure(cause)) {
+				const summary = cloudSummaryForEnvironment(workspaceId);
+				if (summary !== null) {
+					const { requestCloudWorkspaceRuntimeRecovery } = await import(
+						"./rpc-client.ts"
+					);
+					requestCloudWorkspaceRuntimeRecovery(workspaceId);
+					const { ensureCloudWorkspaceAttached } = await import(
+						"./cloud-workspaces.ts"
+					);
+					await ensureCloudWorkspaceAttached(summary, "wake");
+					access = await requestSshAccess(workspaceId);
+				} else {
+					throw cause;
+				}
+			} else {
+				// The relay rejects unknown routes while SSH support is still rolling
+				// out; surface that as a capability gap instead of a raw RPC error.
+				const detail = cause instanceof Error ? cause.message : String(cause);
+				throw new Error(
+					`SSH access is not available for this workspace yet — the cloud service and workspace image need the SSH update.${
+						detail.length > 0 && detail !== "{}" ? ` (${detail})` : ""
+					}`,
+				);
+			}
 		}
 		const prepared = await app.cloudSshPrepare({
 			workspaceId: access.workspaceId,
@@ -115,19 +172,38 @@ export const prepareCloudWorkspaceSsh = async (
 		if (prepared === null)
 			throw new Error("Could not prepare SSH access on this device.");
 		// Idempotent: the sandbox host service dedupes keys by fingerprint.
-		await dispatchEnvironmentShellCommand<
-			{ publicKey: string; label?: string },
-			MachineSshKey
-		>({
-			environmentId,
-			kind: "machine.sshKeys.add",
-			commandId: CommandId.make(`cloud-ssh-key:${crypto.randomUUID()}`),
-			payload: { publicKey: prepared.publicKey, label: "zuse-desktop" },
-		});
+		try {
+			await dispatchEnvironmentShellCommand<
+				{ publicKey: string; label?: string },
+				MachineSshKey
+			>({
+				environmentId,
+				kind: "machine.sshKeys.add",
+				commandId: CommandId.make(`cloud-ssh-key:${crypto.randomUUID()}`),
+				payload: { publicKey: prepared.publicKey, label: "zuse-desktop" },
+				retry: "safe",
+			});
+		} catch (cause) {
+			if (!legacyMachineSshKeyEncodingFailure(cause)) throw cause;
+		}
 		return prepared;
 	} finally {
 		retained.lease.release();
 	}
+};
+
+/** Share one ticket/key authorization flow across sync, editors, and previews. */
+export const prepareCloudWorkspaceSsh = (
+	workspaceId: string,
+): Promise<CloudSshPrepared> => {
+	const existing = preparing.get(workspaceId);
+	if (existing !== undefined) return existing;
+	let prepared: Promise<CloudSshPrepared>;
+	prepared = prepareCloudWorkspaceSshOnce(workspaceId).finally(() => {
+		if (preparing.get(workspaceId) === prepared) preparing.delete(workspaceId);
+	});
+	preparing.set(workspaceId, prepared);
+	return prepared;
 };
 
 export type CloudSshTarget = "cursor" | "zed" | "terminal";

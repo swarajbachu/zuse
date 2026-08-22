@@ -148,7 +148,7 @@ export interface CloudSyncStatus {
 	readonly localPath: string | null;
 	readonly lastSyncedAt: number | null;
 	readonly error: string | null;
-	readonly ticketStale: boolean;
+	readonly accessRefreshRequired: boolean;
 }
 
 export interface UpdatesBridge {

@@ -11,12 +11,12 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type {
-	MachinePrivateNetworkStatus,
+import type { MachinePrivateNetworkStatus, SshMode } from "@zuse/contracts";
+import {
+	MachineRuntimeStatus,
 	MachineSshKey,
-	SshMode,
+	RelayPaths,
 } from "@zuse/contracts";
-import { MachineRuntimeStatus, RelayPaths } from "@zuse/contracts";
 import { Context, Effect, Layer, Schema } from "effect";
 
 import { AppPaths } from "../app-paths.ts";
@@ -151,11 +151,11 @@ const fingerprint = (publicKey: string): string => {
 
 const sshKey = (publicKey: string): MachineSshKey => {
 	const fields = publicKey.split(/\s+/u);
-	return {
+	return new MachineSshKey({
 		fingerprint: fingerprint(publicKey),
 		publicKey,
 		label: fields.slice(2).join(" ") || undefined,
-	};
+	});
 };
 
 const run = (
@@ -381,9 +381,12 @@ export const MachineHostServiceLive: Layer.Layer<
 				}),
 			addSshKey: (publicKey, label) =>
 				effect(async () => {
-					const key = normalizedKey(
-						label === undefined ? publicKey : `${publicKey} ${label}`,
-					);
+					const normalized = normalizedKey(publicKey);
+					const [kind, encoded] = normalized.split(/\s+/u);
+					const key =
+						label === undefined
+							? normalized
+							: normalizedKey(`${kind} ${encoded} ${label}`);
 					const record = sshKey(key);
 					const keys = await readKeys();
 					if (!keys.some((item) => item.fingerprint === record.fingerprint)) {

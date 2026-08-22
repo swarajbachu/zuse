@@ -17,10 +17,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AppPaths } from "../../src/app-paths.ts";
 import { TelemetryStoreLive } from "../../src/observability/telemetry-store.ts";
 import {
+	commandMatchesManagedTunnel,
 	ManagedTunnelRuntime,
 	ManagedTunnelRuntimeLive,
+	managedTunnelOwnershipPath,
 	managedTunnelRunArgs,
 	managedTunnelTokenPath,
+	terminateManagedTunnelProcesses,
+	writeManagedTunnelOwnership,
 	writeManagedTunnelToken,
 } from "../../src/relay/managed-tunnel-runtime.ts";
 
@@ -122,6 +126,69 @@ describe("managed tunnel runtime", () => {
 		expect((await stat(dirname(tokenPath))).mode & 0o777).toBe(0o700);
 	});
 
+	it("matches only the exact Zuse token-file command", () => {
+		const tokenPath =
+			"/Users/me/Library/Application Support/Zuse/relay/cloudflared-token";
+		expect(
+			commandMatchesManagedTunnel(
+				`/opt/homebrew/bin/cloudflared tunnel run --token-file ${tokenPath}`,
+				tokenPath,
+			),
+		).toBe(true);
+		expect(
+			commandMatchesManagedTunnel(
+				`/opt/homebrew/bin/cloudflared tunnel run --token-file ${tokenPath}-other`,
+				tokenPath,
+			),
+		).toBe(false);
+		expect(
+			commandMatchesManagedTunnel(
+				`other-daemon --token-file ${tokenPath}`,
+				tokenPath,
+			),
+		).toBe(false);
+	});
+
+	it("uses graceful termination before a bounded forced kill", async () => {
+		const running = new Set([41, 42]);
+		const signals: Array<[number, NodeJS.Signals]> = [];
+		await terminateManagedTunnelProcesses("/exact/token", {
+			processIds: async () => [41, 42],
+			isRunning: (pid) => running.has(pid),
+			kill: (pid, signal) => {
+				signals.push([pid, signal]);
+				if (pid === 41 || signal === "SIGKILL") running.delete(pid);
+			},
+			graceMs: 0,
+		});
+		expect(signals).toEqual([
+			[41, "SIGTERM"],
+			[42, "SIGTERM"],
+			[42, "SIGKILL"],
+		]);
+	});
+
+	it("clears a stale ownership record when the runtime starts", async () => {
+		const userData = await mkdtemp(join(tmpdir(), "zuse-tunnel-runtime-"));
+		temporaryDirectories.push(userData);
+		const ownershipPath = managedTunnelOwnershipPath(userData);
+		await writeManagedTunnelOwnership(ownershipPath, {
+			pid: 999_999,
+			binary: "/usr/local/bin/cloudflared",
+			tokenPath: managedTunnelTokenPath(userData),
+			launchId: "stale-launch",
+			startedAt: 1,
+		});
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					yield* ManagedTunnelRuntime;
+				}).pipe(Effect.provide(makeRuntimeLayer(userData, []))),
+			),
+		);
+		await expect(access(ownershipPath)).rejects.toThrow();
+	});
+
 	it("serializes concurrent starts and removes the token on stop", async () => {
 		const userData = await mkdtemp(join(tmpdir(), "zuse-tunnel-runtime-"));
 		temporaryDirectories.push(userData);
@@ -140,6 +207,19 @@ describe("managed tunnel runtime", () => {
 						.filter((record) => record.args.includes("run"))
 						.map((record) => record.args);
 					expect(connectorArgs).toHaveLength(2);
+					const ownership = JSON.parse(
+						yield* Effect.promise(() =>
+							readFile(managedTunnelOwnershipPath(userData), "utf8"),
+						),
+					) as { pid: number; tokenPath: string; launchId: string };
+					expect(ownership.pid).toBeGreaterThan(0);
+					expect(ownership.tokenPath).toBe(managedTunnelTokenPath(userData));
+					expect(ownership.launchId).not.toBe("");
+					expect(
+						(yield* Effect.promise(() =>
+							stat(managedTunnelOwnershipPath(userData)),
+						)).mode & 0o777,
+					).toBe(0o600);
 					expect(JSON.stringify(connectorArgs)).not.toContain("first-secret");
 					expect(JSON.stringify(connectorArgs)).not.toContain("second-secret");
 					yield* runtime.stop();
@@ -149,6 +229,9 @@ describe("managed tunnel runtime", () => {
 		);
 
 		await expect(access(managedTunnelTokenPath(userData))).rejects.toThrow();
+		await expect(
+			access(managedTunnelOwnershipPath(userData)),
+		).rejects.toThrow();
 		const logDirectory = join(userData, "logs");
 		const diagnostics = (
 			await Promise.all(
