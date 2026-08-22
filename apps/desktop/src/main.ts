@@ -1304,7 +1304,7 @@ const localConnectivityHelperPath = (): string =>
 				"zuse-local-connectivity",
 			)
 		: Path.join(
-				process.env.ZUSE_DESKTOP_DIR?.trim() || process.cwd(),
+				app.getAppPath(),
 				"native",
 				"local-connectivity",
 				"bin",

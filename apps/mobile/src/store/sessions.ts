@@ -11,7 +11,7 @@ import type {
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { Atom } from "effect/unstable/reactivity";
-
+import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { createConnectionRefreshCoordinator } from "~/lib/connection-refresh-coordinator";
 import { connectionSessionKey } from "~/lib/session-key";
 import { readSessionsSnapshot, writeSessionsSnapshot } from "~/offline/cache";
@@ -125,9 +125,6 @@ const setConnectionLoading = (connKey: string, loading: boolean): void => {
 	}));
 };
 
-const messageOf = (cause: unknown): string =>
-	cause instanceof Error ? cause.message : String(cause);
-
 type SnapshotStreamSupervisorOptions = {
 	readonly connectionKey: string;
 	readonly connectionOptions: WsProtocolOptions;
@@ -157,7 +154,10 @@ const superviseSnapshotStream = <E, R>(
 					return;
 				}
 				reportConnectionFailure(options.connectionOptions, cause);
-				setConnectionError(options.connectionKey, messageOf(cause));
+				setConnectionError(
+					options.connectionKey,
+					connectionErrorMessage(cause),
+				);
 			}),
 		),
 		Effect.ensuring(
@@ -183,7 +183,7 @@ export const archiveChat = async (
 		reportConnectionFailure(options, cause);
 		batchAtomUpdates(() => {
 			setConnectionBundles(connKey, previous);
-			setConnectionError(connKey, messageOf(cause));
+			setConnectionError(connKey, connectionErrorMessage(cause));
 		});
 	}
 };
@@ -202,7 +202,7 @@ export const archiveSession = async (
 		reportConnectionFailure(options, cause);
 		batchAtomUpdates(() => {
 			setConnectionBundles(connKey, previous);
-			setConnectionError(connKey, messageOf(cause));
+			setConnectionError(connKey, connectionErrorMessage(cause));
 		});
 	}
 };
@@ -229,7 +229,7 @@ export const renameChat = async (
 		reportConnectionFailure(options, cause);
 		batchAtomUpdates(() => {
 			setConnectionBundles(connKey, previous);
-			setConnectionError(connKey, messageOf(cause));
+			setConnectionError(connKey, connectionErrorMessage(cause));
 		});
 		throw cause;
 	}
@@ -361,7 +361,7 @@ export const setPermissionMode = async (
 					}),
 				);
 			}
-			setConnectionError(connKey, messageOf(cause));
+			setConnectionError(connKey, connectionErrorMessage(cause));
 		});
 		return false;
 	}
@@ -402,7 +402,7 @@ export const setRuntimeMode = async (
 					}),
 				);
 			}
-			setConnectionError(connKey, messageOf(cause));
+			setConnectionError(connKey, connectionErrorMessage(cause));
 		});
 		return false;
 	}
@@ -468,7 +468,7 @@ export const createChat = async (
 		return result;
 	} catch (cause) {
 		reportConnectionFailure(options, cause);
-		setConnectionError(connKey, messageOf(cause));
+		setConnectionError(connKey, connectionErrorMessage(cause));
 		throw cause;
 	}
 };
@@ -718,7 +718,7 @@ const hydrateSessionsOnce = async (
 		reportConnectionFailure(options, cause);
 		batchAtomUpdates(() => {
 			setConnectionLoading(connKey, false);
-			setConnectionError(connKey, messageOf(cause));
+			setConnectionError(connKey, connectionErrorMessage(cause));
 		});
 		return false;
 	}

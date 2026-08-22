@@ -33,35 +33,49 @@ export default function DeveloperToolsScreen() {
 	const refresh = useCallback(async () => {
 		setLoading(true);
 		const ownerId = await getOrCreateDeviceId();
-		const terminalRows: TerminalRow[] = [];
-		let voice = "Not supported by connected environments";
-		for (const record of connections) {
-			const connection = optionsForConnection(record.key, connections);
-			if (connection === null) continue;
-			if (connectionSupports(record, "mobile-terminal-v1")) {
-				const owned = await Effect.runPromise(
-					listOwnedTerminals({ connection, ownerId }),
-				).catch(() => []);
-				terminalRows.push(
-					...owned.map((terminal) => ({
+		const results = await Promise.all(
+			connections.map(async (record) => {
+				const connection = optionsForConnection(record.key, connections);
+				if (connection === null)
+					return { terminals: [] as TerminalRow[], voice: null };
+				let terminals: TerminalRow[] = [];
+				if (connectionSupports(record, "mobile-terminal-v1")) {
+					const owned = await Effect.runPromise(
+						listOwnedTerminals({ connection, ownerId }),
+					).catch(() => []);
+					terminals = owned.map((terminal) => ({
 						connectionLabel: record.label,
 						terminal,
-					})),
-				);
-			}
-			if (connectionSupports(record, "voice-account-transcription-v1")) {
-				const capability = await Effect.runPromise(
-					getVoiceCapabilities({ connection }),
-				).catch(() => null);
-				if (capability !== null) {
-					voice = capability.available
-						? `Ready on ${record.label}`
-						: `No compatible signed-in account on ${record.label}`;
+					}));
 				}
-			}
-		}
-		setTerminals(terminalRows);
-		setVoiceStatus(voice);
+				if (connectionSupports(record, "voice-account-transcription-v1")) {
+					const capability = await Effect.runPromise(
+						getVoiceCapabilities({ connection }),
+					).catch(() => null);
+					if (capability !== null) {
+						return {
+							terminals,
+							voice: {
+								available: capability.available,
+								label: capability.available
+									? `Ready on ${record.label}`
+									: `No compatible signed-in account on ${record.label}`,
+							},
+						};
+					}
+				}
+				return { terminals, voice: null };
+			}),
+		);
+		setTerminals(results.flatMap((result) => result.terminals));
+		const voiceResults = results.flatMap((result) =>
+			result.voice === null ? [] : [result.voice],
+		);
+		setVoiceStatus(
+			voiceResults.find((result) => result.available)?.label ??
+				voiceResults[0]?.label ??
+				"Not supported by connected environments",
+		);
 		setLoading(false);
 	}, [connections]);
 

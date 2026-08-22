@@ -1,3 +1,4 @@
+import { isRemoteMarkdownImage } from "@zuse/client-runtime/media";
 import * as Clipboard from "expo-clipboard";
 import { Image } from "expo-image";
 import * as Linking from "expo-linking";
@@ -243,8 +244,21 @@ const rules: RenderRules = {
 	image: (node) => {
 		const source =
 			typeof node.attributes.src === "string" ? node.attributes.src : "image";
-		return (
+		return isRemoteMarkdownImage(source) ? (
 			<RemoteMarkdownImage key={node.key} nodeKey={node.key} source={source} />
+		) : (
+			<Image
+				key={node.key}
+				source={{ uri: source }}
+				contentFit="contain"
+				accessibilityLabel="Markdown image"
+				style={{
+					width: "100%",
+					height: 220,
+					borderRadius: 12,
+					backgroundColor: colors.card,
+				}}
+			/>
 		);
 	},
 };

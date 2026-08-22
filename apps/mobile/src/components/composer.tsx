@@ -356,7 +356,7 @@ export const Composer = ({
 			);
 			finishSuccessfulSubmission({ dismissKeyboard: false });
 		} catch (cause) {
-			setComposerError(messageOf(cause));
+			setComposerError(connectionErrorMessage(cause));
 			if (optimisticMessageId !== null) {
 				removeOptimisticMessage(stateKey, optimisticMessageId);
 			}
@@ -420,7 +420,7 @@ export const Composer = ({
 		try {
 			await Effect.runPromise(interruptSession({ connection, sessionId }));
 		} catch (cause) {
-			setComposerError(messageOf(cause));
+			setComposerError(connectionErrorMessage(cause));
 		} finally {
 			setBusy(false);
 		}
@@ -475,7 +475,7 @@ export const Composer = ({
 				}
 			}
 		} catch (cause) {
-			setComposerError(messageOf(cause));
+			setComposerError(connectionErrorMessage(cause));
 		}
 	};
 
@@ -487,6 +487,16 @@ export const Composer = ({
 		if (modelValue === null) return;
 		void changeModelMode({ ...modelValue, permissionMode });
 	};
+	const addAttachments = (
+		pick: () => Promise<LocalComposerAttachment[]>,
+	): void => {
+		void pick()
+			.then((items) => setAttachments((current) => [...current, ...items]))
+			.catch((cause) => setComposerError(connectionErrorMessage(cause)));
+	};
+	const captureImage = () => addAttachments(captureComposerImage);
+	const pickImages = () => addAttachments(pickComposerImages);
+	const pickFiles = () => addAttachments(pickComposerFiles);
 
 	return (
 		<View className="px-3 pt-2" style={{ paddingBottom: bottomInset ?? 12 }}>
@@ -615,32 +625,9 @@ export const Composer = ({
 												goalMode={goalMode}
 												goalSupported={goalSupported}
 												planMode={planMode}
-												onCaptureImage={() =>
-													void captureComposerImage()
-														.then((items) =>
-															setAttachments((current) => [
-																...current,
-																...items,
-															]),
-														)
-														.catch((cause) =>
-															setComposerError(
-																cause instanceof Error
-																	? cause.message
-																	: String(cause),
-															),
-														)
-												}
-												onPickImages={() =>
-													void pickComposerImages().then((items) =>
-														setAttachments((current) => [...current, ...items]),
-													)
-												}
-												onPickFiles={() =>
-													void pickComposerFiles().then((items) =>
-														setAttachments((current) => [...current, ...items]),
-													)
-												}
+												onCaptureImage={captureImage}
+												onPickImages={pickImages}
+												onPickFiles={pickFiles}
 												onToggleGoal={setGoalMode}
 												onTogglePlan={(next) =>
 													setPermissionMode(next ? "plan" : "default")
@@ -705,21 +692,9 @@ export const Composer = ({
 									goalMode={goalMode}
 									goalSupported={goalSupported}
 									planMode={planMode}
-									onCaptureImage={() =>
-										void captureComposerImage().then((items) =>
-											setAttachments((current) => [...current, ...items]),
-										)
-									}
-									onPickImages={() =>
-										void pickComposerImages().then((items) =>
-											setAttachments((current) => [...current, ...items]),
-										)
-									}
-									onPickFiles={() =>
-										void pickComposerFiles().then((items) =>
-											setAttachments((current) => [...current, ...items]),
-										)
-									}
+									onCaptureImage={captureImage}
+									onPickImages={pickImages}
+									onPickFiles={pickFiles}
 									onToggleGoal={setGoalMode}
 									onTogglePlan={(next) =>
 										setPermissionMode(next ? "plan" : "default")
@@ -777,8 +752,6 @@ export const Composer = ({
 		</View>
 	);
 };
-
-const messageOf = (cause: unknown): string => connectionErrorMessage(cause);
 
 const SendButton = ({
 	showInterrupt,

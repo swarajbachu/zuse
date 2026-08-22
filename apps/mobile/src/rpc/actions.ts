@@ -25,11 +25,9 @@ import {
 	type PermissionMode,
 	type PlanApprovalOutcome,
 	type ProviderId,
-	type PtyId,
 	type RuntimeMode,
 	type Session,
 	type SessionId,
-	type Skill,
 	type SkillRef,
 	type Worktree,
 	type WorktreeCreateSource,
@@ -39,17 +37,11 @@ import { Effect, Stream } from "effect";
 
 import { reviewScopeRequestValue } from "~/lib/review-scope";
 import {
-	dispatchMobileSessionCommand,
-	sessionCommandContext,
+	dispatchMobileSessionCommandResult,
+	nextMobileCommandId,
 } from "~/store/mobile-client-bus";
 import { getConnectionClient, reportConnectionFailure } from "./connection";
 import type { WsProtocolOptions } from "./ws-protocol";
-
-let commandCounter = 0;
-const nextCommandId = (kind: string): CommandId =>
-	CommandId.make(
-		`${kind}:${Date.now().toString(36)}:${(commandCounter++).toString(36)}`,
-	);
 
 const dispatchSessionCommand = <Result>(
 	options: { connection: WsProtocolOptions; sessionId: SessionId },
@@ -57,27 +49,15 @@ const dispatchSessionCommand = <Result>(
 	payload: unknown,
 	commandId: CommandId,
 ) => {
-	const connKey =
-		options.connection.key ??
-		options.connection.environmentId ??
-		options.connection.wsBaseUrl ??
-		`${options.connection.host}:${options.connection.port}`;
-	const { environmentId, resource } = sessionCommandContext(
-		connKey,
-		options.connection,
-		options.sessionId,
-	);
 	return Effect.tryPromise({
 		try: () =>
-			dispatchMobileSessionCommand<Result>({
+			dispatchMobileSessionCommandResult<Result>({
+				connection: options.connection,
+				sessionId: options.sessionId,
 				kind,
 				commandId,
-				environmentId,
-				resource,
 				payload,
-				retry: "safe",
-				createdAt: Date.now(),
-			}).then((receipt) => receipt.result),
+			}),
 		catch: (cause) => cause,
 	});
 };
@@ -139,15 +119,6 @@ export const searchWorkspaceFiles = (options: {
 			worktreeId: options.worktreeId,
 			limit: options.limit ?? 20,
 		});
-	});
-
-export const listSessionSkills = (options: {
-	connection: WsProtocolOptions;
-	sessionId: SessionId;
-}): Effect.Effect<readonly Skill[], unknown> =>
-	Effect.gen(function* () {
-		const client = yield* getConnectionClient(options.connection);
-		return yield* client["skill.list"]({ sessionId: options.sessionId });
 	});
 
 export const readAttachment = (options: {
@@ -287,67 +258,6 @@ export const openMobileTerminal = (options: {
 		});
 	});
 
-export const writeTerminal = (options: {
-	connection: WsProtocolOptions;
-	ptyId: PtyId;
-	ownerId: string;
-	data: string;
-}) =>
-	Effect.gen(function* () {
-		const client = yield* getConnectionClient(options.connection);
-		yield* client["pty.write"]({
-			ptyId: options.ptyId,
-			data: options.data,
-			ownerId: options.ownerId,
-		});
-	});
-
-export const resizeTerminal = (options: {
-	connection: WsProtocolOptions;
-	ptyId: PtyId;
-	ownerId: string;
-	cols: number;
-	rows: number;
-}) =>
-	Effect.gen(function* () {
-		const client = yield* getConnectionClient(options.connection);
-		yield* client["pty.resize"]({
-			ptyId: options.ptyId,
-			cols: Math.max(1, options.cols),
-			rows: Math.max(1, options.rows),
-			ownerId: options.ownerId,
-		});
-	});
-
-export const closeTerminal = (options: {
-	connection: WsProtocolOptions;
-	ptyId: PtyId;
-	ownerId: string;
-}) =>
-	Effect.gen(function* () {
-		const client = yield* getConnectionClient(options.connection);
-		yield* client["pty.close"]({
-			ptyId: options.ptyId,
-			ownerId: options.ownerId,
-		});
-	});
-
-export const streamTerminalOutput = (options: {
-	connection: WsProtocolOptions;
-	ptyId: PtyId;
-	ownerId: string;
-	afterSequence: number;
-}) =>
-	Stream.unwrap(
-		Effect.map(getConnectionClient(options.connection), (client) =>
-			client["pty.output"]({
-				ptyId: options.ptyId,
-				afterSequence: options.afterSequence,
-				ownerId: options.ownerId,
-			}),
-		),
-	);
-
 export const prewarmVoice = (options: { connection: WsProtocolOptions }) =>
 	Effect.gen(function* () {
 		const client = yield* getConnectionClient(options.connection);
@@ -405,7 +315,7 @@ export const sendMessage = (options: {
 		};
 		return dispatchSessionCommand(options, "messages.send", payload, commandId);
 	}
-	const commandId = nextCommandId("message-send");
+	const commandId = nextMobileCommandId("message-send");
 	const payload = {
 		sessionId: options.sessionId,
 		commandId,
@@ -425,7 +335,7 @@ export const queueMessage = (options: {
 	queueId?: string;
 }) => {
 	const commandId = CommandId.make(
-		options.queueId ?? nextCommandId("queue-add"),
+		options.queueId ?? nextMobileCommandId("queue-add"),
 	);
 	return dispatchSessionCommand(
 		options,
@@ -444,7 +354,7 @@ export const flushServerQueue = (options: {
 	connection: WsProtocolOptions;
 	sessionId: SessionId;
 }) => {
-	const commandId = nextCommandId("queue-flush");
+	const commandId = nextMobileCommandId("queue-flush");
 	return dispatchSessionCommand(
 		options,
 		"messages.queue.flush",
@@ -460,7 +370,7 @@ export const interruptSession = (options: {
 	connection: WsProtocolOptions;
 	sessionId: SessionId;
 }) => {
-	const commandId = nextCommandId("message-interrupt");
+	const commandId = nextMobileCommandId("message-interrupt");
 	return dispatchSessionCommand(
 		options,
 		"messages.interrupt",
@@ -477,7 +387,7 @@ export const renameSession = (options: {
 	sessionId: SessionId;
 	title: string;
 }): Effect.Effect<Session, unknown> => {
-	const commandId = nextCommandId("session-rename");
+	const commandId = nextMobileCommandId("session-rename");
 	return dispatchSessionCommand<Session>(
 		options,
 		"session.rename",
@@ -658,7 +568,7 @@ export const setSessionRuntimeMode = (options: {
 	sessionId: SessionId;
 	runtimeMode: RuntimeMode;
 }) => {
-	const commandId = nextCommandId("session-runtime-mode");
+	const commandId = nextMobileCommandId("session-runtime-mode");
 	const program = dispatchSessionCommand(
 		options,
 		"session.setRuntimeMode",
@@ -681,7 +591,7 @@ export const setSessionPermissionMode = (options: {
 	sessionId: SessionId;
 	mode: PermissionMode;
 }) => {
-	const commandId = nextCommandId("session-permission-mode");
+	const commandId = nextMobileCommandId("session-permission-mode");
 	const program = dispatchSessionCommand(
 		options,
 		"session.setPermissionMode",

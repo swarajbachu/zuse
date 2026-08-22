@@ -15,8 +15,14 @@ import { File, Folder, Sparkles, TerminalSquare } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
-import { listSessionSkills, searchWorkspaceFiles } from "~/rpc/actions";
+import { searchWorkspaceFiles } from "~/rpc/actions";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
+import {
+	connectionKeyForOptions,
+	mobileClientBus,
+	mobileSessionSkillsKey,
+	registerMobileEnvironment,
+} from "~/store/mobile-client-bus";
 import { colors } from "~/theme";
 
 export type ComposerPickerRow =
@@ -48,50 +54,54 @@ export function ComposerContextPicker({
 	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
+		if (kind !== "slash") return;
+		const connKey = connectionKeyForOptions(connection);
+		const environmentId = registerMobileEnvironment(connKey, connection);
+		const key = mobileSessionSkillsKey(environmentId, sessionId);
+		const bus = mobileClientBus();
+		const lease = bus.retain(key, { activation: "connect" });
+		const publish = () => {
+			const snapshot = bus.snapshot(key);
+			setSkills(snapshot.data?.skills ?? []);
+			setLoading(snapshot.data === null && snapshot.sync !== "failed");
+		};
+		const unsubscribe = bus.subscribe(key, publish);
+		publish();
+		return () => {
+			unsubscribe();
+			lease.release();
+		};
+	}, [connection, kind, sessionId]);
+
+	useEffect(() => {
+		if (kind !== "at") return;
 		let active = true;
 		setLoading(true);
-		const timer = setTimeout(
-			() => {
-				if (kind === "at") {
-					void Effect.runPromise(
-						searchWorkspaceFiles({
-							connection,
-							projectId,
-							query,
-							worktreeId,
-							limit: 12,
-						}),
-					)
-						.then((rows) => {
-							if (active) setFiles(rows);
-						})
-						.catch(() => {
-							if (active) setFiles([]);
-						})
-						.finally(() => {
-							if (active) setLoading(false);
-						});
-					return;
-				}
-
-				void Effect.runPromise(listSessionSkills({ connection, sessionId }))
-					.then((rows) => {
-						if (active) setSkills(rows);
-					})
-					.catch(() => {
-						if (active) setSkills([]);
-					})
-					.finally(() => {
-						if (active) setLoading(false);
-					});
-			},
-			kind === "at" ? 180 : 80,
-		);
+		const timer = setTimeout(() => {
+			void Effect.runPromise(
+				searchWorkspaceFiles({
+					connection,
+					projectId,
+					query,
+					worktreeId,
+					limit: 12,
+				}),
+			)
+				.then((rows) => {
+					if (active) setFiles(rows);
+				})
+				.catch(() => {
+					if (active) setFiles([]);
+				})
+				.finally(() => {
+					if (active) setLoading(false);
+				});
+		}, 180);
 		return () => {
 			active = false;
 			clearTimeout(timer);
 		};
-	}, [connection, kind, projectId, query, sessionId, worktreeId]);
+	}, [connection, kind, projectId, query, worktreeId]);
 
 	const rows = useMemo<readonly ComposerPickerRow[]>(() => {
 		if (kind === "at") {

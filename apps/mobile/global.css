@@ -51,8 +51,8 @@
 }
 
 @theme {
-  --font-sans: 'System';
-  --font-sans-medium: 'System';
-  --font-sans-bold: 'System';
-  --font-mono: 'GeistMono_400Regular';
+	--font-sans: "System";
+	--font-sans-medium: "System";
+	--font-sans-bold: "System";
+	--font-mono: "GeistMono_400Regular";
 }

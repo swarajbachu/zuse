@@ -1,10 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
+import type { TerminalRef } from "@zuse/client-runtime/resource-ref";
 import { createTerminalInputPump } from "@zuse/client-runtime/terminal-input-pump";
 import type { PtyId, PtySummary } from "@zuse/contracts";
-import { Effect, Fiber, Stream } from "effect";
+import { Effect } from "effect";
 import * as Linking from "expo-linking";
 import { Stack, useLocalSearchParams } from "expo-router";
-import * as ScreenOrientation from "expo-screen-orientation";
 import { Minus, Plus, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, View } from "react-native";
@@ -22,19 +22,15 @@ import {
 	type TerminalResizeEvent,
 	ZuseMobileTerminalView,
 } from "~/native/mobile-terminal";
-import {
-	closeTerminal,
-	listOwnedTerminals,
-	openMobileTerminal,
-	resizeTerminal,
-	streamTerminalOutput,
-	writeTerminal,
-} from "~/rpc/actions";
-import {
-	connectionSnapshotAtom,
-	watchConnection,
-} from "~/store/connection-runtime";
+import { listOwnedTerminals, openMobileTerminal } from "~/rpc/actions";
 import { connectionsAtom } from "~/store/connections";
+import {
+	dispatchMobileTerminalClose,
+	dispatchMobileTerminalInput,
+	dispatchMobileTerminalResize,
+	mobileClientBus,
+	retainMobileTerminalResource,
+} from "~/store/mobile-client-bus";
 import { colors } from "~/theme";
 
 type RuntimeStatus =
@@ -77,7 +73,6 @@ export default function MobileTerminalScreen() {
 		() => optionsForConnection(connKey, connections),
 		[connKey, connections],
 	);
-	const connectionSnapshot = useAtomValue(connectionSnapshotAtom(connKey));
 	const insets = useSafeAreaInsets();
 	const [ownerId, setOwnerId] = useState<string | null>(null);
 	const [terminals, setTerminals] = useState<readonly PtySummary[]>([]);
@@ -88,31 +83,23 @@ export default function MobileTerminalScreen() {
 	const [fontSize, setFontSize] = useState(12);
 	const [focusNonce, setFocusNonce] = useState(1);
 	const [controlNonce, setControlNonce] = useState(0);
-	const lastSequenceRef = useRef(0);
-	const lastActiveIdRef = useRef<PtyId | null>(null);
-	const sequenceByPtyRef = useRef(new Map<PtyId, number>());
-	const streamEpochRef = useRef(0);
+	const feedNonceRef = useRef(0);
+	const terminalRef = useRef<TerminalRef | null>(null);
+	const phaseRef = useRef<RuntimeStatus>("connecting");
 	const inputPumpRef = useRef<ReturnType<
 		typeof createTerminalInputPump
 	> | null>(null);
 	const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const sizeRef = useRef({ cols: 80, rows: 24 });
 
-	useEffect(() => {
-		void ScreenOrientation.lockAsync(
-			ScreenOrientation.OrientationLock.ALL,
-		).catch(() => undefined);
-		return () => {
-			void ScreenOrientation.lockAsync(
-				ScreenOrientation.OrientationLock.PORTRAIT_UP,
-			).catch(() => undefined);
-		};
-	}, []);
-
-	useEffect(() => {
-		if (options === null) return;
-		return watchConnection(connKey, options);
-	}, [connKey, options]);
+	useEffect(
+		() => () => {
+			if (resizeTimerRef.current !== null) {
+				clearTimeout(resizeTimerRef.current);
+			}
+		},
+		[],
+	);
 
 	useEffect(() => {
 		void getOrCreateDeviceId()
@@ -181,31 +168,52 @@ export default function MobileTerminalScreen() {
 		inputPumpRef.current?.dispose();
 		inputPumpRef.current = null;
 		if (options === null || activeId === null || ownerId === null) return;
-		if (lastActiveIdRef.current !== activeId) {
-			lastActiveIdRef.current = activeId;
-			lastSequenceRef.current = 0;
-			sequenceByPtyRef.current.set(activeId, 0);
-			setFeed(undefined);
-		} else {
-			lastSequenceRef.current = sequenceByPtyRef.current.get(activeId) ?? 0;
-		}
-
-		const epoch = ++streamEpochRef.current;
-		setStatus(connectionSnapshot?.generation ? "reconnecting" : "connecting");
+		setFeed(undefined);
+		feedNonceRef.current = 0;
+		phaseRef.current = "connecting";
+		setStatus("connecting");
 		setError(null);
+		const sink = {
+			write: async (bytes: string) => {
+				feedNonceRef.current += 1;
+				setFeed(`${feedNonceRef.current}\u0000${bytes}`);
+			},
+			exited: async (exitCode: number | null) => {
+				feedNonceRef.current += 1;
+				setFeed(
+					`${feedNonceRef.current}\u0000\r\n\u001b[38;5;244m[process exited${
+						exitCode === null ? "" : ` with code ${exitCode}`
+					}]\u001b[0m\r\n`,
+				);
+				void refreshTerminals();
+			},
+		};
+		const retained = retainMobileTerminalResource({
+			connKey,
+			connection: options,
+			terminalId: activeId,
+			ownerId,
+			sink,
+		});
+		terminalRef.current = retained.ref;
+		const publish = () => {
+			const view = mobileClientBus().snapshot(retained.key);
+			const phase =
+				view.data?.phase ??
+				(view.connection === "reconnecting" ? "reconnecting" : "connecting");
+			if (phaseRef.current !== "running" && phase === "running") {
+				setFocusNonce((value) => value + 1);
+			}
+			phaseRef.current = phase;
+			setStatus(phase);
+			setError(view.data?.failure?.message ?? null);
+		};
+		const unsubscribe = mobileClientBus().subscribe(retained.key, publish);
+		publish();
 		inputPumpRef.current = createTerminalInputPump({
 			timeoutMs: INPUT_ACK_TIMEOUT_MS,
-			write: (data) =>
-				Effect.runPromise(
-					writeTerminal({
-						connection: options,
-						ptyId: activeId,
-						ownerId,
-						data,
-					}),
-				),
+			write: (data) => dispatchMobileTerminalInput(retained.ref, ownerId, data),
 			onFailure: (reason) => {
-				if (epoch !== streamEpochRef.current) return;
 				setStatus("failed");
 				setError(
 					reason === "write-timeout"
@@ -214,75 +222,14 @@ export default function MobileTerminalScreen() {
 				);
 			},
 		});
-
-		const program = Stream.runForEach(
-			streamTerminalOutput({
-				connection: options,
-				ptyId: activeId,
-				ownerId,
-				afterSequence: lastSequenceRef.current,
-			}),
-			(event) =>
-				Effect.sync(() => {
-					if (epoch !== streamEpochRef.current) return;
-					if (event._tag === "gap") {
-						setStatus("failed");
-						setError("Terminal output history is no longer available.");
-						return;
-					}
-					if (event._tag === "cursor") {
-						if (event.sequence !== lastSequenceRef.current) {
-							setStatus("failed");
-							setError("Terminal replay cursor did not match.");
-							return;
-						}
-						setStatus("running");
-						setFocusNonce((value) => value + 1);
-						return;
-					}
-					if (event.sequence <= lastSequenceRef.current) return;
-					if (event.sequence !== lastSequenceRef.current + 1) {
-						setStatus("reconnecting");
-						return;
-					}
-					lastSequenceRef.current = event.sequence;
-					sequenceByPtyRef.current.set(activeId, event.sequence);
-					if (event._tag === "data") {
-						setFeed(`${event.sequence}\u0000${event.bytes}`);
-						setStatus("running");
-						return;
-					}
-					setFeed(
-						`${event.sequence}\u0000\r\n\u001b[38;5;244m[process exited${
-							event.exitCode === null ? "" : ` with code ${event.exitCode}`
-						}]\u001b[0m\r\n`,
-					);
-					setStatus("exited");
-					void refreshTerminals();
-				}),
-		).pipe(
-			Effect.catch((cause) =>
-				Effect.sync(() => {
-					if (epoch !== streamEpochRef.current) return;
-					setStatus("reconnecting");
-					setError(connectionErrorMessage(cause));
-				}),
-			),
-		);
-		const fiber = Effect.runFork(program);
 		return () => {
-			streamEpochRef.current += 1;
+			terminalRef.current = null;
 			inputPumpRef.current?.dispose();
 			inputPumpRef.current = null;
-			void Effect.runPromise(Fiber.interrupt(fiber));
+			unsubscribe();
+			retained.lease.release();
 		};
-	}, [
-		activeId,
-		connectionSnapshot?.generation,
-		options,
-		ownerId,
-		refreshTerminals,
-	]);
+	}, [activeId, connKey, options, ownerId, refreshTerminals]);
 
 	const onInput = (event: TerminalInputEvent) => {
 		inputPumpRef.current?.enqueue(event.nativeEvent.data);
@@ -295,14 +242,12 @@ export default function MobileTerminalScreen() {
 		};
 		if (resizeTimerRef.current !== null) clearTimeout(resizeTimerRef.current);
 		resizeTimerRef.current = setTimeout(() => {
-			if (options === null || activeId === null || ownerId === null) return;
-			void Effect.runPromise(
-				resizeTerminal({
-					connection: options,
-					ptyId: activeId,
-					ownerId,
-					...sizeRef.current,
-				}),
+			if (terminalRef.current === null || ownerId === null) return;
+			void dispatchMobileTerminalResize(
+				terminalRef.current,
+				ownerId,
+				sizeRef.current.cols,
+				sizeRef.current.rows,
 			).catch((cause) => setError(connectionErrorMessage(cause)));
 		}, RESIZE_DEBOUNCE_MS);
 	};
@@ -319,7 +264,8 @@ export default function MobileTerminalScreen() {
 	};
 
 	const closeActive = () => {
-		if (options === null || activeId === null || ownerId === null) return;
+		const ref = terminalRef.current;
+		if (ref === null || ownerId === null) return;
 		Alert.alert(
 			"Close terminal?",
 			"This ends the remote shell. Leaving this screen keeps it running.",
@@ -329,13 +275,7 @@ export default function MobileTerminalScreen() {
 					text: "Close terminal",
 					style: "destructive",
 					onPress: () => {
-						void Effect.runPromise(
-							closeTerminal({
-								connection: options,
-								ptyId: activeId,
-								ownerId,
-							}),
-						)
+						void dispatchMobileTerminalClose(ref, ownerId)
 							.then(async () => {
 								const rows = await refreshTerminals();
 								setActiveId(

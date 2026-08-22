@@ -43,9 +43,10 @@ function ConnectivityRuntimeBridge() {
 	const pathname = usePathname();
 	useMobileAnalytics(pathname);
 	useEffect(() => {
-		if (pathname.endsWith("/terminal")) return;
 		void ScreenOrientation.lockAsync(
-			ScreenOrientation.OrientationLock.PORTRAIT_UP,
+			pathname.endsWith("/terminal")
+				? ScreenOrientation.OrientationLock.ALL
+				: ScreenOrientation.OrientationLock.PORTRAIT_UP,
 		).catch(() => undefined);
 	}, [pathname]);
 	return null;

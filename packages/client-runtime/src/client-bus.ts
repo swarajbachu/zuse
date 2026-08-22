@@ -383,6 +383,22 @@ export class ClientBus<Client> {
 	}
 
 	/**
+	 * Drops an inactive resource cell so a future surface performs a fresh replay.
+	 * Active leases fence this operation; callers must release and unsubscribe first.
+	 */
+	forget(key: ResourceKey<unknown>): boolean {
+		if (this.disposed) return false;
+		const id = resourceKeyId(key);
+		const entry = this.entries.get(id);
+		if (entry === undefined || entry.activations.size > 0) return false;
+		this.stopDriver(entry);
+		entry.synchronizationEpoch += 1;
+		this.entries.delete(id);
+		void this.options.persistence?.removeResource(key).catch(() => undefined);
+		return true;
+	}
+
+	/**
 	 * Applies data returned by a bounded side request (for example an older
 	 * timeline page) without granting that request ownership of the stream
 	 * cursor. Both generation and cursor must still match the view from which

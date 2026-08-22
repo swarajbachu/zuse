@@ -125,6 +125,7 @@ export function ComposerVoiceButton({
 }) {
 	const [voiceState, setVoiceState] = useState<VoiceState>("idle");
 	const completingRef = useRef(false);
+	const recorderObservedActiveRef = useRef(false);
 	const finishRef = useRef<() => Promise<void>>(async () => undefined);
 	const recorder = useAudioRecorder(RECORDING_OPTIONS);
 	const recorderState = useAudioRecorderState(recorder, 80);
@@ -205,6 +206,18 @@ export function ComposerVoiceButton({
 	}, [recorderState.durationMillis, voiceState]);
 
 	useEffect(() => {
+		if (voiceState !== "recording") {
+			recorderObservedActiveRef.current = false;
+			return;
+		}
+		if (recorderState.isRecording) {
+			recorderObservedActiveRef.current = true;
+			return;
+		}
+		if (recorderObservedActiveRef.current) void finishRef.current();
+	}, [recorderState.isRecording, voiceState]);
+
+	useEffect(() => {
 		const subscription = AppState.addEventListener("change", (next) => {
 			if (next !== "active" && voiceState === "recording")
 				void finishRef.current();
@@ -266,7 +279,7 @@ export function ComposerVoiceButton({
 				accessibilityLabel="Dictate message"
 				disabled={!online || voiceState !== "idle"}
 				onPress={() => void start()}
-				className="h-10 w-10 items-center justify-center rounded-2xl active:bg-muted"
+				className="h-11 w-11 items-center justify-center rounded-2xl active:bg-muted"
 			>
 				<Mic size={19} color={online ? colors.fg : colors.tertiaryFg} />
 			</Pressable>

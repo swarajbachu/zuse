@@ -1239,4 +1239,29 @@ describe("ClientBus", () => {
 		);
 		await bus.dispose();
 	});
+
+	it("forgets only inactive resource cells before a fresh replay", async () => {
+		const persistence = new MemoryPersistence();
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			driverFor: () => ({
+				start: (context) => {
+					context.emit({
+						data: { text: "live" },
+						cursor: { epoch: "one", version: 1 },
+						sync: "live",
+					});
+				},
+				stop: () => undefined,
+			}),
+		});
+		const lease = bus.retain(timelineKey, { activation: "connect" });
+		await waitUntil(() => bus.snapshot(timelineKey).data?.text === "live");
+		expect(bus.forget(timelineKey)).toBe(false);
+		lease.release();
+		expect(bus.forget(timelineKey)).toBe(true);
+		expect(bus.snapshot(timelineKey).data).toBeNull();
+		await bus.dispose();
+	});
 });

@@ -98,7 +98,7 @@ export type ClientCommandOutboxSnapshot = {
 	receipts: readonly CommandReceipt[];
 };
 
-const ensureDir = (path: string) =>
+export const ensureDir = (path: string) =>
 	Effect.tryPromise({
 		try: async () => {
 			await FileSystem.makeDirectoryAsync(path, { intermediates: true });
@@ -106,7 +106,7 @@ const ensureDir = (path: string) =>
 		catch: (cause) => cause,
 	});
 
-const readJson = <A>(
+export const readJson = <A>(
 	path: string,
 	decode: (u: unknown) => A,
 ): Effect.Effect<A | null, CacheCorrupt> =>
@@ -124,7 +124,7 @@ const readJson = <A>(
 			}),
 	});
 
-const writeJson = (path: string, value: unknown) =>
+export const writeJson = (path: string, value: unknown) =>
 	Effect.tryPromise({
 		try: () => FileSystem.writeAsStringAsync(path, JSON.stringify(value)),
 		catch: (cause) => cause,

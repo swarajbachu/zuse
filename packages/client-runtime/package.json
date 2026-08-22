@@ -23,6 +23,7 @@
 		"./timeline": "./src/timeline.ts",
 		"./supervisor": "./src/supervisor.ts",
 		"./terminal-resource": "./src/terminal-resource.ts",
+		"./terminal-resource-driver": "./src/terminal-resource-driver.ts",
 		"./media": "./src/media.ts",
 		"./terminal-input-pump": "./src/terminal-input-pump.ts",
 		"./tool-image-result": "./src/tool-image-result.ts",

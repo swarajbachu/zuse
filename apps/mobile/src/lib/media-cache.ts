@@ -49,7 +49,7 @@ const extensionFor = (name: string, mimeType: string): string => {
 	return safeSegment(subtype ?? "bin");
 };
 
-const rootDirectory = (): Directory => new Directory(Paths.document, ROOT_NAME);
+const rootDirectory = (): Directory => new Directory(Paths.cache, ROOT_NAME);
 
 const connectionDirectory = (connectionKey: string): Directory =>
 	new Directory(rootDirectory(), safeSegment(connectionKey));

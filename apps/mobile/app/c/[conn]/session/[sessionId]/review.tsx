@@ -28,6 +28,7 @@ import {
 	normalizeConnParam,
 	optionsForConnection,
 } from "~/lib/connection-params";
+import { connectionSupports } from "~/lib/connection-records";
 import { buildLastTurnReview } from "~/lib/last-turn-review";
 import {
 	type MobileReviewScope,
@@ -77,6 +78,11 @@ export default function WorkspaceReviewScreen() {
 	const [mutation, setMutation] = useState<string | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const connections = useAtomValue(connectionsAtom);
+	const connectionRecord = connections.find((record) => record.key === connKey);
+	const supportsRemoteGitActions = connectionSupports(
+		connectionRecord,
+		"git-remote-actions-v1",
+	);
 	const bundles = useAtomValue(connectionBundlesAtom(connKey));
 	const detail = selectSessionChat(bundles, normalizedSessionId);
 	const folderId = detail?.project.id as FolderId | undefined;
@@ -358,42 +364,48 @@ export default function WorkspaceReviewScreen() {
 					}}
 				/>
 				<Stack.Toolbar.Menu icon="ellipsis">
-					<Stack.Toolbar.MenuAction
-						disabled={mutation !== null}
-						onPress={() =>
-							target === null
-								? undefined
-								: void runMutation("Stashing", () =>
-										Effect.runPromise(stashGitChanges(target)),
-									)
-						}
-					>
-						Stash changes
-					</Stack.Toolbar.MenuAction>
-					<Stack.Toolbar.MenuAction
-						disabled={mutation !== null}
-						onPress={() =>
-							target === null
-								? undefined
-								: void runMutation("Applying stash", () =>
-										Effect.runPromise(popGitStash(target)),
-									)
-						}
-					>
-						Stash pop
-					</Stack.Toolbar.MenuAction>
+					{supportsRemoteGitActions ? (
+						<>
+							<Stack.Toolbar.MenuAction
+								disabled={mutation !== null}
+								onPress={() =>
+									target === null
+										? undefined
+										: void runMutation("Stashing", () =>
+												Effect.runPromise(stashGitChanges(target)),
+											)
+								}
+							>
+								Stash changes
+							</Stack.Toolbar.MenuAction>
+							<Stack.Toolbar.MenuAction
+								disabled={mutation !== null}
+								onPress={() =>
+									target === null
+										? undefined
+										: void runMutation("Applying stash", () =>
+												Effect.runPromise(popGitStash(target)),
+											)
+								}
+							>
+								Stash pop
+							</Stack.Toolbar.MenuAction>
+						</>
+					) : null}
 					<Stack.Toolbar.MenuAction
 						disabled={selectedPaths.size !== 1 || mutation !== null}
 						onPress={promptRevertSelected}
 					>
 						Revert selected file
 					</Stack.Toolbar.MenuAction>
-					<Stack.Toolbar.MenuAction
-						disabled={mutation !== null}
-						onPress={promptResetRemote}
-					>
-						Reset to remote…
-					</Stack.Toolbar.MenuAction>
+					{supportsRemoteGitActions ? (
+						<Stack.Toolbar.MenuAction
+							disabled={mutation !== null}
+							onPress={promptResetRemote}
+						>
+							Reset to remote…
+						</Stack.Toolbar.MenuAction>
+					) : null}
 					<Stack.Toolbar.MenuAction
 						disabled={mutation !== null}
 						onPress={promptRevertAll}
@@ -461,17 +473,19 @@ export default function WorkspaceReviewScreen() {
 								onPress={mergePullRequest}
 							/>
 						) : null}
-						<GitAction
-							label="Pull"
-							disabled={mutation !== null}
-							onPress={() =>
-								target === null
-									? undefined
-									: void runMutation("Pulling", () =>
-											Effect.runPromise(pullGitChanges(target)),
-										)
-							}
-						/>
+						{supportsRemoteGitActions ? (
+							<GitAction
+								label="Pull"
+								disabled={mutation !== null}
+								onPress={() =>
+									target === null
+										? undefined
+										: void runMutation("Pulling", () =>
+												Effect.runPromise(pullGitChanges(target)),
+											)
+								}
+							/>
+						) : null}
 						<GitAction
 							label="Push"
 							disabled={mutation !== null}
