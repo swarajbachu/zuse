@@ -1,3 +1,5 @@
+import "./lib/crypto-compatibility.ts";
+
 import React from "react";
 import ReactDOM from "react-dom/client";
 

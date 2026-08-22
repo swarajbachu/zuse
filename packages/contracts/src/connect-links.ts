@@ -1,11 +1,10 @@
 /**
  * Single source of truth for Zuse connect-link wire formats.
  *
- * A connect link is `zuse:///connect/pair?pairingUrl=<ws url>#token=<code>`;
- * a browser pair URL is `<http base>/#pair=<code>`. These shapes are frozen —
- * the desktop app, mobile app, browser client, and `zuse serve` boot output
- * all build or parse them, so every producer and consumer must go through
- * this module instead of hand-assembling strings.
+ * The canonical connect link is a browser URL: `<http base>/#pair=<code>`.
+ * Native clients also accept the legacy
+ * `zuse:///connect/pair?pairingUrl=<ws url>#token=<code>` shape so existing
+ * links keep working. Every producer and consumer goes through this module.
  */
 
 export type ConnectLinkKind = "tailscale" | "relay" | "lan" | "remote";
@@ -101,35 +100,7 @@ const endpointKind = (endpoint: URL): ConnectLinkKind => {
 	return "remote";
 };
 
-/**
- * Parse and classify a connect link. Secure (`wss:`) endpoints are accepted
- * for any host; plaintext (`ws:`) endpoints only for private/local hosts —
- * a LAN pairing is later verified against the environment's signed identity,
- * which a public plaintext endpoint could not be.
- */
-export const parseConnectLink = (value: string): ConnectLinkParseResult => {
-	let outer: URL;
-	try {
-		outer = new URL(value.trim());
-	} catch {
-		return { ok: false, reason: "unrecognized" };
-	}
-	if (!PAIRING_SCHEMES.has(outer.protocol)) {
-		return { ok: false, reason: "wrong-scheme" };
-	}
-	const pairingUrl = outer.searchParams.get("pairingUrl");
-	const code = outer.hash.startsWith("#token=")
-		? decodeURIComponent(outer.hash.slice("#token=".length))
-		: "";
-	if (pairingUrl === null || code.length === 0) {
-		return { ok: false, reason: "incomplete" };
-	}
-	let endpoint: URL;
-	try {
-		endpoint = new URL(pairingUrl);
-	} catch {
-		return { ok: false, reason: "unreachable-endpoint" };
-	}
+const parsedLink = (endpoint: URL, code: string): ConnectLinkParseResult => {
 	if (endpoint.username.length > 0 || endpoint.password.length > 0) {
 		return { ok: false, reason: "unreachable-endpoint" };
 	}
@@ -148,6 +119,51 @@ export const parseConnectLink = (value: string): ConnectLinkParseResult => {
 			wsBaseUrl: wsBaseUrlForWsEndpoint(endpoint),
 		},
 	};
+};
+
+/**
+ * Parse and classify a connect link. Secure (`wss:`) endpoints are accepted
+ * for any host; plaintext (`ws:`) endpoints only for private/local hosts —
+ * a LAN pairing is later verified against the environment's signed identity,
+ * which a public plaintext endpoint could not be.
+ */
+export const parseConnectLink = (value: string): ConnectLinkParseResult => {
+	let outer: URL;
+	try {
+		outer = new URL(value.trim());
+	} catch {
+		return { ok: false, reason: "unrecognized" };
+	}
+	if (outer.protocol === "http:" || outer.protocol === "https:") {
+		if (outer.username.length > 0 || outer.password.length > 0) {
+			return { ok: false, reason: "unreachable-endpoint" };
+		}
+		const code = new URLSearchParams(outer.hash.replace(/^#/u, "")).get("pair");
+		if (code === null || code.length === 0) {
+			return { ok: false, reason: "incomplete" };
+		}
+		if (outer.protocol === "http:" && !isPrivateOrLocalHost(outer.hostname)) {
+			return { ok: false, reason: "insecure-endpoint" };
+		}
+		return parsedLink(new URL(wsBaseUrlForHttpBase(outer.origin)), code);
+	}
+	if (!PAIRING_SCHEMES.has(outer.protocol)) {
+		return { ok: false, reason: "wrong-scheme" };
+	}
+	const pairingUrl = outer.searchParams.get("pairingUrl");
+	const code = outer.hash.startsWith("#token=")
+		? decodeURIComponent(outer.hash.slice("#token=".length))
+		: "";
+	if (pairingUrl === null || code.length === 0) {
+		return { ok: false, reason: "incomplete" };
+	}
+	let endpoint: URL;
+	try {
+		endpoint = new URL(pairingUrl);
+	} catch {
+		return { ok: false, reason: "unreachable-endpoint" };
+	}
+	return parsedLink(endpoint, code);
 };
 
 // ---------------------------------------------------------------------------

@@ -5,11 +5,9 @@ import { NodeHttpServer } from "@effect/platform-node";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import {
 	buildBrowserPairUrl,
-	buildConnectDeepLink,
 	formatPairingCodeForDisplay,
 	MemoizeRpcs,
 	WIRE_PROTOCOL_VERSION,
-	wsBaseUrlForHttpBase,
 } from "@zuse/contracts";
 import {
 	makeMeasuredJsonRpcSerialization,
@@ -726,14 +724,7 @@ export const wsServerProtocolLayer = (
 					httpBaseUrl !== null
 						? buildBrowserPairUrl({ httpBaseUrl, code: pairing.code })
 						: pairing.browserUrl;
-				const pairingUrl =
-					httpBaseUrl !== null
-						? wsBaseUrlForHttpBase(httpBaseUrl)
-						: pairing.pairingUrl;
-				const qrText = buildConnectDeepLink({
-					wsBaseUrl: pairingUrl,
-					code: pairing.code,
-				});
+				const qrText = browserUrl;
 				const redeemBaseUrl =
 					httpBaseUrl ?? pairing.pairingUrl.replace(/^ws:/u, "http:");
 				const baseUrl =
@@ -748,7 +739,6 @@ export const wsServerProtocolLayer = (
 					console.log(
 						`Remote access: ${relay?.tunnelHostname === undefined ? "inactive" : "active"}`,
 					);
-					console.log(`QR: ${qrText}`);
 					console.log(
 						`Redeem with: POST ${redeemBaseUrl}/pair {"code":"${pairing.code}"}`,
 					);

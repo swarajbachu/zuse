@@ -15,11 +15,26 @@ describe("mobile pairing operation", () => {
 			host: "192.168.1.2",
 			port: 8787,
 			token: "zp_code",
-			wsBaseUrl: "ws://192.168.1.2:8787",
+			wsBaseUrl: "ws://192.168.1.2:8787/rpc",
 			httpBaseUrl: "http://192.168.1.2:8787",
 			source: "paired",
 		});
 		expect(result).toMatchObject({ key: "env-1" });
+	});
+
+	test("pairs from the same browser URL used by the web client", async () => {
+		const add = vi.fn(async (input) => ({ key: "env-1", ...input }));
+
+		await pairWithDesktop("http://192.168.1.2:8787/#pair=ABCD1234", add);
+
+		expect(add).toHaveBeenCalledWith({
+			host: "192.168.1.2",
+			port: 8787,
+			token: "ABCD1234",
+			wsBaseUrl: "ws://192.168.1.2:8787/rpc",
+			httpBaseUrl: "http://192.168.1.2:8787",
+			source: "paired",
+		});
 	});
 
 	test("rejects a pairing link without a token", async () => {

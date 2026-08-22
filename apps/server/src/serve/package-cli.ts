@@ -9,13 +9,12 @@ import { fileURLToPath } from "node:url";
 
 import { environmentRoute } from "@zuse/client-runtime/environment-scope";
 import {
-	buildConnectDeepLink,
+	buildBrowserPairUrl,
 	DEFAULT_SERVE_PORT,
 	formatPairingCodeForDisplay,
 	HOSTED_APP_URL,
 	type ServeStatusV1,
 	WORKOS_PUBLIC_CLIENT_ID,
-	wsBaseUrlForHttpBase,
 } from "@zuse/contracts";
 import { probeZuseLoopback, setTailnetShareEnabled } from "@zuse/tailnet";
 import { Effect } from "effect";
@@ -740,15 +739,16 @@ export const runServePackageCli = async (
 			relay?.tunnelHostname !== undefined
 				? `https://${relay.tunnelHostname}`
 				: (tailnetOrigin ?? pairing.browserUrl.replace(/\/#pair=.*$/u, ""));
-		const wsBaseUrl = wsBaseUrlForHttpBase(browserBaseUrl);
-		console.log(`Browser    ${browserBaseUrl}`);
+		const browserUrl =
+			pairing.code === undefined
+				? pairing.browserUrl
+				: buildBrowserPairUrl({
+						httpBaseUrl: browserBaseUrl,
+						code: pairing.code,
+					});
+		console.log(`Browser    ${browserUrl}`);
 		if (pairing.code !== undefined) {
 			console.log(`Code       ${formatPairingCodeForDisplay(pairing.code)}`);
-			console.log(
-				`Pair       ${buildConnectDeepLink({ wsBaseUrl, code: pairing.code })}`,
-			);
-		} else {
-			console.log(`Pair       ${pairing.qrText}`);
 		}
 	}
 	console.log(`Open       ${serveAppUrl(relay)}`);

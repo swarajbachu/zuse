@@ -5,14 +5,13 @@ import type {
 	TailnetShareState,
 } from "@zuse/contracts";
 import { formatPairingCodeForDisplay } from "@zuse/contracts";
-import { Copy, Link2, QrCode, RefreshCw } from "lucide-react";
+import { Copy, QrCode, RefreshCw } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dispatchLocalDeviceCommand } from "../../../lib/local-device-client-bus.ts";
 import { accessDeviceKind } from "../../../lib/paired-phones.ts";
 import { copyText } from "../../../lib/platform-capabilities.ts";
 import {
-	browserBaseUrl,
 	type PairingMethod,
 	pairingForMethod,
 	readyMethods,
@@ -193,36 +192,22 @@ export function ConnectLinkCard({
 			? null
 			: pairingForMethod(pairing, method, status, tailnet);
 	const qrText = activePairing?.qrText ?? "";
-	const browserUrl =
-		activePairing === null ? "" : browserBaseUrl(activePairing);
+	const browserUrl = activePairing?.browserUrl ?? "";
 	const pairingCode =
 		activePairing === null
 			? ""
 			: formatPairingCodeForDisplay(activePairing.code);
-
-	const copyAppLink = useCallback(async () => {
-		if (qrText === "") return;
-		try {
-			await copyText(qrText);
-			toastManager.add({
-				title: "Connect link copied",
-				description: "Paste it into Zuse on the other device within 5 minutes.",
-			});
-		} catch (cause) {
-			showError("Could not copy the connect link", cause);
-		}
-	}, [qrText]);
 
 	const copyBrowserUrl = useCallback(async () => {
 		if (browserUrl === "") return;
 		try {
 			await copyText(browserUrl);
 			toastManager.add({
-				title: "Browser address copied",
-				description: "Open it in a browser, then enter the pairing code.",
+				title: "Connect link copied",
+				description: "Open it in a browser or paste it into Add Computer.",
 			});
 		} catch (cause) {
-			showError("Could not copy the browser address", cause);
+			showError("Could not copy the connect link", cause);
 		}
 	}, [browserUrl]);
 
@@ -298,8 +283,8 @@ export function ConnectLinkCard({
 					<DialogHeader>
 						<DialogTitle>Connect another device</DialogTitle>
 						<DialogDescription>
-							Open the stable address in a browser and enter the temporary code.
-							Choose which connection it should use.
+							Open this link in a browser, paste it into Add Computer, or scan
+							the QR code. Choose which connection it should use.
 						</DialogDescription>
 					</DialogHeader>
 					<DialogPanel className="space-y-3">
@@ -346,7 +331,7 @@ export function ConnectLinkCard({
 									<div className="flex items-center gap-1.5">
 										<Input
 											readOnly
-											aria-label="Browser address"
+											aria-label="Connect link"
 											className="min-w-0 flex-1 font-mono text-[11px]"
 											value={browserUrl}
 											placeholder={starting ? "Finding browser address…" : ""}
@@ -358,7 +343,7 @@ export function ConnectLinkCard({
 											onClick={() => void copyBrowserUrl()}
 										>
 											<Copy aria-hidden />
-											Copy address
+											Copy link
 										</Button>
 									</div>
 									<div className="flex items-center gap-1.5">
@@ -410,14 +395,6 @@ export function ConnectLinkCard({
 						)}
 					</DialogPanel>
 					<DialogFooter>
-						<Button
-							variant="ghost"
-							disabled={qrText === ""}
-							onClick={() => void copyAppLink()}
-						>
-							<Link2 aria-hidden />
-							Copy app link
-						</Button>
 						<Button
 							variant="ghost"
 							disabled={qrText === ""}

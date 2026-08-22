@@ -5,7 +5,10 @@ import { withSystemTest } from "../../src/system-scope.ts";
 describe("browser access", () => {
 	it("pairs at a stable browser address and restores the session on reload", async () => {
 		await withSystemTest("zuse-browser-access-", async (scope) => {
-			const server = await scope.server({ authPolicy: "protected" });
+			const server = await scope.server({
+				authPolicy: "protected",
+				host: "0.0.0.0",
+			});
 			const pairingLine = await server.process.waitForStdout(
 				(line) => line.startsWith("Browser: "),
 				"browser pairing URL",
@@ -27,6 +30,9 @@ describe("browser access", () => {
 				await page.goto(parsedPairingUrl.toString(), {
 					waitUntil: "domcontentloaded",
 				});
+				expect(
+					await page.evaluate(() => typeof globalThis.crypto.randomUUID),
+				).toBe("function");
 				await page.getByLabel("Pairing code").fill(code ?? "");
 				await page.getByRole("button", { name: "Connect" }).click();
 				await expect

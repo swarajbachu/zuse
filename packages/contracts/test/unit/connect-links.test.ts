@@ -43,7 +43,7 @@ describe("parseConnectLink", () => {
 
 	it("rejects non-zuse schemes", () => {
 		expect(
-			parseConnectLink("https://example.com/?pairingUrl=wss%3A%2F%2Fa#token=x"),
+			parseConnectLink("ftp://example.com/?pairingUrl=wss%3A%2F%2Fa#token=x"),
 		).toEqual({ ok: false, reason: "wrong-scheme" });
 	});
 
@@ -61,6 +61,31 @@ describe("parseConnectLink", () => {
 				httpBaseUrl: "http://192.168.1.50:4859",
 				wsBaseUrl: "ws://192.168.1.50:4859/rpc",
 			},
+		});
+	});
+
+	it.each([
+		[
+			"https://build.example.ts.net/#pair=ABCD1234",
+			"wss://build.example.ts.net/rpc",
+			"tailscale",
+		],
+		[
+			"http://192.168.1.50:4859/#pair=ABCD1234",
+			"ws://192.168.1.50:4859/rpc",
+			"lan",
+		],
+	] as const)("accepts canonical browser link %s", (value, wsBaseUrl, kind) => {
+		expect(parseConnectLink(value)).toMatchObject({
+			ok: true,
+			link: { code: "ABCD1234", wsBaseUrl, kind },
+		});
+	});
+
+	it("rejects plaintext browser links on public hosts", () => {
+		expect(parseConnectLink("http://example.com/#pair=ABCD1234")).toEqual({
+			ok: false,
+			reason: "insecure-endpoint",
 		});
 	});
 
@@ -90,12 +115,15 @@ describe("builders", () => {
 	});
 
 	it("builds browser pair URLs without doubled slashes", () => {
-		expect(
-			buildBrowserPairUrl({
-				httpBaseUrl: "https://zenv-abc.stuff.md/",
-				code: "zp_abc",
-			}),
-		).toBe("https://zenv-abc.stuff.md/#pair=zp_abc");
+		const browserUrl = buildBrowserPairUrl({
+			httpBaseUrl: "https://zenv-abc.stuff.md/",
+			code: "zp_abc",
+		});
+		expect(browserUrl).toBe("https://zenv-abc.stuff.md/#pair=zp_abc");
+		expect(parseConnectLink(browserUrl)).toMatchObject({
+			ok: true,
+			link: { code: "zp_abc", wsBaseUrl: "wss://zenv-abc.stuff.md/rpc" },
+		});
 	});
 
 	it("derives ws base URLs from http bases", () => {

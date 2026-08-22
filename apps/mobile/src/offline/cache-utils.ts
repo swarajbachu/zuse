@@ -1,4 +1,4 @@
-import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
+import { DEFAULT_LOCAL_DESKTOP_PORT, parseConnectLink } from "@zuse/contracts";
 
 export const slugConnectionKey = (key: string): string =>
 	key.replace(/[^a-zA-Z0-9._-]+/g, "_");
@@ -12,6 +12,22 @@ export const parsePairingUrl = (
 	wsBaseUrl: string;
 	httpBaseUrl: string;
 } => {
+	const shared = parseConnectLink(value);
+	if (shared.ok) {
+		const endpoint = new URL(shared.link.wsBaseUrl);
+		return {
+			host: endpoint.hostname,
+			port: Number(
+				endpoint.port ||
+					(endpoint.protocol === "wss:"
+						? "443"
+						: String(DEFAULT_LOCAL_DESKTOP_PORT)),
+			),
+			token: shared.link.code,
+			wsBaseUrl: shared.link.wsBaseUrl,
+			httpBaseUrl: shared.link.httpBaseUrl,
+		};
+	}
 	const url = new URL(value);
 	if (url.protocol !== "zuse:") {
 		throw new Error("This QR code is not a Zuse pairing code.");

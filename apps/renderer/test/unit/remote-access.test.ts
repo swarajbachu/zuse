@@ -21,7 +21,7 @@ const pairing = (code = "ABC123"): PairingStartResult =>
 		pairingUrl: "ws://192.168.1.20:4820/rpc",
 		browserUrl: `http://192.168.1.20:4820/#pair=${encodeURIComponent(code)}`,
 		code,
-		qrText: `zuse:///connect/pair?pairingUrl=${encodeURIComponent("ws://192.168.1.20:4820/rpc")}#token=${code}`,
+		qrText: `http://192.168.1.20:4820/#pair=${encodeURIComponent(code)}`,
 		expiresAt: new Date("2026-08-07T00:05:00.000Z"),
 	}) as PairingStartResult;
 
@@ -78,9 +78,7 @@ describe("pairing wire format", () => {
 			"https://host.ts.net/",
 			"wss://host.ts.net/rpc",
 		);
-		expect(rewritten.qrText).toBe(
-			"zuse:///connect/pair?pairingUrl=wss%3A%2F%2Fhost.ts.net%2Frpc#token=abc 123/+",
-		);
+		expect(rewritten.qrText).toBe("https://host.ts.net/#pair=abc%20123%2F%2B");
 		expect(rewritten.browserUrl).toBe(
 			"https://host.ts.net/#pair=abc%20123%2F%2B",
 		);
@@ -120,9 +118,7 @@ describe("pairingForMethod", () => {
 			relay([endpoint()]),
 			null,
 		);
-		expect(result?.qrText).toBe(
-			"zuse:///connect/pair?pairingUrl=wss%3A%2F%2Fenv.example.zusehq.com%2Frpc#token=ABC123",
-		);
+		expect(result?.qrText).toBe("https://env.example.zusehq.com/#pair=ABC123");
 		expect(result?.browserUrl).toBe(
 			"https://env.example.zusehq.com/#pair=ABC123",
 		);
@@ -136,9 +132,7 @@ describe("pairingForMethod", () => {
 	test("rewrites the tailscale link against the tailnet DNS name", () => {
 		const result = pairingForMethod(pairing(), "tailscale", null, ownedTailnet);
 		expect(result?.browserUrl).toBe("https://mac.tail1234.ts.net/#pair=ABC123");
-		expect(result?.qrText).toBe(
-			"zuse:///connect/pair?pairingUrl=wss%3A%2F%2Fmac.tail1234.ts.net%2Frpc#token=ABC123",
-		);
+		expect(result?.qrText).toBe("https://mac.tail1234.ts.net/#pair=ABC123");
 	});
 
 	test("returns null for tailscale when disabled, unnamed, or managed by zuse serve", () => {

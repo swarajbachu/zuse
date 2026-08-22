@@ -176,8 +176,8 @@ describe("LanAuthService", () => {
 			);
 
 			expect(result.pairing.code).toMatch(/^[A-Z2-9]{8}$/u);
-			expect(result.pairing.qrText).toContain("zuse:///connect/pair?");
-			expect(result.pairing.qrText).toContain(`#token=${result.pairing.code}`);
+			expect(result.pairing.qrText).toBe(result.pairing.browserUrl);
+			expect(result.pairing.qrText).toContain(`#pair=${result.pairing.code}`);
 			expect(result.redeemed.token.startsWith("zt_")).toBe(true);
 			expect(result.verified).toBe(true);
 			expect(Result.isFailure(result.second)).toBe(true);

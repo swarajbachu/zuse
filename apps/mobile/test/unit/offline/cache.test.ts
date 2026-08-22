@@ -26,7 +26,7 @@ describe("mobile offline helpers", () => {
 			host: "192.168.1.2",
 			port: 9000,
 			token: "zp_code",
-			wsBaseUrl: "ws://192.168.1.2:9000",
+			wsBaseUrl: "ws://192.168.1.2:9000/rpc",
 			httpBaseUrl: "http://192.168.1.2:9000",
 		});
 		expect(

@@ -65,6 +65,16 @@ describe("Tailnet environment pairing", () => {
 		});
 	});
 
+	it("parses the canonical browser pairing link", () => {
+		expect(
+			parseTailnetPairingLink("https://build.example.ts.net/#pair=zp_once"),
+		).toEqual({
+			code: "zp_once",
+			httpBaseUrl: "https://build.example.ts.net",
+			wsBaseUrl: "wss://build.example.ts.net/rpc",
+		});
+	});
+
 	it("parses secure links to hosts outside the tailnet", () => {
 		expect(
 			parseTailnetPairingLink(

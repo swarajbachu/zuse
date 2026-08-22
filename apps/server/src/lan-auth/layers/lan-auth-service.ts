@@ -13,7 +13,6 @@ import {
 	type AuthTokenId,
 	AuthTokenSummary,
 	buildBrowserPairUrl,
-	buildConnectDeepLink,
 	type EnvironmentId,
 	normalizePairingCodeInput,
 	SHORT_PAIRING_CODE_ALPHABET,
@@ -710,7 +709,7 @@ export const LanAuthServiceLive = Layer.effect(
 					httpBaseUrl: `http://${host}:${config.port}`,
 					code,
 				});
-				const qrText = buildConnectDeepLink({ wsBaseUrl: pairingUrl, code });
+				const qrText = browserUrl;
 				return { pairingUrl, browserUrl, qrText } as const;
 			});
 

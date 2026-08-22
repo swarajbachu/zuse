@@ -3,7 +3,7 @@ import type {
 	RelayLinkStatus,
 	TailnetShareState,
 } from "@zuse/contracts";
-import { buildBrowserPairUrl, buildConnectDeepLink } from "@zuse/contracts";
+import { buildBrowserPairUrl } from "@zuse/contracts";
 
 /**
  * How a pairing link reaches this computer. Ordered by preference:
@@ -25,12 +25,15 @@ export const pairingWithEndpoint = (
 	pairing: PairingStartResult,
 	httpBaseUrl: string,
 	wsBaseUrl: string,
-): PairingStartResult => ({
-	...pairing,
-	pairingUrl: wsBaseUrl,
-	browserUrl: buildBrowserPairUrl({ httpBaseUrl, code: pairing.code }),
-	qrText: buildConnectDeepLink({ wsBaseUrl, code: pairing.code }),
-});
+): PairingStartResult => {
+	const browserUrl = buildBrowserPairUrl({ httpBaseUrl, code: pairing.code });
+	return {
+		...pairing,
+		pairingUrl: wsBaseUrl,
+		browserUrl,
+		qrText: browserUrl,
+	};
+};
 
 /** Stable browser address, without its optional one-time pairing fragment. */
 export const browserBaseUrl = (pairing: PairingStartResult): string => {
