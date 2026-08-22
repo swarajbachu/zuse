@@ -64,6 +64,22 @@ describe("Serve package metadata commands", () => {
 		});
 	});
 
+	it("trusts proxy headers for a Tailscale Serve foreground route", () => {
+		expect(
+			foregroundServeOptions(
+				{},
+				{
+					sshManaged: false,
+					dataDir: "/home/zuse/.zuse-data",
+				},
+				"https://build.example.ts.net",
+			),
+		).toMatchObject({
+			pairingPublicBaseUrl: "https://build.example.ts.net",
+			trustProxy: true,
+		});
+	});
+
 	it("requires account authorization unless explicitly opted out", () => {
 		expect(
 			requiresServeAccountAuthorization({ sshManaged: false, noAccount: true }),

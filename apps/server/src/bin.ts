@@ -51,6 +51,7 @@ export type ServeOptions = {
 	readonly policy: LanAuthPolicy;
 	readonly pairing: boolean;
 	readonly pairingPublicBaseUrl?: string;
+	readonly trustProxy?: boolean;
 };
 
 const parsePort = (raw: string): number => {
@@ -219,6 +220,7 @@ export const runHeadlessServer = (
 			staticDir: options.staticDir,
 			sshBridge: process.env.ZUSE_MACHINE_RUNTIME_ROLE === "cloud-environment",
 			pairingPublicBaseUrl: options.pairingPublicBaseUrl,
+			trustProxy: options.trustProxy,
 			onPairing: (pairing) => {
 				// Persist the boot pairing details so the serve CLI can print
 				// real links without scraping service logs.

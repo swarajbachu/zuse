@@ -162,6 +162,10 @@ export const foregroundServeOptions = (
 	policy: command.sshManaged ? "local" : "protected",
 	pairing: !command.sshManaged && env.ZUSE_ENABLE_PAIRING !== "0",
 	pairingPublicBaseUrl: tailnetOrigin,
+	// Tailscale Serve terminates HTTPS and forwards the original host/protocol.
+	// Trust those headers only after this process has successfully claimed the
+	// Tailnet route and supplied its public origin.
+	trustProxy: tailnetOrigin !== undefined,
 });
 
 export const resolveServeDataDir = (
