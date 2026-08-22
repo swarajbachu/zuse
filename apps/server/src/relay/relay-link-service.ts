@@ -93,6 +93,30 @@ export class RelayLinkService extends Context.Service<
 
 const failRelay = (reason: string) => new RelayLinkError({ reason });
 
+/** Account relay is intentionally unavailable for explicit no-account runs. */
+export const makeDisabledRelayLinkService = (
+	config: LanAuthConfigShape,
+): Layer.Layer<RelayLinkService> => {
+	const disabled = () => Effect.fail(failRelay("account_disabled"));
+	return Layer.succeed(
+		RelayLinkService,
+		RelayLinkService.of({
+			link: disabled,
+			status: () =>
+				Effect.succeed({
+					linked: false,
+					heartbeatActive: false,
+					advertisedEndpoints: buildAdvertisedEndpoints({ lan: config }),
+				}),
+			unlink: disabled,
+			listEnvironments: disabled,
+			connectEnvironment: disabled,
+			listClients: disabled,
+			revokeClient: disabled,
+		}),
+	);
+};
+
 const relayHttpErrorReason = async (response: Response): Promise<string> => {
 	const fallback = `relay_${response.status}`;
 	const text = await response.text().catch(() => "");

@@ -93,6 +93,8 @@ export type WsServerProtocolOptions = {
 	}) => void;
 	/** Public HTTPS origin when a trusted private proxy fronts this listener. */
 	readonly pairingPublicBaseUrl?: string;
+	/** Whether a persisted managed-relay origin may be advertised. Defaults to true. */
+	readonly relayEnabled?: boolean;
 	/** Production client root. Missing files fall back to index.html for the SPA. */
 	readonly staticDir?: string;
 	/** In development, browser navigations are redirected to this Vite origin. */
@@ -478,9 +480,10 @@ export const wsServerProtocolLayer = (
 			const attachments = yield* AttachmentService;
 			const log = opts.onDiagnostic ?? (() => {});
 			const environmentId = yield* auth.environmentId();
-			const relay = yield* auth
-				.getRelayConfig()
-				.pipe(Effect.orElseSucceed(() => null));
+			const relay =
+				opts.relayEnabled === false
+					? null
+					: yield* auth.getRelayConfig().pipe(Effect.orElseSucceed(() => null));
 			const browserSecurity: BrowserRequestSecurity = {
 				tls: opts.tls !== undefined,
 				// Forwarding headers are security-sensitive and are honored only for

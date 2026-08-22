@@ -2,7 +2,13 @@ import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
+
+import {
+	makeDisabledRelayLinkService,
+	RelayLinkService,
+} from "../../src/relay/relay-link-service.ts";
 
 import {
 	activateServeRuntimeUpdate,
@@ -78,6 +84,51 @@ describe("Serve package metadata commands", () => {
 			pairingPublicBaseUrl: "https://build.example.ts.net",
 			trustProxy: true,
 		});
+	});
+
+	it("disables persisted account relay state in no-account foreground mode", () => {
+		expect(
+			foregroundServeOptions(
+				{},
+				{
+					sshManaged: false,
+					noAccount: true,
+					dataDir: "/home/zuse/.zuse-data",
+				},
+			),
+		).toMatchObject({ relayEnabled: false });
+	});
+
+	it("exposes only LAN endpoints when the account relay is disabled", async () => {
+		const layer = makeDisabledRelayLinkService({
+			policy: "protected",
+			advertisedHost: "192.168.0.105",
+			port: 4860,
+			pairingBootstrap: false,
+		});
+		const status = await Effect.runPromise(
+			Effect.gen(function* () {
+				return yield* (yield* RelayLinkService).status();
+			}).pipe(Effect.provide(layer)),
+		);
+
+		expect(status).toMatchObject({
+			linked: false,
+			heartbeatActive: false,
+		});
+		expect(status.advertisedEndpoints).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					reachability: "lan",
+					httpBaseUrl: "http://192.168.0.105:4860",
+				}),
+			]),
+		);
+		expect(status.advertisedEndpoints).not.toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ reachability: "relay" }),
+			]),
+		);
 	});
 
 	it("requires account authorization unless explicitly opted out", () => {

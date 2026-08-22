@@ -69,6 +69,7 @@ import {
 } from "./relay/cloud-workspace-runtime.ts";
 import { ManagedTunnelRuntimeLive } from "./relay/managed-tunnel-runtime.ts";
 import {
+	makeDisabledRelayLinkService,
 	RelayLinkService,
 	RelayLinkServiceLive,
 } from "./relay/relay-link-service.ts";
@@ -142,6 +143,7 @@ export interface MainLayerDeps {
 		readonly relayUrl: string;
 		readonly label?: string;
 	};
+	readonly relayEnabled?: boolean;
 	readonly cliAccess?: {
 		readonly path: string;
 		readonly wsUrl: string;
@@ -169,7 +171,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 	const FolderPickerLayer = Layer.succeed(FolderPicker, deps.folderPicker);
 	const AuthShellLayer = Layer.succeed(AuthShell, deps.authShell);
-	const LanAuthConfigLayer = Layer.succeed(LanAuthConfig, {
+	const lanAuthConfig = {
 		policy: deps.lanAuth?.policy ?? "local",
 		advertisedHost: deps.lanAuth?.advertisedHost ?? null,
 		port: deps.lanAuth?.port ?? null,
@@ -178,7 +180,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		icloudTrustSecret: deps.lanAuth?.icloudTrustSecret,
 		transportCertificatePin: deps.lanAuth?.transportCertificatePin,
 		onNearbyPairingRequest: deps.lanAuth?.onNearbyPairingRequest,
-	});
+	};
+	const LanAuthConfigLayer = Layer.succeed(LanAuthConfig, lanAuthConfig);
 
 	// SqlClient is the shared persistence handle. The migrator runs once on
 	// boot via `Layer.provideMerge` so any layer that consumes SqlClient sees
@@ -559,16 +562,19 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	// account relay (challenge → Ed25519 proof → link → persist → heartbeat). It
 	// reuses the environment identity (LanAuthService) and the WorkOS token
 	// (AuthService); the renderer's Devices pane drives it via relay.* RPCs.
-	const RelayLinkLayer = RelayLinkServiceLive.pipe(
-		Layer.provide(AccountAccessLayer),
-		Layer.provide(EnrolledLanAuthLayer),
-		Layer.provide(LanAuthConfigLayer),
-		Layer.provide(AuthLayer),
-		// The managed-tunnel connector (`cloudflared`) spawns via CommandExecutor.
-		Layer.provide(ManagedTunnelLayer),
-		Layer.provide(AppPathsLayer),
-		Layer.provide(TelemetryStoreLayer),
-	);
+	const RelayLinkLayer =
+		deps.relayEnabled === false
+			? makeDisabledRelayLinkService(lanAuthConfig)
+			: RelayLinkServiceLive.pipe(
+					Layer.provide(AccountAccessLayer),
+					Layer.provide(EnrolledLanAuthLayer),
+					Layer.provide(LanAuthConfigLayer),
+					Layer.provide(AuthLayer),
+					// The managed-tunnel connector (`cloudflared`) spawns via CommandExecutor.
+					Layer.provide(ManagedTunnelLayer),
+					Layer.provide(AppPathsLayer),
+					Layer.provide(TelemetryStoreLayer),
+				);
 	const autoRelayLink = deps.autoRelayLink;
 	// Linking must never block or fail server boot: it runs in a background
 	// fiber and retries with capped backoff until it sticks. Persistent causes

@@ -147,6 +147,7 @@ export const foregroundServeOptions = (
 	env: NodeJS.ProcessEnv,
 	command: {
 		readonly sshManaged: boolean;
+		readonly noAccount?: boolean;
 		readonly dataDir?: string;
 		readonly host?: string;
 		readonly port?: number;
@@ -165,6 +166,7 @@ export const foregroundServeOptions = (
 	// Trust those headers only after this process has successfully claimed the
 	// Tailnet route and supplied its public origin.
 	trustProxy: tailnetOrigin !== undefined,
+	relayEnabled: !command.sshManaged && command.noAccount !== true,
 });
 
 export const resolveServeDataDir = (

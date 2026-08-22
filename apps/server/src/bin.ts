@@ -52,6 +52,7 @@ export type ServeOptions = {
 	readonly pairing: boolean;
 	readonly pairingPublicBaseUrl?: string;
 	readonly trustProxy?: boolean;
+	readonly relayEnabled?: boolean;
 };
 
 const parsePort = (raw: string): number => {
@@ -220,6 +221,7 @@ export const runHeadlessServer = (
 			staticDir: options.staticDir,
 			sshBridge: process.env.ZUSE_MACHINE_RUNTIME_ROLE === "cloud-environment",
 			pairingPublicBaseUrl: options.pairingPublicBaseUrl,
+			relayEnabled: options.relayEnabled,
 			trustProxy: options.trustProxy,
 			onPairing: (pairing) => {
 				// Persist the boot pairing details so the serve CLI can print
@@ -279,6 +281,7 @@ export const runHeadlessServer = (
 				? "cloud-environment"
 				: "control-plane",
 		lanAuth: { policy, advertisedHost, port, pairingBootstrap },
+		relayEnabled: options.relayEnabled !== false,
 		autoRelayLink:
 			process.env.ZUSE_SERVE_AUTO_LINK === "1"
 				? {
