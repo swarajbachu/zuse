@@ -168,7 +168,7 @@ function AccessCard({
 							<input
 								autoCapitalize="characters"
 								autoComplete="one-time-code"
-								className="min-h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-3 font-mono text-base uppercase outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 font-mono text-sm uppercase outline-none focus-visible:ring-2 focus-visible:ring-ring"
 								disabled={pairing}
 								id="pairing-code"
 								maxLength={256}
@@ -177,7 +177,7 @@ function AccessCard({
 								value={code}
 							/>
 							<button
-								className="min-h-11 rounded-md bg-primary px-4 font-medium text-primary-foreground text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								className="h-7 rounded-md bg-primary px-2.5 font-medium text-primary-foreground text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
 								disabled={pairing || code.trim().length === 0}
 								type="submit"
 							>
@@ -197,7 +197,7 @@ function AccessCard({
 				) : null}
 				{!loading && state.retryable && (
 					<button
-						className="mt-5 inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 font-medium text-primary-foreground text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+						className="mt-5 inline-flex h-7 items-center justify-center rounded-md bg-primary px-2.5 font-medium text-primary-foreground text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
 						onClick={retry}
 						type="button"
 					>
