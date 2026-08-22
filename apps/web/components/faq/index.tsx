@@ -71,7 +71,7 @@ export const FAQ = () => {
 					<Accordion defaultValue={[data[0].question]}>
 						{data.map((item, index) => (
 							<React.Fragment key={item.question}>
-								<AccordionItem value={item.question} className="py-8">
+								<AccordionItem value={item.question} className="py-4">
 									<AccordionTrigger className="-tracking-xs text-foreground text-base leading-6 font-medium">
 										{item.question}
 									</AccordionTrigger>
