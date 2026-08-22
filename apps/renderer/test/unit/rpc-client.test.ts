@@ -64,6 +64,7 @@ describe("renderer RPC transport selection", () => {
 		expect(resolveRendererRpcTransportForTest()).toEqual({
 			kind: "websocket",
 			wsUrl: "ws://localhost:8787/rpc",
+			refreshesWsUrl: true,
 		});
 	});
 

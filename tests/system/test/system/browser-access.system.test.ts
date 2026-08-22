@@ -44,10 +44,18 @@ describe("browser access", () => {
 						{ timeout: 15_000 },
 					)
 					.toMatchObject({ authenticated: true });
+				await page.waitForTimeout(4_000);
+				expect(
+					await page.getByText("Reconnecting…", { exact: true }).count(),
+				).toBe(0);
 				await page.reload({ waitUntil: "domcontentloaded" });
 				await expect
 					.poll(() => page.locator("#root").textContent(), { timeout: 15_000 })
 					.not.toContain("Pair this browser");
+				await page.waitForTimeout(4_000);
+				expect(
+					await page.getByText("Reconnecting…", { exact: true }).count(),
+				).toBe(0);
 			} finally {
 				await browser.close();
 				await server.stop();
