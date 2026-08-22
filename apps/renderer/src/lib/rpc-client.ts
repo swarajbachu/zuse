@@ -641,14 +641,8 @@ export const shouldRestartCloudWorkspaceConnection = (
 ): boolean => status === "error" || status === "blockedAuth";
 
 export const registerLocalEnvironment = (environmentId: string): void => {
-	const bridge = globalThis.window?.zuse ?? globalThis.window?.memoize;
-	if (bridge === undefined) return;
 	localEnvironmentId = environmentId;
-	environmentConnections.set(environmentId, {
-		key: `environment:${environmentId}`,
-		kind: "electron",
-		bridge: bridge.rpc,
-	});
+	environmentConnections.set(environmentId, connectionOptions());
 };
 
 export const setActiveEnvironment = (environmentId: string): void => {

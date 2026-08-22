@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-const locationValue = { host: "localhost:8787" };
+const locationValue = {
+	host: "localhost:8787",
+	pathname: "/",
+	protocol: "http:",
+};
 
 Object.defineProperty(globalThis, "location", {
 	value: locationValue,
@@ -19,7 +23,9 @@ const {
 	markCloudWorkspaceConnectionHealthy,
 	refreshCloudWorkspaceConnectionWithRecovery,
 	RENDERER_WEBSOCKET_OPEN_TIMEOUT,
+	registerLocalEnvironment,
 	resolveRendererRpcTransportForTest,
+	setActiveEnvironment,
 	shouldReconnectRendererConnection,
 	shouldRestartCloudWorkspaceConnection,
 } = await import("../../src/lib/rpc-client.ts");
@@ -66,6 +72,17 @@ describe("renderer RPC transport selection", () => {
 			wsUrl: "ws://localhost:8787/rpc",
 			refreshesWsUrl: true,
 		});
+	});
+
+	it("registers the served environment id for browser RPC calls", () => {
+		Object.defineProperty(globalThis, "window", {
+			value: {},
+			configurable: true,
+		});
+
+		registerLocalEnvironment("env_browser");
+
+		expect(() => setActiveEnvironment("env_browser")).not.toThrow();
 	});
 
 	it("keeps Electron IPC mode when the preload bridge is present", () => {
