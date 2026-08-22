@@ -356,8 +356,12 @@ export function ChatComposer({
 	// composer, so put the decision there. Permissions outrank questions
 	// because the agent is already mid-tool-call.
 	const requestsById =
-		useEnvironmentPermissions().data?.requestsById ?? EMPTY_PERMISSION_REQUESTS;
-	const decidePermission = decideEnvironmentPermission;
+		useEnvironmentPermissions(qualifiedEnvironmentId).data?.requestsById ??
+		EMPTY_PERMISSION_REQUESTS;
+	const decidePermission = (
+		requestId: string,
+		decision: Parameters<typeof decideEnvironmentPermission>[1],
+	) => decideEnvironmentPermission(requestId, decision, qualifiedEnvironmentId);
 	const pendingPermissions = useMemo(() => {
 		const out: PermissionRequest[] = [];
 		for (const req of Object.values(requestsById)) {
@@ -1217,6 +1221,7 @@ export function ChatComposer({
 							<PermissionCard
 								head={headPermission}
 								queueSize={pendingPermissions.length}
+								environmentId={qualifiedEnvironmentId}
 							/>
 						) : pendingQuestion !== null ? (
 							<QuestionCard

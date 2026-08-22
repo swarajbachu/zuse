@@ -31,7 +31,7 @@ import { Cause, Effect, Fiber, Stream } from "effect";
 import { useMemo } from "react";
 import { toastManager } from "../components/ui/toast.tsx";
 import { classifyGit, type GitErrorTag } from "./git-rpc.ts";
-import type { MemoizeClient } from "./rpc-client.ts";
+import { isRpcClientTransportError, type MemoizeClient } from "./rpc-client.ts";
 import {
 	getRendererClientBus,
 	registerRendererResourceDriver,
@@ -107,7 +107,8 @@ const executionRef = (key: ResourceKey<unknown>): ExecutionRef | null =>
 const throwTransportFailure = <A>(
 	result: Awaited<ReturnType<typeof classifyGit<A>>>,
 ): void => {
-	if (!result.ok && result.tag === null) throw new Error(result.message);
+	if (!result.ok && result.tag === null)
+		throw result.cause ?? new Error(result.message);
 };
 
 const firstError = (
@@ -259,6 +260,8 @@ const makeInvalidatedDriver = <Data>(options: {
 					.catch((cause) => {
 						failed = true;
 						if (!active) return;
+						context.emit({ sync: "failed" });
+						if (!isRpcClientTransportError(cause)) return;
 						getRendererClientBus().reportConnectionFault(
 							ref.environmentId,
 							{
@@ -312,9 +315,12 @@ const makeInvalidatedDriver = <Data>(options: {
 				Effect.catchCause((cause) =>
 					Effect.sync(() => {
 						if (!active || Cause.hasInterruptsOnly(cause)) return;
+						const failure = Cause.squash(cause);
+						context.emit({ sync: "failed" });
+						if (!isRpcClientTransportError(failure)) return;
 						getRendererClientBus().reportConnectionFault(
 							ref.environmentId,
-							{ phase: "failed", message: String(Cause.squash(cause)) },
+							{ phase: "failed", message: String(failure) },
 							context.generation,
 						);
 					}),

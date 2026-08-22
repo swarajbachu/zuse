@@ -52,7 +52,7 @@ export function PlanApprovalTray({
 	onCancelEmulatedPlan?: () => void;
 }) {
 	const permissionRequests =
-		useEnvironmentPermissions().data?.requestsById ?? {};
+		useEnvironmentPermissions(environmentId).data?.requestsById ?? {};
 	const pendingRequest = (() => {
 		for (const req of Object.values(permissionRequests)) {
 			if (req.sessionId !== sessionId) continue;
@@ -62,7 +62,10 @@ export function PlanApprovalTray({
 		}
 		return null;
 	})();
-	const decide = decideEnvironmentPermission;
+	const decide = (
+		requestId: string,
+		decision: Parameters<typeof decideEnvironmentPermission>[1],
+	) => decideEnvironmentPermission(requestId, decision, environmentId);
 	const { messages } = useRendererSessionTimeline(
 		sessionId,
 		"connect",

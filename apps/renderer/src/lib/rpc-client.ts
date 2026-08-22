@@ -416,12 +416,20 @@ const getRendererEntry = (
 };
 
 export function isRpcClientTransportError(cause: unknown): boolean {
-	return (
-		isIgnorableRendererFailure(cause) ||
-		(typeof cause === "object" &&
-			cause !== null &&
-			"_tag" in cause &&
-			cause._tag === "RpcClientError")
+	if (isIgnorableRendererFailure(cause)) return true;
+	if (
+		typeof cause !== "object" ||
+		cause === null ||
+		!("_tag" in cause) ||
+		cause._tag !== "RpcClientError"
+	)
+		return false;
+	const reason = "reason" in cause ? cause.reason : undefined;
+	return !(
+		typeof reason === "object" &&
+		reason !== null &&
+		"_tag" in reason &&
+		reason._tag === "RpcClientDefect"
 	);
 }
 

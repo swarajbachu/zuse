@@ -1,4 +1,4 @@
-import { GitPrInfo, MemoizeRpcs } from "@zuse/contracts";
+import { GitPrInfo, GitWorkspaceSnapshot, MemoizeRpcs } from "@zuse/contracts";
 import { GitService } from "@zuse/git/git-service";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
 import { Effect, Layer, Semaphore, Stream } from "effect";
@@ -142,7 +142,7 @@ const WorkspaceSnapshot = MemoizeRpcs.toLayerHandler(
 				}
 				const projectionVersion = (snapshotVersions.get(identity) ?? 0) + 1;
 				snapshotVersions.set(identity, projectionVersion);
-				return {
+				return GitWorkspaceSnapshot.make({
 					status,
 					pr,
 					diffStat: {
@@ -151,7 +151,7 @@ const WorkspaceSnapshot = MemoizeRpcs.toLayerHandler(
 					},
 					projectionVersion,
 					observedAt: new Date(),
-				};
+				});
 			}),
 		);
 	},

@@ -178,10 +178,12 @@ export function ChatView({
 				turnStartPending
 			: cloudChatShowsWorking(cloudActivity) || turnStartPending;
 	const permissionRequests =
-		useEnvironmentPermissions().data?.requestsById ?? {};
+		useEnvironmentPermissions(environmentId).data?.requestsById ?? {};
+	const sessionPermissionRequests = Object.values(permissionRequests).filter(
+		(request) => request.sessionId === sessionId,
+	);
 	const awaitingPermissionPlanApproval = (() => {
-		for (const request of Object.values(permissionRequests)) {
-			if (request.sessionId !== sessionId) continue;
+		for (const request of sessionPermissionRequests) {
 			if (request.kind._tag !== "Other") continue;
 			if (request.kind.tool === "ExitPlanMode") return true;
 		}
@@ -190,6 +192,8 @@ export function ChatView({
 	const awaitingPlanApproval =
 		awaitingPermissionPlanApproval ||
 		deriveChatAttentionState(messages, inFlight) === "planReady";
+	const awaitingUserAction =
+		awaitingPlanApproval || sessionPermissionRequests.length > 0;
 	const worktreeId = session?.worktreeId ?? null;
 	const setupActive = useWorktreesStore((state) => {
 		if (worktreeId === null) return false;
@@ -233,15 +237,9 @@ export function ChatView({
 					inFlight,
 					hasPendingCreation: pendingCreation !== null || cloudSetupActive,
 				}),
-				awaitingPlanApproval,
+				awaitingPlanApproval: awaitingUserAction,
 			}),
-		[
-			awaitingPlanApproval,
-			cloudSetupActive,
-			inFlight,
-			messages,
-			pendingCreation,
-		],
+		[awaitingUserAction, cloudSetupActive, inFlight, messages, pendingCreation],
 	);
 	const timelineFooter = useMemo(
 		() => (

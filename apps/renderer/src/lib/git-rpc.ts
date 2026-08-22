@@ -27,6 +27,7 @@ export type GitRpcResult<A> =
 			readonly ok: false;
 			readonly tag: GitErrorTag | null;
 			readonly message: string;
+			readonly cause?: unknown;
 	  };
 
 /**
@@ -74,6 +75,6 @@ export const classifyGit = async <A>(
 			),
 		);
 	} catch (err) {
-		return { ok: false, tag: null, message: formatError(err) };
+		return { ok: false, tag: null, message: formatError(err), cause: err };
 	}
 };

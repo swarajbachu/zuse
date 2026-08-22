@@ -1,9 +1,10 @@
 import type {
+	EnvironmentId,
 	PermissionDecision,
 	PermissionKind,
 	PermissionRequest,
 } from "@zuse/contracts";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 
 import { cn } from "~/lib/utils";
 import { decideEnvironmentPermission } from "../lib/environment-permissions-client-bus.ts";
@@ -65,11 +66,17 @@ const DENY: PermissionDecision = { _tag: "Deny" };
 export function PermissionCard({
 	head,
 	queueSize,
+	environmentId,
 }: {
 	readonly head: PermissionRequest;
 	readonly queueSize: number;
+	readonly environmentId: EnvironmentId;
 }) {
-	const decide = decideEnvironmentPermission;
+	const decide = useCallback(
+		(requestId: string, decision: PermissionDecision): Promise<void> =>
+			decideEnvironmentPermission(requestId, decision, environmentId),
+		[environmentId],
+	);
 	const persistentDisabled = head.forcePrompt;
 
 	useEffect(() => {

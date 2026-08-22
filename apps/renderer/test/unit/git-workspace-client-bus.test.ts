@@ -6,6 +6,10 @@ import {
 	WorktreeId,
 } from "@zuse/contracts";
 import { Effect, Queue, Stream } from "effect";
+import {
+	RpcClientDefect,
+	RpcClientError,
+} from "effect/unstable/rpc/RpcClientError";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toastManager } from "../../src/components/ui/toast.tsx";
 import {
@@ -339,6 +343,42 @@ describe("renderer Git workspace ClientBus adapter", () => {
 				error: { tag: "GitNotARepoError" },
 			},
 		});
+		retained.lease.release();
+	});
+
+	it("does not reconnect the environment for a malformed Git snapshot", async () => {
+		const invalidations = Effect.runSync(
+			Queue.unbounded<{ revision: number }>(),
+		);
+		const defect = new RpcClientError({
+			reason: new RpcClientDefect({
+				message: "Expected GitWorkspaceSnapshot",
+				cause: null,
+			}),
+		});
+		setSessionTimelineRpcClientForTest(
+			async () =>
+				({
+					"git.workspaceChanges": () => Stream.fromQueue(invalidations),
+					"git.workspaceSnapshot": () => Effect.fail(defect),
+				}) as never,
+		);
+
+		const retained = retainGitWorkspace(ref);
+		await waitUntil(
+			() =>
+				getRendererClientBus().snapshot(retained.key).connection ===
+				"connected",
+		);
+		Queue.offerUnsafe(invalidations, { revision: 0 });
+		await waitUntil(
+			() => getRendererClientBus().snapshot(retained.key).sync === "failed",
+		);
+
+		expect(getRendererClientBus().snapshot(retained.key).connection).toBe(
+			"connected",
+		);
+		expect(gitWorkspaceDriverStartsForTest()).toBe(1);
 		retained.lease.release();
 	});
 });

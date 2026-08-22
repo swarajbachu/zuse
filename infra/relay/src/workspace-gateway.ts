@@ -480,8 +480,21 @@ export class WorkspaceGateway {
 		}
 	}
 
-	async webSocketClose(socket: CloudflareWebSocket): Promise<void> {
+	async webSocketClose(
+		socket: CloudflareWebSocket,
+		code = 1005,
+		_reason = "",
+		wasClean = false,
+	): Promise<void> {
 		const metadata = attachment(socket);
+		console.info("[cloud-workspace] gateway socket closed", {
+			workspaceId: metadata?.workspaceId,
+			role: metadata?.role,
+			generation: metadata?.generation,
+			gatewayEpoch: metadata?.gatewayEpoch,
+			code,
+			wasClean,
+		});
 		if (metadata?.role === "client") {
 			for (const runtime of this.runtimeSockets()) {
 				const runtimeMetadata = attachment(runtime);
@@ -523,7 +536,14 @@ export class WorkspaceGateway {
 		}
 	}
 
-	webSocketError(socket: CloudflareWebSocket): void {
+	webSocketError(socket: CloudflareWebSocket, _error: unknown): void {
+		const metadata = attachment(socket);
+		console.warn("[cloud-workspace] gateway socket error", {
+			workspaceId: metadata?.workspaceId,
+			role: metadata?.role,
+			generation: metadata?.generation,
+			gatewayEpoch: metadata?.gatewayEpoch,
+		});
 		closeSocket(socket, 1011, "gateway socket error");
 	}
 }

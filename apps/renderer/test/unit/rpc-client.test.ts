@@ -33,6 +33,21 @@ describe("renderer RPC transport selection", () => {
 		// provider rejection to the user.
 		expect(isRpcClientTransportError(interruption)).toBe(true);
 		expect(
+			isRpcClientTransportError({
+				_tag: "RpcClientError",
+				reason: { _tag: "SocketError", message: "closed" },
+			}),
+		).toBe(true);
+		expect(
+			isRpcClientTransportError({
+				_tag: "RpcClientError",
+				reason: {
+					_tag: "RpcClientDefect",
+					message: "response schema mismatch",
+				},
+			}),
+		).toBe(false);
+		expect(
 			isIgnorableRendererFailure(new Error("WebSocket closed (1006).")),
 		).toBe(false);
 	});

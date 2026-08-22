@@ -18,7 +18,7 @@ import {
 import { Cause, Effect, Fiber, Stream } from "effect";
 import { useMemo } from "react";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
-import type { MemoizeClient } from "./rpc-client.ts";
+import { isRpcClientTransportError, type MemoizeClient } from "./rpc-client.ts";
 import {
 	getRendererClientBus,
 	registerRendererResourceDriver,
@@ -102,14 +102,15 @@ const makeDriver = (): ResourceDriver<
 				),
 				Effect.catchCause((cause) =>
 					Effect.sync(() => {
-						if (active && !Cause.hasInterruptsOnly(cause)) {
-							context.emit({ sync: "failed" });
-							getRendererClientBus().reportConnectionFault(
-								context.key.ref.environmentId,
-								{ phase: "failed", message: messageOf(Cause.squash(cause)) },
-								context.generation,
-							);
-						}
+						if (!active || Cause.hasInterruptsOnly(cause)) return;
+						const failure = Cause.squash(cause);
+						context.emit({ sync: "failed" });
+						if (!isRpcClientTransportError(failure)) return;
+						getRendererClientBus().reportConnectionFault(
+							context.key.ref.environmentId,
+							{ phase: "failed", message: messageOf(failure) },
+							context.generation,
+						);
 					}),
 				),
 			);
@@ -132,23 +133,32 @@ registerRendererResourceDriver("environment-permissions", (key) =>
 
 const EMPTY = emptyResourceView<EnvironmentPermissionsData>();
 
-export const useEnvironmentPermissions =
-	(): ResourceView<EnvironmentPermissionsData> => {
-		const environmentId = EnvironmentId.make(
-			useEnvironmentCatalogStore((state) => state.activeEnvironmentId),
-		);
-		const key = useMemo(() => keyFor(environmentId), [environmentId]);
-		return useClientBusResource(key, EMPTY, "connect");
-	};
+export const useEnvironmentPermissions = (
+	environmentId?: EnvironmentId,
+): ResourceView<EnvironmentPermissionsData> => {
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(state) => state.activeEnvironmentId,
+	);
+	const selectedEnvironmentId =
+		environmentId ?? EnvironmentId.make(activeEnvironmentId);
+	const key = useMemo(
+		() => keyFor(selectedEnvironmentId),
+		[selectedEnvironmentId],
+	);
+	return useClientBusResource(key, EMPTY, "connect");
+};
 
 export const decideEnvironmentPermission = async (
 	requestId: string,
 	decision: PermissionDecision,
+	environmentId?: EnvironmentId,
 ): Promise<void> => {
-	const environmentId = EnvironmentId.make(
-		useEnvironmentCatalogStore.getState().activeEnvironmentId,
-	);
-	const key = keyFor(environmentId);
+	const selectedEnvironmentId =
+		environmentId ??
+		EnvironmentId.make(
+			useEnvironmentCatalogStore.getState().activeEnvironmentId,
+		);
+	const key = keyFor(selectedEnvironmentId);
 	const bus = getRendererClientBus();
 	const previous = bus.snapshot(key)?.data?.requestsById[requestId];
 	bus.overlay(key, {
@@ -165,7 +175,7 @@ export const decideEnvironmentPermission = async (
 		await bus.dispatch({
 			kind: "permission.decide",
 			commandId,
-			environmentId,
+			environmentId: selectedEnvironmentId,
 			resource: key,
 			payload: { requestId, decision },
 			retry: "never",
