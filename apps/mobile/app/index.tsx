@@ -81,6 +81,7 @@ import {
 	errorByConnectionAtom,
 	hydrateSessions,
 	loadingByConnectionAtom,
+	refreshSessionsAfterConnect,
 	statusBySessionAtom,
 } from "~/store/sessions";
 import { colors } from "~/theme";
@@ -174,6 +175,20 @@ export default function HomeScreen() {
 		}
 	}, [connections, reachableConnections]);
 
+	useEffect(() => {
+		for (const connection of reachableConnections) {
+			const snapshot = connectionSnapshots[connection.key];
+			if (snapshot?.status !== "connected") continue;
+			const options = optionsForConnection(connection.key, connections);
+			if (options === null) continue;
+			void refreshSessionsAfterConnect(
+				connection.key,
+				options,
+				snapshot.generation,
+			);
+		}
+	}, [connectionSnapshots, connections, reachableConnections]);
+
 	const searching = search.trim().length > 0;
 	const groups = useMemo(
 		() =>
@@ -219,6 +234,10 @@ export default function HomeScreen() {
 			})
 			.find((entry) => entry !== null) ?? null;
 	const connectionError = connectionFailure?.[1] ?? null;
+	const recoveringConnection = reachableConnections.find((connection) => {
+		const status = connectionSnapshots[connection.key]?.status;
+		return status === "connecting" || status === "reconnecting";
+	});
 	const retryFailedConnection = () => {
 		if (connectionFailure === null) {
 			if (account !== null) void refreshEnvironments();
@@ -227,6 +246,11 @@ export default function HomeScreen() {
 		const [key] = connectionFailure;
 		const options = optionsForConnection(key, connections);
 		if (options !== null) retryConnection(key, options);
+	};
+	const retryRecoveringConnection = () => {
+		if (recoveringConnection === undefined) return;
+		const options = optionsForConnection(recoveringConnection.key, connections);
+		if (options !== null) retryConnection(recoveringConnection.key, options);
 	};
 
 	const updateGroup = useCallback((key: string, action: InboxDisplayAction) => {
@@ -285,11 +309,11 @@ export default function HomeScreen() {
 				);
 			case "show-more":
 				return (
-					<View className="flex-row gap-2 rounded-b-2xl border-x border-b border-border bg-card px-4 py-3 pl-14">
+					<View className="flex-row gap-1 px-3 py-1 pl-10">
 						{item.hiddenCount > 0 ? (
 							<Button
 								size="sm"
-								variant="secondary"
+								variant="ghost"
 								onPress={() => updateGroup(item.groupKey, "show-more")}
 							>
 								{`Show ${item.hiddenCount} more`}
@@ -310,7 +334,6 @@ export default function HomeScreen() {
 				return (
 					<HomeChatRow
 						item={item}
-						connections={reachableConnections}
 						onArchive={onArchiveRow}
 						onTogglePin={onTogglePinRow}
 					/>
@@ -319,7 +342,11 @@ export default function HomeScreen() {
 	};
 
 	if (!authHydrated || !connectionsHydrated) {
-		return <View className="flex-1 bg-background" />;
+		return (
+			<View className="flex-1 bg-background px-4 pt-28">
+				<HomeSkeleton />
+			</View>
+		);
 	}
 
 	return (
@@ -441,6 +468,14 @@ export default function HomeScreen() {
 								)}
 								onRetry={retryFailedConnection}
 								onPairAgain={() => router.push("/connect/scan")}
+							/>
+						</View>
+					) : recoveringConnection !== undefined ? (
+						<View className="mb-3">
+							<ConnectionRecoveryBanner
+								message="Trying to reach your computer…"
+								onRetry={retryRecoveringConnection}
+								recovering
 							/>
 						</View>
 					) : null

@@ -22,9 +22,9 @@ describe("scrollListToLatest", () => {
 			},
 		});
 
-		expect(calls).toEqual(["virtual", "layout", "native", "virtual"]);
+		expect(calls).toEqual(["virtual", "layout", "native"]);
 		expect(nativeScrollToEnd).toHaveBeenCalledWith({ animated: false });
-		expect(list.scrollToEnd).toHaveBeenLastCalledWith({ animated: false });
+		expect(list.scrollToEnd).toHaveBeenCalledOnce();
 	});
 
 	test("still succeeds when a native scroll ref is unavailable", async () => {
@@ -39,6 +39,23 @@ describe("scrollListToLatest", () => {
 				afterVirtualLayout: async () => undefined,
 			}),
 		).resolves.toBeUndefined();
+	});
+
+	test("does not report success when neither end-scroll path can run", async () => {
+		const failure = new Error("virtual destination unavailable");
+		const list = {
+			getNativeScrollRef: () => null,
+			scrollToEnd: vi.fn(async () => {
+				throw failure;
+			}),
+		};
+
+		await expect(
+			scrollListToLatest(list, {
+				animated: false,
+				afterVirtualLayout: async () => undefined,
+			}),
+		).rejects.toBe(failure);
 	});
 
 	test("does not block the native fallback behind an unresolved virtual scroll", async () => {
@@ -59,6 +76,6 @@ describe("scrollListToLatest", () => {
 
 		expect(afterVirtualLayout).toHaveBeenCalledOnce();
 		expect(nativeScrollToEnd).toHaveBeenCalledWith({ animated: true });
-		expect(list.scrollToEnd).toHaveBeenLastCalledWith({ animated: false });
+		expect(list.scrollToEnd).toHaveBeenCalledOnce();
 	});
 });

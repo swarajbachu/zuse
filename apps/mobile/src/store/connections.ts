@@ -9,10 +9,12 @@ import {
 	connectionStorageKey,
 	decodeConnectionRecords,
 	type LocalPathType,
+	refreshConnectionDescriptor,
 	replaceDiscoveredRoute,
 } from "~/lib/connection-records";
 import { deviceLabel, getOrCreateDeviceId } from "~/lib/device-identity";
 import { visibleConnectionLabel } from "~/lib/display-names";
+import { clearMediaCache } from "~/lib/media-cache";
 import { serverKeyPin as serverKeyPinForPublicKey } from "~/lib/nearby-pairing";
 import { getConnectionClient } from "~/rpc/connection";
 import { redeemPairingCode } from "~/rpc/pairing-client";
@@ -44,11 +46,23 @@ const STORE_KEY = "zuse.mobile.connections.v1";
 const loadConnections = Effect.tryPromise({
 	try: async () => {
 		const raw = await SecureStore.getItemAsync(STORE_KEY);
-		if (raw === null) return [] as ConnectionRecord[];
-		return decodeConnectionRecords(JSON.parse(raw));
+		return {
+			connections:
+				raw === null
+					? ([] as ConnectionRecord[])
+					: decodeConnectionRecords(JSON.parse(raw)),
+			storageReadable: true,
+		};
 	},
-	catch: () => [] as ConnectionRecord[],
-});
+	catch: (cause) => cause,
+}).pipe(
+	Effect.catch(() =>
+		Effect.succeed({
+			connections: [] as ConnectionRecord[],
+			storageReadable: false,
+		}),
+	),
+);
 
 const saveConnections = (connections: ConnectionRecord[]) =>
 	Effect.tryPromise({
@@ -60,12 +74,17 @@ export const currentConnections = (): ConnectionRecord[] =>
 	appAtomRegistry.get(connectionsAtom);
 
 export const hydrateConnections = async (): Promise<void> => {
-	const connections = await Effect.runPromise(loadConnections);
+	const { connections, storageReadable } =
+		await Effect.runPromise(loadConnections);
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(connectionsAtom, connections);
 		appAtomRegistry.set(connectionsHydratedAtom, true);
 	});
-	await Effect.runPromise(saveConnections(connections));
+	if (storageReadable) {
+		await Effect.runPromise(saveConnections(connections)).catch(
+			() => undefined,
+		);
+	}
 };
 
 export const addConnection = async ({
@@ -149,6 +168,7 @@ export const addConnection = async ({
 		nearbyServiceName,
 		pathType,
 		refreshAccountGrant,
+		capabilities: descriptor?.capabilities,
 		routeGeneration: 1,
 	};
 	const next = [record, ...currentConnections().filter((c) => c.key !== key)];
@@ -221,9 +241,18 @@ export const refreshConnectionLabel = async (
 	const descriptor = await describeEnvironment(options);
 	if (descriptor === null) return;
 	const nextLabel = visibleConnectionLabel(descriptor.label, key);
-	const current = currentConnections().find((c) => c.key === key);
-	if (current === undefined || current.label === nextLabel) return;
-	await updateConnectionLabel(key, nextLabel);
+	const connections = currentConnections();
+	const current = connections.find((c) => c.key === key);
+	if (current === undefined) return;
+	const next = refreshConnectionDescriptor(
+		connections,
+		key,
+		nextLabel,
+		descriptor.capabilities,
+	);
+	if (next === connections) return;
+	appAtomRegistry.set(connectionsAtom, next);
+	await Effect.runPromise(saveConnections(next));
 };
 
 /** Replace only the disposable network route for a stable paired Mac. */
@@ -261,6 +290,7 @@ export const removeConnection = async (key: string): Promise<void> => {
 	const next = currentConnections().filter((c) => c.key !== key);
 	appAtomRegistry.set(connectionsAtom, next);
 	await Effect.runPromise(saveConnections(next));
+	await clearMediaCache(key);
 };
 
 export const clearConnections = async (): Promise<void> => {
@@ -269,6 +299,7 @@ export const clearConnections = async (): Promise<void> => {
 		appAtomRegistry.set(connectionsHydratedAtom, true);
 	});
 	await SecureStore.deleteItemAsync(STORE_KEY);
+	await clearMediaCache();
 };
 
 const redeemPairingCodeIfNeeded = async ({

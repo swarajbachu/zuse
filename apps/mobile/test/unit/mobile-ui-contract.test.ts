@@ -9,12 +9,12 @@ describe("mobile UI contracts", () => {
 		const css = readFileSync(`${process.cwd()}/global.css`, "utf8");
 		expect(css).toContain("@variant light");
 		expect(css).toContain("@variant dark");
-		expect(css).toContain("--color-background: #ffffff");
-		expect(css).toContain("--color-foreground: #262626");
+		expect(css).toContain("--color-background: #f7f7f5");
+		expect(css).toContain("--color-foreground: #171716");
 		expect(css).toContain("--color-card: #ffffff");
-		expect(css).toContain("--color-card-elevated: rgba(0, 0, 0, 0.04)");
-		expect(css).toContain("--color-border: rgba(0, 0, 0, 0.08)");
-		expect(css).toContain("--color-input: rgba(0, 0, 0, 0.1)");
+		expect(css).toContain("--color-card-elevated: #f0f0ed");
+		expect(css).toContain("--color-border: rgba(23, 23, 22, 0.1)");
+		expect(css).toContain("--color-input: rgba(23, 23, 22, 0.12)");
 		expect(css).toContain("--color-background: hsl(0 0% 6%)");
 		expect(css).toContain("--color-card: hsl(0 0% 12%)");
 		expect(css).toContain("--color-foreground-faint: hsl(0 0% 43%)");
@@ -36,8 +36,12 @@ describe("mobile UI contracts", () => {
 			"utf8",
 		);
 		expect(appConfig.expo.userInterfaceStyle).toBe("automatic");
-		expect(nativeTheme).toContain("Color.ios.systemBackground");
-		expect(nativeTheme).toContain("Color.ios.label");
+		expect(nativeTheme).toContain(
+			'DynamicColorIOS({ light: "#f7f7f5", dark: "hsl(0 0% 6%)" })',
+		);
+		expect(nativeTheme).toContain(
+			'DynamicColorIOS({ light: "#171716", dark: "hsl(0 0% 93%)" })',
+		);
 		for (const source of [layout, thread, glass]) {
 			expect(source).toContain("useUniwind");
 			expect(source).not.toContain("useColorScheme");
@@ -129,7 +133,7 @@ describe("mobile UI contracts", () => {
 		expect(threadComposer.match(/<ComposerModeChip/g)).toHaveLength(4);
 	});
 
-	test("hydrates canonical project avatars and renders them through expo image", () => {
+	test("keeps home rows lightweight while reusable project images stay cached", () => {
 		const row = readFileSync(
 			`${process.cwd()}/src/components/home/home-chat-row.tsx`,
 			"utf8",
@@ -147,12 +151,22 @@ describe("mobile UI contracts", () => {
 			"utf8",
 		);
 		for (const source of [row, header]) {
-			expect(source).toContain("useProjectAvatarUrl");
+			expect(source).not.toContain("bg-card");
+			expect(source).not.toContain("border-border");
 		}
+		expect(row).not.toContain("useProjectAvatarUrl");
+		expect(row).not.toContain("ProjectLogo");
+		expect(row).not.toContain("hydratePrState");
+		expect(row).not.toContain("BranchStateBadge");
+		expect(row).toContain("ProviderLogo");
+		expect(header).toContain("useProjectAvatarUrl");
+		expect(header).toContain("ProjectLogo");
 		expect(avatar).toContain("hydrateProjectOrigin");
 		expect(logo).toContain('from "expo-image"');
 		expect(logo).toContain('cachePolicy="memory-disk"');
 		expect(logo).toContain('contentFit="cover"');
+		expect(logo).toContain("borderRadius: 5");
+		expect(logo).not.toContain("rounded-xl");
 		expect(logo).toContain("recyclingKey={source}");
 		expect(logo).toContain("setFailedUrl(source)");
 	});
@@ -203,7 +217,7 @@ describe("mobile UI contracts", () => {
 		);
 		expect(layout).toContain("<KeyboardProvider");
 		expect(thread).toContain("useHeaderHeight");
-		expect(thread).toContain("<KeyboardGestureArea");
+		expect(thread).not.toContain("<KeyboardGestureArea");
 		expect(thread).toContain('contentInsetAdjustmentBehavior="never"');
 		expect(thread).toContain("alignItemsAtEnd");
 		expect(thread).toContain("contentInsetEndAdjustment");
@@ -223,7 +237,10 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("const composerBottomInset = insets.bottom + 10");
 		expect(thread).toContain("bottom: -insets.bottom");
 		expect(thread).toContain("sharedValues={{ isNearEnd }}");
-		expect(thread).toContain("useAnimatedProps");
+		expect(thread).toContain(
+			'pointerEvents={jumpAccessible ? "box-none" : "none"}',
+		);
+		expect(thread).not.toContain("jumpAnimatedProps");
 		expect(thread).not.toContain("composerExpanded");
 		expect(thread).not.toContain("TRANSCRIPT_BOTTOM_GAP");
 		expect(thread).not.toContain("reportContentInset({ bottom })");
@@ -260,7 +277,7 @@ describe("mobile UI contracts", () => {
 		expect(threads).not.toContain('className="flex-1 bg-background"');
 	});
 
-	test("anchors sent turns at the top and jumps to the true end", () => {
+	test("uses temporary send anchoring and a committed jump to the true end", () => {
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
 		const composer = readFileSync(
 			`${process.cwd()}/src/components/composer.tsx`,
@@ -272,14 +289,13 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("maintainScrollAtEndThreshold");
 		expect(thread).toContain("maintainVisibleContentPosition");
 		expect(thread).toContain("anchoredEndSpace");
-		expect(thread).toContain(
-			"anchorIndex: activeAnchorIndex ?? turns.length - 1",
-		);
+		expect(thread).toContain("transcriptScroll.anchorIndex === null");
+		expect(thread).toContain("anchorIndex: transcriptScroll.anchorIndex");
 		expect(thread).not.toContain("settledRunwayHeight");
-		expect(thread).toContain("footerLayout: false");
+		expect(thread).toContain("footerLayout: true");
 		expect(thread).toContain("scrollMessageToEnd");
 		expect(thread).toContain("keyboardOffset={insets.bottom}");
-		expect(thread).toContain('keyboardLiftBehavior="always"');
+		expect(thread).toContain('keyboardLiftBehavior="whenAtEnd"');
 		expect(thread).toContain("offset={{ closed: 0, opened: insets.bottom }}");
 		expect(thread).toContain(
 			"transcriptScroll.onMessageWillAppend(turns.length)",
@@ -287,7 +303,12 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("onReady: transcriptScroll.onAnchorReady");
 		expect(thread).not.toContain("anchorMaxSize");
 		expect(thread).toContain("transcriptScroll.requestJump()");
-		expect(thread).toContain("scrollListToLatest(list");
+		const jumpHandler = thread.slice(
+			thread.indexOf("const jumpToLatest = () => {"),
+			thread.indexOf("const onMessageWillAppend = () => {"),
+		);
+		expect(jumpHandler).not.toContain("setJumpAccessible(false)");
+		expect(jumpHandler).not.toContain("scrollListToLatest(list");
 		expect(composer.indexOf("onMessageWillAppend?.()")).toBeLessThan(
 			composer.indexOf("addOptimisticMessage("),
 		);
@@ -322,6 +343,23 @@ describe("mobile UI contracts", () => {
 		expect(thread).not.toContain("pendingEndIntent");
 		expect(thread).not.toContain("sendAnchorSpace(");
 		expect(thread).not.toContain("latestTurnTopOffset");
+	});
+
+	test("shows intentional transcript loading without a viewport-sized end runway", () => {
+		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		expect(thread).toContain("<TranscriptLoadingState");
+		expect(thread).toContain("initialTranscriptLoading");
+		expect(thread).toContain("transcriptEndRunwayHeight");
+		expect(thread).not.toContain("onLayout={onTranscriptLayout}");
+	});
+
+	test("uses a synchronous composer submission gate", () => {
+		const composer = readFileSync(
+			`${process.cwd()}/src/components/composer.tsx`,
+			"utf8",
+		);
+		expect(composer).toContain("createComposerSubmitGate");
+		expect(composer).toContain("submitGateRef.current.tryRun");
 	});
 
 	test("keeps permission decisions pending with visible acknowledgement feedback", () => {
@@ -515,9 +553,12 @@ describe("mobile UI contracts", () => {
 		for (const source of [home, sessions, thread]) {
 			expect(source).toContain("<ConnectionRecoveryBanner");
 		}
-		expect(recoveryBanner).toContain('className="h-9');
-		expect(recoveryBanner).toContain("hitSlop={4}");
-		expect(recoveryBanner).not.toContain("min-h-11");
+		expect(recoveryBanner).toContain('className="h-11');
+		expect(recoveryBanner).not.toContain("text-danger");
+		expect(thread.lastIndexOf("<ConnectionRecoveryBanner")).toBeGreaterThan(
+			thread.indexOf("<KeyboardStickyView"),
+		);
+		expect(thread).not.toContain("Connection unavailable · Retry");
 		const scanner = appFile("connect/scan.tsx");
 		expect(scanner).toContain("Try again");
 	});

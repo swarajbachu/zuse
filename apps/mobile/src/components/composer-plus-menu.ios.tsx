@@ -14,6 +14,7 @@ export function ComposerPlusMenu({
 	goalMode,
 	goalSupported,
 	planMode,
+	onCaptureImage,
 	onPickImages,
 	onPickFiles,
 	onToggleGoal,
@@ -22,6 +23,7 @@ export function ComposerPlusMenu({
 	goalMode: boolean;
 	goalSupported: boolean;
 	planMode: boolean;
+	onCaptureImage: () => void;
 	onPickImages: () => void;
 	onPickFiles: () => void;
 	onToggleGoal: (next: boolean) => void;
@@ -43,6 +45,11 @@ export function ComposerPlusMenu({
 					/>
 				}
 			>
+				<NativeButton
+					label="Take photo"
+					systemImage={sf("camera")}
+					onPress={onCaptureImage}
+				/>
 				<NativeButton
 					label="Choose photos"
 					systemImage={sf("photo.on.rectangle")}

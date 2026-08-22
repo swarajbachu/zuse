@@ -1303,7 +1303,7 @@ const localConnectivityHelperPath = (): string =>
 				"zuse-local-connectivity",
 			)
 		: Path.join(
-				app.getAppPath(),
+				process.env.ZUSE_DESKTOP_DIR?.trim() || process.cwd(),
 				"native",
 				"local-connectivity",
 				"bin",
@@ -3195,6 +3195,13 @@ async function createMainWindow() {
 				],
 				authShell,
 				credentialsLayer: CredentialsServiceLive,
+				openHostSession: (sessionId, chatId) => {
+					focusMainWindow();
+					mainWindow?.webContents.send("notch:openChat", {
+						chatId,
+						sessionId,
+					});
+				},
 				lanAuth: {
 					policy: "protected",
 					advertisedHost: networkAccess.advertisedHost,

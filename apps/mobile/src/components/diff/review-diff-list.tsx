@@ -1,6 +1,6 @@
 import type { DiffLine } from "@zuse/client-runtime/timeline";
 import type { GitReviewFile, GitReviewSummary } from "@zuse/contracts";
-import { ChevronDown, ChevronRight } from "lucide-react-native";
+import { Check, ChevronDown, ChevronRight } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	type NativeScrollEvent,
@@ -103,6 +103,8 @@ export function ReviewDiffList({
 	onRefresh,
 	accordionKey = 0,
 	allFilesExpanded = true,
+	selectedPaths,
+	onToggleSelection,
 }: {
 	summary: GitReviewSummary | null;
 	patches: Readonly<Record<string, PreparedReviewPatch>>;
@@ -112,6 +114,8 @@ export function ReviewDiffList({
 	onRefresh?: () => void;
 	accordionKey?: number;
 	allFilesExpanded?: boolean;
+	selectedPaths?: ReadonlySet<string>;
+	onToggleSelection?: (path: string) => void;
 }) {
 	const { theme } = useUniwind();
 	const palette = theme === "dark" ? DARK_SYNTAX : LIGHT_SYNTAX;
@@ -172,9 +176,11 @@ export function ReviewDiffList({
 				file={section.file}
 				expanded={section.expanded}
 				onPress={() => toggleFile(section.file.path)}
+				selected={selectedPaths?.has(section.file.path)}
+				onToggleSelection={onToggleSelection}
 			/>
 		),
-		[toggleFile],
+		[onToggleSelection, selectedPaths, toggleFile],
 	);
 
 	const renderItem = useCallback(
@@ -257,6 +263,8 @@ export function ReviewDiffList({
 						expanded
 						pinned
 						onPress={() => toggleFile(activeFile.path)}
+						selected={selectedPaths?.has(activeFile.path)}
+						onToggleSelection={onToggleSelection}
 					/>
 				</View>
 			) : null}
@@ -269,11 +277,15 @@ const DiffFileHeader = memo(function DiffFileHeader({
 	expanded,
 	pinned = false,
 	onPress,
+	selected,
+	onToggleSelection,
 }: {
 	file: GitReviewFile;
 	expanded: boolean;
 	pinned?: boolean;
 	onPress: () => void;
+	selected?: boolean;
+	onToggleSelection?: (path: string) => void;
 }) {
 	const name = basename(file.path);
 	const directory = dirname(file.path);
@@ -302,6 +314,28 @@ const DiffFileHeader = memo(function DiffFileHeader({
 						: { borderCurve: "continuous" }
 				}
 			>
+				{onToggleSelection === undefined ? null : (
+					<Pressable
+						accessibilityRole="checkbox"
+						accessibilityState={{ checked: selected === true }}
+						accessibilityLabel={`Select ${file.path}`}
+						onPress={(event) => {
+							event.stopPropagation();
+							onToggleSelection(file.path);
+						}}
+						className="h-11 w-11 items-center justify-center"
+					>
+						<View
+							className={`h-5 w-5 items-center justify-center rounded-md border ${
+								selected ? "border-accent bg-accent" : "border-border"
+							}`}
+						>
+							{selected ? (
+								<Check size={14} color={colors.primaryForeground} />
+							) : null}
+						</View>
+					</Pressable>
+				)}
 				<FileIcon path={file.path} size={pinned ? 18 : 21} />
 				<View className="min-w-0 flex-1">
 					<Text

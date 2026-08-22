@@ -22,4 +22,25 @@ describe("local connectivity helper", () => {
 		);
 		expect(source).toContain("func refreshInterfaces() {\n    start()\n  }");
 	});
+
+	test("resolves and builds the helper for the root development runner", () => {
+		const mainSource = readFileSync(
+			new URL("../../src/main.ts", import.meta.url),
+			"utf8",
+		);
+		const devRunnerSource = readFileSync(
+			new URL("../../../../scripts/dev.mjs", import.meta.url),
+			"utf8",
+		);
+
+		expect(mainSource).toContain(
+			"process.env.ZUSE_DESKTOP_DIR?.trim() || process.cwd()",
+		);
+		expect(devRunnerSource).toContain(
+			'if (process.platform === "darwin" && !existsSync(localConnectivityHelper))',
+		);
+		expect(devRunnerSource).toContain(
+			'spawnSync("bun", ["run", "native:build"]',
+		);
+	});
 });

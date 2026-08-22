@@ -1,12 +1,9 @@
 import { useAtomValue } from "@effect/atom-react";
-import {
-	ArrowUp02Icon,
-	CloudOffIcon,
-	StopIcon,
-} from "@zuse/icons/solid-rounded";
+import type { ComposerTrigger } from "@zuse/client-runtime/composer-trigger";
+import { retainComposerReferences } from "@zuse/client-runtime/composer-trigger";
 import { chooseComposerSubmitRoute } from "@zuse/client-runtime/plan-interactions";
-import type { ConnectionStatus } from "@zuse/client-runtime/supervisor";
 import {
+	type FileRef,
 	Message,
 	type MessageContent,
 	MessageId,
@@ -15,7 +12,13 @@ import {
 	type Session,
 	type SessionId,
 	type SessionStatus,
+	type SkillRef,
 } from "@zuse/contracts";
+import {
+	ArrowUp02Icon,
+	CloudOffIcon,
+	StopIcon,
+} from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
@@ -28,6 +31,7 @@ import {
 	View,
 } from "react-native";
 import {
+	captureComposerImage,
 	type LocalComposerAttachment,
 	pickComposerFiles,
 	pickComposerImages,
@@ -39,6 +43,8 @@ import {
 	isInterruptVisible,
 	nextModelChangeActions,
 } from "~/lib/composer-state";
+import { createComposerSubmitGate } from "~/lib/composer-submit-gate";
+import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { availableProviderIds } from "~/lib/model-options";
 import { connectionSessionKey } from "~/lib/session-key";
 import {
@@ -58,6 +64,7 @@ import {
 import {
 	clearComposerDraft,
 	composerDraft,
+	hydrateComposerDraft,
 	setComposerDraft,
 } from "~/store/composer-drafts";
 import {
@@ -73,6 +80,11 @@ import { colors } from "~/theme";
 import { ComposerActionSlot } from "./composer-action-slot";
 import { ComposerApprovalMenu } from "./composer-approval-menu";
 import { ComposerAttachmentStrip } from "./composer-attachment-strip";
+import {
+	ComposerContextPicker,
+	type ComposerPickerRow,
+} from "./composer-context-picker";
+import { ComposerContextTray } from "./composer-context-tray";
 import { ComposerInputFrame } from "./composer-input-frame";
 import { ComposerModeChip } from "./composer-mode-chip";
 import { ComposerPlusMenu } from "./composer-plus-menu";
@@ -80,6 +92,8 @@ import {
 	ComposerTextInput,
 	type ComposerTextInputHandle,
 } from "./composer-text-input";
+import { ComposerVoiceButton } from "./composer-voice-button";
+import { InlineErrorNotice } from "./inline-error-notice";
 import type { ModelModeValue } from "./model-mode-menu";
 import { ModelSheet } from "./model-sheet";
 import { ModelSheetTrigger } from "./model-sheet-trigger";
@@ -95,13 +109,12 @@ export const Composer = ({
 	status,
 	fresh,
 	online,
-	connectionStatus,
-	onRetryConnection,
 	onFocusChange,
 	onMessageAppendFailed,
 	onMessageWillAppend,
 	currentActivity = null,
 	bottomInset,
+	voiceEnabled = false,
 }: {
 	connKey: string;
 	connection: WsProtocolOptions;
@@ -110,20 +123,22 @@ export const Composer = ({
 	status?: SessionStatus;
 	fresh: boolean;
 	online: boolean;
-	connectionStatus?: ConnectionStatus;
-	onRetryConnection?: () => void;
 	onFocusChange?: (focused: boolean) => void;
 	onMessageAppendFailed?: () => void;
 	onMessageWillAppend?: () => void;
 	/** Latest-turn activity summary, computed once by the thread screen. */
 	currentActivity?: ComposerActivity | null;
 	bottomInset?: number;
+	voiceEnabled?: boolean;
 }) => {
 	const stateKey = connectionSessionKey(connKey, sessionId);
 	// Lazy state (not a ref): reading a ref during render violates the React
 	// Compiler's rules; the initializer runs once per mount (keyed by stateKey).
 	const [initialDraft] = useState(() => composerDraft(stateKey));
 	const inputRef = useRef<ComposerTextInputHandle>(null);
+	const submitGateRef = useRef(createComposerSubmitGate());
+	const [hydratedText, setHydratedText] = useState(initialDraft.text);
+	const [draftHydrated, setDraftHydrated] = useState(false);
 	const [hasText, setHasText] = useState(initialDraft.text.trim().length > 0);
 	const [busy, setBusy] = useState(false);
 	const [focused, setFocused] = useState(false);
@@ -132,7 +147,36 @@ export const Composer = ({
 		...initialDraft.attachments,
 	]);
 	const [goalMode, setGoalMode] = useState(initialDraft.goalMode);
+	const [fileRefs, setFileRefs] = useState<FileRef[]>([
+		...(initialDraft.fileRefs ?? []),
+	]);
+	const [skillRefs, setSkillRefs] = useState<SkillRef[]>([
+		...(initialDraft.skillRefs ?? []),
+	]);
+	const [trigger, setTrigger] = useState<ComposerTrigger | null>(null);
 	const [composerError, setComposerError] = useState<string | null>(null);
+	useEffect(() => {
+		let active = true;
+		void hydrateComposerDraft(stateKey).then((draft) => {
+			if (!active) return;
+			if (draft !== null) {
+				const currentText = inputRef.current?.getText() ?? hydratedText;
+				if (currentText === initialDraft.text) {
+					setHydratedText(draft.text);
+					setHasText(draft.text.trim().length > 0);
+					inputRef.current?.replaceAll(draft.text);
+					setAttachments([...draft.attachments]);
+					setGoalMode(draft.goalMode);
+					setFileRefs([...(draft.fileRefs ?? [])]);
+					setSkillRefs([...(draft.skillRefs ?? [])]);
+				}
+			}
+			setDraftHydrated(true);
+		});
+		return () => {
+			active = false;
+		};
+	}, [hydratedText, initialDraft.text, stateKey]);
 	// Only auto-focus the input when the user taps the collapsed pill — never when
 	// the bar auto-expands (e.g. opening a running session) so the keyboard
 	// doesn't pop unexpectedly.
@@ -140,18 +184,35 @@ export const Composer = ({
 	// Text persists on blur/unmount (inside ComposerTextInput); attachments and
 	// goal mode change rarely, so persisting them eagerly is cheap.
 	useEffect(() => {
+		if (!draftHydrated) return;
 		setComposerDraft(stateKey, {
-			text: inputRef.current?.getText() ?? "",
+			text: inputRef.current?.getText() ?? hydratedText,
 			attachments,
 			goalMode,
+			fileRefs,
+			skillRefs,
 		});
-	}, [attachments, goalMode, stateKey]);
+	}, [
+		attachments,
+		draftHydrated,
+		fileRefs,
+		goalMode,
+		hydratedText,
+		skillRefs,
+		stateKey,
+	]);
 	const persistDraftText = (text: string) => {
 		if (text.length === 0 && attachments.length === 0 && !goalMode) {
 			clearComposerDraft(stateKey);
 			return;
 		}
-		setComposerDraft(stateKey, { text, attachments, goalMode });
+		setComposerDraft(stateKey, {
+			text,
+			attachments,
+			goalMode,
+			fileRefs,
+			skillRefs,
+		});
 	};
 
 	const availability = useAtomValue(connectionAvailabilityAtom(connKey));
@@ -188,7 +249,7 @@ export const Composer = ({
 		sheetOpen: modelSheetOpen,
 	});
 	const agentCount = currentActivity?.agents ?? 0;
-	const hasPills = !online || agentCount > 0;
+	const hasPills = agentCount > 0;
 	const finishSuccessfulSubmission = ({
 		dismissKeyboard,
 	}: {
@@ -198,11 +259,14 @@ export const Composer = ({
 		inputRef.current?.clear();
 		setHasText(false);
 		setAttachments([]);
+		setFileRefs([]);
+		setSkillRefs([]);
+		setTrigger(null);
 		setGoalMode(false);
 		if (dismissKeyboard) Keyboard.dismiss();
 	};
 
-	const submit = async () => {
+	const performSubmit = async () => {
 		if (!canSend) return;
 		const value = (inputRef.current?.getText() ?? "").trim();
 		if (value.length === 0 && attachments.length === 0) return;
@@ -225,7 +289,13 @@ export const Composer = ({
 					uploadComposerAttachment(connection, sessionId, attachment),
 				),
 			);
-			const input = makeTextInput(value, uploaded, goalMode);
+			const input = makeTextInput(
+				value,
+				uploaded,
+				goalMode,
+				fileRefs,
+				skillRefs,
+			);
 			const route = chooseComposerSubmitRoute({
 				sendPlanFeedbackNow: false,
 				goalSendMode: goalMode,
@@ -248,24 +318,33 @@ export const Composer = ({
 			// row. LegendList's anchored-end contract uses the pre-append index.
 			onMessageWillAppend?.();
 			didPrepareAppend = true;
-			if (uploaded.length === 0) {
-				optimisticMessageId = messageId;
-				const optimisticContent: MessageContent = {
-					_tag: "user",
-					text: value,
-					goal: goalMode,
-				};
-				addOptimisticMessage(
-					stateKey,
-					Message.make({
-						id: messageId,
-						sessionId,
-						role: "user",
-						content: optimisticContent,
-						createdAt: new Date(),
-					}),
-				);
-			}
+			optimisticMessageId = messageId;
+			const optimisticContent: MessageContent =
+				uploaded.length > 0 || fileRefs.length > 0 || skillRefs.length > 0
+					? {
+							_tag: "user_rich",
+							text: value,
+							attachments: uploaded,
+							fileRefs,
+							skillRefs,
+							annotations: [],
+							goal: goalMode,
+						}
+					: {
+							_tag: "user",
+							text: value,
+							goal: goalMode,
+						};
+			addOptimisticMessage(
+				stateKey,
+				Message.make({
+					id: messageId,
+					sessionId,
+					role: "user",
+					content: optimisticContent,
+					createdAt: new Date(),
+				}),
+			);
 			await Effect.runPromise(
 				sendMessage({
 					connection,
@@ -285,6 +364,53 @@ export const Composer = ({
 		} finally {
 			setBusy(false);
 		}
+	};
+	const submit = () => {
+		void submitGateRef.current.tryRun(performSubmit);
+	};
+
+	const removeToken = (token: string) => {
+		const text = inputRef.current?.getText() ?? "";
+		const from = text.indexOf(token);
+		if (from >= 0) {
+			inputRef.current?.replaceRange(from, from + token.length, "");
+		}
+	};
+
+	const selectContext = (row: ComposerPickerRow) => {
+		if (trigger === null) return;
+		if (row.kind === "file") {
+			const token = `@${row.value.relPath}`;
+			setFileRefs((current) =>
+				current.some((item) => item.relPath === row.value.relPath)
+					? current
+					: [...current, row.value],
+			);
+			inputRef.current?.replaceRange(trigger.from, trigger.to, `${token} `);
+		} else if (row.kind === "skill") {
+			const token = `/${row.value.name}`;
+			setSkillRefs((current) =>
+				current.some((item) => item.name === row.value.name)
+					? current
+					: [
+							...current,
+							{
+								name: row.value.name,
+								scope: row.value.scope,
+								args: "",
+								providerId: row.value.providerId,
+							},
+						],
+			);
+			inputRef.current?.replaceRange(trigger.from, trigger.to, `${token} `);
+		} else {
+			inputRef.current?.replaceRange(
+				trigger.from,
+				trigger.to,
+				`/${row.value.name} `,
+			);
+		}
+		setTrigger(null);
 	};
 
 	const interrupt = async () => {
@@ -366,25 +492,6 @@ export const Composer = ({
 		<View className="px-3 pt-2" style={{ paddingBottom: bottomInset ?? 12 }}>
 			{hasPills ? (
 				<View className="mb-2 flex-row flex-wrap items-center justify-center gap-2">
-					{!online ? (
-						<StatusPill
-							label={
-								connectionStatus === "error"
-									? "Connection unavailable · Retry"
-									: connectionStatus === "blockedAuth"
-										? "Sign in required"
-										: connectionStatus === "offline"
-											? "Offline"
-											: connectionStatus === "connecting"
-												? "Connecting"
-												: "Reconnecting"
-							}
-							tone={connectionStatus === "error" ? "danger" : "warning"}
-							onPress={
-								connectionStatus === "error" ? onRetryConnection : undefined
-							}
-						/>
-					) : null}
 					{agentCount > 0 ? (
 						<StatusPill
 							label={`${agentCount} ${agentCount === 1 ? "agent" : "agents"}`}
@@ -406,6 +513,15 @@ export const Composer = ({
 					) : null}
 				</View>
 			) : null}
+			{composerError ? (
+				<View className="mb-1">
+					<InlineErrorNotice
+						message={composerError}
+						compact
+						onDismiss={() => setComposerError(null)}
+					/>
+				</View>
+			) : null}
 
 			<GlassSurface
 				style={{
@@ -417,6 +533,34 @@ export const Composer = ({
 			>
 				{expanded ? (
 					<>
+						{trigger !== null && session !== null ? (
+							<ComposerContextPicker
+								kind={trigger.kind}
+								query={trigger.query}
+								connection={connection}
+								projectId={session.projectId}
+								worktreeId={session.worktreeId}
+								sessionId={sessionId}
+								providerId={session.providerId}
+								onSelect={selectContext}
+							/>
+						) : null}
+						<ComposerContextTray
+							fileRefs={fileRefs}
+							skillRefs={skillRefs}
+							onRemoveFile={(relPath) => {
+								setFileRefs((current) =>
+									current.filter((item) => item.relPath !== relPath),
+								);
+								removeToken(`@${relPath}`);
+							}}
+							onRemoveSkill={(name) => {
+								setSkillRefs((current) =>
+									current.filter((item) => item.name !== name),
+								);
+								removeToken(`/${name}`);
+							}}
+						/>
 						<ComposerAttachmentStrip
 							attachments={attachments}
 							onRemove={(id) =>
@@ -429,7 +573,7 @@ export const Composer = ({
 							input={
 								<ComposerTextInput
 									ref={inputRef}
-									initialText={initialDraft.text}
+									initialText={hydratedText}
 									placeholder={
 										online ? "Ask Zuse" : "Offline · message will queue"
 									}
@@ -444,6 +588,23 @@ export const Composer = ({
 										onFocusChange?.(false);
 									}}
 									onPersist={persistDraftText}
+									onTextChange={(text) => {
+										setFileRefs((current) =>
+											retainComposerReferences(
+												current,
+												text,
+												(file) => `@${file.relPath}`,
+											),
+										);
+										setSkillRefs((current) =>
+											retainComposerReferences(
+												current,
+												text,
+												(skill) => `/${skill.name}`,
+											),
+										);
+									}}
+									onTriggerChange={setTrigger}
 								/>
 							}
 							leadingAction={
@@ -454,6 +615,22 @@ export const Composer = ({
 												goalMode={goalMode}
 												goalSupported={goalSupported}
 												planMode={planMode}
+												onCaptureImage={() =>
+													void captureComposerImage()
+														.then((items) =>
+															setAttachments((current) => [
+																...current,
+																...items,
+															]),
+														)
+														.catch((cause) =>
+															setComposerError(
+																cause instanceof Error
+																	? cause.message
+																	: String(cause),
+															),
+														)
+												}
 												onPickImages={() =>
 													void pickComposerImages().then((items) =>
 														setAttachments((current) => [...current, ...items]),
@@ -500,6 +677,15 @@ export const Composer = ({
 											onPress={() => setModelSheetOpen(true)}
 										/>
 									)}
+									<ComposerVoiceButton
+										connection={connection}
+										enabled={voiceEnabled}
+										online={online}
+										onTranscript={(text) =>
+											inputRef.current?.insertAtCursor(text)
+										}
+										onError={setComposerError}
+									/>
 									<SendButton
 										showInterrupt={showInterrupt}
 										online={online}
@@ -519,6 +705,11 @@ export const Composer = ({
 									goalMode={goalMode}
 									goalSupported={goalSupported}
 									planMode={planMode}
+									onCaptureImage={() =>
+										void captureComposerImage().then((items) =>
+											setAttachments((current) => [...current, ...items]),
+										)
+									}
 									onPickImages={() =>
 										void pickComposerImages().then((items) =>
 											setAttachments((current) => [...current, ...items]),
@@ -572,12 +763,6 @@ export const Composer = ({
 					</View>
 				)}
 			</GlassSurface>
-			{composerError ? (
-				<Text selectable className="px-3 pt-2 font-sans text-xs text-danger">
-					{composerError}
-				</Text>
-			) : null}
-
 			{modelValue === null ? null : (
 				<ModelSheet
 					open={modelSheetOpen}
@@ -593,8 +778,7 @@ export const Composer = ({
 	);
 };
 
-const messageOf = (cause: unknown): string =>
-	cause instanceof Error ? cause.message : String(cause);
+const messageOf = (cause: unknown): string => connectionErrorMessage(cause);
 
 const SendButton = ({
 	showInterrupt,

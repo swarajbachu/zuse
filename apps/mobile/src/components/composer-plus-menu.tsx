@@ -8,6 +8,7 @@ export function ComposerPlusMenu(props: {
 	goalMode: boolean;
 	goalSupported: boolean;
 	planMode: boolean;
+	onCaptureImage: () => void;
 	onPickImages: () => void;
 	onPickFiles: () => void;
 	onToggleGoal: (next: boolean) => void;

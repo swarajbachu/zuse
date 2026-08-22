@@ -1,14 +1,22 @@
 import { useAtomValue } from "@effect/atom-react";
+import {
+	classifyMedia,
+	mediaMimeType,
+	sanitizeSvg,
+} from "@zuse/client-runtime/media";
 import type { FolderId, FsFileContent, SessionId } from "@zuse/contracts";
 import { Effect } from "effect";
+import { Image } from "expo-image";
 import { Stack, useLocalSearchParams } from "expo-router";
-import { FileText } from "lucide-react-native";
+import { Eye, FileText, Share2 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
 	FlatList,
 	Platform,
+	Pressable,
 	RefreshControl,
 	ScrollView,
+	Share,
 	Text,
 	useWindowDimensions,
 	View,
@@ -19,6 +27,7 @@ import {
 	normalizeConnParam,
 	optionsForConnection,
 } from "~/lib/connection-params";
+import { cacheMediaBytes } from "~/lib/media-cache";
 import {
 	DARK_SYNTAX,
 	LIGHT_SYNTAX,
@@ -29,6 +38,7 @@ import { readWorkspaceFile } from "~/rpc/actions";
 import { connectionsAtom } from "~/store/connections";
 import { connectionBundlesAtom, selectSessionChat } from "~/store/sessions";
 import { colors } from "~/theme";
+import { presentQuickLook } from "../../../../../modules/mobile-platform";
 
 export default function WorkspaceFileScreen() {
 	const { width } = useWindowDimensions();
@@ -55,6 +65,7 @@ export default function WorkspaceFileScreen() {
 	const [loading, setLoading] = useState(true);
 	const [refreshing, setRefreshing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [binaryPreviewUri, setBinaryPreviewUri] = useState<string | null>(null);
 
 	const load = useCallback(
 		async (refresh = false) => {
@@ -88,6 +99,35 @@ export default function WorkspaceFileScreen() {
 	useEffect(() => {
 		void load();
 	}, [load]);
+
+	useEffect(() => {
+		if (file?.kind !== "binary" || folderId === undefined) {
+			setBinaryPreviewUri(null);
+			return;
+		}
+		const mimeType = mediaMimeType(path);
+		let active = true;
+		void (async () => {
+			const bytes =
+				classifyMedia(path, mimeType) === "image" &&
+				mimeType === "image/svg+xml"
+					? new TextEncoder().encode(
+							sanitizeSvg(new TextDecoder().decode(file.bytes)),
+						)
+					: file.bytes;
+			const uri = await cacheMediaBytes({
+				connectionKey: connKey,
+				key: `workspace-${folderId}-${worktreeId ?? "root"}-${path}`,
+				bytes,
+				mimeType,
+				originalName: basename(path),
+			});
+			if (active) setBinaryPreviewUri(uri);
+		})();
+		return () => {
+			active = false;
+		};
+	}, [connKey, file, folderId, path, worktreeId]);
 
 	const lines = useMemo(
 		() => (file?.kind === "text" ? file.content.split(/\r\n|\r|\n/) : []),
@@ -131,7 +171,27 @@ export default function WorkspaceFileScreen() {
 						</Text>
 					</View>
 				) : null}
-				{file?.kind === "binary" ? (
+				{file?.kind === "binary" &&
+				binaryPreviewUri !== null &&
+				classifyMedia(path, mediaMimeType(path)) === "image" ? (
+					<ScrollView
+						contentInsetAdjustmentBehavior="automatic"
+						contentContainerStyle={{ alignItems: "center", padding: 16 }}
+						maximumZoomScale={5}
+						minimumZoomScale={1}
+						bouncesZoom
+					>
+						<Image
+							source={{ uri: binaryPreviewUri }}
+							style={{ width: Math.max(width - 32, 1), height: width }}
+							contentFit="contain"
+							accessibilityLabel={basename(path)}
+						/>
+					</ScrollView>
+				) : null}
+				{file?.kind === "binary" &&
+				(binaryPreviewUri === null ||
+					classifyMedia(path, mediaMimeType(path)) !== "image") ? (
 					<ScrollView
 						contentInsetAdjustmentBehavior="automatic"
 						refreshControl={
@@ -149,8 +209,39 @@ export default function WorkspaceFileScreen() {
 							Preview unavailable
 						</Text>
 						<Text className="mt-1 text-center font-sans text-[13px] text-muted-foreground">
-							This binary file can’t be displayed as text.
+							Use the native document preview, or share this file with another
+							app.
 						</Text>
+						{binaryPreviewUri === null ? null : (
+							<View className="mt-5 flex-row gap-3">
+								<Pressable
+									accessibilityRole="button"
+									accessibilityLabel={`Preview ${basename(path)}`}
+									className="min-h-11 flex-row items-center gap-2 rounded-xl bg-primary px-4 active:opacity-60"
+									onPress={() => {
+										if (!presentQuickLook(binaryPreviewUri)) {
+											void Share.share({ url: binaryPreviewUri });
+										}
+									}}
+								>
+									<Eye size={17} color={colors.primaryForeground} />
+									<Text className="font-sans-medium text-primary-foreground">
+										Preview
+									</Text>
+								</Pressable>
+								<Pressable
+									accessibilityRole="button"
+									accessibilityLabel={`Share ${basename(path)}`}
+									className="min-h-11 flex-row items-center gap-2 rounded-xl border border-border bg-card px-4 active:opacity-60"
+									onPress={() => void Share.share({ url: binaryPreviewUri })}
+								>
+									<Share2 size={17} color={colors.fg} />
+									<Text className="font-sans-medium text-foreground">
+										Share
+									</Text>
+								</Pressable>
+							</View>
+						)}
 					</ScrollView>
 				) : null}
 				{file?.kind === "text" ? (

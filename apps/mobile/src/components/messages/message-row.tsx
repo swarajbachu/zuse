@@ -1,11 +1,17 @@
 import type { FileChange } from "@zuse/client-runtime/timeline";
+import {
+	toolImageDataUrl,
+	toolImageResult,
+} from "@zuse/client-runtime/tool-image-result";
 import type {
+	AttachmentRef,
 	Message,
 	MessageContent,
 	SessionId,
 	UserQuestion,
 } from "@zuse/contracts";
 import { proposedPlanMarkdownFromContent } from "@zuse/utils/proposed-plan";
+import { Image } from "expo-image";
 import { router } from "expo-router";
 import {
 	AlertCircle,
@@ -18,6 +24,7 @@ import {
 	FileCode2,
 	FilePenLine,
 	Folder,
+	GitFork,
 	Globe,
 	Hourglass,
 	Search,
@@ -27,6 +34,7 @@ import {
 import React, { useState } from "react";
 import { type ColorValue, Pressable, Text, View } from "react-native";
 import { InlineFileDiff } from "~/components/diff/inline-file-diff";
+import { InlineErrorNotice } from "~/components/inline-error-notice";
 import { FileIcon } from "~/components/ui/file-icon";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { cn } from "~/lib/cn";
@@ -40,13 +48,16 @@ import {
 	type MobileToolIcon,
 } from "~/lib/tool-presentation";
 import { workspaceDisplayPath } from "~/lib/workspace-path";
+import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { colors } from "~/theme";
+import { AttachmentMedia } from "./attachment-media";
 import { Markdown } from "./markdown";
 import type { QuestionAnswer } from "./pending-user-input-card";
 
 /** Extra context the stream provides so question rows can render statefully. */
 export type MessageRowContext = {
 	connectionKey: string;
+	connection?: WsProtocolOptions;
 	sessionId: SessionId;
 	workspaceRoot?: string;
 	answeredQuestionIds: ReadonlySet<string>;
@@ -58,6 +69,7 @@ export type MessageRowContext = {
 		itemId: string,
 		answers: readonly QuestionAnswer[],
 	) => void | Promise<void>;
+	onForkFromMessage?: (messageId: Message["id"]) => void;
 };
 
 export const MessageRow = ({
@@ -120,6 +132,8 @@ const MessageRowContent = ({
 				<UserBubble
 					text={content.text}
 					chips={richChips(content)}
+					attachments={content.attachments}
+					context={ctx}
 					goal={content.goal}
 				/>
 			);
@@ -202,10 +216,14 @@ const UserBubble = ({
 	text,
 	goal,
 	chips = [],
+	attachments = [],
+	context,
 }: {
 	text: string;
 	goal?: boolean;
 	chips?: string[];
+	attachments?: readonly AttachmentRef[];
+	context?: MessageRowContext;
 }) => (
 	<View className="items-end px-2 py-2">
 		<View
@@ -220,6 +238,19 @@ const UserBubble = ({
 			<Text className="font-sans text-[15px] leading-5 text-primary-foreground">
 				{text}
 			</Text>
+			{attachments.length > 0 && context !== undefined ? (
+				<View className="mt-2 gap-2">
+					{attachments.map((attachment) => (
+						<AttachmentMedia
+							key={attachment.id}
+							attachment={attachment}
+							connectionKey={context.connectionKey}
+							connection={context.connection}
+							sessionId={context.sessionId}
+						/>
+					))}
+				</View>
+			) : null}
 			{chips.length > 0 ? (
 				<View className="mt-2 flex-row flex-wrap gap-1">
 					{chips.map((chip) => (
@@ -244,7 +275,7 @@ const AssistantMarkdown = ({
 }: {
 	text: string;
 	planText: string | null;
-	messageId: string;
+	messageId: Message["id"];
 	context: MessageRowContext;
 }) =>
 	planText !== null ? (
@@ -252,6 +283,22 @@ const AssistantMarkdown = ({
 	) : (
 		<View className="px-2 py-2">
 			<Markdown>{text}</Markdown>
+			{context.onForkFromMessage === undefined ? null : (
+				<View className="mt-1 flex-row justify-end">
+					<Pressable
+						accessibilityRole="button"
+						accessibilityLabel="Fork from here"
+						hitSlop={8}
+						className="h-11 flex-row items-center gap-2 px-2 active:opacity-60"
+						onPress={() => context.onForkFromMessage?.(messageId)}
+					>
+						<GitFork size={16} color={colors.secondaryFg} />
+						<Text className="font-sans text-[12px] text-muted-foreground">
+							Fork from here
+						</Text>
+					</Pressable>
+				</View>
+			)}
 		</View>
 	);
 
@@ -358,7 +405,7 @@ const ToolUseRow = ({
 			},
 		});
 
-	// Errors keep the boxed danger row for readability (risk containment).
+	// Keep details available without turning a failed tool into a blocking card.
 	if (view.isError) {
 		return (
 			<ExpandableEventRow
@@ -517,8 +564,34 @@ const ToolResultRow = ({
 	content,
 }: {
 	content: Extract<MessageContent, { _tag: "tool_result" }>;
-}) =>
-	content.isError ? (
+}) => {
+	const image = toolImageResult(content.output);
+	if (image !== null) {
+		const uri = toolImageDataUrl(image);
+		return (
+			<View className="px-2 py-2">
+				<Pressable
+					accessibilityRole="imagebutton"
+					accessibilityLabel="Open tool image"
+					onPress={() =>
+						router.push({
+							pathname: "/media-viewer",
+							params: { uri, name: "Tool image" },
+						})
+					}
+					className="self-start overflow-hidden rounded-xl border border-border bg-card active:opacity-80"
+				>
+					<Image
+						source={{ uri }}
+						style={{ width: 240, height: 180 }}
+						contentFit="contain"
+						accessibilityLabel="Image produced by tool"
+					/>
+				</Pressable>
+			</View>
+		);
+	}
+	return content.isError ? (
 		<ExpandableEventRow
 			icon="wrench"
 			title="Tool error"
@@ -542,18 +615,11 @@ const ToolResultRow = ({
 			</Text>
 		</PlainEventRow>
 	);
+};
 
 const ErrorRow = ({ message }: { message: string }) => (
-	<View className="px-2 py-2">
-		<View
-			style={{ borderCurve: "continuous" }}
-			className="rounded-2xl border border-danger bg-danger/10 px-3 py-2"
-		>
-			<Text className="font-sans-medium text-xs text-danger">Error</Text>
-			<Text selectable className="mt-1 font-sans text-sm leading-5 text-danger">
-				{message}
-			</Text>
-		</View>
+	<View className="px-2 py-1">
+		<InlineErrorNotice message={message} compact />
 	</View>
 );
 
@@ -735,7 +801,6 @@ const FallbackRow = ({ content }: { content: MessageContent }) => (
 );
 
 const richChips = (content: Extract<MessageContent, { _tag: "user_rich" }>) => [
-	...content.attachments.map((attachment) => attachment.originalName),
 	...content.fileRefs.map((file) => file.relPath),
 	...content.skillRefs.map((skill) => skill.name),
 ];
@@ -814,8 +879,8 @@ function ExpandableEventRow({
 				accessibilityState={{ expanded }}
 				onPress={() => setExpanded((value) => !value)}
 				className={cn(
-					"rounded-xl border px-3 py-2 active:opacity-75",
-					danger ? "border-danger/40 bg-danger/10" : "border-border bg-card",
+					"rounded-xl px-3 py-2 active:bg-muted",
+					!danger && "bg-card",
 				)}
 				style={{ borderCurve: "continuous" }}
 			>

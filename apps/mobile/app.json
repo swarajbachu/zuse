@@ -4,15 +4,17 @@
 		"slug": "zuse",
 		"scheme": "zuse",
 		"version": "1.0.0",
-		"orientation": "portrait",
+		"orientation": "default",
 		"icon": "./assets/icon.png",
 		"userInterfaceStyle": "automatic",
 		"ios": {
 			"supportsTablet": false,
 			"buildNumber": "1",
 			"infoPlist": {
-				"NSCameraUsageDescription": "Scan pairing codes for local Zuse environments.",
+				"NSCameraUsageDescription": "Scan pairing codes and capture images to attach to Zuse messages.",
 				"NSPhotoLibraryUsageDescription": "Choose images to attach to your Zuse messages.",
+				"NSPhotoLibraryAddUsageDescription": "Save image previews to your photo library.",
+				"NSMicrophoneUsageDescription": "Record speech to insert a transcript into your Zuse message.",
 				"NSLocalNetworkUsageDescription": "Connect to a local Zuse server on your network.",
 				"NSBonjourServices": ["_zuse._tcp"],
 				"NSAppTransportSecurity": {
@@ -36,7 +38,9 @@
 			"expo-font",
 			"expo-web-browser",
 			"expo-status-bar",
-			"expo-image"
+			"expo-image",
+			"expo-audio",
+			"expo-screen-orientation"
 		]
 	}
 }

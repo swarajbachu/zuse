@@ -1,5 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("expo-file-system/legacy", () => ({
+	documentDirectory: "file:///test/",
+	makeDirectoryAsync: vi.fn(async () => undefined),
+	writeAsStringAsync: vi.fn(async () => undefined),
+	deleteAsync: vi.fn(async () => undefined),
+	getInfoAsync: vi.fn(async () => ({ exists: false })),
+	readAsStringAsync: vi.fn(async () => "{}"),
+}));
+
 import {
 	clearComposerDraft,
 	composerDraft,

@@ -4,37 +4,48 @@ import { Effect, Layer, Stream } from "effect";
 import { PtyService } from "./services/pty-service.ts";
 
 const Open = MemoizeRpcs.toLayerHandler(
-  "pty.open",
-  ({ cwd, cols, rows, command }) =>
-    Effect.flatMap(PtyService, (svc) => svc.open(cwd, cols, rows, command)),
+	"pty.open",
+	({ cwd, cols, rows, command, mobileOwnership }) =>
+		Effect.flatMap(PtyService, (svc) =>
+			svc.open(cwd, cols, rows, command, mobileOwnership),
+		),
 );
 
-const Write = MemoizeRpcs.toLayerHandler("pty.write", ({ ptyId, data }) =>
-  Effect.flatMap(PtyService, (svc) => svc.write(ptyId, data)),
+const List = MemoizeRpcs.toLayerHandler("pty.list", ({ ownerId }) =>
+	Effect.flatMap(PtyService, (svc) => svc.list(ownerId)),
+);
+
+const Write = MemoizeRpcs.toLayerHandler(
+	"pty.write",
+	({ ptyId, data, ownerId }) =>
+		Effect.flatMap(PtyService, (svc) => svc.write(ptyId, data, ownerId)),
 );
 
 const Resize = MemoizeRpcs.toLayerHandler(
-  "pty.resize",
-  ({ ptyId, cols, rows }) =>
-    Effect.flatMap(PtyService, (svc) => svc.resize(ptyId, cols, rows)),
+	"pty.resize",
+	({ ptyId, cols, rows, ownerId }) =>
+		Effect.flatMap(PtyService, (svc) => svc.resize(ptyId, cols, rows, ownerId)),
 );
 
-const Close = MemoizeRpcs.toLayerHandler("pty.close", ({ ptyId }) =>
-  Effect.flatMap(PtyService, (svc) => svc.close(ptyId)),
+const Close = MemoizeRpcs.toLayerHandler("pty.close", ({ ptyId, ownerId }) =>
+	Effect.flatMap(PtyService, (svc) => svc.close(ptyId, ownerId)),
 );
 
 const Output = MemoizeRpcs.toLayerHandler(
-  "pty.output",
-  ({ ptyId, afterSequence }) =>
-    Stream.unwrap(
-      Effect.map(PtyService, (svc) => svc.subscribe(ptyId, afterSequence)),
-    ),
+	"pty.output",
+	({ ptyId, afterSequence, ownerId }) =>
+		Stream.unwrap(
+			Effect.map(PtyService, (svc) =>
+				svc.subscribe(ptyId, afterSequence, ownerId),
+			),
+		),
 );
 
 export const PtyHandlersLayer = Layer.mergeAll(
-  Open,
-  Write,
-  Resize,
-  Close,
-  Output,
+	Open,
+	List,
+	Write,
+	Resize,
+	Close,
+	Output,
 );

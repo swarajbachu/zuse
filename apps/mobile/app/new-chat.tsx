@@ -1,5 +1,4 @@
 import { useAtomValue } from "@effect/atom-react";
-import { ArrowUpIcon, CloudOffIcon } from "@zuse/icons/solid-rounded";
 import {
 	orderedChatSessions,
 	resolveActiveChatSession,
@@ -11,6 +10,7 @@ import type {
 	GitPrSummary,
 	Worktree,
 } from "@zuse/contracts";
+import { ArrowUpIcon, CloudOffIcon } from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +39,7 @@ import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { HugeIcon } from "~/components/ui/huge-icon";
 import {
+	captureComposerImage,
 	type LocalComposerAttachment,
 	pickComposerFiles,
 	pickComposerImages,
@@ -649,6 +650,11 @@ export default function NewChatScreen() {
 										goalMode={goalMode}
 										goalSupported={goalSupported}
 										planMode={effectiveModelMode.permissionMode === "plan"}
+										onCaptureImage={() =>
+											void captureComposerImage().then((items) =>
+												setAttachments((current) => [...current, ...items]),
+											)
+										}
 										onPickImages={() =>
 											void pickComposerImages().then((items) =>
 												setAttachments((current) => [...current, ...items]),
