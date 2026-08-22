@@ -893,6 +893,7 @@ export class ClientBus<Client> {
 	): void {
 		if (
 			entry.activations.size === 0 ||
+			!entry.hydrated ||
 			!requestsRuntime(entry) ||
 			entry.driverGeneration === binding.runtime.snapshot().generation
 		) {
@@ -949,11 +950,14 @@ export class ClientBus<Client> {
 	}
 
 	private stopDriver(entry: ResourceEntry): void {
-		entry.driverEpoch += 1;
-		entry.driverGeneration = 0;
 		const cleanup = entry.driverCleanup;
 		entry.driverCleanup = null;
+		// Give a synchronous driver cleanup one final chance to checkpoint while
+		// its generation is still current. The epoch fence closes immediately
+		// after cleanup returns, so late stream callbacks remain rejected.
 		cleanup?.();
+		entry.driverEpoch += 1;
+		entry.driverGeneration = 0;
 	}
 
 	private acceptDriverUpdate<Data>(

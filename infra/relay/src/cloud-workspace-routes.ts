@@ -2586,6 +2586,19 @@ export const routeCloudWorkspaceRequest = (
 							},
 						}
 					: {}),
+				...(action === "resume" &&
+				!recoverRuntime &&
+				workspace.state !== "failed"
+					? {
+							requestConfig: {
+								...workspace.requestConfig,
+								startupTimings: {
+									requestedAt: nowMs,
+									resumeRequestedAt: nowMs,
+								},
+							},
+						}
+					: {}),
 				...(action === "unarchive"
 					? {
 							state: "paused" as const,

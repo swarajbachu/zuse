@@ -80,6 +80,7 @@ export const makeSessionTimelineResourceDriver = <
 	const checkpointEvents = options.checkpointEvents ?? 16;
 	let fiber: Fiber.Fiber<unknown, unknown> | null = null;
 	let checkpointCancel: (() => void) | null = null;
+	let persistCurrentOnStop: (() => void) | null = null;
 	let active = false;
 
 	return {
@@ -111,6 +112,7 @@ export const makeSessionTimelineResourceDriver = <
 					persist: true,
 				});
 			};
+			persistCurrentOnStop = persistCurrent;
 			const scheduleCheckpoint = (): void => {
 				if (checkpointCancel !== null) return;
 				const schedule =
@@ -223,9 +225,10 @@ export const makeSessionTimelineResourceDriver = <
 			fiber = Effect.runFork(Effect.yieldNow.pipe(Effect.andThen(program)));
 		},
 		stop: () => {
+			const persistCurrent = persistCurrentOnStop;
+			persistCurrentOnStop = null;
+			persistCurrent?.();
 			active = false;
-			checkpointCancel?.();
-			checkpointCancel = null;
 			const running = fiber;
 			fiber = null;
 			if (running !== null) void Effect.runPromise(Fiber.interrupt(running));

@@ -129,8 +129,7 @@ class RendererTimelinePersistence implements ResourcePersistence {
 		if (
 			ref === null ||
 			sessionTimelineCache === null ||
-			value.cursor === null ||
-			(value.data as SessionTimelineProjection).olderMessageSequence != null
+			value.cursor === null
 		) {
 			return;
 		}

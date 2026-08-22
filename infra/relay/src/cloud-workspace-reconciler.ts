@@ -855,8 +855,13 @@ export const reconcileCloudPool = Effect.fn("reconcileCloudPool")(function* (
 			.pipe(
 				Effect.catchTag("SandboxProviderError", () => Effect.succeed(null)),
 			);
-		if (sandbox === null) yield* store.removePool(record.poolId);
-		else live.push(record);
+		if (sandbox?.state === "running") {
+			live.push(record);
+			continue;
+		}
+		if (sandbox !== null)
+			yield* provider.kill(record.providerSandboxId).pipe(Effect.ignore);
+		yield* store.removePool(record.poolId);
 	}
 	const missing = Math.max(0, ACCOUNT_POOL_SIZE - live.length);
 	const nowMs = yield* Clock.currentTimeMillis;
@@ -1242,14 +1247,12 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 								),
 							)
 					: null;
-			const warmSandbox =
-				pooled?.state === "paused"
-					? yield* provider.resume(
-							pooled.providerSandboxId,
-							config.keepAliveTimeoutSeconds,
-							"pause",
-						)
-					: pooled;
+			// A paused E2B sandbox is not warm: reconnecting its allocation can be
+			// substantially slower than forking the account image. Never put that
+			// hidden resume on the normal creation path.
+			const warmSandbox = pooled?.state === "running" ? pooled : null;
+			if (pooled?.state === "paused")
+				yield* provider.kill(pooled.providerSandboxId).pipe(Effect.ignore);
 			const preparedSnapshotAvailable =
 				build.snapshotId !== undefined &&
 				build.templateVersion === provider.templateVersion;

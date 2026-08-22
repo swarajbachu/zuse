@@ -372,6 +372,50 @@ describe("shared session timeline resource driver", () => {
 		driver.stop();
 	});
 
+	it("checkpoints the latest projection when its connection stops", async () => {
+		const frames = Effect.runSync(Queue.unbounded<SessionTimelineFrame>());
+		const test = harness({
+			key,
+			client: { "session.events": () => Stream.fromQueue(frames) },
+			data: null,
+			cursor: null,
+		});
+		const driver = makeSessionTimelineResourceDriver({
+			reportFailure: () => undefined,
+		});
+		driver.start(test.context);
+		Queue.offerUnsafe(frames, {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 1,
+			cursor: { epoch: "disconnect", version: 1 },
+			projection,
+		});
+		Queue.offerUnsafe(frames, {
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 1,
+			cursor: { epoch: "disconnect", version: 1 },
+		});
+		await waitUntil(() => test.view().sync === "live");
+		Queue.offerUnsafe(frames, {
+			kind: "event",
+			sessionId,
+			streamVersion: 2,
+			cursor: { epoch: "disconnect", version: 2 },
+			eventId: "before-disconnect",
+			event: { _tag: "Noop" },
+		});
+		await waitUntil(() => test.view().cursor?.version === 2);
+
+		driver.stop();
+
+		expect(test.updates.at(-1)).toMatchObject({
+			cursor: { epoch: "disconnect", version: 2 },
+			persist: true,
+		});
+	});
+
 	it("accepts a bounded same-epoch reset snapshot", async () => {
 		const frames = Effect.runSync(Queue.unbounded<SessionTimelineFrame>());
 		const test = harness({

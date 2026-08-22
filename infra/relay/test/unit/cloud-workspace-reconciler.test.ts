@@ -208,7 +208,7 @@ describe("cloud workspace reconciler", () => {
 		).toBe(false);
 	});
 
-	test("replaces an incomplete retry with a claimed warm sandbox", async () => {
+	test("forks instead of resuming a paused pool sandbox", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -245,13 +245,14 @@ describe("cloud workspace reconciler", () => {
 					pool: yield* store.listPool(workspace.accountId, workspace.provider),
 					sandboxes: yield* Ref.get(control.sandboxes),
 					network: yield* Ref.get(control.networkBySandbox),
+					resumeInputs: yield* Ref.get(control.resumeInputs),
 				};
 			}).pipe(Effect.provide(testLayer)),
 		);
 
 		expect(result.workspace).toMatchObject({
 			state: "provisioning",
-			providerSandboxId: "warm-incomplete-retry",
+			providerSandboxId: "fake-workspace-incomplete-retry",
 			statusCode: "runtime-starting",
 		});
 		expect(result.workspace?.requestConfig.poolClaimedAt).toEqual(
@@ -266,8 +267,10 @@ describe("cloud workspace reconciler", () => {
 		expect(result.sandboxes.has("source-workspace-incomplete-retry")).toBe(
 			false,
 		);
-		expect(result.network.get("warm-incomplete-retry")).toEqual({
-			kind: "open",
+		expect(result.sandboxes.has("warm-incomplete-retry")).toBe(false);
+		expect(result.resumeInputs).toHaveLength(0);
+		expect(result.network.get("fake-workspace-incomplete-retry")).toEqual({
+			kind: "quarantined",
 		});
 	});
 

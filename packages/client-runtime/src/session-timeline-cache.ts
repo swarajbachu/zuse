@@ -82,9 +82,6 @@ export const decodeSessionTimelineCacheEntry = (
 		value,
 	);
 	if (Result.isSuccess(current)) {
-		if (current.success.projection.olderMessageSequence != null) {
-			throw new Error("Incomplete session timeline cache entry");
-		}
 		const { sessionId: _storageKey, ...entry } = current.success;
 		return entry as SessionTimelineCacheEntry;
 	}
@@ -92,9 +89,6 @@ export const decodeSessionTimelineCacheEntry = (
 		EncodedSessionTimelineCacheEntryV3,
 	)(value);
 	if (Result.isSuccess(previous)) {
-		if (previous.success.projection.olderMessageSequence != null) {
-			throw new Error("Incomplete session timeline cache entry");
-		}
 		const { sessionId: _storageKey, ...entry } = previous.success;
 		return {
 			...entry,
@@ -111,9 +105,6 @@ export const decodeSessionTimelineCacheEntry = (
 		schemaVersion: SESSION_TIMELINE_CACHE_SCHEMA_VERSION,
 		cursor: { epoch: "legacy", version: appliedVersion },
 	} as SessionTimelineCacheEntry;
-	if (migrated.projection.olderMessageSequence != null) {
-		throw new Error("Incomplete session timeline cache entry");
-	}
 	return migrated;
 };
 

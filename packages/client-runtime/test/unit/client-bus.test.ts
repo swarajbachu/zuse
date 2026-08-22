@@ -693,7 +693,7 @@ describe("ClientBus", () => {
 		});
 	});
 
-	it("never lets delayed cache hydration overwrite runtime data", async () => {
+	it("hydrates persisted data before starting the runtime driver", async () => {
 		const persistence = new MemoryPersistence();
 		const cacheGate = deferred<PersistedResource<unknown> | null>();
 		persistence.loadGate = cacheGate.promise;
@@ -709,7 +709,20 @@ describe("ClientBus", () => {
 			}),
 		});
 		bus.retain(timelineKey, { activation: "connect" });
+		await Promise.resolve();
+		expect(context).toBeNull();
+
+		cacheGate.resolve({
+			data: { text: "old cache" },
+			cursor: { epoch: "epoch", version: 3 },
+			storedAt: 1,
+		});
 		await waitUntil(() => context !== null);
+		expect(bus.snapshot(timelineKey)).toMatchObject({
+			data: { text: "old cache" },
+			origin: "cache",
+			cursor: { epoch: "epoch", version: 3 },
+		});
 		const activeContext = context as unknown as ResourceDriverContext<
 			Client,
 			Timeline
@@ -719,14 +732,6 @@ describe("ClientBus", () => {
 			cursor: { epoch: "epoch", version: 5 },
 			sync: "live",
 		});
-		cacheGate.resolve({
-			data: { text: "old cache" },
-			cursor: { epoch: "epoch", version: 3 },
-			storedAt: 1,
-		});
-		await Promise.resolve();
-		await Promise.resolve();
-
 		expect(bus.snapshot(timelineKey)).toMatchObject({
 			data: { text: "runtime" },
 			origin: "runtime",

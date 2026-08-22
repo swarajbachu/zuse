@@ -563,22 +563,22 @@ describe("session timeline cache", () => {
 		expect(decoded.ref).toEqual({ environmentId: "local", sessionId });
 	});
 
-	it("rejects an incomplete legacy cache projection", () => {
-		expect(() =>
-			decodeSessionTimelineCacheEntry({
-				schemaVersion: 3,
-				sessionId: "session:local:session-1",
-				ref: { environmentId: "local", sessionId },
-				cursor: cursor("legacy-partial", 7),
-				projection: { ...projection, olderMessageSequence: 20 },
-				savedAt: 40,
-				accessedAt: 41,
-				estimatedBytes: 42,
-			}),
-		).toThrow(/incomplete/i);
+	it("retains a paginated legacy cache projection for offline reading", () => {
+		const decoded = decodeSessionTimelineCacheEntry({
+			schemaVersion: 3,
+			sessionId: "session:local:session-1",
+			ref: { environmentId: "local", sessionId },
+			cursor: cursor("legacy-partial", 7),
+			projection: { ...projection, olderMessageSequence: 20 },
+			savedAt: 40,
+			accessedAt: 41,
+			estimatedBytes: 42,
+		});
+
+		expect(decoded.projection.olderMessageSequence).toBe(20);
 	});
 
-	it("rejects an incomplete current cache projection", () => {
+	it("round-trips a paginated current cache projection", () => {
 		const entry = makeSessionTimelineCacheEntry({
 			ref: { environmentId: EnvironmentId.make("local"), sessionId },
 			cursor: cursor("current-partial", 8),
@@ -589,9 +589,10 @@ describe("session timeline cache", () => {
 			now: 42,
 		});
 
-		expect(() =>
-			decodeSessionTimelineCacheEntry(encodeSessionTimelineCacheEntry(entry)),
-		).toThrow(/incomplete/i);
+		expect(
+			decodeSessionTimelineCacheEntry(encodeSessionTimelineCacheEntry(entry))
+				.projection.olderMessageSequence,
+		).toBe(20);
 	});
 
 	it("rejects entries from an unsupported schema", () => {
