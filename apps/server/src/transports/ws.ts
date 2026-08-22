@@ -3,7 +3,14 @@ import * as http from "node:http";
 import * as https from "node:https";
 import { NodeHttpServer } from "@effect/platform-node";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
-import { MemoizeRpcs, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
+import {
+	buildBrowserPairUrl,
+	buildConnectDeepLink,
+	formatPairingCodeForDisplay,
+	MemoizeRpcs,
+	WIRE_PROTOCOL_VERSION,
+	wsBaseUrlForHttpBase,
+} from "@zuse/contracts";
 import {
 	makeMeasuredJsonRpcSerialization,
 	makeRpcPayloadReporter,
@@ -81,7 +88,9 @@ export type WsServerProtocolOptions = {
 	readonly onListening?: (address: WsServerListeningAddress) => void;
 	readonly onPairing?: (pairing: {
 		readonly browserUrl: string;
+		readonly baseUrl: string;
 		readonly qrText: string;
+		readonly code: string;
 		readonly expiresAt: Date;
 	}) => void;
 	/** Public HTTPS origin when a trusted private proxy fronts this listener. */
@@ -701,35 +710,53 @@ export const wsServerProtocolLayer = (
 				auth.pairingBootstrap
 			) {
 				const pairing = yield* auth.createPairingCode();
+				// One reachable origin drives every printed link: explicit public
+				// origin > managed tunnel > actual listener (ephemeral port) >
+				// the server-issued LAN pairing. Browser URL, deep link, and the
+				// redeem endpoint must never point at different hosts.
 				const publicBaseUrl = opts.pairingPublicBaseUrl?.replace(/\/$/u, "");
+				const httpBaseUrl =
+					publicBaseUrl ??
+					(relay?.tunnelHostname !== undefined
+						? `https://${relay.tunnelHostname}`
+						: opts.port === 0 && listeningAddress !== null
+							? `${opts.tls === undefined ? "http" : "https"}://${listeningAddress.host}:${listeningAddress.port}`
+							: null);
 				const browserUrl =
-					publicBaseUrl !== undefined
-						? `${publicBaseUrl}/#pair=${encodeURIComponent(pairing.code)}`
-						: relay?.tunnelHostname === undefined
-							? opts.port === 0 && listeningAddress !== null
-								? `${opts.tls === undefined ? "http" : "https"}://${listeningAddress.host}:${listeningAddress.port}/#pair=${encodeURIComponent(pairing.code)}`
-								: pairing.browserUrl
-							: `https://${relay.tunnelHostname}/#pair=${encodeURIComponent(pairing.code)}`;
+					httpBaseUrl !== null
+						? buildBrowserPairUrl({ httpBaseUrl, code: pairing.code })
+						: pairing.browserUrl;
 				const pairingUrl =
-					publicBaseUrl === undefined
-						? pairing.pairingUrl
-						: `${publicBaseUrl.replace(/^https:/u, "wss:")}/rpc`;
-				const qrText = `zuse:///connect/pair?pairingUrl=${encodeURIComponent(pairingUrl)}#token=${pairing.code}`;
-				const redeemUrl = pairingUrl.replace(/^ws:/, "http:");
+					httpBaseUrl !== null
+						? wsBaseUrlForHttpBase(httpBaseUrl)
+						: pairing.pairingUrl;
+				const qrText = buildConnectDeepLink({
+					wsBaseUrl: pairingUrl,
+					code: pairing.code,
+				});
+				const redeemBaseUrl =
+					httpBaseUrl ?? pairing.pairingUrl.replace(/^ws:/u, "http:");
+				const baseUrl =
+					httpBaseUrl ?? pairing.browserUrl.replace(/\/#pair=.*$/u, "");
 				yield* Effect.sync(() => {
 					console.log("Zuse browser pairing enabled");
 					console.log(`Browser: ${browserUrl}`);
+					console.log(
+						`Open: ${baseUrl} and enter code ${formatPairingCodeForDisplay(pairing.code)}`,
+					);
 					console.log(`Expires: ${pairing.expiresAt.toISOString()}`);
 					console.log(
 						`Remote access: ${relay?.tunnelHostname === undefined ? "inactive" : "active"}`,
 					);
 					console.log(`QR: ${qrText}`);
 					console.log(
-						`Redeem with: POST ${redeemUrl}/pair {"code":"${pairing.code}"}`,
+						`Redeem with: POST ${redeemBaseUrl}/pair {"code":"${pairing.code}"}`,
 					);
 					opts.onPairing?.({
 						browserUrl,
+						baseUrl,
 						qrText,
+						code: pairing.code,
 						expiresAt: pairing.expiresAt,
 					});
 				});

@@ -1,17 +1,17 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronDown } from "lucide-react";
-import { ComputerIcon } from "@zuse/icons/solid-rounded";
 import {
 	environmentRoute,
 	parseEnvironmentRoute,
 } from "@zuse/client-runtime/environment-scope";
 import {
 	type CommandId,
+	ENVIRONMENT_PRESENCE_STALE_MS,
 	EnvironmentId,
 	HOSTED_APP_URL,
 	type RelayEnvironmentRecord,
 } from "@zuse/contracts";
-import { Plus } from "lucide-react";
+import { ComputerIcon } from "@zuse/icons/solid-rounded";
+import { ChevronDown, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
@@ -62,8 +62,6 @@ function DesktopComputerSwitcher() {
 	);
 }
 
-const ONLINE_WINDOW_MS = 90_000;
-
 const routeEnvironmentId = (): string | null => {
 	return parseEnvironmentRoute(window.location.pathname)?.environmentId ?? null;
 };
@@ -109,14 +107,17 @@ function HostedComputerSwitcher() {
 					useEnvironmentCatalogStore.getState().activeEnvironmentId,
 				);
 				const [status, catalog] = await Promise.all([
-					dispatchEnvironmentShellCommand<{}, { environmentId?: string }>({
+					dispatchEnvironmentShellCommand<
+						Record<never, never>,
+						{ environmentId?: string }
+					>({
 						environmentId,
 						kind: "relay.status",
 						commandId: crypto.randomUUID() as CommandId,
 						payload: {},
 					}).then(({ result }) => result),
 					dispatchEnvironmentShellCommand<
-						{},
+						Record<never, never>,
 						{ environments: ReadonlyArray<RelayEnvironmentRecord> }
 					>({
 						environmentId,
@@ -170,7 +171,8 @@ function HostedComputerSwitcher() {
 							{selected === null
 								? "Local workspace"
 								: selected.lastHeartbeat !== undefined &&
-										Date.now() - selected.lastHeartbeat <= ONLINE_WINDOW_MS
+										Date.now() - selected.lastHeartbeat <=
+											ENVIRONMENT_PRESENCE_STALE_MS
 									? "Online"
 									: `Offline · ${relativeTime(selected.lastHeartbeat)}`}
 						</span>
@@ -191,7 +193,8 @@ function HostedComputerSwitcher() {
 					{environments.map((environment) => {
 						const online =
 							environment.lastHeartbeat !== undefined &&
-							Date.now() - environment.lastHeartbeat <= ONLINE_WINDOW_MS;
+							Date.now() - environment.lastHeartbeat <=
+								ENVIRONMENT_PRESENCE_STALE_MS;
 						const active = environment.environmentId === selectedId;
 						return (
 							<MenuItem

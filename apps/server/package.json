@@ -34,7 +34,8 @@
 			"types": "./src/secure-storage-master-key.ts",
 			"import": "./src/secure-storage-master-key.ts",
 			"require": "./src/secure-storage-master-key.ts"
-		}
+		},
+		"./package.json": "./package.json"
 	},
 	"scripts": {
 		"serve": "tsx src/bin.ts",

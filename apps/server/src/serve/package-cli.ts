@@ -1,13 +1,21 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir, hostname } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
 
+import { environmentRoute } from "@zuse/client-runtime/environment-scope";
 import {
+	buildConnectDeepLink,
+	DEFAULT_SERVE_PORT,
+	formatPairingCodeForDisplay,
 	HOSTED_APP_URL,
 	type ServeStatusV1,
 	WORKOS_PUBLIC_CLIENT_ID,
+	wsBaseUrlForHttpBase,
 } from "@zuse/contracts";
 import { probeZuseLoopback, setTailnetShareEnabled } from "@zuse/tailnet";
 import { Effect } from "effect";
@@ -35,6 +43,11 @@ import {
 	UnsupportedServiceManagerError,
 	uninstallServeService,
 } from "./service-manager.ts";
+import {
+	readServeSettings,
+	type ServeSettings,
+	writeServeSettings,
+} from "./settings.ts";
 
 export {
 	ServeServiceState,
@@ -48,7 +61,8 @@ export const SERVE_HELP = `Zuse Serve
 Run and manage Zuse on this computer.
 
 Usage:
-  zuse serve [start] [--foreground] [--ssh-managed] [--tailscale] [--data-dir <path>]
+  zuse serve [start] [--foreground] [--ssh-managed] [--tailscale] [--no-account]
+             [--lan | --host <addr>] [--port <n>] [--data-dir <path>]
   zuse serve status [--json] [--data-dir <path>]
   zuse serve stop [--data-dir <path>]
   zuse serve update --force [--data-dir <path>]
@@ -66,7 +80,11 @@ Commands:
 Options:
   --foreground       Run in the current terminal
   --ssh-managed      Run loopback-only without account linking for SSH tunnels
-  --tailscale        Share privately over Tailscale Serve HTTPS
+  --tailscale        Also share privately over Tailscale Serve HTTPS
+  --no-account       Skip account sign-in and the managed tunnel
+  --lan              Listen on the local network (same as --host 0.0.0.0)
+  --host <addr>      Listen on a specific address (default 127.0.0.1)
+  --port <n>         Listen on a specific port (default ${DEFAULT_SERVE_PORT})
   --json             Emit versioned JSON from status
   --force            Confirm a safe update window
   --data-dir <path>  Override the Zuse data directory
@@ -75,27 +93,71 @@ Options:
 const workosClientId = (env: NodeJS.ProcessEnv): string =>
 	(env.WORKOS_CLIENT_ID ?? "").trim() || WORKOS_PUBLIC_CLIENT_ID;
 
+/**
+ * Account sign-in (and the managed tunnel it unlocks) is the default access
+ * path. `--tailscale` is an *additional* access method, not a replacement —
+ * only `--ssh-managed` (tunnel owns transport) and an explicit `--no-account`
+ * skip it, so a served machine never silently disappears from the account.
+ */
 export const requiresServeAccountAuthorization = (input: {
 	readonly sshManaged: boolean;
-	readonly tailscale: boolean;
-}): boolean => !input.sshManaged && !input.tailscale;
+	readonly noAccount: boolean;
+	readonly cloudWorkspaceId?: string;
+}): boolean =>
+	!input.sshManaged && !input.noAccount && input.cloudWorkspaceId === undefined;
 
 export const shouldAutoLinkForeground = (input: {
 	readonly sshManaged: boolean;
-	readonly tailscale: boolean;
+	readonly noAccount: boolean;
 	readonly cloudWorkspaceId?: string;
 }): boolean =>
-	!input.sshManaged && !input.tailscale && input.cloudWorkspaceId === undefined;
+	!input.sshManaged && !input.noAccount && input.cloudWorkspaceId === undefined;
+
+/**
+ * The browser client that ships inside `@zusehq/server`'s published `dist`.
+ * Resolution order: explicit env override, `dist/client` next to the bundled
+ * CLI, `dist/client` relative to this source file (dev/tsx), then the
+ * installed `@zusehq/server` package. Missing client → undefined (API-only).
+ */
+export const resolveServeStaticDir = (
+	env: NodeJS.ProcessEnv,
+	moduleUrl: string = import.meta.url,
+): string | undefined => {
+	if (env.ZUSE_STATIC_DIR !== undefined && env.ZUSE_STATIC_DIR !== "") {
+		return env.ZUSE_STATIC_DIR;
+	}
+	const moduleDir = dirname(fileURLToPath(moduleUrl));
+	const candidates = [
+		join(moduleDir, "client"),
+		join(moduleDir, "..", "..", "dist", "client"),
+	];
+	try {
+		const packageJson = createRequire(moduleUrl).resolve(
+			"@zusehq/server/package.json",
+		);
+		candidates.push(join(dirname(packageJson), "dist", "client"));
+	} catch {
+		// Not installed as a package (monorepo dev) — file candidates cover it.
+	}
+	return candidates.find((candidate) =>
+		existsSync(join(candidate, "index.html")),
+	);
+};
 
 export const foregroundServeOptions = (
 	env: NodeJS.ProcessEnv,
-	command: { readonly sshManaged: boolean; readonly dataDir?: string },
+	command: {
+		readonly sshManaged: boolean;
+		readonly dataDir?: string;
+		readonly host?: string;
+		readonly port?: number;
+	},
 	tailnetOrigin?: string,
 ): ServeOptions => ({
-	host: env.ZUSE_HOST ?? "127.0.0.1",
-	port: Number(env.ZUSE_PORT ?? 4859),
+	host: command.host ?? env.ZUSE_HOST ?? "127.0.0.1",
+	port: command.port ?? Number(env.ZUSE_PORT ?? DEFAULT_SERVE_PORT),
 	dataDir: resolveServeDataDir(env, command.dataDir),
-	staticDir: undefined,
+	staticDir: resolveServeStaticDir(env),
 	open: false,
 	policy: command.sshManaged ? "local" : "protected",
 	pairing: !command.sshManaged && env.ZUSE_ENABLE_PAIRING !== "0",
@@ -141,42 +203,47 @@ const foregroundArgs = (dataDir: string): ReadonlyArray<string> => [
 	"protected",
 ];
 
-const captureCommand = (
-	command: string,
-	args: ReadonlyArray<string>,
-): Promise<string> =>
-	new Promise((resolve) => {
-		const child = spawn(command, [...args], {
-			stdio: ["ignore", "pipe", "ignore"],
-		});
-		const chunks: Buffer[] = [];
-		child.stdout.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
-		child.once("error", () => resolve(""));
-		child.once("exit", () => resolve(Buffer.concat(chunks).toString("utf8")));
-	});
-
-export const latestPairingLink = (output: string): string | null => {
-	const matches = [...output.matchAll(/^QR:\s+(zuse:\/\/\/\S+)$/gmu)];
-	return matches.at(-1)?.[1] ?? null;
+export type ServePairingBootstrap = {
+	readonly browserUrl: string;
+	readonly qrText: string;
+	readonly code?: string;
+	readonly expiresAt: string;
 };
 
-const readServicePairingLink = async (
-	paths: ReturnType<typeof resolveServeServicePaths>,
-): Promise<string | null> => {
-	const output =
-		paths.platform === "darwin"
-			? await readFile(join(paths.logDir, "serve.log"), "utf8").catch(() => "")
-			: await captureCommand("journalctl", [
-					"--user",
-					"-u",
-					"zuse-serve.service",
-					"-n",
-					"100",
-					"--no-pager",
-					"-o",
-					"cat",
-				]);
-	return latestPairingLink(output);
+/**
+ * The daemon writes its boot pairing details to `<dataDir>/pairing.json`
+ * (see `runHeadlessServer`); the CLI reads that file instead of scraping
+ * service logs. Expired bootstraps are treated as absent.
+ */
+export const readServePairingBootstrap = async (
+	dataDir: string,
+): Promise<ServePairingBootstrap | null> => {
+	try {
+		const raw = JSON.parse(
+			await readFile(join(dataDir, "pairing.json"), "utf8"),
+		) as {
+			readonly browserUrl?: unknown;
+			readonly qrText?: unknown;
+			readonly code?: unknown;
+			readonly expiresAt?: unknown;
+		};
+		if (
+			typeof raw.browserUrl !== "string" ||
+			typeof raw.qrText !== "string" ||
+			typeof raw.expiresAt !== "string" ||
+			Date.parse(raw.expiresAt) <= Date.now()
+		) {
+			return null;
+		}
+		return {
+			browserUrl: raw.browserUrl,
+			qrText: raw.qrText,
+			code: typeof raw.code === "string" ? raw.code : undefined,
+			expiresAt: raw.expiresAt,
+		};
+	} catch {
+		return null;
+	}
 };
 
 type LocalRelayConfig = {
@@ -255,9 +322,12 @@ const installedAgents = async (): Promise<ReadonlyArray<string>> => {
 	return results.filter((value) => value !== null);
 };
 
-const serverReachable = async (env: NodeJS.ProcessEnv): Promise<boolean> => {
+const serverReachable = async (
+	env: NodeJS.ProcessEnv,
+	portOverride?: number,
+): Promise<boolean> => {
 	try {
-		const port = Number(env.ZUSE_PORT ?? 4859);
+		const port = portOverride ?? Number(env.ZUSE_PORT ?? DEFAULT_SERVE_PORT);
 		const response = await fetch(`http://127.0.0.1:${port}/auth/session`, {
 			signal: AbortSignal.timeout(2_000),
 		});
@@ -273,12 +343,13 @@ const printStatus = async (
 		readonly json: boolean;
 		readonly dataDir: string;
 		readonly env: NodeJS.ProcessEnv;
+		readonly port?: number;
 	},
 ): Promise<void> => {
 	const relay = readLocalRelayConfig(options.dataDir);
 	const [agents, reachable] = await Promise.all([
 		installedAgents(),
-		serverReachable(options.env),
+		serverReachable(options.env, options.port),
 	]);
 	const value: ServeStatusV1 = {
 		schemaVersion: 1,
@@ -303,22 +374,52 @@ const printStatus = async (
 	}
 	console.log(`Computer   ${value.computer}`);
 	console.log(`Service    ${value.service}`);
-	console.log(`Tunnel     ${value.tunnel}`);
+	if (relay?.tunnelHostname !== undefined) {
+		console.log(`Tunnel     https://${relay.tunnelHostname}`);
+	} else {
+		console.log(`Tunnel     ${value.tunnel}`);
+	}
 	console.log(`Agents     ${value.agents.join(", ") || "None detected"}`);
 	console.log(`Status     ${value.reachable ? "Online" : "Unavailable"}`);
-	console.log(`Open       ${value.appUrl}`);
+	console.log(`Open       ${serveAppUrl(relay)}`);
 };
+
+/** Stable per-computer hosted URL once linked; the hosted root otherwise. */
+const serveAppUrl = (relay: LocalRelayConfig | null): string =>
+	relay === null
+		? HOSTED_APP_URL
+		: `${HOSTED_APP_URL}${environmentRoute(relay.environmentId)}`;
 
 const waitForReachability = async (
 	env: NodeJS.ProcessEnv,
 	timeoutMs = 45_000,
+	portOverride?: number,
 ): Promise<boolean> => {
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
-		if (await serverReachable(env)) return true;
+		if (await serverReachable(env, portOverride)) return true;
 		await new Promise((resolve) => setTimeout(resolve, 1_000));
 	}
 	return false;
+};
+
+/**
+ * The daemon links to the relay shortly after boot; wait briefly for the
+ * persisted relay config so the start summary can print real URLs. Returns
+ * whatever is on disk when the wait expires.
+ */
+const waitForRelayConfig = async (
+	dataDir: string,
+	timeoutMs: number,
+): Promise<LocalRelayConfig | null> => {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		const relay = readLocalRelayConfig(dataDir);
+		if (relay?.tunnelHostname !== undefined || Date.now() >= deadline) {
+			return relay;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 1_000));
+	}
 };
 
 export const activateServeRuntimeUpdate = async (input: {
@@ -440,17 +541,30 @@ export const runServePackageCli = async (
 	const dataDir = resolveServeDataDir(env, command.dataDir);
 	env.ZUSE_USER_DATA = dataDir;
 	const servicePaths = resolveServeServicePaths({ dataDir });
+	// `start` installs from its own flags; every other action (notably
+	// `update`) reuses the persisted flags so a re-install cannot silently
+	// revert the binding or access choices the service was started with.
+	const settings: ServeSettings =
+		command.action === "start"
+			? {
+					sshManaged: command.sshManaged,
+					tailscale: command.tailscale,
+					noAccount: command.noAccount,
+					lan: command.lan,
+					host: command.host,
+					port: command.port,
+				}
+			: await readServeSettings(dataDir);
 	const installService = (executable: string) =>
 		installServeService({
 			executable,
 			paths: servicePaths,
 			relayUrl: env.ZUSE_RELAY_URL,
-			sshManaged: command.sshManaged,
-			tailscale: command.tailscale,
+			...settings,
 		});
 	const enableTailnet = async (): Promise<string | null> => {
 		if (!command.tailscale) return null;
-		const port = Number(env.ZUSE_PORT ?? 4859);
+		const port = command.port ?? Number(env.ZUSE_PORT ?? DEFAULT_SERVE_PORT);
 		const options = { ownershipDir: dataDir, probe: probeZuseLoopback };
 		const state = await setTailnetShareEnabled({
 			enabled: true,
@@ -474,12 +588,33 @@ export const runServePackageCli = async (
 		console.log(`Tailnet    ${state.httpsUrl}`);
 		return state.httpsUrl;
 	};
+	const authorizeAccount = (): Promise<{ readonly email: string } | null> =>
+		requiresServeAccountAuthorization({
+			sshManaged: command.sshManaged,
+			noAccount: command.noAccount,
+			cloudWorkspaceId: env.ZUSE_CLOUD_WORKSPACE_ID,
+		})
+			? Effect.runPromise(
+					ensureServeSession({
+						clientId: workosClientId(env),
+						onPrompt: async (grant) => {
+							console.log("Authorize this computer");
+							console.log(`Code       ${grant.userCode}`);
+							console.log(`Open       ${grant.verificationUriComplete}`);
+							if (env.ZUSE_NO_OPEN !== "1") {
+								openBrowser(grant.verificationUriComplete);
+							}
+						},
+					}),
+				)
+			: Promise.resolve(null);
 
 	if (command.action === "start" && command.foreground) {
+		await authorizeAccount();
 		if (
 			shouldAutoLinkForeground({
 				sshManaged: command.sshManaged,
-				tailscale: command.tailscale,
+				noAccount: command.noAccount,
 				cloudWorkspaceId: env.ZUSE_CLOUD_WORKSPACE_ID,
 			})
 		)
@@ -496,6 +631,7 @@ export const runServePackageCli = async (
 			json: command.json,
 			dataDir,
 			env,
+			port: settings.port,
 		});
 		return;
 	}
@@ -538,27 +674,16 @@ export const runServePackageCli = async (
 			executable,
 			previous,
 			installService,
-			waitUntilReachable: (timeoutMs) => waitForReachability(env, timeoutMs),
+			waitUntilReachable: (timeoutMs) =>
+				waitForReachability(env, timeoutMs, settings.port),
 		});
 		console.log(`Zuse Serve was updated to ${version}.`);
 		return;
 	}
 
 	await mkdir(dataDir, { recursive: true, mode: 0o700 });
-	const session = requiresServeAccountAuthorization(command)
-		? await Effect.runPromise(
-				ensureServeSession({
-					clientId: workosClientId(env),
-					onPrompt: async (grant) => {
-						console.log("Authorize this computer");
-						console.log(`Code       ${grant.userCode}`);
-						console.log(`Open       ${grant.verificationUriComplete}`);
-						if (env.ZUSE_NO_OPEN !== "1")
-							openBrowser(grant.verificationUriComplete);
-					},
-				}),
-			)
-		: null;
+	await writeServeSettings(dataDir, settings);
+	const session = await authorizeAccount();
 	let installedExecutable: string;
 	try {
 		const packageVersion = options.packageVersion ?? "0.0.0";
@@ -578,20 +703,22 @@ export const runServePackageCli = async (
 		}
 		throw cause;
 	}
-	const reachable = await waitForReachability(env);
+	const reachable = await waitForReachability(env, undefined, settings.port);
 	if (!reachable) {
 		throw new Error(
 			"Zuse Serve was installed, but the background host did not become reachable. Run `zuse serve status --json` for diagnostics.",
 		);
 	}
-	await enableTailnet();
-	const tailnetPairingLink = command.tailscale
-		? await readServicePairingLink(servicePaths)
-		: null;
+	const tailnetOrigin = await enableTailnet();
 	await writeActiveServeRuntime(dataDir, {
 		version: options.packageVersion ?? "0.0.0",
 		executable: installedExecutable,
 	});
+	const relay =
+		session === null
+			? readLocalRelayConfig(dataDir)
+			: await waitForRelayConfig(dataDir, 30_000);
+	const pairing = await readServePairingBootstrap(dataDir);
 
 	console.log("");
 	console.log("Zuse Serve is ready");
@@ -601,10 +728,26 @@ export const runServePackageCli = async (
 	if (session !== null) console.log(`Account    ${session.email}`);
 	const agents = await installedAgents();
 	console.log(`Agents     ${agents.join(", ") || "None detected"}`);
-	if (tailnetPairingLink !== null) {
-		console.log(`Pair       ${tailnetPairingLink}`);
+	if (relay?.tunnelHostname !== undefined) {
+		console.log(`Tunnel     https://${relay.tunnelHostname}`);
 	}
-	console.log(`Open       ${HOSTED_APP_URL}`);
+	if (pairing !== null) {
+		const browserBaseUrl =
+			relay?.tunnelHostname !== undefined
+				? `https://${relay.tunnelHostname}`
+				: (tailnetOrigin ?? pairing.browserUrl.replace(/\/#pair=.*$/u, ""));
+		const wsBaseUrl = wsBaseUrlForHttpBase(browserBaseUrl);
+		console.log(`Browser    ${browserBaseUrl}`);
+		if (pairing.code !== undefined) {
+			console.log(`Code       ${formatPairingCodeForDisplay(pairing.code)}`);
+			console.log(
+				`Pair       ${buildConnectDeepLink({ wsBaseUrl, code: pairing.code })}`,
+			);
+		} else {
+			console.log(`Pair       ${pairing.qrText}`);
+		}
+	}
+	console.log(`Open       ${serveAppUrl(relay)}`);
 };
 
 export { foregroundArgs };

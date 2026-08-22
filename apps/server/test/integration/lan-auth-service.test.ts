@@ -175,9 +175,9 @@ describe("LanAuthService", () => {
 				}),
 			);
 
-			expect(result.pairing.code.startsWith("zp_")).toBe(true);
+			expect(result.pairing.code).toMatch(/^[A-Z2-9]{8}$/u);
 			expect(result.pairing.qrText).toContain("zuse:///connect/pair?");
-			expect(result.pairing.qrText).toContain("#token=zp_");
+			expect(result.pairing.qrText).toContain(`#token=${result.pairing.code}`);
 			expect(result.redeemed.token.startsWith("zt_")).toBe(true);
 			expect(result.verified).toBe(true);
 			expect(Result.isFailure(result.second)).toBe(true);
@@ -440,25 +440,53 @@ describe("LanAuthService", () => {
 		});
 	});
 
-	it("invalidates an older pairing code when a new code is shown", async () => {
+	it("keeps a few codes live concurrently and evicts the oldest past the cap", async () => {
 		await withRuntime(async (run) => {
 			const result = await run(
 				Effect.gen(function* () {
 					const auth = yield* LanAuthService;
-					const previous = yield* auth.createPairingCode();
-					const current = yield* auth.createPairingCode();
-					const previousResult = yield* Effect.result(
-						auth.redeemPairingCode(previous.code),
+					// Four live codes exceed the cap of 3: the oldest is evicted,
+					// the newer three all stay redeemable.
+					const first = yield* auth.createPairingCode();
+					const second = yield* auth.createPairingCode();
+					const third = yield* auth.createPairingCode();
+					const fourth = yield* auth.createPairingCode();
+					const evicted = yield* Effect.result(
+						auth.redeemPairingCode(first.code),
 					);
-					const currentResult = yield* Effect.result(
-						auth.redeemPairingCode(current.code),
+					const bothLive = yield* Effect.result(
+						auth.redeemPairingCode(second.code),
 					);
-					return { previousResult, currentResult };
+					const newest = yield* Effect.result(
+						auth.redeemPairingCode(fourth.code),
+					);
+					const remaining = yield* Effect.result(
+						auth.redeemPairingCode(third.code),
+					);
+					return { bothLive, evicted, newest, remaining };
 				}),
 			);
 
-			expect(Result.isFailure(result.previousResult)).toBe(true);
-			expect(Result.isSuccess(result.currentResult)).toBe(true);
+			expect(Result.isSuccess(result.bothLive)).toBe(true);
+			expect(Result.isFailure(result.evicted)).toBe(true);
+			expect(Result.isSuccess(result.newest)).toBe(true);
+			expect(Result.isSuccess(result.remaining)).toBe(true);
+		});
+	});
+
+	it("redeems typed codes case-insensitively and with the display dash", async () => {
+		await withRuntime(async (run) => {
+			const result = await run(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					const pairing = yield* auth.createPairingCode();
+					const typed =
+						`${pairing.code.slice(0, 4)}-${pairing.code.slice(4)}`.toLowerCase();
+					return yield* Effect.result(auth.redeemPairingCode(typed));
+				}),
+			);
+
+			expect(Result.isSuccess(result)).toBe(true);
 		});
 	});
 

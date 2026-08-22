@@ -14,6 +14,7 @@ import {
 	type EnsureTailnetEnvironmentInput,
 	EnvironmentDescriptor,
 	EnvironmentId,
+	parseConnectLink,
 	TailnetEnvironmentConnection,
 	TailnetEnvironmentProfile,
 } from "@zuse/contracts";
@@ -83,37 +84,26 @@ export type ParsedTailnetPairingLink = {
 export const parseTailnetPairingLink = (
 	value: string,
 ): ParsedTailnetPairingLink => {
-	const outer = new URL(value.trim());
-	if (outer.protocol !== "zuse:" && outer.protocol !== "memoize:") {
-		throw new Error("Paste a Zuse pairing link from the other computer.");
+	const parsed = parseConnectLink(value);
+	if (parsed.ok) {
+		return {
+			code: parsed.link.code,
+			httpBaseUrl: parsed.link.httpBaseUrl,
+			wsBaseUrl: parsed.link.wsBaseUrl,
+		};
 	}
-	const endpointValue = outer.searchParams.get("pairingUrl");
-	const code = outer.hash.startsWith("#token=")
-		? decodeURIComponent(outer.hash.slice("#token=".length))
-		: "";
-	if (endpointValue === null || code.length === 0) {
+	if (parsed.reason === "incomplete") {
 		throw new Error("This pairing link is incomplete or expired.");
 	}
-	let endpoint: URL;
-	try {
-		endpoint = new URL(endpointValue);
-	} catch {
-		throw new Error("This link doesn't point to a reachable Zuse computer.");
+	if (parsed.reason === "insecure-endpoint") {
+		throw new Error(
+			"Public connect links must use a secure wss:// address. Plaintext links are allowed only on a private local network.",
+		);
 	}
-	if (endpoint.protocol !== "wss:") {
-		throw new Error("Connect links must use a secure wss:// address.");
+	if (parsed.reason === "wrong-scheme" || parsed.reason === "unrecognized") {
+		throw new Error("Paste a Zuse pairing link from the other computer.");
 	}
-	if (endpoint.username.length > 0 || endpoint.password.length > 0) {
-		throw new Error("This link doesn't point to a reachable Zuse computer.");
-	}
-	return {
-		code,
-		httpBaseUrl: `https://${endpoint.host}`,
-		wsBaseUrl:
-			endpoint.pathname === "/" || endpoint.pathname.length === 0
-				? `wss://${endpoint.host}/rpc`
-				: endpoint.toString().replace(/\/$/u, ""),
-	};
+	throw new Error("This link doesn't point to a reachable Zuse computer.");
 };
 
 const profileIdFor = (httpBaseUrl: string): string =>
@@ -194,7 +184,7 @@ export class TailnetEnvironmentManager {
 			throw new Error(
 				response.status === 401 || response.status === 410
 					? "This pairing link expired. Create a new link on the other computer."
-					: "The Tailnet computer could not complete pairing.",
+					: "The remote computer could not complete pairing.",
 			);
 		}
 		const tailnetHostname = new URL(parsed.httpBaseUrl).hostname;

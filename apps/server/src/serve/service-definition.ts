@@ -6,7 +6,30 @@ export interface ServeServiceDefinitionInput {
 	readonly relayUrl?: string;
 	readonly sshManaged?: boolean;
 	readonly tailscale?: boolean;
+	readonly noAccount?: boolean;
+	readonly lan?: boolean;
+	readonly host?: string;
+	readonly port?: number;
 }
+
+/** Start flags the daemon re-parses; order mirrors the CLI help. */
+const serveStartFlags = (
+	input: ServeServiceDefinitionInput,
+): ReadonlyArray<string> => [
+	...(input.sshManaged === true ? ["--ssh-managed"] : []),
+	...(input.tailscale === true ? ["--tailscale"] : []),
+	...(input.noAccount === true ? ["--no-account"] : []),
+	...(input.lan === true
+		? ["--lan"]
+		: input.host !== undefined
+			? ["--host", input.host]
+			: []),
+	...(input.port !== undefined ? ["--port", String(input.port)] : []),
+];
+
+/** Account linking runs unless the mode explicitly opts out. */
+const autoLinkEnabled = (input: ServeServiceDefinitionInput): boolean =>
+	input.sshManaged !== true && input.noAccount !== true;
 
 export interface LaunchAgentDefinition {
 	readonly label: "sh.zuse.serve";
@@ -48,8 +71,9 @@ export const launchAgentDefinition = (
     <string>${escapeXml(input.executable)}</string>
     <string>serve</string>
     <string>--foreground</string>
-    ${input.sshManaged === true ? "<string>--ssh-managed</string>" : ""}
-    ${input.tailscale === true ? "<string>--tailscale</string>" : ""}
+    ${serveStartFlags(input)
+			.map((flag) => `<string>${escapeXml(flag)}</string>`)
+			.join("\n    ")}
     <string>--data-dir</string>
     <string>${escapeXml(input.dataDir)}</string>
   </array>
@@ -64,7 +88,7 @@ export const launchAgentDefinition = (
   <string>Interactive</string>
   <key>EnvironmentVariables</key>
   <dict>
-	${input.sshManaged === true || input.tailscale === true ? "" : "<key>ZUSE_SERVE_AUTO_LINK</key>\n    <string>1</string>"}
+	${autoLinkEnabled(input) ? "<key>ZUSE_SERVE_AUTO_LINK</key>\n    <string>1</string>" : ""}
     <key>ZUSE_RELAY_URL</key>
     <string>${escapeXml(relayUrl)}</string>
   </dict>
@@ -91,8 +115,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${quoteSystemd(input.nodeExecutable)} ${quoteSystemd(input.executable)} serve --foreground${input.sshManaged === true ? " --ssh-managed" : ""}${input.tailscale === true ? " --tailscale" : ""} --data-dir ${quoteSystemd(input.dataDir)}
-${input.sshManaged === true || input.tailscale === true ? "" : "Environment=ZUSE_SERVE_AUTO_LINK=1"}
+ExecStart=${quoteSystemd(input.nodeExecutable)} ${quoteSystemd(input.executable)} serve --foreground${serveStartFlags(
+			input,
+		)
+			.map((flag) => ` ${quoteSystemd(flag)}`)
+			.join("")} --data-dir ${quoteSystemd(input.dataDir)}
+${autoLinkEnabled(input) ? "Environment=ZUSE_SERVE_AUTO_LINK=1" : ""}
 Environment=ZUSE_RELAY_URL=${quoteSystemd(relayUrl)}
 Restart=on-failure
 RestartSec=3

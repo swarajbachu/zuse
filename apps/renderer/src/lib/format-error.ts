@@ -57,6 +57,19 @@ const CLOUD_WORKSPACE_CODE_MESSAGES: Readonly<Record<string, string>> = {
 		"The cloud workspace changed while starting. Refresh and try again.",
 };
 
+// `environments.list` / `environments.connect` surface relay failures as
+// ConnectAuthError with a machine-readable reason. Map the reasons a user can
+// actually act on; unknown reasons fall through to the generic formatting.
+const CONNECT_AUTH_REASON_MESSAGES: Readonly<Record<string, string>> = {
+	"tunnel-unavailable":
+		"The other computer's secure tunnel isn't ready yet. Give it a moment, then try again.",
+	"not-allowed": "Sign in to your Zuse account to reach this computer.",
+	"not-found":
+		"This computer is no longer linked to your account. Run `zuse serve` on it again.",
+	"provider-unavailable":
+		"Zuse's relay is temporarily unavailable. Try again shortly.",
+};
+
 const parseJsonRecord = (
 	value: string | null,
 ): Record<string, unknown> | null => {
@@ -168,6 +181,13 @@ const formatErrorInner = (err: unknown): string => {
 		CLOUD_WORKSPACE_CODE_MESSAGES[code] !== undefined
 	) {
 		return CLOUD_WORKSPACE_CODE_MESSAGES[code];
+	}
+	if (
+		tag === "ConnectAuthError" &&
+		reason !== null &&
+		CONNECT_AUTH_REASON_MESSAGES[reason] !== undefined
+	) {
+		return CONNECT_AUTH_REASON_MESSAGES[reason];
 	}
 	if (reason !== null && reason.length > 0) {
 		const provider = providerId !== null ? `${providerId}: ` : "";

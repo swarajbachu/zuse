@@ -56,12 +56,12 @@ describe("Zuse Serve service definitions", () => {
 		const systemd = systemdUserDefinition(input);
 
 		expect(launchAgent.contents).toContain("<string>--ssh-managed</string>");
-		expect(systemd.contents).toContain(" --ssh-managed");
+		expect(systemd.contents).toContain(' "--ssh-managed"');
 		expect(launchAgent.contents).not.toContain("ZUSE_SERVE_AUTO_LINK");
 		expect(systemd.contents).not.toContain("ZUSE_SERVE_AUTO_LINK");
 	});
 
-	it("persists Tailnet sharing without enabling the account relay", () => {
+	it("keeps the account relay active alongside Tailnet sharing", () => {
 		const input = {
 			nodeExecutable: "/opt/node/bin/node",
 			executable: "/opt/zuse/bin/zuse",
@@ -71,8 +71,49 @@ describe("Zuse Serve service definitions", () => {
 		const launchAgent = launchAgentDefinition(input);
 		const systemd = systemdUserDefinition(input);
 		expect(launchAgent.contents).toContain("<string>--tailscale</string>");
-		expect(systemd.contents).toContain(" --tailscale");
+		expect(systemd.contents).toContain(' "--tailscale"');
+		expect(launchAgent.contents).toContain("ZUSE_SERVE_AUTO_LINK");
+		expect(systemd.contents).toContain("ZUSE_SERVE_AUTO_LINK");
+	});
+
+	it("disables the account relay only on explicit opt-out", () => {
+		const input = {
+			nodeExecutable: "/opt/node/bin/node",
+			executable: "/opt/zuse/bin/zuse",
+			dataDir: "/home/dev/.local/share/zuse",
+			tailscale: true,
+			noAccount: true,
+		};
+		const launchAgent = launchAgentDefinition(input);
+		const systemd = systemdUserDefinition(input);
+		expect(launchAgent.contents).toContain("<string>--no-account</string>");
+		expect(systemd.contents).toContain(' "--no-account"');
 		expect(launchAgent.contents).not.toContain("ZUSE_SERVE_AUTO_LINK");
 		expect(systemd.contents).not.toContain("ZUSE_SERVE_AUTO_LINK");
+	});
+
+	it("persists LAN binding flags in the service definition", () => {
+		const input = {
+			nodeExecutable: "/opt/node/bin/node",
+			executable: "/opt/zuse/bin/zuse",
+			dataDir: "/home/dev/.local/share/zuse",
+			lan: true,
+			port: 5000,
+		};
+		const launchAgent = launchAgentDefinition(input);
+		const systemd = systemdUserDefinition(input);
+		expect(launchAgent.contents).toContain("<string>--lan</string>");
+		expect(launchAgent.contents).toContain("<string>--port</string>");
+		expect(launchAgent.contents).toContain("<string>5000</string>");
+		expect(systemd.contents).toContain(' "--lan" "--port" "5000" ');
+
+		const hostBound = systemdUserDefinition({
+			...input,
+			lan: false,
+			host: "192.168.1.50",
+		});
+		expect(hostBound.contents).toContain(
+			' "--host" "192.168.1.50" "--port" "5000" ',
+		);
 	});
 });

@@ -9,11 +9,15 @@ import {
 	randomBytes,
 	timingSafeEqual,
 } from "node:crypto";
-import { networkInterfaces } from "node:os";
 import {
 	type AuthTokenId,
 	AuthTokenSummary,
+	buildBrowserPairUrl,
+	buildConnectDeepLink,
 	type EnvironmentId,
+	normalizePairingCodeInput,
+	SHORT_PAIRING_CODE_ALPHABET,
+	SHORT_PAIRING_CODE_LENGTH,
 } from "@zuse/contracts";
 import { Clock, Effect, Layer, Ref, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -22,6 +26,7 @@ import {
 	generateEnvironmentKeypair,
 	signEnvironmentLinkProof,
 } from "../../relay/link-proof.ts";
+import { firstNonInternalIpv4 } from "../net.ts";
 import {
 	LanAuthConfig,
 	LanAuthError,
@@ -31,6 +36,11 @@ import {
 
 const PAIRING_TTL_MS = 5 * 60 * 1000;
 const NEARBY_PAIRING_TTL_MS = 2 * 60 * 1000;
+/**
+ * Live pairing codes allowed at once, so the settings dialog and the serve
+ * terminal's boot code can coexist without invalidating each other.
+ */
+const MAX_ACTIVE_PAIRING_CODES = 3;
 
 const SAFETY_WORDS = [
 	"amber",
@@ -111,6 +121,25 @@ interface RelayConfigAuthRow {
 	readonly relay_mint_public_key: string | null;
 }
 
+/**
+ * Human-typable pairing code: unambiguous uppercase alphabet, rejection
+ * sampling so every character is uniform. Displayed as `ABCD-EFGH`; stored
+ * and redeemed in canonical dash-less form.
+ */
+const randomShortPairingCode: Effect.Effect<string> = Effect.sync(() => {
+	const alphabet = SHORT_PAIRING_CODE_ALPHABET;
+	const limit = 256 - (256 % alphabet.length);
+	let code = "";
+	while (code.length < SHORT_PAIRING_CODE_LENGTH) {
+		for (const byte of randomBytes(SHORT_PAIRING_CODE_LENGTH * 2)) {
+			if (byte >= limit) continue;
+			code += alphabet[byte % alphabet.length];
+			if (code.length === SHORT_PAIRING_CODE_LENGTH) break;
+		}
+	}
+	return code;
+});
+
 const randomBase64Url = (bytes: number): Effect.Effect<string> =>
 	Effect.sync(() => randomBytes(bytes).toString("base64url"));
 
@@ -190,17 +219,6 @@ const toLanAuthError = (cause: unknown): LanAuthError =>
 	new LanAuthError({
 		reason: cause instanceof Error ? cause.message : String(cause),
 	});
-
-const firstNonInternalIpv4 = (): string | null => {
-	for (const entries of Object.values(networkInterfaces())) {
-		for (const entry of entries ?? []) {
-			if (entry.family === "IPv4" && !entry.internal) {
-				return entry.address;
-			}
-		}
-	}
-	return null;
-};
 
 const configuredHost = (
 	advertisedHost: string | null,
@@ -688,10 +706,11 @@ export const LanAuthServiceLive = Layer.effect(
 				}
 				const host = yield* configuredHost(config.advertisedHost);
 				const pairingUrl = `ws://${host}:${config.port}`;
-				const browserUrl = `http://${host}:${config.port}/#pair=${encodeURIComponent(code)}`;
-				const qrText = `zuse:///connect/pair?pairingUrl=${encodeURIComponent(
-					pairingUrl,
-				)}#token=${code}`;
+				const browserUrl = buildBrowserPairUrl({
+					httpBaseUrl: `http://${host}:${config.port}`,
+					code,
+				});
+				const qrText = buildConnectDeepLink({ wsBaseUrl: pairingUrl, code });
 				return { pairingUrl, browserUrl, qrText } as const;
 			});
 
@@ -786,11 +805,23 @@ export const LanAuthServiceLive = Layer.effect(
 				}).pipe(Effect.mapError(toLanAuthError)),
 			createPairingCode: () =>
 				Effect.gen(function* () {
-					const code = `zp_${yield* randomBase64Url(16)}`;
+					const code = yield* randomShortPairingCode;
 					const now = yield* Clock.currentTimeMillis;
 					const expiresAtMs = now + PAIRING_TTL_MS;
 					const urls = yield* makePairingUrls(code);
-					yield* Ref.set(pairingCodes, new Map([[code, { expiresAtMs }]]));
+					yield* Ref.update(pairingCodes, (codes) => {
+						const next = new Map(
+							[...codes].filter(([, entry]) => entry.expiresAtMs > now),
+						);
+						next.set(code, { expiresAtMs });
+						// Insertion order is creation order — drop the oldest first.
+						while (next.size > MAX_ACTIVE_PAIRING_CODES) {
+							const oldest = next.keys().next().value;
+							if (oldest === undefined) break;
+							next.delete(oldest);
+						}
+						return next;
+					});
 					return {
 						code,
 						expiresAt: new Date(expiresAtMs),
@@ -801,12 +832,15 @@ export const LanAuthServiceLive = Layer.effect(
 				}).pipe(Effect.mapError(toLanAuthError)),
 			redeemPairingCode: (code, device) =>
 				Effect.gen(function* () {
+					// Typed short codes tolerate case and the display dash; legacy
+					// `zp_…` codes pass through the normalizer untouched.
+					const canonical = normalizePairingCodeInput(code);
 					const now = yield* Clock.currentTimeMillis;
 					const status = yield* Ref.modify(pairingCodes, (codes) => {
-						const entry = codes.get(code);
+						const entry = codes.get(canonical);
 						if (entry === undefined) return ["invalid" as const, codes];
 						const next = new Map(codes);
-						next.delete(code);
+						next.delete(canonical);
 						if (entry.expiresAtMs <= now) return ["expired" as const, next];
 						return ["valid" as const, next];
 					});

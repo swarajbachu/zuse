@@ -12,13 +12,15 @@
  * side-effect free (the server only boots when the file is the process entry).
  */
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { NodeRuntime } from "@effect/platform-node";
 import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
 import { Effect, Layer, Redacted } from "effect";
+import { firstNonInternalIpv4 } from "./lan-auth/net.ts";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
 import { resolveAuthPolicy } from "./lan-auth/policy.ts";
 import { makeFileCredentialsService } from "./provider/layers/file-credentials-service.ts";
@@ -149,9 +151,11 @@ export const runHeadlessServer = (
 	options: ServeOptions = parseServeOptions(["serve"]),
 ): void => {
 	const { port, host, dataDir: userData, policy } = options;
+	// A wildcard binding is reachable on the LAN, so advertise the machine's
+	// LAN address; a specific binding advertises exactly what it listens on.
 	const advertisedHost =
 		process.env.ZUSE_ADVERTISED_HOST ??
-		(host === "0.0.0.0" || host === "::" ? null : host);
+		(host === "0.0.0.0" || host === "::" ? firstNonInternalIpv4() : host);
 	const pairingBootstrap = options.pairing;
 	const enrollmentTokenFile = process.env.ZUSE_ENROLLMENT_TOKEN_FILE;
 	const enrollmentToken =
@@ -215,9 +219,26 @@ export const runHeadlessServer = (
 			staticDir: options.staticDir,
 			sshBridge: process.env.ZUSE_MACHINE_RUNTIME_ROLE === "cloud-environment",
 			pairingPublicBaseUrl: options.pairingPublicBaseUrl,
-			onPairing: options.open
-				? ({ browserUrl }) => openBrowser(browserUrl)
-				: undefined,
+			onPairing: (pairing) => {
+				// Persist the boot pairing details so the serve CLI can print
+				// real links without scraping service logs.
+				try {
+					writeFileSync(
+						join(userData, "pairing.json"),
+						`${JSON.stringify({
+							browserUrl: pairing.browserUrl,
+							baseUrl: pairing.baseUrl,
+							qrText: pairing.qrText,
+							code: pairing.code,
+							expiresAt: pairing.expiresAt.toISOString(),
+						})}\n`,
+						{ mode: 0o600 },
+					);
+				} catch {
+					// Best-effort: links still print to stdout.
+				}
+				if (options.open) openBrowser(pairing.browserUrl);
+			},
 			onListening: (address) => {
 				const browserHost =
 					address.host === "0.0.0.0" || address.host === "::"

@@ -25,7 +25,8 @@ const toCloudError = (error: MachineControlError): CloudWorkspaceOpError =>
 						error.code === "invalid-offer" ||
 						error.code === "billing-unavailable" ||
 						error.code === "enrollment-expired" ||
-						error.code === "enrollment-rejected"
+						error.code === "enrollment-rejected" ||
+						error.code === "tunnel-unavailable"
 					? "invalid-request"
 					: error.code,
 	});

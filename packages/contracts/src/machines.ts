@@ -238,6 +238,7 @@ export const MachineErrorCode = Schema.Literals([
 	"machine-limit-reached",
 	"billing-unavailable",
 	"provider-unavailable",
+	"tunnel-unavailable",
 	"enrollment-expired",
 	"enrollment-rejected",
 	"credential-required",

@@ -1,4 +1,8 @@
-import type { DiscoveredSshHost, SshEnvironmentTarget } from "@zuse/contracts";
+import {
+	type DiscoveredSshHost,
+	ENVIRONMENT_PRESENCE_STALE_MS,
+	type SshEnvironmentTarget,
+} from "@zuse/contracts";
 import { Pencil, RotateCw, Trash2, Unplug } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 
@@ -94,7 +98,7 @@ export function AddComputerDialogHost() {
 }
 
 const LINK_KIND_SUBTEXT: Record<
-	"tailscale" | "relay" | "remote",
+	"tailscale" | "relay" | "lan" | "remote",
 	{ readonly idle: string; readonly busy: string }
 > = {
 	tailscale: {
@@ -104,6 +108,10 @@ const LINK_KIND_SUBTEXT: Record<
 	relay: {
 		idle: "Connects through the Zuse relay.",
 		busy: "Connecting through the Zuse relay…",
+	},
+	lan: {
+		idle: "Connects directly over your local network.",
+		busy: "Connecting over your local network…",
 	},
 	remote: {
 		idle: "Connects to a remote address.",
@@ -115,6 +123,13 @@ export const relayStatusText = (entry: EnvironmentCatalogEntry): string => {
 	if (entry.status === "connected") return "Connected";
 	if (entry.status === "connecting") return "Connecting…";
 	if (entry.status === "error") return entry.error ?? "Connection failed";
+	if (
+		entry.connectionKind === "relay" &&
+		entry.lastHeartbeat !== undefined &&
+		Date.now() - entry.lastHeartbeat <= ENVIRONMENT_PRESENCE_STALE_MS
+	) {
+		return "Online";
+	}
 	return "Offline";
 };
 
@@ -156,6 +171,9 @@ export function AddComputerDialog({
 	);
 	const hiddenRelayIds = useEnvironmentCatalogStore(
 		(state) => state.hiddenRelayEnvironmentIds,
+	);
+	const accountDiscoveryError = useEnvironmentCatalogStore(
+		(state) => state.accountDiscoveryError,
 	);
 	const initialize = useEnvironmentCatalogStore((state) => state.initialize);
 	const retry = useEnvironmentCatalogStore((state) => state.retry);
@@ -635,7 +653,16 @@ export function AddComputerDialog({
 									>
 										On your account
 									</h3>
-									{relayEntries.length === 0 ? (
+									{accountDiscoveryError !== null ? (
+										<p
+											className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-3 text-xs text-destructive"
+											role="alert"
+										>
+											{accountDiscoveryError.toLowerCase().includes("auth")
+												? "Sign in to see the computers on your Zuse account."
+												: `Could not load account computers: ${accountDiscoveryError}`}
+										</p>
+									) : relayEntries.length === 0 ? (
 										<p className="rounded-lg border border-dashed border-border/60 px-3 py-3 text-xs text-muted-foreground">
 											Computers signed in to your Zuse account appear here
 											automatically.

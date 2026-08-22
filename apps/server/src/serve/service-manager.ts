@@ -150,6 +150,10 @@ export const installServeService = async (input: {
 	readonly relayUrl?: string;
 	readonly sshManaged?: boolean;
 	readonly tailscale?: boolean;
+	readonly noAccount?: boolean;
+	readonly lan?: boolean;
+	readonly host?: string;
+	readonly port?: number;
 }): Promise<ServeServiceStatus> => {
 	await mkdir(dirname(input.paths.definitionPath), { recursive: true });
 	await mkdir(input.paths.logDir, { recursive: true, mode: 0o700 });
@@ -164,6 +168,10 @@ export const installServeService = async (input: {
 			relayUrl: input.relayUrl,
 			sshManaged: input.sshManaged,
 			tailscale: input.tailscale,
+			noAccount: input.noAccount,
+			lan: input.lan,
+			host: input.host,
+			port: input.port,
 		});
 		await writeFile(input.paths.definitionPath, definition.contents, {
 			mode: 0o600,
@@ -197,6 +205,10 @@ export const installServeService = async (input: {
 		relayUrl: input.relayUrl,
 		sshManaged: input.sshManaged,
 		tailscale: input.tailscale,
+		noAccount: input.noAccount,
+		lan: input.lan,
+		host: input.host,
+		port: input.port,
 	});
 	await writeFile(input.paths.definitionPath, definition.contents, {
 		mode: 0o600,

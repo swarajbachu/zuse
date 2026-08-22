@@ -3,8 +3,12 @@ import {
 	parseEnvironmentRoute,
 } from "@zuse/client-runtime/environment-scope";
 import type { ConnectionSnapshot } from "@zuse/client-runtime/supervisor";
-import type { RelayEnvironmentRecord } from "@zuse/contracts";
 import {
+	ENVIRONMENT_PRESENCE_STALE_MS,
+	type RelayEnvironmentRecord,
+} from "@zuse/contracts";
+import {
+	type FormEvent,
 	type ReactNode,
 	useCallback,
 	useEffect,
@@ -15,6 +19,7 @@ import {
 import {
 	BrowserSessionError,
 	createBrowserSessionConnection,
+	exchangeBrowserPairing,
 } from "../lib/browser-session.ts";
 import {
 	beginHostedSignIn,
@@ -39,6 +44,7 @@ type AccessState =
 			readonly title: string;
 			readonly description: string;
 			readonly retryable: boolean;
+			readonly pairingAllowed: boolean;
 	  };
 
 type HostedAccessState =
@@ -59,16 +65,18 @@ const errorCopy = (
 			return {
 				title: "This pairing link expired",
 				description:
-					"In the desktop app, open Settings → Remote access and create a fresh web link.",
+					"Create a fresh pairing code on the other computer, then enter it below.",
 				retryable: false,
+				pairingAllowed: true,
 			};
 		}
 		if (cause.status === 401) {
 			return {
 				title: "Pair this browser",
 				description:
-					"In the desktop app, open Settings → Remote access → Connect a device. Open that one-time link to authorize this browser.",
+					"Use a pairing code once, then this address will keep working in this browser.",
 				retryable: false,
+				pairingAllowed: true,
 			};
 		}
 		if (cause.status === 426) {
@@ -77,6 +85,7 @@ const errorCopy = (
 				description:
 					"Update the server and reload this page before reconnecting.",
 				retryable: false,
+				pairingAllowed: false,
 			};
 		}
 	}
@@ -86,21 +95,50 @@ const errorCopy = (
 			? "Check that the environment is running, then try again."
 			: "Reconnect to the network and retry when you are ready.",
 		retryable: true,
+		pairingAllowed: false,
 	};
 };
 
 function AccessCard({
 	state,
 	retry,
+	pair,
 }: {
 	readonly state: Exclude<AccessState, { readonly status: "ready" }>;
 	readonly retry: () => void;
+	readonly pair: (code: string) => Promise<void>;
 }) {
 	const headingRef = useRef<HTMLHeadingElement>(null);
+	const [code, setCode] = useState("");
+	const [pairing, setPairing] = useState(false);
+	const [pairingError, setPairingError] = useState<string | null>(null);
 	useEffect(() => {
 		if (state.status === "error") headingRef.current?.focus();
 	}, [state.status]);
 	const loading = state.status === "loading";
+	const submitPairing = async (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		if (pairing || code.trim().length === 0) return;
+		setPairing(true);
+		setPairingError(null);
+		try {
+			await pair(code.trim());
+		} catch (cause) {
+			if (cause instanceof BrowserSessionError) {
+				setPairingError(
+					cause.status === 429
+						? "Too many attempts. Wait a moment and try again."
+						: cause.status === 410
+							? "That code expired. Create a new code and try again."
+							: "That code is invalid or has already been used.",
+				);
+			} else {
+				setPairingError("Could not pair this browser. Try again.");
+			}
+		} finally {
+			setPairing(false);
+		}
+	};
 	return (
 		<div className="flex h-dvh w-screen items-center justify-center bg-background px-6 text-foreground">
 			<main
@@ -121,6 +159,42 @@ function AccessCard({
 						? "Authentication and connection recovery happen automatically."
 						: state.description}
 				</p>
+				{!loading && state.pairingAllowed ? (
+					<form className="mt-5 space-y-3" onSubmit={submitPairing}>
+						<label className="block text-sm font-medium" htmlFor="pairing-code">
+							Pairing code
+						</label>
+						<div className="flex gap-2">
+							<input
+								autoCapitalize="characters"
+								autoComplete="one-time-code"
+								className="min-h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-3 font-mono text-base uppercase outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								disabled={pairing}
+								id="pairing-code"
+								maxLength={256}
+								onChange={(event) => setCode(event.target.value)}
+								placeholder="ABCD-EFGH"
+								value={code}
+							/>
+							<button
+								className="min-h-11 rounded-md bg-primary px-4 font-medium text-primary-foreground text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								disabled={pairing || code.trim().length === 0}
+								type="submit"
+							>
+								{pairing ? "Connecting…" : "Connect"}
+							</button>
+						</div>
+						<p className="text-muted-foreground text-xs leading-5">
+							Enter the code shown on the other computer in its serve terminal
+							or Settings → Remote access.
+						</p>
+						{pairingError !== null ? (
+							<p className="text-destructive text-sm" role="alert">
+								{pairingError}
+							</p>
+						) : null}
+					</form>
+				) : null}
 				{!loading && state.retryable && (
 					<button
 						className="mt-5 inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 font-medium text-primary-foreground text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -215,7 +289,8 @@ function HostedAccessCard({
 						{state.environments.map((environment) => {
 							const online =
 								environment.lastHeartbeat !== undefined &&
-								Date.now() - environment.lastHeartbeat <= 90_000;
+								Date.now() - environment.lastHeartbeat <=
+									ENVIRONMENT_PRESENCE_STALE_MS;
 							return (
 								<button
 									className="flex min-h-11 items-center gap-3 rounded-xl border border-border/70 px-3 py-2 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
@@ -361,6 +436,13 @@ function DirectBrowserAccessGate({
 			setState({ status: "error", ...errorCopy(cause) });
 		}
 	}, []);
+	const pair = useCallback(async (code: string) => {
+		const session = await exchangeBrowserPairing(code);
+		if (!session.authenticated) {
+			throw new BrowserSessionError(401, "unauthorized");
+		}
+		setState({ status: "ready" });
+	}, []);
 
 	useEffect(() => {
 		if (rendererPlatformCapabilities().desktop) {
@@ -371,7 +453,9 @@ function DirectBrowserAccessGate({
 	}, [connect]);
 
 	if (state.status !== "ready")
-		return <AccessCard retry={() => void connect()} state={state} />;
+		return (
+			<AccessCard pair={pair} retry={() => void connect()} state={state} />
+		);
 	return (
 		<>
 			{children}

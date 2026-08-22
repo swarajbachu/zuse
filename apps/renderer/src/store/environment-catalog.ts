@@ -66,6 +66,7 @@ export type EnvironmentCatalogEntry = {
 	readonly descriptor: EnvironmentDescriptor | null;
 	readonly status: CatalogConnectionStatus;
 	readonly error: string | null;
+	readonly lastHeartbeat?: number;
 };
 
 export type EnvironmentShellSeed = Readonly<{
@@ -364,6 +365,7 @@ type EnvironmentCatalogState = {
 	readonly initialized: boolean;
 	readonly initializing: boolean;
 	readonly initializationError: string | null;
+	readonly accountDiscoveryError: string | null;
 	readonly hiddenRelayEnvironmentIds: ReadonlyArray<string>;
 	initialize: () => Promise<void>;
 	syncAccountEnvironments: () => Promise<void>;
@@ -439,7 +441,7 @@ const profileEntry = (
 	label: profile.label,
 	target: profile.target,
 	descriptor: null,
-	status: "connecting",
+	status: "offline",
 	error: null,
 });
 
@@ -465,8 +467,9 @@ const relayEntry = (
 	label: environment.label ?? "Unnamed computer",
 	target: null,
 	descriptor: null,
-	status: "connecting",
+	status: "offline",
 	error: null,
+	lastHeartbeat: environment.lastHeartbeat,
 });
 
 export const cloudConnectionFailure = (cause: unknown): Error => {
@@ -493,6 +496,7 @@ export const loadOptionalEnvironmentSources = async (input: {
 	readonly profiles: ReadonlyArray<RemoteEnvironmentProfile>;
 	readonly tailnetProfiles: ReadonlyArray<TailnetEnvironmentProfile>;
 	readonly relayEnvironments: ReadonlyArray<RelayEnvironmentRecord>;
+	readonly relayError: string | null;
 }> => {
 	const [sshResult, tailnetResult, relayResult] = await Promise.allSettled([
 		input.sshProfiles,
@@ -505,6 +509,10 @@ export const loadOptionalEnvironmentSources = async (input: {
 			tailnetResult.status === "fulfilled" ? tailnetResult.value : [],
 		relayEnvironments:
 			relayResult.status === "fulfilled" ? relayResult.value.environments : [],
+		relayError:
+			relayResult.status === "rejected"
+				? errorMessage(relayResult.reason)
+				: null,
 	};
 };
 
@@ -901,6 +909,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			initialized: false,
 			initializing: false,
 			initializationError: null,
+			accountDiscoveryError: null,
 			hiddenRelayEnvironmentIds: [],
 			initialize: () => {
 				return initializeOnce(get().initialized, async () => {
@@ -947,7 +956,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 
 						// Remote catalogs are optional. A corrupt saved profile or an
 						// unavailable account service must never hide the local workspace.
-						const { profiles, tailnetProfiles, relayEnvironments } =
+						const { profiles, tailnetProfiles, relayEnvironments, relayError } =
 							await loadOptionalEnvironmentSources({
 								sshProfiles:
 									window.zuse?.ssh?.listProfiles() ?? Promise.resolve([]),
@@ -982,6 +991,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 							...tailnetProfiles.map(tailnetProfileEntry),
 						];
 						set((state) => ({
+							accountDiscoveryError: relayError,
 							entries: orderEnvironmentCatalog([
 								...state.entries.filter(
 									(entry) => entry.connectionKind === "local",
@@ -1015,6 +1025,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				const result = await Effect.runPromise(
 					localClient["environments.list"](),
 				);
+				set({ accountDiscoveryError: null });
 				const profileEnvironmentIds = new Set(
 					get()
 						.entries.filter(

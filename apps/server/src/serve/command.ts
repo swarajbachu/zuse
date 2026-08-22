@@ -17,6 +17,10 @@ export interface ServeCommand {
 	readonly force: boolean;
 	readonly sshManaged: boolean;
 	readonly tailscale: boolean;
+	readonly noAccount: boolean;
+	readonly lan: boolean;
+	readonly host?: string;
+	readonly port?: number;
 	readonly dataDir?: string;
 }
 
@@ -41,15 +45,25 @@ export const parseServeCommand = (
 	let action: ServeAction = "start";
 	let actionProvided = false;
 	let dataDir: string | undefined;
+	let host: string | undefined;
+	let port: number | undefined;
 	for (let index = 1; index < normalizedArgv.length; index += 1) {
 		const part = normalizedArgv[index];
 		if (part === undefined) break;
-		if (part === "--data-dir") {
+		if (part === "--data-dir" || part === "--host" || part === "--port") {
 			const value = normalizedArgv[index + 1];
 			if (value === undefined || value.startsWith("-")) {
-				throw new Error("--data-dir requires a value.");
+				throw new Error(`${part} requires a value.`);
 			}
-			dataDir = value;
+			if (part === "--data-dir") dataDir = value;
+			else if (part === "--host") host = value;
+			else {
+				const parsed = Number(value);
+				if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65_535) {
+					throw new Error("--port requires a port number between 1 and 65535.");
+				}
+				port = parsed;
+			}
 			index += 1;
 			continue;
 		}
@@ -73,6 +87,8 @@ export const parseServeCommand = (
 				"--force",
 				"--ssh-managed",
 				"--tailscale",
+				"--no-account",
+				"--lan",
 			].includes(flag)
 		) {
 			throw new Error(`Unknown zuse serve option "${flag}".`);
@@ -96,6 +112,25 @@ export const parseServeCommand = (
 	if (flags.has("--tailscale") && flags.has("--ssh-managed")) {
 		throw new Error("--tailscale and --ssh-managed cannot be used together.");
 	}
+	if ((flags.has("--no-account") || flags.has("--lan")) && action !== "start") {
+		throw new Error(
+			"--no-account and --lan are only valid when starting Zuse Serve.",
+		);
+	}
+	if ((host !== undefined || port !== undefined) && action !== "start") {
+		throw new Error(
+			"--host and --port are only valid when starting Zuse Serve.",
+		);
+	}
+	if (
+		flags.has("--ssh-managed") &&
+		(flags.has("--lan") || host !== undefined)
+	) {
+		throw new Error("--ssh-managed connections are loopback-only.");
+	}
+	if (flags.has("--lan") && host !== undefined) {
+		throw new Error("Pass either --lan or --host, not both.");
+	}
 
 	return {
 		action: action as ServeAction,
@@ -104,6 +139,10 @@ export const parseServeCommand = (
 		force: flags.has("--force"),
 		sshManaged: flags.has("--ssh-managed"),
 		tailscale: flags.has("--tailscale"),
+		noAccount: flags.has("--no-account"),
+		lan: flags.has("--lan"),
+		host: flags.has("--lan") ? "0.0.0.0" : host,
+		port,
 		dataDir,
 	};
 };

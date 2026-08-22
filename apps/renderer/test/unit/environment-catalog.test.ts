@@ -446,6 +446,7 @@ describe("environment catalog", () => {
 			profiles: [],
 			tailnetProfiles: [],
 			relayEnvironments: [],
+			relayError: "account unavailable",
 		});
 	});
 

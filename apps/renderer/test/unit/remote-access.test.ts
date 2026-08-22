@@ -9,6 +9,7 @@ import { describe, expect, test } from "vitest";
 import {
 	accountPairingEndpoint,
 	bestReadyMethod,
+	browserBaseUrl,
 	pairingForMethod,
 	pairingWithEndpoint,
 	readyMethods,
@@ -85,6 +86,7 @@ describe("pairing wire format", () => {
 		);
 		expect(rewritten.pairingUrl).toBe("wss://host.ts.net/rpc");
 		expect(rewritten.code).toBe("abc 123/+");
+		expect(browserBaseUrl(rewritten)).toBe("https://host.ts.net");
 	});
 });
 

@@ -58,6 +58,12 @@ describe("machine control relay URL", () => {
 		);
 	});
 
+	it("surfaces a managed tunnel that has not become ready", () => {
+		expect(mapRelayErrorCode(503, "tunnel_unavailable").code).toBe(
+			"tunnel-unavailable",
+		);
+	});
+
 	it("defaults to production when packaged Electron has no runtime NODE_ENV", () => {
 		expect(resolveMachineRelayUrl({ NODE_ENV: "development" })).toBe(
 			"https://relay.stuff.md",

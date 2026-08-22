@@ -14,6 +14,30 @@ npm install --global @zusehq/serve
 zuse serve status
 ```
 
+By default, `zuse serve` signs in to your Zuse account and creates a stable
+HTTPS tunnel. The computer then appears automatically on other signed-in Zuse
+clients. Open the printed `Browser` address anywhere; the first visit asks for
+the short-lived pairing code printed by the server, and later visits reuse the
+browser's secure session.
+
+Tailscale can be enabled as an additional private route:
+
+```bash
+zuse serve --tailscale
+```
+
+Direct local-network access is opt-in. It uses plaintext HTTP only on the local
+network, while authentication remains required:
+
+```bash
+zuse serve --lan                    # listen on 0.0.0.0:4859
+zuse serve --host 192.168.1.20      # bind one interface
+zuse serve --port 5000              # override the serve port
+```
+
+Use `--no-account` only when you intentionally do not want account discovery or
+the managed tunnel. `--ssh-managed` remains loopback-only for SSH forwarding.
+
 ## Agent CLI
 
 Discover the available computers, projects, models, chats, and sessions:

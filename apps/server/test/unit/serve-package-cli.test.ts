@@ -7,14 +7,19 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	activateServeRuntimeUpdate,
 	foregroundServeOptions,
-	latestPairingLink,
+	readServePairingBootstrap,
 	removeServeRuntime,
 	requiresServeAccountAuthorization,
 	resolveServeDataDir,
+	resolveServeStaticDir,
 	runServePackageCli,
 	SERVE_HELP,
 	shouldAutoLinkForeground,
 } from "../../src/serve/package-cli.ts";
+import {
+	readServeSettings,
+	writeServeSettings,
+} from "../../src/serve/settings.ts";
 
 describe("serve data directory", () => {
 	it("uses the stable desktop profile on macOS", () => {
@@ -59,43 +64,108 @@ describe("Serve package metadata commands", () => {
 		});
 	});
 
-	it("does not require account authorization for private or SSH-managed access", () => {
+	it("requires account authorization unless explicitly opted out", () => {
 		expect(
-			requiresServeAccountAuthorization({ sshManaged: false, tailscale: true }),
+			requiresServeAccountAuthorization({ sshManaged: false, noAccount: true }),
 		).toBe(false);
 		expect(
-			requiresServeAccountAuthorization({ sshManaged: true, tailscale: false }),
+			requiresServeAccountAuthorization({ sshManaged: true, noAccount: false }),
 		).toBe(false);
 		expect(
 			requiresServeAccountAuthorization({
 				sshManaged: false,
-				tailscale: false,
+				noAccount: false,
 			}),
 		).toBe(true);
+		expect(
+			requiresServeAccountAuthorization({
+				sshManaged: false,
+				noAccount: false,
+				cloudWorkspaceId: "workspace_123",
+			}),
+		).toBe(false);
 	});
 
 	it("does not auto-link a cloud workspace as a persistent computer", () => {
 		expect(
 			shouldAutoLinkForeground({
 				sshManaged: false,
-				tailscale: false,
+				noAccount: false,
 			}),
 		).toBe(true);
 		expect(
 			shouldAutoLinkForeground({
 				sshManaged: false,
-				tailscale: false,
+				noAccount: false,
 				cloudWorkspaceId: "workspace_123",
+			}),
+		).toBe(false);
+		expect(
+			shouldAutoLinkForeground({
+				sshManaged: false,
+				noAccount: true,
 			}),
 		).toBe(false);
 	});
 
-	it("selects the newest pairing link from service output", () => {
-		expect(
-			latestPairingLink(
-				"QR: zuse:///connect/pair?old\nready\nQR: zuse:///connect/pair?new#token=zp_new\n",
-			),
-		).toBe("zuse:///connect/pair?new#token=zp_new");
+	it("reads the daemon's pairing bootstrap and ignores expired ones", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "zuse-serve-pairing-"));
+		const future = new Date(Date.now() + 60_000).toISOString();
+		await writeFile(
+			join(dataDir, "pairing.json"),
+			JSON.stringify({
+				browserUrl: "http://192.168.1.50:4859/#pair=ABCDEFGH",
+				qrText: "zuse:///connect/pair?pairingUrl=x#token=ABCDEFGH",
+				code: "ABCDEFGH",
+				expiresAt: future,
+			}),
+		);
+		await expect(readServePairingBootstrap(dataDir)).resolves.toMatchObject({
+			code: "ABCDEFGH",
+			expiresAt: future,
+		});
+
+		await writeFile(
+			join(dataDir, "pairing.json"),
+			JSON.stringify({
+				browserUrl: "http://192.168.1.50:4859/#pair=ABCDEFGH",
+				qrText: "zuse:///connect/pair?pairingUrl=x#token=ABCDEFGH",
+				expiresAt: new Date(Date.now() - 1_000).toISOString(),
+			}),
+		);
+		await expect(readServePairingBootstrap(dataDir)).resolves.toBeNull();
+		await rm(dataDir, { recursive: true, force: true });
+	});
+
+	it("round-trips persisted serve settings", async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), "zuse-serve-settings-"));
+		await writeServeSettings(dataDir, {
+			sshManaged: false,
+			tailscale: true,
+			noAccount: false,
+			lan: true,
+			port: 5000,
+		});
+		await expect(readServeSettings(dataDir)).resolves.toMatchObject({
+			tailscale: true,
+			lan: true,
+			port: 5000,
+		});
+		await rm(dataDir, { recursive: true, force: true });
+	});
+
+	it("resolves the bundled browser client next to the CLI", async () => {
+		const bundleDir = await mkdtemp(join(tmpdir(), "zuse-serve-static-"));
+		await mkdir(join(bundleDir, "client"), { recursive: true });
+		await writeFile(join(bundleDir, "client", "index.html"), "<html></html>");
+		const moduleUrl = `file://${join(bundleDir, "serve-cli.mjs")}`;
+		expect(resolveServeStaticDir({}, moduleUrl)).toBe(
+			join(bundleDir, "client"),
+		);
+		expect(resolveServeStaticDir({ ZUSE_STATIC_DIR: "/elsewhere" })).toBe(
+			"/elsewhere",
+		);
+		await rm(bundleDir, { recursive: true, force: true });
 	});
 
 	it("prints help without starting or mutating the runtime environment", async () => {

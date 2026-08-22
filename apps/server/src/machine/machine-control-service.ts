@@ -41,6 +41,7 @@ import {
 	RelayConnectGrant,
 	RelayEnvironmentList,
 	RelayPaths,
+	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
 import {
 	Context,
@@ -287,6 +288,9 @@ export const mapRelayErrorCode = (
 		return new MachineControlError("branch-in-use");
 	if (code === "machine_limit_reached") {
 		return new MachineControlError("machine-limit-reached");
+	}
+	if (code === "tunnel_unavailable") {
+		return new MachineControlError("tunnel-unavailable");
 	}
 	if (code === "billing_approval_pending") {
 		return new MachineControlError("billing-unavailable");
@@ -616,6 +620,10 @@ export const MachineControlServiceLive: Layer.Layer<
 						),
 					);
 					const connectUrl = `${relayUrl}${RelayPaths.connect(environmentId)}`;
+					// Always demand a managed (tunnel/public-TLS) endpoint. Without
+					// this the relay may fall back to the environment's advertised
+					// endpoint, which for a default `zuse serve` is its own loopback —
+					// a remote client would then dial 127.0.0.1 on the wrong machine.
 					const response = yield* Effect.tryPromise({
 						try: async () =>
 							fetch(connectUrl, {
@@ -623,13 +631,24 @@ export const MachineControlServiceLive: Layer.Layer<
 								headers: {
 									authorization: `DPoP ${access.accessToken}`,
 									dpop: await dpopProof("POST", connectUrl),
+									"content-type": "application/json",
 								},
+								body: JSON.stringify({
+									wireProtocolVersion: WIRE_PROTOCOL_VERSION,
+									requireManaged: true,
+								}),
 							}),
 						catch: () => new MachineControlError("provider-unavailable"),
 					});
 					if (!response.ok) {
+						const failure = yield* Effect.promise(
+							() =>
+								response.json().catch(() => ({})) as Promise<{
+									readonly error?: unknown;
+								}>,
+						);
 						return yield* Effect.fail(
-							mapRelayErrorCode(response.status, undefined),
+							mapRelayErrorCode(response.status, failure.error),
 						);
 					}
 					const payload = yield* Effect.tryPromise({

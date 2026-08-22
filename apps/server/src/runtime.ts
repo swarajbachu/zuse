@@ -8,7 +8,7 @@ import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitServiceLive } from "@zuse/git/git-service-live";
 import { WorktreeServiceLive } from "@zuse/git/worktree-service-live";
-import { Effect, Layer } from "effect";
+import { Duration, Effect, Layer, Schedule } from "effect";
 import { RpcServer } from "effect/unstable/rpc";
 import {
 	AccountAccessProcessLive,
@@ -570,16 +570,38 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(TelemetryStoreLayer),
 	);
 	const autoRelayLink = deps.autoRelayLink;
+	// Linking must never block or fail server boot: it runs in a background
+	// fiber and retries with capped backoff until it sticks. Persistent causes
+	// (signed out, relay down) self-heal on a later attempt without a restart.
 	const AutoRelayLinkLayer =
 		autoRelayLink === undefined
 			? Layer.empty
 			: Layer.effectDiscard(
 					Effect.gen(function* () {
 						const relay = yield* RelayLinkService;
-						const status = yield* relay.status();
-						if (!status.linked) {
-							yield* relay.link(autoRelayLink);
-						}
+						yield* Effect.gen(function* () {
+							const status = yield* relay.status();
+							if (!status.linked) {
+								yield* relay.link(autoRelayLink);
+							}
+						}).pipe(
+							Effect.tapError((error) =>
+								Effect.logWarning("relay auto-link attempt failed", error),
+							),
+							Effect.retry(
+								Schedule.exponential("3 seconds").pipe(
+									Schedule.modifyDelay(({ duration }) =>
+										Effect.succeed(
+											Duration.millis(
+												Math.min(Duration.toMillis(duration), 60_000),
+											),
+										),
+									),
+									Schedule.jittered,
+								),
+							),
+							Effect.forkScoped({ startImmediately: true }),
+						);
 					}),
 				).pipe(Layer.provide(RelayLinkLayer));
 

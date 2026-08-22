@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { withSystemTest } from "../../src/system-scope.ts";
 
 describe("browser access", () => {
-	it("pairs without leaking the credential and restores the session on reload", async () => {
+	it("pairs at a stable browser address and restores the session on reload", async () => {
 		await withSystemTest("zuse-browser-access-", async (scope) => {
 			const server = await scope.server({ authPolicy: "protected" });
 			const pairingLine = await server.process.waitForStdout(
@@ -12,13 +12,23 @@ describe("browser access", () => {
 				10_000,
 			);
 			const pairingUrl = pairingLine.slice("Browser: ".length);
+			const parsedPairingUrl = new URL(pairingUrl);
+			const code = new URLSearchParams(parsedPairingUrl.hash.slice(1)).get(
+				"pair",
+			);
+			expect(code).not.toBeNull();
+			parsedPairingUrl.hash = "";
 			const browser = await chromium.launch({
 				channel: process.env.ZUSE_SYSTEM_CHROME_CHANNEL ?? "chrome",
 				headless: true,
 			});
 			try {
 				const page = await browser.newPage();
-				await page.goto(pairingUrl, { waitUntil: "domcontentloaded" });
+				await page.goto(parsedPairingUrl.toString(), {
+					waitUntil: "domcontentloaded",
+				});
+				await page.getByLabel("Pairing code").fill(code ?? "");
+				await page.getByRole("button", { name: "Connect" }).click();
 				await expect
 					.poll(() => page.url(), { timeout: 15_000 })
 					.not.toContain("#pair=");
