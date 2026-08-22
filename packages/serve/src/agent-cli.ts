@@ -29,6 +29,7 @@ import {
 	WIRE_PROTOCOL_VERSION,
 	type WorktreeId,
 } from "@zuse/contracts";
+import { resolveZuseDesktopUserData } from "@zuse/utils/zuse-user-data";
 import { Effect } from "effect";
 
 type RpcClient = Awaited<ReturnType<typeof connect>>["client"];
@@ -185,20 +186,17 @@ const installedCliAccessCandidates = (
 ): ReadonlyArray<string> => {
 	const configured = env.ZUSE_USER_DATA_DIR?.trim();
 	if (configured) return [join(resolve(configured), "cli-access.json")];
-	if (platform === "darwin")
-		return [
-			join(
-				homedir(),
-				"Library",
-				"Application Support",
-				"Zuse Alpha",
-				"cli-access.json",
-			),
-		];
-	if (platform === "win32" && env.APPDATA?.trim())
-		return [join(resolve(env.APPDATA), "Zuse Alpha", "cli-access.json")];
-	const config = env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
-	return [join(resolve(config), "Zuse Alpha", "cli-access.json")];
+	return [
+		join(
+			resolveZuseDesktopUserData({
+				platform,
+				homeDir: homedir(),
+				env,
+				development: false,
+			}),
+			"cli-access.json",
+		),
+	];
 };
 const localCliAccess = async (
 	env: NodeJS.ProcessEnv,

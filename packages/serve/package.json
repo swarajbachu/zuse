@@ -42,6 +42,7 @@
 		"@repo/typescript-config": "*",
 		"@types/node": "catalog:",
 		"@zuse/contracts": "*",
+		"@zuse/utils": "*",
 		"tsdown": "0.21.10",
 		"typescript": "catalog:",
 		"vitest": "4.1.10",

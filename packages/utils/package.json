@@ -13,6 +13,7 @@
 		"./push-bus": "./src/push-bus.ts",
 		"./readiness": "./src/readiness.ts",
 		"./rpc-payload-metrics": "./src/rpc-payload-metrics.ts",
+		"./zuse-user-data": "./src/zuse-user-data.ts",
 		"./reaper": "./src/reaper.ts"
 	},
 	"scripts": {

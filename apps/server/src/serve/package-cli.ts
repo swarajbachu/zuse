@@ -17,6 +17,7 @@ import {
 	WORKOS_PUBLIC_CLIENT_ID,
 } from "@zuse/contracts";
 import { probeZuseLoopback, setTailnetShareEnabled } from "@zuse/tailnet";
+import { resolveZuseDesktopUserData } from "@zuse/utils/zuse-user-data";
 import { Effect } from "effect";
 
 import { SessionStoreLive } from "../auth/layers/session-store.ts";
@@ -175,6 +176,8 @@ export const resolveServeDataDir = (
 	runtime: {
 		readonly platform?: NodeJS.Platform;
 		readonly homeDir?: string;
+		readonly cwd?: string;
+		readonly pathExists?: (path: string) => boolean;
 	} = {},
 ): string => {
 	if (override !== undefined) return override;
@@ -183,11 +186,17 @@ export const resolveServeDataDir = (
 	if (env.MEMOIZE_USER_DATA_DIR) return env.MEMOIZE_USER_DATA_DIR;
 	const platform = runtime.platform ?? process.platform;
 	const homeDir = runtime.homeDir ?? homedir();
-	if (platform === "darwin") {
-		return join(homeDir, "Library", "Application Support", "Zuse Alpha");
-	}
-	const xdg = env.XDG_DATA_HOME ?? join(homeDir, ".local", "share");
-	return join(xdg, "zuse");
+	const cwd = runtime.cwd ?? process.cwd();
+	const pathExists = runtime.pathExists ?? existsSync;
+	const sourceCheckout =
+		pathExists(join(cwd, "apps", "desktop", "package.json")) &&
+		pathExists(join(cwd, "packages", "serve", "package.json"));
+	return resolveZuseDesktopUserData({
+		platform,
+		homeDir,
+		env,
+		development: sourceCheckout,
+	});
 };
 
 const openBrowser = (url: string): void => {

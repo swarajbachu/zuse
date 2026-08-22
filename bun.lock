@@ -327,6 +327,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@effect/sql-pg": "catalog:",
+        "@zuse/analytics": "*",
         "@zuse/billing-providers": "*",
         "@zuse/contracts": "*",
         "@zuse/machine-providers": "*",
@@ -580,6 +581,7 @@
         "@types/node": "catalog:",
         "@zuse/client-runtime": "*",
         "@zuse/contracts": "*",
+        "@zuse/utils": "*",
         "tsdown": "0.21.10",
         "typescript": "catalog:",
         "vite-plus": "0.2.5",

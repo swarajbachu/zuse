@@ -69,6 +69,7 @@ import {
 	type TailnetShareOptions,
 } from "@zuse/tailnet";
 import { BROWSER_PAGE_HEADERS } from "@zuse/utils/browser-page";
+import { zuseDesktopProfileName } from "@zuse/utils/zuse-user-data";
 import {
 	CredentialsServiceLive,
 	makeMainLayer,
@@ -562,7 +563,7 @@ const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL?.trim() || "";
 const isDevelopment = Boolean(DEV_SERVER_URL);
 
 const APP_NAME = isDevelopment ? "Zuse (Beta) (Dev)" : "Zuse (Beta)";
-const STABLE_USER_DATA_NAME = isDevelopment ? "Zuse Alpha (Dev)" : "Zuse Alpha";
+const STABLE_USER_DATA_NAME = zuseDesktopProfileName(isDevelopment);
 const DESKTOP_SOURCE_DIR =
 	process.env.ZUSE_DESKTOP_DIR?.trim() || Path.resolve(__dirname, "..");
 const DEV_ICON_PATH = Path.resolve(DESKTOP_SOURCE_DIR, "build", "icon.png");

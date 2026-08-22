@@ -28,13 +28,54 @@ import {
 } from "../../src/serve/settings.ts";
 
 describe("serve data directory", () => {
+	it("uses the desktop dev profile when run from a Linux source checkout", () => {
+		expect(
+			resolveServeDataDir({ XDG_CONFIG_HOME: "/home/dev/.config" }, undefined, {
+				platform: "linux",
+				homeDir: "/home/dev",
+				cwd: "/home/dev/zuse",
+				pathExists: (path) =>
+					path === "/home/dev/zuse/apps/desktop/package.json" ||
+					path === "/home/dev/zuse/packages/serve/package.json",
+			}),
+		).toBe("/home/dev/.config/Zuse Alpha (Dev)");
+	});
+
+	it("uses the stable desktop profile for an installed Linux CLI", () => {
+		expect(
+			resolveServeDataDir({ XDG_CONFIG_HOME: "/data/config" }, undefined, {
+				platform: "linux",
+				homeDir: "/home/dev",
+				cwd: "/tmp",
+				pathExists: () => false,
+			}),
+		).toBe("/data/config/Zuse Alpha");
+	});
+
 	it("uses the stable desktop profile on macOS", () => {
 		expect(
 			resolveServeDataDir({}, undefined, {
 				platform: "darwin",
 				homeDir: "/Users/dev",
+				cwd: "/tmp",
+				pathExists: () => false,
 			}),
 		).toBe("/Users/dev/Library/Application Support/Zuse Alpha");
+	});
+
+	it("uses the stable desktop profile on Windows", () => {
+		expect(
+			resolveServeDataDir(
+				{ APPDATA: "C:\\Users\\dev\\AppData\\Roaming" },
+				undefined,
+				{
+					platform: "win32",
+					homeDir: "C:\\Users\\dev",
+					cwd: "C:\\tmp",
+					pathExists: () => false,
+				},
+			),
+		).toBe("C:\\Users\\dev\\AppData\\Roaming\\Zuse Alpha");
 	});
 
 	it("preserves explicit data-directory overrides", () => {
