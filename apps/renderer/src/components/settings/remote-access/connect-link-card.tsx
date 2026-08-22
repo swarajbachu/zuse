@@ -5,7 +5,7 @@ import type {
 	TailnetShareState,
 } from "@zuse/contracts";
 import { formatPairingCodeForDisplay } from "@zuse/contracts";
-import { Copy, QrCode, RefreshCw } from "lucide-react";
+import { Copy, Link2, QrCode, RefreshCw } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dispatchLocalDeviceCommand } from "../../../lib/local-device-client-bus.ts";
