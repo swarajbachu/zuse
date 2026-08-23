@@ -48,5 +48,6 @@ jobs:
 
       - name: Bundle mobile app with public icons
         env:
+          EXPO_NO_BUNDLE_SPLITTING: "1"
           ZUSE_ICON_MODE: free
         run: bun --cwd apps/mobile expo export --platform android --output-dir "$RUNNER_TEMP/mobile-export" --clear
