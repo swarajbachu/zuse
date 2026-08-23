@@ -18,6 +18,7 @@ import {
 	SHORT_PAIRING_CODE_ALPHABET,
 	SHORT_PAIRING_CODE_LENGTH,
 } from "@zuse/contracts";
+import { firstReachableIpv4 } from "@zuse/utils/network-address";
 import { Clock, Effect, Layer, Ref, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { importJWK, type JWK, jwtVerify } from "jose";
@@ -25,7 +26,6 @@ import {
 	generateEnvironmentKeypair,
 	signEnvironmentLinkProof,
 } from "../../relay/link-proof.ts";
-import { firstNonInternalIpv4 } from "../net.ts";
 import {
 	LanAuthConfig,
 	LanAuthError,
@@ -222,7 +222,7 @@ const toLanAuthError = (cause: unknown): LanAuthError =>
 const configuredHost = (
 	advertisedHost: string | null,
 ): Effect.Effect<string, LanAuthError> =>
-	Effect.sync(() => advertisedHost ?? firstNonInternalIpv4()).pipe(
+	Effect.sync(() => advertisedHost ?? firstReachableIpv4()).pipe(
 		Effect.flatMap((host) =>
 			host === null
 				? Effect.fail(new LanAuthError({ reason: "no_advertised_host" }))

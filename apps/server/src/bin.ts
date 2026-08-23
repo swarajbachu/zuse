@@ -19,8 +19,8 @@ import { parseArgs } from "node:util";
 
 import { NodeRuntime } from "@effect/platform-node";
 import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
+import { firstReachableIpv4 } from "@zuse/utils/network-address";
 import { Effect, Layer, Redacted } from "effect";
-import { firstNonInternalIpv4 } from "./lan-auth/net.ts";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
 import { resolveAuthPolicy } from "./lan-auth/policy.ts";
 import { makeFileCredentialsService } from "./provider/layers/file-credentials-service.ts";
@@ -157,7 +157,7 @@ export const runHeadlessServer = (
 	// LAN address; a specific binding advertises exactly what it listens on.
 	const advertisedHost =
 		process.env.ZUSE_ADVERTISED_HOST ??
-		(host === "0.0.0.0" || host === "::" ? firstNonInternalIpv4() : host);
+		(host === "0.0.0.0" || host === "::" ? firstReachableIpv4() : host);
 	const pairingBootstrap = options.pairing;
 	const enrollmentTokenFile = process.env.ZUSE_ENROLLMENT_TOKEN_FILE;
 	const enrollmentToken =

@@ -8,6 +8,7 @@
 		"./cloud-transcript-crypto": "./src/cloud-transcript-crypto.ts",
 		"./drainable-worker": "./src/drainable-worker.ts",
 		"./keyed-worker": "./src/keyed-worker.ts",
+		"./network-address": "./src/network-address.ts",
 		"./port-inspector": "./src/port-inspector.ts",
 		"./proposed-plan": "./src/proposed-plan.ts",
 		"./push-bus": "./src/push-bus.ts",

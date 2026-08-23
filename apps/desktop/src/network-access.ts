@@ -1,14 +1,15 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import type { NetworkInterfaceInfo } from "node:os";
 import { join } from "node:path";
 
 import type { NetworkAccessMode, NetworkAccessState } from "@zuse/contracts";
+import {
+	firstReachableIpv4,
+	type NetworkInterfaces,
+} from "@zuse/utils/network-address";
 
 const PREFERENCE_FILE = "network-access.json";
 const LOOPBACK_HOST = "127.0.0.1";
 const NETWORK_BIND_HOST = "0.0.0.0";
-
-type NetworkInterfaces = NodeJS.Dict<NetworkInterfaceInfo[]>;
 
 export type ResolvedNetworkAccessState = NetworkAccessState & {
 	readonly bindHost: string;
@@ -16,21 +17,6 @@ export type ResolvedNetworkAccessState = NetworkAccessState & {
 
 const preferencePath = (userData: string): string =>
 	join(userData, PREFERENCE_FILE);
-
-const firstReachableIpv4 = (interfaces: NetworkInterfaces): string | null => {
-	for (const entries of Object.values(interfaces)) {
-		for (const entry of entries ?? []) {
-			if (
-				entry.family === "IPv4" &&
-				!entry.internal &&
-				!entry.address.startsWith("169.254.")
-			) {
-				return entry.address;
-			}
-		}
-	}
-	return null;
-};
 
 export const resolveNetworkAccessState = (input: {
 	readonly enabled: boolean;
