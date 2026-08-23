@@ -49,6 +49,19 @@ describe("desktop network access", () => {
 		});
 	});
 
+	it("does not replace the reachable address with a local hostname", () => {
+		const legacyInput = {
+			enabled: true,
+			port: 47_837,
+			interfaces,
+			stableHost: "MacBook-Pro.local",
+		};
+		expect(resolveNetworkAccessState(legacyInput)).toMatchObject({
+			advertisedHost: "192.168.1.42",
+			endpointUrl: "ws://192.168.1.42:47837",
+		});
+	});
+
 	it("rejects enabling when no reachable address exists", () => {
 		expect(() =>
 			resolveNetworkAccessState({
