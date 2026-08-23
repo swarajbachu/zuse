@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Browser RPC registration and authenticated reloads now recover cleanly instead of remaining stuck while connecting
 - LAN browser access works without secure-context `crypto.randomUUID`, and `--no-account` no longer restores or advertises a persisted managed tunnel
+- Desktop LAN sharing now advertises the reachable IPv4 address consistently in the browser link, copied link, and QR code
 
 ## [0.20.7]
 

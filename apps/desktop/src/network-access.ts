@@ -36,7 +36,6 @@ export const resolveNetworkAccessState = (input: {
 	readonly enabled: boolean;
 	readonly port: number;
 	readonly interfaces: NetworkInterfaces;
-	readonly stableHost?: string | null;
 }): ResolvedNetworkAccessState => {
 	const mode: NetworkAccessMode = input.enabled
 		? "network-accessible"
@@ -57,14 +56,11 @@ export const resolveNetworkAccessState = (input: {
 			"No reachable local network address is available. Connect this computer to a network and try again.",
 		);
 	}
-	const stableHost = input.stableHost?.trim();
-	const advertisedHost = stableHost ? stableHost : reachableAddress;
-
 	return {
 		mode,
 		bindHost: NETWORK_BIND_HOST,
-		advertisedHost,
-		endpointUrl: `ws://${advertisedHost}:${input.port}`,
+		advertisedHost: reachableAddress,
+		endpointUrl: `ws://${reachableAddress}:${input.port}`,
 		port: input.port,
 	};
 };

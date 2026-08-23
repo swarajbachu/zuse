@@ -1795,18 +1795,12 @@ async function createMainWindow() {
 		.catch(() => undefined);
 	const networkAccessEnabled = await readNetworkAccessPreference(userData);
 	const systemHostname = hostname();
-	const stableLocalHost =
-		process.platform === "darwin" &&
-		systemHostname.toLowerCase().endsWith(".local")
-			? systemHostname
-			: null;
 	let networkAccess: ResolvedNetworkAccessState;
 	try {
 		networkAccess = resolveNetworkAccessState({
 			enabled: networkAccessEnabled,
 			port: relayPort.port,
 			interfaces: networkInterfaces(),
-			stableHost: stableLocalHost,
 		});
 	} catch (cause) {
 		recordMainDiagnostic("warn", "network-access", [cause]);
@@ -1814,7 +1808,6 @@ async function createMainWindow() {
 			enabled: false,
 			port: relayPort.port,
 			interfaces: networkInterfaces(),
-			stableHost: stableLocalHost,
 		});
 	}
 	const isMac = process.platform === "darwin";
@@ -2243,7 +2236,6 @@ async function createMainWindow() {
 				enabled,
 				port: relayPort.port,
 				interfaces: networkInterfaces(),
-				stableHost: stableLocalHost,
 			});
 			await writeNetworkAccessPreference(userData, enabled);
 			if (next.mode !== networkAccess.mode) {
