@@ -4,7 +4,7 @@ import { Effect, Layer, Stream } from "effect";
 import { PtyService } from "./services/pty-service.ts";
 
 const Open = MemoizeRpcs.toLayerHandler(
-	"pty.open",
+  "pty.open",
 	({ cwd, cols, rows, command, mobileOwnership }) =>
 		Effect.flatMap(PtyService, (svc) =>
 			svc.open(cwd, cols, rows, command, mobileOwnership),
@@ -22,7 +22,7 @@ const Write = MemoizeRpcs.toLayerHandler(
 );
 
 const Resize = MemoizeRpcs.toLayerHandler(
-	"pty.resize",
+  "pty.resize",
 	({ ptyId, cols, rows, ownerId }) =>
 		Effect.flatMap(PtyService, (svc) => svc.resize(ptyId, cols, rows, ownerId)),
 );
@@ -32,20 +32,20 @@ const Close = MemoizeRpcs.toLayerHandler("pty.close", ({ ptyId, ownerId }) =>
 );
 
 const Output = MemoizeRpcs.toLayerHandler(
-	"pty.output",
+  "pty.output",
 	({ ptyId, afterSequence, ownerId }) =>
-		Stream.unwrap(
+    Stream.unwrap(
 			Effect.map(PtyService, (svc) =>
 				svc.subscribe(ptyId, afterSequence, ownerId),
 			),
-		),
+    ),
 );
 
 export const PtyHandlersLayer = Layer.mergeAll(
-	Open,
+  Open,
 	List,
-	Write,
-	Resize,
-	Close,
-	Output,
+  Write,
+  Resize,
+  Close,
+  Output,
 );

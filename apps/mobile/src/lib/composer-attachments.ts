@@ -26,12 +26,12 @@ export async function pickComposerImages(): Promise<LocalComposerAttachment[]> {
 	return Promise.all(
 		result.assets.map((asset) =>
 			protectComposerAttachment({
-				id: localId(),
-				uri: asset.uri,
+		id: localId(),
+		uri: asset.uri,
 				name:
 					asset.fileName ?? `Photo.${asset.mimeType?.split("/")[1] ?? "jpg"}`,
-				mimeType: asset.mimeType ?? "image/jpeg",
-				size: asset.fileSize,
+		mimeType: asset.mimeType ?? "image/jpeg",
+		size: asset.fileSize,
 			}),
 		),
 	);
@@ -71,11 +71,11 @@ export async function pickComposerFiles(): Promise<LocalComposerAttachment[]> {
 	return Promise.all(
 		result.assets.map((asset) =>
 			protectComposerAttachment({
-				id: localId(),
-				uri: asset.uri,
-				name: asset.name,
-				mimeType: asset.mimeType ?? "application/octet-stream",
-				size: asset.size,
+		id: localId(),
+		uri: asset.uri,
+		name: asset.name,
+		mimeType: asset.mimeType ?? "application/octet-stream",
+		size: asset.size,
 			}),
 		),
 	);

@@ -38,24 +38,24 @@ export function ConnectionRecoveryBanner({
 				</Text>
 			</View>
 			{recovering || onPairAgain === undefined ? null : (
+					<Pressable
+						accessibilityRole="button"
+						accessibilityLabel="Scan a new pairing code"
+						onPress={onPairAgain}
+					className="h-11 w-11 items-center justify-center rounded-full active:bg-secondary"
+						style={{ borderCurve: "continuous" }}
+					>
+					<QrCode size={17} color={colors.secondaryFg} />
+					</Pressable>
+				)}
 				<Pressable
 					accessibilityRole="button"
-					accessibilityLabel="Scan a new pairing code"
-					onPress={onPairAgain}
-					className="h-11 w-11 items-center justify-center rounded-full active:bg-secondary"
-					style={{ borderCurve: "continuous" }}
-				>
-					<QrCode size={17} color={colors.secondaryFg} />
-				</Pressable>
-			)}
-			<Pressable
-				accessibilityRole="button"
-				accessibilityLabel="Retry connection"
-				onPress={onRetry}
+					accessibilityLabel="Retry connection"
+					onPress={onRetry}
 				className="h-11 justify-center px-2 active:opacity-60"
-			>
+				>
 				<Text className="font-sans-medium text-[13px] text-primary">Retry</Text>
-			</Pressable>
+				</Pressable>
 		</View>
 	);
 }

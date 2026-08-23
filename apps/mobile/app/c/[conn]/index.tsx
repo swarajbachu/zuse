@@ -84,7 +84,7 @@ export default function SessionsScreen() {
 			);
 			return;
 		}
-		void hydrateSessions(connKey, options);
+			void hydrateSessions(connKey, options);
 	}, [connKey, connectionSnapshot, options]);
 
 	const rows = useMemo(

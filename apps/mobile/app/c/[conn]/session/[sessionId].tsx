@@ -1062,87 +1062,87 @@ function ThreadScreen() {
 					</Text>
 				</View>
 			) : null}
-			<KeyboardAwareLegendList
-				ref={listRef}
-				style={{ flex: 1 }}
-				data={turns}
-				dataKey={stateKey}
-				keyExtractor={(turn) => turn.id}
-				getItemType={() => "turn"}
-				estimatedItemSize={180}
-				renderItem={({ item, index }) => (
-					<TurnRow
-						turn={item}
-						context={ctx}
-						live={sessionStatus === "running" && index === turns.length - 1}
-					/>
-				)}
-				alignItemsAtEnd
-				applyWorkaroundForContentInsetHitTestBug
-				contentInsetAdjustmentBehavior="never"
-				automaticallyAdjustsScrollIndicatorInsets={false}
-				contentContainerStyle={{
-					gap: 4,
-					paddingHorizontal: 16,
-					paddingTop: headerHeight + 12,
-				}}
-				scrollIndicatorInsets={{
-					top: headerHeight,
-					bottom: -insets.bottom,
-				}}
-				contentInsetEndAdjustment={contentInsetEndAdjustment}
-				freeze={freeze}
+				<KeyboardAwareLegendList
+					ref={listRef}
+					style={{ flex: 1 }}
+					data={turns}
+					dataKey={stateKey}
+					keyExtractor={(turn) => turn.id}
+					getItemType={() => "turn"}
+					estimatedItemSize={180}
+					renderItem={({ item, index }) => (
+						<TurnRow
+							turn={item}
+							context={ctx}
+							live={sessionStatus === "running" && index === turns.length - 1}
+						/>
+					)}
+					alignItemsAtEnd
+					applyWorkaroundForContentInsetHitTestBug
+					contentInsetAdjustmentBehavior="never"
+					automaticallyAdjustsScrollIndicatorInsets={false}
+					contentContainerStyle={{
+						gap: 4,
+						paddingHorizontal: 16,
+						paddingTop: headerHeight + 12,
+					}}
+					scrollIndicatorInsets={{
+						top: headerHeight,
+						bottom: -insets.bottom,
+					}}
+					contentInsetEndAdjustment={contentInsetEndAdjustment}
+					freeze={freeze}
 				keyboardLiftBehavior="whenAtEnd"
-				keyboardDismissMode="interactive"
-				keyboardOffset={insets.bottom}
-				keyboardShouldPersistTaps="handled"
-				initialScrollAtEnd={restoredViewState?.mode !== "detached"}
-				{...(restoredViewState?.mode === "detached"
-					? { initialScrollOffset: restoredViewState.offsetY }
-					: {})}
-				{...(anchoredEndSpace === undefined
-					? {}
-					: {
-							anchoredEndSpace,
-						})}
-				maintainScrollAtEnd={
-					transcriptScroll.readerDetached
-						? false
+					keyboardDismissMode="interactive"
+					keyboardOffset={insets.bottom}
+					keyboardShouldPersistTaps="handled"
+					initialScrollAtEnd={restoredViewState?.mode !== "detached"}
+					{...(restoredViewState?.mode === "detached"
+						? { initialScrollOffset: restoredViewState.offsetY }
+						: {})}
+					{...(anchoredEndSpace === undefined
+						? {}
 						: {
-								animated: false,
-								on: {
-									dataChange: true,
+								anchoredEndSpace,
+							})}
+					maintainScrollAtEnd={
+						transcriptScroll.readerDetached
+							? false
+							: {
+									animated: false,
+									on: {
+										dataChange: true,
 									footerLayout: true,
-									itemLayout: true,
-									layout: true,
-								},
-							}
-				}
-				maintainScrollAtEndThreshold={0.1}
-				maintainVisibleContentPosition
-				drawDistance={800}
-				sharedValues={{ isNearEnd }}
-				ListHeaderComponent={
+										itemLayout: true,
+										layout: true,
+									},
+								}
+					}
+					maintainScrollAtEndThreshold={0.1}
+					maintainVisibleContentPosition
+					drawDistance={800}
+					sharedValues={{ isNearEnd }}
+					ListHeaderComponent={
 					error && connectionNotice === null ? (
 						<InlineErrorNotice
 							message={connectionErrorMessage(error)}
 							compact
-						/>
-					) : null
-				}
-				ListFooterComponent={
+									/>
+						) : null
+					}
+					ListFooterComponent={
 					<View style={{ minHeight: endRunwayHeight, paddingTop: 4 }}>
-						{workingActive ? <WorkingIndicator since={workingSince} /> : null}
-					</View>
-				}
-				onScroll={onScroll}
-				onScrollBeginDrag={startReaderGesture}
-				onScrollEndDrag={finishReaderGesture}
-				onMomentumScrollBegin={startReaderGesture}
-				onMomentumScrollEnd={finishReaderGesture}
-				onEndVisible={onEndVisible}
-				scrollEventThrottle={16}
-			/>
+							{workingActive ? <WorkingIndicator since={workingSince} /> : null}
+						</View>
+					}
+					onScroll={onScroll}
+					onScrollBeginDrag={startReaderGesture}
+					onScrollEndDrag={finishReaderGesture}
+					onMomentumScrollBegin={startReaderGesture}
+					onMomentumScrollEnd={finishReaderGesture}
+					onEndVisible={onEndVisible}
+					scrollEventThrottle={16}
+				/>
 			{initialTranscriptLoading && turns.length === 0 ? (
 				<View
 					pointerEvents="none"

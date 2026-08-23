@@ -428,7 +428,7 @@ export const addOptimisticMessage = (key: string, message: Message): void => {
 		const current = state[key] ?? [];
 		if (current.some((item) => item.id === message.id)) return state;
 		return {
-			...state,
+		...state,
 			[key]: [...current, message].slice(-500),
 		};
 	});

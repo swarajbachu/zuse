@@ -92,16 +92,16 @@ export function HomeChatRow({
 							<View
 								className="h-5 w-5 items-center justify-center"
 								style={{ marginTop: 2 }}
-							>
+					>
 								<ProviderLogo
 									providerId={row.session.providerId}
 									size={17}
 									color={colors.secondaryFg}
-								/>
+							/>
 								{isActive || row.unread ? (
 									<View className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
-								) : null}
-							</View>
+							) : null}
+						</View>
 							<Text
 								className={cn(
 									"min-w-0 flex-1 font-sans text-[16px] leading-5",
@@ -111,7 +111,7 @@ export function HomeChatRow({
 							>
 								{row.title}
 							</Text>
-							<Text
+								<Text
 								className="font-sans text-[12px] text-muted-foreground"
 								style={{ fontVariant: ["tabular-nums"] }}
 							>
@@ -121,10 +121,10 @@ export function HomeChatRow({
 						{context === null ? null : (
 							<Text
 								className="ml-[30px] mt-0.5 font-sans text-[12px] text-muted-foreground"
-								numberOfLines={1}
-							>
+									numberOfLines={1}
+								>
 								{context}
-							</Text>
+								</Text>
 						)}
 					</Pressable>
 				</Link.Trigger>
