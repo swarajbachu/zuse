@@ -3,7 +3,9 @@ import { describe, expect, test } from "vitest";
 import {
 	availableConnections,
 	connectionStorageKey,
+	connectionSupports,
 	decodeConnectionRecords,
+	refreshConnectionDescriptor,
 	replaceDiscoveredRoute,
 } from "../../../src/lib/connection-records";
 
@@ -59,6 +61,26 @@ describe("connection record persistence", () => {
 		]);
 
 		expect(record?.source).toBe("manual");
+	});
+
+	test("migrates flat mobile capabilities to the versioned manifest", () => {
+		const [record] = decodeConnectionRecords([
+			{
+				key: "paired:env-1",
+				host: "desktop.local",
+				port: 8787,
+				label: "Desktop",
+				updatedAt: 4,
+				source: "paired",
+				capabilities: ["mobile-terminal-v1", "attachment-read-v1"],
+			},
+		]);
+
+		expect(record?.capabilities).toEqual({
+			version: 1,
+			features: ["mobile-terminal-v1", "attachment-read-v1"],
+		});
+		expect(connectionSupports(record, "mobile-terminal-v1")).toBe(true);
 	});
 
 	test("rejects malformed persisted values", () => {
@@ -161,5 +183,35 @@ describe("connection record persistence", () => {
 			pathType: "apple-peer",
 			routeGeneration: 4,
 		});
+	});
+
+	test("does not rewrite an unchanged connection description", () => {
+		const records = decodeConnectionRecords([
+			{
+				key: "paired:env-1",
+				host: "desktop.local",
+				port: 8787,
+				label: "Desk Mac",
+				updatedAt: 4,
+				source: "paired",
+				capabilities: {
+					version: 1,
+					features: ["mobile-terminal-v1", "attachment-read-v1"],
+				},
+			},
+		]);
+		const next = refreshConnectionDescriptor(
+			records,
+			"paired:env-1",
+			"Desk Mac",
+			{
+				version: 1,
+				features: ["attachment-read-v1", "mobile-terminal-v1"],
+			},
+			10,
+		);
+
+		expect(next).toBe(records);
+		expect(next[0]?.updatedAt).toBe(4);
 	});
 });

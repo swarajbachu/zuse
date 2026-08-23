@@ -1,5 +1,4 @@
 import { useAtomValue } from "@effect/atom-react";
-import { ArrowUpIcon, CloudOffIcon } from "@zuse/icons/solid-rounded";
 import {
 	orderedChatSessions,
 	resolveActiveChatSession,
@@ -11,6 +10,7 @@ import type {
 	GitPrSummary,
 	Worktree,
 } from "@zuse/contracts";
+import { ArrowUpIcon, CloudOffIcon } from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -39,11 +39,13 @@ import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { HugeIcon } from "~/components/ui/huge-icon";
 import {
+	captureComposerImage,
 	type LocalComposerAttachment,
 	pickComposerFiles,
 	pickComposerImages,
 	uploadComposerAttachment,
 } from "~/lib/composer-attachments";
+import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { optionsForConnection } from "~/lib/connection-params";
 import { availableConnections } from "~/lib/connection-records";
 import {
@@ -76,6 +78,12 @@ import {
 	hydrateAvailability,
 } from "~/store/availability";
 import {
+	clearComposerDraft,
+	composerDraft,
+	hydrateComposerDraft,
+	setComposerDraft,
+} from "~/store/composer-drafts";
+import {
 	connectionsAtom,
 	connectionsHydratedAtom,
 	hydrateConnections,
@@ -99,12 +107,18 @@ export default function NewChatScreen() {
 	}>();
 	const requestedConnectionKey = conn?.trim() ?? "";
 	const requestedChatId = (chatId?.trim() ?? "") as ChatId;
+	const draftKey = `new-chat:${requestedConnectionKey || "auto"}:${requestedChatId || "root"}`;
+	const [initialDraft] = useState(() => composerDraft(draftKey));
 	const inheritedModel = useRef(false);
-	const [text, setText] = useState("");
+	const submitGateRef = useRef(false);
+	const [text, setText] = useState(initialDraft.text);
+	const [draftHydrated, setDraftHydrated] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
 	const [modelSheetOpen, setModelSheetOpen] = useState(false);
-	const [attachments, setAttachments] = useState<LocalComposerAttachment[]>([]);
-	const [goalMode, setGoalMode] = useState(false);
+	const [attachments, setAttachments] = useState<LocalComposerAttachment[]>([
+		...initialDraft.attachments,
+	]);
+	const [goalMode, setGoalMode] = useState(initialDraft.goalMode);
 	const [error, setError] = useState<string | null>(null);
 	const [selectedConnectionKey, setSelectedConnectionKey] = useState<
 		string | null
@@ -141,6 +155,39 @@ export default function NewChatScreen() {
 	const bundlesByConnection = useAtomValue(bundlesByConnectionAtom);
 	const loadingByConnection = useAtomValue(loadingByConnectionAtom);
 	const statusBySession = useAtomValue(statusBySessionAtom);
+
+	useEffect(() => {
+		let active = true;
+		void hydrateComposerDraft(draftKey).then((draft) => {
+			if (!active) return;
+			if (draft !== null) {
+				setText((current) =>
+					current === initialDraft.text ? draft.text : current,
+				);
+				setAttachments((current) =>
+					current.length === initialDraft.attachments.length
+						? [...draft.attachments]
+						: current,
+				);
+				setGoalMode((current) =>
+					current === initialDraft.goalMode ? draft.goalMode : current,
+				);
+			}
+			setDraftHydrated(true);
+		});
+		return () => {
+			active = false;
+		};
+	}, [draftKey, initialDraft]);
+
+	useEffect(() => {
+		if (!draftHydrated) return;
+		setComposerDraft(draftKey, {
+			text,
+			attachments,
+			goalMode,
+		});
+	}, [attachments, draftHydrated, draftKey, goalMode, text]);
 
 	useEffect(() => {
 		if (!hydrated) void hydrateConnections();
@@ -401,6 +448,8 @@ export default function NewChatScreen() {
 		) {
 			return;
 		}
+		if (submitGateRef.current) return;
+		submitGateRef.current = true;
 		setSubmitting(true);
 		setError(null);
 		try {
@@ -435,6 +484,7 @@ export default function NewChatScreen() {
 					);
 				}
 				Keyboard.dismiss();
+				clearComposerDraft(draftKey);
 				router.replace(
 					`/c/${encodeURIComponent(effectiveConnectionKey)}/session/${encodeURIComponent(session.id)}`,
 				);
@@ -483,18 +533,21 @@ export default function NewChatScreen() {
 				);
 			}
 			Keyboard.dismiss();
+			clearComposerDraft(draftKey);
 			router.replace(
 				`/c/${encodeURIComponent(effectiveConnectionKey)}/session/${encodeURIComponent(
 					result.initialSession.id,
 				)}`,
 			);
 		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : String(cause));
+			setError(connectionErrorMessage(cause));
 		} finally {
+			submitGateRef.current = false;
 			setSubmitting(false);
 		}
 	}, [
 		attachments,
+		draftKey,
 		goalMode,
 		effectiveModelMode,
 		effectiveConnectionKey,
@@ -537,6 +590,13 @@ export default function NewChatScreen() {
 		threadContext,
 		threadMode,
 	]);
+	const addAttachments = (
+		pick: () => Promise<LocalComposerAttachment[]>,
+	): void => {
+		void pick()
+			.then((items) => setAttachments((current) => [...current, ...items]))
+			.catch((cause) => setError(connectionErrorMessage(cause)));
+	};
 
 	return (
 		<KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
@@ -649,16 +709,9 @@ export default function NewChatScreen() {
 										goalMode={goalMode}
 										goalSupported={goalSupported}
 										planMode={effectiveModelMode.permissionMode === "plan"}
-										onPickImages={() =>
-											void pickComposerImages().then((items) =>
-												setAttachments((current) => [...current, ...items]),
-											)
-										}
-										onPickFiles={() =>
-											void pickComposerFiles().then((items) =>
-												setAttachments((current) => [...current, ...items]),
-											)
-										}
+										onCaptureImage={() => addAttachments(captureComposerImage)}
+										onPickImages={() => addAttachments(pickComposerImages)}
+										onPickFiles={() => addAttachments(pickComposerFiles)}
 										onToggleGoal={setGoalMode}
 										onTogglePlan={(next) =>
 											setModelMode((value) => ({

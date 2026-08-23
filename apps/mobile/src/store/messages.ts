@@ -1,24 +1,23 @@
-import {
-	CommandId,
-	type ComposerInput,
-	type EnvironmentId,
-	type Message,
-	type MessageId,
-	type QueuedMessage,
-	type SessionId,
+import type {
+	ComposerInput,
+	EnvironmentId,
+	Message,
+	MessageId,
+	QueuedMessage,
+	SessionId,
 } from "@zuse/contracts";
 import { Atom } from "effect/unstable/reactivity";
 
+import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { connectionSessionKey } from "~/lib/session-key";
 import { reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
 import {
-	dispatchMobileSessionCommand,
+	dispatchMobileSessionCommandResult,
 	mobileClientBus,
 	registerMobileEnvironment,
 	resetMobileClientBus,
-	sessionCommandContext,
 	sessionTimelineKey,
 } from "./mobile-client-bus";
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
@@ -79,37 +78,20 @@ export const currentSessionTurnId = (connKey: string, sessionId: SessionId) =>
 			: mobileClientBus().snapshot(retained.key).data?.currentTurn?.turnId;
 	})();
 const optimisticIds = new Set<MessageId>();
-let commandCounter = 0;
-const nextCommandId = (kind: string): CommandId =>
-	CommandId.make(
-		`${kind}:${Date.now().toString(36)}:${(commandCounter++).toString(36)}`,
-	);
 const dispatchSessionCommand = async <Result>(
 	connKey: string,
 	options: WsProtocolOptions,
 	sessionId: SessionId,
 	kind: string,
 	payload: unknown,
-	commandId = nextCommandId(kind),
 ): Promise<Result> => {
-	const { environmentId, resource } = sessionCommandContext(
+	return dispatchMobileSessionCommandResult<Result>({
 		connKey,
-		options,
+		connection: options,
 		sessionId,
-	);
-	const receipt = await dispatchMobileSessionCommand<Result>({
 		kind,
-		commandId,
-		environmentId,
-		resource,
-		payload:
-			typeof payload === "object" && payload !== null
-				? { ...payload, commandId }
-				: payload,
-		retry: "safe",
-		createdAt: Date.now(),
+		payload,
 	});
-	return receipt.result;
 };
 
 const patchQueue = (key: string, items: readonly QueuedMessage[]): void => {
@@ -352,7 +334,7 @@ export const updateQueuedMessage = async (
 		reportConnectionFailure(options, cause);
 		batchAtomUpdates(() => {
 			patchQueue(key, previous);
-			patchError(key, messageOf(cause));
+			patchError(key, connectionErrorMessage(cause));
 		});
 		throw cause;
 	}
@@ -440,15 +422,16 @@ export const resumeQueue = async (
 	}
 };
 
-const messageOf = (cause: unknown): string =>
-	cause instanceof Error ? cause.message : String(cause);
-
 export const addOptimisticMessage = (key: string, message: Message): void => {
 	optimisticIds.add(message.id);
-	appAtomRegistry.update(messagesBySessionAtom, (state) => ({
+	appAtomRegistry.update(messagesBySessionAtom, (state) => {
+		const current = state[key] ?? [];
+		if (current.some((item) => item.id === message.id)) return state;
+		return {
 		...state,
-		[key]: [...(state[key] ?? []), message].slice(-500),
-	}));
+			[key]: [...current, message].slice(-500),
+		};
+	});
 };
 
 export const removeOptimisticMessage = (

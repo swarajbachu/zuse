@@ -1,3 +1,4 @@
+import { CapabilityFeature, CapabilityManifest } from "@zuse/contracts";
 import { Schema } from "effect";
 
 export const ConnectionSource = Schema.Literals(["paired", "relay", "manual"]);
@@ -6,7 +7,7 @@ export type ConnectionSource = typeof ConnectionSource.Type;
 export const LocalPathType = Schema.Literals(["lan", "apple-peer"]);
 export type LocalPathType = typeof LocalPathType.Type;
 
-const LegacyConnectionRecord = Schema.Struct({
+const ConnectionRecordFields = {
 	key: Schema.String,
 	environmentId: Schema.optional(Schema.String),
 	host: Schema.String,
@@ -23,10 +24,27 @@ const LegacyConnectionRecord = Schema.Struct({
 	label: Schema.String,
 	updatedAt: Schema.Number,
 	source: Schema.optional(ConnectionSource),
+};
+
+const CurrentConnectionRecord = Schema.Struct({
+	...ConnectionRecordFields,
+	capabilities: Schema.optional(CapabilityManifest),
 });
 
+const FlatCapabilityList = Schema.Array(CapabilityFeature);
+
+const FlatCapabilitiesConnectionRecord = Schema.Struct({
+	...ConnectionRecordFields,
+	capabilities: Schema.optional(FlatCapabilityList),
+});
+
+const StoredConnectionRecord = Schema.Union([
+	CurrentConnectionRecord,
+	FlatCapabilitiesConnectionRecord,
+]);
+
 export type ConnectionRecord = Omit<
-	typeof LegacyConnectionRecord.Type,
+	typeof CurrentConnectionRecord.Type,
 	"source"
 > & {
 	readonly source: ConnectionSource;
@@ -61,8 +79,39 @@ export const replaceDiscoveredRoute = (
 	updatedAt: Date.now(),
 });
 
+export const connectionSupports = (
+	record: ConnectionRecord | undefined,
+	capability: typeof CapabilityFeature.Type,
+): boolean => record?.capabilities?.features.includes(capability) === true;
+
+export const refreshConnectionDescriptor = (
+	connections: ConnectionRecord[],
+	key: string,
+	label: string,
+	capabilities: typeof CapabilityManifest.Type | undefined,
+	now: number = Date.now(),
+): ConnectionRecord[] => {
+	const current = connections.find((connection) => connection.key === key);
+	if (current === undefined) return connections;
+	const sameCapabilities =
+		current.capabilities === capabilities ||
+		(current.capabilities !== undefined &&
+			capabilities !== undefined &&
+			current.capabilities.version === capabilities.version &&
+			current.capabilities.features.length === capabilities.features.length &&
+			current.capabilities.features.every((feature) =>
+				capabilities.features.includes(feature),
+			));
+	if (current.label === label && sameCapabilities) return connections;
+	return connections.map((connection) =>
+		connection.key === key
+			? { ...connection, label, capabilities, updatedAt: now }
+			: connection,
+	);
+};
+
 const inferSource = (
-	record: typeof LegacyConnectionRecord.Type,
+	record: typeof StoredConnectionRecord.Type,
 ): ConnectionSource => {
 	if (record.source !== undefined) return record.source;
 	if (record.wsBaseUrl !== undefined && record.wsBaseUrl !== null)
@@ -72,10 +121,13 @@ const inferSource = (
 };
 
 export const decodeConnectionRecords = (value: unknown): ConnectionRecord[] =>
-	Schema.decodeUnknownSync(Schema.Array(LegacyConnectionRecord))(value).map(
+	Schema.decodeUnknownSync(Schema.Array(StoredConnectionRecord))(value).map(
 		(record) => {
 			const source = inferSource(record);
-			return { ...record, source };
+			const capabilities = Schema.is(FlatCapabilityList)(record.capabilities)
+				? CapabilityManifest.make({ version: 1, features: record.capabilities })
+				: record.capabilities;
+			return { ...record, capabilities, source };
 		},
 	);
 

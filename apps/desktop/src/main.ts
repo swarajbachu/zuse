@@ -3218,6 +3218,13 @@ async function createMainWindow() {
 				],
 				authShell,
 				credentialsLayer: CredentialsServiceLive,
+				openHostSession: (sessionId, chatId) => {
+					focusMainWindow();
+					mainWindow?.webContents.send("notch:openChat", {
+						chatId,
+						sessionId,
+					});
+				},
 				lanAuth: {
 					policy: "protected",
 					advertisedHost: networkAccess.advertisedHost,

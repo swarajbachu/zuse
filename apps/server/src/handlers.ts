@@ -8,6 +8,7 @@ import { DiagnosticsHandlersLayer } from "./diagnostics/handlers.ts";
 import { ExternalThreadHandlersLayer } from "./external-thread/handlers.ts";
 import { FsHandlersLayer } from "./fs/handlers.ts";
 import { GitHandlersLayer } from "./git/handlers.ts";
+import { HostHandlersLayer } from "./host/handlers.ts";
 import { LanAuthHandlersLayer } from "./lan-auth/handlers.ts";
 import { LinearHandlersLayer } from "./linear/handlers.ts";
 import { MachineHandlersLayer } from "./machine/handlers.ts";
@@ -21,6 +22,7 @@ import { RelayHandlersLayer } from "./relay/handlers.ts";
 import { RepositorySettingsHandlersLayer } from "./repository-settings/handlers.ts";
 import { SkillHandlersLayer } from "./skill/handlers.ts";
 import { UsageHandlersLayer } from "./usage/handlers.ts";
+import { VoiceHandlersLayer } from "./voice/handlers.ts";
 import { WorkspaceHandlersLayer } from "./workspace/handlers.ts";
 import { WorktreeHandlersLayer } from "./worktree/handlers.ts";
 
@@ -43,6 +45,7 @@ export const HandlersLayer = Layer.mergeAll(
 	WorkspaceHandlersLayer,
 	PtyHandlersLayer,
 	GitHandlersLayer,
+	HostHandlersLayer,
 	WorktreeHandlersLayer,
 	RepositorySettingsHandlersLayer,
 	ConfigStoreHandlersLayer,
@@ -53,6 +56,7 @@ export const HandlersLayer = Layer.mergeAll(
 	SkillHandlersLayer,
 	PokemonHandlersLayer,
 	UsageHandlersLayer,
+	VoiceHandlersLayer,
 	DiagnosticsHandlersLayer,
 	ExternalThreadHandlersLayer,
 );

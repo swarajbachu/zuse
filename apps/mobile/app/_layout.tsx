@@ -10,6 +10,7 @@ import {
 	DefaultTheme,
 	ThemeProvider,
 } from "expo-router/react-navigation";
+import * as ScreenOrientation from "expo-screen-orientation";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { Platform, View } from "react-native";
@@ -41,6 +42,13 @@ function ConnectivityRuntimeBridge() {
 	useLocalConnectivityRuntime();
 	const pathname = usePathname();
 	useMobileAnalytics(pathname);
+	useEffect(() => {
+		void ScreenOrientation.lockAsync(
+			pathname.endsWith("/terminal")
+				? ScreenOrientation.OrientationLock.ALL
+				: ScreenOrientation.OrientationLock.PORTRAIT_UP,
+		).catch(() => undefined);
+	}, [pathname]);
 	return null;
 }
 
@@ -132,11 +140,31 @@ export default function RootLayout() {
 								}}
 							/>
 							<Stack.Screen
+								name="archives"
+								options={{ title: "Archived chats", headerLargeTitle: false }}
+							/>
+							<Stack.Screen
+								name="usage"
+								options={{ title: "Usage", headerLargeTitle: false }}
+							/>
+							<Stack.Screen
+								name="developer-tools"
+								options={{ title: "Developer tools", headerLargeTitle: false }}
+							/>
+							<Stack.Screen
 								name="plan-viewer"
 								options={{
 									title: "Plan",
 									presentation: "modal",
 									headerLargeTitle: false,
+								}}
+							/>
+							<Stack.Screen
+								name="media-viewer"
+								options={{
+									headerShown: false,
+									presentation: "fullScreenModal",
+									animation: "fade",
 								}}
 							/>
 							<Stack.Screen
@@ -210,6 +238,16 @@ export default function RootLayout() {
 								}}
 							/>
 							<Stack.Screen
+								name="c/[conn]/session/[sessionId]/terminal"
+								options={{
+									title: "Terminal",
+									headerLargeTitle: false,
+									headerTransparent: false,
+									gestureEnabled: false,
+									contentStyle: { backgroundColor: "#000000" },
+								}}
+							/>
+							<Stack.Screen
 								name="c/[conn]/session/[sessionId]/review"
 								options={{
 									title: "Review changes",
@@ -219,6 +257,14 @@ export default function RootLayout() {
 									sheetInitialDetentIndex: 0,
 									sheetGrabberVisible: true,
 									contentStyle: { backgroundColor: "transparent" },
+								}}
+							/>
+							<Stack.Screen
+								name="c/[conn]/session/[sessionId]/resolve-conflict"
+								options={{
+									title: "Resolve conflict",
+									headerLargeTitle: false,
+									presentation: "card",
 								}}
 							/>
 							<Stack.Screen

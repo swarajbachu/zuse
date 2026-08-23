@@ -35,6 +35,7 @@ import {
 	connectionSessionsLoadingAtom,
 	hydrateSessions,
 	isUnread,
+	refreshSessionsAfterConnect,
 	statusBySessionAtom,
 } from "~/store/sessions";
 import { colors } from "~/theme";
@@ -74,10 +75,17 @@ export default function SessionsScreen() {
 	}, [connKey, options]);
 
 	useEffect(() => {
-		void connectionSnapshot?.generation;
-		if (connKey.length > 0 && options !== null)
+		if (connKey.length === 0 || options === null) return;
+		if (connectionSnapshot?.status === "connected") {
+			void refreshSessionsAfterConnect(
+				connKey,
+				options,
+				connectionSnapshot.generation,
+			);
+			return;
+		}
 			void hydrateSessions(connKey, options);
-	}, [connKey, connectionSnapshot?.generation, options]);
+	}, [connKey, connectionSnapshot, options]);
 
 	const rows = useMemo(
 		() =>

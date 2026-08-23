@@ -6,14 +6,12 @@ import * as ImagePicker from "expo-image-picker";
 
 import { uploadAttachment } from "~/rpc/actions";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
+import {
+	type LocalComposerAttachment,
+	protectComposerAttachment,
+} from "./composer-attachment-storage";
 
-export type LocalComposerAttachment = {
-	id: string;
-	uri: string;
-	name: string;
-	mimeType: string;
-	size?: number;
-};
+export type { LocalComposerAttachment } from "./composer-attachment-storage";
 
 const localId = (): string =>
 	`local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -25,13 +23,42 @@ export async function pickComposerImages(): Promise<LocalComposerAttachment[]> {
 		quality: 1,
 	});
 	if (result.canceled) return [];
-	return result.assets.map((asset) => ({
+	return Promise.all(
+		result.assets.map((asset) =>
+			protectComposerAttachment({
 		id: localId(),
 		uri: asset.uri,
-		name: asset.fileName ?? `Photo.${asset.mimeType?.split("/")[1] ?? "jpg"}`,
+				name:
+					asset.fileName ?? `Photo.${asset.mimeType?.split("/")[1] ?? "jpg"}`,
 		mimeType: asset.mimeType ?? "image/jpeg",
 		size: asset.fileSize,
-	}));
+			}),
+		),
+	);
+}
+
+export async function captureComposerImage(): Promise<
+	LocalComposerAttachment[]
+> {
+	const permission = await ImagePicker.requestCameraPermissionsAsync();
+	if (!permission.granted) throw new Error("Camera permission is required.");
+	const result = await ImagePicker.launchCameraAsync({
+		mediaTypes: ["images"],
+		quality: 1,
+	});
+	if (result.canceled) return [];
+	return Promise.all(
+		result.assets.map((asset) =>
+			protectComposerAttachment({
+				id: localId(),
+				uri: asset.uri,
+				name:
+					asset.fileName ?? `Camera.${asset.mimeType?.split("/")[1] ?? "jpg"}`,
+				mimeType: asset.mimeType ?? "image/jpeg",
+				size: asset.fileSize,
+			}),
+		),
+	);
 }
 
 export async function pickComposerFiles(): Promise<LocalComposerAttachment[]> {
@@ -41,13 +68,17 @@ export async function pickComposerFiles(): Promise<LocalComposerAttachment[]> {
 		copyToCacheDirectory: true,
 	});
 	if (result.canceled) return [];
-	return result.assets.map((asset) => ({
+	return Promise.all(
+		result.assets.map((asset) =>
+			protectComposerAttachment({
 		id: localId(),
 		uri: asset.uri,
 		name: asset.name,
 		mimeType: asset.mimeType ?? "application/octet-stream",
 		size: asset.size,
-	}));
+			}),
+		),
+	);
 }
 
 export async function uploadComposerAttachment(

@@ -139,6 +139,10 @@ export interface MainLayerDeps {
 			request: import("./lan-auth/services/lan-auth-service.ts").NearbyPairingRequest,
 		) => void;
 	};
+	readonly openHostSession?: (
+		sessionId: string,
+		chatId: string,
+	) => void | Promise<void>;
 	readonly autoRelayLink?: {
 		readonly relayUrl: string;
 		readonly label?: string;
@@ -180,6 +184,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		icloudTrustSecret: deps.lanAuth?.icloudTrustSecret,
 		transportCertificatePin: deps.lanAuth?.transportCertificatePin,
 		onNearbyPairingRequest: deps.lanAuth?.onNearbyPairingRequest,
+		openHostSession: deps.openHostSession,
 	};
 	const LanAuthConfigLayer = Layer.succeed(LanAuthConfig, lanAuthConfig);
 

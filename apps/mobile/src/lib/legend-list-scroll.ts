@@ -32,11 +32,14 @@ export const finishNativeEndScroll = async (
 		readonly animated: boolean;
 		readonly afterVirtualLayout?: () => Promise<void>;
 	},
-): Promise<void> => {
+): Promise<boolean> => {
 	await (options.afterVirtualLayout ?? afterNextLayout)();
-	nativeEndScroller(list.getNativeScrollRef())?.scrollToEnd?.({
+	const native = nativeEndScroller(list.getNativeScrollRef());
+	if (native?.scrollToEnd === undefined) return false;
+	native.scrollToEnd({
 		animated: options.animated,
 	});
+	return true;
 };
 
 /**
@@ -53,10 +56,11 @@ export const scrollListToLatest = async (
 	// LegendList can leave its animated imperative promise pending when iOS
 	// emits no momentum-end event. Start virtualization, but never put the
 	// native keyboard-aware fallback behind that promise.
-	void list.scrollToEnd({ animated: options.animated }).catch(() => undefined);
-	await finishNativeEndScroll(list, options);
-	// A native end scroll includes any persistent transcript runway. Re-apply
-	// the list-aware target because LegendList intentionally subtracts its
-	// footer, leaving the latest real content above the composer.
-	void list.scrollToEnd({ animated: false }).catch(() => undefined);
+	const virtualResult = list.scrollToEnd({ animated: options.animated }).then(
+		() => ({ ok: true as const }),
+		(error: unknown) => ({ ok: false as const, error }),
+	);
+	if (await finishNativeEndScroll(list, options)) return;
+	const result = await virtualResult;
+	if (!result.ok) throw result.error;
 };

@@ -13,5 +13,22 @@
 			"!!**/dist-electron",
 			"!!**/node_modules"
 		]
+	},
+	"css": {
+		"parser": {
+			"tailwindDirectives": true
+		}
+	},
+	"overrides": [
+		{
+			"includes": ["apps/mobile/global.css"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noDuplicateCustomProperties": "off"
 	}
+}
+			}
+		}
+	]
 }

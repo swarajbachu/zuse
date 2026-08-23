@@ -1,6 +1,9 @@
+import { redactDiagnosticValue } from "~/lib/redact-diagnostics";
+
 type DiagnosticFields = Record<string, unknown>;
 
 const safeFields = (fields: DiagnosticFields): DiagnosticFields =>
+	redactDiagnosticValue(
   Object.fromEntries(
     Object.entries(fields).map(([key, value]) => [
       key,
@@ -8,7 +11,8 @@ const safeFields = (fields: DiagnosticFields): DiagnosticFields =>
         ? { name: value.name, message: value.message }
         : value,
     ]),
-  );
+		),
+	) as DiagnosticFields;
 
 export const logConnectionDiagnostic = (
   event: string,

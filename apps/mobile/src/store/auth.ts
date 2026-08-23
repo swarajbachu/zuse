@@ -33,7 +33,13 @@ const message = (cause: unknown): string => {
 };
 
 export const hydrateAuth = async (): Promise<void> => {
-	const account = await currentAccount();
+	let account: WorkosAccount | null = null;
+	try {
+		account = await currentAccount();
+	} catch {
+		// Keychain access can be temporarily unavailable after an install or
+		// while the device is locked. Startup must still settle to signed out.
+	}
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(authAccountAtom, account);
 		appAtomRegistry.set(authHydratedAtom, true);

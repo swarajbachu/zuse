@@ -155,4 +155,78 @@ describe("PtyService", () => {
       ).pipe(Effect.provide(PtyServiceLive)),
     );
   });
+
+	it("lists owned terminals and enforces the per-owner live limit", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const service = yield* PtyService;
+				const ownership = {
+					ownerId: "mobile-device",
+					label: "Project shell",
+					scope: "session" as const,
+				};
+
+				for (let index = 0; index < 4; index += 1) {
+					yield* service.open("/tmp/project", 90, 30, undefined, ownership);
+				}
+
+				const listed = yield* service.list("mobile-device");
+				expect(listed).toHaveLength(4);
+				expect(listed[0]).toMatchObject({
+					cwd: "/tmp/project",
+					label: "Project shell",
+					scope: "session",
+					status: "running",
+					cols: 90,
+					rows: 30,
+					latestOutputSequence: 0,
+});
+
+				const error = yield* service
+					.open("/tmp/project", 80, 24, undefined, ownership)
+					.pipe(Effect.flip);
+				expect(error._tag).toBe("PtyOwnerLimitError");
+			}).pipe(Effect.provide(PtyServiceLive)),
+		);
+	});
+
+	it("keeps the owner limit atomic and isolates owned terminal access", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const service = yield* PtyService;
+				const ownership = {
+					ownerId: "owner-a",
+					label: "Shell",
+					scope: "environment" as const,
+				};
+				const attempts = yield* Effect.all(
+					Array.from({ length: 5 }, () =>
+						service.open("/tmp", 80, 24, undefined, ownership).pipe(
+							Effect.match({
+								onFailure: () => "failure" as const,
+								onSuccess: () => "success" as const,
+							}),
+						),
+					),
+					{ concurrency: "unbounded" },
+				);
+				expect(attempts.filter((result) => result === "success")).toHaveLength(
+					4,
+				);
+				expect(attempts.filter((result) => result === "failure")).toHaveLength(
+					1,
+				);
+
+				const owned = yield* service.list("owner-a");
+				const ptyId = owned[0]?.ptyId;
+				if (ptyId === undefined) throw new Error("Expected owned terminal");
+				const mismatch = yield* service
+					.write(ptyId, "blocked", "owner-b")
+					.pipe(Effect.flip);
+				expect(mismatch._tag).toBe("PtyOwnerMismatchError");
+				yield* service.write(ptyId, "allowed", "owner-a");
+				expect(fakePty.write).toHaveBeenCalledWith("allowed");
+			}).pipe(Effect.provide(PtyServiceLive)),
+		);
+	});
 });

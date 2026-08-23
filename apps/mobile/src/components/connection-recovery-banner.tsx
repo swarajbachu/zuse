@@ -1,5 +1,5 @@
-import { AlertTriangle, QrCode, RefreshCw } from "lucide-react-native";
-import { Pressable, Text, View } from "react-native";
+import { QrCode } from "lucide-react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
 import { colors } from "~/theme";
 
@@ -7,56 +7,55 @@ export function ConnectionRecoveryBanner({
 	message,
 	onRetry,
 	onPairAgain,
+	recovering = false,
 }: {
 	message: string;
 	onRetry: () => void;
 	onPairAgain?: () => void;
+	recovering?: boolean;
 }) {
 	return (
 		<View
 			accessibilityRole="alert"
-			className="rounded-2xl border border-danger/35 bg-danger/10 px-3 py-3"
-			style={{ borderCurve: "continuous" }}
+			className="min-h-12 flex-row items-center gap-2 px-2"
 		>
-			<View className="flex-row items-start gap-2.5">
-				<AlertTriangle size={17} color={colors.danger} />
+			<View className="h-6 w-6 items-center justify-center rounded-full bg-muted">
+				{recovering ? (
+					<ActivityIndicator size={12} color={colors.accent} />
+				) : (
+					<View className="h-2 w-2 rounded-full bg-warning" />
+				)}
+			</View>
+			<View className="min-w-0 flex-1 flex-row items-baseline gap-1.5">
+				<Text className="font-sans-medium text-[13px] text-foreground">
+					{recovering ? "Reconnecting" : "Offline"}
+				</Text>
 				<Text
-					selectable
-					className="min-w-0 flex-1 font-sans text-[13px] leading-5 text-danger"
+					numberOfLines={1}
+					className="min-w-0 flex-1 font-sans text-[12px] text-muted-foreground"
 				>
 					{message}
 				</Text>
 			</View>
-			<View className="mt-2 flex-row justify-end gap-2">
-				{onPairAgain === undefined ? null : (
+			{recovering || onPairAgain === undefined ? null : (
 					<Pressable
 						accessibilityRole="button"
 						accessibilityLabel="Scan a new pairing code"
-						hitSlop={4}
 						onPress={onPairAgain}
-						className="h-9 flex-row items-center gap-1.5 rounded-lg px-2.5 active:bg-danger/10"
+					className="h-11 w-11 items-center justify-center rounded-full active:bg-secondary"
 						style={{ borderCurve: "continuous" }}
 					>
-						<QrCode size={15} color={colors.secondaryFg} />
-						<Text className="font-sans-medium text-[13px] text-muted-foreground">
-							Update connection
-						</Text>
+					<QrCode size={17} color={colors.secondaryFg} />
 					</Pressable>
 				)}
 				<Pressable
 					accessibilityRole="button"
 					accessibilityLabel="Retry connection"
-					hitSlop={4}
 					onPress={onRetry}
-					className="h-9 flex-row items-center gap-1.5 rounded-lg bg-primary px-2.5 active:opacity-70"
-					style={{ borderCurve: "continuous" }}
+				className="h-11 justify-center px-2 active:opacity-60"
 				>
-					<RefreshCw size={14} color={colors.primaryForeground} />
-					<Text className="font-sans-medium text-[13px] text-primary-foreground">
-						Retry
-					</Text>
+				<Text className="font-sans-medium text-[13px] text-primary">Retry</Text>
 				</Pressable>
-			</View>
 		</View>
 	);
 }

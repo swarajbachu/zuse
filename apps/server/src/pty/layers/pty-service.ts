@@ -4,16 +4,18 @@ import {
   PtyGapEvent,
   PtyId,
   PtyNotFoundError,
+	PtyOwnerLimitError,
+	PtyOwnerMismatchError,
   PtySpawnError,
+	PtySummary,
 } from "@zuse/contracts";
-import { Effect, Layer, PubSub, Ref, Stream } from "effect";
+import { Effect, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
 import * as pty from "node-pty";
-
+import { ensureNodePtySpawnHelperExecutable } from "../node-pty-helper.ts";
 import {
   PtyEventJournal,
   type PtySequencedEvent,
 } from "../pty-event-journal.ts";
-import { ensureNodePtySpawnHelperExecutable } from "../node-pty-helper.ts";
 import { PtyService } from "../services/pty-service.ts";
 
 type PtyBroadcast =
@@ -25,11 +27,17 @@ interface ActivePty {
   readonly cwd: string;
   readonly journal: PtyEventJournal;
   readonly events: PubSub.PubSub<PtyBroadcast>;
+	readonly ownerId: string | null;
+	readonly label: string | null;
+	readonly scope: "session" | "environment";
+	cols: number;
+	rows: number;
   exited: boolean;
 }
 
 const OUTPUT_REPLAY_BYTES = 1024 * 1024;
 const LIVE_OUTPUT_CHUNKS = 1024;
+const MOBILE_TERMINAL_LIMIT = 4;
 
 const defaultShell = (): string => {
   if (process.platform === "win32") {
@@ -42,12 +50,35 @@ export const PtyServiceLive = Layer.effect(
   PtyService,
   Effect.gen(function* () {
     const ref = yield* Ref.make<ReadonlyMap<PtyId, ActivePty>>(new Map());
+		const openAdmission = yield* Semaphore.make(1);
 
-    const open: PtyService["Service"]["open"] = (cwd, cols, rows, command) =>
+		const open: PtyService["Service"]["open"] = (
+			cwd,
+			cols,
+			rows,
+			command,
+			mobileOwnership,
+		) =>
+			openAdmission.withPermits(1)(
       Effect.gen(function* () {
+					if (mobileOwnership !== undefined) {
+						const current = yield* Ref.get(ref);
+						const ownedLiveCount = [...current.values()].filter(
+							(item) =>
+								item.ownerId === mobileOwnership.ownerId && !item.exited,
+						).length;
+						if (ownedLiveCount >= MOBILE_TERMINAL_LIMIT) {
+							return yield* new PtyOwnerLimitError({
+								ownerId: mobileOwnership.ownerId,
+								limit: MOBILE_TERMINAL_LIMIT,
+							});
+						}
+					}
+
         const id = PtyId.make(crypto.randomUUID());
 
-        const events = yield* PubSub.sliding<PtyBroadcast>(LIVE_OUTPUT_CHUNKS);
+					const events =
+						yield* PubSub.sliding<PtyBroadcast>(LIVE_OUTPUT_CHUNKS);
         const journal = new PtyEventJournal(OUTPUT_REPLAY_BYTES);
 
         const cmd = command?.cmd ?? defaultShell();
@@ -79,6 +110,11 @@ export const PtyServiceLive = Layer.effect(
           cwd,
           journal,
           events,
+						ownerId: mobileOwnership?.ownerId ?? null,
+						label: mobileOwnership?.label ?? null,
+						scope: mobileOwnership?.scope ?? "session",
+						cols: Math.max(1, cols),
+						rows: Math.max(1, rows),
           exited: false,
         };
 
@@ -101,32 +137,61 @@ export const PtyServiceLive = Layer.effect(
         });
 
         return { ptyId: id };
-      });
+				}),
+			);
+
+		const list: PtyService["Service"]["list"] = (ownerId) =>
+			Effect.map(Ref.get(ref), (items) =>
+				[...items.entries()]
+					.filter(([, item]) => item.ownerId === ownerId)
+					.map(([ptyId, item]) =>
+						PtySummary.make({
+							ptyId,
+							cwd: item.cwd,
+							label: item.label,
+							scope: item.scope,
+							status: item.exited ? "exited" : "running",
+							cols: item.cols,
+							rows: item.rows,
+							latestOutputSequence: item.journal.latestSequence,
+						}),
+					),
+			);
 
     const getActive = (
       ptyId: PtyId,
-    ): Effect.Effect<ActivePty, PtyNotFoundError> =>
-      Effect.flatMap(Ref.get(ref), (m) => {
+			ownerId?: string,
+		): Effect.Effect<ActivePty, PtyNotFoundError | PtyOwnerMismatchError> =>
+			Effect.gen(function* () {
+				const m = yield* Ref.get(ref);
         const active = m.get(ptyId);
-        return active === undefined
-          ? Effect.fail(new PtyNotFoundError({ ptyId }))
-          : Effect.succeed(active);
+				if (active === undefined) return yield* new PtyNotFoundError({ ptyId });
+				if (active.ownerId !== null && active.ownerId !== ownerId)
+					return yield* new PtyOwnerMismatchError({ ptyId });
+				return active;
       });
 
-    const write: PtyService["Service"]["write"] = (ptyId, data) =>
-      Effect.flatMap(getActive(ptyId), (active) =>
+		const write: PtyService["Service"]["write"] = (ptyId, data, ownerId) =>
+			Effect.flatMap(getActive(ptyId, ownerId), (active) =>
         active.exited
           ? Effect.fail(new PtyNotFoundError({ ptyId }))
           : Effect.sync(() => active.pty.write(data)),
       );
 
-    const resize: PtyService["Service"]["resize"] = (ptyId, cols, rows) =>
-      Effect.flatMap(getActive(ptyId), (active) =>
+		const resize: PtyService["Service"]["resize"] = (
+			ptyId,
+			cols,
+			rows,
+			ownerId,
+		) =>
+			Effect.flatMap(getActive(ptyId, ownerId), (active) =>
         active.exited
           ? Effect.fail(new PtyNotFoundError({ ptyId }))
           : Effect.sync(() => {
               try {
-                active.pty.resize(Math.max(1, cols), Math.max(1, rows));
+								active.cols = Math.max(1, cols);
+								active.rows = Math.max(1, rows);
+								active.pty.resize(active.cols, active.rows);
               } catch {
                 // pty may have exited between the renderer's last render and
                 // this resize call — safe to ignore.
@@ -134,8 +199,8 @@ export const PtyServiceLive = Layer.effect(
             }),
       );
 
-    const close: PtyService["Service"]["close"] = (ptyId) =>
-      Effect.flatMap(getActive(ptyId), (active) =>
+		const close: PtyService["Service"]["close"] = (ptyId, ownerId) =>
+			Effect.flatMap(getActive(ptyId, ownerId), (active) =>
         Effect.gen(function* () {
           yield* Ref.update(ref, (m) => {
             const next = new Map(m);
@@ -176,10 +241,11 @@ export const PtyServiceLive = Layer.effect(
     const subscribe: PtyService["Service"]["subscribe"] = (
       ptyId,
       afterSequence,
+			ownerId,
     ) =>
       Stream.unwrap(
         Effect.gen(function* () {
-          const active = yield* getActive(ptyId);
+					const active = yield* getActive(ptyId, ownerId);
           const subscription = yield* PubSub.subscribe(active.events);
           const replay = active.journal.replay(afterSequence);
           const latestAtSnapshot = active.journal.latestSequence;
@@ -212,6 +278,14 @@ export const PtyServiceLive = Layer.effect(
         }),
       ).pipe(Stream.scoped);
 
-    return { open, write, resize, close, closeByCwdPrefix, subscribe } as const;
+		return {
+			open,
+			list,
+			write,
+			resize,
+			close,
+			closeByCwdPrefix,
+			subscribe,
+		} as const;
   }),
 );

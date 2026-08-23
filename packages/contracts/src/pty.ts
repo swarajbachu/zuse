@@ -45,6 +45,44 @@ export class PtySpawnError extends Schema.TaggedErrorClass<PtySpawnError>()(
   { reason: Schema.String },
 ) {}
 
+export class PtyOwnerLimitError extends Schema.TaggedErrorClass<PtyOwnerLimitError>()(
+	"PtyOwnerLimitError",
+	{
+		ownerId: Schema.String,
+		limit: Schema.Number,
+	},
+) {}
+
+export class PtyOwnerMismatchError extends Schema.TaggedErrorClass<PtyOwnerMismatchError>()(
+	"PtyOwnerMismatchError",
+	{ ptyId: PtyId },
+) {}
+
+export const PtyScope = Schema.Literals(["session", "environment"]);
+export type PtyScope = typeof PtyScope.Type;
+
+export class PtyMobileOwnership extends Schema.Class<PtyMobileOwnership>(
+	"PtyMobileOwnership",
+)({
+	ownerId: Schema.String,
+	label: Schema.optional(Schema.String),
+	scope: Schema.optional(PtyScope),
+}) {}
+
+export const PtyStatus = Schema.Literals(["running", "exited"]);
+export type PtyStatus = typeof PtyStatus.Type;
+
+export class PtySummary extends Schema.Class<PtySummary>("PtySummary")({
+	ptyId: PtyId,
+	cwd: Schema.String,
+	label: Schema.NullOr(Schema.String),
+	scope: PtyScope,
+	status: PtyStatus,
+	cols: Schema.Number,
+	rows: Schema.Number,
+	latestOutputSequence: Schema.Number,
+}) {}
+
 /**
  * Optional override for what process the PTY hosts. Omitted → host the user's
  * default login shell (Phase 1 behavior). Present → spawn `cmd` with `args` as
@@ -64,15 +102,26 @@ export const PtyOpenRpc = Rpc.make("pty.open", {
     cols: Schema.Number,
     rows: Schema.Number,
     command: Schema.optional(PtyCommand),
+		mobileOwnership: Schema.optional(PtyMobileOwnership),
   }),
   success: Schema.Struct({ ptyId: PtyId }),
-  error: PtySpawnError,
+	error: Schema.Union([PtySpawnError, PtyOwnerLimitError]),
+});
+
+export const PtyListRpc = Rpc.make("pty.list", {
+	payload: Schema.Struct({ ownerId: Schema.String }),
+	success: Schema.Array(PtySummary),
+	error: Schema.Never,
 });
 
 export const PtyWriteRpc = Rpc.make("pty.write", {
-  payload: Schema.Struct({ ptyId: PtyId, data: Schema.String }),
+	payload: Schema.Struct({
+		ptyId: PtyId,
+		data: Schema.String,
+		ownerId: Schema.optional(Schema.String),
+	}),
   success: Schema.Void,
-  error: PtyNotFoundError,
+	error: Schema.Union([PtyNotFoundError, PtyOwnerMismatchError]),
 });
 
 export const PtyResizeRpc = Rpc.make("pty.resize", {
@@ -80,23 +129,28 @@ export const PtyResizeRpc = Rpc.make("pty.resize", {
     ptyId: PtyId,
     cols: Schema.Number,
     rows: Schema.Number,
+		ownerId: Schema.optional(Schema.String),
   }),
   success: Schema.Void,
-  error: PtyNotFoundError,
+	error: Schema.Union([PtyNotFoundError, PtyOwnerMismatchError]),
 });
 
 export const PtyCloseRpc = Rpc.make("pty.close", {
-  payload: Schema.Struct({ ptyId: PtyId }),
+	payload: Schema.Struct({
+		ptyId: PtyId,
+		ownerId: Schema.optional(Schema.String),
+	}),
   success: Schema.Void,
-  error: PtyNotFoundError,
+	error: Schema.Union([PtyNotFoundError, PtyOwnerMismatchError]),
 });
 
 export const PtyOutputRpc = Rpc.make("pty.output", {
   payload: Schema.Struct({
     ptyId: PtyId,
     afterSequence: Schema.optional(Schema.Number),
+		ownerId: Schema.optional(Schema.String),
   }),
   success: PtyEvent,
-  error: PtyNotFoundError,
+	error: Schema.Union([PtyNotFoundError, PtyOwnerMismatchError]),
   stream: true,
 });

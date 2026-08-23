@@ -46,6 +46,15 @@ export interface AttachmentServiceShape {
 		readonly bytes: Uint8Array;
 		readonly mimeType: string;
 	} | null>;
+	readonly readForSession: (
+		sessionId: SessionId,
+		id: string,
+	) => Effect.Effect<{
+		readonly bytes: Uint8Array;
+		readonly mimeType: string;
+		readonly originalName: string;
+		readonly sizeBytes: number;
+	} | null>;
 	/**
 	 * Resolve an attachment to its on-disk absolute path. The codex SDK's
 	 * `local_image` input shape requires a path, not bytes — exposing the

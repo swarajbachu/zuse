@@ -1,13 +1,17 @@
 import { useAtomValue } from "@effect/atom-react";
 import { router, Stack } from "expo-router";
 import {
+	Archive,
+	BarChart3,
 	Bell,
 	HardDrive,
+	Images,
 	LogOut,
 	Monitor,
 	Plus,
 	QrCode,
 	RotateCcw,
+	TerminalSquare,
 	Trash2,
 	UserRound,
 } from "lucide-react-native";
@@ -19,6 +23,7 @@ import { captureMobileAnalytics } from "~/lib/analytics";
 import { returnToInbox } from "~/lib/connection-navigation";
 import { visibleConnectionLabel } from "~/lib/display-names";
 import { successTap } from "~/lib/haptics";
+import { clearMediaCache, mediaCacheSize } from "~/lib/media-cache";
 import { clearDownloadedMobileData } from "~/lib/mobile-data";
 import { registerCurrentDeviceForPush } from "~/notifications/push";
 import { downloadedCacheSize } from "~/offline/cache";
@@ -71,7 +76,8 @@ export default function SettingsScreen() {
 	const [connecting, setConnecting] = useState<string | null>(null);
 	const [notificationsBusy, setNotificationsBusy] = useState(false);
 	const [storageBusy, setStorageBusy] = useState(false);
-	const [cacheBytes, setCacheBytes] = useState<number | null>(null);
+	const [downloadedBytes, setDownloadedBytes] = useState<number | null>(null);
+	const [mediaBytes, setMediaBytes] = useState<number | null>(null);
 
 	useEffect(() => {
 		if (!hydrated) void hydrateAuth();
@@ -87,8 +93,11 @@ export default function SettingsScreen() {
 
 	useEffect(() => {
 		void downloadedCacheSize()
-			.then(setCacheBytes)
-			.catch(() => setCacheBytes(0));
+			.then(setDownloadedBytes)
+			.catch(() => setDownloadedBytes(0));
+		void mediaCacheSize()
+			.then(setMediaBytes)
+			.catch(() => setMediaBytes(0));
 	}, []);
 
 	const directConnections = useMemo(
@@ -126,9 +135,20 @@ export default function SettingsScreen() {
 		setStorageBusy(true);
 		try {
 			await clearDownloadedMobileData();
-			setCacheBytes(0);
+			setDownloadedBytes(0);
 			successTap();
 			returnToInbox(router);
+		} finally {
+			setStorageBusy(false);
+		}
+	};
+
+	const clearMedia = async () => {
+		setStorageBusy(true);
+		try {
+			await clearMediaCache();
+			setMediaBytes(0);
+			successTap();
 		} finally {
 			setStorageBusy(false);
 		}
@@ -306,6 +326,30 @@ export default function SettingsScreen() {
 				)}
 
 				<ListSection
+					header="Developer workflow"
+					footer="These tools use the already paired computer and its authenticated environment."
+				>
+					<ListRow
+						icon={TerminalSquare}
+						title="Terminals and voice"
+						subtitle="Live sessions and account readiness"
+						onPress={() => router.push("/developer-tools")}
+					/>
+					<ListRow
+						icon={Archive}
+						title="Archived chats"
+						subtitle="Preview, restore, or permanently delete"
+						onPress={() => router.push("/archives")}
+					/>
+					<ListRow
+						icon={BarChart3}
+						title="Usage"
+						subtitle="Tokens, cost, and provider limits"
+						onPress={() => router.push("/usage")}
+					/>
+				</ListSection>
+
+				<ListSection
 					header="Storage"
 					footer="Downloaded data can be fetched again. Reset app also removes connections, account state, and unsent messages from this phone."
 				>
@@ -314,7 +358,7 @@ export default function SettingsScreen() {
 						icon={HardDrive}
 						iconTone="neutral"
 						title="Clear downloaded data"
-						value={formatBytes(cacheBytes)}
+						value={formatBytes(downloadedBytes)}
 						disabled={storageBusy}
 						onPress={() =>
 							Alert.alert(
@@ -323,6 +367,25 @@ export default function SettingsScreen() {
 								[
 									{ text: "Cancel", style: "cancel" },
 									{ text: "Clear", onPress: () => void clearDownloaded() },
+								],
+							)
+						}
+					/>
+					<ListRow
+						analyticsId="storage.clear-media"
+						icon={Images}
+						iconTone="neutral"
+						title="Clear media cache"
+						subtitle="Images and document previews"
+						value={formatBytes(mediaBytes)}
+						disabled={storageBusy}
+						onPress={() =>
+							Alert.alert(
+								"Clear media cache?",
+								"Fetched images and document previews will be removed and downloaded again when needed.",
+								[
+									{ text: "Cancel", style: "cancel" },
+									{ text: "Clear", onPress: () => void clearMedia() },
 								],
 							)
 						}

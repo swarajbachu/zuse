@@ -11,7 +11,8 @@ import type {
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { Atom } from "effect/unstable/reactivity";
-
+import { connectionErrorMessage } from "~/lib/connection-error-message";
+import { createConnectionRefreshCoordinator } from "~/lib/connection-refresh-coordinator";
 import { connectionSessionKey } from "~/lib/session-key";
 import { readSessionsSnapshot, writeSessionsSnapshot } from "~/offline/cache";
 import {
@@ -82,6 +83,7 @@ const stopFiber = async (
 };
 
 export const resetSessionsRuntime = async (): Promise<void> => {
+	sessionRefreshCoordinator.reset();
 	await Promise.all([
 		...Array.from(chatFibers.keys(), (key) => stopFiber(key, chatFibers)),
 		...Array.from(sessionSummaryFibers.keys(), (key) =>
@@ -123,9 +125,6 @@ const setConnectionLoading = (connKey: string, loading: boolean): void => {
 	}));
 };
 
-const messageOf = (cause: unknown): string =>
-	cause instanceof Error ? cause.message : String(cause);
-
 type SnapshotStreamSupervisorOptions = {
 	readonly connectionKey: string;
 	readonly connectionOptions: WsProtocolOptions;
@@ -155,7 +154,10 @@ const superviseSnapshotStream = <E, R>(
 					return;
 				}
 				reportConnectionFailure(options.connectionOptions, cause);
-				setConnectionError(options.connectionKey, messageOf(cause));
+				setConnectionError(
+					options.connectionKey,
+					connectionErrorMessage(cause),
+				);
 			}),
 		),
 		Effect.ensuring(
@@ -181,7 +183,7 @@ export const archiveChat = async (
 		reportConnectionFailure(options, cause);
 		batchAtomUpdates(() => {
 			setConnectionBundles(connKey, previous);
-			setConnectionError(connKey, messageOf(cause));
+			setConnectionError(connKey, connectionErrorMessage(cause));
 		});
 	}
 };
@@ -200,7 +202,7 @@ export const archiveSession = async (
 		reportConnectionFailure(options, cause);
 		batchAtomUpdates(() => {
 			setConnectionBundles(connKey, previous);
-			setConnectionError(connKey, messageOf(cause));
+			setConnectionError(connKey, connectionErrorMessage(cause));
 		});
 	}
 };
@@ -227,7 +229,7 @@ export const renameChat = async (
 		reportConnectionFailure(options, cause);
 		batchAtomUpdates(() => {
 			setConnectionBundles(connKey, previous);
-			setConnectionError(connKey, messageOf(cause));
+			setConnectionError(connKey, connectionErrorMessage(cause));
 		});
 		throw cause;
 	}
@@ -359,7 +361,7 @@ export const setPermissionMode = async (
 					}),
 				);
 			}
-			setConnectionError(connKey, messageOf(cause));
+			setConnectionError(connKey, connectionErrorMessage(cause));
 		});
 		return false;
 	}
@@ -400,7 +402,7 @@ export const setRuntimeMode = async (
 					}),
 				);
 			}
-			setConnectionError(connKey, messageOf(cause));
+			setConnectionError(connKey, connectionErrorMessage(cause));
 		});
 		return false;
 	}
@@ -466,7 +468,7 @@ export const createChat = async (
 		return result;
 	} catch (cause) {
 		reportConnectionFailure(options, cause);
-		setConnectionError(connKey, messageOf(cause));
+		setConnectionError(connKey, connectionErrorMessage(cause));
 		throw cause;
 	}
 };
@@ -516,10 +518,10 @@ export const createSession = async (
 	}
 };
 
-export const hydrateSessions = async (
+const hydrateSessionsOnce = async (
 	connKey: string,
 	options: WsProtocolOptions,
-): Promise<void> => {
+): Promise<boolean> => {
 	const cached = await Effect.runPromise(readSessionsSnapshot(connKey));
 	if (cached !== null) {
 		setConnectionBundles(
@@ -711,14 +713,31 @@ export const hydrateSessions = async (
 				savedAt: Date.now(),
 			}),
 		);
+		return true;
 	} catch (cause) {
 		reportConnectionFailure(options, cause);
 		batchAtomUpdates(() => {
 			setConnectionLoading(connKey, false);
-			setConnectionError(connKey, messageOf(cause));
+			setConnectionError(connKey, connectionErrorMessage(cause));
 		});
+		return false;
 	}
 };
+
+const sessionRefreshCoordinator =
+	createConnectionRefreshCoordinator(hydrateSessionsOnce);
+
+export const hydrateSessions = (
+	connKey: string,
+	options: WsProtocolOptions,
+): Promise<void> => sessionRefreshCoordinator.hydrate(connKey, options);
+
+export const refreshSessionsAfterConnect = (
+	connKey: string,
+	options: WsProtocolOptions,
+	generation: number,
+): Promise<void> =>
+	sessionRefreshCoordinator.refreshConnected(connKey, options, generation);
 
 const removeChat = (
 	bundles: readonly ProjectBundle[],

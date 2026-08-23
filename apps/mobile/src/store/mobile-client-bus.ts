@@ -21,17 +21,28 @@ import { environmentFault } from "@zuse/client-runtime/environment-runtime";
 import {
 	makeResourceKey,
 	type ResourceKey,
+	resourceKeyId,
 	type SessionRef,
+	type TerminalRef,
 } from "@zuse/client-runtime/resource-ref";
 import {
 	makeSessionTimelineResourceDriver,
 	type SessionTimelineDriverClient,
 } from "@zuse/client-runtime/session-timeline-driver";
 import {
+	makeTerminalResourceDriver,
+	type TerminalOutputSink,
+	terminalRefFromKey,
+	terminalResourceKey,
+} from "@zuse/client-runtime/terminal-resource-driver";
+import {
+	CommandId,
 	EnvironmentId,
 	type PermissionRequest,
+	type PtyId,
 	type SessionId,
 	type SessionTimelineProjection,
+	type Skill,
 } from "@zuse/contracts";
 import { Cause, Effect, Fiber, Stream } from "effect";
 
@@ -58,6 +69,14 @@ type EnvironmentBinding = Readonly<{
 }>;
 
 const bindings = new Map<EnvironmentId, EnvironmentBinding>();
+
+type RetainedTerminalSink = {
+	readonly ownerId: string;
+	readonly sink: TerminalOutputSink;
+	retainers: number;
+};
+
+const terminalSinks = new Map<string, RetainedTerminalSink>();
 
 export class MobileCommandOutbox implements CommandOutbox {
 	private loaded: Promise<void> | null = null;
@@ -184,6 +203,12 @@ export const environmentIdForConnection = (
 	options: WsProtocolOptions,
 ): EnvironmentId => EnvironmentId.make(options.environmentId ?? connKey);
 
+export const connectionKeyForOptions = (options: WsProtocolOptions): string =>
+	options.key ??
+	options.environmentId ??
+	options.wsBaseUrl ??
+	`${options.host}:${options.port}`;
+
 export const sessionTimelineKey = (
 	environmentId: EnvironmentId,
 	sessionId: SessionId,
@@ -195,6 +220,74 @@ export const sessionTimelineKey = (
 
 const sessionRef = (key: ResourceKey<unknown>): SessionRef | null =>
 	key.kind === "session-timeline" && "sessionId" in key.ref ? key.ref : null;
+
+export type MobileSessionSkillsData = Readonly<{
+	skills: readonly Skill[];
+}>;
+
+export const mobileSessionSkillsKey = (
+	environmentId: EnvironmentId,
+	sessionId: SessionId,
+) =>
+	makeResourceKey<MobileSessionSkillsData>("session-skills", {
+		environmentId,
+		sessionId,
+	} satisfies SessionRef);
+
+const skillSessionRef = (key: ResourceKey<unknown>): SessionRef | null =>
+	key.kind === "session-skills" && "sessionId" in key.ref ? key.ref : null;
+
+const makeSessionSkillsDriver = (): ResourceDriver<
+	MemoizeClient,
+	MobileSessionSkillsData
+> => {
+	let fiber: Fiber.Fiber<unknown, unknown> | null = null;
+	let active = false;
+	return {
+		start: (context) => {
+			const ref = skillSessionRef(context.key);
+			if (ref === null) return;
+			active = true;
+			const epoch = `session-skills:${context.generation}:${crypto.randomUUID()}`;
+			let version = 0;
+			const program = Stream.runForEach(
+				context.client["skill.stream"]({ sessionId: ref.sessionId }),
+				(skills) =>
+					Effect.sync(() => {
+						if (!active || !context.isCurrent()) return;
+						version += 1;
+						context.emit({
+							data: { skills },
+							cursor: { epoch, version },
+							resetEpoch: version === 1,
+							sync: "live",
+						});
+					}),
+			).pipe(
+				Effect.andThen(
+					Effect.fail(new Error("Session skill stream ended unexpectedly")),
+				),
+				Effect.catchCause((cause) =>
+					Effect.sync(() => {
+						if (!active || Cause.hasInterruptsOnly(cause)) return;
+						context.emit({ sync: "failed" });
+						const binding = bindings.get(ref.environmentId);
+						if (binding !== undefined) {
+							reportConnectionFailure(binding.options, Cause.squash(cause));
+						}
+					}),
+				),
+			);
+			fiber = Effect.runFork(program);
+		},
+		stop: () => {
+			active = false;
+			const running = fiber;
+			fiber = null;
+			if (running !== null) void Effect.runPromise(Fiber.interrupt(running));
+		},
+	};
+};
 
 export type MobilePermissionsData = Readonly<{
 	requestsById: Readonly<Record<string, PermissionRequest>>;
@@ -341,6 +434,33 @@ const driverFor: ResourceDriverFactory<MemoizeClient> = (key) => {
 	if (permissionEnvironment(key) !== null) {
 		return makePermissionDriver() as ResourceDriver<MemoizeClient, unknown>;
 	}
+	if (skillSessionRef(key) !== null) {
+		return makeSessionSkillsDriver() as ResourceDriver<MemoizeClient, unknown>;
+	}
+	if (terminalRefFromKey(key) !== null) {
+		return makeTerminalResourceDriver<MemoizeClient>({
+			sinkFor: (terminalKey) =>
+				terminalSinks.get(resourceKeyId(terminalKey))?.sink ?? null,
+			streamOutput: (client, ref, afterSequence) =>
+				client["pty.output"]({
+					ptyId: ref.terminalId,
+					afterSequence,
+					ownerId: terminalSinks.get(resourceKeyId(terminalResourceKey(ref)))
+						?.ownerId,
+				}),
+			reportConnectionFailure: (environmentId, generation, cause) => {
+				const binding = bindings.get(environmentId);
+				if (binding !== undefined) {
+					reportConnectionFailure(binding.options, cause);
+				}
+				bus.reportConnectionFault(
+					environmentId,
+					environmentFault("failed", cause),
+					generation,
+				);
+			},
+		}) as ResourceDriver<MemoizeClient, unknown>;
+	}
 	return sessionRef(key) === null
 		? null
 		: (makeSessionTimelineResourceDriver<
@@ -423,6 +543,15 @@ const commandExecutor: ClientCommandExecutor<MemoizeClient> = {
 				result = await Effect.runPromise(
 					client["messages.queue.runNext"](payload),
 				);
+				break;
+			case "pty.write":
+				result = await Effect.runPromise(client["pty.write"](payload));
+				break;
+			case "pty.resize":
+				result = await Effect.runPromise(client["pty.resize"](payload));
+				break;
+			case "pty.close":
+				result = await Effect.runPromise(client["pty.close"](payload));
 				break;
 			default:
 				throw new Error(
@@ -535,9 +664,153 @@ export const sessionCommandContext = (
 	};
 };
 
+let commandCounter = 0;
+
+export const nextMobileCommandId = (kind: string): CommandId =>
+	CommandId.make(
+		`${kind}:${Date.now().toString(36)}:${(commandCounter++).toString(36)}`,
+	);
+
+export const dispatchMobileSessionCommandResult = async <Result>(options: {
+	readonly connKey?: string;
+	readonly connection: WsProtocolOptions;
+	readonly sessionId: SessionId;
+	readonly kind: string;
+	readonly payload: unknown;
+	readonly commandId?: CommandId;
+}): Promise<Result> => {
+	const commandId = options.commandId ?? nextMobileCommandId(options.kind);
+	const connKey =
+		options.connKey ?? connectionKeyForOptions(options.connection);
+	const { environmentId, resource } = sessionCommandContext(
+		connKey,
+		options.connection,
+		options.sessionId,
+	);
+	const payload =
+		typeof options.payload === "object" && options.payload !== null
+			? { ...options.payload, commandId }
+			: options.payload;
+	const receipt = await dispatchMobileSessionCommand<Result>({
+		kind: options.kind,
+		commandId,
+		environmentId,
+		resource,
+		payload,
+		retry: "safe",
+		createdAt: Date.now(),
+	});
+	return receipt.result;
+};
+
+const terminalCommand = <Result>(options: {
+	readonly ref: TerminalRef;
+	readonly kind: "pty.write" | "pty.resize" | "pty.close";
+	readonly payload: unknown;
+}): Promise<CommandReceipt<Result>> =>
+	dispatchMobileSessionCommand({
+		kind: options.kind,
+		commandId: CommandId.make(crypto.randomUUID()),
+		environmentId: options.ref.environmentId,
+		resource: terminalResourceKey(options.ref),
+		payload: options.payload,
+		retry: "never",
+		createdAt: Date.now(),
+	});
+
+export const retainMobileTerminalResource = (options: {
+	readonly connKey: string;
+	readonly connection: WsProtocolOptions;
+	readonly terminalId: PtyId;
+	readonly ownerId: string;
+	readonly sink: TerminalOutputSink;
+}) => {
+	const environmentId = registerMobileEnvironment(
+		options.connKey,
+		options.connection,
+	);
+	const ref = {
+		environmentId,
+		terminalId: options.terminalId,
+	} satisfies TerminalRef;
+	const key = terminalResourceKey(ref);
+	const id = resourceKeyId(key);
+	const existing = terminalSinks.get(id);
+	if (
+		existing !== undefined &&
+		(existing.sink !== options.sink || existing.ownerId !== options.ownerId)
+	) {
+		throw new Error(`Terminal sink already retained: ${id}`);
+	}
+	if (existing === undefined) {
+		terminalSinks.set(id, {
+			ownerId: options.ownerId,
+			sink: options.sink,
+			retainers: 1,
+		});
+	} else {
+		existing.retainers += 1;
+	}
+	const lease = mobileClientBus().retain(key, { activation: "connect" });
+	let released = false;
+	return {
+		ref,
+		key,
+		lease: {
+			activate: lease.activate,
+			release: () => {
+				if (released) return;
+				released = true;
+				lease.release();
+				const retained = terminalSinks.get(id);
+				if (retained?.sink !== options.sink) return;
+				retained.retainers -= 1;
+				if (retained.retainers === 0) {
+					terminalSinks.delete(id);
+					mobileClientBus().forget(key);
+				}
+			},
+		},
+	};
+};
+
+export const dispatchMobileTerminalInput = (
+	ref: TerminalRef,
+	ownerId: string,
+	data: string,
+): Promise<void> =>
+	terminalCommand<void>({
+		ref,
+		kind: "pty.write",
+		payload: { ptyId: ref.terminalId, ownerId, data },
+	}).then(() => undefined);
+
+export const dispatchMobileTerminalResize = (
+	ref: TerminalRef,
+	ownerId: string,
+	cols: number,
+	rows: number,
+): Promise<void> =>
+	terminalCommand<void>({
+		ref,
+		kind: "pty.resize",
+		payload: { ptyId: ref.terminalId, ownerId, cols, rows },
+	}).then(() => undefined);
+
+export const dispatchMobileTerminalClose = (
+	ref: TerminalRef,
+	ownerId: string,
+): Promise<void> =>
+	terminalCommand<void>({
+		ref,
+		kind: "pty.close",
+		payload: { ptyId: ref.terminalId, ownerId },
+	}).then(() => undefined);
+
 export const resetMobileClientBus = async (): Promise<void> => {
 	const previous = bus;
 	bindings.clear();
+	terminalSinks.clear();
 	commandOutbox = new MobileCommandOutbox();
 	bus = makeBus();
 	await previous.dispose();

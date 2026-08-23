@@ -388,6 +388,36 @@ describe("GitServiceLive", () => {
 		expect(status.branch).toBe("feature");
 	});
 
+	test("previews local commits and rejects a stale reset-to-remote apply", async () => {
+		const remote = join(temporaryRoot, "remote.git");
+		git(temporaryRoot, "init", "--bare", remote);
+		git(repositoryRoot, "remote", "add", "origin", remote);
+		git(repositoryRoot, "push", "-u", "origin", "main");
+		writeFileSync(join(repositoryRoot, "README.md"), "local commit\n");
+		git(repositoryRoot, "add", "README.md");
+		git(repositoryRoot, "commit", "-m", "local-only change");
+
+		const preview = await run((service) =>
+			service.resetRemotePreview(folderId),
+		);
+		expect(preview.commitsToDiscard).toEqual([
+			expect.objectContaining({ subject: "local-only change" }),
+		]);
+
+		writeFileSync(join(repositoryRoot, "README.md"), "changed after preview\n");
+		await expect(
+			run((service) =>
+				service.resetRemoteApply(
+					folderId,
+					preview.currentHead,
+					preview.remoteHead,
+					preview.worktreeFingerprint,
+					preview.branch,
+				),
+			),
+		).rejects.toMatchObject({ _tag: "GitStalePreviewError" });
+	});
+
 	test("maps a non-repository folder to GitNotARepoError", async () => {
 		const notRepository = join(temporaryRoot, "not-repository");
 		mkdirSync(notRepository);

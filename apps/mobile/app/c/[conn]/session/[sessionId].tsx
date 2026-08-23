@@ -13,6 +13,7 @@ import {
 import { groupTimelineTurns } from "@zuse/client-runtime/timeline";
 import type {
 	FolderId,
+	MessageId,
 	PermissionRequest,
 	SessionId,
 	UserQuestion,
@@ -25,6 +26,7 @@ import { ChevronDown } from "lucide-react-native";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
 	AccessibilityInfo,
+	ActivityIndicator,
 	Alert,
 	type LayoutChangeEvent,
 	type NativeScrollEvent,
@@ -33,22 +35,17 @@ import {
 	Text,
 	View,
 } from "react-native";
-import {
-	KeyboardGestureArea,
-	KeyboardStickyView,
-} from "react-native-keyboard-controller";
+import { KeyboardStickyView } from "react-native-keyboard-controller";
 import Animated, {
-	useAnimatedProps,
-	useAnimatedStyle,
 	useReducedMotion,
 	useSharedValue,
-	withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUniwind } from "uniwind";
 
 import { Composer } from "~/components/composer";
 import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
+import { InlineErrorNotice } from "~/components/inline-error-notice";
 import { ChatManagementBars } from "~/components/messages/chat-management-bars";
 import { LivePermissionAccessory } from "~/components/messages/live-permission-accessory";
 import type { MessageRowContext } from "~/components/messages/message-row";
@@ -68,11 +65,13 @@ import {
 	normalizeConnParam,
 	optionsForConnection,
 } from "~/lib/connection-params";
+import { connectionSupports } from "~/lib/connection-records";
 import { captureMobileError } from "~/lib/crash-reporting";
 import { scrollListToLatest } from "~/lib/legend-list-scroll";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
 import { connectionSessionKey } from "~/lib/session-key";
+import { transcriptEndRunwayHeight } from "~/lib/thread-runway";
 import { shouldRestoreThreadPosition } from "~/lib/thread-switching";
 import {
 	readThreadViewState,
@@ -80,8 +79,11 @@ import {
 } from "~/lib/thread-view-state";
 import {
 	answerQuestion,
+	createWorktree,
+	forkSessionFromMessage,
 	getWorktree,
 	makeTextInput,
+	openSessionOnHost,
 	renameWorktreeBranch,
 	respondToPlan,
 	sendMessage,
@@ -105,6 +107,7 @@ import {
 } from "~/store/goals";
 import {
 	deleteQueuedMessage,
+	hydrateMessages,
 	refreshMessages,
 	releaseMessages,
 	reorderQueuedMessages,
@@ -217,6 +220,9 @@ function ThreadScreen() {
 		() => optionsForConnection(connKey, connections),
 		[connKey, connections],
 	);
+	const connectionRecord = connections.find(
+		(connection) => connection.key === connKey,
+	);
 	const stateKey = connectionSessionKey(connKey, normalizedSessionId);
 	const turnActivity = useAtomValue(sessionTurnActivityAtom(stateKey));
 	const [restoredViewState] = useState(() =>
@@ -225,6 +231,9 @@ function ThreadScreen() {
 	const connectionSnapshot = useAtomValue(connectionSnapshotAtom(connKey));
 	const bundles = useAtomValue(connectionBundlesAtom(connKey));
 	const rawMessages = useAtomValue(sessionMessagesAtom(stateKey));
+	const [initialTranscriptLoading, setInitialTranscriptLoading] = useState(
+		() => rawMessages.length === 0,
+	);
 	const messagesError = useAtomValue(sessionMessagesErrorAtom(stateKey));
 	const serverQueued = useAtomValue(sessionQueueAtom(stateKey));
 	const serverQueuePaused = useAtomValue(sessionQueuePausedAtom(stateKey));
@@ -327,17 +336,50 @@ function ThreadScreen() {
 	]);
 
 	useEffect(() => {
-		void connectionSnapshot?.generation;
+		let active = true;
 		if (normalizedSessionId.length > 0 && options !== null) {
-			void refreshMessages(connKey, options, normalizedSessionId);
+			// Paint the retained in-memory projection or disk snapshot first.
+			// Replacing the stream on every screen mount makes thread switching
+			// blank and needlessly replays the entire transcript.
+			void hydrateMessages(connKey, options, normalizedSessionId).finally(
+				() => {
+					if (active) setInitialTranscriptLoading(false);
+				},
+			);
 			void hydrateGoal(connKey, options, normalizedSessionId);
 			void hydrateOutbox(connKey, normalizedSessionId);
+		} else {
+			setInitialTranscriptLoading(false);
 		}
 		return () => {
+			active = false;
 			if (normalizedSessionId.length === 0) return;
 			void releaseMessages(connKey, normalizedSessionId);
 			void releaseGoal(connKey, normalizedSessionId);
 		};
+	}, [connKey, normalizedSessionId, options]);
+
+	useEffect(() => {
+		if (rawMessages.length > 0) setInitialTranscriptLoading(false);
+	}, [rawMessages.length]);
+
+	const observedConnectionGenerationRef = useRef<number | null>(null);
+	useEffect(() => {
+		const generation = connectionSnapshot?.generation;
+		if (generation === undefined) return;
+		const previous = observedConnectionGenerationRef.current;
+		observedConnectionGenerationRef.current = generation;
+		if (
+			previous === null ||
+			previous === generation ||
+			normalizedSessionId.length === 0 ||
+			options === null
+		) {
+			return;
+		}
+		// A real transport replacement invalidates the old stream. This is the
+		// only screen lifecycle event that should force an authoritative replay.
+		void refreshMessages(connKey, options, normalizedSessionId);
 	}, [connKey, connectionSnapshot?.generation, normalizedSessionId, options]);
 
 	useEffect(() => {
@@ -368,6 +410,12 @@ function ThreadScreen() {
 				? connectionErrorMessage(connectionSnapshot.error)
 				: "Connection unavailable. Retry from the status above."
 			: null;
+	const connectionRecovering =
+		connectionSnapshot?.status === "connecting" ||
+		connectionSnapshot?.status === "reconnecting";
+	const connectionNotice =
+		connectionProblem ??
+		(connectionRecovering ? "Trying to reach your computer…" : null);
 
 	// Transfer editable offline drafts once into the durable ClientBus outbox.
 	// ClientBus owns every retry after this handoff.
@@ -463,8 +511,89 @@ function ThreadScreen() {
 					}),
 				);
 
+	const runFork = async (
+		fromMessageId: MessageId,
+		destination: "tab" | "chat",
+		isolated: boolean,
+	) => {
+		if (detail === null || options === null) return;
+		try {
+			const worktreeId =
+				destination === "chat" && isolated
+					? (
+							await Effect.runPromise(
+								createWorktree({
+									connection: options,
+									projectId: detail.project.id,
+								}),
+							)
+						).id
+					: detail.session.worktreeId;
+			const result = await Effect.runPromise(
+				forkSessionFromMessage({
+					connection: options,
+					sourceSessionId: normalizedSessionId,
+					fromMessageId,
+					destination,
+					worktreeId,
+				}),
+			);
+			Alert.alert(
+				"Fork created",
+				result.forkMode === "resume"
+					? "The provider resumed the conversation with its native context."
+					: "The visible transcript was copied into the new session.",
+				[
+					{
+						text: "Open",
+						onPress: () =>
+							router.push({
+								pathname: "/c/[conn]/session/[sessionId]",
+								params: {
+									conn: connKey,
+									sessionId: result.session.id,
+								},
+							}),
+					},
+				],
+			);
+		} catch (cause) {
+			Alert.alert("Could not create fork", connectionErrorMessage(cause));
+		}
+	};
+
+	const onForkFromMessage = (fromMessageId: MessageId) => {
+		Alert.alert("Fork from here", "Where should the new session live?", [
+			{ text: "Cancel", style: "cancel" },
+			{
+				text: "This chat",
+				onPress: () => void runFork(fromMessageId, "tab", false),
+			},
+			{
+				text: "New chat",
+				onPress: () =>
+					Alert.alert(
+						"New chat workspace",
+						"Use the current worktree or create an isolated one?",
+						[
+							{ text: "Cancel", style: "cancel" },
+							{
+								text: "Current",
+								onPress: () => void runFork(fromMessageId, "chat", false),
+							},
+							{
+								text: "Isolated",
+								onPress: () => void runFork(fromMessageId, "chat", true),
+							},
+						],
+					),
+			},
+		]);
+	};
+
 	const ctx: MessageRowContext = {
 		connectionKey: connKey,
+		...(options === null ? {} : { connection: options }),
 		sessionId: normalizedSessionId,
 		workspaceRoot: detail?.project.path,
 		answeredQuestionIds,
@@ -472,6 +601,7 @@ function ThreadScreen() {
 		toolResultsByItemId,
 		sessionRunning: sessionActive,
 		onAnswerQuestion,
+		onForkFromMessage,
 	};
 
 	useEffect(() => {
@@ -558,9 +688,9 @@ function ThreadScreen() {
 	const jumpToLatest = () => {
 		if (turns.length === 0) return;
 		preAppendUiRef.current = null;
-		transcriptScroll.requestJump();
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
+		transcriptScroll.requestJump();
 	};
 	const onMessageWillAppend = () => {
 		preAppendUiRef.current = {
@@ -586,14 +716,6 @@ function ThreadScreen() {
 	useEffect(() => {
 		if (turnActivity === "idle") settleTranscriptTurn();
 	}, [settleTranscriptTurn, turnActivity]);
-	const jumpStyle = useAnimatedStyle(() => ({
-		opacity: withTiming(isNearEnd.value ? 0 : 1, {
-			duration: reduceMotion ? 0 : 160,
-		}),
-	}));
-	const jumpAnimatedProps = useAnimatedProps(() => ({
-		pointerEvents: isNearEnd.value ? ("none" as const) : ("box-none" as const),
-	}));
 	const onBottomAccessoryLayout = (event: LayoutChangeEvent) => {
 		const nextHeight = event.nativeEvent.layout.height;
 		setBottomAccessoryHeight((current) =>
@@ -601,18 +723,14 @@ function ThreadScreen() {
 		);
 		onComposerLayout(event);
 	};
-	const activeAnchorIndex = transcriptScroll.anchorIndex;
+	const endRunwayHeight = transcriptEndRunwayHeight();
 	const anchoredEndSpace =
-		turns.length === 0
+		transcriptScroll.anchorIndex === null
 			? undefined
 			: {
-					// Retain LegendList's measured runway after settlement. It
-					// accounts for the turn's real height and stops below the header.
-					anchorIndex: activeAnchorIndex ?? turns.length - 1,
+					anchorIndex: transcriptScroll.anchorIndex,
 					anchorOffset: headerHeight + 12,
-					...(activeAnchorIndex === null
-						? {}
-						: { onReady: transcriptScroll.onAnchorReady }),
+					onReady: transcriptScroll.onAnchorReady,
 				};
 
 	const onRenameChat = () => {
@@ -695,11 +813,47 @@ function ThreadScreen() {
 		if (chatId === null || options === null) return;
 		void archiveChat(connKey, options, chatId).then(() => router.back());
 	};
+	const onOpenTerminal = async () => {
+		if (detail === null || options === null) return;
+		let cwd = detail.project.path;
+		const worktreeId = detail.session.worktreeId;
+		if (worktreeId !== null) {
+			try {
+				const worktree = await Effect.runPromise(
+					getWorktree({ connection: options, worktreeId }),
+				);
+				if (worktree !== null) cwd = worktree.path;
+			} catch (cause) {
+				Alert.alert("Could not open terminal", connectionErrorMessage(cause));
+				return;
+			}
+		}
+		router.push({
+			pathname: "/c/[conn]/session/[sessionId]/terminal",
+			params: {
+				conn: connKey,
+				sessionId: normalizedSessionId,
+				cwd,
+				label: title,
+			},
+		});
+	};
 	const openChanges = () => {
 		router.push({
 			pathname: "/c/[conn]/session/[sessionId]/review",
 			params: { conn: connKey, sessionId: normalizedSessionId },
 		});
+	};
+	const openOnDesktop = () => {
+		if (options === null) return;
+		void Effect.runPromise(
+			openSessionOnHost({
+				connection: options,
+				sessionId: normalizedSessionId,
+			}),
+		).catch((cause) =>
+			Alert.alert("Could not open on desktop", connectionErrorMessage(cause)),
+		);
 	};
 	const openFiles = () => {
 		router.push({
@@ -885,6 +1039,16 @@ function ThreadScreen() {
 							onThreads={openThreads}
 							onChanges={openChanges}
 							onFiles={openFiles}
+							onTerminal={
+								connectionSupports(connectionRecord, "mobile-terminal-v1")
+									? () => void onOpenTerminal()
+									: undefined
+							}
+							onOpenOnDesktop={
+								connectionSupports(connectionRecord, "desktop-handoff-v1")
+									? openOnDesktop
+									: undefined
+							}
 							onArchive={onArchive}
 						/>
 					),
@@ -898,7 +1062,6 @@ function ThreadScreen() {
 					</Text>
 				</View>
 			) : null}
-			<KeyboardGestureArea interpolator="ios" offset={60} style={{ flex: 1 }}>
 				<KeyboardAwareLegendList
 					ref={listRef}
 					style={{ flex: 1 }}
@@ -929,7 +1092,7 @@ function ThreadScreen() {
 					}}
 					contentInsetEndAdjustment={contentInsetEndAdjustment}
 					freeze={freeze}
-					keyboardLiftBehavior="always"
+				keyboardLiftBehavior="whenAtEnd"
 					keyboardDismissMode="interactive"
 					keyboardOffset={insets.bottom}
 					keyboardShouldPersistTaps="handled"
@@ -949,10 +1112,7 @@ function ThreadScreen() {
 									animated: false,
 									on: {
 										dataChange: true,
-										// The settled runway replaces temporary anchor space.
-										// Following footer geometry would pull the transcript down
-										// again exactly when a response finishes.
-										footerLayout: false,
+									footerLayout: true,
 										itemLayout: true,
 										layout: true,
 									},
@@ -963,28 +1123,15 @@ function ThreadScreen() {
 					drawDistance={800}
 					sharedValues={{ isNearEnd }}
 					ListHeaderComponent={
-						error || connectionProblem ? (
-							<View className="gap-2 pb-2">
-								{connectionProblem && options !== null ? (
-									<ConnectionRecoveryBanner
-										message={connectionProblem}
-										onRetry={() => retryConnection(connKey, options)}
-										onPairAgain={() => router.push("/connect/scan")}
+					error && connectionNotice === null ? (
+						<InlineErrorNotice
+							message={connectionErrorMessage(error)}
+							compact
 									/>
-								) : null}
-								{error ? (
-									<Text
-										selectable
-										className="font-sans text-[13px] text-danger"
-									>
-										{error}
-									</Text>
-								) : null}
-							</View>
 						) : null
 					}
 					ListFooterComponent={
-						<View style={{ paddingTop: 4 }}>
+					<View style={{ minHeight: endRunwayHeight, paddingTop: 4 }}>
 							{workingActive ? <WorkingIndicator since={workingSince} /> : null}
 						</View>
 					}
@@ -996,26 +1143,40 @@ function ThreadScreen() {
 					onEndVisible={onEndVisible}
 					scrollEventThrottle={16}
 				/>
-			</KeyboardGestureArea>
+			{initialTranscriptLoading && turns.length === 0 ? (
+				<View
+					pointerEvents="none"
+					style={{
+						position: "absolute",
+						top: headerHeight,
+						left: 16,
+						right: 16,
+						bottom: bottomAccessoryHeight,
+						justifyContent: "center",
+					}}
+				>
+					<TranscriptLoadingState />
+				</View>
+			) : null}
 			<KeyboardStickyView
 				pointerEvents="box-none"
 				style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
 				offset={{ closed: 0, opened: insets.bottom }}
 			>
 				<Animated.View
-					animatedProps={jumpAnimatedProps}
+					pointerEvents={jumpAccessible ? "box-none" : "none"}
 					accessibilityElementsHidden={!jumpAccessible}
 					importantForAccessibility={
 						jumpAccessible ? "auto" : "no-hide-descendants"
 					}
 					style={[
-						jumpStyle,
 						{
 							position: "absolute",
 							left: 0,
 							right: 0,
 							bottom: bottomAccessoryHeight + 8,
 							alignItems: "center",
+							opacity: jumpAccessible ? 1 : 0,
 						},
 					]}
 				>
@@ -1119,6 +1280,16 @@ function ThreadScreen() {
 									: undefined
 							}
 						>
+							{connectionNotice === null ? null : (
+								<View className="px-3 pt-2">
+									<ConnectionRecoveryBanner
+										message={connectionNotice}
+										onRetry={() => retryConnection(connKey, options)}
+										onPairAgain={() => router.push("/connect/scan")}
+										recovering={connectionRecovering}
+									/>
+								</View>
+							)}
 							<ChatManagementBars
 								runningThreads={runningThreadCount}
 								goal={goal}
@@ -1205,19 +1376,63 @@ function ThreadScreen() {
 								status={sessionStatus}
 								fresh={fresh}
 								online={transportOnline}
-								connectionStatus={connectionSnapshot?.status}
-								onRetryConnection={() => retryConnection(connKey, options)}
 								onMessageAppendFailed={onMessageAppendFailed}
 								onMessageWillAppend={onMessageWillAppend}
+								onFocusChange={(focused) => {
+									if (
+										!focused ||
+										transcriptScroll.readerDetached ||
+										listRef.current === null
+									) {
+										return;
+									}
+									requestAnimationFrame(() => {
+										const list = listRef.current;
+										if (list !== null) {
+											void scrollListToLatest(list, {
+												animated: !reduceMotion,
+											});
+										}
+									});
+								}}
 								currentActivity={
 									turnActivity === "running" ? composerActivity : null
 								}
 								bottomInset={composerBottomInset}
+								voiceEnabled={connectionSupports(
+									connectionRecord,
+									"voice-account-transcription-v1",
+								)}
 							/>
 						</View>
 					)}
 				</View>
 			</KeyboardStickyView>
+		</View>
+	);
+}
+
+function TranscriptLoadingState() {
+	return (
+		<View
+			accessibilityRole="progressbar"
+			accessibilityLabel="Loading conversation"
+			className="gap-5 px-1 pt-10"
+		>
+			<View className="items-center gap-3 pb-3">
+				<ActivityIndicator size="small" color={colors.accent} />
+				<Text className="font-sans-medium text-[13px] text-muted-foreground">
+					Loading conversation…
+				</Text>
+			</View>
+			<View className="items-end">
+				<View className="h-14 w-2/3 rounded-3xl bg-muted" />
+			</View>
+			<View className="gap-3">
+				<View className="h-4 w-11/12 rounded-full bg-muted" />
+				<View className="h-4 w-4/5 rounded-full bg-muted" />
+				<View className="h-4 w-3/5 rounded-full bg-muted" />
+			</View>
 		</View>
 	);
 }
