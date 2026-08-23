@@ -99,6 +99,8 @@ const bridge = {
 		},
 	},
 	browser: {
+		waitUntilReady: () =>
+			ipcRenderer.invoke("browser:waitUntilReady") as Promise<void>,
 		/**
 		 * Renderer hands the agent-browser `<webview>`'s webContentsId to main so
 		 * main can attach Chrome DevTools Protocol once and dispatch real input

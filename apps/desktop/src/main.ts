@@ -188,6 +188,10 @@ import {
 } from "./ssh/cloud-ssh-service.ts";
 import { SshEnvironmentManager } from "./ssh/environment-service.ts";
 import {
+	type OptionalDesktopReadiness,
+	startOptionalServicesAfterCritical,
+} from "./startup-readiness.ts";
+import {
 	CloudSyncManager,
 	cloudSyncDefaultPath,
 	SYNC_MARKER_FILE,
@@ -633,12 +637,36 @@ const cloudSyncManager = new CloudSyncManager((status) => {
 let sshEnvironmentManager: SshEnvironmentManager | null = null;
 const portForwardManager = new PortForwardManager();
 let tailnetEnvironmentManager: TailnetEnvironmentManager | null = null;
+let optionalDesktopReadiness: OptionalDesktopReadiness | null = null;
+let stopBrowserCookieWatch: (() => void) | null = null;
 let runtimeFiber: Fiber.Fiber<void, never> | null = null;
 let notchTray: NotchTrayController | null = null;
 let localConnectivityHelper: ChildProcessWithoutNullStreams | null = null;
 let localConnectivityRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let localConnectivityRestartAttempt = 0;
 let localConnectivityStopping = false;
+const desktopProcessStartedAt = performance.now();
+
+const readySshEnvironmentManager = async (): Promise<SshEnvironmentManager> => {
+	const manager = sshEnvironmentManager;
+	const readiness = optionalDesktopReadiness;
+	if (manager === null || readiness === null) {
+		throw new Error("SSH environment service is unavailable.");
+	}
+	await readiness.ssh;
+	return manager;
+};
+
+const readyTailnetEnvironmentManager =
+	async (): Promise<TailnetEnvironmentManager> => {
+		const manager = tailnetEnvironmentManager;
+		const readiness = optionalDesktopReadiness;
+		if (manager === null || readiness === null) {
+			throw new Error("Tailnet environment service is unavailable.");
+		}
+		await readiness.tailnet;
+		return manager;
+	};
 
 const EMPTY_POWER_WORKLOAD: PowerWorkloadState = {
 	activeAgents: 0,
@@ -1763,14 +1791,18 @@ const authShell = {
 };
 
 async function createMainWindow() {
-	const relayPort = await resolveDesktopRelayPort({
-		configuredPort: process.env.ZUSE_DESKTOP_WS_PORT,
-	});
+	const startupStartedAt = performance.now();
 	const userData = app.getPath("userData");
+	const [relayPort, networkAccessEnabled] = await Promise.all([
+		resolveDesktopRelayPort({
+			configuredPort: process.env.ZUSE_DESKTOP_WS_PORT,
+		}),
+		readNetworkAccessPreference(userData),
+	]);
 	sshEnvironmentManager ??= new SshEnvironmentManager(userData);
-	await sshEnvironmentManager.initialize();
 	tailnetEnvironmentManager ??= new TailnetEnvironmentManager(userData);
-	await tailnetEnvironmentManager.initialize();
+	const sshManager = sshEnvironmentManager;
+	const tailnetManager = tailnetEnvironmentManager;
 	const tailnetShareOptions: TailnetShareOptions = {
 		ownershipDir: userData,
 		probe: probeZuseLoopback,
@@ -1793,7 +1825,6 @@ async function createMainWindow() {
 			}
 		})
 		.catch(() => undefined);
-	const networkAccessEnabled = await readNetworkAccessPreference(userData);
 	const systemHostname = hostname();
 	let networkAccess: ResolvedNetworkAccessState;
 	try {
@@ -1853,6 +1884,9 @@ async function createMainWindow() {
 			// so this only unlocks the element, not Node access inside it.
 			webviewTag: true,
 		},
+	});
+	appendRemoteConnectionLog("desktop.startup.window_created", {
+		elapsedMs: Math.round(performance.now() - startupStartedAt),
 	});
 	installPowerMeasurementMonitor();
 	const sampleWindowTransition = () => {
@@ -2254,19 +2288,16 @@ async function createMainWindow() {
 	);
 
 	ipcMain.handle("ssh:discoverHosts", async () =>
-		sshEnvironmentManager?.discoverHosts(),
+		(await readySshEnvironmentManager()).discoverHosts(),
 	);
 	ipcMain.handle("ssh:listProfiles", async () =>
-		sshEnvironmentManager?.listProfiles(),
+		(await readySshEnvironmentManager()).listProfiles(),
 	);
 	ipcMain.handle("ssh:ensureEnvironment", async (_event, input: unknown) => {
 		if (typeof input !== "object" || input === null) {
 			throw new Error("Invalid SSH environment request.");
 		}
-		if (sshEnvironmentManager === null) {
-			throw new Error("SSH environment service is unavailable.");
-		}
-		return sshEnvironmentManager.ensure(
+		return (await readySshEnvironmentManager()).ensure(
 			Schema.decodeUnknownSync(EnsureSshEnvironmentInput)(input),
 		);
 	});
@@ -2275,13 +2306,13 @@ async function createMainWindow() {
 		async (_event, profileId: unknown) => {
 			if (typeof profileId !== "string") return;
 			await closeSshProfileForwards(profileId);
-			await sshEnvironmentManager?.disconnect(profileId);
+			await (await readySshEnvironmentManager()).disconnect(profileId);
 		},
 	);
 	ipcMain.handle("ssh:removeProfile", async (_event, profileId: unknown) => {
 		if (typeof profileId !== "string") return;
 		await closeSshProfileForwards(profileId);
-		await sshEnvironmentManager?.remove(profileId);
+		await (await readySshEnvironmentManager()).remove(profileId);
 	});
 	ipcMain.handle(
 		"ssh:updateProfileLabel",
@@ -2289,10 +2320,7 @@ async function createMainWindow() {
 			if (typeof profileId !== "string" || typeof label !== "string") {
 				throw new TypeError("Invalid SSH profile label request.");
 			}
-			if (sshEnvironmentManager === null) {
-				throw new Error("SSH environment service is unavailable.");
-			}
-			return sshEnvironmentManager.updateLabel(profileId, label);
+			return (await readySshEnvironmentManager()).updateLabel(profileId, label);
 		},
 	);
 	ipcMain.handle("tunnels:open", async (_event, input: unknown) => {
@@ -2320,7 +2348,9 @@ async function createMainWindow() {
 				remotePort,
 			});
 		}
-		const target = sshEnvironmentManager?.resolvedTargetFor(environmentId);
+		const target = (await readySshEnvironmentManager()).resolvedTargetFor(
+			environmentId,
+		);
 		if (target === null || target === undefined) {
 			throw new Error("The SSH environment is not connected.");
 		}
@@ -2345,15 +2375,12 @@ async function createMainWindow() {
 		),
 	);
 	ipcMain.handle("tailnet:listProfiles", async () =>
-		tailnetEnvironmentManager?.listProfiles(),
+		(await readyTailnetEnvironmentManager()).listProfiles(),
 	);
 	ipcMain.handle(
 		"tailnet:ensureEnvironment",
 		async (_event, input: unknown) => {
-			if (tailnetEnvironmentManager === null) {
-				throw new Error("Tailnet environment service is unavailable.");
-			}
-			return tailnetEnvironmentManager.ensure(
+			return (await readyTailnetEnvironmentManager()).ensure(
 				Schema.decodeUnknownSync(EnsureTailnetEnvironmentInput)(input),
 			);
 		},
@@ -2364,10 +2391,7 @@ async function createMainWindow() {
 			if (typeof profileId !== "string" || typeof environmentId !== "string") {
 				throw new TypeError("Invalid Tailnet environment confirmation.");
 			}
-			if (tailnetEnvironmentManager === null) {
-				throw new Error("Tailnet environment service is unavailable.");
-			}
-			return tailnetEnvironmentManager.confirmEnvironment(
+			return (await readyTailnetEnvironmentManager()).confirmEnvironment(
 				profileId,
 				environmentId,
 			);
@@ -2377,7 +2401,7 @@ async function createMainWindow() {
 		"tailnet:removeProfile",
 		async (_event, profileId: unknown) => {
 			if (typeof profileId !== "string") return;
-			await tailnetEnvironmentManager?.remove(profileId);
+			await (await readyTailnetEnvironmentManager()).remove(profileId);
 		},
 	);
 	ipcMain.handle(
@@ -2386,10 +2410,10 @@ async function createMainWindow() {
 			if (typeof profileId !== "string" || typeof label !== "string") {
 				throw new TypeError("Invalid Tailnet profile label request.");
 			}
-			if (tailnetEnvironmentManager === null) {
-				throw new Error("Tailnet environment service is unavailable.");
-			}
-			return tailnetEnvironmentManager.updateLabel(profileId, label);
+			return (await readyTailnetEnvironmentManager()).updateLabel(
+				profileId,
+				label,
+			);
 		},
 	);
 
@@ -2616,7 +2640,12 @@ async function createMainWindow() {
 		}
 	};
 
+	ipcMain.handle("browser:waitUntilReady", async () => {
+		await optionalDesktopReadiness?.browserCookies;
+	});
+
 	ipcMain.handle("browser:registerWebview", async (_event, rawId: unknown) => {
+		await optionalDesktopReadiness?.browserCookies;
 		if (typeof rawId !== "number" || !Number.isInteger(rawId)) return false;
 		const wc = webContentsModule.fromId(rawId);
 		if (wc === undefined || wc.isDestroyed()) return false;
@@ -3167,6 +3196,7 @@ async function createMainWindow() {
 	appendRemoteConnectionLog("desktop.runtime.start", {
 		relayWsPort,
 		userData: app.getPath("userData"),
+		elapsedMs: Math.round(performance.now() - startupStartedAt),
 	});
 	if (relayPort.fellBack) {
 		appendRemoteConnectionLog("desktop.runtime.port_fallback", {
@@ -3175,7 +3205,7 @@ async function createMainWindow() {
 	}
 	process.env.ZUSE_APP_VERSION = ZUSE_APP_VERSION;
 
-	runtimeFiber = Effect.runFork(
+	const launchedRuntime = Effect.runFork(
 		Layer.launch(
 			makeMainLayer({
 				userData,
@@ -3244,7 +3274,10 @@ async function createMainWindow() {
 							} catch (cause) {
 								appendRemoteConnectionLog(
 									"pairing.nearby.notification_failed",
-									{ ...requestFields, cause },
+									{
+										...requestFields,
+										cause,
+									},
 								);
 								console.error(
 									"[zuse:pairing] desktop.notification.failed",
@@ -3298,7 +3331,9 @@ async function createMainWindow() {
 					// unrecoverable — surface the cause and bail. Quiet
 					// success-after-restart is preferable to a half-running app.
 					const detail = Cause.pretty(cause);
-					appendRemoteConnectionLog("desktop.runtime.fatal", { cause: detail });
+					appendRemoteConnectionLog("desktop.runtime.fatal", {
+						cause: detail,
+					});
 					console.error("[zuse] fatal boot error\n", detail);
 					yield* Effect.promise(() => appLogWriter.flush());
 					app.exit(1);
@@ -3306,6 +3341,42 @@ async function createMainWindow() {
 			),
 		),
 	);
+	runtimeFiber = launchedRuntime;
+	appendRemoteConnectionLog("desktop.startup.runtime_launched", {
+		elapsedMs: Math.round(performance.now() - startupStartedAt),
+	});
+	const startup = startOptionalServicesAfterCritical(
+		() => launchedRuntime,
+		{
+			ssh: async () => {
+				await sshManager.initialize();
+			},
+			tailnet: async () => {
+				await tailnetManager.initialize();
+			},
+			browserCookies: async () => {
+				const browserSession = session.fromPartition(BROWSER_PARTITION);
+				await restoreImportedBrowserCookies(userData, browserSession).catch(
+					(cause) => {
+						recordMainDiagnostic("warn", "browser.cookies.restore_failed", [
+							cause,
+						]);
+					},
+				);
+				stopBrowserCookieWatch?.();
+				stopBrowserCookieWatch = watchImportedBrowserCookies(
+					userData,
+					browserSession,
+				);
+			},
+		},
+		(service, cause) => {
+			recordMainDiagnostic("warn", `desktop.startup.${service}_failed`, [
+				cause,
+			]);
+		},
+	);
+	optionalDesktopReadiness = startup.readiness;
 	// Persist renderer console output so UI-side races can be diagnosed from
 	// disk after the fact. In dev we also mirror it into the terminal.
 	mainWindow.webContents.on(
@@ -3686,6 +3757,9 @@ void app.whenReady().then(async () => {
 	// Non-primary instance is on its way out (lost the single-instance lock) —
 	// don't build a window or boot the runtime.
 	if (!gotSingleInstanceLock) return;
+	appendRemoteConnectionLog("desktop.startup.app_ready", {
+		elapsedMs: Math.round(performance.now() - desktopProcessStartedAt),
+	});
 	try {
 		fsSync.mkdirSync(Path.dirname(runMarkerPath), { recursive: true });
 		fsSync.writeFileSync(
@@ -3752,16 +3826,6 @@ void app.whenReady().then(async () => {
 	});
 
 	installAppMenu(() => mainWindow, lastAccelerators, getLastStatus());
-	await restoreImportedBrowserCookies(
-		app.getPath("userData"),
-		session.fromPartition(BROWSER_PARTITION),
-	).catch((cause) => {
-		recordMainDiagnostic("warn", "browser.cookies.restore_failed", [cause]);
-	});
-	watchImportedBrowserCookies(
-		app.getPath("userData"),
-		session.fromPartition(BROWSER_PARTITION),
-	);
 	await createMainWindow();
 	if (mainWindow !== null) {
 		if (isDevelopment) {
@@ -3819,8 +3883,8 @@ function pluralAgents(count: number): string {
 
 /** Close the local port forwards owned by a saved SSH profile's environment. */
 const closeSshProfileForwards = async (profileId: string): Promise<void> => {
-	const environmentId = sshEnvironmentManager
-		?.listProfiles()
+	const environmentId = (await readySshEnvironmentManager())
+		.listProfiles()
 		.find((profile) => profile.profileId === profileId)?.environmentId;
 	if (environmentId !== undefined) {
 		await portForwardManager.closeForEnvironment(environmentId);
@@ -3837,6 +3901,8 @@ const finishQuitAfterSshCleanup = (event: {
 	const manager = sshEnvironmentManager;
 	const runtime = runtimeFiber;
 	runtimeFiber = null;
+	stopBrowserCookieWatch?.();
+	stopBrowserCookieWatch = null;
 	void Promise.allSettled([
 		cloudSyncManager.dispose(),
 		portForwardManager.closeAll(),
