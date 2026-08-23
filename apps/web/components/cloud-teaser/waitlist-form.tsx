@@ -27,11 +27,13 @@ export const WaitlistForm = () => {
 			});
 			if (!response.ok) {
 				const body = (await response.json().catch(() => null)) as {
-					error?: string;
+					error?: string | { message?: string };
 				} | null;
+				const message =
+					typeof body?.error === "string" ? body.error : body?.error?.message;
 				setStatus({
 					state: "error",
-					message: body?.error ?? "Something went wrong. Please try again.",
+					message: message ?? "Something went wrong. Please try again.",
 				});
 				return;
 			}

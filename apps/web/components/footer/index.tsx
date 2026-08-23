@@ -23,6 +23,7 @@ import {
 const data = {
 	Product: [
 		{ label: "Download", href: DOWNLOAD_URL },
+		{ label: "Developers", href: "/developers" },
 		{ label: "Change Log", href: "/changelog" },
 		{ label: "Blog", href: "/blog" },
 		{ label: "Privacy Policy", href: "/privacy" },

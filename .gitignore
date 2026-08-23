@@ -59,6 +59,7 @@ yarn-error.log*
 !.zuse/settings.toml
 
 .gstack/
+.seo-cache/
 
 # Hugeicons migrate CLI artifacts (backups + HTML reports)
 apps/renderer/hugeicons-migrate-backup-*/
