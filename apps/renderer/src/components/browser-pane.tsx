@@ -1081,11 +1081,13 @@ export function BrowserPane({
 		// rejection catch matters: a load superseded by a newer navigation
 		// rejects with ERR_ABORTED, which is routine, not an error.
 		if (wv !== null) {
-			try {
-				void wv.loadURL(resolved).catch(() => {});
-			} catch {
-				wv.src = resolved;
-			}
+			void waitForBrowserSession().then(() => {
+				try {
+					void wv.loadURL(resolved).catch(() => {});
+				} catch {
+					wv.src = resolved;
+				}
+			});
 		}
 	};
 
@@ -1865,6 +1867,7 @@ async function loadUntilEvent(
 	url: string,
 	eventName: "dom-ready" | "did-stop-loading",
 ): Promise<void> {
+	await waitForBrowserSession();
 	await new Promise<void>((resolve, reject) => {
 		const timeout = setTimeout(() => {
 			cleanup();
@@ -2202,6 +2205,7 @@ async function runBrowserCommand(
 				hooks.setUrl(resolved);
 				hooks.setInputValue(resolved);
 				if (command.readiness === "immediate") {
+					await waitForBrowserSession();
 					void wv.loadURL(resolved).catch(() => {});
 					await delay(0);
 				} else if (command.readiness === "dom-ready") {
@@ -3620,7 +3624,8 @@ function waitForStop(wv: WebviewElement): Promise<void> {
 	});
 }
 
-function loadAndWait(wv: WebviewElement, url: string): Promise<void> {
+async function loadAndWait(wv: WebviewElement, url: string): Promise<void> {
+	await waitForBrowserSession();
 	return new Promise<void>((resolve) => {
 		let done = false;
 		const finish = () => {
@@ -3640,6 +3645,9 @@ function loadAndWait(wv: WebviewElement, url: string): Promise<void> {
 		setTimeout(finish, 20000);
 	});
 }
+
+const waitForBrowserSession = (): Promise<void> =>
+	window.zuse?.browser?.waitUntilReady?.() ?? Promise.resolve();
 
 function BrowserAgentOverlay({
 	shapes,

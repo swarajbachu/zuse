@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import { StartupSurface } from "./components/startup-surface.tsx";
 
 const Application = lazy(() =>
 	import("./application.tsx").then((module) => ({
@@ -8,14 +9,7 @@ const Application = lazy(() =>
 
 export function ApplicationBootstrapFallback() {
 	return (
-		<div
-			aria-busy="true"
-			aria-label="Loading Zuse"
-			className="h-dvh w-screen bg-background text-foreground"
-			role="status"
-		>
-			<span className="sr-only">Loading Zuse</span>
-		</div>
+		<StartupSurface error={null} phase="initial-loading" onRetry={() => {}} />
 	);
 }
 

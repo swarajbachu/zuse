@@ -4,32 +4,39 @@ import {
 	type ResourceKey,
 } from "@zuse/client-runtime/resource-ref";
 import {
-	type AppearanceMode,
-	type AutonomyLevel,
-	type BranchNamingStyle,
+	deriveSurfacePhase,
+	type ResourceOrigin,
+	type SurfacePhase,
+} from "@zuse/client-runtime/resource-state";
+import {
+	AppearanceMode,
+	AutonomyLevel,
+	BranchNamingStyle,
 	CommandId,
-	type CompletionSoundPreset,
+	CompletionSoundPreset,
 	defaultModelEnabledByProvider,
 	defaultModelFor,
 	EnvironmentId,
-	type GitMergeMethod,
+	GitMergeMethod,
 	type ModelEnabledByProvider,
-	type OpencodeCustomProvider,
-	type ProviderId,
-	type RuntimeMode,
+	OpencodeCustomProvider,
+	ProviderId,
+	RuntimeMode,
 	resolveModelSlug,
 	type SettingsFile,
 	type SettingsPatch,
 } from "@zuse/contracts";
-import { Cause, Effect, Fiber, Stream } from "effect";
+import { Cause, Effect, Fiber, Schema, Stream } from "effect";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import type { MemoizeClient } from "./rpc-client.ts";
 import {
 	getRendererClientBus,
 	registerRendererResourceDriver,
+	registerRendererResourcePersistence,
 } from "./session-timeline-client-bus.ts";
 import { readStorageWithLegacy, removeStorageKeys } from "./storage-keys.ts";
+import { makeLocalStorageResourcePersistence } from "./storage-resource-persistence.ts";
 
 /** Canonical environment-qualified projection of `settings.json`. */
 export interface SettingsSlice {
@@ -60,6 +67,10 @@ export interface SettingsSlice {
 
 type SettingsState = SettingsSlice & {
 	readonly loaded: boolean;
+	readonly phase: SurfacePhase;
+	readonly origin: ResourceOrigin;
+	readonly error: string | null;
+	readonly retry: () => void;
 	readonly setDefaultProvider: (providerId: ProviderId) => void;
 	readonly setDefaultModel: (providerId: ProviderId, model: string) => void;
 	readonly setDefaultProviderAndModel: (
@@ -173,6 +184,54 @@ const FALLBACK: SettingsSlice = {
 	notchTrayEnabled: false,
 	notchTrayPinned: false,
 };
+
+const SettingsSliceSchema = Schema.Struct({
+	defaultProviderId: ProviderId,
+	defaultModelByProvider: Schema.Record(ProviderId, Schema.String),
+	defaultRuntimeMode: RuntimeMode,
+	defaultAutoCreateWorktree: Schema.Boolean,
+	defaultAutonomyLevel: AutonomyLevel,
+	completionSoundEnabled: Schema.Boolean,
+	completionSoundPreset: CompletionSoundPreset,
+	appearanceMode: AppearanceMode,
+	onboardingCompleted: Schema.Boolean,
+	providerEnabled: Schema.Record(ProviderId, Schema.Boolean),
+	modelEnabledByProvider: Schema.Record(
+		ProviderId,
+		Schema.Record(Schema.String, Schema.Boolean),
+	),
+	customModelIdsByProvider: Schema.Record(
+		ProviderId,
+		Schema.Array(Schema.String),
+	),
+	opencodeProviderVisible: Schema.Record(Schema.String, Schema.Boolean),
+	opencodeModelVisibleByProvider: Schema.Record(
+		Schema.String,
+		Schema.Record(Schema.String, Schema.Boolean),
+	),
+	opencodeCustomProviders: Schema.Array(OpencodeCustomProvider),
+	branchNamingStyle: BranchNamingStyle,
+	branchNamingPrefix: Schema.String,
+	mergePrefs: Schema.Struct({
+		method: GitMergeMethod,
+		deleteBranch: Schema.Boolean,
+	}),
+	notchTrayEnabled: Schema.Boolean,
+	notchTrayPinned: Schema.Boolean,
+});
+
+const settingsPersistence = makeLocalStorageResourcePersistence<SettingsSlice>({
+	storage: () => (typeof window === "undefined" ? null : window.localStorage),
+	prefix: "zuse.resource.settings",
+	version: 1,
+	decode: (value) =>
+		Schema.decodeUnknownSync(SettingsSliceSchema)(value) as SettingsSlice,
+});
+
+registerRendererResourcePersistence(
+	"environment-settings",
+	settingsPersistence,
+);
 
 const fromFile = (file: SettingsFile): SettingsSlice => {
 	const models = { ...seedModels(), ...file.defaultModelByProvider };
@@ -308,9 +367,15 @@ const makeDriver = (): ResourceDriver<MemoizeClient, SettingsSlice> => {
 							const authoritative = fromFile(file);
 							authoritativeSettings.set(environmentId, authoritative);
 							version += 1;
+							const cursor = { epoch, version };
+							void settingsPersistence.saveResource(context.key, {
+								data: authoritative,
+								cursor,
+								storedAt: Date.now(),
+							});
 							context.emit({
 								data: withPendingPatches(environmentId, authoritative),
-								cursor: { epoch, version },
+								cursor,
 								resetEpoch: version === 1,
 								sync: "live",
 							});
@@ -358,11 +423,6 @@ const activeResource = () => {
 		key: keyFor(environmentId),
 		bus: getRendererClientBus(),
 	};
-};
-
-const snapshot = (): SettingsSlice => {
-	const { bus, key } = activeResource();
-	return bus.snapshot(key)?.data ?? FALLBACK;
 };
 
 const update = (patchFor: (current: SettingsSlice) => SettingsPatch): void => {
@@ -514,12 +574,25 @@ const ACTIONS = {
 		update(() => ({ notchTrayEnabled })),
 	setNotchTrayPinned: (notchTrayPinned: boolean) =>
 		update(() => ({ notchTrayPinned })),
+	retry: () => {
+		const { environmentId, bus } = activeResource();
+		bus.retryConnection(environmentId);
+	},
 };
 
 const state = (): SettingsState => ({
-	...snapshot(),
+	...(() => {
+		const { environmentId, key, bus } = activeResource();
+		const view = bus.snapshot(key);
+		return {
+			...(view.data ?? FALLBACK),
+			loaded: view.data !== null,
+			phase: deriveSurfacePhase(view),
+			origin: view.origin,
+			error: bus.connection(environmentId).error,
+		};
+	})(),
 	...ACTIONS,
-	loaded: true,
 });
 
 type SettingsHook = {
@@ -546,6 +619,9 @@ export const useSettingsStore: SettingsHook = Object.assign(
 			...(view.data ?? FALLBACK),
 			...ACTIONS,
 			loaded: view.data !== null,
+			phase: deriveSurfacePhase(view),
+			origin: view.origin,
+			error: bus.connection(environmentId).error,
 		});
 	},
 	{ getState: state },

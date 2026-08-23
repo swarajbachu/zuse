@@ -302,6 +302,8 @@ export interface BrowserCookieImportStatus {
 }
 
 export interface BrowserBridge {
+	/** Wait until persisted browser cookies have been restored into the partition. */
+	readonly waitUntilReady?: () => Promise<void>;
 	/**
 	 * Attach Chrome DevTools Protocol to the embedded webview's webContents so
 	 * subsequent `dispatchInput` calls deliver real mouse/keyboard input.

@@ -17,6 +17,10 @@ import {
 	usePanelRef,
 } from "react-resizable-panels";
 import { PendingChatCreationSurface } from "./components/pending-chat-creation.tsx";
+import {
+	StartupSurface,
+	startupPresentation,
+} from "./components/startup-surface.tsx";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
 import { useChatDirectoryStatus } from "./hooks/use-chat-directory-status.ts";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
@@ -37,6 +41,7 @@ import {
 } from "./lib/cloud-workspaces.ts";
 import { useActiveSessionById } from "./lib/environment-entity-hooks.ts";
 import { useGitWorkspaceResource } from "./lib/git-workspace-client-bus.ts";
+import { markRendererStartupMilestone } from "./lib/performance-marks.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
 import { useSettingsStore } from "./lib/settings-client-bus.ts";
 import {
@@ -296,14 +301,50 @@ function AmbientSurfaces() {
 		</Suspense>
 	);
 }
-/**
- * Root component. Owns only the cross-cutting concerns that need to run in
- * every mode (permissions stream, fullscreen sync, onboarding gate). The
- * heavy three-pane shell lives in `MainShell` so its layout hooks don't
- * initialize while the onboarding wizard is on screen — re-mounting it on
- * exit is what gives us a clean shell each time.
- */
 export function App() {
+	const settings = useSettingsStore((state) => ({
+		error: state.error,
+		loaded: state.loaded,
+		onboardingCompleted: state.onboardingCompleted,
+		origin: state.origin,
+		phase: state.phase,
+		retry: state.retry,
+	}));
+	useEffect(() => {
+		if (settings.phase === "synchronizing" || settings.phase === "live") {
+			markRendererStartupMilestone("rpc-connected");
+		}
+		if (!settings.loaded) return;
+		markRendererStartupMilestone(
+			settings.origin === "cache" ? "settings-cache-hydrated" : "settings-live",
+		);
+	}, [settings.loaded, settings.origin, settings.phase]);
+	const presentation = startupPresentation(settings);
+	if (presentation !== "ready") {
+		return (
+			<>
+				<AppearanceController />
+				<StartupSurface
+					error={settings.error}
+					phase={settings.phase}
+					onRetry={settings.retry}
+				/>
+			</>
+		);
+	}
+	return <ReadyApp onboardingCompleted={settings.onboardingCompleted} />;
+}
+
+/**
+ * Owns cross-cutting concerns only after settings are available. Deferring
+ * these subscriptions keeps the startup surface cheap and prevents fallback
+ * settings from being observed as real product state.
+ */
+function ReadyApp({
+	onboardingCompleted,
+}: {
+	readonly onboardingCompleted: boolean;
+}) {
 	useEffect(() => installClientBusOnlineBridge(), []);
 	useEffect(() => {
 		let stop: (() => void) | undefined;
@@ -351,6 +392,7 @@ export function App() {
 			try {
 				const client = await getRpcClient();
 				await Effect.runPromise(client["ping.ping"]({}));
+				markRendererStartupMilestone("rpc-connected");
 			} catch (error) {
 				if (cancelled) return;
 				// eslint-disable-next-line no-console
@@ -362,7 +404,6 @@ export function App() {
 		};
 	}, []);
 
-	const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted);
 	const view = useUiStore((s) => s.view);
 	const activeMainTab = useUiStore((s) => s.activeMainTab);
 	useEffect(() => {
