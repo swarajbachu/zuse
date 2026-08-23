@@ -14,11 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Source-checkout and installed Serve runtimes now share the matching Electron data profile, keeping projects and chats in one local database
 - Remote-access dialogs use compact, consistent controls and clearer account-discovery, connection, and pairing states
+- Desktop startup now launches the embedded runtime before initializing SSH, tailnet, and imported browser cookies, while first use still waits for each service to become ready
 
 ### Fixed
 - Browser RPC registration and authenticated reloads now recover cleanly instead of remaining stuck while connecting
 - LAN browser access works without secure-context `crypto.randomUUID`, and `--no-account` no longer restores or advertises a persisted managed tunnel
 - Desktop LAN sharing now advertises the reachable IPv4 address consistently in the browser link, copied link, and QR code
+- App startup now waits for cached or live settings before choosing onboarding, with a branded loading state and recoverable failure controls instead of showing onboarding during backend delays
 
 ## [0.20.7]
 
