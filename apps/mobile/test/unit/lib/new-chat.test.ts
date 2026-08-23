@@ -50,12 +50,35 @@ describe("new chat helper", () => {
 			permissionMode: "plan",
 			modelOptions: { effort: "high" },
 			initialPrompt: "build it",
+			createWorktree: true,
 			createSource: { _tag: "branch", branch: "feature", remote: "origin" },
 		});
 	});
 
+	test("creates a fresh worktree from the default branch", () => {
+		const payload = buildNewChatCreatePayload({
+			connectionKey: "env-1",
+			projectId: "project-1" as never,
+			providerId: "codex",
+			model: "gpt-5-codex",
+			runtimeMode: "approval-required",
+			permissionMode: "default",
+			source: {
+				kind: "worktree",
+				label: "main",
+				worktreeId: null,
+			},
+			text: "build it",
+		});
+
+		expect(payload).toMatchObject({
+			worktreeId: null,
+			createWorktree: true,
+			createSource: null,
+		});
+	});
+
 	test("sourceOptionsForKind builds per-kind source objects", () => {
-		const worktrees = [{ id: "wt-1", branch: "feature-a" }] as never;
 		const branches = [
 			{ kind: "local", name: "main", current: true, remote: null },
 			{ kind: "local", name: "feature-b", current: false, remote: "origin" },
@@ -64,20 +87,20 @@ describe("new chat helper", () => {
 			{ number: 7, title: "Fix bug", headRefName: "fix-bug" },
 		] as never;
 
-		expect(sourceOptionsForKind("main", worktrees, branches, prs)).toEqual([
+		expect(sourceOptionsForKind("main", branches, prs)).toEqual([
 			{ key: "main", label: MAIN_SOURCE.label, source: MAIN_SOURCE },
 		]);
 
-		expect(sourceOptionsForKind("worktree", worktrees, branches, prs)).toEqual([
+		expect(sourceOptionsForKind("worktree", branches, prs)).toEqual([
 			{
-				key: "wt-1",
-				label: "feature-a",
-				source: { kind: "worktree", label: "feature-a", worktreeId: "wt-1" },
+				key: "new-worktree:main",
+				label: "main",
+				source: { kind: "worktree", label: "main", worktreeId: null },
 			},
 		]);
 
 		// Current branch is excluded.
-		const branchOpts = sourceOptionsForKind("branch", worktrees, branches, prs);
+		const branchOpts = sourceOptionsForKind("branch", branches, prs);
 		expect(branchOpts).toHaveLength(1);
 		expect(branchOpts[0]?.source).toMatchObject({
 			kind: "branch",
@@ -85,7 +108,7 @@ describe("new chat helper", () => {
 			createSource: { _tag: "branch", branch: "feature-b", remote: "origin" },
 		});
 
-		const prOpts = sourceOptionsForKind("pr", worktrees, branches, prs);
+		const prOpts = sourceOptionsForKind("pr", branches, prs);
 		expect(prOpts[0]).toMatchObject({
 			key: "pr:7",
 			label: "#7 Fix bug",

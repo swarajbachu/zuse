@@ -11,6 +11,7 @@ import type {
 	UserQuestion,
 } from "@zuse/contracts";
 import { proposedPlanMarkdownFromContent } from "@zuse/utils/proposed-plan";
+import * as Clipboard from "expo-clipboard";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import {
@@ -21,10 +22,10 @@ import {
 	CheckSquare,
 	ChevronDown,
 	ChevronRight,
+	Copy,
 	FileCode2,
 	FilePenLine,
 	Folder,
-	GitFork,
 	Globe,
 	Hourglass,
 	Search,
@@ -51,6 +52,7 @@ import { workspaceDisplayPath } from "~/lib/workspace-path";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { colors } from "~/theme";
 import { AttachmentMedia } from "./attachment-media";
+import { ForkFromMessageMenu } from "./fork-from-message-menu";
 import { Markdown } from "./markdown";
 import type { QuestionAnswer } from "./pending-user-input-card";
 
@@ -69,7 +71,11 @@ export type MessageRowContext = {
 		itemId: string,
 		answers: readonly QuestionAnswer[],
 	) => void | Promise<void>;
-	onForkFromMessage?: (messageId: Message["id"]) => void;
+	onForkFromMessage?: (
+		messageId: Message["id"],
+		destination: "tab" | "chat",
+		isolated: boolean,
+	) => void;
 };
 
 export const MessageRow = ({
@@ -143,6 +149,7 @@ const MessageRowContent = ({
 					text={content.text}
 					planText={proposedPlanMarkdownFromContent(content)}
 					messageId={message.id}
+					createdAt={message.createdAt}
 					context={ctx}
 				/>
 			);
@@ -271,11 +278,13 @@ const AssistantMarkdown = ({
 	text,
 	planText,
 	messageId,
+	createdAt,
 	context,
 }: {
 	text: string;
 	planText: string | null;
 	messageId: Message["id"];
+	createdAt: Date;
 	context: MessageRowContext;
 }) =>
 	planText !== null ? (
@@ -283,22 +292,36 @@ const AssistantMarkdown = ({
 	) : (
 		<View className="px-2 py-2">
 			<Markdown>{text}</Markdown>
-			{context.onForkFromMessage === undefined ? null : (
-				<View className="mt-1 flex-row justify-end">
-					<Pressable
-						accessibilityRole="button"
-						accessibilityLabel="Fork from here"
-						hitSlop={8}
-						className="h-11 flex-row items-center gap-2 px-2 active:opacity-60"
-						onPress={() => context.onForkFromMessage?.(messageId)}
-					>
-						<GitFork size={16} color={colors.secondaryFg} />
-						<Text className="font-sans text-[12px] text-muted-foreground">
-							Fork from here
-						</Text>
-					</Pressable>
-				</View>
-			)}
+			<View className="mt-1 flex-row items-center">
+				{context.onForkFromMessage === undefined ? null : (
+					<ForkFromMessageMenu
+						onForkInChat={() =>
+							context.onForkFromMessage?.(messageId, "tab", false)
+						}
+						onForkInCurrentWorktree={() =>
+							context.onForkFromMessage?.(messageId, "chat", false)
+						}
+						onForkInNewWorktree={() =>
+							context.onForkFromMessage?.(messageId, "chat", true)
+						}
+					/>
+				)}
+				<Pressable
+					accessibilityRole="button"
+					accessibilityLabel="Copy response"
+					hitSlop={8}
+					className="h-9 w-9 items-center justify-center active:opacity-60"
+					onPress={() => void Clipboard.setStringAsync(text)}
+				>
+					<Copy size={16} color={colors.secondaryFg} />
+				</Pressable>
+				<Text
+					className="px-1 font-sans text-[11px] text-muted-foreground"
+					style={{ fontVariant: ["tabular-nums"] }}
+				>
+					{formatMessageTime(createdAt)}
+				</Text>
+			</View>
 		</View>
 	);
 
@@ -979,6 +1002,12 @@ function formatResetTime(value: string | null): string | null {
 		return date.toLocaleTimeString();
 	}
 }
+
+const formatMessageTime = (date: Date): string =>
+	date.toLocaleTimeString([], {
+		hour: "numeric",
+		minute: "2-digit",
+	});
 
 function formatTokens(value: number | null): string | null {
 	if (value === null) {

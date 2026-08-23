@@ -562,33 +562,10 @@ function ThreadScreen() {
 		}
 	};
 
-	const onForkFromMessage = (fromMessageId: MessageId) => {
-		Alert.alert("Fork from here", "Where should the new session live?", [
-			{ text: "Cancel", style: "cancel" },
-			{
-				text: "This chat",
-				onPress: () => void runFork(fromMessageId, "tab", false),
-			},
-			{
-				text: "New chat",
-				onPress: () =>
-					Alert.alert(
-						"New chat workspace",
-						"Use the current worktree or create an isolated one?",
-						[
-							{ text: "Cancel", style: "cancel" },
-							{
-								text: "Current",
-								onPress: () => void runFork(fromMessageId, "chat", false),
-							},
-							{
-								text: "Isolated",
-								onPress: () => void runFork(fromMessageId, "chat", true),
-							},
-						],
-					),
-			},
-		]);
+	const onForkFromMessage: NonNullable<
+		MessageRowContext["onForkFromMessage"]
+	> = (fromMessageId, destination, isolated) => {
+		void runFork(fromMessageId, destination, isolated);
 	};
 
 	const ctx: MessageRowContext = {
@@ -1062,87 +1039,87 @@ function ThreadScreen() {
 					</Text>
 				</View>
 			) : null}
-				<KeyboardAwareLegendList
-					ref={listRef}
-					style={{ flex: 1 }}
-					data={turns}
-					dataKey={stateKey}
-					keyExtractor={(turn) => turn.id}
-					getItemType={() => "turn"}
-					estimatedItemSize={180}
-					renderItem={({ item, index }) => (
-						<TurnRow
-							turn={item}
-							context={ctx}
-							live={sessionStatus === "running" && index === turns.length - 1}
-						/>
-					)}
-					alignItemsAtEnd
-					applyWorkaroundForContentInsetHitTestBug
-					contentInsetAdjustmentBehavior="never"
-					automaticallyAdjustsScrollIndicatorInsets={false}
-					contentContainerStyle={{
-						gap: 4,
-						paddingHorizontal: 16,
-						paddingTop: headerHeight + 12,
-					}}
-					scrollIndicatorInsets={{
-						top: headerHeight,
-						bottom: -insets.bottom,
-					}}
-					contentInsetEndAdjustment={contentInsetEndAdjustment}
-					freeze={freeze}
+			<KeyboardAwareLegendList
+				ref={listRef}
+				style={{ flex: 1 }}
+				data={turns}
+				dataKey={stateKey}
+				keyExtractor={(turn) => turn.id}
+				getItemType={() => "turn"}
+				estimatedItemSize={180}
+				renderItem={({ item, index }) => (
+					<TurnRow
+						turn={item}
+						context={ctx}
+						live={sessionStatus === "running" && index === turns.length - 1}
+					/>
+				)}
+				alignItemsAtEnd
+				applyWorkaroundForContentInsetHitTestBug
+				contentInsetAdjustmentBehavior="never"
+				automaticallyAdjustsScrollIndicatorInsets={false}
+				contentContainerStyle={{
+					gap: 4,
+					paddingHorizontal: 16,
+					paddingTop: headerHeight + 12,
+				}}
+				scrollIndicatorInsets={{
+					top: headerHeight,
+					bottom: -insets.bottom,
+				}}
+				contentInsetEndAdjustment={contentInsetEndAdjustment}
+				freeze={freeze}
 				keyboardLiftBehavior="whenAtEnd"
-					keyboardDismissMode="interactive"
-					keyboardOffset={insets.bottom}
-					keyboardShouldPersistTaps="handled"
-					initialScrollAtEnd={restoredViewState?.mode !== "detached"}
-					{...(restoredViewState?.mode === "detached"
-						? { initialScrollOffset: restoredViewState.offsetY }
-						: {})}
-					{...(anchoredEndSpace === undefined
-						? {}
+				keyboardDismissMode="interactive"
+				keyboardOffset={insets.bottom}
+				keyboardShouldPersistTaps="handled"
+				initialScrollAtEnd={restoredViewState?.mode !== "detached"}
+				{...(restoredViewState?.mode === "detached"
+					? { initialScrollOffset: restoredViewState.offsetY }
+					: {})}
+				{...(anchoredEndSpace === undefined
+					? {}
+					: {
+							anchoredEndSpace,
+						})}
+				maintainScrollAtEnd={
+					transcriptScroll.readerDetached
+						? false
 						: {
-								anchoredEndSpace,
-							})}
-					maintainScrollAtEnd={
-						transcriptScroll.readerDetached
-							? false
-							: {
-									animated: false,
-									on: {
-										dataChange: true,
+								animated: false,
+								on: {
+									dataChange: true,
 									footerLayout: true,
-										itemLayout: true,
-										layout: true,
-									},
-								}
-					}
-					maintainScrollAtEndThreshold={0.1}
-					maintainVisibleContentPosition
-					drawDistance={800}
-					sharedValues={{ isNearEnd }}
-					ListHeaderComponent={
+									itemLayout: true,
+									layout: true,
+								},
+							}
+				}
+				maintainScrollAtEndThreshold={0.1}
+				maintainVisibleContentPosition
+				drawDistance={800}
+				sharedValues={{ isNearEnd }}
+				ListHeaderComponent={
 					error && connectionNotice === null ? (
 						<InlineErrorNotice
 							message={connectionErrorMessage(error)}
 							compact
-									/>
-						) : null
-					}
-					ListFooterComponent={
+						/>
+					) : null
+				}
+				ListFooterComponent={
 					<View style={{ minHeight: endRunwayHeight, paddingTop: 4 }}>
-							{workingActive ? <WorkingIndicator since={workingSince} /> : null}
-						</View>
-					}
-					onScroll={onScroll}
-					onScrollBeginDrag={startReaderGesture}
-					onScrollEndDrag={finishReaderGesture}
-					onMomentumScrollBegin={startReaderGesture}
-					onMomentumScrollEnd={finishReaderGesture}
-					onEndVisible={onEndVisible}
-					scrollEventThrottle={16}
-				/>
+						{workingActive ? <WorkingIndicator since={workingSince} /> : null}
+					</View>
+				}
+				onScroll={onScroll}
+				onScrollBeginDrag={startReaderGesture}
+				onScrollEndDrag={finishReaderGesture}
+				onMomentumScrollBegin={startReaderGesture}
+				onMomentumScrollEnd={finishReaderGesture}
+				onEndVisible={onEndVisible}
+				scrollEventThrottle={16}
+			/>
 			{initialTranscriptLoading && turns.length === 0 ? (
 				<View
 					pointerEvents="none"
@@ -1417,22 +1394,12 @@ function TranscriptLoadingState() {
 		<View
 			accessibilityRole="progressbar"
 			accessibilityLabel="Loading conversation"
-			className="gap-5 px-1 pt-10"
+			className="items-center justify-center gap-3 px-1 pt-10"
 		>
-			<View className="items-center gap-3 pb-3">
-				<ActivityIndicator size="small" color={colors.accent} />
-				<Text className="font-sans-medium text-[13px] text-muted-foreground">
-					Loading conversation…
-				</Text>
-			</View>
-			<View className="items-end">
-				<View className="h-14 w-2/3 rounded-3xl bg-muted" />
-			</View>
-			<View className="gap-3">
-				<View className="h-4 w-11/12 rounded-full bg-muted" />
-				<View className="h-4 w-4/5 rounded-full bg-muted" />
-				<View className="h-4 w-3/5 rounded-full bg-muted" />
-			</View>
+			<ActivityIndicator size="small" color={colors.accent} />
+			<Text className="font-sans-medium text-[13px] text-muted-foreground">
+				Loading conversation…
+			</Text>
 		</View>
 	);
 }

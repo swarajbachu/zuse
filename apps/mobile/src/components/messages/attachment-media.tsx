@@ -76,7 +76,7 @@ export function AttachmentMedia({
 
 	if (uri === null) {
 		return (
-			<View className="h-32 w-52 items-center justify-center rounded-xl bg-black/10">
+			<View className="h-32 w-52 items-center justify-center">
 				<ActivityIndicator color="#fff" />
 			</View>
 		);

@@ -37,6 +37,7 @@ import {
 	pickComposerImages,
 	uploadComposerAttachment,
 } from "~/lib/composer-attachments";
+import { composerSendFailureDisposition } from "~/lib/composer-send-failure";
 import {
 	type ComposerActivity,
 	composerExpanded,
@@ -318,7 +319,7 @@ export const Composer = ({
 			// row. LegendList's anchored-end contract uses the pre-append index.
 			onMessageWillAppend?.();
 			didPrepareAppend = true;
-				optimisticMessageId = messageId;
+			optimisticMessageId = messageId;
 			const optimisticContent: MessageContent =
 				uploaded.length > 0 || fileRefs.length > 0 || skillRefs.length > 0
 					? {
@@ -331,20 +332,20 @@ export const Composer = ({
 							goal: goalMode,
 						}
 					: {
-					_tag: "user",
-					text: value,
-					goal: goalMode,
-				};
-				addOptimisticMessage(
-					stateKey,
-					Message.make({
-						id: messageId,
-						sessionId,
-						role: "user",
-						content: optimisticContent,
-						createdAt: new Date(),
-					}),
-				);
+							_tag: "user",
+							text: value,
+							goal: goalMode,
+						};
+			addOptimisticMessage(
+				stateKey,
+				Message.make({
+					id: messageId,
+					sessionId,
+					role: "user",
+					content: optimisticContent,
+					createdAt: new Date(),
+				}),
+			);
 			await Effect.runPromise(
 				sendMessage({
 					connection,
@@ -356,6 +357,16 @@ export const Composer = ({
 			);
 			finishSuccessfulSubmission({ dismissKeyboard: false });
 		} catch (cause) {
+			if (
+				composerSendFailureDisposition(cause, optimisticMessageId !== null) ===
+				"retrying"
+			) {
+				// ClientBus has already persisted this command and will replay it with
+				// the same ID. Keep the truthful optimistic row and don't flash a false
+				// terminal error during a brief route/socket handoff.
+				finishSuccessfulSubmission({ dismissKeyboard: false });
+				return;
+			}
 			setComposerError(connectionErrorMessage(cause));
 			if (optimisticMessageId !== null) {
 				removeOptimisticMessage(stateKey, optimisticMessageId);

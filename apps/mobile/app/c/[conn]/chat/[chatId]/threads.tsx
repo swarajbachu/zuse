@@ -149,13 +149,7 @@ export default function ThreadsScreen() {
 				);
 			}
 		},
-		[
-			activeSessionId,
-			connKey,
-			normalizedChatId,
-			options,
-			switchingSessionId,
-		],
+		[activeSessionId, connKey, normalizedChatId, options, switchingSessionId],
 	);
 
 	const openNewThread = useCallback(() => {
@@ -420,7 +414,6 @@ export default function ThreadsScreen() {
 						alignItems: "center",
 						justifyContent: "center",
 						gap: 10,
-						backgroundColor: colors.card,
 					}}
 				>
 					<ActivityIndicator size="large" color={colors.accent} />
