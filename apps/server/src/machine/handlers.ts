@@ -229,6 +229,18 @@ const CreateCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.create",
 	(input) => withCloudControl((service) => service.createCloudWorkspace(input)),
 );
+const CloudApiKeysList = MemoizeRpcs.toLayerHandler("cloud.apiKeys.list", () =>
+	withCloudControl((service) => service.listCloudApiKeys()),
+);
+const CloudApiKeysCreate = MemoizeRpcs.toLayerHandler(
+	"cloud.apiKeys.create",
+	({ name }) => withCloudControl((service) => service.createCloudApiKey(name)),
+);
+const CloudApiKeysRevoke = MemoizeRpcs.toLayerHandler(
+	"cloud.apiKeys.revoke",
+	({ keyId }) =>
+		withCloudControl((service) => service.revokeCloudApiKey(keyId)),
+);
 const ConnectCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.connect",
 	({ workspaceId }) =>
@@ -419,6 +431,9 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	CloudTranscriptMessagePage,
 	WatchCloudWorkspace,
 	CreateCloudWorkspace,
+	CloudApiKeysList,
+	CloudApiKeysCreate,
+	CloudApiKeysRevoke,
 	ConnectCloudWorkspace,
 	CloudChats,
 	PauseCloudWorkspace,

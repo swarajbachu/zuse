@@ -31,6 +31,7 @@ import {
 	CLOUD_COMMAND_PROTOCOL_VERSION,
 	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
 	type CloudAuthProvider,
+	CloudRuntimeCommandList,
 	CloudTranscriptCheckpointPayload,
 	CloudTranscriptMessagePagePayload,
 	CloudWorkspaceRuntimeSummary,
@@ -108,6 +109,10 @@ import {
 import { CloudCodexAuth } from "./cloud-codex-auth.ts";
 import { CloudProviderAuth } from "./cloud-provider-auth.ts";
 import { cloudStorageIncarnationId } from "./cloud-storage-incarnation.ts";
+import {
+	cloudTurnReplyExcerpt,
+	makeCloudApiCommandPump,
+} from "./cloud-workspace-api-commands.ts";
 
 const CREDENTIALS_READY_MARKER = "/var/lib/zuse/workspace/credentials-ready";
 const CREDENTIALS_READY_EVENT =
@@ -2434,6 +2439,72 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							summaryPublisher.publish("activity").pipe(Effect.ignore),
 						);
 					};
+					const apiCommandPump = yield* makeCloudApiCommandPump({
+						fetchCommands: Effect.suspend(() =>
+							requestJson({
+								schema: CloudRuntimeCommandList,
+								url: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeCommands(config.workspaceId)}`,
+								token: runtimeCredential.credential,
+							}),
+						),
+						deliver: (command) =>
+							messages.sendMessage(
+								command.commandId,
+								SessionId.make(command.sessionId),
+								command.text,
+							),
+						ack: (messageId) =>
+							Effect.suspend(() =>
+								requestJson({
+									schema: Schema.Unknown,
+									url: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeCommandAck(config.workspaceId)}`,
+									token: runtimeCredential.credential,
+									method: "POST",
+									body: { messageId },
+								}),
+							),
+					});
+					const drainApiCommands = () => {
+						// Before the repository/launch handshake the initial chat may not
+						// exist yet; undelivered rows are drained by the post-launch drain.
+						if (!repositoryReady) return;
+						void Effect.runPromise(apiCommandPump.drain);
+					};
+					const publishApiTurnEvent = (event: {
+						readonly turnId: string;
+						readonly outcome: string;
+						readonly settledAt: number;
+					}) =>
+						Effect.gen(function* () {
+							const page = yield* sessionDomain
+								.timelineMessagePage(
+									AgentSessionId.make(bootstrap.initialSessionId),
+									Number.MAX_SAFE_INTEGER,
+									50,
+								)
+								.pipe(
+									Effect.mapError(() =>
+										fail("workspace_turn_reply_unavailable"),
+									),
+								);
+							const reply = cloudTurnReplyExcerpt(
+								page.items.map((item) => item.message),
+							);
+							yield* requestJson({
+								schema: Schema.Unknown,
+								url: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeTurnEvents(config.workspaceId)}`,
+								token: runtimeCredential.credential,
+								method: "POST",
+								body: {
+									sessionId: bootstrap.initialSessionId,
+									turnId: event.turnId,
+									outcome: event.outcome,
+									settledAt: event.settledAt,
+									replyText: reply.text,
+									replyTruncated: reply.truncated,
+								},
+							});
+						}).pipe(Effect.retry(cloudRuntimeRetrySchedule), Effect.ignore);
 					const localSockets = new Map<string, WebSocket>();
 					const pendingLocalFrames = new Map<
 						string,
@@ -2522,6 +2593,9 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								void Effect.runPromise(
 									postCurrentRuntimeReady(reconnectPhase).pipe(Effect.ignore),
 								);
+							// A nudge sent while the gateway was down is lost; drain on every
+							// (re)connect so pending API commands never wait for the cron.
+							drainApiCommands();
 							socket.addEventListener("message", (event) => {
 								if (
 									event.data instanceof ArrayBuffer ||
@@ -2575,6 +2649,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 									localSockets.delete(message.connectionId);
 									pendingLocalFrames.delete(message.connectionId);
 								}
+								if (message.type === "runtime.command") drainApiCommands();
 							});
 						},
 					).pipe(
@@ -2682,6 +2757,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 											);
 										}
 									}
+									if (record.streamId === bootstrap.initialSessionId) {
+										if (record.event._tag === "TurnSettled")
+											void Effect.runPromise(publishApiTurnEvent(record.event));
+									}
 									yield* summaryPublisher
 										.publish(reason)
 										.pipe(Effect.retry(cloudRuntimeRetrySchedule));
@@ -2734,6 +2813,11 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						messages,
 						sql,
 					}).pipe(Effect.forkScoped({ startImmediately: true }));
+					// Commands accepted while the workspace was paused or still booting
+					// are drained once the initial chat is guaranteed to exist.
+					yield* apiCommandPump.drain.pipe(
+						Effect.forkScoped({ startImmediately: true }),
+					);
 					yield* summaryPublisher
 						.publish("initial")
 						.pipe(Effect.retry(cloudRuntimeRetrySchedule));

@@ -92,6 +92,18 @@ export const ApiPaths = {
 	cloudAccountImageBuild: "/v1/cloud/image/build",
 	cloudProjectPrepare: (projectId: string) =>
 		`/v1/cloud/projects/${encodeURIComponent(projectId)}/prepare`,
+	cloudApiKeys: "/v1/cloud/api-keys",
+	cloudApiKey: (keyId: string) =>
+		`/v1/cloud/api-keys/${encodeURIComponent(keyId)}`,
+	apiProjects: "/v1/api/projects",
+	apiWorkspaces: "/v1/api/workspaces",
+	apiWorkspace: (workspaceId: string) =>
+		`/v1/api/workspaces/${encodeURIComponent(workspaceId)}`,
+	apiWorkspaceMessages: (workspaceId: string) =>
+		`/v1/api/workspaces/${encodeURIComponent(workspaceId)}/messages`,
+	apiWebhooks: "/v1/api/webhooks",
+	apiWebhook: (webhookId: string) =>
+		`/v1/api/webhooks/${encodeURIComponent(webhookId)}`,
 	cloudWorkspaces: "/v1/cloud/workspaces",
 	cloudWorkspace: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}`,
@@ -130,6 +142,12 @@ export const ApiPaths = {
 		providerId: string,
 	) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/providers/${encodeURIComponent(providerId)}/grant`,
+	cloudWorkspaceRuntimeCommands: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/commands`,
+	cloudWorkspaceRuntimeCommandAck: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/commands/ack`,
+	cloudWorkspaceRuntimeTurnEvents: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/turn-events`,
 	cloudWorkspaceActivity: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/activity`,
 	cloudWorkspaceSummary: (workspaceId: string) =>

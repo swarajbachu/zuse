@@ -8,6 +8,9 @@ import {
 	BillingPortal,
 	CloudAccountImage,
 	type CloudAccountImageBuildRequest,
+	CloudApiKey,
+	CloudApiKeyCreated,
+	CloudApiKeyList,
 	type CloudAuthConfigureRequest,
 	CloudAuthLoginOperation,
 	type CloudAuthProvider,
@@ -195,6 +198,16 @@ export interface MachineControlServiceShape {
 		workspaceId: string,
 		port: number,
 	) => Effect.Effect<CloudWorkspacePreviewUrl, MachineControlError>;
+	readonly listCloudApiKeys: () => Effect.Effect<
+		CloudApiKeyList,
+		MachineControlError
+	>;
+	readonly createCloudApiKey: (
+		name: string,
+	) => Effect.Effect<CloudApiKeyCreated, MachineControlError>;
+	readonly revokeCloudApiKey: (
+		keyId: string,
+	) => Effect.Effect<CloudApiKey, MachineControlError>;
 	readonly list: () => Effect.Effect<MachineList, MachineControlError>;
 	readonly get: (
 		machineId: string,
@@ -582,6 +595,11 @@ export const MachineControlServiceLive: Layer.Layer<
 					"POST",
 					{ workspaceId, ...options },
 				),
+			listCloudApiKeys: () => request(ApiPaths.cloudApiKeys, CloudApiKeyList),
+			createCloudApiKey: (name) =>
+				request(ApiPaths.cloudApiKeys, CloudApiKeyCreated, "POST", { name }),
+			revokeCloudApiKey: (keyId) =>
+				request(ApiPaths.cloudApiKey(keyId), CloudApiKey, "DELETE"),
 			cloudWorkspaceSshAccess: (workspaceId) =>
 				request(
 					ApiPaths.cloudWorkspaceSshAccess(workspaceId),

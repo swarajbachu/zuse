@@ -62,6 +62,10 @@ const cloudCodexAuthBrokerMigrationUrl = new URL(
 	"../../drizzle/migrations/0017_cloud_codex_auth_broker.sql",
 	import.meta.url,
 );
+const publicApiMigrationUrl = new URL(
+	"../../drizzle/migrations/0019_public_api.sql",
+	import.meta.url,
+);
 
 describe("api migration reconciliation", () => {
 	test("keeps the main migration history before managed cloud machines", async () => {
@@ -92,6 +96,7 @@ describe("api migration reconciliation", () => {
 			{ idx: 16, tag: "0016_api_naming" },
 			{ idx: 17, tag: "0017_cloud_codex_auth_broker" },
 			{ idx: 18, tag: "0018_cloud_active_session_summary" },
+			{ idx: 19, tag: "0019_public_api" },
 		]);
 	});
 
@@ -119,6 +124,26 @@ describe("api migration reconciliation", () => {
 		expect(migration).toContain("c.relkind IN ('i', 'I', 'S')");
 		expect(migration).toContain("RENAME CONSTRAINT");
 		expect(migration).not.toMatch(/\b(?:DROP|DELETE|TRUNCATE)\b/iu);
+	});
+
+	test("stores public-api credentials hashed and webhook/ledger content sealed", async () => {
+		const migration = await readFile(publicApiMigrationUrl, "utf8");
+		for (const table of [
+			"api_api_keys",
+			"api_api_webhooks",
+			"api_cloud_workspace_api_messages",
+			"api_api_webhook_deliveries",
+		])
+			expect(migration).toContain(`CREATE TABLE "${table}"`);
+		// API-key secrets are stored hashed only; webhook secrets and message
+		// content are sealed, never plaintext.
+		expect(migration).toContain('"secret_hash" text NOT NULL');
+		expect(migration).toContain('"sealed_secret" text NOT NULL');
+		expect(migration).toContain('"sealed_content" text NOT NULL');
+		expect(migration).toContain('"sealed_payload" text NOT NULL');
+		expect(migration).not.toMatch(/"secret" text|"content" text|plaintext/iu);
+		expect(migration).toContain("api_cloud_workspace_api_messages_seq_idx");
+		expect(migration).toContain("api_api_webhook_deliveries_due_idx");
 	});
 
 	test("stores GitHub App installation metadata without access tokens", async () => {

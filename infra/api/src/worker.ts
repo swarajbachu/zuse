@@ -278,6 +278,27 @@ const managedTunnelConfig = (
 	};
 };
 
+/**
+ * Tell a workspace's gateway Durable Object that pending public-API commands
+ * are waiting so it pushes a `runtime.command` control frame to the runtime.
+ * Best-effort: a missed nudge is recovered by the cron sweep and by the
+ * runtime's reconnect drain.
+ */
+const nudgeWorkspaceGateway = (env: Env, target: string): Promise<unknown> => {
+	const id = env.WORKSPACE_GATEWAY.idFromName(target);
+	return env.WORKSPACE_GATEWAY.get(id)
+		.fetch(
+			new Request("https://workspace-gateway.internal/nudge", {
+				method: "POST",
+				headers: { "x-zuse-gateway-nudge": "command" },
+			}),
+		)
+		.catch((error) => {
+			console.warn("[public-api] gateway nudge failed", error);
+			return undefined;
+		});
+};
+
 const build = (env: Env): ReturnType<typeof makeApi> => {
 	const cloudTranscriptBucket = env.CLOUD_TRANSCRIPTS;
 	const billing = resolveBillingRuntime(env);
@@ -598,15 +619,25 @@ export default {
 		const cloudPoolAccountId = response.headers.get(
 			"x-zuse-reconcile-cloud-pool",
 		);
+		const gatewayNudgeTarget = response.headers.get(
+			"x-zuse-nudge-cloud-workspace",
+		);
+		const webhookDeliveryAccountId = response.headers.get(
+			"x-zuse-deliver-cloud-webhooks",
+		);
 		response.headers.delete("x-zuse-reconcile-machine");
 		response.headers.delete("x-zuse-reconcile-cloud-build");
 		response.headers.delete("x-zuse-reconcile-cloud-workspace");
 		response.headers.delete("x-zuse-reconcile-cloud-pool");
+		response.headers.delete("x-zuse-nudge-cloud-workspace");
+		response.headers.delete("x-zuse-deliver-cloud-webhooks");
 		if (
 			machineId === null &&
 			cloudBuildId === null &&
 			cloudWorkspaceId === null &&
-			cloudPoolAccountId === null
+			cloudPoolAccountId === null &&
+			gatewayNudgeTarget === null &&
+			webhookDeliveryAccountId === null
 		) {
 			await api.dispose();
 			return response;
@@ -623,6 +654,15 @@ export default {
 				cloudPoolAccountId === null
 					? Promise.resolve()
 					: api.reconcileCloudPool(cloudPoolAccountId),
+				gatewayNudgeTarget === null
+					? Promise.resolve()
+					: nudgeWorkspaceGateway(env, gatewayNudgeTarget),
+				webhookDeliveryAccountId === null
+					? Promise.resolve()
+					: api.deliverApiWebhooks().catch((error) => {
+							console.error("[public-api] webhook delivery failed", error);
+							return 0;
+						}),
 			]).finally(() => api.dispose()),
 		);
 		return response;
@@ -646,6 +686,26 @@ export default {
 						),
 				}),
 				api.maintainCloudBilling(controller.scheduledTime),
+				api.deliverApiWebhooks().catch((error) => {
+					console.error("[public-api] webhook delivery sweep failed", error);
+					return 0;
+				}),
+				api
+					.sweepApiCommands()
+					.then((targets) =>
+						Promise.all(
+							targets.map((target) =>
+								nudgeWorkspaceGateway(
+									env,
+									`${target.workspaceId}:${target.gatewayEpoch}`,
+								),
+							),
+						),
+					)
+					.catch((error) => {
+						console.error("[public-api] command sweep failed", error);
+						return [];
+					}),
 				pollE2bLifecycleEvents(env, api, controller.scheduledTime).catch(
 					(error) => {
 						console.error(

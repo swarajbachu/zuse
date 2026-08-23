@@ -4,6 +4,10 @@ import { Clock, Effect, Redacted, Schema } from "effect";
 
 import { AccountIdentity } from "./account-identity.ts";
 import {
+	type ApiKeyRouteContext,
+	routeApiKeyRequest,
+} from "./api-key-routes.ts";
+import {
 	API_SCOPES,
 	mintAccessToken,
 	requireDpop,
@@ -45,6 +49,7 @@ import {
 } from "./machine-routes.ts";
 import { MachineStore } from "./machine-store.ts";
 import { ManagedTunnelProvider } from "./managed-tunnel.ts";
+import { routePublicApiRequest } from "./public-api-routes.ts";
 import { PushDelivery } from "./push.ts";
 import type { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
 import {
@@ -66,6 +71,7 @@ export type ApiContext =
 	| SandboxOfferConfiguration
 	| CloudWorkspaceRouteContext
 	| CloudBillingRouteContext
+	| ApiKeyRouteContext
 	| MachineRouteContext;
 
 const json = (body: unknown, status = 200): Response =>
@@ -313,6 +319,10 @@ const route = (
 		if (cloudBillingResponse !== null) return cloudBillingResponse;
 		const cloudWorkspaceResponse = yield* routeCloudWorkspaceRequest(request);
 		if (cloudWorkspaceResponse !== null) return cloudWorkspaceResponse;
+		const apiKeyResponse = yield* routeApiKeyRequest(request);
+		if (apiKeyResponse !== null) return apiKeyResponse;
+		const publicApiResponse = yield* routePublicApiRequest(request);
+		if (publicApiResponse !== null) return publicApiResponse;
 
 		if (method === "POST" && path === "/v1/auth/token") {
 			const untrustedBody = yield* readJson<unknown>(request);

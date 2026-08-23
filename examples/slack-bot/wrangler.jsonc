@@ -1,0 +1,22 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "zuse-slack-bot",
+	"main": "src/worker.ts",
+	"compatibility_date": "2026-08-01",
+	"kv_namespaces": [
+		{
+			"binding": "THREADS",
+			// Create with: wrangler kv namespace create THREADS
+			"id": "REPLACE_WITH_KV_NAMESPACE_ID"
+		}
+	],
+	"vars": {
+		// Base URL of the Zuse API hosting the public API.
+		"ZUSE_API_URL": "https://api.zuse.sh"
+	}
+	// Secrets (set with the package.json scripts):
+	//   SLACK_SIGNING_SECRET  — Slack app signing secret
+	//   SLACK_BOT_TOKEN       — xoxb- bot token with chat:write
+	//   ZUSE_API_KEY          — zk_… key from Zuse Settings → Cloud → API keys
+	//   ZUSE_WEBHOOK_SECRET   — whsec_… secret from POST /v1/api/webhooks
+}

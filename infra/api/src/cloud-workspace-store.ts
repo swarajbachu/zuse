@@ -337,6 +337,111 @@ export type CreateCloudWorkspaceOutcome =
 			readonly workspace: CloudWorkspaceRecord;
 	  };
 
+export interface ApiKeyRecord {
+	readonly keyId: string;
+	readonly accountId: string;
+	readonly name: string;
+	readonly secretHash: string;
+	readonly prefix: string;
+	readonly createdAtMs: number;
+	readonly lastUsedAtMs?: number;
+	readonly revokedAtMs?: number;
+}
+
+export interface ApiWebhookRecord {
+	readonly webhookId: string;
+	readonly accountId: string;
+	readonly url: string;
+	readonly sealedSecret: string;
+	readonly description?: string;
+	readonly createdAtMs: number;
+	readonly disabledAtMs?: number;
+}
+
+export type ApiMessageRole = "user" | "assistant";
+
+export type ApiMessageStatus =
+	| "pending"
+	| "delivered"
+	| "settled"
+	| "failed"
+	| "expired";
+
+/**
+ * One row of the public-API conversation ledger. User rows double as the
+ * pending-command queue drained by the in-sandbox runtime; assistant rows are
+ * appended from runtime turn events. `sealedContent` is encrypted with the
+ * API data-encryption key.
+ */
+export interface CloudWorkspaceApiMessageRecord {
+	readonly messageId: string;
+	readonly workspaceId: string;
+	readonly accountId: string;
+	readonly seq: number;
+	readonly role: ApiMessageRole;
+	readonly sealedContent: string;
+	readonly commandId?: string;
+	readonly turnId?: string;
+	readonly outcome?: string;
+	readonly status: ApiMessageStatus;
+	readonly createdAtMs: number;
+	readonly deliveredAtMs?: number;
+	readonly expiresAtMs?: number;
+}
+
+export interface AppendApiMessageInput {
+	readonly messageId: string;
+	readonly workspaceId: string;
+	readonly accountId: string;
+	readonly role: ApiMessageRole;
+	readonly sealedContent: string;
+	readonly commandId?: string;
+	readonly status: ApiMessageStatus;
+	readonly createdAtMs: number;
+	readonly expiresAtMs?: number;
+}
+
+export interface AppendApiMessageOutcome {
+	readonly kind: "created" | "existing";
+	readonly message: CloudWorkspaceApiMessageRecord;
+}
+
+export interface RecordApiTurnEventInput {
+	readonly messageId: string;
+	readonly workspaceId: string;
+	readonly accountId: string;
+	readonly turnId: string;
+	readonly outcome: string;
+	readonly sealedContent: string;
+	readonly nowMs: number;
+}
+
+export interface RecordApiTurnEventOutcome {
+	readonly kind: "created" | "replay";
+	readonly message: CloudWorkspaceApiMessageRecord;
+}
+
+export interface ApiWebhookDeliveryRecord {
+	readonly deliveryId: string;
+	readonly webhookId: string;
+	readonly accountId: string;
+	readonly eventId: string;
+	readonly eventType: string;
+	readonly sealedPayload: string;
+	readonly status: "pending" | "delivered" | "failed";
+	readonly attempts: number;
+	readonly nextAttemptAtMs: number;
+	readonly lastError?: string;
+	readonly createdAtMs: number;
+	readonly updatedAtMs: number;
+}
+
+export interface DueApiWebhookDelivery {
+	readonly delivery: ApiWebhookDeliveryRecord;
+	readonly url: string;
+	readonly sealedSecret: string;
+}
+
 export interface CloudWorkspaceStoreApi {
 	readonly getCloudAuthAuthority: (
 		accountId: string,
@@ -587,6 +692,70 @@ export interface CloudWorkspaceStoreApi {
 		readonly providerEventId?: string;
 		readonly occurredAtMs: number;
 	}) => Effect.Effect<boolean>;
+	readonly createApiKey: (key: ApiKeyRecord) => Effect.Effect<void>;
+	readonly listApiKeys: (
+		accountId: string,
+	) => Effect.Effect<ReadonlyArray<ApiKeyRecord>>;
+	readonly revokeApiKey: (
+		accountId: string,
+		keyId: string,
+		nowMs: number,
+	) => Effect.Effect<ApiKeyRecord | null>;
+	readonly findActiveApiKeyByHash: (
+		secretHash: string,
+	) => Effect.Effect<ApiKeyRecord | null>;
+	readonly touchApiKey: (keyId: string, nowMs: number) => Effect.Effect<void>;
+	readonly createApiWebhook: (webhook: ApiWebhookRecord) => Effect.Effect<void>;
+	readonly listApiWebhooks: (
+		accountId: string,
+	) => Effect.Effect<ReadonlyArray<ApiWebhookRecord>>;
+	readonly deleteApiWebhook: (
+		accountId: string,
+		webhookId: string,
+	) => Effect.Effect<boolean>;
+	readonly appendApiMessage: (
+		input: AppendApiMessageInput,
+	) => Effect.Effect<AppendApiMessageOutcome>;
+	readonly listApiMessages: (
+		workspaceId: string,
+		afterSeq: number,
+		limit: number,
+	) => Effect.Effect<ReadonlyArray<CloudWorkspaceApiMessageRecord>>;
+	readonly listPendingApiCommands: (
+		workspaceId: string,
+		nowMs: number,
+	) => Effect.Effect<ReadonlyArray<CloudWorkspaceApiMessageRecord>>;
+	readonly ackApiCommand: (
+		workspaceId: string,
+		messageId: string,
+		nowMs: number,
+	) => Effect.Effect<boolean>;
+	readonly recordApiTurnEvent: (
+		input: RecordApiTurnEventInput,
+	) => Effect.Effect<RecordApiTurnEventOutcome>;
+	readonly expireApiCommands: (nowMs: number) => Effect.Effect<void>;
+	readonly listWorkspacesWithStalePendingApiCommands: (
+		cutoffMs: number,
+	) => Effect.Effect<ReadonlyArray<string>>;
+	readonly enqueueApiWebhookDeliveries: (
+		deliveries: ReadonlyArray<ApiWebhookDeliveryRecord>,
+	) => Effect.Effect<void>;
+	readonly claimDueApiWebhookDeliveries: (
+		nowMs: number,
+		limit: number,
+		leaseMs: number,
+	) => Effect.Effect<ReadonlyArray<DueApiWebhookDelivery>>;
+	readonly completeApiWebhookDelivery: (
+		deliveryId: string,
+		nowMs: number,
+	) => Effect.Effect<void>;
+	readonly failApiWebhookDelivery: (input: {
+		readonly deliveryId: string;
+		readonly nowMs: number;
+		readonly error: string;
+		readonly nextAttemptAtMs: number;
+		readonly terminal: boolean;
+	}) => Effect.Effect<void>;
 }
 
 export class CloudWorkspaceStore extends Context.Service<
@@ -607,6 +776,10 @@ interface MemoryState {
 	readonly runtimeSummaries: Map<string, CloudWorkspaceRuntimeSummaryRecord>;
 	readonly transcriptCheckpoints: Map<string, CloudTranscriptCheckpointRecord>;
 	readonly lifecycleCommands: Map<string, string>;
+	readonly apiKeys: Map<string, ApiKeyRecord>;
+	readonly apiWebhooks: Map<string, ApiWebhookRecord>;
+	readonly apiMessages: Map<string, CloudWorkspaceApiMessageRecord>;
+	readonly apiDeliveries: Map<string, ApiWebhookDeliveryRecord>;
 }
 
 const activeBranch = (workspace: CloudWorkspaceRecord): boolean =>
@@ -641,6 +814,18 @@ const transcriptCheckpointKey = (
 	workspaceId: string,
 	sessionId: string,
 ): string => `${workspaceId}\u0000${sessionId}`;
+
+const nextApiMessageSeq = (
+	messages: ReadonlyMap<string, CloudWorkspaceApiMessageRecord>,
+	workspaceId: string,
+): number =>
+	1 +
+	Math.max(
+		0,
+		...[...messages.values()]
+			.filter((message) => message.workspaceId === workspaceId)
+			.map((message) => message.seq),
+	);
 
 const recordOrEmpty = (value: unknown): Readonly<Record<string, unknown>> =>
 	typeof value === "object" && value !== null && !Array.isArray(value)
@@ -1039,6 +1224,10 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 			runtimeSummaries: new Map(),
 			transcriptCheckpoints: new Map(),
 			lifecycleCommands: new Map(),
+			apiKeys: new Map(),
+			apiWebhooks: new Map(),
+			apiMessages: new Map(),
+			apiDeliveries: new Map(),
 		});
 		return CloudWorkspaceStore.of({
 			getCloudAuthAuthority: (accountId) =>
@@ -2489,6 +2678,26 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							workspaces.has(checkpoint.workspaceId),
 						),
 					);
+					const apiKeys = new Map(
+						[...current.apiKeys].filter(
+							([, key]) => key.accountId !== accountId,
+						),
+					);
+					const apiWebhooks = new Map(
+						[...current.apiWebhooks].filter(
+							([, webhook]) => webhook.accountId !== accountId,
+						),
+					);
+					const apiMessages = new Map(
+						[...current.apiMessages].filter(([, message]) =>
+							workspaces.has(message.workspaceId),
+						),
+					);
+					const apiDeliveries = new Map(
+						[...current.apiDeliveries].filter(([, delivery]) =>
+							apiWebhooks.has(delivery.webhookId),
+						),
+					);
 					const removedWorkspaceIds = new Set(
 						accountWorkspaces.map((workspace) => workspace.workspaceId),
 					);
@@ -2511,6 +2720,10 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							runtimeSummaries,
 							transcriptCheckpoints,
 							lifecycleCommands,
+							apiKeys,
+							apiWebhooks,
+							apiMessages,
+							apiDeliveries,
 						},
 					] as const;
 				}),
@@ -2521,6 +2734,328 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					const usage = new Set(current.usage);
 					usage.add(event.eventId);
 					return [true, { ...current, usage }] as const;
+				}),
+			createApiKey: (key) =>
+				Ref.update(state, (current) => ({
+					...current,
+					apiKeys: new Map(current.apiKeys).set(key.keyId, key),
+				})),
+			listApiKeys: (accountId) =>
+				Ref.get(state).pipe(
+					Effect.map((current) =>
+						[...current.apiKeys.values()]
+							.filter((key) => key.accountId === accountId)
+							.sort((a, b) => a.createdAtMs - b.createdAtMs),
+					),
+				),
+			revokeApiKey: (accountId, keyId, nowMs) =>
+				Ref.modify(state, (current) => {
+					const key = current.apiKeys.get(keyId);
+					if (key === undefined || key.accountId !== accountId)
+						return [null, current] as const;
+					if (key.revokedAtMs !== undefined) return [key, current] as const;
+					const revoked = { ...key, revokedAtMs: nowMs };
+					return [
+						revoked,
+						{
+							...current,
+							apiKeys: new Map(current.apiKeys).set(keyId, revoked),
+						},
+					] as const;
+				}),
+			findActiveApiKeyByHash: (secretHash) =>
+				Ref.get(state).pipe(
+					Effect.map(
+						(current) =>
+							[...current.apiKeys.values()].find(
+								(key) =>
+									key.secretHash === secretHash &&
+									key.revokedAtMs === undefined,
+							) ?? null,
+					),
+				),
+			touchApiKey: (keyId, nowMs) =>
+				Ref.update(state, (current) => {
+					const key = current.apiKeys.get(keyId);
+					if (
+						key === undefined ||
+						(key.lastUsedAtMs !== undefined &&
+							key.lastUsedAtMs > nowMs - 60_000)
+					)
+						return current;
+					return {
+						...current,
+						apiKeys: new Map(current.apiKeys).set(keyId, {
+							...key,
+							lastUsedAtMs: nowMs,
+						}),
+					};
+				}),
+			createApiWebhook: (webhook) =>
+				Ref.update(state, (current) => ({
+					...current,
+					apiWebhooks: new Map(current.apiWebhooks).set(
+						webhook.webhookId,
+						webhook,
+					),
+				})),
+			listApiWebhooks: (accountId) =>
+				Ref.get(state).pipe(
+					Effect.map((current) =>
+						[...current.apiWebhooks.values()]
+							.filter(
+								(webhook) =>
+									webhook.accountId === accountId &&
+									webhook.disabledAtMs === undefined,
+							)
+							.sort((a, b) => a.createdAtMs - b.createdAtMs),
+					),
+				),
+			deleteApiWebhook: (accountId, webhookId) =>
+				Ref.modify(state, (current) => {
+					const webhook = current.apiWebhooks.get(webhookId);
+					if (webhook === undefined || webhook.accountId !== accountId)
+						return [false, current] as const;
+					const apiWebhooks = new Map(current.apiWebhooks);
+					apiWebhooks.delete(webhookId);
+					const apiDeliveries = new Map(
+						[...current.apiDeliveries].filter(
+							([, delivery]) => delivery.webhookId !== webhookId,
+						),
+					);
+					return [true, { ...current, apiWebhooks, apiDeliveries }] as const;
+				}),
+			appendApiMessage: (input) =>
+				Ref.modify(state, (current) => {
+					const existing = current.apiMessages.get(input.messageId);
+					if (existing !== undefined) {
+						const outcome: AppendApiMessageOutcome = {
+							kind: "existing",
+							message: existing,
+						};
+						return [outcome, current] as const;
+					}
+					const message: CloudWorkspaceApiMessageRecord = {
+						...input,
+						seq: nextApiMessageSeq(current.apiMessages, input.workspaceId),
+					};
+					const outcome: AppendApiMessageOutcome = { kind: "created", message };
+					return [
+						outcome,
+						{
+							...current,
+							apiMessages: new Map(current.apiMessages).set(
+								message.messageId,
+								message,
+							),
+						},
+					] as const;
+				}),
+			listApiMessages: (workspaceId, afterSeq, limit) =>
+				Ref.get(state).pipe(
+					Effect.map((current) =>
+						[...current.apiMessages.values()]
+							.filter(
+								(message) =>
+									message.workspaceId === workspaceId && message.seq > afterSeq,
+							)
+							.sort((a, b) => a.seq - b.seq)
+							.slice(0, limit),
+					),
+				),
+			listPendingApiCommands: (workspaceId, nowMs) =>
+				Ref.get(state).pipe(
+					Effect.map((current) =>
+						[...current.apiMessages.values()]
+							.filter(
+								(message) =>
+									message.workspaceId === workspaceId &&
+									message.role === "user" &&
+									message.status === "pending" &&
+									(message.expiresAtMs === undefined ||
+										message.expiresAtMs > nowMs),
+							)
+							.sort((a, b) => a.seq - b.seq),
+					),
+				),
+			ackApiCommand: (workspaceId, messageId, nowMs) =>
+				Ref.modify(state, (current) => {
+					const message = current.apiMessages.get(messageId);
+					if (
+						message === undefined ||
+						message.workspaceId !== workspaceId ||
+						message.role !== "user"
+					)
+						return [false, current] as const;
+					if (message.status === "delivered" || message.status === "settled")
+						return [true, current] as const;
+					if (message.status !== "pending") return [false, current] as const;
+					const delivered = {
+						...message,
+						status: "delivered" as const,
+						deliveredAtMs: nowMs,
+					};
+					return [
+						true,
+						{
+							...current,
+							apiMessages: new Map(current.apiMessages).set(
+								messageId,
+								delivered,
+							),
+						},
+					] as const;
+				}),
+			recordApiTurnEvent: (input) =>
+				Ref.modify(state, (current) => {
+					const replay = [...current.apiMessages.values()].find(
+						(message) =>
+							message.workspaceId === input.workspaceId &&
+							message.role === "assistant" &&
+							message.turnId === input.turnId,
+					);
+					if (replay !== undefined) {
+						const outcome: RecordApiTurnEventOutcome = {
+							kind: "replay",
+							message: replay,
+						};
+						return [outcome, current] as const;
+					}
+					const message: CloudWorkspaceApiMessageRecord = {
+						messageId: input.messageId,
+						workspaceId: input.workspaceId,
+						accountId: input.accountId,
+						seq: nextApiMessageSeq(current.apiMessages, input.workspaceId),
+						role: "assistant",
+						sealedContent: input.sealedContent,
+						turnId: input.turnId,
+						outcome: input.outcome,
+						status: "settled",
+						createdAtMs: input.nowMs,
+					};
+					const apiMessages = new Map(current.apiMessages);
+					for (const [id, candidate] of apiMessages) {
+						if (
+							candidate.workspaceId === input.workspaceId &&
+							candidate.role === "user" &&
+							candidate.status === "delivered"
+						)
+							apiMessages.set(id, { ...candidate, status: "settled" });
+					}
+					apiMessages.set(message.messageId, message);
+					const outcome: RecordApiTurnEventOutcome = {
+						kind: "created",
+						message,
+					};
+					return [outcome, { ...current, apiMessages }] as const;
+				}),
+			expireApiCommands: (nowMs) =>
+				Ref.update(state, (current) => {
+					const apiMessages = new Map(current.apiMessages);
+					for (const [id, message] of apiMessages) {
+						if (
+							message.role === "user" &&
+							message.status === "pending" &&
+							message.expiresAtMs !== undefined &&
+							message.expiresAtMs <= nowMs
+						)
+							apiMessages.set(id, { ...message, status: "expired" });
+					}
+					return { ...current, apiMessages };
+				}),
+			listWorkspacesWithStalePendingApiCommands: (cutoffMs) =>
+				Ref.get(state).pipe(
+					Effect.map((current) => [
+						...new Set(
+							[...current.apiMessages.values()]
+								.filter(
+									(message) =>
+										message.role === "user" &&
+										message.status === "pending" &&
+										message.createdAtMs <= cutoffMs &&
+										(message.expiresAtMs === undefined ||
+											message.expiresAtMs > cutoffMs),
+								)
+								.map((message) => message.workspaceId),
+						),
+					]),
+				),
+			enqueueApiWebhookDeliveries: (deliveries) =>
+				Ref.update(state, (current) => {
+					const apiDeliveries = new Map(current.apiDeliveries);
+					for (const delivery of deliveries) {
+						const duplicate = [...apiDeliveries.values()].some(
+							(existing) =>
+								existing.webhookId === delivery.webhookId &&
+								existing.eventId === delivery.eventId,
+						);
+						if (!duplicate) apiDeliveries.set(delivery.deliveryId, delivery);
+					}
+					return { ...current, apiDeliveries };
+				}),
+			claimDueApiWebhookDeliveries: (nowMs, limit, leaseMs) =>
+				Ref.modify(state, (current) => {
+					const due = [...current.apiDeliveries.values()]
+						.filter(
+							(delivery) =>
+								delivery.status === "pending" &&
+								delivery.nextAttemptAtMs <= nowMs &&
+								current.apiWebhooks.get(delivery.webhookId)?.disabledAtMs ===
+									undefined &&
+								current.apiWebhooks.has(delivery.webhookId),
+						)
+						.sort((a, b) => a.nextAttemptAtMs - b.nextAttemptAtMs)
+						.slice(0, limit);
+					const apiDeliveries = new Map(current.apiDeliveries);
+					const claimed: Array<DueApiWebhookDelivery> = [];
+					for (const delivery of due) {
+						const webhook = current.apiWebhooks.get(delivery.webhookId);
+						if (webhook === undefined) continue;
+						const leased = {
+							...delivery,
+							nextAttemptAtMs: nowMs + leaseMs,
+							updatedAtMs: nowMs,
+						};
+						apiDeliveries.set(delivery.deliveryId, leased);
+						claimed.push({
+							delivery: leased,
+							url: webhook.url,
+							sealedSecret: webhook.sealedSecret,
+						});
+					}
+					return [claimed, { ...current, apiDeliveries }] as const;
+				}),
+			completeApiWebhookDelivery: (deliveryId, nowMs) =>
+				Ref.update(state, (current) => {
+					const delivery = current.apiDeliveries.get(deliveryId);
+					if (delivery === undefined) return current;
+					return {
+						...current,
+						apiDeliveries: new Map(current.apiDeliveries).set(deliveryId, {
+							...delivery,
+							status: "delivered",
+							updatedAtMs: nowMs,
+						}),
+					};
+				}),
+			failApiWebhookDelivery: (input) =>
+				Ref.update(state, (current) => {
+					const delivery = current.apiDeliveries.get(input.deliveryId);
+					if (delivery === undefined) return current;
+					return {
+						...current,
+						apiDeliveries: new Map(current.apiDeliveries).set(
+							input.deliveryId,
+							{
+								...delivery,
+								status: input.terminal ? "failed" : "pending",
+								attempts: delivery.attempts + 1,
+								lastError: input.error,
+								nextAttemptAtMs: input.nextAttemptAtMs,
+								updatedAtMs: input.nowMs,
+							},
+						),
+					};
 				}),
 		});
 	}),
@@ -2695,6 +3230,58 @@ const transcriptCheckpointFromRow = (
 	ciphertextSha256: String(row.ciphertext_sha256),
 	ciphertextBytes: numberValue(row.ciphertext_bytes),
 	createdAtMs: numberValue(row.created_at),
+});
+
+const apiKeyFromRow = (row: Row): ApiKeyRecord => ({
+	keyId: String(row.key_id),
+	accountId: String(row.account_id),
+	name: String(row.name),
+	secretHash: String(row.secret_hash),
+	prefix: String(row.prefix),
+	createdAtMs: numberValue(row.created_at),
+	lastUsedAtMs: optionalNumber(row.last_used_at),
+	revokedAtMs: optionalNumber(row.revoked_at),
+});
+
+const apiWebhookFromRow = (row: Row): ApiWebhookRecord => ({
+	webhookId: String(row.webhook_id),
+	accountId: String(row.account_id),
+	url: String(row.url),
+	sealedSecret: String(row.sealed_secret),
+	description: optionalString(row.description),
+	createdAtMs: numberValue(row.created_at),
+	disabledAtMs: optionalNumber(row.disabled_at),
+});
+
+const apiMessageFromRow = (row: Row): CloudWorkspaceApiMessageRecord => ({
+	messageId: String(row.message_id),
+	workspaceId: String(row.workspace_id),
+	accountId: String(row.account_id),
+	seq: numberValue(row.seq),
+	role: row.role as ApiMessageRole,
+	sealedContent: String(row.sealed_content),
+	commandId: optionalString(row.command_id),
+	turnId: optionalString(row.turn_id),
+	outcome: optionalString(row.outcome),
+	status: row.status as ApiMessageStatus,
+	createdAtMs: numberValue(row.created_at),
+	deliveredAtMs: optionalNumber(row.delivered_at),
+	expiresAtMs: optionalNumber(row.expires_at),
+});
+
+const apiDeliveryFromRow = (row: Row): ApiWebhookDeliveryRecord => ({
+	deliveryId: String(row.delivery_id),
+	webhookId: String(row.webhook_id),
+	accountId: String(row.account_id),
+	eventId: String(row.event_id),
+	eventType: String(row.event_type),
+	sealedPayload: String(row.sealed_payload),
+	status: row.status as ApiWebhookDeliveryRecord["status"],
+	attempts: numberValue(row.attempts),
+	nextAttemptAtMs: numberValue(row.next_attempt_at),
+	lastError: optionalString(row.last_error),
+	createdAtMs: numberValue(row.created_at),
+	updatedAtMs: numberValue(row.updated_at),
 });
 
 export const CloudWorkspaceStorePg: Layer.Layer<
@@ -3705,6 +4292,8 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						yield* sql`DELETE FROM api_cloud_project_builds WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_projects WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_github_installations WHERE account_id=${accountId}`;
+						yield* sql`DELETE FROM api_api_webhooks WHERE account_id=${accountId}`;
+						yield* sql`DELETE FROM api_api_keys WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_auth_authorities WHERE account_id=${accountId}`;
 						return true;
 					}).pipe(sql.withTransaction),
@@ -3713,6 +4302,177 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				orDie(
 					sql`INSERT INTO api_cloud_workspace_usage (event_id, workspace_id, account_id, provider, kind, quantity, provider_event_id, occurred_at, created_at) VALUES (${event.eventId}, ${event.workspaceId}, ${event.accountId}, ${event.provider}, ${event.kind}, ${event.quantity}, ${event.providerEventId ?? null}, ${event.occurredAtMs}, ${Date.now()}) ON CONFLICT DO NOTHING RETURNING event_id`.pipe(
 						Effect.map((rows) => rows.length > 0),
+					),
+				),
+			createApiKey: (key) =>
+				orDie(
+					sql`INSERT INTO api_api_keys (key_id, account_id, name, secret_hash, prefix, created_at, last_used_at, revoked_at) VALUES (${key.keyId}, ${key.accountId}, ${key.name}, ${key.secretHash}, ${key.prefix}, ${key.createdAtMs}, ${key.lastUsedAtMs ?? null}, ${key.revokedAtMs ?? null})`.pipe(
+						Effect.asVoid,
+					),
+				),
+			listApiKeys: (accountId) =>
+				orDie(
+					sql`SELECT * FROM api_api_keys WHERE account_id=${accountId} ORDER BY created_at`.pipe(
+						Effect.map((rows) => rows.map((row) => apiKeyFromRow(row as Row))),
+					),
+				),
+			revokeApiKey: (accountId, keyId, nowMs) =>
+				orDie(
+					sql`UPDATE api_api_keys SET revoked_at=COALESCE(revoked_at, ${nowMs}) WHERE key_id=${keyId} AND account_id=${accountId} RETURNING *`.pipe(
+						Effect.map((rows) =>
+							rows[0] ? apiKeyFromRow(rows[0] as Row) : null,
+						),
+					),
+				),
+			findActiveApiKeyByHash: (secretHash) =>
+				orDie(
+					sql`SELECT * FROM api_api_keys WHERE secret_hash=${secretHash} AND revoked_at IS NULL LIMIT 1`.pipe(
+						Effect.map((rows) =>
+							rows[0] ? apiKeyFromRow(rows[0] as Row) : null,
+						),
+					),
+				),
+			touchApiKey: (keyId, nowMs) =>
+				orDie(
+					sql`UPDATE api_api_keys SET last_used_at=${nowMs} WHERE key_id=${keyId} AND (last_used_at IS NULL OR last_used_at <= ${nowMs - 60_000})`.pipe(
+						Effect.asVoid,
+					),
+				),
+			createApiWebhook: (webhook) =>
+				orDie(
+					sql`INSERT INTO api_api_webhooks (webhook_id, account_id, url, sealed_secret, description, created_at, disabled_at) VALUES (${webhook.webhookId}, ${webhook.accountId}, ${webhook.url}, ${webhook.sealedSecret}, ${webhook.description ?? null}, ${webhook.createdAtMs}, ${webhook.disabledAtMs ?? null})`.pipe(
+						Effect.asVoid,
+					),
+				),
+			listApiWebhooks: (accountId) =>
+				orDie(
+					sql`SELECT * FROM api_api_webhooks WHERE account_id=${accountId} AND disabled_at IS NULL ORDER BY created_at`.pipe(
+						Effect.map((rows) =>
+							rows.map((row) => apiWebhookFromRow(row as Row)),
+						),
+					),
+				),
+			deleteApiWebhook: (accountId, webhookId) =>
+				orDie(
+					sql`DELETE FROM api_api_webhooks WHERE webhook_id=${webhookId} AND account_id=${accountId} RETURNING webhook_id`.pipe(
+						Effect.map((rows) => rows.length === 1),
+					),
+				),
+			appendApiMessage: (input) =>
+				orDie(
+					Effect.gen(function* () {
+						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`api-messages:${input.workspaceId}`}, 0))`;
+						const existing =
+							yield* sql`SELECT * FROM api_cloud_workspace_api_messages WHERE message_id=${input.messageId}`;
+						if (existing[0])
+							return {
+								kind: "existing",
+								message: apiMessageFromRow(existing[0] as Row),
+							} satisfies AppendApiMessageOutcome;
+						const created =
+							yield* sql`INSERT INTO api_cloud_workspace_api_messages (message_id, workspace_id, account_id, seq, role, sealed_content, command_id, status, created_at, expires_at) SELECT ${input.messageId}, ${input.workspaceId}, ${input.accountId}, COALESCE(MAX(seq), 0) + 1, ${input.role}, ${input.sealedContent}, ${input.commandId ?? null}, ${input.status}, ${input.createdAtMs}, ${input.expiresAtMs ?? null} FROM api_cloud_workspace_api_messages WHERE workspace_id=${input.workspaceId} RETURNING *`;
+						return {
+							kind: "created",
+							message: apiMessageFromRow(created[0] as Row),
+						} satisfies AppendApiMessageOutcome;
+					}).pipe(sql.withTransaction),
+				),
+			listApiMessages: (workspaceId, afterSeq, limit) =>
+				orDie(
+					sql`SELECT * FROM api_cloud_workspace_api_messages WHERE workspace_id=${workspaceId} AND seq > ${afterSeq} ORDER BY seq LIMIT ${limit}`.pipe(
+						Effect.map((rows) =>
+							rows.map((row) => apiMessageFromRow(row as Row)),
+						),
+					),
+				),
+			listPendingApiCommands: (workspaceId, nowMs) =>
+				orDie(
+					sql`SELECT * FROM api_cloud_workspace_api_messages WHERE workspace_id=${workspaceId} AND role='user' AND status='pending' AND (expires_at IS NULL OR expires_at > ${nowMs}) ORDER BY seq`.pipe(
+						Effect.map((rows) =>
+							rows.map((row) => apiMessageFromRow(row as Row)),
+						),
+					),
+				),
+			ackApiCommand: (workspaceId, messageId, nowMs) =>
+				orDie(
+					sql`UPDATE api_cloud_workspace_api_messages SET status='delivered', delivered_at=${nowMs} WHERE workspace_id=${workspaceId} AND message_id=${messageId} AND role='user' AND status='pending' RETURNING message_id`.pipe(
+						Effect.flatMap((rows) =>
+							rows.length === 1
+								? Effect.succeed(true)
+								: sql`SELECT message_id FROM api_cloud_workspace_api_messages WHERE workspace_id=${workspaceId} AND message_id=${messageId} AND status IN ('delivered', 'settled')`.pipe(
+										Effect.map((found) => found.length === 1),
+									),
+						),
+					),
+				),
+			recordApiTurnEvent: (input) =>
+				orDie(
+					Effect.gen(function* () {
+						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`api-messages:${input.workspaceId}`}, 0))`;
+						const replay =
+							yield* sql`SELECT * FROM api_cloud_workspace_api_messages WHERE workspace_id=${input.workspaceId} AND role='assistant' AND turn_id=${input.turnId}`;
+						if (replay[0])
+							return {
+								kind: "replay",
+								message: apiMessageFromRow(replay[0] as Row),
+							} satisfies RecordApiTurnEventOutcome;
+						const created =
+							yield* sql`INSERT INTO api_cloud_workspace_api_messages (message_id, workspace_id, account_id, seq, role, sealed_content, turn_id, outcome, status, created_at) SELECT ${input.messageId}, ${input.workspaceId}, ${input.accountId}, COALESCE(MAX(seq), 0) + 1, 'assistant', ${input.sealedContent}, ${input.turnId}, ${input.outcome}, 'settled', ${input.nowMs} FROM api_cloud_workspace_api_messages WHERE workspace_id=${input.workspaceId} RETURNING *`;
+						yield* sql`UPDATE api_cloud_workspace_api_messages SET status='settled' WHERE workspace_id=${input.workspaceId} AND role='user' AND status='delivered'`;
+						return {
+							kind: "created",
+							message: apiMessageFromRow(created[0] as Row),
+						} satisfies RecordApiTurnEventOutcome;
+					}).pipe(sql.withTransaction),
+				),
+			expireApiCommands: (nowMs) =>
+				orDie(
+					sql`UPDATE api_cloud_workspace_api_messages SET status='expired' WHERE role='user' AND status='pending' AND expires_at IS NOT NULL AND expires_at <= ${nowMs}`.pipe(
+						Effect.asVoid,
+					),
+				),
+			listWorkspacesWithStalePendingApiCommands: (cutoffMs) =>
+				orDie(
+					sql`SELECT DISTINCT workspace_id FROM api_cloud_workspace_api_messages WHERE role='user' AND status='pending' AND created_at <= ${cutoffMs} AND (expires_at IS NULL OR expires_at > ${cutoffMs})`.pipe(
+						Effect.map((rows) =>
+							rows.map((row) => String((row as Row).workspace_id)),
+						),
+					),
+				),
+			enqueueApiWebhookDeliveries: (deliveries) =>
+				orDie(
+					Effect.forEach(
+						deliveries,
+						(delivery) =>
+							sql`INSERT INTO api_api_webhook_deliveries (delivery_id, webhook_id, account_id, event_id, event_type, sealed_payload, status, attempts, next_attempt_at, last_error, created_at, updated_at) VALUES (${delivery.deliveryId}, ${delivery.webhookId}, ${delivery.accountId}, ${delivery.eventId}, ${delivery.eventType}, ${delivery.sealedPayload}, ${delivery.status}, ${delivery.attempts}, ${delivery.nextAttemptAtMs}, ${delivery.lastError ?? null}, ${delivery.createdAtMs}, ${delivery.updatedAtMs}) ON CONFLICT DO NOTHING`,
+						{ discard: true },
+					),
+				),
+			claimDueApiWebhookDeliveries: (nowMs, limit, leaseMs) =>
+				orDie(
+					sql`WITH candidate AS (SELECT d.delivery_id FROM api_api_webhook_deliveries AS d JOIN api_api_webhooks AS w ON w.webhook_id=d.webhook_id AND w.disabled_at IS NULL WHERE d.status='pending' AND d.next_attempt_at <= ${nowMs} ORDER BY d.next_attempt_at LIMIT ${limit} FOR UPDATE OF d SKIP LOCKED) UPDATE api_api_webhook_deliveries AS d SET next_attempt_at=${nowMs + leaseMs}, updated_at=${nowMs} FROM candidate, api_api_webhooks AS w WHERE d.delivery_id=candidate.delivery_id AND w.webhook_id=d.webhook_id RETURNING d.*, w.url AS webhook_url, w.sealed_secret AS webhook_sealed_secret`.pipe(
+						Effect.map((rows) =>
+							rows.map((raw) => {
+								const row = raw as Row;
+								return {
+									delivery: apiDeliveryFromRow(row),
+									url: String(row.webhook_url),
+									sealedSecret: String(row.webhook_sealed_secret),
+								} satisfies DueApiWebhookDelivery;
+							}),
+						),
+					),
+				),
+			completeApiWebhookDelivery: (deliveryId, nowMs) =>
+				orDie(
+					sql`UPDATE api_api_webhook_deliveries SET status='delivered', updated_at=${nowMs} WHERE delivery_id=${deliveryId}`.pipe(
+						Effect.asVoid,
+					),
+				),
+			failApiWebhookDelivery: (input) =>
+				orDie(
+					sql`UPDATE api_api_webhook_deliveries SET status=${input.terminal ? "failed" : "pending"}, attempts=attempts + 1, last_error=${input.error}, next_attempt_at=${input.nextAttemptAtMs}, updated_at=${input.nowMs} WHERE delivery_id=${input.deliveryId}`.pipe(
+						Effect.asVoid,
 					),
 				),
 		});

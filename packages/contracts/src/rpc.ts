@@ -37,6 +37,11 @@ import {
 	BrowserSetCredentialRpc,
 } from "./browser.ts";
 import {
+	CloudApiKeysCreateRpc,
+	CloudApiKeysListRpc,
+	CloudApiKeysRevokeRpc,
+} from "./cloud-api.ts";
+import {
 	CloudAuthConfigureRpc,
 	CloudAuthDisconnectRpc,
 	CloudAuthLoginCancelRpc,
@@ -414,6 +419,9 @@ export const MemoizeRpcs = RpcGroup.make(
 	CloudWorkspaceDataKeyRpc,
 	CloudTranscriptCheckpointGetRpc,
 	CloudTranscriptMessagePageGetRpc,
+	CloudApiKeysListRpc,
+	CloudApiKeysCreateRpc,
+	CloudApiKeysRevokeRpc,
 	MachinesOffersRpc,
 	MachinesListRpc,
 	MachinesGetRpc,

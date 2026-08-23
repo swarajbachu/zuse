@@ -5,6 +5,7 @@ export * from "./attachment.ts";
 export * from "./auth.ts";
 export * from "./autonomy.ts";
 export * from "./browser.ts";
+export * from "./cloud-api.ts";
 export * from "./cloud-auth.ts";
 export * from "./cloud-billing.ts";
 export * from "./cloud-commands.ts";
