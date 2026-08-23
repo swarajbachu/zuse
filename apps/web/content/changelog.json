@@ -1,5 +1,37 @@
 [
   {
+    "version": "0.20.7",
+    "sections": [
+      {
+        "title": "Added",
+        "items": [
+          "Zuse Cloud can build reusable private account images from selected GitHub repositories, with repository management, build readiness and history, integrated agent authentication, and preview port forwarding",
+          "The mobile app now supports multi-terminal sessions, attachments and media previews, voice input, composer context and skills, Git review and conflict resolution, archives, session forks, usage visibility, and desktop handoff",
+          "`zuse serve` now provides stable browser URLs and short pairing codes for LAN, Tailscale Serve, and account-managed access",
+          "Provider settings now support custom model IDs alongside refreshed Cursor and OpenCode catalogs"
+        ]
+      },
+      {
+        "title": "Changed",
+        "items": [
+          "Cloud workspaces start and resume faster through prewarmed sandboxes, image-native repositories, concurrent enrollment, and durable queued-message delivery",
+          "Provider and default-model settings use a clearer tabbed layout with retired built-in models removed",
+          "Desktop launches its embedded runtime before optional SSH, tailnet, and browser-cookie services while preserving readiness checks at first use",
+          "The product site and documentation search now present current workflows more clearly and link directly to matching pages and headings"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "items": [
+          "Cloud workspace startup, resume, SSH, one-way Mac sync, private preview forwarding, authentication refresh, and managed connector cleanup now recover predictably across disconnects and restarts",
+          "New-chat creation, optimistic navigation, Git state, imported chat discovery, and worktree unarchive preserve user work across retries, reconnects, and interrupted operations",
+          "Browser access survives authenticated reloads, works on non-secure LAN contexts, respects `--no-account`, and consistently advertises a reachable IPv4 address",
+          "Desktop startup waits for authoritative settings before choosing onboarding and presents a branded, recoverable, privacy-sanitized failure state"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.20.6",
     "sections": [
       {

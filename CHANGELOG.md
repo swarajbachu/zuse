@@ -7,28 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- `zuse serve` now prints stable browser pairing links and short typed codes for LAN, Tailscale Serve, and account-managed remote access
-- Browsers can pair directly from the access screen, and Add Computer accepts the same browser URL used by QR codes
-
-### Changed
-- Source-checkout and installed Serve runtimes now share the matching Electron data profile, keeping projects and chats in one local database
-- Remote-access dialogs use compact, consistent controls and clearer account-discovery, connection, and pairing states
-- Desktop startup now launches the embedded runtime before initializing SSH, tailnet, and imported browser cookies, while first use still waits for each service to become ready
-
-### Fixed
-- Browser RPC registration and authenticated reloads now recover cleanly instead of remaining stuck while connecting
-- LAN browser access works without secure-context `crypto.randomUUID`, and `--no-account` no longer restores or advertises a persisted managed tunnel
-- Desktop LAN sharing now advertises the reachable IPv4 address consistently in the browser link, copied link, and QR code
-- App startup now waits for cached or live settings before choosing onboarding, with a branded loading state and recoverable failure controls instead of showing onboarding during backend delays
-
 ## [0.20.7]
 
+### Added
+- Zuse Cloud can build reusable private account images from selected GitHub repositories, with repository management, build readiness and history, integrated agent authentication, and preview port forwarding
+- The mobile app now supports multi-terminal sessions, attachments and media previews, voice input, composer context and skills, Git review and conflict resolution, archives, session forks, usage visibility, and desktop handoff
+- `zuse serve` now provides stable browser URLs and short pairing codes for LAN, Tailscale Serve, and account-managed access
+- Provider settings now support custom model IDs alongside refreshed Cursor and OpenCode catalogs
+
+### Changed
+- Cloud workspaces start and resume faster through prewarmed sandboxes, image-native repositories, concurrent enrollment, and durable queued-message delivery
+- Provider and default-model settings use a clearer tabbed layout with retired built-in models removed
+- Desktop launches its embedded runtime before optional SSH, tailnet, and browser-cookie services while preserving readiness checks at first use
+- The product site and documentation search now present current workflows more clearly and link directly to matching pages and headings
+
 ### Fixed
-- Cloud workspace SSH now survives app updates and restarts, times out cleanly, and distinguishes expired access, denied access, missing workspaces, and network failures
-- One-way E2B file sync now stops cleanly across disconnects and shutdowns, renews access before retrying, and updates Mac mirrors without exposing partial transfers
-- Private localhost previews now reuse live forwards, recover from local port collisions, and close in-flight tunnels when environments disconnect
-- Mac relay connections no longer multiply after an unclean restart; Zuse reclaims only the Cloudflare connectors it owns
+- Cloud workspace startup, resume, SSH, one-way Mac sync, private preview forwarding, authentication refresh, and managed connector cleanup now recover predictably across disconnects and restarts
+- New-chat creation, optimistic navigation, Git state, imported chat discovery, and worktree unarchive preserve user work across retries, reconnects, and interrupted operations
+- Browser access survives authenticated reloads, works on non-secure LAN contexts, respects `--no-account`, and consistently advertises a reachable IPv4 address
+- Desktop startup waits for authoritative settings before choosing onboarding and presents a branded, recoverable, privacy-sanitized failure state
 
 ## [0.20.6]
 
