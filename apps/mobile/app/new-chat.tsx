@@ -8,7 +8,6 @@ import type {
 	Folder,
 	GitBranchInfo,
 	GitPrSummary,
-	Worktree,
 } from "@zuse/contracts";
 import { ArrowUpIcon, CloudOffIcon } from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
@@ -68,7 +67,6 @@ import {
 	createWorktree,
 	listBranches,
 	listPullRequests,
-	listWorktrees,
 	makeTextInput,
 	sendMessage,
 } from "~/rpc/actions";
@@ -96,6 +94,10 @@ import {
 	hydrateModelCatalog,
 } from "~/store/model-catalog";
 import {
+	readNewChatPreferences,
+	saveNewChatPreferences,
+} from "~/store/new-chat-preferences";
+import {
 	bundlesByConnectionAtom,
 	createChat,
 	createSession,
@@ -119,6 +121,7 @@ export default function NewChatScreen() {
 	const submitGateRef = useRef(false);
 	const [text, setText] = useState(initialDraft.text);
 	const [draftHydrated, setDraftHydrated] = useState(false);
+	const [preferencesHydrated, setPreferencesHydrated] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
 	const [modelSheetOpen, setModelSheetOpen] = useState(false);
 	const [attachments, setAttachments] = useState<LocalComposerAttachment[]>([
@@ -151,7 +154,6 @@ export default function NewChatScreen() {
 			initialModel,
 		),
 	});
-	const [worktrees, setWorktrees] = useState<readonly Worktree[]>([]);
 	const [branches, setBranches] = useState<readonly GitBranchInfo[]>([]);
 	const [prs, setPrs] = useState<readonly GitPrSummary[]>([]);
 
@@ -220,8 +222,11 @@ export default function NewChatScreen() {
 		}
 	}, [connections]);
 
+	const selectedConnectionAvailable =
+		selectedConnectionKey !== null &&
+		connections.some((connection) => connection.key === selectedConnectionKey);
 	const effectiveConnectionKey =
-		selectedConnectionKey ??
+		(selectedConnectionAvailable ? selectedConnectionKey : null) ??
 		(requestedConnectionKey.length > 0 ? requestedConnectionKey : null) ??
 		connections[0]?.key ??
 		null;
@@ -244,6 +249,28 @@ export default function NewChatScreen() {
 	}, [bundlesByConnection, effectiveConnectionKey, requestedChatId]);
 	const threadMode = requestedChatId.length > 0;
 
+	useEffect(() => {
+		if (threadMode) {
+			setPreferencesHydrated(true);
+			return;
+		}
+		let active = true;
+		void readNewChatPreferences().then((preferences) => {
+			if (!active) return;
+			if (requestedConnectionKey.length === 0) {
+				setSelectedConnectionKey(preferences.connectionKey);
+				setSelectedProjectId(preferences.projectId);
+			} else if (preferences.connectionKey === requestedConnectionKey) {
+				setSelectedProjectId(preferences.projectId);
+			}
+			setSourceKind(preferences.sourceKind);
+			setPreferencesHydrated(true);
+		});
+		return () => {
+			active = false;
+		};
+	}, [requestedConnectionKey, threadMode]);
+
 	const projectChoices = useMemo(() => {
 		if (effectiveConnectionKey === null) return [];
 		return (bundlesByConnection[effectiveConnectionKey] ?? []).map(
@@ -260,6 +287,28 @@ export default function NewChatScreen() {
 		projectChoices.some((item) => item.project.id === selectedProjectId)
 			? selectedProjectId
 			: (projectChoices[0]?.project.id ?? null));
+
+	useEffect(() => {
+		if (
+			!preferencesHydrated ||
+			threadMode ||
+			effectiveConnectionKey === null ||
+			effectiveProjectId === null
+		) {
+			return;
+		}
+		void saveNewChatPreferences({
+			connectionKey: effectiveConnectionKey,
+			projectId: effectiveProjectId,
+			sourceKind,
+		}).catch(() => undefined);
+	}, [
+		effectiveConnectionKey,
+		effectiveProjectId,
+		preferencesHydrated,
+		sourceKind,
+		threadMode,
+	]);
 
 	const selectedOptions = useMemo(
 		() =>
@@ -342,12 +391,6 @@ export default function NewChatScreen() {
 		let cancelled = false;
 		void Promise.all([
 			Effect.runPromise(
-				listWorktrees({
-					connection: selectedOptions,
-					projectId: effectiveProjectId,
-				}),
-			).catch(() => [] as readonly Worktree[]),
-			Effect.runPromise(
 				listBranches({
 					connection: selectedOptions,
 					projectId: effectiveProjectId,
@@ -359,9 +402,8 @@ export default function NewChatScreen() {
 					projectId: effectiveProjectId,
 				}),
 			),
-		]).then(([nextWorktrees, nextBranches, nextPrs]) => {
+		]).then(([nextBranches, nextPrs]) => {
 			if (cancelled) return;
-			setWorktrees(nextWorktrees);
 			setBranches(nextBranches);
 			setPrs(nextPrs);
 		});
@@ -406,8 +448,25 @@ export default function NewChatScreen() {
 		selectedProject?.name ?? (loading ? "Loading projects" : "Project");
 
 	const firstSourceForKind = (kind: NewChatSourceKind): NewChatSource =>
-		sourceOptionsForKind(kind, worktrees, branches, prs)[0]?.source ??
-		MAIN_SOURCE;
+		sourceOptionsForKind(kind, branches, prs)[0]?.source ?? MAIN_SOURCE;
+	const sourceChoices = useMemo(
+		() => sourceOptionsForKind(sourceKind, branches, prs),
+		[branches, prs, sourceKind],
+	);
+	useEffect(() => {
+		if (sourceKind === "main") {
+			if (source.kind !== "main") setSource(MAIN_SOURCE);
+			return;
+		}
+		const sourceStillAvailable = sourceChoices.some(
+			(option) =>
+				option.source.kind === source.kind &&
+				option.source.label === source.label,
+		);
+		if (!sourceStillAvailable) {
+			setSource(sourceChoices[0]?.source ?? MAIN_SOURCE);
+		}
+	}, [source.kind, source.label, sourceChoices, sourceKind]);
 	const workModeOptions = WORK_MODE_OPTIONS.map((option) => ({
 		key: option.kind,
 		label: option.label,
@@ -422,16 +481,11 @@ export default function NewChatScreen() {
 		branches.find((branch) => branch.current)?.name ?? "main";
 	const emptyBranchLabel =
 		sourceKind === "worktree"
-			? "No worktrees"
+			? "Default branch"
 			: sourceKind === "pr"
 				? "No pull requests"
 				: "No branches";
-	const branchOptions = sourceOptionsForKind(
-		sourceKind,
-		worktrees,
-		branches,
-		prs,
-	).map((option) => ({
+	const branchOptions = sourceChoices.map((option) => ({
 		key: option.key,
 		label: option.label,
 		selected:
@@ -520,18 +574,19 @@ export default function NewChatScreen() {
 				return;
 			}
 
-			const worktreeId =
-				payload.createSource === null
-					? payload.worktreeId
-					: (
-							await Effect.runPromise(
-								createWorktree({
-									connection: selectedOptions,
-									projectId: payload.projectId,
-									source: payload.createSource,
-								}),
-							)
-						).id;
+			const worktreeId = payload.createWorktree
+				? (
+						await Effect.runPromise(
+							createWorktree({
+								connection: selectedOptions,
+								projectId: payload.projectId,
+								...(payload.createSource === null
+									? {}
+									: { source: payload.createSource }),
+							}),
+						)
+					).id
+				: payload.worktreeId;
 			const result = await createChat(effectiveConnectionKey, selectedOptions, {
 				projectId: payload.projectId,
 				providerId: payload.providerId,
@@ -679,7 +734,7 @@ export default function NewChatScreen() {
 						</Text>
 					</View>
 				) : (
-					<View className="mb-4 gap-3 px-1">
+					<View className="mb-4 gap-1 px-1">
 						<SelectorRow
 							symbol="laptopcomputer"
 							label={machineLabel}

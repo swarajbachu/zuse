@@ -16,7 +16,6 @@
 	},
 	"main": "dist-electron/main.cjs",
 	"scripts": {
-		"predev": "node scripts/build-local-connectivity-helper.mjs",
 		"dev": "bun run --parallel dev:bundle dev:electron",
 		"dev:bundle": "vp pack --watch",
 		"dev:electron": "node scripts/dev-electron.mjs",

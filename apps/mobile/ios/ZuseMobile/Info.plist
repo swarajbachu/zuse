@@ -33,7 +33,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>12.0</string>
 	<key>LSRequiresIPhoneOS</key>
@@ -53,6 +53,10 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to a local Zuse server on your network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record speech to insert a transcript into your Zuse message.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save image previews to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose images to attach to your Zuse messages.</string>
 	<key>NSUserActivityTypes</key>

@@ -37,6 +37,7 @@ import {
 	pickComposerImages,
 	uploadComposerAttachment,
 } from "~/lib/composer-attachments";
+import { composerSendFailureDisposition } from "~/lib/composer-send-failure";
 import {
 	type ComposerActivity,
 	composerExpanded,
@@ -371,6 +372,16 @@ export const Composer = ({
 			} else await Effect.runPromise(sendMessage(messageOptions));
 			finishSuccessfulSubmission({ dismissKeyboard: false });
 		} catch (cause) {
+			if (
+				composerSendFailureDisposition(cause, optimisticMessageId !== null) ===
+				"retrying"
+			) {
+				// ClientBus has already persisted this command and will replay it with
+				// the same ID. Keep the truthful optimistic row and don't flash a false
+				// terminal error during a brief route/socket handoff.
+				finishSuccessfulSubmission({ dismissKeyboard: false });
+				return;
+			}
 			setComposerError(connectionErrorMessage(cause));
 			if (optimisticMessageId !== null) {
 				removeOptimisticMessage(stateKey, optimisticMessageId);

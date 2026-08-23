@@ -576,33 +576,10 @@ function ThreadScreen() {
 		}
 	};
 
-	const onForkFromMessage = (fromMessageId: MessageId) => {
-		Alert.alert("Fork from here", "Where should the new session live?", [
-			{ text: "Cancel", style: "cancel" },
-			{
-				text: "This chat",
-				onPress: () => void runFork(fromMessageId, "tab", false),
-			},
-			{
-				text: "New chat",
-				onPress: () =>
-					Alert.alert(
-						"New chat workspace",
-						"Use the current worktree or create an isolated one?",
-						[
-							{ text: "Cancel", style: "cancel" },
-							{
-								text: "Current",
-								onPress: () => void runFork(fromMessageId, "chat", false),
-							},
-							{
-								text: "Isolated",
-								onPress: () => void runFork(fromMessageId, "chat", true),
-							},
-						],
-					),
-			},
-		]);
+	const onForkFromMessage: NonNullable<
+		MessageRowContext["onForkFromMessage"]
+	> = (fromMessageId, destination, isolated) => {
+		void runFork(fromMessageId, destination, isolated);
 	};
 
 	const ctx: MessageRowContext = {
@@ -1458,22 +1435,12 @@ function TranscriptLoadingState() {
 		<View
 			accessibilityRole="progressbar"
 			accessibilityLabel="Loading conversation"
-			className="gap-5 px-1 pt-10"
+			className="items-center justify-center gap-3 px-1 pt-10"
 		>
-			<View className="items-center gap-3 pb-3">
-				<ActivityIndicator size="small" color={colors.accent} />
-				<Text className="font-sans-medium text-[13px] text-muted-foreground">
-					Loading conversation…
-				</Text>
-			</View>
-			<View className="items-end">
-				<View className="h-14 w-2/3 rounded-3xl bg-muted" />
-			</View>
-			<View className="gap-3">
-				<View className="h-4 w-11/12 rounded-full bg-muted" />
-				<View className="h-4 w-4/5 rounded-full bg-muted" />
-				<View className="h-4 w-3/5 rounded-full bg-muted" />
-			</View>
+			<ActivityIndicator size="small" color={colors.accent} />
+			<Text className="font-sans-medium text-[13px] text-muted-foreground">
+				Loading conversation…
+			</Text>
 		</View>
 	);
 }

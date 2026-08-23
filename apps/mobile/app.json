@@ -41,6 +41,13 @@
 			"expo-image",
 			"expo-audio",
 			"expo-screen-orientation"
-		]
+		],
+		"extra": {
+			"router": {},
+			"eas": {
+				"projectId": "4d277893-90f5-41c7-8d3a-14add4308f57"
+			}
+		},
+		"owner": "swarajbachu"
 	}
 }

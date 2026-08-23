@@ -427,7 +427,6 @@ export default function ThreadsScreen() {
 						alignItems: "center",
 						justifyContent: "center",
 						gap: 10,
-						backgroundColor: colors.card,
 					}}
 				>
 					<ActivityIndicator size="large" color={colors.accent} />
