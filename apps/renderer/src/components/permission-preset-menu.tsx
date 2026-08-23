@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon } from "@hugeicons-pro/core-solid-rounded";
 import type { RuntimeMode, SessionId } from "@zuse/contracts";
+import { ArrowDown01Icon } from "@zuse/icons/solid-rounded";
 
 import { useSessionsStore } from "../store/sessions.ts";
 import { MODE_META, runtimeModesForProvider } from "./runtime-mode-meta.ts";
