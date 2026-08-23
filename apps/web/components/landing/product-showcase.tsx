@@ -2,17 +2,33 @@ import { Features as WorktreeFeatures } from "@/components/tpl/agenforce/compone
 import { FeaturesSecondary } from "@/components/tpl/agenforce/components/features-secondary";
 import { FeaturesTertiary } from "@/components/tpl/agenforce/components/features-tertiary";
 import { LogoCloud } from "@/components/tpl/agenforce/components/logo-cloud";
-import { AgenticIntelligence } from "@/components/tpl/nodus/components/agentic-intelligence";
-import { Benefits } from "@/components/tpl/nodus/components/benefits";
 import { HowItWorks } from "@/components/tpl/nodus/components/how-it-works";
 import { FeaturesOne } from "@/components/tpl/saas/components/features-one";
 import { FeaturesTwo } from "@/components/tpl/saas/components/features-two";
-import { EdgeComputing } from "@/components/tpl/saas/components/features-two/edge-computing";
+import { WorkflowOverview } from "./workflow-overview";
 
 export function ProductShowcase() {
 	return (
 		<div id="features" className="scroll-mt-24">
+			<WorkflowOverview />
+			<Divider />
 			<LogoCloud />
+			<Divider />
+
+			<section aria-labelledby="handoff-heading">
+				<ShowcaseHeader
+					id="handoff-heading"
+					eyebrow="Agent handoff"
+					title="Continue the work with another agent"
+					description="Fork a session or start a new provider with the plan, transcript, and files it needs. You choose what moves forward."
+				/>
+				<FeaturesSecondary />
+			</section>
+
+			<Divider />
+			<WorktreeFeatures />
+			<Divider />
+			<HowItWorks />
 			<Divider />
 
 			<section aria-labelledby="review-heading">
@@ -28,30 +44,9 @@ export function ProductShowcase() {
 			<Divider />
 			<FeaturesOne />
 			<Divider />
-			<WorktreeFeatures />
-			<Divider />
-			<Benefits />
-			<Divider />
 			<div id="cloud" className="scroll-mt-24">
 				<FeaturesTwo />
 			</div>
-			<Divider />
-			<EdgeComputing />
-			<Divider />
-			<AgenticIntelligence />
-			<Divider />
-			<HowItWorks />
-
-			<Divider />
-			<section aria-labelledby="handoff-heading">
-				<ShowcaseHeader
-					id="handoff-heading"
-					eyebrow="Smart handoff"
-					title="Use the right model for each stage"
-					description="Plan, implement, and review with separate provider sessions while carrying forward only the context each one needs."
-				/>
-				<FeaturesSecondary />
-			</section>
 		</div>
 	);
 }

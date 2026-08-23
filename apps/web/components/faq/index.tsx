@@ -12,9 +12,19 @@ import { GITHUB_URL } from "@/lib/site";
 
 const data = [
 	{
+		question: "What does Zuse actually do?",
+		answer:
+			"Zuse puts your coding agents, repositories, terminals, files, and diffs in one workspace. You can run several tasks in parallel, keep each one isolated in its own git worktree, and carry selected context from one agent session to another.",
+	},
+	{
+		question: "What happens when I want to switch agents?",
+		answer:
+			"You choose the next provider instead of Zuse silently routing your message. Start or fork a session, then attach the plan, transcript, diff, or files the next agent needs. If one subscription reaches its limit, you can continue with another provider you have access to.",
+	},
+	{
 		question: "Which agents are supported?",
 		answer:
-			"Zuse wraps seven coding agent CLIs in one workspace: Claude Code, Codex, Cursor, Gemini, Grok, OpenCode, and Kiro. You can run them side by side and switch providers without leaving the app.",
+			"Zuse supports seven coding-agent CLIs in one workspace. Connect the providers you use, run them side by side, and choose which provider handles each session.",
 	},
 	{
 		question: "Do I need my own API keys or subscriptions?",

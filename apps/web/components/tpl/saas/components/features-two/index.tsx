@@ -16,11 +16,11 @@ export function FeaturesTwo() {
 		<Container className="px-4 py-10 md:py-20 lg:py-28">
 			<div className="mx-auto mb-16 max-w-2xl text-center">
 				<Heading as="h2" className="mb-4">
-					Deploy agents across every platform
+					Keep agent work moving anywhere
 				</Heading>
 				<Subheading className="text-balance">
-					Run agents from desktop today, persistent cloud workspaces in beta,
-					and a mobile companion coming soon.
+					Run agents from your desktop today, keep them working in persistent
+					cloud environments, and follow them from mobile soon.
 				</Subheading>
 			</div>
 

@@ -14,11 +14,11 @@ export const Features = () => {
 				className="flex xl:flex-row flex-col xl:items-baseline-last justify-between gap-10"
 			>
 				<Heading className="text-center lg:text-left">
-					The best worktree <br /> management, anywhere.
+					Parallel work without <br /> branch chaos.
 				</Heading>
 				<Subheading className="text-center lg:text-left mx-auto lg:mx-0">
-					Every run gets an isolated branch and working tree. See its agent,
-					files, tests, review state, handoff evidence, and cleanup status.
+					Every task gets an isolated branch and working tree. Run several
+					agents at once without mixing their changes together.
 				</Subheading>
 			</div>
 			<div className="grid grid-cols-1 lg:grid-cols-3 gap-4 my-10 md:my-20">

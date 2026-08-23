@@ -13,7 +13,7 @@ export const DISCORD_URL = "https://discord.gg/cvGpmMGd5";
 export const DOWNLOAD_URL = "/download";
 
 export const TAGLINE =
-	"The open-source autonomous coding workspace for local and cloud agents.";
+	"All your coding agents in one workspace, with isolated tasks and shared context.";
 
 // The coding agents Zuse wraps. Used by the agent strip.
 export const AGENTS = [

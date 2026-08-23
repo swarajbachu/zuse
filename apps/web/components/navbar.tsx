@@ -21,8 +21,9 @@ import { DISCORD_URL, GITHUB_URL } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
 const navItems = [
+	{ label: "How it works", href: "/#workflow" },
 	{ label: "Docs", href: "/docs" },
-	{ label: "Waitlist", href: "/#cloud-interest" },
+	{ label: "Cloud", href: "/#cloud-interest" },
 	{ label: "Changelog", href: "/changelog" },
 ];
 

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Button as DownloadButton } from "@/components/button";
 import { ZuseInteractiveDemo } from "@/components/demo/zuse-interactive-demo";
 import { HorizontalLine } from "./line";
@@ -13,16 +14,21 @@ export const Hero = () => {
 					Open source · Cloud beta live
 				</span>
 				<h1 className="text-heading mt-5 max-w-[18ch] font-display text-4xl font-semibold leading-[1.04] tracking-tight text-balance md:text-6xl lg:text-7xl">
-					Run every coding agent from{" "}
-					<span className="text-primary">one desktop</span>
+					All your coding agents.{" "}
+					<span className="text-primary">One workspace.</span>
 				</h1>
 				<p className="text-muted-foreground mt-6 max-w-[58ch] text-base leading-7 text-pretty md:text-lg">
-					The open-source autonomous coding workspace for local and cloud
-					agents. Give it an issue—Zuse plans, codes, tests, and prepares the
-					pull request with the subscriptions you already pay for.
+					Run agents side by side, carry context between them, and keep every
+					task isolated in its own git worktree.
 				</p>
-				<div className="mt-8 flex flex-col items-center gap-3 sm:flex-row">
+				<div className="mt-8 flex flex-col items-center gap-4 sm:flex-row">
 					<DownloadButton />
+					<Link
+						href="/#workflow"
+						className="text-heading focus-visible:ring-heading/60 inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-medium underline decoration-border underline-offset-4 transition-colors duration-200 hover:decoration-primary focus-visible:ring-2 focus-visible:outline-none"
+					>
+						See how it works
+					</Link>
 				</div>
 				<p className="text-muted-foreground mt-3 text-xs">
 					Free in beta · no token markup

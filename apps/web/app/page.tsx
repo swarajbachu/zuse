@@ -6,9 +6,9 @@ import { HomepageStructuredData } from "@/components/seo/homepage-structured-dat
 import { getSEO } from "@/lib/seo";
 
 export const metadata = getSEO({
-	absoluteTitle: "Zuse — Open-source autonomous coding workspace",
+	absoluteTitle: "Zuse — All your coding agents in one workspace",
 	description:
-		"Run autonomous coding agents locally or in live cloud workspaces with Zuse. Plan, code, test, review diffs, and prepare pull requests using your existing AI subscriptions.",
+		"Run coding agents side by side, carry context between them, and isolate every task in its own git worktree with Zuse.",
 	path: "/",
 	keywords: [
 		"open source coding agent",
