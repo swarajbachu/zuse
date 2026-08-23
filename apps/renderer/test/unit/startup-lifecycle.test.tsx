@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
 	SLOW_STARTUP_DELAY_MS,
 	StartupSurface,
+	sanitizeStartupError,
 	startupPresentation,
 } from "../../src/components/startup-surface.tsx";
 
@@ -28,6 +29,14 @@ describe("startup lifecycle", () => {
 
 	it("uses the agreed slow-start threshold", () => {
 		expect(SLOW_STARTUP_DELAY_MS).toBe(4_000);
+	});
+
+	it("sanitizes startup diagnostics before displaying or copying them", () => {
+		expect(
+			sanitizeStartupError(
+				"Failed at /Users/alice/zuse/settings.json?token=secret-value with ghp_abc123",
+			),
+		).toBe("Failed at [local path]?token=[redacted] with [redacted]");
 	});
 
 	it("renders an accessible branded loader", () => {

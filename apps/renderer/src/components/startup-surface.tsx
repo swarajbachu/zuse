@@ -7,6 +7,24 @@ export const SLOW_STARTUP_DELAY_MS = 4_000;
 
 export type StartupPresentation = "loading" | "error" | "ready";
 
+const STARTUP_ERROR_MAX_LENGTH = 800;
+
+export const sanitizeStartupError = (error: string | null): string | null => {
+	if (error === null) return null;
+	const sanitized = error
+		.replace(/\b(?:gh[pousr]_|sk-)[A-Za-z0-9_-]+\b/g, "[redacted]")
+		.replace(
+			/([?&](?:access_token|api_key|code|password|secret|token)=)[^&\s]+/gi,
+			"$1[redacted]",
+		)
+		.replace(/file:\/\/\/[^\s)?]+/g, "[local path]")
+		.replace(/\/(?:Users|home)\/[^\s:)?]+/g, "[local path]")
+		.replace(/[A-Za-z]:\\(?:[^\s\\]+\\)*[^\s:)?]+/g, "[local path]")
+		.trim();
+	if (sanitized.length === 0) return null;
+	return sanitized.slice(0, STARTUP_ERROR_MAX_LENGTH);
+};
+
 export const startupPresentation = (input: {
 	readonly loaded: boolean;
 	readonly phase: SurfacePhase;
@@ -31,6 +49,7 @@ export function StartupSurface({
 	const presentation = startupPresentation({ loaded: false, phase });
 	const [slow, setSlow] = useState(false);
 	const [copied, setCopied] = useState(false);
+	const safeError = sanitizeStartupError(error);
 
 	useEffect(() => {
 		if (presentation !== "loading") {
@@ -45,8 +64,8 @@ export function StartupSurface({
 	}, [presentation]);
 
 	const copyDetails = () => {
-		if (error === null) return;
-		void navigator.clipboard?.writeText(error).then(
+		if (safeError === null) return;
+		void navigator.clipboard?.writeText(safeError).then(
 			() => setCopied(true),
 			() => setCopied(false),
 		);
@@ -85,12 +104,12 @@ export function StartupSurface({
 						The local server did not become available. Your data is still on
 						disk.
 					</p>
-					{error === null ? null : (
+					{safeError === null ? null : (
 						<p
 							className="mt-3 break-words text-muted-foreground text-xs"
 							role="alert"
 						>
-							{error}
+							{safeError}
 						</p>
 					)}
 					<div className="mt-4 flex items-center justify-center gap-2">
@@ -108,7 +127,7 @@ export function StartupSurface({
 						>
 							Reload
 						</button>
-						{error === null ? null : (
+						{safeError === null ? null : (
 							<button
 								className="inline-flex h-7 items-center justify-center rounded-md px-2.5 font-medium text-muted-foreground text-xs outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
 								onClick={copyDetails}
