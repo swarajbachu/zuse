@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.8]
+
+### Changed
+- The Zuse website now explains the agent workflow more clearly and publishes machine-readable product and API contracts for automated clients
+
+### Fixed
+- Desktop updates now open reliably instead of remaining on the startup screen. The loader now covers genuine settings readiness while the full application stays code-split for fast, budget-compliant startup
+
 ## [0.20.7]
 
 ### Added

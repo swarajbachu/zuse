@@ -1,5 +1,22 @@
 [
   {
+    "version": "0.20.8",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "The Zuse website now explains the agent workflow more clearly and publishes machine-readable product and API contracts for automated clients"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "items": [
+          "Desktop updates now open reliably instead of remaining on the startup screen. The loader now covers genuine settings readiness while the full application stays code-split for fast, budget-compliant startup"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.20.7",
     "sections": [
       {
