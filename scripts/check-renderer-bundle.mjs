@@ -27,6 +27,19 @@ const manifest = JSON.parse(
 	readFileSync(resolve(dist, ".vite/manifest.json"), "utf8"),
 );
 const assets = collectEntryAssets(manifest, "index.html");
+const startupAssets = collectRouteAssets(
+	manifest,
+	"index.html",
+	"src/startup-application.tsx",
+);
+const hasStartupSettings = startupAssets.some((asset) =>
+	asset.includes("settings-client-bus-"),
+);
+if (!hasStartupSettings) {
+	throw new Error(
+		"Renderer startup chunk must include settings readiness before loading the full application; otherwise packaged builds can remain stuck before opening RPC.",
+	);
+}
 const defaultRouteAssets = collectRouteAssets(
 	manifest,
 	"index.html",

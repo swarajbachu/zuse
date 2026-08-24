@@ -1,9 +1,9 @@
 import { lazy, Suspense } from "react";
 import { StartupSurface } from "./components/startup-surface.tsx";
 
-const Application = lazy(() =>
-	import("./application.tsx").then((module) => ({
-		default: module.Application,
+const StartupApplication = lazy(() =>
+	import("./startup-application.tsx").then((module) => ({
+		default: module.StartupApplication,
 	})),
 );
 
@@ -16,7 +16,7 @@ export function ApplicationBootstrapFallback() {
 export function ApplicationBootstrap() {
 	return (
 		<Suspense fallback={<ApplicationBootstrapFallback />}>
-			<Application />
+			<StartupApplication />
 		</Suspense>
 	);
 }

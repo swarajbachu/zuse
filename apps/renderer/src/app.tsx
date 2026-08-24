@@ -17,10 +17,6 @@ import {
 	usePanelRef,
 } from "react-resizable-panels";
 import { PendingChatCreationSurface } from "./components/pending-chat-creation.tsx";
-import {
-	StartupSurface,
-	startupPresentation,
-} from "./components/startup-surface.tsx";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
 import { useChatDirectoryStatus } from "./hooks/use-chat-directory-status.ts";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
@@ -301,45 +297,18 @@ function AmbientSurfaces() {
 		</Suspense>
 	);
 }
-export function App() {
-	const settings = useSettingsStore((state) => ({
-		error: state.error,
-		loaded: state.loaded,
-		onboardingCompleted: state.onboardingCompleted,
-		origin: state.origin,
-		phase: state.phase,
-		retry: state.retry,
-	}));
-	useEffect(() => {
-		if (settings.phase === "synchronizing" || settings.phase === "live") {
-			markRendererStartupMilestone("rpc-connected");
-		}
-		if (!settings.loaded) return;
-		markRendererStartupMilestone(
-			settings.origin === "cache" ? "settings-cache-hydrated" : "settings-live",
-		);
-	}, [settings.loaded, settings.origin, settings.phase]);
-	const presentation = startupPresentation(settings);
-	if (presentation !== "ready") {
-		return (
-			<>
-				<AppearanceController />
-				<StartupSurface
-					error={settings.error}
-					phase={settings.phase}
-					onRetry={settings.retry}
-				/>
-			</>
-		);
-	}
-	return <ReadyApp onboardingCompleted={settings.onboardingCompleted} />;
-}
-
 /**
  * Owns cross-cutting concerns only after settings are available. Deferring
  * these subscriptions keeps the startup surface cheap and prevents fallback
  * settings from being observed as real product state.
  */
+export function App() {
+	const onboardingCompleted = useSettingsStore(
+		(state) => state.onboardingCompleted,
+	);
+	return <ReadyApp onboardingCompleted={onboardingCompleted} />;
+}
+
 function ReadyApp({
 	onboardingCompleted,
 }: {
