@@ -7,6 +7,7 @@ import { type Cause, Effect, Layer, Queue, Stream } from "effect";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import type { FromClientEncoded } from "effect/unstable/rpc/RpcMessage";
 import { ipcMain, type WebContents } from "electron";
+import { makeBufferedInbox } from "./buffered-inbox.ts";
 
 /**
  * RpcServer.Protocol implementation for Electron IPC. Modeled on
@@ -20,8 +21,22 @@ import { ipcMain, type WebContents } from "electron";
  */
 const SINGLE_WINDOW_CLIENT_ID = 0;
 
-export const makeElectronServerProtocol = (webContents: WebContents) =>
-	RpcServer.Protocol.make(
+export const makeElectronServerProtocol = (webContents: WebContents) => {
+	const inbox = makeBufferedInbox<unknown>((receive) => {
+		const handler = (event: Electron.IpcMainEvent, frame: unknown) => {
+			if (event.sender.id !== webContents.id) return;
+			receive(frame);
+		};
+		ipcMain.on(IPC_CHANNEL, handler);
+		return () => ipcMain.off(IPC_CHANNEL, handler);
+	});
+	const disposeInbox = () => {
+		webContents.off("destroyed", disposeInbox);
+		inbox.dispose();
+	};
+	webContents.once("destroyed", disposeInbox);
+
+	return RpcServer.Protocol.make(
 		Effect.fnUntraced(function* (writeRequest) {
 			const serialization = yield* RpcSerialization.RpcSerialization;
 			const parser = serialization.makeUnsafe();
@@ -32,14 +47,8 @@ export const makeElectronServerProtocol = (webContents: WebContents) =>
 			// Effects from a synchronous ipc handler, so we shovel into a Queue
 			// and consume that as a Stream.
 			const inbound = yield* Queue.make<unknown, Cause.Done>();
-			const handler = (event: Electron.IpcMainEvent, frame: unknown) => {
-				if (event.sender.id !== webContents.id) return;
-				Queue.offerUnsafe(inbound, frame);
-			};
-			yield* Effect.acquireRelease(
-				Effect.sync(() => ipcMain.on(IPC_CHANNEL, handler)),
-				() => Effect.sync(() => ipcMain.off(IPC_CHANNEL, handler)),
-			);
+			inbox.attach((frame) => Queue.offerUnsafe(inbound, frame));
+			yield* Effect.addFinalizer(() => Effect.sync(disposeInbox));
 
 			yield* Stream.fromQueue(inbound).pipe(
 				Stream.runForEach((frame) =>
@@ -132,6 +141,7 @@ export const makeElectronServerProtocol = (webContents: WebContents) =>
 			};
 		}),
 	);
+};
 
 /**
  * Build a Layer providing `RpcServer.Protocol` bound to a specific webContents.

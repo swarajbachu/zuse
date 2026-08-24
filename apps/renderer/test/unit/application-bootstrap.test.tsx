@@ -1,32 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-const { useSettingsStore } = vi.hoisted(() => ({
-	useSettingsStore: vi.fn(
-		(selector: (state: Record<string, unknown>) => unknown) =>
-			selector({
-				error: null,
-				loaded: false,
-				onboardingCompleted: false,
-				origin: "none",
-				phase: "initial-loading",
-				retry: vi.fn(),
-			}),
-	),
-}));
-
-vi.mock("../../src/lib/settings-client-bus.ts", () => ({ useSettingsStore }));
-vi.mock("../../src/lib/appearance.tsx", () => ({
-	AppearanceController: () => null,
-}));
-
-import { StartupApplication } from "../../src/startup-application.tsx";
+import { ApplicationBootstrap } from "../../src/application-bootstrap.tsx";
 
 describe("application bootstrap", () => {
-	it("mounts settings readiness before the full application chunk", () => {
-		const markup = renderToStaticMarkup(<StartupApplication />);
+	it("mounts a bounded startup surface without suspending the root", () => {
+		const markup = renderToStaticMarkup(<ApplicationBootstrap />);
 
-		expect(useSettingsStore).toHaveBeenCalledOnce();
+		expect(markup).toContain('aria-busy="true"');
 		expect(markup).toContain('aria-label="Loading Zuse"');
 	});
 });
