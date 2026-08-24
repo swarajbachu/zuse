@@ -9,13 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.20.9]
 
-### Changed
-- Merge remote-tracking branch 'origin/main' into swarajbachu/tacoma
-- Release v0.20.8
-
 ### Fixed
-- Preserve desktop startup handshake
-- Unblock packaged renderer startup
+- Desktop updates now reliably open existing profiles even when startup is slow; early connection handshakes are preserved instead of leaving Zuse stuck on the loading screen.
+- Startup module failures now surface retry and reload controls instead of displaying an unbounded loading fallback.
 
 ## [0.20.8]
 

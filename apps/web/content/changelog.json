@@ -3,17 +3,10 @@
     "version": "0.20.9",
     "sections": [
       {
-        "title": "Changed",
-        "items": [
-          "Merge remote-tracking branch 'origin/main' into swarajbachu/tacoma",
-          "Release v0.20.8"
-        ]
-      },
-      {
         "title": "Fixed",
         "items": [
-          "Preserve desktop startup handshake",
-          "Unblock packaged renderer startup"
+          "Desktop updates now reliably open existing profiles even when startup is slow; early connection handshakes are preserved instead of leaving Zuse stuck on the loading screen.",
+          "Startup module failures now surface retry and reload controls instead of displaying an unbounded loading fallback."
         ]
       }
     ]
