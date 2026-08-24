@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.9]
+
+### Changed
+- Merge remote-tracking branch 'origin/main' into swarajbachu/tacoma
+- Release v0.20.8
+
+### Fixed
+- Preserve desktop startup handshake
+- Unblock packaged renderer startup
+
 ## [0.20.8]
 
 ### Changed
