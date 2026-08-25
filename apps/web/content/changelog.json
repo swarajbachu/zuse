@@ -1,5 +1,18 @@
 [
   {
+    "version": "0.20.10",
+    "sections": [
+      {
+        "title": "Fixed",
+        "items": [
+          "New chats no longer get stuck when attachment or generated-context finalization races the startup worker; the completed input is handed off to the durable queue and starts exactly once",
+          "Plain startup prompts no longer appear in both the transcript and queue, persist twice, or show a false “you interrupted” pause during workspace setup",
+          "Startup progress no longer lingers after the agent has begun responding"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.20.9",
     "sections": [
       {

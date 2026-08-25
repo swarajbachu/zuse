@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.10]
+
+### Fixed
+- New chats no longer get stuck when attachment or generated-context finalization races the startup worker; the completed input is handed off to the durable queue and starts exactly once
+- Plain startup prompts no longer appear in both the transcript and queue, persist twice, or show a false “you interrupted” pause during workspace setup
+- Startup progress no longer lingers after the agent has begun responding
+
 ## [0.20.9]
 
 ### Fixed
