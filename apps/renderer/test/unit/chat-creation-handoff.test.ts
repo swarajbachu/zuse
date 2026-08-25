@@ -10,6 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
 	resolveAgentStarting,
+	resolvePendingStartupTranscriptPrompt,
 	shouldRenderGenericAgentStartup,
 } from "../../src/components/chat-view.tsx";
 import {
@@ -83,6 +84,63 @@ describe("chat creation handoff", () => {
 				true,
 			),
 		).toBe(true);
+	});
+
+	it("keeps a ready plain startup prompt visible while workspace setup runs", () => {
+		const restored = restorePendingCreation({
+			...operation("running_setup"),
+			startupInput: ComposerInput.make({
+				text: "Keep this visible",
+				attachments: [],
+				fileRefs: [],
+				skillRefs: [],
+				annotations: [],
+			}),
+		});
+
+		expect(resolvePendingStartupTranscriptPrompt(restored.creation, 0)).toBe(
+			"Keep this visible",
+		);
+	});
+
+	it("does not mirror queued startup input into the transcript", () => {
+		const restored = restorePendingCreation({
+			...operation("running_setup"),
+			startupInput: ComposerInput.make({
+				text: "Preparing an attachment",
+				attachments: [
+					{
+						id: "pending-attachment",
+						mimeType: "image/png",
+						originalName: "startup.png",
+					},
+				],
+				fileRefs: [],
+				skillRefs: [],
+				annotations: [],
+			}),
+		});
+
+		expect(
+			resolvePendingStartupTranscriptPrompt(restored.creation, 0),
+		).toBeNull();
+	});
+
+	it("removes the startup preview when the canonical transcript arrives", () => {
+		const restored = restorePendingCreation({
+			...operation("starting_agent"),
+			startupInput: ComposerInput.make({
+				text: "Show this once",
+				attachments: [],
+				fileRefs: [],
+				skillRefs: [],
+				annotations: [],
+			}),
+		});
+
+		expect(
+			resolvePendingStartupTranscriptPrompt(restored.creation, 1),
+		).toBeNull();
 	});
 
 	it("keeps the composer-bearing session surface mounted during creation", () => {

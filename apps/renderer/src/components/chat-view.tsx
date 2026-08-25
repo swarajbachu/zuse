@@ -65,7 +65,11 @@ import {
 	TranscriptScrollCoordinator,
 	type TranscriptScrollSnapshot,
 } from "../lib/transcript-scroll-coordinator.ts";
-import { useChatsStore } from "../store/chats.ts";
+import {
+	chatStartupUsesQueue,
+	type PendingChatCreation,
+	useChatsStore,
+} from "../store/chats.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
@@ -75,7 +79,10 @@ import { FileChipProvider } from "./file-chip.tsx";
 import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
 import { ErrorBubble, MessageRow } from "./message-row.tsx";
 import { NextUnreadButton } from "./next-unread-button.tsx";
-import { ChatCreationFailureActions } from "./pending-chat-creation.tsx";
+import {
+	ChatCreationFailureActions,
+	ChatCreationPromptBubble,
+} from "./pending-chat-creation.tsx";
 import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
@@ -101,6 +108,21 @@ export const shouldRenderGenericAgentStartup = (input: {
 	readonly inFlight: boolean;
 	readonly hasPendingCreation: boolean;
 }): boolean => input.inFlight && !input.hasPendingCreation;
+
+export const resolvePendingStartupTranscriptPrompt = (
+	creation: PendingChatCreation | null,
+	canonicalMessageCount: number,
+): string | null => {
+	if (
+		creation === null ||
+		canonicalMessageCount > 0 ||
+		creation.startupInput === undefined ||
+		chatStartupUsesQueue(creation.startupInput, creation.startupReady)
+	) {
+		return null;
+	}
+	return creation.startupInput.text.trim() || null;
+};
 
 function resolveTimelineIsAtEnd(
 	state: TimelineEndState | undefined,
@@ -217,6 +239,10 @@ export function ChatView({
 		session.chatId === null
 			? null
 			: (state.pendingCreationByChat[session.chatId] ?? null),
+	);
+	const pendingStartupTranscriptPrompt = resolvePendingStartupTranscriptPrompt(
+		pendingCreation,
+		messages.length,
 	);
 	useEffect(() => {
 		if (!providerOutputStarted || session.chatId === null) return;
@@ -693,6 +719,9 @@ export function ChatView({
 							className="flex h-full min-h-0 w-full flex-1 flex-col overflow-y-auto outline-none"
 						>
 							<div className="px-[var(--chat-row-gutter,0.75rem)]">
+								<ChatCreationPromptBubble
+									prompt={pendingStartupTranscriptPrompt}
+								/>
 								<WorktreeSetupCard
 									agentStarting={agentStarting ? true : undefined}
 								/>

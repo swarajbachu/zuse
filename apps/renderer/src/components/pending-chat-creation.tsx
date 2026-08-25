@@ -50,11 +50,7 @@ export function PendingChatCreationSurface({
 		<div className="flex min-h-0 flex-1 flex-col px-3">
 			<div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
 				<div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
-					{creation.prompt !== null ? (
-						<div className="ml-auto max-w-[78%] rounded-2xl rounded-br-md border border-border/70 bg-muted/70 px-3 py-2 text-sm text-foreground">
-							{creation.prompt}
-						</div>
-					) : null}
+					<ChatCreationPromptBubble prompt={creation.prompt} />
 					{creation.workspaceRequested ||
 					creation.worktreeId !== null ||
 					creation.phase === "starting_agent" ? (
@@ -89,6 +85,19 @@ export function PendingChatCreationSurface({
 					) : null}
 				</div>
 			</div>
+		</div>
+	);
+}
+
+export function ChatCreationPromptBubble({
+	prompt,
+}: {
+	readonly prompt: string | null;
+}) {
+	if (prompt === null) return null;
+	return (
+		<div className="ml-auto max-w-[78%] rounded-2xl rounded-br-md border border-border/70 bg-muted/70 px-3 py-2 text-sm text-foreground">
+			{prompt}
 		</div>
 	);
 }
