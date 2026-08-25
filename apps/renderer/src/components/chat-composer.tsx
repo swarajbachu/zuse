@@ -138,6 +138,7 @@ import {
 	annotationsForSession,
 	useAnnotationsStore,
 } from "../store/annotations.ts";
+import { useChatsStore } from "../store/chats.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import {
 	composerDraftKeyForSession,
@@ -247,6 +248,11 @@ export function ChatComposer({
 			sessionId,
 		});
 	const isDraft = onDraftSubmit !== undefined;
+	const creationInProgress = useChatsStore((state) =>
+		session.chatId === null
+			? false
+			: state.pendingCreationByChat[session.chatId] !== undefined,
+	);
 	const [reasoningLevel, setReasoningLevel] = useState<string | null>(null);
 	// Provider features the installed CLI supports (from the availability
 	// probe). Codex goal mode is version-gated; Grok advertises it natively.
@@ -1306,6 +1312,7 @@ export function ChatComposer({
 								<QueueTray
 									environmentId={qualifiedEnvironmentId}
 									sessionId={sessionId}
+									creationInProgress={creationInProgress}
 									waitingForSandbox={
 										cloudSummary !== null &&
 										cloudWorkspaceIsStarting(cloudSummary)

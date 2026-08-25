@@ -1,4 +1,8 @@
-import { ComposerInput, SessionId } from "@zuse/contracts";
+import {
+	ComposerInput,
+	QueuedMessageNotFoundError,
+	SessionId,
+} from "@zuse/contracts";
 import { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it, vi } from "vitest";
@@ -6,8 +10,12 @@ import {
 	chatStartupCommandId,
 	decodeChatStartupIntent,
 	persistChatStartupIntent,
+	updateQueuedMessageWithStartupHandoff,
 } from "../../src/conversation/core/chat-startup-intent.ts";
-import type { QueueTransactionServiceShape } from "../../src/conversation/services/conversation-services.ts";
+import type {
+	QueueServiceShape,
+	QueueTransactionServiceShape,
+} from "../../src/conversation/services/conversation-services.ts";
 
 const sessionId = SessionId.make("session-1");
 const input = ComposerInput.make({
@@ -52,6 +60,52 @@ describe("chat startup intent", () => {
 				startupReady: false,
 			}),
 		).toMatchObject({ ready: false });
+	});
+
+	it("never resurrects an atomic direct turn as a queued duplicate", async () => {
+		const queue = {
+			updateQueuedMessage: vi.fn(() =>
+				Effect.fail(
+					new QueuedMessageNotFoundError({
+						sessionId,
+						queueId: "startup-queue-direct",
+					}),
+				),
+			),
+		} as unknown as QueueServiceShape;
+		const queueTransaction = {
+			addQueuedMessageTransactionally: vi.fn(),
+		} as unknown as QueueTransactionServiceShape;
+		const sqlTag = () =>
+			Effect.succeed([
+				{
+					operation_id: "operation-direct",
+					phase: "starting_agent",
+					startup_input_json: JSON.stringify(input),
+					startup_ready: 1,
+					status: "pending",
+				},
+			]);
+		const sql = Object.assign(sqlTag, {
+			withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect,
+		}) as unknown as SqlClient.SqlClient;
+
+		const failure = await Effect.runPromise(
+			updateQueuedMessageWithStartupHandoff(
+				queue,
+				queueTransaction,
+				sql,
+				"queue-update-direct",
+				sessionId,
+				"startup-queue-direct",
+				input,
+			).pipe(Effect.flip),
+		);
+
+		expect(failure._tag).toBe("QueuedMessageNotFoundError");
+		expect(
+			queueTransaction.addQueuedMessageTransactionally,
+		).not.toHaveBeenCalled();
 	});
 
 	it("persists the stable queue command before marking creation successful", async () => {

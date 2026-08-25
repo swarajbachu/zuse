@@ -14,10 +14,12 @@ export function QueueTray({
 	sessionId,
 	environmentId,
 	waitingForSandbox = false,
+	creationInProgress = false,
 }: {
 	sessionId: SessionId;
 	environmentId: EnvironmentId;
 	readonly waitingForSandbox?: boolean;
+	readonly creationInProgress?: boolean;
 }) {
 	const timeline = useRendererSessionTimeline(
 		sessionId,
@@ -46,7 +48,7 @@ export function QueueTray({
 		);
 	};
 
-	const showPausedPill = paused && !running;
+	const showPausedPill = paused && !running && !creationInProgress;
 
 	return (
 		<div ref={listRef}>

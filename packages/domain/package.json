@@ -8,6 +8,7 @@
 		"./chat/decider": "./src/chat/decider.ts",
 		"./chat/events": "./src/chat/events.ts",
 		"./chat/state": "./src/chat/state.ts",
+		"./conversation/startup-input": "./src/conversation/startup-input.ts",
 		"./core/commands": "./src/core/commands.ts",
 		"./core/decider": "./src/core/decider.ts",
 		"./core/events": "./src/core/events.ts",

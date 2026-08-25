@@ -1,6 +1,7 @@
 import {
 	type ChatCreationOperation,
 	ChatId,
+	ComposerInput,
 	FolderId,
 	SessionId,
 } from "@zuse/contracts";
@@ -17,8 +18,10 @@ import {
 } from "../../src/components/worktree-setup-card.tsx";
 import { selectChatSurface } from "../../src/lib/chat-surface-selection.ts";
 import {
+	chatStartupUsesQueue,
 	chatStoreErrorMessage,
 	restorePendingCreation,
+	useChatsStore,
 } from "../../src/store/chats.ts";
 
 const operation = (
@@ -54,6 +57,34 @@ const operation = (
 });
 
 describe("chat creation handoff", () => {
+	it("does not queue a ready plain-text startup turn", () => {
+		const input = ComposerInput.make({
+			text: "Start once",
+			attachments: [],
+			fileRefs: [],
+			skillRefs: [],
+			annotations: [],
+		});
+
+		expect(chatStartupUsesQueue(input, true)).toBe(false);
+		expect(chatStartupUsesQueue(input, false)).toBe(true);
+		expect(
+			chatStartupUsesQueue(
+				ComposerInput.make({
+					...input,
+					attachments: [
+						{
+							id: "pending-attachment",
+							mimeType: "image/png",
+							originalName: "startup.png",
+						},
+					],
+				}),
+				true,
+			),
+		).toBe(true);
+	});
+
 	it("keeps the composer-bearing session surface mounted during creation", () => {
 		expect(
 			selectChatSurface({
@@ -68,6 +99,25 @@ describe("chat creation handoff", () => {
 		expect(restored.creation.phase).toBe("running_setup");
 		expect(restored.creation.prompt).toBe("Fix the lifecycle");
 		expect(restored.session.status).toBe("booting");
+	});
+
+	it("clears stale optimistic creation state once provider output starts", () => {
+		const restored = restorePendingCreation(operation("starting_agent"));
+		useChatsStore.setState({
+			creatingByProject: { [restored.creation.projectId]: true },
+			pendingCreationByChat: {
+				[restored.creation.chatId]: restored.creation,
+			},
+		});
+
+		useChatsStore.getState().completeCreation(restored.creation.chatId);
+
+		expect(
+			useChatsStore.getState().pendingCreationByChat[restored.creation.chatId],
+		).toBeUndefined();
+		expect(
+			useChatsStore.getState().creatingByProject[restored.creation.projectId],
+		).toBe(false);
 	});
 
 	it("keeps setup failures recoverable in place", () => {

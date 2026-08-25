@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
 	chatStartupCommandId,
 	persistChatStartupIntent,
+	updateQueuedMessageWithStartupHandoff,
 } from "../../src/conversation/core/chat-startup-intent.ts";
 import { QueueTransactionService } from "../../src/conversation/services/conversation-services.ts";
 import {
@@ -235,6 +236,112 @@ describe("durable chat startup intent", () => {
 			);
 			expect(held.items).toHaveLength(1);
 			expect(held.items[0]?.ready).toBe(false);
+		} finally {
+			await runtime.dispose();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("finalizes startup input that arrives before the held row is inserted", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-chat-startup-race-"));
+		const runtime = makeConversationFixtureRuntime(
+			join(directory, "fixture.sqlite"),
+			[],
+		);
+		const run = <A>(
+			effect: Effect.Effect<
+				A,
+				unknown,
+				TestConversation | QueueTransactionService | SqlClient.SqlClient
+			>,
+		): Promise<A> =>
+			runtime.runPromise(effect as Effect.Effect<A, unknown, never>);
+
+		try {
+			const operationId = "operation-early-finalization";
+			const chatId = ChatId.make("chat-early-finalization");
+			const sessionId = SessionId.make("session-early-finalization");
+			const queueId = "queue-early-finalization";
+			const finalizedInput = ComposerInput.make({
+				...startupInput,
+				attachments: [
+					{
+						id: "session-early-finalization-attachment",
+						mimeType: "image/png",
+						originalName: "startup.png",
+					},
+				],
+			});
+			await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const now = new Date().toISOString();
+					yield* sql`
+						ALTER TABLE chat_creation_operations
+						ADD COLUMN phase TEXT NOT NULL DEFAULT 'persisted'
+					`;
+					yield* sql`
+						INSERT INTO projects (id, path, name, created_at, updated_at)
+						VALUES (${FIXTURE_PROJECT_ID}, ${FIXTURE_PROJECT_PATH}, ${"Fixture"}, ${now}, ${now})
+					`;
+					yield* sql`
+						INSERT INTO chat_creation_operations (
+							operation_id, chat_id, initial_session_id, project_id,
+							provider_id, model, runtime_mode, permission_mode,
+							startup_input_json, startup_queue_id, startup_ready,
+							workspace_policy, status, phase, created_at, updated_at
+						) VALUES (
+							${operationId}, ${chatId}, ${sessionId}, ${FIXTURE_PROJECT_ID},
+							${"claude"}, ${"fixture-model"}, ${"approval-required"}, ${"default"},
+							${JSON.stringify(startupInput)}, ${queueId}, 0,
+							${"main"}, ${"creating_chat"}, ${"starting_agent"}, ${now}, ${now}
+						)
+					`;
+				}),
+			);
+			await run(
+				Effect.flatMap(TestConversation, (service) =>
+					service.createChat({
+						chatId,
+						initialSessionId: sessionId,
+						projectId: FIXTURE_PROJECT_ID,
+						providerId: "claude",
+						model: "fixture-model",
+						background: true,
+					}),
+				),
+			);
+
+			const updated = await run(
+				Effect.gen(function* () {
+					const service = yield* TestConversation;
+					const queueTransaction = yield* QueueTransactionService;
+					const sql = yield* SqlClient.SqlClient;
+					return yield* updateQueuedMessageWithStartupHandoff(
+						service,
+						queueTransaction,
+						sql,
+						"queue-update-early-finalization",
+						sessionId,
+						queueId,
+						finalizedInput,
+					);
+				}),
+			);
+			const operation = await run(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) =>
+						sql<{ readonly status: string }>`
+						SELECT status FROM chat_creation_operations
+						WHERE operation_id = ${operationId}
+					`,
+				),
+			);
+
+			expect(updated.ready).toBe(true);
+			expect(updated.input).toEqual(finalizedInput);
+			expect(operation).toEqual([{ status: "succeeded" }]);
 		} finally {
 			await runtime.dispose();
 			rmSync(directory, { recursive: true, force: true });

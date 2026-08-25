@@ -218,6 +218,10 @@ export function ChatView({
 			? null
 			: (state.pendingCreationByChat[session.chatId] ?? null),
 	);
+	useEffect(() => {
+		if (!providerOutputStarted || session.chatId === null) return;
+		useChatsStore.getState().completeCreation(session.chatId);
+	}, [providerOutputStarted, session.chatId]);
 	const cloudSetupActive =
 		cloudSummary !== null && cloudWorkspaceIsStarting(cloudSummary);
 	const agentStarting = resolveAgentStarting({

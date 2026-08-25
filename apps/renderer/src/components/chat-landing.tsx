@@ -195,10 +195,11 @@ const formatThreadRelative = (date: Date): string => {
  *
  * Renders a centered "What should we build in <project>?" headline above a
  * mini composer + project picker + starter-prompt list. On submit we call
- * `useChatsStore.create()` with the typed input held in the startup queue; the
- * chat store auto-selects the new session, which causes `MainShell` to
- * swap this surface for `<ChatView />` + `<ChatComposer />` on the next
- * render.
+ * `useChatsStore.create()` with the typed input. Plain prompts become the
+ * atomic initial turn; structured or still-materializing inputs use the
+ * startup queue. The chat store auto-selects the new session, which causes
+ * `MainShell` to swap this surface for `<ChatView />` + `<ChatComposer />` on
+ * the next render.
  */
 export function ChatLanding() {
 	const { originsByFolder: origins } = useActiveEnvironmentEntities();
@@ -1078,18 +1079,6 @@ export function ChatLanding() {
 			setSubmitting(false);
 			return;
 		}
-		if (
-			useChatsStore.getState().pendingCreationByChat[result.chatId] !==
-			undefined
-		) {
-			// An ambiguous transport interruption leaves the retry-safe chat command
-			// in the outbox. The pending-creation surface owns the UI until replay
-			// produces the durable chat/session; never issue session-scoped follow-up
-			// commands against its provisional id.
-			useSessionsStore.getState().clearDraft();
-			setSubmitting(false);
-			return;
-		}
 		const worktreeId = result.worktreeId;
 		setPendingWorktreeId(worktreeId);
 		const sessionId = result.initialSessionId;
@@ -1182,7 +1171,7 @@ export function ChatLanding() {
 				}
 			}
 		}
-		if (startupQueueId !== null) {
+		if (startupNeedsPreparation && startupQueueId !== null) {
 			// Finalization is the release edge. If the provider became ready first,
 			// this update requests a drain; if the user deleted the item meanwhile,
 			// the server returns not-found and the item is never resurrected.

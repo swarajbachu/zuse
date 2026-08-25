@@ -17,6 +17,7 @@ import {
 	SessionId,
 	type WorktreeId,
 } from "@zuse/contracts";
+import { composerInputStartsDirectTurn } from "@zuse/domain/conversation/startup-input";
 import { toastManager } from "../components/ui/toast.tsx";
 import { nextChatCreateCommandId } from "../lib/chat-create-command-id.ts";
 import {
@@ -98,6 +99,12 @@ const dispatchChatCommand = <Payload, Result>(input: {
 		payload: input.payload,
 		retry: input.retry,
 	});
+
+export const chatStartupUsesQueue = (
+	input: ComposerInput | undefined,
+	ready: boolean,
+): boolean =>
+	input !== undefined && (!ready || !composerInputStartsDirectTurn(input));
 
 type ChatCreateResult = Readonly<{
 	chat: Chat;
@@ -181,6 +188,8 @@ type ChatsState = {
 		preserveFocus?: boolean,
 	) => Promise<boolean>;
 	readonly continueCreation: (chatId: ChatId) => Promise<boolean>;
+	/** Provider output proves the startup lifecycle crossed into a live turn. */
+	readonly completeCreation: (chatId: ChatId) => void;
 	readonly discardCreation: (chatId: ChatId) => void;
 	readonly archiveProgressByChat: Record<string, ChatArchiveProgressPhase>;
 	readonly error: string | null;
@@ -761,7 +770,11 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 								[projectId]: initialSessionId,
 							},
 			}));
-			if (opts?.startupInput !== undefined && opts.reusePending !== true) {
+			if (
+				opts?.startupInput !== undefined &&
+				chatStartupUsesQueue(opts?.startupInput, opts?.startupReady ?? true) &&
+				opts?.reusePending !== true
+			) {
 				startupQueueId = queueSessionMessage(
 					{
 						environmentId: EnvironmentId.make(getActiveEnvironment()),
@@ -1123,6 +1136,21 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		}));
 		if (recovered.phase === "failed") return false;
 		return get().retryCreation(chatId, true);
+	},
+	completeCreation: (chatId) => {
+		const creation = get().pendingCreationByChat[chatId];
+		if (creation === undefined) return;
+		set((state) => ({
+			creatingByProject: {
+				...state.creatingByProject,
+				[creation.projectId]: false,
+			},
+			pendingCreationByChat: Object.fromEntries(
+				Object.entries(state.pendingCreationByChat).filter(
+					([id]) => id !== chatId,
+				),
+			),
+		}));
 	},
 	discardCreation: (chatId) => {
 		const creation = get().pendingCreationByChat[chatId];

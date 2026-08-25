@@ -26,6 +26,7 @@ import {
 	type SessionTimelineFrame,
 	WorktreeId,
 } from "@zuse/contracts";
+import { composerInputStartsDirectTurn } from "@zuse/domain/conversation/startup-input";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
@@ -39,6 +40,7 @@ import { ConfigStoreService } from "../config-store/services/config-store-servic
 import {
 	decodeChatStartupIntent,
 	persistChatStartupIntent,
+	updateQueuedMessageWithStartupHandoff,
 } from "../conversation/core/chat-startup-intent.ts";
 import { messageFromRecord } from "../conversation/core/conversation-records.ts";
 import { timelineEventFromDomain } from "../conversation/core/conversation-timeline-projection.ts";
@@ -567,14 +569,6 @@ const sha256 = (value: string): Effect.Effect<string> =>
 		).join("");
 	});
 
-const directStartupInput = (input: ComposerInput | undefined): boolean =>
-	input !== undefined &&
-	input.text.trim().length > 0 &&
-	input.attachments.length === 0 &&
-	input.fileRefs.length === 0 &&
-	input.skillRefs.length === 0 &&
-	input.annotations.length === 0;
-
 const creationPhaseStatus = (
 	phase: ChatCreationOperation["phase"],
 ):
@@ -780,7 +774,8 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 										);
 							const useDirectTurn =
 								durableOperation.startup_ready !== 0 &&
-								directStartupInput(storedInput);
+								storedInput !== undefined &&
+								composerInputStartsDirectTurn(storedInput);
 							const initialPrompt = useDirectTurn
 								? storedInput?.text.trim()
 								: input.initialPrompt;
@@ -1947,9 +1942,20 @@ const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
 const MessagesQueueUpdate = MemoizeRpcs.toLayerHandler(
 	"messages.queue.update",
 	({ commandId, sessionId, queueId, input }) =>
-		Effect.flatMap(QueueService, (svc) =>
-			svc.updateQueuedMessage(commandId, sessionId, queueId, input),
-		),
+		Effect.gen(function* () {
+			const queue = yield* QueueService;
+			const queueTransaction = yield* QueueTransactionService;
+			const sql = yield* SqlClient.SqlClient;
+			return yield* updateQueuedMessageWithStartupHandoff(
+				queue,
+				queueTransaction,
+				sql,
+				commandId,
+				sessionId,
+				queueId,
+				input,
+			);
+		}),
 );
 
 const MessagesQueueDelete = MemoizeRpcs.toLayerHandler(

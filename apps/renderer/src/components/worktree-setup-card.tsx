@@ -138,6 +138,7 @@ export function WorktreeSetupCard({
 				hasWorktree,
 				setupDone,
 			}));
+	if (providerOutputStarted) return null;
 	if (cloudSummary !== null) {
 		const resumeLifecycle =
 			cloudSummary.state === "paused" ||
