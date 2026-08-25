@@ -1,7 +1,11 @@
 import { Schema } from "effect";
 import { describe, expect, test } from "vitest";
 
-import { LagSample } from "../../src/power.ts";
+import {
+	ComputerAwakeMode,
+	ComputerAwakeStatus,
+	LagSample,
+} from "../../src/power.ts";
 
 const attributedLag = {
 	id: "lag-1",
@@ -46,5 +50,26 @@ describe("LagSample", () => {
 				},
 			}),
 		).toThrow();
+	});
+});
+
+describe("ComputerAwakeStatus", () => {
+	test("accepts the host status and rejects unknown modes", () => {
+		expect(Schema.decodeUnknownSync(ComputerAwakeMode)("auto")).toBe("auto");
+		expect(() =>
+			Schema.decodeUnknownSync(ComputerAwakeMode)("timed"),
+		).toThrow();
+		expect(
+			Schema.decodeUnknownSync(ComputerAwakeStatus)({
+				supported: true,
+				mode: "always",
+				active: true,
+				activeAgents: 0,
+				remoteClients: 0,
+				electronBlockerActive: true,
+				caffeinateActive: true,
+				warning: null,
+			}),
+		).toMatchObject({ mode: "always", active: true });
 	});
 });

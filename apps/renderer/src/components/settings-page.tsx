@@ -5,6 +5,8 @@ import {
 	type BranchNamingStyle,
 	CommandId,
 	type CompletionSoundPreset,
+	type ComputerAwakeMode,
+	type ComputerAwakeStatus,
 	EnvironmentId,
 	type Folder,
 	type FolderId,
@@ -35,7 +37,7 @@ import { ChevronLeft, Plus, RefreshCw as RefreshIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
 import { displayPath } from "~/lib/display-path";
-import { hasHostCapability } from "~/lib/host-platform";
+import { hasHostCapability, isMacHost } from "~/lib/host-platform";
 import { rendererPlatformCapabilities } from "~/lib/platform-capabilities.ts";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 
@@ -51,6 +53,10 @@ import {
 	playCompletionSound,
 	prepareCompletionSound,
 } from "../lib/completion-sounds.ts";
+import {
+	computerAwakeModeDescription,
+	computerAwakeStatusText,
+} from "../lib/computer-awake.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import { useSettingsStore } from "../lib/settings-client-bus.ts";
@@ -989,6 +995,102 @@ const APPEARANCE_OPTIONS: ReadonlyArray<{
 	{ value: "dark", label: "Dark" },
 ];
 
+const COMPUTER_AWAKE_OPTIONS: ReadonlyArray<{
+	readonly value: ComputerAwakeMode;
+	readonly label: string;
+}> = [
+	{ value: "off", label: "Off" },
+	{ value: "auto", label: "Auto" },
+	{ value: "always", label: "Always" },
+];
+
+function ComputerAwakeSettings() {
+	const [status, setStatus] = useState<ComputerAwakeStatus | null>(null);
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		const awake = window.zuse?.computerAwake;
+		if (awake === undefined) return;
+		let mounted = true;
+		const unsubscribe = awake.onChanged((next) => {
+			if (mounted) setStatus(next);
+		});
+		void awake
+			.getStatus()
+			.then((next) => {
+				if (mounted) setStatus(next);
+			})
+			.catch((cause) => {
+				if (mounted)
+					setError(cause instanceof Error ? cause.message : String(cause));
+			});
+		return () => {
+			mounted = false;
+			unsubscribe();
+		};
+	}, []);
+
+	if (!isMacHost()) return null;
+
+	const mode = status?.mode ?? "auto";
+	const setMode = async (next: ComputerAwakeMode): Promise<void> => {
+		const awake = window.zuse?.computerAwake;
+		if (awake === undefined || saving) return;
+		setSaving(true);
+		setError(null);
+		try {
+			setStatus(await awake.setMode(next));
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : String(cause));
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	return (
+		<SettingsGroup
+			title="Power"
+			description="Keep this Mac available for local agents and remote control."
+		>
+			<SettingsRow
+				title="Keep Mac awake"
+				description={computerAwakeModeDescription(mode)}
+				action={
+					<Select
+						value={mode}
+						onValueChange={(value) => void setMode(value as ComputerAwakeMode)}
+						items={COMPUTER_AWAKE_OPTIONS}
+					>
+						<SelectTrigger
+							className="h-7 w-28"
+							disabled={saving}
+							aria-label="Keep Mac awake"
+						>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectPopup>
+							{COMPUTER_AWAKE_OPTIONS.map((option) => (
+								<SelectItem key={option.value} value={option.value}>
+									{option.label}
+								</SelectItem>
+							))}
+						</SelectPopup>
+					</Select>
+				}
+			>
+				<div className="flex flex-col gap-1 text-[11px] leading-snug text-muted-foreground">
+					<p>{error ?? computerAwakeStatusText(status)}</p>
+					<p>
+						The display may turn off. Closed-lid operation is best effort and
+						depends on macOS hardware and power policy.
+					</p>
+				</div>
+			</SettingsRow>
+		</SettingsGroup>
+	);
+}
+
 function GeneralPane() {
 	const appearanceMode = useSettingsStore((s) => s.appearanceMode);
 	const setAppearanceMode = useSettingsStore((s) => s.setAppearanceMode);
@@ -1180,6 +1282,8 @@ function GeneralPane() {
 					}
 				/>
 			</SettingsGroup>
+
+			<ComputerAwakeSettings />
 
 			<SettingsGroup title="Notifications">
 				<SettingsRow

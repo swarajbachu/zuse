@@ -84,6 +84,12 @@ export type WsServerProtocolOptions = {
 	readonly maxPayloadBytes?: number;
 	readonly onDiagnostic?: WsDiagnostic;
 	readonly onListening?: (address: WsServerListeningAddress) => void;
+	/**
+	 * Desktop-host lifecycle seam for accepted remote RPC sockets. The callback
+	 * runs only after authentication and protocol-version checks pass; its
+	 * returned release function runs exactly once when that socket closes.
+	 */
+	readonly onAuthenticatedConnection?: () => () => void;
 	readonly onPairing?: (pairing: {
 		readonly browserUrl: string;
 		readonly baseUrl: string;
@@ -576,7 +582,27 @@ export const wsServerProtocolLayer = (
 						426,
 					);
 				}
-				return yield* httpEffect;
+				// Upgrade here so lifecycle accounting starts only after Node has
+				// accepted the WebSocket. The RPC helper receives the already-created
+				// socket through a request view and continues to own its full lifetime.
+				const socket = yield* Effect.orDie(request.upgrade);
+				const upgradedRequest = new Proxy(request, {
+					get(target, property) {
+						return property === "upgrade"
+							? Effect.succeed(socket)
+							: Reflect.get(target, property, target);
+					},
+				});
+				const release = opts.onAuthenticatedConnection?.();
+				return yield* httpEffect.pipe(
+					Effect.provideService(
+						HttpServerRequest.HttpServerRequest,
+						upgradedRequest,
+					),
+					Effect.ensuring(
+						release === undefined ? Effect.void : Effect.sync(release),
+					),
+				);
 			});
 
 			const router = yield* HttpRouter.make;
