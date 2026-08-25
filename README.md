@@ -113,6 +113,8 @@ settings.
 - Resizable panes
 - Top bar with active session info
 - PTY terminal (xterm.js + node-pty)
+- macOS Keep Mac awake modes: Auto while an agent or authenticated remote
+  client is active, Always, or Off, with live status in General settings
 
 ### Persistence & distribution
 - SQLite stores projects, sessions, messages, tool calls across restarts
@@ -196,6 +198,10 @@ bun run dist:linux:unsigned
 ```
 
 Requires: Bun 1.3.10+, Node.js ≥ 22.13, and macOS or x64 Linux.
+
+Changes to the macOS awake controller require the
+[physical MacBook release check](docs/testing/mac-computer-awake.md), including
+assertion and best-effort closed-lid verification.
 
 The default install uses the public icon set and does not require registry
 credentials. Contributors can clone the repository and run the commands above
