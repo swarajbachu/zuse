@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.11]
+
+### Fixed
+- New-chat prompts remain visible in the transcript while Zuse prepares the workspace, without also appearing in the queue or duplicating when the persisted message arrives
+
 ## [0.20.10]
 
 ### Fixed
