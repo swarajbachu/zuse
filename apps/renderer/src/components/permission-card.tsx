@@ -7,7 +7,10 @@ import type {
 import { useCallback, useEffect } from "react";
 
 import { cn } from "~/lib/utils";
-import { decideEnvironmentPermission } from "../lib/environment-permissions-client-bus.ts";
+import {
+	decideEnvironmentPermission,
+	denyEnvironmentPermissionAndInterrupt,
+} from "../lib/environment-permissions-client-bus.ts";
 
 const kindHeadline = (kind: PermissionKind): string => {
 	switch (kind._tag) {
@@ -61,8 +64,6 @@ const ALWAYS_ALLOW_FOLDER: PermissionDecision = {
 	_tag: "AlwaysAllow",
 	scope: "folder",
 };
-const DENY: PermissionDecision = { _tag: "Deny" };
-
 export function PermissionCard({
 	head,
 	queueSize,
@@ -77,13 +78,17 @@ export function PermissionCard({
 			decideEnvironmentPermission(requestId, decision, environmentId),
 		[environmentId],
 	);
+	const deny = useCallback(
+		() => denyEnvironmentPermissionAndInterrupt(head, environmentId),
+		[environmentId, head],
+	);
 	const persistentDisabled = head.forcePrompt;
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key === "Escape") {
 				e.preventDefault();
-				void decide(head.id, DENY);
+				void deny();
 				return;
 			}
 			if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -94,7 +99,7 @@ export function PermissionCard({
 		};
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
-	}, [head.id, decide]);
+	}, [head.id, decide, deny]);
 
 	return (
 		<div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
@@ -122,7 +127,7 @@ export function PermissionCard({
 			<div className="mt-4 flex flex-wrap items-center justify-end gap-1">
 				<button
 					type="button"
-					onClick={() => void decide(head.id, DENY)}
+					onClick={() => void deny()}
 					className="rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
 					title="Esc"
 				>

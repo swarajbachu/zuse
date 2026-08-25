@@ -1,12 +1,15 @@
 import {
 	defaultModelFor,
+	EnvironmentId,
 	type FolderId,
 	type Session,
 	type SessionId,
 } from "@zuse/contracts";
 
+import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSessionsStore } from "../store/sessions.ts";
+import { resolveChatRuntimeMode } from "./auto-worktree.ts";
 import { activeSessionsByProject } from "./environment-entities.ts";
 import { useSettingsStore } from "./settings-client-bus.ts";
 
@@ -70,8 +73,14 @@ export const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 	const providerId = settings.defaultProviderId;
 	const model =
 		settings.defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
+	const runtimeMode = await resolveChatRuntimeMode(
+		EnvironmentId.make(
+			useEnvironmentCatalogStore.getState().activeEnvironmentId,
+		),
+		projectId,
+	);
 	await sessions.archive(currentSession.id);
 	await sessions.create(currentSession.chatId, providerId, model, {
-		runtimeMode: settings.defaultRuntimeMode,
+		runtimeMode,
 	});
 };

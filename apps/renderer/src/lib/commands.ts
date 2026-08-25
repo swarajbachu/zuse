@@ -11,6 +11,7 @@ import { useSessionsStore } from "../store/sessions";
 import { rightPaneKey, useUiStore } from "../store/ui";
 import { useWorkspaceStore } from "../store/workspace";
 import { captureAnalytics } from "./analytics";
+import { resolveChatRuntimeMode } from "./auto-worktree.ts";
 import { localProjectForCloudChat } from "./cloud-workspace-catalog.ts";
 import {
 	activeChatsByProject,
@@ -97,8 +98,16 @@ async function newTabInActiveChat(): Promise<void> {
 	const fresh = useSettingsStore.getState();
 	const model =
 		fresh.defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
+	const projectId = useWorkspaceStore.getState().selectedFolderId;
+	const environmentId = EnvironmentId.make(
+		useEnvironmentCatalogStore.getState().activeEnvironmentId,
+	);
+	const runtimeMode =
+		projectId === null
+			? fresh.defaultRuntimeMode
+			: await resolveChatRuntimeMode(environmentId, projectId);
 	await useSessionsStore.getState().create(chatId, providerId, model, {
-		runtimeMode: fresh.defaultRuntimeMode,
+		runtimeMode,
 	});
 }
 
