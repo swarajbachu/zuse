@@ -33,11 +33,17 @@ describe("migration 0045 upgrade compatibility", () => {
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
 					const createdAt = "2026-01-01T00:00:00.000Z";
+					const duplicateCreatedAt = "2026-01-01T00:00:01.000Z";
 					stage = "insert the legacy project";
 					yield* sql`
 						INSERT INTO projects (id, path, name, created_at, updated_at)
 						VALUES ('project-legacy', '/tmp/project-legacy', 'Legacy project',
 							${createdAt}, ${createdAt})
+					`;
+					yield* sql`
+						INSERT INTO projects (id, path, name, created_at, updated_at)
+						VALUES ('project-duplicate', '/tmp/project-legacy', 'Duplicate project',
+							${duplicateCreatedAt}, ${duplicateCreatedAt})
 					`;
 					stage = "insert the legacy chat";
 					yield* sql`
@@ -61,6 +67,22 @@ describe("migration 0045 upgrade compatibility", () => {
 					yield* sql`
 						UPDATE chats SET active_session_id = 'session-legacy'
 						WHERE id = 'chat-legacy'
+					`;
+					yield* sql`
+						INSERT INTO chats
+							(id, project_id, worktree_id, title, active_session_id,
+							 origin_session_id, archived_at, archived_worktree_json,
+							 last_message_at, last_read_at, created_at, updated_at)
+						VALUES ('chat-duplicate', 'project-duplicate', NULL, 'Duplicate chat',
+							NULL, NULL, NULL, NULL, ${createdAt}, ${createdAt},
+							${createdAt}, ${createdAt})
+					`;
+					yield* sql`
+						INSERT INTO sessions
+							(id, project_id, title, provider_id, model, status, chat_id,
+							 created_at, updated_at)
+						VALUES ('session-duplicate', 'project-duplicate', 'Duplicate chat',
+							'codex', 'gpt-5', 'idle', 'chat-duplicate', ${createdAt}, ${createdAt})
 					`;
 				}),
 			);
@@ -98,13 +120,36 @@ describe("migration 0045 upgrade compatibility", () => {
 						const newChats = yield* sql<{ readonly count: number }>`
 							SELECT COUNT(*) AS count FROM chats WHERE id = 'chat-new'
 						`;
-						return { integrity, counts, newChats };
+						const projectReferences = yield* sql<{
+							readonly project_id: string;
+						}>`
+							SELECT project_id FROM chats
+							UNION
+							SELECT project_id FROM sessions
+							ORDER BY project_id
+						`;
+						const indexes = yield* sql<{
+							readonly name: string;
+							readonly unique: number;
+						}>`PRAGMA index_list(projects)`;
+						return { integrity, counts, newChats, projectReferences, indexes };
 					}),
 				);
 
 				expect(result.integrity).toEqual([{ quick_check: "ok" }]);
-				expect(result.counts).toEqual([{ projects: 1, chats: 1, sessions: 1 }]);
+				expect(result.counts).toEqual([{ projects: 1, chats: 2, sessions: 2 }]);
 				expect(result.newChats).toEqual([{ count: 1 }]);
+				expect(result.projectReferences).toEqual([
+					{ project_id: "project-legacy" },
+				]);
+				expect(result.indexes).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							name: "idx_projects_path_unique",
+							unique: 1,
+						}),
+					]),
+				);
 			} finally {
 				await currentRuntime.dispose();
 			}

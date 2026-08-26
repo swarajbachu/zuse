@@ -1,4 +1,7 @@
-import { CloudWorkspaceOpError } from "@zuse/contracts";
+import {
+	CloudWorkspaceOpError,
+	WorkspaceDuplicatePathError,
+} from "@zuse/contracts";
 import { describe, expect, test } from "vitest";
 import { formatError } from "../../src/lib/format-error.ts";
 
@@ -28,5 +31,15 @@ describe("cloud workspace errors", () => {
 				new CloudWorkspaceOpError({ code: "beta-access-unavailable" }),
 			),
 		).toBe("Cloud access could not be verified. Try again shortly.");
+	});
+});
+
+describe("workspace import errors", () => {
+	test("explains when a folder is already in the workspace", () => {
+		expect(
+			formatError(
+				new WorkspaceDuplicatePathError({ path: "/projects/already" }),
+			),
+		).toBe("That folder is already in your workspace.");
 	});
 });

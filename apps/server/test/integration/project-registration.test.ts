@@ -160,6 +160,131 @@ describe("WorkspaceServiceLive project registration", () => {
 			".context\n",
 		);
 	});
+
+	it("returns the existing folder when the same path is added again", async () => {
+		const first = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (workspace) => workspace.add(dir)),
+		);
+		const second = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (workspace) => workspace.add(dir)),
+		);
+		expect(second.id).toBe(first.id);
+		expect(second.path).toBe(first.path);
+		const listed = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (workspace) => workspace.list()),
+		);
+		expect(listed).toHaveLength(1);
+	});
+
+	it("serializes overlapping imports of the same folder", async () => {
+		const [first, second] = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (workspace) =>
+				Effect.all([workspace.add(dir), workspace.add(dir)], {
+					concurrency: "unbounded",
+				}),
+			),
+		);
+		expect(second.id).toBe(first.id);
+		const listed = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (workspace) => workspace.list()),
+		);
+		expect(listed).toHaveLength(1);
+	});
+
+	it("serializes removal with re-import", async () => {
+		const existing = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (workspace) => workspace.add(dir)),
+		);
+		const [, reimported] = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (workspace) =>
+				Effect.all([workspace.remove(existing.id), workspace.add(dir)], {
+					concurrency: "unbounded",
+				}),
+			),
+		);
+		const listed = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (workspace) => workspace.list()),
+		);
+		expect(listed).toEqual([reimported]);
+	});
+
+	it("converges across separate workspace service instances", async () => {
+		const databaseDirectory = await fs.mkdtemp(
+			Path.join(os.tmpdir(), "zuse-workspace-add-database-"),
+		);
+		const filename = Path.join(databaseDirectory, "zuse.sqlite");
+		const makeRuntime = () => {
+			const SqlLive = sqliteLayer({ filename });
+			return ManagedRuntime.make(
+				Layer.mergeAll(
+					SqlLive,
+					WorkspaceServiceLive.pipe(
+						Layer.provide(SqlLive),
+						Layer.provide(NodeServices.layer),
+					),
+				),
+			);
+		};
+		const firstRuntime = makeRuntime();
+		const secondRuntime = makeRuntime();
+		try {
+			await firstRuntime.runPromise(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`
+						CREATE TABLE projects (
+							id TEXT PRIMARY KEY,
+							path TEXT NOT NULL UNIQUE,
+							name TEXT NOT NULL,
+							created_at TEXT NOT NULL,
+							updated_at TEXT NOT NULL
+						)
+					`;
+					yield* sql`
+						CREATE TABLE app_state (
+							key TEXT PRIMARY KEY,
+							value TEXT NOT NULL
+						)
+					`;
+				}),
+			);
+			const [first, second] = await Promise.all([
+				firstRuntime.runPromise(
+					Effect.flatMap(WorkspaceService, (workspace) => workspace.add(dir)),
+				),
+				secondRuntime.runPromise(
+					Effect.flatMap(WorkspaceService, (workspace) => workspace.add(dir)),
+				),
+			]);
+			expect(second.id).toBe(first.id);
+			const listed = await firstRuntime.runPromise(
+				Effect.flatMap(WorkspaceService, (workspace) => workspace.list()),
+			);
+			expect(listed).toHaveLength(1);
+		} finally {
+			await Promise.all([firstRuntime.dispose(), secondRuntime.dispose()]);
+			await fs.rm(databaseDirectory, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps case-distinct directories separate on case-sensitive filesystems", async () => {
+		const lower = Path.join(dir, "project");
+		const upper = Path.join(dir, "PROJECT");
+		await fs.mkdir(lower);
+		await fs.mkdir(upper, { recursive: true });
+		if ((await fs.realpath(lower)) === (await fs.realpath(upper))) return;
+
+		const [first, second] = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (workspace) =>
+				Effect.all([workspace.add(lower), workspace.add(upper)]),
+			),
+		);
+		expect(second.id).not.toBe(first.id);
+		const listed = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (workspace) => workspace.list()),
+		);
+		expect(listed).toHaveLength(2);
+	});
 });
 
 const exists = async (filePath: string): Promise<boolean> => {

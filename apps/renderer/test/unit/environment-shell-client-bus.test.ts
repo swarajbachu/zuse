@@ -312,12 +312,79 @@ describe("environment shell ClientBus driver", () => {
 			EnvironmentShellDriverClient,
 			EnvironmentShellData
 		>);
-		Queue.offerUnsafe(workspace, [folder("one")]);
 		current = false;
+		Queue.offerUnsafe(workspace, [folder("one")]);
 		gate.resolve();
 		await Promise.resolve();
 		await Promise.resolve();
 		expect(emit).not.toHaveBeenCalled();
+		driver.stop();
+	});
+
+	it("emits the workspace folder list before git.origin resolves", async () => {
+		const workspace = Effect.runSync(
+			Queue.unbounded<ReadonlyArray<ReturnType<typeof folder>>>(),
+		);
+		const gate = Promise.withResolvers<void>();
+		const emitted: string[][] = [];
+		const origins: Array<Record<string, unknown>> = [];
+		const subscribedProjects: string[] = [];
+		const cachedOrigin = {
+			host: "github.com",
+			owner: "acme",
+			repo: "cached",
+		};
+		const driver = makeEnvironmentShellResourceDriver({
+			reportConnectionFailure: vi.fn(),
+		});
+		driver.start({
+			key: environmentShellResourceKey(ref),
+			client: {
+				"workspace.streamChanges": () => Stream.fromQueue(workspace),
+				"chat.streamChanges": ({
+					projectId,
+				}: {
+					readonly projectId: FolderId;
+				}) => {
+					subscribedProjects.push(`chat:${projectId}`);
+					return Stream.make({ _tag: "snapshot" as const, chats: [] });
+				},
+				"session.streamChanges": () => Stream.never,
+				"chat.creation.stream": () => Stream.never,
+				"git.origin": () => Effect.promise(() => gate.promise.then(() => null)),
+			} as unknown as EnvironmentShellDriverClient,
+			generation: 5,
+			data: {
+				folders: [folder("cached")],
+				originsByFolder: { cached: cachedOrigin },
+				chatsByProject: {},
+				sessionsByProject: {},
+				creationOperationsByProject: {},
+			},
+			cursor: null,
+			snapshot: () => null,
+			isCurrent: () => true,
+			emit: (update) => {
+				if (update.data !== undefined) {
+					emitted.push(update.data.folders.map(({ id }) => id));
+					origins.push(update.data.originsByFolder);
+				}
+				return true;
+			},
+		} satisfies ResourceDriverContext<
+			EnvironmentShellDriverClient,
+			EnvironmentShellData
+		>);
+		Queue.offerUnsafe(workspace, [folder("cached"), folder("fresh")]);
+		await vi.waitFor(() => expect(emitted[0]).toEqual(["cached", "fresh"]));
+		expect(subscribedProjects).toContain("chat:cached");
+		expect(subscribedProjects).toContain("chat:fresh");
+		expect(origins[0]).toEqual({ cached: cachedOrigin });
+		gate.resolve();
+		await vi.waitFor(() =>
+			expect(origins.at(-1)).toEqual({ cached: cachedOrigin, fresh: null }),
+		);
+		expect(emitted.at(-1)).toEqual(["cached", "fresh"]);
 		driver.stop();
 	});
 });

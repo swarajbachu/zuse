@@ -770,12 +770,16 @@ export const GitServiceLive = Layer.effect(
 			);
 
 		// `git remote get-url origin` exits non-zero when no remote is set; we
-		// treat the resulting GitCommandError as "no origin" → null.
+		// treat the resulting GitCommandError as "no origin" → null. A hung git
+		// must not block workspace listing, so origin lookups time out like `gh`.
 		const origin: GitService["Service"]["origin"] = (folderId) =>
 			Effect.flatMap(resolvePath(folderId), (cwd) =>
 				run(folderId, cwd, ["remote", "get-url", "origin"]).pipe(
 					Effect.map((s) => parseRemoteUrl(s.trim())),
+					Effect.timeout("5 seconds"),
+					Effect.catchTag("TimeoutError", () => Effect.succeed(null)),
 					Effect.catchTag("GitCommandError", () => Effect.succeed(null)),
+					Effect.catchTag("GitNotARepoError", () => Effect.succeed(null)),
 				),
 			);
 

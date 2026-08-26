@@ -20,6 +20,7 @@ const diagnosticErrorType = (value: unknown): string => {
 // fall through to a raw JSON dump like `{ "folderId": "…" }`. Map them to
 // human copy here so any surface that formats them stays readable.
 const TAG_MESSAGES: Record<string, string> = {
+	WorkspaceDuplicatePathError: "That folder is already in your workspace.",
 	GitNotARepoError: "This folder isn't a Git repository.",
 	DirectoryUnavailableError: "This directory is unavailable.",
 	GitFolderNotFoundError: "Project folder not found.",

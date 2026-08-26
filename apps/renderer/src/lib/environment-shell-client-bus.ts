@@ -81,35 +81,48 @@ let nextDriverEpoch = 0;
 const environmentRef = (key: ResourceKey<unknown>): EnvironmentRef | null =>
 	key.kind === "environment-shell" && !("folderId" in key.ref) ? key.ref : null;
 
-const foldersMatch = (
-	left: ReadonlyArray<Folder>,
-	right: ReadonlyArray<Folder>,
-): boolean =>
-	left.length === right.length &&
-	left.every((folder) => right.some((candidate) => candidate.id === folder.id));
-
-const resolveOrigins = async (
-	client: EnvironmentShellDriverClient,
-	folders: ReadonlyArray<Folder>,
+const reusedOrigins = (
 	previous: EnvironmentShellData | null,
-): Promise<Readonly<Record<string, GitOriginInfo | null>>> =>
-	previous !== null && foldersMatch(previous.folders, folders)
-		? previous.originsByFolder
+	folders: ReadonlyArray<Folder>,
+): Readonly<Record<string, GitOriginInfo | null>> =>
+	previous === null
+		? {}
 		: Object.fromEntries(
-				await Promise.all(
-					folders.map(async (folder) => {
-						const origin = await Effect.runPromise(
-							client["git.origin"]({ folderId: folder.id }),
-						).catch(() => null);
-						return [folder.id, origin] as const;
-					}),
+				folders.flatMap((folder) =>
+					folder.id in previous.originsByFolder
+						? ([
+								[folder.id, previous.originsByFolder[folder.id] ?? null],
+							] as const)
+						: [],
 				),
 			);
+
+const resolveMissingOrigins = async (
+	client: EnvironmentShellDriverClient,
+	folders: ReadonlyArray<Folder>,
+	known: Readonly<Record<string, GitOriginInfo | null>>,
+): Promise<Readonly<Record<string, GitOriginInfo | null>>> => {
+	const missing = folders.filter((folder) => !(folder.id in known));
+	if (missing.length === 0) return known;
+	const fetched = await Promise.all(
+		missing.map(async (folder) => {
+			const origin = await Effect.runPromise(
+				client["git.origin"]({ folderId: folder.id }),
+			).catch(() => null);
+			return [folder.id, origin] as const;
+		}),
+	);
+	return { ...known, ...Object.fromEntries(fetched) };
+};
 
 type EnvironmentShellInput =
 	| Readonly<{
 			type: "workspace";
 			folders: ReadonlyArray<Folder>;
+			originsByFolder: Readonly<Record<string, GitOriginInfo | null>>;
+	  }>
+	| Readonly<{
+			type: "origins";
 			originsByFolder: Readonly<Record<string, GitOriginInfo | null>>;
 	  }>
 	| Readonly<{
@@ -180,31 +193,45 @@ const shellInputs = (
 	let previous = initial;
 	return client["workspace.streamChanges"]({}).pipe(
 		Stream.switchMap((folders) => {
-			const workspace = Stream.fromEffect(
-				Effect.tryPromise({
-					try: async (): Promise<EnvironmentShellInput> => {
-						const originsByFolder = await resolveOrigins(
-							client,
-							folders,
-							previous,
-						);
-						previous = {
-							...(previous ?? emptyShell()),
-							folders,
-							originsByFolder,
-						};
-						return { type: "workspace", folders, originsByFolder };
-					},
-					catch: (cause) => cause,
-				}),
+			const originsByFolder = reusedOrigins(previous, folders);
+			previous = {
+				...(previous ?? emptyShell()),
+				folders,
+				originsByFolder,
+			};
+			const missing = folders.filter(
+				(folder) => !(folder.id in originsByFolder),
 			);
+			const origins =
+				missing.length === 0
+					? Stream.empty
+					: Stream.fromEffect(
+							Effect.tryPromise({
+								try: async (): Promise<EnvironmentShellInput> => {
+									const resolved = await resolveMissingOrigins(
+										client,
+										folders,
+										originsByFolder,
+									);
+									previous = {
+										...(previous ?? emptyShell()),
+										folders,
+										originsByFolder: resolved,
+									};
+									return { type: "origins", originsByFolder: resolved };
+								},
+								catch: (cause) => cause,
+							}),
+						);
 			return Stream.concat(
-				workspace,
+				Stream.succeed({
+					type: "workspace",
+					folders,
+					originsByFolder,
+				} satisfies EnvironmentShellInput),
 				Stream.mergeAll(
-					folders.map((folder) => projectInputs(client, folder)),
-					{
-						concurrency: "unbounded",
-					},
+					[origins, ...folders.map((folder) => projectInputs(client, folder))],
+					{ concurrency: "unbounded" },
 				),
 			);
 		}),
@@ -232,10 +259,12 @@ const upsertChat = (
 	);
 
 /**
- * One driver owns every environment-shell stream. Workspace frames switch the
- * qualified project subscriptions as one unit, and `runForEach` serializes all
- * reducer input so chat/session/creation summaries cannot race one another.
- * Each server stream subscribes before its snapshot, so switching the set of
+ * One driver owns every environment-shell stream. Workspace frames emit the
+ * folder list immediately so a hung `git.origin` cannot hide projects, then
+ * fill origins in the background. Those frames also switch the qualified
+ * project subscriptions as one unit, and `runForEach` serializes all reducer
+ * input so chat/session/creation summaries cannot race one another. Each
+ * server stream subscribes before its snapshot, so switching the set of
  * projects does not open a snapshot/live gap and requires no feature polling.
  */
 export const makeEnvironmentShellResourceDriver = (options: {
@@ -318,6 +347,14 @@ export const makeEnvironmentShellResourceDriver = (options: {
 							input.folders,
 							() => [],
 						),
+					};
+					emit();
+					return;
+				}
+				if (input.type === "origins") {
+					current = {
+						...current,
+						originsByFolder: input.originsByFolder,
 					};
 					emit();
 					return;
