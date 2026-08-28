@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The hosted control plane is now named API across desktop, mobile, Serve, runtime assets, and operations tooling, with production served from `api.zuse.sh` and staging from `api-staging.stuff.md`
+- Cloud database and local configuration names migrate transactionally from `relay_*` to `api_*` without discarding billing, workspace, installation, or audit data
+- The shared GitHub App callback now brokers allowlisted staging installation state through the production API hostname
+
+### Removed
+- The old `relay.stuff.md` and `relay-staging.stuff.md` hostnames and Relay-named public environment variables are no longer supported
+
 ## [0.20.11]
 
 ### Fixed

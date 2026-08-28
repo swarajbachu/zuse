@@ -1,5 +1,24 @@
 [
   {
+    "version": "Unreleased",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "The hosted control plane is now named API across desktop, mobile, Serve, runtime assets, and operations tooling, with production served from `api.zuse.sh` and staging from `api-staging.stuff.md`",
+          "Cloud database and local configuration names migrate transactionally from `relay_*` to `api_*` without discarding billing, workspace, installation, or audit data",
+          "The shared GitHub App callback now brokers allowlisted staging installation state through the production API hostname"
+        ]
+      },
+      {
+        "title": "Removed",
+        "items": [
+          "The old `relay.stuff.md` and `relay-staging.stuff.md` hostnames and Relay-named public environment variables are no longer supported"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.20.11",
     "sections": [
       {
