@@ -4,7 +4,7 @@ import { returnToInbox } from "../../../src/lib/connection-navigation";
 
 describe("connection navigation", () => {
 	test("collapses pairing, manual, and remote entry flows into the root inbox", () => {
-		for (const source of ["paired", "manual", "relay"]) {
+		for (const source of ["paired", "manual", "api"]) {
 			const navigator = {
 				dismissAll: vi.fn(),
 				replace: vi.fn(),

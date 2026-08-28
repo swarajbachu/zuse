@@ -25,7 +25,7 @@ incompatible source rebuild of that dependency on Linux.
 
 Build the server tarballs from this exact checkout first. This avoids depending
 on a separately published runtime and keeps the external-bind behavior atomic
-with the relay change:
+with the api change:
 
 ```sh
 infra/cloud-sandboxes/prepare-artifacts.sh
@@ -48,19 +48,19 @@ The current CLI's `template create` command is used instead of the legacy
 configuration; it is not part of the provider-neutral Cloud Sandbox offer.
 Keep the stable template alias in `E2B_TEMPLATE_ID` and copy the immutable build
 identifier printed by the CLI to `E2B_TEMPLATE_VERSION`. Change that version on
-every template publication. The relay forks a compatible prepared cache when
+every template publication. The api forks a compatible prepared cache when
 one exists and otherwise creates from the current base template and performs a
 normal authenticated clone. Cache refresh failures therefore affect startup
 speed, not workspace availability. Set the `E2B_API_KEY` Worker secret with
-`bun --filter @zuse/relay secret:e2b`, and deploy the relay only after the
+`bun --filter @zuse/api secret:e2b`, and deploy the api only after the
 template can be created with the configured API key.
 
 Adapter environment variables only determine availability. The user selects
-placement in the composer; no adapter configured in the relay becomes an
+placement in the composer; no adapter configured in the api becomes an
 account default. Future adapters keep native image, snapshot, or recipe
 settings under their own prefixes while sharing the workspace lifecycle.
 
-The relay injects boot values into the process, never the template environment.
+The api injects boot values into the process, never the template environment.
 Managed-server runtime manifests are intentionally not reused by cloud
 workspaces. A cloud-specific signed manifest may be configured separately after
 its workspace protocol has passed staging compatibility checks; otherwise the

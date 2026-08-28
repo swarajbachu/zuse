@@ -5,11 +5,11 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
-	defaultRelayBaseUrl,
+	defaultApiBaseUrl,
 	defaultWorkosClientId,
 } from "../../src/auth/config";
 
-describe("mobile relay configuration", () => {
+describe("mobile api configuration", () => {
 	it("keeps development on staging and release builds on production", () => {
 		expect(defaultWorkosClientId(true)).toBe(
 			"client_01KW6ZEZKVMZ0G429A89XZD83Q",
@@ -17,11 +17,11 @@ describe("mobile relay configuration", () => {
 		expect(defaultWorkosClientId(false)).toBe(
 			"client_01KWGQ818571ARFATQ3G9AR2Y2",
 		);
-		expect(defaultRelayBaseUrl(true)).toBe("https://relay-staging.stuff.md");
-		expect(defaultRelayBaseUrl(false)).toBe("https://relay.stuff.md");
+		expect(defaultApiBaseUrl(true)).toBe("https://api-staging.stuff.md");
+		expect(defaultApiBaseUrl(false)).toBe("https://api.zuse.sh");
 	});
 
-	it("pins internal builds to the staging identity and relay", async () => {
+	it("pins internal builds to the staging identity and api", async () => {
 		const eas = JSON.parse(
 			await readFile(
 				resolve(dirname(fileURLToPath(import.meta.url)), "../../eas.json"),
@@ -35,7 +35,7 @@ describe("mobile relay configuration", () => {
 		for (const profile of ["development", "preview"]) {
 			expect(eas.build[profile]?.env).toMatchObject({
 				EXPO_PUBLIC_WORKOS_CLIENT_ID: "client_01KW6ZEZKVMZ0G429A89XZD83Q",
-				EXPO_PUBLIC_ZUSE_RELAY_URL: "https://relay-staging.stuff.md",
+				EXPO_PUBLIC_ZUSE_API_URL: "https://api-staging.stuff.md",
 			});
 		}
 		expect(eas.build.production?.env?.EXPO_PUBLIC_WORKOS_CLIENT_ID).toBe(

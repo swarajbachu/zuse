@@ -16,6 +16,7 @@ import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
 import { DateTime, Effect, FileSystem, Layer, Option } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { ApiActivityPublisher } from "../../api/activity-publisher.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { LinearService } from "../../linear/services/linear-service.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
@@ -23,7 +24,6 @@ import { makeReactorEffectJournal } from "../../provider/reactor-effect-journal.
 import { ProviderService } from "../../provider/services/provider-service.ts";
 import { TitleGenerator } from "../../provider/title-generator.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";
-import { RelayActivityPublisher } from "../../relay/activity-publisher.ts";
 import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
 import { makeArchiveOperations } from "../core/archive-operations.ts";
 import { makeAutoNameOperations } from "../core/auto-name-operations.ts";
@@ -137,7 +137,7 @@ const ConversationRuntimeLive = Layer.effect(
 		// these Effect methods via `Runtime.runPromise`. Same shape as the
 		// browser-bridge tool binding in ProviderService.
 		const runtime = yield* Effect.context<never>();
-		const relayActivity = yield* RelayActivityPublisher;
+		const apiActivity = yield* ApiActivityPublisher;
 		const linear = yield* Effect.serviceOption(LinearService);
 		const settleLinear = <A>(
 			effect: Effect.Effect<A, { readonly reason: string }>,
@@ -214,7 +214,7 @@ const ConversationRuntimeLive = Layer.effect(
 				sessionDomain,
 				currentTimestamp,
 				ndjson,
-				relayActivity,
+				apiActivity,
 				provider,
 				dispatchSessionCommand: appendSessionCommand,
 				runSessionReactors: Effect.suspend(() => reactorRuntime.runSession),

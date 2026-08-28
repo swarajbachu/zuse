@@ -147,7 +147,7 @@ const isSystemdUserAvailable = async (): Promise<boolean> => {
 export const installServeService = async (input: {
 	readonly executable: string;
 	readonly paths: ServeServicePaths;
-	readonly relayUrl?: string;
+	readonly apiUrl?: string;
 	readonly sshManaged?: boolean;
 	readonly tailscale?: boolean;
 	readonly noAccount?: boolean;
@@ -165,7 +165,7 @@ export const installServeService = async (input: {
 			executable: input.executable,
 			dataDir: input.paths.dataDir,
 			logDir: input.paths.logDir,
-			relayUrl: input.relayUrl,
+			apiUrl: input.apiUrl,
 			sshManaged: input.sshManaged,
 			tailscale: input.tailscale,
 			noAccount: input.noAccount,
@@ -202,7 +202,7 @@ export const installServeService = async (input: {
 		executable: input.executable,
 		dataDir: input.paths.dataDir,
 		logDir: input.paths.logDir,
-		relayUrl: input.relayUrl,
+		apiUrl: input.apiUrl,
 		sshManaged: input.sshManaged,
 		tailscale: input.tailscale,
 		noAccount: input.noAccount,

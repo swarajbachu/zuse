@@ -33,7 +33,7 @@ RUN npm install --global \
 
 # These tarballs are built from this checkout. The current server/serve release
 # is intentionally not fetched from npm: the sandbox external-bind behavior
-# must ship atomically with the relay that depends on it.
+# must ship atomically with the api that depends on it.
 COPY artifacts/zusehq-server.tgz /tmp/zusehq-server.tgz
 COPY artifacts/zusehq-serve.tgz /tmp/zusehq-serve.tgz
 RUN npm install --global /tmp/zusehq-server.tgz \
@@ -67,6 +67,6 @@ RUN mkdir -p /var/lib/zuse/project-build /var/lib/zuse/workspace \
 USER zuse
 WORKDIR /home/zuse
 
-# The relay starts Zuse through envd after Sandbox.create. Create-time env vars
+# The api starts Zuse through envd after Sandbox.create. Create-time env vars
 # are intentionally not consumed by an image start command.
 CMD ["sleep", "infinity"]

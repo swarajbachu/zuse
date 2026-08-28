@@ -238,7 +238,7 @@ const wire = (): void => {
 				.getState()
 				.entries.filter(
 					(entry) =>
-						entry.connectionKind === "relay" && entry.status === "connected",
+						entry.connectionKind === "api" && entry.status === "connected",
 				)
 				.map((entry) => entry.environmentId),
 		);

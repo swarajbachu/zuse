@@ -137,6 +137,7 @@ if (
 	fixPath();
 }
 
+import { resolveDesktopApiPort } from "./api-port.ts";
 import { makeBatchedLogWriter } from "./batched-log-writer.ts";
 import { type BatteryStatus, readBatteryStatus } from "./battery-status.ts";
 import {
@@ -190,7 +191,6 @@ import {
 	powerRecordingReportMarkdown,
 } from "./power-monitor.ts";
 import { installPowerMonitorEventSampling } from "./power-monitor-events.ts";
-import { resolveDesktopRelayPort } from "./relay-port.ts";
 import {
 	sanitizeRemoteConnectionLog,
 	sanitizeRemoteDiagnosticValue,
@@ -1881,8 +1881,8 @@ const authShell = {
 async function createMainWindow() {
 	const startupStartedAt = performance.now();
 	const userData = app.getPath("userData");
-	const [relayPort, networkAccessEnabled] = await Promise.all([
-		resolveDesktopRelayPort({
+	const [apiPort, networkAccessEnabled] = await Promise.all([
+		resolveDesktopApiPort({
 			configuredPort: process.env.ZUSE_DESKTOP_WS_PORT,
 		}),
 		readNetworkAccessPreference(userData),
@@ -1895,20 +1895,20 @@ async function createMainWindow() {
 		ownershipDir: userData,
 		probe: probeZuseLoopback,
 	};
-	// The relay port can drift between launches (fallback or ephemeral bind).
+	// The api port can drift between launches (fallback or ephemeral bind).
 	// When a persisted marker shows Zuse owns the Tailscale Serve route on the
 	// old port, repoint it in the background so sharing survives the drift.
 	void readServeOwnershipMarker(userData)
 		.then(async (markerPort) => {
-			if (markerPort === null || markerPort === relayPort.port) return;
+			if (markerPort === null || markerPort === apiPort.port) return;
 			const repaired = await repairTailnetShare(
-				relayPort.port,
+				apiPort.port,
 				tailnetShareOptions,
 				tailnetCommandRunner,
 			);
 			if (repaired.enabled && repaired.managedBy === "this-app") {
 				console.log(
-					`desktop.tailnet.serve_repaired ${markerPort} -> ${relayPort.port}`,
+					`desktop.tailnet.serve_repaired ${markerPort} -> ${apiPort.port}`,
 				);
 			}
 		})
@@ -1918,14 +1918,14 @@ async function createMainWindow() {
 	try {
 		networkAccess = resolveNetworkAccessState({
 			enabled: networkAccessEnabled,
-			port: relayPort.port,
+			port: apiPort.port,
 			interfaces: networkInterfaces(),
 		});
 	} catch (cause) {
 		recordMainDiagnostic("warn", "network-access", [cause]);
 		networkAccess = resolveNetworkAccessState({
 			enabled: false,
-			port: relayPort.port,
+			port: apiPort.port,
 			interfaces: networkInterfaces(),
 		});
 	}
@@ -2295,7 +2295,7 @@ async function createMainWindow() {
 	}));
 	ipcMain.handle("network:getTailnetShareState", () =>
 		inspectTailnetShare(
-			relayPort.port,
+			apiPort.port,
 			tailnetCommandRunner,
 			tailnetShareOptions,
 		),
@@ -2309,7 +2309,7 @@ async function createMainWindow() {
 			const next = await setTailnetShareEnabled(
 				{
 					enabled,
-					port: relayPort.port,
+					port: apiPort.port,
 					...tailnetShareOptions,
 				},
 				tailnetCommandRunner,
@@ -2336,7 +2336,7 @@ async function createMainWindow() {
 				return setTailnetShareEnabled(
 					{
 						enabled: true,
-						port: relayPort.port,
+						port: apiPort.port,
 						...tailnetShareOptions,
 					},
 					tailnetCommandRunner,
@@ -2356,7 +2356,7 @@ async function createMainWindow() {
 			}
 			const next = resolveNetworkAccessState({
 				enabled,
-				port: relayPort.port,
+				port: apiPort.port,
 				interfaces: networkInterfaces(),
 			});
 			await writeNetworkAccessPreference(userData, enabled);
@@ -3261,9 +3261,9 @@ async function createMainWindow() {
 		mainWindow.webContents,
 		appendRemoteConnectionLog,
 	);
-	const relayWsPort = relayPort.port;
-	const relayWsProtocol = wsServerProtocolLayer({
-		port: relayWsPort,
+	const apiWsPort = apiPort.port;
+	const apiWsProtocol = wsServerProtocolLayer({
+		port: apiWsPort,
 		host: networkAccess.bindHost,
 		staticDir: isDevelopment ? undefined : rendererDistDir(),
 		devServerUrl: isDevelopment ? DEV_SERVER_URL : undefined,
@@ -3284,13 +3284,13 @@ async function createMainWindow() {
 					onAuthenticatedConnection: retainRemoteComputerAwakeConnection,
 				});
 	appendRemoteConnectionLog("desktop.runtime.start", {
-		relayWsPort,
+		apiWsPort,
 		userData: app.getPath("userData"),
 		elapsedMs: Math.round(performance.now() - startupStartedAt),
 	});
-	if (relayPort.fellBack) {
+	if (apiPort.fellBack) {
 		appendRemoteConnectionLog("desktop.runtime.port_fallback", {
-			relayWsPort,
+			apiWsPort,
 		});
 	}
 	process.env.ZUSE_APP_VERSION = ZUSE_APP_VERSION;
@@ -3303,7 +3303,7 @@ async function createMainWindow() {
 				folderPicker,
 				serverProtocol,
 				additionalServerProtocols: [
-					relayWsProtocol,
+					apiWsProtocol,
 					...(nearbyWsProtocol === null ? [] : [nearbyWsProtocol]),
 				],
 				authShell,
@@ -3318,7 +3318,7 @@ async function createMainWindow() {
 				lanAuth: {
 					policy: "protected",
 					advertisedHost: networkAccess.advertisedHost,
-					port: relayWsPort,
+					port: apiWsPort,
 					pairingBootstrap: false,
 					transportCertificatePin: nearbyTls?.pin,
 					onNearbyPairingRequest: (request) => {
@@ -3418,7 +3418,7 @@ async function createMainWindow() {
 						isDevelopment && process.env.ZUSE_DEV_CLI_ACCESS_FILE
 							? process.env.ZUSE_DEV_CLI_ACCESS_FILE
 							: Path.join(app.getPath("userData"), "cli-access.json"),
-					wsUrl: `ws://127.0.0.1:${relayWsPort}/rpc`,
+					wsUrl: `ws://127.0.0.1:${apiWsPort}/rpc`,
 				},
 			}),
 		).pipe(

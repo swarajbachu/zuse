@@ -1,6 +1,7 @@
 import { Layer } from "effect";
 import { AccountAccessHandlersLayer } from "./account-access/handlers.ts";
 import { AnalyticsHandlersLayer } from "./analytics/handlers.ts";
+import { ApiHandlersLayer } from "./api/handlers.ts";
 import { AttachmentHandlersLayer } from "./attachment/handlers.ts";
 import { AuthHandlersLayer } from "./auth/handlers.ts";
 import { ConfigStoreHandlersLayer } from "./config-store/handlers.ts";
@@ -18,7 +19,6 @@ import { PokemonHandlersLayer } from "./pokemon/handlers.ts";
 import { PreviewsHandlersLayer } from "./previews/handlers.ts";
 import { ProviderHandlersLayer } from "./provider/handlers.ts";
 import { PtyHandlersLayer } from "./pty/handlers.ts";
-import { RelayHandlersLayer } from "./relay/handlers.ts";
 import { RepositorySettingsHandlersLayer } from "./repository-settings/handlers.ts";
 import { SkillHandlersLayer } from "./skill/handlers.ts";
 import { UsageHandlersLayer } from "./usage/handlers.ts";
@@ -38,7 +38,7 @@ export const HandlersLayer = Layer.mergeAll(
 	AccountAccessHandlersLayer,
 	AnalyticsHandlersLayer,
 	LanAuthHandlersLayer,
-	RelayHandlersLayer,
+	ApiHandlersLayer,
 	AuthHandlersLayer,
 	LinearHandlersLayer,
 	MachineHandlersLayer,

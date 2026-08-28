@@ -117,7 +117,7 @@ const sortSummaries = (
 	);
 
 /** Lifecycle revision fences runtime generations. Within one lifecycle
- * revision, Relay's runtime summary revision owns title/activity metadata and
+ * revision, API's runtime summary revision owns title/activity metadata and
  * its represented session head. `updatedAt` is only a compatibility fallback
  * for summaries decoded before runtime revisions were introduced. */
 export const compareCloudChatSummaryVersion = (
@@ -321,7 +321,7 @@ export const forgetCloudChat = (workspaceId: string): void => {
 };
 
 /**
- * Reconciles a successful `scope=all` response. Relay owns catalog membership,
+ * Reconciles a successful `scope=all` response. API owns catalog membership,
  * so a workspace omitted from that authoritative response was deleted and must
  * not survive as a renderer-only history row. Versions for workspaces which
  * are still present remain monotonic.

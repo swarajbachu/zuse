@@ -51,7 +51,7 @@ export class CloudAuthProviderStatus extends Schema.Class<CloudAuthProviderStatu
 
 /**
  * Account-owned E2B auth authority status. The public key encrypts credentials
- * directly to the authority; Relay never receives the corresponding private
+ * directly to the authority; API never receives the corresponding private
  * key or plaintext secret.
  */
 export class CloudAuthStatus extends Schema.Class<CloudAuthStatus>(

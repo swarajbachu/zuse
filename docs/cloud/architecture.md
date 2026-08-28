@@ -10,7 +10,7 @@ returning client can render cached state before compute is resumed.
 desktop / mobile
   | WorkOS identity, lifecycle commands, tickets, checkpoint reads
   v
-Relay Worker ---- Postgres (catalog, lifecycle, receipts, billing metadata)
+API Worker ---- Postgres (catalog, lifecycle, receipts, billing metadata)
   |       |
   |       +---- R2 (encrypted read-only transcript projections)
   |
@@ -31,19 +31,19 @@ There are two distinct planes:
   checkpoint pointers, and billing.
 - The data plane handles commands and runtime output. After bootstrap, normal
   session commands travel through the gateway to the runtime and are committed
-  through `SessionDomain`. Relay does not replicate them into Postgres.
+  through `SessionDomain`. API does not replicate them into Postgres.
 
 The only pre-runtime content exception is the encrypted, expiring launch
 intent. It lets an initial prompt survive the interval between workspace
 creation and runtime enrollment. The runtime consumes it through the normal
-idempotent command path and Relay removes it only after receipt.
+idempotent command path and API removes it only after receipt.
 
 ## Component responsibilities
 
 | Component | Owns | Must not own |
 | --- | --- | --- |
 | ClientBus | Qualified cached projections, resource leases, command outbox, one connection supervisor per environment | Server authority, feature-specific sockets, inferred active environment |
-| Relay Worker | WorkOS auth, beta authorization, lifecycle, catalog, tickets, checkpoint metadata, billing | Normal transcript content, file state, terminal output |
+| API Worker | WorkOS auth, beta authorization, lifecycle, catalog, tickets, checkpoint metadata, billing | Normal transcript content, file state, terminal output |
 | Postgres | Control-plane records, command receipts, lifecycle revisions, immutable billing ledger | Writable chat projection |
 | WorkspaceGateway Durable Object | Authenticated live attachments and opaque frame forwarding | Replay log, transcript, pending command buffer |
 | Workspace runtime | Provider process, `SessionDomain`, SQLite, repository, Git, PTYs, checkpoint production | Account policy or billing decisions |

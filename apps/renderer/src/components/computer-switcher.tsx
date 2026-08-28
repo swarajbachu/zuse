@@ -4,11 +4,11 @@ import {
 	parseEnvironmentRoute,
 } from "@zuse/client-runtime/environment-scope";
 import {
+	type ApiEnvironmentRecord,
 	type CommandId,
 	ENVIRONMENT_PRESENCE_STALE_MS,
 	EnvironmentId,
 	HOSTED_APP_URL,
-	type RelayEnvironmentRecord,
 } from "@zuse/contracts";
 import { ComputerIcon } from "@zuse/icons/solid-rounded";
 import { ChevronDown, Plus } from "lucide-react";
@@ -93,7 +93,7 @@ const openEnvironment = (environmentId: string): void => {
 
 function HostedComputerSwitcher() {
 	const [environments, setEnvironments] = useState<
-		ReadonlyArray<RelayEnvironmentRecord>
+		ReadonlyArray<ApiEnvironmentRecord>
 	>([]);
 	const [localEnvironmentId, setLocalEnvironmentId] = useState<string | null>(
 		null,
@@ -112,16 +112,16 @@ function HostedComputerSwitcher() {
 						{ environmentId?: string }
 					>({
 						environmentId,
-						kind: "relay.status",
+						kind: "api.status",
 						commandId: crypto.randomUUID() as CommandId,
 						payload: {},
 					}).then(({ result }) => result),
 					dispatchEnvironmentShellCommand<
 						Record<never, never>,
-						{ environments: ReadonlyArray<RelayEnvironmentRecord> }
+						{ environments: ReadonlyArray<ApiEnvironmentRecord> }
 					>({
 						environmentId,
-						kind: "relay.environments",
+						kind: "api.environments",
 						commandId: crypto.randomUUID() as CommandId,
 						payload: {},
 					}).then(({ result }) => result),

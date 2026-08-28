@@ -6,7 +6,7 @@ import { calculateJwkThumbprint, type JWK } from "jose";
 
 /**
  * Device DPoP key (RFC 9449). A per-install ES256 keypair proves possession of
- * the key on every relay call; the relay binds minted access tokens to its
+ * the key on every api call; the api binds minted access tokens to its
  * thumbprint. Requires WebCrypto — provided by react-native-quick-crypto's
  * `install()` in polyfills.ts (Expo Go won't have it; use a dev client).
  */
@@ -92,7 +92,7 @@ export const deviceThumbprint = async (): Promise<string> =>
 
 /**
  * Build a DPoP proof JWS for a specific request. `htm`/`htu` bind it to this
- * method + URL; a fresh `jti` makes it single-use (the relay rejects replays).
+ * method + URL; a fresh `jti` makes it single-use (the api rejects replays).
  */
 export const signDpopProof = async (input: {
 	readonly method: string;

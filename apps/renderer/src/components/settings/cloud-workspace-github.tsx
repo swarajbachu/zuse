@@ -62,7 +62,7 @@ export function CloudWorkspaceGithub({
 			{!configured ? (
 				<CloudSettingsRow
 					title="GitHub App is not configured"
-					description="Add the GitHub App credentials to Relay, deploy it, then retry."
+					description="Add the GitHub App credentials to API, deploy it, then retry."
 					action={<Badge variant="error">Unavailable</Badge>}
 				/>
 			) : installations.length === 0 ? (

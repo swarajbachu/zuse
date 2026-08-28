@@ -9,7 +9,7 @@
 			"distribution": "internal",
 			"env": {
 				"EXPO_PUBLIC_WORKOS_CLIENT_ID": "client_01KW6ZEZKVMZ0G429A89XZD83Q",
-				"EXPO_PUBLIC_ZUSE_RELAY_URL": "https://relay-staging.stuff.md"
+				"EXPO_PUBLIC_ZUSE_API_URL": "https://api-staging.stuff.md"
 			},
 			"ios": {
 				"simulator": false
@@ -19,7 +19,7 @@
 			"distribution": "internal",
 			"env": {
 				"EXPO_PUBLIC_WORKOS_CLIENT_ID": "client_01KW6ZEZKVMZ0G429A89XZD83Q",
-				"EXPO_PUBLIC_ZUSE_RELAY_URL": "https://relay-staging.stuff.md"
+				"EXPO_PUBLIC_ZUSE_API_URL": "https://api-staging.stuff.md"
 			}
 		},
 		"production": {

@@ -839,19 +839,17 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["usage.report"](payload as never),
 				);
 				break;
-			case "relay.status":
-				result = await Effect.runPromise(client["relay.status"]());
+			case "api.status":
+				result = await Effect.runPromise(client["api.status"]());
 				break;
-			case "relay.environments":
-				result = await Effect.runPromise(client["relay.environments"]());
+			case "api.environments":
+				result = await Effect.runPromise(client["api.environments"]());
 				break;
-			case "relay.link":
-				result = await Effect.runPromise(
-					client["relay.link"](payload as never),
-				);
+			case "api.link":
+				result = await Effect.runPromise(client["api.link"](payload as never));
 				break;
-			case "relay.unlink":
-				result = await Effect.runPromise(client["relay.unlink"]());
+			case "api.unlink":
+				result = await Effect.runPromise(client["api.unlink"]());
 				break;
 			case "pairing.start":
 				result = await Effect.runPromise(

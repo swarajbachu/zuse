@@ -1,7 +1,7 @@
 import type {
+	ApiLinkStatus,
 	AuthTokenSummary,
 	NetworkAccessState,
-	RelayLinkStatus,
 	TailnetShareState,
 } from "@zuse/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -21,16 +21,16 @@ import { ConnectLinkCard } from "./remote-access/connect-link-card.tsx";
 import { ConnectedDevicesCard } from "./remote-access/connected-devices-card.tsx";
 import { UsingComputersCard } from "./remote-access/using-computers-card.tsx";
 
-const DEFAULT_RELAY_URL =
-	(import.meta.env.VITE_ZUSE_RELAY_URL as string | undefined) ??
-	"https://relay.stuff.md";
+const DEFAULT_API_URL =
+	(import.meta.env.VITE_ZUSE_API_URL as string | undefined) ??
+	"https://api.zuse.sh";
 
 /**
  * Remote-access settings data and mutations. Presentation is composed from
  * the same compact Frame/Card patterns as the rest of settings.
  */
 export function DevicesPane() {
-	const [status, setStatus] = useState<RelayLinkStatus | null>(null);
+	const [status, setStatus] = useState<ApiLinkStatus | null>(null);
 	const [network, setNetwork] = useState<NetworkAccessState | null>(null);
 	const [tailnet, setTailnet] = useState<TailnetShareState | null>(null);
 	const [tokens, setTokens] = useState<ReadonlyArray<AuthTokenSummary>>([]);
@@ -45,11 +45,11 @@ export function DevicesPane() {
 
 	const refresh = useCallback(async () => {
 		const bridge = window.zuse ?? window.memoize;
-		const [networkResult, tailnetResult, relayResult, tokenResult] =
+		const [networkResult, tailnetResult, apiResult, tokenResult] =
 			await Promise.allSettled([
 				bridge?.network?.getAccessState() ?? Promise.resolve(null),
 				bridge?.network?.getTailnetShareState() ?? Promise.resolve(null),
-				dispatchLocalDeviceCommand<{}, RelayLinkStatus>("relay.status", {}),
+				dispatchLocalDeviceCommand<{}, ApiLinkStatus>("api.status", {}),
 				dispatchLocalDeviceCommand<{}, ReadonlyArray<AuthTokenSummary>>(
 					"pairing.listTokens",
 					{},
@@ -57,7 +57,7 @@ export function DevicesPane() {
 			]);
 		if (networkResult.status === "fulfilled") setNetwork(networkResult.value);
 		if (tailnetResult.status === "fulfilled") setTailnet(tailnetResult.value);
-		if (relayResult.status === "fulfilled") setStatus(relayResult.value);
+		if (apiResult.status === "fulfilled") setStatus(apiResult.value);
 		if (tokenResult.status === "fulfilled") setTokens(tokenResult.value);
 		setLoading(false);
 	}, []);
@@ -126,17 +126,17 @@ export function DevicesPane() {
 		[tailnetBusy],
 	);
 
-	const connectRelay = useCallback(async (): Promise<boolean> => {
+	const connectApi = useCallback(async (): Promise<boolean> => {
 		if (actionInFlightRef.current) return false;
 		actionInFlightRef.current = true;
 		setBusy(true);
 		try {
 			setStatus(
 				await dispatchLocalDeviceCommand<
-					{ readonly relayUrl: string },
-					RelayLinkStatus
-				>("relay.link", {
-					relayUrl: DEFAULT_RELAY_URL.trim().replace(/\/$/, ""),
+					{ readonly apiUrl: string },
+					ApiLinkStatus
+				>("api.link", {
+					apiUrl: DEFAULT_API_URL.trim().replace(/\/$/, ""),
 				}),
 			);
 			return true;
@@ -149,12 +149,12 @@ export function DevicesPane() {
 		}
 	}, []);
 
-	const unlinkRelay = useCallback(async (): Promise<boolean> => {
+	const unlinkApi = useCallback(async (): Promise<boolean> => {
 		if (actionInFlightRef.current) return false;
 		actionInFlightRef.current = true;
 		setBusy(true);
 		try {
-			await dispatchLocalDeviceCommand<{}, unknown>("relay.unlink", {});
+			await dispatchLocalDeviceCommand<{}, unknown>("api.unlink", {});
 			setStatus(null);
 			return true;
 		} catch (cause) {
@@ -178,16 +178,16 @@ export function DevicesPane() {
 		}
 		const changed =
 			accessDialog === "serve-enable"
-				? await connectRelay()
+				? await connectApi()
 				: accessDialog === "serve-disable"
-					? await unlinkRelay()
+					? await unlinkApi()
 					: (await updateTailnet(accessDialog === "tailscale-enable")) !== null;
 		if (changed) setAccessDialog(null);
 	}, [
 		accessDialog,
-		connectRelay,
+		connectApi,
 		tailnet?.availability,
-		unlinkRelay,
+		unlinkApi,
 		updateTailnet,
 	]);
 

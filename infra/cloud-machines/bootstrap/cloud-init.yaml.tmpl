@@ -23,8 +23,8 @@ write_files:
     content: |
       ZUSE_MACHINE_ID=__MACHINE_ID__
       ZUSE_MACHINE_LABEL=__MACHINE_LABEL__
-      ZUSE_RELAY_URL=__RELAY_URL__
-      ZUSE_RELAY_ISSUER=__RELAY_ISSUER__
+      ZUSE_API_URL=__API_URL__
+      ZUSE_API_ISSUER=__API_ISSUER__
       ZUSE_ENROLLMENT_TOKEN=__ENROLLMENT_TOKEN__
       ZUSE_ENROLLMENT_TOKEN_FILE=/var/lib/zuse/enrollment.env
 
@@ -126,7 +126,7 @@ write_files:
           -H "authorization: Bearer $ZUSE_ENROLLMENT_TOKEN" \
           -H "content-type: application/json" \
           --data "$payload" \
-          "$ZUSE_RELAY_URL/v1/machines/$ZUSE_MACHINE_ID/boot-status" \
+          "$ZUSE_API_URL/v1/machines/$ZUSE_MACHINE_ID/boot-status" \
           >/dev/null || true
       }
 

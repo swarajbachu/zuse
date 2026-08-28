@@ -11,7 +11,7 @@ describe("cloud runtime assets", () => {
 			"infra/cloud-sandboxes/project-builder.sh",
 		);
 		const reconciler = await readWorkspaceFile(
-			"infra/relay/src/cloud-workspace-reconciler.ts",
+			"infra/api/src/cloud-workspace-reconciler.ts",
 		);
 
 		expect(builder).not.toContain("repository-script.ts setup");
@@ -44,10 +44,10 @@ describe("cloud runtime assets", () => {
 			"infra/cloud-sandboxes/workspace-bootstrap.sh",
 		);
 		const reconciler = await readWorkspaceFile(
-			"infra/relay/src/cloud-workspace-reconciler.ts",
+			"infra/api/src/cloud-workspace-reconciler.ts",
 		);
 		const runtime = await readWorkspaceFile(
-			"apps/server/src/relay/cloud-workspace-runtime.ts",
+			"apps/server/src/api/cloud-workspace-runtime.ts",
 		);
 
 		expect(runtime).toContain("bootTokenFile");
@@ -243,7 +243,7 @@ describe("cloud runtime assets", () => {
 
 		expect(cloudInit).toContain("trap bootstrap_failed EXIT");
 		expect(cloudInit).toContain(
-			'"$ZUSE_RELAY_URL/v1/machines/$ZUSE_MACHINE_ID/boot-status"',
+			'"$ZUSE_API_URL/v1/machines/$ZUSE_MACHINE_ID/boot-status"',
 		);
 		expect(cloudInit).toContain('report_boot_status failed "bootstrap-failed"');
 		expect(cloudInit).toContain("report_boot_status runtime-installed");
@@ -391,6 +391,6 @@ describe("cloud runtime assets", () => {
 		expect(workflow).toContain("--clobber");
 		expect(workflow).not.toContain("if: github.event_name != 'pull_request'");
 		expect(workflow).not.toContain("wrangler deploy");
-		expect(workflow).not.toContain("relay.stuff.md");
+		expect(workflow).not.toContain("api.zuse.sh");
 	});
 });

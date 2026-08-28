@@ -17,9 +17,9 @@ vi.mock("../../../src/auth/workos", () => workos);
 vi.mock("../../../src/lib/mobile-data", () => ({
 	resetLocalMobileData: vi.fn(),
 }));
-vi.mock("../../../src/rpc/relay-client", () => ({
+vi.mock("../../../src/rpc/api-client", () => ({
 	deleteAccount: vi.fn(),
-	resetRelayAccessToken: vi.fn(),
+	resetApiAccessToken: vi.fn(),
 }));
 
 describe("auth hydration", () => {

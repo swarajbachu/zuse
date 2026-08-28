@@ -62,7 +62,7 @@ export type DesiredMachineState = typeof DesiredMachineState.Type;
 
 /**
  * Stable, user-safe status codes. Provider responses and raw errors are kept
- * inside the relay and are never exposed through this contract.
+ * inside the api and are never exposed through this contract.
  */
 export const MachineStatusCode = Schema.Literals([
 	"creation-queued",
@@ -158,7 +158,7 @@ export class MachineEnrollResponse extends Schema.Class<MachineEnrollResponse>(
 )({
 	environmentId: EnvironmentId,
 	endpoint: EnvironmentEndpoint,
-	relayIssuer: Schema.String,
+	apiIssuer: Schema.String,
 	environmentCredential: Schema.String,
 	mintPublicKey: Schema.String,
 	tunnelHostname: Schema.optional(Schema.String),

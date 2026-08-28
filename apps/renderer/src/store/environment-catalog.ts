@@ -1,13 +1,13 @@
 import type { ResourceLease } from "@zuse/client-runtime/client-bus";
 import type { ResourceView } from "@zuse/client-runtime/resource-state";
 import {
+	type ApiConnectGrant,
+	type ApiEnvironmentRecord,
 	type Chat,
 	type ChatId,
 	type EnvironmentDescriptor,
 	EnvironmentId,
 	type Folder,
-	type RelayConnectGrant,
-	type RelayEnvironmentRecord,
 	type RemoteEnvironmentProfile,
 	type Session,
 	type SshEnvironmentTarget,
@@ -32,8 +32,8 @@ import { createInitializationGate } from "../lib/initialization-gate.ts";
 import { upsertLatestEntity } from "../lib/latest-entity.ts";
 import {
 	LOCAL_ENVIRONMENT_KEY,
+	registerApiEnvironment,
 	registerLocalEnvironment,
-	registerRelayEnvironment,
 	registerWebSocketEnvironment,
 	removeRendererEnvironment,
 	setActiveEnvironment,
@@ -58,7 +58,7 @@ export type CatalogConnectionStatus =
 	| "error";
 
 export type EnvironmentCatalogEntry = {
-	readonly connectionKind: "local" | "relay" | "ssh" | "tailnet";
+	readonly connectionKind: "local" | "api" | "ssh" | "tailnet";
 	readonly environmentId: string;
 	readonly profileId: string | null;
 	readonly label: string;
@@ -366,7 +366,7 @@ type EnvironmentCatalogState = {
 	readonly initializing: boolean;
 	readonly initializationError: string | null;
 	readonly accountDiscoveryError: string | null;
-	readonly hiddenRelayEnvironmentIds: ReadonlyArray<string>;
+	readonly hiddenApiEnvironmentIds: ReadonlyArray<string>;
 	initialize: () => Promise<void>;
 	syncAccountEnvironments: () => Promise<void>;
 	add: (target: SshEnvironmentTarget, label?: string) => Promise<void>;
@@ -378,8 +378,8 @@ type EnvironmentCatalogState = {
 	disconnect: (profileId: string) => Promise<void>;
 	remove: (profileId: string) => Promise<void>;
 	rename: (profileId: string, label: string) => Promise<void>;
-	hideRelayEnvironment: (environmentId: string) => Promise<void>;
-	unhideRelayEnvironments: () => Promise<void>;
+	hideApiEnvironment: (environmentId: string) => Promise<void>;
+	unhideApiEnvironments: () => Promise<void>;
 	activate: (
 		environmentId: string,
 		selection?: EnvironmentActivation,
@@ -398,11 +398,11 @@ type EnvironmentShellRuntime = {
 	requestedActivation: "cache-only" | "connect";
 };
 
-const HIDDEN_RELAY_STORAGE_KEY = "zuse.catalog.hiddenRelayEnvironments";
+const HIDDEN_API_STORAGE_KEY = "zuse.catalog.hiddenApiEnvironments";
 
-const readHiddenRelayEnvironmentIds = (): ReadonlyArray<string> => {
+const readHiddenApiEnvironmentIds = (): ReadonlyArray<string> => {
 	try {
-		const raw = window.localStorage.getItem(HIDDEN_RELAY_STORAGE_KEY);
+		const raw = window.localStorage.getItem(HIDDEN_API_STORAGE_KEY);
 		if (raw === null) return [];
 		const parsed: unknown = JSON.parse(raw);
 		return Array.isArray(parsed)
@@ -413,15 +413,12 @@ const readHiddenRelayEnvironmentIds = (): ReadonlyArray<string> => {
 	}
 };
 
-const writeHiddenRelayEnvironmentIds = (ids: ReadonlyArray<string>): void => {
+const writeHiddenApiEnvironmentIds = (ids: ReadonlyArray<string>): void => {
 	try {
 		if (ids.length === 0) {
-			window.localStorage.removeItem(HIDDEN_RELAY_STORAGE_KEY);
+			window.localStorage.removeItem(HIDDEN_API_STORAGE_KEY);
 		} else {
-			window.localStorage.setItem(
-				HIDDEN_RELAY_STORAGE_KEY,
-				JSON.stringify(ids),
-			);
+			window.localStorage.setItem(HIDDEN_API_STORAGE_KEY, JSON.stringify(ids));
 		}
 	} catch {
 		// Persisting hidden computers is best-effort.
@@ -458,10 +455,10 @@ const tailnetProfileEntry = (
 	error: null,
 });
 
-const relayEntry = (
-	environment: RelayEnvironmentRecord,
+const apiEntry = (
+	environment: ApiEnvironmentRecord,
 ): EnvironmentCatalogEntry => ({
-	connectionKind: "relay",
+	connectionKind: "api",
 	environmentId: environment.environmentId,
 	profileId: null,
 	label: environment.label ?? "Unnamed computer",
@@ -489,30 +486,28 @@ export const cloudConnectionFailure = (cause: unknown): Error => {
 export const loadOptionalEnvironmentSources = async (input: {
 	readonly sshProfiles: Promise<ReadonlyArray<RemoteEnvironmentProfile>>;
 	readonly tailnetProfiles: Promise<ReadonlyArray<TailnetEnvironmentProfile>>;
-	readonly relayEnvironments: Promise<
-		Readonly<{ environments: ReadonlyArray<RelayEnvironmentRecord> }>
+	readonly apiEnvironments: Promise<
+		Readonly<{ environments: ReadonlyArray<ApiEnvironmentRecord> }>
 	>;
 }): Promise<{
 	readonly profiles: ReadonlyArray<RemoteEnvironmentProfile>;
 	readonly tailnetProfiles: ReadonlyArray<TailnetEnvironmentProfile>;
-	readonly relayEnvironments: ReadonlyArray<RelayEnvironmentRecord>;
-	readonly relayError: string | null;
+	readonly apiEnvironments: ReadonlyArray<ApiEnvironmentRecord>;
+	readonly apiError: string | null;
 }> => {
-	const [sshResult, tailnetResult, relayResult] = await Promise.allSettled([
+	const [sshResult, tailnetResult, apiResult] = await Promise.allSettled([
 		input.sshProfiles,
 		input.tailnetProfiles,
-		input.relayEnvironments,
+		input.apiEnvironments,
 	]);
 	return {
 		profiles: sshResult.status === "fulfilled" ? sshResult.value : [],
 		tailnetProfiles:
 			tailnetResult.status === "fulfilled" ? tailnetResult.value : [],
-		relayEnvironments:
-			relayResult.status === "fulfilled" ? relayResult.value.environments : [],
-		relayError:
-			relayResult.status === "rejected"
-				? errorMessage(relayResult.reason)
-				: null,
+		apiEnvironments:
+			apiResult.status === "fulfilled" ? apiResult.value.environments : [],
+		apiError:
+			apiResult.status === "rejected" ? errorMessage(apiResult.reason) : null,
 	};
 };
 
@@ -567,7 +562,7 @@ const entryKey = (entry: EnvironmentCatalogEntry): string =>
 		? `${entry.connectionKind}:${entry.profileId}`
 		: `${entry.connectionKind}:${entry.environmentId}`;
 
-const relayGrantUrl = (grant: RelayConnectGrant): string => {
+const apiGrantUrl = (grant: ApiConnectGrant): string => {
 	const url = new URL(grant.endpoint.wsBaseUrl);
 	url.searchParams.set("token", grant.connectToken);
 	url.searchParams.set("wireVersion", String(WIRE_PROTOCOL_VERSION));
@@ -576,7 +571,7 @@ const relayGrantUrl = (grant: RelayConnectGrant): string => {
 
 export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 	(set, get) => {
-		const relayRecords = new Map<string, RelayEnvironmentRecord>();
+		const apiRecords = new Map<string, ApiEnvironmentRecord>();
 		const connectionAttempts = createConnectionAttemptCoordinator();
 		const shellRuntimes = new Map<string, EnvironmentShellRuntime>();
 		let activeShellKey: string | null = null;
@@ -842,12 +837,12 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				}
 			});
 		};
-		const connectRelay = (
-			environment: RelayEnvironmentRecord,
+		const connectApi = (
+			environment: ApiEnvironmentRecord,
 			localEnvironmentId: string,
 			replace = false,
 		): Promise<void> => {
-			const catalogKey = `relay:${environment.environmentId}`;
+			const catalogKey = `api:${environment.environmentId}`;
 			return connectionAttempts.run(
 				catalogKey,
 				async (isCurrent) => {
@@ -863,15 +858,15 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 								);
 								return { grant, localClient };
 							} catch (cause) {
-								throw new Error(`Relay grant failed: ${errorMessage(cause)}`);
+								throw new Error(`API grant failed: ${errorMessage(cause)}`);
 							}
 						})();
 						if (!isCurrent()) return;
-						registerRelayEnvironment(
+						registerApiEnvironment(
 							environment.environmentId,
-							relayGrantUrl(grant),
+							apiGrantUrl(grant),
 							async () =>
-								relayGrantUrl(
+								apiGrantUrl(
 									await Effect.runPromise(
 										localClient["environments.connect"]({
 											environmentId: environment.environmentId,
@@ -910,7 +905,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			initializing: false,
 			initializationError: null,
 			accountDiscoveryError: null,
-			hiddenRelayEnvironmentIds: [],
+			hiddenApiEnvironmentIds: [],
 			initialize: () => {
 				return initializeOnce(get().initialized, async () => {
 					set({ initializing: true, initializationError: null });
@@ -924,7 +919,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						registerLocalEnvironment(descriptor.environmentId);
 						setActiveEnvironment(descriptor.environmentId);
 
-						const hiddenRelayEnvironmentIds = readHiddenRelayEnvironmentIds();
+						const hiddenApiEnvironmentIds = readHiddenApiEnvironmentIds();
 						const localEntry: EnvironmentCatalogEntry = {
 							connectionKind: "local",
 							environmentId: descriptor.environmentId,
@@ -937,7 +932,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						};
 						set({
 							activeEnvironmentId: descriptor.environmentId,
-							hiddenRelayEnvironmentIds,
+							hiddenApiEnvironmentIds,
 							entries: [localEntry],
 						});
 
@@ -956,13 +951,13 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 
 						// Remote catalogs are optional. A corrupt saved profile or an
 						// unavailable account service must never hide the local workspace.
-						const { profiles, tailnetProfiles, relayEnvironments, relayError } =
+						const { profiles, tailnetProfiles, apiEnvironments, apiError } =
 							await loadOptionalEnvironmentSources({
 								sshProfiles:
 									window.zuse?.ssh?.listProfiles() ?? Promise.resolve([]),
 								tailnetProfiles:
 									window.zuse?.tailnet?.listProfiles() ?? Promise.resolve([]),
-								relayEnvironments: Effect.runPromise(
+								apiEnvironments: Effect.runPromise(
 									localClient["environments.list"](),
 								),
 							});
@@ -971,27 +966,26 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 								(profile) => profile.environmentId,
 							),
 						);
-						const hiddenRelayIds = new Set(hiddenRelayEnvironmentIds);
-						const accountRelayEnvironments = relayEnvironments.filter(
+						const hiddenApiIds = new Set(hiddenApiEnvironmentIds);
+						const accountApiEnvironments = apiEnvironments.filter(
 							(environment) =>
 								environment.environmentId !== descriptor.environmentId &&
 								!profileEnvironmentIds.has(environment.environmentId),
 						);
-						for (const environment of accountRelayEnvironments) {
-							relayRecords.set(environment.environmentId, environment);
+						for (const environment of accountApiEnvironments) {
+							apiRecords.set(environment.environmentId, environment);
 						}
 						const optionalEntries = [
-							...accountRelayEnvironments
+							...accountApiEnvironments
 								.filter(
-									(environment) =>
-										!hiddenRelayIds.has(environment.environmentId),
+									(environment) => !hiddenApiIds.has(environment.environmentId),
 								)
-								.map(relayEntry),
+								.map(apiEntry),
 							...profiles.map(profileEntry),
 							...tailnetProfiles.map(tailnetProfileEntry),
 						];
 						set((state) => ({
-							accountDiscoveryError: relayError,
+							accountDiscoveryError: apiError,
 							entries: orderEnvironmentCatalog([
 								...state.entries.filter(
 									(entry) => entry.connectionKind === "local",
@@ -1035,14 +1029,14 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						)
 						.map((entry) => entry.environmentId),
 				);
-				const hiddenRelayIds = new Set(get().hiddenRelayEnvironmentIds);
+				const hiddenApiIds = new Set(get().hiddenApiEnvironmentIds);
 				const accountEnvironments = result.environments.filter(
 					(environment) =>
 						environment.environmentId !== local.environmentId &&
 						!profileEnvironmentIds.has(environment.environmentId),
 				);
 				for (const environment of accountEnvironments) {
-					relayRecords.set(environment.environmentId, environment);
+					apiRecords.set(environment.environmentId, environment);
 				}
 
 				const knownEnvironmentIds = new Set(
@@ -1050,19 +1044,19 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				);
 				const added = accountEnvironments.filter(
 					(environment) =>
-						!hiddenRelayIds.has(environment.environmentId) &&
+						!hiddenApiIds.has(environment.environmentId) &&
 						!knownEnvironmentIds.has(environment.environmentId),
 				);
 				if (added.length > 0)
 					set((state) => ({
 						entries: orderEnvironmentCatalog([
 							...state.entries,
-							...added.map(relayEntry),
+							...added.map(apiEntry),
 						]),
 					}));
 				for (const environment of added) {
 					retainShell(
-						`relay:${environment.environmentId}`,
+						`api:${environment.environmentId}`,
 						environment.environmentId,
 						"cache-only",
 					);
@@ -1072,27 +1066,27 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				const bridge = window.zuse?.ssh;
 				if (bridge === undefined) throw new Error("SSH is unavailable.");
 				const connection = await bridge.ensureEnvironment({ target, label });
-				const relayKey = `relay:${connection.profile.environmentId}`;
-				const duplicateRelay = get().entries.some(
+				const apiKey = `api:${connection.profile.environmentId}`;
+				const duplicateApi = get().entries.some(
 					(entry) =>
-						entry.connectionKind === "relay" &&
+						entry.connectionKind === "api" &&
 						entry.environmentId === connection.profile.environmentId,
 				);
 				if (
-					duplicateRelay &&
+					duplicateApi &&
 					get().activeEnvironmentId === connection.profile.environmentId
 				) {
 					await bridge.removeProfile(connection.profile.profileId);
 					throw new Error(
-						"Switch to another computer before replacing this relay connection with SSH.",
+						"Switch to another computer before replacing this api connection with SSH.",
 					);
 				}
-				if (duplicateRelay) {
-					stopEntryRuntime(relayKey);
+				if (duplicateApi) {
+					stopEntryRuntime(apiKey);
 					await removeRendererEnvironment(connection.profile.environmentId);
 					set((state) => ({
 						entries: state.entries.filter(
-							(entry) => entryKey(entry) !== relayKey,
+							(entry) => entryKey(entry) !== apiKey,
 						),
 					}));
 				}
@@ -1149,7 +1143,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					);
 				}
 				if (
-					duplicate?.connectionKind === "relay" ||
+					duplicate?.connectionKind === "api" ||
 					duplicate?.connectionKind === "tailnet"
 				) {
 					stopEntryRuntime(entryKey(duplicate));
@@ -1214,16 +1208,16 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					await runtime.lease.activate("connect");
 					return;
 				}
-				const environment = relayRecords.get(environmentId);
+				const environment = apiRecords.get(environmentId);
 				const local = get().entries.find(
 					(entry) => entry.connectionKind === "local",
 				);
 				if (environment === undefined || local === undefined) return;
-				patchEntry(`relay:${environmentId}`, {
+				patchEntry(`api:${environmentId}`, {
 					status: "connecting",
 					error: null,
 				});
-				await connectRelay(environment, local.environmentId);
+				await connectApi(environment, local.environmentId);
 			},
 			ensureEnvironmentConnected: async (environmentId) => {
 				let local = get().entries.find(
@@ -1237,23 +1231,23 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				}
 				if (local === undefined)
 					throw new Error(
-						"Relay grant failed: local environment is unavailable.",
+						"API grant failed: local environment is unavailable.",
 					);
 				const localClient = await runtimeOperationClient(local.environmentId);
 				const listed = await Effect.runPromise(
 					localClient["environments.list"](),
 				).catch((cause) => {
-					throw new Error(`Relay grant failed: ${errorMessage(cause)}`);
+					throw new Error(`API grant failed: ${errorMessage(cause)}`);
 				});
 				const environment = listed.environments.find(
 					(candidate) => candidate.environmentId === environmentId,
 				);
 				if (environment === undefined)
 					throw new Error(
-						"Relay grant failed: cloud environment is not registered.",
+						"API grant failed: cloud environment is not registered.",
 					);
-				relayRecords.set(environment.environmentId, environment);
-				const catalogKey = `relay:${environment.environmentId}`;
+				apiRecords.set(environment.environmentId, environment);
+				const catalogKey = `api:${environment.environmentId}`;
 				const existing = get().entries.find(
 					(candidate) => candidate.environmentId === environmentId,
 				);
@@ -1261,13 +1255,13 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					set((state) => ({
 						entries: orderEnvironmentCatalog([
 							...state.entries,
-							relayEntry(environment),
+							apiEntry(environment),
 						]),
 					}));
 				} else {
 					patchEntry(catalogKey, { status: "connecting", error: null });
 				}
-				await connectRelay(environment, local.environmentId, true);
+				await connectApi(environment, local.environmentId, true);
 				const entry = get().entries.find(
 					(candidate) => candidate.environmentId === environmentId,
 				);
@@ -1326,37 +1320,37 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					label: profile.label,
 				});
 			},
-			hideRelayEnvironment: async (environmentId) => {
+			hideApiEnvironment: async (environmentId) => {
 				if (get().activeEnvironmentId === environmentId) {
 					throw new Error("Switch to another computer before hiding this one.");
 				}
-				const current = readHiddenRelayEnvironmentIds();
-				const hiddenRelayEnvironmentIds = current.includes(environmentId)
+				const current = readHiddenApiEnvironmentIds();
+				const hiddenApiEnvironmentIds = current.includes(environmentId)
 					? current
 					: [...current, environmentId];
-				writeHiddenRelayEnvironmentIds(hiddenRelayEnvironmentIds);
-				const catalogKey = `relay:${environmentId}`;
+				writeHiddenApiEnvironmentIds(hiddenApiEnvironmentIds);
+				const catalogKey = `api:${environmentId}`;
 				stopEntryRuntime(catalogKey);
 				await removeRendererEnvironment(environmentId).catch(() => undefined);
 				set((state) => ({
-					hiddenRelayEnvironmentIds,
+					hiddenApiEnvironmentIds,
 					entries: state.entries.filter(
 						(entry) => entryKey(entry) !== catalogKey,
 					),
 				}));
 			},
-			unhideRelayEnvironments: async () => {
-				const hidden = readHiddenRelayEnvironmentIds();
-				writeHiddenRelayEnvironmentIds([]);
-				set({ hiddenRelayEnvironmentIds: [] });
+			unhideApiEnvironments: async () => {
+				const hidden = readHiddenApiEnvironmentIds();
+				writeHiddenApiEnvironmentIds([]);
+				set({ hiddenApiEnvironmentIds: [] });
 				const local = get().entries.find(
 					(entry) => entry.connectionKind === "local",
 				);
 				if (hidden.length === 0 || local === undefined) return;
 				const records = hidden
-					.map((environmentId) => relayRecords.get(environmentId))
+					.map((environmentId) => apiRecords.get(environmentId))
 					.filter(
-						(record): record is RelayEnvironmentRecord => record !== undefined,
+						(record): record is ApiEnvironmentRecord => record !== undefined,
 					)
 					.filter(
 						(record) =>
@@ -1368,12 +1362,12 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				set((state) => ({
 					entries: orderEnvironmentCatalog([
 						...state.entries,
-						...records.map(relayEntry),
+						...records.map(apiEntry),
 					]),
 				}));
 				for (const record of records) {
 					retainShell(
-						`relay:${record.environmentId}`,
+						`api:${record.environmentId}`,
 						record.environmentId,
 						"cache-only",
 					);
@@ -1391,15 +1385,15 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					entry.profileId !== null
 				) {
 					await connectTailnetProfile(entry.profileId);
-				} else if (entry.connectionKind === "relay") {
-					const relay = relayRecords.get(environmentId);
+				} else if (entry.connectionKind === "api") {
+					const api = apiRecords.get(environmentId);
 					const local = get().entries.find(
 						(candidate) => candidate.connectionKind === "local",
 					);
-					if (relay === undefined || local === undefined) {
-						throw new Error("Relay environment is unavailable.");
+					if (api === undefined || local === undefined) {
+						throw new Error("API environment is unavailable.");
 					}
-					await connectRelay(relay, local.environmentId);
+					await connectApi(api, local.environmentId);
 				}
 				entry = get().entries.find(
 					(item) => item.environmentId === environmentId,

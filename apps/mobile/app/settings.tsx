@@ -101,7 +101,7 @@ export default function SettingsScreen() {
 	}, []);
 
 	const directConnections = useMemo(
-		() => connections.filter((connection) => connection.source !== "relay"),
+		() => connections.filter((connection) => connection.source !== "api"),
 		[connections],
 	);
 
@@ -241,7 +241,7 @@ export default function SettingsScreen() {
 							{environments.map((environment) => {
 								const saved = connections.find(
 									(connection) =>
-										connection.source === "relay" &&
+										connection.source === "api" &&
 										connection.environmentId === environment.environmentId,
 								);
 								const snapshot = saved ? snapshots[saved.key] : undefined;

@@ -8,9 +8,9 @@ import {
 } from "../auth/workos.ts";
 import { resetLocalMobileData } from "../lib/mobile-data.ts";
 import {
-	deleteAccount as deleteRelayAccount,
-	resetRelayAccessToken,
-} from "../rpc/relay-client.ts";
+	deleteAccount as deleteApiAccount,
+	resetApiAccessToken,
+} from "../rpc/api-client.ts";
 import { appAtomRegistry, batchAtomUpdates } from "./registry.tsx";
 
 export const authHydratedAtom = Atom.make(false).pipe(Atom.keepAlive);
@@ -67,7 +67,7 @@ export const signIn = async (): Promise<void> => {
 
 export const signOut = async (): Promise<void> => {
 	await workosSignOut();
-	resetRelayAccessToken();
+	resetApiAccessToken();
 	appAtomRegistry.set(authAccountAtom, null);
 };
 
@@ -98,7 +98,7 @@ export const deleteAccount = async (): Promise<void> => {
 		appAtomRegistry.set(authErrorAtom, null);
 	});
 	try {
-		await deleteRelayAccount();
+		await deleteApiAccount();
 	} catch (cause) {
 		batchAtomUpdates(() => {
 			appAtomRegistry.set(authBusyAtom, false);

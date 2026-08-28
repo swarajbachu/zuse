@@ -1,7 +1,7 @@
 import type {
 	AdvertisedEndpoint,
+	ApiLinkStatus,
 	PairingStartResult,
-	RelayLinkStatus,
 	TailnetShareState,
 } from "@zuse/contracts";
 import { describe, expect, test } from "vitest";
@@ -41,14 +41,12 @@ const endpoint = (
 		...input,
 	}) as AdvertisedEndpoint;
 
-const relay = (
-	endpoints?: ReadonlyArray<AdvertisedEndpoint>,
-): RelayLinkStatus =>
+const api = (endpoints?: ReadonlyArray<AdvertisedEndpoint>): ApiLinkStatus =>
 	({
 		linked: true,
 		heartbeatActive: true,
 		advertisedEndpoints: endpoints,
-	}) as RelayLinkStatus;
+	}) as ApiLinkStatus;
 
 const tailnet = (input: Partial<TailnetShareState> = {}): TailnetShareState =>
 	({
@@ -90,22 +88,22 @@ describe("pairing wire format", () => {
 
 describe("accountPairingEndpoint", () => {
 	test("accepts tunnel and public endpoints that are not unavailable", () => {
-		expect(accountPairingEndpoint(relay([endpoint()]))?.id).toBe("tunnel-1");
+		expect(accountPairingEndpoint(api([endpoint()]))?.id).toBe("tunnel-1");
 		expect(
 			accountPairingEndpoint(
-				relay([endpoint({ reachability: "public", status: "unknown" })]),
+				api([endpoint({ reachability: "public", status: "unknown" })]),
 			)?.id,
 		).toBe("tunnel-1");
 	});
 
 	test("rejects lan-only, unavailable, and missing endpoints", () => {
 		expect(
-			accountPairingEndpoint(relay([endpoint({ reachability: "lan" })])),
+			accountPairingEndpoint(api([endpoint({ reachability: "lan" })])),
 		).toBeUndefined();
 		expect(
-			accountPairingEndpoint(relay([endpoint({ status: "unavailable" })])),
+			accountPairingEndpoint(api([endpoint({ status: "unavailable" })])),
 		).toBeUndefined();
-		expect(accountPairingEndpoint(relay())).toBeUndefined();
+		expect(accountPairingEndpoint(api())).toBeUndefined();
 		expect(accountPairingEndpoint(null)).toBeUndefined();
 	});
 });
@@ -115,7 +113,7 @@ describe("pairingForMethod", () => {
 		const result = pairingForMethod(
 			pairing(),
 			"account",
-			relay([endpoint()]),
+			api([endpoint()]),
 			null,
 		);
 		expect(result?.qrText).toBe("https://env.example.zusehq.com/#pair=ABC123");
@@ -125,7 +123,7 @@ describe("pairingForMethod", () => {
 	});
 
 	test("returns null for account when no endpoint exists — never the LAN fallback", () => {
-		expect(pairingForMethod(pairing(), "account", relay(), null)).toBeNull();
+		expect(pairingForMethod(pairing(), "account", api(), null)).toBeNull();
 		expect(pairingForMethod(pairing(), "account", null, null)).toBeNull();
 	});
 
@@ -169,14 +167,14 @@ describe("bestReadyMethod", () => {
 	test("prefers account, then tailscale, then local", () => {
 		expect(
 			bestReadyMethod({
-				status: relay([endpoint()]),
+				status: api([endpoint()]),
 				tailnet: ownedTailnet,
 				networkEnabled: true,
 			}),
 		).toBe("account");
 		expect(
 			bestReadyMethod({
-				status: relay(),
+				status: api(),
 				tailnet: ownedTailnet,
 				networkEnabled: true,
 			}),
@@ -210,14 +208,14 @@ describe("bestReadyMethod", () => {
 	test("readyMethods lists every ready method in preference order", () => {
 		expect(
 			readyMethods({
-				status: relay([endpoint()]),
+				status: api([endpoint()]),
 				tailnet: ownedTailnet,
 				networkEnabled: true,
 			}),
 		).toEqual(["account", "tailscale", "local"]);
 		expect(
 			readyMethods({
-				status: relay([endpoint({ status: "unavailable" })]),
+				status: api([endpoint({ status: "unavailable" })]),
 				tailnet: tailnet({ enabled: true }),
 				networkEnabled: false,
 			}),

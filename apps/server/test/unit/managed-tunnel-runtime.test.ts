@@ -14,8 +14,6 @@ import { dirname, join } from "node:path";
 import { Effect, Fiber, Layer, Sink, Stream } from "effect";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { afterEach, describe, expect, it } from "vitest";
-import { AppPaths } from "../../src/app-paths.ts";
-import { TelemetryStoreLive } from "../../src/observability/telemetry-store.ts";
 import {
 	commandMatchesManagedTunnel,
 	ManagedTunnelRuntime,
@@ -26,7 +24,9 @@ import {
 	terminateManagedTunnelProcesses,
 	writeManagedTunnelOwnership,
 	writeManagedTunnelToken,
-} from "../../src/relay/managed-tunnel-runtime.ts";
+} from "../../src/api/managed-tunnel-runtime.ts";
+import { AppPaths } from "../../src/app-paths.ts";
+import { TelemetryStoreLive } from "../../src/observability/telemetry-store.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -128,7 +128,7 @@ describe("managed tunnel runtime", () => {
 
 	it("matches only the exact Zuse token-file command", () => {
 		const tokenPath =
-			"/Users/me/Library/Application Support/Zuse/relay/cloudflared-token";
+			"/Users/me/Library/Application Support/Zuse/api/cloudflared-token";
 		expect(
 			commandMatchesManagedTunnel(
 				`/opt/homebrew/bin/cloudflared tunnel run --token-file ${tokenPath}`,

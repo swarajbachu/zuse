@@ -9,6 +9,7 @@ import { Effect, Layer } from "effect";
 import type { RpcClient, RpcGroup } from "effect/unstable/rpc";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import { verifyPinnedLocalServer } from "../lib/nearby-pairing";
+import { connectEnvironment } from "./api-client";
 import {
 	logConnectionDiagnostic,
 	logConnectionProblem,
@@ -19,7 +20,6 @@ import {
 } from "./connection-failures";
 import { ConnectionFailed } from "./errors";
 import { makeMobileWebSocket } from "./mobile-websocket";
-import { connectEnvironment } from "./relay-client";
 import { type WsProtocolOptions, wsClientProtocolLayer } from "./ws-protocol";
 
 export type MemoizeClient = RpcClient.RpcClient<
@@ -37,7 +37,7 @@ const runtimeKey = (options: WsProtocolOptions) =>
 const makeClientSession = (options: WsProtocolOptions) => {
 	logConnectionDiagnostic("runtime.create", {
 		key: runtimeKey(options),
-		relay: options.environmentId !== undefined,
+		api: options.environmentId !== undefined,
 		wsBaseUrl: options.wsBaseUrl ?? null,
 		host: options.host,
 		port: options.port,
@@ -75,12 +75,12 @@ const prepareOptions = async (
 	) {
 		return options;
 	}
-	logConnectionDiagnostic("relay.connect_grant.start", {
+	logConnectionDiagnostic("api.connect_grant.start", {
 		key: runtimeKey(options),
 		environmentId: options.environmentId,
 	});
 	const grant = await connectEnvironment(options.environmentId);
-	logConnectionDiagnostic("relay.connect_grant.ok", {
+	logConnectionDiagnostic("api.connect_grant.ok", {
 		key: runtimeKey(options),
 		environmentId: options.environmentId,
 		wsBaseUrl: grant.endpoint.wsBaseUrl,

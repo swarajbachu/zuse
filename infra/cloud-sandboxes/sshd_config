@@ -1,6 +1,6 @@
 # Used exclusively in single-connection mode (`sshd -i`) by the workspace
 # runtime's WebSocket SSH bridge. There is no listening SSH daemon; reachability
-# is gated by the relay-issued bridge ticket before sshd ever runs.
+# is gated by the api-issued bridge ticket before sshd ever runs.
 HostKey /home/zuse/.ssh/host_ed25519_key
 AuthorizedKeysFile /home/zuse/.ssh/authorized_keys
 PubkeyAuthentication yes

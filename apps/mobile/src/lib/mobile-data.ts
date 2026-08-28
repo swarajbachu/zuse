@@ -4,8 +4,8 @@ import { clearDeviceKey } from "../auth/dpop";
 import { signOut as clearAccountSession } from "../auth/workos";
 import { clearPushRegistration } from "../notifications/push";
 import { clearDownloadedCache, clearOfflineCache } from "../offline/cache";
+import { resetApiAccessToken } from "../rpc/api-client";
 import { disposeConnection } from "../rpc/connection";
-import { resetRelayAccessToken } from "../rpc/relay-client";
 import { resetAvailabilityRuntime } from "../store/availability";
 import { resetConnectionRuntimeState } from "../store/connection-runtime";
 import { clearConnections, currentConnections } from "../store/connections";
@@ -64,7 +64,7 @@ export const resetLocalMobileData = async (): Promise<void> => {
 		clearLastCrashReport(),
 		resetMobileAnalyticsIdentity(),
 	]);
-	resetRelayAccessToken();
+	resetApiAccessToken();
 	if (cleanup.some((result) => result.status === "rejected")) {
 		throw new Error(
 			"Some local files could not be cleared. Restart the app and try again.",

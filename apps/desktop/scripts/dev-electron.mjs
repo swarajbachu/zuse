@@ -136,12 +136,11 @@ function startApp() {
 			env: {
 				...process.env,
 				VITE_DEV_SERVER_URL: devServerUrl,
-				ZUSE_RELAY_URL:
-					process.env.ZUSE_RELAY_URL?.trim() ||
-					deploymentProfiles.staging.relayUrl,
-				VITE_ZUSE_RELAY_URL:
-					process.env.VITE_ZUSE_RELAY_URL?.trim() ||
-					deploymentProfiles.staging.relayUrl,
+				ZUSE_API_URL:
+					process.env.ZUSE_API_URL?.trim() || deploymentProfiles.staging.apiUrl,
+				VITE_ZUSE_API_URL:
+					process.env.VITE_ZUSE_API_URL?.trim() ||
+					deploymentProfiles.staging.apiUrl,
 			},
 			stdio: "inherit",
 		},

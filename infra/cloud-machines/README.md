@@ -41,12 +41,12 @@ the machine to become healthy.
 Account setup never copies local credential directories. GitHub and Codex use
 their supported remote login flows. Claude receives only a short-lived,
 environment-bound encrypted credential transfer initiated by the local control
-plane. Credentials are absent from Relay payloads, database rows, renderer
+plane. Credentials are absent from API payloads, database rows, renderer
 state, and mobile storage.
 
 Ordinary provider backups intentionally preserve the machine's authenticated
 CLI state and must be treated as secret-bearing infrastructure. Before a final
-retained snapshot, the Relay requests credential cleanup, the runtime removes
+retained snapshot, the API requests credential cleanup, the runtime removes
 and verifies the known Zuse, GitHub, Claude, and Codex credential files, and
 systemd stops the complete Zuse process group. If that handshake cannot be
 verified, reconciliation skips the snapshot and deletes the server and bound

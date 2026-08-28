@@ -25,6 +25,7 @@ import { Migration0025RelayEnvironmentKeys } from "../../src/persistence/migrati
 import { Migration0028RelayMintPublicKey } from "../../src/persistence/migrations/0028_relay_mint_public_key.ts";
 import { Migration0039AuthTokenDevices } from "../../src/persistence/migrations/0039_auth_token_devices.ts";
 import { Migration0040BlockedNearbyDevices } from "../../src/persistence/migrations/0040_blocked_nearby_devices.ts";
+import { Migration0052ApiConfig } from "../../src/persistence/migrations/0052_api_config.ts";
 import { wsServerProtocolLayer } from "../../src/transports/ws.ts";
 
 const LargePayloadRpc = Rpc.make("test.largePayload", {
@@ -87,6 +88,7 @@ const makeRuntime = (opts: {
 			Effect.andThen(Migration0028RelayMintPublicKey),
 			Effect.andThen(Migration0039AuthTokenDevices),
 			Effect.andThen(Migration0040BlockedNearbyDevices),
+			Effect.andThen(Migration0052ApiConfig),
 		),
 	).pipe(Layer.provideMerge(SqlLive));
 	const ConfigLive = Layer.succeed(LanAuthConfig, {

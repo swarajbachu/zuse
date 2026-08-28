@@ -14,8 +14,8 @@ export const DEFAULT_LOCAL_DESKTOP_PORT = 47837;
 export const DEFAULT_SERVE_PORT = 4859;
 
 /**
- * How long after its last relay heartbeat an environment still counts as
- * online. Serve heartbeats every 30s; the relay and every client use this
+ * How long after its last api heartbeat an environment still counts as
+ * online. Serve heartbeats every 30s; the api and every client use this
  * same staleness window so presence reads consistently everywhere.
  */
 export const ENVIRONMENT_PRESENCE_STALE_MS = 90_000;
@@ -33,7 +33,7 @@ export const ENVIRONMENT_PRESENCE_STALE_MS = 90_000;
 //
 // These types + RPC definitions lock that contract now. The local-pairing and
 // cloud-link handlers (and registration into the RPC group) land with the
-// auth/pairing and relay PRs; until then these are exported definitions only.
+// auth/pairing and api PRs; until then these are exported definitions only.
 
 /**
  * Where an environment physically runs.
@@ -155,7 +155,7 @@ export class EnvironmentEndpointHealth extends Schema.Class<EnvironmentEndpointH
 
 /**
  * Everything a client needs to identify and reach an environment. Keyed by
- * `environmentId` (never by "this laptop"), so the relay and clients treat
+ * `environmentId` (never by "this laptop"), so the api and clients treat
  * desktop / ssh / cloud uniformly.
  */
 export class EnvironmentDescriptor extends Schema.Class<EnvironmentDescriptor>(
@@ -199,14 +199,14 @@ export const ConnectDescribeRpc = Rpc.make("connect.describe", {
 });
 
 /**
- * Cloud-link step 1: the environment signs a relay-issued challenge with its
+ * Cloud-link step 1: the environment signs a api-issued challenge with its
  * local bearer credential, proving control of the host. The signed proof is
- * submitted to the relay by the client to complete linking.
+ * submitted to the api by the client to complete linking.
  */
 export const ConnectLinkProofRpc = Rpc.make("connect.linkProof", {
 	payload: Schema.Struct({
 		challenge: Schema.String,
-		relayIssuer: Schema.String,
+		apiIssuer: Schema.String,
 		endpoint: EnvironmentEndpoint,
 	}),
 	success: Schema.Struct({ proof: Schema.String }),
@@ -214,13 +214,13 @@ export const ConnectLinkProofRpc = Rpc.make("connect.linkProof", {
 });
 
 /**
- * Cloud-link step 2: persist relay-issued credentials on the environment so
+ * Cloud-link step 2: persist api-issued credentials on the environment so
  * future connections route through the managed endpoint without re-pairing.
  */
-export const ConnectRelayConfigRpc = Rpc.make("connect.relayConfig", {
+export const ConnectApiConfigRpc = Rpc.make("connect.apiConfig", {
 	payload: Schema.Struct({
-		relayUrl: Schema.String,
-		relayIssuer: Schema.String,
+		apiUrl: Schema.String,
+		apiIssuer: Schema.String,
 		environmentId: EnvironmentId,
 		environmentCredential: Schema.String,
 		mintPublicKey: Schema.optional(Schema.String),
@@ -230,45 +230,45 @@ export const ConnectRelayConfigRpc = Rpc.make("connect.relayConfig", {
 });
 
 // ---------------------------------------------------------------------------
-// Relay link orchestration (renderer ↔ server)
+// API link orchestration (renderer ↔ server)
 // ---------------------------------------------------------------------------
 //
-// The desktop self-registers with the relay: because it is already
+// The desktop self-registers with the api: because it is already
 // WorkOS-signed-in and holds its Ed25519 identity, the server runs the whole
 // link flow (challenge → sign → submit → persist → heartbeat). The renderer's
 // "Devices" pane drives it with these RPCs.
 
-/** Whether this environment is linked to a relay, plus how to describe it. */
-export class RelayLinkStatus extends Schema.Class<RelayLinkStatus>(
-	"RelayLinkStatus",
-)({
-	linked: Schema.Boolean,
-	relayUrl: Schema.optional(Schema.String),
-	environmentId: Schema.optional(EnvironmentId),
-	label: Schema.optional(Schema.String),
-	heartbeatActive: Schema.Boolean,
-	advertisedEndpoints: Schema.optional(Schema.Array(AdvertisedEndpoint)),
-}) {}
+/** Whether this environment is linked to a api, plus how to describe it. */
+export class ApiLinkStatus extends Schema.Class<ApiLinkStatus>("ApiLinkStatus")(
+	{
+		linked: Schema.Boolean,
+		apiUrl: Schema.optional(Schema.String),
+		environmentId: Schema.optional(EnvironmentId),
+		label: Schema.optional(Schema.String),
+		heartbeatActive: Schema.Boolean,
+		advertisedEndpoints: Schema.optional(Schema.Array(AdvertisedEndpoint)),
+	},
+) {}
 
-/** Link this environment to a relay under the signed-in WorkOS account. */
-export const RelayLinkRpc = Rpc.make("relay.link", {
+/** Link this environment to a api under the signed-in WorkOS account. */
+export const ApiLinkRpc = Rpc.make("api.link", {
 	payload: Schema.Struct({
-		relayUrl: Schema.String,
+		apiUrl: Schema.String,
 		label: Schema.optional(Schema.String),
 	}),
-	success: RelayLinkStatus,
+	success: ApiLinkStatus,
 	error: ConnectAuthError,
 });
 
-/** Current relay link status. */
-export const RelayStatusRpc = Rpc.make("relay.status", {
+/** Current api link status. */
+export const ApiStatusRpc = Rpc.make("api.status", {
 	payload: Schema.Void,
-	success: RelayLinkStatus,
+	success: ApiLinkStatus,
 	error: ConnectAuthError,
 });
 
-/** Remove this environment's relay link. */
-export const RelayUnlinkRpc = Rpc.make("relay.unlink", {
+/** Remove this environment's api link. */
+export const ApiUnlinkRpc = Rpc.make("api.unlink", {
 	payload: Schema.Void,
 	success: Schema.Void,
 	error: ConnectAuthError,

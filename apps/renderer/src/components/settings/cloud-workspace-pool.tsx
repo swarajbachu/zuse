@@ -155,16 +155,16 @@ export function CloudWorkspacePool() {
 					runControlPlane((client) => client["cloud.workspaces.list"]({})),
 					runControlPlane((client) => client["cloud.image.status"]()),
 				]);
-			const relayResults = [
+			const apiResults = [
 				providerResult,
 				projectResult,
 				workspaceResult,
 				imageResult,
 			] as const;
-			const relayAvailable = relayResults.some(
+			const apiAvailable = apiResults.some(
 				(result) => result.status === "fulfilled",
 			);
-			setServiceAvailable(relayAvailable);
+			setServiceAvailable(apiAvailable);
 			if (providerResult.status === "fulfilled") {
 				setProviders(providerResult.value.providers);
 			}
@@ -177,14 +177,14 @@ export function CloudWorkspacePool() {
 			setImageError(
 				imageResult.status === "fulfilled"
 					? null
-					: "The connected Relay does not provide account images yet. Apply migration 0012 and deploy the current Cloud Workspace backend, then retry.",
+					: "The connected API does not provide account images yet. Apply migration 0012 and deploy the current Cloud Workspace backend, then retry.",
 			);
 			setError(
 				[providerResult, projectResult, workspaceResult].every(
 					(result) => result.status === "fulfilled",
 				)
 					? null
-					: relayAvailable
+					: apiAvailable
 						? "Some cloud workspace data could not be refreshed. Connected accounts remain available."
 						: cloudWorkspaceAccessPresentation({
 								entitlementSubscribed: loadedSubscribed,

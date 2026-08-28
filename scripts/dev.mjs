@@ -92,11 +92,10 @@ const sharedEnv = {
 	VITE_WORKOS_CLIENT_ID:
 		process.env.VITE_WORKOS_CLIENT_ID?.trim() ||
 		deploymentProfiles.staging.workosPublicClientId,
-	ZUSE_RELAY_URL:
-		process.env.ZUSE_RELAY_URL?.trim() || deploymentProfiles.staging.relayUrl,
-	VITE_ZUSE_RELAY_URL:
-		process.env.VITE_ZUSE_RELAY_URL?.trim() ||
-		deploymentProfiles.staging.relayUrl,
+	ZUSE_API_URL:
+		process.env.ZUSE_API_URL?.trim() || deploymentProfiles.staging.apiUrl,
+	VITE_ZUSE_API_URL:
+		process.env.VITE_ZUSE_API_URL?.trim() || deploymentProfiles.staging.apiUrl,
 	ZUSE_DEV_INSTANCE: instance.instance,
 	ZUSE_DEV_STARTED_AT: String(devStartedAt),
 	ZUSE_DESKTOP_WS_PORT: String(instance.websocketPort),

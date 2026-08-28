@@ -31,7 +31,7 @@ The Cloud Sandbox offer is provider-neutral. The public placement contract
 accepts only an advertised provider ID, and checkout metadata preserves that
 choice until its signed webhook provisions the sandbox. Native templates,
 images, snapshots, credentials, and endpoints remain inside each adapter.
-The relay additionally filters placement choices through per-provider
+The api additionally filters placement choices through per-provider
 operational readiness; offer-level checkout readiness is never used as a proxy
 for every registered adapter.
 
@@ -41,8 +41,8 @@ for every registered adapter.
 2. Test the complete `SandboxProviderAdapter` interface using a fake HTTP
    client, including timeout recovery, idempotent deletion, and the
    fork-starts-quarantined invariant.
-3. Add relay configuration following the pattern in
-   `infra/relay/src/machine-provider-modules`.
+3. Add api configuration following the pattern in
+   `infra/api/src/machine-provider-modules`.
 
 ## E2B
 

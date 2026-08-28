@@ -1,14 +1,14 @@
 # Cloud security
 
-Zuse Cloud treats the desktop, mobile client, Relay, gateway, provider sandbox,
+Zuse Cloud treats the desktop, mobile client, API, gateway, provider sandbox,
 and object storage as separate trust boundaries. Long-lived provider or account
 credentials are never used as client connection credentials.
 
 ## Identity and private-beta authorization
 
-WorkOS verifies the signed-in account. For user-facing hosted operations, Relay
+WorkOS verifies the signed-in account. For user-facing hosted operations, API
 then evaluates the server-side PostHog flag `zuse-cloud-beta-access` using the
-verified WorkOS account ID. Relay never trusts a client-supplied account ID or a
+verified WorkOS account ID. API never trusts a client-supplied account ID or a
 renderer-evaluated feature flag.
 
 The gate covers cloud creation and mutation, resume, transcript/key retrieval,
@@ -19,7 +19,7 @@ webhooks. This lets an already accepted turn settle after access is removed
 without granting another user operation.
 
 The WorkOS-authenticated entitlement lookup is the sole bootstrap exception:
-after Relay verifies an active Polar subscription, it sets
+after API verifies an active Polar subscription, it sets
 `zuse_cloud_beta_access=true` for the account's privacy-preserving PostHog
 identity. It cannot create or resume compute itself. PostHog deny returns
 `cloud_beta_access_required`. Evaluation timeout, malformed
@@ -42,7 +42,7 @@ summary, checkpoint pointer, or endpoint.
 
 ## Client tickets and gateway
 
-Relay issues short-lived client tickets bound to account, device, workspace,
+API issues short-lived client tickets bound to account, device, workspace,
 role, protocol version, runtime generation, and gateway epoch. The hibernatable
 WorkspaceGateway Durable Object validates the ticket before accepting a socket
 and forwards opaque binary RPC frames between the authenticated client and
@@ -62,24 +62,24 @@ application authorization boundary.
   runtime identity, authorized keys, and shell history.
 - SSH uses a ticket-gated runtime WebSocket route and a per-workspace host key;
   it does not expose a public provider SSH listener.
-- Relay signing keys, WorkOS, Cloudflare, E2B, PostHog, Polar, webhook, and vault
+- API signing keys, WorkOS, Cloudflare, E2B, PostHog, Polar, webhook, and vault
   secrets are Worker secrets, not tracked configuration values.
 - Staging and production use separate configs, secrets, runtime signing keys,
   template versions, provider webhooks, and databases.
 
 ## Transcript encryption
 
-Each workspace has a transcript key stored wrapped by the Relay vault key.
+Each workspace has a transcript key stored wrapped by the API vault key.
 Runtime checkpoint payloads are compressed and encrypted with AES-256-GCM.
 Workspace, session, cursor epoch/version, and schema version are authenticated
 additional data, preventing a valid ciphertext from being moved to another
 workspace or cursor.
 
-R2 receives immutable ciphertext. Relay records and verifies its SHA-256 and
+R2 receives immutable ciphertext. API records and verifies its SHA-256 and
 byte size before advancing a monotonic pointer. An authorized owning client
 receives the transcript key with the protected checkpoint response, uses it for
 integrity-checked decryption, and does not put it into canonical ClientBus or UI
-state. Relay stores only its wrapped envelope; R2 never receives the plaintext
+state. API stores only its wrapped envelope; R2 never receives the plaintext
 key.
 
 ## Webhooks and billing evidence
@@ -93,7 +93,7 @@ remain long enough to reject old redelivery.
 ## Revocation and deletion
 
 Removing beta access blocks new create, resume, mutation, transcript retrieval,
-and reconnect operations. Existing short-lived tickets expire naturally; Relay
+and reconnect operations. Existing short-lived tickets expire naturally; API
 can fence a runtime by advancing its generation or gateway epoch.
 
 Permanent workspace deletion kills the provider sandbox, deletes R2 transcript

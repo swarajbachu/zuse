@@ -52,7 +52,7 @@ export type ServeOptions = {
 	readonly pairing: boolean;
 	readonly pairingPublicBaseUrl?: string;
 	readonly trustProxy?: boolean;
-	readonly relayEnabled?: boolean;
+	readonly apiEnabled?: boolean;
 };
 
 const parsePort = (raw: string): number => {
@@ -167,18 +167,18 @@ export const runHeadlessServer = (
 			: readFileSync(enrollmentTokenFile, "utf8").trim());
 	const workspaceId = process.env.ZUSE_CLOUD_WORKSPACE_ID;
 	const machineId = process.env.ZUSE_MACHINE_ID;
-	const relayUrl = process.env.ZUSE_RELAY_URL?.replace(/\/+$/u, "");
-	const relayIssuer = process.env.ZUSE_RELAY_ISSUER?.replace(/\/+$/u, "");
+	const apiUrl = process.env.ZUSE_API_URL?.replace(/\/+$/u, "");
+	const apiIssuer = process.env.ZUSE_API_ISSUER?.replace(/\/+$/u, "");
 	const cloudEnrollment =
 		enrollmentToken !== undefined &&
 		machineId !== undefined &&
 		workspaceId === undefined &&
-		relayUrl !== undefined &&
-		relayIssuer !== undefined
+		apiUrl !== undefined &&
+		apiIssuer !== undefined
 			? {
 					machineId,
-					relayUrl,
-					relayIssuer,
+					apiUrl,
+					apiIssuer,
 					token: Redacted.make(enrollmentToken),
 					tokenFile: enrollmentTokenFile,
 					label: process.env.ZUSE_MACHINE_LABEL,
@@ -194,12 +194,12 @@ export const runHeadlessServer = (
 	const cloudWorkspaceRoot = process.env.ZUSE_CLOUD_WORKSPACE_ROOT;
 	const cloudWorkspaceRuntime =
 		workspaceId !== undefined &&
-		relayUrl !== undefined &&
+		apiUrl !== undefined &&
 		runtimeBootToken !== undefined &&
 		cloudWorkspaceRoot !== undefined
 			? {
 					workspaceId,
-					relayUrl,
+					apiUrl,
 					bootToken: Redacted.make(runtimeBootToken),
 					bootTokenFile: runtimeBootTokenFile,
 					localPort: port,
@@ -221,7 +221,7 @@ export const runHeadlessServer = (
 			staticDir: options.staticDir,
 			sshBridge: process.env.ZUSE_MACHINE_RUNTIME_ROLE === "cloud-environment",
 			pairingPublicBaseUrl: options.pairingPublicBaseUrl,
-			relayEnabled: options.relayEnabled,
+			apiEnabled: options.apiEnabled,
 			trustProxy: options.trustProxy,
 			onPairing: (pairing) => {
 				// Persist the boot pairing details so the serve CLI can print
@@ -266,7 +266,7 @@ export const runHeadlessServer = (
 		// to open a browser and receive the callback; a headless server's proper
 		// variant is a loopback-HTTP listener, wired with the auth/pairing work.
 		// Until then this no-op satisfies the seam without offering server-side
-		// login (clients authenticate to the environment via pairing/relay tokens).
+		// login (clients authenticate to the environment via pairing/api tokens).
 		authShell: {
 			redirectUri:
 				process.env.ZUSE_AUTH_REDIRECT_URI ?? "http://127.0.0.1/auth/callback",
@@ -281,11 +281,11 @@ export const runHeadlessServer = (
 				? "cloud-environment"
 				: "control-plane",
 		lanAuth: { policy, advertisedHost, port, pairingBootstrap },
-		relayEnabled: options.relayEnabled !== false,
-		autoRelayLink:
+		apiEnabled: options.apiEnabled !== false,
+		autoApiLink:
 			process.env.ZUSE_SERVE_AUTO_LINK === "1"
 				? {
-						relayUrl: process.env.ZUSE_RELAY_URL ?? "https://relay.stuff.md",
+						apiUrl: process.env.ZUSE_API_URL ?? "https://api.zuse.sh",
 						label: process.env.ZUSE_COMPUTER_NAME,
 					}
 				: undefined,

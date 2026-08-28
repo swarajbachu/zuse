@@ -1,8 +1,9 @@
 import { CapabilityFeature, CapabilityManifest } from "@zuse/contracts";
 import { Schema } from "effect";
 
-export const ConnectionSource = Schema.Literals(["paired", "relay", "manual"]);
+export const ConnectionSource = Schema.Literals(["paired", "api", "manual"]);
 export type ConnectionSource = typeof ConnectionSource.Type;
+const LegacyConnectionSource = Schema.Literal("relay");
 
 export const LocalPathType = Schema.Literals(["lan", "apple-peer"]);
 export type LocalPathType = typeof LocalPathType.Type;
@@ -23,7 +24,9 @@ const ConnectionRecordFields = {
 	refreshAccountGrant: Schema.optional(Schema.Boolean),
 	label: Schema.String,
 	updatedAt: Schema.Number,
-	source: Schema.optional(ConnectionSource),
+	source: Schema.optional(
+		Schema.Union([ConnectionSource, LegacyConnectionSource]),
+	),
 };
 
 const CurrentConnectionRecord = Schema.Struct({
@@ -113,9 +116,9 @@ export const refreshConnectionDescriptor = (
 const inferSource = (
 	record: typeof StoredConnectionRecord.Type,
 ): ConnectionSource => {
+	if (record.source === "relay") return "api";
 	if (record.source !== undefined) return record.source;
-	if (record.wsBaseUrl !== undefined && record.wsBaseUrl !== null)
-		return "relay";
+	if (record.wsBaseUrl !== undefined && record.wsBaseUrl !== null) return "api";
 	if (record.token !== undefined && record.token !== null) return "paired";
 	return "manual";
 };
@@ -123,11 +126,20 @@ const inferSource = (
 export const decodeConnectionRecords = (value: unknown): ConnectionRecord[] =>
 	Schema.decodeUnknownSync(Schema.Array(StoredConnectionRecord))(value).map(
 		(record) => {
+			const legacyApiSource = record.source === "relay";
 			const source = inferSource(record);
 			const capabilities = Schema.is(FlatCapabilityList)(record.capabilities)
 				? CapabilityManifest.make({ version: 1, features: record.capabilities })
 				: record.capabilities;
-			return { ...record, capabilities, source };
+			return {
+				...record,
+				key:
+					legacyApiSource && record.key.startsWith("relay:")
+						? `api:${record.key.slice("relay:".length)}`
+						: record.key,
+				capabilities,
+				source,
+			};
 		},
 	);
 
@@ -138,11 +150,11 @@ export const availableConnections = (
 	const priority: Record<ConnectionSource, number> = {
 		paired: 3,
 		manual: 2,
-		relay: 1,
+		api: 1,
 	};
 	const selected = new Map<string, ConnectionRecord>();
 	for (const connection of connections) {
-		if (connection.source === "relay" && !signedIn) continue;
+		if (connection.source === "api" && !signedIn) continue;
 		const identity = connection.environmentId ?? connection.key;
 		const current = selected.get(identity);
 		if (

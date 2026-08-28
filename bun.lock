@@ -330,8 +330,8 @@
         "vitest": "catalog:",
       },
     },
-    "infra/relay": {
-      "name": "@zuse/relay",
+    "infra/api": {
+      "name": "@zuse/api",
       "version": "0.0.0",
       "dependencies": {
         "@effect/sql-pg": "catalog:",
@@ -2193,7 +2193,7 @@
 
     "@zuse/provider-registry": ["@zuse/provider-registry@workspace:packages/provider-registry"],
 
-    "@zuse/relay": ["@zuse/relay@workspace:infra/relay"],
+    "@zuse/api": ["@zuse/api@workspace:infra/api"],
 
     "@zuse/sandbox-providers": ["@zuse/sandbox-providers@workspace:packages/sandbox-providers"],
 

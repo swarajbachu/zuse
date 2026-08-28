@@ -11,41 +11,41 @@ const account = {
 };
 
 describe("mobile push registration", () => {
-	test("only registers when signed in with relay URL on native platforms", () => {
+	test("only registers when signed in with api URL on native platforms", () => {
 		expect(
 			shouldRegisterPushToken({
 				signedIn: true,
-				relayUrl: "https://relay.test",
+				apiUrl: "https://api.test",
 				platform: "ios",
 			}),
 		).toBe(true);
 		expect(
 			shouldRegisterPushToken({
 				signedIn: false,
-				relayUrl: "https://relay.test",
+				apiUrl: "https://api.test",
 				platform: "ios",
 			}),
 		).toBe(false);
 		expect(
 			shouldRegisterPushToken({
 				signedIn: true,
-				relayUrl: "",
+				apiUrl: "",
 				platform: "ios",
 			}),
 		).toBe(false);
 		expect(
 			shouldRegisterPushToken({
 				signedIn: true,
-				relayUrl: "https://relay.test",
+				apiUrl: "https://api.test",
 				platform: "web",
 			}),
 		).toBe(false);
 	});
 
-	test("registers the Expo token with the existing relay device endpoint", async () => {
+	test("registers the Expo token with the existing api device endpoint", async () => {
 		const calls: unknown[] = [];
 		const registered = await registerPushTokenForAccount(account, {
-			relayUrl: () => "https://relay.test",
+			apiUrl: () => "https://api.test",
 			platform: "ios",
 			getDeviceId: async () => "mobile_1",
 			getPushToken: async () => "ExponentPushToken[test]",
@@ -64,10 +64,10 @@ describe("mobile push registration", () => {
 		]);
 	});
 
-	test("skips registration when signed out or relay URL is missing", async () => {
+	test("skips registration when signed out or api URL is missing", async () => {
 		const calls: unknown[] = [];
 		const deps = {
-			relayUrl: () => "",
+			apiUrl: () => "",
 			platform: "ios" as const,
 			getDeviceId: async () => "mobile_1",
 			getPushToken: async () => "ExponentPushToken[test]",

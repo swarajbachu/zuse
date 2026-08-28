@@ -36,7 +36,7 @@ describe("computer awake renderer behavior", () => {
 		expect(
 			localRuntimeEnvironmentId(
 				[
-					{ connectionKind: "relay", environmentId: "remote" },
+					{ connectionKind: "api", environmentId: "remote" },
 					{ connectionKind: "local", environmentId: "this-mac" },
 				],
 				"remote",

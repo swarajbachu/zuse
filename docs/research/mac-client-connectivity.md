@@ -60,7 +60,7 @@ blocks survive desktop restarts.
 The same-account path does not try grants for every environment. The Mac first
 returns its environment ID and a single-use discovery nonce. The phone asks the
 account service for one short-lived assertion for exactly that environment,
-phone public key, nonce, and TLS certificate pin. The Mac verifies the relay
+phone public key, nonce, and TLS certificate pin. The Mac verifies the api
 signature and all bindings before approving automatically. The assertion is
 only a trust bootstrap; subsequent RPC traffic stays on the direct nearby path.
 
@@ -91,22 +91,22 @@ Mac approval flow.
 
 ## Executive conclusion
 
-The cleanest long-term design is not another always-relayed tunnel. It is a
+The cleanest long-term design is not another always-apied tunnel. It is a
 **path-racing connection layer**:
 
 1. discover and try the Mac directly on the local network;
 2. simultaneously use the existing account service as a rendezvous channel to
    exchange authenticated Internet candidates and attempt a direct encrypted
    UDP connection;
-3. keep an encrypted regional relay ready as the immediate fallback; and
+3. keep an encrypted regional api ready as the immediate fallback; and
 4. move an established logical session to a better path when one appears.
 
 This preserves the “same Wi-Fi just works” experience while extending it to
 the common remote case without forcing every byte through an intermediary.
 ICE is the standardized model for exactly this: gather host, server-reflexive,
-and relayed candidates, test them, and select a working pair. TURN exists for
+and apied candidates, test them, and select a working pair. TURN exists for
 the networks where a direct path cannot be made, and its specification advises
-using the relay only when direct connectivity fails because relaying has both
+using the api only when direct connectivity fails because apiing has both
 provider cost and path cost ([ICE, RFC 8445](https://datatracker.ietf.org/doc/html/rfc8445),
 [TURN, RFC 8656](https://datatracker.ietf.org/doc/html/rfc8656)).
 
@@ -117,7 +117,7 @@ For Zuse, the recommended order is:
 - **Next:** prototype ICE plus an end-to-end encrypted direct data channel,
   preserving the current managed tunnel as the fallback during rollout.
 - **Then:** replace or supplement that fallback with latency-selected regional
-  relays if measurements show the current tunnel path is the remaining tail.
+  apis if measurements show the current tunnel path is the remaining tail.
 - **Do not make WebTransport the first migration.** QUIC is useful once a path
   exists, but neither QUIC nor WebTransport performs NAT traversal. WebTransport
   over HTTP/3 and its browser API are also still working drafts as of this
@@ -128,7 +128,7 @@ For Zuse, the recommended order is:
 
 The current remote design already separates control and data planes:
 
-- The account relay verifies the identity account, stores linked environments,
+- The account api verifies the identity account, stores linked environments,
   tracks presence, and mints short-lived DPoP-bound grants. Its own README
   explicitly excludes chat traffic from that service.
 - The actual remote data path is `client -> managed edge -> cloudflared on the
@@ -138,18 +138,18 @@ The current remote design already separates control and data planes:
   environment opens, which suggests cold or failure cases are already material
   enough to warrant a longer timeout.
 - The first environment connection currently requests a connect grant while
-  adding the relay connection and requests another grant in
+  adding the api connection and requests another grant in
   `prepareOptions` immediately before opening the WebSocket. This duplicate
   control-plane POST is a concrete avoidable cost on cold connection setup.
-- The relay access token is cached, but its cold path still obtains the account
-  token and exchanges it for a DPoP-bound relay token before the connect grant.
+- The api access token is cached, but its cold path still obtains the account
+  token and exchanges it for a DPoP-bound api token before the connect grant.
 - The LAN QR payload contains one IPv4 address. The mobile app has a local
   network usage description, but no declared Bonjour service types, and the
   repository contains no mDNS advertiser or browser. LAN therefore works when
   the recorded address remains correct, but it is not zero-configuration
   service discovery.
 - Existing connection selection statically prefers a paired LAN record over a
-  relay record for the same environment. It does not race current reachability
+  api record for the same environment. It does not race current reachability
   or retain a working fallback while probing a better path.
 - The local and remote paths expose the same WebSocket RPC protocol, so path
   selection can be changed underneath the RPC/session layer rather than
@@ -261,7 +261,7 @@ the tunnel only when direct paths fail.
 3. Away from home, both devices ask the account service for permission and
    exchange possible direct addresses. They try those while a fallback path is
    already connecting.
-4. The connection screen says “Direct,” “Local,” or “Relayed” in diagnostics,
+4. The connection screen says “Direct,” “Local,” or “Apied” in diagnostics,
    but ordinary users see only the Mac and its availability.
 5. Reopening the app does not require scanning again. The device keys—not the
    old address or knowledge of a public URL—prove which devices may connect.
@@ -274,7 +274,7 @@ operate. The practical design combines a fast path and a dependable fallback.
 ### Open a direct door to the Mac
 
 The router can send one public port to the Mac, either through manual setup or
-an automatic port-mapping protocol. This removes the relay, so remote speed can
+an automatic port-mapping protocol. This removes the api, so remote speed can
 be very good. The Port Control Protocol standard exists specifically to create
 inbound mappings through a router or firewall
 ([PCP, RFC 6887](https://datatracker.ietf.org/doc/html/rfc6887)).
@@ -297,7 +297,7 @@ protection ([IPv6 local-network protection, RFC 4864](https://datatracker.ietf.o
 This is a valuable candidate, not a universal product answer: many client or
 home networks still lack usable end-to-end IPv6, home firewalls commonly reject
 unsolicited inbound connections, and temporary addresses change. Candidate
-exchange, firewall handling, device authentication, and relay fallback are
+exchange, firewall handling, device authentication, and api fallback are
 still required.
 
 ### Let the two devices find a direct route automatically
@@ -305,32 +305,32 @@ still required.
 This is the WebRTC/ICE-style design recommended in this note. Both devices tell
 a small coordination service which addresses might work, test them safely, and
 talk directly when possible. If a firewall blocks all of them, they fall back to
-a relay. To the user it can feel like local Wi-Fi: choose the Mac and connect.
+a api. To the user it can feel like local Wi-Fi: choose the Mac and connect.
 
 It offers the best balance of speed and anywhere access, but has the highest
 initial engineering cost. The product must handle address changes, simultaneous
-connection attempts, a fallback relay, end-to-end keys, and seamless session
+connection attempts, a fallback api, end-to-end keys, and seamless session
 recovery. WebRTC data channels package most of that machinery; ICE plus QUIC
 gives more control but requires more native networking work.
 
-### Put a small relay near the devices
+### Put a small api near the devices
 
-A relay is a public server that both the phone and Mac can reach. It simply
+A api is a public server that both the phone and Mac can reach. It simply
 passes encrypted traffic between them. Several geographic locations let the
 app select a nearby server, reducing the detour compared with a poorly placed
-relay. This works across restrictive networks and is much simpler than direct
+api. This works across restrictive networks and is much simpler than direct
 connection negotiation.
 
 It will never be as fast as a successful direct route and the operator pays for
 bandwidth and long-lived connections. It is best as the guaranteed fallback.
 TURN is the standardized version for UDP-oriented peer connections; an
-application-level TLS/WebSocket relay is easier to fit to the current protocol
+application-level TLS/WebSocket api is easier to fit to the current protocol
 but needs care to avoid one ordered connection stalling unrelated work.
 
 ### Give every device a private network address
 
 A mesh/VPN makes the phone and Mac look as though they share a private network.
-Good implementations try a direct encrypted route and use a relay when that is
+Good implementations try a direct encrypted route and use a api when that is
 impossible. This is secure and can be quick to validate operationally.
 
 The user may need to install or approve a VPN, and iOS/macOS integration requires
@@ -347,7 +347,7 @@ part of SSH
 ([SSH connection protocol, RFC 4254, section 7](https://datatracker.ietf.org/doc/html/rfc4254#section-7)).
 This avoids router setup and is operationally familiar.
 
-It is still a relay, with a server hop and one long-lived TCP connection. It
+It is still a api, with a server hop and one long-lived TCP connection. It
 needs process supervision, host-key management, public ingress protection, and
 regional placement. It can be a clean self-hosted prototype or power-user
 option, but it does not provide the automatic direct-route upgrade of ICE.
@@ -386,7 +386,7 @@ clean, including in a room without normal Wi-Fi.
 
 They do not provide anywhere access. Multipeer sessions also disconnect when
 the app backgrounds, and Wi-Fi Aware has availability, entitlement, and device
-requirements. Use these as local candidate sources, with Internet direct/relay
+requirements. Use these as local candidate sources, with Internet direct/api
 paths underneath the same device session.
 
 ### Replace WebSocket with QUIC or WebTransport
@@ -396,8 +396,8 @@ and separate streams stop one lost large response from blocking every unrelated
 small response. WebTransport exposes similar capabilities to web applications.
 
 These improve how bytes travel after a path exists. They do not find the Mac,
-open a route through home routers, or remove a relay. A relayed QUIC connection
-is still relayed. Use QUIC with the direct-route architecture; do not present it
+open a route through home routers, or remove a api. A apied QUIC connection
+is still apied. Use QUIC with the direct-route architecture; do not present it
 as an alternative to NAT traversal.
 
 ### Use push services to wake and reconnect
@@ -417,8 +417,8 @@ Push should improve freshness, not be required for correctness.
 | Same Wi-Fi + Bonjour | Fastest | No | One local-network permission; otherwise automatic | Safe when paired device keys authenticate after discovery | Low |
 | Public port or automatic router mapping | Usually very fast | Sometimes; fails on some providers/routers | Router support or advanced setup | Highest exposure; must harden public listener | Medium implementation, high support burden |
 | Direct IPv6 | Usually very fast | Only where both networks and firewalls allow it | Ideally invisible | Publicly routable address still needs strict firewall/auth | Medium |
-| Automatic direct connection + relay fallback | Usually direct-fast; graceful fallback | Yes | Ideally invisible after pairing | Strong with mutual device keys and encrypted relay payloads | High initial, medium ongoing |
-| Nearby regional relay | Moderate and predictable if well placed | Yes | Invisible | Strong if payload stays encrypted end to end | Medium implementation, high bandwidth/region operations |
+| Automatic direct connection + api fallback | Usually direct-fast; graceful fallback | Yes | Ideally invisible after pairing | Strong with mutual device keys and encrypted api payloads | High initial, medium ongoing |
+| Nearby regional api | Moderate and predictable if well placed | Yes | Invisible | Strong if payload stays encrypted end to end | Medium implementation, high bandwidth/region operations |
 | Mesh/VPN | Often direct-fast | Yes | VPN install/approval or bundled extension | Strong private-key network | Low with external install; high when embedded |
 | Reverse SSH through a server | Moderate | Yes | Mac service plus server configuration | Strong tunnel, but public endpoint and host keys need management | Medium |
 | Current managed tunnel | Moderate, sometimes variable | Yes | External connector currently required | Strong managed ingress plus app grant | Medium; current version/path observability is weak |
@@ -466,23 +466,23 @@ the app still reconnects to see it.
                        client  <----------->  Mac
                          |       direct path    |
                          |    LAN or Internet   |
-                         +------> relay <-------+
+                         +------> api <-------+
                              fallback only
 ```
 
 ### 1. One logical connection, several candidate paths
 
-Treat LAN, public IPv6, NAT-mapped UDP, and relay endpoints as candidates for
+Treat LAN, public IPv6, NAT-mapped UDP, and api endpoints as candidates for
 the same device session, not as separate user-visible connection types. Race
 the likely paths and select by observed reachability and round-trip time. Keep
-probing after an initial relay connection so the session can upgrade to direct,
+probing after an initial api connection so the session can upgrade to direct,
 and fall back without losing the logical session when the network changes.
 
 ICE provides the sound base algorithm: local interface addresses are host
-candidates, STUN reveals server-reflexive addresses, TURN supplies relayed
+candidates, STUN reveals server-reflexive addresses, TURN supplies apied
 addresses, and connectivity checks determine which candidate pairs actually
 work ([RFC 8445, candidate gathering](https://datatracker.ietf.org/doc/html/rfc8445#section-2.1),
-[STUN, RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489)). A relay-first,
+[STUN, RFC 8489](https://datatracker.ietf.org/doc/html/rfc8489)). A api-first,
 upgrade-in-place strategy improves perceived availability because useful work
 can begin while direct checks continue. This is an implementation policy on
 top of ICE, not a reason to invent a new traversal protocol.
@@ -495,7 +495,7 @@ and rendezvous authorization. Do not put it in the per-message path.
 Each installation should retain a non-exportable or OS-protected device key.
 The control service should issue a short-lived, audience-restricted,
 single-session grant bound to that key and the target Mac. The peers then
-authenticate each other while establishing the encrypted data channel. A relay
+authenticate each other while establishing the encrypted data channel. A api
 should forward ciphertext and should not need session plaintext.
 
 The repository's existing DPoP approach is appropriate for control-plane HTTP:
@@ -593,33 +593,33 @@ CONNECT-UDP standardizes proxying a UDP flow through HTTP, which can make a
 UDP-based application usable through an HTTP-capable intermediary, but that
 intermediary remains in the data path
 ([CONNECT-UDP, RFC 9298](https://datatracker.ietf.org/doc/html/rfc9298)). It is
-useful as another restricted-network fallback or relay protocol, not as a way
+useful as another restricted-network fallback or api protocol, not as a way
 to recover LAN-like latency.
 
-### 5. Relay fallback and placement
+### 5. API fallback and placement
 
 TURN is the standardized fallback. It supports UDP, TCP, TLS-over-TCP, or DTLS
-between client and relay so restricted networks can still connect, although
-the normal relay-to-peer allocation is UDP
+between client and api so restricted networks can still connect, although
+the normal api-to-peer allocation is UDP
 ([RFC 8656, transports](https://datatracker.ietf.org/doc/html/rfc8656#section-3.1)).
-Run or buy relays in several regions, publish more than one relay candidate,
+Run or buy apis in several regions, publish more than one api candidate,
 and select by measured end-to-end candidate RTT rather than a fixed region.
 
-For this workload, relay design rules should be:
+For this workload, api design rules should be:
 
 - terminate traversal/control only; keep application payload end-to-end
   encrypted between devices;
-- keep a relay route warm enough to provide immediate fallback, but move bulk
+- keep a api route warm enough to provide immediate fallback, but move bulk
   traffic off it when direct connectivity succeeds;
 - offer UDP first and TLS/TCP on port 443 for restrictive networks;
 - autoscale for long-lived connections and bandwidth, not request rate alone;
-- expose the selected region, transport, RTT, and direct/relayed state in
+- expose the selected region, transport, RTT, and direct/apied state in
   diagnostics;
 - choose locations near actual client/Mac pairs using telemetry, not only near
   the control-plane database.
 
 A managed mesh overlay can have the same desirable shape: direct encrypted UDP
-when possible, then geographically distributed or peer relays. The WireGuard
+when possible, then geographically distributed or peer apis. The WireGuard
 protocol supports authenticated endpoint roaming
 ([WireGuard protocol overview](https://www.wireguard.com/)). This is strong
 validation of the architecture, but embedding an IP overlay is not necessarily
@@ -641,11 +641,11 @@ Ratings are architectural expectations, not measured Zuse results.
 | Option | Latency | NAT/firewall success | User experience | Security model | Platform fit | Operational cost |
 |---|---|---:|---|---|---|---:|
 | Bonjour + current LAN socket | Best when local | Local network only | Excellent after one permission | Existing device token; discovery is untrusted | Excellent on Apple; mDNS libraries elsewhere | Low |
-| ICE + direct QUIC, TURN fallback | Best available path; relay only when required | High with multi-region TURN and TCP/TLS fallback | Can be invisible and automatic | End-to-end device-authenticated QUIC | Native work on Apple, Android, and desktop | High initial; medium ongoing |
+| ICE + direct QUIC, TURN fallback | Best available path; api only when required | High with multi-region TURN and TCP/TLS fallback | Can be invisible and automatic | End-to-end device-authenticated QUIC | Native work on Apple, Android, and desktop | High initial; medium ongoing |
 | WebRTC data channel | Near-direct; stack overhead usually secondary to path | High; ICE/TURN included | Can be invisible and automatic | DTLS peer channel plus application authorization | Mature concept, native client integration needed | Medium-high |
-| Managed mesh/IP overlay | Direct when traversal works; relay otherwise | High | Extra VPN/install state unless deeply embedded | Public-key encrypted overlay | Strong OS support but Apple Network Extension complexity | Low if external; high if embedded/operated |
+| Managed mesh/IP overlay | Direct when traversal works; api otherwise | High | Extra VPN/install state unless deeply embedded | Public-key encrypted overlay | Strong OS support but Apple Network Extension complexity | Low if external; high if embedded/operated |
 | Current managed tunnel | Always adds managed edge path | High where HTTPS/WebSocket works | Simple after link; external connector dependency | TLS to edge/connector plus application grant | Works with current WebSocket clients | Medium |
-| Regional application or TURN relay only | Predictable if well placed, never as short as direct | High | Invisible | Must add end-to-end payload encryption | Broad | High bandwidth and global operations |
+| Regional application or TURN api only | Predictable if well placed, never as short as direct | High | Invisible | Must add end-to-end payload encryption | Broad | High bandwidth and global operations |
 | WebTransport alone | Better stream behavior, same server path | Client-to-server only; no NAT traversal | Clean web API where available | TLS/QUIC plus application authorization | Specification and native-client gaps | Medium-high |
 | Manual port forwarding | Direct after setup | Poor and router-dependent | Poor | Public ingress must be hardened | Broad | Low provider cost, high support/security cost |
 
@@ -684,7 +684,7 @@ Add one trace ID across the control request and socket handshake, and record:
   restart count;
 - application ping RTT and command round-trip p50/p95/p99 after connection;
 - bytes and largest message per RPC stream;
-- network type/change, direct versus relay, selected candidate type, and
+- network type/change, direct versus api, selected candidate type, and
   failover/upgrade time.
 
 As an immediate code-path cleanup, mint only one fresh connect grant for an
@@ -702,7 +702,7 @@ Test the same scripted interaction on:
 - sleep/wake, Wi-Fi-to-cellular handoff, and Mac tunnel-process restart.
 
 The prototype should be judged on connection success, time to first useful RPC,
-steady-state small-command RTT, p95/p99 stalls, reconnection time, and relay
+steady-state small-command RTT, p95/p99 stalls, reconnection time, and api
 percentage. Report these separately; one aggregate “connection latency” number
 will hide the reason for regressions.
 
@@ -732,7 +732,7 @@ addresses.
 ### Phase 3: resilient fallback
 
 Keep the present managed tunnel during the experiment. If direct-path success is
-good but fallback tails remain poor, trial at least three TURN/application relay
+good but fallback tails remain poor, trial at least three TURN/application api
 regions and allow candidate RTT to choose. Maintain a TLS/TCP escape path for
 UDP-blocked networks.
 
@@ -755,6 +755,6 @@ multiplexing.
 A VPN-style overlay is a viable shortcut for internal or expert users, but it
 adds system-level setup that conflicts with a “pair once and it just works”
 consumer experience. WebTransport is promising for future browser support but
-does not solve the core path-selection problem. A closer relay can reduce the
+does not solve the core path-selection problem. A closer api can reduce the
 fallback tail; only direct path selection can recover LAN-like latency whenever
 the networks permit it.

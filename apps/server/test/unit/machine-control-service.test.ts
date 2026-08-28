@@ -3,8 +3,8 @@ import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
-	mapRelayErrorCode,
-	resolveMachineRelayUrl,
+	mapApiErrorCode,
+	resolveMachineApiUrl,
 	streamCloudWorkspaceLifecycle,
 } from "../../src/machine/machine-control-service.ts";
 
@@ -33,53 +33,53 @@ const workspace = (
 		lastActivityAt: revision,
 	});
 
-describe("machine control relay URL", () => {
+describe("machine control api URL", () => {
 	it("preserves actionable cloud conflicts instead of reporting a workspace race", () => {
 		expect(
-			mapRelayErrorCode(409, "cloud_credential_connection_required").code,
+			mapApiErrorCode(409, "cloud_credential_connection_required").code,
 		).toBe("credential-required");
-		expect(
-			mapRelayErrorCode(409, "cloud_branch_in_use:workspace_123").code,
-		).toBe("branch-in-use");
+		expect(mapApiErrorCode(409, "cloud_branch_in_use:workspace_123").code).toBe(
+			"branch-in-use",
+		);
 	});
 
 	it("classifies rejected credentials as auth faults, not generic failures", () => {
-		expect(mapRelayErrorCode(401, undefined).code).toBe("not-allowed");
-		expect(mapRelayErrorCode(403, undefined).code).toBe("not-allowed");
-		expect(mapRelayErrorCode(400, undefined).code).toBe("invalid-request");
+		expect(mapApiErrorCode(401, undefined).code).toBe("not-allowed");
+		expect(mapApiErrorCode(403, undefined).code).toBe("not-allowed");
+		expect(mapApiErrorCode(400, undefined).code).toBe("invalid-request");
 	});
 
 	it("preserves private-beta access failures", () => {
-		expect(mapRelayErrorCode(403, "cloud_beta_access_required").code).toBe(
+		expect(mapApiErrorCode(403, "cloud_beta_access_required").code).toBe(
 			"beta-access-required",
 		);
-		expect(mapRelayErrorCode(503, "cloud_beta_access_unavailable").code).toBe(
+		expect(mapApiErrorCode(503, "cloud_beta_access_unavailable").code).toBe(
 			"beta-access-unavailable",
 		);
 	});
 
 	it("surfaces a managed tunnel that has not become ready", () => {
-		expect(mapRelayErrorCode(503, "tunnel_unavailable").code).toBe(
+		expect(mapApiErrorCode(503, "tunnel_unavailable").code).toBe(
 			"tunnel-unavailable",
 		);
 	});
 
 	it("defaults to production when packaged Electron has no runtime NODE_ENV", () => {
-		expect(resolveMachineRelayUrl({ NODE_ENV: "development" })).toBe(
-			"https://relay.stuff.md",
+		expect(resolveMachineApiUrl({ NODE_ENV: "development" })).toBe(
+			"https://api.zuse.sh",
 		);
 	});
 
-	it("uses an explicit Relay override for development and staging", () => {
-		expect(resolveMachineRelayUrl({ NODE_ENV: "production" })).toBe(
-			"https://relay.stuff.md",
+	it("uses an explicit API override for development and staging", () => {
+		expect(resolveMachineApiUrl({ NODE_ENV: "production" })).toBe(
+			"https://api.zuse.sh",
 		);
 		expect(
-			resolveMachineRelayUrl({
+			resolveMachineApiUrl({
 				NODE_ENV: "development",
-				ZUSE_RELAY_URL: "https://relay.example/",
+				ZUSE_API_URL: "https://api.example/",
 			}),
-		).toBe("https://relay.example");
+		).toBe("https://api.example");
 	});
 
 	it("emits only revisions newer than the subscriber cursor", async () => {

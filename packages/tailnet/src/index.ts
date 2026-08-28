@@ -535,7 +535,7 @@ export const resolveServeOwnership = async (input: {
 	if (target === undefined) return { kind: "unrecognized" };
 	if (target.port === input.requestedPort) return { kind: "active" };
 	// The marker wins even when something else now listens on the old port:
-	// that squatter is exactly why the relay port drifted, and the serve route
+	// that squatter is exactly why the api port drifted, and the serve route
 	// still belongs to Zuse until Zuse repoints or releases it.
 	if (target.port === input.markerPort) {
 		return { kind: "repair", previousPort: target.port };

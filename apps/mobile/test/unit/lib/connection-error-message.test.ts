@@ -19,9 +19,9 @@ describe("connection error message", () => {
 		).toBe("Could not reach this computer. Check that it is online and retry.");
 	});
 
-	test("does not expose relay machine codes", () => {
-		expect(connectionErrorMessage("relay_connect_500:internal_error")).toBe(
-			"Relay is temporarily unavailable. Try again in a moment.",
+	test("does not expose api machine codes", () => {
+		expect(connectionErrorMessage("api_connect_500:internal_error")).toBe(
+			"API is temporarily unavailable. Try again in a moment.",
 		);
 	});
 

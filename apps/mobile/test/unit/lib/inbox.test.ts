@@ -12,9 +12,9 @@ import {
 
 const connection = {
 	key: "env-1",
-	source: "relay" as const,
+	source: "api" as const,
 	environmentId: "env-1",
-	host: "relay.example",
+	host: "api.example",
 	port: 443,
 	label: "Studio Mac",
 	updatedAt: 1,

@@ -649,7 +649,7 @@ export function CloudWorkspaceAuth() {
 									<p className="font-medium text-xs">Provider API key</p>
 									<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
 										The key is encrypted directly to your private cloud image
-										and never returned by Relay.
+										and never returned by API.
 									</p>
 								</div>
 								<Input

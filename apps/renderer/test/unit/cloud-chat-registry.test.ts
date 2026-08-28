@@ -34,7 +34,7 @@ const summary = (input: {
 }) =>
 	CloudChatSummary.make({
 		workspaceId: input.workspaceId,
-		projectId: `relay-${input.workspaceId}`,
+		projectId: `api-${input.workspaceId}`,
 		repositoryIdentity: "github.com/zuse/repository",
 		repositoryDisplayName: "repository",
 		chatId: ChatId.make(input.chatId),

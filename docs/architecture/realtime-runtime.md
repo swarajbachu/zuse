@@ -20,12 +20,12 @@ provider / client command
 | Chats, sessions, messages, turns, queues, command receipts | Environment SQLite |
 | Files and Git | Environment filesystem and repository |
 | Terminal process/output ordering | Environment PTY runtime |
-| Workspace lifecycle, identity, tickets, encrypted launch intent | Relay control plane |
+| Workspace lifecycle, identity, tickets, encrypted launch intent | API control plane |
 | Cached client projection and safe command outbox | Platform client persistence |
 
-The Relay catalog carries only last-known metadata for discovery. It never
+The API catalog carries only last-known metadata for discovery. It never
 projects normal transcript events and never accepts normal message commands.
-The only content-bearing Relay record is an encrypted, expiring launch intent
+The only content-bearing API record is an encrypted, expiring launch intent
 used before a new workspace runtime exists. The runtime consumes it through the
 same idempotent chat/session creation path and acknowledges the stable launch
 command before the intent can be removed.
@@ -74,5 +74,5 @@ from the persisted cursor.
 
 `bun run check:architecture` ratchets renderer raw-RPC and stream ownership,
 unqualified resource keys, cloud-specific session pipelines, SessionDomain
-bypasses, and Relay message-content schemas. New behavior must move those
+bypasses, and API message-content schemas. New behavior must move those
 counts toward zero; it may not introduce a new parallel path.

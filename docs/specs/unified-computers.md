@@ -11,7 +11,7 @@ The simplest private connection requires Tailscale to be installed, signed in,
 and on the same Tailnet on both devices. In desktop Settings → Devices, choose
 **Share over Tailscale**, then **Connect a device**. Scan the QR code on mobile
 or copy the one-time pairing link into **Add computer → Tailscale** on another
-desktop. No SSH keys or account relay are involved.
+desktop. No SSH keys or account api are involved.
 
 A headless computer must have Node.js 22.5 or newer, npm, and the Tailscale CLI.
 Run `zuse serve --tailscale`; Zuse installs its durable user service, enables a

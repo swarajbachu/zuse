@@ -3,7 +3,7 @@ export interface ServeServiceDefinitionInput {
 	readonly executable: string;
 	readonly dataDir: string;
 	readonly logDir?: string;
-	readonly relayUrl?: string;
+	readonly apiUrl?: string;
 	readonly sshManaged?: boolean;
 	readonly tailscale?: boolean;
 	readonly noAccount?: boolean;
@@ -56,7 +56,7 @@ export const launchAgentDefinition = (
 	input: ServeServiceDefinitionInput,
 ): LaunchAgentDefinition => {
 	const logDir = input.logDir ?? `${input.dataDir}/logs`;
-	const relayUrl = input.relayUrl ?? "https://relay.stuff.md";
+	const apiUrl = input.apiUrl ?? "https://api.zuse.sh";
 	return {
 		label: "sh.zuse.serve",
 		contents: `<?xml version="1.0" encoding="UTF-8"?>
@@ -89,8 +89,8 @@ export const launchAgentDefinition = (
   <key>EnvironmentVariables</key>
   <dict>
 	${autoLinkEnabled(input) ? "<key>ZUSE_SERVE_AUTO_LINK</key>\n    <string>1</string>" : ""}
-    <key>ZUSE_RELAY_URL</key>
-    <string>${escapeXml(relayUrl)}</string>
+    <key>ZUSE_API_URL</key>
+    <string>${escapeXml(apiUrl)}</string>
   </dict>
   <key>StandardOutPath</key>
   <string>${escapeXml(`${logDir}/serve.log`)}</string>
@@ -105,7 +105,7 @@ export const launchAgentDefinition = (
 export const systemdUserDefinition = (
 	input: ServeServiceDefinitionInput,
 ): SystemdUserDefinition => {
-	const relayUrl = input.relayUrl ?? "https://relay.stuff.md";
+	const apiUrl = input.apiUrl ?? "https://api.zuse.sh";
 	return {
 		unitName: "zuse-serve.service",
 		contents: `[Unit]
@@ -121,7 +121,7 @@ ExecStart=${quoteSystemd(input.nodeExecutable)} ${quoteSystemd(input.executable)
 			.map((flag) => ` ${quoteSystemd(flag)}`)
 			.join("")} --data-dir ${quoteSystemd(input.dataDir)}
 ${autoLinkEnabled(input) ? "Environment=ZUSE_SERVE_AUTO_LINK=1" : ""}
-Environment=ZUSE_RELAY_URL=${quoteSystemd(relayUrl)}
+Environment=ZUSE_API_URL=${quoteSystemd(apiUrl)}
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true

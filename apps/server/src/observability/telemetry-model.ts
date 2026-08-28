@@ -63,7 +63,7 @@ export const telemetryCategoryForSpan = (name: string): string => {
 			return "terminal";
 		}
 		if (
-			method.startsWith("relay.") ||
+			method.startsWith("api.") ||
 			method.startsWith("pairing.") ||
 			method.startsWith("network.")
 		) {
@@ -94,7 +94,7 @@ export const telemetryCategoryForSpan = (name: string): string => {
 	if (normalized.startsWith("sql.") || normalized.startsWith("persistence.")) {
 		return "persistence";
 	}
-	if (normalized.startsWith("relay.") || normalized.startsWith("network.")) {
+	if (normalized.startsWith("api.") || normalized.startsWith("network.")) {
 		return "network";
 	}
 	if (normalized.startsWith("diagnostics.")) return "diagnostics";

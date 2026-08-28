@@ -11,7 +11,7 @@ describe("cloud workspace access presentation", () => {
 		).toEqual({
 			subscribed: true,
 			serviceError:
-				"Your subscription is active. Cloud workspace controls require the relay update.",
+				"Your subscription is active. Cloud workspace controls require the api update.",
 		});
 	});
 

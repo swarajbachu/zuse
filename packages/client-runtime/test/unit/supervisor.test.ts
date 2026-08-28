@@ -169,14 +169,14 @@ describe("connection supervisor", () => {
 		let blocked = true;
 		const harness = makeHarness({
 			createClient: async () => {
-				if (blocked) throw new Error("relay_connect_401");
+				if (blocked) throw new Error("api_connect_401");
 				return { client: { id: 1 }, dispose: async () => undefined };
 			},
 		});
 		const entry = harness.supervisor.get({ key: "remote" });
 
 		await expect(runClient(entry.getClient())).rejects.toThrow(
-			"relay_connect_401",
+			"api_connect_401",
 		);
 		expect(entry.snapshot().status).toBe("blockedAuth");
 		expect(harness.scheduled).toHaveLength(0);
@@ -350,14 +350,14 @@ describe("connection supervisor", () => {
 		expect(harness.scheduled).toHaveLength(1);
 	});
 
-	test("supervises local, relay, and SSH generations independently", async () => {
+	test("supervises local, api, and SSH generations independently", async () => {
 		const harness = makeHarness();
 		const local = harness.supervisor.get({ key: "local" });
-		const relay = harness.supervisor.get({ key: "relay" });
+		const api = harness.supervisor.get({ key: "api" });
 		const ssh = harness.supervisor.get({ key: "ssh" });
 		await Promise.all([
 			runClient(local.getClient()),
-			runClient(relay.getClient()),
+			runClient(api.getClient()),
 			runClient(ssh.getClient()),
 		]);
 
@@ -370,7 +370,7 @@ describe("connection supervisor", () => {
 					generation: 1,
 				}),
 				expect.objectContaining({
-					key: "relay",
+					key: "api",
 					status: "connected",
 					generation: 1,
 				}),
@@ -384,7 +384,7 @@ describe("connection supervisor", () => {
 
 		harness.scheduled[0]?.fn();
 		await waitUntil(() => local.snapshot().generation === 2);
-		expect(relay.snapshot().generation).toBe(1);
+		expect(api.snapshot().generation).toBe(1);
 		expect(ssh.snapshot().generation).toBe(1);
 	});
 

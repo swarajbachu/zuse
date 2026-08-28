@@ -4,8 +4,8 @@ import {
 } from "@zuse/client-runtime/environment-scope";
 import type { ConnectionSnapshot } from "@zuse/client-runtime/supervisor";
 import {
+	type ApiEnvironmentRecord,
 	ENVIRONMENT_PRESENCE_STALE_MS,
-	type RelayEnvironmentRecord,
 } from "@zuse/contracts";
 import {
 	type FormEvent,
@@ -52,7 +52,7 @@ type HostedAccessState =
 	| { readonly status: "signedOut" }
 	| {
 			readonly status: "select";
-			readonly environments: ReadonlyArray<RelayEnvironmentRecord>;
+			readonly environments: ReadonlyArray<ApiEnvironmentRecord>;
 	  }
 	| { readonly status: "ready" }
 	| { readonly status: "error"; readonly description: string };

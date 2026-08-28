@@ -13,7 +13,7 @@ pairing, and user-managed remote environments keep their existing paths.
 
 - The workspace runtime's SQLite database is the only writable authority for
   chats, sessions, messages, turns, queues, and command receipts.
-- Relay is a control plane. It owns identity, lifecycle, tickets, catalog
+- API is a control plane. It owns identity, lifecycle, tickets, catalog
   metadata, billing, and encrypted transcript-checkpoint metadata.
 - The workspace Durable Object forwards opaque live frames. It is not a chat
   database, command queue, or replay buffer.
@@ -44,13 +44,13 @@ than copied:
 - [Realtime runtime architecture](../architecture/realtime-runtime.md)
 - [Unified computer model](../specs/unified-computers.md)
 - [Cloud sandbox template](../../infra/cloud-sandboxes/README.md)
-- [Cloud billing operations](../../infra/relay/CLOUD_BILLING.md)
-- [Private beta production runbook](../../infra/relay/PRIVATE_BETA_PRODUCTION.md)
-- [Relay package reference](../../infra/relay/README.md)
+- [Cloud billing operations](../../infra/api/CLOUD_BILLING.md)
+- [Private beta production runbook](../../infra/api/PRIVATE_BETA_PRODUCTION.md)
+- [API package reference](../../infra/api/README.md)
 
 ## Current product behavior
 
-Zuse Cloud is an invite-only beta. WorkOS authenticates the account and Relay
+Zuse Cloud is an invite-only beta. WorkOS authenticates the account and API
 evaluates the `zuse-cloud-beta-access` PostHog flag using that verified account
 identity. An invitation controls hosted cloud operations only; it does not gate
 local, SSH, pairing, or normal remote-server use.

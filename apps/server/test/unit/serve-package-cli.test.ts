@@ -6,9 +6,9 @@ import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-	makeDisabledRelayLinkService,
-	RelayLinkService,
-} from "../../src/relay/relay-link-service.ts";
+	ApiLinkService,
+	makeDisabledApiLinkService,
+} from "../../src/api/api-link-service.ts";
 
 import {
 	activateServeRuntimeUpdate,
@@ -127,7 +127,7 @@ describe("Serve package metadata commands", () => {
 		});
 	});
 
-	it("disables persisted account relay state in no-account foreground mode", () => {
+	it("disables persisted account api state in no-account foreground mode", () => {
 		expect(
 			foregroundServeOptions(
 				{},
@@ -137,11 +137,11 @@ describe("Serve package metadata commands", () => {
 					dataDir: "/home/zuse/.zuse-data",
 				},
 			),
-		).toMatchObject({ relayEnabled: false });
+		).toMatchObject({ apiEnabled: false });
 	});
 
-	it("exposes only LAN endpoints when the account relay is disabled", async () => {
-		const layer = makeDisabledRelayLinkService({
+	it("exposes only LAN endpoints when the account api is disabled", async () => {
+		const layer = makeDisabledApiLinkService({
 			policy: "protected",
 			advertisedHost: "192.168.0.105",
 			port: 4860,
@@ -149,7 +149,7 @@ describe("Serve package metadata commands", () => {
 		});
 		const status = await Effect.runPromise(
 			Effect.gen(function* () {
-				return yield* (yield* RelayLinkService).status();
+				return yield* (yield* ApiLinkService).status();
 			}).pipe(Effect.provide(layer)),
 		);
 
@@ -167,7 +167,7 @@ describe("Serve package metadata commands", () => {
 		);
 		expect(status.advertisedEndpoints).not.toEqual(
 			expect.arrayContaining([
-				expect.objectContaining({ reachability: "relay" }),
+				expect.objectContaining({ reachability: "api" }),
 			]),
 		);
 	});

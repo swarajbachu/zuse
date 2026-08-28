@@ -23,12 +23,12 @@ describe("connection record persistence", () => {
 					updatedAt: 1,
 				},
 				{
-					key: "relay",
+					key: "api",
 					environmentId: "env-remote",
-					host: "relay.example",
+					host: "api.example",
 					port: 443,
-					wsBaseUrl: "wss://relay.example",
-					token: "relay-token",
+					wsBaseUrl: "wss://api.example",
+					token: "api-token",
 					label: "Remote Mac",
 					updatedAt: 2,
 				},
@@ -42,7 +42,7 @@ describe("connection record persistence", () => {
 			]),
 		).toMatchObject([
 			{ key: "paired", source: "paired" },
-			{ key: "relay", source: "relay" },
+			{ key: "api", source: "api" },
 			{ key: "manual", source: "manual" },
 		]);
 	});
@@ -61,6 +61,23 @@ describe("connection record persistence", () => {
 		]);
 
 		expect(record?.source).toBe("manual");
+	});
+
+	test("migrates persisted Relay connections to the API source", () => {
+		const [record] = decodeConnectionRecords([
+			{
+				key: "relay:env_legacy",
+				environmentId: "env_legacy",
+				host: "api.zuse.sh",
+				port: 443,
+				label: "Legacy cloud connection",
+				updatedAt: 1,
+				source: "relay",
+			},
+		]);
+
+		expect(record?.source).toBe("api");
+		expect(record?.key).toBe("api:env_legacy");
 	});
 
 	test("migrates flat mobile capabilities to the versioned manifest", () => {
@@ -101,13 +118,13 @@ describe("connection record persistence", () => {
 				source: "paired",
 			},
 			{
-				key: "relay",
-				host: "relay.example",
+				key: "api",
+				host: "api.example",
 				port: 443,
-				wsBaseUrl: "wss://relay.example",
+				wsBaseUrl: "wss://api.example",
 				label: "Remote",
 				updatedAt: 2,
-				source: "relay",
+				source: "api",
 			},
 		]);
 
@@ -117,22 +134,22 @@ describe("connection record persistence", () => {
 		expect(availableConnections(records, true)).toHaveLength(2);
 	});
 
-	test("keeps paired and relay transports distinct for one computer", () => {
+	test("keeps paired and api transports distinct for one computer", () => {
 		expect(connectionStorageKey("paired", "env-1")).toBe("paired:env-1");
-		expect(connectionStorageKey("relay", "env-1")).toBe("relay:env-1");
+		expect(connectionStorageKey("api", "env-1")).toBe("api:env-1");
 	});
 
 	test("shows one logical computer and prefers its direct transport", () => {
 		const records = decodeConnectionRecords([
 			{
-				key: "relay:env-1",
+				key: "api:env-1",
 				environmentId: "env-1",
-				host: "relay.example",
+				host: "api.example",
 				port: 443,
-				wsBaseUrl: "wss://relay.example",
+				wsBaseUrl: "wss://api.example",
 				label: "Desktop",
 				updatedAt: 2,
-				source: "relay",
+				source: "api",
 			},
 			{
 				key: "paired:env-1",
