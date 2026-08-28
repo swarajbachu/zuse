@@ -275,10 +275,9 @@ export const withoutRuntimeBootstrapReceipt = (
 	return rest;
 };
 
-const workspaceStartupTimedOut = (
+const workspaceStartupDeadlineMs = (
 	workspace: CloudWorkspaceRecord,
-	nowMs: number,
-): boolean => {
+): number => {
 	const timings = workspace.requestConfig.startupTimings as
 		| Readonly<Record<string, unknown>>
 		| undefined;
@@ -286,11 +285,18 @@ const workspaceStartupTimedOut = (
 		typeof timings?.allocatedAt === "number"
 			? timings.allocatedAt
 			: workspace.createdAtMs;
+	return allocatedAt + RUNTIME_CONNECTION_TIMEOUT_MS;
+};
+
+const workspaceStartupTimedOut = (
+	workspace: CloudWorkspaceRecord,
+	nowMs: number,
+): boolean => {
 	return (
 		(workspace.state === "queued" ||
 			workspace.state === "provisioning" ||
 			workspace.state === "setup") &&
-		nowMs - allocatedAt >= RUNTIME_CONNECTION_TIMEOUT_MS
+		nowMs >= workspaceStartupDeadlineMs(workspace)
 	);
 };
 
@@ -1035,7 +1041,7 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 				runtimeSessionRecoveryPending: true,
 				startupTimings: { ...timings, allocatedAt: nowMs },
 			},
-			nextActionAtMs: nowMs + 30_000,
+			nextActionAtMs: nowMs + RUNTIME_CONNECTION_TIMEOUT_MS,
 			lastActivityAtMs: nowMs,
 			runningSinceMs: nowMs,
 			revision: workspace.revision + 1,
@@ -1329,7 +1335,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 							: {}),
 					},
 				},
-				nextActionAtMs: allocatedAtMs + 30_000,
+				nextActionAtMs: allocatedAtMs + RUNTIME_CONNECTION_TIMEOUT_MS,
 				revision: workspace.revision + 1,
 				updatedAtMs: allocatedAtMs,
 			});
@@ -1449,7 +1455,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			// Successful startup is advanced only by authenticated runtime callbacks.
 			yield* saveWorkspace({
 				...workspace,
-				nextActionAtMs: nowMs + 30_000,
+				nextActionAtMs: workspaceStartupDeadlineMs(workspace),
 				updatedAtMs: nowMs,
 			});
 			return;

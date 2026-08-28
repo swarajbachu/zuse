@@ -550,6 +550,9 @@ describe("cloud workspace reconciler", () => {
 			statusCode: "resume-runtime-restarting",
 			runtimeState: "offline",
 		});
+		expect(result.workspace?.nextActionAtMs).toBe(
+			(result.workspace?.updatedAtMs ?? 0) + RUNTIME_CONNECTION_TIMEOUT_MS,
+		);
 		expect(result.workspace?.runtimeBootTokenHash).toBeTruthy();
 		expect(result.networkBySandbox.get("sandbox-resume")).toEqual({
 			kind: "open",
