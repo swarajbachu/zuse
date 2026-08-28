@@ -44,8 +44,15 @@ const WORKSPACE_BOOTSTRAP_FILE =
 	"/var/lib/zuse/project-build/workspace-bootstrap.sh";
 const WORKSPACE_REPOSITORY_READY_MARKER =
 	"/var/lib/zuse/workspace/repository-ready";
-const WORKSPACE_START_OBSERVATION_MS = 10_000;
 const WORKSPACE_START_OBSERVATION_INTERVAL_MS = 250;
+// A resume first gives the preserved runtime a warm-reconnect grace period,
+// then starts the bounded runtime connection window. Keep the request observer
+// alive through both phases and one final poll so it publishes the timeout
+// instead of leaving the client on a stale "waking up" state.
+export const WORKSPACE_START_OBSERVATION_MS =
+	WARM_RUNTIME_RECONNECT_GRACE_MS +
+	RUNTIME_CONNECTION_TIMEOUT_MS +
+	WORKSPACE_START_OBSERVATION_INTERVAL_MS;
 
 const ensureWorkspaceRepositoryReadyMarker = Effect.fn(
 	"ensureWorkspaceRepositoryReadyMarker",

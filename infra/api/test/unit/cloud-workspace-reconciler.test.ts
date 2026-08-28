@@ -16,6 +16,7 @@ import {
 	sanitizeProjectBuildLog,
 	snapshotSanitizationFailures,
 	WORKSPACE_RUNTIME_RESUME_SCRIPT,
+	WORKSPACE_START_OBSERVATION_MS,
 	workspaceRuntimeProcessSelector,
 } from "../../src/cloud-workspace-reconciler.ts";
 import {
@@ -182,6 +183,9 @@ describe("cloud workspace reconciler", () => {
 
 	test("actively observes startup and the bounded warm-resume window", () => {
 		expect(RUNTIME_CONNECTION_TIMEOUT_MS).toBe(10_000);
+		expect(WORKSPACE_START_OBSERVATION_MS).toBeGreaterThan(
+			RUNTIME_CONNECTION_TIMEOUT_MS,
+		);
 		expect(
 			cloudWorkspaceStartupNeedsObservation({
 				state: "resuming",
