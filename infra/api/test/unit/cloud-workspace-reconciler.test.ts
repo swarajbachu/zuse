@@ -172,6 +172,9 @@ describe("cloud workspace reconciler", () => {
 			"ZUSE_RUNTIME_INSTALL_ONLY=1",
 		);
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
+			"/var/lib/zuse/workspace/credentials-ready",
+		);
+		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
 			'exec node "$runtime" serve >> "$log" 2>&1',
 		);
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain("nohup");
