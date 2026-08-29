@@ -44,6 +44,8 @@ const WORKSPACE_BOOTSTRAP_FILE =
 	"/var/lib/zuse/project-build/workspace-bootstrap.sh";
 const WORKSPACE_REPOSITORY_READY_MARKER =
 	"/var/lib/zuse/workspace/repository-ready";
+const WORKSPACE_CREDENTIALS_READY_MARKER =
+	"/var/lib/zuse/workspace/credentials-ready";
 const WORKSPACE_START_OBSERVATION_INTERVAL_MS = 250;
 // A resume first gives the preserved runtime a warm-reconnect grace period,
 // then starts the bounded runtime connection window. Keep the request observer
@@ -288,11 +290,15 @@ const workspaceStartupDeadlineMs = (
 	const timings = workspace.requestConfig.startupTimings as
 		| Readonly<Record<string, unknown>>
 		| undefined;
+	const enrolledAt =
+		workspace.state === "setup" && typeof timings?.enrolledAt === "number"
+			? timings.enrolledAt
+			: undefined;
 	const allocatedAt =
 		typeof timings?.allocatedAt === "number"
 			? timings.allocatedAt
 			: workspace.createdAtMs;
-	return allocatedAt + RUNTIME_CONNECTION_TIMEOUT_MS;
+	return (enrolledAt ?? allocatedAt) + RUNTIME_CONNECTION_TIMEOUT_MS;
 };
 
 const workspaceStartupTimedOut = (
@@ -306,6 +312,38 @@ const workspaceStartupTimedOut = (
 		nowMs >= workspaceStartupDeadlineMs(workspace)
 	);
 };
+
+const readWorkspaceRuntimeDiagnostic = (
+	provider: SandboxProviderAdapter,
+	providerSandboxId: string,
+) =>
+	Effect.gen(function* () {
+		const [runtimeLog, credentialsReady] = yield* Effect.all([
+			provider
+				.readTextFile(
+					providerSandboxId,
+					"/var/lib/zuse/workspace/runtime.log",
+					"zuse",
+				)
+				.pipe(
+					Effect.map(sanitizeProjectBuildDiagnostic),
+					Effect.catchTag("SandboxProviderError", () => Effect.succeed("")),
+				),
+			provider
+				.pathExists(providerSandboxId, WORKSPACE_CREDENTIALS_READY_MARKER)
+				.pipe(
+					Effect.catchTag("SandboxProviderError", () => Effect.succeed(false)),
+				),
+		]);
+		return sanitizeProjectBuildDiagnostic(
+			[
+				runtimeLog,
+				`[runtime-check] credentials-ready=${String(credentialsReady)}`,
+			]
+				.filter(Boolean)
+				.join("\n"),
+		);
+	});
 
 const issueWorkspaceRuntimeBoot = Effect.fn("issueWorkspaceRuntimeBoot")(
 	function* (nowMs: number) {
@@ -1407,16 +1445,10 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					"zuse",
 				)
 			) {
-				const runtimeDiagnostic = yield* provider
-					.readTextFile(
-						workspace.providerSandboxId,
-						"/var/lib/zuse/workspace/runtime.log",
-						"zuse",
-					)
-					.pipe(
-						Effect.map(sanitizeProjectBuildDiagnostic),
-						Effect.catchTag("SandboxProviderError", () => Effect.succeed("")),
-					);
+				const runtimeDiagnostic = yield* readWorkspaceRuntimeDiagnostic(
+					provider,
+					workspace.providerSandboxId,
+				);
 				const reportedFailurePhase = yield* provider
 					.readTextFile(
 						workspace.providerSandboxId,
@@ -1448,11 +1480,26 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				return;
 			}
 			if (workspaceStartupTimedOut(workspace, nowMs)) {
+				const runtimeDiagnostic = yield* readWorkspaceRuntimeDiagnostic(
+					provider,
+					workspace.providerSandboxId,
+				);
+				console.warn("[cloud-workspace] runtime connection timeout", {
+					workspaceId: workspace.workspaceId,
+					statusCode: workspace.statusCode,
+					runtimeDiagnostic,
+				});
 				yield* saveWorkspace({
 					...workspace,
 					state: "failed",
 					statusCode: "runtime-connection-timeout",
 					runtimeState: "offline",
+					requestConfig: {
+						...workspace.requestConfig,
+						...(runtimeDiagnostic.length === 0
+							? {}
+							: { startupFailureDiagnostic: runtimeDiagnostic }),
+					},
 					nextActionAtMs: Number.MAX_SAFE_INTEGER,
 					revision: workspace.revision + 1,
 					updatedAtMs: nowMs,

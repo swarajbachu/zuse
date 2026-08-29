@@ -914,7 +914,12 @@ const websocketClosed = (
 		socket.addEventListener("open", () => onSocket(socket), { once: true });
 		socket.addEventListener(
 			"error",
-			() => finish(Effect.fail(fail("workspace_gateway_unreachable"))),
+			(event) => {
+				console.error("[cloud-workspace-runtime] gateway connection failed", {
+					type: event.type,
+				});
+				finish(Effect.fail(fail("workspace_gateway_unreachable")));
+			},
 			{ once: true },
 		);
 		socket.addEventListener(
@@ -1034,6 +1039,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						});
 					}
 					yield* writeCredentialsReady;
+					console.info("[cloud-workspace-runtime] credentials ready");
 					const acknowledgeBootstrap = retryCloudWorkspaceBootstrap(
 						requestJson({
 							schema: RuntimeBootstrapAckResponse,
@@ -1051,6 +1057,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						.pipe(
 							Effect.mapError(() => fail("workspace_local_rpc_auth_failed")),
 						);
+					console.info("[cloud-workspace-runtime] local rpc auth ready");
 
 					const readRuntimeSummary = Effect.gen(function* () {
 						const [chat, sessionHeadVersion, lastActivityAt] =
@@ -1260,6 +1267,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						});
 					};
 
+					console.info("[cloud-workspace-runtime] connecting gateway");
 					const connectGateway = websocketClosed(
 						bootstrap.gatewayUrl,
 						() => [

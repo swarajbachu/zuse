@@ -209,6 +209,37 @@ describe("cloud workspace reconciler", () => {
 		).toBe(false);
 	});
 
+	test("gives an enrolled runtime a fresh gateway connection window", async () => {
+		const enrolledAt = Date.now();
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-runtime-authenticating",
+					state: "setup",
+					desiredState: "ready",
+					statusCode: "runtime-authenticating",
+					runtimeState: "connecting",
+					requestConfig: {
+						startupTimings: {
+							allocatedAt: enrolledAt - RUNTIME_CONNECTION_TIMEOUT_MS - 1,
+							enrolledAt,
+						},
+					},
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return yield* store.getWorkspace(workspace.workspaceId);
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result).toMatchObject({
+			state: "setup",
+			statusCode: "runtime-authenticating",
+			runtimeState: "connecting",
+			nextActionAtMs: enrolledAt + RUNTIME_CONNECTION_TIMEOUT_MS,
+		});
+	});
+
 	test("forks instead of resuming a paused pool sandbox", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
