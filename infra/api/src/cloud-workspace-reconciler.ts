@@ -254,7 +254,7 @@ export const workspaceRuntimeProcessSelector = () => ({
 	// fail with EADDRINUSE.
 	legacyCleanup: "matching-command" as const,
 });
-export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then installed_wire=$(node -e 'try { process.stdout.write(String(require("/opt/zuse/current/runtime-metadata.json").wireProtocolVersion ?? "")) } catch {}'); if [ "$installed_wire" != "$ZUSE_RUNTIME_WIRE_PROTOCOL" ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >> "$log" 2>&1; fi; fi; if [ -f "$runtime" ]; then exec node "$runtime" serve >> "$log" 2>&1; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
+export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >> "$log" 2>&1; fi; if [ -f "$runtime" ]; then exec node "$runtime" serve >> "$log" 2>&1; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
 

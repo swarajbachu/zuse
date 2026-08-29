@@ -161,15 +161,12 @@ describe("cloud workspace reconciler", () => {
 			]),
 		});
 	});
-	test("updates only an incompatible baked runtime when resuming", () => {
+	test("updates a stale baked runtime when resuming even if wire-compatible", () => {
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
 			"/opt/zuse/current/bin.mjs",
 		);
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain("serve --foreground");
-		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain("wireProtocolVersion");
-		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
-			'if [ "$installed_wire" != "$ZUSE_RUNTIME_WIRE_PROTOCOL" ]',
-		);
+		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).not.toContain("installed_wire");
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain("runtime-updater.mjs");
 		expect(WORKSPACE_RUNTIME_RESUME_SCRIPT).toContain(
 			"ZUSE_RUNTIME_INSTALL_ONLY=1",
