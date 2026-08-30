@@ -54,7 +54,7 @@
 		"CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"58x6syowGjYSYg5rmy04aC1-gyXhsyqjIlGLYcTc6tc\",\"kty\":\"OKP\"}",
 		"E2B_ADAPTER_ENABLED": "true",
 		"E2B_TEMPLATE_ID": "zuse-cloud-sandbox-production",
-		"E2B_TEMPLATE_VERSION": "3d0c4a5a-d2fa-414b-9167-08b838c8f3bf",
+		"E2B_TEMPLATE_VERSION": "56e72d23-3e0f-4f26-8069-37a4035e39b4",
 		"E2B_VCPU_COUNT": "2",
 		"E2B_MEMORY_MIB": "4096",
 		"CLOUD_BILLING_ENFORCEMENT_ENABLED": "false",

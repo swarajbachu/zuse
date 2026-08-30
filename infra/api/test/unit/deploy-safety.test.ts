@@ -154,7 +154,7 @@ describe("api deployment safety", () => {
 			"zuse-cloud-sandbox-production",
 		);
 		expect(production.vars.E2B_TEMPLATE_VERSION).toBe(
-			"3d0c4a5a-d2fa-414b-9167-08b838c8f3bf",
+			"56e72d23-3e0f-4f26-8069-37a4035e39b4",
 		);
 		expect(production.vars.E2B_VCPU_COUNT).toBe("2");
 		expect(production.vars.E2B_MEMORY_MIB).toBe("4096");
