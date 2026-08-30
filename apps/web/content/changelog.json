@@ -1,5 +1,24 @@
 [
   {
+    "version": "0.20.13",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Cloud Workspaces now have unrestricted outbound internet access by default"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "items": [
+          "New production workspaces can sync repositories without failing to create `/home/repos`",
+          "Retry now wakes paused Cloud Workspace compute before reconnecting",
+          "Production and staging cloud-agent authentication are isolated so credentials cannot contaminate each other"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.20.12",
     "sections": [
       {

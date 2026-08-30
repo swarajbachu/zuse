@@ -20,7 +20,7 @@
     },
     "apps/desktop": {
       "name": "desktop",
-      "version": "0.20.12",
+      "version": "0.20.13",
       "dependencies": {
         "@cursor/sdk": "1.0.23",
         "electron-updater": "^6.3.9",

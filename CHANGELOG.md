@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.13]
+
+### Changed
+- Cloud Workspaces now have unrestricted outbound internet access by default
+
+### Fixed
+- New production workspaces can sync repositories without failing to create `/home/repos`
+- Retry now wakes paused Cloud Workspace compute before reconnecting
+- Production and staging cloud-agent authentication are isolated so credentials cannot contaminate each other
+
 ## [0.20.12]
 
 ### Added
