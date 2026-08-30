@@ -937,7 +937,10 @@ export const reconcileCloudPool = Effect.fn("reconcileCloudPool")(function* (
 					snapshotId: image.snapshotId as string,
 					timeoutSeconds: config.keepAliveTimeoutSeconds,
 					env: {},
-					network: { kind: "quarantined" },
+					// Workspace pools are user execution environments, not an identity
+					// re-key boundary. They need normal outbound internet from the moment
+					// they start so resumed agents cannot inherit a provider-level deny rule.
+					network: { kind: "open" },
 					onTimeout: "pause",
 				});
 				yield* store.savePool({
@@ -1097,46 +1100,43 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 			revision: workspace.revision + 1,
 			updatedAtMs: nowMs,
 		});
-		yield* Effect.all(
-			[
-				provider.setNetwork(providerSandboxId, { kind: "open" }),
-				provider.replaceProcess(
-					providerSandboxId,
-					workspaceRuntimeProcessSelector(),
-					{
-						command: "/bin/bash",
-						args: ["-lc", WORKSPACE_RUNTIME_RESUME_SCRIPT],
-						cwd: "/home/zuse",
-						env: {
-							...project.cloudEnvironment,
-							ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
-							ZUSE_RUNTIME_BOOT_TOKEN: boot.token,
-							ZUSE_API_URL: api.apiIssuer,
-							ZUSE_CLOUD_WORKSPACE_ROOT: workspaceRoot,
-							ZUSE_RUNTIME_KIND: "cloud-workspace",
-							ZUSE_HOST: "127.0.0.1",
-							ZUSE_PORT: "47837",
-							ZUSE_AUTH_POLICY: "protected",
-							ZUSE_ENABLE_PAIRING: "0",
-							ZUSE_MACHINE_RUNTIME_ROLE: "cloud-environment",
-							ZUSE_SERVER_READY_STDOUT: "1",
-							ZUSE_USER_DATA: "/home/zuse/.zuse-data",
-							ZUSE_RUNTIME_GENERATION: String(runtimeFence.runtimeGeneration),
-							ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
-							...(config.runtimeManifestUrl === undefined
-								? {}
-								: {
-										ZUSE_RUNTIME_MANIFEST_URL: config.runtimeManifestUrl,
-										ZUSE_RUNTIME_PUBLIC_KEY_FILE:
-											RUNTIME_SIGNING_PUBLIC_JWK_FILE,
-										ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
-									}),
-						},
-						user: "zuse",
-					},
-				),
-			],
-			{ concurrency: "unbounded", discard: true },
+		// Network policy is part of runtime readiness, not a parallel best-effort
+		// side effect. Open egress before the agent process can make its first
+		// gateway or model-api request.
+		yield* provider.setNetwork(providerSandboxId, { kind: "open" });
+		yield* provider.replaceProcess(
+			providerSandboxId,
+			workspaceRuntimeProcessSelector(),
+			{
+				command: "/bin/bash",
+				args: ["-lc", WORKSPACE_RUNTIME_RESUME_SCRIPT],
+				cwd: "/home/zuse",
+				env: {
+					...project.cloudEnvironment,
+					ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
+					ZUSE_RUNTIME_BOOT_TOKEN: boot.token,
+					ZUSE_API_URL: api.apiIssuer,
+					ZUSE_CLOUD_WORKSPACE_ROOT: workspaceRoot,
+					ZUSE_RUNTIME_KIND: "cloud-workspace",
+					ZUSE_HOST: "127.0.0.1",
+					ZUSE_PORT: "47837",
+					ZUSE_AUTH_POLICY: "protected",
+					ZUSE_ENABLE_PAIRING: "0",
+					ZUSE_MACHINE_RUNTIME_ROLE: "cloud-environment",
+					ZUSE_SERVER_READY_STDOUT: "1",
+					ZUSE_USER_DATA: "/home/zuse/.zuse-data",
+					ZUSE_RUNTIME_GENERATION: String(runtimeFence.runtimeGeneration),
+					ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
+					...(config.runtimeManifestUrl === undefined
+						? {}
+						: {
+								ZUSE_RUNTIME_MANIFEST_URL: config.runtimeManifestUrl,
+								ZUSE_RUNTIME_PUBLIC_KEY_FILE: RUNTIME_SIGNING_PUBLIC_JWK_FILE,
+								ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
+							}),
+				},
+				user: "zuse",
+			},
 		);
 	},
 );
@@ -1408,18 +1408,12 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				},
 				user: "zuse",
 			});
-			// The boot credential is authorized in API before the detached process
-			// can enroll. Opening the claimed sandbox's network and starting that
-			// process are independent E2B operations, so neither extends the other.
-			yield* Effect.all(
-				[
-					warmSandbox !== null || recovered !== null
-						? provider.setNetwork(sandbox.providerSandboxId, { kind: "open" })
-						: Effect.void,
-					startRuntime,
-				],
-				{ concurrency: "unbounded", discard: true },
-			);
+			// Assert the workspace invariant on every allocation path before the
+			// runtime starts. A recovered or formerly pooled sandbox may retain the
+			// policy from its original creation or resume, and starting these in
+			// parallel races the agent's first gateway and model-api requests.
+			yield* provider.setNetwork(sandbox.providerSandboxId, { kind: "open" });
+			yield* startRuntime;
 			return;
 		}
 

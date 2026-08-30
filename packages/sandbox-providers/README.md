@@ -15,9 +15,10 @@ Each adapter must:
 - normalize vendor failures to `SandboxProviderError`;
 - treat kill and snapshot deletion as idempotent;
 - keep credentials and raw provider payloads inside the adapter;
-- start every fork with egress blocked at the provider level and expose a
-  single-call `setNetwork` that writes the complete final policy (ADR 0033:
-  the quarantine barrier is provider-enforced and never a caller choice).
+- apply the caller's complete network policy at creation and expose a
+  single-call `setNetwork` that replaces that policy. Cloud workspace callers
+  use unrestricted egress; live-identity forks may still require the
+  quarantine-first re-key boundary from ADR 0033.
 
 `SandboxProviderAdapter.resolveEndpoint` returns provider-neutral HTTPS and
 WebSocket URLs — sandbox providers supply reachability directly, unlike
@@ -39,8 +40,8 @@ for every registered adapter.
 
 1. Add one provider adapter module and export it from `package.json`.
 2. Test the complete `SandboxProviderAdapter` interface using a fake HTTP
-   client, including timeout recovery, idempotent deletion, and the
-   fork-starts-quarantined invariant.
+   client, including timeout recovery, idempotent deletion, and preservation
+   of the caller-selected network policy.
 3. Add api configuration following the pattern in
    `infra/api/src/machine-provider-modules`.
 
@@ -49,8 +50,9 @@ for every registered adapter.
 `@zuse/sandbox-providers/e2b` provides the `e2b` adapter. It talks to the
 E2B REST API directly over `fetch` (no vendor SDK, so it runs in workerd) and
 authenticates with the `x-api-key` header. Forks are created from a snapshot
-ID and always pass `allow_internet_access: false`; the network is opened by
-`setNetwork` after enrollment re-keys the fork. Snapshot deletion goes
-through the provider's template store. The quarantine capability this adapter
-relies on was verified live in
+ID and apply the requested network policy at creation. Cloud workspace pools
+pass `allow_internet_access: true` and assert the open policy again when a
+workspace claims an allocation. Snapshot deletion goes through the provider's
+template store. The optional quarantine capability used by live-identity
+forks was verified in
 `specs/cloud-platform/research/quarantined-fork-verification.md`.

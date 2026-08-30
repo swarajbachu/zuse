@@ -305,7 +305,7 @@ describe("cloud workspace reconciler", () => {
 		expect(result.sandboxes.has("warm-incomplete-retry")).toBe(false);
 		expect(result.resumeInputs).toHaveLength(0);
 		expect(result.network.get("fake-workspace-incomplete-retry")).toEqual({
-			kind: "quarantined",
+			kind: "open",
 		});
 	});
 
