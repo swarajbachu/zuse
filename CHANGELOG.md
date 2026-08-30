@@ -7,13 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- The hosted control plane is now named API across desktop, mobile, Serve, runtime assets, and operations tooling, with production served from `api.zuse.sh` and staging from `api-staging.stuff.md`
-- Cloud database and local configuration names migrate transactionally from `relay_*` to `api_*` without discarding billing, workspace, installation, or audit data
-- The shared GitHub App callback now brokers allowlisted staging installation state through the production API hostname
+## [0.20.12]
 
-### Removed
-- The old `relay.stuff.md` and `relay-staging.stuff.md` hostnames and Relay-named public environment variables are no longer supported
+### Added
+- Keep your Mac awake automatically while local agents or authenticated remote clients are active, or choose Always or Off in General settings; the sidebar now also shows the active-agent count
+
+### Changed
+- Cloud Workspaces and remote access now connect through `api.zuse.sh`; this update is required because the retired `relay.stuff.md` hostname is no longer supported
+
+### Fixed
+- Resumed Cloud Workspaces no longer remain stuck authenticating because of stale credential markers, and gateway authentication now gets a fresh timeout after enrollment
+- OpenCode provider settings now select the correct installed CLI, handle OpenCode 1.18 inventory responses reliably, and show a retryable error instead of an endless loading state
+- New chats now honor repository permission defaults and stop cleanly after a denied permission request
 
 ## [0.20.11]
 
