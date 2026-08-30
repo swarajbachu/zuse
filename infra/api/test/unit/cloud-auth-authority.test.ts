@@ -1,6 +1,35 @@
+import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
-import { parseDeviceLoginOutput } from "../../src/cloud-auth-authority.ts";
+import {
+	cloudAuthAuthorityLabel,
+	parseDeviceLoginOutput,
+} from "../../src/cloud-auth-authority.ts";
+
+describe("cloud auth authority identity", () => {
+	test("isolates the same account across deployments and template versions", async () => {
+		const label = (apiIssuer: string, templateVersion: string) =>
+			Effect.runPromise(
+				cloudAuthAuthorityLabel({
+					accountId: "account_1",
+					apiIssuer,
+					templateVersion,
+				}),
+			);
+		const production = await label("https://api.zuse.sh", "production-build-2");
+
+		expect(production).toMatch(/^zuse-auth-[a-f0-9]{32}$/u);
+		await expect(
+			label("https://api.zuse.sh", "production-build-2"),
+		).resolves.toBe(production);
+		await expect(
+			label("https://api-staging.stuff.md", "production-build-2"),
+		).resolves.not.toBe(production);
+		await expect(
+			label("https://api.zuse.sh", "production-build-1"),
+		).resolves.not.toBe(production);
+	});
+});
 
 describe("cloud auth device-login output", () => {
 	test("extracts the official Codex URL and one-time code through ANSI styling", () => {

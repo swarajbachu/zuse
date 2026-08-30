@@ -11,6 +11,7 @@ import {
 } from "@zuse/sandbox-providers";
 import { Effect, Schedule } from "effect";
 
+import { ApiConfiguration } from "./config.ts";
 import { sha256Hex } from "./crypto.ts";
 import { badRequest, serviceUnavailable } from "./errors.ts";
 
@@ -212,10 +213,24 @@ type Authority = {
 	readonly state: "running" | "paused";
 };
 
-const authorityLabel = (accountId: string) =>
-	sha256Hex(`cloud-auth-authority-v1:${accountId}`).pipe(
-		Effect.map((digest) => `zuse-auth-${digest.slice(0, 32)}`),
-	);
+export const cloudAuthAuthorityLabel = (input: {
+	readonly accountId: string;
+	readonly apiIssuer: string;
+	readonly templateVersion: string;
+}) =>
+	sha256Hex(
+		`cloud-auth-authority-v2:${input.apiIssuer}:${input.templateVersion}:${input.accountId}`,
+	).pipe(Effect.map((digest) => `zuse-auth-${digest.slice(0, 32)}`));
+
+const authorityLabel = (accountId: string, provider: SandboxProviderAdapter) =>
+	Effect.gen(function* () {
+		const config = yield* ApiConfiguration;
+		return yield* cloudAuthAuthorityLabel({
+			accountId,
+			apiIssuer: config.apiIssuer,
+			templateVersion: provider.templateVersion,
+		});
+	});
 
 const e2bProvider = Effect.gen(function* () {
 	const providers = yield* SandboxProviders;
@@ -230,7 +245,7 @@ const recoverAuthority = Effect.fn("recoverCloudAuthAuthority")(function* (
 	accountId: string,
 ) {
 	const provider = yield* e2bProvider;
-	const label = yield* authorityLabel(accountId);
+	const label = yield* authorityLabel(accountId, provider);
 	const sandbox = yield* provider
 		.recoverByLabel(label)
 		.pipe(Effect.mapError(() => serviceUnavailable("cloud_auth_unavailable")));
@@ -334,7 +349,7 @@ const provisionAuthority = Effect.fn("provisionCloudAuthAuthority")(function* (
 	if (recovered !== null)
 		return yield* initializeAuthority(yield* ensureRunning(recovered));
 	const provider = yield* e2bProvider;
-	const label = yield* authorityLabel(accountId);
+	const label = yield* authorityLabel(accountId, provider);
 	const sandboxId = `auth_${(yield* sha256Hex(`${accountId}:${crypto.randomUUID()}`)).slice(0, 24)}`;
 	const created = yield* provider
 		.create({
@@ -744,4 +759,4 @@ export const snapshotCloudAuthAuthority = Effect.fn(
 		);
 });
 
-export type CloudAuthAuthorityContext = SandboxProviders;
+export type CloudAuthAuthorityContext = SandboxProviders | ApiConfiguration;
