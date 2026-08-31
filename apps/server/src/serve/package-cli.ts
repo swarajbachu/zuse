@@ -13,6 +13,7 @@ import {
 	DEFAULT_SERVE_PORT,
 	formatPairingCodeForDisplay,
 	HOSTED_APP_URL,
+	PRODUCTION_RELAY_URL,
 	type ServeStatusV1,
 	WORKOS_PUBLIC_CLIENT_ID,
 } from "@zuse/contracts";
@@ -55,7 +56,7 @@ export {
 	ServeTunnelState,
 } from "@zuse/contracts";
 
-const DEFAULT_RELAY_URL = "https://relay.stuff.md";
+const DEFAULT_RELAY_URL = PRODUCTION_RELAY_URL;
 export const SERVE_HELP = `Zuse Serve
 
 Run and manage Zuse on this computer.

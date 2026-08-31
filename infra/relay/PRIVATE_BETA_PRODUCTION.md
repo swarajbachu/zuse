@@ -16,7 +16,7 @@ not use this gate.
 2. In Polar production, create Cloud Workspace with a $40 monthly price. Create
    meter `zuse_cloud_overage_cent`, summing numeric metadata field `units`, and
    attach a recurring $0.01-per-unit price. Register
-   `https://relay.stuff.md/v1/billing/webhook/polar` for the subscription events
+   `https://api.zuse.sh/v1/billing/webhook/polar` for the subscription events
    supported by the Polar adapter: created, updated, active, past due, canceled,
    uncanceled, and revoked. A checkout link purchase has no Zuse account yet;
    after the buyer signs in with the same verified WorkOS email, Relay claims
@@ -31,7 +31,7 @@ not use this gate.
 
    Record the immutable build identifier from the CLI in
    `E2B_TEMPLATE_VERSION`. Register
-   `https://relay.stuff.md/v1/cloud/billing/webhook/e2b` and verify a signed real
+   `https://api.zuse.sh/v1/cloud/billing/webhook/e2b` and verify a signed real
    delivery. Subscribe to created, resumed, paused, checkpointed, updated, and
    killed lifecycle events.
 4. A version tag publishes a separately signed runtime to
@@ -72,7 +72,7 @@ guarded command requires the approved database identity in
 `production-database.json` and rejects staging:
 
 ```sh
-ZUSE_CONFIRM_PRODUCTION_DATABASE_MIGRATION=migrate-relay.stuff.md \
+ZUSE_CONFIRM_PRODUCTION_DATABASE_MIGRATION=migrate-api.zuse.sh \
 DATABASE_URL=... \
 bun --cwd infra/relay db:migrate:production
 ```
@@ -81,7 +81,7 @@ The production deploy independently validates nonempty runtime, E2B, PostHog,
 Polar, R2, Hyperdrive, cutover, and secret configuration:
 
 ```sh
-ZUSE_CONFIRM_PRODUCTION_RELAY_DEPLOY=deploy-relay.stuff.md \
+ZUSE_CONFIRM_PRODUCTION_RELAY_DEPLOY=deploy-api.zuse.sh \
 bun --cwd infra/relay deploy:production
 ```
 

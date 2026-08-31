@@ -658,6 +658,43 @@ describe("WS LAN auth", () => {
 		}
 	});
 
+	it("diagnoses CLI protocol and credential compatibility over HTTP", async () => {
+		const port = await freePort();
+		const runtime = makeRuntime({ policy: "protected", port });
+		try {
+			const token = await runtime.runPromise(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					return (yield* auth.mintToken("CLI diagnostics")).token;
+				}),
+			);
+			const endpoint = `http://127.0.0.1:${port}/auth/cli-session`;
+
+			const missing = await fetch(endpoint);
+			expect(missing.status).toBe(401);
+			await expect(missing.json()).resolves.toMatchObject({
+				error: "unauthorized",
+				protocolVersion: WIRE_PROTOCOL_VERSION,
+			});
+
+			const stale = await fetch(endpoint, {
+				headers: { authorization: "Bearer stale-token" },
+			});
+			expect(stale.status).toBe(401);
+
+			const authenticated = await fetch(endpoint, {
+				headers: { authorization: `Bearer ${token}` },
+			});
+			expect(authenticated.status).toBe(200);
+			await expect(authenticated.json()).resolves.toEqual({
+				authenticated: true,
+				protocolVersion: WIRE_PROTOCOL_VERSION,
+			});
+		} finally {
+			await disposeRuntime(runtime);
+		}
+	});
+
 	it("preserves unauthenticated local loopback connections", async () => {
 		const port = await freePort();
 		const runtime = makeRuntime({ policy: "local", port });

@@ -66,13 +66,13 @@ describe("machine control relay URL", () => {
 
 	it("defaults to production when packaged Electron has no runtime NODE_ENV", () => {
 		expect(resolveMachineRelayUrl({ NODE_ENV: "development" })).toBe(
-			"https://relay.stuff.md",
+			"https://api.zuse.sh",
 		);
 	});
 
 	it("uses an explicit Relay override for development and staging", () => {
 		expect(resolveMachineRelayUrl({ NODE_ENV: "production" })).toBe(
-			"https://relay.stuff.md",
+			"https://api.zuse.sh",
 		);
 		expect(
 			resolveMachineRelayUrl({

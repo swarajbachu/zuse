@@ -18,7 +18,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { NodeRuntime } from "@effect/platform-node";
-import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
+import {
+	DEFAULT_LOCAL_DESKTOP_PORT,
+	PRODUCTION_RELAY_URL,
+} from "@zuse/contracts";
 import { firstReachableIpv4 } from "@zuse/utils/network-address";
 import { Effect, Layer, Redacted } from "effect";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
@@ -153,6 +156,7 @@ export const runHeadlessServer = (
 	options: ServeOptions = parseServeOptions(["serve"]),
 ): void => {
 	const { port, host, dataDir: userData, policy } = options;
+	const cliHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
 	// A wildcard binding is reachable on the LAN, so advertise the machine's
 	// LAN address; a specific binding advertises exactly what it listens on.
 	const advertisedHost =
@@ -281,11 +285,19 @@ export const runHeadlessServer = (
 				? "cloud-environment"
 				: "control-plane",
 		lanAuth: { policy, advertisedHost, port, pairingBootstrap },
+		...(port === 0
+			? {}
+			: {
+					cliAccess: {
+						path: join(userData, "cli-access.json"),
+						wsUrl: `ws://${cliHost}:${port}/rpc`,
+					},
+				}),
 		relayEnabled: options.relayEnabled !== false,
 		autoRelayLink:
 			process.env.ZUSE_SERVE_AUTO_LINK === "1"
 				? {
-						relayUrl: process.env.ZUSE_RELAY_URL ?? "https://relay.stuff.md",
+						relayUrl: process.env.ZUSE_RELAY_URL ?? PRODUCTION_RELAY_URL,
 						label: process.env.ZUSE_COMPUTER_NAME,
 					}
 				: undefined,

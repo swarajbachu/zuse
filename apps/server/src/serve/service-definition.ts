@@ -1,3 +1,5 @@
+import { PRODUCTION_RELAY_URL } from "@zuse/contracts";
+
 export interface ServeServiceDefinitionInput {
 	readonly nodeExecutable: string;
 	readonly executable: string;
@@ -56,7 +58,7 @@ export const launchAgentDefinition = (
 	input: ServeServiceDefinitionInput,
 ): LaunchAgentDefinition => {
 	const logDir = input.logDir ?? `${input.dataDir}/logs`;
-	const relayUrl = input.relayUrl ?? "https://relay.stuff.md";
+	const relayUrl = input.relayUrl ?? PRODUCTION_RELAY_URL;
 	return {
 		label: "sh.zuse.serve",
 		contents: `<?xml version="1.0" encoding="UTF-8"?>
@@ -105,7 +107,7 @@ export const launchAgentDefinition = (
 export const systemdUserDefinition = (
 	input: ServeServiceDefinitionInput,
 ): SystemdUserDefinition => {
-	const relayUrl = input.relayUrl ?? "https://relay.stuff.md";
+	const relayUrl = input.relayUrl ?? PRODUCTION_RELAY_URL;
 	return {
 		unitName: "zuse-serve.service",
 		contents: `[Unit]

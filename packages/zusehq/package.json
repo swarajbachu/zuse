@@ -1,6 +1,6 @@
 {
 	"name": "zusehq",
-	"version": "0.1.3",
+	"version": "0.1.4",
 	"description": "Run and manage Zuse remote workspaces",
 	"license": "AGPL-3.0-only",
 	"type": "module",
@@ -8,7 +8,7 @@
 		"zusehq": "dist/bin.mjs"
 	},
 	"engines": {
-		"node": ">=22.5.0"
+		"node": ">=22.13.0"
 	},
 	"files": [
 		"dist"
@@ -24,7 +24,7 @@
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@zusehq/serve": "0.1.5"
+		"@zusehq/serve": "0.1.6"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",

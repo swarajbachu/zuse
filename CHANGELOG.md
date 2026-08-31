@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Zuse Serve and cloud authentication now use `api.zuse.sh` as the production Relay endpoint
+
+### Fixed
+- The packaged `zusehq` CLI now discovers and authenticates to a foreground Serve process, reconnects after Serve restarts, and reports protocol mismatch, rejected credentials, and unavailable servers distinctly
+
 ## [0.20.11]
 
 ### Fixed

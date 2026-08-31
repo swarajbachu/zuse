@@ -7,7 +7,7 @@ const STAGING_DATABASE_HOSTS = new Set([
 	"ep-wild-feather-a10yvwmg-pooler.ap-southeast-1.aws.neon.tech",
 ]);
 const STAGING_DATABASE_NAME = "frankdb";
-const PRODUCTION_CONFIRMATION = "migrate-relay.stuff.md";
+const PRODUCTION_CONFIRMATION = "migrate-api.zuse.sh";
 const productionDatabase = JSON.parse(
 	readFileSync(new URL("../production-database.json", import.meta.url), "utf8"),
 );

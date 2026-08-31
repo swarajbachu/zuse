@@ -133,7 +133,7 @@ describe("relay deployment safety", () => {
 
 		expect(production.name).toBe("zuse-relay");
 		expect(production.routes).toEqual([
-			{ pattern: "relay.stuff.md", custom_domain: true },
+			{ pattern: "api.zuse.sh", custom_domain: true },
 		]);
 		expect(production.vars.MACHINE_PROVIDER).toBe("fake");
 		expect(production.vars.HETZNER_ADAPTER_ENABLED).toBe("false");
@@ -266,7 +266,7 @@ describe("relay deployment safety", () => {
 					...process.env,
 					DATABASE_URL:
 						"postgresql://example.invalid/production?sslmode=require",
-					ZUSE_CONFIRM_PRODUCTION_DATABASE_MIGRATION: "migrate-relay.stuff.md",
+					ZUSE_CONFIRM_PRODUCTION_DATABASE_MIGRATION: "migrate-api.zuse.sh",
 				},
 			},
 		);
