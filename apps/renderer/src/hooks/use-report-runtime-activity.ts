@@ -1,6 +1,7 @@
 import { EnvironmentId, type PowerWorkloadState } from "@zuse/contracts";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
+import { localRuntimeEnvironmentId } from "../lib/computer-awake.ts";
+import { useEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import {
 	getPowerRuntimeActivity,
 	setPowerActiveAgentCount,
@@ -12,19 +13,19 @@ import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 
 /** Mirror privacy-safe active workload counts to desktop-owned services. */
 export function useReportRuntimeActivity(): void {
-	const { sessionsByProject } = useActiveEnvironmentEntities();
-	const activeEnvironmentId = useEnvironmentCatalogStore(
-		(state) => state.activeEnvironmentId,
+	const localEnvironmentId = useEnvironmentCatalogStore((state) =>
+		localRuntimeEnvironmentId(state.entries, state.activeEnvironmentId),
 	);
+	const { sessionsByProject } = useEnvironmentEntities(localEnvironmentId);
 	const timelineRefs = useMemo(
 		() =>
 			Object.values(sessionsByProject)
 				.flat()
 				.map((session) => ({
-					environmentId: EnvironmentId.make(activeEnvironmentId),
+					environmentId: EnvironmentId.make(localEnvironmentId),
 					sessionId: session.id,
 				})),
-		[activeEnvironmentId, sessionsByProject],
+		[localEnvironmentId, sessionsByProject],
 	);
 	const timelines = useRendererSessionTimelines(timelineRefs, "cache-only");
 	const runningCount = useMemo(

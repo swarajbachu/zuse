@@ -6,8 +6,8 @@ import {
 	connectEnvironment,
 	getEnvironmentStatus,
 	listEnvironments,
-} from "../rpc/relay-client.ts";
-import { addRelayConnection } from "./connections.ts";
+} from "../rpc/api-client.ts";
+import { addApiConnection } from "./connections.ts";
 import { appAtomRegistry, batchAtomUpdates } from "./registry.tsx";
 
 export type Presence = "online" | "offline" | "unknown";
@@ -89,7 +89,7 @@ export const connectToEnvironment = async (
 		appAtomRegistry
 			.get(environmentsAtom)
 			.find((e) => e.environmentId === environmentId)?.label ?? "Computer";
-	const record = await addRelayConnection({
+	const record = await addApiConnection({
 		environmentId,
 		label,
 		wsBaseUrl: grant.endpoint.wsBaseUrl,

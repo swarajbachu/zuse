@@ -7,6 +7,9 @@ export interface PowerRuntimeActivity {
 	readonly indexing: boolean;
 }
 
+export const activeAgentCountLabel = (count: number): string =>
+	`${count} local ${count === 1 ? "agent" : "agents"} running`;
+
 let activity: PowerRuntimeActivity = {
 	activeAgents: 0,
 	activeTerminals: 0,

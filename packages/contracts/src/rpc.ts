@@ -16,6 +16,14 @@ import {
 	AnalyticsContextChangesRpc,
 	AnalyticsGetContextRpc,
 } from "./analytics.ts";
+import {
+	ApiClientsRpc,
+	ApiConnectEnvironmentRpc,
+	ApiEnvironmentsRpc,
+	ApiRevokeClientRpc,
+	EnvironmentConnectRpc,
+	EnvironmentsListRpc,
+} from "./api.ts";
 import { AttachmentReadRpc, AttachmentUploadRpc } from "./attachment.ts";
 import {
 	AuthGetSessionRpc,
@@ -75,12 +83,12 @@ import {
 	CloudWorkspacesWatchRpc,
 } from "./cloud-workspaces.ts";
 import {
+	ApiLinkRpc,
+	ApiStatusRpc,
+	ApiUnlinkRpc,
+	ConnectApiConfigRpc,
 	ConnectDescribeRpc,
 	ConnectLinkProofRpc,
-	ConnectRelayConfigRpc,
-	RelayLinkRpc,
-	RelayStatusRpc,
-	RelayUnlinkRpc,
 } from "./connect.ts";
 import { ContextSaveTextRpc } from "./context.ts";
 import {
@@ -220,14 +228,6 @@ import {
 	PtyWriteRpc,
 } from "./pty.ts";
 import {
-	EnvironmentConnectRpc,
-	EnvironmentsListRpc,
-	RelayClientsRpc,
-	RelayConnectEnvironmentRpc,
-	RelayEnvironmentsRpc,
-	RelayRevokeClientRpc,
-} from "./relay.ts";
-import {
 	RepositorySettingsGetRpc,
 	RepositorySettingsUpdateRpc,
 } from "./repository-settings.ts";
@@ -363,10 +363,10 @@ export const MemoizeRpcs = RpcGroup.make(
 	ConnectHandshakeRpc,
 	ConnectDescribeRpc,
 	ConnectLinkProofRpc,
-	ConnectRelayConfigRpc,
-	RelayLinkRpc,
-	RelayStatusRpc,
-	RelayUnlinkRpc,
+	ConnectApiConfigRpc,
+	ApiLinkRpc,
+	ApiStatusRpc,
+	ApiUnlinkRpc,
 	EnvironmentsListRpc,
 	EnvironmentConnectRpc,
 	CloudBillingSummaryRpc,
@@ -430,10 +430,10 @@ export const MemoizeRpcs = RpcGroup.make(
 	AccountAccessSetCredentialRpc,
 	AccountAccessConfigureCustomRpc,
 	AccountAccessDisconnectRpc,
-	RelayEnvironmentsRpc,
-	RelayConnectEnvironmentRpc,
-	RelayClientsRpc,
-	RelayRevokeClientRpc,
+	ApiEnvironmentsRpc,
+	ApiConnectEnvironmentRpc,
+	ApiClientsRpc,
+	ApiRevokeClientRpc,
 	WorkspaceAddRpc,
 	WorkspaceBrowseDirectoryRpc,
 	WorkspaceListRpc,

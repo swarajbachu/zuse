@@ -1661,7 +1661,9 @@ export type OpencodeInventoryProvider = typeof OpencodeInventoryProvider.Type;
 export const OpencodeInventoryAgent = Schema.Struct({
   name: Schema.String,
   mode: Schema.Literals(["primary", "all"]),
-  description: Schema.optional(Schema.String),
+  // OpenCode 1.18 serializes missing descriptions as JSON null. Optional
+  // string rejects that; NullOr lets encode/decode survive the wire shape.
+  description: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type OpencodeInventoryAgent = typeof OpencodeInventoryAgent.Type;
 

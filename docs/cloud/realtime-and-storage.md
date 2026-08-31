@@ -12,7 +12,7 @@ attach to a live runtime only when appropriate.
 | R2 | Encrypted immutable newest projections and bounded older pages | Read-only derivative | Cross-device and paused-sandbox catch-up |
 | Desktop/web IndexedDB | Qualified materialized resources, cursors, safe outbox | Client cache | Immediate launch and offline reading |
 | Mobile SQLite adapter | Same client persistence contract | Client cache | Immediate mobile launch and offline reading |
-| Relay Postgres | Lifecycle, catalog summaries, checkpoint pointers | Control-plane authority | Discovery, authorization, monotonic metadata |
+| API Postgres | Lifecycle, catalog summaries, checkpoint pointers | Control-plane authority | Discovery, authorization, monotonic metadata |
 | Durable Object | Live attachment metadata | No content authority | Low-latency opaque frame routing |
 
 R2 does not store repositories, uncommitted files, terminal bytes, credentials,
@@ -24,7 +24,7 @@ filesystem during the archive window.
 ```text
 select route
   -> render local projection if present
-  -> fetch Relay catalog/checkpoint pointer in background
+  -> fetch API catalog/checkpoint pointer in background
   -> download and decrypt R2 only when its cursor is newer
   -> persist and apply that projection once
   -> attach live only if runtime is already online
@@ -34,7 +34,7 @@ select route
 The selected route is retained during every phase. Transport failure changes
 status but never replaces valid data with a blank screen. A skeleton appears
 only when there is no local projection. A paused or unreachable workspace can
-therefore remain readable without Relay, the gateway, or E2B.
+therefore remain readable without API, the gateway, or E2B.
 
 The target is cached display below 100 ms and R2 catch-up p95 below 750 ms.
 Network work does not block navigation.
@@ -67,7 +67,7 @@ From strongest to weakest:
 1. A newer live runtime projection.
 2. A newer encrypted R2 checkpoint.
 3. The persisted local projection.
-4. Relay catalog summary as a last-known placeholder.
+4. API catalog summary as a last-known placeholder.
 
 An equal or older source cannot regress state. Results from an old environment
 or connection generation are discarded before reduction. An epoch change
@@ -91,7 +91,7 @@ projection. It compresses and encrypts the payload with AES-256-GCM and binds
 workspace, session, epoch, version, and schema version as authenticated data.
 Objects use immutable versioned keys.
 
-Relay verifies runtime generation, object hash, byte size, and monotonic cursor.
+API verifies runtime generation, object hash, byte size, and monotonic cursor.
 It writes the object before compare-and-setting the latest pointer. An upload
 failure never rolls back SQLite or blocks provider output. Active uploads are
 coalesced; settlement and pause/archive request an immediate bounded flush.

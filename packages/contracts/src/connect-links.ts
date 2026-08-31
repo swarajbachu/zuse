@@ -7,7 +7,7 @@
  * links keep working. Every producer and consumer goes through this module.
  */
 
-export type ConnectLinkKind = "tailscale" | "relay" | "lan" | "remote";
+export type ConnectLinkKind = "tailscale" | "api" | "lan" | "remote";
 
 export type ParsedConnectLink = {
 	readonly kind: ConnectLinkKind;
@@ -33,8 +33,8 @@ export type ConnectLinkParseResult =
 
 const PAIRING_SCHEMES = new Set(["zuse:", "memoize:"]);
 
-/** Hosted tunnel domains that indicate the link relays through Zuse. */
-const RELAY_HOST_SUFFIXES = [".trycloudflare.com", ".stuff.md"] as const;
+/** Hosted tunnel domains that indicate the link apis through Zuse. */
+const API_HOST_SUFFIXES = [".trycloudflare.com", ".stuff.md"] as const;
 
 const RFC1918_PATTERN =
 	/^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|169\.254\.)/u;
@@ -92,10 +92,8 @@ export const buildBrowserPairUrl = (input: {
 const endpointKind = (endpoint: URL): ConnectLinkKind => {
 	if (endpoint.protocol === "ws:") return "lan";
 	if (endpoint.hostname.endsWith(".ts.net")) return "tailscale";
-	if (
-		RELAY_HOST_SUFFIXES.some((suffix) => endpoint.hostname.endsWith(suffix))
-	) {
-		return "relay";
+	if (API_HOST_SUFFIXES.some((suffix) => endpoint.hostname.endsWith(suffix))) {
+		return "api";
 	}
 	return "remote";
 };

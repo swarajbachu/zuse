@@ -119,7 +119,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 				control["cloud.transcript.get"]({
 					workspaceId: summary.workspaceId,
 					sessionId: ref.sessionId,
-					// A local IndexedDB entry is only a rendering accelerator. Relay's
+					// A local IndexedDB entry is only a rendering accelerator. API's
 					// encrypted checkpoint is authoritative, so initial hydration requests
 					// the full checkpoint even when the cache claims the same cursor.
 					cursor:
@@ -248,7 +248,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 		async (client) => {
 			if (rootPrepared) return;
 			const folders = await Effect.runPromise(client["workspace.list"]({}));
-			// The cloud runtime registers the selected checkout before Relay marks the
+			// The cloud runtime registers the selected checkout before API marks the
 			// sandbox repository-ready. Never manufacture a second, placeholder root.
 			rootPrepared = folders.length > 0;
 		},
@@ -321,7 +321,7 @@ export const cloudSessionPlaceholder = (
 };
 
 /**
- * Relay catalog rows are placeholders only. The environment runtime timeline
+ * API catalog rows are placeholders only. The environment runtime timeline
  * replaces this shell as soon as the user retains the chat resource.
  */
 export const stageCloudChat = (
@@ -448,7 +448,7 @@ export const ensureCloudWorkspaceAttached = (
 		}
 		// A live command can arrive while a passive transcript attachment is still
 		// resolving. Wake is a stronger side effect: never let it inherit the
-		// passive request's failure (for example when Relay has just paused compute).
+		// passive request's failure (for example when API has just paused compute).
 		const escalated = existing.promise
 			.catch(() => undefined)
 			.then(() => attachCloudWorkspace(summary, "wake"));
@@ -720,10 +720,10 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 			});
 		} catch (cause) {
 			set({ error: formatError(cause) });
-			// A response can be lost after Relay durably accepts the command. Keep
+			// A response can be lost after API durably accepts the command. Keep
 			// the persisted intent as the authoritative optimistic fence and retry
 			// it during catalog hydration instead of flashing the row back into the
-			// active list. Reconciliation clears it only after Relay publishes the
+			// active list. Reconciliation clears it only after API publishes the
 			// archived lifecycle state.
 		}
 	},

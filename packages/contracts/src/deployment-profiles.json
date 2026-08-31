@@ -1,10 +1,10 @@
 {
 	"production": {
-		"relayUrl": "https://api.zuse.sh",
+		"apiUrl": "https://api.zuse.sh",
 		"workosPublicClientId": "client_01KWGQ818571ARFATQ3G9AR2Y2"
 	},
 	"staging": {
-		"relayUrl": "https://relay-staging.stuff.md",
+		"apiUrl": "https://api-staging.stuff.md",
 		"workosPublicClientId": "client_01KW6ZEZKVMZ0G429A89XZD83Q"
 	}
 }

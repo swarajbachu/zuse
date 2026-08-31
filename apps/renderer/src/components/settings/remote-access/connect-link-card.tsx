@@ -1,7 +1,7 @@
 import type {
+	ApiLinkStatus,
 	AuthTokenSummary,
 	PairingStartResult,
-	RelayLinkStatus,
 	TailnetShareState,
 } from "@zuse/contracts";
 import { formatPairingCodeForDisplay } from "@zuse/contracts";
@@ -71,7 +71,7 @@ export function ConnectLinkCard({
 	tokens,
 	onTokens,
 }: {
-	readonly status: RelayLinkStatus | null;
+	readonly status: ApiLinkStatus | null;
 	readonly tailnet: TailnetShareState | null;
 	readonly networkEnabled: boolean;
 	readonly tokens: ReadonlyArray<AuthTokenSummary>;

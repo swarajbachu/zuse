@@ -21,6 +21,7 @@ copied; it records where comparison influenced a decision:
 | [#71](https://github.com/swarajbachu/zuse/pull/71) | Keybinding parser structure and settings interaction patterns; persistence and implementation remain project-specific. |
 | [#72](https://github.com/swarajbachu/zuse/pull/72) | Per-model capability descriptors used as a product/API pattern. |
 | [#111](https://github.com/swarajbachu/zuse/pull/111) | Model catalog, aliases, and capability presentation were cross-checked for feature parity. |
+| [#525](https://github.com/swarajbachu/zuse/pull/525) | macOS awake behavior follows Orca's public Electron power-blocker and `caffeinate` approach; the implementation is project-specific. |
 
 [PR #79](https://github.com/swarajbachu/zuse/pull/79) separately records a
 deliberate move to a custom diff presentation so the product would have its own

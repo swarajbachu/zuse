@@ -6,7 +6,7 @@ import type { EnvironmentCatalogEntry } from "../../src/store/environment-catalo
 const entry = (
 	overrides: Partial<EnvironmentCatalogEntry>,
 ): EnvironmentCatalogEntry => ({
-	connectionKind: "relay",
+	connectionKind: "api",
 	environmentId: "remote-one",
 	profileId: null,
 	label: "Build server",

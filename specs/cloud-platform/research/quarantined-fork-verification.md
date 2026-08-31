@@ -50,9 +50,9 @@ Caveats to carry into the Phase 2 build:
   policy in one call, never "clear then add".
 - E2B's docs note blocked TCP connects can appear locally successful in some
   firewall modes; our probes hard-failed, but enrollment success must be
-  judged by the relay seeing the clone, not by in-guest connectivity checks.
+  judged by the api seeing the clone, not by in-guest connectivity checks.
 - Finer policy is available if wanted: `network: { denyOut/allowOut }` with
-  CIDRs/domains supports a "relay-only" quarantine instead of all-closed
+  CIDRs/domains supports a "api-only" quarantine instead of all-closed
   (domain rules on 80/443 only; default nameserver 8.8.8.8 allowed when
   domain filtering is active — treat DNS as reachable in threat modeling).
 
@@ -99,5 +99,5 @@ benchmarks; capability absence is an API fact, not a measurement).
 - Re-run the quarantine probe as a standing gate in the Phase 2 provider
   driver's integration tests (the capability is a moving target on both
   sides).
-- If "relay-only quarantine" is chosen over all-closed, model the allowed
+- If "api-only quarantine" is chosen over all-closed, model the allowed
   8.8.8.8 DNS path explicitly in the enrollment threat model.

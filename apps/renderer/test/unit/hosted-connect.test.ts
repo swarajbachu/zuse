@@ -11,7 +11,7 @@ const STAGING_CLIENT_ID = "client_01KW6ZEZKVMZ0G429A89XZD83Q";
 const PRODUCTION_CLIENT_ID = "client_01KWGQ818571ARFATQ3G9AR2Y2";
 
 describe("hosted authentication", () => {
-	it("exchanges browser tokens through the configured relay", () => {
+	it("exchanges browser tokens through the configured api", () => {
 		expect(hostedAuthTokenEndpoint("http://127.0.0.1:8790/")).toBe(
 			"http://127.0.0.1:8790/v1/auth/token",
 		);

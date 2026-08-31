@@ -32,7 +32,7 @@ NON-NEGOTIABLE conventions:
 ALREADY LANDED (do not redo; build on these):
 - packages/contracts: MessageEnvelope { sequence, message }; optional `sinceSequence` on
   MessagesStreamRpc; ProviderKind ("desktop"|"ssh"|"cloud"); EnvironmentDescriptor /
-  EnvironmentEndpoint; connect.describe/linkProof/relayConfig RPC defs (in connect.ts,
+  EnvironmentEndpoint; connect.describe/linkProof/apiConfig RPC defs (in connect.ts,
   exported, NOT yet registered in MemoizeRpcs); EnvironmentId branded id.
 - apps/server/src/transports/ws.ts: wsServerProtocolLayer({port,host}) — RpcServer over
   @effect/rpc socket-server protocol + NodeSocketServer.layerWebSocket, JSON framing,
@@ -114,7 +114,7 @@ with sinceSequence → zero gaps/dupes) using the in-memory sqlite mode; the Ele
 still boots and streams a chat end-to-end.
 
 Don't touch: apps/renderer/src/lib/rpc-client.ts transport selection (Track B), anything
-under apps/mobile, packages/ssh, infra/relay.
+under apps/mobile, packages/ssh, infra/api.
 Coordinate: you and Track B both edit packages/contracts/src/session.ts — you flip the
 messages.stream success type; B only reads wire. Land the wire flip in your branch.
 ```
@@ -150,7 +150,7 @@ the layer compiles + the runtime selects WS when window.zuse is absent — e.g. 
 browser build pointed at VITE_ZUSE_WS_URL).
 
 Don't touch: apps/server/*, packages/contracts/* (read-only), apps/mobile, packages/ssh,
-infra/relay. You only read MessagesStreamRpc; Track A owns the success-type flip.
+infra/api. You only read MessagesStreamRpc; Track A owns the success-type flip.
 ```
 
 ---
@@ -220,24 +220,24 @@ Note: the remote `zuse serve` depends on Track A's node:sqlite to reach a workin
 until then verify launch/tunnel/readiness wiring against a stub `zuse serve`.
 
 Don't touch: apps/server persistence/message-store (Track A), apps/renderer transport
-(Track B), apps/mobile, infra/relay.
+(Track B), apps/mobile, infra/api.
 ```
 
 ---
 
-## Track D — Relay (cloud control plane)
+## Track D — API (cloud control plane)
 
 ```
-Branch: remote-multiclient-relay
+Branch: remote-multiclient-api
 Goal: a standalone control-plane service that links devices↔environments, issues
 short-lived connect tokens, and (later) fans out push. NOT in the data path.
 
 Read first: specs/remote-multiclient/README.md Workstream D/E, D4. Identity is WorkOS
 (reuse the existing login model; do NOT introduce Clerk). Device auth is DPoP
-proof-of-possession; the environment proves control by signing a relay challenge with its
-local bearer token (the connect.linkProof / connect.relayConfig wire defs already exist).
+proof-of-possession; the environment proves control by signing a api challenge with its
+local bearer token (the connect.linkProof / connect.apiConfig wire defs already exist).
 
-Tasks — new infra/relay (Cloudflare Worker + a managed SQL store):
+Tasks — new infra/api (Cloudflare Worker + a managed SQL store):
 - Endpoints: POST /v1/client/environment-link-challenges, POST /v1/client/environment-links,
   GET /v1/environments, POST /v1/environments/{id}/connect (→ short-lived DPoP token +
   managed endpoint), POST /v1/mobile/devices, POST /v1/environments/{id}/agent-activity.
@@ -251,9 +251,9 @@ Build standalone against a stubbed environment + stubbed WorkOS verification; in
 with Track C (auth) when it lands.
 
 Verify: link a stub environment, fetch a connect token, assert tokens are short-lived and
-scoped; assert no chat bytes traverse the relay (data path is direct client↔environment).
+scoped; assert no chat bytes traverse the api (data path is direct client↔environment).
 
-Don't touch: anything outside infra/relay/** (and, later, a small desktop connector under
+Don't touch: anything outside infra/api/** (and, later, a small desktop connector under
 apps/desktop for the tunnel — coordinate with Track G's desktop changes to avoid overlap).
 ```
 
@@ -263,5 +263,5 @@ apps/desktop for the tunnel — coordinate with Track G's desktop changes to avo
 
 A and B both edit `packages/contracts/src/session.ts` (A flips `messages.stream` success →
 `MessageEnvelope`; B only reads it). **Land A's wire flip first**, then rebase B. F, G, D
-touch disjoint trees (`apps/mobile`, `packages/ssh`, `infra/relay`) and merge in any order.
+touch disjoint trees (`apps/mobile`, `packages/ssh`, `infra/api`) and merge in any order.
 C/E/H come after their dependencies (auth → tunnel → push). I (cloud provisioner) is deferred.

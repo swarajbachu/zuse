@@ -115,7 +115,7 @@ describe("Polar billing provider", () => {
 				checkout: provider.checkout({
 					accountId: "account_1",
 					offerId: "persistent-standard-v1",
-					successUrl: "https://relay.test/v1/billing/checkout/complete",
+					successUrl: "https://api.test/v1/billing/checkout/complete",
 					fulfillmentMetadata: {
 						sandbox_provider_id: "provider-a",
 					},
@@ -132,7 +132,7 @@ describe("Polar billing provider", () => {
 			{
 				products: ["product_machine"],
 				externalCustomerId: "account_1",
-				successUrl: "https://relay.test/v1/billing/checkout/complete",
+				successUrl: "https://api.test/v1/billing/checkout/complete",
 				metadata: {
 					sandbox_provider_id: "provider-a",
 					account_id: "account_1",
@@ -201,7 +201,7 @@ describe("Polar billing provider", () => {
 
 		const event = await Effect.runPromise(
 			provider.verifyEvent(
-				new Request("https://relay.test/v1/billing/webhook/polar", {
+				new Request("https://api.test/v1/billing/webhook/polar", {
 					method: "POST",
 					headers: { "webhook-id": "event_1" },
 					body: "{}",
@@ -323,7 +323,7 @@ describe("Polar billing provider", () => {
 		const eventError = await Effect.runPromise(
 			provider
 				.verifyEvent(
-					new Request("https://relay.test/v1/billing/webhook/polar", {
+					new Request("https://api.test/v1/billing/webhook/polar", {
 						method: "POST",
 						headers: {
 							"webhook-id": "event_bad",

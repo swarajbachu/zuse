@@ -6,8 +6,8 @@ import {
 } from "../../../store/environment-catalog.ts";
 import {
 	AddComputerDialogHost,
+	apiStatusText,
 	openAddComputerDialog,
-	relayStatusText,
 	StatusDot,
 } from "../../add-computer-dialog.tsx";
 import { Button } from "../../ui/button.tsx";
@@ -20,13 +20,13 @@ const errorText = (cause: unknown): string =>
 
 const connectionDescription = (entry: EnvironmentCatalogEntry): string => {
 	if (entry.error != null) return entry.error;
-	if (entry.connectionKind === "relay") {
-		return `Zuse account · ${relayStatusText(entry)}`;
+	if (entry.connectionKind === "api") {
+		return `Zuse account · ${apiStatusText(entry)}`;
 	}
 	if (entry.connectionKind === "tailnet") {
-		return `Tailscale · ${relayStatusText(entry)}`;
+		return `Tailscale · ${apiStatusText(entry)}`;
 	}
-	return `${entry.target?.hostname ?? "SSH"} · ${relayStatusText(entry)}`;
+	return `${entry.target?.hostname ?? "SSH"} · ${apiStatusText(entry)}`;
 };
 
 /** Compact summary of computers available in the unified sidebar. */

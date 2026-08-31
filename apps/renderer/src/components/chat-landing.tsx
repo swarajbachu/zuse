@@ -55,7 +55,10 @@ import {
 } from "~/composer/draft-attachments";
 import { applyPreparedLinearContext } from "~/composer/linear-context-input";
 import { uploadAttachment } from "~/lib/attachments";
-import { resolveChatWorkspacePolicy } from "~/lib/auto-worktree";
+import {
+	resolveChatRuntimeMode,
+	resolveChatWorkspacePolicy,
+} from "~/lib/auto-worktree";
 import { chatLandingProgress } from "~/lib/chat-landing-progress";
 import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
 import {
@@ -222,7 +225,6 @@ export function ChatLanding() {
 	const defaultModelByProvider = useSettingsStore(
 		(s) => s.defaultModelByProvider,
 	);
-	const defaultRuntimeMode = useSettingsStore((s) => s.defaultRuntimeMode);
 	const defaultAutoCreateWorktree = useSettingsStore(
 		(s) => s.defaultAutoCreateWorktree,
 	);
@@ -546,6 +548,7 @@ export function ChatLanding() {
 	// edits the user makes inside the composer mutate the draft in place, so we
 	// must not clobber them on unrelated default-settings changes.
 	useLayoutEffect(() => {
+		let cancelled = false;
 		// A create-from source is scoped to the project it was picked in, and a
 		// "Run on" override to the draft it was picked for.
 		setCreateSource(null);
@@ -556,15 +559,27 @@ export function ChatLanding() {
 			clearDraft();
 			return;
 		}
-		beginDraft({
-			projectId: draftFolderId,
-			providerId: defaultProviderId,
-			model:
-				defaultModelByProvider[defaultProviderId] ??
-				defaultModelFor(defaultProviderId),
-			runtimeMode: defaultRuntimeMode,
-		});
-		return () => clearDraft();
+		clearDraft();
+		const draftEnvironmentId = EnvironmentId.make(
+			remoteAnchor?.member.environmentId ?? activeEnvironmentId,
+		);
+		void resolveChatRuntimeMode(draftEnvironmentId, draftFolderId).then(
+			(runtimeMode) => {
+				if (cancelled) return;
+				beginDraft({
+					projectId: draftFolderId,
+					providerId: defaultProviderId,
+					model:
+						defaultModelByProvider[defaultProviderId] ??
+						defaultModelFor(defaultProviderId),
+					runtimeMode,
+				});
+			},
+		);
+		return () => {
+			cancelled = true;
+			clearDraft();
+		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [activeEnvironmentId, selectedFolderId, remoteAnchor]);
 

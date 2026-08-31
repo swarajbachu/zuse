@@ -1,6 +1,13 @@
 import {
 	AGENTS_RUNNING_COUNT_CHANNEL,
 	type CloudWorkspaceSshAccess,
+	COMPUTER_AWAKE_GET_STATUS_CHANNEL,
+	COMPUTER_AWAKE_SET_MODE_CHANNEL,
+	COMPUTER_AWAKE_STATE_CHANNEL,
+	COMPUTER_AWAKE_SUBSCRIBE_CHANNEL,
+	COMPUTER_AWAKE_UNSUBSCRIBE_CHANNEL,
+	type ComputerAwakeMode,
+	type ComputerAwakeStatus,
 	IPC_CHANNEL,
 	type LagSample,
 	type PerformanceHistory,
@@ -30,6 +37,7 @@ import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron";
 import { createHostDescriptor } from "./host/descriptor.ts";
 
 let powerStateSubscriberCount = 0;
+let computerAwakeSubscriberCount = 0;
 
 /**
  * Preload bridge — the only seam between the renderer and the main process.
@@ -550,6 +558,39 @@ const bridge = {
 		},
 		reportWorkload: (workload: PowerWorkloadState) => {
 			ipcRenderer.send(POWER_REPORT_WORKLOAD_CHANNEL, workload);
+		},
+	},
+	computerAwake: {
+		getStatus: () =>
+			ipcRenderer.invoke(
+				COMPUTER_AWAKE_GET_STATUS_CHANNEL,
+			) as Promise<ComputerAwakeStatus>,
+		setMode: (mode: ComputerAwakeMode) =>
+			ipcRenderer.invoke(
+				COMPUTER_AWAKE_SET_MODE_CHANNEL,
+				mode,
+			) as Promise<ComputerAwakeStatus>,
+		onChanged: (handler: (status: ComputerAwakeStatus) => void) => {
+			const wrapped = (_event: IpcRendererEvent, status: ComputerAwakeStatus) =>
+				handler(status);
+			ipcRenderer.on(COMPUTER_AWAKE_STATE_CHANNEL, wrapped);
+			computerAwakeSubscriberCount += 1;
+			if (computerAwakeSubscriberCount === 1) {
+				ipcRenderer.send(COMPUTER_AWAKE_SUBSCRIBE_CHANNEL);
+			}
+			let subscribed = true;
+			return () => {
+				if (!subscribed) return;
+				subscribed = false;
+				ipcRenderer.off(COMPUTER_AWAKE_STATE_CHANNEL, wrapped);
+				computerAwakeSubscriberCount = Math.max(
+					0,
+					computerAwakeSubscriberCount - 1,
+				);
+				if (computerAwakeSubscriberCount === 0) {
+					ipcRenderer.send(COMPUTER_AWAKE_UNSUBSCRIBE_CHANNEL);
+				}
+			};
 		},
 	},
 	menu: {

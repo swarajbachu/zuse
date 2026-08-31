@@ -15,6 +15,21 @@ import {
 	AccountAccessServiceLive,
 } from "./account-access/service.ts";
 import { AnalyticsServiceLive } from "./analytics/layers/analytics-service.ts";
+import { ApiActivityPublisherLive } from "./api/activity-publisher.ts";
+import {
+	ApiLinkService,
+	ApiLinkServiceLive,
+	makeDisabledApiLinkService,
+} from "./api/api-link-service.ts";
+import {
+	type CloudEnrollmentConfig,
+	makeCloudEnrollmentLayer,
+} from "./api/cloud-enrollment.ts";
+import {
+	type CloudWorkspaceRuntimeConfig,
+	makeCloudWorkspaceRuntimeLayer,
+} from "./api/cloud-workspace-runtime.ts";
+import { ManagedTunnelRuntimeLive } from "./api/managed-tunnel-runtime.ts";
 import { AppPaths, type TelemetryIdentity } from "./app-paths.ts";
 import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
 import { AuthServiceLive } from "./auth/layers/auth-service.ts";
@@ -58,21 +73,6 @@ import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
 import type { CredentialsService } from "./provider/services/credentials-service.ts";
 import { TitleGeneratorLive } from "./provider/title-generator.ts";
 import { PtyServiceLive } from "./pty/layers/pty-service.ts";
-import { RelayActivityPublisherLive } from "./relay/activity-publisher.ts";
-import {
-	type CloudEnrollmentConfig,
-	makeCloudEnrollmentLayer,
-} from "./relay/cloud-enrollment.ts";
-import {
-	type CloudWorkspaceRuntimeConfig,
-	makeCloudWorkspaceRuntimeLayer,
-} from "./relay/cloud-workspace-runtime.ts";
-import { ManagedTunnelRuntimeLive } from "./relay/managed-tunnel-runtime.ts";
-import {
-	makeDisabledRelayLinkService,
-	RelayLinkService,
-	RelayLinkServiceLive,
-} from "./relay/relay-link-service.ts";
 import { RepositorySettingsServiceLive } from "./repository-settings/layers/repository-settings-service.ts";
 import { SkillBridgeLive } from "./skill/layers/skill-bridge.ts";
 import { SkillDiscoveryServiceLive } from "./skill/layers/skill-discovery.ts";
@@ -105,7 +105,7 @@ import {
  *   IPC protocol; a headless server supplies a WebSocket protocol.
  * - `additionalServerProtocols`: optional secondary transports that serve the
  *   same RPC handlers from the same runtime, for example Electron IPC plus a
- *   protected local WebSocket origin for relay tunnels.
+ *   protected local WebSocket origin for api tunnels.
  * - `authShell`: the WorkOS OAuth deep-link seam. Electron opens the system
  *   browser via `shell.openExternal` and funnels the `zuse://auth/callback`
  *   deep link back in; a headless server supplies a loopback-HTTP variant.
@@ -143,11 +143,11 @@ export interface MainLayerDeps {
 		sessionId: string,
 		chatId: string,
 	) => void | Promise<void>;
-	readonly autoRelayLink?: {
-		readonly relayUrl: string;
+	readonly autoApiLink?: {
+		readonly apiUrl: string;
 		readonly label?: string;
 	};
-	readonly relayEnabled?: boolean;
+	readonly apiEnabled?: boolean;
 	readonly cliAccess?: {
 		readonly path: string;
 		readonly wsUrl: string;
@@ -475,7 +475,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(SessionQueriesLayer),
 	);
 
-	const RelayActivityPublisherLayer = RelayActivityPublisherLive.pipe(
+	const ApiActivityPublisherLayer = ApiActivityPublisherLive.pipe(
 		Layer.provide(EnrolledLanAuthLayer),
 	);
 	const LinearLayer = LinearServiceLive.pipe(
@@ -516,7 +516,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(GitLayer),
 		Layer.provide(ConfigStoreLayer),
 		Layer.provide(TitleGeneratorLayer),
-		Layer.provide(RelayActivityPublisherLayer),
+		Layer.provide(ApiActivityPublisherLayer),
 		Layer.provide(LinearLayer),
 		Layer.provide(ProjectorCatchup),
 		Layer.provide(SessionDomainLayer),
@@ -563,14 +563,14 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(ConversationServicesLayer),
 		Layer.provide(WorkspaceLayer),
 	);
-	// RelayLinkService orchestrates the desktop's self-registration with the
-	// account relay (challenge → Ed25519 proof → link → persist → heartbeat). It
+	// ApiLinkService orchestrates the desktop's self-registration with the
+	// account api (challenge → Ed25519 proof → link → persist → heartbeat). It
 	// reuses the environment identity (LanAuthService) and the WorkOS token
-	// (AuthService); the renderer's Devices pane drives it via relay.* RPCs.
-	const RelayLinkLayer =
-		deps.relayEnabled === false
-			? makeDisabledRelayLinkService(lanAuthConfig)
-			: RelayLinkServiceLive.pipe(
+	// (AuthService); the renderer's Devices pane drives it via api.* RPCs.
+	const ApiLinkLayer =
+		deps.apiEnabled === false
+			? makeDisabledApiLinkService(lanAuthConfig)
+			: ApiLinkServiceLive.pipe(
 					Layer.provide(AccountAccessLayer),
 					Layer.provide(EnrolledLanAuthLayer),
 					Layer.provide(LanAuthConfigLayer),
@@ -580,24 +580,24 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 					Layer.provide(AppPathsLayer),
 					Layer.provide(TelemetryStoreLayer),
 				);
-	const autoRelayLink = deps.autoRelayLink;
+	const autoApiLink = deps.autoApiLink;
 	// Linking must never block or fail server boot: it runs in a background
 	// fiber and retries with capped backoff until it sticks. Persistent causes
-	// (signed out, relay down) self-heal on a later attempt without a restart.
-	const AutoRelayLinkLayer =
-		autoRelayLink === undefined
+	// (signed out, api down) self-heal on a later attempt without a restart.
+	const AutoApiLinkLayer =
+		autoApiLink === undefined
 			? Layer.empty
 			: Layer.effectDiscard(
 					Effect.gen(function* () {
-						const relay = yield* RelayLinkService;
+						const api = yield* ApiLinkService;
 						yield* Effect.gen(function* () {
-							const status = yield* relay.status();
+							const status = yield* api.status();
 							if (!status.linked) {
-								yield* relay.link(autoRelayLink);
+								yield* api.link(autoApiLink);
 							}
 						}).pipe(
 							Effect.tapError((error) =>
-								Effect.logWarning("relay auto-link attempt failed", error),
+								Effect.logWarning("api auto-link attempt failed", error),
 							),
 							Effect.retry(
 								Schedule.exponential("3 seconds").pipe(
@@ -614,7 +614,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 							Effect.forkScoped({ startImmediately: true }),
 						);
 					}),
-				).pipe(Layer.provide(RelayLinkLayer));
+				).pipe(Layer.provide(ApiLinkLayer));
 
 	const HandlerSupportLayer = Layer.mergeAll(
 		AppPathsLayer,
@@ -652,7 +652,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		SkillBridgeLayer,
 		DiagnosticsLayer,
 		EnrolledLanAuthLayer,
-		RelayLinkLayer,
+		ApiLinkLayer,
 		ExternalThreadLayer,
 		LinearLayer,
 		MachineControlLayer,
@@ -704,7 +704,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		ServerLayer,
 		NodeServices.layer,
 		UsagePoller,
-		AutoRelayLinkLayer,
+		AutoApiLinkLayer,
 		CloudWorkspaceRuntimeLayer,
 		RuntimePerformanceLayer,
 		CliAccessLayer,

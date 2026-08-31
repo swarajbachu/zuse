@@ -20,6 +20,7 @@ import {
 	type AgentActivityState,
 	deriveAgentActivityState,
 } from "../lib/agent-activity-state.ts";
+import { resolveChatRuntimeMode } from "../lib/auto-worktree.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import { closeChatTab } from "../lib/close-chat-tab.ts";
 import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
@@ -257,7 +258,11 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 					{projectId !== null &&
 						activeChatId !== null &&
 						pendingCreationByChat[activeChatId] === undefined && (
-							<NewChatTabButton chatId={activeChatId} />
+							<NewChatTabButton
+								chatId={activeChatId}
+								environmentId={environmentId}
+								projectId={projectId}
+							/>
 						)}
 				</div>
 			</header>
@@ -389,8 +394,12 @@ export function ChatTabButton({
 
 function NewChatTabButton({
 	chatId,
+	environmentId,
+	projectId,
 }: {
 	chatId: import("@zuse/contracts").ChatId;
+	environmentId: EnvironmentId;
+	projectId: FolderId | null;
 }) {
 	const refresh = useProvidersStore((s) => s.refresh);
 	const create = useSessionsStore((s) => s.create);
@@ -399,7 +408,6 @@ function NewChatTabButton({
 	const defaultModelByProvider = useSettingsStore(
 		(s) => s.defaultModelByProvider,
 	);
-	const defaultRuntimeMode = useSettingsStore((s) => s.defaultRuntimeMode);
 
 	// Creates a new session inside the active chat. Worktree is inherited
 	// from the chat row server-side. Skip the awaited provider refresh when
@@ -413,8 +421,12 @@ function NewChatTabButton({
 		const model =
 			defaultModelByProvider[defaultProviderId] ??
 			defaultModelFor(defaultProviderId);
+		const runtimeMode =
+			projectId === null
+				? useSettingsStore.getState().defaultRuntimeMode
+				: await resolveChatRuntimeMode(environmentId, projectId);
 		void create(chatId, defaultProviderId, model, {
-			runtimeMode: defaultRuntimeMode,
+			runtimeMode,
 		});
 	};
 

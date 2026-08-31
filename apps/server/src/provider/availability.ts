@@ -217,6 +217,27 @@ export const selectNewestCliPathCandidate = (
 };
 
 /**
+ * Install locations `which -a` can miss. GUI apps inherit a login PATH that
+ * often omits native-installer dirs; OpenCode's official installer drops the
+ * binary at `~/.opencode/bin/opencode`.
+ */
+export const extraWellKnownCliPaths = (
+  cliBinary: string,
+): ReadonlyArray<string> => {
+  if (cliBinary === "opencode") {
+    return [join(homedir(), ".opencode", "bin", "opencode")];
+  }
+  return [];
+};
+
+/**
+ * Codex has a managed-shim collision; OpenCode has a Homebrew formula that
+ * ships a different `opencode` binary (0.0.x, no `serve`) earlier on PATH
+ * than the native 1.x install. Both need newest-version selection.
+ */
+const CLI_BINARIES_SELECT_NEWEST = new Set(["codex", "opencode"]);
+
+/**
  * Resolve the absolute path to a provider's CLI binary on PATH, or `null` if
  * not found. Used by `ProviderService.start` to feed the SDK's
  * `pathToClaudeCodeExecutable` option (the SDK ships its own bundled CLI as
@@ -232,14 +253,26 @@ export const resolveCliPath = (
       Effect.timeoutOption(PROBE_TIMEOUT),
       Effect.catch(() => Effect.succeedNone),
     );
-    if (result._tag !== "Some" || result.value.exitCode !== 0) return null;
-    const candidates = splitCommandPaths(result.value.stdout);
-    if (cliBinary !== "codex") {
+    const fromWhich =
+      result._tag === "Some" && result.value.exitCode === 0
+        ? splitCommandPaths(result.value.stdout)
+        : [];
+    const candidates = [
+      ...new Set([...fromWhich, ...extraWellKnownCliPaths(cliBinary)]),
+    ];
+    if (candidates.length === 0) return null;
+    if (!CLI_BINARIES_SELECT_NEWEST.has(cliBinary)) {
       return selectCliPathCandidate(cliBinary, candidates);
     }
-    const eligible = [...new Set(candidates)].filter(
-      (candidate) => !isManagedCodexShimPath(normalizeCommandPath(candidate)),
-    );
+
+    const fromWhichSet = new Set(fromWhich);
+    const eligible =
+      cliBinary === "codex"
+        ? candidates.filter(
+            (candidate) =>
+              !isManagedCodexShimPath(normalizeCommandPath(candidate)),
+          )
+        : candidates;
     const versioned = yield* Effect.forEach(
       eligible,
       (path) =>
@@ -248,7 +281,12 @@ export const resolveCliPath = (
         ),
       { concurrency: "unbounded" },
     );
-    return selectNewestCliPathCandidate(versioned);
+    // Well-known extras that aren't on PATH and don't actually run are noise.
+    const usable = versioned.filter(
+      (candidate) =>
+        candidate.version !== null || fromWhichSet.has(candidate.path),
+    );
+    return selectNewestCliPathCandidate(usable);
   });
 
 export interface CliVersion {
@@ -1023,14 +1061,12 @@ const probeKiroAccount: Effect.Effect<
   return { authStatus: "unauthenticated" } satisfies AccountInfo;
 });
 
-// OpenCode stores per-provider credentials in `~/.local/share/opencode/auth.json`
-// after `opencode auth login <provider>`. Each top-level key is a provider id
-// (anthropic, openai, …) and the value carries the access token or API key.
-// We treat a non-empty file with at least one entry as "authenticated"; the
-// renderer then surfaces "Connected to N providers" once we wire the
-// dynamic inventory in. Falling back to the directory presence check
-// matches the Gemini/Cursor pattern when the file is missing but the CLI
-// has been installed.
+// OpenCode stores per-provider credentials in `$XDG_DATA_HOME/opencode/auth.json`
+// (default `~/.local/share/opencode/auth.json`) after `opencode auth login`.
+// Each top-level key is a provider id (anthropic, openai, …) and the value
+// carries the access token or API key. We treat a non-empty file with at
+// least one entry as "authenticated"; the renderer then surfaces
+// "Connected to N providers" once we wire the dynamic inventory in.
 interface OpencodeAuthBlob {
   readonly [providerId: string]: unknown;
 }
@@ -1064,7 +1100,10 @@ const probeOpencodeAccount: Effect.Effect<
   FileSystem.FileSystem
 > = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
-  const authPath = join(homedir(), ".local", "share", "opencode", "auth.json");
+  const xdg = process.env.XDG_DATA_HOME?.trim();
+  const dataHome =
+    xdg && xdg.length > 0 ? xdg : join(homedir(), ".local", "share");
+  const authPath = join(dataHome, "opencode", "auth.json");
   const exists = yield* fs
     .exists(authPath)
     .pipe(Effect.catch(() => Effect.succeed(false)));

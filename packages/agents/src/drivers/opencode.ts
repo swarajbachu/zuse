@@ -201,6 +201,24 @@ interface OpencodeServerProcess {
 	readonly url: string;
 }
 
+const stopOpencodeChild = (
+	child: ChildProcessWithoutNullStreams,
+): void => {
+	try {
+		if (process.platform !== "win32" && child.pid !== undefined) {
+			process.kill(-child.pid, "SIGTERM");
+			return;
+		}
+		child.kill("SIGTERM");
+	} catch {
+		try {
+			child.kill("SIGTERM");
+		} catch {
+			// ignore — child may already be gone
+		}
+	}
+};
+
 /**
  * Spawn `opencode serve` on a fresh local port and wait for the URL it
  * prints to stdout. Resolves with the running child + the resolved URL.
@@ -244,11 +262,7 @@ const spawnOpencodeServer = (
 				const timer = setTimeout(() => {
 					if (settled) return;
 					settled = true;
-					try {
-						child.kill("SIGTERM");
-					} catch {
-						// ignore — child may already be gone
-					}
+					stopOpencodeChild(child);
 					const stderrTail = stderrBuf.trim().slice(-512);
 					reject(
 						new Error(
@@ -1269,11 +1283,7 @@ export const startOpencodeSession = (
 					} catch {
 						// ignore
 					}
-					try {
-						server.child.kill("SIGTERM");
-					} catch {
-						// ignore — child may already be gone
-					}
+					stopOpencodeChild(server.child);
 					yield* Queue.end(events);
 				}),
 			setPermissionMode: (mode) =>
@@ -1296,24 +1306,47 @@ export const startOpencodeSession = (
 // down as soon as both SDK calls return.
 // ---------------------------------------------------------------------------
 
-const filterPrimaryAgents = (
-	agents: ReadonlyArray<SdkAgent>,
+const asNonEmptyString = (value: unknown): string | null =>
+	typeof value === "string" && value.length > 0 ? value : null;
+
+interface InventoryAgentSource {
+	readonly name: unknown;
+	readonly mode: unknown;
+	readonly description?: string | null;
+	readonly hidden?: boolean | null;
+}
+
+/**
+ * OpenCode 1.18 sends `description: null` and `hidden: true` on internal
+ * agents (compaction/summary/title). Our inventory schema is `string |
+ * undefined` and the picker only wants user-facing primary agents.
+ */
+export const filterPrimaryAgents = (
+	agents: ReadonlyArray<InventoryAgentSource>,
 ): ReadonlyArray<OpencodeInventoryAgent> =>
-	agents
-		.filter((a) => a.mode === "primary" || a.mode === "all")
-		.map((a) => ({
-			name: a.name,
-			mode: a.mode as "primary" | "all",
-			...(a.description !== undefined ? { description: a.description } : {}),
-		}));
+	agents.flatMap((a) => {
+		if (a.mode !== "primary" && a.mode !== "all") return [];
+		if (a.hidden === true) return [];
+		const name = asNonEmptyString(a.name);
+		if (name === null) return [];
+		return [
+			{
+				name,
+				mode: a.mode,
+				...(typeof a.description === "string" && a.description.length > 0
+					? { description: a.description }
+					: {}),
+			},
+		];
+	});
 
 interface InventoryProviderModel {
-	readonly id: string;
-	readonly name: string;
+	readonly id?: unknown;
+	readonly name?: unknown;
 	// Opencode SDK v1 typings don't expose `variants`, but the wire
 	// protocol does carry it on each model — `Object.keys` of this map gives
 	// the variant names (e.g. `["high", "medium", "low"]`).
-	readonly variants?: Record<string, unknown>;
+	readonly variants?: Record<string, unknown> | null;
 	readonly status?: "alpha" | "beta" | "deprecated" | "active";
 	readonly capabilities?: {
 		readonly toolcall?: boolean;
@@ -1321,11 +1354,11 @@ interface InventoryProviderModel {
 }
 
 interface InventoryProvider {
-	readonly id: string;
-	readonly name: string;
+	readonly id?: unknown;
+	readonly name?: unknown;
 	// Env var(s) the provider's key is read from (e.g. `["OPENAI_API_KEY"]`).
-	readonly env?: ReadonlyArray<string>;
-	readonly models: { readonly [key: string]: InventoryProviderModel };
+	readonly env?: ReadonlyArray<unknown> | null;
+	readonly models?: { readonly [key: string]: InventoryProviderModel | null } | null;
 }
 
 /**
@@ -1367,56 +1400,97 @@ const RETIRED_OPENCODE_MODEL_IDS = new Set(["claude-opus-4-5"]);
 export const isUsableOpencodeInventoryModel = (
 	m: InventoryProviderModel,
 ): boolean => {
-	if (RETIRED_OPENCODE_MODEL_IDS.has(m.id)) return false;
+	const id = asNonEmptyString(m.id);
+	if (id === null) return false;
+	if (RETIRED_OPENCODE_MODEL_IDS.has(id)) return false;
 	if (m.status !== undefined && m.status !== "active") return false;
 	if (m.capabilities?.toolcall === false) return false;
 	return true;
 };
 
-const collectInventoryProviders = (
+export const collectInventoryProviders = (
 	all: ReadonlyArray<InventoryProvider>,
 	connected: ReadonlyArray<string>,
 	customIds: ReadonlySet<string>,
 	docById: ReadonlyMap<string, string>,
 ): ReadonlyArray<OpencodeInventoryProvider> => {
 	const connectedSet = new Set(connected);
-	return (
-		all
-			.map((p) => {
-				const isConnected = connectedSet.has(p.id);
-				return {
-					id: p.id,
-					name: p.name,
-					connected: isConnected,
-					custom: customIds.has(p.id),
-					apiKeyEnv: p.env?.[0] ?? "",
-					apiKeyUrl: docById.get(p.id) ?? "",
-					// Only enumerate models for connected providers. The catalog carries
-					// ~150 providers with thousands of models between them; shipping every
-					// unconnected provider's full model list would bloat the RPC payload
-					// and the renderer's localStorage cache. The picker only ever renders
-					// connected providers' models, and connecting one triggers a refresh
-					// that fills them in.
-					models: isConnected
-						? Object.values(p.models)
-								.filter(isUsableOpencodeInventoryModel)
-								.map((m) => ({
-									id: `${p.id}/${m.id}`,
-									label: m.name,
-									variants: Object.keys(m.variants ?? {}),
-								}))
-								.sort((a, b) => a.label.localeCompare(b.label))
-						: [],
-				};
-			})
-			// Connected providers first (each with usable models), then the rest of
-			// the catalog alphabetically for the "add provider" browser.
-			.sort((a, b) => {
-				if (a.connected !== b.connected) return a.connected ? -1 : 1;
-				return a.name.localeCompare(b.name);
-			})
-	);
+	const providers: OpencodeInventoryProvider[] = [];
+	for (const p of all) {
+		const id = asNonEmptyString(p.id);
+		if (id === null) continue;
+		const name = asNonEmptyString(p.name) ?? id;
+		const isConnected = connectedSet.has(id);
+		const env0 = p.env?.[0];
+		const modelsMap =
+			p.models !== null && typeof p.models === "object" ? p.models : {};
+		providers.push({
+			id,
+			name,
+			connected: isConnected,
+			custom: customIds.has(id),
+			apiKeyEnv: typeof env0 === "string" ? env0 : "",
+			apiKeyUrl: docById.get(id) ?? "",
+			// Only enumerate models for connected providers. The catalog carries
+			// ~150 providers with thousands of models between them; shipping every
+			// unconnected provider's full model list would bloat the RPC payload
+			// and the renderer's localStorage cache. The picker only ever renders
+			// connected providers' models, and connecting one triggers a refresh
+			// that fills them in.
+			models: isConnected
+				? Object.values(modelsMap)
+						.filter(
+							(m): m is InventoryProviderModel =>
+								m !== null && typeof m === "object",
+						)
+						.filter(isUsableOpencodeInventoryModel)
+						.flatMap((m) => {
+							const modelId = asNonEmptyString(m.id);
+							if (modelId === null) return [];
+							const variants =
+								m.variants !== null && typeof m.variants === "object"
+									? Object.keys(m.variants).filter((key) => key.length > 0)
+									: [];
+							return [
+								{
+									id: `${id}/${modelId}`,
+									label: asNonEmptyString(m.name) ?? modelId,
+									variants,
+								},
+							];
+						})
+						.sort((a, b) => a.label.localeCompare(b.label))
+				: [],
+		});
+	}
+	// Connected providers first (each with usable models), then the rest of
+	// the catalog alphabetically for the "add provider" browser.
+	return providers.sort((a, b) => {
+		if (a.connected !== b.connected) return a.connected ? -1 : 1;
+		return a.name.localeCompare(b.name);
+	});
 };
+
+const INVENTORY_RPC_TIMEOUT_MS = 20_000;
+
+const raceTimeout = <T>(
+	promise: Promise<T>,
+	ms: number,
+	message: string,
+): Promise<T> =>
+	new Promise<T>((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error(message)), ms);
+		promise.then(
+			(value) => {
+				clearTimeout(timer);
+				resolve(value);
+			},
+			(err: unknown) => {
+				clearTimeout(timer);
+				reject(err);
+			},
+		);
+	});
 
 export const loadOpencodeInventory = (
 	opencodePath: string,
@@ -1434,52 +1508,61 @@ export const loadOpencodeInventory = (
 			const client = createOpencodeClient({ baseUrl: proc.url });
 			const customIds = new Set(customProviders.map((p) => p.id));
 			try {
-				const [providersResp, agentsResp, docById] = await Promise.all([
-					client.provider.list({ throwOnError: true }),
-					client.app.agents({ throwOnError: true }),
-					fetchModelsDevDocs(),
-				]);
+				const [providersResp, agentsResp, docById] = await raceTimeout(
+					Promise.all([
+						client.provider.list({ throwOnError: true }),
+						client.app.agents({ throwOnError: true }),
+						fetchModelsDevDocs(),
+					]),
+					INVENTORY_RPC_TIMEOUT_MS,
+					`Timed out after ${INVENTORY_RPC_TIMEOUT_MS}ms waiting for opencode inventory`,
+				);
 				const providersData = providersResp.data;
 				const agentsData = agentsResp.data;
+				const allProviders = Array.isArray(providersData?.all)
+					? (providersData.all as ReadonlyArray<InventoryProvider>)
+					: [];
+				const connectedProviders = Array.isArray(providersData?.connected)
+					? providersData.connected.filter(
+							(id): id is string => typeof id === "string",
+						)
+					: [];
 				if (providersData !== undefined) {
 					dlog(
-						`inventory: connected providers [${providersData.connected.join(", ")}]`,
+						`inventory: connected providers [${connectedProviders.join(", ")}]`,
 					);
 					dlog(
-						`inventory: all providers [${providersData.all.map((p) => `${p.id}(${Object.keys(p.models).length} models)`).join(", ")}]`,
+						`inventory: all providers [${allProviders
+							.map(
+								(p) =>
+									`${String(p.id)}(${p.models && typeof p.models === "object" ? Object.keys(p.models).length : 0} models)`,
+							)
+							.join(", ")}]`,
 					);
 				} else {
 					dlog(`inventory: provider.list() returned undefined`);
 				}
-				if (agentsData !== undefined) {
+				if (Array.isArray(agentsData)) {
 					dlog(
 						`inventory: agents [${agentsData.map((a) => `${a.name}(${a.mode})`).join(", ")}]`,
 					);
 				}
-				const providers =
-					providersData === undefined
-						? []
-						: collectInventoryProviders(
-								providersData.all as ReadonlyArray<InventoryProvider>,
-								providersData.connected,
-								customIds,
-								docById,
-							);
-				const agents =
-					agentsData === undefined
-						? []
-						: filterPrimaryAgents(agentsData as ReadonlyArray<SdkAgent>);
+				const providers = collectInventoryProviders(
+					allProviders,
+					connectedProviders,
+					customIds,
+					docById,
+				);
+				const agents = Array.isArray(agentsData)
+					? filterPrimaryAgents(agentsData as ReadonlyArray<SdkAgent>)
+					: [];
 				dlog(
 					`inventory: returning ${providers.length} providers, ${agents.length} agents`,
 				);
 				ddump(`  inventory.result`, { providers, agents });
 				return { providers, agents } satisfies OpencodeInventory;
 			} finally {
-				try {
-					proc.child.kill("SIGTERM");
-				} catch {
-					// ignore — child may already be gone
-				}
+				stopOpencodeChild(proc.child);
 			}
 		},
 		catch: (cause) =>
@@ -1509,11 +1592,7 @@ const withOpencodeServer = <A>(
 			try {
 				return await fn(client);
 			} finally {
-				try {
-					proc.child.kill("SIGTERM");
-				} catch {
-					// ignore — child may already be gone
-				}
+				stopOpencodeChild(proc.child);
 			}
 		},
 		catch: (cause) =>

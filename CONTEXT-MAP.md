@@ -8,4 +8,4 @@
 
 - **Billing → Sandbox Compute**: a sandbox offer grants entitlement; it does not choose the infrastructure provider.
 - **Chat → Sandbox Compute**: a chat may request an available sandbox provider when provisioning its execution environment.
-- **Sandbox Compute → Relay**: the relay validates placement and routes lifecycle operations to the selected provider adapter.
+- **Sandbox Compute → API**: the api validates placement and routes lifecycle operations to the selected provider adapter.

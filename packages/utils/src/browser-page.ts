@@ -1,6 +1,6 @@
 /**
  * Shared primitives for the browser-facing pages the product serves from its
- * loopback listeners and the relay worker (sign-in, integration connect,
+ * loopback listeners and the api worker (sign-in, integration connect,
  * checkout complete). The pages themselves stay next to the code that serves
  * them — the runtimes have no common view layer — but sanitization and response
  * hardening are one behavior and live here so a fix lands everywhere at once.

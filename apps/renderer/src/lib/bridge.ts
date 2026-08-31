@@ -1,5 +1,7 @@
 import type {
 	CloudWorkspaceSshAccess,
+	ComputerAwakeMode,
+	ComputerAwakeStatus,
 	DiscoveredSshHost,
 	EnsureSshEnvironmentInput,
 	EnsureTailnetEnvironmentInput,
@@ -180,6 +182,14 @@ export interface PowerBridge {
 	readonly clearHistory: () => Promise<void>;
 	readonly reportLagSamples: (samples: ReadonlyArray<LagSample>) => void;
 	readonly reportWorkload: (workload: PowerWorkloadState) => void;
+}
+
+export interface ComputerAwakeBridge {
+	readonly getStatus: () => Promise<ComputerAwakeStatus>;
+	readonly setMode: (mode: ComputerAwakeMode) => Promise<ComputerAwakeStatus>;
+	readonly onChanged: (
+		handler: (status: ComputerAwakeStatus) => void,
+	) => () => void;
 }
 
 /**
@@ -478,6 +488,7 @@ export interface ZuseBridge {
 	readonly network?: NetworkBridge;
 	readonly updates?: UpdatesBridge;
 	readonly power?: PowerBridge;
+	readonly computerAwake?: ComputerAwakeBridge;
 	readonly browser?: BrowserBridge;
 	readonly notch?: NotchBridge;
 	readonly ssh?: SshBridge;

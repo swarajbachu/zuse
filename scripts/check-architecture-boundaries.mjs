@@ -61,7 +61,7 @@ export const architectureRules = [
 		"cloud-chat-pipeline",
 		"Cloud capability must not introduce a second chat or execution data plane.",
 		(path) =>
-			/^(?:apps\/(?:renderer|server)|infra\/relay|packages\/contracts)\/src\//u.test(
+			/^(?:apps\/(?:renderer|server)|infra\/api|packages\/contracts)\/src\//u.test(
 				path,
 			),
 		[
@@ -83,13 +83,13 @@ export const architectureRules = [
 			),
 	),
 	rule(
-		"relay-message-content",
-		"Relay schemas may carry content only in the named one-shot launch intent.",
-		(path) => /^(?:infra\/relay|packages\/contracts)\/src\//u.test(path),
+		"api-message-content",
+		"API schemas may carry content only in the named one-shot launch intent.",
+		(path) => /^(?:infra\/api|packages\/contracts)\/src\//u.test(path),
 		[
 			/\bfirstMessage\b/u,
 			/\bchat_metadata_ciphertext\b/u,
-			/\brelay_cloud_workspace_(?:commands|events)\b/u,
+			/\bapi_cloud_workspace_(?:commands|events)\b/u,
 			/\bCloudChats(?:History|Send|Rename)Rpc\b/u,
 			/\bCloudChat(?:Event|History|QueuedMessage|Command)\b/u,
 		],

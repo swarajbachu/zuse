@@ -1,41 +1,41 @@
 export const connectionErrorMessage = (cause: unknown): string => {
 	const text = cause instanceof Error ? cause.message : String(cause);
-	if (text.includes("RelayEnvironmentList")) {
-		return "Relay returned an older computer list. Refresh after the relay finishes updating.";
+	if (text.includes("ApiEnvironmentList")) {
+		return "API returned an older computer list. Refresh after the api finishes updating.";
 	}
-	if (text.startsWith("relay_list_")) {
-		return "Could not load your computers from the relay.";
+	if (text.startsWith("api_list_")) {
+		return "Could not load your computers from the api.";
 	}
-	if (text.startsWith("relay_status_")) {
+	if (text.startsWith("api_status_")) {
 		if (text.includes("invalid_dpop_proof")) {
-			return "Could not verify this phone with the relay. Restart the app and try again.";
+			return "Could not verify this phone with the api. Restart the app and try again.";
 		}
 		if (text.includes("invalid_workos_token")) {
 			return "Your sign-in expired. Sign out, sign in again, and refresh computers.";
 		}
 		return "Could not check computer presence.";
 	}
-	if (text.startsWith("relay_dpop_token_")) {
+	if (text.startsWith("api_dpop_token_")) {
 		if (text.includes("invalid_dpop_proof")) {
-			return "Could not verify this phone with the relay. Restart the app and try again.";
+			return "Could not verify this phone with the api. Restart the app and try again.";
 		}
 		if (text.includes("invalid_workos_token")) {
 			return "Your sign-in expired. Sign out, sign in again, and refresh computers.";
 		}
 		if (
-			text.startsWith("relay_dpop_token_5") ||
-			text.startsWith("relay_dpop_token_429")
+			text.startsWith("api_dpop_token_5") ||
+			text.startsWith("api_dpop_token_429")
 		) {
-			return "Relay is temporarily unavailable. Try again in a moment.";
+			return "API is temporarily unavailable. Try again in a moment.";
 		}
-		return "Could not authorize this phone with the relay.";
+		return "Could not authorize this phone with the api.";
 	}
-	if (text.startsWith("relay_connect_")) {
+	if (text.startsWith("api_connect_")) {
 		if (
-			text.startsWith("relay_connect_5") ||
-			text.startsWith("relay_connect_429")
+			text.startsWith("api_connect_5") ||
+			text.startsWith("api_connect_429")
 		) {
-			return "Relay is temporarily unavailable. Try again in a moment.";
+			return "API is temporarily unavailable. Try again in a moment.";
 		}
 		return "Could not connect to that computer.";
 	}

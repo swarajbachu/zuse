@@ -1,5 +1,49 @@
 [
   {
+    "version": "0.20.13",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Cloud Workspaces now have unrestricted outbound internet access by default"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "items": [
+          "New production workspaces can sync repositories without failing to create `/home/repos`",
+          "Retry now wakes paused Cloud Workspace compute before reconnecting",
+          "Production and staging cloud-agent authentication are isolated so credentials cannot contaminate each other"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.20.12",
+    "sections": [
+      {
+        "title": "Added",
+        "items": [
+          "Keep your Mac awake automatically while local agents or authenticated remote clients are active, or choose Always or Off in General settings; the sidebar now also shows the active-agent count"
+        ]
+      },
+      {
+        "title": "Changed",
+        "items": [
+          "Cloud Workspaces and remote access now connect through `api.zuse.sh`; this update is required because the retired `relay.stuff.md` hostname is no longer supported"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "items": [
+          "Resumed Cloud Workspaces no longer remain stuck authenticating because of stale credential markers, and gateway authentication now gets a fresh timeout after enrollment",
+          "OpenCode provider settings now select the correct installed CLI, handle OpenCode 1.18 inventory responses reliably, and show a retryable error instead of an endless loading state",
+          "New chats now honor repository permission defaults and stop cleanly after a denied permission request"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.20.11",
     "sections": [
       {

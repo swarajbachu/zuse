@@ -21,7 +21,7 @@ import {
 	runtimeReadyPhaseOnGatewayOpen,
 	signRuntimeRenewalProof,
 	startCloudWorkspaceLaunchIntent,
-} from "../../src/relay/cloud-workspace-runtime.ts";
+} from "../../src/api/cloud-workspace-runtime.ts";
 
 describe("cloud workspace bootstrap", () => {
 	it("accepts a partial image provider configuration", async () => {
@@ -161,7 +161,7 @@ describe("cloud workspace bootstrap", () => {
 		}
 	});
 
-	it("rebases once when Relay already accepted a newer summary revision", async () => {
+	it("rebases once when API already accepted a newer summary revision", async () => {
 		const revisions: number[] = [];
 		const publisher = await Effect.runPromise(
 			makeCloudRuntimeSummaryPublisher({
@@ -229,7 +229,7 @@ describe("cloud workspace bootstrap", () => {
 		const proof = await Effect.runPromise(
 			signRuntimeRenewalProof({
 				privateKey: keys.privateKey,
-				relayIssuer: "https://relay.example.test",
+				apiIssuer: "https://api.example.test",
 				workspaceId: "workspace-1",
 				requestId: "renewal-1",
 				generation: 4,
@@ -238,7 +238,7 @@ describe("cloud workspace bootstrap", () => {
 			}),
 		);
 		const verified = await jwtVerify(proof, keys.publicKey, {
-			audience: "https://relay.example.test",
+			audience: "https://api.example.test",
 			typ: "workspace-runtime-renewal+jwt",
 			currentDate: new Date(100_000),
 		});
@@ -260,7 +260,7 @@ describe("cloud workspace bootstrap", () => {
 				).pipe(
 					Effect.flatMap((attempt) =>
 						attempt === 1
-							? Effect.fail(new Error("relay_401"))
+							? Effect.fail(new Error("api_401"))
 							: Effect.succeed("connected"),
 					),
 				);
@@ -316,7 +316,7 @@ describe("cloud workspace bootstrap", () => {
 				}),
 			);
 		await start();
-		// The first acknowledgement can disappear between runtime and Relay. A
+		// The first acknowledgement can disappear between runtime and API. A
 		// repeated encrypted intent must carry exactly the same durable identities.
 		await start();
 

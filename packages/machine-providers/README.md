@@ -1,6 +1,6 @@
 # Machine provider adapters
 
-This package owns the machine-provider seam and registry. Relay lifecycle code
+This package owns the machine-provider seam and registry. API lifecycle code
 depends only on `MachineProviders`; concrete infrastructure vendors implement
 `MachineProviderAdapter`.
 
@@ -26,17 +26,17 @@ machines using the provider ID persisted on each record.
 
 `MachineProviderRegistration.aliases` maps retired provider IDs to the same
 adapter implementation. Alias expansion is centralized in this package so
-relay configuration never needs to clone or wrap adapters itself.
+api configuration never needs to clone or wrap adapters itself.
 
 ## Adding a provider
 
 1. Add one provider adapter module and export it from `package.json`.
 2. Test the complete `MachineProviderAdapter` interface using a fake HTTP
    client, including timeout recovery and idempotent deletion.
-3. Add one relay configuration module under
-   `infra/relay/src/machine-provider-modules`.
+3. Add one api configuration module under
+   `infra/api/src/machine-provider-modules`.
 4. Add that module to `machineProviderModules` in
-   `infra/relay/src/machine-provider-config.ts`.
+   `infra/api/src/machine-provider-config.ts`.
 
 The generic resolver loads every configured module, registers historical
 aliases, and uses `MACHINE_PROVIDER` only to choose the default for new
@@ -53,10 +53,10 @@ Cloud API directly, validates the configured server type and location against
 the server-owned offer before creation, attaches a pre-created firewall,
 enables backups, and recovers ambiguous creates by deterministic server name.
 
-The relay owns configuration and cloud-init rendering. The adapter owns only
+The api owns configuration and cloud-init rendering. The adapter owns only
 provider API translation and never exposes the project token or raw provider
 responses through the machine contract.
 
-The relay also registers the former generic provider ID as a reconciliation
+The api also registers the former generic provider ID as a reconciliation
 alias. Existing machines therefore remain manageable after switching the
 default for newly created records to `hetzner`.

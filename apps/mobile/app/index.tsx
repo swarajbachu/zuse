@@ -139,7 +139,7 @@ export default function HomeScreen() {
 		for (const environment of environments) {
 			const alreadyConnected = connections.some(
 				(connection) =>
-					connection.source === "relay" &&
+					connection.source === "api" &&
 					connection.environmentId === environment.environmentId,
 			);
 			if (

@@ -155,7 +155,7 @@ export const clearCloudWorkspaceRuntimeRecovery = (
 
 /** Consume a missing-runtime signal before issuing the next one-time gateway
  * ticket. Recovery and ticket minting stay ordered inside the same retry so a
- * healthy-looking but detached relay record cannot cause a reconnect loop. */
+ * healthy-looking but detached api record cannot cause a reconnect loop. */
 export const refreshCloudWorkspaceConnectionWithRecovery = async (
 	workspaceId: string,
 	recover: (commandId: string) => Promise<void>,
@@ -566,7 +566,7 @@ export const registerWebSocketEnvironment = (
 	});
 };
 
-export const registerRelayEnvironment = (
+export const registerApiEnvironment = (
 	environmentId: string,
 	initialWsUrl: string,
 	refreshWsUrl: () => Promise<string>,

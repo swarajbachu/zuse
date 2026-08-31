@@ -1,0 +1,125 @@
+{
+	"version": "7",
+	"dialect": "postgresql",
+	"entries": [
+		{
+			"idx": 0,
+			"version": "7",
+			"when": 1783287054479,
+			"tag": "0000_material_the_captain",
+			"breakpoints": true
+		},
+		{
+			"idx": 1,
+			"version": "7",
+			"when": 1783337014409,
+			"tag": "0001_next_catseye",
+			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "7",
+			"when": 1785356077643,
+			"tag": "0002_absurd_leader",
+			"breakpoints": true
+		},
+		{
+			"idx": 3,
+			"version": "7",
+			"when": 1785901182382,
+			"tag": "0003_managed_cloud_machines",
+			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "7",
+			"when": 1786114775297,
+			"tag": "0004_credential_cleanup_handshake",
+			"breakpoints": true
+		},
+		{
+			"idx": 5,
+			"version": "7",
+			"when": 1786438949570,
+			"tag": "0005_thin_rawhide_kid",
+			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "7",
+			"when": 1786521587993,
+			"tag": "0006_cloud_chat_encryption",
+			"breakpoints": true
+		},
+		{
+			"idx": 7,
+			"version": "7",
+			"when": 1786590000000,
+			"tag": "0007_launch_intent_cutover",
+			"breakpoints": true
+		},
+		{
+			"idx": 8,
+			"version": "7",
+			"when": 1786600000000,
+			"tag": "0008_runtime_summary_projection",
+			"breakpoints": true
+		},
+		{
+			"idx": 9,
+			"version": "7",
+			"when": 1786726800000,
+			"tag": "0009_cloud_transcript_checkpoints",
+			"breakpoints": true
+		},
+		{
+			"idx": 10,
+			"version": "7",
+			"when": 1786727400000,
+			"tag": "0010_cloud_billing_ledger",
+			"breakpoints": true
+		},
+		{
+			"idx": 11,
+			"version": "7",
+			"when": 1787130000000,
+			"tag": "0011_machine_owned_auth",
+			"breakpoints": true
+		},
+		{
+			"idx": 12,
+			"version": "7",
+			"when": 1787133600000,
+			"tag": "0012_single_account_image",
+			"breakpoints": true
+		},
+		{
+			"idx": 13,
+			"version": "7",
+			"when": 1787212800000,
+			"tag": "0013_cloud_image_build_details",
+			"breakpoints": true
+		},
+		{
+			"idx": 14,
+			"version": "7",
+			"when": 1787220000000,
+			"tag": "0014_cloud_project_selection",
+			"breakpoints": true
+		},
+		{
+			"idx": 15,
+			"version": "7",
+			"when": 1787266800000,
+			"tag": "0015_github_app_installations",
+			"breakpoints": true
+		},
+		{
+			"idx": 16,
+			"version": "7",
+			"when": 1787860800000,
+			"tag": "0016_api_naming",
+			"breakpoints": true
+		}
+	]
+}

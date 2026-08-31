@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { EnvironmentId } from "@zuse/contracts";
+import { type CloudChatSummary, EnvironmentId } from "@zuse/contracts";
 import { CloudIcon, RefreshIcon } from "@zuse/icons/solid-rounded";
 import { useAuth } from "../hooks/use-auth.ts";
 import { deriveCloudChatActivity } from "../lib/cloud-chat-activity.ts";
@@ -12,11 +12,9 @@ import {
 	useCloudChatCatalogStore,
 } from "../lib/cloud-workspace-catalog.ts";
 import { cloudTranscriptActivation } from "../lib/cloud-workspace-lifecycle.ts";
+import { ensureCloudWorkspaceAttached } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
-import {
-	getRendererClientBus,
-	retryRendererEnvironmentConnection,
-} from "../lib/session-timeline-client-bus.ts";
+import { getRendererClientBus } from "../lib/session-timeline-client-bus.ts";
 import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
@@ -43,6 +41,16 @@ const copy: Record<
 		detail: "Your cached chat is still available.",
 	},
 };
+
+type AttachCloudWorkspace = (
+	summary: CloudChatSummary,
+	activation: "connect" | "wake",
+) => Promise<void>;
+
+export const retryCloudConnection = (
+	summary: CloudChatSummary,
+	attach: AttachCloudWorkspace = ensureCloudWorkspaceAttached,
+): Promise<void> => attach(summary, "wake");
 
 export function CloudConnectionNotice() {
 	const { signIn, signingIn, isSignedIn, isLoading } = useAuth();
@@ -90,8 +98,9 @@ export function CloudConnectionNotice() {
 		!betaCheckUnavailable
 	)
 		return null;
-	const retry = () =>
-		retryRendererEnvironmentConnection(EnvironmentId.make(summary.workspaceId));
+	const retry = () => {
+		void retryCloudConnection(summary).catch(() => undefined);
+	};
 	const value = inviteRequired
 		? {
 				title: "Zuse Cloud is invite-only",

@@ -18,7 +18,7 @@ export const messageForError = (cause: unknown): string => {
 	if (
 		formatted.includes("Failed to fetch") ||
 		formatted.includes("NetworkError") ||
-		formatted.includes("relay_50")
+		formatted.includes("api_50")
 	) {
 		return "The network service could not be reached. Check your connection and try again.";
 	}

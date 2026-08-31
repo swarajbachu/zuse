@@ -7,11 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Zuse Serve and cloud authentication now use `api.zuse.sh` as the production Relay endpoint
-
 ### Fixed
 - The packaged `zusehq` CLI now discovers and authenticates to a foreground Serve process, reconnects after Serve restarts, and reports protocol mismatch, rejected credentials, and unavailable servers distinctly
+
+## [0.20.13]
+
+### Changed
+- Cloud Workspaces now have unrestricted outbound internet access by default
+
+### Fixed
+- New production workspaces can sync repositories without failing to create `/home/repos`
+- Retry now wakes paused Cloud Workspace compute before reconnecting
+- Production and staging cloud-agent authentication are isolated so credentials cannot contaminate each other
+
+## [0.20.12]
+
+### Added
+- Keep your Mac awake automatically while local agents or authenticated remote clients are active, or choose Always or Off in General settings; the sidebar now also shows the active-agent count
+
+### Changed
+- Cloud Workspaces and remote access now connect through `api.zuse.sh`; this update is required because the retired `relay.stuff.md` hostname is no longer supported
+
+### Fixed
+- Resumed Cloud Workspaces no longer remain stuck authenticating because of stale credential markers, and gateway authentication now gets a fresh timeout after enrollment
+- OpenCode provider settings now select the correct installed CLI, handle OpenCode 1.18 inventory responses reliably, and show a retryable error instead of an endless loading state
+- New chats now honor repository permission defaults and stop cleanly after a denied permission request
 
 ## [0.20.11]
 

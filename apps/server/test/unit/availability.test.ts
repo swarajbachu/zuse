@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -5,6 +7,7 @@ import {
 	claudeAuthTestHelpers,
 	compareCliVersion,
 	deriveLatestAdvisory,
+	extraWellKnownCliPaths,
 	grokAuthTestHelpers,
 	MIN_CODEX_CLI_VERSION,
 	MIN_GROK_CLI_VERSION,
@@ -371,6 +374,34 @@ describe("selectNewestCliPathCandidate", () => {
 				{ path: "/second/codex", version: null },
 			]),
 		).toBe("/first/codex");
+	});
+
+	it("selects a current OpenCode binary over a colliding older PATH hit", () => {
+		expect(
+			selectNewestCliPathCandidate([
+				{
+					path: "/opt/homebrew/bin/opencode",
+					version: parseCliVersion("0.0.55"),
+				},
+				{
+					path: "/Users/me/.opencode/bin/opencode",
+					version: parseCliVersion("1.18.19"),
+				},
+			]),
+		).toBe("/Users/me/.opencode/bin/opencode");
+	});
+});
+
+describe("extraWellKnownCliPaths", () => {
+	it("adds OpenCode's native installer location", () => {
+		expect(extraWellKnownCliPaths("opencode")).toEqual([
+			join(homedir(), ".opencode", "bin", "opencode"),
+		]);
+	});
+
+	it("does not invent extra paths for other CLIs", () => {
+		expect(extraWellKnownCliPaths("claude")).toEqual([]);
+		expect(extraWellKnownCliPaths("codex")).toEqual([]);
 	});
 });
 

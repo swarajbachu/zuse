@@ -13,7 +13,6 @@ import {
 	DEFAULT_SERVE_PORT,
 	formatPairingCodeForDisplay,
 	HOSTED_APP_URL,
-	PRODUCTION_RELAY_URL,
 	type ServeStatusV1,
 	WORKOS_PUBLIC_CLIENT_ID,
 } from "@zuse/contracts";
@@ -56,7 +55,7 @@ export {
 	ServeTunnelState,
 } from "@zuse/contracts";
 
-const DEFAULT_RELAY_URL = PRODUCTION_RELAY_URL;
+const DEFAULT_API_URL = "https://api.zuse.sh";
 export const SERVE_HELP = `Zuse Serve
 
 Run and manage Zuse on this computer.
@@ -168,7 +167,7 @@ export const foregroundServeOptions = (
 	// Trust those headers only after this process has successfully claimed the
 	// Tailnet route and supplied its public origin.
 	trustProxy: tailnetOrigin !== undefined,
-	relayEnabled: !command.sshManaged && command.noAccount !== true,
+	apiEnabled: !command.sshManaged && command.noAccount !== true,
 });
 
 const isZuseSourceCheckout = (
@@ -276,13 +275,13 @@ export const readServePairingBootstrap = async (
 	}
 };
 
-type LocalRelayConfig = {
+type LocalApiConfig = {
 	readonly environmentId: string;
-	readonly relayUrl: string;
+	readonly apiUrl: string;
 	readonly tunnelHostname?: string;
 };
 
-const readLocalRelayConfig = (dataDir: string): LocalRelayConfig | null => {
+const readLocalApiConfig = (dataDir: string): LocalApiConfig | null => {
 	try {
 		const database = new DatabaseSync(join(dataDir, "zuse.sqlite"), {
 			readOnly: true,
@@ -290,24 +289,24 @@ const readLocalRelayConfig = (dataDir: string): LocalRelayConfig | null => {
 		try {
 			const row = database
 				.prepare(
-					"SELECT environment_id, relay_url, tunnel_hostname FROM relay_config LIMIT 1",
+					"SELECT environment_id, api_url, tunnel_hostname FROM api_config LIMIT 1",
 				)
 				.get() as
 				| {
 						readonly environment_id?: unknown;
-						readonly relay_url?: unknown;
+						readonly api_url?: unknown;
 						readonly tunnel_hostname?: unknown;
 				  }
 				| undefined;
 			if (
 				typeof row?.environment_id !== "string" ||
-				typeof row.relay_url !== "string"
+				typeof row.api_url !== "string"
 			) {
 				return null;
 			}
 			return {
 				environmentId: row.environment_id,
-				relayUrl: row.relay_url,
+				apiUrl: row.api_url,
 				tunnelHostname:
 					typeof row.tunnel_hostname === "string"
 						? row.tunnel_hostname
@@ -376,7 +375,7 @@ const printStatus = async (
 		readonly port?: number;
 	},
 ): Promise<void> => {
-	const relay = readLocalRelayConfig(options.dataDir);
+	const api = readLocalApiConfig(options.dataDir);
 	const [agents, reachable] = await Promise.all([
 		installedAgents(),
 		serverReachable(options.env, options.port),
@@ -389,11 +388,11 @@ const printStatus = async (
 			: status.installed
 				? "stopped"
 				: "missing",
-		tunnel: relay?.tunnelHostname === undefined ? "unavailable" : "configured",
+		tunnel: api?.tunnelHostname === undefined ? "unavailable" : "configured",
 		runtimeVersion: options.env.ZUSE_RUNTIME_VERSION ?? "0.0.0",
 		agents,
 		reachable,
-		environmentId: relay?.environmentId ?? null,
+		environmentId: api?.environmentId ?? null,
 		durable: status.durable,
 		dataDir: options.dataDir,
 		appUrl: HOSTED_APP_URL,
@@ -404,21 +403,21 @@ const printStatus = async (
 	}
 	console.log(`Computer   ${value.computer}`);
 	console.log(`Service    ${value.service}`);
-	if (relay?.tunnelHostname !== undefined) {
-		console.log(`Tunnel     https://${relay.tunnelHostname}`);
+	if (api?.tunnelHostname !== undefined) {
+		console.log(`Tunnel     https://${api.tunnelHostname}`);
 	} else {
 		console.log(`Tunnel     ${value.tunnel}`);
 	}
 	console.log(`Agents     ${value.agents.join(", ") || "None detected"}`);
 	console.log(`Status     ${value.reachable ? "Online" : "Unavailable"}`);
-	console.log(`Open       ${serveAppUrl(relay)}`);
+	console.log(`Open       ${serveAppUrl(api)}`);
 };
 
 /** Stable per-computer hosted URL once linked; the hosted root otherwise. */
-const serveAppUrl = (relay: LocalRelayConfig | null): string =>
-	relay === null
+const serveAppUrl = (api: LocalApiConfig | null): string =>
+	api === null
 		? HOSTED_APP_URL
-		: `${HOSTED_APP_URL}${environmentRoute(relay.environmentId)}`;
+		: `${HOSTED_APP_URL}${environmentRoute(api.environmentId)}`;
 
 const waitForReachability = async (
 	env: NodeJS.ProcessEnv,
@@ -434,19 +433,19 @@ const waitForReachability = async (
 };
 
 /**
- * The daemon links to the relay shortly after boot; wait briefly for the
- * persisted relay config so the start summary can print real URLs. Returns
+ * The daemon links to the api shortly after boot; wait briefly for the
+ * persisted api config so the start summary can print real URLs. Returns
  * whatever is on disk when the wait expires.
  */
-const waitForRelayConfig = async (
+const waitForApiConfig = async (
 	dataDir: string,
 	timeoutMs: number,
-): Promise<LocalRelayConfig | null> => {
+): Promise<LocalApiConfig | null> => {
 	const deadline = Date.now() + timeoutMs;
 	for (;;) {
-		const relay = readLocalRelayConfig(dataDir);
-		if (relay?.tunnelHostname !== undefined || Date.now() >= deadline) {
-			return relay;
+		const api = readLocalApiConfig(dataDir);
+		if (api?.tunnelHostname !== undefined || Date.now() >= deadline) {
+			return api;
 		}
 		await new Promise((resolve) => setTimeout(resolve, 1_000));
 	}
@@ -512,8 +511,8 @@ const unlinkServeRegistration = async (
 	dataDir: string,
 	env: NodeJS.ProcessEnv,
 ): Promise<void> => {
-	const relay = readLocalRelayConfig(dataDir);
-	if (relay === null) return;
+	const api = readLocalApiConfig(dataDir);
+	if (api === null) return;
 	let session = await currentServeSession();
 	if (session === null) {
 		throw new Error(
@@ -534,18 +533,15 @@ const unlinkServeRegistration = async (
 		);
 		session = refreshed;
 	}
-	const response = await fetch(
-		`${relay.relayUrl}/v1/client/environment-unlink`,
-		{
-			method: "POST",
-			headers: {
-				authorization: `Bearer ${session.accessToken}`,
-				"content-type": "application/json",
-			},
-			body: JSON.stringify({ environmentId: relay.environmentId }),
-			signal: AbortSignal.timeout(15_000),
+	const response = await fetch(`${api.apiUrl}/v1/client/environment-unlink`, {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${session.accessToken}`,
+			"content-type": "application/json",
 		},
-	);
+		body: JSON.stringify({ environmentId: api.environmentId }),
+		signal: AbortSignal.timeout(15_000),
+	});
 	if (!response.ok && response.status !== 404) {
 		throw new Error(`Computer revocation failed (${response.status}).`);
 	}
@@ -567,7 +563,7 @@ export const runServePackageCli = async (
 		return;
 	}
 	env.ZUSE_RUNTIME_VERSION = options.packageVersion ?? "0.0.0";
-	env.ZUSE_RELAY_URL = env.ZUSE_RELAY_URL ?? DEFAULT_RELAY_URL;
+	env.ZUSE_API_URL = env.ZUSE_API_URL ?? DEFAULT_API_URL;
 	const dataDir = resolveServeDataDir(env, command.dataDir);
 	env.ZUSE_USER_DATA = dataDir;
 	const servicePaths = resolveServeServicePaths({ dataDir });
@@ -589,7 +585,7 @@ export const runServePackageCli = async (
 		installServeService({
 			executable,
 			paths: servicePaths,
-			relayUrl: env.ZUSE_RELAY_URL,
+			apiUrl: env.ZUSE_API_URL,
 			...settings,
 		});
 	const enableTailnet = async (): Promise<string | null> => {
@@ -744,10 +740,10 @@ export const runServePackageCli = async (
 		version: options.packageVersion ?? "0.0.0",
 		executable: installedExecutable,
 	});
-	const relay =
+	const api =
 		session === null
-			? readLocalRelayConfig(dataDir)
-			: await waitForRelayConfig(dataDir, 30_000);
+			? readLocalApiConfig(dataDir)
+			: await waitForApiConfig(dataDir, 30_000);
 	const pairing = await readServePairingBootstrap(dataDir);
 
 	console.log("");
@@ -758,13 +754,13 @@ export const runServePackageCli = async (
 	if (session !== null) console.log(`Account    ${session.email}`);
 	const agents = await installedAgents();
 	console.log(`Agents     ${agents.join(", ") || "None detected"}`);
-	if (relay?.tunnelHostname !== undefined) {
-		console.log(`Tunnel     https://${relay.tunnelHostname}`);
+	if (api?.tunnelHostname !== undefined) {
+		console.log(`Tunnel     https://${api.tunnelHostname}`);
 	}
 	if (pairing !== null) {
 		const browserBaseUrl =
-			relay?.tunnelHostname !== undefined
-				? `https://${relay.tunnelHostname}`
+			api?.tunnelHostname !== undefined
+				? `https://${api.tunnelHostname}`
 				: (tailnetOrigin ?? pairing.browserUrl.replace(/\/#pair=.*$/u, ""));
 		const browserUrl =
 			pairing.code === undefined
@@ -778,7 +774,7 @@ export const runServePackageCli = async (
 			console.log(`Code       ${formatPairingCodeForDisplay(pairing.code)}`);
 		}
 	}
-	console.log(`Open       ${serveAppUrl(relay)}`);
+	console.log(`Open       ${serveAppUrl(api)}`);
 };
 
 export { foregroundArgs };

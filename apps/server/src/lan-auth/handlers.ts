@@ -111,18 +111,18 @@ const ConnectDescribe = MemoizeRpcs.toLayerHandler("connect.describe", () =>
 	Effect.gen(function* () {
 		const auth = yield* LanAuthService;
 		const config = yield* LanAuthConfig;
-		const relayConfig = yield* auth.getRelayConfig();
-		const relay =
-			relayConfig === null
+		const apiConfig = yield* auth.getApiConfig();
+		const api =
+			apiConfig === null
 				? null
 				: {
 						linked: true,
 						heartbeatActive: true,
-						tunnelHostname: relayConfig.tunnelHostname,
+						tunnelHostname: apiConfig.tunnelHostname,
 					};
 		const advertisedEndpoints = buildAdvertisedEndpoints({
 			lan: config,
-			relay,
+			api,
 		});
 		const endpoint = resolveDefaultEnvironmentEndpoint(advertisedEndpoints);
 
@@ -168,18 +168,18 @@ const ConnectLinkProof = MemoizeRpcs.toLayerHandler(
 		),
 );
 
-const ConnectRelayConfig = MemoizeRpcs.toLayerHandler(
-	"connect.relayConfig",
+const ConnectApiConfig = MemoizeRpcs.toLayerHandler(
+	"connect.apiConfig",
 	(input) =>
 		Effect.gen(function* () {
 			const auth = yield* LanAuthService;
-			yield* auth.saveRelayConfig(input);
+			yield* auth.saveApiConfig(input);
 		}).pipe(
 			Effect.mapError(
 				(error) =>
 					new ConnectAuthError({
 						reason:
-							error instanceof Error ? error.message : "relay_config_failed",
+							error instanceof Error ? error.message : "api_config_failed",
 					}),
 			),
 		),
@@ -194,5 +194,5 @@ export const LanAuthHandlersLayer = Layer.mergeAll(
 	ConnectHandshake,
 	ConnectDescribe,
 	ConnectLinkProof,
-	ConnectRelayConfig,
+	ConnectApiConfig,
 );

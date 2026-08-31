@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 import {
 	AdvertisedEndpoint,
 	AgentEvent,
+	ApiAuthTokenGrant,
+	ApiEnvironmentList,
+	ApiLinkStatus,
 	Chat,
 	ComposerInput,
 	defaultModelEnabledByProvider,
@@ -16,9 +19,6 @@ import {
 	Message,
 	MODELS_BY_PROVIDER,
 	PokemonPokedexEntry,
-	RelayAuthTokenGrant,
-	RelayEnvironmentList,
-	RelayLinkStatus,
 	RepositorySettingsFile,
 	resolveModelSlug,
 	Session,
@@ -200,7 +200,7 @@ describe("AgentEvent round-trips", () => {
 
 describe("AdvertisedEndpoint round-trip", () => {
 	const encoded = {
-		id: "tunnel:managed-relay",
+		id: "tunnel:managed-api",
 		label: "Managed tunnel",
 		providerKind: "tunnel" as const,
 		httpBaseUrl: "https://env.example.test",
@@ -225,23 +225,23 @@ describe("AdvertisedEndpoint round-trip", () => {
 	});
 });
 
-describe("RelayLinkStatus advertised endpoint compatibility", () => {
+describe("ApiLinkStatus advertised endpoint compatibility", () => {
 	const base = {
 		linked: true,
-		relayUrl: "https://relay.example.test",
+		apiUrl: "https://api.example.test",
 		environmentId: "env_123",
 		label: "Mac",
 		heartbeatActive: true,
 	};
 
 	it("decodes legacy status without advertisedEndpoints", () => {
-		const decoded = Schema.decodeUnknownSync(RelayLinkStatus)(base);
+		const decoded = Schema.decodeUnknownSync(ApiLinkStatus)(base);
 		expect(decoded.linked).toBe(true);
 		expect(decoded.advertisedEndpoints).toBeUndefined();
 	});
 
 	it("round-trips status with advertisedEndpoints", () => {
-		roundTrip(RelayLinkStatus, {
+		roundTrip(ApiLinkStatus, {
 			...base,
 			advertisedEndpoints: [
 				{
@@ -260,14 +260,14 @@ describe("RelayLinkStatus advertised endpoint compatibility", () => {
 	});
 });
 
-describe("RelayAuthTokenGrant", () => {
+describe("ApiAuthTokenGrant", () => {
 	it("accepts authorization-code and refresh-token grants", () => {
-		roundTrip(RelayAuthTokenGrant, {
+		roundTrip(ApiAuthTokenGrant, {
 			grantType: "authorization_code",
 			code: "code",
 			codeVerifier: "verifier",
 		});
-		roundTrip(RelayAuthTokenGrant, {
+		roundTrip(ApiAuthTokenGrant, {
 			grantType: "refresh_token",
 			refreshToken: "refresh-token",
 		});
@@ -275,7 +275,7 @@ describe("RelayAuthTokenGrant", () => {
 
 	it("rejects incomplete grants", () => {
 		expect(() =>
-			Schema.decodeUnknownSync(RelayAuthTokenGrant)({
+			Schema.decodeUnknownSync(ApiAuthTokenGrant)({
 				grantType: "authorization_code",
 				code: "code",
 			}),
@@ -283,9 +283,9 @@ describe("RelayAuthTokenGrant", () => {
 	});
 });
 
-describe("RelayEnvironmentList compatibility", () => {
+describe("ApiEnvironmentList compatibility", () => {
 	it("decodes legacy environment records without endpoint", () => {
-		const decoded = Schema.decodeUnknownSync(RelayEnvironmentList)({
+		const decoded = Schema.decodeUnknownSync(ApiEnvironmentList)({
 			environments: [
 				{
 					environmentId: "env_123",

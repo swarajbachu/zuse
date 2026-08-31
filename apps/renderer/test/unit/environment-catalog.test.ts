@@ -338,7 +338,7 @@ describe("environment catalog", () => {
 		registerCloudChat(
 			CloudChatSummary.make({
 				workspaceId: "workspace-resuming",
-				projectId: "relay-project",
+				projectId: "api-project",
 				repositoryIdentity: "github.com/zuse/repository",
 				repositoryDisplayName: "repository",
 				chatId,
@@ -429,24 +429,24 @@ describe("environment catalog", () => {
 			orderEnvironmentCatalog([
 				entry("Offline", "offline", "offline"),
 				entry("Local", null, "connected"),
-				entry("Relay", null, "connected", "relay"),
+				entry("API", null, "connected", "api"),
 				entry("Remote", "remote", "connected"),
 			]).map(({ label }) => label),
-		).toEqual(["Local", "Relay", "Remote", "Offline"]);
+		).toEqual(["Local", "API", "Remote", "Offline"]);
 	});
 
 	it("isolates optional computer discovery failures", async () => {
 		const sources = await loadOptionalEnvironmentSources({
 			sshProfiles: Promise.reject(new Error("corrupt SSH profiles")),
 			tailnetProfiles: Promise.resolve([]),
-			relayEnvironments: Promise.reject(new Error("account unavailable")),
+			apiEnvironments: Promise.reject(new Error("account unavailable")),
 		});
 
 		expect(sources).toEqual({
 			profiles: [],
 			tailnetProfiles: [],
-			relayEnvironments: [],
-			relayError: "account unavailable",
+			apiEnvironments: [],
+			apiError: "account unavailable",
 		});
 	});
 
@@ -484,7 +484,7 @@ describe("environment catalog", () => {
 		const coordinator = createConnectionAttemptCoordinator();
 		let releaseFirst: (() => void) | undefined;
 		let firstStillCurrent = true;
-		const first = coordinator.run("relay:cloud", (isCurrent) =>
+		const first = coordinator.run("api:cloud", (isCurrent) =>
 			new Promise<void>((resolve) => {
 				releaseFirst = resolve;
 			}).then(() => {
@@ -492,7 +492,7 @@ describe("environment catalog", () => {
 			}),
 		);
 		const replacement = coordinator.run(
-			"relay:cloud",
+			"api:cloud",
 			async (isCurrent) => {
 				expect(isCurrent()).toBe(true);
 			},

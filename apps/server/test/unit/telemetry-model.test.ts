@@ -41,7 +41,7 @@ describe("telemetry model", () => {
 			["RpcServer.permission.respond", "permission"],
 			["RpcServer.git.status", "git"],
 			["RpcServer.pty.open", "terminal"],
-			["RpcServer.relay.connect", "network"],
+			["RpcServer.api.connect", "network"],
 			["RpcServer.auth.signIn", "auth"],
 			["RpcServer.attachment.add", "attachment"],
 			["RpcServer.mcp.list", "mcp"],

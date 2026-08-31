@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+	activeAgentCountLabel,
 	getPowerRuntimeActivity,
 	reportPowerBrowserRecordingStarted,
 	reportPowerBrowserRecordingStopped,
@@ -12,6 +13,12 @@ import {
 } from "../../src/lib/power-runtime-activity.ts";
 
 describe("power runtime activity", () => {
+	it("formats the footer agent count", () => {
+		expect(activeAgentCountLabel(0)).toBe("0 local agents running");
+		expect(activeAgentCountLabel(1)).toBe("1 local agent running");
+		expect(activeAgentCountLabel(3)).toBe("3 local agents running");
+	});
+
 	it("publishes lightweight workload counts and cleans up subscriptions", () => {
 		const listener = vi.fn();
 		const unsubscribe = subscribePowerRuntimeActivity(listener);

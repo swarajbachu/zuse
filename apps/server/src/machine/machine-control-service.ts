@@ -1,4 +1,8 @@
 import {
+	ApiAccessToken,
+	ApiConnectGrant,
+	ApiEnvironmentList,
+	ApiPaths,
 	BillingCheckout,
 	type BillingCheckoutRequest,
 	BillingPortal,
@@ -36,11 +40,7 @@ import {
 	MachineList,
 	MachineOfferList,
 	MachineRecord,
-	PRODUCTION_RELAY_URL,
-	RelayAccessToken,
-	RelayConnectGrant,
-	RelayEnvironmentList,
-	RelayPaths,
+	PRODUCTION_API_URL,
 	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
 import {
@@ -200,12 +200,12 @@ export interface MachineControlServiceShape {
 		MachineControlError
 	>;
 	readonly environments: () => Effect.Effect<
-		RelayEnvironmentList,
+		ApiEnvironmentList,
 		MachineControlError
 	>;
 	readonly connectEnvironment: (
 		environmentId: EnvironmentId,
-	) => Effect.Effect<RelayConnectGrant, MachineControlError>;
+	) => Effect.Effect<ApiConnectGrant, MachineControlError>;
 }
 
 export class MachineControlError extends Schema.TaggedErrorClass<MachineControlError>()(
@@ -223,7 +223,7 @@ export class MachineControlService extends Context.Service<
 >()("zuse/MachineControlService") {}
 
 /**
- * Adapt Relay's REST workspace resource into a revision-ordered control-plane
+ * Adapt API's REST workspace resource into a revision-ordered control-plane
  * stream. Polling and retry live here once per RPC subscription, never in UI
  * components or stores.
  */
@@ -252,11 +252,11 @@ export const streamCloudWorkspaceLifecycle = (
 		),
 	);
 
-export const resolveMachineRelayUrl = (
+export const resolveMachineApiUrl = (
 	env: Readonly<Record<string, string | undefined>> = process.env,
-): string => (env.ZUSE_RELAY_URL ?? PRODUCTION_RELAY_URL).replace(/\/+$/u, "");
+): string => (env.ZUSE_API_URL ?? PRODUCTION_API_URL).replace(/\/+$/u, "");
 
-export const mapRelayErrorCode = (
+export const mapApiErrorCode = (
 	status: number,
 	code: unknown,
 ): MachineControlError => {
@@ -321,7 +321,7 @@ export const MachineControlServiceLive: Layer.Layer<
 	Effect.gen(function* () {
 		const auth = yield* AuthService;
 		const runtimeRole = yield* MachineRuntimeRole;
-		const relayUrl = resolveMachineRelayUrl();
+		const apiUrl = resolveMachineApiUrl();
 		const dpopKeys = generateKeyPair("ES256", { extractable: true });
 		const dpopProof = async (method: string, url: string): Promise<string> => {
 			const keys = await dpopKeys;
@@ -351,7 +351,7 @@ export const MachineControlServiceLive: Layer.Layer<
 					.pipe(Effect.mapError(() => new MachineControlError("not-allowed")));
 				const response = yield* Effect.tryPromise({
 					try: () =>
-						fetch(`${relayUrl}${path}`, {
+						fetch(`${apiUrl}${path}`, {
 							method,
 							headers: {
 								authorization: `Bearer ${token}`,
@@ -371,7 +371,7 @@ export const MachineControlServiceLive: Layer.Layer<
 							}>,
 					);
 					return yield* Effect.fail(
-						mapRelayErrorCode(response.status, payload.error),
+						mapApiErrorCode(response.status, payload.error),
 					);
 				}
 				const payload = yield* Effect.tryPromise({
@@ -387,91 +387,86 @@ export const MachineControlServiceLive: Layer.Layer<
 
 		return MachineControlService.of({
 			cloudAccountImage: () =>
-				request(RelayPaths.cloudAccountImage, CloudAccountImage),
+				request(ApiPaths.cloudAccountImage, CloudAccountImage),
 			buildCloudAccountImage: (input) =>
 				request(
-					RelayPaths.cloudAccountImageBuild,
+					ApiPaths.cloudAccountImageBuild,
 					CloudAccountImage,
 					"POST",
 					input,
 				),
-			cloudAuthStatus: () => request(RelayPaths.cloudAuth, CloudAuthStatus),
+			cloudAuthStatus: () => request(ApiPaths.cloudAuth, CloudAuthStatus),
 			provisionCloudAuth: () =>
-				request(RelayPaths.cloudAuthProvision, CloudAuthStatus, "POST", {}),
+				request(ApiPaths.cloudAuthProvision, CloudAuthStatus, "POST", {}),
 			configureCloudAuth: (input) =>
 				request(
-					RelayPaths.cloudAuthConfigure,
+					ApiPaths.cloudAuthConfigure,
 					CloudAuthProviderStatus,
 					"POST",
 					input,
 				),
 			startCloudAuthLogin: (providerId) =>
-				request(
-					RelayPaths.cloudAuthLoginStart,
-					CloudAuthLoginOperation,
-					"POST",
-					{ providerId },
-				),
+				request(ApiPaths.cloudAuthLoginStart, CloudAuthLoginOperation, "POST", {
+					providerId,
+				}),
 			pollCloudAuthLogin: (operationId) =>
 				request(
-					RelayPaths.cloudAuthLoginPoll(operationId),
+					ApiPaths.cloudAuthLoginPoll(operationId),
 					CloudAuthLoginOperation,
 				),
 			cancelCloudAuthLogin: (operationId) =>
 				request(
-					RelayPaths.cloudAuthLoginCancel(operationId),
+					ApiPaths.cloudAuthLoginCancel(operationId),
 					CloudAuthLoginOperation,
 					"POST",
 					{},
 				),
 			disconnectCloudAuth: (providerId) =>
 				request(
-					RelayPaths.cloudAuthDisconnect(providerId),
+					ApiPaths.cloudAuthDisconnect(providerId),
 					CloudAuthProviderStatus,
 					"DELETE",
 				),
-			cloudGithubStatus: () =>
-				request(RelayPaths.cloudGithub, CloudGithubStatus),
+			cloudGithubStatus: () => request(ApiPaths.cloudGithub, CloudGithubStatus),
 			installCloudGithub: () =>
 				request(
-					RelayPaths.cloudGithubInstall,
+					ApiPaths.cloudGithubInstall,
 					Schema.Struct({ url: Schema.String }),
 					"POST",
 					{},
 				),
 			disconnectCloudGithub: (installationId) =>
 				request(
-					RelayPaths.cloudGithubDisconnect(installationId),
+					ApiPaths.cloudGithubDisconnect(installationId),
 					Schema.Struct({ ok: Schema.Boolean }),
 					"DELETE",
 				),
 			cloudBillingSummary: () =>
-				request(RelayPaths.cloudBillingSummary, CloudBillingSummary),
+				request(ApiPaths.cloudBillingSummary, CloudBillingSummary),
 			cloudBillingUsage: (cursor, limit) => {
 				const query = new URLSearchParams();
 				if (cursor !== undefined) query.set("cursor", cursor);
 				if (limit !== undefined) query.set("limit", String(limit));
 				const suffix = query.size === 0 ? "" : `?${query.toString()}`;
 				return request(
-					`${RelayPaths.cloudBillingUsage}${suffix}`,
+					`${ApiPaths.cloudBillingUsage}${suffix}`,
 					CloudBillingUsagePage,
 				);
 			},
 			setCloudBillingCap: (overageCapMicros, idempotencyKey) =>
-				request(RelayPaths.cloudBillingCap, CloudBillingSummary, "POST", {
+				request(ApiPaths.cloudBillingCap, CloudBillingSummary, "POST", {
 					overageCapMicros,
 					idempotencyKey,
 				}),
-			cloudProviders: () =>
-				request(RelayPaths.cloudProviders, CloudProviderList),
-			cloudProjects: () => request(RelayPaths.cloudProjects, CloudProjectList),
+			cloudProviders: () => request(ApiPaths.cloudProviders, CloudProviderList),
+			cloudProjects: () => request(ApiPaths.cloudProjects, CloudProjectList),
 			connectCloudProject: (input) =>
-				request(RelayPaths.cloudProjects, CloudProject, "POST", input),
+				request(ApiPaths.cloudProjects, CloudProject, "POST", input),
 			removeCloudProject: (projectId) =>
-				request(RelayPaths.cloudProject(projectId), CloudProject, "DELETE"),
+				request(ApiPaths.cloudProject(projectId), CloudProject, "DELETE"),
 			prepareCloudProject: (input) =>
 				request(
-					RelayPaths.cloudProjectPrepare(input.projectId),
+					ApiPaths.cloudProjectPrepare(input.projectId),
 					CloudProjectBuild,
 					"POST",
 					input,
@@ -479,15 +474,15 @@ export const MachineControlServiceLive: Layer.Layer<
 			cloudWorkspaces: (projectId) =>
 				request(
 					projectId === undefined
-						? RelayPaths.cloudWorkspaces
-						: `${RelayPaths.cloudWorkspaces}?projectId=${encodeURIComponent(projectId)}`,
+						? ApiPaths.cloudWorkspaces
+						: `${ApiPaths.cloudWorkspaces}?projectId=${encodeURIComponent(projectId)}`,
 					CloudWorkspaceList,
 				),
 			cloudWorkspace: (workspaceId) =>
-				request(RelayPaths.cloudWorkspace(workspaceId), CloudWorkspace),
+				request(ApiPaths.cloudWorkspace(workspaceId), CloudWorkspace),
 			cloudTranscriptCheckpoint: (workspaceId, sessionId, cursor) =>
 				request(
-					`${RelayPaths.cloudWorkspaceTranscriptCheckpoint(workspaceId, sessionId)}${
+					`${ApiPaths.cloudWorkspaceTranscriptCheckpoint(workspaceId, sessionId)}${
 						cursor === undefined
 							? ""
 							: `?epoch=${encodeURIComponent(cursor.epoch)}&version=${cursor.version}`
@@ -501,31 +496,26 @@ export const MachineControlServiceLive: Layer.Layer<
 				beforeSequence,
 			) =>
 				request(
-					`${RelayPaths.cloudWorkspaceTranscriptMessagePage(workspaceId, sessionId)}?epoch=${encodeURIComponent(cursor.epoch)}&version=${cursor.version}&beforeSequence=${beforeSequence}`,
+					`${ApiPaths.cloudWorkspaceTranscriptMessagePage(workspaceId, sessionId)}?epoch=${encodeURIComponent(cursor.epoch)}&version=${cursor.version}&beforeSequence=${beforeSequence}`,
 					CloudTranscriptMessagePageResult,
 				),
 			watchCloudWorkspace: (workspaceId, afterRevision) =>
 				streamCloudWorkspaceLifecycle(
-					request(RelayPaths.cloudWorkspace(workspaceId), CloudWorkspace),
+					request(ApiPaths.cloudWorkspace(workspaceId), CloudWorkspace),
 					afterRevision,
 				),
 			createCloudWorkspace: (input) =>
-				request(
-					RelayPaths.cloudWorkspaces,
-					CloudWorkspaceLaunch,
-					"POST",
-					input,
-				),
+				request(ApiPaths.cloudWorkspaces, CloudWorkspaceLaunch, "POST", input),
 			connectCloudWorkspace: (workspaceId) =>
 				request(
-					RelayPaths.cloudWorkspaceConnectionTicket(workspaceId),
+					ApiPaths.cloudWorkspaceConnectionTicket(workspaceId),
 					CloudWorkspaceConnection,
 					"POST",
 					{},
 				),
 			cloudChats: (projectId, scope) =>
 				request(
-					`${RelayPaths.cloudChats}?${new URLSearchParams({
+					`${ApiPaths.cloudChats}?${new URLSearchParams({
 						...(projectId === undefined ? {} : { projectId }),
 						...(scope === undefined ? {} : { scope }),
 					}).toString()}`,
@@ -533,54 +523,48 @@ export const MachineControlServiceLive: Layer.Layer<
 				),
 			cloudWorkspaceAction: (workspaceId, action, options) =>
 				request(
-					RelayPaths.cloudWorkspaceAction(workspaceId, action),
+					ApiPaths.cloudWorkspaceAction(workspaceId, action),
 					CloudWorkspace,
 					"POST",
 					{ workspaceId, ...options },
 				),
 			cloudWorkspaceSshAccess: (workspaceId) =>
 				request(
-					RelayPaths.cloudWorkspaceSshAccess(workspaceId),
+					ApiPaths.cloudWorkspaceSshAccess(workspaceId),
 					CloudWorkspaceSshAccess,
 					"POST",
 					{ workspaceId },
 				),
 			cloudWorkspacePreviewUrl: (workspaceId, port) =>
 				request(
-					RelayPaths.cloudWorkspacePreviewUrl(workspaceId),
+					ApiPaths.cloudWorkspacePreviewUrl(workspaceId),
 					CloudWorkspacePreviewUrl,
 					"POST",
 					{ port },
 				),
-			offers: () => request(RelayPaths.machineOffers, MachineOfferList),
-			list: () => request(RelayPaths.machines, MachineList),
-			get: (machineId) => request(RelayPaths.machine(machineId), MachineRecord),
+			offers: () => request(ApiPaths.machineOffers, MachineOfferList),
+			list: () => request(ApiPaths.machines, MachineList),
+			get: (machineId) => request(ApiPaths.machine(machineId), MachineRecord),
 			create: (input) =>
-				request(RelayPaths.machines, MachineRecord, "POST", input),
+				request(ApiPaths.machines, MachineRecord, "POST", input),
 			cancel: (machineId) =>
-				request(RelayPaths.machineCancel(machineId), MachineRecord, "POST", {}),
+				request(ApiPaths.machineCancel(machineId), MachineRecord, "POST", {}),
 			recover: (machineId) =>
-				request(
-					RelayPaths.machineRecover(machineId),
-					MachineRecord,
-					"POST",
-					{},
-				),
+				request(ApiPaths.machineRecover(machineId), MachineRecord, "POST", {}),
 			destroy: (input) =>
 				request(
-					RelayPaths.machineDestroy(input.machineId),
+					ApiPaths.machineDestroy(input.machineId),
 					MachineRecord,
 					"POST",
 					input,
 				),
 			checkout: (input) =>
-				request(RelayPaths.billingCheckout, BillingCheckout, "POST", input),
+				request(ApiPaths.billingCheckout, BillingCheckout, "POST", input),
 			billingPortal: () =>
-				request(RelayPaths.billingPortal, BillingPortal, "POST", {}),
+				request(ApiPaths.billingPortal, BillingPortal, "POST", {}),
 			entitlements: () =>
-				request(RelayPaths.billingEntitlements, EntitlementList),
-			environments: () =>
-				request(RelayPaths.environments, RelayEnvironmentList),
+				request(ApiPaths.billingEntitlements, EntitlementList),
+			environments: () => request(ApiPaths.environments, ApiEnvironmentList),
 			connectEnvironment: (environmentId) =>
 				Effect.gen(function* () {
 					if (runtimeRole !== "control-plane") {
@@ -591,7 +575,7 @@ export const MachineControlServiceLive: Layer.Layer<
 						.pipe(
 							Effect.mapError(() => new MachineControlError("not-allowed")),
 						);
-					const tokenUrl = `${relayUrl}${RelayPaths.dpopToken}`;
+					const tokenUrl = `${apiUrl}${ApiPaths.dpopToken}`;
 					const tokenResponse = yield* Effect.tryPromise({
 						try: async () =>
 							fetch(tokenUrl, {
@@ -605,23 +589,23 @@ export const MachineControlServiceLive: Layer.Layer<
 					});
 					if (!tokenResponse.ok) {
 						return yield* Effect.fail(
-							mapRelayErrorCode(tokenResponse.status, undefined),
+							mapApiErrorCode(tokenResponse.status, undefined),
 						);
 					}
 					const accessPayload = yield* Effect.tryPromise({
 						try: (): Promise<unknown> => tokenResponse.json(),
 						catch: () => new MachineControlError("provider-unavailable"),
 					});
-					const access = yield* Schema.decodeUnknownEffect(RelayAccessToken)(
+					const access = yield* Schema.decodeUnknownEffect(ApiAccessToken)(
 						accessPayload,
 					).pipe(
 						Effect.mapError(
 							() => new MachineControlError("provider-unavailable"),
 						),
 					);
-					const connectUrl = `${relayUrl}${RelayPaths.connect(environmentId)}`;
+					const connectUrl = `${apiUrl}${ApiPaths.connect(environmentId)}`;
 					// Always demand a managed (tunnel/public-TLS) endpoint. Without
-					// this the relay may fall back to the environment's advertised
+					// this the api may fall back to the environment's advertised
 					// endpoint, which for a default `zuse serve` is its own loopback —
 					// a remote client would then dial 127.0.0.1 on the wrong machine.
 					const response = yield* Effect.tryPromise({
@@ -648,14 +632,14 @@ export const MachineControlServiceLive: Layer.Layer<
 								}>,
 						);
 						return yield* Effect.fail(
-							mapRelayErrorCode(response.status, failure.error),
+							mapApiErrorCode(response.status, failure.error),
 						);
 					}
 					const payload = yield* Effect.tryPromise({
 						try: (): Promise<unknown> => response.json(),
 						catch: () => new MachineControlError("provider-unavailable"),
 					});
-					return yield* Schema.decodeUnknownEffect(RelayConnectGrant)(
+					return yield* Schema.decodeUnknownEffect(ApiConnectGrant)(
 						payload,
 					).pipe(
 						Effect.mapError(

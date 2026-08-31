@@ -2,9 +2,9 @@
 
 This document describes the normal operating model. The exact production
 provisioning and cutover checklist lives in the
-[private beta production runbook](../../infra/relay/PRIVATE_BETA_PRODUCTION.md),
+[private beta production runbook](../../infra/api/PRIVATE_BETA_PRODUCTION.md),
 and billing procedures live in
-[cloud billing operations](../../infra/relay/CLOUD_BILLING.md).
+[cloud billing operations](../../infra/api/CLOUD_BILLING.md).
 
 ## Environments
 
@@ -12,8 +12,8 @@ Staging and production are isolated deployments:
 
 | Resource | Staging | Production |
 | --- | --- | --- |
-| Relay | `zuse-relay-staging`, `relay-staging.stuff.md` | guarded production Worker, `api.zuse.sh` |
-| Wrangler config | default `infra/relay/wrangler.jsonc` | `infra/relay/wrangler.production.jsonc` |
+| API | immutable Worker `zuse-relay-staging`, `api-staging.stuff.md` | immutable Worker `zuse-relay`, `api.zuse.sh` |
+| Wrangler config | default `infra/api/wrangler.jsonc` | `infra/api/wrangler.production.jsonc` |
 | Database | approved staging Neon identity | separately approved production identity |
 | Runtime channel | `cloud-runtime-staging` | signed `cloud-runtime-production` |
 | E2B template | staging immutable version | release-commit production version |
@@ -36,16 +36,16 @@ For a release:
 2. Publish the immutable runtime archive before its signed manifest.
 3. Verify checksum, signature, protocol metadata, native modules, and startup.
 4. Publish the E2B template from the same commit and record its immutable
-   version in Relay configuration.
+   version in API configuration.
 5. Boot a fresh template and smoke repository setup, runtime enrollment,
    gateway connection, pause/resume, SSH, and transcript checkpointing.
-6. Deploy Relay only after the configured artifact and template are available.
+6. Deploy API only after the configured artifact and template are available.
 
 Existing sandboxes keep their filesystem and durable SQLite state. When a
 runtime update is supported, the signed runtime channel and lifecycle
 reconciler perform it transactionally under generation fencing, retain the
 previous binary, and roll back if enrollment or health verification fails.
-Relay supports the current and immediately preceding gateway protocol while
+API supports the current and immediately preceding gateway protocol while
 retained sandboxes are updated. Incompatible protocol versions fail once with
 `update-required`; they are never rebuilt from the current account image or
 placed in a reconnect loop. See
@@ -82,7 +82,7 @@ stable error codes.
 
 The production gate is the PostHog boolean flag `zuse-cloud-beta-access`,
 targeted by `zuse_cloud_beta_access=true` on the privacy-preserving `account_…`
-identity that Relay derives from verified WorkOS identity. Relay sets this
+identity that API derives from verified WorkOS identity. API sets this
 property after an active checkout-link subscription is claimed; operators may
 also set it for selected invitees. Email and `anonymous_…` installation IDs do
 not apply. There is no second production allowlist.
@@ -93,7 +93,7 @@ Roll out in this order:
 2. Invite one internal account and complete the full paid path.
 3. Reconcile an E2B provider statement; require variance at or below 1% and $1.
 4. Enable enforcement with export still disabled and validate cap behavior.
-5. Enable Polar export and prove Relay outbox totals equal Polar meter totals.
+5. Enable Polar export and prove API outbox totals equal Polar meter totals.
 6. Enroll additional PostHog identities gradually.
 
 The independent rollback switches are beta access, checkout, billing export,
@@ -142,7 +142,7 @@ For staging and before a production cohort expansion, verify:
 8. Manual deletion removes E2B and R2 content exactly once and produces a
    client-visible tombstone.
 9. E2B webhook plus recovery poll finalizes one usage record.
-10. Relay billing report, export outbox, and Polar meter reconcile.
+10. API billing report, export outbox, and Polar meter reconcile.
 
 ## Incident guide
 
@@ -175,6 +175,6 @@ changing enforcement. Never edit finalized ledger rows.
 ### Bad runtime or template release
 
 Stop cohort expansion and new checkout, preserve existing sandboxes, and roll
-Relay back only to a protocol-compatible Worker. Publish a corrected immutable
+API back only to a protocol-compatible Worker. Publish a corrected immutable
 artifact/version; never overwrite a signed archive, manifest target, or E2B
 template version.

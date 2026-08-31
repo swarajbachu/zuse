@@ -485,13 +485,13 @@ export class CloudWorkspaceResumeRequest extends Schema.Class<CloudWorkspaceResu
 )({
 	workspaceId: Schema.String,
 	commandId: Schema.optional(Schema.String),
-	/** The gateway proved that Relay's online projection has no runtime socket. */
+	/** The gateway proved that API's online projection has no runtime socket. */
 	recoverRuntime: Schema.optional(Schema.Boolean),
 }) {}
 
 /**
  * A short-lived grant for the workspace runtime's WebSocket SSH bridge. The
- * relay stages the hashed ticket inside the sandbox; the desktop's
+ * api stages the hashed ticket inside the sandbox; the desktop's
  * ProxyCommand bridge presents the plain ticket when it connects to `wsUrl`.
  */
 export class CloudWorkspaceSshAccess extends Schema.Class<CloudWorkspaceSshAccess>(
@@ -588,7 +588,7 @@ export const CloudWorkspacesGetRpc = Rpc.make("cloud.workspaces.get", {
 });
 /**
  * One monotonic lifecycle control stream for a workspace. The server adapts
- * Relay's current REST surface; clients never own lifecycle polling loops.
+ * API's current REST surface; clients never own lifecycle polling loops.
  */
 export const CloudWorkspacesWatchRpc = Rpc.make("cloud.workspaces.watch", {
 	payload: Schema.Struct({

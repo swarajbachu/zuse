@@ -24,6 +24,7 @@ import { Migration0027RelayTunnelHostname } from "../../src/persistence/migratio
 import { Migration0028RelayMintPublicKey } from "../../src/persistence/migrations/0028_relay_mint_public_key.ts";
 import { Migration0039AuthTokenDevices } from "../../src/persistence/migrations/0039_auth_token_devices.ts";
 import { Migration0040BlockedNearbyDevices } from "../../src/persistence/migrations/0040_blocked_nearby_devices.ts";
+import { Migration0052ApiConfig } from "../../src/persistence/migrations/0052_api_config.ts";
 
 const makeRuntime = (
 	trust: {
@@ -43,6 +44,7 @@ const makeRuntime = (
 			Effect.andThen(Migration0028RelayMintPublicKey),
 			Effect.andThen(Migration0039AuthTokenDevices),
 			Effect.andThen(Migration0040BlockedNearbyDevices),
+			Effect.andThen(Migration0052ApiConfig),
 		),
 	).pipe(Layer.provideMerge(SqlLive));
 	const ConfigLive = Layer.succeed(LanAuthConfig, {
@@ -367,9 +369,9 @@ describe("LanAuthService", () => {
 				Effect.gen(function* () {
 					const auth = yield* LanAuthService;
 					const environmentId = yield* auth.environmentId();
-					yield* auth.saveRelayConfig({
-						relayUrl: "https://relay.test",
-						relayIssuer: "https://relay.test",
+					yield* auth.saveApiConfig({
+						apiUrl: "https://api.test",
+						apiIssuer: "https://api.test",
 						environmentId,
 						environmentCredential: "zec_secret",
 						mintPublicKey,
@@ -387,7 +389,7 @@ describe("LanAuthService", () => {
 				},
 			})
 				.setProtectedHeader({ alg: "EdDSA", typ: "connect+jwt" })
-				.setIssuer("https://relay.test")
+				.setIssuer("https://api.test")
 				.setAudience(`zuse-env:${challenge.environmentId}`)
 				.setSubject("acct_test")
 				.setIssuedAt(nowSec)
@@ -524,7 +526,7 @@ describe("LanAuthService", () => {
 		});
 	});
 
-	it("creates Ed25519 link proofs and persists relay config for the local environment", async () => {
+	it("creates Ed25519 link proofs and persists api config for the local environment", async () => {
 		await withRuntime(async (run) => {
 			const result = await run(
 				Effect.gen(function* () {
@@ -533,31 +535,31 @@ describe("LanAuthService", () => {
 					const keys = yield* auth.environmentKeys();
 					const proof = yield* auth.linkProof({
 						challenge: "challenge",
-						relayIssuer: "https://relay.test",
+						apiIssuer: "https://api.test",
 						endpoint: {
 							httpBaseUrl: "http://192.168.1.10:8787",
 							wsBaseUrl: "ws://192.168.1.10:8787",
 						},
 					});
-					yield* auth.saveRelayConfig({
-						relayUrl: "https://relay.test",
-						relayIssuer: "https://relay.test",
+					yield* auth.saveApiConfig({
+						apiUrl: "https://api.test",
+						apiIssuer: "https://api.test",
 						environmentId,
 						environmentCredential: "zec_secret",
 						label: "Test Mac",
 						connectorToken: "connector-token",
 						tunnelHostname: "env.example.test",
 					});
-					const relayConfig = yield* auth.getRelayConfig();
+					const apiConfig = yield* auth.getApiConfig();
 					const sql = yield* SqlClient.SqlClient;
 					const rows = yield* sql<{
-						readonly relay_url: string;
+						readonly api_url: string;
 						readonly label: string | null;
 						readonly tunnel_hostname: string | null;
 					}>`
-            SELECT relay_url, label, tunnel_hostname FROM relay_config WHERE environment_id = ${environmentId}
+            SELECT api_url, label, tunnel_hostname FROM api_config WHERE environment_id = ${environmentId}
           `;
-					return { proof, rows, keys, relayConfig };
+					return { proof, rows, keys, apiConfig };
 				}),
 			);
 
@@ -566,16 +568,16 @@ describe("LanAuthService", () => {
 			expect(JSON.parse(result.keys.publicJwk).crv).toBe("Ed25519");
 			expect(result.rows).toEqual([
 				{
-					relay_url: "https://relay.test",
+					api_url: "https://api.test",
 					label: "Test Mac",
 					tunnel_hostname: "env.example.test",
 				},
 			]);
-			expect(result.relayConfig?.tunnelHostname).toBe("env.example.test");
+			expect(result.apiConfig?.tunnelHostname).toBe("env.example.test");
 		});
 	});
 
-	it("verifies relay-issued connect tokens with persisted relay mint key", async () => {
+	it("verifies api-issued connect tokens with persisted api mint key", async () => {
 		await withRuntime(async (run) => {
 			const mintKey = await generateKeyPair("EdDSA", { extractable: true });
 			const mintPublicKey = JSON.stringify(await exportJWK(mintKey.publicKey));
@@ -583,9 +585,9 @@ describe("LanAuthService", () => {
 				Effect.gen(function* () {
 					const auth = yield* LanAuthService;
 					const environmentId = yield* auth.environmentId();
-					yield* auth.saveRelayConfig({
-						relayUrl: "https://relay.test",
-						relayIssuer: "https://relay.test",
+					yield* auth.saveApiConfig({
+						apiUrl: "https://api.test",
+						apiIssuer: "https://api.test",
 						environmentId,
 						environmentCredential: "zec_secret",
 						mintPublicKey,
@@ -600,7 +602,7 @@ describe("LanAuthService", () => {
 				cnf: { jkt: "thumbprint" },
 			})
 				.setProtectedHeader({ alg: "EdDSA", typ: "connect+jwt" })
-				.setIssuer("https://relay.test")
+				.setIssuer("https://api.test")
 				.setAudience(`zuse-env:${environmentId}`)
 				.setSubject("acct_test")
 				.setIssuedAt(nowSec)
@@ -618,7 +620,7 @@ describe("LanAuthService", () => {
 		});
 	});
 
-	it("rejects malformed relay connect tokens without failing verification", async () => {
+	it("rejects malformed api connect tokens without failing verification", async () => {
 		await withRuntime(async (run) => {
 			const mintKey = await generateKeyPair("EdDSA", { extractable: true });
 			const mintPublicKey = JSON.stringify(await exportJWK(mintKey.publicKey));
@@ -626,9 +628,9 @@ describe("LanAuthService", () => {
 				Effect.gen(function* () {
 					const auth = yield* LanAuthService;
 					const environmentId = yield* auth.environmentId();
-					yield* auth.saveRelayConfig({
-						relayUrl: "https://relay.test",
-						relayIssuer: "https://relay.test",
+					yield* auth.saveApiConfig({
+						apiUrl: "https://api.test",
+						apiIssuer: "https://api.test",
 						environmentId,
 						environmentCredential: "zec_secret",
 						mintPublicKey,
@@ -655,7 +657,7 @@ describe("LanAuthService", () => {
 				port: 8787,
 				pairingBootstrap: false,
 			},
-			relay: {
+			api: {
 				linked: true,
 				heartbeatActive: true,
 				tunnelHostname: "env.example.test",
@@ -665,10 +667,10 @@ describe("LanAuthService", () => {
 		expect(endpoints.map((endpoint) => endpoint.id)).toEqual([
 			"core:lan",
 			"core:loopback",
-			"tunnel:managed-relay",
+			"tunnel:managed-api",
 		]);
 		expect(endpoints.find((endpoint) => endpoint.isDefault)?.id).toBe(
-			"tunnel:managed-relay",
+			"tunnel:managed-api",
 		);
 		expect(
 			endpoints.find((endpoint) => endpoint.id === "core:lan"),
@@ -679,7 +681,7 @@ describe("LanAuthService", () => {
 			compatibility: { hostedHttpsApp: "mixed-content-blocked" },
 		});
 		expect(
-			endpoints.find((endpoint) => endpoint.id === "tunnel:managed-relay"),
+			endpoints.find((endpoint) => endpoint.id === "tunnel:managed-api"),
 		).toMatchObject({
 			httpBaseUrl: "https://env.example.test",
 			wsBaseUrl: "wss://env.example.test",

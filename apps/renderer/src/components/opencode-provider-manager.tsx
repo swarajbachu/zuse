@@ -2,6 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { OpencodeInventoryProvider } from "@zuse/contracts";
 import {
 	Add01Icon,
+	AlertCircleIcon,
 	ArrowUpRight01Icon,
 	Cancel01Icon,
 	CheckmarkCircle02Icon,
@@ -59,6 +60,7 @@ import {
 export function OpencodeProviderManager() {
 	const inventory = useOpencodeInventory((s) => s.inventory);
 	const invLoading = useOpencodeInventory((s) => s.loading);
+	const invError = useOpencodeInventory((s) => s.error);
 	const ensureLoaded = useOpencodeInventory((s) => s.ensureLoaded);
 	const refreshInventory = useOpencodeInventory((s) => s.refresh);
 
@@ -80,6 +82,7 @@ export function OpencodeProviderManager() {
 				connected={connected}
 				loading={invLoading}
 				loaded={inventory !== null}
+				error={invError}
 				onRefresh={refresh}
 			/>
 			{connected.length > 0 && (
@@ -173,12 +176,14 @@ function ProvidersSection({
 	connected,
 	loading,
 	loaded,
+	error,
 	onRefresh,
 }: {
 	providers: ReadonlyArray<OpencodeInventoryProvider>;
 	connected: ReadonlyArray<OpencodeInventoryProvider>;
 	loading: boolean;
 	loaded: boolean;
+	error: string | null;
 	onRefresh: () => void;
 }) {
 	return (
@@ -188,9 +193,11 @@ function ProvidersSection({
 					<span className="text-xs font-semibold text-foreground">
 						Providers
 					</span>
-					<span className="text-[11px] text-muted-foreground/70">
-						{connected.length} configured
-					</span>
+					{loaded && (
+						<span className="text-[11px] text-muted-foreground/70">
+							{connected.length} configured
+						</span>
+					)}
 				</div>
 				<button
 					type="button"
@@ -207,7 +214,26 @@ function ProvidersSection({
 				</button>
 			</div>
 
-			{!loaded ? (
+			{!loaded && error !== null && !loading ? (
+				<div className="flex flex-col gap-2 rounded-lg border border-border/50 bg-background/40 px-3 py-3">
+					<div className="flex items-start gap-2 text-xs text-muted-foreground">
+						<HugeiconsIcon
+							icon={AlertCircleIcon}
+							className="mt-0.5 size-3.5 shrink-0"
+							aria-hidden
+						/>
+						<span className="min-w-0 leading-snug">{error}</span>
+					</div>
+					<Button
+						size="xs"
+						variant="outline"
+						className="self-start"
+						onClick={onRefresh}
+					>
+						Retry
+					</Button>
+				</div>
+			) : !loaded ? (
 				<div className="flex items-center gap-2 rounded-lg border border-border/50 bg-background/40 px-3 py-3 text-xs text-muted-foreground">
 					<HugeiconsIcon
 						icon={Loading02Icon}

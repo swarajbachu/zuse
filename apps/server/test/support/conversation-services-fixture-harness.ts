@@ -30,6 +30,7 @@ import {
 	Stream,
 } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { ApiActivityPublisher } from "../../src/api/activity-publisher.ts";
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
 import { ConversationState } from "../../src/conversation/core/conversation-state.ts";
 import { ConversationServicesLive } from "../../src/conversation/layers/conversation-services.ts";
@@ -83,7 +84,6 @@ import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
 import { PtyService } from "../../src/pty/services/pty-service.ts";
-import { RelayActivityPublisher } from "../../src/relay/activity-publisher.ts";
 import { RepositorySettingsService } from "../../src/repository-settings/services/repository-settings-service.ts";
 
 export const FIXTURE_PROJECT_ID = "fixture-project" as FolderId;
@@ -363,7 +363,7 @@ export const makeConversationFixtureRuntime = (
 		keybindingsChanges: () => Stream.die("not used"),
 	});
 
-	const StubRelayActivityPublisherLive = Layer.succeed(RelayActivityPublisher, {
+	const StubApiActivityPublisherLive = Layer.succeed(ApiActivityPublisher, {
 		publish: () => Effect.void,
 	});
 
@@ -392,7 +392,7 @@ export const makeConversationFixtureRuntime = (
 		Layer.provide(StubGitLive),
 		Layer.provide(StubTitleGeneratorLive),
 		Layer.provide(StubConfigStoreLive),
-		Layer.provide(StubRelayActivityPublisherLive),
+		Layer.provide(StubApiActivityPublisherLive),
 		Layer.provide(DomainLive),
 		Layer.provide(ChatDomainLive),
 		Layer.provide(SessionQueriesLive),

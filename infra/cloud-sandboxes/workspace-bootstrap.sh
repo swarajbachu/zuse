@@ -35,7 +35,7 @@ rm -f /home/zuse/.ssh/host_ed25519_key /home/zuse/.ssh/host_ed25519_key.pub \
   /home/zuse/.ssh/authorized_keys
 ssh-keygen -q -t ed25519 -N "" -f /home/zuse/.ssh/host_ed25519_key
 
-# The relay restricts egress to itself before launching this process. Start the
+# The api restricts egress to itself before launching this process. Start the
 # real runtime once: it creates a fresh identity, enrolls, installs credentials,
 # and then remains available for the desktop connection.
 export ZUSE_RUNTIME_KIND=cloud-workspace

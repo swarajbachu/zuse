@@ -25,6 +25,7 @@ import {
 	Login03Icon,
 	Logout01Icon,
 	PencilIcon,
+	Robot01Icon,
 	ServerStack01Icon,
 	Settings01Icon,
 	SquareLock01Icon,
@@ -40,21 +41,13 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	useSyncExternalStore,
 } from "react";
-import { BlurredEmail } from "~/components/blurred-email.tsx";
 import { TypewriterText } from "~/components/typewriter-text.tsx";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
-import {
-	Menu,
-	MenuItem,
-	MenuPopup,
-	MenuSeparator,
-	MenuShortcut,
-	MenuTrigger,
-} from "~/components/ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { toastManager } from "~/components/ui/toast.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
-import { UsageLimitsMenuItems } from "~/components/usage/usage-limits-submenu";
 import { useAuth } from "~/hooks/use-auth.ts";
 import {
 	type ChatAttentionState,
@@ -89,6 +82,11 @@ import {
 } from "../lib/environment-shell-client-bus.ts";
 import { useGitWorkspaceResource } from "../lib/git-workspace-client-bus.ts";
 import { openNewChatLanding } from "../lib/open-new-chat-landing.ts";
+import {
+	activeAgentCountLabel,
+	getPowerRuntimeActivity,
+	subscribePowerRuntimeActivity,
+} from "../lib/power-runtime-activity.ts";
 import { branchStateFor, diffStatsFor } from "../lib/pr-branch-state.ts";
 import {
 	buildLogicalProjectGroups,
@@ -120,7 +118,7 @@ import { useRegisterPane } from "../store/pane-focus.ts";
 import { subscribeSessionTerminals } from "../store/session-runtime.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
-import { useUsageLimitsStore } from "../store/usage-limits.ts";
+import { useUsageStore } from "../store/usage.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { openAddComputerDialog } from "./add-computer-dialog.tsx";
@@ -558,17 +556,66 @@ function SidebarActionRow({
 }
 
 function SidebarFooter() {
+	const setView = useUiStore((state) => state.setView);
+	const openUsage = useUiStore((state) => state.openUsage);
+	const prefetchUsage = useUsageStore((state) => state.prefetch);
+
 	return (
-		<div className="flex flex-col gap-0.5 border-t border-sidebar-border/40 px-1.5 py-1">
+		<div className="flex h-10 items-center justify-between border-t border-sidebar-border/40 px-2">
 			<SidebarAccount />
+			<div className="flex items-center gap-0.5">
+				<SidebarAgentCount />
+				<SidebarFooterIcon
+					icon={Analytics01Icon}
+					label="Usage"
+					onPointerEnter={() => void prefetchUsage(null)}
+					onFocus={() => void prefetchUsage(null)}
+					onClick={() => openUsage("global")}
+				/>
+				<SidebarFooterIcon
+					icon={Settings01Icon}
+					label="Settings"
+					onClick={() => setView("settings")}
+				/>
+			</div>
 		</div>
 	);
 }
 
+function SidebarAgentCount() {
+	const activeAgents = useSyncExternalStore(
+		subscribePowerRuntimeActivity,
+		() => getPowerRuntimeActivity().activeAgents,
+		() => 0,
+	);
+	const label = activeAgentCountLabel(activeAgents);
+
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<span
+						role="status"
+						aria-label={label}
+						className="inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-md px-1.5 text-sm leading-none tabular-nums text-muted-foreground"
+					>
+						{activeAgents > 0 ? (
+							<AgentActivityOrb state="working" label={label} />
+						) : (
+							<HugeiconsIcon icon={Robot01Icon} className="size-3.5" />
+						)}
+						<span>{activeAgents}</span>
+					</span>
+				}
+			/>
+			<TooltipPopup side="top">{label}</TooltipPopup>
+		</Tooltip>
+	);
+}
+
 /**
- * Bottom-of-sidebar account control. Signed out → a "Sign in" button. Signed
- * in → avatar + name that opens a menu (Account settings, Sign out). Auth is
- * optional, so this is the primary place to discover sign-in after onboarding.
+ * Compact account affordance. Account details and sign-out live in General
+ * settings, keeping the sidebar footer free of a second navigation menu.
  */
 function SidebarAccount() {
 	const {
@@ -579,17 +626,11 @@ function SidebarAccount() {
 		name,
 		signingIn,
 		signIn,
-		signOut,
 	} = useAuth();
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
-	const refreshUsageLimits = useUsageLimitsStore((s) => s.refresh);
 
-	// Always render an affordance. Until auth state resolves (or whenever signed
-	// out) we show "Sign in" — a brief flash to the signed-in row on cold load
-	// is fine and far better than showing nothing.
 	const initial = (name || user?.email || "?").charAt(0).toUpperCase();
-	const nameIsEmail = Boolean(user?.email && name === user.email);
 	if (isHostedProduct()) {
 		return (
 			<Menu>
@@ -625,21 +666,35 @@ function SidebarAccount() {
 		);
 	}
 
+	const label = isUnavailable
+		? "Account unavailable"
+		: isLoading
+			? "Loading account"
+			: isSignedIn
+				? "Profile"
+				: signingIn
+					? "Signing in"
+					: "Sign in";
+	const openAccount = () => {
+		if (isLoading || isUnavailable || signingIn) return;
+		if (!isSignedIn) {
+			void signIn();
+			return;
+		}
+		setSettingsSection({ kind: "general" });
+		setView("settings");
+	};
+
 	return (
-		<Menu>
-			<MenuTrigger
+		<Tooltip>
+			<TooltipTrigger
 				render={
 					<button
 						type="button"
-						onPointerEnter={() => {
-							// Force-refresh so Kiro OIDC misses cannot stick in the
-							// soft 60s cache (token is short-lived).
-							void refreshUsageLimits(true);
-						}}
-						onFocus={() => {
-							void refreshUsageLimits(true);
-						}}
-						className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-[12px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+						onClick={openAccount}
+						disabled={isLoading || isUnavailable || signingIn}
+						aria-label={label}
+						className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
 					>
 						{isSignedIn ? (
 							<Avatar className="size-5 text-[10px]">
@@ -651,60 +706,49 @@ function SidebarAccount() {
 								</AvatarFallback>
 							</Avatar>
 						) : isLoading ? (
-							<HugeiconsIcon icon={UserCircleIcon} className="size-3.5" />
+							<HugeiconsIcon icon={UserCircleIcon} className="size-4" />
 						) : (
-							<HugeiconsIcon icon={Login03Icon} className="size-3.5" />
-						)}
-						{isUnavailable ? (
-							<span>Account unavailable</span>
-						) : isLoading ? (
-							<span>Loading account…</span>
-						) : !isSignedIn ? (
-							<span>{signingIn ? "Signing in…" : "Sign in"}</span>
-						) : nameIsEmail && user?.email ? (
-							<BlurredEmail email={user.email} />
-						) : (
-							<span className="min-w-0 flex-1 truncate text-left">{name}</span>
+							<HugeiconsIcon icon={Login03Icon} className="size-4" />
 						)}
 					</button>
 				}
 			/>
-			<MenuPopup side="top" align="start" className="w-64">
-				{!isSignedIn && !isLoading ? (
-					<>
-						<MenuItem disabled={signingIn} onClick={() => void signIn()}>
-							<HugeiconsIcon icon={Login03Icon} />
-							Sign in
-						</MenuItem>
-						<MenuSeparator />
-					</>
-				) : (
-					<MenuItem
-						onClick={() => {
-							setSettingsSection({ kind: "general" });
-							setView("settings");
-						}}
+			<TooltipPopup side="top">{label}</TooltipPopup>
+		</Tooltip>
+	);
+}
+
+function SidebarFooterIcon({
+	icon,
+	label,
+	onClick,
+	onPointerEnter,
+	onFocus,
+}: {
+	icon: IconSvgElement;
+	label: string;
+	onClick: () => void;
+	onPointerEnter?: () => void;
+	onFocus?: () => void;
+}) {
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<button
+						type="button"
+						onClick={onClick}
+						onPointerEnter={onPointerEnter}
+						onFocus={onFocus}
+						aria-label={label}
+						className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 					>
-						<HugeiconsIcon icon={UserCircleIcon} />
-						Account settings
-					</MenuItem>
-				)}
-				<UsageLimitsMenuItems />
-				<MenuItem onClick={() => setView("settings")}>
-					<HugeiconsIcon icon={Settings01Icon} />
-					Settings<MenuShortcut>{formatShortcut("settings")}</MenuShortcut>
-				</MenuItem>
-				{isSignedIn ? (
-					<>
-						<MenuSeparator />
-						<MenuItem variant="destructive" onClick={() => void signOut()}>
-							<HugeiconsIcon icon={Logout01Icon} />
-							Sign out
-						</MenuItem>
-					</>
-				) : null}
-			</MenuPopup>
-		</Menu>
+						<HugeiconsIcon icon={icon} className="size-4" />
+					</button>
+				}
+			/>
+			<TooltipPopup side="top">{label}</TooltipPopup>
+		</Tooltip>
 	);
 }
 

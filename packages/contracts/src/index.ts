@@ -1,5 +1,6 @@
 export * from "./agent.ts";
 export * from "./analytics.ts";
+export * from "./api.ts";
 export * from "./attachment.ts";
 export * from "./auth.ts";
 export * from "./autonomy.ts";
@@ -33,7 +34,6 @@ export * from "./pokemon.ts";
 export * from "./power.ts";
 export * from "./previews.ts";
 export * from "./pty.ts";
-export * from "./relay.ts";
 export * from "./repository-settings.ts";
 export * from "./rpc.ts";
 export * from "./serve.ts";

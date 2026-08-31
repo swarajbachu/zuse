@@ -133,7 +133,7 @@ const makeSandboxProvidersFakeFromControl = (
 					create({
 						sandboxId: input.sandboxId,
 						providerLabel: input.providerLabel,
-						network: { kind: "quarantined" },
+						network: input.network,
 						timeoutSeconds: input.timeoutSeconds,
 						onTimeout: input.onTimeout,
 					}),

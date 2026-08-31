@@ -19,6 +19,7 @@ import { Cause, Effect, Fiber, Stream } from "effect";
 import { useMemo } from "react";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { isRpcClientTransportError, type MemoizeClient } from "./rpc-client.ts";
+import { interruptSession } from "./session-actions.ts";
 import {
 	getRendererClientBus,
 	registerRendererResourceDriver,
@@ -192,6 +193,19 @@ export const decideEnvironmentPermission = async (
 		}
 		throw cause;
 	}
+};
+
+/** A user denial rejects the requested action and ends that agent turn. */
+export const denyEnvironmentPermissionAndInterrupt = async (
+	request: Pick<PermissionRequest, "id" | "sessionId">,
+	environmentId: EnvironmentId,
+): Promise<void> => {
+	await decideEnvironmentPermission(
+		request.id,
+		{ _tag: "Deny" },
+		environmentId,
+	);
+	await interruptSession({ environmentId, sessionId: request.sessionId });
 };
 
 const activeKey = () =>

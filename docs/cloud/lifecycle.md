@@ -1,6 +1,6 @@
 # Cloud lifecycle
 
-Relay owns cloud lifecycle as a revisioned desired-state machine. Routes record
+API owns cloud lifecycle as a revisioned desired-state machine. Routes record
 intent; a leased reconciler performs provider operations and commits observed
 state with compare-and-set protection. Retrying a request cannot create a
 second workspace transition.
@@ -48,9 +48,9 @@ running agent does not change a healthy cloud icon from online to reconnecting.
 
 ## Create and start
 
-1. Relay authenticates the WorkOS account and checks private-beta access.
+1. API authenticates the WorkOS account and checks private-beta access.
 2. The client sends a stable workspace and command identity.
-3. Relay records the workspace request and encrypted launch intent atomically.
+3. API records the workspace request and encrypted launch intent atomically.
 4. The reconciler claims a prewarmed sandbox or forks the active account image.
 5. The runtime starts with a one-time token and registers its signing and
    encryption keys.
@@ -58,7 +58,7 @@ running agent does not change a healthy cloud icon from online to reconnecting.
    requested branch, and consumes the launch command. It does not clone, fetch,
    move the repository, create a worktree, or download a runtime on this path.
 7. The runtime records the command receipt in SQLite and reports a monotonic
-   summary to Relay.
+   summary to API.
 
 Agent execution begins only after worktree setup is complete. A client closing
 after acceptance does not interrupt the runtime consumer.
@@ -83,7 +83,7 @@ provider usage, and pauses the same E2B sandbox. Checkpoint upload failure does
 not destroy the authoritative SQLite database or block pause; the cloud copy is
 marked stale and retried when the runtime next runs.
 
-Resume reuses the same sandbox ID. Relay fences the prior connection generation,
+Resume reuses the same sandbox ID. API fences the prior connection generation,
 issues fresh short-lived credentials, and waits for runtime enrollment. The
 client keeps cached data visible throughout.
 
@@ -97,11 +97,11 @@ Archive is not a recovery-image operation and does not copy a complete machine.
 It is an idempotent lifecycle command with immediate optimistic UI behavior:
 
 1. The client persists the archive intent and removes the chat from Active.
-2. Relay records `archiveRequestedAt` and a deletion deadline 30 days later.
+2. API records `archiveRequestedAt` and a deletion deadline 30 days later.
 3. Active work is stopped gracefully and its latest partial transcript is
    committed.
 4. The runtime attempts a final encrypted R2 checkpoint.
-5. Relay pauses the same E2B sandbox and marks the workspace archived.
+5. API pauses the same E2B sandbox and marks the workspace archived.
 
 Catalog refresh cannot return a pending archive to Active. A retriable failure
 stays in Archives and retries; a definitive rejection restores the row with one
