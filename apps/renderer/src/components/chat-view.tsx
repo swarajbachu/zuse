@@ -679,11 +679,12 @@ export function ChatView({
 			<TimelineRow
 				chatId={session?.chatId ?? null}
 				environmentId={timeline.ref.environmentId}
+				providerId={session.providerId}
 				row={item}
 				sessionId={sessionId}
 			/>
 		),
-		[session?.chatId, sessionId, timeline.ref.environmentId],
+		[session.chatId, session.providerId, sessionId, timeline.ref.environmentId],
 	);
 	const readingReady = readingState?.sessionId === sessionId;
 	const effectiveReadingPosition =
@@ -861,11 +862,13 @@ function TimelineRow({
 	row,
 	sessionId,
 	environmentId,
+	providerId,
 }: {
 	readonly chatId: import("@zuse/contracts").ChatId | null;
 	readonly row: ChatTimelineRow;
 	readonly sessionId: SessionId;
 	readonly environmentId: EnvironmentId;
+	readonly providerId: import("@zuse/contracts").ProviderId;
 }) {
 	let content: ReactNode;
 	switch (row.kind) {
@@ -875,6 +878,7 @@ function TimelineRow({
 					message={row.message}
 					sessionId={sessionId}
 					environmentId={environmentId}
+					providerId={providerId}
 					showAssistantCommands={row.showAssistantCommands}
 				/>
 			);

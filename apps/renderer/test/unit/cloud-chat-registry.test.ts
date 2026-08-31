@@ -123,6 +123,7 @@ describe("cloud chat catalog", () => {
 				runtime: "idle",
 			}),
 		).toBe("failed");
+		expect(cloudConnectionPresentation(row, "failed", "failed")).toBe("failed");
 		expect(
 			deriveCloudChatActivity({
 				summary: row,
@@ -130,7 +131,28 @@ describe("cloud chat catalog", () => {
 				runtime: "running",
 			}),
 		).toBe("running");
-		expect(cloudConnectionPresentation(row, "attaching")).toBe("hidden");
+		expect(cloudConnectionPresentation(row, "attaching", "waking")).toBe(
+			"hidden",
+		);
+	});
+
+	it("does not present a provider failure as a cloud connection failure", () => {
+		const row = summary({
+			workspaceId: "environment-a",
+			chatId: "chat-a",
+			sessionId: "session-a",
+			revision: 1,
+		});
+		const activity = deriveCloudChatActivity({
+			summary: row,
+			connection: "connected",
+			runtime: "failed",
+		});
+
+		expect(activity).toBe("failed");
+		expect(cloudConnectionPresentation(row, activity, "connected")).toBe(
+			"hidden",
+		);
 	});
 
 	it("does not keep a settled turn working from stale bootstrap metadata", () => {

@@ -168,6 +168,7 @@ function MessageRowImpl({
 	message,
 	sessionId,
 	environmentId,
+	providerId,
 	readOnly = false,
 	showAssistantCommands = false,
 	forkDestination,
@@ -176,6 +177,7 @@ function MessageRowImpl({
 	message: Message;
 	sessionId?: SessionId;
 	environmentId?: EnvironmentId;
+	providerId?: ProviderId;
 	readOnly?: boolean;
 	showAssistantCommands?: boolean;
 	forkDestination?: ForkDestination;
@@ -263,9 +265,10 @@ function MessageRowImpl({
 			// button rather than a bare generic error.
 			return (
 				<ErrorBubble
-					error={classifyMessage(message.content.message)}
+					error={classifyMessage(message.content.message, providerId)}
 					sessionId={sessionId}
 					environmentId={environmentId}
+					providerId={providerId}
 				/>
 			);
 		case "interrupted":

@@ -79,7 +79,11 @@ export function CloudConnectionNotice() {
 		connection: shell.connection,
 		runtime,
 	});
-	const presentation = cloudConnectionPresentation(summary, activity);
+	const presentation = cloudConnectionPresentation(
+		summary,
+		activity,
+		shell.connection,
+	);
 	// A signed-out session can never reconnect a cloud workspace, so it shows
 	// one steady sign-in banner immediately — never the reconnect states.
 	const blockedAuth =
