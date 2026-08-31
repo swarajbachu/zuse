@@ -65,3 +65,4 @@ yarn-error.log*
 apps/renderer/hugeicons-migrate-backup-*/
 apps/renderer/hugeicons-migration-report-*.html
 .gstack/
+.pstack/

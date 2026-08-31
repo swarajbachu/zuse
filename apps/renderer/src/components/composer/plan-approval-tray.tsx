@@ -157,7 +157,7 @@ export function PlanApprovalTray({
 	return (
 		<TrayPill
 			flush
-			className="bg-rose-500/10 hover:bg-rose-500/15"
+			className="bg-card/80 hover:bg-card"
 			icon={
 				<HugeiconsIcon
 					icon={CheckListIcon}
@@ -216,7 +216,7 @@ export function PlanApprovalTray({
 								!isPermissionBacked &&
 								onApproveEmulatedPlan === undefined)
 						}
-						className="rounded-md bg-foreground px-2.5 py-0.5 text-[12px] font-medium text-background hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+						className="rounded-md bg-primary px-3 py-0.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
 					>
 						Approve
 					</button>

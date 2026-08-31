@@ -23,6 +23,7 @@ import {
 	DialogTitle,
 } from "../ui/dialog.tsx";
 import { Input } from "../ui/input.tsx";
+import { CloudAuthMethodTabs } from "./cloud-auth-method-tabs.tsx";
 import { CloudSettingsGroup, CloudSettingsRow } from "./cloud-settings-ui.tsx";
 
 const PROVIDERS = ["claude", "codex", "cursor", "grok"] as const;
@@ -291,8 +292,8 @@ export function CloudAccountAccess({
 	return (
 		<>
 			<CloudSettingsGroup
-				title="Agents"
-				description="Authentication belongs to the persistent cloud computer and is brokered to each isolated E2B chat. Existing credentials on this Mac are never imported."
+				title="Agent access"
+				description="Authorize agents on this cloud computer. Nothing is copied from this Mac."
 				action={
 					<Button
 						size="icon-sm"
@@ -371,7 +372,7 @@ export function CloudAccountAccess({
 											setPendingProvider(providerId);
 										}}
 									>
-										{connected ? "Manage" : "Set up"}
+										{connected ? "Reauthorize" : "Set up"}
 									</Button>
 									{connected ? (
 										<Button
@@ -422,7 +423,7 @@ export function CloudAccountAccess({
 					if (!open) setPendingProvider(null);
 				}}
 			>
-				<DialogPopup className="max-w-md">
+				<DialogPopup className="max-w-[420px]">
 					<form
 						onSubmit={(event) => {
 							event.preventDefault();
@@ -448,28 +449,10 @@ export function CloudAccountAccess({
 							</DialogDescription>
 						</DialogHeader>
 						<DialogPanel
-							className="space-y-4 px-4 pb-4 pt-1"
+							className="space-y-3 px-4 pb-4 pt-1"
 							scrollFade={false}
 						>
-							<div className="grid grid-cols-3 gap-1 rounded-md bg-muted p-1">
-								{(["subscription", "api-key", "custom"] as const).map(
-									(candidate) => (
-										<Button
-											key={candidate}
-											type="button"
-											size="xs"
-											variant={method === candidate ? "secondary" : "ghost"}
-											onClick={() => setMethod(candidate)}
-										>
-											{candidate === "api-key"
-												? "API key"
-												: candidate === "custom"
-													? "Custom"
-													: "Subscription"}
-										</Button>
-									),
-								)}
-							</div>
+							<CloudAuthMethodTabs value={method} onValueChange={setMethod} />
 							{pendingProvider === null ? null : (
 								<p className="text-xs text-muted-foreground">
 									{method === "subscription"

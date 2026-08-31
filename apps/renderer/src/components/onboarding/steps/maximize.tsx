@@ -1,10 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CircleArrowUp01Icon, Loading02Icon } from "@zuse/icons/solid-rounded";
 import {
 	type CommandId,
 	EnvironmentId,
 	type UsageReport,
 } from "@zuse/contracts";
+import { CircleArrowUp01Icon, Loading02Icon } from "@zuse/icons/solid-rounded";
 import { useEffect, useState } from "react";
 
 import { formatTokens, formatUsd, totalTokens } from "~/lib/format-usage.ts";
@@ -110,7 +110,7 @@ export function MaximizeStep() {
 				/>
 			)}
 
-			<div className="flex flex-col gap-4 rounded-2xl bg-muted/50 p-5">
+			<div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-5">
 				<div className="flex items-start gap-3">
 					<span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
 						<HugeiconsIcon
@@ -163,7 +163,7 @@ function MonthlySnapshot({
 }) {
 	return (
 		<div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_15rem]">
-			<div className="flex min-h-36 flex-col justify-between rounded-2xl border border-primary/10 bg-primary/[0.055] p-5">
+			<div className="flex min-h-36 flex-col justify-between rounded-lg border border-border bg-card p-5">
 				<div className="flex flex-col gap-1">
 					<span className="text-[11px] font-medium uppercase tracking-[0.16em] text-primary/80">
 						API value used this month
@@ -210,7 +210,7 @@ function CompactMetric({
 	detail: string;
 }) {
 	return (
-		<div className="flex min-h-[4.5rem] flex-col justify-center gap-1 rounded-2xl bg-muted/50 px-4 py-3">
+		<div className="flex min-h-[4.5rem] flex-col justify-center gap-1 rounded-lg border border-border bg-card px-4 py-3">
 			<span className="text-[11px] font-medium text-muted-foreground">
 				{label}
 			</span>
@@ -253,7 +253,7 @@ function PlanRow({
 
 function SpendSkeleton() {
 	return (
-		<div className="flex flex-col gap-4 rounded-2xl bg-muted/50 p-5">
+		<div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-5">
 			<div className="flex items-center gap-2 text-[11px] text-muted-foreground">
 				<HugeiconsIcon
 					icon={Loading02Icon}
@@ -263,7 +263,7 @@ function SpendSkeleton() {
 				Scanning this month&apos;s local agent logs...
 			</div>
 			<div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_15rem]">
-				<div className="flex h-36 flex-col justify-between rounded-2xl bg-background/60 p-5">
+				<div className="flex h-36 flex-col justify-between rounded-lg bg-background/60 p-5">
 					<div className="h-3 w-40 animate-pulse rounded bg-muted" />
 					<div className="space-y-2">
 						<div className="h-9 w-36 animate-pulse rounded bg-muted" />
@@ -274,7 +274,7 @@ function SpendSkeleton() {
 					{[0, 1].map((i) => (
 						<div
 							key={i}
-							className="flex flex-col justify-center gap-2 rounded-2xl bg-background/60 px-4 py-3"
+							className="flex flex-col justify-center gap-2 rounded-lg bg-background/60 px-4 py-3"
 						>
 							<div className="h-3 w-20 animate-pulse rounded bg-muted" />
 							<div className="h-6 w-28 animate-pulse rounded bg-muted" />

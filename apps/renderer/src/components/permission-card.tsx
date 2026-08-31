@@ -11,6 +11,7 @@ import {
 	decideEnvironmentPermission,
 	denyEnvironmentPermissionAndInterrupt,
 } from "../lib/environment-permissions-client-bus.ts";
+import { Button } from "./ui/button.tsx";
 
 const kindHeadline = (kind: PermissionKind): string => {
 	switch (kind._tag) {
@@ -102,9 +103,9 @@ export function PermissionCard({
 	}, [head.id, decide, deny]);
 
 	return (
-		<div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+		<div className="rounded-xl bg-card/95 p-3 shadow-overlay-sm ring-1 ring-border/70">
 			<div className="flex items-center gap-2">
-				<div className="text-base text-foreground truncate">
+				<div className="truncate text-[13px] font-medium leading-5 text-foreground">
 					{kindHeadline(head.kind)}
 				</div>
 				{queueSize > 1 ? (
@@ -114,59 +115,51 @@ export function PermissionCard({
 				) : null}
 			</div>
 
-			<div className="mt-3 break-all rounded-md bg-muted/50 px-3 py-2 font-mono text-xs text-foreground/90">
+			<div className="mt-2 max-h-24 overflow-y-auto break-all rounded-md bg-muted/45 px-2.5 py-1.5 font-mono text-[11px] leading-4 text-foreground/90">
 				{kindDetail(head.kind)}
 			</div>
 
 			{persistentDisabled ? (
-				<div className="mt-2 text-xs text-muted-foreground">
+				<div className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
 					{forcePromptHint(head.kind)}
 				</div>
 			) : null}
 
-			<div className="mt-4 flex flex-wrap items-center justify-end gap-1">
-				<button
-					type="button"
+			<div className="mt-2.5 flex flex-wrap items-center justify-end gap-1">
+				<Button
+					size="xs"
+					variant="ghost"
 					onClick={() => void deny()}
-					className="rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
 					title="Esc"
 				>
 					Deny
-				</button>
-				<button
-					type="button"
+				</Button>
+				<Button
+					size="xs"
+					variant="ghost"
 					disabled={persistentDisabled}
 					onClick={() => void decide(head.id, ALLOW_FOR_SESSION)}
-					className={cn(
-						"rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors",
-						persistentDisabled
-							? "pointer-events-none opacity-40"
-							: "hover:bg-accent/40 hover:text-foreground",
-					)}
+					className={cn(persistentDisabled && "pointer-events-none opacity-40")}
 				>
-					For session
-				</button>
-				<button
-					type="button"
+					Allow for session
+				</Button>
+				<Button
+					size="xs"
+					variant="ghost"
 					disabled={persistentDisabled}
 					onClick={() => void decide(head.id, ALWAYS_ALLOW_FOLDER)}
-					className={cn(
-						"rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors",
-						persistentDisabled
-							? "pointer-events-none opacity-40"
-							: "hover:bg-accent/40 hover:text-foreground",
-					)}
+					className={cn(persistentDisabled && "pointer-events-none opacity-40")}
 				>
-					Always
-				</button>
-				<button
-					type="button"
+					Always allow
+				</Button>
+				<Button
+					size="xs"
 					onClick={() => void decide(head.id, ALLOW_ONCE)}
-					className="ml-1 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90"
+					className="ml-1"
 					title="⌘+Enter"
 				>
 					Allow once
-				</button>
+				</Button>
 			</div>
 		</div>
 	);

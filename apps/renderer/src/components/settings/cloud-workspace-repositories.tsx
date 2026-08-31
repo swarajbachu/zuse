@@ -93,7 +93,7 @@ export function CloudWorkspaceRepositories({
 			action={
 				<Popover>
 					<PopoverTrigger
-						className={`inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground outline-none hover:bg-primary/90 disabled:opacity-50 ${COMPACT_CLOUD_ACTION}`}
+						className={`inline-flex items-center gap-1.5 rounded-md bg-primary px-4 text-xs font-medium text-primary-foreground outline-none hover:bg-primary/90 disabled:opacity-50 ${COMPACT_CLOUD_ACTION}`}
 						disabled={!githubAuthenticated || loading}
 					>
 						<Plus className="size-3.5" aria-hidden />
@@ -178,7 +178,7 @@ export function CloudWorkspaceRepositories({
 									: `${selected.length} selected`}
 							</span>
 							<PopoverClose
-								className={`inline-flex items-center rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 ${COMPACT_CLOUD_ACTION}`}
+								className={`inline-flex items-center rounded-md bg-primary px-4 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 ${COMPACT_CLOUD_ACTION}`}
 								disabled={selected.length === 0 || busy === "connect"}
 								onClick={() => {
 									onAdd(selected);

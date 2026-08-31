@@ -23,6 +23,7 @@ import {
 } from "react";
 import { runControlPlane } from "../../lib/control-plane-client.ts";
 import { copyText, openExternal } from "../../lib/platform-capabilities.ts";
+import { ProviderIcon } from "../provider-icons.tsx";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
 import {
@@ -34,6 +35,7 @@ import {
 	DialogTitle,
 } from "../ui/dialog.tsx";
 import { Input } from "../ui/input.tsx";
+import { CloudAuthMethodTabs } from "./cloud-auth-method-tabs.tsx";
 import {
 	CloudSettingsGroup,
 	CloudSettingsRow,
@@ -374,7 +376,7 @@ export function CloudWorkspaceAuth() {
 		<>
 			<CloudSettingsGroup
 				title="Agent authentication"
-				description="Connect each agent once. New cloud chats inherit the authentication in your private account image."
+				description="Authorize agents once for every new cloud chat. Credentials stay in your private account image."
 				action={
 					<span className="text-[11px] text-muted-foreground">
 						{loading
@@ -418,7 +420,7 @@ export function CloudWorkspaceAuth() {
 							title={LABEL[providerId]}
 							description={
 								providerStatus?.state === "connected"
-									? `${providerStatus.method ?? "Provider"} authentication passed a real CLI status check.`
+									? `Ready for new cloud chats via ${providerStatus.method ?? "provider authentication"}.`
 									: providerId === "claude"
 										? "Claude Code subscription, Anthropic API key, or custom endpoint."
 										: providerId === "codex"
@@ -455,7 +457,7 @@ export function CloudWorkspaceAuth() {
 										onClick={() => void openProviderSetup(providerId)}
 									>
 										{isConnected
-											? "Manage"
+											? "Reauthorize"
 											: needsReconnect
 												? "Reconnect"
 												: "Connect"}
@@ -480,48 +482,36 @@ export function CloudWorkspaceAuth() {
 					}
 				}}
 			>
-				<DialogPopup className="max-w-[400px] border-0 dark:border-0">
+				<DialogPopup className="max-w-[420px]">
 					<DialogHeader>
-						<DialogTitle>
-							{selectedProvider === null
-								? "Agent authentication"
-								: `Set up ${LABEL[selectedProvider]}`}
-						</DialogTitle>
+						<div className="flex items-center gap-2">
+							{selectedProvider === null ? null : (
+								<ProviderIcon
+									providerId={selectedProvider}
+									className="size-4 shrink-0"
+								/>
+							)}
+							<DialogTitle>
+								{selectedProvider === null
+									? "Agent authentication"
+									: `Set up ${LABEL[selectedProvider]}`}
+							</DialogTitle>
+						</div>
 						<DialogDescription>
 							{selectedProvider === null
 								? "Choose an authentication method."
 								: `Connect once for every new ${LABEL[selectedProvider]} cloud sandbox.`}
 						</DialogDescription>
 					</DialogHeader>
-					<DialogPanel className="space-y-4 pt-2">
+					<DialogPanel className="space-y-3 pb-4 pt-1">
 						{selectedProvider === "cursor" ? null : (
-							<div className="grid grid-cols-3 gap-1 rounded-lg bg-muted/65 p-1">
-								{(["subscription", "api-key", "custom"] as const).map(
-									(authMethod) => {
-										return (
-											<button
-												key={authMethod}
-												type="button"
-												className={`h-7 rounded-md px-2 font-medium text-[11px] transition-colors ${
-													method === authMethod
-														? "bg-background text-foreground shadow-xs"
-														: "text-muted-foreground hover:text-foreground"
-												}`}
-												onClick={() => {
-													setMethod(authMethod);
-													setOperation(null);
-												}}
-											>
-												{authMethod === "subscription"
-													? "Subscription"
-													: authMethod === "api-key"
-														? "API key"
-														: "Custom"}
-											</button>
-										);
-									},
-								)}
-							</div>
+							<CloudAuthMethodTabs
+								value={method}
+								onValueChange={(authMethod) => {
+									setMethod(authMethod);
+									setOperation(null);
+								}}
+							/>
 						)}
 
 						{method === "subscription" && selectedProvider === "claude" ? (
@@ -566,8 +556,24 @@ export function CloudWorkspaceAuth() {
 						selectedProvider !== null &&
 						selectedProvider !== "claude" &&
 						selectedProvider !== "cursor" ? (
-							<div className="space-y-3">
-								{selectedProvider === "codex" ? (
+							<div className="space-y-2.5">
+								{operation?.state === "connected" ? (
+									<div
+										role="status"
+										className="flex items-center gap-2 rounded-md bg-success/8 px-2.5 py-2 text-[11px] text-foreground"
+									>
+										<Check
+											className="size-3.5 shrink-0 text-success"
+											aria-hidden
+										/>
+										<span className="min-w-0 flex-1">
+											{LABEL[selectedProvider]} is authorized and ready for new
+											cloud chats.
+										</span>
+									</div>
+								) : null}
+								{operation?.state === "connected" ? null : selectedProvider ===
+									"codex" ? (
 									<CodexDeviceLoginInstructions />
 								) : (
 									<div>
@@ -578,7 +584,8 @@ export function CloudWorkspaceAuth() {
 										</p>
 									</div>
 								)}
-								{operation?.verificationCode === undefined ? null : (
+								{operation?.state === "connected" ||
+								operation?.verificationCode === undefined ? null : (
 									<div className="flex h-7 items-center gap-2 rounded-md bg-muted/60 px-2">
 										<code className="min-w-0 flex-1 select-all font-semibold text-xs tracking-[0.14em]">
 											{operation.verificationCode}
@@ -596,8 +603,9 @@ export function CloudWorkspaceAuth() {
 										Requesting a one-time code from {LABEL[selectedProvider]}…
 									</div>
 								) : null}
-								<div className="flex gap-2">
-									{operation?.verificationUrl === undefined ||
+								<div className="flex justify-end gap-2">
+									{operation?.state === "connected" ||
+									operation?.verificationUrl === undefined ||
 									operation.verificationCode === undefined ? null : (
 										<Button
 											className={`flex-1 ${COMPACT_AUTH_ACTION}`}
@@ -610,7 +618,7 @@ export function CloudWorkspaceAuth() {
 										</Button>
 									)}
 									<Button
-										className={`flex-1 ${COMPACT_AUTH_ACTION}`}
+										className={`${operation?.state === "connected" ? "" : "flex-1"} ${COMPACT_AUTH_ACTION}`}
 										variant={
 											operation?.verificationUrl === undefined
 												? "default"
@@ -621,7 +629,7 @@ export function CloudWorkspaceAuth() {
 										onClick={() => void startLogin()}
 									>
 										{operation?.state === "connected"
-											? "Authorized"
+											? "Reauthorize"
 											: "Start device login"}
 									</Button>
 								</div>

@@ -24,6 +24,7 @@ import { ChevronDown } from "lucide-react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -78,6 +79,9 @@ interface ModelPickerEntry {
 
 type Scope = ProviderId | "all";
 
+export const compactModelLabel = (label: string): string =>
+	label.replace(/^gpt[-\s]*/i, "").trim();
+
 const RETIRED_KIRO_MODEL_IDS = new Set([
 	"claude-opus-4.8",
 	"claude-opus-4.7",
@@ -100,17 +104,26 @@ type ModelPickerProps =
 			runtimeMode: RuntimeMode;
 			providerId: ProviderId;
 			currentModel: string;
+			composer?: boolean;
+			triggerDetail?: string;
+			optionsPanel?: ReactNode;
 			triggerClassName?: string;
 			onOpenChange?: (open: boolean) => void;
 	  }
 	| {
 			mode: "default";
+			composer?: boolean;
 			triggerClassName?: string;
 			onOpenChange?: (open: boolean) => void;
 	  };
 
 export function ModelPicker(props: ModelPickerProps) {
 	const isDefault = props.mode === "default";
+	const composer = props.composer === true;
+	const triggerDetail =
+		props.mode === "session" ? props.triggerDetail : undefined;
+	const optionsPanel =
+		props.mode === "session" ? props.optionsPanel : undefined;
 	const sessionId = props.mode === "session" ? props.sessionId : null;
 	const timeline = useOptionalRendererSessionTimeline(
 		sessionId,
@@ -459,6 +472,9 @@ export function ModelPicker(props: ModelPickerProps) {
 	const currentLabel =
 		modelsForProvider(providerId).find((m) => m.id === currentModel)?.label ??
 		currentModel;
+	const triggerLabel = composer
+		? compactModelLabel(currentLabel)
+		: currentLabel;
 
 	const showEmpty = flatMatches.length === 0 && modelGroups.length === 0;
 
@@ -514,7 +530,9 @@ export function ModelPicker(props: ModelPickerProps) {
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger
 				className={cn(
-					"flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs text-foreground hover:bg-muted/60 data-[popup-open]:bg-muted/60",
+					composer
+						? "flex h-7 w-40 max-w-[40vw] items-center gap-1.5 rounded-full bg-muted/65 px-2.5 text-[11px] font-medium text-foreground hover:bg-muted data-[popup-open]:bg-muted"
+						: "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs text-foreground hover:bg-muted/60 data-[popup-open]:bg-muted/60",
 					props.triggerClassName,
 				)}
 				aria-label="Change model"
@@ -524,9 +542,16 @@ export function ModelPicker(props: ModelPickerProps) {
 						: "Change model — applies to next message"
 				}
 			>
-				<ProviderIcon providerId={providerId} className="size-3" />
-				<span>{currentLabel}</span>
-				<ChevronDown className="size-3 opacity-60" />
+				<ProviderIcon providerId={providerId} className="size-3 shrink-0" />
+				<span className="min-w-0 flex-1 truncate text-left">
+					{triggerLabel}
+				</span>
+				{triggerDetail !== undefined ? (
+					<span className="shrink-0 capitalize text-muted-foreground">
+						{triggerDetail}
+					</span>
+				) : null}
+				<ChevronDown className="size-3 shrink-0 opacity-60" />
 			</PopoverTrigger>
 			<PopoverPrimitive.Portal>
 				<PopoverPrimitive.Positioner
@@ -538,7 +563,7 @@ export function ModelPicker(props: ModelPickerProps) {
 					<PopoverPrimitive.Popup
 						ref={popupRef}
 						className={cn(
-							"flex max-h-[540px] w-[430px] overflow-hidden outline-none",
+							"flex max-h-[480px] w-[380px] overflow-hidden outline-none",
 							overlaySurface,
 						)}
 					>
@@ -663,6 +688,11 @@ export function ModelPicker(props: ModelPickerProps) {
 									)
 								)}
 							</div>
+							{optionsPanel !== undefined ? (
+								<div className="shrink-0 border-t border-border/50 bg-muted/15 p-2.5">
+									{optionsPanel}
+								</div>
+							) : null}
 						</div>
 					</PopoverPrimitive.Popup>
 				</PopoverPrimitive.Positioner>
@@ -687,7 +717,7 @@ function SearchField({
 			? `Search ${totalCount} models`
 			: `in ${PROVIDER_CHIP_LABEL[scope]}…`;
 	return (
-		<div className="flex min-h-10 items-center gap-2 rounded-lg border bg-background px-3 focus-within:border-foreground/60 focus-within:ring-2 focus-within:ring-primary/30">
+		<div className="flex h-8 items-center gap-2 rounded-md border bg-background px-2.5 focus-within:border-foreground/60 focus-within:ring-2 focus-within:ring-primary/30">
 			<HugeiconsIcon
 				icon={Search01Icon}
 				className="size-3.5 text-muted-foreground"
@@ -697,8 +727,7 @@ function SearchField({
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
 				placeholder={placeholder}
-				autoFocus
-				className="min-w-0 flex-1 bg-transparent text-foreground text-sm outline-none placeholder:text-muted-foreground/70"
+				className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground/70"
 			/>
 		</div>
 	);
@@ -828,6 +857,7 @@ function ModelRow({
 		onSetDefault(entry.providerId, entry.modelId);
 	};
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: the row contains a separate nested star action, which cannot live inside a button.
 		<div
 			role="button"
 			tabIndex={0}
@@ -836,7 +866,7 @@ function ModelRow({
 			aria-current={isActive || undefined}
 			title={opensNewTab ? "Open in new tab" : undefined}
 			className={cn(
-				"group relative flex min-h-10 w-full items-center gap-2 rounded-md px-2.5 text-left text-sm transition-colors",
+				"group relative flex min-h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs transition-colors",
 				dense ? "py-1" : "py-1.5",
 				isActive
 					? "bg-primary/12 text-foreground ring-1 ring-primary/20"

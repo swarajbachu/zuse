@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { type CloudChatSummary, EnvironmentId } from "@zuse/contracts";
-import { CloudIcon, RefreshIcon } from "@zuse/icons/solid-rounded";
+import { RefreshIcon } from "@zuse/icons/solid-rounded";
 import { useAuth } from "../hooks/use-auth.ts";
 import { deriveCloudChatActivity } from "../lib/cloud-chat-activity.ts";
 import {
@@ -17,6 +17,7 @@ import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus
 import { getRendererClientBus } from "../lib/session-timeline-client-bus.ts";
 import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { useChatsStore } from "../store/chats.ts";
+import { DitherCloudIcon } from "./dither-cloud-icon.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner.tsx";
 
@@ -135,10 +136,7 @@ export function CloudConnectionNotice() {
 			{busy ? (
 				<Spinner className="size-4 shrink-0 text-muted-foreground motion-reduce:animate-none" />
 			) : (
-				<HugeiconsIcon
-					icon={CloudIcon}
-					className="size-4 shrink-0 text-muted-foreground"
-				/>
+				<DitherCloudIcon className="size-4 text-muted-foreground" />
 			)}
 			<div className="min-w-0 flex-1">
 				{busy ? (

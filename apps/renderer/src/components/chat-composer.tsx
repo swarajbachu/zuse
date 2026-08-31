@@ -13,6 +13,7 @@ import {
 	type PermissionRequest,
 	type ProviderId,
 	type QueuedMessage,
+	type RuntimeMode,
 	type SelectOptionDescriptor,
 	type Session,
 	type SessionId,
@@ -45,17 +46,15 @@ import {
 	DialogPopup,
 	DialogTitle,
 } from "~/components/ui/dialog";
-import { Frame, FrameFooter } from "~/components/ui/frame";
 import { Input } from "~/components/ui/input";
 import {
 	Menu,
-	MenuGroup,
-	MenuGroupLabel,
 	MenuPopup,
 	MenuRadioGroup,
 	MenuRadioItem,
 	MenuTrigger,
 } from "~/components/ui/menu";
+import { Slider } from "~/components/ui/slider";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast.tsx";
@@ -158,7 +157,11 @@ import {
 import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { QueueTray } from "./composer/queue-tray.tsx";
 import { SlashCommandPopover } from "./composer/slash-command-popover.tsx";
-import { TrayPill, trayPillActionClass } from "./composer/tray-pill.tsx";
+import {
+	composerTraySurfaceClass,
+	TrayPill,
+	trayPillActionClass,
+} from "./composer/tray-pill.tsx";
 
 const EMPTY_PERMISSION_REQUESTS: Readonly<Record<string, PermissionRequest>> =
 	{};
@@ -192,8 +195,9 @@ import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { PermissionCard } from "./permission-card.tsx";
 import { QuestionCard } from "./question-card.tsx";
+import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
 
-const MIN_HEIGHT = 56;
+const MIN_HEIGHT = 44;
 const MAX_HEIGHT = 240;
 const MAX_ATTACHMENTS_PER_TURN = 20;
 
@@ -1255,12 +1259,14 @@ export function ChatComposer({
 							worktreeId={session.worktreeId}
 						/>
 					) : null}
-					<Frame className="composer-glass bg-transparent">
-						{headerSlot !== undefined ? (
-							<div className="mb-1 flex items-center px-1">{headerSlot}</div>
-						) : null}
+					<div className="relative">
 						{!isDraft ? (
-							<div className="mb-1 overflow-hidden rounded-md border border-border/50 bg-muted/30 empty:hidden empty:mb-0">
+							<div
+								className={cn(
+									composerTraySurfaceClass,
+									"relative z-10 rounded-b-none rounded-t-[1.2rem] empty:hidden",
+								)}
+							>
 								<PlanApprovalTray
 									environmentId={qualifiedEnvironmentId}
 									sessionId={sessionId}
@@ -1332,16 +1338,18 @@ export function ChatComposer({
 								</button>
 							</div>
 						) : null}
+						{headerSlot !== undefined ? (
+							<div className="composer-attached-toolbar relative z-10 mx-auto flex min-h-8 w-14/15 items-center overflow-x-auto rounded-b-none rounded-t-[1.2rem] px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+								{headerSlot}
+							</div>
+						) : null}
 						<Card
 							className={cn(
-								// Light: opaque white input on the gray frame for clear
-								// separation. Dark: transparent so the single glass layer
-								// shows through (a second tint would re-opacify it).
-								"min-h-30 rounded-lg bg-card transition-colors dark:bg-transparent",
+								"composer-glass rounded-[1.2rem] border-border/70 bg-transparent shadow-overlay-sm transition-colors before:rounded-[calc(1.2rem-1px)] dark:border-white/8",
 								goalSendMode
-									? "border-2 border-dashed border-amber-300/60 dark:border-amber-300/45"
+									? "border border-amber-300/55 dark:border-amber-300/40"
 									: inPlanMode
-										? "border-2 border-dashed border-rose-300/60 dark:border-rose-300/40"
+										? "border border-rose-300/55 dark:border-rose-300/35"
 										: inUltracodeMode
 											? "border-2 border-transparent [background:linear-gradient(var(--color-card),var(--color-card))_padding-box,linear-gradient(90deg,#fb7185,#f97316,#facc15,#22c55e,#06b6d4,#8b5cf6,#d946ef)_border-box]"
 											: "border-border/50",
@@ -1367,7 +1375,7 @@ export function ChatComposer({
 								hidden
 								onChange={onPickFiles}
 							/>
-							<CardPanel className="relative flex items-stretch gap-2 px-3 py-2">
+							<CardPanel className="relative flex items-stretch gap-2 px-3 pb-2 pt-3">
 								{trigger !== null && editorViewRef.current !== null ? (
 									trigger.kind === "slash" ? (
 										<SlashCommandPopover
@@ -1405,202 +1413,249 @@ export function ChatComposer({
 									worktreeId={session.worktreeId}
 								/>
 							</CardPanel>
-						</Card>
-						{/* Single action row: model + reasoning sit on the left, send /
-                runtime / timer sit on the right — so the user's eye lands on
-                the same line for "what model is this" and "send." Sub-agent
-                config moved to settings; it doesn't belong in the per-turn
-                strip. */}
-						<FrameFooter className="flex items-center justify-between gap-2 px-2 py-1.5">
-							<div className="flex items-center gap-1.5">
-								<Tooltip>
-									<TooltipTrigger
-										render={
-											<button
-												type="button"
-												onClick={() => fileInputRef.current?.click()}
-												aria-label="Attach files"
-												className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-											>
-												<HugeiconsIcon
-													icon={AttachmentIcon}
-													className="size-3.5"
-												/>
-											</button>
-										}
-									/>
-									<TooltipPopup>
-										Attach files (paste / drop also work)
-									</TooltipPopup>
-								</Tooltip>
-								<ModelPicker
-									environmentId={qualifiedEnvironmentId}
-									mode="session"
-									sessionId={sessionId}
-									chatId={session.chatId}
-									runtimeMode={session.runtimeMode}
-									providerId={session.providerId}
-									currentModel={session.model}
-									onOpenChange={setModelPickerOpen}
-								/>
-								<ReasoningPicker
-									environmentId={qualifiedEnvironmentId}
-									sessionId={sessionId}
-									providerId={session.providerId}
-									model={session.model}
-									onLevelChange={setReasoningLevel}
-								/>
-								{findModelDescriptor(
-									session.providerId,
-									session.model,
-								)?.optionDescriptors?.some(
-									(d): d is BooleanOptionDescriptor =>
-										d.kind === "boolean" && d.id === "fastMode",
-								) === true &&
-									// For Codex, the fast tier also requires a new-enough CLI
-									// (the `fastMode` capability). Claude declares its own
-									// `fastMode` descriptor and isn't version-gated, so only
-									// filter when the provider gates it.
-									(session.providerId !== "codex" ||
-										capabilities.includes("fastMode")) && (
-										<FastModeToggle
-											environmentId={qualifiedEnvironmentId}
-											sessionId={sessionId}
-										/>
-									)}
-								{goalCapable ? (
-									<GoalModeToggle
-										active={goalSendMode}
-										hasGoal={goal !== null}
-										onClick={() => setGoalSendMode((v) => !v)}
-									/>
-								) : null}
-								{(findModelDescriptor(session.providerId, session.model)
-									?.supportsPlanMode ??
-									true) && (
-									<PlanModeToggle
-										sessionId={sessionId}
-										current={session.permissionMode}
-									/>
-								)}
-								<McpPopover
-									projectId={session.projectId}
-									providerId={session.providerId}
-								/>
-							</div>
-							<div className="flex items-center gap-2">
-								{!isDraft ? (
-									<ContextStatusPopover
-										environmentId={qualifiedEnvironmentId}
-										session={session}
-									/>
-								) : null}
-								{!isDraft ? (
-									<CostChip
-										environmentId={qualifiedEnvironmentId}
-										sessionId={sessionId}
-									/>
-								) : null}
-								{!isDraft ? (
-									<SessionTimer
-										environmentId={qualifiedEnvironmentId}
-										sessionId={sessionId}
-										inFlight={showActiveTimer}
-									/>
-								) : null}
-								{sendPlanFeedbackNow && hasText ? (
-									<Button
-										variant="default"
-										size="sm"
-										onClick={() => void submit()}
-										disabled={!canSend}
-										aria-label="Request changes to plan"
-									>
-										Request changes
-									</Button>
-								) : inFlight ? (
-									<div className="flex items-center gap-1.5">
-										{canSend ? (
-											<Button
-												variant="default"
-												size="sm"
-												onClick={() => void submit()}
-												disabled={!canSend}
-												loading={uploadingAttachmentCount > 0}
-												aria-label="Add message to queue"
-											>
-												Queue
-											</Button>
-										) : null}
-										<Tooltip>
-											<TooltipTrigger
-												render={
-													<Button
-														variant="outline"
-														size="icon-sm"
-														onClick={() => void requestInterrupt()}
-														disabled={interrupting}
-														loading={interrupting}
-														aria-label={
-															interrupting
-																? "Stopping current turn"
-																: "Stop current turn"
-														}
-													>
-														<HugeiconsIcon
-															icon={SquareIcon}
-															className="size-3.5"
-														/>
-													</Button>
-												}
-											/>
-											<TooltipPopup>
-												{interrupting ? "Stopping…" : "Stop current turn"}
-											</TooltipPopup>
-										</Tooltip>
-									</div>
-								) : (
+							{/* One bottom action row. Access and tools lead; the combined
+							    model/reasoning control stays beside the send action. */}
+							<div className="relative z-10 flex items-center justify-between gap-2 px-2.5 pb-2 pt-1">
+								<div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 									<Tooltip>
 										<TooltipTrigger
 											render={
-												<DitherButton
-													variant="gradient"
-													className="size-6 border border-primary/40 text-white"
-													onClick={() => void submit()}
-													disabled={!canSend || uploadingAttachmentCount > 0}
-													aria-disabled={
-														uploadingAttachmentCount > 0 || undefined
-													}
-													aria-label={
-														uploadingAttachmentCount > 0
-															? "Uploading image"
-															: "Send"
-													}
+												<button
+													type="button"
+													onClick={() => fileInputRef.current?.click()}
+													aria-label="Attach files"
+													className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
 												>
-													{uploadingAttachmentCount > 0 ? (
-														<Spinner className="size-3.5" />
-													) : (
-														<HugeiconsIcon
-															icon={SentIcon}
-															className="size-3.5"
-														/>
-													)}
-												</DitherButton>
+													<HugeiconsIcon
+														icon={AttachmentIcon}
+														className="size-3.5"
+													/>
+												</button>
 											}
 										/>
 										<TooltipPopup>
-											{uploadingAttachmentCount > 0
-												? "Uploading image…"
-												: "Send (Enter)"}
+											Attach files (paste / drop also work)
 										</TooltipPopup>
 									</Tooltip>
-								)}
+									<RuntimeAccessPicker
+										sessionId={sessionId}
+										providerId={session.providerId}
+										current={session.runtimeMode}
+									/>
+									{goalCapable ? (
+										<GoalModeToggle
+											active={goalSendMode}
+											hasGoal={goal !== null}
+											onClick={() => setGoalSendMode((v) => !v)}
+										/>
+									) : null}
+									{(findModelDescriptor(session.providerId, session.model)
+										?.supportsPlanMode ??
+										true) && (
+										<PlanModeToggle
+											sessionId={sessionId}
+											current={session.permissionMode}
+										/>
+									)}
+									<McpPopover
+										projectId={session.projectId}
+										providerId={session.providerId}
+									/>
+								</div>
+								<div className="flex shrink-0 items-center gap-2">
+									<ComposerModelPicker
+										environmentId={qualifiedEnvironmentId}
+										session={session}
+										fastModeAvailable={
+											findModelDescriptor(
+												session.providerId,
+												session.model,
+											)?.optionDescriptors?.some(
+												(d): d is BooleanOptionDescriptor =>
+													d.kind === "boolean" && d.id === "fastMode",
+											) === true &&
+											(session.providerId !== "codex" ||
+												capabilities.includes("fastMode"))
+										}
+										onLevelChange={setReasoningLevel}
+										onOpenChange={setModelPickerOpen}
+									/>
+									{!isDraft ? (
+										<ContextStatusPopover
+											environmentId={qualifiedEnvironmentId}
+											session={session}
+										/>
+									) : null}
+									{!isDraft ? (
+										<CostChip
+											environmentId={qualifiedEnvironmentId}
+											sessionId={sessionId}
+										/>
+									) : null}
+									{!isDraft ? (
+										<SessionTimer
+											environmentId={qualifiedEnvironmentId}
+											sessionId={sessionId}
+											inFlight={showActiveTimer}
+										/>
+									) : null}
+									{sendPlanFeedbackNow && hasText ? (
+										<Button
+											variant="default"
+											size="sm"
+											onClick={() => void submit()}
+											disabled={!canSend}
+											aria-label="Request changes to plan"
+										>
+											Request changes
+										</Button>
+									) : inFlight ? (
+										<div className="flex items-center gap-1.5">
+											{canSend ? (
+												<Button
+													variant="default"
+													size="sm"
+													onClick={() => void submit()}
+													disabled={!canSend}
+													loading={uploadingAttachmentCount > 0}
+													aria-label="Add message to queue"
+												>
+													Queue
+												</Button>
+											) : null}
+											<Tooltip>
+												<TooltipTrigger
+													render={
+														<Button
+															variant="outline"
+															size="icon-sm"
+															onClick={() => void requestInterrupt()}
+															disabled={interrupting}
+															loading={interrupting}
+															aria-label={
+																interrupting
+																	? "Stopping current turn"
+																	: "Stop current turn"
+															}
+														>
+															<HugeiconsIcon
+																icon={SquareIcon}
+																className="size-3.5"
+															/>
+														</Button>
+													}
+												/>
+												<TooltipPopup>
+													{interrupting ? "Stopping…" : "Stop current turn"}
+												</TooltipPopup>
+											</Tooltip>
+										</div>
+									) : (
+										<Tooltip>
+											<TooltipTrigger
+												render={
+													<DitherButton
+														variant="gradient"
+														className="size-6 border border-primary/40 text-white"
+														onClick={() => void submit()}
+														disabled={!canSend || uploadingAttachmentCount > 0}
+														aria-disabled={
+															uploadingAttachmentCount > 0 || undefined
+														}
+														aria-label={
+															uploadingAttachmentCount > 0
+																? "Uploading image"
+																: "Send"
+														}
+													>
+														{uploadingAttachmentCount > 0 ? (
+															<Spinner className="size-3.5" />
+														) : (
+															<HugeiconsIcon
+																icon={SentIcon}
+																className="size-3.5"
+															/>
+														)}
+													</DitherButton>
+												}
+											/>
+											<TooltipPopup>
+												{uploadingAttachmentCount > 0
+													? "Uploading image…"
+													: "Send (Enter)"}
+											</TooltipPopup>
+										</Tooltip>
+									)}
+								</div>
 							</div>
-						</FrameFooter>
-					</Frame>
+						</Card>
+					</div>
 				</div>
 			</div>
 		</TooltipProvider>
+	);
+}
+
+function RuntimeAccessPicker({
+	sessionId,
+	providerId,
+	current,
+}: {
+	sessionId: SessionId;
+	providerId: ProviderId;
+	current: RuntimeMode;
+}) {
+	const setRuntimeMode = useSessionsStore((state) => state.setRuntimeMode);
+	const meta = MODE_META[current];
+	const fixedSandbox = providerId === "cursor";
+	const highlighted = current === "full-access";
+
+	return (
+		<Menu>
+			<MenuTrigger
+				disabled={fixedSandbox}
+				aria-label={
+					fixedSandbox ? "Cursor uses fixed sandbox access" : "Agent access"
+				}
+				className={cn(
+					"flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors hover:bg-muted/60 data-[popup-open]:bg-muted/70 disabled:cursor-default disabled:opacity-60",
+					highlighted
+						? "text-warning"
+						: "text-muted-foreground hover:text-foreground",
+				)}
+			>
+				<HugeiconsIcon icon={meta.Icon} className="size-3.5" />
+				<span>{fixedSandbox ? "Sandboxed" : meta.label}</span>
+				{fixedSandbox ? null : <ChevronDown className="size-3 opacity-60" />}
+			</MenuTrigger>
+			<MenuPopup side="top" align="start" className="w-64 p-1">
+				<div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+					Agent access
+				</div>
+				<MenuRadioGroup
+					value={current}
+					onValueChange={(value) =>
+						void setRuntimeMode(sessionId, value as RuntimeMode)
+					}
+				>
+					{MODES_ORDER.map((mode) => {
+						const option = MODE_META[mode];
+						return (
+							<MenuRadioItem
+								key={mode}
+								value={mode}
+								className="h-8 px-2 text-xs"
+							>
+								<span className="flex min-w-0 items-center gap-2 font-medium text-foreground">
+									<HugeiconsIcon icon={option.Icon} className="size-3.5" />
+									{option.label}
+								</span>
+							</MenuRadioItem>
+						);
+					})}
+				</MenuRadioGroup>
+			</MenuPopup>
+		</Menu>
 	);
 }
 
@@ -1611,9 +1666,11 @@ export function ChatComposer({
 function FastModeToggle({
 	sessionId,
 	environmentId,
+	compact = false,
 }: {
 	sessionId: SessionId;
 	environmentId: EnvironmentId;
+	compact?: boolean;
 }) {
 	const storageKey = sessionModelOptionStorageKey(
 		{ environmentId, sessionId },
@@ -1660,24 +1717,33 @@ function FastModeToggle({
 					<button
 						type="button"
 						onClick={onClick}
-						aria-label={
-							enabled ? "Disable Claude fast mode" : "Enable Claude fast mode"
-						}
+						aria-label={enabled ? "Disable fast mode" : "Enable fast mode"}
 						aria-pressed={enabled}
 						className={cn(
-							"flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors",
+							compact
+								? "flex size-7 items-center justify-center rounded-md transition-colors"
+								: "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors",
 							enabled
 								? "bg-amber-400/20 text-amber-700 hover:bg-amber-400/30 dark:bg-amber-300/15 dark:text-amber-200 dark:hover:bg-amber-300/25"
 								: "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
 						)}
 					>
 						<HugeiconsIcon icon={FlashIcon} className="size-3.5" />
-						{enabled ? <span>Fast</span> : null}
+						{enabled && !compact ? <span>Fast</span> : null}
 					</button>
 				}
 			/>
-			<TooltipPopup>
-				{enabled ? "Disable Claude fast mode" : "Enable Claude fast mode"}
+			<TooltipPopup className={compact ? "space-y-0.5" : undefined}>
+				{compact ? (
+					<>
+						<div>1.5× speed</div>
+						<div className="text-muted-foreground">More usage</div>
+					</>
+				) : enabled ? (
+					"Disable Claude fast mode"
+				) : (
+					"Enable Claude fast mode"
+				)}
 			</TooltipPopup>
 		</Tooltip>
 	);
@@ -1987,19 +2053,22 @@ function GoalEditorDialog({
  * send time and forwards it as `modelOptions.reasoning` — which the
  * opencode driver in turn translates into the prompt body's `model.variant`.
  */
-function ReasoningPicker({
+function ComposerModelPicker({
 	environmentId,
-	sessionId,
-	providerId,
-	model,
+	session,
+	fastModeAvailable,
 	onLevelChange,
+	onOpenChange,
 }: {
 	environmentId: EnvironmentId;
-	sessionId: SessionId;
-	providerId: ProviderId;
-	model: string;
+	session: Session;
+	fastModeAvailable: boolean;
 	onLevelChange?: (level: string | null) => void;
+	onOpenChange?: (open: boolean) => void;
 }) {
+	const sessionId = session.id;
+	const providerId = session.providerId;
+	const model = session.model;
 	const opencodeInventory = useOpencodeInventory((s) => s.inventory);
 
 	// For opencode, the variant list is per-model and lives on the live
@@ -2086,7 +2155,18 @@ function ReasoningPicker({
 		onLevelChange?.(level);
 	}, [defaultId, level, onLevelChange, resolved, storageKey]);
 
-	if (resolved === null) return null;
+	const modelPickerProps = {
+		composer: true,
+		environmentId,
+		mode: "session" as const,
+		sessionId,
+		chatId: session.chatId,
+		runtimeMode: session.runtimeMode,
+		providerId,
+		currentModel: model,
+		onOpenChange,
+	};
+	if (resolved === null) return <ModelPicker {...modelPickerProps} />;
 
 	const options = resolved.options;
 
@@ -2099,48 +2179,83 @@ function ReasoningPicker({
 	};
 
 	const activeLabel = options.find((o) => o.id === level)?.label ?? level;
-	const isUltracode = level === "ultracode";
+	const activeIndex = Math.max(
+		0,
+		options.findIndex((option) => option.id === level),
+	);
 
 	return (
-		<Menu>
-			<MenuTrigger
-				className={cn(
-					"flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors data-[popup-open]:bg-muted/60",
-					isUltracode
-						? "bg-gradient-to-r from-rose-400/90 via-amber-300/90 via-emerald-400/90 via-sky-400/90 to-violet-400/90 text-white shadow-sm/10 hover:opacity-95"
-						: "text-foreground hover:bg-muted/60",
-				)}
-				aria-label={resolved.label}
-				title={
-					isUltracode
-						? "Ultracode — max reasoning + automatic workflow orchestration."
-						: `${resolved.label} for the next message`
-				}
-			>
-				<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3" />
-				<span>{activeLabel}</span>
-				{isUltracode && (
-					<HugeiconsIcon
-						icon={InformationCircleIcon}
-						className="size-3 opacity-90"
-						aria-hidden
+		<ModelPicker
+			{...modelPickerProps}
+			triggerDetail={activeLabel}
+			onOpenChange={onOpenChange}
+			optionsPanel={
+				<div className="space-y-2">
+					<div className="flex items-center justify-between gap-2">
+						<span className="text-xs font-medium text-muted-foreground">
+							Advanced
+						</span>
+						{fastModeAvailable ? (
+							<FastModeToggle
+								compact
+								environmentId={environmentId}
+								sessionId={sessionId}
+							/>
+						) : null}
+					</div>
+					<ReasoningSlider
+						label={resolved.label}
+						options={options}
+						activeIndex={activeIndex}
+						onChange={(index) => {
+							const option = options[index];
+							if (option !== undefined) onChange(option.id);
+						}}
 					/>
-				)}
-				<ChevronDown className="size-3 opacity-60" />
-			</MenuTrigger>
-			<MenuPopup side="top" align="start" className="w-44">
-				<MenuGroup>
-					<MenuGroupLabel>{resolved.label}</MenuGroupLabel>
-					<MenuRadioGroup value={level} onValueChange={onChange}>
-						{options.map((o) => (
-							<MenuRadioItem key={o.id} value={o.id}>
-								{o.label}
-							</MenuRadioItem>
-						))}
-					</MenuRadioGroup>
-				</MenuGroup>
-			</MenuPopup>
-		</Menu>
+				</div>
+			}
+		/>
+	);
+}
+
+function ReasoningSlider({
+	label,
+	options,
+	activeIndex,
+	onChange,
+}: {
+	readonly label: string;
+	readonly options: ReadonlyArray<{ id: string; label: string }>;
+	readonly activeIndex: number;
+	readonly onChange: (index: number) => void;
+}) {
+	const lastIndex = Math.max(0, options.length - 1);
+	const activeLabel = options[activeIndex]?.label ?? "";
+
+	return (
+		<div className="relative py-1">
+			<Slider
+				min={0}
+				max={lastIndex}
+				step={1}
+				value={activeIndex}
+				onValueChange={(value) =>
+					onChange(Array.isArray(value) ? (value[0] ?? 0) : value)
+				}
+				aria-label={label}
+				aria-valuetext={activeLabel}
+				className="relative z-10 [&_[data-slot=slider-control]]:min-w-0 [&_[data-slot=slider-track]]:h-5 [&_[data-slot=slider-indicator]]:bg-[hsl(83_100%_50%)] [&_[data-slot=slider-thumb]]:!size-6 [&_[data-slot=slider-thumb]]:border-[hsl(83_100%_50%)] [&_[data-slot=slider-thumb]]:shadow-[0_0_0_3px_hsl(83_100%_50%/0.12)]"
+			/>
+			<div className="pointer-events-none absolute inset-x-2 top-1/2 z-20 -translate-y-1/2">
+				{options.slice(1, -1).map((option, index) => (
+					<span
+						key={option.id}
+						className="absolute size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-muted-foreground/65"
+						style={{ left: `${((index + 1) / lastIndex) * 100}%` }}
+					/>
+				))}
+			</div>
+		</div>
 	);
 }
 

@@ -23,7 +23,7 @@ export function Textarea({
 			className={
 				cn(
 					!unstyled &&
-						"relative inline-flex w-full rounded-md border border-input bg-background text-xs text-foreground shadow-none ring-ring/24 transition-shadow before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-md)-1px)] has-focus-visible:has-aria-invalid:border-destructive/64 has-focus-visible:has-aria-invalid:ring-destructive/16 has-aria-invalid:border-destructive/36 has-focus-visible:border-ring has-disabled:opacity-64 has-focus-visible:ring-2 dark:bg-input/32 dark:has-aria-invalid:ring-destructive/24",
+						"relative inline-flex w-full rounded-md border border-input bg-card text-xs text-foreground shadow-xs/5 ring-ring/24 transition-[border-color,box-shadow] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-md)-1px)] has-focus-visible:has-aria-invalid:border-destructive/64 has-focus-visible:has-aria-invalid:ring-destructive/16 has-aria-invalid:border-destructive/36 has-focus-visible:border-ring has-disabled:cursor-not-allowed has-disabled:opacity-64 has-focus-visible:ring-2 dark:bg-card dark:has-aria-invalid:ring-destructive/24",
 					className,
 				) || undefined
 			}

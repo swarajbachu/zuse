@@ -490,7 +490,7 @@ export function CreateFromMenu({
 		>
 			<PopoverPrimitive.Trigger
 				className={cn(
-					"flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-[11px] text-foreground transition-colors",
+					"flex h-7 items-center gap-1.5 rounded-full border border-transparent bg-transparent px-2.5 text-[11px] text-foreground transition-colors",
 					"hover:bg-accent data-[popup-open]:bg-accent",
 					folderId === null && "pointer-events-none opacity-50",
 				)}

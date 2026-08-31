@@ -177,7 +177,7 @@ export function CloudWorkspacePool() {
 			setImageError(
 				imageResult.status === "fulfilled"
 					? null
-					: "The connected API does not provide account images yet. Apply migration 0012 and deploy the current Cloud Workspace backend, then retry.",
+					: "Cloud image status is temporarily unavailable. Refresh in a moment; existing cloud chats are unaffected.",
 			);
 			setError(
 				[providerResult, projectResult, workspaceResult].every(
@@ -373,8 +373,8 @@ export function CloudWorkspacePool() {
 	if (!isSignedIn) {
 		return (
 			<CloudSettingsGroup
-				title="Cloud Workspace · Beta"
-				description="Your saved chats remain available on this device. Sign in again to access cloud compute and billing."
+				title="Cloud access"
+				description="Sign in to manage cloud compute, agent access, and billing."
 				action={
 					<Button
 						size="xs"
@@ -387,8 +387,8 @@ export function CloudWorkspacePool() {
 				}
 			>
 				<CloudSettingsRow
-					title="Sign in to continue"
-					description="Your account session expired. You do not need to sign out first."
+					title="Sign in required"
+					description="Your local chats are safe and remain available on this device."
 				/>
 			</CloudSettingsGroup>
 		);
@@ -420,7 +420,7 @@ export function CloudWorkspacePool() {
 			{error === null ? null : (
 				<div
 					role="alert"
-					className="rounded-md bg-alert-error-bg px-3 py-2 text-[11px] text-destructive-foreground ring-1 ring-inset ring-destructive/10"
+					className="rounded-md bg-alert-error-bg px-3 py-2 text-[11px] text-destructive ring-1 ring-inset ring-destructive/10"
 				>
 					{error}
 				</div>

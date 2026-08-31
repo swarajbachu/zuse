@@ -38,7 +38,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMediaQuery } from "../../hooks/use-media-query.ts";
 import { collectDiagnosticsClientContext } from "../../lib/diagnostics-client-context.ts";
-import { dispatchEnvironmentShellCommand } from "../../lib/environment-shell-client-bus.ts";
 import {
 	flushRendererDiagnostics,
 	getPowerInteractionMeasurements,
@@ -60,6 +59,7 @@ import {
 	parseDiagnosticsPreferences,
 	relatedDiagnosticEvents,
 } from "../../lib/diagnostics-view-model.ts";
+import { dispatchEnvironmentShellCommand } from "../../lib/environment-shell-client-bus.ts";
 import { cn } from "../../lib/utils.ts";
 import { useEnvironmentCatalogStore } from "../../store/environment-catalog.ts";
 import { Area } from "../dither-kit/area.tsx";
@@ -373,7 +373,7 @@ function DiagnosticsFilters({
 					type="search"
 					value={search}
 					onChange={(event) => onSearchChange(event.target.value)}
-					className="h-8 w-full rounded-md border border-border/50 bg-background pl-8 pr-2 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:text-base"
+					className="h-7 w-full rounded-md border border-input bg-card pl-8 pr-2 text-[11px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24 pointer-coarse:text-base"
 					placeholder="Search messages and details"
 					spellCheck={false}
 				/>
@@ -385,7 +385,7 @@ function DiagnosticsFilters({
 					onChange={(event) =>
 						onSeverityChange(event.target.value as DiagnosticsSeverityFilter)
 					}
-					className="h-8 rounded-md border border-border/50 bg-background px-2 text-[10px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:text-base"
+					className="h-7 rounded-md border border-input bg-card px-2 text-[10px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24 pointer-coarse:text-base"
 				>
 					<option value="all">All levels</option>
 					<option value="fatal">Fatal</option>
@@ -400,12 +400,12 @@ function DiagnosticsFilters({
 				<input
 					value={source}
 					onChange={(event) => onSourceChange(event.target.value)}
-					className="h-8 w-full rounded-md border border-border/50 bg-background px-2 text-[10px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:text-base"
+					className="h-7 w-full rounded-md border border-input bg-card px-2 text-[10px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24 pointer-coarse:text-base"
 					placeholder="All sources"
 					spellCheck={false}
 				/>
 			</label>
-			<fieldset className="flex rounded-md border border-border/50 bg-background p-0.5">
+			<fieldset className="relative flex h-7 rounded-md border border-input bg-card p-0.5">
 				<legend className="sr-only">Diagnostics time range</legend>
 				{DIAGNOSTICS_RANGE_OPTIONS.map((option) => (
 					<button
@@ -414,7 +414,7 @@ function DiagnosticsFilters({
 						aria-pressed={rangeMs === option.milliseconds}
 						onClick={() => onRangeChange(option.milliseconds)}
 						className={cn(
-							"h-6 min-w-8 rounded-[5px] px-1.5 font-mono text-[9px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:min-w-11",
+							"h-6 min-w-8 rounded-sm px-1.5 font-mono text-[9px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:after:absolute pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11",
 							rangeMs === option.milliseconds
 								? "bg-muted text-foreground shadow-xs"
 								: "text-muted-foreground hover:text-foreground",
@@ -1351,7 +1351,7 @@ export function DiagnosticsPane() {
 			{error && (
 				<div
 					role="alert"
-					className="flex min-h-10 items-start gap-2 rounded-lg bg-alert-error-bg px-3 py-2 text-[10px] text-destructive-foreground"
+					className="flex min-h-10 items-start gap-2 rounded-lg bg-alert-error-bg px-3 py-2 text-[10px] text-destructive"
 				>
 					<AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
 					<span className="flex-1">{error}</span>

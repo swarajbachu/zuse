@@ -96,7 +96,7 @@ export function ChatCreationPromptBubble({
 }) {
 	if (prompt === null) return null;
 	return (
-		<div className="ml-auto max-w-[78%] rounded-2xl rounded-br-md border border-border/70 bg-muted/70 px-3 py-2 text-sm text-foreground">
+		<div className="ml-auto max-w-[78%] rounded-xl rounded-br-md bg-muted/70 px-3 py-2 text-sm text-foreground">
 			{prompt}
 		</div>
 	);
