@@ -65,6 +65,7 @@ describe("cloud workspace runtime ready status", () => {
 					title: "Public title",
 					agent: "codex",
 					model: "gpt-5",
+					runtimeMode: "full-access",
 					firstMessage: "private prompt",
 				},
 				nextActionAtMs: 1,
@@ -96,6 +97,7 @@ describe("cloud workspace runtime ready status", () => {
 		expect(summary).toMatchObject({
 			workspaceId: "workspace-1",
 			title: "Public title",
+			runtimeMode: "full-access",
 		});
 		expect(summary).not.toHaveProperty("firstMessage");
 		expect(JSON.stringify(summary)).not.toContain("private");

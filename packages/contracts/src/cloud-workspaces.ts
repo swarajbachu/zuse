@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
-import { ProviderId } from "./agent.ts";
+import { DEFAULT_RUNTIME_MODE, ProviderId, RuntimeMode } from "./agent.ts";
 import { AgentSessionId, ChatId } from "./ids.ts";
 import {
 	Message,
@@ -340,6 +340,10 @@ export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
 	providerId: Schema.String,
 	agent: ProviderId,
 	model: Schema.String,
+	runtimeMode: RuntimeMode.pipe(
+		Schema.withConstructorDefault(Effect.succeed(DEFAULT_RUNTIME_MODE)),
+		Schema.withDecodingDefaultType(Effect.succeed(DEFAULT_RUNTIME_MODE)),
+	),
 	state: CloudWorkspaceState,
 	desiredState: CloudWorkspaceDesiredState,
 	runtimeState: CloudWorkspaceRuntimeState,
@@ -467,6 +471,7 @@ export class CloudWorkspaceCreateRequest extends Schema.Class<CloudWorkspaceCrea
 	branch: Schema.optional(Schema.String),
 	agent: Schema.String,
 	model: Schema.String,
+	runtimeMode: Schema.optional(RuntimeMode),
 	secretBindings: Schema.optional(Schema.Array(Schema.String)),
 	permissions: Schema.optional(Schema.Array(Schema.String)),
 	firstMessage: Schema.optional(Schema.String),

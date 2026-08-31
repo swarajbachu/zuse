@@ -806,6 +806,7 @@ export function ChatLanding() {
 						baseRef: `origin/${cloudProject.defaultBranch}`,
 						agent: draft.providerId,
 						model: draft.model,
+						runtimeMode: draft.runtimeMode,
 						firstMessage: input.text,
 						idempotencyKey: crypto.randomUUID(),
 					}),
@@ -820,6 +821,7 @@ export function ChatLanding() {
 					title,
 					agent: draft.providerId,
 					model: draft.model,
+					runtimeMode: draft.runtimeMode,
 				});
 				if (selectedFolderId === null)
 					throw new Error("Select a repository before starting a cloud chat.");

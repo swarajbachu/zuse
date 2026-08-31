@@ -1076,6 +1076,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					title: "Durable cloud launch",
 					agent: "claude",
 					model: "claude-opus-4-8",
+					runtimeMode: "full-access",
 					permissions: [],
 					firstMessage: "finish after the client closes",
 				},
@@ -1109,7 +1110,13 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						SELECT stream_id FROM command_receipts
 						WHERE command_id = ${commandId}
 					`;
-					return { messages, turns, receipts };
+					const sessions = yield* sql<{
+						readonly runtime_mode: string;
+					}>`
+						SELECT runtime_mode FROM sessions
+						WHERE id = ${sessionId}
+					`;
+					return { messages, turns, receipts, sessions };
 				}),
 			);
 
@@ -1123,6 +1130,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				JSON.parse(evidence.turns[0]?.payload_json ?? "null"),
 			).toMatchObject({ turnId });
 			expect(evidence.receipts).toEqual([{ stream_id: sessionId }]);
+			expect(evidence.sessions).toEqual([{ runtime_mode: "full-access" }]);
 		});
 	});
 

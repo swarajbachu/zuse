@@ -300,6 +300,7 @@ describe("cloud workspace bootstrap", () => {
 			title: "Durable launch",
 			agent: "codex",
 			model: "gpt-5",
+			runtimeMode: "full-access" as const,
 			permissions: [],
 			firstMessage: "finish while the laptop is closed",
 		};
@@ -329,6 +330,7 @@ describe("cloud workspace bootstrap", () => {
 				initialTurnId: "turn:workspace-1",
 				initialMessageId: "launch:workspace-1:message",
 				initialPrompt: "finish while the laptop is closed",
+				runtimeMode: "full-access",
 			}),
 		);
 	});

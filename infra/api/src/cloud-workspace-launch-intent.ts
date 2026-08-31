@@ -1,3 +1,4 @@
+import { RuntimeMode } from "@zuse/contracts";
 import { Context, Effect, Redacted, Schema } from "effect";
 import {
 	decryptAesGcmEnvelope,
@@ -12,6 +13,7 @@ export interface CloudWorkspaceLaunchIntent {
 	readonly title: string;
 	readonly agent: string;
 	readonly model: string;
+	readonly runtimeMode?: RuntimeMode;
 	readonly permissions: ReadonlyArray<string>;
 	readonly firstMessage?: string;
 	readonly pendingRename?: string;
@@ -22,6 +24,7 @@ export const makeCloudWorkspaceLaunchIntent = (input: {
 	readonly branch: string;
 	readonly agent: string;
 	readonly model: string;
+	readonly runtimeMode: RuntimeMode;
 	readonly permissions: ReadonlyArray<string>;
 	readonly request: { readonly firstMessage?: string };
 }): CloudWorkspaceLaunchIntent => {
@@ -41,6 +44,7 @@ export const makeCloudWorkspaceLaunchIntent = (input: {
 		title,
 		agent: input.agent,
 		model: input.model,
+		runtimeMode: input.runtimeMode,
 		permissions: input.permissions,
 		...(input.request.firstMessage === undefined
 			? {}
@@ -86,6 +90,7 @@ const Intent = Schema.Struct({
 	title: Schema.String,
 	agent: Schema.String,
 	model: Schema.String,
+	runtimeMode: Schema.optional(RuntimeMode),
 	permissions: Schema.Array(Schema.String),
 	firstMessage: Schema.optional(Schema.String),
 	pendingRename: Schema.optional(Schema.String),

@@ -31,6 +31,7 @@ describe("cloud workspace launch intent encryption", () => {
 				branch: "zuse/workspace-1",
 				agent: "codex",
 				model: "gpt-5",
+				runtimeMode: "full-access",
 				permissions: [],
 				request: {
 					firstMessage: `${"x".repeat(90)}\nprivate second line`,
@@ -42,6 +43,7 @@ describe("cloud workspace launch intent encryption", () => {
 			title: `${"x".repeat(77)}…`,
 			agent: "codex",
 			model: "gpt-5",
+			runtimeMode: "full-access",
 			permissions: [],
 			firstMessage: `${"x".repeat(90)}\nprivate second line`,
 		});
@@ -54,6 +56,7 @@ describe("cloud workspace launch intent encryption", () => {
 			title: "Launch title",
 			agent: "codex",
 			model: "gpt-5",
+			runtimeMode: "full-access" as const,
 			permissions: ["workspace-write"],
 			firstMessage: "private prompt",
 		};

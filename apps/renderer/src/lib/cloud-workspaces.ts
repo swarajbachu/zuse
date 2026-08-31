@@ -308,7 +308,7 @@ export const cloudSessionPlaceholder = (
 		archivedAt: null,
 		cursor: null,
 		resumeStrategy: "none",
-		runtimeMode: "approval-required",
+		runtimeMode: summary.runtimeMode,
 		worktreeId: null,
 		chatId: summary.chatId,
 		forkedFromSessionId: null,
@@ -547,6 +547,7 @@ export const summaryFromLaunch = (input: {
 	readonly title: string;
 	readonly agent: ProviderId;
 	readonly model: string;
+	readonly runtimeMode: CloudChatSummary["runtimeMode"];
 }): CloudChatSummary => ({
 	workspaceId: input.workspace.workspaceId,
 	projectId: input.workspace.projectId,
@@ -559,6 +560,7 @@ export const summaryFromLaunch = (input: {
 	providerId: input.workspace.providerId,
 	agent: input.agent,
 	model: input.model,
+	runtimeMode: input.runtimeMode,
 	state: input.workspace.state,
 	runtimeState: input.workspace.runtimeState,
 	statusCode: input.workspace.statusCode,

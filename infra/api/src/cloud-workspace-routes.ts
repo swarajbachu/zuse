@@ -13,6 +13,8 @@ import {
 	CloudWorkspaceResumeRequest,
 	CloudWorkspaceRuntimeSummary,
 	CloudWorkspaceStartupTimings,
+	DEFAULT_RUNTIME_MODE,
+	RuntimeMode,
 } from "@zuse/contracts";
 import { POKEMON_BRANCH_CATALOG } from "@zuse/pokemon-data/branch-catalog";
 import { allocatePokemonName } from "@zuse/pokemon-data/name-allocator";
@@ -661,6 +663,15 @@ const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 	lastActivityAt: workspace.lastActivityAtMs,
 });
 
+const runtimeModeFromRequestConfig = (
+	requestConfig: Readonly<Record<string, unknown>>,
+) => {
+	const decoded = Schema.decodeUnknownOption(RuntimeMode)(
+		requestConfig.runtimeMode,
+	);
+	return decoded._tag === "Some" ? decoded.value : DEFAULT_RUNTIME_MODE;
+};
+
 export const publicCloudWorkspaceSummary = (
 	workspace: CloudWorkspaceRecord,
 	project: CloudProjectRecord,
@@ -689,6 +700,7 @@ export const publicCloudWorkspaceSummary = (
 		typeof workspace.requestConfig.model === "string"
 			? workspace.requestConfig.model
 			: "",
+	runtimeMode: runtimeModeFromRequestConfig(workspace.requestConfig),
 	state: workspace.state,
 	desiredState: workspace.desiredState,
 	runtimeState: workspace.runtimeState,
@@ -2349,6 +2361,7 @@ export const routeCloudWorkspaceRequest = (
 				branch,
 				agent: body.agent,
 				model: body.model,
+				runtimeMode: body.runtimeMode ?? DEFAULT_RUNTIME_MODE,
 				permissions: body.permissions ?? [],
 				request: body,
 			});
@@ -2382,6 +2395,7 @@ export const routeCloudWorkspaceRequest = (
 					agent: body.agent,
 					authGrantRequired: false,
 					model: body.model,
+					runtimeMode: body.runtimeMode ?? DEFAULT_RUNTIME_MODE,
 					permissions: body.permissions ?? [],
 					repositoryCache: "account-image",
 					startupTimings: { requestedAt: nowMs },
