@@ -329,6 +329,33 @@ const browserSessionStatusApp = (
 		});
 	});
 
+const cliSessionStatusApp = (
+	auth: LanAuthServiceShape,
+	security: BrowserRequestSecurity,
+) =>
+	Effect.gen(function* () {
+		const request = yield* HttpServerRequest.HttpServerRequest;
+		const authRequired = requestRequiresAuthentication(
+			auth.policy,
+			request.headers,
+			security.trustProxy,
+		);
+		const credential = bearerFromRequest(request);
+		const authenticated =
+			!authRequired ||
+			(credential !== null &&
+				(yield* auth
+					.verifyToken(credential)
+					.pipe(Effect.orElseSucceed(() => false))));
+		return yield* jsonWithHeaders(
+			authenticated
+				? { authenticated: true, protocolVersion: WIRE_PROTOCOL_VERSION }
+				: { error: "unauthorized", protocolVersion: WIRE_PROTOCOL_VERSION },
+			authenticated ? 200 : 401,
+			{ "cache-control": "no-store" },
+		);
+	});
+
 const browserSessionExchangeApp = (
 	auth: LanAuthServiceShape,
 	cookieName: string,
@@ -636,6 +663,11 @@ export const wsServerProtocolLayer = (
 				"GET",
 				"/auth/session",
 				browserSessionStatusApp(auth, cookieName, browserSecurity),
+			);
+			yield* router.add(
+				"GET",
+				"/auth/cli-session",
+				cliSessionStatusApp(auth, browserSecurity),
 			);
 			yield* router.add(
 				"POST",

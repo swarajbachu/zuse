@@ -153,6 +153,7 @@ export const runHeadlessServer = (
 	options: ServeOptions = parseServeOptions(["serve"]),
 ): void => {
 	const { port, host, dataDir: userData, policy } = options;
+	const cliHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
 	// A wildcard binding is reachable on the LAN, so advertise the machine's
 	// LAN address; a specific binding advertises exactly what it listens on.
 	const advertisedHost =
@@ -281,6 +282,14 @@ export const runHeadlessServer = (
 				? "cloud-environment"
 				: "control-plane",
 		lanAuth: { policy, advertisedHost, port, pairingBootstrap },
+		...(port === 0
+			? {}
+			: {
+					cliAccess: {
+						path: join(userData, "cli-access.json"),
+						wsUrl: `ws://${cliHost}:${port}/rpc`,
+					},
+				}),
 		apiEnabled: options.apiEnabled !== false,
 		autoApiLink:
 			process.env.ZUSE_SERVE_AUTO_LINK === "1"

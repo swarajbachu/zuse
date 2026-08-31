@@ -262,12 +262,89 @@ const endpoint = async (
 	return url.toString();
 };
 
-const connect = async (args: Args, env: NodeJS.ProcessEnv) => {
-	const layer = wsClientProtocolLayer(await endpoint(args, env));
+const connect = async (connectionEndpoint: string) => {
+	const layer = wsClientProtocolLayer(connectionEndpoint);
 	return makeRpcClientSession(layer, MemoizeRpcs, {
 		protocolVersion: WIRE_PROTOCOL_VERSION,
 		perform: (client, hello) => client["connect.handshake"](hello),
 	});
+};
+
+const socketOpenFailure = async (
+	connectionEndpoint: string,
+	fetcher: typeof fetch = fetch,
+): Promise<CliError> => {
+	const rpcUrl = new URL(connectionEndpoint);
+	const token = rpcUrl.searchParams.get("token");
+	rpcUrl.protocol = rpcUrl.protocol === "wss:" ? "https:" : "http:";
+	rpcUrl.searchParams.delete("token");
+	const headers: Record<string, string> =
+		token === null ? {} : { authorization: `Bearer ${token}` };
+	const updateRequired = (serverVersion: number) =>
+		new CliError(
+			"update_required",
+			`The Zuse CLI wire protocol (${WIRE_PROTOCOL_VERSION}) is incompatible with the server (${serverVersion}). Update zusehq and restart Zuse Serve.`,
+			{ clientVersion: WIRE_PROTOCOL_VERSION, serverVersion },
+		);
+	const protocolVersionFrom = async (
+		response: Response,
+	): Promise<number | null> => {
+		try {
+			const body = (await response.json()) as {
+				readonly expectedVersion?: unknown;
+				readonly protocolVersion?: unknown;
+			};
+			const version = body.expectedVersion ?? body.protocolVersion;
+			return typeof version === "number" && Number.isFinite(version)
+				? version
+				: null;
+		} catch {
+			return null;
+		}
+	};
+	try {
+		const response = await fetcher(rpcUrl, {
+			headers,
+			signal: AbortSignal.timeout(2_000),
+		});
+		if (response.status === 426) {
+			const serverVersion = await protocolVersionFrom(response);
+			if (serverVersion !== null) return updateRequired(serverVersion);
+		}
+		if (response.status === 401) {
+			return new CliError(
+				"unauthorized",
+				"The Zuse RPC credentials were rejected. Restart Zuse Serve to refresh local CLI access, or pass a current --token.",
+			);
+		}
+	} catch {
+		// Older or unavailable servers may not answer the RPC route over plain HTTP.
+	}
+	const diagnosticUrl = new URL(rpcUrl);
+	diagnosticUrl.pathname = "/auth/cli-session";
+	diagnosticUrl.search = "";
+	try {
+		const response = await fetcher(diagnosticUrl, {
+			headers,
+			signal: AbortSignal.timeout(2_000),
+		});
+		const serverVersion = await protocolVersionFrom(response);
+		if (serverVersion !== null && serverVersion !== WIRE_PROTOCOL_VERSION) {
+			return updateRequired(serverVersion);
+		}
+		if (response.status === 401) {
+			return new CliError(
+				"unauthorized",
+				"The Zuse RPC credentials were rejected. Restart Zuse Serve to refresh local CLI access, or pass a current --token.",
+			);
+		}
+	} catch {
+		// A failed diagnostic probe confirms that the selected server is unreachable.
+	}
+	return new CliError(
+		"server_unavailable",
+		"The Zuse RPC server is unavailable at the selected endpoint. Start or restart Zuse Serve, or pass a reachable --ws-url.",
+	);
 };
 const rpc = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
 	Effect.runPromise(effect);
@@ -597,15 +674,13 @@ const execute = async (
 	if (group === "thread") {
 		group = action === "create" ? "chat" : "session";
 	}
+	const connectionEndpoint = await endpoint(args, env);
 	let session: Awaited<ReturnType<typeof connect>>;
 	try {
-		session = await connect(args, env);
+		session = await connect(connectionEndpoint);
 	} catch (cause) {
 		if (cause instanceof Error && cause.message.includes("SocketOpenError"))
-			throw new CliError(
-				"unauthorized",
-				"Could not open the Zuse RPC connection. Pass a connected --ws-url and --token, or target a loopback server running with local authentication.",
-			);
+			throw await socketOpenFailure(connectionEndpoint);
 		throw cause;
 	}
 	try {
@@ -613,7 +688,7 @@ const execute = async (
 		if (group === "computer" && action === "list") {
 			const [current, connected] = await Promise.all([
 				rpc(client["connect.describe"]()),
-				rpc(client["environments.list"]()),
+				rpc(client["environments.list"]()).catch(() => ({ environments: [] })),
 			]);
 			return {
 				current,
@@ -1196,4 +1271,5 @@ export const __testing = {
 	expandInputJson,
 	localCliAccess,
 	endpoint,
+	socketOpenFailure,
 };
