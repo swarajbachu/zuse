@@ -7,6 +7,7 @@ export type CloudConnectionPresentation =
 	| "paused"
 	| "resuming"
 	| "updating"
+	| "detached"
 	| "failed";
 
 export const cloudConnectionPresentation = (
@@ -15,6 +16,15 @@ export const cloudConnectionPresentation = (
 	connection: ConnectionPhase,
 ): CloudConnectionPresentation => {
 	if (activity === "failed") {
+		// The control plane can recover a warm workspace after the retained socket
+		// has exhausted its retry ladder. The compute is still healthy; describe the
+		// client as detached instead of implying that the workspace failed.
+		if (
+			connection === "failed" &&
+			summary.state === "ready" &&
+			summary.runtimeState === "online"
+		)
+			return "detached";
 		// A provider failure also puts the session runtime in `failed`, but the
 		// workspace connection can still be healthy. The transcript owns those
 		// errors (including provider-auth CTAs); this notice is transport-only.

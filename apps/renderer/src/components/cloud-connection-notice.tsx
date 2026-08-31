@@ -14,7 +14,10 @@ import {
 import { cloudTranscriptActivation } from "../lib/cloud-workspace-lifecycle.ts";
 import { ensureCloudWorkspaceAttached } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
-import { getRendererClientBus } from "../lib/session-timeline-client-bus.ts";
+import {
+	getRendererClientBus,
+	retryRendererEnvironmentConnection,
+} from "../lib/session-timeline-client-bus.ts";
 import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
@@ -36,6 +39,10 @@ const copy: Record<
 		title: "Updating cloud runtime",
 		detail: "Zuse will reconnect after the compatible runtime starts.",
 	},
+	detached: {
+		title: "Reconnect needed",
+		detail: "The workspace is still running. Retry the live connection.",
+	},
 	failed: {
 		title: "Connection failed",
 		detail: "Your cached chat is still available.",
@@ -46,11 +53,16 @@ type AttachCloudWorkspace = (
 	summary: CloudChatSummary,
 	activation: "connect" | "wake",
 ) => Promise<void>;
+type RetryRendererConnection = (environmentId: EnvironmentId) => void;
 
-export const retryCloudConnection = (
+export const retryCloudConnection = async (
 	summary: CloudChatSummary,
 	attach: AttachCloudWorkspace = ensureCloudWorkspaceAttached,
-): Promise<void> => attach(summary, "wake");
+	retryConnection: RetryRendererConnection = retryRendererEnvironmentConnection,
+): Promise<void> => {
+	await attach(summary, "wake");
+	retryConnection(EnvironmentId.make(summary.workspaceId));
+};
 
 export function CloudConnectionNotice() {
 	const { signIn, signingIn, isSignedIn, isLoading } = useAuth();
@@ -154,7 +166,8 @@ export function CloudConnectionNotice() {
 			</div>
 			{blockedAuth ||
 			betaCheckUnavailable ||
-			(presentation === "failed" && !inviteRequired) ? (
+			((presentation === "failed" || presentation === "detached") &&
+				!inviteRequired) ? (
 				<button
 					type="button"
 					disabled={signingIn}

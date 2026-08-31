@@ -123,7 +123,17 @@ describe("cloud chat catalog", () => {
 				runtime: "idle",
 			}),
 		).toBe("failed");
-		expect(cloudConnectionPresentation(row, "failed", "failed")).toBe("failed");
+		expect(cloudConnectionPresentation(row, "failed", "failed")).toBe(
+			"detached",
+		);
+		const failedWorkspace = CloudChatSummary.make({
+			...row,
+			state: "failed",
+			runtimeState: "offline",
+		});
+		expect(
+			cloudConnectionPresentation(failedWorkspace, "failed", "failed"),
+		).toBe("failed");
 		expect(
 			deriveCloudChatActivity({
 				summary: row,
