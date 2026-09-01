@@ -29,12 +29,12 @@ function RepositoryAvatar({
 		repository?.ownerAvatarUrl ??
 		`https://github.com/${encodeURIComponent(owner)}.png?size=80`;
 	return (
-		<Avatar className="size-6 rounded-md">
-			<AvatarImage
-				src={avatarUrl}
-				alt={`${owner} avatar`}
-				referrerPolicy="no-referrer"
-			/>
+		<Avatar
+			className="size-6 rounded-md"
+			role="img"
+			aria-label={`${owner} avatar`}
+		>
+			<AvatarImage src={avatarUrl} alt="" referrerPolicy="no-referrer" />
 			<AvatarFallback className="rounded-md text-[9px]">
 				{owner.slice(0, 2).toUpperCase()}
 			</AvatarFallback>
