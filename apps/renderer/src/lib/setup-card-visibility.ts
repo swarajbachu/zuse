@@ -3,6 +3,8 @@ export type SetupCardVisibilityInput = {
 	readonly initialSession: boolean;
 	readonly hasWorktree: boolean;
 	readonly setupDone: boolean;
+	readonly workspacePending?: boolean;
+	readonly creationPending?: boolean;
 };
 
 export const shouldShowSetupCard = ({
@@ -10,5 +12,10 @@ export const shouldShowSetupCard = ({
 	initialSession,
 	hasWorktree,
 	setupDone,
+	workspacePending = false,
+	creationPending = false,
 }: SetupCardVisibilityInput): boolean =>
-	!externalResume && initialSession && hasWorktree && !setupDone;
+	initialSession &&
+	(workspacePending ||
+		creationPending ||
+		(!externalResume && hasWorktree && !setupDone));

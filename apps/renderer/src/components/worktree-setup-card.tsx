@@ -127,17 +127,17 @@ export function WorktreeSetupCard({
 
 	// This card belongs to chat/worktree creation. A provider still boots for
 	// every additional session, but that must not replay chat setup UI after the
-	// shared worktree is ready.
-	const visible =
-		initialSession &&
-		(ctx.status === "worktree-pending" ||
-			agentStarting !== undefined ||
-			shouldShowSetupCard({
-				externalResume,
-				initialSession,
-				hasWorktree,
-				setupDone,
-			}));
+	// shared worktree is ready. The durable creation record owns the setup row;
+	// once it clears, the normal transcript working row takes over without a
+	// frame where both startup indicators are visible.
+	const visible = shouldShowSetupCard({
+		externalResume,
+		initialSession,
+		hasWorktree,
+		setupDone,
+		workspacePending: ctx.status === "worktree-pending",
+		creationPending: pendingCreation !== null,
+	});
 	if (providerOutputStarted) return null;
 	if (cloudSummary !== null) {
 		const resumeLifecycle =
