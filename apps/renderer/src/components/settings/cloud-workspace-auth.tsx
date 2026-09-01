@@ -518,7 +518,7 @@ export function CloudWorkspaceAuth() {
 					if (!open) closeProviderSetup();
 				}}
 			>
-				<DialogPopup className="max-w-[440px]">
+				<DialogPopup className="max-w-[420px]">
 					<DialogHeader>
 						<div className="flex items-center gap-2">
 							{selectedProvider === null ? null : (
@@ -536,23 +536,28 @@ export function CloudWorkspaceAuth() {
 						<DialogDescription>
 							{selectedProvider === null
 								? "Choose an authentication method."
-								: `Connect once for every new ${LABEL[selectedProvider]} cloud sandbox.`}
+								: `Choose how new cloud sandboxes authenticate with ${LABEL[selectedProvider]}.`}
 						</DialogDescription>
 					</DialogHeader>
 					<form className="contents" onSubmit={submitProviderSetup}>
-						<DialogPanel className="space-y-3 pb-4 pt-1">
+						<DialogPanel className="space-y-3.5 pb-4 pt-1">
 							{selectedProvider === "cursor" ? null : (
-								<CloudAuthMethodTabs
-									value={method}
-									onValueChange={(authMethod) => {
-										setMethod(authMethod);
-										setOperation(null);
-									}}
-								/>
+								<div className="space-y-1.5">
+									<p className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+										Authentication method
+									</p>
+									<CloudAuthMethodTabs
+										value={method}
+										onValueChange={(authMethod) => {
+											setMethod(authMethod);
+											setOperation(null);
+										}}
+									/>
+								</div>
 							)}
 
 							{method === "subscription" && selectedProvider === "claude" ? (
-								<div className="space-y-3">
+								<div className="space-y-3 rounded-lg bg-background/55 p-3">
 									<div>
 										<p className="font-medium text-xs">Create a setup token</p>
 										<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
@@ -589,7 +594,7 @@ export function CloudWorkspaceAuth() {
 							selectedProvider !== null &&
 							selectedProvider !== "claude" &&
 							selectedProvider !== "cursor" ? (
-								<div className="space-y-2.5">
+								<div className="space-y-2.5 rounded-lg bg-background/55 p-3">
 									{operation?.state === "connected" ? (
 										<div
 											role="status"
@@ -656,7 +661,7 @@ export function CloudWorkspaceAuth() {
 							) : null}
 
 							{method === "api-key" ? (
-								<div className="space-y-3">
+								<div className="space-y-3 rounded-lg bg-background/55 p-3">
 									<div>
 										<p className="font-medium text-xs">Provider API key</p>
 										<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
@@ -682,7 +687,7 @@ export function CloudWorkspaceAuth() {
 							) : null}
 
 							{method === "custom" ? (
-								<div className="space-y-3">
+								<div className="space-y-3 rounded-lg bg-background/55 p-3">
 									<div>
 										<p className="font-medium text-xs">Compatible endpoint</p>
 										<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
@@ -743,74 +748,81 @@ export function CloudWorkspaceAuth() {
 							) : null}
 						</DialogPanel>
 						<DialogFooter>
-							{operation?.state === "authorizing" ? (
-								<Button
-									type="button"
-									className={COMPACT_AUTH_ACTION}
-									size="xs"
-									variant="ghost"
-									onClick={() => void cancelLogin()}
-									loading={busy?.startsWith("cancel:") === true}
-								>
-									Cancel login
-								</Button>
-							) : (
-								<DialogClose
-									render={
+							<div className="flex w-full items-center justify-end gap-3 sm:justify-between">
+								<p className="hidden text-[10px] text-muted-foreground sm:block">
+									Stored only in your private cloud image.
+								</p>
+								<div className="flex items-center justify-end gap-1.5">
+									{operation?.state === "authorizing" ? (
 										<Button
 											type="button"
 											className={COMPACT_AUTH_ACTION}
 											size="xs"
 											variant="ghost"
-										/>
-									}
-								>
-									Cancel
-								</DialogClose>
-							)}
-							{usesDeviceLogin &&
-							operation?.state === "authorizing" &&
-							operation.verificationUrl !== undefined &&
-							operation.verificationCode !== undefined ? (
-								<Button
-									type="button"
-									className={COMPACT_AUTH_ACTION}
-									size="xs"
-									onClick={() =>
-										void openExternal(operation.verificationUrl ?? "")
-									}
-								>
-									<ExternalLink aria-hidden />
-									Open authorization
-								</Button>
-							) : usesDeviceLogin ? (
-								<Button
-									type="submit"
-									className={COMPACT_AUTH_ACTION}
-									size="xs"
-									loading={busy?.startsWith("login:") === true}
-									disabled={operation?.state === "authorizing"}
-								>
-									{operation?.state === "connected"
-										? "Reauthorize"
-										: operation?.state === "authorizing"
-											? "Requesting code…"
-											: operation?.state === "error" ||
-													operation?.state === "cancelled"
-												? "Try again"
-												: "Start device login"}
-								</Button>
-							) : (
-								<Button
-									type="submit"
-									className={COMPACT_AUTH_ACTION}
-									size="xs"
-									loading={busy?.startsWith("configure:") === true}
-									disabled={!canConfigure}
-								>
-									Save and verify
-								</Button>
-							)}
+											onClick={() => void cancelLogin()}
+											loading={busy?.startsWith("cancel:") === true}
+										>
+											Cancel login
+										</Button>
+									) : (
+										<DialogClose
+											render={
+												<Button
+													type="button"
+													className={COMPACT_AUTH_ACTION}
+													size="xs"
+													variant="ghost"
+												/>
+											}
+										>
+											Cancel
+										</DialogClose>
+									)}
+									{usesDeviceLogin &&
+									operation?.state === "authorizing" &&
+									operation.verificationUrl !== undefined &&
+									operation.verificationCode !== undefined ? (
+										<Button
+											type="button"
+											className={COMPACT_AUTH_ACTION}
+											size="xs"
+											onClick={() =>
+												void openExternal(operation.verificationUrl ?? "")
+											}
+										>
+											<ExternalLink aria-hidden />
+											Open authorization
+										</Button>
+									) : usesDeviceLogin ? (
+										<Button
+											type="submit"
+											className={COMPACT_AUTH_ACTION}
+											size="xs"
+											loading={busy?.startsWith("login:") === true}
+											disabled={operation?.state === "authorizing"}
+										>
+											{operation?.state === "connected"
+												? "Reauthorize"
+												: operation?.state === "authorizing"
+													? "Requesting code…"
+													: operation?.state === "error" ||
+															operation?.state === "cancelled"
+														? "Try again"
+														: "Start device login"}
+										</Button>
+									) : (
+										<Button
+											type="submit"
+											className={COMPACT_AUTH_ACTION}
+											size="xs"
+											loading={busy?.startsWith("configure:") === true}
+											disabled={!canConfigure}
+										>
+											Save and verify
+										</Button>
+									)}
+								</div>
+							</div>
 						</DialogFooter>
 					</form>
 				</DialogPopup>
