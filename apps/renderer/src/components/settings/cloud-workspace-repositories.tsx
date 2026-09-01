@@ -1,9 +1,10 @@
 import type { CloudProject, GithubRepoSummary } from "@zuse/contracts";
-import { Check, CircleUserRound, Lock, Plus, RefreshCw, X } from "lucide-react";
+import { Check, Lock, Plus, RefreshCw, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { DitherAvatar } from "../dither-kit/avatar.tsx";
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar.tsx";
 import { Button } from "../ui/button.tsx";
+import { CompactEmptyState } from "../ui/compact-empty-state.tsx";
 import { Input } from "../ui/input.tsx";
 import {
 	Popover,
@@ -23,19 +24,21 @@ function RepositoryAvatar({
 	repository?: GithubRepoSummary;
 	readonly name: string;
 }) {
-	return repository?.ownerAvatarUrl === undefined ? (
-		<DitherAvatar
-			name={name.split("/")[0] ?? name}
-			className="size-6 shrink-0"
-			animate={false}
-		/>
-	) : (
-		<img
-			src={repository.ownerAvatarUrl}
-			alt=""
-			className="size-6 shrink-0 rounded-md"
-			referrerPolicy="no-referrer"
-		/>
+	const owner = name.split("/")[0] ?? name;
+	const avatarUrl =
+		repository?.ownerAvatarUrl ??
+		`https://github.com/${encodeURIComponent(owner)}.png?size=80`;
+	return (
+		<Avatar className="size-6 rounded-md">
+			<AvatarImage
+				src={avatarUrl}
+				alt={`${owner} avatar`}
+				referrerPolicy="no-referrer"
+			/>
+			<AvatarFallback className="rounded-md text-[9px]">
+				{owner.slice(0, 2).toUpperCase()}
+			</AvatarFallback>
+		</Avatar>
 	);
 }
 
@@ -194,16 +197,10 @@ export function CloudWorkspaceRepositories({
 		>
 			<div className="divide-y divide-border/40">
 				{projects.length === 0 ? (
-					<div className="px-3 py-6 text-center">
-						<CircleUserRound
-							className="mx-auto size-6 text-muted-foreground"
-							aria-hidden
-						/>
-						<p className="mt-2 text-xs font-medium">No repositories included</p>
-						<p className="mt-0.5 text-[11px] text-muted-foreground">
-							Use + Repository to choose personal or organization repos.
-						</p>
-					</div>
+					<CompactEmptyState
+						title="No repositories included"
+						description="Use + Repository to choose a personal or organization repo."
+					/>
 				) : (
 					projects.map((project) => {
 						const identity = project.repositoryIdentity
@@ -217,10 +214,7 @@ export function CloudWorkspaceRepositories({
 								key={project.projectId}
 								className="flex h-10 items-center gap-2.5 px-3"
 							>
-								<RepositoryAvatar
-									repository={repository}
-									name={project.displayName}
-								/>
+								<RepositoryAvatar repository={repository} name={identity} />
 								<div className="min-w-0 flex-1">
 									<p className="truncate text-xs font-medium">
 										{project.displayName}

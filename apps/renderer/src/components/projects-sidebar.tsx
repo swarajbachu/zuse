@@ -44,6 +44,7 @@ import {
 } from "react";
 import { TypewriterText } from "~/components/typewriter-text.tsx";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
+import { CompactEmptyState } from "~/components/ui/compact-empty-state";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { toastManager } from "~/components/ui/toast.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -410,8 +411,11 @@ export function ProjectsSidebar() {
 							</li>
 						) : null}
 						{catalogViewState === "empty" ? (
-							<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
-								No projects yet. Click + to add one.
+							<li>
+								<CompactEmptyState
+									title="No projects yet"
+									description="Use + to add a repository."
+								/>
 							</li>
 						) : null}
 						{logicalGroups.map((group) => {
@@ -465,8 +469,11 @@ export function ProjectsSidebar() {
 				) : (
 					<>
 						{folders.length === 0 && !loading ? (
-							<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
-								No projects yet. Click + to add one.
+							<li>
+								<CompactEmptyState
+									title="No projects yet"
+									description="Use + to add a repository."
+								/>
 							</li>
 						) : null}
 						{folders.map((folder) => (
