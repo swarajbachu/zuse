@@ -28,6 +28,7 @@ import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
 import {
 	Dialog,
+	DialogClose,
 	DialogDescription,
 	DialogFooter,
 	DialogHeader,
@@ -405,6 +406,14 @@ export function CloudWorkspaceAuth() {
 	const canConfigure =
 		secret.trim().length >= 8 &&
 		(method !== "custom" || baseUrl.trim().length > 0);
+	const submitProviderSetup = (event: React.FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		if (usesDeviceLogin) {
+			if (operation?.state !== "authorizing") void startLogin();
+			return;
+		}
+		if (canConfigure) void configure();
+	};
 	return (
 		<>
 			<CloudSettingsGroup
@@ -530,222 +539,280 @@ export function CloudWorkspaceAuth() {
 								: `Connect once for every new ${LABEL[selectedProvider]} cloud sandbox.`}
 						</DialogDescription>
 					</DialogHeader>
-					<DialogPanel className="space-y-3 pb-4 pt-1">
-						{selectedProvider === "cursor" ? null : (
-							<CloudAuthMethodTabs
-								value={method}
-								onValueChange={(authMethod) => {
-									setMethod(authMethod);
-									setOperation(null);
-								}}
-							/>
-						)}
-
-						{method === "subscription" && selectedProvider === "claude" ? (
-							<div className="space-y-3">
-								<div>
-									<p className="font-medium text-xs">Create a setup token</p>
-									<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-										Run this official command on a trusted computer, then paste
-										the new machine-purpose token below.
-									</p>
-								</div>
-								<div className="flex h-7 items-center gap-2 rounded-md bg-muted/60 px-2">
-									<Terminal className="text-muted-foreground" aria-hidden />
-									<code className="min-w-0 flex-1 select-all text-xs">
-										claude setup-token
-									</code>
-									<CopyAction
-										text="claude setup-token"
-										label="Copy command"
-										compact
-									/>
-								</div>
-								<Input
-									type="password"
-									value={secret}
-									onChange={(event) => setSecret(event.currentTarget.value)}
-									placeholder="Paste setup token"
-									autoComplete="off"
+					<form className="contents" onSubmit={submitProviderSetup}>
+						<DialogPanel className="space-y-3 pb-4 pt-1">
+							{selectedProvider === "cursor" ? null : (
+								<CloudAuthMethodTabs
+									value={method}
+									onValueChange={(authMethod) => {
+										setMethod(authMethod);
+										setOperation(null);
+									}}
 								/>
-							</div>
-						) : null}
+							)}
 
-						{method === "subscription" &&
-						selectedProvider !== null &&
-						selectedProvider !== "claude" &&
-						selectedProvider !== "cursor" ? (
-							<div className="space-y-2.5">
-								{operation?.state === "connected" ? (
-									<div
-										role="status"
-										className="flex items-center gap-2 rounded-md bg-success/8 px-2.5 py-2 text-[11px] text-foreground"
-									>
-										<Check
-											className="size-3.5 shrink-0 text-success"
-											aria-hidden
-										/>
-										<span className="min-w-0 flex-1">
-											{LABEL[selectedProvider]} is authorized and ready for new
-											cloud chats.
-										</span>
-									</div>
-								) : null}
-								{operation?.state === "connected" ? null : selectedProvider ===
-									"codex" ? (
-									<CodexDeviceLoginInstructions />
-								) : (
+							{method === "subscription" && selectedProvider === "claude" ? (
+								<div className="space-y-3">
 									<div>
-										<p className="font-medium text-xs">Device authorization</p>
+										<p className="font-medium text-xs">Create a setup token</p>
 										<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-											Start the official Grok login, open the authorization
-											page, and enter the code shown here.
+											Run this official command on a trusted computer, then
+											paste the new machine-purpose token below.
 										</p>
 									</div>
-								)}
-								{operation?.state === "connected" ||
-								operation?.verificationCode === undefined ? null : (
 									<div className="flex h-7 items-center gap-2 rounded-md bg-muted/60 px-2">
-										<code className="min-w-0 flex-1 select-all font-semibold text-xs tracking-[0.14em]">
-											{operation.verificationCode}
+										<Terminal className="text-muted-foreground" aria-hidden />
+										<code className="min-w-0 flex-1 select-all text-xs">
+											claude setup-token
 										</code>
 										<CopyAction
-											text={operation.verificationCode}
-											label="Copy code"
+											text="claude setup-token"
+											label="Copy command"
+											compact
 										/>
 									</div>
-								)}
-								{operation?.state === "authorizing" &&
-								operation.verificationCode === undefined ? (
-									<div className="flex h-7 items-center gap-2 rounded-md bg-muted/55 px-2 text-[11px] text-muted-foreground">
-										<RefreshCw className="animate-spin" aria-hidden />
-										Requesting a one-time code from {LABEL[selectedProvider]}…
+									<label className="block space-y-1" htmlFor="cloud-auth-token">
+										<span className="text-[11px] font-medium">Setup token</span>
+										<Input
+											id="cloud-auth-token"
+											type="password"
+											value={secret}
+											onChange={(event) => setSecret(event.currentTarget.value)}
+											placeholder="Paste setup token"
+											autoComplete="off"
+										/>
+									</label>
+								</div>
+							) : null}
+
+							{method === "subscription" &&
+							selectedProvider !== null &&
+							selectedProvider !== "claude" &&
+							selectedProvider !== "cursor" ? (
+								<div className="space-y-2.5">
+									{operation?.state === "connected" ? (
+										<div
+											role="status"
+											className="flex items-center gap-2 rounded-md bg-success/8 px-2.5 py-2 text-[11px] text-foreground"
+										>
+											<Check
+												className="size-3.5 shrink-0 text-success"
+												aria-hidden
+											/>
+											<span className="min-w-0 flex-1">
+												{LABEL[selectedProvider]} is authorized and ready for
+												new cloud chats.
+											</span>
+										</div>
+									) : null}
+									{operation?.state ===
+									"connected" ? null : selectedProvider === "codex" ? (
+										<CodexDeviceLoginInstructions />
+									) : (
+										<div>
+											<p className="font-medium text-xs">
+												Device authorization
+											</p>
+											<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+												Start the official Grok login, open the authorization
+												page, and enter the code shown here.
+											</p>
+										</div>
+									)}
+									{operation?.state === "connected" ||
+									operation?.verificationCode === undefined ? null : (
+										<div className="flex h-7 items-center gap-2 rounded-md bg-muted/60 px-2">
+											<code className="min-w-0 flex-1 select-all font-semibold text-xs tracking-[0.14em]">
+												{operation.verificationCode}
+											</code>
+											<CopyAction
+												text={operation.verificationCode}
+												label="Copy code"
+											/>
+										</div>
+									)}
+									{operation?.state === "authorizing" &&
+									operation.verificationCode === undefined ? (
+										<div className="flex h-7 items-center gap-2 rounded-md bg-muted/55 px-2 text-[11px] text-muted-foreground">
+											<RefreshCw className="animate-spin" aria-hidden />
+											Requesting a one-time code from {LABEL[selectedProvider]}…
+										</div>
+									) : null}
+									{operation?.state === "error" ? (
+										<p
+											role="alert"
+											className="rounded-md bg-destructive/8 px-2.5 py-2 text-[11px] leading-4"
+										>
+											Authorization did not finish. Start a new login and try
+											again.
+										</p>
+									) : null}
+									{operation?.state === "cancelled" ? (
+										<p className="rounded-md bg-muted/55 px-2.5 py-2 text-[11px] leading-4 text-muted-foreground">
+											Login cancelled. No credentials were changed.
+										</p>
+									) : null}
+								</div>
+							) : null}
+
+							{method === "api-key" ? (
+								<div className="space-y-3">
+									<div>
+										<p className="font-medium text-xs">Provider API key</p>
+										<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+											The key is encrypted directly to your private cloud image
+											and never returned by API.
+										</p>
 									</div>
-								) : null}
-								{operation?.state === "error" ? (
-									<p
-										role="alert"
-										className="rounded-md bg-destructive/8 px-2.5 py-2 text-[11px] leading-4"
+									<label
+										className="block space-y-1"
+										htmlFor="cloud-auth-api-key"
 									>
-										Authorization did not finish. Start a new login and try
-										again.
-									</p>
-								) : null}
-								{operation?.state === "cancelled" ? (
-									<p className="rounded-md bg-muted/55 px-2.5 py-2 text-[11px] leading-4 text-muted-foreground">
-										Login cancelled. No credentials were changed.
-									</p>
-								) : null}
-							</div>
-						) : null}
-
-						{method === "api-key" ? (
-							<div className="space-y-3">
-								<div>
-									<p className="font-medium text-xs">Provider API key</p>
-									<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-										The key is encrypted directly to your private cloud image
-										and never returned by API.
-									</p>
+										<span className="text-[11px] font-medium">API key</span>
+										<Input
+											id="cloud-auth-api-key"
+											type="password"
+											value={secret}
+											onChange={(event) => setSecret(event.currentTarget.value)}
+											placeholder="Paste API key"
+											autoComplete="off"
+										/>
+									</label>
 								</div>
-								<Input
-									type="password"
-									value={secret}
-									onChange={(event) => setSecret(event.currentTarget.value)}
-									placeholder="Paste API key"
-									autoComplete="off"
-								/>
-							</div>
-						) : null}
+							) : null}
 
-						{method === "custom" ? (
-							<div className="space-y-3">
-								<div>
-									<p className="font-medium text-xs">Compatible endpoint</p>
-									<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-										Connect an HTTPS endpoint supported by this agent.
-									</p>
+							{method === "custom" ? (
+								<div className="space-y-3">
+									<div>
+										<p className="font-medium text-xs">Compatible endpoint</p>
+										<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+											Connect an HTTPS endpoint supported by this agent.
+										</p>
+									</div>
+									<label
+										className="block space-y-1"
+										htmlFor="cloud-auth-base-url"
+									>
+										<span className="text-[11px] font-medium">Base URL</span>
+										<Input
+											id="cloud-auth-base-url"
+											type="url"
+											value={baseUrl}
+											onChange={(event) =>
+												setBaseUrl(event.currentTarget.value)
+											}
+											placeholder="https://api.example.com"
+										/>
+									</label>
+									<label
+										className="block space-y-1"
+										htmlFor="cloud-auth-provider-name"
+									>
+										<span className="text-[11px] font-medium">
+											Provider name
+											<span className="ml-1 font-normal text-muted-foreground">
+												Optional
+											</span>
+										</span>
+										<Input
+											id="cloud-auth-provider-name"
+											value={modelProvider}
+											onChange={(event) =>
+												setModelProvider(event.currentTarget.value)
+											}
+											placeholder="Provider identifier"
+										/>
+									</label>
+									<label
+										className="block space-y-1"
+										htmlFor="cloud-auth-secret"
+									>
+										<span className="text-[11px] font-medium">
+											Provider secret
+										</span>
+										<Input
+											id="cloud-auth-secret"
+											type="password"
+											value={secret}
+											onChange={(event) => setSecret(event.currentTarget.value)}
+											placeholder="Provider secret"
+											autoComplete="off"
+										/>
+									</label>
 								</div>
-								<Input
-									type="url"
-									value={baseUrl}
-									onChange={(event) => setBaseUrl(event.currentTarget.value)}
-									placeholder="https://api.example.com"
-								/>
-								<Input
-									value={modelProvider}
-									onChange={(event) =>
-										setModelProvider(event.currentTarget.value)
+							) : null}
+						</DialogPanel>
+						<DialogFooter>
+							{operation?.state === "authorizing" ? (
+								<Button
+									type="button"
+									className={COMPACT_AUTH_ACTION}
+									size="xs"
+									variant="ghost"
+									onClick={() => void cancelLogin()}
+									loading={busy?.startsWith("cancel:") === true}
+								>
+									Cancel login
+								</Button>
+							) : (
+								<DialogClose
+									render={
+										<Button
+											type="button"
+											className={COMPACT_AUTH_ACTION}
+											size="xs"
+											variant="ghost"
+										/>
 									}
-									placeholder="Provider name (optional)"
-								/>
-								<Input
-									type="password"
-									value={secret}
-									onChange={(event) => setSecret(event.currentTarget.value)}
-									placeholder="Provider secret"
-									autoComplete="off"
-								/>
-							</div>
-						) : null}
-					</DialogPanel>
-					<DialogFooter>
-						<Button
-							className={COMPACT_AUTH_ACTION}
-							size="xs"
-							variant="ghost"
-							onClick={
-								operation?.state === "authorizing"
-									? () => void cancelLogin()
-									: closeProviderSetup
-							}
-							loading={busy?.startsWith("cancel:") === true}
-						>
-							{operation?.state === "authorizing" ? "Cancel login" : "Cancel"}
-						</Button>
-						{usesDeviceLogin &&
-						operation?.state === "authorizing" &&
-						operation.verificationUrl !== undefined &&
-						operation.verificationCode !== undefined ? (
-							<Button
-								className={COMPACT_AUTH_ACTION}
-								size="xs"
-								onClick={() =>
-									void openExternal(operation.verificationUrl ?? "")
-								}
-							>
-								<ExternalLink aria-hidden />
-								Open authorization
-							</Button>
-						) : usesDeviceLogin ? (
-							<Button
-								className={COMPACT_AUTH_ACTION}
-								size="xs"
-								loading={busy?.startsWith("login:") === true}
-								disabled={operation?.state === "authorizing"}
-								onClick={() => void startLogin()}
-							>
-								{operation?.state === "connected"
-									? "Reauthorize"
-									: operation?.state === "authorizing"
-										? "Requesting code…"
-										: operation?.state === "error" ||
-												operation?.state === "cancelled"
-											? "Try again"
-											: "Start device login"}
-							</Button>
-						) : (
-							<Button
-								className={COMPACT_AUTH_ACTION}
-								size="xs"
-								loading={busy?.startsWith("configure:") === true}
-								disabled={!canConfigure}
-								onClick={() => void configure()}
-							>
-								Save and verify
-							</Button>
-						)}
-					</DialogFooter>
+								>
+									Cancel
+								</DialogClose>
+							)}
+							{usesDeviceLogin &&
+							operation?.state === "authorizing" &&
+							operation.verificationUrl !== undefined &&
+							operation.verificationCode !== undefined ? (
+								<Button
+									type="button"
+									className={COMPACT_AUTH_ACTION}
+									size="xs"
+									onClick={() =>
+										void openExternal(operation.verificationUrl ?? "")
+									}
+								>
+									<ExternalLink aria-hidden />
+									Open authorization
+								</Button>
+							) : usesDeviceLogin ? (
+								<Button
+									type="submit"
+									className={COMPACT_AUTH_ACTION}
+									size="xs"
+									loading={busy?.startsWith("login:") === true}
+									disabled={operation?.state === "authorizing"}
+								>
+									{operation?.state === "connected"
+										? "Reauthorize"
+										: operation?.state === "authorizing"
+											? "Requesting code…"
+											: operation?.state === "error" ||
+													operation?.state === "cancelled"
+												? "Try again"
+												: "Start device login"}
+								</Button>
+							) : (
+								<Button
+									type="submit"
+									className={COMPACT_AUTH_ACTION}
+									size="xs"
+									loading={busy?.startsWith("configure:") === true}
+									disabled={!canConfigure}
+								>
+									Save and verify
+								</Button>
+							)}
+						</DialogFooter>
+					</form>
 				</DialogPopup>
 			</Dialog>
 		</>
