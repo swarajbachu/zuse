@@ -29,6 +29,7 @@ import { Button } from "../ui/button.tsx";
 import {
 	Dialog,
 	DialogDescription,
+	DialogFooter,
 	DialogHeader,
 	DialogPanel,
 	DialogPopup,
@@ -364,6 +365,30 @@ export function CloudWorkspaceAuth() {
 		}
 	};
 
+	const closeProviderSetup = () => {
+		setSelectedProvider(null);
+		setOperation(null);
+		setSecret("");
+		setBaseUrl("");
+		setModelProvider("");
+	};
+
+	const cancelLogin = async () => {
+		if (operation?.state !== "authorizing") return;
+		setBusy(`cancel:${operation.providerId}`);
+		try {
+			setOperation(
+				await runControlPlane((client) =>
+					client["cloud.auth.login.cancel"]({
+						operationId: operation.operationId,
+					}),
+				),
+			);
+		} finally {
+			setBusy(null);
+		}
+	};
+
 	const connectedCount = status?.providers.filter(
 		(provider) => provider.state === "connected",
 	).length;
@@ -372,6 +397,14 @@ export function CloudWorkspaceAuth() {
 		(status?.authorityState === "error"
 			? "Cloud authentication cannot reach E2B right now. Retry without affecting your existing chats."
 			: null);
+	const usesDeviceLogin =
+		method === "subscription" &&
+		selectedProvider !== null &&
+		selectedProvider !== "claude" &&
+		selectedProvider !== "cursor";
+	const canConfigure =
+		secret.trim().length >= 8 &&
+		(method !== "custom" || baseUrl.trim().length > 0);
 	return (
 		<>
 			<CloudSettingsGroup
@@ -473,16 +506,10 @@ export function CloudWorkspaceAuth() {
 			<Dialog
 				open={selectedProvider !== null}
 				onOpenChange={(open) => {
-					if (!open) {
-						setSelectedProvider(null);
-						setOperation(null);
-						setSecret("");
-						setBaseUrl("");
-						setModelProvider("");
-					}
+					if (!open) closeProviderSetup();
 				}}
 			>
-				<DialogPopup className="max-w-[420px]">
+				<DialogPopup className="max-w-[440px]">
 					<DialogHeader>
 						<div className="flex items-center gap-2">
 							{selectedProvider === null ? null : (
@@ -541,14 +568,6 @@ export function CloudWorkspaceAuth() {
 									placeholder="Paste setup token"
 									autoComplete="off"
 								/>
-								<Button
-									className={`w-full ${COMPACT_AUTH_ACTION}`}
-									loading={busy?.startsWith("configure:") === true}
-									disabled={secret.trim().length < 8}
-									onClick={() => void configure()}
-								>
-									Save and verify
-								</Button>
 							</div>
 						) : null}
 
@@ -603,50 +622,19 @@ export function CloudWorkspaceAuth() {
 										Requesting a one-time code from {LABEL[selectedProvider]}…
 									</div>
 								) : null}
-								<div className="flex justify-end gap-2">
-									{operation?.state === "connected" ||
-									operation?.verificationUrl === undefined ||
-									operation.verificationCode === undefined ? null : (
-										<Button
-											className={`flex-1 ${COMPACT_AUTH_ACTION}`}
-											onClick={() =>
-												void openExternal(operation.verificationUrl ?? "")
-											}
-										>
-											<ExternalLink aria-hidden />
-											Open authorization
-										</Button>
-									)}
-									<Button
-										className={`${operation?.state === "connected" ? "" : "flex-1"} ${COMPACT_AUTH_ACTION}`}
-										variant={
-											operation?.verificationUrl === undefined
-												? "default"
-												: "settings"
-										}
-										loading={busy?.startsWith("login:") === true}
-										disabled={operation?.state === "authorizing"}
-										onClick={() => void startLogin()}
+								{operation?.state === "error" ? (
+									<p
+										role="alert"
+										className="rounded-md bg-destructive/8 px-2.5 py-2 text-[11px] leading-4"
 									>
-										{operation?.state === "connected"
-											? "Reauthorize"
-											: "Start device login"}
-									</Button>
-								</div>
-								{operation?.state === "authorizing" ? (
-									<Button
-										className={`w-full ${COMPACT_AUTH_ACTION}`}
-										variant="ghost"
-										onClick={() => {
-											void runControlPlane((client) =>
-												client["cloud.auth.login.cancel"]({
-													operationId: operation.operationId,
-												}),
-											).then(setOperation);
-										}}
-									>
-										Cancel login
-									</Button>
+										Authorization did not finish. Start a new login and try
+										again.
+									</p>
+								) : null}
+								{operation?.state === "cancelled" ? (
+									<p className="rounded-md bg-muted/55 px-2.5 py-2 text-[11px] leading-4 text-muted-foreground">
+										Login cancelled. No credentials were changed.
+									</p>
 								) : null}
 							</div>
 						) : null}
@@ -667,14 +655,6 @@ export function CloudWorkspaceAuth() {
 									placeholder="Paste API key"
 									autoComplete="off"
 								/>
-								<Button
-									className={`w-full ${COMPACT_AUTH_ACTION}`}
-									loading={busy?.startsWith("configure:") === true}
-									disabled={secret.trim().length < 8}
-									onClick={() => void configure()}
-								>
-									Save and verify
-								</Button>
 							</div>
 						) : null}
 
@@ -706,19 +686,66 @@ export function CloudWorkspaceAuth() {
 									placeholder="Provider secret"
 									autoComplete="off"
 								/>
-								<Button
-									className={`w-full ${COMPACT_AUTH_ACTION}`}
-									loading={busy?.startsWith("configure:") === true}
-									disabled={
-										secret.trim().length < 8 || baseUrl.trim().length === 0
-									}
-									onClick={() => void configure()}
-								>
-									Save and verify
-								</Button>
 							</div>
 						) : null}
 					</DialogPanel>
+					<DialogFooter>
+						<Button
+							className={COMPACT_AUTH_ACTION}
+							size="xs"
+							variant="ghost"
+							onClick={
+								operation?.state === "authorizing"
+									? () => void cancelLogin()
+									: closeProviderSetup
+							}
+							loading={busy?.startsWith("cancel:") === true}
+						>
+							{operation?.state === "authorizing" ? "Cancel login" : "Cancel"}
+						</Button>
+						{usesDeviceLogin &&
+						operation?.state === "authorizing" &&
+						operation.verificationUrl !== undefined &&
+						operation.verificationCode !== undefined ? (
+							<Button
+								className={COMPACT_AUTH_ACTION}
+								size="xs"
+								onClick={() =>
+									void openExternal(operation.verificationUrl ?? "")
+								}
+							>
+								<ExternalLink aria-hidden />
+								Open authorization
+							</Button>
+						) : usesDeviceLogin ? (
+							<Button
+								className={COMPACT_AUTH_ACTION}
+								size="xs"
+								loading={busy?.startsWith("login:") === true}
+								disabled={operation?.state === "authorizing"}
+								onClick={() => void startLogin()}
+							>
+								{operation?.state === "connected"
+									? "Reauthorize"
+									: operation?.state === "authorizing"
+										? "Requesting code…"
+										: operation?.state === "error" ||
+												operation?.state === "cancelled"
+											? "Try again"
+											: "Start device login"}
+							</Button>
+						) : (
+							<Button
+								className={COMPACT_AUTH_ACTION}
+								size="xs"
+								loading={busy?.startsWith("configure:") === true}
+								disabled={!canConfigure}
+								onClick={() => void configure()}
+							>
+								Save and verify
+							</Button>
+						)}
+					</DialogFooter>
 				</DialogPopup>
 			</Dialog>
 		</>
