@@ -402,12 +402,12 @@ body,
 	--secondary: hsl(136 5% 7.5%);
 	--secondary-foreground: hsl(100 4% 91%);
 
-	/* Muted + accent sit ABOVE --card/--popover so hover/selected states and
-     muted surfaces read clearly against cards and the background. */
-	--muted: hsl(132 5% 10.5%);
+	/* Muted + accent sit ABOVE --card/--popover so hover/selected states,
+	   segmented controls, and dialog footers retain visible elevation. */
+	--muted: hsl(132 5% 14%);
 	--muted-foreground: hsl(105 3% 65%);
 
-	--accent: hsl(130 6% 13.5%);
+	--accent: hsl(130 6% 16.5%);
 	--accent-foreground: hsl(100 4% 91%);
 
 	--destructive: hsl(0 92.1% 60.4%);
