@@ -10,6 +10,7 @@ import type {
 	GitPrSummary,
 	Worktree,
 } from "@zuse/contracts";
+import { runtimeModeForProvider } from "@zuse/contracts";
 import { ArrowUpIcon, CloudOffIcon } from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
@@ -299,6 +300,7 @@ export default function NewChatScreen() {
 			...modelMode,
 			providerId,
 			model,
+			runtimeMode: runtimeModeForProvider(modelMode.runtimeMode, providerId),
 			modelOptions: defaultModelOptions(providerId, model),
 		};
 	}, [availableProviders, modelMode]);
@@ -724,6 +726,7 @@ export default function NewChatScreen() {
 								<ComposerActionSlot>
 									<ComposerApprovalMenu
 										runtimeMode={effectiveModelMode.runtimeMode}
+										providerId={effectiveModelMode.providerId}
 										onChange={(runtimeMode) =>
 											setModelMode((value) => ({ ...value, runtimeMode }))
 										}

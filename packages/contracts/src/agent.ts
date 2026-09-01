@@ -49,17 +49,41 @@ export type AgentStatus = typeof AgentStatus.Type;
  *     NotebookEdit. Bash / Network / Task / MCP still prompt.
  *   - `auto-accept-edits-and-bash` — auto-allow file edits AND Bash. Network
  *     (WebFetch / WebSearch) and MCP/Other still prompt.
+ *   - `auto` — let providers with a native safety reviewer decide routine
+ *     approvals; provider-neutral tools remain approval-gated.
  *   - `full-access` — auto-allow everything except sensitive paths. Plan
  *     mode (ExitPlanMode) ALWAYS prompts regardless of runtime mode.
  */
-export const RuntimeMode = Schema.Literals([
+export const RUNTIME_MODES = [
   "approval-required",
   "auto-accept-edits",
   "auto-accept-edits-and-bash",
+  "auto",
   "full-access",
-]);
+] as const;
+export const RuntimeMode = Schema.Literals(RUNTIME_MODES);
 export type RuntimeMode = typeof RuntimeMode.Type;
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "approval-required";
+export const isRuntimeMode = (value: unknown): value is RuntimeMode =>
+  typeof value === "string" && RUNTIME_MODES.includes(value as RuntimeMode);
+
+/** Provider-native review is currently available only for Codex sessions. */
+export const runtimeModeForProvider = (
+  runtimeMode: RuntimeMode,
+  providerId: ProviderId,
+): RuntimeMode =>
+  runtimeMode === "auto" && providerId !== "codex"
+    ? "approval-required"
+    : runtimeMode;
+
+/** Selectable runtime modes for a provider, derived from the compatibility rule. */
+export const runtimeModesForProvider = (
+  providerId: ProviderId,
+): ReadonlyArray<RuntimeMode> =>
+  RUNTIME_MODES.filter(
+    (runtimeMode) =>
+      runtimeModeForProvider(runtimeMode, providerId) === runtimeMode,
+  );
 
 /**
  * SDK-level lifecycle mode. Distinct from `RuntimeMode` (which controls our

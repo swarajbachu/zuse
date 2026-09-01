@@ -12,6 +12,7 @@ import {
 	type FolderId,
 	type ProviderId,
 	type RuntimeMode,
+	runtimeModeForProvider,
 	visibleModelsForProvider,
 } from "@zuse/contracts";
 import {
@@ -69,7 +70,7 @@ import { BrowserProfileSelect } from "./browser-profile-select.tsx";
 import { ModelPicker } from "./model-picker.tsx";
 import { ProviderCard } from "./provider-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
-import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
+import { MODE_META, runtimeModesForProvider } from "./runtime-mode-meta.ts";
 import { CloudWorkspacePool } from "./settings/cloud-workspace-pool.tsx";
 import { DeveloperPane } from "./settings/developer-pane.tsx";
 import { DevicesPane } from "./settings/devices-pane.tsx";
@@ -1446,6 +1447,7 @@ function DefaultModelsPane() {
 	const setDefaultRuntimeMode = useSettingsStore(
 		(s) => s.setDefaultRuntimeMode,
 	);
+	const runtimeModes = runtimeModesForProvider(defaultProviderId);
 
 	return (
 		<SettingsCard className="divide-y divide-border/60 bg-transparent">
@@ -1469,7 +1471,7 @@ function DefaultModelsPane() {
 						onValueChange={(value) =>
 							setDefaultRuntimeMode(value as RuntimeMode)
 						}
-						items={MODES_ORDER.map((mode) => ({
+						items={runtimeModes.map((mode) => ({
 							label: MODE_META[mode].label,
 							value: mode,
 						}))}
@@ -1478,7 +1480,7 @@ function DefaultModelsPane() {
 							<SelectValue />
 						</SelectTrigger>
 						<SelectPopup>
-							{MODES_ORDER.map((mode) => (
+							{runtimeModes.map((mode) => (
 								<SelectItem key={mode} value={mode}>
 									{MODE_META[mode].label}
 								</SelectItem>
@@ -2201,7 +2203,7 @@ export function ensureValidDefaultsForRuntime(
 	return {
 		providerId: provider,
 		model,
-		runtimeMode: settings.defaultRuntimeMode,
+		runtimeMode: runtimeModeForProvider(settings.defaultRuntimeMode, provider),
 	};
 }
 

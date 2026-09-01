@@ -6,6 +6,7 @@ import {
 	type PermissionMode,
 	type ProviderId,
 	type RuntimeMode,
+	runtimeModesForProvider as runtimeModeValuesForProvider,
 	type SelectOptionDescriptor,
 } from "@zuse/contracts";
 
@@ -46,6 +47,12 @@ export const RUNTIME_OPTION_BY_VALUE = {
 		systemImage: "terminal",
 		tint: "#FF9F0A",
 	},
+	auto: {
+		value: "auto",
+		label: "Approve for me",
+		systemImage: "sparkles",
+		tint: "#BF5AF2",
+	},
 	"full-access": {
 		value: "full-access",
 		label: "Full access",
@@ -54,9 +61,14 @@ export const RUNTIME_OPTION_BY_VALUE = {
 	},
 } as const satisfies Record<RuntimeMode, RuntimeOption>;
 
-export const RUNTIME_OPTIONS: readonly RuntimeOption[] = Object.values(
-	RUNTIME_OPTION_BY_VALUE,
-);
+export const runtimeOptionsForProvider = (
+	providerId: ProviderId,
+): readonly RuntimeOption[] =>
+	runtimeModeValuesForProvider(providerId).map(
+		(runtimeMode) => RUNTIME_OPTION_BY_VALUE[runtimeMode],
+	);
+
+export const RUNTIME_OPTIONS = runtimeOptionsForProvider("claude");
 
 export const runtimeOptionFor = (value: RuntimeMode): RuntimeOption =>
 	RUNTIME_OPTION_BY_VALUE[value];

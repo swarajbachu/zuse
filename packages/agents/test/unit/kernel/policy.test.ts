@@ -14,6 +14,7 @@ const RUNTIME_MODES: ReadonlyArray<RuntimeMode> = [
 	"approval-required",
 	"auto-accept-edits",
 	"auto-accept-edits-and-bash",
+	"auto",
 	"full-access",
 ];
 
@@ -121,6 +122,13 @@ describe("getFsPolicy", () => {
 			},
 		);
 	});
+
+	it("auto keeps provider-neutral filesystem actions approval-gated", () => {
+		expect(getFsPolicy("write", "/repo/src/a.ts", "auto")).toEqual({
+			kind: "prompt",
+			forcePrompt: false,
+		});
+	});
 });
 
 describe("getBashPolicy", () => {
@@ -151,6 +159,13 @@ describe("getBashPolicy", () => {
 
 	it("approval-required prompts (non-force)", () => {
 		expect(getBashPolicy("ls", "approval-required")).toEqual({
+			kind: "prompt",
+			forcePrompt: false,
+		});
+	});
+
+	it("auto keeps provider-neutral shell actions approval-gated", () => {
+		expect(getBashPolicy("ls", "auto")).toEqual({
 			kind: "prompt",
 			forcePrompt: false,
 		});
