@@ -21,10 +21,12 @@ import {
 	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
 import { ChevronDown } from "lucide-react";
+import { MetalFx } from "metal-fx";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
 	type ReactNode,
+	type RefObject,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -108,12 +110,16 @@ type ModelPickerProps =
 			triggerDetail?: string;
 			optionsPanel?: ReactNode;
 			triggerClassName?: string;
+			metalFx?: boolean;
+			reflectionTargets?: ReadonlyArray<RefObject<HTMLElement | null>>;
 			onOpenChange?: (open: boolean) => void;
 	  }
 	| {
 			mode: "default";
 			composer?: boolean;
 			triggerClassName?: string;
+			metalFx?: boolean;
+			reflectionTargets?: ReadonlyArray<RefObject<HTMLElement | null>>;
 			onOpenChange?: (open: boolean) => void;
 	  };
 
@@ -526,33 +532,46 @@ export function ModelPicker(props: ModelPickerProps) {
 		return i + 1;
 	};
 
+	const trigger = (
+		<PopoverTrigger
+			className={cn(
+				composer
+					? "flex h-7 w-40 max-w-[40vw] items-center gap-1.5 rounded-full bg-muted/65 px-2.5 text-[11px] font-medium text-foreground hover:bg-muted data-[popup-open]:bg-muted"
+					: "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs text-foreground hover:bg-muted/60 data-[popup-open]:bg-muted/60",
+				props.triggerClassName,
+			)}
+			aria-label="Change model"
+			title={
+				isDefault
+					? "Change default model for new chats"
+					: "Change model — applies to next message"
+			}
+		>
+			<ProviderIcon providerId={providerId} className="size-3 shrink-0" />
+			<span className="min-w-0 flex-1 truncate text-left">{triggerLabel}</span>
+			{triggerDetail !== undefined ? (
+				<span className="shrink-0 capitalize text-muted-foreground">
+					{triggerDetail}
+				</span>
+			) : null}
+			<ChevronDown className="size-3 shrink-0 opacity-60" />
+		</PopoverTrigger>
+	);
+
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
-			<PopoverTrigger
-				className={cn(
-					composer
-						? "flex h-7 w-40 max-w-[40vw] items-center gap-1.5 rounded-full bg-muted/65 px-2.5 text-[11px] font-medium text-foreground hover:bg-muted data-[popup-open]:bg-muted"
-						: "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs text-foreground hover:bg-muted/60 data-[popup-open]:bg-muted/60",
-					props.triggerClassName,
-				)}
-				aria-label="Change model"
-				title={
-					isDefault
-						? "Change default model for new chats"
-						: "Change model — applies to next message"
-				}
-			>
-				<ProviderIcon providerId={providerId} className="size-3 shrink-0" />
-				<span className="min-w-0 flex-1 truncate text-left">
-					{triggerLabel}
-				</span>
-				{triggerDetail !== undefined ? (
-					<span className="shrink-0 capitalize text-muted-foreground">
-						{triggerDetail}
-					</span>
-				) : null}
-				<ChevronDown className="size-3 shrink-0 opacity-60" />
-			</PopoverTrigger>
+			{props.metalFx ? (
+				<MetalFx
+					preset="silver"
+					borderRadius={999}
+					reflectionTargets={props.reflectionTargets}
+					className="shrink-0"
+				>
+					{trigger}
+				</MetalFx>
+			) : (
+				trigger
+			)}
 			<PopoverPrimitive.Portal>
 				<PopoverPrimitive.Positioner
 					align="start"
