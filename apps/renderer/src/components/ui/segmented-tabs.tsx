@@ -31,7 +31,7 @@ export function SegmentedTabs<Value extends string>({
 			role="tablist"
 			aria-label={ariaLabel}
 			className={cn(
-				"flex h-7 min-w-0 items-stretch gap-2 border-border/60 border-b",
+				"flex h-7 min-w-0 items-center gap-0.5 rounded-md bg-muted/55 p-0.5",
 				className,
 			)}
 		>
@@ -48,11 +48,11 @@ export function SegmentedTabs<Value extends string>({
 						disabled={option.disabled}
 						onClick={() => onValueChange(option.value)}
 						className={cn(
-							"relative flex h-7 min-w-0 items-center justify-center gap-1.5 rounded-t-md px-2 font-medium text-[11px] outline-none transition-[background-color,color] duration-150 after:absolute after:inset-x-2 after:-bottom-px after:h-px after:rounded-full after:bg-transparent after:content-[''] focus-visible:bg-muted/45 focus-visible:ring-2 focus-visible:ring-ring/70 disabled:pointer-events-none disabled:opacity-50",
+							"flex h-6 min-w-0 items-center justify-center gap-1.5 rounded-[5px] px-2.5 font-medium text-[11px] outline-none transition-[background-color,box-shadow,color] duration-150 focus-visible:ring-2 focus-visible:ring-ring/70 disabled:pointer-events-none disabled:opacity-50",
 							equalWidth ? "flex-1" : "shrink-0",
 							selected
-								? "text-foreground after:bg-primary"
-								: "text-muted-foreground hover:bg-muted/30 hover:text-foreground",
+								? "bg-background text-foreground shadow-xs"
+								: "text-muted-foreground hover:bg-background/45 hover:text-foreground",
 							tabClassName,
 						)}
 					>
