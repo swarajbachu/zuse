@@ -49,6 +49,7 @@ import {
 	timelineReadingPositionStore,
 } from "../lib/session-timeline-cache.ts";
 import {
+	dispatchSessionCommand,
 	getRendererClientBus,
 	restartSessionTimeline,
 } from "../lib/session-timeline-client-bus.ts";
@@ -124,14 +125,26 @@ const recoverArchivedActiveSession = async (
 	sessionId: SessionId,
 ): Promise<void> => {
 	try {
-		await dispatchChatCommand<{ readonly sessionId: SessionId }, void>({
+		const ref = {
+			environmentId: EnvironmentId.make(getActiveEnvironment()),
+			sessionId,
+		};
+		await dispatchSessionCommand<{ readonly sessionId: SessionId }, void>({
+			ref,
 			kind: "session.unarchive",
+			commandId: nextChatCommandId("session-unarchive"),
 			payload: { sessionId },
 		});
-		const { result: session } = await dispatchChatCommand<
+		const { result: session } = await dispatchSessionCommand<
 			{ readonly sessionId: SessionId },
 			Session
-		>({ kind: "session.get", payload: { sessionId } });
+		>({
+			ref,
+			kind: "session.get",
+			commandId: nextChatCommandId("session-get"),
+			payload: { sessionId },
+			retry: "never",
+		});
 		if (session.chatId !== chatId || session.projectId !== projectId) {
 			throw new Error("The restored session does not belong to this chat.");
 		}
