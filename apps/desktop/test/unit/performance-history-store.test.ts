@@ -58,7 +58,8 @@ describe("PerformanceHistoryStore", () => {
 	test("retains lag samples and ignores corrupted lines", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "zuse-performance-"));
 		const path = join(directory, "diagnostics.host-resources.ndjson");
-		const store = new PerformanceHistoryStore({ path });
+		const now = () => Date.UTC(2026, 6, 31, 1);
+		const store = new PerformanceHistoryStore({ path, now });
 		await store.initialize();
 		const lag: LagSample = {
 			id: "lag-1",
@@ -81,7 +82,7 @@ describe("PerformanceHistoryStore", () => {
 		store.recordLag(lag);
 		await store.flush();
 
-		const restored = new PerformanceHistoryStore({ path });
+		const restored = new PerformanceHistoryStore({ path, now });
 		await restored.initialize();
 		expect(restored.getHistory(0).lagSamples).toEqual([lag]);
 	});
