@@ -12,6 +12,7 @@ import {
 	ChatCreationConflictError,
 	type ChatCreationOperation,
 	ChatId,
+	type ChatWorkspacePolicy,
 	ComposerInput,
 	CredentialStoreError,
 	FolderId,
@@ -42,6 +43,7 @@ import {
 	persistChatStartupIntent,
 	updateQueuedMessageWithStartupHandoff,
 } from "../conversation/core/chat-startup-intent.ts";
+import { resolveChatWorkspacePolicyRequest } from "../conversation/core/chat-workspace-policy.ts";
 import { messageFromRecord } from "../conversation/core/conversation-records.ts";
 import { timelineEventFromDomain } from "../conversation/core/conversation-timeline-projection.ts";
 import { handoffToServiceScope } from "../conversation/core/service-scope.ts";
@@ -53,6 +55,7 @@ import {
 	SessionService,
 	TranscriptService,
 } from "../conversation/services/conversation-services.ts";
+import { RepositorySettingsService } from "../repository-settings/services/repository-settings-service.ts";
 import { resolveCliPath, resolveUpdateCommand } from "./availability.ts";
 import { BrowserBridgeService } from "./services/browser-bridge-service.ts";
 import { CredentialsService } from "./services/credentials-service.ts";
@@ -631,15 +634,31 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 						const queueTransaction = yield* QueueTransactionService;
 						const analytics = yield* AnalyticsService;
 						const sql = yield* SqlClient.SqlClient;
-						const requestedPolicy =
-							input.workspacePolicy?._tag ??
-							(input.worktreeId === null || input.worktreeId === undefined
-								? "main"
-								: "existing");
-						// Repository inspection is part of workspace preparation. Keeping it
-						// after the durable acknowledgement is what makes Send responsive even
-						// when Git or the remote is slow.
-						const policy = requestedPolicy;
+						let resolvedWorkspacePolicy: ChatWorkspacePolicy;
+						if (input.workspacePolicy?._tag === "automatic") {
+							const configStore = yield* ConfigStoreService;
+							const repositorySettings = yield* RepositorySettingsService;
+							const globalSettings = yield* configStore.getSettings();
+							const repository = yield* repositorySettings.get(input.projectId);
+							resolvedWorkspacePolicy = resolveChatWorkspacePolicyRequest({
+								request: input.workspacePolicy,
+								legacyWorktreeId: input.worktreeId,
+								defaultAutoCreateWorktree:
+									globalSettings.defaultAutoCreateWorktree,
+								repositoryAutoCreateWorktree: repository.autoCreateWorktree,
+							});
+						} else {
+							resolvedWorkspacePolicy = resolveChatWorkspacePolicyRequest({
+								request: input.workspacePolicy,
+								legacyWorktreeId: input.worktreeId,
+								defaultAutoCreateWorktree: false,
+								repositoryAutoCreateWorktree: false,
+							});
+						}
+						// The renderer has already placed this request in its durable outbox.
+						// Resolve settings here so reconnects never strand an optimistic session
+						// before chat.create is dispatchable; Git work stays in the worker below.
+						const policy = resolvedWorkspacePolicy._tag;
 						const requestFingerprint =
 							input.operationId === undefined
 								? null
@@ -672,9 +691,9 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 								policy === "fresh"
 									? WorktreeId.make(crypto.randomUUID())
 									: policy === "existing"
-										? input.workspacePolicy?._tag === "existing"
-											? input.workspacePolicy.worktreeId
-											: (input.worktreeId ?? null)
+										? resolvedWorkspacePolicy._tag === "existing"
+											? resolvedWorkspacePolicy.worktreeId
+											: null
 										: null;
 							yield* sql`
 				INSERT INTO chat_creation_operations (

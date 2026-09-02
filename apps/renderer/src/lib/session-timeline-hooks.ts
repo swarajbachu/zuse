@@ -62,7 +62,7 @@ const EMPTY_TIMELINE_VIEW: ResourceView<SessionTimelineProjection> = {
 	failedCommands: [],
 };
 
-const runtimeFromResource = (
+export const runtimeFromResource = (
 	view: ResourceView<SessionTimelineProjection>,
 	fallback: SessionRuntimeState,
 ): SessionRuntimeState => {
@@ -73,18 +73,22 @@ const runtimeFromResource = (
 	) {
 		return "stopping";
 	}
-	const runtime =
-		view.data === null ? fallback : runtimeStateFromTimeline(view.data);
-	if (runtime !== "idle") return runtime;
-	if (
+	const pendingSend =
 		view.pendingCommands.some((command) => command.kind === "messages.send") &&
 		(view.data === null ||
 			view.data.messages.findLast(
 				(message) => message.role === "user" || message.role === "assistant",
-			)?.role === "user")
+			)?.role === "user");
+	if (pendingSend) return "starting";
+	if (
+		(view.connection !== "connected" || view.sync !== "live") &&
+		(fallback === "idle" || fallback === "failed")
 	) {
-		return "starting";
+		return fallback;
 	}
+	const runtime =
+		view.data === null ? fallback : runtimeStateFromTimeline(view.data);
+	if (runtime !== "idle") return runtime;
 	return "idle";
 };
 

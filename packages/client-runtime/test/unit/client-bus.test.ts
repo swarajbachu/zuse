@@ -786,6 +786,51 @@ describe("ClientBus", () => {
 		await bus.dispose();
 	});
 
+	it("persists automatic chat creation before server-side policy resolution", async () => {
+		const persistence = new MemoryPersistence();
+		const resolution = deferred<void>();
+		const commandId = CommandId.make("chat-create:automatic");
+		let executing = false;
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async (_client, command) => {
+					executing = true;
+					expect(
+						persistence.outbox.get(command.commandId)?.command,
+					).toMatchObject({
+						kind: "chat.create",
+						payload: { workspacePolicy: { _tag: "automatic" } },
+					});
+					await resolution.promise;
+					return {
+						commandId: command.commandId,
+						receivedAt: 2,
+						result: "created",
+					};
+				},
+			},
+		});
+
+		const receipt = bus.dispatch({
+			kind: "chat.create",
+			commandId,
+			environmentId,
+			resource: timelineKey,
+			payload: { workspacePolicy: { _tag: "automatic" } },
+			retry: "safe",
+			createdAt: 1,
+		});
+		await waitUntil(() => executing);
+		expect(persistence.outbox.has(commandId)).toBe(true);
+
+		resolution.resolve();
+		await expect(receipt).resolves.toMatchObject({ result: "created" });
+		expect(persistence.outbox.has(commandId)).toBe(false);
+		await bus.dispose();
+	});
+
 	it("rejects an in-flight command ID collision before executing another payload", async () => {
 		const persistence = new MemoryPersistence();
 		const gate = deferred<void>();
@@ -1117,6 +1162,9 @@ describe("ClientBus", () => {
 	it("routes transport command failures through the environment supervisor", async () => {
 		const scheduled: Array<() => void> = [];
 		let resolves = 0;
+		let driverContext: ResourceDriverContext<Client, Timeline> | null = null;
+		const driverContexts: Array<ResourceDriverContext<Client, Timeline>> = [];
+		let syncAtDriverStop: string | null = null;
 		const bus = new ClientBus<Client>({
 			resolver: immediateResolver(() => {
 				resolves += 1;
@@ -1130,6 +1178,15 @@ describe("ClientBus", () => {
 					throw new Error("socket closed");
 				},
 			},
+			driverFor: () => ({
+				start: (context) => {
+					driverContext = context as ResourceDriverContext<Client, Timeline>;
+					driverContexts.push(driverContext);
+				},
+				stop: () => {
+					syncAtDriverStop = bus.snapshot(timelineKey).sync;
+				},
+			}),
 			runtime: {
 				random: () => 0,
 				schedule: (_delayMs, task) => {
@@ -1140,6 +1197,16 @@ describe("ClientBus", () => {
 		});
 		const lease = bus.retain(timelineKey, { activation: "connect" });
 		await waitUntil(() => bus.connection(environmentId).phase === "connected");
+		await waitUntil(() => driverContext !== null);
+		const activeDriver = driverContext as unknown as ResourceDriverContext<
+			Client,
+			Timeline
+		>;
+		activeDriver.emit({
+			data: { text: "still running" },
+			cursor: { epoch: "connected", version: 1 },
+			sync: "live",
+		});
 		await expect(
 			bus.dispatch({
 				kind: "test.mutate",
@@ -1152,11 +1219,24 @@ describe("ClientBus", () => {
 			}),
 		).rejects.toThrow("socket closed");
 		expect(bus.connection(environmentId).phase).toBe("offline");
+		expect(bus.snapshot(timelineKey).sync).toBe("cached");
+		expect(syncAtDriverStop).toBe("cached");
 		expect(scheduled).toHaveLength(1);
 
 		scheduled[0]?.();
 		await waitUntil(() => bus.connection(environmentId).phase === "connected");
+		await waitUntil(() => driverContexts.length === 2);
+		driverContexts[1]?.emit({
+			data: { text: "latest server snapshot" },
+			cursor: { epoch: "reconnected", version: 1 },
+			resetEpoch: true,
+			sync: "live",
+		});
 		expect(resolves).toBe(2);
+		expect(bus.snapshot(timelineKey)).toMatchObject({
+			data: { text: "latest server snapshot" },
+			sync: "live",
+		});
 		lease.release();
 		await bus.dispose();
 	});

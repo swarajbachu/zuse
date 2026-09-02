@@ -1004,6 +1004,20 @@ export const ChatWorkspacePolicy = Schema.Union([
 ]);
 export type ChatWorkspacePolicy = typeof ChatWorkspacePolicy.Type;
 
+/**
+ * Client intent for workspace placement. `automatic` keeps settings resolution
+ * on the server so a renderer reconnect cannot strand creation before the
+ * durable command is dispatched. Persisted creation operations always store a
+ * concrete `ChatWorkspacePolicy`.
+ */
+export const ChatWorkspaceRequestPolicy = Schema.Union([
+	Schema.TaggedStruct("automatic", {}),
+	Schema.TaggedStruct("fresh", {}),
+	Schema.TaggedStruct("existing", { worktreeId: WorktreeId }),
+	Schema.TaggedStruct("main", {}),
+]);
+export type ChatWorkspaceRequestPolicy = typeof ChatWorkspaceRequestPolicy.Type;
+
 export const ChatCreationPhase = Schema.Literals([
 	"persisted",
 	"creating_workspace",
@@ -1122,7 +1136,7 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
 		runtimeMode: Schema.optional(RuntimeMode),
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 		/** Server-owned workspace bootstrap. Supersedes `worktreeId` when set. */
-		workspacePolicy: Schema.optional(ChatWorkspacePolicy),
+		workspacePolicy: Schema.optional(ChatWorkspaceRequestPolicy),
 		startupInput: Schema.optional(ComposerInput),
 		startupQueueId: Schema.optional(Schema.String),
 		/** False while attachment or generated context preparation is pending. */

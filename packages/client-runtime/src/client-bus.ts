@@ -731,7 +731,13 @@ export class ClientBus<Client> {
 			});
 			if (connection.phase === "connected" && requestsRuntime(entry)) {
 				this.startDriver(entry, binding);
-			} else if (entry.driverGeneration !== 0) this.stopDriver(entry);
+			} else if (entry.driverGeneration !== 0) {
+				this.setView(entry, {
+					...entry.view,
+					sync: entry.view.data === null ? "empty" : "cached",
+				});
+				this.stopDriver(entry);
+			}
 		}
 		if (
 			connection.phase === "connected" &&
