@@ -344,6 +344,103 @@ describe("environment shell ClientBus driver", () => {
 		driver.stop();
 	});
 
+	it("reuses complete cached origins without another Git request", async () => {
+		const workspace = Effect.runSync(
+			Queue.unbounded<ReadonlyArray<ReturnType<typeof folder>>>(),
+		);
+		const cachedFolder = folder("one");
+		const cachedOrigin = {
+			host: "github.com",
+			owner: "zuse-ai",
+			repo: "zuse",
+		} as GitOriginInfo;
+		const loadOrigin = vi.fn(() => Effect.succeed(null));
+		const emitted: EnvironmentShellData[] = [];
+		const driver = makeEnvironmentShellResourceDriver({
+			reportConnectionFailure: vi.fn(),
+		});
+		driver.start({
+			key: environmentShellResourceKey(ref),
+			client: {
+				"workspace.streamChanges": () => Stream.fromQueue(workspace),
+				"chat.streamChanges": () => Stream.never,
+				"session.streamChanges": () => Stream.never,
+				"chat.creation.stream": () => Stream.never,
+				"git.origin": loadOrigin,
+			} as unknown as EnvironmentShellDriverClient,
+			generation: 3,
+			data: {
+				folders: [cachedFolder],
+				originsByFolder: { one: cachedOrigin },
+				chatsByProject: {},
+				sessionsByProject: {},
+				creationOperationsByProject: {},
+			},
+			cursor: null,
+			snapshot: () => null,
+			isCurrent: () => true,
+			emit: (update) => {
+				if (update.data !== undefined) emitted.push(update.data);
+				return true;
+			},
+		} satisfies ResourceDriverContext<
+			EnvironmentShellDriverClient,
+			EnvironmentShellData
+		>);
+
+		Queue.offerUnsafe(workspace, [cachedFolder]);
+		await vi.waitFor(() => expect(emitted).toHaveLength(1));
+		expect(emitted[0]?.originsByFolder).toEqual({ one: cachedOrigin });
+		expect(loadOrigin).not.toHaveBeenCalled();
+		driver.stop();
+	});
+
+	it("retries failed origin metadata without blocking projects", async () => {
+		vi.useFakeTimers();
+		try {
+			const workspace = Effect.runSync(
+				Queue.unbounded<ReadonlyArray<ReturnType<typeof folder>>>(),
+			);
+			const loadOrigin = vi.fn(() =>
+				Effect.fail(new Error("origin unavailable")),
+			);
+			const emitted: EnvironmentShellData[] = [];
+			const driver = makeEnvironmentShellResourceDriver({
+				reportConnectionFailure: vi.fn(),
+			});
+			driver.start({
+				key: environmentShellResourceKey(ref),
+				client: {
+					"workspace.streamChanges": () => Stream.fromQueue(workspace),
+					"chat.streamChanges": () => Stream.never,
+					"session.streamChanges": () => Stream.never,
+					"chat.creation.stream": () => Stream.never,
+					"git.origin": loadOrigin,
+				} as unknown as EnvironmentShellDriverClient,
+				generation: 3,
+				data: null,
+				cursor: null,
+				snapshot: () => null,
+				isCurrent: () => true,
+				emit: (update) => {
+					if (update.data !== undefined) emitted.push(update.data);
+					return true;
+				},
+			} satisfies ResourceDriverContext<
+				EnvironmentShellDriverClient,
+				EnvironmentShellData
+			>);
+
+			Queue.offerUnsafe(workspace, [folder("one")]);
+			await vi.waitFor(() => expect(emitted.at(-1)?.folders).toHaveLength(1));
+			expect(emitted.at(-1)?.originsByFolder).toEqual({});
+			await vi.waitFor(() => expect(loadOrigin).toHaveBeenCalledTimes(2));
+			driver.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("drops a late materialization from an older generation", async () => {
 		const workspace = Effect.runSync(
 			Queue.unbounded<ReadonlyArray<ReturnType<typeof folder>>>(),
