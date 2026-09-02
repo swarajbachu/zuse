@@ -1467,19 +1467,6 @@ function ProjectGroup({
 							/>
 						),
 					)}
-					<li className="mt-0.5">
-						<button
-							type="button"
-							aria-label={`Open archived chats for ${displayName}`}
-							onClick={openArchives}
-							className="flex min-h-7 w-full items-center gap-1.5 rounded-md py-1.5 pr-2 pl-4 text-left text-[11px] text-muted-foreground/80 outline-none transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
-						>
-							<span className="inline-grid size-5 shrink-0 place-items-center">
-								<HugeiconsIcon icon={ArchiveIcon} className="size-3.5" />
-							</span>
-							<span>Archived chats</span>
-						</button>
-					</li>
 				</ul>
 			</li>
 		</Fragment>

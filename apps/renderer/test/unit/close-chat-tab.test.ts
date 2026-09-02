@@ -26,6 +26,7 @@ import {
 	closeActiveChatTab,
 	closeChatTab,
 } from "../../src/lib/close-chat-tab.ts";
+import { resolveChatSessionSelection } from "../../src/store/chats.ts";
 import { useProvidersStore } from "../../src/store/providers.ts";
 import { useSessionsStore } from "../../src/store/sessions.ts";
 
@@ -103,9 +104,37 @@ describe("closing chat tabs", () => {
 		await closeChatTab(active.id);
 
 		expect(refresh).toHaveBeenCalledOnce();
-		expect(archive).toHaveBeenCalledExactlyOnceWith(active.id);
 		expect(create).toHaveBeenCalledExactlyOnceWith(chatId, "codex", "gpt-5.4", {
 			runtimeMode: "full-access",
+		});
+		expect(archive).not.toHaveBeenCalled();
+	});
+
+	it("archives the final tab only after its replacement exists", async () => {
+		const active = session("session-only", 0);
+		const replacementId = "session-replacement" as SessionId;
+		const archive = vi.fn(async () => undefined);
+		const create = vi.fn(async () => replacementId);
+		const select = vi.fn();
+		canonical.sessionsByProject = { [projectId]: [active] };
+		useSessionsStore.setState({ archive, create, select });
+		useProvidersStore.setState({ refresh: vi.fn(async () => undefined) });
+
+		await closeChatTab(active.id);
+
+		expect(create.mock.invocationCallOrder[0]).toBeLessThan(
+			archive.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+		);
+		expect(archive).toHaveBeenCalledExactlyOnceWith(active.id);
+		expect(select).toHaveBeenCalledExactlyOnceWith(replacementId);
+	});
+
+	it("recovers the archived active tab when an active chat has no live tab", () => {
+		const archivedActiveId = "session-archived" as SessionId;
+
+		expect(resolveChatSessionSelection(archivedActiveId, [])).toEqual({
+			sessionId: null,
+			recoverArchivedSessionId: archivedActiveId,
 		});
 	});
 });

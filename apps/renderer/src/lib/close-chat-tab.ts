@@ -79,8 +79,15 @@ export const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 		),
 		projectId,
 	);
+	const replacementId = await sessions.create(
+		currentSession.chatId,
+		providerId,
+		model,
+		{
+			runtimeMode,
+		},
+	);
+	if (replacementId === null) return;
 	await sessions.archive(currentSession.id);
-	await sessions.create(currentSession.chatId, providerId, model, {
-		runtimeMode,
-	});
+	sessions.select(replacementId);
 };
