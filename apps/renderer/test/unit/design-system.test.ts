@@ -85,6 +85,8 @@ describe("renderer design system", () => {
 		expect(composer).toContain("composer-glass rounded-[1.2rem]");
 		expect(composer).not.toContain("<FrameFooter");
 		expect(composer).toContain("<ComposerModelPicker");
+		expect(composer).not.toContain("<CostChip");
+		expect(composer).not.toContain("<SessionTimer");
 		expect(composer).not.toContain("<ReasoningPicker");
 		expect(composer).toContain("triggerDetail={activeLabel}");
 		expect(composer).toContain('metalFx={level === "ultra"}');
