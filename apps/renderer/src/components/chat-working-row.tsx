@@ -9,6 +9,7 @@ import {
 	providerStartupLabel,
 	useProviderStartupDelay,
 } from "../lib/provider-startup-delay.ts";
+import type { SessionRuntimeState } from "../lib/session-runtime-state.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
@@ -20,6 +21,17 @@ const formatElapsed = (ms: number): string => {
 	const sec = totalSec - min * 60;
 	return `${min}m ${sec.toFixed(1)}s`;
 };
+
+export const providerStartupIsActive = ({
+	runtimeState,
+	providerOutputStarted,
+	startupContextActive,
+}: {
+	readonly runtimeState: SessionRuntimeState;
+	readonly providerOutputStarted: boolean;
+	readonly startupContextActive: boolean;
+}): boolean =>
+	runtimeState === "starting" && !providerOutputStarted && startupContextActive;
 
 export function ChatWorkingRow({
 	messages,
@@ -43,9 +55,14 @@ export function ChatWorkingRow({
 	const cloudSummary = cloudSummaryForSession(sessionId);
 	const initialCloudAgentStart =
 		cloudSummary !== null && cloudSummary.startupPhase === "starting-agent";
-	const showStartup =
-		runtimeState === "starting" &&
-		(cloudSummary === null || initialCloudAgentStart);
+	const providerOutputStarted = messages.some(
+		(message) => message.role === "assistant" || message.role === "tool",
+	);
+	const showStartup = providerStartupIsActive({
+		runtimeState,
+		providerOutputStarted,
+		startupContextActive: cloudSummary === null || initialCloudAgentStart,
+	});
 	const delayed = useProviderStartupDelay(
 		showStartup,
 		`${sessionId}:${session?.providerId ?? "unknown"}:${session?.model ?? "unknown"}`,

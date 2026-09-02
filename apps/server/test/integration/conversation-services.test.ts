@@ -173,6 +173,8 @@ let archiveWorktreeStarts = 0;
 let archiveWorktreeFailure: "git-missing" | null = null;
 let generatedTitle: string | null = null;
 let generatedBranch: string | null = null;
+let titleGenerationBarrier: Promise<void> | null = null;
+let titleGenerationStarts = 0;
 let renamedBranches: Array<{
 	readonly worktreeId: WorktreeId;
 	readonly branch: string;
@@ -435,9 +437,15 @@ const StubGitLive = Layer.succeed(GitService, {
 
 const StubTitleGeneratorLive = Layer.succeed(TitleGenerator, {
 	generate: () =>
-		generatedTitle === null
-			? Effect.die("not used")
-			: Effect.succeed(generatedTitle),
+		Effect.gen(function* () {
+			titleGenerationStarts += 1;
+			if (titleGenerationBarrier !== null) {
+				yield* Effect.promise(() => titleGenerationBarrier as Promise<void>);
+			}
+			return generatedTitle === null
+				? yield* Effect.die("not used")
+				: generatedTitle;
+		}),
 	generateBranch: () =>
 		generatedBranch === null
 			? Effect.die("not used")
@@ -705,6 +713,8 @@ beforeEach(() => {
 	archiveWorktreeFailure = null;
 	generatedTitle = null;
 	generatedBranch = null;
+	titleGenerationBarrier = null;
+	titleGenerationStarts = 0;
 	renamedBranches = [];
 	testWorktree = Worktree.make({
 		...testWorktree,
@@ -5269,6 +5279,51 @@ describe("ConversationServices — chat & session lifecycle", () => {
 });
 
 describe("ConversationServices — provider event persistence", () => {
+	it("does not block a later turn while the first-turn name is generated", async () => {
+		generatedTitle = "Background Naming";
+		generatedBranch = "background-naming";
+		const naming = deferred<void>();
+		titleGenerationBarrier = naming.promise;
+		scriptedEvents = [
+			{
+				_tag: "AssistantMessage",
+				itemId: "i_background_name" as never,
+				text: "The first turn is complete.",
+			},
+			{ _tag: "Completed", reason: "ended" },
+		];
+		try {
+			await withRuntime(async (run) => {
+				const created = await run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							initialPrompt: "Name this chat",
+							worktreeId: TEST_WORKTREE_ID,
+						}),
+					),
+				);
+				await expect.poll(() => titleGenerationStarts).toBe(1);
+				await run(
+					Effect.flatMap(store, (service) =>
+						service.sendMessage(
+							testCommandId("messages.send"),
+							created.initialSession.id,
+							"deliver while naming",
+						),
+					).pipe(Effect.timeout("500 millis")),
+				);
+				expect(providerSentTexts).toContain("deliver while naming");
+			});
+		} finally {
+			naming.resolve();
+			titleGenerationBarrier = null;
+			scriptedEvents = [];
+		}
+	});
+
 	it("keeps pending New chat titles when the first turn errors", async () => {
 		generatedTitle = "Your Organization Has Disabled Access";
 		scriptedEvents = [

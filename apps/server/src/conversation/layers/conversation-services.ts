@@ -425,16 +425,19 @@ const ConversationRuntimeLive = Layer.effect(
 			handleChatDelete,
 		} = archiveOperations;
 		const reactorRuntime: ConversationReactorRuntime =
-			yield* makeConversationReactorRuntime({
-				providerStart: handleProviderStart,
-				providerStop: handleProviderStop,
-				providerTurn: handleProviderTurn,
-				providerInterrupt: handleProviderInterrupt,
-				scheduledSuccessor: handleScheduledSuccessor,
-				autoName: handleAutoName,
-				chatArchive: handleChatArchive,
-				chatDelete: handleChatDelete,
-			});
+			yield* makeConversationReactorRuntime(
+				{
+					providerStart: handleProviderStart,
+					providerStop: handleProviderStop,
+					providerTurn: handleProviderTurn,
+					providerInterrupt: handleProviderInterrupt,
+					scheduledSuccessor: handleScheduledSuccessor,
+					autoName: handleAutoName,
+					chatArchive: handleChatArchive,
+					chatDelete: handleChatDelete,
+				},
+				serviceScope,
+			);
 		const archiveChat: ConversationOperations["archiveChat"] = (
 			chatId,
 			force,

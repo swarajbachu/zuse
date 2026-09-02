@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { providerStartupIsActive } from "../../src/components/chat-working-row.tsx";
 import { providerStartupLabel } from "../../src/lib/provider-startup-delay.ts";
 
 describe("provider startup delay", () => {
@@ -20,5 +21,22 @@ describe("provider startup delay", () => {
 				delayed: true,
 			}),
 		).toBe("Codex failed to start");
+	});
+
+	it("does not call an already-responsive provider startup on later turns", () => {
+		expect(
+			providerStartupIsActive({
+				runtimeState: "starting",
+				providerOutputStarted: true,
+				startupContextActive: true,
+			}),
+		).toBe(false);
+		expect(
+			providerStartupIsActive({
+				runtimeState: "starting",
+				providerOutputStarted: false,
+				startupContextActive: true,
+			}),
+		).toBe(true);
 	});
 });
