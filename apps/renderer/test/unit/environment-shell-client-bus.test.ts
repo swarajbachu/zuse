@@ -3,7 +3,7 @@ import {
 	type ResourceDriverContext,
 } from "@zuse/client-runtime/client-bus";
 import type { ResourcePersistence } from "@zuse/client-runtime/client-persistence";
-import { EnvironmentId, FolderId } from "@zuse/contracts";
+import { EnvironmentId, FolderId, type GitOriginInfo } from "@zuse/contracts";
 import { Effect, Queue, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
@@ -280,6 +280,67 @@ describe("environment shell ClientBus driver", () => {
 			true,
 		);
 		expect(emitted.at(-1)).toEqual(["two"]);
+		driver.stop();
+	});
+
+	it("publishes projects immediately and enriches origins independently", async () => {
+		const workspace = Effect.runSync(
+			Queue.unbounded<ReadonlyArray<ReturnType<typeof folder>>>(),
+		);
+		const firstOrigin = Promise.withResolvers<GitOriginInfo | null>();
+		const secondOrigin = Promise.withResolvers<GitOriginInfo | null>();
+		const loadOrigin = vi.fn(({ folderId }: { readonly folderId: FolderId }) =>
+			Effect.promise(() =>
+				folderId === FolderId.make("one")
+					? firstOrigin.promise
+					: secondOrigin.promise,
+			),
+		);
+		const emitted: EnvironmentShellData[] = [];
+		const driver = makeEnvironmentShellResourceDriver({
+			reportConnectionFailure: vi.fn(),
+		});
+		driver.start({
+			key: environmentShellResourceKey(ref),
+			client: {
+				"workspace.streamChanges": () => Stream.fromQueue(workspace),
+				"chat.streamChanges": () => Stream.never,
+				"session.streamChanges": () => Stream.never,
+				"chat.creation.stream": () => Stream.never,
+				"git.origin": loadOrigin,
+			} as unknown as EnvironmentShellDriverClient,
+			generation: 3,
+			data: null,
+			cursor: null,
+			snapshot: () => null,
+			isCurrent: () => true,
+			emit: (update) => {
+				if (update.data !== undefined) emitted.push(update.data);
+				return true;
+			},
+		} satisfies ResourceDriverContext<
+			EnvironmentShellDriverClient,
+			EnvironmentShellData
+		>);
+
+		Queue.offerUnsafe(workspace, [folder("one"), folder("two")]);
+		await vi.waitFor(() => expect(emitted.at(-1)?.folders).toHaveLength(2));
+		expect(emitted.at(-1)?.originsByFolder).toEqual({});
+		await vi.waitFor(() => expect(loadOrigin).toHaveBeenCalledTimes(2));
+		Queue.offerUnsafe(workspace, [folder("one"), folder("two")]);
+		await vi.waitFor(() => expect(loadOrigin).toHaveBeenCalledTimes(4));
+		const resolvedOrigin = {
+			host: "github.com",
+			owner: "zuse-ai",
+			repo: "zuse",
+			cloneUrl: "git@github.com:zuse-ai/zuse.git",
+		} as GitOriginInfo;
+		secondOrigin.resolve(resolvedOrigin);
+		await vi.waitFor(() =>
+			expect(emitted.at(-1)?.originsByFolder).toEqual({
+				two: resolvedOrigin,
+			}),
+		);
 		driver.stop();
 	});
 
