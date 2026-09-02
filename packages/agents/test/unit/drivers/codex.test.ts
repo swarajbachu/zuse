@@ -708,7 +708,7 @@ describe("codexWritableRootsForCwd", () => {
 
 describe("codexReasoningEffort", () => {
 	it("passes only the selected model's supported efforts through to Codex", () => {
-		expect(codexReasoningEffort("gpt-5.5", "xhigh")).toBe("xhigh");
+		expect(codexReasoningEffort("gpt-5.6-sol", "xhigh")).toBe("xhigh");
 		expect(codexReasoningEffort("gpt-5.5", "max")).toBeNull();
 		expect(codexReasoningEffort("gpt-5.6-sol", "max")).toBe("max");
 		expect(codexReasoningEffort("gpt-5.6-terra", "ultra")).toBe("ultra");

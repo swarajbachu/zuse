@@ -124,9 +124,10 @@ describe("cloud sync service", () => {
 			hostAlias: "zuse-workspace_abc",
 			remotePath: "/home/zuse/workspace",
 		});
-		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(runs.length).toBe(1);
-		expect(manager.status("workspace_abc").state).toBe("in-sync");
+		await vi.waitFor(() => {
+			expect(runs).toHaveLength(1);
+			expect(manager.status("workspace_abc").state).toBe("in-sync");
+		});
 		expect(manager.status("workspace_abc").lastSyncedAt).not.toBeNull();
 		await manager.dispose();
 	});
@@ -152,9 +153,10 @@ describe("cloud sync service", () => {
 			hostAlias: "zuse-workspace_old",
 			remotePath: "/home/zuse/workspace",
 		});
-		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(fallbackRuns).toBe(1);
-		expect(manager.status("workspace_old").state).toBe("in-sync");
+		await vi.waitFor(() => {
+			expect(fallbackRuns).toBe(1);
+			expect(manager.status("workspace_old").state).toBe("in-sync");
+		});
 		await manager.dispose();
 	});
 
@@ -211,8 +213,9 @@ describe("cloud sync service", () => {
 			hostAlias: "zuse-workspace_abc",
 			remotePath: "/home/zuse/workspace",
 		});
-		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(manager.status("workspace_abc").state).toBe("error");
+		await vi.waitFor(() =>
+			expect(manager.status("workspace_abc").state).toBe("error"),
+		);
 		expect(manager.status("workspace_abc").error).toContain(
 			"connection unexpectedly closed",
 		);

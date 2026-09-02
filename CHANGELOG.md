@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - The packaged `zusehq` CLI now discovers and authenticates to a foreground Serve process, reconnects after Serve restarts, and reports protocol mismatch, rejected credentials, and unavailable servers distinctly
+- Completed turns now clear stale working indicators after reconnects, and interrupted new-chat creation resumes from the durable outbox without losing or duplicating the chat, session, prompt, or workspace operation
 
 ## [0.20.13]
 

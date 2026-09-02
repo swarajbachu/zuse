@@ -10,9 +10,20 @@ import queueChipSource from "../../src/components/composer/queue-chip.tsx?raw";
 import workspacePickerSource from "../../src/components/composer/workspace-picker.tsx?raw";
 import { chatLandingProgress } from "../../src/lib/chat-landing-progress.ts";
 import cloudChatsSource from "../../src/lib/cloud-workspaces.ts?raw";
+import chatStoreSource from "../../src/store/chats.ts?raw";
 import externalThreadsSource from "../../src/store/external-threads.ts?raw";
 
 describe("chat landing progress", () => {
+	test("dispatches the selected workspace mode without a settings preflight", () => {
+		expect(chatLandingSource).toContain(
+			"workspacePolicy: workspacePolicyForMode(workspaceMode)",
+		);
+		expect(chatStoreSource).not.toContain(
+			"const workspacePolicy = await opts?.workspacePolicy",
+		);
+		expect(chatStoreSource).not.toContain("Promise<ChatWorkspace");
+	});
+
 	test("keeps provider thread imports out of the landing-page content", () => {
 		expect(chatLandingSource).not.toContain("ContinueThreadsSection");
 		expect(chatLandingSource).not.toContain("Continue Threads");

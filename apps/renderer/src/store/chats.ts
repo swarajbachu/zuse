@@ -5,7 +5,7 @@ import {
 	type ChatCreationOperation,
 	ChatId,
 	type ChatUnarchiveResult,
-	type ChatWorkspacePolicy,
+	type ChatWorkspaceRequestPolicy,
 	CommandId,
 	ComposerInput,
 	EnvironmentId,
@@ -319,10 +319,8 @@ type ChatsState = {
 			 */
 			readonly environmentId?: string;
 			readonly runtimeMode?: RuntimeMode;
-			readonly worktreeId?: WorktreeId | null | Promise<WorktreeId | null>;
-			readonly workspacePolicy?:
-				| ChatWorkspacePolicy
-				| Promise<ChatWorkspacePolicy>;
+			readonly worktreeId?: WorktreeId | null;
+			readonly workspacePolicy?: ChatWorkspaceRequestPolicy;
 			readonly permissionMode?: PermissionMode;
 			readonly toolSearch?: boolean;
 			readonly startupInput?: ComposerInput;
@@ -400,7 +398,7 @@ export type PendingChatCreation = {
 	readonly prompt: string | null;
 	readonly workspaceRequested: boolean;
 	readonly worktreeId: WorktreeId | null;
-	readonly workspacePolicy: ChatWorkspacePolicy | null;
+	readonly workspacePolicy: ChatWorkspaceRequestPolicy | null;
 	readonly phase: ChatCreationOperation["phase"];
 	readonly failureStage: ChatCreationOperation["failureStage"];
 	readonly retryable: boolean;
@@ -748,8 +746,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		markRendererInteraction(initialSessionId, "click");
 		const now = new Date();
 		const title = opts?.title?.trim() || "New chat";
-		const optimisticWorktreeId =
-			opts?.worktreeId instanceof Promise ? null : (opts?.worktreeId ?? null);
+		const optimisticWorktreeId = opts?.worktreeId ?? null;
 		const optimisticChat = Chat.make({
 			id: chatId,
 			projectId,
@@ -806,10 +803,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			prompt: opts?.startupInput?.text.trim() || null,
 			workspaceRequested: opts?.workspaceRequested === true,
 			worktreeId: optimisticWorktreeId,
-			workspacePolicy:
-				opts?.workspacePolicy instanceof Promise
-					? null
-					: (opts?.workspacePolicy ?? null),
+			workspacePolicy: opts?.workspacePolicy ?? null,
 			phase: "persisted",
 			failureStage: null,
 			retryable: true,
@@ -911,8 +905,8 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		const commandId = nextChatCreateCommandId(operationId);
 		let knownWorktreeId = optimisticWorktreeId;
 		try {
-			const workspacePolicy = await opts?.workspacePolicy;
-			const worktreeId = await (opts?.worktreeId ?? null);
+			const workspacePolicy = opts?.workspacePolicy;
+			const worktreeId = opts?.worktreeId ?? null;
 			knownWorktreeId =
 				workspacePolicy?._tag === "existing"
 					? workspacePolicy.worktreeId
@@ -925,7 +919,8 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 						worktreeId: knownWorktreeId,
 						workspacePolicy: workspacePolicy ?? null,
 						workspaceRequested:
-							workspacePolicy === undefined
+							workspacePolicy === undefined ||
+							workspacePolicy._tag === "automatic"
 								? (s.pendingCreationByChat[chatId] ?? pendingCreation)
 										.workspaceRequested
 								: workspacePolicy._tag !== "main",
