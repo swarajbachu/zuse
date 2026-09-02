@@ -38,6 +38,23 @@ const requiredFiles = [
 	join(desktopOutDir, "main.cjs"),
 	join(desktopOutDir, "preload.cjs"),
 ];
+
+function buildNativeHelpers() {
+	const result = spawnSync(
+		process.execPath,
+		[join(desktopDir, "scripts", "build-local-connectivity-helper.mjs")],
+		{
+			cwd: desktopDir,
+			stdio: "inherit",
+			env: process.env,
+		},
+	);
+	if (result.status !== 0) {
+		throw new Error(
+			`Native helper build failed (status ${result.status ?? "unknown"})`,
+		);
+	}
+}
 const configuredDevStartedAt = Number(process.env.ZUSE_DEV_STARTED_AT);
 const devStartedAt = Number.isFinite(configuredDevStartedAt)
 	? configuredDevStartedAt
@@ -220,6 +237,7 @@ async function shutdown(code) {
 	process.exit(code);
 }
 
+buildNativeHelpers();
 await waitForResources();
 const watcher = startWatcher();
 startApp();

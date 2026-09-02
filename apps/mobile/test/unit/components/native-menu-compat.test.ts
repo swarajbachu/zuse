@@ -24,6 +24,19 @@ describe("iOS native menu compatibility", () => {
 		expect(modelSheet).toContain("padding({ trailing: 6 })");
 	});
 
+	test("keeps new-chat selector triggers inside the available row width", () => {
+		const selector = source("selector-row.ios.tsx");
+		expect(selector).toContain('style={{ alignSelf: "stretch", height: 48 }}');
+		expect(selector).toContain("matchContents={{ vertical: true }}");
+		expect(selector).toContain(
+			"<Label title={label} systemImage={sf(symbol)} />",
+		);
+		expect(selector).toContain("setRowWidth(event.nativeEvent.layout.width)");
+		expect(selector).toContain(
+			'frame({ width: rowWidth, height: 48, alignment: "leading" })',
+		);
+	});
+
 	test("session actions use the native anchored header menu", () => {
 		const sessionActions = source("session-actions-menu.ios.tsx");
 		expect(sessionActions).toContain("<Host");

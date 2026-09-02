@@ -71,6 +71,23 @@ describe("mobile UI contracts", () => {
 		expect(modelSheet).toContain(
 			"PROVIDER_NATIVE_ASSET_NAMES[value.providerId]",
 		);
+		expect(newChat).toContain('className="mb-4 gap-1 px-1"');
+		expect(newChat).toContain("readNewChatPreferences");
+		expect(newChat).toContain("saveNewChatPreferences");
+		const savedDefaults = newChat.slice(
+			newChat.indexOf("void saveNewChatPreferences"),
+			newChat.indexOf(
+				").catch",
+				newChat.indexOf("void saveNewChatPreferences"),
+			),
+		);
+		expect(savedDefaults).toContain("connectionKey: effectiveConnectionKey");
+		expect(savedDefaults).toContain("projectId: effectiveProjectId");
+		expect(savedDefaults).toContain("sourceKind,");
+		expect(savedDefaults).not.toContain("source:");
+		expect(savedDefaults).not.toContain("branchLabel");
+		expect(newChat).toContain("const worktreeId = payload.createWorktree");
+		expect(newChat).not.toContain("listWorktrees");
 	});
 
 	test("keeps plan and attachment actions directly on the composer plus menu", () => {
@@ -176,6 +193,24 @@ describe("mobile UI contracts", () => {
 		expect(scanner).toContain("<CameraView");
 		expect(scanner).toContain("active");
 		expect(scanner).toContain("style={StyleSheet.absoluteFill}");
+	});
+
+	test("uses larger transparent targets with thin white header icons", () => {
+		const home = appFile("index.tsx");
+		const qrIcon = home.slice(
+			home.indexOf("icon={QrCodeIcon}"),
+			home.indexOf("</Pressable>", home.indexOf("icon={QrCodeIcon}")),
+		);
+		expect(home).toContain("width: 40");
+		expect(home).toContain("height: 40");
+		expect(home).not.toContain("backgroundColor");
+		expect(home).not.toContain("borderWidth");
+		expect(home).toContain('color="#ffffff"');
+		expect(qrIcon).toContain("size={18}");
+		expect(qrIcon).toContain("strokeWidth={0.1}");
+		expect(home).toContain("icon={Settings01Icon}");
+		expect(home).toContain("size={22}");
+		expect(home).toContain("strokeWidth={0.7}");
 	});
 
 	test("makes native nearby discovery the primary pairing path", () => {
@@ -351,6 +386,73 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("initialTranscriptLoading");
 		expect(thread).toContain("transcriptEndRunwayHeight");
 		expect(thread).not.toContain("onLayout={onTranscriptLayout}");
+	});
+
+	test("uses an icon-only native fork menu and backgroundless standalone loaders", () => {
+		const messageRow = readFileSync(
+			`${process.cwd()}/src/components/messages/message-row.tsx`,
+			"utf8",
+		);
+		const forkMenu = readFileSync(
+			`${process.cwd()}/src/components/messages/fork-from-message-menu.ios.tsx`,
+			"utf8",
+		);
+		const threads = appFile("c/[conn]/chat/[chatId]/threads.tsx");
+		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		const recovery = readFileSync(
+			`${process.cwd()}/src/components/connection-recovery-banner.tsx`,
+			"utf8",
+		);
+		const attachment = readFileSync(
+			`${process.cwd()}/src/components/messages/attachment-media.tsx`,
+			"utf8",
+		);
+		const homeSkeleton = readFileSync(
+			`${process.cwd()}/src/components/home/home-skeleton.tsx`,
+			"utf8",
+		);
+		const loader = threads.slice(
+			threads.indexOf('accessibilityLabel="Loading selected thread"'),
+			threads.indexOf("<Stack.Toolbar", threads.indexOf("switchingThread")),
+		);
+		const transcriptLoader = thread.slice(
+			thread.indexOf("function TranscriptLoadingState"),
+			thread.indexOf("class ThreadScreenBoundary"),
+		);
+		const reconnectingLoader = recovery.slice(
+			recovery.indexOf("{recovering ? ("),
+			recovery.indexOf(") : (", recovery.indexOf("{recovering ? (")),
+		);
+		const attachmentLoader = attachment.slice(
+			attachment.indexOf("if (uri === null)"),
+			attachment.indexOf(
+				"\n\treturn (",
+				attachment.indexOf("if (uri === null)") + 1,
+			),
+		);
+		expect(messageRow).toContain("<ForkFromMessageMenu");
+		expect(messageRow).not.toContain("Fork from here</Text>");
+		expect(messageRow).toContain("createdAt={message.createdAt}");
+		expect(messageRow).toContain('accessibilityLabel="Copy response"');
+		expect(messageRow).toContain("Clipboard.setStringAsync(text)");
+		expect(messageRow).toContain("formatMessageTime(createdAt)");
+		const assistantActions = messageRow.slice(
+			messageRow.indexOf('<View className="mt-1 flex-row items-center">'),
+			messageRow.indexOf("</View>", messageRow.indexOf("<ForkFromMessageMenu")),
+		);
+		expect(assistantActions.indexOf("<ForkFromMessageMenu")).toBeLessThan(
+			assistantActions.indexOf(
+				'<Pressable\n\t\t\t\t\taccessibilityRole="button"',
+			),
+		);
+		expect(forkMenu).toContain('systemName={sf("arrow.triangle.branch")}');
+		expect(forkMenu).toContain('label="Fork in this chat"');
+		expect(forkMenu).toContain('label="Fork to a new chat"');
+		expect(loader).not.toContain("backgroundColor");
+		expect(transcriptLoader).not.toContain("bg-");
+		expect(reconnectingLoader).not.toContain("bg-");
+		expect(attachmentLoader).not.toContain("bg-");
+		expect(homeSkeleton).not.toContain("bg-");
 	});
 
 	test("uses a synchronous composer submission gate", () => {

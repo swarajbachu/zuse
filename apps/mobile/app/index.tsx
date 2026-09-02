@@ -88,6 +88,14 @@ import { colors } from "~/theme";
 
 const LOGO = require("../assets/icon.png");
 
+const HEADER_ACTION_STYLE = {
+	width: 40,
+	height: 40,
+	alignItems: "center",
+	justifyContent: "center",
+	borderRadius: 20,
+} as const;
+
 type ChatFeedItem = HomeFeedItem & { type: "chat" };
 
 export default function HomeScreen() {
@@ -357,25 +365,39 @@ export default function HomeScreen() {
 					headerLargeTitle: false,
 					headerTitle: () => <BrandTitle />,
 					headerRight: () => (
-						<View className="flex-row items-center gap-5">
+						<View className="flex-row items-center gap-2">
 							<Pressable
 								accessibilityRole="button"
 								accessibilityLabel="Pair with desktop"
-								hitSlop={12}
+								hitSlop={4}
 								onPress={() => router.push("/connect/scan")}
+								style={({ pressed }) => [
+									HEADER_ACTION_STYLE,
+									pressed && { opacity: 0.72 },
+								]}
 							>
-								<HugeIcon icon={QrCodeIcon} size={21} color={colors.accent} />
+								<HugeIcon
+									icon={QrCodeIcon}
+									size={18}
+									color="#ffffff"
+									strokeWidth={0.1}
+								/>
 							</Pressable>
 							<Pressable
 								accessibilityRole="button"
 								accessibilityLabel="Open settings"
-								hitSlop={12}
+								hitSlop={4}
 								onPress={() => router.push("/settings")}
+								style={({ pressed }) => [
+									HEADER_ACTION_STYLE,
+									pressed && { opacity: 0.72 },
+								]}
 							>
 								<HugeIcon
 									icon={Settings01Icon}
 									size={22}
-									color={colors.accent}
+									color="#ffffff"
+									strokeWidth={0.7}
 								/>
 							</Pressable>
 						</View>

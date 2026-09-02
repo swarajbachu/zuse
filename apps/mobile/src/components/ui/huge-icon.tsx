@@ -5,8 +5,19 @@ type HugeIconProps = {
 	icon: IconSvgElement;
 	size?: number;
 	color: ColorValue;
+	strokeWidth?: number;
 };
 
-export const HugeIcon = ({ icon, size = 16, color }: HugeIconProps) => (
-	<HugeiconsIcon icon={icon} size={size} color={color} strokeWidth={1} />
+export const HugeIcon = ({
+	icon,
+	size = 16,
+	color,
+	strokeWidth = 1,
+}: HugeIconProps) => (
+	<HugeiconsIcon
+		icon={icon}
+		size={size}
+		color={color}
+		strokeWidth={strokeWidth}
+	/>
 );

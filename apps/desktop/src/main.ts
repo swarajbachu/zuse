@@ -1419,8 +1419,10 @@ const localConnectivityHelperPath = (): string =>
 				"local-connectivity",
 				"zuse-local-connectivity",
 			)
-		: Path.join(
-				app.getAppPath(),
+		: // Development bundles are isolated per runner, while native helpers are
+			// built once in the desktop source tree.
+			Path.join(
+				DESKTOP_SOURCE_DIR,
 				"native",
 				"local-connectivity",
 				"bin",
