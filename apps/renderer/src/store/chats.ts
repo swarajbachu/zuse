@@ -1934,9 +1934,9 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		) {
 			void useWorkspaceStore.getState().select(projectId);
 		}
-		// Land on the chat's last-active tab. If the memo points at an
-		// archived/deleted session, fall back to the oldest non-archived
-		// session inside the chat (or null).
+		// Land on the chat's last-active live tab, or another live tab when that
+		// memo is stale. An active chat with no live tabs is interrupted legacy
+		// state, so explicitly restore its persisted active tab below.
 		const chat = chatsByProject[projectId ?? ""]?.find((c) => c.id === chatId);
 		if (chat === undefined) return;
 		const projectSessions =
