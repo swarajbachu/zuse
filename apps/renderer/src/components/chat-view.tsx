@@ -52,6 +52,7 @@ import { hasPendingTurnStart } from "../lib/session-runtime-state.ts";
 import { timelineReadingPositionStore } from "../lib/session-timeline-cache.ts";
 import { restartProvisionalSessionTimeline } from "../lib/session-timeline-client-bus.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
+import { workspaceCreationProgressIsActive } from "../lib/setup-card-visibility.ts";
 import {
 	resolveInitialTimelineTarget,
 	resolveTimelineReadingPosition,
@@ -228,21 +229,21 @@ export function ChatView({
 	const awaitingUserAction =
 		awaitingPlanApproval || sessionPermissionRequests.length > 0;
 	const worktreeId = session?.worktreeId ?? null;
-	const setupActive = useWorktreesStore((state) => {
-		if (worktreeId === null) return false;
+	const worktreeSetupStatus = useWorktreesStore((state) => {
+		if (worktreeId === null) return null;
 		for (const list of Object.values(state.byProject)) {
 			const worktree = (list ?? EMPTY_WORKTREES).find(
 				(candidate) => candidate.id === worktreeId,
 			);
 			if (worktree === undefined) continue;
-			return (
-				worktree.setupStatus === "running" ||
-				worktree.setupStatus === "pending" ||
-				worktree.setupStatus === "failed"
-			);
+			return worktree.setupStatus;
 		}
-		return false;
+		return null;
 	});
+	const setupActive =
+		worktreeSetupStatus === "running" ||
+		worktreeSetupStatus === "pending" ||
+		worktreeSetupStatus === "failed";
 	const providerOutputStarted = messages.some(
 		(message) => message.role !== "user",
 	);
@@ -261,6 +262,11 @@ export function ChatView({
 	}, [providerOutputStarted, session.chatId]);
 	const cloudSetupActive =
 		cloudSummary !== null && cloudWorkspaceIsStarting(cloudSummary);
+	const workspaceProgressActive = workspaceCreationProgressIsActive({
+		workspaceRequested: pendingCreation?.workspaceRequested === true,
+		setupStatus: worktreeSetupStatus,
+		creationPhase: pendingCreation?.phase ?? null,
+	});
 	const agentStarting = resolveAgentStarting({
 		providerOutputStarted,
 		creationPhase: pendingCreation?.phase ?? null,
@@ -276,20 +282,23 @@ export function ChatView({
 				// in-flight UI resumes only after that lifecycle projection is gone.
 				inFlight: shouldRenderGenericAgentStartup({
 					inFlight,
-					hasPendingCreation: pendingCreation !== null || cloudSetupActive,
+					hasPendingCreation: workspaceProgressActive || cloudSetupActive,
 				}),
 				awaitingPlanApproval: awaitingUserAction,
 			}),
-		[awaitingUserAction, cloudSetupActive, inFlight, messages, pendingCreation],
+		[
+			awaitingUserAction,
+			cloudSetupActive,
+			inFlight,
+			messages,
+			workspaceProgressActive,
+		],
 	);
 	const timelineFooter = useMemo(
 		() => (
 			<>
 				<div className="px-[var(--chat-row-gutter,0.75rem)]">
-					<WorktreeSetupCard
-						agentStarting={agentStarting ? true : undefined}
-						providerOutputStarted={providerOutputStarted}
-					/>
+					<WorktreeSetupCard providerOutputStarted={providerOutputStarted} />
 					{pendingCreation?.phase === "failed" ? (
 						<ChatCreationFailureActions creation={pendingCreation} />
 					) : null}
@@ -297,7 +306,7 @@ export function ChatView({
 				<div className="h-2" />
 			</>
 		),
-		[agentStarting, pendingCreation, providerOutputStarted],
+		[pendingCreation, providerOutputStarted],
 	);
 	const turns = useMemo(() => deriveChatTurnNavigationEntries(rows), [rows]);
 	const latestUserMessageId = useMemo(
@@ -733,9 +742,7 @@ export function ChatView({
 								<ChatCreationPromptBubble
 									prompt={pendingStartupTranscriptPrompt}
 								/>
-								<WorktreeSetupCard
-									agentStarting={agentStarting ? true : undefined}
-								/>
+								<WorktreeSetupCard />
 							</div>
 							{shouldRenderEmptyChatState({
 								messageCount: messages.length,

@@ -263,7 +263,6 @@ describe("chat creation handoff", () => {
 					baseBranch: "main",
 					setupStatus: "running",
 					setupOutput: "installing dependencies",
-					agentStarting: undefined,
 					onRerun: null,
 				},
 			}),
@@ -272,25 +271,26 @@ describe("chat creation handoff", () => {
 		expect(html).not.toContain("<details open");
 	});
 
-	it("renders startup as one compact accordion with one agent indicator", () => {
+	it("starts with concrete worktree progress instead of a generic preparation step", () => {
 		const html = renderToStaticMarkup(
 			createElement(SetupCardView, {
 				data: {
 					repoName: "zuse",
 					hasWorktree: true,
-					worktreePending: false,
-					worktreeName: "bayleef",
-					branch: "feature/bayleef",
-					baseBranch: "main",
-					setupStatus: "succeeded",
+					worktreePending: true,
+					worktreeName: null,
+					branch: null,
+					baseBranch: null,
+					setupStatus: null,
 					setupOutput: "",
-					agentStarting: true,
 					onRerun: null,
 				},
 			}),
 		);
 		expect(html).toContain("<summary");
-		expect(html.match(/Starting agent/g)).toHaveLength(1);
+		expect(html).toContain("Creating a new copy of zuse");
+		expect(html).not.toContain("Preparing workspace");
+		expect(html).not.toContain("Starting agent");
 		expect(html).not.toContain("rounded-xl");
 	});
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useWorktreeSetupLifecycle } from "../hooks/use-worktree-setup-lifecycle.ts";
+import { workspaceCreationProgressIsActive } from "../lib/setup-card-visibility.ts";
 import { type PendingChatCreation, useChatsStore } from "../store/chats.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { SetupCardView } from "./worktree-setup-card.tsx";
@@ -24,14 +25,17 @@ export function PendingChatCreationSurface({
 		creation.worktreeId,
 		creation.phase,
 	);
+	const workspaceProgressActive = workspaceCreationProgressIsActive({
+		workspaceRequested: creation.workspaceRequested,
+		setupStatus: worktree?.setupStatus ?? null,
+		creationPhase: creation.phase,
+	});
 	return (
 		<div className="flex min-h-0 flex-1 flex-col px-3">
 			<div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
 				<div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
 					<ChatCreationPromptBubble prompt={creation.prompt} />
-					{creation.workspaceRequested ||
-					creation.worktreeId !== null ||
-					creation.phase === "starting_agent" ? (
+					{workspaceProgressActive ? (
 						<SetupCardView
 							data={{
 								repoName: folder?.name ?? "this repo",
@@ -42,7 +46,6 @@ export function PendingChatCreationSurface({
 										creation.phase === "creating_workspace" ||
 										(creation.worktreeId !== null && worktree === null)) &&
 									creation.phase !== "failed",
-								workspacePreparing: creation.phase === "persisted",
 								worktreeName: worktree?.name ?? null,
 								branch: worktree?.branch ?? null,
 								baseBranch: worktree?.baseBranch ?? null,
@@ -52,8 +55,6 @@ export function PendingChatCreationSurface({
 										? "failed"
 										: null),
 								setupOutput: worktree?.setupOutput ?? "",
-								agentStarting:
-									creation.phase === "starting_agent" ? true : undefined,
 								onRerun: null,
 							}}
 						/>

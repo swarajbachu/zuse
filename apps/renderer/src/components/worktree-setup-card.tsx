@@ -38,8 +38,6 @@ export type SetupCardData = {
 	readonly hasWorktree: boolean;
 	/** Worktree row not hydrated yet — branch/copy still in flight. */
 	readonly worktreePending: boolean;
-	/** Durable chat exists, but the server has not started checkout creation. */
-	readonly workspacePreparing?: boolean;
 	readonly worktreeName: string | null;
 	readonly branch: string | null;
 	readonly baseBranch: string | null;
@@ -52,8 +50,6 @@ export type SetupCardData = {
 		| "skipped"
 		| null;
 	readonly setupOutput: string;
-	/** Workspace is ready, but the initial provider turn has not started yet. */
-	readonly agentStarting?: boolean;
 	/** Rerun handler, present only when setup has failed and a row exists. */
 	readonly onRerun: (() => void) | null;
 };
@@ -66,10 +62,8 @@ export type SetupCardData = {
  * Renders nothing once there's no setup work left and the provider is ready.
  */
 export function WorktreeSetupCard({
-	agentStarting,
 	providerOutputStarted = false,
 }: {
-	readonly agentStarting?: boolean;
 	readonly providerOutputStarted?: boolean;
 } = {}) {
 	const ctx = useActiveContext();
@@ -132,18 +126,14 @@ export function WorktreeSetupCard({
 	const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
 	const externalResume = session !== null && session.resumeStrategy !== "none";
 
-	// This card belongs to chat/worktree creation. A provider still boots for
-	// every additional session, but that must not replay chat setup UI after the
-	// shared worktree is ready. The durable creation record owns the setup row;
-	// once it clears, the normal transcript working row takes over without a
-	// frame where both startup indicators are visible.
+	// This card owns workspace setup only. As soon as that work is done, the
+	// normal transcript activity row owns provider startup.
 	const visible = shouldShowSetupCard({
 		externalResume,
 		initialSession,
 		hasWorktree,
 		setupDone,
 		workspacePending: ctx.status === "worktree-pending",
-		creationPending: pendingCreation !== null,
 	});
 	if (providerOutputStarted) return null;
 	if (cloudSummary !== null) {
@@ -172,13 +162,11 @@ export function WorktreeSetupCard({
 				repoName: repoName ?? "this repo",
 				hasWorktree,
 				worktreePending,
-				workspacePreparing: pendingCreation?.phase === "persisted",
 				worktreeName: worktree?.name ?? null,
 				branch: worktree?.branch ?? null,
 				baseBranch: worktree?.baseBranch ?? null,
 				setupStatus,
 				setupOutput: worktree?.setupOutput ?? "",
-				agentStarting,
 				onRerun:
 					worktree !== null && setupStatus === "failed"
 						? () => void rerunSetup(worktree.projectId, worktree.id)
@@ -399,14 +387,12 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 		repoName,
 		hasWorktree,
 		worktreePending,
-		workspacePreparing = false,
 		worktreeName,
 		branch,
 		baseBranch,
 		setupStatus,
 		setupOutput,
 		onRerun,
-		agentStarting,
 	} = data;
 
 	// The worktree request is already canonical before its id/list row arrives.
@@ -420,25 +406,17 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	const name = worktreeName ?? "your workspace";
 	const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
 	const summaryState: StepState =
-		setupStatus === "failed"
-			? "failed"
-			: agentStarting === true || !setupDone
-				? "active"
-				: "done";
+		setupStatus === "failed" ? "failed" : !setupDone ? "active" : "done";
 	const summaryLabel =
 		setupStatus === "failed"
 			? "Environment setup failed"
-			: agentStarting === true
-				? "Starting agent…"
-				: setupStatus === "running"
-					? "Running environment setup…"
-					: setupDone
-						? "Workspace ready"
-						: workspacePreparing
-							? "Preparing workspace…"
-							: worktreePending
-								? `Creating a new copy of ${repoName}…`
-								: "Detecting setup script…";
+			: setupStatus === "running"
+				? "Running environment setup…"
+				: setupDone
+					? "Workspace ready"
+					: worktreePending || worktreeName === null
+						? `Creating a new copy of ${repoName}…`
+						: "Detecting setup script…";
 
 	return (
 		<details className="group mx-auto w-full max-w-3xl px-4 pt-3 text-[12px]">
@@ -483,11 +461,9 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 							<StepRow
 								state={wtReady ? "done" : "active"}
 								label={
-									workspacePreparing
-										? "Preparing workspace…"
-										: worktreeName === null
-											? `Creating a new copy of ${repoName}…`
-											: `Created a new copy of ${repoName} called ${name}`
+									worktreeName === null
+										? `Creating a new copy of ${repoName}…`
+										: `Created a new copy of ${repoName} called ${name}`
 								}
 							/>
 							<StepRow
