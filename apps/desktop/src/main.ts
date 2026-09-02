@@ -1991,6 +1991,7 @@ async function createMainWindow() {
 	});
 	appendRemoteConnectionLog("desktop.startup.window_created", {
 		elapsedMs: Math.round(performance.now() - startupStartedAt),
+		processElapsedMs: Math.round(performance.now() - desktopProcessStartedAt),
 	});
 	installPowerMeasurementMonitor();
 	const sampleWindowTransition = () => {
@@ -2017,7 +2018,12 @@ async function createMainWindow() {
 
 	mainWindow.on("enter-full-screen", sendFullScreenState);
 	mainWindow.on("leave-full-screen", sendFullScreenState);
-	mainWindow.webContents.on("did-finish-load", sendFullScreenState);
+	mainWindow.webContents.on("did-finish-load", () => {
+		sendFullScreenState();
+		appendRemoteConnectionLog("desktop.startup.renderer_loaded", {
+			processElapsedMs: Math.round(performance.now() - desktopProcessStartedAt),
+		});
+	});
 
 	// Hand off http(s) URLs to the OS default browser via `shell.openExternal`
 	// — the renderer asked to leave Electron, not to host another Chromium
@@ -3275,7 +3281,13 @@ async function createMainWindow() {
 	// a fresh runtime — the only Effect.runFork in the main process.
 	const serverProtocol = electronServerProtocolLayer(
 		mainWindow.webContents,
-		appendRemoteConnectionLog,
+		(event, fields) =>
+			appendRemoteConnectionLog(event, {
+				...fields,
+				processElapsedMs: Math.round(
+					performance.now() - desktopProcessStartedAt,
+				),
+			}),
 	);
 	const apiWsPort = apiPort.port;
 	const apiWsProtocol = wsServerProtocolLayer({
@@ -3311,6 +3323,7 @@ async function createMainWindow() {
 	}
 	process.env.ZUSE_APP_VERSION = ZUSE_APP_VERSION;
 
+	const runtimeStartedAt = performance.now();
 	const launchedRuntime = Effect.runFork(
 		Layer.launch(
 			makeMainLayer({
@@ -3444,6 +3457,13 @@ async function createMainWindow() {
 							: Path.join(app.getPath("userData"), "cli-access.json"),
 					wsUrl: `ws://127.0.0.1:${apiWsPort}/rpc`,
 				},
+				onStartupPhase: (phase) =>
+					appendRemoteConnectionLog(`desktop.startup.${phase}`, {
+						runtimeElapsedMs: Math.round(performance.now() - runtimeStartedAt),
+						processElapsedMs: Math.round(
+							performance.now() - desktopProcessStartedAt,
+						),
+					}),
 			}),
 		).pipe(
 			Effect.catchCause((cause) =>

@@ -35,6 +35,7 @@ import { Cause, Effect, Fiber, Stream } from "effect";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { upsertLatestEntity } from "./latest-entity.ts";
+import { markRendererStartupMilestone } from "./performance-marks.ts";
 import type { MemoizeClient } from "./rpc-client.ts";
 import {
 	getRendererClientBus,
@@ -81,30 +82,29 @@ let nextDriverEpoch = 0;
 const environmentRef = (key: ResourceKey<unknown>): EnvironmentRef | null =>
 	key.kind === "environment-shell" && !("folderId" in key.ref) ? key.ref : null;
 
-const resolveOrigins = async (
-	client: EnvironmentShellDriverClient,
-	folders: ReadonlyArray<Folder>,
+const matchingCachedOrigin = (
 	previous: EnvironmentShellData | null,
-): Promise<Readonly<Record<string, GitOriginInfo | null>>> =>
-	Object.fromEntries(
-		await Promise.all(
-			folders.map(async (folder) => {
-				const cached = previous?.originsByFolder[folder.id];
-				if (
-					cached != null &&
-					previous?.folders.some(
-						(candidate) =>
-							candidate.id === folder.id && candidate.path === folder.path,
-					)
-				)
-					return [folder.id, cached] as const;
-				// Missing/failed lookups must be retried when a cached shell
-				// reconnects, even if its folder IDs have not changed.
-				const origin = await Effect.runPromise(
-					client["git.origin"]({ folderId: folder.id }),
-				).catch(() => null);
-				return [folder.id, origin] as const;
-			}),
+	folder: Folder,
+): GitOriginInfo | undefined => {
+	const cached = previous?.originsByFolder[folder.id];
+	return cached != null &&
+		previous?.folders.some(
+			(candidate) =>
+				candidate.id === folder.id && candidate.path === folder.path,
+		)
+		? cached
+		: undefined;
+};
+
+const foldersMatch = (
+	left: ReadonlyArray<Folder>,
+	right: ReadonlyArray<Folder>,
+): boolean =>
+	left.length === right.length &&
+	left.every((folder) =>
+		right.some(
+			(candidate) =>
+				candidate.id === folder.id && candidate.path === folder.path,
 		),
 	);
 
@@ -113,6 +113,11 @@ type EnvironmentShellInput =
 			type: "workspace";
 			folders: ReadonlyArray<Folder>;
 			originsByFolder: Readonly<Record<string, GitOriginInfo | null>>;
+	  }>
+	| Readonly<{
+			type: "origin";
+			projectId: FolderId;
+			origin: GitOriginInfo | null;
 	  }>
 	| Readonly<{
 			type: "chat";
@@ -175,35 +180,101 @@ const projectInputs = (
 		{ concurrency: "unbounded" },
 	);
 
+const originInput = (
+	client: EnvironmentShellDriverClient,
+	folder: Folder,
+): Stream.Stream<EnvironmentShellInput> => {
+	const attempt = () =>
+		client["git.origin"]({ folderId: folder.id }).pipe(
+			Effect.timeout("1 second"),
+		);
+	return Stream.fromEffect(
+		attempt().pipe(
+			Effect.catch(() =>
+				Effect.sleep("5 seconds").pipe(
+					Effect.andThen(attempt()),
+					Effect.catch(() => Effect.succeed(null)),
+				),
+			),
+			Effect.map(
+				(origin): EnvironmentShellInput => ({
+					type: "origin",
+					projectId: folder.id,
+					origin,
+				}),
+			),
+		),
+	);
+};
+
+const workspaceOrigins = (
+	folders: ReadonlyArray<Folder>,
+	previous: EnvironmentShellData | null,
+): Readonly<Record<string, GitOriginInfo | null>> =>
+	Object.fromEntries(
+		folders.flatMap((folder) => {
+			const cached = matchingCachedOrigin(previous, folder);
+			return cached === undefined ? [] : ([[folder.id, cached]] as const);
+		}),
+	);
+
 const shellInputs = (
 	client: EnvironmentShellDriverClient,
 	initial: EnvironmentShellData | null,
 ): Stream.Stream<EnvironmentShellInput, unknown> => {
 	let previous = initial;
+	const resolvedOriginFolders = new Set<FolderId>();
 	return client["workspace.streamChanges"]({}).pipe(
 		Stream.switchMap((folders) => {
-			const workspace = Stream.fromEffect(
-				Effect.tryPromise({
-					try: async (): Promise<EnvironmentShellInput> => {
-						const originsByFolder = await resolveOrigins(
-							client,
-							folders,
-							previous,
-						);
-						previous = {
-							...(previous ?? emptyShell()),
-							folders,
-							originsByFolder,
-						};
-						return { type: "workspace", folders, originsByFolder };
-					},
-					catch: (cause) => cause,
-				}),
+			const previousSnapshot = previous;
+			if (
+				previousSnapshot === null ||
+				!foldersMatch(previousSnapshot.folders, folders)
+			) {
+				resolvedOriginFolders.clear();
+			}
+			for (const folder of folders) {
+				if (matchingCachedOrigin(previousSnapshot, folder) !== undefined) {
+					resolvedOriginFolders.add(folder.id);
+				}
+			}
+			const originsByFolder = workspaceOrigins(folders, previous);
+			previous = {
+				...(previous ?? emptyShell()),
+				folders,
+				originsByFolder,
+			};
+			const workspace: Stream.Stream<EnvironmentShellInput> = Stream.make({
+				type: "workspace" as const,
+				folders,
+				originsByFolder,
+			});
+			const origins = Stream.mergeAll(
+				folders
+					.filter((folder) => !resolvedOriginFolders.has(folder.id))
+					.map((folder) =>
+						originInput(client, folder).pipe(
+							Stream.tap((input) =>
+								Effect.sync(() => {
+									if (input.type !== "origin" || previous === null) return;
+									resolvedOriginFolders.add(input.projectId);
+									previous = {
+										...previous,
+										originsByFolder: {
+											...previous.originsByFolder,
+											[input.projectId]: input.origin,
+										},
+									};
+								}),
+							),
+						),
+					),
+				{ concurrency: 4 },
 			);
 			return Stream.concat(
 				workspace,
 				Stream.mergeAll(
-					folders.map((folder) => projectInputs(client, folder)),
+					[origins, ...folders.map((folder) => projectInputs(client, folder))],
 					{
 						concurrency: "unbounded",
 					},
@@ -261,6 +332,7 @@ export const makeEnvironmentShellResourceDriver = (options: {
 					context.data?.creationOperationsByProject ?? {},
 			};
 			let version = 0;
+			let shellLiveMarked = false;
 			const chatReady = new Set<FolderId>();
 			const sessionReady = new Set<FolderId>();
 			const creationReady = new Set<FolderId>();
@@ -275,13 +347,18 @@ export const makeEnvironmentShellResourceDriver = (options: {
 				);
 			const emit = (): void => {
 				if (!active || !context.isCurrent()) return;
+				const live = isLive();
+				if (live && !shellLiveMarked) {
+					shellLiveMarked = true;
+					markRendererStartupMilestone("shell-live");
+				}
 				version += 1;
 				context.emit({
 					data: current,
 					cursor: { epoch, version },
 					resetEpoch: version === 1 && context.cursor?.epoch !== epoch,
-					sync: isLive() ? "live" : "synchronizing",
-					persist: isLive(),
+					sync: live ? "live" : "synchronizing",
+					persist: live,
 				});
 			};
 			const applyInput = (input: EnvironmentShellInput): void => {
@@ -325,6 +402,17 @@ export const makeEnvironmentShellResourceDriver = (options: {
 					return;
 				}
 				if (!current.folders.some((folder) => folder.id === input.projectId)) {
+					return;
+				}
+				if (input.type === "origin") {
+					current = {
+						...current,
+						originsByFolder: {
+							...current.originsByFolder,
+							[input.projectId]: input.origin,
+						},
+					};
+					emit();
 					return;
 				}
 				if (input.type === "chat") {
