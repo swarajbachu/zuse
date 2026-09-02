@@ -129,6 +129,7 @@ describe("renderer design system", () => {
 		expect(sidebar).toContain("group-hover:opacity-100");
 		expect(sidebar).toContain("group-focus-within:opacity-100");
 		expect(sidebar).toContain("<SidebarProjectHoverCard");
+		expect(sidebar).toContain("aria-label={`Open archived chats");
 		expect(sidebar.match(/<SidebarChatHoverCard/g)?.length).toBe(3);
 		expect(sidebar).toContain("<DitherCloudIcon");
 		expect(landing).toContain('role="menuitemradio"');
