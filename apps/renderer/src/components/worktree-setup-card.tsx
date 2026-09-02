@@ -2,6 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { CloudChatSummary } from "@zuse/contracts";
 import { Alert01Icon, Tick01Icon } from "@zuse/icons/solid-rounded";
 import { type ReactNode, useState } from "react";
+import { useWorktreeSetupLifecycle } from "../hooks/use-worktree-setup-lifecycle.ts";
 import { cloudWorkspaceIsStarting } from "../lib/cloud-chat-activity.ts";
 import {
 	refreshCloudChatCatalog,
@@ -15,7 +16,7 @@ import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
-import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
+import { useWorktreesStore } from "../store/worktrees.ts";
 import { Button } from "./ui/button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner";
@@ -105,15 +106,21 @@ export function WorktreeSetupCard({
 			return null;
 		return s.folders.find((f) => f.id === ctx.folderId)?.name ?? null;
 	});
-	const worktree = useWorktreesStore((s) => {
-		if (
-			(ctx.status !== "ready" && ctx.status !== "worktree-pending") ||
-			ctx.worktreeId === null
-		)
-			return null;
-		const list = s.byProject[ctx.folderId] ?? EMPTY_WORKTREES;
-		return list.find((w) => w.id === ctx.worktreeId) ?? null;
-	});
+	const setupProjectId =
+		pendingCreation?.projectId ??
+		(ctx.status === "ready" || ctx.status === "worktree-pending"
+			? ctx.folderId
+			: null);
+	const setupWorktreeId =
+		pendingCreation?.worktreeId ??
+		(ctx.status === "ready" || ctx.status === "worktree-pending"
+			? ctx.worktreeId
+			: null);
+	const worktree = useWorktreeSetupLifecycle(
+		setupProjectId,
+		setupWorktreeId,
+		pendingCreation?.phase ?? null,
+	);
 	const rerunSetup = useWorktreesStore((s) => s.rerunSetup);
 	const hasWorktree =
 		ctx.status === "worktree-pending" ||

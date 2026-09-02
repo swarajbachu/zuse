@@ -109,6 +109,17 @@ export const shouldRenderGenericAgentStartup = (input: {
 	readonly hasPendingCreation: boolean;
 }): boolean => input.inFlight && !input.hasPendingCreation;
 
+export const shouldRenderEmptyChatState = (input: {
+	readonly messageCount: number;
+	readonly hasPendingCreation: boolean;
+	readonly setupActive: boolean;
+	readonly agentStarting: boolean;
+}): boolean =>
+	input.messageCount === 0 &&
+	!input.hasPendingCreation &&
+	!input.setupActive &&
+	!input.agentStarting;
+
 export const resolvePendingStartupTranscriptPrompt = (
 	creation: PendingChatCreation | null,
 	canonicalMessageCount: number,
@@ -726,7 +737,12 @@ export function ChatView({
 									agentStarting={agentStarting ? true : undefined}
 								/>
 							</div>
-							{setupActive || agentStarting ? null : (
+							{shouldRenderEmptyChatState({
+								messageCount: messages.length,
+								hasPendingCreation: pendingCreation !== null,
+								setupActive,
+								agentStarting,
+							}) ? (
 								<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
 									<HugeiconsIcon
 										icon={Message01Icon}
@@ -739,7 +755,7 @@ export function ChatView({
 										</p>
 									</div>
 								</div>
-							)}
+							) : null}
 						</div>
 					) : !readingReady ? (
 						<div

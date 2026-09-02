@@ -11,12 +11,15 @@ import { describe, expect, it } from "vitest";
 import {
 	resolveAgentStarting,
 	resolvePendingStartupTranscriptPrompt,
+	shouldRenderEmptyChatState,
 	shouldRenderGenericAgentStartup,
 } from "../../src/components/chat-view.tsx";
 import {
 	CloudWorkspaceSetupView,
 	SetupCardView,
 } from "../../src/components/worktree-setup-card.tsx";
+import worktreeSetupSource from "../../src/components/worktree-setup-card.tsx?raw";
+import worktreeLifecycleSource from "../../src/hooks/use-worktree-setup-lifecycle.ts?raw";
 import { selectChatSurface } from "../../src/lib/chat-surface-selection.ts";
 import {
 	chatStartupUsesQueue,
@@ -150,6 +153,30 @@ describe("chat creation handoff", () => {
 				hasPendingCreation: true,
 			}),
 		).toBe("session");
+	});
+
+	it("does not render the empty-chat prompt beneath an optimistic first message", () => {
+		expect(
+			shouldRenderEmptyChatState({
+				messageCount: 0,
+				hasPendingCreation: true,
+				setupActive: false,
+				agentStarting: false,
+			}),
+		).toBe(false);
+	});
+
+	it("rehydrates and follows the reserved worktree from the live chat shell", () => {
+		expect(worktreeSetupSource).toContain("useWorktreeSetupLifecycle(");
+		expect(worktreeLifecycleSource).toContain(
+			"void refreshWorktrees(projectId)",
+		);
+		expect(worktreeLifecycleSource).toMatch(
+			/\[creationPhase, projectId, refreshWorktrees, worktreeId\]/,
+		);
+		expect(worktreeLifecycleSource).toContain(
+			"subscribeSetup(projectId, worktreeId)",
+		);
 	});
 
 	it("rehydrates the authoritative phase without losing the submitted message", () => {
