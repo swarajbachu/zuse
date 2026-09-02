@@ -21,7 +21,10 @@ import { makeBufferedInbox } from "./buffered-inbox.ts";
  */
 const SINGLE_WINDOW_CLIENT_ID = 0;
 
-export const makeElectronServerProtocol = (webContents: WebContents) => {
+export const makeElectronServerProtocol = (
+	webContents: WebContents,
+	onReady: () => void = () => undefined,
+) => {
 	const inbox = makeBufferedInbox<unknown>((receive) => {
 		const handler = (event: Electron.IpcMainEvent, frame: unknown) => {
 			if (event.sender.id !== webContents.id) return;
@@ -112,6 +115,7 @@ export const makeElectronServerProtocol = (webContents: WebContents) => {
 						}
 					}),
 			);
+			yield* Effect.sync(onReady);
 
 			return {
 				disconnects,
@@ -156,7 +160,9 @@ export const electronServerProtocolLayer = (
 	});
 	return Layer.effect(
 		RpcServer.Protocol,
-		makeElectronServerProtocol(webContents),
+		makeElectronServerProtocol(webContents, () =>
+			onDiagnostic?.("desktop.startup.ipc_ready"),
+		),
 	).pipe(
 		Layer.provide(
 			Layer.succeed(

@@ -16,7 +16,10 @@ export type RendererInteractionStage =
 export type RendererStartupMilestone =
 	| "rpc-connected"
 	| "settings-cache-hydrated"
-	| "settings-live";
+	| "settings-live"
+	| "environment-catalog-started"
+	| "projects-visible"
+	| "shell-live";
 
 const recordedStartupMilestones = new Set<RendererStartupMilestone>();
 
