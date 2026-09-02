@@ -13,9 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - The desktop interface now uses a darker green-neutral design system with a bottom-docked composer, compact settings and authentication dialogs, consistent segmented tabs, and cleaner project, computer, model, and reasoning controls
 - Imported chats, Cloud Workspace setup, approval questions, and permission prompts are denser and easier to scan
+- Desktop startup diagnostics now record window, renderer, IPC, migration, projector, project-visibility, and shell-readiness milestones
 
 ### Fixed
 - The packaged `zusehq` CLI now discovers and authenticates to a foreground Serve process, reconnects after Serve restarts, and reports protocol mismatch, rejected credentials, and unavailable servers distinctly
+- Projects now appear as soon as the workspace list loads while slow Git-origin metadata resolves independently in the background
 
 ## [0.20.13]
 
