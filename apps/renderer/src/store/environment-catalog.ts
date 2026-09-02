@@ -31,6 +31,7 @@ import {
 import { formatError } from "../lib/format-error.ts";
 import { createInitializationGate } from "../lib/initialization-gate.ts";
 import { upsertLatestEntity } from "../lib/latest-entity.ts";
+import { markRendererStartupMilestone } from "../lib/performance-marks.ts";
 import {
 	LOCAL_ENVIRONMENT_KEY,
 	registerApiEnvironment,
@@ -308,6 +309,7 @@ export const projectEnvironmentShell = (
 		loading: false,
 		error: null,
 	});
+	markRendererStartupMilestone("projects-visible");
 	// This function projects the canonical shell cell into compatibility stores.
 	// Never write the projection back into that same cell: ClientBus notifies its
 	// shell listener synchronously, so doing so recursively re-enters this
@@ -909,6 +911,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			hiddenApiEnvironmentIds: [],
 			initialize: () => {
 				return initializeOnce(get().initialized, async () => {
+					markRendererStartupMilestone("environment-catalog-started");
 					set({ initializing: true, initializationError: null });
 					try {
 						const localClient = await runtimeOperationClient(
