@@ -4,6 +4,7 @@ import fuzzysort from "fuzzysort";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useComposerAnchor } from "~/components/composer/use-composer-anchor";
+import { SkillIcon } from "~/components/skill-icon.tsx";
 import { overlaySurface } from "~/components/ui/overlay-surface";
 import { type ActiveTrigger, replaceWithChip } from "~/lib/codemirror/composer";
 import { useSessionSkills } from "~/lib/session-skills-client-bus.ts";
@@ -50,9 +51,8 @@ const filterSkills = (
 };
 
 /**
- * Slash popover. Single flat list — built-ins first, then disk skills.
- * No section headers, no leading icon, full-width rows; the screenshot
- * spec is a clean monospace `/name` followed by description on the same line.
+ * Shared command/skill popover. Slash triggers show commands and dollar
+ * triggers show skills, keeping both namespaces predictable.
  */
 export function SlashCommandPopover({
 	trigger,
@@ -72,17 +72,25 @@ export function SlashCommandPopover({
 			environmentId,
 			sessionId: sessionId as import("@zuse/contracts").SessionId,
 		},
-		draftSkills === null ? "connect" : "cache-only",
+		draftSkills === null && trigger.kind === "dollar"
+			? "connect"
+			: "cache-only",
 	);
 	const allSkills = draftSkills ?? skillsView.data?.skills ?? EMPTY_SKILLS;
 
 	const builtins = useMemo(
-		() => filterBuiltins(trigger.query, providerId),
-		[trigger.query, providerId],
+		() =>
+			trigger.kind === "slash"
+				? filterBuiltins(trigger.query, providerId)
+				: [],
+		[trigger.kind, trigger.query, providerId],
 	);
 	const skills = useMemo(
-		() => filterSkills(allSkills, trigger.query),
-		[allSkills, trigger.query],
+		() =>
+			trigger.kind === "dollar"
+				? filterSkills(allSkills, trigger.query)
+				: [],
+		[allSkills, trigger.kind, trigger.query],
 	);
 
 	const rows = useMemo<ReadonlyArray<Row>>(
@@ -125,7 +133,7 @@ export function SlashCommandPopover({
 				view.focus();
 			}
 		} else {
-			replaceWithChip(view, trigger.from, trigger.to, `/${row.skill.name}`, {
+			replaceWithChip(view, trigger.from, trigger.to, `$${row.skill.name}`, {
 				kind: "skill",
 				name: row.skill.name,
 				scope: row.skill.scope,
@@ -188,6 +196,7 @@ export function SlashCommandPopover({
 			{rows.map((row, i) => {
 				const active = i === highlight;
 				const name = row.kind === "builtin" ? row.command.name : row.skill.name;
+				const prefix = row.kind === "skill" ? "" : "/";
 				const description =
 					row.kind === "builtin"
 						? row.command.description
@@ -209,7 +218,13 @@ export function SlashCommandPopover({
 							active ? "bg-accent text-accent-foreground" : "hover:bg-muted/60",
 						)}
 					>
-						<span className="font-mono text-foreground">/{name}</span>
+						{row.kind === "skill" ? (
+							<SkillIcon className="size-3.5 text-primary/75" />
+						) : null}
+						<span className="font-mono text-foreground">
+							{prefix}
+							{name}
+						</span>
 						<span className="flex-1 truncate text-xs text-muted-foreground">
 							{description}
 						</span>

@@ -32,6 +32,7 @@ import { useWorktreesStore } from "~/store/worktrees";
 
 import { CodeBlock } from "./code-block.tsx";
 import { resolveFileOpenTarget, useFileChipContext } from "./file-chip.tsx";
+import { SiteFavicon } from "./site-favicon.tsx";
 import { Button } from "./ui/button.tsx";
 import {
 	Dialog,
@@ -97,6 +98,9 @@ function MarkdownLink({
 				}}
 				title={title}
 			>
+				{/^https?:\/\//i.test(href) ? (
+					<SiteFavicon url={href} className="markdown-link-favicon" />
+				) : null}
 				{children}
 			</a>
 			<MenuPopup anchor={virtualAnchor} align="start" side="bottom">

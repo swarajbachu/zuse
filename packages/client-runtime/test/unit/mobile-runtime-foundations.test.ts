@@ -24,6 +24,10 @@ describe("mobile runtime foundations", () => {
 			text: "/review ",
 			cursor: 8,
 		});
+		expect(detectComposerTrigger("use $review", 11)).toMatchObject({
+			kind: "dollar",
+			query: "review",
+		});
 	});
 
 	it("does not retain a typed reference after its token is extended", () => {

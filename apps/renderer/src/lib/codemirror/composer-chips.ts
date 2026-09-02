@@ -14,12 +14,13 @@ import {
 } from "@codemirror/view";
 
 import { buildFileIconDom } from "../../components/file-icon.tsx";
+import { SKILL_ICON_SVG } from "../skill-icon.ts";
 
 /**
  * One inline chip in the composer document. The chip renders as an atomic
  * widget that visually replaces the text span [from, to). The underlying
  * doc text still contains the canonical token (`@<relPath>` for files,
- * `/<skill-name>` for skills, `[image:<id>]` for attachments) so copy/cut
+ * `$<skill-name>` for skills, `[image:<id>]` for attachments) so copy/cut
  * round-trips through the clipboard cleanly.
  */
 export type ChipMeta =
@@ -165,11 +166,11 @@ class ChipWidget extends WidgetType {
 		label.className = "fz-chip-label";
 
 		if (this.meta.kind === "skill") {
-			// Skill chips render as `/name` text only — no leading icon. The
-			// monospace `/` cues the slash-command origin without an emoji-like
-			// sparkles glyph.
-			label.textContent = `/${chipLabel(this.meta)}`;
-			span.append(label);
+			const icon = document.createElement("span");
+			icon.className = "fz-chip-icon";
+			icon.innerHTML = SKILL_ICON_SVG;
+			label.textContent = chipLabel(this.meta);
+			span.append(icon, label);
 		} else {
 			const icon = document.createElement("span");
 			icon.className = "fz-chip-icon";

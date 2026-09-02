@@ -3523,6 +3523,7 @@ async function createMainWindow() {
 const ATTACHMENTS_HOST = "attachments";
 const POKEMON_HOST = "pokemon";
 const LINEAR_CONTEXT_HOST = "linear-context";
+const SITE_FAVICON_HOST = "site-favicon";
 
 const MIME_BY_EXT: Record<string, string> = {
 	png: "image/png",
@@ -3641,6 +3642,23 @@ const registerZuseProtocol = (): void => {
 
 	const handleAssetRequest = async (request: Request) => {
 		const url = new URL(request.url);
+		if (url.host === SITE_FAVICON_HOST) {
+			const hostname = decodeURIComponent(url.pathname.replace(/^\//, ""));
+			if (!/^[a-z0-9.-]{1,253}$/iu.test(hostname)) {
+				return new Response(null, { status: 400 });
+			}
+			try {
+				const response = await net.fetch(
+					`https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=64`,
+				);
+				if (!response.ok) return new Response(null, { status: 404 });
+				const headers = new Headers(response.headers);
+				headers.set("cache-control", "public, max-age=86400");
+				return new Response(response.body, { status: 200, headers });
+			} catch {
+				return new Response(null, { status: 404 });
+			}
+		}
 		if (url.host === LINEAR_CONTEXT_HOST) {
 			try {
 				const requestedPath = decodeURIComponent(url.pathname);

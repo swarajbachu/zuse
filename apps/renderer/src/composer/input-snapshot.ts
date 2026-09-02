@@ -41,7 +41,12 @@ export const composerSnapshotFromInput = (
 		});
 	}
 	for (const ref of input.skillRefs) {
-		addToken(`/${ref.name}`, {
+		const token = `$${ref.name}`;
+		const legacyToken = `/${ref.name}`;
+		if (!doc.includes(token) && doc.includes(legacyToken)) {
+			doc = doc.replace(legacyToken, token);
+		}
+		addToken(token, {
 			kind: "skill",
 			name: ref.name,
 			scope: ref.scope,

@@ -40,7 +40,7 @@ export function ComposerContextPicker({
 	providerId,
 	onSelect,
 }: {
-	kind: "at" | "slash";
+	kind: "at" | "slash" | "dollar";
 	query: string;
 	connection: WsProtocolOptions;
 	projectId: FolderId;
@@ -54,7 +54,11 @@ export function ComposerContextPicker({
 	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
-		if (kind !== "slash") return;
+		if (kind !== "dollar") {
+			setLoading(false);
+			return;
+		}
+		setLoading(true);
 		const connKey = connectionKeyForOptions(connection);
 		const environmentId = registerMobileEnvironment(connKey, connection);
 		const key = mobileSessionSkillsKey(environmentId, sessionId);
@@ -108,14 +112,17 @@ export function ComposerContextPicker({
 			return files.slice(0, 6).map((value) => ({ kind: "file", value }));
 		}
 		const normalized = query.toLowerCase();
-		const skillRows = skills
+		if (kind === "dollar") {
+			return skills
 			.filter((skill) => skill.name.toLowerCase().startsWith(normalized))
-			.map((value) => ({ kind: "skill" as const, value }));
+			.map((value) => ({ kind: "skill" as const, value }))
+			.slice(0, 6);
+		}
 		const commandRows = filterBuiltins(query, providerId).map((value) => ({
 			kind: "command" as const,
 			value,
 		}));
-		return [...skillRows, ...commandRows].slice(0, 6);
+		return commandRows.slice(0, 6);
 	}, [files, kind, providerId, query, skills]);
 
 	if (loading && rows.length === 0) {
@@ -134,7 +141,9 @@ export function ComposerContextPicker({
 		>
 			{rows.map((row) => {
 				const label =
-					row.kind === "file" ? row.value.relPath : `/${row.value.name}`;
+					row.kind === "file"
+						? row.value.relPath
+						: `${row.kind === "skill" ? "" : "/"}${row.value.name}`;
 				const detail =
 					row.kind === "file" ? row.value.kind : row.value.description;
 				const Icon =

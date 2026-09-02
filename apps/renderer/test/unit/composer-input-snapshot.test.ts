@@ -34,7 +34,7 @@ describe("composerSnapshotFromInput", () => {
 		);
 
 		expect(snapshot.doc).toBe(
-			"Review @src/app.ts with /audit carefully [image:attachment-1]",
+			"Review @src/app.ts with $audit carefully [image:attachment-1]",
 		);
 		expect(snapshot.chips.map((chip) => chip.meta.kind)).toEqual([
 			"file",

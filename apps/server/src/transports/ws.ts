@@ -693,6 +693,55 @@ export const wsServerProtocolLayer = (
 			if (opts.sshBridge === true) {
 				yield* router.add("GET", "/ssh", sshBridgeApp(log));
 			}
+			yield* router.add("GET", "/assets/site-favicon/*", (request) =>
+				Effect.gen(function* () {
+					const credential = sessionCredential(request, cookieName);
+					if (
+						requestRequiresAuthentication(
+							auth.policy,
+							request.headers,
+							browserSecurity.trustProxy,
+						)
+					) {
+						const authenticated =
+							credential !== null &&
+							(yield* auth
+								.verifyToken(credential)
+								.pipe(Effect.orElseSucceed(() => false)));
+						if (!authenticated) {
+							return yield* json({ error: "unauthorized" }, 401);
+						}
+					}
+					const pathname = new URL(request.url, "http://localhost").pathname;
+					let hostname: string;
+					try {
+						hostname = decodeURIComponent(
+							pathname.slice("/assets/site-favicon/".length),
+						);
+					} catch {
+						return yield* json({ error: "bad_request" }, 400);
+					}
+					if (!/^[a-z0-9.-]{1,253}$/iu.test(hostname)) {
+						return yield* json({ error: "bad_request" }, 400);
+					}
+					const remote = yield* Effect.promise(() =>
+						fetch(
+							`https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=64`,
+						).catch(() => null),
+					);
+					if (remote === null || !remote.ok) {
+						return yield* json({ error: "not_found" }, 404);
+					}
+					const bytes = new Uint8Array(
+						yield* Effect.promise(() => remote.arrayBuffer()),
+					);
+					return HttpServerResponse.uint8Array(bytes, {
+						contentType:
+							remote.headers.get("content-type") ?? "image/x-icon",
+						headers: { "cache-control": "public, max-age=86400" },
+					});
+				}),
+			);
 			yield* router.add("GET", "/assets/attachments/*", (request) =>
 				Effect.gen(function* () {
 					const credential = sessionCredential(request, cookieName);

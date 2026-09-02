@@ -36,7 +36,7 @@ export function ComposerContextTray({
 			{skillRefs.map((skill) => (
 				<ContextChip
 					key={`skill:${skill.name}`}
-					label={`/${skill.name}`}
+					label={skill.name}
 					icon={<Sparkles size={14} color={colors.secondaryFg} />}
 					onRemove={() => onRemoveSkill(skill.name)}
 				/>
