@@ -26,7 +26,10 @@ import {
 	closeActiveChatTab,
 	closeChatTab,
 } from "../../src/lib/close-chat-tab.ts";
-import { resolveChatSessionSelection } from "../../src/store/chats.ts";
+import {
+	chatRecoveryIsCurrentSelection,
+	resolveChatSessionSelection,
+} from "../../src/store/chats.ts";
 import { useProvidersStore } from "../../src/store/providers.ts";
 import { useSessionsStore } from "../../src/store/sessions.ts";
 
@@ -136,5 +139,16 @@ describe("closing chat tabs", () => {
 			sessionId: null,
 			recoverArchivedSessionId: archivedActiveId,
 		});
+	});
+
+	it("does not report a stale recovery failure after opening new chat", () => {
+		expect(
+			chatRecoveryIsCurrentSelection({
+				chatId,
+				projectId,
+				selectedChatId: null,
+				selectedProjectId: projectId,
+			}),
+		).toBe(false);
 	});
 });

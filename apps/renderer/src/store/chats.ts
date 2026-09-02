@@ -119,6 +119,18 @@ export const resolveChatSessionSelection = (
 	};
 };
 
+export const chatRecoveryIsCurrentSelection = ({
+	chatId,
+	projectId,
+	selectedChatId,
+	selectedProjectId,
+}: {
+	readonly chatId: ChatId;
+	readonly projectId: FolderId;
+	readonly selectedChatId: ChatId | null;
+	readonly selectedProjectId: FolderId | null;
+}): boolean => chatId === selectedChatId && projectId === selectedProjectId;
+
 const recoverArchivedActiveSession = async (
 	chatId: ChatId,
 	projectId: FolderId,
@@ -135,6 +147,16 @@ const recoverArchivedActiveSession = async (
 			commandId: nextChatCommandId("session-unarchive"),
 			payload: { sessionId },
 		});
+		if (
+			!chatRecoveryIsCurrentSelection({
+				chatId,
+				projectId,
+				selectedChatId: useChatsStore.getState().selectedChatId,
+				selectedProjectId: useWorkspaceStore.getState().selectedFolderId,
+			})
+		) {
+			return;
+		}
 		const { result: session } = await dispatchSessionCommand<
 			{ readonly sessionId: SessionId },
 			Session
@@ -159,8 +181,12 @@ const recoverArchivedActiveSession = async (
 			},
 		}));
 		if (
-			useChatsStore.getState().selectedChatId === chatId &&
-			useWorkspaceStore.getState().selectedFolderId === projectId
+			chatRecoveryIsCurrentSelection({
+				chatId,
+				projectId,
+				selectedChatId: useChatsStore.getState().selectedChatId,
+				selectedProjectId: useWorkspaceStore.getState().selectedFolderId,
+			})
 		) {
 			useSessionsStore.setState((state) => ({
 				selectedSessionId: sessionId,
@@ -171,7 +197,16 @@ const recoverArchivedActiveSession = async (
 			}));
 		}
 	} catch (error) {
-		useChatsStore.setState({ error: formatError(error) });
+		if (
+			chatRecoveryIsCurrentSelection({
+				chatId,
+				projectId,
+				selectedChatId: useChatsStore.getState().selectedChatId,
+				selectedProjectId: useWorkspaceStore.getState().selectedFolderId,
+			})
+		) {
+			useChatsStore.setState({ error: formatError(error) });
+		}
 	}
 };
 

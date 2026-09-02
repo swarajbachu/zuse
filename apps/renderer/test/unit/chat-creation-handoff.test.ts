@@ -14,6 +14,7 @@ import {
 	shouldRenderEmptyChatState,
 	shouldRenderGenericAgentStartup,
 } from "../../src/components/chat-view.tsx";
+import { ChatCreationPromptBubble } from "../../src/components/pending-chat-creation.tsx";
 import {
 	CloudWorkspaceSetupView,
 	SetupCardView,
@@ -61,6 +62,15 @@ const operation = (
 });
 
 describe("chat creation handoff", () => {
+	it("renders the optimistic prompt with the canonical user bubble", () => {
+		const html = renderToStaticMarkup(
+			createElement(ChatCreationPromptBubble, { prompt: "Build it" }),
+		);
+		expect(html).toContain("data-chat-user-bubble");
+		expect(html).toContain("bg-user-bubble");
+		expect(html).not.toContain("bg-muted/70");
+	});
+
 	it("does not queue a ready plain-text startup turn", () => {
 		const input = ComposerInput.make({
 			text: "Start once",

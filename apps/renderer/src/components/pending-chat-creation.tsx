@@ -3,6 +3,11 @@ import { useWorktreeSetupLifecycle } from "../hooks/use-worktree-setup-lifecycle
 import { workspaceCreationProgressIsActive } from "../lib/setup-card-visibility.ts";
 import { type PendingChatCreation, useChatsStore } from "../store/chats.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
+import {
+	userBubbleClass,
+	userBubbleColumnClass,
+	userBubbleRowClass,
+} from "./user-bubble-frame.tsx";
 import { SetupCardView } from "./worktree-setup-card.tsx";
 
 /**
@@ -75,8 +80,12 @@ export function ChatCreationPromptBubble({
 }) {
 	if (prompt === null) return null;
 	return (
-		<div className="ml-auto max-w-[78%] rounded-xl rounded-br-md bg-muted/70 px-3 py-2 text-sm text-foreground">
-			{prompt}
+		<div className={userBubbleRowClass}>
+			<div className={userBubbleColumnClass}>
+				<div data-chat-user-bubble className={userBubbleClass}>
+					<div className="whitespace-pre-wrap break-words">{prompt}</div>
+				</div>
+			</div>
 		</div>
 	);
 }
