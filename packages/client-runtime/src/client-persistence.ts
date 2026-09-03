@@ -1,6 +1,11 @@
 import { sha256 } from "@noble/hashes/sha2";
 import { bytesToHex } from "@noble/hashes/utils";
-import type { CommandId, EnvironmentId } from "@zuse/contracts";
+import type {
+	CommandAcceptance,
+	CommandId,
+	CommandStatus,
+	EnvironmentId,
+} from "@zuse/contracts";
 
 import { type ResourceKey, resourceKeyId } from "./resource-ref";
 import type { ResourceCursor } from "./resource-state";
@@ -57,6 +62,10 @@ export type CommandReceipt<Result = unknown> = Readonly<{
 export type OutboxEntry = Readonly<{
 	command: ClientCommand;
 	fingerprint: CommandFingerprint;
+	/** Opaque encrypted v3 envelope; persisted before network acceptance. */
+	encryptedEnvelope?: unknown;
+	acceptance?: CommandAcceptance;
+	deliveryStatus?: CommandStatus;
 	attempts: number;
 	lastAttemptAt: number | null;
 }>;
@@ -195,4 +204,36 @@ export interface ClientCommandExecutor<Client> {
 		client: Client,
 		command: ClientCommand,
 	) => Promise<CommandExecutionReceipt>;
+}
+
+export type CommandDispatchHandle<Result = unknown> = Readonly<{
+	accepted: Promise<CommandAcceptance>;
+	result: Promise<CommandReceipt<Result>>;
+	cancel: () => Promise<CommandStatus>;
+	/** Present for opaque mailbox transports so IndexedDB can restore delivery. */
+	encryptedEnvelope?: Promise<unknown>;
+	subscribeStatus?: (listener: (status: CommandStatus) => void) => () => void;
+}>;
+
+export interface CloudCommandTransport {
+	readonly dispatch: <Result>(input: {
+		readonly command: ClientCommand<unknown, Result>;
+		readonly fingerprint: CommandFingerprint;
+	}) => CommandDispatchHandle<Result>;
+}
+
+export class CloudCommandTransportUnavailableError extends Error {
+	override readonly name = "CloudCommandTransportUnavailableError";
+}
+
+export class CloudCommandTerminalError extends Error {
+	override readonly name = "CloudCommandTerminalError";
+
+	constructor(
+		readonly state: CommandStatus["state"],
+		readonly category: string | undefined,
+		message: string,
+	) {
+		super(message);
+	}
 }

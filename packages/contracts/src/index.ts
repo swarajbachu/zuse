@@ -7,6 +7,7 @@ export * from "./autonomy.ts";
 export * from "./browser.ts";
 export * from "./cloud-auth.ts";
 export * from "./cloud-billing.ts";
+export * from "./cloud-commands.ts";
 export * from "./cloud-github.ts";
 export * from "./cloud-workspaces.ts";
 export * from "./composer.ts";

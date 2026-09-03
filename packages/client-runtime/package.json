@@ -7,6 +7,7 @@
 		"./chat-threads": "./src/chat-threads.ts",
 		"./client-bus": "./src/client-bus.ts",
 		"./client-persistence": "./src/client-persistence.ts",
+		"./cloud-command-registry": "./src/cloud-command-registry.ts",
 		"./command-dispatch": "./src/command-dispatch.ts",
 		"./composer-commands": "./src/composer-commands.ts",
 		"./composer-trigger": "./src/composer-trigger.ts",

@@ -164,6 +164,37 @@ const CloudWorkspace = MemoizeRpcs.toLayerHandler(
 	({ workspaceId }) =>
 		withCloudControl((service) => service.cloudWorkspace(workspaceId)),
 );
+const EnqueueCloudCommand = MemoizeRpcs.toLayerHandler(
+	"cloud.commands.enqueue",
+	(envelope) =>
+		withCloudControl((service) => service.enqueueCloudCommand(envelope)),
+);
+const CloudWorkspaceDataKey = MemoizeRpcs.toLayerHandler(
+	"cloud.commands.dataKey",
+	({ workspaceId }) =>
+		withCloudControl((service) => service.cloudWorkspaceDataKey(workspaceId)),
+);
+const CloudCommandStatus = MemoizeRpcs.toLayerHandler(
+	"cloud.commands.status",
+	({ workspaceId, commandId }) =>
+		withCloudControl((service) =>
+			service.cloudCommandStatus(workspaceId, commandId),
+		),
+);
+const WatchCloudCommands = MemoizeRpcs.toLayerHandler(
+	"cloud.commands.watch",
+	({ workspaceId, afterRevision }) =>
+		withCloudControl((service) =>
+			service.watchCloudCommands(workspaceId, afterRevision),
+		),
+);
+const CancelCloudCommand = MemoizeRpcs.toLayerHandler(
+	"cloud.commands.cancel",
+	({ workspaceId, commandId }) =>
+		withCloudControl((service) =>
+			service.cancelCloudCommand(workspaceId, commandId),
+		),
+);
 const CloudTranscriptCheckpoint = MemoizeRpcs.toLayerHandler(
 	"cloud.transcript.get",
 	({ workspaceId, sessionId, cursor }) =>
@@ -379,6 +410,11 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	PrepareCloudProject,
 	CloudWorkspaces,
 	CloudWorkspace,
+	EnqueueCloudCommand,
+	CloudWorkspaceDataKey,
+	CloudCommandStatus,
+	WatchCloudCommands,
+	CancelCloudCommand,
 	CloudTranscriptCheckpoint,
 	CloudTranscriptMessagePage,
 	WatchCloudWorkspace,

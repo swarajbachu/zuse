@@ -1,4 +1,8 @@
-import type { CommandId, EnvironmentId } from "@zuse/contracts";
+import type {
+	CloudCommandState,
+	CommandId,
+	EnvironmentId,
+} from "@zuse/contracts";
 
 export type ConnectionPhase =
 	| "dormant"
@@ -45,6 +49,8 @@ export type PendingCommand = Readonly<{
 	/** Stable command family used by selectors for immediate optimistic state. */
 	kind: string;
 	submittedAt: number;
+	deliveryPhase?: "persisting" | CloudCommandState;
+	cancellable?: boolean;
 }>;
 
 export type FailedCommand = Readonly<{

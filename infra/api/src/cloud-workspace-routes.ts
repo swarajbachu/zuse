@@ -4,6 +4,8 @@ import {
 	CloudAuthConfigureRequest,
 	CloudAuthLoginStartRequest,
 	CloudAuthProvider,
+	CloudCommandEnvelope,
+	CloudMailboxEligibleKind,
 	CloudProjectConnectRequest,
 	CloudProjectPrepareRequest,
 	CloudTranscriptCheckpointUpload,
@@ -14,6 +16,7 @@ import {
 	CloudWorkspaceRuntimeSummary,
 	CloudWorkspaceStartupTimings,
 	DEFAULT_RUNTIME_MODE,
+	RuntimeAcknowledgment,
 	RuntimeMode,
 } from "@zuse/contracts";
 import { POKEMON_BRANCH_CATALOG } from "@zuse/pokemon-data/branch-catalog";
@@ -851,6 +854,10 @@ const RuntimeCredentialRenewRequest = Schema.Struct({
 	proof: Schema.String,
 });
 
+const RuntimeCommandLeaseRequest = Schema.Struct({
+	storageIncarnationId: Schema.String,
+});
+
 const runtimeGeneration = (workspace: CloudWorkspaceRecord): number =>
 	typeof workspace.requestConfig.runtimeGeneration === "number"
 		? workspace.requestConfig.runtimeGeneration
@@ -1475,6 +1482,35 @@ export const routeCloudWorkspaceRequest = (
 		const gatewayMatch = /^\/v1\/cloud\/workspaces\/([^/]+)\/gateway$/u.exec(
 			path,
 		);
+		const runtimeCommandMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/commands\/(lease|ack)$/u.exec(
+				path,
+			);
+		if (method === "POST" && runtimeCommandMatch !== null) {
+			const workspaceId = decodeURIComponent(runtimeCommandMatch[1] ?? "");
+			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
+			if (
+				workspace.state !== "ready" ||
+				workspace.runtimeState !== "online" ||
+				workspace.providerSandboxId === undefined
+			)
+				return yield* Effect.fail(
+					conflict("cloud_workspace_runtime_not_ready"),
+				);
+			const action = runtimeCommandMatch[2] as "lease" | "ack";
+			const payload =
+				action === "lease"
+					? {
+							...(yield* decodeBody(RuntimeCommandLeaseRequest, request)),
+							runtimeGeneration: runtimeGeneration(workspace),
+							providerSandboxId: workspace.providerSandboxId,
+						}
+					: yield* decodeBody(RuntimeAcknowledgment, request);
+			const response = json(payload);
+			response.headers.set("x-zuse-mailbox-action", action);
+			response.headers.set("x-zuse-mailbox-workspace", workspaceId);
+			return response;
+		}
 		if (method === "GET" && gatewayMatch !== null) {
 			if (request.headers.get("upgrade")?.toLowerCase() !== "websocket")
 				return yield* Effect.fail(badRequest("websocket_upgrade_required"));
@@ -1601,6 +1637,132 @@ export const routeCloudWorkspaceRequest = (
 				actionMatch?.[2] === "delete");
 		const principal = yield* requireWorkos(request);
 		if (!isCleanupAction) yield* requireCloudBetaAccess(principal.accountId);
+
+		const commandCollectionMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/commands$/u.exec(path);
+		const commandItemMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/commands\/([^/]+)$/u.exec(path);
+		const commandWatchMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/commands\/watch$/u.exec(path);
+		const mailboxWorkspaceId = decodeURIComponent(
+			commandCollectionMatch?.[1] ??
+				commandItemMatch?.[1] ??
+				commandWatchMatch?.[1] ??
+				"",
+		);
+		const dataKeyMatch = /^\/v1\/cloud\/workspaces\/([^/]+)\/data-key$/u.exec(
+			path,
+		);
+		if (method === "GET" && dataKeyMatch !== null) {
+			const workspaceId = decodeURIComponent(dataKeyMatch[1] ?? "");
+			let workspace = yield* store.getWorkspace(workspaceId);
+			if (workspace === null || workspace.accountId !== principal.accountId)
+				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
+			if (workspace.state === "deleted" || workspace.state === "deleting")
+				return yield* Effect.fail(conflict("cloud_workspace_unavailable"));
+			if (workspace.wrappedTranscriptKey === undefined) {
+				const created = yield* createCloudTranscriptKey(
+					workspace.accountId,
+					workspace.workspaceId,
+				).pipe(
+					Effect.mapError(() =>
+						serviceUnavailable("cloud_transcript_key_unavailable"),
+					),
+				);
+				workspace =
+					(yield* store.installWrappedTranscriptKey(
+						workspace.workspaceId,
+						workspace.accountId,
+						created.envelope,
+						nowMs,
+					)) ?? workspace;
+			}
+			const wrappedKey = workspace.wrappedTranscriptKey;
+			if (wrappedKey === undefined)
+				return yield* Effect.fail(
+					serviceUnavailable("cloud_transcript_key_unavailable"),
+				);
+			const encodedKey = yield* openCloudTranscriptKey(
+				workspace.accountId,
+				workspace.workspaceId,
+				wrappedKey,
+			).pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("cloud_transcript_key_unavailable"),
+				),
+			);
+			return json({
+				workspaceId,
+				encodedKey,
+				keyVersion: 1,
+				destructionFence:
+					typeof workspace.requestConfig.destructionFence === "number"
+						? workspace.requestConfig.destructionFence
+						: 0,
+				mailboxEnabled: apiConfiguration.cloudCommandMailboxEnabled,
+			});
+		}
+		if (
+			commandCollectionMatch !== null ||
+			commandItemMatch !== null ||
+			commandWatchMatch !== null
+		) {
+			const workspace = yield* store.getWorkspace(mailboxWorkspaceId);
+			if (workspace === null || workspace.accountId !== principal.accountId)
+				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
+			if (method === "POST" && commandCollectionMatch !== null) {
+				if (
+					workspace.state === "archived" ||
+					workspace.state === "archiving" ||
+					workspace.state === "deleted" ||
+					workspace.state === "deleting"
+				)
+					return yield* Effect.fail(conflict("cloud_workspace_unavailable"));
+				const envelope = yield* decodeBody(CloudCommandEnvelope, request);
+				if (
+					envelope.workspaceId !== mailboxWorkspaceId ||
+					Schema.decodeUnknownOption(CloudMailboxEligibleKind)(envelope.kind)
+						._tag === "None"
+				)
+					return yield* Effect.fail(badRequest("cloud_command_not_eligible"));
+				const destructionFence =
+					typeof workspace.requestConfig.destructionFence === "number"
+						? workspace.requestConfig.destructionFence
+						: 0;
+				if (
+					envelope.keyVersion !== 1 ||
+					envelope.destructionFence !== destructionFence
+				)
+					return yield* Effect.fail(conflict("cloud_command_fence_stale"));
+				const response = json(envelope, 202);
+				response.headers.set("x-zuse-mailbox-action", "enqueue");
+				response.headers.set("x-zuse-mailbox-workspace", mailboxWorkspaceId);
+				response.headers.set("x-zuse-mailbox-account", principal.accountId);
+				return response;
+			}
+			if (method === "GET" && commandWatchMatch !== null) {
+				const afterRevision = Number(
+					url.searchParams.get("afterRevision") ?? 0,
+				);
+				if (!Number.isSafeInteger(afterRevision) || afterRevision < 0)
+					return yield* Effect.fail(badRequest("invalid_mailbox_revision"));
+				const response = json({ afterRevision });
+				response.headers.set("x-zuse-mailbox-action", "watch");
+				response.headers.set("x-zuse-mailbox-workspace", mailboxWorkspaceId);
+				return response;
+			}
+			if (commandItemMatch !== null) {
+				const commandId = decodeURIComponent(commandItemMatch[2] ?? "");
+				const action =
+					method === "GET" ? "status" : method === "DELETE" ? "cancel" : null;
+				if (action === null)
+					return yield* Effect.fail(badRequest("invalid_mailbox_action"));
+				const response = json({ commandId });
+				response.headers.set("x-zuse-mailbox-action", action);
+				response.headers.set("x-zuse-mailbox-workspace", mailboxWorkspaceId);
+				return response;
+			}
+		}
 		if (method === "GET" && path === "/v1/cloud/github") {
 			const installations = yield* store.listGithubInstallations(
 				principal.accountId,
@@ -2654,6 +2816,17 @@ export const routeCloudWorkspaceRequest = (
 						}
 					: {}),
 				desiredState,
+				...(action === "archive" || action === "delete"
+					? {
+							requestConfig: {
+								...workspace.requestConfig,
+								destructionFence:
+									(typeof workspace.requestConfig.destructionFence === "number"
+										? workspace.requestConfig.destructionFence
+										: 0) + 1,
+							},
+						}
+					: {}),
 				statusCode: recoverRuntime
 					? "resume-runtime-recovery-queued"
 					: `${action}-queued`,
@@ -2686,6 +2859,8 @@ export const routeCloudWorkspaceRequest = (
 				"x-zuse-reconcile-cloud-workspace",
 				workspace.workspaceId,
 			);
+			if (action === "archive" || action === "delete")
+				response.headers.set("x-zuse-mailbox-lifecycle", action);
 			return response;
 		}
 

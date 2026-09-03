@@ -24,6 +24,7 @@ import {
 import {
 	addOptimisticSessionMessage,
 	dispatchSessionCommand,
+	dispatchSessionCommandHandle,
 	getRendererClientBus,
 	removeOptimisticSessionMessage,
 	sessionTimelineResourceKey,
@@ -243,12 +244,18 @@ export const sendSessionMessage = async (
 		...(modelOptions === null ? {} : { modelOptions }),
 	};
 	try {
-		await dispatch<typeof payload, void>(
+		const handle = dispatchSessionCommandHandle<typeof payload, void>({
 			ref,
-			"messages.send",
+			kind: "messages.send",
 			commandId,
 			payload,
-		);
+		});
+		await handle.accepted;
+		void handle.result.catch((cause) => {
+			if (retryableFailure(ref, commandId)) return;
+			removeOptimisticSessionMessage(ref, messageId);
+			setSessionError(ref, classifyError(cause, options?.providerId));
+		});
 		return true;
 	} catch (cause) {
 		// A transport failure is ambiguous, but the command is already durable in

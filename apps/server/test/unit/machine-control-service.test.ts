@@ -41,6 +41,9 @@ describe("machine control api URL", () => {
 		expect(mapApiErrorCode(409, "cloud_branch_in_use:workspace_123").code).toBe(
 			"branch-in-use",
 		);
+		expect(mapApiErrorCode(409, "cloud_workspace_unavailable").code).toBe(
+			"invalid-state",
+		);
 	});
 
 	it("classifies rejected credentials as auth faults, not generic failures", () => {

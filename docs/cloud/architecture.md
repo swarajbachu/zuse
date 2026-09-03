@@ -11,10 +11,14 @@ desktop / mobile
   | WorkOS identity, lifecycle commands, tickets, checkpoint reads
   v
 API Worker ---- Postgres (catalog, lifecycle, receipts, billing metadata)
-  |       |
-  |       +---- R2 (encrypted read-only transcript projections)
-  |
-  +---- WorkspaceGateway Durable Object (opaque live WebSocket routing)
+	|       |
+	|       +---- R2 (encrypted read-only transcript projections)
+	|
+	+---- WorkspaceMailbox Durable Object (encrypted command coordination)
+	|                       |
+	|                       +---- wake / runtime lease / encrypted receipt
+	|
+	+---- WorkspaceGateway Durable Object (opaque live WebSocket routing)
                          |
                          v
                  workspace runtime in E2B
@@ -29,9 +33,11 @@ There are two distinct planes:
 - The control plane handles identity, authorization, workspace lifecycle,
   placement, short-lived connection tickets, catalog summaries, transcript
   checkpoint pointers, and billing.
-- The data plane handles commands and runtime output. After bootstrap, normal
-  session commands travel through the gateway to the runtime and are committed
-  through `SessionDomain`. API does not replicate them into Postgres.
+- The data plane handles commands and runtime output. Eligible cloud mutations
+  are accepted as encrypted envelopes by the stable workspace mailbox before
+  compute wakes. The runtime leases them and commits through `SessionDomain`;
+  live-only operations still travel through the gateway. API does not replicate
+  command plaintext or writable transcript state into Postgres.
 
 The only pre-runtime content exception is the encrypted, expiring launch
 intent. It lets an initial prompt survive the interval between workspace
@@ -46,6 +52,7 @@ idempotent command path and API removes it only after receipt.
 | API Worker | WorkOS auth, beta authorization, lifecycle, catalog, tickets, checkpoint metadata, billing | Normal transcript content, file state, terminal output |
 | Postgres | Control-plane records, command receipts, lifecycle revisions, immutable billing ledger | Writable chat projection |
 | WorkspaceGateway Durable Object | Authenticated live attachments and opaque frame forwarding | Replay log, transcript, pending command buffer |
+| WorkspaceMailbox Durable Object | Encrypted command envelopes, ordering, leases, lifecycle status, encrypted terminal results | Command plaintext, transcript projection, provider state |
 | Workspace runtime | Provider process, `SessionDomain`, SQLite, repository, Git, PTYs, checkpoint production | Account policy or billing decisions |
 | R2 | Encrypted immutable transcript checkpoints and older pages | Commands, files, Git, terminal state, plaintext keys |
 | E2B | Isolated compute and paused workspace storage | Zuse identity or transcript semantics |
@@ -87,9 +94,16 @@ Several UI surfaces can retain the same resource without opening competing
 streams. Resource data survives transport failure. A skeleton is valid only
 when no cached or runtime data exists.
 
-Cloud-specific behavior ends at the environment resolver. Once resolved, local,
-SSH, and cloud resources use the same client ownership model. This preserves
-the fast direct tunnel behavior for ordinary remote environments.
+Cloud-specific behavior ends at the ClientBus transport boundary. Eligible
+cloud commands use the mailbox without waiting for a runtime; local, SSH, and
+live-only commands retain wake-and-RPC behavior. All environments keep the same
+resource ownership model.
+
+The first rollout enables text message sends. Messages that reference newly
+uploaded attachments retain the live path until command-owned encrypted R2
+staging is enabled, so the mailbox never accepts a dependency it cannot recover.
+The shared eligibility registry records the required recovery strategy for the
+remaining command families before each family is advertised.
 
 ## Project preparation and placement
 

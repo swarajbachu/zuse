@@ -93,6 +93,8 @@ export function PlanApprovalTray({
 			sessionId,
 			nativeRequest.toolCallId,
 			outcome,
+			undefined,
+			{ environmentId },
 		);
 		if (accepted !== "accepted") setSubmitting(false);
 		queueMicrotask(() => useComposerBridge.getState().focus?.());
@@ -136,7 +138,13 @@ export function PlanApprovalTray({
 			await decide(pendingRequest.id, { _tag: "Deny" });
 			await useSessionsStore.getState().setPermissionMode(sessionId, "default");
 		} else if (nativeRequest !== null) {
-			await respondToPlan(sessionId, nativeRequest.toolCallId, "abandoned");
+			await respondToPlan(
+				sessionId,
+				nativeRequest.toolCallId,
+				"abandoned",
+				undefined,
+				{ environmentId },
+			);
 		} else {
 			onCancelEmulatedPlan?.();
 		}

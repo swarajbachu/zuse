@@ -1137,7 +1137,10 @@ export function ChatComposer({
 									pendingNativePlanApproval.toolCallId,
 									"cancelled",
 									docText,
-									{ silent: true },
+									{
+										silent: true,
+										environmentId: qualifiedEnvironmentId,
+									},
 								),
 							fallbackSend: () => send(input),
 						});
@@ -1231,6 +1234,7 @@ export function ChatComposer({
 							/>
 						) : pendingQuestion !== null ? (
 							<QuestionCard
+								environmentId={qualifiedEnvironmentId}
 								sessionId={sessionId}
 								itemId={pendingQuestion.itemId}
 								questions={pendingQuestion.questions}

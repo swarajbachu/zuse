@@ -1,8 +1,14 @@
-import type { CommandId, EnvironmentId } from "@zuse/contracts";
+import type {
+	CommandAcceptance,
+	CommandId,
+	EnvironmentId,
+} from "@zuse/contracts";
 
 import type {
 	ClientCommand,
 	ClientCommandExecutor,
+	CloudCommandTransport,
+	CommandDispatchHandle,
 	CommandFingerprint,
 	CommandOutbox,
 	CommandReceipt,
@@ -10,6 +16,8 @@ import type {
 } from "./client-persistence";
 import {
 	assertCommandFingerprint,
+	CloudCommandTerminalError,
+	CloudCommandTransportUnavailableError,
 	commandFingerprint,
 } from "./client-persistence";
 import {
@@ -110,6 +118,11 @@ export type ClientBusOptions<Client> = Readonly<{
 	persistence?: ResourcePersistence;
 	outbox?: CommandOutbox;
 	commandExecutor?: ClientCommandExecutor<Client>;
+	/** Stable control-plane transport for eligible cloud environments. */
+	commandTransportFor?: (
+		environmentId: EnvironmentId,
+		kind: string,
+	) => CloudCommandTransport | undefined;
 	/** Maps transport-level command failures into the shared connection state. */
 	commandFaultFor?: (cause: unknown) => EnvironmentFault | null;
 	driverFor?: ResourceDriverFactory<Client>;
@@ -237,6 +250,19 @@ export class ClientBus<Client> {
 		CommandId,
 		CommandReceipt<unknown>
 	>();
+	private readonly commandAcceptances = new Map<
+		CommandId,
+		{
+			readonly promise: Promise<CommandAcceptance>;
+			readonly resolve: (acceptance: CommandAcceptance) => void;
+			readonly reject: (cause: unknown) => void;
+		}
+	>();
+	private readonly commandCancels = new Map<
+		CommandId,
+		() => Promise<import("@zuse/contracts").CommandStatus>
+	>();
+	private durableOutboxRetry: ReturnType<typeof setTimeout> | null = null;
 	private disposed = false;
 
 	constructor(private readonly options: ClientBusOptions<Client>) {
@@ -244,6 +270,8 @@ export class ClientBus<Client> {
 			options.resolver,
 			options.runtime,
 		);
+		if (options.commandTransportFor !== undefined)
+			this.scheduleDurableOutboxFlush(0);
 	}
 
 	retain<Key extends ResourceKey<unknown>>(
@@ -573,7 +601,17 @@ export class ClientBus<Client> {
 			}
 			return Promise.resolve(completed as CommandReceipt<Result>);
 		}
-		const pending = this.enqueueCommand(command, fingerprint);
+		// The durable mailbox owns per-session ordering, so cloud commands must be
+		// accepted concurrently instead of waiting for an earlier command's final
+		// result in the local live-RPC lane.
+		const durable =
+			this.options.commandTransportFor?.(
+				command.environmentId,
+				command.kind,
+			) !== undefined;
+		const pending = durable
+			? this.dispatchWithPersistedReceipt(command, fingerprint)
+			: this.enqueueCommand(command, fingerprint);
 		this.commands.set(command.commandId, {
 			fingerprint,
 			receipt: pending as Promise<CommandReceipt<unknown>>,
@@ -588,6 +626,62 @@ export class ClientBus<Client> {
 			() => this.commands.delete(command.commandId),
 		);
 		return pending;
+	}
+
+	dispatchHandle<Result>(
+		command: ClientCommand<unknown, Result>,
+	): CommandDispatchHandle<Result> {
+		let acceptance = this.commandAcceptances.get(command.commandId);
+		if (acceptance === undefined) {
+			let resolve!: (value: CommandAcceptance) => void;
+			let reject!: (cause: unknown) => void;
+			const promise = new Promise<CommandAcceptance>(
+				(resolvePromise, rejectPromise) => {
+					resolve = resolvePromise;
+					reject = rejectPromise;
+				},
+			);
+			acceptance = { promise, resolve, reject };
+			this.commandAcceptances.set(command.commandId, acceptance);
+		}
+		const result = this.dispatch(command);
+		void result.then(
+			(receipt) => {
+				acceptance?.resolve({
+					commandId: command.commandId,
+					workspaceSequence: 0,
+					revision: 0,
+					acceptedAt: receipt.receivedAt,
+					state: "accepted",
+				} as CommandAcceptance);
+				this.commandAcceptances.delete(command.commandId);
+				this.commandCancels.delete(command.commandId);
+			},
+			(cause) => {
+				acceptance?.reject(cause);
+				this.commandAcceptances.delete(command.commandId);
+				this.commandCancels.delete(command.commandId);
+			},
+		);
+		return {
+			accepted: acceptance.promise,
+			result,
+			cancel: () => {
+				const cancel = this.commandCancels.get(command.commandId);
+				return cancel === undefined
+					? Promise.reject(new Error("This command can no longer be cancelled"))
+					: cancel();
+			},
+		};
+	}
+
+	cancelCommand(
+		commandId: CommandId,
+	): Promise<import("@zuse/contracts").CommandStatus> {
+		const cancel = this.commandCancels.get(commandId);
+		return cancel === undefined
+			? Promise.reject(new Error("This command can no longer be cancelled"))
+			: cancel();
 	}
 
 	/**
@@ -653,9 +747,46 @@ export class ClientBus<Client> {
 		);
 	}
 
+	private scheduleDurableOutboxFlush(delayMs: number): void {
+		if (this.disposed || this.durableOutboxRetry !== null) return;
+		this.durableOutboxRetry = setTimeout(() => {
+			this.durableOutboxRetry = null;
+			void this.flushDurableOutbox();
+		}, delayMs);
+	}
+
+	private async flushDurableOutbox(): Promise<void> {
+		const outbox = this.commandOutbox();
+		if (this.disposed || outbox === undefined) return;
+		const eligible = (await outbox.listOutbox()).filter(
+			(entry) =>
+				this.options.commandTransportFor?.(
+					entry.command.environmentId,
+					entry.command.kind,
+				) !== undefined,
+		);
+		if (eligible.length === 0) return;
+		await Promise.allSettled(
+			eligible.map((entry) => this.dispatch(entry.command)),
+		);
+		if (this.disposed) return;
+		const remaining = (await outbox.listOutbox()).some(
+			(entry) =>
+				this.options.commandTransportFor?.(
+					entry.command.environmentId,
+					entry.command.kind,
+				) !== undefined,
+		);
+		if (remaining) this.scheduleDurableOutboxFlush(2_000);
+	}
+
 	async dispose(): Promise<void> {
 		if (this.disposed) return;
 		this.disposed = true;
+		if (this.durableOutboxRetry !== null) {
+			clearTimeout(this.durableOutboxRetry);
+			this.durableOutboxRetry = null;
+		}
 		for (const entry of this.entries.values()) this.stopDriver(entry);
 		for (const binding of this.environments.values()) binding.unsubscribe();
 		await Promise.all(
@@ -1080,6 +1211,126 @@ export class ClientBus<Client> {
 						lastAttemptAt: Date.now(),
 					});
 					retainForRetry = true;
+				}
+				const durableTransport = this.options.commandTransportFor?.(
+					command.environmentId,
+					command.kind,
+				);
+				if (durableTransport !== undefined) {
+					const handle = durableTransport.dispatch<Result>({
+						command,
+						fingerprint,
+					});
+					let acceptance: CommandAcceptance | undefined;
+					try {
+						acceptance = await handle.accepted;
+					} catch (cause) {
+						if (cause instanceof CloudCommandTerminalError) {
+							retainForRetry = false;
+							throw cause;
+						}
+						if (!(cause instanceof CloudCommandTransportUnavailableError))
+							throw cause;
+						// `result` is derived from `accepted`; consume the matching rejection
+						// before falling back to the live transport so it cannot surface as an
+						// unhandled promise rejection.
+						void handle.result.catch(() => undefined);
+						acceptance = undefined;
+					}
+					if (acceptance !== undefined) {
+						this.commandAcceptances.get(command.commandId)?.resolve(acceptance);
+						this.commandCancels.set(command.commandId, handle.cancel);
+						if (outbox !== undefined) {
+							const current = (
+								await outbox.listOutbox(command.environmentId)
+							).find((entry) => entry.command.commandId === command.commandId);
+							if (current !== undefined) {
+								await outbox.putOutbox({
+									...current,
+									acceptance,
+									encryptedEnvelope: await handle.encryptedEnvelope,
+									deliveryStatus: {
+										commandId: acceptance.commandId,
+										workspaceSequence: acceptance.workspaceSequence,
+										revision: acceptance.revision,
+										state: acceptance.state,
+										everLeased: false,
+										updatedAt: acceptance.acceptedAt,
+									},
+								});
+							}
+						}
+						this.updateCommandResource(command, (view) => ({
+							...view,
+							pendingCommands: view.pendingCommands.map((item) =>
+								item.commandId === command.commandId
+									? {
+											...item,
+											deliveryPhase:
+												acceptance.state === "accepted"
+													? "waiting-for-runtime"
+													: acceptance.state,
+											cancellable: true,
+										}
+									: item,
+							),
+						}));
+						const unsubscribeStatus = handle.subscribeStatus?.((status) => {
+							if (status.everLeased)
+								this.commandCancels.delete(command.commandId);
+							this.updateCommandResource(command, (view) => ({
+								...view,
+								pendingCommands: view.pendingCommands.map((item) =>
+									item.commandId === command.commandId
+										? {
+												...item,
+												deliveryPhase: status.state,
+												cancellable:
+													!status.everLeased &&
+													(status.state === "accepted" ||
+														status.state === "waiting-for-runtime" ||
+														status.state === "blocked"),
+											}
+										: item,
+								),
+							}));
+							void (async () => {
+								const current = (
+									await outbox?.listOutbox(command.environmentId)
+								)?.find(
+									(entry) => entry.command.commandId === command.commandId,
+								);
+								if (current !== undefined)
+									await outbox?.putOutbox({
+										...current,
+										deliveryStatus: status,
+									});
+							})().catch(() => undefined);
+						});
+						let receipt: CommandReceipt<Result>;
+						try {
+							receipt = await handle.result;
+						} catch (cause) {
+							if (cause instanceof CloudCommandTerminalError)
+								retainForRetry = false;
+							throw cause;
+						} finally {
+							unsubscribeStatus?.();
+						}
+						if (outbox?.completeOutbox !== undefined)
+							await outbox.completeOutbox(receipt);
+						else {
+							await outbox?.putReceipt?.(receipt);
+							await outbox?.removeOutbox(command.commandId, fingerprint);
+						}
+						this.updateCommandResource(command, (view) => ({
+							...view,
+							pendingCommands: view.pendingCommands.filter(
+								(item) => item.commandId !== command.commandId,
+							),
+						}));
+						return receipt;
+					}
 				}
 				const binding = this.environment(command.environmentId);
 				const commandLease = binding.runtime.retain("wake");

@@ -16,6 +16,7 @@ import {
 	CloudBillingSummary,
 	CloudBillingUsagePage,
 	CloudChatList,
+	type CloudCommandEnvelope,
 	CloudGithubStatus,
 	CloudProject,
 	CloudProjectBuild,
@@ -28,10 +29,14 @@ import {
 	CloudWorkspace,
 	CloudWorkspaceConnection,
 	type CloudWorkspaceCreateRequest,
+	CloudWorkspaceDataKey,
 	CloudWorkspaceLaunch,
 	CloudWorkspaceList,
 	CloudWorkspacePreviewUrl,
 	CloudWorkspaceSshAccess,
+	CommandAcceptance,
+	CommandChangePage,
+	CommandStatus,
 	EntitlementList,
 	type EnvironmentId,
 	type MachineCreateRequest,
@@ -135,6 +140,24 @@ export interface MachineControlServiceShape {
 	readonly cloudWorkspace: (
 		workspaceId: string,
 	) => Effect.Effect<CloudWorkspace, MachineControlError>;
+	readonly enqueueCloudCommand: (
+		envelope: CloudCommandEnvelope,
+	) => Effect.Effect<CommandAcceptance, MachineControlError>;
+	readonly cloudWorkspaceDataKey: (
+		workspaceId: string,
+	) => Effect.Effect<CloudWorkspaceDataKey, MachineControlError>;
+	readonly cloudCommandStatus: (
+		workspaceId: string,
+		commandId: string,
+	) => Effect.Effect<CommandStatus, MachineControlError>;
+	readonly watchCloudCommands: (
+		workspaceId: string,
+		afterRevision: number,
+	) => Effect.Effect<CommandChangePage, MachineControlError>;
+	readonly cancelCloudCommand: (
+		workspaceId: string,
+		commandId: string,
+	) => Effect.Effect<CommandStatus, MachineControlError>;
 	readonly cloudTranscriptCheckpoint: (
 		workspaceId: string,
 		sessionId: string,
@@ -282,6 +305,8 @@ export const mapApiErrorCode = (
 		code === "cloud_image_rebuild_required"
 	)
 		return new MachineControlError("invalid-state");
+	if (code === "cloud_workspace_unavailable")
+		return new MachineControlError("invalid-state");
 	if (code === "cloud_credential_connection_required")
 		return new MachineControlError("credential-required");
 	if (typeof code === "string" && code.startsWith("cloud_branch_in_use:"))
@@ -368,10 +393,11 @@ export const MachineControlServiceLive: Layer.Layer<
 						() =>
 							response.json().catch(() => ({})) as Promise<{
 								readonly error?: unknown;
+								readonly code?: unknown;
 							}>,
 					);
 					return yield* Effect.fail(
-						mapApiErrorCode(response.status, payload.error),
+						mapApiErrorCode(response.status, payload.error ?? payload.code),
 					);
 				}
 				const payload = yield* Effect.tryPromise({
@@ -480,6 +506,34 @@ export const MachineControlServiceLive: Layer.Layer<
 				),
 			cloudWorkspace: (workspaceId) =>
 				request(ApiPaths.cloudWorkspace(workspaceId), CloudWorkspace),
+			enqueueCloudCommand: (envelope) =>
+				request(
+					ApiPaths.cloudWorkspaceCommands(envelope.workspaceId),
+					CommandAcceptance,
+					"POST",
+					envelope,
+				),
+			cloudWorkspaceDataKey: (workspaceId) =>
+				request(
+					ApiPaths.cloudWorkspaceDataKey(workspaceId),
+					CloudWorkspaceDataKey,
+				),
+			cloudCommandStatus: (workspaceId, commandId) =>
+				request(
+					ApiPaths.cloudWorkspaceCommand(workspaceId, commandId),
+					CommandStatus,
+				),
+			watchCloudCommands: (workspaceId, afterRevision) =>
+				request(
+					`${ApiPaths.cloudWorkspaceCommandWatch(workspaceId)}?afterRevision=${afterRevision}`,
+					CommandChangePage,
+				),
+			cancelCloudCommand: (workspaceId, commandId) =>
+				request(
+					ApiPaths.cloudWorkspaceCommand(workspaceId, commandId),
+					CommandStatus,
+					"DELETE",
+				),
 			cloudTranscriptCheckpoint: (workspaceId, sessionId, cursor) =>
 				request(
 					`${ApiPaths.cloudWorkspaceTranscriptCheckpoint(workspaceId, sessionId)}${

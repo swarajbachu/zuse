@@ -1,6 +1,12 @@
 import { Effect, Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 import { DEFAULT_RUNTIME_MODE, ProviderId, RuntimeMode } from "./agent.ts";
+import {
+	CloudCommandEnvelope,
+	CommandAcceptance,
+	CommandChangePage,
+	CommandStatus,
+} from "./cloud-commands.ts";
 import { AgentSessionId, ChatId } from "./ids.ts";
 import {
 	Message,
@@ -673,6 +679,50 @@ export const CloudWorkspacesUnarchiveRpc = Rpc.make(
 export const CloudWorkspacesDeleteRpc = Rpc.make("cloud.workspaces.delete", {
 	payload: CloudWorkspaceActionRequest,
 	success: CloudWorkspace,
+	error: CloudWorkspaceOpError,
+});
+
+export const CloudCommandsEnqueueRpc = Rpc.make("cloud.commands.enqueue", {
+	payload: CloudCommandEnvelope,
+	success: CommandAcceptance,
+	error: CloudWorkspaceOpError,
+});
+export class CloudWorkspaceDataKey extends Schema.Class<CloudWorkspaceDataKey>(
+	"CloudWorkspaceDataKey",
+)({
+	workspaceId: Schema.String,
+	encodedKey: Schema.String,
+	keyVersion: Schema.Number,
+	destructionFence: Schema.Number,
+	mailboxEnabled: Schema.Boolean,
+}) {}
+export const CloudWorkspaceDataKeyRpc = Rpc.make("cloud.commands.dataKey", {
+	payload: Schema.Struct({ workspaceId: Schema.String }),
+	success: CloudWorkspaceDataKey,
+	error: CloudWorkspaceOpError,
+});
+export const CloudCommandsStatusRpc = Rpc.make("cloud.commands.status", {
+	payload: Schema.Struct({
+		workspaceId: Schema.String,
+		commandId: Schema.String,
+	}),
+	success: CommandStatus,
+	error: CloudWorkspaceOpError,
+});
+export const CloudCommandsWatchRpc = Rpc.make("cloud.commands.watch", {
+	payload: Schema.Struct({
+		workspaceId: Schema.String,
+		afterRevision: Schema.Number,
+	}),
+	success: CommandChangePage,
+	error: CloudWorkspaceOpError,
+});
+export const CloudCommandsCancelRpc = Rpc.make("cloud.commands.cancel", {
+	payload: Schema.Struct({
+		workspaceId: Schema.String,
+		commandId: Schema.String,
+	}),
+	success: CommandStatus,
 	error: CloudWorkspaceOpError,
 });
 

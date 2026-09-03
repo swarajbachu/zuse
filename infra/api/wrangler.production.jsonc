@@ -22,6 +22,7 @@
 	"routes": [{ "pattern": "api.zuse.sh", "custom_domain": true }],
 	"triggers": { "crons": ["* * * * *"] },
 	"vars": {
+		"CLOUD_COMMAND_MAILBOX_ENABLED": "false",
 		"API_ISSUER": "https://api.zuse.sh",
 		"WORKOS_ISSUER": "https://api.workos.com",
 		"WORKOS_JWKS_URL": "https://api.workos.com/sso/jwks/client_01KWGQ818571ARFATQ3G9AR2Y2",
@@ -84,6 +85,10 @@
 			{
 				"name": "WORKSPACE_GATEWAY",
 				"class_name": "WorkspaceGateway"
+			},
+			{
+				"name": "WORKSPACE_MAILBOX",
+				"class_name": "WorkspaceMailbox"
 			}
 		]
 	},
@@ -91,6 +96,10 @@
 		{
 			"tag": "v1-workspace-gateway",
 			"new_sqlite_classes": ["WorkspaceGateway"]
+		},
+		{
+			"tag": "v2-workspace-mailbox",
+			"new_sqlite_classes": ["WorkspaceMailbox"]
 		}
 	]
 }

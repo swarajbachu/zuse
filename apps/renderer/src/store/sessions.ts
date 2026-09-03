@@ -145,6 +145,7 @@ type SessionsState = {
 	 * answers to the driver, which returns them as the tool result.
 	 */
 	readonly answerQuestion: (
+		environmentId: EnvironmentId,
 		sessionId: SessionId,
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
@@ -154,7 +155,10 @@ type SessionsState = {
 		toolCallId: AgentItemId,
 		outcome: PlanApprovalOutcome,
 		feedback?: string,
-		options?: { readonly silent?: boolean },
+		options?: {
+			readonly silent?: boolean;
+			readonly environmentId?: EnvironmentId;
+		},
 	) => Promise<"accepted" | "session-not-found" | "failed">;
 	/**
 	 * Switch the session's provider and model. Allowed only before the first
@@ -671,7 +675,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			if (projectId !== null) await get().hydrate(projectId);
 		}
 	},
-	answerQuestion: async (sessionId, itemId, answers) => {
+	answerQuestion: async (environmentId, sessionId, itemId, answers) => {
 		set({ error: null });
 		try {
 			const commandId = nextCommandId("session-answer-question");
@@ -679,8 +683,9 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				sessionId,
 				"session.answerQuestion",
 				commandId,
-				{ sessionId, itemId, answers },
-				"never",
+				{ commandId, sessionId, itemId, answers },
+				"safe",
+				environmentId,
 			);
 		} catch (err) {
 			set({ error: formatError(err) });
@@ -698,9 +703,11 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					sessionId,
 					toolCallId,
 					outcome,
+					commandId,
 					...(feedback === undefined ? {} : { feedback }),
 				},
-				"never",
+				"safe",
+				options?.environmentId,
 			);
 			return "accepted";
 		} catch (error) {

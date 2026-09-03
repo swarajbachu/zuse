@@ -1475,6 +1475,7 @@ export const SessionSetPermissionModeRpc = Rpc.make(
  */
 export const SessionAnswerQuestionRpc = Rpc.make("session.answerQuestion", {
 	payload: Schema.Struct({
+		commandId: CommandId,
 		sessionId: SessionId,
 		itemId: Schema.String,
 		answers: Schema.Array(
@@ -1491,6 +1492,7 @@ export const SessionAnswerQuestionRpc = Rpc.make("session.answerQuestion", {
 
 export const SessionPlanRespondRpc = Rpc.make("session.plan.respond", {
 	payload: Schema.Struct({
+		commandId: CommandId,
 		sessionId: SessionId,
 		toolCallId: Schema.String,
 		outcome: PlanApprovalOutcome,

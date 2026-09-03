@@ -1,13 +1,11 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
-import {} from "@zuse/icons/solid-rounded";
 import type {
 	AgentItemId,
+	EnvironmentId,
 	SessionId,
 	UserQuestion,
 	UserQuestionAnswer,
 } from "@zuse/contracts";
-import { X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronUp, X } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
 
@@ -16,6 +14,7 @@ import { cn } from "~/lib/utils";
 import { useSessionsStore } from "../store/sessions.ts";
 
 interface QuestionCardProps {
+	readonly environmentId: EnvironmentId;
 	readonly sessionId: SessionId;
 	readonly itemId: AgentItemId;
 	readonly questions: ReadonlyArray<UserQuestion>;
@@ -49,6 +48,7 @@ const isComplete = (
 	});
 
 export function QuestionCard({
+	environmentId,
 	sessionId,
 	itemId,
 	questions,
@@ -59,6 +59,7 @@ export function QuestionCard({
 	}
 	return (
 		<InteractiveQuestionCard
+			environmentId={environmentId}
 			sessionId={sessionId}
 			itemId={itemId}
 			questions={questions}
@@ -67,10 +68,12 @@ export function QuestionCard({
 }
 
 function InteractiveQuestionCard({
+	environmentId,
 	sessionId,
 	itemId,
 	questions,
 }: {
+	readonly environmentId: EnvironmentId;
 	readonly sessionId: SessionId;
 	readonly itemId: AgentItemId;
 	readonly questions: ReadonlyArray<UserQuestion>;
@@ -108,8 +111,11 @@ function InteractiveQuestionCard({
 				...(d.other.trim().length > 0 ? { other: d.other.trim() } : {}),
 			}),
 		);
-		await answerQuestion(sessionId, itemId, answers);
-		// No need to clear submitting — once answered, the parent unmounts us.
+		try {
+			await answerQuestion(environmentId, sessionId, itemId, answers);
+		} finally {
+			setSubmitting(false);
+		}
 	};
 
 	/**
@@ -188,6 +194,7 @@ function InteractiveQuestionCard({
 					// "user declined" tool result rather than hanging forever.
 					onClick={() => {
 						void answerQuestion(
+							environmentId,
 							sessionId,
 							itemId,
 							questions.map((_, i) => ({ questionIndex: i, selected: [] })),
@@ -234,7 +241,6 @@ function InteractiveQuestionCard({
 						onKeyDown={onOtherKeyDown}
 						placeholder="Type something… (press Enter)"
 						className="flex-1 bg-transparent py-1 text-sm text-foreground placeholder:text-muted-foreground/70 outline-none"
-						autoFocus
 					/>
 				</label>
 			</div>

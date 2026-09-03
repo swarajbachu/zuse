@@ -856,6 +856,70 @@ describe("cloud workspace store", () => {
 		await runtime.dispose();
 	});
 
+	test("mailbox wake reverses an in-flight pause but never a destructive fence", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(store.connectProject(project));
+		await runtime.runPromise(store.createBuild(build));
+		for (const [workspaceId, state, desiredState] of [
+			["workspace-pausing", "pausing", "paused"],
+			["workspace-archiving", "archiving", "archived"],
+		] as const) {
+			await runtime.runPromise(
+				store.createWorkspace(
+					{
+						workspaceId,
+						accountId: "account-1",
+						projectId: project.projectId,
+						buildId: build.buildId,
+						provider: build.provider,
+						runtimeState: "offline",
+						chatId: `chat:${workspaceId}`,
+						initialSessionId: `session:${workspaceId}`,
+						branch: `task/${workspaceId}`,
+						baseRef: "origin/main",
+						state,
+						desiredState,
+						statusCode: state,
+						idempotencyKey: `${workspaceId}-key`,
+						requestConfig: {},
+						nextActionAtMs: 10_000,
+						revision: 1,
+						createdAtMs: 100,
+						updatedAtMs: 200,
+						lastActivityAtMs: 200,
+					},
+					startCommand(workspaceId),
+				),
+			);
+		}
+
+		const resumed = await runtime.runPromise(
+			store.requestMailboxWake(
+				"workspace-pausing",
+				"account-1",
+				500,
+				3_600_500,
+			),
+		);
+		expect(resumed).toMatchObject({
+			desiredState: "ready",
+			statusCode: "resume-queued",
+			nextActionAtMs: 500,
+		});
+		await expect(
+			runtime.runPromise(
+				store.requestMailboxWake(
+					"workspace-archiving",
+					"account-1",
+					500,
+					3_600_500,
+				),
+			),
+		).resolves.toBeNull();
+		await runtime.dispose();
+	});
+
 	test("consumes a launch intent only after its matching receipt", async () => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
 		const store = await runtime.runPromise(CloudWorkspaceStore);

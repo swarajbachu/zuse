@@ -20,15 +20,14 @@ provider / client command
 | Chats, sessions, messages, turns, queues, command receipts | Environment SQLite |
 | Files and Git | Environment filesystem and repository |
 | Terminal process/output ordering | Environment PTY runtime |
-| Workspace lifecycle, identity, tickets, encrypted launch intent | API control plane |
+| Workspace lifecycle, identity, tickets, encrypted launch intent and command mailbox coordination | API control plane |
 | Cached client projection and safe command outbox | Platform client persistence |
 
-The API catalog carries only last-known metadata for discovery. It never
-projects normal transcript events and never accepts normal message commands.
-The only content-bearing API record is an encrypted, expiring launch intent
-used before a new workspace runtime exists. The runtime consumes it through the
-same idempotent chat/session creation path and acknowledges the stable launch
-command before the intent can be removed.
+The API catalog carries only last-known metadata for discovery and never
+projects normal transcript events. Cloud mailbox commands and launch intents
+are opaque encrypted envelopes, not writable transcript projections. The
+runtime consumes both through idempotent command paths and remains the only
+authority that can apply them to SQLite.
 
 ## Disconnect and catch-up
 
@@ -50,10 +49,11 @@ Each environment has one retained runtime and one supervised retry policy.
 Feature components do not construct clients or own retry loops. Cloud-specific
 wake and short-lived ticket logic is isolated in the environment resolver.
 
-The hibernatable workspace Durable Object is an opaque byte router. It owns no
-chat log, replay queue, or pending-frame buffer. If either side is unavailable,
-it returns a typed close so the one client supervisor reconnects and resumes
-from the persisted cursor.
+The epoch-scoped WorkspaceGateway Durable Object remains an opaque byte router
+with no replay buffer. The stable WorkspaceMailbox Durable Object separately
+owns encrypted command delivery, lane ordering, leases, and receipts. A sleeping
+runtime therefore delays application rather than turning an accepted message
+into a connection failure.
 
 ## Durability budgets
 

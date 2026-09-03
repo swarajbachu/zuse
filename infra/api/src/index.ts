@@ -12,6 +12,8 @@ import {
 	reconcileCloudWorkspace,
 	reconcileCloudWorkspaceStartup,
 } from "./cloud-workspace-reconciler.ts";
+import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
+import { ApiConfiguration } from "./config.ts";
 import { type ApiContext, handleRequest } from "./handler.ts";
 import { reconcileMachine, reconcileMachines } from "./machine-reconciler.ts";
 
@@ -68,6 +70,10 @@ export const makeApi = (
 	readonly reconcileCloudWorkspaceStartup: (
 		workspaceId: string,
 	) => Promise<void>;
+	readonly requestCloudMailboxWake: (
+		workspaceId: string,
+		accountId: string,
+	) => Promise<"ready" | "blocked" | "destroyed">;
 	readonly maintainCloudBilling: (nowMs: number) => Promise<{
 		readonly exported: number;
 		readonly meterReconciled: number;
@@ -98,6 +104,35 @@ export const makeApi = (
 			runtime.runPromise(reconcileCloudWorkspace(workspaceId)),
 		reconcileCloudWorkspaceStartup: (workspaceId) =>
 			runtime.runPromise(reconcileCloudWorkspaceStartup(workspaceId)),
+		requestCloudMailboxWake: (workspaceId, accountId) =>
+			runtime.runPromise(
+				Effect.gen(function* () {
+					const store = yield* CloudWorkspaceStore;
+					const workspace = yield* store.getWorkspace(workspaceId);
+					if (workspace === null || workspace.accountId !== accountId)
+						return "destroyed" as const;
+					if (
+						workspace.state === "archived" ||
+						workspace.state === "archiving" ||
+						workspace.state === "deleted" ||
+						workspace.state === "deleting" ||
+						workspace.desiredState === "archived" ||
+						workspace.desiredState === "deleted"
+					)
+						return "destroyed" as const;
+					const nowMs = Date.now();
+					const configuration = yield* ApiConfiguration;
+					const updated = yield* store.requestMailboxWake(
+						workspaceId,
+						accountId,
+						nowMs,
+						nowMs + configuration.cloudWorkspaceIdleTimeoutMs,
+					);
+					return updated?.desiredState === "ready"
+						? ("ready" as const)
+						: ("blocked" as const);
+				}),
+			),
 		maintainCloudBilling: (nowMs) =>
 			runtime.runPromise(maintainCloudBilling(nowMs)),
 		hasFinalizedE2bBillingEvent: (eventId, providerExecutionId) =>

@@ -38,6 +38,7 @@ import { ApiStorePg } from "./store.ts";
 import { WorkosVerifierLive } from "./workos.ts";
 
 export { WorkspaceGateway } from "./workspace-gateway.ts";
+export { WorkspaceMailbox } from "./workspace-mailbox.ts";
 
 /**
  * Cloudflare Worker bindings. Secrets (`RELAY_MINT_PRIVATE_JWK`) are set via
@@ -47,6 +48,12 @@ export { WorkspaceGateway } from "./workspace-gateway.ts";
 interface Env {
 	readonly HYPERDRIVE: { readonly connectionString: string };
 	readonly WORKSPACE_GATEWAY: {
+		readonly idFromName: (name: string) => unknown;
+		readonly get: (id: unknown) => {
+			readonly fetch: (request: Request) => Promise<Response>;
+		};
+	};
+	readonly WORKSPACE_MAILBOX: {
 		readonly idFromName: (name: string) => unknown;
 		readonly get: (id: unknown) => {
 			readonly fetch: (request: Request) => Promise<Response>;
@@ -135,6 +142,8 @@ interface Env {
 	readonly CLOUD_BILLING_ENFORCEMENT_ENABLED?: string;
 	readonly CLOUD_BILLING_EXPORT_ENABLED?: string;
 	readonly CLOUD_BILLING_CUTOVER_AT?: string;
+	/** Additive rollout gate. Accepted rows continue draining when disabled. */
+	readonly CLOUD_COMMAND_MAILBOX_ENABLED?: string;
 }
 
 const pollE2bLifecycleEvents = async (
@@ -375,6 +384,7 @@ const build = (env: Env): ReturnType<typeof makeApi> => {
 			: undefined,
 		cloudBillingEnforcementEnabled,
 		cloudBillingExportEnabled,
+		cloudCommandMailboxEnabled: env.CLOUD_COMMAND_MAILBOX_ENABLED === "true",
 		cloudBillingCutoverAtMs,
 		cloudBillingPolarMeterId: isConfigured(env.POLAR_CLOUD_OVERAGE_METER_ID)
 			? env.POLAR_CLOUD_OVERAGE_METER_ID
@@ -495,6 +505,147 @@ export default {
 		} catch (error) {
 			await api.dispose();
 			throw error;
+		}
+		const mailboxLifecycle = response.headers.get("x-zuse-mailbox-lifecycle");
+		if (mailboxLifecycle === "archive" || mailboxLifecycle === "delete") {
+			const lifecycleWorkspaceId = response.headers.get(
+				"x-zuse-reconcile-cloud-workspace",
+			);
+			response.headers.delete("x-zuse-mailbox-lifecycle");
+			if (lifecycleWorkspaceId !== null) {
+				const mailbox = env.WORKSPACE_MAILBOX.get(
+					env.WORKSPACE_MAILBOX.idFromName(lifecycleWorkspaceId),
+				);
+				await mailbox.fetch(
+					new Request("https://workspace-mailbox.internal/lifecycle", {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ action: mailboxLifecycle }),
+					}),
+				);
+			}
+		}
+		const mailboxWorkspaceId = response.headers.get("x-zuse-mailbox-workspace");
+		const mailboxAction = response.headers.get("x-zuse-mailbox-action");
+		if (mailboxWorkspaceId !== null && mailboxAction !== null) {
+			const mailbox = env.WORKSPACE_MAILBOX.get(
+				env.WORKSPACE_MAILBOX.idFromName(mailboxWorkspaceId),
+			);
+			const body = await response.text();
+			const internal = (path: string, method: string, value?: string) =>
+				mailbox.fetch(
+					new Request(`https://workspace-mailbox.internal${path}`, {
+						method,
+						headers:
+							value === undefined
+								? undefined
+								: { "content-type": "application/json" },
+						body: value,
+					}),
+				);
+			try {
+				if (mailboxAction === "enqueue") {
+					if (env.CLOUD_COMMAND_MAILBOX_ENABLED !== "true") {
+						await api.dispose();
+						return new Response(
+							JSON.stringify({ code: "cloud-command-mailbox-disabled" }),
+							{ status: 409, headers: { "content-type": "application/json" } },
+						);
+					}
+					const reserved = await internal("/reserve", "POST", body);
+					if (!reserved.ok) {
+						await api.dispose();
+						return reserved;
+					}
+					const envelope = JSON.parse(body) as { readonly commandId: string };
+					const accountId =
+						response.headers.get("x-zuse-mailbox-account") ?? "";
+					const wake = await api.requestCloudMailboxWake(
+						mailboxWorkspaceId,
+						accountId,
+					);
+					if (wake === "destroyed") {
+						const cancelled = await internal(
+							"/cancel",
+							"POST",
+							JSON.stringify({
+								commandId: envelope.commandId,
+								category: "workspace-destroyed",
+							}),
+						);
+						await api.dispose();
+						return cancelled;
+					}
+					const committed = await internal(
+						"/commit",
+						"POST",
+						JSON.stringify({ commandId: envelope.commandId }),
+					);
+					if (!committed.ok) {
+						await api.dispose();
+						return committed;
+					}
+					// Close the archive/delete race after acceptance. The lifecycle hook is
+					// the durable backstop; this recheck gives the caller the terminal state
+					// immediately when the destructive fence advanced during the saga.
+					const finalFence = await api.requestCloudMailboxWake(
+						mailboxWorkspaceId,
+						accountId,
+					);
+					if (finalFence === "destroyed") {
+						const cancelled = await internal(
+							"/cancel",
+							"POST",
+							JSON.stringify({
+								commandId: envelope.commandId,
+								category: "workspace-destroyed",
+							}),
+						);
+						await api.dispose();
+						return cancelled;
+					}
+					context.waitUntil(
+						api
+							.reconcileCloudWorkspaceStartup(mailboxWorkspaceId)
+							.finally(() => api.dispose()),
+					);
+					return committed;
+				}
+				if (mailboxAction === "status") {
+					const { commandId } = JSON.parse(body) as { commandId: string };
+					await api.dispose();
+					return internal(
+						`/status?commandId=${encodeURIComponent(commandId)}`,
+						"GET",
+					);
+				}
+				if (mailboxAction === "watch") {
+					const { afterRevision } = JSON.parse(body) as {
+						afterRevision: number;
+					};
+					await api.dispose();
+					return internal(`/watch?afterRevision=${afterRevision}`, "GET");
+				}
+				if (mailboxAction === "cancel") {
+					await api.dispose();
+					return internal("/cancel", "POST", body);
+				}
+				if (mailboxAction === "lease" || mailboxAction === "ack") {
+					await api.dispose();
+					return internal(`/${mailboxAction}`, "POST", body);
+				}
+			} catch (error) {
+				await api.dispose();
+				console.error("[workspace-mailbox] orchestration failed", {
+					workspaceId: mailboxWorkspaceId,
+					action: mailboxAction,
+					error,
+				});
+				return new Response(
+					JSON.stringify({ code: "cloud-command-mailbox-unavailable" }),
+					{ status: 503, headers: { "content-type": "application/json" } },
+				);
+			}
 		}
 		const gatewayWorkspaceId = response.headers.get("x-zuse-gateway-workspace");
 		const gatewayRole = response.headers.get("x-zuse-gateway-role");

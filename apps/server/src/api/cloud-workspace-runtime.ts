@@ -12,12 +12,14 @@ import {
 	CloudTranscriptCheckpointPayload,
 	CloudTranscriptMessagePagePayload,
 	CloudWorkspaceRuntimeSummary,
+	ComposerInput,
 	DEFAULT_RUNTIME_MODE,
 	decodeWorkspaceGatewayFrame,
 	encodeWorkspaceGatewayFrame,
 	FolderId,
 	MessageId,
 	ProviderId,
+	RuntimeLease,
 	RuntimeMode,
 	SessionId,
 	WIRE_PROTOCOL_VERSION,
@@ -27,6 +29,12 @@ import {
 	workspaceGatewayArrayBuffer,
 } from "@zuse/contracts";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import {
+	cloudCommandAdditionalData,
+	decryptCloudCommandBody,
+	encryptCloudCommandBody,
+	keyedCloudCommandFingerprint,
+} from "@zuse/utils/cloud-command-crypto";
 import {
 	cloudTranscriptAdditionalData,
 	encryptCloudTranscript,
@@ -44,6 +52,7 @@ import {
 	Semaphore,
 	Stream,
 } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import {
 	type CryptoKey,
 	compactDecrypt,
@@ -62,6 +71,7 @@ import {
 	WorkspaceService,
 	type WorkspaceServiceShape,
 } from "../workspace/services/workspace-service.ts";
+import { cloudStorageIncarnationId } from "./cloud-storage-incarnation.ts";
 
 const CREDENTIALS_READY_MARKER = "/var/lib/zuse/workspace/credentials-ready";
 const CREDENTIALS_READY_EVENT =
@@ -770,6 +780,157 @@ const requestJson = <A, I>(input: {
 		),
 	);
 
+const RuntimeLeasePage = Schema.Struct({ leases: Schema.Array(RuntimeLease) });
+const DurableMessagePayload = Schema.Struct({
+	commandId: Schema.String,
+	sessionId: SessionId,
+	text: Schema.optional(Schema.String),
+	input: Schema.optional(ComposerInput),
+	asGoal: Schema.optional(Schema.Boolean),
+	clientMessageId: Schema.optional(MessageId),
+});
+
+const runCloudMailboxConsumer = (input: {
+	readonly config: CloudWorkspaceRuntimeConfig;
+	readonly runtimeCredential: RuntimeCredentialState;
+	readonly transcriptKey: string;
+	readonly storageIncarnationId: string;
+	readonly messages: MessageService["Service"];
+	readonly sql: SqlClient.SqlClient;
+}): Effect.Effect<never, never> => {
+	const poll = Effect.gen(function* () {
+		const page = yield* requestJson({
+			schema: RuntimeLeasePage,
+			url: `${input.config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeCommandLease(input.config.workspaceId)}`,
+			token: input.runtimeCredential.credential,
+			method: "POST",
+			body: { storageIncarnationId: input.storageIncarnationId },
+		});
+		for (const lease of page.leases) {
+			const envelope = lease.command;
+			const aad = cloudCommandAdditionalData(envelope);
+			let acknowledgment: {
+				readonly commandId: typeof envelope.commandId;
+				readonly leaseToken: string;
+				readonly fingerprint: string;
+				readonly state: "applied" | "rejected";
+				readonly category?: string;
+				readonly resultIv?: string;
+				readonly resultCiphertext?: string;
+			};
+			const applied = yield* Effect.tryPromise({
+				try: async () => {
+					const plaintext = await decryptCloudCommandBody({
+						encodedKey: input.transcriptKey,
+						additionalData: aad,
+						iv: envelope.iv,
+						ciphertext: envelope.ciphertext,
+					});
+					const fingerprint = await keyedCloudCommandFingerprint({
+						encodedKey: input.transcriptKey,
+						canonicalPlaintext: plaintext,
+					});
+					if (fingerprint !== envelope.fingerprint)
+						throw new Error("command-fingerprint-mismatch");
+					if (envelope.kind !== "messages.send")
+						throw new Error("command-kind-not-runtime-enabled");
+					const payload = Schema.decodeUnknownSync(DurableMessagePayload)(
+						JSON.parse(new TextDecoder().decode(plaintext)),
+					);
+					if (
+						payload.commandId !== envelope.commandId ||
+						payload.sessionId !== envelope.sessionId
+					)
+						throw new Error("command-payload-identity-mismatch");
+					const receipts = await Effect.runPromise(
+						input.sql<{ readonly fingerprint: string | null }>`
+							SELECT fingerprint FROM command_receipts
+							WHERE command_id = ${envelope.commandId} LIMIT 1
+						`,
+					);
+					if (
+						receipts[0]?.fingerprint !== null &&
+						receipts[0]?.fingerprint !== undefined &&
+						receipts[0]?.fingerprint !== envelope.fingerprint
+					)
+						throw new Error("runtime-command-receipt-fingerprint-mismatch");
+					const composer = payload.input;
+					await Effect.runPromise(
+						input.messages.sendMessage(
+							envelope.commandId,
+							payload.sessionId,
+							composer?.text ?? payload.text ?? "",
+							composer?.attachments,
+							composer?.fileRefs,
+							composer?.skillRefs,
+							composer?.annotations,
+							composer?.asGoal ?? payload.asGoal,
+							payload.clientMessageId,
+						),
+					);
+					await Effect.runPromise(
+						input.sql`
+							UPDATE command_receipts SET
+								fingerprint = ${envelope.fingerprint},
+								command_kind = ${envelope.kind},
+								schema_version = ${envelope.schemaVersion},
+								storage_incarnation_id = ${input.storageIncarnationId}
+							WHERE command_id = ${envelope.commandId}
+								AND (fingerprint IS NULL OR fingerprint = ${envelope.fingerprint})
+						`,
+					);
+					const result = await encryptCloudCommandBody({
+						encodedKey: input.transcriptKey,
+						additionalData: aad,
+						plaintext: new TextEncoder().encode(
+							JSON.stringify({ commandId: envelope.commandId, result: null }),
+						),
+					});
+					return result;
+				},
+				catch: (cause) =>
+					cause instanceof Error ? cause : new Error(String(cause)),
+			}).pipe(Effect.result);
+			if (applied._tag === "Success") {
+				acknowledgment = {
+					commandId: envelope.commandId,
+					leaseToken: lease.leaseToken,
+					fingerprint: envelope.fingerprint,
+					state: "applied",
+					resultIv: applied.success.iv,
+					resultCiphertext: applied.success.ciphertext,
+				};
+			} else {
+				acknowledgment = {
+					commandId: envelope.commandId,
+					leaseToken: lease.leaseToken,
+					fingerprint: envelope.fingerprint,
+					state: "rejected",
+					category: applied.failure.message,
+				};
+			}
+			// Applying and acknowledging are separate durability boundaries. Keep
+			// retrying the identical lease receipt until the mailbox has it; a lost
+			// HTTP response must not turn successfully applied work into ambiguity.
+			yield* Effect.suspend(() =>
+				requestJson({
+					schema: Schema.Unknown,
+					url: `${input.config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeCommandAck(input.config.workspaceId)}`,
+					token: input.runtimeCredential.credential,
+					method: "POST",
+					body: acknowledgment,
+				}),
+			).pipe(Effect.retry(cloudRuntimeRetrySchedule));
+		}
+	}).pipe(
+		Effect.catch((error) =>
+			Effect.logWarning("cloud mailbox poll failed", { reason: error.reason }),
+		),
+		Effect.delay("1 second"),
+	);
+	return poll.pipe(Effect.forever);
+};
+
 const postReady = (
 	config: CloudWorkspaceRuntimeConfig,
 	runtimeCredential: string,
@@ -950,6 +1111,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 	| MessageService
 	| CredentialsService
 	| SessionDomain
+	| SqlClient.SqlClient
 > =>
 	config === undefined
 		? Layer.empty
@@ -959,9 +1121,15 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const workspaces = yield* WorkspaceService;
 					const chats = yield* ChatService;
 					const messages = yield* MessageService;
+					const sql = yield* SqlClient.SqlClient;
 					const credentials = yield* CredentialsService;
 					yield* installImageProviderSecrets(credentials);
 					const sessionDomain = yield* SessionDomain;
+					const storageIncarnationId = yield* cloudStorageIncarnationId.pipe(
+						Effect.mapError(() =>
+							fail("workspace_storage_incarnation_unavailable"),
+						),
+					);
 					const [credentialKeyPair, signingKeyPair] = yield* Effect.tryPromise({
 						try: () =>
 							Promise.all([
@@ -1377,6 +1545,14 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						"repository-ready",
 					).pipe(Effect.retry(cloudRuntimeRetrySchedule));
 					repositoryReady = true;
+					yield* runCloudMailboxConsumer({
+						config,
+						runtimeCredential,
+						transcriptKey,
+						storageIncarnationId,
+						messages,
+						sql,
+					}).pipe(Effect.forkScoped({ startImmediately: true }));
 					yield* acknowledgeBootstrap.pipe(
 						Effect.forkScoped({ startImmediately: true }),
 					);

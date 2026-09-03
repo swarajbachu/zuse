@@ -9,6 +9,7 @@ import {
 	providerStartupLabel,
 	useProviderStartupDelay,
 } from "../lib/provider-startup-delay.ts";
+import { cancelSessionCommand } from "../lib/session-timeline-client-bus.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
@@ -30,10 +31,18 @@ export function ChatWorkingRow({
 	readonly sessionId: SessionId;
 	readonly environmentId: EnvironmentId;
 }) {
-	const { runtime: runtimeState } = useRendererSessionTimeline(
+	const timeline = useRendererSessionTimeline(
 		sessionId,
 		"connect",
 		environmentId,
+	);
+	const runtimeState = timeline.runtime;
+	const waitingCommand = timeline.view.pendingCommands.find(
+		(command) =>
+			command.kind === "messages.send" &&
+			(command.deliveryPhase === "waiting-for-runtime" ||
+				command.deliveryPhase === "accepted" ||
+				command.deliveryPhase === "blocked"),
 	);
 	const session = useActiveSessionById(sessionId);
 	const providerLabel =
@@ -85,14 +94,29 @@ export function ChatWorkingRow({
 					showStartup && delayed ? "text-warning" : "text-muted-foreground"
 				}
 			>
-				{showStartup
-					? providerStartupLabel({
-							providerLabel,
-							failed: false,
-							delayed,
-						})
-					: `${providerLabel} is working`}
+				{waitingCommand !== undefined
+					? "Waiting for agent"
+					: showStartup
+						? providerStartupLabel({
+								providerLabel,
+								failed: false,
+								delayed,
+							})
+						: `${providerLabel} is working`}
 			</span>
+			{waitingCommand?.cancellable === true ? (
+				<button
+					type="button"
+					className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+					onClick={() =>
+						void cancelSessionCommand(waitingCommand.commandId).catch(
+							() => undefined,
+						)
+					}
+				>
+					Cancel
+				</button>
+			) : null}
 			<ShimmerText tone="lime" className="tabular-nums">
 				{formatElapsed(elapsed)}
 			</ShimmerText>

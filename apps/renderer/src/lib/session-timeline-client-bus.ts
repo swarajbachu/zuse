@@ -7,10 +7,12 @@ import {
 import type {
 	ClientCommand,
 	ClientCommandExecutor,
+	CommandDispatchHandle,
 	CommandReceipt,
 	PersistedResource,
 	ResourcePersistence,
 } from "@zuse/client-runtime/client-persistence";
+import { cloudCommandEligibility } from "@zuse/client-runtime/cloud-command-registry";
 import type {
 	EnvironmentFault,
 	EnvironmentResolver,
@@ -38,6 +40,7 @@ import {
 	createClientCommandOutbox,
 	resetMemoryCommandOutboxForTest,
 } from "./client-command-outbox.ts";
+import { cloudCommandTransport } from "./cloud-command-transport.ts";
 import {
 	acquireRendererRpcSession,
 	isAuthCodedConnectionError,
@@ -1140,6 +1143,12 @@ const createBus = (): ClientBus<MemoizeClient> => {
 		persistence: rendererResourcePersistence,
 		outbox: commandOutbox,
 		commandExecutor: executeSessionCommand,
+		commandTransportFor: (environmentId, kind) =>
+			isCloudWorkspaceEnvironment(environmentId) &&
+			kind === "messages.send" &&
+			cloudCommandEligibility(kind) !== undefined
+				? cloudCommandTransport
+				: undefined,
 		commandFaultFor: (cause) =>
 			isRpcClientTransportError(cause) ? faultFor(cause) : null,
 		runtime: {
@@ -1341,6 +1350,26 @@ export const dispatchSessionCommand = <Payload, Result>(input: {
 		retry: input.retry ?? "safe",
 		createdAt: Date.now(),
 	});
+
+export const dispatchSessionCommandHandle = <Payload, Result>(input: {
+	readonly ref: SessionRef;
+	readonly kind: string;
+	readonly commandId: ClientCommand["commandId"];
+	readonly payload: Payload;
+	readonly retry?: ClientCommand["retry"];
+}): CommandDispatchHandle<Result> =>
+	rendererClientBus.dispatchHandle({
+		kind: input.kind,
+		commandId: input.commandId,
+		environmentId: input.ref.environmentId,
+		resource: sessionTimelineResourceKey(input.ref),
+		payload: input.payload,
+		retry: input.retry ?? "safe",
+		createdAt: Date.now(),
+	});
+
+export const cancelSessionCommand = (commandId: ClientCommand["commandId"]) =>
+	rendererClientBus.cancelCommand(commandId);
 
 /** Adds a stable-id optimistic message to the canonical timeline cell. */
 export const addOptimisticSessionMessage = (

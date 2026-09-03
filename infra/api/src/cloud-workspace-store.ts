@@ -412,6 +412,18 @@ export interface CloudWorkspaceStoreApi {
 		nowMs: number,
 		nextIdleAtMs: number,
 	) => Effect.Effect<CloudWorkspaceRecord | null>;
+	readonly requestMailboxWake: (
+		workspaceId: string,
+		accountId: string,
+		nowMs: number,
+		nextIdleAtMs: number,
+	) => Effect.Effect<CloudWorkspaceRecord | null>;
+	readonly installWrappedTranscriptKey: (
+		workspaceId: string,
+		accountId: string,
+		wrappedTranscriptKey: string,
+		nowMs: number,
+	) => Effect.Effect<CloudWorkspaceRecord | null>;
 	readonly getRuntimeSummary: (
 		workspaceId: string,
 	) => Effect.Effect<CloudWorkspaceRuntimeSummaryRecord | null>;
@@ -1349,6 +1361,74 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						},
 					] as const;
 				}),
+			requestMailboxWake: (workspaceId, accountId, nowMs, nextIdleAtMs) =>
+				Ref.modify(state, (current) => {
+					const workspace = current.workspaces.get(workspaceId);
+					if (
+						workspace?.accountId !== accountId ||
+						workspace.state === "archived" ||
+						workspace.state === "archiving" ||
+						workspace.state === "deleted" ||
+						workspace.state === "deleting" ||
+						workspace.desiredState === "archived" ||
+						workspace.desiredState === "deleted"
+					)
+						return [null, current] as const;
+					const alreadyReady = workspace.state === "ready";
+					const resuming =
+						workspace.state === "paused" || workspace.state === "pausing";
+					const updated: CloudWorkspaceRecord = {
+						...workspace,
+						desiredState: "ready",
+						statusCode: resuming ? "resume-queued" : workspace.statusCode,
+						requestConfig: resuming
+							? {
+									...workspace.requestConfig,
+									startupTimings: {
+										requestedAt: nowMs,
+										resumeRequestedAt: nowMs,
+									},
+								}
+							: workspace.requestConfig,
+						nextActionAtMs: alreadyReady ? nextIdleAtMs : nowMs,
+						lastActivityAtMs: nowMs,
+						revision: workspace.revision + 1,
+						updatedAtMs: nowMs,
+					};
+					return [
+						updated,
+						{
+							...current,
+							workspaces: new Map(current.workspaces).set(workspaceId, updated),
+						},
+					] as const;
+				}),
+			installWrappedTranscriptKey: (
+				workspaceId,
+				accountId,
+				wrappedTranscriptKey,
+				nowMs,
+			) =>
+				Ref.modify(state, (current) => {
+					const workspace = current.workspaces.get(workspaceId);
+					if (workspace?.accountId !== accountId)
+						return [null, current] as const;
+					if (workspace.wrappedTranscriptKey !== undefined)
+						return [workspace, current] as const;
+					const updated: CloudWorkspaceRecord = {
+						...workspace,
+						wrappedTranscriptKey,
+						revision: workspace.revision + 1,
+						updatedAtMs: Math.max(nowMs, workspace.updatedAtMs + 1),
+					};
+					return [
+						updated,
+						{
+							...current,
+							workspaces: new Map(current.workspaces).set(workspaceId, updated),
+						},
+					] as const;
+				}),
 			getRuntimeSummary: (workspaceId) =>
 				Ref.get(state).pipe(
 					Effect.map(
@@ -2226,6 +2306,42 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							rows[0] ? workspaceFromRow(rows[0] as Row) : null,
 						),
 					),
+				),
+			requestMailboxWake: (workspaceId, accountId, nowMs, nextIdleAtMs) =>
+				orDie(
+					sql`UPDATE api_cloud_workspaces SET
+						desired_state='ready',
+						status_code=CASE WHEN state IN ('paused','pausing') THEN 'resume-queued' ELSE status_code END,
+						request_config=CASE WHEN state IN ('paused','pausing') THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}::bigint, 'resumeRequestedAt', ${nowMs}::bigint), true) ELSE request_config END,
+						next_action_at=CASE WHEN state='ready' THEN ${nextIdleAtMs} ELSE ${nowMs} END,
+						last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs}
+					 WHERE workspace_id=${workspaceId} AND account_id=${accountId}
+						AND state NOT IN ('archived','archiving','deleted','deleting')
+						AND desired_state NOT IN ('archived','deleted')
+					 RETURNING *`.pipe(
+						Effect.map((rows) =>
+							rows[0] ? workspaceFromRow(rows[0] as Row) : null,
+						),
+					),
+				),
+			installWrappedTranscriptKey: (
+				workspaceId,
+				accountId,
+				wrappedTranscriptKey,
+				nowMs,
+			) =>
+				orDie(
+					Effect.gen(function* () {
+						yield* sql`UPDATE api_cloud_workspaces SET
+							wrapped_transcript_key=${wrappedTranscriptKey},
+							revision=revision+1,
+							updated_at=GREATEST(${nowMs}, updated_at+1)
+						 WHERE workspace_id=${workspaceId} AND account_id=${accountId}
+							AND wrapped_transcript_key IS NULL`;
+						const rows = yield* sql`SELECT * FROM api_cloud_workspaces
+						 WHERE workspace_id=${workspaceId} AND account_id=${accountId} LIMIT 1`;
+						return rows[0] ? workspaceFromRow(rows[0] as Row) : null;
+					}).pipe(sql.withTransaction),
 				),
 			getRuntimeSummary: (workspaceId) =>
 				orDie(

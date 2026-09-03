@@ -53,6 +53,12 @@ log, command queue, or pending-frame database. Clients do not connect directly
 to E2B, so provider bearer tokens and sandbox access tokens never become the
 application authorization boundary.
 
+Eligible cloud commands instead use the separately addressed WorkspaceMailbox.
+Its ID is the stable workspace ID rather than a gateway epoch. It stores only
+AES-GCM ciphertext plus authenticated routing metadata, keyed fingerprints,
+lease fences, and encrypted results. Normal routing never unwraps the workspace
+data key; decryption and authoritative application happen in the runtime.
+
 ## Credentials and secrets
 
 - Repository and agent credentials are encrypted in the cloud credential vault
