@@ -1,8 +1,15 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { watch } from "node:fs";
-import { access, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import {
+	access,
+	mkdir,
+	readFile,
+	rename,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
 	AgentSessionId,
 	AgentTurnId,
@@ -77,6 +84,45 @@ const CREDENTIALS_READY_MARKER = "/var/lib/zuse/workspace/credentials-ready";
 const CREDENTIALS_READY_EVENT =
 	"/var/lib/zuse/workspace/credentials-ready-event";
 const REPOSITORY_READY_MARKER = "/var/lib/zuse/workspace/repository-ready";
+const cloudRuntimeDataDirectory = () =>
+	process.env.ZUSE_USER_DATA?.trim() || "/home/zuse/.zuse-data";
+
+const writeOwnerOnlyFile = (
+	path: string,
+	contents: string,
+): Effect.Effect<void, CloudWorkspaceRuntimeError> =>
+	Effect.tryPromise({
+		try: async () => {
+			const temporaryPath = `${path}.${process.pid}.${randomUUID()}.next`;
+			await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+			await writeFile(temporaryPath, contents, { mode: 0o600 });
+			await rename(temporaryPath, path);
+		},
+		catch: () => fail("workspace_github_broker_state_failed"),
+	});
+
+export const writeGithubBrokerState = (
+	config: CloudWorkspaceRuntimeConfig,
+	runtimeCredential: string,
+): Effect.Effect<void, CloudWorkspaceRuntimeError> => {
+	const directory = cloudRuntimeDataDirectory();
+	return Effect.all(
+		[
+			writeOwnerOnlyFile(
+				join(directory, "github-broker.json"),
+				`${JSON.stringify({
+					credentialUrl: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeGithubCredential(config.workspaceId)}`,
+				})}\n`,
+			),
+			writeOwnerOnlyFile(
+				join(directory, "cloud-runtime-credential"),
+				`${runtimeCredential}\n`,
+			),
+		],
+		{ discard: true },
+	);
+};
+
 export interface CloudWorkspaceRuntimeConfig {
 	readonly workspaceId: string;
 	readonly apiUrl: string;
@@ -699,6 +745,10 @@ const renewRuntimeCredential = (input: {
 					return yield* Effect.fail(
 						fail("workspace_runtime_renewal_fence_changed"),
 					);
+				yield* writeGithubBrokerState(
+					input.config,
+					result.success.runtimeCredential,
+				);
 				input.state.credential = result.success.runtimeCredential;
 				input.state.gatewayCredential = undefined;
 				input.state.expiresAt = result.success.expiresAt;
@@ -1163,6 +1213,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						generation: bootstrap.runtimeGeneration,
 						gatewayEpoch: bootstrap.gatewayEpoch,
 					};
+					yield* writeGithubBrokerState(config, runtimeCredential.credential);
 					yield* superviseRuntimeCredential({
 						config,
 						signingPrivateKey: signingKeyPair.privateKey,

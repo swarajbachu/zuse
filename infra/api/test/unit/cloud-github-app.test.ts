@@ -4,9 +4,36 @@ import { importPKCS8, jwtVerify, SignJWT } from "jose";
 import { describe, expect, test } from "vitest";
 
 import {
+	githubInstallationGrantForRepository,
 	githubInstallCallbackForwardUrl,
 	normalizeGithubPrivateKey,
 } from "../../src/cloud-github-app.ts";
+
+describe("GitHub App repository credentials", () => {
+	const grant = {
+		installationId: 123,
+		token: "installation-token",
+		expiresAt: "2099-01-01T00:00:00Z",
+		repositories: [
+			{
+				fullName: "Acme/Example",
+				cloneUrl: "https://github.com/Acme/Example.git",
+				defaultBranch: "main",
+				private: true,
+				updatedAt: "2099-01-01T00:00:00Z",
+			},
+		],
+	};
+
+	test("selects only an installation that grants the workspace repository", () => {
+		expect(
+			githubInstallationGrantForRepository([grant], "github.com/acme/example"),
+		).toBe(grant);
+		expect(
+			githubInstallationGrantForRepository([grant], "github.com/acme/other"),
+		).toBeNull();
+	});
+});
 
 describe("GitHub App private keys", () => {
 	test("normalizes GitHub's PKCS#1 download for jose", async () => {

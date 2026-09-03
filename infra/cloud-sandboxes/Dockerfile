@@ -57,6 +57,8 @@ COPY --chown=zuse:zuse --chmod=0600 sshd_config /home/zuse/.ssh/sshd_config
 COPY --chmod=0755 project-builder.sh /usr/local/bin/zuse-project-builder
 COPY --chmod=0755 workspace-bootstrap.sh /usr/local/bin/zuse-workspace-bootstrap
 COPY --chmod=0755 git-askpass.sh /usr/local/bin/zuse-git-askpass
+COPY --chmod=0755 github-auth.sh /usr/local/bin/zuse-github-auth
+RUN ln -sf /usr/local/bin/zuse-github-auth /usr/local/bin/gh
 COPY repository-script.ts /usr/local/lib/zuse/repository-script.ts
 COPY artifacts/runtime-updater.mjs /usr/local/lib/zuse/runtime-updater.mjs
 
@@ -66,6 +68,7 @@ RUN mkdir -p /var/lib/zuse/project-build /var/lib/zuse/workspace \
 
 USER zuse
 WORKDIR /home/zuse
+RUN /usr/local/bin/zuse-github-auth install
 
 # The api starts Zuse through envd after Sandbox.create. Create-time env vars
 # are intentionally not consumed by an image start command.

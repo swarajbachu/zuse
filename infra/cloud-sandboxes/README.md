@@ -3,12 +3,13 @@
 For the surrounding control plane, lifecycle, cache, and security model, start
 with the [Zuse Cloud documentation](../../docs/cloud/README.md).
 
-The credential-free base template contains the Zuse runtime and supported
-developer toolchain. An account-image build adds the user's selected normal Git
-checkouts below `/home/repos/<owner>/<repository>` and provider authentication.
-Each chat forks that account image, starts the runtime from `/home/zuse`, and
-selects one existing checkout without cloning, fetching, copying, or creating a
-worktree. Its inert `sleep infinity` base command is deliberate.
+The credential-free base template contains the Zuse runtime, supported developer
+toolchain, and preconfigured Git and `gh` credential broker. An account-image
+build adds the user's selected normal Git checkouts below
+`/home/repos/<owner>/<repository>` and provider authentication. Each chat forks
+that account image, starts the runtime from `/home/zuse`, and selects one
+existing checkout without cloning, fetching, copying, or creating a worktree.
+Its inert `sleep infinity` base command is deliberate.
 
 SSH access does not run a listening daemon. The runtime's `/ssh` WebSocket
 route (ticket-gated, cloud-environment role only) spawns `sshd -i` per
@@ -69,6 +70,14 @@ The explicit account-image build synchronizes every selected repository, removes
 transient GitHub credentials and runtime identity, validates the result, and
 creates one private snapshot. Normal workspace launch performs no Git network
 operation. Repository freshness changes only through Update image.
+
+Every derived image retains the base template's Git credential helper and `gh`
+wrapper. The workspace runtime publishes only the broker address and its
+renewable runtime credential during normal bootstrap. The first GitHub command
+lazily requests a short-lived GitHub App token; later commands reuse the cached
+token and refresh it shortly before expiry. No GitHub request is added to the
+workspace or session startup path, and no installation token is stored in a
+template or account snapshot.
 
 The runtime exchanges the one-time token for a renewable workspace credential,
 installs any runtime-scoped credential grant, opens the selected local branch,

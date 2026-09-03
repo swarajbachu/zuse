@@ -4,7 +4,7 @@ import { MachineProvidersFake } from "@zuse/machine-providers/testing";
 import { SandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { exportJWK, generateKeyPair } from "jose";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
 	AccountIdentity,
 	type AccountIdentityApi,
@@ -29,6 +29,18 @@ import { PushDelivery } from "../../src/push.ts";
 import { SandboxOfferConfiguration } from "../../src/sandbox-provider-module.ts";
 import { ApiStoreMemory } from "../../src/store.ts";
 import { WorkosVerifierTest } from "../../src/workos.ts";
+
+vi.mock("../../src/cloud-github-app.ts", async (importOriginal) => {
+	const { Effect: TestEffect } = await import("effect");
+	return {
+		...(await importOriginal<typeof import("../../src/cloud-github-app.ts")>()),
+		githubInstallationCredentialForRepository: () =>
+			TestEffect.succeed({
+				token: "workspace-installation-token",
+				expiresAtMs: 4_102_444_800_000,
+			}),
+	};
+});
 
 const ISSUER = "https://api.test";
 
@@ -109,6 +121,25 @@ describe("cloud workspace runtime bootstrap", () => {
 					permissions: [],
 					firstMessage: "continue while disconnected",
 				});
+			}),
+		);
+		await runtime.runPromise(
+			store.connectProject({
+				projectId: "project-1",
+				accountId: "account-1",
+				repositoryIdentity: "github.com/acme/example",
+				repositoryUrl: "https://github.com/acme/example.git",
+				displayName: "example",
+				defaultBranch: "main",
+				visibility: "private",
+				gitConnectionKind: "github-app",
+				cloudEnvironment: {},
+				secretBindings: [],
+				configurationDigest: "digest",
+				state: "ready",
+				idempotencyKey: "project-key",
+				createdAtMs: now,
+				updatedAtMs: now,
 			}),
 		);
 		await runtime.runPromise(
@@ -243,6 +274,34 @@ describe("cloud workspace runtime bootstrap", () => {
 			).status,
 		).toBe(401);
 		const credential = String(first.runtimeCredential);
+		const githubCredential = await runtime.runPromise(
+			handleRequest(
+				new Request(
+					`${ISSUER}${ApiPaths.cloudWorkspaceRuntimeGithubCredential(workspaceId)}`,
+					{
+						method: "POST",
+						headers: { authorization: `Bearer ${credential}` },
+					},
+				),
+			),
+		);
+		expect(githubCredential.status).toBe(200);
+		expect(await githubCredential.json()).toEqual({
+			token: "workspace-installation-token",
+			expiresAtMs: 4_102_444_800_000,
+		});
+		const rejectedGithubCredential = await runtime.runPromise(
+			handleRequest(
+				new Request(
+					`${ISSUER}${ApiPaths.cloudWorkspaceRuntimeGithubCredential(workspaceId)}`,
+					{
+						method: "POST",
+						headers: { authorization: "Bearer wrong-runtime" },
+					},
+				),
+			),
+		);
+		expect(rejectedGithubCredential.status).toBe(401);
 		const wrongFenceAck = await runtime.runPromise(
 			handleRequest(
 				new Request(

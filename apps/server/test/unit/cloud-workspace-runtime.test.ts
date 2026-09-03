@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import {
 	AgentSessionId,
 	Message,
@@ -6,7 +10,7 @@ import {
 	SessionTimelineProjection,
 } from "@zuse/contracts";
 import { bytesToBase64Url } from "@zuse/utils/cloud-transcript-crypto";
-import { Effect, Fiber, Ref } from "effect";
+import { Effect, Fiber, Redacted, Ref } from "effect";
 import { TestClock } from "effect/testing";
 import { generateKeyPair, jwtVerify } from "jose";
 import { describe, expect, it, vi } from "vitest";
@@ -21,9 +25,51 @@ import {
 	runtimeReadyPhaseOnGatewayOpen,
 	signRuntimeRenewalProof,
 	startCloudWorkspaceLaunchIntent,
+	writeGithubBrokerState,
 } from "../../src/api/cloud-workspace-runtime.ts";
 
 describe("cloud workspace bootstrap", () => {
+	it("publishes owner-only state for lazy GitHub credentials", async () => {
+		const runtimeData = await mkdtemp(join(tmpdir(), "zuse-runtime-github-"));
+		vi.stubEnv("ZUSE_USER_DATA", runtimeData);
+		try {
+			const config = {
+				workspaceId: "workspace-1",
+				apiUrl: "https://api.test",
+				bootToken: Redacted.make("boot-token"),
+				localPort: 47_837,
+				workspaceRoot: "/home/repos/acme/example",
+			};
+			await Effect.runPromise(
+				writeGithubBrokerState(config, "runtime-credential"),
+			);
+			expect(
+				JSON.parse(
+					await readFile(join(runtimeData, "github-broker.json"), "utf8"),
+				),
+			).toEqual({
+				credentialUrl:
+					"https://api.test/v1/cloud/workspaces/workspace-1/runtime/github-credential",
+			});
+			expect(
+				await readFile(join(runtimeData, "cloud-runtime-credential"), "utf8"),
+			).toBe("runtime-credential\n");
+			expect(
+				(await stat(join(runtimeData, "cloud-runtime-credential"))).mode &
+					0o777,
+			).toBe(0o600);
+			await Effect.runPromise(
+				writeGithubBrokerState(config, "rotated-runtime-credential"),
+			);
+			expect(
+				await readFile(join(runtimeData, "cloud-runtime-credential"), "utf8"),
+			).toBe("rotated-runtime-credential\n");
+		} finally {
+			vi.unstubAllEnvs();
+			await rm(runtimeData, { recursive: true, force: true });
+		}
+	});
+
 	it("accepts a partial image provider configuration", async () => {
 		const decoded = await Effect.runPromise(
 			decodeImageProviderSecrets(

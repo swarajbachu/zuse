@@ -1,9 +1,23 @@
-import { readFile } from "node:fs/promises";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
+const workspaceFileUrl = (relativePath: string) =>
+	new URL(`../../../../${relativePath}`, import.meta.url);
+
 const readWorkspaceFile = (relativePath: string) =>
-	readFile(new URL(`../../../../${relativePath}`, import.meta.url), "utf8");
+	readFile(workspaceFileUrl(relativePath), "utf8");
 
 describe("cloud runtime assets", () => {
 	test("prepares repository snapshots without installing project dependencies", async () => {
@@ -37,6 +51,176 @@ describe("cloud runtime assets", () => {
 		expect(bootstrap.indexOf('wait "$repository_pid"')).toBeGreaterThan(
 			bootstrap.indexOf('wait -n "$runtime_pid" "$credentials_wait_pid"'),
 		);
+	});
+
+	test("preconfigures lazy renewable GitHub authentication in the image", async () => {
+		const githubAuthPath = fileURLToPath(
+			workspaceFileUrl("infra/cloud-sandboxes/github-auth.sh"),
+		);
+		const githubAuth = await readWorkspaceFile(
+			"infra/cloud-sandboxes/github-auth.sh",
+		);
+		const dockerfile = await readWorkspaceFile(
+			"infra/cloud-sandboxes/Dockerfile",
+		);
+		const runtime = await readWorkspaceFile(
+			"apps/server/src/api/cloud-workspace-runtime.ts",
+		);
+		const routes = await readWorkspaceFile(
+			"infra/api/src/cloud-workspace-routes.ts",
+		);
+
+		expect(dockerfile).toContain(
+			"github-auth.sh /usr/local/bin/zuse-github-auth",
+		);
+		expect(dockerfile).toContain(
+			"/usr/local/bin/zuse-github-auth /usr/local/bin/gh",
+		);
+		expect(dockerfile).toContain("RUN /usr/local/bin/zuse-github-auth install");
+		expect(githubAuth).toContain("ZUSE_GITHUB_TOKEN_FILE");
+		expect(githubAuth).toContain('exec "$gh_binary" "$@"');
+		expect(githubAuth).toContain("printf 'password=%s\\n'");
+		expect(githubAuth).toContain("credentialUrl");
+		expect(runtime).toContain("writeGithubBrokerState");
+		expect(runtime).toContain("cloud-runtime-credential");
+		expect(routes).toContain("githubInstallationCredentialForRepository");
+
+		const temporaryRoot = await mkdtemp(join(tmpdir(), "zuse-github-auth-"));
+		try {
+			const testHome = join(temporaryRoot, "home");
+			const tokenFile = join(temporaryRoot, "token");
+			const ghWrapper = join(temporaryRoot, "gh");
+			await mkdir(testHome);
+			await writeFile(tokenFile, "test-installation-token\n", { mode: 0o600 });
+			await symlink(githubAuthPath, ghWrapper);
+			const realGh = execFileSync("which", ["gh"], { encoding: "utf8" }).trim();
+			const env = {
+				...process.env,
+				HOME: testHome,
+				GIT_CONFIG_NOSYSTEM: "1",
+				ZUSE_GITHUB_TOKEN_FILE: tokenFile,
+				ZUSE_GITHUB_AUTH_BIN: githubAuthPath,
+				ZUSE_GH_BINARY: realGh,
+			};
+
+			execFileSync("bash", [githubAuthPath, "install"], { env });
+			expect(
+				execFileSync(
+					"git",
+					[
+						"config",
+						"--global",
+						"--get",
+						"credential.https://github.com.helper",
+					],
+					{ env, encoding: "utf8" },
+				).trim(),
+			).toBe(`${githubAuthPath} credential`);
+			expect(
+				execFileSync("bash", [githubAuthPath, "credential", "get"], {
+					env,
+					encoding: "utf8",
+					input: "protocol=https\nhost=github.com\n\n",
+				}),
+			).toBe("username=x-access-token\npassword=test-installation-token\n");
+			expect(
+				execFileSync("git", ["credential", "fill"], {
+					env,
+					encoding: "utf8",
+					input: "protocol=https\nhost=github.com\n\n",
+				}),
+			).toContain("password=test-installation-token");
+			await writeFile(tokenFile, "rotated-installation-token\n", {
+				mode: 0o600,
+			});
+			const rotatedCredential = execFileSync("git", ["credential", "fill"], {
+				env,
+				encoding: "utf8",
+				input: "protocol=https\nhost=github.com\n\n",
+			});
+			expect(rotatedCredential).toContain(
+				"password=rotated-installation-token",
+			);
+			expect(rotatedCredential).not.toContain("test-installation-token");
+			expect(
+				execFileSync(ghWrapper, ["--version"], {
+					env,
+					encoding: "utf8",
+				}),
+			).toContain("gh version");
+
+			const runtimeData = join(temporaryRoot, "runtime-data");
+			const fakeBin = join(temporaryRoot, "fake-bin");
+			const curlCountFile = join(temporaryRoot, "curl-count");
+			const curlFailFile = join(temporaryRoot, "curl-fail");
+			await mkdir(runtimeData);
+			await mkdir(fakeBin);
+			await writeFile(
+				join(runtimeData, "github-broker.json"),
+				'{"credentialUrl":"https://api.test/v1/cloud/workspaces/workspace-1/runtime/github-credential"}\n',
+			);
+			await writeFile(
+				join(runtimeData, "cloud-runtime-credential"),
+				"runtime-credential\n",
+				{ mode: 0o600 },
+			);
+			await writeFile(
+				join(fakeBin, "curl"),
+				`#!/usr/bin/env bash
+set -euo pipefail
+count=0
+[[ ! -f "$CURL_COUNT_FILE" ]] || count=$(<"$CURL_COUNT_FILE")
+printf '%s\n' "$((count + 1))" >"$CURL_COUNT_FILE"
+[[ ! -f "$CURL_FAIL_FILE" ]] || exit 22
+printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
+`,
+				{ mode: 0o755 },
+			);
+			const managedEnv = {
+				...process.env,
+				HOME: testHome,
+				PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+				ZUSE_USER_DATA: runtimeData,
+				CURL_COUNT_FILE: curlCountFile,
+				CURL_FAIL_FILE: curlFailFile,
+			};
+			const lazyCredential = () =>
+				execFileSync("bash", [githubAuthPath, "credential", "get"], {
+					env: managedEnv,
+					encoding: "utf8",
+					input: "protocol=https\nhost=github.com\n\n",
+				});
+			expect(lazyCredential()).toContain("password=lazy-installation-token");
+			expect(lazyCredential()).toContain("password=lazy-installation-token");
+			expect(await readFile(curlCountFile, "utf8")).toBe("1\n");
+
+			await writeFile(curlFailFile, "fail\n");
+			await writeFile(
+				join(runtimeData, "github-installation-token-expires-at"),
+				`${Date.now() + 60_000}\n`,
+			);
+			expect(lazyCredential()).toContain("password=lazy-installation-token");
+			expect(await readFile(curlCountFile, "utf8")).toBe("2\n");
+			await writeFile(
+				join(runtimeData, "github-installation-token-expires-at"),
+				`${Date.now() - 1}\n`,
+			);
+			const expiredCredential = spawnSync(
+				"bash",
+				[githubAuthPath, "credential", "get"],
+				{
+					env: managedEnv,
+					encoding: "utf8",
+					input: "protocol=https\nhost=github.com\n\n",
+				},
+			);
+			expect(expiredCredential.status).not.toBe(0);
+			expect(expiredCredential.stderr).toContain(
+				"Could not obtain GitHub access",
+			);
+		} finally {
+			await rm(temporaryRoot, { recursive: true, force: true });
+		}
 	});
 
 	test("boots workspace-native runtime without an inbound provider endpoint", async () => {

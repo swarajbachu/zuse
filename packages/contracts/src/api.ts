@@ -121,6 +121,8 @@ export const ApiPaths = {
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/bootstrap/ack`,
 	cloudWorkspaceRuntimeCredentialsRenew: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/credentials/renew`,
+	cloudWorkspaceRuntimeGithubCredential: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/github-credential`,
 	cloudWorkspaceActivity: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/activity`,
 	cloudWorkspaceSummary: (workspaceId: string) =>

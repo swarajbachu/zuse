@@ -42,8 +42,9 @@ added projects.
    repositories. Relay retains only installation metadata and mints short-lived
    installation access tokens when needed. These tokens are never baked into
    the image. Image builds receive a transient `GIT_ASKPASS` grant for checkout
-   synchronization, and chat sandboxes receive process-scoped grants for remote
-   Git and `gh` operations.
+   synchronization. The main image permanently preconfigures Git and `gh` with
+   a credential broker; chat sandboxes lazily mint and cache a short-lived grant
+   only when a GitHub command runs, then refresh it on demand.
 7. Normal create/resume has a p95 target below five seconds from user action to
    gateway connected and repository ready. Agent startup and explicit image
    builds are outside that setup SLO. Phase timestamps are retained for pool

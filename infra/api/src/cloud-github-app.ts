@@ -243,6 +243,22 @@ export interface GithubInstallationGrant {
 	}>;
 }
 
+export const githubInstallationGrantForRepository = (
+	grants: ReadonlyArray<GithubInstallationGrant>,
+	repositoryIdentity: string,
+): GithubInstallationGrant | null => {
+	const repositoryName = repositoryIdentity
+		.replace(/^github\.com\//u, "")
+		.toLowerCase();
+	return (
+		grants.find((candidate) =>
+			candidate.repositories.some(
+				(repository) => repository.fullName.toLowerCase() === repositoryName,
+			),
+		) ?? null
+	);
+};
+
 export const githubInstallationGrants = Effect.fn("githubInstallationGrants")(
 	function* (accountId: string) {
 		const store = yield* CloudWorkspaceStore;
@@ -302,3 +318,20 @@ export const githubInstallationGrants = Effect.fn("githubInstallationGrants")(
 		);
 	},
 );
+
+export const githubInstallationCredentialForRepository = Effect.fn(
+	"githubInstallationCredentialForRepository",
+)(function* (accountId: string, repositoryIdentity: string) {
+	const grants = yield* githubInstallationGrants(accountId);
+	const grant = githubInstallationGrantForRepository(
+		grants,
+		repositoryIdentity,
+	);
+	if (grant === null) return null;
+	const expiresAtMs = Date.parse(grant.expiresAt);
+	if (!Number.isFinite(expiresAtMs))
+		return yield* Effect.fail(
+			serviceUnavailable("github_token_expiry_invalid"),
+		);
+	return { token: grant.token, expiresAtMs } as const;
+});

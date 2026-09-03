@@ -41,6 +41,7 @@ import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { hasUsableCloudWorkspaceEntitlement } from "./cloud-entitlement.ts";
 import {
 	completeGithubInstallation,
+	githubInstallationCredentialForRepository,
 	githubInstallationGrants,
 	githubInstallCallbackForwardUrl,
 	makeGithubInstallUrl,
@@ -1243,6 +1244,27 @@ export const routeCloudWorkspaceRequest = (
 				generation: receipt.generation,
 				gatewayEpoch: receipt.gatewayEpoch,
 			});
+		}
+
+		const runtimeGithubCredentialMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/github-credential$/u.exec(
+				path,
+			);
+		if (method === "POST" && runtimeGithubCredentialMatch !== null) {
+			const workspaceId = decodeURIComponent(
+				runtimeGithubCredentialMatch[1] ?? "",
+			);
+			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
+			const project = yield* store.getProject(workspace.projectId);
+			if (project === null || project.accountId !== workspace.accountId)
+				return yield* Effect.fail(notFound("cloud_project_not_found"));
+			const credential = yield* githubInstallationCredentialForRepository(
+				workspace.accountId,
+				project.repositoryIdentity,
+			);
+			if (credential === null)
+				return yield* Effect.fail(forbidden("github_repository_not_granted"));
+			return json(credential);
 		}
 
 		const activityMatch =
