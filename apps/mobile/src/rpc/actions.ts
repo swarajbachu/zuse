@@ -427,8 +427,10 @@ export const respondToPlan = (options: {
 	feedback?: string;
 }) =>
 	Effect.gen(function* () {
+		const commandId = nextMobileCommandId("plan-response");
 		const client = yield* getConnectionClient(options.connection);
 		yield* client["session.plan.respond"]({
+			commandId,
 			sessionId: options.sessionId,
 			toolCallId: options.toolCallId,
 			outcome: options.outcome,
@@ -450,9 +452,11 @@ export const answerQuestion = (options: {
 		other?: string;
 	}[];
 }) => {
+	const commandId = nextMobileCommandId("question-response");
 	const program = Effect.gen(function* () {
 		const client = yield* getConnectionClient(options.connection);
 		yield* client["session.answerQuestion"]({
+			commandId,
 			sessionId: options.sessionId,
 			itemId: options.itemId,
 			answers: [...options.answers].map((answer) => ({
