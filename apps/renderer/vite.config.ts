@@ -78,11 +78,16 @@ export default defineConfig({
 			...iconAliases,
 			"~": fileURLToPath(new URL("./src", import.meta.url)),
 		},
+		dedupe: ["react", "react-dom"],
 	},
 	optimizeDeps: {
+		// Chat routes load Legend List lazily. Bundle it and both React entrypoints
+		// at startup so opening a chat cannot replace the live optimizer graph.
 		include: [
 			"react",
+			"react-dom",
 			"react-dom/client",
+			"@legendapp/list/react",
 			"metal-fx",
 			"effect",
 			"@pierre/diffs",

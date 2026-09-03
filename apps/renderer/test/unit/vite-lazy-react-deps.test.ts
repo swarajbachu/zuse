@@ -14,4 +14,14 @@ describe("renderer dependency optimization", () => {
 		expect(modelPicker).toContain('from "metal-fx"');
 		expect(viteConfig).toContain('"metal-fx"');
 	});
+
+	it("keeps the lazy chat list in the initial React dependency graph", () => {
+		const chatView = rendererFile("src/components/chat-view.tsx");
+		const viteConfig = rendererFile("vite.config.ts");
+
+		expect(chatView).toContain('from "@legendapp/list/react"');
+		expect(viteConfig).toContain('"@legendapp/list/react"');
+		expect(viteConfig).toContain('"react-dom"');
+		expect(viteConfig).toContain('dedupe: ["react", "react-dom"]');
+	});
 });
