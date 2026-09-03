@@ -1,11 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CloudIcon, ComputerIcon, Tick01Icon } from "@zuse/icons/solid-rounded";
+import { ComputerIcon } from "@zuse/icons/solid-rounded";
 import { ChevronDown } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
 import {
 	Menu,
 	MenuItem,
 	MenuPopup,
+	MenuSelectionIndicator,
 	MenuSeparator,
 	MenuTrigger,
 } from "~/components/ui/menu";
@@ -18,6 +19,7 @@ import {
 import { cn } from "~/lib/utils";
 import type { EnvironmentCatalogEntry } from "~/store/environment-catalog.ts";
 import { openAddComputerDialog } from "../add-computer-dialog.tsx";
+import { DitherCloudIcon } from "../dither-cloud-icon.tsx";
 
 const statusText = (item: ComputerPickerItem): string =>
 	item.retryable
@@ -76,7 +78,7 @@ export function ComputerPicker({
 
 	if (model.kind === "static" && cloudItems.length === 0) {
 		return (
-			<span className="flex min-w-0 max-w-[16rem] items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-[11px] text-muted-foreground">
+			<span className="flex h-7 min-w-0 max-w-[14rem] items-center gap-1.5 rounded-full px-2.5 text-[11px] text-muted-foreground">
 				<HugeiconsIcon icon={ComputerIcon} className="size-3.5" />
 				<span className="truncate">{model.item.label}</span>
 			</span>
@@ -102,13 +104,14 @@ export function ComputerPicker({
 	return (
 		<Menu>
 			<MenuTrigger
-				className="flex min-w-0 max-w-[16rem] items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent data-[popup-open]:bg-accent"
+				className="flex h-7 min-w-0 max-w-[14rem] items-center gap-1.5 rounded-full border border-transparent bg-transparent px-2.5 text-[11px] text-foreground transition-colors hover:bg-accent data-[popup-open]:bg-accent"
 				aria-label="Run on computer"
 			>
-				<HugeiconsIcon
-					icon={cloudSelected ? CloudIcon : ComputerIcon}
-					className="size-3.5"
-				/>
+				{cloudSelected ? (
+					<DitherCloudIcon className="size-4" />
+				) : (
+					<HugeiconsIcon icon={ComputerIcon} className="size-3.5" />
+				)}
 				<span className="truncate">
 					{cloudSelected ? "Cloud Sandbox" : (current?.label ?? "Run on")}
 				</span>
@@ -119,40 +122,38 @@ export function ComputerPicker({
 				) : null}
 				<ChevronDown className="size-3 opacity-60" />
 			</MenuTrigger>
-			<MenuPopup side="bottom" align="start" className="w-64 p-1">
+			<MenuPopup side="top" align="start" className="w-64 p-1">
 				{computerItems.map((item) => (
 					<MenuItem
 						key={`${item.environmentId}:${item.folderId ?? "unavailable"}`}
+						role="menuitemradio"
+						aria-checked={item.selected && !cloudSelected}
 						disabled={item.disabled}
 						onClick={() => pick(item)}
 						className={cn(
-							"grid grid-cols-[1rem_auto_1fr_auto] items-center gap-x-2 rounded-md px-2 py-1.5 text-sm",
+							"grid grid-cols-[auto_1fr_auto_auto] items-center gap-x-2 rounded-md px-2 py-1.5 text-xs",
 							item.selected
 								? "bg-accent/40 text-accent-foreground data-highlighted:bg-accent/60"
 								: undefined,
 						)}
 					>
-						<span className="col-start-1 row-start-1 flex items-center justify-center">
-							{item.selected && !cloudSelected && (
-								<HugeiconsIcon
-									icon={Tick01Icon}
-									className="size-3.5 opacity-90"
-								/>
-							)}
-						</span>
 						<HugeiconsIcon
 							icon={ComputerIcon}
-							className="col-start-2 row-start-1 size-3.5 opacity-80"
+							className="col-start-1 row-start-1 size-3.5 opacity-80"
 						/>
-						<span className="col-start-3 row-start-1 truncate">
+						<span className="col-start-2 row-start-1 truncate">
 							{item.label}
 						</span>
 						{!item.selected &&
 						(item.status !== "connected" || !item.projectAvailable) ? (
-							<span className="col-start-4 row-start-1 text-[10px] text-muted-foreground">
+							<span className="col-start-3 row-start-1 text-[10px] text-muted-foreground">
 								{statusText(item)}
 							</span>
 						) : null}
+						<MenuSelectionIndicator
+							checked={item.selected && !cloudSelected}
+							className="col-start-4 row-start-1 justify-self-end"
+						/>
 					</MenuItem>
 				))}
 				{cloudItems.length > 0 ? (
@@ -163,33 +164,31 @@ export function ComputerPicker({
 							return (
 								<MenuItem
 									key={`cloud:${item.providerId}`}
+									role="menuitemradio"
+									aria-checked={selected}
 									disabled={item.disabled}
 									onClick={() => onPickCloud?.(item.providerId)}
 									className={cn(
-										"grid grid-cols-[1rem_auto_1fr_auto] items-center gap-x-2 rounded-md px-2 py-1.5 text-sm",
+										"grid grid-cols-[auto_1fr_auto_auto] items-center gap-x-2 rounded-md px-2 py-1.5 text-xs",
 										selected
 											? "bg-accent/40 text-accent-foreground data-highlighted:bg-accent/60"
 											: undefined,
 									)}
 								>
-									<span className="col-start-1 flex items-center justify-center">
-										{selected ? (
-											<HugeiconsIcon icon={Tick01Icon} className="size-3.5" />
-										) : null}
-									</span>
-									<HugeiconsIcon
-										icon={CloudIcon}
-										className="col-start-2 size-3.5 opacity-80"
-									/>
-									<span className="col-start-3 flex min-w-0 items-center gap-1.5">
+									<DitherCloudIcon className="col-start-1 size-4" />
+									<span className="col-start-2 flex min-w-0 items-center gap-1.5">
 										<span className="truncate">Cloud Sandbox</span>
 										<Badge size="sm" variant="outline">
 											Beta
 										</Badge>
 									</span>
-									<span className="col-start-4 text-[10px] text-muted-foreground">
+									<span className="col-start-3 text-[10px] text-muted-foreground">
 										{item.statusText ?? item.providerLabel}
 									</span>
+									<MenuSelectionIndicator
+										checked={selected}
+										className="col-start-4 justify-self-end"
+									/>
 								</MenuItem>
 							);
 						})}
@@ -198,14 +197,13 @@ export function ComputerPicker({
 				<MenuSeparator />
 				<MenuItem
 					onClick={() => openAddComputerDialog()}
-					className="grid grid-cols-[1rem_auto_1fr] items-center gap-x-2 rounded-md px-2 py-1.5 text-sm"
+					className="grid grid-cols-[auto_1fr] items-center gap-x-2 rounded-md px-2 py-1.5 text-xs"
 				>
-					<span className="col-start-1 row-start-1" />
 					<HugeiconsIcon
 						icon={ComputerIcon}
-						className="col-start-2 row-start-1 size-3.5 opacity-80"
+						className="col-start-1 row-start-1 size-3.5 opacity-80"
 					/>
-					<span className="col-start-3 row-start-1">Add computer…</span>
+					<span className="col-start-2 row-start-1">Add computer…</span>
 				</MenuItem>
 			</MenuPopup>
 		</Menu>

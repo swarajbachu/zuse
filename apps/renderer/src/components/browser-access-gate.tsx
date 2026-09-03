@@ -144,31 +144,31 @@ function AccessCard({
 			<main
 				aria-busy={loading}
 				aria-live="polite"
-				className="w-full max-w-md rounded-xl border border-border/70 bg-card p-6 shadow-sm"
+				className="w-full max-w-md rounded-xl border border-border/70 bg-card p-4 shadow-overlay-sm"
 			>
-				<p className="font-medium text-muted-foreground text-sm">Zuse Serve</p>
+				<p className="text-xs font-medium text-muted-foreground">Zuse Serve</p>
 				<h1
-					className="mt-2 font-semibold text-xl outline-none"
+					className="mt-1.5 font-heading text-lg font-semibold outline-none"
 					ref={headingRef}
 					tabIndex={-1}
 				>
 					{loading ? "Connecting to your environment…" : state.title}
 				</h1>
-				<p className="mt-2 text-muted-foreground text-sm leading-6">
+				<p className="mt-1.5 text-xs leading-5 text-muted-foreground">
 					{loading
 						? "Authentication and connection recovery happen automatically."
 						: state.description}
 				</p>
 				{!loading && state.pairingAllowed ? (
-					<form className="mt-5 space-y-3" onSubmit={submitPairing}>
-						<label className="block text-sm font-medium" htmlFor="pairing-code">
+					<form className="mt-4 space-y-2" onSubmit={submitPairing}>
+						<label className="block text-xs font-medium" htmlFor="pairing-code">
 							Pairing code
 						</label>
 						<div className="flex gap-2">
 							<input
 								autoCapitalize="characters"
 								autoComplete="one-time-code"
-								className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 font-mono text-sm uppercase outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 font-mono text-xs uppercase outline-none focus-visible:ring-2 focus-visible:ring-ring"
 								disabled={pairing}
 								id="pairing-code"
 								maxLength={256}
@@ -184,12 +184,12 @@ function AccessCard({
 								{pairing ? "Connecting…" : "Connect"}
 							</button>
 						</div>
-						<p className="text-muted-foreground text-xs leading-5">
+						<p className="text-[11px] leading-4 text-muted-foreground">
 							Enter the code shown on the other computer in its serve terminal
 							or Settings → Remote access.
 						</p>
 						{pairingError !== null ? (
-							<p className="text-destructive text-sm" role="alert">
+							<p className="text-xs text-destructive" role="alert">
 								{pairingError}
 							</p>
 						) : null}
@@ -224,12 +224,12 @@ function ConnectionBanner() {
 	return (
 		<div
 			aria-live="polite"
-			className="fixed inset-x-0 top-0 z-[100] flex min-h-11 items-center justify-center gap-3 border-border border-b bg-card/95 px-4 text-sm shadow-xs backdrop-blur"
+			className="fixed inset-x-0 top-0 z-[100] flex h-9 items-center justify-center gap-2 border-border border-b bg-card/95 px-4 text-xs backdrop-blur"
 		>
 			<span>{label}</span>
 			{snapshot.status !== "connecting" && (
 				<button
-					className="min-h-11 rounded-md px-3 font-medium outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+					className="h-7 rounded-md px-2.5 font-medium outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
 					onClick={retryRendererRpcConnection}
 					type="button"
 				>
@@ -260,10 +260,10 @@ function HostedAccessCard({
 			<main
 				aria-busy={state.status === "loading"}
 				aria-live="polite"
-				className="w-full max-w-lg rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6"
+				className="w-full max-w-md rounded-xl border border-border/70 bg-card p-4 shadow-overlay-sm"
 			>
 				<p className="text-sm font-medium text-muted-foreground">Zuse</p>
-				<h1 className="mt-2 text-xl font-semibold">{title}</h1>
+				<h1 className="mt-1.5 font-heading text-lg font-semibold">{title}</h1>
 				{state.status === "loading" ? (
 					<p className="mt-2 text-sm leading-6 text-muted-foreground">
 						Signing in and finding your served computers.
@@ -276,7 +276,7 @@ function HostedAccessCard({
 							account.
 						</p>
 						<button
-							className="mt-5 min-h-11 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							className="mt-4 h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring"
 							onClick={() => void beginHostedSignIn()}
 							type="button"
 						>
@@ -285,7 +285,7 @@ function HostedAccessCard({
 					</>
 				) : null}
 				{state.status === "select" ? (
-					<div className="mt-4 flex flex-col gap-2">
+					<div className="mt-3 flex flex-col gap-1">
 						{state.environments.map((environment) => {
 							const online =
 								environment.lastHeartbeat !== undefined &&
@@ -293,7 +293,7 @@ function HostedAccessCard({
 									ENVIRONMENT_PRESENCE_STALE_MS;
 							return (
 								<button
-									className="flex min-h-11 items-center gap-3 rounded-xl border border-border/70 px-3 py-2 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+									className="flex h-7 items-center gap-2 rounded-md px-2.5 text-left text-xs outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
 									key={environment.environmentId}
 									onClick={() =>
 										window.location.assign(
@@ -304,15 +304,15 @@ function HostedAccessCard({
 								>
 									<span
 										aria-hidden="true"
-										className={`size-2.5 shrink-0 rounded-full ${
-											online ? "bg-emerald-500" : "bg-muted-foreground/35"
+										className={`size-1.5 shrink-0 rounded-full ${
+											online ? "bg-success" : "bg-muted-foreground/35"
 										}`}
 									/>
-									<span className="min-w-0 flex-1">
-										<span className="block truncate text-sm font-medium">
+									<span className="flex min-w-0 flex-1 items-center gap-2">
+										<span className="min-w-0 flex-1 truncate font-medium">
 											{environment.label ?? "Unnamed computer"}
 										</span>
-										<span className="block truncate text-xs text-muted-foreground">
+										<span className="shrink-0 text-[10px] text-muted-foreground">
 											{online ? "Online" : "Offline"}
 											{environment.runtimeVersion
 												? ` · v${environment.runtimeVersion}`
@@ -323,7 +323,7 @@ function HostedAccessCard({
 							);
 						})}
 						{state.environments.length === 0 ? (
-							<p className="rounded-xl bg-muted px-3 py-4 text-sm text-muted-foreground">
+							<p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
 								No computers are served yet. Run <code>npx @zusehq/serve</code>{" "}
 								on a computer first.
 							</p>
@@ -336,7 +336,7 @@ function HostedAccessCard({
 							{state.description}
 						</p>
 						<button
-							className="mt-5 min-h-11 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							className="mt-4 h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring"
 							onClick={retry}
 							type="button"
 						>

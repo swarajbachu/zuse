@@ -83,6 +83,7 @@ export default defineConfig({
 		include: [
 			"react",
 			"react-dom/client",
+			"metal-fx",
 			"effect",
 			"@pierre/diffs",
 			"codemirror",

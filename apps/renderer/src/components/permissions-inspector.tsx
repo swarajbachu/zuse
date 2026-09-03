@@ -67,7 +67,7 @@ const kindLabel = (kind: PermissionKind): string => {
 const decisionStyles = (decision: SavedDecision["decision"]): string => {
 	switch (decision) {
 		case "AlwaysAllow":
-			return "bg-violet-500/22 text-violet-100 ring-1 ring-inset ring-violet-300/10";
+			return "bg-info/20 text-info ring-1 ring-inset ring-info/15";
 		case "AllowForSession":
 			return "bg-emerald-500/22 text-emerald-100 ring-1 ring-inset ring-emerald-300/10";
 		case "AllowOnce":
@@ -139,10 +139,7 @@ export function PermissionsInspector({
 			<DialogPopup className="max-w-2xl" showCloseButton>
 				<DialogHeader>
 					<div className="flex items-center gap-2 pr-8">
-						<HugeiconsIcon
-							icon={Shield01Icon}
-							className="size-4 text-violet-300"
-						/>
+						<HugeiconsIcon icon={Shield01Icon} className="size-4 text-info" />
 						<DialogTitle className="text-base">
 							Permissions — {projectName}
 						</DialogTitle>

@@ -9,9 +9,11 @@ import {
 	providerStartupLabel,
 	useProviderStartupDelay,
 } from "../lib/provider-startup-delay.ts";
+import type { SessionRuntimeState } from "../lib/session-runtime-state.ts";
 import { cancelSessionCommand } from "../lib/session-timeline-client-bus.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
+import { Button } from "./ui/button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 
 const formatElapsed = (ms: number): string => {
@@ -21,6 +23,17 @@ const formatElapsed = (ms: number): string => {
 	const sec = totalSec - min * 60;
 	return `${min}m ${sec.toFixed(1)}s`;
 };
+
+export const providerStartupIsActive = ({
+	runtimeState,
+	providerOutputStarted,
+	startupContextActive,
+}: {
+	readonly runtimeState: SessionRuntimeState;
+	readonly providerOutputStarted: boolean;
+	readonly startupContextActive: boolean;
+}): boolean =>
+	runtimeState === "starting" && !providerOutputStarted && startupContextActive;
 
 export function ChatWorkingRow({
 	messages,
@@ -52,9 +65,14 @@ export function ChatWorkingRow({
 	const cloudSummary = cloudSummaryForSession(sessionId);
 	const initialCloudAgentStart =
 		cloudSummary !== null && cloudSummary.startupPhase === "starting-agent";
-	const showStartup =
-		runtimeState === "starting" &&
-		(cloudSummary === null || initialCloudAgentStart);
+	const providerOutputStarted = messages.some(
+		(message) => message.role === "assistant" || message.role === "tool",
+	);
+	const showStartup = providerStartupIsActive({
+		runtimeState,
+		providerOutputStarted,
+		startupContextActive: cloudSummary === null || initialCloudAgentStart,
+	});
 	const delayed = useProviderStartupDelay(
 		showStartup,
 		`${sessionId}:${session?.providerId ?? "unknown"}:${session?.model ?? "unknown"}`,
@@ -105,9 +123,9 @@ export function ChatWorkingRow({
 						: `${providerLabel} is working`}
 			</span>
 			{waitingCommand?.cancellable === true ? (
-				<button
-					type="button"
-					className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+				<Button
+					size="xs"
+					variant="ghost"
 					onClick={() =>
 						void cancelSessionCommand(waitingCommand.commandId).catch(
 							() => undefined,
@@ -115,7 +133,7 @@ export function ChatWorkingRow({
 					}
 				>
 					Cancel
-				</button>
+				</Button>
 			) : null}
 			<ShimmerText tone="lime" className="tabular-nums">
 				{formatElapsed(elapsed)}

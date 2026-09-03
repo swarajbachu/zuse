@@ -11,12 +11,16 @@ import { describe, expect, it } from "vitest";
 import {
 	resolveAgentStarting,
 	resolvePendingStartupTranscriptPrompt,
+	shouldRenderEmptyChatState,
 	shouldRenderGenericAgentStartup,
 } from "../../src/components/chat-view.tsx";
+import { ChatCreationPromptBubble } from "../../src/components/pending-chat-creation.tsx";
 import {
 	CloudWorkspaceSetupView,
 	SetupCardView,
 } from "../../src/components/worktree-setup-card.tsx";
+import worktreeSetupSource from "../../src/components/worktree-setup-card.tsx?raw";
+import worktreeLifecycleSource from "../../src/hooks/use-worktree-setup-lifecycle.ts?raw";
 import { selectChatSurface } from "../../src/lib/chat-surface-selection.ts";
 import {
 	chatStartupUsesQueue,
@@ -58,6 +62,15 @@ const operation = (
 });
 
 describe("chat creation handoff", () => {
+	it("renders the optimistic prompt with the canonical user bubble", () => {
+		const html = renderToStaticMarkup(
+			createElement(ChatCreationPromptBubble, { prompt: "Build it" }),
+		);
+		expect(html).toContain("data-chat-user-bubble");
+		expect(html).toContain("bg-user-bubble");
+		expect(html).not.toContain("bg-muted/70");
+	});
+
 	it("does not queue a ready plain-text startup turn", () => {
 		const input = ComposerInput.make({
 			text: "Start once",
@@ -152,6 +165,30 @@ describe("chat creation handoff", () => {
 		).toBe("session");
 	});
 
+	it("does not render the empty-chat prompt beneath an optimistic first message", () => {
+		expect(
+			shouldRenderEmptyChatState({
+				messageCount: 0,
+				hasPendingCreation: true,
+				setupActive: false,
+				agentStarting: false,
+			}),
+		).toBe(false);
+	});
+
+	it("rehydrates and follows the reserved worktree from the live chat shell", () => {
+		expect(worktreeSetupSource).toContain("useWorktreeSetupLifecycle(");
+		expect(worktreeLifecycleSource).toContain(
+			"void refreshWorktrees(projectId)",
+		);
+		expect(worktreeLifecycleSource).toMatch(
+			/\[creationPhase, projectId, refreshWorktrees, worktreeId\]/,
+		);
+		expect(worktreeLifecycleSource).toContain(
+			"subscribeSetup(projectId, worktreeId)",
+		);
+	});
+
 	it("rehydrates the authoritative phase without losing the submitted message", () => {
 		const restored = restorePendingCreation(operation("running_setup"));
 		expect(restored.creation.phase).toBe("running_setup");
@@ -236,7 +273,6 @@ describe("chat creation handoff", () => {
 					baseBranch: "main",
 					setupStatus: "running",
 					setupOutput: "installing dependencies",
-					agentStarting: undefined,
 					onRerun: null,
 				},
 			}),
@@ -245,25 +281,26 @@ describe("chat creation handoff", () => {
 		expect(html).not.toContain("<details open");
 	});
 
-	it("renders startup as one compact accordion with one agent indicator", () => {
+	it("starts with concrete worktree progress instead of a generic preparation step", () => {
 		const html = renderToStaticMarkup(
 			createElement(SetupCardView, {
 				data: {
 					repoName: "zuse",
 					hasWorktree: true,
-					worktreePending: false,
-					worktreeName: "bayleef",
-					branch: "feature/bayleef",
-					baseBranch: "main",
-					setupStatus: "succeeded",
+					worktreePending: true,
+					worktreeName: null,
+					branch: null,
+					baseBranch: null,
+					setupStatus: null,
 					setupOutput: "",
-					agentStarting: true,
 					onRerun: null,
 				},
 			}),
 		);
 		expect(html).toContain("<summary");
-		expect(html.match(/Starting agent/g)).toHaveLength(1);
+		expect(html).toContain("Creating a new copy of zuse");
+		expect(html).not.toContain("Preparing workspace");
+		expect(html).not.toContain("Starting agent");
 		expect(html).not.toContain("rounded-xl");
 	});
 

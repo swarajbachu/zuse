@@ -1,6 +1,9 @@
-import type { ReactNode, ComponentPropsWithoutRef } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
+
+export const composerTraySurfaceClass =
+	"composer-attached-rail mx-auto w-14/15 overflow-hidden border border-white/6 bg-card/72 shadow-overlay-sm backdrop-blur-xl";
 
 type Tone = "default" | "warning" | "accent";
 
@@ -113,15 +116,15 @@ export function TrayPill({
 	return (
 		<div
 			className={cn(
-				"text-[13px]",
+				"text-xs",
 				flush
-					? "border-b border-border/40 last:border-b-0"
+					? "border-b border-border/35 last:border-b-0"
 					: "rounded-md border border-border/50 bg-muted/30",
 				className,
 			)}
 			{...rest}
 		>
-			<div className="flex min-w-0 items-center gap-2 px-3 py-1.5">
+			<div className="flex min-h-8 min-w-0 items-center gap-2 px-3 py-1">
 				{leading !== undefined ? leading : null}
 				{rowBody}
 				{actions !== undefined ? (

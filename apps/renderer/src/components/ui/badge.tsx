@@ -25,13 +25,13 @@ export const badgeVariants = cva(
 					"bg-primary/50 text-primary-foreground [button&,a&]:hover:bg-primary/60",
 				destructive:
 					"bg-destructive/50 text-white [button&,a&]:hover:bg-destructive/60",
-				error: "bg-alert-error-bg/50 text-destructive-foreground",
-				info: "bg-alert-info-bg/50 text-info-foreground",
+				error: "bg-alert-error-bg text-destructive",
+				info: "bg-alert-info-bg text-info",
 				outline: "bg-muted/50 text-foreground [button&,a&]:hover:bg-accent/60",
 				secondary:
 					"bg-secondary/50 text-secondary-foreground [button&,a&]:hover:bg-secondary/60",
-				success: "bg-alert-success-bg/50 text-success",
-				warning: "bg-alert-warning-bg/50 text-warning-foreground",
+				success: "bg-alert-success-bg text-success",
+				warning: "bg-alert-warning-bg text-warning",
 			},
 		},
 	},

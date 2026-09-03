@@ -100,6 +100,11 @@ import {
 } from "./tool-row.tsx";
 import { Button } from "./ui/button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
+import {
+	userBubbleClass,
+	userBubbleColumnClass,
+	userBubbleRowClass,
+} from "./user-bubble-frame.tsx";
 
 export type { ToolResultRecord } from "./chat-lookups.tsx";
 
@@ -521,12 +526,9 @@ function UserBubble({
 	const truncate = (name: string): string =>
 		name.length > 28 ? `${name.slice(0, 25)}...` : name;
 	return (
-		<div className="group/message flex justify-end px-3 py-1.5">
-			<div className="flex max-w-[80%] flex-col items-end">
-				<div
-					data-chat-user-bubble
-					className="rounded-xl rounded-tr-sm bg-user-bubble px-2.5 py-1.5 text-xs leading-relaxed text-user-bubble-foreground"
-				>
+		<div className={userBubbleRowClass}>
+			<div className={userBubbleColumnClass}>
+				<div data-chat-user-bubble className={userBubbleClass}>
 					{origin !== undefined ? (
 						<button
 							type="button"

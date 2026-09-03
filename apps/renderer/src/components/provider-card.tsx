@@ -448,8 +448,8 @@ function SubscriptionRow({
 	if (!unmet) return null;
 
 	return (
-		<div className="flex flex-col gap-1.5 rounded-md border border-violet-400/25 bg-violet-500/[0.06] px-3 py-2.5">
-			<span className="text-[11px] font-medium text-violet-300">
+		<div className="flex flex-col gap-1.5 rounded-md border border-info/25 bg-alert-info-bg px-3 py-2.5">
+			<span className="text-[11px] font-medium text-info">
 				Requires {info.plan} subscription
 			</span>
 			<p className="text-[11px] leading-snug text-muted-foreground">
@@ -464,7 +464,7 @@ function SubscriptionRow({
 						e.stopPropagation();
 						openExternal(info.url);
 					}}
-					className="inline-flex items-center gap-1 rounded border border-violet-400/40 bg-violet-500/10 px-2 py-1 text-[11px] font-medium text-violet-100 transition-colors hover:bg-violet-500/20"
+					className="inline-flex h-7 items-center gap-1 rounded-md bg-info/10 px-2 text-[11px] font-medium text-info transition-colors hover:bg-info/20"
 				>
 					Subscribe
 					<HugeiconsIcon

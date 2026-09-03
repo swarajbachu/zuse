@@ -31,6 +31,7 @@ import {
 	DialogTitle,
 } from "./ui/dialog.tsx";
 import { Input } from "./ui/input.tsx";
+import { SegmentedTabs } from "./ui/segmented-tabs.tsx";
 import { toastManager } from "./ui/toast.tsx";
 
 const blankTarget = (): SshEnvironmentTarget => ({
@@ -345,33 +346,24 @@ export function AddComputerDialog({
 					<div className="min-h-0 space-y-3 overflow-y-auto px-4 pb-3">
 						<div className="flex items-center justify-between gap-2">
 							{view !== "manage" ? (
-								<fieldset className="inline-flex rounded-md bg-muted p-0.5">
-									<legend className="sr-only">Connection method</legend>
-									<Button
-										type="button"
-										size="xs"
-										variant={view === "link" ? "outline" : "ghost"}
-										aria-pressed={view === "link"}
-										onClick={() => {
+								<SegmentedTabs
+									value={view}
+									ariaLabel="Connection method"
+									className="w-48"
+									options={[
+										{ value: "link", label: "Connect link" },
+										{ value: "ssh", label: "SSH" },
+									]}
+									onValueChange={(next) => {
+										if (next === "link") {
 											setView("link");
 											setLinkError(null);
-										}}
-									>
-										Connect link
-									</Button>
-									<Button
-										type="button"
-										size="xs"
-										variant={view === "ssh" ? "outline" : "ghost"}
-										aria-pressed={view === "ssh"}
-										onClick={() => {
+										} else {
 											setView("ssh");
 											setSshError(null);
-										}}
-									>
-										SSH
-									</Button>
-								</fieldset>
+										}
+									}}
+								/>
 							) : (
 								<span />
 							)}

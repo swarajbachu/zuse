@@ -2,6 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { CloudChatSummary } from "@zuse/contracts";
 import { Alert01Icon, Tick01Icon } from "@zuse/icons/solid-rounded";
 import { type ReactNode, useState } from "react";
+import { useWorktreeSetupLifecycle } from "../hooks/use-worktree-setup-lifecycle.ts";
 import { cloudWorkspaceIsStarting } from "../lib/cloud-chat-activity.ts";
 import {
 	refreshCloudChatCatalog,
@@ -15,7 +16,7 @@ import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
-import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
+import { useWorktreesStore } from "../store/worktrees.ts";
 import { Button } from "./ui/button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner";
@@ -37,8 +38,6 @@ export type SetupCardData = {
 	readonly hasWorktree: boolean;
 	/** Worktree row not hydrated yet — branch/copy still in flight. */
 	readonly worktreePending: boolean;
-	/** Durable chat exists, but the server has not started checkout creation. */
-	readonly workspacePreparing?: boolean;
 	readonly worktreeName: string | null;
 	readonly branch: string | null;
 	readonly baseBranch: string | null;
@@ -51,8 +50,6 @@ export type SetupCardData = {
 		| "skipped"
 		| null;
 	readonly setupOutput: string;
-	/** Workspace is ready, but the initial provider turn has not started yet. */
-	readonly agentStarting?: boolean;
 	/** Rerun handler, present only when setup has failed and a row exists. */
 	readonly onRerun: (() => void) | null;
 };
@@ -65,10 +62,8 @@ export type SetupCardData = {
  * Renders nothing once there's no setup work left and the provider is ready.
  */
 export function WorktreeSetupCard({
-	agentStarting,
 	providerOutputStarted = false,
 }: {
-	readonly agentStarting?: boolean;
 	readonly providerOutputStarted?: boolean;
 } = {}) {
 	const ctx = useActiveContext();
@@ -105,15 +100,21 @@ export function WorktreeSetupCard({
 			return null;
 		return s.folders.find((f) => f.id === ctx.folderId)?.name ?? null;
 	});
-	const worktree = useWorktreesStore((s) => {
-		if (
-			(ctx.status !== "ready" && ctx.status !== "worktree-pending") ||
-			ctx.worktreeId === null
-		)
-			return null;
-		const list = s.byProject[ctx.folderId] ?? EMPTY_WORKTREES;
-		return list.find((w) => w.id === ctx.worktreeId) ?? null;
-	});
+	const setupProjectId =
+		pendingCreation?.projectId ??
+		(ctx.status === "ready" || ctx.status === "worktree-pending"
+			? ctx.folderId
+			: null);
+	const setupWorktreeId =
+		pendingCreation?.worktreeId ??
+		(ctx.status === "ready" || ctx.status === "worktree-pending"
+			? ctx.worktreeId
+			: null);
+	const worktree = useWorktreeSetupLifecycle(
+		setupProjectId,
+		setupWorktreeId,
+		pendingCreation?.phase ?? null,
+	);
 	const rerunSetup = useWorktreesStore((s) => s.rerunSetup);
 	const hasWorktree =
 		ctx.status === "worktree-pending" ||
@@ -125,19 +126,15 @@ export function WorktreeSetupCard({
 	const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
 	const externalResume = session !== null && session.resumeStrategy !== "none";
 
-	// This card belongs to chat/worktree creation. A provider still boots for
-	// every additional session, but that must not replay chat setup UI after the
-	// shared worktree is ready.
-	const visible =
-		initialSession &&
-		(ctx.status === "worktree-pending" ||
-			agentStarting !== undefined ||
-			shouldShowSetupCard({
-				externalResume,
-				initialSession,
-				hasWorktree,
-				setupDone,
-			}));
+	// This card owns workspace setup only. As soon as that work is done, the
+	// normal transcript activity row owns provider startup.
+	const visible = shouldShowSetupCard({
+		externalResume,
+		initialSession,
+		hasWorktree,
+		setupDone,
+		workspacePending: ctx.status === "worktree-pending",
+	});
 	if (providerOutputStarted) return null;
 	if (cloudSummary !== null) {
 		const resumeLifecycle =
@@ -165,13 +162,11 @@ export function WorktreeSetupCard({
 				repoName: repoName ?? "this repo",
 				hasWorktree,
 				worktreePending,
-				workspacePreparing: pendingCreation?.phase === "persisted",
 				worktreeName: worktree?.name ?? null,
 				branch: worktree?.branch ?? null,
 				baseBranch: worktree?.baseBranch ?? null,
 				setupStatus,
 				setupOutput: worktree?.setupOutput ?? "",
-				agentStarting,
 				onRerun:
 					worktree !== null && setupStatus === "failed"
 						? () => void rerunSetup(worktree.projectId, worktree.id)
@@ -392,14 +387,12 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 		repoName,
 		hasWorktree,
 		worktreePending,
-		workspacePreparing = false,
 		worktreeName,
 		branch,
 		baseBranch,
 		setupStatus,
 		setupOutput,
 		onRerun,
-		agentStarting,
 	} = data;
 
 	// The worktree request is already canonical before its id/list row arrives.
@@ -413,25 +406,17 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	const name = worktreeName ?? "your workspace";
 	const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
 	const summaryState: StepState =
-		setupStatus === "failed"
-			? "failed"
-			: agentStarting === true || !setupDone
-				? "active"
-				: "done";
+		setupStatus === "failed" ? "failed" : !setupDone ? "active" : "done";
 	const summaryLabel =
 		setupStatus === "failed"
 			? "Environment setup failed"
-			: agentStarting === true
-				? "Starting agent…"
-				: setupStatus === "running"
-					? "Running environment setup…"
-					: setupDone
-						? "Workspace ready"
-						: workspacePreparing
-							? "Preparing workspace…"
-							: worktreePending
-								? `Creating a new copy of ${repoName}…`
-								: "Detecting setup script…";
+			: setupStatus === "running"
+				? "Running environment setup…"
+				: setupDone
+					? "Workspace ready"
+					: worktreePending || worktreeName === null
+						? `Creating a new copy of ${repoName}…`
+						: "Detecting setup script…";
 
 	return (
 		<details className="group mx-auto w-full max-w-3xl px-4 pt-3 text-[12px]">
@@ -476,11 +461,9 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 							<StepRow
 								state={wtReady ? "done" : "active"}
 								label={
-									workspacePreparing
-										? "Preparing workspace…"
-										: worktreeName === null
-											? `Creating a new copy of ${repoName}…`
-											: `Created a new copy of ${repoName} called ${name}`
+									worktreeName === null
+										? `Creating a new copy of ${repoName}…`
+										: `Created a new copy of ${repoName} called ${name}`
 								}
 							/>
 							<StepRow

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- New chats can now choose between the main checkout and a fresh isolated worktree directly from the composer
+
+### Changed
+- The desktop interface now uses a darker green-neutral design system with a bottom-docked composer, compact settings and authentication dialogs, consistent segmented tabs, and cleaner project, computer, model, and reasoning controls
+- Imported chats, Cloud Workspace setup, approval questions, and permission prompts are denser and easier to scan
+
 ### Fixed
 - Cloud text messages can now be accepted while compute sleeps, wake the workspace through a durable encrypted mailbox, survive client/runtime restarts without duplicate provider sends, and report queued, cancelled, expired, or unknown outcomes explicitly
 - The packaged `zusehq` CLI now discovers and authenticates to a foreground Serve process, reconnects after Serve restarts, and reports protocol mismatch, rejected credentials, and unavailable servers distinctly

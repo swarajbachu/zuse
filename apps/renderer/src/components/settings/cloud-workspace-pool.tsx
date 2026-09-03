@@ -10,7 +10,7 @@ import {
 	CloudWorkspaceOpError,
 	type GithubRepoSummary,
 } from "@zuse/contracts";
-import { ChevronDown, Cloud } from "lucide-react";
+import { Cloud } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../hooks/use-auth.ts";
 import { cloudWorkspaceAccessPresentation } from "../../lib/cloud-workspace-access.ts";
@@ -19,6 +19,7 @@ import { openExternal } from "../../lib/platform-capabilities.ts";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
+import { SegmentedTabs } from "../ui/segmented-tabs.tsx";
 import { CloudImageBuildHistory } from "./cloud-image-build-history.tsx";
 import { CloudImageReadiness } from "./cloud-image-readiness.tsx";
 import {
@@ -80,6 +81,7 @@ export function CloudWorkspacePool() {
 	const [error, setError] = useState<string | null>(null);
 	const [imageError, setImageError] = useState<string | null>(null);
 	const [projectError, setProjectError] = useState<string | null>(null);
+	const [view, setView] = useState<"setup" | "usage" | "activity">("setup");
 	const access = cloudWorkspaceAccessPresentation({
 		entitlementSubscribed,
 		serviceAvailable,
@@ -177,7 +179,7 @@ export function CloudWorkspacePool() {
 			setImageError(
 				imageResult.status === "fulfilled"
 					? null
-					: "The connected API does not provide account images yet. Apply migration 0012 and deploy the current Cloud Workspace backend, then retry.",
+					: "Cloud image status is temporarily unavailable. Refresh in a moment; existing cloud chats are unaffected.",
 			);
 			setError(
 				[providerResult, projectResult, workspaceResult].every(
@@ -372,10 +374,21 @@ export function CloudWorkspacePool() {
 	if (authLoading) return null;
 	if (!isSignedIn) {
 		return (
-			<CloudSettingsGroup
-				title="Cloud Workspace · Beta"
-				description="Your saved chats remain available on this device. Sign in again to access cloud compute and billing."
-				action={
+			<section className="flex items-center gap-4 rounded-lg bg-card px-3 py-3 ring-1 ring-inset ring-border/70">
+				<div className="min-w-0 flex-1">
+					<h2 className="text-xs font-medium text-foreground">
+						Sign in to set up cloud workspaces
+					</h2>
+					<p className="mt-0.5 max-w-xl text-[11px] leading-4 text-muted-foreground">
+						Choose a plan, connect repositories, and authorize your coding
+						agents from one account.
+					</p>
+					<p className="mt-1 text-[10px] text-muted-foreground/75">
+						Local chats stay on this computer and remain available without an
+						account.
+					</p>
+				</div>
+				<div className="shrink-0">
 					<Button
 						size="xs"
 						className={COMPACT_CLOUD_ACTION}
@@ -384,13 +397,8 @@ export function CloudWorkspacePool() {
 					>
 						Sign in
 					</Button>
-				}
-			>
-				<CloudSettingsRow
-					title="Sign in to continue"
-					description="Your account session expired. You do not need to sign out first."
-				/>
-			</CloudSettingsGroup>
+				</div>
+			</section>
 		);
 	}
 	const overageCapPercent =
@@ -420,7 +428,7 @@ export function CloudWorkspacePool() {
 			{error === null ? null : (
 				<div
 					role="alert"
-					className="rounded-md bg-alert-error-bg px-3 py-2 text-[11px] text-destructive-foreground ring-1 ring-inset ring-destructive/10"
+					className="rounded-md bg-alert-error-bg px-3 py-2 text-[11px] text-destructive ring-1 ring-inset ring-destructive/10"
 				>
 					{error}
 				</div>
@@ -456,161 +464,193 @@ export function CloudWorkspacePool() {
 				/>
 			</CloudSettingsGroup>
 
-			{subscribed && serviceAvailable && billing !== null ? (
-				<CloudSettingsGroup
-					title="Usage and billing"
-					description="$40/month includes the first $35 of actual sandbox compute. Additional compute is billed at provider cost + 5%; unused allowance does not roll over."
-					action={
-						<Badge
-							variant={
-								billing.status === "billing-hold" ? "warning" : "success"
-							}
-						>
-							{billing.status === "billing-hold" ? "Usage paused" : "Active"}
-						</Badge>
-					}
-				>
-					{overageWarning === null ? null : (
-						<CloudSettingsRow
-							title={
-								overageCapPercent >= 100 ? "Billing hold" : "Usage warning"
-							}
-							description={overageWarning}
-							action={<Badge variant="warning">{overageCapPercent}%</Badge>}
-						/>
-					)}
-					<CloudSettingsRow
-						title={`${formatUsdMicros(billing.includedUsedMicros)} of $35.00 included used`}
-						description={`${formatUsdMicros(billing.includedRemainingMicros)} included remaining · ${formatUsdMicros(billing.overageChargeMicros)} current overage · ${formatUsdMicros(billing.currentInvoiceEstimateMicros)} current invoice estimate before tax.`}
+			{subscribed && serviceAvailable ? (
+				<SegmentedTabs
+					value={view}
+					onValueChange={setView}
+					ariaLabel="Cloud workspace settings"
+					className="max-w-sm"
+					options={[
+						{ value: "setup", label: "Setup" },
+						{ value: "usage", label: "Usage" },
+						{ value: "activity", label: "Activity" },
+					]}
+				/>
+			) : null}
+
+			{subscribed && serviceAvailable && view === "setup" ? (
+				<>
+					<CloudWorkspaceGithub
+						status={githubStatus}
+						loading={reposLoading}
+						busy={busy}
+						onInstall={() => void installGithub()}
+						onManage={(installationId) => void manageGithub(installationId)}
+						onRefresh={() => void loadGithubRepos()}
+						onDisconnect={(installationId) =>
+							void disconnectGithub(installationId)
+						}
 					/>
-					<CloudSettingsRow
-						title="Monthly overage cap"
-						description="Running workspaces and builds pause at this pre-tax overage amount. The cap cannot be set below usage already incurred."
-						action={
-							<>
-								<Input
-									type="number"
-									min="0"
-									step="1"
-									value={capDollars}
-									onChange={(event) => setCapDollars(event.currentTarget.value)}
-									className="h-7 w-20"
-									aria-label="Monthly overage cap in dollars"
-								/>
+					<CloudWorkspaceRepositories
+						projects={projects}
+						repositories={githubRepos}
+						githubAuthenticated={githubAuthenticated}
+						loading={reposLoading}
+						busy={busy}
+						error={projectError}
+						onRefresh={() => void loadGithubRepos()}
+						onAdd={(names) => void connectProjects(names)}
+						onRemove={(project) => void removeProject(project)}
+					/>
+					<CloudWorkspaceAuth />
+					<CloudSettingsGroup
+						title="Cloud image"
+						description="Build the reusable environment that starts every new cloud chat."
+					>
+						<CloudImageReadiness
+							image={accountImage}
+							projects={projects}
+							busy={busy}
+							unavailable={imageError !== null}
+							onBuild={(mode) => void buildAccountImage(mode)}
+						/>
+						{imageError === null ? null : (
+							<div className="flex items-center justify-between gap-3 bg-destructive/10 px-3 py-2">
+								<p role="alert" className="text-xs text-destructive">
+									{imageError}
+								</p>
 								<Button
 									size="xs"
+									variant="ghost"
 									className={COMPACT_CLOUD_ACTION}
-									loading={busy === "billing-cap"}
-									onClick={() => void saveOverageCap()}
+									onClick={() => void load()}
 								>
-									Save
+									Retry
 								</Button>
-							</>
-						}
-					/>
-					<CloudSettingsRow
-						title="Recent usage"
-						description={
-							billingUsage.length === 0
-								? "No completed sandbox executions in this billing period yet."
-								: billingUsage
-										.slice(0, 3)
-										.map(
-											(item) =>
-												`${item.resourceKind} ${item.resourceId}: ${formatUsdMicros(item.providerCostMicros)}${item.status === "provisional" ? " (provisional)" : ""}`,
-										)
-										.join(" · ")
-						}
+							</div>
+						)}
+						<CloudImageBuildHistory builds={accountImage?.builds ?? []} />
+					</CloudSettingsGroup>
+				</>
+			) : null}
+
+			{subscribed && serviceAvailable && view === "usage" ? (
+				billing === null ? (
+					<CloudSettingsGroup
+						title="Usage and billing"
+						description="Usage details are temporarily unavailable."
+					>
+						<CloudSettingsRow
+							title="Could not load billing"
+							description="Refresh cloud settings to try again. Existing workspaces are unaffected."
+							action={
+								<Button
+									size="xs"
+									variant="ghost"
+									className={COMPACT_CLOUD_ACTION}
+									onClick={() => void load()}
+								>
+									Retry
+								</Button>
+							}
+						/>
+					</CloudSettingsGroup>
+				) : (
+					<CloudSettingsGroup
+						title="Usage and billing"
+						description="$40/month includes $35 of sandbox compute. Additional compute is billed at provider cost + 5%."
 						action={
-							<Button
-								size="xs"
-								variant="ghost"
-								className={COMPACT_CLOUD_ACTION}
-								loading={busy === "billing-portal"}
-								onClick={() => void openBillingPortal()}
+							<Badge
+								variant={
+									billing.status === "billing-hold" ? "warning" : "success"
+								}
 							>
-								Invoices
-							</Button>
+								{billing.status === "billing-hold" ? "Paused" : "Active"}
+							</Badge>
 						}
-					/>
-					<p className="px-3 py-2 text-[10px] text-muted-foreground">
-						The fixed platform reserve covers billing, Cloudflare, and operating
-						costs; it is not guaranteed margin. Taxes are handled separately at
-						checkout.
-					</p>
-				</CloudSettingsGroup>
+					>
+						{overageWarning === null ? null : (
+							<CloudSettingsRow
+								title={
+									overageCapPercent >= 100 ? "Billing hold" : "Usage warning"
+								}
+								description={overageWarning}
+								action={<Badge variant="warning">{overageCapPercent}%</Badge>}
+							/>
+						)}
+						<CloudSettingsRow
+							title={`${formatUsdMicros(billing.includedUsedMicros)} of $35.00 included used`}
+							description={`${formatUsdMicros(billing.includedRemainingMicros)} remaining · ${formatUsdMicros(billing.overageChargeMicros)} overage · ${formatUsdMicros(billing.currentInvoiceEstimateMicros)} invoice estimate before tax`}
+						/>
+						<CloudSettingsRow
+							title="Monthly overage cap"
+							description="Builds and running workspaces pause when this pre-tax limit is reached."
+							action={
+								<>
+									<Input
+										type="number"
+										min="0"
+										step="1"
+										value={capDollars}
+										onChange={(event) =>
+											setCapDollars(event.currentTarget.value)
+										}
+										className="h-7 w-20"
+										aria-label="Monthly overage cap in dollars"
+									/>
+									<Button
+										size="xs"
+										className={COMPACT_CLOUD_ACTION}
+										loading={busy === "billing-cap"}
+										onClick={() => void saveOverageCap()}
+									>
+										Save
+									</Button>
+								</>
+							}
+						/>
+						<CloudSettingsRow
+							title="Recent usage"
+							description={
+								billingUsage.length === 0
+									? "No completed sandbox runs in this billing period."
+									: billingUsage
+											.slice(0, 3)
+											.map(
+												(item) =>
+													`${item.resourceKind} ${item.resourceId}: ${formatUsdMicros(item.providerCostMicros)}${item.status === "provisional" ? " (provisional)" : ""}`,
+											)
+											.join(" · ")
+							}
+							action={
+								<Button
+									size="xs"
+									variant="ghost"
+									className={COMPACT_CLOUD_ACTION}
+									loading={busy === "billing-portal"}
+									onClick={() => void openBillingPortal()}
+								>
+									Invoices
+								</Button>
+							}
+						/>
+					</CloudSettingsGroup>
+				)
 			) : null}
 
-			{subscribed && serviceAvailable ? (
+			{subscribed && serviceAvailable && view === "activity" ? (
 				<CloudSettingsGroup
-					title="Cloud image"
-					description="Every cloud chat starts from this account image. The latest build and its logs stay visible here."
+					title="Workspace activity"
+					description="Current and recent cloud workspaces for this account."
+					action={<Badge variant="outline">{workspaces.length}</Badge>}
 				>
-					<CloudImageReadiness
-						image={accountImage}
-						projects={projects}
-						busy={busy}
-						unavailable={imageError !== null}
-						onBuild={(mode) => void buildAccountImage(mode)}
-					/>
-					{imageError === null ? null : (
-						<div className="flex items-center justify-between gap-3 bg-destructive/10 px-3 py-2">
-							<p role="alert" className="text-xs text-destructive">
-								{imageError}
-							</p>
-							<Button
-								size="xs"
-								variant="ghost"
-								className={COMPACT_CLOUD_ACTION}
-								onClick={() => void load()}
-							>
-								Retry
-							</Button>
-						</div>
-					)}
-					<CloudImageBuildHistory builds={accountImage?.builds ?? []} />
-				</CloudSettingsGroup>
-			) : null}
-
-			{subscribed && serviceAvailable ? <CloudWorkspaceAuth /> : null}
-
-			{subscribed && serviceAvailable ? (
-				<CloudWorkspaceGithub
-					status={githubStatus}
-					loading={reposLoading}
-					busy={busy}
-					onInstall={() => void installGithub()}
-					onManage={(installationId) => void manageGithub(installationId)}
-					onRefresh={() => void loadGithubRepos()}
-					onDisconnect={(installationId) =>
-						void disconnectGithub(installationId)
-					}
-				/>
-			) : null}
-
-			{subscribed && serviceAvailable ? (
-				<CloudWorkspaceRepositories
-					projects={projects}
-					repositories={githubRepos}
-					githubAuthenticated={githubAuthenticated}
-					loading={reposLoading}
-					busy={busy}
-					error={projectError}
-					onRefresh={() => void loadGithubRepos()}
-					onAdd={(names) => void connectProjects(names)}
-					onRemove={(project) => void removeProject(project)}
-				/>
-			) : null}
-
-			{subscribed && serviceAvailable && workspaces.length > 0 ? (
-				<details className="group rounded-lg border border-border">
-					<summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground">
-						<ChevronDown className="size-3 transition-transform group-open:rotate-180" />
-						Workspace activity
-						<Badge variant="outline">{workspaces.length}</Badge>
-					</summary>
-					<div className="divide-y divide-border border-border border-t">
-						{workspaces.map((workspace) => (
+					{workspaces.length === 0 ? (
+						<CloudSettingsRow
+							title="No cloud workspaces yet"
+							description="Start a cloud chat and its workspace will appear here."
+						/>
+					) : (
+						workspaces.map((workspace) => (
 							<CloudSettingsRow
 								key={workspace.workspaceId}
 								title={workspace.branch}
@@ -621,9 +661,9 @@ export function CloudWorkspacePool() {
 									</Badge>
 								}
 							/>
-						))}
-					</div>
-				</details>
+						))
+					)}
+				</CloudSettingsGroup>
 			) : null}
 		</>
 	);

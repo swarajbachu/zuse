@@ -11,7 +11,7 @@ import { cn } from "~/lib/utils";
 export const Select: typeof SelectPrimitive.Root = SelectPrimitive.Root;
 
 export const selectTriggerVariants = cva(
-	"relative inline-flex min-h-7 w-full min-w-28 select-none items-center justify-between gap-1.5 rounded-md border border-input bg-background px-[calc(--spacing(2.5)-1px)] text-left text-xs text-foreground shadow-none outline-none ring-ring/24 transition-shadow before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-md)-1px)] pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 focus-visible:border-ring focus-visible:ring-2 aria-invalid:border-destructive/36 focus-visible:aria-invalid:border-destructive/64 focus-visible:aria-invalid:ring-destructive/16 data-disabled:pointer-events-none data-disabled:opacity-64 dark:bg-input/32 dark:aria-invalid:ring-destructive/24 [&_svg:not([class*='opacity-'])]:opacity-80 [&_svg:not([class*='size-'])]:size-3.5 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+	"relative inline-flex min-h-7 w-full min-w-28 select-none items-center justify-between gap-1.5 rounded-md border border-input bg-card px-[calc(--spacing(2.5)-1px)] text-left text-xs text-foreground shadow-xs/5 outline-none ring-ring/24 transition-[border-color,box-shadow] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-md)-1px)] pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 focus-visible:border-ring focus-visible:ring-2 aria-invalid:border-destructive/36 focus-visible:aria-invalid:border-destructive/64 focus-visible:aria-invalid:ring-destructive/16 data-disabled:pointer-events-none data-disabled:opacity-64 dark:bg-card dark:aria-invalid:ring-destructive/24 [&_svg:not([class*='opacity-'])]:opacity-80 [&_svg:not([class*='size-'])]:size-3.5 [&_svg]:pointer-events-none [&_svg]:shrink-0",
 	{
 		defaultVariants: {
 			size: "default",
@@ -143,7 +143,7 @@ export function SelectPopup({
 					>
 						<ChevronUp className="relative size-4.5 sm:size-4" />
 					</SelectPrimitive.ScrollUpArrow>
-					<div className="relative h-full min-w-(--anchor-width) rounded-lg bg-glass border-glass">
+					<div className="relative h-full min-w-(--anchor-width) rounded-lg border border-border/80 bg-popover shadow-overlay">
 						<SelectPrimitive.List
 							className={cn(
 								"max-h-(--available-height) overflow-y-auto rounded-lg p-1",

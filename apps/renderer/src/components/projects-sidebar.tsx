@@ -15,7 +15,6 @@ import {
 	ArchiveArrowDownIcon,
 	ArchiveArrowUpIcon,
 	ArchiveIcon,
-	CloudIcon,
 	Delete02Icon,
 	Edit01Icon,
 	Folder01Icon,
@@ -45,6 +44,7 @@ import {
 } from "react";
 import { TypewriterText } from "~/components/typewriter-text.tsx";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
+import { CompactEmptyState } from "~/components/ui/compact-empty-state";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { toastManager } from "~/components/ui/toast.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -123,6 +123,7 @@ import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { openAddComputerDialog } from "./add-computer-dialog.tsx";
 import { BranchIcon, type BranchState } from "./branch-icon.tsx";
+import { DitherCloudIcon } from "./dither-cloud-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
@@ -410,8 +411,11 @@ export function ProjectsSidebar() {
 							</li>
 						) : null}
 						{catalogViewState === "empty" ? (
-							<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
-								No projects yet. Click + to add one.
+							<li>
+								<CompactEmptyState
+									title="No projects yet"
+									description="Use + to add a repository."
+								/>
 							</li>
 						) : null}
 						{logicalGroups.map((group) => {
@@ -465,8 +469,11 @@ export function ProjectsSidebar() {
 				) : (
 					<>
 						{folders.length === 0 && !loading ? (
-							<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
-								No projects yet. Click + to add one.
+							<li>
+								<CompactEmptyState
+									title="No projects yet"
+									description="Use + to add a repository."
+								/>
 							</li>
 						) : null}
 						{folders.map((folder) => (
@@ -903,6 +910,39 @@ function SidebarChatHoverCard({
 	);
 }
 
+function SidebarProjectHoverCard({
+	name,
+	path,
+	chatCount,
+}: {
+	readonly name: string;
+	readonly path: string;
+	readonly chatCount: number;
+}) {
+	return (
+		<div className="min-w-52 max-w-72 space-y-1 px-1 py-0.5 text-xs">
+			<div className="mb-1.5 flex items-center gap-2 truncate text-[13px] font-medium text-foreground">
+				<HugeiconsIcon icon={Folder01Icon} className="size-3.5" />
+				<span className="truncate">{name}</span>
+			</div>
+			<div className="flex items-center gap-2 text-muted-foreground">
+				<HugeiconsIcon icon={TaskDone01Icon} className="size-3.5" />
+				<span>
+					{chatCount} {chatCount === 1 ? "chat" : "chats"}
+				</span>
+			</div>
+			<div className="flex items-center gap-2 border-t border-border/35 pt-1.5 text-muted-foreground">
+				<HugeiconsIcon icon={Folder01Icon} className="size-3.5" />
+				<span className="truncate">{displayPath(path)}</span>
+			</div>
+			<div className="flex items-center gap-2 border-t border-border/35 pt-1.5 text-muted-foreground">
+				<HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
+				<span>Project settings</span>
+			</div>
+		</div>
+	);
+}
+
 /**
  * A logical project group with no folder on the active environment: a light
  * header (avatar ↔ chevron swap, same anatomy as the full `ProjectGroup`)
@@ -962,7 +1002,7 @@ function LogicalCatalogGroup({
 						<button
 							type="button"
 							aria-label={`New chat in ${group.displayName}`}
-							className="rounded-md p-1 text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+							className="rounded-md p-1 text-muted-foreground opacity-0 outline-none transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
 							onClick={(event) => {
 								event.stopPropagation();
 								void switchToEnvironment({
@@ -1079,7 +1119,12 @@ function CatalogChatRow({
 						</button>
 					}
 				/>
-				<TooltipPopup side="right" align="start" sideOffset={8}>
+				<TooltipPopup
+					side="right"
+					align="start"
+					sideOffset={8}
+					className="border border-border/60 bg-popover/95 shadow-overlay-md backdrop-blur-xl"
+				>
 					<SidebarChatHoverCard
 						title={chat.title}
 						repository={repositoryName}
@@ -1278,88 +1323,109 @@ function ProjectGroup({
 			{/* Project header toggles expansion only. Explicit actions below select
           the project when they need project context. */}
 			<li>
-				{/* biome-ignore lint/a11y/useSemanticElements: this row contains nested action buttons. */}
-				<div
-					role="button"
-					tabIndex={0}
-					onContextMenu={onContextMenu}
-					onClick={() => {
-						onToggleExpanded();
-					}}
-					onKeyDown={(e) => {
-						if (e.key === "Enter" || e.key === " ") {
-							e.preventDefault();
-							onToggleExpanded();
-						}
-					}}
-					className="group flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent/30"
-				>
-					{/* Single 20px slot holds avatar (idle) and chevron (hover). Both
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							/* biome-ignore lint/a11y/useSemanticElements: this row contains nested action buttons. */
+							<div
+								role="button"
+								tabIndex={0}
+								onContextMenu={onContextMenu}
+								onClick={() => {
+									onToggleExpanded();
+								}}
+								onKeyDown={(e) => {
+									if (e.key === "Enter" || e.key === " ") {
+										e.preventDefault();
+										onToggleExpanded();
+									}
+								}}
+								className="group flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent/40 focus-visible:bg-sidebar-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							>
+								{/* Single 20px slot holds avatar (idle) and chevron (hover). Both
               live in the same grid cell so the row never reflows; opacity
               fades between them. motion-reduce drops the transition. */}
-					<div className="relative grid size-5 shrink-0 place-items-center">
-						<Avatar
-							className={cn(
-								"col-start-1 row-start-1 size-5 rounded transition-opacity duration-150 ease-out",
-								"group-hover:opacity-0 motion-reduce:transition-none",
-								showHeaderAttention && "opacity-0",
-							)}
-						>
-							{avatarUrl !== null && (
-								<AvatarImage src={avatarUrl} alt={displayName} />
-							)}
-							<AvatarFallback className="rounded text-[10px]">
-								{fallbackText}
-							</AvatarFallback>
-						</Avatar>
-						{showHeaderAttention && (
-							<ChatAttentionIcon
-								state={headerAttention}
-								className={cn(
-									"col-start-1 row-start-1 transition-opacity duration-150 ease-out",
-									"group-hover:opacity-0 motion-reduce:transition-none",
-								)}
-								context="project"
-							/>
-						)}
-						<Chevron
-							aria-hidden="true"
-							className={cn(
-								"col-start-1 row-start-1 size-3.5 text-muted-foreground opacity-0 transition-opacity duration-150 ease-out",
-								"group-hover:opacity-100 motion-reduce:transition-none",
-							)}
-						/>
-					</div>
-					<span
-						className="min-w-0 flex-1 truncate text-[12px]"
-						title={
-							origin
-								? `${origin.owner}/${origin.repo} · ${displayPath(path)}`
-								: displayPath(path)
-						}
-					>
-						{displayName}
-					</span>
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<button
-									type="button"
-									onClick={(event) => {
-										event.stopPropagation();
-										openRepositorySettings();
-									}}
-									className="rounded-md p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-									aria-label={`Settings for ${displayName}`}
+								<div className="relative grid size-5 shrink-0 place-items-center">
+									<Avatar
+										className={cn(
+											"col-start-1 row-start-1 size-5 rounded transition-opacity duration-150 ease-out",
+											"group-hover:opacity-0 motion-reduce:transition-none",
+											showHeaderAttention && "opacity-0",
+										)}
+									>
+										{avatarUrl !== null && (
+											<AvatarImage src={avatarUrl} alt={displayName} />
+										)}
+										<AvatarFallback className="rounded text-[10px]">
+											{fallbackText}
+										</AvatarFallback>
+									</Avatar>
+									{showHeaderAttention && (
+										<ChatAttentionIcon
+											state={headerAttention}
+											className={cn(
+												"col-start-1 row-start-1 transition-opacity duration-150 ease-out",
+												"group-hover:opacity-0 motion-reduce:transition-none",
+											)}
+											context="project"
+										/>
+									)}
+									<Chevron
+										aria-hidden="true"
+										className={cn(
+											"col-start-1 row-start-1 size-3.5 text-muted-foreground opacity-0 transition-opacity duration-150 ease-out",
+											"group-hover:opacity-100 motion-reduce:transition-none",
+										)}
+									/>
+								</div>
+								<span
+									className="min-w-0 flex-1 truncate text-[12px]"
+									title={
+										origin
+											? `${origin.owner}/${origin.repo} · ${displayPath(path)}`
+											: displayPath(path)
+									}
 								>
-									<HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
-								</button>
-							}
+									{displayName}
+								</span>
+								<Tooltip>
+									<TooltipTrigger
+										render={
+											<button
+												type="button"
+												onClick={(event) => {
+													event.stopPropagation();
+													openRepositorySettings();
+												}}
+												className="rounded-md p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
+												aria-label={`Settings for ${displayName}`}
+											>
+												<HugeiconsIcon
+													icon={Settings01Icon}
+													className="size-3.5"
+												/>
+											</button>
+										}
+									/>
+									<TooltipPopup>Repository settings</TooltipPopup>
+								</Tooltip>
+								<NewChatButton projectId={id} />
+							</div>
+						}
+					/>
+					<TooltipPopup
+						side="right"
+						align="start"
+						sideOffset={8}
+						className="border border-border/60 bg-popover/95 shadow-overlay-md backdrop-blur-xl"
+					>
+						<SidebarProjectHoverCard
+							name={displayName}
+							path={path}
+							chatCount={chatRows.length}
 						/>
-						<TooltipPopup>Repository settings</TooltipPopup>
-					</Tooltip>
-					<NewChatButton projectId={id} />
-				</div>
+					</TooltipPopup>
+				</Tooltip>
 
 				<ProjectContextMenu
 					open={menuOpen}
@@ -1514,7 +1580,7 @@ function CloudChatRow({
 									role="img"
 									aria-label={label}
 								>
-									<HugeiconsIcon icon={CloudIcon} className="size-3.5" />
+									<DitherCloudIcon className="size-4" />
 								</span>
 								<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
 									{formatRelative(
@@ -1553,7 +1619,12 @@ function CloudChatRow({
 						</div>
 					}
 				/>
-				<TooltipPopup side="right" align="start" sideOffset={8}>
+				<TooltipPopup
+					side="right"
+					align="start"
+					sideOffset={8}
+					className="border border-border/60 bg-popover/95 shadow-overlay-md backdrop-blur-xl"
+				>
 					<SidebarChatHoverCard
 						title={summary.title}
 						repository={summary.repositoryDisplayName}
@@ -1665,7 +1736,7 @@ function NewChatButton({ projectId }: { projectId: FolderId }) {
 					<button
 						type="button"
 						onClick={onClick}
-						className="rounded-md p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+						className="rounded-md p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
 						aria-label="New chat"
 					>
 						<HugeiconsIcon icon={Edit01Icon} className="size-3.5" />
@@ -1812,6 +1883,21 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 		messageAttention,
 		permissionAttention,
 	]);
+	const hoverSession =
+		chatSessions.find((session) => session.id === selectedSessionId) ??
+		chatSessions[0] ??
+		null;
+	const hoverStatus = creationPending
+		? "Starting agent"
+		: attentionState === "running"
+			? "Agent active"
+			: attentionState === "question"
+				? "Waiting for an answer"
+				: attentionState === "permission"
+					? "Waiting for permission"
+					: attentionState === "planReady"
+						? "Plan ready"
+						: "Inactive";
 
 	// Highlight this row when its own chat is selected, OR when the active
 	// session (any tab inside this chat) lives in it. Covers the transient
@@ -1903,99 +1989,129 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 				</Suspense>
 			) : null}
 			<li>
-				{/* biome-ignore lint/a11y/useSemanticElements: this row contains a nested archive action. */}
-				<div
-					role="button"
-					tabIndex={0}
-					onClick={() => selectChat(chat.id)}
-					onContextMenu={onContextMenu}
-					onKeyDown={(e) => {
-						if (e.key === "Enter" || e.key === " ") {
-							e.preventDefault();
-							selectChat(chat.id);
-						}
-					}}
-					className={cn(
-						"group flex min-h-7 cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-2 pl-1 text-[12px] transition-colors",
-						isSelected && "bg-sidebar-accent text-sidebar-accent-foreground",
-						!isSelected &&
-							isArchived &&
-							"text-muted-foreground hover:bg-sidebar-accent/40",
-						// Read rows sit dim; unread rows brighten + bold so new activity pops.
-						!isSelected &&
-							!isArchived &&
-							!isUnread &&
-							"text-muted-foreground hover:bg-sidebar-accent/40",
-						!isSelected &&
-							!isArchived &&
-							isUnread &&
-							"font-semibold text-sidebar-foreground hover:bg-sidebar-accent/40",
-					)}
-					title={
-						onRemoteEnvironment
-							? `${chat.title}\nRuns on ${environmentLabel}`
-							: chat.title
-					}
-				>
-					<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
-						{attentionState !== "idle" ? (
-							<ChatAttentionIcon state={attentionState} selected={isSelected} />
-						) : (
-							<BranchIcon state={branchState} selected={isSelected} />
-						)}
-					</span>
-					<TypewriterText
-						text={chat.title}
-						className="min-w-0 flex-1 truncate"
-					/>
-					<div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
-						{onRemoteEnvironment ? (
-							<RemoteComputerIndicator
-								label={environmentLabel}
-								className="mr-1"
-								tooltip={false}
-							/>
-						) : null}
-						<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
-							{showDiff && stats !== null ? (
-								<>
-									<span className="text-success">
-										+{formatCompactNumber(stats.additions)}
-									</span>{" "}
-									<span className="text-destructive">
-										−{formatCompactNumber(stats.deletions)}
-									</span>
-								</>
-							) : (
-								formatRelative(chat.updatedAt)
-							)}
-						</span>
-						<button
-							type="button"
-							disabled={isArchiving || isRestoring}
-							onClick={(e) => {
-								e.stopPropagation();
-								if (isArchived) {
-									restoreChat();
-								} else {
-									archiveChat();
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							/* biome-ignore lint/a11y/useSemanticElements: this row contains a nested archive action. */
+							<div
+								role="button"
+								tabIndex={0}
+								onClick={() => selectChat(chat.id)}
+								onContextMenu={onContextMenu}
+								onKeyDown={(e) => {
+									if (e.key === "Enter" || e.key === " ") {
+										e.preventDefault();
+										selectChat(chat.id);
+									}
+								}}
+								className={cn(
+									"group flex min-h-7 cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-2 pl-1 text-[12px] transition-colors",
+									isSelected &&
+										"bg-sidebar-accent text-sidebar-accent-foreground",
+									!isSelected &&
+										isArchived &&
+										"text-muted-foreground hover:bg-sidebar-accent/40",
+									// Read rows sit dim; unread rows brighten + bold so new activity pops.
+									!isSelected &&
+										!isArchived &&
+										!isUnread &&
+										"text-muted-foreground hover:bg-sidebar-accent/40",
+									!isSelected &&
+										!isArchived &&
+										isUnread &&
+										"font-semibold text-sidebar-foreground hover:bg-sidebar-accent/40",
+								)}
+								title={
+									onRemoteEnvironment
+										? `${chat.title}\nRuns on ${environmentLabel}`
+										: chat.title
 								}
-							}}
-							className={cn(
-								"items-center rounded-md p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground motion-reduce:transition-none",
-								isArchiving ? "flex" : "hidden group-hover:flex",
-							)}
-							aria-label={`${primaryActionLabel} ${chat.title}`}
-							title={primaryActionLabel}
-						>
-							{isArchiving || isRestoring ? (
-								<Spinner className="size-3.5" />
-							) : (
-								<HugeiconsIcon icon={primaryActionIcon} className="size-3.5" />
-							)}
-						</button>
-					</div>
-				</div>
+							>
+								<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
+									{attentionState !== "idle" ? (
+										<ChatAttentionIcon
+											state={attentionState}
+											selected={isSelected}
+										/>
+									) : (
+										<BranchIcon state={branchState} selected={isSelected} />
+									)}
+								</span>
+								<TypewriterText
+									text={chat.title}
+									className="min-w-0 flex-1 truncate"
+								/>
+								<div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
+									{onRemoteEnvironment ? (
+										<RemoteComputerIndicator
+											label={environmentLabel}
+											className="mr-1"
+											tooltip={false}
+										/>
+									) : null}
+									<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
+										{showDiff && stats !== null ? (
+											<>
+												<span className="text-success">
+													+{formatCompactNumber(stats.additions)}
+												</span>{" "}
+												<span className="text-destructive">
+													−{formatCompactNumber(stats.deletions)}
+												</span>
+											</>
+										) : (
+											formatRelative(chat.updatedAt)
+										)}
+									</span>
+									<button
+										type="button"
+										disabled={isArchiving || isRestoring}
+										onClick={(e) => {
+											e.stopPropagation();
+											if (isArchived) {
+												restoreChat();
+											} else {
+												archiveChat();
+											}
+										}}
+										className={cn(
+											"items-center rounded-md p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground motion-reduce:transition-none",
+											isArchiving ? "flex" : "hidden group-hover:flex",
+										)}
+										aria-label={`${primaryActionLabel} ${chat.title}`}
+										title={primaryActionLabel}
+									>
+										{isArchiving || isRestoring ? (
+											<Spinner className="size-3.5" />
+										) : (
+											<HugeiconsIcon
+												icon={primaryActionIcon}
+												className="size-3.5"
+											/>
+										)}
+									</button>
+								</div>
+							</div>
+						}
+					/>
+					<TooltipPopup
+						side="right"
+						align="start"
+						sideOffset={8}
+						className="border border-border/60 bg-popover/95 shadow-overlay-md backdrop-blur-xl"
+					>
+						<SidebarChatHoverCard
+							title={chat.title}
+							repository={displayPath(projectRoot)}
+							location={
+								onRemoteEnvironment ? environmentLabel : "This computer"
+							}
+							providerId={hoverSession?.providerId}
+							model={hoverSession?.model}
+							status={hoverStatus}
+						/>
+					</TooltipPopup>
+				</Tooltip>
 			</li>
 			<Menu open={menuOpen} onOpenChange={setMenuOpen}>
 				<MenuPopup

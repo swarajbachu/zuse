@@ -1,0 +1,17 @@
+/// <reference types="node" />
+
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+const rendererFile = (path: string): string =>
+	readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
+
+describe("renderer dependency optimization", () => {
+	it("prebundles the hook-based effect imported by the lazy composer", () => {
+		const modelPicker = rendererFile("src/components/model-picker.tsx");
+		const viteConfig = rendererFile("vite.config.ts");
+
+		expect(modelPicker).toContain('from "metal-fx"');
+		expect(viteConfig).toContain('"metal-fx"');
+	});
+});

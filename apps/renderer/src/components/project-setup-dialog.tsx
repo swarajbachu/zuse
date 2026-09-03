@@ -605,7 +605,7 @@ function SetupChoice({
 }) {
 	const accentClass = {
 		violet:
-			"hover:border-violet-500/30 hover:bg-violet-500/[0.04] [--choice-accent:theme(colors.violet.500)]",
+			"hover:border-primary/30 hover:bg-primary/[0.04] [--choice-accent:var(--primary)]",
 		blue: "hover:border-sky-500/30 hover:bg-sky-500/[0.04] [--choice-accent:theme(colors.sky.500)]",
 		amber:
 			"hover:border-amber-500/30 hover:bg-amber-500/[0.04] [--choice-accent:theme(colors.amber.500)]",

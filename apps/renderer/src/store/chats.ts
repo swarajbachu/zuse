@@ -49,6 +49,7 @@ import {
 	timelineReadingPositionStore,
 } from "../lib/session-timeline-cache.ts";
 import {
+	dispatchSessionCommand,
 	getRendererClientBus,
 	restartSessionTimeline,
 } from "../lib/session-timeline-client-bus.ts";
@@ -99,6 +100,115 @@ const dispatchChatCommand = <Payload, Result>(input: {
 		payload: input.payload,
 		retry: input.retry,
 	});
+
+export const resolveChatSessionSelection = (
+	activeSessionId: SessionId | null,
+	liveSessions: ReadonlyArray<Pick<Session, "id">>,
+): {
+	readonly sessionId: SessionId | null;
+	readonly recoverArchivedSessionId: SessionId | null;
+} => {
+	const active =
+		activeSessionId === null
+			? undefined
+			: liveSessions.find((session) => session.id === activeSessionId);
+	const sessionId = active?.id ?? liveSessions[0]?.id ?? null;
+	return {
+		sessionId,
+		recoverArchivedSessionId: sessionId === null ? activeSessionId : null,
+	};
+};
+
+export const chatRecoveryIsCurrentSelection = ({
+	chatId,
+	projectId,
+	selectedChatId,
+	selectedProjectId,
+}: {
+	readonly chatId: ChatId;
+	readonly projectId: FolderId;
+	readonly selectedChatId: ChatId | null;
+	readonly selectedProjectId: FolderId | null;
+}): boolean => chatId === selectedChatId && projectId === selectedProjectId;
+
+const recoverArchivedActiveSession = async (
+	chatId: ChatId,
+	projectId: FolderId,
+	sessionId: SessionId,
+): Promise<void> => {
+	try {
+		const ref = {
+			environmentId: EnvironmentId.make(getActiveEnvironment()),
+			sessionId,
+		};
+		await dispatchSessionCommand<{ readonly sessionId: SessionId }, void>({
+			ref,
+			kind: "session.unarchive",
+			commandId: nextChatCommandId("session-unarchive"),
+			payload: { sessionId },
+		});
+		if (
+			!chatRecoveryIsCurrentSelection({
+				chatId,
+				projectId,
+				selectedChatId: useChatsStore.getState().selectedChatId,
+				selectedProjectId: useWorkspaceStore.getState().selectedFolderId,
+			})
+		) {
+			return;
+		}
+		const { result: session } = await dispatchSessionCommand<
+			{ readonly sessionId: SessionId },
+			Session
+		>({
+			ref,
+			kind: "session.get",
+			commandId: nextChatCommandId("session-get"),
+			payload: { sessionId },
+			retry: "never",
+		});
+		if (session.chatId !== chatId || session.projectId !== projectId) {
+			throw new Error("The restored session does not belong to this chat.");
+		}
+		overlayActiveEnvironmentShell((shell) => ({
+			...shell,
+			sessionsByProject: {
+				...shell.sessionsByProject,
+				[projectId]: upsertLatestEntity(
+					shell.sessionsByProject[projectId] ?? [],
+					session,
+				),
+			},
+		}));
+		if (
+			chatRecoveryIsCurrentSelection({
+				chatId,
+				projectId,
+				selectedChatId: useChatsStore.getState().selectedChatId,
+				selectedProjectId: useWorkspaceStore.getState().selectedFolderId,
+			})
+		) {
+			useSessionsStore.setState((state) => ({
+				selectedSessionId: sessionId,
+				selectedSessionByProject: {
+					...state.selectedSessionByProject,
+					[projectId]: sessionId,
+				},
+			}));
+		}
+	} catch (error) {
+		if (
+			chatRecoveryIsCurrentSelection({
+				chatId,
+				projectId,
+				selectedChatId: useChatsStore.getState().selectedChatId,
+				selectedProjectId: useWorkspaceStore.getState().selectedFolderId,
+			})
+		) {
+			useChatsStore.setState({ error: formatError(error) });
+		}
+	}
+};
 
 export const chatStartupUsesQueue = (
 	input: ComposerInput | undefined,
@@ -1859,9 +1969,9 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		) {
 			void useWorkspaceStore.getState().select(projectId);
 		}
-		// Land on the chat's last-active tab. If the memo points at an
-		// archived/deleted session, fall back to the oldest non-archived
-		// session inside the chat (or null).
+		// Land on the chat's last-active live tab, or another live tab when that
+		// memo is stale. An active chat with no live tabs is interrupted legacy
+		// state, so explicitly restore its persisted active tab below.
 		const chat = chatsByProject[projectId ?? ""]?.find((c) => c.id === chatId);
 		if (chat === undefined) return;
 		const projectSessions =
@@ -1869,13 +1979,18 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		const liveTabs = projectSessions.filter(
 			(row) => row.chatId === chatId && row.archivedAt === null,
 		);
-		const memoSession =
-			chat.activeSessionId !== null
-				? liveTabs.find((row) => row.id === chat.activeSessionId)
-				: undefined;
-		const fallback = liveTabs[0] ?? null;
-		const landingId = memoSession?.id ?? fallback?.id ?? null;
-		useSessionsStore.getState().select(landingId);
+		const selection = resolveChatSessionSelection(
+			chat.activeSessionId,
+			liveTabs,
+		);
+		useSessionsStore.getState().select(selection.sessionId);
+		if (selection.recoverArchivedSessionId !== null && projectId !== null) {
+			void recoverArchivedActiveSession(
+				chat.id,
+				projectId,
+				selection.recoverArchivedSessionId,
+			);
+		}
 		// Viewing a chat marks it read. `markRead` no-ops for archived chats.
 		void get().markRead(chatId);
 	},

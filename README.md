@@ -162,6 +162,8 @@ specs/
 
 ## Architecture documentation
 
+- [Desktop design system](DESIGN.md) — visual foundations, component patterns,
+  accessibility, and responsive behavior
 - [Zuse Cloud](docs/cloud/README.md) — cloud architecture, lifecycle, storage,
   security, operations, and user guide
 - [Realtime runtime](docs/architecture/realtime-runtime.md) — the durable

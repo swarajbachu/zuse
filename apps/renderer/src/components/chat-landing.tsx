@@ -1,5 +1,4 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { DitherWaveBackground } from "@repo/ui/dither";
 import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
 import {
 	type AttachmentRef,
@@ -26,7 +25,6 @@ import {
 	ChatDownload01Icon,
 	Folder01Icon,
 	FolderAddIcon,
-	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
 import { ChevronDown, Search, X } from "lucide-react";
 import {
@@ -41,6 +39,7 @@ import {
 	Menu,
 	MenuItem,
 	MenuPopup,
+	MenuSelectionIndicator,
 	MenuSeparator,
 	MenuTrigger,
 } from "~/components/ui/menu";
@@ -55,10 +54,7 @@ import {
 } from "~/composer/draft-attachments";
 import { applyPreparedLinearContext } from "~/composer/linear-context-input";
 import { uploadAttachment } from "~/lib/attachments";
-import {
-	resolveChatRuntimeMode,
-	resolveChatWorkspacePolicy,
-} from "~/lib/auto-worktree";
+import { resolveChatRuntimeMode } from "~/lib/auto-worktree";
 import { chatLandingProgress } from "~/lib/chat-landing-progress";
 import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
 import {
@@ -113,6 +109,10 @@ import {
 	CreateFromMenu,
 	type CreateFromSelection,
 } from "./composer/create-from-menu.tsx";
+import {
+	type ComposerWorkspaceMode,
+	WorkspacePicker,
+} from "./composer/workspace-picker.tsx";
 import { ProviderIcon } from "./provider-icons";
 import {
 	CloudWorkspaceSetupView,
@@ -129,6 +129,11 @@ const ProjectSetupDialog = lazy(() =>
 		default: module.ProjectSetupDialog,
 	})),
 );
+
+export const workspacePolicyForMode = (
+	mode: ComposerWorkspaceMode,
+): ChatWorkspacePolicy =>
+	mode === "worktree" ? { _tag: "fresh" } : { _tag: "main" };
 
 /**
  * Copy the per-session model options (reasoning/effort level + Claude fast
@@ -384,6 +389,23 @@ export function ChatLanding() {
 		readonly groupKey: string;
 		readonly member: LogicalProjectMember;
 	} | null>(null);
+	const workspaceChoiceKey =
+		remoteAnchor === null
+			? `${activeEnvironmentId}:${selectedFolderId ?? "none"}`
+			: `${remoteAnchor.member.environmentId}:${remoteAnchor.member.folderId}`;
+	const configuredWorkspaceMode: ComposerWorkspaceMode =
+		defaultAutoCreateWorktree ||
+		(remoteAnchor === null && repositoryAutoCreateWorktree)
+			? "worktree"
+			: "local";
+	const [workspaceChoice, setWorkspaceChoice] = useState<{
+		readonly key: string;
+		readonly mode: ComposerWorkspaceMode;
+	} | null>(null);
+	const workspaceMode =
+		workspaceChoice?.key === workspaceChoiceKey
+			? workspaceChoice.mode
+			: configuredWorkspaceMode;
 	// Explicit "Run on" pick for the pending draft. Null = the group default
 	// (this desktop's member when present, else the first connected one).
 	const [targetOverride, setTargetOverride] = useState<NewChatTarget | null>(
@@ -888,6 +910,8 @@ export function ChatLanding() {
 					environmentId: remoteTarget.environmentId,
 					runtimeMode: draft.runtimeMode,
 					permissionMode: draft.permissionMode,
+					workspacePolicy: workspacePolicyForMode(workspaceMode),
+					workspaceRequested: workspaceMode === "worktree",
 					startupInput: ComposerInput.make({ ...input, asGoal: false }),
 				},
 			);
@@ -949,12 +973,8 @@ export function ChatLanding() {
 						title: `${issue.identifier} ${issue.title}`,
 						runtimeMode: draft.runtimeMode,
 						permissionMode: draft.permissionMode,
-						workspacePolicy: resolveChatWorkspacePolicy(
-							EnvironmentId.make(activeEnvironmentId),
-							selectedFolderId,
-						),
-						workspaceRequested:
-							defaultAutoCreateWorktree || repositoryAutoCreateWorktree,
+						workspacePolicy: workspacePolicyForMode(workspaceMode),
+						workspaceRequested: workspaceMode === "worktree",
 						startupInput,
 						startupReady: false,
 					},
@@ -1062,14 +1082,11 @@ export function ChatLanding() {
 			return;
 		}
 		// A "Create from…" PR/branch already checked out (or reused) a worktree —
-		// pin the chat to it. Otherwise fall back to the normal auto-worktree.
-		const workspacePolicy: ChatWorkspacePolicy | Promise<ChatWorkspacePolicy> =
+		// pin the chat to it. Otherwise honor the explicit composer workspace.
+		const workspacePolicy: ChatWorkspacePolicy =
 			createSource !== null && createSource.worktreeId !== null
 				? { _tag: "existing", worktreeId: createSource.worktreeId }
-				: resolveChatWorkspacePolicy(
-						EnvironmentId.make(activeEnvironmentId),
-						selectedFolderId,
-					);
+				: workspacePolicyForMode(workspaceMode);
 		const result = await create(
 			selectedFolderId,
 			draft.providerId,
@@ -1080,8 +1097,7 @@ export function ChatLanding() {
 				workspacePolicy,
 				workspaceRequested:
 					(createSource !== null && createSource.worktreeId !== null) ||
-					defaultAutoCreateWorktree ||
-					repositoryAutoCreateWorktree,
+					workspaceMode === "worktree",
 				startupInput,
 				startupReady: !startupNeedsPreparation,
 			},
@@ -1211,8 +1227,8 @@ export function ChatLanding() {
 			cloudStatus: pendingCloudStatus,
 			hasPendingWorktree:
 				pendingWorktreeId !== null ||
-				defaultAutoCreateWorktree ||
-				repositoryAutoCreateWorktree,
+				workspaceMode === "worktree" ||
+				(createSource !== null && createSource.worktreeId !== null),
 		});
 		return (
 			<div className="flex min-h-0 flex-1 flex-col">
@@ -1225,7 +1241,7 @@ export function ChatLanding() {
 							data={{
 								repoName: selectedFolder?.name ?? "this repo",
 								hasWorktree:
-									pendingWorktreeId !== null || defaultAutoCreateWorktree,
+									pendingWorktreeId !== null || workspaceMode === "worktree",
 								worktreePending: pendingWorktree === null,
 								worktreeName: pendingWorktree?.name ?? null,
 								branch: pendingWorktree?.branch ?? null,
@@ -1248,260 +1264,274 @@ export function ChatLanding() {
 	}
 
 	return (
-		<div className="relative isolate flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-6 py-10">
-			<DitherWaveBackground
-				className="pointer-events-none absolute inset-x-0 bottom-0 h-[52%] opacity-90 dark:opacity-75"
-				color={[165, 205, 65]}
-				pixelSize={3}
-				waveAmplitude={0.25}
-				waveFrequency={2.6}
-				disableAnimation
-				enableMouseInteraction={false}
-			/>
-			<div className="relative z-10 flex w-full max-w-3xl flex-col gap-4">
-				<h1 className="text-center text-xl font-medium text-foreground/90">
-					{headline}
-				</h1>
-
-				{unavailableComputers.length > 0 ? (
-					<div
-						role="status"
-						aria-live="polite"
-						className="mx-auto flex w-full max-w-2xl items-center gap-2.5 rounded-lg border border-border/60 bg-muted/35 px-3 py-2"
-					>
-						<span className="size-1.5 shrink-0 rounded-full bg-destructive/80" />
-						<p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
-							<span className="font-medium text-foreground/90">
+		<div className="relative flex min-h-0 flex-1 flex-col items-center overflow-hidden px-6 pb-4 pt-8 max-[800px]:px-4">
+			<div className="flex min-h-0 w-full max-w-3xl flex-1 flex-col">
+				<div className="flex min-h-0 flex-1 items-center justify-center pb-6">
+					<h1 className="text-center text-2xl font-medium tracking-[-0.015em] text-foreground">
+						{headline}
+					</h1>
+				</div>
+				<div className="flex shrink-0 flex-col gap-3">
+					{unavailableComputers.length > 0 ? (
+						<div
+							role="status"
+							aria-live="polite"
+							className="mx-auto flex w-full max-w-2xl items-center gap-2.5 rounded-lg border border-border/60 bg-muted/35 px-3 py-2"
+						>
+							<span className="size-1.5 shrink-0 rounded-full bg-destructive/80" />
+							<p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+								<span className="font-medium text-foreground/90">
+									{unavailableComputers.length === 1
+										? unavailableComputers[0]?.label
+										: `${unavailableComputers.length} computers`}
+								</span>{" "}
 								{unavailableComputers.length === 1
-									? unavailableComputers[0]?.label
-									: `${unavailableComputers.length} computers`}
-							</span>{" "}
-							{unavailableComputers.length === 1
-								? "is unavailable."
-								: "are unavailable."}{" "}
-							Zuse will keep trying.
-						</p>
-						<button
-							type="button"
-							disabled={retryingEnvironmentId !== null}
-							className="inline-flex h-6 shrink-0 items-center rounded-md border border-border/60 bg-muted px-2 text-[10px] font-medium text-foreground outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-							onClick={() => {
-								for (const entry of unavailableComputers) {
-									retryComputer(entry.environmentId);
-								}
-							}}
-						>
-							{retryingEnvironmentId === null ? "Retry" : "Retrying…"}
-						</button>
-					</div>
-				) : null}
-
-				{pendingProjectSetup !== null ? (
-					<div className="mx-auto flex w-full max-w-2xl items-center gap-3 rounded-lg border border-border bg-muted/45 px-3 py-2">
-						<div className="min-w-0 flex-1">
-							<p className="text-xs font-medium text-foreground">
-								This project isn’t on {pendingProjectSetup.label}
+									? "is unavailable."
+									: "are unavailable."}{" "}
+								Zuse will keep trying.
 							</p>
-							<p className="text-[11px] text-muted-foreground">
-								Clone it there before starting this chat.
-							</p>
+							<button
+								type="button"
+								disabled={retryingEnvironmentId !== null}
+								className="inline-flex h-6 shrink-0 items-center rounded-md border border-border/60 bg-muted px-2 text-[10px] font-medium text-foreground outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+								onClick={() => {
+									for (const entry of unavailableComputers) {
+										retryComputer(entry.environmentId);
+									}
+								}}
+							>
+								{retryingEnvironmentId === null ? "Retry" : "Retrying…"}
+							</button>
 						</div>
-						<button
-							type="button"
-							className="inline-flex min-h-8 shrink-0 items-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring"
-							onClick={() => setProjectSetupOpen(true)}
-						>
-							Clone project
-						</button>
-					</div>
-				) : null}
+					) : null}
 
-				{submitError !== null && (
-					<div className="mx-auto flex w-full max-w-2xl items-start gap-2 rounded-lg border border-rose-400/30 bg-rose-500/[0.08] px-3 py-2 text-[12px] text-rose-200">
-						<span className="mt-px shrink-0">⚠</span>
-						<span className="flex-1 leading-snug">{submitError}</span>
-						<button
-							type="button"
-							onClick={() => setSubmitError(null)}
-							aria-label="Dismiss error"
-							className="-mr-1 shrink-0 rounded p-0.5 text-rose-200/80 hover:bg-rose-500/[0.12] hover:text-rose-100"
-						>
-							<X className="size-3.5" strokeWidth={1.8} />
-						</button>
-					</div>
-				)}
+					{pendingProjectSetup !== null ? (
+						<div className="mx-auto flex w-full max-w-2xl items-center gap-3 rounded-lg border border-border bg-muted/45 px-3 py-2">
+							<div className="min-w-0 flex-1">
+								<p className="text-xs font-medium text-foreground">
+									This project isn’t on {pendingProjectSetup.label}
+								</p>
+								<p className="text-[11px] text-muted-foreground">
+									Clone it there before starting this chat.
+								</p>
+							</div>
+							<button
+								type="button"
+								className="inline-flex min-h-8 shrink-0 items-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring"
+								onClick={() => setProjectSetupOpen(true)}
+							>
+								Clone project
+							</button>
+						</div>
+					) : null}
 
-				{/* The REAL ChatComposer in draft mode — one source of truth for file
+					{submitError !== null && (
+						<div className="mx-auto flex w-full max-w-2xl items-start gap-2 rounded-lg border border-rose-400/30 bg-rose-500/[0.08] px-3 py-2 text-[12px] text-rose-200">
+							<span className="mt-px shrink-0">⚠</span>
+							<span className="flex-1 leading-snug">{submitError}</span>
+							<button
+								type="button"
+								onClick={() => setSubmitError(null)}
+								aria-label="Dismiss error"
+								className="-mr-1 shrink-0 rounded p-0.5 text-rose-200/80 hover:bg-rose-500/[0.12] hover:text-rose-100"
+							>
+								<X className="size-3.5" strokeWidth={1.8} />
+							</button>
+						</div>
+					)}
+
+					{/* The REAL ChatComposer in draft mode — one source of truth for file
             tagging, model/thinking, fast mode, plan mode, runtime, etc. On
             send it hands the parsed input back to `handleDraftSubmit`. */}
-				{draftSession !== null ? (
-					<Suspense fallback={<div className="h-28" aria-busy="true" />}>
-						<ChatComposer
-							submitDisabled={pendingProjectSetup !== null}
-							// Keyed by the draft's anchor — NOT by the "Run on" target,
-							// so picking a computer never remounts the editor and the
-							// typed text stays exactly where it is.
-							key={
-								remoteAnchor !== null
-									? `remote:${remoteAnchor.member.environmentId}:${remoteAnchor.member.folderId}`
-									: `${activeEnvironmentId}:${selectedFolderId ?? "none"}`
-							}
-							session={draftSession}
-							environmentId={EnvironmentId.make(
-								remoteAnchor?.member.environmentId ?? activeEnvironmentId,
-							)}
-							composerDraftKey={
-								remoteAnchor !== null
-									? composerDraftKeyForRemoteLanding(
-											EnvironmentId.make(remoteAnchor.member.environmentId),
-											remoteAnchor.member.folderId,
-										)
-									: composerDraftKeyForLanding(
-											EnvironmentId.make(activeEnvironmentId),
-											selectedFolderId,
-										)
-							}
-							onDraftSubmit={(input, opts) =>
-								void handleDraftSubmit(input, opts)
-							}
-							headerSlot={
-								<div className="flex w-full items-center justify-between gap-2">
-									<div className="flex min-w-0 items-center gap-1.5">
-										<ProjectPicker
-											groups={projectGroups}
-											selectedFolderId={selectedFolderId}
-											selectedName={
-												anchoredGroup?.displayName ??
-												selectedFolder?.name ??
-												null
-											}
-											onPickGroup={onPickGroup}
-											onAdd={onAdd}
-										/>
-										{desktopCatalogEnabled || cloudPickerItems.length > 0 ? (
-											<ComputerPicker
-												group={pickerGroup}
-												target={resolvedTarget}
-												entries={catalogEntries}
-												onPickTarget={(target) => {
-													setSelectedCloudProviderId(null);
-													setTargetOverride(target);
-												}}
-												cloudItems={cloudPickerItems}
-												selectedCloudProviderId={selectedCloudProviderId}
-												onPickCloud={(providerId) => {
-													if (cloudProject === null) {
-														setSettingsSection({ kind: "machines" });
-														setView("settings");
-														return;
+					{draftSession !== null ? (
+						<Suspense fallback={<div className="h-28" aria-busy="true" />}>
+							<ChatComposer
+								submitDisabled={pendingProjectSetup !== null}
+								// Keyed by the draft's anchor — NOT by the "Run on" target,
+								// so picking a computer never remounts the editor and the
+								// typed text stays exactly where it is.
+								key={
+									remoteAnchor !== null
+										? `remote:${remoteAnchor.member.environmentId}:${remoteAnchor.member.folderId}`
+										: `${activeEnvironmentId}:${selectedFolderId ?? "none"}`
+								}
+								session={draftSession}
+								environmentId={EnvironmentId.make(
+									remoteAnchor?.member.environmentId ?? activeEnvironmentId,
+								)}
+								composerDraftKey={
+									remoteAnchor !== null
+										? composerDraftKeyForRemoteLanding(
+												EnvironmentId.make(remoteAnchor.member.environmentId),
+												remoteAnchor.member.folderId,
+											)
+										: composerDraftKeyForLanding(
+												EnvironmentId.make(activeEnvironmentId),
+												selectedFolderId,
+											)
+								}
+								onDraftSubmit={(input, opts) =>
+									void handleDraftSubmit(input, opts)
+								}
+								headerSlot={
+									<div className="flex w-full items-center justify-between gap-2">
+										<div className="flex min-w-0 items-center gap-1.5">
+											<ProjectPicker
+												groups={projectGroups}
+												selectedFolderId={selectedFolderId}
+												selectedName={
+													anchoredGroup?.displayName ??
+													selectedFolder?.name ??
+													null
+												}
+												onPickGroup={onPickGroup}
+												onAdd={onAdd}
+											/>
+											{desktopCatalogEnabled || cloudPickerItems.length > 0 ? (
+												<ComputerPicker
+													group={pickerGroup}
+													target={resolvedTarget}
+													entries={catalogEntries}
+													onPickTarget={(target) => {
+														setSelectedCloudProviderId(null);
+														setTargetOverride(target);
+													}}
+													cloudItems={cloudPickerItems}
+													selectedCloudProviderId={selectedCloudProviderId}
+													onPickCloud={(providerId) => {
+														if (cloudProject === null) {
+															setSettingsSection({ kind: "machines" });
+															setView("settings");
+															return;
+														}
+														setTargetOverride(null);
+														setSelectedCloudProviderId(providerId);
+													}}
+													onRetryEnvironment={retryComputer}
+												/>
+											) : null}
+											{selectedCloudProviderId === null ? (
+												<WorkspacePicker
+													value={workspaceMode}
+													onValueChange={(mode) =>
+														setWorkspaceChoice({
+															key: workspaceChoiceKey,
+															mode,
+														})
 													}
-													setTargetOverride(null);
-													setSelectedCloudProviderId(providerId);
-												}}
-												onRetryEnvironment={retryComputer}
+												/>
+											) : null}
+											<ImportChatMenu
+												threads={externalThreads}
+												loading={externalThreadsLoading}
+												error={externalThreadsError}
+												continuingId={continuingExternalThreadId}
+												onOpen={() =>
+													void hydrateExternalThreads(importEnvironmentId)
+												}
+												onImport={(thread) =>
+													void continueExternalThread(
+														thread,
+														importEnvironmentId,
+													)
+												}
 											/>
-										) : null}
-										<ImportChatMenu
-											threads={externalThreads}
-											loading={externalThreadsLoading}
-											error={externalThreadsError}
-											continuingId={continuingExternalThreadId}
-											onOpen={() =>
-												void hydrateExternalThreads(importEnvironmentId)
-											}
-											onImport={(thread) =>
-												void continueExternalThread(thread, importEnvironmentId)
-											}
-										/>
-									</div>
-									<div className="flex min-w-0 items-center gap-1.5">
-										{createSource !== null && (
-											<span className="flex min-w-0 items-center gap-1 overflow-x-auto">
-												{createSource.linear !== null ? (
-													createSource.linear.issues.map((issue) => (
-														<span
-															key={`${issue.workspaceId}:${issue.issueId}`}
-															className="flex shrink-0 items-center gap-1 rounded-md bg-muted/60 py-1 pl-2 pr-1 text-[11px] text-muted-foreground"
-														>
-															<span>{issue.identifier}</span>
-															<button
-																type="button"
-																aria-label={`Remove ${issue.identifier}`}
-																onClick={() =>
-																	setCreateSource((current) => {
-																		if (
-																			current?.linear === null ||
-																			current === null
-																		)
-																			return current;
-																		const issues = current.linear.issues.filter(
-																			(candidate) =>
-																				candidate.workspaceId !==
-																					issue.workspaceId ||
-																				candidate.issueId !== issue.issueId,
-																		);
-																		return issues.length === 0
-																			? null
-																			: {
-																					...current,
-																					label: issues
-																						.map(
-																							(candidate) =>
-																								candidate.identifier,
-																						)
-																						.join(", "),
-																					linear: { ...current.linear, issues },
-																				};
-																	})
-																}
-																className="rounded p-0.5 hover:bg-muted hover:text-foreground"
+										</div>
+										<div className="flex min-w-0 items-center gap-1.5">
+											{createSource !== null && (
+												<span className="flex min-w-0 items-center gap-1 overflow-x-auto">
+													{createSource.linear !== null ? (
+														createSource.linear.issues.map((issue) => (
+															<span
+																key={`${issue.workspaceId}:${issue.issueId}`}
+																className="flex shrink-0 items-center gap-1 rounded-md bg-muted/60 py-1 pl-2 pr-1 text-[11px] text-muted-foreground"
 															>
-																<X className="size-3" strokeWidth={2} />
-															</button>
+																<span>{issue.identifier}</span>
+																<button
+																	type="button"
+																	aria-label={`Remove ${issue.identifier}`}
+																	onClick={() =>
+																		setCreateSource((current) => {
+																			if (
+																				current?.linear === null ||
+																				current === null
+																			)
+																				return current;
+																			const issues =
+																				current.linear.issues.filter(
+																					(candidate) =>
+																						candidate.workspaceId !==
+																							issue.workspaceId ||
+																						candidate.issueId !== issue.issueId,
+																				);
+																			return issues.length === 0
+																				? null
+																				: {
+																						...current,
+																						label: issues
+																							.map(
+																								(candidate) =>
+																									candidate.identifier,
+																							)
+																							.join(", "),
+																						linear: {
+																							...current.linear,
+																							issues,
+																						},
+																					};
+																		})
+																	}
+																	className="rounded p-0.5 hover:bg-muted hover:text-foreground"
+																>
+																	<X className="size-3" strokeWidth={2} />
+																</button>
+															</span>
+														))
+													) : createSource.kind === "issue" ? (
+														<span>Issue {createSource.label} attached</span>
+													) : (
+														<span className="max-w-[16rem] truncate">
+															{createSource.label}
 														</span>
-													))
-												) : createSource.kind === "issue" ? (
-													<span>Issue {createSource.label} attached</span>
-												) : (
-													<span className="max-w-[16rem] truncate">
-														{createSource.label}
-													</span>
-												)}
-												{createSource.linear === null && (
-													<button
-														type="button"
-														onClick={() => setCreateSource(null)}
-														aria-label="Clear create-from source"
-														className="shrink-0 rounded p-0.5 hover:bg-muted hover:text-foreground"
-													>
-														<X className="size-3" strokeWidth={2} />
-													</button>
-												)}
-											</span>
-										)}
-										{creatingSource && (
-											<Spinner className="size-3.5 text-muted-foreground" />
-										)}
-										{/* Create-from browses the ACTIVE environment's PRs and
+													)}
+													{createSource.linear === null && (
+														<button
+															type="button"
+															onClick={() => setCreateSource(null)}
+															aria-label="Clear create-from source"
+															className="shrink-0 rounded p-0.5 hover:bg-muted hover:text-foreground"
+														>
+															<X className="size-3" strokeWidth={2} />
+														</button>
+													)}
+												</span>
+											)}
+											{creatingSource && (
+												<Spinner className="size-3.5 text-muted-foreground" />
+											)}
+											{/* Create-from browses the ACTIVE environment's PRs and
 										    branches — hidden for a remote-anchored draft. */}
-										{remoteAnchor === null ? (
-											<CreateFromMenu
-												environmentId={EnvironmentId.make(activeEnvironmentId)}
-												folderId={selectedFolderId}
-												rootPath={selectedFolder?.path ?? ""}
-												onSelect={(sel) => void handleCreateFromSelect(sel)}
-											/>
-										) : null}
+											{remoteAnchor === null ? (
+												<CreateFromMenu
+													environmentId={EnvironmentId.make(
+														activeEnvironmentId,
+													)}
+													folderId={selectedFolderId}
+													rootPath={selectedFolder?.path ?? ""}
+													onSelect={(sel) => void handleCreateFromSelect(sel)}
+												/>
+											) : null}
+										</div>
 									</div>
-								</div>
-							}
-						/>
-					</Suspense>
-				) : (
-					<p className="text-center text-sm text-muted-foreground">
-						Pick a project below to start a new chat.
-					</p>
-				)}
+								}
+							/>
+						</Suspense>
+					) : (
+						<p className="text-center text-sm text-muted-foreground">
+							Pick a project below to start a new chat.
+						</p>
+					)}
+				</div>
 			</div>
 			{projectSetupOpen && pendingProjectSetup !== null ? (
 				<Suspense fallback={null}>
@@ -1543,9 +1573,13 @@ export function ImportChatMenu({
 	) => void;
 }) {
 	const [query, setQuery] = useState("");
+	const importableThreads = useMemo(
+		() => threads.filter(isImportableThread),
+		[threads],
+	);
 	const visibleThreads = useMemo(
-		() => filterImportThreads(threads, query),
-		[query, threads],
+		() => filterImportThreads(importableThreads, query),
+		[importableThreads, query],
 	);
 	return (
 		<Menu
@@ -1555,19 +1589,19 @@ export function ImportChatMenu({
 			}}
 		>
 			<MenuTrigger
-				className="flex min-w-0 items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent data-[popup-open]:bg-accent"
+				className="flex h-7 min-w-0 items-center gap-1.5 rounded-full border border-transparent bg-transparent px-2.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[popup-open]:bg-accent data-[popup-open]:text-foreground"
 				aria-label="Import an existing chat"
 			>
 				<HugeiconsIcon icon={ChatDownload01Icon} className="size-3.5" />
 				<span>Import chat</span>
 				<ChevronDown className="size-3 opacity-60" />
 			</MenuTrigger>
-			<MenuPopup side="bottom" align="start" className="w-80 p-1">
+			<MenuPopup side="top" align="start" className="w-72 p-1">
 				<div className="px-2 pb-1 pt-1.5 text-[11px] font-medium text-muted-foreground">
 					Recent provider chats
 				</div>
 				<div className="px-1 pb-1.5">
-					<div className="flex h-8 items-center gap-2 rounded-md border border-border bg-background/50 px-2 focus-within:border-ring">
+					<div className="flex h-7 items-center gap-2 rounded-md border border-border bg-background/50 px-2 focus-within:border-ring">
 						<Search className="size-3.5 shrink-0 text-muted-foreground" />
 						<input
 							type="search"
@@ -1580,17 +1614,17 @@ export function ImportChatMenu({
 						/>
 					</div>
 				</div>
-				<div className="max-h-64 overflow-y-auto overscroll-contain">
-					{loading && threads.length === 0 ? (
+				<div className="max-h-52 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+					{loading && importableThreads.length === 0 ? (
 						<div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
 							<Spinner className="size-3.5" />
 							Finding chats…
 						</div>
-					) : error !== null && threads.length === 0 ? (
+					) : error !== null && importableThreads.length === 0 ? (
 						<div className="px-2 py-2 text-xs text-destructive">
 							Couldn’t load chats. Close and reopen this menu to retry.
 						</div>
-					) : threads.length === 0 ? (
+					) : importableThreads.length === 0 ? (
 						<div className="px-2 py-2 text-xs text-muted-foreground">
 							No recent chats found.
 						</div>
@@ -1601,36 +1635,32 @@ export function ImportChatMenu({
 					) : (
 						visibleThreads.map((thread) => {
 							const active = continuingId === thread.id;
+							const projectLabel = importThreadProjectLabel(thread);
 							return (
 								<MenuItem
 									key={thread.id}
 									disabled={!thread.available || continuingId !== null}
 									onClick={() => onImport(thread)}
-									className="grid min-h-11 grid-cols-[auto_1fr_auto] gap-x-2 px-2 py-1.5"
-									title={
-										thread.available
-											? thread.projectPath
-											: `${thread.projectPath || "Project folder"} is missing`
-									}
+									className="grid min-h-8 grid-cols-[auto_1fr_auto] items-start gap-x-2 px-2 py-1"
+									title={thread.projectPath}
 								>
 									<ProviderIcon
 										providerId={thread.providerId}
-										className="col-start-1 row-span-2 size-4 self-center"
+										className="col-start-1 row-span-2 mt-0.5 size-3.5 self-start"
 									/>
-									<span className="col-start-2 row-start-1 truncate text-xs font-medium">
+									<span className="col-start-2 row-start-1 truncate text-[11px] font-medium leading-4">
 										{thread.title}
 									</span>
-									<span className="col-start-2 row-start-2 truncate text-[10px] text-muted-foreground">
-										{providerThreadLabel(thread.providerId)} ·{" "}
-										{thread.projectName}
-									</span>
+									{projectLabel === null ? null : (
+										<span className="col-start-2 row-start-2 truncate text-[9px] leading-3 text-muted-foreground">
+											{projectLabel}
+										</span>
+									)}
 									{active ? (
-										<Spinner className="col-start-3 row-span-2 size-3.5 self-center" />
+										<Spinner className="col-start-3 row-span-2 mt-0.5 size-3 self-start" />
 									) : (
-										<span className="col-start-3 row-span-2 self-center text-[10px] text-muted-foreground">
-											{thread.available
-												? formatThreadRelative(thread.updatedAt)
-												: "Missing"}
+										<span className="col-start-3 row-span-2 mt-0.5 self-start whitespace-nowrap text-[9px] leading-3 text-muted-foreground">
+											{formatThreadRelative(thread.updatedAt)}
 										</span>
 									)}
 								</MenuItem>
@@ -1642,6 +1672,28 @@ export function ImportChatMenu({
 		</Menu>
 	);
 }
+
+const HIDDEN_IMPORT_PROJECT_NAMES = new Set([
+	"t",
+	"temp",
+	"temporary",
+	"temporary folder",
+]);
+
+export const isImportableThread = (thread: ExternalThread): boolean =>
+	thread.available &&
+	thread.projectPath.trim().length > 0 &&
+	!HIDDEN_IMPORT_PROJECT_NAMES.has(thread.projectName.trim().toLowerCase());
+
+const importThreadProjectLabel = (thread: ExternalThread): string | null => {
+	const projectName = thread.projectName.trim();
+	if (
+		projectName.length <= 1 ||
+		HIDDEN_IMPORT_PROJECT_NAMES.has(projectName.toLowerCase())
+	)
+		return null;
+	return projectName;
+};
 
 export function filterImportThreads(
 	threads: ReadonlyArray<ExternalThread>,
@@ -1696,10 +1748,19 @@ function ProjectPicker({
 	onPickGroup: (group: LogicalProjectGroup) => void;
 	onAdd: () => void;
 }) {
+	const [query, setQuery] = useState("");
+	const visibleGroups = useMemo(() => {
+		const normalized = query.trim().toLocaleLowerCase();
+		if (normalized === "") return groups;
+		return groups.filter((group) =>
+			group.displayName.toLocaleLowerCase().includes(normalized),
+		);
+	}, [groups, query]);
+
 	return (
-		<Menu>
+		<Menu onOpenChange={(open) => !open && setQuery("")}>
 			<MenuTrigger
-				className="flex min-w-0 max-w-[16rem] items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent data-[popup-open]:bg-accent"
+				className="flex h-7 min-w-0 max-w-[14rem] items-center gap-1.5 rounded-full border border-transparent bg-transparent px-2.5 text-[11px] text-foreground transition-colors hover:bg-accent data-[popup-open]:bg-accent"
 				aria-label="Pick a project"
 			>
 				<HugeiconsIcon icon={Folder01Icon} className="size-3.5" />
@@ -1707,52 +1768,70 @@ function ProjectPicker({
 				<ChevronDown className="size-3 opacity-60" />
 			</MenuTrigger>
 			<MenuPopup side="bottom" align="start" className="w-64 p-1">
-				{groups.length === 0 ? (
-					<div className="px-2 py-1.5 text-xs text-muted-foreground">
-						No projects yet.
+				<div className="px-1 pb-1.5">
+					<div className="flex h-7 items-center gap-2 rounded-md border border-border bg-background/50 px-2 focus-within:border-ring">
+						<Search className="size-3.5 shrink-0 text-muted-foreground" />
+						<input
+							type="search"
+							value={query}
+							onChange={(event) => setQuery(event.currentTarget.value)}
+							onKeyDown={(event) => event.stopPropagation()}
+							placeholder="Search projects…"
+							aria-label="Search projects"
+							className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+						/>
 					</div>
-				) : (
-					groups.map((group) => {
-						const active = group.members.some(
-							(member) =>
-								member.isActive && member.folderId === selectedFolderId,
-						);
-						const disabled = preferredGroupMember(group) === null;
-						return (
-							<MenuItem
-								key={group.key}
-								disabled={disabled}
-								onClick={() => onPickGroup(group)}
-								className={cn(
-									"grid grid-cols-[1rem_auto_1fr] items-center gap-x-2 rounded-md px-2 py-1.5 text-sm",
-									active
-										? "bg-accent/40 text-accent-foreground data-highlighted:bg-accent/60"
-										: undefined,
-								)}
-							>
-								<span className="col-start-1 row-start-1 flex items-center justify-center">
-									{active && (
-										<HugeiconsIcon
-											icon={Tick01Icon}
-											className="size-3.5 opacity-90"
-										/>
+				</div>
+				<div className="max-h-48 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+					{groups.length === 0 ? (
+						<div className="px-2 py-1.5 text-xs text-muted-foreground">
+							No projects yet.
+						</div>
+					) : visibleGroups.length === 0 ? (
+						<div className="px-2 py-2 text-xs text-muted-foreground">
+							No projects match “{query.trim()}”.
+						</div>
+					) : (
+						visibleGroups.map((group) => {
+							const active = group.members.some(
+								(member) =>
+									member.isActive && member.folderId === selectedFolderId,
+							);
+							const disabled = preferredGroupMember(group) === null;
+							return (
+								<MenuItem
+									key={group.key}
+									role="menuitemradio"
+									aria-checked={active}
+									disabled={disabled}
+									onClick={() => onPickGroup(group)}
+									className={cn(
+										"grid min-h-8 grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-md px-2 py-1 text-xs",
+										active
+											? "bg-accent/40 text-accent-foreground data-highlighted:bg-accent/60"
+											: undefined,
 									)}
-								</span>
-								<HugeiconsIcon
-									icon={Folder01Icon}
-									className="col-start-2 row-start-1 size-3.5 opacity-80"
-								/>
-								<span className="col-start-3 row-start-1 truncate">
-									{group.displayName}
-								</span>
-							</MenuItem>
-						);
-					})
-				)}
+								>
+									<HugeiconsIcon
+										icon={Folder01Icon}
+										className="col-start-1 row-start-1 size-3.5 opacity-80"
+									/>
+									<span className="col-start-2 row-start-1 truncate">
+										{group.displayName}
+									</span>
+									<MenuSelectionIndicator
+										checked={active}
+										className="col-start-3 row-start-1 justify-self-end"
+									/>
+								</MenuItem>
+							);
+						})
+					)}
+				</div>
 				<MenuSeparator />
 				<MenuItem
 					onClick={onAdd}
-					className="grid grid-cols-[1rem_auto_1fr] items-center gap-x-2 rounded-md px-2 py-1.5 text-sm"
+					className="grid min-h-8 grid-cols-[1rem_auto_1fr] items-center gap-x-2 rounded-md px-2 py-1 text-xs"
 				>
 					<span className="col-start-1 row-start-1" />
 					<HugeiconsIcon

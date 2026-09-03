@@ -5,13 +5,13 @@ import type {
 	UserQuestion,
 	UserQuestionAnswer,
 } from "@zuse/contracts";
-import { ChevronLeft, ChevronRight, ChevronUp, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, X } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
 
 import { cn } from "~/lib/utils";
-
 import { useSessionsStore } from "../store/sessions.ts";
+import { Button } from "./ui/button.tsx";
 
 interface QuestionCardProps {
 	readonly environmentId: EnvironmentId;
@@ -183,12 +183,14 @@ function InteractiveQuestionCard({
 	};
 
 	return (
-		<div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+		<div className="rounded-xl bg-card/95 p-3 shadow-overlay-sm ring-1 ring-border/70">
 			<div className="flex items-start justify-between gap-3">
-				<div className="text-base text-foreground">{active.question}</div>
+				<div className="text-[13px] font-medium leading-5 text-foreground">
+					{active.question}
+				</div>
 				<button
 					type="button"
-					className="text-muted-foreground hover:text-foreground"
+					className="-mr-1 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
 					aria-label="Dismiss"
 					// Dismiss = answer with empty drafts so the SDK turn unwinds with a
 					// "user declined" tool result rather than hanging forever.
@@ -205,47 +207,55 @@ function InteractiveQuestionCard({
 				</button>
 			</div>
 
-			<div className="mt-4 flex flex-col gap-2">
+			<div className="mt-2 flex flex-col gap-0.5">
 				{active.options.map((opt, i) => {
-					const idx = i + 1; // 1-based labels match the screenshot
 					const picked = draft.selected.includes(i);
 					return (
 						<button
 							key={`${activeIdx}-${i}`}
 							type="button"
 							className={cn(
-								"flex items-start gap-3 rounded-md px-2 py-1.5 text-left transition-colors",
+								"flex min-h-7 items-center gap-2 rounded-md px-2 py-1 text-left transition-colors",
 								picked
-									? "bg-accent text-foreground"
+									? "bg-accent/70 text-foreground"
 									: "hover:bg-accent/40 text-foreground/90",
 							)}
 							onClick={() => toggleOption(i)}
 						>
-							<span className="mt-0.5 w-4 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-								{idx}
+							<span
+								className={cn(
+									"grid size-3.5 shrink-0 place-items-center border border-muted-foreground/45",
+									multi ? "rounded-[3px]" : "rounded-full",
+									picked && "border-primary text-primary",
+								)}
+							>
+								{picked ? (
+									multi ? (
+										<Check className="size-2.5" strokeWidth={2.5} />
+									) : (
+										<span className="size-1.5 rounded-full bg-primary" />
+									)
+								) : null}
 							</span>
-							<span className="text-sm leading-relaxed">{opt}</span>
+							<span className="text-xs leading-4">{opt}</span>
 						</button>
 					);
 				})}
 
-				{/* "Other" free-text input — labelled `0` like the screenshot. */}
-				<label className="flex items-start gap-3 rounded-md px-2 py-1.5">
-					<span className="mt-2 w-4 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-						0
-					</span>
+				<label className="mt-1 flex h-7 items-center gap-2 rounded-md bg-muted/35 px-2 focus-within:ring-1 focus-within:ring-ring/60">
+					<span className="size-3.5 shrink-0 rounded-full border border-muted-foreground/45" />
 					<input
 						type="text"
 						value={draft.other}
 						onChange={(e) => setOther(e.target.value)}
 						onKeyDown={onOtherKeyDown}
-						placeholder="Type something… (press Enter)"
-						className="flex-1 bg-transparent py-1 text-sm text-foreground placeholder:text-muted-foreground/70 outline-none"
+						placeholder="Other answer…"
+						className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground/70"
 					/>
 				</label>
 			</div>
 
-			<div className="mt-3 flex items-center justify-between">
+			<div className="mt-2 flex items-center justify-between">
 				{questions.length > 1 ? (
 					<div className="flex items-center gap-1.5 text-muted-foreground">
 						<button
@@ -290,20 +300,15 @@ function InteractiveQuestionCard({
 				) : (
 					<span />
 				)}
-				<button
-					type="button"
+				<Button
+					size="xs"
 					aria-label="Submit answer"
 					disabled={!complete || submitting}
 					onClick={submit}
-					className={cn(
-						"flex h-8 w-8 items-center justify-center rounded-md transition-colors",
-						complete && !submitting
-							? "bg-foreground text-background hover:opacity-90"
-							: "bg-muted text-muted-foreground cursor-not-allowed",
-					)}
+					loading={submitting}
 				>
-					<ChevronUp size={16} />
-				</button>
+					Submit answer
+				</Button>
 			</div>
 		</div>
 	);
@@ -317,7 +322,7 @@ function AnsweredQuestionCard({
 	readonly answer: ReadonlyArray<UserQuestionAnswer>;
 }) {
 	return (
-		<div className="rounded-lg border border-border/70 bg-card p-4 text-sm text-foreground/90">
+		<div className="rounded-lg bg-card/80 p-3 text-xs text-foreground/90 ring-1 ring-border/60">
 			{questions.map((q, i) => {
 				const a = answer.find((x) => x.questionIndex === i);
 				const picks = (a?.selected ?? []).map(

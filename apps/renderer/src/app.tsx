@@ -623,7 +623,7 @@ function MainShell() {
 	);
 
 	return (
-		<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden text-foreground">
+		<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
 			<ActiveGitWorkspaceLease />
 			<Group
 				id={PANEL_GROUP_ID}
@@ -659,7 +659,7 @@ function MainShell() {
 						if (open !== leftSidebarOpen) setLeftSidebarOpen(open);
 					}}
 				>
-					<div className="flex h-full min-h-0 flex-col bg-background/70">
+					<div className="flex h-full min-h-0 flex-col bg-sidebar">
 						<Suspense fallback={<TopBarFallback />}>
 							<TopBarLeft />
 						</Suspense>
@@ -670,7 +670,7 @@ function MainShell() {
 						</div>
 					</div>
 				</Panel>
-				<Separator className="w-px bg-border transition-colors hover:bg-foreground/20 active:bg-foreground/30" />
+				<Separator className="w-px bg-sidebar-border transition-colors hover:bg-input active:bg-muted-foreground/40" />
 				<Panel id="main" minSize="30%">
 					<main className="flex h-full min-h-0 min-w-0 flex-col bg-background">
 						{showMainChrome ? (
@@ -841,7 +841,7 @@ function MainShell() {
 						) : null}
 					</main>
 				</Panel>
-				<Separator className="w-px bg-border transition-colors hover:bg-foreground/20 active:bg-foreground/30" />
+				<Separator className="w-px bg-sidebar-border transition-colors hover:bg-input active:bg-muted-foreground/40" />
 				<Panel
 					id="files"
 					defaultSize="22%"
@@ -877,7 +877,7 @@ function MainShell() {
 						}
 					}}
 				>
-					<div className="flex h-full min-h-0 flex-col bg-background">
+					<div className="flex h-full min-h-0 flex-col bg-sidebar">
 						<Suspense fallback={<TopBarFallback />}>
 							<TopBarRight />
 						</Suspense>

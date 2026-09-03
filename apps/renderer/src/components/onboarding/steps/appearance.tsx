@@ -58,10 +58,10 @@ export function AppearanceStep() {
 							aria-pressed={active}
 							onClick={() => setAppearanceMode(option.value)}
 							className={cn(
-								"group flex items-center gap-3 rounded-2xl px-3.5 py-3 text-left transition-all",
+								"group flex items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors",
 								active
-									? "bg-accent text-accent-foreground"
-									: "bg-muted/60 hover:bg-muted",
+									? "border-input bg-accent text-accent-foreground"
+									: "border-border bg-card hover:bg-muted",
 							)}
 						>
 							<span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-background/70 text-foreground">
