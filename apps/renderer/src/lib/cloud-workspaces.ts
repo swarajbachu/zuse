@@ -1,5 +1,8 @@
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
-import type { ResourceView } from "@zuse/client-runtime/resource-state";
+import type {
+	ConnectionView,
+	ResourceView,
+} from "@zuse/client-runtime/resource-state";
 import type { SessionTimelineProjection } from "@zuse/contracts";
 import {
 	Chat,
@@ -42,9 +45,11 @@ import {
 import {
 	addOptimisticSessionMessage,
 	completeOlderSessionMessages,
+	getRendererClientBus,
 	registerEnvironmentActivation,
 	registerSessionTimelineCheckpointSynchronizer,
 	registerSessionTimelineOlderPageSynchronizer,
+	retryRendererEnvironmentConnection,
 } from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useChatsStore } from "../store/chats.ts";
@@ -80,7 +85,52 @@ type CloudAttachment = {
 };
 const attaching = new Map<string, CloudAttachment>();
 const registeredCloudEnvironments = new Map<string, CloudChatSummary>();
+const rearmedClientByWorkspace = new Map<string, string>();
 let hydration: Promise<void> | null = null;
+
+/**
+ * An authoritative ready runtime is a new recovery signal for a client whose
+ * socket exhausted its retry ladder while compute was asleep. Include both
+ * lifecycle revision and client generation so each real state change gets one
+ * automatic attempt without turning a persistent outage into a retry storm.
+ */
+export const cloudConnectionRearmKey = (
+	summary: CloudChatSummary,
+	connection: ConnectionView,
+): string | null =>
+	summary.state === "ready" &&
+	summary.runtimeState === "online" &&
+	connection.phase === "failed"
+		? `${summary.workspaceId}:${summary.revision}:${connection.generation}`
+		: null;
+
+export const rearmReadyCloudConnection = (
+	summary: CloudChatSummary,
+	connection: ConnectionView,
+	attempts: Map<string, string>,
+	retry: (environmentId: EnvironmentId) => void,
+): boolean => {
+	const key = cloudConnectionRearmKey(summary, connection);
+	if (key === null || attempts.get(summary.workspaceId) === key) return false;
+	attempts.set(summary.workspaceId, key);
+	retry(EnvironmentId.make(summary.workspaceId));
+	return true;
+};
+
+export const rearmRegisteredCloudConnection = (
+	summary: CloudChatSummary,
+): void => {
+	const environmentId = EnvironmentId.make(summary.workspaceId);
+	rearmReadyCloudConnection(
+		summary,
+		getRendererClientBus().connection(environmentId),
+		rearmedClientByWorkspace,
+		(retryEnvironmentId) =>
+			queueMicrotask(() =>
+				retryRendererEnvironmentConnection(retryEnvironmentId),
+			),
+	);
+};
 
 const trackCloudAttachment = (
 	workspaceId: string,
@@ -107,6 +157,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 	if (previous !== undefined) {
 		if (compareCloudChatSummaryVersion(summary, previous) < 0) return;
 		registeredCloudEnvironments.set(summary.workspaceId, summary);
+		rearmRegisteredCloudConnection(summary);
 		return;
 	}
 	registeredCloudEnvironments.set(summary.workspaceId, summary);
@@ -253,6 +304,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 			rootPrepared = folders.length > 0;
 		},
 	);
+	rearmRegisteredCloudConnection(summary);
 };
 
 const refreshSummaryFromWorkspace = (

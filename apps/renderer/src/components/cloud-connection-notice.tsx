@@ -1,6 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { type CloudChatSummary, EnvironmentId } from "@zuse/contracts";
 import { RefreshIcon } from "@zuse/icons/solid-rounded";
+import { useEffect } from "react";
 import { useAuth } from "../hooks/use-auth.ts";
 import { deriveCloudChatActivity } from "../lib/cloud-chat-activity.ts";
 import {
@@ -12,7 +13,10 @@ import {
 	useCloudChatCatalogStore,
 } from "../lib/cloud-workspace-catalog.ts";
 import { cloudTranscriptActivation } from "../lib/cloud-workspace-lifecycle.ts";
-import { ensureCloudWorkspaceAttached } from "../lib/cloud-workspaces.ts";
+import {
+	ensureCloudWorkspaceAttached,
+	rearmRegisteredCloudConnection,
+} from "../lib/cloud-workspaces.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import {
 	getRendererClientBus,
@@ -86,6 +90,9 @@ export function CloudConnectionNotice() {
 		summary === null ? null : EnvironmentId.make(summary.workspaceId),
 	);
 	const runtime = timeline.runtime;
+	useEffect(() => {
+		if (summary !== null) rearmRegisteredCloudConnection(summary);
+	}, [summary, shell.connection]);
 	if (summary === null) return null;
 	const activity = deriveCloudChatActivity({
 		summary,
