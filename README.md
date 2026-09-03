@@ -91,6 +91,7 @@ settings.
 
 ### Cloud workspaces
 - Run invited coding-agent sessions in hosted E2B workspaces that continue when the desktop app closes
+- Send text messages while compute sleeps; Zuse accepts them into an encrypted durable mailbox, wakes the workspace, and shows delivery progress without duplicate provider sends
 - Open a workspace through its managed `ssh zuse-<workspace>` alias without exposing a public SSH listener
 - Keep a one-way, remote-authoritative Mac mirror under `~/.zuse/cloud/` that pauses on disconnect and resumes with fresh access
 - Open dev servers privately on Mac `localhost`; public E2B preview URLs remain an explicit copy action

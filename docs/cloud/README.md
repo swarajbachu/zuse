@@ -15,8 +15,11 @@ pairing, and user-managed remote environments keep their existing paths.
   chats, sessions, messages, turns, queues, and command receipts.
 - API is a control plane. It owns identity, lifecycle, tickets, catalog
   metadata, billing, and encrypted transcript-checkpoint metadata.
-- The workspace Durable Object forwards opaque live frames. It is not a chat
-  database, command queue, or replay buffer.
+- The epoch-scoped workspace gateway Durable Object forwards opaque live
+  frames. It is not a chat database, command queue, or replay buffer.
+- The workspace-keyed mailbox Durable Object accepts encrypted eligible
+  commands, coordinates wake and runtime leases, and retains encrypted terminal
+  receipts. It cannot apply commands or become transcript authority.
 - R2 stores encrypted, read-only transcript projections. It cannot accept a
   command or become transcript authority.
 - Client persistence supplies the immediate offline view. Reconnecting never
