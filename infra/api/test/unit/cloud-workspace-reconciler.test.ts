@@ -4,7 +4,7 @@ import {
 	SandboxProvidersFake,
 } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, Redacted, Ref } from "effect";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 import { cloudRepositoryWorkspacePath } from "../../src/cloud-workspace-paths.ts";
 import {
@@ -13,6 +13,8 @@ import {
 	cloudWorkspaceStartupNeedsObservation,
 	MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
 	RUNTIME_CONNECTION_TIMEOUT_MS,
+	reconcileCloudResourceBatch,
+	reconcileCloudResources,
 	reconcileCloudWorkspace,
 	reusableAccountBuildSnapshot,
 	sanitizeProjectBuildDiagnostic,
@@ -154,6 +156,87 @@ const seedWorkspace = Effect.fn("seedArchiveWorkspace")(function* (
 });
 
 describe("cloud workspace reconciler", () => {
+	test("isolates reconciliation defects so later resources still run", async () => {
+		const error = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		try {
+			const completed = await Effect.runPromise(
+				Effect.gen(function* () {
+					const completed = yield* Ref.make<ReadonlyArray<string>>([]);
+					yield* reconcileCloudResourceBatch({
+						resourceKind: "workspace",
+						items: ["broken", "healthy"],
+						resourceId: (id) => id,
+						concurrency: 1,
+						reconcile: (id) =>
+							id === "broken"
+								? Effect.die("unexpected provider defect")
+								: Ref.update(completed, (ids) => [...ids, id]),
+					});
+					return yield* Ref.get(completed);
+				}),
+			);
+
+			expect(completed).toEqual(["healthy"]);
+			expect(error).toHaveBeenCalledWith(
+				"[cloud-workspace] isolated reconciliation failure",
+				expect.objectContaining({
+					resourceKind: "workspace",
+					resourceId: "broken",
+				}),
+			);
+		} finally {
+			error.mockRestore();
+		}
+	});
+
+	test("retires unsupported legacy providers without starving due workspaces", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const unsupported = yield* seedWorkspace({
+					workspaceId: "workspace-unsupported-provider",
+					state: "paused",
+					desiredState: "ready",
+					statusCode: "resume-queued",
+					requestConfig: {},
+				});
+				yield* store.saveWorkspace({
+					...unsupported,
+					provider: "box",
+					revision: unsupported.revision + 1,
+					updatedAtMs: unsupported.updatedAtMs + 1,
+				});
+				const healthy = yield* seedWorkspace({
+					workspaceId: "workspace-supported-provider",
+					state: "paused",
+					desiredState: "ready",
+					statusCode: "resume-queued",
+					requestConfig: {},
+				});
+
+				yield* reconcileCloudResources();
+				return {
+					unsupported: yield* store.getWorkspace(unsupported.workspaceId),
+					healthy: yield* store.getWorkspace(healthy.workspaceId),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.unsupported).toMatchObject({
+			state: "failed",
+			runtimeState: "offline",
+			statusCode: "provider-unavailable",
+			nextActionAtMs: Number.MAX_SAFE_INTEGER,
+		});
+		expect(result.healthy).toMatchObject({
+			state: "resuming",
+			runtimeState: "connecting",
+			statusCode: "resume-runtime-waking",
+		});
+	});
+
 	test("recognizes established runtime storage before provider replacement", () => {
 		expect(
 			cloudWorkspaceHasRetainedRuntimeData({

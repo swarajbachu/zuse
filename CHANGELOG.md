@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cloud chats now show Codex authentication recovery when OpenAI rejects saved credentials instead of mislabeling the provider failure as a workspace connection failure
 - Recovered Cloud Workspaces now show that only the live client needs reconnecting, and Retry restores that client instead of leaving a stale connection failure
 - Established Cloud Workspaces no longer replace missing runtime storage with an empty sandbox or project stale session metadata across runtime generations; cached transcripts remain visible with an explicit workspace-data error
+- One malformed legacy cloud resource can no longer cancel the reconciliation batch and leave unrelated workspaces stuck waiting; unsupported providers are retired explicitly while every other due resource continues independently
 - New Cloud Workspaces now carry the resolved global or repository permission default into the agent session instead of falling back to approval-required mode
 
 ## [0.20.13]

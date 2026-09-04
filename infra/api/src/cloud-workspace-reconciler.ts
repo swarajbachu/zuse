@@ -7,7 +7,7 @@ import {
 	SandboxProviderError,
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
-import { Clock, Data, Duration, Effect } from "effect";
+import { Cause, Clock, Data, Duration, Effect } from "effect";
 import PROJECT_BUILDER_SOURCE from "../../cloud-sandboxes/project-builder.sh";
 import WORKSPACE_BOOTSTRAP_SOURCE from "../../cloud-sandboxes/workspace-bootstrap.sh";
 import { snapshotCloudAuthAuthority } from "./cloud-auth-authority.ts";
@@ -1300,9 +1300,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		saveWorkspace: SaveClaimedWorkspace,
 	) {
 		const store = yield* CloudWorkspaceStore;
-		const provider = yield* (yield* SandboxProviders)
-			.get(workspace.provider)
-			.pipe(Effect.orDie);
+		const provider = yield* (yield* SandboxProviders).get(workspace.provider);
 		const config = yield* SandboxOfferConfiguration;
 		const apiConfig = yield* ApiConfiguration;
 		const nowMs = yield* Clock.currentTimeMillis;
@@ -1886,28 +1884,52 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 	},
 );
 
+export const reconcileCloudResourceBatch = <Item, Error, Requirements>(input: {
+	readonly resourceKind: "build" | "workspace";
+	readonly items: ReadonlyArray<Item>;
+	readonly resourceId: (item: Item) => string;
+	readonly concurrency: number;
+	readonly reconcile: (
+		item: Item,
+	) => Effect.Effect<unknown, Error, Requirements>;
+}): Effect.Effect<void, never, Requirements> =>
+	Effect.forEach(
+		input.items,
+		(item) =>
+			input.reconcile(item).pipe(
+				Effect.catchCause((cause) =>
+					Effect.sync(() => {
+						console.error("[cloud-workspace] isolated reconciliation failure", {
+							resourceKind: input.resourceKind,
+							resourceId: input.resourceId(item),
+							cause: Cause.pretty(cause),
+						});
+					}),
+				),
+			),
+		{ concurrency: input.concurrency, discard: true },
+	);
+
 export const reconcileCloudResources = Effect.fn("reconcileCloudResources")(
 	function* () {
 		const store = yield* CloudWorkspaceStore;
 		const nowMs = yield* Clock.currentTimeMillis;
 		const builds = yield* store.listDueBuilds(nowMs, 10);
 		const workspaces = yield* store.listDueWorkspaces(nowMs, 25);
-		yield* Effect.forEach(
-			builds,
-			(build) => reconcileCloudBuild(build.buildId),
-			{
-				concurrency: 2,
-				discard: true,
-			},
-		);
-		yield* Effect.forEach(
-			workspaces,
-			(workspace) => reconcileCloudWorkspace(workspace.workspaceId),
-			{
-				concurrency: 5,
-				discard: true,
-			},
-		);
+		yield* reconcileCloudResourceBatch({
+			resourceKind: "build",
+			items: builds,
+			resourceId: (build) => build.buildId,
+			concurrency: 2,
+			reconcile: (build) => reconcileCloudBuild(build.buildId),
+		});
+		yield* reconcileCloudResourceBatch({
+			resourceKind: "workspace",
+			items: workspaces,
+			resourceId: (workspace) => workspace.workspaceId,
+			concurrency: 5,
+			reconcile: (workspace) => reconcileCloudWorkspace(workspace.workspaceId),
+		});
 		return { builds: builds.length, workspaces: workspaces.length };
 	},
 );
@@ -1959,6 +1981,20 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 					),
 				);
 		yield* reconcileWorkspaceRecord(workspace, saveWorkspace).pipe(
+			Effect.catchTag("ProviderSelectionError", () =>
+				Effect.gen(function* () {
+					const failedAtMs = yield* Clock.currentTimeMillis;
+					yield* saveWorkspace({
+						...currentWorkspace,
+						state: "failed",
+						statusCode: "provider-unavailable",
+						runtimeState: "offline",
+						nextActionAtMs: Number.MAX_SAFE_INTEGER,
+						revision: currentWorkspace.revision + 1,
+						updatedAtMs: failedAtMs,
+					});
+				}),
+			),
 			Effect.catchTag("SandboxProviderError", (error) =>
 				Effect.gen(function* () {
 					const failedAtMs = yield* Clock.currentTimeMillis;
