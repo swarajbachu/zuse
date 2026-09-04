@@ -1,4 +1,10 @@
-import type { ChatId, FolderId, Session, SessionId } from "@zuse/contracts";
+import {
+	type ChatId,
+	EnvironmentId,
+	type FolderId,
+	type Session,
+	type SessionId,
+} from "@zuse/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const canonical = vi.hoisted(() => ({
@@ -86,9 +92,12 @@ describe("closing chat tabs", () => {
 			select,
 		});
 
-		await closeActiveChatTab();
+		await closeActiveChatTab(EnvironmentId.make("local"));
 
-		expect(archive).toHaveBeenCalledExactlyOnceWith(active.id);
+		expect(archive).toHaveBeenCalledExactlyOnceWith(
+			active.id,
+			EnvironmentId.make("local"),
+		);
 		expect(select).toHaveBeenCalledExactlyOnceWith(right.id);
 	});
 
@@ -166,8 +175,24 @@ describe("closing chat tabs", () => {
 		expect(create.mock.invocationCallOrder[0]).toBeLessThan(
 			archive.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
 		);
-		expect(archive).toHaveBeenCalledExactlyOnceWith(active.id);
+		expect(archive).toHaveBeenCalledExactlyOnceWith(
+			active.id,
+			EnvironmentId.make("local"),
+		);
 		expect(select).toHaveBeenCalledExactlyOnceWith(replacementId);
+	});
+
+	it("qualifies a removed cloud tab with its cloud environment", async () => {
+		const active = session("session-cloud", 0);
+		const sibling = session("session-cloud-sibling", 1);
+		const archive = vi.fn(async () => undefined);
+		const environmentId = EnvironmentId.make("cloud-workspace");
+		canonical.sessionsByProject = { [projectId]: [active, sibling] };
+		useSessionsStore.setState({ archive });
+
+		await closeChatTab(active.id, environmentId);
+
+		expect(archive).toHaveBeenCalledExactlyOnceWith(active.id, environmentId);
 	});
 
 	it("recovers the archived active tab when an active chat has no live tab", () => {

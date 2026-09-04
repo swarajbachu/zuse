@@ -55,4 +55,35 @@ describe("session command environment routing", () => {
 			}),
 		);
 	});
+
+	it("keeps cloud tab removal in its explicit workspace", async () => {
+		const sessionId = SessionId.make("removed-cloud-session");
+		const environmentId = EnvironmentId.make("cloud-workspace");
+
+		await useSessionsStore.getState().archive(sessionId, environmentId);
+
+		expect(mocks.dispatch).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ref: { environmentId, sessionId },
+				kind: "session.archive",
+			}),
+		);
+	});
+
+	it("treats an already-removed session as a successful archive", async () => {
+		const sessionId = SessionId.make("already-removed-cloud-session");
+		const environmentId = EnvironmentId.make("cloud-workspace");
+		mocks.dispatch.mockRejectedValueOnce({
+			_tag: "SessionNotFoundError",
+			sessionId,
+		});
+		useSessionsStore.setState({ selectedSessionId: sessionId });
+
+		await useSessionsStore.getState().archive(sessionId, environmentId);
+
+		expect(useSessionsStore.getState()).toMatchObject({
+			selectedSessionId: null,
+			error: null,
+		});
+	});
 });

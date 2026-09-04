@@ -173,7 +173,9 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 					onOpenChange={(open) => {
 						if (!open) setRenamingSession(null);
 					}}
-					onRename={(title) => renameSession(renamingSession.id, title)}
+					onRename={(title) =>
+						renameSession(renamingSession.id, title, environmentId)
+					}
 				/>
 			) : null}
 			<header className="flex h-9 min-w-0 max-w-full shrink-0 items-center overflow-hidden pt-1.5">
@@ -251,7 +253,7 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 									setActiveMainTab("chat");
 								}}
 								onClose={() => {
-									void closeChatTab(session.id);
+									void closeChatTab(session.id, environmentId);
 								}}
 								onRename={() => setRenamingSession(session)}
 							/>

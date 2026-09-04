@@ -562,9 +562,9 @@ function MainShell() {
 				closeChangesTab();
 				return;
 			}
-			void closeActiveChatTab();
+			void closeActiveChatTab(selectedEnvironmentId);
 		});
-	}, []);
+	}, [selectedEnvironmentId]);
 
 	const emptyTabLabel = selectedFolder
 		? selectedFolder.name

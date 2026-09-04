@@ -20,13 +20,18 @@ import { useSettingsStore } from "./settings-client-bus.ts";
 
 const EMPTY_SESSIONS: ReadonlyArray<Session> = [];
 
-export const closeActiveChatTab = async (): Promise<void> => {
+export const closeActiveChatTab = async (
+	environmentId?: EnvironmentId,
+): Promise<void> => {
 	const sessionId = useSessionsStore.getState().selectedSessionId;
 	if (sessionId === null) return;
-	await closeChatTab(sessionId);
+	await closeChatTab(sessionId, environmentId);
 };
 
-export const closeChatTab = async (sessionId: SessionId): Promise<void> => {
+export const closeChatTab = async (
+	sessionId: SessionId,
+	explicitEnvironmentId?: EnvironmentId,
+): Promise<void> => {
 	const sessions = useSessionsStore.getState();
 	const sessionsByProject = activeSessionsByProject();
 	let projectId: FolderId | null = null;
@@ -41,6 +46,12 @@ export const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 	}
 	if (projectId === null || session === null) return;
 	const currentSession = session;
+	const environmentId =
+		explicitEnvironmentId ??
+		EnvironmentId.make(
+			cloudSummaryForChat(currentSession.chatId)?.workspaceId ??
+				useEnvironmentCatalogStore.getState().activeEnvironmentId,
+		);
 	const projectRows = sessionsByProject[projectId] ?? EMPTY_SESSIONS;
 	const siblings = projectRows
 		.filter(
@@ -68,16 +79,12 @@ export const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 			.findIndex((row) => row.id === currentSession.id);
 		const ordered = siblings;
 		const next = ordered[idx] ?? ordered[idx - 1] ?? ordered[0] ?? null;
-		await sessions.archive(sessionId);
+		await sessions.archive(sessionId, environmentId);
 		sessions.select(next?.id ?? null);
 		return;
 	}
 
 	const settings = useSettingsStore.getState();
-	const environmentId = EnvironmentId.make(
-		cloudSummaryForChat(currentSession.chatId)?.workspaceId ??
-			useEnvironmentCatalogStore.getState().activeEnvironmentId,
-	);
 	await useProvidersStore.getState().loadFor(environmentId);
 	const providerId = selectAuthenticatedProvider({
 		preferredProviderId: settings.defaultProviderId,
@@ -108,6 +115,6 @@ export const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 		},
 	);
 	if (replacementId === null) return;
-	await sessions.archive(currentSession.id);
+	await sessions.archive(currentSession.id, environmentId);
 	sessions.select(replacementId);
 };
