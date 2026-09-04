@@ -81,8 +81,10 @@ export default defineConfig({
 		dedupe: ["react", "react-dom"],
 	},
 	optimizeDeps: {
-		// Chat routes load Legend List lazily. Bundle it and both React entrypoints
-		// at startup so opening a chat cannot replace the live optimizer graph.
+		// Most renderer screens are lazy. Crawl their source before serving so a
+		// newly opened screen cannot replace the optimizer graph under live React.
+		entries: ["index.html", "notch.html", "src/**/*.{ts,tsx}"],
+		holdUntilCrawlEnd: true,
 		include: [
 			"react",
 			"react-dom",
@@ -91,7 +93,6 @@ export default defineConfig({
 			"metal-fx",
 			"effect",
 			"@pierre/diffs",
-			"codemirror",
 			"@xterm/xterm",
 		],
 	},

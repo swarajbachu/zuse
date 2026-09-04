@@ -35,6 +35,8 @@ test("named instances produce deterministic isolated resources", () => {
 	assert.match(first.userDataDir, /review\/user-data$/u);
 	assert.match(first.packDir, /review\/dist-electron$/u);
 	assert.match(first.cliAccessFile, /review\/cli-access\.json$/u);
+	assert.match(first.viteCacheDir, /review\/vite-cache$/u);
+	assert.equal(first.viteCacheDir, second.viteCacheDir);
 });
 
 test("the first unnamed instance preserves the existing development profile", () => {
@@ -48,6 +50,7 @@ test("the first unnamed instance preserves the existing development profile", ()
 	assert.equal(instance.userDataDir, undefined);
 	assert.match(instance.packDir, /default\/dist-electron$/u);
 	assert.match(instance.cliAccessFile, /default\/cli-access\.json$/u);
+	assert.match(instance.viteCacheDir, /default\/vite-cache$/u);
 	assert.equal(
 		devInstanceDiagnostics(instance).dataDirectory,
 		"Electron default (existing Zuse Alpha (Dev) profile)",
@@ -95,6 +98,8 @@ test("scans paired ports forward and fails occupied explicit overrides", async (
 	assert.equal(scanned.userDataDir, initial.userDataDir);
 	assert.match(scanned.packDir, /scan-p5735\/dist-electron$/u);
 	assert.match(scanned.cliAccessFile, /scan-p5735\/cli-access\.json$/u);
+	assert.match(scanned.viteCacheDir, /scan-p5735\/vite-cache$/u);
+	assert.notEqual(scanned.viteCacheDir, initial.viteCacheDir);
 
 	const explicit = initialDevInstance({
 		argv: ["--instance", "busy"],
@@ -120,6 +125,7 @@ test("automatic scans preserve the existing development profile", async () => {
 	assert.equal(scanned.instance, "port-5734");
 	assert.equal(scanned.userDataDir, initial.userDataDir);
 	assert.match(scanned.packDir, /port-5734\/dist-electron$/u);
+	assert.match(scanned.viteCacheDir, /port-5734\/vite-cache$/u);
 });
 
 test("atomically reserves a pair and scans past a concurrent runner", async () => {
@@ -158,5 +164,6 @@ test("dry-run diagnostics contain every isolated resource", () => {
 		dataDirectory: "/workspace/.zuse/dev-instances/diagnostic/user-data",
 		packDirectory:
 			"/workspace/apps/desktop/.dev-instances/diagnostic/dist-electron",
+		viteCacheDirectory: "/workspace/.zuse/dev-instances/diagnostic/vite-cache",
 	});
 });

@@ -109,6 +109,7 @@ run("renderer", "bun", ["run", "--filter", "renderer", "dev"], {
 	...sharedEnv,
 	PORT: String(instance.rendererPort),
 	HOST: rendererHost,
+	ZUSE_VITE_CACHE_DIR: instance.viteCacheDir,
 });
 run(
 	"desktop:bundle",

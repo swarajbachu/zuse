@@ -74,6 +74,7 @@ const instanceResources = (repoRoot, instance) => {
 		instanceRoot,
 		userDataDir: resolve(instanceRoot, "user-data"),
 		cliAccessFile: resolve(instanceRoot, "cli-access.json"),
+		viteCacheDir: resolve(instanceRoot, "vite-cache"),
 		packDir: resolve(
 			repoRoot,
 			"apps",
@@ -102,6 +103,13 @@ const defaultInstanceResources = (repoRoot) => ({
 		"dev-instances",
 		"default",
 		"cli-access.json",
+	),
+	viteCacheDir: resolve(
+		repoRoot,
+		".zuse",
+		"dev-instances",
+		"default",
+		"vite-cache",
 	),
 });
 
@@ -198,6 +206,7 @@ export const withScannedPorts = async (
 								instanceRoot: shiftedResources.instanceRoot,
 								packDir: shiftedResources.packDir,
 								cliAccessFile: shiftedResources.cliAccessFile,
+								viteCacheDir: shiftedResources.viteCacheDir,
 							}),
 					...(initial.userDataExplicit
 						? { userDataDir: initial.userDataDir }
@@ -218,6 +227,7 @@ export const withScannedPorts = async (
 				instanceRoot: resources.instanceRoot,
 				packDir: resources.packDir,
 				cliAccessFile: resources.cliAccessFile,
+				viteCacheDir: resources.viteCacheDir,
 				...(initial.userDataExplicit
 					? { userDataDir: initial.userDataDir }
 					: {}),
@@ -333,4 +343,5 @@ export const devInstanceDiagnostics = (instance, host = "localhost") => ({
 		instance.userDataDir ??
 		"Electron default (existing Zuse Alpha (Dev) profile)",
 	packDirectory: instance.packDir,
+	viteCacheDirectory: instance.viteCacheDir,
 });
